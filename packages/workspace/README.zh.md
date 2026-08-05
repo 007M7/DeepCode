@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-Workspace 系列负责持久 workspace 概念：用户工作所在的目录，包含标题以及属于它的有序会话列表。设计记录：[领域 KV 存储 Agent Note（agent 决策记录）](../../.agents/notes/proposed/architecture/2026-07-24-domain-kv-storage-and-workspace.md)。
+Workspace 系列负责持久 workspace 概念：用户工作所在的目录，包含标题以及属于它的有序会话列表。设计记录：[领域 KV 存储 Agent Note](../../.agents/notes/proposed/architecture/2026-07-24-domain-kv-storage-and-workspace.md)。
 
 | 包 | 职责 | ctx 键 |
 |---|---|---|

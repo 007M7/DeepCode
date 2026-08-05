@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write examples/headless-agent/README.md
 README.md: 445804a2611e5e8093eadf345ad10a2a7984c012
-README.zh.md: 956bc82e77f79c3f05e4b51297fd5365e6e89be1
+README.zh.md: f1cf1964bbe15bc2b15abcd78a12fc1ffe7ea767

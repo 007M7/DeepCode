@@ -1,4 +1,4 @@
-# Agent Note：单一 harness home 解析器
+# Agent Note: 单一 harness home 解析器
 
 Status: implemented
 

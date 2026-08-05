@@ -179,7 +179,7 @@ function fixtureLog(session: Session): string {
 export function createChatScrollFixture(options: ChatScrollFixtureOptions): ChatScrollFixture {
   const turns = options.turns ?? DEFAULT_TURNS
   const markers = markerHelpers(options.markerPrefix)
-  const session = new Session(SessionId(`chat-scroll-${options.markerPrefix.toLowerCase()}-template`))
+  const session = Session.create(SessionId(`chat-scroll-${options.markerPrefix.toLowerCase()}-template`))
 
   for (let turn = 1; turn <= turns; turn += 1) {
     session.append('turn/start', {

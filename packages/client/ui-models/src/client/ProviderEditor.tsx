@@ -5,19 +5,23 @@
  * under the profile's reference, deriving `<ROUTE>_API_KEY` when the profile
  * has none, and the pi-ai profile records that derivation as `apiKeyEnv`);
  * the collapsed 自定义设置 area carries the per-family extras (`baseURL` for
- * both families, plus `reasoningEffort` for deepseek / `reasoning` for
- * pi-ai). Everything else stays owned by `settings.yaml`. Profile edits land as
- * minimal `settings.mutate` path ops against the stored section — the card
- * reads the redacted descriptor, so it names only the fields it can see and a
- * stored literal secret is never collaterally removed.
+ * both families, `reasoningEffort` for deepseek / `reasoning` for pi-ai, and
+ * DeepSeek's id/name/context-window model catalog). Everything else stays
+ * owned by `settings.yaml`. Profile edits land as minimal `settings.mutate`
+ * path ops against the stored section — the card reads the redacted
+ * descriptor, so it names only the fields it can see and a stored literal
+ * secret is never collaterally removed.
  */
 
 import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { CredentialView, IApiClient, SettingsNamespaceView, SettingsPathOpView } from '@deepseek-ai/dsh-client-connection/client'
 import {
-  deletePath, getPath, nodeAtPath, rehydrateSchema, setPath, validateDraft,
+  deletePath, getPath, hasPath, nodeAtPath, rehydrateSchema, setPath, validateDraft,
 } from '@deepseek-ai/dsh-client-schema-form'
+import {
+  DeepSeekModelsEditor, modelDrafts, validateDeepSeekModels,
+} from './DeepSeekModelsEditor.tsx'
 import { deriveKeyRef, messageOf } from './store.ts'
 import type { en } from './locales.ts'
 import styles from './ModelsSection.module.css'
@@ -179,6 +183,12 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
       && stringAt(fallback, 'apiKeyEnv') === undefined
       ? setPath(draft, ['apiKeyEnv'], keyRef)
       : draft
+    if (layout === 'deepseek') {
+      const modelFailure = validateDeepSeekModels(getPath(next, ['models']))
+      if (modelFailure !== undefined) {
+        return `${t('model')} ${String(modelFailure.index + 1)}: ${t(modelFailure.key)}`
+      }
+    }
     /* v8 ignore next -- apply is only reachable from the rendered card, which required a resolved node */
     if (node !== undefined && settingsPath.length === 0) {
       const sectionError = validateDraft(node, next)
@@ -230,12 +240,29 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
   const keyLocked = keyState?.writable === false
 
   /**
+   * The catalog beneath the user layer: what the composition entry pinned, or
+   * else the schema default that `resolve` would supply. The effective value
+   * cannot answer this — it still carries the stored override until the unset
+   * is applied, so reading it would echo that override straight back the
+   * moment reset drops it, leaving the rows unchanged until a reload.
+   */
+  const inheritedModels = (): unknown => {
+    const pinned = getPath(namespace.base, [...settingsPath, 'models'])
+    return pinned ?? nodeAtPath(root, [...settingsPath, 'models'])?.meta.default
+  }
+
+  /**
    * The curated fields of one known adapter family. Taking the narrowed
    * family as a parameter is what makes `EFFORT_FIELD` total here: an
    * unknown namespace never reaches this body.
    */
   const curatedFields = (family: 'deepseek' | 'pi-ai'): ReactNode => {
     const effortField = EFFORT_FIELD[family]
+    const customModels = getPath(draft, ['models'])
+    const modelsOverridden = hasPath(draft, ['models'])
+    const models = modelDrafts(modelsOverridden ? customModels : inheritedModels())
+    const defaultContextWindow = getPath(fallback, ['defaultContextWindow'])
+    const defaultMaxTokens = getPath(fallback, ['maxTokens'])
     return (
       <>
         <div className={styles['field']}>
@@ -289,6 +316,22 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
                 ))}
               </select>
             </div>
+            {family === 'deepseek'
+              ? (
+                <DeepSeekModelsEditor
+                  models={models}
+                  overridden={modelsOverridden}
+                  defaultContextWindow={typeof defaultContextWindow === 'number'
+                    ? defaultContextWindow
+                    : undefined}
+                  defaultMaxTokens={typeof defaultMaxTokens === 'number' ? defaultMaxTokens : undefined}
+                  t={t}
+                  disabled={disabled}
+                  onChange={(next) => { setDraft(current => setPath(current, ['models'], next)) }}
+                  onReset={() => { setDraft(current => deletePath(current, ['models'])) }}
+                />
+              )
+              : null}
           </div>
         </details>
       </>

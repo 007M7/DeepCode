@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-[`ctx.goals`](../goal/README.md) 的同会话续行驱动器。它通过公开 `Agent` 与会话 seam，把 phase 为 active 且已启用续行的目标转换为连续的 [Goal Round](../../../docs/glossary.md#goal-round)；[同会话驱动器 Agent Note（agent 决策记录）](../../../.agents/notes/implemented/feature/2026-07-19-same-session-goal-round-driver.md) 记载竞态与生命周期方面的设计理由。
+[`ctx.goals`](../goal/README.md) 的同会话续行驱动器。它通过公开 `Agent` 与会话 seam，把 phase 为 active 且已启用续行的目标转换为连续的 [Goal Round](../../../docs/glossary.md#goal-round)；[同会话驱动器 Agent Note](../../../.agents/notes/implemented/feature/2026-07-19-same-session-goal-round-driver.md) 记载竞态与生命周期方面的设计理由。
 
 ## 组合
 
@@ -67,7 +67,7 @@
 ## 已知限制与暂缓事项
 
 - **没有独立评估器**：面向模型的 goal 策略会判断证据是否足以完成，以及 blocker 在语义上是否未变；评估器支持的认证仍保持暂缓。
-- **只在同一会话执行**：此包（package）有意不 spawn 新 agent、不 fork 会话前缀，也不实现 Ralph 风格的独立尝试；该工作流属于单独的插件层。
+- **只在同一会话执行**：此包有意不 spawn 新 agent、不 fork 会话前缀，也不实现 Ralph 风格的独立尝试；该工作流属于单独的插件层。
 - **已接受队列的卸载竞态**：Cordis 插件卸载是异步的。已经被 agent inbox 接受的 goal 提示词可以在卸载开始前启动并消耗其 Round；teardown 随后会取消请求、撤销 goal 激活并等待完全停稳。不会再启动后续 Round。
 - **只有 Round 上限，不是资源预算**：token、货币、时间与提供方配额策略保持独立；观察到 `RATE_LIMIT` 和 `QUOTA` 时，只会映射为阻塞原因代码 `usage-limited`。
 - **异常情况不自动重试**：暂时性的提供方与持久化失败需要之后由用户授权 resume，而不会采用隐式重试策略。

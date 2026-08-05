@@ -35,7 +35,7 @@ The store pairs announced creation with disposal, publishes post-commit append n
 
 ### Class: `Session`
 
-Plain class (not a Cordis Service). Create via `ctx.sessions.create()`.
+Plain class (not a Cordis Service). Create live sessions through `ctx.sessions.create()` and detached replay or inspection sessions through `Session.create()`; the detached factory does not publish lifecycle events or bind the session to a fiber.
 
 - `session.append(type, data, opts?)` snapshots and freezes durable data and surface metadata, validates marker shape, provenance, complete replacement coverage, and content-only single-result `tool/result` rewrites, commits synchronously, then notifies observers with independent failure containment. Reentrant attached-session appends reject, and runtime checks cover widened unions and loaded logs.
 - `session.deriveMessages()` incrementally projects each new surface entry once and returns a fresh array over the complete identified, frozen messages stored by those entries. Assistant messages preserve provider/model provenance and adapter-private replay state in their model source. A surface rewrite rebuilds the projection; there is no raw-log fallback.
@@ -48,6 +48,8 @@ Plain class (not a Cordis Service). Create via `ctx.sessions.create()`.
 ### Lossless JSON utilities
 
 Durable values need one accepted representation, not a check followed by a second read. `isJsonValue(value)` is the boolean predicate; `snapshotJsonValue(value)` iteratively validates and copies a plain value in one pass, returning `undefined` for invalid input and propagating a throwing getter. The snapshot helper accepts finite JSON numbers except `-0` (JSON rewrites it to `0`), dense ordinary arrays, and plain or null-prototype objects; it rejects cycles, unsupported scalars, and exotic prototypes before normalization without imposing a call-stack depth limit.
+
+Session-event import separates ownership from message validation. `snapshotSessionEvent(event)` clones a borrowed event before validating and freezing its identified message. `adoptSessionEvent(event)` performs the same message work in place and returns the original event; callers may use it only when they transfer an exclusively owned object graph with no mutable child shared with another event.
 
 ### Chunk-row storage codec (`chunk-rows.ts`)
 

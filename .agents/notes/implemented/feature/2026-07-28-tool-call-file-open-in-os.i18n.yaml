@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-07-28-tool-call-file-open-in-os.md
 2026-07-28-tool-call-file-open-in-os.md: a2c9b52507d32c2d851f811f0ecdd878a60b1e1c
-2026-07-28-tool-call-file-open-in-os.zh.md: efb4c39503d9de71a9d773bdae7fac4fb2b08ee3
+2026-07-28-tool-call-file-open-in-os.zh.md: 725db61869383711042d85cc1508b00eb1b196b6

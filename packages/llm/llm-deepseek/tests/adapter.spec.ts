@@ -793,6 +793,26 @@ describe('plugin registration and config', () => {
     expect(ctx.llm.listProviders()).toEqual([])
   })
 
+  it.each([0, 1.5])('rejects a per-model output cap of %s', (maxTokens) => {
+    expect(() => resolveAdapterOptions({ models: [{ id: 'bad-cap', maxTokens }] }))
+      .toThrow(/maxTokens must be a positive integer/)
+  })
+
+  it('prefers a model\'s own output cap over the profile default', async () => {
+    // The profile default stays what an unlisted or uncapped model resolves
+    // to, so adding a per-model cap changes one model rather than the route.
+    const adapter = adapterOf({ maxTokens: 4096, models: [
+      { id: 'capped', maxTokens: 512 },
+      { id: 'uncapped' },
+    ] })
+    await expect(adapter.resolveModel('deepseek-official', 'capped'))
+      .resolves.toMatchObject({ defaultMaxTokens: 512 })
+    await expect(adapter.resolveModel('deepseek-official', 'uncapped'))
+      .resolves.toMatchObject({ defaultMaxTokens: 4096 })
+    await expect(adapter.resolveModel('deepseek-official', 'not-in-catalog'))
+      .resolves.toMatchObject({ defaultMaxTokens: 4096 })
+  })
+
   it('rejects invalid context capacity when apply is called directly', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
