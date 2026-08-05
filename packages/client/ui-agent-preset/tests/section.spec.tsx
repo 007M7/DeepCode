@@ -239,7 +239,10 @@ describe('the composition editor', () => {
     expect(screen.getByLabelText(en.composition)).toHaveProperty('readOnly', true)
     expect(screen.getByText(en.readOnlyNotice)).toBeTruthy()
     expect(screen.queryByText(en.save)).toBeNull()
-    expect(screen.getByText(en.close)).toBeTruthy()
+    // Nothing to commit or abandon, and the back link above already leaves —
+    // a lone Close button would be a second way out of the same screen.
+    expect(screen.queryByText(en.cancel)).toBeNull()
+    expect(screen.getByRole('button', { name: `← ${en.backToList}` })).toBeTruthy()
   })
 
   it('titles the panel by what it is doing', () => {

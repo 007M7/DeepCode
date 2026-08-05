@@ -124,21 +124,23 @@ function Editor({ draft, blocker, t, actions }: EditorProps): ReactNode {
         />
       </label>
       {message === null ? null : <p className={css.error} role="alert">{message}</p>}
-      <div className={css.editorActions}>
-        <Button variant="outline" disabled={draft.saving} onClick={() => { actions.close() }}>
-          {draft.writable ? t('cancel') : t('close')}
-        </Button>
-        {draft.writable
-          ? (
+      {/* Read-only has nothing to commit or abandon, and leaving is already the
+          back link above — a lone Close button would be a second way out. */}
+      {draft.writable
+        ? (
+          <div className={css.editorActions}>
+            <Button variant="outline" disabled={draft.saving} onClick={() => { actions.close() }}>
+              {t('cancel')}
+            </Button>
             <Button
               disabled={draft.saving || blocker !== undefined}
               onClick={() => { void actions.save() }}
             >
               {draft.saving ? t('saving') : t('save')}
             </Button>
-          )
-          : null}
-      </div>
+          </div>
+        )
+        : null}
     </div>
   )
 }
