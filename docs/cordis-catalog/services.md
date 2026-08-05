@@ -44,7 +44,7 @@ async resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandl
 
 Types: [Agent](../core-data-structures/core.md) · [AgentOptions](../core-data-structures/core.md) · [SessionHeader](../core-data-structures/persistence.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/agent-loop/src/index.ts:253`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:277`](../../packages/core/agent-loop/src/index.ts)
 
 ## `ctx.agents` — `AgentRegistry`
 
@@ -1175,46 +1175,51 @@ abstract create(meta: SessionHeader): Promise<void>
 abstract append(id: SessionId, events: readonly SessionEvent[]): Promise<void>
 
 /**
- * Load a header and balanced contiguous log. A complete interrupted final
- * turn is preserved and durably closed with missing tool errors plus any open
- * step and turn boundaries; only a torn final record is discarded. Unknown
- * versions and corruption in the committed prefix reject. Implementations
- * MUST NOT crash-repair an identity still bound to a live Session: a balanced
- * live log may return with its stored header as a durable snapshot, while an
- * open live turn rejects.
- * A coordinator-backed cold load reserves the identity across storage awaits,
- * so concurrent publication of a same-id live Session rejects.
- * Returned events are detached, and every identified message is deeply
- * frozen. Coordinator-backed implementations upgrade supported pre-identity
- * message events before validation; other malformed messages reject before
- * any stored event is returned.
+ * Prepare the exact unpublished Session used by resume. Implementations may
+ * reuse object graphs retained by an earlier {@link inspect}; disposal
+ * releases an unpublished reservation.
+ * @param id - persisted session to prepare.
+ * @param signal - optional cancellation for preparation work.
+ * @returns one owned unpublished Session preparation.
+ */
+async prepare(id: SessionId, signal?: AbortSignal): Promise<SessionPreparation>
+
+/**
+ * Load an immutable balanced logical view and commit any required cold
+ * recovery. A complete interrupted final turn is preserved and durably
+ * closed with missing tool errors plus any open step and turn boundaries;
+ * only a torn final record is discarded. Unknown versions and corruption in
+ * the committed prefix reject. Implementations MUST NOT crash-repair an
+ * identity still bound to a live Session: a balanced live log may return as a
+ * durable snapshot, while an open live turn rejects. Returned values may be
+ * shared with immutable live or prepared state and must not be mutated.
  * @param id - the persisted session to reload.
  * @returns the header and a log ending on a balanced `turn/end`.
  */
-abstract load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }>
+abstract load(id: SessionId): Promise<SessionInspection>
 
 /**
- * Inspect a header and its valid contiguous stored prefix without repairing
- * a torn tail, closing an interrupted turn, or publishing coordinator state.
- * This read is serialized with writes for the same id and returns detached
- * values with upgraded, deeply frozen identified messages, so observers
- * cannot mutate message identity/content or backend-owned state. Other
- * malformed messages reject.
+ * Inspect an immutable balanced logical session without committing recovery
+ * or publishing it. A complete interrupted turn receives synthetic closers
+ * in memory and a torn physical tail remains untouched. Coordinator-backed
+ * implementations retain the exact unpublished Session for bounded reuse by
+ * a later {@link prepare}; callers borrow only its immutable header and log.
  * @param id - the persisted session to inspect.
  * @param signal - optional cancellation for queued and backend read work.
- * @returns the header and valid stored event prefix exactly as observed.
+ * @returns the validated header and balanced logical event log.
  */
-abstract inspect(id: SessionId, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }>
+abstract inspect(id: SessionId, signal?: AbortSignal): Promise<SessionInspection>
 
 /**
  * Read the stored events from `fromSeq` onward — the read-from-seq
  * primitive for read models that resume from a watermark (e.g. a persisted
- * projection cache folding only the tail past its checkpoint). Like
- * {@link inspect} it is non-mutating and detached: no torn-tail truncation,
- * no synthetic closers, no coordinator-state publication; only events from
- * the valid contiguous stored prefix are returned, so a torn fragment never
- * reaches the caller. `fromSeq` at or beyond the stored prefix returns an
- * empty event list (never an error). Backends whose medium can seek by seq
+ * projection cache folding only the tail past its checkpoint). Unlike
+ * {@link inspect}, it is a detached physical suffix read: no preparation
+ * cache, torn-tail truncation, synthetic closers, or coordinator-state
+ * publication. Only events from the valid contiguous stored prefix are
+ * returned, so a torn fragment never reaches the caller. `fromSeq` at or
+ * beyond the stored prefix returns an empty event list (never an error).
+ * Backends whose medium can seek by seq
  * (SQLite) read only the suffix; sequential media (JSONL, both encodings)
  * still parse the whole artifact and skip forward — the primitive bounds
  * what is RETURNED and refolded, not every backend's physical read.
@@ -1245,9 +1250,9 @@ abstract list(signal?: AbortSignal): Promise<SessionHeader[]>
 abstract listSnapshots(signal?: AbortSignal): Promise<SessionPersistenceSnapshot[]>
 ```
 
-Types: [SessionEvent](../core-data-structures/core.md) · [SessionHeader](../core-data-structures/persistence.md) · [SessionId](../core-data-structures/core.md) · [SessionLocation](../core-data-structures/persistence.md) · [SessionPersistenceSnapshot](../core-data-structures/persistence.md)
+Types: [SessionEvent](../core-data-structures/core.md) · [SessionHeader](../core-data-structures/persistence.md) · [SessionId](../core-data-structures/core.md) · [SessionInspection](../core-data-structures/persistence.md) · [SessionLocation](../core-data-structures/persistence.md) · [SessionPersistenceSnapshot](../core-data-structures/persistence.md) · [SessionPreparation](../core-data-structures/persistence.md)
 
-Source: [`packages/session-persistence/session-persistence/src/index.ts:52`](../../packages/session-persistence/session-persistence/src/index.ts)
+Source: [`packages/session-persistence/session-persistence/src/index.ts:66`](../../packages/session-persistence/session-persistence/src/index.ts)
 
 ## `ctx.sessionProjectionCache` — `SessionProjectionCache`
 
@@ -1608,7 +1613,7 @@ create(id?: SessionId, options?: CreateSessionOptions): Session
  *   lossless-JSON record with valid scalar fields, or `meta.cwd` is a
  *   non-absolute path.
  */
-prepare(id?: SessionId, options?: CreateSessionOptions): Session
+prepare(id?: SessionId, options?: PrepareSessionOptions): Session
 
 /**
  * Enter a {@link prepare}d session into the store: install the module-private
@@ -1688,9 +1693,9 @@ list(): Session[]
 fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session
 ```
 
-Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [Session](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md)
+Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [PrepareSessionOptions](../core-data-structures/persistence.md) · [Session](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:767`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:801`](../../packages/core/session/src/index.ts)
 
 ## `ctx.sessionTitle` — `SessionTitleService`
 
