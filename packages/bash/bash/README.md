@@ -25,7 +25,7 @@ The split mirrors the LLM seam (`LlmService`/`LlmAdapter`) and the agent-tool su
 | `BashProcess.readOutput()` | **Incremental** output read — consecutive reads never re-deliver. Reads that lost data to buffer bounds flag `lossy` and point at full-stream spill files. |
 | `BashProcess.kill()` | Kill the process group. Returns `false` when it already finished. |
 
-Implementations subclass `BashExecutor` and implement the abstract methods. Disposal must kill every running process and await its exit — see the HMR-safety tests.
+Implementations subclass `BashExecutor` and implement the abstract methods. Disposal must kill every running process and await its exit.
 
 ## Vocabulary
 

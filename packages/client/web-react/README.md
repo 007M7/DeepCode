@@ -16,4 +16,4 @@ None; this package neither assembles nor sends a provider request.
 
 - **The persist middleware corrupts primitive-state stores** — it object-spreads state on save, so a `SnapshotStore<string>` round-trips as a character map; the engine hand-rolls persistence instead (see `attachPersistence`).
 - **`UseSession` is deliberately wide (`object` snapshot)** — the dependency direction (runtime → web-react, never the reverse) keeps the real `ConversationSnapshot` type out of reach; session-slot consumers narrow once at their boundary.
-- **renderSlot is the single P-I form** — no Suspense, no per-entry lazy loading; the progressive-rendering surface returns with its own project.
+- **`renderSlot` is the only rendering form** — there is no Suspense integration or per-entry lazy loading.

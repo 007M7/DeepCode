@@ -404,6 +404,27 @@ export abstract class Settings extends Service {
   abstract readonly writable: boolean
 
   /**
+   * Absolute path of the provider's user-editable document, when its storage
+   * is one local file. Configuration surfaces use this only as availability
+   * metadata; the guarded open operation resolves the path again Host-side.
+   * Non-file providers leave it undefined and expose no open-document affordance.
+   * @returns the absolute local document path, or undefined for non-file storage.
+   */
+  get documentPath(): string | undefined {
+    return undefined
+  }
+
+  /**
+   * Prepare the provider's user-editable document for a native editor. File
+   * providers may materialize an absent document before returning its path;
+   * non-file providers return undefined.
+   * @returns the absolute local document path, or undefined for non-file storage.
+   */
+  prepareDocument(): Promise<string | undefined> {
+    return Promise.resolve(this.documentPath)
+  }
+
+  /**
    * Read the provider's current raw document (namespace to raw section).
    * @returns the detached raw document.
    */

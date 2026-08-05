@@ -4,7 +4,7 @@
 
 事件日志的**持久性 seam**。[session.md](session.md) 描述了内存中的 `Session`：仅追加的 `SessionEvent` 日志即为真源。本页描述如何使该日志持久化：抽象的 `SessionPersistence` 服务、它的后端、flush 检查点、崩溃恢复，以及随日志一同存储的元数据头。日志承载的事件词汇在生成的[持久化日志事件目录](../persistence-catalog.md)中逐项列举。
 
-该 seam 是典型的[能力 seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)：一个抽象服务（[dsh-session-persistence](../../packages/session-persistence/session-persistence)，`ctx.sessionPersistence`）在现有 `SessionEvent` 上定义 locate/create/append、会执行崩溃修复的 load、不会修改数据的 inspect，以及轻量的 list/snapshot 观察——**没有平行的持久化类型**——以及两个可互换、通过同一套 `runPersistenceContract` 的后端。见 [session-persistence Agent Note（agent 决策记录）](../../.agents/notes/implemented/architecture/2026-06-14-session-persistence.md)。
+该 seam 是典型的[能力 seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)：一个抽象服务（[dsh-session-persistence](../../packages/session-persistence/session-persistence)，`ctx.sessionPersistence`）在现有 `SessionEvent` 上定义 locate/create/append、会执行崩溃修复的 load、不会修改数据的 inspect，以及轻量的 list/snapshot 观察——**没有平行的持久化类型**——以及两个实现同一契约的可互换后端。见 [session-persistence Agent Note（agent 决策记录）](../../.agents/notes/implemented/architecture/2026-06-14-session-persistence.md)。
 
 ## flush 检查点
 

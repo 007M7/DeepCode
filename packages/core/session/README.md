@@ -53,16 +53,11 @@ Session-event import separates ownership from message validation. `snapshotSessi
 
 ### Chunk-row storage codec (`chunk-rows.ts`)
 
-Providers stream token-sized deltas, so a raw log stores hundreds of `assistant/chunk` lines whose JSON envelopes dwarf their payloads. `packChunkRuns(events)` packs each run of ≥3 consecutive same-block delta chunks into one storage row — `text-chunks`, `reasoning-chunks`, or `tool-call-chunks` (bare slash-less tags: storage vocabulary, not `SessionEventMap` members) — and `decodeStorageRecord(value)` expands a parsed line back into its exact events (`seq0`/`time0` + per-member `dt` gaps reconstruct every `seq`/`time`). The encoder whitelists exact shapes and stores anything unrecognized verbatim; the decoder validates row-tagged values and throws on malformation. Owned here so the JSONL backend and the fixture readers (`dsh-llm-replay`, `dsh-acp-snapshot`) share one codec; the backend's default-enabled `packChunks` config controls writes only.
+The shared [storage codec](src/chunk-rows.ts) losslessly converts event sequences to compact rows and back. It preserves unrecognized events verbatim and rejects malformed encoded rows; persistence backends decide whether to enable packed writes.
 
 ### Surface types
 
-- `SurfaceOp` — how an event entered the ordered surface: `'append'` (normal tail append) or `{ op: 'replace', start, end }` (replace entries from `start` through `end` inclusive — both must be valid surface seqs; `start === end` replaces one entry). Used by compaction to shadow old events without deleting them.
-- `SurfaceIntent` — `{ surfaceOp: SurfaceOp; sourceEventSeqs?: number[] }`, the required third parameter to `session.append()` for surface-eligible types.
-- `SessionSurface` — the readonly live `nodes` and `replaceGeneration` projection exposed by `session.surface`; candidate validation remains private to `Session`.
-- `foldSurface(events)` — replay the canonical surface contract into detached current event sequences and actual replacement ranges. The same pass rejects non-contiguous seqs, misplaced or malformed metadata, empty or duplicate provenance, non-earlier sources, invalid positional ranges, replacements that fail to cite every shadowed surface entry, and a `tool/result` replacement that changes anything except one current result's `content`; `SurfaceManager` shares the atomic transition while retaining only its incremental sequence cache.
-- `isSurfaceEvent(event)` / `isSurfaceEligibleType(type)` — the first narrows a `SessionEvent` to a fully formed surface event; the second detects a surface-eligible event missing its marker when validating a seed or loaded log.
-- `isAppendSurfaceEvent(event)` / `isReplacementSurfaceEvent(event)` — split a formed surface event by marker variant. Append-origin events are the durable source for a human transcript, which is not the model-visible surface: a landed replacement shadows the range it summarizes, so projecting a transcript from `session.surface` erases conversation the reader already saw. Consumers that must send exactly what the model sees keep reading `session.surface`.
+This package owns ordered surface projection, replacement validation, replay, and the type guards that distinguish append-origin from replacement events. The [surface type catalog](../../../docs/core-data-structures/session.md#surface-types) owns the exact shapes and field semantics. A human transcript must project append-origin events rather than `session.surface`, because landed replacements shadow history the reader already saw; model-facing consumers continue to read `session.surface`.
 
 ### Request-header reconstruction (`request-header.ts`)
 
@@ -96,7 +91,7 @@ Every `SessionEvent` carries two optional top-level fields (structural metadata)
 ### Extension points
 
 - Persistence plugins: subscribe to `session/event` (write-behind) and drain on `session/flush` (awaited) and fiber dispose. A durable backend reads the log and reloads it into a live session; the metadata seam (`SessionHeader`, `session.header`) is what such a backend stores beside the log.
-- Replay/fork: `create(id, { seed })` validates and freezes a contiguous current-format log and rebuilds its surface; request headers require provider/model, assistant messages require provider/model provenance, and a coarse aborted outcome must contain only `{ kind: 'aborted' }` (legacy reason-bearing records are rejected). `fork(source, boundary?, childSessionId?)` selects a completed-turn prefix and records lineage.
+- Replay/fork: `Session.create(id, seed?, header?)` validates and freezes a contiguous current-format log and rebuilds its surface; request headers require provider/model, assistant messages require provider/model provenance, and a coarse aborted outcome must contain only `{ kind: 'aborted' }` (legacy reason-bearing records are rejected). `fork(source, boundary?, childSessionId?)` selects a completed-turn prefix and records lineage.
 - Compaction: `dsh-compact-basic` appends a `user/message` replacement for summary checkpoints, while `dsh-compact-tool-result-prune` appends a content-only `tool/result` replacement. Tool-pairing boundary policy and its cache belong to the [`dsh-compact` seam](../../compact/compact/README.md), while this package owns ordered surface membership, replacement validation, and `replaceGeneration`.
 
 ## Model Experience

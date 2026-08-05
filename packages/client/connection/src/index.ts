@@ -53,6 +53,7 @@ const PRIVILEGED_METHODS = new Set([
   'host.pickDirectory',
   'host.openPath',
   'settings.describe',
+  'settings.openDocument',
   'settings.update',
   'settings.replace',
   'settings.mutate',

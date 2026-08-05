@@ -32,7 +32,7 @@
 
 ## 未构建与已构建的 worker 入口
 
-源代码模式通过 Node 原生类型剥离加载只包含可擦除语法的 `src/worker.ts`。其传递运行时闭包只包含 Node 内置模块和相对源模块，因此全新 checkout 绝不需要兄弟工作区包尚未构建的 `lib/` 导出。worker 本地 JSON 快照器会与会话自有的规范边界执行一致性测试；消息端口两侧都会展平并重建已验证值，使应用嵌套永远不会进入 structured clone。构建模式会把兄弟文件 `lib/worker.cjs` 作为文件系统路径传入，因为 pkg 的虚拟文件系统（VFS）Worker hook 要求 CommonJS；同一路径也可在普通 Node 下使用。`tests/built-lib.e2e.ts` 固定了 [docs/testing.md](../../../docs/testing.md) 要求的真实加载路径。
+源代码模式通过 Node 原生类型剥离加载只包含可擦除语法的 `src/worker.ts`。其传递运行时闭包只包含 Node 内置模块和相对源模块，因此全新 checkout 绝不需要兄弟工作区包尚未构建的 `lib/` 导出。worker 本地和会话自有的 JSON 边界都会在消息端口周围展平并重建已验证值，使应用嵌套永远不会进入 structured clone。构建模式会把兄弟文件 `lib/worker.cjs` 作为文件系统路径传入，因为 pkg 的虚拟文件系统（VFS）Worker hook 要求 CommonJS；同一路径也可在普通 Node 下使用。演练这个已发布入口路径的仓库级要求由[测试策略](../../../docs/testing.md)规定。
 
 SDK 对外提供默认及具名导出的 `WorkerCodeRuntime` 类，以及 `Config`。运行所用的 `./worker` 子路径仅作为打包后的 spawn 入口存在；wire 协议与启动辅助模块是源代码私有的实现细节。
 
@@ -47,7 +47,7 @@ SDK 对外提供默认及具名导出的 `WorkerCodeRuntime` 类，以及 `Confi
 ## 已知限制与暂缓事项
 
 - **程序派生的 OS 进程在程序终止后仍会存活**：`worker.terminate()` 只结束线程，比 bash-local 的进程组终止更弱；在容器后端出现前，孤儿进程清理属于部署职责。
-- **类型剥离依赖 Node 的实验性 `stripTypeScriptTypes` API**：依赖的行为由单元测试固定；如其发生变化，amaro／sucrase 是已经点名的直接替代品。
+- **类型剥离依赖 Node 的实验性 `stripTypeScriptTypes` API**：如依赖的行为发生变化，amaro 或 sucrase 是已经点名的直接替代品。
 - **`computeMs` 到期最多可能超过一个轮询间隔**：系统每 25 ms 采样一次忙碌时间（内部常量，有意不做成配置）。
 - **程序获得一个含 5 个方法的 `console` shim**（`log`／`info`／`warn`／`error`／`debug`）：有意不提供 Node 的完整 console 接口。
 - **中间绑定值没有字节上限**：程序可以用永远不会成为外层输出的值耗尽进程或 worker 内存。

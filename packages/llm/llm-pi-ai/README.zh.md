@@ -75,10 +75,6 @@
 
 pi-ai 会安装多个提供方 SDK，并延迟加载 catalog 模型所选的 SDK。该可选适配器包将依赖体量隔离在自身范围内。
 
-## 测试
-
-单元测试使用重定向到本地 mock 服务器的 pi-ai catalog 模型，覆盖提供方／profile 路由、每次适配器调用只发起一个协议请求、idle-timeout 响应终止、调用方 abort、原生 API 选择、端点覆盖、归因、转换、回放状态验证，以及一个适配器实例内的跨提供方／模型回放。`tests/dynamic-config.spec.ts` 驱动真实的 settings-local 与 credentials-local provider：settings 里新生的路由实时完成注册，并在用户层重置时随之移除，`apiKeyEnv` 凭据在两次请求之间轮换，点名未知提供方的快照则保留最后可用 profile。`tests/loader-composition.spec.ts` 从仅测试用的 `cordis.yml` 出发，经真实 Loader 拉起休眠姿态，并从磁盘上的一次 `settings.yaml` 编辑注册出它的路由。真实 API 覆盖仍需 key 才会启用，并通过 `pnpm run test:e2e` 运行。
-
 ## 模型体验
 
 ### 通过 pi-ai 发起的提供方请求
