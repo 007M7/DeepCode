@@ -575,9 +575,11 @@ describe('renderToolsSdkPy', () => {
   it('caps the argument annotation, the site whose enclosing paren stays open', () => {
     // The worst of the three emission sites: the parameter list's `(` is still
     // open around this annotation, so 180 `list[` plus the innermost bracket
-    // plus that paren is 182 of CPython's 200. Only a raw `register()` reaches
-    // it — `defineTool` compiles an object root, whose annotation is a bare
-    // TypedDict name or `dict[str, Any]`, neither of which carries a chain.
+    // plus that paren is 182 of CPython's 200. Only a raw `register()` whose
+    // `parameters` root opens an array chain reaches it — rooted at the array,
+    // or at an array branch of a root `oneOf`, since a union adds no brackets.
+    // `defineTool` compiles an object root, whose annotation is a bare
+    // TypedDict name or a one-bracket `dict[str, Any]`, never a chain.
     const rooted = (depth: number): ToolSdkSchema => {
       let schema: Record<string, unknown> = { type: 'string', const: 'x' }
       for (let i = 0; i < depth; i++) schema = { type: 'array', items: schema }
@@ -596,6 +598,13 @@ describe('renderToolsSdkPy', () => {
     // rather than on another `list[`, so the count cannot grow past that.
     expect(renderToolsSdkPy([rooted(181)]))
       .toContain(`async def rooted(self, args: ${'list['.repeat(180)}Any${']'.repeat(180)}) -> str:`)
+    // A root union reaches the same 182: its branches inherit the enclosing
+    // depth because `A | B` opens nothing, so the chain under one of them
+    // starts at 0 exactly as the array-rooted case does.
+    const union = { ...rooted(180), parameters: { oneOf: [rooted(180).parameters, { type: 'string' }] } }
+    const text = renderToolsSdkPy([union])
+    expect(text).toContain(`args: ${'list['.repeat(180)}Literal["x"]${']'.repeat(180)} | str) -> str:`)
+    expect(text.split('async def rooted(self, args: ')[1]!.split(') -> str:')[0]!.split('[').length - 1).toBe(181)
   })
 
   it('renders a deeply nested oneOf chain in linear time (no per-level re-materialization)', () => {

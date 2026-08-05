@@ -191,9 +191,11 @@ const MAX_CLASS_NAME_BASE = 120
  * - Argument annotation, `async def f(self, args: chain) -> Y:` — the `(` IS
  *   still open around it: 180 `list[` plus `Literal[` plus the paren, 182, the
  *   worst case. Reachable only through a raw `register()` whose `parameters`
- *   is array-rooted; `defineTool` compiles an object root, so the annotation
- *   is a bare TypedDict class name or `dict[str, Any]` — neither carries a
- *   chain.
+ *   root opens an array chain — rooted at the array, or at an array branch of
+ *   a root `oneOf`, which inherits the enclosing depth because a union adds no
+ *   brackets. `defineTool` compiles an object root, so the annotation is a
+ *   bare TypedDict class name or a one-bracket `dict[str, Any]` when that
+ *   object degrades — never a chain.
  *
  * A CPython grammar limit, not a deployment choice, so it is fixed rather than
  * configurable. The sibling `ts-types` renderer needs no counterpart: nothing
