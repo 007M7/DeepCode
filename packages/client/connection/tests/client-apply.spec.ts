@@ -235,6 +235,49 @@ describe('connection client apply', () => {
     })
   })
 
+  it('validates generic RPC transport failures, correlation, and targets', async () => {
+    ;(globalThis as Win).location = {
+      hostname: 'harness.example', search: '', origin: 'https://harness.example',
+    }
+    const handle = await mount()
+    const original = globalThis.fetch
+    const abort = new AbortController()
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response('unavailable', { status: 503 }))
+    try {
+      await expect(handle.rpc.call('/api2', 'goals/create', {}, abort.signal))
+        .rejects.toThrow('HTTP 503')
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        new URL('https://harness.example/api2/goals/create'),
+        expect.objectContaining({ signal: abort.signal }),
+      )
+
+      ;(globalThis as Win).location = { hostname: 'localhost', search: '', origin: 'null' }
+      globalThis.fetch = vi.fn().mockResolvedValue(Response.json({
+        type: 'server-response',
+        rpcId: 'different-rpc',
+        result: { ok: true, value: null },
+      }))
+      await expect(handle.rpc.call('/api2', 'goals/create', {})).rejects.toThrow('rpcId mismatch')
+      const fetch = vi.mocked(globalThis.fetch)
+      expect(fetch.mock.calls[0]?.[0]).toEqual(new URL('http://dsh.internal/api2/goals/create'))
+      expect(fetch.mock.calls[0]?.[1]).not.toHaveProperty('signal')
+    } finally {
+      globalThis.fetch = original
+    }
+
+    for (const [channel, endpoint] of [
+      ['api2', 'goals/create'],
+      ['/api2/path', 'goals/create'],
+      ['/api2', ''],
+      ['/api2', '.'],
+      ['/api2', '..'],
+      ['/api2', 'goals//create'],
+      ['/api2', 'goals/create?unsafe'],
+    ] as const) {
+      await expect(handle.rpc.call(channel, endpoint, {})).rejects.toThrow('invalid RPC target')
+    }
+  })
+
   it('keeps generic Remote calls unavailable in the client-only fixture', async () => {
     ;(globalThis as Win).location = { hostname: 'localhost', search: '?fixture' }
     const handle = await mount()

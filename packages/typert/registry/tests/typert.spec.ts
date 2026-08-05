@@ -13,6 +13,7 @@ import type {
   TypeRTLookup,
   TypeRTRemoteContribution,
 } from '@deepseek-ai/dsh-type-meta'
+import { apply as applyClientRegistry, inject as clientRegistryInject } from '../src/client/index.ts'
 
 declare module '@deepseek-ai/dsh-type-meta' {
   interface TypeRTLookupMap {
@@ -222,6 +223,29 @@ describe('TypertRegistry', () => {
     expect(changes).toEqual(['local:goals/create', 'local:goals/create'])
   })
 
+  it('rejects duplicate invocation endpoints and ids atomically', async () => {
+    const ctx = await makeCtx()
+    const first = invocation()
+    ctx.typert.register({ ...toolsContribution(), invocations: [first] })
+
+    expect(() => ctx.typert.remotes.register({
+      package: '@fixture/duplicate-endpoint',
+      descriptors: [invocation('@fixture/remote#first'), invocation('@fixture/remote#second')],
+    })).toThrow('endpoint "goals/create" is already registered')
+    expect(() => ctx.typert.remotes.register({
+      package: '@fixture/duplicate-id',
+      descriptors: [
+        invocation('@fixture/remote#same'),
+        { ...invocation('@fixture/remote#same'), method: 'rename' },
+      ],
+    })).toThrow('invocation id "@fixture/remote#same" is already registered')
+    expect(() => ctx.typert.register({
+      ...toolsContribution(),
+      package: '@fixture/existing-endpoint',
+      invocations: [{ ...first, id: '@fixture/local#other' }],
+    })).toThrow('endpoint "goals/create" is already registered')
+  })
+
   it('mounts Remote contributions in the calling fiber and withdraws them exactly', async () => {
     const ctx = await makeCtx()
     const descriptor = invocation()
@@ -312,6 +336,131 @@ describe('TypertRegistry', () => {
     expect(ctx.typert.lookups.keys()).toEqual([])
     expect(ctx.typert.contexts.getHost('registryFixture')).toBeUndefined()
     expect(ctx.typert.contexts.getClient('registryFixture')).toBeUndefined()
+  })
+
+  it('publishes provider changes, rejects duplicate providers, and disposes subscriptions', async () => {
+    const ctx = await makeCtx()
+    const changes: string[] = []
+    const disposeLookupSubscription = ctx.typert.lookups.subscribe((change) => {
+      changes.push(`${change.kind}:${change.key}`)
+    })
+    const disposeContextSubscription = ctx.typert.contexts.subscribe((change) => {
+      changes.push(`${change.kind}:${change.key}`)
+    })
+    const lookup = {
+      parameter: 'agent',
+      wire: 'agentId',
+      hostTypeSymbol: '@fixture#Agent',
+      wireTypeSymbol: '@fixture#AgentId',
+      resolve: () => undefined,
+    }
+    const host = {
+      wire: 'agentId',
+      wireTypeSymbol: '@fixture#AgentId',
+      resolve: () => undefined,
+    }
+    const client = { identity: () => undefined }
+    const disposeLookup = ctx.typert.lookups.register('fixture', lookup)
+    const disposeHost = ctx.typert.contexts.registerHost('registryFixture', host)
+    const disposeClient = ctx.typert.contexts.registerClient('registryFixture', client)
+
+    expect(() => ctx.typert.lookups.register('fixture', lookup)).toThrow('already registered')
+    expect(() => ctx.typert.contexts.registerHost('registryFixture', host)).toThrow('already registered')
+    expect(() => ctx.typert.contexts.registerClient('registryFixture', client)).toThrow('already registered')
+    await Promise.all([disposeLookup(), disposeHost(), disposeClient()])
+    expect(changes).toEqual([
+      'lookup:fixture',
+      'host-context:registryFixture',
+      'client-context:registryFixture',
+      'lookup:fixture',
+      'host-context:registryFixture',
+      'client-context:registryFixture',
+    ])
+
+    await Promise.all([disposeLookupSubscription(), disposeContextSubscription()])
+    ctx.typert.lookups.register('fixture', lookup)
+    expect(changes).toHaveLength(6)
+  })
+
+  it('validates every invocation and provider boundary', async () => {
+    const ctx = await makeCtx()
+    const strict = {
+      mode: 'strict' as const,
+      typeSymbol: '@fixture#Value',
+      schema: z.string(),
+    }
+    const strictInvocation: InvocationDescriptor = {
+      ...invocation('@fixture/remote#strict'),
+      implementation: 'remoteExportCreate',
+      parameters: [{ name: 'request', wire: 'request', source: 'json', codec: strict }],
+      result: strict,
+    }
+    const dispose = ctx.typert.remotes.register({ package: '@fixture/strict', descriptors: [strictInvocation] })
+    await dispose()
+
+    const malformed: readonly [InvocationDescriptor, string][] = [
+      [{ ...invocation(), id: '' }, 'invocation id'],
+      [{ ...invocation(), namespace: 'bad/name' }, 'namespace'],
+      [{ ...invocation(), implementation: 'bad/name' }, 'implementation method'],
+      [{
+        ...invocation(),
+        parameters: [
+          ...invocation().parameters,
+          { name: 'other', wire: 'request', source: 'json', codec: { mode: 'src-json' } },
+        ],
+      }, 'repeats wire field'],
+      [{
+        ...invocation(),
+        parameters: [{ name: 'agent', wire: 'agentId', source: 'lookup', codec: { mode: 'src-json' } }],
+      }, 'has no lookup key'],
+      [{
+        ...invocation(),
+        parameters: [{
+          name: 'request', wire: 'request', source: 'json', lookup: 'fixture', codec: { mode: 'src-json' },
+        }],
+      }, 'JSON parameter'],
+      [{
+        ...invocation(),
+        invocation: {
+          kind: 'context', context: 'registryFixture', wire: 'request', codec: { mode: 'src-json' },
+        },
+      }, 'repeats wire field'],
+      [{
+        ...invocation(),
+        result: { mode: 'strict', typeSymbol: '', schema: z.string() },
+      }, 'type symbol'],
+      [{
+        ...invocation(),
+        result: { mode: 'strict', typeSymbol: '@fixture#Broken', schema: {} as z.ZodType },
+      }, 'has no parse'],
+    ]
+    for (const [index, [descriptor, message]] of malformed.entries()) {
+      expect(() => ctx.typert.remotes.register({
+        package: `@fixture/malformed-${String(index)}`,
+        descriptors: [descriptor],
+      })).toThrow(message)
+    }
+
+    expect(() => ctx.typert.lookups.register('bad#key' as 'fixture', {
+      parameter: 'agent',
+      wire: 'agent/id',
+      hostTypeSymbol: '',
+      wireTypeSymbol: '',
+      resolve: () => undefined,
+    })).toThrow('lookup key')
+    expect(() => ctx.typert.lookups.register('fixture', {
+      parameter: 'agent',
+      wire: 'agent/id',
+      hostTypeSymbol: '@fixture#Agent',
+      wireTypeSymbol: '@fixture#AgentId',
+      resolve: () => undefined,
+    })).toThrow('lookup wire field')
+  })
+
+  it('installs the registry through the Client entry without importing the Host entry', async () => {
+    const ctx = new Context()
+    await ctx.plugin({ inject: clientRegistryInject, apply: applyClientRegistry })
+    expect(ctx.typert.list()).toEqual([])
   })
 
   it('contains change-listener failures and still notifies later listeners', async () => {

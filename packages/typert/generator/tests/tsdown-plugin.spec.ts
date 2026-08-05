@@ -64,6 +64,13 @@ afterEach(() => {
 })
 
 describe('typertPlugin', () => {
+  it('lowers standard decorators in TypeScript source dependencies', () => {
+    const plugin = typertPlugin()
+    expect(plugin.transform('export const value = 1\n', '/workspace/src/plain.ts')).toBeUndefined()
+    expect(plugin.transform('@sealed\nexport class Example {}\n', '/workspace/src/example.ts')?.code)
+      .not.toContain('@sealed')
+  })
+
   it('skips outputs that do not identify a Typert contributor', async () => {
     const plugin = typertPlugin()
     expect(plugin.name).toBe('dsh-typert-generator')

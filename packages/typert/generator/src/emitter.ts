@@ -399,21 +399,9 @@ export class FaceModelEmitter {
     scoped: boolean,
   ): void {
     const signature = this.remoteSignature(invocation, referenceNames, scoped)
-    const line = `    ${signature}`
-    lines.push(line)
-    const generatedLine = lines.length
     const keyLength = signature.indexOf(': (')
     if (keyLength < 0) throw new TypertEmitError(`Remote signature ${invocation.id} has no property delimiter`)
-    const source = remoteDeclarationSource(packageModel, invocation)
-    addMapping(sourceMap, {
-      generated: { line: generatedLine, column: 4 },
-      source,
-      original: { line: invocation.location.line, column: invocation.location.column - 1 },
-      name: invocation.method,
-    })
-    addMapping(sourceMap, {
-      generated: { line: generatedLine, column: 4 + keyLength },
-    })
+    this.pushMappedRemoteSignature(lines, sourceMap, packageModel, invocation, signature, keyLength)
   }
 
   private pushRemoteNamespaceSignature(
@@ -424,6 +412,17 @@ export class FaceModelEmitter {
     referenceNames: ReadonlyMap<SymbolId, string>,
   ): void {
     const signature = `${invocation.method}: ${this.remoteFunctionType(invocation, referenceNames, false)}`
+    this.pushMappedRemoteSignature(lines, sourceMap, packageModel, invocation, signature, invocation.method.length)
+  }
+
+  private pushMappedRemoteSignature(
+    lines: string[],
+    sourceMap: GenMapping,
+    packageModel: PackageModel,
+    invocation: InvocationModel,
+    signature: string,
+    keyLength: number,
+  ): void {
     lines.push(`    ${signature}`)
     const generatedLine = lines.length
     const source = remoteDeclarationSource(packageModel, invocation)
@@ -434,7 +433,7 @@ export class FaceModelEmitter {
       name: invocation.method,
     })
     addMapping(sourceMap, {
-      generated: { line: generatedLine, column: 4 + invocation.method.length },
+      generated: { line: generatedLine, column: 4 + keyLength },
     })
   }
 

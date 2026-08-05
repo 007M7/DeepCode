@@ -7,6 +7,7 @@ import {
   RpcId,
   type ClientRequest,
   type RpcError,
+  type RpcErrorDetailsMap,
   type RpcId as RpcIdType,
   type ServerResponse as RpcServerResponse,
 } from '@deepseek-ai/dsh-host-apiproxy/api'
@@ -73,10 +74,9 @@ export class HostConnectionService extends Service implements HostConnectionHand
 function rpcFetchHandler(
   channel: string,
   handler: ConnectionRpcHandler,
-): { fetch: typeof fetch } {
+): { fetch(request: Request): Promise<Response> } {
   return {
-    async fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-      const request = input instanceof Request ? input : new Request(input, init)
+    async fetch(request: Request): Promise<Response> {
       const endpoint = endpointFromPath(channel, new URL(request.url).pathname)
       if (request.method !== 'POST' || endpoint === undefined) {
         return new Response('not found', { status: 404 })
@@ -96,13 +96,7 @@ function rpcFetchHandler(
 
       const envelope = clientRequestSchema.safeParse(body)
       if (!envelope.success) {
-        const rawId = (body as { rpcId?: unknown } | null)?.rpcId
-        const rpcId = typeof rawId === 'string' ? RpcId(rawId) : INVALID_REQUEST_RPC_ID
-        return errorResponse(rpcId, {
-          code: 'bad-request',
-          message: 'invalid client-request message',
-          details: { issues: envelope.error.issues },
-        })
+        return invalidEnvelopeResponse(body, envelope.error.issues)
       }
       const message: ClientRequest = envelope.data
       if (message.method !== endpoint) {
@@ -123,11 +117,21 @@ function rpcFetchHandler(
   }
 }
 
+function invalidEnvelopeResponse(body: unknown, issues: RpcErrorDetailsMap['bad-request']['issues']): Response {
+  const rawId = (body as { rpcId?: unknown } | null)?.rpcId
+  const rpcId = typeof rawId === 'string' ? RpcId(rawId) : INVALID_REQUEST_RPC_ID
+  return errorResponse(rpcId, {
+    code: 'bad-request',
+    message: 'invalid client-request message',
+    details: { issues },
+  })
+}
+
 function endpointFromPath(channel: string, pathname: string): string | undefined {
   if (!pathname.startsWith(`${channel}/`)) return undefined
   const endpoint = pathname.slice(channel.length + 1)
   const segments = endpoint.split('/')
-  if (segments.length === 0 || segments.some(segment =>
+  if (segments.some(segment =>
     segment === '' || segment === '.' || segment === '..' || !ENDPOINT_SEGMENT_PATTERN.test(segment))) {
     return undefined
   }

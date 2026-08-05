@@ -47,6 +47,13 @@ function fakePost(headers: Record<string, string>, url: string, body: unknown): 
   return request
 }
 
+/** Raw POST for malformed-body and media-type boundary cases. */
+function fakeRawPost(headers: Record<string, string>, url: string, body: string): IncomingMessage {
+  const request = Readable.from([Buffer.from(body)]) as unknown as IncomingMessage
+  Object.assign(request, { url, method: 'POST', headers })
+  return request
+}
+
 /** Response recorder compatible with both the fence's short-circuit and the bridge. */
 function fakeResponse(): { response: ServerResponse; state: { status?: number; body?: unknown } } {
   const state: { status?: number; body?: unknown } = {}
@@ -239,7 +246,10 @@ describe('connection node half', () => {
     const fiber = ctx.plugin({ inject: [...inject], apply }, { trustedHosts: ['harness.example'] })
     await fiber.await()
     const connection = ctx.get('connection') as HostConnectionHandle
-    const remove = connection.rpc.handle('/api2', async () => ({ ok: true, value: null }), {
+    const remove = connection.rpc.handle('/api2', async (endpoint) => {
+      if (endpoint === 'fail') throw new Error('handler broke')
+      return { ok: true, value: null }
+    }, {
       authority: 'trusted-host',
     })
     const route = routes[0]!
@@ -248,14 +258,64 @@ describe('connection node half', () => {
     await route.handler(fakePost({ host: 'other.example' }, '/api2/goals/create', {}), denied.response)
     expect(denied.state).toMatchObject({ status: 403, body: 'forbidden' })
 
-    const badEnvelope = fakeResponse()
+    const methodMismatch = fakeResponse()
     await route.handler(fakePost({ host: 'harness.example' }, '/api2/goals/create', {
       type: 'client-request', rpcId: 'rpc-bad', method: 'other', payload: {},
-    }), badEnvelope.response)
-    expect(JSON.parse(String(badEnvelope.state.body))).toMatchObject({
+    }), methodMismatch.response)
+    expect(JSON.parse(String(methodMismatch.state.body))).toMatchObject({
       rpcId: 'rpc-bad',
       result: { ok: false, error: { code: 'bad-request' } },
     })
+
+    for (const [request, status] of [
+      [fakeRequest({ host: 'harness.example' }, '/api2/goals/create'), 404],
+      [fakePost({ host: 'harness.example' }, '/outside/goals/create', {}), 404],
+      [fakePost({ host: 'harness.example' }, '/api2/goals//create', {}), 404],
+      [fakeRawPost({ host: 'harness.example' }, '/api2/goals/create', '{}'), 415],
+      [fakeRawPost({ host: 'harness.example', 'content-type': 'text/plain' }, '/api2/goals/create', '{}'), 415],
+      [fakeRawPost({ host: 'harness.example', 'content-type': 'application/json; charset=utf-8' }, '/api2/goals/create', '{'), 400],
+    ] as const) {
+      const response = fakeResponse()
+      await route.handler(request, response.response)
+      expect(response.state.status).toBe(status)
+    }
+
+    for (const [body, rpcId] of [
+      [{ rpcId: 'retained-id' }, 'retained-id'],
+      [{ rpcId: 42 }, 'invalid-request'],
+      [null, 'invalid-request'],
+    ] as const) {
+      const response = fakeResponse()
+      await route.handler(fakePost({ host: 'harness.example' }, '/api2/goals/create', body), response.response)
+      expect(JSON.parse(String(response.state.body))).toMatchObject({
+        rpcId,
+        result: { ok: false, error: { code: 'bad-request' } },
+      })
+    }
+
+    const failed = fakeResponse()
+    await route.handler(fakePost({ host: 'harness.example' }, '/api2/fail', {
+      type: 'client-request', rpcId: 'rpc-fail', method: 'fail', payload: {},
+    }), failed.response)
+    expect(failed.state).toMatchObject({ status: 500, body: 'handler failure: Error: handler broke' })
+
+    expect(() => connection.rpc.handle('/api', async () => ({ ok: true, value: null }), {
+      authority: 'loopback',
+    })).toThrow('invalid or reserved RPC channel')
+    expect(() => connection.rpc.handle('api3', async () => ({ ok: true, value: null }), {
+      authority: 'loopback',
+    })).toThrow('invalid or reserved RPC channel')
+
+    const removeLoopback = connection.rpc.handle('/loopback', async () => ({ ok: true, value: null }), {
+      authority: 'loopback',
+    })
+    const loopbackRoute = routes.find(candidate => candidate.path === '/loopback')!
+    const publicResponse = fakeResponse()
+    await loopbackRoute.handler(fakePost({ host: 'harness.example' }, '/loopback/read', {
+      type: 'client-request', rpcId: 'rpc-public', method: 'read', payload: {},
+    }), publicResponse.response)
+    expect(publicResponse.state.status).toBe(403)
+    await removeLoopback()
     await remove()
     await fiber.dispose()
   })

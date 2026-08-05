@@ -1,22 +1,26 @@
 /**
- * Optional tsdown (rolldown) plugin face of the typert generator. When added
- * to a workspace tsdown config, it runs after each opted-in package bundle is
- * written and re-emits its model-driven face artifact at the package output
- * root. Packages without a Typert or Remote export are skipped.
+ * Optional tsdown (rolldown) plugin face of the typert generator. It lowers
+ * standard decorators in TypeScript dependencies before bundling, then emits
+ * model-driven face artifacts at the package output root. Packages without a
+ * Typert or Remote export are skipped.
  * @module @deepseek-ai/dsh-typert-generator/tsdown
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
+import ts from 'typescript'
 import { WorkspaceTypertGenerator } from './workspace.ts'
 import type { WorkspaceEmitResult } from './workspace.ts'
 import type { TypertFace } from './model.ts'
 
-/** The subset of the rolldown output-plugin contract this plugin uses (structural; avoids a rolldown type dependency). */
+/** The subset of the rolldown plugin contract used here (structural; avoids a rolldown type dependency). */
 interface TypertPlugin {
   name: string
+  transform: (code: string, id: string) => { code: string; map: string | undefined } | undefined
   writeBundle: (options: { dir?: string }) => void
 }
+
+const DECORATOR_SYNTAX = /^\s*@[A-Za-z_$][\w$]*/m
 
 /** Generation scope selected by a tsdown build phase. */
 export interface TypertPluginOptions {
@@ -27,15 +31,32 @@ export interface TypertPluginOptions {
 }
 
 /**
- * Create the typert generation plugin for the root tsdown config.
+ * Create the decorator-lowering and typert-generation plugin for the root tsdown config.
  * @param pluginOptions - package/workspace emission mode and independent program faces.
- * @returns a rolldown-compatible plugin that emits local face and Host-for-Client Remote artifacts.
+ * @returns a rolldown-compatible plugin that lowers source decorators and emits local and Host-for-Client artifacts.
  */
 export function typertPlugin(pluginOptions: TypertPluginOptions = {}): TypertPlugin {
   const artifactsByRoot = new Map<string, readonly WorkspaceEmitResult[]>()
   const emittedWorkspaces = new Set<string>()
   return {
     name: 'dsh-typert-generator',
+    transform(code, id) {
+      const file = id.split('?', 1)[0] ?? id
+      if (!/\.[cm]?tsx?$/.test(file) || !DECORATOR_SYNTAX.test(code)) return
+      const result = ts.transpileModule(code, {
+        fileName: file,
+        compilerOptions: {
+          target: ts.ScriptTarget.ES2024,
+          module: ts.ModuleKind.ESNext,
+          ...(file.endsWith('x') ? { jsx: ts.JsxEmit.ReactJSX } : {}),
+          sourceMap: true,
+        },
+      })
+      return {
+        code: result.outputText.replace(/\n?\/\/# sourceMappingURL=.*$/u, '\n'),
+        map: result.sourceMapText,
+      }
+    },
     writeBundle(bundleOptions) {
       // options.dir is the package's absolute outDir (<package>/lib); its
       // nearest package.json owns the bundle even when a custom config writes

@@ -229,6 +229,96 @@ class WrongBindingService extends Service {
   }
 }
 
+class ExportedMethodService extends Service {
+  readonly typertGateway = bindTypeRTGateway(this, 'exportedMethod', { namespace: 'exported' })
+
+  constructor(ctx: Context) {
+    super(ctx, 'exportedMethod')
+  }
+
+  @Remote('execute')
+  run(value: string): string {
+    return value
+  }
+}
+
+class EmptyMethodService extends Service {
+  readonly typertGateway = bindTypeRTGateway(this, 'emptyMethod', { namespace: 'empty' })
+
+  constructor(ctx: Context) {
+    super(ctx, 'emptyMethod')
+  }
+
+  @Remote
+  ping(): string {
+    return 'pong'
+  }
+}
+
+class CollidingWireService extends Service {
+  readonly typertGateway = bindTypeRTGateway(this, 'collidingWire', { namespace: 'colliding-wire' })
+
+  constructor(ctx: Context) {
+    super(ctx, 'collidingWire')
+  }
+
+  @Remote
+  run(agent: FixtureAgent, agentId: string): string {
+    return `${agent.id}:${agentId}`
+  }
+}
+
+class ContextWireService extends Service {
+  readonly typertGateway = bindTypeRTGateway(this, 'contextWire', { namespace: 'context-wire' })
+
+  constructor(ctx: Context) {
+    super(ctx, 'contextWire')
+  }
+
+  @RemoteContext('gatewayFixture')
+  run(agentId: string): string {
+    return agentId
+  }
+}
+
+class NoBindingService extends Service {
+  constructor(ctx: Context) {
+    super(ctx, 'noBinding')
+  }
+
+  run(value: string): string {
+    return value
+  }
+}
+
+class MissingMethodService extends Service {
+  readonly typertGateway = bindTypeRTGateway(this, 'missingMethod', { namespace: 'missing-method' })
+
+  constructor(ctx: Context) {
+    super(ctx, 'missingMethod')
+  }
+
+  @Remote
+  run(value: string): string {
+    return value
+  }
+}
+
+class InheritedMethodBase extends Service {
+  readonly typertGateway = bindTypeRTGateway(this, 'inheritedMethod', { namespace: 'inherited' })
+
+  constructor(ctx: Context) {
+    super(ctx, 'inheritedMethod')
+  }
+
+  @Remote
+  run(value: string): string {
+    return value
+  }
+}
+
+class InheritedMethodService extends InheritedMethodBase {}
+
 describe('TypertGatewayService', () => {
   it('invokes a strict direct method with schema decoding and a live lookup', async () => {
     const { ctx, service } = await setup()
@@ -284,6 +374,53 @@ describe('TypertGatewayService', () => {
     })).resolves.toEqual({ title: 'land', scope: 'agent-src' })
   })
 
+  it('derives exported, empty, inherited, and distinct-namespace SRC methods', async () => {
+    const ctx = await setupGateway()
+    await ctx.plugin(ExportedMethodService)
+    await ctx.plugin(EmptyMethodService)
+    await ctx.plugin(InheritedMethodService)
+
+    await expect(ctx.typertGateway.invoke({
+      namespace: 'exported', method: 'execute', args: { value: 'ship' },
+    })).resolves.toBe('ship')
+    await expect(ctx.typertGateway.invoke({
+      namespace: 'empty', method: 'ping', args: {},
+    })).resolves.toBe('pong')
+    await expect(ctx.typertGateway.invoke({
+      namespace: 'inherited', method: 'run', args: { value: 'land' },
+    })).resolves.toBe('land')
+    await expectCode(ctx.typertGateway.invoke({
+      namespace: 'other', method: 'absent', args: {},
+    }), 'invocation-unavailable')
+  })
+
+  it('rejects SRC wire collisions and unavailable Context providers', async () => {
+    const colliding = await setupGateway()
+    await colliding.plugin(CollidingWireService)
+    registerAgentLookup(colliding, { id: 'agent-1' })
+    await expectCode(colliding.typertGateway.invoke({
+      namespace: 'colliding-wire',
+      method: 'run',
+      args: { agentId: 'agent-1' },
+    }), 'signature-invalid')
+
+    const missing = await setup()
+    await expectCode(missing.ctx.typertGateway.invoke({
+      namespace: 'goals',
+      method: 'rename',
+      args: { agentId: 'agent-1', request: { title: 'land' } },
+    }), 'context-unavailable')
+
+    const contextCollision = await setupGateway()
+    await contextCollision.plugin(ContextWireService)
+    contextCollision.typert.contexts.registerHost('gatewayFixture', contextProvider(contextCollision.extend()))
+    await expectCode(contextCollision.typertGateway.invoke({
+      namespace: 'context-wire',
+      method: 'run',
+      args: { agentId: 'agent-1' },
+    }), 'signature-invalid')
+  })
+
   it('re-reads Service and providers on every strict invocation', async () => {
     const { ctx, serviceFiber } = await setup()
     const agent = { id: 'agent-1' }
@@ -329,6 +466,58 @@ describe('TypertGatewayService', () => {
       args: { agentId: 'agent-1', request: { title: 'land' } },
     }), 'context-failed')
     expect(error.cause).toEqual(new Error('provider failed'))
+  })
+
+  it('reports Context provider metadata mismatch and unresolved identities', async () => {
+    const { ctx } = await setup()
+    registerStrict(ctx, [renameDescriptor()])
+    const scoped = ctx.extend()
+    const mismatch = ctx.typert.contexts.registerHost('gatewayFixture', {
+      ...contextProvider(scoped),
+      wire: 'differentAgentId',
+    })
+    await expectCode(ctx.typertGateway.invoke({
+      namespace: 'goals',
+      method: 'rename',
+      args: { agentId: 'agent-1', request: { title: 'land' } },
+    }), 'provider-mismatch')
+    await mismatch()
+
+    ctx.typert.contexts.registerHost('gatewayFixture', {
+      ...contextProvider(scoped),
+      resolve: () => undefined,
+    })
+    await expectCode(ctx.typertGateway.invoke({
+      namespace: 'goals',
+      method: 'rename',
+      args: { agentId: 'agent-1', request: { title: 'land' } },
+    }), 'context-not-found')
+  })
+
+  it('contains lookup provider failures and missing identities', async () => {
+    const { ctx } = await setup()
+    registerStrict(ctx, [createDescriptor()])
+    const throwing = ctx.typert.lookups.register('gatewayFixture', {
+      ...agentLookup({ id: 'agent-1' }),
+      resolve: () => { throw new Error('lookup failed') },
+    })
+    const failure = await expectCode(ctx.typertGateway.invoke({
+      namespace: 'goals',
+      method: 'create',
+      args: { agentId: 'agent-1', request: { title: 'ship' } },
+    }), 'lookup-failed')
+    expect(failure.cause).toEqual(new Error('lookup failed'))
+    await throwing()
+
+    ctx.typert.lookups.register('gatewayFixture', {
+      ...agentLookup({ id: 'agent-1' }),
+      resolve: () => undefined,
+    })
+    await expectCode(ctx.typertGateway.invoke({
+      namespace: 'goals',
+      method: 'create',
+      args: { agentId: 'agent-1', request: { title: 'ship' } },
+    }), 'lookup-not-found')
   })
 
   it('never downgrades an observed strict endpoint after definition disposal', async () => {
@@ -434,6 +623,11 @@ describe('TypertGatewayService', () => {
       method: 'create',
       args: { agentId: 'agent-1', request: { title: 'ship' }, optional: true },
     }), 'arguments-invalid')
+    await expectCode(ctx.typertGateway.invoke({
+      namespace: 'goals',
+      method: 'create',
+      args: [] as unknown as Record<string, unknown>,
+    }), 'arguments-invalid')
     expect(service.calls).toEqual([])
   })
 
@@ -492,6 +686,31 @@ describe('TypertGatewayService', () => {
     }), 'result-invalid')
   })
 
+  it('accepts dense JSON and rejects decorated arrays and object properties', async () => {
+    const { ctx } = await setup()
+    await expect(ctx.typertGateway.invoke({
+      namespace: 'goals',
+      method: 'passthrough',
+      args: { value: [1, { nested: true }] },
+    })).resolves.toEqual([1, { nested: true }])
+
+    const sparseWithExtra = Array(1) as unknown[] & { extra?: boolean }
+    sparseWithExtra.extra = true
+    const symbolArray = [1]
+    Object.defineProperty(symbolArray, Symbol('extra'), { value: true })
+    const symbolObject = { value: true }
+    Object.defineProperty(symbolObject, Symbol('extra'), { value: true })
+    const hidden = {}
+    Object.defineProperty(hidden, 'value', { value: true, enumerable: false })
+    const accessor = {}
+    Object.defineProperty(accessor, 'value', { get: () => true, enumerable: true })
+    for (const value of [sparseWithExtra, symbolArray, symbolObject, hidden, accessor]) {
+      await expectCode(ctx.typertGateway.invoke({
+        namespace: 'goals', method: 'passthrough', args: { value },
+      }), 'input-invalid')
+    }
+  })
+
   it('validates strict provider identity against generated wire metadata', async () => {
     const { ctx } = await setup()
     ctx.typert.lookups.register('gatewayFixture', {
@@ -523,6 +742,61 @@ describe('TypertGatewayService', () => {
       method: 'missing',
       args: { value: 'ship' },
     }), 'method-unavailable')
+  })
+
+  it('requires a visible binding and supports explicitly provided plain Services', async () => {
+    const ctx = await setupGateway()
+    await ctx.plugin(NoBindingService)
+    registerStrict(ctx, [{
+      ...passthroughDescriptor(),
+      id: '@fixture/gateway#no-binding/run',
+      service: 'noBinding',
+      namespace: 'no-binding',
+      method: 'run',
+    }])
+    await expectCode(ctx.typertGateway.invoke({
+      namespace: 'no-binding', method: 'run', args: { value: 'ship' },
+    }), 'binding-invalid')
+
+    const plain: {
+      typertGateway?: ReturnType<typeof bindTypeRTGateway>
+      run(value: string): string
+    } = { run: value => value }
+    plain.typertGateway = bindTypeRTGateway(plain, 'plainRemote', { namespace: 'plain' })
+    ctx.provide('plainRemote', plain)
+    ctx.typert.register({
+      package: '@fixture/plain',
+      face: 'host',
+      schemas: [],
+      model: emptyModel,
+      invocations: [{
+        ...passthroughDescriptor(),
+        id: '@fixture/plain#plain/run',
+        service: 'plainRemote',
+        namespace: 'plain',
+        method: 'run',
+      }],
+    })
+    await expect(ctx.typertGateway.invoke({
+      namespace: 'plain', method: 'run', args: { value: 'land' },
+    })).resolves.toBe('land')
+  })
+
+  it('reports a SRC marker whose prototype implementation disappeared', async () => {
+    const ctx = await setupGateway()
+    await ctx.plugin(MissingMethodService)
+    const descriptor = Object.getOwnPropertyDescriptor(MissingMethodService.prototype, 'run')!
+    Object.defineProperty(MissingMethodService.prototype, 'run', {
+      configurable: true,
+      value: 42,
+    })
+    try {
+      await expectCode(ctx.typertGateway.invoke({
+        namespace: 'missing-method', method: 'run', args: { value: 'ship' },
+      }), 'method-unavailable')
+    } finally {
+      Object.defineProperty(MissingMethodService.prototype, 'run', descriptor)
+    }
   })
 
   it('preserves business exception identity after invocation begins', async () => {
@@ -574,6 +848,26 @@ describe('TypertGatewayService', () => {
     })
     if (invalid.ok) throw new Error('invalid Remote payload unexpectedly succeeded')
     expect(invalid.error.message).toMatch(/exactly one plain-object args field/)
+
+    for (const endpoint of ['goals', '/create', 'goals/', 'goals/create/extra']) {
+      const result = await handler(endpoint, { args: {} }, signal)
+      expect(result).toMatchObject({ ok: false, error: { code: 'internal' } })
+      if (result.ok) throw new Error('invalid Remote endpoint unexpectedly succeeded')
+      expect(result.error.message).toContain('invalid Remote endpoint')
+    }
+    for (const payload of [null, [], { args: {}, extra: true }, { only: true }, { args: null }, { args: [] }]) {
+      const result = await handler('goals/create', payload, signal)
+      expect(result).toMatchObject({ ok: false, error: { code: 'internal' } })
+      if (result.ok) throw new Error('invalid Remote payload unexpectedly succeeded')
+      expect(result.error.message).toContain('plain-object args field')
+    }
+
+    const service = rawGoalService(ctx)
+    service.businessError = 'non-error failure' as unknown as Error
+    await expect(handler('goals/fail', { args: { request: null } }, signal)).resolves.toEqual({
+      ok: false,
+      error: { code: 'internal', message: 'non-error failure', details: {} },
+    })
 
     await gatewayFiber.dispose()
     expect(connection.handler).toBeUndefined()

@@ -67,7 +67,6 @@ function resolveBase(): string {
 function assertTarget(channel: string, endpoint: string): void {
   const segments = endpoint.split('/')
   if (!CHANNEL_PATTERN.test(channel)
-    || segments.length === 0
     || segments.some(segment =>
       segment === '' || segment === '.' || segment === '..' || !ENDPOINT_SEGMENT_PATTERN.test(segment))) {
     throw new Error(`connection: invalid RPC target ${JSON.stringify(`${channel}/${endpoint}`)}`)

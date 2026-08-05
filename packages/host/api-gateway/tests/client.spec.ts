@@ -203,6 +203,144 @@ describe('Client TypeRT API', () => {
     expect(ctx.typert.remotes.list()).toEqual([])
   })
 
+  it('rejects duplicate, live, scoped-service, and Context namespace collisions', async () => {
+    const ctx = await bench(vi.fn<ConnectionHandle['rpc']['call']>())
+    const direct = directDescriptor()
+    const context = contextDescriptor()
+
+    expect(() => ctx.api.mount({
+      package: '@fixture/direct-duplicates',
+      descriptors: [direct, { ...direct, id: '@fixture/goals#goals/create-again' }],
+    })).toThrow('repeats direct method')
+    expect(() => ctx.api.mount({
+      package: '@fixture/scoped-duplicates',
+      descriptors: [context, { ...context, id: '@fixture/goals#goals/rename-again' }],
+    })).toThrow('repeats scoped method')
+
+    const disposeDirect = ctx.api.mount({ package: '@fixture/direct-live', descriptors: [direct] })
+    expect(() => ctx.api.mount({
+      package: '@fixture/direct-conflict', descriptors: [{ ...direct, id: '@fixture/other#goals/create' }],
+    })).toThrow('direct method goals/create is already mounted')
+    await disposeDirect()
+
+    const disposeScoped = ctx.api.mount({ package: '@fixture/scoped-live', descriptors: [context] })
+    expect(() => ctx.api.mount({
+      package: '@fixture/scoped-conflict', descriptors: [{ ...context, id: '@fixture/other#goals/rename' }],
+    })).toThrow('scoped method goals/rename is already mounted')
+    expect(() => ctx.api.mount({
+      package: '@fixture/service-method-conflict',
+      descriptors: [{ ...context, id: '@fixture/goals#goals/remove', method: 'remove' }],
+    })).toThrow('conflicts with its namespace service')
+    await disposeScoped()
+
+    expect(() => ctx.api.mount({
+      package: '@fixture/context-property-conflict',
+      descriptors: [{ ...context, namespace: 'typert' }],
+    })).toThrow('conflicts with an existing Context property')
+
+    const disposeMultipleScoped = ctx.api.mount({
+      package: '@fixture/multiple-scoped',
+      descriptors: [directDescriptor(), contextDescriptor()],
+    })
+    await disposeMultipleScoped()
+  })
+
+  it('rejects weak parameter and Context codecs plus malformed scope projections', async () => {
+    const ctx = await bench(vi.fn<ConnectionHandle['rpc']['call']>())
+    const direct = directDescriptor()
+    const context = contextDescriptor()
+    expect(() => ctx.api.mount({
+      package: '@fixture/weak-parameter',
+      descriptors: [{
+        ...direct,
+        parameters: direct.parameters.map((parameter, index) => index === 0
+          ? { ...parameter, codec: { mode: 'src-json' } }
+          : parameter),
+      }],
+    })).toThrow('has no strict codec')
+    expect(() => ctx.api.mount({
+      package: '@fixture/weak-context',
+      descriptors: [{
+        ...context,
+        invocation: { ...context.invocation, codec: { mode: 'src-json' } },
+      } as InvocationDescriptor],
+    })).toThrow('has no strict codec')
+    expect(() => ctx.api.mount({
+      package: '@fixture/malformed-scope',
+      descriptors: [{ ...direct, scope: { context: 'fixture', wire: 'missingId' } }],
+    })).toThrow('scope must select its only lookup parameter')
+    expect(() => ctx.api.mount({
+      package: '@fixture/ambiguous-scope',
+      descriptors: [{
+        ...direct,
+        parameters: [...direct.parameters, {
+          name: 'other', wire: 'otherId', source: 'lookup', lookup: 'fixture',
+          codec: { mode: 'strict', typeSymbol: '@fixture#AgentId', schema: idSchema },
+        }],
+      }],
+    })).toThrow('scope must select its only lookup parameter')
+  })
+
+  it('validates invocation arity, required binders, live Connection, and mutable descriptor codecs', async () => {
+    const call = vi.fn<ConnectionHandle['rpc']['call']>()
+      .mockResolvedValue({ ok: true, value: { ref: 'goal-1' } })
+    const ctx = await bench(call)
+    const descriptor = directDescriptor()
+    const dispose = ctx.api.mount({ package: '@fixture/goals', descriptors: [descriptor] })
+    const create = ctx.api.goals.create as unknown as (...args: unknown[]) => Promise<unknown>
+
+    await expect(create('agent-1')).rejects.toThrow('expected 2 argument(s), got 1')
+    await expect((ctx as FixtureContext).goals.create({ objective: 'ship' }))
+      .rejects.toThrow('no Client Context binder')
+
+    ;(descriptor.parameters[0] as { codec: { mode: string } }).codec.mode = 'src-json'
+    await expect(ctx.api.goals.create('agent-1', { objective: 'ship' })).rejects.toThrow('has no strict codec')
+    ;(descriptor.parameters[0] as { codec: { mode: string } }).codec.mode = 'strict'
+
+    ctx.set('connection', undefined)
+    await expect(ctx.api.goals.create('agent-1', { objective: 'ship' })).rejects.toThrow('no active Connection')
+    await dispose()
+  })
+
+  it('withdraws a pending invocation and preserves a direct namespace until its last method leaves', async () => {
+    let resolveCall!: (result: Awaited<ReturnType<ConnectionHandle['rpc']['call']>>) => void
+    const pending = new Promise<Awaited<ReturnType<ConnectionHandle['rpc']['call']>>>((resolve) => {
+      resolveCall = resolve
+    })
+    const call = vi.fn<ConnectionHandle['rpc']['call']>().mockReturnValue(pending)
+    const ctx = await bench(call)
+    const { scope: _scope, ...first } = directDescriptor()
+    const second: InvocationDescriptor = {
+      ...first,
+      id: '@fixture/goals#goals/archive',
+      method: 'archive',
+    }
+    const dispose = ctx.api.mount({ package: '@fixture/goals', descriptors: [first, second] })
+    const invocation = ctx.api.goals.create('agent-1', { objective: 'ship' })
+    await vi.waitFor(() => { expect(call).toHaveBeenCalledTimes(1) })
+    await dispose()
+    resolveCall({ ok: true, value: { ref: 'goal-1' } })
+
+    await expect(invocation).rejects.toThrow('withdrawn during invocation')
+    expect((ctx.api as unknown as Record<string, unknown>).goals).toBeUndefined()
+  })
+
+  it('rolls back Remote registration when concrete method installation fails', async () => {
+    const ctx = await bench(vi.fn<ConnectionHandle['rpc']['call']>())
+    const defineProperty = Object.defineProperty
+    const spy = vi.spyOn(Object, 'defineProperty').mockImplementation((target, key, attributes) => {
+      if (key === 'goals') throw new Error('fixture installation failure')
+      return defineProperty(target, key, attributes)
+    })
+    try {
+      expect(() => ctx.api.mount({ package: '@fixture/goals', descriptors: [directDescriptor()] }))
+        .toThrow('fixture installation failure')
+      await vi.waitFor(() => { expect(ctx.typert.remotes.list()).toEqual([]) })
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
   it('throws RPC failures with the structured error as its cause', async () => {
     const rpcError = { code: 'internal' as const, message: 'host failed', details: {} }
     const ctx = await bench(vi.fn<ConnectionHandle['rpc']['call']>().mockResolvedValue({ ok: false, error: rpcError }))

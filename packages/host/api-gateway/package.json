@@ -43,9 +43,7 @@
     "lib/invariant.js",
     "lib/client.js",
     "lib/types/**/*.js",
-    "lib/types/**/*.d.ts",
-    "lib/types/**/*.d.ts.map",
-    "src"
+    "lib/types/**/*.d.ts"
   ],
   "license": "BSD-3-Clause",
   "dependencies": {

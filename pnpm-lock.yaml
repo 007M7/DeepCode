@@ -7077,6 +7077,9 @@ importers:
       '@deepseek-ai/dsh-tools':
         specifier: workspace:^
         version: link:../../packages/core/tools
+      '@deepseek-ai/dsh-type-meta':
+        specifier: workspace:^
+        version: link:../../packages/typert/type-meta
       '@deepseek-ai/dsh-user-approval':
         specifier: workspace:^
         version: link:../../packages/ui/user-approval

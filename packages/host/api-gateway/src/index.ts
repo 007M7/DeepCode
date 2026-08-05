@@ -156,11 +156,10 @@ export class TypertGatewayService extends Service implements TypertGateway {
   private async invokeRpc(endpoint: string, payload: unknown): Promise<ConnectionRpcResult> {
     try {
       const segments = endpoint.split('/')
-      const namespace = segments[0]
-      const method = segments[1]
-      if (segments.length !== 2 || namespace === undefined || namespace === '' || method === undefined || method === '') {
+      if (segments.length !== 2 || segments[0] === '' || segments[1] === '') {
         throw new Error(`invalid Remote endpoint ${JSON.stringify(endpoint)}`)
       }
+      const [namespace, method] = segments as [string, string]
       if (!isObject(payload)
         || !isPlainObject(payload)
         || Reflect.ownKeys(payload).length !== 1
@@ -358,6 +357,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
     const value = decode(parameter.codec, args[parameter.wire], 'input-invalid', endpoint, parameter.wire)
     if (parameter.source === 'json') return value
     const key = parameter.lookup
+    /* v8 ignore next -- registry validation rejects strict descriptors without a key, and SRC derivation always supplies one. */
     if (key === undefined) {
       throw new TypertGatewayError(
         'lookup-unavailable',
@@ -492,11 +492,11 @@ function methodParameterNames(service: object, method: string, endpoint: string)
   const source = Function.prototype.toString.call(implementation)
   const open = source.indexOf('(')
   const close = source.indexOf(')', open + 1)
+  /* v8 ignore next -- standard public class-method syntax always contains a parenthesized parameter list. */
   if (open < 0 || close < 0) return invalidSignature(endpoint, method)
   const body = source.slice(open + 1, close).trim()
   if (body.length === 0) return []
   const parts = body.split(',').map(part => part.trim())
-  if (parts.at(-1) === '') parts.pop()
   const names = new Set<string>()
   for (const part of parts) {
     if (!/^[$A-Z_a-z][$\w]*$/u.test(part) || names.has(part)) return invalidSignature(endpoint, method)
@@ -579,8 +579,8 @@ function assertJsonValue(value: unknown, ancestors: Set<object>): void {
     if (!isPlainObject(value)) throw new TypeError('non-plain object is not JSON-safe')
     if (Object.getOwnPropertySymbols(value).length > 0) throw new TypeError('symbol property is not JSON-safe')
     for (const key of Reflect.ownKeys(value)) {
-      if (typeof key !== 'string') throw new TypeError('symbol property is not JSON-safe')
       const descriptor = Object.getOwnPropertyDescriptor(value, key)
+      /* v8 ignore next -- ownKeys() just returned this key; only a hostile same-process Proxy can delete it between operations. */
       if (descriptor === undefined || !descriptor.enumerable || !('value' in descriptor)) {
         throw new TypeError('non-data property is not JSON-safe')
       }

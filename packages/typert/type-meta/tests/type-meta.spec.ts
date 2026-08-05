@@ -107,6 +107,80 @@ describe('type-meta Remote declarations', () => {
     expect(remoteMethods(first)).toEqual([{ method: 'run', invocation: { kind: 'direct' } }])
   })
 
+  it('supports explicit export names without exposing marker storage', () => {
+    class Service {
+      run(value: string): string {
+        return value
+      }
+
+      scoped(value: string): string {
+        return value
+      }
+    }
+    const initializers: Array<(this: Service) => void> = []
+    Remote('execute')(
+      Reflect.get(Service.prototype, 'run') as (this: Service, ...args: unknown[]) => unknown,
+      methodContext('run', initializers),
+    )
+    RemoteContext('metaFixture', 'inspect')(
+      Reflect.get(Service.prototype, 'scoped') as (this: Service, ...args: unknown[]) => unknown,
+      methodContext('scoped', initializers),
+    )
+    const service = new Service()
+    for (const initialize of initializers) initialize.call(service)
+
+    expect(remoteMethods(service)).toEqual([
+      { method: 'run', exportName: 'execute', invocation: { kind: 'direct' } },
+      { method: 'scoped', exportName: 'inspect', invocation: { kind: 'context', context: 'metaFixture' } },
+    ])
+    expect(remoteMethods({})).toEqual([])
+    const prototypeLess: object = {}
+    Reflect.setPrototypeOf(prototypeLess, null)
+    expect(remoteMethods(prototypeLess)).toEqual([])
+  })
+
+  it('rejects malformed decorator calls and targets', () => {
+    const method: (this: object) => void = function (this: object): void {}
+    expect(() => { (Remote as unknown as (value: typeof method) => void)(method) }).toThrow('context is missing')
+    expect(() => Remote('bad/name')).toThrow('export name')
+    expect(() => RemoteContext('' as 'metaFixture')).toThrow('Context key')
+    expect(() => RemoteContext('metaFixture', 'bad/name')).toThrow('export name')
+
+    for (const context of [
+      { ...methodContext('run', []), private: true },
+      { ...methodContext('run', []), static: true },
+      { ...methodContext('run', []), name: Symbol('run') },
+    ]) {
+      expect(() => { Remote(method, context) })
+        .toThrow('public instance method')
+    }
+  })
+
+  it('rejects prototype-less initialization and conflicting markers', () => {
+    const method: (this: object) => void = function (this: object): void {}
+    const direct: Array<(this: object) => void> = []
+    Remote(method, methodContext('run', direct))
+    const prototypeLess: object = {}
+    Reflect.setPrototypeOf(prototypeLess, null)
+    expect(() => { direct[0]!.call(prototypeLess) }).toThrow('without a prototype')
+
+    class Service {
+      run(): void {}
+    }
+    const conflicting: Array<(this: Service) => void> = []
+    Remote(
+      Reflect.get(Service.prototype, 'run'),
+      methodContext('run', conflicting),
+    )
+    RemoteContext('metaFixture')(
+      Reflect.get(Service.prototype, 'run'),
+      methodContext('run', conflicting),
+    )
+    const service = new Service()
+    conflicting[0]!.call(service)
+    expect(() => { conflicting[1]!.call(service) }).toThrow('conflicting invocation markers')
+  })
+
   it('rejects ambiguous binding names', () => {
     expect(() => bindTypeRTGateway({}, '')).toThrow('service key')
     expect(() => bindTypeRTGateway({}, 'goals', { namespace: 'api/goals' })).toThrow('namespace')

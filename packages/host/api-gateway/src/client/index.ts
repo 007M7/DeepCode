@@ -90,7 +90,8 @@ class ClientApiService extends Service implements ClientApi {
         }
       }, `api-gateway.client.mount(${JSON.stringify(contribution.package)})`)
     } catch (error) {
-      disposeRemote().catch(() => {})
+      /* v8 ignore next -- rollback disposal only rejects if Cordis teardown itself fails while handling the installation error. */
+      Promise.resolve(disposeRemote()).catch(() => {})
       throw error
     }
     return async () => {
@@ -148,6 +149,7 @@ class ClientApiService extends Service implements ClientApi {
     const projection = scopedProjection(descriptor)
     if (projection !== undefined) installed.push(this.installScoped(descriptor, projection, token))
     return () => {
+      /* v8 ignore next -- Cordis effect disposers are idempotent and invoke this cleanup at most once. */
       if (!token.active) return
       token.active = false
       for (const dispose of installed.reverse()) dispose()
@@ -173,6 +175,7 @@ class ClientApiService extends Service implements ClientApi {
       value: (...args: unknown[]) => this.invoke(descriptor, undefined, token, this.ownerCtx, args),
     })
     return () => {
+      /* v8 ignore next -- duplicate live methods are rejected before installation, so no newer token can replace this one. */
       if (namespace.tokens.get(descriptor.method) !== token) return
       Reflect.deleteProperty(namespace.value, descriptor.method)
       namespace.tokens.delete(descriptor.method)
@@ -203,6 +206,7 @@ class ClientApiService extends Service implements ClientApi {
     namespace.tokens.set(descriptor.method, token)
     namespace.service.install(descriptor, projection, token)
     return () => {
+      /* v8 ignore next -- duplicate live methods are rejected before installation, so no newer token can replace this one. */
       if (namespace.tokens.get(descriptor.method) !== token) return
       namespace.service.remove(descriptor.method)
       namespace.tokens.delete(descriptor.method)
@@ -289,9 +293,6 @@ class ScopedRemoteNamespace extends Service {
       },
     })
     this.methods.add(method)
-    if (this.methods.size === 1 && this.ownerCtx.get(this.name, false) === undefined) {
-      this.ownerCtx.set(this.name, this)
-    }
   }
 
   remove(method: string): void {
