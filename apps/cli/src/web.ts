@@ -95,7 +95,7 @@ export function prepareWebRuntimeContext(ctx: Context, sourceRoot: string, mode:
  * @param trustedHosts - extra authorities for the /api browser-trust fence, or `undefined` for the derived LAN literals alone.
  * @param config - an overlay of loader patches applied over the shipped web
  * composition, or `undefined` to boot the
- * personal overlay; already parsed from `--config`.
+ * shipped Web composition; already parsed from `--config`.
  */
 export async function runWeb(
   environment: EnvironmentSnapshot,

@@ -2,14 +2,20 @@
 
 English | [中文](README.zh.md)
 
-File-backed [credentials](../credentials/README.md) provider: two layers, one honest precedence.
+File-backed [credentials](../credentials/README.md) provider: four layers, one honest precedence.
 
 | Layer | Source id | Writable | Wins |
 |---|---|---|---|
-| Live process environment | `env` | no | always |
-| `$DSH_HOME/.credentials.yaml` document | `file` | yes (`set`/`unset`) | otherwise |
+| Inherited process environment | `env` | no | always |
+| `$DSH_HOME/.credentials.yaml` document | `file` | yes (`set`/`unset`) | over both `.env` layers |
+| `<invocation cwd>/.env` | `project-env` | not here | over the user `.env` |
+| `$DSH_HOME/.env` | `user-env` | not here | otherwise |
 
-The environment wins because a launch-time override (`DEEPSEEK_API_KEY=… dsh`, CI secrets, a dev shell sourcing the repo `.env`) is operator intent for this run — and because it cannot be edited from inside, it must be *visibly* read-only: `describe()` reports `source: 'env', writable: false`, and `set`/`unset` reject instead of writing a change the reader would never see. Resolution reads `process.env` live and never writes it back.
+The launching environment wins because a per-run override (`DEEPSEEK_API_KEY=… dsh`, a CI secret, a container `-e`) is operator intent for this run — and because it cannot be edited from inside, it must be *visibly* read-only: `describe()` reports `source: 'env', writable: false`, and `set`/`unset` reject instead of writing a change the reader would never see.
+
+Everything below it loses to the managed store, so a key written by the web page or TUI takes effect immediately even when an older key sits in a `.env`. Those two layers still resolve when nothing is stored, and `describe()` names them `project-env` or `user-env` with `writable: true` — storing a key replaces them as the effective source.
+
+Under the product CLI, resolution reads the launcher's frozen [environment snapshot](../../util/environment/README.md) rather than `process.env`: only the snapshot can say whether a value came from the launching shell or from a file. A composition the product CLI did not boot has the inherited environment as its only layer, which keeps embedders on the semantics they already had.
 
 ## Config
 
@@ -35,13 +41,17 @@ Writes patch the parsed document rather than rebuilding it, so comments and the 
 
 Any string value round-trips, multi-line values included, so no entry is unwritable for want of a quoting style. An empty stored value is absent, per the seam rule — which is why an empty string in the document is rejected outright: `unset` removes a key, it does not blank it.
 
+## Permissions
+
+The provider creates the directory `0700` and creates or atomically replaces the document `0600`. It holds what it *reads* to that same bound: on POSIX a document carrying any group or other permission bit fails before its contents are parsed — at boot and on every reload — and the error names the `chmod 600` repair. Windows has no mode to inspect, so the check is skipped there rather than faked.
+
 ## Hot reload
 
 External edits publish `credentials/updated` per changed reference after the snapshot is replaced **wholesale** — an entry deleted on disk never lingers in memory. The provider's own writes are recognized by content and publish exactly their one commit event. An unreadable or invalid document at runtime keeps the last good snapshot and warns; an absent file is an empty store; an unreadable or invalid file at boot fails loud.
 
 ## Security boundary
 
-The document is `0600` under a `0700` directory, which stops other OS users — **not** the model. Tool processes (bash, the filesystem tools) run as the same user, and the shipped `workspace-write` file policy confines mutations rather than reads, so they can read this file exactly like any other file the user owns; no sandbox mode singles it out. What the harness does hold to is narrower: it never hands the model a resolved path to the document, and never loads it into the process environment — unlike `$DSH_HOME/.env`, which is the user's ordinary environment layer (see [app-boot's Personal config](../../ui/app-boot/README.md#personal-config)) — so reaching the value takes a deliberate read of a path the agent was not given.
+The document is `0600` under a `0700` directory, which stops other OS users — **not** the model. Tool processes (bash, the filesystem tools) run as the same user, and the shipped `workspace-write` file policy confines mutations rather than reads, so they can read this file exactly like any other file the user owns; no sandbox mode singles it out. What the harness does hold to is narrower: it never hands the model a resolved path to the document, and never loads it into the process environment — unlike `$DSH_HOME/.env`, which is the user's ordinary environment layer (see [app-boot's Harness home](../../ui/app-boot/README.md#the-harness-home)) — so reaching the value takes a deliberate read of a path the agent was not given.
 
 That is discretion, not a boundary. A deployment that must keep provider keys away from its own agent cannot get there with file permissions; an OS-keychain provider — a store the model's processes cannot read at all — is the deferred answer and belongs beside this provider as a sibling package.
 
@@ -55,9 +65,7 @@ No direct invalidation; credentials never enter a request prefix.
 
 ## Known Limitations and Deferred Work
 
-- **Multi-line entries refuse `set`/`unset`** — the line editor will not rewrite an entry it would corrupt; `describe` reports them `writable: false` and edits must go to the file directly.
 - **Same-reference concurrent writes are last-write-wins** — the writer lock and the read-modify-write keep concurrent writers from dropping each other's entries, but two writers editing one reference still resolve to the later write; there is no revision check.
 - **A same-UID process can read the document** — see [Security boundary](#security-boundary): the file-effect sandbox modes do not deny reads, and an OS-keychain provider is deferred.
-- **Unrepresentable values fail loud** — control characters, or a mix of both quote styles with backslashes, cannot round-trip the dotenv line format.
-- **Environment changes are invisible** — `process.env` is read live per resolution, but no event can announce a change there.
+- **Environment changes are invisible** — the snapshot is frozen at launch, so a variable exported after startup reaches neither resolution nor `describe`; changing an environment-sourced credential takes a restart.
 - **Atomic, not crash-durable** — inherited from `dsh-atomic-write`; the store re-reads on boot.

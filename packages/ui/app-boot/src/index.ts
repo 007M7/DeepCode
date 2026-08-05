@@ -6,10 +6,10 @@
  * @module @deepseek-ai/dsh-app-boot
  */
 
+import { parseEnv } from 'node:util'
 import { pathToFileURL } from 'node:url'
 import { readFileSync } from 'node:fs'
 import { basename, dirname, resolve } from 'node:path'
-import { parse as parseDotenv } from 'dotenv'
 import * as yaml from 'js-yaml'
 import { Context, type FiberState } from 'cordis'
 import Loader, { type Entry, type EntryOptions } from '@cordisjs/plugin-loader'
@@ -94,7 +94,13 @@ function readEnvLayer(
     // ENOENT (no .env) is fine — rely on the ambient environment.
     return undefined
   }
-  const values = parseDotenv(content)
+  // `node:util`'s parseEnv is the same parser `--env-file` and
+  // `process.loadEnvFile` use. Checking with a second dialect (npm dotenv)
+  // would leave the rejection rule and the thing it guards on independently
+  // maintained parsers: a name Node accepts but the checker does not would
+  // reach `process.env` unchecked, and `BASH_ENV` there runs a file of the
+  // project's choosing on every `bash -c` the bash tool issues.
+  const values = parseEnv(content) as Record<string, string>
   for (const name of Object.keys(values)) {
     if (!isBootstrapOnly(name)) continue
     throw new Error(
@@ -112,9 +118,11 @@ function readEnvLayer(
  * over the Harness home's `.env`, both under the inherited process
  * environment.
  *
- * Each layer is parsed and checked before anything is applied, then applied in
- * the order that makes the layering `user < project < inherited` —
- * `process.loadEnvFile` never replaces a name already set. Values do reach
+ * Each layer is parsed once, checked, and only then applied — never replacing
+ * a name already set, which is what makes the layering `user < project <
+ * inherited`. The single parse is deliberate: the rejection rule and the
+ * values that reach `process.env` must come from the same parser, or a name
+ * one dialect accepts and the other misses would slip past the check. Values do reach
  * `process.env`, because a user's own `--config` tree and third-party
  * libraries read it; the returned snapshot is the authority for everything the
  * harness itself resolves, since `process.env` alone cannot say whether a
@@ -144,8 +152,18 @@ export function loadLayeredEnv(
   // Parse both layers first: a rejection must not leave one file applied.
   const project = readEnvLayer(binName, cwd, warn)
   const user = home === resolve(cwd) ? undefined : readEnvLayer(binName, home, warn)
-  if (project !== undefined) process.loadEnvFile(project.path)
-  if (user !== undefined) process.loadEnvFile(user.path)
+  // Assign the entries this function already parsed and checked, rather than
+  // re-reading each file through `process.loadEnvFile`. One parse means the
+  // snapshot, the rejection rule, and `process.env` can never disagree about
+  // what a file contains. Skipping names already set reproduces the
+  // never-replace behavior that makes the layering `user < project <
+  // inherited`.
+  for (const layer of [project, user]) {
+    if (layer === undefined) continue
+    for (const [name, value] of Object.entries(layer.values)) {
+      if (process.env[name] === undefined) process.env[name] = value
+    }
+  }
   return createEnvironmentSnapshot([
     { source: 'process', values: inherited },
     ...project === undefined ? [] : [{ source: 'project-env' as const, path: project.path, values: project.values }],

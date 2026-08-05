@@ -20,8 +20,6 @@ export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 300_000
 
 /** Configuration for one pi-ai provider route; the `providers` dict key IS the route. */
 export interface PiAiProviderProfile {
-  /** Literal provider credential; prefer {@link apiKeyEnv}. With both absent pi-ai uses its provider-native ambient discovery. */
-  apiKey?: string
   /** Credential reference (environment-variable name) resolved per request through `ctx.credentials`. */
   apiKeyEnv?: string
   /** Override the selected catalog model's endpoint without changing its protocol metadata. */
@@ -76,7 +74,6 @@ const thinkingBudgets = z.object({
 })
 
 const profile = z.object({
-  apiKey: z.string().role('secret'),
   apiKeyEnv: z.string().role('credential-ref'),
   baseURL: z.string(),
   headers: z.dict(z.string()),
@@ -126,9 +123,6 @@ export function resolveProfiles(
     }
     if (provider.length === 0) throw new Error('llm-pi-ai: provider names must be non-empty')
     if (!supported.has(provider)) throw new Error(`llm-pi-ai: unknown pi-ai provider "${provider}"`)
-    if (source.apiKey !== undefined && source.apiKey.trim().length === 0) {
-      throw new Error(`llm-pi-ai: provider "${provider}" has an empty apiKey; omit it to use ambient authentication`)
-    }
     if (source.baseURL !== undefined && source.baseURL.length === 0) {
       throw new Error(`llm-pi-ai: provider "${provider}" has an empty baseURL`)
     }

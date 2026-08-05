@@ -23,7 +23,7 @@ describe('pi-ai SDK retry boundary', () => {
       },
     })
     const adapter = new PiAiAdapter({
-      profiles: () => resolveProfiles({ openai: { apiKey: 'test-key' } }),
+      profiles: () => resolveProfiles({ openai: {} }),
       resolveApiKey: () => Promise.resolve('test-key'),
     })
     const drain = async (): Promise<void> => {

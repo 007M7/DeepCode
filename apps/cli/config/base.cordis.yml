@@ -22,8 +22,9 @@
 
 # A `--config` overlay replaces this row's config to select exact GitHub
 # repository Plugin generations. The app registers the DSH-owned runtime even
-# when the list is empty so a later personal-config edit can load
-# transactionally; one-shot headless runs consume the startup value only.
+# when the list is empty, so a `--config` overlay that supplies repositories
+# needs no composition change here. Every surface reads that overlay once at
+# startup.
 - id: repository-plugins
   name: '@deepseek-ai/dsh-repository-plugin'
 

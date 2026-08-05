@@ -109,7 +109,7 @@ describe('request-level dynamic configuration', () => {
 
   it('advertises a live settings catalog without re-registration', async () => {
     const dir = await home()
-    const { ctx } = await boot(dir, { apiKey: 'k', baseURL: 'http://127.0.0.1:1' })
+    const { ctx } = await boot(dir, { baseURL: 'http://127.0.0.1:1' })
 
     await expect(ctx.llm.listModels('deepseek-official')).resolves.toHaveLength(2)
     await ctx.settings.update(NS, { models: [{ id: 'settings-model', name: 'From Settings' }] })
@@ -120,7 +120,7 @@ describe('request-level dynamic configuration', () => {
 
   it('re-registers the route in place when the captured retry policy changes, without an empty-registry window', async () => {
     const dir = await home()
-    const { ctx } = await boot(dir, { apiKey: 'k', baseURL: 'http://127.0.0.1:1' })
+    const { ctx } = await boot(dir, { baseURL: 'http://127.0.0.1:1' })
 
     // Observing the topology event, not just the end state: disposing and
     // re-registering also lands on the right final registry, but publishes an
@@ -145,7 +145,7 @@ describe('request-level dynamic configuration', () => {
 
   it('keeps the last good options when a settings snapshot fails beyond-schema validation', async () => {
     const dir = await home()
-    const { ctx } = await boot(dir, { apiKey: 'k', baseURL: 'http://127.0.0.1:1' })
+    const { ctx } = await boot(dir, { baseURL: 'http://127.0.0.1:1' })
 
     // Schema-valid but resolver-invalid: duplicate catalog ids pass the array
     // schema and fail the explicit resolve step.

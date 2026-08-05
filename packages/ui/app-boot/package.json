@@ -27,7 +27,6 @@
   ],
   "license": "BSD-3-Clause",
   "dependencies": {
-    "dotenv": "^17.2.0",
     "js-yaml": "^4.2.0"
   },
   "peerDependencies": {

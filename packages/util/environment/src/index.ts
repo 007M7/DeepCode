@@ -69,6 +69,16 @@ export interface EnvironmentSnapshot {
   readonly layers: readonly EnvironmentLayer[]
 }
 
+/**
+ * The map key one variable name resolves under. Windows treats environment
+ * names case-insensitively; every other platform does not.
+ * @param name - the variable name as written.
+ * @returns the key to store and look up by.
+ */
+function lookupKey(name: string): string {
+  return process.platform === 'win32' ? name.toUpperCase() : name
+}
+
 /** One layer's raw contents, as {@link createEnvironmentSnapshot} receives them. */
 export interface EnvironmentLayerInput {
   source: EnvironmentSource
@@ -84,18 +94,24 @@ export interface EnvironmentLayerInput {
  */
 export function createEnvironmentSnapshot(layers: readonly EnvironmentLayerInput[]): EnvironmentSnapshot {
   // Copied per layer so a later mutation of `process.env` — or of a caller's
-  // own object — cannot change what this snapshot reports.
+  // own object — cannot change what this snapshot reports. Windows environment
+  // names are case-insensitive, so lookups there fold case: otherwise a shell
+  // that set `deepseek_api_key` would be invisible to a consumer asking for
+  // `DEEPSEEK_API_KEY`, and a lower-ranked layer spelling it in caps would win
+  // a decision the launch had already made. POSIX names are case-sensitive and
+  // must stay exact.
   const bySource = new Map<EnvironmentSource, { path?: string; values: Map<string, string> }>()
   for (const layer of layers) {
     bySource.set(layer.source, {
       ...layer.path === undefined ? {} : { path: layer.path },
-      values: new Map(Object.entries(layer.values)),
+      values: new Map(Object.entries(layer.values).map(([name, value]) => [lookupKey(name), value])),
     })
   }
   const getFrom = (name: string, sources: readonly EnvironmentSource[]): EnvironmentEntry | undefined => {
+    const key = lookupKey(name)
     for (const source of sources) {
       const layer = bySource.get(source)
-      const value = layer?.values.get(name)
+      const value = layer?.values.get(key)
       if (value === undefined) continue
       return { value, source, ...layer?.path === undefined ? {} : { path: layer.path } }
     }
@@ -154,13 +170,21 @@ const BOOTSTRAP_NAMES = new Set([
   'BASH_ENV', 'ENV', 'SHELLOPTS', 'BASHOPTS',
   'PERL5OPT', 'PERL5LIB', 'PYTHONSTARTUP', 'PYTHONPATH', 'RUBYOPT', 'RUBYLIB',
   'JAVA_TOOL_OPTIONS', '_JAVA_OPTIONS', 'JDK_JAVA_OPTIONS',
-  // Version-control hooks that run a command on the setter's behalf.
+  'PYTHONHOME',
+  // Version-control hooks that run a command on the setter's behalf, and the
+  // config redirections that can define such a hook indirectly (a substituted
+  // git config file can set core.pager or a credential helper).
   'GIT_SSH', 'GIT_SSH_COMMAND', 'GIT_EXTERNAL_DIFF', 'GIT_PAGER', 'GIT_EDITOR',
+  'GIT_ASKPASS', 'SSH_ASKPASS',
+  'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_SYSTEM', 'GIT_CONFIG_COUNT',
   'EDITOR', 'VISUAL', 'PAGER',
   // Network reach and trust.
   'SSL_CERT_FILE', 'SSL_CERT_DIR',
   'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY',
   'REQUESTS_CA_BUNDLE', 'CURL_CA_BUNDLE',
+  // Turns off TLS verification outright, which is the sharpest form of
+  // "how the network is trusted".
+  'NODE_TLS_REJECT_UNAUTHORIZED',
 ])
 
 /** Name prefixes no discovered file may set. */

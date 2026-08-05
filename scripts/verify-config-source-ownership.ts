@@ -72,9 +72,21 @@ const ENV_READ_ALLOWLIST: Readonly<Record<string, string>> = {
 }
 
 /** Shipped Cordis configuration these rules apply to. */
-const SHIPPED_CONFIG_GLOBS = ['apps/*/config/*.yml', 'examples/*/*.cordis.yml', 'examples/*/cordis.yml']
+const SHIPPED_CONFIG_GLOBS = [
+  'apps/*/config/*.yml',
+  'examples/*/*.cordis.yml',
+  'examples/*/cordis.yml',
+  // The Python runtime ships its own default composition inside the wheel.
+  'python/*/src/**/cordis.yml',
+]
 
-/** Config keys that must never be inlined from the environment. */
+/**
+ * Config keys that must never be inlined from the environment. Line-anchored
+ * on purpose: this is a tripwire for the shape people actually write, not a
+ * YAML analysis. A folded scalar or a block-literal spelling would slip past
+ * it, which is acceptable because the rule it guards is also stated in the
+ * owning Agent Note and enforced by the adapters' own resolution.
+ */
 const INLINE_DENY = /^\s*(apiKey|baseURL|apiKeyEnv|authToken|headers)\s*:\s*!!js\b/
 
 const failures: string[] = []

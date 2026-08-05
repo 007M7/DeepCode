@@ -40,7 +40,7 @@ import z from 'schemastery'
 import { watch as chokidarWatch } from 'chokidar'
 import { mkdir, readFile, stat } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
-import { Document, parseDocument } from 'yaml'
+import { Document, parseDocument, type YAMLError } from 'yaml'
 import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { resolveDshHome } from '@deepseek-ai/dsh-paths'
 import { environmentOf } from '@deepseek-ai/dsh-environment'
@@ -128,10 +128,10 @@ function isENOENT(error: unknown): boolean {
  * @param error - the parser's error.
  * @returns the error code with its line and column.
  */
-function describeYamlError(error: { code?: string; linePos?: [{ line: number; col: number }, ...unknown[]] }): string {
+function describeYamlError(error: YAMLError): string {
   const at = error.linePos?.[0]
   const where = at === undefined ? '' : ` at line ${String(at.line)}, column ${String(at.col)}`
-  return `${error.code ?? 'YAML_ERROR'}${where}`
+  return `${error.code}${where}`
 }
 
 /**

@@ -34,7 +34,7 @@ OPENAI_API_KEY: sk-…
 - 放弃的：留在 `$DSH_HOME/.env` 里的密钥现在会被提升进 `process.env`，因而会按[子进程凭据清洗](../../../../packages/subprocess/subprocess/README.md)的规则抵达子进程，而不再留在 provider 内部。这就是「普通环境层」的诚实含义；需要由 Harness 拥有并隔离的密钥属于 `.credentials.yaml`，后者永不提升。
 - 放弃的：同一个键会遮蔽 `.credentials.yaml`，并让 Web Models 页的写入被拒。seam 对这种状态本来就报告 `source: 'env', writable: false`，而拒绝信息现在会把已加载的 `.env` 一并指为需要清除的位置。
 - 换来的：用户 `.env` 里的非密钥值终于生效，这正是最初的缺陷；文档格式可以拒绝它无法承担的内容；`0600` 保护的是一个只存密钥的文件，而不是一个我们同时叫用户往里写普通配置的文件。
-- 未采纳的：在读取时校验权限、并在 `.credentials.yaml` 宽于 `0600` 时让启动失败。创建与原子替换已经钉住了模式；让手工创建的文件直接致命是一个可分离的安全决策。
+- provider 写入时用的 `0600` 同样约束它读取的内容：在 POSIX 上，只要文档带有任何 group 或 other 权限位，就会在读取内容之前让启动失败——启动时与每次 reload 都检查，诊断里给出 `chmod 600` 的修复命令。Windows 没有可检查的 mode（其 ACL 无法在此表达），因此跳过该检查而不是伪造它。
 - `0600` 这条边界仍然只挡其他 OS 用户、挡不住模型，本次拆分未改变这一点——该限制及 keychain provider 的延后项归 [provider README](../../../../packages/credentials/credentials-local/README.md) 所有。
 
 ## Alternatives considered
