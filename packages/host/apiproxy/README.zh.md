@@ -20,7 +20,7 @@
 
 `session.fork` 将可选事件锚点映射到该锚点处或其后的首个 `turn/end`，使消息操作可包含该消息所在的完整轮次。锚点省略或超过末尾时，选择最后一个已完成轮次；若锚点已在日志中，而其所在轮次仍开放，则返回 `fork-unavailable`，不会向较早位置裁剪。发布后的子会话会先继承源会话的种子历史、cwd、日志中最新的提供方／模型／推理（reasoning）目标及谱系，再加入源 Workspace。如果附加到 Workspace 失败，`workspace-attach-failed` 会携带已发布的子会话 id，供客户端对账。[SessionStore fork 决策](../../../.agents/notes/implemented/feature/2026-06-30-session-store-fork-api.md)给出边界设计的理由。
 
-会话模型路由属于会话领域契约。`session.models` 返回选中的提供方／模型／推理目标，以及按提供方分组的建议性模型、精确路由推理元数据和逐提供方查询失败记录。`session.selectModel` 校验由适配器持有的可选推理强度，并替换将在下一提示词组装边界使用的完整目标。目录成员关系不构成校验：适配器可以解析未列出的模型，而不可用路由或不受支持的推理强度会返回 `model-unavailable`。
+会话模型路由属于会话领域契约。`session.models` 将选中的提供方／模型／推理目标，与按提供方分组的建议性模型、精确路由推理元数据和逐提供方查询失败记录分开返回。当前目标可能不在这些分组中，也绝不会作为合成行注入；客户端可以提示用户选择替代目标，而无需把目录变成路由白名单。`session.selectModel` 校验由适配器持有的可选推理强度，并替换将在下一提示词组装边界使用的完整目标。目录成员关系不构成校验：适配器可以解析未列出的模型，而不可用路由或不受支持的推理强度会返回 `model-unavailable`。
 
 待处理的 queued 输入属于实时控制平面契约，而非对话历史。网关根据持久 `agent/inbox/spliced` 变更派生完整的 `next-turn` 队列，并在每次变更后及重连时广播权威 `session/queue` 快照；待处理的 `next-step` steering（中途引导）不进入此 Web 投影。在 `next-step` 内，用户来源的消息携带 `steering` placement，而注入上下文（审批通知、任务完成、附加快照）携带 `context`，领取前不对外呈现。面向单条消息的 `agent/inbox/inserted`、`claimed` 与 `discarded` 通知仍供生命周期观察方使用，但不用于构建队列视图。`session.updateQueue` 通过 `MessageId` 寻址单个项；编辑和移除经已挂载 Agent 的 `Inbox.splice()` 修改队列。claim 的纯删除 splice 会在 pre-step 准入前赢得竞态，因此之后的操作返回 `queue-item-not-found`。`session.cancel` 仅中止活动轮次并保留待处理 inbox 工作；取消达到完全停稳且结束中的轮次完成 flush 后，AgentLoop 按 FIFO 顺序认领下一条可唤醒消息，浏览器绝不重发或提升它。队列操作绝不恢复冷会话，客户端也绝不根据轮次或状态事件推断某项已退出队列。
 

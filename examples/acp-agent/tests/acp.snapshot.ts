@@ -49,6 +49,7 @@ const SUBAGENT_DURABILITY_FAILURE_CONFIG = fileURLToPath(
 const LSP_CONFIG = fileURLToPath(new URL('./lsp.cordis.yml', import.meta.url))
 const WEB_CONFIG = fileURLToPath(new URL('../web.cordis.yml', import.meta.url))
 const FS_SEARCH_CONFIG = fileURLToPath(new URL('./fs-search.cordis.yml', import.meta.url))
+const PARTIAL_LANDLOCK_CONFIG = fileURLToPath(new URL('../partial-landlock.cordis.yml', import.meta.url))
 const PWSH_CONFIG = fileURLToPath(new URL('./pwsh.cordis.yml', import.meta.url))
 const SNAPSHOTS_DIR = join(dirname(fileURLToPath(import.meta.url)), 'snapshots')
 const PACKED_CHUNKS_SOURCE = 'hook-cc-pretool-deny'
@@ -175,6 +176,32 @@ const SCENARIOS: Scenario[] = [
     // PWSH_OK via [Console]::Out.Write so the fixture carries no platform
     // newline and one recording replays on every host.
     pwshOnly: true,
+  },
+  // Authored keyless replay through a test-only partial-Landlock provider:
+  // the exact compatibility notice must stay ordinary stderr when the wrapped
+  // `false` command exits 1, rather than becoming SANDBOX_UNAVAILABLE.
+  {
+    name: 'partial-landlock-child-failure',
+    hasModelTurn: true,
+    recorded: false,
+    headerClass: 'sandbox',
+    configPath: PARTIAL_LANDLOCK_CONFIG,
+    env: { DSH_PERMISSION_MODE: 'read-only' },
+    posixOnly: true,
+  },
+  // A valid cwd plus a missing provider executable exercises the assembled
+  // foreground error and background task marker without a platform runner.
+  {
+    name: 'missing-sandbox-runner',
+    hasModelTurn: true,
+    recorded: false,
+    headerClass: 'sandbox',
+    configPath: PARTIAL_LANDLOCK_CONFIG,
+    env: {
+      DSH_PERMISSION_MODE: 'read-only',
+      DSH_SNAPSHOT_MISSING_SANDBOX_RUNNER: '1',
+    },
+    posixOnly: true,
   },
   { name: 'todo-write', hasModelTurn: true, recorded: true },
   {

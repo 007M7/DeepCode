@@ -111,6 +111,29 @@ describe('ModelSelect reasoning effort', () => {
       .toEqual(['Default', 'Standard'])
   })
 
+  it('prompts for a new selection when the current target is no longer advertised', () => {
+    const directory = createSnapshotStore(state({
+      current: { provider: 'deepseek-official', model: 'removed-model' },
+    }))
+    const select = vi.fn().mockResolvedValue(true)
+    render(<ModelSelect
+      locked={false}
+      available
+      directory={directory}
+      load={vi.fn()}
+      select={select}
+      t={t}
+    />)
+
+    const trigger = screen.getByRole('button', { name: '选择模型' })
+    expect(trigger.textContent).toContain('选择模型')
+    fireEvent.click(trigger)
+    expect(screen.queryByRole('menuitem', { name: /推理等级/ })).toBeNull()
+    fireEvent.click(screen.getByRole('menuitem', { name: /模型/ }))
+    expect(screen.queryByText('removed-model')).toBeNull()
+    expect(screen.getByRole('menuitemradio', { name: 'DeepSeek-V4-Flash' })).toBeTruthy()
+  })
+
   it('renders no Agent-bound control for an addressed subagent session', () => {
     const load = vi.fn()
     render(<ModelSelect
