@@ -16,4 +16,4 @@ slot 终端设计的外壳侧 React 胶水：createSlotRenderer（外壳安装�
 
 - **persist 中间件会损坏原始值状态 store**：保存时它会对状态执行对象展开，因此 `SnapshotStore<string>` 往返后会变成字符映射；引擎改为自行实现持久化（见 `attachPersistence`）。
 - **`UseSession` 有意保持宽泛（`object` 快照）**：依赖方向（runtime → web-react，绝不反向）使真实 `ConversationSnapshot` 类型不可访问；会话 slot 消费方在其边界处缩窄一次。
-- **renderSlot 是唯一的 P-I 形式**：没有 Suspense，也没有逐配置项惰性加载；渐进式渲染能力将在其独立项目中恢复。
+- **`renderSlot` 是唯一的渲染形式**：没有 Suspense 集成或逐配置项惰性加载。

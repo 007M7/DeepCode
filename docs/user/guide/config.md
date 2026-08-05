@@ -47,7 +47,7 @@ A minimal configuration is a list of plugin entries:
     toolName: my_tool
 ```
 
-Plugins load in file order. Place plugins that depend on services after the applications or capability plugins that provide them. Missing models, tools, and plugins fail as early as possible instead of being silently ignored.
+Cordis starts sibling entries concurrently. A plugin declares required services through `inject`; Cordis waits for those services before applying the plugin, so file order does not establish dependency readiness. Missing models, tools, and plugins fail as early as possible instead of being silently ignored.
 
 ## CLI overlays
 

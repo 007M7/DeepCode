@@ -39,4 +39,4 @@ None; this package neither assembles nor sends a provider request.
 ## Known Limitations and Deferred Work
 
 - **Upstream experimental tree** — `@opentelemetry/sdk-logs` is still published from the upstream experimental tree; SDK API churn lands here and only here — the seam contract does not move.
-- **No live-collector coverage** — every test exports to a local mock collector; the keyless Loader-composition e2e (`tests/loader-composition.e2e.ts`) covers the wire shape on every run, and behavior against a real OTLP deployment (auth, TLS, throttling) is the SDK exporter's documented territory.
+- **Live-collector behavior belongs to the SDK exporter** — authentication, TLS, throttling, and other real OTLP deployment behavior follow the upstream SDK rather than a package-owned compatibility layer.
