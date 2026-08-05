@@ -657,6 +657,17 @@
         "src/**/*.ts",
         "tests/**/*.ts"
       ]
+    },
+    "packages/bundle/base": {
+      "ignoreDependencies": [
+        "@deepseek-ai/.+",
+        "@cordisjs/.+"
+      ]
+    },
+    "packages/bundle/web-app": {
+      "ignoreDependencies": [
+        "@deepseek-ai/.+"
+      ]
     }
   }
 }
