@@ -142,11 +142,24 @@ async function waitNoActivation(ctx: Context, childId: SessionId): Promise<void>
   }, { timeout: 5_000 })
 }
 
+/** Observe calls at the Agent cancellation boundary without a production event. */
+function observeCancel(agent: Agent, callback: () => void): void {
+  const cancel = agent.cancel.bind(agent)
+  let observed = false
+  vi.spyOn(agent, 'cancel').mockImplementation((cause, options) => {
+    if (!observed) {
+      observed = true
+      callback()
+    }
+    cancel(cause, options)
+  })
+}
+
 describe('SubagentService.startContinuable', () => {
   it('returns both identities at inbox acceptance, without waiting for the turn or the log', async () => {
     const { ctx, parent, adapter } = await setup([textResponse('first answer')])
     const enqueued: { id: MessageId; loggedYet: boolean }[] = []
-    ctx.on('agent/inbox/enqueue', (agent, accepted) => {
+    ctx.on('agent/inbox/inserted', (agent, accepted) => {
       // Acceptance is the boundary `startContinuable` resolves at, so observe
       // the log state exactly there rather than after later microtasks.
       enqueued.push({ id: accepted.message.id, loggedYet: hasUserText(agent.session.events, 'child task') })
@@ -737,7 +750,9 @@ describe('continuable durability and teardown', () => {
     const grandchild = await ctx.subagents.startContinuable(startSpec(targetChild))
     await vi.waitFor(() => { expect(adapter.requests).toHaveLength(3) })
     const cancellations: SessionId[] = []
-    ctx.on('agent/cancel-requested', (agent) => { cancellations.push(agent.id) })
+    observeCancel(targetChild, () => { cancellations.push(targetChild.id) })
+    const grandchildAgent = ctx.agents.get(grandchild.childId)!
+    observeCancel(grandchildAgent, () => { cancellations.push(grandchildAgent.id) })
 
     const drained = ctx.subagents.drainContinuableDescendants([parent])
     const convergedDrain = ctx.subagents.drainContinuableDescendants([parent])
@@ -784,7 +799,8 @@ describe('continuable durability and teardown', () => {
     const grandchild = await ctx.subagents.startContinuable(startSpec(child))
     await vi.waitFor(() => { expect(adapter.requests).toHaveLength(2) })
     const cancellations: SessionId[] = []
-    ctx.on('agent/cancel-requested', (agent) => { cancellations.push(agent.id) })
+    const grandchildAgent = ctx.agents.get(grandchild.childId)!
+    observeCancel(grandchildAgent, () => { cancellations.push(grandchildAgent.id) })
 
     const drained = ctx.subagents.drainContinuableDescendants([child])
 
@@ -828,7 +844,8 @@ describe('continuable durability and teardown', () => {
     expect(ctx.agents.get(intermediateId)).toBeUndefined()
     expect(ctx.agents.get(descendant.childId)).toBeDefined()
     const cancellations: SessionId[] = []
-    ctx.on('agent/cancel-requested', (agent) => { cancellations.push(agent.id) })
+    const descendantAgent = ctx.agents.get(descendant.childId)!
+    observeCancel(descendantAgent, () => { cancellations.push(descendantAgent.id) })
 
     const drained = ctx.subagents.drainContinuableDescendants([parent])
 
@@ -926,7 +943,7 @@ describe('continuable durability and teardown', () => {
     const drains: Promise<void>[] = []
     const accepted: MessageId[] = []
     ctx.on('subagent/start', () => { drains.push(drainManager(ctx)) })
-    ctx.on('agent/inbox/enqueue', (_agent, item) => { accepted.push(item.message.id) })
+    ctx.on('agent/inbox/inserted', (_agent, item) => { accepted.push(item.message.id) })
 
     await expect(ctx.subagents.startContinuable(startSpec(parent)))
       .rejects.toMatchObject({ code: 'DRAINING' })
@@ -967,12 +984,12 @@ describe('continuable durability and teardown', () => {
     await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
     const child = ctx.agents.get(started.childId)!
     const order: string[] = []
-    child.ctx.on('agent/inbox/enqueue', (_agent, accepted) => {
+    child.ctx.on('agent/inbox/inserted', (_agent, accepted) => {
       if (accepted.message.content.some(block => block.type === 'text' && block.text === 'before drain')) {
         order.push('enqueue')
       }
     })
-    child.ctx.on('agent/cancel-requested', () => { order.push('cancel') })
+    observeCancel(child, () => { order.push('cancel') })
 
     const delivery = followup(ctx, parent, started.childId, message('before drain'))
     // Let the child-lock operation reach the live admission cutoff. Admission
@@ -1150,9 +1167,9 @@ describe('continuable review regressions', () => {
     const ends: SubagentRunEndInfo[] = []
     ctx.on('subagent/end', (info) => { ends.push(info) })
     // Block the resumed prompt so this epoch produces nothing of its own.
-    ctx.on('agent/prompt-submit', async (subject, _message, _signal, next) => {
+    ctx.on('agent/pre-step', async (subject, _messages, _context, next) => {
       if (subject === parent) return next()
-      return { kind: 'block', reason: 'blocked by policy' }
+      return { kind: 'reject' }
     })
     await followup(ctx, parent, started.childId, message('again'))
     await waitNoActivation(ctx, started.childId)
@@ -1258,7 +1275,7 @@ describe('continuable review regressions', () => {
       expect(found).toBeDefined()
       return found!
     })
-    child.ctx.on('agent/cancel-requested', () => { order.push('cancel') })
+    observeCancel(child, () => { order.push('cancel') })
 
     const drained = drainManager(ctx)
     hold.resolve(undefined)
@@ -1298,7 +1315,7 @@ describe('continuable review regressions', () => {
 
     // Cancel from the synchronous enqueue observer: the discard fires after the
     // id is recorded but before `followup()` returns.
-    const off = child.ctx.on('agent/inbox/enqueue', (_agent, accepted) => {
+    const off = child.ctx.on('agent/inbox/inserted', (_agent, accepted) => {
       if (accepted.message.content.some(block => block.type === 'text' && block.text === 'doomed')) {
         child.cancel({ kind: 'user' })
       }
@@ -1330,7 +1347,7 @@ describe('continuable review regressions', () => {
 
     await followup(ctx, parent, started.childId, message('queued'))
     expect(activation.accepted.size).toBe(1)
-    const off = child.ctx.on('agent/inbox/enqueue', (_agent, accepted) => {
+    const off = child.ctx.on('agent/inbox/inserted', (_agent, accepted) => {
       if (accepted.message.content.some(block => block.type === 'text' && block.text === 'doomed')) {
         child.cancel({ kind: 'user' })
       }
@@ -1348,9 +1365,9 @@ describe('continuable review regressions', () => {
     const ends: SubagentRunEndInfo[] = []
     ctx.on('subagent/end', (info) => { ends.push(info) })
     // Block admission so the child's only turn never opens.
-    ctx.on('agent/prompt-submit', async (subject, _message, _signal, next) => {
+    ctx.on('agent/pre-step', async (subject, _messages, _context, next) => {
       if (subject === parent) return next()
-      return { kind: 'block', reason: 'blocked by policy' }
+      return { kind: 'reject' }
     })
 
     const started = await ctx.subagents.startContinuable(startSpec(parent))
@@ -1370,7 +1387,7 @@ describe('continuable review regressions', () => {
     const registeredAtEnqueue: boolean[] = []
     // A synchronous inbox observer runs before the admitting microtask, the
     // exact window where `Agent.status` is still idle.
-    ctx.on('agent/inbox/enqueue', (agent) => {
+    ctx.on('agent/inbox/inserted', (agent) => {
       if (agent.session.header.parentSession !== undefined) {
         registeredAtEnqueue.push(ctx.agents.get(agent.id) === agent)
       }

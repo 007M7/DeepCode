@@ -98,33 +98,8 @@
     },
     {
       "doc": "docs/core-data-structures/core.md",
-      "symbol": "SendTarget",
-      "source": "packages/core/agent/src/types.ts"
-    },
-    {
-      "doc": "docs/core-data-structures/core.md",
-      "symbol": "InboxPlacement",
-      "source": "packages/core/agent/src/types.ts"
-    },
-    {
-      "doc": "docs/core-data-structures/core.md",
-      "symbol": "InboxItem",
-      "source": "packages/core/agent/src/types.ts"
-    },
-    {
-      "doc": "docs/core-data-structures/core.md",
-      "symbol": "InboxAction",
-      "source": "packages/core/agent/src/types.ts"
-    },
-    {
-      "doc": "docs/core-data-structures/core.md",
-      "symbol": "InboxActionResult",
-      "source": "packages/core/agent/src/types.ts"
-    },
-    {
-      "doc": "docs/core-data-structures/core.md",
-      "symbol": "SendOptions",
-      "source": "packages/core/agent/src/types.ts"
+      "symbol": "InboxTarget",
+      "source": "packages/core/agent/src/inbox.ts"
     },
     {
       "doc": "docs/core-data-structures/core.md",
@@ -134,7 +109,7 @@
     {
       "doc": "docs/core-data-structures/core.md",
       "symbol": "AgentCancelCause",
-      "source": "packages/core/agent/src/types.ts"
+      "source": "packages/core/session/src/types.ts"
     },
     {
       "doc": "docs/core-data-structures/core.md",
@@ -143,17 +118,17 @@
     },
     {
       "doc": "docs/core-data-structures/core.md",
-      "symbol": "PromptDecision",
+      "symbol": "PreStepContext",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "PreStepDecision",
       "source": "packages/core/agent/src/types.ts"
     },
     {
       "doc": "docs/core-data-structures/core.md",
       "symbol": "RequestErrorAction",
-      "source": "packages/core/agent/src/types.ts"
-    },
-    {
-      "doc": "docs/core-data-structures/core.md",
-      "symbol": "RequestError",
       "source": "packages/core/agent/src/types.ts"
     },
     {
@@ -370,7 +345,7 @@
     },
     {
       "doc": "docs/core-data-structures/session.md",
-      "symbol": "TurnTriggerMap",
+      "symbol": "TurnEndCancelCause",
       "source": "packages/core/session/src/types.ts"
     },
     {

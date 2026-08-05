@@ -14,7 +14,7 @@ Plan mode also needs a durable stance, a reviewable plan artifact, an explicit h
 
 ## Decision
 
-Plan mode owns a plan-specific product package: `@deepseek-ai/dsh-plan-mode` at `packages/plan/plan-mode/`. The durable fact is `plan/mode: { active: boolean }`, folded by `foldPlanMode(events)` with `false` as the empty-log value. `ctx.planMode.get(agent)` returns `{ active, pending? }`, and `set(agent, active)` records the boundary-applied selection. The existing prompt-submit, continuation, retry, append-failure, and disposal fences remain unchanged in meaning.
+Plan mode owns a plan-specific product package: `@deepseek-ai/dsh-plan-mode` at `packages/plan/plan-mode/`. The durable fact is `plan/mode: { active: boolean }`, folded by `foldPlanMode(events)` with `false` as the empty-log value. `ctx.planMode.get(agent)` returns `{ active, pending? }`, and `set(agent, active)` records the boundary-applied selection. The pre-step, retry, append-failure, and disposal fences preserve the same state-transition ownership.
 
 Configuration is exactly `{ section: string }`. The package registers the fixed `plan:policy` section, `/plan [message]`, the exact `/plan off` direct-exit form, and `exit_plan_mode` itself. Bare `/plan` selects active; another non-empty argument selects it first and then sends the trimmed text through `agent.steer()`, making the text an ordinary logged user message in the affected step. `/plan off` selects inactive without model input and can cancel an entry that is still pending at the boundary. The exit tool remains registered while plan mode is inactive so the request tool catalog stays stable.
 
@@ -24,7 +24,7 @@ Sandbox mode and approval policy remain separate enforcement axes. Plan mode nei
 
 ### Boundary and model contract
 
-`plan/mode` is log-only and non-surface, so resume, fork, and compaction recover the state without a live mirror. A spawned agent begins inactive because there is no creation-time plan option. Pending user selections flush before the affected request assembly on prompt submission, ordinary continuation, or a request-recovery retry; a failed durable append leaves the intent pending for a later boundary.
+`plan/mode` is log-only and non-surface, so resume, fork, and compaction recover the state without a live mirror. A spawned agent begins inactive because there is no creation-time plan option. Pending user selections flush before the affected request assembly at initial or continuation pre-step, or on a request-recovery retry; a failed durable append leaves the intent pending for a later boundary.
 
 The active state contributes the deployment's section at prompt order 50. Inactive state contributes no section, while `exit_plan_mode` remains registered in both states, so a transition changes the logged request header but not native tool schemas or the Code Mode SDK. A user-driven transition appends one plugin-sourced notice only when the last request header described the opposite state; a pre-first-request or net-zero selection adds none, and an approved tool exit relies on its tool result instead of a second notice.
 

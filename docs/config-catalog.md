@@ -479,7 +479,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/goal/goal/src/index.ts:118`](../packages/goal/goal/src/index.ts)
+Source: [`packages/goal/goal/src/index.ts:114`](../packages/goal/goal/src/index.ts)
 
 ## `@deepseek-ai/dsh-hooks-claude`
 
@@ -779,7 +779,7 @@ export interface ReplayModelConfig {
 
 Depends on: [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts)
 
-Source: [`packages/support/llm-replay/src/index.ts:707`](../packages/support/llm-replay/src/index.ts)
+Source: [`packages/support/llm-replay/src/index.ts:710`](../packages/support/llm-replay/src/index.ts)
 
 ## `@deepseek-ai/dsh-llm-retry`
 
@@ -790,7 +790,7 @@ Requires: `agents`
 export type Config = Readonly<Record<string, never>>
 ```
 
-Source: [`packages/llm/llm-retry/src/index.ts:47`](../packages/llm/llm-retry/src/index.ts)
+Source: [`packages/llm/llm-retry/src/index.ts:46`](../packages/llm/llm-retry/src/index.ts)
 
 ## `@deepseek-ai/dsh-lsp-local`
 
@@ -932,7 +932,7 @@ export interface PlanModeConfig {
 }
 ```
 
-Source: [`packages/plan/plan-mode/src/index.ts:68`](../packages/plan/plan-mode/src/index.ts)
+Source: [`packages/plan/plan-mode/src/index.ts:69`](../packages/plan/plan-mode/src/index.ts)
 
 ## `@deepseek-ai/dsh-pty-local`
 
@@ -1666,7 +1666,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:171`](../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:166`](../packages/core/system-prompt/src/index.ts)
 
 ## `@deepseek-ai/dsh-time-context`
 
@@ -1677,7 +1677,7 @@ Requires: `agents`
 export interface Config {
   /** IANA time zone used for the rendered timestamp. Omit to resolve the Node process's system zone at plugin load. */
   timeZone?: string
-  /** Minimum milliseconds between durable injections in one session. Omit or set to 0 to inject on every eligible pre-step attempt. */
+  /** Minimum milliseconds between durable injections in one session. Omit or set to 0 to inject at every eligible step. */
   refreshIntervalMs?: number
 }
 ```

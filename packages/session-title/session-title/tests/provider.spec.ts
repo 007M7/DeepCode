@@ -55,7 +55,6 @@ describe('SessionTitleService provider lifecycle', () => {
     const parent = ctx.sessions.create(SessionId('title-parent'))
     parent.append('turn/start', {
       turn: 1,
-      trigger: { kind: 'message', source: { kind: 'user' } },
     })
     const inheritedMessage = appendHumanPrompt(parent, 'Inherited title prompt')
     await settle()
@@ -77,7 +76,6 @@ describe('SessionTitleService provider lifecycle', () => {
     })
     child.append('turn/start', {
       turn: 2,
-      trigger: { kind: 'message', source: { kind: 'user' } },
     })
     const childMessage = appendHumanPrompt(child, 'Child follow-up prompt')
     await settle()
@@ -98,7 +96,6 @@ describe('SessionTitleService provider lifecycle', () => {
     })
     child.append('turn/start', {
       turn: 3,
-      trigger: { kind: 'message', source: { kind: 'user' } },
     })
     const latestMessage = appendHumanPrompt(child, 'Retitle the fork now')
     await settle()
@@ -136,7 +133,6 @@ describe('SessionTitleService provider lifecycle', () => {
     const session = ctx.sessions.create(SessionId('first-provider'))
     session.append('turn/start', {
       turn: 1,
-      trigger: { kind: 'message', source: { kind: 'user' } },
     })
     const first = appendHumanPrompt(session, 'Explain asynchronous title generation')
     await settle()
@@ -195,7 +191,6 @@ describe('SessionTitleService provider lifecycle', () => {
     const session = ctx.sessions.create(SessionId('dispose-provider'))
     session.append('turn/start', {
       turn: 1,
-      trigger: { kind: 'message', source: { kind: 'user' } },
     })
     const message = appendHumanPrompt(session, 'Generate this title')
     await settle()
@@ -245,7 +240,6 @@ describe('SessionTitleService provider lifecycle', () => {
     const session = ctx.sessions.create(SessionId('supersede'))
     session.append('turn/start', {
       turn: 1,
-      trigger: { kind: 'message', source: { kind: 'user' } },
     })
     const first = appendHumanPrompt(session, 'First prompt')
     await settle()
@@ -286,7 +280,6 @@ describe('SessionTitleService provider lifecycle', () => {
     const session = ctx.sessions.create(SessionId('unchanged-route'))
     session.append('turn/start', {
       turn: 1,
-      trigger: { kind: 'message', source: { kind: 'user' } },
     })
     const first = appendHumanPrompt(session, 'First routed prompt')
     await settle()
@@ -298,7 +291,6 @@ describe('SessionTitleService provider lifecycle', () => {
 
     session.append('turn/start', {
       turn: 2,
-      trigger: { kind: 'message', source: { kind: 'user' } },
     })
     const second = appendHumanPrompt(session, 'Second prompt on the same route')
     await settle()
@@ -345,7 +337,6 @@ describe('SessionTitleService provider lifecycle', () => {
     const pending = ctx.sessions.create(SessionId('unmatched-boundary'))
     pending.append('turn/start', {
       turn: 1,
-      trigger: { kind: 'message', source: { kind: 'user' } },
     })
     appendHumanPrompt(pending, 'Wait for a matching request boundary')
     await settle()
@@ -369,7 +360,6 @@ describe('SessionTitleService provider lifecycle', () => {
     const session = ctx.sessions.create(SessionId('failure'))
     session.append('turn/start', {
       turn: 1,
-      trigger: { kind: 'message', source: { kind: 'user' } },
     })
     appendHumanPrompt(session, 'Keep a fallback')
     await settle()

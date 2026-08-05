@@ -220,9 +220,18 @@ Source: [`packages/core/agent/src/index.ts:242`](../../packages/core/agent/src/i
 
 ## `ctx.approval` — `ApprovalService`
 
-Approval service that applies session policy before answerers and logs every ask/outcome pair to the requesting session. It exposes deterministic policy changes to the model through the cache-safe runtime-context snapshot.
+Approval service that applies session policy before answerers and logs every ask/outcome pair to the requesting session. It exposes deterministic policy changes to the model through the runtime-context snapshot and switch notices.
 
 ```ts cordis-catalog
+/**
+ * Switch one live agent's policy and queue the transition for its next model
+ * step. Session initialization uses {@link setApprovalPolicy} directly
+ * because there is no previously visible policy to change.
+ * @param agent - the live agent whose policy is changing.
+ * @param policy - the new effective policy.
+ */
+setPolicy(agent: Agent, policy: ApprovalPolicy): void
+
 /**
  * Ask the composed answerers to decide one readonly same-process request.
  * The service borrows the request, agent, session, and live signal directly.
@@ -251,7 +260,7 @@ async request(req: ApprovalRequest): Promise<ApprovalOutcome>
 overrideOf(session: Session): ApprovalPolicy | undefined
 ```
 
-Types: [ApprovalOutcome](../core-data-structures/approval.md) · [ApprovalPolicy](../core-data-structures/approval.md) · [ApprovalRequest](../core-data-structures/approval.md) · [Session](../core-data-structures/session.md)
+Types: [Agent](../core-data-structures/core.md) · [ApprovalOutcome](../core-data-structures/approval.md) · [ApprovalPolicy](../core-data-structures/approval.md) · [ApprovalRequest](../core-data-structures/approval.md) · [Session](../core-data-structures/session.md)
 
 Source: [`packages/ui/user-approval/src/index.ts:193`](../../packages/ui/user-approval/src/index.ts)
 
@@ -465,21 +474,22 @@ abstract compactIfNeeded( agent: CompactAgentContext, trigger: CompactionTrigger
 
 /**
  * Explicitly compact useful history even below automatic pressure thresholds.
- * Implementations reserve idle turn admission synchronously before any
- * asynchronous work, select a useful range without writing on a no-op, then
+ * Implementations synchronously start an idle task before any asynchronous
+ * work, select a useful range without writing on a no-op, then
  * append a standalone `compact/start` before summarization. That durable
  * marker is the compaction lock until one `compact/end` attempt. Later waking
  * prompts remain accepted in FIFO order and start only after the optional
- * durability checkpoint and admission release. Context injected while the
+ * durability checkpoint and idle-task settlement. Context injected while the
  * summary runs may sit between the marker pair; only the selected span must
  * remain stable.
  *
  * @param agent - idle agent whose durable history should be compacted.
- * @param signal - command-owned cancellation forwarded to summarization.
+ * @param signal - cancellation scoped to this compaction request.
  * @returns the compaction result, or `null` when no safe useful range exists.
- * @throws {@link ManualCompactionError} for expected busy, changed-span,
- * summarization/shrink, commit-stage, or persistence failures, and the exact
- * abort reason when cancelled. Failed attempts remain visible in the log.
+ * @throws {@link ManualCompactionError} for expected busy, agent-cancellation,
+ * changed-span, summarization/shrink, commit-stage, or persistence failures;
+ * an aborted request preserves its exact abort reason. Failed attempts remain
+ * visible in the log.
  */
 abstract compactNow( agent: ManualCompactAgentContext, signal: AbortSignal, ): Promise<CompactionResult | null>
 
@@ -506,7 +516,7 @@ abstract compactRegion( start: number, end: number, agent: CompactAgentContext, 
 
 Types: [CompactionResult](../core-data-structures/compaction.md) · [CompactionTrigger](../core-data-structures/compaction.md)
 
-Source: [`packages/compact/compact/src/index.ts:80`](../../packages/compact/compact/src/index.ts)
+Source: [`packages/compact/compact/src/index.ts:93`](../../packages/compact/compact/src/index.ts)
 
 ## `ctx.credentials` — `Credentials` (abstract seam)
 
@@ -755,7 +765,7 @@ clear(agent: Agent, ref: GoalRef): GoalRef
 
 Types: [Agent](../core-data-structures/core.md) · [CreateGoalRequest](../core-data-structures/goal.md) · [EditGoalRequest](../core-data-structures/goal.md) · [GoalBlockReason](../core-data-structures/goal.md) · [GoalRef](../core-data-structures/goal.md) · [GoalView](../core-data-structures/goal.md)
 
-Source: [`packages/goal/goal/src/index.ts:197`](../../packages/goal/goal/src/index.ts)
+Source: [`packages/goal/goal/src/index.ts:181`](../../packages/goal/goal/src/index.ts)
 
 ## `ctx.httpServer` — `HttpServerService`
 
@@ -893,15 +903,13 @@ async resolveCallConfig(config: LlmCallConfig, signal?: AbortSignal): Promise<Ll
 async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<PreparedLlmCall>
 
 /**
- * Stream one model call as raw chunks (token-level deltas). Throws
- * `LlmError` with code `NO_ADAPTER` if no adapter is registered for
- * `options.provider`. Replay state is retained only when the same adapter
- * instance owns its historical provider and the target provider. Final
- * adapter selection remains fixed through asynchronous exact-model resolution
- * and dispatch. Selection, dispatch, and iteration failures retain their
- * original Error identity and are tagged in a call-local scope for narrow
- * agent-loop request recovery; middleware and nested-call failures remain
- * untagged for the outer call.
+ * Stream one model call as raw chunks (token-level deltas). Replay state is
+ * retained only when the same adapter instance owns its historical provider
+ * and the target provider. Final adapter selection remains fixed through
+ * asynchronous exact-model resolution and dispatch. Adapter selection,
+ * dispatch, and iteration failures become terminal `error` or `aborted`
+ * finish chunks; middleware, nested-call, cleanup, and consumer failures
+ * remain thrown.
  * @param options - the full request; `options.provider` selects the adapter.
  * @returns the chunk stream, possibly wrapped by `llm/stream` listeners.
  */
@@ -998,7 +1006,7 @@ set(agent: Agent, active: boolean): 'committed' | 'queued' | 'cancelled' | 'noop
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/plan/plan-mode/src/index.ts:182`](../../packages/plan/plan-mode/src/index.ts)
+Source: [`packages/plan/plan-mode/src/index.ts:183`](../../packages/plan/plan-mode/src/index.ts)
 
 ## `ctx.pty` — `PtyService`
 
@@ -1570,7 +1578,7 @@ Persistence is intentionally not implemented here — persistence plugins subscr
  * {@link SessionHeader} (the store fills `version`/`id`/`createdAt`).
  *
  * For an agent whose session must be torn down IN ORDER with its loop (so the
- * loop's final flush is captured before the store attachment ends), do NOT use this
+ * loop's final events are published before the store attachment ends), do NOT use this
  * — fold the session lifecycle into the agent's own effect via
  * {@link prepare} + {@link enter} + {@link announce} (see
  * `dsh-agent-loop`'s creation transaction).
@@ -1591,7 +1599,7 @@ create(id?: SessionId, options?: CreateSessionOptions): Session
  * `ctx.effect` (the agent factory) folds the session lifecycle into that ONE
  * effect so a fiber unload tears the session + agent down as a single ORDERED
  * chain rather than as racing sibling effects — which would remove the publication hooks
- * before the loop's closing `session/flush`, dropping the closing events.
+ * before the driver's closing events commit, dropping them.
  *
  * @param id - the session id; omitted, the store mints `session-<n>`.
  * @param options - seed events and/or creation metadata for the header.
@@ -1638,10 +1646,11 @@ announce(session: Session): void
 /**
  * Dispatch the awaited `session/flush` durability checkpoint for `session`,
  * with the carrier captured at {@link enter}. THE flush entry point: the
- * store owns the carrier, so callers (the loop's turn-end checkpoint, idle
- * injection, teardown drains) must come through here rather than dispatch a
- * raw `ctx.parallel('session/flush', …)` — one owner, one spelling, and the
- * scoped-dispatch invariant can pin it.
+ * store owns the carrier, so callers (the checkpoint policy's per-request
+ * barrier, goal-session's idle checkpoint, teardown drains, and consumers
+ * that flush themselves before reading storage) must come through here
+ * rather than dispatch a raw `ctx.parallel('session/flush', …)` — one owner,
+ * one spelling, and the scoped-dispatch invariant can pin it.
  * @param session - the session whose buffered events must reach durable storage.
  * @returns whether at least one durability listener participated, after every
  *   listener has settled successfully.
@@ -1681,7 +1690,7 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 
 Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [Session](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:796`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:767`](../../packages/core/session/src/index.ts)
 
 ## `ctx.sessionTitle` — `SessionTitleService`
 
@@ -2131,10 +2140,8 @@ Registry service for the prompt inputs assembled before each model step.
 section(section: PromptSection): () => void
 
 /**
- * Register ordered cache-safe dynamic context in the calling context's scope.
- * A scoped context shadows a global context with the same name; duplicates
- * within one layer and non-finite orders throw. Registration and disposal
- * emit `system-prompt/change`.
+ * Register ordered dynamic context in the calling context's scope. Scoped
+ * entries shadow global entries with the same name.
  * @param context - the context contribution to register.
  * @returns the exact Cordis effect disposer.
  */
@@ -2171,7 +2178,7 @@ async assemble(context: AssembleContext = {}): Promise<PromptAssembly>
 
 Types: [AssembleContext](../core-data-structures/system-prompt.md) · [PromptContext](../core-data-structures/system-prompt.md) · [PromptSection](../core-data-structures/system-prompt.md) · [ToolProviderResult](../core-data-structures/system-prompt.md)
 
-Source: [`packages/core/system-prompt/src/index.ts:298`](../../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:290`](../../packages/core/system-prompt/src/index.ts)
 
 ## `ctx.tasks` — `TaskService` (abstract seam)
 

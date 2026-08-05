@@ -15,7 +15,7 @@ import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type { Agent, AgentOptions } from './types.ts'
 
 export * from './types.ts'
-export * from './brand.ts'
+export * from './inbox.ts'
 export * from './llm-target.ts'
 export { agentCarrier, agentEvents, assembleContextFor, emitAgentEvent } from './dispatch.ts'
 export type { AgentEventDispatch, AgentSubjectEvent } from './dispatch.ts'

@@ -32,6 +32,7 @@ const REMOVE = 'Queue item to remove'
 const EDIT = 'Queue item to edit'
 const EDITED = 'Edited queue item'
 const TAIL = 'Queue item preserved after stop'
+const WAKE = 'Wake the preserved queue'
 
 /** Durable turn-end classifications observed by the scenario. */
 function turnEndReasons(events: readonly SessionEvent[]): string[] {
@@ -63,13 +64,13 @@ describe('web e2e: queue row actions', () => {
   it.skipIf(MODE === 'record')('edits and removes exact occurrences and preserves Queue across stop', async () => {
     overrideDir = await mkdtemp(join(tmpdir(), 'dsh-web-queue-actions-'))
     const readyFile = join(overrideDir, '.hang-ready')
-    const nextReadyFile = join(overrideDir, '.next-hang-ready')
     const overridePath = join(overrideDir, 'replay.override.json')
     const recorded = deriveReplayScript(parseSessionLog(await readFile(FIXTURE, 'utf8')))
     expect(recorded).toHaveLength(1)
     const replay: ReplayEntry[] = [
       { kind: 'hang', readyFile },
-      { kind: 'hang', readyFile: nextReadyFile },
+      recorded[0]!,
+      recorded[0]!,
       recorded[0]!,
     ]
     await writeFile(overridePath, JSON.stringify(replay))
@@ -86,7 +87,7 @@ describe('web e2e: queue row actions', () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-queue-actions'))
 
     const input = page.locator('textarea').first()
-    const settled = scaffold.whenTurnSettled()
+    const firstSettled = scaffold.whenTurnSettled()
     await input.fill(ACTIVE_PROMPT)
     await input.press('Enter')
     await expect.poll(() => existsSync(readyFile), { timeout: 15_000 }).toBe(true)
@@ -157,19 +158,24 @@ describe('web e2e: queue row actions', () => {
     ).toBe(2)
 
     await page.getByRole('button', { name: 'Stop generating' }).click()
-    await expect.poll(() => existsSync(nextReadyFile), { timeout: 15_000 }).toBe(true)
-    await page.getByText(TAIL, { exact: true }).waitFor()
+    await firstSettled
+    await expect.poll(() => page.getByRole('button', { name: 'Stop generating' }).count())
+      .toBe(0)
     await expect.poll(() => page.getByRole('button', { name: 'Remove queued message' }).count())
-      .toBe(1)
+      .toBe(2)
 
     const preservedSnapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(PRESERVED_EXPECTED, preservedSnapshot, MODE)
 
-    await page.getByRole('button', { name: 'Stop generating' }).click()
+    const settled = scaffold.whenTurnSettled()
+    await input.fill(WAKE)
+    await input.press('Enter')
     await settled
-    expect(turnEndReasons(sessionEvents)).toEqual(['aborted', 'aborted', 'completed'])
-    expect(sessionEvents.filter(event => event.type === 'user/message' && event.data.source.kind === 'user'))
-      .toHaveLength(3)
+    await expect.poll(() => turnEndReasons(sessionEvents), { timeout: 15_000 })
+      .toEqual(['aborted', 'completed', 'completed', 'completed'])
+    expect(sessionEvents.flatMap(event => event.type === 'user/message' && event.data.source.kind === 'user'
+      ? event.data.content.flatMap(block => block.type === 'text' ? [block.text] : [])
+      : [])).toEqual([ACTIVE_PROMPT, EDITED, TAIL, WAKE])
     await expect.poll(() => page.locator('[data-queue-dock]').count()).toBe(0)
   }, 120_000)
 

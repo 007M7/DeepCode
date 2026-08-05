@@ -28,7 +28,6 @@ function mathFixture(): string {
   const session = Session.create(SessionId('math-rendering-source'))
   session.append('turn/start', {
     turn: 1,
-    trigger: { kind: 'message', source: { kind: 'user' } },
   })
   const user = session.append('user/message', createUserMessage({
     content: [{ type: 'text', text: 'Render this mathematical proof.' }],

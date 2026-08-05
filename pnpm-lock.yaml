@@ -2597,9 +2597,6 @@ importers:
 
   packages/core/agent:
     devDependencies:
-      '@deepseek-ai/dsh-brand':
-        specifier: workspace:^
-        version: link:../../util/brand
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../support/invariants

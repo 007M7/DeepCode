@@ -21,27 +21,6 @@ const install: InvariantInstaller = (ctx, fail) => {
     }
     lastStatus.set(agent, status)
   }, { global: true })
-
-  // Inbox FIFO conservation: an item leaves the inbox (dequeue) or is dropped
-  // (discard) only after it entered (enqueue), so the live outstanding count
-  // per agent can never go negative. Injection bypasses the FIFOs entirely and
-  // never appears on these events.
-  const outstanding = new WeakMap<Agent, number>()
-  ctx.on('agent/inbox/enqueue', (agent) => {
-    outstanding.set(agent, (outstanding.get(agent) ?? 0) + 1)
-  }, { global: true })
-  ctx.on('agent/inbox/dequeue', (agent) => {
-    const count = outstanding.get(agent) ?? 0
-    if (count <= 0) fail('agent/inbox/dequeue without a matching prior enqueue')
-    outstanding.set(agent, count - 1)
-  }, { global: true })
-  ctx.on('agent/inbox/discard', (agent, items) => {
-    const count = outstanding.get(agent) ?? 0
-    if (items.length > count) {
-      fail(`agent/inbox/discard dropped ${items.length} items but only ${count} were outstanding`)
-    }
-    outstanding.set(agent, count - items.length)
-  }, { global: true })
 }
 
 /**
