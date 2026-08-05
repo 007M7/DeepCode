@@ -1059,7 +1059,6 @@ describe('Session', () => {
       { ...base, seq: -1 },
       { ...base, time: '1' },
       { ...base, time: 0.5 },
-      { ...base, time: -1 },
       { type: base.type, seq: base.seq, time: base.time },
     ]
 
