@@ -70,7 +70,7 @@ import type {
 } from '@deepseek-ai/dsh-user-interaction'
 import { UserInteractionError } from '@deepseek-ai/dsh-user-interaction'
 import { DirectoryPickerError } from '@deepseek-ai/dsh-host-directory-picker'
-import { openNativePath } from './native-path-opener.ts'
+import { openNativePath, openNativeTextFile } from './native-path-opener.ts'
 
 /** Page size when history is called without maxMessages. */
 const DEFAULT_MAX_MESSAGES = 50
@@ -339,6 +339,8 @@ export interface ApiProxyDefaults {
   workspaceRoot: string
   /** Native open-with-default-application; injectable for carrier tests. */
   openPath?: (path: string, signal: AbortSignal) => Promise<void>
+  /** Native text-editor handoff; injectable for settings-document tests. */
+  openTextFile?: (path: string, signal: AbortSignal) => Promise<void>
 }
 
 /** The tool/call payload fields the presenter path reads. */
@@ -1385,6 +1387,48 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     return { code: 'internal', message: 'settings service is absent: this deployment does not mount a settings provider (e.g. @deepseek-ai/dsh-settings-local) in its composition', details: {} }
   }
 
+  /** Open one Host-resolved target and map native failures onto the wire vocabulary. */
+  async function openTarget(
+    request: RpcRequest<unknown>, path: string, signal: AbortSignal,
+    open: (path: string, signal: AbortSignal) => Promise<void>,
+  ): Promise<RpcResponse<{ opened: true }>> {
+    try {
+      await open(path, signal)
+      return ok(request, { opened: true as const })
+    } catch (error: unknown) {
+      if (signal.aborted) {
+        return err(request, {
+          code: 'cancelled',
+          message: 'path open was aborted',
+          details: {},
+        })
+      }
+      return err(request, {
+        code: 'internal',
+        message: `path open failed: ${error instanceof Error ? error.message : String(error)}`,
+        details: {},
+      })
+    }
+  }
+
+  /** Open one Host-resolved path with its default application. */
+  function openPath(
+    request: RpcRequest<unknown>, path: string, signal: AbortSignal,
+  ): Promise<RpcResponse<{ opened: true }>> {
+    const open = defaults.openPath
+      ?? ((target: string, openSignal: AbortSignal) => openNativePath(target, openSignal))
+    return openTarget(request, path, signal, open)
+  }
+
+  /** Open one Host-resolved text document in a native editor. */
+  function openTextFile(
+    request: RpcRequest<unknown>, path: string, signal: AbortSignal,
+  ): Promise<RpcResponse<{ opened: true }>> {
+    const open = defaults.openTextFile
+      ?? ((target: string, openSignal: AbortSignal) => openNativeTextFile(target, openSignal))
+    return openTarget(request, path, signal, open)
+  }
+
   /** Missing-service report shared by the credentials domain. */
   function credentialsAbsent(): RpcError {
     return { code: 'internal', message: 'credentials service is absent: this deployment does not mount a credential provider (e.g. @deepseek-ai/dsh-credentials-local) in its composition', details: {} }
@@ -2263,25 +2307,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       },
 
       async openPath(request, signal) {
-        try {
-          const open = defaults.openPath
-            ?? ((path: string, openSignal: AbortSignal) => openNativePath(path, openSignal))
-          await open(request.payload.path, signal)
-          return ok(request, { opened: true as const })
-        } catch (error: unknown) {
-          if (signal.aborted) {
-            return err(request, {
-              code: 'cancelled',
-              message: 'path open was aborted',
-              details: {},
-            })
-          }
-          return err(request, {
-            code: 'internal',
-            message: `path open failed: ${error instanceof Error ? error.message : String(error)}`,
-            details: {},
-          })
-        }
+        return openPath(request, request.payload.path, signal)
       },
     },
 
@@ -2428,10 +2454,54 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const exposed = exposedNamespaces()
         return Promise.resolve(ok(request, {
           writable: settings.writable,
+          hasDocument: settings.documentPath !== undefined,
           namespaces: settings.describe({ redactSecrets: true })
             .filter(descriptor => exposed.has(String(descriptor.ns)))
             .map(namespaceView),
         }))
+      },
+      async openDocument(request, signal) {
+        const settings = ctx.get('settings')
+        if (settings === undefined) return err(request, settingsAbsent())
+        if (isAborted(signal)) {
+          return err(request, {
+            code: 'cancelled',
+            message: 'settings document open was aborted',
+            details: {},
+          })
+        }
+        let path: string | undefined
+        try {
+          path = await settings.prepareDocument()
+        } catch (error: unknown) {
+          if (isAborted(signal)) {
+            return err(request, {
+              code: 'cancelled',
+              message: 'settings document preparation was aborted',
+              details: {},
+            })
+          }
+          return err(request, {
+            code: 'internal',
+            message: `settings document preparation failed: ${error instanceof Error ? error.message : String(error)}`,
+            details: {},
+          })
+        }
+        if (path === undefined) {
+          return err(request, {
+            code: 'internal',
+            message: 'settings provider has no local document to open',
+            details: {},
+          })
+        }
+        if (isAborted(signal)) {
+          return err(request, {
+            code: 'cancelled',
+            message: 'settings document open was aborted',
+            details: {},
+          })
+        }
+        return openTextFile(request, path, signal)
       },
       update: request => settingsWrite(request, request.payload.ns, 'update', request.payload.patch, request.payload.expectedRevision),
       replace: request => settingsWrite(request, request.payload.ns, 'replace', request.payload.section, request.payload.expectedRevision),

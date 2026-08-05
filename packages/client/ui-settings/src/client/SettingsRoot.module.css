@@ -167,10 +167,20 @@
   flex: none;
   display: flex;
   align-items: flex-start;
-  justify-content: flex-end;
+  justify-content: space-between;
+  gap: 8px;
   height: 54px;
   padding: 20px 14px 8px 10px;
   box-sizing: border-box;
+}
+
+.actions {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-left: auto;
 }
 
 /* Close button (figma .Icon_container 501:29982): 28x28, r28, 14px glyph. */
