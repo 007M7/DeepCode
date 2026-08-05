@@ -17,6 +17,7 @@ import type {
   TrajectoryCellProps,
   TrajectorySourceBlock,
 } from './trajectory-record.ts'
+import { formatElapsedSeconds } from './trajectory-record.ts'
 
 /** One Message or Step group inside a turn. */
 export interface TrajectoryGroupModel {
@@ -603,9 +604,7 @@ function groupDescription(laid: readonly LaidCell[]): string | undefined {
 
 function formatGroupDuration(seconds: number): string | undefined {
   if (!Number.isFinite(seconds)) return undefined
-  const rounded = Math.round(seconds * 10) / 10
-  if (Number.isInteger(rounded)) return `${rounded} s`
-  return `${rounded.toFixed(1)} s`
+  return formatElapsedSeconds(seconds)
 }
 
 /** Own-duration seconds from two epoch-ms stamps; null when either is unusable. */

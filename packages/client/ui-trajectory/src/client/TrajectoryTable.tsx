@@ -270,6 +270,15 @@ function formatStartedAt(timestamp: number | null): string {
   return `${day} ${time}`
 }
 
+/** Whether a click lands on an active text selection and should keep it. */
+function clickSelectsText(target: Node): boolean {
+  const selection = window.getSelection()
+  return selection !== null
+    && !selection.isCollapsed
+    && selection.rangeCount > 0
+    && selection.getRangeAt(0).intersectsNode(target)
+}
+
 function StartedAtValue({ timestamp }: { timestamp: number | null }) {
   const [showUnix, setShowUnix] = useState(false)
   if (timestamp === null || !Number.isFinite(timestamp)) return <dd>Not available</dd>
@@ -280,17 +289,31 @@ function StartedAtValue({ timestamp }: { timestamp: number | null }) {
         className={css.timestampToggle}
         title={showUnix ? 'Show local time' : 'Show Unix timestamp'}
         onClick={(event) => {
-          const selection = window.getSelection()
-          if (
-            selection !== null
-            && !selection.isCollapsed
-            && selection.rangeCount > 0
-            && selection.getRangeAt(0).intersectsNode(event.currentTarget)
-          ) return
+          if (clickSelectsText(event.currentTarget)) return
           setShowUnix(current => !current)
         }}
       >
         {showUnix ? (timestamp / 1_000).toFixed(3) : formatStartedAt(timestamp)}
+      </button>
+    </dd>
+  )
+}
+
+function DurationValue({ seconds }: { seconds: number | null }) {
+  const [showMillis, setShowMillis] = useState(false)
+  if (seconds === null || !Number.isFinite(seconds)) return <dd>—</dd>
+  return (
+    <dd>
+      <button
+        type="button"
+        className={css.timestampToggle}
+        title={showMillis ? 'Show readable duration' : 'Show exact milliseconds'}
+        onClick={(event) => {
+          if (clickSelectsText(event.currentTarget)) return
+          setShowMillis(current => !current)
+        }}
+      >
+        {showMillis ? `${Math.round(seconds * 1000)} ms` : formatElapsedSeconds(seconds)}
       </button>
     </dd>
   )
@@ -1353,7 +1376,7 @@ function RecordTiming({ record }: { record: TableRecord }) {
     : (
       <dl className={css.overview}>
         <div><dt>Started</dt><StartedAtValue timestamp={record.cell.startedAt ?? null} /></div>
-        <div><dt>Duration</dt><dd>{formatElapsedSeconds(record.cell.timeSeconds)}</dd></div>
+        <div><dt>Duration</dt><DurationValue seconds={record.cell.timeSeconds} /></div>
         <div><dt>Timing source</dt><dd>{record.cell.timeSeconds === null ? 'Not available' : 'Session timestamps'}</dd></div>
       </dl>
     )
@@ -1376,7 +1399,7 @@ function RequestTiming({
     return (
       <dl className={css.overview}>
         <div><dt>Started</dt><StartedAtValue timestamp={request.startedAt} /></div>
-        <div><dt>Duration</dt><dd>{formatElapsedSeconds(duration)}</dd></div>
+        <div><dt>Duration</dt><DurationValue seconds={duration} /></div>
         <div>
           <dt>Timing source</dt>
           <dd>{duration === null ? 'Session timestamps (running)' : 'Session timestamps'}</dd>
@@ -1390,7 +1413,7 @@ function RequestTiming({
         <dt>Started</dt>
         <StartedAtValue timestamp={anchor?.cell.startedAt ?? null} />
       </div>
-      <div><dt>Duration</dt><dd>—</dd></div>
+      <div><dt>Duration</dt><DurationValue seconds={null} /></div>
     </dl>
   )
 }
@@ -1574,7 +1597,12 @@ function OverviewSection({
           <IconChevronRightOutline14 className={css.overviewTitleIcon} size={12} />
         </button>
       </h3>
-      <div className={css.overviewPreview}>{children}</div>
+      <div
+        className={`${css.overviewPreview} ${css.summaryScrollRegion}`}
+        data-summary-scroll-region=""
+      >
+        {children}
+      </div>
     </section>
   )
 }
@@ -2563,7 +2591,10 @@ export function TrajectoryTable({
               && selectedRequestState !== undefined
               && activeTab === 'overview' && (
               <>
-                <dl className={css.overview}>
+                <dl
+                  className={`${css.overview} ${css.summaryScrollRegion}`}
+                  data-summary-scroll-region=""
+                >
                   <div>
                     <dt>Status</dt>
                     <dd className={selectedRequestState === 'error' ? css.error : undefined}>
@@ -2714,7 +2745,10 @@ export function TrajectoryTable({
               && selectedState !== undefined
               && activeTab === 'overview' && (
               <>
-                <dl className={css.overview}>
+                <dl
+                  className={`${css.overview} ${css.summaryScrollRegion}`}
+                  data-summary-scroll-region=""
+                >
                   <div>
                     <dt>Status</dt>
                     <dd className={selectedState === 'error' ? css.error : undefined}>
@@ -2723,7 +2757,7 @@ export function TrajectoryTable({
                   </div>
                   <div>
                     <dt>Duration</dt>
-                    <dd>{formatElapsedSeconds(selected.cell.timeSeconds)}</dd>
+                    <DurationValue seconds={selected.cell.timeSeconds} />
                   </div>
                   <div>
                     <dt>Tokens</dt>
@@ -2731,7 +2765,10 @@ export function TrajectoryTable({
                   </div>
                 </dl>
                 {selected.cell.outputDetail !== undefined && (
-                  <div className={css.compactedSummary}>
+                  <div
+                    className={`${css.compactedSummary} ${css.summaryScrollRegion}`}
+                    data-summary-scroll-region=""
+                  >
                     <MarkdownRecordContent
                       record={selected}
                       rendered
@@ -2749,7 +2786,10 @@ export function TrajectoryTable({
               && selectedState !== undefined
               && activeTab === 'overview' && (
               <>
-                <dl className={css.overview}>
+                <dl
+                  className={`${css.overview} ${css.summaryScrollRegion}`}
+                  data-summary-scroll-region=""
+                >
                   {selected.cell.messageSource !== undefined && (
                     <div>
                       <dt>Origin</dt>
@@ -2832,7 +2872,7 @@ export function TrajectoryTable({
                   {(selected.cell.kind === 'user' || selected.cell.kind === 'context') && (
                     <div>
                       <dt>Duration</dt>
-                      <dd>{formatElapsedSeconds(selected.cell.timeSeconds)}</dd>
+                      <DurationValue seconds={selected.cell.timeSeconds} />
                     </div>
                   )}
                 </dl>

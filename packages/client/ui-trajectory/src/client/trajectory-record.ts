@@ -106,12 +106,14 @@ export function trajectoryRecordId(cell: TrajectoryCellProps): string {
 }
 
 /**
- * Format own-duration for the trailing time column.
+ * Format a duration with a precision that matches its magnitude.
  * @param seconds - Duration seconds, or `null` when absent.
- * @returns `—` when unknown, otherwise a seconds label.
+ * @returns `—` when unknown, otherwise an integer-millisecond label
+ * below one second and a tenth-of-a-second label at or above it.
  */
 export function formatElapsedSeconds(seconds: number | null): string {
   if (seconds === null || !Number.isFinite(seconds)) return '—'
+  if (seconds < 1) return `${Math.round(seconds * 1000)} ms`
   const rounded = Math.round(seconds * 10) / 10
   if (Number.isInteger(rounded)) return `${rounded} s`
   return `${rounded.toFixed(1)} s`

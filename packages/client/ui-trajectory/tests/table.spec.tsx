@@ -97,6 +97,31 @@ describe('TrajectoryTable', () => {
     expect(screen.getByText('20.0 tok/s')).toBeTruthy()
   })
 
+  it('toggles a tool record Duration between readable and exact milliseconds', () => {
+    const turns: readonly TrajectoryTurnModel[] = [{
+      turn: 1,
+      groups: [{
+        title: 'Step 1',
+        cells: [{
+          index: 1,
+          kind: 'tool',
+          text: 'bash · {"command":"pwd"}',
+          inputDetail: '{"command":"pwd"}',
+          timeSeconds: 1.5,
+        }],
+      }],
+    }]
+
+    render(<TrajectoryTable turns={turns} {...FOLD_PROPS} />)
+    fireEvent.click(screen.getByRole('row', { name: /TOOL/ }))
+
+    const readable = screen.getByRole('button', { name: '1.5 s' })
+    fireEvent.click(readable)
+    expect(screen.getByRole('button', { name: '1500 ms' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '1500 ms' }))
+    expect(screen.getByRole('button', { name: '1.5 s' })).toBeTruthy()
+  })
+
   it('breaks output tokens into labeled reasoning and content rows', () => {
     render(<TrajectoryTable turns={TURNS} {...FOLD_PROPS} />)
     fireEvent.click(screen.getByRole('row', { name: /ASSISTANT/ }))

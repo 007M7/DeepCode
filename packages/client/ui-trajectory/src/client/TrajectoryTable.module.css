@@ -1096,7 +1096,6 @@
   margin: 0;
   overflow: hidden;
   color: var(--dsw-alias-label-primary);
-  font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1106,7 +1105,6 @@
   color: inherit;
   cursor: pointer;
   font: inherit;
-  font-variant-numeric: tabular-nums;
   user-select: text;
 }
 
