@@ -48,6 +48,26 @@ function appendUser(session: Session, text: string): number {
   }), { surfaceOp: 'append' }).seq
 }
 
+/**
+ * Meter one upcoming replacement the way compact-basic does: price the
+ * replaced span from the measurement service's own nodes and log the
+ * shadow-price event directly before the replace.
+ */
+function appendSummaryMeter(ctx: Context, session: Session, start: number, end: number): void {
+  const nodes = ctx.tokenMeter.measure(session).nodes
+  const startIdx = nodes.findIndex(node => node.seq === start)
+  const endIdx = nodes.findIndex(node => node.seq === end)
+  const shadowed = nodes.slice(startIdx, endIdx + 1)
+  session.append('compact/summary', {
+    summary: [{ type: 'text', text: 'summary' }],
+    shadowedRange: { start, end },
+    shadowedSeqs: shadowed.map(node => node.seq),
+    shadowedTokenCount: shadowed.reduce((total, node) => total + node.tokens, 0),
+    provider: 'mock',
+    model: 'mock',
+  })
+}
+
 describe('contextBreakdown session projection', () => {
   it('serves zeros for an empty log', async () => {
     const { ctx, session } = await harness()
@@ -100,7 +120,7 @@ describe('contextBreakdown session projection', () => {
     expect(projected(ctx, session).messageTokens).toBe(9)
   })
 
-  it('shrinks the message figure when a replacement compacts the surface', async () => {
+  it('shrinks the message figure when a metered replacement compacts the surface', async () => {
     const { ctx, session } = await harness()
     const first = appendUser(session, 'before compaction, a longer message')
     const second = appendUser(session, 'and a second entry')
@@ -108,6 +128,7 @@ describe('contextBreakdown session projection', () => {
       content: [{ type: 'text', text: 'summary' }],
       source: { kind: 'plugin', plugin: 'test' },
     })
+    appendSummaryMeter(ctx, session, first, second)
     session.append('user/message', summary, {
       surfaceOp: { op: 'replace', start: first, end: second },
       sourceEventSeqs: [first, second],
@@ -146,6 +167,9 @@ describe('contextBreakdown session projection', () => {
     const grown = agree()
     expect(grown).toBeGreaterThan(0)
 
+    appendSummaryMeter(ctx, session, question, answer)
+    // The armed shadow price must not move the published figure by itself.
+    expect(agree()).toBe(grown)
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'summary' }],
       source: { kind: 'plugin', plugin: 'test' },
@@ -156,7 +180,7 @@ describe('contextBreakdown session projection', () => {
     expect(agree()).toBeLessThan(grown)
   })
 
-  it('fails loud on a replace range absent from the folded surface', () => {
+  it('fails loud on a replacement without an adjacent matching shadow price', () => {
     const definition = contextBreakdownProjectionDefinition
     const replace = (start: number, end: number): SessionEvent => ({
       type: 'user/message',
@@ -173,12 +197,59 @@ describe('contextBreakdown session projection', () => {
       data: createUserMessage({ content: [{ type: 'text', text: 'x' }], source: { kind: 'user' } }),
       surfaceOp: 'append',
     } as unknown as SessionEvent)
+    const meter = (start: number, end: number, seq: number): SessionEvent => ({
+      type: 'compact/prune',
+      seq,
+      time: 0,
+      data: { shadowedRange: { start, end }, shadowedSeqs: [start, end], shadowedTokenCount: 5 },
+    } as unknown as SessionEvent)
     let state = definition.init()
     state = definition.apply(state, append(1))
     state = definition.apply(state, append(3))
-    expect(() => definition.apply(state, replace(7, 3))).toThrow('invalid current range')
-    expect(() => definition.apply(state, replace(1, 7))).toThrow('invalid current range')
-    expect(() => definition.apply(state, replace(3, 1))).toThrow('invalid current range')
+    // No metering event at all.
+    expect(() => definition.apply(state, replace(1, 3))).toThrow('no adjacent shadow price')
+    // A claim for a different range does not price this replacement.
+    const mismatched = definition.apply(state, meter(1, 1, 8))
+    expect(() => definition.apply(mismatched, replace(1, 3))).toThrow('no adjacent shadow price')
+    // A claim expires after one intervening event instead of lingering.
+    let expired = definition.apply(state, meter(1, 3, 8))
+    expired = definition.apply(expired, { type: 'todo/write', seq: 9, time: 0, data: { todos: [] } } as unknown as SessionEvent)
+    expect(() => definition.apply(expired, replace(1, 3))).toThrow('no adjacent shadow price')
+    // The armed claim prices exactly the next event's matching replacement.
+    const armed = definition.apply(state, meter(1, 3, 8))
+    expect(definition.view(definition.apply(armed, replace(1, 3))).messageTokens)
+      .toBe(definition.view(state).messageTokens - 5 + estimateMessage(
+        createUserMessage({ content: [{ type: 'text', text: 'x' }], source: { kind: 'user' } }),
+      ))
+  })
+
+  it('keeps the persisted checkpoint O(1) as the surface grows and compacts', async () => {
+    const { ctx, session } = await harness()
+    const first = appendUser(session, 'the first of many messages')
+    for (let index = 0; index < 24; index += 1) appendUser(session, `message number ${index} with some text`)
+    const last = appendUser(session, 'the last message before compaction')
+    const stateKeys = (): string[] => {
+      const row = ctx.sessionProjections.checkpoint(session)['contextBreakdown']
+      if (row === undefined) throw new Error('contextBreakdown checkpoint row is missing')
+      return Object.keys(row.val as Record<string, unknown>).sort()
+    }
+    // Growth adds no per-node bookkeeping to the durable state.
+    expect(stateKeys()).toEqual(['messageTokens', 'systemTokens', 'toolsTokens'])
+    const shadowed = session.surface.nodes.slice(
+      session.surface.nodes.indexOf(first),
+      session.surface.nodes.indexOf(last) + 1,
+    )
+    appendSummaryMeter(ctx, session, first, last)
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'summary' }],
+      source: { kind: 'plugin', plugin: 'test' },
+    }), {
+      surfaceOp: { op: 'replace', start: first, end: last },
+      sourceEventSeqs: [...shadowed],
+    })
+    expect(stateKeys()).toEqual(['messageTokens', 'systemTokens', 'toolsTokens'])
+    expect(projected(ctx, session).messageTokens)
+      .toBe(ctx.tokenMeter.measure(session).surfaceTokens)
   })
 
   it('restores from a JSON checkpoint and unregisters with the token-meter fiber', async () => {

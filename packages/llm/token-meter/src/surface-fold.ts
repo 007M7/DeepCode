@@ -1,10 +1,11 @@
 /**
- * The one positional surface fold, shared by the measurement service's replay
- * state and the pure `contextBreakdown` projection. Both answer "what does the
- * current model-visible conversation cost", so they MUST price and place every
- * node identically: a private copy in either owner would let the panel's
- * message figure drift away from `measure().surfaceTokens` with both sides
- * still passing their own tests.
+ * The measurement service's positional surface fold: the per-node priced
+ * surface `measure()` serves and compaction plans against. The projection
+ * units deliberately do NOT share this fold — their state must stay O(1)
+ * for the persisted checkpoint, so they ride `surface-projection.ts`'s
+ * shadow-price protocol instead. The two stay in agreement by construction:
+ * both price through `estimate.ts`, and every logged shadow price is derived
+ * from THIS fold's nodes by the replace producer.
  *
  * @module @deepseek-ai/dsh-token-meter/surface-fold
  */

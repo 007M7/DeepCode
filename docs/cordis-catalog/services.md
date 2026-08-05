@@ -2358,7 +2358,10 @@ pruneContent(blocks: readonly ContentBlock[]): ContentBlock[] | null
 /**
  * Prune every over-budget tool result from one stable current-surface snapshot.
  * Each replacement preserves the complete event data except for `content`,
- * and points at the shadowed node for durable provenance and replay.
+ * points at the shadowed node for durable provenance and replay, and is
+ * immediately preceded by a `compact/prune` shadow-price event pricing the
+ * shadowed node through the injected token meter, so pure consumers can
+ * subtract it without per-node state.
  * @param session - session whose current surface is rewritten.
  * @returns landed replacements and aggregate Unicode-code-point savings.
  * @throws when the session rejects a replacement; replacements committed
@@ -2369,7 +2372,7 @@ pruneSession(session: Session): PruneResult
 
 Types: [ContentBlock](../core-data-structures/core.md) · [PruneResult](../core-data-structures/compaction.md) · [Session](../core-data-structures/session.md)
 
-Source: [`packages/compact/compact-tool-result-prune/src/index.ts:40`](../../packages/compact/compact-tool-result-prune/src/index.ts)
+Source: [`packages/compact/compact-tool-result-prune/src/index.ts:44`](../../packages/compact/compact-tool-result-prune/src/index.ts)
 
 ## `ctx.tools` — `ToolRegistry`
 

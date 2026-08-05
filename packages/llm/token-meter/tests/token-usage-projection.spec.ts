@@ -70,6 +70,26 @@ const projected = (ctx: Context, session: Session): TokenUsageProjection => {
   return value
 }
 
+/**
+ * Meter one upcoming replacement the way compact-basic does: price the
+ * replaced span from the measurement service's own nodes and log the
+ * shadow-price event directly before the replace.
+ */
+function appendSummaryMeter(ctx: Context, session: Session, start: number, end: number): void {
+  const nodes = ctx.tokenMeter.measure(session).nodes
+  const startIdx = nodes.findIndex(node => node.seq === start)
+  const endIdx = nodes.findIndex(node => node.seq === end)
+  const shadowed = nodes.slice(startIdx, endIdx + 1)
+  session.append('compact/summary', {
+    summary: [{ type: 'text', text: 'summary' }],
+    shadowedRange: { start, end },
+    shadowedSeqs: shadowed.map(node => node.seq),
+    shadowedTokenCount: shadowed.reduce((total, node) => total + node.tokens, 0),
+    provider: 'mock',
+    model: 'mock',
+  })
+}
+
 describe('tokenUsage session projection', () => {
   it('serves zero buckets for an empty log', async () => {
     const { ctx, session } = await harness()
@@ -184,6 +204,7 @@ describe('tokenUsage session projection', () => {
       content: [{ type: 'text', text: 'before compaction' }],
       source: { kind: 'user' },
     }), { surfaceOp: 'append' })
+    appendSummaryMeter(ctx, session, before.seq, before.seq)
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'compacted' }],
       source: { kind: 'plugin', plugin: 'test' },
@@ -351,7 +372,7 @@ describe('contextPressure session projection', () => {
     const checkpoint = JSON.parse(JSON.stringify(
       ctx.sessionProjections.checkpoint(session),
     )) as ReturnType<typeof ctx.sessionProjections.checkpoint>
-    expect(checkpoint.contextPressure?.ver).toBe(3)
+    expect(checkpoint.contextPressure?.ver).toBe(4)
 
     await meterFiber.dispose()
     expect(ctx.sessionProjections.snapshot(session).values).not.toHaveProperty('contextPressure')
@@ -385,6 +406,7 @@ describe('contextPressure session projection', () => {
 
     // Compaction reports no usage of its own, so `pressureTokens` cannot move;
     // the projected figure must shrink anyway — the defect this field fixes.
+    appendSummaryMeter(ctx, session, question, grown)
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'summary' }],
       source: { kind: 'plugin', plugin: 'test' },
@@ -406,6 +428,7 @@ describe('contextPressure session projection', () => {
     // shadowing that span subtracts more than the sample holds.
     appendAssistant(session, 'ok', { inputTokens: 3, outputTokens: 1 }, 1, 1)
     session.append('step/end', { turn: 1, step: 1 })
+    appendSummaryMeter(ctx, session, question, question)
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: '.' }],
       source: { kind: 'plugin', plugin: 'test' },

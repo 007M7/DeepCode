@@ -6,11 +6,11 @@
  */
 
 import { z } from 'zod'
-import { canonicalHeader, isSurfaceEvent } from '@deepseek-ai/dsh-session'
+import { canonicalHeader } from '@deepseek-ai/dsh-session'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
-import type { TokenSurfaceNode } from './types.ts'
 import { estimateSystemTokens, estimateToolsTokens } from './estimate.ts'
-import { foldSurfaceTokens } from './surface-fold.ts'
+import { foldSurfaceProjection } from './surface-projection.ts'
+import type { ShadowPriceClaim } from './surface-projection.ts'
 // Import for the `contextBreakdown` SessionProjectionMap key merge.
 import type {} from './projection.ts'
 
@@ -18,8 +18,8 @@ interface ContextBreakdownState {
   systemTokens: number
   toolsTokens: number
   messageTokens: number
-  /** Priced surface nodes (plain JSON for the persisted projection cache). */
-  surface: TokenSurfaceNode[]
+  /** Shadow price armed by the immediately preceding metering event. */
+  claim?: ShadowPriceClaim
 }
 
 const breakdownSchema = z.object({
@@ -32,31 +32,38 @@ const breakdownSchema = z.object({
  * Token-meter's context-composition projection unit.
  *
  * Envelope figures are last-wins per `request/header`; the message figure
- * rides {@link foldSurfaceTokens} — the same fold the measurement service
- * replays — so it equals `measure().surfaceTokens` at every event boundary and
- * compaction shrinks it the way it shrinks the next request.
+ * rides {@link foldSurfaceProjection} — the same O(1) fold the occupancy
+ * projection uses — so it equals `measure().surfaceTokens` at every event
+ * boundary and compaction shrinks it by its logged shadow price, the way it
+ * shrinks the next request. The state is a fixed handful of numbers, so the
+ * persisted checkpoint stays O(1) over the session's life.
  */
 export const contextBreakdownProjectionDefinition:
 ProjectionDefinition<'contextBreakdown', ContextBreakdownState> = {
   key: 'contextBreakdown',
   schema: breakdownSchema,
-  init: () => ({ systemTokens: 0, toolsTokens: 0, messageTokens: 0, surface: [] }),
+  init: () => ({ systemTokens: 0, toolsTokens: 0, messageTokens: 0 }),
   apply: (state, event) => {
+    const fold = foldSurfaceProjection(state.claim, event)
+    let systemTokens = state.systemTokens
+    let toolsTokens = state.toolsTokens
     if (event.type === 'request/header') {
       const header = canonicalHeader(event.data.header)
-      const systemTokens = estimateSystemTokens(header)
-      const toolsTokens = estimateToolsTokens(header)
-      if (systemTokens === state.systemTokens && toolsTokens === state.toolsTokens) return state
-      return { ...state, systemTokens, toolsTokens }
+      systemTokens = estimateSystemTokens(header)
+      toolsTokens = estimateToolsTokens(header)
     }
-    if (!isSurfaceEvent(event)) return state
-    const fold = foldSurfaceTokens(state.surface, event)
+    if (systemTokens === state.systemTokens
+      && toolsTokens === state.toolsTokens
+      && fold.deltaTokens === 0
+      && fold.claim === undefined
+      && state.claim === undefined) return state
     return {
-      ...state,
+      systemTokens,
+      toolsTokens,
       messageTokens: state.messageTokens + fold.deltaTokens,
-      surface: fold.nodes,
+      ...fold.claim === undefined ? {} : { claim: fold.claim },
     }
   },
   view: ({ systemTokens, toolsTokens, messageTokens }) => ({ systemTokens, toolsTokens, messageTokens }),
-  stateVersion: 1,
+  stateVersion: 2,
 }

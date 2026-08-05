@@ -405,6 +405,8 @@ Source: [`packages/compact/compact-basic/src/types.ts:38`](../packages/compact/c
 
 ## `@deepseek-ai/dsh-compact-tool-result-prune`
 
+Requires: `tokenMeter`
+
 ```ts config-catalog
 /** Character-budget policy for deterministic tool-result pruning. */
 export interface ToolResultPruneConfig {

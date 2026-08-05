@@ -4,12 +4,11 @@
 
 import { z } from 'zod'
 import type { TokenUsage } from '@deepseek-ai/dsh-llm'
-import { isSurfaceEvent } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 import type { ContextPressureProjection, TokenUsageProjection } from './projection.ts'
-import type { TokenSurfaceNode } from './types.ts'
-import { foldSurfaceTokens } from './surface-fold.ts'
+import { foldSurfaceProjection } from './surface-projection.ts'
+import type { ShadowPriceClaim } from './surface-projection.ts'
 
 interface UsageSample {
   turn: number
@@ -82,18 +81,24 @@ const usageOf = (event: SessionEvent): TokenUsage | undefined =>
 
 /**
  * Context-occupancy state: the two independent last-wins records plus the
- * priced surface needed to carry the newest sample forward.
+ * O(1) running surface total needed to carry the newest sample forward.
  */
 interface ContextPressureState {
   contextWindow?: number
   pressureTokens?: number
-  /** Priced surface, folded identically to the measurement service's. */
-  surface: TokenSurfaceNode[]
-  /** Summed heuristic tokens over {@link surface}. */
+  /** Running heuristic total over the current surface ({@link foldSurfaceProjection}). */
   surfaceTokens: number
   /** {@link surfaceTokens} at the newest usage sample; absent until one lands. */
   sampledSurfaceTokens?: number
+  /** Shadow price armed by the immediately preceding metering event. */
+  claim?: ShadowPriceClaim
 }
+
+/** Whether two optional shadow-price claims price the same range identically. */
+const claimEquals = (left: ShadowPriceClaim | undefined, right: ShadowPriceClaim | undefined): boolean =>
+  left === right
+  || (left !== undefined && right !== undefined
+    && left.start === right.start && left.end === right.end && left.tokens === right.tokens)
 
 /**
  * Token-meter's session projection unit.
@@ -152,26 +157,33 @@ ProjectionDefinition<'tokenUsage', TokenUsageState> = {
  * `pressureTokens` is prompt-side only, so it holds still while a turn streams
  * and steps forward once the next request reports its usage. Because nothing
  * but a request reports usage, it also cannot see a compaction: the fold
- * therefore carries the priced surface alongside it and publishes
+ * therefore carries a running surface total alongside it and publishes
  * `projectedTokens` — the sample plus the surface's signed movement since it
  * was taken — so occupancy answers for the next request rather than the last
- * one. A usage sample is stamped BEFORE the same event joins the surface, so
- * an `assistant/message` anchors against the surface its own request saw.
+ * one. The total rides {@link foldSurfaceProjection}, so the state stays O(1)
+ * and a replacement shrinks it by its logged shadow price. A usage sample is
+ * stamped BEFORE the same event joins the surface, so an `assistant/message`
+ * anchors against the surface its own request saw.
  */
 export const contextPressureProjectionDefinition:
 ProjectionDefinition<'contextPressure', ContextPressureState> = {
   key: 'contextPressure',
   schema: pressureSchema,
-  init: () => ({ surface: [], surfaceTokens: 0 }),
+  init: () => ({ surfaceTokens: 0 }),
   apply: (state, event) => {
+    const fold = foldSurfaceProjection(state.claim, event)
+    let next = state
     if (event.type === 'request/context') {
       const contextWindow = event.data.contextWindow
-      if (contextWindow === state.contextWindow) return state
-      if (contextWindow !== undefined) return { ...state, contextWindow }
-      const { contextWindow: _removed, ...withoutContextWindow } = state
-      return withoutContextWindow
+      if (contextWindow !== state.contextWindow) {
+        if (contextWindow !== undefined) {
+          next = { ...next, contextWindow }
+        } else {
+          const { contextWindow: _removed, ...withoutContextWindow } = next
+          next = withoutContextWindow
+        }
+      }
     }
-    let next = state
     const usage = usageOf(event)
     if (usage !== undefined) {
       const pressureTokens = pressureFrom(usage)
@@ -179,9 +191,12 @@ ProjectionDefinition<'contextPressure', ContextPressureState> = {
         next = { ...next, pressureTokens, sampledSurfaceTokens: next.surfaceTokens }
       }
     }
-    if (!isSurfaceEvent(event)) return next
-    const fold = foldSurfaceTokens(next.surface, event)
-    return { ...next, surface: fold.nodes, surfaceTokens: next.surfaceTokens + fold.deltaTokens }
+    if (fold.deltaTokens !== 0) {
+      next = { ...next, surfaceTokens: next.surfaceTokens + fold.deltaTokens }
+    }
+    if (claimEquals(state.claim, fold.claim)) return next
+    const { claim: _expired, ...withoutClaim } = next
+    return fold.claim === undefined ? withoutClaim : { ...withoutClaim, claim: fold.claim }
   },
   view: ({ contextWindow, pressureTokens, surfaceTokens, sampledSurfaceTokens }) => ({
     ...contextWindow === undefined ? {} : { contextWindow },
@@ -190,5 +205,5 @@ ProjectionDefinition<'contextPressure', ContextPressureState> = {
       ? {}
       : { projectedTokens: Math.max(0, pressureTokens + surfaceTokens - sampledSurfaceTokens) },
   }),
-  stateVersion: 3,
+  stateVersion: 4,
 }
