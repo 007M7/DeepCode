@@ -191,6 +191,11 @@
   flex-direction: column;
   min-height: 0;
   overflow-y: auto;
+  /* Reserved unconditionally: the composer seat rides this box's content box in
+     Chat and its padding box under a view's composer overlay, so an `auto`
+     gutter moves the input card sideways by the bar's width whenever the two
+     differ ([decision](../../../../../../.agents/notes/implemented/bug-fix/2026-08-04-composer-tab-gutter-reservation.md)). */
+  scrollbar-gutter: stable;
 }
 
 .root[data-phase='active'] .viewArea {
@@ -221,7 +226,13 @@
    ownership of the seat geometry and its active-phase precedence. */
 .scrollBody:has([data-conversation-composer-overlay]) {
   position: relative;
-  overflow: hidden;
+  /* A clipping box nothing scrolls out of, stated as a scroll container on both
+     axes rather than `overflow: hidden`: WebKit honours the reservation above
+     only in the `overflow-y: auto` form, and a single-axis scroller computes
+     the other axis to `auto`
+     ([decision](../../../../../../.agents/notes/implemented/bug-fix/2026-08-04-composer-tab-gutter-reservation.md)). */
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .scrollBody:has([data-conversation-composer-overlay]) > .viewArea {
