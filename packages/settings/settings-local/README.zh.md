@@ -28,15 +28,15 @@
 - **按内容抑制自写。** provider 缓存最后可用文本；watcher 事件内容与缓存相同（含自己的写入）即为 no-op。
 - **Host 配置适配器会收到解析后的路径。** `ctx.settings.documentPath` 是 `resolveSpec()` 得出的绝对文件名，包括自定义 YAML/JSON 路径；`prepareDocument()` 会保留现有文件，或在 Host 打开文档前，以仅属主可访问的权限独占创建缺失的空文件。浏览器只收到可用性标志，绝不重建 `$DSH_HOME`，也绝不提交文件系统目标。
 
-## Model Experience
+## 模型体验
 
 间接生效：本 provider 只存储并发布 namespace 分节，模型效果经由 `ctx.settings` 的消费插件产生，由各消费者自己的文档描述。
 
-#### KV Cache effect
+#### KV Cache 影响
 
 无直接失效；请求前缀的变更由消费插件拥有。
 
-## Known Limitations and Deferred Work
+## 已知限制与暂缓事项
 
 - **同 namespace 冲突仍是后写胜出** — 写锁加读-改-写让并发写入者不会丢掉彼此的 namespace，但两个写入者编辑同一个 namespace 时仍以较后的写入为准；没有按值合并，也没有修订检查。
 - **漏掉的 watcher 事件在下一个信号前保持不可见** — 读取从不重新 stat 文件，因此 watcher 漏报的变更只会在下一个事件、下一次写入或重启时被并入。

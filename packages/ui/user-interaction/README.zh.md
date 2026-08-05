@@ -28,7 +28,7 @@
 
 ## 职责
 
-这是接口包。`@deepseek-ai/dsh-tool-ask-user` 等面向模型的消费方依赖此 seam；`dsh-tui` 和宿主运行时提供交互式实现。循环保持不变：工具调用等待 Promise，工具结果随后恢复正常的 agent loop（智能体循环）。
+这是接口包。`@deepseek-ai/dsh-tool-ask-user` 等面向模型的消费方依赖此 seam；Web 宿主运行时提供随产品交付的交互式实现。循环保持不变：工具调用等待 Promise，工具结果随后恢复正常的 agent loop（智能体循环）。
 
 ## 模型体验
 

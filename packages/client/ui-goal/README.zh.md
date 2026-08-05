@@ -16,4 +16,4 @@ Goal 界面插件（浏览器端部分）：`GoalBar` 条带是 `conversation.in
 
 ## 已知限制与暂缓事项
 
-- **只反映持久 phase**——投影值有意省略进程本地的 activation（armed/disarmed），条带无法区分 active-but-disarmed 与 armed 状态；resume 通过 RPC 重新置为 armed 状态。host 活值通道待出现真实消费方后再议。
+- **只反映持久 phase**——投影省略进程本地 activation，因此条带无法区分 active-but-disarmed 与 armed 状态；resume 通过 RPC 重新置为 armed 状态。不存在 host 实时 activation 通道。

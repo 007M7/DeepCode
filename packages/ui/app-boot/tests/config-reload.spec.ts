@@ -344,9 +344,8 @@ describe('include patches layered over one base', () => {
     // The surface/`--config`/personal composition: `dsh` includes one shared
     // base and applies each source as its own patch list at the SAME include
     // level, because patches never cross an include boundary. A later layer
-    // must therefore be able to reach a row an earlier layer inserted —
-    // otherwise every surface-only row (the whole TUI front door) would be
-    // invisible to the user's `~/.dsh/config.yaml`.
+    // must therefore be able to reach a row an earlier layer inserted, or
+    // surface-only rows would be invisible to the user's personal config.
     const dir = mkdtempSync(join(tmpdir(), 'dsh-config-layered-'))
     writeFileSync(join(dir, 'noop.mjs'), NOOP_PLUGIN)
     writeFileSync(join(dir, 'base.yml'), '- id: shared\n  name: ./noop.mjs\n  config:\n    value: base\n')

@@ -75,10 +75,6 @@ Every request carries the shared attribution header from dsh-llm's `attributionH
 
 pi-ai installs several provider SDKs and lazy-loads the one selected by the catalog model. The dependency weight is isolated to this opt-in adapter package.
 
-## Testing
-
-Unit tests use pi-ai catalog models redirected to local mock servers and cover provider/profile routing, one wire request per adapter call, idle-timeout response termination, caller abort, native API selection, endpoint overrides, attribution, conversion, replay-state validation, and cross-provider/model replay within one adapter instance. `tests/dynamic-config.spec.ts` drives real settings-local and credentials-local providers: a settings-born route registers live and drops when the user layer resets, `apiKeyEnv` credentials rotate between requests, and an unknown-provider snapshot keeps the last good profiles. `tests/loader-composition.spec.ts` boots the dormant posture from a test-only `cordis.yml` through the actual Loader and registers its route from an on-disk `settings.yaml` edit. Real-API coverage remains key-gated under `pnpm run test:e2e`.
-
 ## Model Experience
 
 ### Provider request through pi-ai
