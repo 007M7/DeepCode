@@ -24,10 +24,10 @@
       "path": "../../packages/ui/app-boot"
     },
     {
-      "path": "../../packages/bash/tool-bash"
+      "path": "../../packages/bash/bash-env"
     },
     {
-      "path": "../../packages/ui/tui"
+      "path": "../../packages/bash/tool-bash"
     },
     {
       "path": "../../packages/util/paths"

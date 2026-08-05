@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh",
-  "description": "dsh CLI: interactive TUI, headless task, and browser UI surfaces",
+  "description": "dsh CLI: explicit config overlays, headless tasks, and the browser UI",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -9,7 +9,6 @@
   },
   "files": [
     "lib/bin.js",
-    "assets",
     "config",
     "src"
   ],
@@ -23,6 +22,7 @@
     "@deepseek-ai/dsh-agent-loop": "workspace:^",
     "@deepseek-ai/dsh-app-boot": "workspace:^",
     "@deepseek-ai/dsh-bash-local": "workspace:^",
+    "@deepseek-ai/dsh-bash-env": "workspace:^",
     "@deepseek-ai/dsh-bash-sandbox": "workspace:^",
     "@deepseek-ai/dsh-client-connection": "workspace:^",
     "@deepseek-ai/dsh-client-hmr": "workspace:^",
@@ -76,6 +76,7 @@
     "@deepseek-ai/dsh-repeat-tool-guard": "workspace:^",
     "@deepseek-ai/dsh-pty": "workspace:^",
     "@deepseek-ai/dsh-pty-local": "workspace:^",
+    "@deepseek-ai/dsh-pwsh-local": "workspace:^",
     "@deepseek-ai/dsh-repository-plugin": "workspace:^",
     "@deepseek-ai/dsh-sandbox-local": "workspace:^",
     "@deepseek-ai/dsh-sandbox-policy": "workspace:^",
@@ -87,7 +88,6 @@
     "@deepseek-ai/dsh-session-projection-cache": "workspace:^",
     "@deepseek-ai/dsh-session-query": "workspace:^",
     "@deepseek-ai/dsh-session-query-sqlite": "workspace:^",
-    "@deepseek-ai/dsh-session-reference": "workspace:^",
     "@deepseek-ai/dsh-session-telemetry-otel": "workspace:^",
     "@deepseek-ai/dsh-session-title": "workspace:^",
     "@deepseek-ai/dsh-session-title-first-message-llm": "workspace:^",
@@ -106,9 +106,7 @@
     "@deepseek-ai/dsh-system-prompt": "workspace:^",
     "@deepseek-ai/dsh-tasks-local": "workspace:^",
     "@deepseek-ai/dsh-timeout-policy": "workspace:^",
-    "@deepseek-ai/dsh-tmux-context": "workspace:^",
     "@deepseek-ai/dsh-token-meter": "workspace:^",
-    "@deepseek-ai/dsh-tool-ask-user": "workspace:^",
     "@deepseek-ai/dsh-tool-bash": "workspace:^",
     "@deepseek-ai/dsh-tool-bash-persistent": "workspace:^",
     "@deepseek-ai/dsh-tool-cordis": "workspace:^",
@@ -119,6 +117,7 @@
     "@deepseek-ai/dsh-tool-skill": "workspace:^",
     "@deepseek-ai/dsh-tool-str-replace-editor": "workspace:^",
     "@deepseek-ai/dsh-tool-subagent": "workspace:^",
+    "@deepseek-ai/dsh-tool-pwsh": "workspace:^",
     "@deepseek-ai/dsh-tool-subagent-control": "workspace:^",
     "@deepseek-ai/dsh-tool-subagent-report": "workspace:^",
     "@deepseek-ai/dsh-tool-tasks": "workspace:^",
@@ -126,7 +125,6 @@
     "@deepseek-ai/dsh-tool-web": "workspace:^",
     "@deepseek-ai/dsh-tool-workflow": "workspace:^",
     "@deepseek-ai/dsh-tools": "workspace:^",
-    "@deepseek-ai/dsh-tui": "workspace:^",
     "@deepseek-ai/dsh-user-approval": "workspace:^",
     "@deepseek-ai/dsh-user-interaction": "workspace:^",
     "@deepseek-ai/dsh-web": "workspace:^",
@@ -134,15 +132,12 @@
     "@deepseek-ai/dsh-workflow-workerthread": "workspace:^",
     "@deepseek-ai/dsh-workspace": "workspace:^",
     "@deepseek-ai/dsh-workspace-context": "workspace:^",
-    "@earendil-works/pi-tui": "0.80.7",
     "commander": "^15.0.0",
     "cordis": "^4.0.0-rc.7",
     "js-yaml": "^4.2.0"
   },
   "devDependencies": {
-    "@deepseek-ai/dsh-llm-mock-server": "workspace:^",
     "@types/js-yaml": "^4.0.9",
-    "execa": "^10.0.0",
-    "node-pty": "1.1.0"
+    "execa": "^10.0.0"
   }
 }

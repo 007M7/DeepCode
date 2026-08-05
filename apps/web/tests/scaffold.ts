@@ -2,8 +2,8 @@
 // .agents/notes/implemented/testing/2026-07-24-web-gui-browser-e2e-lane.md).
 // Boots the REAL web composition — the shipped base plus web overlay through
 // the vendored Loader (the same include boot AppCLIEntry drives), patched the
-// snapshot way — so a real chromium exercises the real HTTP/SSE wire, the
-// api-gateway, agent loop, tools, and persistence. Modes ride $DSH_SNAPSHOT:
+// snapshot way — so a real chromium exercises the real HTTP uplink/WebSocket
+// downlink, api-gateway, agent loop, tools, and persistence. Modes ride $DSH_SNAPSHOT:
 // replay (default, keyless: normally disables the llm-deepseek row and
 // inserts dsh-llm-replay in providers mode), record (real adapter + key,
 // harvests fixtures from live session memory), refresh (keyless replay that
@@ -85,6 +85,14 @@ const REPLAY_PROVIDERS = [{
   models: [{ id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', contextWindow: 128_000 }],
 }]
 
+function replayProviders(contextWindow: number | undefined): typeof REPLAY_PROVIDERS {
+  if (contextWindow === undefined) return REPLAY_PROVIDERS
+  return REPLAY_PROVIDERS.map(provider => ({
+    ...provider,
+    models: provider.models.map(model => ({ ...model, contextWindow })),
+  }))
+}
+
 /** A booted web scaffold: real composition, mode-selected model backend, temp world. */
 export interface WebScaffold {
   /** The active snapshot mode this scaffold booted under. */
@@ -134,6 +142,8 @@ export interface LaunchOptions {
   replayOverride?: string
   /** Per-chunk replay pacing (ms) so the browser observes genuinely incremental SSE; replay/refresh only. */
   paceMs?: number
+  /** Synthetic model capacity for UI scenarios whose seeded history must remain uncompacted. */
+  replayContextWindow?: number
   /**
    * Tool presentation mode patched onto the shipped `tools` row (`code`
    * collapses the wire to run_code + the SDK prompt section). Omit for the
@@ -344,7 +354,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     if (mode !== 'record' && options.replayFixture !== undefined) {
       replayHandle = installLlmReplay(ctx, {
         file: options.replayFixture,
-        providers: REPLAY_PROVIDERS,
+        providers: replayProviders(options.replayContextWindow),
         ...(options.replayOverride === undefined ? {} : { overrideFile: options.replayOverride }),
         ...(options.replayChildFixtures === undefined ? {} : { childFiles: options.replayChildFixtures }),
         ...(options.paceMs === undefined ? {} : { paceMs: options.paceMs }),

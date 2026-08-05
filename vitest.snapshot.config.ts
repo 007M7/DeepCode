@@ -50,10 +50,7 @@ export default defineConfig({
       // mode remains the zero-build path, while lib mode requires a prior build.
       ...(process.env.DSH_EXAMPLE_MODE === 'lib' ? ['apps/web/tests/**/*.snapshot.ts'] : []),
       'examples/*/tests/**/*.snapshot.ts',
-      // The shipped TUI's terminal-journey scenarios moved here with its config.
-      'apps/cli/tests/**/*.snapshot.ts',
       'packages/sdk/*/tests/**/*.snapshot.ts',
-      'packages/ui/tui/tests/**/*.snapshot.ts',
     ],
     // Replay never writes committed outputs and every scenario owns its
     // mutable runtime state (the subprocess suites use a unique temp dir and

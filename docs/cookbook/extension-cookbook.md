@@ -91,7 +91,7 @@ export function apply(ctx: Context) {
 
 ## Runnable wirings
 
-Runnable leaves load their plugin trees from `examples/*/cordis.yml`; the root `demo:*` scripts and those leaf directories are the authoritative inventory. Interactive leaves use [`@deepseek-ai/dsh-tui`](../../packages/ui/tui), non-interactive leaves use [`@deepseek-ai/dsh-cli-demo`](../../packages/examples/cli-demo), ACP leaves use [`@deepseek-ai/dsh-acp-demo`](../../packages/examples/acp-demo), and the app packages share [`@deepseek-ai/dsh-agent-spine-demo`](../../packages/examples/agent-spine-demo).
+Runnable leaves load their plugin trees from `examples/*/cordis.yml`; the root `demo:*` scripts and those leaf directories are the authoritative inventory. Non-interactive leaves use [`@deepseek-ai/dsh-cli-demo`](../../packages/examples/cli-demo), ACP leaves use [`@deepseek-ai/dsh-acp-demo`](../../packages/examples/acp-demo), JSON-RPC leaves use [`@deepseek-ai/dsh-jsonrpc-demo`](../../packages/examples/jsonrpc-demo), and the app packages share [`@deepseek-ai/dsh-agent-spine-demo`](../../packages/examples/agent-spine-demo).
 
 ## The feature → mechanism map
 

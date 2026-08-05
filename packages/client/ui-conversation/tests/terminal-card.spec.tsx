@@ -342,7 +342,7 @@ describe('chat row terminal body', () => {
 describe('BashRow terminal card', () => {
   const list = () => createSnapshotStore<SessionListState>({
     ids: [SID],
-    byId: { [SID]: { id: SID, displayTitle: 'r', running: false, blank: false, waitingApproval: false, updatedAt: 0 } },
+    byId: { [SID]: { id: SID, displayTitle: 'r', running: false, blank: false, updatedAt: 0 } },
     current: undefined,
     phase: 'ready',
     subagentsByParent: {},
@@ -448,7 +448,7 @@ describe('DetailsPanel Output section', () => {
       ? { ids: [], byId: {}, current: undefined, phase: 'ready', subagentsByParent: {}, currentAddress: undefined }
       : {
         ids: [SID],
-        byId: { [SID]: { id: SID, displayTitle: 'r', running: false, blank: false, waitingApproval: false, updatedAt: 0, cwd } },
+        byId: { [SID]: { id: SID, displayTitle: 'r', running: false, blank: false, updatedAt: 0, cwd } },
         current: SID,
         phase: 'ready',
         subagentsByParent: {},
@@ -477,7 +477,7 @@ describe('DetailsPanel Output section', () => {
 
   function snapshot(over: Partial<ConversationSnapshot> = {}): ConversationSnapshot {
     return {
-      sessionId: SID, nodes: [], turnEnds: new Map(), partial: null, runningCalls: [], codeDispatches: new Map(),
+      sessionId: SID, nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [], codeDispatches: new Map(),
       pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
       openState: 'open', openError: null, hasMore: false, loadingOlder: false,
       promptError: null, blank: false, subagent: null, lastAgentError: null, ...over,

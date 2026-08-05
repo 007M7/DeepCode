@@ -38,9 +38,8 @@ describe('tsdown client artifact', () => {
   async function loadArtifact() {
     let handoff: Handoff | undefined
     ;(window as Win).__ModuleLoader__ = { load: (h) => { handoff = h } }
-    // Same execution form the loader uses (inline script eval, window scope) —
-    // the implied-eval ban targets accidental string execution, not this
-    // deliberate bundle-execution fixture.
+    // The implied-eval ban targets accidental string execution, not this
+    // deliberate built-bundle fixture running in the window scope.
     // oxlint-disable-next-line typescript/no-implied-eval, typescript/no-unsafe-call
     new Function(code!)()
     expect(handoff).toBeDefined()
