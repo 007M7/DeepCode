@@ -61,7 +61,12 @@ export async function scanRoot(root: PresetRoot): Promise<AgentPreset[]> {
     const metadata = await readPresetMetadata(directory)
     found.push({ id: child.name, trust: root.trust, path, ...metadata })
   }
-  return found.sort((left, right) => left.id.localeCompare(right.id))
+  // Declared order first so the shipped set reads by capability; everything
+  // else falls back to the id, which keeps authored presets stable.
+  return found.sort((left, right) => {
+    const byOrder = (left.order ?? Number.POSITIVE_INFINITY) - (right.order ?? Number.POSITIVE_INFINITY)
+    return byOrder === 0 ? left.id.localeCompare(right.id) : byOrder
+  })
 }
 
 /**

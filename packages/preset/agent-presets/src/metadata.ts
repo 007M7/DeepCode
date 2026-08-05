@@ -30,6 +30,12 @@ export interface PresetMetadata {
   readonly name?: string
   /** One sentence on what this preset is for. */
   readonly description?: string
+  /**
+   * Position within its group; lower comes first. A preset that declares
+   * none sorts after every preset that does, then by id — so the shipped set
+   * can read in capability order while authored ones stay alphabetical.
+   */
+  readonly order?: number
 }
 
 /** A non-empty trimmed string, or undefined for anything else. */
@@ -68,9 +74,13 @@ export async function readPresetMetadata(directory: string): Promise<PresetMetad
   const record = parsed as Record<string, unknown>
   const name = text(record.name)
   const description = text(record.description)
+  const order = typeof record.order === 'number' && Number.isFinite(record.order)
+    ? record.order
+    : undefined
   return {
     ...name === undefined ? {} : { name },
     ...description === undefined ? {} : { description },
+    ...order === undefined ? {} : { order },
   }
 }
 
@@ -85,9 +95,11 @@ export async function readPresetMetadata(directory: string): Promise<PresetMetad
 export function renderPresetMetadata(metadata: PresetMetadata): string | undefined {
   const name = text(metadata.name)
   const description = text(metadata.description)
-  if (name === undefined && description === undefined) return undefined
+  const { order } = metadata
+  if (name === undefined && description === undefined && order === undefined) return undefined
   return yaml.dump({
     ...name === undefined ? {} : { name },
     ...description === undefined ? {} : { description },
+    ...order === undefined ? {} : { order },
   }, { lineWidth: -1 })
 }

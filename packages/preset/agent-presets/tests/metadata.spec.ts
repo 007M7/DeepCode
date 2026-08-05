@@ -67,6 +67,17 @@ describe('reading display metadata', () => {
     expect(await readPresetMetadata(dir)).toEqual({ name: '极简模式' })
   })
 
+  it('reads a declared order', async () => {
+    const dir = await presetDir('name: 标准模式\norder: 1\n')
+
+    expect(await readPresetMetadata(dir)).toEqual({ name: '标准模式', order: 1 })
+  })
+
+  it('ignores an order that is not a finite number', async () => {
+    expect(await readPresetMetadata(await presetDir('order: first\n'))).toEqual({})
+    expect(await readPresetMetadata(await presetDir('order: .inf\n'))).toEqual({})
+  })
+
   it('cannot carry identity or trust', async () => {
     const dir = await presetDir('name: mine\nid: standard\ntrust: system\n')
 

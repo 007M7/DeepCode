@@ -174,13 +174,32 @@ export function AgentPresetSection(props: AgentPresetSectionProps): ReactNode {
 
   const { draft } = state
   const blocker = draft === null ? undefined : draftBlocker(draft, state.rows)
-  const editorActions = {
-    close: props.close,
-    save: props.save,
-    setContent: props.setContent,
-    setDescription: props.setDescription,
-    setId: props.setId,
-    setName: props.setName,
+  // Editing replaces the list rather than hanging off the end of it: the form
+  // is tall, and a column of the card grid is far too narrow to hold it.
+  if (draft !== null) {
+    const editorActions = {
+      close: props.close,
+      save: props.save,
+      setContent: props.setContent,
+      setDescription: props.setDescription,
+      setId: props.setId,
+      setName: props.setName,
+    }
+    return (
+      <div className={css.section}>
+        <div className={css.editorBar}>
+          <button type="button" className={css.backButton} onClick={() => { props.close() }}>
+            {`← ${t('backToList')}`}
+          </button>
+          <span className={css.editorTitle}>
+            {draft.creating
+              ? `${t('newPreset')} · ${t('copyOf')} ${draft.source}`
+              : `${draft.writable ? t('edit') : t('view')} · ${draft.name === '' ? draft.source : draft.name}`}
+          </span>
+        </div>
+        <Editor draft={draft} blocker={blocker} t={t} actions={editorActions} />
+      </div>
+    )
   }
 
   return (
@@ -226,7 +245,7 @@ export function AgentPresetSection(props: AgentPresetSectionProps): ReactNode {
                     <button
                       type="button"
                       className={css.iconButton}
-                      title={row.trust === 'user' ? t('edit') : t('view')}
+                      data-tip={row.trust === 'user' ? t('edit') : t('view')}
                       aria-label={row.trust === 'user' ? t('edit') : t('view')}
                       onClick={() => { void props.open(row.id) }}
                     >
@@ -237,7 +256,7 @@ export function AgentPresetSection(props: AgentPresetSectionProps): ReactNode {
                         <button
                           type="button"
                           className={css.iconButton}
-                          title={t('duplicate')}
+                          data-tip={t('duplicate')}
                           aria-label={t('duplicate')}
                           onClick={() => { void props.createFrom(row.id) }}
                         >
@@ -250,7 +269,7 @@ export function AgentPresetSection(props: AgentPresetSectionProps): ReactNode {
                         <button
                           type="button"
                           className={`${css.iconButton} ${css.iconDanger}`}
-                          title={t('delete')}
+                          data-tip={t('delete')}
                           aria-label={t('delete')}
                           onClick={() => { props.confirmDelete(row.id) }}
                         >
@@ -259,31 +278,22 @@ export function AgentPresetSection(props: AgentPresetSectionProps): ReactNode {
                       )
                       : null}
                   </div>
-                  {draft !== null && !draft.creating && draft.source === row.id
-                    ? <Editor draft={draft} blocker={blocker} t={t} actions={editorActions} />
-                    : null}
                 </li>
               ))}
             </ul>
           </section>
         )
       })}
-      {draft !== null && draft.creating
-        ? (
-          <div className={css.addCard}>
-            <Editor draft={draft} blocker={blocker} t={t} actions={editorActions} />
-          </div>
-        )
-        : (
-          <button
-            type="button"
-            className={css.addButton}
-            disabled={!state.authorable || state.rows.length === 0}
-            onClick={() => { void props.createFrom() }}
-          >
-            {`+ ${t('newPreset')}`}
-          </button>
-        )}
+      {(
+        <button
+          type="button"
+          className={css.addButton}
+          disabled={!state.authorable || state.rows.length === 0}
+          onClick={() => { void props.createFrom() }}
+        >
+          {`+ ${t('newPreset')}`}
+        </button>
+      )}
       <Modal
         open={state.pendingDelete !== null}
         onClose={() => { props.confirmDelete(null) }}

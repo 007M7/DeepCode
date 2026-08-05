@@ -9,6 +9,27 @@ const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'fixtures')
 const SYSTEM = { path: join(FIXTURES, 'system'), trust: 'system' as const }
 const USER = { path: join(FIXTURES, 'user'), trust: 'user' as const }
 
+describe('display order', () => {
+  it('puts declared order first, then everything else by id', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-order-'))
+    for (const [id, order] of [['zulu', 1], ['alpha', 2]] as const) {
+      await mkdir(join(root, id), { recursive: true })
+      await writeFile(join(root, id, COMPOSITION_FILE), '[]\n')
+      await writeFile(join(root, id, 'preset.yml'), `order: ${String(order)}\n`)
+    }
+    for (const id of ['bravo', 'yankee']) {
+      await mkdir(join(root, id), { recursive: true })
+      await writeFile(join(root, id, COMPOSITION_FILE), '[]\n')
+    }
+
+    const found = await scanRoot({ path: root, trust: 'system' })
+
+    // The shipped set reads by capability; presets that declare nothing stay
+    // alphabetical behind them rather than interleaving unpredictably.
+    expect(found.map(preset => preset.id)).toEqual(['zulu', 'alpha', 'bravo', 'yankee'])
+  })
+})
+
 describe('preset discovery', () => {
   it('reports one preset per directory holding a composition, ordered by id', async () => {
     const found = await scanRoot(SYSTEM)

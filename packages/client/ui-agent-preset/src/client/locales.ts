@@ -6,7 +6,7 @@ export type AgentPresetSettingsKey =
   | 'nav' | 'sectionIntro' | 'builtIn' | 'defaultBadge' | 'setDefault' | 'edit' | 'view'
   | 'duplicate' | 'delete' | 'newPreset' | 'presetId' | 'presetIdPlaceholder' | 'copyOf'
   | 'displayName' | 'displayNamePlaceholder' | 'displayDescription' | 'displayDescriptionPlaceholder'
-  | 'inUse' | 'noDescription' | 'builtInGroup' | 'customGroup'
+  | 'inUse' | 'noDescription' | 'builtInGroup' | 'customGroup' | 'backToList'
   | 'composition' | 'readOnlyNotice' | 'save' | 'saving' | 'cancel' | 'close' | 'retry'
   | 'idRequired' | 'idInvalid' | 'idTaken'
   | 'deleteTitle' | 'deleteDescription' | 'deleteConfirm' | 'deleting'
@@ -39,6 +39,7 @@ export const en: Record<AgentPresetSettingsKey, string> = {
   displayDescription: 'Description',
   displayDescriptionPlaceholder: 'One sentence on what this preset is for',
   inUse: 'In use',
+  backToList: 'All presets',
   builtInGroup: 'Built-in',
   customGroup: 'Custom',
   noDescription: 'No description.',
@@ -86,6 +87,7 @@ export const zh: Record<AgentPresetSettingsKey, string> = {
   displayDescription: '描述',
   displayDescriptionPlaceholder: '一句话说明这个预设做什么',
   inUse: '当前使用',
+  backToList: '全部预设',
   builtInGroup: '内置',
   customGroup: '自定义',
   noDescription: '暂无描述。',

@@ -200,14 +200,19 @@ describe('the composition editor', () => {
     writable: true, name: '我的预设', description: '', saving: false, error: null,
   }
 
-  it('opens under the row it belongs to and edits through the controller', () => {
+  it('replaces the list while editing, and returns to it', () => {
     const actions = renderSection({ draft })
 
-    const editor = within(rowFor('mine')).getByLabelText(en.composition)
+    // The form is tall and a card column is ~268px: squeezing it into one is
+    // unusable, and hanging it off the end orphans it from the card it edits.
+    expect(screen.queryByRole('heading', { name: en.builtInGroup })).toBeNull()
+    const editor = screen.getByLabelText(en.composition)
     expect(editor).toHaveProperty('value', '- id: tool-read\n')
     fireEvent.change(editor, { target: { value: '- id: tool-edit\n' } })
+    fireEvent.click(screen.getByRole('button', { name: `← ${en.backToList}` }))
 
     expect(actions.setContent).toHaveBeenCalledWith('- id: tool-edit\n')
+    expect(actions.close).toHaveBeenCalledTimes(1)
   })
 
   it('saves and cancels through the controller', () => {
@@ -235,6 +240,20 @@ describe('the composition editor', () => {
     expect(screen.getByText(en.readOnlyNotice)).toBeTruthy()
     expect(screen.queryByText(en.save)).toBeNull()
     expect(screen.getByText(en.close)).toBeTruthy()
+  })
+
+  it('titles the panel by what it is doing', () => {
+    renderSection({ draft })
+    expect(screen.getByText(`${en.edit} · 我的预设`)).toBeTruthy()
+    cleanup()
+
+    // An unnamed draft falls back to what it was copied from.
+    renderSection({ draft: { ...draft, name: '' } })
+    expect(screen.getByText(`${en.edit} · mine`)).toBeTruthy()
+    cleanup()
+
+    renderSection({ draft: { ...draft, writable: false } })
+    expect(screen.getByText(`${en.view} · 我的预设`)).toBeTruthy()
   })
 
   it('names a new preset and says what it was copied from', () => {

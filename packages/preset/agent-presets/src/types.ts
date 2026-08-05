@@ -19,6 +19,8 @@ export interface AgentPreset {
   readonly name?: string
   /** One sentence on what this preset is for, when it published one. */
   readonly description?: string
+  /** Declared position within its group; absent sorts after those that declare one. */
+  readonly order?: number
 }
 
 /** One directory scanned for preset subdirectories. */
