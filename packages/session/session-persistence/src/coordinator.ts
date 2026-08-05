@@ -589,6 +589,9 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     if (!Number.isSafeInteger(snapshot.createdAt) || snapshot.createdAt < 0) {
       return Promise.reject(new TypeError('session metadata createdAt must be a non-negative safe integer'))
     }
+    if (snapshot.timeZone !== undefined && typeof snapshot.timeZone !== 'string') {
+      return Promise.reject(new TypeError('session metadata timeZone must be a string'))
+    }
     return this.serialize(snapshot.id, () => this.createCore(snapshot))
   }
 
@@ -801,7 +804,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
       signal?.throwIfAborted()
       if (suffix === undefined) throw new Error(`session "${id}" not found`)
       this.assertStoredId(id, suffix.meta)
-      this.assertVersion(suffix.meta)
+      this.assertStoredHeader(suffix.meta)
       if (suffix.events.some(needsLegacyPrefix)) {
         const whole = await this.readStoredPrefix(id, signal)
         return { meta: whole.meta, events: whole.events.filter(event => event.seq >= fromSeq) }
@@ -823,7 +826,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     signal?.throwIfAborted()
     if (stored === undefined) throw new Error(`session "${id}" not found`)
     this.assertStoredId(id, stored.meta)
-    this.assertVersion(stored.meta)
+    this.assertStoredHeader(stored.meta)
     return {
       meta: structuredClone(stored.meta),
       events: snapshotStoredEvents(stored.events, id),
@@ -837,7 +840,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     try {
       const { meta, events, revision, tornMarker } = stored
       this.assertStoredId(id, meta)
-      this.assertVersion(meta)
+      this.assertStoredHeader(meta)
       const storedEvents = adoptStoredEvents(events, id)
 
       // Preserve complete interrupted events and synthesize only missing closers.
@@ -981,9 +984,13 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     }
   }
 
-  private assertVersion(meta: SessionHeader): void {
+  /** Validate fixed fields decoded from backend-owned storage. */
+  private assertStoredHeader(meta: SessionHeader): void {
     if (meta.version !== SESSION_FORMAT_VERSION) {
       throw new Error(`unsupported session format version ${meta.version} for "${meta.id}" (only v${SESSION_FORMAT_VERSION} is supported)`)
+    }
+    if (meta.timeZone !== undefined && typeof meta.timeZone !== 'string') {
+      throw new Error(`stored session "${meta.id}" timeZone must be a string`)
     }
   }
 
@@ -991,6 +998,19 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   private assertStoredId(id: SessionId, meta: SessionHeader): void {
     if (meta.id !== id) {
       throw new Error(`stored session identity mismatch: requested "${id}", header contains "${meta.id}"`)
+    }
+  }
+
+  /** Compare the immutable metadata fields that participate in live adoption identity. */
+  private assertAdoptableIdentity(meta: SessionHeader, session: Session): void {
+    this.assertStoredHeader(meta)
+    if (meta.cwd !== session.header.cwd) {
+      throw new Error(`session "${session.header.id}" is already persisted at a different cwd (persisted: ${String(meta.cwd)}, live: ${String(session.header.cwd)}) (id collision)`)
+    }
+    // A stored headerless session is the one compatibility case: it remains
+    // headerless even if a current caller supplied a zone for the live object.
+    if (meta.timeZone !== undefined && meta.timeZone !== session.header.timeZone) {
+      throw new Error(`session "${session.header.id}" is already persisted with a different timeZone (persisted: ${meta.timeZone}, live: ${String(session.header.timeZone)}) (id collision)`)
     }
   }
 
@@ -1161,9 +1181,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
         // the stored header's cwd. The seed guard then ensures the live events
         // reproduce the persisted prefix; otherwise a fresh session reusing the
         // id could have its leading events filtered as already written.
-        if (tracked.meta.cwd !== session.header.cwd) {
-          throw new Error(`session "${id}" is already persisted at a different cwd (persisted: ${String(tracked.meta.cwd)}, live: ${String(session.header.cwd)}) (id collision)`)
-        }
+        this.assertAdoptableIdentity(tracked.meta, session)
         if (!await this.seedMatchesPersisted(id, seed, tracked.cursor)) {
           throw new Error(`session "${id}" is already persisted with ${tracked.cursor} event(s) that do not match this live session (id collision)`)
         }
@@ -1214,10 +1232,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   private async adoptLivePrefix(session: Session, seed: readonly SessionEvent[], stored: StoredPrefix<TornMarker>): Promise<void> {
     const { meta, events, tornMarker } = stored
     this.assertStoredId(session.header.id, meta)
-    if (meta.cwd !== session.header.cwd) {
-      throw new Error(`session "${session.header.id}" is already persisted at a different cwd (persisted: ${String(meta.cwd)}, live: ${String(session.header.cwd)}) (id collision)`)
-    }
-    this.assertVersion(meta)
+    this.assertAdoptableIdentity(meta, session)
     const storedEvents = snapshotStoredEvents(events, session.header.id)
     if (!seedCoversPrefix(seed, storedEvents)) {
       throw new Error(`session "${session.header.id}" already has a persisted log on disk that does not match this live session (id collision)`)
