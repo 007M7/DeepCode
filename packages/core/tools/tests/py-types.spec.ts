@@ -71,9 +71,13 @@ describe('jsonSchemaToPy', () => {
     // Python integers are arbitrary-precision, so the emitted digits ARE the
     // value the model programs against. `String(2 ** 60)` prints the rounded
     // ...847000, which is a DIFFERENT integer from the double's exact
-    // ...846976 — the Python runtime would reject the advertised literal as
-    // not exactly representable as a JavaScript number, so the SDK would
-    // document a value no program can pass.
+    // ...846976: `Number::toString` is shortest round-trip, so it emits the 16
+    // digits that re-read to the same double and pads with zeros, and those
+    // padded digits name an integer no double holds. Passing one back would
+    // have to cross the argument boundary as a JSON number, so the SDK would
+    // document a value no program can pass. This assertion is what separates
+    // the two spellings; the 1e21 case below separates them again on the other
+    // failure mode, where `String` gives no integer literal at all.
     expect(jsonSchemaToPy({ type: 'integer', const: 2 ** 60 })).toBe('Literal[1152921504606846976]')
     expect(jsonSchemaToPy({ type: 'integer', enum: [2 ** 60, -(2 ** 60)] }))
       .toBe('Literal[1152921504606846976, -1152921504606846976]')

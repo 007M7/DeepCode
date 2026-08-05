@@ -259,11 +259,14 @@ function childClassName(base: string, segment: string): string {
  * `String`: Python integers are arbitrary-precision, so the emitted digits ARE
  * the value the model programs against, and `String` gives a different integer
  * than the double holds (`2 ** 60` prints the rounded `...847000`, not the
- * exact `...846976`) or no integer literal at all (`1e21` prints `1e+21`). The
- * Python runtime then rejects the advertised literal as not exactly
- * representable as a JavaScript number, so the SDK would document a value no
- * program can pass. The TS flavor needs no counterpart: its literal is re-read
- * by a JS parser back into the same double.
+ * exact `...846976`) or no integer literal at all (`1e21` prints `1e+21`).
+ * `String`'s rounding is not a bug in it: `Number::toString` is shortest
+ * round-trip, so it emits the 16 digits that re-read to the same double and
+ * pads with zeros, and those padded digits name an integer no double holds.
+ * Passing one back would have to cross the argument boundary as a JSON number
+ * — a double again — so the SDK would document a value no program can pass.
+ * The TS flavor needs no counterpart: its literal is re-read by a JS parser
+ * back into the same double.
  *
  * `JSON.stringify` is also what keeps this path's output parseable, and it is
  * the only thing that does. It covers both classes of hazard: the two kinds of
