@@ -51,17 +51,16 @@ const IDENTIFIER = /^[\p{XID_Start}_]\p{XID_Continue}*$/u
  * two sides are versioned independently — `\p{XID_Start}`/`\p{XID_Continue}`
  * follow the running engine (Node 22.23.1 reports Unicode 17.0) while CPython
  * follows its own (3.9.6 reports 13.0.0). The skew is not symmetric. A CPython
- * older than the engine is the dangerous direction: a character added to
- * either property since its tables (U+10570 Vithkuqi and U+1E290 Toto, 14.0;
- * U+1E4D0 Nag Mundari, 15.0; U+1C89 Cyrillic TJE, 16.0 — ages per
- * `DerivedAge.txt`; all four are NFKC-stable and accepted here, and all four
- * are `Cn` on that 3.9.6, which rejects them) is emitted bare and its
- * tokenizer refuses the character, taking the whole SDK block
- * down — the same parseability invariant {@link UNPRINTABLE},
- * {@link LONE_SURROGATE} and {@link MAX_LIST_NESTING} exist for. Both
- * properties carry it: a character added only to `XID_Continue` passes the
- * trailing `\p{XID_Continue}*` in a tail position and fails the same way. A
- * CPython newer than the engine only routes a legal name to the
+ * older than the engine is the dangerous direction: a character added to either
+ * property since its tables (U+10570 Vithkuqi and U+1E290 Toto, 14.0; U+1E4D0
+ * Nag Mundari, 15.0; U+1C89 Cyrillic TJE, 16.0 — ages per `DerivedAge.txt`; all
+ * four are NFKC-stable and accepted here, and all four are `Cn` on that 3.9.6,
+ * which rejects them) is emitted bare and its tokenizer refuses the character,
+ * taking the whole SDK block down — the same parseability invariant
+ * {@link UNPRINTABLE}, {@link LONE_SURROGATE} and {@link MAX_LIST_NESTING}
+ * exist for. Both properties carry it: a character added only to `XID_Continue`
+ * passes the trailing `\p{XID_Continue}*` in a tail position and fails the same
+ * way. A CPython newer than the engine only routes a legal name to the
  * subscript/`dict[str, Any]` path: less readable, still correct. The NFKC
  * condition reduces to the same skew, since normalization stability guarantees
  * an assigned character's normalization never changes afterwards.
@@ -72,19 +71,18 @@ const IDENTIFIER = /^[\p{XID_Start}_]\p{XID_Continue}*$/u
  * them: a class name derived there reaches emitted text whenever any object
  * shape in the tool's schema declares a `TypedDict`, including for a tool this
  * predicate rejected. A tool named `zz-\u{1E4D0}x` with such parameters never
- * reaches the skew here (the `-` rejects it outright) yet emits
- * `class Zz\u{1E4D0}xArgs`, which that same 3.9.6 refuses — Nag Mundari
- * arrived two releases after its tables. The case mapping is a separate table
- * rather than an XID membership test, and it fails on names both conditions
- * above accept: `\u{019B}` is XID_Start and NFKC-stable, so
- * this predicate accepts it and `async def \u{019B}` compiles on 3.9.6, but
- * Node uppercases it to `\u{A7DC}` — unassigned in that CPython, whose own
- * `.upper()` is the identity here — and the declared `class \u{A7DC}Args`
- * fails with `invalid non-printable character U+A7DC`. Closing the exposure
- * therefore covers all four read points, not this predicate alone; it needs
- * the target interpreter's version, which the backend reporting
- * `language: 'python'` owns and which is unpublished on this base, so the note
- * records it as that PR's decision.
+ * reaches the skew here (the `-` rejects it outright) yet emits `class
+ * Zz\u{1E4D0}xArgs`, which that same 3.9.6 refuses — Nag Mundari arrived two
+ * releases after its tables. The case mapping is a separate table rather than
+ * an XID membership test, and it fails on names both conditions above accept:
+ * `\u{019B}` is XID_Start and NFKC-stable, so this predicate accepts it and
+ * `async def \u{019B}` compiles on 3.9.6, but Node uppercases it to `\u{A7DC}`
+ * — unassigned in that CPython, whose own `.upper()` is the identity here — and
+ * the declared `class \u{A7DC}Args` fails with `invalid non-printable character
+ * U+A7DC`. Closing the exposure therefore covers all four read points, not this
+ * predicate alone; it needs the target interpreter's version, which the backend
+ * reporting `language: 'python'` owns and which is unpublished on this base, so
+ * the note records it as that PR's decision.
  *
  * The `ts-types` sibling keeps its own ASCII rule rather than sharing this
  * one: ECMAScript identifiers are a different set (`$`, ZWJ/ZWNJ) and are
