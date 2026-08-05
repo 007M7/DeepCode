@@ -62,14 +62,16 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('llm-deepseek e2e (real API)', ()
     if (key === undefined) throw new Error('e2e ran without DEEPSEEK_API_KEY')
     const dir = await mkdtemp(join(tmpdir(), 'dsh-e2e-credentials-'))
     try {
-      await writeFile(join(dir, '.env'), `DEEPSEEK_API_KEY=${key}\n`, { mode: 0o600 })
+      // JSON.stringify quotes the value: YAML is a JSON superset, so a real
+      // key survives whatever characters it happens to carry.
+      await writeFile(join(dir, '.credentials.yaml'), `DEEPSEEK_API_KEY: ${JSON.stringify(key)}\n`, { mode: 0o600 })
       // Scrub the ambient variable so only the credential seam can supply the
       // key: this request proves the per-request resolution path end to end.
       vi.stubEnv('DEEPSEEK_API_KEY', '')
       const ctx = new Context()
       contexts.push(ctx)
       await ctx.plugin(LlmService)
-      await ctx.plugin(CredentialsLocal, { path: join(dir, '.env'), watch: false })
+      await ctx.plugin(CredentialsLocal, { path: join(dir, '.credentials.yaml'), watch: false })
       await ctx.plugin(LlmDeepSeek, {})
 
       const result = await assemble(ctx, {

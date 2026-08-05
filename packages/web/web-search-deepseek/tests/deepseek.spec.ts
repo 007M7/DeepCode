@@ -455,7 +455,7 @@ describe('web-search-deepseek plugin registration', () => {
     const ctx = new Context()
     try {
       await ctx.plugin(WebService, { searchProvider: DEEPSEEK_PROVIDER_ID })
-      await ctx.plugin(CredentialsLocal, { path: join(dir, '.env'), watch: false })
+      await ctx.plugin(CredentialsLocal, { path: join(dir, '.credentials.yaml'), watch: false })
       await ctx.plugin(deepseekPlugin, { baseURL: 'https://api.deepseek.test/anthropic/v1' })
 
       await expect(ctx.web.search({ query: 'missing' }))
