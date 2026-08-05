@@ -155,8 +155,8 @@ interface RenderState {
  * CPython rejects source containing a NUL outright
  * (`SyntaxError: source code string cannot contain null bytes`), whether it
  * sits in a docstring or in a comment, so one such byte anywhere in a schema
- * description would make the whole generated SDK unparseable — the model's only
- * declaration of the tools. The rest are legal but invisible; escaping them
+ * description would make the whole generated SDK unparseable — under
+ * `mode: 'code'`, the model's only declaration of the tools. The rest are legal but invisible; escaping them
  * with the same rule keeps the emitted text readable and the treatment uniform.
  *
  * The boundary is the category, not per-code-point addressability: `\xNN`
@@ -557,9 +557,9 @@ function renderType(schema: unknown, className: string, state: RenderState): str
           }
         }
         // TypedDict syntax cannot express openness, so an open object states it
-        // in-band: the annotation is advisory either way, and Code Mode omits
-        // the native schemas, making this line the model's only signal that
-        // extra keys are accepted.
+        // in-band: the annotation is advisory either way, and `mode: 'code'`
+        // omits the native schemas, making this line the model's only signal
+        // that extra keys are accepted.
         if (node.additionalProperties !== false) {
           lines.push(`${pad(1)}# Additional keys beyond those declared are allowed.`)
         }
@@ -753,9 +753,9 @@ export function renderToolsSdkPy(schemas: ToolSdkSchema[]): string {
       // of that method's body. Emitted before the `async def` it would instead
       // become the `Tools` class docstring (for the first tool) or a dead
       // expression (for every later one), leaving every method undocumented —
-      // and this SDK is the model's only description of what a tool does. A
-      // docstring is a complete body, so the `...` stub is only for the
-      // description-less case.
+      // and under `mode: 'code'` this SDK is the model's only description of
+      // what a tool does. A docstring is a complete body, so the `...` stub is
+      // only for the description-less case.
       const doc = docLines(schema.description, 2)
       members.push(doc.length > 0
         ? `${pad(1)}async def ${schema.name}(self, args: ${argType}) -> ${outputType}:`

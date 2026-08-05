@@ -480,6 +480,14 @@ describe('renderToolsSdkPy', () => {
     // an older interpreter's do not. This pins which table produced the name,
     // so a change to the mapping step shows up here rather than only in a
     // downstream Python parse.
+    //
+    // Unlike the other Unicode cases in this file, the table row is recent:
+    // U+A7DC and the U+019B uppercase mapping to it both arrive in Unicode
+    // 16.0 (`DerivedAge.txt`; CPython 3.12.13's 15.0.0 has neither). The
+    // engines floor sits exactly there with no margin — Node 22.19.0 reports
+    // Unicode 16.0 (ICU 77.1) and maps U+019B to U+A7DC, measured — so an
+    // engine below the floor fails here as a renderer regression whose real
+    // cause is the table version.
     const text = renderToolsSdkPy([
       {
         name: 'ƛ',
