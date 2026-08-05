@@ -77,6 +77,12 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
+/* The headline brackets the reading, so the side a locale leaves empty must
+   drop out of the flex row rather than spend a gap. */
+.headline:empty {
+  display: none;
+}
+
 .bar {
   display: flex;
   gap: 1px;
