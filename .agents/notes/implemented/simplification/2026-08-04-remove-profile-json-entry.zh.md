@@ -12,7 +12,7 @@ Status: implemented
 
 ## Decision
 
-`PROFILE_DIR`、`PROFILE_FILE`、`ProfileMapping`、`PROFILE_MAPPINGS` 和 `readProfile()` 连同消费它们的那个 patch 来源一并删除。`AppCLIEntry` 现在只从 CLI 标志和解析出的前端 `distIndex` 合成 patch；它周围的各层——交付基座、surface overlay、`--config` 或个人 overlay、以及 `--config-replace`——保持不变。
+`PROFILE_DIR`、`PROFILE_FILE`、`ProfileMapping`、`PROFILE_MAPPINGS` 和 `readProfile()` 连同消费它们的那个 patch 来源一并删除。`AppCLIEntry` 现在只从 CLI 标志和解析出的前端 `distIndex` 合成 patch；它周围的各层——交付基座、surface overlay、以及 `--config` overlay——保持不变。
 
 磁盘上的 `.dsh-tmp-profile/config.json` 现在被完全忽略。没有迁移、没有替代格式、也没有弃用诊断：该文件从来没有生产方，因此不存在需要承接的存量，而[未发布阶段的立场](../../../../AGENTS.md)拒绝兼容垫片。
 

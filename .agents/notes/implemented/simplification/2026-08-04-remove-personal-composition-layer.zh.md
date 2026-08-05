@@ -12,17 +12,17 @@ patch 会替换目标行的整个 `config`，因此几个月前写下的个人�
 
 它还在同一批值上与类型化 settings 争夺所有权。`llm-deepseek` 与 `llm-pi-ai` 都注册了 settings namespace，而同样的字段也能通过 patch 它们的行抵达——于是谁赢取决于层序，而不取决于这个值的语义。这正是 [user-settings seam](../architecture/2026-07-28-user-settings-seam.md) 要消除的所有权歧义。
 
-最后，本应与它互为冗余的那条显式通道并未覆盖所有界面：`dsh -p`、`dsh meta` 和 `dsh upgrade` 都拒绝 `--config`。对这些界面来说，隐式文件不是两条 composition 路径之一——它是唯一的一条。
+最后，本应与它互为冗余的那条显式通道并未覆盖所有界面：`dsh -p` 拒绝 `--config`，当时的 `meta` 与 `upgrade` 子命令同样如此。对这些界面来说，隐式文件不是两条 composition 路径之一——它是唯一的一条。
 
 ## Decision
 
 删掉隐式的那一层，并把显式的那一层补完整。
 
-**每个会启动的界面都接受 `--config` 与 `--config-replace`。** `dsh -p`、`dsh meta` 和 `dsh upgrade` 与 TUI 看齐，因此只要有配置树启动的地方，就能点名一棵树。无头模式下的 `--config-replace` 树仍必须挂载 webserver 行，因为该界面是通过浏览器所用的同一个 HTTP 网关访问自己的 agent 的；`AppCLIEntry` 现在会在失败信息里说明这条契约，而不是只报告某个服务缺失。
+**每个会启动的界面都接受 `--config`。** `dsh -p` 与本来就有该标志的界面看齐，因此只要有配置树启动的地方，就能点名一份 overlay。TUI、`meta` 与 `upgrade` 由[显式配置入口](2026-08-03-explicit-config-dsh-entrypoint.md)并行移除，它同时删除了整棵树的 `--config-replace` 路径；本次变更在这一侧留下的就是 headless——它此前拒绝该标志，隐式文件是它唯一的 composition 路径。
 
 **`$DSH_HOME/config.yaml` 不再被读取、监视或 dump。** `PERSONAL_CONFIG_FILENAME`、`loadPersonalPatches`、`watchPersonalPatches`，以及专为它挂载的那一行 config-only HMR，全部删除。留在该路径上的文件是惰性的。Harness home 仍然保有 `settings.yaml`、`.credentials.yaml` 和 `.env`；overlay 也仍然可以放在那里，但它是一条待点名的路径，而不是一层待发现的配置。
 
-因此 `--config` 的含义略有变化：它过去是*替代*个人 overlay，现在它本身*就是*用户 overlay。`--config-replace` 保持不变。
+因此 `--config` 的含义略有变化：它过去是*替代*个人 overlay，现在它本身*就是*用户 overlay。
 
 日常能力各自保有归属。模型与 provider 参数已经属于各适配器的类型化 settings namespace。`repository-plugins` 行随交付配置以空列表挂载，因此仓库插件列表今天是一个 `--config` overlay，等 settings namespace 落地后归它。MCP 服务器仍然是 `--config` composition，这也是 [CLI README](../../../../apps/cli/README.md) 现在的写法。
 
@@ -44,4 +44,4 @@ patch 会替换目标行的整个 `config`，因此几个月前写下的个人�
 
 **等 settings 驱动的 repository 与 MCP manager 落地后再删。** 在 `--config` 覆盖所有界面之后，这条依赖已无必要，故否决：那两个 manager 会让这两种场景*更好用*，但只要标志处处可用，先删掉隐式层就不损失任何东西。
 
-**只为 `dsh -p` 保留它，因为那里原本没有标志。** 否决：那恰恰是最需要显式的界面。CI 或脚本化运行应当点名自己的 composition，而不是继承机器上恰好存在的东西。
+**只为 `dsh -p` 保留它，因为那里原本没有标志。** 否决：那恰恰是最需要显式的界面。CI 或脚本化运行应当点名自己的 composition，而不是继承机器上恰好存在的东西——所以这里改为给 `-p` 补上 `--config`。

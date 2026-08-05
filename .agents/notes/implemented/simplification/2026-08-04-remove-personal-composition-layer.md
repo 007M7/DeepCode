@@ -12,17 +12,17 @@ A patch replaces its target row's whole `config`, so a personal file written mon
 
 It also competed with typed settings for the same values. `llm-deepseek` and `llm-pi-ai` register settings namespaces, and the same fields are reachable by patching their rows — so which one wins is a function of layer order, not of what the value means. That is the ownership ambiguity the [user-settings seam](../architecture/2026-07-28-user-settings-seam.md) exists to remove.
 
-Finally the escape hatch it was supposed to be redundant with did not cover every surface: `dsh -p`, `dsh meta`, and `dsh upgrade` all rejected `--config`. For those surfaces the implicit file was not one composition route among two — it was the only one.
+Finally the escape hatch it was supposed to be redundant with did not cover every surface: `dsh -p` rejected `--config`, and so did the `meta` and `upgrade` subcommands of the time. For those surfaces the implicit file was not one composition route among two — it was the only one.
 
 ## Decision
 
 The implicit layer is deleted and the explicit one is completed.
 
-**Every booting surface takes `--config` and `--config-replace`.** `dsh -p`, `dsh meta`, and `dsh upgrade` join the TUI, so naming a tree is available wherever a tree boots. A headless `--config-replace` tree must still mount a webserver row, because that surface reaches its own agent over the same HTTP gateway the browser uses; `AppCLIEntry` now names that contract in the failure instead of reporting a bare missing service.
+**Every booting surface takes `--config`.** `dsh -p` joins the surfaces that already had it, so naming an overlay is available wherever a tree boots. The TUI, `meta`, and `upgrade` were removed in parallel by the [explicit-config entrypoint](2026-08-03-explicit-config-dsh-entrypoint.md), which also deleted the whole-tree `--config-replace` path; what remains of this change on that side is headless, which previously rejected the flag and had the implicit file as its only composition route.
 
 **`$DSH_HOME/config.yaml` is not read, watched, or dumped.** `PERSONAL_CONFIG_FILENAME`, `loadPersonalPatches`, `watchPersonalPatches`, and the config-only HMR row mounted for it are deleted. A file left at that path is inert. The Harness home keeps `settings.yaml`, `.credentials.yaml`, and `.env`; an overlay may still live there, but as a path to name, not a layer to discover.
 
-`--config` therefore changes meaning slightly: it used to *replace* the personal overlay, and now it simply *is* the user overlay. `--config-replace` is unchanged.
+`--config` therefore changes meaning slightly: it used to *replace* the personal overlay, and now it simply *is* the user overlay.
 
 Everyday capabilities keep their owners. Model and provider parameters already belong to the adapters' typed settings namespaces. The `repository-plugins` row ships mounted with an empty list, so a repository Plugin list is a `--config` overlay today and a settings namespace when one lands. MCP servers stay a `--config` composition, which is what [the CLI README](../../../../apps/cli/README.md) now documents.
 
@@ -44,4 +44,4 @@ There is no migration and no deprecation diagnostic: the product is unreleased, 
 
 **Delete it only after the settings-driven repository and MCP managers exist.** Rejected as an unnecessary dependency once `--config` reached every surface: the managers make those two cases *nicer*, but with the flag available everywhere, nothing is lost by removing the implicit layer first.
 
-**Keep it for `dsh -p` alone, where no flag existed.** Rejected: that is the surface with the strongest case for explicitness. A CI or scripted run should name its composition rather than inherit whatever the machine holds.
+**Keep it for `dsh -p` alone, where no flag existed.** Rejected: that is the surface with the strongest case for explicitness. A CI or scripted run should name its composition rather than inherit whatever the machine holds — which is why `-p` gained `--config` here instead.

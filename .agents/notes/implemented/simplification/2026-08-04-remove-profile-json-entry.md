@@ -12,7 +12,7 @@ Meanwhile the fields it mapped acquired owners elsewhere. `provider` and `model`
 
 ## Decision
 
-`PROFILE_DIR`, `PROFILE_FILE`, `ProfileMapping`, `PROFILE_MAPPINGS`, and `readProfile()` are deleted along with the patch source that consumed them. `AppCLIEntry` composes its patches from CLI flags and the resolved frontend `distIndex` only; the layers around it — shipped base, surface overlay, `--config` or the personal overlay, and `--config-replace` — are unchanged.
+`PROFILE_DIR`, `PROFILE_FILE`, `ProfileMapping`, `PROFILE_MAPPINGS`, and `readProfile()` are deleted along with the patch source that consumed them. `AppCLIEntry` composes its patches from CLI flags and the resolved frontend `distIndex` only; the layers around it — shipped base, surface overlay, and the `--config` overlay — are unchanged.
 
 A `.dsh-tmp-profile/config.json` on disk is now ignored completely. There is no migration, no replacement format, and no deprecation diagnostic: the file never had a producer, so there is no installed base to carry forward, and the [pre-release stance](../../../../AGENTS.md) rejects compatibility shims.
 

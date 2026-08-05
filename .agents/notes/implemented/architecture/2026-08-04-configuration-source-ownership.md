@@ -21,13 +21,13 @@ And `!!js process.env.X` in the shipped composition made the same value reachabl
 ```text
 explicit for this run     per-operation override, CLI argument
 > user settings           settings.yaml
-> composition             --config / --config-replace, shipped base
+> composition             --config overlay, shipped base
 > this launch's shell     inherited process environment
 > discovered file         $DSH_HOME/.env
 > defaults                schema default, provider public default
 ```
 
-Settings sit above composition because that is what the [settings seam](2026-07-28-user-settings-seam.md) does: a plugin registers its cordis entry config as the `base` layer and the user's section layers over it, and the seam cannot tell a value the shipped base set from one a `--config` overlay set — both arrive as entry config. A deployment that must pin a field against a user's stored settings therefore uses `--config-replace`, which bypasses the tree the settings base is derived from. Composition still outranks the environment, so a stale `DEEPSEEK_BASE_URL` in a shell cannot rewrite a configured endpoint.
+Settings sit above composition because that is what the [settings seam](2026-07-28-user-settings-seam.md) does: a plugin registers its cordis entry config as the `base` layer and the user's section layers over it, and the seam cannot tell a value the shipped base set from one a `--config` overlay set — both arrive as entry config. The product CLI has no lever above stored settings: `--config-replace` was removed with the TUI ([explicit-config entrypoint](../simplification/2026-08-03-explicit-config-dsh-entrypoint.md)), so a deployment that must pin a field against a user's settings ships its own bin or loader tree, or mounts no settings provider at all. Composition still outranks the environment, so a stale `DEEPSEEK_BASE_URL` in a shell cannot rewrite a configured endpoint.
 
 **Credentials keep a narrower, separate ordering**, and this note does not unify them:
 
@@ -54,7 +54,7 @@ The line is that these take effect with no user action, before any turn, outside
 
 - The web credential form now takes effect against an older key in the user's `.env`; only a key exported in the launching shell still makes it read-only, and the diagnostic says so.
 - A `.env` holding `DSH_*`, `PATH`, or a proxy variable fails the launch instead of being applied. Developers keeping switches in a repository `.env` move them to their shell — a deliberate, loud break.
-- `--config` is no longer overridable by a stale shell endpoint. It is still overridable by a user's stored `settings.yaml`, which is the settings seam's layering and not something this note changes; a deployment that must win against stored settings uses `--config-replace`.
+- `--config` is no longer overridable by a stale shell endpoint. It is still overridable by a user's stored `settings.yaml`, which is the settings seam's layering and not something this note changes; the product CLI offers no flag above it, so a deployment that must win against stored settings owns its own bin or loader tree.
 - Not solved: the layers are still materialized into `process.env`, so ordinary project variables continue to reach child processes under the subprocess scrub. Bootstrap variables cannot come from a file at all, which closes the escalation path; a project `.env` setting something like `GIT_SSH_COMMAND` for the tools an agent runs remains possible and is recorded as a limitation on the package.
 - The LLM adapters no longer accept a literal `apiKey`: configuration carries the reference and nothing else, so a settings document cannot become a second credential store. No adapter namespace is strict, so writing one is dropped rather than rejected. The web-search providers still declare a `role('secret')` literal key; they register no settings namespace, so nothing can shadow a stored credential through them, but the claim is about the adapters rather than the repository as a whole.
 - Exa and Perplexity still capture their key at load time rather than through the credential seam. They no longer read raw `process.env` — they resolve through the trusted layers — but converting them to per-request seam resolution is separate work.

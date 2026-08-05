@@ -21,7 +21,7 @@ endpoint 可以被项目重定向。调用目录的 `.env` 和其他层一样会
 ```text
 explicit for this run     per-operation override, CLI argument
 > user settings           settings.yaml
-> composition             --config / --config-replace, shipped base
+> composition             --config overlay, shipped base
 > this launch's shell     inherited process environment
 > discovered file         $DSH_HOME/.env
 > defaults                schema default, provider public default
@@ -29,7 +29,7 @@ explicit for this run     per-operation override, CLI argument
 
 自上而下依次是：本次运行的显式意图、用户 settings、composition、本次启动的 shell、被发现的文件、默认值。
 
-settings 在 composition 之上，因为 [settings seam](2026-07-28-user-settings-seam.md) 就是这么做的：插件把自己的 cordis entry config 注册为 `base` 层，用户 section 叠加其上，而 seam 无法区分某个值是交付基座设的还是 `--config` overlay 设的——两者都以 entry config 的形式抵达。因此，需要把某字段钉死、不被用户已存 settings 覆盖的部署方，应使用 `--config-replace`，它绕过了 settings base 所派生的那棵树。composition 仍然高于环境，所以 shell 里陈旧的 `DEEPSEEK_BASE_URL` 无法改写已配置的 endpoint。
+settings 在 composition 之上，因为 [settings seam](2026-07-28-user-settings-seam.md) 就是这么做的：插件把自己的 cordis entry config 注册为 `base` 层，用户 section 叠加其上，而 seam 无法区分某个值是交付基座设的还是 `--config` overlay 设的——两者都以 entry config 的形式抵达。产品 CLI（命令行界面）没有高于已存 settings 的手段：`--config-replace` 已随 TUI 一并移除（见[显式配置入口](../simplification/2026-08-03-explicit-config-dsh-entrypoint.md)），因此需要把某字段钉死、不被用户已存 settings 覆盖的部署方，应自带 bin 或 loader 配置树，或者干脆不挂载 settings provider。composition 仍然高于环境，所以 shell 里陈旧的 `DEEPSEEK_BASE_URL` 无法改写已配置的 endpoint。
 
 **凭据保留一条更窄的独立顺序**，本 Note 不把它并入上表：
 
@@ -56,7 +56,7 @@ inherited process environment      (read-only, wins)
 
 - Web 凭据表单现在能压过用户 `.env` 里更旧的密钥；只有在启动 shell 里 export 的密钥才会让它变成只读，诊断信息也会这么说。
 - 含 `DSH_*`、`PATH` 或 proxy 变量的 `.env` 会导致启动失败而不是被应用。把开关放在仓库 `.env` 里的开发者需要改放到 shell——这是一次刻意且响亮的破坏。
-- `--config` 不再会被陈旧的 shell endpoint 覆盖。但它仍然会被用户已存的 `settings.yaml` 覆盖，这是 settings seam 的分层方式，本 Note 不改变它；需要压过已存 settings 的部署方应使用 `--config-replace`。
+- `--config` 不再会被陈旧的 shell endpoint 覆盖。但它仍然会被用户已存的 `settings.yaml` 覆盖，这是 settings seam 的分层方式，本 Note 不改变它；产品 CLI 没有高于它的标志，因此需要压过已存 settings 的部署方要自带 bin 或 loader 配置树。
 - 未解决的：各层仍然会被物化进 `process.env`，因此普通项目变量继续按子进程清洗规则抵达子进程。bootstrap 变量完全不能来自文件，提权路径已封闭；项目 `.env` 为 agent 运行的工具设置诸如 `GIT_SSH_COMMAND` 之类的变量仍然可能，已作为限制记录在该包上。
 - LLM 适配器不再接受字面 `apiKey`：配置只携带引用，因此 settings 文档无法成为第二个凭据存储。由于没有任何适配器 namespace 是 strict 的，写入该键会被 schema 丢弃而不是报错。web-search 提供方仍声明 `role('secret')` 的字面密钥字段；它们不注册 settings namespace，因此无法借此遮蔽已存凭据，但这条声明的范围是适配器，而不是整个仓库。
 - Exa 与 Perplexity 仍在加载时捕获密钥，而不是经凭据 seam。它们不再读裸 `process.env`——改为经受信层解析——但把它们改造成按请求经 seam 解析是另一件事。

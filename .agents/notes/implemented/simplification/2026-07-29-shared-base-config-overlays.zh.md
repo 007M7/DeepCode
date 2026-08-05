@@ -20,7 +20,7 @@ Status: implemented
 
 优先级即列表顺序，逐配置项后写者胜：base，然后是 surface overlay，接着是 `--config` overlay，最后是启动器自身的 flag patch。个人 `~/.dsh/config.yaml` 曾占据 `--config` 这一槽位，直到它[已随个人 composition 层一并删除](../simplification/2026-08-04-remove-personal-composition-layer.md)。
 
-`--config <path>` 在已交付配置树上应用一个 overlay（当时是**取代**个人 overlay，因此 demo 或测试用的树绝不会继承用户的 provider 与 model）。`--config-replace <path>` 则把某个文件作为整棵树启动，同时绕过 base、surface overlay 与个人 overlay；这正是旧 `--config` 的行为，所以像 `examples/web-cordis` 这样的树改用了新 flag。两个 flag 都会在 `/resume` 的 execve 交接中保留，否则 resume 会静默更换 agent。
+`--config <path>` 在已交付配置树上应用一个 overlay（当时是**取代**个人 overlay，因此 demo 或测试用的树绝不会继承用户的 provider 与 model）。`--config-replace <path>` 当时把某个文件作为整棵树启动，同时绕过 base、surface overlay 与个人 overlay；这正是旧 `--config` 的行为，所以像 `examples/web-cordis` 这样的树改用了新 flag。两个 flag 当时都会在 `/resume` 的 execve 交接中保留，否则 resume 会静默更换 agent。该标志与 resume 交接后来随 TUI 一并移除（见[显式配置入口](2026-08-03-explicit-config-dsh-entrypoint.md)）。
 
 patch 会整体替换目标配置项的 `config` 而不合并，这决定了拆分方式：取值因 surface 而异的配置项住在 overlay 中，绝不住在 base 里，从而没有任何配置项会被三层同时 patch。因此会话身份根本不能经由配置键传递——它迁移到了 `dsh-agent-loop` 的 `CONFIGURED_AGENT_IDENTITIES_KEY`，正如启动器持有身份的记录所述。
 
