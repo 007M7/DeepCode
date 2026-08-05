@@ -109,7 +109,7 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
     // every storage hook awaits the same readiness promise.
     this.ready = this.openDb(config.path, (config as Required<Config>).journalMode)
     this.coordinator = new PersistenceCoordinator<number>(this.ctx, this, {
-      preparedSessionCacheSize: config.preparedSessionCacheSize ?? DEFAULT_PREPARED_SESSION_CACHE_SIZE,
+      preparedSessionCacheSize: (config as Required<Config>).preparedSessionCacheSize,
     })
   }
 

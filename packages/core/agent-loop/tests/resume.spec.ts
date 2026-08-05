@@ -1,5 +1,5 @@
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -747,6 +747,24 @@ describe('creation and resume cancellation edges', () => {
     await ctx.fiber.dispose()
   })
 
+  it('rejects when setup synchronously aborts its caller signal', async () => {
+    const { ctx } = await persistentHarness(new MockAdapter([]))
+    const controller = new AbortController()
+
+    const creating = ctx.agents.create({
+      sessionId: SessionId('setup-synchronous-abort'),
+      agentOptions: { provider: 'mock', model: 'mock' },
+      signal: controller.signal,
+      setup() {
+        controller.abort(new Error('setup synchronously cancelled'))
+      },
+    })
+
+    await expect(promptly(creating)).rejects.toThrow('setup synchronously cancelled')
+    expect(ctx.agents.get(SessionId('setup-synchronous-abort'))).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
   it('resume with a pre-aborted caller signal rejects out of the load race', async () => {
     const sessionId = SessionId('resume-pre-aborted')
     const root = await persistSession(sessionId)
@@ -760,6 +778,31 @@ describe('creation and resume cancellation edges', () => {
       signal: controller.signal,
     }))).rejects.toThrow('resume abandoned')
 
+    const stringReason = new AbortController()
+    stringReason.abort('resume string reason')
+    await expect(promptly(ctx.agents.resume({
+      resumeSessionId: sessionId,
+      agentOptions: { provider: 'mock', model: 'mock' },
+      signal: stringReason.signal,
+    }))).rejects.toThrow(/creation aborted/)
+
+    expect(ctx.agents.get(sessionId)).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
+  it('releases a restored preparation if the loop becomes inactive before setup', async () => {
+    const sessionId = SessionId('resume-loop-inactive-after-prepare')
+    const root = await persistSession(sessionId)
+    const ctx = await mountPersistentHarness(root, new MockAdapter([]))
+    const loop = ctx.agentLoop as unknown as {
+      ownership: { isActive: () => boolean }
+    }
+    vi.spyOn(loop.ownership, 'isActive').mockReturnValueOnce(false)
+
+    await expect(ctx.agents.resume({
+      resumeSessionId: sessionId,
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })).rejects.toThrow('agent loop is not active')
     expect(ctx.agents.get(sessionId)).toBeUndefined()
     await ctx.fiber.dispose()
   })

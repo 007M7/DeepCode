@@ -641,6 +641,23 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
 })
 
 describe('SessionPersistenceSqlite: edge cases', () => {
+  it('uses the configured preparation cache through the public service', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(SessionPersistenceSqlite, {
+      path: ':memory:',
+      preparedSessionCacheSize: 1,
+    })
+    const m = meta('sqlite-preparation-cache')
+    await ctx.sessionPersistence.create(m)
+    await ctx.sessionPersistence.append(m.id, oneTurnLog())
+
+    const preparation = await ctx.sessionPersistence.prepare(m.id)
+    expect(preparation.session.header).toEqual(m)
+    preparation[Symbol.dispose]()
+    await fiber.dispose()
+  })
+
   it('rejects and closes a current-schema database with an invalid store identity', async () => {
     const path = await freshDbPath()
     const db = openDatabase(path, 'wal')

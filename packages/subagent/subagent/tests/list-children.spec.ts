@@ -363,6 +363,17 @@ describe('SubagentService.listChildren', () => {
     expect(entries).toEqual([{ kind: 'diagnostic', id: childId, reason: 'unavailable' }])
   })
 
+  it('maps an invalid child surface to corrupt', async () => {
+    const { ctx, parent } = await setup([textResponse('done')])
+    const childId = await startChild(ctx, parent, 'invalid surface')
+    const query = ctx.get('sessionQuery')!
+    query.listEvents = () =>
+      Promise.reject(new SessionQueryError('invalid surface', 'SESSION_QUERY_INVALID_SURFACE'))
+
+    const entries = await ctx.subagents.listChildren(parent.id)
+    expect(entries).toEqual([{ kind: 'diagnostic', id: childId, reason: 'corrupt' }])
+  })
+
   it('diagnoses a read whose header no longer names this parent as corrupt', async () => {
     const { ctx, parent } = await setup([textResponse('done')])
     const childId = await startChild(ctx, parent, 'reparented child')

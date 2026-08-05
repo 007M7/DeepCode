@@ -98,7 +98,7 @@ describe('SessionPreparations reservation', () => {
     expect(first).toBeDefined()
     expect(preparations.reservationFor(source.session)).toBe(first)
     expect(() => preparations.reservationFor(Session.create(id))).toThrow(/cannot publish/)
-    expect(() => preparations.assertWritable(id)).toThrow(/is reserved/)
+    expect(() => { preparations.assertWritable(id) }).toThrow(/is reserved/)
 
     let secondSettled = false
     const secondPromise = preparations.reserve(id, () => Promise.resolve(prepared('unused')), committed)
@@ -116,10 +116,10 @@ describe('SessionPreparations reservation', () => {
     expect(second?.source).toBe(source)
     preparations.attach(second!)
     expect(preparations.reservationFor(source.session)).toBeUndefined()
-    expect(() => preparations.attach(second!)).toThrow(/no longer reserved/)
+    expect(() => { preparations.attach(second!) }).toThrow(/no longer reserved/)
     preparations.discard(second!)
     preparations.release(second!, true)
-    expect(() => preparations.assertWritable(id)).not.toThrow()
+    expect(() => { preparations.assertWritable(id) }).not.toThrow()
   })
 
   it('supports abortable reservation waits without cancelling the held reservation', async () => {
@@ -152,7 +152,7 @@ describe('SessionPreparations reservation', () => {
       return commitGate.promise
     })
     await commitStarted.promise
-    expect(() => preparations.assertWritable(id)).toThrow(/is reserved/)
+    expect(() => { preparations.assertWritable(id) }).toThrow(/is reserved/)
     const second = preparations.reserve(id, () => Promise.resolve(prepared('unused')), committed)
 
     commitGate.reject(failure)
@@ -168,7 +168,7 @@ describe('SessionPreparations reservation', () => {
     const controller = new AbortController()
     const reason = new Error('cancel after commit')
 
-    await expect(preparations.reserve(id, () => Promise.resolve(source), async value => {
+    await expect(preparations.reserve(id, () => Promise.resolve(source), async (value) => {
       controller.abort(reason)
       return { source: value, state: value.label }
     }, controller.signal)).rejects.toBe(reason)
@@ -185,7 +185,7 @@ describe('SessionPreparations reservation', () => {
     const commitGate = Promise.withResolvers<undefined>()
     const controller = new AbortController()
     const reason = new Error('cancel invalidated commit')
-    const reservation = preparations.reserve(id, () => Promise.resolve(source), async value => {
+    const reservation = preparations.reserve(id, () => Promise.resolve(source), async (value) => {
       commitStarted.resolve(undefined)
       await commitGate.promise
       return { source: value, state: value.label }
@@ -235,7 +235,9 @@ describe('observeQueuedAbort', () => {
     const signal = new AbortController().signal
     await expect(observeQueuedAbort(Promise.resolve('value'), signal)).resolves.toBe('value')
     const failure = { kind: 'failed' }
-    await expect(observeQueuedAbort(Promise.reject(failure), signal)).rejects.toBe(failure)
+    const rejected = Promise.withResolvers<never>()
+    rejected.reject(failure)
+    await expect(observeQueuedAbort(rejected.promise, signal)).rejects.toBe(failure)
   })
 
   it('rejects promptly with an exact abort reason and ignores later settlement', async () => {

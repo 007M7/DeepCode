@@ -998,6 +998,15 @@ describe('Session', () => {
 
     expect(() => Session.create(SessionId('header-invalid'), undefined, new ExoticHeader()))
       .toThrow(/not losslessly JSON-serializable/)
+    expect(() => Session.fromRestore(SessionId('header-invalid'), [], new ExoticHeader()))
+      .toThrow(/not a plain JSON record/)
+    for (const header of [null, 1, []]) {
+      expect(() => Session.fromRestore(
+        SessionId('header-invalid'),
+        [],
+        header as unknown as SessionHeader,
+      )).toThrow(/not a plain JSON record/)
+    }
     expect(() => Session.create(SessionId('header-invalid'), undefined, {
       version: SESSION_FORMAT_VERSION,
       id: SessionId('header-invalid'),
