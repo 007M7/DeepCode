@@ -266,6 +266,35 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     expect(await persistence.readStoredRevision(SessionId('missing-revision'))).toBeUndefined()
   })
 
+  it('handles revision-stat races and errors after log discovery', async () => {
+    const m = meta('stored-revision-race')
+    await ctx.sessionPersistence.create(m)
+    await ctx.sessionPersistence.append(m.id, oneTurnLog())
+    const persistence = ctx.sessionPersistence as SessionPersistenceJsonl
+    const internals = persistence as unknown as {
+      findLog(id: SessionId, signal?: AbortSignal): Promise<string | undefined>
+    }
+    const path = rawLogPath(root, m.cwd, m.id)
+    const findLog = vi.spyOn(internals, 'findLog').mockResolvedValue(path)
+
+    await rm(path)
+    expect(await persistence.readStoredRevision(m.id)).toBeUndefined()
+
+    const invalidPath = `${path}\0`
+    findLog.mockResolvedValue(invalidPath)
+    await expect(persistence.readStoredRevision(m.id)).rejects.toMatchObject({
+      code: 'ERR_INVALID_ARG_VALUE',
+    })
+
+    const reason = new Error('revision read cancelled after discovery')
+    const controller = new AbortController()
+    findLog.mockImplementation(async () => {
+      controller.abort(reason)
+      return invalidPath
+    })
+    await expect(persistence.readStoredRevision(m.id, controller.signal)).rejects.toBe(reason)
+  })
+
   it('omits a snapshot artifact removed after discovery', async () => {
     const m = meta('vanishing-snapshot')
     await ctx.sessionPersistence.create(m)

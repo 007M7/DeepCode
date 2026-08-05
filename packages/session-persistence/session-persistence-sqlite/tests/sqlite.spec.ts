@@ -654,6 +654,21 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
 })
 
 describe('SessionPersistenceSqlite: edge cases', () => {
+  it('resolves the preparation-cache default without schema normalization', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    let persistence!: SessionPersistenceSqlite
+    await ctx.plugin(Object.assign((inner: Context) => {
+      persistence = new SessionPersistenceSqlite(inner, {
+        path: ':memory:',
+        journalMode: 'wal',
+      })
+    }, { inject: ['sessions'] }))
+
+    expect(await persistence.list()).toEqual([])
+    await ctx.fiber.dispose()
+  })
+
   it('uses the configured preparation cache through the public service', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)

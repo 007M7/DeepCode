@@ -772,6 +772,39 @@ describe('PersistenceCoordinator session preparations', () => {
     }
   })
 
+  it('rejects preparation when storage disappears after repair', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const backend = new ControlledBackend()
+    const id = SessionId('repair-disappeared')
+    backend.store.set(id, {
+      meta: meta(id),
+      events: [{ type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } }],
+    })
+    let coordinator!: PersistenceCoordinator<never>
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      coordinator = new PersistenceCoordinator(inner, backend)
+    }, { inject: ['sessions'] }))
+
+    try {
+      await coordinator.inspect(id)
+      const readStoredRevision = backend.readStoredRevision.bind(backend)
+      let revisionReads = 0
+      vi.spyOn(backend, 'readStoredRevision').mockImplementation((sessionId, signal) => {
+        revisionReads += 1
+        if (revisionReads === 2) return Promise.resolve(undefined)
+        return readStoredRevision(sessionId, signal)
+      })
+
+      await expect(coordinator.prepare(id)).rejects.toThrow(/disappeared after persistence repair/)
+      expect(backend.repairAttempts).toBe(1)
+      expect(revisionReads).toBe(2)
+    } finally {
+      await fiber.dispose()
+      await ctx.fiber.dispose()
+    }
+  })
+
   it('waits for an existing reservation and reuses it after release', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
