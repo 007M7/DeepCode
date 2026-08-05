@@ -350,6 +350,21 @@ describe('mode-aware wire contribution', () => {
     expect(sdk?.text).toContain('top-level `await`')
   })
 
+  it("assembles under a python runtime in mode 'both' as well, SDK and schema together", async () => {
+    // `both` reaches the same wireSchemas/requireCodeRuntime/SDK-section code
+    // as `code`, so this pins the mode-by-language matrix rather than a
+    // separate path — including that `schemas()` under `both` projects the
+    // Python flavor instead of hitting the flavor-table guard.
+    const { ctx, systemPrompt } = await setup({ mode: 'both', runtime: { language: 'python' } })
+    registerEcho(ctx)
+    const assembly = await systemPrompt.assemble()
+    expect(assembly.sections.find(section => section.name === 'tools:sdk')?.text).toContain('class Tools(Protocol):')
+    const runCodeSchema = assembly.tools.find(tool => tool.name === RUN_CODE_NAME)
+    expect(runCodeSchema?.description).toContain('Execute a Python program')
+    // `both` keeps the native tools alongside run_code; `code` does not.
+    expect(assembly.tools.map(tool => tool.name)).toContain('echo')
+  })
+
   it('emits a TypeScript-flavored run_code schema under a typescript runtime', async () => {
     const { ctx, systemPrompt } = await setup({ mode: 'code', runtime: { language: 'typescript' } })
     registerEcho(ctx)

@@ -52,12 +52,18 @@ describe('jsonSchemaToPy', () => {
   })
 
   it('leans on JSON.stringify to keep a Literal parseable', () => {
-    // The two code points CPython refuses in source reach this path as well,
-    // and nothing here escapes them itself — `JSON.stringify` does, NUL as a
-    // C0 control and a lone surrogate under ES2019 well-formed stringification.
-    // Python decodes both escapes back to the value the schema declared.
+    // Nothing here escapes anything itself; `JSON.stringify` carries both
+    // classes of hazard. The two code points CPython refuses anywhere in
+    // source: NUL, and a lone surrogate under ES2019 well-formed
+    // stringification.
     expect(jsonSchemaToPy({ type: 'string', const: 'a\u0000b' })).toBe(String.raw`Literal["a\u0000b"]`)
     expect(jsonSchemaToPy({ type: 'string', enum: ['a\ud800b'] })).toBe(String.raw`Literal["a\ud800b"]`)
+    // And the ones that break this line in particular: a bare quote closing
+    // the literal early, a trailing backslash eating the closing quote, a bare
+    // newline ending it before its terminator. Every escape it emits is also a
+    // Python escape for the same character, so the value round-trips.
+    expect(jsonSchemaToPy({ type: 'string', const: 'say "hi"\n' })).toBe(String.raw`Literal["say \"hi\"\n"]`)
+    expect(jsonSchemaToPy({ type: 'string', const: 'ends\\' })).toBe(String.raw`Literal["ends\\"]`)
   })
 
   it('emits exact digits for a beyond-safe-range integer literal', () => {

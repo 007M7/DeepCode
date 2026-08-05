@@ -29,9 +29,10 @@ const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/
  * every tool and field without collisions.
  * Soft keywords (``match``, ``case``, ``type``, ``_`` — the language
  * reference's whole set) are deliberately ABSENT: each is special in exactly
- * one syntactic position — a statement head, or a ``match`` pattern for ``_``
- * — so ``match: str`` as a field and ``async def match(...)`` as a method are
- * both legal, and including
+ * one syntactic position — a statement head (``match``, ``type``), a ``match``
+ * statement's clause head (``case``), or a pattern (``_``) — so ``match: str``
+ * as a field and ``async def match(...)`` as a method are both legal, and
+ * including
  * them would needlessly degrade common search/regex tool fields to
  * ``dict[str, Any]``. Underscore-leading names are handled separately, not
  * here: a non-dunder ``__token`` name-mangles, a dunder present on
@@ -262,13 +263,21 @@ function childClassName(base: string, segment: string): string {
  * by a JS parser back into the same double.
  *
  * `JSON.stringify` is also what keeps this path's output parseable, and it is
- * the only thing that does: it escapes both code points CPython refuses in
- * source — NUL among the C0 controls, and unpaired surrogates under ES2019
- * well-formed stringification, which the engines range guarantees. The
+ * the only thing that does. It covers both classes of hazard: the two code
+ * points CPython refuses anywhere in source — NUL among the C0 controls, and
+ * unpaired surrogates under ES2019 well-formed stringification, which the
+ * engines range guarantees — and the ones that break this line in particular,
+ * a bare `"` closing the literal early, a trailing odd backslash eating the
+ * closing quote, and a bare LF/CR ending it before its terminator. The
  * `description` path carries {@link UNPRINTABLE} and {@link LONE_SURROGATE}
- * because nothing quotes it. DEL and the C1 controls do reach a `Literal[...]`
- * raw — legal but invisible, byte-for-byte as in the TS flavor; escaping them
- * is a both-flavors change.
+ * because nothing quotes it, and folds newlines in {@link describe}.
+ *
+ * That leans on a coincidence worth naming: every escape `JSON.stringify` can
+ * emit (`\"`, `\\`, `\b`, `\f`, `\n`, `\r`, `\t`, `\uXXXX`) is also a Python
+ * escape denoting the same character, so the emitted `Literal[...]` both
+ * parses and decodes back to the value the schema declared. DEL and the C1
+ * controls do reach it raw — legal but invisible, byte-for-byte as in the TS
+ * flavor; escaping them is a both-flavors change.
  */
 function pyScalar(value: JsonSchemaScalar): string {
   if (value === true) return 'True'
