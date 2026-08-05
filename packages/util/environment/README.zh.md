@@ -18,6 +18,8 @@
 
 **省略某一层是拒绝，不是降级**——绝不能接受某一层的调用方直接不把它列进去，后续任何重新排序都无法让它回来。provider 适配器三层全列，因为产品信任它所运行的项目；该机制是为那些「并非如此」的决策准备的。
 
+变量名按平台自身的规则匹配：POSIX 上精确匹配，Windows 上不区分大小写。在 Windows 上做大小写敏感的查找会选错层——shell 里的 `deepseek_api_key` 与项目 `.env` 里的 `DEEPSEEK_API_KEY` 对操作系统而言是同一个变量，把它们当成两个就会让项目胜出。
+
 ```ts
 import type { Context } from 'cordis'
 import { environmentOf } from '@deepseek-ai/dsh-environment'
