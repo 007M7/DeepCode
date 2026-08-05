@@ -34,7 +34,11 @@ export type { JsonlCompression } from './format.ts'
 
 const DEFAULT_PACK_CHUNKS = true
 const DEFAULT_COMPRESSION: JsonlCompression = 'zstd'
-/** internal yield interval. */
+/**
+ * Internal scheduling constant, not deployment configuration: balance
+ * frame-boundary event-loop yields against `setImmediate` overhead. One frame
+ * remains an indivisible synchronous decode.
+ */
 const ZSTD_DECODE_YIELD_INTERVAL_MS = 500
 
 /** Assert that the independently decodable first frame contains only the header record. */

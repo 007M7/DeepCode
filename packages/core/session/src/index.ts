@@ -203,12 +203,18 @@ export function snapshotSessionEvent<T extends SessionEvent>(event: T): T {
   return adoptSessionEvent(structuredClone(event))
 }
 
-/** Deep-freeze one acyclic object tree materialized by JSON parsing. input is stackoverflow-safe */
-function freezeRestoredObject<T>(value: T): T {
-  Object.freeze(value)
-  for (const key in value) {
-    const child = (value as Record<string, unknown>)[key]
-    if (child !== null && typeof child === 'object') freezeRestoredObject(child)
+/** Deep-freeze one acyclic JSON tree without consuming the JavaScript call stack. */
+function freezeRestoredObject<T extends object>(value: T): T {
+  const pending: object[] = [value]
+  while (pending.length > 0) {
+    // The non-empty check proves an object remains to visit.
+    // oxlint-disable-next-line typescript/no-non-null-assertion
+    const current = pending.pop()!
+    Object.freeze(current)
+    for (const key in current) {
+      const child = (current as Record<string, unknown>)[key]
+      if (child !== null && typeof child === 'object') pending.push(child)
+    }
   }
   return value
 }

@@ -713,7 +713,7 @@ describe('SessionPersistenceJsonl: scanLog unit', () => {
 
     expect(result.events).toEqual([oneTurnLog()[0]])
     expect(result.committedBytes).toBe(header.length + event.length + 1)
-    expect(() =>{  scanner.write(Buffer.from('\n')) }).toThrow(/finished/)
+    expect(() => { scanner.write(Buffer.from('\n')) }).toThrow(/finished/)
   })
 
   it('keeps scanning after a tolerable corrupt suffix until a committed turn end appears', () => {
@@ -728,7 +728,7 @@ describe('SessionPersistenceJsonl: scanLog unit', () => {
     expect(scanner.finish().events).toEqual([oneTurnLog()[0]])
 
     const committed = new SessionLogScanner(header)
-    expect(() =>{  committed.write(Buffer.from([
+    expect(() => { committed.write(Buffer.from([
       JSON.stringify({ type: 'turn/end', seq: 1, time: 2, data: { turn: 1, reason: { kind: 'completed' } } }),
       '',
     ].join('\n'))) }).toThrow(/seq gap in committed region/)
