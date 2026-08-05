@@ -17,14 +17,16 @@ export class PublicZstdFrameDecoder implements ZstdFrameDecoder {
     if (this.closed) throw new Error('cannot start a closed Zstandard frame decoder')
     this.started = true
     try {
-      for (const frame of frames) {
+      for (const { start, end } of frames) {
+        let decoded: Buffer
         try {
-          yield zstdDecompressSync(source.subarray(frame.start, frame.end))
+          decoded = zstdDecompressSync(source.subarray(start, end))
         } catch (error) {
-          throw new Error(`corrupt Zstandard session log: frame at byte ${frame.start} failed validation`, {
+          throw new Error(`corrupt Zstandard session log: frame at byte ${start} failed validation`, {
             cause: error,
           })
         }
+        yield decoded
       }
     } finally {
       this.close()
