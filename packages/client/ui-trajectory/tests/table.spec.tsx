@@ -109,6 +109,17 @@ describe('TrajectoryTable', () => {
     expect(screen.getByText('15 tok')).toBeTruthy()
   })
 
+  it('marks Summary scroll regions for interaction-only scrollbar thumbs', () => {
+    render(<TrajectoryTable turns={TURNS} {...FOLD_PROPS} />)
+    fireEvent.click(screen.getByRole('row', { name: /ASSISTANT/ }))
+
+    const panel = screen.getByRole('tabpanel')
+    expect(panel.querySelectorAll('[data-summary-scroll-region]').length).toBeGreaterThan(1)
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Preview' }))
+    expect(panel.querySelector('[data-summary-scroll-region]')).toBeNull()
+  })
+
   it('keeps long thinking collapsed until the user asks to render it', () => {
     const thinking = 'private chain '.repeat(1_000)
     const turns: readonly TrajectoryTurnModel[] = [{
