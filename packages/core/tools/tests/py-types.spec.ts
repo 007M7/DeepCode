@@ -51,6 +51,15 @@ describe('jsonSchemaToPy', () => {
     expect(jsonSchemaToPy({ type: 'string', enum: [] })).toBe('Any')
   })
 
+  it('leans on JSON.stringify to keep a Literal parseable', () => {
+    // The two code points CPython refuses in source reach this path as well,
+    // and nothing here escapes them itself — `JSON.stringify` does, NUL as a
+    // C0 control and a lone surrogate under ES2019 well-formed stringification.
+    // Python decodes both escapes back to the value the schema declared.
+    expect(jsonSchemaToPy({ type: 'string', const: 'a\u0000b' })).toBe(String.raw`Literal["a\u0000b"]`)
+    expect(jsonSchemaToPy({ type: 'string', enum: ['a\ud800b'] })).toBe(String.raw`Literal["a\ud800b"]`)
+  })
+
   it('emits exact digits for a beyond-safe-range integer literal', () => {
     // Python integers are arbitrary-precision, so the emitted digits ARE the
     // value the model programs against. `String(2 ** 60)` prints the rounded
@@ -750,7 +759,9 @@ describe('renderToolsSdkPy', () => {
     // so the block stays parseable with the code point intact.
     expect(renderToolsSdkPy([described('zero\u200bwidth')])).toContain('"""zero\u200bwidth"""')
     // Whitespace around a surviving control character is not an absent
-    // description: the escape runs before the trim, so what is left is visible.
+    // description. The escape's output is non-whitespace ASCII and the escaped
+    // sets are disjoint from what `trim()` strips, so the two operations touch
+    // different characters and their order is unobservable.
     expect(renderToolsSdkPy([described(' \u0085 ')])).toContain(String.raw`# \x85`)
   })
 
@@ -764,6 +775,7 @@ describe('renderToolsSdkPy', () => {
     const high = renderToolsSdkPy([described('a\ud800b')])
     expect(high).not.toContain('\ud800')
     expect(high).toContain(String.raw`# a\ud800b`)
+    expect(high).toContain(String.raw`"""a\\ud800b"""`)
     // A lone LOW surrogate is just as unencodable, and `\xNN` reaches neither.
     expect(renderToolsSdkPy([described('a\udfffb')])).toContain(String.raw`# a\udfffb`)
     // A well-formed pair is ONE astral code point, not two surrogates — the

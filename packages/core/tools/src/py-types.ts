@@ -27,9 +27,11 @@ const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/
  * class-syntax `TypedDict` field. Such a tool renders under subscript access
  * and such an object degrades to ``dict[str, Any]`` — the model still reaches
  * every tool and field without collisions.
- * Soft keywords (``match``, ``case``, ``type``, ``_``) are deliberately
- * ABSENT: they are only special in statement position, so ``match: str`` as a
- * field and ``async def match(...)`` as a method are both legal, and including
+ * Soft keywords (``match``, ``case``, ``type``, ``_`` — the language
+ * reference's whole set) are deliberately ABSENT: each is special in exactly
+ * one syntactic position — a statement head, or a ``match`` pattern for ``_``
+ * — so ``match: str`` as a field and ``async def match(...)`` as a method are
+ * both legal, and including
  * them would needlessly degrade common search/regex tool fields to
  * ``dict[str, Any]``. Underscore-leading names are handled separately, not
  * here: a non-dunder ``__token`` name-mangles, a dunder present on
@@ -113,8 +115,9 @@ const LONE_SURROGATE = /[\ud800-\udfff]/gu
 /**
  * The collapsed one-line `description` of a schema node (byte-stable across
  * formatting churn), or `undefined` when the node carries none. Every caller
- * passes an object (validated property nodes, or the ToolSdkSchema itself),
- * so only the description field needs guarding. A description that collapses
+ * passes an object — a validated property node, the `ToolSdkSchema` itself, or
+ * the `{ description }` wrapper {@link docLines} synthesizes — so only the
+ * description field needs guarding. A description that collapses
  * to nothing (empty, or whitespace only) is `undefined` too: it documents the
  * node no better than an absent one, and emitting it would leave an empty
  * `"""` docstring or a bare `#   ` line in the SDK. Only ECMAScript whitespace
@@ -257,6 +260,15 @@ function childClassName(base: string, segment: string): string {
  * representable as a JavaScript number, so the SDK would document a value no
  * program can pass. The TS flavor needs no counterpart: its literal is re-read
  * by a JS parser back into the same double.
+ *
+ * `JSON.stringify` is also what keeps this path's output parseable, and it is
+ * the only thing that does: it escapes both code points CPython refuses in
+ * source — NUL among the C0 controls, and unpaired surrogates under ES2019
+ * well-formed stringification, which the engines range guarantees. The
+ * `description` path carries {@link UNPRINTABLE} and {@link LONE_SURROGATE}
+ * because nothing quotes it. DEL and the C1 controls do reach a `Literal[...]`
+ * raw — legal but invisible, byte-for-byte as in the TS flavor; escaping them
+ * is a both-flavors change.
  */
 function pyScalar(value: JsonSchemaScalar): string {
   if (value === true) return 'True'
