@@ -1,8 +1,18 @@
+/**
+ * Models section stylesheet contract, asserted against the CSS text on disk.
+ *
+ * The section paints in both themes, and a `--dsw-*` name the theme does not
+ * declare fails silently: the browser takes the `var()` fallback, so the sheet
+ * still renders and only the dark theme looks wrong. Checking the names against
+ * the sheet that declares them is what turns that into a test failure.
+ */
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 const css = readFileSync(fileURLToPath(new URL('../src/client/ModelsSection.module.css', import.meta.url)), 'utf8')
+// The theme package maps `./styles/*` to `./src/styles/*`, so the declarations
+// stay on the source plane rather than needing a build.
 const tokens = readFileSync(
   fileURLToPath(new URL('../../ui-theme/src/styles/design-platform.css', import.meta.url)),
   'utf8',
@@ -34,5 +44,11 @@ describe('ModelsSection theme styles', () => {
     expect(block('.editor')).toContain('background: var(--dsw-alias-bg-module-platform)')
     expect(block('.rowCard')).toContain('border: 1px solid var(--dsw-alias-border-l2)')
     expect(block('.rowCard')).not.toMatch(/\bbackground\s*:/)
+  })
+
+  it('never falls back to a literal colour', () => {
+    // A token that resolves is never the problem; an undeclared one takes this
+    // branch, and a literal here is a single colour for both themes.
+    expect(css).not.toMatch(/var\(--dsw-[a-z0-9-]+\s*,\s*(?:#|rgb|rgba|hsl|hsla)/)
   })
 })
