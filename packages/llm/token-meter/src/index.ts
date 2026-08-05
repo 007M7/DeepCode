@@ -7,7 +7,7 @@
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
 import { BlockAssembler, deepFreeze } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, Message, TokenUsage } from '@deepseek-ai/dsh-llm'
+import type { Message, TokenUsage } from '@deepseek-ai/dsh-llm'
 import type { EpochHeader, Session, SessionEvent, SurfaceEvent } from '@deepseek-ai/dsh-session'
 import { canonicalHeader, headerEquals, isSurfaceEvent } from '@deepseek-ai/dsh-session'
 // Type-only: resolves the optional projection registry Context seam.
@@ -18,18 +18,11 @@ import type {
   TokenMeterConfig,
   TokenSurfaceNode,
 } from './types.ts'
+import { contextBreakdownProjectionDefinition } from './breakdown-projection.ts'
 import { contextPressureProjectionDefinition, tokenUsageProjectionDefinition } from './usage-projection.ts'
+import { estimateContent, estimateHeader, estimateMessage, ROLE_OVERHEAD } from './estimate.ts'
 
 export type * from './types.ts'
-
-/** Fixed text-density estimate used until exact tokenization is needed. */
-const CHARS_PER_TOKEN = 4
-
-/** Per-block structural overhead for JSON framing and type tags. */
-const BLOCK_OVERHEAD = 4
-
-/** Role-field framing overhead added to every priced message. */
-const ROLE_OVERHEAD = 4
 
 interface MeasurementAnchor {
   readonly header: EpochHeader | undefined
@@ -98,6 +91,7 @@ export class TokenMeterService extends Service {
     ctx.inject(['sessionProjections'], (projectionCtx) => {
       projectionCtx.sessionProjections.register(tokenUsageProjectionDefinition)
       projectionCtx.sessionProjections.register(contextPressureProjectionDefinition)
+      projectionCtx.sessionProjections.register(contextBreakdownProjectionDefinition)
     })
 
     // Readers catch up independently, while eager observation bounds ordinary
@@ -141,7 +135,7 @@ export class TokenMeterService extends Service {
     } else {
       baseline = {
         kind: 'estimated',
-        tokens: this._estimateHeader(header) + state.surfaceTokens,
+        tokens: estimateHeader(header) + state.surfaceTokens,
       }
       surfaceDeltaTokens = 0
     }
@@ -157,12 +151,13 @@ export class TokenMeterService extends Service {
   }
 
   /**
-   * Heuristically price one model-visible message.
+   * Heuristically price one model-visible message (instance face of the pure
+   * {@link estimateMessage}).
    * @param message - message to price without mutation.
    * @returns content and role-framing tokens under the fixed service heuristic.
    */
   estimateMessage(message: Message): number {
-    return this._estimateContent(message.content) + ROLE_OVERHEAD
+    return estimateMessage(message)
   }
 
   /** Catch one session's fold up to the current durable tail. */
@@ -246,7 +241,7 @@ export class TokenMeterService extends Service {
         )
         const anchorSurfaceTokens = stepStart.surfaceTokens + providerAssistantTokens
         const providerTokens = usageTokens(event.data.usage)
-        const estimatedAnchorTokens = this._estimateHeader(nextHeader) + anchorSurfaceTokens
+        const estimatedAnchorTokens = estimateHeader(nextHeader) + anchorSurfaceTokens
         nextAnchor = {
           header: nextHeader,
           surfaceTokens: anchorSurfaceTokens,
@@ -263,7 +258,7 @@ export class TokenMeterService extends Service {
           surfaceTokens: anchorSurfaceTokens,
           baseline: {
             kind: 'estimated',
-            tokens: this._estimateHeader(nextHeader) + anchorSurfaceTokens,
+            tokens: estimateHeader(nextHeader) + anchorSurfaceTokens,
           },
         }
       }
@@ -355,46 +350,7 @@ export class TokenMeterService extends Service {
       assembler.push(sourceEvent.data.chunk)
     }
     const providerContent = assembler.blocks()
-    return providerContent.length === 0 ? 0 : this._estimateContent(providerContent) + ROLE_OVERHEAD
-  }
-
-  /** Price content blocks recursively under the fixed density heuristic. */
-  private _estimateContent(blocks: readonly ContentBlock[]): number {
-    let tokens = 0
-    for (const block of blocks) {
-      switch (block.type) {
-        case 'text':
-        case 'reasoning':
-          tokens += Math.ceil(block.text.length / CHARS_PER_TOKEN) + BLOCK_OVERHEAD
-          break
-        case 'tool-call':
-          tokens += Math.ceil(block.name.length / CHARS_PER_TOKEN)
-            + Math.ceil(block.arguments.length / CHARS_PER_TOKEN)
-            + BLOCK_OVERHEAD
-          break
-        case 'tool-result':
-          tokens += this._estimateContent(block.content) + BLOCK_OVERHEAD
-          break
-        default:
-          // ContentBlockMap is merge-extensible; unknown blocks retain a
-          // conservative structural JSON price under the fixed heuristic.
-          tokens += BLOCK_OVERHEAD + Math.ceil(JSON.stringify(block).length / CHARS_PER_TOKEN)
-      }
-    }
-    return tokens
-  }
-
-  /** Price the canonical non-surface request envelope. */
-  private _estimateHeader(header: EpochHeader | undefined): number {
-    if (header === undefined) return 0
-    let tokens = 0
-    if (header.system !== undefined) {
-      tokens += Math.ceil(header.system.length / CHARS_PER_TOKEN) + ROLE_OVERHEAD
-    }
-    if (header.tools !== undefined && header.tools.length > 0) {
-      tokens += Math.ceil(JSON.stringify(header.tools).length / CHARS_PER_TOKEN) + BLOCK_OVERHEAD
-    }
-    return tokens
+    return providerContent.length === 0 ? 0 : estimateContent(providerContent) + ROLE_OVERHEAD
   }
 }
 

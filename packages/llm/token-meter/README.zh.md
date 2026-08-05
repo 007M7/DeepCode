@@ -23,13 +23,15 @@ fold 跟踪完整请求标头快照、步骤边界、表层追加与替换、成
 
 ## 会话投影
 
-当组合提供 `ctx.sessionProjections` 时，token-meter 会通过一个可选子 fiber 注册两个单元。
+当组合提供 `ctx.sessionProjections` 时，token-meter 会通过一个可选子 fiber 注册三个单元。
 
 `tokenUsage` 携带完整持久日志中的 `uncachedInputTokens`、`outputTokens`、`cacheReadTokens` 和 `cacheWriteTokens`。即使请求随后失败，用量分片仍会计入；同一 `(turn, step)` 的最终 assistant 消息用量会替换该样本，而不是重复计数。推理仍是输出的一个细分项。只保留单个最新样本，依赖的是会话日志的一条顺序性质：一旦某个更晚的步骤报告了用量，合法日志就绝不会再为更早的步骤报告用量。
 
 `contextPressure` 携带可选的 `pressureTokens`（提供方报告的最新提示词规模，为未缓存输入加缓存读取与写入之和），以及来自最新一条 `request/context` 记录的可选 `contextWindow`。提供方报告用量前压力保持缺失；路由适配器未公布容量时容量也保持缺失。输出不计入其中，因此轮次流式输出期间分子保持不动，等到下一个请求报告用量时才前进。
 
-两个单元都使用标准的投影基线、实时帧、seq 高者胜值仓和 JSON 检查点路径。卸载 token-meter 会移除这两个键。不带投影 seam 的 headless 或 TUI 组合会保留测量服务的既有行为。
+`contextBreakdown` 携带启发式的 `systemTokens`、`toolsTokens` 与 `messageTokens`，描述上下文的组成而非提供方计费规模。envelope 数字在每条 `request/header` 上按后者胜重新计价；消息数字折叠表层追加与位置替换，因此压缩会像缩小下一个请求那样缩小它。三个数字都使用测量服务的固定启发式规则，属于估算值：它们不会与提供方精确的 `pressureTokens` 对账，UI 应以近似值方式呈现。
+
+三个单元都使用标准的投影基线、实时帧、seq 高者胜值仓和 JSON 检查点路径。卸载 token-meter 会移除这三个键。不带投影 seam 的 headless 或 TUI 组合会保留测量服务的既有行为。
 
 ### 上下文占用率是刻意为之的近似值
 

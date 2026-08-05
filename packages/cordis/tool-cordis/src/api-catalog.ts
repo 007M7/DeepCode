@@ -1032,7 +1032,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'estimateMessage(message: Message): number',
-        jsDoc: '/**\n * Heuristically price one model-visible message.\n * @param message - message to price without mutation.\n * @returns content and role-framing tokens under the fixed service heuristic.\n */',
+        jsDoc: '/**\n * Heuristically price one model-visible message (instance face of the pure\n * {@link estimateMessage}).\n * @param message - message to price without mutation.\n * @returns content and role-framing tokens under the fixed service heuristic.\n */',
       },
     ],
   },

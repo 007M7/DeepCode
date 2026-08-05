@@ -23,13 +23,15 @@ Usage accounting sums disjoint input, cache-read, cache-write, and output bucket
 
 ## Session projections
 
-When the composition provides `ctx.sessionProjections`, token-meter registers two units through an optional child fiber.
+When the composition provides `ctx.sessionProjections`, token-meter registers three units through an optional child fiber.
 
 `tokenUsage` carries the complete durable log's `uncachedInputTokens`, `outputTokens`, `cacheReadTokens`, and `cacheWriteTokens`. Usage chunks are counted even when a request later fails; a final assistant-message usage for the same `(turn, step)` replaces that sample instead of double-counting it. Reasoning remains an output subdivision. The single last-sample slot relies on a session-log ordering property: once a later step reports usage, a legal log never reports usage for an earlier step again.
 
 `contextPressure` carries optional `pressureTokens` — the newest provider-reported prompt size, summing uncached input plus cache reads and writes — and optional `contextWindow` from the newest `request/context` record. Pressure stays absent until a provider reports usage; capacity stays absent for a route whose adapter advertises none. Output is excluded, so the numerator holds still while a turn streams and steps forward when the next request reports its usage.
 
-Both units use the standard projection baseline, live frame, higher-seq-wins store, and JSON checkpoint paths. Unloading token-meter removes both keys. A headless or TUI composition without the projection seam keeps the measurement service's existing behavior.
+`contextBreakdown` carries heuristic `systemTokens`, `toolsTokens`, and `messageTokens` — the context's composition rather than its provider-billed size. The envelope figures reprice last-wins on every `request/header`; the message figure folds surface appends and positional replacements, so compaction shrinks it the same way it shrinks the next request. All three figures use the measurement service's fixed heuristic and are estimates: they do not reconcile with the provider-exact `pressureTokens`, and a UI should present them as approximations.
+
+All three units use the standard projection baseline, live frame, higher-seq-wins store, and JSON checkpoint paths. Unloading token-meter removes all three keys. A headless or TUI composition without the projection seam keeps the measurement service's existing behavior.
 
 ### Context occupancy is an approximation, by design
 

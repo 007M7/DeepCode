@@ -3,8 +3,8 @@
 // hard acceptance — zero renders during streaming. Bash sample row: ToolRow
 // chrome (Bash · description) without a row click target.
 
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, render } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import type {
   AssistantMessageNode, ConversationSnapshot, SessionId, SessionListState, ToolResultNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
@@ -12,7 +12,7 @@ import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
-import { StatsLine, deriveStats, formatDuration, formatTokens, type StatsLineProps } from '../src/client/chat/StatsLine.tsx'
+import { StatsLine, contextOccupancy, deriveStats, formatDuration, formatTokens, type StatsLineProps } from '../src/client/chat/StatsLine.tsx'
 import { BashRow } from '../src/client/toolviews/bash-sample.tsx'
 import { zh } from '../src/client/locales.ts'
 
@@ -21,7 +21,20 @@ type BashRowProps = Parameters<typeof BashRow>[0]
 // Mirrors the real lookup chain (conversation namespace, then common).
 const t: BashRowProps['t'] = makeTranslate(zh, commonZh)
 
-afterEach(cleanup)
+/** jsdom has no ResizeObserver; StatsLine watches its row for ellipsis truncation through one. */
+class ResizeObserverStub {
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+}
+
+beforeEach(() => { vi.stubGlobal('ResizeObserver', ResizeObserverStub) })
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+  vi.restoreAllMocks()
+  vi.useRealTimers()
+})
 
 const SID = 's1' as SessionId
 
@@ -66,8 +79,11 @@ describe('deriveStats', () => {
     expect(stats.turns).toBe(2)
     expect(stats.steps).toBe(3)
     // Window-scoped by design: the paged window is not an accounting source, so
-    // the fold exposes no token fields at all (billing rides the projection).
-    expect(Object.keys(stats).sort()).toEqual(['llmMs', 'steps', 'toolMs', 'turns'])
+    // the fold exposes no billing fields (billing rides the projection);
+    // decodeTokens is a throughput input, not a billed total.
+    expect(Object.keys(stats).sort()).toEqual(
+      ['decodeMs', 'decodeTokens', 'llmMs', 'steps', 'toolMs', 'ttftMs', 'ttftSteps', 'turns'],
+    )
   })
 
   it('ignores tool results with no call time', () => {
@@ -96,6 +112,23 @@ describe('deriveStats', () => {
     const stats = deriveStats([timed, untimed, tool])
     expect(stats.llmMs).toBe(2_500)
     expect(stats.toolMs).toBe(3_000)
+  })
+
+  it('sums ttft per recorded step and decode throughput inputs per usage-carrying step', () => {
+    const sampled: AssistantMessageNode = {
+      ...assistant(1, 1, { outputTokens: 40 }),
+      timing: { stepStartTime: 1_000, firstTokenTime: 1_800, completedTime: 4_800 },
+    }
+    const ttftOnly: AssistantMessageNode = {
+      ...assistant(2, 1),
+      timing: { stepStartTime: 5_000, firstTokenTime: 5_400, completedTime: 7_400 },
+    }
+    const stats = deriveStats([sampled, ttftOnly, assistant(3, 2)])
+    expect(stats.ttftMs).toBe(1_200)
+    expect(stats.ttftSteps).toBe(2)
+    // The usage-less step contributes no decode share, keeping the ratio honest.
+    expect(stats.decodeMs).toBe(3_000)
+    expect(stats.decodeTokens).toBe(40)
   })
 })
 
@@ -142,47 +175,62 @@ describe('StatsLine', () => {
     expect(emptyView.container.textContent).toBe('')
   })
 
-  it('keeps durable token and context groups after the visible step window is empty', () => {
+  it('reveals the full line in a delayed hover tooltip only while the row is clipped', () => {
+    vi.useFakeTimers()
+    // jsdom lays nothing out; fake a row narrower than its content.
+    vi.spyOn(Element.prototype, 'scrollWidth', 'get').mockReturnValue(800)
+    vi.spyOn(Element.prototype, 'clientWidth', 'get').mockReturnValue(400)
+    const { source } = makeSource({ nodes: [assistant(1, 1)] })
+    const view = render(<StatsLine {...props(source)} />)
+    fireEvent.mouseEnter(view.container.firstElementChild!)
+    act(() => { vi.advanceTimersByTime(499) })
+    expect(view.container.querySelector('[role="tooltip"]')).toBeNull()
+    act(() => { vi.advanceTimersByTime(1) })
+    expect(view.container.querySelector('[role="tooltip"]')?.textContent)
+      .toBe('1 turns · 1 steps | Cache hit 90% | Input 100 tok · Output 5 tok')
+  })
+
+  it('suppresses the tooltip while the row fits without truncation', () => {
+    vi.useFakeTimers()
+    const { source } = makeSource({ nodes: [assistant(1, 1)] })
+    const view = render(<StatsLine {...props(source)} />)
+    fireEvent.mouseEnter(view.container.firstElementChild!)
+    act(() => { vi.advanceTimersByTime(500) })
+    expect(view.container.querySelector('[role="tooltip"]')).toBeNull()
+  })
+
+  it('renders window latency and throughput beside the wall-time group', () => {
+    const timed: AssistantMessageNode = {
+      ...assistant(1, 1, { outputTokens: 60 }),
+      timing: { stepStartTime: 1_000, firstTokenTime: 1_800, completedTime: 4_800 },
+    }
+    const { source } = makeSource({ nodes: [timed] })
+    const view = render(<StatsLine {...props(source)} />)
+    expect(view.container.textContent).toContain('LLM 3.8s| TTFT avg 0.8s · 20 tok/s')
+  })
+
+  it('keeps durable token groups after the visible step window is empty', () => {
     const { source } = makeSource()
     const view = render(<StatsLine {...props(source, {
       tokenUsage: USAGE,
       contextPressure: { pressureTokens: 32_000, contextWindow: 128_000 },
     })} />)
+    // Context occupancy lives on the composer's ContextMeter ring, not here.
     expect(view.container.textContent)
-      .toBe('Context 25% of 128K| Cache hit 90%| Input 100 tok · Output 5 tok')
+      .toBe('Cache hit 90%| Input 100 tok · Output 5 tok')
   })
 
-  it('renders context occupancy only when the projection knows a capacity', () => {
-    const { source } = makeSource({ nodes: [assistant(1, 1)] })
-    const withCapacity = render(<StatsLine {...props(source, {
-      tokenUsage: USAGE,
-      contextPressure: { pressureTokens: 32_000, contextWindow: 128_000 },
-    })} />)
-    expect(withCapacity.container.textContent).toContain('Context 25% of 128K')
-    // Pressure without capacity has no denominator: the group drops out.
-    const noCapacity = render(<StatsLine {...props(source, {
-      tokenUsage: USAGE,
-      contextPressure: { pressureTokens: 32_000 },
-    })} />)
-    expect(noCapacity.container.textContent).not.toContain('Context')
-    // Capacity arrives before usage in the log; no provider sample means there
-    // is no numerator yet, rather than a synthetic 0%.
-    const noPressure = render(<StatsLine {...props(source, {
-      tokenUsage: USAGE,
-      contextPressure: { contextWindow: 128_000 },
-    })} />)
-    expect(noPressure.container.textContent).not.toContain('Context')
-  })
-
-  it('clamps occupancy at 100% when pressure exceeds the recorded capacity', () => {
+  it('computes context occupancy only when both pressure and capacity are known', () => {
+    expect(contextOccupancy({ pressureTokens: 32_000, contextWindow: 128_000 }))
+      .toEqual({ percent: 25, pressureTokens: 32_000, contextWindow: 128_000 })
+    // Pressure without capacity has no denominator; capacity without a provider
+    // sample has no numerator yet, rather than a synthetic 0%.
+    expect(contextOccupancy({ pressureTokens: 32_000 })).toBeNull()
+    expect(contextOccupancy({ contextWindow: 128_000 })).toBeNull()
+    expect(contextOccupancy(undefined)).toBeNull()
     // Capacity and pressure are independent last-wins fields, so a model switch
     // can pair a smaller new window with the previous route's larger prompt.
-    const { source } = makeSource({ nodes: [assistant(1, 1)] })
-    const view = render(<StatsLine {...props(source, {
-      tokenUsage: USAGE,
-      contextPressure: { pressureTokens: 300_000, contextWindow: 128_000 },
-    })} />)
-    expect(view.container.textContent).toContain('Context 100% of 128K')
+    expect(contextOccupancy({ pressureTokens: 300_000, contextWindow: 128_000 })?.percent).toBe(100)
   })
 
   it('drops every token group when no projection is composed', () => {

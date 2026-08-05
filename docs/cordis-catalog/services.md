@@ -1681,7 +1681,7 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 
 Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [Session](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:767`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:726`](../../packages/core/session/src/index.ts)
 
 ## `ctx.sessionTitle` — `SessionTitleService`
 
@@ -2307,7 +2307,8 @@ Replay owner for one service-wide estimator and isolated per-session folds.
 measure(session: Session, requestHeader?: EpochHeader): TokenMeasurement
 
 /**
- * Heuristically price one model-visible message.
+ * Heuristically price one model-visible message (instance face of the pure
+ * {@link estimateMessage}).
  * @param message - message to price without mutation.
  * @returns content and role-framing tokens under the fixed service heuristic.
  */
@@ -2316,7 +2317,7 @@ estimateMessage(message: Message): number
 
 Types: [EpochHeader](../core-data-structures/session.md) · [Message](../core-data-structures/core.md) · [Session](../core-data-structures/session.md) · [TokenMeasurement](../core-data-structures/token-meter.md)
 
-Source: [`packages/llm/token-meter/src/index.ts:85`](../../packages/llm/token-meter/src/index.ts)
+Source: [`packages/llm/token-meter/src/index.ts:78`](../../packages/llm/token-meter/src/index.ts)
 
 ## `ctx.toolResultPrune` — `ToolResultPruneService`
 

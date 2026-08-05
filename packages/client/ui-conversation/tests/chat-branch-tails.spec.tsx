@@ -18,9 +18,18 @@ import { AssistantMarkdown } from '../src/client/chat/AssistantMarkdown.tsx'
 import { StatsLine, type StatsLineProps } from '../src/client/chat/StatsLine.tsx'
 import { zh } from '../src/client/locales.ts'
 
+/** jsdom has no ResizeObserver; StatsLine watches its row for ellipsis truncation through one. */
+class ResizeObserverStub {
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+}
+
+beforeEach(() => { vi.stubGlobal('ResizeObserver', ResizeObserverStub) })
 afterEach(() => {
   cleanup()
   vi.useRealTimers()
+  vi.unstubAllGlobals()
 })
 
 // Mirrors the real lookup chain (conversation namespace, then common).

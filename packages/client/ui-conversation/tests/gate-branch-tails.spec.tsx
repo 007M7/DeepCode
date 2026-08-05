@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render } from '@testing-library/react'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
@@ -18,7 +18,18 @@ import { zh } from '../src/client/locales.ts'
 // Mirrors the real lookup chain (conversation namespace, then common).
 const t: AssistantMarkdownProps['t'] = makeTranslate(zh, commonZh)
 
-afterEach(cleanup)
+/** jsdom has no ResizeObserver; StatsLine watches its row for ellipsis truncation through one. */
+class ResizeObserverStub {
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+}
+
+beforeEach(() => { vi.stubGlobal('ResizeObserver', ResizeObserverStub) })
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+})
 
 const SID = 's1' as SessionId
 
