@@ -156,6 +156,22 @@ export class ScheduleOwner {
     )
   }
 
+  /** Fold the current exact owner suffix and contain a corrupt durable stream. */
+  private readEarliest(): AfterScheduleRecord | undefined {
+    try {
+      const folded = foldScheduleEvents(
+        this.agent.session.events,
+        this.agent.session.header.seedLength ?? 0,
+      )
+      return earliest(folded.active)
+    } catch (error: unknown) {
+      this.faulted = true
+      const detail = error instanceof ScheduleLogError ? error.message : renderThrown(error)
+      this.ctx.logger.warn(`tool-schedule: corrupt schedule log for agent "${this.agent.id}": ${detail}`)
+      return undefined
+    }
+  }
+
   /** Preflight, fold, arm, or dispatch the next active one-shot reminder. */
   private async driveOnce(): Promise<void> {
     this.clearTimer()
@@ -171,19 +187,7 @@ export class ScheduleOwner {
     // oxlint-disable-next-line typescript/no-unnecessary-condition -- disposal or replacement can win while persistence is awaited.
     if (this.stopping || !this.isLive()) return
 
-    let record: AfterScheduleRecord | undefined
-    try {
-      const folded = foldScheduleEvents(
-        this.agent.session.events,
-        this.agent.session.header.seedLength ?? 0,
-      )
-      record = earliest(folded.active)
-    } catch (error: unknown) {
-      this.faulted = true
-      const detail = error instanceof ScheduleLogError ? error.message : renderThrown(error)
-      this.ctx.logger.warn(`tool-schedule: corrupt schedule log for agent "${this.agent.id}": ${detail}`)
-      return
-    }
+    const record = this.readEarliest()
     if (record === undefined) return
 
     const target = Date.parse(record.scheduledAt)
@@ -193,47 +197,50 @@ export class ScheduleOwner {
       return
     }
 
-    const release = this.agent.reserveTurnAdmission()
-    if (release === undefined) {
-      this.waitForIdle()
+    let maintenance: Promise<boolean>
+    try {
+      maintenance = this.agent.runMaintenance(() => {
+        if (this.stopping || !this.isLive()) return Promise.resolve(false)
+        const claimedRecord = this.readEarliest()
+        if (claimedRecord === undefined) return Promise.resolve(false)
+        const claimedTarget = Date.parse(claimedRecord.scheduledAt)
+        const decisionNow = Date.now()
+        if (decisionNow < claimedTarget) {
+          this.arm(claimedTarget, decisionNow)
+          return Promise.resolve(false)
+        }
+        try {
+          const message = createUserMessage({
+            content: [{ type: 'text', text: renderReminderFraming(claimedRecord) }],
+            source: { kind: 'plugin', plugin: 'tool-schedule' },
+          })
+          this.agent.followup(message)
+        } catch (error: unknown) {
+          if (this.isLive()) {
+            this.ctx.logger.warn(`tool-schedule: framing or followup failed for agent "${this.agent.id}": ${renderThrown(error)}`)
+          }
+          return Promise.resolve(false)
+        }
+        try {
+          this.agent.session.append('schedule/change', {
+            version: 1,
+            operation: 'dispatch',
+            id: claimedRecord.id,
+          })
+        } catch (error: unknown) {
+          this.faulted = true
+          this.clearTimer()
+          this.ctx.logger.warn(`tool-schedule: dispatch append failed for agent "${this.agent.id}": ${renderThrown(error)}`)
+          return Promise.resolve(false)
+        }
+        return Promise.resolve(true)
+      })
+    } catch (_busy: unknown) {
+      // `runMaintenance` rejects synchronously only while another agent activity owns the idle phase.
+      if (this.isLive()) this.waitForIdle()
       return
     }
-
-    try {
-      // oxlint-disable-next-line typescript/no-unnecessary-condition -- reservation can invalidate the owner.
-      if (this.stopping || !this.isLive()) return
-      const decisionNow = Date.now()
-      if (decisionNow < target) {
-        this.arm(target, decisionNow)
-        return
-      }
-      const message = createUserMessage({
-        content: [{ type: 'text', text: renderReminderFraming(record) }],
-        source: { kind: 'plugin', plugin: 'tool-schedule' },
-      })
-      try {
-        this.agent.followup(message)
-      } catch (error: unknown) {
-        if (this.isLive()) {
-          this.ctx.logger.warn(`tool-schedule: followup failed for agent "${this.agent.id}": ${renderThrown(error)}`)
-        }
-        return
-      }
-      try {
-        this.agent.session.append('schedule/change', {
-          version: 1,
-          operation: 'dispatch',
-          id: record.id,
-        })
-      } catch (error: unknown) {
-        this.faulted = true
-        this.clearTimer()
-        this.ctx.logger.warn(`tool-schedule: dispatch append failed for agent "${this.agent.id}": ${renderThrown(error)}`)
-        return
-      }
-    } finally {
-      release()
-    }
+    if (!await maintenance) return
 
     try {
       await flushSchedulePersistence(this.ctx, this.agent.session)

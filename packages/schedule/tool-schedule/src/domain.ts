@@ -289,10 +289,10 @@ export function scheduleView(record: AfterScheduleRecord, now: number): Schedule
 
 /**
  * Derive the Web receipt for one dispatch from its owning stream segment.
- * A dispatch inside an inherited fork prefix folds that original prefix; a
- * child-owned dispatch folds only the child suffix, preserving the same
- * `seedLength` ownership rule as the live runtime while still allowing a
- * persisted parent receipt to render in child history.
+ * A dispatch inside an inherited fork prefix folds from its nearest preceding
+ * `session/end-seed` boundary; a child-owned dispatch folds only the child
+ * suffix. Nested forks can therefore reuse session-local ids without hiding a
+ * persisted ancestor receipt in descendant history.
  * @param events - Complete contiguous Session log.
  * @param dispatchSeq - Exact event seq to present.
  * @param seedLength - Inherited fork prefix length.
@@ -317,7 +317,9 @@ export function scheduleReminderPresentation(
   const dispatch = decodeScheduleChange(event.data)
   if (dispatch.operation !== 'dispatch') return undefined
 
-  const segmentStart = dispatchSeq < seedLength ? 0 : seedLength
+  const segmentStart = dispatchSeq < seedLength
+    ? events.slice(0, dispatchSeq).findLastIndex(candidate => candidate.type === 'session/end-seed') + 1
+    : seedLength
   const before = foldScheduleEvents(events.slice(segmentStart, dispatchSeq))
   const record = before.active.find(candidate => candidate.id === dispatch.id)
   if (record === undefined) {

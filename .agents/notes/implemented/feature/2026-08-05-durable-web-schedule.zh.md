@@ -19,7 +19,7 @@ Status: implemented
 | 场景 | 持久事实 | live 行为 | 用户可见结果 |
 | --- | --- | --- | --- |
 | 创建与管理 | 原 Session 中的 `schedule/change` create／delete event | Agent-scoped 工具在读取前、变更后执行 checkpoint | 稳定 id、UTC 目标、`scheduled`／`overdue` 与 `session-local` 说明 |
-| 到期时繁忙 | 活动 create 仍在 fold 中 | owner 等待 `whenIdle()`、预留准入、排入一次 followup，再追加 dispatch | 一条可回放提醒回执；模型失败不会撤回它 |
+| 到期时繁忙 | 活动 create 仍在 fold 中 | owner 等待 `whenIdle()`、认领 idle maintenance、排入一次 followup，再追加 dispatch | 一条可回放提醒回执；模型失败不会撤回它 |
 | 进程停止或 Session cold | 活动 create 仍在 persistence 中 | 不存在 timer 或后台扫描；resume 重建 owner | 未来目标继续等待；overdue 目标尝试一次 |
 | fork | 父 event 留在继承前缀 | child fold 从 `seedLength` 开始 | history 可显示父回执，但父提醒不会成为 child 活动工作 |
 
@@ -41,21 +41,21 @@ persistence coordinator 只有在写路径完全停稳后才给出该确认。li
 
 ### Live 交付生命周期
 
-Agent-scoped owner 从持久 fold 派生最早目标。超长目标使用有界 timer 分段，每次 wake 都重新读取墙钟，因此回拨不会提前触发，前跳则会形成 overdue。`reserveTurnAdmission()` 不可用时，record 保持活动，并安装一个 `whenIdle()` wait 后再重试。
+Agent-scoped owner 从持久 fold 派生最早目标。超长目标使用有界 timer 分段，每次 wake 都重新读取墙钟，因此回拨不会提前触发，前跳则会形成 overdue。如果 agent 已被某个轮次或另一项 maintenance task 占用，`runMaintenance()` 会拒绝此次认领；record 保持活动，并由一个 `whenIdle()` wait 触发稍后的重试。被拒绝的 persistence preflight 同样会让 record 保持活动，但不会运行私有重试 timer；后续 agent 活动进入 idle，或成功的 Schedule 管理 preflight 会要求 owner 再次尝试。
 
-获得准入的路径会先清空 pending persistence、预留 turn admission、只采样一次 decision clock，并使用 JSON-escaped id 与 prompt 构造完整固定 reminder frame。它同步排入一次 `followup()`，追加只含 id 的 dispatch，并在 `finally` 中释放 reservation；之后才等待 dispatch barrier。framing 或同步入队失败不会追加 dispatch。append 失败会使该 owner fault，因为消息可能已经入队。后续 prompt admission、request checkpoint 或模型失败都不能撤回 dispatch。
+获得准入的路径会先清空 pending persistence，并通过 `runMaintenance()` 认领真正的 idle phase。该任务会重新折叠确切的 Session 后缀，从而确保在认领竞态中胜出的直接管理变更之后不会跟随陈旧 dispatch；随后只采样一次 decision clock，使用 JSON-escaped id 与 prompt 构造完整固定 reminder frame，同步排入一次 `followup()`，再追加只含 id 的 dispatch。触发唤醒的 input 会保持 parked，直到 maintenance 结束，因此 driver 无法在 dispatch 进入 log 前认领消息；只有该任务释放 phase 后，owner 才会等待 dispatch barrier。framing 或同步入队失败会被收容，且不会追加 dispatch。append 失败会使该 owner fault，因为消息可能已经入队。后续 prompt admission、request checkpoint 或模型失败都不能撤回 dispatch。
 
 Agent 或插件 dispose 会取消 timer、停止新工作、撤销三个工具注册，并等待进行中的 preflight 或 idle wait。teardown 绝不会删除持久 record。同步 followup 获得准入后、durable dispatch 前的狭窄崩溃窗口可能在恢复后重复提醒；本设计选择可见重复而非静默丢失，不承诺模型成功、用户阅读、外部副作用或 exactly-once。
 
 ### Commit-aware Web 回执
 
-Schedule package 拥有 `scheduleReminderPresentation()`，从 create 加 dispatch 派生 `{ scheduleId, prompt, occurrenceAt, deliveryMode }`。位于继承 fork 前缀中的 dispatch 会折叠该 parent segment 用于 history 显示；child 自有 dispatch 只折叠 child 后缀。因此 presentation 永远不会改变 live ownership。
+Schedule package 拥有 `scheduleReminderPresentation()`，从 create 加 dispatch 派生 `{ scheduleId, prompt, occurrenceAt, deliveryMode }`。位于继承 fork 前缀中的 dispatch 会从其最近的前置 `session/end-seed` 边界开始折叠，保留嵌套 generation 的 id 复用；child 自有 dispatch 只折叠 child 后缀。因此 presentation 永远不会改变 live ownership。
 
 Host 在 append 时继续发送所有 raw event。它在 `WeakMap` 中按 exact live `Session` 保存一个单调 watermark；只有 `session/flushed` 前进时，才会用通用 `{ for: 'event', view }` sidecar 重投新覆盖的 dispatch event。持久 `schedule/change` 类型用于选择 client renderer。取最大值可以收容反序完成的并发 flush，按对象身份键控则阻止复用的 Session id 继承另一个生命周期的 cursor。
 
 已附加 history 会独立 inspect persistence，只有 stored event prefix 的 header identity 与每个 event 都和 live Session 匹配时才添加 view。persistence 会把顶层缺失的 `delegationDepth` 规范写成零，因此两种形式在身份上等价；cwd、lineage、origin、时间戳、版本、id 与每个 event 仍必须精确匹配。inspect 缺失、失败、分歧或比 live 更长时，只会省略 view，raw history 仍然返回。已分离 history 本身就是持久前缀。因此复制进 fork seed 的 parent dispatch 只有在 child storage 证明该前缀后才会显示。
 
-浏览器 Session 只有在 durable event 深度一致时才接受重复 seq，随后立即升级 sidecar，不再追加 event。只有尾部加载与真正的 gap repair 才会将尚未覆盖的事件保留在既有 `liveBuffer` 中；普通旧页分页会让当前数组继续接收 live tail 事件，当前 window 以下的 sidecar 则由 in-flight page 自身暂存，只有该页返回身份完全相同的事件时才附着。重连 generation 会阻止陈旧的 page 或 repair 结果以及 `finally` 块触碰重建后的 window。`TranscriptAdapter` 创建按持久事件类型键控的通用 `PresentedEventNode`。`ui-conversation` 通过 `conversation.chat.eventview` 分发，并保留可展开 JSON fallback；`ui-schedule` 则拥有双语 `schedule/change` 提醒行。
+浏览器 Session 只有在 durable event 深度一致时才接受重复 seq，随后立即升级 sidecar，不再追加 event。只有尾部加载与真正的 gap repair 才会将尚未覆盖的事件保留在既有 `liveBuffer` 中；已接受的 repair 快照在推进 tail 但仍留下后续已缓冲的 gap 时会启动另一次 pull，身份冲突则会触发全量重新同步。普通旧页分页会让当前数组继续接收 live tail 事件，当前 window 以下的 sidecar 则由 in-flight page 自身暂存，只有该页返回身份完全相同的事件时才附着。重连 generation 会阻止陈旧的 page 或 repair 结果以及 `finally` 块触碰重建后的 window。`TranscriptAdapter` 创建按持久事件类型键控的通用 `PresentedEventNode`。`ui-conversation` 通过 `conversation.chat.eventview` 分发，并保留可展开 JSON fallback；`ui-schedule` 则拥有双语 `schedule/change` 提醒行。
 
 ```text
 schedule_create → Session create event → persistence

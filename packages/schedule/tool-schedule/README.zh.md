@@ -16,7 +16,7 @@
 
 回放会拒绝未知版本、额外字段、重复使用的 id，以及针对非活动记录的 delete 或 dispatch 转换。普通会话折叠完整日志。fork 只折叠 `session.events.slice(session.header.seedLength ?? 0)`，因此不会继承父会话的提醒。此包的 `./invariant` 配套项会对现有日志和候选事件应用相同策略。
 
-`scheduleReminderPresentation(events, dispatchSeq, seedLength)` 是供 Host 使用的纯回执投影。它把 dispatch 与同一 ownership segment 中的活动 create 配对，并返回 `scheduleId`、prompt、occurrence 和 `session-local` 模式。位于已持久 fork 前缀中的 dispatch 会折叠对应 parent 前缀用于 history 显示；child 自有 dispatch 只折叠 child 后缀，因此 presentation 绝不会改变 live ownership。
+`scheduleReminderPresentation(events, dispatchSeq, seedLength)` 是供 Host 使用的纯回执投影。它把 dispatch 与同一 ownership segment 中的活动 create 配对，并返回 `scheduleId`、prompt、occurrence 和 `session-local` 模式。位于已持久 fork 前缀中的 dispatch 会从最近的前置 `session/end-seed` 边界开始折叠，因此嵌套 generation 可以复用会话本地 id，而不会隐藏祖先回执；child 自有 dispatch 只折叠 child 后缀，因此 presentation 绝不会改变 live ownership。
 
 ## 管理工具
 
@@ -79,6 +79,7 @@ reminder_prompt_json: <JSON.stringify(prompt)>
 ## 已知限制与暂缓事项
 
 - **仅限会话本地交付**：提醒只有在原会话 live 时才能准时运行；cold 会话不会收到外部通知，只有恢复后才会处理 overdue 记录。
+- **活动驱动的持久化重试**：到期 preflight 被拒绝后，overdue 记录仍保持活动，但不会启动私有重试 timer；后续 agent 活动进入 idle，或成功的 Schedule 管理 preflight 要求 owner 重新计算后，owner 会重试。
 - **仅支持 after 协议**：版本 1 拒绝 `at`、`every_seconds`、`cron` 和 `time_zone`；这些规则需要后续协议变体，而不是隐藏的兼容字段。
 - **存在狭窄的崩溃重复窗口**：同步 `followup` 获得准入后、dispatch 检查点完成前发生崩溃，可能使提醒在恢复后重复；此包不承诺模型完成、用户确认或外部副作用恰好一次。
 - **加载顺序边界**：插件不会扫描或接管加载时已经 live 的 agent。

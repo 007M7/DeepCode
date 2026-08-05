@@ -700,11 +700,16 @@ export class Session implements SessionFace {
    * overwrite a newer push frame); the window events themselves are never
    * folded — the host is the only computation site.
    */
-  private installWindow(entries: HistoryEntry[], hasMore: boolean, projections?: ProjectionsBaseline): void {
-    this.mergeWindow(entries)
+  private installWindow(
+    entries: HistoryEntry[],
+    hasMore: boolean,
+    projections?: ProjectionsBaseline,
+  ): { changed: boolean; hasGap: boolean } {
+    const merged = this.mergeWindow(entries)
     this.hasMore = hasMore
     if (projections !== undefined) this.projections.seed(projections)
     this.notifier.markDirty()
+    return merged
   }
 
   /**
@@ -918,16 +923,32 @@ export class Session implements SessionFace {
     if (this.stitching) return
     this.stitching = true
     const generation = this.openGeneration
+    let retryGap = false
+    let acceptedHistory = false
     try {
       const { result } = await this.history({ maxMessages: PAGE_MESSAGES })
       if (generation !== this.openGeneration || this.openState !== 'open') return
       if (result.ok) {
-        this.installWindow(result.value.events, result.value.hasMore, result.value.projections)
+        acceptedHistory = true
+        const previousTail = this.windowTailSeq()
+        const { hasGap } = this.installWindow(
+          result.value.events,
+          result.value.hasMore,
+          result.value.projections,
+        )
+        const repairedTail = this.windowTailSeq()
+        retryGap = hasGap && repairedTail !== null
+          && (previousTail === null || repairedTail > previousTail)
       } else {
         this.mergeWindow()
       }
     } catch (error) {
       if (generation === this.openGeneration) {
+        if (acceptedHistory) {
+          console.error('[web-runtime] gap repair snapshot failed validation:', error)
+          void this.resync()
+          return
+        }
         console.error('[web-runtime] gap repair failed:', error)
         try {
           this.mergeWindow()
@@ -940,6 +961,7 @@ export class Session implements SessionFace {
       if (generation === this.openGeneration) {
         this.stitching = false
         this.notifier.markDirty()
+        if (retryGap) void this.repairGap()
       }
     }
   }

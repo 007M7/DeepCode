@@ -16,7 +16,7 @@ The package owns the strict version-1 `schedule/change` create, delete, and disp
 
 Replay rejects unknown versions, extra fields, reused ids, and delete or dispatch transitions against inactive records. Normal sessions fold the complete log. A fork folds only `session.events.slice(session.header.seedLength ?? 0)`, so it does not inherit its parent's reminders. The package's `./invariant` companion applies the same policy to existing logs and candidate events.
 
-`scheduleReminderPresentation(events, dispatchSeq, seedLength)` is the pure Host-facing receipt projection. It pairs a dispatch with the active create in the same ownership segment and returns `scheduleId`, prompt, occurrence, and `session-local` mode. A dispatch inside a persisted fork prefix folds that parent prefix for history display; a child-owned dispatch folds only the child suffix, so presentation never changes live ownership.
+`scheduleReminderPresentation(events, dispatchSeq, seedLength)` is the pure Host-facing receipt projection. It pairs a dispatch with the active create in the same ownership segment and returns `scheduleId`, prompt, occurrence, and `session-local` mode. A dispatch inside a persisted fork prefix folds from its nearest preceding `session/end-seed` boundary, so nested generations may reuse session-local ids without hiding ancestor receipts; a child-owned dispatch folds only the child suffix, so presentation never changes live ownership.
 
 ## Management tools
 
@@ -79,6 +79,7 @@ The reminder appends after existing history and preserves its reusable prefix. I
 ## Known Limitations and Deferred Work
 
 - **Session-local delivery only** — a reminder runs on time only while its original session is live; a cold session receives no external notification and processes an overdue record only after resume.
+- **Activity-driven persistence retry** — a rejected due preflight leaves the overdue record active but starts no private retry timer; the owner retries after later Agent activity reaches idle or a successful Schedule management preflight asks it to recompute.
 - **After-only protocol** — version 1 rejects `at`, `every_seconds`, `cron`, and `time_zone`; those rules require later protocol variants rather than hidden compatibility fields.
 - **Narrow crash duplicate window** — a crash after synchronous followup admission but before the dispatch checkpoint can repeat the reminder after recovery; the package does not claim model completion, user acknowledgement, or exactly-once external effects.
 - **Load-order boundary** — the plugin does not scan or adopt agents that were already live when it loaded.

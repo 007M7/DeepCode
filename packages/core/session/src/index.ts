@@ -109,6 +109,8 @@ declare module 'cordis' {
      * Observe a successful durability checkpoint. `throughSeq` is the exclusive
      * event boundary captured when {@link SessionStore.flush} began; events
      * appended while its listeners run require a later successful checkpoint.
+     * Concurrent checkpoints may publish their boundaries out of order, so a
+     * consumer retaining progress must advance by the maximum observed value.
      * No notification is published when no durability listener participated or
      * any listener failed. Observer failures are logged and contained.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`) reuses the session's

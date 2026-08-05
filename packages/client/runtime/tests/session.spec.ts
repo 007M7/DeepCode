@@ -821,6 +821,64 @@ describe('live event path', () => {
     const seqs = session.getSnapshot().nodes.map(n => n.seq)
     expect(seqs).toEqual([1, 3, 7, 9]) // both turns' user/assistant, no hole, no duplicate 9
   })
+
+  it('continues repair when one tail snapshot leaves a later buffered gap', async () => {
+    const initial = logRange(0, 6)
+    const firstGap = ev.user(9, 'first repaired event')
+    const laterGap = ev.user(12, 'later buffered event')
+    const firstSnapshot = [...initial, ...logRange(6, 9), firstGap]
+    const completeSnapshot = [...firstSnapshot, ...logRange(10, 12), laterGap]
+    const firstRepair = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
+    const secondRepair = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
+    const { api, session } = await opened(initial)
+    let repairs = 0
+    api.onHistory = () => ++repairs === 1 ? firstRepair.promise : secondRepair.promise
+
+    session.handleMuxEnvelope('first-gap' as never, {
+      type: 'session/event', sessionId: SID, event: firstGap,
+    })
+    session.handleMuxEnvelope('later-gap' as never, {
+      type: 'session/event', sessionId: SID, event: laterGap,
+    })
+    firstRepair.resolve(ok({ events: entries(firstSnapshot) as never[], hasMore: false }))
+
+    await vi.waitFor(() => { expect(repairs).toBe(2) })
+    secondRepair.resolve(ok({ events: entries(completeSnapshot) as never[], hasMore: false }))
+    await vi.waitFor(() => {
+      expect(session.getSnapshot().nodes.map(node => node.seq)).toEqual([9, 12])
+    })
+  })
+
+  it('resyncs when a successful gap snapshot conflicts with a buffered event identity', async () => {
+    const initial = logRange(0, 6)
+    const live = ev.user(9, 'live identity')
+    const conflicting = ev.user(9, 'conflicting history identity')
+    const consistent = [...initial, ...logRange(6, 9), live]
+    const { api, session } = await opened(initial)
+    let repairs = 0
+    api.onHistory = () => {
+      repairs++
+      return repairs === 1
+        ? histResponse([...initial, ...logRange(6, 9), conflicting])
+        : histResponse(consistent)
+    }
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      session.handleMuxEnvelope('gap' as never, {
+        type: 'session/event', sessionId: SID, event: live,
+      })
+      await vi.waitFor(() => {
+        expect(repairs).toBe(2)
+        expect(session.getSnapshot().nodes.map(node => node.seq)).toEqual([9])
+      })
+      expect(errorSpy).toHaveBeenCalledWith(
+        '[web-runtime] gap repair snapshot failed validation:',
+        expect.objectContaining({ message: 'session event identity mismatch at seq 9' }),
+      )
+    } finally {
+      errorSpy.mockRestore()
+    }
+  })
 })
 
 describe('paging', () => {

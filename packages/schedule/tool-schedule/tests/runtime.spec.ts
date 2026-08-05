@@ -277,6 +277,30 @@ describe('Schedule timer and admission runtime', () => {
     expect(test.followed).toHaveLength(1)
     await owner.dispose()
   })
+
+  it('rechecks the durable fold after claiming maintenance', async () => {
+    const test = await harness()
+    appendAfter(test, 'schedule-1', 1, Date.now() - 1_000)
+    test.controls.onReserve = () => {
+      test.controls.onReserve = undefined
+      test.agent.session.append('schedule/change', {
+        version: 1,
+        operation: 'delete',
+        id: ScheduleId('schedule-1'),
+      })
+    }
+    const owner = ownerFor(test)
+    owner.start()
+    await settle()
+
+    expect(test.controls.releaseCount).toBe(1)
+    expect(test.followed).toEqual([])
+    expect(test.agent.session.events.at(-1)?.data).toMatchObject({ operation: 'delete' })
+    owner.requestDrive()
+    await settle()
+    expect(test.followed).toEqual([])
+    await owner.dispose()
+  })
 })
 
 describe('Schedule runtime failure and teardown boundaries', () => {
@@ -459,7 +483,7 @@ describe('Schedule runtime failure and teardown boundaries', () => {
     expect(unreadable.followed).toEqual([])
   })
 
-  it('contains owner startup and run failures', async () => {
+  it('contains owner startup, maintenance, and framing failures', async () => {
     const startup = await harness()
     const startSpy = vi.spyOn(startup.ctx.agents, 'withoutInitiator')
       .mockImplementation(() => { throw new Error('initiator closing') })
@@ -477,6 +501,29 @@ describe('Schedule runtime failure and teardown boundaries', () => {
     expect(departedStartup.controls.flushCount).toBe(0)
     departedStartSpy.mockRestore()
 
+    const maintenanceFailure = await harness()
+    appendAfter(maintenanceFailure, 'schedule-1', 1, Date.now() - 1_000)
+    const maintenanceSpy = vi.spyOn(maintenanceFailure.agent, 'runMaintenance')
+      .mockImplementation(() => Promise.reject(new Error('maintenance failed')))
+    const maintenanceOwner = ownerFor(maintenanceFailure)
+    maintenanceOwner.start()
+    await settle()
+    expect(maintenanceFailure.followed).toEqual([])
+    maintenanceOwner.requestDrive()
+    await settle()
+    expect(maintenanceSpy).toHaveBeenCalledOnce()
+
+    const departedMaintenance = await harness()
+    appendAfter(departedMaintenance, 'schedule-1', 1, Date.now() - 1_000)
+    vi.spyOn(departedMaintenance.agent, 'runMaintenance').mockImplementation(() => {
+      departedMaintenance.disposeAgent()
+      return Promise.reject(new Error('maintenance failed after detach'))
+    })
+    const departedMaintenanceOwner = ownerFor(departedMaintenance)
+    departedMaintenanceOwner.start()
+    await settle()
+    expect(departedMaintenance.followed).toEqual([])
+
     const runFailure = await harness()
     appendAfter(runFailure, 'schedule-1', 1, Date.now() - 1_000)
     const uuidSpy = vi.spyOn(globalThis.crypto, 'randomUUID').mockImplementation(() => { throw 'message failed' })
@@ -486,7 +533,7 @@ describe('Schedule runtime failure and teardown boundaries', () => {
     uuidSpy.mockRestore()
     failingOwner.requestDrive()
     await settle()
-    expect(runFailure.followed).toEqual([])
+    expect(runFailure.followed).toHaveLength(1)
 
     const departedRun = await harness()
     appendAfter(departedRun, 'schedule-1', 1, Date.now() - 1_000)

@@ -109,6 +109,19 @@ describe('version-1 Schedule decoding and folding', () => {
       occurrenceAt: '2026-08-05T12:00:00.000Z',
       deliveryMode: 'session-local',
     })
+    const nested = [
+      scheduleEvent(createData('same-id', 'grandparent prompt'), 0),
+      scheduleEvent({ version: 1, operation: 'dispatch', id: 'same-id' }, 1),
+      { type: 'session/end-seed', seq: 2, time: 1, data: {} } as SessionEvent,
+      scheduleEvent(createData('same-id', 'parent prompt'), 3),
+      scheduleEvent({ version: 1, operation: 'dispatch', id: 'same-id' }, 4),
+    ]
+    expect(scheduleReminderPresentation(nested, 4, 5)).toEqual({
+      scheduleId: 'same-id',
+      prompt: 'parent prompt',
+      occurrenceAt: '2026-08-05T12:00:00.000Z',
+      deliveryMode: 'session-local',
+    })
     expect(scheduleReminderPresentation(events, 2, 2)).toBeUndefined()
     expect(scheduleReminderPresentation([
       { type: 'session/end-seed', seq: 0, time: 1, data: {} },
