@@ -1,0 +1,81 @@
+import { describe, expect, it } from 'vitest'
+import { Context } from 'cordis'
+import InvariantService, { InvariantError } from '@deepseek-ai/dsh-invariants'
+import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import * as scheduleInvariant from '../src/invariant.ts'
+import { ScheduleId } from '../src/domain.ts'
+import type { ScheduleChange } from '../src/types.ts'
+
+function event(data: unknown, seq: number): SessionEvent {
+  return { type: 'schedule/change', seq, time: 1, data } as SessionEvent
+}
+
+function create(id: string): ScheduleChange {
+  return {
+    version: 1,
+    operation: 'create',
+    schedule: {
+      id: ScheduleId(id),
+      kind: 'after',
+      prompt: 'check logs',
+      afterSeconds: 1,
+      scheduledAt: '2026-08-05T12:00:01.000Z',
+    },
+  }
+}
+
+async function harness() {
+  const ctx = new Context()
+  await ctx.plugin(SessionStore)
+  await ctx.plugin(InvariantService)
+  const fiber = await ctx.plugin(scheduleInvariant)
+  return { ctx, fiber }
+}
+
+describe('Schedule package invariant', () => {
+  it('accepts valid candidates and rejects invalid transitions before append', async () => {
+    const { ctx } = await harness()
+    const session = ctx.sessions.create(SessionId('schedule-invariant'))
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('schedule/change', create('schedule-1'))
+    expect(session.events).toHaveLength(2)
+
+    expect(() => session.append('schedule/change', {
+      version: 1,
+      operation: 'delete',
+      id: ScheduleId('missing'),
+    })).toThrow(InvariantError)
+    expect(session.events).toHaveLength(2)
+
+    session.append('schedule/change', { version: 1, operation: 'dispatch', id: ScheduleId('schedule-1') })
+    expect(session.events).toHaveLength(3)
+    await ctx.fiber.dispose()
+  })
+
+  it('rejects a malformed existing owned stream during companion setup', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(InvariantService)
+    ctx.sessions.create(SessionId('schedule-invalid-seed'), {
+      seed: [event({ version: 9, operation: 'delete', id: 'schedule-1' }, 0)],
+    })
+    await expect(ctx.plugin(scheduleInvariant).then(() => undefined)).rejects.toThrow(InvariantError)
+    await ctx.fiber.dispose()
+  })
+
+  it('ignores inherited Schedule events before a fork seed boundary', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(InvariantService)
+    const child = ctx.sessions.create(SessionId('schedule-fork'), {
+      seed: [event({ version: 9, operation: 'delete', id: 'parent' }, 0)],
+      meta: { parentSession: SessionId('parent'), seedLength: 1 },
+    })
+    const fiber = await ctx.plugin(scheduleInvariant)
+    child.append('schedule/change', create('child'))
+    expect(child.events.at(-1)?.data).toMatchObject({ operation: 'create' })
+    await fiber.dispose()
+    await ctx.fiber.dispose()
+  })
+})

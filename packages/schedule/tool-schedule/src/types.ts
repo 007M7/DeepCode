@@ -1,0 +1,158 @@
+/**
+ * Durable and model-facing Schedule value types.
+ * @module @deepseek-ai/dsh-tool-schedule
+ */
+
+import type { Branded } from '@deepseek-ai/dsh-brand'
+import type {} from '@deepseek-ai/dsh-session'
+
+/** Stable reminder identity that is unique and never reused within one session. */
+export type ScheduleId = Branded<'ScheduleId'>
+
+/** Durable one-shot reminder created from a positive delay. */
+export interface AfterScheduleRecord {
+  /** Session-local stable identity. */
+  readonly id: ScheduleId
+  /** Rule discriminator; v1 supports only delayed one-shot reminders. */
+  readonly kind: 'after'
+  /** Trimmed user-authored reminder content. */
+  readonly prompt: string
+  /** Positive safe-integer delay accepted at creation. */
+  readonly afterSeconds: number
+  /** Four-digit-year RFC 3339 UTC target. */
+  readonly scheduledAt: string
+}
+
+/** The v1 durable reminder record union. */
+export type ScheduleRecord = AfterScheduleRecord
+
+/** Creates one durable reminder record. */
+export interface ScheduleCreateChange {
+  readonly version: 1
+  readonly operation: 'create'
+  readonly schedule: ScheduleRecord
+}
+
+/** Deletes one currently active reminder. */
+export interface ScheduleDeleteChange {
+  readonly version: 1
+  readonly operation: 'delete'
+  readonly id: ScheduleId
+}
+
+/** Records that one active one-shot reminder entered the durable dispatch history. */
+export interface ScheduleDispatchChange {
+  readonly version: 1
+  readonly operation: 'dispatch'
+  readonly id: ScheduleId
+}
+
+/** Strict version-1 durable Schedule mutation union. */
+export type ScheduleChange = ScheduleCreateChange | ScheduleDeleteChange | ScheduleDispatchChange
+
+/** Current delivery timing derived from the durable record and wall clock. */
+export type ScheduleState = 'scheduled' | 'overdue'
+
+/** Fixed v1 delivery boundary: the original session must be live. */
+export type ScheduleDeliveryMode = 'session-local'
+
+/** Complete model-facing view of one active after reminder. */
+export interface ScheduleView extends AfterScheduleRecord {
+  /** Whether the target remains in the future. */
+  readonly state: ScheduleState
+  /** Reminder delivery never leaves the owning session. */
+  readonly deliveryMode: ScheduleDeliveryMode
+}
+
+/** JSON-compatible Web receipt derived from one durable dispatch. */
+export interface ScheduleReminderPresentation {
+  /** Session-local reminder identity. */
+  readonly scheduleId: ScheduleId
+  /** Original user-authored reminder content. */
+  readonly prompt: string
+  /** Scheduled one-shot occurrence represented by the dispatch. */
+  readonly occurrenceAt: string
+  /** Fixed delivery boundary rendered by the client plugin. */
+  readonly deliveryMode: ScheduleDeliveryMode
+}
+
+/** Operations whose persistence barrier may be uncertain. */
+export type SchedulePersistenceOperation = 'create' | 'list' | 'delete' | 'dispatch'
+
+/** Stable error returned for an empty reminder prompt. */
+export interface InvalidPromptError {
+  readonly code: 'invalid_prompt'
+  readonly message: string
+}
+
+/** Stable error returned for a missing, conflicting, or unsupported rule selector. */
+export interface InvalidSelectorError {
+  readonly code: 'invalid_selector'
+  readonly message: string
+}
+
+/** Stable error returned for an invalid after delay. */
+export interface InvalidRuleError {
+  readonly code: 'invalid_rule'
+  readonly message: string
+}
+
+/** Stable error returned when the computed instant cannot use a four-digit UTC year. */
+export interface TimeOutOfRangeError {
+  readonly code: 'time_out_of_range'
+  readonly message: string
+}
+
+/** Stable error returned when the durable Schedule stream is malformed. */
+export interface CorruptScheduleLogError {
+  readonly code: 'corrupt_schedule_log'
+  readonly message: string
+}
+
+/** Stable error returned when a required persistence checkpoint did not complete. */
+export interface PersistenceUncertainError {
+  readonly code: 'persistence_uncertain'
+  readonly message: string
+  readonly operation: SchedulePersistenceOperation
+  readonly id?: ScheduleId
+}
+
+/** Stable fallback that does not disclose an internal exception. */
+export interface InternalScheduleError {
+  readonly code: 'internal_error'
+  readonly message: string
+}
+
+/** Closed v1 Schedule management error union. */
+export type ScheduleToolError =
+  | InvalidPromptError
+  | InvalidSelectorError
+  | InvalidRuleError
+  | TimeOutOfRangeError
+  | CorruptScheduleLogError
+  | PersistenceUncertainError
+  | InternalScheduleError
+
+/** Canonical `schedule_create` value. */
+export type ScheduleCreateValue = ScheduleView | ScheduleToolError
+
+/** Canonical `schedule_list` value. */
+export type ScheduleListValue = ScheduleView[] | ScheduleToolError
+
+/** Successful `schedule_delete` value, including the non-mutating not-found result. */
+export type ScheduleDeleteResult =
+  | { readonly id: ScheduleId; readonly deleted: true }
+  | { readonly id: ScheduleId; readonly deleted: false; readonly code: 'schedule_not_found' }
+
+/** Canonical `schedule_delete` value. */
+export type ScheduleDeleteValue = ScheduleDeleteResult | ScheduleToolError
+
+declare module '@deepseek-ai/dsh-session' {
+  interface SessionEventMap {
+    /**
+     * Versioned Schedule mutation. The owning package validates the complete
+     * session-local transition stream before accepting a candidate event.
+     */
+    'schedule/change': ScheduleChange
+  }
+}
