@@ -2,12 +2,45 @@ import { createMessage } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import { describe, expect, it } from 'vitest'
 import { projectConversationHistory } from '../src/client/session-history/history-fold.ts'
+import { compactHistoryInspectionEntries } from '../src/client/sessions/history.ts'
+import { inspectRequests } from '../src/client/sessions/request-inspection.ts'
 import { ev } from './event-script.ts'
 
 const at = (seq: number, event: Record<string, unknown>): SessionEvent =>
   ({ seq, time: 1_700_000_000_000 + seq, ...event }) as unknown as SessionEvent
 
 describe('projectConversationHistory', () => {
+  it('projects a high-sequence history window without synthesizing its unloaded prefix', () => {
+    const baseSeq = 400_000
+    const events = [
+      ev.user(baseSeq, 'loaded tail'),
+      at(baseSeq + 1, {
+        type: 'assistant/message',
+        surfaceOp: { op: 'replace', start: baseSeq, end: baseSeq },
+        sourceEventSeqs: [baseSeq],
+        data: {
+          turn: 80,
+          step: 1,
+          message: createMessage({
+            role: 'assistant',
+            content: [{ type: 'text', text: 'tail summary' }],
+            source: { kind: 'model', provider: 'fake', model: 'fake' },
+          }),
+        },
+      }),
+    ]
+
+    const projection = projectConversationHistory(events.map(event => ({ event })))
+    expect(projection.eventNodes.map(node => node.seq)).toEqual([baseSeq, baseSeq + 1])
+    expect(projection.contexts.map(context => ({
+      originSeq: context.originSeq,
+      nodes: context.nodes.map(node => node.seq),
+    }))).toEqual([
+      { originSeq: undefined, nodes: [baseSeq] },
+      { originSeq: baseSeq + 1, nodes: [baseSeq + 1] },
+    ])
+  })
+
   it('projects frozen surface generations without widening the core live surface', () => {
     const events = [
       ev.user(0, 'a'),
@@ -90,5 +123,36 @@ describe('projectConversationHistory', () => {
       },
       requestConfig: { provider: 'fake', model: 'first' },
     })
+  })
+
+  it('drops completed token payloads without changing inspection projections', () => {
+    const events = [
+      ev.user(0, 'before'),
+      ev.stepStart(1, 1, 0),
+      ev.chunkStart(2, 1),
+      ev.chunkText(3, 1, ''),
+      ev.chunkText(4, 1, 'first'),
+      ev.chunkText(5, 1, ' discarded'),
+      at(6, { type: 'assistant/chunk', data: {
+        turn: 1,
+        step: 0,
+        chunk: { type: 'usage', usage: { inputTokens: 4, outputTokens: 2 } },
+      } }),
+      ev.assistant(7, 1, 'first discarded'),
+      ev.compactSummary(8, 'summary', 0, 7),
+      ev.compactCheckpoint(9, 8, 0, 7),
+      ev.stepStart(10, 2, 0),
+      ev.chunkStart(11, 2),
+      ev.chunkText(12, 2, 'interrupted'),
+      ev.turnEnd(13, 2, 'aborted'),
+    ]
+    const raw = events.map(event => ({ event }))
+    const compacted = compactHistoryInspectionEntries(raw)
+
+    expect(compacted.map(entry => entry.event.seq)).toEqual([
+      0, 1, 4, 6, 7, 8, 9, 10, 11, 12, 13,
+    ])
+    expect(projectConversationHistory(compacted)).toEqual(projectConversationHistory(raw))
+    expect(inspectRequests(compacted)).toEqual(inspectRequests(raw))
   })
 })
