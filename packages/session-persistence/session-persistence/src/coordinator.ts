@@ -16,7 +16,7 @@ import {
 } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 import type { SessionInspection } from './index.ts'
-import { SessionPreparations } from './preparations.ts'
+import { observeQueuedAbort, SessionPreparations } from './preparations.ts'
 import type { SessionPreparationReservation } from './preparations.ts'
 
 /** Default number of detached session preparations retained by a coordinator. */
@@ -1190,51 +1190,4 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     await this.appendCore(id, fresh)
     live.pending.splice(0, batch.length)
   }
-}
-
-/**
- * Give an observation caller a prompt cancellation view of queued work.
- *
- * The serialized `operation` remains in the same-id chain and checks the signal
- * before invoking backend work. Observing its settlement here therefore cannot
- * detach a storage read or let a later operation overtake its predecessor.
- */
-function observeQueuedAbort<T>(
-  operation: Promise<T>,
-  signal: AbortSignal,
-  started: () => boolean,
-): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    let settled = false
-    const finish = (callback: () => void): void => {
-      if (settled) return
-      settled = true
-      signal.removeEventListener('abort', onAbort)
-      callback()
-    }
-    const onAbort = (): void => {
-      if (started()) return
-      finish(() => {
-        try {
-          signal.throwIfAborted()
-        } catch (reason: unknown) {
-          rejectObservation(reject, reason)
-          return
-        }
-        /* v8 ignore next -- a native AbortSignal emits abort only after becoming aborted */
-        reject(new Error('persistence observation abort event lacked an aborted signal'))
-      })
-    }
-    signal.addEventListener('abort', onAbort, { once: true })
-    operation.then(
-      (value) => { finish(() => { resolve(value) }) },
-      (reason: unknown) => { finish(() => { rejectObservation(reject, reason) }) },
-    )
-    if (signal.aborted) onAbort()
-  })
-}
-
-/** Preserve an exact provider or AbortSignal reason, including legacy non-Error values. */
-function rejectObservation(reject: (reason?: unknown) => void, reason: unknown): void {
-  reject(reason)
 }

@@ -79,9 +79,9 @@ export class SessionPreparations<Source extends PreparedSource, CommitState> {
     signal?: AbortSignal,
   ): Promise<SessionPreparationReservation<Source, CommitState> | undefined> {
     const { entry, created } = this.entryFor(id, load)
-    const loaded = signal === undefined || created
-      ? await entry.result
-      : await observeQueuedAbort(entry.result, signal)
+    await (signal === undefined || created
+      ? entry.result
+      : observeQueuedAbort(entry.result, signal))
     while (this.entries.get(id) === entry && entry.phase !== 'ready') {
       const settled = entry.reservationSettled
       /* v8 ignore next -- committing/reserved transitions install this waiter synchronously. */
@@ -90,7 +90,7 @@ export class SessionPreparations<Source extends PreparedSource, CommitState> {
       else await observeQueuedAbort(settled, signal)
     }
     if (this.entries.get(id) !== entry) return undefined
-    const source = entry.source ?? loaded
+    const source = entry.source as Source
     const reservationSettled = Promise.withResolvers<void>()
     entry.phase = 'committing'
     entry.reservationSettled = reservationSettled.promise
@@ -252,7 +252,6 @@ export class SessionPreparations<Source extends PreparedSource, CommitState> {
   }
 
   private touch(entry: PreparationEntry<Source, CommitState>): void {
-    if (this.entries.get(entry.id) !== entry || entry.phase !== 'ready') return
     this.entries.delete(entry.id)
     this.entries.set(entry.id, entry)
     let readyCount = 0
@@ -263,14 +262,23 @@ export class SessionPreparations<Source extends PreparedSource, CommitState> {
     for (const [id, candidate] of this.entries) {
       if (candidate.phase !== 'ready') continue
       this.entries.delete(id)
-      readyCount -= 1
-      if (readyCount <= this.capacity) break
+      return
     }
   }
 }
 
-/** Give a queued observer a prompt cancellation view without cancelling shared work. */
-function observeQueuedAbort<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+/**
+ * Give a queued observer a prompt cancellation view without cancelling shared work.
+ * @param operation - shared operation whose settlement remains authoritative.
+ * @param signal - observer-local cancellation signal.
+ * @param started - whether the operation has crossed its cancellation cutoff.
+ * @returns the operation result or the observer's prompt cancellation.
+ */
+export function observeQueuedAbort<T>(
+  operation: Promise<T>,
+  signal: AbortSignal,
+  started: () => boolean = () => false,
+): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     let settled = false
     const finish = (callback: () => void): void => {
@@ -280,22 +288,23 @@ function observeQueuedAbort<T>(operation: Promise<T>, signal: AbortSignal): Prom
       callback()
     }
     const onAbort = (): void => {
+      if (started()) return
       finish(() => {
         try {
           signal.throwIfAborted()
         } catch (reason: unknown) {
-          rejectPreparationObservation(reject, reason)
+          rejectObservation(reject, reason)
           return
         }
         /* v8 ignore next -- a native AbortSignal emits abort only after becoming aborted. */
-        reject(new Error('preparation observation abort event lacked an aborted signal'))
+        reject(new Error('queued observation abort event lacked an aborted signal'))
       })
     }
     signal.addEventListener('abort', onAbort, { once: true })
     operation.then(
       (value) => { finish(() => { resolve(value) }) },
       (reason: unknown) => {
-        finish(() => { rejectPreparationObservation(reject, reason) })
+        finish(() => { rejectObservation(reject, reason) })
       },
     )
     if (signal.aborted) onAbort()
@@ -303,6 +312,6 @@ function observeQueuedAbort<T>(operation: Promise<T>, signal: AbortSignal): Prom
 }
 
 /** Preserve an exact loader or AbortSignal reason, including legacy non-Error values. */
-function rejectPreparationObservation(reject: (reason?: unknown) => void, reason: unknown): void {
+function rejectObservation(reject: (reason?: unknown) => void, reason: unknown): void {
   reject(reason)
 }
