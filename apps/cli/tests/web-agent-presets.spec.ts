@@ -154,6 +154,36 @@ describe('the shipped Web composition', () => {
   })
 })
 
+describe('a forked session', () => {
+  it('inherits the composition its seeded history was produced under', async () => {
+    const parent = await ctx.agents.create({
+      sessionId: SessionId('preset-fork-parent'),
+      meta: { agentPreset: 'core-web' },
+      setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'core-web').then(() => undefined),
+    })
+    const inherited = parent.agent.session.header.agentPreset
+    const child = await ctx.agents.create({
+      sessionId: SessionId('preset-fork-child'),
+      meta: {
+        parentSession: SessionId('preset-fork-parent'),
+        seedLength: 0,
+        ...inherited === undefined ? {} : { agentPreset: inherited },
+      },
+      setup: agentCtx => ctx.agentPresets.mount(agentCtx, inherited).then(() => undefined),
+    })
+    try {
+      // Composing nothing would leave the child empty: this layer moved every
+      // model-facing row out of the host plane, so there is nothing to inherit
+      // for free any more.
+      expect(toolNames(ctx, child.agent)).toEqual(toolNames(ctx, parent.agent))
+      expect(toolNames(ctx, child.agent).length).toBeGreaterThan(0)
+    } finally {
+      await child.dispose()
+      await parent.dispose()
+    }
+  })
+})
+
 describe('a session keeps the preset it was created with', () => {
   it('refuses to adopt a live session under a different preset', async () => {
     const handle = await ctx.agents.create({

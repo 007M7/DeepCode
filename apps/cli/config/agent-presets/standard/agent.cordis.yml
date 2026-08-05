@@ -40,6 +40,11 @@
   isolate:
     bashEnv: true
   config:
+    # The registry and its consumer share the realm: a consumer left outside
+    # would resolve the host's `bashEnv`, which this plane no longer provides.
+    - id: bash-env
+      name: '@deepseek-ai/dsh-bash-env'
+
     - id: tool-bash
       name: '@deepseek-ai/dsh-tool-bash'
 

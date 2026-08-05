@@ -201,6 +201,9 @@
 # absent from a surface overlay would silently reappear the day someone reorders
 # the composition.
 
+- id: bash-env
+  disabled: true
+
 - id: tool-bash
   disabled: true
 

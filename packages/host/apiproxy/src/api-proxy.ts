@@ -1898,6 +1898,12 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           })
         }
         const childId = `session-${randomUUID()}` as SessionId
+        // The child inherits the parent's composition for the same reason a
+        // resumed session keeps its own: the seeded history was produced under
+        // those tools, and composing anything else would strand the tool calls
+        // it already carries. Now that no model-facing row sits in the host
+        // plane, composing nothing would leave the child with no tools at all.
+        const forkComposition = await composeAgent(source.header.agentPreset)
         try {
           await ctx.agents.create({
             sessionId: childId,
@@ -1906,9 +1912,12 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               ...source.header.cwd === undefined ? {} : { cwd: source.header.cwd },
               parentSession: source.id,
               seedLength: cut,
+              ...forkComposition.agentPreset === undefined
+                ? {}
+                : { agentPreset: forkComposition.agentPreset },
             },
             agentOptions,
-            setup: installTarget,
+            setup: forkComposition.setup,
           })
         } catch (error: unknown) {
           return err(request, {
