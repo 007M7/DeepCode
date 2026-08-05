@@ -302,7 +302,7 @@ abstract start(spec: BashExecSpec): BashProcess
 
 Types: [BashExecRequest](../core-data-structures/bash.md) · [BashExecSpec](../core-data-structures/bash.md) · [BashProcess](../core-data-structures/bash.md) · [BashRunResult](../core-data-structures/bash.md)
 
-Source: [`packages/bash/bash/src/index.ts:51`](../../packages/bash/bash/src/index.ts)
+Source: [`packages/bash/bash/src/index.ts:53`](../../packages/bash/bash/src/index.ts)
 
 ## `ctx.bashEnv` — `BashEnvRegistry`
 

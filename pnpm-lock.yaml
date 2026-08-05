@@ -523,6 +523,9 @@ importers:
       '@deepseek-ai/dsh-client-web-react':
         specifier: workspace:^
         version: link:../../packages/client/web-react
+      '@deepseek-ai/dsh-pwsh-local':
+        specifier: workspace:^
+        version: link:../../packages/bash/pwsh-local
       '@types/node':
         specifier: ^22.0.0
         version: 22.20.0
