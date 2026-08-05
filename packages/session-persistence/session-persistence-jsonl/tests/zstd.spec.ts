@@ -4,11 +4,17 @@ import { appendFile, mkdir, mkdtemp, open, readFile, readdir, rm, stat, writeFil
 import type { FileHandle } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { performance } from 'node:perf_hooks'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { logPath, scanLog, sessionDir, toHeaderLine, type JsonlCompression } from '../src/format.ts'
-import { compressZstdFrame, decompressZstdFrame, decompressZstdPrefix, scanZstdFrames } from '../src/zstd.ts'
+import {
+  compressZstdFrame, createZstdFrameDecoder, decompressZstdFrame, decompressZstdFrameSync, decompressZstdPrefix,
+  scanZstdFrames,
+} from '../src/zstd.ts'
+import { NodePrivateZstdFrameDecoder } from '../src/zstd-private-decoder.ts'
+import { PublicZstdFrameDecoder } from '../src/zstd-public-decoder.ts'
 import { runPersistenceContract, meta, oneTurnLog } from '../../session-persistence/tests/contract.ts'
 import { runCoordinatorContract, type CoordinatorFixture } from '../../session-persistence/tests/coordinator-contract.ts'
 
@@ -17,7 +23,7 @@ const roots: string[] = []
 const contexts: Context[] = []
 
 interface ZstdReaderInternals {
-  readZstdPrefix(buffer: Buffer, signal?: AbortSignal): Promise<unknown>
+  readZstdPrefix(buffer: Buffer, signal?: AbortSignal): Promise<{ events: SessionEvent[] }>
 }
 
 type HeaderRead = (
@@ -151,6 +157,32 @@ describe('Zstandard frame structure', () => {
     expect(first[4]! & 0x04).toBe(0x04)
     expect(second[4]! & 0x04).toBe(0x04)
     expect((await decompressZstdFrame(first)).toString()).toBe('header\n')
+    expect(decompressZstdFrameSync(second).toString()).toBe('event\n')
+    const decoder = createZstdFrameDecoder()
+    try {
+      const plaintext = Array.from(decoder.decode(stream, scanZstdFrames(stream).frames), chunk => Buffer.from(chunk))
+      expect(Buffer.concat(plaintext).toString()).toBe('header\nevent\n')
+    } finally {
+      decoder.close()
+    }
+  })
+
+  it('keeps the public and Node-private synchronous decoders interchangeable', async () => {
+    const frames = [await compressZstdFrame('first\n'), await compressZstdFrame('second\n')]
+    const stream = Buffer.concat(frames)
+    const ranges = scanZstdFrames(stream).frames
+    const privateDecoder = NodePrivateZstdFrameDecoder.create()
+    expect(privateDecoder).toBeDefined()
+
+    for (const decoder of [new PublicZstdFrameDecoder(), privateDecoder!]) {
+      try {
+        const plaintext = Array.from(decoder.decode(stream, ranges), chunk => Buffer.from(chunk))
+        expect(plaintext).toHaveLength(2)
+        expect(Buffer.concat(plaintext).toString()).toBe('first\nsecond\n')
+      } finally {
+        decoder.close()
+      }
+    }
   })
 
   it('distinguishes incomplete frame regions from invalid complete structure', () => {
@@ -312,7 +344,7 @@ describe('SessionPersistenceJsonl: default Zstandard encoding', () => {
     await expect(ctx.sessionPersistence.load(header.id)).rejects.toThrow(/frame at byte .* failed validation/)
   })
 
-  it('stops multi-frame inspection after cancellation interrupts the active decode', async () => {
+  it('stops multi-frame inspection when cancellation arrives at a one-second slice boundary', async () => {
     const root = await freshRoot()
     const ctx = await mount(root)
     const header = meta('cancel-zstd-frames')
@@ -320,22 +352,32 @@ describe('SessionPersistenceJsonl: default Zstandard encoding', () => {
     const eventFrame = await compressZstdFrame(`${JSON.stringify(oneTurnLog()[0])}\n`)
     const laterFrame = await compressZstdFrame(`${JSON.stringify(oneTurnLog()[1])}\n`)
     const stream = Buffer.concat([headerFrame, eventFrame, laterFrame])
-    expect(scanZstdFrames(stream).frames).toHaveLength(3)
     const controller = new AbortController()
     const reason = new Error('cancel after Zstandard decode starts')
     const reader = ctx.sessionPersistence as unknown as ZstdReaderInternals
-    const zstdModule = await import('../src/zstd.ts')
-    const decode = vi.spyOn(zstdModule, 'decompressZstdFrame')
-
-    // readZstdPrefix reaches its first asynchronous decompression before it
-    // returns this promise. The microtask abort therefore occurs after decode
-    // starts and must prevent every later frame from reaching the decoder.
+    vi.spyOn(performance, 'now').mockReturnValueOnce(0).mockReturnValue(1001)
     const pending = reader.readZstdPrefix(stream, controller.signal)
     queueMicrotask(() => { controller.abort(reason) })
 
     await expect(pending).rejects.toBe(reason)
-    expect(decode).toHaveBeenCalledTimes(1)
-    expect(decode).toHaveBeenCalledWith(headerFrame)
+  })
+
+  it('continues decoding every frame after a one-second slice yields', async () => {
+    const root = await freshRoot()
+    const ctx = await mount(root)
+    const header = meta('yield-zstd-frames')
+    const events = oneTurnLog().slice(0, 2)
+    const headerFrame = await compressZstdFrame(`${JSON.stringify(toHeaderLine(header))}\n`)
+    const eventFrames = await Promise.all(events.map(async event => (
+      compressZstdFrame(`${JSON.stringify(event)}\n`)
+    )))
+    const stream = Buffer.concat([headerFrame, ...eventFrames])
+    const reader = ctx.sessionPersistence as unknown as ZstdReaderInternals
+    vi.spyOn(performance, 'now').mockReturnValueOnce(0).mockReturnValue(1001)
+
+    const prefix = await reader.readZstdPrefix(stream)
+
+    expect(prefix.events).toEqual(events)
   })
 
   it.each(['none', 'zstd'] as const)(

@@ -11,6 +11,8 @@ import z from 'schemastery'
 import { readdirSync } from 'node:fs'
 import { open, mkdir, readFile, readdir, realpath, link, rm, stat, truncate } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
+import { performance } from 'node:perf_hooks'
+import { scheduler } from 'node:timers/promises'
 import { randomBytes } from 'node:crypto'
 import {
   DEFAULT_PREPARED_SESSION_CACHE_SIZE, SessionPersistence, SessionPersistenceRevision, PersistenceCoordinator,
@@ -19,16 +21,27 @@ import {
 } from '@deepseek-ai/dsh-session-persistence'
 import type { SessionEvent, SessionId, SessionHeader, SessionPreparation } from '@deepseek-ai/dsh-session'
 import {
-  encodeSegment, eventLines, logPath, logSuffix, parseHeaderMeta, projectDir, scanLog, sessionDir, toHeaderLine,
+  encodeSegment, eventLines, logPath, logSuffix, parseHeaderMeta, projectDir, scanLog, sessionDir,
+  SessionLogScanner, toHeaderLine,
   type JsonlCompression,
 } from './format.ts'
-import { compressZstdFrame, decompressZstdFrame, decompressZstdPrefix, scanZstdFrames } from './zstd.ts'
+import {
+  compressZstdFrame, createZstdFrameDecoder, decompressZstdFrame, decompressZstdPrefix, scanZstdFrames,
+} from './zstd.ts'
 import { ensureDurableDirectoryWin32, publishNewFileWin32 } from './win32.ts'
 
 export type { JsonlCompression } from './format.ts'
 
 const DEFAULT_PACK_CHUNKS = true
 const DEFAULT_COMPRESSION: JsonlCompression = 'zstd'
+const ZSTD_DECODE_YIELD_INTERVAL_MS = 1000
+
+/** Assert that the independently decodable first frame contains only the header record. */
+function assertZstdHeaderFrame(plaintext: Buffer): void {
+  if (plaintext.length === 0 || plaintext.indexOf(0x0A) !== plaintext.length - 1) {
+    throw new Error('corrupt Zstandard session log: first frame is not exactly one header line')
+  }
+}
 
 /** Loader schema for the JSONL artifact's physical encoding. */
 export const JsonlCompressionSchema: z<JsonlCompression> = z.union([
@@ -260,61 +273,66 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     signal?.throwIfAborted()
     if (frames.length === 0) throw new Error('empty or header-less Zstandard session log')
 
-    const plaintextFrames: Buffer[] = []
-    for (const frame of frames) {
-      let plaintext: Buffer
-      try {
+    const decoder = createZstdFrameDecoder()
+    let yieldDeadline = performance.now() + ZSTD_DECODE_YIELD_INTERVAL_MS
+    try {
+      const decodedFrames = decoder.decode(buffer, frames)
+      signal?.throwIfAborted()
+      const headerFrame = decodedFrames.next()
+      signal?.throwIfAborted()
+      if (headerFrame.done) throw new Error('empty or header-less Zstandard session log')
+      assertZstdHeaderFrame(headerFrame.value)
+      const scanner = new SessionLogScanner(headerFrame.value)
+
+      let remainingFrames = frames.length - 1
+      for (const plaintext of decodedFrames) {
         signal?.throwIfAborted()
-        plaintext = await decompressZstdFrame(buffer.subarray(frame.start, frame.end))
-      } catch (error) {
-        /* v8 ignore next -- decoder failure plus concurrent abort is timing-dependent */
-        if (signal?.aborted) signal.throwIfAborted()
-        throw new Error(`corrupt Zstandard session log: frame at byte ${frame.start} failed validation`, { cause: error })
+        scanner.write(plaintext)
+        remainingFrames -= 1
+        if (remainingFrames > 0 && performance.now() >= yieldDeadline) {
+          await scheduler.yield()
+          signal?.throwIfAborted()
+          yieldDeadline = performance.now() + ZSTD_DECODE_YIELD_INTERVAL_MS
+        }
       }
       signal?.throwIfAborted()
-      plaintextFrames.push(plaintext)
-    }
+      const complete = scanner.checkpoint()
+      if (complete.committedBytes !== complete.inputBytes) {
+        throw new Error('corrupt Zstandard session log: complete frame contains a torn JSONL record')
+      }
+      if (tornStart === undefined) {
+        const prefix = scanner.finish()
+        return { meta: prefix.meta, events: prefix.events }
+      }
 
-    const headerFrame = plaintextFrames[0]
-    if (headerFrame === undefined || headerFrame.length === 0 || headerFrame.indexOf(0x0A) !== headerFrame.length - 1) {
-      throw new Error('corrupt Zstandard session log: first frame is not exactly one header line')
-    }
-    signal?.throwIfAborted()
-    const completePlaintext = Buffer.concat(plaintextFrames)
-    signal?.throwIfAborted()
-    const completePrefix = scanLog(completePlaintext)
-    signal?.throwIfAborted()
-    if (completePrefix.committedBytes !== completePlaintext.length) {
-      throw new Error('corrupt Zstandard session log: complete frame contains a torn JSONL record')
-    }
-    if (tornStart === undefined) {
-      return { meta: completePrefix.meta, events: completePrefix.events }
-    }
-
-    let recoveredPlaintext: Buffer = Buffer.alloc(0)
-    try {
+      let recoveredPlaintext: Buffer = Buffer.alloc(0)
+      try {
+        signal?.throwIfAborted()
+        recoveredPlaintext = await decompressZstdPrefix(buffer.subarray(tornStart))
+      } catch {
+        /* v8 ignore next -- decoder failure plus concurrent abort is timing-dependent */
+        if (signal?.aborted) signal.throwIfAborted()
+        // A structurally incomplete final frame may end before Node's decoder can
+        // emit any plaintext; the complete prior frames remain recoverable.
+      }
       signal?.throwIfAborted()
-      recoveredPlaintext = await decompressZstdPrefix(buffer.subarray(tornStart))
-    } catch {
+      scanner.write(recoveredPlaintext)
+      const recoveredPrefix = scanner.finish()
+      signal?.throwIfAborted()
+      return {
+        meta: recoveredPrefix.meta,
+        events: recoveredPrefix.events,
+        tornMarker: {
+          truncateTo: tornStart,
+          recoveredEvents: recoveredPrefix.events.slice(complete.eventCount),
+        },
+      }
+    } catch (error) {
       /* v8 ignore next -- decoder failure plus concurrent abort is timing-dependent */
       if (signal?.aborted) signal.throwIfAborted()
-      // A structurally incomplete final frame may end before Node's decoder can
-      // emit any plaintext; the complete prior frames remain recoverable.
-    }
-    signal?.throwIfAborted()
-    const recoveredPrefix = scanLog(Buffer.concat([completePlaintext, recoveredPlaintext]))
-    signal?.throwIfAborted()
-    /* v8 ignore next 3 -- appending plaintext cannot shorten the already-scanned complete prefix */
-    if (recoveredPrefix.events.length < completePrefix.events.length) {
-      throw new Error('corrupt Zstandard session log: recovered prefix does not extend complete frames')
-    }
-    return {
-      meta: recoveredPrefix.meta,
-      events: recoveredPrefix.events,
-      tornMarker: {
-        truncateTo: tornStart,
-        recoveredEvents: recoveredPrefix.events.slice(completePrefix.events.length),
-      },
+      throw error
+    } finally {
+      decoder.close()
     }
   }
 
@@ -662,9 +680,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
           throw new Error('corrupt Zstandard session log: header frame failed validation', { cause: error })
         }
         signal?.throwIfAborted()
-        if (plaintext.length === 0 || plaintext.indexOf(0x0A) !== plaintext.length - 1) {
-          throw new Error('corrupt Zstandard session log: first frame is not exactly one header line')
-        }
+        assertZstdHeaderFrame(plaintext)
         return plaintext.subarray(0, -1).toString('utf8')
       }
     } finally {

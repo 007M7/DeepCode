@@ -8,7 +8,7 @@ import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import {
-  encodeSegment, eventLines, logPath, projectDir, projectKey, scanLog, sessionDir, toHeaderLine,
+  encodeSegment, eventLines, logPath, projectDir, projectKey, scanLog, sessionDir, SessionLogScanner, toHeaderLine,
 } from '../src/format.ts'
 import { runPersistenceContract, meta, oneTurnLog, appendLog } from '../../session-persistence/tests/contract.ts'
 import { runCoordinatorContract, type CoordinatorFixture } from '../../session-persistence/tests/coordinator-contract.ts'
@@ -694,6 +694,25 @@ describe('SessionPersistenceJsonl: write path (session/event → flush)', () => 
 
 
 describe('SessionPersistenceJsonl: scanLog unit', () => {
+  it('incrementally scans records split across reusable decoder chunks', () => {
+    const header = Buffer.from(`${JSON.stringify(toHeaderLine(meta('incremental')))}\n`)
+    const body = Buffer.from(`${oneTurnLog().map(event => JSON.stringify(event)).join('\n').replace('"hi"', '"你好"')}\n`)
+    const split = body.indexOf(Buffer.from('你')) + 1
+    const firstChunk = Buffer.from(body.subarray(0, split))
+    const scanner = new SessionLogScanner(header)
+
+    scanner.write(firstChunk)
+    const checkpoint = scanner.checkpoint()
+    firstChunk.fill(0)
+    scanner.write(body.subarray(split))
+
+    expect(checkpoint).toMatchObject({
+      inputBytes: header.length + split,
+      eventCount: 1,
+    })
+    expect(scanner.finish()).toEqual(scanLog(Buffer.concat([header, body])))
+  })
+
   it('rejects a header-less / empty log', () => {
     expect(() => scanLog(Buffer.from(''))).toThrow()
   })
