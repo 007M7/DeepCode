@@ -241,6 +241,88 @@ describe('late event views', () => {
     }])
   })
 
+  it('keeps an older-page late view while a gap repair is also in flight', async () => {
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse(logRange(6, 12), true)
+    await session.open()
+
+    const repair = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
+    const page = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
+    api.onHistory = payload => payload.beforeSeq === undefined ? repair.promise : page.promise
+    const gapTail = ev.user(15, '修复后的尾部')
+    session.handleMuxEnvelope('gap' as never, {
+      type: 'session/event', sessionId: SID, event: gapTail,
+    })
+    await vi.waitFor(() => {
+      expect(api.callsOf('session.history')).toHaveLength(2)
+    })
+
+    const loading = session.loadOlder()
+    const target = reminderEvent(3, 'schedule-overlapping-repairs')
+    session.handleMuxEnvelope('late' as never, {
+      type: 'session/event', sessionId: SID, event: target,
+      view: reminderView('schedule-overlapping-repairs'),
+    })
+
+    repair.resolve(ok({
+      events: entries([...logRange(6, 15), gapTail]) as never[],
+      hasMore: true,
+    }))
+    await vi.waitFor(() => {
+      expect(session.getSnapshot().nodes).toMatchObject([{ kind: 'user', seq: 15 }])
+    })
+    page.resolve(ok({
+      events: entries([...logRange(0, 3), target, ...logRange(4, 6)]) as never[],
+      hasMore: false,
+    }))
+    await loading
+
+    expect(session.getSnapshot().nodes).toMatchObject([
+      {
+        kind: 'presented-event', seq: target.seq,
+        view: { id: 'schedule-overlapping-repairs' },
+      },
+      { kind: 'user', seq: 15 },
+    ])
+  })
+
+  it('resyncs when repeated older-page late views disagree on event identity', async () => {
+    const { api, session } = makeSession()
+    const newer = logRange(6, 12)
+    api.onHistory = () => histResponse(newer, true)
+    await session.open()
+
+    const page = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
+    api.onHistory = () => page.promise
+    const loading = session.loadOlder()
+    const delivered = reminderEvent(3, 'schedule-delivered')
+    session.handleMuxEnvelope('late' as never, {
+      type: 'session/event', sessionId: SID, event: delivered,
+      view: reminderView('schedule-delivered'),
+    })
+
+    api.onHistory = () => histResponse(newer)
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      session.handleMuxEnvelope('drifted' as never, {
+        type: 'session/event', sessionId: SID, event: reminderEvent(3, 'schedule-drifted'),
+        view: reminderView('schedule-drifted'),
+      })
+      await vi.waitFor(() => {
+        expect(api.callsOf('session.history')).toHaveLength(3)
+        expect(session.getSnapshot().openState).toBe('open')
+      })
+      expect(errorSpy).toHaveBeenCalledWith(
+        '[web-runtime] older-page late session event failed identity validation:',
+        expect.objectContaining({ message: 'session event identity mismatch at seq 3' }),
+      )
+    } finally {
+      errorSpy.mockRestore()
+      page.resolve(ok({ events: entries(logRange(0, 6)) as never[], hasMore: false }))
+      await loading
+    }
+  })
+
   it('resyncs when an older page disagrees with its buffered late event identity', async () => {
     const { api, session } = makeSession()
     const newer = logRange(6, 12)

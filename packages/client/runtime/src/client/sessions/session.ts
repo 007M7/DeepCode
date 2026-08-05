@@ -861,6 +861,18 @@ export class Session implements SessionFace {
    *  which lets the transcript render every event between its ends and a compaction checkpoint
    *  find its cited summary event. */
   private acceptLiveEvent(event: SessionEvent, view?: SessionEventView): void {
+    const loading = this.loadingOlder
+    if (loading !== null && view !== undefined && event.seq < loading.beforeSeq) {
+      try {
+        const retained = loading.views.get(event.seq)
+        if (retained !== undefined) assertSameEvent(retained.event, event)
+        loading.views.set(event.seq, { event, view })
+      } catch (error) {
+        console.error('[web-runtime] older-page late session event failed identity validation:', error)
+        void this.resync()
+      }
+      return
+    }
     if (this.openState === 'loading' || this.stitching) {
       this.liveBuffer.push({ event, view })
       return
@@ -870,12 +882,6 @@ export class Session implements SessionFace {
     if (tailSeq !== null && event.seq <= tailSeq) {
       try {
         if (event.seq < this.baseSeq) {
-          const loading = this.loadingOlder
-          if (loading !== null && view !== undefined && event.seq < loading.beforeSeq) {
-            const retained = loading.views.get(event.seq)
-            if (retained !== undefined) assertSameEvent(retained.event, event)
-            loading.views.set(event.seq, { event, view })
-          }
           return
         }
         const changed = this.upgradeLiveView(event, view)
