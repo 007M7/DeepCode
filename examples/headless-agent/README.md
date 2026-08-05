@@ -19,8 +19,8 @@ Exactly one nonblank positional task is required; quote tasks containing spaces.
 
 Each invocation creates and persists a fresh session, runs all model and tool steps in one turn, flushes, disposes, and exits. This is non-interactive automation: there is no prompt, approval, resume, second turn, or stdin context. The configured tools can mutate the launch workspace, run commands, spawn child agents, and consume provider tokens.
 
-## Advanced and snapshot wiring
+## Advanced configuration
 
-[`advanced.cordis.yml`](advanced.cordis.yml) adds Code Mode and the Cordis tools to the shipped leaf. [`advanced.cordis.snapshot.yml`](advanced.cordis.snapshot.yml) replaces only the live LLM with replay. The tests under [`tests/`](tests/) own the keyless real-Loader smoke, key-gated world-verified smoke, and the `stream-json` replay snapshot with its parent and child session fixtures.
+[`advanced.cordis.yml`](advanced.cordis.yml) adds Code Mode and the Cordis tools to the shipped leaf.
 
 The package-level [CLI contract](../../packages/examples/cli-demo/README.md) documents output records, exit status, cancellation, persistence, and model/token effects.

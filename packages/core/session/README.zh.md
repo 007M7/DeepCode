@@ -53,16 +53,11 @@
 
 ### 分片行存储编解码器（`chunk-rows.ts`）
 
-提供方以 token 大小的增量流式输出，因此原始日志会存储数百行 `assistant/chunk`，其 JSON 封装远大于载荷。`packChunkRuns(events)` 将每段至少 3 个连续、同块的增量分片打包为一个存储行：`text-chunks`、`reasoning-chunks` 或 `tool-call-chunks`（不含斜杠的裸标签，属于存储词汇而不是 `SessionEventMap` 成员）。`decodeStorageRecord(value)` 则将已解析行展开回完全一致的事件（`seq0`／`time0` 加上每个成员的 `dt` 间隔，可重建每个 `seq`／`time`）。编码器只允许精确形态，并逐字存储任何无法识别的内容；解码器校验带行标签的值，形态错误时抛出异常。编解码器由此包所有，使 JSONL 后端和 fixture（测试前置数据）读取器（`dsh-llm-replay`、`dsh-acp-snapshot`）共享同一编解码器；后端默认启用的 `packChunks` 配置只控制写入。
+共享的[存储编解码器](src/chunk-rows.ts)在事件序列与紧凑行之间无损转换。它会逐字保留无法识别的事件，并拒绝形态错误的编码行；是否启用打包写入由持久化后端决定。
 
 ### Surface 类型
 
-- `SurfaceOp`：事件进入有序 surface 的方式，即 `'append'`（正常尾部追加）或 `{ op: 'replace', start, end }`（替换从 `start` 到 `end` 的条目，含两端；二者都必须是有效的 surface 序号；`start === end` 时替换一个条目）。压缩用它遮蔽旧事件而不删除它们。
-- `SurfaceIntent`：`{ surfaceOp: SurfaceOp; sourceEventSeqs?: number[] }`，对于可进入 surface 的类型，这是调用 `session.append()` 时必需的第三个参数。
-- `SessionSurface`：实时只读 `nodes` 和 `replaceGeneration` 投影，由 `session.surface` 暴露；候选校验仍是 `Session` 的私有实现。
-- `foldSurface(events)`：回放规范 surface 契约，得到脱离的当前事件序列与实际替换范围。同一趟处理会拒绝不连续序号、错位或畸形元数据、空或重复溯源信息、来源并非更早事件、无效位置范围，以及没有引用所有已遮蔽 surface 条目的替换。如果一个 `tool/result` 替换修改了当前某个结果的 `content` 之外的任何内容，也会被拒绝；`SurfaceManager` 共享该原子状态转换，但只保留自己的增量序列缓存。
-- `isSurfaceEvent(event)`／`isSurfaceEligibleType(type)`：前者将 `SessionEvent` 收窄为形态完整的 surface 事件；后者在校验种子或已加载日志时，检测缺少标记的可进入 surface 事件。
-- `isAppendSurfaceEvent(event)`／`isReplacementSurfaceEvent(event)`：按标记变体拆分形态完整的 surface 事件。追加来源的事件是供人阅读的 transcript（文本记录）的持久来源，而该 transcript 并非模型可见的 surface：已落地的替换会遮蔽它所概括的范围，因此从 `session.surface` 投影 transcript 会抹掉读者已经看到的对话。必须准确发送模型所见内容的消费方仍继续读取 `session.surface`。
+此包拥有有序 surface 投影、替换校验、回放，以及区分追加来源事件与替换事件的类型守卫。[surface 类型目录](../../../docs/core-data-structures/session.md#surface-types)拥有精确形状与字段语义。面向人的 transcript（文本记录）必须投影追加来源事件，而不是 `session.surface`，因为已落地的替换会遮蔽读者已经看到的历史；面向模型的消费方继续读取 `session.surface`。
 
 ### 请求头重建（`request-header.ts`）
 
@@ -96,7 +91,7 @@
 ### 扩展点
 
 - 持久化插件：订阅 `session/event`（延后写入），并在 `session/flush`（受等待）及 fiber dispose（资源释放）时排空。持久后端读取日志并重新加载到实时会话；这类后端会把元数据 seam（`SessionHeader`、`session.header`）与日志一同存储。
-- 回放／fork：`create(id, { seed })` 校验并冻结连续的当前格式日志，再重建 surface；请求头必须包含提供方／模型，assistant 消息必须包含提供方／模型溯源信息，而粗粒度中止结果必须只含 `{ kind: 'aborted' }`（带旧版原因的记录会被拒绝）。`fork(source, boundary?, childSessionId?)` 选择已完成轮次前缀并记录谱系。
+- 回放／fork：`Session.create(id, seed?, header?)` 校验并冻结连续的当前格式日志，再重建 surface；请求头必须包含提供方／模型，assistant 消息必须包含提供方／模型溯源信息，而粗粒度中止结果必须只含 `{ kind: 'aborted' }`（带旧版原因的记录会被拒绝）。`fork(source, boundary?, childSessionId?)` 选择已完成轮次前缀并记录谱系。
 - 压缩：`dsh-compact-basic` 为摘要检查点追加一个替换用 `user/message`，而 `dsh-compact-tool-result-prune` 追加仅修改内容的 `tool/result` 替换。工具配对边界策略及其缓存归 [`dsh-compact` seam](../../compact/compact/README.md) 所有；此包拥有有序 surface 成员关系、替换校验与 `replaceGeneration`。
 
 ## 模型体验
