@@ -23,8 +23,8 @@
   overflow: visible;
 }
 
-/* Fish + title stay centered as one unit; the preview badge aligns with the
-   title's leading edge on the second row. */
+/* figma 34:10411: fish + title, gap 10, centered; 26/32 wt500. The preview
+   badge is a product addition outside that source and aligns to the title. */
 .headline {
   display: grid;
   grid-template-columns: 34px auto;
@@ -50,7 +50,7 @@
   padding: 0 4px;
   border-radius: 4px;
   background: var(--dsw-alias-state-business-tertiary);
-  color: var(--dsw-alias-state-business-primary);
+  color: var(--dsw-alias-label-primary);
   font-size: 12px;
   line-height: 18px;
   font-weight: 500;

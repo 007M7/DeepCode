@@ -215,13 +215,15 @@ function mount(
   }
 }
 
-describe('ConversationRoot resident composer', () => {
+describe('Hero chrome', () => {
   it('renders the English preview badge through the hero locale seat', () => {
     const view = render(<HeroShell t={makeTranslate(en, commonEn)} />)
     expect(view.getByText('Let\'s start building')).toBeTruthy()
     expect(view.getByText('Preview')).toBeTruthy()
   })
+})
 
+describe('ConversationRoot resident composer', () => {
   it('keeps composer text in the machine, mirrors to the chat store, and submits through the sink', () => {
     const b = mount(conversationSnapshot())
     const box = b.view.getByRole('textbox')
