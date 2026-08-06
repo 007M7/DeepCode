@@ -302,6 +302,37 @@ describe('Schedule tool protocol', () => {
     expect(create?.data).not.toHaveProperty('anchorAt')
   })
 
+  it('rejects Every creation after the shared gate exhausts despite a wall-clock rollback', async () => {
+    const test = await harness()
+    test.agent.session.append('schedule/change', {
+      version: 1,
+      operation: 'create',
+      schedule: {
+        id: 'schedule-final',
+        kind: 'every',
+        prompt: 'final batch',
+        everySeconds: 300,
+        scheduledAt: '9999-12-31T23:55:00.000Z',
+      },
+    } as never)
+    test.agent.session.append('schedule/change', {
+      version: 1,
+      operation: 'dispatch',
+      id: 'schedule-final',
+      acceptedAt: '9999-12-31T23:57:30.000Z',
+    } as never)
+    vi.setSystemTime(new Date('9999-12-31T23:50:00.000Z'))
+
+    expect(value(await execute(test, 'schedule_create', {
+      prompt: 'rolled back', every_seconds: 300,
+    }))).toEqual({
+      code: 'time_out_of_range',
+      message: 'The scheduled time must be representable as a four-digit-year RFC 3339 UTC instant.',
+    })
+    expect(test.agent.session.events.filter(event => event.type === 'schedule/change')).toHaveLength(2)
+    expect(value(await execute(test, 'schedule_list', {}))).toEqual([])
+  })
+
   it('fails closed when local at lacks confirmed request-zone context', async () => {
     const test = await harness()
     expect(value(await execute(test, 'schedule_create', {

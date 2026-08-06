@@ -5,6 +5,7 @@ import type { Agent, AgentCancelCause, InboxTarget } from '@deepseek-ai/dsh-agen
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import {
+  MIN_RECURRING_INTERVAL_SECONDS,
   ScheduleId,
   createAfterScheduleRecord,
   createEveryScheduleRecord,
@@ -376,6 +377,38 @@ describe('Schedule timer and admission runtime', () => {
     if (batch?.type !== 'text') throw new Error('expected recurring batch text')
     expect(batch.text).toContain('"schedule_id":"schedule-overdue"')
     expect(batch.text).toContain('"schedule_id":"schedule-staggered"')
+    await owner.dispose()
+  })
+
+  it('derives the 288-batch half-open-day bound from production gate spacing', async () => {
+    const test = await harness()
+    appendEvery(
+      test,
+      'schedule-budget',
+      MIN_RECURRING_INTERVAL_SECONDS,
+      Date.now() - MIN_RECURRING_INTERVAL_SECONDS * 1_000,
+      'budget',
+    )
+    const owner = ownerFor(test)
+    owner.start()
+    await settle()
+
+    const spacing = MIN_RECURRING_INTERVAL_SECONDS * 1_000
+    for (let index = 1; index <= 288; index += 1) {
+      await vi.advanceTimersByTimeAsync(spacing)
+      await settle()
+    }
+    const accepted = test.agent.session.events.flatMap((event) => {
+      if (event.type !== 'schedule/change' || event.data.operation !== 'dispatch'
+        || !('acceptedAt' in event.data)) return []
+      return [Date.parse(event.data.acceptedAt)]
+    })
+    expect(accepted).toHaveLength(289)
+    const windowStart = accepted[0]!
+    const windowEnd = windowStart + 86_400_000
+    expect(accepted.slice(0, 288).every(value => value >= windowStart && value < windowEnd)).toBe(true)
+    expect(accepted[288]).toBe(windowEnd)
+    expect(accepted.every((value, index) => index === 0 || value - accepted[index - 1]! === spacing)).toBe(true)
     await owner.dispose()
   })
 

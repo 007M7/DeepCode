@@ -38,6 +38,12 @@ const LOCAL_TIME = /^(?<hour>\d{2}):(?<minute>\d{2}):(?<second>\d{2})(?:\.(?<fra
 const IANA_ZONE = /^[A-Za-z][A-Za-z0-9_+.-]*(?:\/[A-Za-z0-9_+.-]+)+$/
 const OFFSET_NAME = /^GMT(?:(?<sign>[+-])(?<hour>\d{2}):(?<minute>\d{2})(?::(?<second>\d{2}))?)?$/
 
+/** Whether the durable recurring gate has no four-digit-year admission left. */
+export function isRecurringGateExhausted(lastAcceptedAt: string | undefined): boolean {
+  return lastAcceptedAt !== undefined
+    && Date.parse(lastAcceptedAt) + MIN_RECURRING_INTERVAL_SECONDS * 1_000 > MAX_FOUR_DIGIT_YEAR_MS
+}
+
 /** Error from malformed or transition-invalid durable Schedule data. */
 export class ScheduleLogError extends Error {
   /** Stable machine-readable error code. */
@@ -642,8 +648,7 @@ export function foldScheduleEvents(
     }
   }
   // A gate beyond the supported time profile can never admit another Every batch.
-  if (lastRecurringAcceptedAt !== undefined
-    && Date.parse(lastRecurringAcceptedAt) + MIN_RECURRING_INTERVAL_SECONDS * 1_000 > MAX_FOUR_DIGIT_YEAR_MS) {
+  if (isRecurringGateExhausted(lastRecurringAcceptedAt)) {
     for (const [id, record] of active) {
       if (record.kind === 'every') active.delete(id)
     }

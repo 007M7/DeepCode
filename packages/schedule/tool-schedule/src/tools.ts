@@ -16,6 +16,7 @@ import {
   createAtScheduleRecord,
   createEveryScheduleRecord,
   foldScheduleEvents,
+  isRecurringGateExhausted,
   MIN_RECURRING_INTERVAL_SECONDS,
   ScheduleId,
   ScheduleInputError,
@@ -466,6 +467,13 @@ export function registerScheduleTools(
           notifyDurableChange()
           const folded = foldForTool(agent)
           if (isToolError(folded)) return folded
+          if (args.every_seconds !== undefined
+            && isRecurringGateExhausted(folded.lastRecurringAcceptedAt)) {
+            return {
+              code: 'time_out_of_range',
+              message: 'The scheduled time must be representable as a four-digit-year RFC 3339 UTC instant.',
+            }
+          }
           const id = allocateScheduleId(folded)
           let record: ScheduleRecord
           let timeZone: AtTimeZoneContext | undefined
