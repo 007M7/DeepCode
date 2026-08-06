@@ -136,6 +136,15 @@ describe('SubagentService.listChildren', () => {
     )
   })
 
+  it('fails loud when the session store is not mounted', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(SubagentService)
+    await expect(ctx.subagents.listChildren(SessionId('no-store-parent'))).rejects.toThrow(
+      expect.objectContaining({ code: 'SUBAGENT_CONTROL_SESSION_STORE_UNAVAILABLE' }) as Error,
+    )
+  })
+
   it('lists a persisted continuable child as inactive with its durable label', async () => {
     const { ctx, parent } = await setup([textResponse('done')])
     const childId = await startChild(ctx, parent, 'summarize the doc')
@@ -207,31 +216,57 @@ describe('SubagentService.listChildren', () => {
 
   it('orders children by createdAt then id without listing ordinary forks', async () => {
     const { ctx, parent } = await setup([])
-    // Authored headers pin the ordering key deterministically: same createdAt
-    // ties break on id, different createdAt orders ascending.
-    const late = await authorChild(ctx, '00000000-0000-4000-8000-000000000003', {
-      parentSession: parent.id,
-      createdAt: 9,
-      origin: 'subagent',
-    }, childEvents(descriptorPayload('late child')))
-    const tieB = await authorChild(ctx, '00000000-0000-4000-8000-000000000002', {
-      parentSession: parent.id,
-      createdAt: 5,
-      origin: 'subagent',
-    }, childEvents(descriptorPayload('tie b')))
-    const tieA = await authorChild(ctx, '00000000-0000-4000-8000-000000000001', {
-      parentSession: parent.id,
-      createdAt: 5,
-      origin: 'subagent',
-    }, childEvents(descriptorPayload('tie a')))
+    /** Publish one live child with a pinned header ordering key. */
+    const liveChild = (parentId: SessionId, id: string, createdAt: number, label: string): SessionId => {
+      const session = ctx.sessions.create(SessionId(id), {
+        meta: { parentSession: parentId, origin: 'subagent', createdAt },
+      })
+      session.append('turn/start', { turn: 1 })
+      session.append('subagent/descriptor', descriptorPayload(label))
+      return session.header.id
+    }
+    // Live creation order is deliberately shuffled against the expected
+    // result: same-createdAt ties break on id, different createdAt orders
+    // ascending.
+    const late = liveChild(parent.id, '00000000-0000-4000-8000-000000000009', 9, 'late child')
+    const tieB = liveChild(parent.id, '00000000-0000-4000-8000-000000000002', 5, 'tie b')
+    const tieA = liveChild(parent.id, '00000000-0000-4000-8000-000000000001', 5, 'tie a')
     // An ordinary session fork shares parentSession but has no subagent origin.
     const fork = ctx.sessions.fork(parent.session, undefined, SessionId('plain-fork'))
     await ctx.sessions.flush(fork)
-    const inspect = vi.spyOn(ctx.sessionPersistence, 'inspect')
     const entries = await ctx.subagents.listChildren(parent.id)
     expect(entries.map(entry => entry.id)).toEqual([tieA, tieB, late])
     expect(entries.every(entry => entry.kind === 'child')).toBe(true)
-    expect(inspect).not.toHaveBeenCalledWith(fork.id, expect.anything())
+  })
+
+  it('omits a live child that has not appended its descriptor yet', async () => {
+    const { ctx, parent } = await setup([])
+    const pending = ctx.sessions.create(SessionId('creation-window-child'), {
+      meta: { parentSession: parent.id, origin: 'subagent' },
+    })
+    pending.append('turn/start', { turn: 1 })
+    // The creation window: the establishing provider has not appended the
+    // descriptor yet, so the row is omitted rather than diagnosed.
+    await expect(ctx.subagents.listChildren(parent.id)).resolves.toEqual([])
+  })
+
+  it('lists a one-shot child with its durable creation label', async () => {
+    const { ctx, parent } = await setup([])
+    const labeled = await authorChild(ctx, '00000000-0000-4000-8000-00000000ab02', {
+      parentSession: parent.id,
+      origin: 'subagent',
+    }, childEvents({
+      version: SUBAGENT_DESCRIPTOR_VERSION,
+      mode: 'one-shot',
+      provider: 'spawn',
+      label: 'labeled one-shot',
+    }))
+    await expect(ctx.subagents.listChildren(parent.id)).resolves.toEqual([
+      {
+        kind: 'child', id: labeled, mode: 'one-shot', label: 'labeled one-shot',
+        activity: 'inactive', hasChildren: false,
+      },
+    ])
   })
 
   it('reports a live child as running while keeping settled siblings complete', async () => {
@@ -460,6 +495,35 @@ describe('SubagentService.listChildren', () => {
     // The grandchild contributes only its header to the hasChildren hint.
     expect(inspected).toContain(childId)
     expect(inspected).not.toContain(grandchildId)
+  })
+
+  it('inspects each cold child exactly once and a live child never', async () => {
+    const { ctx, parent } = await setup([textResponse('done')])
+    const coldStarted = await startChild(ctx, parent, 'cold started child')
+    const coldAuthored = await authorChild(ctx, '00000000-0000-4000-8000-00000000ab01', {
+      parentSession: parent.id,
+      origin: 'subagent',
+    }, childEvents(descriptorPayload('cold authored child')))
+    const liveId = SessionId('live-mixed-child')
+    const live = ctx.sessions.create(liveId, {
+      meta: { parentSession: parent.id, origin: 'subagent' },
+    })
+    live.append('turn/start', { turn: 1 })
+    live.append('subagent/descriptor', descriptorPayload('live mixed child'))
+
+    const inspected: SessionId[] = []
+    const original = ctx.sessionPersistence.inspect.bind(ctx.sessionPersistence)
+    ctx.sessionPersistence.inspect = (sessionId, signal) => {
+      inspected.push(sessionId)
+      return original(sessionId, signal)
+    }
+    const entries = await ctx.subagents.listChildren(parent.id)
+    expect(entries).toHaveLength(3)
+    // The cost model: one inspection per cold child, none for a live child,
+    // whose identity is served from the registry's watermark cache.
+    expect(inspected.filter(id => id === coldStarted)).toHaveLength(1)
+    expect(inspected.filter(id => id === coldAuthored)).toHaveLength(1)
+    expect(inspected).not.toContain(liveId)
   })
 
   it('does not count an ordinary grandchild without subagent origin', async () => {

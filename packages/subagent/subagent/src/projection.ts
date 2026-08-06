@@ -139,9 +139,11 @@ ProjectionDefinition<'subagent', IdentityState> = {
     const identity = descriptorIdentity(event)
     return identity === undefined ? {} : { identity }
   },
-  // A no-value log serves `undefined` (the schema's optional side); the map
-  // entry stays non-optional because every consumer reads through `Partial`
-  // snapshot values, where absence is already the type.
+  // The assertion deliberately widens: a log without a descriptor serves
+  // `undefined` at runtime, which the schema's `.optional()` accepts, and
+  // every registry read face already returns `Partial` snapshot values where
+  // absence is the type. The map entry stays non-optional so a child row's
+  // served identity remains a strong contract for consumers.
   view: state => state.identity as SubagentIdentityProjection,
   stateVersion: 1,
 }

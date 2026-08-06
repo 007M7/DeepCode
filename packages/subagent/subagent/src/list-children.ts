@@ -22,7 +22,11 @@ import type { SessionProjectionRegistry } from '@deepseek-ai/dsh-session-project
 import { SubagentError } from './error.ts'
 import type { SubagentIdentityProjection } from './projection-types.ts'
 
-/** Concurrent cold inspections per listing; a constant because it bounds one read-only scan, not deployment behavior. */
+/**
+ * Concurrent cold inspections per listing; a constant because it bounds one
+ * read-only scan of local media, not deployment behavior. Should a networked
+ * persistence backend appear, promote it to a validated `Config` field.
+ */
 const COLD_READ_CONCURRENCY = 4
 
 /**
@@ -90,8 +94,8 @@ export type SubagentListEntry =
  * @param parentSessionId - parent session whose direct children are listed.
  * @param signal - caller-owned cancellation observed around every persistence read.
  * @returns children and per-child diagnostics ordered by `createdAt`, then id.
- * @throws {@link SubagentError} when the projection registry is not mounted
- *   or the caller cancels the listing.
+ * @throws {@link SubagentError} when the projection registry or the session
+ *   store is not mounted, or the caller cancels the listing.
  */
 export async function listChildren(
   ctx: Context,
@@ -99,7 +103,6 @@ export async function listChildren(
   signal?: AbortSignal,
 ): Promise<SubagentListEntry[]> {
   const projections = ctx.get('sessionProjections')
-  const sessions = ctx.get('sessions')
   // Checked before any read, even with zero candidates: mode/label are the
   // row's strong contract, so a missing fold capability is a deterministic
   // deployment configuration error, never an empty success.
@@ -109,10 +112,14 @@ export async function listChildren(
       'SUBAGENT_CONTROL_PROJECTIONS_UNAVAILABLE',
     )
   }
+  // Strict global read, never the `ctx.sessions` property proxy: the proxy is
+  // caller-scope bound, so a consumer plugin without its own `sessions`
+  // injection (the model-facing tool, the API proxy) would throw on access.
+  const sessions = ctx.get('sessions')
   if (sessions === undefined) {
     throw new SubagentError(
-      'listing subagents requires the sessions registry (load @deepseek-ai/dsh-session)',
-      'SUBAGENT_CONTROL_PROJECTIONS_UNAVAILABLE',
+      'listing subagents requires the session store (load @deepseek-ai/dsh-session)',
+      'SUBAGENT_CONTROL_SESSION_STORE_UNAVAILABLE',
     )
   }
   assertListingNotCancelled(signal)
@@ -146,7 +153,7 @@ export async function listChildren(
     .filter(record => record.header.parentSession === parentSessionId
       && record.header.origin === 'subagent')
     .sort((a, b) => a.header.createdAt - b.header.createdAt
-      || (a.header.id < b.header.id ? -1 : a.header.id > b.header.id ? 1 : 0))
+      || a.header.id.localeCompare(b.header.id))
 
   const rows: (SubagentListEntry | undefined)[] = Array.from({ length: candidates.length })
   const coldReads: { index: number; id: SessionId }[] = []
@@ -196,7 +203,7 @@ async function inspectColdIdentity(
   childId: SessionId,
   hasChildren: boolean,
   signal: AbortSignal | undefined,
-): Promise<SubagentListEntry | undefined> {
+): Promise<SubagentListEntry> {
   assertListingNotCancelled(signal)
   let events: readonly SessionEvent[]
   try {

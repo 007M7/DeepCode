@@ -304,8 +304,8 @@ export class SubagentService extends Service {
    * @param signal - caller-owned cancellation forwarded to persistence reads
    *   and observed around every read await.
    * @returns children and per-child diagnostics ordered by `createdAt`, then id.
-   * @throws {@link SubagentError} when the projection registry is not mounted
-   *   or the caller cancels the listing.
+   * @throws {@link SubagentError} when the projection registry or the session
+   *   store is not mounted, or the caller cancels the listing.
    */
   listChildren(parentSessionId: SessionId, signal?: AbortSignal): Promise<SubagentListEntry[]> {
     return listSubagentChildren(this.ctx, parentSessionId, signal)

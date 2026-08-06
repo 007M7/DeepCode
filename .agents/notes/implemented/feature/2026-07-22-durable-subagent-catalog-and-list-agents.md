@@ -12,6 +12,8 @@ Enumeration must cross-check immutable session lineage, descriptor validity, and
 
 ## Decision
 
+**Superseded read path.** [Subagent list identity via the projection unit](../architecture/2026-08-06-subagent-list-identity-projection.md) replaces this note's enumeration and per-child read design: `listChildren` now merges the live session store with optional session persistence directly and serves each child's mode/label from the registered `subagent` projection unit — no session-query dependency, no list-time descriptor scan — and that note owns the current listing semantics, including the diagnostic mapping. This note remains the authority for descriptor persistence, the mode-discriminated descriptor as durable identity, direct-parent authorization, and the model-facing `list_agents` projection; the trace-based read mechanics below are decision context, not current behavior.
+
 Parent-to-child enumeration is a service capability with consumer-specific projections. `SubagentService.listChildren(parentSessionId: SessionId)` ([subagent/src/index.ts](../../../../packages/subagent/subagent/src/index.ts)) does the following:
 
 - use `ctx.sessionQuery.traceSession(parentSessionId)` to obtain the parent's direct live-preferred child sessions;

@@ -80,6 +80,12 @@
     maxTokens: 8192
     compactionRetries: 1
 
+# Projection registry: subagent catalog identity (mode/label) folds through
+# its registered units; the catalog surfaces (`list_agents`, subagent listing)
+# fail loud without the capability.
+- id: session-projection
+  name: '@deepseek-ai/dsh-session-projection'
+
 # Expose fresh-child `spawn` and completed-prefix `fork` through separate tool
 # names so multi-child scenarios exercise both transports. These leaves follow
 # the app because it provides `ctx.agents` and `ctx.tools`.

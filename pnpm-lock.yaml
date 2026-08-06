@@ -418,6 +418,9 @@ importers:
       '@deepseek-ai/dsh-session-persistence-jsonl':
         specifier: workspace:*
         version: link:../packages/session-persistence/session-persistence-jsonl
+      '@deepseek-ai/dsh-session-projection':
+        specifier: workspace:*
+        version: link:../packages/session-projection/session-projection
       '@deepseek-ai/dsh-session-query':
         specifier: workspace:*
         version: link:../packages/session-query/session-query
@@ -5587,6 +5590,9 @@ importers:
       '@deepseek-ai/dsh-session-persistence-jsonl':
         specifier: workspace:^
         version: link:../../session-persistence/session-persistence-jsonl
+      '@deepseek-ai/dsh-session-projection':
+        specifier: workspace:^
+        version: link:../../session-projection/session-projection
       '@deepseek-ai/dsh-subagent':
         specifier: workspace:^
         version: link:../subagent
