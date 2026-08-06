@@ -45,7 +45,7 @@ Use the main repository's `Landlock Run Release` workflow so every binary is bui
 2. Create and push the `landlock-run-vX.Y.Z` tag matching the package versions.
 3. Run the same workflow from that tag with `publish=true`.
 
-The workflow publishes only from the final packed tarballs, in `publish-order.txt` order (platform packages before the entry that optionally depends on them). It supports npm trusted publishing through GitHub OIDC; without it, provide an `NPM_TOKEN` secret in the `npm-publish` environment. Packages publish with `--access public`.
+The workflow publishes only from the final packed tarballs, in `publish-order.txt` order (platform packages before the entry that optionally depends on them). A current-platform rehearsal can still query npm for metadata about an incompatible optional platform package; that package cannot supply the host launcher, which comes from the matching local tarball. Publishing every platform package before the entry ensures a public entry version never points ahead of its platform packages. The workflow supports npm trusted publishing through GitHub OIDC; without it, provide an `NPM_TOKEN` secret in the `npm-publish` environment. Packages publish with `--access public`.
 
 Manual local fallback (current platform's packages only) — always through `pack-release.mjs`, never `pnpm publish` directly (pnpm's pack path strips the launcher's executable bit; see [packaging.md](packaging.md)):
 

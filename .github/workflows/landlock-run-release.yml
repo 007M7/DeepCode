@@ -158,6 +158,14 @@ jobs:
           name: npm-tarballs
           path: native/landlock-run/dist/npm
 
+      - name: Configure npm token fallback
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [[ -n "$NPM_TOKEN" ]]; then
+            echo "NODE_AUTH_TOKEN=$NPM_TOKEN" >> "$GITHUB_ENV"
+          fi
+
       - name: Publish tarballs
         run: |
           version="${GITHUB_REF#refs/tags/landlock-run-v}"
@@ -166,5 +174,3 @@ jobs:
           while IFS= read -r tarball; do
             npm publish "dist/npm/${tarball}" --access public "${tag_args[@]}"
           done < dist/npm/publish-order.txt
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

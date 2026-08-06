@@ -9,8 +9,10 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 /**
  * Keyless publish-path rehearsal. It packs the provider, its workspace peers, and the current
  * repository's Landlock entry/platform packages, then installs those exact tarballs in an external
- * plain-Node consumer. No registry copy, tsx, path mapping, or workspace resolution can hide
- * missing files, dependency errors, or lost executable modes.
+ * plain-Node consumer. The host launcher comes from the exact local tarballs, so no registry copy,
+ * tsx, path mapping, or workspace resolution can hide missing files, dependency errors, or lost
+ * executable modes. npm may still query registry metadata for an incompatible optional platform
+ * package that cannot supply the host launcher.
  *
  * The installed launcher must match the host architecture, remain executable, and either confine a
  * real process with bwrap disabled or fail closed on a non-enforcing kernel. Skips off Linux or
