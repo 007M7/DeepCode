@@ -364,6 +364,67 @@ describe('SubagentService.listChildren', () => {
     })
   })
 
+  it('serves the serializable null sentinel when a later descriptor invalidates the identity', async () => {
+    const { ctx, parent } = await setup([])
+    const liveId = SessionId('invalidated-live-child')
+    const live = ctx.sessions.create(liveId, {
+      meta: { parentSession: parent.id, origin: 'subagent' },
+    })
+    live.append('turn/start', { turn: 1 })
+    live.append('subagent/descriptor', descriptorPayload('was valid'))
+    expect(ctx.sessionProjections.snapshot(live).values.subagent)
+      .toEqual({ mode: 'continuable', label: 'was valid' })
+    // Last-wins: the malformed follow-up resets the identity to the sentinel.
+    live.append(
+      'subagent/descriptor',
+      { version: SUBAGENT_DESCRIPTOR_VERSION, mode: 'continuable', provider: 7 } as never,
+    )
+    const values = ctx.sessionProjections.snapshot(live).values
+    expect(values.subagent).toBeNull()
+    // The sentinel survives a JSON push frame; an undefined field would be
+    // dropped there and a consumer would keep the stale identity forever.
+    const wired = JSON.parse(JSON.stringify(values)) as Record<string, unknown>
+    expect('subagent' in wired).toBe(true)
+    expect(wired['subagent']).toBeNull()
+    // The listing reads the same null as no value: running → omitted.
+    await expect(ctx.subagents.listChildren(parent.id)).resolves.toEqual([])
+  })
+
+  it('diagnoses a settled child whose later descriptor invalidated the identity as corrupt', async () => {
+    const { ctx, parent } = await setup([])
+    const events = childEvents(descriptorPayload('was valid'))
+    events.splice(3, 0, {
+      type: 'subagent/descriptor',
+      seq: 3,
+      time: 3,
+      data: { version: SUBAGENT_DESCRIPTOR_VERSION, mode: 'continuable', provider: 7 },
+    } as SessionEvent)
+    events[4] = { ...events[4]!, seq: 4 }
+    const invalidated = await authorChild(ctx, '00000000-0000-4000-8000-00000000ad01', {
+      parentSession: parent.id,
+      origin: 'subagent',
+    }, events)
+    await expect(ctx.subagents.listChildren(parent.id)).resolves.toEqual([
+      { kind: 'diagnostic', id: invalidated, reason: 'corrupt' },
+    ])
+  })
+
+  it('lets preparation rule when the cache serves the null sentinel', async () => {
+    const { ctx, parent } = await setup([], { projectionCache: true })
+    const healthy = await authorChild(ctx, '00000000-0000-4000-8000-00000000ad02', {
+      parentSession: parent.id,
+      origin: 'subagent',
+    }, childEvents(descriptorPayload('actually valid')))
+    // A stale cached sentinel must not out-rank the authoritative re-fold.
+    ctx.sessionProjectionCache.cachedSnapshot = () => ({ asOfSeq: 0, values: { subagent: null } })
+    const inspect = vi.spyOn(ctx.sessionPersistence, 'inspect')
+    await expect(ctx.subagents.listChildren(parent.id)).resolves.toEqual([{
+      kind: 'child', id: healthy, label: 'actually valid', mode: 'continuable',
+      activity: 'inactive', hasChildren: false,
+    }])
+    expect(inspect).toHaveBeenCalledTimes(1)
+  })
+
   it('maps a child rejected by persistence inspection to unavailable', async () => {
     const { ctx, parent } = await setup([])
     // The surface-eligible user/message lacks its required surfaceOp, so the

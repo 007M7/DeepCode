@@ -90,9 +90,11 @@ interface IdentityState {
   identity?: SubagentIdentityProjection
 }
 
-// Zod's optional output includes explicit `undefined`; with
-// exactOptionalPropertyTypes the public map entry permits omission only, and
-// JSON boundaries drop the undefined-valued key entirely.
+// The cast bridges only the optional-label arm: Zod's optional output
+// includes explicit `undefined`, which exactOptionalPropertyTypes excludes
+// from the public interface. The no-value state itself is the serializable
+// `null` arm — never `undefined` — so every registry read and push frame
+// survives JSON.stringify losslessly.
 const identitySchema = z.discriminatedUnion('mode', [
   z.object({
     mode: z.literal('one-shot'),
@@ -102,7 +104,7 @@ const identitySchema = z.discriminatedUnion('mode', [
     mode: z.literal('continuable'),
     label: z.string(),
   }).strict(),
-]).optional() as unknown as z.ZodType<SubagentIdentityProjection>
+]).nullable() as unknown as z.ZodType<SubagentIdentityProjection | null>
 
 /** Interpret one `subagent/descriptor` event's identity; no value when the payload cannot be trusted. */
 function descriptorIdentity(event: SessionEvent): SubagentIdentityProjection | undefined {
@@ -125,9 +127,11 @@ function descriptorIdentity(event: SessionEvent): SubagentIdentityProjection | u
  * last-wins: a fork seed may replay an ancestor's descriptor, and the child's
  * own descriptor must override it — the same reset discipline as
  * {@link subagentTimingProjectionDefinition}. A malformed or unknown-version
- * payload resets to no value instead of throwing, so a fork of a healthy
- * ancestor never inherits an identity its own descriptor failed to establish;
- * no value ⟺ no valid descriptor, with the causes deliberately undistinguished.
+ * payload resets to the `null` sentinel instead of throwing, so a fork of a
+ * healthy ancestor never inherits an identity its own descriptor failed to
+ * establish — and the reset survives every JSON push frame, so a consumer
+ * holding the earlier identity replaces it instead of keeping it stale;
+ * `null` ⟺ no valid descriptor, with the causes deliberately undistinguished.
  */
 export const subagentIdentityProjectionDefinition:
 ProjectionDefinition<'subagent', IdentityState> = {
@@ -139,11 +143,6 @@ ProjectionDefinition<'subagent', IdentityState> = {
     const identity = descriptorIdentity(event)
     return identity === undefined ? {} : { identity }
   },
-  // The assertion deliberately widens: a log without a descriptor serves
-  // `undefined` at runtime, which the schema's `.optional()` accepts, and
-  // every registry read face already returns `Partial` snapshot values where
-  // absence is the type. The map entry stays non-optional so a child row's
-  // served identity remains a strong contract for consumers.
-  view: state => state.identity as SubagentIdentityProjection,
+  view: state => state.identity ?? null,
   stateVersion: 1,
 }

@@ -177,7 +177,7 @@ export async function listChildren(
     // The registry's watermark cache serves the live value with zero log
     // reads; a live child without an identity yet is the creation window
     // before the establishing provider appends its descriptor.
-    let identity: SubagentIdentityProjection | undefined
+    let identity: SubagentIdentityProjection | null | undefined
     try {
       identity = projections.snapshot(candidate.live).values.subagent
     } catch {
@@ -188,7 +188,9 @@ export async function listChildren(
       rows[index] = { kind: 'diagnostic', id: childId, reason: 'corrupt' }
       return
     }
-    if (identity === undefined) return
+    // The unit's serializable no-value sentinel is `null`; `undefined` can
+    // only mean the key was dropped at a JSON boundary. Both are no value.
+    if (identity === undefined || identity === null) return
     rows[index] = childRow(childId, identity, 'running', subagentParents.has(childId))
   })
 
@@ -231,7 +233,7 @@ async function resolveColdIdentity(
 ): Promise<SubagentListEntry> {
   const childId = header.id
   if (cache !== undefined) {
-    let cached: SubagentIdentityProjection | undefined
+    let cached: SubagentIdentityProjection | null | undefined
     try {
       cached = cache.cachedSnapshot(header)?.values.subagent
     } catch {
@@ -240,10 +242,14 @@ async function resolveColdIdentity(
       // row of ANY unit) silently falls through to the authoritative re-fold.
       cached = undefined
     }
-    // The identity is immutable once appended, so a cached value is final
-    // regardless of the row's watermark; an absent key (a checkpoint cut
-    // before the descriptor was appended) falls through to preparation.
-    if (cached !== undefined) return childRow(childId, cached, 'inactive', hasChildren)
+    // A served identity is immutable once appended, so a cached one is final
+    // regardless of the row's watermark. Both no-value forms fall through to
+    // preparation: an absent key (a checkpoint cut before the descriptor was
+    // appended) and the `null` sentinel, whose verdict belongs to the
+    // authoritative re-fold, not to a derived row.
+    if (cached !== undefined && cached !== null) {
+      return childRow(childId, cached, 'inactive', hasChildren)
+    }
   }
   assertListingNotCancelled(signal)
   let events: readonly SessionEvent[]
@@ -256,7 +262,7 @@ async function resolveColdIdentity(
     return { kind: 'diagnostic', id: childId, reason: 'unavailable' }
   }
   assertListingNotCancelled(signal)
-  let identity: SubagentIdentityProjection | undefined
+  let identity: SubagentIdentityProjection | null | undefined
   try {
     identity = projections.restore({}, events, 0).snapshot.values.subagent
   } catch {
@@ -265,7 +271,7 @@ async function resolveColdIdentity(
     // damage in this one child, contained as its own corrupt diagnostic.
     return { kind: 'diagnostic', id: childId, reason: 'corrupt' }
   }
-  if (identity === undefined) {
+  if (identity === undefined || identity === null) {
     return { kind: 'diagnostic', id: childId, reason: 'corrupt' }
   }
   return childRow(childId, identity, 'inactive', hasChildren)

@@ -21,7 +21,7 @@ mode 与 label 由新的 `subagent` projection unit（纯身份两臂）折叠�
 要点：
 
 - **subagent 列表不依赖 session-query**：枚举由 subagent 自管的 live-preferred 合并完成，mode/label 经 `ctx.sessionProjections` 取值；没有 query backend 的部署照常列表。
-- **取值三级"算完即止"阶梯**：live child 读 `sessionProjections.snapshot()`（注册表既有水位缓存，零日志读）；cold child 先读可选 `sessionProjectionCache.cachedSnapshot(header)`，values 含 `subagent` 即直接用；否则一次 `persistence.inspect` 整读加 `registry.restore({}, events, 0)` 折叠；再没有就没有——不自建缓存、无回写、无索引。
+- **取值三级"算完即止"阶梯**：live child 读 `sessionProjections.snapshot()`（注册表既有水位缓存，零日志读）；cold child 先读可选 `sessionProjectionCache.cachedSnapshot(header)`，values 含非 null 的 `subagent` 身份即直接用；否则一次 `persistence.inspect` 整读加 `registry.restore({}, events, 0)` 折叠；再没有就没有——不自建缓存、无回写、无索引。
 - **`subagent` projection unit 是折叠规则唯一权威**：live snapshot、cold restore、GUI history 的 detached 折叠全部经 registry 计算，不存在第二份描述符解释逻辑。
 - **header、描述符（v2）、session-persistence、session-projection(-cache)、session-query(-sqlite) 全部零改动**；存量数据第一次被列表时一次 `inspect` 现算获得精确值，无 unknown 降级态、无迁移。
 
@@ -41,14 +41,14 @@ export type SubagentIdentityProjection =
 
 declare module '@deepseek-ai/dsh-session-projection/types' {
   interface SessionProjectionMap {
-    subagent: SubagentIdentityProjection
+    subagent: SubagentIdentityProjection | null
   }
 }
 ```
 
-- 投影是纯身份，**projection 体系不做失败通道**：unit 永不抛错；载荷损坏、版本不认识与整日志没有描述符一样，折叠结果就是"无值"，该 key 在这个 session 上缺席。"算出来没有"如何呈现是消费方自己的事（见下文 `listChildren` 四态映射）。
+- 投影是纯身份，**projection 体系不做失败通道**：unit 永不抛错；载荷损坏、版本不认识与整日志没有描述符一样，折叠结果是**可序列化的 null 哨兵**——map 条目为 `SubagentIdentityProjection | null`，非可选、非 undefined/缺 key。理由：registry 的 onChanged 推送经 JSON 序列化，undefined 字段被 stringify 丢弃，客户端帧校验拒收，消费方存储的旧身份将永不更新；null 完好过帧，消费方以哨兵替换旧身份。判定纪律：消费面把 null 与 undefined（仅 JSON 边界丢 key 可产生）一律视为无值。"算出来没有"如何呈现是消费方自己的事（见下文 `listChildren` 四态映射）。
 - label 强度由描述符 schema 决定：continuable 的 label 解析强制必有，one-shot 的本就可选；该判别式与下文 child 行的 mode/label 强契约完全一致。
-- 折叠规则：`subagent/descriptor` last-wins，与 `subagentTiming` 同一条 descriptor-reset 纪律——fork 前缀里的祖先描述符被自身描述符覆盖。损坏或版本不认识的载荷同样 last-wins：重置为无值而非保留先前身份，健康祖先的 fork 不会继承自身描述符立不住的身份。
+- 折叠规则：`subagent/descriptor` last-wins，与 `subagentTiming` 同一条 descriptor-reset 纪律——fork 前缀里的祖先描述符被自身描述符覆盖。损坏或版本不认识的载荷同样 last-wins：重置为 null 哨兵而非保留先前身份，健康祖先的 fork 不会继承自身描述符立不住的身份。
 
 ### 枚举：subagent 自管 live-preferred 合并
 
@@ -68,11 +68,11 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
 | 级 | 读法 | 成本 |
 | --- | --- | --- |
 | 1：live child | `ctx.sessionProjections.snapshot(session).values.subagent` | 零日志读——注册表既有水位缓存，同步取值 |
-| 2：cold child，cache 命中 | 可选 `sessionProjectionCache.cachedSnapshot(header)`，values 含 `subagent` 即直接用——身份一经追加不可变，读到即定值，无视行水位 | 零日志读 |
+| 2：cold child，cache 命中 | 可选 `sessionProjectionCache.cachedSnapshot(header)`，values 含非 null 的 `subagent` 身份即直接用——身份一经追加不可变，读到即定值，无视行水位 | 零日志读 |
 | 3：cold child，兜底 | `persistence.inspect(id)` 整读 + `registry.restore({}, events, 0).snapshot.values.subagent` | 每次列表一次整读现算 |
 
-- 错误契约：`ctx.sessionProjections` 未挂载是配置错误，`listChildren` 在枚举前无条件检查并以 `SUBAGENT_CONTROL_PROJECTIONS_UNAVAILABLE` 响亮失败——零 children 的部署同样确定失败，不因列表恰好为空而掩盖配置问题。`SUBAGENT_CONTROL_SESSION_QUERY_UNAVAILABLE` 已随 session-query 依赖删除。
-- cache 是纯可选加速层：服务缺席判空跳过——无错误码、不进配置校验（与 `sessionProjections` 的响亮契约相对）。第二级任何抛错（包括缓存内任一 unit 行中毒使 `viewCheckpoint` 引爆）静默落第三级——缓存是派生数据，其故障不产生 `corrupt` 判决，终审归权威重折；checkpoint 切面早于描述符的行，`subagent` key 天然缺席，自动落底，无特判。
+- 错误契约：`ctx.sessionProjections` 未挂载是配置错误，`listChildren` 在枚举前无条件检查并以 `SUBAGENT_CONTROL_PROJECTIONS_UNAVAILABLE` 响亮失败——零 children 的部署同样确定失败，不因列表恰好为空而掩盖配置问题。会话存储同理：`ctx.get('sessions')`（严格全局读取，不走调用方作用域的属性代理）缺席以 `SUBAGENT_CONTROL_SESSION_STORE_UNAVAILABLE` 失败。`SUBAGENT_CONTROL_SESSION_QUERY_UNAVAILABLE` 已随 session-query 依赖删除。
+- cache 是纯可选加速层：服务缺席判空跳过——无错误码、不进配置校验（与 `sessionProjections` 的响亮契约相对）。第二级任何抛错（包括缓存内任一 unit 行中毒使 `viewCheckpoint` 引爆）静默落第三级——缓存是派生数据，其故障不产生 `corrupt` 判决，终审归权威重折；checkpoint 切面早于描述符的行，`subagent` key 天然缺席，自动落底，无特判；行里的 null 哨兵同样不作数——一律落第三级，由权威重折裁决。
 - per-child 隔离：单 child 的 cold 整读失败只使该行成为 `unavailable` diagnostic，下次列表自然重试，不影响 sibling（见四态映射）。
 - 冷读并发以常数 4 有界——它约束的是本地介质的一次只读扫描而非部署行为；出现联网 persistence backend 时提升为验证过的 `Config` 字段。
 - 冷读成本如实记录：cache 未挂载或未命中时，cold child 每次列表才付一次整读，成本与其 transcript 大小成正比；定案"算完即止"，不自建缓存。整读经 `inspect()` 走 [Session 准备阶段](2026-08-05-session-preparation.md)的冷读，同 id 短期重复读取可命中其 LRU 复用，但列表不依赖此。live child 全程零日志读。
@@ -110,9 +110,9 @@ export type SubagentListEntry =
 
 | 阶梯取值结果 | 行 |
 | --- | --- |
-| 快照含 `subagent` 值 | child 行 |
-| 快照在、值缺席，且 child **inactive** | diagnostic 行，reason `corrupt`（定局残骸：无、损坏或版本不认识的描述符，不再细分） |
-| 快照在、值缺席，且 child **running** | 行不出现（创建窗口：描述符尚未追加，与旧实现同窗口 omit） |
+| 快照含非 null 的 `subagent` 身份 | child 行 |
+| 快照在、`subagent` 为 null 哨兵或 key 缺席，且 child **inactive** | diagnostic 行，reason `corrupt`（定局残骸：无、损坏或版本不认识的描述符，不再细分） |
+| 快照在、`subagent` 为 null 哨兵或 key 缺席，且 child **running** | 行不出现（创建窗口：描述符尚未追加，与旧实现同窗口 omit） |
 | cold 整读失败 | diagnostic 行，reason `unavailable` |
 
 - `unsupported` 不再被产出：类型与 wire 枚举按"数据结构保持现状"留存该成员，本记录留档其为不再产出。
@@ -162,7 +162,7 @@ export type SubagentListEntry =
 
 ## 验证
 
-`packages/subagent/subagent/tests/list-children.spec.ts` 重写为本契约：无 persistence、query 服务与继续运行时的 live-only 列表；registry 缺席时零 children 也响亮报 `SUBAGENT_CONTROL_PROJECTIONS_UNAVAILABLE`；live child 全程零 `inspect`、cold child 每次列表恰一次；多描述符 last-wins 取末者；损坏载荷与未知版本折为 `corrupt`；冷读失败映射 `unavailable` 且下次列表重试；fork seed 里的祖先描述符按该身份成行（偏差一钉住）；普通 fork 与无 subagent origin 的后代不入列也不计入 `hasChildren`；`createdAt`→id 排序；provider 未挂载不影响列表；压缩与未压缩孪生一致；预中止、持久化列表与冷读取消三例归一 `CANCELLED`；空列表与稳定错误码。敌意 unit 双路探针（`apply` 惰性置毒、`view` 引爆）证明任一注册 unit 在该 child 日志上的 fold/schema 抛错，在 live 与 cold 两条取值路径上都收纳为该 child 的 `corrupt` 行，sibling 与列表本身不受影响。第二级四例：真组合 cache 命中零 `inspect`、行内 `subagent` key 缺席落底、cache 服务缺席落底、缓存行中毒静默落底重折。`tool-subagent-control` 的 list-agents 测试随加载要求收窄更新；`optional-session-query.spec.ts` 随依赖消失删除；无密钥 ACP 快照（`subagent-list-agents` 等）未重录——wire 与 model-visible 面零改动由既有快照钉住。
+`packages/subagent/subagent/tests/list-children.spec.ts` 重写为本契约：无 persistence、query 服务与继续运行时的 live-only 列表；registry 缺席时零 children 也响亮报 `SUBAGENT_CONTROL_PROJECTIONS_UNAVAILABLE`；live child 全程零 `inspect`、cold child 每次列表恰一次；多描述符 last-wins 取末者；损坏载荷与未知版本折为 `corrupt`；冷读失败映射 `unavailable` 且下次列表重试；fork seed 里的祖先描述符按该身份成行（偏差一钉住）；普通 fork 与无 subagent origin 的后代不入列也不计入 `hasChildren`；`createdAt`→id 排序；provider 未挂载不影响列表；压缩与未压缩孪生一致；预中止、持久化列表与冷读取消三例归一 `CANCELLED`；空列表与稳定错误码。敌意 unit 双路探针（`apply` 惰性置毒、`view` 引爆）证明任一注册 unit 在该 child 日志上的 fold/schema 抛错，在 live 与 cold 两条取值路径上都收纳为该 child 的 `corrupt` 行，sibling 与列表本身不受影响。第二级四例：真组合 cache 命中零 `inspect`、行内无身份（null 哨兵或 key 缺席）落底、cache 服务缺席落底、缓存行中毒静默落底重折。`tool-subagent-control` 的 list-agents 测试随加载要求收窄更新；`optional-session-query.spec.ts` 随依赖消失删除；既有无密钥快照（`subagent-list-agents` 等）零变化，钉住健康路径的 wire 与 model-visible 面不变；新增无密钥快照 `subagent-diagnostic`（examples/headless-agent）钉住四态映射的诊断分类——descriptor-less 定局残骸成 `corrupt` 行等模型可见变化。
 
 ## 后果
 

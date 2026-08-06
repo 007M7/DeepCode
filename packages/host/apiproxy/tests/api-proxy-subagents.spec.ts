@@ -164,7 +164,7 @@ describe('subagent gateway', () => {
     )
     const expected = {
       code: 'internal',
-      message: 'subagent listing is unavailable: this deployment does not mount the sessionProjections registry (load @deepseek-ai/dsh-session-projection)',
+      message: 'subagent catalog is unavailable: this deployment does not mount the sessionProjections registry (load @deepseek-ai/dsh-session-projection)',
     }
 
     const list = bench({ listError: listError() })

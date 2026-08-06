@@ -42,11 +42,14 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
     /** Active-turn duration for a descriptor-backed subagent session. */
     subagentTiming: SubagentTimingProjection
     /**
-     * Identity of a descriptor-backed subagent session. No value ⟺ no valid
-     * descriptor: a missing, malformed, or unrecognized-version descriptor is
-     * served identically as `undefined` in a live snapshot, and as an absent
-     * key after any JSON boundary (query-index rows, wire frames) drops it.
+     * Identity of a descriptor-backed subagent session. `null` ⟺ no valid
+     * descriptor (missing, malformed, or unrecognized-version — deliberately
+     * undistinguished). The sentinel is deliberately serializable: a
+     * value pushed over JSON transports must survive `JSON.stringify`
+     * losslessly, where an `undefined` field would be dropped and a stale
+     * identity would survive on the receiving side. The entry itself stays
+     * non-optional.
      */
-    subagent: SubagentIdentityProjection
+    subagent: SubagentIdentityProjection | null
   }
 }
