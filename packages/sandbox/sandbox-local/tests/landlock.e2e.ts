@@ -10,7 +10,7 @@ import { launcherPath } from 'node-addon-landlock-run'
 import { LocalSandboxProvider } from '@deepseek-ai/dsh-sandbox-local'
 
 /**
- * Keyless backend integration through `confine()` and the registry `landlock-run` launcher, with
+ * Keyless backend integration through `confine()` and the workspace `landlock-run` launcher, with
  * bwrap forced off. Tests assert real world effects; consumer coverage lives in dsh-bash-sandbox.
  * Skips when the platform package or enforcing kernel is unavailable. HOME-based workspaces avoid
  * Landlock's wholesale `/tmp` grant, so workspace-write proves the workspace-root grant itself.

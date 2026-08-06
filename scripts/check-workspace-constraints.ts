@@ -15,6 +15,8 @@ const root = resolve(import.meta.dirname, '..')
 const workspaceGlobs = [
   { dir: 'vendor', depth: 1 },
   { dir: 'packages', depth: 2 },
+  { dir: 'native', depth: 1 },
+  { dir: 'native/landlock-run/packages', depth: 1 },
   { dir: 'apps', depth: 1 },
 ] as const
 const vendoredPackages = new Set([
@@ -27,6 +29,11 @@ const vendoredPackages = new Set([
   '@cordisjs/plugin-timer',
   '@cordisjs/plugin-hmr',
   '@cordisjs/plugin-logger-console',
+])
+const publicLandlockPackages = new Set([
+  'node-addon-landlock-run',
+  'node-addon-landlock-run-linux-arm64',
+  'node-addon-landlock-run-linux-x64',
 ])
 
 const localArtifactDirs = new Set(['node_modules'])
@@ -55,6 +62,7 @@ interface PackageManifest {
     | undefined
   >
   files?: string[]
+  publishConfig?: { access?: string }
   peerDependencies?: Record<string, string>
   devDependencies?: Record<string, string>
 }
@@ -71,6 +79,8 @@ function readJson(path: string): PackageManifest {
 
 const rootManifest = readJson(join(root, 'package.json'))
 const repositoryVersion = rootManifest.version
+const landlockWorkspaceManifest = readJson(join(root, 'native/landlock-run/package.json'))
+const landlockVersion = landlockWorkspaceManifest.version
 
 /** Repo-relative dirs holding a package.json, walked to the configured depth. */
 function packageDirs(base: string, depth: number): string[] {
@@ -161,8 +171,19 @@ function usesEmittedTreeDefaults(manifest: PackageManifest): boolean {
 function checkWorkspace({ dir, manifest }: WorkspaceManifest): string[] {
   const errors: string[] = []
   const label = manifest.name ?? dir
+  const isLandlockPackageDir = dir.startsWith('native/landlock-run/packages/')
+  const isPublicLandlockPackage = isLandlockPackageDir
+    && manifest.name !== undefined
+    && publicLandlockPackages.has(manifest.name)
 
-  if (manifest.private !== true) {
+  if (isPublicLandlockPackage) {
+    if (manifest.private === true) {
+      errors.push(`${label}: published Landlock package must not set "private": true`)
+    }
+    if (manifest.publishConfig?.access !== 'public') {
+      errors.push(`${label}: published Landlock package must set publishConfig.access to "public"`)
+    }
+  } else if (manifest.private !== true) {
     errors.push(`${label}: package.json must set "private": true`)
   }
 
@@ -184,6 +205,15 @@ function checkWorkspace({ dir, manifest }: WorkspaceManifest): string[] {
       errors.push(`${label}: app package has no publication files policy`)
     } else if (!sameStringList(manifest.files, expectedFiles)) {
       errors.push(`${label}: package.json files must be ${JSON.stringify(expectedFiles)}`)
+    }
+  }
+
+  if (isLandlockPackageDir) {
+    if (!isPublicLandlockPackage) {
+      errors.push(`${label}: unexpected package in the public Landlock package family`)
+    }
+    if (manifest.version !== landlockVersion) {
+      errors.push(`${label}: package.json version must match Landlock workspace version ${landlockVersion ?? '(missing)'}`)
     }
   }
 
