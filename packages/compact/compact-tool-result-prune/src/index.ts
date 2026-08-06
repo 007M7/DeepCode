@@ -9,6 +9,10 @@ import z from 'schemastery'
 import { freezeMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent, ToolResultMessage } from '@deepseek-ai/dsh-session'
+// Type-only: the `compact/*` SessionEventMap merges (the shadow-price event).
+import type {} from '@deepseek-ai/dsh-compact'
+// Type-only: the `ctx.tokenMeter` Context merge for the declared injection.
+import type {} from '@deepseek-ai/dsh-token-meter'
 import { codePointLength, DEFAULTS, PRUNE_MARKER, resolveConfig } from './config.ts'
 import type {
   PrunedEntry,
@@ -38,6 +42,10 @@ interface SnapshotCandidate {
 
 /** Deterministic head/middle/tail pruning for current tool-result surface nodes. */
 export class ToolResultPruneService extends Service {
+  // The token meter prices each shadowed node for its logged shadow-price
+  // event, so pruning genuinely requires the pricing capability.
+  static inject = ['tokenMeter']
+
   static Config: z<ToolResultPruneConfig> = z.object({
     thresholdChars: z.number().step(1).min(1).default(DEFAULTS.thresholdChars),
     headChars: z.number().step(1).min(0).default(DEFAULTS.headChars),
@@ -116,7 +124,10 @@ export class ToolResultPruneService extends Service {
   /**
    * Prune every over-budget tool result from one stable current-surface snapshot.
    * Each replacement preserves the complete event data except for `content`,
-   * and points at the shadowed node for durable provenance and replay.
+   * points at the shadowed node for durable provenance and replay, and is
+   * immediately preceded by a `compact/prune` shadow-price event pricing the
+   * shadowed node through the injected token meter, so pure consumers can
+   * subtract it without per-node state.
    * @param session - session whose current surface is rewritten.
    * @returns landed replacements and aggregate Unicode-code-point savings.
    * @throws when the session rejects a replacement; replacements committed
@@ -144,6 +155,14 @@ export class ToolResultPruneService extends Service {
           ...result,
           content,
         }] as [typeof result],
+      })
+      // Shadow-price protocol: the metering event and its replacement are
+      // appended synchronously adjacent, so pure consumers subtract the
+      // shadowed node's heuristic price without retaining per-node state.
+      session.append('compact/prune', {
+        shadowedRange: { start: seq, end: seq },
+        shadowedSeqs: [seq],
+        shadowedTokenCount: this.ctx.tokenMeter.estimateMessage(event.data.message),
       })
       const replacement = session.append('tool/result', {
         ...event.data,

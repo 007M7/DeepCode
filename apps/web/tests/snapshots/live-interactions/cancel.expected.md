@@ -20,7 +20,7 @@
   - img
 - button "Branch into a new conversation":
   - img
-- text: {{clock}}Ran for {{duration}}
+- text: {{clock}} Ran for {{duration}}
 - textbox "Message the agent"
 - button "Commands":
   - img

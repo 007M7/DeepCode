@@ -24,6 +24,8 @@ import type { CommandNode, CompactionSummaryNode, ConversationNode } from './con
 import { toAssistantBlocks } from './conversation.ts'
 import { contextForm, contextProvenance } from './context-provenance.ts'
 import { SteeringHistory } from './steering-history.ts'
+import type { AssistantStepMetadata } from './assistant-timing.ts'
+import { indexAssistantStepTiming, settledAssistantTiming } from './assistant-timing.ts'
 
 /**
  * The compaction seam's checkpoint plugin, pinned to the seam's own declaration
@@ -52,6 +54,7 @@ function materializeNode(
   callIndex: ReadonlyMap<string, CallIndexEntry>,
   resultView: ToolResultView | null,
   steering: boolean,
+  stepTimings: ReadonlyMap<string, AssistantStepMetadata>,
 ): ConversationNode {
   switch (event.type) {
     case 'user/message':
@@ -82,6 +85,7 @@ function materializeNode(
         kind: 'assistant', seq: event.seq, time: event.time,
         turn: event.data.turn, step: event.data.step,
         blocks: toAssistantBlocks(event.data.message.content), usage: event.data.usage,
+        timing: settledAssistantTiming(stepTimings, event.data.turn, event.data.step, event.time),
       }
     case 'tool/result': {
       const result = event.data.message.content[0]
@@ -182,6 +186,8 @@ export class TranscriptAdapter {
   /** Transcript nodes in log order; copy-on-write so a published array never mutates. */
   private projected: ConversationNode[] = []
   private callIdx = new Map<string, CallIndexEntry>()
+  /** Per-step timing boundaries (step/start + first token delta), consumed when the step's assistant/message materializes. */
+  private stepTimings = new Map<string, AssistantStepMetadata>()
   /** Wire result views keyed by the tool/result event's seq (views ride the envelope, not the event). */
   private resultViews = new Map<number, ToolResultView>()
   /** Durable inbox replay used to distinguish next-step human input from queued prompts. */
@@ -216,6 +222,7 @@ export class TranscriptAdapter {
     this.commandIdx = new Map()
     this.steeringHistory.reset()
     const steeringSeqs = new Set<number>()
+    this.stepTimings = new Map()
     for (let i = 0; i < events.length; i++) {
       const event = events[i]
       /* v8 ignore next -- dense-array guard: i stays within events.length, so the undefined arm needs a sparse array no caller builds. */
@@ -224,6 +231,7 @@ export class TranscriptAdapter {
       this.indexCall(event, views?.[i])
       this.indexCommand(event)
       if (this.steeringHistory.apply(event)) steeringSeqs.add(event.seq)
+      indexAssistantStepTiming(this.stepTimings, event)
     }
     // Indexes first, then project: a tool/result materializes against the
     // complete call index, and a checkpoint against the complete event index.
@@ -247,6 +255,7 @@ export class TranscriptAdapter {
     this.eventIndex.set(event.seq, event)
     this.indexCall(event, view)
     const steering = this.steeringHistory.apply(event)
+    indexAssistantStepTiming(this.stepTimings, event)
     if (this.indexCommand(event)) this.rev++
     if (!isTranscriptEvent(event)) return
     this.projected = [...this.projected, this.materialize(event, steering)]
@@ -285,7 +294,13 @@ export class TranscriptAdapter {
   private materialize(event: SessionEvent, steering: boolean): ConversationNode {
     return isCompactCheckpoint(event)
       ? materializeCompaction(event, this.eventIndex)
-      : materializeNode(event, this.callIdx, this.resultViews.get(event.seq) ?? null, steering)
+      : materializeNode(
+        event,
+        this.callIdx,
+        this.resultViews.get(event.seq) ?? null,
+        steering,
+        this.stepTimings,
+      )
   }
 
   /**
