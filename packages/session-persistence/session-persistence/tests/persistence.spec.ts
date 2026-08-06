@@ -237,7 +237,7 @@ describe('PersistenceCoordinator eager writes', () => {
     try {
       const session = ctx.sessions.create(SessionId('eager-follow-up'))
       await ctx.sessions.flush(session)
-      session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+      session.append('turn/start', { turn: 1 })
       await vi.waitFor(() => { expect(backend.appendAttempts).toBe(1) })
 
       session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
@@ -272,7 +272,7 @@ describe('PersistenceCoordinator eager writes', () => {
     try {
       const session = ctx.sessions.create(SessionId('eager-flush-retry'))
       await ctx.sessions.flush(session)
-      session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+      session.append('turn/start', { turn: 1 })
       session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
       await vi.waitFor(() => { expect(backend.appendAttempts).toBe(1) })
 
@@ -302,7 +302,7 @@ describe('PersistenceCoordinator stored identity', () => {
         type: 'turn/start',
         seq: 0,
         time: 1,
-        data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+        data: { turn: 1 },
       }],
     })
     let coordinator!: PersistenceCoordinator<never>
@@ -329,7 +329,7 @@ describe('PersistenceCoordinator stored identity', () => {
       type: 'turn/start',
       seq: 0,
       time: 1,
-      data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+      data: { turn: 1 },
     }
     backend.store.set(id, { meta: header, events: [start] })
     const loadGate = Promise.withResolvers<boolean>()
@@ -534,7 +534,7 @@ describe('PersistenceCoordinator observation cancellation', () => {
       const sessionFiber = await ctx.plugin(Object.assign((inner: Context) => {
         session = inner.sessions.create(id)
       }, { inject: ['sessions'] }))
-      session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+      session.append('turn/start', { turn: 1 })
       session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
       // Dispose the session so retirement starts; its append is gated, so the
       // retirement promise stays pending in the coordinator.
@@ -677,7 +677,7 @@ describe('PersistenceCoordinator retirement', () => {
       }, { inject: ['sessions'] }))
       await ctx.sessions.flush(first)
       backend.beforeAppend = async () => { await appendGate.promise }
-      first.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+      first.append('turn/start', { turn: 1 })
       first.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
       await vi.waitFor(() => { expect(backend.appendAttempts).toBe(1) })
       await firstFiber.dispose()
@@ -717,7 +717,7 @@ describe('PersistenceCoordinator retirement', () => {
       }, { inject: ['sessions'] }))
       await ctx.sessions.flush(first)
       backend.beforeAppend = async () => { await appendGate.promise }
-      first.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+      first.append('turn/start', { turn: 1 })
       first.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
       await vi.waitFor(() => { expect(backend.appendAttempts).toBe(1) })
       await firstFiber.dispose()
@@ -776,7 +776,7 @@ describe('PersistenceCoordinator retirement', () => {
         type: 'turn/start',
         seq: 0,
         time: 1,
-        data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+        data: { turn: 1 },
       }])
       const secondAppend = coordinator.append(id, [{
         type: 'turn/end',
@@ -824,7 +824,7 @@ describe('PersistenceCoordinator retirement', () => {
       const sessionFiber = await ctx.plugin(Object.assign((inner: Context) => {
         session = inner.sessions.create(SessionId('retry-retirement'))
       }, { inject: ['sessions'] }))
-      session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+      session.append('turn/start', { turn: 1 })
       session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
       await sessionFiber.dispose()
 
@@ -868,7 +868,7 @@ describe('PersistenceCoordinator retirement', () => {
       const sessionFiber = await ctx.plugin(Object.assign((inner: Context) => {
         session = inner.sessions.create(SessionId('inflight-retirement'))
       }, { inject: ['sessions'] }))
-      session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+      session.append('turn/start', { turn: 1 })
       session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
       await sessionFiber.dispose()
       await vi.waitFor(() => {
@@ -916,7 +916,7 @@ describe('PersistenceCoordinator retirement', () => {
         type: 'turn/start',
         seq: 0,
         time: 1,
-        data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+        data: { turn: 1 },
       }])
       await vi.waitFor(() => { expect(backend.appendAttempts).toBe(1) })
 
@@ -1053,7 +1053,7 @@ describe('SessionPersistence service registration', () => {
         const sessionFiber = await ctx.plugin(Object.assign((inner: Context) => {
           session = inner.sessions.create(SessionId(`disposed-${index}`))
         }, { inject: ['sessions'] }))
-        session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+        session.append('turn/start', { turn: 1 })
         session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
         await ctx.sessions.flush(session)
         await sessionFiber.dispose()

@@ -64,7 +64,7 @@ function createSession(
 }
 
 function openStep(session: Session, text = 'prior needle'): void {
-  session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+  session.append('turn/start', { turn: 1 })
   session.append(
     'user/message',
     createUserMessage({

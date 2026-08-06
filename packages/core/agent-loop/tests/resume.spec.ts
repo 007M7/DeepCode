@@ -43,7 +43,7 @@ async function persistSession(sessionId: SessionId): Promise<string> {
   // balanced completed turn is the smallest resumable log and avoids running
   // the model merely to construct this lifecycle fixture.
   const seed: SessionEvent[] = [
-    { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+    { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
     { type: 'turn/end', seq: 1, time: 2, data: { turn: 1, reason: { kind: 'completed' } } },
   ]
   const session = ctx.sessions.create(sessionId, { seed })
@@ -77,7 +77,7 @@ function throwUnknown(value: unknown): never {
 }
 
 describe('the session-persistence Agent Note: AgentLoop factory create/resume', () => {
-  it('resumes a session persisted before messages gained identities', async () => {
+  it('resumes a pre-react-loop session including pre-identity message events', async () => {
     const sessionId = SessionId('pre-identity-resume')
     const first = await persistentHarness(new MockAdapter([]))
     await first.ctx.sessionPersistence.create({
@@ -86,7 +86,10 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
       createdAt: 1,
     })
     await first.ctx.sessionPersistence.append(sessionId, [
-      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      {
+        type: 'turn/start', seq: 0, time: 1,
+        data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+      },
       {
         type: 'user/message',
         seq: 1,
@@ -107,8 +110,19 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
         },
         surfaceOp: 'append',
       },
-      { type: 'step/end', seq: 4, time: 5, data: { turn: 1, step: 1 } },
-      { type: 'turn/end', seq: 5, time: 6, data: { turn: 1, reason: { kind: 'completed' } } },
+      {
+        type: 'steering/message',
+        seq: 4,
+        time: 5,
+        data: {
+          turn: 1,
+          content: [{ type: 'text', text: 'old steering' }],
+          source: { kind: 'user' },
+        },
+        surfaceOp: 'append',
+      },
+      { type: 'step/end', seq: 5, time: 6, data: { turn: 1, step: 1 } },
+      { type: 'turn/end', seq: 6, time: 7, data: { turn: 1, reason: { kind: 'completed' } } },
     ] as unknown as SessionEvent[])
     await first.ctx.fiber.dispose()
 
@@ -120,14 +134,17 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     expect(handle.agent.session.deriveMessages()).toMatchObject([
       { id: `legacy-message:${sessionId}:1`, role: 'user' },
       { id: `legacy-message:${sessionId}:3`, role: 'assistant' },
+      { id: `legacy-message:${sessionId}:4`, role: 'user' },
     ])
+    expect(handle.agent.inbox.nextTurn).toEqual([])
+    expect(handle.agent.inbox.nextStep).toEqual([])
 
     handle.agent.followup(createUserMessage({
       content: [{ type: 'text', text: 'new question' }],
       source: { kind: 'user' },
     }))
     await waitForIdle(ctx, handle.agent)
-    expect(handle.agent.session.deriveMessages()).toHaveLength(4)
+    expect(handle.agent.session.deriveMessages()).toHaveLength(5)
     expect(handle.agent.session.events.at(-1)).toMatchObject({
       type: 'turn/end',
       data: { reason: { kind: 'completed' } },
@@ -175,7 +192,7 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     const { ctx } = await persistentHarness(new MockAdapter([textResponse('unused')]))
     const sessionId = SessionId('live-resume-race')
     const first = (await ctx.agents.create({ sessionId })).agent
-    first.session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    first.session.append('turn/start', { turn: 1 })
     await ctx.sessions.flush(first.session)
 
     await expect(ctx.agents.resume({ resumeSessionId: sessionId }))
@@ -530,7 +547,7 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     // in its header) by creating it with a complete-turn seed — the write path
     // materializes the fork (header + seed) on disk.
     const seed: SessionEvent[] = [
-      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
       { type: 'turn/end', seq: 1, time: 2, data: { turn: 1, reason: { kind: 'completed' } } },
     ]
     const adapter1 = new MockAdapter([textResponse('a')])
@@ -567,7 +584,7 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     await ctx2.fiber.dispose()
   })
 
-  it('an idle inject() survives persist + resume without a synthetic turn', async () => {
+  it('a pending idle inject() survives persist + resume without a synthetic turn', async () => {
     const adapter1 = new MockAdapter([textResponse('answer')])
     const { ctx: ctx1, root } = await persistentHarness(adapter1)
     const a1 = (await ctx1.agents.create({ sessionId: SessionId('inject-sess'), meta: { cwd: '/w' } })).agent
@@ -575,9 +592,10 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     await waitForIdle(ctx1, a1)
     a1.inject(createUserMessage({ content: [{ type: 'text', text: 'background task 42 finished' }], source: { kind: 'plugin', plugin: 'tool-bash' } }))
     await a1.whenIdle()
-    await ctx1.fiber.dispose()
+    await ctx1.sessions.flush(a1.session)
 
-    // Lifecycle 2: resume; the injected context is still in the derived history.
+    // Lifecycle 2: resume; the injected context is still pending and becomes
+    // model-visible when the next turn admits it.
     const adapter2 = new MockAdapter([textResponse('next')])
     const ctx2 = new Context()
     await ctx2.plugin(LlmService)
@@ -588,10 +606,17 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     await ctx2.plugin(AgentLoop, { agents: [] })
     await ctx2.plugin(SessionPersistenceJsonl, { root })
     ctx2.llm.registerAdapter(['mock'], adapter2)
+    const loaded = await ctx2.sessionPersistence.load(SessionId('inject-sess'))
+    expect(loaded.events.some(event => event.type === 'agent/inbox/spliced')).toBe(true)
+    expect(JSON.stringify(loaded.events)).toContain('background task 42 finished')
     const a2 = (await ctx2.agents.resume({ resumeSessionId: SessionId('inject-sess') })).agent
+    expect(JSON.stringify(a2.inbox.nextStep)).toContain('background task 42 finished')
+    a2.followup(createUserMessage({ content: [{ type: 'text', text: 'continue' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx2, a2)
     const flat = JSON.stringify(a2.session.deriveMessages())
     expect(flat).toContain('background task 42 finished')
     await ctx2.fiber.dispose()
+    await ctx1.fiber.dispose()
   })
 
   it('resume reloads a persisted session: history + turn numbering continue, no duplicate seqs', async () => {

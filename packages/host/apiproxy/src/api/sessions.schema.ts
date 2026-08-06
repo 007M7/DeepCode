@@ -7,7 +7,7 @@
 
 import { z } from 'zod'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
-import type { InboxItemId } from '@deepseek-ai/dsh-agent/brand'
+import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { RequestPayload, ResponseValue } from './rpc-map.ts'
 import type { Wire } from './rpc.schema.ts'
 import type {
@@ -25,8 +25,8 @@ import {
 /** SessionId: one brand cast after shape validation (the only cast point in this domain). */
 export const sessionIdSchema = z.string().min(1) as unknown as z.ZodType<SessionId>
 
-/** InboxItemId: one brand cast after non-empty string validation. */
-export const inboxItemIdSchema = z.string().min(1) as unknown as z.ZodType<InboxItemId>
+/** MessageId: one brand cast after non-empty string validation. */
+export const messageIdSchema = z.string().min(1) as unknown as z.ZodType<MessageId>
 
 /**
  * WorkspaceId: the workspace domain's one brand cast. Hosted here rather
@@ -264,7 +264,7 @@ export const sessionPromptValueSchema = z.object({
 /** session.updateQueue request payload. */
 export const sessionUpdateQueueRequestSchema = z.object({
   sessionId: sessionIdSchema,
-  itemId: inboxItemIdSchema,
+  itemId: messageIdSchema,
   action: z.discriminatedUnion('kind', [
     z.object({ kind: z.literal('edit'), content: z.array(contentBlockSchema) }),
     z.object({ kind: z.literal('remove') }),

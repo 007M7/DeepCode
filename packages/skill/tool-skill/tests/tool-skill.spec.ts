@@ -5,10 +5,10 @@ import { tmpdir } from 'node:os'
 import { Context } from 'cordis'
 import { createUserMessage, CallId, type Message } from '@deepseek-ai/dsh-llm'
 import { createScope, type Scope } from '@deepseek-ai/dsh-scope'
-import { Session, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
+import { Session, SessionId, type SessionEvent, type UserMessage } from '@deepseek-ai/dsh-session'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
-import AgentRegistry, { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { agentEvents, Inbox, type Agent, type PreStepDecision } from '@deepseek-ai/dsh-agent'
 import SkillService from '@deepseek-ai/dsh-skill'
 import * as SkillLocal from '@deepseek-ai/dsh-skill-local'
 import * as toolSkill from '@deepseek-ai/dsh-tool-skill'
@@ -44,17 +44,14 @@ function agentForCwd(cwd: string): Agent {
     id,
     options: {},
     session,
+    inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
     status: 'idle',
-    acceptsNextStep: false,
     send: () => {},
-    updateInbox: () => 'not-found',
     followup: () => {},
-    steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }),
-    inject(input) {
-      session.append('user/message', input, { surfaceOp: 'append' })
-    },
-    reserveTurnAdmission: () => undefined,
+    steer: () => {},
+    inject: () => { throw new Error('step-boundary catalog must not use agent.inject()') },
     cancel() {},
+    runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
   }
 }
@@ -64,24 +61,21 @@ function sessionAgent(session: Session, id = 'tool-skill-agent'): Agent {
     id: SessionId(id),
     options: {},
     session,
+    inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
     status: 'running',
-    acceptsNextStep: false,
     ctx: new Context(),
     send: () => {},
-    updateInbox: () => 'not-found',
     followup: () => {},
-    steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }),
-    inject(input) {
-      session.append('user/message', input, { surfaceOp: 'append' })
-    },
-    reserveTurnAdmission: () => undefined,
+    steer: () => {},
+    inject: () => { throw new Error('step-boundary catalog must not use agent.inject()') },
     cancel() {},
+    runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
   }
 }
 
 function openMessageTurn(session: Session, turn = 1): void {
-  session.append('turn/start', { turn, trigger: { kind: 'message', source: { kind: 'user' } } })
+  session.append('turn/start', { turn })
   session.append('user/message', createUserMessage({
     content: [{ type: 'text', text: `turn ${turn}` }],
     source: { kind: 'user' },
@@ -89,7 +83,32 @@ function openMessageTurn(session: Session, turn = 1): void {
 }
 
 async function fireStep(ctx: Context, agent: Agent, turn: number, step: number): Promise<void> {
-  await agentEvents(ctx, agent).serial('agent/step', turn, step, new AbortController().signal)
+  const signal = new AbortController().signal
+  const decision = await agentEvents(ctx, agent).waterfall(
+    'agent/pre-step',
+    [],
+    { turn, step, signal },
+    () => Promise.resolve({ kind: 'enter' as const, messages: [] }),
+  )
+  if (decision.kind === 'enter') {
+    for (const message of decision.messages) {
+      agent.session.append('user/message', message, { surfaceOp: 'append' })
+    }
+  }
+}
+
+async function proposeStep(
+  ctx: Context,
+  agent: Agent,
+  messages: UserMessage[],
+): Promise<PreStepDecision> {
+  const signal = new AbortController().signal
+  return await agentEvents(ctx, agent).waterfall(
+    'agent/pre-step',
+    messages,
+    { turn: 1, step: 1, signal },
+    () => Promise.resolve({ kind: 'enter' as const, messages }),
+  )
 }
 
 function catalogMessages(session: Session): Extract<SessionEvent, { type: 'user/message' }>[] {
@@ -110,7 +129,17 @@ async function composePrefix(ctx: Context, cwd: string, signal = new AbortContro
 }
 
 async function composePrefixForAgent(ctx: Context, agent: Agent, signal = new AbortController().signal): Promise<Message[]> {
-  await agentEvents(ctx, agent).serial('agent/step', 1, 1, signal)
+  const decision = await agentEvents(ctx, agent).waterfall(
+    'agent/pre-step',
+    [],
+    { turn: 1, step: 1, signal },
+    () => Promise.resolve({ kind: 'enter' as const, messages: [] }),
+  )
+  if (decision.kind === 'enter') {
+    for (const message of decision.messages) {
+      agent.session.append('user/message', message, { surfaceOp: 'append' })
+    }
+  }
   return agent.session.deriveMessages()
 }
 
@@ -205,13 +234,30 @@ describe('dsh-tool-skill', () => {
       source: 'runtime',
       content: 'User-only body.',
     })
-    ctx.on('agent/step', (agent) => {
-      agent.inject(createUserMessage({ content: [{ type: 'text', text: 'later contribution' }], source: { kind: 'plugin', plugin: 'later-contribution' } }))
+    ctx.on('agent/pre-step', async (_agent, _messages, _context, next) => {
+      const decision = await next()
+      if (decision.kind === 'reject') return decision
+      return {
+        ...decision,
+        messages: [
+          ...decision.messages,
+          createUserMessage({
+            content: [{ type: 'text', text: 'later contribution' }],
+            source: { kind: 'plugin', plugin: 'later-contribution' },
+          }),
+        ],
+      }
     })
 
     const prefix = await composePrefix(ctx, '/workspace')
 
     expect(prefix).toEqual([
+      {
+        id: expect.any(String) as unknown,
+        role: 'user',
+        content: [{ type: 'text', text: 'later contribution' }],
+        source: { kind: 'plugin', plugin: 'later-contribution' },
+      },
       {
         id: expect.any(String) as unknown,
         role: 'user',
@@ -233,14 +279,8 @@ describe('dsh-tool-skill', () => {
           ].join('\n'),
         }],
       },
-      {
-        id: expect.any(String) as unknown,
-        role: 'user',
-        content: [{ type: 'text', text: 'later contribution' }],
-        source: { kind: 'plugin', plugin: 'later-contribution' },
-      },
     ])
-    const rendered = JSON.stringify(prefix[0])
+    const rendered = JSON.stringify(prefix[1])
     expect(rendered).not.toContain('whenToUse')
     expect(rendered).not.toContain('secret-source')
     expect(rendered).not.toContain('/secret/path')
@@ -308,6 +348,80 @@ describe('dsh-tool-skill', () => {
     await fireStep(ctx, agent, 1, 2)
 
     expect(catalogMessages(session)).toEqual([])
+  })
+
+  it('deduplicates or replaces a catalog already proposed for the same step', async () => {
+    const home = await tempDir('tool-proposed-catalog')
+    const ctx = await setup(home)
+    const disposeFirst = ctx.skills.register({
+      name: 'first-skill',
+      description: 'First skill',
+      source: 'runtime',
+      content: 'First body.',
+    })
+    const session = Session.create(SessionId('proposed-catalog'))
+    const agent = sessionAgent(session)
+    openMessageTurn(session)
+    await fireStep(ctx, agent, 1, 1)
+    const initial = catalogMessages(session)[0]?.data
+    if (initial === undefined) throw new Error('expected initial catalog')
+
+    const duplicate = await proposeStep(ctx, agent, [initial])
+    expect(duplicate).toEqual({ kind: 'enter', messages: [] })
+
+    ctx.skills.register({
+      name: 'second-skill',
+      description: 'Second skill',
+      source: 'runtime',
+      content: 'Second body.',
+    })
+    const companion = createUserMessage({
+      content: [{ type: 'text', text: 'keep this message' }],
+      source: { kind: 'user' },
+    })
+    const replaced = await proposeStep(ctx, agent, [companion, initial])
+    expect(replaced.kind).toBe('enter')
+    if (replaced.kind === 'reject') throw new Error('expected catalog replacement')
+    expect(replaced.messages).toHaveLength(2)
+    expect(replaced.messages[0]).toBe(companion)
+    expect(replaced.messages[1]?.id).not.toBe(initial.id)
+    expect(JSON.stringify(replaced.messages[1]?.content)).toContain('second-skill')
+
+    disposeFirst()
+  })
+
+  it('removes a stale proposed catalog before the first empty baseline', async () => {
+    const home = await tempDir('tool-proposed-empty-catalog')
+    const ctx = await setup(home)
+    const session = Session.create(SessionId('proposed-empty-catalog'))
+    const stale = createUserMessage({
+      content: catalogContent(['- `stale-skill`: Stale skill']),
+      source: { kind: 'plugin', plugin: 'dsh-tool-skill' },
+    })
+
+    const decision = await proposeStep(ctx, sessionAgent(session), [stale])
+
+    expect(decision).toEqual({ kind: 'enter', messages: [] })
+  })
+
+  it('keeps a proposed catalog that already matches the current snapshot', async () => {
+    const home = await tempDir('tool-matching-proposal')
+    const ctx = await setup(home)
+    ctx.skills.register({
+      name: 'first-skill',
+      description: 'First skill',
+      source: 'runtime',
+      content: 'First body.',
+    })
+    const session = Session.create(SessionId('matching-proposal'))
+    const proposed = createUserMessage({
+      content: catalogContent(['- `first-skill`: First skill']),
+      source: { kind: 'plugin', plugin: 'dsh-tool-skill' },
+    })
+
+    const decision = await proposeStep(ctx, sessionAgent(session), [proposed])
+
+    expect(decision).toEqual({ kind: 'enter', messages: [proposed] })
   })
 
   it('injects complete replacement catalogs for additions and an empty tombstone for removals', async () => {

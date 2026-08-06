@@ -311,7 +311,7 @@ describe('createFixtureApi', () => {
     expect(idleCancel.result).toMatchObject({ ok: true })
   })
 
-  it('steer during a replay inserts a steering message and the replay continues to completion', async () => {
+  it('steer during a replay lands a user/message inside the current turn and the replay continues', async () => {
     const api = createFixtureApi()
     const created = await api.sessions.create(req({}))
     if (!created.result.ok) throw new Error('create failed')
@@ -324,7 +324,7 @@ describe('createFixtureApi', () => {
     await api.sessions.prompt(req({ sessionId: id, mode: 'steer' as const, content: [{ type: 'text' as const, text: '插话' }] }))
     const frames = await framesPromise
     const types = frames.filter((f): f is Extract<MuxFrame, { type: 'session/event' }> => f.type === 'session/event').map(f => f.event.type)
-    expect(types).toContain('steering/message')
+    expect(JSON.stringify(frames)).toContain('插话')
     expect(types.at(-1)).toBe('turn/end') // steer did not restart the turn
   })
 
@@ -372,7 +372,7 @@ describe('createFixtureApi', () => {
     }))
     const frames = await framesPromise
     const types = frames.filter((f): f is Extract<MuxFrame, { type: 'session/event' }> => f.type === 'session/event').map(f => f.event.type)
-    expect(types[0]).toBe('turn/start') // idle steer degraded to a queued turn, not a steering insert
+    expect(types[0]).toBe('turn/start') // idle steer degraded to a queued turn, not an in-turn insert
   })
 
   it('gamma interval flip emits host/session-status and a running log-less session subscribes at lastSeq -1', async () => {
@@ -1008,6 +1008,21 @@ describe('FixtureApiClient (protocol-level fake carrier)', () => {
     // complete → complete is an invalid transition.
     expect((await client.goals.complete({ sessionId: id, ref })).result.ok).toBe(false)
     expect((await client.goals.clear({ sessionId: id, ref })).result).toEqual({ ok: true, value: { cleared: true } })
+
+    const goalHistory = await client.sessions.history({ sessionId: id })
+    if (!goalHistory.result.ok) throw new Error('goal history failed')
+    const goalEvents = goalHistory.result.value.events.map(entry => entry.event as unknown as {
+      type: string
+      data: {
+        operation?: string
+        source?: { kind?: string; round?: number }
+      }
+    })
+    const goalChanges = goalEvents.filter(event => event.type === 'goal/change')
+    expect(goalChanges.map(event => event.data.operation))
+      .toEqual(['create', 'edit', 'pause', 'resume', 'complete', 'clear'])
+    expect(goalEvents.some(event => event.type === 'user/message'
+      && event.data.source?.kind === 'goal' && event.data.source.round === 0)).toBe(false)
   })
 
   it('maps empty, prompt-reject, and workspace-first query scenarios', async () => {

@@ -78,7 +78,7 @@ function userMessageTexts(agent: Agent): string[] {
 function turnNumbers(agent: Agent): number[] {
   return agent.session.events
     .filter(e => e.type === 'turn/start')
-    .map(e => (e.data as { turn: number }).turn)
+    .map(e => e.data.turn)
 }
 
 function turnEndNumbers(agent: Agent): number[] {

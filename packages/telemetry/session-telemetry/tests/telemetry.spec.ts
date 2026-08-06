@@ -70,7 +70,7 @@ function liveSession(ctx: Context, id = `s-${Math.random().toString(36).slice(2)
 }
 
 function appendTurn(session: Session): void {
-  session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+  session.append('turn/start', { turn: 1 })
   session.append('user/message', createUserMessage({
     content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' },
   }), { surfaceOp: 'append' })
@@ -108,7 +108,7 @@ describe('TelemetryCoordinator capture', () => {
   it('maps outcome flags to severity, unknown types falling through as info', async () => {
     const { ctx, backend } = await setup()
     const session = liveSession(ctx)
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     session.append('tool/result', {
       turn: 1, step: 1,
       message: createToolResultMessage({
@@ -126,7 +126,7 @@ describe('TelemetryCoordinator capture', () => {
       }),
     }, { surfaceOp: 'append' })
     session.append('telemetry-test/opaque', { payload: { nested: [] } })
-    session.append('turn/end', { turn: 1, reason: { kind: 'error', step: 1, message: 'boom' } })
+    session.append('turn/end', { turn: 1, reason: { kind: 'error', error: { message: 'boom', code: 'UNKNOWN' } } })
     const severities = backend.ledger().map(r => [r.attributes['event.type'], r.severity])
     expect(severities).toEqual([
       ['turn/start', 'info'],
@@ -196,7 +196,7 @@ describe('TelemetryCoordinator adoption', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const donor = ctx.sessions.create(SessionId('donor'), { meta: {} })
-    donor.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    donor.append('turn/start', { turn: 1 })
     donor.append('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'first' } })
     const resumed = ctx.sessions.create(SessionId('resumed'), { seed: [...donor.events], meta: {} })
     await ctx.plugin({
@@ -265,7 +265,7 @@ describe('TelemetryCoordinator adoption', () => {
     const backend = new FakeBackend()
     const { ctx, fiber } = await setup(backend)
     const session = liveSession(ctx, 'hmr')
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     session.append('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'first' } })
     expect(backend.ledger()).toHaveLength(2)
 
@@ -412,7 +412,7 @@ describe('TelemetryCoordinator lifecycle and containment', () => {
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
     const session = liveSession(ctx)
     backend.emitError = new Error('backend broke')
-    expect(() => session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })).not.toThrow()
+    expect(() => session.append('turn/start', { turn: 1 })).not.toThrow()
     expect(warn).toHaveBeenCalled()
     backend.emitError = undefined
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
