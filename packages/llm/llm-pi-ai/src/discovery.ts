@@ -22,7 +22,7 @@
  * @module dsh-llm-pi-ai/discovery
  */
 
-import { LlmError } from '@deepseek-ai/dsh-llm'
+import { INVALID_CREDENTIAL_CODE, LlmError, normalizeApiKey } from '@deepseek-ai/dsh-llm'
 import type { LlmDiscoveredModel, LlmModelDiscoveryRequest } from '@deepseek-ai/dsh-llm'
 import { attributionHeaders } from '@deepseek-ai/dsh-llm'
 import { catalogModels } from './catalog.ts'
@@ -162,6 +162,25 @@ function readListing(body: unknown): LlmDiscoveredModel[] {
 }
 
 /**
+ * Accept one probe key, or refuse it before the header is built. Without this
+ * the `fetch` below would throw a ByteString `TypeError` that this function's
+ * catch reports as `could not reach <url>` — blaming the network for a local,
+ * deterministic fault.
+ * @param raw - the key typed into the form or read from storage.
+ * @returns the trimmed, usable key.
+ */
+function usableProbeKey(raw: string): string {
+  const checked = normalizeApiKey(raw)
+  if (checked.ok) return checked.value
+  throw new LlmError(
+    checked.reason === 'empty'
+      ? 'this provider\'s API key is blank; enter it on the Models page, or clear it to probe unauthenticated'
+      : 'this provider\'s API key contains characters no HTTP header can carry; paste the raw key only',
+    INVALID_CREDENTIAL_CODE,
+  )
+}
+
+/**
  * Interrogate one draft provider endpoint for the models it advertises.
  * @param request - the endpoint, protocol, and one-shot credential to use.
  * @param storedApiKey - the credential the named route already stored, asked
@@ -216,7 +235,10 @@ export async function discoverModels(
   // stored one is only asked for here, past the catalog short-circuit and the
   // protocol check, so a route answered from the registry costs no credential
   // lookup — and no diagnostic about a credential it never needed.
-  const apiKey = request.apiKey ?? await storedApiKey?.()
+  // A probe carrying no key stays unauthenticated, which is how a route that
+  // relies on the provider's own ambient discovery is meant to be asked.
+  const supplied = request.apiKey ?? await storedApiKey?.()
+  const apiKey = supplied === undefined ? undefined : usableProbeKey(supplied)
   let response: Response
   try {
     response = await fetch(url, {
