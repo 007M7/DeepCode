@@ -8,6 +8,7 @@ import {
   MIN_RECURRING_INTERVAL_SECONDS,
   ScheduleId,
   createAfterScheduleRecord,
+  createCronScheduleRecord,
   createEveryScheduleRecord,
 } from '../src/domain.ts'
 import { MAX_TIMER_DELAY_MS, ScheduleOwner } from '../src/runtime.ts'
@@ -129,6 +130,17 @@ function appendEvery(
   prompt = 'check metrics',
 ): void {
   const record = createEveryScheduleRecord(ScheduleId(id), prompt, everySeconds, createdAt)
+  test.agent.session.append('schedule/change', { version: 1, operation: 'create', schedule: record })
+}
+
+function appendCron(
+  test: RuntimeHarness,
+  id: string,
+  cron: string,
+  createdAt: number,
+  prompt = 'calendar review',
+): void {
+  const record = createCronScheduleRecord(ScheduleId(id), prompt, cron, 'UTC', createdAt)
   test.agent.session.append('schedule/change', { version: 1, operation: 'create', schedule: record })
 }
 
@@ -310,6 +322,104 @@ describe('Schedule timer and admission runtime', () => {
       },
     ])
     expect(test.controls.releaseCount).toBe(1)
+    await owner.dispose()
+  })
+
+  it('batches overdue Every and Cron records with independent durable dispatch shapes', async () => {
+    const test = await harness()
+    appendEvery(test, 'schedule-every', 300, Date.parse('2026-08-05T11:53:00.000Z'), 'fixed rate')
+    appendCron(
+      test,
+      'schedule-cron',
+      '0 12 * * *',
+      Date.parse('2026-08-04T12:01:00.000Z'),
+      'calendar rate',
+    )
+    const owner = ownerFor(test)
+    owner.start()
+    await settle()
+
+    expect(test.followed).toHaveLength(1)
+    const block = test.followed[0]?.content[0]
+    if (block?.type !== 'text') throw new Error('expected mixed recurring batch text')
+    expect(block.text).toContain('"schedule_id":"schedule-every"')
+    expect(block.text).toContain('"schedule_id":"schedule-cron"')
+    const dispatches = test.agent.session.events.filter(event =>
+      event.type === 'schedule/change' && event.data.operation === 'dispatch')
+    expect(dispatches.map(event => event.data)).toEqual([
+      {
+        version: 1,
+        operation: 'dispatch',
+        id: 'schedule-every',
+        acceptedAt: '2026-08-05T12:00:00.000Z',
+      },
+      {
+        version: 1,
+        operation: 'dispatch',
+        id: 'schedule-cron',
+        occurrenceAt: '2026-08-05T12:00:00.000Z',
+        acceptedAt: '2026-08-05T12:00:00.000Z',
+        nextScheduledAt: '2026-08-06T12:00:00.000Z',
+      },
+    ])
+    await owner.dispose()
+  })
+
+  it('waits for the shared gate instead of a staggered future Cron target', async () => {
+    const test = await harness()
+    appendEvery(test, 'schedule-overdue', 300, Date.parse('2026-08-05T11:53:00.000Z'), 'overdue')
+    const owner = ownerFor(test)
+    owner.start()
+    await settle()
+    appendCron(
+      test,
+      'schedule-staggered-cron',
+      '4 12 * * *',
+      Date.parse('2026-08-05T11:59:00.000Z'),
+      'staggered cron',
+    )
+    owner.requestDrive()
+    await settle()
+
+    await vi.advanceTimersByTimeAsync(180_000)
+    await settle()
+    const flushesAtFirstDue = test.controls.flushCount
+    await vi.advanceTimersByTimeAsync(60_000)
+    await settle()
+    expect(test.controls.flushCount).toBe(flushesAtFirstDue)
+    await vi.advanceTimersByTimeAsync(60_000)
+    await settle()
+    expect(test.followed).toHaveLength(2)
+    const batch = test.followed[1]?.content[0]
+    if (batch?.type !== 'text') throw new Error('expected mixed gate batch')
+    expect(batch.text).toContain('"schedule_id":"schedule-overdue"')
+    expect(batch.text).toContain('"schedule_id":"schedule-staggered-cron"')
+    await owner.dispose()
+  })
+
+  it('omits Cron nextScheduledAt when the four-digit calendar is exhausted', async () => {
+    vi.setSystemTime(new Date('9999-12-31T23:59:00.000Z'))
+    const test = await harness()
+    appendCron(
+      test,
+      'schedule-final-cron',
+      '59 23 31 12 *',
+      Date.parse('9999-12-31T23:58:00.000Z'),
+      'final cron',
+    )
+    const owner = ownerFor(test)
+    owner.start()
+    await settle()
+
+    const dispatch = test.agent.session.events.find(event =>
+      event.type === 'schedule/change' && event.data.operation === 'dispatch')
+    expect(dispatch?.data).toEqual({
+      version: 1,
+      operation: 'dispatch',
+      id: 'schedule-final-cron',
+      occurrenceAt: '9999-12-31T23:59:00.000Z',
+      acceptedAt: '9999-12-31T23:59:00.000Z',
+    })
     await owner.dispose()
   })
 

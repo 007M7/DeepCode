@@ -7,14 +7,15 @@ import type { Context } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type {
-  EveryScheduleRecord,
   OneShotScheduleRecord,
+  RecurringScheduleRecord,
 } from './types.ts'
 import {
   foldScheduleEvents,
   MIN_RECURRING_INTERVAL_SECONDS,
   renderReminderBatchFraming,
   renderReminderFraming,
+  resolveCronOccurrence,
   resolveEveryOccurrence,
   ScheduleLogError,
 } from './domain.ts'
@@ -26,8 +27,9 @@ import { runScheduleTransaction } from './transaction.ts'
 export const MAX_TIMER_DELAY_MS = 2_147_483_647
 
 interface RecurringDue {
-  readonly record: EveryScheduleRecord
+  readonly record: RecurringScheduleRecord
   readonly occurrenceAt: string
+  readonly nextScheduledAt?: string
 }
 
 type DueDecision =
@@ -40,7 +42,8 @@ function dueDecision(folded: FoldedSchedules, now: number): DueDecision {
   const indexed = folded.active.map((record, index) => ({ record, index }))
   const dueOneShots = indexed
     .filter((entry): entry is { record: OneShotScheduleRecord; index: number } =>
-      entry.record.kind !== 'every' && Date.parse(entry.record.scheduledAt) <= now)
+      entry.record.kind !== 'every' && entry.record.kind !== 'cron'
+      && Date.parse(entry.record.scheduledAt) <= now)
     .sort((left, right) =>
       Date.parse(left.record.scheduledAt) - Date.parse(right.record.scheduledAt)
       || left.index - right.index)
@@ -48,8 +51,9 @@ function dueDecision(folded: FoldedSchedules, now: number): DueDecision {
   if (oneShot !== undefined) return { kind: 'one-shot', record: oneShot }
 
   const recurring = indexed
-    .filter((entry): entry is { record: EveryScheduleRecord; index: number } =>
-      entry.record.kind === 'every' && Date.parse(entry.record.scheduledAt) <= now)
+    .filter((entry): entry is { record: RecurringScheduleRecord; index: number } =>
+      (entry.record.kind === 'every' || entry.record.kind === 'cron')
+      && Date.parse(entry.record.scheduledAt) <= now)
     .sort((left, right) =>
       Date.parse(left.record.scheduledAt) - Date.parse(right.record.scheduledAt)
       || left.index - right.index)
@@ -60,15 +64,23 @@ function dueDecision(folded: FoldedSchedules, now: number): DueDecision {
     return {
       kind: 'recurring',
       acceptedAt: new Date(now).toISOString(),
-      reminders: recurring.map(({ record }) => ({
-        record,
-        occurrenceAt: resolveEveryOccurrence(record, now).occurrenceAt,
-      })),
+      reminders: recurring.map(({ record }) => {
+        const occurrence = record.kind === 'every'
+          ? resolveEveryOccurrence(record, now)
+          : resolveCronOccurrence(record, now)
+        return {
+          record,
+          occurrenceAt: occurrence.occurrenceAt,
+          ...(occurrence.nextScheduledAt === undefined
+            ? {}
+            : { nextScheduledAt: occurrence.nextScheduledAt }),
+        }
+      }),
     }
   }
 
   const future = folded.active
-    .filter(record => recurring.length === 0 || record.kind !== 'every')
+    .filter(record => recurring.length === 0 || (record.kind !== 'every' && record.kind !== 'cron'))
     .map(record => Date.parse(record.scheduledAt))
     .filter(target => target > now)
   if (recurring.length > 0) future.push(gate)
@@ -282,13 +294,26 @@ export class ScheduleOwner {
               id: decision.record.id,
             })
           } else {
-            for (const { record } of decision.reminders) {
-              this.agent.session.append('schedule/change', {
-                version: 1,
-                operation: 'dispatch',
-                id: record.id,
-                acceptedAt: decision.acceptedAt,
-              })
+            for (const reminder of decision.reminders) {
+              if (reminder.record.kind === 'every') {
+                this.agent.session.append('schedule/change', {
+                  version: 1,
+                  operation: 'dispatch',
+                  id: reminder.record.id,
+                  acceptedAt: decision.acceptedAt,
+                })
+              } else {
+                this.agent.session.append('schedule/change', {
+                  version: 1,
+                  operation: 'dispatch',
+                  id: reminder.record.id,
+                  occurrenceAt: reminder.occurrenceAt,
+                  acceptedAt: decision.acceptedAt,
+                  ...(reminder.nextScheduledAt === undefined
+                    ? {}
+                    : { nextScheduledAt: reminder.nextScheduledAt }),
+                })
+              }
             }
           }
         } catch (error: unknown) {

@@ -14,6 +14,7 @@ import {
   allocateScheduleId,
   createAfterScheduleRecord,
   createAtScheduleRecord,
+  createCronScheduleRecord,
   createEveryScheduleRecord,
   foldScheduleEvents,
   isRecurringGateExhausted,
@@ -76,7 +77,21 @@ const EVERY_VIEW_SCHEMA = {
   },
 } as const
 
-const VIEW_SCHEMA = { oneOf: [AFTER_VIEW_SCHEMA, AT_VIEW_SCHEMA, EVERY_VIEW_SCHEMA] } as const
+const CRON_VIEW_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    ...SHARED_VIEW_PROPERTIES,
+    kind: { type: 'string', required: true, const: 'cron' },
+    cron: { type: 'string', required: true },
+    timeZone: { type: 'string', required: true },
+    deliveryNotBefore: { type: 'string' },
+  },
+} as const
+
+const VIEW_SCHEMA = {
+  oneOf: [AFTER_VIEW_SCHEMA, AT_VIEW_SCHEMA, EVERY_VIEW_SCHEMA, CRON_VIEW_SCHEMA],
+} as const
 
 /** Build one exact two-field error schema while preserving its literal code. */
 function basicErrorSchema<const C extends string>(code: C) {
@@ -98,6 +113,7 @@ const BASIC_ERROR_SCHEMAS = [
   basicErrorSchema('not_future'),
   basicErrorSchema('time_out_of_range'),
   basicErrorSchema('frequency_too_high'),
+  basicErrorSchema('no_future_occurrence'),
   basicErrorSchema('corrupt_schedule_log'),
   basicErrorSchema('internal_error'),
 ] as const
@@ -163,7 +179,8 @@ const DELETE_OUTPUT_SCHEMA = {
 const CREATE_DESCRIPTION =
   'Create one reminder in the current session. Supply a non-empty prompt and exactly one selector: '
   + 'a positive safe-integer after_seconds delay, at as a strict offset date-time or local '
-  + `date/time object, or safe-integer every_seconds of at least ${MIN_RECURRING_INTERVAL_SECONDS}. `
+  + `date/time object, safe-integer every_seconds of at least ${MIN_RECURRING_INTERVAL_SECONDS}, `
+  + 'or a restricted five-field cron paired with an explicit IANA time_zone. '
   + 'Delivery is session-local: the reminder runs on time only while this session '
   + 'is live and otherwise becomes overdue until the session is resumed.'
 
@@ -174,6 +191,14 @@ const LIST_DESCRIPTION =
 const DELETE_DESCRIPTION =
   'Delete one active reminder in the current session by the exact id returned by schedule_create '
   + 'or schedule_list. Unknown or already-finished ids return deleted false.'
+
+const CRON_DESCRIPTION =
+  'Five numeric fields in order: minute 0-59, hour 0-23, day-of-month 1-31, month 1-12, '
+  + 'day-of-week 0-7 (0 and 7 are Sunday). Each field is *, one integer, a strictly increasing '
+  + 'integer list, an increasing a-b range, */s, or a-b/s. Day-of-month or day-of-week must be *. '
+  + 'Steps are positive and at most the field cardinality (7 for day-of-week). Names, macros, '
+  + 'seconds, years, ?, L, W, and # are unsupported; nominal matches must be at '
+  + 'least five minutes apart. Requires time_zone.'
 
 /** Deterministic model content for every canonical Schedule value. */
 function renderValue(_args: unknown, value: unknown): ContentBlock[] {
@@ -364,18 +389,25 @@ function validateCreateArgs(args: {
   after_seconds?: number
   at?: AtInput
   every_seconds?: number
+  cron?: string
+  time_zone?: string
 }): ScheduleToolError | undefined {
   const keys = Object.keys(args as unknown as Record<string, unknown>)
+  const hasCronSelector = args.cron !== undefined || args.time_zone !== undefined
   if (keys.some(key => key !== 'prompt'
     && key !== 'after_seconds'
     && key !== 'at'
-    && key !== 'every_seconds')
+    && key !== 'every_seconds'
+    && key !== 'cron'
+    && key !== 'time_zone')
     || Number(args.after_seconds !== undefined)
     + Number(args.at !== undefined)
-    + Number(args.every_seconds !== undefined) !== 1) {
+    + Number(args.every_seconds !== undefined)
+    + Number(hasCronSelector) !== 1
+    || (hasCronSelector && (args.cron === undefined || args.time_zone === undefined))) {
     return {
       code: 'invalid_selector',
-      message: 'schedule_create accepts exactly one of after_seconds, at, or every_seconds.',
+      message: 'schedule_create accepts exactly one of after_seconds, at, every_seconds, or cron with time_zone.',
     }
   }
   if (args.prompt.trim().length === 0) {
@@ -440,6 +472,14 @@ export function registerScheduleTools(
           type: 'number',
           description: `Fixed-rate safe-integer interval in seconds, at least ${MIN_RECURRING_INTERVAL_SECONDS}.`,
         },
+        cron: {
+          type: 'string',
+          description: CRON_DESCRIPTION,
+        },
+        time_zone: {
+          type: 'string',
+          description: 'Explicit UTC or IANA Area/Location for cron evaluation.',
+        },
         at: {
           description: 'Absolute target as strict offset RFC 3339 or local date/time with optional IANA zone.',
           oneOf: [
@@ -467,7 +507,7 @@ export function registerScheduleTools(
           notifyDurableChange()
           const folded = foldForTool(agent)
           if (isToolError(folded)) return folded
-          if (args.every_seconds !== undefined
+          if ((args.every_seconds !== undefined || args.cron !== undefined)
             && isRecurringGateExhausted(folded.lastRecurringAcceptedAt)) {
             return {
               code: 'time_out_of_range',
@@ -492,11 +532,19 @@ export function registerScheduleTools(
               )
             } else if (args.after_seconds !== undefined) {
               record = createAfterScheduleRecord(id, args.prompt, args.after_seconds, Date.now())
-            } else {
+            } else if (args.every_seconds !== undefined) {
               record = createEveryScheduleRecord(
                 id,
                 args.prompt,
-                args.every_seconds as number,
+                args.every_seconds,
+                Date.now(),
+              )
+            } else {
+              record = createCronScheduleRecord(
+                id,
+                args.prompt,
+                args.cron as string,
+                args.time_zone as string,
                 Date.now(),
               )
             }

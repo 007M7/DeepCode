@@ -31,6 +31,11 @@ import {
   scheduleReminderPresentation,
 } from '@deepseek-ai/dsh-tool-schedule'
 import type { EveryScheduleRecord } from '@deepseek-ai/dsh-tool-schedule'
+import {
+  createCronScheduleRecord,
+  createEveryScheduleRecord,
+  resolveEveryOccurrence,
+} from '../../../packages/schedule/tool-schedule/src/domain.ts'
 
 const MODE = webSnapshotMode()
 const OVERLAY = fileURLToPath(new URL('../../../examples/web-schedule/cordis.yml', import.meta.url))
@@ -39,6 +44,8 @@ const RECEIPT_EXPECTED = fileURLToPath(new URL('./snapshots/schedule-after/recei
 const AT_RECEIPT_EXPECTED = fileURLToPath(new URL('./snapshots/schedule-after/at-receipt.expected.md', import.meta.url))
 const EVERY_BATCH_EXPECTED = fileURLToPath(new URL('./snapshots/schedule-after/every-batch.expected.md', import.meta.url))
 const EVERY_RECEIPT_EXPECTED = fileURLToPath(new URL('./snapshots/schedule-after/every-receipt.expected.md', import.meta.url))
+const MIXED_BATCH_EXPECTED = fileURLToPath(new URL('./snapshots/schedule-after/mixed-batch.expected.md', import.meta.url))
+const CRON_RECEIPT_EXPECTED = fileURLToPath(new URL('./snapshots/schedule-after/cron-receipt.expected.md', import.meta.url))
 const SESSION_TIME_ZONE = 'UTC'
 const PROMPT = 'Check the deployment log'
 const AT_PROMPT = 'Review the release window'
@@ -47,7 +54,7 @@ const AT_RECEIPT_SELECTOR = '[data-schedule-reminder]:has-text("Review the relea
 
 interface CreatedScheduleView {
   id: string
-  kind: 'after' | 'at' | 'every'
+  kind: 'after' | 'at' | 'every' | 'cron'
   scheduledAt: string
   deliveryMode: 'session-local'
 }
@@ -371,8 +378,10 @@ describe.skipIf(MODE === 'record')('web e2e: browser-zone local at reminder', ()
   it('keeps the fixture inventory closed', async () => {
     await assertFixtureInventory(SNAPSHOT_DIR, [
       'at-receipt.expected.md',
+      'cron-receipt.expected.md',
       'every-batch.expected.md',
       'every-receipt.expected.md',
+      'mixed-batch.expected.md',
       'receipt.expected.md',
     ])
   })
@@ -532,6 +541,171 @@ describe.skipIf(MODE === 'record')('web e2e: fixed-rate restart and batch receip
       await rm(persistenceRoot, { recursive: true, force: true }).catch((error: unknown) => failures.push(error))
       if (failures.length === 1) throw failures[0]
       if (failures.length > 1) throw new AggregateError(failures, 'Every Web evidence teardown failed')
+    }
+  }, 120_000)
+})
+
+describe.skipIf(MODE === 'record')('web e2e: Cron restart and final mixed batch', () => {
+  it('dispatches an overdue one-shot before Every and Cron share one batch', async () => {
+    const workspaceCwd = await realpath(await mkdtemp(join(tmpdir(), 'dsh-schedule-cron-ws-')))
+    const persistenceRoot = await mkdtemp(join(tmpdir(), 'dsh-schedule-cron-sessions-'))
+    const world = { workspaceCwd, persistenceRoot }
+    const sessionId = SessionId('schedule-cron-restart')
+    const ids = {
+      once: ScheduleId('schedule-mixed-once'),
+      every: ScheduleId('schedule-mixed-every'),
+      cron: ScheduleId('schedule-mixed-cron'),
+    }
+    let scaffold: WebScaffold | undefined
+    let browser: Browser | undefined
+    try {
+      scaffold = await launchWebScaffold({ extraOverlayPath: OVERLAY, world })
+      const workspace = await scaffold.ctx.workspace.create(workspaceCwd, 'Schedule Cron restart')
+      const seeded = scaffold.ctx.sessions.create(sessionId, {
+        meta: { cwd: workspaceCwd, timeZone: SESSION_TIME_ZONE },
+      })
+      appendCompletedTurn(seeded, 'seed mixed recurring reminders')
+      seeded.append('session/title', {
+        title: 'Cron restart session', messageSeqs: [], source: { kind: 'user' },
+      })
+      const seededAt = Date.now()
+      const oneShot = createAfterScheduleRecord(ids.once, 'One-shot bypass', 1, seededAt - 60_000)
+      const every = createEveryScheduleRecord(ids.every, 'Fixed-rate mixed reminder', 300, seededAt - 600_000)
+      const cronEpoch = Math.floor((seededAt - 60_000) / 60_000) * 60_000
+      const cron = createCronScheduleRecord(
+        ids.cron,
+        'Calendar mixed reminder',
+        `${new Date(cronEpoch).getUTCMinutes()} ${new Date(cronEpoch).getUTCHours()} * * *`,
+        'UTC',
+        cronEpoch - 86_400_000,
+      )
+      expect(Date.parse(cron.scheduledAt)).toBe(cronEpoch)
+      for (const record of [oneShot, every, cron]) {
+        seeded.append('schedule/change', { version: 1, operation: 'create', schedule: record })
+      }
+      await expect(scaffold.ctx.sessions.flush(seeded)).resolves.toBe(true)
+      await workspace.attachSession(sessionId)
+      await scaffold.close()
+      scaffold = undefined
+
+      scaffold = await launchWebScaffold({ extraOverlayPath: OVERLAY, world })
+      const resumedWorkspace = await scaffold.ctx.workspace.create(workspaceCwd, 'Schedule Cron restart')
+      await resumedWorkspace.attachSession(sessionId)
+      const resumed = await scaffold.ctx.apiProxy.sessions.create({
+        rpcId: RpcId('schedule-cron-resume'),
+        payload: { sessionId, cwd: workspaceCwd, timeZone: SESSION_TIME_ZONE },
+      })
+      if (!resumed.result.ok) throw new Error(resumed.result.error.message)
+      const agent = scaffold.ctx.agents.get(sessionId)
+      if (agent === undefined) throw new Error('Cron Session did not resume')
+
+      await waitForFact(() => [ids.once, ids.every, ids.cron].every(id => agent.session.events.some(event =>
+        event.type === 'schedule/change'
+        && event.data.operation === 'dispatch'
+        && event.data.id === id)), 15_000)
+      await agent.whenIdle()
+      await expect(scaffold.ctx.sessions.flush(agent.session)).resolves.toBe(true)
+
+      const recurringDispatches = agent.session.events.filter(event =>
+        event.type === 'schedule/change'
+        && event.data.operation === 'dispatch'
+        && (event.data.id === ids.every || event.data.id === ids.cron))
+      expect(recurringDispatches).toHaveLength(2)
+      const oneShotDispatch = agent.session.events.find(event =>
+        event.type === 'schedule/change'
+        && event.data.operation === 'dispatch'
+        && event.data.id === ids.once)
+      if (oneShotDispatch?.type !== 'schedule/change') throw new Error('missing one-shot dispatch')
+      expect(oneShotDispatch.seq).toBeLessThan(Math.min(...recurringDispatches.map(event => event.seq)))
+      const acceptedAt = recurringDispatches.map((event) => {
+        if (event.type !== 'schedule/change' || event.data.operation !== 'dispatch'
+          || !('acceptedAt' in event.data)) throw new Error('expected recurring dispatch')
+        return event.data.acceptedAt
+      })
+      expect(new Set(acceptedAt).size).toBe(1)
+      const batchAcceptedAt = acceptedAt[0]
+      if (batchAcceptedAt === undefined) throw new Error('missing mixed batch time')
+      const cronDispatch = recurringDispatches.find(event =>
+        event.type === 'schedule/change' && event.data.operation === 'dispatch' && event.data.id === ids.cron)
+      if (cronDispatch?.type !== 'schedule/change' || cronDispatch.data.operation !== 'dispatch'
+        || !('occurrenceAt' in cronDispatch.data)) throw new Error('missing Cron dispatch')
+      expect(cronDispatch.data.nextScheduledAt).toBeDefined()
+
+      const batchMessages = agent.session.events.filter(event =>
+        event.type === 'user/message'
+        && event.data.source.kind === 'plugin'
+        && event.data.source.plugin === 'tool-schedule'
+        && event.data.content.some(block =>
+          block.type === 'text' && block.text.startsWith('[SCHEDULE REMINDER BATCH]')))
+      expect(batchMessages).toHaveLength(1)
+      const batchMessage = batchMessages[0]
+      if (batchMessage?.type !== 'user/message') throw new Error('missing mixed batch message')
+      const batchBlock = batchMessage.data.content.find(block => block.type === 'text')
+      if (batchBlock?.type !== 'text') throw new Error('missing mixed batch text')
+      const everyOccurrence = resolveEveryOccurrence(every, Date.parse(batchAcceptedAt)).occurrenceAt
+      const batchSnapshot = batchBlock.text
+        .split(everyOccurrence).join('{{everyOccurrenceAt}}')
+        .split(cronDispatch.data.occurrenceAt).join('{{cronOccurrenceAt}}')
+      await compareOrRefreshGolden(MIXED_BATCH_EXPECTED, batchSnapshot, MODE)
+
+      const history = await scaffold.ctx.apiProxy.sessions.history({
+        rpcId: RpcId('schedule-cron-history'), payload: { sessionId },
+      })
+      if (!history.result.ok) throw new Error(history.result.error.message)
+      const receiptViews = history.result.value.events?.filter(entry =>
+        entry.event.type === 'schedule/change'
+        && entry.event.data.operation === 'dispatch'
+        && (entry.event.data.id === ids.once
+          || entry.event.data.id === ids.every
+          || entry.event.data.id === ids.cron))
+      expect(receiptViews?.map(entry => entry.view?.view)).toEqual([
+        expect.objectContaining({ scheduleId: ids.once, prompt: oneShot.prompt }),
+        expect.objectContaining({ scheduleId: ids.every, prompt: every.prompt }),
+        expect.objectContaining({ scheduleId: ids.cron, prompt: cron.prompt }),
+      ])
+
+      browser = await chromium.launch()
+      const page = await newEnglishPage(browser)
+      const tripwire = watchConsole(page)
+      await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+      await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+      const group = page.locator('[role="treeitem"]').first()
+      await group.waitFor({ timeout: 15_000 })
+      await expect.poll(async () => {
+        if (await group.getAttribute('aria-expanded') !== 'true') {
+          await group.click()
+          await page.waitForTimeout(50)
+        }
+        return await group.getAttribute('aria-expanded')
+      }, { timeout: 5_000 }).toBe('true')
+      await expect.poll(async () => {
+        const rows = page.locator('[role="treeitem"]')
+        for (let index = 1; index < await rows.count(); index += 1) {
+          await rows.nth(index).click()
+          if (await page.getByText(cron.prompt, { exact: true }).count() > 0) return true
+        }
+        return false
+      }, { timeout: 15_000 }).toBe(true)
+      for (const prompt of [oneShot.prompt, every.prompt, cron.prompt]) {
+        const receipt = page.locator(`[data-schedule-reminder]:has-text("${prompt}")`)
+        await receipt.waitFor({ timeout: 15_000 })
+        expect(await receipt.getByText(prompt, { exact: true }).count()).toBe(1)
+      }
+      const cronSelector = `[data-schedule-reminder]:has-text("${cron.prompt}")`
+      const snapshot = (await captureStableAria(page, cronSelector, workspaceCwd))
+        .split(ids.cron).join('{{scheduleId}}')
+        .replace(/\d{4}-\d{2}-\d{2}T(?:\d{2}:\d{2}:\d{2}\.\d{3}|\{\{clock\}\})Z/gu, '{{occurrenceAt}}')
+      await compareOrRefreshGolden(CRON_RECEIPT_EXPECTED, snapshot, MODE)
+      expect(tripwire.pageErrors).toEqual([])
+      expect(tripwire.warnings).toEqual([])
+    } finally {
+      const failures: unknown[] = []
+      await browser?.close().catch((error: unknown) => failures.push(error))
+      await scaffold?.close().catch((error: unknown) => failures.push(error))
+      await rm(workspaceCwd, { recursive: true, force: true }).catch((error: unknown) => failures.push(error))
+      await rm(persistenceRoot, { recursive: true, force: true }).catch((error: unknown) => failures.push(error))
+      if (failures.length === 1) throw failures[0]
+      if (failures.length > 1) throw new AggregateError(failures, 'Cron Web evidence teardown failed')
     }
   }, 120_000)
 })

@@ -49,6 +49,22 @@ export interface EveryScheduleRecord {
   readonly scheduledAt: string
 }
 
+/** Durable calendar reminder evaluated in one explicit IANA time zone. */
+export interface CronScheduleRecord {
+  /** Session-local stable identity. */
+  readonly id: ScheduleId
+  /** Rule discriminator for a calendar recurring reminder. */
+  readonly kind: 'cron'
+  /** Trimmed user-authored reminder content. */
+  readonly prompt: string
+  /** Canonical restricted five-field cron expression. */
+  readonly cron: string
+  /** Canonical IANA time-zone name used for future evaluation. */
+  readonly timeZone: string
+  /** Earliest calendar occurrence not yet accepted. */
+  readonly scheduledAt: string
+}
+
 /** Structured local-calendar input accepted by `schedule_create`. */
 export interface LocalAtInput {
   /** Four-digit ISO calendar date. */
@@ -65,8 +81,11 @@ export type AtInput = string | LocalAtInput
 /** One-shot record variants that terminate on an id-only dispatch. */
 export type OneShotScheduleRecord = AfterScheduleRecord | AtScheduleRecord
 
+/** Recurring record variants that share one model-turn gate. */
+export type RecurringScheduleRecord = EveryScheduleRecord | CronScheduleRecord
+
 /** The v1 durable reminder record union. */
-export type ScheduleRecord = OneShotScheduleRecord | EveryScheduleRecord
+export type ScheduleRecord = OneShotScheduleRecord | RecurringScheduleRecord
 
 /** Creates one durable reminder record. */
 export interface ScheduleCreateChange {
@@ -98,8 +117,24 @@ export interface EveryScheduleDispatchChange {
   readonly acceptedAt: string
 }
 
+/** Freezes one calendar decision against the live evaluator and tzdata. */
+export interface CronScheduleDispatchChange {
+  readonly version: 1
+  readonly operation: 'dispatch'
+  readonly id: ScheduleId
+  /** Latest accepted calendar occurrence as canonical UTC. */
+  readonly occurrenceAt: string
+  /** Shared recurring-batch decision time as canonical UTC. */
+  readonly acceptedAt: string
+  /** First future calendar occurrence, omitted only at four-digit-year exhaustion. */
+  readonly nextScheduledAt?: string
+}
+
 /** Durable dispatch shapes supported by the current rule set. */
-export type ScheduleDispatchChange = OneShotScheduleDispatchChange | EveryScheduleDispatchChange
+export type ScheduleDispatchChange =
+  | OneShotScheduleDispatchChange
+  | EveryScheduleDispatchChange
+  | CronScheduleDispatchChange
 
 /** Strict version-1 durable Schedule mutation union. */
 export type ScheduleChange = ScheduleCreateChange | ScheduleDeleteChange | ScheduleDispatchChange
@@ -175,6 +210,12 @@ export interface FrequencyTooHighError {
   readonly message: string
 }
 
+/** Stable error returned when a recurring rule has no representable future occurrence. */
+export interface NoFutureOccurrenceError {
+  readonly code: 'no_future_occurrence'
+  readonly message: string
+}
+
 /** Stable error returned when the durable Schedule stream is malformed. */
 export interface CorruptScheduleLogError {
   readonly code: 'corrupt_schedule_log'
@@ -204,6 +245,7 @@ export type ScheduleToolError =
   | NotFutureError
   | TimeOutOfRangeError
   | FrequencyTooHighError
+  | NoFutureOccurrenceError
   | CorruptScheduleLogError
   | PersistenceUncertainError
   | InternalScheduleError

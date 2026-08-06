@@ -173,12 +173,22 @@ describe('Schedule tool protocol', () => {
     expect(value(await execute(test, 'schedule_create', { prompt: 'x', after_seconds: 1, at: 'later' })))
       .toEqual({
         code: 'invalid_selector',
-        message: 'schedule_create accepts exactly one of after_seconds, at, or every_seconds.',
+        message: 'schedule_create accepts exactly one of after_seconds, at, every_seconds, or cron with time_zone.',
       })
     expect(value(await execute(test, 'schedule_create', { prompt: 'x', every_seconds: 1.5 })))
       .toEqual({ code: 'invalid_rule', message: 'every_seconds must be a safe integer.' })
     expect(value(await execute(test, 'schedule_create', { prompt: 'x', every_seconds: 299 })))
       .toEqual({ code: 'frequency_too_high', message: 'every_seconds must be at least 300.' })
+    for (const args of [
+      { prompt: 'x', cron: '0 9 * * *' },
+      { prompt: 'x', time_zone: 'UTC' },
+      { prompt: 'x', every_seconds: 300, cron: '0 9 * * *', time_zone: 'UTC' },
+    ]) {
+      expect(value(await execute(test, 'schedule_create', args))).toEqual({
+        code: 'invalid_selector',
+        message: 'schedule_create accepts exactly one of after_seconds, at, every_seconds, or cron with time_zone.',
+      })
+    }
     expect(test.flushes.count).toBe(0)
     expect(test.agent.session.events.filter(event => event.type === 'schedule/change')).toEqual([])
   })
@@ -300,6 +310,62 @@ describe('Schedule tool protocol', () => {
     ])
     const create = test.agent.session.events.find(event => event.type === 'schedule/change')
     expect(create?.data).not.toHaveProperty('anchorAt')
+  })
+
+  it('creates and lists a canonical explicit-zone Cron record', async () => {
+    const test = await harness()
+    expect(value(await execute(test, 'schedule_create', {
+      prompt: '  workday review  ',
+      cron: '00 09 * * 1,2,3,4,5',
+      time_zone: 'US/Eastern',
+    }))).toEqual({
+      id: 'schedule-1',
+      kind: 'cron',
+      prompt: 'workday review',
+      cron: '0 9 * * 1,2,3,4,5',
+      timeZone: 'America/New_York',
+      scheduledAt: '2026-08-05T13:00:00.000Z',
+      state: 'scheduled',
+      deliveryMode: 'session-local',
+    })
+    expect(value(await execute(test, 'schedule_list', {}))).toEqual([
+      expect.objectContaining({
+        id: 'schedule-1',
+        kind: 'cron',
+        cron: '0 9 * * 1,2,3,4,5',
+        timeZone: 'America/New_York',
+      }),
+    ])
+  })
+
+  it('rejects Cron creation after the shared gate exhausts despite a wall-clock rollback', async () => {
+    const test = await harness()
+    test.agent.session.append('schedule/change', {
+      version: 1,
+      operation: 'create',
+      schedule: {
+        id: 'schedule-final',
+        kind: 'every',
+        prompt: 'final batch',
+        everySeconds: 300,
+        scheduledAt: '9999-12-31T23:55:00.000Z',
+      },
+    } as never)
+    test.agent.session.append('schedule/change', {
+      version: 1,
+      operation: 'dispatch',
+      id: 'schedule-final',
+      acceptedAt: '9999-12-31T23:57:30.000Z',
+    } as never)
+    vi.setSystemTime(new Date('9999-12-31T23:50:00.000Z'))
+
+    expect(value(await execute(test, 'schedule_create', {
+      prompt: 'rolled back', cron: '55 23 * * *', time_zone: 'UTC',
+    }))).toEqual({
+      code: 'time_out_of_range',
+      message: 'No compliant recurring delivery time remains representable within the four-digit-year range.',
+    })
+    expect(test.agent.session.events.filter(event => event.type === 'schedule/change')).toHaveLength(2)
   })
 
   it('rejects Every creation after the shared gate exhausts despite a wall-clock rollback', async () => {
@@ -552,6 +618,47 @@ describe('Schedule tool protocol', () => {
     })
     expect(test.flushes.count).toBe(3)
     expect(test.agent.session.events.filter(event => event.type === 'schedule/change')).toEqual([])
+  })
+
+  it('returns stable Cron validation errors after persistence preflight', async () => {
+    const test = await harness()
+    expect(value(await execute(test, 'schedule_create', {
+      prompt: 'too frequent', cron: '*/4 * * * *', time_zone: 'UTC',
+    }))).toEqual({
+      code: 'frequency_too_high',
+      message: 'cron occurrences must be at least five minutes apart.',
+    })
+    expect(value(await execute(test, 'schedule_create', {
+      prompt: 'bad zone', cron: '0 9 * * *', time_zone: 'CST',
+    }))).toEqual({
+      code: 'invalid_time_zone',
+      message: 'time_zone must be UTC or a valid IANA Area/Location name.',
+    })
+    expect(value(await execute(test, 'schedule_create', {
+      prompt: 'bad weekday step', cron: '0 0 * * */8', time_zone: 'UTC',
+    }))).toEqual({
+      code: 'invalid_rule',
+      message: 'cron day-of-week has an unsupported value.',
+    })
+    expect(value(await execute(test, 'schedule_create', {
+      prompt: 'impossible', cron: '* * 31 2 *', time_zone: 'UTC',
+    }))).toEqual({
+      code: 'no_future_occurrence',
+      message: 'The cron rule has no future four-digit-year occurrence.',
+    })
+    expect(test.flushes.count).toBe(4)
+    expect(test.agent.session.events.filter(event => event.type === 'schedule/change')).toEqual([])
+  })
+
+  it('rejects an empty or padded delete id before persistence', async () => {
+    const test = await harness()
+    for (const id of ['', ' schedule-1']) {
+      expect(value(await execute(test, 'schedule_delete', { id }))).toEqual({
+        code: 'invalid_rule',
+        message: 'schedule_delete id must be non-empty without surrounding whitespace.',
+      })
+    }
+    expect(test.flushes.count).toBe(0)
   })
 
   it('returns a range error only after the create preflight', async () => {

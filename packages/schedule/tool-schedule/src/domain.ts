@@ -4,13 +4,16 @@
  */
 
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import { Cron } from 'croner'
 import type {
   AfterScheduleRecord,
   AtInput,
   AtScheduleRecord,
+  CronScheduleRecord,
   EveryScheduleRecord,
   LocalAtInput,
   OneShotScheduleRecord,
+  RecurringScheduleRecord,
   ScheduleChange,
   ScheduleId as ScheduleIdType,
   ScheduleRecord,
@@ -63,7 +66,7 @@ export class ScheduleLogError extends Error {
   }
 }
 
-/** Error from a model-supplied after rule that cannot become a record. */
+/** Error from a model-supplied Schedule rule that cannot become a record. */
 export class ScheduleInputError extends Error {
   /** Stable public Schedule input code. */
   readonly code:
@@ -74,6 +77,7 @@ export class ScheduleInputError extends Error {
     | 'not_future'
     | 'time_out_of_range'
     | 'frequency_too_high'
+    | 'no_future_occurrence'
 
   /**
    * Construct a stable input failure.
@@ -89,7 +93,8 @@ export class ScheduleInputError extends Error {
       | 'timezone_confirmation_required'
       | 'not_future'
       | 'time_out_of_range'
-      | 'frequency_too_high',
+      | 'frequency_too_high'
+      | 'no_future_occurrence',
     message: string,
     options?: ErrorOptions,
   ) {
@@ -114,6 +119,14 @@ export interface EveryOccurrence {
   /** Latest due anchor-aligned occurrence accepted by the batch. */
   readonly occurrenceAt: string
   /** First anchor-aligned target strictly after the batch, or exhaustion. */
+  readonly nextScheduledAt?: string
+}
+
+/** One calendar decision frozen by a durable Cron dispatch. */
+export interface CronOccurrence {
+  /** Latest accepted occurrence, retaining a persisted baseline across tzdata changes. */
+  readonly occurrenceAt: string
+  /** First current-environment target strictly after the batch, or exhaustion. */
   readonly nextScheduledAt?: string
 }
 
@@ -396,6 +409,454 @@ function resolveLocalInstant(parts: CalendarParts, timeZone: string): number {
   return first
 }
 
+interface CronFieldSpec {
+  readonly name: string
+  readonly min: number
+  readonly max: number
+  readonly cardinality?: number
+  readonly sundayAlias?: boolean
+}
+
+interface ParsedCronField {
+  readonly canonical: string
+  readonly values: readonly number[]
+}
+
+interface ParsedCronRule {
+  readonly canonical: string
+  readonly hasMatchingDate: boolean
+  readonly minute: ParsedCronField
+  readonly hour: ParsedCronField
+  readonly dayOfMonth: ParsedCronField
+  readonly month: ParsedCronField
+  readonly dayOfWeek: ParsedCronField
+}
+
+type CronRuleFields = Omit<ParsedCronRule, 'hasMatchingDate'>
+
+const CRON_FIELD_SPECS = [
+  { name: 'minute', min: 0, max: 59 },
+  { name: 'hour', min: 0, max: 23 },
+  { name: 'day-of-month', min: 1, max: 31 },
+  { name: 'month', min: 1, max: 12 },
+  { name: 'day-of-week', min: 0, max: 7, cardinality: 7, sundayAlias: true },
+] as const satisfies readonly CronFieldSpec[]
+
+const CRON_INTEGER = /^\d+$/
+const CRON_LIST = /^\d+(?:,\d+)+$/
+const CRON_RANGE = /^(?<lower>\d+)-(?<upper>\d+)$/
+const CRON_WILDCARD_STEP = /^\*\/(?<step>\d+)$/
+const CRON_RANGE_STEP = /^(?<lower>\d+)-(?<upper>\d+)\/(?<step>\d+)$/
+
+/** Throw the stable public grammar failure for one cron field. */
+function invalidCronField(spec: CronFieldSpec): never {
+  throw new ScheduleInputError('invalid_rule', `cron ${spec.name} has an unsupported value.`)
+}
+
+/** Parse one bounded decimal cron integer and return its canonical spelling. */
+function cronInteger(raw: string, spec: CronFieldSpec): { value: number; canonical: string } {
+  if (!CRON_INTEGER.test(raw)) invalidCronField(spec)
+  const value = Number(raw)
+  if (!Number.isSafeInteger(value) || value < spec.min || value > spec.max) invalidCronField(spec)
+  return { value, canonical: String(value) }
+}
+
+/** Read one named group from a fixed successful cron-field expression. */
+function cronGroup(
+  groups: Record<string, string | undefined>,
+  name: string,
+  spec: CronFieldSpec,
+): string {
+  const value = groups[name]
+  /* v8 ignore next -- each caller requests a mandatory group from its matched expression. */
+  if (value === undefined) invalidCronField(spec)
+  return value
+}
+
+/** Expand one inclusive integer sequence. */
+function cronRange(lower: number, upper: number, step = 1): number[] {
+  const values: number[] = []
+  for (let value = lower; value <= upper; value += step) values.push(value)
+  return values
+}
+
+/** Apply Sunday aliasing and reject duplicate semantics outside a wildcard. */
+function cronValues(values: readonly number[], spec: CronFieldSpec, wildcard: boolean): readonly number[] {
+  const semantic = values.map(value => spec.sundayAlias === true && value === 7 ? 0 : value)
+  const unique = new Set<number>()
+  for (const value of semantic) {
+    if (!wildcard && unique.has(value)) invalidCronField(spec)
+    unique.add(value)
+  }
+  return Object.freeze([...unique].sort((left, right) => left - right))
+}
+
+/** Parse and canonicalize one complete cron field. */
+function parseCronField(raw: string, spec: CronFieldSpec): ParsedCronField {
+  if (raw === '*') {
+    return Object.freeze({
+      canonical: '*',
+      values: cronValues(cronRange(spec.min, spec.max), spec, true),
+    })
+  }
+
+  const wildcardStep = CRON_WILDCARD_STEP.exec(raw)?.groups
+  if (wildcardStep !== undefined) {
+    const step = cronInteger(cronGroup(wildcardStep, 'step', spec), {
+      ...spec,
+      min: 1,
+      max: spec.cardinality ?? spec.max - spec.min + 1,
+    })
+    const canonical = step.value === 1 ? '*' : `*/${step.canonical}`
+    return Object.freeze({
+      canonical,
+      values: cronValues(cronRange(spec.min, spec.max, step.value), spec, canonical === '*'),
+    })
+  }
+
+  const rangeStep = CRON_RANGE_STEP.exec(raw)?.groups
+  if (rangeStep !== undefined) {
+    const lower = cronInteger(cronGroup(rangeStep, 'lower', spec), spec)
+    const upper = cronInteger(cronGroup(rangeStep, 'upper', spec), spec)
+    const step = cronInteger(cronGroup(rangeStep, 'step', spec), {
+      ...spec,
+      min: 1,
+      max: spec.cardinality ?? spec.max - spec.min + 1,
+    })
+    if (lower.value >= upper.value) invalidCronField(spec)
+    return Object.freeze({
+      canonical: `${lower.canonical}-${upper.canonical}/${step.canonical}`,
+      values: cronValues(cronRange(lower.value, upper.value, step.value), spec, false),
+    })
+  }
+
+  const range = CRON_RANGE.exec(raw)?.groups
+  if (range !== undefined) {
+    const lower = cronInteger(cronGroup(range, 'lower', spec), spec)
+    const upper = cronInteger(cronGroup(range, 'upper', spec), spec)
+    if (lower.value >= upper.value) invalidCronField(spec)
+    return Object.freeze({
+      canonical: `${lower.canonical}-${upper.canonical}`,
+      values: cronValues(cronRange(lower.value, upper.value), spec, false),
+    })
+  }
+
+  if (CRON_LIST.test(raw)) {
+    const entries = raw.split(',').map(entry => cronInteger(entry, spec))
+    let previous = Number.NEGATIVE_INFINITY
+    for (const entry of entries) {
+      if (previous >= entry.value) invalidCronField(spec)
+      previous = entry.value
+    }
+    return Object.freeze({
+      canonical: entries.map(entry => entry.canonical).join(','),
+      values: cronValues(entries.map(entry => entry.value), spec, false),
+    })
+  }
+
+  const entry = cronInteger(raw, spec)
+  return Object.freeze({ canonical: entry.canonical, values: cronValues([entry.value], spec, false) })
+}
+
+/** Whether one year follows Gregorian leap-year rules. */
+function isGregorianLeapYear(year: number): boolean {
+  return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0)
+}
+
+/** Whether a parsed rule matches one local calendar date. */
+function cronMatchesDate(rule: CronRuleFields, month: number, day: number, dayOfWeek: number): boolean {
+  if (!rule.month.values.includes(month)) return false
+  return rule.dayOfMonth.canonical === '*'
+    ? rule.dayOfWeek.values.includes(dayOfWeek)
+    : rule.dayOfMonth.values.includes(day)
+}
+
+/** Prove whether the 400-year Gregorian cycle has any or adjacent matching dates. */
+function cronDatePattern(rule: CronRuleFields): { readonly any: boolean; readonly adjacent: boolean } {
+  let dayOfWeek = 6 // 2000-01-01 was Saturday; the Gregorian cycle repeats every 400 years.
+  let previous = false
+  let first = false
+  let last = false
+  let any = false
+  let adjacent = false
+  for (let year = 2000; year < 2400; year += 1) {
+    const monthLengths = [31, isGregorianLeapYear(year) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    for (const [monthIndex, days] of monthLengths.entries()) {
+      const month = monthIndex + 1
+      for (let day = 1; day <= days; day += 1) {
+        const matches = cronMatchesDate(rule, month, day, dayOfWeek)
+        if (year === 2000 && month === 1 && day === 1) first = matches
+        adjacent ||= previous && matches
+        any ||= matches
+        previous = matches
+        last = matches
+        dayOfWeek = (dayOfWeek + 1) % 7
+      }
+    }
+  }
+  return { any, adjacent: (last && first) || adjacent }
+}
+
+/** Enforce the fixed five-minute nominal local-occurrence interval. */
+function validateCronFrequency(
+  rule: CronRuleFields,
+  dates: { readonly any: boolean; readonly adjacent: boolean },
+): void {
+  if (!dates.any) return
+  const times = rule.hour.values.flatMap(hour => rule.minute.values.map(minute => hour * 60 + minute))
+    .sort((left, right) => left - right)
+  let previous: number | undefined
+  for (const time of times) {
+    if (previous !== undefined && time - previous < 5) {
+      throw new ScheduleInputError('frequency_too_high', 'cron occurrences must be at least five minutes apart.')
+    }
+    previous = time
+  }
+  const first = Math.min(...times)
+  const last = Math.max(...times)
+  if (1_440 - last + first < 5 && dates.adjacent) {
+    throw new ScheduleInputError('frequency_too_high', 'cron occurrences must be at least five minutes apart.')
+  }
+}
+
+/** Parse the restricted five-field language and prove its nominal frequency. */
+function parseCronRule(value: string, proveFrequency = true): ParsedCronRule {
+  if (value.length === 0 || value.trim() !== value) {
+    throw new ScheduleInputError('invalid_rule', 'cron must be a non-empty five-field expression without surrounding whitespace.')
+  }
+  const parts = value.split(/[\t\n\v\f\r ]+/u)
+  if (parts.length !== CRON_FIELD_SPECS.length) {
+    throw new ScheduleInputError('invalid_rule', 'cron must contain exactly five fields.')
+  }
+  const [minuteRaw, hourRaw, dayOfMonthRaw, monthRaw, dayOfWeekRaw] = parts as [
+    string, string, string, string, string,
+  ]
+  const minute = parseCronField(minuteRaw, CRON_FIELD_SPECS[0])
+  const hour = parseCronField(hourRaw, CRON_FIELD_SPECS[1])
+  const dayOfMonth = parseCronField(dayOfMonthRaw, CRON_FIELD_SPECS[2])
+  const month = parseCronField(monthRaw, CRON_FIELD_SPECS[3])
+  const dayOfWeek = parseCronField(dayOfWeekRaw, CRON_FIELD_SPECS[4])
+  if (dayOfMonth.canonical !== '*' && dayOfWeek.canonical !== '*') {
+    throw new ScheduleInputError('invalid_rule', 'cron requires day-of-month or day-of-week to be *.')
+  }
+  const partial = Object.freeze({
+    canonical: [minute, hour, dayOfMonth, month, dayOfWeek].map(field => field.canonical).join(' '),
+    minute,
+    hour,
+    dayOfMonth,
+    month,
+    dayOfWeek,
+  })
+  if (!proveFrequency) return Object.freeze({ ...partial, hasMatchingDate: true })
+  const dates = cronDatePattern(partial)
+  validateCronFrequency(partial, dates)
+  return Object.freeze({ ...partial, hasMatchingDate: dates.any })
+}
+
+/**
+ * Validate and canonicalize the public five-field cron language.
+ * @param value - Raw model-supplied cron expression.
+ * @returns Canonical five-field text after the complete frequency proof.
+ */
+export function canonicalizeCronExpression(value: string): string {
+  return parseCronRule(value).canonical
+}
+
+/** Construct one paused Croner evaluator with the private seconds/year fields. */
+function cronEvaluator(rule: ParsedCronRule, timeZone: string): Cron {
+  return new Cron(`0 ${rule.canonical} 1-9999`, {
+    paused: true,
+    timezone: timeZone,
+    mode: '7-part',
+    domAndDow: true,
+    legacyMode: false,
+  })
+}
+
+/** Formatter used to distinguish gaps and the first instant in an overlap. */
+function cronLocalFormatter(timeZone: string): Intl.DateTimeFormat {
+  return new Intl.DateTimeFormat('en-US-u-ca-iso8601-nu-latn', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    fractionalSecondDigits: 3,
+    hourCycle: 'h23',
+    timeZoneName: 'longOffset',
+  })
+}
+
+/** Whether a Croner candidate is a real whole-minute match and the first overlap instant. */
+function isCanonicalCronCandidate(
+  evaluator: Cron,
+  formatter: Intl.DateTimeFormat,
+  timeZone: string,
+  epoch: number,
+): boolean {
+  if (!Number.isSafeInteger(epoch)
+    || epoch < MIN_FOUR_DIGIT_YEAR_MS
+    || epoch > MAX_FOUR_DIGIT_YEAR_MS
+    || epoch % 60_000 !== 0
+    || !evaluator.match(new Date(epoch))) return false
+  return resolveLocalInstant(localProjection(formatter, epoch), timeZone) === epoch
+}
+
+const CRONER_LOW_YEAR_CUTOFF = 108
+const CRONER_LOW_YEAR_SEARCH_END = 109
+const MAX_CRON_CURSOR_CORRECTIONS = 1_440
+
+/** Search owned local-calendar candidates without JavaScript's legacy 0..99 year remapping. */
+function ownedCronInstant(
+  rule: ParsedCronRule,
+  timeZone: string,
+  boundary: number,
+  direction: 1 | -1,
+  minYear: number,
+  maxYear: number,
+  lowerExclusive = MIN_FOUR_DIGIT_YEAR_MS - 1,
+): number | undefined {
+  const utcYear = new Date(boundary).getUTCFullYear()
+  const startYear = direction === 1
+    ? Math.max(minYear, utcYear - 1)
+    : Math.min(maxYear, utcYear + 1)
+  const months = direction === 1 ? rule.month.values : [...rule.month.values].reverse()
+  const times = rule.hour.values.flatMap(hour => rule.minute.values.map(minute => ({ hour, minute })))
+  if (direction === -1) times.reverse()
+  for (
+    let year = startYear;
+    direction === 1 ? year <= maxYear : year >= minYear;
+    year += direction
+  ) {
+    const monthLengths = [31, isGregorianLeapYear(year) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    for (const month of months) {
+      const daysInMonth = monthLengths[month - 1]
+      /* v8 ignore next -- parsed month values are restricted to 1..12. */
+      if (daysInMonth === undefined) continue
+      for (
+        let day = direction === 1 ? 1 : daysInMonth;
+        direction === 1 ? day <= daysInMonth : day >= 1;
+        day += direction
+      ) {
+        const midnight = calendarEpoch({ year, month, day, hour: 0, minute: 0, second: 0, millisecond: 0 })
+        if (!cronMatchesDate(rule, month, day, new Date(midnight).getUTCDay())) continue
+        for (const time of times) {
+          let candidate: number
+          try {
+            candidate = resolveLocalInstant({
+              year,
+              month,
+              day,
+              hour: time.hour,
+              minute: time.minute,
+              second: 0,
+              millisecond: 0,
+            }, timeZone)
+          } catch (error: unknown) {
+            /* v8 ignore next -- canonical zones make non-Schedule failures unreachable here. */
+            if (!(error instanceof ScheduleInputError)) throw error
+            continue
+          }
+          if (candidate % 60_000 !== 0) continue
+          if (direction === 1) {
+            if (candidate > boundary) return candidate
+          } else {
+            if (candidate <= lowerExclusive) return undefined
+            if (candidate <= boundary) return candidate
+          }
+        }
+      }
+    }
+  }
+  return undefined
+}
+
+/** Find the first valid calendar occurrence strictly after one instant. */
+function nextCronInstant(rule: ParsedCronRule, timeZone: string, after: number): number | undefined {
+  if (!rule.hasMatchingDate) return undefined
+  let cursor = after
+  if (new Date(after).getUTCFullYear() <= CRONER_LOW_YEAR_CUTOFF) {
+    const lower = ownedCronInstant(rule, timeZone, after, 1, 1, CRONER_LOW_YEAR_SEARCH_END)
+    if (lower !== undefined) return lower
+    cursor = Math.max(cursor, Date.parse('0109-12-31T23:59:59.999Z'))
+  }
+  const evaluator = cronEvaluator(rule, timeZone)
+  const formatter = cronLocalFormatter(timeZone)
+  let corrections = 0
+  while (cursor < MAX_FOUR_DIGIT_YEAR_MS) {
+    const candidate = evaluator.nextRun(new Date(cursor))
+    if (candidate === null) return undefined
+    const epoch = candidate.getTime()
+    if (!Number.isSafeInteger(epoch)) {
+      throw new ScheduleInputError('invalid_rule', 'The cron evaluator did not advance its cursor.')
+    }
+    if (epoch <= cursor) {
+      corrections += 1
+      if (corrections > MAX_CRON_CURSOR_CORRECTIONS) {
+        return ownedCronInstant(rule, timeZone, after, 1, 1, 9_999)
+      }
+      cursor += 60_000
+      continue
+    }
+    if (epoch > MAX_FOUR_DIGIT_YEAR_MS) return undefined
+    if (isCanonicalCronCandidate(evaluator, formatter, timeZone, epoch)) return epoch
+    return ownedCronInstant(rule, timeZone, after, 1, 1, 9_999)
+  }
+  /* v8 ignore next -- only repeated stale dependency candidates can exhaust the bounded cursor. */
+  return undefined
+}
+
+/** Find the latest valid calendar occurrence at or before one instant. */
+function previousCronInstant(
+  rule: ParsedCronRule,
+  timeZone: string,
+  acceptedAt: number,
+  baseline: number,
+): number | undefined {
+  if (new Date(acceptedAt).getUTCFullYear() <= CRONER_LOW_YEAR_CUTOFF) {
+    return ownedCronInstant(
+      rule, timeZone, acceptedAt, -1, 1, CRONER_LOW_YEAR_SEARCH_END, baseline,
+    )
+  }
+  const evaluator = cronEvaluator(rule, timeZone)
+  const formatter = cronLocalFormatter(timeZone)
+  const nextMinute = Math.floor(acceptedAt / 60_000) * 60_000 + 60_000
+  let reference = Math.min(MAX_FOUR_DIGIT_YEAR_MS, nextMinute)
+  let corrections = 0
+  while (reference > baseline) {
+    const candidate = evaluator.previousRuns(1, new Date(reference))[0]
+    if (candidate === undefined) {
+      return ownedCronInstant(rule, timeZone, acceptedAt, -1, 1, 9_999, baseline)
+    }
+    const epoch = candidate.getTime()
+    if (!Number.isSafeInteger(epoch)) {
+      throw new ScheduleInputError('invalid_rule', 'The cron evaluator did not retreat its cursor.')
+    }
+    if (epoch >= reference) {
+      corrections += 1
+      if (corrections > MAX_CRON_CURSOR_CORRECTIONS) {
+        return ownedCronInstant(rule, timeZone, acceptedAt, -1, 1, 9_999, baseline)
+      }
+      reference -= 60_000
+      continue
+    }
+    if (epoch <= baseline) {
+      return ownedCronInstant(rule, timeZone, acceptedAt, -1, 1, 9_999, baseline)
+    }
+    if (isCanonicalCronCandidate(evaluator, formatter, timeZone, epoch)) return epoch
+    if (epoch >= MIN_FOUR_DIGIT_YEAR_MS && epoch <= MAX_FOUR_DIGIT_YEAR_MS
+      && epoch % 60_000 === 0 && evaluator.match(candidate)) {
+      return resolveLocalInstant(localProjection(formatter, epoch), timeZone)
+    }
+    const owned = ownedCronInstant(rule, timeZone, acceptedAt, -1, 1, 9_999, baseline)
+    if (owned !== undefined) return owned
+    reference = Math.min(reference - 60_000, epoch - 1)
+  }
+  return undefined
+}
+
 /** Decode the exact v1 after record shape. */
 function decodeAfterRecord(value: unknown): AfterScheduleRecord {
   if (!isRecord(value) || !hasExactKeys(value, ['id', 'kind', 'prompt', 'afterSeconds', 'scheduledAt'])) {
@@ -461,6 +922,49 @@ function decodeEveryRecord(value: unknown): EveryScheduleRecord {
   })
 }
 
+/** Decode the exact v1 calendar-recurring record shape without reevaluating occurrence membership. */
+function decodeCronRecord(value: unknown): CronScheduleRecord {
+  if (!isRecord(value)
+    || !hasExactKeys(value, ['id', 'kind', 'prompt', 'cron', 'timeZone', 'scheduledAt'])) {
+    throw new ScheduleLogError('cron schedule must contain exactly id, kind, prompt, cron, timeZone, and scheduledAt')
+  }
+  const prompt = value['prompt']
+  const cron = value['cron']
+  const timeZone = value['timeZone']
+  if (typeof prompt !== 'string' || prompt.length === 0 || prompt.trim() !== prompt) {
+    throw new ScheduleLogError('cron prompt must be non-empty and already trimmed')
+  }
+  if (typeof cron !== 'string' || typeof timeZone !== 'string') {
+    throw new ScheduleLogError('cron rule and timeZone must be strings')
+  }
+  try {
+    const rule = parseCronRule(cron, false)
+    if (rule.canonical !== cron) {
+      throw new ScheduleLogError('cron rule must use its canonical five-field representation')
+    }
+    if (timeZone !== 'UTC' && !IANA_ZONE.test(timeZone)) {
+      throw new ScheduleLogError('cron timeZone must use the persisted IANA Area/Location shape')
+    }
+  } catch (error: unknown) {
+    if (error instanceof ScheduleLogError) throw error
+    /* v8 ignore next -- owned cron validators throw Error subclasses. */
+    const detail = error instanceof Error ? error.message : String(error)
+    throw new ScheduleLogError(`cron record is invalid: ${detail}`)
+  }
+  const scheduledAt = decodeInstant(value['scheduledAt'])
+  if (Date.parse(scheduledAt) % 60_000 !== 0) {
+    throw new ScheduleLogError('cron scheduledAt must be a whole-minute UTC instant')
+  }
+  return Object.freeze({
+    id: decodeId(value['id']),
+    kind: 'cron',
+    prompt,
+    cron,
+    timeZone,
+    scheduledAt,
+  })
+}
+
 /** Decode one current durable record variant by its exact discriminator. */
 function decodeScheduleRecord(value: unknown): ScheduleRecord {
   if (!isRecord(value)) throw new ScheduleLogError('schedule record must be an object')
@@ -468,7 +972,8 @@ function decodeScheduleRecord(value: unknown): ScheduleRecord {
     case 'after': return decodeAfterRecord(value)
     case 'at': return decodeAtRecord(value)
     case 'every': return decodeEveryRecord(value)
-    default: throw new ScheduleLogError('v1 schedule kind must be "after", "at", or "every"')
+    case 'cron': return decodeCronRecord(value)
+    default: throw new ScheduleLogError('v1 schedule kind must be "after", "at", "every", or "cron"')
   }
 }
 
@@ -518,7 +1023,28 @@ export function decodeScheduleChange(value: unknown): ScheduleChange {
           acceptedAt: decodeInstant(value['acceptedAt']),
         })
       }
-      throw new ScheduleLogError('schedule dispatch must contain id and optional acceptedAt only')
+      if (hasExactKeys(value, ['version', 'operation', 'id', 'occurrenceAt', 'acceptedAt'])) {
+        return Object.freeze({
+          version: SCHEDULE_CHANGE_VERSION,
+          operation: 'dispatch',
+          id: decodeId(value['id']),
+          occurrenceAt: decodeInstant(value['occurrenceAt']),
+          acceptedAt: decodeInstant(value['acceptedAt']),
+        })
+      }
+      if (hasExactKeys(value, [
+        'version', 'operation', 'id', 'occurrenceAt', 'acceptedAt', 'nextScheduledAt',
+      ])) {
+        return Object.freeze({
+          version: SCHEDULE_CHANGE_VERSION,
+          operation: 'dispatch',
+          id: decodeId(value['id']),
+          occurrenceAt: decodeInstant(value['occurrenceAt']),
+          acceptedAt: decodeInstant(value['acceptedAt']),
+          nextScheduledAt: decodeInstant(value['nextScheduledAt']),
+        })
+      }
+      throw new ScheduleLogError('schedule dispatch has an unsupported field combination')
     }
     default:
       throw new ScheduleLogError('schedule/change operation must be create, delete, or dispatch')
@@ -562,6 +1088,41 @@ export function resolveEveryOccurrence(
   })
 }
 
+/**
+ * Resolve one live calendar decision while retaining the persisted baseline across tzdata changes.
+ * @param record - Active canonical Cron record whose target is the prior environment's promise.
+ * @param acceptedAt - Shared recurring-batch wall-clock sample.
+ * @returns Latest current match after the baseline and first future match, if representable.
+ */
+export function resolveCronOccurrence(
+  record: CronScheduleRecord,
+  acceptedAt: number,
+): CronOccurrence {
+  const target = Date.parse(record.scheduledAt)
+  if (!Number.isSafeInteger(acceptedAt)
+    || acceptedAt < MIN_FOUR_DIGIT_YEAR_MS
+    || acceptedAt > MAX_FOUR_DIGIT_YEAR_MS) {
+    throw new ScheduleLogError('cron acceptedAt must be a representable four-digit-year instant')
+  }
+  if (acceptedAt < target) {
+    throw new ScheduleLogError('cron dispatch cannot precede the active scheduledAt')
+  }
+  try {
+    const rule = parseCronRule(record.cron, false)
+    const latest = previousCronInstant(rule, record.timeZone, acceptedAt, target)
+    const occurrence = latest !== undefined && latest > target ? latest : target
+    const next = nextCronInstant(rule, record.timeZone, acceptedAt)
+    return Object.freeze({
+      occurrenceAt: new Date(occurrence).toISOString(),
+      ...(next === undefined ? {} : { nextScheduledAt: new Date(next).toISOString() }),
+    })
+  } catch (error: unknown) {
+    /* v8 ignore next -- the exact adapter and owned validators throw Errors. */
+    const detail = error instanceof Error ? error.message : String(error)
+    throw new ScheduleLogError(`cron evaluation failed: ${detail}`)
+  }
+}
+
 type DecodedDispatch = Extract<ScheduleChange, { operation: 'dispatch' }>
 
 interface AppliedDispatch {
@@ -573,21 +1134,51 @@ interface AppliedDispatch {
 /** Apply one decoded dispatch to its exact active record. */
 function applyDispatch(record: ScheduleRecord, change: DecodedDispatch): AppliedDispatch {
   const hasAcceptedAt = 'acceptedAt' in change
-  if (record.kind !== 'every') {
+  const hasOccurrenceAt = 'occurrenceAt' in change
+  if (record.kind !== 'every' && record.kind !== 'cron') {
     if (hasAcceptedAt) throw new ScheduleLogError('one-shot dispatch must not contain acceptedAt')
     return Object.freeze({ occurrenceAt: record.scheduledAt })
   }
-  if (!hasAcceptedAt) throw new ScheduleLogError('every dispatch must contain acceptedAt')
-  const occurrence = resolveEveryOccurrence(record, Date.parse(change.acceptedAt))
+  if (record.kind === 'every') {
+    if (!hasAcceptedAt || hasOccurrenceAt) {
+      throw new ScheduleLogError('every dispatch must contain acceptedAt without calendar fields')
+    }
+    const occurrence = resolveEveryOccurrence(record, Date.parse(change.acceptedAt))
+    return Object.freeze({
+      occurrenceAt: occurrence.occurrenceAt,
+      acceptedAt: change.acceptedAt,
+      ...(occurrence.nextScheduledAt === undefined
+        ? {}
+        : {
+          nextRecord: Object.freeze({
+            ...record,
+            scheduledAt: occurrence.nextScheduledAt,
+          }),
+        }),
+    })
+  }
+  if (!hasAcceptedAt || !hasOccurrenceAt) {
+    throw new ScheduleLogError('cron dispatch must contain occurrenceAt and acceptedAt')
+  }
+  const target = Date.parse(record.scheduledAt)
+  const occurrence = Date.parse(change.occurrenceAt)
+  const accepted = Date.parse(change.acceptedAt)
+  const nextScheduledAt = 'nextScheduledAt' in change ? change.nextScheduledAt : undefined
+  const next = nextScheduledAt === undefined ? undefined : Date.parse(nextScheduledAt)
+  if (target % 60_000 !== 0 || occurrence % 60_000 !== 0
+    || occurrence < target || occurrence > accepted
+    || (next !== undefined && (next % 60_000 !== 0 || next <= accepted))) {
+    throw new ScheduleLogError('cron dispatch times must preserve whole-minute monotonic progression')
+  }
   return Object.freeze({
-    occurrenceAt: occurrence.occurrenceAt,
+    occurrenceAt: change.occurrenceAt,
     acceptedAt: change.acceptedAt,
-    ...(occurrence.nextScheduledAt === undefined
+    ...(nextScheduledAt === undefined
       ? {}
       : {
         nextRecord: Object.freeze({
           ...record,
-          scheduledAt: occurrence.nextScheduledAt,
+          scheduledAt: nextScheduledAt,
         }),
       }),
   })
@@ -651,10 +1242,10 @@ export function foldScheduleEvents(
       }
     }
   }
-  // A gate beyond the supported time profile can never admit another Every batch.
+  // A gate beyond the supported time profile can never admit another recurring batch.
   if (isRecurringGateExhausted(lastRecurringAcceptedAt)) {
     for (const [id, record] of active) {
-      if (record.kind === 'every') active.delete(id)
+      if (record.kind === 'every' || record.kind === 'cron') active.delete(id)
     }
   }
   return Object.freeze({
@@ -834,6 +1425,48 @@ export function createEveryScheduleRecord(
 }
 
 /**
+ * Validate one restricted calendar rule and compute its first current-environment target.
+ * @param id - Already allocated session-local id.
+ * @param prompt - User-authored reminder content.
+ * @param cron - Restricted five-field calendar expression.
+ * @param timeZone - Explicit `UTC` or IANA Area/Location selector.
+ * @param now - Single creation-time wall-clock sample in epoch milliseconds.
+ * @returns Frozen durable calendar record.
+ */
+export function createCronScheduleRecord(
+  id: ScheduleIdType,
+  prompt: string,
+  cron: string,
+  timeZone: string,
+  now: number,
+): CronScheduleRecord {
+  const normalizedPrompt = prompt.trim()
+  if (normalizedPrompt.length === 0) {
+    throw new ScheduleInputError('invalid_prompt', 'prompt must be non-empty after trimming.')
+  }
+  if (!Number.isSafeInteger(now) || now < MIN_FOUR_DIGIT_YEAR_MS || now > MAX_FOUR_DIGIT_YEAR_MS) {
+    throw new ScheduleInputError(
+      'time_out_of_range',
+      'The scheduled time must be representable as a four-digit-year RFC 3339 UTC instant.',
+    )
+  }
+  const rule = parseCronRule(cron)
+  const canonicalTimeZone = canonicalizeTimeZone(timeZone)
+  const target = nextCronInstant(rule, canonicalTimeZone, now)
+  if (target === undefined) {
+    throw new ScheduleInputError('no_future_occurrence', 'The cron rule has no future four-digit-year occurrence.')
+  }
+  return Object.freeze({
+    id,
+    kind: 'cron',
+    prompt: normalizedPrompt,
+    cron: rule.canonical,
+    timeZone: canonicalTimeZone,
+    scheduledAt: new Date(target).toISOString(),
+  })
+}
+
+/**
  * Derive one execution-local management view.
  * @param record - Active durable record.
  * @param now - Wall-clock sample used for its timing state.
@@ -847,7 +1480,8 @@ export function scheduleView(
 ): ScheduleView {
   const target = Date.parse(record.scheduledAt)
   let deliveryNotBefore: string | undefined
-  if (record.kind === 'every' && now >= target && lastRecurringAcceptedAt !== undefined) {
+  if ((record.kind === 'every' || record.kind === 'cron')
+    && now >= target && lastRecurringAcceptedAt !== undefined) {
     const notBefore = Date.parse(lastRecurringAcceptedAt) + MIN_RECURRING_INTERVAL_SECONDS * 1_000
     if (now < notBefore && notBefore <= MAX_FOUR_DIGIT_YEAR_MS) {
       deliveryNotBefore = new Date(notBefore).toISOString()
@@ -974,7 +1608,7 @@ export function renderReminderFraming(record: OneShotScheduleRecord): string {
  * @returns Stable model-visible text whose dynamic payload is canonical JSON.
  */
 export function renderReminderBatchFraming(
-  reminders: readonly { readonly record: EveryScheduleRecord; readonly occurrenceAt: string }[],
+  reminders: readonly { readonly record: RecurringScheduleRecord; readonly occurrenceAt: string }[],
 ): string {
   const payload = reminders.map(({ record, occurrenceAt }) => ({
     schedule_id: record.id,
