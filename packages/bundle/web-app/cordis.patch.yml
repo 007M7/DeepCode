@@ -209,8 +209,11 @@
 # absent from a surface overlay would silently reappear the day someone reorders
 # the composition.
 
-- id: bash-env
-  disabled: true
+# `bash-env` STAYS in the host plane: `apps/cli/src/web.ts` injects it to
+# publish `DSH_WEB_URL`/`DSH_WEB_MODE`, and a host row that injects a service is
+# the criterion for host-plane ownership — injection resolves before any session
+# exists, so there is no agent to key by. Behind a preset realm those variables
+# would never reach the model's shell at all.
 
 - id: tool-bash
   disabled: true
@@ -266,14 +269,12 @@
 - id: tool-result-prune
   disabled: true
 
-- id: subagent
-  disabled: true
-
-- id: subagent-spawn
-  disabled: true
-
-- id: subagent-fork
-  disabled: true
+# The subagent registry and its backends STAY in the host plane. `subagents` is
+# a process singleton with a cross-session query surface (`listChildren`,
+# `followup`) that the host api-proxy serves to the browser, and a provider
+# registers under a globally unique name, so a per-session copy would both
+# starve that host row and collide on the second session. What a preset
+# chooses is which delegation TOOLS its agent sees, below.
 
 - id: tool-subagent-control
   disabled: true
@@ -287,8 +288,11 @@
 - id: tool-subagent-fork
   disabled: true
 
-- id: tool-subagent-report
-  disabled: true
+# `tool-subagent-report` is host-plane for the same reason as the registry, not
+# because a preset may not want it: it registers a CONTINUABLE SETUP on that
+# singleton rather than a tool this agent calls, and the setup list is not
+# scope-aware — one copy per mounted preset means every child gets `report`
+# registered once per live session, which throws on the second.
 
 - id: workflow-workerthread
   disabled: true
