@@ -50,33 +50,33 @@ Source: [`packages/core/agent-loop/src/index.ts:277`](../../packages/core/agent-
 
 Registry over the deployment's agent presets.
 
-Discovery is unmemoized: `list()` and `resolve()` re-read the roots on every call so a profile authored while the process runs is visible immediately, and a profile deleted underneath a picker disappears from the next read.
+Discovery is unmemoized: `list()` and `resolve()` re-read the roots on every call so a preset authored while the process runs is visible immediately, and a preset deleted underneath a picker disappears from the next read.
 
 ```ts cordis-catalog
 /**
- * Every profile the configured roots currently supply.
- * @returns the profiles, first-root-wins per id.
+ * Every preset the configured roots currently supply.
+ * @returns the presets, first-root-wins per id.
  */
 async list(): Promise<AgentPreset[]>
 
 /**
- * Resolve one profile by id.
- * @param id - the profile id, or `undefined` for {@link defaultId}.
- * @returns the resolved profile.
+ * Resolve one preset by id.
+ * @param id - the preset id, or `undefined` for {@link defaultId}.
+ * @returns the resolved preset.
  * @throws when no configured root supplies that id.
  */
 async resolve(id?: string): Promise<AgentPreset>
 
 /**
- * Compose one agent from a profile, installing it under that agent alone.
+ * Compose one agent from a preset, installing it under that agent alone.
  *
  * Call from the agent factory's `setup(agentCtx)`; a rejection there rolls
- * the agent creation back, so a broken profile never yields a half-composed
+ * the agent creation back, so a broken preset never yields a half-composed
  * session.
  * @param agentCtx - the agent's scope context.
- * @param id - the profile id, or `undefined` for {@link defaultId}.
- * @returns the profile that was mounted, for the caller to record.
- * @throws when the profile is unknown or its composition is unusable.
+ * @param id - the preset id, or `undefined` for {@link defaultId}.
+ * @returns the preset that was mounted, for the caller to record.
+ * @throws when the preset is unknown or its composition is unusable.
  */
 async mount(agentCtx: Context, id?: string): Promise<AgentPreset>
 ```

@@ -115,25 +115,25 @@ Source: [`packages/core/agent-loop/src/index.ts:236`](../packages/core/agent-loo
 Requires: `loader`
 
 ```ts config-catalog
-/** Plugin config: which profile is the default, and where profiles live. */
+/** Plugin config: which preset is the default, and where presets live. */
 export interface Config {
-  /** Profile id mounted when a caller names none. Missing at mount time fails loud. */
+  /** Preset id mounted when a caller names none. Missing at mount time fails loud. */
   default: string
   /** Scanned roots in precedence order; an earlier root wins a duplicate id. */
   roots: PresetRoot[]
 }
 
-/** One directory scanned for profile subdirectories. */
+/** One directory scanned for preset subdirectories. */
 export interface PresetRoot {
-  /** Directory holding one subdirectory per profile; a leading `~` expands. */
+  /** Directory holding one subdirectory per preset; a leading `~` expands. */
   path: string
-  /** Trust recorded on every profile discovered under this root. */
+  /** Trust recorded on every preset discovered under this root. */
   trust: PresetTrust
 }
 
 /**
- * Where a profile's composition came from. A `system` profile ships with the
- * deployment; a `user` profile was authored locally, by a person or by an
+ * Where a preset's composition came from. A `system` preset ships with the
+ * deployment; a `user` preset was authored locally, by a person or by an
  * agent, and therefore carries the same trust as shell access.
  */
 export type PresetTrust = 'system' | 'user'

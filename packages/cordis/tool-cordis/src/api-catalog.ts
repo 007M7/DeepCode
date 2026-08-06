@@ -86,15 +86,15 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       {
         signature: 'async list(): Promise<AgentPreset[]>',
-        jsDoc: '/**\n * Every profile the configured roots currently supply.\n * @returns the profiles, first-root-wins per id.\n */',
+        jsDoc: '/**\n * Every preset the configured roots currently supply.\n * @returns the presets, first-root-wins per id.\n */',
       },
       {
         signature: 'async resolve(id?: string): Promise<AgentPreset>',
-        jsDoc: '/**\n * Resolve one profile by id.\n * @param id - the profile id, or `undefined` for {@link defaultId}.\n * @returns the resolved profile.\n * @throws when no configured root supplies that id.\n */',
+        jsDoc: '/**\n * Resolve one preset by id.\n * @param id - the preset id, or `undefined` for {@link defaultId}.\n * @returns the resolved preset.\n * @throws when no configured root supplies that id.\n */',
       },
       {
         signature: 'async mount(agentCtx: Context, id?: string): Promise<AgentPreset>',
-        jsDoc: '/**\n * Compose one agent from a profile, installing it under that agent alone.\n *\n * Call from the agent factory\'s `setup(agentCtx)`; a rejection there rolls\n * the agent creation back, so a broken profile never yields a half-composed\n * session.\n * @param agentCtx - the agent\'s scope context.\n * @param id - the profile id, or `undefined` for {@link defaultId}.\n * @returns the profile that was mounted, for the caller to record.\n * @throws when the profile is unknown or its composition is unusable.\n */',
+        jsDoc: '/**\n * Compose one agent from a preset, installing it under that agent alone.\n *\n * Call from the agent factory\'s `setup(agentCtx)`; a rejection there rolls\n * the agent creation back, so a broken preset never yields a half-composed\n * session.\n * @param agentCtx - the agent\'s scope context.\n * @param id - the preset id, or `undefined` for {@link defaultId}.\n * @returns the preset that was mounted, for the caller to record.\n * @throws when the preset is unknown or its composition is unusable.\n */',
       },
     ],
   },

@@ -60,16 +60,34 @@ export interface PresetMount {
 const mounts = new Set<PresetMount>()
 
 /**
- * Every preset composition still installed, pruning fibers disposed since the
- * last read. Records are dropped lazily rather than through a disposal hook
+ * Drop every record whose subtree is gone.
+ *
+ * Records are pruned by observation rather than through a disposal hook
  * because a subtree can be torn down by its owning agent, by a failed mount, or
  * by the whole tree unloading, and a cleared `uid` is what all three share.
- * @returns the live mounts.
+ *
+ * Pruning therefore has to happen on a path this module owns. Reading is one
+ * such path, but not a reliable one: the only production reader is the
+ * invariant companion's service listener, and `dsh-invariants` is a
+ * development composition — a shipped host never loads it. Mounting is the
+ * other, and it is the one every session takes, which bounds the set at one
+ * generation of dead records rather than one per session ever composed. Each
+ * record would otherwise retain its whole disposed subtree: the fiber holds
+ * its config, and that config is the key its `EntryTree` is stored under.
  */
-export function livePresetMounts(): PresetMount[] {
+function pruneDisposedMounts(): void {
   for (const mount of mounts) {
     if (mount.fiber.uid === null) mounts.delete(mount)
   }
+}
+
+/**
+ * Every preset composition still installed, pruning fibers disposed since the
+ * last read.
+ * @returns the live mounts.
+ */
+export function livePresetMounts(): PresetMount[] {
+  pruneDisposedMounts()
   return [...mounts]
 }
 
@@ -167,6 +185,9 @@ export async function mountPreset(agentCtx: Context, preset: AgentPreset): Promi
     )
   }
   const config: Include.Config = { path: pathToFileURL(preset.path).href }
+  // Before the record this mount is about to add: every session takes this
+  // path, so it is what keeps the set bounded on a host that never reads it.
+  pruneDisposedMounts()
   const handle = agentCtx.plugin(PresetTree, config)
   try {
     await handle.await()
