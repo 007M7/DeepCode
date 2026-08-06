@@ -1,6 +1,6 @@
 /**
  * Shared profile boot for every `dsh` surface: resolve the profile, stack its
- * patch layers (bundle layers in `dsh.plugins` order, the profile's own
+ * patch layers (bundle layers in `dsh.profile.bundles` order, the profile's own
  * `cordis.patch.yml`, `--patch` overlays, flag-derived patches, the telemetry
  * switch), mount the tree over the profile's empty root config, keep the
  * profile patch layer live, and wire fail-loud plus bounded shutdown.
@@ -21,7 +21,7 @@ import {
   loadOverlayPatches,
   loadProfile,
   PROFILE_PATCH_FILENAME,
-  watchPersonalPatches,
+  watchUserPatches,
   type Profile,
 } from '@deepseek-ai/dsh-app-boot'
 import { resolveDshHome } from '@deepseek-ai/dsh-paths'
@@ -51,7 +51,7 @@ const HEADLESS_ROW_ID = 'headless-runner'
 
 /** The empty root entry list every profile tree patches over. */
 const PROFILE_ROOT_CONFIG = `# dsh profile root — an empty entry list. The tree is composed as patches:
-# each bundle in package.json's dsh.plugins, then cordis.patch.yml, then any
+# each bundle in package.json's dsh.profile.bundles, then cordis.patch.yml, then any
 # --patch overlays. Edit cordis.patch.yml, not this file.
 []
 `
@@ -119,7 +119,7 @@ function allPatches(composed: ComposedProfile): PatchOptions[] {
 
 /**
  * Load `name` and compose its effective patch stack: bundle layers in
- * `dsh.plugins` order, the profile's user layer, the home-level user layer
+ * `dsh.profile.bundles` order, the profile's user layer, the home-level user layer
  * (`$DSH_HOME/cordis.patch.yml` — machine-local preferences that apply to
  * every profile, so it outranks the per-profile layer), `--patch` overlays,
  * then flag patches derived from the composed rows, then the telemetry
@@ -251,12 +251,12 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
       }
       await ctx.loader.create({ name: '@cordisjs/plugin-hmr', config: { root: [] } })
     }
-    await watchPersonalPatches(ctx, {
+    await watchUserPatches(ctx, {
       binName: NAME,
       filename: composed.profile.patchPath,
       compose: composeLive,
     })
-    await watchPersonalPatches(ctx, {
+    await watchUserPatches(ctx, {
       binName: NAME,
       filename: homePatchPath(),
       compose: composeLive,

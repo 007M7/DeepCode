@@ -12,7 +12,7 @@
 // masking its credential, without making a model call.
 //
 // Composition divergences from `dsh web`, all deliberate, all via include
-// patches after the shipped surface overlay, over the SAME tree (never a
+// patches after the shipped bundle layers, over the SAME tree (never a
 // second yml): temp persistenceRoot; host-level skill roots confined to the
 // temp workspace while project skill discovery remains real; workspace-context
 // disabled (recorded fixtures must not embed this repo's AGENTS.md);
@@ -244,7 +244,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   if (maskDeepSeekCredential) Reflect.deleteProperty(process.env, 'DEEPSEEK_API_KEY')
 
   // The include patch set — the same layer stack the profile boot composes
-  // (bundle patches in dsh.plugins order), applied over the SAME empty root (a
+  // (bundle patches in dsh.profile.bundles order), applied over the SAME empty root (a
   // patch id that stops matching a row fails the boot sweep loudly instead of
   // drifting).
   const basePatches = loadOverlayPatches('web e2e scaffold', BASE_PATCH_PATH)

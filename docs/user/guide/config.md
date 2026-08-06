@@ -51,7 +51,7 @@ Cordis starts sibling entries concurrently. A plugin declares required services 
 
 ## CLI patch layers
 
-`dsh --profile <name>` composes the profile's bundle patch layers (its manifest's `dsh.plugins` list, in order) over an empty root, then the profile's own `~/.dsh/profiles/<name>/cordis.patch.yml`, then each `--patch <path>` overlay, then CLI-flag patches. Later layers win per row.
+`dsh --profile <name>` composes the profile's bundle patch layers (its manifest's `dsh.profile.bundles` list, in order) over an empty root, then the profile's own `~/.dsh/profiles/<name>/cordis.patch.yml`, then each `--patch <path>` overlay, then CLI-flag patches. Later layers win per row.
 
 A patch replaces a row's entire `config` value; it does not deep-merge keys. For example, patching `llm-deepseek` with only `config: { thinking: disabled }` also removes that row's configured `apiKey` and `baseURL`, so restate every key the row must retain.
 

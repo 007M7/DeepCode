@@ -73,7 +73,7 @@ async function runHeadlessPtySmoke(): Promise<string> {
       name: 'dsh-profile-headless',
       private: true,
       dependencies: {},
-      dsh: { plugins: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', '@deepseek-ai/dsh-headless'] },
+      dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', '@deepseek-ai/dsh-headless'] } },
     }, undefined, 2))
     await writeFile(join(profileDir, 'cordis.patch.yml'), [
       '- insert:',

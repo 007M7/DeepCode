@@ -15,8 +15,8 @@
 | `loadOptionalPatches(binName, file)` | 解析一份可选的 patch 列表文件（即 profile 的 `cordis.patch.yml`）：其顶层是一个 YAML 数组，内容为 include 的 `PatchOptions`（按 id 定位的配置覆盖、`insert` 列表，允许 `!!js`）；文件不存在时返回 `undefined`，文件不可读、不可解析或内容不是数组时抛出异常 |
 | `loadOverlayPatches(binName, file)` | 解析一份形状相同的必需 patch 列表文件；文件缺失同样抛出异常，因为该文件是调用方指名的 |
 | `mountRootInclude(ctx, absoluteConfigPath, patches?)` | 挂载静态导入的 Include builtin，并保留用户 patch 层 HMR（热模块替换）使用的确切根配置项 |
-| `watchPersonalPatches(ctx, options)` | 向现有 Cordis HMR 服务注册指名的 patch 文件；每次新增、变更或移除都会通过调用方的 `compose` 闭包（应用自有层围绕当前用户层）以事务方式重新组合完整 patch 列表，并返回异步 disposer |
-| `resolveProfileDir` / `initProfile` / `loadProfile` / `readProfileManifest` / `writeProfileManifest` / `resolveBundleDir` / `composeEntries` / `healProfilesModuleFallback` / `PROFILE_TEMPLATES` / `DEFAULT_PROFILE_PLUGINS` / `PROFILES_DIR` / `PROFILE_PATCH_FILENAME` | Profile 机制（见 [Profile](#profiles)） |
+| `watchUserPatches(ctx, options)` | 向现有 Cordis HMR 服务注册指名的 patch 文件；每次新增、变更或移除都会通过调用方的 `compose` 闭包（应用自有层围绕当前用户层）以事务方式重新组合完整 patch 列表，并返回异步 disposer |
+| `resolveProfileDir` / `initProfile` / `loadProfile` / `readProfileManifest` / `writeProfileManifest` / `resolveBundleDir` / `composeEntries` / `healProfilesModuleFallback` / `PROFILE_TEMPLATES` / `DEFAULT_PROFILE_BUNDLES` / `PROFILES_DIR` / `PROFILE_PATCH_FILENAME` | Profile 机制（见 [Profile](#profiles)） |
 | `boot(binName, absoluteConfigPath, patches?, prepare?)` | 创建根上下文，向 Loader `!!js` 配置表达式暴露 `dshHomePath(...segments)` 并安装 Loader，在配置树条目挂载前执行可选的宿主准备操作（`prepare` 可以使用 Loader，也可以提供由启动器拥有的上下文插槽），再挂载并等待 include 树结算，断言所有条目均已加载并激活，最后返回根上下文——失败时 dispose（资源释放）部分构造的上下文，并以带标签的错误 reject |
 | `renderConfigDump(binName, absoluteConfigPath, layers, warn?)` | 离线合成基础配置与带标签的覆盖层——使用 include 自己的解析器和补丁算法（`entryListSchema`/`applyEntryPatches`），因此结果与 `boot()` 挂载的内容一致——并渲染为 YAML，`!!js` 表达式原样保留；每段来源相同的连续行之前都有一条 `# ==` 注释，标明贡献该段的文件以及修补过它的层，输出仍是一份可加载的文档；未匹配到行的补丁连同其层标签交给 `warn`（默认：一行 stderr），读取／解析／形状失败则抛出 |
 | `addHarnessSourceSection(ctx, sourceRoot)` | 添加全局 `harness:source` 提示词段落（顺序紧随 harness 身份、位于 persona 之前），告知 agent（智能体）DSH 实现代码 checkout 的磁盘路径，同时提醒它不得据此推断当前工作目录，而应使用 `pwd`；如果已启动树没有此项服务，则不执行操作并返回 `undefined`。这里的服务是 `systemPrompt`；该段落注册到它的 fiber，因此开发环境 HMR（热模块替换）重新加载系统提示词后，它会消失直至下次启动 |
@@ -32,14 +32,14 @@ Loader 并发挂载各个条目，因此当其他环节失败时，某个界面�
 
 ## Profile
 
-profile 是位于 `$DSH_HOME/profiles/<name>` 下的目录（Harness home 由 [`resolveDshHome`](../../util/paths/README.md) 解析：先取 `$DSH_HOME`，否则取 `~/.dsh`），其中包含一个 `package.json`（树外插件 `dependencies`，加上有序的 `dsh.plugins` 组合包层列表）和用户自己的 `cordis.patch.yml`。组合包是在 manifest 中声明 `"dsh": { "patch": "./cordis.patch.yml" }` 的 npm 包；`loadProfile` 以双锚点解析每个 `dsh.plugins` 名称（先从 dsh 安装目录，再从 profile 目录），列出的包若没有 patch 声明则大声失败。`composeEntries` 通过 include 自己的 `applyEntryPatches` 在空条目列表之上应用各 patch 层，因此组合、标志推导和配置 dump 绝不会与实际启动内容发生偏离。`healProfilesModuleFallback` 维护扁平的 `$DSH_HOME/profiles/node_modules` 目录（安装目录的应用与各组合包依赖的每个包对应一个符号链接），使任意 profile 中的裸插件名都能经 Node 常规的逐级向上查找解析，而 pnpm 从不管理随安装内置的包。`PROFILE_TEMPLATES`（`web`、`headless`）在首次使用时自动初始化；其他名称在 `initProfile` 创建之前都会大声失败（即 `dsh plugin` 路径）。
+profile 是位于 `$DSH_HOME/profiles/<name>` 下的目录（Harness home 由 [`resolveDshHome`](../../util/paths/README.md) 解析：先取 `$DSH_HOME`，否则取 `~/.dsh`），其中包含一个 `package.json`（树外插件 `dependencies`，加上 profile manifest `dsh.profile` 及其有序的 `bundles` 层列表）和用户自己的 `cordis.patch.yml`。组合包是在 manifest 中声明 `"dsh": { "bundle": { "patch": "./cordis.patch.yml" } }` 的 npm 包；`loadProfile` 以双锚点解析每个 `dsh.profile.bundles` 名称（先从 dsh 安装目录，再从 profile 目录），列出的包若没有组合包声明则大声失败。`composeEntries` 通过 include 自己的 `applyEntryPatches` 在空条目列表之上应用各 patch 层，因此组合、标志推导和配置 dump 绝不会与实际启动内容发生偏离。`healProfilesModuleFallback` 维护扁平的 `$DSH_HOME/profiles/node_modules` 目录（安装目录的应用与各组合包依赖的每个包对应一个符号链接），使任意 profile 中的裸插件名都能经 Node 常规的逐级向上查找解析，而 pnpm 从不管理随安装内置的包。`PROFILE_TEMPLATES`（`web`、`headless`）在首次使用时自动初始化；其他名称在 `initProfile` 创建之前都会大声失败（即 `dsh plugin` 路径）。
 
 用户级的机器本地偏好同样位于 Harness home 中：
 
 - **`.env`**：[`dsh-credentials-local`](../../credentials/credentials-local/README.md) 的凭据存储，只由该 provider 读取。没有任何表层会把它提升进 `process.env`：那样做会让每个已存密钥在下次运行时看起来都像只读的启动时覆盖，从而阻断从 Web 设置页面轮换密钥。环境层次由环境中的值与调用目录的 `.env` 构成（由 bin 加载；`process.loadEnvFile` 从不覆盖已有值），没有凭据 provider 的组合仍然只从这两者解析密钥。
 - **`cordis.patch.yml`**（home 级）与 **`profiles/<name>/cordis.patch.yml`**：用户 patch 层，应用在所有组合包层之后（先应用逐 profile 的文件，再应用 home 级文件，因此后者优先级更高）：按 id 定位的 patch 会替换对应条目的整个 `config`（未改字段也要重述），`insert` 会添加条目，`!!js` 表达式则在挂载时插值。如果 patch 指定的条目 id 不在组合后的树中，则输出一条 stderr 警告。空文件或仅含注释的文件会抛出异常（其解析结果为空，而不是列表）；如需禁用该层，请使用 `[]`。
 
-长期运行的 surface 会持续应用 `cordis.patch.yml` 的变更，具体由 `watchPersonalPatches` 负责；一次性运行只读取启动时的值。即使该文件或其直接父目录不存在，watcher 仍会监视确切路径；它会串行处理突发变更，并按调用方的层次顺序重新组合用户 patch（组合包层在下、overlay／标志 patch 在上）。读取失败、解析失败或 Loader 候选被拒时，最后一个可用树会继续运行；HMR 服务记录错误后广播 `hmr/config-update-failed(filename, Error)`，并隔离 observer 失败。上下文 dispose 时会关闭 watcher，并等待进行中的刷新结束。
+长期运行的 surface 会持续应用 `cordis.patch.yml` 的变更，具体由 `watchUserPatches` 负责；一次性运行只读取启动时的值。即使该文件或其直接父目录不存在，watcher 仍会监视确切路径；它会串行处理突发变更，并按调用方的层次顺序重新组合用户 patch（组合包层在下、overlay／标志 patch 在上）。读取失败、解析失败或 Loader 候选被拒时，最后一个可用树会继续运行；HMR 服务记录错误后广播 `hmr/config-update-failed(filename, Error)`，并隔离 observer 失败。上下文 dispose 时会关闭 watcher，并等待进行中的刷新结束。
 
 ## 模型体验
 

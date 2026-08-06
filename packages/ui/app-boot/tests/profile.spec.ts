@@ -37,7 +37,7 @@ function stageInstallation(bundles: Record<string, { patch?: string; deps?: Reco
       name,
       version: '0.0.0',
       dependencies: spec.deps ?? {},
-      ...spec.patch === undefined ? {} : { dsh: { patch: './cordis.patch.yml' } },
+      ...spec.patch === undefined ? {} : { dsh: { bundle: { patch: './cordis.patch.yml' } } },
     }))
     if (spec.patch !== undefined) writeFileSync(join(dir, 'cordis.patch.yml'), spec.patch)
   }
@@ -61,13 +61,13 @@ describe('initProfile', () => {
     const dir = resolveProfileDir('tui', home)
     initProfile(dir, ['@deepseek-ai/dsh-base'])
     const manifest = readProfileManifest('t', dir)
-    expect(manifest.dsh?.plugins).toEqual(['@deepseek-ai/dsh-base'])
+    expect(manifest.dsh?.profile?.bundles).toEqual(['@deepseek-ai/dsh-base'])
     expect(readFileSync(join(dir, PROFILE_PATCH_FILENAME), 'utf8')).toContain('[]')
     expect(readFileSync(join(dir, 'pnpm-workspace.yaml'), 'utf8')).toContain('nodeLinker: hoisted')
     // Re-init keeps user edits.
     writeFileSync(join(dir, PROFILE_PATCH_FILENAME), '- id: x\n  config: {}\n')
     initProfile(dir, ['other'])
-    expect(readProfileManifest('t', dir).dsh?.plugins).toEqual(['@deepseek-ai/dsh-base'])
+    expect(readProfileManifest('t', dir).dsh?.profile?.bundles).toEqual(['@deepseek-ai/dsh-base'])
     expect(readFileSync(join(dir, PROFILE_PATCH_FILENAME), 'utf8')).toContain('- id: x')
   })
 })
@@ -75,8 +75,8 @@ describe('initProfile', () => {
 describe('manifest round-trip', () => {
   it('writes and reads back, and fails loud on a broken manifest', () => {
     const dir = tmp()
-    writeProfileManifest(dir, { name: 'p', dsh: { plugins: ['a'] } })
-    expect(readProfileManifest('t', dir).dsh?.plugins).toEqual(['a'])
+    writeProfileManifest(dir, { name: 'p', dsh: { profile: { bundles: ['a'] } } })
+    expect(readProfileManifest('t', dir).dsh?.profile?.bundles).toEqual(['a'])
     writeFileSync(join(dir, 'package.json'), '[]')
     expect(() => readProfileManifest('t', dir)).toThrow('must hold a JSON object')
     expect(() => readProfileManifest('t', join(dir, 'nope'))).toThrow('failed to read profile manifest')
@@ -109,7 +109,7 @@ describe('resolveBundleDir', () => {
       name: 'sealed-bundle',
       version: '0.0.0',
       exports: { '.': './index.js' },
-      dsh: { patch: './cordis.patch.yml' },
+      dsh: { bundle: { patch: './cordis.patch.yml' } },
     }))
     writeFileSync(join(dir, 'index.js'), '')
     writeFileSync(join(dir, 'cordis.patch.yml'), '[]\n')
@@ -118,7 +118,7 @@ describe('resolveBundleDir', () => {
 })
 
 describe('loadProfile', () => {
-  it('resolves each dsh.plugins bundle to its patch layer in order, plus the user layer', () => {
+  it('resolves each dsh.profile.bundles entry to its patch layer in order, plus the user layer', () => {
     const anchor = stageInstallation({
       'bundle-a': { patch: '- insert:\n    - id: a\n      name: pkg-a\n' },
       'bundle-b': { patch: '- id: a\n  config:\n    v: 2\n' },
@@ -157,16 +157,16 @@ describe('loadProfile', () => {
     } catch {
       // Resolution failure is the plain-Node outcome for this empty anchor.
     }
-    expect(readProfileManifest('t', resolveProfileDir('web', home)).dsh?.plugins)
+    expect(readProfileManifest('t', resolveProfileDir('web', home)).dsh?.profile?.bundles)
       .toEqual([...PROFILE_TEMPLATES.web ?? []])
   })
 
-  it('fails loud when a listed bundle declares no dsh.patch', () => {
+  it('fails loud when a listed bundle declares no dsh.bundle', () => {
     const anchor = stageInstallation({ 'not-a-bundle': {} })
     const home = tmp()
     const dir = resolveProfileDir('demo', home)
     initProfile(dir, ['not-a-bundle'])
-    expect(() => loadProfile('t', 'demo', anchor, home)).toThrow('declares no dsh.patch')
+    expect(() => loadProfile('t', 'demo', anchor, home)).toThrow('declares no dsh.bundle')
   })
 })
 

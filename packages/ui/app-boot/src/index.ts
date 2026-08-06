@@ -1,7 +1,7 @@
 /**
  * Shared boot glue for the app bins (`dsh`, `dsh-cli-demo`, `dsh-acp-demo`): load the gitignored
  * `.env`, install the fail-loud Loader guards, resolve the config path (snapshot-aware), load the
- * optional personal overlay patches from the Harness home (`~/.dsh`), expose its path resolver to
+ * optional user patch layers from the Harness home (`~/.dsh`), expose its path resolver to
  * config expressions, and drive the Cordis Loader against a leaf `cordis.yml` until the tree settles.
  * @module @deepseek-ai/dsh-app-boot
  */
@@ -27,7 +27,7 @@ declare module 'cordis' {
 
 export {
   composeEntries,
-  DEFAULT_PROFILE_PLUGINS,
+  DEFAULT_PROFILE_BUNDLES,
   healProfilesModuleFallback,
   initProfile,
   loadProfile,
@@ -38,7 +38,9 @@ export {
   resolveBundleDir,
   resolveProfileDir,
   writeProfileManifest,
+  type DshBundleManifest,
   type DshManifestSection,
+  type DshProfileManifest,
   type Profile,
   type ProfileLayer,
   type ProfileManifest,
@@ -89,12 +91,12 @@ const bootstrapIncludes = new WeakMap<Context, Entry>()
 // The include's YAML dialect (`!!js` scalars become expression nodes the
 // Loader interpolates against each entry's context at mount time), imported
 // from the include itself so patch parsing and config dumping can never drift
-// from what the include mounts. Personal patches share it so they may
+// from what the include mounts. User patch layers share it so they may
 // reference `process.env`.
-const personalPatchesSchema = entryListSchema
+const userPatchesSchema = entryListSchema
 
 /** Options for live user patch-layer reconciliation. */
-export interface PersonalPatchWatchOptions {
+export interface UserPatchWatchOptions {
   /** Diagnostic prefix used by {@link loadOptionalPatches}. */
   binName: string
   /** Absolute path of the watched patch file (a profile's `cordis.patch.yml`). */
@@ -106,7 +108,7 @@ export interface PersonalPatchWatchOptions {
    * overlay/flag patches above). Identity when omitted: the user layer
    * is the whole patch list.
    */
-  compose?: (personalPatches: PatchOptions[]) => PatchOptions[]
+  compose?: (userPatches: PatchOptions[]) => PatchOptions[]
 }
 
 /**
@@ -116,22 +118,22 @@ export interface PersonalPatchWatchOptions {
  * @returns an asynchronous disposer after the exact-path watcher is ready.
  * @throws when HMR or the root Include is absent, watcher setup fails, or initial path resolution fails.
  */
-export async function watchPersonalPatches(
+export async function watchUserPatches(
   ctx: Context,
-  options: PersonalPatchWatchOptions,
+  options: UserPatchWatchOptions,
 ): Promise<() => Promise<void>> {
   const { binName, filename, compose = (patches: PatchOptions[]) => patches } = options
   const hmr = ctx.get('hmr')
-  if (hmr === undefined) throw new Error(`${binName}: personal config watching requires the Cordis HMR service`)
+  if (hmr === undefined) throw new Error(`${binName}: user patch-layer watching requires the Cordis HMR service`)
   const entry = bootstrapIncludes.get(ctx)
-  if (entry === undefined) throw new Error(`${binName}: personal config watching requires the root Include entry`)
+  if (entry === undefined) throw new Error(`${binName}: user patch-layer watching requires the root Include entry`)
   const register = hmr.registerConfig(filename, async () => {
     // Re-read the include's non-patch options per refresh: a writer that
     // updates the root Include's other options between refreshes (none exists
-    // today) must not have them silently reverted by a personal reload.
+    // today) must not have them silently reverted by a user-layer reload.
     const { patches: _previousPatches, ...includeConfig } = entry.options.config as Include.Config
-    const personalPatches = loadOptionalPatches(binName, filename) ?? []
-    const patches = compose(personalPatches)
+    const userPatches = loadOptionalPatches(binName, filename) ?? []
+    const patches = compose(userPatches)
     await entry.update({
       config: {
         ...includeConfig,
@@ -201,7 +203,7 @@ export function loadOverlayPatches(binName: string, file: string): PatchOptions[
  * @param binName - the diagnostic prefix on the thrown error.
  * @param file - the source path, quoted in errors.
  * @param content - the file's text.
- * @param label - what to call this list in errors (`personal patches`, `overlay`).
+ * @param label - what to call this list in errors (`patches`, `overlay`).
  * @returns the parsed patch list.
  */
 function parsePatchList(
@@ -209,7 +211,7 @@ function parsePatchList(
 ): PatchOptions[] {
   let parsed: unknown
   try {
-    parsed = yaml.load(content, { schema: personalPatchesSchema })
+    parsed = yaml.load(content, { schema: userPatchesSchema })
   } catch (error) {
     throw new Error(`${binName}: failed to parse ${label} ${file}: ${String(error)}`)
   }
@@ -360,10 +362,10 @@ function groupedDump(
 }
 
 /**
- * Mount and remember the exact root Include entry used by app boot and personal-config HMR.
+ * Mount and remember the exact root Include entry used by app boot and user patch-layer HMR.
  * @param ctx - context carrying an initialized Loader service.
  * @param absoluteConfigPath - absolute YAML or JSON configuration path.
- * @param patches - initial app and personal patches, applied in order.
+ * @param patches - initial app and user patches, applied in order.
  * @returns the created root Include entry, or `undefined` when a surface
  * disposed the whole tree (taking the Loader service with it) while the
  * transactional create was still settling entry lifecycle.

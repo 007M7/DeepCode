@@ -6,7 +6,7 @@
 
 ## Profile 启动
 
-`dsh --profile <name>` 启动位于 `$DSH_HOME/profiles/<name>` 的 profile。生效配置树在空根节点之上按以下顺序逐层组合：profile manifest（元数据清单）的 `dsh.plugins` 列表所列的各个组合包 patch、profile 自身的 `cordis.patch.yml`、home 级的 `$DSH_HOME/cordis.patch.yml`（各 profile 共享的机器本地偏好，因此优先级高于逐 profile 的层）、按 argv 顺序的各个 `--patch <path>` overlay，以及启动器 flag patch。后应用的层按行胜出；patch 替换目标行完整的 `config` 值，而不是深度合并各键，并且可以插入新行。配置解析、schema 校验、模块解析或插件启动失败会得到报告并以非零状态退出。收到 SIGINT 或 SIGTERM 时，挂载的根节点会先 dispose（资源释放）再退出。
+`dsh --profile <name>` 启动位于 `$DSH_HOME/profiles/<name>` 的 profile。生效配置树在空根节点之上按以下顺序逐层组合：profile manifest（元数据清单）的 `dsh.profile.bundles` 列表所列的各个组合包 patch、profile 自身的 `cordis.patch.yml`、home 级的 `$DSH_HOME/cordis.patch.yml`（各 profile 共享的机器本地偏好，因此优先级高于逐 profile 的层）、按 argv 顺序的各个 `--patch <path>` overlay，以及启动器 flag patch。后应用的层按行胜出；patch 替换目标行完整的 `config` 值，而不是深度合并各键，并且可以插入新行。配置解析、schema 校验、模块解析或插件启动失败会得到报告并以非零状态退出。收到 SIGINT 或 SIGTERM 时，挂载的根节点会先 dispose（资源释放）再退出。
 
 组合包名称先从 dsh 安装解析，再从 profile 目录解析。因此内置组合包（`@deepseek-ai/dsh-base`、`@deepseek-ai/dsh-web-app`、`@deepseek-ai/dsh-headless`）总是来自与正在运行的 `dsh` 相同的安装；树外组合包来自 profile 由 pnpm 管理的 `node_modules`。任何 patch 行中的裸插件 `name` 通过 profile 目录的 Node 父目录逐级查找解析，该查找可达到持续维护的安装后备目录 `$DSH_HOME/profiles/node_modules`（安装的应用和组合包所依赖的每个包对应一个符号链接，每次启动时修复）。
 
@@ -25,7 +25,7 @@ dsh --profile web --patch ./extra.yml --dump-config
 
 ## 插件管理
 
-`dsh plugin --profile <name> <args...>` 在 profile 缺失时先初始化它（有随附模板的用模板，其他名称只装 `@deepseek-ai/dsh-base`），然后以 profile 目录为工作目录，把 `<args...>` 转发给 `pnpm`：`add`、`remove`、`why`、`update` 及其他所有 pnpm 子命令都照常可用；pnpm 必须在 PATH 上。相对路径 spec（`.`、`../plugin` 及其 `file:`/`link:` 形式）会先锚定到调用目录，因此在插件 checkout 中执行 `add .` 安装的是该 checkout，而不是 profile。每次成功运行后，`dsh.plugins` 都会与已安装状态对齐：每个解析到 manifest 中声明了 `"dsh": { "patch": "./cordis.patch.yml" }` 的包的依赖加入层栈（因此让包获得该声明的 `update` 会将其激活），没有 patch 的依赖保持为普通依赖并给出一次性警告，已移除的依赖则退出层栈。
+`dsh plugin --profile <name> <args...>` 在 profile 缺失时先初始化它（有随附模板的用模板，其他名称只装 `@deepseek-ai/dsh-base`），然后以 profile 目录为工作目录，把 `<args...>` 转发给 `pnpm`：`add`、`remove`、`why`、`update` 及其他所有 pnpm 子命令都照常可用；pnpm 必须在 PATH 上。相对路径 spec（`.`、`../plugin` 及其 `file:`/`link:` 形式）会先锚定到调用目录，因此在插件 checkout 中执行 `add .` 安装的是该 checkout，而不是 profile。每次成功运行后，`dsh.profile.bundles` 都会与已安装状态对齐：每个解析到 manifest 中声明了 `"dsh": { "bundle": { "patch": "./cordis.patch.yml" } }` 的包的依赖加入层栈（因此让包获得该声明的 `update` 会将其激活），没有组合包声明的依赖保持为普通依赖并给出一次性警告，已移除的依赖则退出层栈。
 
 ```sh
 dsh plugin --profile tui add github:deepseek-harness/turtle-ui

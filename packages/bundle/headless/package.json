@@ -27,7 +27,9 @@
   ],
   "license": "BSD-3-Clause",
   "dsh": {
-    "patch": "./cordis.patch.yml"
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
   },
   "dependencies": {
     "schemastery": "^3.18.0"

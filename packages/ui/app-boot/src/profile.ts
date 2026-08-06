@@ -3,11 +3,12 @@
  * `dsh --profile` launcher family.
  *
  * A profile is a directory under `$DSH_HOME/profiles/<name>` holding a
- * `package.json` (out-of-tree plugin dependencies plus the ordered
- * `dsh.plugins` bundle list) and a `cordis.patch.yml` (the user's own patch
- * layer, applied after every bundle layer). Bundles are npm packages whose
- * manifest declares `"dsh": { "patch": "./cordis.patch.yml" }`; the tree is
- * composed by applying each bundle's patch list in `dsh.plugins` order over
+ * `package.json` (out-of-tree plugin dependencies plus the profile manifest
+ * `dsh.profile` with its ordered `bundles` list) and a `cordis.patch.yml`
+ * (the user's own patch layer, applied after every bundle layer). Bundles are
+ * npm packages whose manifest declares
+ * `"dsh": { "bundle": { "patch": "./cordis.patch.yml" } }`; the tree is
+ * composed by applying each bundle's patch list in `dsh.profile.bundles` order over
  * an empty entry list, then the profile's own patches, then any launcher
  * layers (`--patch` files and flag-derived patches).
  *
@@ -37,12 +38,28 @@ export const PROFILES_DIR = 'profiles'
 /** The user patch layer inside a profile directory (hot-reloaded on long-lived surfaces). */
 export const PROFILE_PATCH_FILENAME = 'cordis.patch.yml'
 
-/** The `dsh`-owned manifest section of a profile's or bundle's package.json. */
+/** The bundle half of the `dsh` manifest section: what a bundle package exports. */
+export interface DshBundleManifest {
+  /** The patch layer this bundle exports, relative to its package root. */
+  patch: string
+}
+
+/** The profile half of the `dsh` manifest section: what a profile directory composes. */
+export interface DshProfileManifest {
+  /** Ordered bundle layer list (package names). */
+  bundles?: string[]
+}
+
+/**
+ * The `dsh`-owned manifest section of a package.json. The nested key names
+ * the manifest kind: a bundle package declares `bundle`, a profile directory
+ * declares `profile`; nothing declares both.
+ */
 export interface DshManifestSection {
-  /** Bundle manifest: profile patch this package exports, relative to its root. */
-  patch?: string
-  /** Profile manifest: ordered bundle layer list (package names). */
-  plugins?: string[]
+  /** Present on bundle packages only. */
+  bundle?: DshBundleManifest
+  /** Present on profile manifests only. */
+  profile?: DshProfileManifest
 }
 
 /** The slice of package.json both profiles and bundles use. */
@@ -55,7 +72,7 @@ export interface ProfileManifest {
 
 /** One resolved bundle layer of a profile. */
 export interface ProfileLayer {
-  /** The bundle's package name, as listed in `dsh.plugins`. */
+  /** The bundle's package name, as listed in `dsh.profile.bundles`. */
   packageName: string
   /** Absolute directory of the resolved bundle package. */
   packageDir: string
@@ -71,7 +88,7 @@ export interface Profile {
   name: string
   /** Absolute profile directory. */
   dir: string
-  /** Bundle layers in `dsh.plugins` order. */
+  /** Bundle layers in `dsh.profile.bundles` order. */
   layers: ProfileLayer[]
   /** Absolute path of the profile's own patch file. */
   patchPath: string
@@ -101,7 +118,7 @@ export const PROFILE_TEMPLATES: Record<string, readonly string[]> = {
 }
 
 /** The bundle list a `dsh plugin` init uses for a name with no shipped template. */
-export const DEFAULT_PROFILE_PLUGINS: readonly string[] = ['@deepseek-ai/dsh-base']
+export const DEFAULT_PROFILE_BUNDLES: readonly string[] = ['@deepseek-ai/dsh-base']
 
 const PROFILE_PATCH_TEMPLATE = `# Your patch layer for this dsh profile, applied after every bundle layer:
 # a top-level YAML array of loader patch entries (id-targeted config
@@ -126,9 +143,9 @@ autoInstallPeers: false
  * pnpm settings out-of-tree plugins need. Existing files are never touched,
  * so re-running is a no-op on an initialized profile.
  * @param dir - the profile directory from {@link resolveProfileDir}.
- * @param plugins - the initial `dsh.plugins` bundle list.
+ * @param bundles - the initial `dsh.profile.bundles` layer list.
  */
-export function initProfile(dir: string, plugins: readonly string[]): void {
+export function initProfile(dir: string, bundles: readonly string[]): void {
   mkdirSync(dir, { recursive: true })
   const manifestPath = join(dir, 'package.json')
   if (!existsSync(manifestPath)) {
@@ -136,7 +153,7 @@ export function initProfile(dir: string, plugins: readonly string[]): void {
       name: `dsh-profile-${basename(dir)}`,
       private: true,
       dependencies: {},
-      dsh: { plugins: [...plugins] },
+      dsh: { profile: { bundles: [...bundles] } },
     }
     writeFileSync(manifestPath, JSON.stringify(manifest, undefined, 2) + '\n')
   }
@@ -287,7 +304,7 @@ function packageDirFromAnchor(anchor: string, packageName: string): string | und
  * the same installation as the running dsh, never from a profile-local copy.
  * Resolution does not require the package to export `./package.json`.
  * @param binName - the diagnostic prefix on the thrown error.
- * @param packageName - the bundle's package name from `dsh.plugins`.
+ * @param packageName - the bundle's package name from `dsh.profile.bundles`.
  * @param installAnchor - absolute path of a file inside the dsh app package (its package.json).
  * @param profileDir - the profile directory (second anchor).
  * @returns the bundle package's absolute directory.
@@ -306,10 +323,10 @@ export function resolveBundleDir(
 }
 
 /**
- * Load a profile: resolve every `dsh.plugins` bundle to its patch layer and
- * parse the profile's own patch file. A listed bundle without a `dsh.patch`
- * manifest field fails loud — naming a patch-less package as a layer is a
- * misconfiguration, not "no patches".
+ * Load a profile: resolve every `dsh.profile.bundles` entry to its patch
+ * layer and parse the profile's own patch file. A listed bundle without a
+ * `dsh.bundle` manifest fails loud — naming a bundle-less package as a layer
+ * is a misconfiguration, not "no patches".
  * @param binName - the diagnostic prefix on thrown errors.
  * @param name - the profile name.
  * @param installAnchor - absolute path of the dsh app's package.json (first resolution anchor).
@@ -335,13 +352,13 @@ export function loadProfile(
   }
   const manifest = readProfileManifest(binName, dir)
   // A hand-written profile manifest may omit the dsh section entirely.
-  const plugins = manifest.dsh?.plugins ?? []
-  const layers = plugins.map((packageName): ProfileLayer => {
+  const bundles = manifest.dsh?.profile?.bundles ?? []
+  const layers = bundles.map((packageName): ProfileLayer => {
     const packageDir = resolveBundleDir(binName, packageName, installAnchor, dir)
     const bundleManifest = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8')) as ProfileManifest
-    const declared = bundleManifest.dsh?.patch
+    const declared = bundleManifest.dsh?.bundle?.patch
     if (declared === undefined) {
-      throw new Error(`${binName}: profile bundle ${JSON.stringify(packageName)} declares no dsh.patch in its package.json`)
+      throw new Error(`${binName}: profile bundle ${JSON.stringify(packageName)} declares no dsh.bundle in its package.json`)
     }
     const patchPath = join(packageDir, declared)
     return { packageName, packageDir, patchPath, patches: loadOverlayPatches(binName, patchPath) }
