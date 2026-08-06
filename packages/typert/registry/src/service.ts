@@ -562,7 +562,8 @@ function validateInvocation(descriptor: InvocationDescriptor): void {
     }
     validateCodec(parameter.codec, `${descriptor.id} parameter ${parameter.name}`)
   }
-  if (descriptor.cancellation !== undefined && descriptor.cancellation.parameter !== 'signal') {
+  const cancellation = descriptor.cancellation as { readonly parameter: string } | undefined
+  if (cancellation !== undefined && cancellation.parameter !== 'signal') {
     throw new Error(`typert: invocation "${descriptor.id}" cancellation parameter must be "signal"`)
   }
   if (descriptor.scope !== undefined) {

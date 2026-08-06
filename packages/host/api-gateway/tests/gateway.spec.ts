@@ -998,14 +998,16 @@ describe('TypertGatewayService', () => {
         }),
       })
       expect(invalid.status).toBe(200)
-      await expect(invalid.json()).resolves.toMatchObject({
+      const invalidBody = await invalid.json() as unknown
+      expect(invalidBody).toMatchObject({
         type: 'server-response',
         rpcId: 'rpc-invalid',
         result: {
           ok: false,
-          error: { code: 'internal', message: expect.stringContaining('plain-object args field') },
+          error: { code: 'internal' },
         },
       })
+      expect(JSON.stringify(invalidBody)).toContain('plain-object args field')
 
       await removeStrict()
       strictActive = false
@@ -1020,14 +1022,16 @@ describe('TypertGatewayService', () => {
         }),
       })
       expect(withdrawn.status).toBe(200)
-      await expect(withdrawn.json()).resolves.toMatchObject({
+      const withdrawnBody = await withdrawn.json() as unknown
+      expect(withdrawnBody).toMatchObject({
         type: 'server-response',
         rpcId: 'rpc-withdrawn',
         result: {
           ok: false,
-          error: { code: 'internal', message: expect.stringContaining('strict definition was withdrawn') },
+          error: { code: 'internal' },
         },
       })
+      expect(JSON.stringify(withdrawnBody)).toContain('strict definition was withdrawn')
 
       const unclaimed = await fetch(`${server.origin}/api/legacy/list`, { method: 'POST' })
       expect(unclaimed.status).toBe(404)

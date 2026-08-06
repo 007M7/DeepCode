@@ -3,8 +3,7 @@ import { fileURLToPath } from 'node:url'
 import tsconfigPaths from 'vite-tsconfig-paths'
 import { resolvePwshPath } from './packages/bash/pwsh-local/src/resolve.ts'
 import { defineConfig } from 'vitest/config'
-import ts from 'typescript'
-import { vitestExecArgv } from './vitest.shared.ts'
+import { standardDecoratorPlugin, vitestExecArgv } from './vitest.shared.ts'
 import { COVERAGE_EXEMPT_ENV, coverageExemptHeavySuites } from './scripts/coverage-exempt.ts'
 
 // Prints exact `path:line:col` records for every uncovered statement, branch
@@ -18,29 +17,6 @@ const uncoveredLocationsReporter = fileURLToPath(new URL('./scripts/coverage-unc
 // map applies to every test file. paths must win over package exports so built
 // lib/ never loads a second module-singleton copy.
 const pathsPlugin = (): ReturnType<typeof tsconfigPaths> => tsconfigPaths({ projects: ['./tsconfig.base.json'] })
-const decoratorSyntax = /^\s*@[A-Za-z_$][\w$]*/m
-
-const standardDecoratorPlugin = () => ({
-  name: 'dsh-standard-decorators',
-  enforce: 'pre' as const,
-  transform(code: string, id: string) {
-    const file = id.split('?', 1)[0]!
-    if (!/\.[cm]?tsx?$/.test(file) || !decoratorSyntax.test(code)) return
-    const result = ts.transpileModule(code, {
-      fileName: file,
-      compilerOptions: {
-        target: ts.ScriptTarget.ES2024,
-        module: ts.ModuleKind.ESNext,
-        jsx: file.endsWith('x') ? ts.JsxEmit.ReactJSX : undefined,
-        sourceMap: true,
-      },
-    })
-    return {
-      code: result.outputText.replace(/\n?\/\/# sourceMappingURL=.*$/u, '\n'),
-      map: result.sourceMapText,
-    }
-  },
-})
 
 const windowsUnsupportedPackages = process.platform === 'win32'
   ? [
@@ -203,6 +179,10 @@ export default defineConfig({
         'packages/client/hmr/src/invariant.ts',
         'packages/client/connection/src/index.ts',
         'packages/client/connection/src/http-bridge.ts',
+        // This assembly imports generated Host-for-Client code that exists
+        // only in lib; the post-build built-bin smoke executes both entries.
+        'packages/client/remotes/src/index.ts',
+        'packages/client/remotes/src/client/index.ts',
         // Slash/command/input round: per-file gaps deferred with the same
         // client-lane debt. TODO(gui): cover and remove with the lane above.
         'packages/client/connection/src/client/fixture.ts',

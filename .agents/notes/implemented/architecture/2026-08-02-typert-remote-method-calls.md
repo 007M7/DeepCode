@@ -452,7 +452,7 @@ The Gateway registers only its ownership matcher and RPC handler with Connection
 
 The shipped vertical path is `@deepseek-ai/dsh-goal/remote → Browser Client API → Connection RPC /api → Host Gateway → GoalService.remoteExportCreate()`. The same direct descriptor with an Agent lookup supports both `ctx.api.goals.create(agentId, request)` and `agentCtx.goals.create(request)`. `@RemoteContext('agent')` remains the distinct scoped-receiver mode.
 
-Connection supplies the shared-channel interceptor and current HTTP carrier mapping. WebSocket migration, the TUI runtime and carrier, TUI Agent Scope wiring, Permission/Approval state machines, Session event streams, call authorization, cancellation, retries, idempotency, and cross-version protocol compatibility remain outside this decision.
+Connection supplies the shared-channel interceptor and current HTTP carrier mapping. WebSocket migration, the TUI runtime and carrier, TUI Agent Scope wiring, Permission/Approval state machines, Session event streams, call authorization, retries, idempotency, and cross-version protocol compatibility remain outside this decision.
 
 ## Alternatives considered
 
