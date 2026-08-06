@@ -18,11 +18,11 @@ Status: implemented
 
 ### TodoPanel：持久化列表作为一条常驻横条
 
-面板经 `conversation.input.dock` slot 挂载（普通注册者插件 `todoDockEntry`，采用与 QueueDock 相同的模式：以 `inject: ['slots', 'conversation']` 作为加载顺序 seam，`order: -1` 排在队列条上方），空列表时隐藏，可折叠为标题加 `"<已完成>/<总数> tasks · <n> in progress"` 的表头（折叠态不显示进行中条目的内容提示）。状态图标为 figma todo 套件（绿色勾选环／蓝色渐隐环／虚线未开始环），卡片使用 tip 表面（`--dsw-specific-tip`、14px 圆角、`width: calc(100% - 88px)`／`max-width: 776px` 居中；InputBar 顶部 6px 内边距是到输入卡的间距）。它经 dock entry 收到的标准件 `useSession` hook 读取 `snapshot.todos`——无 store、无 service、无 ctx。内部组件保持 props 完备且框架无关；dock 适配器只是一行包装。
+面板经 `conversation.input.dock` slot 挂载（普通注册者插件 `todoDockEntry` 使用 `ctx.slots.inject`，不依赖 `ConversationService`，`order: -1` 排在队列条上方），空列表时隐藏，可折叠为标题加 `"<已完成>/<总数> tasks · <n> in progress"` 的表头（折叠态不再附带进行中条目正文）。状态图标为 figma todo 套件（绿色勾选环／蓝色渐隐环／虚线未开始环），卡片使用 tip 表面（`--dsw-specific-tip`、14px 圆角、`width: calc(100% - 88px)`／`max-width: 776px` 居中；InputBar 顶部 6px 内边距是到输入卡的间距）。它经 dock entry 收到的标准件 `useSession` hook 读取 `snapshot.todos`——无 store、无 service、无 ctx。内部组件保持 props 完备且框架无关；dock 适配件只是一行包装。
 
 ### TodoRow：经 keyed toolview slot 的逐调用行
 
-专用的 `todo_write` 对话行是一个普通注册者插件（`todoToolview`，由 `apply` 挂载），经 `ctx.slots.register` 注册进 keyed 的 `conversation.chat.toolview` slot——与 bash 样例使用同一 seam、相同的加载顺序模式（`inject: ['slots', 'conversation']`），但属产品级注册。摘要由调用 args 推导（`N/M done · active item`）；无法解析的 args 回退到通用行摘要；点击会以原始 args 打开 details 列。todo 不新增任何 `ToolEventView`——呈现归客户端所有，持久化列表从会话事件渲染，而非工具卡。
+专用的 `todo_write` 对话行是一个普通注册者插件（`todoToolview`，由 `apply` 挂载），经 `ctx.slots.inject` 注册进 keyed 的 `conversation.chat.toolview` slot，遵循与 bash 样例相同的声明生命周期，但属产品级注册。摘要由调用 args 推导（`N/M done · active item`）；无法解析的 args 回退到通用行摘要；点击会以原始 args 打开 details 列。todo 不新增任何 `ToolEventView`——呈现归客户端所有，常驻列表从会话事件渲染，而非工具卡。
 
 ## 考虑过的替代方案
 

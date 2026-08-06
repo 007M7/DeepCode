@@ -405,6 +405,8 @@ Source: [`packages/compact/compact-basic/src/types.ts:38`](../packages/compact/c
 
 ## `@deepseek-ai/dsh-compact-tool-result-prune`
 
+Requires: `tokenMeter`
+
 ```ts config-catalog
 /** Character-budget policy for deterministic tool-result pruning. */
 export interface ToolResultPruneConfig {
@@ -1923,7 +1925,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/skill/tool-skill/src/index.ts:30`](../packages/skill/tool-skill/src/index.ts)
+Source: [`packages/skill/tool-skill/src/index.ts:58`](../packages/skill/tool-skill/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-str-replace-editor`
 

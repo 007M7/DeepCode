@@ -236,7 +236,31 @@ Source: [`packages/ui/commands/src/index.ts:132`](../packages/ui/commands/src/in
 'compact/end': { turn: number | null; error?: string }
 ```
 
-Source: [`packages/compact/compact/src/types.ts:51`](../packages/compact/compact/src/types.ts)
+Source: [`packages/compact/compact/src/types.ts:54`](../packages/compact/compact/src/types.ts)
+
+#### `compact/prune` — log-only
+
+```ts persistence-catalog
+/**
+ * Shadow price of one model-free prune replacement — log-only, no
+ * surfaceOp. The shared shadow-price protocol: a surface `replace` event
+ * is priced by the metering event immediately before it (`compact/summary`
+ * for a summarizing compaction, this event for a prune), which states the
+ * heuristic token price of the exact replaced range so a pure consumer
+ * can subtract it without retaining per-node prices. The replacement MUST
+ * be appended synchronously right after this event.
+ */
+'compact/prune': {
+  /** The replaced range's first and last surface-node seqs (a surface-position span, like {@link CompactionResult.shadowedRange}). */
+  shadowedRange: { start: number; end: number }
+  /** The seqs of all shadowed surface nodes, in surface order. */
+  shadowedSeqs: number[]
+  /** Heuristic price of the shadowed content under the token-meter's fixed estimator. */
+  shadowedTokenCount: number
+}
+```
+
+Source: [`packages/compact/compact/src/types.ts:64`](../packages/compact/compact/src/types.ts)
 
 #### `compact/start` — log-only
 
@@ -257,8 +281,11 @@ Source: [`packages/compact/compact/src/types.ts:19`](../packages/compact/compact
 /**
  * Provenance record of a completed summarization — log-only, no surfaceOp.
  * The summary content is in `data.summary`; the actual surface replacement
- * is performed by a subsequent `user/message` event that shadows the
- * compacted range.
+ * is performed by the immediately following `user/message` event that
+ * shadows the compacted range. That adjacency is contractual — the
+ * shadowed pricing fields are the replacement's shadow price, so a
+ * consumer may pair a replacement with the metering event directly
+ * before it (`compact/prune` documents the shared protocol).
  */
 'compact/summary': {
   summary: ContentBlock[]
@@ -285,7 +312,7 @@ Source: [`packages/compact/compact/src/types.ts:19`](../packages/compact/compact
 
 Types: [ContentBlock](core-data-structures/core.md) · [TokenUsage](core-data-structures/llm-streaming.md)
 
-Source: [`packages/compact/compact/src/types.ts:26`](../packages/compact/compact/src/types.ts)
+Source: [`packages/compact/compact/src/types.ts:29`](../packages/compact/compact/src/types.ts)
 
 ### `goal/*`
 

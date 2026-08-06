@@ -56,7 +56,14 @@ describe('time-context through a real headless cordis.yml', () => {
     for (let index = 0; index < contexts.length; index += 1) {
       expect(contexts[index]!.seq).toBeGreaterThan(starts[index]!.seq)
       expect(contexts[index]!.surfaceOp).toBe('append')
-      expect(contexts[index]!.data.source).toEqual({ kind: 'plugin', plugin: 'time-context' })
+      // `snapshot` form: one named contribution whose text is exactly what the
+      // model read, so a consumer attributes it without re-splitting prose.
+      expect(contexts[index]!.data.source).toMatchObject({
+        kind: 'plugin',
+        plugin: 'time-context',
+        form: 'snapshot',
+        sections: [{ name: 'time-context' }],
+      })
     }
     const contextText = contexts.map(event => event.data.content
       .filter(block => block.type === 'text')

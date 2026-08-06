@@ -47,6 +47,8 @@ import type SubagentActivationSetupRegistry from './activation-setup-registry.ts
 /** Attribution for a model coordinator's follow-up to one of its children. */
 export interface CoordinatorMessageSource {
   readonly kind: 'coordinator'
+  /** A message another agent addressed to this one (`relay` context form). */
+  readonly form: 'relay'
   /** Session id of the agent whose tool call produced the follow-up. */
   readonly senderSessionId: SessionId
 }
@@ -54,6 +56,8 @@ export interface CoordinatorMessageSource {
 /** Durable attribution for a continuable child's explicit parent report. */
 export interface SubagentReportMessageSource {
   readonly kind: 'subagent-report'
+  /** A message another agent addressed to this one (`relay` context form). */
+  readonly form: 'relay'
   /** Session id of the reporting child. */
   readonly senderSessionId: SessionId
 }
@@ -481,6 +485,7 @@ export class SubagentContinuationManager {
       ],
       source: {
         kind: 'subagent-report' as const,
+        form: 'relay' as const,
         senderSessionId: activation.childId,
       },
     })

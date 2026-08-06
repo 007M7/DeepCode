@@ -16,11 +16,14 @@ import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import { SessionId } from '@deepseek-ai/dsh-session'
+import type { ContentBlock, Message } from '@deepseek-ai/dsh-llm'
+import { deriveEventMessage, SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import type { TokenMeterService } from '@deepseek-ai/dsh-token-meter'
 import { join } from 'node:path'
 import {
   assertFixtureInventory, captureStableAria, compareOrRefreshGolden, fixtureUserPrompts,
-  launchWebScaffold, recordFixture, seedSession, watchConsole, webSnapshotMode, type WebScaffold,
+  launchWebScaffold, realizeSeedFixture, recordFixture, seedSession, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
 import { newEnglishPage, saveFailureShot } from './support.ts'
 
@@ -41,17 +44,22 @@ const PROMPT = 'Use the read tool twice in one assistant message: read a.txt and
  * deterministic condition before seeding it cold, so the scenario pins the bug
  * this change fixes — a landed compaction must not erase history the reader
  * already saw — through the real host and the real browser.
- * @param raw - the committed seed fixture text.
+ * @param raw - the seed fixture text, already realized (placeholder-free) so
+ * the shadow price below is computed from the exact strings the host folds.
+ * @param meter - the composed token meter; the appended `compact/summary`'s
+ * shadow price must be the exact heuristic price of the shadowed nodes, the
+ * way compact-basic derives it, because the token-meter projections subtract
+ * it verbatim.
  * @returns the fixture with a compacted turn appended.
  */
-function withCompaction(raw: string): string {
+function withCompaction(raw: string, meter: TokenMeterService): string {
   const lines = raw.trimEnd().split('\n')
   const events = lines.slice(1).map(line => JSON.parse(line) as {
     type: string
     seq: number
     time: number
     surfaceOp?: unknown
-    data?: { turn?: unknown }
+    data?: { turn?: unknown; message?: unknown; content?: unknown; callId?: unknown; isError?: unknown }
   })
   const surfaceSeqs = events
     .filter(event => event.surfaceOp === 'append'
@@ -87,6 +95,31 @@ function withCompaction(raw: string): string {
   }
   at({ type: 'turn/start', data: { turn } })
   const startSeq = at({ type: 'compact/start', data: { turn } })
+  // Load-bearing exactness: the projections subtract this count verbatim, so
+  // it must equal what the host's fold prices for these nodes. The estimator
+  // prices message CONTENT only, so a minimal wrapper per storage shape is
+  // exact — pre-identity rows carry bare `content` (the persistence read path
+  // upgrades them), a current row carries the full `message` envelope.
+  const priceRow = (row: (typeof events)[number]): number => {
+    if (row.data?.message !== undefined) {
+      const message = deriveEventMessage(row as unknown as SessionEvent)
+      return message === null ? 0 : meter.estimateMessage(message)
+    }
+    const content = row.data?.content as ContentBlock[]
+    if (row.type === 'tool/result') {
+      return meter.estimateMessage({
+        content: [{ type: 'tool-result', toolCallId: row.data?.callId, content, isError: row.data?.isError === true }],
+      } as unknown as Message)
+    }
+    // An empty-content assistant message derives no transcript entry.
+    if (row.type === 'assistant/message' && content.length === 0) return 0
+    return meter.estimateMessage({ content } as unknown as Message)
+  }
+  const shadowedTokenCount = surfaceSeqs.reduce((total, surfaceSeq) => {
+    const event = events.find(candidate => candidate.seq === surfaceSeq)
+    if (event === undefined) throw new Error(`seeded-history compaction: shadowed seq ${surfaceSeq} is not in the seed`)
+    return total + priceRow(event)
+  }, 0)
   const summarySeq = at({
     type: 'compact/summary',
     data: {
@@ -96,7 +129,7 @@ function withCompaction(raw: string): string {
       }],
       shadowedRange: { start: first, end: last },
       shadowedSeqs: surfaceSeqs,
-      shadowedTokenCount: 10_000,
+      shadowedTokenCount,
       provider: 'snapshot',
       model: 'snapshot-compactor',
     },
@@ -137,7 +170,10 @@ describe('web e2e: seeded history renders through cold resume', () => {
     if (MODE !== 'record') {
       const raw = await readFile(SEED, 'utf8')
       expect(fixtureUserPrompts(raw), 'seed fixture must carry exactly the drive prompt').toEqual([PROMPT])
-      await seedSession(scaffold, withCompaction(raw), SEED_ID)
+      const meter = scaffold.ctx.get('tokenMeter')
+      if (meter === undefined) throw new Error('seeded-history requires the composed token meter')
+      const realized = realizeSeedFixture(scaffold, raw, SEED_ID)
+      await seedSession(scaffold, withCompaction(realized, meter), SEED_ID)
     }
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
@@ -226,6 +262,7 @@ describe('web e2e: seeded history renders through cold resume', () => {
       }],
       source: {
         kind: 'workspace-instructions',
+        form: 'instructions',
         baseline: true,
         changes: [{
           action: 'set',
@@ -235,7 +272,10 @@ describe('web e2e: seeded history renders through cold resume', () => {
         }],
       },
     }), { surfaceOp: 'append' })
-    await page.getByRole('button', { name: 'Context injection' }).waitFor({ timeout: 10_000 })
+    // The header names the producer the durable source records, so the
+    // reconciled instruction file is readable without expanding the row.
+    await page.getByRole('button', { name: 'Context injection AGENTS.md', exact: true })
+      .waitFor({ timeout: 10_000 })
   }, 60_000)
 
   it.skipIf(MODE === 'record')('matches the historical conversation aria golden', async () => {
@@ -252,7 +292,7 @@ describe('web e2e: seeded history renders through cold resume', () => {
 
   it.skipIf(MODE === 'record')('matches the Figma context disclosure geometry', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-context-injection'))
-    const disclosure = page.getByRole('button', { name: 'Context injection' })
+    const disclosure = page.getByRole('button', { name: 'Context injection AGENTS.md', exact: true })
     expect(await disclosure.getAttribute('aria-expanded')).toBe('false')
     const collapsedIcon = disclosure.locator('svg').first()
     const collapsedIconBox = await collapsedIcon.boundingBox()
@@ -263,6 +303,10 @@ describe('web e2e: seeded history renders through cold resume', () => {
     await expect.poll(() => disclosure.getAttribute('aria-expanded')).toBe('true')
     const body = page.locator('[data-context-injection-body]')
     await body.waitFor({ timeout: 5_000 })
+    // The instructions form names the file it reconciled above the text, and
+    // the text keeps the framing the model read rather than a cleaned excerpt.
+    expect(await body.locator('[data-context-files] li').allInnerTexts()).toEqual(['AGENTS.md\nloaded'])
+    expect(await body.locator('[data-context-text]').innerText()).toContain('<system-reminder>')
     const headerBox = await disclosure.boundingBox()
     const bodyBox = await body.boundingBox()
     if (headerBox === null || bodyBox === null) throw new Error('context disclosure geometry is not measurable')
@@ -363,13 +407,14 @@ describe('web e2e: seeded history renders through cold resume', () => {
       source: { kind: 'plugin', plugin: 'fixture' },
     }), { surfaceOp: 'append' })
 
-    const disclosures = page.getByRole('button', { name: 'Context injection' })
-    await expect.poll(() => disclosures.count(), { timeout: 10_000 }).toBe(2)
-    const disclosure = disclosures.nth(1)
+    const disclosure = page.getByRole('button', { name: 'Context injection fixture', exact: true })
+    await disclosure.waitFor({ timeout: 10_000 })
     await disclosure.click()
     await expect.poll(() => disclosure.getAttribute('aria-expanded')).toBe('true')
 
-    const body = page.locator('[data-context-injection-body]')
+    // The instructions row above stays expanded from the geometry case; the
+    // opaque body is the one without a declared form.
+    const body = page.locator('[data-context-injection-body]:not([data-context-form])')
     const bodyBox = await body.boundingBox()
     if (bodyBox === null) throw new Error('short context disclosure geometry is not measurable')
     expect(bodyBox.height).toBeLessThan(141)
