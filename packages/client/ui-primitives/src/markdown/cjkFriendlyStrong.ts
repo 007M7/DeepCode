@@ -6,10 +6,6 @@ import { classifyCharacter } from 'micromark-util-classify-character'
 import { codes, constants } from 'micromark-util-symbol'
 import type { Construct, Extension, State, Tokenizer } from 'micromark-util-types'
 
-interface RemarkProcessor {
-  data(): { micromarkExtensions?: Extension[] }
-}
-
 const cjkCharacter = new RegExp([
   '\\p{Script_Extensions=Han}',
   '\\p{Script_Extensions=Hiragana}',
@@ -73,16 +69,15 @@ const cjkFriendlyAttention: Construct = {
   tokenize: tokenizeCjkFriendlyAttention,
 }
 
-const cjkFriendlyStrong: Extension = {
+const cjkFriendlyStrongExtension: Extension = {
   text: { [codes.asterisk]: cjkFriendlyAttention },
 }
 
 /**
- * Extend CommonMark asterisk strong emphasis for punctuation-delimited CJK prose.
- * @returns Nothing.
+ * Extend CommonMark asterisk strong emphasis for punctuation-delimited CJK
+ * prose, as a micromark syntax extension for `fromMarkdown`.
+ * @returns The micromark syntax extension.
  */
-export function remarkCjkFriendlyStrong(this: RemarkProcessor): undefined {
-  const data = this.data()
-  const extensions = data.micromarkExtensions ?? (data.micromarkExtensions = [])
-  extensions.push(cjkFriendlyStrong)
+export function cjkFriendlyStrong(): Extension {
+  return cjkFriendlyStrongExtension
 }

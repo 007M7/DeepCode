@@ -26,6 +26,7 @@ const DONE = 'INLINE_CODE_LINK_DONE'
 /** Build a settled assistant reply with linkable URL code and inert code controls. */
 function markdownFixture(linkUrl: string): string {
   const session = Session.create(SessionId('markdown-inline-code-links-source'))
+  const eventTimeOrigin = new Date().setHours(12, 0, 0, 0)
   session.append('turn/start', { turn: 1 })
   const user = session.append('user/message', createUserMessage({
     content: [{ type: 'text', text: 'Show the local preview URL.' }],
@@ -72,7 +73,10 @@ function markdownFixture(linkUrl: string): string {
       createdAt: 0,
       cwd: '{{cwd}}',
     }),
-    ...session.events.map(event => JSON.stringify(event)),
+    ...session.events.map(event => JSON.stringify({
+      ...event,
+      time: eventTimeOrigin + event.seq * 1_000,
+    })),
     '',
   ].join('\n')
 }
