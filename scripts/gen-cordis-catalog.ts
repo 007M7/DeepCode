@@ -90,6 +90,7 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   FsWriteIntent: 'filesystem.md',
   FsWriteOutcome: 'filesystem.md',
   CreateGoalRequest: 'goal.md',
+  CreateGoalResult: 'goal.md',
   EditGoalRequest: 'goal.md',
   GoalBlockReason: 'goal.md',
   GoalChanged: 'goal.md',

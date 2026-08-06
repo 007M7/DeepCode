@@ -199,7 +199,7 @@
     {
       "doc": "docs/core-data-structures/goal.md",
       "symbol": "GoalView",
-      "source": "packages/goal/goal/src/domain.ts"
+      "source": "packages/goal/goal/src/types.ts"
     },
     {
       "doc": "docs/core-data-structures/goal.md",
@@ -219,12 +219,12 @@
     {
       "doc": "docs/core-data-structures/goal.md",
       "symbol": "CreateGoalRequest",
-      "source": "packages/goal/goal/src/domain.ts"
+      "source": "packages/goal/goal/src/types.ts"
     },
     {
       "doc": "docs/core-data-structures/goal.md",
       "symbol": "EditGoalRequest",
-      "source": "packages/goal/goal/src/domain.ts"
+      "source": "packages/goal/goal/src/types.ts"
     },
     {
       "doc": "docs/core-data-structures/goal.md",

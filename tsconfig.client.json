@@ -53,6 +53,7 @@
     { "path": "./packages/client/connection" },
     { "path": "./packages/typert/registry" },
     { "path": "./packages/host/api-gateway" },
+    { "path": "./packages/client/remotes" },
     { "path": "./packages/client/runtime" },
     { "path": "./packages/client/test-runtime" },
     { "path": "./packages/client/ui-layout" },

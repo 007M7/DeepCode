@@ -761,11 +761,60 @@ block(agent: Agent, ref: GoalRef, reason: GoalBlockReason): GoalView
  * @returns the tombstone ref whose revision is one past the cleared snapshot.
  */
 clear(agent: Agent, ref: GoalRef): GoalRef
+
+/**
+ * Create one Goal through the remote boundary.
+ * @param agent - exact live Agent resolved from the wire identity.
+ * @param request - objective and optional round cap.
+ * @returns the created Goal identity.
+ */
+@Remote('create') remoteExportCreate(agent: Agent, request: CreateGoalRequest): CreateGoalResult
+
+/**
+ * Edit one Goal through the remote boundary.
+ * @param agent - exact live Agent resolved from the wire identity.
+ * @param ref - expected current revision.
+ * @param request - replacement fields.
+ * @returns the edited Goal view.
+ */
+@Remote('edit') remoteExportEdit(agent: Agent, ref: GoalRef, request: EditGoalRequest): GoalView
+
+/**
+ * Pause one Goal through the remote boundary.
+ * @param agent - exact live Agent resolved from the wire identity.
+ * @param ref - expected current revision.
+ * @returns the paused Goal view.
+ */
+@Remote('pause') remoteExportPause(agent: Agent, ref: GoalRef): GoalView
+
+/**
+ * Resume one Goal through the remote boundary.
+ * @param agent - exact live Agent resolved from the wire identity.
+ * @param ref - expected current revision.
+ * @returns the resumed Goal view.
+ */
+@Remote('resume') remoteExportResume(agent: Agent, ref: GoalRef): GoalView
+
+/**
+ * Complete one Goal through the remote boundary.
+ * @param agent - exact live Agent resolved from the wire identity.
+ * @param ref - expected current revision.
+ * @returns the completed Goal view.
+ */
+@Remote('complete') remoteExportComplete(agent: Agent, ref: GoalRef): GoalView
+
+/**
+ * Clear one terminal Goal through the remote boundary.
+ * @param agent - exact live Agent resolved from the wire identity.
+ * @param ref - expected current revision.
+ * @returns the committed clear revision.
+ */
+@Remote('clear') remoteExportClear(agent: Agent, ref: GoalRef): GoalRef
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [CreateGoalRequest](../core-data-structures/goal.md) · [EditGoalRequest](../core-data-structures/goal.md) · [GoalBlockReason](../core-data-structures/goal.md) · [GoalRef](../core-data-structures/goal.md) · [GoalView](../core-data-structures/goal.md)
+Types: [Agent](../core-data-structures/core.md) · [CreateGoalRequest](../core-data-structures/goal.md) · [CreateGoalResult](../core-data-structures/goal.md) · [EditGoalRequest](../core-data-structures/goal.md) · [GoalBlockReason](../core-data-structures/goal.md) · [GoalRef](../core-data-structures/goal.md) · [GoalView](../core-data-structures/goal.md)
 
-Source: [`packages/goal/goal/src/index.ts:181`](../../packages/goal/goal/src/index.ts)
+Source: [`packages/goal/goal/src/index.ts:183`](../../packages/goal/goal/src/index.ts)
 
 ## `ctx.httpServer` — `HttpServerService`
 

@@ -495,7 +495,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/goal/goal/src/index.ts:114`](../packages/goal/goal/src/index.ts)
+Source: [`packages/goal/goal/src/index.ts:116`](../packages/goal/goal/src/index.ts)
 
 ## `@deepseek-ai/dsh-headless`
 
@@ -2522,6 +2522,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-agent` ([`packages/core/agent/src/index.ts`](../packages/core/agent/src/index.ts))
 - `@deepseek-ai/dsh-client-locale` ([`packages/client/locale/src/index.ts`](../packages/client/locale/src/index.ts))
 - `@deepseek-ai/dsh-client-modules` — requires `httpServer` · `loader` ([`packages/client/modules/src/index.ts`](../packages/client/modules/src/index.ts))
+- `@deepseek-ai/dsh-client-remotes` ([`packages/client/remotes/src/index.ts`](../packages/client/remotes/src/index.ts))
 - `@deepseek-ai/dsh-client-runtime` ([`packages/client/runtime/src/index.ts`](../packages/client/runtime/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-command` ([`packages/client/ui-command/src/index.ts`](../packages/client/ui-command/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-conversation` ([`packages/client/ui-conversation/src/index.ts`](../packages/client/ui-conversation/src/index.ts))

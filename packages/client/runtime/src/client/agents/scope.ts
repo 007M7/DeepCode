@@ -18,6 +18,7 @@
 import { Context as CordisContext } from 'cordis'
 import type { Context, Fiber } from 'cordis'
 import type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
+import type { TypeRTRemoteContextApi } from '@deepseek-ai/dsh-type-meta'
 
 /** Context tag written by {@link createScope}. */
 const kScope = Symbol('dsh.client.scope')
@@ -29,7 +30,7 @@ export interface AgentScopeHandle {
    * through it (passing it as the dispatch subject routes to this agent's
    * tagged listeners plus every untagged one).
    */
-  ctx: Context
+  ctx: Context & TypeRTRemoteContextApi<'agent'>
   /** Backing fiber (dispose tears down every scope-owned registration). */
   fiber: Fiber
 }
@@ -48,15 +49,16 @@ function agentScope(): void {}
  */
 export function createScope(ctx: Context, key: SessionId): AgentScopeHandle {
   const fiber = ctx.plugin(agentScope)
+  const scoped = fiber.ctx.extend({
+    [kScope]: key,
+    [CordisContext.filter](listenerCtx: Context): boolean {
+      const tag = scopeOf(listenerCtx)
+      return tag === undefined || tag === key
+    },
+  }) as Context & TypeRTRemoteContextApi<'agent'>
   return {
     fiber,
-    ctx: fiber.ctx.extend({
-      [kScope]: key,
-      [CordisContext.filter](listenerCtx: Context): boolean {
-        const tag = scopeOf(listenerCtx)
-        return tag === undefined || tag === key
-      },
-    }),
+    ctx: scoped,
   }
 }
 

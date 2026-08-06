@@ -12,6 +12,7 @@ import type { ZodType } from 'zod'
 import { agentEvents } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import { Remote, bindTypeRTGateway } from '@deepseek-ai/dsh-type-meta'
 // Type-only: resolves ctx.sessionProjections for the optional unit child.
 import type {} from '@deepseek-ai/dsh-session-projection'
 import {
@@ -188,6 +189,9 @@ export class GoalService extends Service {
 
   private readonly resolved: ResolvedConfig
   private readonly caches = new WeakMap<Session, GoalCache>()
+
+  /** Explicit participation in the TypeRT Gateway under the Cordis service key. */
+  readonly typertGateway = bindTypeRTGateway(this, 'goals')
 
   constructor(ctx: Context, config: Config = {}) {
     super(ctx, 'goals')
@@ -576,6 +580,7 @@ export class GoalService extends Service {
    * @param request - objective and optional round cap.
    * @returns the created Goal identity.
    */
+  @Remote('create')
   remoteExportCreate(agent: Agent, request: CreateGoalRequest): CreateGoalResult {
     const view = this.create(agent, request)
     return { ref: { id: view.id, revision: view.revision } }
@@ -588,6 +593,7 @@ export class GoalService extends Service {
    * @param request - replacement fields.
    * @returns the edited Goal view.
    */
+  @Remote('edit')
   remoteExportEdit(agent: Agent, ref: GoalRef, request: EditGoalRequest): GoalView {
     return this.edit(agent, ref, request)
   }
@@ -598,6 +604,7 @@ export class GoalService extends Service {
    * @param ref - expected current revision.
    * @returns the paused Goal view.
    */
+  @Remote('pause')
   remoteExportPause(agent: Agent, ref: GoalRef): GoalView {
     return this.pause(agent, ref)
   }
@@ -608,6 +615,7 @@ export class GoalService extends Service {
    * @param ref - expected current revision.
    * @returns the resumed Goal view.
    */
+  @Remote('resume')
   remoteExportResume(agent: Agent, ref: GoalRef): GoalView {
     return this.resume(agent, ref)
   }
@@ -618,6 +626,7 @@ export class GoalService extends Service {
    * @param ref - expected current revision.
    * @returns the completed Goal view.
    */
+  @Remote('complete')
   remoteExportComplete(agent: Agent, ref: GoalRef): GoalView {
     return this.complete(agent, ref)
   }
@@ -628,6 +637,7 @@ export class GoalService extends Service {
    * @param ref - expected current revision.
    * @returns the committed clear revision.
    */
+  @Remote('clear')
   remoteExportClear(agent: Agent, ref: GoalRef): GoalRef {
     return this.clear(agent, ref)
   }

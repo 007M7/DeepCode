@@ -472,7 +472,7 @@ Goal mutation accepted by one live agent. The matching `goal/change` session eve
 
 Types: [Agent](../core-data-structures/core.md) · [GoalChanged](../core-data-structures/goal.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/goal/goal/src/domain.ts:141`](../../packages/goal/goal/src/domain.ts)
+Source: [`packages/goal/goal/src/domain.ts:114`](../../packages/goal/goal/src/domain.ts)
 
 ## `llm/*`
 

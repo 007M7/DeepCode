@@ -1131,6 +1131,9 @@ importers:
       '@deepseek-ai/dsh-client-modules':
         specifier: workspace:^
         version: link:../../client/modules
+      '@deepseek-ai/dsh-client-remotes':
+        specifier: workspace:^
+        version: link:../../client/remotes
       '@deepseek-ai/dsh-client-runtime':
         specifier: workspace:^
         version: link:../../client/runtime
@@ -1345,6 +1348,21 @@ importers:
         specifier: ^4.0.0-rc.7
         version: link:../../../vendor/cordis
 
+  packages/client/remotes:
+    devDependencies:
+      '@deepseek-ai/dsh-goal':
+        specifier: workspace:^
+        version: link:../../goal/goal
+      '@deepseek-ai/dsh-host-api-gateway':
+        specifier: workspace:^
+        version: link:../../host/api-gateway
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../support/invariants
+      cordis:
+        specifier: ^4.0.0-rc.7
+        version: link:../../../vendor/cordis
+
   packages/client/runtime:
     dependencies:
       '@deepseek-ai/dsh-client-connection':
@@ -1387,12 +1405,21 @@ importers:
         specifier: ~4.4.7
         version: 4.4.7(@types/react@18.3.31)(immer@10.2.0)(react@18.3.1)
     devDependencies:
+      '@deepseek-ai/dsh-client-remotes':
+        specifier: workspace:^
+        version: link:../remotes
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../support/invariants
       '@deepseek-ai/dsh-timeout':
         specifier: workspace:^
         version: link:../../util/timeout
+      '@deepseek-ai/dsh-type-meta':
+        specifier: workspace:^
+        version: link:../../typert/type-meta
+      '@deepseek-ai/dsh-typert-registry':
+        specifier: workspace:^
+        version: link:../../typert/registry
       '@types/react':
         specifier: ~18.3.1
         version: 18.3.31
@@ -3509,6 +3536,9 @@ importers:
       '@deepseek-ai/dsh-session-projection':
         specifier: workspace:^
         version: link:../../session-projection/session-projection
+      '@deepseek-ai/dsh-type-meta':
+        specifier: workspace:^
+        version: link:../../typert/type-meta
       cordis:
         specifier: ^4.0.0-rc.7
         version: link:../../../vendor/cordis

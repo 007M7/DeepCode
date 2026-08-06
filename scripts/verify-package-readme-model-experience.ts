@@ -57,6 +57,7 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/client/web-react': { kind: 'none', reason: 'Browser-side UI plugin layer; registers no model surface.' },
   'packages/client/schema-form': { kind: 'none', reason: 'Browser-side form-rendering library; registers no model surface.' },
   'packages/client/connection': { kind: 'none', reason: 'Browser-side UI plugin layer; registers no model surface.' },
+  'packages/client/remotes': { kind: 'none', reason: 'Client-side Remote assembly; selected business methods own any model-visible effect.' },
   'packages/client/runtime': { kind: 'none', reason: 'Browser-side UI plugin layer; registers no model surface.' },
   'packages/client/ui-layout': { kind: 'none', reason: 'Browser-side UI plugin layer; registers no model surface.' },
   'packages/client/ui-sidebar': { kind: 'none', reason: 'Browser-side UI plugin layer; registers no model surface.' },

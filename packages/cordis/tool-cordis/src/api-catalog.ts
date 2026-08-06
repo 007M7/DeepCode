@@ -382,6 +382,30 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         signature: 'clear(agent: Agent, ref: GoalRef): GoalRef',
         jsDoc: '/**\n * Clear the current goal while retaining a durable tombstone and history.\n * @param agent - owning live agent.\n * @param ref - expected current revision.\n * @returns the tombstone ref whose revision is one past the cleared snapshot.\n */',
       },
+      {
+        signature: '@Remote(\'create\') remoteExportCreate(agent: Agent, request: CreateGoalRequest): CreateGoalResult',
+        jsDoc: '/**\n * Create one Goal through the remote boundary.\n * @param agent - exact live Agent resolved from the wire identity.\n * @param request - objective and optional round cap.\n * @returns the created Goal identity.\n */',
+      },
+      {
+        signature: '@Remote(\'edit\') remoteExportEdit(agent: Agent, ref: GoalRef, request: EditGoalRequest): GoalView',
+        jsDoc: '/**\n * Edit one Goal through the remote boundary.\n * @param agent - exact live Agent resolved from the wire identity.\n * @param ref - expected current revision.\n * @param request - replacement fields.\n * @returns the edited Goal view.\n */',
+      },
+      {
+        signature: '@Remote(\'pause\') remoteExportPause(agent: Agent, ref: GoalRef): GoalView',
+        jsDoc: '/**\n * Pause one Goal through the remote boundary.\n * @param agent - exact live Agent resolved from the wire identity.\n * @param ref - expected current revision.\n * @returns the paused Goal view.\n */',
+      },
+      {
+        signature: '@Remote(\'resume\') remoteExportResume(agent: Agent, ref: GoalRef): GoalView',
+        jsDoc: '/**\n * Resume one Goal through the remote boundary.\n * @param agent - exact live Agent resolved from the wire identity.\n * @param ref - expected current revision.\n * @returns the resumed Goal view.\n */',
+      },
+      {
+        signature: '@Remote(\'complete\') remoteExportComplete(agent: Agent, ref: GoalRef): GoalView',
+        jsDoc: '/**\n * Complete one Goal through the remote boundary.\n * @param agent - exact live Agent resolved from the wire identity.\n * @param ref - expected current revision.\n * @returns the completed Goal view.\n */',
+      },
+      {
+        signature: '@Remote(\'clear\') remoteExportClear(agent: Agent, ref: GoalRef): GoalRef',
+        jsDoc: '/**\n * Clear one terminal Goal through the remote boundary.\n * @param agent - exact live Agent resolved from the wire identity.\n * @param ref - expected current revision.\n * @returns the committed clear revision.\n */',
+      },
     ],
   },
   {
@@ -1858,6 +1882,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'CreateGoalRequest',
     declaration: 'export interface CreateGoalRequest {\n    readonly objective: string;\n    readonly maxGoalRounds?: number;\n}',
+  },
+  {
+    name: 'CreateGoalResult',
+    declaration: 'export interface CreateGoalResult {\n    readonly ref: GoalRef;\n}',
   },
   {
     name: 'CreateSessionOptions',
