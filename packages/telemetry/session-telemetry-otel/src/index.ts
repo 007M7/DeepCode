@@ -39,11 +39,19 @@ import { resourceFromAttributes } from '@opentelemetry/resources'
 // version (same pattern as dsh-llm's attribution identity).
 const { version } = createRequire(import.meta.url)('../package.json') as { version: string }
 
-/** Supported session-sharing policies for the OTel backend. */
-export const TELEMETRY_MODES = ['FULL', 'FEEDBACK_ONLY', 'DISABLED'] as const
-
 /** Session-sharing policy selected by {@link Config.mode}. */
-export type TelemetryMode = typeof TELEMETRY_MODES[number]
+export enum TelemetryMode {
+  FULL = 'FULL',
+  FEEDBACK_ONLY = 'FEEDBACK_ONLY',
+  DISABLED = 'DISABLED',
+}
+
+/** Supported session-sharing policies for runtime configuration validation. */
+export const TELEMETRY_MODES = [
+  TelemetryMode.FULL,
+  TelemetryMode.FEEDBACK_ONLY,
+  TelemetryMode.DISABLED,
+] as const
 
 const DISABLED_FEEDBACK_WARNING = 'session telemetry is DISABLED; nothing will be shared and this feedback remains local'
 
@@ -81,7 +89,7 @@ export interface Config {
  * axiom (and silently drop every field not re-declared).
  */
 export const Config: z<Config> = z.object({
-  mode: z.union(TELEMETRY_MODES).default('FULL'),
+  mode: z.union(TELEMETRY_MODES).default(TelemetryMode.FULL),
   exporter: z.any(),
   processor: z.any(),
 })
@@ -109,8 +117,8 @@ export class TelemetryOtel extends Telemetry {
 
   constructor(ctx: Context, config: Config) {
     super(ctx)
-    const mode = config.mode ?? 'FULL'
-    if (mode === 'DISABLED') {
+    const mode = config.mode ?? TelemetryMode.FULL
+    if (mode === TelemetryMode.DISABLED) {
       this.provider = undefined
       this.ledger = undefined
       this.ops = undefined
@@ -162,9 +170,9 @@ export class TelemetryOtel extends Telemetry {
     })
     this.ledger = this.provider.getLogger('@deepseek-ai/dsh-session-telemetry-otel', version)
     this.ops = this.provider.getLogger('@deepseek-ai/dsh-session-telemetry-otel/ops', version)
-    const capture: TelemetryCapture = mode === 'FULL' ? 'live' : 'on-demand'
+    const capture: TelemetryCapture = mode === TelemetryMode.FULL ? 'live' : 'on-demand'
     const coordinator = new TelemetryCoordinator(ctx, this, capture)
-    if (mode === 'FEEDBACK_ONLY') {
+    if (mode === TelemetryMode.FEEDBACK_ONLY) {
       // Session.append commits before publishing `session/event`, so the
       // canonical log already includes this feedback record when replay begins.
       ctx.on('session/event', (session, event) => {

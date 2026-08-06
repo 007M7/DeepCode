@@ -5,7 +5,7 @@
  * for the default-exported Service class.
  */
 
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest'
 import { createServer, type Server } from 'node:http'
 import { once } from 'node:events'
 import { gunzipSync } from 'node:zlib'
@@ -13,7 +13,7 @@ import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import { recordFeedback } from '@deepseek-ai/dsh-command-feedback'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
-import TelemetryOtel, { Config } from '../src/index.ts'
+import TelemetryOtel, { Config, TelemetryMode } from '../src/index.ts'
 
 interface Capture {
   headers: import('node:http').IncomingHttpHeaders
@@ -211,7 +211,7 @@ describe('TelemetryOtel wire', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const fiber = await ctx.plugin(TelemetryOtel, {
-      mode: 'FEEDBACK_ONLY',
+      mode: TelemetryMode.FEEDBACK_ONLY,
       exporter: { url },
     })
     const session = ctx.sessions.create(SessionId('feedback-only'), { meta: {} })
@@ -236,7 +236,7 @@ describe('TelemetryOtel wire', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const fiber = await ctx.plugin(TelemetryOtel, {
-      mode: 'FEEDBACK_ONLY',
+      mode: TelemetryMode.FEEDBACK_ONLY,
       exporter: { url },
     })
     const session = ctx.sessions.create(SessionId('no-feedback'), { meta: {} })
@@ -249,7 +249,7 @@ describe('TelemetryOtel wire', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
-    const fiber = await ctx.plugin(TelemetryOtel, { mode: 'DISABLED' })
+    const fiber = await ctx.plugin(TelemetryOtel, { mode: TelemetryMode.DISABLED })
     const session = ctx.sessions.create(SessionId('disabled'), { meta: {} })
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     recordFeedback(session, 'local report')
@@ -284,12 +284,18 @@ describe('TelemetryOtel wire', () => {
 })
 
 describe('TelemetryOtel config fails loud', () => {
+  it('exposes modes through the nominal enum', () => {
+    expectTypeOf<Config['mode']>().toEqualTypeOf<TelemetryMode | undefined>()
+    expectTypeOf<'FULL'>().not.toExtend<TelemetryMode>()
+    expectTypeOf<TelemetryMode.FULL>().toExtend<TelemetryMode>()
+  })
+
   it.each([
     [{}, /exporter\.url is required/],
     [{ exporter: { url: '' } }, /exporter\.url is required/],
     [{ exporter: { url: 'not a url' } }, /not a valid URL/],
     [{ exporter: { url: 'ftp://collector' } }, /must be http\(s\)/],
-    [{ mode: 'FEEDBACK_ONLY' }, /exporter\.url is required/],
+    [{ mode: TelemetryMode.FEEDBACK_ONLY }, /exporter\.url is required/],
     [{ mode: 'INVALID' }, /INVALID/],
     // The SDK accepts a non-positive batch size but its shutdown drain then
     // splices empty batches forever — dispose would hang, so reject at load.

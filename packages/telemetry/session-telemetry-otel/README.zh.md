@@ -24,6 +24,8 @@
 | `FEEDBACK_ONLY` | 每个 `feedback/record` 都会回放权威会话日志中截至该事件的后缀，并进行投影与脱敏。后续记录等待下一个反馈事件；如果没有后续反馈，则留在本地。 |
 | `DISABLED` | 不构造协调器、提供方、处理器或导出器。没有遥测记录会离开进程。`feedback/record` 会记录 `session telemetry is DISABLED; nothing will be shared and this feedback remains local`；该事件留在本地会话日志中。 |
 
+程序化 TypeScript 配置使用导出的 `TelemetryMode` 枚举（`TelemetryMode.FULL`、`TelemetryMode.FEEDBACK_ONLY` 或 `TelemetryMode.DISABLED`）；原始字符串字面量不可赋值。序列化后的 Cordis 配置继续使用上表所示的字符串值。
+
 `exporter.url` 在 `FULL` 与 `FEEDBACK_ONLY` 中必填，无默认值，且必须能解析为 `http(s)`；在 `DISABLED` 中可省略且不使用。上传模式也会拒绝不是正整数的 `processor.maxExportBatchSize`，SDK 虽会接受该值，但随后会在关闭时挂起。其余全部是 SDK 自己的选项形态，由 SDK 拥有并在 SDK 文档中说明，两个配置块都整体透传（passthrough）：`OTLPExporterNodeConfigBase` 的每个字段（`headers`、`timeoutMillis`、`compression`、`keepAlive` 等）都会到达导出器；批处理、导出节奏（`scheduledDelayMillis`）、重试、队列上限，以及持续失败下的丢失策略，都是 SDK 的文档化行为，经 `processor` 透传调优。该后端刻意不实现 `flush()`：批处理器是进程内唯一执行 flush 的组件，`shutdown()` 的排空正因如此才是完整的。
 
 ## 哪些数据会离开本机

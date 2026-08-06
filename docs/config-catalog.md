@@ -1184,12 +1184,16 @@ export interface Config {
 }
 
 /** Session-sharing policy selected by {@link Config.mode}. */
-export type TelemetryMode = typeof TELEMETRY_MODES[number]
+export enum TelemetryMode {
+  FULL = 'FULL',
+  FEEDBACK_ONLY = 'FEEDBACK_ONLY',
+  DISABLED = 'DISABLED',
+}
 ```
 
 Depends on: `BatchLogRecordProcessorOptions` (`@opentelemetry/sdk-logs`) · `OTLPExporterNodeConfigBase` (`@opentelemetry/otlp-exporter-base`)
 
-Source: [`packages/telemetry/session-telemetry-otel/src/index.ts:55`](../packages/telemetry/session-telemetry-otel/src/index.ts)
+Source: [`packages/telemetry/session-telemetry-otel/src/index.ts:63`](../packages/telemetry/session-telemetry-otel/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-title`
 
