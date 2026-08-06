@@ -28,6 +28,16 @@
     },
     {
       "doc": "docs/core-data-structures/core.md",
+      "symbol": "ContextForm",
+      "source": "packages/llm/llm/src/message.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "ContextFormed",
+      "source": "packages/llm/llm/src/message.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
       "symbol": "FinishReasonMap",
       "source": "packages/llm/llm/src/types.ts"
     },

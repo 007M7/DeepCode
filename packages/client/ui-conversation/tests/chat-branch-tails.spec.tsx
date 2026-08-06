@@ -212,45 +212,363 @@ describe('MessageItem arms', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
-  it('context uses the Tool calls disclosure chrome and keeps its JSON collapsed by default', () => {
+  it('consumed steering is captioned as an interjection and keeps copy and branch actions', () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    })
+    const fork = vi.fn()
+    const view = render(
+      <MessageItem t={t} node={{
+        kind: 'steering', messageId: 'steer-message', seq: 2, time: 1_000, turn: 1, source: null,
+        content: [{ type: 'text', text: 'steer!' }, { type: 'image', data: 'x' }] as never,
+      } as never}
+      onFork={fork}
+      />,
+    )
+    expect(view.getByText('插话')).toBeTruthy()
+    expect(view.getByText('steer!')).toBeTruthy()
+    expect(view.getByText(/附加内容块/)).toBeTruthy()
+    fireEvent.click(view.getByRole('button', { name: '复制' }))
+    expect(writeText).toHaveBeenCalledWith('steer!')
+    fireEvent.click(view.getByRole('button', { name: '在新对话中分支' }))
+    expect(fork).toHaveBeenCalledWith(2)
+  })
+
+  it('context uses the Tool calls disclosure chrome and keeps its body collapsed by default', () => {
     const ctxView = render(
       <MessageItem t={t} node={{
         kind: 'context',
         seq: 3,
-        content: [{ type: 'text', text: 'x\n"y":,[{}]' }],
+        content: [{ type: 'text', text: 'line one\n\nline two' }],
         source: { kind: 'plugin', plugin: 'fixture', empty: {}, list: [] },
+        provenance: { role: 'inject', label: 'fixture' },
+        form: null,
       } as never}
       />,
     )
-    const disclosure = ctxView.getByRole('button', { name: '上下文注入' })
+    const disclosure = ctxView.getByRole('button', { name: /^上下文注入\s*fixture$/ })
     expect(disclosure.getAttribute('aria-expanded')).toBe('false')
     expect(ctxView.container.querySelector('[data-context-injection-body]')).toBeNull()
     expect(ctxView.container.querySelector('svg')).not.toBeNull()
 
     fireEvent.click(disclosure)
     expect(disclosure.getAttribute('aria-expanded')).toBe('true')
-    expect(ctxView.container.querySelector('[data-context-injection-body]')?.textContent).toBe(
-      '{ "content": [ { "type": "text", "text": "x\\n\\"y\\":,[{}]" } ], '
-      + '"source": { "kind": "plugin", "plugin": "fixture", "empty": {}, "list": [] } }',
-    )
+    // An unknown form renders the opaque body: the model-facing text keeps its
+    // real line breaks instead of being escaped into one JSON line, and the
+    // remaining provenance follows it as fields.
+    expect(ctxView.container.querySelector('[data-context-text]')?.textContent)
+      .toBe('line one\n\nline two')
+    const fields = [...ctxView.container.querySelectorAll('[data-context-fields] dt')].map(node => node.textContent)
+    expect(fields).toEqual(['plugin', 'empty', 'list'])
 
     fireEvent.keyDown(disclosure, { key: ' ' })
     expect(disclosure.getAttribute('aria-expanded')).toBe('false')
   })
 
-  it('context preserves the bounded JSON truncation contract', () => {
+  it('the instructions form names the files it reconciled above their text', () => {
     const view = render(
       <MessageItem t={t} node={{
         kind: 'context',
         seq: 3,
-        content: [{ type: 'text', text: 'x'.repeat(21_000) }],
+        content: [{ type: 'text', text: '<system-reminder>\nInstructions from: AGENTS.md\n</system-reminder>' }],
+        source: {
+          kind: 'workspace-instructions',
+          form: 'instructions',
+          baseline: true,
+          changes: [
+            { action: 'set', scope: '.\u0000AGENTS.md', path: 'AGENTS.md', digest: 'abc' },
+            { action: 'remove', scope: 'sub\u0000AGENTS.md', path: 'sub/AGENTS.md' },
+            { action: 'replace', scope: '.\u0000AGENTS.md', path: 'AGENTS.md' },
+          ],
+        },
+        provenance: { role: 'inject', label: 'AGENTS.md, sub/AGENTS.md' },
+        form: 'instructions',
+      } as never}
+      />,
+    )
+    fireEvent.click(view.getByRole('button', { name: /^上下文注入\s*AGENTS\.md, sub\/AGENTS\.md$/ }))
+    const files = [...view.container.querySelectorAll('[data-context-files] li')].map(node => node.textContent)
+    expect(files).toEqual(['AGENTS.md已载入', 'sub/AGENTS.md已移除'])
+    // The `<system-reminder>` framing is part of what the model read, so the
+    // body keeps it verbatim rather than presenting a cleaned-up excerpt.
+    expect(view.container.querySelector('[data-context-text]')?.textContent)
+      .toContain('<system-reminder>')
+  })
+
+  it('a delta distinguishes a newly reconciled file from a rewritten one', () => {
+    const view = render(
+      <MessageItem t={t} node={{
+        kind: 'context',
+        seq: 3,
+        content: [{ type: 'text', text: 'delta' }],
+        source: {
+          kind: 'workspace-instructions',
+          form: 'instructions',
+          changes: [
+            { action: 'set', scope: 'a', path: 'new/AGENTS.md' },
+            { action: 'replace', scope: 'b', path: 'old/AGENTS.md' },
+          ],
+        },
+        provenance: { role: 'inject', label: 'new/AGENTS.md, old/AGENTS.md' },
+        form: 'instructions',
+      } as never}
+      />,
+    )
+    fireEvent.click(view.getByRole('button', { name: /^上下文注入\s*new\/AGENTS\.md, old\/AGENTS\.md$/ }))
+    const files = [...view.container.querySelectorAll('[data-context-files] li')].map(node => node.textContent)
+    expect(files).toEqual(['new/AGENTS.md已新增', 'old/AGENTS.md已更新'])
+  })
+
+  it('keeps an interleaved unknown block in the order the model received it', () => {
+    const view = render(
+      <MessageItem t={t} node={{
+        kind: 'context',
+        seq: 3,
+        content: [
+          { type: 'text', text: 'before' },
+          { type: 'future-block', payload: 1 },
+          { type: 'text', text: 'after' },
+        ],
         source: null,
+        provenance: { role: 'inject', label: null },
+        form: null,
       } as never}
       />,
     )
     fireEvent.click(view.getByRole('button', { name: '上下文注入' }))
-    expect(view.container.querySelector('[data-context-injection-body]')?.textContent)
+    const texts = [...view.container.querySelectorAll('[data-context-text]')].map(node => node.textContent)
+    expect(texts).toEqual(['before', 'after'])
+    expect(view.getByText(/未知内容块/)).toBeTruthy()
+  })
+
+  it('the catalog form lists its durable entries instead of the model-facing prose', () => {
+    const view = render(
+      <MessageItem t={t} node={{
+        kind: 'context',
+        seq: 3,
+        content: [{ type: 'text', text: '<system-reminder>\n<available_skills>\n- `a`: A\n</available_skills>' }],
+        source: {
+          kind: 'skill-catalog',
+          form: 'catalog',
+          entries: [{ name: 'a-skill', description: 'Does A' }, { name: 'b-skill', description: 'Does B' }],
+        },
+        provenance: { role: 'inject', label: 'skill-catalog' },
+        form: 'catalog',
+      } as never}
+      />,
+    )
+    fireEvent.click(view.getByRole('button', { name: /^上下文注入\s*skill-catalog$/ }))
+    const entries = [...view.container.querySelectorAll('[data-context-entries] li')].map(node => node.textContent)
+    expect(entries).toEqual(['a-skillDoes A', 'b-skillDoes B'])
+    expect(view.container.querySelector('[data-context-text]')).toBeNull()
+    expect(view.container.querySelector('[data-context-catalog-update]')).toBeNull()
+  })
+
+  it('a replacement catalog says so above its entries', () => {
+    const view = render(
+      <MessageItem t={t} node={{
+        kind: 'context',
+        seq: 3,
+        content: [{ type: 'text', text: 'catalog prose' }],
+        source: {
+          kind: 'skill-catalog',
+          form: 'catalog',
+          update: true,
+          entries: [{ name: 'a-skill', description: 'Does A' }],
+        },
+        provenance: { role: 'inject', label: 'skill-catalog' },
+        form: 'catalog',
+      } as never}
+      />,
+    )
+    fireEvent.click(view.getByRole('button', { name: /^上下文注入\s*skill-catalog$/ }))
+    expect(view.container.querySelector('[data-context-catalog-update]')?.textContent).toBe('替换目录')
+  })
+
+  it('a partially unreadable catalog falls back whole rather than showing a short list', () => {
+    // All-or-nothing: a body that replaces the model-facing text must not show
+    // a confident, incomplete account of what the model read.
+    const view = render(
+      <MessageItem t={t} node={{
+        kind: 'context',
+        seq: 3,
+        content: [{ type: 'text', text: 'catalog prose' }],
+        source: {
+          kind: 'skill-catalog',
+          form: 'catalog',
+          entries: [{ name: 'a-skill', description: 'Does A' }, { name: 'b-skill' }],
+        },
+        provenance: { role: 'inject', label: 'skill-catalog' },
+        form: 'catalog',
+      } as never}
+      />,
+    )
+    fireEvent.click(view.getByRole('button', { name: /^上下文注入\s*skill-catalog$/ }))
+    expect(view.container.querySelector('[data-context-entries]')).toBeNull()
+    expect(view.container.querySelector('[data-context-text]')?.textContent).toBe('catalog prose')
+    // The marker reports what rendered, not what was declared.
+    expect(view.container.querySelector('[data-context-injection-body]')?.getAttribute('data-context-form'))
+      .toBeNull()
+  })
+
+  it('an unreadable instruction list falls back to the opaque body with its fields', () => {
+    const view = render(
+      <MessageItem t={t} node={{
+        kind: 'context',
+        seq: 3,
+        content: [{ type: 'text', text: 'instruction prose' }],
+        source: { kind: 'workspace-instructions', form: 'instructions', changes: [{ action: 'set' }] },
+        provenance: { role: 'inject', label: 'workspace-instructions' },
+        form: 'instructions',
+      } as never}
+      />,
+    )
+    fireEvent.click(view.getByRole('button', { name: /^上下文注入\s*workspace-instructions$/ }))
+    expect(view.container.querySelector('[data-context-files]')).toBeNull()
+    expect(view.container.querySelector('[data-context-text]')?.textContent).toBe('instruction prose')
+    expect(view.container.querySelector('[data-context-fields]')).not.toBeNull()
+  })
+
+  it('joins adjacent text blocks the way a provider adapter flattens them', () => {
+    // No invented separator: showing a line break the model never saw would
+    // misreport the request.
+    const view = render(
+      <MessageItem t={t} node={{
+        kind: 'context',
+        seq: 3,
+        content: [{ type: 'text', text: 'first' }, { type: 'text', text: 'second' }],
+        source: null,
+        provenance: { role: 'inject', label: null },
+        form: null,
+      } as never}
+      />,
+    )
+    fireEvent.click(view.getByRole('button', { name: '上下文注入' }))
+    expect(view.container.querySelector('[data-context-text]')?.textContent).toBe('firstsecond')
+  })
+
+  it('bounds an oversized provenance field, not only the model-facing text', () => {
+    const view = render(
+      <MessageItem t={t} node={{
+        kind: 'context',
+        seq: 3,
+        content: [{ type: 'text', text: 'short' }],
+        source: { kind: 'plugin', note: 'y'.repeat(21_000) },
+        provenance: { role: 'inject', label: 'plugin' },
+        form: null,
+      } as never}
+      />,
+    )
+    fireEvent.click(view.getByRole('button', { name: /^上下文注入\s*plugin$/ }))
+    expect(view.container.querySelector('[data-context-fields] dd')?.textContent)
       .toMatch(/… 已截断，共 \d+ 字符$/)
+  })
+
+  it('an empty replacement catalog stays a catalog: it retires every earlier name', () => {
+    // `renderCatalogUpdate` legitimately publishes zero entries when the last
+    // skill disappears; falling back would hide that the catalog was cleared.
+    const view = render(
+      <MessageItem t={t} node={{
+        kind: 'context',
+        seq: 3,
+        content: [{ type: 'text', text: 'catalog prose' }],
+        source: { kind: 'skill-catalog', form: 'catalog', update: true, entries: [] },
+        provenance: { role: 'inject', label: 'skill-catalog' },
+        form: 'catalog',
+      } as never}
+      />,
+    )
+    fireEvent.click(view.getByRole('button', { name: /^上下文注入\s*skill-catalog$/ }))
+    expect(view.container.querySelector('[data-context-catalog-update]')?.textContent).toBe('替换目录')
+    expect(view.container.querySelectorAll('[data-context-entries] li')).toHaveLength(0)
+    expect(view.container.querySelector('[data-context-injection-body]')?.getAttribute('data-context-form'))
+      .toBe('catalog')
+  })
+
+  it('a catalog whose entries are unreadable falls back to the opaque body', () => {
+    const view = render(
+      <MessageItem t={t} node={{
+        kind: 'context',
+        seq: 3,
+        content: [{ type: 'text', text: 'catalog prose' }],
+        source: { kind: 'skill-catalog', form: 'catalog', entries: 'not-a-list' },
+        provenance: { role: 'inject', label: 'skill-catalog' },
+        form: 'catalog',
+      } as never}
+      />,
+    )
+    fireEvent.click(view.getByRole('button', { name: /^上下文注入\s*skill-catalog$/ }))
+    expect(view.container.querySelector('[data-context-entries]')).toBeNull()
+    expect(view.container.querySelector('[data-context-text]')?.textContent).toBe('catalog prose')
+  })
+
+  it('bounds a large catalog and says how many rows it withheld', () => {
+    const entries = Array.from({ length: 205 }, (_, index) => ({ name: `s-${index}`, description: 'd' }))
+    const view = render(
+      <MessageItem t={t} node={{
+        kind: 'context', seq: 3, content: [{ type: 'text', text: 'catalog prose' }],
+        source: { kind: 'skill-catalog', form: 'catalog', entries },
+        provenance: { role: 'inject', label: 'skill-catalog' },
+        form: 'catalog',
+      } as never}
+      />,
+    )
+    fireEvent.click(view.getByRole('button', { name: /^上下文注入\s*skill-catalog$/ }))
+    expect(view.container.querySelectorAll('[data-context-entries] li')).toHaveLength(200)
+    expect(view.container.querySelector('[data-context-entries-truncated]')?.textContent).toBe('…还有 5 条')
+  })
+
+  it('a catalog keeps a content block this version does not know', () => {
+    const view = render(
+      <MessageItem t={t} node={{
+        kind: 'context',
+        seq: 3,
+        content: [{ type: 'text', text: 'prose' }, { type: 'future-block', payload: 1 }],
+        source: { kind: 'skill-catalog', form: 'catalog', entries: [{ name: 'a', description: 'b' }] },
+        provenance: { role: 'inject', label: 'skill-catalog' },
+        form: 'catalog',
+      } as never}
+      />,
+    )
+    fireEvent.click(view.getByRole('button', { name: /^上下文注入\s*skill-catalog$/ }))
+    expect(view.getByText(/未知内容块/)).toBeTruthy()
+  })
+
+  it('an instruction change with an unrecognized action falls back whole', () => {
+    // The action decides the word the row shows, so an unknown one cannot be
+    // presented as loaded or updated.
+    const view = render(
+      <MessageItem t={t} node={{
+        kind: 'context',
+        seq: 3,
+        content: [{ type: 'text', text: 'instruction prose' }],
+        source: { kind: 'workspace-instructions', form: 'instructions', changes: [{ action: 'merge', path: 'A.md' }] },
+        provenance: { role: 'inject', label: 'workspace-instructions' },
+        form: 'instructions',
+      } as never}
+      />,
+    )
+    fireEvent.click(view.getByRole('button', { name: /^上下文注入\s*workspace-instructions$/ }))
+    expect(view.container.querySelector('[data-context-files]')).toBeNull()
+    expect(view.container.querySelector('[data-context-text]')?.textContent).toBe('instruction prose')
+  })
+
+  it('the opaque fallback keeps a form declaration this version cannot present', () => {
+    // Otherwise a newer or foreign log's declared shape vanishes from the UI.
+    const view = render(
+      <MessageItem t={t} node={{
+        kind: 'context', seq: 3, content: [{ type: 'text', text: 'x' }],
+        source: { kind: 'plugin', plugin: 'later', form: 'a-later-form' },
+        provenance: { role: 'inject', label: 'later' },
+        form: null,
+      } as never}
+      />,
+    )
+    fireEvent.click(view.getByRole('button', { name: /^上下文注入\s*later$/ }))
+    const fields = [...view.container.querySelectorAll('[data-context-fields] dt')].map(node => node.textContent)
+    expect(fields).toEqual(['plugin', 'form'])
   })
 
   it('unknown nodes retain the generic JSON row', () => {

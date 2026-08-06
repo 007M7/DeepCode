@@ -262,6 +262,7 @@ describe('web e2e: seeded history renders through cold resume', () => {
       }],
       source: {
         kind: 'workspace-instructions',
+        form: 'instructions',
         baseline: true,
         changes: [{
           action: 'set',
@@ -271,7 +272,10 @@ describe('web e2e: seeded history renders through cold resume', () => {
         }],
       },
     }), { surfaceOp: 'append' })
-    await page.getByRole('button', { name: 'Context injection' }).waitFor({ timeout: 10_000 })
+    // The header names the producer the durable source records, so the
+    // reconciled instruction file is readable without expanding the row.
+    await page.getByRole('button', { name: 'Context injection AGENTS.md', exact: true })
+      .waitFor({ timeout: 10_000 })
   }, 60_000)
 
   it.skipIf(MODE === 'record')('matches the historical conversation aria golden', async () => {
@@ -288,7 +292,7 @@ describe('web e2e: seeded history renders through cold resume', () => {
 
   it.skipIf(MODE === 'record')('matches the Figma context disclosure geometry', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-context-injection'))
-    const disclosure = page.getByRole('button', { name: 'Context injection' })
+    const disclosure = page.getByRole('button', { name: 'Context injection AGENTS.md', exact: true })
     expect(await disclosure.getAttribute('aria-expanded')).toBe('false')
     const collapsedIcon = disclosure.locator('svg').first()
     const collapsedIconBox = await collapsedIcon.boundingBox()
@@ -299,6 +303,10 @@ describe('web e2e: seeded history renders through cold resume', () => {
     await expect.poll(() => disclosure.getAttribute('aria-expanded')).toBe('true')
     const body = page.locator('[data-context-injection-body]')
     await body.waitFor({ timeout: 5_000 })
+    // The instructions form names the file it reconciled above the text, and
+    // the text keeps the framing the model read rather than a cleaned excerpt.
+    expect(await body.locator('[data-context-files] li').allInnerTexts()).toEqual(['AGENTS.md\nloaded'])
+    expect(await body.locator('[data-context-text]').innerText()).toContain('<system-reminder>')
     const headerBox = await disclosure.boundingBox()
     const bodyBox = await body.boundingBox()
     if (headerBox === null || bodyBox === null) throw new Error('context disclosure geometry is not measurable')
@@ -399,13 +407,14 @@ describe('web e2e: seeded history renders through cold resume', () => {
       source: { kind: 'plugin', plugin: 'fixture' },
     }), { surfaceOp: 'append' })
 
-    const disclosures = page.getByRole('button', { name: 'Context injection' })
-    await expect.poll(() => disclosures.count(), { timeout: 10_000 }).toBe(2)
-    const disclosure = disclosures.nth(1)
+    const disclosure = page.getByRole('button', { name: 'Context injection fixture', exact: true })
+    await disclosure.waitFor({ timeout: 10_000 })
     await disclosure.click()
     await expect.poll(() => disclosure.getAttribute('aria-expanded')).toBe('true')
 
-    const body = page.locator('[data-context-injection-body]')
+    // The instructions row above stays expanded from the geometry case; the
+    // opaque body is the one without a declared form.
+    const body = page.locator('[data-context-injection-body]:not([data-context-form])')
     const bodyBox = await body.boundingBox()
     if (bodyBox === null) throw new Error('short context disclosure geometry is not measurable')
     expect(bodyBox.height).toBeLessThan(141)

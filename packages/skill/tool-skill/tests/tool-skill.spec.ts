@@ -113,8 +113,15 @@ async function proposeStep(
 
 function catalogMessages(session: Session): Extract<SessionEvent, { type: 'user/message' }>[] {
   return session.events.filter((event): event is Extract<SessionEvent, { type: 'user/message' }> => event.type === 'user/message'
-    && event.data.source.kind === 'plugin'
-    && event.data.source.plugin === 'dsh-tool-skill')
+    && event.data.source.kind === 'skill-catalog')
+}
+
+function readableCatalog(event: Extract<SessionEvent, { type: 'user/message' }>): boolean {
+  const entries = (event.data.source as { entries?: unknown }).entries
+  return Array.isArray(entries)
+    && entries.every(entry => typeof entry === 'object' && entry !== null
+      && typeof (entry as { name?: unknown }).name === 'string'
+      && typeof (entry as { description?: unknown }).description === 'string')
 }
 
 function catalogContent(entries: string[]): Message['content'] {
@@ -261,7 +268,15 @@ describe('dsh-tool-skill', () => {
       {
         id: expect.any(String) as unknown,
         role: 'user',
-        source: { kind: 'plugin', plugin: 'dsh-tool-skill' },
+        source: {
+          kind: 'skill-catalog',
+          form: 'catalog',
+          entries: [
+            { name: 'a-skill', description: 'Use {{placeholder}} <safely> & carefully.' },
+            { name: 'model-only-skill', description: 'Model-only skill.' },
+            { name: 'z-skill', description: 'Long description Long description Long descript...' },
+          ],
+        },
         content: [{
           type: 'text',
           text: [
@@ -394,14 +409,22 @@ describe('dsh-tool-skill', () => {
     const home = await tempDir('tool-proposed-empty-catalog')
     const ctx = await setup(home)
     const session = Session.create(SessionId('proposed-empty-catalog'))
+    const malformed = createUserMessage({
+      content: [{ type: 'text', text: 'preserve unreadable claimed context' }],
+      source: { kind: 'skill-catalog', form: 'catalog' } as never,
+    })
     const stale = createUserMessage({
       content: catalogContent(['- `stale-skill`: Stale skill']),
-      source: { kind: 'plugin', plugin: 'dsh-tool-skill' },
+      source: {
+        kind: 'skill-catalog',
+        form: 'catalog',
+        entries: [{ name: 'stale-skill', description: 'Stale skill' }],
+      },
     })
 
-    const decision = await proposeStep(ctx, sessionAgent(session), [stale])
+    const decision = await proposeStep(ctx, sessionAgent(session), [malformed, stale])
 
-    expect(decision).toEqual({ kind: 'enter', messages: [] })
+    expect(decision).toEqual({ kind: 'enter', messages: [malformed] })
   })
 
   it('keeps a proposed catalog that already matches the current snapshot', async () => {
@@ -416,7 +439,11 @@ describe('dsh-tool-skill', () => {
     const session = Session.create(SessionId('matching-proposal'))
     const proposed = createUserMessage({
       content: catalogContent(['- `first-skill`: First skill']),
-      source: { kind: 'plugin', plugin: 'dsh-tool-skill' },
+      source: {
+        kind: 'skill-catalog',
+        form: 'catalog',
+        entries: [{ name: 'first-skill', description: 'First skill' }],
+      },
     })
 
     const decision = await proposeStep(ctx, sessionAgent(session), [proposed])
@@ -468,7 +495,12 @@ describe('dsh-tool-skill', () => {
     expect(catalogMessages(session)).toHaveLength(3)
   })
 
-  it('resumes from the latest valid visible catalog content', async () => {
+  it('resumes from the durable entries of the latest visible catalog', async () => {
+    // Catalog identity moved onto `source.entries` when the catalog became a
+    // `catalog`-form context: the model-facing prose no longer decides whether
+    // a republish is needed, so a seeded message is recognized by its source
+    // alone and malformed prose can no longer hide (or fake) a published
+    // catalog. A foreign-sourced message is not this plugin's catalog at all.
     const home = await tempDir('tool-catalog-resume')
     const ctx = await setup(home)
     ctx.skills.register({
@@ -481,30 +513,78 @@ describe('dsh-tool-skill', () => {
     const agent = sessionAgent(session)
     openMessageTurn(session)
     session.append('user/message', createUserMessage({
-      content: catalogContent(['- `old-skill`: Old skill']),
-      source: { kind: 'plugin', plugin: 'dsh-tool-skill' },
+      content: [{ type: 'text', text: 'prose a reader cannot rely on' }],
+      source: {
+        kind: 'skill-catalog',
+        form: 'catalog',
+        entries: [{ name: 'old-skill', description: 'Old skill' }],
+      },
     }), { surfaceOp: 'append' })
     session.append('user/message', createUserMessage({
-      content: [{ type: 'text', text: 'missing catalog markers' }],
-      source: { kind: 'plugin', plugin: 'dsh-tool-skill' },
-    }), { surfaceOp: 'append' })
-    session.append('user/message', createUserMessage({
-      content: [{ type: 'text', text: '<available_skills>\nmissing closing marker' }],
-      source: { kind: 'plugin', plugin: 'dsh-tool-skill' },
-    }), { surfaceOp: 'append' })
-    session.append('user/message', createUserMessage({
-      content: [{ type: 'text', text: 'first block' }, { type: 'text', text: 'second block' }],
-      source: { kind: 'plugin', plugin: 'dsh-tool-skill' },
-    }), { surfaceOp: 'append' })
-    session.append('user/message', createUserMessage({
-      content: [{ type: 'reasoning', text: 'not a user-role catalog block' }],
+      content: catalogContent(['- `resumed-skill`: Resumed skill']),
       source: { kind: 'plugin', plugin: 'dsh-tool-skill' },
     }), { surfaceOp: 'append' })
 
     await fireStep(ctx, agent, 1, 1)
 
-    expect(catalogMessages(session)).toHaveLength(6)
-    expect(JSON.stringify(catalogMessages(session).at(-1)?.data.content)).toContain('resumed-skill')
+    // The seeded entries differ from the live snapshot, so one replacement
+    // lands; the foreign-sourced lookalike neither counts as published nor
+    // suppresses it.
+    expect(catalogMessages(session)).toHaveLength(2)
+    const latest = catalogMessages(session).at(-1)
+    expect(latest?.data.source).toMatchObject({
+      kind: 'skill-catalog',
+      form: 'catalog',
+      update: true,
+      entries: [{ name: 'resumed-skill', description: 'Resumed skill' }],
+    })
+    expect(JSON.stringify(latest?.data.content)).toContain('resumed-skill')
+
+    // A second step over unchanged entries republishes nothing.
+    await fireStep(ctx, agent, 1, 2)
+    expect(catalogMessages(session)).toHaveLength(2)
+  })
+
+  it('treats a malformed durable catalog as unrecognizable instead of failing the step', async () => {
+    // Seeds reach `agent.session.events` from JSONL/SQLite on resume or fork,
+    // and seed validation only guarantees a source object with a non-empty
+    // `kind`. A catalog whose entries are missing or wrongly shaped must be
+    // skipped like any foreign record; throwing here would fail every later
+    // step of that session at the latest possible point.
+    const home = await tempDir('tool-catalog-malformed')
+    const ctx = await setup(home)
+    ctx.skills.register({
+      name: 'live-skill',
+      description: 'Live skill',
+      source: 'runtime',
+      content: 'Live body.',
+    })
+    const session = Session.create(SessionId('catalog-malformed'))
+    const agent = sessionAgent(session)
+    openMessageTurn(session)
+    for (const source of [
+      { kind: 'skill-catalog', form: 'catalog' },
+      { kind: 'skill-catalog', form: 'catalog', entries: null },
+      { kind: 'skill-catalog', form: 'catalog', entries: 'not-an-array' },
+      { kind: 'skill-catalog', form: 'catalog', entries: [null] },
+      { kind: 'skill-catalog', form: 'catalog', entries: [{ name: 'x' }] },
+      { kind: 'skill-catalog', form: 'catalog', entries: [{ description: 'no name' }] },
+    ]) {
+      session.append('user/message', createUserMessage({
+        content: [{ type: 'text', text: 'unreadable catalog' }],
+        source: source as never,
+      }), { surfaceOp: 'append' })
+    }
+
+    await expect(fireStep(ctx, agent, 1, 1)).resolves.toBeUndefined()
+
+    // None of the six counted as published, so the live catalog lands as a
+    // first publication rather than a replacement.
+    const published = catalogMessages(session).filter(event => readableCatalog(event))
+    expect(published).toHaveLength(1)
+    expect(published[0]?.data.source).toMatchObject({ kind: 'skill-catalog', form: 'catalog' })
+    expect(published[0]?.data.source).not.toHaveProperty('update')
+    expect(JSON.stringify(published[0]?.data.content)).toContain('live-skill')
   })
 
   it('re-establishes the current catalog after compaction hides its durable message', async () => {
