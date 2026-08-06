@@ -1,5 +1,6 @@
 /**
- * ui-skill browser half: source registration (duplicate-name proof) +
+ * ui-skill browser half: source and keyed toolview registration +
+ * locale dictionaries + source duplicate-name proof +
  * fiber-teardown removal (HMR safety) against the real SlashService, then
  * the source behavior contract driven directly on the captured source with
  * real ClientSessionContext projections — sessionId addressing, the
@@ -16,12 +17,45 @@ import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import { SlashService } from '@deepseek-ai/dsh-client-ui-slash/client'
 import type { ClientSessionContext, SlashSource } from '@deepseek-ai/dsh-client-ui-slash/client'
 import { apply, inject } from '../src/client/index.ts'
+import { SkillRow as SkillToolRow } from '../src/client/SkillRow.tsx'
 
 type SkillRow = { name: string; description: string; whenToUse?: string }
 type ListResult =
   | { ok: true; value: { skills: SkillRow[] } }
   | { ok: false; error: { code: string; message: string; details: object } }
 type ListFn = (payload: object, signal?: AbortSignal) => Promise<{ result: ListResult }>
+
+interface PresentationRegistration {
+  name: string
+  key?: string
+  locale?: string
+}
+
+interface PresentationCapture {
+  registration?: PresentationRegistration
+  component?: unknown
+  dictionaries: Array<{ namespace: string; dictionaries: unknown }>
+}
+
+/** Provide the presentation registries and capture the plugin's registrations. */
+function providePresentation(ctx: Context): PresentationCapture {
+  const capture: PresentationCapture = { dictionaries: [] }
+  ctx.provide('locale', {
+    register(namespace: string, dictionaries: unknown) {
+      capture.dictionaries.push({ namespace, dictionaries })
+      return () => {}
+    },
+  })
+  ctx.provide('slots', {
+    inject(_name: string, factory: () => unknown) { factory() },
+    register(registration: PresentationRegistration, component: unknown) {
+      capture.registration = registration
+      capture.component = component
+      return () => {}
+    },
+  })
+  return capture
+}
 
 /** Boot the plugin over fake slash/connection faces; returns the captured source and its ctx. */
 async function bench(list: ListFn, addressed?: SessionId) {
@@ -34,6 +68,7 @@ async function bench(list: ListFn, addressed?: SessionId) {
       ? { parentSessionId: sid('parent'), childSessionId: id, mode: 'continuable' as const }
       : undefined,
   })
+  providePresentation(ctx)
   await ctx.plugin({ inject: [...inject], apply }).await()
   return { ctx, source: captured! }
 }
@@ -65,7 +100,36 @@ const req = (query: string, signal?: AbortSignal) =>
 
 describe('apply', () => {
   it('declares the services it binds', () => {
-    expect(inject).toEqual(['slash', 'connection', 'sessions'])
+    expect(inject).toEqual(['slash', 'connection', 'sessions', 'slots', 'locale'])
+  })
+
+  it('registers the dedicated skill row and its locale dictionaries', async () => {
+    const ctx = new Context()
+    ctx.provide('slash', { registerSource: () => () => {} })
+    ctx.provide('connection', { api: { skills: { list: listOk(CATALOG) } } })
+    ctx.provide('sessions', { subagentAddress: () => undefined })
+    const presentation = providePresentation(ctx)
+    await ctx.plugin({ inject: [...inject], apply }).await()
+    expect(presentation.registration).toEqual({
+      name: 'conversation.chat.toolview', key: 'skill', locale: 'skill',
+    })
+    expect(presentation.component).toBe(SkillToolRow)
+    expect(presentation.dictionaries).toEqual([{
+      namespace: 'skill', dictionaries: {
+        zh: {
+          'row.running': '正在加载 skill',
+          'row.failed': 'skill 加载失败',
+          'row.stopped': 'skill 加载已中止',
+          'row.instructions': '说明',
+        },
+        en: {
+          'row.running': 'Loading skill',
+          'row.failed': 'Skill load failed',
+          'row.stopped': 'Skill load stopped',
+          'row.instructions': 'Instructions',
+        },
+      },
+    }])
   })
 
   it('registers the "/" skill source; disposal frees the name (HMR safety)', async () => {
@@ -74,6 +138,7 @@ describe('apply', () => {
     ctx.provide('sessions', {})
     await ctx.plugin(SlashService).await()
     ctx.provide('connection', { api: { skills: { list: listOk(CATALOG) } } })
+    providePresentation(ctx)
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
     const slash = ctx.get('slash') as SlashService

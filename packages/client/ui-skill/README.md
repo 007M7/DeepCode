@@ -8,6 +8,10 @@ A failed `skill.list` throws from `candidates`, which the slash shell logs and f
 
 The `/client` export surface is the plugin body (`apply`/`inject`) only; the source object is internal to the registration effect.
 
+## Skill tool row
+
+The browser plugin also registers a keyed `skill` toolview in `conversation.chat.toolview`. A collapsed row renders the 16-pixel skill document-and-sparkle glyph, `Skill` title, separator, and requested skill name with the same neutral hierarchy as the Bash row; running calls carry the transcript shimmer, failures replace the name with the first error line, and interrupted calls use the warning state. A settled row expands as one whole-row disclosure into a bounded `Instructions` card containing the exact durable tool output, with the standard trajectory `Inspect` affordance when available. The row derives its name, lifecycle, and body only from the logged call/result slice, never from the current catalog, so cold replay remains stable even when installed skills or their descriptions change.
+
 ## Model Experience
 
 ### Skill reference text in the user prompt
