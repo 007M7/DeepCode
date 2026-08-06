@@ -2,9 +2,9 @@
 
 [English](README.md) | 中文
 
-dsh 一次性任务组合包。[`cordis.patch.yml`](cordis.patch.yml) 直接叠加在 [`dsh-base`](../base/README.md) 之上：提供编码 persona 和工具模式、禁用 HMR（热模块替换）、将 Code Mode 的 worker 作为核心执行能力挂载，并插入本包的 `headless-runner` 插件（配置为 `{task}`）。它不挂载任何 Host、HTTP server、Web runtime 或浏览器插件。
+dsh 一次性任务组合包。[`cordis.patch.yml`](cordis.patch.yml) 直接叠加在 [`dsh-base`](../base/README.md) 之上：提供编码 persona 和工具模式、禁用 HMR（热模块替换）、将 Code Mode 的 worker 作为核心执行能力挂载，并插入本包的 `headless-runner` 插件（配置为 `{task}`，在启动行供给任务之前以禁用状态交付）。它不挂载任何 Host、HTTP server、Web runtime 或浏览器插件。
 
-Loader 结算后，runner 读取共享的 [`ctx.agentDefaultModel`](../../core/agent-default-model/README.md)，通过 `ctx.agents` 创建一个全新的持久化 Agent（智能体），将任务作为普通用户消息提交，并等待完全停稳。它对 Session 执行 flush 后再汇总自身持有的持久化事件区间，将最后一条非空 assistant 文本写入 stdout，再经启动器提供的 `ctx.headlessIo` 宿主钩子请求退出（最终 `turn/end` 完成 → 0，否则为 1）。最终 reason 为 `error` 时，还会将持久化的 code 与 message 写入 stderr；成功运行时 stderr 保持为空。进程不会打开监听端口。启动器把任务文本 patch 进来（`dsh run "task"`）；若所选 profile 缺少该行，则显式报错。
+Loader 结算后，runner 读取共享的 [`ctx.agentDefaultModel`](../../core/agent-default-model/README.md)，通过 `ctx.agents` 创建一个全新的持久化 Agent（智能体），将任务作为普通用户消息提交，并等待完全停稳。它对 Session 执行 flush 后再汇总自身持有的持久化事件区间，将最后一条非空 assistant 文本写入 stdout，再经启动器提供的 `ctx.headlessIo` 宿主钩子请求退出（最终 `turn/end` 完成 → 0，否则为 1）。最终 reason 为 `error` 时，还会将持久化的 code 与 message 写入 stderr；成功运行时 stderr 保持为空。进程不会打开监听端口。任务文本就是这个应用的命令行：`headless-startup` 行（[`src/startup.ts`](src/startup.ts)）从 `ctx.cmdlineArgs`（[`dsh-cmdline`](../../boot/cmdline/README.md)）把它读作 `dsh --profile headless "task"` 的位置参数，打印应用自己的 `--help`，并拒绝没有任务的调用，而不是让 runner 的 schema 失败。
 
 ## 模型体验
 

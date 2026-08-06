@@ -3,9 +3,13 @@
 # the profile's own cordis.patch.yml and any --patch overlays still to come.
 #
 # A patch replaces the targeted row's whole `config`, so each row below
-# restates every key it owns. The `dsh web` launcher alias turns --host/--port/
-# --dev/--trusted-host into further patches over these rows
-# (`--dev` inserts the dsh-client-hmr row).
+# restates every key it owns.
+#
+# Rows this app configures from flags declare `inject: [webStartup]`: they wait
+# until the web-startup row has parsed --host/--port/--dev/--workspace-root/
+# --trusted-host and provided that service with the resolved values.
+# `dsh --profile web --help` therefore prints this app's own help and exits
+# without ever binding a port.
 
 # ── surface-specific values the base deliberately omits ─────────────────────
 
@@ -76,6 +80,11 @@
     - id: api-gateway
       name: '@deepseek-ai/dsh-host-apiproxy'
 
+    # Owns the web flag family and its --help; provides webStartup with the
+    # values this invocation resolved. Nothing waiting on it starts first.
+    - id: web-startup
+      name: '@deepseek-ai/dsh-web-app/startup'
+
     # ── layer 2: transport/service ──────────────────────────────────────────────
 
     # Plain route-registration carrier; host and port arrive as `dsh web`
@@ -83,6 +92,7 @@
     # row below through the fallback seat.
     - id: webserver
       name: '@deepseek-ai/dsh-host-webserver'
+      inject: [webStartup]
       config:
         host: 127.0.0.1
         port: 3080
@@ -96,12 +106,19 @@
     # these host-owned shell variables.
     - id: web-runtime
       name: '@deepseek-ai/dsh-web-app'
+      inject: [webStartup]
       config:
         mode: production
         printUrl: true
         surfaceContext: true
 
-    # ── browser plugin roster (dsh.client rows; node halves are layer-2 hosts) ──
+    # The client-plugin HMR receiver ships disabled; `--dev` enables it.
+    - id: client-hmr
+      name: '@deepseek-ai/dsh-client-hmr'
+      inject: [webStartup]
+      disabled: true
+
+    # ── browser plugin roster (dshClient rows; node halves are layer-2 hosts) ──
 
     # Dual-face: node half scans this very tree for dsh.client rows, composes
     # window.__DSH_BOOT__, serves /plugins/<id>/client.js; browser half is the
@@ -114,6 +131,7 @@
     # webserver under /api; browser half is the fetch/SSE client.
     - id: connection
       name: '@deepseek-ai/dsh-client-connection'
+      inject: [webStartup]
 
     - id: api-remotes
       name: '@deepseek-ai/dsh-api-remotes'

@@ -15,6 +15,12 @@
       "path": "../../../vendor/schemastery"
     },
     {
+      "path": "../../../vendor/loader"
+    },
+    {
+      "path": "../../ui/cmdline"
+    },
+    {
       "path": "../../host/frontend-static"
     },
     {

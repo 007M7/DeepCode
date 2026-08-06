@@ -31,6 +31,12 @@
     },
     {
       "path": "../../support/invariants"
+    },
+    {
+      "path": "../../ui/cmdline"
+    },
+    {
+      "path": "../web-app"
     }
   ]
 }
