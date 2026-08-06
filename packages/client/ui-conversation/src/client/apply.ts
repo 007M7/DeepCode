@@ -1,6 +1,6 @@
 /** Registers the conversation components, shared store, and service callbacks. */
 import type { Context } from 'cordis'
-import { deferRegistration, resolveSlotLabel, type BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
+import { resolveSlotLabel, type BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ISessions, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
@@ -98,20 +98,16 @@ export function apply(ctx: Context): void {
   const chatStore = createChatStore()
   const submissionPolicy = new ComposerSubmissionPolicy()
 
-  ctx.effect(() => {
-    const row = deferRegistration(ctx.slots, 'settings.general.item', EnterBehaviorRow, () =>
-      ctx.slots.register({
-        name: 'settings.general.item',
-        id: 'composer-enter',
-        order: 20,
-        locale: NS,
-        inject: (): EnterBehaviorRowInjected => ({
-          hooks: { busyEnter: submissionPolicy.busyEnter },
-          setBusyEnter: (behavior) => { submissionPolicy.setBusyEnter(behavior) },
-        }),
-      }, EnterBehaviorRow))
-    return () => { row.dispose() }
-  }, 'ui-conversation: Enter behavior settings row')
+  ctx.slots.inject('settings.general.item', () => ctx.slots.register({
+    name: 'settings.general.item',
+    id: 'composer-enter',
+    order: 20,
+    locale: NS,
+    inject: (): EnterBehaviorRowInjected => ({
+      hooks: { busyEnter: submissionPolicy.busyEnter },
+      setBusyEnter: (behavior) => { submissionPolicy.setBusyEnter(behavior) },
+    }),
+  }, EnterBehaviorRow))
 
   // Chat semantic reader positions by session, surviving view switches and
   // width reflow when the tab ring remounts the view. Deliberately not
@@ -338,13 +334,11 @@ export function apply(ctx: Context): void {
 
   // Class-plugin mount (packages/AGENTS.md service form): the service
   // registers itself as `conversation` and lives on its own child fiber.
-  // Mounted AFTER the chat entry register above — construction guarantee for
-  // toolview registrants using `inject: ['conversation']` as their load-order
-  // seam: the service being present implies the chat entry (and with it the
-  // 'conversation.chat.toolview' declaration) is on the ledger.
+  // Presentation registrants depend directly on their slot declarations;
+  // this service remains only where conversation actions are required.
   ctx.plugin(ConversationService, { input: inputHub })
 
-  // The bash sample rides that exact seam, in third-party posture
+  // The bash sample rides the same declaration seam, in third-party posture
   // (ToolRow-matching Bash · {description} chrome).
   ctx.plugin(bashToolviewSample)
 
