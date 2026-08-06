@@ -45,7 +45,7 @@ async function bench() {
 }
 
 /** First stored entry for a key (inject/store live directly on StoredEntry). */
-function renderEntryOf(slots: Awaited<ReturnType<typeof bench>>['slots'], key: 'conversation' | 'conversation.session' | 'conversation.view' | 'details') {
+function renderEntryOf(slots: Awaited<ReturnType<typeof bench>>['slots'], key: 'conversation' | 'conversation.session' | 'conversation.session.header' | 'conversation.view' | 'details') {
   return slots.entries(key)[0] as undefined | { inject?: unknown; store?: unknown }
 }
 
@@ -73,6 +73,7 @@ describe('apply wiring', () => {
     const b = await bench()
     const conversation = renderEntryOf(b.slots, 'conversation')
     const conversationSession = renderEntryOf(b.slots, 'conversation.session')
+    const conversationHeader = renderEntryOf(b.slots, 'conversation.session.header')
     const chatView = renderEntryOf(b.slots, 'conversation.view')
     const details = renderEntryOf(b.slots, 'details')
     expect(conversation?.inject).toBeTypeOf('function')
@@ -81,6 +82,7 @@ describe('apply wiring', () => {
     // The shared handle: one apply-built store value on ALL session entries
     // (the session-maybe 'conversation' shell carries no store by design).
     expect(conversationSession?.store).toBeDefined()
+    expect(conversationHeader?.store).toBe(conversationSession?.store)
     expect(details?.store).toBe(conversationSession?.store)
     expect(chatView?.store).toBe(conversationSession?.store)
     // The hero workspace picker hole rides the conversation entry's children

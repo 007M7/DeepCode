@@ -69,9 +69,9 @@ occurrence 表与 chip 三投影：
 ### hub / facade：常驻外壳与严格 session 输入体
 
 - hub（trigger/decoration 注册表 + 发送编排）对 slash/command 服务是可选 `ctx.get()` 依赖：无 ui-slash/命令面时输入正常收发，优雅降级。
-- 每个实体 Session 只有一个 `SessionInputShell`（facade），随 session scope 创建和拆除；无 session 时不造 input machine。`ConversationRoot` 自身是 `session-maybe` 常驻外壳，持有 HeroShell、Workspace picker、composer stack 与 chain fallback 外框。
+- 每个实体 Session 只有一个 `SessionInputShell`（facade），随 session scope 创建和拆除；无 session 时不造 input machine。`ConversationRoot` 自身是 `session-maybe` 常驻外壳，持有 HeroShell、Workspace picker、composer stack 与 chain fallback 外框。它始终拥有同一个 scrollport 与 composer seat；Session 出现后，彼此独立的严格 session header 和 body outlet 只填入这些固定区域。
 - composer bar 是一个无条件渲染的 `session-maybe` slot entry：无 session 时同一个 InputBar 以惰性态渲染（machine face 缺席、`disabled` owner prop），`connectWorkspace` 返回 blank session 后同一实例转为 live——textarea DOM 在无 session → blank 切换及其后每次 phase 翻转中都不重建；`ConversationRoot`、Hero 与布局骨架全程保持。
-- ConversationRoot 的 Hero 判据是 `sessionId === undefined || (composerPhase === 'blank' && (openState === 'open' || openState === 'loading'))`。首次 submit 同步进入 engaging，失败也保留 composer 与错误上下文，不退回 blank Hero；sidebar 的 blank 位只在 prompt 成功受理后翻 false。
+- ConversationRoot 的 Hero 判据是 `sessionId === undefined || (composerPhase === 'blank' && (openState === 'open' || summaryBlank === true))`：summary 已证实为空的 Session 在任何 open state 下都保持 Hero，未经证实的 Session 则在 loading 期间进入 settling。首次 submit 同步进入 engaging，失败也保留 composer 与错误上下文，不退回 blank Hero；sidebar 的 blank 位只在 prompt 成功受理后翻 false。
 - 发送统一在 hub defaultSink：乐观清稿后只走 `session.prompt` 且固定 `mode:'queue'`（Web UI 无 steer 入口；host 线缆上的 `mode:'steer'` 不经此 machine）；失败且 live draft 仍为空才回填，用户已经继续输入则不覆盖。不存在 Draft materialize 或 attach 事务。
 - blank Hero 改选 Workspace 时，外壳调用 `connectWorkspace`；目标 session 不同时把非空 draft 从当前 shell 搬到目标 shell，再 open 新 id，旧 blank session 留存但不再 current。
 - Notifier 双位契约：`dirty`（快照新鲜度，`ensureFresh` 拉取可清）与 `notifyPending`（通知欠账，只有 flush 清）各自独立——拉取不得吞推送，对象层推订阅者（watchTransaction）依赖这一保证。
@@ -93,9 +93,10 @@ skill/@subagent 引用不走占位符 + occurrence 身份链——pick 直接把
 
 ### slot 体系
 
-`conversation` 本身是 session-maybe；其会话内容与 composer 输入 slot 严格限定为 session，Hero Workspace picker 保持 root。子 slot 均由 ui-conversation 的 conversation 注册声明：
+`conversation` 本身是 session-maybe；其会话内容与 composer 输入 slot 严格限定为 session，Hero Workspace picker 保持 root。root 注册把 header outlet 渲染在常驻 scrollport 上方，把 body outlet 渲染在其内部、常驻 composer seat 之前。子 slot 均由 ui-conversation 的 conversation 注册声明：
 
-- `conversation.session`（single）——严格 session 的 header、view ring 与 chat store；session id 切换时重建。
+- `conversation.session.header`（single）——常驻 scrollport 上方严格 session 的 breadcrumb、view tab 与 header action。
+- `conversation.session`（single）——常驻 scrollport 内严格 session 的 view ring 与 draft mirror。header 和 body 共享同一个 session scope chat store；session id 切换时各自重建。
 - `conversation.composer.bar`（single）——InputBar 本体的 slot：InputBar 是真 slot entry（自有 slot 自注册），composer chain fallback 的内容；不做 chain entry——chain 单选举会在 takeover 时卸载它，破坏 textarea DOM 存活。
 - `conversation.input.overlay`——输入卡内浮层锚点；注册者 inject 按 slot sessionId 解析各自 per-session controller。
 - `conversation.input.dock`——输入上方堆叠条（QueueDock 的队列只读列表落此），order 定序。
@@ -128,7 +129,7 @@ skill/@subagent 引用不走占位符 + occurrence 身份链——pick 直接把
 
 ## 后果
 
-- 一个常驻 conversation 外壳承接 no-session/blank/active：无 session → blank 只保证大框架 React identity，允许 disabled textarea 替换为严格 InputBar；同一 blank session → engaging/active 保持 InputBar 与 textarea。EmptyState 与受控 intent 链（`sessions.updateIntent`/`updatePendingPrompt`/`workspaces.sendSession`）随最后消费者一并删除。
+- 一个常驻 conversation 外壳承接 no-session/blank/active：无 session → blank 保持 ConversationRoot、Hero、root scope Workspace picker、scrollport、composer seat、InputBar 与 textarea；只有严格 session header 和 body outlet 开始承载内容。同一 blank session → engaging/active 也保持 InputBar 与 textarea。EmptyState 与受控 intent 链（`sessions.updateIntent`/`updatePendingPrompt`/`workspaces.sendSession`）随最后消费者一并删除。
 - 输入面对命令零知识 + 可选依赖：无命令包时纯输入可用；`@` 引用与 skill 引用免费复用同一菜单/pick 管线。代价是空格/回车裁决是逐 source 轮询协议，其应答语义（同步/异步、undefined 含义）为冻结契约。
 - 提交事务化（attempt seq + 漂移守卫）使晚到结果回灌、会话切换、concurrent 重放三类缺陷结构性不可能，由矩阵测试钉住。
 - 已知欠账：chip 跨刷新保真（可复用粘贴匹配）未立项；subagent 引用的模型表示待业务立项。
