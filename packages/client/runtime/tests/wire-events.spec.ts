@@ -6,6 +6,7 @@
 import { Context } from 'cordis'
 import { describe, expect, it } from 'vitest'
 import type { ConnectionHandle, ConnectionSinks } from '@deepseek-ai/dsh-client-connection/client'
+import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 import * as RuntimeClient from '../src/client/index.ts'
 import { FakeApiClient } from './fake-api.ts'
 
@@ -16,6 +17,7 @@ interface Bench {
 
 async function mount(): Promise<Bench> {
   const ctx = new Context()
+  await ctx.plugin(TypertRegistry)
   const api = new FakeApiClient()
   const bench: Bench = { ctx, sinks: undefined }
   const handle: ConnectionHandle = {
@@ -30,6 +32,7 @@ async function mount(): Promise<Bench> {
     },
   }
   ctx.reflect.provide('connection', handle)
+  ctx.reflect.provide('api', {})
   await ctx.plugin(RuntimeClient).await()
   return bench
 }
