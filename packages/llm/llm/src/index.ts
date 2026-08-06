@@ -25,13 +25,15 @@ import type { ResolvedRetryPolicy } from './retry-policy.ts'
 import type { ProviderRequestId } from './brand.ts'
 import { callConfigEquals, deepFreeze } from './call-config.ts'
 import type { LlmCallConfig, LlmCallConfigAdapterDefaults } from './call-config.ts'
-import { HarnessError } from './error.ts'
+import { HarnessError, INVALID_CREDENTIAL_CODE } from './error.ts'
 import { normalizeLlmFailure } from './adapter-failure.ts'
+import { normalizeApiKey } from './api-key.ts'
 
 export * from './attribution.ts'
 export * from './brand.ts'
 export * from './never.ts'
 export * from './error.ts'
+export * from './api-key.ts'
 export * from './types.ts'
 export * from './message.ts'
 export * from './retry-policy.ts'
@@ -120,6 +122,36 @@ export class LlmError extends HarnessError {
       ...options?.requestId === undefined ? {} : { requestId: options.requestId },
     })
   }
+}
+
+/**
+ * Accept one supplied credential, or refuse it as unusable.
+ *
+ * A stored key arrives from the credentials seam, a `.env` line, or a shell
+ * export, all of which pick up surrounding whitespace, so trimming is silent.
+ * Anything else fails here rather than inside `fetch`, whose ByteString
+ * refusal names a UTF-16 code point instead of the setting to change. The key
+ * never enters the message: `ref` names where to fix it, and echoing any part
+ * of a secret into a log or a UI is the failure this diagnosis avoids.
+ *
+ * Lives beside {@link LlmError} rather than in `./api-key.ts` so the predicate
+ * module stays dependency-free; both adapters share this one diagnosis instead
+ * of keeping near-identical local copies.
+ * @param raw - the credential exactly as supplied.
+ * @param pkg - the refusing package name, prefixed to the diagnostic.
+ * @param ref - the credential reference the value resolved through.
+ * @returns the trimmed, usable key.
+ */
+export function assertUsableApiKey(raw: string, pkg: string, ref: string): string {
+  const checked = normalizeApiKey(raw)
+  if (checked.ok) return checked.value
+  throw new LlmError(
+    checked.reason === 'empty'
+      ? `${pkg}: the API key stored as ${ref} is blank; re-enter it on the web Models page`
+      : `${pkg}: the API key stored as ${ref} contains characters no HTTP header can carry;`
+        + ' re-enter it on the web Models page, pasting the raw key only',
+    INVALID_CREDENTIAL_CODE,
+  )
 }
 
 /** One model call whose config and adapter registration were resolved together. */
