@@ -111,7 +111,7 @@ export async function runHeadless(task: string): Promise<void> {
   const abort = new AbortController()
   const frames = api.events.mux({}, abort.signal)
   const idle = new Promise<void>((resolve) => {
-    ctx.on('agent/status', (agent, status) => {
+    ctx.on('agent/status', ({ agent, status }) => {
       if (agent.id === created.sessionId && status === 'idle') resolve()
     })
   })

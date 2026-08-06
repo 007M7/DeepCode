@@ -32,7 +32,7 @@ async function harness(config: Config = {}): Promise<Context> {
 }
 
 function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
-  return new Promise((resolve) => { const d = ctx.on('agent/status', (s, st) => { if (s === agent && st === 'idle') { d(); resolve() } }) })
+  return new Promise((resolve) => { const d = ctx.on('agent/status', ({ agent: s, status: st }) => { if (s === agent && st === 'idle') { d(); resolve() } }) })
 }
 
 /** Every injected-context user message in the agent's log, flattened to joined text + source for terse assertions. */

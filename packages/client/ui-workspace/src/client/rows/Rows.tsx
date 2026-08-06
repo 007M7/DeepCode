@@ -173,7 +173,7 @@ function assertNever(value: never): never {
 
 /** Session status presentation; pending user interaction outranks the running state. */
 function sessionStatus(
-  node: Pick<SessionNode, 'pendingInteraction' | 'running'>,
+  node: Pick<SessionNode, 'pendingInteraction' | 'running' | 'completed'>,
   t: RowTranslate,
 ): { state: StateDotState; label: string } {
   switch (node.pendingInteraction) {
@@ -185,10 +185,11 @@ function sessionStatus(
     default: return assertNever(node.pendingInteraction)
   }
   if (node.running) return { state: 'ongoing', label: t('status.running') }
+  if (node.completed) return { state: 'done', label: t('status.completed') }
   return { state: 'done', label: t('status.idle') }
 }
 
-/** Hover-card body: full title, relative time, and interaction/running/idle status. */
+/** Hover-card body: full title, relative time, and interaction/running/completed/idle status. */
 function SessionHoverContent({ node, now, t }: { node: SessionNode; now: number; t: RowTranslate }) {
   const status = sessionStatus(node, t)
   return (
@@ -251,7 +252,7 @@ export function SearchResultItem({ result, currentId, onOpen, t }: {
     >
       <span className={css.searchResultHeading}>
         <span className={css.slot}>
-          {status.state !== 'done' && (
+          {(status.state !== 'done' || result.completed) && (
             <>
               <StateDot state={status.state} />
               <span className={css.visuallyHidden}>{status.label}</span>
@@ -351,8 +352,11 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
           drag.drop(rowHalf(e))
         }}
     >
+      {/* Pending interactions and running outrank the idle state; a
+          finished-but-unviewed session shows the green done reminder dot
+          (cleared by opening the session). */}
       <span className={css.slot}>
-        {status.state !== 'done' && (
+        {(status.state !== 'done' || row.completed) && (
           <>
             <StateDot state={status.state} />
             <span className={css.visuallyHidden}>{status.label}</span>

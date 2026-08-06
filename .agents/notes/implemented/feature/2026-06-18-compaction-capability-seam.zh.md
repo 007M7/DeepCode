@@ -119,7 +119,7 @@ compact/end      → log-only. Releases the lock (carries `error` on a recoverab
 ## 后果
 
 - **包**：`packages/compact/compact` 提供接口，`compact-basic` 提供后端，`compact-tool-result-prune` 提供可选的确定性重写，`command-compact` 提供面向用户的 `/compact`。`packages/llm/token-meter` 独立拥有回放感知的测量。
-- **自动 seam**：`agent/pre-step`（`@mode waterfall`）在请求派生前处理压力，`agent/request-error`（`@mode waterfall`）处理失败步骤关闭后的最终请求失败。pre-step 接收已领取批次与 `PreStepContext`，不携带压缩专属的提示词/前缀 payload。
+- **自动 seam**：`agent/pre-step`（`@mode waterfall`）在请求派生前处理压力，`agent/request-error`（`@mode waterfall`）处理失败步骤关闭后的最终请求失败。pre-step 的 payload 携带已领取批次、轮次、步骤与 signal（参见 [payload-object 事件决策](../architecture/2026-08-06-agent-event-payload-objects.md)），不携带压缩专属的提示词/前缀 payload。
 - **`SessionEventMap`** 通过可合并扩展的声明合并获得 `compact/start` / `compact/summary` / `compact/end`；`SurfaceEventType` **未被**触及。这些是会话事件，不是 cordis `Events`，因此事件分类门禁无需新增条目。
 - **`dsh-compact`** 拥有 `COMPACT_CHECKPOINT_SOURCE`、`isCompactCheckpointSource(source)`、`toolPairingBalancedBefore(session, seq)` 与 `toolPairingBalancedAfter(session, seq)`。该标记用于跨后端实现识别替换摘要。带缓存的 surface 边缘检查会防止 `compactRegion` 和 `compactIfNeeded` 拆分工具调用/结果对，按 seq 校验当前成员关系，从每个切割点的一条平衡序列回答两侧边缘，并拒绝陈旧或缺失的 seq 与孤立结果。
 - **`dsh-session`** 通过唯一的 surface 管理器校验位置替换、完整溯源信息和仅内容的单节点 `tool/result` 重写。其不变式配套插件将新追加的工具结果视为执行，要求存在已打开的步骤与待处理调用，而压缩配套组件拥有数字轮次归属与独立 `null` 归属标记对之间的关系。
