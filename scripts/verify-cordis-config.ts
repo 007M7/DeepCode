@@ -166,12 +166,12 @@ function validateAppResolution(): string[] {
   // per-layer resolution anchors on the bundle package directory.
   for (const manifestPath of globSync('packages/bundle/*/package.json', { cwd: root })) {
     const bundleDir = manifestPath.replace(/\/package\.json$/, '')
-    const dependencies = readManifest(manifestPath).dependencies ?? {}
+    const manifest = readManifest(manifestPath)
     const references = pluginReferences.filter(reference => reference.file.startsWith(`${bundleDir}/`))
     violations.push(...missingPluginDependencies(
       // A bundle may mount its own package (the web-app runtime row).
-      references.filter(reference => packageNameFromSpecifier(reference.name) !== readManifest(manifestPath).name),
-      dependencies,
+      references.filter(reference => packageNameFromSpecifier(reference.name) !== manifest.name),
+      manifest.dependencies ?? {},
       manifestPath,
     ))
   }

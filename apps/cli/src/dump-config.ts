@@ -6,17 +6,14 @@
  * @module @deepseek-ai/dsh/dump-config
  */
 
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import {
-  healProfilesModuleFallback,
   loadOverlayPatches,
-  loadProfile,
   renderConfigDump,
   type ConfigDumpLayer,
 } from '@deepseek-ai/dsh-app-boot'
-import { INSTALL_ANCHOR } from './profile-boot.ts'
+import { prepareProfile, PROFILE_ROOT_FILENAME } from './profile-boot.ts'
 
 const NAME = 'dsh'
 
@@ -24,15 +21,13 @@ const NAME = 'dsh'
 /**
  * Print a profile composition with provenance comments.
  * @param profile - the profile name.
- * @param defaultOnly - omit the profile's user layer and `--patch` overlays.
+ * @param defaultOnly - omit the profile's user layer and `--patch` overlays
+ * (the recovery diagnostic for a broken `cordis.patch.yml`, which is then
+ * never parsed).
  * @param patches - `--patch` overlay paths, in argv order.
  */
 export function runDumpConfig(profile: string, defaultOnly: boolean, patches: readonly string[]): void {
-  healProfilesModuleFallback(INSTALL_ANCHOR)
-  // The default dump never reads the user layer: it doubles as the recovery
-  // diagnostic for a broken cordis.patch.yml, so parsing that file here would
-  // defeat its purpose.
-  const loaded = loadProfile(NAME, profile, INSTALL_ANCHOR, undefined, { userLayer: !defaultOnly })
+  const loaded = prepareProfile(profile, !defaultOnly)
   const layers: ConfigDumpLayer[] = loaded.layers.map(layer => ({
     label: layer.packageName,
     patches: layer.patches,
@@ -46,15 +41,7 @@ export function runDumpConfig(profile: string, defaultOnly: boolean, patches: re
       layers.push({ label: absolute, patches: loadOverlayPatches(NAME, absolute) })
     }
   }
-  // renderConfigDump anchors on a base entry-list file; a profile's base is
-  // the empty list, materialized as a temp document.
-  const emptyRoot = mkdtempSync(join(tmpdir(), 'dsh-dump-'))
-  const emptyRootFile = join(emptyRoot, 'profile-root.yml')
-  writeFileSync(emptyRootFile, '[]\n')
-  try {
-    process.stdout.write(renderConfigDump(NAME, emptyRootFile, layers))
-  } finally {
-    rmSync(emptyRoot, { recursive: true, force: true })
-  }
+  // The dump anchors on the same empty root file the boot includes.
+  process.stdout.write(renderConfigDump(NAME, join(loaded.dir, PROFILE_ROOT_FILENAME), layers))
 }
 /* v8 ignore stop */

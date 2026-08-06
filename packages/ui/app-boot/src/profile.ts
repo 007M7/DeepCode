@@ -25,7 +25,7 @@ import { createRequire } from 'node:module'
 import {
   existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync,
 } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import type { EntryOptions } from '@cordisjs/plugin-loader'
 import { applyEntryPatches, type PatchOptions } from '@cordisjs/plugin-include'
 import { resolveDshHome } from '@deepseek-ai/dsh-paths'
@@ -133,10 +133,7 @@ export function initProfile(dir: string, plugins: readonly string[]): void {
   const manifestPath = join(dir, 'package.json')
   if (!existsSync(manifestPath)) {
     const manifest: ProfileManifest & { private: boolean } = {
-      // `dir` always carries at least one segment, so at(-1) cannot miss;
-      // the fallback only satisfies the type.
-      /* v8 ignore next */
-      name: `dsh-profile-${join(dir).split(/[/\\]/).at(-1) ?? 'profile'}`,
+      name: `dsh-profile-${basename(dir)}`,
       private: true,
       dependencies: {},
       dsh: { plugins: [...plugins] },
@@ -267,21 +264,16 @@ export function writeProfileManifest(dir: string, manifest: ProfileManifest): vo
 
 /**
  * Resolve a package's root directory from one anchor without depending on the
- * package exporting `./package.json`: probe the require resolution paths for
- * a directory holding the named manifest. This is Node's own lookup order, so
- * the result matches what the Loader would import from the same anchor.
+ * package exporting `./package.json` (`require.resolve` would need that):
+ * probe the require resolution paths for a directory holding the named
+ * manifest. This is Node's own node_modules lookup order, so the result
+ * matches what the Loader would import from the same anchor, and
+ * `existsSync` follows the symlinks pnpm's isolated layout uses.
  */
 function packageDirFromAnchor(anchor: string, packageName: string): string | undefined {
-  const require = createRequire(anchor)
-  // Fast path: the package exports its manifest (every in-box package does).
-  try {
-    return dirname(require.resolve(`${packageName}/package.json`))
-  } catch {
-    // Exports-encapsulated package — fall through to the paths probe.
-  }
   // resolve.paths returns null only for builtins, which no bundle name is.
   /* v8 ignore next */
-  for (const searchPath of require.resolve.paths(packageName) ?? []) {
+  for (const searchPath of createRequire(anchor).resolve.paths(packageName) ?? []) {
     const candidate = join(searchPath, packageName)
     if (existsSync(join(candidate, 'package.json'))) return candidate
   }
@@ -307,11 +299,9 @@ export function resolveBundleDir(
     const dir = packageDirFromAnchor(anchor, packageName)
     if (dir !== undefined) return dir
   }
-  // profileDir always carries at least one segment; String() only satisfies the type.
-  const profileName = String(join(profileDir).split(/[/\\]/).at(-1))
   throw new Error(
     `${binName}: cannot resolve profile bundle ${JSON.stringify(packageName)} from the dsh installation or ${profileDir}; `
-    + `run 'dsh plugin --profile ${profileName} install' if its dependency is not installed`,
+    + `run 'dsh plugin --profile ${basename(profileDir)} install' if its dependency is not installed`,
   )
 }
 

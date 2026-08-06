@@ -44,7 +44,7 @@ const PROFILE_ROOT_CONFIG = `# dsh profile root — an empty entry list. The tre
 `
 
 /** Root config filename inside a profile directory. */
-const PROFILE_ROOT_FILENAME = 'cordis.yml'
+export const PROFILE_ROOT_FILENAME = 'cordis.yml'
 
 /**
  * Resolve the telemetry opt-out switch into its boot patch. ANY non-empty
@@ -62,39 +62,54 @@ export function resolveTelemetryPatch(disabledEnv: string | undefined, hasRow: b
   return { id: TELEMETRY_ROW_ID, disabled: true }
 }
 
-/** Load a resolved profile for `name`, healing the shared module fallback first. */
-function prepareProfile(name: string): Profile {
+/**
+ * Load a resolved profile for `name`: heal the shared module fallback, then
+ * (re)write the empty root config. The root is always rewritten: the whole
+ * composition is patch layers, and the vendored Loader's tree write-back (a
+ * plugin self-disposing persists the current tree) can bake composed rows
+ * into this file — which would duplicate every bundle insert on the next
+ * boot. The file exists on disk only because the Loader needs a real include
+ * root to anchor `baseUrl` at the profile directory (the config dump anchors
+ * on the same file, so both compose over the identical base).
+ * @param name - the profile name.
+ * @param userLayer - `false` skips parsing `cordis.patch.yml` (the default dump).
+ * @returns the loaded profile.
+ */
+export function prepareProfile(name: string, userLayer = true): Profile {
   healProfilesModuleFallback(INSTALL_ANCHOR)
-  const profile = loadProfile(NAME, name, INSTALL_ANCHOR)
-  const rootConfig = join(profile.dir, PROFILE_ROOT_FILENAME)
-  // The root is always rewritten to the empty list: the whole composition is
-  // patch layers, and the vendored Loader's tree write-back (a plugin
-  // self-disposing persists the current tree) can bake composed rows into
-  // this file — which would duplicate every bundle insert on the next boot.
-  // The file stays a real on-disk include root only because the Loader needs
-  // one to anchor `baseUrl` at the profile directory.
-  writeFileSync(rootConfig, PROFILE_ROOT_CONFIG)
+  const profile = loadProfile(NAME, name, INSTALL_ANCHOR, undefined, { userLayer })
+  writeFileSync(join(profile.dir, PROFILE_ROOT_FILENAME), PROFILE_ROOT_CONFIG)
   return profile
 }
 
-/** One profile's full patch stack and the row index of its composed tree. */
+/** One profile's patch layers (application order) and the row index of its pre-flag composition. */
 interface ComposedProfile {
   profile: Profile
-  /** Bundle + profile + --patch + flag layers, in application order. */
-  patches: PatchOptions[]
-  /** id → composed row (post-composition), for flag merges and row checks. */
+  /** Bundle layers concatenated — the part below the user layer on a live reload. */
+  bundlePatches: PatchOptions[]
+  /** Layers above the user layer on a live reload: --patch overlays, flag patches, the telemetry switch. */
+  overlayAndFlags: PatchOptions[]
+  /**
+   * id → row of the pre-flag composition (bundles + user layer + overlays),
+   * for flag merges and row checks. Flag patches must not insert rows the
+   * launcher consults here (they only override values and insert dev glue).
+   */
   rows: Map<string, { name?: string; config?: unknown }>
 }
 
+/** The full patch stack of one composed profile, in application order. */
+function allPatches(composed: ComposedProfile): PatchOptions[] {
+  return [...composed.bundlePatches, ...composed.profile.patches, ...composed.overlayAndFlags]
+}
+
 /**
- * Load `name` and compose its effective patch stack. Flag patches derive from
- * the pre-flag composition (`deriveFlagPatches` receives the row index of
- * bundle + profile + overlay layers), then apply last, then the telemetry
- * switch.
+ * Load `name` and compose its effective patch stack: bundle layers in
+ * `dsh.plugins` order, the profile's user layer, `--patch` overlays, then
+ * flag patches derived from the composed rows, then the telemetry switch.
  * @param name - the profile name.
  * @param patchFiles - `--patch` overlay paths, in argv order.
  * @param deriveFlagPatches - launcher hook turning composed rows into flag patches.
- * @returns the profile, its patch stack, and the composed row index (flags included).
+ * @returns the profile, its patch layers, and the composed row index.
  */
 function composeProfile(
   name: string,
@@ -102,30 +117,16 @@ function composeProfile(
   deriveFlagPatches: (rows: ComposedProfile['rows']) => PatchOptions[] = () => [],
 ): ComposedProfile {
   const profile = prepareProfile(name)
-  const overlayLayers = patchFiles.map(file => loadOverlayPatches(NAME, resolve(file)))
-  const layers = [
-    ...profile.layers.map(layer => layer.patches),
-    profile.patches,
-    ...overlayLayers,
-  ]
-  const indexRows = (composedEntries: { id?: string; name?: string; config?: unknown; group?: unknown }[]): ComposedProfile['rows'] => {
-    const rows = new Map<string, { name?: string; config?: unknown }>()
-    const walk = (entries: typeof composedEntries): void => {
-      for (const row of entries) {
-        if (typeof row.id === 'string') rows.set(row.id, row)
-        if (row.group === true && Array.isArray(row.config)) walk(row.config as typeof composedEntries)
-      }
-    }
-    walk(composedEntries)
-    return rows
+  const overlays = patchFiles.flatMap(file => loadOverlayPatches(NAME, resolve(file)))
+  const bundlePatches = profile.layers.flatMap(layer => layer.patches)
+  const rows = new Map<string, { name?: string; config?: unknown }>()
+  for (const row of composeEntries([bundlePatches, profile.patches, overlays])) {
+    if (typeof row.id === 'string') rows.set(row.id, row)
   }
-  const flagPatches = deriveFlagPatches(indexRows(composeEntries(layers)))
-  layers.push(flagPatches)
-  const rows = indexRows(composeEntries(layers))
-  const patches = layers.flat()
+  const overlayAndFlags = [...overlays, ...deriveFlagPatches(rows)]
   const telemetryPatch = resolveTelemetryPatch(process.env.DSH_TELEMETRY_DISABLED, rows.has(TELEMETRY_ROW_ID))
-  if (telemetryPatch !== undefined) patches.push(telemetryPatch)
-  return { profile, patches, rows }
+  if (telemetryPatch !== undefined) overlayAndFlags.push(telemetryPatch)
+  return { profile, bundlePatches, overlayAndFlags, rows }
 }
 
 /** Options for {@link runProfile}. */
@@ -157,7 +158,7 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
         + '(the headless profile does)',
       )
     }
-    composed.patches.push({ id: HEADLESS_ROW_ID, config: { task: options.task } })
+    composed.overlayAndFlags.push({ id: HEADLESS_ROW_ID, config: { task: options.task } })
   } else if (composed.rows.has(HEADLESS_ROW_ID)) {
     // The inverse misuse: a one-shot composition booted without its task
     // would otherwise die in the runner row's schema with a raw "required"
@@ -182,26 +183,22 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
   const rootConfig = join(composed.profile.dir, PROFILE_ROOT_FILENAME)
   // Recomposition for the live profile layer: bundle layers below, overlays
   // and flag patches above, so a profile edit can never displace them.
-  const overlayAndFlags = composed.patches.slice(
-    composed.profile.layers.reduce((n, layer) => n + layer.patches.length, 0)
-    + composed.profile.patches.length,
-  )
   // Fresh clones per generation: the include pushes `insert` rows into the
   // mounted tree BY REFERENCE and later id-targeted patches mutate those
   // objects in place. Reusing one parsed patch object across applications
   // would bake a user override into the bundle's in-memory insert row, so
   // removing the override could never revert the row to the bundle default.
   const composeLive = (profilePatches: PatchOptions[]): PatchOptions[] => structuredClone([
-    ...composed.profile.layers.flatMap(layer => layer.patches),
+    ...composed.bundlePatches,
     ...profilePatches,
-    ...overlayAndFlags,
+    ...composed.overlayAndFlags,
   ])
   // One-shot runs exit through the runner; watching would only hold the
   // process open after its exit request.
   const watchProfilePatch = options.task === undefined
   // Cloned for the same insert-aliasing reason as composeLive: the boot
   // application must not mutate the objects later reloads recompose from.
-  const ctx = await boot(NAME, rootConfig, structuredClone(composed.patches), async (hostCtx) => {
+  const ctx = await boot(NAME, rootConfig, structuredClone(allPatches(composed)), async (hostCtx) => {
     app.current = hostCtx
     if (options.task !== undefined) {
       const io: HeadlessIo = {
