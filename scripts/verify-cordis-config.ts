@@ -149,11 +149,33 @@ function validateExampleResolution(): string[] {
 }
 
 function validateAppResolution(): string[] {
-  const dependencies = readManifest('apps/cli/package.json').dependencies ?? {}
+  const violations: string[] = []
+  // App overlays (and any config left under apps/cli/config) resolve from the
+  // dsh app's own dependency surface — the profile module fallback mirrors it.
+  const appDependencies = {
+    ...readManifest('apps/cli/package.json').dependencies,
+    // The fallback also links every bundle's own dependencies (healProfilesModuleFallback).
+    ...Object.fromEntries(globSync('packages/bundle/*/package.json', { cwd: root })
+      .flatMap(file => Object.entries(readManifest(file).dependencies ?? {}))),
+  }
   const shipped = new Set(globSync('*.cordis.yml', { cwd: resolve(root, 'apps/cli/config') })
     .map(file => `apps/cli/config/${file}`))
-  const references = pluginReferences.filter(reference => shipped.has(reference.file) || appOverlayFiles.has(reference.file))
-  return missingPluginDependencies(references, dependencies, 'apps/cli/package.json')
+  const appReferences = pluginReferences.filter(reference => shipped.has(reference.file) || appOverlayFiles.has(reference.file))
+  violations.push(...missingPluginDependencies(appReferences, appDependencies, 'apps/cli/package.json or a bundle manifest'))
+  // Each bundle's patch rows must resolve from that bundle's own dependencies:
+  // per-layer resolution anchors on the bundle package directory.
+  for (const manifestPath of globSync('packages/bundle/*/package.json', { cwd: root })) {
+    const bundleDir = manifestPath.replace(/\/package\.json$/, '')
+    const manifest = readManifest(manifestPath)
+    const references = pluginReferences.filter(reference => reference.file.startsWith(`${bundleDir}/`))
+    violations.push(...missingPluginDependencies(
+      // A bundle may mount its own package (the web-app runtime row).
+      references.filter(reference => packageNameFromSpecifier(reference.name) !== manifest.name),
+      manifest.dependencies ?? {},
+      manifestPath,
+    ))
+  }
+  return violations
 }
 
 /**

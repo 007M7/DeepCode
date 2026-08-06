@@ -101,5 +101,6 @@ A configuration edit hot-replaces the plugin: the framework unloads the old inst
 
 ## Next steps
 
+- [Package and install a plugin](./publish.md) — ship the plugin as an installable package
 - [Plugins and lifecycle](../framework/) — understand the full plugin lifecycle
 - [Services and dependencies](../framework/service.md) — provide a service to other plugins

@@ -2,18 +2,19 @@
 # the configured persona plus the native `bash` and `str_replace_editor`
 # schemas; the Web host, browser shell, persistence, and permission stack stay.
 
-# Match the Claude SWE-compatible RL core prompt. The launcher-owned Web
-# orientation is a separate plugin so disabling it removes both its prompt
-# sections without a path-specific launcher branch. Workspace instructions are
-# model-visible user context rather than a system section, but RL core disables
-# them as part of the same prompt contract.
+# Match the Claude SWE-compatible RL core prompt. Disabling the Web runtime's
+# surface context removes its GUI orientation, managed shell variables, and the
+# launcher's source-checkout section through one configuration contract.
+# Workspace instructions are model-visible user context rather than a system
+# section, but RL core disables them as part of the same prompt contract.
 - id: system-prompt
   config:
     includeHarnessIdentity: false
     persona: !!js process.env.DSH_SYSTEM_PROMPT ?? 'You are a helpful software engineer assistant.'
 
-- id: web-runtime-context
-  disabled: true
+- id: web-runtime
+  config:
+    surfaceContext: false
 
 - id: workspace-context
   disabled: true

@@ -87,7 +87,7 @@ describe('core Web profile', () => {
     expect(entries.find(entry => entry.options.id === 'persistent-bash')?.fiber).toBeDefined()
     expect(entries.find(entry => entry.options.id === 'pty-local')?.fiber).toBeDefined()
     expect(entries.find(entry => entry.options.id === 'str-replace-editor')?.fiber).toBeDefined()
-    expect(entries.find(entry => entry.options.id === 'web-runtime-context')?.fiber).toBeUndefined()
+    expect(entries.find(entry => entry.options.id === 'web-runtime')?.fiber).toBeDefined()
     expect(entries.find(entry => entry.options.id === 'workspace-context')?.fiber).toBeUndefined()
   })
 
