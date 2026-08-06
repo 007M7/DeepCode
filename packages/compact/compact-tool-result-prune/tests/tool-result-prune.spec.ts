@@ -9,6 +9,7 @@ import SessionStore, {
 import type { SurfaceEvent } from '@deepseek-ai/dsh-session'
 import * as SessionInvariant from '@deepseek-ai/dsh-session/invariant'
 import InvariantService from '@deepseek-ai/dsh-invariants'
+import TokenMeterService from '@deepseek-ai/dsh-token-meter'
 import ToolResultPruneService, {
   codePointLength,
   DEFAULTS,
@@ -25,8 +26,15 @@ const SMALL: ToolResultPruneConfig = {
 }
 
 function service(config: ToolResultPruneConfig = SMALL): ToolResultPruneService {
-  return new ToolResultPruneService(new Context(), config)
+  const ctx = new Context()
+  // Service constructors self-register, so `ctx.tokenMeter` resolves for the
+  // shadow-price pricing without a full plugin boot.
+  void new TokenMeterService(ctx)
+  return new ToolResultPruneService(ctx, config)
 }
+
+/** Pricing oracle mirroring the service's estimator for expectations. */
+const METER = new TokenMeterService(new Context())
 
 function appendToolStep(
   session: Session,
@@ -203,6 +211,18 @@ describe('ToolResultPruneService session transaction', () => {
       sourceEventSeqs: [originalSeq],
     })
     expect(session.surface.nodes).not.toContain(originalSeq)
+
+    // Shadow-price protocol: the metering event sits directly before the
+    // replacement and prices the shadowed node with the shared estimator.
+    if (original.type !== 'tool/result') throw new Error('original is not a tool/result')
+    expect(session.events[entry.replacementSeq - 1]).toMatchObject({
+      type: 'compact/prune',
+      data: {
+        shadowedRange: { start: originalSeq, end: originalSeq },
+        shadowedSeqs: [originalSeq],
+        shadowedTokenCount: METER.estimateMessage(original.data.message),
+      },
+    })
   })
 
   it('prunes multiple results, skips short ones, and converges in one pass', () => {
@@ -240,6 +260,7 @@ describe('ToolResultPruneService session transaction', () => {
     await ctx.plugin(SessionStore)
     await ctx.plugin(InvariantService)
     await ctx.plugin(SessionInvariant)
+    await ctx.plugin(TokenMeterService)
     const prune = new ToolResultPruneService(ctx, SMALL)
     const session = ctx.sessions.create(SessionId('invariants'))
     appendToolStep(session, 1, 'a', [{ type: 'text', text: 'A'.repeat(100) }])

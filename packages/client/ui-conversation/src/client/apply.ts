@@ -1,6 +1,6 @@
 /** Registers the conversation components, shared store, and service callbacks. */
 import type { Context } from 'cordis'
-import { deferRegistration, resolveSlotLabel, type BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
+import { resolveSlotLabel, type BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ISessions, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
@@ -8,7 +8,7 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type { ViewTab } from './contract/views.ts'
 import type {
   ApprovalWait, ChatScrollPosition, ChatViewInjected, ComposerBarInjected, ComposerChainProps, ConversationInjected,
-  ConversationSessionInjected, DetailsInjected,
+  ConversationSessionHeaderInjected, ConversationSessionInjected, DetailsInjected,
 } from './contract/slots.ts'
 import type { InputNotice } from './input/contract.ts'
 import { resolveToolPath } from './contract/tool-call-model.ts'
@@ -33,7 +33,7 @@ import { askQuestionToolview } from './toolviews/ask-question-row.tsx'
 import { todoDockEntry } from './skeleton/TodoPanel.tsx'
 import { queueDockEntry } from './queue/QueueDock.tsx'
 import { ConversationRoot } from './skeleton/ConversationRoot.tsx'
-import { ConversationSession } from './skeleton/ConversationSession.tsx'
+import { ConversationSession, ConversationSessionHeader } from './skeleton/ConversationSession.tsx'
 import { DetailsPanel } from './skeleton/DetailsPanel.tsx'
 import { en, NS, zh, type ConversationKey } from './locales.ts'
 
@@ -98,20 +98,16 @@ export function apply(ctx: Context): void {
   const chatStore = createChatStore()
   const submissionPolicy = new ComposerSubmissionPolicy()
 
-  ctx.effect(() => {
-    const row = deferRegistration(ctx.slots, 'settings.general.item', EnterBehaviorRow, () =>
-      ctx.slots.register({
-        name: 'settings.general.item',
-        id: 'composer-enter',
-        order: 20,
-        locale: NS,
-        inject: (): EnterBehaviorRowInjected => ({
-          hooks: { busyEnter: submissionPolicy.busyEnter },
-          setBusyEnter: (behavior) => { submissionPolicy.setBusyEnter(behavior) },
-        }),
-      }, EnterBehaviorRow))
-    return () => { row.dispose() }
-  }, 'ui-conversation: Enter behavior settings row')
+  ctx.slots.inject('settings.general.item', () => ctx.slots.register({
+    name: 'settings.general.item',
+    id: 'composer-enter',
+    order: 20,
+    locale: NS,
+    inject: (): EnterBehaviorRowInjected => ({
+      hooks: { busyEnter: submissionPolicy.busyEnter },
+      setBusyEnter: (behavior) => { submissionPolicy.setBusyEnter(behavior) },
+    }),
+  }, EnterBehaviorRow))
 
   // Chat semantic reader positions by session, surviving view switches and
   // width reflow when the tab ring remounts the view. Deliberately not
@@ -126,6 +122,11 @@ export function apply(ctx: Context): void {
       tabs.push({ id: entry.options.id, label: resolveSlotLabel(entry.options.label) ?? entry.options.id })
     }
     return tabs
+  }
+  const views = {
+    list: viewTabs,
+    subscribe: (fn: () => void) => slots.subscribe('conversation.view', fn),
+    version: () => slots.getVersion('conversation.view'),
   }
 
   // The per-session input machine registry (InputService face; published as
@@ -155,6 +156,7 @@ export function apply(ctx: Context): void {
     locale: NS,
     children: {
       'conversation.session': { kind: 'single', scope: 'session' },
+      'conversation.session.header': { kind: 'single', scope: 'session' },
       'conversation.composer': { kind: 'chain', scope: 'session' },
       'conversation.composer.bar': { kind: 'single', scope: 'session-maybe' },
       'conversation.input.overlay': { kind: 'list', scope: 'session' },
@@ -180,26 +182,35 @@ export function apply(ctx: Context): void {
     }),
   }, ConversationRoot)
 
-  // The strict session subtree owns only per-session store and view content;
-  // the resident parent keeps Hero and composer layout identity stable.
+  // The strict session body fills the resident scrollport without owning it;
+  // the Hero/composer path therefore stays fixed while the first blank
+  // session appears after a Workspace pick.
   slots.register({
     name: 'conversation.session',
-    locale: NS,
     children: {
       'conversation.view': { kind: 'list', scope: 'session' },
-      'conversation.session.header.actions': { kind: 'list', scope: 'session' },
     },
     store: chatStore,
     inject: (sessionId: SessionId, _actions: BoundActions<typeof chatStore>): ConversationSessionInjected => ({
-      views: {
-        list: viewTabs,
-        subscribe: fn => slots.subscribe('conversation.view', fn),
-        version: () => slots.getVersion('conversation.view'),
-      },
+      views,
       bindDraftMirror: write => inputHub.shell(sessionId).bindMirror(write),
-      open: (id) => { sessions.open(id) },
     }),
   }, ConversationSession)
+
+  // Header chrome sits above the resident scrollport but shares the same
+  // per-session chat store (active view) as its body and view entries.
+  slots.register({
+    name: 'conversation.session.header',
+    locale: NS,
+    children: {
+      'conversation.session.header.actions': { kind: 'list', scope: 'session' },
+    },
+    store: chatStore,
+    inject: (): ConversationSessionHeaderInjected => ({
+      views,
+      open: (id) => { sessions.open(id) },
+    }),
+  }, ConversationSessionHeader)
 
   // The default composer body: its own single slot inside the composer
   // chain's fallback (decision 20). Public machine surface arrives via the
@@ -334,17 +345,15 @@ export function apply(ctx: Context): void {
   }, ChatView)
 
   // Session stats stick with the composer (composer.dock = stats-line family).
-  slots.register({ name: 'conversation.composer.dock', id: 'stats', order: 0 }, StatsLine)
+  slots.register({ name: 'conversation.composer.dock', id: 'stats', order: 0, locale: NS }, StatsLine)
 
   // Class-plugin mount (packages/AGENTS.md service form): the service
   // registers itself as `conversation` and lives on its own child fiber.
-  // Mounted AFTER the chat entry register above — construction guarantee for
-  // toolview registrants using `inject: ['conversation']` as their load-order
-  // seam: the service being present implies the chat entry (and with it the
-  // 'conversation.chat.toolview' declaration) is on the ledger.
+  // Presentation registrants depend directly on their slot declarations;
+  // this service remains only where conversation actions are required.
   ctx.plugin(ConversationService, { input: inputHub })
 
-  // The bash sample rides that exact seam, in third-party posture
+  // The bash sample rides the same declaration seam, in third-party posture
   // (ToolRow-matching Bash · {description} chrome).
   ctx.plugin(bashToolviewSample)
 

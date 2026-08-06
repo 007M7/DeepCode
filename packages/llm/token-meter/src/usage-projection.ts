@@ -4,8 +4,11 @@
 
 import { z } from 'zod'
 import type { TokenUsage } from '@deepseek-ai/dsh-llm'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 import type { ContextPressureProjection, TokenUsageProjection } from './projection.ts'
+import { foldSurfaceProjection } from './surface-projection.ts'
+import type { ShadowPriceClaim } from './surface-projection.ts'
 
 interface UsageSample {
   turn: number
@@ -60,12 +63,36 @@ const projectionSchema = z.object({
 // `number | undefined` where the interface declares absent-or-number fields.
 const pressureSchema = z.object({
   pressureTokens: z.number().int().nonnegative().optional(),
+  projectedTokens: z.number().int().nonnegative().optional(),
   contextWindow: z.number().int().positive().optional(),
 }).strict() as unknown as z.ZodType<ContextPressureProjection>
 
 /** Prompt-side pressure of one request: input plus cache traffic, no output. */
 const pressureFrom = (usage: TokenUsage): number =>
   usage.inputTokens + (usage.cacheReadTokens ?? 0) + (usage.cacheWriteTokens ?? 0)
+
+/** The usage a chunk or finalized message reports for its step, if any. */
+const usageOf = (event: SessionEvent): TokenUsage | undefined =>
+  event.type === 'assistant/chunk' && event.data.chunk.type === 'usage'
+    ? event.data.chunk.usage
+    : event.type === 'assistant/message'
+      ? event.data.usage
+      : undefined
+
+/**
+ * Context-occupancy state: the two independent last-wins records plus the
+ * O(1) running surface total needed to carry the newest sample forward.
+ */
+interface ContextPressureState {
+  contextWindow?: number
+  pressureTokens?: number
+  /** Running heuristic total over the current surface ({@link foldSurfaceProjection}). */
+  surfaceTokens: number
+  /** {@link surfaceTokens} at the newest usage sample; absent until one lands. */
+  sampledSurfaceTokens?: number
+  /** Shadow price armed by the immediately preceding metering event. */
+  claim?: ShadowPriceClaim
+}
 
 /**
  * Token-meter's session projection unit.
@@ -115,39 +142,65 @@ ProjectionDefinition<'tokenUsage', TokenUsageState> = {
 /**
  * Token-meter's context-occupancy projection unit.
  *
- * Two independent last-wins slots: the newest usage sample supplies the
+ * Independent last-wins slots: the newest usage sample supplies the provider
  * numerator, the newest `request/context` record the denominator. Both are
  * whole values, so replay order alone decides the result and no cross-field
  * consistency is claimed — the pair is explicitly not one atomic request
  * observation (see {@link ContextPressureProjection}).
  *
- * The numerator is prompt-side only, so it holds still while a turn streams
- * and steps forward once the next request reports its usage.
+ * `pressureTokens` is prompt-side only, so it holds still while a turn streams
+ * and steps forward once the next request reports its usage. Because nothing
+ * but a request reports usage, it also cannot see a compaction: the fold
+ * therefore carries a running surface total alongside it and publishes
+ * `projectedTokens` — the sample plus the surface's signed movement since it
+ * was taken — so occupancy answers for the next request rather than the last
+ * one. The total rides {@link foldSurfaceProjection}, so the state stays O(1)
+ * and a replacement shrinks it by its logged shadow price. A replacement
+ * without a claim preserves the previous total. A usage sample is stamped
+ * BEFORE the same event joins the surface, so an `assistant/message` anchors
+ * against the surface its own request saw.
  */
 export const contextPressureProjectionDefinition:
-ProjectionDefinition<'contextPressure', ContextPressureProjection> = {
+ProjectionDefinition<'contextPressure', ContextPressureState> = {
   key: 'contextPressure',
   schema: pressureSchema,
-  init: () => ({}),
+  init: () => ({ surfaceTokens: 0 }),
   apply: (state, event) => {
+    const fold = foldSurfaceProjection(state.claim, event)
+    let next = state
     if (event.type === 'request/context') {
       const contextWindow = event.data.contextWindow
-      if (contextWindow === state.contextWindow) return state
-      if (contextWindow !== undefined) return { ...state, contextWindow }
-      const { contextWindow: _removed, ...withoutContextWindow } = state
-      return withoutContextWindow
+      if (contextWindow !== state.contextWindow) {
+        if (contextWindow !== undefined) {
+          next = { ...next, contextWindow }
+        } else {
+          const { contextWindow: _removed, ...withoutContextWindow } = next
+          next = withoutContextWindow
+        }
+      }
     }
-    const usage = event.type === 'assistant/chunk' && event.data.chunk.type === 'usage'
-      ? event.data.chunk.usage
-      : event.type === 'assistant/message'
-        ? event.data.usage
-        : undefined
-    if (usage === undefined) return state
-    const pressureTokens = pressureFrom(usage)
-    return pressureTokens === state.pressureTokens
-      ? state
-      : { ...state, pressureTokens }
+    const usage = usageOf(event)
+    if (usage !== undefined) {
+      const pressureTokens = pressureFrom(usage)
+      if (pressureTokens !== next.pressureTokens || next.sampledSurfaceTokens !== next.surfaceTokens) {
+        next = { ...next, pressureTokens, sampledSurfaceTokens: next.surfaceTokens }
+      }
+    }
+    if (fold.deltaTokens !== 0) {
+      next = { ...next, surfaceTokens: next.surfaceTokens + fold.deltaTokens }
+    }
+    // A defined fold.claim is always freshly built, so presence decides claim
+    // bookkeeping: no claim before or after this event leaves `next` as is.
+    if (state.claim === undefined && fold.claim === undefined) return next
+    const { claim: _expired, ...withoutClaim } = next
+    return fold.claim === undefined ? withoutClaim : { ...withoutClaim, claim: fold.claim }
   },
-  view: state => state,
-  stateVersion: 2,
+  view: ({ contextWindow, pressureTokens, surfaceTokens, sampledSurfaceTokens }) => ({
+    ...contextWindow === undefined ? {} : { contextWindow },
+    ...pressureTokens === undefined ? {} : { pressureTokens },
+    ...pressureTokens === undefined || sampledSurfaceTokens === undefined
+      ? {}
+      : { projectedTokens: Math.max(0, pressureTokens + surfaceTokens - sampledSurfaceTokens) },
+  }),
+  stateVersion: 4,
 }

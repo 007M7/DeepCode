@@ -844,15 +844,38 @@ listProviders(): LlmProviderInfo[]
  * entry, or a provider already declared by any registration throws
  * `LlmError` without registering the rest. Disposed with the fiber.
  * @param entries - every configurable provider this plugin owns.
- * @returns the disposer that withdraws all of them.
+ * @returns a handle that withdraws all of them, and can atomically replace them.
  */
-registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): () => void
+registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): DirectoryRegistrationHandle
 
 /**
  * List every declared configurable provider, registered or dormant.
  * @returns detached directory entries in declaration order.
  */
 listConfigurableProviders(): LlmConfigurableProvider[]
+
+/**
+ * Offer to interrogate provider endpoints on behalf of the settings
+ * namespace this plugin owns. The namespace is the key because that is what
+ * a configuration surface already holds from the configurable-provider
+ * directory, and because a provider being *added* has no route to name yet.
+ * Disposed with the fiber.
+ * @param settingsNs - the namespace whose profiles this discovery serves.
+ * @param discover - interrogates one endpoint; must honor `request.signal`.
+ * @returns the disposer that withdraws the offer.
+ */
+registerModelDiscovery( settingsNs: string, discover: (request: LlmModelDiscoveryRequest) => Promise<readonly LlmDiscoveredModel[]>, ): () => void
+
+/**
+ * Interrogate one provider endpoint for the models it advertises. The
+ * request describes a draft, not a stored route, so nothing here reads or
+ * writes settings or credentials — the caller owns both, and the reply is
+ * candidate metadata a surface may offer for adoption.
+ * @param settingsNs - namespace whose registered discovery serves this draft.
+ * @param request - the endpoint, protocol, and one-shot credential to use.
+ * @returns the advertised models, deduplicated in endpoint order.
+ */
+async discoverModels( settingsNs: string, request: LlmModelDiscoveryRequest, ): Promise<LlmDiscoveredModel[]>
 
 /**
  * Resolve the retry policy captured when one provider route was registered.
@@ -916,9 +939,9 @@ async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<Prepared
 stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 ```
 
-Types: [AdapterRegistrationHandle](../core-data-structures/core.md) · [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmCallConfig](../core-data-structures/core.md) · [LlmConfigurableProvider](../core-data-structures/core.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [LlmResolvedModelInfo](../core-data-structures/core.md) · [PreparedLlmCall](../core-data-structures/llm-streaming.md) · [ResolvedRetryPolicy](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
+Types: [AdapterRegistrationHandle](../core-data-structures/core.md) · [DirectoryRegistrationHandle](../core-data-structures/core.md) · [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmCallConfig](../core-data-structures/core.md) · [LlmConfigurableProvider](../core-data-structures/core.md) · [LlmDiscoveredModel](../core-data-structures/core.md) · [LlmModelDiscoveryRequest](../core-data-structures/core.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [LlmResolvedModelInfo](../core-data-structures/core.md) · [PreparedLlmCall](../core-data-structures/llm-streaming.md) · [ResolvedRetryPolicy](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:232`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:255`](../../packages/llm/llm/src/index.ts)
 
 ## `ctx.permission` — `PermissionService`
 
@@ -1707,7 +1730,7 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 
 Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [PrepareSessionOptions](../core-data-structures/persistence.md) · [Session](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:837`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:800`](../../packages/core/session/src/index.ts)
 
 ## `ctx.sessionTitle` — `SessionTitleService`
 
@@ -1839,7 +1862,7 @@ async mutate(ns: SettingsNamespace, ops: readonly SettingsPathOp[], expectedRevi
 
 Types: [SettingsDescribeOptions](../core-data-structures/settings.md) · [SettingsDescriptor](../core-data-structures/settings.md) · [SettingsNamespace](../core-data-structures/settings.md) · [SettingsPathOp](../core-data-structures/settings.md) · [SettingsRegisterOptions](../core-data-structures/settings.md) · [SettingsScope](../core-data-structures/settings.md)
 
-Source: [`packages/settings/settings/src/index.ts:365`](../../packages/settings/settings/src/index.ts)
+Source: [`packages/settings/settings/src/index.ts:387`](../../packages/settings/settings/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 
@@ -2195,7 +2218,7 @@ async assemble(context: AssembleContext = {}): Promise<PromptAssembly>
 
 Types: [AssembleContext](../core-data-structures/system-prompt.md) · [PromptContext](../core-data-structures/system-prompt.md) · [PromptSection](../core-data-structures/system-prompt.md) · [ToolProviderResult](../core-data-structures/system-prompt.md)
 
-Source: [`packages/core/system-prompt/src/index.ts:290`](../../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:314`](../../packages/core/system-prompt/src/index.ts)
 
 ## `ctx.tasks` — `TaskService` (abstract seam)
 
@@ -2339,7 +2362,8 @@ Replay owner for one service-wide estimator and isolated per-session folds.
 measure(session: Session, requestHeader?: EpochHeader): TokenMeasurement
 
 /**
- * Heuristically price one model-visible message.
+ * Heuristically price one model-visible message (instance face of the pure
+ * `estimateMessage` export from `estimate.ts`).
  * @param message - message to price without mutation.
  * @returns content and role-framing tokens under the fixed service heuristic.
  */
@@ -2348,7 +2372,7 @@ estimateMessage(message: Message): number
 
 Types: [EpochHeader](../core-data-structures/session.md) · [Message](../core-data-structures/core.md) · [Session](../core-data-structures/session.md) · [TokenMeasurement](../core-data-structures/token-meter.md)
 
-Source: [`packages/llm/token-meter/src/index.ts:85`](../../packages/llm/token-meter/src/index.ts)
+Source: [`packages/llm/token-meter/src/index.ts:74`](../../packages/llm/token-meter/src/index.ts)
 
 ## `ctx.toolResultPrune` — `ToolResultPruneService`
 
@@ -2374,7 +2398,10 @@ pruneContent(blocks: readonly ContentBlock[]): ContentBlock[] | null
 /**
  * Prune every over-budget tool result from one stable current-surface snapshot.
  * Each replacement preserves the complete event data except for `content`,
- * and points at the shadowed node for durable provenance and replay.
+ * points at the shadowed node for durable provenance and replay, and is
+ * immediately preceded by a `compact/prune` shadow-price event pricing the
+ * shadowed node through the injected token meter, so pure consumers can
+ * subtract it without per-node state.
  * @param session - session whose current surface is rewritten.
  * @returns landed replacements and aggregate Unicode-code-point savings.
  * @throws when the session rejects a replacement; replacements committed
@@ -2385,7 +2412,7 @@ pruneSession(session: Session): PruneResult
 
 Types: [ContentBlock](../core-data-structures/core.md) · [PruneResult](../core-data-structures/compaction.md) · [Session](../core-data-structures/session.md)
 
-Source: [`packages/compact/compact-tool-result-prune/src/index.ts:40`](../../packages/compact/compact-tool-result-prune/src/index.ts)
+Source: [`packages/compact/compact-tool-result-prune/src/index.ts:44`](../../packages/compact/compact-tool-result-prune/src/index.ts)
 
 ## `ctx.tools` — `ToolRegistry`
 

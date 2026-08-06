@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import Include from '@cordisjs/plugin-include'
+import TokenMeterService from '@deepseek-ai/dsh-token-meter'
 import ToolResultPruneService from '@deepseek-ai/dsh-compact-tool-result-prune'
 
 let root: string | undefined
@@ -23,6 +24,7 @@ describe('compact-tool-result-prune real Loader composition', () => {
     root = await mkdtemp(join(tmpdir(), 'dsh-compact-tool-result-prune-loader-'))
     const configPath = join(root, 'cordis.yml')
     await writeFile(configPath, [
+      "- name: '@deepseek-ai/dsh-token-meter'",
       "- name: '@deepseek-ai/dsh-compact-tool-result-prune'",
       '  config:',
       '    thresholdChars: 100',
@@ -38,10 +40,9 @@ describe('compact-tool-result-prune real Loader composition', () => {
     context.loader.internal = {
       version: 'v2',
       async import(specifier: string) {
-        if (specifier !== '@deepseek-ai/dsh-compact-tool-result-prune') {
-          throw new Error(`unexpected Loader import: ${specifier}`)
-        }
-        return ToolResultPruneService
+        if (specifier === '@deepseek-ai/dsh-token-meter') return TokenMeterService
+        if (specifier === '@deepseek-ai/dsh-compact-tool-result-prune') return ToolResultPruneService
+        throw new Error(`unexpected Loader import: ${specifier}`)
       },
     } as unknown as NonNullable<typeof context.loader.internal>
     await context.loader.create({
@@ -60,6 +61,9 @@ describe('compact-tool-result-prune real Loader composition', () => {
 
   it('rejects stale config after plugin schema normalization', async () => {
     context = new Context()
+    // Satisfy the declared injection first: config normalization runs in the
+    // service constructor, which a pending fiber never reaches.
+    await context.plugin(TokenMeterService)
     await expect(context.plugin(ToolResultPruneService, {
       maxChars: 100,
     } as never)).rejects.toThrow(/unknown key "maxChars"/)

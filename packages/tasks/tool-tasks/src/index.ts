@@ -8,7 +8,7 @@
 
 import type { Context } from 'cordis'
 import z from 'schemastery'
-import { createUserMessage, type ContentBlock } from '@deepseek-ai/dsh-llm'
+import { boundContextSummary, createUserMessage, type ContentBlock } from '@deepseek-ai/dsh-llm'
 import { TextRetainer } from '@deepseek-ai/dsh-retention'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, ToolDefinition, ToolExecution } from '@deepseek-ai/dsh-tools'
@@ -112,6 +112,15 @@ function fitWithSuffix(
   const fixedBytes = encoder.encode(fixed).byteLength
   if (fixedBytes >= maxBytes) return retainTail(fixed, maxBytes)
   return `${retainTail(content, maxBytes - fixedBytes)}${fixed}`
+}
+
+/**
+ * One-line account of a settled task for the `notice` form's collapsed row.
+ * @param snapshot - the settled task.
+ * @returns its kind, label, and status, bounded like every notice summary.
+ */
+function completionSummary(snapshot: TaskSnapshot): string {
+  return boundContextSummary(`${snapshot.kind} ${snapshot.label} ${statusLine(snapshot)}`)
 }
 
 function fitCompletionNotice(snapshot: TaskSnapshot): string {
@@ -228,7 +237,12 @@ export function apply(ctx: Context, config: Config): void {
         type: 'text',
         text: fitCompletionNotice(snapshot),
       }],
-      source: { kind: 'plugin', plugin: 'tool-tasks' },
+      source: {
+        kind: 'plugin',
+        plugin: 'tool-tasks',
+        form: 'notice',
+        summary: completionSummary(snapshot),
+      },
     }))
   })
 

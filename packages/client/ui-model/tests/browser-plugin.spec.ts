@@ -85,12 +85,12 @@ async function bench() {
     locale: string | undefined
   }>()
   ctx.provide('slots', {
+    inject(_name: string, callback: () => () => void) { return callback() },
     register(options: { name: string; locale?: string; inject?: (sessionId: SessionId) => ModelSelectInjected }) {
       seats.set(options.name, { inject: options.inject, locale: options.locale })
       return () => { seats.delete(options.name) }
     },
   })
-  ctx.provide('conversation', {})
   ctx.provide('locale', new LocaleService(ctx))
   const scopes = new Map<SessionId, Context>()
   const addressed = new Set<SessionId>()

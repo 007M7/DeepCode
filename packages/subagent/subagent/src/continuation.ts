@@ -47,6 +47,8 @@ import type SubagentActivationSetupRegistry from './activation-setup-registry.ts
 /** Attribution for a model coordinator's follow-up to one of its children. */
 export interface CoordinatorMessageSource {
   readonly kind: 'coordinator'
+  /** A message another agent addressed to this one (`relay` context form). */
+  readonly form: 'relay'
   /** Session id of the agent whose tool call produced the follow-up. */
   readonly senderSessionId: SessionId
 }
@@ -54,6 +56,8 @@ export interface CoordinatorMessageSource {
 /** Durable attribution for a continuable child's explicit parent report. */
 export interface SubagentReportMessageSource {
   readonly kind: 'subagent-report'
+  /** A message another agent addressed to this one (`relay` context form). */
+  readonly form: 'relay'
   /** Session id of the reporting child. */
   readonly senderSessionId: SessionId
 }
@@ -283,7 +287,7 @@ export class SubagentContinuationManager {
     // child-first ordering.
     const scope = ctx.plugin(function activationOwner() {})
     this.ownerCtx = scope.ctx
-    ctx.on('agent/disposed', (agent) => {
+    ctx.on('agent/disposed', ({ agent }) => {
       this.closingScopes.delete(agent)
     })
     ctx.effect(function* (this: SubagentContinuationManager) {
@@ -481,6 +485,7 @@ export class SubagentContinuationManager {
       ],
       source: {
         kind: 'subagent-report' as const,
+        form: 'relay' as const,
         senderSessionId: activation.childId,
       },
     })
@@ -854,12 +859,12 @@ export class SubagentContinuationManager {
       // quiet Agent from one whose accepted turn has not been admitted yet.
       // Registered through the child's own scoped context, so scope filtering
       // already restricts both listeners to this exact agent.
-      handle.agent.ctx.on('agent/inbox/claimed', (_agent, { message }) => {
+      handle.agent.ctx.on('agent/inbox/claimed', ({ message }) => {
         /* v8 ignore next -- a claim of an id this manager never admitted needs
          * another sender on the same child, which no current path allows. */
         if (activation.accepted.delete(message.id)) this.wake(activation)
       })
-      handle.agent.ctx.on('agent/inbox/discarded', (_agent, { message }) => {
+      handle.agent.ctx.on('agent/inbox/discarded', ({ message }) => {
         if (activation.accepted.delete(message.id)) this.wake(activation)
       })
       // Agent creation committed setup at its publication boundary;
