@@ -1,8 +1,9 @@
 /**
  * Read-only interpretation of session-query lineage as durable subagent
- * children. The module owns no catalog state and does not consult Activation,
- * Agent-registry, continuation-manager, or provider state. A child's
- * descriptor distinguishes one-shot work from a continuable conversation.
+ * children. Only descendants with durable `origin: 'subagent'` enter per-child
+ * inspection. The module owns no catalog state and does not consult Activation,
+ * Agent-registry, continuation-manager, or provider state. A child's descriptor
+ * distinguishes one-shot work from a continuable conversation.
  *
  * @module @deepseek-ai/dsh-subagent
  */
@@ -20,12 +21,13 @@ type SessionQueryRuntime = Pick<
 >
 
 /**
- * One entry of a {@link listChildren} result in trace candidate order. A valid
- * descriptor produces a `child`, a per-child inspection failure produces a
- * `diagnostic`, and a descriptor-less ordinary child is omitted. Healthy rows
- * include a one-level, origin-classified descendant hint. Diagnostics are
- * transient query results, never session events or catalog state, and never
- * expose model-hidden descriptor content.
+ * One entry of a {@link listChildren} result in trace candidate order. Only a
+ * candidate whose durable header has `origin: 'subagent'` is inspected. A
+ * valid descriptor produces a `child`, a per-child inspection failure produces
+ * a `diagnostic`, and a candidate without its own descriptor is omitted.
+ * Healthy rows include a one-level, origin-classified descendant hint.
+ * Diagnostics are transient query results, never session events or catalog
+ * state, and never expose model-hidden descriptor content.
  */
 export type SubagentListEntry =
   | {
@@ -69,8 +71,9 @@ export type SubagentListEntry =
   }
 
 /**
- * Interpret one parent's direct session descendants as session-backed subagents
- * without loading or resuming an Agent.
+ * Interpret one parent's origin-classified direct descendants as session-backed
+ * subagents without loading or resuming an Agent. Ordinary forks are skipped
+ * before per-child event inspection.
  * @see {@link SubagentService.listChildren} for the public cancellation and
  *   failure contract.
  * @param ctx - context carrying the optional session-query service.
@@ -103,6 +106,7 @@ export async function listChildren(
   )
   const entries: SubagentListEntry[] = []
   for (const node of trace.descendants) {
+    if (node.session.header.origin !== 'subagent') continue
     const hasChildren = node.descendants.some(
       descendant => descendant.session.header.origin === 'subagent',
     )
@@ -218,6 +222,8 @@ function perChildDiagnosticReason(
 ): 'corrupt' | 'unavailable' | undefined {
   if (!(error instanceof SessionQueryError)) return undefined
   switch (error.code) {
+    case 'SESSION_QUERY_CORRUPT_SESSION':
+      return 'corrupt'
     case 'SESSION_QUERY_SESSION_NOT_FOUND':
     case 'SESSION_QUERY_EVENT_NOT_FOUND':
     case 'SESSION_QUERY_PERSISTENCE_FAILED':

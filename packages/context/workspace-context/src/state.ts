@@ -36,6 +36,8 @@ export const name = 'workspace-context'
 /** Durable provenance and reconciliation facts for one workspace context. */
 export interface WorkspaceInstructionSource {
   kind: 'workspace-instructions'
+  /** Every workspace context carries instructions read out of a file (the `instructions` context form). */
+  form: 'instructions'
   /** Marks the complete startup/resume baseline rather than a later delta. */
   baseline?: true
   changes: WorkspaceInstructionChange[]
@@ -77,7 +79,7 @@ export interface ReconciledInstructionContext {
 function workspaceContextHook(text: string, changes: WorkspaceInstructionChange[]): UserMessage {
   return createUserMessage({
     content: [{ type: 'text', text }],
-    source: { kind: 'workspace-instructions', changes },
+    source: { kind: 'workspace-instructions', form: 'instructions', changes },
   })
 }
 

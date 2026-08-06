@@ -77,7 +77,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }[T]
 ```
 
-Sources: [`packages/core/session/src/types.ts:290`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:297`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:325`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:357`](../packages/core/session/src/types.ts)
+Sources: [`packages/core/session/src/types.ts:308`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:315`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:343`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:375`](../packages/core/session/src/types.ts)
 
 ## Events
 
@@ -174,7 +174,7 @@ Source: [`packages/ui/user-approval/src/index.ts:67`](../packages/ui/user-approv
 
 Types: [StreamChunk](core-data-structures/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:220`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:238`](../packages/core/session/src/types.ts)
 
 #### `assistant/message` — surface
 
@@ -190,7 +190,7 @@ Source: [`packages/core/session/src/types.ts:220`](../packages/core/session/src/
 
 Types: [TokenUsage](core-data-structures/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:227`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:245`](../packages/core/session/src/types.ts)
 
 ### `command/*`
 
@@ -236,7 +236,31 @@ Source: [`packages/ui/commands/src/index.ts:132`](../packages/ui/commands/src/in
 'compact/end': { turn: number | null; error?: string }
 ```
 
-Source: [`packages/compact/compact/src/types.ts:51`](../packages/compact/compact/src/types.ts)
+Source: [`packages/compact/compact/src/types.ts:54`](../packages/compact/compact/src/types.ts)
+
+#### `compact/prune` — log-only
+
+```ts persistence-catalog
+/**
+ * Shadow price of one model-free prune replacement — log-only, no
+ * surfaceOp. The shared shadow-price protocol: a surface `replace` event
+ * is priced by the metering event immediately before it (`compact/summary`
+ * for a summarizing compaction, this event for a prune), which states the
+ * heuristic token price of the exact replaced range so a pure consumer
+ * can subtract it without retaining per-node prices. The replacement MUST
+ * be appended synchronously right after this event.
+ */
+'compact/prune': {
+  /** The replaced range's first and last surface-node seqs (a surface-position span, like {@link CompactionResult.shadowedRange}). */
+  shadowedRange: { start: number; end: number }
+  /** The seqs of all shadowed surface nodes, in surface order. */
+  shadowedSeqs: number[]
+  /** Heuristic price of the shadowed content under the token-meter's fixed estimator. */
+  shadowedTokenCount: number
+}
+```
+
+Source: [`packages/compact/compact/src/types.ts:64`](../packages/compact/compact/src/types.ts)
 
 #### `compact/start` — log-only
 
@@ -257,8 +281,11 @@ Source: [`packages/compact/compact/src/types.ts:19`](../packages/compact/compact
 /**
  * Provenance record of a completed summarization — log-only, no surfaceOp.
  * The summary content is in `data.summary`; the actual surface replacement
- * is performed by a subsequent `user/message` event that shadows the
- * compacted range.
+ * is performed by the immediately following `user/message` event that
+ * shadows the compacted range. That adjacency is contractual — the
+ * shadowed pricing fields are the replacement's shadow price, so a
+ * consumer may pair a replacement with the metering event directly
+ * before it (`compact/prune` documents the shared protocol).
  */
 'compact/summary': {
   summary: ContentBlock[]
@@ -285,7 +312,7 @@ Source: [`packages/compact/compact/src/types.ts:19`](../packages/compact/compact
 
 Types: [ContentBlock](core-data-structures/core.md) · [TokenUsage](core-data-structures/llm-streaming.md)
 
-Source: [`packages/compact/compact/src/types.ts:26`](../packages/compact/compact/src/types.ts)
+Source: [`packages/compact/compact/src/types.ts:29`](../packages/compact/compact/src/types.ts)
 
 ### `goal/*`
 
@@ -419,7 +446,7 @@ Source: [`packages/plan/plan-mode/src/index.ts:52`](../packages/plan/plan-mode/s
 'request/context': RequestContext
 ```
 
-Source: [`packages/core/session/src/types.ts:263`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:281`](../packages/core/session/src/types.ts)
 
 #### `request/header` — log-only
 
@@ -431,7 +458,7 @@ Source: [`packages/core/session/src/types.ts:263`](../packages/core/session/src/
 'request/header': { header: EpochHeader; reason: RequestHeaderReason }
 ```
 
-Source: [`packages/core/session/src/types.ts:258`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:276`](../packages/core/session/src/types.ts)
 
 ### `sandbox/*`
 
@@ -484,7 +511,7 @@ Source: [`packages/sandbox/sandbox-policy/src/session-mode.ts:33`](../packages/s
 'session/end-seed': Record<string, never>
 ```
 
-Source: [`packages/core/session/src/types.ts:286`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:304`](../packages/core/session/src/types.ts)
 
 #### `session/title` — log-only
 
@@ -520,7 +547,7 @@ Source: [`packages/session-title/session-title-llm/src/index.ts:43`](../packages
 'step/end': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:210`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:228`](../packages/core/session/src/types.ts)
 
 #### `step/start` — log-only
 
@@ -529,7 +556,7 @@ Source: [`packages/core/session/src/types.ts:210`](../packages/core/session/src/
 'step/start': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:208`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:226`](../packages/core/session/src/types.ts)
 
 ### `subagent/*`
 
@@ -559,7 +586,7 @@ Source: [`packages/subagent/subagent/src/descriptor.ts:37`](../packages/subagent
 
 Types: [TodoItem](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:253`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:271`](../packages/core/session/src/types.ts)
 
 ### `tool/*`
 
@@ -576,7 +603,7 @@ Source: [`packages/core/session/src/types.ts:253`](../packages/core/session/src/
 
 Types: [CallId](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:233`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:251`](../packages/core/session/src/types.ts)
 
 #### `tool/code-dispatch` — log-only
 
@@ -649,7 +676,7 @@ Source: [`packages/core/tools/src/code-mode.ts:33`](../packages/core/tools/src/c
 }
 ```
 
-Source: [`packages/core/session/src/types.ts:245`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:263`](../packages/core/session/src/types.ts)
 
 ### `turn/*`
 
@@ -669,7 +696,7 @@ Source: [`packages/core/session/src/types.ts:245`](../packages/core/session/src/
 
 Types: [TurnEndReason](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:206`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:224`](../packages/core/session/src/types.ts)
 
 #### `turn/start` — log-only
 
@@ -683,7 +710,7 @@ Source: [`packages/core/session/src/types.ts:206`](../packages/core/session/src/
 'turn/start': { turn: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:197`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:215`](../packages/core/session/src/types.ts)
 
 ### `user/*`
 
@@ -700,7 +727,7 @@ Source: [`packages/core/session/src/types.ts:197`](../packages/core/session/src/
 'user/message': UserMessage
 ```
 
-Source: [`packages/core/session/src/types.ts:218`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:236`](../packages/core/session/src/types.ts)
 
 ### `web/*`
 

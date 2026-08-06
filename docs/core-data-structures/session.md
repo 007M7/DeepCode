@@ -401,6 +401,16 @@ declare class Session {
    */
   static create(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader): Session;
   /**
+   * Restore a detached session by taking ownership of fresh persistence values.
+   * Storage shape, event envelopes, sequence continuity, surface transitions,
+   * and header fields are validated before the graphs are frozen in place.
+   * @param id - restored session identity.
+   * @param seed - fresh detached events whose ownership is transferred.
+   * @param header - fresh detached metadata whose ownership is transferred.
+   * @returns a restored detached session.
+   */
+  static fromRestore(id: SessionId, seed: readonly SessionEvent[], header: SessionHeader): Session;
+  /**
    * An immutable snapshot of the append-only event log. The snapshot is reused
    * until the next append; a previously returned array does not grow later.
    * Events and their nested data are deep-frozen at acceptance, so neither a
@@ -484,15 +494,8 @@ declare class Session {
    */
   deriveMessages(): Message[];
   /**
-   * Project a single event into the LLM message it derives to, or null when
-   * it produces none — a non-surface event (chunk, boundary, log-only record)
-   * or an empty-content assistant/message (which exists only to host usage).
-   * The per-node pure function {@link deriveMessages} folds over the surface;
-   * an external reconstructor (or the dev invariant) folds the same function
-   * over a log prefix's surface to rebuild the exact messages any request was
-   * built from (the reconstructability Agent Note). The returned message is
-   * the already frozen message nested in the event wrapper and shared by
-   * delivery, durable history, and model requests.
+   * Instance face of the pure per-node `deriveEventMessage` export from
+   * `surface.ts`.
    * @param event - the event to project.
    * @returns the derived message, or null when the event produces none.
    */

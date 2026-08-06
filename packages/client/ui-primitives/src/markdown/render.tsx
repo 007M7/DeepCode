@@ -208,9 +208,17 @@ function renderNode(node: Md.RootContent, key: Key, context: MarkdownRenderConte
       return <em key={key}>{renderChildren(node.children, context)}</em>
     case 'delete':
       return <del key={key}>{renderChildren(node.children, context)}</del>
-    case 'inlineCode':
+    case 'inlineCode': {
       // Parity with mdast-util-to-hast: inline code renders line endings as spaces.
-      return <code key={key}>{node.value.replace(/\r?\n|\r/g, ' ')}</code>
+      const value = node.value.replace(/\r?\n|\r/g, ' ')
+      // An inline-code token that is entirely an absolute HTTP(S) URL keeps
+      // its code chrome and gains the same safe external anchor as a link;
+      // commands, partial URLs, and other schemes stay inert. The value is
+      // authored text, not a parsed destination, so no normalizeUri: port,
+      // path, and query render unchanged.
+      const href = inlineCodeHttpUrl(value)
+      return <code key={key}>{href === undefined ? value : renderSafeLink(href, [value], 'link')}</code>
+    }
     case 'html':
       // No HTML parser enters the pipeline: raw HTML stays literal text.
       return node.value
@@ -382,8 +390,9 @@ function renderTableRow(
   return <tr key={key}>{cells}</tr>
 }
 
-function renderAnchor(url: string, children: ReactNode[], key: Key): ReactNode {
-  const safeHref = sanitizeUrl(normalizeUri(url))
+/** Anchor over an already-authored href: allowlisted or unwrapped, external links get the safe attributes. */
+function renderSafeLink(href: string, children: ReactNode[], key: Key): ReactNode {
+  const safeHref = sanitizeUrl(href)
   if (safeHref === '') return <Fragment key={key}>{children}</Fragment>
   const external = ['http:', 'https:'].includes(new URL(safeHref).protocol)
   return (
@@ -395,6 +404,26 @@ function renderAnchor(url: string, children: ReactNode[], key: Key): ReactNode {
       {children}
     </a>
   )
+}
+
+/** Anchor over a parsed markdown destination, which hast normalized before the allowlist saw it. */
+function renderAnchor(url: string, children: ReactNode[], key: Key): ReactNode {
+  return renderSafeLink(normalizeUri(url), children, key)
+}
+
+/**
+ * The complete inline-code value when it is exactly an absolute HTTP(S) URL
+ * (no surrounding whitespace); anything else stays inert code.
+ */
+function inlineCodeHttpUrl(value: string): string | undefined {
+  if (value.trim() !== value) return undefined
+  try {
+    const protocol = new URL(value).protocol
+    return protocol === 'http:' || protocol === 'https:' ? value : undefined
+  } catch {
+    // Not an absolute URL at all — the only way new URL() rejects a string.
+    return undefined
+  }
 }
 
 function renderImage(url: string, alt: string, key: Key): ReactNode {

@@ -161,7 +161,19 @@ describe('durable step context', () => {
     const event = session.events.at(-1)
     expect(event?.type).toBe('user/message')
     if (event?.type !== 'user/message') throw new Error('missing time context')
-    expect(event.data.source).toEqual({ kind: 'plugin', plugin: 'time-context' })
+    // The reading is a `snapshot`-form context: one named contribution whose
+    // text is exactly what the model read, so a consumer attributes it without
+    // re-splitting prose.
+    expect(event.data.source).toEqual({
+      kind: 'plugin',
+      plugin: 'time-context',
+      form: 'snapshot',
+      sections: [{
+        name: 'time-context',
+        text: 'Time sampled while preparing turn 1, step 1: 2026-07-15T09:01:01+08:00[Asia/Shanghai]\n'
+          + 'Elapsed since the preceding model-visible message: 1d 1h 1m 1s.',
+      }],
+    })
     expect(event.surfaceOp).toBe('append')
   })
 

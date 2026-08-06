@@ -374,7 +374,12 @@ describe('goal tool state transitions', () => {
     expect(complete.concludesTurn).toBeUndefined()
     const contexts = complete.additionalContexts ?? []
     expect(contexts).toHaveLength(1)
-    expect(contexts[0]?.source).toEqual({ kind: 'plugin', plugin: 'tool-goal' })
+    expect(contexts[0]?.source).toEqual({
+      kind: 'plugin',
+      plugin: 'tool-goal',
+      form: 'notice',
+      summary: 'complete: pause cleanly',
+    })
     const block = contexts[0]?.content[0]
     if (block?.type !== 'text') throw new Error('expected one text wrap-up block')
     expect(block.text).toContain('<goal_complete>')

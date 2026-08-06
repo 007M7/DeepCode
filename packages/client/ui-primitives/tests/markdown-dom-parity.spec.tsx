@@ -216,6 +216,15 @@ const CORPUS: Record<string, string> = {
     '```',
   ].join('\n'),
   'gfm-strikethrough-and-literals': 'Mixed ~~gone~~ text with www.example.com literal and user@example.com email.',
+  'cjk-strong-and-inline-code-url': [
+    '**注意：**内容在标点后直接闭合。',
+    '',
+    '**Notice:**text keeps upstream parsing.',
+    '',
+    '*提醒！*单星号也保持上游行为。',
+    '',
+    '`https://example.com/preview?q=one%20two#result` 与 `curl http://127.0.0.1:3199/` 以及 `javascript:alert(1)`。',
+  ].join('\n'),
   'definition-only': '[unused]: https://example.com/unused',
   'streaming-typical-partial': '## Streaming\n\n- first\n- **unfinished',
 }

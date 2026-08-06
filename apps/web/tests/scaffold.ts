@@ -476,15 +476,29 @@ export function fixtureUserPrompts(fixtureText: string): string[] {
  * @param id - the seeded session id (stable for deterministic goldens).
  * @returns the seeded id.
  */
-export async function seedSession(scaffold: WebScaffold, fixtureText: string, id: string): Promise<SessionId> {
+/**
+ * Realize a recorded seed fixture against one scaffold: substitute the
+ * `{{sessionId}}`/`{{cwd}}` placeholders and rewrite the recorded cwd to the
+ * scaffold's workspace. Idempotent, so a caller may realize early (e.g. to
+ * price content exactly as the host will fold it) and still pass the result
+ * through {@link seedSession}.
+ * @param scaffold - the booted scaffold whose workspace the seed targets.
+ * @param fixtureText - the committed seed fixture text.
+ * @param id - the session id the seed is realized for.
+ * @returns the realized fixture text.
+ */
+export function realizeSeedFixture(scaffold: WebScaffold, fixtureText: string, id: string): string {
   const realized = fixtureText
     .split('{{sessionId}}').join(id)
     .split('{{cwd}}').join(scaffold.workspaceCwd)
   const fixtureCwd = (JSON.parse(realized.split('\n', 1)[0]!) as { cwd?: string }).cwd
-  const rewritten = fixtureCwd === undefined
+  return fixtureCwd === undefined
     ? realized
     : realized.split(fixtureCwd).join(scaffold.workspaceCwd)
-  const events = parseSessionLog(rewritten)
+}
+
+export async function seedSession(scaffold: WebScaffold, fixtureText: string, id: string): Promise<SessionId> {
+  const events = parseSessionLog(realizeSeedFixture(scaffold, fixtureText, id))
   if (events.length === 0) throw new Error('seed fixture has no events')
   const last = events[events.length - 1]!
   // An open final turn would be mutated by resume's crash repair on first
@@ -518,8 +532,14 @@ export async function seedSession(scaffold: WebScaffold, fixtureText: string, id
 }
 
 /**
- * Normalize an aria snapshot: uuid, cwd, workspace-basename, and duration
- * volatility collapse to stable tokens.
+ * Normalize an aria snapshot: uuid, cwd, workspace-basename, duration, and
+ * decode-throughput volatility collapse to stable tokens.
+ *
+ * Throughput needs a token for the same reason durations do, and no fixture
+ * can supply one: the figure divides a replayed step's output tokens by the
+ * wall time the local run took to stream them, so it moves between two runs
+ * on one machine (measured 69 → 70 tok/s) and swings wildly on a fast replay
+ * (26333 tok/s for a 3 ms stream).
  */
 function normalizeAria(snapshot: string, workspaceCwd: string): string {
   // The session heading renders the workspace's basename, not the full
@@ -529,14 +549,17 @@ function normalizeAria(snapshot: string, workspaceCwd: string): string {
     .split(workspaceCwd).join('{{cwd}}')
     .split(base).join('{{workspace}}')
     .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '{{uuid}}')
+    // The optional space in `\d+m ?\d+s` covers both minute spellings: the
+    // stats line's compact `2m42s` and the message-chrome template's `2m 42s`.
     .replace(
-      /~\d+(?:y(?: \d+mo)?|mo(?: \d+d)?)|\b(?:\d+d(?: \d+h(?: \d+m \d+s)?)?|\d+h \d+m \d+s|\d+m \d+s|\d+(?:\.\d+)?s|\d+(?:\.\d+)?ms)\b/g,
+      /~\d+(?:y(?: \d+mo)?|mo(?: \d+d)?)|\b(?:\d+d(?: \d+h(?: \d+m \d+s)?)?|\d+h \d+m \d+s|\d+m ?\d+s|\d+(?:\.\d+)?s|\d+(?:\.\d+)?ms)\b/g,
       duration => duration.startsWith('~') ? duration : '{{duration}}',
     )
     .replace(
       /约\d+(?:年(?:\d+个月)?|个月(?:\d+天)?)|\d+(?:天(?:\d+小时(?:\d+分\d+秒)?)?|小时\d+分\d+秒|分\d+秒|(?:\.\d+)?秒)/g,
       duration => duration.startsWith('约') ? duration : '{{duration}}',
     )
+    .replace(/\d+(?:\.\d+)?(?= tok\/s(?!\w))/g, '{{throughput}}')
     // Message IconActions clocks widen by calendar day/year; collapse every
     // shape so goldens stay stable across midnight and year boundaries.
     .replace(/\d{4}年\d{1,2}月\d{1,2}日 \d{2}:\d{2}/g, '{{clock}}')
