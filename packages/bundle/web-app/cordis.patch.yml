@@ -1,12 +1,11 @@
-# `dsh web` — the browser surface, as a patch list over `base.cordis.yml`.
-# The launcher includes the base and applies this file, then any `--config`
-# overlay, then AppCLIEntry's profile-json and CLI-flag patches, as sibling patch
-# lists at ONE include level: patches never cross an include boundary, so
-# stacking overlays as nested includes would silently stop reaching base rows.
+# The dsh-web-app bundle patch: the browser surface over the dsh-base layer.
+# Applied after dsh-base's insert; rows here override base rows by id, with
+# the profile's own cordis.patch.yml and any --patch overlays still to come.
 #
-# A patch replaces the targeted row's whole `config`, so each row below restates
-# every key it owns. `--dev` appends the dsh-client-hmr row in code
-# (AppCLIEntry).
+# A patch replaces the targeted row's whole `config`, so each row below
+# restates every key it owns. The `dsh web` launcher alias turns --host/--port/
+# --dev/--workspace-root/--trusted-host into further patches over these rows
+# (`--dev` inserts the dsh-client-hmr row).
 
 # ── surface-specific values the base deliberately omits ─────────────────────
 
@@ -91,14 +90,25 @@
 
     # ── layer 2: transport/service ──────────────────────────────────────────────
 
-    # Plain route-registration carrier. distIndex is an assembly fact, not user
-    # config — AppCLIEntry resolves the frontend dist and patches it in; host and
-    # port arrive as CLI-flag patches over these defaults.
+    # Plain route-registration carrier; host and port arrive as `dsh web`
+    # flag patches over these defaults. The dist is served by the web-runtime
+    # row below through the fallback seat.
     - id: webserver
       name: '@deepseek-ai/dsh-host-webserver'
       config:
         host: 127.0.0.1
         port: 3080
+
+    # Web glue owned by this bundle: resolves the built frontend dist (an
+    # assembly fact of dsh-web-app, never user config), mounts the
+    # frontend-static fallback owner, registers the web-surface prompt
+    # section and bash runtime variables, and prints the URL line. `dsh web`
+    # patches mode/lanAddresses over these defaults.
+    - id: web-runtime
+      name: '@deepseek-ai/dsh-web-app'
+      config:
+        mode: production
+        printUrl: true
 
     # ── browser plugin roster (dshClient rows; node halves are layer-2 hosts) ──
 

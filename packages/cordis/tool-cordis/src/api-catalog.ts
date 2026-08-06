@@ -397,8 +397,16 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Register an exact-path HTTP upgrade route. Duplicate paths throw because\n * one socket can have only one protocol owner.\n * @param route - pathname and handler owning negotiation plus socket use.\n * @returns the disposer removing the route.\n */',
       },
       {
+        signature: 'registerFallback(handler: WebRoute[\'handler\']): () => void',
+        jsDoc: '/**\n * Claim the fallback seat: the handler answering every request no named\n * route matches (the SPA dist server in the shipped Web composition). One\n * owner only — a second registration throws, because two fallbacks cannot\n * compose.\n * @param handler - owns the full response lifecycle of unmatched requests.\n * @returns the disposer releasing the seat.\n */',
+      },
+      {
         signature: 'tapIndex(transform: (html: string) => string): () => void',
-        jsDoc: '/**\n * Register an index.html transform, applied to every index response in\n * registration order.\n * @param transform - pure html-to-html function.\n * @returns the disposer removing the transform.\n */',
+        jsDoc: '/**\n * Register an index.html transform, applied by the fallback owner to every\n * index response ({@link applyIndexTaps}) in registration order.\n * @param transform - pure html-to-html function.\n * @returns the disposer removing the transform.\n */',
+      },
+      {
+        signature: 'applyIndexTaps(html: string): string',
+        jsDoc: '/**\n * Run an index.html body through the registered taps in registration order\n * — called by the fallback owner on every index response it renders.\n * @param html - the raw index.html body.\n * @returns the transformed body.\n */',
       },
     ],
   },
