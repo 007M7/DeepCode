@@ -84,14 +84,14 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
     // The paste that used to save cleanly and then fail the first turn with a
     // ByteString TypeError now names the field that holds it.
     await key.fill('sk-\u{1F600}minimax')
-    await dialog.getByText('该 API 密钥含有无法发送的字符。请只粘贴原始密钥。').waitFor({ timeout: 10_000 })
+    await dialog.getByText('该 API 密钥格式错误，请检查。').waitFor({ timeout: 10_000 })
     await expect.poll(async () => save.isEnabled(), { timeout: 10_000 }).toBe(false)
 
     // Clearing it restores submit: an empty field means "keep what is stored",
     // never a refusal, or editing any other setting would demand the key.
     await key.fill('')
     await expect.poll(async () => save.isEnabled(), { timeout: 10_000 }).toBe(true)
-    expect(await dialog.getByText('该 API 密钥含有无法发送的字符。请只粘贴原始密钥。').count()).toBe(0)
+    expect(await dialog.getByText('该 API 密钥格式错误，请检查。').count()).toBe(0)
   }, 60_000)
 
   it('stores the key under the derived reference and the route registers live', async () => {
