@@ -133,7 +133,7 @@ const homeAndGuide = pairedPages([
   {
     source: 'docs/user/guide/providers.md',
     route: 'guide/providers.md',
-    label: { root: '配置模型提供方', en: 'Model providers' },
+    label: { root: '配置模型', en: 'Configure models' },
     sidebar: { root: 'zh-guide', en: 'en-guide' },
     section: { root: '入门', en: 'Guide' },
     order: 3,

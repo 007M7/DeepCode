@@ -1,4 +1,4 @@
-# Configure model providers
+# Configure models
 
 English | [中文](providers.zh.md)
 

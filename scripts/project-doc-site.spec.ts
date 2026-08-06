@@ -93,7 +93,7 @@ describe('rewriteMarkdown', () => {
     })).toBe('[B](./reference-root/b.md)\n')
   })
 
-  it('uses raw GitHub content for unpublished images', () => {
+  it('uses raw GitHub content for unpublished images when nothing places them', () => {
     const { root, pages } = fixture()
     expect(rewriteMarkdown('![logo](../packages/logo.svg)\n', {
       locale: 'en',
@@ -103,6 +103,39 @@ describe('rewriteMarkdown', () => {
       repoRoot: root,
       repositoryRef: 'abc123',
     })).toBe('![logo](https://raw.githubusercontent.com/deepseek-harness/deepseek-harness/abc123/packages/logo.svg)\n')
+  })
+
+  it('hands an image to the placer and uses the URL it returns', () => {
+    // A raw GitHub URL cannot serve a private repository, so the site build
+    // carries images itself; the placer is what puts them there.
+    const { root, pages } = fixture()
+    const placed: string[] = []
+    expect(rewriteMarkdown('![logo](../packages/logo.svg)\n', {
+      locale: 'en',
+      sourcePath: 'docs/a.md',
+      route: 'en/a.md',
+      pages,
+      repoRoot: root,
+      repositoryRef: 'abc123',
+      placeImage: (absPath) => {
+        placed.push(absPath.split('/').pop() ?? '')
+        return './logo.svg'
+      },
+    })).toBe('![logo](./logo.svg)\n')
+    expect(placed).toEqual(['logo.svg'])
+  })
+
+  it('leaves a published page link to the route even when a placer exists', () => {
+    const { root, pages } = fixture()
+    expect(rewriteMarkdown('[B](b.md)\n', {
+      locale: 'en',
+      sourcePath: 'docs/a.md',
+      route: 'en/a.md',
+      pages,
+      repoRoot: root,
+      repositoryRef: 'abc123',
+      placeImage: () => { throw new Error('a page link must not be placed as an asset') },
+    })).toBe('[B](./reference/b.md)\n')
   })
 
   it('does not rewrite Markdown-looking text inside code fences', () => {

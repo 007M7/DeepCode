@@ -5,8 +5,8 @@
  * tier, while this adapter rewrites cross-source links for the public site.
  */
 
-import { existsSync, lstatSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { dirname, extname, posix, relative, resolve, sep } from 'node:path'
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { basename, dirname, extname, posix, relative, resolve, sep } from 'node:path'
 import { fromMarkdown } from 'mdast-util-from-markdown'
 import { gfmFromMarkdown } from 'mdast-util-gfm'
 import { gfm } from 'micromark-extension-gfm'
@@ -38,6 +38,15 @@ export interface RewriteMarkdownOptions {
   pages: DocsPage[]
   repoRoot: string
   repositoryRef: string
+  /**
+   * Place one referenced image beside the projected page and return the URL to
+   * reach it from that page. A GitHub raw URL cannot serve this repository —
+   * `raw.githubusercontent.com` answers 404 for a private one, and no reader of
+   * the site is authenticated to it — so an image travels into the generated
+   * tree and Vite bundles it like any other site asset. Omitted by callers that
+   * only rewrite text, which then leave images pointing at the repository.
+   */
+  placeImage?: (absPath: string) => string
 }
 
 function repoPath(absPath: string, repoRoot: string): string {
@@ -222,9 +231,11 @@ export function rewriteMarkdown(source: string, options: RewriteMarkdownOptions)
       ? options.locale === 'root' ? 'en' : 'root'
       : options.locale
     const page = published.get(targetPath)?.get(targetLocale)
-    const nextUrl = page === undefined
-      ? githubTarget(absPath, line, suffix, options.repositoryRef, options.repoRoot, node.type === 'image')
-      : routeTarget(options.route, page.route, suffix)
+    const nextUrl = page !== undefined
+      ? routeTarget(options.route, page.route, suffix)
+      : node.type === 'image' && options.placeImage !== undefined
+        ? options.placeImage(absPath)
+        : githubTarget(absPath, line, suffix, options.repositoryRef, options.repoRoot, node.type === 'image')
 
     const start = node.position?.start.offset
     const end = node.position?.end.offset
@@ -299,6 +310,8 @@ export function docsSourceFiles(): string[] {
 /** Rebuild the disposable VitePress source tree from the publication manifest. */
 export function projectDocs(): void {
   const routes = new Set<string>()
+  /** Projected asset path to the source it came from, for collision detection. */
+  const assets = new Map<string, string>()
   const repositoryRef = process.env.GITHUB_SHA ?? 'master'
   rmSync(generatedRoot, { recursive: true, force: true })
 
@@ -319,6 +332,24 @@ export function projectDocs(): void {
       pages: docsPages,
       repoRoot: root,
       repositoryRef,
+      placeImage: (absPath) => {
+        // Beside the page that references it, under its own basename: each
+        // locale's route tree gets its own copy, so one relative URL is correct
+        // from both. Two sources that would land on one name are a collision
+        // rather than a silent overwrite of whichever copied last.
+        const name = basename(absPath)
+        const target = resolve(dirname(output), name)
+        const claimed = assets.get(target)
+        if (claimed !== undefined && claimed !== absPath) {
+          throw new Error(
+            `project-doc-site: ${repoPath(absPath, root)} and ${repoPath(claimed, root)}`
+            + ` both project to ${relative(generatedRoot, target).split(sep).join('/')}.`,
+          )
+        }
+        assets.set(target, absPath)
+        copyFileSync(absPath, target)
+        return `./${name}`
+      },
     })
     writeFileSync(output, addProjectionFrontmatter(projectedPageContent(projected, page), page))
   }

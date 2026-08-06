@@ -1,4 +1,4 @@
-# 配置模型提供方
+# 配置模型
 
 [English](providers.md) | 中文
 
