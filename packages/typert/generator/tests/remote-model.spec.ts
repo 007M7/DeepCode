@@ -284,6 +284,32 @@ export type GenericResult = {
     expect(() => analyzeRemote(root, false)).toThrow(/non-JSON class parameter Agent requires a TypeRTLookupMap entry/)
   })
 
+  it.each([
+    ['bigint', 'bigint'],
+    ['symbol', 'symbol'],
+    ['undefined', 'undefined'],
+    ['any', 'unconstrained any'],
+    ['unknown', 'unconstrained unknown'],
+  ])('rejects non-JSON Remote boundary type %s', (type, message) => {
+    const root = copyFixture()
+    editFile(root, 'packages/remote/src/types.ts', source => source.replace(
+      '  readonly title: string\n}',
+      `  readonly title: string\n  readonly invalid: ${type}\n}`,
+    ))
+
+    expect(() => analyzeRemote(root, false)).toThrow(new RegExp(message))
+  })
+
+  it('keeps optional JSON object fields valid', () => {
+    const root = copyFixture()
+    editFile(root, 'packages/remote/src/types.ts', source => source.replace(
+      '  readonly title: string\n}',
+      '  readonly title: string\n  readonly note?: string\n}',
+    ))
+
+    expect(() => analyzeRemote(root)).not.toThrow()
+  })
+
   it('rejects a Remote Context without a static Context declaration', () => {
     const root = copyFixture()
     editFile(root, 'packages/remote/src/index.ts', source => source.replace("@RemoteContext('agent')", "@RemoteContext('missing')"))

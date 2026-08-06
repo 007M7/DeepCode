@@ -17,6 +17,7 @@ import type {
   TypeRTHostContextProvider,
   TypeRTLocalRegistry,
   TypeRTLookupHost,
+  TypeRTLookupDefinition,
   TypeRTLookupMap,
   TypeRTLookupProvider,
   TypeRTLookupRegistry,
@@ -212,6 +213,7 @@ class RemoteStore {
 
 class LookupStore {
   private readonly providers = new Map<string, ProviderEntry<TypeRTLookupProvider>>()
+  private readonly definitions = new Map<string, TypeRTLookupDefinition>()
   private readonly changes: ChangeSource
 
   constructor(report: ReportObserverError) {
@@ -228,6 +230,7 @@ class LookupStore {
         >,
       ) => this.register(ctx, key, provider),
       get: key => this.providers.get(key)?.provider,
+      definitions: () => [...this.definitions.values()],
       keys: () => [...this.providers.keys()],
       subscribe: listener => this.changes.subscribe(ctx, listener),
     }
@@ -240,10 +243,22 @@ class LookupStore {
     validateNonempty('lookup Host type symbol', provider.hostTypeSymbol)
     validateNonempty('lookup wire type symbol', provider.wireTypeSymbol)
     if (this.providers.has(key)) throw new Error(`typert: lookup "${key}" is already registered`)
+    const definition: TypeRTLookupDefinition = {
+      key,
+      parameter: provider.parameter,
+      wire: provider.wire,
+      hostTypeSymbol: provider.hostTypeSymbol,
+      wireTypeSymbol: provider.wireTypeSymbol,
+    }
+    const known = this.definitions.get(key)
+    if (known !== undefined && !lookupDefinitionEquals(known, definition)) {
+      throw new Error(`typert: lookup "${key}" changed its wire declaration during this registry lifetime`)
+    }
     const owner = {}
     const entry: ProviderEntry<TypeRTLookupProvider> = { provider, owner }
-    const { providers, changes } = this
+    const { definitions, providers, changes } = this
     return ctx.effect(function* () {
+      definitions.set(key, definition)
       providers.set(key, entry)
       changes.emit({ kind: 'lookup', key })
       yield () => {
@@ -254,6 +269,13 @@ class LookupStore {
       }
     }, `typert.lookups.register(${JSON.stringify(key)})`)
   }
+}
+
+function lookupDefinitionEquals(left: TypeRTLookupDefinition, right: TypeRTLookupDefinition): boolean {
+  return left.parameter === right.parameter
+    && left.wire === right.wire
+    && left.hostTypeSymbol === right.hostTypeSymbol
+    && left.wireTypeSymbol === right.wireTypeSymbol
 }
 
 class ContextStore {
@@ -377,7 +399,7 @@ export class TypertRegistry extends Service implements TypeRTService {
   register(contribution: TypertContribution): TypeRTDisposer {
     const packageRecord = this.validatePackage(contribution)
     const schemaRecords = this.validateSchemas(contribution)
-    const invocations = contribution.invocations ?? []
+    const invocations = contribution.invocations
     this.localStore.validate(invocations)
     const owner = {}
     const { schemas, packages, localStore } = this

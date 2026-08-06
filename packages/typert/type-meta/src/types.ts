@@ -189,6 +189,20 @@ export interface TypeRTLookupProvider<Host = unknown, Wire = unknown> {
   resolve(id: Wire): Host | undefined
 }
 
+/** Stable wire declaration retained after a lookup provider unloads. */
+export interface TypeRTLookupDefinition {
+  /** Merge-declared lookup key. */
+  readonly key: string
+  /** Source parameter name recognized by the SRC weak parser. */
+  readonly parameter: string
+  /** Wire field replacing the Host object parameter. */
+  readonly wire: string
+  /** Canonical Host type symbol used by strict generation. */
+  readonly hostTypeSymbol: string
+  /** Canonical wire type symbol used by strict generation. */
+  readonly wireTypeSymbol: string
+}
+
 /** Host resolver for one scoped Remote Context kind. */
 export interface TypeRTHostContextProvider<Wire = unknown> {
   /** Wire field carrying the Context identity. */
@@ -291,6 +305,8 @@ export interface TypeRTLookupRegistry {
    * @returns the live provider, or `undefined` when absent.
    */
   get(key: string): TypeRTLookupProvider | undefined
+  /** @returns lookup declarations observed during this TypeRT Service lifetime. */
+  definitions(): readonly TypeRTLookupDefinition[]
   /** @returns a snapshot of registered provider keys. */
   keys(): readonly string[]
   /**

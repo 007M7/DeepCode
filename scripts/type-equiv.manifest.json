@@ -1494,6 +1494,66 @@
       "doc": "docs/core-data-structures/settings.md",
       "symbol": "SettingsPathOp",
       "source": "packages/settings/settings/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/typert.md",
+      "symbol": "TypeRTLookupMap",
+      "source": "packages/typert/type-meta/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/typert.md",
+      "symbol": "TypeRTContextMap",
+      "source": "packages/typert/type-meta/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/typert.md",
+      "symbol": "TypeRTLookupDefinition",
+      "source": "packages/typert/type-meta/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/typert.md",
+      "symbol": "TypeRTCodec",
+      "source": "packages/typert/type-meta/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/typert.md",
+      "symbol": "InvocationParameterDescriptor",
+      "source": "packages/typert/type-meta/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/typert.md",
+      "symbol": "InvocationDescriptor",
+      "source": "packages/typert/type-meta/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/typert.md",
+      "symbol": "TypeRTService",
+      "source": "packages/typert/type-meta/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/typert.md",
+      "symbol": "TypeRTRemoteNamespaceMap",
+      "source": "packages/typert/type-meta/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/typert.md",
+      "symbol": "InvokeRemoteRequest",
+      "source": "packages/host/api-gateway/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/typert.md",
+      "symbol": "TypertGatewayErrorCode",
+      "source": "packages/host/api-gateway/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/typert.md",
+      "symbol": "TypertGateway",
+      "source": "packages/host/api-gateway/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/typert.md",
+      "symbol": "ClientApi",
+      "source": "packages/host/api-gateway/src/client/index.ts"
     }
   ]
 }

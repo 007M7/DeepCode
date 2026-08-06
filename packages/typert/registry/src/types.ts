@@ -83,12 +83,7 @@ export interface TypertContribution {
   readonly face: TypertFace
   readonly schemas: readonly TypertSchema[]
   readonly model: TypertPackageModel
-  /** Host invocation definitions; absent on artifacts generated before Remote support. */
-  readonly invocations?: readonly InvocationDescriptor[]
-}
-
-/** Generated Host contribution with strict Remote invocation definitions. */
-export interface TypertLocalContribution extends TypertContribution {
+  /** Host invocation definitions, empty when the package exports no Remote methods. */
   readonly invocations: readonly InvocationDescriptor[]
 }
 

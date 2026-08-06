@@ -284,6 +284,7 @@ class ScopedRemoteNamespace extends Service {
 
   install(descriptor: InvocationDescriptor, projection: ScopedProjection, token: MountToken): void {
     this.assertMethodAvailable(descriptor.method)
+    if (this.methods.size === 0) this.ownerCtx.set(this.name, this)
     const method = descriptor.method
     Object.defineProperty(this, method, {
       configurable: true,

@@ -12,7 +12,6 @@ import {
   type InvocationParameterDescriptor,
   type TypeRTCodec,
   type TypeRTGatewayBinding,
-  type TypeRTLookupProvider,
 } from '@deepseek-ai/dsh-type-meta'
 import type {
   InvokeRemoteRequest,
@@ -149,6 +148,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
     payload: unknown,
     _signal: AbortSignal,
   ): Promise<ConnectionRpcResult> {
+    // Remote methods have no cancellation parameter yet, so disconnects do not cancel business work.
     return this.invokeRpc(endpoint, payload)
   }
 
@@ -229,10 +229,8 @@ export class TypertGatewayService extends Service implements TypertGateway {
     const parameters: InvocationParameterDescriptor[] = []
     const wires = new Set<string>()
     for (const name of names) {
-      const matches = this.ctx.typert.lookups.keys()
-        .map(key => ({ key, provider: this.ctx.typert.lookups.get(key) }))
-        .filter((entry): entry is { key: string; provider: TypeRTLookupProvider } =>
-          entry.provider?.parameter === name)
+      const matches = this.ctx.typert.lookups.definitions()
+        .filter(definition => definition.parameter === name)
       if (matches.length > 1) {
         throw new TypertGatewayError(
           'signature-invalid',
@@ -246,7 +244,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
         ? { name, wire: name, source: 'json', codec: { mode: 'src-json' } }
         : {
           name,
-          wire: match.provider.wire,
+          wire: match.wire,
           source: 'lookup',
           lookup: match.key,
           codec: { mode: 'src-json' },
@@ -540,7 +538,7 @@ function decode(
   field: string,
 ): unknown {
   try {
-    if (codec.mode === 'strict') return codec.schema.parse(value)
+    if (codec.mode === 'strict') value = codec.schema.parse(value)
     assertJsonValue(value, new Set())
     return value
   } catch (cause) {

@@ -36,6 +36,7 @@ function toolsContribution(schema: z.ZodType = z.object({ name: z.string() })): 
     package: '@deepseek-ai/dsh-tools',
     face: 'host',
     schemas: [{ name: 'ToolInput', schema }],
+    invocations: [],
     model: {
       services: [{
         key: 'tools',
@@ -329,11 +330,19 @@ describe('TypertRegistry', () => {
     })
 
     expect(ctx.typert.lookups.get('fixture')?.resolve('agent-1')).toBe(object)
+    expect(ctx.typert.lookups.definitions()).toEqual([{
+      key: 'fixture',
+      parameter: 'agent',
+      wire: 'agentId',
+      hostTypeSymbol: '@fixture/agent#Agent',
+      wireTypeSymbol: '@fixture/session#SessionId',
+    }])
     expect(ctx.typert.contexts.getHost('registryFixture')?.resolve('agent-1')).toBe(scoped)
     expect(ctx.typert.contexts.getClient('registryFixture')?.identity(scoped)).toBe('agent-1')
 
     await Promise.all([disposeClient(), disposeHost(), disposeLookup()])
     expect(ctx.typert.lookups.keys()).toEqual([])
+    expect(ctx.typert.lookups.definitions()).toHaveLength(1)
     expect(ctx.typert.contexts.getHost('registryFixture')).toBeUndefined()
     expect(ctx.typert.contexts.getClient('registryFixture')).toBeUndefined()
   })
@@ -378,6 +387,15 @@ describe('TypertRegistry', () => {
     ])
 
     await Promise.all([disposeLookupSubscription(), disposeContextSubscription()])
+    for (const changed of [
+      { ...lookup, parameter: 'session' },
+      { ...lookup, wire: 'sessionId' },
+      { ...lookup, hostTypeSymbol: '@fixture#Session' },
+      { ...lookup, wireTypeSymbol: '@fixture#SessionId' },
+    ]) {
+      expect(() => ctx.typert.lookups.register('fixture', changed))
+        .toThrow('changed its wire declaration during this registry lifetime')
+    }
     ctx.typert.lookups.register('fixture', lookup)
     expect(changes).toHaveLength(6)
   })

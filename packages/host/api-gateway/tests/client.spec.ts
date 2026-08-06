@@ -204,7 +204,13 @@ describe('Client TypeRT API', () => {
   })
 
   it('rejects duplicate, live, scoped-service, and Context namespace collisions', async () => {
-    const ctx = await bench(vi.fn<ConnectionHandle['rpc']['call']>())
+    const call = vi.fn<ConnectionHandle['rpc']['call']>()
+      .mockResolvedValue({ ok: true, value: { renamed: true } })
+    const ctx = await bench(call)
+    const agentCtx = ctx.extend({ fixtureId: 'agent-remounted' }) as FixtureContext
+    ctx.typert.contexts.registerClient('fixture', {
+      identity: candidate => (candidate as Context & { fixtureId?: string }).fixtureId,
+    })
     const direct = directDescriptor()
     const context = contextDescriptor()
 
@@ -242,6 +248,13 @@ describe('Client TypeRT API', () => {
       package: '@fixture/multiple-scoped',
       descriptors: [directDescriptor(), contextDescriptor()],
     })
+    await expect(agentCtx.goals.rename({ objective: 'remounted' })).resolves.toEqual({ renamed: true })
+    expect(call).toHaveBeenLastCalledWith(
+      '/api',
+      'goals/rename',
+      { args: { agentId: 'agent-remounted', request: { objective: 'remounted' } } },
+      expect.any(AbortSignal),
+    )
     await disposeMultipleScoped()
   })
 

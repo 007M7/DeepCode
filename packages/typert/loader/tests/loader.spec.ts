@@ -60,6 +60,7 @@ function typertSource(pkgName: string, entryName: string): string {
     '  face: \'host\',',
     `  schemas: [{ name: '${entryName}', schema: ${entryName} }],`,
     '  model: { services: [], events: [], objects: [] },',
+    '  invocations: [],',
     '}',
     '',
   ].join('\n')
@@ -262,6 +263,7 @@ describe('typert loader', () => {
         '  face: \'host\',',
         '  schemas: [{ name: \'Pending\', schema: Pending }],',
         '  model: { services: [], events: [], objects: [] },',
+        '  invocations: [],',
         '}',
         '',
       ].join('\n'),
@@ -295,7 +297,7 @@ describe('typert loader', () => {
     root = await mkdtemp(join(tmpdir(), 'dsh-typert-loader-'))
     await linkZod(root)
     await writePackage(root, '@fixture/broken', {
-      typertSource: 'export const TYPERT = { package: \'@fixture/broken\', face: \'host\', schemas: [{ name: \'\', schema: {} }], model: { services: [], events: [], objects: [] } }\n',
+      typertSource: 'export const TYPERT = { package: \'@fixture/broken\', face: \'host\', schemas: [{ name: \'\', schema: {} }], model: { services: [], events: [], objects: [] }, invocations: [] }\n',
     })
     const ctx = await boot()
     await ctx.loader.create({ name: '@fixture/broken' })
@@ -410,6 +412,7 @@ describe('validateTypertManifest', () => {
       face: 'host',
       schemas: [{ name: 'A', schema: zodish }],
       model: { services: [], events: [], objects: [] },
+      invocations: [],
     }).schemas).toHaveLength(1)
 
     expect(() => validateTypertManifest('pkg', undefined)).toThrow('no TYPERT manifest object')
@@ -490,12 +493,14 @@ describe('validateTypertManifest', () => {
     })).toThrow('object has a missing or empty exportName')
   })
 
-  it('validates strict invocation descriptors and accepts legacy manifests without them', () => {
-    const legacy = completeManifest(zodish)
-    expect(validateTypertManifest('pkg', legacy)).toBe(legacy)
+  it('requires and validates strict invocation descriptors', () => {
+    const base = completeManifest(zodish)
+    const { invocations: _invocations, ...missingInvocations } = base
+    expect(() => validateTypertManifest('pkg', missingInvocations))
+      .toThrow('TYPERT.invocations must be an array')
 
     const descriptor = strictInvocation()
-    const manifest = { ...legacy, invocations: [descriptor] }
+    const manifest = { ...base, invocations: [descriptor] }
     expect(validateTypertManifest('pkg', manifest)).toBe(manifest)
     const scoped = {
       ...descriptor,
@@ -508,53 +513,53 @@ describe('validateTypertManifest', () => {
         codec: strictCodec('pkg#AgentId'),
       }, ...descriptor.parameters],
     }
-    expect(validateTypertManifest('pkg', { ...legacy, invocations: [scoped] }).invocations)
+    expect(validateTypertManifest('pkg', { ...base, invocations: [scoped] }).invocations)
       .toEqual([scoped])
 
-    expect(() => validateTypertManifest('pkg', { ...legacy, invocations: {} }))
+    expect(() => validateTypertManifest('pkg', { ...base, invocations: {} }))
       .toThrow('TYPERT.invocations must be an array')
     expect(() => validateTypertManifest('pkg', {
-      ...legacy,
+      ...base,
       invocations: [{ ...descriptor, invocation: { kind: 'future' } }],
     })).toThrow('receiver kind must be "direct" or "context"')
     expect(() => validateTypertManifest('pkg', {
-      ...legacy,
+      ...base,
       invocations: [{ ...descriptor, result: { mode: 'src-json' } }],
     })).toThrow('result codec must use a strict codec')
     expect(() => validateTypertManifest('pkg', {
-      ...legacy,
+      ...base,
       invocations: [{ ...descriptor, result: { mode: 'strict', typeSymbol: 'pkg#Result', schema: zodish } }],
     })).toThrow('result codec is not backed by a zod v4 schema')
     expect(() => validateTypertManifest('pkg', {
-      ...legacy,
+      ...base,
       invocations: [{
         ...descriptor,
         parameters: [{ ...descriptor.parameters[0], source: 'future' }],
       }],
     })).toThrow('parameter source must be "json" or "lookup"')
     expect(() => validateTypertManifest('pkg', {
-      ...legacy,
+      ...base,
       invocations: [{
         ...descriptor,
         parameters: [{ ...descriptor.parameters[0], source: 'lookup' }],
       }],
     })).toThrow('lookup parameter has a missing or empty lookup')
     expect(() => validateTypertManifest('pkg', {
-      ...legacy,
+      ...base,
       invocations: [{
         ...descriptor,
         parameters: [{ ...descriptor.parameters[0], lookup: 'agent' }],
       }],
     })).toThrow('JSON parameter declares a lookup')
     expect(() => validateTypertManifest('pkg', {
-      ...legacy,
+      ...base,
       invocations: [{
         ...descriptor,
         parameters: [descriptor.parameters[0], { ...descriptor.parameters[0], name: 'again' }],
       }],
     })).toThrow('repeats wire field "request"')
     expect(() => validateTypertManifest('pkg', {
-      ...legacy,
+      ...base,
       invocations: [{
         ...descriptor,
         invocation: {
@@ -566,19 +571,19 @@ describe('validateTypertManifest', () => {
       }],
     })).toThrow('repeats Context wire field "request"')
     expect(() => validateTypertManifest('pkg', {
-      ...legacy,
+      ...base,
       invocations: [{ ...scoped, scope: null }],
     })).toThrow('scope must be an object')
     expect(() => validateTypertManifest('pkg', {
-      ...legacy,
+      ...base,
       invocations: [{ ...scoped, scope: { wire: 'agentId' } }],
     })).toThrow('scope has a missing or empty context')
     expect(() => validateTypertManifest('pkg', {
-      ...legacy,
+      ...base,
       invocations: [{ ...scoped, scope: { context: 'agent' } }],
     })).toThrow('scope has a missing or empty wire')
     expect(() => validateTypertManifest('pkg', {
-      ...legacy,
+      ...base,
       invocations: [{
         ...scoped,
         invocation: {
@@ -590,11 +595,11 @@ describe('validateTypertManifest', () => {
       }],
     })).toThrow('Context receiver cannot declare a direct scope projection')
     expect(() => validateTypertManifest('pkg', {
-      ...legacy,
+      ...base,
       invocations: [{ ...scoped, scope: { context: 'agent', wire: 'missingId' } }],
     })).toThrow('must select its only lookup parameter')
     expect(() => validateTypertManifest('pkg', {
-      ...legacy,
+      ...base,
       invocations: [{
         ...scoped,
         parameters: [...scoped.parameters, {
@@ -607,11 +612,11 @@ describe('validateTypertManifest', () => {
       }],
     })).toThrow('must select its only lookup parameter')
     expect(() => validateTypertManifest('pkg', {
-      ...legacy,
+      ...base,
       invocations: [{ ...scoped, scope: { context: 'other', wire: 'agentId' } }],
     })).toThrow('must select its only lookup parameter')
     expect(() => validateTypertManifest('pkg', {
-      ...legacy,
+      ...base,
       invocations: [{ ...descriptor, sourceLocation: { file: 'src/index.ts', line: 0, column: 1 } }],
     })).toThrow('sourceLocation.line must be a positive integer')
   })
@@ -646,6 +651,7 @@ function completeManifest(zodish: object) {
     package: 'pkg',
     face: 'host',
     schemas: [{ name: 'Schema', schema: zodish }],
+    invocations: [],
     model: {
       services: [{
         key: 'service',

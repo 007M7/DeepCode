@@ -20,6 +20,7 @@ export type {
   TypeRTHostContextProvider,
   TypeRTLocalRegistry,
   TypeRTLookup,
+  TypeRTLookupDefinition,
   TypeRTLookupHost,
   TypeRTLookupMap,
   TypeRTLookupProvider,

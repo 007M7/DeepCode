@@ -135,10 +135,8 @@ export function validateTypertManifest(pkgName: string, exported: unknown): Type
     requireMembers(pkgName, object.members, `object "${object.name as string}"`)
     requireTypes(pkgName, object.types, `object "${object.name as string}"`)
   }
-  if (manifest.invocations !== undefined) {
-    for (const value of requireArray(pkgName, manifest.invocations, 'TYPERT.invocations')) {
-      requireInvocation(pkgName, value)
-    }
+  for (const value of requireArray(pkgName, manifest.invocations, 'TYPERT.invocations')) {
+    requireInvocation(pkgName, value)
   }
   return manifest as unknown as TypertContribution
 }

@@ -370,6 +370,19 @@ describe('TypertGatewayService', () => {
     })).resolves.toEqual({ agentId: 'agent-1', title: 'ship', scope: 'direct-src' })
   })
 
+  it('does not downgrade an observed SRC lookup after its provider unloads', async () => {
+    const { ctx, service } = await setup()
+    const dispose = registerAgentLookup(ctx, { id: 'agent-1' })
+    await dispose()
+
+    await expectCode(ctx.typertGateway.invoke({
+      namespace: 'goals',
+      method: 'create',
+      args: { agentId: 'agent-1', request: { title: 'ship' } },
+    }), 'lookup-unavailable')
+    expect(service.calls).toEqual([])
+  })
+
   it('derives SRC Remote Context identity and preserves the scoped Proxy receiver', async () => {
     const { ctx } = await setup()
     const scoped = ctx.extend({ fixtureScope: 'agent-src' })
@@ -650,6 +663,22 @@ describe('TypertGatewayService', () => {
     }), 'input-invalid')
 
     service.nextResult = { title: 1 }
+    await expectCode(ctx.typertGateway.invoke({
+      namespace: 'goals',
+      method: 'strictOnly',
+      args: { request: { title: 'ship' } },
+    }), 'result-invalid')
+  })
+
+  it('rejects non-JSON values after strict codec validation', async () => {
+    const { ctx, service } = await setup()
+    const descriptor = strictOnlyDescriptor()
+    registerStrict(ctx, [{
+      ...descriptor,
+      result: strictCodec('@fixture/gateway#UnknownResult', z.unknown()),
+    }])
+    service.nextResult = 1n
+
     await expectCode(ctx.typertGateway.invoke({
       namespace: 'goals',
       method: 'strictOnly',

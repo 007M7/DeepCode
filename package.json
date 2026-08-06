@@ -22,7 +22,7 @@
     "build:web": "pnpm --filter @deepseek-ai/dsh-frontend run build",
     "clean": "tsx scripts/clean.ts",
     "change-scope": "tsx scripts/change-scope.ts",
-    "typecheck": "tsc -b",
+    "typecheck": "npm run build:lib:contracts && tsc -b",
     "lint": "tsx scripts/run-oxlint.ts .",
     "lint:fix": "eslint --config eslint.format.config.mjs --fix . && tsx scripts/run-oxlint.ts . --fix",
     "duplication": "jscpd --config .jscpd.json packages scripts",

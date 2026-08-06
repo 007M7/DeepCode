@@ -1318,6 +1318,8 @@ class FaceAnalyzer {
    * type evaluator.
    */
   private resolvedRemoteCodecType(authoredType: ts.TypeNode): TypeNodeId {
+    const resolvedType = this.checker.getTypeFromTypeNode(authoredType)
+    this.assertRemoteJsonType(resolvedType, authoredType, new Set(), false)
     const completed = new Map<ts.Type, TypeNodeId>()
     const active = new Map<ts.Type, TypeNodeId>()
     const recursiveDeclarations = new Map<ts.Type, SymbolId>()
@@ -1474,7 +1476,107 @@ class FaceAnalyzer {
         active.delete(type)
       }
     }
-    return convert(this.checker.getTypeFromTypeNode(authoredType))
+    return convert(resolvedType)
+  }
+
+  private assertRemoteJsonType(
+    type: ts.Type,
+    site: ts.TypeNode,
+    active: Set<ts.Type>,
+    allowUndefined: boolean,
+  ): void {
+    const flags = type.flags
+    if ((flags & ts.TypeFlags.Undefined) !== 0 && allowUndefined) return
+    if ((flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) !== 0) {
+      this.fail(site, `Remote boundary contains unconstrained ${this.checker.typeToString(type)} data`)
+    }
+    if ((flags & (ts.TypeFlags.BigIntLike | ts.TypeFlags.ESSymbolLike | ts.TypeFlags.Undefined | ts.TypeFlags.Void)) !== 0) {
+      this.fail(site, `Remote boundary contains non-JSON type ${this.checker.typeToString(type)}`)
+    }
+    if ((flags & (ts.TypeFlags.StringLike
+      | ts.TypeFlags.NumberLike
+      | ts.TypeFlags.BooleanLike
+      | ts.TypeFlags.Null
+      | ts.TypeFlags.Never)) !== 0) return
+    if (type.isUnion()) {
+      for (const member of type.types) this.assertRemoteJsonType(member, site, active, allowUndefined)
+      return
+    }
+    if (type.isIntersection()) {
+      const material = type.types.filter(member => !this.isRemotePhantomConstraint(member))
+      if (material.length === 0) this.fail(site, 'Remote boundary contains a symbol-only object')
+      for (const member of material) this.assertRemoteJsonType(member, site, active, false)
+      return
+    }
+    if ((flags & ts.TypeFlags.TypeParameter) !== 0) {
+      this.fail(site, 'Remote boundary contains an unresolved type parameter')
+    }
+    if ((flags & ts.TypeFlags.Object) === 0) {
+      this.fail(site, `Remote boundary contains non-JSON type ${this.checker.typeToString(type)}`)
+    }
+    const symbol = type.getSymbol()
+    const declaration = symbol?.valueDeclaration ?? symbol?.declarations?.[0]
+    if (declaration !== undefined && (ts.isClassDeclaration(declaration) || ts.isClassExpression(declaration))) {
+      this.fail(site, `Remote boundary contains class instance ${symbol?.name ?? this.checker.typeToString(type)}`)
+    }
+    if (type.getCallSignatures().length > 0 || type.getConstructSignatures().length > 0) {
+      this.fail(site, 'Remote boundary contains callable or constructable data')
+    }
+    if (active.has(type)) return
+    active.add(type)
+    try {
+      if (this.checker.isTupleType(type)) {
+        const reference = type as ts.TypeReference
+        const target = reference.target as ts.TupleType
+        const arguments_ = this.checker.getTypeArguments(reference)
+        arguments_.forEach((argument, index) => {
+          const elementFlags = target.elementFlags[index] ?? ts.ElementFlags.Required
+          this.assertRemoteJsonType(
+            argument,
+            site,
+            active,
+            (elementFlags & ts.ElementFlags.Optional) !== 0,
+          )
+        })
+        return
+      }
+      if (this.checker.isArrayType(type) || this.checker.isArrayLikeType(type)) {
+        const element = this.checker.getIndexTypeOfType(type, ts.IndexKind.Number)
+        if (element === undefined) this.fail(site, 'Remote boundary array has no element type')
+        this.assertRemoteJsonType(element, site, active, false)
+        return
+      }
+      const properties = this.checker.getPropertiesOfType(type)
+      if (properties.some(property => property.getName().startsWith('__@'))) {
+        this.fail(site, 'Remote boundary contains a symbol-keyed property')
+      }
+      for (const property of properties) {
+        const propertyDeclaration = property.valueDeclaration ?? property.declarations?.[0]
+        const propertyType = this.checker.getTypeOfSymbolAtLocation(property, propertyDeclaration ?? site)
+        this.assertRemoteJsonType(
+          propertyType,
+          site,
+          active,
+          (property.flags & ts.SymbolFlags.Optional) !== 0,
+        )
+      }
+      for (const info of this.checker.getIndexInfosOfType(type)) {
+        if ((info.keyType.flags & ts.TypeFlags.ESSymbolLike) !== 0) {
+          this.fail(site, 'Remote boundary contains a symbol index signature')
+        }
+        this.assertRemoteJsonType(info.type, site, active, false)
+      }
+    } finally {
+      active.delete(type)
+    }
+  }
+
+  private isRemotePhantomConstraint(type: ts.Type): boolean {
+    if ((type.flags & ts.TypeFlags.Unknown) !== 0) return true
+    if ((type.flags & ts.TypeFlags.Any) !== 0 || (type.flags & ts.TypeFlags.Object) === 0) return false
+    if (type.getCallSignatures().length > 0 || type.getConstructSignatures().length > 0) return false
+    if (this.checker.getIndexInfosOfType(type).length > 0) return false
+    return this.checker.getPropertiesOfType(type).every(property => property.getName().startsWith('__@'))
   }
 
   private resolvedCycleReference(
