@@ -85,6 +85,7 @@ async function seedVisibleBaseline(
         content: [{ type: 'text', text: baseline.text }],
         source: {
           kind: 'workspace-instructions',
+          form: 'instructions',
           baseline: true,
           baselineIdentity: workspaceBaselineIdentity(config, cwd, cwd),
           changes: files.map(file => ({

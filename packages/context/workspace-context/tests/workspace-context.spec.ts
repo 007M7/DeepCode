@@ -3072,6 +3072,7 @@ describe('dynamic nested workspace context injection', () => {
         content: [{ type: 'text', text: 'removed nested instructions' }],
         source: {
           kind: 'workspace-instructions',
+          form: 'instructions',
           changes: [{ action: 'remove', scope: sk('pkg', 'AGENTS.md'), path: join('pkg', 'AGENTS.md') }],
         },
       }), { surfaceOp: 'append' })
