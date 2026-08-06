@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
-// The built-bundle boot smoke: the ONE assembled-jsdom test that loads the
-// real `packages/client/*/lib/client.js` artifacts through AppWebEntry's
-// ModuleLoader path (loadBundle) and proves the boot graph
-// assembles — staged activation across the immediately tier and the inject
-// layers, per-plugin CSS injection, and a rendered journey reaching chat
-// content from the keyless FixtureApiClient transport.
+// The built-bundle boot smoke: the assembled-jsdom test that owns the boot
+// graph itself. Other files share the same scaffolding (assembled-boot.ts) to
+// reach a surface only the built bundles expose; this one asserts that the
+// graph assembles at all — staged activation across the immediately tier and
+// the inject layers, per-plugin CSS injection, and a rendered journey reaching
+// chat content from the keyless FixtureApiClient transport.
 //
 // Component behavior remains owned by per-package suites (SlotTestRuntime
 // benches over src). This smoke additionally pins the resident interaction

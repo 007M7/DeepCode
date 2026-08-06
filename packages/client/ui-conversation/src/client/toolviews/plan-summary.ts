@@ -2,9 +2,9 @@
  * Pure plan derivation for the todo_write row's one-line summary. Several items
  * may be `in_progress` at once — parallel work runs concurrent tasks, so a
  * summary built from one active item would silently drop the rest. The plan
- * strip header derives its own `<done>/<total> tasks · <n> in progress` counts
- * inline and shares nothing with this, so this stays inside the toolviews
- * domain rather than in `contract/` (the inter-domain face).
+ * strip header derives its own counts inline and shares nothing with this, so
+ * this stays inside the toolviews domain rather than in `contract/` (the
+ * inter-domain face).
  * @module
  */
 
