@@ -16,6 +16,8 @@ import type {
 } from '../sessions/conversation-context.ts'
 import type { ConversationPromptSnapshot } from '../sessions/request-inspection.ts'
 import { PartialAccumulator } from '../sessions/partial.ts'
+import type { AssistantStepMetadata } from '../sessions/assistant-timing.ts'
+import { indexAssistantStepTiming, settledAssistantTiming } from '../sessions/assistant-timing.ts'
 
 interface CallIndexEntry {
   name: string
@@ -30,11 +32,6 @@ interface FoldedContext {
   originSeq?: number
 }
 
-interface AssistantStepMetadata {
-  stepStartTime: number | null
-  firstTokenTime: number | null
-}
-
 /** Immutable conversation projections derived only from the history source. */
 export interface ConversationHistoryProjection {
   eventNodes: readonly ConversationNode[]
@@ -43,10 +40,6 @@ export interface ConversationHistoryProjection {
   partial: PartialAssistant | null
   runningCalls: readonly RunningToolCall[]
   codeDispatches: ReadonlyMap<string, readonly CodeSubCall[]>
-}
-
-function assistantStepKey(turn: number, step: number): string {
-  return `${turn}\u0000${step}`
 }
 
 function replacementCrossesWindowHead(event: SessionEvent, baseSeq: number): boolean {
@@ -64,21 +57,7 @@ function contextOriginKind(event: SessionEvent | undefined): ConversationContext
   return 'rewrite'
 }
 
-function isTokenDelta(chunk: SessionEvent<'assistant/chunk'>['data']['chunk']): boolean {
-  switch (chunk.type) {
-    case 'text-delta':
-    case 'reasoning-delta':
-      return chunk.text !== ''
-    case 'tool-call-delta':
-      return chunk.argumentsDelta !== '' || chunk.name !== undefined
-    default:
-      return false
-  }
-}
-
-function foldContexts(
-  events: readonly SessionEvent[],
-): readonly FoldedContext[] {
+function foldContexts(events: readonly SessionEvent[]): readonly FoldedContext[] {
   const replay: SessionEvent[] = []
   const originalSeqs: number[] = []
   const rebasedSeqByOriginal = new Map<number, number>()
@@ -381,6 +360,7 @@ export function projectConversationHistory(
       contextGeneration++
       if (activePrompt !== undefined) promptsByContext.set(contextGeneration, activePrompt)
     }
+    indexAssistantStepTiming(assistantSteps, event)
     if (event.type === 'request/header') {
       activeRequestConfig = event.data.header.config
       activePrompt = {
@@ -389,30 +369,10 @@ export function projectConversationHistory(
         tools: event.data.header.tools ?? [],
       }
       promptsByContext.set(contextGeneration, activePrompt)
-    } else if (event.type === 'step/start') {
-      assistantSteps.set(
-        assistantStepKey(event.data.turn, event.data.step),
-        { stepStartTime: event.time, firstTokenTime: null },
-      )
-    } else if (event.type === 'assistant/chunk' && isTokenDelta(event.data.chunk)) {
-      const key = assistantStepKey(event.data.turn, event.data.step)
-      const current = assistantSteps.get(key) ?? {
-        stepStartTime: null,
-        firstTokenTime: null,
-      }
-      if (current.firstTokenTime === null) {
-        assistantSteps.set(key, { ...current, firstTokenTime: event.time })
-      }
     } else if (event.type === 'assistant/message') {
       assistantTimings.set(
         event.seq,
-        {
-          ...(assistantSteps.get(assistantStepKey(event.data.turn, event.data.step)) ?? {
-            stepStartTime: null,
-            firstTokenTime: null,
-          }),
-          completedTime: event.time,
-        },
+        settledAssistantTiming(assistantSteps, event.data.turn, event.data.step, event.time),
       )
       if (activeRequestConfig !== undefined) {
         assistantRequestConfigs.set(event.seq, activeRequestConfig)

@@ -274,8 +274,14 @@ describe('fileMutationToolview registration', () => {
   it('registers one component under both edit and write, and each disposes', () => {
     const registered: { key: string; locale: unknown; disposed: boolean }[] = []
     const disposers: (() => void)[] = []
+    let disposeInjection = (): void => {}
     const ctx = {
       slots: {
+        inject: (_name: string, callback: () => Iterable<() => void>) => {
+          const active = [...callback()]
+          disposeInjection = () => { for (const dispose of active.reverse()) dispose() }
+          return disposeInjection
+        },
         register: ({ key, locale }: { name: string; key: string; locale?: string }) => {
           const entry = { key, locale, disposed: false }
           registered.push(entry)
@@ -289,10 +295,9 @@ describe('fileMutationToolview registration', () => {
     expect(registered.map(r => r.key).sort()).toEqual(['edit', 'write'])
     // Both keys claim the conversation locale seat ToolRow's body copy needs.
     expect(registered.map(r => r.locale)).toEqual(['conversation', 'conversation'])
-    // The registrant's inject seam is the load-order contract the row relies on.
-    expect(fileMutationToolview.inject).toEqual(['slots', 'conversation'])
+    expect(fileMutationToolview.inject).toEqual(['slots'])
     // Disposal removes each contribution (packages/AGENTS.md registry contract).
-    for (const dispose of disposers) dispose()
+    disposeInjection()
     expect(registered.every(r => r.disposed)).toBe(true)
   })
 })

@@ -7,7 +7,6 @@
  * cordis.yml row; no client code branches on a capability kind. The dialog's
  * copy is locale-registered here — the flow package owns its own strings.
  */
-import { deferGroupRegistration } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only: pulls the SlotMap merge declaring the directory-flow holes.
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
@@ -22,8 +21,8 @@ export const inject = ['slots', 'workspaces', 'locale']
 
 /**
  * Client plugin body: register the dialog's dictionaries and the browse flow
- * into both directory-flow holes (declaration-aware deferral — the declaring
- * ui-workspace entries may activate later, and an HMR collapse re-declares).
+ * into both directory-flow holes through `slots.inject()` because the
+ * ui-workspace entries may activate later or replace their declarations.
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
@@ -78,16 +77,16 @@ export function apply(ctx: ClientContext): void {
     createDirectory: (path, name) => ctx.workspaces.createDirectory(path, name),
     t: ctx.locale.bind(LOCALE_NS),
   })
-  ctx.effect(() => {
-    // One occupant, both holes, as a unit: construction or late conflicts
-    // (holes declared after rival providers activated) roll the whole pair
-    // back and fail loud — semantics owned by deferGroupRegistration.
-    const group = deferGroupRegistration(
-      ctx.slots,
-      ['conversation.hero.workspace.directoryFlow', 'sidebar.workspaces.directoryFlow'] as const,
-      BrowseDirectoryFlow,
-      name => ctx.slots.register({ name, inject: injected }, BrowseDirectoryFlow),
-    )
-    return () => { group.dispose() }
-  }, 'directory-picker-browse: flow registrations')
+  // Both declaration lifetimes must be live before the pair installs; the
+  // generator makes the two registrations one transactional effect. The
+  // outer/inner nesting order is arbitrary; neither hole has precedence.
+  ctx.slots.inject('conversation.hero.workspace.directoryFlow', () =>
+    ctx.slots.inject('sidebar.workspaces.directoryFlow', function* () {
+      yield ctx.slots.register({
+        name: 'conversation.hero.workspace.directoryFlow', inject: injected,
+      }, BrowseDirectoryFlow)
+      yield ctx.slots.register({
+        name: 'sidebar.workspaces.directoryFlow', inject: injected,
+      }, BrowseDirectoryFlow)
+    }))
 }

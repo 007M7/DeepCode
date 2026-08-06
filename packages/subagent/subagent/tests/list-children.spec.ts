@@ -113,7 +113,9 @@ describe('SubagentService.listChildren', () => {
     const parentId = SessionId('query-only-parent')
     ctx.sessions.create(parentId)
     const childId = SessionId('query-only-child')
-    const child = ctx.sessions.create(childId, { meta: { parentSession: parentId } })
+    const child = ctx.sessions.create(childId, {
+      meta: { parentSession: parentId, origin: 'subagent' },
+    })
     child.append('turn/start', {
       turn: 1,
     })
@@ -192,6 +194,7 @@ describe('SubagentService.listChildren', () => {
     ] as SessionEvent[])
     const childId = await authorChild(ctx, '00000000-0000-4000-8000-00000000cdcd', {
       parentSession: coldParent,
+      origin: 'subagent',
     }, childEvents(descriptorPayload('persisted parent case')))
     const entries = await ctx.subagents.listChildren(coldParent)
     expect(entries).toEqual([
@@ -202,28 +205,33 @@ describe('SubagentService.listChildren', () => {
     ])
   })
 
-  it('orders children by createdAt then id and omits ordinary forks without a diagnostic', async () => {
+  it('orders children by createdAt then id without inspecting ordinary forks', async () => {
     const { ctx, parent } = await setup([])
     // Authored headers pin the ordering key deterministically: same createdAt
     // ties break on id, different createdAt orders ascending.
     const late = await authorChild(ctx, '00000000-0000-4000-8000-000000000003', {
       parentSession: parent.id,
       createdAt: 9,
+      origin: 'subagent',
     }, childEvents(descriptorPayload('late child')))
     const tieB = await authorChild(ctx, '00000000-0000-4000-8000-000000000002', {
       parentSession: parent.id,
       createdAt: 5,
+      origin: 'subagent',
     }, childEvents(descriptorPayload('tie b')))
     const tieA = await authorChild(ctx, '00000000-0000-4000-8000-000000000001', {
       parentSession: parent.id,
       createdAt: 5,
+      origin: 'subagent',
     }, childEvents(descriptorPayload('tie a')))
-    // An ordinary session fork shares parentSession but has no descriptor.
+    // An ordinary session fork shares parentSession but has no subagent origin.
     const fork = ctx.sessions.fork(parent.session, undefined, SessionId('plain-fork'))
     await ctx.sessions.flush(fork)
+    const listEvents = vi.spyOn(ctx.sessionQuery, 'listEvents')
     const entries = await ctx.subagents.listChildren(parent.id)
     expect(entries.map(entry => entry.id)).toEqual([tieA, tieB, late])
     expect(entries.every(entry => entry.kind === 'child')).toBe(true)
+    expect(listEvents).not.toHaveBeenCalledWith(fork.id)
   })
 
   it('reports a live child as running while keeping settled siblings complete', async () => {
@@ -232,7 +240,9 @@ describe('SubagentService.listChildren', () => {
     // A live child session outside persistence: publish a live session with a
     // descriptor and the parent lineage, without starting an Activation.
     const liveId = SessionId('live-child')
-    const live = ctx.sessions.create(liveId, { meta: { parentSession: parent.id } })
+    const live = ctx.sessions.create(liveId, {
+      meta: { parentSession: parent.id, origin: 'subagent' },
+    })
     live.append('turn/start', { turn: 1 })
     live.append('subagent/descriptor', descriptorPayload('live child'))
     const entries = await ctx.subagents.listChildren(parent.id)
@@ -259,6 +269,7 @@ describe('SubagentService.listChildren', () => {
     events[4] = { ...events[4]!, seq: 4 }
     const corrupt = await authorChild(ctx, '00000000-0000-4000-8000-00000000dupe', {
       parentSession: parent.id,
+      origin: 'subagent',
     }, events)
     const entries = await ctx.subagents.listChildren(parent.id)
     expect(entries).toContainEqual({ kind: 'diagnostic', id: corrupt, reason: 'corrupt' })
@@ -268,12 +279,13 @@ describe('SubagentService.listChildren', () => {
     })
   })
 
-  it('diagnoses an invalid child event surface as corrupt', async () => {
+  it('diagnoses a child rejected by persisted Session preparation as corrupt', async () => {
     const { ctx, parent } = await setup([])
-    // The surface-eligible user/message lacks its required surfaceOp, so the
-    // per-child listEvents fold fails with SESSION_QUERY_INVALID_SURFACE.
+    // The surface-eligible user/message lacks its required surfaceOp. The
+    // first-party persistence inspection rejects before session-query can fold it.
     const invalid = await authorChild(ctx, '00000000-0000-4000-8000-0000000000ee', {
       parentSession: parent.id,
+      origin: 'subagent',
     }, [
       { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
       {
@@ -292,6 +304,7 @@ describe('SubagentService.listChildren', () => {
     const { ctx, parent } = await setup([])
     const malformed = await authorChild(ctx, '00000000-0000-4000-8000-0000000000ff', {
       parentSession: parent.id,
+      origin: 'subagent',
     }, childEvents({ version: SUBAGENT_DESCRIPTOR_VERSION, mode: 'continuable', provider: 7 }))
     const entries = await ctx.subagents.listChildren(parent.id)
     expect(entries).toEqual([{ kind: 'diagnostic', id: malformed, reason: 'corrupt' }])
@@ -301,6 +314,7 @@ describe('SubagentService.listChildren', () => {
     const { ctx, parent } = await setup([])
     const future = await authorChild(ctx, '00000000-0000-4000-8000-0000000000aa', {
       parentSession: parent.id,
+      origin: 'subagent',
     }, childEvents(descriptorPayload('from the future', SUBAGENT_DESCRIPTOR_VERSION + 1)))
     const entries = await ctx.subagents.listChildren(parent.id)
     expect(entries).toEqual([{ kind: 'diagnostic', id: future, reason: 'unsupported' }])
@@ -314,6 +328,7 @@ describe('SubagentService.listChildren', () => {
     await authorChild(ctx, '00000000-0000-4000-8000-0000000000f0', {
       parentSession: parent.id,
       seedLength: seed.length,
+      origin: 'subagent',
     }, seed)
     const entries = await ctx.subagents.listChildren(parent.id)
     expect(entries).toEqual([])
@@ -323,6 +338,7 @@ describe('SubagentService.listChildren', () => {
     const { ctx, parent } = await setup([])
     const foreign = await authorChild(ctx, '00000000-0000-4000-8000-0000000000bb', {
       parentSession: parent.id,
+      origin: 'subagent',
     }, childEvents({
       version: SUBAGENT_DESCRIPTOR_VERSION,
       mode: 'continuable',
@@ -353,14 +369,28 @@ describe('SubagentService.listChildren', () => {
     expect(entries).toEqual([{ kind: 'diagnostic', id: childId, reason: 'unavailable' }])
   })
 
-  it('maps a mid-scan disappearance to unavailable', async () => {
+  it.each([
+    ['session', 'SESSION_QUERY_SESSION_NOT_FOUND'],
+    ['descriptor event', 'SESSION_QUERY_EVENT_NOT_FOUND'],
+  ] as const)('maps a missing child %s to unavailable', async (_target, code) => {
     const { ctx, parent } = await setup([textResponse('done')])
     const childId = await startChild(ctx, parent, 'vanishing child')
     const query = ctx.get('sessionQuery')!
     query.listEvents = () =>
-      Promise.reject(new SessionQueryError('gone', 'SESSION_QUERY_SESSION_NOT_FOUND'))
+      Promise.reject(new SessionQueryError('gone', code))
     const entries = await ctx.subagents.listChildren(parent.id)
     expect(entries).toEqual([{ kind: 'diagnostic', id: childId, reason: 'unavailable' }])
+  })
+
+  it('maps an invalid child surface to corrupt', async () => {
+    const { ctx, parent } = await setup([textResponse('done')])
+    const childId = await startChild(ctx, parent, 'invalid surface')
+    const query = ctx.get('sessionQuery')!
+    query.listEvents = () =>
+      Promise.reject(new SessionQueryError('invalid surface', 'SESSION_QUERY_INVALID_SURFACE'))
+
+    const entries = await ctx.subagents.listChildren(parent.id)
+    expect(entries).toEqual([{ kind: 'diagnostic', id: childId, reason: 'corrupt' }])
   })
 
   it('diagnoses a read whose header no longer names this parent as corrupt', async () => {
@@ -428,6 +458,7 @@ describe('SubagentService.listChildren', () => {
     const plain = await authorChild(ctx, '00000000-0000-4000-8000-00000000c0de', {
       parentSession: parent.id,
       createdAt: 1,
+      origin: 'subagent',
     }, childEvents(descriptorPayload('twin child')))
     // The compacted twin: a compaction checkpoint replaces the whole surface,
     // while the append-only log retains the model-hidden descriptor event.
@@ -446,6 +477,7 @@ describe('SubagentService.listChildren', () => {
     const compacted = await authorChild(ctx, '00000000-0000-4000-8000-00000000c1de', {
       parentSession: parent.id,
       createdAt: 2,
+      origin: 'subagent',
     }, compactedEvents)
     const entries = await ctx.subagents.listChildren(parent.id)
     expect(entries).toEqual([

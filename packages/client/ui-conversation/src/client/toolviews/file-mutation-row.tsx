@@ -53,21 +53,21 @@ export function FileMutationRow({ toolName, block, cwd, openFile, inspect, t }: 
 }
 
 /**
- * The file-mutation rows as a plain registrant plugin. `inject` carries the
- * load-order seam: requiring the conversation service guarantees the chat entry
- * (and with it the 'conversation.chat.toolview' declaration) is registered —
- * ui-conversation's apply mounts the service after the chat entry.
+ * The file-mutation rows as a plain registrant plugin following the chat
+ * toolview declaration across independent activation and reload lifetimes.
  */
 export const fileMutationToolview = {
   name: 'file-mutation-toolview',
-  inject: ['slots', 'conversation'],
+  inject: ['slots'],
   /**
    * Register the file-mutation row into the chat view's keyed toolview hole
    * under both mutation tool names.
    * @param ctx - registrant context (disposal rides ctx.effect inside slots.register).
    */
   apply(ctx: Context): void {
-    ctx.slots.register({ name: 'conversation.chat.toolview', key: 'edit', locale: NS }, FileMutationRow)
-    ctx.slots.register({ name: 'conversation.chat.toolview', key: 'write', locale: NS }, FileMutationRow)
+    ctx.slots.inject('conversation.chat.toolview', function* () {
+      yield ctx.slots.register({ name: 'conversation.chat.toolview', key: 'edit', locale: NS }, FileMutationRow)
+      yield ctx.slots.register({ name: 'conversation.chat.toolview', key: 'write', locale: NS }, FileMutationRow)
+    })
   },
 }
