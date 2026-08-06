@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
+import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import type { BashProcess } from '@deepseek-ai/dsh-bash'
 
 const spillDir = mkdtempSync(join(tmpdir(), 'dsh-bash-exec-spec-'))
@@ -70,6 +71,8 @@ describe('LocalBashExecutor.run', () => {
     await expect(setup({ maxOutputBytes: -1 })).rejects.toThrow(/maxOutputBytes/)
     await expect(setup({ maxSpillBytes: 0 })).rejects.toThrow(/maxSpillBytes/)
     await expect(setup({ graceMs: 0 })).rejects.toThrow(/graceMs/)
+    await expect(setup({ graceMs: MAX_TIMER_DELAY_MS + 1 }))
+      .rejects.toThrow(`graceMs must be no greater than ${MAX_TIMER_DELAY_MS}`)
 
     const { bash } = await setup()
     expect(() => bash.resolve({ command: 'true', timeoutMs: Number.NaN })).toThrow(/request\.timeoutMs/)

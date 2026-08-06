@@ -2,8 +2,14 @@ import { mkdtempSync, readFileSync, statSync, unlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import { killGroup, OutputCollector, spawnSubprocess, taskkillProcessTree } from '../src/spawn.ts'
+import {
+  killGroup,
+  OutputCollector,
+  spawnSubprocess,
+  taskkillProcessTree,
+} from '../src/spawn.ts'
 import type { SubprocessHandle, SubprocessOutputReader } from '@deepseek-ai/dsh-subprocess'
+import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 
 const { failNextClose, failNextUnlink } = vi.hoisted(() => ({
   failNextClose: { value: false },
@@ -102,6 +108,14 @@ async function waitForPidFile(path: string, timeoutMs = 5_000): Promise<number> 
 }
 
 describe('spawnSubprocess', () => {
+  it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY, MAX_TIMER_DELAY_MS + 1])(
+    'rejects an invalid grace before spawning: %s',
+    (graceMs) => {
+      expect(() => spawnSubprocess(spec('true', { graceMs })))
+        .toThrow(`subprocess graceMs must be a positive finite number no greater than ${MAX_TIMER_DELAY_MS}`)
+    },
+  )
+
   it('captures stdout on success', async () => {
     const result = await finish(spawnSubprocess(spec('echo hello')))
     expect(result.exitCode).toBe(0)
@@ -162,6 +176,54 @@ describe('spawnSubprocess', () => {
     running.terminate()
     const result = await running.done
     expect(result.signal).toBe('SIGKILL')
+  })
+
+  it('cancels escalation when the terminated group vanishes before collected pipes drain', async () => {
+    const pidFile = join(spillDir, `escaped-pipe-holder-${Date.now()}.pid`)
+    const graceMs = 160
+    const childScript = `
+      const { spawn } = require('node:child_process')
+      const { writeFileSync } = require('node:fs')
+      const helper = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+        detached: true,
+        stdio: ['ignore', 1, 2],
+      })
+      writeFileSync(${JSON.stringify(pidFile)}, String(helper.pid))
+      helper.unref()
+      setInterval(() => {}, 1000)
+    `
+    const running = spawnSubprocess({
+      ...spec('unused', { graceMs }),
+      argv: [process.execPath, '-e', childScript],
+    })
+    const helper = await waitForPidFile(pidFile)
+    const realKill: typeof process.kill = process.kill.bind(process)
+    let termAt = 0
+    let forceSignals = 0
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation((target, signal) => {
+      if (target !== -running.pid) return realKill(target, signal)
+      if (signal === 'SIGTERM') {
+        termAt = Date.now()
+        return realKill(target, signal)
+      }
+      if (signal === 'SIGKILL') {
+        forceSignals += 1
+        return true
+      }
+      if (signal === 0 && termAt !== 0 && Date.now() - termAt < graceMs / 2) {
+        throw Object.assign(new Error('simulated vanished process group'), { code: 'ESRCH' })
+      }
+      return true // Before TERM the original group is live; later its pgid is reused.
+    })
+    try {
+      running.terminate()
+      await running.done
+      expect(forceSignals).toBe(0)
+    } finally {
+      killSpy.mockRestore()
+      process.kill(helper, 'SIGKILL')
+      await waitGone(helper)
+    }
   })
 
   it('terminates the whole process group (grandchildren die too)', async () => {
@@ -252,6 +314,19 @@ describe('stdin and extra env (set by in-process plugins)', () => {
       env: { EXTRA_ONE: 'alpha', EXTRA_TWO: 'beta' },
     })))
     expect(result.stdout.text).toBe('alpha/beta\n')
+  })
+
+  it('lets an explicit tombstone remove an ordinary ambient env entry', async () => {
+    process.env.SUBPROCESS_TOMBSTONE_PROBE = 'ambient-value'
+    try {
+      const result = await finish(spawnSubprocess(spec(
+        'echo "${SUBPROCESS_TOMBSTONE_PROBE:-absent}"',
+        { env: { SUBPROCESS_TOMBSTONE_PROBE: undefined } },
+      )))
+      expect(result.stdout.text).toBe('absent\n')
+    } finally {
+      delete process.env.SUBPROCESS_TOMBSTONE_PROBE
+    }
   })
 
   it('an explicit extra env entry overrides the credential scrub', async () => {
@@ -627,12 +702,26 @@ describe('coverage seams', () => {
   it('terminate() after the tree died delivers no termination signal', async () => {
     const running = spawnSubprocess(spec('true'))
     await running.done
-    await running.waitForExit()
     const spy = vi.spyOn(process, 'kill')
     try {
       running.terminate()
       const delivered = spy.mock.calls.filter(([, sig]) => sig !== 0)
       expect(delivered).toEqual([])
+    } finally {
+      spy.mockRestore()
+    }
+    await running.waitForExit()
+  })
+
+  it('repeated terminate after exit never probes or signals a reused process group', async () => {
+    const running = spawnSubprocess(spec('sleep 60'))
+    running.terminate()
+    await running.done
+    await running.waitForExit()
+    const spy = vi.spyOn(process, 'kill').mockImplementation(() => true)
+    try {
+      running.terminate()
+      expect(spy).not.toHaveBeenCalled()
     } finally {
       spy.mockRestore()
     }
