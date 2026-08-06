@@ -149,7 +149,7 @@ A unified `execute` handler for all tools from one MCP server:
 
 ### Subprocess environment (stdio transport)
 
-Replicate the `buildChildEnv` + `SENSITIVE_ENV_PATTERN` scrub from `dsh-subagent-acp`: filter ambient env (strip credential-shaped vars matching `/KEY|SECRET|TOKEN/i`), then merge `config.env` on top. Explicit env overrides survive the scrub.
+Build the child environment from the subprocess seam's shared `scrubbedParentEnv()` base, which removes ambient names matching `/KEY|PASSWORD|SECRET|TOKEN/i` and ambient `DSH_*` names, then merge `config.env` on top. Explicit env overrides survive the scrub.
 
 ### Disconnection / crash
 

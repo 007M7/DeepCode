@@ -1,18 +1,23 @@
 // todo_write toolview: plan-flavored summary row replacing the generic
 // "Tool call" card, registered into the keyed 'conversation.chat.toolview'
 // hole like the bash sample (a product registration, not a sample). The row
-// summarizes the written list (counts + active items) from the call args, with
-// the parallel-active count in its own non-shrinking span outside the
-// ellipsized text; the durable list itself renders in the TodoPanel above the
-// composer, so the row stays one line. Chrome matches ToolRow (figma 780:53675).
+// composes ToolRow (chrome, running sweep, whole-row expand) and swaps in a
+// summary of the written list (counts + active items) from the call args, with
+// the parallel-active count riding ToolRow's non-shrinking summary suffix so a
+// narrow row never clips it; the durable list itself renders in the TodoPanel
+// above the composer, so the row stays one line until expanded.
 
+import { IconChecklistOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { Context } from 'cordis'
-import { IconChecklistOutline16, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ToolRowProps } from '../contract/slots.ts'
-import { toolRowModel, type ToolRowState } from '../contract/tool-call-model.ts'
-import type { PlanItemLike } from './plan-summary.ts'
-import { planSummary } from './plan-summary.ts'
-import css from './todo-row.module.css'
+import { toolRowModel } from '../contract/tool-call-model.ts'
+import { ToolRow } from '../chat/ToolRow.tsx'
+import { NS } from '../locales.ts'
+import { planSummary, type PlanItemLike } from './plan-summary.ts'
+
+/** Todo row props: the toolview runtime share plus the standard locale seat. */
+type TodoRowProps = ToolRowProps & PropsLocale<'conversation'>
 
 function isItem(value: unknown): value is PlanItemLike {
   return typeof value === 'object' && value !== null
@@ -28,7 +33,7 @@ interface RowSummary {
   extra: number
 }
 
-function summarize(argsRaw: string): RowSummary | null {
+function summarize(argsRaw: string, t: TodoRowProps['t']): RowSummary | null {
   let parsed: unknown
   try {
     parsed = JSON.parse(argsRaw)
@@ -42,45 +47,36 @@ function summarize(argsRaw: string): RowSummary | null {
   const todos = (parsed as { todos?: unknown }).todos
   if (!Array.isArray(todos) || !todos.every(isItem)) return null
   const { done, total, activeContent, activeExtra } = planSummary(todos)
-  const head = `${done}/${total} 已完成`
+  const head = t('todo.completed', { done, total })
   return {
     text: activeContent === null ? head : `${head} · ${activeContent}`,
     extra: activeExtra,
   }
 }
 
-/** Leading-slot state substitution matches ToolRow / bash: icon yields to the
- *  state semantic while running or failed; ok keeps the checklist glyph. */
-function leadingFor(state: ToolRowState) {
-  switch (state) {
-    case 'running': return <StateDot state="ongoing" />
-    case 'error': return <StateDot state="error" />
-    case 'stopped': return <StateDot state="warning" />
-    default: return <IconChecklistOutline16 />
-  }
-}
-
-/** One-line plan update row. Non-ok execution states keep the generic row's
- *  dot semantics — a cancelled call wrote no todo/write, so it must not read
- *  as a completed update. */
-export function TodoRow({ toolName, block }: ToolRowProps) {
+/** One-line plan update row (the whole row toggles the call's Input/Output
+ *  sections, ToolRow's unified expand). Non-ok execution states keep the
+ *  shared row's dot semantics — a cancelled call wrote no todo/write, so it
+ *  must not read as a completed update. */
+export function TodoRow({ toolName, block, inspect, t }: TodoRowProps) {
   const model = toolRowModel(toolName, block)
   const argsRaw = ('kind' in block ? block.call?.argsRaw : block.argsRaw) ?? ''
-  const summary = summarize(argsRaw) ?? { text: model.summary, extra: 0 }
+  const summary = summarize(argsRaw, t) ?? { text: model.summary, extra: 0 }
   return (
-    <div
-      className={css.row}
-      data-sample="todo-row"
-      data-state={model.state}
-    >
-      <span className={css.leading} aria-hidden>{leadingFor(model.state)}</span>
-      <span className={css.title}>更新任务清单</span>
-      <span className={css.sep} aria-hidden />
-      <span className={css.summary}>{summary.text}</span>
-      {summary.extra > 0 && <span className={css.extra}>+{summary.extra}</span>}
-      {model.state === 'error' && <span className={css.err}>failed</span>}
-      {model.state === 'stopped' && <span className={css.err}>已中断</span>}
-    </div>
+    <ToolRow
+      t={t}
+      variant={model.variant}
+      toolName={toolName}
+      icon={<IconChecklistOutline14 />}
+      title={t('todo.rowTitle')}
+      summary={summary.text}
+      summarySuffix={summary.extra > 0 ? `+${summary.extra}` : null}
+      body={model.body}
+      output={model.output}
+      errorSummary={model.errorSummary}
+      state={model.state}
+      inspect={inspect}
+    />
   )
 }
 
@@ -97,6 +93,6 @@ export const todoToolview = {
    * @param ctx - registrant context (disposal rides ctx.effect inside slots.register).
    */
   apply(ctx: Context): void {
-    ctx.slots.register({ name: 'conversation.chat.toolview', key: 'todo_write' }, TodoRow)
+    ctx.slots.register({ name: 'conversation.chat.toolview', key: 'todo_write', locale: NS }, TodoRow)
   },
 }

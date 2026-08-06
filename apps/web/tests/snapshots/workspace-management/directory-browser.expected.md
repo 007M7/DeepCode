@@ -1,10 +1,42 @@
-- dialog "选择工作区目录":
-  - heading "选择工作区目录" [level=2]
+- dialog "Select Workspace Directory":
+  - heading "Select Workspace Directory" [level=2]
   - navigation:
-    - button "主目录"
+    - button "Home"
     - img
     - button "browse-golden"
-  - button "编辑路径"
+  - button "Edit path":
+    - img
+  - list:
+    - listitem:
+      - button "adopted":
+        - img
+        - text: adopted
+        - img
+    - listitem:
+      - button "alpha-ws":
+        - img
+        - text: alpha-ws
+        - img
+    - listitem:
+      - button "beta-ws":
+        - img
+        - text: beta-ws
+        - img
+    - listitem:
+      - button "browse-golden":
+        - img
+        - text: browse-golden
+        - img
+    - listitem:
+      - button "same-name":
+        - img
+        - text: same-name
+        - img
+    - listitem:
+      - button "workspace":
+        - img
+        - text: workspace
+        - img
   - list:
     - listitem:
       - button "alpha":
@@ -16,8 +48,9 @@
         - img
         - text: beta
         - img
-  - button "新建文件夹":
+  - button "New folder":
     - img
-    - text: 新建文件夹
-  - button "取消"
-  - button "打开"
+    - text: New folder
+  - button "Show hidden files"
+  - button "Cancel"
+  - button "Open"

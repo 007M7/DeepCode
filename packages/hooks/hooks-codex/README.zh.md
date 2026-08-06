@@ -7,12 +7,12 @@
 该桥接实现 Codex 当前 hook 协议的一个明确子集：
 
 - **10 个 hook 点中的 5 个：** `PreToolUse`、`PostToolUse`、`SessionStart`、`UserPromptSubmit` 和 `Stop`。
-- **只使用正则 matcher**（没有字面快速路径；matcher 始终是未锚定正则）。
+- **仅使用正则的 matcher**（没有字面量快速路径；matcher 始终是未锚定正则）。
 - **snake_case stdin payload**，携带 `turn_id`／`model` 额外字段，写入时**不带**尾随换行符。
 - **没有 Codex 插件 env 注入，也没有配置时 placeholder 替换**（命令仍会接收执行器环境，并通过其 shell 运行）。
 - **没有工具前审批或改写路径**：hook 可以阻塞，但桥接不会预审批或替换工具输入。
 
-原生 Cordis 插件可以完成此桥接的所有工作，并且功能更强；该桥接只是已映射 Codex 子集的兼容路径（见 [拦截 seam Agent Note（agent 决策记录）](../../../.agents/notes/implemented/feature/2026-06-30-interception-seams.md)）。
+原生 Cordis 插件可以完成此桥接的所有工作，并且功能更强；该桥接只是已映射 Codex 子集的兼容路径（见 [拦截 seam Agent Note](../../../.agents/notes/implemented/feature/2026-06-30-interception-seams.md)）。
 
 ## 配置
 
@@ -34,7 +34,7 @@ const config: Config = {
     model: deepseek-v4
 ```
 
-配置只在加载时解析**一次**。`configPath` 是**进程级**配置：相对路径在加载时根据进程启动 cwd 解析，而非每会话解析（`TODO(per-session-hook-config)`）。读取／解析失败会被隔离处理（记录 + 不注册任何内容）。只运行同步 `type: 'command'` hook；非 command 或 `async: true` hook 会被解析并跳过，同时记录警告。hook 接受 `timeout` 或 `timeoutSec` alias；两者都未设置时，使用协议参考默认值 `DEFAULT_HOOK_TIMEOUT_MS`（来自 `dsh-hook-protocol`，10 分钟）。五个桥接支持点之外的事件会在解析时丢弃。
+配置只在加载时解析**一次**。`configPath` 是**进程级**配置：相对路径在加载时根据进程启动 cwd 解析，而非每会话解析（`TODO(per-session-hook-config)`）。读取／解析失败会被隔离处理（记录 + 不注册任何内容）；实际消费 matcher 的事件所带的无效 matcher 正则属于此类失败，并报告其 pattern 与事件。只运行同步 `type: 'command'` hook；非 command 或 `async: true` hook 会被解析并跳过，同时记录警告。hook 接受 `timeout` 或 `timeoutSec` alias；两者都未设置时，使用协议参考默认值 `DEFAULT_HOOK_TIMEOUT_MS`（来自 `dsh-hook-protocol`，10 分钟）。五个桥接支持点之外的事件会在解析时丢弃。
 
 hook 本身会在 agent（智能体）的会话工作区中运行：对 agent scope 点，桥接会将会话 `cwd` 作为 hook 进程工作目录，因此 hook 作用于用户项目树，而非服务器启动目录。
 
@@ -43,7 +43,7 @@ hook 本身会在 agent（智能体）的会话工作区中运行：对 agent sc
 | Codex hook | Harness seam | 映射 |
 |---|---|---|
 | `SessionStart` | `agent/session-start`（emit） | 纯 stdout hook 的输出 → additionalContext → `agent.inject()` |
-| `UserPromptSubmit` | `agent/prompt-submit`（waterfall，瀑布式事件） | `block`（退出码 2）→ `PromptDecision.block`；仅 additionalContext → 通过 `next()` 委托，再将一个单独标记源的上下文前置到下游 `additionalContexts` |
+| `UserPromptSubmit` | `agent/pre-step`（waterfall，瀑布式事件） | `block`（退出码 2）→ `PreStepDecision.reject`；仅 additionalContext → 通过 `next()` 委托，再向下游 `enter` 决策追加一条单独标记来源的消息 |
 | `PreToolUse` | `tools/pre-execute`（waterfall） | `block` → `PreToolDecision.deny`（没有 `allow`／`ask`） |
 | `PostToolUse` | `tools/post-execute`（waterfall） | `block` → 带反馈的 `block`；仅 additionalContext → 通过 `next()` 委托，再将一个单独标记源的上下文前置到下游决策；Code Mode 将子调用上下文延迟到外层 `run_code` 结果 |
 | `Stop` | `agent/turn-stopping`（serial） | 阻塞 Stop hook 通过 `steer()` 送入其原因，强制再执行一步 |
@@ -56,7 +56,7 @@ hook 本身会在 agent（智能体）的会话工作区中运行：对 agent sc
 
 ## 上下文源
 
-注入上下文携带显式 `{ kind: 'plugin', plugin: 'hooks-codex' }` 源（否则 `agent.inject()` 会将其默认为 `{ kind: 'user' }`）。
+注入上下文携带显式 `{ kind: 'plugin', plugin: 'hooks-codex' }` 来源，因此持久消息绝不会被误认为用户提示词。
 
 ## 模型体验
 
@@ -72,7 +72,7 @@ hook 不返回上下文时没有成本。Hook 文本取决于数据，会被记�
 
 #### KV Cache 影响
 
-仅追加；新可见内容位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
+仅追加；新可见内容位于可复用请求前缀之后，不会使现有 KV Cache 条目失效。
 
 ### 已阻塞提示词或工具结果
 

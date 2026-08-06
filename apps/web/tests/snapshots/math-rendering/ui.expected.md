@@ -1,0 +1,47 @@
+- banner:
+  - navigation "Session hierarchy":
+    - button "Math rendering" [disabled]
+  - tablist:
+    - tab "Chat" [selected]
+    - tab "Trajectory"
+- text: Render this mathematical proof. {{clock}}
+- button "Copy":
+  - img
+- button "Branch into a new conversation" [disabled]:
+  - img
+- text: Available only on the last message of a completed turn
+- heading "Math rendering" [level=2]
+- paragraph:
+  - text: Inline dollar
+  - math: θ
+  - text: and backslash
+  - math: 1 5
+  - text: .
+- math: π 4 < θ < π 2
+- math: θ ∈ ( π 4 , π 2 ) . (1)
+- table:
+  - rowgroup:
+    - row "Symbol Value":
+      - columnheader "Symbol"
+      - columnheader "Value"
+  - rowgroup:
+    - row:
+      - cell:
+        - math: θ
+      - cell:
+        - math: 1 5
+- paragraph: MATH_RENDERING_DONE
+- button "Copy":
+  - img
+- button "Branch into a new conversation":
+  - img
+- text: {{clock}}Ran for {{duration}}
+- textbox "Message the agent"
+- button "Commands":
+  - img
+- 'button "Access mode, current: Workspace Write"': Workspace Write
+- button "Select model":
+  - text: Select model
+  - img
+- button "Send message" [disabled]
+- text: 1 turns · 1 steps Input 0 tok · Output 0 tok

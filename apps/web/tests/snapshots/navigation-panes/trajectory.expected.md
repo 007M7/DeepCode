@@ -4,14 +4,15 @@
   - button "Collapse calls": Calls
   - img
   - searchbox "Search trajectory"
-- region "Trajectory timeline"
+- region "Trajectory timeline":
+  - tooltip "ASSISTANT {{clock}} → {{clock}} Total 1,542 ms · TTFT 368 ms · Decoding 1,174 ms"
 - table:
   - rowgroup:
     - row "SYSTEM, Initial System Prompt":
       - cell "SYSTEM"
       - cell "Initial System Prompt"
     - 'row "USER, NavScenario: first run bash to print exactly NAVIGATION_OK, then read nav-a.md and nav-b.md using two read calls in ONE assistant message, then reply with the single word FIRST_DONE and stop."':
-      - cell "Turn 1 USER"
+      - cell "Turn 1 USER": USER
       - 'cell "NavScenario: first run bash to print exactly NAVIGATION_OK, then read nav-a.md and nav-b.md using two read calls in ONE assistant message, then reply with the single word FIRST_DONE and stop."'
     - 'row "Request 1, ASSISTANT, The user wants me to follow a specific navigation scenario. Let me: Run bash to print \"NAVIGATION_OK\" Read nav-a.md and nav-b.md in two read calls in ONE message Reply with \"FIRST_DONE\" Let me start with the bash command and the reads."':
       - 'cell "Request #1 ASSISTANT"':
@@ -33,7 +34,7 @@
         - text: ASSISTANT
       - cell "FIRST_DONE"
     - 'row "USER, Reply in markdown with: a level-2 heading \"Navigation Summary\", a bulleted list of exactly two items, and a fenced code block containing echo WATERFALL. Then stop."':
-      - cell "Turn 2 USER"
+      - cell "Turn 2 USER": USER
       - 'cell "Reply in markdown with: a level-2 heading \"Navigation Summary\", a bulleted list of exactly two items, and a fenced code block containing echo WATERFALL. Then stop."'
     - row "Request 3, ASSISTANT, Navigation Summary alpha nav beta nav echo WATERFALL":
       - 'cell "Request #3 ASSISTANT"':

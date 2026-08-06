@@ -36,7 +36,7 @@ class CooperativeAdapter extends LlmAdapter {
     if (signal === undefined) throw new Error('expected title request signal')
     await new Promise<never>((_resolve, reject) => {
       const rejectAbort = (): void => {
-        // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- exercise exact AbortSignal.reason propagation
+        // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- exercise exact AbortSignal.reason propagation
         reject(signal.reason)
       }
       if (signal.aborted) {
@@ -80,7 +80,6 @@ function request(ctx: Context, signal = new AbortController().signal): SessionTi
   const session = ctx.sessions.create(SessionId(`title-call-${++nextSession}`))
   session.append('turn/start', {
     turn: 1,
-    trigger: { kind: 'message', source: { kind: 'user' } },
   })
   const first = session.append('user/message', createUserMessage({
     content: [{ type: 'text', text: 'first prompt' }],

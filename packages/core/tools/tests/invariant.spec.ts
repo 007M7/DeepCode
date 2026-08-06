@@ -98,7 +98,7 @@ describe('tool-pipeline invariants', () => {
       arguments: {},
     }
     expect(() => session.append('tool/code-dispatch-start', data)).toThrow(/outside any open turn/)
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     expect(() => session.append('tool/code-dispatch-start', data)).not.toThrow()
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
   })
@@ -107,7 +107,7 @@ describe('tool-pipeline invariants', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create()
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     session.append('tool/code-dispatch', {
       parentCallId: CallId('parent'),
       subCallId: CallId('child'),

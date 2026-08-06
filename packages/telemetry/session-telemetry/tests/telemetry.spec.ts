@@ -70,7 +70,7 @@ function liveSession(ctx: Context, id = `s-${Math.random().toString(36).slice(2)
 }
 
 function appendTurn(session: Session): void {
-  session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+  session.append('turn/start', { turn: 1 })
   session.append('user/message', createUserMessage({
     content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' },
   }), { surfaceOp: 'append' })
@@ -108,7 +108,7 @@ describe('TelemetryCoordinator capture', () => {
   it('maps outcome flags to severity, unknown types falling through as info', async () => {
     const { ctx, backend } = await setup()
     const session = liveSession(ctx)
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     session.append('tool/result', {
       turn: 1, step: 1,
       message: createToolResultMessage({
@@ -126,7 +126,7 @@ describe('TelemetryCoordinator capture', () => {
       }),
     }, { surfaceOp: 'append' })
     session.append('telemetry-test/opaque', { payload: { nested: [] } })
-    session.append('turn/end', { turn: 1, reason: { kind: 'error', step: 1, message: 'boom' } })
+    session.append('turn/end', { turn: 1, reason: { kind: 'error', error: { message: 'boom', code: 'UNKNOWN' } } })
     const severities = backend.ledger().map(r => [r.attributes['event.type'], r.severity])
     expect(severities).toEqual([
       ['turn/start', 'info'],
@@ -186,15 +186,17 @@ describe('TelemetryCoordinator adoption', () => {
 
     const seqs = backend.ledger().map(r => [r.attributes['session.id'], r.attributes['event.seq']])
     expect(seqs).toEqual(expect.arrayContaining([['seed-parent', 0], ['seed-parent', 1]]))
-    expect(seqs.filter(([id]) => id === 'seeded')).toEqual([['seeded', 2]])
+    // 2 end-seed, 3 turn/end: both this lifecycle's own writes, while
+    // inherited 0-1 stay with the parent stream.
+    expect(seqs.filter(([id]) => id === 'seeded')).toEqual([['seeded', 2], ['seeded', 3]])
   })
 
-  it('resume shape: a full-log seed exports nothing yet still rebuilds the chunk projection', async () => {
+  it('resume shape: a full-log seed exports only its own end-seed and rebuilds the chunk projection', async () => {
     const backend = new FakeBackend()
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const donor = ctx.sessions.create(SessionId('donor'), { meta: {} })
-    donor.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    donor.append('turn/start', { turn: 1 })
     donor.append('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'first' } })
     const resumed = ctx.sessions.create(SessionId('resumed'), { seed: [...donor.events], meta: {} })
     await ctx.plugin({
@@ -205,14 +207,16 @@ describe('TelemetryCoordinator adoption', () => {
     const ofResumed = () => backend.ledger()
       .filter(r => r.attributes['session.id'] === 'resumed')
       .map(r => r.attributes['event.seq'])
-    expect(ofResumed()).toEqual([])
+    // Nothing inherited is re-exported; seq 2 is this session's own first
+    // write — the end-seed event its constructor appended after the seed.
+    expect(ofResumed()).toEqual([2])
     // The seed fed the projection: the (turn 1, step 1) first chunk already
     // shipped from the original process, so its continuation is re-dropped…
     resumed.append('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'continuation' } })
-    expect(ofResumed()).toEqual([])
+    expect(ofResumed()).toEqual([2])
     // …while a new step's first chunk exports normally.
     resumed.append('assistant/chunk', { turn: 1, step: 2, chunk: { type: 'text-delta', index: 0, text: 'next step' } })
-    expect(ofResumed()).toEqual([3])
+    expect(ofResumed()).toEqual([2, 4])
   })
 
   it('stamps session.seed_length from the header so receivers can stitch fork streams', async () => {
@@ -261,7 +265,7 @@ describe('TelemetryCoordinator adoption', () => {
     const backend = new FakeBackend()
     const { ctx, fiber } = await setup(backend)
     const session = liveSession(ctx, 'hmr')
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     session.append('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'first' } })
     expect(backend.ledger()).toHaveLength(2)
 
@@ -408,7 +412,7 @@ describe('TelemetryCoordinator lifecycle and containment', () => {
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
     const session = liveSession(ctx)
     backend.emitError = new Error('backend broke')
-    expect(() => session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })).not.toThrow()
+    expect(() => session.append('turn/start', { turn: 1 })).not.toThrow()
     expect(warn).toHaveBeenCalled()
     backend.emitError = undefined
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })

@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-sandbox-policy",
-  "description": "Per-call sandbox policy resolver (ctx.sandboxPolicy): deployment fallbacks plus each session's mode and workspace root, shared by every enforcing capability family",
+  "description": "Per-call sandbox policy resolver and current model context: deployment fallbacks plus each session's mode and workspace root, shared by every enforcing capability family",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -21,24 +21,26 @@
   "files": [
     "lib/index.js",
     "lib/invariant.js",
-    "lib/types/**/*.d.ts",
-    "lib/types/**/*.d.ts.map",
-    "src"
+    "lib/types/**/*.d.ts"
   ],
   "license": "BSD-3-Clause",
   "peerDependencies": {
+    "@deepseek-ai/dsh-agent": "^0.0.1",
     "@deepseek-ai/dsh-invariants": "^0.0.1",
     "@deepseek-ai/dsh-sandbox": "^0.0.1",
     "@deepseek-ai/dsh-session": "^0.0.1",
+    "@deepseek-ai/dsh-system-prompt": "^0.0.1",
     "cordis": "^4.0.0-rc.7"
   },
   "dependencies": {
     "schemastery": "^3.18.0"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/dsh-sandbox": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
+    "@deepseek-ai/dsh-system-prompt": "workspace:^",
     "cordis": "^4.0.0-rc.7"
   }
 }

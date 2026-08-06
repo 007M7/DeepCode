@@ -7,11 +7,13 @@
 
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { mkdir } from 'node:fs/promises'
+import { once } from 'node:events'
+import { connect } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
-import { Context, FiberState } from 'cordis'
+import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import Include from '@cordisjs/plugin-include'
 import HttpServer from '../src/index.ts'
@@ -72,6 +74,24 @@ async function request(port: number, path: string, init?: RequestInit): Promise<
   return { status: response.status, body: (await response.text()).slice(0, 80) }
 }
 
+/** Open one raw upgrade request and return after the handler writes its response. */
+async function upgrade(port: number, path: string): Promise<ReturnType<typeof connect>> {
+  const socket = connect(port, '127.0.0.1')
+  await once(socket, 'connect')
+  const response = once(socket, 'data')
+  socket.write([
+    `GET ${path} HTTP/1.1`,
+    `Host: 127.0.0.1:${String(port)}`,
+    'Connection: Upgrade',
+    'Upgrade: dsh-test',
+    '',
+    '',
+  ].join('\r\n'))
+  const [data] = await response as [Buffer]
+  expect(String(data)).toContain('101 Switching Protocols')
+  return socket
+}
+
 describe('real Loader composition', () => {
   // Real-Loader composition resolves workspace packages through tsx at test
   // time; first resolution after the host/client program split is slow enough
@@ -111,6 +131,8 @@ describe('real Loader composition', () => {
     // Static fallback semantics: real asset served, traversal 403, non-GET/
     // HEAD without a matching route 405.
     expect(await request(port, '/app.js')).toMatchObject({ status: 200, body: 'export {}' })
+    await writeFile(join(root!, 'dist', 'app.js'), 'export const rebuilt = true')
+    expect(await request(port, '/app.js')).toMatchObject({ status: 200, body: 'export const rebuilt = true' })
     expect((await request(port, '/..%2f..%2fetc%2fpasswd')).status).toBe(403)
     expect((await request(port, '/nowhere', { method: 'POST' })).status).toBe(405)
 
@@ -129,8 +151,51 @@ describe('real Loader composition', () => {
     expect((await request(port, '/once')).body).toContain('shell') // back to the SPA fallback
     expect(() => server.register({ kind: 'exact', path: '/once', handler: () => {} })).not.toThrow()
 
-    // Teardown: fiber dispose closes the socket and severs held connections.
+    // Upgrade routes match exact pathnames, reject duplicate ownership, and
+    // become registrable again after disposal. The accepted socket stays open
+    // so the teardown assertion also covers upgraded-connection ownership.
+    let upgradedServerClosed = false
+    const disposeUpgrade = server.registerUpgrade({
+      path: '/events',
+      handler: (_req, socket) => {
+        socket.once('close', () => { upgradedServerClosed = true })
+        socket.write('HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: dsh-test\r\n\r\n')
+      },
+    })
+    expect(() => server.registerUpgrade({ path: '/events', handler: () => {} }))
+      .toThrow(/duplicate upgrade route/)
+    const upgraded = await upgrade(port, '/events?stream=mux')
+    disposeUpgrade()
+    expect(() => server.registerUpgrade({ path: '/events', handler: () => {} })).not.toThrow()
+
+    // The webserver contains raw-socket errors even before an upgrade handler
+    // has installed its protocol implementation.
+    server.registerUpgrade({
+      path: '/upgrade-error',
+      handler: async (_req, socket) => {
+        await Promise.resolve()
+        socket.destroy(new Error('test upgrade transport failure'))
+      },
+    })
+    const failedUpgrade = connect(port, '127.0.0.1')
+    failedUpgrade.on('error', () => { /* The server-side reset is the fixture outcome. */ })
+    await once(failedUpgrade, 'connect')
+    const failedUpgradeClosed = once(failedUpgrade, 'close')
+    failedUpgrade.write([
+      'GET /upgrade-error HTTP/1.1',
+      `Host: 127.0.0.1:${String(port)}`,
+      'Connection: Upgrade',
+      'Upgrade: dsh-test',
+      '',
+      '',
+    ].join('\r\n'))
+    await failedUpgradeClosed
+    expect(await request(port, '/probe')).toMatchObject({ status: 200, body: 'EXACT' })
+
+    // Teardown closes both ordinary and upgraded sockets before it resolves.
     await loaded.fiber.dispose()
+    expect(upgradedServerClosed).toBe(true)
+    upgraded.destroy()
     await expect(request(port, '/probe')).rejects.toThrow()
   })
 
@@ -140,25 +205,17 @@ describe('real Loader composition', () => {
     const firstRoot = root
     root = undefined // keep the first composition's files until the end
 
-    // loader.await() never rejects (allSettled); the bind failure surfaces as
-    // a FAILED fiber whose error escapes as a late rejection — the shape the
-    // boot's installFailLoud is contracted to catch. Capture it here the same
-    // way, and assert it really is the bind error.
-    const rejections: unknown[] = []
-    const onUnhandled = (err: unknown): void => { rejections.push(err) }
-    process.on('unhandledRejection', onUnhandled)
     let second: Context | undefined
     try {
-      second = await loadComposition(takenPort)
-      const entry = [...second.loader.entries()].find(e => e.options.name === '@deepseek-ai/dsh-host-webserver')
-      expect(entry?.fiber?.state).toBe(FiberState.FAILED)
-      // The rejection escapes a tick after loader.await() settles; bounded poll.
-      for (let i = 0; i < 100 && rejections.length === 0; i++) {
-        await new Promise(resolve => setTimeout(resolve, 10))
+      let failure: unknown
+      try {
+        await loadComposition(takenPort)
+      } catch (error) {
+        failure = error
       }
-      expect(rejections.map(String).join('\n')).toContain('EADDRINUSE')
+      second = context
+      expect(String(failure)).toMatch(/failed to apply loader entry.*EADDRINUSE/)
     } finally {
-      process.off('unhandledRejection', onUnhandled)
       await second?.fiber.dispose()
       context = first
       if (root !== undefined) await rm(root, { recursive: true, force: true })

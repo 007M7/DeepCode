@@ -11,7 +11,7 @@ import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
-import AgentLoop from '@deepseek-ai/dsh-agent-loop'
+import AgentLoop, { CONFIGURED_AGENT_IDENTITIES_KEY } from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
 
 const dirs: string[] = []
@@ -36,6 +36,26 @@ async function makeCoreContext(): Promise<Context> {
 }
 
 describe('config-driven session id', () => {
+  it('applies launcher identities by configured id without changing unmatched entries', async () => {
+    const ctx = await makeCoreContext()
+    ctx.provide(CONFIGURED_AGENT_IDENTITIES_KEY, {
+      fresh: { id: SessionId('launcher-fresh'), resume: false },
+      resumed: { id: SessionId('launcher-resumed'), resume: true },
+    })
+    await ctx.plugin(AgentLoop, {
+      agents: [
+        { id: 'fresh', sessionId: SessionId('config-fresh'), model: 'mock' },
+        { id: 'resumed', sessionId: SessionId('config-resumed'), model: 'mock' },
+        { id: 'unchanged', sessionId: SessionId('config-unchanged'), model: 'mock' },
+      ],
+    })
+    expect(ctx.agents.get(SessionId('launcher-fresh'))?.session.id).toBe('launcher-fresh')
+    expect(ctx.agents.get(SessionId('launcher-resumed'))).toBeUndefined()
+    expect(ctx.agents.get(SessionId('config-resumed'))).toBeUndefined()
+    expect(ctx.agents.get(SessionId('config-unchanged'))?.session.id).toBe('config-unchanged')
+    await ctx.fiber.dispose()
+  })
+
   it('rejects an empty exact id before publishing an agent', async () => {
     const ctx = await makeCoreContext()
     await expect(ctx.plugin(AgentLoop, {
@@ -126,8 +146,9 @@ describe('config-driven session id', () => {
     dirs.push(root)
     const ctx = await makeCoreContext()
     await ctx.plugin(SessionPersistenceJsonl, { root })
+    ctx.llm.registerAdapter(['mock'], new MockAdapter([textResponse('saved')]))
     const sessionId = SessionId('config-exact-overlap')
-    const config = { agents: [{ id: 'main', sessionId, model: 'mock' }] }
+    const config = { agents: [{ id: 'main', sessionId, provider: 'mock', model: 'mock' }] }
     const firstLoop = await ctx.plugin(AgentLoop, config)
     await expect.poll(() => ctx.agents.get(sessionId)).toBeDefined()
     const first = ctx.agents.get(sessionId) as Agent
@@ -138,7 +159,9 @@ describe('config-driven session id', () => {
       cleanupStarted.resolve(undefined)
       await cleanupGate.promise
     })
-    first.inject(createUserMessage({ content: [{ type: 'text', text: 'persist before replacement' }], source: { kind: 'plugin', plugin: 'test' } }))
+    const idle = waitForIdle(ctx, first)
+    first.followup(createUserMessage({ content: [{ type: 'text', text: 'persist before replacement' }], source: { kind: 'user' } }))
+    await idle
     await ctx.sessions.flush(first.session)
     expect(JSON.stringify((await ctx.sessionPersistence.inspect(sessionId)).events))
       .toContain('persist before replacement')
@@ -249,7 +272,7 @@ describe('config-driven session id', () => {
     const failures: unknown[] = []
     ctx.on('agent-loop/config-start-failed', () => { throw unrenderable })
     // Deliberately violate the normal Error-only rejection rule to exercise the unknown boundary.
-    // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
+    // oxlint-disable-next-line typescript/prefer-promise-reject-errors
     ctx.on('agent-loop/config-start-failed', () => Promise.reject(unrenderable) as never)
     ctx.on('agent-loop/config-start-failed', (_sessionId, error) => { failures.push(error) })
     vi.spyOn(ctx.sessionPersistence, 'list').mockRejectedValue(unrenderable)

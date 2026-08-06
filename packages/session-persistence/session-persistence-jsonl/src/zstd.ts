@@ -14,6 +14,9 @@ const zstdDecompressAsync = promisify(zstdDecompress)
 const CHECKSUM_OPTIONS: ZstdOptions = {
   params: { [constants.ZSTD_c_checksumFlag]: 1 },
 }
+const INCOMPLETE_FRAME_OPTIONS: ZstdOptions = {
+  finishFlush: constants.ZSTD_e_flush,
+}
 
 /** Byte range occupied by one structurally complete Zstandard frame. */
 export interface ZstdFrameRange {
@@ -106,11 +109,21 @@ export async function compressZstdFrame(input: Buffer | string): Promise<Buffer>
 }
 
 /**
- * Decompress one complete frame or the available prefix of a torn final frame.
- * Complete-frame checksums are validated by Node's decoder.
- * @param input - bytes beginning at a Zstandard frame boundary.
- * @returns plaintext produced from the available input.
+ * Decompress one complete frame and validate its checksum.
+ * @param input - one structurally complete Zstandard frame.
+ * @returns the frame plaintext.
  */
 export async function decompressZstdFrame(input: Buffer): Promise<Buffer> {
   return zstdDecompressAsync(input)
+}
+
+/**
+ * Recover available plaintext from a structurally incomplete final frame.
+ * `ZSTD_e_flush` deliberately suppresses final-frame and checksum completion;
+ * callers must establish the torn frame boundary before using this helper.
+ * @param input - available bytes from a known incomplete Zstandard frame.
+ * @returns plaintext produced from the available input.
+ */
+export async function decompressZstdPrefix(input: Buffer): Promise<Buffer> {
+  return zstdDecompressAsync(input, INCOMPLETE_FRAME_OPTIONS)
 }

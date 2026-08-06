@@ -1,0 +1,51 @@
+- banner:
+  - navigation "Session hierarchy":
+    - button "Reply with a one-sentence description" [disabled]
+  - tablist:
+    - tab "Chat" [selected]
+    - tab "Trajectory"
+- text: Reply with a one-sentence description of event sourcing, then stop. {{clock}}
+- button "Copy":
+  - img
+- button "Branch into a new conversation" [disabled]:
+  - img
+- text: Available only on the last message of a completed turn
+- button "Context injection":
+  - img
+  - img
+  - text: Context injection
+- paragraph: partial
+- text: Stopped
+- button "Copy":
+  - img
+- button "Branch into a new conversation":
+  - img
+- text: {{clock}}Ran for {{duration}}
+- button "2 queued messages" [expanded]
+- list:
+  - listitem:
+    - text: Edited queue item
+    - button "Edit queued message":
+      - img
+    - tooltip "Edit queued message"
+    - button "Remove queued message":
+      - img
+    - button "Steer queued message" [disabled]:
+      - img
+  - listitem:
+    - text: Queue item preserved after stop
+    - button "Edit queued message":
+      - img
+    - button "Remove queued message":
+      - img
+    - button "Steer queued message" [disabled]:
+      - img
+- textbox "Message the agent"
+- button "Commands":
+  - img
+- 'button "Access mode, current: Workspace Write"': Workspace Write
+- button "Select model, current DeepSeek-V4-Flash":
+  - text: DeepSeek-V4-Flash
+  - img
+- button "Send message" [disabled]
+- text: 1 turns · 1 steps Input 0 tok · Output 0 tok

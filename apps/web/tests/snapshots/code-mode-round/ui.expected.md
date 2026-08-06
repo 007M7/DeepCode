@@ -5,48 +5,44 @@
     - tab "Chat" [selected]
     - tab "Trajectory"
 - text: "Using ONE run_code program: run bash `echo CODE_ROUND_OK`, then read the file missing.txt catching its error in the program. Return an object with both outcomes. Then reply DONE and stop. {{clock}}"
-- button "复制":
+- button "Copy":
   - img
-- button "在新对话中分支":
+- button "Branch into a new conversation" [disabled]:
   - img
-- button "编辑":
+- text: Available only on the last message of a completed turn
+- button "Context injection":
   - img
-- button "▸ 上下文注入"
+  - img
+  - text: Context injection
 - 'button "Think The user wants me to write a single `run_code` program that:"':
   - img
   - img
   - text: "Think The user wants me to write a single `run_code` program that:"
-- button "复制":
-  - img
-- button "在新对话中分支":
-  - img
-- text: {{clock}}
-- button:
+- button "Code Run bash echo and catch missing file read":
   - img
   - img
-- text: Code Run bash echo and catch missing file read
+  - text: Code Run bash echo and catch missing file read
 - img
-- text: Bash Echo CODE_ROUND_OK Read
-- button "missing.txt"
+- text: Bash Echo CODE_ROUND_OK Failed
+- 'button "Read Error: cannot read \"{{cwd}}/workspace/missing.txt\": not found"':
+  - img
+  - text: "Read Error: cannot read \"{{cwd}}/workspace/missing.txt\": not found"
 - button "Think The program ran successfully. Let me now reply DONE as instructed.":
   - img
   - img
   - text: Think The program ran successfully. Let me now reply DONE as instructed.
 - paragraph: DONE
-- button "复制":
+- button "Copy":
   - img
-- button "在新对话中分支":
+- button "Branch into a new conversation":
   - img
-- text: {{clock}} cache hit 52% · 17,490 tokens · 1 turns · 2 steps
+- text: {{clock}}Ran for {{duration}}
 - textbox "Message the agent"
-- button "Add attachment":
+- button "Commands":
   - img
-- text: Danger Full Access
-- combobox "Access mode":
-  - option "Read Only"
-  - option "Workspace Write"
-  - option "Danger Full Access" [selected]
-- button "选择模型，当前 DeepSeek-V4-Flash":
+- 'button "Access mode, current: Workspace Write"': Workspace Write
+- button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
+- text: 1 turns · 2 steps Tool call {{duration}} Context 7% of 128K Cache hit 52% Input 17.2K tok · Output 252 tok

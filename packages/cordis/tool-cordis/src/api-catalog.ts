@@ -147,6 +147,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     summary: 'Approval service that applies session policy before answerers and logs every ask/outcome pair to the requesting session.',
     methods: [
       {
+        signature: 'setPolicy(agent: Agent, policy: ApprovalPolicy): void',
+        jsDoc: '/**\n * Switch one live agent\'s policy and queue the transition for its next model\n * step. Session initialization uses {@link setApprovalPolicy} directly\n * because there is no previously visible policy to change.\n * @param agent - the live agent whose policy is changing.\n * @param policy - the new effective policy.\n */',
+      },
+      {
         signature: 'async request(req: ApprovalRequest): Promise<ApprovalOutcome>',
         jsDoc: '/**\n * Ask the composed answerers to decide one readonly same-process request.\n * The service borrows the request, agent, session, and live signal directly.\n * The request requires an open turn because the audit pair must be enclosed\n * by the durable log\'s commit/replay boundary; an idle ask rejects before\n * appending anything. The answerer phase always produces an outcome: an\n * aborted signal yields `\'cancelled\'`, a missing or throwing answerer yields\n * `\'unavailable\'` (fail closed), and a rogue non-vocabulary return value is\n * normalized to `\'unavailable\'`. A failure that prevents either audit append\n * from committing still rejects because returning an unlogged decision would\n * violate the pair. Session contains post-commit observer failures, so an\n * authoritative append cannot reject the request or suppress its matching\n * audit event.\n * @param req - the pending decision (agent, tool identity, reason, signal).\n * @returns the closed outcome; `\'allowed-once\'` is the only grant.\n * @throws when no turn is open or either audit event fails before the session\n *   append commit point.\n */',
       },
@@ -184,7 +188,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'collect(execution: ToolExecution): DshEnvironment',
-        jsDoc: '/**\n * Build the trusted `DSH_*` snapshot for one bash tool execution.\n * @param execution - the current tool execution.\n * @returns an immutable environment overlay containing built-ins and current contributions.\n */',
+        jsDoc: '/**\n * Build the trusted `DSH_*` snapshot for one shell tool execution.\n * @param execution - the current tool execution.\n * @returns an immutable environment overlay containing built-ins and current contributions.\n */',
       },
       {
         signature: 'list(): BashEnvVariableInfo[]',
@@ -259,8 +263,34 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Consider automatic compaction for one explicit trigger. Pressure policy\n * uses the latest durable routed request, while context-overflow policy may\n * force a useful balanced reduction even below the normal threshold. Return\n * `null` when no safe range can be compacted. A single oversized retained\n * unit or request envelope cannot be repaired through surface compaction.\n *\n * @param agent - agent context owning the session surface and routing options.\n * @param trigger - normal pressure or provider-confirmed context overflow.\n * @param signal - cancellation signal; model-backed implementations must forward it.\n * @returns the compaction result, or `null` if no compaction was needed.\n */',
       },
       {
+        signature: 'abstract compactNow( agent: ManualCompactAgentContext, signal: AbortSignal, ): Promise<CompactionResult | null>',
+        jsDoc: '/**\n * Explicitly compact useful history even below automatic pressure thresholds.\n * Implementations synchronously start an idle task before any asynchronous\n * work, select a useful range without writing on a no-op, then\n * append a standalone `compact/start` before summarization. That durable\n * marker is the compaction lock until one `compact/end` attempt. Later waking\n * prompts remain accepted in FIFO order and start only after the optional\n * durability checkpoint and idle-task settlement. Context injected while the\n * summary runs may sit between the marker pair; only the selected span must\n * remain stable.\n *\n * @param agent - idle agent whose durable history should be compacted.\n * @param signal - cancellation scoped to this compaction request.\n * @returns the compaction result, or `null` when no safe useful range exists.\n * @throws {@link ManualCompactionError} for expected busy, agent-cancellation,\n * changed-span, summarization/shrink, commit-stage, or persistence failures;\n * an aborted request preserves its exact abort reason. Failed attempts remain\n * visible in the log.\n */',
+      },
+      {
         signature: 'abstract compactRegion( start: number, end: number, agent: CompactAgentContext, signal?: AbortSignal, ): Promise<CompactionResult>',
         jsDoc: '/**\n * Forcibly compact a range of surface nodes into a single summary node.\n * `start` and `end` name an inclusive span by surface position, not numeric seq\n * order; replacements can make visible seqs non-monotonic. Both edges must be\n * balanced so assistant tool calls remain paired with their results. A model-\n * backed implementation forwards cancellation and rejects active, missing,\n * reversed, or unbalanced ranges. The target session is `agent.session`.\n * Its replacement user message must use {@link COMPACT_CHECKPOINT_SOURCE}.\n * Use {@link toolPairingBalancedBefore} and {@link toolPairingBalancedAfter}\n * for the edge checks.\n *\n * @param start - first surface seq, inclusive.\n * @param end - last surface seq, inclusive.\n * @param agent - context whose session is mutated and whose routing options guide summarization.\n * @param signal - optional cancellation; model-backed implementations must forward it.\n * @throws when compaction is active or the range is missing, reversed, or unbalanced.\n * @returns the appended event seqs, summary, replaced range, and token accounting.\n */',
+      },
+    ],
+  },
+  {
+    key: 'credentials',
+    summary: 'Abstract credential service.',
+    methods: [
+      {
+        signature: 'abstract resolve(ref: CredentialRef): Promise<ResolvedCredential | undefined>',
+        jsDoc: '/**\n * Resolve one reference to its current value. Resolution is per call:\n * consumers re-resolve at each operation and must not cache across\n * operations — that per-operation read is what makes a changed credential\n * reach the next operation without a restart.\n * @param ref - the reference to resolve.\n * @returns the value and its source, or `undefined` while unconfigured.\n */',
+      },
+      {
+        signature: 'abstract describe(ref: CredentialRef): Promise<CredentialInfo>',
+        jsDoc: '/**\n * Describe one reference for configuration surfaces without exposing the\n * value.\n * @param ref - the reference to describe.\n * @returns configured state, supplying source, and writability.\n */',
+      },
+      {
+        signature: 'abstract set(ref: CredentialRef, value: string): Promise<void>',
+        jsDoc: '/**\n * Durably store one value in the provider-managed writable source. Rejects\n * while a read-only source shadows the reference — the write would appear\n * to succeed while resolution keeps returning the shadowing value — and\n * rejects an empty value (use {@link unset}).\n * @param ref - the reference to store.\n * @param value - the non-empty secret value.\n */',
+      },
+      {
+        signature: 'abstract unset(ref: CredentialRef): Promise<void>',
+        jsDoc: '/**\n * Remove one reference from the provider-managed writable source; removing\n * an absent reference is a no-op. Rejects while a read-only source shadows\n * the reference, like {@link set}.\n * @param ref - the reference to remove.\n */',
       },
     ],
   },
@@ -363,6 +393,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Register a named route. Duplicate (kind, path) throws — route patterns are\n * a composition-level contract, so a collision is a misconfiguration.\n * @param route - kind, path, and the owning handler.\n * @returns the disposer removing the route.\n */',
       },
       {
+        signature: 'registerUpgrade(route: WebUpgradeRoute): () => void',
+        jsDoc: '/**\n * Register an exact-path HTTP upgrade route. Duplicate paths throw because\n * one socket can have only one protocol owner.\n * @param route - pathname and handler owning negotiation plus socket use.\n * @returns the disposer removing the route.\n */',
+      },
+      {
         signature: 'tapIndex(transform: (html: string) => string): () => void',
         jsDoc: '/**\n * Register an index.html transform, applied to every index response in\n * registration order.\n * @param transform - pure html-to-html function.\n * @returns the disposer removing the transform.\n */',
       },
@@ -383,12 +417,20 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     summary: 'The abstract `llm` service: an adapter registry plus a streaming model-call surface, interceptable via the `llm/stream` waterfall.',
     methods: [
       {
-        signature: 'registerAdapter(providers: string[], adapter: LlmAdapter): () => void',
-        jsDoc: '/**\n * Register an adapter for the given provider routes. Throws `LlmError` with code\n * `DUPLICATE_ADAPTER` if any provider already has an adapter (all-or-nothing).\n * Disposed with the fiber.\n * @param providers - every provider route this adapter should serve.\n * @param adapter - the adapter that streams calls for those providers.\n * @returns the disposer that unregisters all of them.\n */',
+        signature: 'registerAdapter(providers: string[], adapter: LlmAdapter): AdapterRegistrationHandle',
+        jsDoc: '/**\n * Register an adapter for the given provider routes. Throws `LlmError` with code\n * `DUPLICATE_ADAPTER` if any provider already has an adapter (all-or-nothing).\n * Disposed with the fiber.\n * @param providers - every provider route this adapter should serve.\n * @param adapter - the adapter that streams calls for those providers.\n * @returns the disposer, carrying {@link AdapterRegistrationHandle.replace}.\n */',
       },
       {
         signature: 'listProviders(): LlmProviderInfo[]',
         jsDoc: '/**\n * Describe provider routes with a registered adapter.\n * @returns detached provider metadata in registration order.\n */',
+      },
+      {
+        signature: 'registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): () => void',
+        jsDoc: '/**\n * Declare provider routes an adapter plugin can activate through\n * configuration. Registration is all-or-nothing: an empty list, invalid\n * entry, or a provider already declared by any registration throws\n * `LlmError` without registering the rest. Disposed with the fiber.\n * @param entries - every configurable provider this plugin owns.\n * @returns the disposer that withdraws all of them.\n */',
+      },
+      {
+        signature: 'listConfigurableProviders(): LlmConfigurableProvider[]',
+        jsDoc: '/**\n * List every declared configurable provider, registered or dormant.\n * @returns detached directory entries in declaration order.\n */',
       },
       {
         signature: 'providerRetryPolicy(provider: string): ResolvedRetryPolicy',
@@ -404,7 +446,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async resolveCallConfig(config: LlmCallConfig, signal?: AbortSignal): Promise<LlmCallConfig>',
-        jsDoc: '/**\n * Validate a conversation call config against its exact model capability and\n * materialize an adapter-configured default. Unsupported explicit efforts\n * reject before provider I/O; no clamping or aliasing is performed. This\n * standalone query does not bind a later dispatch; use {@link prepareCall}\n * when logging and streaming must share one adapter registration.\n * @param config - provider/model route and optional request controls.\n * @param signal - optional cancellation for adapter-owned capability lookup.\n * @returns a detached config only when a default must be materialized.\n */',
+        jsDoc: '/**\n * Validate a conversation call config against its exact model capability and\n * materialize adapter-configured defaults. Unsupported explicit efforts\n * reject before provider I/O; no clamping or aliasing is performed. This\n * standalone query does not bind a later dispatch; use {@link prepareCall}\n * when logging and streaming must share one adapter registration.\n * @param config - provider/model route and optional request controls.\n * @param signal - optional cancellation for adapter-owned capability lookup.\n * @returns a detached config only when a default must be materialized.\n */',
       },
       {
         signature: 'async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<PreparedLlmCall>',
@@ -412,7 +454,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'stream(options: GenerateOptions): AsyncIterable<StreamChunk>',
-        jsDoc: '/**\n * Stream one model call as raw chunks (token-level deltas). Throws\n * `LlmError` with code `NO_ADAPTER` if no adapter is registered for\n * `options.provider`. Replay state is retained only when the same adapter\n * instance owns its historical provider and the target provider. Final\n * adapter selection remains fixed through asynchronous exact-model resolution\n * and dispatch. Selection, dispatch, and iteration failures retain their\n * original Error identity and are tagged in a call-local scope for narrow\n * agent-loop request recovery; middleware and nested-call failures remain\n * untagged for the outer call.\n * @param options - the full request; `options.provider` selects the adapter.\n * @returns the chunk stream, possibly wrapped by `llm/stream` listeners.\n */',
+        jsDoc: '/**\n * Stream one model call as raw chunks (token-level deltas). Replay state is\n * retained only when the same adapter instance owns its historical provider\n * and the target provider. Final adapter selection remains fixed through\n * asynchronous exact-model resolution and dispatch. Adapter selection,\n * dispatch, and iteration failures become terminal `error` or `aborted`\n * finish chunks; middleware, nested-call, cleanup, and consumer failures\n * remain thrown.\n * @param options - the full request; `options.provider` selects the adapter.\n * @returns the chunk stream, possibly wrapped by `llm/stream` listeners.\n */',
       },
     ],
   },
@@ -489,7 +531,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Deliver an allowed signal through an owned backend session.\n * @param owner - exact session owner.\n * @param id - target PTY identity.\n * @param signal - allowed POSIX signal name.\n * @returns delivered foreground process-group identity.\n */',
       },
       {
-        signature: 'async kill(owner: Agent, id: PtySessionId, reason = \'model request\'): Promise<boolean>',
+        signature: 'async kill(owner: Agent, id: PtySessionId, reason: string = \'model request\'): Promise<boolean>',
         jsDoc: '/**\n * Close one owned session and remove it only after quiescent backend cleanup.\n * @param owner - exact session owner.\n * @param id - target PTY identity.\n * @param reason - diagnostic cleanup reason.\n * @returns true for a newly closed session, false when the same close is already in flight.\n */',
       },
       {
@@ -679,7 +721,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     summary: 'Exact-read consumer that prepares immutable cross-session message context.',
     methods: [
       {
-        signature: 'async listCandidates( agent: Agent, query = \'\', limit = this.config.candidateLimit, signal?: AbortSignal, ): Promise<SessionReferenceCandidate[]>',
+        signature: 'async listCandidates( agent: Agent, query: string = \'\', limit: number = this.config.candidateLimit, signal?: AbortSignal, ): Promise<SessionReferenceCandidate[]>',
         jsDoc: '/**\n * List reference candidates, ranked by working-directory affinity.\n * @param agent - target agent; self is excluded and its cwd drives ranking.\n * @param query - optional case-insensitive session-id/cwd/title substring.\n * @param limit - optional positive result cap.\n * @param signal - optional cancellation boundary for host autocomplete teardown.\n * @returns candidates labeled by latest title or, when absent, session id.\n */',
       },
       {
@@ -694,11 +736,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       {
         signature: 'create(id?: SessionId, options?: CreateSessionOptions): Session',
-        jsDoc: '/**\n * Create a session owned by the calling fiber: disposing that fiber stops\n * event notification and removes the session from the store. `options.seed`\n * populates the session with a copy of those events (replay/fork);\n * `options.meta` attaches creation metadata (validated absolute `cwd`, seed\n * and parent lineage, and delegation depth) as the immutable\n * {@link SessionHeader} (the store fills `version`/`id`/`createdAt`).\n *\n * For an agent whose session must be torn down IN ORDER with its loop (so the\n * loop\'s final flush is captured before the store attachment ends), do NOT use this\n * — fold the session lifecycle into the agent\'s own effect via\n * {@link prepare} + {@link enter} + {@link announce} (see\n * `dsh-agent-loop`\'s creation transaction).\n *\n * @param id - the session id; omitted, the store mints `session-<n>`.\n * @param options - seed events and/or creation metadata for the header.\n * @returns the live session, already entered and announced.\n * @throws if a session with `id` already exists, metadata is not a plain\n *   lossless-JSON record with valid scalar fields, or `meta.cwd` is a\n *   non-absolute path (storage backends key directories off it).\n */',
+        jsDoc: '/**\n * Create a session owned by the calling fiber: disposing that fiber stops\n * event notification and removes the session from the store. `options.seed`\n * populates the session with a copy of those events (replay/fork);\n * `options.meta` attaches creation metadata (validated absolute `cwd`, seed\n * and parent lineage, and delegation depth) as the immutable\n * {@link SessionHeader} (the store fills `version`/`id`/`createdAt`).\n *\n * For an agent whose session must be torn down IN ORDER with its loop (so the\n * loop\'s final events are published before the store attachment ends), do NOT use this\n * — fold the session lifecycle into the agent\'s own effect via\n * {@link prepare} + {@link enter} + {@link announce} (see\n * `dsh-agent-loop`\'s creation transaction).\n *\n * @param id - the session id; omitted, the store mints `session-<n>`.\n * @param options - seed events and/or creation metadata for the header.\n * @returns the live session, already entered and announced.\n * @throws if a session with `id` already exists, metadata is not a plain\n *   lossless-JSON record with valid scalar fields, or `meta.cwd` is a\n *   non-absolute path (storage backends key directories off it).\n */',
       },
       {
         signature: 'prepare(id?: SessionId, options?: CreateSessionOptions): Session',
-        jsDoc: '/**\n * Build a session WITHOUT entering it into the store — validate the id/cwd and\n * construct the {@link Session} (with its immutable {@link SessionHeader}).\n * Pairs with {@link enter} + {@link announce}: a caller that owns a composite\n * `ctx.effect` (the agent factory) folds the session lifecycle into that ONE\n * effect so a fiber unload tears the session + agent down as a single ORDERED\n * chain rather than as racing sibling effects — which would remove the publication hooks\n * before the loop\'s closing `session/flush`, dropping the closing events.\n *\n * @param id - the session id; omitted, the store mints `session-<n>`.\n * @param options - seed events and/or creation metadata for the header.\n * @returns the constructed session, NOT yet in the store.\n * @throws if a session with `id` already exists, metadata is not a plain\n *   lossless-JSON record with valid scalar fields, or `meta.cwd` is a\n *   non-absolute path.\n */',
+        jsDoc: '/**\n * Build a session WITHOUT entering it into the store — validate the id/cwd and\n * construct the {@link Session} (with its immutable {@link SessionHeader}).\n * Pairs with {@link enter} + {@link announce}: a caller that owns a composite\n * `ctx.effect` (the agent factory) folds the session lifecycle into that ONE\n * effect so a fiber unload tears the session + agent down as a single ORDERED\n * chain rather than as racing sibling effects — which would remove the publication hooks\n * before the driver\'s closing events commit, dropping them.\n *\n * @param id - the session id; omitted, the store mints `session-<n>`.\n * @param options - seed events and/or creation metadata for the header.\n * @returns the constructed session, NOT yet in the store.\n * @throws if a session with `id` already exists, metadata is not a plain\n *   lossless-JSON record with valid scalar fields, or `meta.cwd` is a\n *   non-absolute path.\n */',
       },
       {
         signature: 'enter(session: Session): () => void',
@@ -709,8 +751,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/** Emit `session/created` exactly once for an {@link enter}ed session (with\n * the carrier {@link enter} captured). Separate from {@link enter} so the\n * caller can yield the detach disposer first (rollback safety — see\n * {@link enter}).\n * @param session - the entered session to announce to listeners.\n * @throws if the session is not live or its announcement already began,\n *   including a reentrant call from a creation listener. */',
       },
       {
-        signature: 'async flush(session: Session): Promise<void>',
-        jsDoc: '/**\n * Dispatch the awaited `session/flush` durability checkpoint for `session`,\n * with the carrier captured at {@link enter}. THE flush entry point: the\n * store owns the carrier, so callers (the loop\'s turn-end checkpoint, idle\n * injection, teardown drains) must come through here rather than dispatch a\n * raw `ctx.parallel(\'session/flush\', …)` — one owner, one spelling, and the\n * scoped-dispatch invariant can pin it.\n * @param session - the session whose buffered events must reach durable storage.\n * @returns resolves when every flush listener has settled; after all settle,\n *   rejects with the first registered listener failure if any listener failed.\n */',
+        signature: 'async flush(session: Session): Promise<boolean>',
+        jsDoc: '/**\n * Dispatch the awaited `session/flush` durability checkpoint for `session`,\n * with the carrier captured at {@link enter}. THE flush entry point: the\n * store owns the carrier, so callers (the checkpoint policy\'s per-request\n * barrier, goal-session\'s idle checkpoint, teardown drains, and consumers\n * that flush themselves before reading storage) must come through here\n * rather than dispatch a raw `ctx.parallel(\'session/flush\', …)` — one owner,\n * one spelling, and the scoped-dispatch invariant can pin it.\n * @param session - the session whose buffered events must reach durable storage.\n * @returns whether at least one durability listener participated, after every\n *   listener has settled successfully.\n * @throws the first registered listener failure after every listener settles.\n */',
       },
       {
         signature: 'get(id: SessionId): Session | undefined',
@@ -735,6 +777,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Read the latest folded title from one live or replayed session.\n * @param session - session whose log is the title source of truth.\n * @returns latest title snapshot, or `undefined` before eligible input.\n */',
       },
       {
+        signature: 'rename(session: Session, title: string): SessionTitleSnapshot',
+        jsDoc: '/**\n * Accept an explicit user title. Appends a `session/title` event with the\n * `user` source, which pins the title: in-flight automatic generation is\n * superseded and later user messages schedule none (an explicit\n * {@link SessionTitleService.refresh} remains the deliberate unpin).\n * @param session - exact live session to rename.\n * @param title - raw user input; normalized before acceptance.\n * @returns the accepted title snapshot.\n * @throws {SessionTitleInvalidError} when the title normalizes to empty.\n * @throws {Error} when the session is not live or the service is disposed.\n */',
+      },
+      {
         signature: 'async refresh(session: Session, signal?: AbortSignal): Promise<SessionTitleSnapshot | undefined>',
         jsDoc: '/**\n * Explicitly retry the registered provider, or materialize the built-in\n * fallback when no provider is registered.\n * @param session - exact live session to refresh.\n * @param signal - optional caller cancellation.\n * @returns latest accepted title, or `undefined` when no eligible text exists.\n */',
       },
@@ -745,20 +791,58 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'settings',
+    summary: 'Abstract settings service.',
+    methods: [
+      {
+        signature: 'prepareDocument(): Promise<string | undefined>',
+        jsDoc: '/**\n * Prepare the provider\'s user-editable document for a native editor. File\n * providers may materialize an absent document before returning its path;\n * non-file providers return undefined.\n * @returns the absolute local document path, or undefined for non-file storage.\n */',
+      },
+      {
+        signature: 'register<T>(ns: SettingsNamespace, schema: z<T>, options?: SettingsRegisterOptions<T>): SettingsScope<T>',
+        jsDoc: '/**\n * Register a namespace schema and receive its owner scope. The registration\n * is an effect on the calling plugin\'s fiber: disposing that fiber removes\n * the namespace and its observers. An invalid stored section fails the\n * registration itself — the earliest point where the schema can judge it.\n * @param ns - unique namespace; duplicate registration fails loud.\n * @param schema - schemastery schema resolving this namespace\'s value.\n * @param options - composition `base` layer and effect timing.\n * @returns the owner scope for reads, observation, and updates.\n */',
+      },
+      {
+        signature: 'describe(options?: SettingsDescribeOptions): SettingsDescriptor[]',
+        jsDoc: '/**\n * Describe every registered namespace for configuration surfaces, including\n * the composition `base` and raw user layers so a form can mark which fields\n * the user overrode (presence in `user`) and what a reset returns to.\n * @param options - redaction switch; wire surfaces must redact.\n * @returns one descriptor per registered namespace, in registration order.\n */',
+      },
+      {
+        signature: 'get(ns: SettingsNamespace): unknown',
+        jsDoc: '/**\n * Read one registered namespace\'s resolved value.\n * @param ns - the namespace to read.\n * @returns the resolved value, or `undefined` while unregistered.\n */',
+      },
+      {
+        signature: 'async update(ns: SettingsNamespace, patch: object, expectedRevision?: number): Promise<void>',
+        jsDoc: '/**\n * Merge a patch into one registered namespace\'s user layer, validate the\n * resolved candidate, persist through the provider, then commit and emit.\n * A validation failure rejects before anything is persisted. Writes to one\n * namespace are serialized: concurrent updates apply in call order, each\n * merging over the previous write\'s committed section.\n * @param ns - the registered namespace to update.\n * @param patch - plain-object patch over the user section.\n * @param expectedRevision - the descriptor `revision` the caller read; a\n *   namespace that moved past it rejects with {@link SettingsConflictError}.\n */',
+      },
+      {
+        signature: 'async replace(ns: SettingsNamespace, section: object, expectedRevision?: number): Promise<void>',
+        jsDoc: '/**\n * Replace one registered namespace\'s user section wholesale, validate,\n * persist, then commit and emit. Keys absent from `section` fall back to the\n * composition `base` and schema defaults — this is the removal/reset path a\n * merge-only patch cannot express (`replace({})` re-inherits everything).\n * @param ns - the registered namespace to replace.\n * @param section - the complete next user section.\n * @param expectedRevision - the descriptor `revision` the caller read; a\n *   namespace that moved past it rejects with {@link SettingsConflictError}.\n */',
+      },
+      {
+        signature: 'async mutate(ns: SettingsNamespace, ops: readonly SettingsPathOp[], expectedRevision?: number): Promise<void>',
+        jsDoc: '/**\n * Apply path-addressed edits to one registered namespace\'s user section,\n * validate, persist, then commit and emit. The ops are applied to the\n * section as it stands when the write reaches the front of the queue, so a\n * caller never has to restate fields it did not touch — and, crucially,\n * cannot delete fields it never saw. This is the write path for any caller\n * holding a redacted view; `replace` remains the wholesale reset.\n * @param ns - the registered namespace to edit.\n * @param ops - ordered path edits; later ops observe earlier ones.\n * @param expectedRevision - the descriptor `revision` the caller read; a\n *   namespace that moved past it rejects with {@link SettingsConflictError}.\n */',
+      },
+    ],
+  },
+  {
     key: 'skills',
     summary: 'Registry of skill providers.',
     methods: [
       {
-        signature: 'registerProvider(provider: SkillProvider): () => void',
-        jsDoc: '/**\n * Register a borrowed same-process provider synchronously during plugin apply. Duplicate and\n * reserved names throw; remote initialization belongs in `list()`. Fiber disposal unregisters\n * the provider and invalidates catalog caches.\n * @param provider - the provider to register by `provider.name`.\n * @returns the exact Cordis effect disposer that unregisters this provider;\n *   composite effects may yield it directly to preserve teardown ordering.\n */',
+        signature: 'registerProvider(create: (control: SkillProviderControl) => SkillProvider): () => void',
+        jsDoc: '/**\n * Register a borrowed same-process provider synchronously during plugin apply. Duplicate and\n * reserved names throw; remote initialization belongs in `list()`. Fiber disposal unregisters\n * the provider and invalidates catalog caches.\n * @param create - synchronous factory receiving this registration\'s lifecycle and invalidation control.\n * @returns the exact Cordis effect disposer that unregisters this provider;\n *   composite effects may yield it directly to preserve teardown ordering.\n */',
       },
       {
         signature: 'register(skill: SkillRegistration): () => void',
-        jsDoc: '/**\n * Register a borrowed readonly runtime skill. Project entries outrank runtime entries, which\n * outrank user entries. Same-name runtime entries are first-wins; a duplicate logs a warning and\n * receives a no-op disposer so it cannot remove the winner.\n * @param skill - the complete skill definition to expose for discovery.\n * @returns the exact Cordis effect disposer, preserving composite teardown order and invalidating caches.\n */',
+        jsDoc: '/**\n * Register a borrowed readonly runtime skill. Project entries outrank runtime entries, which\n * outrank user entries. Same-name runtime entries are first-wins; a duplicate logs a warning and\n * receives a no-op disposer so it cannot remove the winner.\n * @param skill - the skill definition input; omitted invocation and provider fields receive defaults.\n * @returns the exact Cordis effect disposer, preserving composite teardown order and invalidating caches.\n */',
       },
       {
         signature: 'async list(options: SkillLookupOptions = {}): Promise<SkillSummary[]>',
-        jsDoc: '/**\n * List model-invocable skill summaries for a workspace. Lookup options and\n * provider candidates are readonly same-process values borrowed throughout\n * discovery.\n * @param options - lookup options; `cwd` selects project roots and `signal` cancels discovery.\n * @returns sorted summaries, excluding skills disabled for model invocation.\n */',
+        jsDoc: '/**\n * List invocation-neutral skill summaries for a workspace. Consumers apply\n * model or user invocation policy at their operational boundary. Lookup\n * options and provider candidates are readonly same-process values borrowed\n * throughout discovery.\n * @param options - lookup options; `cwd` selects project roots and `signal` cancels discovery.\n * @returns all sorted winning summaries.\n */',
+      },
+      {
+        signature: 'async snapshot(options: SkillLookupOptions = {}): Promise<SkillCatalogSnapshot>',
+        jsDoc: '/**\n * Observe the current invocation-neutral catalog and whether discovery completed within a stable revision.\n * Incomplete observations are never cached, allowing consumers to retain last-good state and\n * retry on their next request boundary.\n * @param options - lookup options; `cwd` selects project roots and `signal` cancels discovery.\n * @returns sorted summaries plus discovery-completeness state.\n */',
       },
       {
         signature: 'async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefinition | undefined>',
@@ -810,8 +894,32 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'subagents',
-    summary: 'Named provider registry and capability-checked start surface.',
+    summary: 'Named provider registry with one-shot runs, durable discovery, and continuable-child operations.',
     methods: [
+      {
+        signature: 'async startContinuable(spec: ContinuableStartSpec): Promise<ContinuableStart>',
+        jsDoc: '/**\n * Establish one durable continuable child and deliver its initial prompt.\n * Resolves when the child\'s inbox accepts that prompt, without waiting for the\n * turn to start or for the message to reach the Session log; any earlier\n * failure rejects with no ids and rolls back the child entirely.\n * @param spec - provider, delegation request, and caller cancellation.\n * @returns the durable child id and the accepted prompt\'s message id.\n * @throws when continuation services are unavailable or materialization fails.\n */',
+      },
+      {
+        signature: 'async followup( parent: Agent, childId: SessionId, content: ContentBlock[], options: SubagentFollowupOptions, ): Promise<MessageId>',
+        jsDoc: '/**\n * Deliver one later message to a continuable child as its next FIFO turn. A\n * resident child\'s Agent inbox accepts it directly (waking a `waiting`\n * Activation), while an absent one is cold-resumed from its persisted\n * Session. The Agent inbox is the only queue, so every accepted message has\n * one observable order.\n * @param parent - the exact live direct parent authorizing this delivery.\n * @param childId - durable child session id.\n * @param content - user-role content to deliver.\n * @param options - durable provenance and caller cancellation, which stops the\n *   operation only before inbox acceptance.\n * @returns the accepted message\'s inbox id.\n * @throws when continuation services are unavailable, parent authority is\n *   rejected, or the message was not admitted.\n */',
+      },
+      {
+        signature: 'async reportFrom( child: Agent, content: ContentBlock[], options: SubagentReportOptions, ): Promise<MessageId>',
+        jsDoc: '/**\n * Deliver selected content from one live continuable child to its durable\n * direct parent. The child is the authority credential; callers cannot name a\n * recipient. Reporting does not conclude the child\'s turn or Activation.\n * @param child - exact live reporting child.\n * @param content - selected model-facing content.\n * @param options - parent scheduling and pre-acceptance cancellation.\n * @returns the stable identity of the parent-accepted message.\n * @throws when continuation services are unavailable, sender authorization\n *   fails, or the direct parent is not live.\n */',
+      },
+      {
+        signature: 'registerContinuableSetup(contribution: ContinuableSetupContribution): () => void',
+        jsDoc: '/**\n * Compose one deployment capability into every continuable child\'s\n * unpublished creation context on fresh creation and cold resume. Grants wait\n * for the next Activation; removing the contribution revokes every resident\n * installation immediately.\n * @param contribution - synchronous child-scope installer.\n * @returns the exact Cordis effect disposer.\n */',
+      },
+      {
+        signature: 'async drainContinuableDescendants(parents: readonly Agent[]): Promise<void>',
+        jsDoc: '/**\n * Close continuable admission below exact live parent Agents, stop only their\n * visible descendant Activations synchronously, then await admitted scoped\n * materializations and release those forests child-first. The scoped cutoff\n * lasts until each exact parent leaves the registry; unrelated parent trees\n * remain live.\n * @param parents - exact host-owned parent Agents entering teardown.\n * @returns once every retained descendant Activation released its `AgentHandle`.\n * @throws an aggregate error after all branches settle when any failed.\n */',
+      },
+      {
+        signature: 'listChildren(parentSessionId: SessionId, signal?: AbortSignal): Promise<SubagentListEntry[]>',
+        jsDoc: '/**\n * Enumerate the parent\'s direct session-backed subagents from the\n * live-preferred session corpus without loading or resuming an Agent. Session\n * query supplies lineage, candidate order, event reads, and live state; this\n * service interprets descriptor mode, activity, and per-child diagnostics\n * without consulting Agent registrations, Activations, or providers.\n *\n * The trace and exact descriptor read receive `signal`; the full event-list\n * read has no signal parameter, so the scan rechecks cancellation around\n * every await and between candidates. Query rejections that settle after an\n * abort become a stable `SubagentError` with code `CANCELLED`.\n * @param parentSessionId - parent session whose direct children are listed.\n * @param signal - caller-owned cancellation forwarded where supported and\n *   observed around every query await.\n * @returns children and per-child diagnostics in stable trace order.\n * @throws {@link SubagentError} when session query is unavailable or the\n *   caller cancels the scan.\n */',
+      },
       {
         signature: 'registerProvider(provider: SubagentProvider): () => void',
         jsDoc: '/**\n * Register a provider under its name. Registration is effect-scoped and HMR\n * safe; removing a provider blocks new starts but does not revoke runs that\n * were already returned to their holders.\n * @param provider - the trusted provider implementation.\n * @returns the exact Cordis effect disposer.\n */',
@@ -826,7 +934,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>',
-        jsDoc: '/**\n * Establish a ready child on the named provider. Capability and semantic\n * checks run before delegation. Provider ownership lasts until its promise\n * fulfills; a rejection therefore has no run for the caller to dispose and\n * emits no run lifecycle events.\n * @param name - the provider to use.\n * @param request - child prompt, parent, signal, and optional capabilities.\n * @returns the ready holder-owned run.\n */',
+        jsDoc: '/**\n * Establish a published child on the named provider. Capability and semantic\n * checks run before delegation. Provider ownership lasts until its promise\n * fulfills; a rejection therefore has no run for the caller to dispose and\n * emits no run lifecycle events. Post-publication turn and infrastructure\n * failures settle through the returned run.\n * @param name - the provider to use.\n * @param request - child label, prompt, parent, signal, and optional capabilities.\n * @returns the published holder-owned run.\n */',
       },
     ],
   },
@@ -847,6 +955,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'section(section: PromptSection): () => void',
         jsDoc: '/**\n * Register an ordered prompt section in the calling context\'s scope. A scoped\n * section shadows a global section with the same name; duplicates within one\n * layer and non-finite orders throw. Registration and disposal emit\n * `system-prompt/change`.\n * @param section - the section to register.\n * @returns the exact Cordis effect disposer.\n */',
+      },
+      {
+        signature: 'context(context: PromptContext): () => void',
+        jsDoc: '/**\n * Register ordered dynamic context in the calling context\'s scope. Scoped\n * entries shadow global entries with the same name.\n * @param context - the context contribution to register.\n * @returns the exact Cordis effect disposer.\n */',
       },
       {
         signature: 'tools(provider: (context: AssembleContext) => ToolProviderResult): () => void',
@@ -985,12 +1097,36 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
-    key: 'tui',
-    summary: 'Optional terminal-local interaction service provided by one mounted TUI.',
+    key: 'typert',
+    summary: 'Registry of generated schemas and package reflection.',
     methods: [
       {
-        signature: 'abstract openOverlay(request: TuiOverlayRequest): TuiOverlaySession',
-        jsDoc: '/**\n * Queue an interactive overlay owned by the calling plugin fiber.\n *\n * The TUI displays one overlay at a time in FIFO order. Disposing the caller\n * removes a queued overlay or closes an active one before plugin teardown\n * settles. This live presentation is neither logged nor replayed.\n *\n * @param request - component factory, layout constraints, and cancellation.\n * @returns the effect-owned overlay session.\n * @throws when the TUI has begun shutting down.\n */',
+        signature: 'register(contribution: TypertContribution): () => void',
+        jsDoc: '/**\n * Register one generated contribution atomically for the calling fiber.\n * Duplicate package-face identities or schema keys reject the whole batch.\n * @param contribution - generated schemas and package metadata.\n * @returns the exact effect disposer that removes this contribution.\n */',
+      },
+      {
+        signature: 'get(key: string): TypertSchemaRecord | undefined',
+        jsDoc: '/**\n * Look up one schema by `<package>#<name>`.\n * @param key - global schema key.\n * @returns the live schema record, or `undefined` when absent.\n */',
+      },
+      {
+        signature: 'resolve(key: string): TypertSchemaRecord',
+        jsDoc: '/**\n * Resolve one required schema.\n * @param key - global schema key.\n * @returns the live schema record.\n * @throws when the key is malformed, the package face is absent, or the schema is not contributed.\n */',
+      },
+      {
+        signature: 'list(filter: TypertSchemaFilter = {}): TypertSchemaRecord[]',
+        jsDoc: '/**\n * Enumerate live schemas in registration order.\n * @param filter - optional package and face restriction.\n * @returns matching schema records.\n */',
+      },
+      {
+        signature: 'getPackage(packageName: string, face: TypertFace = \'host\'): TypertPackageRecord | undefined',
+        jsDoc: '/**\n * Look up generated reflection for one package face.\n * @param packageName - exact npm package name.\n * @param face - face to query; defaults to the host runtime.\n * @returns the live package record, or `undefined` when absent.\n */',
+      },
+      {
+        signature: 'listPackages(filter: TypertPackageFilter = {}): TypertPackageRecord[]',
+        jsDoc: '/**\n * Enumerate generated package reflection in registration order.\n * @param filter - optional package and face restriction.\n * @returns matching package records.\n */',
+      },
+      {
+        signature: 'toJSONSchema(key: string, params?: z.core.ToJSONSchemaParams): z.core.JSONSchema.BaseSchema',
+        jsDoc: '/**\n * Project a live Zod schema to JSON Schema without caching the result.\n * @param key - global schema key.\n * @param params - Zod projection parameters.\n * @returns a fresh JSON Schema document.\n */',
       },
     ],
   },
@@ -1046,7 +1182,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       {
         signature: 'async create(path: string, title?: string): Promise<Workspace>',
-        jsDoc: '/**\n * Create or reuse a workspace for an existing directory. The path is\n * canonicalized through `fs.realpath`; a nonexistent path rejects with the\n * original error and a non-directory rejects. Repeated calls for the same\n * canonical path return the existing entity without changing its title.\n * A newly created workspace is prepended to the durable registry order.\n * A different canonical path cannot create a duplicate display title.\n * @param path - Existing directory to own, in any path spelling.\n * @param title - Display title used only when a new record is created.\n * @returns the existing or newly durable workspace.\n */',
+        jsDoc: '/**\n * Create or reuse a workspace for an existing directory. The path is\n * canonicalized through `fs.realpath`; a nonexistent path rejects with the\n * original error and a non-directory rejects. Repeated calls for the same\n * canonical path return the existing entity without changing its title.\n * A newly created workspace is prepended to the durable registry order.\n * Different canonical paths may share a display title.\n * @param path - Existing directory to own, in any path spelling.\n * @param title - Display title used only when a new record is created.\n * @returns the existing or newly durable workspace.\n */',
       },
       {
         signature: 'get(id: WorkspaceId): Workspace | undefined',
@@ -1059,6 +1195,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'delete(id: WorkspaceId): Promise<boolean>',
         jsDoc: '/**\n * Delete one workspace registration while retaining its directory and every\n * session log. The durable order is updated before the table deletion; a\n * failed table write restores the prior order and keeps the entity\n * published. Unknown ids are an idempotent no-op for domain callers.\n * @param id - Workspace registration to remove.\n * @returns `true` when a record was deleted, `false` when it was unknown.\n */',
+      },
+      {
+        signature: 'archiveSession(sessionId: SessionId): Promise<void>',
+        jsDoc: '/**\n * Archive one session durably. The session must exist (live or in session\n * persistence); its workspace accounting — or lack of one — is irrelevant.\n * An already archived id resolves without writing.\n * @param sessionId - The session to archive.\n * @returns resolution after durability.\n */',
       },
       {
         signature: 'async resolveByPath(path: string): Promise<Workspace | undefined>',
@@ -1078,13 +1218,6 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'A declarative agent entry failed before it could publish a live agent.',
   },
   {
-    name: 'agent/cancel-requested',
-    mode: 'emit',
-    signature: '\'agent/cancel-requested\'(this: Scoped<Agent>, agent: Agent, cause: AgentCancelCause): void',
-    jsDoc: '/**\n * Effective broad cancellation was requested, before queued/outbox work\n * is cleared or the active turn is aborted. This observe-only notification\n * cannot veto cancellation; listener failures are contained.\n * @param agent - the agent whose current work is being cancelled.\n * @param cause - the explicit typed cancellation cause.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
-    summary: 'Effective broad cancellation was requested, before queued/outbox work is cleared or the active turn is aborted.',
-  },
-  {
     name: 'agent/created',
     mode: 'emit',
     signature: '\'agent/created\'(this: Scoped<Agent>, agent: Agent): void',
@@ -1102,36 +1235,36 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'agent/error',
     mode: 'emit',
     signature: '\'agent/error\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: unknown): void',
-    jsDoc: '/**\n * A step or turn errored. The machine reports a failure here (plus the\n * logger) even when the error has no in-turn position for a durable record.\n * @param agent - the agent whose turn errored.\n * @param turn - the turn in which the failure surfaced.\n * @param step - the step at which the failure surfaced.\n * @param error - the failure, verbatim.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    jsDoc: '/**\n * A step or turn errored. The machine reports a failure here even when\n * the error has no in-turn position for a durable record.\n * @param agent - the agent whose turn errored.\n * @param turn - the turn in which the failure surfaced.\n * @param step - the step at which the failure surfaced.\n * @param error - the failure, verbatim.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
     summary: 'A step or turn errored.',
   },
   {
-    name: 'agent/inbox/dequeue',
+    name: 'agent/inbox/claimed',
     mode: 'emit',
-    signature: '\'agent/inbox/dequeue\'( this: Scoped<Agent>, agent: Agent, message: UserMessage, placement: InboxPlacement, ): void',
-    jsDoc: '/**\n * The driver claimed one item out of the inbox: a queued item at a turn\n * boundary, or steering drained between steps. Fires after the item leaves\n * its FIFO and before it becomes a durable message.\n * @param agent - the agent whose inbox item was claimed.\n * @param message - the claimed message.\n * @param placement - the FIFO that claimed this occurrence; together with\n *   `message.id`, it matches the earliest outstanding enqueue in that FIFO.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
-    summary: 'The driver claimed one item out of the inbox: a queued item at a turn boundary, or steering drained between steps.',
+    signature: '\'agent/inbox/claimed\'(this: Scoped<Agent>, agent: Agent, event: { message: UserMessage; turn: number }): void',
+    jsDoc: '/**\n * One message left the inbox inside its open turn. If the proposed step\n * is rejected, the claimed message ends here: it is neither discarded nor\n * re-emitted as a user/message, and the turn closes without a step.\n * @param agent - the agent whose inbox changed.\n * @param event - the claimed message and owning turn.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    summary: 'One message left the inbox inside its open turn.',
   },
   {
-    name: 'agent/inbox/discard',
+    name: 'agent/inbox/discarded',
     mode: 'emit',
-    signature: '\'agent/inbox/discard\'(this: Scoped<Agent>, agent: Agent, messages: UserMessage[]): void',
-    jsDoc: '/**\n * Pending inbox items were dropped without delivering them, so every\n * enqueue occurrence receives exactly one terminal `agent/inbox/dequeue` OR\n * `agent/inbox/discard`. `cancel()` without `keepInbox`, including disposal,\n * emits this after `agent/cancel-requested` when applicable and before\n * aborting the active work. Fires once per drop with every dropped item.\n * @param agent - the agent whose inbox items were dropped.\n * @param messages - the discarded messages in FIFO order (queued then steering); never empty.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
-    summary: 'Pending inbox items were dropped without delivering them, so every enqueue occurrence receives exactly one terminal `agent/inbox/dequeue` OR `agent/inbox/discard`.',
+    signature: '\'agent/inbox/discarded\'(this: Scoped<Agent>, agent: Agent, event: { message: UserMessage }): void',
+    jsDoc: '/**\n * One message was discarded from the live inbox.\n * @param agent - the agent whose inbox changed.\n * @param event - the discarded message.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    summary: 'One message was discarded from the live inbox.',
   },
   {
-    name: 'agent/inbox/enqueue',
+    name: 'agent/inbox/inserted',
     mode: 'emit',
-    signature: '\'agent/inbox/enqueue\'(this: Scoped<Agent>, agent: Agent, message: UserMessage, placement: InboxPlacement): void',
-    jsDoc: '/**\n * An item entered the queued or steering inbox. `placement` is the\n * acceptance-time routing result; listeners must not reconstruct it from\n * later agent or session state.\n * @param agent - the owning agent.\n * @param message - accepted content, source, and correlation identity.\n * @param placement - resolved queued or steering placement.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
-    summary: 'An item entered the queued or steering inbox.',
+    signature: '\'agent/inbox/inserted\'(this: Scoped<Agent>, agent: Agent, event: { message: UserMessage }): void',
+    jsDoc: '/**\n * One message entered the live inbox.\n * @param agent - the agent whose inbox changed.\n * @param event - the inserted message.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    summary: 'One message entered the live inbox.',
   },
   {
-    name: 'agent/prompt-submit',
+    name: 'agent/pre-step',
     mode: 'waterfall',
-    signature: '\'agent/prompt-submit\'(this: Scoped<Agent>, agent: Agent, message: UserMessage, signal: AbortSignal, next: () => Promise<PromptDecision>): Promise<PromptDecision>',
-    jsDoc: '/**\n * Allow, rewrite, or block one claimed prompt before it becomes a user\n * message or opens a turn. Call `next()` for the unchanged default. The\n * signal controls only this admission attempt; listeners may cooperate with\n * it but must not retain it for a later attempt or turn.\n * @param agent - the agent whose turn claimed the message.\n * @param message - the frozen claimed message, including identity and source.\n * @param signal - the current turn\'s explicit abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n */',
-    summary: 'Allow, rewrite, or block one claimed prompt before it becomes a user message or opens a turn.',
+    signature: '\'agent/pre-step\'(this: Scoped<Agent>, agent: Agent, messages: UserMessage[], context: PreStepContext, next: () => Promise<PreStepDecision>): Promise<PreStepDecision>',
+    jsDoc: '/**\n * Reject a proposed step or replace the messages that enter it. Calling\n * `next()` preserves the current messages.\n * @param agent - the agent proposing the step.\n * @param messages - messages removed from the inbox for this step.\n * @param context - proposed turn and step coordinates plus cancellation.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n */',
+    summary: 'Reject a proposed step or replace the messages that enter it.',
   },
   {
     name: 'agent/request',
@@ -1143,9 +1276,9 @@ export const EVENT_API: readonly EventApiEntry[] = [
   {
     name: 'agent/request-error',
     mode: 'waterfall',
-    signature: '\'agent/request-error\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: RequestError, failure: LlmFailure, priorFailures: readonly LlmFailure[], retryPolicy: ResolvedRetryPolicy | undefined, signal: AbortSignal, next: () => Promise<RequestErrorAction>): Promise<RequestErrorAction>',
-    jsDoc: '/**\n * Handle a model-request failure after its failed step has closed but\n * before the failed turn closes. A listener returns `{ kind: \'retry\' }`\n * without calling `next()` when it owns the error, or calls `next()` to\n * delegate. The default `undefined` leaves the failure terminal.\n * @param agent - the agent whose request failed.\n * @param turn - the open turn number.\n * @param step - the failed step number.\n * @param error - the original model-request failure.\n * @param failure - serializable facts normalized at the final adapter boundary.\n * @param priorFailures - immutable failures that already authorized another\n * retry turn in this consecutive sequence.\n * @param retryPolicy - immutable policy of the adapter registration that served\n * the failed request, or `undefined` if no final adapter served it.\n * @param signal - the turn abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n */',
-    summary: 'Handle a model-request failure after its failed step has closed but before the failed turn closes.',
+    signature: '\'agent/request-error\'(this: Scoped<Agent>, agent: Agent, context: RequestFailureContext, signal: AbortSignal, next: () => Promise<RequestErrorAction>): Promise<RequestErrorAction>',
+    jsDoc: '/**\n * Handle one failed model-request attempt before the loop retries or closes\n * its step. A listener returns `{ kind: \'retry\' }` without calling `next()`\n * when it owns recovery, or calls `next()` to delegate. The default\n * `undefined` leaves the failure terminal.\n * @param agent - the agent whose request failed.\n * @param context - request coordinates, provider, normalized failure, and serving policy.\n * @param signal - the turn abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n */',
+    summary: 'Handle one failed model-request attempt before the loop retries or closes its step.',
   },
   {
     name: 'agent/session-start',
@@ -1155,31 +1288,17 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'The session lifecycle began, once before the first turn.',
   },
   {
-    name: 'agent/settled',
-    mode: 'emit',
-    signature: '\'agent/settled\'(this: Scoped<Agent>, agent: Agent, turn: number, reason: SettleReason): void',
-    jsDoc: '/**\n * One drain chain reached its terminal turn: that turn\'s `turn/end` is\n * already committed. Automatically recovered failed turns do not emit this\n * notification, and neither does a run that aborts or fails before its\n * `turn/start` commits — there is no durable turn to settle against.\n * `reason` says why; model-request recovery is exhausted when an error\n * reaches it.\n * @param agent - the agent whose turn closed.\n * @param turn - the terminal turn number.\n * @param reason - why the terminal turn ended, with live error facts when it failed.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
-    summary: 'One drain chain reached its terminal turn: that turn\'s `turn/end` is already committed.',
-  },
-  {
     name: 'agent/status',
     mode: 'emit',
     signature: '\'agent/status\'(this: Scoped<Agent>, agent: Agent, status: AgentStatus): void',
-    jsDoc: '/**\n * Agent status changed (`idle` ⇄ `running`). `send()` does not enter\n * `running` synchronously; drive lifecycle from this event.\n * @param agent - the agent whose status flipped.\n * @param status - the status just entered (the transition\'s destination).\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    jsDoc: '/**\n * Agent status changed (`idle` ⇄ `running`). A waking delivery enters\n * `running` synchronously after reserving cancellation; `idle` means no\n * driver remains scheduled or active.\n * @param agent - the agent whose status flipped.\n * @param status - the status just entered (the transition\'s destination).\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
     summary: 'Agent status changed (`idle` ⇄ `running`).',
-  },
-  {
-    name: 'agent/step',
-    mode: 'serial',
-    signature: '\'agent/step\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, signal: AbortSignal): Promise<void> | void',
-    jsDoc: '/**\n * Awaited serial checkpoint before EVERY request of a turn is built (the\n * first as well as each post-tools continuation). The single "between\n * steps" extension point: inject context, steer, or edit the session log\n * here — the request\'s history derives from the log right after this settles.\n * @param agent - the agent about to send a request.\n * @param turn - the open turn number.\n * @param step - the step number about to open.\n * @param signal - the turn abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode serial\n */',
-    summary: 'Awaited serial checkpoint before EVERY request of a turn is built (the first as well as each post-tools continuation).',
   },
   {
     name: 'agent/turn-stopping',
     mode: 'serial',
     signature: '\'agent/turn-stopping\'(this: Scoped<Agent>, agent: Agent, turn: number, signal: AbortSignal): Promise<void> | void',
-    jsDoc: '/**\n * The turn is about to close: the model owes no response (no live tool\n * calls, no fresh steering). Awaited before the boundary commits — a\n * listener that objects steers (`agent.steer(...)`) and the machine\n * re-reads its inbox: fresh steering runs another step, none closes the\n * turn. Data decides, so listener order cannot change the outcome. The\n * inverse control (stop a tool loop early) is data too: a tool result\n * carrying `concludesTurn` ends the turn at its step.\n * @param agent - the agent whose turn is at its stop boundary.\n * @param turn - the turn about to close.\n * @param signal - the current turn\'s explicit abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode serial\n */',
+    jsDoc: '/**\n * The turn is about to close: the model owes no response (no live tool\n * calls, no fresh steering). Awaited before the boundary commits — a\n * listener that objects steers (`agent.steer(...)`) and the machine\n * re-reads its inbox: fresh steering runs another step, none closes the\n * turn. Data decides, so listener order cannot change the outcome. The\n * inverse control (stop a tool loop early) is data too: a tool result\n * carrying `concludesTurn` ends the turn at its step. The conclusion\n * never short-circuits already-submitted next-step work: same-step\n * `additionalContexts` or racing steering still runs, and the turn\n * closes only when that inbox drains.\n * @param agent - the agent whose turn is at its stop boundary.\n * @param turn - the turn about to close.\n * @param signal - the current turn\'s explicit abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode serial\n */',
     summary: 'The turn is about to close: the model owes no response (no live tool calls, no fresh steering).',
   },
   {
@@ -1195,6 +1314,13 @@ export const EVENT_API: readonly EventApiEntry[] = [
     signature: '\'commands/change\'(): void',
     jsDoc: '/**\n * A command was registered or unregistered. This is an unfiltered registry\n * notification because a global or scoped change may affect any UI view.\n * Observer failures are contained and cannot veto the registry mutation.\n * @mode emit\n */',
     summary: 'A command was registered or unregistered.',
+  },
+  {
+    name: 'credentials/updated',
+    mode: 'emit',
+    signature: '\'credentials/updated\'(ref: CredentialRef): void',
+    jsDoc: '/**\n * Committed change to a provider-managed credential source: a `set`, an\n * `unset`, or an external edit observed in storage. Ambient\n * process-environment changes are not observable and never emit. Listener\n * failures are contained and logged — a sync throw and an async rejection\n * alike — without changing the committed operation\'s outcome, except\n * `INVARIANT`-coded failures, which rethrow after every listener ran;\n * that rethrow reaches the emitter only from synchronous listeners, so\n * invariant checks on this event must not be async functions.\n * @param ref - the reference whose stored value changed.\n * @mode emit\n */',
+    summary: 'Committed change to a provider-managed credential source: a `set`, an `unset`, or an external edit observed in storage.',
   },
   {
     name: 'domain/changed',
@@ -1228,8 +1354,15 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'goal/changed',
     mode: 'emit',
     signature: '\'goal/changed\'(this: import(\'@deepseek-ai/dsh-scope\').Scoped<Agent>, agent: Agent, change: GoalChanged): void',
-    jsDoc: '/**\n * Goal mutation accepted by one live agent. The matching context event is\n * already appended or queued in that agent\'s active tool-batch FIFO.\n * Listener failures are contained.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @param agent - agent whose session owns the goal.\n * @param change - fresh current projection or clear tombstone.\n * @mode emit\n */',
+    jsDoc: '/**\n * Goal mutation accepted by one live agent. The matching `goal/change`\n * session event has already committed. Listener failures are contained.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @param agent - agent whose session owns the goal.\n * @param change - fresh current projection or clear tombstone.\n * @mode emit\n */',
     summary: 'Goal mutation accepted by one live agent.',
+  },
+  {
+    name: 'llm/adapters-updated',
+    mode: 'emit',
+    signature: '\'llm/adapters-updated\'(): void',
+    jsDoc: '/**\n * The provider topology changed: an adapter registered or unregistered\n * routes, or the configurable-provider directory gained or lost entries.\n * This is a payload-free registry notification fired at each commit point\n * (including registration disposal); consumers re-read `listProviders()`,\n * `listModels()`, or `listConfigurableProviders()` for the new state.\n * Observer failures are contained and cannot veto the registry mutation.\n * @mode emit\n */',
+    summary: 'The provider topology changed: an adapter registered or unregistered routes, or the configurable-provider directory gained or lost entries.',
   },
   {
     name: 'llm/stream',
@@ -1263,43 +1396,36 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'session/flush',
     mode: 'parallel',
     signature: '\'session/flush\'(this: Scoped<Session>, session: Session): Promise<void> | void',
-    jsDoc: '/**\n * Awaited parallel durability checkpoint: every listener runs and the\n * caller awaits all of them, with no waterfall veto. Dispatch through\n * {@link SessionStore.flush}. Scope-filtered dispatch\n * (`@deepseek-ai/dsh-scope`) reuses the session\'s owner scope.\n * @param session - the session whose buffered events must reach durable storage.\n * @dshScopeScan unsupported\n * @mode parallel\n */',
+    jsDoc: '/**\n * Awaited parallel durability checkpoint: every listener runs and the\n * caller awaits all of them, with no waterfall veto. Scope-filtered dispatch\n * (`@deepseek-ai/dsh-scope`) reuses the session\'s owner scope.\n * @param session - the session whose buffered events must reach durable storage.\n * @dshScopeScan unsupported\n * @mode parallel\n */',
     summary: 'Awaited parallel durability checkpoint: every listener runs and the caller awaits all of them, with no waterfall veto.',
   },
   {
-    name: 'slash/input-begin-command',
-    mode: 'bail',
-    signature: '\'slash/input-begin-command\'(request: BeginCommandRequest): true | undefined',
-    jsDoc: '/**\n * Applies one command claim to the scoped Input. Dispatched with the\n * session\'s scope carrier; the owning session\'s input listener returns\n * `true` only after the phase and span CAS checks pass and the machine\n * actually mutated — producers treat anything else as "not applied".\n * @param request - Claim and menu-time span CAS.\n * @mode bail\n */',
-    summary: 'Applies one command claim to the scoped Input.',
+    name: 'settings/document-updated',
+    mode: 'emit',
+    signature: '\'settings/document-updated\'(ns: SettingsNamespace, revision: number): void',
+    jsDoc: '/**\n * One registered namespace\'s RAW user section changed, whether or not the\n * resolved value did. `settings/updated` is the consumer-facing event and\n * stays deep-equal-gated; this one exists for configuration surfaces,\n * which must learn that a field went from inherited to overridden (same\n * resolved value, different meaning) and that their held revision is\n * stale. Listener containment matches `settings/updated`.\n * @param ns - the namespace whose stored section changed.\n * @param revision - the namespace\'s new revision.\n * @mode emit\n */',
+    summary: 'One registered namespace\'s RAW user section changed, whether or not the resolved value did.',
   },
   {
-    name: 'slash/input-consume-token',
-    mode: 'bail',
-    signature: '\'slash/input-consume-token\'(request: ConsumeTokenRequest): true | undefined',
-    jsDoc: '/**\n * Consumes one command token after business success (popup settle /\n * menu-pick execute). Same carrier routing and applied-truth contract.\n * @param request - Exact span or bare-token guard.\n * @mode bail\n */',
-    summary: 'Consumes one command token after business success (popup settle / menu-pick execute).',
+    name: 'settings/updated',
+    mode: 'emit',
+    signature: '\'settings/updated\'(ns: SettingsNamespace, next: unknown, prev: unknown, source: SettingsUpdateSource): void',
+    jsDoc: '/**\n * Committed change to one registered namespace\'s resolved value. Emitted\n * after the provider persisted (for `update`) or published (`provider`)\n * the change; never emitted when the resolved value is deep-equal.\n * Listener failures are contained and logged — a sync throw and an async\n * rejection alike — except `INVARIANT`-coded failures, which rethrow\n * after every listener ran; that rethrow reaches the emitter only from\n * synchronous listeners, so invariant checks on this event must not be\n * async functions.\n * @param ns - the namespace whose resolved value changed.\n * @param next - the new resolved value.\n * @param prev - the previous resolved value.\n * @param source - whether the change entered through `update()` or the provider.\n * @mode emit\n */',
+    summary: 'Committed change to one registered namespace\'s resolved value.',
   },
   {
-    name: 'slash/input-insert-reference',
-    mode: 'bail',
-    signature: '\'slash/input-insert-reference\'(request: InsertReferenceRequest): true | undefined',
-    jsDoc: '/**\n * Inserts one reference into the scoped Input (same carrier routing and\n * applied-truth contract as begin-command).\n * @param request - Reference and menu-time span CAS.\n * @mode bail\n */',
-    summary: 'Inserts one reference into the scoped Input (same carrier routing and applied-truth contract as begin-command).',
-  },
-  {
-    name: 'slash/input-insert-text',
-    mode: 'bail',
-    signature: '\'slash/input-insert-text\'(request: InsertTextRequest): true | undefined',
-    jsDoc: '/**\n * Replaces the trigger token span with literal text — the plain-text\n * reference path (decision 21). Same carrier routing and applied-truth\n * contract; the draft gains ordinary characters, no occurrence entry.\n * @param request - Replacement text and menu-time span CAS.\n * @mode bail\n */',
-    summary: 'Replaces the trigger token span with literal text — the plain-text reference path (decision 21).',
+    name: 'skills/change',
+    mode: 'emit',
+    signature: '\'skills/change\'(): void',
+    jsDoc: '/**\n * A skill provider, runtime contribution, or provider-backed catalog may\n * have changed. This is an unfiltered invalidation notification; consumers\n * refetch the catalog for their own lookup options. Listener failures are\n * contained and cannot veto the registry mutation.\n * @mode emit\n */',
+    summary: 'A skill provider, runtime contribution, or provider-backed catalog may have changed.',
   },
   {
     name: 'subagent/end',
     mode: 'emit',
     signature: '\'subagent/end\'(this: Scoped<SubagentService>, info: SubagentRunEndInfo): void',
-    jsDoc: '/**\n * A ready child settled. Scope-filtered dispatch uses the same delegating\n * parent carrier as `subagent/start`, so the lifecycle pair reaches the\n * same scoped audience.\n * @param info - the run identity and terminal outcome.\n * @dshScopeScan unsupported\n * @mode emit\n */',
-    summary: 'A ready child settled.',
+    jsDoc: '/**\n * A published child settled. Scope-filtered dispatch uses the same delegating\n * parent carrier as `subagent/start`, so the lifecycle pair reaches the\n * same scoped audience.\n * @param info - the run identity and terminal outcome.\n * @dshScopeScan unsupported\n * @mode emit\n */',
+    summary: 'A published child settled.',
   },
   {
     name: 'subagent/provider-added',
@@ -1319,15 +1445,15 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'subagent/start',
     mode: 'emit',
     signature: '\'subagent/start\'(this: Scoped<SubagentService>, info: SubagentRunInfo): void',
-    jsDoc: '/**\n * A provider established a ready child. For in-process providers,\n * `ctx.agents.get(info.id)` resolves during this notification.\n * Scope-filtered dispatch keys the carrier by the delegating parent, so a\n * parent-scoped listener observes only its own delegations. Paired with\n * `subagent/end`.\n * @param info - the provider and ready child identity.\n * @dshScopeScan unsupported\n * @mode emit\n */',
-    summary: 'A provider established a ready child.',
+    jsDoc: '/**\n * A provider established a published child. For in-process providers,\n * `ctx.agents.get(info.id)` resolves during this notification.\n * Scope-filtered dispatch keys the carrier by the delegating parent, so a\n * parent-scoped listener observes only its own delegations. Paired with\n * `subagent/end`.\n * @param info - the provider and published child identity.\n * @dshScopeScan unsupported\n * @mode emit\n */',
+    summary: 'A provider established a published child.',
   },
   {
     name: 'system-prompt/assemble',
     mode: 'waterfall',
     signature: '\'system-prompt/assemble\'(this: Scoped<SystemPrompt>, assembly: PromptAssembly, context: AssembleContext, next: () => Promise<PromptAssembly>): Promise<PromptAssembly>',
-    jsDoc: '/**\n * Expert waterfall over the assembled sections, tools, and variables.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): scoped listeners\n * receive only that scope\'s assemblies. The returned value is authoritative.\n * A supplied signal controls only this explicit assembly request and must not\n * be retained to control later turns.\n * @param assembly - the mutable assembly built from registered providers.\n * @param context - the caller\'s per-assembly context.\n * @mode waterfall\n */',
-    summary: 'Expert waterfall over the assembled sections, tools, and variables.',
+    jsDoc: '/**\n * Expert waterfall over the assembled sections, contexts, tools, and variables.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): scoped listeners\n * receive only that scope\'s assemblies. The returned value is authoritative.\n * A supplied signal controls only this explicit assembly request and must not\n * be retained to control later turns.\n * @param assembly - the mutable assembly built from registered providers.\n * @param context - the caller\'s per-assembly context.\n * @mode waterfall\n */',
+    summary: 'Expert waterfall over the assembled sections, contexts, tools, and variables.',
   },
   {
     name: 'system-prompt/change',
@@ -1396,8 +1522,8 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'workflow/agent-start',
     mode: 'emit',
     signature: '\'workflow/agent-start\'(info: WorkflowRunInfo, agent: WorkflowAgentInfo): void',
-    jsDoc: '/**\n * One `agent()` call established a ready child run. Paired with\n * {@link Events[\'workflow/agent-end\']} by `agent.seq`. A call that never\n * receives a ready run from the provider emits neither\n * event in this pair.\n * @param info - the run\'s identity snapshot.\n * @param agent - the call\'s sequence number, label, phase, and child id.\n * @mode emit\n */',
-    summary: 'One `agent()` call established a ready child run.',
+    jsDoc: '/**\n * One `agent()` call established a published child run. Paired with\n * {@link Events[\'workflow/agent-end\']} by `agent.seq`. A call that never\n * receives a published run from the provider emits neither\n * event in this pair.\n * @param info - the run\'s identity snapshot.\n * @param agent - the call\'s sequence number, label, phase, and child id.\n * @mode emit\n */',
+    summary: 'One `agent()` call established a published child run.',
   },
   {
     name: 'workflow/end',
@@ -1432,12 +1558,16 @@ export const EVENT_API: readonly EventApiEntry[] = [
 /** Shapes of every exported type the SERVICE_API signatures reference (transitively), sorted by name. */
 export const TYPE_API: readonly TypeApiEntry[] = [
   {
+    name: 'AdapterRegistrationHandle',
+    declaration: 'export interface AdapterRegistrationHandle {\n    (): void;\n    replace(providers: string[]): void;\n}',
+  },
+  {
     name: 'Agent',
-    declaration: 'export interface Agent {\n    readonly id: SessionId;\n    readonly options: AgentOptions;\n    readonly session: Session;\n    readonly status: AgentStatus;\n    readonly acceptsNextStep: boolean;\n    readonly ctx: Context;\n    send(message: UserMessage, options: SendOptions): void;\n    cancel(cause: AgentCancelCause, options?: CancelOptions): void;\n    whenIdle(): Promise<void>;\n    followup(message: UserMessage): void;\n    steer(message: UserMessage): void;\n    inject(message: UserMessage): void;\n}',
+    declaration: 'export interface Agent {\n    readonly id: SessionId;\n    readonly options: AgentOptions;\n    readonly session: Session;\n    readonly inbox: Inbox;\n    readonly status: AgentStatus;\n    readonly ctx: Context;\n    cancel(cause: AgentCancelCause, options?: CancelOptions): void;\n    whenIdle(): Promise<void>;\n    runMaintenance<T>(task: (signal: AbortSignal) => Promise<T>): Promise<T>;\n    send(message: UserMessage, target: InboxTarget, wakeup: boolean): void;\n    followup(message: UserMessage): void;\n    steer(message: UserMessage): void;\n    inject(message: UserMessage): void;\n}',
   },
   {
     name: 'AgentCancelCause',
-    declaration: 'export type AgentCancelCause = {\n    readonly kind: \'user\';\n} | {\n    readonly kind: \'parent\';\n};',
+    declaration: 'export type AgentCancelCause = {\n    readonly kind: \'user\';\n} | {\n    readonly kind: \'parent\';\n} | {\n    readonly kind: \'hook\';\n    readonly reason: string;\n} | {\n    readonly kind: \'disposed\';\n};',
   },
   {
     name: 'AgentFactory',
@@ -1450,6 +1580,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'AgentOptions',
     declaration: 'export interface AgentOptions {\n    provider?: string;\n    model?: string;\n    maxTokens?: number;\n}',
+  },
+  {
+    name: 'AgentSetup',
+    declaration: 'export type AgentSetup = (agentCtx: Context) => AgentSetupCommit | Promise<AgentSetupCommit | void> | void;',
+  },
+  {
+    name: 'AgentSetupCommit',
+    declaration: 'export interface AgentSetupCommit {\n    commit(): void;\n}',
   },
   {
     name: 'AgentStatus',
@@ -1476,8 +1614,12 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface AskUserQuestionAnswerItem {\n    id: string;\n    selected: string[];\n    custom?: string;\n}',
   },
   {
+    name: 'AskUserQuestionIntent',
+    declaration: 'export type AskUserQuestionIntent = {\n    kind: \'plan-review\';\n    approve: string;\n};',
+  },
+  {
     name: 'AskUserQuestionItem',
-    declaration: 'export interface AskUserQuestionItem {\n    id: string;\n    question: string;\n    detail?: string;\n    header?: string;\n    options?: AskUserQuestionOption[];\n    multiSelect?: boolean;\n}',
+    declaration: 'export interface AskUserQuestionItem {\n    id: string;\n    question: string;\n    detail?: string;\n    header?: string;\n    options?: AskUserQuestionOption[];\n    multiSelect?: boolean;\n    intent?: AskUserQuestionIntent;\n}',
   },
   {
     name: 'AskUserQuestionOption',
@@ -1490,6 +1632,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'AssembleContext',
     declaration: 'export interface AssembleContext {\n    scope?: ScopeKey;\n    signal?: AbortSignal;\n}',
+  },
+  {
+    name: 'AssembledContext',
+    declaration: 'export interface AssembledContext {\n    name: string;\n    text: string;\n}',
   },
   {
     name: 'AssembledSection',
@@ -1553,7 +1699,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CancelOptions',
-    declaration: 'export interface CancelOptions {\n    keepInbox?: boolean;\n}',
+    declaration: 'export interface CancelOptions {\n    keepInbox?: boolean | undefined;\n}',
   },
   {
     name: 'CodeBindingErrorClass',
@@ -1629,7 +1775,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ConfinedArgv',
-    declaration: 'export interface ConfinedArgv {\n    argv: string[];\n    enforcement: SandboxEnforcement;\n    denialSignatures: readonly string[];\n    runnerFailureSignatures: readonly string[];\n}',
+    declaration: 'export interface ConfinedArgv {\n    argv: string[];\n    enforcement: SandboxEnforcement;\n    denialSignatures: readonly string[];\n    runnerFailureRules: readonly RunnerFailureRule[];\n}',
   },
   {
     name: 'ConfinedSandboxMode',
@@ -1644,8 +1790,32 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ContentBlockType = keyof ContentBlockMap;',
   },
   {
+    name: 'ContinuableCreateRequest',
+    declaration: 'export interface ContinuableCreateRequest {\n    readonly sessionId: SessionId;\n    readonly parent: Agent;\n    readonly signal: AbortSignal;\n}',
+  },
+  {
+    name: 'ContinuableCreateSpec',
+    declaration: 'export interface ContinuableCreateSpec {\n    readonly seed?: readonly SessionEvent[];\n}',
+  },
+  {
+    name: 'ContinuableSetupContribution',
+    declaration: 'export type ContinuableSetupContribution = (childCtx: Context) => () => void;',
+  },
+  {
+    name: 'ContinuableStart',
+    declaration: 'export interface ContinuableStart {\n    readonly childId: SessionId;\n    readonly messageId: MessageId;\n}',
+  },
+  {
+    name: 'ContinuableStartSpec',
+    declaration: 'export interface ContinuableStartSpec {\n    readonly provider: string;\n    readonly label: string;\n    readonly request: Omit<SubagentStartRequest, \'label\' | \'signal\' | \'outputSchema\'>;\n    readonly signal: AbortSignal;\n}',
+  },
+  {
+    name: 'ContinuableSubagentDescriptorData',
+    declaration: 'export interface ContinuableSubagentDescriptorData extends SubagentDescriptorBase {\n    readonly mode: \'continuable\';\n    readonly label: string;\n    readonly agentProvider?: string;\n    readonly agentModel?: string;\n    readonly persona?: string;\n    readonly toolFilter?: ToolRestriction;\n}',
+  },
+  {
     name: 'CreateAgentOptions',
-    declaration: 'export interface CreateAgentOptions {\n    readonly sessionId: SessionId;\n    readonly meta?: {\n        readonly cwd?: string;\n        readonly parentSession?: SessionId;\n        readonly seedLength?: number;\n        readonly delegationDepth?: number;\n    };\n    readonly seed?: readonly SessionEvent[];\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: (agentCtx: Context) => Promise<void> | void;\n}',
+    declaration: 'export interface CreateAgentOptions {\n    readonly sessionId: SessionId;\n    readonly meta?: {\n        readonly cwd?: string;\n        readonly parentSession?: SessionId;\n        readonly seedLength?: number;\n        readonly origin?: \'subagent\';\n        readonly delegationDepth?: number;\n    };\n    readonly seed?: readonly SessionEvent[];\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: AgentSetup;\n}',
   },
   {
     name: 'CreateGoalRequest',
@@ -1653,7 +1823,15 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CreateSessionOptions',
-    declaration: 'export interface CreateSessionOptions {\n    readonly seed?: readonly SessionEvent[];\n    readonly meta?: {\n        readonly cwd?: string;\n        readonly parentSession?: SessionId;\n        readonly createdAt?: number;\n        readonly seedLength?: number;\n        readonly delegationDepth?: number;\n    };\n}',
+    declaration: 'export interface CreateSessionOptions {\n    readonly seed?: readonly SessionEvent[];\n    readonly meta?: {\n        readonly cwd?: string;\n        readonly parentSession?: SessionId;\n        readonly createdAt?: number;\n        readonly seedLength?: number;\n        readonly origin?: \'subagent\';\n        readonly delegationDepth?: number;\n    };\n}',
+  },
+  {
+    name: 'CredentialInfo',
+    declaration: 'export interface CredentialInfo {\n    configured: boolean;\n    source?: string;\n    writable: boolean;\n}',
+  },
+  {
+    name: 'CredentialRef',
+    declaration: 'export type CredentialRef = Branded<\'CredentialRef\'>;',
   },
   {
     name: 'DiffCallView',
@@ -1729,7 +1907,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'EpochHeader',
-    declaration: 'export interface EpochHeader {\n    config: LlmCallConfig;\n    system?: string;\n    tools?: ToolSchema[];\n}',
+    declaration: 'export interface EpochHeader {\n    config: LlmCallConfig;\n    adapterDefaults?: LlmCallConfigAdapterDefaults;\n    system?: string;\n    tools?: ToolSchema[];\n}',
   },
   {
     name: 'FileDiff',
@@ -1828,6 +2006,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface GoalView extends GoalSnapshot {\n    readonly roundsStarted: number;\n    readonly createdAt: number;\n    readonly updatedAt: number;\n    readonly activation: GoalActivation;\n}',
   },
   {
+    name: 'Inbox',
+    declaration: 'export class Inbox {\n    constructor(private readonly session: Session, private readonly notifications: InboxNotifications);\n    get nextTurn(): readonly UserMessage[];\n    get nextStep(): readonly UserMessage[];\n    get hasPending(): boolean;\n    clear(): void;\n    claim(target: InboxTarget, turn: number): UserMessage[];\n    append(target: InboxTarget, message: UserMessage): void;\n    prepend(target: InboxTarget, message: UserMessage): void;\n    replace(messageId: MessageId, newMessage: UserMessage): boolean;\n    remove(messageId: MessageId): boolean;\n    splice(target: InboxTarget, start: number, deleteCount: number, inserted: UserMessage[]): UserMessage[];\n}',
+  },
+  {
+    name: 'InboxNotifications',
+    declaration: 'export interface InboxNotifications {\n    inserted(message: UserMessage): void;\n    discarded(message: UserMessage): void;\n    claimed(message: UserMessage, turn: number): void;\n}',
+  },
+  {
+    name: 'InboxTarget',
+    declaration: 'export type InboxTarget = \'next-turn\' | \'next-step\';',
+  },
+  {
     name: 'InvariantFailure',
     declaration: 'export type InvariantFailure = (message: string) => never;',
   },
@@ -1872,6 +2062,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface LlmCallConfig {\n    provider: string;\n    model: string;\n    reasoningEffort?: ReasoningEffortId;\n    temperature?: number;\n    maxTokens?: number;\n    stop?: string[];\n}',
   },
   {
+    name: 'LlmCallConfigAdapterDefaults',
+    declaration: 'export interface LlmCallConfigAdapterDefaults {\n    reasoningEffort?: true;\n    maxTokens?: true;\n}',
+  },
+  {
+    name: 'LlmConfigurableProvider',
+    declaration: 'export interface LlmConfigurableProvider {\n    provider: string;\n    displayName: string;\n    settingsNs: string;\n    settingsPath: readonly string[];\n}',
+  },
+  {
     name: 'LlmFailure',
     declaration: 'export interface LlmFailure {\n    readonly message: string;\n    readonly code: string;\n    readonly status?: number;\n    readonly providerRetryAfterMs?: number;\n    readonly requestId?: ProviderRequestId;\n}',
   },
@@ -1897,7 +2095,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'LlmResolvedModelInfo',
-    declaration: 'export interface LlmResolvedModelInfo extends LlmModelInfo {\n    context?: LlmModelContext;\n    reasoning?: LlmModelReasoningInfo;\n}',
+    declaration: 'export interface LlmResolvedModelInfo extends LlmModelInfo {\n    context?: LlmModelContext;\n    defaultMaxTokens?: number;\n    reasoning?: LlmModelReasoningInfo;\n}',
+  },
+  {
+    name: 'ManualCompactAgentContext',
+    declaration: 'export interface ManualCompactAgentContext extends CompactAgentContext {\n    runMaintenance<T>(task: (signal: AbortSignal) => Promise<T>): Promise<T>;\n}',
   },
   {
     name: 'Message',
@@ -1924,12 +2126,16 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ObjectJsonSchema = JsonSchemaNode & {\n    type: \'object\';\n};',
   },
   {
+    name: 'OneShotSubagentDescriptorData',
+    declaration: 'export interface OneShotSubagentDescriptorData extends SubagentDescriptorBase {\n    readonly mode: \'one-shot\';\n    readonly label?: string;\n}',
+  },
+  {
     name: 'PermissionSelect',
     declaration: 'export interface PermissionSelect {\n    options: PresetOption[];\n    currentValue: string;\n}',
   },
   {
     name: 'PreparedLlmCall',
-    declaration: 'export interface PreparedLlmCall {\n    readonly config: LlmCallConfig;\n    stream(options: GenerateOptions): AsyncIterable<StreamChunk>;\n}',
+    declaration: 'export interface PreparedLlmCall {\n    readonly config: LlmCallConfig;\n    readonly retryPolicy: ResolvedRetryPolicy;\n    readonly context?: LlmModelContext;\n    readonly adapterDefaults: LlmCallConfigAdapterDefaults;\n    stream(options: GenerateOptions): AsyncIterable<StreamChunk>;\n}',
   },
   {
     name: 'PreparedReferencedMessage',
@@ -1965,7 +2171,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'PromptAssembly',
-    declaration: 'export interface PromptAssembly {\n    sections: AssembledSection[];\n    tools: ToolSchema[];\n    variables: Record<string, string | undefined>;\n}',
+    declaration: 'export interface PromptAssembly {\n    sections: AssembledSection[];\n    contexts: AssembledContext[];\n    tools: ToolSchema[];\n    variables: Record<string, string | undefined>;\n}',
+  },
+  {
+    name: 'PromptContext',
+    declaration: 'export interface PromptContext {\n    readonly name: string;\n    readonly order: number;\n    readonly text: string | ((context: AssembleContext) => string);\n}',
   },
   {
     name: 'PromptSection',
@@ -2056,6 +2266,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type PtyWaitReason = \'stdin_read\' | \'inferred_idle\' | \'timeout\' | \'session_exit\';',
   },
   {
+    name: 'ReadFileLine',
+    declaration: 'export interface ReadFileLine {\n    number: number;\n    text: string;\n}',
+  },
+  {
+    name: 'ReadResultView',
+    declaration: 'export interface ReadResultView {\n    card: \'read\';\n    title?: string;\n    path: string;\n    offset: number;\n    lines: ReadFileLine[];\n    totalLines: number;\n    lang?: string;\n    content?: ContentBlock[];\n}',
+  },
+  {
     name: 'ReasoningBlock',
     declaration: 'export interface ReasoningBlock {\n    type: \'reasoning\';\n    text: string;\n}',
   },
@@ -2064,12 +2282,24 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ReasoningEffortId = Branded<\'ReasoningEffortId\'>;',
   },
   {
+    name: 'RedactedSecret',
+    declaration: 'export interface RedactedSecret {\n    path: string[];\n    set: boolean;\n}',
+  },
+  {
+    name: 'RequestContext',
+    declaration: 'export interface RequestContext {\n    provider: string;\n    model: string;\n    contextWindow?: number;\n}',
+  },
+  {
     name: 'RequestHeaderReason',
     declaration: 'export type RequestHeaderReason = \'initial\' | \'resume\' | \'change\';',
   },
   {
     name: 'ResolvedAlwaysRetryPolicy',
     declaration: 'export interface ResolvedAlwaysRetryPolicy extends ResolvedRetryBackoff {\n    readonly mode: \'always\';\n}',
+  },
+  {
+    name: 'ResolvedCredential',
+    declaration: 'export interface ResolvedCredential {\n    value: string;\n    source: string;\n}',
   },
   {
     name: 'ResolvedNormalRetryPolicy',
@@ -2084,8 +2314,16 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ResolvedRetryPolicy = ResolvedNormalRetryPolicy | ResolvedAlwaysRetryPolicy;',
   },
   {
+    name: 'ResolvedSubagentStartRequest',
+    declaration: 'export interface ResolvedSubagentStartRequest extends SubagentStartRequest {\n    readonly descriptor: SubagentDescriptorData;\n}',
+  },
+  {
     name: 'ResumeAgentOptions',
-    declaration: 'export interface ResumeAgentOptions {\n    readonly resumeSessionId: SessionId;\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: (agentCtx: Context) => Promise<void> | void;\n}',
+    declaration: 'export interface ResumeAgentOptions {\n    readonly resumeSessionId: SessionId;\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: AgentSetup;\n}',
+  },
+  {
+    name: 'RunnerFailureRule',
+    declaration: 'export interface RunnerFailureRule {\n    allowedExitCodes?: readonly number[];\n    fatalSignatures: readonly string[];\n    informationalLines?: readonly string[];\n}',
   },
   {
     name: 'SandboxEnforcement',
@@ -2116,16 +2354,28 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ScopeKey = object;',
   },
   {
-    name: 'SendOptions',
-    declaration: 'export interface SendOptions {\n    target: SendTarget;\n    wakeup: boolean;\n}',
+    name: 'SearchFileMatches',
+    declaration: 'export interface SearchFileMatches {\n    path: string;\n    matches: SearchLineMatch[];\n}',
   },
   {
-    name: 'SendTarget',
-    declaration: 'export type SendTarget = \'next-turn\' | \'next-step\';',
+    name: 'SearchLineMatch',
+    declaration: 'export interface SearchLineMatch {\n    lineNumber: number;\n    line: string;\n}',
+  },
+  {
+    name: 'SearchMatchesResultView',
+    declaration: 'export interface SearchMatchesResultView {\n    card: \'search\';\n    shape: \'matches\';\n    title?: string;\n    files: SearchFileMatches[];\n    truncated: boolean;\n    total: number;\n}',
+  },
+  {
+    name: 'SearchPathsResultView',
+    declaration: 'export interface SearchPathsResultView {\n    card: \'search\';\n    shape: \'paths\';\n    title?: string;\n    paths: string[];\n    truncated: boolean;\n    total: number;\n}',
+  },
+  {
+    name: 'SearchResultView',
+    declaration: 'export type SearchResultView = SearchMatchesResultView | SearchPathsResultView;',
   },
   {
     name: 'Session',
-    declaration: 'export class Session {\n    get surface(): SessionSurface;\n    readonly header: SessionHeader;\n    get id(): SessionId;\n    readonly firstLiveSeq: number;\n    constructor(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader);\n    get events(): readonly SessionEvent[];\n    get seq(): number;\n    append<T extends SessionEventType>(type: T, data: SessionEventMap[T], ...opts: T extends SurfaceEventType ? [\n        opts: SurfaceIntent\n    ] : [\n    ]): SessionEvent<T>;\n    requestHeader(): EpochHeader | undefined;\n    deriveMessages(): Message[];\n    deriveEventMessage(event: SessionEvent): Message | null;\n}',
+    declaration: 'export class Session {\n    get surface(): SessionSurface;\n    readonly header: SessionHeader;\n    get id(): SessionId;\n    readonly firstLiveSeq: number;\n    static create(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader): Session;\n    get events(): readonly SessionEvent[];\n    get seq(): number;\n    append<T extends SessionEventType>(type: T, data: SessionEventMap[T], ...opts: T extends SurfaceEventType ? [\n        opts: SurfaceIntent\n    ] : [\n    ]): SessionEvent<T>;\n    requestHeader(): EpochHeader | undefined;\n    requestContext(): RequestContext | undefined;\n    deriveMessages(): Message[];\n    deriveEventMessage(event: SessionEvent): Message | null;\n}',
   },
   {
     name: 'SessionAvailability',
@@ -2137,7 +2387,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionEventMap',
-    declaration: 'export interface SessionEventMap {\n    \'turn/start\': {\n        turn: number;\n        trigger: TurnTrigger;\n    };\n    \'turn/end\': {\n        turn: number;\n        reason: TurnEndReason;\n    };\n    \'step/start\': {\n        turn: number;\n        step: number;\n    };\n    \'step/end\': {\n        turn: number;\n        step: number;\n    };\n    \'user/message\': UserMessage;\n    \'assistant/chunk\': {\n        turn: number;\n        step: number;\n        chunk: StreamChunk;\n    };\n    \'assistant/message\': {\n        turn: number;\n        step: number;\n        message: AssistantMessage;\n        usage?: TokenUsage;\n    };\n    \'tool/call\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        name: string;\n        arguments: string;\n    };\n    \'tool/result\': {\n        turn: number;\n        step: number;\n        message: ToolResultMessage;\n        error?: {\n            name: string;\n            code: string;\n        };\n        meta?: JsonValue;\n    };\n    \'steering/message\': {\n        turn: number;\n        message: UserMessage;\n    };\n    \'todo/write\': {\n        todos: TodoItem[];\n    };\n    \'request/header\': {\n        header: EpochHeader;\n        reason: RequestHeaderReason;\n    };\n}',
+    declaration: 'export interface SessionEventMap {\n    \'turn/start\': {\n        turn: number;\n    };\n    \'turn/end\': {\n        turn: number;\n        reason: TurnEndReason;\n    };\n    \'step/start\': {\n        turn: number;\n        step: number;\n    };\n    \'step/end\': {\n        turn: number;\n        step: number;\n    };\n    \'user/message\': UserMessage;\n    \'assistant/chunk\': {\n        turn: number;\n        step: number;\n        chunk: StreamChunk;\n    };\n    \'assistant/message\': {\n        turn: number;\n        step: number;\n        message: AssistantMessage;\n        usage?: TokenUsage;\n    };\n    \'tool/call\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        name: string;\n        arguments: string;\n    };\n    \'tool/result\': {\n        turn: number;\n        step: number;\n        message: ToolResultMessage;\n        error?: {\n            name: string;\n            code: string;\n        };\n        meta?: JsonValue;\n    };\n    \'todo/write\': {\n        todos: TodoItem[];\n    };\n    \'request/header\': {\n        header: EpochHeader;\n        reason: RequestHeaderReason;\n    };\n    \'request/context\': RequestContext;\n    \'session/end-seed\': Record<string, never>;\n}',
   },
   {
     name: 'SessionEventMetadataFilter',
@@ -2201,7 +2451,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionHeader',
-    declaration: 'export interface SessionHeader {\n    readonly version: number;\n    readonly id: SessionId;\n    readonly createdAt: number;\n    readonly cwd?: string;\n    readonly parentSession?: SessionId;\n    readonly seedLength?: number;\n    readonly delegationDepth?: number;\n}',
+    declaration: 'export interface SessionHeader {\n    readonly version: number;\n    readonly id: SessionId;\n    readonly createdAt: number;\n    readonly cwd?: string;\n    readonly parentSession?: SessionId;\n    readonly seedLength?: number;\n    readonly origin?: \'subagent\';\n    readonly delegationDepth?: number;\n}',
   },
   {
     name: 'SessionId',
@@ -2325,19 +2575,55 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionTitleSource',
-    declaration: 'export type SessionTitleSource = {\n    readonly kind: \'fallback\';\n} | {\n    readonly kind: \'provider\';\n    readonly provider: SessionTitleProviderId;\n    readonly model?: SessionTitleModelProvenance;\n};',
+    declaration: 'export type SessionTitleSource = {\n    readonly kind: \'fallback\';\n} | {\n    readonly kind: \'provider\';\n    readonly provider: SessionTitleProviderId;\n    readonly model?: SessionTitleModelProvenance;\n} | {\n    readonly kind: \'user\';\n};',
   },
   {
     name: 'SessionTitleUserMessage',
     declaration: 'export interface SessionTitleUserMessage {\n    readonly seq: number;\n    readonly text: string;\n}',
   },
   {
+    name: 'SettingsApplies',
+    declaration: 'export type SettingsApplies = \'live\' | \'restart\';',
+  },
+  {
+    name: 'SettingsDescribeOptions',
+    declaration: 'export interface SettingsDescribeOptions {\n    redactSecrets?: boolean;\n}',
+  },
+  {
+    name: 'SettingsDescriptor',
+    declaration: 'export interface SettingsDescriptor {\n    ns: SettingsNamespace;\n    schema: unknown;\n    value: unknown;\n    revision: number;\n    base?: unknown;\n    user?: unknown;\n    applies: SettingsApplies;\n    secrets?: RedactedSecret[];\n}',
+  },
+  {
+    name: 'SettingsNamespace',
+    declaration: 'export type SettingsNamespace = Branded<\'SettingsNamespace\'>;',
+  },
+  {
+    name: 'SettingsPathOp',
+    declaration: 'export type SettingsPathOp = {\n    op: \'set\';\n    path: readonly string[];\n    value: unknown;\n} | {\n    op: \'unset\';\n    path: readonly string[];\n};',
+  },
+  {
+    name: 'SettingsRegisterOptions',
+    declaration: 'export interface SettingsRegisterOptions<T> {\n    base?: Partial<T>;\n    applies?: SettingsApplies;\n}',
+  },
+  {
+    name: 'SettingsScope',
+    declaration: 'export interface SettingsScope<T> {\n    get(): T;\n    watch(callback: (next: T, prev: T) => void | Promise<void>): () => void;\n    update(patch: object): Promise<void>;\n    replace(section: object): Promise<void>;\n}',
+  },
+  {
     name: 'SkillCandidate',
     declaration: 'export interface SkillCandidate extends SkillSummary {\n    readonly rank: number;\n    readonly locator: unknown;\n    readonly path?: string;\n    readonly metadata?: Readonly<Record<string, unknown>>;\n}',
   },
   {
+    name: 'SkillCatalogSnapshot',
+    declaration: 'export interface SkillCatalogSnapshot {\n    readonly skills: SkillSummary[];\n    readonly complete: boolean;\n}',
+  },
+  {
     name: 'SkillDefinition',
     declaration: 'export interface SkillDefinition extends SkillSummary {\n    readonly content: string;\n    readonly path?: string;\n    readonly metadata?: Readonly<Record<string, unknown>>;\n}',
+  },
+  {
+    name: 'SkillInvocationPolicy',
+    declaration: 'export interface SkillInvocationPolicy {\n    readonly modelInvocable: boolean;\n    readonly userInvocable: boolean;\n}',
   },
   {
     name: 'SkillLookupOptions',
@@ -2345,11 +2631,19 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SkillProvider',
-    declaration: 'export interface SkillProvider {\n    readonly name: string;\n    readonly list: (options: SkillLookupOptions) => Promise<readonly SkillCandidate[]>;\n    readonly get: (candidate: SkillCandidate, options: SkillLookupOptions) => Promise<SkillDefinition | undefined>;\n}',
+    declaration: 'export interface SkillProvider {\n    readonly name: string;\n    readonly list: (options: SkillLookupOptions) => Promise<readonly SkillCandidate[] | SkillProviderObservation>;\n    readonly get: (candidate: SkillCandidate, options: SkillLookupOptions) => Promise<SkillDefinition | undefined>;\n}',
+  },
+  {
+    name: 'SkillProviderControl',
+    declaration: 'export interface SkillProviderControl {\n    readonly signal: AbortSignal;\n    readonly invalidate: () => void;\n}',
+  },
+  {
+    name: 'SkillProviderObservation',
+    declaration: 'export interface SkillProviderObservation {\n    readonly candidates: readonly SkillCandidate[];\n    readonly complete: boolean;\n}',
   },
   {
     name: 'SkillRegistration',
-    declaration: 'export type SkillRegistration = Omit<SkillDefinition, \'provider\'> & {\n    readonly provider?: string;\n};',
+    declaration: 'export type SkillRegistration = Omit<SkillDefinition, \'invocation\' | \'provider\'> & {\n    readonly invocation?: SkillInvocationPolicy;\n    readonly provider?: string;\n};',
   },
   {
     name: 'SkillResourceBase',
@@ -2361,7 +2655,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SkillSummary',
-    declaration: 'export interface SkillSummary {\n    readonly name: string;\n    readonly description: string;\n    readonly whenToUse?: string;\n    readonly disableModelInvocation?: boolean;\n    readonly source: SkillSource;\n    readonly provider: string;\n    readonly resourceBase?: SkillResourceBase;\n}',
+    declaration: 'export interface SkillSummary {\n    readonly name: string;\n    readonly description: string;\n    readonly whenToUse?: string;\n    readonly invocation: SkillInvocationPolicy;\n    readonly source: SkillSource;\n    readonly provider: string;\n    readonly resourceBase?: SkillResourceBase;\n}',
   },
   {
     name: 'SpillLocator',
@@ -2392,8 +2686,28 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SubagentCapabilities {\n    readonly outputSchema: boolean;\n    readonly depthLimit: boolean;\n    readonly toolFilter: boolean;\n    readonly persona: boolean;\n}',
   },
   {
+    name: 'SubagentDescriptorData',
+    declaration: 'export type SubagentDescriptorData = OneShotSubagentDescriptorData | ContinuableSubagentDescriptorData;',
+  },
+  {
+    name: 'SubagentFollowupOptions',
+    declaration: 'export interface SubagentFollowupOptions {\n    readonly source: MessageSource;\n    readonly signal: AbortSignal;\n}',
+  },
+  {
+    name: 'SubagentListEntry',
+    declaration: 'export type SubagentListEntry = {\n    readonly kind: \'child\';\n    readonly id: SessionId;\n    readonly activity: \'running\' | \'inactive\';\n    readonly hasChildren: boolean;\n} & ({\n    readonly mode: \'one-shot\';\n    readonly label?: string;\n} | {\n    readonly mode: \'continuable\';\n    readonly label: string;\n}) | {\n    readonly kind: \'diagnostic\';\n    readonly id: SessionId;\n    readonly reason: \'corrupt\' | \'unsupported\' | \'unavailable\';\n};',
+  },
+  {
     name: 'SubagentProvider',
-    declaration: 'export interface SubagentProvider {\n    readonly name: string;\n    readonly capabilities: SubagentCapabilities;\n    readonly inheritsParentContext: boolean;\n    start(request: SubagentStartRequest): Promise<SubagentRun>;\n}',
+    declaration: 'export interface SubagentProvider {\n    readonly name: string;\n    readonly capabilities: SubagentCapabilities;\n    readonly inheritsParentContext: boolean;\n    start(request: ResolvedSubagentStartRequest): Promise<SubagentRun>;\n    prepareContinuable?(request: ContinuableCreateRequest): Promise<ContinuableCreateSpec>;\n}',
+  },
+  {
+    name: 'SubagentReportDelivery',
+    declaration: 'export type SubagentReportDelivery = \'quiet\' | \'wakeup\';',
+  },
+  {
+    name: 'SubagentReportOptions',
+    declaration: 'export interface SubagentReportOptions {\n    readonly delivery: SubagentReportDelivery;\n    readonly signal: AbortSignal;\n}',
   },
   {
     name: 'SubagentResult',
@@ -2401,11 +2715,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SubagentRun',
-    declaration: 'export interface SubagentRun {\n    readonly id: SessionId;\n    readonly localAgent: Agent | undefined;\n    readonly result: Promise<SubagentResult>;\n    dispose(): Promise<void>;\n    sendMessage?(content: ContentBlock[]): void;\n    resume?(content: ContentBlock[]): Promise<SubagentRun>;\n}',
+    declaration: 'export interface SubagentRun {\n    readonly id: SessionId;\n    readonly localAgent: Agent | undefined;\n    readonly result: Promise<SubagentResult>;\n    dispose(): Promise<void>;\n}',
   },
   {
     name: 'SubagentStartRequest',
-    declaration: 'export interface SubagentStartRequest {\n    readonly prompt: ContentBlock[];\n    readonly parent: Agent;\n    readonly signal: AbortSignal;\n    readonly agentOptions?: AgentOptions;\n    readonly outputSchema?: ObjectJsonSchema;\n    readonly maxDepth?: number;\n    readonly toolFilter?: ToolRestriction;\n    readonly persona?: string;\n}',
+    declaration: 'export interface SubagentStartRequest {\n    readonly label?: string;\n    readonly prompt: ContentBlock[];\n    readonly parent: Agent;\n    readonly signal: AbortSignal;\n    readonly agentOptions?: AgentOptions;\n    readonly outputSchema?: ObjectJsonSchema;\n    readonly maxDepth?: number;\n    readonly toolFilter?: ToolRestriction;\n    readonly persona?: string;\n}',
   },
   {
     name: 'SubagentStopReason',
@@ -2461,7 +2775,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SurfaceEventType',
-    declaration: 'export type SurfaceEventType = \'user/message\' | \'assistant/message\' | \'tool/result\' | \'steering/message\';',
+    declaration: 'export type SurfaceEventType = \'user/message\' | \'assistant/message\' | \'tool/result\';',
   },
   {
     name: 'SurfaceIntent',
@@ -2641,7 +2955,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolResultView',
-    declaration: 'export type ToolResultView = GenericResultView | TerminalResultView | DiffResultView;',
+    declaration: 'export type ToolResultView = GenericResultView | TerminalResultView | DiffResultView | SearchResultView | ReadResultView | WebResultView;',
   },
   {
     name: 'ToolRunContext',
@@ -2652,20 +2966,72 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ToolSchema {\n    name: string;\n    description: string;\n    parameters: Record<string, unknown>;\n}',
   },
   {
+    name: 'TurnEndCancelCause',
+    declaration: 'export type TurnEndCancelCause = AgentCancelCause | {\n    readonly kind: \'legacy\';\n};',
+  },
+  {
     name: 'TurnEndReason',
     declaration: 'export type TurnEndReason = TurnEndReasonMap[keyof TurnEndReasonMap];',
   },
   {
     name: 'TurnEndReasonMap',
-    declaration: 'export interface TurnEndReasonMap {\n    completed: {\n        kind: \'completed\';\n    };\n    aborted: {\n        kind: \'aborted\';\n    };\n    error: {\n        kind: \'error\';\n        step: number;\n    } & ({\n        failure: LlmFailure;\n        message?: never;\n        code?: never;\n    } | {\n        message: string;\n        code?: string;\n        failure?: never;\n    });\n    disposed: {\n        kind: \'disposed\';\n    };\n    \'max-tokens\': {\n        kind: \'max-tokens\';\n    };\n    interrupted: {\n        kind: \'interrupted\';\n    };\n}',
+    declaration: 'export interface TurnEndReasonMap {\n    completed: {\n        kind: \'completed\';\n    };\n    aborted: {\n        kind: \'aborted\';\n        reason: TurnEndCancelCause;\n    };\n    blocked: {\n        kind: \'blocked\';\n    };\n    error: {\n        kind: \'error\';\n        error: LlmFailure;\n    };\n    \'max-tokens\': {\n        kind: \'max-tokens\';\n    };\n    interrupted: {\n        kind: \'interrupted\';\n    };\n}',
   },
   {
-    name: 'TurnTrigger',
-    declaration: 'export type TurnTrigger = TurnTriggerMap[keyof TurnTriggerMap];',
+    name: 'TypertContribution',
+    declaration: 'export interface TypertContribution {\n    readonly package: string;\n    readonly face: TypertFace;\n    readonly schemas: readonly TypertSchema[];\n    readonly model: TypertPackageModel;\n}',
   },
   {
-    name: 'TurnTriggerMap',
-    declaration: 'export interface TurnTriggerMap {\n    message: {\n        kind: \'message\';\n        source: MessageSource;\n    };\n    retry: {\n        kind: \'retry\';\n    };\n    injection: {\n        kind: \'injection\';\n        source: MessageSource;\n    };\n}',
+    name: 'TypertDocTag',
+    declaration: 'export interface TypertDocTag {\n    readonly name: string;\n    readonly argument?: string;\n    readonly comment?: string;\n    readonly text: string;\n}',
+  },
+  {
+    name: 'TypertDocumentation',
+    declaration: 'export interface TypertDocumentation {\n    readonly description?: string;\n    readonly summary?: string;\n    readonly tags: readonly TypertDocTag[];\n    readonly jsDoc?: string;\n}',
+  },
+  {
+    name: 'TypertEventModel',
+    declaration: 'export interface TypertEventModel extends TypertDocumentation {\n    readonly name: string;\n    readonly mode?: string;\n    readonly signature: string;\n}',
+  },
+  {
+    name: 'TypertMemberModel',
+    declaration: 'export interface TypertMemberModel {\n    readonly kind: \'property\' | \'method\' | \'getter\' | \'setter\' | \'call\' | \'construct\' | \'index\';\n    readonly name: string;\n    readonly signature: string;\n    readonly summary?: string;\n    readonly jsDoc?: string;\n}',
+  },
+  {
+    name: 'TypertObjectModel',
+    declaration: 'export interface TypertObjectModel extends TypertDocumentation {\n    readonly name: string;\n    readonly exportName: string;\n    readonly members: readonly TypertMemberModel[];\n    readonly types: readonly TypertTypeModel[];\n}',
+  },
+  {
+    name: 'TypertPackageFilter',
+    declaration: 'export interface TypertPackageFilter {\n    readonly package?: string;\n    readonly face?: TypertFace;\n}',
+  },
+  {
+    name: 'TypertPackageModel',
+    declaration: 'export interface TypertPackageModel {\n    readonly services: readonly TypertServiceModel[];\n    readonly events: readonly TypertEventModel[];\n    readonly objects: readonly TypertObjectModel[];\n}',
+  },
+  {
+    name: 'TypertPackageRecord',
+    declaration: 'export interface TypertPackageRecord {\n    readonly package: string;\n    readonly face: TypertFace;\n    readonly key: string;\n    readonly model: TypertPackageModel;\n}',
+  },
+  {
+    name: 'TypertSchema',
+    declaration: 'export interface TypertSchema {\n    readonly name: string;\n    readonly schema: z.ZodType;\n}',
+  },
+  {
+    name: 'TypertSchemaFilter',
+    declaration: 'export interface TypertSchemaFilter {\n    readonly package?: string;\n    readonly face?: TypertFace;\n}',
+  },
+  {
+    name: 'TypertSchemaRecord',
+    declaration: 'export interface TypertSchemaRecord extends TypertSchema {\n    readonly package: string;\n    readonly face: TypertFace;\n    readonly key: string;\n}',
+  },
+  {
+    name: 'TypertServiceModel',
+    declaration: 'export interface TypertServiceModel extends TypertDocumentation {\n    readonly key: string;\n    readonly exportName: string;\n    readonly members: readonly TypertMemberModel[];\n    readonly types: readonly TypertTypeModel[];\n}',
+  },
+  {
+    name: 'TypertTypeModel',
+    declaration: 'export interface TypertTypeModel {\n    readonly name: string;\n    readonly declaration: string;\n}',
   },
   {
     name: 'UserInteractionProvider',
@@ -2692,6 +3058,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface WebFetchResult {\n    readonly url: string;\n    readonly statusCode: number;\n    readonly body: WebFetchBody;\n    readonly truncated: boolean;\n}',
   },
   {
+    name: 'WebFetchResultView',
+    declaration: 'export interface WebFetchResultView {\n    card: \'web\';\n    kind: \'fetch\';\n    title?: string;\n    url: string;\n    statusCode: number;\n    truncated: boolean;\n}',
+  },
+  {
+    name: 'WebResultView',
+    declaration: 'export type WebResultView = WebSearchResultView | WebFetchResultView;',
+  },
+  {
     name: 'WebRoute',
     declaration: 'export interface WebRoute {\n    kind: WebRouteKind;\n    path: string;\n    handler: (req: IncomingMessage, res: ServerResponse) => void | Promise<void>;\n}',
   },
@@ -2712,8 +3086,20 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface WebSearchResult {\n    readonly content?: string;\n    readonly sources: readonly WebSearchSource[];\n    readonly truncated: boolean;\n}',
   },
   {
+    name: 'WebSearchResultView',
+    declaration: 'export interface WebSearchResultView {\n    card: \'web\';\n    kind: \'search\';\n    title?: string;\n    sources: WebSource[];\n    answer?: string;\n    truncated: boolean;\n}',
+  },
+  {
     name: 'WebSearchSource',
     declaration: 'export interface WebSearchSource {\n    readonly url: string;\n    readonly title?: string;\n    readonly snippet?: string;\n    readonly publishedAt?: string;\n}',
+  },
+  {
+    name: 'WebSource',
+    declaration: 'export interface WebSource {\n    url: string;\n    title?: string;\n    snippet?: string;\n    publishedAt?: string;\n}',
+  },
+  {
+    name: 'WebUpgradeRoute',
+    declaration: 'export interface WebUpgradeRoute {\n    path: string;\n    handler: (req: IncomingMessage, socket: Duplex, head: Buffer) => void | Promise<void>;\n}',
   },
   {
     name: 'WorkflowMeta',

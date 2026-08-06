@@ -7,7 +7,7 @@
 - text: Workspaces
 - button "Group by":
   - img
-- button "Create workspace":
+- button "Add workspace":
   - img
 - button "Search sessions":
   - img
@@ -16,27 +16,24 @@
   - treeitem "workspace 1 session" [expanded]:
     - img
     - text: workspace 1 session
-  - treeitem "New Session now" [selected]
-- button "设置":
+  - treeitem "New Session" [selected]
+- button "Settings":
   - img
-  - text: 设置
+  - text: Settings
 - text: Let's start building
 - button "Choose workspace":
   - img
   - text: workspace
   - img
 - textbox "Describe what you want to build"
-- button "Add attachment":
+- button "Commands":
   - img
-- text: Danger Full Access
-- combobox "Access mode":
-  - option "Read Only"
-  - option "Workspace Write"
-  - option "Danger Full Access" [selected]
-- button "选择模型，当前 DeepSeek-V4-Flash":
+- tooltip "Commands"
+- 'button "Access mode, current: Workspace Write"': Workspace Write
+- button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
-- text: 详情
-- button "关闭详情"
-- text: 点击消息流中的工具行查看详情
+- text: Details
+- button "Close details"
+- text: Click a tool row in the message flow to view its details

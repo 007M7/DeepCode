@@ -243,7 +243,7 @@ overrides:
     expect(() => loadHelperTemplate('../bad.tpl')).toThrow('must not contain a directory')
     expect(createBaselineProjectArtifacts({
       name: 'demo', description: 'demo', releaseVersion: '0.0.1', model: 'model', modelLiteral: '"model"', packageManager: 'yarn',
-      isAcp: false, isTui: false, isEmbed: true,
+      isAcp: false, isEmbed: true,
       installArgs: 'install', buildArgs: 'build',
     }).map(document => document.relativePath)).toContain('.yarnrc.yml')
     expect(() => new LocalPluginBlueprint('---', 'plugin')).toThrow('invalid local plugin name')
@@ -309,7 +309,12 @@ describe('package manager strategies', () => {
     await expect(npm.install('/tmp', failed)).rejects.toThrow('exited with code 2')
     const killed: CommandRunner = { run: async () => ({ exitCode: null, signal: 'SIGTERM' }) }
     await expect(npm.build('/tmp', killed)).rejects.toThrow('killed by SIGTERM')
-    expect(scrubEnvironment({ PATH: '/bin', API_KEY: 'secret', TOKEN_VALUE: 'secret' })).toEqual({ PATH: '/bin' })
+    expect(scrubEnvironment({
+      PATH: '/bin',
+      API_KEY: 'secret',
+      DB_PASSWORD: 'secret',
+      TOKEN_VALUE: 'secret',
+    })).toEqual({ PATH: '/bin' })
   })
 
   it('probes versions and runs real child-process boundaries', async () => {

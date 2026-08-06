@@ -11,11 +11,10 @@
 import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 
 /**
- * The provider-facing projection of one client session. Client sessions are
- * always agent-backed — the host births Session+Agent+cwd together and the
- * client only creates scopes for materialized sessions — so the projection
- * carries the stable session identity alone: sources address every RPC by
- * `sessionId` with no capability discrimination.
+ * The provider-facing projection of one client session. It carries stable
+ * identity alone; a source that calls Agent-bound RPCs must consult its own
+ * service's capability state because an addressed persisted subagent may
+ * have a client scope without a live Host Agent.
  */
 export interface ClientSessionContext {
   readonly sessionId: SessionId
@@ -138,6 +137,8 @@ export interface SlashSource {
   readonly trigger: TriggerChar
   /** Menu group label; unique per trigger — duplicate registration throws. */
   readonly name: string
+  /** Menu group display order (lower = higher in the list; default 0). */
+  readonly order?: number
   candidates(session: ClientSessionContext, req: CandidateRequest): Promise<readonly SlashCandidate[]>
   /** Every pick lands here; claim/insert outcomes are executed by the pipeline via the scoped input events. */
   onPick(pick: SlashPick): PickOutcome

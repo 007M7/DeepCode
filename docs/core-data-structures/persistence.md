@@ -4,7 +4,7 @@ English | [中文](persistence.zh.md)
 
 The **durability seam** for the event log. [session.md](session.md) describes the in-memory `Session` — the append-only `SessionEvent` log that is the source of truth. This page describes how that log is made durable: the abstract `SessionPersistence` service, its backends, the flush checkpoint, crash recovery, and the metadata header that travels alongside the log. The event vocabulary the log carries is enumerated, member by member, in the generated [persistence log event catalog](../persistence-catalog.md).
 
-The seam is a textbook [capability seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md): one abstract service ([dsh-session-persistence](../../packages/session-persistence/session-persistence), `ctx.sessionPersistence`) defining locate/create/append, crash-repairing load, non-mutating inspect, and lightweight list/snapshot observation over the existing `SessionEvent` — **no parallel persisted type** — and two interchangeable backends that pass the same `runPersistenceContract` suite. See the [session-persistence Agent Note](../../.agents/notes/implemented/architecture/2026-06-14-session-persistence.md).
+The seam is a textbook [capability seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md): one abstract service ([dsh-session-persistence](../../packages/session-persistence/session-persistence), `ctx.sessionPersistence`) defining locate/create/append, crash-repairing load, non-mutating inspect, and lightweight list/snapshot observation over the existing `SessionEvent` — **no parallel persisted type** — and two interchangeable backends implementing the same contract. See the [session-persistence Agent Note](../../.agents/notes/implemented/architecture/2026-06-14-session-persistence.md).
 
 ## The flush checkpoint
 
@@ -67,6 +67,11 @@ interface SessionHeader {
    */
   readonly seedLength?: number
   /**
+   * Coarse product classification for a session created as a subagent child.
+   * This is presentation metadata, not proof that the child is continuable.
+   */
+  readonly origin?: 'subagent'
+  /**
    * Delegation depth: absent (zero) for a top-level session, parent depth + 1
    * for a subagent child. Persisted so a recursion budget survives restart and
    * resume — a runtime-only depth would reset a resumed child to top-level.
@@ -77,7 +82,7 @@ interface SessionHeader {
 
 ## `CreateSessionOptions` — seeding and metadata
 
-Creating a `Session` through the store takes a `seed` (initial replay or fork history) and `meta` (the storage-level fields the store folds into a `SessionHeader`). The store fills in `version`/`id` and defaults `createdAt`; the caller supplies the validated absolute `cwd`, the `parentSession` lineage, the `seedLength` seed boundary, the `delegationDepth`, and — only when reconstructing a persisted session — the original `createdAt` to preserve it.
+Creating a `Session` through the store takes a `seed` (initial replay or fork history) and `meta` (the storage-level fields the store folds into a `SessionHeader`). The store fills in `version`/`id` and defaults `createdAt`; the caller supplies the validated absolute `cwd`, the `parentSession` lineage, the `seedLength` seed boundary, the optional coarse `origin`, the `delegationDepth`, and — only when reconstructing a persisted session — the original `createdAt` to preserve it. `origin: 'subagent'` lets product navigation hide duplicate child rows; it does not prove that a descriptor is valid or that the child can resume.
 
 ```ts type-equiv
 /**
@@ -97,6 +102,7 @@ interface CreateSessionOptions {
     readonly parentSession?: SessionId
     readonly createdAt?: number
     readonly seedLength?: number
+    readonly origin?: 'subagent'
     readonly delegationDepth?: number
   }
 }

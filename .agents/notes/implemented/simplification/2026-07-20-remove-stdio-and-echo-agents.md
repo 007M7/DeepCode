@@ -18,7 +18,7 @@ The stdio and Echo agents are removed without compatibility packages, modes, com
 
 The remaining application roles are explicit:
 
-- [`@deepseek-ai/dsh-tui-demo`](../../../../packages/examples/tui-demo/README.md) owns terminal-interactive execution. It rejects non-TTY streams before Loader boot; `examples/tui-agent` owns the complete coding composition, Code Mode overlay, PTY coverage, and terminal snapshots.
+- `@deepseek-ai/dsh-tui` owns terminal-interactive execution. It rejects non-TTY streams before Loader boot; `apps/cli/config/base.cordis.yml` plus the `tui.cordis.yml` overlay own the complete coding composition, with PTY plus terminal-snapshot coverage in `apps/cli/tests/`.
 - [`@deepseek-ai/dsh-cli-demo`](../../../../packages/examples/cli-demo/README.md) owns non-interactive execution, including pipes. `examples/headless-agent` owns the real-model one-shot composition, replay snapshots, generic real-agent suites, and test-only keyless Loader fixtures.
 - [`@deepseek-ai/dsh-acp-demo`](../../../../packages/examples/acp-demo/README.md) and `@deepseek-ai/dsh-jsonrpc` own their framed protocol integrations.
 
@@ -30,7 +30,7 @@ Keyless validation is test-owned. The Headless Loader smoke uses a fixture adapt
 
 TUI and Headless Loader coverage run the real app packages in source and built modes. PTY-driven subprocess coverage is reserved for the TUI lifecycle; other entry-point smokes use the one-shot pipe protocol. Headless proves its task/result and tool-call contracts. Generated graphs and repository searches reject stale package, command, leaf, SDK-interface, `createStdioChat`, and `StdioRuntime` references.
 
-The TUI PTY smoke includes the Code Mode overlay composition, while `examples/cordis-agent/tests/keyless-smoke.e2e.ts` provides a minimal PTY boot over the real Cordis-agent Loader tree. The built `dsh` bin rejects a piped TUI launch before Loader boot and points at its one-shot `-p` mode; `apps/cli/tests/built-bin.e2e.ts` pins that path, while `cli-demo`'s built-bin suite runs text, JSON, and structurally parsed `stream-json` output under plain Node, persists fresh sessions, and rejects invalid arguments and missing config without contaminating stdout. Time-context integration uses the real Headless composition for two ordered turns, while its package tests own finer elapsed-time behavior.
+The built `dsh` bin rejects a piped TUI launch before Loader boot and points at its one-shot `-p` mode; `apps/cli/tests/built-bin.e2e.ts` pins that path, while `cli-demo`'s built-bin suite runs text, JSON, and structurally parsed `stream-json` output under plain Node, persists fresh sessions, and rejects invalid arguments and missing config without contaminating stdout. Code Mode has programmatic TUI snapshots and an ACP overlay demo. Time-context integration uses the real Headless composition for two ordered turns, while its package tests own finer elapsed-time behavior.
 
 ## Alternatives considered
 

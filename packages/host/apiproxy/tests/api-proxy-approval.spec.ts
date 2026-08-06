@@ -34,7 +34,7 @@ async function harness(): Promise<{ ctx: Context; api: ApiProxy }> {
 /** A minimal agent stand-in inside an open turn (the service only reaches `.session`). */
 function agentOf(ctx: Context): Agent {
   const session = ctx.sessions.create()
-  session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+  session.append('turn/start', { turn: 1 })
   return { session } as unknown as Agent
 }
 
@@ -185,7 +185,7 @@ describe('approval pending registry', () => {
     const abort = new AbortController()
     const mux = openMux(api, abort)
     const session = ctx.sessions.create()
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     session.append('approval/asked', { id: 'pre-aborted' as ApprovalRequestId, toolName: 'bash' })
     const agent = { session } as unknown as Agent
     const cancelled = new AbortController()
@@ -308,7 +308,7 @@ describe('approval pending registry', () => {
     // Bypass ApprovalService: a log whose sole asked event already has its
     // decided partner must not be re-claimed — the answerer delegates.
     const session = ctx.sessions.create()
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     session.append('approval/asked', { id: 'stale-ask' as ApprovalRequestId, toolName: 'bash' })
     session.append('approval/decided', { id: 'stale-ask' as ApprovalRequestId, outcome: 'rejected' })
     const agent = { session } as unknown as Agent
@@ -322,7 +322,7 @@ describe('approval pending registry', () => {
     // Bypass ApprovalService: dispatch the waterfall directly with a session
     // that has no approval/asked event — the proxy answerer must call next().
     const session = ctx.sessions.create()
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     const agent = { session } as unknown as Agent
     const outcome = await ctx.waterfall('approval/request', { agent, toolName: 'x' }, () => Promise.resolve('unavailable' as const))
     expect(outcome).toBe('unavailable')

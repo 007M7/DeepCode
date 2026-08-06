@@ -20,6 +20,6 @@ export interface SkillEntry {
 
 /** Skill-domain unary methods (the map key skill.* of RpcMethodMap). */
 export interface SkillsApi {
-  /** Lists model-invocable skills for the addressed session's project root. */
+  /** Lists skills usable by the browser's user-selected model-reference path. */
   list(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<{ skills: readonly SkillEntry[] }>>
 }

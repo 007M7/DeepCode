@@ -14,10 +14,11 @@ Harness implements every capability an AI agent needs—including LLM calls, too
   config:
     apiKey: !!js process.env.DEEPSEEK_API_KEY
 
-# Select the interactive application
-- name: '@deepseek-ai/dsh-tui-demo'
+# Select the one-shot application
+- id: cli-agent
+  name: '@deepseek-ai/dsh-cli-demo'
   config:
-    provider: deepseek
+    provider: deepseek-official
     model: deepseek-v4-flash
     workspaceContext: false
 ```

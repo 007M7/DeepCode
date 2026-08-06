@@ -92,9 +92,9 @@ async function baseProject(): Promise<SdkProject> {
     packageManager: new NpmPackageManager('10.0.0'),
     releaseVersion: '0.0.1',
     features: [
-      { id: featureId('provider'), options: ['deepseek'], secrets: { apiKey: 'key' } },
+      { id: featureId('provider'), options: ['deepseek-official'], secrets: { apiKey: 'key' } },
       { id: featureId('bash'), options: ['local'] },
-      { id: featureId('app'), options: ['tui'] },
+      { id: featureId('app'), options: ['acp'] },
       { id: featureId('persistence'), options: ['jsonl'] },
     ],
     localPlugins: [],

@@ -22,7 +22,7 @@ import {
   encodeSegment, eventLines, logPath, logSuffix, parseHeaderMeta, projectDir, scanLog, sessionDir, toHeaderLine,
   type JsonlCompression,
 } from './format.ts'
-import { compressZstdFrame, decompressZstdFrame, scanZstdFrames } from './zstd.ts'
+import { compressZstdFrame, decompressZstdFrame, decompressZstdPrefix, scanZstdFrames } from './zstd.ts'
 import { ensureDurableDirectoryWin32, publishNewFileWin32 } from './win32.ts'
 
 export type { JsonlCompression } from './format.ts'
@@ -232,7 +232,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     let recoveredPlaintext: Buffer = Buffer.alloc(0)
     try {
       signal?.throwIfAborted()
-      recoveredPlaintext = await decompressZstdFrame(buffer.subarray(tornStart))
+      recoveredPlaintext = await decompressZstdPrefix(buffer.subarray(tornStart))
     } catch {
       /* v8 ignore next -- decoder failure plus concurrent abort is timing-dependent */
       if (signal?.aborted) signal.throwIfAborted()

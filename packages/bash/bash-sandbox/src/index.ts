@@ -1,27 +1,35 @@
 /**
  * Sandbox-consuming bash executor. It wraps the exact local bash argv through
  * `ctx.sandbox`, inherits local process mechanics, and reports the selected
- * mode, enforcement, and denial facts. Runner failure means the command never
- * ran: foreground calls throw `SANDBOX_UNAVAILABLE`, while settled background
- * processes carry `runnerFailed`. The tool owns approval and passes a complete
- * per-call policy.
+ * mode, enforcement, and denial facts. Positive runner-launch evidence means
+ * the command never ran: foreground calls throw `SANDBOX_UNAVAILABLE`, while
+ * background processes carry `runnerFailed`; other spawn rejections retain
+ * local-executor semantics. The tool owns approval and passes a complete per-call policy.
  * @module @deepseek-ai/dsh-bash-sandbox
  */
 
 import { Context } from 'cordis'
 import type { BashExecRequest, BashExecSpec, BashProcess, BashRunResult } from '@deepseek-ai/dsh-bash'
 import { SandboxUnavailableError } from '@deepseek-ai/dsh-sandbox'
-import type { ConfinedSandboxMode, SandboxEnforcement, SandboxExecutionPolicy, SandboxMode, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
+import type {
+  ConfinedArgv,
+  ConfinedSandboxMode,
+  RunnerFailureRule,
+  SandboxEnforcement,
+  SandboxExecutionPolicy,
+  SandboxMode,
+  SandboxPolicy,
+} from '@deepseek-ai/dsh-sandbox'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import type { Config as LocalConfig } from '@deepseek-ai/dsh-bash-local'
-import { classifyDenial, classifyRunnerFailure, matchesSignature, shellQuote } from './helpers.ts'
+import { classifyDenial, classifyRunnerFailure, isRunnerSpawnFailure, matchesSignature } from './helpers.ts'
 
 /**
  * Plugin config: the local executor's knobs, verbatim. The sandbox policy —
  * the default mode and fallback `workspace-write` root — is NOT here: it lives
  * on `ctx.sandboxPolicy` (`@deepseek-ai/dsh-sandbox-policy`), which resolves
- * each calling session's mode and cwd for both enforcing families. The runner
+ * each calling session's mode and cwd for every enforcing capability. The runner
  * choice is likewise the `ctx.sandbox` provider's config, not this executor's.
  */
 export type Config = LocalConfig
@@ -30,8 +38,8 @@ export type Config = LocalConfig
  * Registers as `ctx.bash` in place of the local executor and requires a
  * `ctx.sandbox` provider plus `ctx.sandboxPolicy`; the tool layer is
  * unchanged. Tool calls pass the calling session's resolved policy; direct
- * calls fall back to deployment policy. The prompt does not state the standing
- * mode; `result.sandbox` reports the mode and enforcement actually used.
+ * calls fall back to deployment policy. `result.sandbox` reports the mode and
+ * enforcement actually used.
  */
 export class SandboxBashExecutor extends LocalBashExecutor {
   static override inject = ['subprocess', 'sandbox', 'sandboxPolicy']
@@ -51,7 +59,9 @@ export class SandboxBashExecutor extends LocalBashExecutor {
     mode: ConfinedSandboxMode
     enforcement: SandboxEnforcement
     denialSignatures: readonly string[]
-    runnerFailureSignatures: readonly string[]
+    runnerFailureRules: readonly RunnerFailureRule[]
+    runnerProgram: string | undefined
+    workdir: string
   }>()
 
   constructor(ctx: Context, config: Config) {
@@ -83,11 +93,22 @@ export class SandboxBashExecutor extends LocalBashExecutor {
       return { ...result, sandbox: { mode, denied: false } }
     }
     const confined = this.confine(spec.command, { ...policy, mode })
-    const result = await super.run({ ...spec, command: confined.command })
-    // Runner failure outranks denial because the command did not run. Throw the
-    // same fail-closed error as confine-time discovery with the first stderr line.
-    if (classifyRunnerFailure(result, confined.runnerFailureSignatures)) {
-      throw new SandboxUnavailableError(mode, result.stderr.text.trim().split('\n')[0])
+    let result: BashRunResult
+    try {
+      result = await this.runArgv(spec, confined.argv)
+    } catch (error) {
+      // An upstream abort remains cancellation even when it prevents spawn.
+      if (spec.signal?.aborted === true) spec.signal.throwIfAborted()
+      if (isRunnerSpawnFailure(error, confined.argv[0], spec.workdir)) {
+        throw new SandboxUnavailableError(mode, String(error))
+      }
+      throw error
+    }
+    // Runner failure outranks denial because the command did not run. Carry
+    // the matched fatal line, not an informational line that preceded it.
+    const runnerFailure = classifyRunnerFailure(result.exitCode, result.stderr.text, confined.runnerFailureRules)
+    if (runnerFailure !== undefined) {
+      throw new SandboxUnavailableError(mode, runnerFailure.detail)
     }
     return { ...result, sandbox: { mode, denied: classifyDenial(result, confined.denialSignatures), enforcement: confined.enforcement } }
   }
@@ -96,11 +117,29 @@ export class SandboxBashExecutor extends LocalBashExecutor {
     const policy = spec.sandboxPolicy as SandboxExecutionPolicy
     const { mode } = policy
     if (mode === 'danger-full-access') return super.start(spec)
-    // Install facts synchronously; promise settlement cannot run before start() returns.
+    // Once startArgv returns, install facts synchronously; promise settlement
+    // cannot run before start() returns.
     const confined = this.confine(spec.command, { ...policy, mode })
-    const proc = super.start({ ...spec, command: confined.command })
-    const { enforcement, denialSignatures, runnerFailureSignatures } = confined
-    this.processFacts.set(proc, { mode, enforcement, denialSignatures, runnerFailureSignatures })
+    let proc: BashProcess
+    try {
+      proc = this.startArgv(spec, confined.argv)
+    } catch (error) {
+      // LocalSubprocessService reports provenanced ENOENT/EACCES through async
+      // `done` rejection; this covers alternatives that throw that shape synchronously.
+      if (isRunnerSpawnFailure(error, confined.argv[0], spec.workdir)) {
+        throw new SandboxUnavailableError(mode, String(error))
+      }
+      throw error
+    }
+    const { enforcement, denialSignatures, runnerFailureRules } = confined
+    this.processFacts.set(proc, {
+      mode,
+      enforcement,
+      denialSignatures,
+      runnerFailureRules,
+      runnerProgram: confined.argv[0],
+      workdir: spec.workdir,
+    })
     return proc
   }
 
@@ -108,12 +147,15 @@ export class SandboxBashExecutor extends LocalBashExecutor {
    * Stamp per-process sandbox facts before `done` settles. Full-access processes
    * have no facts; signal deaths are not denials.
    */
-  protected override onProcessDone(proc: BashProcess, stderr: string): void {
+  protected override onProcessDone(proc: BashProcess, stderr: string, spawnFailed: boolean, spawnError?: unknown): void {
     const facts = this.processFacts.get(proc)
     if (facts !== undefined) {
       this.processFacts.delete(proc)
-      // Runner failure outranks denial because its diagnostics may contain denial terms.
-      const runnerFailed = matchesSignature(proc.exitCode, stderr, facts.runnerFailureSignatures)
+      // A rejected spawn never started the confined launch. Otherwise runner
+      // failure outranks denial because its diagnostics may contain denial terms.
+      const runnerFailed = spawnFailed
+        ? isRunnerSpawnFailure(spawnError, facts.runnerProgram, facts.workdir)
+        : classifyRunnerFailure(proc.exitCode, stderr, facts.runnerFailureRules) !== undefined
       proc.sandbox = {
         mode: facts.mode,
         denied: !runnerFailed && matchesSignature(proc.exitCode, stderr, facts.denialSignatures),
@@ -121,30 +163,19 @@ export class SandboxBashExecutor extends LocalBashExecutor {
         ...(runnerFailed ? { runnerFailed } : {}),
       }
     }
-    super.onProcessDone(proc, stderr)
+    super.onProcessDone(proc, stderr, spawnFailed, spawnError)
   }
 
   /**
-   * Wrap one shell command via the `ctx.sandbox` provider: hand over the
-   * exact `['bash', '-c', command]` argv this executor would spawn, get back
-   * the confined argv, and re-assemble it into the `exec …` command string
-   * the inherited spawn path runs (the outer `bash -c` the subprocess service spawns
-   * `exec`s into the runner, so no extra shell lingers). Provider errors
-   * (fail-closed `SANDBOX_UNAVAILABLE`) propagate to the caller unchanged.
+   * Wrap one shell command via the `ctx.sandbox` provider. Provider errors
+   * propagate unchanged; the returned argv is handed directly to the local
+   * executor's subprocess path.
+   * @param command - shell source for the confined inner `bash -c`.
+   * @param policy - resolved confined execution policy.
+   * @returns the provider's exact argv and settlement-classification facts.
    */
-  private confine(command: string, policy: SandboxPolicy): {
-    command: string
-    enforcement: SandboxEnforcement
-    denialSignatures: readonly string[]
-    runnerFailureSignatures: readonly string[]
-  } {
-    const confined = this.ctx.sandbox.confine(['bash', '-c', command], policy)
-    return {
-      command: `exec ${confined.argv.map(shellQuote).join(' ')}`,
-      enforcement: confined.enforcement,
-      denialSignatures: confined.denialSignatures,
-      runnerFailureSignatures: confined.runnerFailureSignatures,
-    }
+  private confine(command: string, policy: SandboxPolicy): ConfinedArgv {
+    return this.ctx.sandbox.confine(['bash', '-c', command], policy)
   }
 }
 

@@ -97,9 +97,9 @@ describe('todos projection provider', () => {
     seedMessage(session)
     const list: TodoItem[] = [{ content: 'done', status: 'completed' }]
     session.append('todo/write', { todos: list })
-    session.append('turn/end', { turn: 0, reason: { kind: 'completed' } })
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     expect((await bench.tailProjections())?.values.todos).toEqual(list)
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     const cleared = await bench.tailProjections()
     expect(cleared?.values.todos).toBeNull()
     expect(cleared?.asOfSeq).toBe(session.seq - 1)

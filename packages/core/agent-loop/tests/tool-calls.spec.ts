@@ -9,7 +9,7 @@ import { createUserMessage, CallId, StreamChunk  } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import LlmService from '@deepseek-ai/dsh-llm'
-import ToolRegistry, { defineContentToolFixture, TOOL_ABORTED_BEFORE_DISPATCH, type PostToolDecision, type PreToolDecision } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { defineContentToolFixture, TOOL_ABORTED_BEFORE_DISPATCH, TOOL_REGISTRY_SCHEDULER, type PostToolDecision, type PreToolDecision } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop, { DEFAULT_MAX_PARALLEL_TOOL_CALLS } from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
@@ -518,10 +518,10 @@ describe('tool-call scheduler: abort handling', () => {
     ])
   })
 
-  it('stops replenishing after abort, commits started results, and drains accepted additional contexts', async () => {
+  it('stops replenishing after abort, commits started results, and parks accepted additional contexts', async () => {
     const adapter = new MockAdapter([
       multiCall([1, 2, 3, 4].map(n => ({ id: `c${n}`, name: 'p', args: { id: String(n) } }))),
-      textResponse('should never be requested'),
+      textResponse('after wake'),
     ])
     const ctx = await harness(adapter, 2)
     const gated = gatedParallelTool('p')
@@ -566,9 +566,23 @@ describe('tool-call scheduler: abort handling', () => {
     const settled = events(agent).filter(e => e.type === 'tool/result'
       || (e.type === 'user/message' && e.data.source.kind === 'plugin'))
     expect(settled.map(e => e.type))
-      .toEqual(['tool/result', 'tool/result', 'tool/result', 'tool/result', 'user/message', 'user/message'])
-    expect(settled.filter(e => e.type === 'user/message')
-      .map(e => (e.data.content[0] as { text: string }).text))
+      .toEqual(['tool/result', 'tool/result', 'tool/result', 'tool/result'])
+    expect(agent.inbox.nextStep.map(message => message.content[0]))
+      .toEqual([
+        { type: 'text', text: 'ctx-c1' },
+        { type: 'text', text: 'ctx-c2' },
+      ])
+
+    const idle = waitForIdle(ctx, agent)
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'wake' }], source: { kind: 'user' } }))
+    await idle
+
+    expect(events(agent).flatMap(e =>
+      e.type === 'user/message'
+        && e.data.source.kind === 'plugin'
+        && e.data.content[0]?.type === 'text'
+        ? [e.data.content[0].text]
+        : []))
       .toEqual(['ctx-c1', 'ctx-c2'])
   })
 
@@ -611,5 +625,65 @@ describe('tool-call scheduler: abort handling', () => {
         },
         error: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH },
       })
+  })
+})
+
+describe('tool-call scheduler: failure quiescence', () => {
+  it('stops new dispatches and drains started bodies before surfacing the first failure', async () => {
+    const adapter = new MockAdapter([
+      multiCall([
+        { id: 'c1', name: 'p', args: { id: '1' } },
+        { id: 'c2', name: 'p', args: { id: '2' } },
+        { id: 'c3', name: 'p', args: { id: '3' } },
+      ]),
+    ])
+    const ctx = await harness(adapter, 3)
+    const gated = gatedParallelTool('p')
+    ctx.tools.register(gated.tool)
+    // The registry contains expected failures as results; replace its internal
+    // view only to inject the invariant violation this boundary must contain.
+    const scheduler = ctx.tools[TOOL_REGISTRY_SCHEDULER]
+    const prepare = scheduler.prepare.bind(scheduler)
+    const dispatch = scheduler.dispatch.bind(scheduler)
+    const prepareGate = Promise.withResolvers<undefined>()
+    let thirdPrepareEntered = false
+    scheduler.prepare = async (exec) => {
+      const prepared = await prepare(exec)
+      if (exec.callId === CallId('c3')) {
+        thirdPrepareEntered = true
+        await prepareGate.promise
+      }
+      return prepared
+    }
+    const schedulerError = new Error('scheduler exploded')
+    const drainedError = new Error('sibling failed while draining')
+    let rejectFirst: ((error: Error) => void) | undefined
+    scheduler.dispatch = exec => exec.callId === CallId('c1')
+      ? new Promise((_resolve, reject) => { rejectFirst = reject })
+      : dispatch(exec).then(() => { throw drainedError })
+    const agent = ctx.agentLoop.create(SessionId('scheduler-failure'), { provider: 'mock', model: 'mock' })
+    let idle = false
+    const idlePromise = waitForIdle(ctx, agent).then(() => { idle = true })
+
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await until(() => gated.started.includes('2') && thirdPrepareEntered && rejectFirst !== undefined)
+    rejectFirst?.(schedulerError)
+    await new Promise<void>(resolve => setImmediate(resolve))
+    prepareGate.resolve(undefined)
+    await new Promise<void>(resolve => setImmediate(resolve))
+
+    const startedBeforeDrain = [...gated.started]
+    const idleBeforeDrain = idle
+    const turnEndBeforeDrain = events(agent).find(event => event.type === 'turn/end')
+    for (const id of gated.pending()) gated.release(id)
+    await idlePromise
+
+    expect(startedBeforeDrain).toEqual(['2'])
+    expect(idleBeforeDrain).toBe(false)
+    expect(turnEndBeforeDrain).toBeUndefined()
+    expect(gated.pending()).toEqual([])
+    expect(events(agent).findLast(event => event.type === 'turn/end')).toMatchObject({
+      data: { reason: { kind: 'error', error: { message: schedulerError.message, code: 'UNKNOWN' } } },
+    })
   })
 })

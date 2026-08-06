@@ -23,13 +23,13 @@
 
 `SessionResultFilter` 覆盖 id、可空 cwd、创建时间范围、可空父级和来源可用性。`SessionEventResultFilter` 覆盖 seq/时间范围、事件类型、表层和语义文本。过滤器数组使用 AND；同一列表子句内的值使用 OR。空列表值不匹配任何内容，范围包含端点，而格式错误的范围或封闭联合值以 `SESSION_QUERY_INVALID_FILTER` 失败。
 
-文本子句刻意与 FTS 提供方无关：调用方文本会被转义为不区分大小写的 Unicode 正则表达式，每段连续空白匹配一个或多个空白字符。它是字面语义文本扫描，而非全文查询。`extractSessionEventText()` 和 `buildSessionEventSearchDocuments()` 定义共享的第一方文档投影；结构边界、流分片、请求 header 和未知声明合并变体不产生文档。
+文本子句刻意与 FTS 提供方无关：调用方文本会被转义为不区分大小写的 Unicode 正则表达式，每段连续空白匹配一个或多个空白字符。它是字面语义文本扫描，而非全文查询。`extractSessionEventText()` 和 `buildSessionEventSearchDocuments()` 定义共享的第一方文档投影；推理（reasoning）块、结构边界、流分片、请求 header 和未知声明合并变体不产生文档。
 
 ## 全文方法
 
 `SessionQueryService.searchSessions(request, exec?)` 按匹配最强的事件对逻辑语料库分组；`searchEvents(request, exec?)` 搜索一个逻辑会话。这两个是服务仅有的抽象方法。两者都返回分页结果，其延续信息是由服务持有的带品牌 `SessionSearchCursor`；接受可选取消，并在不使用提供方专用数值分数的情况下提供摘录。事件搜索分页结果还携带来自与命中相同索引世代的克隆目标 header，使授权消费方可将策略绑定到此次载荷观察。搜索请求只接受事件元数据过滤器，因为字面文本过滤使用上文所述扫描路径。
 
-该包（package）没有提供方协调器、回退实现或独立具体插件。具体服务后端继承已实现的读取、过滤和跟踪，同时负责全文观察、对账、排名、游标世代和查询执行；第一个实现是 [`@deepseek-ai/dsh-session-query-sqlite`](../session-query-sqlite/README.md)。
+该包没有提供方协调器、回退实现或独立具体插件。具体服务后端继承已实现的读取、过滤和跟踪，同时负责全文观察、对账、排名、游标世代和查询执行；第一个实现是 [`@deepseek-ai/dsh-session-query-sqlite`](../session-query-sqlite/README.md)。
 
 `SessionQueryError.code` 是一个封闭联合，覆盖请求验证、缺失目标、格式错误的表层、来源冲突、持久化/索引失败、取消，以及无效或陈旧游标；精确字面值在 [`src/config.ts`](src/config.ts) 中定义。
 

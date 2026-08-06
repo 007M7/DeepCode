@@ -1,13 +1,18 @@
 // @vitest-environment jsdom
 import { Context } from 'cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import type { DirectoryListing } from '@deepseek-ai/dsh-client-runtime/client'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
+import { usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import type { DirectoryFlowOwnerProps } from '@deepseek-ai/dsh-client-ui-workspace/client'
 import { apply, inject } from '../src/client/index.ts'
 import { BrowseDirectoryFlow } from '../src/client/flow.ts'
+
+// The service reads its initial locale from the browser; these specs assert
+// the shipped Chinese copy, so they state the browser they assume.
+usePinnedBrowserLanguages('zh-CN')
 
 afterEach(cleanup)
 
@@ -162,6 +167,7 @@ describe('directory-picker-browse client half', () => {
     // zh is the shipped default locale.
     expect(injected.t('browser.title')).toBe('选择工作区目录')
     expect(injected.t('browser.newFolder')).toBe('新建文件夹')
+    expect(injected.t('browser.showHidden')).toBe('显示隐藏文件')
   })
 
   it('drives the injected browse calls through the hole entry', async () => {
@@ -192,10 +198,11 @@ describe('directory-picker-browse client half', () => {
       />,
     )
     // The dialog opened at home; its confirm (browser.open) adopts the listed level.
-    const openButton = await screen.findByRole('button', { name: 'browser.open' })
-    openButton.click()
+    const openButton = screen.getByRole<HTMLButtonElement>('button', { name: 'browser.open' })
+    await waitFor(() => { expect(openButton.disabled).toBe(false) })
+    fireEvent.click(openButton)
     expect(props.onPicked).toHaveBeenCalledWith(HOME)
-    screen.getByRole('button', { name: 'browser.cancel' }).click()
+    fireEvent.click(screen.getByRole('button', { name: 'browser.cancel' }))
     expect(props.onCancel).toHaveBeenCalled()
     expect(props.onError).not.toHaveBeenCalled()
   })

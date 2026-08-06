@@ -15,15 +15,27 @@ import { cleanup, fireEvent } from '@testing-library/react'
 import type { ISession, SessionId, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
 import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import { SlotTestRuntime } from '@deepseek-ai/dsh-client-test-runtime'
+import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { ToolRowProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 
 const SID = 's1' as SessionId
 
-afterEach(cleanup)
+/** jsdom has no ResizeObserver; the composer seat publishes its height through one. */
+class ResizeObserverStub {
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+}
+
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+})
 // The chat store persists under its declared key; clear between cases.
 beforeEach(() => {
   localStorage.clear()
+  vi.stubGlobal('ResizeObserver', ResizeObserverStub)
 })
 
 const toolResult = (seq: number, callId: string, name: string, args = '{"command":"make build","description":"Build"}'): ToolResultNode => ({
@@ -53,6 +65,9 @@ async function bench(nodes: ToolResultNode[]) {
   const runtime = await SlotTestRuntime.create()
   const layout = { openDetails: vi.fn(), closeDetails: vi.fn() }
   runtime.provide('layout', layout)
+  const locale = new LocaleService(runtime.ctx)
+  runtime.provide('locale', locale)
+  runtime.slots.installLocale(locale)
   await runtime.sessions.add({
     id: SID,
     summary: { title: 'S', displayTitle: 'S' },
@@ -76,7 +91,7 @@ describe('keyed toolview hole through the real machinery', () => {
     const view = b.runtime.renderRoot()
     // bash: the sample plugin's keyed registration took the row (root
     // session → global arm, decided inside the component off useSessions).
-    expect(view.container.querySelector('[data-sample="bash-global"]')).not.toBeNull()
+    expect(view.container.querySelector('[data-sample="bash"]')).not.toBeNull()
     expect(view.getByText('Bash')).toBeTruthy()
     expect(view.getByText('Build')).toBeTruthy()
     // mystery: no registration under that key → render-site fallback.
@@ -99,7 +114,7 @@ describe('keyed toolview hole through the real machinery', () => {
     expect(view.container.querySelector('[data-tool="cordis_unmount"]')?.textContent)
       .toContain('Unmount temporary Plugindyn-2')
 
-    fireEvent.click(mounted!.querySelector('button[aria-expanded]')!)
+    fireEvent.click(mounted!.querySelector('[data-expandable]')!)
     expect(mounted!.querySelector('pre.shiki')?.textContent).toBe(code)
     await b.runtime.dispose()
   })
@@ -180,6 +195,9 @@ describe('registrant load-order seam', () => {
   it("suspends a registrant on inject: ['slots', 'conversation'] until the service (and the hole) exists", async () => {
     const runtime = await SlotTestRuntime.create()
     runtime.provide('layout', { openDetails: vi.fn(), closeDetails: vi.fn() })
+    const locale = new LocaleService(runtime.ctx)
+    runtime.provide('locale', locale)
+    runtime.slots.installLocale(locale)
     await runtime.root.declare(LAYOUT_CHILDREN, AppRoot)
 
     // Third-party posture, mounted BEFORE ui-conversation: real fiber inject

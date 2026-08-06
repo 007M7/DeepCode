@@ -8,7 +8,7 @@ import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { logPath, scanLog, sessionDir, toHeaderLine, type JsonlCompression } from '../src/format.ts'
-import { compressZstdFrame, decompressZstdFrame, scanZstdFrames } from '../src/zstd.ts'
+import { compressZstdFrame, decompressZstdFrame, decompressZstdPrefix, scanZstdFrames } from '../src/zstd.ts'
 import { runPersistenceContract, meta, oneTurnLog } from '../../session-persistence/tests/contract.ts'
 import { runCoordinatorContract, type CoordinatorFixture } from '../../session-persistence/tests/coordinator-contract.ts'
 
@@ -69,7 +69,7 @@ async function tornFrame(
     const candidate = frame.subarray(0, end)
     if (scanZstdFrames(candidate).tornStart !== 0) continue
     try {
-      const decoded = (await decompressZstdFrame(candidate)).toString('utf8')
+      const decoded = (await decompressZstdPrefix(candidate)).toString('utf8')
       if (accepts(decoded)) return candidate
     } catch {
       // Some early cuts precede the first decodable block; keep searching for
@@ -285,7 +285,7 @@ describe('SessionPersistenceJsonl: default Zstandard encoding', () => {
     const path = logPath(root, header.cwd, header.id, 'zstd')
     const before = await readFile(path)
     const secondTurn = [
-      { type: 'turn/start', seq: 6, time: 7, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      { type: 'turn/start', seq: 6, time: 7, data: { turn: 2 } },
       { type: 'turn/end', seq: 7, time: 8, data: { turn: 2, reason: { kind: 'completed' } } },
     ] as SessionEvent[]
     await ctx.sessionPersistence.append(header.id, secondTurn)
@@ -380,7 +380,7 @@ describe('SessionPersistenceJsonl: default Zstandard encoding', () => {
     const path = logPath(root, header.cwd, header.id, 'zstd')
     const committed = await readFile(path)
     const openTurn = [
-      { type: 'turn/start', seq: 6, time: 7, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      { type: 'turn/start', seq: 6, time: 7, data: { turn: 2 } },
       { type: 'step/start', seq: 7, time: 8, data: { turn: 2, step: 1 } },
       { type: 'assistant/chunk', seq: 8, time: 9, data: { turn: 2, step: 1, chunk: { type: 'text-delta', index: 0, text: deterministicNoise(300_000) } } },
     ] as SessionEvent[]
@@ -427,7 +427,7 @@ describe('SessionPersistenceJsonl: default Zstandard encoding', () => {
     await ctx.sessionPersistence.append(header.id, oneTurnLog())
     const path = logPath(root, header.cwd, header.id, 'zstd')
     const secondTurn = [
-      { type: 'turn/start', seq: 6, time: 7, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      { type: 'turn/start', seq: 6, time: 7, data: { turn: 2 } },
       { type: 'turn/end', seq: 7, time: 8, data: { turn: 2, reason: { kind: 'completed' } } },
     ] as SessionEvent[]
     const frame = await compressZstdFrame(secondTurn.map(e => JSON.stringify(e)).join('\n') + '\n')
@@ -475,7 +475,7 @@ describe('SessionPersistenceJsonl: default Zstandard encoding', () => {
       return realSync.call(this)
     })
     const secondTurn = [
-      { type: 'turn/start', seq: 6, time: 7, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      { type: 'turn/start', seq: 6, time: 7, data: { turn: 2 } },
       { type: 'turn/end', seq: 7, time: 8, data: { turn: 2, reason: { kind: 'completed' } } },
     ] as SessionEvent[]
     await expect(ctx.sessionPersistence.append(header.id, secondTurn)).rejects.toThrow(/simulated Zstandard fsync failure/)

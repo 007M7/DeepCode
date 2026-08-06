@@ -12,7 +12,7 @@ import {
   captureStableAria, compareOrRefreshGolden, fixtureUserPrompts,
   launchWebScaffold, recordFixture, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
-import { connectFreshWorkspace, saveFailureShot } from './support.ts'
+import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
 
 const FIXTURE = fileURLToPath(new URL('./snapshots/cordis-tool-round/session.jsonl', import.meta.url))
 const UI_EXPECTED = fileURLToPath(new URL('./snapshots/cordis-tool-round/ui.expected.md', import.meta.url))
@@ -29,9 +29,7 @@ function assertCompleteCordisLifecycle(events: readonly SessionEvent[]): void {
     (event): event is Extract<SessionEvent, { type: 'turn/end' }> => event.type === 'turn/end',
   )
   const reason = turnEnd?.data.reason
-  const reasonSummary = reason?.kind === 'error'
-    ? { kind: reason.kind, code: reason.failure?.code, status: reason.failure?.status }
-    : { kind: reason?.kind }
+  const reasonSummary = { kind: reason?.kind }
   expect(reasonSummary).toEqual({ kind: 'completed' })
 
   const calls = events.filter(
@@ -62,11 +60,11 @@ describe('web e2e: Cordis tools use the generic row variants', () => {
     })
     scaffold.ctx.on('session/event', (_session, event: SessionEvent) => { sessionEvents.push(event) })
     browser = await chromium.launch()
-    page = await browser.newPage({ viewport: { width: 1680, height: 1000 } })
+    page = await newEnglishPage(browser)
     tripwire = watchConsole(page)
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
-    await connectFreshWorkspace(page)
+    await connectFreshWorkspace(page, scaffold.workspaceCwd)
   }, 120_000)
 
   afterAll(async () => {
@@ -107,7 +105,8 @@ describe('web e2e: Cordis tools use the generic row variants', () => {
 
     const mountRow = page.locator('[data-tool="cordis_mount"]').filter({ hasText: 'Mount temporary Plugin' }).first()
     await mountRow.waitFor({ timeout: 10_000 })
-    await mountRow.locator('button[aria-expanded]').click()
+    // The whole summary row is the expand toggle (unified tool-row interaction).
+    await mountRow.locator('[aria-expanded]').first().click()
     await expect.poll(() => mountRow.locator('pre.shiki').textContent(), { timeout: 10_000 })
       .toContain(MOUNT_CODE)
 

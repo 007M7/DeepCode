@@ -14,7 +14,7 @@ JSONL 持久会话存储后端：`SessionPersistence` 的一个具体实现（`d
       session.jsonl              # only with compression: 'none'
 ```
 
-- 第一个逻辑行是不可变的 `SessionHeader`，标记为 `{ type: 'session', version, id, cwd?, createdAt, parentSession?, seedLength?, delegationDepth }`。`delegationDepth` 在磁盘上必需，顶层会话为 `0`；缺失或无效值会拒绝日志。后续每个逻辑行是一条存储记录；`assistant/chunk` 事件绝不丢弃，且 `seq` 在解码日志中保持连续（`events[i].seq === i`）。
+- 第一个逻辑行是不可变的 `SessionHeader`，标记为 `{ type: 'session', version, id, cwd?, createdAt, parentSession?, seedLength?, origin?, delegationDepth }`。`delegationDepth` 在磁盘上必需，顶层会话为 `0`；缺失或无效值会拒绝日志。后续每个逻辑行是一条存储记录；`assistant/chunk` 事件绝不丢弃，且 `seq` 在解码日志中保持连续（`events[i].seq === i`）。
 - 存储记录是原样 `SessionEvent` JSON，或在 `packChunks` 已启用且连续段符合条件时写入的**打包分片行**（`text-chunks` / `reasoning-chunks` / `tool-call-chunks`；像 header 的 `session` 一样不带斜杠，因此行 tag 不会与事件类型混淆）：一行保存至少 3 个连续同 block `assistant/chunk` delta 事件，`seq0`/`time0` 和每成员 `dt` 间隔精确重建每个成员的 `seq`/`time`。无损 codec 位于 `@deepseek-ai/dsh-session`（`packChunkRuns`/`decodeStorageRecord`），并使用精确形态 allowlist：任何未识别内容原样存储。读取与布局无关：`load` 始终解码行，因此打包、非打包和混合文件加载结果一致。
 - 项目目录保留规范化 cwd 可读，并限制在文件系统组件上限内。分隔符替换和截断刻意有损，因此规范化相同的 cwd 字符串共享项目目录；会话 id 仍选择不同会话目录。在不区分大小写的文件系统上，只有文件系统规范化将两种写法解析到同一 transcript（文本记录）时，身份验证才接受备选路径写法。配置根仍由部署控制：可以是项目本地、共享、临时或集中式。[项目会话目录决策](../../../.agents/notes/implemented/architecture/2026-07-24-project-session-directories.md) 记录这项取舍。
 - 会话 id 是未验证的带品牌类型的字符串，因此在使用前单射转义为一个安全路径段（无遍历、无冲突）。结果目录保留给其他会话自有产物；发现只读取固定 transcript 文件名。
@@ -55,11 +55,11 @@ JSONL 持久会话存储后端：`SessionPersistence` 的一个具体实现（`d
 
 #### 模型看到的内容
 
-JSONL 存储不影响当前提示词或 schema。加载会恢复已存储的呈现历史，并保留之前的请求 header 用于重建；新 loop 组合当前 envelope。恢复会用 `TOOL_NOT_STARTED` 平衡没有已持久化调用的 assistant 请求；已有已持久化调用但无结果时则变为 `TOOL_OUTCOME_UNKNOWN`，它要求模型只重试只读或幂等工作，并验证可能的副作用或询问用户。原始 `assistant/chunk` 记录不会重复生成消息。
+JSONL 存储不影响当前提示词或 schema。加载会恢复已存储的表层历史，并保留之前的请求 header 用于重建；新 loop 组合当前 envelope。恢复会用 `TOOL_NOT_STARTED` 平衡没有已持久化调用的 assistant 请求；已有已持久化调用但无结果时则变为 `TOOL_OUTCOME_UNKNOWN`，它要求模型只重试只读或幂等工作，并验证可能的副作用或询问用户。原始 `assistant/chunk` 记录不会重复生成消息。
 
 #### Token 影响
 
-当前请求不会新增 token。恢复后的 agent（智能体）会因保留的历史、当前 envelope，以及每个中断调用的前述修复结果文本而消耗 token。
+当前请求不会新增 token。恢复后的 agent（智能体）会因保留的历史、当前 envelope，以及每个中断调用中以引用形式加入的修复结果文本而消耗 token。
 
 #### KV Cache 影响
 
@@ -69,7 +69,7 @@ JSONL 存储不修改实时请求前缀。只有重建历史、当前 envelope �
 
 - **只加载已配置编码和当前 `SESSION_FORMAT_VERSION` (v0)**：更改压缩需要独立/全新根，或选择遗留原始 mode；预发布格式没有迁移。
 - **平铺文件存储布局不加载**：加载前使用独立根，或将预发布产物移入项目/会话目录布局。
-- **压缩文件不能直接按行读取**：使用后端加载；或在写入新根前选择 `compression: 'none'`，以便文本 fixture（测试前置数据）或外部行 reader 使用。
+- **压缩文件不能直接按行读取**：使用后端加载；或在写入新根前选择 `compression: 'none'`，以便外部行 reader 使用。
 - **不删除会话文件**：日志在 `root` 下累积，直到外部移除（seam 无删除接口）。
-- **每会话一个实时 writer**：append 和修复只在所属后端实例内协调。在 owner 完全停稳 dispose 前，其他后端实例或进程不得写入同一会话；初始同 id 发布仍通过 POSIX 无覆盖硬链接或 Windows 无替换 write-through rename 保持冲突安全。
+- **每会话一个实时 writer**：append 和修复只在所属后端实例内协调。在所有者完成完全停稳的 dispose 前，其他后端实例或进程不得写入同一会话；初始同 id 发布仍通过 POSIX 无覆盖硬链接或 Windows 无替换 write-through rename 保持冲突安全。
 - **POSIX 实体化需要硬链接支持**：第一次 append 使用 `link()`，使同 id 竞态失败，而不覆盖已提交日志；Windows 使用无替换 write-through rename。

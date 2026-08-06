@@ -20,13 +20,13 @@ Status: implemented
 
 两种渲染互斥，而这种互斥是被强制的，不是假定的。`scrollbar-width` 或 `scrollbar-color` 只要取非 `auto` 值，Chromium 与 Safari 就会丢弃该元素上的全部 `::-webkit-scrollbar*` 规则，`::-webkit-scrollbar-thumb:hover` 也在其中。因此无条件地同时声明会让 hover token 在任何地方都得不到渲染：实现了 hover 伪元素的引擎，恰恰就是被标准属性静音的那些，而 Firefox 没有 hover 伪元素可作退路。于是标准属性写在 `@supports not selector(::-webkit-scrollbar)` 之内，该条件只在伪元素未被实现处为真，因此 Firefox 走标准属性路径，WebKit 系引擎走伪元素路径。WebKit 规则不再反向加门禁：不实现这些伪元素的引擎会把它们当作未知选择器丢弃，因此加门禁只是重述选择器匹配本身已经做的事。对于旧到不支持 `selector()` 函数的引擎，该条件无效，从而求值为假并选中伪元素路径——对于这条判断下现实存在的 16.4 之前的 Safari，这正是正确的一侧。
 
-两条路径都读取同一组间接变量 `--dsh-scrollbar-thumb` 与 `--dsh-scrollbar-thumb-hover`，它们在 `body` 上绑定到 l1（基础表面）token。**这就是重新绑定契约，也是单看 CSS 无法得知的部分**：抬升表面在自己的容器上设置 `--dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2)` 与 `--dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2)`，这一次重新绑定同时作用于标准属性和 WebKit 伪元素。这组变量必须成对重新绑定；只改静止态滑块会让 hover 状态仍留在基础表面的 token 上。目前有八处抬升表面做了重新绑定：命令浮层、斜杠菜单、模型选择面板、设置面板、`ui-primitives` 共用菜单卡片、输入条卡片、提问组件卡片与待办面板。多数把声明写在抬升卡片上而非滚动的后代元素上，因为抬升层级是这个表面的属性，而自定义属性会继承到真正滚动的那个子元素。
+两条路径都读取同一组间接变量 `--dsh-scrollbar-thumb` 与 `--dsh-scrollbar-thumb-hover`，它们在 `body` 上绑定到 l1（基础表面）token。**这就是重新绑定契约，也是单看 CSS 无法得知的部分**：抬升表面在自己的容器上设置 `--dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2)` 与 `--dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2)`，这一次重新绑定同时作用于标准属性和 WebKit 伪元素。这组变量必须成对重新绑定；只改静止态滑块会让 hover 状态仍留在基础表面的 token 上。这组变量另一个合法的目标是 `transparent`，它随侧边栏滚动条[改为跟随指针](../feature/2026-08-04-pointer-revealed-sidebar-scrollbars.md)一并引入；下文的门禁只接受这两种目标。可由机械检查发现的子集归 `packages/client/ui-theme/tests/scrollbar-styles.spec.ts` 所有：任何既滚动又绘制抬升表面的样式表都必须重新绑定，因此本 note 不再维护完整的表面清单。多数把这组变量声明在抬升卡片上而非滚动的后代元素上，因为抬升层级属于这个表面，而自定义属性会继承到真正滚动的那个子元素。
 
-后四处在最初的实现里被漏掉、由评审发现，因此重新绑定契约现在由机械检查把关，而不再依赖人工审阅：一张样式表只要在某处滚动、又在某处绘制抬升表面，就必须重新绑定。
+`Menu`、`InputBar`、`QuestionComposer` 与 `TodoPanel` 这四个表面在最初的实现里被漏掉、由评审发现，因此逐样式表的重新绑定契约由机械检查而非人工审阅把关。
 
 抬升表面集合是从调色板自身的暗色抬升阶梯解析出来的——暗色取值落在 `bg-layer-2` 或 `bg-layer-3` 上的那些表面 token，而这一档正是 l1/l2 之分所编码的层级差。最初的做法是从已经做了重新绑定的样式表反向推导，那是不成立的：这样得到的集合只能确认别人已经记得的部分，而尚无人重新绑定的表面——恰恰就是这项检查存在的理由——会把自己定义成「非抬升」。`--dsw-specific-tip` 证明了这一点：它解析到与菜单表面相同的那一档，待办面板在它上面滚动却没有重新绑定，而推导式的检查依然是绿的。
 
-判定范围依据 token 家族而非几何形状：只有 `--dsw-alias-bg-*` 与 `--dsw-specific-*` 表述的是表面。`--dsw-alias-button-*`、`--dsw-alias-interactive-*` 与 `--dsw-alias-markdown-*` 会落到相同档位，但它们表述的是控件或行内片段，没有任何滚动容器会把滚动条画在它们之上。形状无法做这个判断，因为悬浮按钮本来就会带圆角、阴影和固定尺寸。这项检查以样式表为粒度而非以规则为粒度，因为卡片与真正滚动的后代元素是两条不同的规则，而 CSS 文本无法表达谁包含谁。
+判定范围依据 token 家族而非几何形状：只有 `--dsw-alias-bg-*` 与 `--dsw-specific-*` 表述的是表面。`--dsw-alias-button-*`、`--dsw-alias-interactive-*` 与 `--dsw-alias-markdown-*` 会落到相同档位，但它们表述的是控件或行内片段，没有任何滚动容器会把滚动条画在它们之上。形状无法做这个判断，因为悬浮按钮本来就会带圆角、阴影和固定尺寸。这项检查以样式表为粒度而非以规则为粒度，因为卡片与真正滚动的后代元素是两条不同的规则。这种近似检查无法检测嵌在由另一个包的样式表绘制的抬升卡片中的滚动组件，`Modal` 内的 `DirectoryBrowser` 就证明了这一点；跨样式表的组合仍需在评审和组装后 UI 层面把关。
 
 轨道与两条滚动条相交的角落保持透明，因此滑块是以其下滚动的任何表面为背景被看到；只有滑块及其 hover 状态带 token 颜色。
 
@@ -54,7 +54,7 @@ Status: implemented
 
 ## 后果
 
-- 客户端的每个滚动容器都绘制带主题的滑块：亮色基础表面为 `rgb(229, 229, 229)`，暗色基础表面为 `rgb(60, 60, 61)`，重新绑定到 l2 的暗色抬升表面为 `rgb(84, 85, 87)`。
+- 客户端的每个滚动容器都绘制带主题的滑块：亮色基础表面为 `rgb(229, 229, 229)`，暗色基础表面为 `rgb(60, 60, 61)`，重新绑定到 l2 的暗色抬升表面为 `rgb(84, 85, 87)`。侧边栏内的滚动区域经由同一组间接变量，只在指针到达时才绘制滑块。
 - 两种渲染分别指定，因此改动滑块的几何或 hover 行为需要改两处：一处在 `scrollbar-width`／`scrollbar-color`，一处在伪元素。让两者都经由这组间接变量，把这份重复限制在 Firefox 与 WebKit 不共用的那些属性上。
 - hover token（`--dsw-alias-scrollbar-hover-l1`／`-l2`）只在伪元素路径上渲染。Firefox 通过 `scrollbar-color` 只表述一个滑块颜色，其 hover 表现由引擎自行推导，因此对 hover 颜色的设计改动在 Chromium 与 Safari 上可见，在 Firefox 上不可见。这是 `scrollbar-color` 本身的限制，不是这张样式表的限制。
 - `body *` 匹配所有元素，涉及的两个属性其效果本就被浏览器限制在实际会滚动的元素上。代价是一个覆盖面很宽的选择器；另一种选择是一个不生效的重新绑定契约。

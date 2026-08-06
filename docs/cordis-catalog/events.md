@@ -9,30 +9,9 @@ This file is GENERATED from source (`scripts/gen-cordis-catalog.ts`) and verifie
 
 The **harness tier** below (the `@deepseek-ai/dsh-*` packages) is the vocabulary this repo owns, grouped by scope. The **inherited tier** at the end is the cordis-core + loader/hmr/timer event surface a plugin also sees — pinned vendor source, summarized tersely. The event-dispatch methods themselves are generated in the [Cordis core Events API](core/events.md).
 
-Dispatch modes: **emit** (fire-and-forget), **waterfall** (each listener gets `next()` and may transform or veto — see [waterfall semantics](../cordis-primer.md#cordis-waterfall-semantics)), **parallel** (awaited fan-out; all listeners run), **serial** (awaited in registration order until one returns a bail value — anything other than `null`, `false`, or `undefined`), **bail** (synchronous in-order dispatch until one listener returns a bail value; the scoped input-mutation events use it for an applied/not-applied answer).
+Dispatch modes: **emit** (fire-and-forget), **waterfall** (each listener gets `next()` and may transform or veto — see [waterfall semantics](../cordis-primer.md#cordis-waterfall-semantics)), **parallel** (awaited fan-out; all listeners run), **serial** (awaited in registration order until one returns a bail value — anything other than `null`, `false`, or `undefined`).
 
 ## `agent/*`
-
-### `agent/cancel-requested` — emit
-
-Effective broad cancellation was requested, before queued/outbox work is cleared or the active turn is aborted. This observe-only notification cannot veto cancellation; listener failures are contained.
-
-```ts cordis-catalog
-/**
- * Effective broad cancellation was requested, before queued/outbox work
- * is cleared or the active turn is aborted. This observe-only notification
- * cannot veto cancellation; listener failures are contained.
- * @param agent - the agent whose current work is being cancelled.
- * @param cause - the explicit typed cancellation cause.
- * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
- * @mode emit
- */
-'agent/cancel-requested'(this: Scoped<Agent>, agent: Agent, cause: AgentCancelCause): void
-```
-
-Types: [Agent](../core-data-structures/core.md) · [AgentCancelCause](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
-
-Source: [`packages/core/agent/src/types.ts:286`](../../packages/core/agent/src/types.ts)
 
 ### `agent/created` — emit
 
@@ -54,7 +33,7 @@ A fully configured agent and live session were published. Setup is composition-o
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:218`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:178`](../../packages/core/agent/src/types.ts)
 
 ### `agent/disposed` — emit
 
@@ -74,16 +53,16 @@ An agent left the registry; AgentLoop emits this after driver quiescence and sco
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:227`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:187`](../../packages/core/agent/src/types.ts)
 
 ### `agent/error` — emit
 
-A step or turn errored. The machine reports a failure here (plus the logger) even when the error has no in-turn position for a durable record.
+A step or turn errored. The machine reports a failure here even when the error has no in-turn position for a durable record.
 
 ```ts cordis-catalog
 /**
- * A step or turn errored. The machine reports a failure here (plus the
- * logger) even when the error has no in-turn position for a durable record.
+ * A step or turn errored. The machine reports a failure here even when
+ * the error has no in-turn position for a durable record.
  * @param agent - the agent whose turn errored.
  * @param turn - the turn in which the failure surfaced.
  * @param step - the step at which the failure surfaced.
@@ -96,98 +75,87 @@ A step or turn errored. The machine reports a failure here (plus the logger) eve
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:400`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:302`](../../packages/core/agent/src/types.ts)
 
-### `agent/inbox/dequeue` — emit
+### `agent/inbox/claimed` — emit
 
-The driver claimed one item out of the inbox: a queued item at a turn boundary, or steering drained between steps. Fires after the item leaves its FIFO and before it becomes a durable message.
-
-```ts cordis-catalog
-/**
- * The driver claimed one item out of the inbox: a queued item at a turn
- * boundary, or steering drained between steps. Fires after the item leaves
- * its FIFO and before it becomes a durable message.
- * @param agent - the agent whose inbox item was claimed.
- * @param message - the claimed message.
- * @param placement - the FIFO that claimed this occurrence; together with
- *   `message.id`, it matches the earliest outstanding enqueue in that FIFO.
- * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
- * @mode emit
- */
-'agent/inbox/dequeue'( this: Scoped<Agent>, agent: Agent, message: UserMessage, placement: InboxPlacement, ): void
-```
-
-Types: [Agent](../core-data-structures/core.md) · [InboxPlacement](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [UserMessage](../core-data-structures/session.md)
-
-Source: [`packages/core/agent/src/types.ts:259`](../../packages/core/agent/src/types.ts)
-
-### `agent/inbox/discard` — emit
-
-Pending inbox items were dropped without delivering them, so every enqueue occurrence receives exactly one terminal `agent/inbox/dequeue` OR `agent/inbox/discard`. `cancel()` without `keepInbox`, including disposal, emits this after `agent/cancel-requested` when applicable and before aborting the active work. Fires once per drop with every dropped item.
+One message left the inbox inside its open turn. If the proposed step is rejected, the claimed message ends here: it is neither discarded nor re-emitted as a user/message, and the turn closes without a step.
 
 ```ts cordis-catalog
 /**
- * Pending inbox items were dropped without delivering them, so every
- * enqueue occurrence receives exactly one terminal `agent/inbox/dequeue` OR
- * `agent/inbox/discard`. `cancel()` without `keepInbox`, including disposal,
- * emits this after `agent/cancel-requested` when applicable and before
- * aborting the active work. Fires once per drop with every dropped item.
- * @param agent - the agent whose inbox items were dropped.
- * @param messages - the discarded messages in FIFO order (queued then steering); never empty.
+ * One message left the inbox inside its open turn. If the proposed step
+ * is rejected, the claimed message ends here: it is neither discarded nor
+ * re-emitted as a user/message, and the turn closes without a step.
+ * @param agent - the agent whose inbox changed.
+ * @param event - the claimed message and owning turn.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode emit
  */
-'agent/inbox/discard'(this: Scoped<Agent>, agent: Agent, messages: UserMessage[]): void
+'agent/inbox/claimed'(this: Scoped<Agent>, agent: Agent, event: { message: UserMessage; turn: number }): void
 ```
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [UserMessage](../core-data-structures/session.md)
 
-Source: [`packages/core/agent/src/types.ts:276`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:215`](../../packages/core/agent/src/types.ts)
 
-### `agent/inbox/enqueue` — emit
+### `agent/inbox/discarded` — emit
 
-An item entered the queued or steering inbox. `placement` is the acceptance-time routing result; listeners must not reconstruct it from later agent or session state.
+One message was discarded from the live inbox.
 
 ```ts cordis-catalog
 /**
- * An item entered the queued or steering inbox. `placement` is the
- * acceptance-time routing result; listeners must not reconstruct it from
- * later agent or session state.
- * @param agent - the owning agent.
- * @param message - accepted content, source, and correlation identity.
- * @param placement - resolved queued or steering placement.
+ * One message was discarded from the live inbox.
+ * @param agent - the agent whose inbox changed.
+ * @param event - the discarded message.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode emit
  */
-'agent/inbox/enqueue'(this: Scoped<Agent>, agent: Agent, message: UserMessage, placement: InboxPlacement): void
+'agent/inbox/discarded'(this: Scoped<Agent>, agent: Agent, event: { message: UserMessage }): void
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [InboxPlacement](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [UserMessage](../core-data-structures/session.md)
+Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [UserMessage](../core-data-structures/session.md)
 
-Source: [`packages/core/agent/src/types.ts:247`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:223`](../../packages/core/agent/src/types.ts)
 
-### `agent/prompt-submit` — waterfall
+### `agent/inbox/inserted` — emit
 
-Allow, rewrite, or block one claimed prompt before it becomes a user message or opens a turn. Call `next()` for the unchanged default. The signal controls only this admission attempt; listeners may cooperate with it but must not retain it for a later attempt or turn.
+One message entered the live inbox.
 
 ```ts cordis-catalog
 /**
- * Allow, rewrite, or block one claimed prompt before it becomes a user
- * message or opens a turn. Call `next()` for the unchanged default. The
- * signal controls only this admission attempt; listeners may cooperate with
- * it but must not retain it for a later attempt or turn.
- * @param agent - the agent whose turn claimed the message.
- * @param message - the frozen claimed message, including identity and source.
- * @param signal - the current turn's explicit abort signal.
+ * One message entered the live inbox.
+ * @param agent - the agent whose inbox changed.
+ * @param event - the inserted message.
+ * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+ * @mode emit
+ */
+'agent/inbox/inserted'(this: Scoped<Agent>, agent: Agent, event: { message: UserMessage }): void
+```
+
+Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [UserMessage](../core-data-structures/session.md)
+
+Source: [`packages/core/agent/src/types.ts:205`](../../packages/core/agent/src/types.ts)
+
+### `agent/pre-step` — waterfall
+
+Reject a proposed step or replace the messages that enter it. Calling `next()` preserves the current messages.
+
+```ts cordis-catalog
+/**
+ * Reject a proposed step or replace the messages that enter it. Calling
+ * `next()` preserves the current messages.
+ * @param agent - the agent proposing the step.
+ * @param messages - messages removed from the inbox for this step.
+ * @param context - proposed turn and step coordinates plus cancellation.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode waterfall
  */
-'agent/prompt-submit'(this: Scoped<Agent>, agent: Agent, message: UserMessage, signal: AbortSignal, next: () => Promise<PromptDecision>): Promise<PromptDecision>
+'agent/pre-step'(this: Scoped<Agent>, agent: Agent, messages: UserMessage[], context: PreStepContext, next: () => Promise<PreStepDecision>): Promise<PreStepDecision>
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [PromptDecision](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [UserMessage](../core-data-structures/session.md)
+Types: [Agent](../core-data-structures/core.md) · [PreStepContext](../core-data-structures/core.md) · [PreStepDecision](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [UserMessage](../core-data-structures/session.md)
 
-Source: [`packages/core/agent/src/types.ts:313`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:247`](../../packages/core/agent/src/types.ts)
 
 ### `agent/request` — waterfall
 
@@ -211,37 +179,30 @@ Replace the frozen call configuration. `await next()` yields the config the mach
 
 Types: [Agent](../core-data-structures/core.md) · [LlmCallConfig](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:339`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:260`](../../packages/core/agent/src/types.ts)
 
 ### `agent/request-error` — waterfall
 
-Handle a model-request failure after its failed step has closed but before the failed turn closes. A listener returns `{ kind: 'retry' }` without calling `next()` when it owns the error, or calls `next()` to delegate. The default `undefined` leaves the failure terminal.
+Handle one failed model-request attempt before the loop retries or closes its step. A listener returns `{ kind: 'retry' }` without calling `next()` when it owns recovery, or calls `next()` to delegate. The default `undefined` leaves the failure terminal.
 
 ```ts cordis-catalog
 /**
- * Handle a model-request failure after its failed step has closed but
- * before the failed turn closes. A listener returns `{ kind: 'retry' }`
- * without calling `next()` when it owns the error, or calls `next()` to
- * delegate. The default `undefined` leaves the failure terminal.
+ * Handle one failed model-request attempt before the loop retries or closes
+ * its step. A listener returns `{ kind: 'retry' }` without calling `next()`
+ * when it owns recovery, or calls `next()` to delegate. The default
+ * `undefined` leaves the failure terminal.
  * @param agent - the agent whose request failed.
- * @param turn - the open turn number.
- * @param step - the failed step number.
- * @param error - the original model-request failure.
- * @param failure - serializable facts normalized at the final adapter boundary.
- * @param priorFailures - immutable failures that already authorized another
- * retry turn in this consecutive sequence.
- * @param retryPolicy - immutable policy of the adapter registration that served
- * the failed request, or `undefined` if no final adapter served it.
+ * @param context - request coordinates, provider, normalized failure, and serving policy.
  * @param signal - the turn abort signal.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode waterfall
  */
-'agent/request-error'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: RequestError, failure: LlmFailure, priorFailures: readonly LlmFailure[], retryPolicy: ResolvedRetryPolicy | undefined, signal: AbortSignal, next: () => Promise<RequestErrorAction>): Promise<RequestErrorAction>
+'agent/request-error'(this: Scoped<Agent>, agent: Agent, context: RequestFailureContext, signal: AbortSignal, next: () => Promise<RequestErrorAction>): Promise<RequestErrorAction>
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [LlmFailure](../core-data-structures/llm-streaming.md) · [RequestError](../core-data-structures/core.md) · [RequestErrorAction](../core-data-structures/core.md) · [ResolvedRetryPolicy](../core-data-structures/llm-streaming.md) · [Scoped](../core-data-structures/scope.md)
+Types: [Agent](../core-data-structures/core.md) · [RequestErrorAction](../core-data-structures/core.md) · [RequestFailureContext](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:358`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:272`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-start` — emit
 
@@ -263,41 +224,17 @@ The session lifecycle began, once before the first turn. Use `agent.inject()` to
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [SessionStartSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:299`](../../packages/core/agent/src/types.ts)
-
-### `agent/settled` — emit
-
-One drain chain reached its terminal turn: that turn's `turn/end` is already committed. Automatically recovered failed turns do not emit this notification, and neither does a run that aborts or fails before its `turn/start` commits — there is no durable turn to settle against. `reason` says why; model-request recovery is exhausted when an error reaches it.
-
-```ts cordis-catalog
-/**
- * One drain chain reached its terminal turn: that turn's `turn/end` is
- * already committed. Automatically recovered failed turns do not emit this
- * notification, and neither does a run that aborts or fails before its
- * `turn/start` commits — there is no durable turn to settle against.
- * `reason` says why; model-request recovery is exhausted when an error
- * reaches it.
- * @param agent - the agent whose turn closed.
- * @param turn - the terminal turn number.
- * @param reason - why the terminal turn ended, with live error facts when it failed.
- * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
- * @mode emit
- */
-'agent/settled'(this: Scoped<Agent>, agent: Agent, turn: number, reason: SettleReason): void
-```
-
-Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [SettleReason](../core-data-structures/core.md)
-
-Source: [`packages/core/agent/src/types.ts:387`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:235`](../../packages/core/agent/src/types.ts)
 
 ### `agent/status` — emit
 
-Agent status changed (`idle` ⇄ `running`). `send()` does not enter `running` synchronously; drive lifecycle from this event.
+Agent status changed (`idle` ⇄ `running`). A waking delivery enters `running` synchronously after reserving cancellation; `idle` means no driver remains scheduled or active.
 
 ```ts cordis-catalog
 /**
- * Agent status changed (`idle` ⇄ `running`). `send()` does not enter
- * `running` synchronously; drive lifecycle from this event.
+ * Agent status changed (`idle` ⇄ `running`). A waking delivery enters
+ * `running` synchronously after reserving cancellation; `idle` means no
+ * driver remains scheduled or active.
  * @param agent - the agent whose status flipped.
  * @param status - the status just entered (the transition's destination).
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
@@ -308,35 +245,11 @@ Agent status changed (`idle` ⇄ `running`). `send()` does not enter `running` s
 
 Types: [Agent](../core-data-structures/core.md) · [AgentStatus](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:236`](../../packages/core/agent/src/types.ts)
-
-### `agent/step` — serial
-
-Awaited serial checkpoint before EVERY request of a turn is built (the first as well as each post-tools continuation). The single "between steps" extension point: inject context, steer, or edit the session log here — the request's history derives from the log right after this settles.
-
-```ts cordis-catalog
-/**
- * Awaited serial checkpoint before EVERY request of a turn is built (the
- * first as well as each post-tools continuation). The single "between
- * steps" extension point: inject context, steer, or edit the session log
- * here — the request's history derives from the log right after this settles.
- * @param agent - the agent about to send a request.
- * @param turn - the open turn number.
- * @param step - the step number about to open.
- * @param signal - the turn abort signal.
- * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
- * @mode serial
- */
-'agent/step'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, signal: AbortSignal): Promise<void> | void
-```
-
-Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
-
-Source: [`packages/core/agent/src/types.ts:326`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:197`](../../packages/core/agent/src/types.ts)
 
 ### `agent/turn-stopping` — serial
 
-The turn is about to close: the model owes no response (no live tool calls, no fresh steering). Awaited before the boundary commits — a listener that objects steers (`agent.steer(...)`) and the machine re-reads its inbox: fresh steering runs another step, none closes the turn. Data decides, so listener order cannot change the outcome. The inverse control (stop a tool loop early) is data too: a tool result carrying `concludesTurn` ends the turn at its step.
+The turn is about to close: the model owes no response (no live tool calls, no fresh steering). Awaited before the boundary commits — a listener that objects steers (`agent.steer(...)`) and the machine re-reads its inbox: fresh steering runs another step, none closes the turn. Data decides, so listener order cannot change the outcome. The inverse control (stop a tool loop early) is data too: a tool result carrying `concludesTurn` ends the turn at its step. The conclusion never short-circuits already-submitted next-step work: same-step `additionalContexts` or racing steering still runs, and the turn closes only when that inbox drains.
 
 ```ts cordis-catalog
 /**
@@ -346,7 +259,10 @@ The turn is about to close: the model owes no response (no live tool calls, no f
  * re-reads its inbox: fresh steering runs another step, none closes the
  * turn. Data decides, so listener order cannot change the outcome. The
  * inverse control (stop a tool loop early) is data too: a tool result
- * carrying `concludesTurn` ends the turn at its step.
+ * carrying `concludesTurn` ends the turn at its step. The conclusion
+ * never short-circuits already-submitted next-step work: same-step
+ * `additionalContexts` or racing steering still runs, and the turn
+ * closes only when that inbox drains.
  * @param agent - the agent whose turn is at its stop boundary.
  * @param turn - the turn about to close.
  * @param signal - the current turn's explicit abort signal.
@@ -358,7 +274,7 @@ The turn is about to close: the model owes no response (no live tool calls, no f
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:373`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:290`](../../packages/core/agent/src/types.ts)
 
 ## `agent-loop/*`
 
@@ -381,7 +297,7 @@ A declarative agent entry failed before it could publish a live agent. Consumers
 
 Types: [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/agent-loop/src/index.ts:148`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:158`](../../packages/core/agent-loop/src/index.ts)
 
 ## `approval/*`
 
@@ -421,6 +337,32 @@ A command was registered or unregistered. This is an unfiltered registry notific
 ```
 
 Source: [`packages/ui/commands/src/index.ts:154`](../../packages/ui/commands/src/index.ts)
+
+## `credentials/*`
+
+### `credentials/updated` — emit
+
+Committed change to a provider-managed credential source: a `set`, an `unset`, or an external edit observed in storage. Ambient process-environment changes are not observable and never emit. Listener failures are contained and logged — a sync throw and an async rejection alike — without changing the committed operation's outcome, except `INVARIANT`-coded failures, which rethrow after every listener ran; that rethrow reaches the emitter only from synchronous listeners, so invariant checks on this event must not be async functions.
+
+```ts cordis-catalog
+/**
+ * Committed change to a provider-managed credential source: a `set`, an
+ * `unset`, or an external edit observed in storage. Ambient
+ * process-environment changes are not observable and never emit. Listener
+ * failures are contained and logged — a sync throw and an async rejection
+ * alike — without changing the committed operation's outcome, except
+ * `INVARIANT`-coded failures, which rethrow after every listener ran;
+ * that rethrow reaches the emitter only from synchronous listeners, so
+ * invariant checks on this event must not be async functions.
+ * @param ref - the reference whose stored value changed.
+ * @mode emit
+ */
+'credentials/updated'(ref: CredentialRef): void
+```
+
+Types: [CredentialRef](../core-data-structures/credentials.md)
+
+Source: [`packages/credentials/credentials/src/index.ts:67`](../../packages/credentials/credentials/src/index.ts)
 
 ## `domain/*`
 
@@ -507,13 +449,12 @@ Source: [`packages/fs/fs/src/index.ts:54`](../../packages/fs/fs/src/index.ts)
 
 ### `goal/changed` — emit
 
-Goal mutation accepted by one live agent. The matching context event is already appended or queued in that agent's active tool-batch FIFO. Listener failures are contained. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+Goal mutation accepted by one live agent. The matching `goal/change` session event has already committed. Listener failures are contained. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
 
 ```ts cordis-catalog
 /**
- * Goal mutation accepted by one live agent. The matching context event is
- * already appended or queued in that agent's active tool-batch FIFO.
- * Listener failures are contained.
+ * Goal mutation accepted by one live agent. The matching `goal/change`
+ * session event has already committed. Listener failures are contained.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @param agent - agent whose session owns the goal.
  * @param change - fresh current projection or clear tombstone.
@@ -524,9 +465,28 @@ Goal mutation accepted by one live agent. The matching context event is already 
 
 Types: [Agent](../core-data-structures/core.md) · [GoalChanged](../core-data-structures/goal.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/goal/goal/src/domain.ts:135`](../../packages/goal/goal/src/domain.ts)
+Source: [`packages/goal/goal/src/domain.ts:141`](../../packages/goal/goal/src/domain.ts)
 
 ## `llm/*`
+
+### `llm/adapters-updated` — emit
+
+The provider topology changed: an adapter registered or unregistered routes, or the configurable-provider directory gained or lost entries. This is a payload-free registry notification fired at each commit point (including registration disposal); consumers re-read `listProviders()`, `listModels()`, or `listConfigurableProviders()` for the new state. Observer failures are contained and cannot veto the registry mutation.
+
+```ts cordis-catalog
+/**
+ * The provider topology changed: an adapter registered or unregistered
+ * routes, or the configurable-provider directory gained or lost entries.
+ * This is a payload-free registry notification fired at each commit point
+ * (including registration disposal); consumers re-read `listProviders()`,
+ * `listModels()`, or `listConfigurableProviders()` for the new state.
+ * Observer failures are contained and cannot veto the registry mutation.
+ * @mode emit
+ */
+'llm/adapters-updated'(): void
+```
+
+Source: [`packages/llm/llm/src/index.ts:69`](../../packages/llm/llm/src/index.ts)
 
 ### `llm/stream` — waterfall
 
@@ -623,13 +583,12 @@ Source: [`packages/core/session/src/index.ts:93`](../../packages/core/session/sr
 
 ### `session/flush` — parallel
 
-Awaited parallel durability checkpoint: every listener runs and the caller awaits all of them, with no waterfall veto. Dispatch through SessionStore.flush. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`) reuses the session's owner scope.
+Awaited parallel durability checkpoint: every listener runs and the caller awaits all of them, with no waterfall veto. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`) reuses the session's owner scope.
 
 ```ts cordis-catalog
 /**
  * Awaited parallel durability checkpoint: every listener runs and the
- * caller awaits all of them, with no waterfall veto. Dispatch through
- * {@link SessionStore.flush}. Scope-filtered dispatch
+ * caller awaits all of them, with no waterfall veto. Scope-filtered dispatch
  * (`@deepseek-ai/dsh-scope`) reuses the session's owner scope.
  * @param session - the session whose buffered events must reach durable storage.
  * @dshScopeScan unsupported
@@ -640,86 +599,88 @@ Awaited parallel durability checkpoint: every listener runs and the caller await
 
 Types: [Scoped](../core-data-structures/scope.md) · [Session](../core-data-structures/session.md)
 
-Source: [`packages/core/session/src/index.ts:103`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:102`](../../packages/core/session/src/index.ts)
 
-## `slash/*`
+## `settings/*`
 
-### `slash/input-begin-command` — bail
+### `settings/document-updated` — emit
 
-Applies one command claim to the scoped Input. Dispatched with the session's scope carrier; the owning session's input listener returns `true` only after the phase and span CAS checks pass and the machine actually mutated — producers treat anything else as "not applied".
-
-```ts cordis-catalog
-/**
- * Applies one command claim to the scoped Input. Dispatched with the
- * session's scope carrier; the owning session's input listener returns
- * `true` only after the phase and span CAS checks pass and the machine
- * actually mutated — producers treat anything else as "not applied".
- * @param request - Claim and menu-time span CAS.
- * @mode bail
- */
-'slash/input-begin-command'(request: BeginCommandRequest): true | undefined
-```
-
-Source: [`packages/client/ui-slash/src/types.ts:230`](../../packages/client/ui-slash/src/types.ts)
-
-### `slash/input-consume-token` — bail
-
-Consumes one command token after business success (popup settle / menu-pick execute). Same carrier routing and applied-truth contract.
+One registered namespace's RAW user section changed, whether or not the resolved value did. `settings/updated` is the consumer-facing event and stays deep-equal-gated; this one exists for configuration surfaces, which must learn that a field went from inherited to overridden (same resolved value, different meaning) and that their held revision is stale. Listener containment matches `settings/updated`.
 
 ```ts cordis-catalog
 /**
- * Consumes one command token after business success (popup settle /
- * menu-pick execute). Same carrier routing and applied-truth contract.
- * @param request - Exact span or bare-token guard.
- * @mode bail
+ * One registered namespace's RAW user section changed, whether or not the
+ * resolved value did. `settings/updated` is the consumer-facing event and
+ * stays deep-equal-gated; this one exists for configuration surfaces,
+ * which must learn that a field went from inherited to overridden (same
+ * resolved value, different meaning) and that their held revision is
+ * stale. Listener containment matches `settings/updated`.
+ * @param ns - the namespace whose stored section changed.
+ * @param revision - the namespace's new revision.
+ * @mode emit
  */
-'slash/input-consume-token'(request: ConsumeTokenRequest): true | undefined
+'settings/document-updated'(ns: SettingsNamespace, revision: number): void
 ```
 
-Source: [`packages/client/ui-slash/src/types.ts:244`](../../packages/client/ui-slash/src/types.ts)
+Types: [SettingsNamespace](../core-data-structures/settings.md)
 
-### `slash/input-insert-reference` — bail
+Source: [`packages/settings/settings/src/index.ts:150`](../../packages/settings/settings/src/index.ts)
 
-Inserts one reference into the scoped Input (same carrier routing and applied-truth contract as begin-command).
+### `settings/updated` — emit
+
+Committed change to one registered namespace's resolved value. Emitted after the provider persisted (for `update`) or published (`provider`) the change; never emitted when the resolved value is deep-equal. Listener failures are contained and logged — a sync throw and an async rejection alike — except `INVARIANT`-coded failures, which rethrow after every listener ran; that rethrow reaches the emitter only from synchronous listeners, so invariant checks on this event must not be async functions.
 
 ```ts cordis-catalog
 /**
- * Inserts one reference into the scoped Input (same carrier routing and
- * applied-truth contract as begin-command).
- * @param request - Reference and menu-time span CAS.
- * @mode bail
+ * Committed change to one registered namespace's resolved value. Emitted
+ * after the provider persisted (for `update`) or published (`provider`)
+ * the change; never emitted when the resolved value is deep-equal.
+ * Listener failures are contained and logged — a sync throw and an async
+ * rejection alike — except `INVARIANT`-coded failures, which rethrow
+ * after every listener ran; that rethrow reaches the emitter only from
+ * synchronous listeners, so invariant checks on this event must not be
+ * async functions.
+ * @param ns - the namespace whose resolved value changed.
+ * @param next - the new resolved value.
+ * @param prev - the previous resolved value.
+ * @param source - whether the change entered through `update()` or the provider.
+ * @mode emit
  */
-'slash/input-insert-reference'(request: InsertReferenceRequest): true | undefined
+'settings/updated'(ns: SettingsNamespace, next: unknown, prev: unknown, source: SettingsUpdateSource): void
 ```
 
-Source: [`packages/client/ui-slash/src/types.ts:237`](../../packages/client/ui-slash/src/types.ts)
+Types: [SettingsNamespace](../core-data-structures/settings.md) · [SettingsUpdateSource](../core-data-structures/settings.md)
 
-### `slash/input-insert-text` — bail
+Source: [`packages/settings/settings/src/index.ts:137`](../../packages/settings/settings/src/index.ts)
 
-Replaces the trigger token span with literal text — the plain-text reference path (decision 21). Same carrier routing and applied-truth contract; the draft gains ordinary characters, no occurrence entry.
+## `skills/*`
+
+### `skills/change` — emit
+
+A skill provider, runtime contribution, or provider-backed catalog may have changed. This is an unfiltered invalidation notification; consumers refetch the catalog for their own lookup options. Listener failures are contained and cannot veto the registry mutation.
 
 ```ts cordis-catalog
 /**
- * Replaces the trigger token span with literal text — the plain-text
- * reference path (decision 21). Same carrier routing and applied-truth
- * contract; the draft gains ordinary characters, no occurrence entry.
- * @param request - Replacement text and menu-time span CAS.
- * @mode bail
+ * A skill provider, runtime contribution, or provider-backed catalog may
+ * have changed. This is an unfiltered invalidation notification; consumers
+ * refetch the catalog for their own lookup options. Listener failures are
+ * contained and cannot veto the registry mutation.
+ * @mode emit
  */
-'slash/input-insert-text'(request: InsertTextRequest): true | undefined
+'skills/change'(): void
 ```
 
-Source: [`packages/client/ui-slash/src/types.ts:252`](../../packages/client/ui-slash/src/types.ts)
+Source: [`packages/skill/skill/src/index.ts:188`](../../packages/skill/skill/src/index.ts)
 
 ## `subagent/*`
 
 ### `subagent/end` — emit
 
-A ready child settled. Scope-filtered dispatch uses the same delegating parent carrier as `subagent/start`, so the lifecycle pair reaches the same scoped audience.
+A published child settled. Scope-filtered dispatch uses the same delegating parent carrier as `subagent/start`, so the lifecycle pair reaches the same scoped audience.
 
 ```ts cordis-catalog
 /**
- * A ready child settled. Scope-filtered dispatch uses the same delegating
+ * A published child settled. Scope-filtered dispatch uses the same delegating
  * parent carrier as `subagent/start`, so the lifecycle pair reaches the
  * same scoped audience.
  * @param info - the run identity and terminal outcome.
@@ -731,7 +692,7 @@ A ready child settled. Scope-filtered dispatch uses the same delegating parent c
 
 Types: [Scoped](../core-data-structures/scope.md) · [SubagentService](../core-data-structures/subagent.md)
 
-Source: [`packages/subagent/subagent/src/index.ts:140`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:160`](../../packages/subagent/subagent/src/index.ts)
 
 ### `subagent/provider-added` — emit
 
@@ -748,7 +709,7 @@ A provider became resolvable in the registry.
 
 Types: [SubagentProvider](../core-data-structures/subagent.md)
 
-Source: [`packages/subagent/subagent/src/index.ts:114`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:134`](../../packages/subagent/subagent/src/index.ts)
 
 ### `subagent/provider-removed` — emit
 
@@ -763,20 +724,20 @@ A provider left the registry. Accepted runs remain holder-owned.
 'subagent/provider-removed'(name: string): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:120`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:140`](../../packages/subagent/subagent/src/index.ts)
 
 ### `subagent/start` — emit
 
-A provider established a ready child. For in-process providers, `ctx.agents.get(info.id)` resolves during this notification. Scope-filtered dispatch keys the carrier by the delegating parent, so a parent-scoped listener observes only its own delegations. Paired with `subagent/end`.
+A provider established a published child. For in-process providers, `ctx.agents.get(info.id)` resolves during this notification. Scope-filtered dispatch keys the carrier by the delegating parent, so a parent-scoped listener observes only its own delegations. Paired with `subagent/end`.
 
 ```ts cordis-catalog
 /**
- * A provider established a ready child. For in-process providers,
+ * A provider established a published child. For in-process providers,
  * `ctx.agents.get(info.id)` resolves during this notification.
  * Scope-filtered dispatch keys the carrier by the delegating parent, so a
  * parent-scoped listener observes only its own delegations. Paired with
  * `subagent/end`.
- * @param info - the provider and ready child identity.
+ * @param info - the provider and published child identity.
  * @dshScopeScan unsupported
  * @mode emit
  */
@@ -785,17 +746,17 @@ A provider established a ready child. For in-process providers, `ctx.agents.get(
 
 Types: [Scoped](../core-data-structures/scope.md) · [SubagentService](../core-data-structures/subagent.md)
 
-Source: [`packages/subagent/subagent/src/index.ts:131`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:151`](../../packages/subagent/subagent/src/index.ts)
 
 ## `system-prompt/*`
 
 ### `system-prompt/assemble` — waterfall
 
-Expert waterfall over the assembled sections, tools, and variables. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): scoped listeners receive only that scope's assemblies. The returned value is authoritative. A supplied signal controls only this explicit assembly request and must not be retained to control later turns.
+Expert waterfall over the assembled sections, contexts, tools, and variables. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): scoped listeners receive only that scope's assemblies. The returned value is authoritative. A supplied signal controls only this explicit assembly request and must not be retained to control later turns.
 
 ```ts cordis-catalog
 /**
- * Expert waterfall over the assembled sections, tools, and variables.
+ * Expert waterfall over the assembled sections, contexts, tools, and variables.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): scoped listeners
  * receive only that scope's assemblies. The returned value is authoritative.
  * A supplied signal controls only this explicit assembly request and must not
@@ -874,7 +835,7 @@ A tool was registered or unregistered, or a scoped restriction changed (the avai
 'tools/change'(): void
 ```
 
-Source: [`packages/core/tools/src/index.ts:156`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:167`](../../packages/core/tools/src/index.ts)
 
 ### `tools/code-dispatch-log` — waterfall
 
@@ -898,7 +859,7 @@ Shape the DURABLE LOG COPY of one `run_code` sub-dispatch outcome before the bri
 
 Types: [CodeDispatchLog](../core-data-structures/tools.md) · [ContentBlock](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [ToolRegistry](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:138`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:149`](../../packages/core/tools/src/index.ts)
 
 ### `tools/execute` — waterfall
 
@@ -920,7 +881,7 @@ Around-dispatch waterfall for timeout, retry, or metrics. `next()` returns a nor
 
 Types: [Scoped](../core-data-structures/scope.md) · [ToolDispatchExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolRegistry](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:113`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:124`](../../packages/core/tools/src/index.ts)
 
 ### `tools/post-execute` — waterfall
 
@@ -943,7 +904,7 @@ Accept, replace, enrich, or block a normalized dispatch result. `next()` accepts
 
 Types: [PostToolDecision](../core-data-structures/tools.md) · [Scoped](../core-data-structures/scope.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolRegistry](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:125`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:136`](../../packages/core/tools/src/index.ts)
 
 ### `tools/pre-execute` — waterfall
 
@@ -964,7 +925,7 @@ Allow, deny, or ask before dispatch. `next()` delegates to allow; missing approv
 
 Types: [PreToolDecision](../core-data-structures/tools.md) · [Scoped](../core-data-structures/scope.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolRegistry](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:102`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:113`](../../packages/core/tools/src/index.ts)
 
 ### `tools/result` — emit
 
@@ -983,7 +944,7 @@ Observe the frozen, lossless-JSON final outcome. Listener failures are contained
 
 Types: [Scoped](../core-data-structures/scope.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolRegistry](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:146`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:157`](../../packages/core/tools/src/index.ts)
 
 ## `workflow/*`
 
@@ -1011,13 +972,13 @@ Source: [`packages/workflow/workflow/src/index.ts:81`](../../packages/workflow/w
 
 ### `workflow/agent-start` — emit
 
-One `agent()` call established a ready child run. Paired with Events['workflow/agent-end'] by `agent.seq`. A call that never receives a ready run from the provider emits neither event in this pair.
+One `agent()` call established a published child run. Paired with Events['workflow/agent-end'] by `agent.seq`. A call that never receives a published run from the provider emits neither event in this pair.
 
 ```ts cordis-catalog
 /**
- * One `agent()` call established a ready child run. Paired with
+ * One `agent()` call established a published child run. Paired with
  * {@link Events['workflow/agent-end']} by `agent.seq`. A call that never
- * receives a ready run from the provider emits neither
+ * receives a published run from the provider emits neither
  * event in this pair.
  * @param info - the run's identity snapshot.
  * @param agent - the call's sequence number, label, phase, and child id.
@@ -1119,7 +1080,8 @@ The framework events every plugin also sees, beyond the harness vocabulary above
 - `internal/listener` — A listener was registered. ([`vendor/cordis/src/events.ts:340`](../../vendor/cordis/src/events.ts))
 - `internal/dispatch` — An event is being dispatched to listeners. ([`vendor/cordis/src/events.ts:342`](../../vendor/cordis/src/events.ts))
 - `hmr/change` — A watched source file changed on disk. ([`vendor/hmr/src/index.ts:20`](../../vendor/hmr/src/index.ts))
-- `hmr/reload` — Plugins are being reloaded after a change. ([`vendor/hmr/src/index.ts:21`](../../vendor/hmr/src/index.ts))
+- `hmr/reload` — Plugins are being reloaded after a change. ([`vendor/hmr/src/index.ts:22`](../../vendor/hmr/src/index.ts))
+- `hmr/config-update-failed` — A watched config-file refresh failed. ([`vendor/hmr/src/index.ts:29`](../../vendor/hmr/src/index.ts))
 - `exit` — The process is exiting on a signal. ([`vendor/loader/src/index.ts:23`](../../vendor/loader/src/index.ts))
 - `loader/config-update` — The loader config tree changed. ([`vendor/loader/src/index.ts:24`](../../vendor/loader/src/index.ts))
 - `loader/entry-init` — A config entry is being initialized. ([`vendor/loader/src/index.ts:25`](../../vendor/loader/src/index.ts))

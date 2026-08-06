@@ -44,12 +44,12 @@ function reading(
 }
 
 function preparing(turn: number, step: number): Session {
-  const session = new Session(SessionId(`time-invariant-${turn}-${step}`))
+  const session = Session.create(SessionId(`time-invariant-${turn}-${step}`))
   for (let priorTurn = 1; priorTurn < turn; priorTurn += 1) {
-    session.append('turn/start', { turn: priorTurn, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: priorTurn })
     session.append('turn/end', { turn: priorTurn, reason: { kind: 'completed' } })
   }
-  session.append('turn/start', { turn, trigger: { kind: 'message', source: { kind: 'user' } } })
+  session.append('turn/start', { turn })
   session.append('user/message', createUserMessage({
     content: [{ type: 'text', text: `turn ${turn}` }],
     source: { kind: 'user' },
@@ -58,6 +58,7 @@ function preparing(turn: number, step: number): Session {
     session.append('step/start', { turn, step: priorStep })
     session.append('step/end', { turn, step: priorStep })
   }
+  session.append('step/start', { turn, step })
   return session
 }
 
@@ -87,13 +88,13 @@ describe('time-context invariants', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create(SessionId('time-invariant-late-valid'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
+    session.append('step/start', { turn: 1, step: 1 })
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'prepare' }],
       source: { kind: 'user' },
     }), { surfaceOp: 'append' })
     appendReading(session, reading())
-    session.append('step/start', { turn: 1, step: 1 })
 
     await ctx.plugin(InvariantService, { enabled: true })
     await expect(ctx.plugin(TimeInvariant)).resolves.toBeDefined()
@@ -103,7 +104,8 @@ describe('time-context invariants', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create(SessionId('time-invariant-late-invalid'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
+    session.append('step/start', { turn: 1, step: 1 })
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'prepare' }],
       source: { kind: 'user' },
@@ -125,19 +127,22 @@ describe('time-context invariants', () => {
   it('rejects a reading after cancellation closes the turn', async () => {
     const ctx = await setup()
     const session = preparing(1, 2)
-    session.append('turn/end', { turn: 1, reason: { kind: 'aborted' } })
+    session.append('turn/end', { turn: 1, reason: { kind: 'aborted', reason: { kind: 'user' } } })
     expect(() => { ctx.emit('session/event', session, event(reading('1', '2', 'step context'))) })
-      .toThrow(/inside an open turn/)
+      .toThrow(/at a prompt boundary/)
   })
 
-  it('rejects a reading after step/start or without any open turn', async () => {
+  it('rejects a reading outside a prompt boundary', async () => {
     const ctx = await setup()
-    const started = preparing(1, 1)
-    started.append('step/start', { turn: 1, step: 1 })
-    expect(() => { ctx.emit('session/event', started, event(reading())) }).toThrow(/must precede step\/start/)
+    const ended = preparing(1, 1)
+    ended.append('step/end', { turn: 1, step: 1 })
+    expect(() => { ctx.emit('session/event', ended, event(reading())) }).toThrow(/at a prompt boundary/)
+    const notEntered = Session.create(SessionId('time-invariant-turn-only'))
+    notEntered.append('turn/start', { turn: 1 })
+    expect(() => { ctx.emit('session/event', notEntered, event(reading())) }).toThrow(/at a prompt boundary/)
     expect(() => {
-      ctx.emit('session/event', new Session(SessionId('time-invariant-empty')), event(reading()))
-    }).toThrow(/inside an open turn/)
+      ctx.emit('session/event', Session.create(SessionId('time-invariant-empty')), event(reading()))
+    }).toThrow(/at a prompt boundary/)
   })
 
   it.each([
@@ -180,7 +185,7 @@ describe('time-context invariants', () => {
     expect(() => { ctx.emit('session/event', preparing(1, 1), user) }).not.toThrow()
     expect(() => {
       ctx.emit('session/event', preparing(1, 1), {
-        type: 'turn/start', seq: 0, time: 0, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+        type: 'turn/start', seq: 0, time: 0, data: { turn: 1 },
       })
       ctx.emit('tools/change')
     }).not.toThrow()

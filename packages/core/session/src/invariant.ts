@@ -144,9 +144,12 @@ function validateEvent(
     }
     case 'user/message':
       break
-    case 'steering/message':
+    case 'session/end-seed':
+      // Unconstrained: an unbalanced seed legally puts it inside an open turn.
+      break
     case 'todo/write':
-    case 'request/header': {
+    case 'request/header':
+    case 'request/context': {
       if (trace.openTurn === null) {
         fail(`${event.type} appended outside any open turn (core execution events must be turn-enclosed)`)
       }

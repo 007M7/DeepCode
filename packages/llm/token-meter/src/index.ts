@@ -10,12 +10,15 @@ import { BlockAssembler, deepFreeze } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, Message, TokenUsage } from '@deepseek-ai/dsh-llm'
 import type { EpochHeader, Session, SessionEvent, SurfaceEvent } from '@deepseek-ai/dsh-session'
 import { canonicalHeader, headerEquals, isSurfaceEvent } from '@deepseek-ai/dsh-session'
+// Type-only: resolves the optional projection registry Context seam.
+import type {} from '@deepseek-ai/dsh-session-projection'
 import type {
   TokenMeasurement,
   TokenMeasurementBaseline,
   TokenMeterConfig,
   TokenSurfaceNode,
 } from './types.ts'
+import { contextPressureProjectionDefinition, tokenUsageProjectionDefinition } from './usage-projection.ts'
 
 export type * from './types.ts'
 
@@ -89,6 +92,13 @@ export class TokenMeterService extends Service {
   constructor(ctx: Context, config: TokenMeterConfig = {}) {
     super(ctx, 'tokenMeter')
     validateConfigKeys(config)
+
+    // Projection registration is an optional child: compositions without the
+    // generic registry keep the meter's standalone read shape.
+    ctx.inject(['sessionProjections'], (projectionCtx) => {
+      projectionCtx.sessionProjections.register(tokenUsageProjectionDefinition)
+      projectionCtx.sessionProjections.register(contextPressureProjectionDefinition)
+    })
 
     // Readers catch up independently, while eager observation bounds ordinary
     // read latency without creating state for sessions no consumer has read.
@@ -171,7 +181,7 @@ export class TokenMeterService extends Service {
     }
 
     while (state.consumedEvents < session.events.length) {
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- contiguous session seqs index the durable log
+      // oxlint-disable-next-line typescript/no-non-null-assertion -- contiguous session seqs index the durable log
       const event = session.events[state.consumedEvents]!
       this._foldEvent(session, state, event)
       state.consumedEvents += 1
@@ -226,7 +236,7 @@ export class TokenMeterService extends Service {
       }
 
       // assistant/message is surface-mandatory at every append/seed boundary.
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      // oxlint-disable-next-line typescript/no-non-null-assertion
       const eventTokens = surface!.tokens
       if (event.data.usage !== undefined && nextHeader !== undefined) {
         const providerAssistantTokens = this._estimateProviderAssistant(
@@ -334,7 +344,7 @@ export class TokenMeterService extends Service {
       // Session construction validates contiguous seqs, and the explicit
       // earlier-than-assistant check above therefore guarantees existence.
       const source = session.events[seq]
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      // oxlint-disable-next-line typescript/no-non-null-assertion
       const sourceEvent = source!
       if (sourceEvent.type !== 'assistant/chunk') {
         throw new Error(`token meter: assistant/message at seq ${event.seq} source seq ${seq} is not assistant/chunk`)

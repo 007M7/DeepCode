@@ -38,7 +38,6 @@ function appendToolStep(
   const callId = CallId(call)
   session.append('turn/start', {
     turn,
-    trigger: { kind: 'message', source: { kind: 'user' } },
   })
   session.append('step/start', { turn, step: 1 })
   session.append('assistant/message', {
@@ -153,7 +152,7 @@ describe('ToolResultPruneService content transform', () => {
 
 describe('ToolResultPruneService session transaction', () => {
   it('prunes a stable snapshot, preserves all data, and records provenance', () => {
-    const session = new Session(SessionId('preserve'))
+    const session = Session.create(SessionId('preserve'))
     const originalSeq = appendToolStep(session, 1, 'one', [{
       type: 'text',
       text: 'x'.repeat(100),
@@ -165,7 +164,6 @@ describe('ToolResultPruneService session transaction', () => {
     })
     session.append('turn/start', {
       turn: 2,
-      trigger: { kind: 'message', source: { kind: 'user' } },
     })
 
     const result = service().pruneSession(session)
@@ -208,13 +206,12 @@ describe('ToolResultPruneService session transaction', () => {
   })
 
   it('prunes multiple results, skips short ones, and converges in one pass', () => {
-    const session = new Session(SessionId('multiple'))
+    const session = Session.create(SessionId('multiple'))
     appendToolStep(session, 1, 'a', [{ type: 'text', text: 'A'.repeat(100) }])
     appendToolStep(session, 2, 'b', [{ type: 'text', text: 'short' }])
     appendToolStep(session, 3, 'c', [{ type: 'text', text: 'C'.repeat(80) }])
     session.append('turn/start', {
       turn: 4,
-      trigger: { kind: 'message', source: { kind: 'user' } },
     })
     const prune = service()
     const first = prune.pruneSession(session)
@@ -227,14 +224,13 @@ describe('ToolResultPruneService session transaction', () => {
   })
 
   it('replays to the identical pruned model messages', () => {
-    const session = new Session(SessionId('replay'))
+    const session = Session.create(SessionId('replay'))
     appendToolStep(session, 1, 'a', [{ type: 'text', text: 'A'.repeat(100) }])
     session.append('turn/start', {
       turn: 2,
-      trigger: { kind: 'message', source: { kind: 'user' } },
     })
     service().pruneSession(session)
-    const replay = new Session(session.id, [...session.events])
+    const replay = Session.create(session.id, [...session.events])
     expect(replay.deriveMessages()).toEqual(session.deriveMessages())
     expect(replay.surface.replaceGeneration).toBe(session.surface.replaceGeneration)
   })
@@ -250,7 +246,6 @@ describe('ToolResultPruneService session transaction', () => {
     expect(() => prune.pruneSession(session)).toThrow(/outside any open turn/)
     session.append('turn/start', {
       turn: 2,
-      trigger: { kind: 'message', source: { kind: 'user' } },
     })
     expect(() => prune.pruneSession(session)).not.toThrow()
   })
