@@ -2502,6 +2502,12 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         ],
       }),
       models: request => ok(request, { groups: fixtureModelGroups(), failures: [] }),
+      // The fixture endpoint is imaginary, so the interrogation answers the
+      // catalog it already serves — enough for a surface to exercise adopting
+      // candidates without a reachable provider.
+      discoverModels: request => ok(request, {
+        models: fixtureModelGroups().flatMap(group => group.models.map(model => ({ id: model.id, name: model.name }))),
+      }),
     },
     respond(message: ClientResponse): Promise<RpcReceipt> {
       // Same routing discipline as the host: rpcId first, then the payload's
@@ -2619,6 +2625,7 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'credentials.unset': return this.api.credentials.unset(request)
       case 'llm.providers': return this.api.llm.providers(request)
       case 'llm.models': return this.api.llm.models(request)
+      case 'llm.discoverModels': return this.api.llm.discoverModels(request, signal)
     }
   }
 
