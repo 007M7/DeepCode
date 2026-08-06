@@ -18,7 +18,7 @@ import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-web-react'
 import { CustomProviderCard } from './CustomProviderCard.tsx'
 import { deriveKeyRef, messageOf, protocolChoices } from './store.ts'
 import type { ModelsSettingsState, ModelsSettingsStore, ProviderRow } from './store.ts'
-import { ProviderEditor } from './ProviderEditor.tsx'
+import { ProviderEditor, type ProviderEditorProps } from './ProviderEditor.tsx'
 import type { en } from './locales.ts'
 import styles from './ModelsSection.module.css'
 
@@ -54,6 +54,26 @@ interface EditorTarget extends ProviderIdentity {
   settingsPath: readonly string[]
   /** Writable credential identified under this page's conventional reference. */
   credentialRef?: string
+}
+
+/** Values that vary around the shared provider-editor rendering. */
+interface ProviderEditorRenderProps extends Pick<
+  ProviderEditorProps,
+  'namespace' | 'api' | 't' | 'readOnly' | 'onClose'
+> {
+  target: EditorTarget
+}
+
+/** Render an editor for either the setup posture or an expanded provider row. */
+function renderProviderEditor({ target, ...props }: ProviderEditorRenderProps): ReactNode {
+  return (
+    <ProviderEditor
+      provider={target.provider}
+      displayName={target.displayName}
+      settingsPath={target.settingsPath}
+      {...props}
+    />
+  )
 }
 
 /**
@@ -232,16 +252,14 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
             // setup card IS its presence on the page.
             return (
               <li key={row.entry.provider} className={styles['setupCard']}>
-                <ProviderEditor
-                  provider={target.provider}
-                  displayName={target.displayName}
-                  namespace={namespace}
-                  settingsPath={target.settingsPath}
-                  api={api}
-                  t={t}
-                  readOnly={!state.writable}
-                  onClose={(changed) => { closeEditor(changed, target) }}
-                />
+                {renderProviderEditor({
+                  target,
+                  namespace,
+                  api,
+                  t,
+                  readOnly: !state.writable,
+                  onClose: (changed) => { closeEditor(changed, target) },
+                })}
               </li>
             )
           }
@@ -312,18 +330,14 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
                 </span>
               </div>
               {open
-                ? (
-                  <ProviderEditor
-                    provider={target.provider}
-                    displayName={target.displayName}
-                    namespace={namespace}
-                    settingsPath={target.settingsPath}
-                    api={api}
-                    t={t}
-                    readOnly={!state.writable}
-                    onClose={(changed) => { closeEditor(changed, target) }}
-                  />
-                )
+                ? renderProviderEditor({
+                  target,
+                  namespace,
+                  api,
+                  t,
+                  readOnly: !state.writable,
+                  onClose: (changed) => { closeEditor(changed, target) },
+                })
                 : null}
             </li>
           )
