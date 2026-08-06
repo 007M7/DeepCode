@@ -85,6 +85,19 @@ function leadingFor(state: SkillRowState): ReactNode {
   }
 }
 
+/** Leading disclosure slot: state icon at rest, chevron on hover or while open. */
+function disclosureLeading(state: SkillRowState, open: boolean, expandable: boolean): ReactNode {
+  if (open) return <IconChevronDownOutline14 className={css.chevron} />
+  const icon = leadingFor(state)
+  if (!expandable) return icon
+  return (
+    <>
+      <span className={css.iconIdle}>{icon}</span>
+      <IconChevronDownOutline14 className={`${css.chevron} ${css.chevronHover}`} />
+    </>
+  )
+}
+
 /** Visually hidden state copy for the colour-only lifecycle cues. */
 function stateStatus(state: SkillRowState, t: SkillRowProps['t']): string | null {
   switch (state) {
@@ -125,16 +138,7 @@ export function SkillRow({ block, inspect, t }: SkillRowProps) {
     event.preventDefault()
     toggleExpand()
   }
-  const leading = open
-    ? <IconChevronDownOutline14 className={css.chevron} />
-    : expandable
-      ? (
-        <>
-          <span className={css.iconIdle}>{leadingFor(model.state)}</span>
-          <IconChevronDownOutline14 className={`${css.chevron} ${css.chevronHover}`} />
-        </>
-      )
-      : leadingFor(model.state)
+  const leading = disclosureLeading(model.state, open, expandable)
   return (
     <div className={css.card} data-tool="skill" data-state={model.state}>
       <div
