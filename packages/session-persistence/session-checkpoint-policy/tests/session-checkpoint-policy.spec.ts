@@ -61,7 +61,7 @@ describe('session-checkpoint-policy request boundary', () => {
   it('awaits the live session checkpoint before constructing the downstream model stream', async () => {
     const ctx = await setup()
     const session = ctx.sessions.create(SessionId('request-checkpoint'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     const gate = Promise.withResolvers<undefined>()
     const order: string[] = []
     ctx.on('session/flush', async () => {
@@ -220,13 +220,17 @@ describe('session-checkpoint-policy tool and step boundaries', () => {
     expect(flushes).toBe(0)
   })
 
-  it('checkpoints before the next agent step', async () => {
+  it('checkpoints during pre-step processing', async () => {
     const ctx = await setup()
     const session = ctx.sessions.create(SessionId('post-step'))
     const agent = { session } as Agent
     const flushed: string[] = []
     ctx.on('session/flush', (current) => { flushed.push(current.id) })
-    await agentEvents(ctx, agent).serial('agent/step', 1, 1, new AbortController().signal)
+    const signal = new AbortController().signal
+    await agentEvents(ctx, agent).waterfall(
+      'agent/pre-step', { messages: [], turn: 1, step: 1, signal },
+      () => Promise.resolve({ kind: 'enter', messages: [] }),
+    )
     expect(flushed).toEqual([session.id])
   })
 })

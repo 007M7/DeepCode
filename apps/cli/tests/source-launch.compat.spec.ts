@@ -16,7 +16,7 @@ const repoRoot = fileURLToPath(new URL('../../../', import.meta.url))
 const dshSourceBin = 'apps/cli/src/bin.ts'
 
 describe('dsh SOURCE launcher (node --import tsx/esm)', () => {
-  it('boots the source entry and requires the raw config overlay', async () => {
+  it('boots the source entry and requires a profile', async () => {
     const result = await execa(process.execPath, ['--import', 'tsx/esm', dshSourceBin], {
       cwd: repoRoot,
       input: '',
@@ -28,7 +28,7 @@ describe('dsh SOURCE launcher (node --import tsx/esm)', () => {
       throw new Error(`dsh source launch did not exit within 25s. stdout:\n${result.stdout}\nstderr:\n${result.stderr}`)
     }
     expect(result.exitCode).not.toBe(0)
-    expect(result.stderr).toContain('--config <path> is required')
+    expect(result.stderr).toContain('--profile <name> is required')
     expect(result.stdout).toBe('')
   }, 30_000)
 })

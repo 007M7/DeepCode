@@ -50,7 +50,7 @@ async function harness() {
 /** Resolve on the agent's next transition to idle (event-based, not polled). */
 function nextIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
-    const dispose = ctx.on('agent/status', (subject, status) => {
+    const dispose = ctx.on('agent/status', ({ agent: subject, status }) => {
       if (subject === agent && status === 'idle') {
         dispose()
         resolve()
@@ -63,7 +63,7 @@ function nextIdle(ctx: Context, agent: Agent): Promise<void> {
  * the seen list plus a disposer for the listener (per the registry convention). */
 function recordStatus(ctx: Context, agent: Agent): { seen: string[]; dispose: () => void } {
   const seen: string[] = []
-  const dispose = ctx.on('agent/status', (subject, status) => {
+  const dispose = ctx.on('agent/status', ({ agent: subject, status }) => {
     if (subject === agent) seen.push(status)
   })
   return { seen, dispose }
@@ -78,7 +78,7 @@ function userMessageTexts(agent: Agent): string[] {
 function turnNumbers(agent: Agent): number[] {
   return agent.session.events
     .filter(e => e.type === 'turn/start')
-    .map(e => (e.data as { turn: number }).turn)
+    .map(e => e.data.turn)
 }
 
 function turnEndNumbers(agent: Agent): number[] {

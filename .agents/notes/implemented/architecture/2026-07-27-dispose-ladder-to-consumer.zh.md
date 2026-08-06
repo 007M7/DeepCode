@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-`SubprocessHandle.dispose(graces)` 与 `SubprocessDisposeGraces` 把一整套拆卸*策略*——等待 stdin EOF、再 SIGTERM、再 SIGKILL，每一层由调用方提供的时间窗约束——放在了一个其余动词均为单一机制的 seam 上。它始终只有一个调用方（ACP subagent 后端）；bash 走 `terminate()` 与服务拆卸，LSP 主机运行自己的协议优先关闭流程。然而每个未来后端都必须实现该阶梯才能满足接口，实现包也仅为阶梯的层级时限背上了 `dsh-timeout` 依赖。
+`SubprocessHandle.dispose(graces)` 与 `SubprocessDisposeGraces` 把一整套拆卸*策略*——等待 stdin EOF、再 SIGTERM、再 SIGKILL，每一层由调用方提供的时间窗约束——放在了一个其余动词均为单一机制的 seam 上。它始终只有一个调用方（ACP（Agent Client Protocol）subagent 后端）；bash 走 `terminate()` 与服务拆卸，LSP 主机运行自己的协议优先关闭流程。然而每个未来后端都必须实现该阶梯才能满足接口，实现包也仅为阶梯的层级时限背上了 `dsh-timeout` 依赖。
 
 ## 决策
 
@@ -14,7 +14,7 @@ Status: implemented
 
 ## 曾考虑的替代方案
 
-**把阶梯作为便利方法留在句柄上。**否决：一个每个实现都必须提供的 seam 方法不是便利，而是契约表面——而这一个把某一消费方的配合形状（stdin EOF 打头）当作进程词汇来编码。seam 自己的 README 早已不得不加注「依赖其他信号停稳的子进程需要自己的第一阶」，这本身就是承认该阶梯是策略。
+**把阶梯作为便利方法留在句柄上。**否决：一个每个实现都必须提供的 seam 方法不是便利，而是契约表面——而这一个把某一消费方的配合形状（stdin EOF 打头）当作进程词汇来编码。seam 自己的 README 早已不得不加注「依赖其他信号才能完全停稳的子进程需要自己的第一阶」，这本身就是承认该阶梯是策略。
 
 **把阶梯移到共享辅助包。**否决：只有一个消费方。当第二个具有相同 stdin EOF 配合形状的进程外后端出现时，可以再把 `disposeAcpChild` 提升为共享代码；现在抽取只会重造 `dsh-subagent-subprocess`——这组堆叠变更刚刚删掉的那个单一用途库。
 

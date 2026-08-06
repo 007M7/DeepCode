@@ -275,17 +275,18 @@ export class HarnessClient {
   }
 
   /**
-   * Run one prompt turn to settlement (the response arrives only after the
-   * turn settled; progress streams as notifications meanwhile).
+   * Queue one prompt and return its durable inbox identity.
    * @param sessionId - target session; an unknown id creates it.
    * @param contentBlocks - the user message, sent verbatim.
+   * @returns the queued message id.
    */
-  async prompt(sessionId: string, contentBlocks: ContentBlock[]): Promise<void> {
+  async prompt(sessionId: string, contentBlocks: ContentBlock[]): Promise<string> {
     const params: SessionPromptParams = { sessionId, contentBlocks }
     const result = await this.request('session/prompt', { ...params })
-    if (!isRecord(result) || result.accepted !== true) {
-      throw new SdkProtocolError(`session/prompt was not accepted: ${JSON.stringify(result)}`)
+    if (!isRecord(result) || typeof result.messageId !== 'string') {
+      throw new SdkProtocolError(`session/prompt returned no message id: ${JSON.stringify(result)}`)
     }
+    return result.messageId
   }
 
   /**

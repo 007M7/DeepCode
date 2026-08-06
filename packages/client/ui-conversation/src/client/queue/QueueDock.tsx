@@ -213,8 +213,8 @@ export function QueueDock({ useSession, updateQueue, notify, t }: QueueDockProps
 }
 
 /**
- * The dock entry as a plain registrant plugin. The conversation service is the
- * ordering and action seam; session scopes provide the exact queue owner.
+ * The dock entry as a plain registrant plugin. The conversation service is
+ * the action seam; the slot declaration is its independent lifecycle seam.
  */
 export const queueDockEntry = {
   name: 'conversation-queue-dock',
@@ -224,7 +224,7 @@ export const queueDockEntry = {
    * @param ctx - registrant context (disposal rides ctx.effect inside slots.register).
    */
   apply(ctx: Context): void {
-    ctx.slots.register({
+    ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
       name: 'conversation.input.dock',
       id: 'queue',
       order: 20,
@@ -239,6 +239,6 @@ export const queueDockEntry = {
           notify: (level, text) => { conversation.input.for(actx).notify(level, text) },
         }
       },
-    }, QueueDock)
+    }, QueueDock))
   },
 }

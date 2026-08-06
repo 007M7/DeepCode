@@ -59,26 +59,15 @@ describe('agent/request-error', () => {
       turn: number
       step: number
       failure: LlmFailure
-      priorFailures: readonly LlmFailure[]
       retryPolicy: ResolvedRetryPolicy | undefined
     }[] = []
     const statuses: string[] = []
-    const settledTurns: number[] = []
-    ctx.on('agent/status', (subject, status) => {
+    ctx.on('agent/status', ({ agent: subject, status }) => {
       if (subject === agent) statuses.push(status)
     })
-    ctx.on('agent/settled', (subject, turn) => {
-      if (subject === agent) settledTurns.push(turn)
-    })
-    ctx.on('agent/request-error', async (
-      subject, turn, step, _error, failure, priorFailures, retryPolicy,
-    ) => {
+    ctx.on('agent/request-error', async ({ agent: subject, turn, step, failure, retryPolicy }) => {
       expect(subject).toBe(agent)
-      expect(agent.session.events.at(-1)).toMatchObject({
-        type: 'step/end',
-        data: { turn, step },
-      })
-      seen.push({ turn, step, failure, priorFailures, retryPolicy })
+      seen.push({ turn, step, failure, retryPolicy })
       return { kind: 'retry' }
     })
 
@@ -96,32 +85,24 @@ describe('agent/request-error', () => {
         code: 'RATE_LIMIT',
       },
       {
-        turn: 2,
+        turn: 1,
         step: 1,
         code: 'SERVICE_UNAVAILABLE',
       },
     ])
-    expect(agent.session.events.filter(event => event.type === 'turn/start').map(event => event.data.trigger))
-      .toEqual([
-        { kind: 'message', source: { kind: 'user' } },
-        { kind: 'retry' },
-        { kind: 'retry' },
-      ])
-    expect(seen.map(item => item.priorFailures.map(failure => failure.code)))
-      .toEqual([[], ['RATE_LIMIT']])
+    expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
     expect(seen.map(item => item.retryPolicy)).toEqual([
       expect.objectContaining({ mode: 'normal' }),
       expect.objectContaining({ mode: 'normal' }),
     ])
     expect(statuses).toEqual(['running', 'idle'])
-    expect(settledTurns).toEqual([3])
   })
 
   it('lets cancellation win over a retry action', async () => {
     const adapter = new MockAdapter([fail('busy', 'RATE_LIMIT'), textResponse('unused')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('request-error-cancel'), { provider: 'mock', model: 'mock' })
-    ctx.on('agent/request-error', async (subject) => {
+    ctx.on('agent/request-error', async ({ agent: subject }) => {
       subject.cancel({ kind: 'user' })
       return { kind: 'retry' }
     })
@@ -133,7 +114,7 @@ describe('agent/request-error', () => {
     expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
     expect(agent.session.events.find(event => event.type === 'turn/end')).toMatchObject({
       type: 'turn/end',
-      data: { reason: { kind: 'aborted' } },
+      data: { reason: { kind: 'aborted', reason: { kind: 'user' } } },
     })
   })
 

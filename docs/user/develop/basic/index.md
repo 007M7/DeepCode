@@ -2,7 +2,15 @@
 
 English | [中文](index.zh.md)
 
-This guide creates a minimal Harness plugin and loads it into an agent.
+This tutorial creates a minimal Harness plugin and loads it into the Web UI. Start from a repository checkout that has completed the [quick start](../../guide/quickstart.md).
+
+## Create a local project
+
+From the repository root, create a scratch project for the tutorial:
+
+```sh
+mkdir -p scratch-plugin/src
+```
 
 ## What is a plugin?
 
@@ -22,7 +30,7 @@ That is the complete shape.
 
 ## Create the plugin file
 
-Create `src/my-plugin.ts` in your project:
+Create `scratch-plugin/src/my-plugin.ts`:
 
 ```ts
 import type { Context } from 'cordis'
@@ -37,14 +45,21 @@ export function apply(ctx: Context) {
 
 ## Register it in cordis.yml
 
-Add an entry to `cordis.yml`:
+Create `scratch-plugin/cordis.yml` as a Web overlay that inserts the local plugin:
 
 ```yaml
-- id: hello
-  name: './src/my-plugin.ts'
+- insert:
+    - id: hello
+      name: './src/my-plugin.ts'
 ```
 
-After startup, the console prints `[hello-plugin] plugin loaded!`.
+Start the Web UI with that overlay:
+
+```sh
+pnpm run dsh web --patch ./scratch-plugin/cordis.yml
+```
+
+Open `http://127.0.0.1:3080`. The terminal prints `[hello-plugin] plugin loaded!` during startup.
 
 ## Automatic cleanup
 
@@ -119,35 +134,6 @@ export default class MyService extends Service {
 ```
 
 Function form is sufficient in most cases. Use class form when the plugin provides a service to other plugins; see [services and dependencies](../framework/service.md).
-
-## Complete example
-
-A minimal tool plugin registers its definition on `ctx.tools`:
-
-```ts
-import type { Context } from 'cordis'
-import { defineTool } from '@deepseek-ai/dsh-tools'
-
-export const name = 'greet-tool'
-export const inject = ['tools']
-
-export function apply(ctx: Context) {
-  ctx.tools.register(defineTool({
-    name: 'greet',
-    description: 'Greet the named person.',
-    parameters: {
-      name: { type: 'string', required: true },
-    },
-    output: {
-      schema: { type: 'string' },
-      render: (_args, value) => [{ type: 'text', text: value }],
-    },
-    async execute(args) {
-      return `Hello, ${args.name}!`
-    },
-  }))
-}
-```
 
 ## Next steps
 

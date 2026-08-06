@@ -200,18 +200,6 @@ describe('dsh-subagent-spawn', () => {
     expect(published).toEqual([])
   })
 
-  it('a cancel from agent/inbox/enqueue maps a no-turn child log to aborted', async () => {
-    const { ctx, parent } = await setup([])
-    const controller = new AbortController()
-    ctx.on('agent/inbox/enqueue', () => { controller.abort('queued-window') })
-    const run = await start(ctx, 'spawn', { prompt: [{ type: 'text', text: 'p' }], parent, signal: controller.signal })
-    const result = await run.result
-    expect(result).toMatchObject({ stopReason: 'aborted', output: [] })
-    const child = ctx.agents.get(run.id)!
-    expect(child.session.events.some(event => event.type === 'turn/end')).toBe(false)
-    await run.dispose()
-  })
-
   it('cancelling a running child settles the run as aborted (the abort bridge + cancel())', async () => {
     // 'hang' makes the child's model stream one chunk then wait until aborted.
     const controller = new AbortController()

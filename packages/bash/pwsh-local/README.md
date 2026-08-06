@@ -46,7 +46,7 @@ No direct invalidation; the named consumer owns any request-prefix changes.
 ## Known Limitations and Deferred Work
 
 - **Unconfined by itself** — this executor always runs commands with the harness process's authority; deployments needing confinement compose a sandboxing bash executor or policy instead.
-- **No persistent shell or PTY** — every call starts a fresh `pwsh -Command`; interactive terminal sessions remain deferred until the roadmap's pwsh TUI/GUI rendering work lands.
+- **No persistent shell or PTY** — every call starts a fresh `pwsh -Command`.
 - **The command string is PowerShell text** — the `-Command` domain has no shell-quoting layer, but a model-facing command is parsed by PowerShell itself, so PowerShell syntax errors are command failures, not launch failures.
 - **A background spawn-failure note is single-delivery** — the subprocess service buffers no output for a process that never ran, so the executor injects `spawn failed: …` into exactly one `readOutput()` delta; a reader that discards that delta cannot recover it.
 - **Windows termination reports no signal** — a force-killed process settles as exit 1 with `signal: null`, so signal-based status classification (POSIX `killed`) does not apply on Windows; `kill()`-initiated stops still stamp `killed` directly.

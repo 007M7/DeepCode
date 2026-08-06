@@ -61,8 +61,6 @@ The child spawns through the [`dsh-subprocess`](../../subprocess/subprocess/READ
 
 The package has no default export. Cordis loader unwrapping would otherwise hide the named `inject` metadata; see [postmortem 0001](../../../docs/postmortem/0001-acp-default-export-drops-inject.md).
 
-Keyless tests drive a scripted ACP subprocess over real stdio, including a Loader-composed stdio app proving parent-session cwd inheritance end to end. The with-key e2e drives the repository's real ACP agent and self-skips without `DEEPSEEK_API_KEY`.
-
 ## Model Experience
 
 ### Child-agent request
@@ -100,4 +98,3 @@ Append-only; newly visible content follows the reusable request prefix and does 
 - **No optional start-time capabilities** — this provider cannot apply the local harness's `outputSchema`, depth cap, tool filter, or persona inside the remote process, so it advertises none and the service rejects requests that require them.
 - **Only committed `agent_message_chunk` text is collected** — the automation server keeps reasoning, tool activity, plans, and other trace data in the child session log rather than emitting them on ACP.
 - **Permission prompts are auto-answered** (`permission: allow | reject`) — no human is surfaced a child's `session/request_permission` in this cut.
-- **No snapshot-tier replay coverage** (`TODO(acp-subagent-replay)`) — an ACP child is its own process with its own replay shape, deferred.

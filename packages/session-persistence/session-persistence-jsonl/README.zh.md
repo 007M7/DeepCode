@@ -26,6 +26,7 @@ JSONL 持久会话存储后端：`SessionPersistence` 的一个具体实现（`d
 | `root` | `string`（必需） | 所有会话文件的根目录。**无默认值**：`process.cwd()` 默认值会随进程 cwd 变更（bash 调用、子进程）而分散文件。现有根必须是可读目录；缺失根在第一次实体化时创建。 |
 | `packChunks` | `boolean`（默认 `true`） | 将符合条件的 delta 分片连续段写为打包行（在真实编码会话上测得逻辑日志约小 60%）。设为 `false` 可用于每事件一行诊断；无论该写入侧开关如何，都能读取打包行。 |
 | `compression` | `'zstd' \| 'none'` | 默认 `'zstd'`；`'none'` 保留换行分隔 UTF-8 文本。 |
+| `preparedSessionCacheSize` | 正整数（默认 `5`） | 冷历史检查后保留、供恢复复用的未发布 Session 数量上限。 |
 
 `locate(meta)` 返回已解析项目/会话目录内固定 transcript 的 `{ kind: 'jsonl', path }`。它不执行文件系统 I/O：可以在目录或文件存在前返回目标，现有文件也只包含最近一次 flush 完成的前缀。
 
@@ -41,9 +42,9 @@ JSONL 持久会话存储后端：`SessionPersistence` 的一个具体实现（`d
 - **延迟实体化。**`create(meta)` 不写入；第一次 `append` 将编码 header 和第一批写入临时文件并执行 `fsync`。POSIX 通过硬链接无覆盖发布，并对父目录 `fsync`。Windows 通过 `MoveFileExW(..., MOVEFILE_WRITE_THROUGH)` 无覆盖发布，并通过同一 write-through pattern 创建缺失目录。已创建但从未 append 的会话不留下磁盘内容，不在 `list` 中。
 - **仅追加。** 已 flush 事件绝不重写。后续原始批次 append 行；压缩批次 append 一个 frame。两条路径都执行 `fsync`，并在捕获到写入或同步失败时回滚到之前字节长度。
 - **崩溃恢复：保留有效尾部工作。**`load` 验证每个完整压缩 frame，并扫描解压 JSONL。最后 frame 结构不完整时，读取器保留其完整解码记录，从 frame 开头截断，并使用共享[持久化契约](../../../.agents/notes/implemented/architecture/2026-06-14-session-persistence.md) 需要的合成工具、步骤和轮次 closer 重新编码这些记录。原始 mode 从第一个不完整行截断。完整 frame 中的 checksum/解压失败，或位于最后已提交的 `turn/end` 处或之前的缺陷属于损坏，会被拒绝。
-- **非变更检查。**`inspect()` 返回脱离的有效前缀，不截断不完整尾部或关闭中断轮次，并保持轻量修订不变。
+- **非变更检查。**`inspect()` 返回不可变、平衡的逻辑视图，并可在内存中合成恢复 closer，但不会截断不完整尾部或更改轻量修订。
 - **连续 seq。**`append` 拒绝第一个 `seq` 不继续已存储日志的批次，并拒绝非 JSON 可序列化 `event.data`，同时命名违规事件类型。
-- **轻量修订。**`listSnapshots(signal?)` 使用 device、inode、size 和纳秒时间戳标识日志，避免解析完整日志；该标识会在 append、修复、替换或存储变更后改变。它通过产物发现转发精确信号，并在每个 `stat` 前后检查取消；由于文件系统 `stat` 不可中断，取消会等待活动调用完成，然后在不启动另一次调用的情况下拒绝。
+- **轻量修订。**`listSnapshots(signal?)` 使用 device、inode、size 和纳秒时间戳标识日志，避免解析完整日志；该标识会在 append、修复、替换或存储变更后改变。完整前缀读取要求读取字节前后的身份一致，`readStoredRevision()` 使用同一身份校验保留的 preparation，而不加载日志。快照列表通过产物发现转发精确信号，并在每个 `stat` 前后检查取消；由于文件系统 `stat` 不可中断，取消会等待活动调用完成，然后在不启动另一次调用的情况下拒绝。
 
 ## 写入路径
 
@@ -55,11 +56,11 @@ JSONL 持久会话存储后端：`SessionPersistence` 的一个具体实现（`d
 
 #### 模型看到的内容
 
-JSONL 存储不影响当前提示词或 schema。加载会恢复已存储的呈现历史，并保留之前的请求 header 用于重建；新 loop 组合当前 envelope。恢复会用 `TOOL_NOT_STARTED` 平衡没有已持久化调用的 assistant 请求；已有已持久化调用但无结果时则变为 `TOOL_OUTCOME_UNKNOWN`，它要求模型只重试只读或幂等工作，并验证可能的副作用或询问用户。原始 `assistant/chunk` 记录不会重复生成消息。
+JSONL 存储不影响当前提示词或 schema。加载会恢复已存储的表层历史，并保留之前的请求 header 用于重建；新 loop 组合当前 envelope。恢复会用 `TOOL_NOT_STARTED` 平衡没有已持久化调用的 assistant 请求；已有已持久化调用但无结果时则变为 `TOOL_OUTCOME_UNKNOWN`，它要求模型只重试只读或幂等工作，并验证可能的副作用或询问用户。原始 `assistant/chunk` 记录不会重复生成消息。
 
 #### Token 影响
 
-当前请求不会新增 token。恢复后的 agent（智能体）会因保留的历史、当前 envelope，以及每个中断调用的前述修复结果文本而消耗 token。
+当前请求不会新增 token。恢复后的 agent（智能体）会因保留的历史、当前 envelope，以及每个中断调用中以引用形式加入的修复结果文本而消耗 token。
 
 #### KV Cache 影响
 
@@ -69,7 +70,7 @@ JSONL 存储不修改实时请求前缀。只有重建历史、当前 envelope �
 
 - **只加载已配置编码和当前 `SESSION_FORMAT_VERSION` (v0)**：更改压缩需要独立/全新根，或选择遗留原始 mode；预发布格式没有迁移。
 - **平铺文件存储布局不加载**：加载前使用独立根，或将预发布产物移入项目/会话目录布局。
-- **压缩文件不能直接按行读取**：使用后端加载；或在写入新根前选择 `compression: 'none'`，以便文本 fixture（测试前置数据）或外部行 reader 使用。
+- **压缩文件不能直接按行读取**：使用后端加载；或在写入新根前选择 `compression: 'none'`，以便外部行 reader 使用。
 - **不删除会话文件**：日志在 `root` 下累积，直到外部移除（seam 无删除接口）。
-- **每会话一个实时 writer**：append 和修复只在所属后端实例内协调。在 owner 完全停稳 dispose 前，其他后端实例或进程不得写入同一会话；初始同 id 发布仍通过 POSIX 无覆盖硬链接或 Windows 无替换 write-through rename 保持冲突安全。
+- **每会话一个实时 writer**：append 和修复只在所属后端实例内协调。在所有者完成完全停稳的 dispose 前，其他后端实例或进程不得写入同一会话；初始同 id 发布仍通过 POSIX 无覆盖硬链接或 Windows 无替换 write-through rename 保持冲突安全。
 - **POSIX 实体化需要硬链接支持**：第一次 append 使用 `link()`，使同 id 竞态失败，而不覆盖已提交日志；Windows 使用无替换 write-through rename。

@@ -36,4 +36,4 @@ A plugin can abort the active turn while preserving queued prompts through `keep
 
 ## Related
 
-This Agent Note only removes the redundant stop verb. Mid-turn steering remains an intentional message path; quiescence observation remains via `whenIdle()`. The resulting public surface is `send()`, `steer()`, `inject()`, `cancel()`, `whenIdle()`, status, options, session, and identity.
+This Agent Note only removes the redundant stop verb. Mid-turn steering remains an intentional message path; quiescence observation remains via `whenIdle()`. The resulting delivery surface is `followup()`, `steer()`, and `inject()`; stopping and observation remain with `cancel()` and `whenIdle()`.

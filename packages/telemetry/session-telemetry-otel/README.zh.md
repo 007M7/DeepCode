@@ -39,4 +39,4 @@ seam 记录 → SDK 日志记录：`time` → `timestamp`/`observedTimestamp`；
 ## 已知限制与暂缓事项
 
 - **上游实验性源码树**：`@opentelemetry/sdk-logs` 仍从上游实验性（experimental）源码树发布；SDK API 的变动只会落在本包，也仅落在本包；seam 契约不动。
-- **无真实 collector 覆盖**：所有测试都导出到本地 mock collector；无密钥的 Loader 组合 e2e（`tests/loader-composition.e2e.ts`）在每次运行中都覆盖协议格式（wire format）形态，而面对真实 OTLP 部署的行为（认证、TLS、限流）属于 SDK 导出器文档的职责范围。
+- **真实 collector 行为属于 SDK 导出器**：身份验证、TLS、限流及其他真实 OTLP 部署行为遵循上游 SDK，不由本包自有兼容层处理。

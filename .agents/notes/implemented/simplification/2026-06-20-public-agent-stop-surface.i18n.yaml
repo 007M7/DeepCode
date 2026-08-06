@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/simplification/2026-06-20-public-agent-stop-surface.md
-2026-06-20-public-agent-stop-surface.md: 7e8f6f691c999fd78c9b4133eaeac40f2d1c1ba9
-2026-06-20-public-agent-stop-surface.zh.md: 041d666eb817450add2d7a1746f7f5b81223568a
+2026-06-20-public-agent-stop-surface.md: e9c713c7ba8c784d3d66fe8f391e1b197f7394d2
+2026-06-20-public-agent-stop-surface.zh.md: 5c1eb0ec8245c60613d6d4d7c1d105b5243bc938

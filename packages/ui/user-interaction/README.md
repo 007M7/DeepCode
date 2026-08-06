@@ -28,7 +28,7 @@ For a single-select question, `custom` overrides the selected choice and `select
 
 ## Role
 
-This is the interface package. Model-facing consumers such as `@deepseek-ai/dsh-tool-ask-user` depend on this seam; `dsh-tui` and the host runtime provide interactive implementations. The loop stays unchanged: a tool call awaits a promise, and the tool result resumes the normal agent loop.
+This is the interface package. Model-facing consumers such as `@deepseek-ai/dsh-tool-ask-user` depend on this seam; the Web host runtime provides the shipped interactive implementation. The loop stays unchanged: a tool call awaits a promise, and the tool result resumes the normal agent loop.
 
 ## Model Experience
 

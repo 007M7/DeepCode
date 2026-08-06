@@ -2,9 +2,9 @@
 
 [English](README.md) | 中文
 
-无头单次应用及 bin，用于在没有交互式 UI 或编辑器客户端的情况下运行一项 agent（智能体）任务。它组合 [`@deepseek-ai/dsh-agent-spine-demo`](../agent-spine-demo/README.md)、JSONL 持久化，以及恰好一个新建顶层 agent。bin 提交任务，等待其已持久化的轮次结束状态，渲染所选输出，执行 dispose（资源释放）直至完全停稳，然后退出。
+无头单次应用及 bin，用于在没有交互式 UI 或编辑器客户端的情况下运行一项 agent（智能体）任务。它组合 [`@deepseek-ai/dsh-agent-spine-demo`](../agent-spine-demo/README.md)、JSONL 持久化，以及恰好一个新建顶层 agent。bin 拥有一个从 idle 到 idle 的活动区间，渲染所选输出，执行 dispose（资源释放）直至完全停稳，然后退出。
 
-该包（package）不挂载 console logger、交互式 UI、用户交互服务或 `ask_user_question` 工具。Stdout 专用于所选输出格式；诊断使用 stderr。
+该包不挂载 console logger、交互式 UI、用户交互服务或 `ask_user_question` 工具。Stdout 专用于所选输出格式；诊断使用 stderr。
 
 ## 配置
 
@@ -44,12 +44,12 @@ loader 配置通过仓库安装的可选原生辅助程序解析裸包说明符�
 ### 输出格式
 
 - `text` 写入最后一条含文本的 assistant 消息，后跟一个换行符。
-- `json` 写入一条 DSH 原生结果记录：`{ type: "result", success, sessionId, turn, result, reason, usage? }`。`usage` 对任务轮次中的每个模型步骤恰好求和一次，包括产生用量但没有提交 assistant 消息的已计费失败重试。
-- `stream-json` 将顶层会话任务轮次中的每个规范事件写成 `{ type: "session_event", sessionId, event }`，然后写入同一结果记录。子 agent 活动只通过父工具事件与结果出现。
+- `json` 写入一条 DSH 原生结果记录：`{ type: "result", sessionId, output, usage? }`。`output` 是活动区间内最后提交的 assistant 文本。`usage` 对该区间中的每个模型步骤恰好求和一次，包括产生用量但没有提交 assistant 消息的已计费失败尝试。
+- `stream-json` 将顶层会话自有活动区间中的每个规范事件写成 `{ type: "session_event", sessionId, event }`，然后写入同一结果记录。子 agent 活动只通过父工具事件与结果出现。
 
-只有 `reason.kind === "completed"` 会成功退出。其他已持久化的轮次结束状态仍会输出部分文本或结果记录，向 stderr 添加诊断，并以非零状态退出。参数和启动失败会让 stdout 保持为空。SIGINT 与 SIGTERM 会取消正在进行的工作，等待 dispose 完成，并分别以 130 和 143 退出。
+正常进入 idle 会成功退出，不会为该任务指定轮次原因。参数、启动、观测和持久化失败会让 stdout 保持为空。SIGINT 与 SIGTERM 会取消正在进行的工作，等待 dispose 完成，并分别以 130 和 143 退出。
 
-任务轮次会在最终输出前显式刷新。进程退出后，会话日志仍保留在 `persistenceRoot` 下。
+自有活动会在最终输出前显式刷新。进程退出后，会话日志仍保留在 `persistenceRoot` 下。
 
 ## 操作安全
 
@@ -57,11 +57,11 @@ headless-agent 叶节点提供本地 bash、文件系统、skill、subagent、�
 
 ## 模型体验
 
-### 单次任务轮次
+### 单次活动
 
 #### 模型看到的内容
 
-任务位置参数会成为一条用户消息。通过 `dsh-agent-spine-demo`，顶层 agent 还会收到已配置的工作区指令与 persona、skill 目录、可见工具 schema，以及同一轮次后续步骤所需的保留工具结果。
+任务位置参数会成为一条用户消息。通过 `dsh-agent-spine-demo`，顶层 agent 还会收到已配置的工作区指令与 persona、skill 目录、可见工具 schema，以及自有活动后续步骤所需的保留工具结果。
 
 #### Token 影响
 
@@ -75,4 +75,4 @@ headless-agent 叶节点提供本地 bash、文件系统、skill、subagent、�
 
 - **每个进程只创建一个新的顶层会话**：其工作区 cwd 是启动目录；此应用不支持恢复、第二条提示词、stdin 上下文或并发顶层会话。
 - **没有交互式问题或批准提供方**：需要人工回答的工具无法完成，除非其他叶节点按显式策略组合一个非交互式提供方。
-- **流式输出仅限顶层会话**：子会话不会平铺到流中，聚合用量只涵盖父任务轮次记录的模型步骤。
+- **流式输出仅限顶层会话**：子会话不会平铺到流中，聚合用量只涵盖父活动区间记录的模型步骤。

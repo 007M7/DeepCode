@@ -49,6 +49,7 @@ const SUBAGENT_DURABILITY_FAILURE_CONFIG = fileURLToPath(
 const LSP_CONFIG = fileURLToPath(new URL('./lsp.cordis.yml', import.meta.url))
 const WEB_CONFIG = fileURLToPath(new URL('../web.cordis.yml', import.meta.url))
 const FS_SEARCH_CONFIG = fileURLToPath(new URL('./fs-search.cordis.yml', import.meta.url))
+const PARTIAL_LANDLOCK_CONFIG = fileURLToPath(new URL('../partial-landlock.cordis.yml', import.meta.url))
 const PWSH_CONFIG = fileURLToPath(new URL('./pwsh.cordis.yml', import.meta.url))
 const SNAPSHOTS_DIR = join(dirname(fileURLToPath(import.meta.url)), 'snapshots')
 const PACKED_CHUNKS_SOURCE = 'hook-cc-pretool-deny'
@@ -175,6 +176,32 @@ const SCENARIOS: Scenario[] = [
     // PWSH_OK via [Console]::Out.Write so the fixture carries no platform
     // newline and one recording replays on every host.
     pwshOnly: true,
+  },
+  // Authored keyless replay through a test-only partial-Landlock provider:
+  // the exact compatibility notice must stay ordinary stderr when the wrapped
+  // `false` command exits 1, rather than becoming SANDBOX_UNAVAILABLE.
+  {
+    name: 'partial-landlock-child-failure',
+    hasModelTurn: true,
+    recorded: false,
+    headerClass: 'sandbox',
+    configPath: PARTIAL_LANDLOCK_CONFIG,
+    env: { DSH_PERMISSION_MODE: 'read-only' },
+    posixOnly: true,
+  },
+  // A valid cwd plus a missing provider executable exercises the assembled
+  // foreground error and background task marker without a platform runner.
+  {
+    name: 'missing-sandbox-runner',
+    hasModelTurn: true,
+    recorded: false,
+    headerClass: 'sandbox',
+    configPath: PARTIAL_LANDLOCK_CONFIG,
+    env: {
+      DSH_PERMISSION_MODE: 'read-only',
+      DSH_SNAPSHOT_MISSING_SANDBOX_RUNNER: '1',
+    },
+    posixOnly: true,
   },
   { name: 'todo-write', hasModelTurn: true, recorded: true },
   {
@@ -375,12 +402,13 @@ const SCENARIOS: Scenario[] = [
   // tool/code-dispatch events. Each overlay composes and pins its own header class.
   { name: 'code-mode-turn', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'code', configPath: CODE_MODE_CONFIG },
   // A nested fs dispatch inside run_code discovers workspace instructions. The
-  // injected user/message must follow the outer result while retaining workspace
-  // provenance, which proves Code Mode carries deferred tool context end to end.
+  // projection enters the inbox after the outer result and becomes model-visible
+  // on the following step, retaining workspace provenance end to end.
   {
     name: 'code-mode-workspace-context',
     hasModelTurn: true,
-    recorded: true,
+    recorded: false,
+    overridden: true,
     pinsHeader: true,
     headerClass: 'code-workspace-context',
     systemPromptSource: 'code-mode-turn',
@@ -463,15 +491,25 @@ it('packed ACP fixture retains every chunk row kind without changing the logical
   expect([...new Set(rowTypes)].sort()).toStrictEqual(['reasoning-chunks', 'text-chunks', 'tool-call-chunks'])
   const withoutMessageId = (record: unknown): unknown => {
     const cloned = structuredClone(record) as {
+      time?: unknown
       type?: unknown
-      data?: { id?: unknown; message?: { id?: unknown } }
+      data?: {
+        durationMs?: unknown
+        id?: unknown
+        inserted?: Array<{ id?: unknown }>
+        message?: { id?: unknown }
+      }
+    }
+    delete cloned.time
+    if (cloned.type === 'agent/inbox/spliced') {
+      for (const message of cloned.data?.inserted ?? []) delete message.id
     }
     if (cloned.type === 'user/message') delete cloned.data?.id
     if (cloned.type === 'assistant/message'
-      || cloned.type === 'tool/result'
-      || cloned.type === 'steering/message') {
+      || cloned.type === 'tool/result') {
       delete cloned.data?.message?.id
     }
+    if (cloned.type === 'hook/result') delete cloned.data?.durationMs
     return cloned
   }
   const logicalRecords = (records: readonly unknown[]): unknown[] => [

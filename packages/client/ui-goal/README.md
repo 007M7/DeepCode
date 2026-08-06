@@ -8,12 +8,12 @@ The `/client` export surface is the plugin body (`apply`/`inject`), the `GoalBar
 
 ## Model Experience
 
-Indirectly, through the `goal.edit`/`goal.pause`/`goal.resume`/`goal.clear` RPCs the strip's verbs submit: each accepted mutation appends a model-visible `goal/change` context message to the session (the same durable event the projection folds), so the model sees the updated goal state on its next turn. The strip itself adds no prompt content.
+Indirectly, through the `goal.edit`/`goal.pause`/`goal.resume`/`goal.clear` RPCs the strip's verbs submit: each accepted mutation commits in a durable `agent/inbox/spliced` insertion, which the goal projection folds immediately, and queues a `goal/change` context message. The model sees that context only if a later pre-step admits it; discarding the queued message does not roll back the projected state. The strip itself adds no prompt content.
 
 #### KV Cache effect
 
-None beyond the goal mutation's own context event, which appends to the log tail like any other message.
+None unless the queued goal context is admitted. An admitted context extends the history tail like any other message; an insertion discarded before admission does not affect the cache.
 
 ## Known Limitations and Deferred Work
 
-- **Durable phase only** — the projection value deliberately omits process-local activation (armed/disarmed), so the strip cannot distinguish an active-but-disarmed goal from an armed one; resume re-arms through the RPC side. A host-live-value channel is deferred until a real consumer needs it.
+- **Durable phase only** — the projection omits process-local activation, so the strip cannot distinguish an active-but-disarmed goal from an armed one; resume re-arms through the RPC side. There is no host-live activation channel.

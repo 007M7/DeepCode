@@ -46,7 +46,7 @@
 #   DSH_MASTER       master clone directory              (default: $DSH_SOURCE/master)
 #   DSH_CURRENT      stable symlink to the active worktree (default: $DSH_SOURCE/current)
 #   DSH_BIN_DIR      directory the `dsh` symlink lands in (default: ~/.local/bin)
-#   DSH_HOME         Harness home holding the personal config (default: ~/.dsh)
+#   DSH_HOME         Harness home holding profiles and user patches (default: ~/.dsh)
 # FIXME(install-ts): Move the post-checkout workflow into a tested TypeScript
 # entrypoint; keep this POSIX shell file as the curl/source bootstrap.
 set -eu

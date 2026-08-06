@@ -70,7 +70,7 @@ const messageEventArb: fc.Arbitrary<Appendable> = fc.oneof(
 
 // A non-message event (trace/replay data — must NOT affect derived history).
 const nonMessageEventArb: fc.Arbitrary<Appendable> = fc.oneof(
-  fc.constant<Appendable>({ type: 'turn/start', data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } }),
+  fc.constant<Appendable>({ type: 'turn/start', data: { turn: 1 } }),
   fc.constant<Appendable>({ type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } }),
   fc.constant<Appendable>({ type: 'step/start', data: { turn: 1, step: 1 } }),
   fc.constant<Appendable>({ type: 'step/end', data: { turn: 1, step: 1 } }),
@@ -82,7 +82,7 @@ const logArb = fc.array(anyEventArb, { maxLength: 25 })
 
 let counter = 0
 function build(events: Appendable[]): Session {
-  const session = new Session(SessionId(`prop-${counter++}`))
+  const session = Session.create(SessionId(`prop-${counter++}`))
   for (const e of events) {
     // Forward the generated intent verbatim; non-surface events carry none.
     if (e.intent !== undefined) session.append(e.type, e.data, e.intent)
@@ -110,7 +110,7 @@ describe('Session properties', () => {
   it('replay-from-seed reproduces the derivation identically', () => {
     fc.assert(fc.property(logArb, (events) => {
       const original = build(events)
-      const replayed = new Session(SessionId(`replay-${counter++}`), [...original.events])
+      const replayed = Session.create(SessionId(`replay-${counter++}`), [...original.events])
       expect(replayed.deriveMessages()).toEqual(original.deriveMessages())
       // Every explicit replay grows by exactly one log-only boundary.
       expect(replayed.events.slice(0, original.seq)).toEqual(original.events)
@@ -121,8 +121,8 @@ describe('Session properties', () => {
   it('replaying a log that already ends in end-seed adds no further marker', () => {
     fc.assert(fc.property(logArb, (events) => {
       const original = build(events)
-      const once = new Session(SessionId(`idem-a-${counter++}`), [...original.events])
-      const twice = new Session(SessionId(`idem-b-${counter++}`), [...once.events])
+      const once = Session.create(SessionId(`idem-a-${counter++}`), [...original.events])
+      const twice = Session.create(SessionId(`idem-b-${counter++}`), [...once.events])
       // Lazy resume makes browsing a pickup, so this must not grow per open.
       expect(twice.events).toEqual(once.events)
     }))

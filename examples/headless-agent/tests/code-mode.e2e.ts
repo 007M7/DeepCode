@@ -1,7 +1,7 @@
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import LlmService, { createUserMessage, CallId, HarnessError  } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
@@ -302,7 +302,7 @@ describe('Code Mode typed values: keyless real-worker contracts', () => {
 
 function waitForIdle(harness: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
-    const dispose = harness.on('agent/status', (subject, status) => {
+    const dispose = harness.on('agent/status', ({ agent: subject, status }) => {
       if (subject === agent && status === 'idle') {
         dispose()
         resolve()
@@ -357,7 +357,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('Code Mode: real model writes a p
     expect(finalText).toContain('beta-9')
   }, 180_000)
 
-  it('delivers nested workspace instructions discovered by an fs sub-call after the outer result', async () => {
+  it('projects nested workspace instructions discovered by an fs sub-call', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'dsh-code-mode-workspace-e2e-'))
     await mkdir(join(workdir, '.git'), { recursive: true })
     await mkdir(join(workdir, 'pkg/deep'), { recursive: true })
@@ -380,16 +380,21 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('Code Mode: real model writes a p
     const events: SessionEvent[] = [...handle.agent.session.events]
     const dispatch = events.find(event => event.type === 'tool/code-dispatch' && event.data.name === 'read')
     const outerResult = events.find(event => event.type === 'tool/result')
-    const workspaceContext = events.find(event => event.type === 'user/message'
-      && event.data.source.kind === 'workspace-instructions')
+    const workspaceContext = await vi.waitFor(() => {
+      const splice = handle.agent.session.events.findLast(event => event.type === 'agent/inbox/spliced'
+        && event.data.inserted.some(message => message.source.kind === 'workspace-instructions'))
+      const inserted = splice?.type === 'agent/inbox/spliced'
+        ? splice.data.inserted.find(message => message.source.kind === 'workspace-instructions')
+        : undefined
+      expect(inserted).toBeDefined()
+      return inserted!
+    })
     expect(dispatch).toBeDefined()
     expect(outerResult).toBeDefined()
-    expect(workspaceContext).toBeDefined()
-    expect(workspaceContext!.seq).toBeGreaterThan(outerResult!.seq)
-    const finalMessage = events.findLast(event => event.type === 'assistant/message')
-    const answer = finalMessage?.type === 'assistant/message'
-      ? finalMessage.data.message.content.filter(block => block.type === 'text').map(block => block.text).join('')
-      : ''
-    expect(answer).toContain(WORKSPACE_PROBE)
+    const contextText = workspaceContext.content
+      .filter(block => block.type === 'text')
+      .map(block => block.text)
+      .join('\n')
+    expect(contextText).toContain(WORKSPACE_PROBE)
   }, 180_000)
 })

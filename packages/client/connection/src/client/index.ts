@@ -18,14 +18,14 @@ export type {
   ToolCallView, ToolResultView, WorkspaceApi, WorkspaceId, WorkspaceView,
   CommandsApi, CommandDescriptor, SkillsApi, SkillEntry,
   ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelReasoning,
-  InboxItemId, ModelReasoningEffort, ModelTarget, QueueAction, QueuedInboxItem, SessionModels,
+  MessageId, ModelReasoningEffort, ModelTarget, QueueAction, QueuedInboxItem, SessionModels,
   SubagentsApi, SubagentAddress, SubagentCatalog, SubagentListEntry, SubagentPromptReceipt,
   RpcRequest, RpcResponse, RpcResult, RpcError, RpcErrorCode,
   ClientRequest, ServerResponse, ServerRequest, ClientResponse, RpcMessage, RpcReceipt,
   IApiClient, SessionId, SessionEvent, ContentBlock, StreamChunk,
   GoalsApi, GoalRef,
   SettingsApi, SettingsNamespaceView, SettingsPathOpView, SettingsSecretView,
-  CredentialsApi, CredentialView, ConfigurableProviderView, LlmApi,
+  CredentialsApi, CredentialView, ConfigurableProviderView, DiscoveredModelView, LlmApi,
 } from './api.ts'
 export {
   RpcId,

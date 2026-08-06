@@ -36,7 +36,7 @@ Expected handler failures return `CommandResult.error`. Thrown or malformed resu
 
 ### TUI mapping
 
-The TUI registers its built-in slash commands as agent-scoped command definitions instead of switching on strings. Its autocomplete and help view read the live catalog, so plugin commands appear and disappear with their effects. Any submitted line beginning with `/` stays in the command plane; unknown input produces a terminal warning rather than falling through to `Agent.send()` or `Agent.steer()`.
+The TUI registers its built-in slash commands as agent-scoped command definitions instead of switching on strings. Its autocomplete and help view read the live catalog, so plugin commands appear and disappear with their effects. Any submitted line beginning with `/` stays in the command plane; unknown input produces a terminal warning rather than falling through to `Agent.steer()`.
 
 Each submitted command owns an `AbortController`. TUI disposal aborts outstanding dispatches, removes the local definitions, and waits for the command-producing fiber before completing teardown.
 
