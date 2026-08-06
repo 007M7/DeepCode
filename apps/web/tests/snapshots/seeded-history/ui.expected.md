@@ -33,14 +33,14 @@
   - img
 - button "Branch into a new conversation":
   - img
-- text: 7/25 {{clock}}Ran for {{duration}}
+- text: 7/25 {{clock}} Ran for {{duration}} TTFT {{duration}} {{throughput}} tok/s
 - button "Context compacted View compaction summary":
   - img
   - text: Context compacted View compaction summary
-- button "Context injection":
+- button "Context injection AGENTS.md":
   - img
   - img
-  - text: Context injection
+  - text: Context injection AGENTS.md
 - textbox "Message the agent"
 - button "Commands":
   - img
@@ -49,4 +49,4 @@
   - text: Select model
   - img
 - button "Send message" [disabled]
-- text: 1 turns · 2 steps Tool call {{duration}} Cache hit 98% Input 15.8K tok · Output 135 tok
+- text: 1 turns · 2 steps LLM {{duration}} · Tool call {{duration}} TTFT avg {{duration}} · {{throughput}} tok/s Cache hit 98% Input 15.8K tok · Output 135 tok

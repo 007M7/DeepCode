@@ -589,16 +589,20 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Durably persist a batch of events. Honors the append-only and contiguous-\n * seq contracts: the first event\'s `seq` MUST equal the stored next-seq\n * (after `load` has durably closed any interrupted turn). Rejects non-JSON-\n * serializable `event.data` with an error naming the offending event type.\n * @param id - the session the batch belongs to.\n * @param events - the contiguous batch to persist, in seq order.\n */',
       },
       {
-        signature: 'abstract load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }>',
-        jsDoc: '/**\n * Load a header and balanced contiguous log. A complete interrupted final\n * turn is preserved and durably closed with missing tool errors plus any open\n * step and turn boundaries; only a torn final record is discarded. Unknown\n * versions and corruption in the committed prefix reject. Implementations\n * MUST NOT crash-repair an identity still bound to a live Session: a balanced\n * live log may return with its stored header as a durable snapshot, while an\n * open live turn rejects.\n * A coordinator-backed cold load reserves the identity across storage awaits,\n * so concurrent publication of a same-id live Session rejects.\n * Returned events are detached, and every identified message is deeply\n * frozen. Coordinator-backed implementations upgrade supported pre-identity\n * message events before validation; other malformed messages reject before\n * any stored event is returned.\n * @param id - the persisted session to reload.\n * @returns the header and a log ending on a balanced `turn/end`.\n */',
+        signature: 'async prepare(id: SessionId, signal?: AbortSignal): Promise<SessionPreparation>',
+        jsDoc: '/**\n * Prepare the exact unpublished Session used by resume. Implementations may\n * reuse object graphs retained by an earlier {@link inspect} after confirming\n * their durable revision is still current; disposal releases an unpublished\n * reservation. Revision retries require the durable log to remain unchanged\n * for one read/check round trip; continuous external writers may delay completion.\n * @param id - persisted session to prepare.\n * @param signal - optional cancellation for preparation work.\n * @returns one owned unpublished Session preparation.\n */',
       },
       {
-        signature: 'abstract inspect(id: SessionId, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }>',
-        jsDoc: '/**\n * Inspect a header and its valid contiguous stored prefix without repairing\n * a torn tail, closing an interrupted turn, or publishing coordinator state.\n * This read is serialized with writes for the same id and returns detached\n * values with upgraded, deeply frozen identified messages, so observers\n * cannot mutate message identity/content or backend-owned state. Other\n * malformed messages reject.\n * @param id - the persisted session to inspect.\n * @param signal - optional cancellation for queued and backend read work.\n * @returns the header and valid stored event prefix exactly as observed.\n */',
+        signature: 'abstract load(id: SessionId): Promise<SessionInspection>',
+        jsDoc: '/**\n * Load an immutable balanced logical view and commit any required cold\n * recovery. A complete interrupted final turn is preserved and durably\n * closed with missing tool errors plus any open step and turn boundaries;\n * only a torn final record is discarded. Unknown versions and corruption in\n * the committed prefix reject. Implementations MUST NOT crash-repair an\n * identity still bound to a live Session: a balanced live log may return as a\n * durable snapshot, while an open live turn rejects. Returned values may be\n * shared with immutable live or prepared state and must not be mutated.\n * Revision-based implementations may wait for one stable read/check round trip.\n * @param id - the persisted session to reload.\n * @returns the header and a log ending on a balanced `turn/end`.\n */',
+      },
+      {
+        signature: 'abstract inspect(id: SessionId, signal?: AbortSignal): Promise<SessionInspection>',
+        jsDoc: '/**\n * Inspect an immutable logical session without committing recovery or\n * publishing it. A cold complete interrupted turn receives synthetic closers\n * in memory and a torn physical tail remains untouched. An already-live\n * Session instead yields its current immutable snapshot, which may contain an\n * open turn and its `session/end-seed` boundary. Coordinator-backed\n * implementations retain the exact cold unpublished Session for bounded\n * reuse by a later {@link prepare}. A stale ready source is reloaded; a source\n * already committing or reserved for resume remains exclusive, and inspection\n * may borrow its immutable view. Callers borrow only the immutable header and\n * log. Continuous external writers may delay revision convergence.\n * @param id - the persisted session to inspect.\n * @param signal - optional cancellation for queued and backend read work.\n * @returns the validated header and current logical event log.\n */',
       },
       {
         signature: 'abstract readFrom(id: SessionId, fromSeq: number, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }>',
-        jsDoc: '/**\n * Read the stored events from `fromSeq` onward — the read-from-seq\n * primitive for read models that resume from a watermark (e.g. a persisted\n * projection cache folding only the tail past its checkpoint). Like\n * {@link inspect} it is non-mutating and detached: no torn-tail truncation,\n * no synthetic closers, no coordinator-state publication; only events from\n * the valid contiguous stored prefix are returned, so a torn fragment never\n * reaches the caller. `fromSeq` at or beyond the stored prefix returns an\n * empty event list (never an error). Backends whose medium can seek by seq\n * (SQLite) read only the suffix; sequential media (JSONL, both encodings)\n * still parse the whole artifact and skip forward — the primitive bounds\n * what is RETURNED and refolded, not every backend\'s physical read.\n * @param id - the persisted session to read.\n * @param fromSeq - first event seq to include; a non-negative safe integer.\n * @param signal - optional cancellation for queued and backend read work.\n * @returns the header and the stored events with `seq >= fromSeq`.\n */',
+        jsDoc: '/**\n * Read the stored events from `fromSeq` onward — the read-from-seq\n * primitive for read models that resume from a watermark (e.g. a persisted\n * projection cache folding only the tail past its checkpoint). Unlike\n * {@link inspect}, it is a detached physical suffix read: no preparation\n * cache, torn-tail truncation, synthetic closers, or coordinator-state\n * publication. Only events from the valid contiguous stored prefix are\n * returned, so a torn fragment never reaches the caller. `fromSeq` at or\n * beyond the stored prefix returns an empty event list (never an error).\n * Backends whose medium can seek by seq\n * (SQLite) read only the suffix; sequential media (JSONL, both encodings)\n * still parse the whole artifact and skip forward — the primitive bounds\n * what is RETURNED and refolded, not every backend\'s physical read.\n * @param id - the persisted session to read.\n * @param fromSeq - first event seq to include; a non-negative safe integer.\n * @param signal - optional cancellation for queued and backend read work.\n * @returns the header and the stored events with `seq >= fromSeq`.\n */',
       },
       {
         signature: 'abstract list(signal?: AbortSignal): Promise<SessionHeader[]>',
@@ -747,8 +751,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Create a session owned by the calling fiber: disposing that fiber stops\n * event notification and removes the session from the store. `options.seed`\n * populates the session with a copy of those events (replay/fork);\n * `options.meta` attaches creation metadata (validated absolute `cwd`, seed\n * and parent lineage, and delegation depth) as the immutable\n * {@link SessionHeader} (the store fills `version`/`id`/`createdAt`).\n *\n * For an agent whose session must be torn down IN ORDER with its loop (so the\n * loop\'s final events are published before the store attachment ends), do NOT use this\n * — fold the session lifecycle into the agent\'s own effect via\n * {@link prepare} + {@link enter} + {@link announce} (see\n * `dsh-agent-loop`\'s creation transaction).\n *\n * @param id - the session id; omitted, the store mints `session-<n>`.\n * @param options - seed events and/or creation metadata for the header.\n * @returns the live session, already entered and announced.\n * @throws if a session with `id` already exists, metadata is not a plain\n *   lossless-JSON record with valid scalar fields, or `meta.cwd` is a\n *   non-absolute path (storage backends key directories off it).\n */',
       },
       {
-        signature: 'prepare(id?: SessionId, options?: CreateSessionOptions): Session',
-        jsDoc: '/**\n * Build a session WITHOUT entering it into the store — validate the id/cwd and\n * construct the {@link Session} (with its immutable {@link SessionHeader}).\n * Pairs with {@link enter} + {@link announce}: a caller that owns a composite\n * `ctx.effect` (the agent factory) folds the session lifecycle into that ONE\n * effect so a fiber unload tears the session + agent down as a single ORDERED\n * chain rather than as racing sibling effects — which would remove the publication hooks\n * before the driver\'s closing events commit, dropping them.\n *\n * @param id - the session id; omitted, the store mints `session-<n>`.\n * @param options - seed events and/or creation metadata for the header.\n * @returns the constructed session, NOT yet in the store.\n * @throws if a session with `id` already exists, metadata is not a plain\n *   lossless-JSON record with valid scalar fields, or `meta.cwd` is a\n *   non-absolute path.\n */',
+        signature: 'prepare(id?: SessionId, options?: PrepareSessionOptions): Session',
+        jsDoc: '/**\n * Build a session WITHOUT entering it into the store — validate the id/cwd and\n * construct the {@link Session} (with its immutable {@link SessionHeader}).\n * Pairs with {@link enter} + {@link announce}: a caller that owns a composite\n * `ctx.effect` (the agent factory) folds the session lifecycle into that ONE\n * effect so a fiber unload tears the session + agent down as a single ORDERED\n * chain rather than as racing sibling effects — which would remove the publication hooks\n * before the driver\'s closing events commit, dropping them.\n *\n * @param id - the session id; omitted, the store mints `session-<n>`.\n * @param options - seed events and/or creation metadata for the header. With\n *   `seedSource: \'persistence\'`, metadata and events must be fresh detached\n *   graphs whose ownership transfers to this call: they are validated and\n *   frozen in place through {@link Session.fromRestore}, so the caller must\n *   retain no mutable aliases.\n * @returns the constructed session, NOT yet in the store.\n * @throws if a session with `id` already exists, metadata is not a plain\n *   lossless-JSON record with valid scalar fields, or `meta.cwd` is a\n *   non-absolute path.\n */',
       },
       {
         signature: 'enter(session: Session): () => void',
@@ -1048,7 +1052,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'estimateMessage(message: Message): number',
-        jsDoc: '/**\n * Heuristically price one model-visible message.\n * @param message - message to price without mutation.\n * @returns content and role-framing tokens under the fixed service heuristic.\n */',
+        jsDoc: '/**\n * Heuristically price one model-visible message (instance face of the pure\n * `estimateMessage` export from `estimate.ts`).\n * @param message - message to price without mutation.\n * @returns content and role-framing tokens under the fixed service heuristic.\n */',
       },
     ],
   },
@@ -1066,7 +1070,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'pruneSession(session: Session): PruneResult',
-        jsDoc: '/**\n * Prune every over-budget tool result from one stable current-surface snapshot.\n * Each replacement preserves the complete event data except for `content`,\n * and points at the shadowed node for durable provenance and replay.\n * @param session - session whose current surface is rewritten.\n * @returns landed replacements and aggregate Unicode-code-point savings.\n * @throws when the session rejects a replacement; replacements committed\n * earlier in the pass remain durable.\n */',
+        jsDoc: '/**\n * Prune every over-budget tool result from one stable current-surface snapshot.\n * Each replacement preserves the complete event data except for `content`,\n * points at the shadowed node for durable provenance and replay, and is\n * immediately preceded by a `compact/prune` shadow-price event pricing the\n * shadowed node through the injected token meter, so pure consumers can\n * subtract it without per-node state.\n * @param session - session whose current surface is rewritten.\n * @returns landed replacements and aggregate Unicode-code-point savings.\n * @throws when the session rejects a replacement; replacements committed\n * earlier in the pass remain durable.\n */',
       },
     ],
   },
@@ -1798,6 +1802,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ContentBlockType = keyof ContentBlockMap;',
   },
   {
+    name: 'ContextFormed',
+    declaration: 'export type ContextFormed = {\n    readonly form?: never;\n} | {\n    readonly form: \'instructions\';\n} | {\n    readonly form: \'catalog\';\n} | {\n    readonly form: \'snapshot\';\n    readonly sections: readonly ContextSnapshotSection[];\n} | {\n    readonly form: \'notice\';\n    readonly summary: string;\n} | {\n    readonly form: \'relay\';\n} | {\n    readonly form: \'recall\';\n};',
+  },
+  {
+    name: 'ContextSnapshotSection',
+    declaration: 'export interface ContextSnapshotSection {\n    readonly name: string;\n    readonly text: string;\n}',
+  },
+  {
     name: 'ContinuableCreateRequest',
     declaration: 'export interface ContinuableCreateRequest {\n    readonly sessionId: SessionId;\n    readonly parent: Agent;\n    readonly signal: AbortSignal;\n}',
   },
@@ -2135,7 +2147,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'MessageSourceMap',
-    declaration: 'export interface MessageSourceMap {\n    user: {\n        kind: \'user\';\n    };\n    plugin: {\n        kind: \'plugin\';\n        plugin: string;\n    };\n    model: ModelMessageSource;\n    tool: ToolMessageSource;\n}',
+    declaration: 'export interface MessageSourceMap {\n    user: {\n        kind: \'user\';\n    };\n    plugin: {\n        kind: \'plugin\';\n        plugin: string;\n    } & ContextFormed;\n    model: ModelMessageSource;\n    tool: ToolMessageSource;\n}',
   },
   {
     name: 'ModelMessageSource',
@@ -2160,6 +2172,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'PreparedReferencedMessage',
     declaration: 'export interface PreparedReferencedMessage {\n    content: ContentBlock[];\n    additionalContext?: UserMessage;\n}',
+  },
+  {
+    name: 'PrepareSessionOptions',
+    declaration: 'export type PrepareSessionOptions = (CreateSessionOptions & {\n    readonly seedSource?: undefined;\n}) | RestoredSessionOptions;',
   },
   {
     name: 'PresetOption',
@@ -2338,6 +2354,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ResolvedSubagentStartRequest extends SubagentStartRequest {\n    readonly descriptor: SubagentDescriptorData;\n}',
   },
   {
+    name: 'RestoredSessionOptions',
+    declaration: 'export interface RestoredSessionOptions {\n    readonly seed: SessionEvent[];\n    readonly meta: SessionHeader;\n    readonly seedSource: \'persistence\';\n}',
+  },
+  {
     name: 'ResumeAgentOptions',
     declaration: 'export interface ResumeAgentOptions {\n    readonly resumeSessionId: SessionId;\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: AgentSetup;\n}',
   },
@@ -2395,7 +2415,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'Session',
-    declaration: 'export class Session {\n    get surface(): SessionSurface;\n    readonly header: SessionHeader;\n    get id(): SessionId;\n    readonly firstLiveSeq: number;\n    static create(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader): Session;\n    get events(): readonly SessionEvent[];\n    get seq(): number;\n    append<T extends SessionEventType>(type: T, data: SessionEventMap[T], ...opts: T extends SurfaceEventType ? [\n        opts: SurfaceIntent\n    ] : [\n    ]): SessionEvent<T>;\n    requestHeader(): EpochHeader | undefined;\n    requestContext(): RequestContext | undefined;\n    deriveMessages(): Message[];\n    deriveEventMessage(event: SessionEvent): Message | null;\n}',
+    declaration: 'export class Session {\n    get surface(): SessionSurface;\n    readonly header: SessionHeader;\n    get id(): SessionId;\n    readonly firstLiveSeq: number;\n    static create(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader): Session;\n    static fromRestore(id: SessionId, seed: readonly SessionEvent[], header: SessionHeader): Session;\n    get events(): readonly SessionEvent[];\n    get seq(): number;\n    append<T extends SessionEventType>(type: T, data: SessionEventMap[T], ...opts: T extends SurfaceEventType ? [\n        opts: SurfaceIntent\n    ] : [\n    ]): SessionEvent<T>;\n    requestHeader(): EpochHeader | undefined;\n    requestContext(): RequestContext | undefined;\n    deriveMessages(): Message[];\n    deriveEventMessage(event: SessionEvent): Message | null;\n}',
   },
   {
     name: 'SessionAvailability',
@@ -2478,6 +2498,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type SessionId = Branded<\'SessionId\'>;',
   },
   {
+    name: 'SessionInspection',
+    declaration: 'export interface SessionInspection {\n    readonly meta: SessionHeader;\n    readonly events: readonly SessionEvent[];\n}',
+  },
+  {
     name: 'SessionLineageNode',
     declaration: 'export interface SessionLineageNode {\n    session: SessionRecord;\n    descendants: SessionLineageNode[];\n}',
   },
@@ -2500,6 +2524,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionPersistenceSnapshot',
     declaration: 'export interface SessionPersistenceSnapshot {\n    header: SessionHeader;\n    revision: SessionPersistenceRevision;\n}',
+  },
+  {
+    name: 'SessionPreparation',
+    declaration: 'export class SessionPreparation implements Disposable {\n    readonly session: Session;\n    static create(session: Session, options?: SessionPreparationOptions): SessionPreparation;\n    [Symbol.dispose](): void;\n}',
+  },
+  {
+    name: 'SessionPreparationOptions',
+    declaration: 'export interface SessionPreparationOptions {\n    readonly release?: () => void;\n}',
   },
   {
     name: 'SessionProjectionMap',

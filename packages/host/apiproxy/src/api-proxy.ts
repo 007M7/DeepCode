@@ -972,7 +972,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     if (meta === undefined || meta.cwd === undefined) throw new SessionNotFound(`session "${sessionId}" not found`)
     const inspected = await persistence.inspect(sessionId)
     if (inspected.meta.cwd === undefined) throw new SessionNotFound(`session "${sessionId}" not found`)
-    return inspected
+    return { meta: inspected.meta, events: [...inspected.events] }
   }
 
   /**

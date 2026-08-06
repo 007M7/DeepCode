@@ -83,19 +83,19 @@ export function AskQuestionRow({ toolName, block, inspect, t }: AskQuestionRowPr
 }
 
 /**
- * The ask-question row as a plain registrant plugin, riding the same
- * load-order seam as todo-toolview: `inject: ['conversation']` guarantees the
- * chat entry (and with it the 'conversation.chat.toolview' declaration) is on
- * the ledger.
+ * The ask-question row as a plain registrant plugin following the chat
+ * toolview declaration across independent activation and reload lifetimes.
  */
 export const askQuestionToolview = {
   name: 'ask-question-toolview',
-  inject: ['slots', 'conversation'],
+  inject: ['slots'],
   /**
    * Register the ask-question row into the chat view's keyed toolview hole.
    * @param ctx - registrant context (disposal rides ctx.effect inside slots.register).
    */
   apply(ctx: Context): void {
-    ctx.slots.register({ name: 'conversation.chat.toolview', key: 'ask_user_question', locale: NS }, AskQuestionRow)
+    ctx.slots.inject('conversation.chat.toolview', () => ctx.slots.register({
+      name: 'conversation.chat.toolview', key: 'ask_user_question', locale: NS,
+    }, AskQuestionRow))
   },
 }

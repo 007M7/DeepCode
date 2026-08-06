@@ -136,7 +136,7 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
         expect(afterInspect).toBe(beforeRepair)
         expect(inspected.events.map(e => e.type)).toEqual([
           'turn/start', 'user/message', 'step/start', 'assistant/message', 'step/end', 'turn/end',
-          'turn/start', 'step/start',
+          'turn/start', 'step/start', 'step/end', 'turn/end',
         ])
 
         // load PRESERVES the interrupted turn's events (a turn can be huge — they
@@ -191,7 +191,7 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
                 ...{ provider: 'mock', model: 'mock' },
               },
             }),
-          } },
+          }, surfaceOp: 'append' },
         ])
 
         const loaded = await persistence.load(m.id)
