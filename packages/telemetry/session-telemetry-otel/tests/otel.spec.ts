@@ -206,7 +206,7 @@ describe('TelemetryOtel wire', () => {
     expect(start?.record.severityNumber).toBe(13)
   })
 
-  it('holds each session suffix until the next feedback event', async () => {
+  it('replays each session suffix only at the next feedback event', async () => {
     const { url, captures } = await mockCollector()
     const ctx = new Context()
     await ctx.plugin(SessionStore)

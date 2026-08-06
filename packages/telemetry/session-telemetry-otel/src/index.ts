@@ -7,7 +7,8 @@
  * boundary axiom, everything downstream of that call (batching, retry,
  * queueing, loss policy) is the SDK's documented behavior, configured
  * verbatim through the `exporter`/`processor` passthroughs. This package owns
- * only whether capture is immediate, feedback-released, or disabled.
+ * only whether capture is live, feedback-triggered from the canonical log, or
+ * disabled.
  *
  * @module @deepseek-ai/dsh-session-telemetry-otel
  */
@@ -19,7 +20,7 @@ import type {} from '@deepseek-ai/dsh-command-feedback'
 import {
   Telemetry,
   TelemetryCoordinator,
-  type TelemetryDelivery,
+  type TelemetryCapture,
   type TelemetryRecord,
   type TelemetrySeverity,
 } from '@deepseek-ai/dsh-session-telemetry'
@@ -161,13 +162,13 @@ export class TelemetryOtel extends Telemetry {
     })
     this.ledger = this.provider.getLogger('@deepseek-ai/dsh-session-telemetry-otel', version)
     this.ops = this.provider.getLogger('@deepseek-ai/dsh-session-telemetry-otel/ops', version)
-    const delivery: TelemetryDelivery = mode === 'FULL' ? 'immediate' : 'held'
-    const coordinator = new TelemetryCoordinator(ctx, this, delivery)
+    const capture: TelemetryCapture = mode === 'FULL' ? 'live' : 'on-demand'
+    const coordinator = new TelemetryCoordinator(ctx, this, capture)
     if (mode === 'FEEDBACK_ONLY') {
-      // The coordinator listener is registered first, so a feedback event
-      // enters the held prefix before this listener releases that exact prefix.
+      // Session.append commits before publishing `session/event`, so the
+      // canonical log already includes this feedback record when replay begins.
       ctx.on('session/event', (session, event) => {
-        if (event.type === 'feedback/record') coordinator.release(session)
+        if (event.type === 'feedback/record') coordinator.captureSession(session, event.seq)
       })
     }
   }
@@ -206,8 +207,8 @@ export class TelemetryOtel extends Telemetry {
    * quiesce. With no concurrent `forceFlush()` in the process (see above),
    * shutdown's internal drain is complete — everything handed to the SDK
    * before this call is exported before the exporter closes. In `FULL`, that
-   * includes dispose-time `shutdown` markers; held suffixes never reach the
-   * SDK. Awaited (and error-contained) by the coordinator's disposer. A
+   * includes dispose-time `shutdown` markers; `FEEDBACK_ONLY` creates no ops
+   * records. Awaited (and error-contained) by the coordinator's disposer. A
    * disabled backend resolves immediately.
    * @returns resolves when the SDK pipeline has quiesced.
    */

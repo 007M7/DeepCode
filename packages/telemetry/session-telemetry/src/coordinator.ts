@@ -1,13 +1,15 @@
 /**
- * Capture coordinator: the seam's upstream half. Subscribes to the session
- * firehose plus the one live-bus relay (`agent/error`), applies the fixed
- * chunk projection, builds logical records, runs each through the
+ * Capture coordinator: the seam's upstream half. Live capture subscribes to
+ * the session firehose plus the one live-bus relay (`agent/error`). Both
+ * capture paths apply the fixed chunk projection, build logical records, and
+ * run each through the
  * `telemetry/record` waterfall (deployment-mounted redaction rules;
- * pass-through when none), then hands the result to the backend immediately
- * or holds it for explicit release. Every synchronous handler is
- * self-contained so a failing backend can never starve other subscribers
- * (cordis `emit` is stop-on-throw) or touch the agent loop. Composed by a
- * backend in its constructor.
+ * pass-through when none), then hands the result to the backend. Live capture
+ * follows the session firehose; on-demand capture replays the canonical log
+ * only when requested. Every synchronous handler is self-contained so a
+ * failing backend can never starve other subscribers (cordis `emit` is
+ * stop-on-throw) or touch the agent loop. Composed by a backend in its
+ * constructor.
  *
  * @module @deepseek-ai/dsh-session-telemetry/coordinator
  */
@@ -17,11 +19,11 @@ import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { TelemetryBackend, TelemetryRecord, TelemetrySeverity } from './index.ts'
 
-/** Whether capture hands records over immediately or holds them for an explicit release. */
-export type TelemetryDelivery = 'immediate' | 'held'
+/** Whether capture follows live events or reads the canonical log only when requested. */
+export type TelemetryCapture = 'live' | 'on-demand'
 
-/** One redacted record waiting at the capture boundary. */
-interface PendingRecord {
+/** One projected record ready for backend handoff. */
+interface ProjectedRecord {
   readonly record: TelemetryRecord
   /** Ledger cursor advanced only after the backend accepts this record. */
   readonly seq?: number
@@ -43,16 +45,17 @@ const handoffCursor = new WeakMap<Session, number>()
 /**
  * Install the telemetry capture side onto a context for one backend.
  *
- * Registers the persistence-coordinator listener set plus the `agent/error`
- * relay, all through `ctx.effect()`/`ctx.on()` on the composing fiber, and
- * sweeps already-live sessions (a hot reload does not replay
+ * Live capture registers the persistence-coordinator listener set plus the
+ * `agent/error` relay, all through `ctx.effect()`/`ctx.on()` on the composing
+ * fiber, and sweeps already-live sessions (a hot reload does not replay
  * `session/created`). A `session/disposed` captures the session's `shutdown`
  * operational record at its own termination edge and retires it from the
- * adopted set. Immediate delivery hands that marker over; held delivery keeps
- * it local without another explicit release. Disposal captures the same
- * marker for sessions still alive, then awaits the backend's `shutdown()`; a
- * failure there warns instead of throwing — best-effort reporting must not
- * fail application teardown.
+ * adopted set. On-demand capture registers none of those continuous listeners;
+ * {@link captureSession} reads the canonical log explicitly and never creates
+ * operational records. Disposal captures shutdown markers for live-adopted
+ * sessions, then awaits the backend's `shutdown()`; a failure there warns
+ * instead of throwing — best-effort reporting must not fail application
+ * teardown.
  */
 export class TelemetryCoordinator {
   /**
@@ -63,56 +66,55 @@ export class TelemetryCoordinator {
   private readonly adopted = new Set<Session>()
   /** Per session, the `turn:step` keys whose first chunk already shipped; rebuilt from the log on re-adoption. */
   private readonly chunkSeen = new WeakMap<Session, Set<string>>()
-  /** Redacted records retained until {@link release}; weak keys do not extend session lifetime. */
-  private readonly held = new WeakMap<Session, PendingRecord[]>()
-
   /**
    * @param ctx - the composing backend's context; listeners bind to its fiber.
    * @param backend - the backend receiving records; owned elsewhere, never disposed here beyond `shutdown()` forwarding.
-   * @param delivery - immediate handoff, or held delivery released explicitly per session.
+   * @param capture - follow live events, or wait for explicit canonical-log capture.
    */
   constructor(
     private readonly ctx: Context,
     private readonly backend: TelemetryBackend,
-    private readonly delivery: TelemetryDelivery = 'immediate',
+    capture: TelemetryCapture = 'live',
   ) {
-    ctx.on('session/created', (session) => {
-      this.adopt(session)
-    })
-    // Capture the shutdown marker at the session's own termination edge.
-    // Immediate delivery preserves crash classification; held delivery does
-    // not let a later lifecycle edge extend a user-released prefix. Then
-    // retire the only strong reference owned by this coordinator.
-    ctx.on('session/disposed', (session) => {
-      this.contain(() => {
-        if (!this.adopted.delete(session)) return
-        this.submit(session, { record: this.redact(shutdownRecord(session)) })
+    if (capture === 'live') {
+      ctx.on('session/created', (session) => {
+        this.adopt(session)
       })
-    })
-    ctx.on('session/event', (session, event) => {
-      this.contain(() => {
-        this.capture(session, event)
+      // Capture the shutdown marker at the session's own termination edge,
+      // then retire the only strong reference owned by this coordinator.
+      ctx.on('session/disposed', (session) => {
+        this.contain(() => {
+          if (!this.adopted.delete(session)) return
+          this.deliver(session, { record: this.redact(shutdownRecord(session)) })
+        })
       })
-    })
-    // Parallel listeners are awaited by the loop at turn end; returning void
-    // (not the SDK's flush promise) is the turn-latency contract.
-    ctx.on('session/flush', (session) => {
-      this.contain(() => {
-        this.hintFlush(session)
+      ctx.on('session/event', (session, event) => {
+        this.contain(() => {
+          this.captureEvent(session, event)
+        })
       })
-    })
-    ctx.on('agent/error', (agent, turn, step, error) => {
-      this.contain(() => {
-        this.relayAgentError(agent, turn, step, error)
+      // Parallel listeners are awaited by the loop at turn end; returning void
+      // (not the SDK's flush promise) is the turn-latency contract.
+      ctx.on('session/flush', (session) => {
+        this.contain(() => {
+          this.hintFlush(session)
+        })
       })
-    })
+      ctx.on('agent/error', (agent, turn, step, error) => {
+        this.contain(() => {
+          this.relayAgentError(agent, turn, step, error)
+        })
+      })
+      for (const session of ctx.sessions.list()) {
+        this.adopt(session)
+      }
+    }
     ctx.effect(() => async () => {
       // Sessions still adopted here are alive through whole-application
-      // teardown, so capture the marker before the backend quiesces. Held
-      // delivery intentionally leaves it local without another release.
+      // teardown, so capture the marker before the backend quiesces.
       for (const session of this.adopted) {
         this.contain(() => {
-          this.submit(session, { record: this.redact(shutdownRecord(session)) })
+          this.deliver(session, { record: this.redact(shutdownRecord(session)) })
         })
       }
       try {
@@ -121,24 +123,27 @@ export class TelemetryCoordinator {
         this.ctx.logger.warn(`telemetry: backend shutdown failed: ${String(error)}`)
       }
     }, 'telemetry capture')
-    for (const session of ctx.sessions.list()) {
-      this.adopt(session)
-    }
   }
 
   /**
-   * Hand the records currently held for one session to the backend in capture order.
-   * Records captured after this call form a new held prefix. Backend failures remain
-   * contained per record and do not starve later records in the same release.
-   * @param session - session whose pending capture prefix may leave the process.
+   * Project and hand over the canonical session-log suffix after the handoff
+   * cursor, optionally stopping at an inclusive sequence boundary. Redaction
+   * runs during this call, so an on-demand caller retains no copied records
+   * before requesting capture and uses the policy mounted at that time.
+   * Backend and policy failures remain contained per event and do not starve
+   * later events in the same replay.
+   * @param session - session whose current canonical-log prefix may be handed over.
+   * @param throughSeq - optional last sequence included in this capture.
    */
-  release(session: Session): void {
-    const pending = this.held.get(session)
-    if (pending === undefined) return
-    this.held.delete(session)
-    for (const record of pending) {
+  captureSession(session: Session, throughSeq?: number): void {
+    const cursor = handoffCursor.get(session) ?? session.firstLiveSeq - 1
+    // Containment is PER EVENT: one rejected record is withheld fail-closed
+    // while the rest of the historical replay proceeds.
+    for (const event of session.events) {
+      if (throughSeq !== undefined && event.seq > throughSeq) break
       this.contain(() => {
-        this.deliver(session, record)
+        if (event.seq <= cursor) this.track(session, event)
+        else this.captureEvent(session, event)
       })
     }
   }
@@ -161,17 +166,7 @@ export class TelemetryCoordinator {
   private adopt(session: Session): void {
     if (this.adopted.has(session)) return
     this.adopted.add(session)
-    const cursor = handoffCursor.get(session) ?? session.firstLiveSeq - 1
-    // Containment is PER EVENT, matching the firehose: one rejected record
-    // is withheld fail-closed while the rest of the historical replay
-    // proceeds — wrapping the whole loop would let a single failure silently
-    // skip the remainder of the log on an already-adopted session.
-    for (const event of session.events) {
-      this.contain(() => {
-        if (event.seq <= cursor) this.track(session, event)
-        else this.capture(session, event)
-      })
-    }
+    this.captureSession(session)
   }
 
   /** Feed the chunk projection without handing off — the ≤cursor half of re-adoption. */
@@ -181,8 +176,8 @@ export class TelemetryCoordinator {
     }
   }
 
-  /** Project and redact one event, then submit it under the delivery policy. */
-  private capture(session: Session, event: SessionEvent): void {
+  /** Project, redact, and hand one event to the backend. */
+  private captureEvent(session: Session, event: SessionEvent): void {
     if (event.type === 'assistant/chunk') {
       const key = `${event.data.turn}:${event.data.step}`
       const seen = this.seen(session)
@@ -193,14 +188,14 @@ export class TelemetryCoordinator {
       if (seen.has(key)) return
       seen.add(key)
     }
-    this.submit(session, {
+    this.deliver(session, {
       record: this.redact({
         channel: 'ledger',
         time: event.time,
         severity: severityOf(event),
         attributes: identityOf(session, event),
-        // The live event object is mutable and the backend serializes later;
-        // append-time validation guarantees this clone cannot throw.
+        // The canonical event object is mutable and the backend serializes
+        // later; append-time validation guarantees this clone cannot throw.
         body: structuredClone(event.data),
       }),
       seq: event.seq,
@@ -212,26 +207,15 @@ export class TelemetryCoordinator {
    * passes the record through unchanged — the seam ships no rules; exported
    * data is as clean as the listeners a deployment mounts. Callers run inside
    * {@link contain}, so a throwing rule withholds the record instead of
-   * reaching the loop (fail-closed). Held delivery stores only this result, so
-   * a later policy reload cannot expose the pre-redaction capture.
+   * reaching the loop (fail-closed). On-demand capture invokes this waterfall
+   * while reading the canonical session log, not when the event was appended.
    */
   private redact(record: TelemetryRecord): TelemetryRecord {
     return this.ctx.waterfall('telemetry/record', record, () => record)
   }
 
-  /** Hold one redacted record or deliver it immediately under the configured policy. */
-  private submit(session: Session, pending: PendingRecord): void {
-    if (this.delivery === 'held') {
-      let records = this.held.get(session)
-      if (records === undefined) this.held.set(session, records = [])
-      records.push(pending)
-      return
-    }
-    this.deliver(session, pending)
-  }
-
   /** Hand one redacted record to the backend, then advance its ledger cursor. */
-  private deliver(session: Session, pending: PendingRecord): void {
+  private deliver(session: Session, pending: ProjectedRecord): void {
     this.backend.emit(pending.record)
     if (pending.seq !== undefined) handoffCursor.set(session, pending.seq)
   }
@@ -244,7 +228,7 @@ export class TelemetryCoordinator {
   /** Relay one `agent/error` bus emission as an `agent-error` operational record. */
   private relayAgentError(agent: Agent, turn: number, step: number, error: unknown): void {
     const detail = errorDetail(error)
-    this.submit(agent.session, {
+    this.deliver(agent.session, {
       record: this.redact({
         channel: 'ops',
         time: Date.now(),
