@@ -2462,7 +2462,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/context/workspace-context/src/config.ts:17`](../packages/context/workspace-context/src/config.ts)
+Source: [`packages/context/workspace-context/src/config.ts:18`](../packages/context/workspace-context/src/config.ts)
 
 ## Loadable plugins with no config
 
