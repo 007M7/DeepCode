@@ -409,6 +409,10 @@ describe('dsh-tool-skill', () => {
     const home = await tempDir('tool-proposed-empty-catalog')
     const ctx = await setup(home)
     const session = Session.create(SessionId('proposed-empty-catalog'))
+    const malformed = createUserMessage({
+      content: [{ type: 'text', text: 'preserve unreadable claimed context' }],
+      source: { kind: 'skill-catalog', form: 'catalog' } as never,
+    })
     const stale = createUserMessage({
       content: catalogContent(['- `stale-skill`: Stale skill']),
       source: {
@@ -418,9 +422,9 @@ describe('dsh-tool-skill', () => {
       },
     })
 
-    const decision = await proposeStep(ctx, sessionAgent(session), [stale])
+    const decision = await proposeStep(ctx, sessionAgent(session), [malformed, stale])
 
-    expect(decision).toEqual({ kind: 'enter', messages: [] })
+    expect(decision).toEqual({ kind: 'enter', messages: [malformed] })
   })
 
   it('keeps a proposed catalog that already matches the current snapshot', async () => {
