@@ -16,7 +16,7 @@ import {
 } from './request-zone.ts'
 
 export type { ClientTimeZoneContext } from './request-zone.ts'
-export { deriveClientTimeZoneContext, renderTimeZoneContext } from './request-zone.ts'
+export { deriveClientTimeZoneContext } from './request-zone.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'time-context'
@@ -241,7 +241,7 @@ export function apply(ctx: Context, config: Config): () => void {
     if (wasDisposed()) return next()
     const decision = await next()
     if (wasDisposed() || wasAborted() || decision.kind === 'reject'
-      || (step === 1 && decision.messages.length === 0)) {
+      || decision.messages.length === 0) {
       return decision
     }
     const now = Date.now()

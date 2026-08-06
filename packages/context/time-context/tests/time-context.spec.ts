@@ -547,6 +547,36 @@ describe('real agent-loop request history', () => {
     await ctx.fiber.dispose()
   })
 
+  it('does not revive an empty continuation after a completed step', async () => {
+    const adapter = new ScriptedAdapter([textResponse('done')])
+    const ctx = await loopHarness(adapter)
+    ctx.on('agent/turn-stopping', (subject) => {
+      subject.inject(createUserMessage({
+        content: [{ type: 'text', text: 'pending context' }],
+        source: { kind: 'plugin', plugin: 'test' },
+      }))
+    })
+    ctx.on('agent/pre-step', async (_agent, _messages, context, next) => {
+      const decision = await next()
+      return context.step === 1 || decision.kind === 'reject'
+        ? decision
+        : { kind: 'enter', messages: [] }
+    })
+    const agent = ctx.agentLoop.create(SessionId('empty-completed-continuation'), {
+      provider: 'mock',
+      model: 'mock',
+    })
+
+    agent.followup(rpcMessage('finish once', 'Asia/Shanghai'))
+    await agent.whenIdle()
+
+    expect(adapter.requests).toHaveLength(1)
+    expect(agent.session.events.filter(event => event.type === 'step/start')).toHaveLength(1)
+    expect(contextTexts(agent.session)).toHaveLength(1)
+    expect(agent.inbox.hasPending).toBe(false)
+    await ctx.fiber.dispose()
+  })
+
   it('preserves post-claim steering without persisting failed-turn context', async () => {
     const adapter = new ScriptedAdapter([textResponse('resumed')])
     const ctx = await loopHarness(adapter)
@@ -617,7 +647,7 @@ describe('real agent-loop request history', () => {
     await ctx.fiber.dispose()
   })
 
-  it('persists one ordered context per request, accumulates readings, and leaves system headers unchanged', async () => {
+  it('does not add a reading to an empty tool continuation and leaves system headers unchanged', async () => {
     const adapter = new ScriptedAdapter([toolCallResponse(), textResponse('done')])
     const ctx = await loopHarness(adapter)
     ctx.tools.register(defineContentToolFixture({
@@ -638,11 +668,9 @@ describe('real agent-loop request history', () => {
     const contexts = agent.session.events.filter(
       (event): event is SessionEvent<'user/message'> => event.type === 'user/message' && event.data.source.kind === 'plugin')
     const starts = agent.session.events.filter(event => event.type === 'step/start')
-    expect(contexts).toHaveLength(adapter.requests.length)
+    expect(contexts).toHaveLength(1)
     expect(starts).toHaveLength(adapter.requests.length)
-    for (let index = 0; index < contexts.length; index += 1) {
-      expect(contexts[index]!.seq).toBeGreaterThan(starts[index]!.seq)
-    }
+    expect(contexts[0]!.seq).toBeGreaterThan(starts[0]!.seq)
     expect(contexts.every(event => event.data.source.kind === 'plugin'
       && event.data.source.plugin === 'time-context'
       && event.surfaceOp === 'append')).toBe(true)
@@ -653,8 +681,7 @@ describe('real agent-loop request history', () => {
     expect(firstRequestText).toContain('Elapsed since the preceding model-visible message: unavailable.')
     expect(firstRequestText).not.toContain('Time sampled while preparing turn 1, step 2:')
     expect(secondRequestText).toContain('Time sampled while preparing turn 1, step 1:')
-    expect(secondRequestText).toContain('Time sampled while preparing turn 1, step 2:')
-    expect(secondRequestText).toContain('Elapsed since the preceding step context: 1m 1s.')
+    expect(secondRequestText).not.toContain('Time sampled while preparing turn 1, step 2:')
 
     for (const request of adapter.requests) expect(request.system).not.toContain('Time sampled while preparing')
     const headers = agent.session.events.filter(event => event.type === 'request/header')

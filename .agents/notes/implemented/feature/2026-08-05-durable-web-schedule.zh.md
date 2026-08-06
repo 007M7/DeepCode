@@ -39,7 +39,7 @@ Status: implemented
 
 每条 Web 提示词都会单独采样自己的 `clientTimeZone`；Host 在进入 Agent 前校验该值，并把它绑定到不可变的 `user-rpc` 消息来源。它是请求 provenance，而不是连接或 Session 的可变属性，因此并发 tab 无法相互覆盖，排队、steering（中途引导）、编辑、重试和持久化 history 都会保留来源时区。
 
-Time-context 会委托 `agent/pre-step`，从不可变 Session header 和与消息绑定的浏览器来源派生最终进入请求的时区，再向已经进入的步骤追加一条模型可见读数。其来源仍是简单插件标记，不会把这些事实复制成另一份持久权威。AgentLoop 领取当前批次后才插入的 steering（中途引导）保留常规 next-step 归属，并在该步骤进入时获得新上下文。`step/start` 之前发生 reject、取消或失败时，不会记录读数；本功能也不增加 inbox 或 AgentLoop 生命周期状态。
+Time-context 会委托 `agent/pre-step`，从不可变 Session header 和与消息绑定的浏览器来源为最终进入的非空批次派生时区，再向该批次追加一条模型可见读数。其来源仍是简单插件标记，不会把这些事实复制成另一份持久权威。AgentLoop 领取当前批次后才插入的 steering（中途引导）保留常规 next-step 归属，并在该步骤进入时获得新上下文。`step/start` 之前出现 reject、空决策、取消或失败时，不会记录读数；本功能也不增加 inbox 或 AgentLoop 生命周期状态。
 
 Schedule 要求当前步骤存在 time-context 标记，然后直接从 open turn 的原始 `user-rpc` 来源派生请求时区。只有派生结果包含一个与 Session 时区相等的 client 时区，才会接受隐式 local `at`。无 header 的 Session、client provenance 缺失或 mixed，或 client／Session 不匹配，都会返回 `timezone_confirmation_required` 及已知时区。显式 `time_zone` 可绕过这项歧义检查，但仍要通过相同的 IANA 校验。
 

@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import * as timeContext from '@deepseek-ai/dsh-time-context'
 import {
   deriveClientTimeZoneContext,
-  renderTimeZoneContext,
 } from '@deepseek-ai/dsh-time-context'
+import { renderTimeZoneContext } from '../src/request-zone.ts'
 
 function request(clientTimeZone?: unknown) {
   return createUserMessage({
@@ -15,6 +16,11 @@ function request(clientTimeZone?: unknown) {
 }
 
 describe('request-zone derivation', () => {
+  it('publishes derivation without exposing the internal renderer', () => {
+    expect(timeContext.deriveClientTimeZoneContext).toBe(deriveClientTimeZoneContext)
+    expect('renderTimeZoneContext' in timeContext).toBe(false)
+  })
+
   it('derives missing, one resolved zone, and sorted unique mixed zones', () => {
     const plugin = createUserMessage({
       content: [],

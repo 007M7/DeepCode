@@ -16,13 +16,13 @@ Opt-in durable context with the current zoned time, immutable Session zone, requ
 
 When a Session has `SessionHeader.timeZone`, that immutable IANA zone formats its readings. A headerless Session instead uses the configured fallback; when `timeZone` is omitted, the plugin resolves the Node process's system zone once at plugin load. Node honors `TZ`; without that override, the host or container supplies the fallback. An explicit `timeZone` is validated at plugin load but does not override a Session-owned zone.
 
-`refreshIntervalMs` must be a non-negative safe integer. Omission or `0` adds context to every entered request step whose signal is not already aborted. A positive value adds it only when the session has no earlier time-context injection, wall time moved backward, or at least that many milliseconds have elapsed since the latest injection.
+`refreshIntervalMs` must be a non-negative safe integer. Omission or `0` adds context to every non-empty entered request batch whose signal is not already aborted. A positive value adds it only when the session has no earlier time-context injection, wall time moved backward, or at least that many milliseconds have elapsed since the latest injection.
 
 ## Timing semantics
 
-The plugin prepends an `agent/pre-step` listener and delegates first. When the downstream decision enters a request step, time-context derives client zones from the decision's final messages plus user-rpc messages already entered in the open turn, then appends one reading to that decision. Schedule later derives the same facts directly from the immutable Session header and those durable user-rpc sources; the reading is not a second machine authority.
+The plugin prepends an `agent/pre-step` listener and delegates first. When the downstream decision enters a non-empty message batch, time-context derives client zones from those final messages plus user-rpc messages already entered in the open turn, then appends one reading to that decision. Schedule later derives the same facts directly from the immutable Session header and those durable user-rpc sources; the reading is not a second machine authority.
 
-An entering step records its downstream messages followed by exactly one time-context `UserMessage` after `step/start`. Its source is the simple marker `{ kind: 'plugin', plugin: 'time-context' }`; the Session header and original user-rpc sources remain the only machine-readable zone owners. A first-step decision rewritten to empty opens no step and adds no reading. An empty tool continuation can still enter a later step and receives a reading.
+An entering non-empty batch records its downstream messages followed by exactly one time-context `UserMessage` after `step/start`. Its source is the simple marker `{ kind: 'plugin', plugin: 'time-context' }`; the Session header and original user-rpc sources remain the only machine-readable zone owners. A decision rewritten to empty never gains a reading: it opens no initial step, and an empty tool continuation may still enter a later step using existing history.
 
 Reject, cancellation, and listener failure before `step/start` add no reading. A plugin disposal that wins while the listener awaits downstream work also prevents the in-flight listener from contributing. Steering inserted after AgentLoop has claimed the current batch retains ordinary next-step ownership and receives fresh context when that later step enters; time-context adds no inbox state or AgentLoop lifecycle path.
 
@@ -34,7 +34,7 @@ A time reading records an entered request step, not a completed or successfully 
 
 The separately published `./invariant` companion checks the simple plugin source, open turn and step, elapsed baseline, and durable event time. It also re-derives Session and client zones from the Session header and current turn's original user-rpc messages, so duplicated source authority or mismatched rendered policy fails. The rendered timestamp must parse and cannot postdate the event; process suspension between sampling and append does not invalidate the reading.
 
-The time reading stays in derived conversation history until a later compaction shadows it. Request headers contain no time-context state. Request reconstruction uses the complete durable surface prefix after each `step/start`, so transmitted requests need not map one-to-one to readings: request preparation can fail after step entry, while interval suppression can let a request reuse existing history without adding one.
+The time reading stays in derived conversation history until a later compaction shadows it. Request headers contain no time-context state. Request reconstruction uses the complete durable surface prefix after each `step/start`, so transmitted requests need not map one-to-one to readings: request preparation can fail after step entry, while an empty continuation or interval suppression can let a request reuse existing history without adding one.
 
 ## Model Experience
 
