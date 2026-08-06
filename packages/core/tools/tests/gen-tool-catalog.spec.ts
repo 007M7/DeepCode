@@ -23,7 +23,7 @@ describe('gen-tool-catalog collectToolCatalog', () => {
   it('boots every shipped tool package and harvests its model-facing schemas', async () => {
     const catalog = await collectToolCatalog()
     const names = catalog.flatMap(entry => entry.schemas.map(s => s.name)).sort()
-    expect(names).toEqual(['ask_user_question', 'bash', 'bash', 'cordis_inspect', 'cordis_mount', 'cordis_unmount', 'create_goal', 'edit', 'exit_plan_mode', 'get_goal', 'glob', 'grep', 'lsp', 'ralph', 'read', 'run_code', 'session_event_read', 'session_event_search', 'session_event_trace', 'session_search', 'session_trace', 'skill', 'str_replace_editor', 'subagent', 'task_kill', 'task_list', 'task_output', 'terminal_close', 'terminal_list', 'terminal_open', 'terminal_read', 'terminal_send', 'terminal_signal', 'todo_write', 'update_goal', 'web_fetch', 'web_search', 'workflow', 'write'])
+    expect(names).toEqual(['ask_user_question', 'bash', 'bash', 'cordis_inspect', 'cordis_mount', 'cordis_unmount', 'create_goal', 'edit', 'exit_plan_mode', 'get_goal', 'glob', 'grep', 'list_agents', 'lsp', 'pwsh', 'ralph', 'read', 'report', 'run_code', 'send_message', 'session_event_read', 'session_event_search', 'session_event_trace', 'session_search', 'session_trace', 'skill', 'str_replace_editor', 'subagent', 'task_kill', 'task_list', 'task_output', 'terminal_close', 'terminal_list', 'terminal_open', 'terminal_read', 'terminal_send', 'terminal_signal', 'todo_write', 'update_goal', 'web_fetch', 'web_search', 'workflow', 'write'])
     // Every tool carries a JSON-Schema `parameters` object (what the model sees).
     for (const entry of catalog) {
       for (const schema of entry.schemas) {
@@ -43,10 +43,15 @@ describe('gen-tool-catalog collectToolCatalog', () => {
     expect(status?.enum).toEqual(['pending', 'in_progress', 'completed'])
   })
 
-  it('attributes each package with a source pointer that names its index', async () => {
+  it('attributes each harvested tool with its registering plugin source', async () => {
     const catalog = await collectToolCatalog()
     const bash = catalog.find(entry => entry.pkg === '@deepseek-ai/dsh-tool-bash')
-    expect(bash?.source).toBe('packages/bash/tool-bash/src/index.ts')
+    expect(bash?.sources.bash).toBe('packages/bash/tool-bash/src/index.ts')
+    const control = catalog.find(entry => entry.pkg === '@deepseek-ai/dsh-tool-subagent-control')
+    expect(control?.sources).toEqual({
+      list_agents: 'packages/subagent/tool-subagent-control/src/list-agents.ts',
+      send_message: 'packages/subagent/tool-subagent-control/src/index.ts',
+    })
   })
 
   it('harvests search tools without depending on the generator process PATH', async () => {
@@ -90,7 +95,7 @@ describe('gen-tool-catalog render', () => {
     const catalog: ToolCatalog = [
       {
         pkg: '@deepseek-ai/dsh-tool-demo',
-        source: 'packages/demo/tool-demo/src/index.ts',
+        sources: { demo: 'packages/demo/tool-demo/src/index.ts' },
         requires: ['ctx.tools'],
         writes: ['tool/result'],
         schemas: [{ name: 'demo', description: 'A demo tool.', parameters: { type: 'object', properties: {} } }],

@@ -10,11 +10,14 @@ import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import { SlashService } from './service.ts'
 import type { MenuViewInjected } from './slots.ts'
 import { MenuView } from './MenuView.tsx'
+import { en, zh, type MenuKey } from './locales.ts'
 
 export { SlashService } from './service.ts'
 export { SlashController } from './controller.ts'
 export type { SlashControllerDeps, SourceRoster } from './controller.ts'
 export type { MenuViewInjected } from './slots.ts'
+export type { MenuViewProps } from './MenuView.tsx'
+export type { MenuKey } from './locales.ts'
 export type {
   ArbitrateKey, ArbitrateOutcome, BeginCommandRequest, CandidateRequest, ClientSessionContext,
   CommandClaim, ConsumeTokenRequest, InsertReferenceRequest, PickOutcome, PickVia, ReferenceCodec,
@@ -31,7 +34,14 @@ declare module 'cordis' {
   }
 }
 
-/** Namespace owning the candidate-menu copy: group titles keyed by source name plus the pending row. */
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface LocaleNamespaceMap {
+    /** The candidate menu's copy: group titles keyed by source name, the pending row, and the listbox aria. */
+    'slash.menu': MenuKey
+  }
+}
+
+/** Namespace owning the candidate-menu copy. */
 const MENU_NS = 'slash.menu'
 
 /** Required services: controller resolution reads the session scope tree; the menu copy is localized. */
@@ -44,24 +54,15 @@ export const inject = ['sessions', 'locale']
  */
 export function apply(ctx: ClientContext): void {
   ctx.plugin(SlashService)
-  ctx.effect(() => {
-    const disposers = [
-      ctx.locale.register(MENU_NS, 'zh', { command: '命令', skill: '技能', subagent: '子智能体', loading: '正在加载…' }),
-      ctx.locale.register(MENU_NS, 'en', { command: 'Commands', skill: 'Skills', subagent: 'Subagents', loading: 'Loading…' }),
-    ]
-    return () => { for (const dispose of disposers) dispose() }
-  }, 'ui-slash: menu dictionaries')
-  // Conditional mount: 'conversation.input.overlay' is declared by the
-  // conversation composer entry, and the conversation service is mounted
-  // after that declaration lands on the ledger — its presence is the
-  // registration-safe signal (same seam as toolview registrants).
-  ctx.inject(['slots', 'conversation', 'slash', 'sessions'], (scope: ClientContext) => {
+  ctx.effect(() => ctx.locale.register(MENU_NS, { zh, en }), 'ui-slash: menu dictionaries')
+  ctx.inject(['slots', 'slash', 'sessions'], (scope: ClientContext) => {
     const slash = scope.slash
     const sessions = scope.sessions
-    scope.effect(() => scope.slots.register({
+    scope.slots.inject('conversation.input.overlay', () => scope.slots.register({
       name: 'conversation.input.overlay',
       id: 'slash-menu',
       order: 0,
+      locale: MENU_NS,
       inject: (sessionId): MenuViewInjected => {
         // Session-scoped slot: resolve this session's controller (the slot
         // frame hands ids, not ctx — the registered id→ctx interchange).
@@ -72,9 +73,8 @@ export function apply(ctx: ClientContext): void {
           menu: controller.menu,
           onPick: (source, index) => { controller.pick(source, index) },
           onDismiss: () => { controller.dismiss() },
-          t: scope.locale.bind(MENU_NS),
         }
       },
-    }, MenuView), 'ui-slash: MenuView overlay registration')
+    }, MenuView))
   })
 }

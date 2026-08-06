@@ -11,7 +11,12 @@ import { accessSync, constants, statSync } from 'node:fs'
 import { isAbsolute, resolve } from 'node:path'
 import type { Context } from 'cordis'
 import z from 'schemastery'
-import type { SubagentCapabilities, SubagentProvider, SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
+import type {
+  ResolvedSubagentStartRequest,
+  SubagentCapabilities,
+  SubagentProvider,
+  SubagentStartRequest,
+} from '@deepseek-ai/dsh-subagent'
 import { type AcpRunSpec, DEFAULT_DISPOSE_EOF_GRACE_MS, DEFAULT_DISPOSE_GRACE_MS, type PermissionPolicy, startAcpRun } from './run.ts'
 
 export const name = 'subagent-acp'
@@ -143,7 +148,7 @@ class AcpProvider implements SubagentProvider {
 
   constructor(readonly name: string, private readonly ctx: Context, private readonly config: ResolvedConfig) {}
 
-  start(request: SubagentStartRequest) {
+  start(request: ResolvedSubagentStartRequest) {
     const spec: AcpRunSpec = {
       command: this.config.command,
       args: this.config.args,

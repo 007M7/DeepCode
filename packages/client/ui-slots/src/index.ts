@@ -19,7 +19,6 @@ import type { BoundActions, HandleOf, PropsStore, SnapshotSelectorHook, StoreDec
 
 export * from './store.ts'
 export * from './renderer.ts'
-export * from './deferred.ts'
 
 /** Slot contract table. Owners extend via declaration merging; entries are {@link SlotEntryDef}. */
 export interface SlotMap {}
@@ -338,10 +337,17 @@ export type InjectParams<K extends keyof SlotMap & string, H> =
         : [sessionId: SessionIdOf | undefined])
       : ([H] extends [StoreDecl] ? [actions: BoundActions<HandleOf<H>>] : [])
 
+/**
+ * A list-entry display label: a plain string, or a thunk re-evaluated per
+ * read so registration-time text (nav rows, tabs) follows the active locale
+ * without re-registration. Owners resolve through {@link resolveSlotLabel}.
+ */
+export type SlotLabel = string | (() => string)
+
 /** Kind shape fields carried in register options (keyed dispatch key; list id/order/label; chain select/priority). */
 export type KindOptions<E extends SlotEntryDef, M = never> =
   E['kind'] extends 'keyed' ? { key: string }
-    : E['kind'] extends 'list' ? { id: string; order?: number; label?: string }
+    : E['kind'] extends 'list' ? { id: string; order?: number; label?: SlotLabel }
       : E['kind'] extends 'chain' ? {
         /** Routing selector, mandatory on chain entries; `M` (the component's `matched` prop) infers from its return. */
         select: ChainSelect<E extends { owner: infer O extends object } ? O : object, M>
@@ -391,7 +397,7 @@ type BaseOptions<K extends keyof SlotMap & string, D extends ChildrenDecl, H, M 
  */
 export interface StoredEntry {
   component: unknown
-  options: { key?: string; id?: string; order?: number; label?: string; priority?: number }
+  options: { key?: string; id?: string; order?: number; label?: SlotLabel; priority?: number }
   /** Chain routing selector (type-erased like `inject`; present exactly on chain-slot entries). */
   select?: ((owner: never) => unknown) | undefined
   /** Registrant business face; positional params derive from the declaration (sessionId?, actions?). */
@@ -407,6 +413,17 @@ export interface StoredEntry {
 }
 
 /**
+ * Resolve a possibly-thunked list label at read time (thunks follow the
+ * active locale; owners projecting ledger rows call this instead of reading
+ * `options.label` raw).
+ * @param label - the stored label.
+ * @returns the display string, or undefined when the entry declared none.
+ */
+export function resolveSlotLabel(label: SlotLabel | undefined): string | undefined {
+  return typeof label === 'function' ? label() : label
+}
+
+/**
  * Type-erased options view the implementation works with. Optional members
  * carry explicit `| undefined`: under exactOptionalPropertyTypes the public
  * overloads (whose generics admit undefined) would otherwise fail
@@ -417,7 +434,7 @@ interface ErasedOptions {
   key?: string | undefined
   id?: string | undefined
   order?: number | undefined
-  label?: string | undefined
+  label?: SlotLabel | undefined
   select?: ((owner: never) => unknown) | undefined
   priority?: number | undefined
   children?: Record<string, SlotSpec<SlotEntryDef>> | undefined
@@ -439,9 +456,12 @@ interface SlotRecord {
   spec: SlotSpec<SlotEntryDef> | undefined
   /** Diagnostics: which slot's entry declared this key ('(built-in)' for root). */
   declaredBy: string | undefined
+  /** Monotonic declaration lifetime, distinct from ordinary entry mutations. */
+  declarationEpoch: number
   entries: readonly StoredEntry[]
   version: number
   listeners: Set<() => void>
+  declarationListeners: Set<() => void>
 }
 
 const NO_ENTRIES: readonly StoredEntry[] = Object.freeze([])
@@ -455,8 +475,10 @@ const NO_ENTRIES: readonly StoredEntry[] = Object.freeze([])
  *
  * Change propagation contract: versions bump and {@link SlotCore.onMutate}
  * fires synchronously per mutation (registry state is consistent when they
- * fire); {@link SlotCore.subscribe} notifications batch per microtask, so N
- * same-tick mutations produce one notification per touched key.
+ * fire); {@link SlotCore.subscribeDeclaration} fires synchronously for each
+ * declaration lifetime boundary; {@link SlotCore.subscribe} notifications
+ * batch per microtask, so N same-tick mutations produce one notification per
+ * touched key.
  */
 export class SlotCore {
   private records = new Map<string, SlotRecord>()
@@ -473,6 +495,7 @@ export class SlotCore {
     const root = this.record('root')
     root.spec = { kind: 'single', scope: 'root' }
     root.declaredBy = '(built-in)'
+    root.declarationEpoch = 1
   }
 
   /**
@@ -613,11 +636,21 @@ export class SlotCore {
     rec.entries = next
     this.markDirty(options.name, rec)
     if (options.children) {
+      const declarations: [key: string, record: SlotRecord][] = []
       for (const [childKey, childSpec] of Object.entries(options.children)) {
         const childRec = this.record(childKey)
         childRec.spec = childSpec
         childRec.declaredBy = `an entry in "${options.name}"${options.registrant ? ` (${options.registrant})` : ''}`
+        childRec.declarationEpoch += 1
+        declarations.push([childKey, childRec])
+      }
+      // Synchronous listeners may register into or try to redeclare a sibling;
+      // publish only after the whole children table owns its declarations.
+      for (const [childKey, childRec] of declarations) {
         this.markDirty(childKey, childRec)
+      }
+      for (const [, childRec] of declarations) {
+        this.notifyDeclaration(childRec)
       }
     }
     return () => {
@@ -675,6 +708,16 @@ export class SlotCore {
   }
 
   /**
+   * Read the declaration lifetime of a key. Entry additions and removals do
+   * not change it; declaration creation and collapse each advance it.
+   * @param key - slot key.
+   * @returns monotonic epoch (0 before the first declaration).
+   */
+  declarationEpoch(key: string): number {
+    return this.records.get(key)?.declarationEpoch ?? 0
+  }
+
+  /**
    * Subscribe to registration changes for a key (microtask-batched).
    * Subscribing ahead of declaration is allowed; the declaration notifies.
    * @param key - slot key.
@@ -685,6 +728,22 @@ export class SlotCore {
     const rec = this.record(key)
     rec.listeners.add(fn)
     return () => { rec.listeners.delete(fn) }
+  }
+
+  /**
+   * Subscribe to declaration lifetime boundaries for a key. Notifications
+   * are synchronous so declaration teardown finishes before a subsequent
+   * same-tick registration can observe stale resources. Ordinary entry
+   * mutations do not notify this surface. A children table commits every
+   * sibling declaration before its first notification.
+   * @param key - slot key.
+   * @param fn - declaration or collapse callback.
+   * @returns unsubscribe.
+   */
+  subscribeDeclaration(key: string, fn: () => void): () => void {
+    const rec = this.record(key)
+    rec.declarationListeners.add(fn)
+    return () => { rec.declarationListeners.delete(fn) }
   }
 
   /**
@@ -728,8 +787,10 @@ export class SlotCore {
       const doomed = childRec.entries
       childRec.spec = undefined
       childRec.declaredBy = undefined
+      childRec.declarationEpoch += 1
       childRec.entries = NO_ENTRIES
       this.markDirty(childKey, childRec)
+      this.notifyDeclaration(childRec)
       for (const dead of doomed) this.releaseEntry(dead)
     }
   }
@@ -737,7 +798,15 @@ export class SlotCore {
   private record(key: string): SlotRecord {
     let rec = this.records.get(key)
     if (!rec) {
-      rec = { spec: undefined, declaredBy: undefined, entries: NO_ENTRIES, version: 0, listeners: new Set() }
+      rec = {
+        spec: undefined,
+        declaredBy: undefined,
+        declarationEpoch: 0,
+        entries: NO_ENTRIES,
+        version: 0,
+        listeners: new Set(),
+        declarationListeners: new Set(),
+      }
       this.records.set(key, rec)
     }
     return rec
@@ -751,6 +820,10 @@ export class SlotCore {
       this.flushScheduled = true
       queueMicrotask(() => { this.flush() })
     }
+  }
+
+  private notifyDeclaration(rec: SlotRecord): void {
+    for (const fn of [...rec.declarationListeners]) fn()
   }
 
   private flush(): void {

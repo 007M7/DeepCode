@@ -2,32 +2,42 @@
 
 import type { Context } from 'cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
+import type { LlmRetryEventData } from '@deepseek-ai/dsh-llm-retry/types'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type {
-  HistoryEntry, IApiClient, InboxItemId, MuxFrame, QueueAction, RpcError,
-  RpcId, RpcResult, SessionId, ToolEventView,
+  HistoryEntry, IApiClient, MessageId, MuxFrame, QueueAction, RpcError,
+  RpcId, RpcResponse, RpcResult, SessionId, SubagentAddress, ToolEventView,
 } from '@deepseek-ai/dsh-client-connection/client'
 // Value import from the inline-safe wire layer (not the connection plugin):
 // plugin-to-plugin value imports are a bundle purity error.
 import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { SessionFace } from '../contract/session.ts'
 import type {
-  CodeSubCall, ComposerPhase, ConversationNode, ConversationSnapshot, OpenState,
-  PromptError, QueuedMessage, RunningToolCall,
+  CodeSubCall, ComposerPhase, ConversationNode, ConversationSnapshot, ModelRetryNode,
+  OpenState, PromptError, QueuedMessage, RunningToolCall,
 } from './conversation.ts'
 import type { PendingInteraction } from './pending.ts'
 import { PendingWait } from './pending.ts'
-import { FoldAdapter } from './fold-adapter.ts'
+import { TranscriptAdapter } from './transcript-adapter.ts'
+import { displayFailureMessage } from './failure-display.ts'
 import { Notifier } from './notifier.ts'
-import { PartialAccumulator } from './partial.ts'
+import { isVisibleAssistantChunk, PartialAccumulator } from './partial.ts'
 import { ProjectionValueStore } from './projection-store.ts'
 import type { ProjectionsBaseline } from './projection-store.ts'
 
 /** Messages requested per history page. */
 export const PAGE_MESSAGES = 50
 
+// Browser bundles cannot value-import the host timeout library. This protocol
+// bound is pinned to @deepseek-ai/dsh-timeout's MAX_TIMER_DELAY_MS in tests.
+const MAX_RETRY_DELAY_MS = 2_147_483_647
+
 /** Manager-owned observers of a Session object's local state edges. */
 export interface SessionOptions {
+  /** Catalog-discovered address selecting non-activating subagent transport. */
+  address?: SubagentAddress
+  /** Whether the exact direct parent Agent was live at the latest catalog read. */
+  parentAvailable?: boolean
   /**
    * First ACCEPTED prompt on a blank session (fires at most once, on the
    * prompt RPC's success response): the manager mirrors the blank→false flip
@@ -85,12 +95,15 @@ export class Session implements SessionFace {
    *  passes drop all writes once the generation moves on. */
   private openGeneration = 0
   private loadingOlder = false
-  private readonly foldAdapter = new FoldAdapter()
+  private readonly transcript = new TranscriptAdapter()
   private partial: PartialAccumulator | null = null
   private openCalls = new Map<string, RunningToolCall>()
-  /** Interrupted-turn terminal nodes (frozen partial text / aborted tool cards), merged into the flow by seq.
-   *  Derived from window events (turn/end sweep) — rebuilt by rebuildDerivedFromWindow like partial/openCalls. */
-  private frozenNodes: ConversationNode[] = []
+  /** Last entered step per turn, folded from step/start for terminal error placement. */
+  private lastStepByTurn = new Map<number, number>()
+  /** Operational notices and interrupted-turn terminal nodes merged into the flow by seq.
+   *  Derived from window events and rebuilt with partial/openCalls; the transcript is
+   *  seq-monotonic, so a plain seq merge preserves event order. */
+  private derivedNodes: ConversationNode[] = []
   private pending = new Map<string, PendingInteraction>()
   // Revision counters preserve array identity when derived content is unchanged, so
   // React.memo children survive unrelated snapshot swaps (chunk storms must not re-render every
@@ -100,18 +113,30 @@ export class Session implements SessionFace {
   private callsCache: { rev: number; value: RunningToolCall[] } | null = null
   private pendingRev = 0
   private pendingCache: { rev: number; value: PendingInteraction[] } | null = null
+  private derivedRev = 0
+  private nodesCache: { projected: readonly ConversationNode[]; derivedRev: number; value: readonly ConversationNode[] } | null = null
+  /** Exact turn timing retained from the raw window so presentation never
+   *  infers elapsed time from transcript content. */
+  private turnTimings = new Map<number, { startTime: number; endTime?: number }>()
+  private turnTimingsRev = 0
+  private turnTimingsCache: { rev: number; value: ConversationSnapshot['turnTimings'] } | null = null
+  /** Completed turn boundaries retained from the raw window so presentation
+   *  actions never infer a safe fork point from transcript content alone. */
+  private turnEnds = new Map<number, number>()
+  private turnEndsRev = 0
+  private turnEndsCache: { rev: number; value: ReadonlyMap<number, number> } | null = null
   /** Authoritative stream-only inbox snapshot; pending work never hits history. */
   private queued: QueuedMessage[] = []
   private queueRev = 0
   private queueCache: { rev: number; value: QueuedMessage[] } | null = null
-  private frozenRev = 0
-  private nodesCache: { folded: readonly ConversationNode[]; frozenRev: number; value: readonly ConversationNode[] } | null = null
   /** `run_code` sub-dispatches by parent callId (window-derived, like openCalls). Appends
    *  copy-on-write the per-parent array so published snapshot references never mutate. */
   private codeDispatches = new Map<string, readonly CodeSubCall[]>()
   private dispatchesRev = 0
   private dispatchesCache: { rev: number; value: ReadonlyMap<string, readonly CodeSubCall[]> } | null = null
   private running = false
+  private address: SubagentAddress | undefined
+  private parentAvailable = false
   /**
    * Sticky send marker, private input of the composerPhase derivation: set
    * synchronously before prompt()'s first await, never reset — the blank →
@@ -167,6 +192,8 @@ export class Session implements SessionFace {
     private readonly options: SessionOptions = {},
   ) {
     this.projections = options.projections ?? new ProjectionValueStore()
+    this.address = options.address
+    this.parentAvailable = options.parentAvailable ?? false
     this.snapshotCache = this.buildSnapshot()
   }
 
@@ -206,7 +233,21 @@ export class Session implements SessionFace {
     this.notifier.markDirty()
     let result: RpcResult<{ accepted: true }>
     try {
-      result = (await this.api.sessions.prompt({ sessionId: this.sessionId, mode, content })).result
+      if (this.address === undefined) {
+        result = (await this.api.sessions.prompt({ sessionId: this.sessionId, mode, content })).result
+      } else if (this.address.mode === 'one-shot') {
+        result = {
+          ok: false,
+          error: {
+            code: 'subagent-not-resumable',
+            message: 'one-shot subagent conversations are read-only',
+            details: { childSessionId: this.address.childSessionId },
+          },
+        }
+      } else {
+        const routed = (await this.api.subagents.prompt({ ...this.address, content })).result
+        result = routed.ok ? { ok: true, value: { accepted: true } } : routed
+      }
     } catch (error) {
       result = transportError(error)
     }
@@ -232,7 +273,7 @@ export class Session implements SessionFace {
   }
 
   /** Apply one operation to a still-pending queue occurrence. */
-  async updateQueue(itemId: InboxItemId, action: QueueAction): Promise<RpcResult<{ accepted: true }>> {
+  async updateQueue(itemId: MessageId, action: QueueAction): Promise<RpcResult<{ accepted: true }>> {
     try {
       return (await this.api.sessions.updateQueue({ sessionId: this.sessionId, itemId, action })).result
     } catch (error) {
@@ -241,10 +282,24 @@ export class Session implements SessionFace {
   }
 
   /**
-   * Stop: contract session.cancel 1:1; failures land in promptError (same error-strip display slot).
+   * Stop the active turn while the Host preserves pending inbox work; failures
+   * land in promptError (same error-strip display slot).
    * @returns the cancel result.
    */
   async cancel(): Promise<RpcResult<{ accepted: true }>> {
+    if (this.address !== undefined) {
+      const result: RpcResult<{ accepted: true }> = {
+        ok: false,
+        error: {
+          code: 'subagent-delivery-unavailable',
+          message: 'subagent activation cancellation is unavailable',
+          details: { childSessionId: this.address.childSessionId },
+        },
+      }
+      this.promptError = { op: 'stop', error: result.error }
+      this.notifier.markDirty()
+      return result
+    }
     let result: RpcResult<{ accepted: true }>
     try {
       result = (await this.api.sessions.cancel({ sessionId: this.sessionId })).result
@@ -310,9 +365,7 @@ export class Session implements SessionFace {
     this.loadingOlder = true
     this.notifier.markDirty()
     try {
-      const { result } = await this.api.sessions.history({
-        sessionId: this.sessionId, beforeSeq: this.baseSeq, maxMessages: PAGE_MESSAGES,
-      })
+      const { result } = await this.history({ beforeSeq: this.baseSeq, maxMessages: PAGE_MESSAGES })
       if (!result.ok) return // keep the window as-is; do not overwrite openError (open already succeeded)
       const older = result.value.events
       if (older.length === 0) {
@@ -331,7 +384,7 @@ export class Session implements SessionFace {
       /* v8 ignore next -- the ?? arm needs older[0] undefined, but the empty-page branch above already returned. */
       this.baseSeq = older[0]?.event.seq ?? this.baseSeq
       this.hasMore = result.value.hasMore
-      this.foldAdapter.reset(this.events, this.baseSeq, this.views) // prepend forces a rebuild (sentinel count changed)
+      this.transcript.reset(this.events, this.views) // prepend forces a rebuild (the window grew at the head)
       this.rebuildDerivedFromWindow()
     } catch (error) {
       console.error('[web-runtime] loadOlder failed:', error)
@@ -405,6 +458,9 @@ export class Session implements SessionFace {
       case 'session/queue': {
         this.queued = frame.items.map(item => ({
           id: item.id,
+          messageId: item.message.id,
+          placement: item.placement,
+          content: item.message.content,
           preview: queuePreviewOf(item.message.content),
           text: queueTextOf(item.message.content),
         }))
@@ -472,6 +528,32 @@ export class Session implements SessionFace {
   }
 
   /**
+   * Install or clear the catalog-discovered transport address. A changed
+   * address rebuilds an already-open window through its new history route.
+   * @param address - direct parent/child address, or undefined for ordinary transport.
+   * @param parentAvailable - latest exact-parent availability hint.
+   */
+  configureSubagent(address: SubagentAddress | undefined, parentAvailable = false): void {
+    const same = this.address?.parentSessionId === address?.parentSessionId
+      && this.address?.childSessionId === address?.childSessionId
+      && this.address?.mode === address?.mode
+    this.address = address
+    this.parentAvailable = parentAvailable
+    if (!same && this.openState !== 'cold') void this.resync()
+    else this.notifier.markDirty()
+  }
+
+  /**
+   * Update only the parent availability hint from a catalog refresh.
+   * @param available - whether the exact direct parent is live.
+   */
+  handleSubagentParentAvailable(available: boolean): void {
+    if (this.parentAvailable === available) return
+    this.parentAvailable = available
+    this.notifier.markDirty()
+  }
+
+  /**
    * Blank-bit relay from the authoritative summary source (list baseline and
    * the session-added frame). Monotone: once any signal (local first send,
    * running flip, an earlier summary) cleared it, a stale true never
@@ -525,7 +607,7 @@ export class Session implements SessionFace {
     this.openError = null
     this.notifier.markDirty()
     try {
-      let { result } = await this.api.sessions.history({ sessionId: this.sessionId, maxMessages: PAGE_MESSAGES })
+      let { result } = await this.history({ maxMessages: PAGE_MESSAGES })
       if (generation !== this.openGeneration) return
       if (!result.ok) {
         this.openState = 'error'
@@ -536,7 +618,7 @@ export class Session implements SessionFace {
       // Gap detection (§D.3-4): baseline past the window tail and liveBuffer did not cover it -> pull the tail page once more.
       const tailSeq = this.windowTailSeq()
       if (this.subscribedLastSeq !== null && tailSeq !== null && this.subscribedLastSeq > tailSeq) {
-        result = (await this.api.sessions.history({ sessionId: this.sessionId, maxMessages: PAGE_MESSAGES })).result
+        result = (await this.history({ maxMessages: PAGE_MESSAGES })).result
         if (generation !== this.openGeneration) return
         if (result.ok) this.installWindow(result.value.events, result.value.hasMore, result.value.projections)
       }
@@ -564,7 +646,7 @@ export class Session implements SessionFace {
     this.views = entries.map(e => e.view)
     this.baseSeq = this.events[0]?.seq ?? 0
     this.hasMore = hasMore
-    this.foldAdapter.reset(this.events, this.baseSeq, this.views)
+    this.transcript.reset(this.events, this.views)
     this.rebuildDerivedFromWindow()
     if (projections !== undefined) this.projections.seed(projections)
     const buffered = this.liveBuffer
@@ -579,14 +661,27 @@ export class Session implements SessionFace {
     if (tailSeq !== null && event.seq <= tailSeq) return // replay overlap, drop
     this.events.push(event)
     this.views.push(view)
-    this.foldAdapter.append(event, view)
+    this.transcript.append(event, view)
+    this.handoffPendingSteering(event)
     this.applyEventSideEffects(event, view)
+  }
+
+  /** Retire the first matching live steering occurrence when its durable message takes over. */
+  private handoffPendingSteering(event: SessionEvent): void {
+    if (event.type !== 'user/message') return
+    const message = event.data
+    const index = this.queued.findIndex(item =>
+      item.placement === 'steering' && item.messageId === message.id)
+    if (index === -1) return
+    this.queued = this.queued.filter((_item, candidate) => candidate !== index)
+    this.queueRev++
   }
 
   /** Land a live session/event (open/repair in flight -> buffer; overlapping seq -> drop;
    *  a seq gap -> buffer + tail-page repull instead of appending a hole (audit S3: a gap is an
-   *  expected reconnect-window artifact, repaired by refetch — never fed to the fold to trip
-   *  its continuity assertion into the degraded view). */
+   *  expected reconnect-window artifact, repaired by refetch). The window stays one contiguous
+   *  raw range, which is what lets the transcript render every event between its ends and lets a
+   *  compaction checkpoint find its own provenance. */
   private acceptLiveEvent(event: SessionEvent, view?: ToolEventView): void {
     if (this.openState === 'loading' || this.stitching) {
       this.liveBuffer.push({ event, view })
@@ -600,6 +695,10 @@ export class Session implements SessionFace {
       return
     }
     this.appendLive(event, view)
+    if (event.type === 'assistant/chunk') {
+      if (isVisibleAssistantChunk(event.data.chunk.type)) this.notifier.markFrameDirty()
+      return
+    }
     this.notifier.markDirty()
   }
 
@@ -612,7 +711,7 @@ export class Session implements SessionFace {
     this.stitching = true
     const generation = this.openGeneration
     try {
-      const { result } = await this.api.sessions.history({ sessionId: this.sessionId, maxMessages: PAGE_MESSAGES })
+      const { result } = await this.history({ maxMessages: PAGE_MESSAGES })
       // Failure or superseded by a full resync: drop — the resync path rebuilds and clears the buffer itself.
       if (result.ok && generation === this.openGeneration && this.openState === 'open') {
         this.installWindow(result.value.events, result.value.hasMore, result.value.projections)
@@ -625,8 +724,28 @@ export class Session implements SessionFace {
   }
 
   /** Per-event side effects (right column of the §A.9 dispatch table):
-   *  chunk accumulation / partial clear on finalize / openCalls add-remove. */
+   *  chunk/retry projection and openCalls add-remove. */
   private applyEventSideEffects(event: SessionEvent, view?: ToolEventView): void {
+    const eventType = event.type as string
+    if (eventType === 'llm/retry') {
+      const data = parseRetryEventData(event.data)
+      if (data === null) {
+        console.error(`[web-runtime] ignored malformed llm/retry event at seq ${event.seq}`)
+        return
+      }
+      if (this.partial !== null && this.partial.turn === data.turn && this.partial.step === data.step) {
+        this.partial = null
+      }
+      this.derivedNodes.push({
+        kind: 'model-retry',
+        seq: event.seq,
+        time: event.time,
+        retryState: 'scheduled',
+        ...data,
+      })
+      this.derivedRev++
+      return
+    }
     // The `tool/code-dispatch-start`/`tool/code-dispatch` pair is declared by
     // the host-side dsh-tools plugin whose types cannot enter the client
     // program (its host Context merges collide with the client's), so this
@@ -687,8 +806,17 @@ export class Session implements SessionFace {
       return
     }
     switch (event.type) {
+      case 'turn/start':
+        this.lastStepByTurn.set(event.data.turn, 0)
+        this.turnTimings.set(event.data.turn, { startTime: event.time })
+        this.turnTimingsRev++
+        return
+      case 'step/start':
+        this.lastStepByTurn.set(event.data.turn, event.data.step)
+        return
       case 'assistant/chunk': {
         const { turn, step, chunk } = event.data
+        this.settleScheduledRetry('started', turn)
         if (this.partial === null || this.partial.turn !== turn || this.partial.step !== step) {
           this.partial = new PartialAccumulator(turn, step)
         }
@@ -715,6 +843,34 @@ export class Session implements SessionFace {
         return
       }
       case 'turn/end': {
+        const lastStep = this.lastStepByTurn.get(event.data.turn) ?? 0
+        const timing = this.turnTimings.get(event.data.turn)
+        if (timing !== undefined) {
+          this.turnTimings.set(event.data.turn, { ...timing, endTime: event.time })
+          this.turnTimingsRev++
+        }
+        this.turnEnds.set(event.data.turn, event.seq)
+        this.turnEndsRev++
+        if (event.data.reason.kind === 'aborted') {
+          this.settleScheduledRetry('cancelled', event.data.turn)
+        }
+        if (
+          event.data.reason.kind === 'error'
+          && !this.derivedNodes.some(node => node.kind === 'model-retry' && node.turn === event.data.turn)
+        ) {
+          const failure = event.data.reason.error
+          this.derivedNodes.push({
+            kind: 'turn-error',
+            seq: event.seq,
+            time: event.time,
+            turn: event.data.turn,
+            step: lastStep,
+            message: displayFailureMessage(failure),
+            code: failure.code,
+          })
+          this.derivedRev++
+        }
+        if (event.data.reason.kind === 'error') this.settleScheduledRetry('started', event.data.turn)
         // Aborted turns never finalize. The accumulated partial is VALUE, not residue: freeze it
         // into an interrupted terminal node (pulse stops, text survives) instead of deleting it.
         // Shared by live and window-replay paths, so a refresh reconstructs the same frozen node
@@ -724,12 +880,12 @@ export class Session implements SessionFace {
           const visible = blocks.some(b => (b.kind === 'text' || b.kind === 'reasoning' ? b.text !== '' : true))
           if (visible) {
             // Fractional seq: strictly after every event of this turn (all < turn/end seq), before the next turn.
-            this.frozenNodes.push({
+            this.derivedNodes.push({
               kind: 'assistant', seq: event.seq - 0.9, time: event.time,
               turn: this.partial.turn, step: this.partial.step,
               blocks, interrupted: true,
             })
-            this.frozenRev++
+            this.derivedRev++
           }
           this.partial = null
         }
@@ -739,7 +895,7 @@ export class Session implements SessionFace {
           this.openCalls.delete(callId)
           this.callsRev++
           // The spinner card becomes an interrupted terminal card (never vanishes mid-flow).
-          this.frozenNodes.push({
+          this.derivedNodes.push({
             kind: 'tool-result', seq: event.seq - 0.8 + callOffset++ * 0.01, time: event.time,
             callId,
             call: { name: call.name, argsRaw: call.argsRaw },
@@ -747,8 +903,9 @@ export class Session implements SessionFace {
             content: [], isError: true, error: { name: 'Interrupted', code: 'interrupted' },
             callView: call.callView, resultView: null,
           })
-          this.frozenRev++
+          this.derivedRev++
         }
+        this.lastStepByTurn.delete(event.data.turn)
         return
       }
       default:
@@ -756,15 +913,41 @@ export class Session implements SessionFace {
     }
   }
 
-  /** Re-derive state (partial/openCalls/frozenNodes) from raw window events after a rebuild — keeps
-   *  paging/stitching consistent, and makes the live freeze and the history replay converge on the
-   *  same interrupted nodes (chunks are logged, so the replayed sweep re-freezes identical text). */
+  /**
+   * Settle the newest scheduled retry, optionally restricted to its failed turn.
+   * @param retryState - next client projection state to publish.
+   * @param turn - failed turn required for cancellation; omitted for the next retry turn start.
+   */
+  private settleScheduledRetry(
+    retryState: Exclude<ModelRetryNode['retryState'], 'scheduled'>,
+    turn?: number,
+  ): void {
+    const index = this.derivedNodes.findLastIndex(node =>
+      node.kind === 'model-retry'
+      && node.retryState === 'scheduled'
+      && (turn === undefined || node.turn === turn))
+    if (index < 0) return
+    const node = this.derivedNodes[index]
+    /* v8 ignore next -- findLastIndex's predicate narrows the indexed node only at runtime. */
+    if (node?.kind !== 'model-retry') return
+    this.derivedNodes[index] = { ...node, retryState }
+    this.derivedRev++
+  }
+
+  /** Re-derive state (partial/openCalls/derivedNodes) from raw window events after a rebuild — keeps
+   *  paging/stitching consistent, and makes live handling and history replay converge on the same
+   *  retry notices and interrupted nodes. */
   private rebuildDerivedFromWindow(): void {
     this.partial = null
     this.openCalls.clear()
+    this.lastStepByTurn.clear()
     this.callsRev++
-    this.frozenNodes = []
-    this.frozenRev++
+    this.derivedNodes = []
+    this.derivedRev++
+    this.turnTimings = new Map()
+    this.turnTimingsRev++
+    this.turnEnds = new Map()
+    this.turnEndsRev++
     this.codeDispatches = new Map()
     this.dispatchesRev++
     for (let i = 0; i < this.events.length; i++) {
@@ -780,21 +963,27 @@ export class Session implements SessionFace {
   }
 
   private buildSnapshot(): ConversationSnapshot {
-    const { nodes: folded, degraded } = this.foldAdapter.nodes()
-    // Frozen interrupted nodes ride fractional seqs: a stable merge keeps them in flow order.
-    // The merged array is cached on (folded reference, frozenRev) so an unchanged flow keeps its
-    // reference across snapshot swaps (§A.9.4).
+    const projected = this.transcript.nodes()
+    // Derived interruption nodes ride fractional seqs while retry notices keep their event seq.
+    // The transcript is seq-monotonic, so sorting the union preserves flow order. Cache the
+    // merge on (projected reference, derivedRev) to retain identity across unrelated swaps.
     let nodes: readonly ConversationNode[]
-    if (this.nodesCache !== null && this.nodesCache.folded === folded && this.nodesCache.frozenRev === this.frozenRev) {
+    if (this.nodesCache !== null && this.nodesCache.projected === projected && this.nodesCache.derivedRev === this.derivedRev) {
       nodes = this.nodesCache.value
     } else {
-      nodes = this.frozenNodes.length === 0
-        ? folded
-        : [...folded, ...this.frozenNodes].sort((a, b) => a.seq - b.seq)
-      this.nodesCache = { folded, frozenRev: this.frozenRev, value: nodes }
+      nodes = this.derivedNodes.length === 0
+        ? projected
+        : [...projected, ...this.derivedNodes].sort((a, b) => a.seq - b.seq)
+      this.nodesCache = { projected, derivedRev: this.derivedRev, value: nodes }
     }
     if (this.callsCache === null || this.callsCache.rev !== this.callsRev) {
       this.callsCache = { rev: this.callsRev, value: [...this.openCalls.values()] }
+    }
+    if (this.turnTimingsCache === null || this.turnTimingsCache.rev !== this.turnTimingsRev) {
+      this.turnTimingsCache = { rev: this.turnTimingsRev, value: new Map(this.turnTimings) }
+    }
+    if (this.turnEndsCache === null || this.turnEndsCache.rev !== this.turnEndsRev) {
+      this.turnEndsCache = { rev: this.turnEndsRev, value: new Map(this.turnEnds) }
     }
     if (this.pendingCache === null || this.pendingCache.rev !== this.pendingRev) {
       this.pendingCache = { rev: this.pendingRev, value: [...this.pending.values()] }
@@ -809,13 +998,17 @@ export class Session implements SessionFace {
     return {
       sessionId: this.sessionId,
       nodes,
-      foldDegraded: degraded,
+      turnTimings: this.turnTimingsCache.value,
+      turnEnds: this.turnEndsCache.value,
       partial,
       runningCalls: this.callsCache.value,
       pending: this.pendingCache.value,
       codeDispatches: this.dispatchesCache.value,
       queue: this.queueCache.value,
       running: this.running,
+      subagent: this.address === undefined
+        ? null
+        : { address: this.address, parentAvailable: this.parentAvailable },
       composerPhase: derivePhase(
         // Command lifecycle nodes are not conversation: running /permission
         // or /plan on a fresh session keeps the hero (the client mirror of
@@ -833,6 +1026,69 @@ export class Session implements SessionFace {
       lastAgentError: this.lastAgentError,
     }
   }
+
+  /** Select ordinary or addressed history transport from the stored browser fact. */
+  private history(payload: { beforeSeq?: number; maxMessages?: number }): Promise<RpcResponse<{
+    events: HistoryEntry[]
+    hasMore: boolean
+    projections?: ProjectionsBaseline
+  }>> {
+    return this.address === undefined
+      ? this.api.sessions.history({ sessionId: this.sessionId, ...payload })
+      : this.api.subagents.history({ ...this.address, ...payload })
+  }
+}
+
+/** Validate the plugin-owned payload at the session-event wire boundary. */
+function parseRetryEventData(value: unknown): LlmRetryEventData | null {
+  if (value === null || typeof value !== 'object') return null
+  const data = value as Record<string, unknown>
+  const failure = data.failure
+  if (failure === null || typeof failure !== 'object') return null
+  const failureData = failure as Record<string, unknown>
+  if (!nonNegativeSafeInteger(data.turn)
+    || !nonNegativeSafeInteger(data.step)
+    || typeof data.provider !== 'string'
+    || data.provider.length === 0
+    || typeof data.policyKey !== 'string'
+    || data.policyKey.length === 0
+    || !positiveSafeInteger(data.retry)
+    || typeof data.delayMs !== 'number'
+    || !Number.isFinite(data.delayMs)
+    || data.delayMs < 0
+    || data.delayMs > MAX_RETRY_DELAY_MS
+    || typeof failureData.message !== 'string'
+    || failureData.message.length === 0
+    || typeof failureData.code !== 'string'
+    || failureData.code.length === 0) return null
+  if (data.mode === 'normal') {
+    if (!positiveSafeInteger(data.maxRetries) || data.retry > data.maxRetries) return null
+  } else if (data.mode === 'always') {
+    if ('maxRetries' in data) return null
+  } else {
+    return null
+  }
+  if (failureData.status !== undefined
+    && (typeof failureData.status !== 'number'
+      || !Number.isInteger(failureData.status)
+      || failureData.status < 100
+      || failureData.status > 599)) return null
+  if (failureData.providerRetryAfterMs !== undefined
+    && (typeof failureData.providerRetryAfterMs !== 'number'
+      || !Number.isFinite(failureData.providerRetryAfterMs)
+      || failureData.providerRetryAfterMs <= 0)) return null
+  if (failureData.requestId !== undefined
+    && (typeof failureData.requestId !== 'string'
+      || failureData.requestId.length === 0)) return null
+  return data as unknown as LlmRetryEventData
+}
+
+function nonNegativeSafeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+}
+
+function positiveSafeInteger(value: unknown): value is number {
+  return nonNegativeSafeInteger(value) && value > 0
 }
 
 /**

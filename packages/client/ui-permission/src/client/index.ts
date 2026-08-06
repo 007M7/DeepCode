@@ -8,41 +8,65 @@
  * projection (the same host-computed select the composer chip renders); a
  * pick submits the `/permission <preset>` command line, so both surfaces
  * write through one path and the pushed projection frame is the one
- * confirmation.
+ * confirmation. The Full access row carries the same explicit risk gate as
+ * the composer chip; the shared popup shell owns the modal mechanics.
+ * The General-settings row separately writes the default preset for sessions
+ * created later through the host Settings API.
  */
+import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
+// Type-only: pulls the locale plugin's Context merge (ctx.locale).
+import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type { ClientContext, SessionFace } from '@deepseek-ai/dsh-client-runtime/client'
 import type { CommandServiceContract, SelectOption } from '@deepseek-ai/dsh-client-ui-command/client'
 import type { ClientSessionContext } from '@deepseek-ai/dsh-client-ui-slash/client'
 import type { PermissionSelect } from '@deepseek-ai/dsh-permission/client'
+import { PermissionRow } from './PermissionRow.tsx'
+import type { PermissionRowInjected } from './PermissionRow.tsx'
+import {
+  accessEn, accessZh, en, zh,
+} from './locales.ts'
+import {
+  displayPermissionPreset, FULL_ACCESS_PRESET,
+} from './presentation.ts'
+import {
+  PERMISSION_SETTINGS_NS, PermissionSettingsController, refreshPermissionIfLoaded,
+} from './settings-store.ts'
+
+export type { PermissionRowInjected, PermissionRowProps } from './PermissionRow.tsx'
+export type {
+  PermissionDefaultOption, PermissionSettingsState,
+} from './settings-store.ts'
 
 /** Required services (cordis fiber inject). */
-export const inject = ['command', 'sessions']
+export const inject = ['command', 'sessions', 'slots', 'locale', 'connection']
+
+const ACCESS_NS = 'permission.access'
 
 /** Read one session's current permissions projection value (undefined = capability absent). */
 function selectOf(session: SessionFace | undefined): PermissionSelect | undefined {
   return session?.projections.faceOf('permissions').getSnapshot() as PermissionSelect | undefined
 }
 
-/**
- * Display transform twin of the composer chip's (ui-conversation
- * PermissionSelect): kebab-case machine names render as title-case labels
- * (`workspace-write` → `Workspace Write`) so both permission surfaces show
- * the same text; non-kebab host-configured names pass through.
- */
-function displayName(name: string): string {
-  if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(name)) return name
-  return name.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')
-}
-
 /** Flatten the projection select into popup rows; `custom` is display state, never a target. */
-function optionsOf(value: PermissionSelect): SelectOption[] {
+function optionsOf(value: PermissionSelect, t: (key: string) => string): SelectOption[] {
   return value.options
     .filter(option => option.value !== 'custom')
     .map(option => ({
       id: option.value,
-      label: displayName(option.name),
+      label: displayPermissionPreset(option.value, option.name),
       ...(option.description !== undefined ? { detail: option.description } : {}),
       ...(option.value === value.currentValue ? { active: true } : {}),
+      ...(option.value === FULL_ACCESS_PRESET
+        ? {
+          confirmation: {
+            title: t('confirm.title'),
+            description: t('confirm.description'),
+            acknowledgeLabel: t('confirm.acknowledge'),
+            cancelLabel: t('confirm.cancel'),
+            confirmLabel: t('confirm.enable'),
+          },
+        }
+        : {}),
     }))
 }
 
@@ -54,8 +78,68 @@ function optionsOf(value: PermissionSelect): SelectOption[] {
 export function apply(ctx: ClientContext): void {
   const command = ctx.get('command') as CommandServiceContract
   const sessions = ctx.sessions
+  // This optional bundle and ui-conversation can load independently, so each
+  // owns the same safety copy under its own locale namespace.
+  /* jscpd:ignore-start */
+  ctx.effect(() => {
+    const disposers = [
+      ctx.locale.register(ACCESS_NS, 'zh', {
+        'confirm.title': accessZh['confirm.title'],
+        'confirm.description': accessZh['confirm.description'],
+        'confirm.acknowledge': accessZh['confirm.acknowledge'],
+        'confirm.cancel': accessZh['confirm.cancel'],
+        'confirm.enable': accessZh['confirm.enable'],
+      }),
+      ctx.locale.register(ACCESS_NS, 'en', {
+        'confirm.title': accessEn['confirm.title'],
+        'confirm.description': accessEn['confirm.description'],
+        'confirm.acknowledge': accessEn['confirm.acknowledge'],
+        'confirm.cancel': accessEn['confirm.cancel'],
+        'confirm.enable': accessEn['confirm.enable'],
+      }),
+    ]
+    return () => { for (const dispose of disposers) dispose() }
+  }, 'ui-permission: Full access confirmation dictionaries')
+  /* jscpd:ignore-end */
+  const t = ctx.locale.bind(ACCESS_NS)
   const sessionFor = (session: ClientSessionContext): SessionFace | undefined =>
     sessions.binding(session.sessionId)?.session
+
+  ctx.effect(() => ctx.locale.register('settings.permission', { zh, en }), 'ui-permission: settings row dictionaries')
+
+  const connection = ctx.get('connection') as ConnectionHandle
+  const controller = new PermissionSettingsController(connection.api)
+  const load = (): Promise<void> => controller.load()
+  const select = (preset: string): Promise<void> => controller.select(preset)
+  const injected = (): PermissionRowInjected => ({
+    hooks: { permission: controller.store },
+    load,
+    select,
+  })
+
+  ctx.effect(() => {
+    const refresh = (ns?: string): void => {
+      if (ns !== undefined && ns !== PERMISSION_SETTINGS_NS) return
+      refreshPermissionIfLoaded(controller)
+    }
+    const disposers = [
+      ctx.on('settings/changed', refresh),
+      ctx.on('connection/reset', () => { refresh() }),
+    ]
+    return () => {
+      controller.dispose()
+      for (const dispose of disposers) dispose()
+    }
+  }, 'ui-permission: settings invalidations')
+
+  ctx.slots.inject('settings.general.item', () => ctx.slots.register({
+    name: 'settings.general.item',
+    id: 'permission',
+    order: -20,
+    locale: 'settings.permission',
+    inject: injected,
+  }, PermissionRow))
+
   ctx.effect(() => command.decorate({
     name: 'permission',
     // The picker exists exactly while the projection does: a permission-less
@@ -67,7 +151,7 @@ export function apply(ctx: ClientContext): void {
       options: (session) => {
         const value = selectOf(sessionFor(session))
         if (value === undefined) throw new Error('permission presets are not available on this host')
-        return Promise.resolve(optionsOf(value))
+        return Promise.resolve(optionsOf(value, t))
       },
       onSelect: async (option, session) => {
         const live = sessionFor(session)

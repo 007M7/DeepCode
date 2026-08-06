@@ -87,7 +87,7 @@ describe.skipIf(process.platform === 'win32')('create-sdk terminal contract', ()
       'my-agent',
       'my-agent',
       'Snapshot agent',
-      'deepseek',
+      'deepseek-official',
       'secret-key',
       'acp',
       [
@@ -166,7 +166,7 @@ describe.skipIf(process.platform === 'win32')('create-sdk terminal contract', ()
             "message": "Project description",
           },
           {
-            "initialValue": "deepseek",
+            "initialValue": "deepseek-official",
             "kind": "select",
             "message": "Model provider",
             "options": [
@@ -179,12 +179,11 @@ describe.skipIf(process.platform === 'win32')('create-sdk terminal contract', ()
             "message": "DeepSeek API key",
           },
           {
-            "initialValue": "tui",
+            "initialValue": "acp",
             "kind": "select",
             "message": "Run interface",
             "options": [
               "ACP automation server",
-              "Terminal TUI",
               "Embedded context",
             ],
           },
@@ -330,7 +329,7 @@ describe.skipIf(process.platform === 'win32')('create-sdk terminal contract', ()
             {
               "id": "provider",
               "options": [
-                "deepseek",
+                "deepseek-official",
               ],
             },
             {

@@ -2,36 +2,24 @@
 
 English | [中文](README.zh.md)
 
+The `dsh` command is the product launcher for raw Cordis configurations, the Web UI, and one-shot headless tasks. [`src/args.ts`](src/args.ts) owns the command grammar, and [`src/bin.ts`](src/bin.ts) loads only the selected runner. Invalid commands, options from another mode, configuration errors, and boot failures exit nonzero.
 
-Argv is parsed once through a [Commander](https://github.com/tj/commander.js) adapter ([`src/args.ts`](src/args.ts)): one program whose default (no subcommand) is the TUI/headless surface (`--config`, `-p`/`--prompt`, `--resume`), whose `meta` subcommand is the same TUI over this checkout, whose `upgrade` subcommand is an option-less guided-session entry, and whose `web` subcommand is the browser UI. `src/bin.ts` switches on the resolved mode and dynamic-imports only that mode's module. `dsh --help` lists every mode and `dsh web --help` renders the web usage, `dsh --version` prints this app's version, and an unknown option or a mistyped `--resume` fails loud (stderr, exit 1) instead of misrouting. Every subcommand that shares no option with the default surface — `upgrade`, `web`, `meta` — rejects a leaked `--config`/`-p`/`--resume` rather than running and dropping it. `dsh web`'s `--host`/`--port` are unvalidated pass-through overrides: the `dsh-host-webserver` schema is the single source of both the default (the shipped Web overlay value when a flag is absent) and validity, and rejects a bad value at boot. `--trusted-host` appends named authorities for the /api browser-trust fence; an all-interfaces bind additionally derives the machine's LAN IP literals itself ([`src/app-cli-entry.ts`](src/app-cli-entry.ts)), so the printed LAN URL works without flags.
+## Entry modes
 
-The TUI surface:
+| Command | Purpose |
+|---|---|
+| `dsh --config ./app.cordis.yml` | Run an explicit patch-list configuration over the shipped base. |
+| `dsh web` | Start the browser UI with the shipped Web composition and optional personal configuration. |
+| `dsh -p "task"` | Run one fresh persisted session, print the final answer, and exit. |
 
-- boots `base.cordis.yml` plus `tui.cordis.yml` through [`dsh-app-boot`](../../packages/ui/app-boot/README.md); `--config <path>` applies a patch-list overlay instead of the personal overlay, while `--config-replace <path>` boots that file as the complete tree;
-- resumes a persisted session with `dsh --resume <session-id>` and, when the Node host exposes `process.execve`, supplies the TUI's in-place handoff host: after selector preflight and current-session flush, the host disposes the app and replaces the process with a normalized resume invocation; runtimes without process replacement leave the session running and say so. This CLI owns session identity and the exit line rather than the config: it mints or selects the `main` session id and provides it, plus the exact command that reproduces this invocation, on the boot context ([`MAIN_SESSION_ID_KEY`](../../packages/ui/tui/README.md) and `TUI_GOODBYE_MESSAGE_KEY`). No `cordis.yml` key can drop resume, and a missing or unreadable id fails loud instead of creating a fresh session;
-- treats the **invoking directory** as the workspace — sessions, relative paths, and workspace instructions resolve from the cwd (`dsh meta` is the sole exception, below);
-- tells the agent where its own source lives: after boot it adds a prompt section naming this harness checkout, resolved from the launcher's real path so it holds under a PATH symlink and an arbitrary cwd, so the self-referential `cordis` toolset can read and modify it;
-- applies the personal overlay from `~/.dsh` (see [app-boot's Personal config](../../packages/ui/app-boot/README.md#personal-config)): `.env` fills environment gaps (ambient > project `.env` > personal `.env`), `config.yaml` patches the booted tree.
+The invoking directory is the default workspace root. Web and headless share the shipped provider, persistence, policy, tool, repository Plugin, and telemetry composition; raw config selects its own deployment-specific front door.
 
-`dsh meta` is that same TUI with this harness checkout as the workspace, so working on dsh itself needs no `cd`. It chdirs to the checkout root — resolved from the launcher's real path, the same root the source-path prompt section names — after both `.env` layers are loaded, so environment precedence is unchanged while the session cwd and HMR watch root move together. Meta always starts a fresh session and accepts no default-surface options; use ordinary `dsh --resume <id>` to resume a persisted session.
+## Raw config
 
-`dsh upgrade` is a guided fresh-session entry over the default TUI surface: it mints a fresh session in the invoking directory and seeds its first turn with the bundled `dsh-upgrade` skill, exactly as if the user typed `/skill:<name>`. The launcher passes the skill name on the boot context ([`INITIAL_SKILL_KEY`](../../packages/ui/tui/README.md)), which the TUI auto-invokes once the chat is live. Both take no options — `--config`, `-p`, and `--resume` fail loud — and seed only on this first launch, so a later `dsh --resume <id>` of the session is an ordinary TUI session with no re-injection.
+Raw `dsh` requires `--config`. The named patch list is applied directly over [`config/base.cordis.yml`](config/base.cordis.yml); it is not a complete replacement tree and does not add a surface overlay or personal `$DSH_HOME/config.yaml`. Use `--dump-default-config` and `--dump-config` to inspect the resulting tree without booting it.
 
+The [CLI behavior reference](reference/README.md) owns exact overlay precedence, flags, shutdown behavior, deployment defaults, and the source launcher.
 
-The Web and headless surfaces boot `base.cordis.yml` plus `web.cordis.yml`, then apply `$DSH_HOME/config.yaml`; an explicit `--config <path>` replaces that personal overlay. Both surfaces otherwise share the same composition: both treat the invoking directory as the default project and Workspace root, create named Workspaces beneath that root unless `--workspace-root <path>` overrides it, load applicable `AGENTS.md`/`CLAUDE.md` instructions into each agent-loop request prefix with a 65,536-byte render budget, and opt into first-message model titles. Headless differs only in listening on an OS-assigned port (parallel `dsh -p` runs never collide; the stderr-printed URL opens the live session in a browser). Both need the frontend dist and client bundles built (`pnpm run build && pnpm run build:web`).
+## Development
 
-The shipped TUI and Web compositions register the native DeepSeek adapter plus pi-ai OpenAI and Anthropic profiles. Credentials and endpoint overrides come from the provider-standard `DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL`, `OPENAI_API_KEY` / `OPENAI_BASE_URL`, and `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL` pairs in the boot's layered environment.
-
-`DSH_TOOLS_MODE` selects the tool presentation mode for the whole Web/headless process: `native` (the schema default when unset), `code` (the `run_code`-only Code Mode wire), or `both`; any other value fails loud at boot through the `dsh-tools` config schema. It is a TEMPORARY seam — process-wide because Loader composition is static — and is removed once the web UI owns per-session tool-mode selection; the TUI surface ignores it (its config tree pins its own mode).
-
-## Install (developer machine)
-
-Symlink the source-running launcher onto your PATH; it resolves the checkout through its own real path, so code changes apply on the next launch with no build step:
-
-```sh
-ln -sf "$(pwd)/bin/dsh" ~/.local/bin/dsh
-```
-
-Source launches run `apps/cli/src/bin.ts` through tsx's ESM-only hook (`node --import tsx/esm`), which transforms TypeScript and projects the root tsconfig `paths` map into module resolution. Node's native TypeScript modes are not used: Node 26 removed `--experimental-transform-types`, and strip-only mode rejects syntax the source graph relies on (vendored parameter properties, decorators, runtime enums/namespaces). The CJS hook stays off because the source graph is ESM-only and the CJS resolver adds ~0.4s of startup. `bin/dsh` pins `TSX_TSCONFIG_PATH` to the checkout's root tsconfig so resolution is cwd-independent, and the `dsh-source-launch-smoke` node-compat gate runs this exact launch vector on every supported Node line. tsx applies the `paths` map without checking dependency declarations, so declaration completeness rests on the static gates: the TUI configs resolve bare plugins through `examples/package.json`, the Web/headless `cordis.yml` through this package's `dependencies`, and `verify-cordis-config` requires every configured bare plugin to be declared, while allowing unrelated dependencies.
-
-`pnpm run dsh` runs the same entry from the repo root and forwards arguments directly, for example `pnpm run dsh -p "task"`. The built form (`lib/bin.js`, via `pnpm run build`) boots the same config under plain Node.
+Production Web and headless runs require built package and frontend artifacts. From a checkout, `pnpm run dsh` runs the TypeScript entry and forwards arguments; the [source-launcher reference](reference/README.md#source-launcher) describes the PATH symlink and module-resolution contract.

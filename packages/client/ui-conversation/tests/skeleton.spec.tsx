@@ -11,10 +11,15 @@ import type {
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConversationRootProps } from '../src/client/skeleton/ConversationRoot.tsx'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { en as commonEn } from '@deepseek-ai/dsh-client-locale/src/locales/en.ts'
+import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { createChatStore } from '../src/client/stores.ts'
 import { SessionInputShell } from '../src/client/input/facade.ts'
+import { en, zh } from '../src/client/locales.ts'
 import { ConversationRoot } from '../src/client/skeleton/ConversationRoot.tsx'
 import { ConversationSession } from '../src/client/skeleton/ConversationSession.tsx'
+import { HeroShell } from '../src/client/skeleton/EmptyHero.tsx'
 import { InputBar } from '../src/client/skeleton/InputBar.tsx'
 import type { InputBarProps } from '../src/client/skeleton/InputBar.tsx'
 import type {
@@ -44,6 +49,9 @@ beforeEach(() => {
   vi.stubGlobal('ResizeObserver', ResizeObserverStub)
 })
 
+// Mirrors the real lookup chain (conversation namespace, then common).
+const t: ConversationRootProps['t'] = makeTranslate(zh, commonZh)
+
 const sid = (id: string) => id as SessionId
 const wid = (id: string) => id as WorkspaceId
 const SID = sid('s1')
@@ -56,16 +64,16 @@ function workspace(id = 'w1'): WorkspaceView {
 }
 
 const workspaceState = (items: readonly WorkspaceView[]): WorkspaceListState => ({
-  items, state: 'idle', phase: 'ready', error: null,
+  items, archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
   baselinesReady: true, recentWorkspaceId: undefined,
 })
 
 function conversationSnapshot(overrides: Partial<ConversationSnapshot> = {}): ConversationSnapshot {
   return {
-    sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
+    sessionId: SID, nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [], codeDispatches: new Map(),
     pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
     openState: 'open', openError: null, hasMore: false, loadingOlder: false,
-    promptError: null, blank: false, lastAgentError: null,
+    promptError: null, blank: false, subagent: null, lastAgentError: null,
     ...overrides,
   }
 }
@@ -74,18 +82,30 @@ function mount(
   snapshot: ConversationSnapshot,
   workspaceRows: WorkspaceView[] = [{ ...workspace('one'), sessionIds: [SID] }],
   retargetWorkspace = vi.fn(async (_workspaceId: WorkspaceId) => {}),
-  /** When true, mimic overlay:true chain siblings (hidden fallback + takeover). */
-  overlayTakeover = false,
+  options: {
+    /** When true, mimic overlay:true chain siblings (hidden fallback + takeover). */
+    overlayTakeover?: boolean
+    /** The session list summary's `blank` flag — independent of the snapshot's. */
+    summaryBlank?: boolean
+    /** Drop the session's summary row entirely (a session the list has not caught up with). */
+    omitSummaryRow?: boolean
+    /** Classify the selected child as a subagent instead of an ordinary fork. */
+    summaryOrigin?: 'subagent'
+  } = {},
 ) {
   const root = sid('root')
+  const rootRow = { id: root, displayTitle: 'Root', running: false, blank: false, updatedAt: 1 }
+  const childRow = {
+    id: SID, displayTitle: 'Child', parentId: root, cwd: '/projects/one',
+    running: false, blank: options.summaryBlank ?? false, updatedAt: 2,
+    ...(options.summaryOrigin === undefined ? {} : { origin: options.summaryOrigin }),
+  }
+  const listed = options.omitSummaryRow !== true
   const sessions = createSnapshotStore<SessionListState>({
-    ids: [root, SID],
-    byId: {
-      [root]: { id: root, displayTitle: 'Root', running: false, waitingApproval: false, blank: false, updatedAt: 1 },
-      [SID]: { id: SID, displayTitle: 'Child', parentId: root, cwd: '/projects/one', running: false, waitingApproval: false, blank: false, updatedAt: 2 },
-    },
+    ids: listed ? [root, SID] : [root],
+    byId: { [root]: rootRow, ...listed && { [SID]: childRow } },
     current: SID,
-    phase: 'ready',
+    phase: 'ready', subagentsByParent: {}, currentAddress: undefined,
   })
   const workspaces = createSnapshotStore<WorkspaceListState>(workspaceState(workspaceRows))
   const session = createSnapshotStore<ConversationSnapshot>(snapshot)
@@ -126,6 +146,7 @@ function mount(
           }}
           bindDraftMirror={write => wiring.bindMirror(write)}
           open={open}
+          t={t}
           {...owner}
         />
       )
@@ -145,11 +166,14 @@ function mount(
           useInput={useInput}
           inputActions={inputActions}
           keyboard={wiring}
+          resolveSubmitMode={() => 'queue'}
+          toggleCommandMenu={vi.fn()}
           useNotices={bindSnapshotSelector(wiring.notices)}
           useLexicon={bindSnapshotSelector(wiring.lexicon)}
+          useMenuLauncher={bindSnapshotSelector(createSnapshotStore<string | null>(null))}
           stop={stop}
           command={() => Promise.resolve(true)}
-          translateHint={(key: string) => key}
+          t={t}
           renderSlot={(() => null) as InputBarProps['renderSlot']}
           {...bar}
         />
@@ -158,7 +182,7 @@ function mount(
     return <div data-testid={`view-${opts?.only ?? key}`} />
   }) as ConversationRootProps['renderSlot']
   const renderSlotChain = ((_key, _owner, opts) => (
-    overlayTakeover
+    options.overlayTakeover === true
       ? (
         <>
           <div data-chain-overlay-fallback="conversation.composer" style={{ display: 'none' }}>
@@ -181,14 +205,23 @@ function mount(
     renderSlot,
     renderSlotChain,
     selectWorkspace: retargetWorkspace,
+    t,
   }
   const view = render(<ConversationRoot {...props} />)
   return {
-    view, chat, sink, open, retargetWorkspace, session, slotCalls,
+    view, chat, sink, retargetWorkspace, session, slotCalls, open,
     pickerOwner: () => pickerOwner,
     rerender: () => { view.rerender(<ConversationRoot {...props} />) },
   }
 }
+
+describe('Hero chrome', () => {
+  it('renders the English preview badge through the hero locale seat', () => {
+    const view = render(<HeroShell t={makeTranslate(en, commonEn)} />)
+    expect(view.getByText('Let\'s start building')).toBeTruthy()
+    expect(view.getByText('Preview')).toBeTruthy()
+  })
+})
 
 describe('ConversationRoot resident composer', () => {
   it('keeps composer text in the machine, mirrors to the chat store, and submits through the sink', () => {
@@ -199,7 +232,15 @@ describe('ConversationRoot resident composer', () => {
     expect(b.chat.store.getSnapshot().draft).toBe('ordinary revised')
     fireEvent.keyDown(box, { key: 'Enter' })
     expect(b.sink).toHaveBeenCalledWith('ordinary revised', 'queue')
-    fireEvent.click(b.view.getByRole('button', { name: 'Root' }))
+    expect((b.view.getByRole('button', { name: 'Child' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(b.view.queryByText('Root')).toBeNull()
+  })
+
+  it('shows hierarchy only for subagents and opens their ordinary owner', () => {
+    const b = mount(conversationSnapshot(), undefined, undefined, { summaryOrigin: 'subagent' })
+    const root = b.view.getByRole('button', { name: 'Root' })
+    expect((b.view.getByRole('button', { name: 'Child' }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(root)
     expect(b.open).toHaveBeenCalledWith(sid('root'))
   })
 
@@ -219,7 +260,7 @@ describe('ConversationRoot resident composer', () => {
   })
 
   it('sticky composer seat wraps the whole overlay chain, not only the fallback stack', () => {
-    const b = mount(conversationSnapshot(), undefined, undefined, true)
+    const b = mount(conversationSnapshot(), undefined, undefined, { overlayTakeover: true })
     const seat = b.view.container.querySelector('[data-composer-seat]')
     const takeover = b.view.getByTestId('composer-takeover')
     const fallback = b.view.container.querySelector('[data-chain-overlay-fallback="conversation.composer"]')
@@ -241,7 +282,8 @@ describe('ConversationRoot resident composer', () => {
     const header = b.view.container.querySelector('header')
     expect(host).not.toBeNull()
     expect(header?.getAttribute('aria-hidden')).toBe('true')
-    expect(b.view.getByText("Let's start building")).toBeTruthy()
+    expect(b.view.getByText('开始构建吧')).toBeTruthy()
+    expect(b.view.getByText('预览版')).toBeTruthy()
     expect(b.view.queryByTestId('view-chat')).toBeNull()
     // The same machine-backed textarea is live in the hero, and the
     // persistence mirror stays bound (ConversationSession mounts chrome-hidden
@@ -252,12 +294,45 @@ describe('ConversationRoot resident composer', () => {
     expect(b.chat.store.getSnapshot().draft).toBe('draft in hero')
     // Picker: open through the chip; a pick switches to the other
     // workspace's blank session (draft carry is apply-layer wiring).
-    fireEvent.click(b.view.getByRole('button', { name: 'Choose workspace' }))
+    fireEvent.click(b.view.getByRole('button', { name: '选择工作区' }))
     const owner = b.pickerOwner() as { open: boolean; onPick(id: WorkspaceId): void }
     expect(owner.open).toBe(true)
     act(() => { owner.onPick(wid('second')) })
     expect(b.retargetWorkspace).toHaveBeenCalledWith(wid('second'))
     expect(b.view.getByText('Selected Folder')).toBeTruthy()
+  })
+
+  it('settling phase: a summary that does not prove the session blank hides the composer while it opens', () => {
+    const b = mount(conversationSnapshot({ composerPhase: 'blank', blank: true, openState: 'loading' }))
+    const root = b.view.container.querySelector('[data-phase]')
+    expect(root?.getAttribute('data-phase')).toBe('settling')
+    expect(b.view.queryByText('开始构建吧')).toBeNull()
+  })
+
+  it('settling phase: a session the list has no row for settles conservatively', () => {
+    const b = mount(
+      conversationSnapshot({ composerPhase: 'blank', blank: true, openState: 'loading' }),
+      undefined,
+      undefined,
+      { omitSummaryRow: true },
+    )
+    const root = b.view.container.querySelector('[data-phase]')
+    expect(root?.getAttribute('data-phase')).toBe('settling')
+  })
+
+  it('startup auto-selection: a summary-proven blank session opens straight into the hero', () => {
+    const b = mount(
+      conversationSnapshot({ composerPhase: 'blank', blank: true, openState: 'loading' }),
+      undefined,
+      undefined,
+      { summaryBlank: true },
+    )
+    // The summary already proves the outcome, so the settling hide would only
+    // blank the column for the history round-trip.
+    const root = b.view.container.querySelector('[data-phase]')
+    expect(root?.getAttribute('data-phase')).toBe('hero')
+    expect(b.view.getByText('开始构建吧')).toBeTruthy()
+    expect(b.view.getByRole('textbox')).toBeTruthy()
   })
 
   it('same textarea DOM node survives the hero → active flip into the sticky scrollport', () => {
@@ -274,7 +349,7 @@ describe('ConversationRoot resident composer', () => {
     expect(after.value).toBe('kept across flip')
     expect(b.chat.store.getSnapshot().draft).toBe('kept across flip')
     expect(b.view.container.querySelector('[data-conversation-scroll]')?.contains(after)).toBe(true)
-    expect(b.view.queryByText("Let's start building")).toBeNull()
+    expect(b.view.queryByText('开始构建吧')).toBeNull()
     expect(b.view.getByTestId('view-chat')).toBeTruthy()
   })
 
@@ -295,7 +370,7 @@ describe('ConversationRoot resident composer', () => {
       ],
       selectWorkspace,
     )
-    fireEvent.click(b.view.getByRole('button', { name: 'Choose workspace' }))
+    fireEvent.click(b.view.getByRole('button', { name: '选择工作区' }))
     const owner = b.pickerOwner() as { onPick(id: WorkspaceId): void }
     await act(async () => { owner.onPick(wid('second')); await Promise.resolve() })
     expect(selectWorkspace).toHaveBeenCalledWith(wid('second'))
@@ -305,7 +380,7 @@ describe('ConversationRoot resident composer', () => {
 
   it('blank session keeps the interactive picker chip (workspace switchable until the first message)', () => {
     const b = mount(conversationSnapshot({ composerPhase: 'blank', blank: true }))
-    const chip = b.view.getByRole('button', { name: 'Choose workspace' })
+    const chip = b.view.getByRole('button', { name: '选择工作区' })
     expect((chip as HTMLButtonElement).disabled).toBe(false)
     expect(b.slotCalls).toContain('conversation.hero.workspace')
   })

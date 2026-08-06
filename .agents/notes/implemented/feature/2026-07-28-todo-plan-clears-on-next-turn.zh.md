@@ -6,15 +6,15 @@ Status: implemented
 
 ## 问题
 
-`todo_write` 在会话日志中存储整表快照，交互式宿主把最新列表渲染为计划条（web TodoPanel 经 `todos` 投影，TUI Plan 面板）。一轮结束后，该条仍留在下一用户轮次的屏幕上——上一任务已完成或已放弃的清单。读者把计划条理解为「本轮正在做什么」，因此跨轮次的陈旧列表是错误的产品生命周期。[web todo 展示](2026-07-23-web-todo-display.md)与 [`todo_write` 工具](2026-06-29-todo-write-tool.md)笔记仍拥有事件溯源与两个渲染面；它们把站立计划描述为持续整段会话直至下一次写入。
+`todo_write` 在会话日志中存储完整列表快照，交互式宿主把最新列表渲染为计划条（web TodoPanel 经 `todos` 投影，TUI Plan 面板）。一轮结束后，该条仍留在下一用户轮次的屏幕上——上一任务已完成或已放弃的清单。读者把计划条理解为「本轮正在做什么」，因此跨轮次的陈旧列表是错误的产品生命周期。[web todo 展示](2026-07-23-web-todo-display.md)与 [`todo_write` 工具](2026-06-29-todo-write-tool.md)Agent Note 仍拥有事件溯源与两个渲染面；它们把常驻计划描述为持续整段会话直至下一次写入。
 
 ## 决策
 
-站立计划是其后没有更晚 `turn/start` 的最近一次 `todo/write`。`turn/end` 保留列表可见，以便用户阅读回答时仍能看到刚完成的清单；下一次 `turn/start` 将其清空，直至模型再次写入。
+常驻计划是其后没有更晚 `turn/start` 的最近一次 `todo/write`。`turn/end` 保留列表可见，以便用户阅读回答时仍能看到刚完成的清单；下一次 `turn/start` 将其清空，直至模型再次写入。
 
-### Host 投影（web）
+### 宿主投影（web）
 
-`dsh-tool-todo` 的 `todos` 投影单元折叠该规则：`apply` 从每个 `todo/write` 取整表，并在每个 `turn/start` 返回 `null`（`stateVersion` 2）。载体（`dsh-host-apiproxy`）在历史尾页的 `projections` 块与 `session/projection` 推送帧上供给该值；web dock 经 `useProjection('todos')` 读取。无密钥 fixture（测试前置数据）镜像同一折叠，供组装后的 snapshot 使用。
+`dsh-tool-todo` 的 `todos` 投影单元折叠该规则：`apply` 从每个 `todo/write` 取完整列表，并在每个 `turn/start` 返回 `null`（`stateVersion` 2）。载体（`dsh-host-apiproxy`）在历史记录尾部的 `projections` 块中提供该值，并以 `session/projection` 帧推送；web dock 经 `useProjection('todos')` 读取。无密钥 fixture（测试前置数据）镜像同一折叠，供组装后的快照使用。
 
 ### TUI 实时路径
 
@@ -24,8 +24,8 @@ TUI 的 `renderEvent` 分支仍在 `turn/start` 清空本地计划面板、在 `
 
 - **在 `turn/end` 清空**——用户仍在阅读刚完成的回答时就隐藏清单；此时计划条的职责是已完成计划，而非空 dock。
 - **仅在全部项为 `completed` 时清空**——会让放弃或部分完成的计划跨轮残留；计划条仍会显示另一任务的工作。
-- **在 turn start 追加空的 `todo/write`**——为 UI 生命周期规则改写日志，并捏造模型从未写出的写入。
+- **在轮次开始时追加空的 `todo/write`**——为 UI 生命周期规则改写日志，并捏造模型从未写出的写入。
 
 ## 后果
 
-Host 投影与 TUI 面板共用同一生命周期规则；重新打开会话仅在其后没有更晚轮次开始时恢复计划。部分取代 [web todo 展示](2026-07-23-web-todo-display.md)与 [`todo_write` 工具](2026-06-29-todo-write-tool.md)中「会话级站立计划」的表述：事件溯源、last-write-wins 替换与两个渲染面仍归那些笔记；本笔记拥有轮次边界清空。覆盖：tool-todo 投影对 turn/start 清空与 turn/end 保留的规格测试、供组装 web snapshot 的 fixture 推送帧清空，以及启动下一轮并钉住计划条消失的 TUI snapshot。
+宿主投影与 TUI 面板共用同一生命周期规则；重新打开会话仅在其后没有更晚轮次开始时恢复计划。部分取代 [web todo 展示](2026-07-23-web-todo-display.md)与 [`todo_write` 工具](2026-06-29-todo-write-tool.md)中「会话级常驻计划」的表述：事件溯源、last-write-wins 替换与两个渲染面仍归那些 Agent Note；本笔记拥有轮次边界清空。覆盖：tool-todo 投影对 turn/start 清空与 turn/end 保留的规格测试、供组装 web 快照的 fixture 推送帧清空，以及启动下一轮并固定计划条已消失这一结果的 TUI 快照。

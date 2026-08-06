@@ -11,7 +11,6 @@
  * string-typed. The rule fires on the narrow-map view, not real redundancy. */
 import type { Context } from 'cordis'
 import {
-  deferRegistration,
   type BoundActions, type LocaleDictOf, type LocaleNamespaceMap, type Translate, type TranslateNS,
 } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
@@ -83,7 +82,7 @@ declare module 'cordis' {
   }
 }
 
-/** Fallback locale consulted after the active locale misses (also the default). */
+/** Fallback locale consulted after the active locale misses (also the last-resort initial locale). */
 export const FALLBACK_LOCALE: LocaleId = 'zh'
 
 /** Shared namespace for shell-level texts. */
@@ -123,7 +122,7 @@ export class LocaleService {
    */
   constructor(ctx: Context) {
     this.ctx = ctx
-    this.snapshot = Object.freeze({ active: restorePreference(), locales: LOCALES, revision: 0 })
+    this.snapshot = Object.freeze({ active: resolveInitialLocale(), locales: LOCALES, revision: 0 })
   }
 
   /**
@@ -288,17 +287,52 @@ export class LocaleService {
   }
 }
 
-/** Read the persisted locale id; unknown or unreadable values fall back to zh. */
-function restorePreference(): LocaleId {
+/**
+ * The locale a fresh service opens with: an explicit preference the user
+ * already chose wins over the browser's own language, which in turn wins over
+ * {@link FALLBACK_LOCALE} (non-browser boots and browsers set to a language
+ * this app does not ship).
+ */
+function resolveInitialLocale(): LocaleId {
+  return restorePreference() ?? detectBrowserLocale() ?? FALLBACK_LOCALE
+}
+
+/** Read the persisted locale id; unknown or unreadable values read as no preference. */
+function restorePreference(): LocaleId | undefined {
   // Non-browser runs (node e2e booting the client tree) have no localStorage.
-  if (typeof localStorage === 'undefined') return FALLBACK_LOCALE
+  if (typeof localStorage === 'undefined') return undefined
   try {
     const stored = localStorage.getItem(STORAGE_KEY)
     if (stored === 'zh' || stored === 'en') return stored
   } catch {
-    // Storage access can throw (privacy mode); the default below covers it.
+    // Storage access can throw (privacy mode); an unreadable store simply
+    // records no preference, and the browser language decides instead.
   }
-  return FALLBACK_LOCALE
+  return undefined
+}
+
+/**
+ * The first shipped locale the browser asks for, matched on the primary
+ * subtag so every regional variant lands on its language (`zh-Hans-CN` -> zh,
+ * `en-GB` -> en). `window` is the browser test, not `navigator`: Node exposes
+ * a global `navigator` reporting the machine's own language, which would
+ * otherwise decide the locale for non-browser runs (node e2e booting the
+ * client tree). `navigator.language` trails the ordered `languages` list and
+ * covers its absence on hosts that expose only the single tag.
+ */
+function detectBrowserLocale(): LocaleId | undefined {
+  if (typeof window === 'undefined') return undefined
+  /* oxlint-disable-next-line typescript/no-unnecessary-condition --
+   * The DOM lib types `languages` as always present; embedders and older
+   * WebViews ship a Navigator without it, and spreading undefined would
+   * throw at boot. Same environment-boundary distrust as the localStorage
+   * guards below. */
+  for (const tag of [...(navigator.languages ?? []), navigator.language]) {
+    const primary = tag.toLowerCase().split('-')[0]
+    const match = LOCALES.find(locale => locale.id === primary)
+    if (match) return match.id
+  }
+  return undefined
 }
 
 /** Persist the locale id; storage failures are non-fatal (preference resets next boot). */
@@ -349,16 +383,12 @@ export function apply(ctx: ClientContext): void {
       setLocale: (id) => { locale.setLocale(id) },
     }
   }
-  ctx.effect(() => {
-    const deferred = deferRegistration(ctx.slots, 'settings.general.item', LanguageRow, () =>
-      ctx.slots.register({
-        name: 'settings.general.item',
-        id: 'language',
-        order: 0,
-        store,
-        locale: SETTINGS_NS,
-        inject: injected,
-      }, LanguageRow))
-    return () => { deferred.dispose() }
-  }, 'locale: language settings row registration')
+  ctx.slots.inject('settings.general.item', () => ctx.slots.register({
+    name: 'settings.general.item',
+    id: 'language',
+    order: 0,
+    store,
+    locale: SETTINGS_NS,
+    inject: injected,
+  }, LanguageRow))
 }

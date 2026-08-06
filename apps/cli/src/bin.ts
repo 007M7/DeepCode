@@ -6,7 +6,7 @@
  * @module @deepseek-ai/dsh/bin
  */
 
-/* v8 ignore file -- built-bin and PTY tests exercise this self-executing dispatch. */
+/* v8 ignore file -- built-bin acceptance exercises this self-executing dispatch. */
 
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -28,6 +28,11 @@ loadEnv('dsh')
 const invocation = parseDshArgs(process.argv.slice(2), readVersion())
 
 switch (invocation.mode) {
+  case 'config': {
+    const { runConfig } = await import('./config.ts')
+    await runConfig(invocation.config)
+    break
+  }
   case 'web': {
     const { runWeb } = await import('./web.ts')
     await runWeb(invocation.host, invocation.port, invocation.dev, invocation.workspaceRoot, invocation.trustedHosts, invocation.config)
@@ -38,19 +43,9 @@ switch (invocation.mode) {
     await runHeadless(invocation.prompt)
     break
   }
-  case 'tui': {
-    const { runTui } = await import('./tui.ts')
-    await runTui(invocation.config, invocation.resume, undefined, undefined, invocation.configReplace)
-    break
-  }
-  case 'meta': {
-    const { runMeta } = await import('./tui.ts')
-    await runMeta()
-    break
-  }
-  case 'upgrade': {
-    const { runSkillSession } = await import('./tui.ts')
-    await runSkillSession(`dsh-${invocation.mode}`)
+  case 'dump-config': {
+    const { runDumpConfig } = await import('./dump-config.ts')
+    runDumpConfig(invocation.surface, invocation.defaultOnly, invocation.config)
     break
   }
   default:

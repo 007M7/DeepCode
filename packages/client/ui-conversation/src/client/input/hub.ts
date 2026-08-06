@@ -12,6 +12,7 @@ import type { ClientContext, ISessions, SessionBinding, SessionFace, SessionId }
 import type { SlashController } from '@deepseek-ai/dsh-client-ui-slash/client'
 import { queueReadFaceOf } from '../queue/store.ts'
 import type { ComposerKeyboard, InputService, SessionInput } from './contract.ts'
+import type { InputSubmitMode } from '../contract/composer-submission.ts'
 import type { PopupDismissFace } from './facade.ts'
 import { SessionInputShell } from './facade.ts'
 
@@ -107,12 +108,23 @@ export class InputHub implements InputService {
   }
 
   /**
+   * Resolve the optional slash controller for composer chrome that launches
+   * the shared candidate menu without typing a trigger.
+   * @param id - session id.
+   * @returns the resident controller, or undefined when ui-slash is absent.
+   */
+  slash(id: SessionId): SlashController | undefined {
+    const actx = this.sessions().scope(id)
+    return actx === undefined ? undefined : this.controller(actx)
+  }
+
+  /**
    * Default sink: optimistic clear + prompt. The session is always a real
    * host entity (materialized when its workspace was picked), so there is
    * exactly one path; a failed first prompt is an ordinary prompt failure
    * (error strip via promptError, draft restored only while untouched).
    */
-  private sink(session: SessionFace, text: string, mode: 'queue' | 'steer'): void {
+  private sink(session: SessionFace, text: string, mode: InputSubmitMode): void {
     if (text === '') return
     const shell = this.shells.get(session.sessionId)
     // Commit, not an editable clear: undo must not resurrect sent content.

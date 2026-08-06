@@ -21,7 +21,7 @@ import { apply, inject } from '../src/client/index.ts'
 const sid = (k: string): SessionId => k as SessionId
 
 const GROUPS = [{
-  id: 'deepseek',
+  id: 'deepseek-official',
   name: 'DeepSeek',
   models: [
     {
@@ -54,7 +54,7 @@ const GROUPS = [{
 /** Boot the plugin over fake faces + a stateful fake host (current moves on selectModel). */
 async function bench() {
   const ctx = new Context()
-  let current: ModelTarget = { provider: 'deepseek', model: 'deepseek-v4-flash' }
+  let current: ModelTarget = { provider: 'deepseek-official', model: 'deepseek-v4-flash' }
   const calls = { models: 0, select: 0 }
   ctx.provide('connection', { api: { sessions: {
     models: () => {
@@ -85,15 +85,21 @@ async function bench() {
     locale: string | undefined
   }>()
   ctx.provide('slots', {
+    inject(_name: string, callback: () => () => void) { return callback() },
     register(options: { name: string; locale?: string; inject?: (sessionId: SessionId) => ModelSelectInjected }) {
       seats.set(options.name, { inject: options.inject, locale: options.locale })
       return () => { seats.delete(options.name) }
     },
   })
-  ctx.provide('conversation', {})
   ctx.provide('locale', new LocaleService(ctx))
   const scopes = new Map<SessionId, Context>()
-  ctx.provide('sessions', { scope: (id: SessionId) => scopes.get(id) })
+  const addressed = new Set<SessionId>()
+  ctx.provide('sessions', {
+    scope: (id: SessionId) => scopes.get(id),
+    subagentAddress: (id: SessionId) => addressed.has(id)
+      ? { parentSessionId: sid('parent'), childSessionId: id, mode: 'continuable' as const }
+      : undefined,
+  })
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
   await ctx.plugin(function probe() {}).await()
@@ -108,6 +114,7 @@ async function bench() {
     seat: () => seats.get('conversation.input.model')!,
     hostCurrent: () => current,
     setHostCurrent: (target: ModelTarget) => { current = target },
+    address: (id: SessionId) => { addressed.add(id) },
   }
 }
 
@@ -138,17 +145,17 @@ describe('ui-model dual entry', () => {
     const seatFace = b.seat().inject!(sid('s1'))
     // Switch through the SEAT entry.
     expect(await seatFace.select({
-      provider: 'deepseek',
+      provider: 'deepseek-official',
       model: 'deepseek-v4-pro',
       reasoningEffort: 'max',
     })).toBe(true)
     expect(b.hostCurrent()).toEqual({
-      provider: 'deepseek',
+      provider: 'deepseek-official',
       model: 'deepseek-v4-pro',
       reasoningEffort: 'max',
     })
     expect(seatFace.directory.getSnapshot().current).toEqual({
-      provider: 'deepseek',
+      provider: 'deepseek-official',
       model: 'deepseek-v4-pro',
       reasoningEffort: 'max',
     })
@@ -165,7 +172,7 @@ describe('ui-model dual entry', () => {
     const pro = options.find((o: SelectOption) => o.label === 'DeepSeek-V4-Pro')!
     await b.contribution().ui.onSelect(pro, projection('s1'))
     expect(seatFace.directory.getSnapshot().current).toEqual({
-      provider: 'deepseek',
+      provider: 'deepseek-official',
       model: 'deepseek-v4-pro',
       reasoningEffort: 'high',
     })
@@ -188,14 +195,14 @@ describe('ui-model dual entry', () => {
     const b = await bench()
     b.mint('s1')
     const face = b.seat().inject!(sid('s1'))
-    await face.select({ provider: 'deepseek', model: 'deepseek-v4-pro' })
-    b.setHostCurrent({ provider: 'deepseek', model: 'deepseek-v4-flash' })
+    await face.select({ provider: 'deepseek-official', model: 'deepseek-v4-pro' })
+    b.setHostCurrent({ provider: 'deepseek-official', model: 'deepseek-v4-flash' })
 
     b.ctx.emit('connection/reset')
     expect(face.directory.getSnapshot()).toMatchObject({ current: null, status: 'loading' })
     await Promise.resolve()
     expect(face.directory.getSnapshot()).toMatchObject({
-      current: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+      current: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
       status: 'ready',
     })
   })
@@ -213,5 +220,31 @@ describe('ui-model dual entry', () => {
   it('an unknown session fails loud at the seat inject', async () => {
     const b = await bench()
     expect(() => b.seat().inject!(sid('ghost'))).toThrow(/resolved no scope/)
+  })
+
+  it('withholds both model entries from addressed subagent sessions without Agent-bound RPCs', async () => {
+    const b = await bench()
+    b.mint('child')
+    b.address(sid('child'))
+
+    expect(b.contribution().available(projection('child'))).toBe(false)
+    await expect(b.contribution().ui.options(
+      projection('child'),
+      new AbortController().signal,
+    )).rejects.toThrow(/unavailable for addressed subagent/)
+
+    const face = b.seat().inject!(sid('child'))
+    expect(face.available).toBe(false)
+    face.load()
+    await expect(face.select({ provider: 'deepseek', model: 'deepseek-v4-pro' })).resolves.toBe(false)
+    await expect(b.ctx.models.directoryFor(sid('child')).load())
+      .rejects.toThrow(/unavailable for addressed subagent/)
+    await expect(b.ctx.models.directoryFor(sid('child')).select({
+      provider: 'deepseek',
+      model: 'deepseek-v4-pro',
+    })).rejects.toThrow(/unavailable for addressed subagent/)
+    b.ctx.emit('connection/reset')
+    await Promise.resolve()
+    expect(b.calls).toEqual({ models: 0, select: 0 })
   })
 })

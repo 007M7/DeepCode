@@ -14,6 +14,7 @@ import type { MuxFrame } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { RpcRequest, RpcResponse } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { AppCLIEntry } from './app-cli-entry.ts'
+import { createProcessShutdown } from './process-shutdown.ts'
 
 /** Outcome of one headless turn: aggregated final text plus the turn-end reason kind. */
 interface TurnOutcome {
@@ -21,49 +22,60 @@ interface TurnOutcome {
   reason: string
 }
 
-/** Unwrap an RpcResponse or fail loud: business errors print and exit 1 (dispose first). */
-async function unwrap<T>(response: RpcResponse<T>, dispose: () => Promise<void>): Promise<T> {
+/** Unwrap an RpcResponse or fail loud: business errors print and exit 1 (shutdown first). */
+async function unwrap<T>(response: RpcResponse<T>, shutdown: () => Promise<void>): Promise<T> {
   if (response.result.ok) return response.result.value
   const { code, message } = response.result.error
   process.stderr.write(`dsh: ${code}: ${message}\n`)
-  await dispose()
+  await shutdown()
   process.exit(1)
 }
 
 /**
- * Consume mux frames until the task turn ends, per the cli-demo runOneShot
- * correlation precedent: anchor on the first turn/start whose trigger kind is
- * 'message' (startup-injected turns are skipped), aggregate text from that
- * turn's assistant/message events (last one wins), finish on its turn/end.
+ * Consume mux frames until the agent reaches idle, per the one-shot CLI
+ * idle-to-idle contract: the stream opens immediately before the prompt, and
+ * its first observed turn/start begins the task. Text is the last committed
+ * assistant message of the whole interval (steering or injected work may run
+ * further turns before quiescence), and the outcome reason is the final
+ * turn/end's kind. Idleness is signalled out of band by the caller's
+ * `agent/status` subscription; the stream itself carries no status frame.
+ * @param frames - the mux stream opened before the prompt.
+ * @param sessionId - the headless session.
+ * @param idle - resolves when the agent reaches quiescence.
+ * @returns the aggregated outcome.
  */
-async function consumeUntilTurnEnd(frames: AsyncIterable<RpcRequest<MuxFrame>>, sessionId: SessionId): Promise<TurnOutcome> {
-  let targetTurn: number | undefined
+async function consumeUntilIdle(
+  frames: AsyncIterable<RpcRequest<MuxFrame>>,
+  sessionId: SessionId,
+  idle: Promise<void>,
+): Promise<TurnOutcome> {
+  let started = false
   let text = ''
-  try {
-    for await (const frame of frames) {
-      const payload = frame.payload
-      if (payload.type === 'stream/error') {
-        process.stderr.write(`dsh: stream error: ${payload.error.message}\n`)
-        return { text, reason: 'error' }
+  let reason: string = 'error'
+  void (async () => {
+    try {
+      for await (const frame of frames) {
+        const payload = frame.payload
+        if (payload.type === 'stream/error') return
+        if (payload.type !== 'session/event' || payload.sessionId !== sessionId) continue
+        const event = payload.event
+        if (event.type === 'turn/start') {
+          started = true
+          continue
+        }
+        if (!started) continue
+        if (event.type === 'assistant/message') {
+          const joined = event.data.message.content.filter(block => block.type === 'text').map(block => block.text).join('')
+          if (joined !== '') text = joined
+        }
+        if (event.type === 'turn/end') reason = event.data.reason.kind
       }
-      if (payload.type !== 'session/event' || payload.sessionId !== sessionId) continue
-      const event = payload.event
-      if (targetTurn === undefined) {
-        if (event.type === 'turn/start' && event.data.trigger.kind === 'message') targetTurn = event.data.turn
-        continue
-      }
-      if (event.type === 'assistant/message' && event.data.turn === targetTurn) {
-        const joined = event.data.message.content.filter(block => block.type === 'text').map(block => block.text).join('')
-        if (joined !== '') text = joined
-      }
-      if (event.type === 'turn/end' && event.data.turn === targetTurn) {
-        return { text, reason: event.data.reason.kind }
-      }
+    } catch (error: unknown) {
+      process.stderr.write(`dsh: event stream failed: ${String(error)}\n`)
     }
-  } catch (error: unknown) {
-    process.stderr.write(`dsh: event stream failed: ${String(error)}\n`)
-  }
-  return { text, reason: 'error' }
+  })()
+  await idle
+  return { text, reason }
 }
 
 /**
@@ -78,32 +90,41 @@ export async function runHeadless(task: string): Promise<void> {
     configPath: fileURLToPath(new URL('../config/base.cordis.yml', import.meta.url)),
     overlayPath: fileURLToPath(new URL('../config/web.cordis.yml', import.meta.url)),
     dev: false,
+    watchPersonalConfig: false,
     port: 0,
   })
   const { ctx, port } = await entry.run()
-  const dispose = async (): Promise<void> => { await ctx.fiber.dispose() }
+  // Normal completion and signals share one bounded drain. A signal received
+  // during that drain escalates immediately instead of becoming a no-op.
+  const shutdown = createProcessShutdown(async () => { await ctx.fiber.dispose() })
+  process.on('SIGTERM', () => { shutdown.interrupt(143) })
+  process.on('SIGINT', () => { shutdown.interrupt(130) })
   // The headless session is web-observable while it runs (same composition).
   process.stderr.write(`dsh: observing at http://127.0.0.1:${String(port)}\n`)
   const api = new InProcessApiClient(toFetchHandler(ctx.apiProxy))
 
-  const created = await unwrap(await api.sessions.create({}), dispose)
+  const created = await unwrap(await api.sessions.create({}), () => shutdown.shutdown(1))
 
   // Open the stream before prompting so no frame is lost — kept in this order
   // even though in-process delivery has no race, so the code survives a move
   // to a remote HTTP carrier unchanged.
   const abort = new AbortController()
   const frames = api.events.mux({}, abort.signal)
-  const done = consumeUntilTurnEnd(frames, created.sessionId)
+  const idle = new Promise<void>((resolve) => {
+    ctx.on('agent/status', (agent, status) => {
+      if (agent.id === created.sessionId && status === 'idle') resolve()
+    })
+  })
+  const done = consumeUntilIdle(frames, created.sessionId, idle)
 
   await unwrap(await api.sessions.prompt({
     sessionId: created.sessionId,
     mode: 'queue',
     content: [{ type: 'text', text: task }],
-  }), dispose)
+  }), () => shutdown.shutdown(1))
 
   const outcome = await done
   process.stdout.write(outcome.text + '\n')
   abort.abort()
-  await dispose()
-  process.exit(outcome.reason === 'completed' ? 0 : 1)
+  await shutdown.shutdown(outcome.reason === 'completed' ? 0 : 1)
 }

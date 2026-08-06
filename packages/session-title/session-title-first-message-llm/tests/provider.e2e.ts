@@ -31,13 +31,12 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('first-message title provider wit
       maxInputBytes: 4_096,
       maxOutputTokens: 64,
       timeoutMs: 60_000,
-      provider: 'deepseek',
+      provider: 'deepseek-official',
       model: 'deepseek-v4-flash',
     })
     const session = ctx.sessions.create(SessionId('real-title-provider'))
     session.append('turn/start', {
       turn: 1,
-      trigger: { kind: 'message', source: { kind: 'user' } },
     })
     const message = session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'Explain why append-only logs make session titles durable.' }],
@@ -51,7 +50,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('first-message title provider wit
       source: {
         kind: 'provider',
         provider: 'session-title-first-message-llm',
-        model: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+        model: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
       },
     })
     expect(title?.title.length).toBeGreaterThan(0)

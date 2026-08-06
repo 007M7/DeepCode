@@ -9,18 +9,50 @@
  * business work (design ledger). No adjudication hooks: subagent
  * references never enter command adjudication.
  */
-import type { ClientContext, SessionsService } from '@deepseek-ai/dsh-client-runtime/client'
+import type {
+  ClientContext, SessionId, SubagentAddress,
+} from '@deepseek-ai/dsh-client-runtime/client'
+import type { ComposerChainProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { ClientSessionContext, SlashServiceContract, SlashSource } from '@deepseek-ai/dsh-client-ui-slash/client'
+import { SubagentCatalogAction, type SubagentCatalogInjected } from './SubagentCatalogAction.tsx'
+import {
+  SubagentReadOnlyComposer, type SubagentReadOnlyMatch,
+} from './SubagentReadOnlyComposer.tsx'
+import type {} from '@deepseek-ai/dsh-client-locale/client'
+import { en, NS, zh, type SubagentKey } from './locales.ts'
 
-/** Required services: the slash registry + the session list face the source closes over. */
-export const inject = ['slash', 'sessions']
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface LocaleNamespaceMap {
+    /** Subagent catalog and read-only composer copy. */
+    'subagent': SubagentKey
+  }
+}
+
+export type {
+  SubagentCatalogActionProps, SubagentCatalogInjected,
+} from './SubagentCatalogAction.tsx'
+export type {
+  SubagentReadOnlyComposerProps, SubagentReadOnlyMatch,
+} from './SubagentReadOnlyComposer.tsx'
+
+/** Required services for references, conversation slots, and session navigation. */
+export const inject = ['slash', 'sessions', 'slots', 'locale']
+
+/** Claim the composer for one-shot history or an unavailable continuation owner. */
+function selectReadOnlySubagent(owner: ComposerChainProps): SubagentReadOnlyMatch | null {
+  const subagent = owner.session?.subagent
+  if (subagent === undefined || subagent === null) return null
+  if (subagent.address.mode === 'one-shot') return { reason: 'one-shot' }
+  return subagent.parentAvailable ? null : { reason: 'parent-unavailable' }
+}
 
 /**
  * Client plugin body: register the '@' subagent source over the root session list.
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
-  const sessions = ctx.get('sessions') as SessionsService
+  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-subagent: dictionaries')
+  const sessions = ctx.sessions
   // Child labels live on the session list (parentId lineage + displayTitle),
   // not the conversation snapshot — the list store is the zero-RPC candidate feed.
   const childLabels = (session: ClientSessionContext, query: string): string[] => {
@@ -59,4 +91,35 @@ export function apply(ctx: ClientContext): void {
   }
   const slash = ctx.get('slash') as SlashServiceContract
   ctx.effect(() => slash.registerSource(source), 'ui-subagent: @ source')
+
+  const catalogActions = (_parentSessionId: SessionId): SubagentCatalogInjected => ({
+    openChild(address: SubagentAddress) {
+      sessions.openSubagent(address)
+    },
+    refresh(parentSessionId: SessionId) {
+      void sessions.refreshSubagents(parentSessionId)
+    },
+    setCatalogOpen(parentSessionId: SessionId, open: boolean) {
+      sessions.setSubagentCatalogOpen(parentSessionId, open)
+    },
+  })
+  ctx.slots.inject(
+    'conversation.session.header.actions',
+    () => ctx.slots.register({
+      name: 'conversation.session.header.actions',
+      id: 'subagent-catalog',
+      order: 10,
+      locale: NS,
+      inject: catalogActions,
+    }, SubagentCatalogAction),
+  )
+  ctx.slots.inject(
+    'conversation.composer',
+    () => ctx.slots.register({
+      name: 'conversation.composer',
+      priority: -10,
+      locale: NS,
+      select: selectReadOnlySubagent,
+    }, SubagentReadOnlyComposer),
+  )
 }

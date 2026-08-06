@@ -15,9 +15,12 @@ import { SessionsService } from '@deepseek-ai/dsh-client-runtime/client'
 import { SlashService } from '@deepseek-ai/dsh-client-ui-slash/client'
 import type { ClientSessionContext, CommandClaim, PickOutcome, SubmitOutcome } from '@deepseek-ai/dsh-client-ui-slash/client'
 import { FakeApiClient, ok } from '../../runtime/tests/fake-api.ts'
+import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { SessionInputShell } from '../src/client/input/facade.ts'
 import { InputBar } from '../src/client/skeleton/InputBar.tsx'
 import type { InputBarProps } from '../src/client/skeleton/InputBar.tsx'
+import { zh } from '../src/client/locales.ts'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConversationSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
@@ -109,10 +112,10 @@ async function scopedBench(register?: (slash: SlashService) => void) {
   actx.on('slash/input-consume-token', req => shell.consumeToken(req.guard) ? true : undefined)
   const wiring = shell
   const sessionStore = createSnapshotStore<ConversationSnapshot>({
-    sessionId, nodes: [], foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
+    sessionId, nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [], codeDispatches: new Map(),
     pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
     openState: 'open', openError: null, hasMore: false, loadingOlder: false,
-    promptError: null, blank: false, lastAgentError: null,
+    promptError: null, blank: false, subagent: null, lastAgentError: null,
   })
   const barProps: InputBarProps = {
     sessionId,
@@ -120,21 +123,34 @@ async function scopedBench(register?: (slash: SlashService) => void) {
     useSession: bindSnapshotSelector(sessionStore),
     useSessions: bindSnapshotSelector(createSnapshotStore({
       ids: [], byId: {}, current: undefined, phase: 'ready',
+      subagentsByParent: {}, currentAddress: undefined,
     })),
     useWorkspaces: bindSnapshotSelector(createSnapshotStore({
-      items: [], state: 'idle', phase: 'ready', error: null,
+      items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
     })),
     useProjection: (() => undefined),
     useInput: bindSnapshotSelector(shell.state),
     inputActions: shell.actions,
     keyboard: shell,
+    resolveSubmitMode: () => 'queue',
+    toggleCommandMenu: (selection) => {
+      const snapshot = shell.snapshot
+      controller.toggleSource('command', {
+        trigger: '/',
+        query: '',
+        position: snapshot.draft.slice(0, selection.start).trim() === '' ? 'leading' : 'inline',
+        span: { ...selection, draftRev: snapshot.draftRev },
+      })
+    },
     useNotices: bindSnapshotSelector(shell.notices),
     useLexicon: bindSnapshotSelector(shell.lexicon),
+    useMenuLauncher: bindSnapshotSelector(controller.launcher),
     renderSlot: (() => null) as InputBarProps['renderSlot'],
     stop: vi.fn(),
     command: () => Promise.resolve(true),
-    translateHint: (key: string) => key,
+    // Mirrors the real lookup chain (conversation namespace, then common).
+    t: makeTranslate(zh, commonZh),
     variant: 'composer',
   }
   const view = render(<InputBar {...barProps} />)
@@ -168,7 +184,8 @@ describe('scenario A: menu-pick /goal, type args, enter submits', () => {
     expect(b.shell.snapshot.phase).toBe('claimed')
     expect(b.textarea.value).toBe('/goal ')
     expect(b.view.container.querySelector('[data-decoration="token"]')?.textContent).toBe('/goal ')
-    expect(b.view.container.querySelector('[data-decoration="hint"]')?.textContent).toBe('目标内容')
+    // The zh dictionary owns a hint.goal entry, which overrides the machine's raw hint (production behavior).
+    expect(b.view.container.querySelector('[data-decoration="hint"]')?.textContent).toBe('输入目标，智能体将持续执行')
     // Continue typing args; hint drops; claim holds.
     b.type('/goal 发布 v1')
     expect(b.shell.snapshot.phase).toBe('claimed')

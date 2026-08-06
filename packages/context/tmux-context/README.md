@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Opt-in durable context naming the tmux session, window, and pane this agent process runs in, plus the window's pane-tree layout. Sampled once per turn during model-request preparation. `dsh-agent-spine-demo` and shipped examples do not mount it. Decision record: [the tmux-context Agent Note](../../../.agents/notes/implemented/feature/2026-07-27-tmux-location-context.md).
+Opt-in durable context naming the tmux session, window, and pane this agent process runs in, plus the window's pane-tree layout. It is sampled once per turn during model-request preparation and is not part of the shipped Web/headless composition. Decision record: [the tmux-context Agent Note](../../../.agents/notes/implemented/feature/2026-07-27-tmux-location-context.md).
 
 ## Config
 
@@ -17,7 +17,7 @@ Opt-in durable context naming the tmux session, window, and pane this agent proc
 
 ## How it reads tmux
 
-The plugin prepends an `agent/step` listener that runs only on the first step of each turn. When due, it runs one read-only command through the `ctx.bash` executor seam:
+The plugin prepends an `agent/pre-step` listener that runs only on the first step of each turn. When due, it runs one read-only command through the `ctx.bash` executor seam:
 
 ```sh
 [ -n "$TMUX_PANE" ] || exit 1
@@ -33,7 +33,7 @@ State is pulled on every eligible turn — a moved, renamed, or re-laid-out pane
 
 ## Timing semantics
 
-When an injection is due, the plugin appends one injected `user/message` through `agent.inject()` before `step/start`, with source `{ kind: 'plugin', plugin: 'tmux-context' }`. Change suppression and interval scheduling scan the raw durable session events for the latest injection of this source, so the schedule survives compaction and resumed processes without process-local cache state; sessions schedule independently. The reading records a request-preparation attempt, not a committed step; because the listener runs first, its append may remain when a later pre-step listener cancels or fails the attempt (the log is append-only and the plugin performs no rollback).
+The plugin prepends an `agent/pre-step` listener. When an injection is due and the downstream decision enters the proposed step, it prepends one sourced `UserMessage` to the returned batch. AgentLoop records that context after `step/start` with source `{ kind: 'plugin', plugin: 'tmux-context' }`. Change suppression and interval scheduling scan the raw durable session events for the latest injection of this source, so the schedule survives compaction and resumed processes without process-local cache state; sessions schedule independently. A downstream pre-step listener that rejects or fails prevents the reading from being recorded.
 
 ## Model Experience
 

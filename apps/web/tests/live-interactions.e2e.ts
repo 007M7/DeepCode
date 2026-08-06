@@ -27,14 +27,15 @@ import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './suppor
 
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/live-interactions', import.meta.url))
 const FIXTURE = join(SNAPSHOT_DIR, 'session.jsonl')
-// One golden per interactive end-state: what the user is left looking at
-// after cancel, after a non-retryable failure (pins the FIXME(web-error-surface)
-// gap as a reviewable artifact: NO error copy in the tree), and after retry
-// recovery — three genuinely different terminal surfaces of one fixture.
+// One golden pins the stable mid-turn loading state; the other three capture
+// what the user is left looking at after cancel, after a non-retryable failure,
+// and after retry recovery.
 const CANCEL_EXPECTED = join(SNAPSHOT_DIR, 'cancel.expected.md')
+const LOADING_EXPECTED = join(SNAPSHOT_DIR, 'loading.expected.md')
 const ERROR_EXPECTED = join(SNAPSHOT_DIR, 'error-auth.expected.md')
 const RETRY_EXPECTED = join(SNAPSHOT_DIR, 'retry.expected.md')
 const MODE = webSnapshotMode()
+const AUTH_PROVIDER_MESSAGE = 'Authentication Fails, Your api key: sk-preview-secret is invalid'
 
 // The recorded base: one text-only turn whose derived script the sidecars
 // patch. Kept deliberately tool-free so the derived script is exactly one
@@ -95,7 +96,7 @@ describe('web e2e: live-turn interactions (cancel / error / retry)', () => {
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
     // Fresh world: connect a Workspace so the composer scenarios start live.
-    await connectFreshWorkspace(page)
+    await connectFreshWorkspace(page, scaffold.workspaceCwd)
   }
 
   /**
@@ -133,6 +134,12 @@ describe('web e2e: live-turn interactions (cancel / error / retry)', () => {
     // The marker IS the synchronization: the stream is provably parked in the
     // hang (prefix chunks delivered to the loop) before the stop click.
     await expect.poll(() => existsSync(marker), { timeout: 15_000 }).toBe(true)
+    await expect.poll(
+      () => page.getByRole('status').filter({ hasText: 'Deep diving...' }).isVisible(),
+      { timeout: 10_000 },
+    ).toBe(true)
+    const loadingSnapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold!.workspaceCwd)
+    await compareOrRefreshGolden(LOADING_EXPECTED, loadingSnapshot, MODE)
     await page.getByRole('button', { name: 'Stop generating' }).click()
     await settled
     expect(turnEndReasons(sessionEvents).at(-1)).toBe('aborted')
@@ -151,7 +158,7 @@ describe('web e2e: live-turn interactions (cancel / error / retry)', () => {
 
   it.skipIf(MODE === 'record')('surfaces a non-retryable AUTH failure without retrying', async () => {
     await launch(() => ({
-      patches: [{ at: 0, entry: { kind: 'throw', chunks: [], message: 'invalid api key', code: 'AUTH' } }],
+      patches: [{ at: 0, entry: { kind: 'throw', chunks: [], message: AUTH_PROVIDER_MESSAGE, code: 'AUTH' } }],
     }))
     onTestFailed(() => saveFailureShot(page, 'web-e2e-error-auth'))
     const { settled } = await sendPrompt()
@@ -159,35 +166,38 @@ describe('web e2e: live-turn interactions (cancel / error / retry)', () => {
     expect(turnEndReasons(sessionEvents).at(-1)).toBe('error')
     // AUTH is outside llm-retry's retryable set: no retry record.
     expect(sessionEvents.filter(e => e.type === 'llm/retry').length).toBe(0)
-    // Product gap found by this lane, pinned as-is: the client consumes no
-    // agent/error frames and a pre-chunk failure freezes no partial, so THIS
-    // failure renders no error copy anywhere — the user sees the send simply
-    // stop. FIXME(web-error-surface): assert visible error text here once the
-    // web UI grows an error rendering; until then the pinned contract is
-    // "no crash, composer recovers, turn logged as error".
     await expect.poll(() => page.locator('textarea').first().isEnabled(), { timeout: 10_000 }).toBe(true)
     expect(await page.locator('[data-streaming="true"]').count()).toBe(0)
-    // The blank workspace also has an enabled composer. Wait for the driven
-    // session's only visible message before capturing its no-error-copy state.
-    await expect.poll(() => page.getByText(PROMPT, { exact: true }).first().isVisible(), { timeout: 10_000 }).toBe(true)
-    // Golden of the same gap: the prompt bubble alone, no error copy in the
-    // tree — the diff that changes when web-error-surface lands.
+    const errorStatus = page.getByRole('status').filter({ hasText: 'This turn failed' })
+    await errorStatus.waitFor({ timeout: 10_000 })
+    expect(await errorStatus.textContent()).toContain('API key is invalid')
+    expect(await errorStatus.textContent()).toContain('AUTH')
+    expect(await page.locator('body').textContent()).not.toContain('sk-preview-secret')
     const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold!.workspaceCwd)
     await compareOrRefreshGolden(ERROR_EXPECTED, snapshot, MODE)
+    await page.getByRole('tab', { name: 'Trajectory' }).click()
+    const requestMarker = page.locator('tr[data-request-only="true"]').last()
+      .getByRole('button', { name: /Request #/ })
+    await requestMarker.click()
+    await page.getByText('API key is invalid', { exact: true }).waitFor({ timeout: 10_000 })
+    expect(await page.locator('body').textContent()).not.toContain('sk-preview-secret')
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
   }, 120_000)
 
   it.skipIf(MODE === 'record')('keeps a terminal request marker inside the trajectory table', async () => {
     await launch(() => ({
-      patches: [{ at: 0, entry: { kind: 'throw', chunks: [], message: 'invalid api key', code: 'AUTH' } }],
+      patches: [{ at: 0, entry: { kind: 'throw', chunks: [], message: AUTH_PROVIDER_MESSAGE, code: 'AUTH' } }],
     }))
     const { settled } = await sendPrompt()
     await settled
     await page.getByRole('tab', { name: 'Trajectory' }).click()
+    // The boundary marker row itself is a 0-height hairline except at the
+    // table tail; the marker button is absolutely positioned and stays
+    // visible, so wait on it directly.
     const tailRequest = page.locator('tr[data-request-only="true"]').last()
-    await tailRequest.waitFor({ timeout: 10_000 })
     const requestMarker = tailRequest.getByRole('button', { name: /Request #/ })
+    await requestMarker.waitFor({ timeout: 10_000 })
 
     const markerWithinTable = await requestMarker.evaluate((element) => {
       const marker = element.getBoundingClientRect()
@@ -221,8 +231,8 @@ describe('web e2e: live-turn interactions (cancel / error / retry)', () => {
     // only on change, so attempt count is invisible there).
     expect(sessionEvents.filter(e => e.type === 'llm/retry').length).toBeGreaterThanOrEqual(1)
     await expect.poll(() => page.getByText('event sourcing', { exact: false }).count(), { timeout: 10_000 }).toBeGreaterThan(0)
-    // Golden of the recovered end-state: indistinguishable from a clean
-    // completion — retries are deliberately invisible in the transcript.
+    // Golden of the recovered end-state: the discarded partial stays absent,
+    // while the settled retry row remains as durable recovery context.
     const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold!.workspaceCwd)
     await compareOrRefreshGolden(RETRY_EXPECTED, snapshot, MODE)
     expect(tripwire.pageErrors).toEqual([])
@@ -231,7 +241,7 @@ describe('web e2e: live-turn interactions (cancel / error / retry)', () => {
 
   it.skipIf(MODE === 'record')('keeps the fixture inventory closed', async () => {
     await assertFixtureInventory(SNAPSHOT_DIR, [
-      'session.jsonl', 'cancel.expected.md', 'error-auth.expected.md', 'retry.expected.md',
+      'session.jsonl', 'cancel.expected.md', 'loading.expected.md', 'error-auth.expected.md', 'retry.expected.md',
     ])
   })
 })

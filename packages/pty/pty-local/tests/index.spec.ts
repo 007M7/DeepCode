@@ -3,7 +3,7 @@ import type { IPty, IPtyForkOptions } from 'node-pty'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
-import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { Inbox, type Agent } from '@deepseek-ai/dsh-agent'
 import SandboxProvider from '@deepseek-ai/dsh-sandbox'
 import type { ConfinedArgv, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
 import SandboxPolicyService, { setSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
@@ -16,7 +16,7 @@ import type { LocalPtySession } from '@deepseek-ai/dsh-pty-local/src/session.ts'
 
 class EmptySandbox extends SandboxProvider {
   confine(_argv: readonly string[], _policy: SandboxPolicy): ConfinedArgv {
-    return { argv: [], enforcement: 'full', denialSignatures: [], runnerFailureSignatures: [] }
+    return { argv: [], enforcement: 'full', denialSignatures: [], runnerFailureRules: [] }
   }
 }
 
@@ -25,7 +25,7 @@ class RecordingSandbox extends SandboxProvider {
 
   confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv {
     this.calls.push({ argv, policy })
-    return { argv: ['/sandbox', '--', ...argv], enforcement: 'full', denialSignatures: [], runnerFailureSignatures: [] }
+    return { argv: ['/sandbox', '--', ...argv], enforcement: 'full', denialSignatures: [], runnerFailureRules: [] }
   }
 }
 
@@ -38,11 +38,17 @@ function config(): ResolvedConfig {
   }
 }
 
-function agent(ctx: Context): Agent {
+function agent(ctx: Context, cwd?: string): Agent {
   const id = SessionId('agent')
+  const session = Session.create(id, undefined, { version: 0, id, createdAt: 0, ...cwd === undefined ? {} : { cwd } })
   return {
-    id, options: {}, session: new Session(id), status: 'idle', acceptsNextStep: false, ctx,
-    followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, updateInbox: () => 'not-found', cancel() {}, whenIdle: () => Promise.resolve(),
+    id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
+    status: 'idle',
+    ctx,
+    send: () => {},
+    followup: () => {}, steer: () => {}, inject: () => {}, cancel() {},
+    runMaintenance: task => task(new AbortController().signal),
+    whenIdle: () => Promise.resolve(),
   }
 }
 
@@ -125,10 +131,10 @@ describe('LocalPtyBackend startup rollback', () => {
     } satisfies Partial<PtyBackendCleanupError>))
   })
 
-  it('wraps confined argv, scrubs the environment, and returns initialized sessions', async () => {
+  it('resolves session mode and root together before wrapping the shell', async () => {
     const ctx = new Context()
     await ctx.plugin(RecordingSandbox)
-    await ctx.plugin(SandboxPolicyService, { mode: 'workspace-write', workspaceRoot: '/workspace' })
+    await ctx.plugin(SandboxPolicyService, { mode: 'read-only', workspaceRoot: '/deployment-fallback' })
     const terminal = {} as IPty
     let spawned: { file: string; args: string[]; options: IPtyForkOptions } | undefined
     const spawnTerminal = ((file: string, args: string[], options: IPtyForkOptions) => {
@@ -146,8 +152,10 @@ describe('LocalPtyBackend startup rollback', () => {
     )
     const previous = process.env.PTY_TEST_SECRET
     process.env.PTY_TEST_SECRET = 'must-not-leak'
+    const owner = agent(ctx, '/session-workspace')
+    setSandboxMode(owner.session, 'workspace-write')
     try {
-      expect(await backend.spawn({ ...spec(agent(ctx)), cwd: '/work' })).toBe(session)
+      expect(await backend.spawn(spec(owner))).toBe(session)
     } finally {
       if (previous === undefined) delete process.env.PTY_TEST_SECRET
       else process.env.PTY_TEST_SECRET = previous
@@ -157,7 +165,7 @@ describe('LocalPtyBackend startup rollback', () => {
       file: '/sandbox',
       args: ['--', '/bin/bash', '-i'],
       options: {
-        name: 'dumb', cols: 80, rows: 24, cwd: '/work',
+        name: 'dumb', cols: 80, rows: 24, cwd: '/session-workspace',
         env: {
           TERM: 'dumb', PAGER: 'cat', GIT_PAGER: 'cat', PS1: 'dsh> ', BASH_SILENCE_DEPRECATION_WARNING: '1',
           DSH_SHELL: '1', DSH_SESSION_ID: 'agent', DSH_PTY_SESSION_ID: 'pty-1',
@@ -166,6 +174,10 @@ describe('LocalPtyBackend startup rollback', () => {
     })
     expect(spawned?.options.env?.PTY_TEST_SECRET).toBeUndefined()
     expect(initialized).toHaveBeenCalledWith(undefined)
+    expect((ctx.sandbox as RecordingSandbox).calls).toEqual([{
+      argv: ['/bin/bash', '-i'],
+      policy: { mode: 'workspace-write', workspaceRoot: '/session-workspace' },
+    }])
   })
 
   it('composes the default local session around a spawned terminal', async () => {
@@ -232,7 +244,7 @@ describe('pty-local plugin shape', () => {
 
     const session = ctx.sessions.create(SessionId('unowned-mode'))
     expect(() => {
-      session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+      session.append('turn/start', { turn: 1 })
     }).not.toThrow()
     expect(() => { setSandboxMode(session, 'read-only') }).not.toThrow()
   })
@@ -248,8 +260,13 @@ describe('pty-local plugin shape', () => {
     const session = ctx.sessions.create(SessionId('mode-owner'))
     const ownerFiber = await ctx.plugin(() => {})
     const owner: Agent = {
-      id: session.id, options: {}, session, status: 'idle', acceptsNextStep: false, ctx: ownerFiber.ctx,
-      followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, updateInbox: () => 'not-found', cancel() {}, whenIdle: () => Promise.resolve(),
+      id: session.id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
+      status: 'idle',
+      ctx: ownerFiber.ctx,
+      send: () => {},
+      followup: () => {}, steer: () => {}, inject: () => {}, cancel() {},
+      runMaintenance: task => task(new AbortController().signal),
+      whenIdle: () => Promise.resolve(),
     }
     ctx.agents.register(owner)
     const providerFiber = await registerStubLocalBackend(ctx, () => stubLocalSession())
@@ -258,7 +275,7 @@ describe('pty-local plugin shape', () => {
     const unrelated = ctx.sessions.create(SessionId('unrelated-mode'))
     expect(() => { setSandboxMode(unrelated, 'read-only') }).not.toThrow()
     expect(() => {
-      session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+      session.append('turn/start', { turn: 1 })
     }).not.toThrow()
 
     expect(() => { setSandboxMode(session, 'danger-full-access') }).not.toThrow()
@@ -291,8 +308,13 @@ describe('pty-local plugin shape', () => {
     const session = ctx.sessions.create(SessionId('pending-mode-owner'))
     const ownerFiber = await ctx.plugin(() => {})
     const owner: Agent = {
-      id: session.id, options: {}, session, status: 'idle', acceptsNextStep: false, ctx: ownerFiber.ctx,
-      followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, updateInbox: () => 'not-found', cancel() {}, whenIdle: () => Promise.resolve(),
+      id: session.id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
+      status: 'idle',
+      ctx: ownerFiber.ctx,
+      send: () => {},
+      followup: () => {}, steer: () => {}, inject: () => {}, cancel() {},
+      runMaintenance: task => task(new AbortController().signal),
+      whenIdle: () => Promise.resolve(),
     }
     ctx.agents.register(owner)
     const gate = Promise.withResolvers<undefined>()

@@ -24,11 +24,16 @@ type ListResult =
 type ListFn = (payload: object, signal?: AbortSignal) => Promise<{ result: ListResult }>
 
 /** Boot the plugin over fake slash/connection faces; returns the captured source and its ctx. */
-async function bench(list: ListFn) {
+async function bench(list: ListFn, addressed?: SessionId) {
   const ctx = new Context()
   let captured: SlashSource | undefined
   ctx.provide('slash', { registerSource: (src: SlashSource) => { captured = src; return () => {} } })
   ctx.provide('connection', { api: { skills: { list } } })
+  ctx.provide('sessions', {
+    subagentAddress: (id: SessionId) => id === addressed
+      ? { parentSessionId: sid('parent'), childSessionId: id, mode: 'continuable' as const }
+      : undefined,
+  })
   await ctx.plugin({ inject: [...inject], apply }).await()
   return { ctx, source: captured! }
 }
@@ -60,7 +65,7 @@ const req = (query: string, signal?: AbortSignal) =>
 
 describe('apply', () => {
   it('declares the services it binds', () => {
-    expect(inject).toEqual(['slash', 'connection'])
+    expect(inject).toEqual(['slash', 'connection', 'sessions'])
   })
 
   it('registers the "/" skill source; disposal frees the name (HMR safety)', async () => {
@@ -105,6 +110,14 @@ describe('candidates: sessionId addressing', () => {
     }))
     await expect(source.candidates(proj('s1'), req('co')))
       .rejects.toThrow('skill.list failed: internal: boom')
+  })
+
+  it('does not fetch Agent-bound skills for an addressed child', async () => {
+    const { list, payloads } = countingList()
+    const { source } = await bench(list, sid('child'))
+    await expect(source.candidates(proj('child'), req(''))).resolves.toEqual([])
+    source.warm!(proj('child'))
+    expect(payloads).toEqual([])
   })
 })
 

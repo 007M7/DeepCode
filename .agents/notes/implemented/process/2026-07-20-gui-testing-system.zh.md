@@ -1,8 +1,8 @@
-# RFC: GUI 测试体系——三层结构
+# Agent Note: GUI 测试体系——三层结构
 
 Status: implemented
 
-> 路径更新（2026-07-22，插件体系重构）：本文三层理念与金路径方法仍为现行；家搬了——对象层 spec 现居 `packages/client/runtime/tests/`（原 web-runtime）、wire spec 现居 `packages/client/connection/tests/`，`web-ui` 覆盖豁免随包消亡（组件 spec 为各 `packages/client/*/tests/` 的 jsdom 套件）。组件 spec 形态遵循 [slot 体系标准](../architecture/2026-07-22-slot-type-chain-implementation.md)：props 直喂——store 份额来自 `createXXXStore().create()`（真引擎，获认可的零机械路径），框架 hook 用普通桩；无渲染机械、不挂 provider。坑位归属/注册表语义归 2 层地界（`runtime` + `ui-slots` 套件），不归组件 spec。
+> 路径更新（2026-07-22，插件体系重构）：本文三层理念与金路径方法仍为现行；家搬了——对象层 spec 现居 `packages/client/runtime/tests/`（原 web-runtime）、wire spec 现居 `packages/client/connection/tests/`，`web-ui` 覆盖豁免随包消亡（组件 spec 为各 `packages/client/*/tests/` 的 jsdom 套件）。组件 spec 形态遵循 [slot 体系标准](../architecture/2026-07-22-slot-type-chain-implementation.md)：props 直喂——store 份额来自 `createXXXStore().create()`（真引擎，获认可的零机械路径），框架 hook 用普通桩；无渲染机械、不挂 provider。slot 归属/注册表语义归 2 层地界（`runtime` + `ui-slots` 套件），不归组件 spec。
 
 [English](2026-07-20-gui-testing-system.md) | 中文
 
@@ -22,7 +22,7 @@ GUI 栈需要考虑多种应用形态，同应用形态内的不同运行环境�
 | 2 对象层编排 | `Session`/`SessionManager`/`ConnectionController`（状态机与时序：缝合/去重/翻页/乐观清稿/pendingBuffers/重连/退避） | **「事件序列进→快照出」黄金路径**：可编程假体 + deferred 控时序 + fake timers 控退避 | `packages/client/{runtime,connection}/tests/` |
 | 3 组装呈现层 | 构建产物 × 真实 client loader 与插件组合 | 归应用所有的语义快照会在 jsdom 下启动全部 8 个已构建的 client 插件，以固定确定性的跨插件状态变化；独立使用 Playwright 裸库的冒烟测试负责验证真实浏览器/承载层边界，真 host 用例在无密钥时自行跳过；无密钥浏览器 e2e 车道会禁用交付配置中的模型适配器行，并通过 `dsh-llm-replay` 在真实进程内 web 组装中回放录制的会话 fixture，与会话区 aria 期望输出比对（[web e2e 车道](../testing/2026-07-24-web-gui-browser-e2e-lane.md)、[必需 CI 门禁](../testing/2026-07-30-web-browser-snapshot-ci-gate.md)） | `apps/web/tests/*.snapshot.ts`、`apps/web/tests/smoke-{fixture,real}.e2e.ts`、`apps/web/tests/{replay-round-trip,seeded-history}.e2e.ts` |
 
-层间纪律：**下层各测各的，上层不重测下层**：应用语义快照只固定组装后插件边界上的用户可见投影，Playwright 冒烟测试负责验证浏览器与承载层是否存活；wire 语义归 1 层，数据语义归 2 层。纯函数层（lineage/partial/notifier/fold-adapter）随 2 层同包 tests/ 零假体直测。
+层间纪律：**下层各测各的，上层不重测下层**：应用语义快照只固定组装后插件边界上的用户可见投影，Playwright 冒烟测试负责验证浏览器与承载层是否存活；wire 语义归 1 层，数据语义归 2 层。纯函数层（lineage/partial/notifier/transcript-adapter）随 2 层同包 tests/ 零假体直测。
 
 - **host 与 client 源码**均纳入全仓 per-file 100% 覆盖率门禁，仅排除 `vitest.config.ts` 中带注释的少量浏览器级例外；组件套件通过逐文件 jsdom pragma 和 Testing Library 运行，不会改变 Node 套件。
 - **归应用所有的语义快照**读取已构建的 client bundle，通过真实 loader 执行它们，并且只驱动确定性的 fixture 钩子。它们负责固定侧边栏标签、面包屑和 `document.title` 等稳定可见状态，而不固定 CSS 像素或下层状态机细节。

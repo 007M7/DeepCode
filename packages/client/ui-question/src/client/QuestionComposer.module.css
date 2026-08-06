@@ -1,9 +1,10 @@
-/* The takeover seats where the input card sits, so the frame mirrors the
-   InputBar geometry (side pad 32, card cap 800) to keep both edges flush. */
+/* The takeover seats where the input card sits, centered on the InputBar
+   axis at the shared content width (input card - 32): sides = clearance +
+   16px so the relation also holds on narrow viewports. */
 .frame {
   display: flex;
   justify-content: center;
-  padding: 6px 32px 10px;
+  padding: 6px calc(var(--dsh-composer-side-clearance) + 16px) 10px;
 }
 
 /* Figma Input 973:36348 body over the 1019:36938 header: no banner strip —
@@ -12,7 +13,7 @@
   display: flex;
   flex-direction: column;
   width: 100%;
-  max-width: 800px;
+  max-width: var(--dsh-chat-content-width);
   /* Composer seat sits in a fixed-height conversation column (overflow
      hidden): cap the card against the viewport and scroll the option list
      so header and footer actions stay reachable on long batches. */
@@ -139,7 +140,11 @@
 
 .option {
   display: flex;
-  align-items: center;
+  /* flex-start, not center: with a wrapped description the indicator must
+     stay on the FIRST line (centering drifts it down the taller copy block).
+     The 8px padding makes a single-line row 40px exactly, so nothing reads
+     as top-heavy; .number/.checkbox re-center against the first line box. */
+  align-items: flex-start;
   gap: 8px;
   width: 100%;
   min-height: 40px;
@@ -148,7 +153,7 @@
      intrinsic height, and centered content then paints outside the row box —
      over the title and the next row. Overflow belongs to .options. */
   flex-shrink: 0;
-  padding: 6px 12px 6px 8px;
+  padding: 8px 12px 8px 8px;
   border: 1px solid transparent;
   border-radius: 12px;
   background: transparent;
@@ -180,6 +185,9 @@
   flex: 0 0 20px;
   width: 20px;
   height: 20px;
+  /* (24px first-line box − 20px indicator) / 2: centers the indicator against
+     the first text line under the row's flex-start alignment. */
+  margin-top: 2px;
   border-radius: 6px;
   background: var(--dsw-alias-bg-overlay);
   color: var(--dsw-alias-label-secondary);
@@ -197,6 +205,8 @@
   flex: 0 0 20px;
   width: 20px;
   height: 20px;
+  /* Same first-line centering as .number under flex-start alignment. */
+  margin-top: 2px;
 }
 
 .checkbox::before {
@@ -263,14 +273,16 @@
    inline text input; focus or a typed draft lifts it to the selected look. */
 .customRow {
   display: flex;
-  align-items: center;
+  /* Same first-line alignment as .option — the indicator seat carries the
+     2px re-centering margin. */
+  align-items: flex-start;
   gap: 8px;
   width: 100%;
   min-height: 40px;
   /* Same reason as .option: the custom row is scroll content, and shrinking
      it pushes the inline input past the footer. */
   flex-shrink: 0;
-  padding: 6px 12px 6px 8px;
+  padding: 8px 12px 8px 8px;
   border: 1px solid transparent;
   border-radius: 12px;
   transition: background-color 120ms ease, border-color 120ms ease;
@@ -355,10 +367,6 @@
 }
 
 @media (max-width: 720px) {
-  .frame {
-    padding: 6px 10px 10px;
-  }
-
   .card {
     border-radius: 16px;
   }
@@ -378,9 +386,7 @@
 
   .option,
   .customRow {
-    align-items: flex-start;
-    gap: 8px;
-    padding: 6px;
+    padding: 8px 6px;
   }
 
   .footer {

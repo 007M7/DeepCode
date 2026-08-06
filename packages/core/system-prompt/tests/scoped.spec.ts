@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { createScope, scopeOf } from '@deepseek-ai/dsh-scope'
 import type { Scope, ScopeKey } from '@deepseek-ai/dsh-scope'
-import SystemPrompt, { TOOL_ORDER_REST, renderPrompt } from '@deepseek-ai/dsh-system-prompt'
+import SystemPrompt, { TOOL_ORDER_REST, renderContextSnapshot, renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import type { Config, PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
 
 async function mount(config: Config = {}): Promise<Context> {
@@ -122,6 +122,25 @@ describe('scoped variables', () => {
     expect(calls).toEqual(['first'])
     expect(renderPrompt(await ctx.systemPrompt.assemble({ scope: key }))).toContain('Mode: replacement.')
     expect(calls).toEqual(['first', 'replacement'])
+  })
+})
+
+describe('scoped cache-safe context', () => {
+  it('shadows a global context for one scope and cleans up with that scope', async () => {
+    const ctx = await mount()
+    const scope = await mintScope(ctx, 'child-context')
+    ctx.systemPrompt.context({ name: 'policy', order: 1, text: 'global policy' })
+    scope.ctx.systemPrompt.context({ name: 'policy', order: 1, text: 'scoped policy' })
+    expect(() => scope.ctx.systemPrompt.context({ name: 'policy', order: 2, text: 'duplicate' }))
+      .toThrow('prompt context "policy" is already registered in this scope')
+
+    expect(renderContextSnapshot(await ctx.systemPrompt.assemble({ scope: scopeKeyOf(scope) })))
+      .toContain('scoped policy')
+    expect(renderContextSnapshot(await ctx.systemPrompt.assemble())).toContain('global policy')
+
+    await scope.dispose()
+    expect(renderContextSnapshot(await ctx.systemPrompt.assemble({ scope: scopeKeyOf(scope) })))
+      .toContain('global policy')
   })
 })
 

@@ -3,11 +3,17 @@
 // inline edit form, and resume/clear icon actions — driven purely through
 // props, no wire. Loading, absent, and complete goals render nothing.
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { GoalSnapshot } from '@deepseek-ai/dsh-goal/client'
+import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { GoalBar } from '../src/client/GoalBar.tsx'
-import type { GoalBarActions } from '../src/client/slots.ts'
+import type { GoalActionResult, GoalBarActions } from '../src/client/slots.ts'
+import { zh } from '../src/client/locales.ts'
+
+// The framework-injected t seat, stubbed over the zh dictionaries (the default locale).
+const t: Parameters<typeof GoalBar>[0]['t'] = makeTranslate(zh, commonZh)
 
 afterEach(cleanup)
 
@@ -34,145 +40,168 @@ function makeActions() {
 describe('GoalBar', () => {
   it('renders nothing while loading, absent, or when the goal is complete', () => {
     const actions = makeActions()
-    const loading = render(<GoalBar goal={undefined} {...actions} />)
+    const loading = render(<GoalBar goal={undefined} {...actions} t={t} />)
     expect(loading.container.firstChild).toBeNull()
     cleanup()
 
-    const absent = render(<GoalBar goal={null} {...actions} />)
+    const absent = render(<GoalBar goal={null} {...actions} t={t} />)
     expect(absent.container.firstChild).toBeNull()
     cleanup()
 
-    const complete = render(<GoalBar goal={makeGoal({ phase: 'complete' })} {...actions} />)
+    const complete = render(<GoalBar goal={makeGoal({ phase: 'complete' })} {...actions} t={t} />)
     expect(complete.container.firstChild).toBeNull()
   })
 
-  it('active goal: sparkle, "Ongoing Goal", truncated objective, edit and clear actions', () => {
+  it('active goal: goal glyph, "进行中的目标", truncated objective, edit and clear actions', () => {
     const actions = makeActions()
-    render(<GoalBar goal={makeGoal()} {...actions} />)
-    expect(screen.getByText('Ongoing Goal')).toBeTruthy()
+    render(<GoalBar goal={makeGoal()} {...actions} t={t} />)
+    expect(screen.getByText('进行中的目标')).toBeTruthy()
     expect(screen.getByText('Ship the redesign')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Clear goal' }))
+    fireEvent.click(screen.getByRole('button', { name: '清除目标' }))
     expect(actions.onClear).toHaveBeenCalledTimes(1)
+  })
+
+  it('single-flights rapid clear clicks and hides the committed goal before its projection catches up', async () => {
+    const actions = makeActions()
+    let resolveClear!: (result: GoalActionResult) => void
+    actions.onClear.mockImplementation(() => new Promise((resolve) => { resolveClear = resolve }))
+    const { container, rerender } = render(<GoalBar goal={makeGoal()} {...actions} t={t} />)
+    const clear = screen.getByRole<HTMLButtonElement>('button', { name: '清除目标' })
+
+    act(() => {
+      clear.click()
+      clear.click()
+    })
+    expect(actions.onClear).toHaveBeenCalledTimes(1)
+    expect(clear.disabled).toBe(true)
+
+    await act(async () => { resolveClear({ ok: true }) })
+    expect(container.firstChild).toBeNull()
+
+    rerender(<GoalBar goal={makeGoal({ id: 'g2' as GoalSnapshot['id'], objective: 'Next goal' })} {...actions} t={t} />)
+    expect(screen.getByText('Next goal')).toBeTruthy()
   })
 
   it('edit swaps the strip for a prefilled form; Enter saves, empty stays disabled', async () => {
     const actions = makeActions()
-    render(<GoalBar goal={makeGoal()} {...actions} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Edit goal' }))
-    const box = screen.getByRole('textbox', { name: 'Goal objective' })
+    render(<GoalBar goal={makeGoal()} {...actions} t={t} />)
+    fireEvent.click(screen.getByRole('button', { name: '编辑目标' }))
+    const box = screen.getByRole('textbox', { name: '目标内容' })
     expect(box).toHaveProperty('value', 'Ship the redesign')
 
     fireEvent.change(box, { target: { value: '   ' } })
-    expect(screen.getByRole('button', { name: 'Save goal' })).toHaveProperty('disabled', true)
+    expect(screen.getByRole('button', { name: '保存目标' })).toHaveProperty('disabled', true)
 
     fireEvent.change(box, { target: { value: 'Ship v2' } })
     fireEvent.keyDown(box, { key: 'Enter' })
     expect(actions.onEdit).toHaveBeenCalledWith('Ship v2')
-    await waitFor(() => { expect(screen.getByText('Ongoing Goal')).toBeTruthy() })
+    await waitFor(() => { expect(screen.getByText('进行中的目标')).toBeTruthy() })
   })
 
   it('Esc cancels the edit without calling onEdit', () => {
     const actions = makeActions()
-    render(<GoalBar goal={makeGoal()} {...actions} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Edit goal' }))
-    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Goal objective' }), { key: 'Escape' })
+    render(<GoalBar goal={makeGoal()} {...actions} t={t} />)
+    fireEvent.click(screen.getByRole('button', { name: '编辑目标' }))
+    fireEvent.keyDown(screen.getByRole('textbox', { name: '目标内容' }), { key: 'Escape' })
     expect(actions.onEdit).not.toHaveBeenCalled()
-    expect(screen.getByText('Ongoing Goal')).toBeTruthy()
+    expect(screen.getByText('进行中的目标')).toBeTruthy()
   })
 
   it('the cancel button exits the form and drops the draft (re-edit starts from the objective)', () => {
     const actions = makeActions()
-    render(<GoalBar goal={makeGoal()} {...actions} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Edit goal' }))
-    fireEvent.change(screen.getByRole('textbox', { name: 'Goal objective' }), { target: { value: 'abandoned draft' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel edit' }))
+    render(<GoalBar goal={makeGoal()} {...actions} t={t} />)
+    fireEvent.click(screen.getByRole('button', { name: '编辑目标' }))
+    fireEvent.change(screen.getByRole('textbox', { name: '目标内容' }), { target: { value: 'abandoned draft' } })
+    fireEvent.click(screen.getByRole('button', { name: '取消编辑' }))
     expect(actions.onEdit).not.toHaveBeenCalled()
-    expect(screen.getByText('Ongoing Goal')).toBeTruthy()
+    expect(screen.getByText('进行中的目标')).toBeTruthy()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Edit goal' }))
-    expect(screen.getByRole('textbox', { name: 'Goal objective' })).toHaveProperty('value', 'Ship the redesign')
+    fireEvent.click(screen.getByRole('button', { name: '编辑目标' }))
+    expect(screen.getByRole('textbox', { name: '目标内容' })).toHaveProperty('value', 'Ship the redesign')
   })
 
   it('Enter with a blank draft neither saves nor closes the form', () => {
     const actions = makeActions()
-    render(<GoalBar goal={makeGoal()} {...actions} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Edit goal' }))
-    const box = screen.getByRole('textbox', { name: 'Goal objective' })
+    render(<GoalBar goal={makeGoal()} {...actions} t={t} />)
+    fireEvent.click(screen.getByRole('button', { name: '编辑目标' }))
+    const box = screen.getByRole('textbox', { name: '目标内容' })
     fireEvent.change(box, { target: { value: '   ' } })
     fireEvent.keyDown(box, { key: 'Enter' })
     expect(actions.onEdit).not.toHaveBeenCalled()
-    expect(screen.getByRole('textbox', { name: 'Goal objective' })).toBeTruthy()
+    expect(screen.getByRole('textbox', { name: '目标内容' })).toBeTruthy()
   })
 
   it('active goal: the pause action pauses', () => {
     const actions = makeActions()
-    render(<GoalBar goal={makeGoal()} {...actions} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Pause goal' }))
+    render(<GoalBar goal={makeGoal()} {...actions} t={t} />)
+    fireEvent.click(screen.getByRole('button', { name: '暂停目标' }))
     expect(actions.onPause).toHaveBeenCalledTimes(1)
   })
 
-  it('paused goal: "Paused Goal" with a resume action before edit', () => {
+  it('paused goal: "已暂停的目标" with a resume action before edit', () => {
     const actions = makeActions()
-    render(<GoalBar goal={makeGoal({ phase: 'paused' })} {...actions} />)
-    expect(screen.getByText('Paused Goal')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Resume goal' }))
+    render(<GoalBar goal={makeGoal({ phase: 'paused' })} {...actions} t={t} />)
+    expect(screen.getByText('已暂停的目标')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '恢复目标' }))
     expect(actions.onResume).toHaveBeenCalledTimes(1)
   })
 
   it('a new goal identity drops the edit form (no stale draft over the new goal)', () => {
     const actions = makeActions()
-    const { rerender } = render(<GoalBar goal={makeGoal()} {...actions} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Edit goal' }))
-    fireEvent.change(screen.getByRole('textbox', { name: 'Goal objective' }), { target: { value: 'stale draft' } })
+    const { rerender } = render(<GoalBar goal={makeGoal()} {...actions} t={t} />)
+    fireEvent.click(screen.getByRole('button', { name: '编辑目标' }))
+    fireEvent.change(screen.getByRole('textbox', { name: '目标内容' }), { target: { value: 'stale draft' } })
 
-    rerender(<GoalBar goal={makeGoal({ id: 'g2' as GoalSnapshot['id'], objective: 'New goal' })} {...actions} />)
+    rerender(<GoalBar goal={makeGoal({ id: 'g2' as GoalSnapshot['id'], objective: 'New goal' })} {...actions} t={t} />)
     expect(screen.queryByRole('textbox')).toBeNull()
-    expect(screen.getByText('Ongoing Goal')).toBeTruthy()
+    expect(screen.getByText('进行中的目标')).toBeTruthy()
     expect(screen.getByText('New goal')).toBeTruthy()
 
-    rerender(<GoalBar goal={null} {...actions} />)
-    expect(screen.queryByText('Ongoing Goal')).toBeNull()
+    rerender(<GoalBar goal={null} {...actions} t={t} />)
+    expect(screen.queryByText('进行中的目标')).toBeNull()
   })
 
-  it('blocked goal: "Blocked Goal" with the block reason as the strip tooltip', () => {
+  it('blocked goal: "受阻的目标" with the block reason as the strip tooltip', () => {
     const actions = makeActions()
     const goal = makeGoal({ phase: 'blocked', blockedReason: { code: 'stalled', message: 'No progress in 3 rounds' } })
-    render(<GoalBar goal={goal} {...actions} />)
-    expect(screen.getByText('Blocked Goal')).toBeTruthy()
-    expect(screen.getByText('Blocked Goal').closest('[title]')?.getAttribute('title')).toBe('No progress in 3 rounds')
+    render(<GoalBar goal={goal} {...actions} t={t} />)
+    expect(screen.getByText('受阻的目标')).toBeTruthy()
+    expect(screen.getByText('受阻的目标').closest('[title]')?.getAttribute('title')).toBe('No progress in 3 rounds')
   })
 
   it('blocked goal without a reason carries no tooltip', () => {
     const actions = makeActions()
-    render(<GoalBar goal={makeGoal({ phase: 'blocked' })} {...actions} />)
-    expect(screen.getByText('Blocked Goal')).toBeTruthy()
-    expect(screen.getByText('Blocked Goal').closest('[title]')).toBeNull()
+    render(<GoalBar goal={makeGoal({ phase: 'blocked' })} {...actions} t={t} />)
+    expect(screen.getByText('受阻的目标')).toBeTruthy()
+    expect(screen.getByText('受阻的目标').closest('[title]')).toBeNull()
   })
 
   it('keeps the edit draft open and reports a failed save', async () => {
     const actions = makeActions()
     actions.onEdit.mockResolvedValue({ ok: false, error: { code: 'agent-busy', message: 'stale revision' } })
-    render(<GoalBar goal={makeGoal()} {...actions} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Edit goal' }))
-    const box = screen.getByRole('textbox', { name: 'Goal objective' })
+    render(<GoalBar goal={makeGoal()} {...actions} t={t} />)
+    fireEvent.click(screen.getByRole('button', { name: '编辑目标' }))
+    const box = screen.getByRole('textbox', { name: '目标内容' })
     fireEvent.change(box, { target: { value: 'retry this draft' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Save goal' }))
+    fireEvent.click(screen.getByRole('button', { name: '保存目标' }))
 
     expect((await screen.findByRole('alert')).textContent).toBe('stale revision (agent-busy)')
-    expect(screen.getByRole('textbox', { name: 'Goal objective' })).toHaveProperty('value', 'retry this draft')
+    expect(screen.getByRole('textbox', { name: '目标内容' })).toHaveProperty('value', 'retry this draft')
   })
 
   it('reports resume and clear failures without hiding the goal', async () => {
     const actions = makeActions()
     actions.onResume.mockResolvedValue({ ok: false, error: { code: 'internal', message: 'resume failed' } })
-    const { rerender } = render(<GoalBar goal={makeGoal({ phase: 'paused' })} {...actions} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Resume goal' }))
+    const { rerender } = render(<GoalBar goal={makeGoal({ phase: 'paused' })} {...actions} t={t} />)
+    fireEvent.click(screen.getByRole('button', { name: '恢复目标' }))
     expect((await screen.findByRole('alert')).textContent).toBe('resume failed (internal)')
 
     actions.onClear.mockResolvedValue({ ok: false, error: { code: 'agent-busy', message: 'clear failed' } })
-    rerender(<GoalBar goal={makeGoal()} {...actions} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Clear goal' }))
+    rerender(<GoalBar goal={makeGoal()} {...actions} t={t} />)
+    fireEvent.click(screen.getByRole('button', { name: '清除目标' }))
     expect((await screen.findByRole('alert')).textContent).toBe('clear failed (agent-busy)')
     expect(screen.getByText('Ship the redesign')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '清除目标' }))
+    await waitFor(() => { expect(actions.onClear).toHaveBeenCalledTimes(2) })
   })
 })

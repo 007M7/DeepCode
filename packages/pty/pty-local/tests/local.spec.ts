@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
-import AgentRegistry, {} from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import PtyService from '@deepseek-ai/dsh-pty'
 import type { PtySendOperation } from '@deepseek-ai/dsh-pty'
@@ -26,16 +26,22 @@ class PassthroughSandbox extends SandboxProvider {
 
   confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv {
     this.calls.push({ argv, policy })
-    return { argv: [...argv], enforcement: 'full', denialSignatures: [], runnerFailureSignatures: [] }
+    return { argv: [...argv], enforcement: 'full', denialSignatures: [], runnerFailureRules: [] }
   }
 }
 
 function stubAgent(ctx: Context, rawId: string): Agent {
   const id = SessionId(rawId)
   const scope = ctx.plugin(() => {})
+  const session = Session.create(id)
   return {
-    id, options: {}, session: new Session(id), status: 'idle', acceptsNextStep: false, ctx: scope.ctx,
-    followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, updateInbox: () => 'not-found', cancel() {}, whenIdle: () => Promise.resolve(),
+    id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
+    status: 'idle',
+    ctx: scope.ctx,
+    send: () => {},
+    followup: () => {}, steer: () => {}, inject: () => {}, cancel() {},
+    runMaintenance: task => task(new AbortController().signal),
+    whenIdle: () => Promise.resolve(),
   }
 }
 

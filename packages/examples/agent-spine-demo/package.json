@@ -21,9 +21,7 @@
   "files": [
     "lib/index.js",
     "lib/invariant.js",
-    "lib/types/**/*.d.ts",
-    "lib/types/**/*.d.ts.map",
-    "src"
+    "lib/types/**/*.d.ts"
   ],
   "license": "BSD-3-Clause",
   "peerDependencies": {
@@ -43,6 +41,7 @@
     "@deepseek-ai/dsh-skill-local": "^0.0.1",
     "@deepseek-ai/dsh-system-prompt": "^0.0.1",
     "@deepseek-ai/dsh-tasks-local": "^0.0.1",
+    "@deepseek-ai/dsh-bash-env": "^0.0.1",
     "@deepseek-ai/dsh-tool-bash": "^0.0.1",
     "@deepseek-ai/dsh-tool-goal": "^0.0.1",
     "@deepseek-ai/dsh-tool-skill": "^0.0.1",
@@ -55,6 +54,7 @@
     "@cordisjs/plugin-timer": "workspace:^",
     "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-agent-loop": "workspace:^",
+    "@deepseek-ai/dsh-bash-env": "workspace:^",
     "@deepseek-ai/dsh-bash-local": "workspace:^",
     "@deepseek-ai/dsh-bash-sandbox": "workspace:^",
     "@deepseek-ai/dsh-fs-local": "workspace:^",

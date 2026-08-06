@@ -15,15 +15,18 @@
       "types": "./lib/types/invariant.d.ts",
       "default": "./lib/invariant.js"
     },
+    "./checkpoint": {
+      "types": "./lib/types/checkpoint.d.ts",
+      "default": "./lib/types/checkpoint.js"
+    },
     "./src/*": "./src/*",
     "./package.json": "./package.json"
   },
   "files": [
     "lib/index.js",
     "lib/invariant.js",
-    "lib/types/**/*.d.ts",
-    "lib/types/**/*.d.ts.map",
-    "src"
+    "lib/types/**/*.js",
+    "lib/types/**/*.d.ts"
   ],
   "license": "BSD-3-Clause",
   "peerDependencies": {

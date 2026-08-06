@@ -24,6 +24,64 @@
   background: var(--dsw-alias-interactive-bg-active);
 }
 
+.searchResultRow {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 100%;
+  min-height: 62px;
+  box-sizing: border-box;
+  border: none;
+  border-radius: 8px;
+  padding: 7px 8px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  color: var(--dsw-alias-label-primary);
+}
+
+.searchResultRow:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.searchResultRow.selected {
+  background: var(--dsw-alias-interactive-bg-active);
+}
+
+.searchResultHeading {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.searchResultTitle {
+  min-width: 0;
+  margin-left: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.searchResultWorkspace,
+.searchResultSnippet {
+  margin-left: 20px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.searchResultWorkspace {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.searchResultSnippet {
+  color: var(--dsw-alias-label-secondary);
+}
+
 /* Two-line row: the leading slot (folder/chevron), title, and trailing
    actions all top-align on the 20px first text line (figma cell) — content
    is 42px (20 + 2 + 20), so 6px vertical padding centers the block. */
@@ -39,9 +97,7 @@
   height: 20px;
 }
 
-/* Session cell (figma): pad 8, adjacent 16px twist + status slots, then a 4px
-   gap to the title — the slots butt together, so the row gap is zeroed and
-   the title carries its own margins. */
+/* Session cell (figma): pad 8, a 16px status slot, then a 4px title gap. */
 .sessionRow {
   height: 34px;
   gap: 0;
@@ -66,6 +122,15 @@
   align-items: center;
   justify-content: center;
   color: var(--dsw-alias-label-tertiary);
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 
 
@@ -168,7 +233,7 @@
   background: var(--dsw-alias-interactive-bg-hover);
 }
 
-/* Drag reorder insert line (workspace-group roots): 2px accent above or
+/* Drag reorder insert line (workspace-group session rows): 2px accent above or
    below the hovered row, drawn with box-shadow so no layout shift. */
 .sessionRow.dropBefore {
   box-shadow: 0 -2px 0 0 var(--dsw-alias-state-business-primary);
@@ -233,33 +298,9 @@
   color: var(--dsw-alias-label-primary);
 }
 
-/* Session expand twist occupies the leading 16px slot; keep a spacer when absent
-   so titles align across sibling rows. Duplicates the .iconButton reset instead
-   of `composes:` — the tsdown CSS-modules pipeline drops composes mappings, which
-   left the raw UA button box showing. */
-.twist {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 20px;
-  border: none;
-  border-radius: 4px;
-  padding: 0;
-  background: transparent;
-  cursor: pointer;
-}
-
-.twist:hover {
-  color: var(--dsw-alias-label-primary);
-}
-
-/* Chevrons and tree twists ride the caption grey (#ADB2B8); the folder glyph
-   stays one step darker (tertiary, #81858C) per the cell spec. Declared last
-   to win over the composed .iconButton color. */
-.chevron,
-.twist {
+/* Chevrons ride the caption grey (#ADB2B8); the folder glyph stays one step
+   darker (tertiary, #81858C) per the cell spec. */
+.chevron {
   color: var(--dsw-alias-label-caption);
 }
 

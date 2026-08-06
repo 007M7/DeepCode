@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-自引用 Cordis 工具集：三个面向模型的工具，操作当前 DSH 进程中的实时运行时。沙箱语义、临时插件生命周期与组合、生成的 API 目录及既定决策详见[工具集 Agent Note（agent 决策记录）](../../../.agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md)。
+自引用 Cordis 工具集：三个面向模型的工具，操作当前 DSH 进程中的实时运行时。沙箱语义、临时插件生命周期与组合、生成的 API 目录及既定决策详见[工具集 Agent Note](../../../.agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md)。
 
 ## 功能
 
@@ -14,7 +14,7 @@
 
 规范成功结果分别为检查字符串、挂载 `{ id, pluginName, state, provides, waitingFor }`，以及卸载 `{ id, pluginName }`。原生渲染会说明临时插件正在运行还是等待中，并说明它可用至被卸载或 DSH 重启；卸载结果确认它已移除。
 
-临时插件只存在于共享 DSH 进程内存中。它可跨后续轮次保持活跃，也可能影响同一进程中的其他会话，但会在 `cordis_unmount`、工具集卸载或 DSH 重启后消失。它不会创建插件文件、安装任何包（package）、修改 `cordis.yml` 或个人／项目配置、跨重启存续，也不能自动转为正式插件。若要保留实验结果，应让 agent（智能体）通过常规开发流程实现普通的本地、项目或仓库插件。
+临时插件只存在于共享 DSH 进程内存中。它可跨后续轮次保持活跃，也可能影响同一进程中的其他会话，但会在 `cordis_unmount`、工具集卸载或 DSH 重启后消失。它不会创建插件文件、安装任何包、修改 `cordis.yml` 或个人／项目配置、跨重启存续，也不能自动转为正式插件。若要保留实验结果，应让 agent（智能体）通过常规开发流程实现普通的本地、项目或仓库插件。
 
 ## 信任立场
 
@@ -66,7 +66,7 @@ Namespace 插件：命名导出 `name`／`inject`／`Config`／`apply`，无默�
 
 #### KV Cache 影响
 
-仅追加；新可见内容位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
+仅追加；新可见内容位于可复用请求前缀之后，不会使现有 KV Cache 条目失效。
 
 ### cordis_mount 后的后续请求
 

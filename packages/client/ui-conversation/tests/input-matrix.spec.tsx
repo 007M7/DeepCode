@@ -11,9 +11,12 @@ import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ClientContext, ConversationSnapshot, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SubmitOutcome } from '@deepseek-ai/dsh-client-ui-slash/client'
+import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { SessionInputShell } from '../src/client/input/facade.ts'
 import { InputBar } from '../src/client/skeleton/InputBar.tsx'
 import type { InputBarProps } from '../src/client/skeleton/InputBar.tsx'
+import { zh } from '../src/client/locales.ts'
 
 afterEach(cleanup)
 
@@ -23,10 +26,10 @@ const SID = 's1' as SessionId
 /** Standard-props InputBar mount over a real shell (the composer-bar entry shape). */
 function mountBar(shell: SessionInputShell, over?: { running?: boolean; disabled?: boolean }) {
   const session = createSnapshotStore<ConversationSnapshot>({
-    sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
+    sessionId: SID, nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [], codeDispatches: new Map(),
     pending: [], queue: [], running: over?.running ?? false, composerPhase: 'active',
     removed: over?.disabled ?? false, openState: 'open', openError: null, hasMore: false,
-    loadingOlder: false, promptError: null, blank: false, lastAgentError: null,
+    loadingOlder: false, promptError: null, blank: false, subagent: null, lastAgentError: null,
   })
   const props: InputBarProps = {
     sessionId: SID,
@@ -34,21 +37,26 @@ function mountBar(shell: SessionInputShell, over?: { running?: boolean; disabled
     useSession: bindSnapshotSelector(session),
     useSessions: bindSnapshotSelector(createSnapshotStore({
       ids: [], byId: {}, current: undefined, phase: 'ready',
+      subagentsByParent: {}, currentAddress: undefined,
     })),
     useWorkspaces: bindSnapshotSelector(createSnapshotStore({
-      items: [], state: 'idle', phase: 'ready', error: null,
+      items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
     })),
     useProjection: (() => undefined),
     useInput: bindSnapshotSelector(shell.state),
     inputActions: shell.actions,
     keyboard: shell,
+    resolveSubmitMode: () => 'queue',
+    toggleCommandMenu: vi.fn(),
     useNotices: bindSnapshotSelector(shell.notices),
     useLexicon: bindSnapshotSelector(shell.lexicon),
+    useMenuLauncher: bindSnapshotSelector(createSnapshotStore<string | null>(null)),
     renderSlot: (() => null) as InputBarProps['renderSlot'],
     stop: vi.fn(),
     command: () => Promise.resolve(true),
-    translateHint: (key: string) => key,
+    // Mirrors the real lookup chain (conversation namespace, then common).
+    t: makeTranslate(zh, commonZh),
     variant: 'composer',
   }
   return render(<InputBar {...props} />)
@@ -92,7 +100,8 @@ describe('matrix row: claimed', () => {
     claim()
     expect(shell.snapshot.claim).toEqual({ token: '/goal ', hint: '目标' })
     expect(view.container.querySelector('[data-decoration="token"]')?.textContent).toBe('/goal ')
-    expect(view.container.querySelector('[data-decoration="hint"]')?.textContent).toBe('目标')
+    // The zh dictionary owns a hint.goal entry, which overrides the raw claim hint (production behavior).
+    expect(view.container.querySelector('[data-decoration="hint"]')?.textContent).toBe('输入目标，智能体将持续执行')
     expect((textarea).readOnly).toBe(false)
     // Free editing beyond the token: hint drops, claim holds.
     fireEvent.change(textarea, { target: { value: '/goal 发布版本' } })
@@ -170,7 +179,7 @@ describe('matrix row: locked (session disabled)', () => {
   it('disables the textarea and chrome; the machine currency is untouched', () => {
     const { view, textarea, shell } = bench({ disabled: true })
     expect((textarea).disabled).toBe(true)
-    expect((view.getByLabelText('Add attachment') as HTMLButtonElement).disabled).toBe(true)
+    expect((view.getByLabelText('命令') as HTMLButtonElement).disabled).toBe(true)
     expect(shell.snapshot.phase).toBe('plain')
   })
 

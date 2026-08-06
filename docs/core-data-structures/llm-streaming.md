@@ -15,8 +15,9 @@ A streaming response interleaves several typed blocks (text, reasoning, multiple
  * Raw streaming protocol emitted by adapters.
  * Block indexes correlate interleaved deltas, and `block-end` carries the
  * assembled block. Adapters emit usage before the terminal finish and nothing
- * afterward; tool arguments remain raw JSON strings. Failures either throw or
- * end with `error`/`aborted`, and consumers must handle both paths.
+ * afterward; tool arguments remain raw JSON strings. An adapter implementation
+ * may throw, but `LlmService.stream()` normalizes that failure to a terminal
+ * `error` or `aborted` finish before exposing it to consumers.
  */
 type StreamChunk =
   | { type: 'block-start'; index: number; blockType: ContentBlockType }
@@ -64,10 +65,10 @@ Every adapter MUST obey these, and every consumer may rely on them:
 - **Provider stalls are bounded at the transport.** Both shipping remote adapters expose positive finite `streamIdleTimeoutMs` with a five-minute default. The watchdog arms only while iterator `next()` is outstanding, uses one stable signal for the whole request, maps its own expiry to `TIMEOUT`, and keeps an earlier caller abort as `ABORTED`.
 - **Context overflow has one canonical code.** Both DeepSeek adapters classify explicit provider detail through `isContextWindowExceededError()` and surface `CONTEXT_WINDOW_EXCEEDED`, whether the failure arrives as a thrown HTTP `LlmError` or an in-band finish error. Consumers route on the code, never provider text.
 - **An empty completion is a retryable error, not a silent success.** Both adapters map a terminal `stop` finish that carried no content blocks to `finish {kind:'error'}` with the canonical `EMPTY_RESPONSE` code, and `dsh-llm-retry` retries it by default; see [empty model responses are retryable](../../.agents/notes/implemented/bug-fix/2026-07-24-empty-model-response-is-retryable.md).
-- **Every provider HTTP request carries the app-attribution header.** Adapters send `attributionHeaders()` (below) - the `User-Agent` baseline - and prove it with a wire-level test (mock server asserting the received header, or the library's header hook for a library-backed adapter).
+- **Every provider HTTP request carries the app-attribution header.** Adapters send `attributionHeaders()` (below), the `User-Agent` baseline.
 - **Replay state is adapter-owned.** A successful `finish` may carry lossless-JSON state needed to reconstruct a native provider response. The loop stores it with the assembled assistant message. On a later request, `LlmService` passes the state only when the historical provider and target provider are currently registered to the exact same adapter instance. That adapter validates the state and owns any cross-model or cross-provider conversion; other adapters receive the provider-neutral content and provenance without the private state.
 
-This contract is pinned down by two deliberately independent implementations: `dsh-llm-deepseek` (direct fetch, SSE framing via `eventsource-parser`) and `dsh-llm-pi-ai` (a generic multi-provider adapter through `@earendil-works/pi-ai`). The library-backed adapter exercises the finish-chunk error path, while transport-boundary tests prove each idle watchdog stops its actual request.
+Two independent implementations obey this contract: `dsh-llm-deepseek` uses direct fetch with SSE framing through `eventsource-parser`, while `dsh-llm-pi-ai` provides a generic multi-provider adapter through `@earendil-works/pi-ai`. Both carry cancellation and the idle watchdog to the provider request.
 
 ## `ResolvedRetryPolicy`
 
@@ -141,8 +142,9 @@ declare class BlockAssembler {
   push(chunk: StreamChunk): void;
   /**
    * Assemble all blocks seen so far, in stream order.
-   * @returns one block per seen index; an open block assembles from its
-   *   accumulated deltas (an unknown block type never closed by `block-end` throws).
+   * @returns one block per seen index, except that max-token truncation drops
+   *   tool calls that cannot be executed safely; an open block assembles from
+   *   its accumulated deltas (an unknown block type never closed by `block-end` throws).
    */
   blocks(): ContentBlock[];
   /** Usage from the `usage` chunk; undefined until one arrives. */
@@ -162,13 +164,19 @@ declare class BlockAssembler {
 
 ## The seam
 
-`LlmAdapter` is the provider seam: subclass, implement `stream()`, and register one adapter instance with `ctx.llm.registerAdapter(providers, adapter)`. `GenerateOptions.provider` selects the registered adapter; `GenerateOptions.model` is passed to that adapter and need not be registered at lifecycle start. Duplicate provider routes fail atomically. Optional `providerRetryPolicy()` is captured per route with normal defaults, while `providerInfo()` and asynchronous `listModels()` feed `LlmService.listProviders()` / `listModels()` with detached selector metadata. That catalog is advisory rather than a request whitelist: the adapter remains authoritative and may accept unlisted model ids. One asynchronous `resolveModel()` query returns exact model identity plus optional correctness-sensitive context capacity and ordered model-owned reasoning ids with an optional deployment default; absent fields mean unavailable metadata or capability, not invalid catalog membership. The resolver receives optional cancellation and must settle promptly after abort. `LlmService.resolveModelInfo()` validates and detaches the aggregate. The service validates and materializes reasoning through `resolveCallConfig()` at the final adapter boundary, so direct calls cannot bypass unsupported-effort rejection; direct dispatch captures one registration before awaiting that resolution. The agent loop instead uses `prepareCall()` to keep the same registration across model resolution, durable header logging, and dispatch. Adapter lookup happens at the terminal continuation of the `llm/stream` waterfall, so a listener may short-circuit the call or route a mutable one-shot request before lookup. The `block-start` / `block-end` `index` correlation and the assembler together mean an adapter only has to emit well-formed chunks — block reassembly is not each adapter's problem. The consumer surface (`ctx.llm.stream()`) and the `llm/stream` waterfall are described in [architecture.md § Content blocks and streaming](../architecture.md#content-blocks-and-streaming-dsh-llm).
+`LlmAdapter` is the provider seam: subclass, implement `stream()`, and register one adapter instance with `ctx.llm.registerAdapter(providers, adapter)`. `GenerateOptions.provider` selects the registered adapter; `GenerateOptions.model` is passed to that adapter and need not be registered at lifecycle start. Duplicate provider routes fail atomically. Optional `providerRetryPolicy()` is captured per route with normal defaults, while `providerInfo()` and asynchronous `listModels()` feed `LlmService.listProviders()` / `listModels()` with detached selector metadata. That catalog is advisory rather than a request whitelist: the adapter remains authoritative and may accept unlisted model ids. One asynchronous `resolveModel()` query returns exact model identity plus optional correctness-sensitive context capacity, an adapter-configured `defaultMaxTokens`, and ordered model-owned reasoning ids with an optional deployment default; absent fields mean unavailable metadata or provider-owned behavior, not invalid catalog membership. The resolver receives optional cancellation and must settle promptly after abort. `LlmService.resolveModelInfo()` validates and detaches the aggregate. At the final adapter boundary, `resolveCallConfig()` materializes the output default only when `maxTokens` is absent and validates and materializes reasoning, so direct calls cannot bypass either configured behavior; direct dispatch captures one registration before awaiting that resolution. The agent loop instead uses `prepareCall()` to keep the same registration across model resolution, durable header logging, and dispatch, retain detached context metadata from that exact lookup, and report which config fields the adapter defaulted. Adapter lookup happens at the terminal continuation of the `llm/stream` waterfall, so a listener may short-circuit the call or route a mutable one-shot request before lookup. AgentLoop observes a request attempt once the outer waterfall returns a stream handle; that limited boundary does not prove a lazy terminal adapter was constructed or began provider I/O. The `block-start` / `block-end` `index` correlation and the assembler together mean an adapter only has to emit well-formed chunks — block reassembly is not each adapter's problem. The consumer surface (`ctx.llm.stream()`) and the `llm/stream` waterfall are described in [architecture.md § Content blocks and streaming](../architecture.md#content-blocks-and-streaming-dsh-llm).
 
 ```ts type-equiv
 /** One model call whose config and adapter registration were resolved together. */
 interface PreparedLlmCall {
   /** Detached, deep-frozen config with any adapter-owned default materialized. */
   readonly config: LlmCallConfig
+  /** Immutable retry policy captured with the adapter registration. */
+  readonly retryPolicy: ResolvedRetryPolicy
+  /** Detached context metadata resolved with the registration-bound call. */
+  readonly context?: LlmModelContext
+  /** Config fields materialized by the captured adapter rather than proposed by the caller. */
+  readonly adapterDefaults: LlmCallConfigAdapterDefaults
   /**
    * Dispatch this call once through the registration captured during
    * preparation. The request's call-config fields must match {@link config};
@@ -215,7 +223,7 @@ declare abstract class LlmAdapter {
    * @param model - exact model id passed to {@link GenerateOptions.model}.
    * @param _signal - cancellation for this exact-model lookup; asynchronous
    *   implementations must settle promptly after it aborts.
-   * @returns provider/model identity plus any context and reasoning metadata.
+   * @returns provider/model identity plus any context, call-default, and reasoning metadata.
    */
   resolveModel(
     provider: string,

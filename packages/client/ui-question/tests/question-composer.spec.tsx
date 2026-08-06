@@ -26,6 +26,7 @@ const seatOver = (dict: Record<string, string>, common: Record<string, string>):
  *  the composed props type mandates delivery of the rest (framework hooks are
  *  plain stubs per the client testing discipline). */
 const kit = {
+  session: undefined,
   sessionId: SID,
   useSession: (() => { throw new Error('unused') }) as unknown as SnapshotSelectorHook<ConversationSnapshot>,
   useSessions: (() => { throw new Error('unused') }) as unknown as SnapshotSelectorHook<SessionListState>,
@@ -103,13 +104,19 @@ describe('QuestionComposer', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: '系统设计' }))
     fireEvent.click(screen.getByRole('checkbox', { name: '系统设计' }))
     fireEvent.click(screen.getByRole('checkbox', { name: '代码质量' }))
-    fireEvent.keyDown(screen.getByRole('checkbox', { name: '代码质量' }), { key: 'Enter' })
+    const multiCustom = screen.getByPlaceholderText('输入你的答案')
+    fireEvent.change(multiCustom, { target: { value: '沟通能力' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: '产品判断' }))
+    expect(screen.getByRole('checkbox', { name: '系统设计' }).getAttribute('aria-checked')).toBe('true')
+    expect(screen.getByRole('checkbox', { name: '代码质量' }).getAttribute('aria-checked')).toBe('true')
+    expect((multiCustom as HTMLInputElement).value).toBe('沟通能力')
+    fireEvent.keyDown(multiCustom, { key: 'Enter' })
 
     // The domain face encoded the whole batch into one carrier envelope.
     expect(respond).toHaveBeenCalledWith(answeredEnvelope('question-1', [
       { id: 'profile', selected: ['工程落地型 (Recommended)'] },
       { id: 'detail', selected: [], custom: '要能独立排查线上问题' },
-      { id: 'signals', selected: ['系统设计', '代码质量'] },
+      { id: 'signals', selected: ['系统设计', '代码质量', '产品判断'], custom: '沟通能力' },
     ]))
     expect(screen.getByRole<HTMLButtonElement>('button', { name: '正在提交…' }).disabled).toBe(true)
   })
@@ -232,6 +239,11 @@ describe('QuestionComposer', () => {
     fireEvent.keyDown(custom, { key: 'Enter' })
     fireEvent.click(screen.getByRole('checkbox', { name: '系统设计' }))
     fireEvent.click(screen.getByRole('button', { name: '提交' }))
+    expect(respond).toHaveBeenNthCalledWith(1, answeredEnvelope('second', [
+      { id: 'profile', selected: ['工程落地型 (Recommended)'] },
+      { id: 'detail', selected: [], custom: 'x' },
+      { id: 'signals', selected: ['系统设计'] },
+    ]))
     expect(await screen.findByText('网络中断')).toBeTruthy()
     expect(screen.getByRole<HTMLButtonElement>('button', { name: '提交' }).disabled).toBe(false)
 

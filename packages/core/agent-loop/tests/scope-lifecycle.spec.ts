@@ -147,7 +147,7 @@ describe('agent scope lifecycle', () => {
     expect(agent.ctx.agent).toBe(agent)
     // The root accessor default: a plain context answers undefined, not a throw.
     expect(ctx.agent).toBeUndefined()
-    await ctx.agents.get(SessionId('a1'))?.whenIdle()
+    await agent.whenIdle()
   })
 
   it('records agents created through an agent context as non-root runtime children', async () => {
@@ -264,6 +264,13 @@ describe('agent scope lifecycle', () => {
         setupStarted.resolve(undefined)
         await gate.promise
         order.push('setup:end')
+        return {
+          commit: () => {
+            expect(ctx.agents.get(SessionId('atomic'))).toBeUndefined()
+            expect(ctx.sessions.get(SessionId('atomic'))).toBeUndefined()
+            order.push('setup:commit')
+          },
+        }
       },
     })
     await setupStarted.promise
@@ -276,6 +283,7 @@ describe('agent scope lifecycle', () => {
     expect(order).toEqual([
       'setup:start',
       'setup:end',
+      'setup:commit',
       'session/created',
       'setup-listener:session/created',
       'agent/created',
@@ -1066,7 +1074,7 @@ describe('agent scope lifecycle', () => {
     await waitForIdle(ctx, agent)
     expect(reentered).toBe(true)
 
-    // Idle again: the reentrant admission was already claimed and settled (its
+    // Idle again: the reentrant batch was already claimed and settled (its
     // prompt was blocked by nothing, so it ran) — arm a SECOND reentry that
     // fires from the disposal cancel's idle transition itself.
     reentered = false

@@ -200,20 +200,23 @@ interface ToolExecutionInput {
 }
 ```
 
-工具函数体接收运行时扩展。`deferContext()` 是组合工具的通道：它记录嵌套分派产生的上下文，而不会在外层调用尚未结束时注入这些上下文。
+工具函数体接收运行时扩展。`deferContext()` 把上下文附着到本次执行自己的结果上——既是组合工具转运嵌套分派上下文的通道，也可供叶子工具铸造插件来源指令——而不会在外层调用尚未结束时注入这些上下文。
 
 ```ts type-equiv
 /**
  * Runtime context handed to a tool implementation after the registry has
- * accepted a {@link ToolExecution}. A composite tool uses
- * {@link deferContext} to ferry context produced by nested dispatches back to
- * the outer result; the loop appends it only after the outer `tool/result`.
+ * accepted a {@link ToolExecution}. {@link deferContext} attaches context to
+ * this execution's own result — a composite tool ferries nested-dispatch
+ * context back to the outer result, and a leaf tool may mint a fresh
+ * plugin-sourced instruction; the loop appends it only after the
+ * `tool/result`.
  */
 interface ToolRunContext extends ToolExecution {
   /**
-   * Defer one nested-dispatch context until this tool's final result reaches
-   * the agent loop. Contexts retain their individual source and metadata and
-   * are emitted in call order.
+   * Defer one context — typically a nested-dispatch context ferried by a
+   * composite tool, or a fresh plugin-sourced instruction — until this tool's
+   * final result reaches the agent loop. Contexts retain their individual
+   * source and metadata and are emitted in call order.
    */
   deferContext(context: UserMessage): void
   /**
@@ -447,8 +450,8 @@ type ObjectJsonSchema = JsonSchemaNode & { type: 'object' }
 工具希望其调用在 UI 中如何呈现（编辑器工具调用卡片、CLI（命令行界面）日志行），提供方无关，使工具在不依赖任何客户端协议的情况下描述自身。`presentCall`/`presentResult` 返回一个 **`card` 标签的渲染意图**——一个可辨识联合类型，UI 桥接层据此分发：
 
 - `ToolCallView`（待执行）：`{ card: 'generic', title, kind?, rawInput?, content?, locations? }`（默认卡片；`locations` 是 `{ path, line? }[]`，表示调用读取/修改的文件，供编辑器跟随）、`{ card: 'terminal', title, description?, cwd? }`（shell 命令→终端卡片）、或 `{ card: 'diff', title, diffs, locations? }`（文件创建/修改→行内 diff 卡片；`diffs` 是 `{ path, oldText, newText }[]`，新文件时 `oldText: null`）。
-- `ToolResultView`（已完成）：`{ card: 'generic', title?, content? }`、`{ card: 'terminal', title?, output?, exitCode?, signal? }`（捕获的运行输出 + 退出状态；有能力的 UI 显示退出状态标签，其他 UI 可以派生围栏 ` ```console ` 回退）、或 `{ card: 'diff', title?, diffs }`（已完成的文件变更→要展示的变更，通常是从变更前后内容计算出带上下文行的已应用 hunk，或在没有前像时的整文件 diff）。已完成视图会替换待执行视图，因此变更工具即使与调用时的片段重复也要返回 diff 结果。
+- `ToolResultView`（已完成）：`{ card: 'generic', title?, content? }`、`{ card: 'terminal', title?, output?, exitCode?, signal? }`（捕获的运行输出 + 退出状态；有能力的 UI 显示退出状态标签，其他 UI 可以派生围栏 ` ```console ` 回退）、`{ card: 'diff', title?, diffs }`（已完成的文件变更→要展示的变更，通常是从变更前后内容计算出带上下文行的已应用 hunk，或在没有前像时的整文件 diff）、`{ card: 'search', shape, title?, truncated, total, … }`（已完成的发现型搜索→`shape: 'matches'`（grep）为按文件分组的匹配，`shape: 'paths'`（glob）为扁平路径列表；`truncated`/`total` 报告内联结果是否被截断，使 UI 永不把部分结果当作完整结果呈现；该视图不携带结果文本——无 search 卡片的 UI 回退到原始结果内容）、`{ card: 'read', title?, path, offset, lines, totalLines, lang?, content? }`（已完成的文件读取→带行号、可选语法高亮的代码视图；`offset` 是窗口请求的 1-based 起始行，即使 `lines` 为空也保留；`lang` 是从扩展名推得的语言提示，`content` 是无读取能力的 UI 回退时使用的去信封文本）、或 `{ card: 'web', kind: 'search' | 'fetch', title?, … }`（已完成的 web 检索；`kind: 'search'` 携带结构化的 `sources`/`answer?`/`truncated`，`kind: 'fetch'` 携带 `url`/`statusCode`/`truncated`，不具备 `web` 能力的 UI 回退到原始结果内容——正文不会重复进视图）。已完成视图会替换待执行视图，因此变更工具即使与调用时的片段重复也要返回 diff 结果；搜索和 web 检索都没有 `card` 的调用时对应视图（其 pending 状态保持为 generic 卡片，因为结构化结果只在 `execute` 之后才存在）。
 
-`ToolCallKind`（`'read' | 'edit' | 'delete' | 'move' | 'search' | 'execute' | 'fetch' | 'other'`）用于为通用卡片选择图标。`FileLocation`（`{ path, line? }`）与 `FileDiff`（`{ path, oldText, newText }`）是共享的文件卡片词汇。该设计由[渲染意图联合类型 Agent Note（agent 决策记录）](../../.agents/notes/implemented/architecture/2026-07-02-tool-render-intent-union.md)固定；TUI 和 host/client 运行时将这套中性词汇投影为各自的视图。
+`ToolCallKind`（`'read' | 'edit' | 'delete' | 'move' | 'search' | 'execute' | 'fetch' | 'other'`）用于为通用卡片选择图标。`FileLocation`（`{ path, line? }`）、`FileDiff`（`{ path, oldText, newText }`）与 `ReadFileLine`（`{ number, text }`，读取窗口中一行带 1-based 行号的内容）是共享的文件卡片词汇。该设计由[渲染意图联合类型 Agent Note（agent 决策记录）](../../.agents/notes/implemented/architecture/2026-07-02-tool-render-intent-union.md)固定；host/client 运行时将这套中性词汇投影为各自的视图。
 
 完整的展示字段文档见 [`packages/core/tools/src/presentation.ts`](../../packages/core/tools/src/presentation.ts)。`bash` schema 与执行器见 [bash.md](bash.md)；通用后台控制见 [tasks.md](tasks.md)。

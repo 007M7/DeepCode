@@ -1,6 +1,7 @@
 // Shared plumbing for the web smoke tests (dist location, free port, failure shots).
 import { existsSync, mkdirSync } from 'node:fs'
 import { createServer } from 'node:net'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Browser, Page } from 'playwright'
 
@@ -10,10 +11,17 @@ export const DIST_INDEX = fileURLToPath(new URL('../dist/index.html', import.met
 export const REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 
 /**
+ * Browser language a page must advertise to boot into the product's Chinese
+ * surface: with no stored preference the client derives its initial locale
+ * from the browser, and Playwright's default browser asks for English.
+ */
+export const ZH_BROWSER_LOCALE = 'zh-CN'
+
+/**
  * Open the standard browser-test page with English selected before client
  * boot. This keeps role locators and goldens deterministic across localized
- * component migrations; the settings locale scenario deliberately bypasses
- * this helper to cover the product's default Chinese state.
+ * component migrations; the scenarios asserting the Chinese surface bypass
+ * this helper and advertise {@link ZH_BROWSER_LOCALE} instead.
  * @param browser - Playwright browser owning the page.
  * @param height - Viewport height; width is fixed to the lane baseline.
  * @returns the initialized page.
@@ -27,7 +35,7 @@ export async function newEnglishPage(browser: Browser, height = 1000): Promise<P
 /** Fail loud on a stale checkout instead of testing yesterday's bundle. */
 export function requireDist(): void {
   if (!existsSync(DIST_INDEX)) {
-    throw new Error('web app dist not built — run `pnpm --filter @deepseek-ai/dsh-frontend build` (pnpm run test:web does this first)')
+    throw new Error('web app dist not built — run `pnpm run build` from the repository root (`pnpm run test:web` does this first)')
   }
 }
 
@@ -48,26 +56,57 @@ export function probeFreePort(): Promise<number> {
 }
 
 /**
- * Drive the hero's workspace picker through its create-by-name dialog until
- * the live composer unlocks. A fresh world has no Workspace, so the boot
+ * Drive the hero's workspace picker through the composed directory dialog
+ * until the live composer unlocks. A fresh world has no Workspace, so the boot
  * lands in the locked view state (startup auto-selection has nothing to
  * select); every scenario that types into the composer must connect one
- * first. The default name 'workspace' keeps the session header cwd at
- * <workspaceRoot>/workspace — the materialization proof several scenarios
+ * first. With nothing to list, the chip gesture raises the dialog directly —
+ * adding a workspace is the picker's only entry. The directory is staged here
+ * and adopted through the path editor, which is idempotent across the repeated
+ * connects a scenario may make; creating a folder from inside the dialog (the
+ * product's other half of the same route) is covered by
+ * workspace-management.e2e.ts. The default name 'workspace' keeps the session
+ * header cwd at <root>/workspace, the materialization proof several scenarios
  * assert.
  * @param page - the page under test.
- * @param name - workspace name typed into the create dialog.
+ * @param root - host directory the workspace folder is staged in (the scaffold's `workspaceCwd`).
+ * @param name - folder name staged and adopted as the workspace.
  */
-export async function connectFreshWorkspace(page: Page, name = 'workspace'): Promise<void> {
+export async function connectFreshWorkspace(page: Page, root: string, name = 'workspace'): Promise<void> {
+  mkdirSync(join(root, name), { recursive: true })
   await page.getByRole('button', { name: 'Choose workspace' }).click()
-  await page.getByRole('menuitem', { name: 'Create a new workspace' }).click()
-  const dialog = page.getByRole('dialog', { name: 'Create a new workspace' })
+  const dialog = page.getByRole('dialog', { name: 'Select Workspace Directory' })
   await dialog.waitFor({ timeout: 10_000 })
-  await dialog.getByLabel('New workspace name').fill(name)
-  await dialog.getByRole('button', { name: 'Create workspace' }).click()
+  await dialog.getByRole('button', { name: 'Edit path' }).click()
+  const pathInput = dialog.getByRole('textbox', { name: 'Edit path' })
+  await pathInput.fill(join(root, name))
+  await pathInput.press('Enter')
+  await dialog.getByRole('button', { name: 'Open', exact: true }).click()
   // The pick connected the workspace: the blank session's live composer
   // replaces the locked placeholder and enables.
   await page.locator('textarea:enabled[placeholder="Describe what you want to build"]')
+    .waitFor({ timeout: 15_000 })
+}
+
+/**
+ * {@link connectFreshWorkspace} over the product default Chinese locale: the
+ * English helper's anchors assume the locale every other scenario boots, so a
+ * scenario that deliberately keeps zh needs the localized picker copy.
+ * @param page - the browser page under test.
+ * @param root - workspace parent directory.
+ * @param name - directory created under `root` and connected.
+ */
+export async function connectFreshWorkspaceZh(page: Page, root: string, name = 'workspace'): Promise<void> {
+  mkdirSync(join(root, name), { recursive: true })
+  await page.getByRole('button', { name: '选择工作区' }).click()
+  const dialog = page.getByRole('dialog', { name: '选择工作区目录' })
+  await dialog.waitFor({ timeout: 10_000 })
+  await dialog.getByRole('button', { name: '编辑路径' }).click()
+  const pathInput = dialog.getByRole('textbox', { name: '编辑路径' })
+  await pathInput.fill(join(root, name))
+  await pathInput.press('Enter')
+  await dialog.getByRole('button', { name: '打开', exact: true }).click()
+  await page.locator('textarea:enabled[placeholder="描述你想要构建的内容"]')
     .waitFor({ timeout: 15_000 })
 }
 
