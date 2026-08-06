@@ -31,7 +31,7 @@
   - img
 - button "Branch into a new conversation":
   - img
-- text: {{clock}} Ran for {{duration}} TTFT {{duration}} {{throughput}} tok/s
+- text: {{clock}} Ran for {{duration}} TTFT {{duration}}
 - textbox "Message the agent"
 - button "Commands":
   - img
@@ -41,4 +41,4 @@
   - img
 - button "3% of context used"
 - button "Send message" [disabled]
-- text: 1 turns · 2 steps LLM {{duration}} · Tool call {{duration}} TTFT avg {{duration}} · {{throughput}} tok/s Cache hit 95% Input 8.6K tok · Output 180 tok
+- text: 1 turns · 2 steps TTFT avg {{duration}} Cache hit 95% Input 8.6K tok · Output 180 tok
