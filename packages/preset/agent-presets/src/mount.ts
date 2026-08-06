@@ -156,6 +156,47 @@ export function leakedServices(ctx: Context, mount: Fiber): string[] {
 }
 
 /**
+ * One agent's instance of a service its preset mounted.
+ *
+ * A preset publishes a service behind an `isolate` realm so two sessions
+ * cannot collide, and an entry-local realm is invisible to everything outside
+ * the group — including the agent's own scope context and the host. That is
+ * right for the rows inside the group and wrong for one caller: a request that
+ * is ABOUT a session but arrives from outside it, which is every browser RPC
+ * the api-proxy serves.
+ *
+ * Ownership is the same relation {@link leakedServices} reads, inverted: there
+ * it names implementations a subtree published into the ROOT realm, here it
+ * names the one this subtree published anywhere. Fiber membership is object
+ * identity for the reason stated on {@link withinFiber}.
+ *
+ * This is READ addressing for a caller that already holds the agent. It is not
+ * a general host handle on a session's internals: a host row that `inject`s a
+ * service cannot use it, because injection resolves before any session exists
+ * and has no agent to key by — such a service belongs on the host plane.
+ * @param ctx - any context of the runtime whose service store is inspected.
+ * @param agent - the agent whose mounted composition to look inside.
+ * @param name - the service name as the preset's rows resolve it.
+ * @returns the agent's instance, or undefined when its preset mounts none.
+ */
+export function serviceForAgent<K extends string & keyof Context>(
+  ctx: Context,
+  agent: { ctx: Context },
+  name: K,
+): Context[K] | undefined {
+  const root = agent.ctx.fiber
+  const store = ctx.reflect.store
+  for (const key of Object.getOwnPropertySymbols(store)) {
+    const impl = store[key]
+    /* v8 ignore next -- cordis deletes a store slot on disposal rather than clearing it */
+    if (impl === undefined) continue
+    if (impl.name !== name) continue
+    if (withinFiber(impl.fiber, root)) return impl.value as Context[K]
+  }
+  return undefined
+}
+
+/**
  * Rows that did not reach a usable state, each rendered as one diagnostic line.
  *
  * A row whose module failed to import or whose plugin threw already rejects the

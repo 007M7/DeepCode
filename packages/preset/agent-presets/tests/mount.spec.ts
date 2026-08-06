@@ -12,6 +12,13 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { beforeEach, describe, expect, it } from 'vitest'
 import AgentPresets, { leakedServices, livePresetMounts } from '@deepseek-ai/dsh-agent-presets'
 
+declare module 'cordis' {
+  interface Context {
+    /** Published by the `isolated` fixture preset behind an entry-local realm. */
+    fixtureIsolatedSvc: { label: string }
+  }
+}
+
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'fixtures')
 const ROOTS = [
   { path: join(FIXTURES, 'system'), trust: 'system' as const },
@@ -153,6 +160,29 @@ describe('rejecting a composition that cannot be used', () => {
     // The provider ran, but under a realm-private symbol the root cannot reach.
     expect(providedServiceNames(ctx)).toContain('fixtureIsolatedSvc')
     expect(rootResolves(ctx, 'fixtureIsolatedSvc')).toBe(false)
+  })
+
+  it('addresses one agent\'s instance of a realm-private service', async () => {
+    const first = await agentOn(ctx, 'sess-reach-a', 'isolated')
+    const second = await agentOn(ctx, 'sess-reach-b', 'isolated')
+
+    // The realm keeps the service out of every host context — that is what
+    // makes it per session — so a caller holding the agent is the only way a
+    // request from OUTSIDE the session can read the instance it is about.
+    expect(rootResolves(ctx, 'fixtureIsolatedSvc')).toBe(false)
+    const mine = ctx.agentPresets.serviceFor(first, 'fixtureIsolatedSvc')
+    const theirs = ctx.agentPresets.serviceFor(second, 'fixtureIsolatedSvc')
+    expect(mine).toBeDefined()
+    expect(theirs).toBeDefined()
+    // Each agent gets ITS own: the addressing is per subtree, not a lookup
+    // that happens to find the first match.
+    expect(mine).not.toBe(theirs)
+  })
+
+  it('answers undefined for a service the agent\'s preset does not mount', async () => {
+    const agent = await agentOn(ctx, 'sess-reach-none', 'standard')
+
+    expect(ctx.agentPresets.serviceFor(agent, 'fixtureIsolatedSvc')).toBeUndefined()
   })
 
   it('reports the known ids when a preset is unknown', async () => {

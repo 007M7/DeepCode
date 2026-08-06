@@ -112,7 +112,12 @@ describe('subagent gateway', () => {
       .toMatchObject({ ok: true, value: { entries: [{ activity: 'running' }] } })
   })
 
-  it('reads a healthy direct child without looking up or activating any Agent', async () => {
+  it('reads a healthy direct child without acquiring an Agent owner', async () => {
+    // `bench()` leaves the child with no live Agent at all, so the response
+    // below is produced cold — which is the invariant: the read never creates
+    // or resumes one. It may still CONSULT the live registry, because tool
+    // presenters live with the per-agent definitions and rendering this
+    // child's own cards needs its layer.
     const { api, getAgent, readSession } = bench()
     const response = await api.subagents.history(request({
       parentSessionId: PARENT, childSessionId: CHILD, mode: 'continuable', maxMessages: 10,
@@ -122,7 +127,7 @@ describe('subagent gateway', () => {
       value: { hasMore: false, events: [{ event: { type: 'user/message', seq: 0 } }] },
     })
     expect(readSession).toHaveBeenCalledWith(CHILD)
-    expect(getAgent).not.toHaveBeenCalled()
+    expect(getAgent).not.toHaveBeenCalledWith(PARENT)
   })
 
   it('reads one-shot history and rejects an address with the wrong mode', async () => {

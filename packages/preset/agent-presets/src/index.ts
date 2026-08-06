@@ -13,11 +13,13 @@
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
 import { discoverPresets } from './discovery.ts'
-import { mountPreset } from './mount.ts'
+import { mountPreset, serviceForAgent } from './mount.ts'
 import { UnknownPresetError, type AgentPreset, type Config } from './types.ts'
 
 export { COMPOSITION_FILE, discoverPresets, scanRoot } from './discovery.ts'
-export { inactiveRows, leakedServices, livePresetMounts, mountPreset, type PresetMount } from './mount.ts'
+export {
+  inactiveRows, leakedServices, livePresetMounts, mountPreset, serviceForAgent, type PresetMount,
+} from './mount.ts'
 export { PresetMountError, UnknownPresetError } from './types.ts'
 export type { AgentPreset, Config, PresetRoot, PresetTrust } from './types.ts'
 
@@ -94,6 +96,25 @@ export class AgentPresets extends Service {
     const preset = await this.resolve(id)
     await mountPreset(agentCtx, preset)
     return preset
+  }
+
+  /**
+   * One agent's instance of a service its preset mounted.
+   *
+   * A preset publishes services behind `isolate` realms, which are invisible
+   * outside the group that declares them — including to the host. This is how a
+   * caller holding the agent reads one anyway: a request that is ABOUT a
+   * session but arrives from outside it, which is every browser RPC.
+   *
+   * Read addressing only. A host row that `inject`s a service cannot use this,
+   * because injection resolves before any session exists and has no agent to
+   * key by; such a service belongs on the host plane instead.
+   * @param agent - the agent whose composition to look inside.
+   * @param name - the service name as the preset's rows resolve it.
+   * @returns the agent's instance, or undefined when its preset mounts none.
+   */
+  serviceFor<K extends string & keyof Context>(agent: { ctx: Context }, name: K): Context[K] | undefined {
+    return serviceForAgent(this.ctx, agent, name)
   }
 }
 

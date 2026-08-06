@@ -15,6 +15,7 @@ import SessionStore, { SessionId, type Session } from '@deepseek-ai/dsh-session'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import { RpcId, type RpcRequest } from '../src/api/rpc.ts'
 import { UnknownPresetError } from '@deepseek-ai/dsh-agent-presets'
+import { GoalId } from '@deepseek-ai/dsh-goal'
 import { createApiProxy } from '../src/api-proxy.ts'
 import { describe, expect, it } from 'vitest'
 
@@ -44,8 +45,18 @@ function roster(ids: readonly string[]): unknown {
     },
     mount: (_ctx: Context, id?: string) =>
       Promise.resolve({ id: id ?? ids[0], trust: 'system', path: '/presets/x.yml' }),
+    // What a real mount leaves behind: a service instance only the agent that
+    // mounted it can be used to address. The doubles are per agent so a test
+    // can tell "this session's" from "some session's".
+    serviceFor: (agent: { id: unknown }, name: string) => {
+      const perAgent = services.get(String(agent.id))
+      return perAgent?.[name]
+    },
   }
 }
+
+/** Per-agent service instances a mounted preset would own, keyed by session id. */
+const services = new Map<string, Record<string, unknown>>()
 
 async function harness(presets?: readonly string[]) {
   const cwd = realpathSync(mkdtempSync(join(tmpdir(), 'dsh-apiproxy-preset-')))
@@ -141,5 +152,64 @@ describe('session.create with an agent preset', () => {
     await api.sessions.create(request({ sessionId: SessionId('s6') }))
 
     expect(ctx.sessions.get(SessionId('s6'))?.header.agentPreset).toBeUndefined()
+  })
+})
+
+/**
+ * A capability a preset mounts is reachable from nowhere the host normally
+ * looks: an `isolate` realm is what makes it per session. The gateway serves
+ * requests that are ABOUT a session from OUTSIDE it, so it addresses the
+ * instance through the agent instead of reading a root-realm singleton.
+ */
+describe('a capability the session\'s preset mounts', () => {
+  it('serves the goal RPC from the session\'s own goal service', async () => {
+    const { api } = await harness(['standard'])
+    await api.sessions.create(request({ sessionId: SessionId('g1'), agentPreset: 'standard' }))
+    const ref = { id: GoalId('goal-1'), revision: 1 }
+    const paused: unknown[] = []
+    services.set('g1', {
+      goals: { pause: (agent: { id: unknown }, r: unknown) => { paused.push([String(agent.id), r]); return ref } },
+    })
+
+    const response = await api.goals.pause(request({ sessionId: SessionId('g1'), ref }))
+
+    expect(response.result).toMatchObject({ ok: true, value: { ref } })
+    // Reached the instance this session mounted, and was handed its own agent.
+    expect(paused).toEqual([['g1', ref]])
+    services.delete('g1')
+  })
+
+  it('serves the skill catalog from the session\'s own registry', async () => {
+    const { api } = await harness(['standard'])
+    await api.sessions.create(request({ sessionId: SessionId('k1'), agentPreset: 'standard' }))
+    services.set('k1', {
+      skills: {
+        list: () => Promise.resolve([{
+          name: 'preset-owned',
+          description: 'ships inside the preset directory',
+          invocation: { modelInvocable: true, userInvocable: true },
+        }]),
+      },
+    })
+
+    const response = await api.skills.list(request({ sessionId: SessionId('k1') }))
+
+    // A preset ships its own skill directory, so the catalog IS the
+    // session's; reading a host singleton would answer for the wrong one.
+    expect(response.result).toMatchObject({ ok: true, value: { skills: [{ name: 'preset-owned' }] } })
+    services.delete('k1')
+  })
+
+  it('says so when no composition mounts the capability at all', async () => {
+    const { api } = await harness(['standard'])
+    await api.sessions.create(request({ sessionId: SessionId('n1'), agentPreset: 'standard' }))
+
+    const response = await api.skills.list(request({ sessionId: SessionId('n1') }))
+
+    // Absent means absent — not "this session has none", which is what a
+    // root-realm read used to report for every presetd session.
+    expect(response.result.ok).toBe(false)
+    const failure = response.result as { ok: false; error: { message: string } }
+    expect(failure.error.message).toContain('neither this session')
   })
 })

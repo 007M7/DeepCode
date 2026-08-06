@@ -414,11 +414,20 @@ function matchesQuestions(payload: QuestionResponsePayload, pending: PendingQues
  * which soft-falls to no view. Presenter or JSON.parse throws also soft-fall:
  * the client's documented default (generic JSON card) covers every miss.
  */
-function viewFor(ctx: Context, event: SessionEvent, argsFor: (callId: string) => unknown): ToolEventView | undefined {
+function viewFor(
+  ctx: Context,
+  event: SessionEvent,
+  argsFor: (callId: string) => unknown,
+  // The presenter lives with the definition, and definitions are per agent
+  // now: a preset registers its tools into that agent's layer, leaving the
+  // global layer empty. Looking one up without the owner finds nothing, and
+  // every card silently degrades to the generic renderer.
+  agent?: Agent,
+): ToolEventView | undefined {
   try {
     if (event.type === 'tool/call') {
       const { name, arguments: raw } = event.data as ToolCallData
-      const view = ctx.tools.get(name)?.presentCall?.(JSON.parse(raw))
+      const view = ctx.tools.get(name, agent)?.presentCall?.(JSON.parse(raw))
       return view === undefined ? undefined : { for: 'call', view }
     }
     if (event.type === 'tool/result') {
@@ -427,7 +436,7 @@ function viewFor(ctx: Context, event: SessionEvent, argsFor: (callId: string) =>
       const callId = message.source.callId
       const call = argsFor(callId) as { name: string; args: unknown } | undefined
       if (call === undefined) return undefined
-      const view = ctx.tools.get(call.name)?.presentResult?.(call.args, {
+      const view = ctx.tools.get(call.name, agent)?.presentResult?.(call.args, {
         content: result.content,
         isError: result.isError === true,
         ...meta === undefined ? {} : { meta },
@@ -470,11 +479,12 @@ function historyPage(
   events: readonly SessionEvent[],
   beforeSeq: number | undefined,
   maxMessages: number | undefined,
+  agent?: Agent,
 ): { events: HistoryEntry[]; hasMore: boolean } {
   const page = paginate(events, beforeSeq, maxMessages ?? DEFAULT_MAX_MESSAGES)
   return {
     events: page.events.map((event) => {
-      const view = viewFor(ctx, event, callId => backscanArgs(page.events, callId))
+      const view = viewFor(ctx, event, callId => backscanArgs(page.events, callId), agent)
       return { event, ...view === undefined ? {} : { view } }
     }),
     hasMore: page.hasMore,
@@ -1090,10 +1100,15 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           if (publishedSession !== undefined && hasSubagentOwner(publishedSession, publishedAgent)) {
             throw new SubagentSessionOwnership(sessionId)
           }
+          // Cold resume composes the preset the session recorded, for the
+          // same reason `session.create` does: its history was produced under
+          // that composition. Every generic entry point — prompt, models,
+          // commands — arrives here, so leaving it out meant a session opened
+          // after a restart ran on host tools and the deployment persona.
           const handle = await ctx.agents.resume({
             resumeSessionId: sessionId,
             agentOptions,
-            setup: installTarget,
+            setup: (await composeAgent(inspected.meta.agentPreset)).setup,
           })
           return handle.agent
         } finally {
@@ -1354,11 +1369,20 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     return items
   }
 
-  /** Resolve the goal service; absent = the deployment did not compose @deepseek-ai/dsh-goal. */
-  function goalService(): NonNullable<ReturnType<typeof ctx.get<'goals'>>> | { error: RpcError } {
-    const goals = ctx.get('goals')
+  /**
+   * Resolve the goal service THIS agent runs.
+   *
+   * The service is per session: an agent preset mounts it behind an `isolate`
+   * realm, which no host context resolves. Reading it from the root would
+   * answer "absent" for a session whose composition mounts it — so the lookup
+   * is keyed by the agent, and only a deployment composing it nowhere is
+   * genuinely absent.
+   */
+  function goalServiceFor(agent: Agent): NonNullable<ReturnType<typeof ctx.get<'goals'>>> | { error: RpcError } {
+    const presets = ctx.get('agentPresets')
+    const goals = presets?.serviceFor(agent, 'goals') ?? ctx.get('goals')
     if (goals === undefined) {
-      return { error: { code: 'internal', message: 'goal service is absent: this deployment does not mount @deepseek-ai/dsh-goal in its composition (cordis.yml or explicit assembly)', details: {} } }
+      return { error: { code: 'internal', message: 'goal service is absent: neither this session\'s agent preset nor the host composition mounts @deepseek-ai/dsh-goal', details: {} } }
     }
     return goals
   }
@@ -1374,10 +1398,10 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     request: RpcRequest<{ sessionId: SessionId }>,
     mutation: (goals: NonNullable<ReturnType<typeof ctx.get<'goals'>>>, agent: Agent) => CoreGoalRef,
   ): Promise<RpcResponse<{ ref: GoalRef }>> {
-    const goals = goalService()
-    if ('error' in goals) return err(request, goals.error)
     const found = await agentFor(request.payload.sessionId)
     if ('error' in found) return err(request, found.error)
+    const goals = goalServiceFor(found.agent)
+    if ('error' in goals) return err(request, goals.error)
     try {
       const ref = mutation(goals, found.agent)
       return ok(request, { ref: { id: ref.id, revision: ref.revision } })
@@ -1768,7 +1792,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             details: {},
           })
         }
-        const page = historyPage(ctx, state.events, beforeSeq, maxMessages)
+        // `ctx.get`, not `ctx.agents`: this is the COLD path, and a caller may
+        // serve history from storage with no agent registry composed at all.
+        // An absent registry means no live agent, which is the same answer a
+        // present one gives here — presenters fall back to the global layer.
+        const page = historyPage(ctx, state.events, beforeSeq, maxMessages, ctx.get('agents')?.get(sessionId))
         return ok(request, {
           events: page.events,
           hasMore: page.hasMore,
@@ -2071,7 +2099,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               details: { childSessionId },
             })
           }
-          const page = historyPage(ctx, snapshot.events, beforeSeq, maxMessages)
+          const page = historyPage(ctx, snapshot.events, beforeSeq, maxMessages, ctx.agents.get(childSessionId))
           const projections = beforeSeq === undefined
             ? detachedProjectionsFor(ctx, snapshot.events)
             : undefined
@@ -2440,10 +2468,10 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       },
 
       async clear(request) {
-        const goals = goalService()
-        if ('error' in goals) return err(request, goals.error)
         const found = await agentFor(request.payload.sessionId)
         if ('error' in found) return err(request, found.error)
+        const goals = goalServiceFor(found.agent)
+        if ('error' in goals) return err(request, goals.error)
         try {
           goals.clear(found.agent, request.payload.ref)
           return ok(request, { cleared: true as const })
@@ -2473,14 +2501,22 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           return err(request, { code: 'internal', message: `session "${sessionId}" has no project cwd`, details: {} })
         }
         const cwd = session.header.cwd
-        // Same stance as the commands domain: a missing service means the
-        // deployment omitted dsh-skill from its composition, not an empty
-        // catalog. ctx.get also keeps this handler independent of the gateway
-        // plugin's inject list (an undeclared `ctx.skills` property read
-        // fails the reflect proxy).
-        const skillRegistry = ctx.get('skills')
+        // The registry is per session when a preset mounts one — a preset
+        // ships its own skill directory, so the catalog IS the session's — and
+        // that instance sits behind an `isolate` realm no host context
+        // resolves. Address it through the live agent; `agents.get` keeps the
+        // no-side-effect stance above (a cold session creates nothing and
+        // falls through to whatever the host composes).
+        const live = ctx.agents.get(sessionId)
+        const presets = ctx.get('agentPresets')
+        const scoped = live === undefined ? undefined : presets?.serviceFor(live, 'skills')
+        // Same stance as the commands domain: a missing service means no
+        // composition mounts dsh-skill, not an empty catalog. `ctx.get` also
+        // keeps this handler independent of the gateway plugin's inject list
+        // (an undeclared `ctx.skills` property read fails the reflect proxy).
+        const skillRegistry = scoped ?? ctx.get('skills')
         if (skillRegistry === undefined) {
-          return err(request, { code: 'internal', message: 'skill registry is absent: this deployment does not mount @deepseek-ai/dsh-skill in its composition (cordis.yml or explicit assembly)', details: {} })
+          return err(request, { code: 'internal', message: 'skill registry is absent: neither this session\'s agent preset nor the host composition mounts @deepseek-ai/dsh-skill', details: {} })
         }
         try {
           const skills = (await skillRegistry.list({ cwd }))
@@ -2711,8 +2747,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             } else if (event.type === 'turn/end') {
               openCalls.delete(session.id)
             }
-            const view = viewFor(ctx, event, callId =>
-              openCalls.get(session.id)?.get(callId) ?? backscanArgs(session.events, callId))
+            const view = viewFor(
+              ctx, event,
+              callId => openCalls.get(session.id)?.get(callId) ?? backscanArgs(session.events, callId),
+              ctx.agents.get(session.id),
+            )
             queue.push(frame({ type: 'session/event', sessionId: session.id, event, ...view === undefined ? {} : { view } }))
           }),
           ctx.on('session/created', (session: Session) => {
