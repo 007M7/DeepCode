@@ -339,7 +339,7 @@ function fixtureUsage(turn: number, step: number): TokenUsage {
 }
 
 /** fx-alpha history script: 60 turns (~130+ messages -> 3 pages at PAGE_MESSAGES=50),
- *  mixing reasoning blocks / tool call+result / steering / context. */
+ *  mixing reasoning blocks / tool call+result / context. */
 function buildAlphaLog(): SessionEvent[] {
   const events: Record<string, unknown>[] = []
   let time = Date.now() - 3_600_000
@@ -359,7 +359,7 @@ function buildAlphaLog(): SessionEvent[] {
     return seq
   }
   for (let turn = 0; turn < 60; turn++) {
-    push({ type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
+    push({ type: 'turn/start', data: { turn } })
     const userSeq = push({
       type: 'user/message', surfaceOp: 'append',
       data: userMessage(text(turn === 59 ? USER_MARKDOWN_LITERAL : `问题 ${turn}：fixture 历史消息，用于翻页与渲染验收。`)),
@@ -393,9 +393,6 @@ function buildAlphaLog(): SessionEvent[] {
       push({ type: 'assistant/message', surfaceOp: 'append', data: { turn, step: 0, message: assistantMessage(blocks) } })
       push({ type: 'step/end', data: { turn, step: 0 } })
     }
-    if (turn % 13 === 6) {
-      push({ type: 'steering/message', surfaceOp: 'append', data: { turn, message: userMessage(text(`插话 ${turn}：fixture steering 消息。`)) } })
-    }
     push({ type: 'turn/end', data: { turn, reason: { kind: 'completed' } } })
   }
   // Three view-sample turns (60-62) cover the built-in card types. The real filesystem names in
@@ -403,7 +400,7 @@ function buildAlphaLog(): SessionEvent[] {
   // stays presenter-less as the unknown fallback.
   const toolTurn = (turn: number, name: string, args: string, resultText: string): void => {
     const callId = `fx-call-${turn}`
-    push({ type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
+    push({ type: 'turn/start', data: { turn } })
     push({ type: 'user/message', surfaceOp: 'append', data: userMessage(text(`问题 ${turn}：${name} 样本。`)) })
     push({ type: 'step/start', data: { turn, step: 0 } })
     push({
@@ -440,7 +437,7 @@ function buildAlphaLog(): SessionEvent[] {
       + 'await tools.read({ file_path: "notes/missing.txt" }).catch(() => "tolerated")\n'
       + 'return { listing, demo }'
     const args = JSON.stringify({ code: program, description: 'Read the notes files and summarize' })
-    push({ type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
+    push({ type: 'turn/start', data: { turn } })
     push({ type: 'user/message', surfaceOp: 'append', data: userMessage(text(`问题 ${turn}：run_code 样本。`)) })
     push({ type: 'step/start', data: { turn, step: 0 } })
     push({
@@ -685,7 +682,7 @@ function viewFor(event: SessionEvent, log: readonly SessionEvent[]): ToolEventVi
  * Fixture parallel of the plan unit's double-event fold: `command/run`
  * records named `plan` set the wanted target (`off` → false, else true);
  * `plan/mode` commits and clears it. `wanted` is exposed for the prompt
- * boundary (the fixture's agent/step parallel).
+ * boundary (the fixture's step/start parallel).
  */
 function foldPlan(log: readonly SessionEvent[]): { active: boolean; pending: boolean; wanted: boolean | null } {
   let active = false
@@ -901,13 +898,9 @@ function projectionFramesOf(id: SessionId, log: readonly SessionEvent[], event: 
     if (!Object.hasOwn(values, 'title')) return []
     return [{ type: 'session/projection', sessionId: id, key: 'title', value: values['title'], seq: event.seq }]
   }
-  // Goal fold: a round-zero goal-sourced user message advances the goal unit.
-  if (type === 'user/message') {
-    const source = (event as unknown as { data?: { source?: { kind?: string; round?: number } } }).data?.source
-    if (source?.kind === 'goal' && source.round === 0) {
-      return [{ type: 'session/projection', sessionId: id, key: 'goal', value: backscanGoal(log), seq: event.seq }]
-    }
-    return []
+  // The goal domain's own durable change advances its projection.
+  if (type === 'goal/change') {
+    return [{ type: 'session/projection', sessionId: id, key: 'goal', value: backscanGoal(log), seq: event.seq }]
   }
   // Standing-plan fold: writes replace the list; turn/start clears it (null).
   if (type === 'todo/write' || type === 'turn/start') {
@@ -961,7 +954,7 @@ function pageOf(
     const event = log[i]
     /* v8 ignore next -- dense-array guard: log seqs are array indexes, i stays within [0, end). */
     if (event === undefined) break
-    if (event.type === 'user/message' || event.type === 'assistant/message' || event.type === 'steering/message') messages++
+    if (event.type === 'user/message' || event.type === 'assistant/message') messages++
     if (event.type === 'turn/start' && messages >= maxMessages) {
       start = i
       break
@@ -990,11 +983,11 @@ function searchBlockText(block: ContentBlock): string[] {
   }
 }
 
-/** One current-surface user/assistant/steering document, if searchable. */
+/** One current-surface user/assistant document, if searchable. */
 function searchEventText(event: SessionEvent): string {
   const content = event.type === 'user/message'
     ? event.data.content
-    : event.type === 'assistant/message' || event.type === 'steering/message'
+    : event.type === 'assistant/message'
       ? event.data.message.content
       : undefined
   if (content === undefined) return ''
@@ -1140,7 +1133,7 @@ interface FxGoalProjection {
   updatedAt: number
 }
 
-/** One durable goal change riding a round-zero goal-sourced user message. */
+/** One durable goal change. */
 type FxGoalChange =
   | { kind: 'goal/change'; version: 1; operation: 'clear'; cleared: { id: string; revision: number }; clearedAt: number }
   | {
@@ -1161,14 +1154,10 @@ function backscanGoal(log: readonly SessionEvent[]): FxGoalProjection | null {
   for (let i = log.length - 1; i >= 0; i--) {
     const event = log[i] as unknown as {
       type: string
-      data?: { source?: { kind?: string; round?: number; change?: FxGoalChange } }
+      data?: FxGoalChange
     } | undefined
-    if (event === undefined || event.type !== 'user/message') continue
-    const source = event.data?.source
-    if (source?.kind !== 'goal' || source.round !== 0) continue
-    const change = source.change
-    // oxlint-disable-next-line typescript/no-unnecessary-condition
-    if (change === undefined || change.kind !== 'goal/change') continue
+    if (event === undefined || event.type !== 'goal/change' || event.data === undefined) continue
+    const change = event.data
     if (change.operation === 'clear') return null
     return { goal: change.goal, roundsStarted: change.roundsStarted, createdAt: change.createdAt, updatedAt: change.updatedAt }
   }
@@ -1419,20 +1408,14 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
     for (const frame of projectionFramesOf(id, log, event)) emitMux(frame)
   }
 
-  /** Append one goal/change as its round-zero goal-sourced user message (host GoalService parallel). */
+  /** Append one durable goal/change (host GoalService parallel). */
   const appendGoalChange = (id: SessionId, change: FxGoalChange): FxGoalProjection => {
-    const ref = change.operation === 'clear' ? change.cleared : change.goal
-    const payload = change.operation === 'clear'
-      ? { cleared: change.cleared, clearedAt: change.clearedAt }
-      : { goal: change.goal, roundsStarted: change.roundsStarted, createdAt: change.createdAt, updatedAt: change.updatedAt }
+    const log = logOf(id)
     append(id, {
-      type: 'user/message', surfaceOp: 'append',
-      data: userMessage(
-        text(`<goal_state>${JSON.stringify(payload)}</goal_state>`),
-        { kind: 'goal', goalId: ref.id, revision: ref.revision, round: 0, change } as unknown as MessageSource,
-      ),
+      type: 'goal/change',
+      data: change,
     })
-    return backscanGoal(logOf(id)) as FxGoalProjection
+    return backscanGoal(log) as FxGoalProjection
   }
 
   /** Shared CAS mutation path of the goal verbs (undefined next = invalid transition). */
@@ -1583,23 +1566,20 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
       nextTurn.set(sessionId, turn + 1)
       retryScenarios.set(sessionId, { turn, stepStarted: true })
       setRunning(sessionId, true)
-      append(sessionId, { type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
+      append(sessionId, { type: 'turn/start', data: { turn } })
       append(sessionId, { type: 'user/message', surfaceOp: 'append', data: { content: text('请重试这个请求'), source: { kind: 'user' } } })
       append(sessionId, { type: 'step/start', data: { turn, step: 1 } })
       append(sessionId, { type: 'assistant/chunk', data: { turn, step: 1, chunk: { type: 'block-start', index: 0, blockType: 'text' } } })
       append(sessionId, { type: 'assistant/chunk', data: { turn, step: 1, chunk: { type: 'text-delta', index: 0, text: '应撤回的半截回复' } } })
-      append(sessionId, { type: 'step/end', data: { turn, step: 1 } })
     },
-    /** Record one retry decision, then open the next retry turn. */
+    /** Record one retry decision; the next attempt remains in the same step. */
     scheduleModelRetry(id: string, retry = 1, delayMs = 450): void {
       const sessionId = sid(id)
       const scenario = retryScenarios.get(sessionId)
       if (scenario === undefined) throw new Error(`fixture: no model retry scenario for ${id}`)
       if (!scenario.stepStarted) {
-        append(sessionId, { type: 'step/start', data: { turn: scenario.turn, step: 1 } })
         append(sessionId, { type: 'assistant/chunk', data: { turn: scenario.turn, step: 1, chunk: { type: 'block-start', index: 0, blockType: 'text' } } })
         append(sessionId, { type: 'assistant/chunk', data: { turn: scenario.turn, step: 1, chunk: { type: 'text-delta', index: 0, text: `第 ${String(retry)} 次应撤回的回复` } } })
-        append(sessionId, { type: 'step/end', data: { turn: scenario.turn, step: 1 } })
         scenario.stepStarted = true
       }
       const failure = { code: 'TRANSPORT', message: '连接被重置' }
@@ -1611,14 +1591,6 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           retry, maxRetries: 2, delayMs, failure,
         },
       })
-      append(sessionId, {
-        type: 'turn/end',
-        data: { turn: scenario.turn, reason: { kind: 'error', step: 1, failure } },
-      })
-      const next = nextTurn.get(sessionId) ?? scenario.turn + 1
-      nextTurn.set(sessionId, next + 1)
-      append(sessionId, { type: 'turn/start', data: { turn: next, trigger: { kind: 'retry' } } })
-      scenario.turn = next
       scenario.stepStarted = false
     },
     /** Record one retry decision, then cancel its source turn before the retry starts. */
@@ -1635,17 +1607,23 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           retry: 1, maxRetries: 2, delayMs, failure,
         },
       })
-      append(sessionId, { type: 'turn/end', data: { turn: scenario.turn, reason: { kind: 'aborted' } } })
+      append(sessionId, { type: 'step/end', data: { turn: scenario.turn, step: 1 } })
+      append(sessionId, { type: 'turn/end', data: { turn: scenario.turn, reason: { kind: 'aborted', reason: { kind: 'user' } },
+      } })
       retryScenarios.delete(sessionId)
       setRunning(sessionId, false)
     },
-    /** Finish the timing-hook retry with a finalized response in the open retry turn. */
+    /** Finish the timing-hook retry with a finalized response in the open step. */
     completeModelRetry(id: string): void {
       const sessionId = sid(id)
       const scenario = retryScenarios.get(sessionId)
       if (scenario === undefined) throw new Error(`fixture: no model retry scenario for ${id}`)
       retryScenarios.delete(sessionId)
-      append(sessionId, { type: 'step/start', data: { turn: scenario.turn, step: 1 } })
+      append(sessionId, { type: 'assistant/chunk', data: {
+        turn: scenario.turn,
+        step: 1,
+        chunk: { type: 'block-start', index: 0, blockType: 'text' },
+      } })
       append(sessionId, {
         type: 'assistant/message',
         surfaceOp: 'append',
@@ -1944,17 +1922,15 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         summary.blank = false
         const userText = content.map(b => (b.type === 'text' ? b.text : '')).join('')
         if (mode === 'steer' && replays.has(id)) {
-          // Steering: insert a steering message into the current turn; the replay continues.
-          /* v8 ignore next -- the ?? arm needs a missing counter, but a live replay implies a prior prompt already set it. */
-          const turn = (nextTurn.get(id) ?? 1) - 1
-          append(id, { type: 'steering/message', surfaceOp: 'append', data: { turn, message: userMessage(content) } })
+          // Steering: the durable user/message lands inside the current turn; the replay continues.
+          append(id, { type: 'user/message', surfaceOp: 'append', data: userMessage(content) })
           return ok(request, { accepted: true as const })
         }
         const turn = nextTurn.get(id) ?? 0
         nextTurn.set(id, turn + 1)
         setRunning(id, true)
-        append(id, { type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
-        // Boundary flush parallel (the host's agent/step seam): an outstanding
+        append(id, { type: 'turn/start', data: { turn } })
+        // Boundary flush parallel (the host's step/start observer): an outstanding
         // /plan selection commits as plan/mode inside the opened turn.
         const plan = foldPlan(logOf(id))
         if (plan.wanted !== null && plan.wanted !== plan.active) {

@@ -112,7 +112,7 @@ async function loopHarness(): Promise<LoopHarness> {
   const agent = ctx.agentLoop.create(SessionId('manual-compact'), { provider: MODEL, model: MODEL })
   const log: string[] = []
   ctx.on('session/event', (_session, event) => {
-    if (event.type === 'turn/start') log.push(`turn/start:${event.data.trigger.kind}`)
+    if (event.type === 'turn/start') log.push('turn/start')
     if (event.type === 'turn/end') log.push('turn/end')
     if (event.type === 'compact/start') log.push(`compact/start:${String(event.data.turn)}`)
     if (event.type === 'compact/summary') log.push('compact/summary')
@@ -141,11 +141,14 @@ function derivedText(session: Session): string[] {
 }
 
 /** Await one classified manual-compaction rejection. */
-async function rejection(operation: Promise<unknown>): Promise<ManualCompactionError> {
-  const caught: unknown = await operation.then(
-    (value: unknown) => { throw new Error(`expected a rejection, resolved with ${String(value)}`) },
-    (error: unknown) => error,
-  )
+async function rejection(operation: Promise<unknown> | (() => Promise<unknown>)): Promise<ManualCompactionError> {
+  let caught: unknown
+  try {
+    const value = await (typeof operation === 'function' ? operation() : operation)
+    throw new Error(`expected a rejection, resolved with ${String(value)}`)
+  } catch (error: unknown) {
+    caught = error
+  }
   if (!(caught instanceof ManualCompactionError)) {
     throw new Error(`expected a ManualCompactionError, got ${String(caught)}`)
   }
@@ -169,7 +172,7 @@ function closedConversation(turns = 2, lastTurnNumber = turns): Session {
   const session = Session.create(SessionId(`closed-${turns}-${lastTurnNumber}`))
   for (let index = 1; index <= turns; index += 1) {
     const turn = index === turns ? lastTurnNumber : index
-    session.append('turn/start', { turn, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn })
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: `${PROMPT} ${turn}` }],
       source: { kind: 'user' },
@@ -195,15 +198,20 @@ function closedConversation(turns = 2, lastTurnNumber = turns): Session {
   return session
 }
 
-/** A fake idle agent whose admission reservation is scripted per test. */
+/** A fake idle agent whose maintenance claim is scripted per test. */
 function fakeAgent(
   session: Session,
   reserve: () => (() => void) | undefined,
+  maintenanceSignal = new AbortController().signal,
 ): Agent {
   return {
     session,
     options: { provider: MODEL, model: MODEL },
-    reserveTurnAdmission: reserve,
+    runMaintenance<T>(task: (signal: AbortSignal) => Promise<T>): Promise<T> {
+      const release = reserve()
+      if (release === undefined) throw new Error('agent already has active work')
+      return task(maintenanceSignal).finally(release)
+    },
   } as unknown as Agent
 }
 
@@ -256,7 +264,7 @@ describe('compactNow through the real loop', () => {
     const summary = log.indexOf('compact/summary')
     const end = log.indexOf('compact/end:null')
     const flush = log.indexOf('flush')
-    const nextTurn = log.indexOf('turn/start:message')
+    const nextTurn = log.indexOf('turn/start')
     expect(start).toBeLessThan(summary)
     expect(summary).toBeLessThan(end)
     expect(end).toBeLessThan(flush)
@@ -270,7 +278,7 @@ describe('compactNow through the real loop', () => {
     expect(second.some(text => text.includes(PROMPT))).toBe(false)
   })
 
-  it('keeps context injected during summarization between the markers and after the checkpoint', async () => {
+  it('keeps context injected during summarization pending for the next step', async () => {
     const harness = await loopHarness()
     const { agent, compact } = harness
     await seedHistory(harness)
@@ -285,18 +293,22 @@ describe('compactNow through the real loop', () => {
 
     expect(result).not.toBeNull()
     const start = agent.session.events.findLast(event => event.type === 'compact/start')
-    const injected = agent.session.events.findLast(event => event.type === 'user/message'
-      && event.data.source.kind === 'plugin' && event.data.source.plugin === 'test')
+    const injected = agent.inbox.nextStep.find(message =>
+      message.source.kind === 'plugin' && message.source.plugin === 'test')
     const end = agent.session.events.findLast(event => event.type === 'compact/end')
     expect(start).toBeDefined()
     expect(injected).toBeDefined()
     expect(end).toBeDefined()
-    expect(start!.seq).toBeLessThan(injected!.seq)
-    expect(injected!.seq).toBeLessThan(end!.seq)
-    expect(result?.shadowedSeqs).not.toContain(injected?.seq)
+    expect(agent.session.events.some(event => event.type === 'user/message'
+      && event.data.id === injected?.id)).toBe(false)
+
+    agent.followup(createUserMessage({
+      content: [{ type: 'text', text: 'after compaction' }],
+      source: { kind: 'user' },
+    }))
+    await agent.whenIdle()
     const messages = derivedText(agent.session)
     expect(messages[0]).toContain('checkpoint')
-    expect(messages.at(-1)).toContain('INJECTED CONTEXT')
     expect(messages.filter(text => text.includes('INJECTED CONTEXT'))).toHaveLength(1)
   })
 
@@ -334,7 +346,7 @@ describe('compactNow through the real loop', () => {
       content: [{ type: 'text', text: 'first in line' }],
       source: { kind: 'user' },
     }))
-    expect((await rejection(compact.compactNow(agent, SIGNAL))).code).toBe('busy')
+    expect((await rejection(() => compact.compactNow(agent, SIGNAL))).code).toBe('busy')
     expect(compact.calls).toHaveLength(0)
 
     await agent.whenIdle()
@@ -400,7 +412,7 @@ describe('compactNow transaction and failure classification', () => {
     session.append('compact/start', { turn: null })
     const agent = fakeAgent(session, () => () => undefined)
 
-    const error = await rejection(compact.compactNow(agent, SIGNAL))
+    const error = await rejection(() => compact.compactNow(agent, SIGNAL))
     expect(error.code).toBe('busy')
     expect(error.message).toContain('compaction lock is already active')
     expect(compact.calls).toHaveLength(0)
@@ -424,7 +436,7 @@ describe('compactNow transaction and failure classification', () => {
     const { compact } = detachedService()
     const original = closedConversation(2)
     original.append('compact/start', { turn: null })
-    original.append('turn/start', { turn: 3, trigger: { kind: 'message', source: { kind: 'user' } } })
+    original.append('turn/start', { turn: 3 })
     original.append('turn/end', { turn: 3, reason: { kind: 'interrupted' } })
     const reloaded = Session.create(SessionId('reloaded-orphan'), [...original.events])
     const agent = fakeAgent(reloaded, () => () => undefined)
@@ -436,7 +448,7 @@ describe('compactNow transaction and failure classification', () => {
   it('refuses an open turn in the log', async () => {
     const { compact } = detachedService()
     const session = closedConversation(2)
-    session.append('turn/start', { turn: 3, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 3 })
     const agent = fakeAgent(session, () => () => undefined)
 
     const error = await rejection(compact.compactNow(agent, SIGNAL))
@@ -448,7 +460,7 @@ describe('compactNow transaction and failure classification', () => {
     const { compact } = detachedService()
     const agent = fakeAgent(closedConversation(2), () => undefined)
 
-    expect((await rejection(compact.compactNow(agent, SIGNAL))).code).toBe('busy')
+    expect((await rejection(() => compact.compactNow(agent, SIGNAL))).code).toBe('busy')
     expect(compact.calls).toHaveLength(0)
   })
 
@@ -685,7 +697,13 @@ describe('compactNow transaction and failure classification', () => {
       const controller = new AbortController()
       controller.abort(reason)
 
-      await expect(compact.compactNow(agent, controller.signal)).rejects.toBe(reason)
+      let thrown: unknown
+      try {
+        void compact.compactNow(agent, controller.signal)
+      } catch (error: unknown) {
+        thrown = error
+      }
+      expect(thrown).toBe(reason)
       expect(reserve).not.toHaveBeenCalled()
       expect(measure).not.toHaveBeenCalled()
       expect(compact.calls).toHaveLength(0)
@@ -711,6 +729,21 @@ describe('compactNow transaction and failure classification', () => {
     expect(events.map(event => event.type)).toEqual(['compact/start', 'compact/end'])
     expect(events[1]?.type === 'compact/end' && events[1].data.error)
       .toContain('summarizer aborted')
+  })
+
+  it('classifies agent cancellation during maintenance as an expected cancellation', async () => {
+    const { compact } = detachedService()
+    const controller = new AbortController()
+    const reason = new Error('agent cancelled maintenance')
+    const session = closedConversation(2)
+    const agent = fakeAgent(session, () => () => undefined, controller.signal)
+    compact.duringSummary = () => { controller.abort(reason) }
+    compact.error = new Error('summarizer observed cancellation')
+
+    const error = await rejection(compact.compactNow(agent, SIGNAL))
+
+    expect(error.code).toBe('cancelled')
+    expect(error.cause).toBe(reason)
   })
 
   it('aborts before committing when cancellation lands after summarization', async () => {
@@ -814,7 +847,7 @@ describe('compactNow transaction and failure classification', () => {
   it('excludes a manual request while an explicit region compaction runs', async () => {
     const { compact } = detachedService()
     const session = closedConversation(3)
-    session.append('turn/start', { turn: 4, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 4 })
     const agent = fakeAgent(session, () => () => undefined)
     const gate = deferred()
     compact.gate = gate.promise

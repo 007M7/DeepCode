@@ -4,7 +4,7 @@ Status: implemented
 
 English | [中文](2026-07-25-web-client-session-scope-and-provide-channel.zh.md)
 
-> Scope: the client Agent scope (actx) and targeted events, the client/host materialization parity model, the blank-session bit and reuse (`connectWorkspace`), the per-session provisioning channel (`sessions.provide`), the read-only queue mirror (`session/queued`), and the host wire smalls that carry these capabilities (the summary `blank` column, the `host/session-added` frame field, and the `host/commands-changed` frame). The input state machine and the slash pipeline live in the [input machine note](2026-07-25-web-input-machine-and-slash-pipeline.md); the command business surfaces live in the [command surfaces note](2026-07-25-web-command-surfaces-and-assembly.md).
+> Scope: the client Agent scope (actx) and targeted events, the client/host materialization parity model, the blank-session bit and reuse (`connectWorkspace`), the per-session provisioning channel (`sessions.provide`), and the host wire smalls that carry these capabilities (the summary `blank` column, the `host/session-added` frame field, and the `host/commands-changed` frame). The input state machine and the slash pipeline live in the [input machine note](2026-07-25-web-input-machine-and-slash-pipeline.md); the command business surfaces live in the [command surfaces note](2026-07-25-web-command-surfaces-and-assembly.md).
 
 ## Problem
 
@@ -101,7 +101,6 @@ Slot scope is the closed set `root | session-maybe | session`:
 
 ### The read-only queue mirror
 
-- The MuxFrame `session/queued`: the Session holds a read-only inbox mirror (previews truncated; steering retired by source match). The host stamps the agent-loop's acceptance-time steering classification on live and replayed frames, so a reconnect baseline does not depend on replaying an earlier `turn/start`. Queue frames never enter history — pure stream state, cleared on reconnect and refilled from the new baseline; the never-instantiated window is buffered and replayed through the manager pendingBuffers.
 - Queue semantics: running does not lock input; ordinary messages queue through `session.prompt {mode:'queue'}`, and commands never queue.
 
 ### Host wire smalls

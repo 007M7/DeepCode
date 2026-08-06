@@ -357,8 +357,9 @@ describe('catalog routes with per-model configuration', () => {
       },
     })
 
-    await expect(assemble(ctx, { provider: 'deepseek', model: 'not-configured', messages: [] }))
-      .rejects.toMatchObject({ code: 'UNKNOWN_MODEL' })
+    const result = await assemble(ctx, { provider: 'deepseek', model: 'not-configured', messages: [] })
+
+    expect(result.finish).toMatchObject({ kind: 'error', failure: { code: 'UNKNOWN_MODEL' } })
     expect(server.requests).toHaveLength(0)
   })
 

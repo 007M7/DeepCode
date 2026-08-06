@@ -4,8 +4,8 @@
  * else references RequestPayload<'session.*'> / ResponseValue<'session.*'>.
  */
 
+import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
-import type { InboxItemId } from '@deepseek-ai/dsh-agent/brand'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 // The pure-type outlet: api/ is browser-importable, and the package root's
 // cordis Context merge (via dsh-agent) must not enter client aggregates.
@@ -287,7 +287,7 @@ export interface SessionsApi {
    * Edits, removes, or strictly steers one pending queued occurrence on an ordinary session.
    * Session-backed subagents reject with `agent-busy`.
    */
-  updateQueue(request: RpcRequest<{ sessionId: SessionId; itemId: InboxItemId; action: QueueAction }>):
+  updateQueue(request: RpcRequest<{ sessionId: SessionId; itemId: MessageId; action: QueueAction }>):
   Promise<RpcResponse<{ accepted: true }>>
 
   /**

@@ -4,7 +4,7 @@ Status: implemented
 
 [English](2026-07-25-web-client-session-scope-and-provide-channel.md) | 中文
 
-> 范围：client Agent scope（actx）与定向事件、client/host 实体化对等模型、空会话 blank 位与复用（`connectWorkspace`）、逐会话供数通道（`sessions.provide`）、队列只读镜像（`session/queued`），以及承载这些能力的 host wire 小件（summary `blank` 列、`host/session-added` 帧字段、`host/commands-changed` 帧）。输入状态机与 slash 管线见[输入状态机 note](2026-07-25-web-input-machine-and-slash-pipeline.md)；命令业务面见[命令业务面 note](2026-07-25-web-command-surfaces-and-assembly.md)。
+> 范围：client Agent scope（actx）与定向事件、client/host 实体化对等模型、空会话 blank 位与复用（`connectWorkspace`）、per-session 供数通道（`sessions.provide`），以及承载这些能力的 host wire 小件（summary `blank` 列、`host/session-added` 帧字段、`host/commands-changed` 帧）。输入状态机与 slash 管线见[输入状态机 note](2026-07-25-web-input-machine-and-slash-pipeline.md)；命令业务面见[命令业务面 note](2026-07-25-web-command-surfaces-and-assembly.md)。
 
 ## 问题
 
@@ -101,7 +101,6 @@ slot scope 是闭集 `root | session-maybe | session`：
 
 ### 队列只读镜像
 
-- MuxFrame `session/queued`：Session 持只读 inbox 镜像（预览截断、steering（中途引导）按 source 匹配退休）。宿主会在实时和回放帧中标记 agent loop（智能体循环）接受消息时的 steering 分类，因此重连基线不依赖回放更早的 `turn/start`。queue 帧不进 history，纯流状态——重连清空、新基线重灌；未实例化窗口经 manager pendingBuffers 缓冲重放。
 - 队列语义：running 不锁输入；普通消息经 `session.prompt {mode:'queue'}` 排队，命令永不排队。
 
 ### host wire 小件

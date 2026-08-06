@@ -47,7 +47,7 @@ describe('todo snapshot invariants', () => {
     expect(() => {
       ctx.emit('tools/change')
       ctx.emit('session/event', {} as Session, {
-        type: 'turn/start', seq: 0, time: 0, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+        type: 'turn/start', seq: 0, time: 0, data: { turn: 1 },
       })
     }).not.toThrow()
   })

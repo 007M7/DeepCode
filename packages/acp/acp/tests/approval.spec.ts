@@ -20,7 +20,7 @@ describe('ACP machine permission policy', () => {
     await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
     const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
     const agent = harness.ctx.agents.get(SessionId(sessionId))!
-    agent.session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    agent.session.append('turn/start', { turn: 1 })
     return { agent, toolName: 'bash', callId: CallId('call-9'), ...overrides }
   }
 

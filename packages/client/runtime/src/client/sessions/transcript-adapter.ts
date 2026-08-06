@@ -71,12 +71,6 @@ function materializeNode(
         turn: event.data.turn, step: event.data.step,
         blocks: toAssistantBlocks(event.data.message.content), usage: event.data.usage,
       }
-    case 'steering/message':
-      return {
-        kind: 'steering', messageId: event.data.message.id,
-        seq: event.seq, time: event.time, turn: event.data.turn,
-        content: event.data.message.content, source: event.data.message.source,
-      }
     case 'tool/result': {
       const result = event.data.message.content[0]
       const callId = String(event.data.message.source.callId)
