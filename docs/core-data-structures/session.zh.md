@@ -403,6 +403,16 @@ declare class Session {
    */
   static create(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader): Session;
   /**
+   * Restore a detached session by taking ownership of fresh persistence values.
+   * Storage shape, event envelopes, sequence continuity, surface transitions,
+   * and header fields are validated before the graphs are frozen in place.
+   * @param id - restored session identity.
+   * @param seed - fresh detached events whose ownership is transferred.
+   * @param header - fresh detached metadata whose ownership is transferred.
+   * @returns a restored detached session.
+   */
+  static fromRestore(id: SessionId, seed: readonly SessionEvent[], header: SessionHeader): Session;
+  /**
    * An immutable snapshot of the append-only event log. The snapshot is reused
    * until the next append; a previously returned array does not grow later.
    * Events and their nested data are deep-frozen at acceptance, so neither a

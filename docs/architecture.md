@@ -66,15 +66,15 @@ Waterfalls are around-middleware: listeners delegate with `next()`; returning wi
 
 ## Default Loop Lifecycle
 
-A **session** is append-only. A **turn** claims one queued follow-up, waits for its predecessor's checkpoint, and may share its `running` interval ([decision](../.agents/notes/implemented/simplification/2026-07-17-one-send-one-turn.md)); injection claims none. A **step** is one model request plus tools. Quotes in the [sequence](agent-lifecycle.md) mark durable events.
+A **session** is append-only. A **turn** claims one queued follow-up, waits for its predecessor's checkpoint, and may share its `running` interval ([decision](../.agents/notes/implemented/simplification/2026-07-17-one-send-one-turn.md)); injection claims none. A **step** is one model request plus tools. Fresh creation and persisted resume first acquire an exact unpublished `SessionPreparation`; Agent and session publication happen only after private setup against that Session is ready ([decision](../.agents/notes/implemented/architecture/2026-08-05-session-preparation.md)). Quotes in the [sequence](agent-lifecycle.md) mark durable events.
 
 Creation without an id mints `<config-id>-session-<uuid>`; `sessionId` resumes or creates, while `resumeSessionId` requires history. Resume restores lineage and delegation depth before publication; setup failure emits `agent-loop/config-start-failed`.
 
 ### Turn Flow
 
 ```text
-choose declarative identity and fresh/resume path
-  -> prepare private session + agent.ctx -> await unpublished setup
+choose declarative identity and acquire fresh/restored SessionPreparation
+  -> prepare private agent.ctx around exact Session -> await unpublished setup -> invoke optional synchronous setup commit
   -> enter session + agent -> session/created -> agent/created
   -> enable driving -> agent/session-start(source) -> start driver
 forever:

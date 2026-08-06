@@ -20,7 +20,7 @@ import type {
   SessionStartSource,
 } from '@deepseek-ai/dsh-agent'
 import { errorChain } from '@deepseek-ai/dsh-llm'
-import { SessionId } from '@deepseek-ai/dsh-session'
+import { SessionId, SessionPreparation } from '@deepseek-ai/dsh-session'
 import type { Session, SessionHeader } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
@@ -101,6 +101,30 @@ async function raceAbort<T>(operation: PromiseLike<T> | T, signal: AbortSignal, 
     return await Promise.race([Promise.resolve(operation), aborted.promise])
   } finally {
     signal.removeEventListener('abort', listener)
+  }
+}
+
+/** Start an abortable operation and release a value that arrives after cancellation. */
+async function raceAbortCall<T>(
+  operation: () => PromiseLike<T> | T,
+  signal: AbortSignal,
+  id: SessionId,
+  releaseAbandoned?: (value: T) => void,
+): Promise<T> {
+  if (signal.aborted) {
+    throw signal.reason instanceof Error
+      ? signal.reason
+      : new Error(`agent "${id}" creation aborted`, { cause: signal.reason })
+  }
+  const pending = Promise.resolve().then(operation)
+  try {
+    return await raceAbort(pending, signal, id)
+  } catch (error: unknown) {
+    // oxlint-disable-next-line typescript/no-unnecessary-condition -- the signal can abort while the operation is awaited.
+    if (signal.aborted && releaseAbandoned !== undefined) {
+      void pending.then(releaseAbandoned, () => undefined)
+    }
+    throw error
   }
 }
 
@@ -524,8 +548,8 @@ export class AgentLoop extends Service implements AgentFactory {
    * @returns the published running agent.
    */
   create(id: SessionId, options: AgentOptions = {}, meta: Pick<SessionHeader, 'cwd'> = {}): Agent {
-    const session = this.runtime.ctx.sessions.prepare(id, { meta })
-    const prepared = this.prepare(this.ctx, id, options, session)
+    using preparation = SessionPreparation.create(this.runtime.ctx.sessions.prepare(id, { meta }))
+    const prepared = this.prepare(this.ctx, id, options, preparation.session)
     try {
       return prepared.publish('startup').agent
     } catch (error: unknown) {
@@ -541,14 +565,14 @@ export class AgentLoop extends Service implements AgentFactory {
    * @returns the published handle.
    */
   async createAgent(ownerCtx: Context, options: CreateAgentOptions): Promise<AgentHandle> {
-    const session = this.runtime.ctx.sessions.prepare(options.sessionId, {
+    const preparation = SessionPreparation.create(this.runtime.ctx.sessions.prepare(options.sessionId, {
       ...options.seed === undefined ? {} : { seed: options.seed },
       ...options.meta === undefined ? {} : { meta: options.meta },
-    })
+    }))
     const published = this.setupAndPublish(
       ownerCtx,
       options.sessionId,
-      session,
+      preparation,
       options.agentOptions ?? {},
       options.setup,
       options.signal,
@@ -562,12 +586,14 @@ export class AgentLoop extends Service implements AgentFactory {
   private async setupAndPublish(
     ownerCtx: Context,
     id: SessionId,
-    session: Session,
+    preparation: SessionPreparation,
     agentOptions: AgentOptions,
     setup: AgentSetup | undefined,
     signal: AbortSignal | undefined,
     source: SessionStartSource,
   ): Promise<AgentHandle> {
+    using ownedPreparation = preparation
+    const session = ownedPreparation.session
     const prepared = this.prepare(ownerCtx, id, agentOptions, session, signal)
     try {
       const setupCommit = await raceAbort(setup?.(prepared.agent.ctx), prepared.signal, id)
@@ -613,26 +639,31 @@ export class AgentLoop extends Service implements AgentFactory {
         ownerAbort.signal,
         this.ownership.signal,
       ])
-      let loaded: Awaited<ReturnType<SessionPersistence['load']>>
+      let preparation: SessionPreparation | undefined
       try {
-        loaded = await raceAbort(persistence.load(id), fused, id)
+        try {
+          preparation = await raceAbortCall(
+            () => persistence.prepare(id, fused),
+            fused,
+            id,
+            (abandoned) => { abandoned[Symbol.dispose]() },
+          )
+        } finally {
+          await unfollowOwner()
+        }
+        ownerCtx.fiber.assertActive()
+        if (!this.ownership.isActive()) throw new Error('agent loop is not active')
+        return await this.setupAndPublish(
+          ownerCtx,
+          id,
+          preparation,
+          options.agentOptions ?? {},
+          options.setup,
+          options.signal,
+          'resume',
+        )
       } finally {
-        await unfollowOwner()
-      }
-      ownerCtx.fiber.assertActive()
-      if (!this.ownership.isActive()) throw new Error('agent loop is not active')
-      const session = this.runtime.ctx.sessions.prepare(id, {
-        seed: loaded.events,
-        meta: loaded.meta,
-      })
-      const prepared = this.prepare(ownerCtx, id, options.agentOptions ?? {}, session, options.signal)
-      try {
-        const setupCommit = await raceAbort(options.setup?.(prepared.agent.ctx), prepared.signal, id)
-        setupCommit?.commit()
-        return prepared.publish('resume')
-      } catch (error: unknown) {
-        await prepared.dispose()
-        throw error
+        preparation?.[Symbol.dispose]()
       }
     })()
     this.ownership.trackWrapper(published)
