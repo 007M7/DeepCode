@@ -408,4 +408,48 @@ describe('TranscriptAdapter', () => {
       expect(nodes[1]).toMatchObject({ name: 'compact', outcome: { kind: 'success', text: '已压缩' } })
     })
   })
+
+  describe('assistant timing', () => {
+    const base = 1_700_000_000_000
+
+    it('derives step timing across a window rebuild (start + first token + completion)', () => {
+      const adapter = new TranscriptAdapter()
+      adapter.reset([
+        ev.turnStart(0, 0),
+        ev.user(1, '问'),
+        ev.stepStart(2, 0),
+        ev.chunkStart(3, 0),
+        ev.chunkText(4, 0, '答'),
+        ev.chunkText(5, 0, '案'),
+        ev.assistant(6, 0, '答案'),
+        ev.turnEnd(7, 0),
+      ])
+      const assistant = adapter.nodes().find(n => n.kind === 'assistant')
+      expect(assistant).toMatchObject({
+        timing: { stepStartTime: base + 2, firstTokenTime: base + 4, completedTime: base + 6 },
+      })
+    })
+
+    it('derives the same timing on the live append path, first token winning once', () => {
+      const adapter = new TranscriptAdapter()
+      adapter.reset([ev.user(0, '问')])
+      adapter.append(ev.stepStart(1, 0))
+      adapter.append(ev.chunkText(2, 0, '首'))
+      adapter.append(ev.chunkText(3, 0, '次'))
+      adapter.append(ev.assistant(4, 0, '首次'))
+      const assistant = adapter.nodes().find(n => n.kind === 'assistant')
+      expect(assistant).toMatchObject({
+        timing: { stepStartTime: base + 1, firstTokenTime: base + 2, completedTime: base + 4 },
+      })
+    })
+
+    it('soft-falls to null boundaries when the step opening fell outside the window', () => {
+      const adapter = new TranscriptAdapter()
+      adapter.reset([ev.assistant(100, 0, '被切窗的答案')])
+      const assistant = adapter.nodes().find(n => n.kind === 'assistant')
+      expect(assistant).toMatchObject({
+        timing: { stepStartTime: null, firstTokenTime: null, completedTime: base + 100 },
+      })
+    })
+  })
 })

@@ -534,6 +534,45 @@ describe('ChatView', () => {
     expect(view.getAllByText(/用时 19秒/)).toHaveLength(1)
   })
 
+  it('the settled footer appends first-step ttft and turn decode throughput', () => {
+    const first: AssistantMessageNode = {
+      kind: 'assistant', seq: 2, time: 2_000, turn: 1, step: 1, blocks: [{ kind: 'text', text: 'mid' }],
+      timing: { stepStartTime: 1_000, firstTokenTime: 2_200, completedTime: 5_200 },
+      usage: { outputTokens: 40 },
+    }
+    const second: AssistantMessageNode = {
+      kind: 'assistant', seq: 16, time: 16_000, turn: 1, step: 2, blocks: [{ kind: 'text', text: 'final' }],
+      timing: { stepStartTime: 10_000, firstTokenTime: 10_200, completedTime: 12_200 },
+      usage: { outputTokens: 60 },
+    }
+    const h = makeHarness({
+      nodes: [user(1, 'hi'), first, second],
+      turnTimings: new Map([[1, { startTime: 1_000, endTime: 20_000 }]]),
+      turnEnds: new Map([[1, 20]]),
+    })
+    const view = render(<h.ChatView {...h.props} />)
+    // First-step ttft (1.2s) plus 100 tokens over 5s of decode.
+    expect(view.getAllByText(/用时 19秒/)).toHaveLength(1)
+    expect(view.getAllByText(/首 token 1\.2秒/)).toHaveLength(1)
+    expect(view.getAllByText(/20 tok\/s/)).toHaveLength(1)
+  })
+
+  it('withholds ttft and throughput while the turn is still running', () => {
+    const settled: AssistantMessageNode = {
+      kind: 'assistant', seq: 2, time: 2_000, turn: 1, step: 1, blocks: [{ kind: 'text', text: 'answer' }],
+      timing: { stepStartTime: 1_000, firstTokenTime: 1_500, completedTime: 2_000 },
+      usage: { outputTokens: 10 },
+    }
+    const h = makeHarness({
+      nodes: [user(1, 'hi'), settled],
+      turnTimings: new Map([[1, { startTime: 1_000 }]]),
+      turnEnds: new Map(),
+      running: true,
+    })
+    const view = render(<h.ChatView {...h.props} />)
+    expect(view.queryByText(/首 token|tok\/s/)).toBeNull()
+  })
+
   it('user and assistant message containers scope the hover-revealed time chrome', () => {
     const h = makeHarness({
       nodes: [user(1, 'hi'), assistant(2, 'answer')],
