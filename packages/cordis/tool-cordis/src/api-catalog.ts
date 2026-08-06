@@ -425,12 +425,20 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Describe provider routes with a registered adapter.\n * @returns detached provider metadata in registration order.\n */',
       },
       {
-        signature: 'registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): () => void',
-        jsDoc: '/**\n * Declare provider routes an adapter plugin can activate through\n * configuration. Registration is all-or-nothing: an empty list, invalid\n * entry, or a provider already declared by any registration throws\n * `LlmError` without registering the rest. Disposed with the fiber.\n * @param entries - every configurable provider this plugin owns.\n * @returns the disposer that withdraws all of them.\n */',
+        signature: 'registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): DirectoryRegistrationHandle',
+        jsDoc: '/**\n * Declare provider routes an adapter plugin can activate through\n * configuration. Registration is all-or-nothing: an empty list, invalid\n * entry, or a provider already declared by any registration throws\n * `LlmError` without registering the rest. Disposed with the fiber.\n * @param entries - every configurable provider this plugin owns.\n * @returns a handle that withdraws all of them, and can atomically replace them.\n */',
       },
       {
         signature: 'listConfigurableProviders(): LlmConfigurableProvider[]',
         jsDoc: '/**\n * List every declared configurable provider, registered or dormant.\n * @returns detached directory entries in declaration order.\n */',
+      },
+      {
+        signature: 'registerModelDiscovery( settingsNs: string, discover: (request: LlmModelDiscoveryRequest) => Promise<readonly LlmDiscoveredModel[]>, ): () => void',
+        jsDoc: '/**\n * Offer to interrogate provider endpoints on behalf of the settings\n * namespace this plugin owns. The namespace is the key because that is what\n * a configuration surface already holds from the configurable-provider\n * directory, and because a provider being *added* has no route to name yet.\n * Disposed with the fiber.\n * @param settingsNs - the namespace whose profiles this discovery serves.\n * @param discover - interrogates one endpoint; must honor `request.signal`.\n * @returns the disposer that withdraws the offer.\n */',
+      },
+      {
+        signature: 'async discoverModels( settingsNs: string, request: LlmModelDiscoveryRequest, ): Promise<LlmDiscoveredModel[]>',
+        jsDoc: '/**\n * Interrogate one provider endpoint for the models it advertises. The\n * request describes a draft, not a stored route, so nothing here reads or\n * writes settings or credentials — the caller owns both, and the reply is\n * candidate metadata a surface may offer for adoption.\n * @param settingsNs - namespace whose registered discovery serves this draft.\n * @param request - the endpoint, protocol, and one-shot credential to use.\n * @returns the advertised models, deduplicated in endpoint order.\n */',
       },
       {
         signature: 'providerRetryPolicy(provider: string): ResolvedRetryPolicy',
@@ -1878,6 +1886,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface DirectoryPickerNativeCapability {\n    kind: \'native\';\n    pick(signal: AbortSignal): Promise<string | null>;\n}',
   },
   {
+    name: 'DirectoryRegistrationHandle',
+    declaration: 'export interface DirectoryRegistrationHandle {\n    (): void;\n    replace(entries: readonly LlmConfigurableProvider[]): void;\n}',
+  },
+  {
     name: 'Domain',
     declaration: 'export interface Domain<S extends DomainSpec> {\n    readonly name: string;\n    readonly global: DomainGlobalHandleOf<S>;\n    table<N extends keyof S[\'tables\'] & string>(name: N): KvTable<TableKeyOf<S, N>, TableValueOf<S, N>>;\n    close(): Promise<void>;\n}',
   },
@@ -2082,12 +2094,20 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface LlmConfigurableProvider {\n    provider: string;\n    displayName: string;\n    settingsNs: string;\n    settingsPath: readonly string[];\n}',
   },
   {
+    name: 'LlmDiscoveredModel',
+    declaration: 'export interface LlmDiscoveredModel {\n    id: string;\n    name?: string;\n    contextWindow?: number;\n    maxTokens?: number;\n}',
+  },
+  {
     name: 'LlmFailure',
     declaration: 'export interface LlmFailure {\n    readonly message: string;\n    readonly code: string;\n    readonly status?: number;\n    readonly providerRetryAfterMs?: number;\n    readonly requestId?: ProviderRequestId;\n}',
   },
   {
     name: 'LlmModelContext',
     declaration: 'export interface LlmModelContext {\n    contextWindow: number;\n}',
+  },
+  {
+    name: 'LlmModelDiscoveryRequest',
+    declaration: 'export interface LlmModelDiscoveryRequest {\n    provider?: string;\n    baseURL?: string;\n    api?: string;\n    apiKey?: string;\n    signal?: AbortSignal;\n}',
   },
   {
     name: 'LlmModelInfo',
@@ -2635,7 +2655,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SettingsRegisterOptions',
-    declaration: 'export interface SettingsRegisterOptions<T> {\n    base?: Partial<T>;\n    applies?: SettingsApplies;\n}',
+    declaration: 'export interface SettingsRegisterOptions<T> {\n    base?: Partial<T>;\n    applies?: SettingsApplies;\n    validate?: (value: T) => void;\n}',
   },
   {
     name: 'SettingsScope',
