@@ -10,6 +10,7 @@ import type { Config as CodexHooksConfig } from '@deepseek-ai/dsh-hooks-codex'
 import type { Config as JsonlConfig } from '@deepseek-ai/dsh-session-persistence-jsonl'
 import type { Config as SqliteConfig } from '@deepseek-ai/dsh-session-persistence-sqlite'
 import type { Config as ToolSubagentConfig } from '@deepseek-ai/dsh-tool-subagent'
+import type { Config as ToolTodoConfig } from '@deepseek-ai/dsh-tool-todo'
 import type { Config as ToolWebConfig } from '@deepseek-ai/dsh-tool-web'
 import type { ProjectProfile } from '../../project/types.ts'
 import { defineFeatures } from '../define-feature.ts'
@@ -130,7 +131,7 @@ config:
           kind: 'npm-cordis-config-entry',
           id: 'tool-todo',
           package: '@deepseek-ai/dsh-tool-todo',
-          config: { allowParallelInProgress: true },
+          config: { allowParallelInProgress: true } satisfies ToolTodoConfig,
         }],
       }],
     },

@@ -4330,6 +4330,9 @@ importers:
       '@deepseek-ai/dsh-tool-subagent':
         specifier: workspace:^
         version: link:../../subagent/tool-subagent
+      '@deepseek-ai/dsh-tool-todo':
+        specifier: workspace:^
+        version: link:../../todo/tool-todo
       '@deepseek-ai/dsh-tool-web':
         specifier: workspace:^
         version: link:../../web/tool-web

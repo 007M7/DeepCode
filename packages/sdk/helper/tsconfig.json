@@ -28,6 +28,9 @@
       "path": "../../subagent/tool-subagent"
     },
     {
+      "path": "../../todo/tool-todo"
+    },
+    {
       "path": "../../web/tool-web"
     },
     {
