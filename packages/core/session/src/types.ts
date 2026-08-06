@@ -93,6 +93,24 @@ export interface CreateSessionOptions {
   }
 }
 
+/**
+ * Fresh storage values transferred to {@link SessionStore.prepare} without a
+ * second serialization copy. Callers retain no mutable aliases.
+ */
+export interface RestoredSessionOptions {
+  /** Fresh detached storage events to validate and freeze in place. */
+  readonly seed: SessionEvent[]
+  /** Fresh detached storage metadata to validate and freeze in place. */
+  readonly meta: SessionHeader
+  /** Select the persistence ownership-transfer path. */
+  readonly seedSource: 'persistence'
+}
+
+/** Inputs accepted while constructing an unpublished Session. */
+export type PrepareSessionOptions =
+  | (CreateSessionOptions & { readonly seedSource?: undefined })
+  | RestoredSessionOptions
+
 /** Why an active agent driver was cancelled. */
 export type AgentCancelCause =
   | { readonly kind: 'user' }
