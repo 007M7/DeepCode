@@ -31,7 +31,7 @@ async function harness(adapter: MockAdapter, maxParallelToolCalls?: number) {
 
 function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
-    const dispose = ctx.on('agent/status', (subject, status) => {
+    const dispose = ctx.on('agent/status', ({ agent: subject, status }) => {
       if (subject === agent && status === 'idle') { dispose(); resolve() }
     })
   })
