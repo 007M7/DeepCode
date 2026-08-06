@@ -43,7 +43,7 @@ hook 本身会在 agent（智能体）的会话工作区中运行：对 agent sc
 | Codex hook | Harness seam | 映射 |
 |---|---|---|
 | `SessionStart` | `agent/session-start`（emit） | 纯 stdout hook 的输出 → additionalContext → `agent.inject()` |
-| `UserPromptSubmit` | `agent/prompt-submit`（waterfall，瀑布式事件） | `block`（退出码 2）→ `PromptDecision.block`；仅 additionalContext → 通过 `next()` 委托，再将一个单独标记源的上下文前置到下游 `additionalContexts` |
+| `UserPromptSubmit` | `agent/pre-step`（waterfall，瀑布式事件） | `block`（退出码 2）→ `PreStepDecision.reject`；仅 additionalContext → 通过 `next()` 委托，再向下游 `enter` 决策追加一条单独标记来源的消息 |
 | `PreToolUse` | `tools/pre-execute`（waterfall） | `block` → `PreToolDecision.deny`（没有 `allow`／`ask`） |
 | `PostToolUse` | `tools/post-execute`（waterfall） | `block` → 带反馈的 `block`；仅 additionalContext → 通过 `next()` 委托，再将一个单独标记源的上下文前置到下游决策；Code Mode 将子调用上下文延迟到外层 `run_code` 结果 |
 | `Stop` | `agent/turn-stopping`（serial） | 阻塞 Stop hook 通过 `steer()` 送入其原因，强制再执行一步 |
@@ -56,7 +56,7 @@ hook 本身会在 agent（智能体）的会话工作区中运行：对 agent sc
 
 ## 上下文源
 
-注入上下文携带显式 `{ kind: 'plugin', plugin: 'hooks-codex' }` 源（否则 `agent.inject()` 会将其默认为 `{ kind: 'user' }`）。
+注入上下文携带显式 `{ kind: 'plugin', plugin: 'hooks-codex' }` 来源，因此持久消息绝不会被误认为用户提示词。
 
 ## 模型体验
 

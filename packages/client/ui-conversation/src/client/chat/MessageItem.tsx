@@ -1,4 +1,4 @@
-// MessageItem: simple chat nodes — user and consumed-steering bubbles
+// MessageItem: simple chat nodes — user bubbles
 // (right-aligned, with clock + copy / branch IconActions), pending steering
 // (copy only), context injection, compaction marker, retry disclosure, and
 // unknown-surface JSON rows.
@@ -6,7 +6,7 @@
 import { memo, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import type {
-  CompactionSummaryNode, ContextMessageNode, ModelRetryNode, SteeringMessageNode,
+  CompactionSummaryNode, ContextMessageNode, ModelRetryNode,
   TurnErrorNode, UnknownSurfaceNode, UserMessageNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { JsonBlock, MessageText, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -19,7 +19,6 @@ import css from './MessageItem.module.css'
 export interface MessageItemProps {
   node:
     | UserMessageNode
-    | SteeringMessageNode
     | ContextMessageNode
     | CompactionSummaryNode
     | ModelRetryNode
@@ -227,7 +226,6 @@ export const MessageItem = memo(function MessageItem({
   const truncated = (total: number): string => t('json.truncated', { total })
   switch (node.kind) {
     case 'user':
-    case 'steering':
       return (
         <UserStyleBubble
           content={node.content}

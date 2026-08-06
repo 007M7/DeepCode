@@ -4,6 +4,7 @@ import z from 'schemastery'
 import { chmod, lstat, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { SettingsLocal, resolveSpec } from '../src/index.ts'
 
@@ -145,7 +146,7 @@ describe('boot and reads', () => {
   it('fails loud at boot on unparsable yaml', async () => {
     const dir = await tempDir()
     const path = join(dir, 'settings.yaml')
-    await writeFile(path, 'ui-theme: [unclosed\n')
+    await writeFileAtomic(path, 'ui-theme: [unclosed\n', { mode: 0o600 })
     await expect(boot({ path, watch: false })).rejects.toThrow()
   })
 
@@ -392,7 +393,7 @@ describe('watch', () => {
     await new Promise(resolve => setTimeout(resolve, 300))
     expect(scope.get()).toEqual({ theme: 'light', fontSize: 14 })
 
-    await writeFile(path, 'ui-theme:\n  theme: dark\n')
+    await writeFileAtomic(path, 'ui-theme:\n  theme: dark\n', { mode: 0o600 })
     await vi.waitFor(() => {
       expect(scope.get().theme).toBe('dark')
     }, { timeout: 5000 })

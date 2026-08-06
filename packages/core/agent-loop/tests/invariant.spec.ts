@@ -25,7 +25,7 @@ function loopRequest<T extends object>(options: T): Readonly<T> {
 async function requestSetup() {
   const ctx = await setup()
   const session = ctx.sessions.create(SessionId('req-check'))
-  session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+  session.append('turn/start', { turn: 1 })
   session.append('user/message', createUserMessage({
     content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' },
   }), { surfaceOp: 'append' })
@@ -42,12 +42,16 @@ describe('request-reconstruction invariant', () => {
     expect(() => { dispatch(ctx, options) }).not.toThrow()
   })
 
-  it('uses the step boundary rather than content appended afterward', async () => {
-    const { ctx, session, boundary } = await requestSetup()
+  it('includes context appended inside the open step before dispatch', async () => {
+    const { ctx, session } = await requestSetup()
     session.append('user/message', createUserMessage({
-      content: [{ type: 'text', text: '[late]' }], source: { kind: 'plugin', plugin: 'x' },
+      content: [{ type: 'text', text: '[step context]' }], source: { kind: 'plugin', plugin: 'x' },
     }), { surfaceOp: 'append' })
-    const options = loopRequest({ model: 'm', messages: Object.freeze(boundary), sessionId: session.id })
+    const options = loopRequest({
+      model: 'm',
+      messages: Object.freeze(session.deriveMessages()),
+      sessionId: session.id,
+    })
     expect(() => { dispatch(ctx, options) }).not.toThrow()
   })
 
@@ -57,16 +61,16 @@ describe('request-reconstruction invariant', () => {
     expect(() => { dispatch(ctx, loopRequest({ model: 'm', messages: Object.freeze([...boundary]), sessionId: session.id })) })
       .not.toThrow()
     expect(() => { dispatch(ctx, loopRequest({ model: 'm', messages: Object.freeze([extra, ...boundary]), sessionId: session.id })) })
-      .toThrow(/diverges from the boundary derivation/)
+      .toThrow(/diverges from the dispatch-time durable derivation/)
     expect(() => { dispatch(ctx, loopRequest({ model: 'm', messages: Object.freeze([...boundary, extra]), sessionId: session.id })) })
-      .toThrow(/diverges from the boundary derivation/)
+      .toThrow(/diverges from the dispatch-time durable derivation/)
   })
 
   it('rejects message and header divergence', async () => {
     const { ctx, session, boundary } = await requestSetup()
     const divergent = [...boundary, { role: 'user', content: [{ type: 'text', text: 'phantom' }] }]
     expect(() => { dispatch(ctx, loopRequest({ model: 'm', messages: Object.freeze(divergent), sessionId: session.id })) })
-      .toThrow(/diverges from the boundary derivation/)
+      .toThrow(/diverges from the dispatch-time durable derivation/)
     expect(() => { dispatch(ctx, loopRequest({ model: 'other', messages: Object.freeze(boundary), sessionId: session.id })) })
       .toThrow(/diverges from the folded request header/)
   })
@@ -74,7 +78,7 @@ describe('request-reconstruction invariant', () => {
   it('rejects loop requests with no boundary or header', async () => {
     const ctx = await setup()
     const session = ctx.sessions.create(SessionId('req-bare'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     const bare = loopRequest({ model: 'm', messages: Object.freeze([]), sessionId: session.id })
     expect(() => { dispatch(ctx, bare) }).toThrow(/no step\/start/)
     session.append('step/start', { turn: 1, step: 1 })
@@ -122,7 +126,7 @@ describe('request-reconstruction invariant', () => {
     await ctx.plugin(InvariantService)
     await ctx.plugin(AgentLoopInvariant)
     const session = ctx.sessions.create(SessionId('prepend-check'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' },
     }), { surfaceOp: 'append' })
@@ -133,6 +137,6 @@ describe('request-reconstruction invariant', () => {
       messages: Object.freeze([{ role: 'user', content: [{ type: 'text', text: 'phantom' }] }]),
       sessionId: session.id,
     })
-    expect(() => { dispatch(ctx, divergent) }).toThrow(/diverges from the boundary derivation/)
+    expect(() => { dispatch(ctx, divergent) }).toThrow(/diverges from the dispatch-time durable derivation/)
   })
 })

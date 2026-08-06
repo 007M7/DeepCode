@@ -112,7 +112,7 @@ describe('mux live view computation', () => {
     const rawResult = `RAW_RESULT:${'x'.repeat(64 * 1024)}`
 
     const session = ctx.sessions.create()
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     session.append('tool/call', { turn: 1, step: 1, callId: CallId('c-gen'), name: 'gen', arguments: '{}' })
     session.append('tool/call', { turn: 1, step: 1, callId: CallId('c-term'), name: 'term', arguments: '{"cmd":"echo hi"}' })
     session.append('tool/call', { turn: 1, step: 1, callId: CallId('c-diff'), name: 'diffy', arguments: '{}' })
@@ -175,7 +175,7 @@ describe('mux live view computation', () => {
     // history resolves the agent first; a live structural stub is enough (only
     // .session is read on this path).
     ctx.agents.register({ id: session.id, session, status: 'idle', ctx } as Agent)
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     session.append('tool/call', { turn: 1, step: 1, callId: CallId('h-term'), name: 'term', arguments: '{"cmd":"ls"}' })
     // meta rides through to presentResult's ToolResult (the spread arm).
     session.append('tool/result', {
@@ -241,7 +241,7 @@ describe('mux live view computation', () => {
     const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
     const session = ctx.sessions.create()
     ctx.agents.register({ id: session.id, session, status: 'idle', ctx } as Agent)
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     const first = appendUserText(session, 'first prompt')
     appendAssistantText(session, 'first reply', 1)
     const third = appendUserText(session, 'second prompt')
@@ -295,7 +295,7 @@ describe('mux live view computation', () => {
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
       session = inner.sessions.create('session-doomed' as SessionId)
     }, { inject: ['sessions'] }))
-    session?.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session?.append('turn/start', { turn: 1 })
     session?.append('tool/call', { turn: 1, step: 1, callId: CallId('c-doomed'), name: 'term', arguments: '{"cmd":"x"}' })
     // Disposing the owning fiber detaches the session mid-stream; the
     // session/disposed listener must clear its open-call table entry.
@@ -314,7 +314,7 @@ describe('mux live view computation', () => {
     const collected = collect(stream, 4, abort)
 
     const session = ctx.sessions.create()
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     session.append('tool/call', { turn: 1, step: 1, callId: CallId('c-late'), name: 'term', arguments: '{"cmd":"tail"}' })
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     // The turn/end above cleared the live table; pairing must fall back to

@@ -8,7 +8,7 @@
 
 ## 组装上下文
 
-`AssembleContext` 标识一次组装所解析的作用域层，并可携带该请求的显式控制信号。它可合并扩展：`dsh-agent` 添加用于携带当前 agent（智能体）实例的可选字段 `agent`，以及 `modelRequest?: true` 标记。`assembleContextFor(agent, signal)` 构建带 agent 作用域的检查上下文；`assembleRequestContextFor(agent, signal)` 将结果标记为调用方会把它物化为下一个模型请求。裸组装既没有作用域，也没有信号。
+`AssembleContext` 标识一次组装所解析的作用域层，并可携带该请求的显式控制信号。它可合并扩展：`dsh-agent` 添加可选字段 `agent`，用于携带当前的 agent（智能体）实例；`assembleContextFor(agent, signal)` 则一起设置这些显式字段。裸组装既没有作用域，也没有信号。
 
 ```ts type-equiv
 /** Merge-extensible context for one prompt assembly. */
@@ -66,15 +66,11 @@ interface PromptSection {
 `PromptContext` 是与 `PromptSection` 对应的缓存安全结构。组装会解析这些贡献并排序；agent loop（智能体循环）仅在完整当前快照发生变化或被压缩（compaction）移除时，才会将其记录在保留的模型历史之后。
 
 ```ts type-equiv
-/**
- * One dynamic model-context contribution. Unlike a {@link PromptSection}, its
- * rendered text is materialized as a durable user-role snapshot at the request
- * tail, so changing runtime state preserves the stable system/history prefix.
- */
+/** Dynamic model context materialized as a durable user-role snapshot. */
 interface PromptContext {
   /** Unique name — a duplicate registration throws (see {@link SystemPrompt.context}). */
   readonly name: string
-  /** Contexts are joined in ascending order, independently of system-section order. */
+  /** Contexts are joined in ascending order. */
   readonly order: number
   /** Static text or a provider evaluated for each assembly. Empty text contributes nothing. */
   readonly text: string | ((context: AssembleContext) => string)
