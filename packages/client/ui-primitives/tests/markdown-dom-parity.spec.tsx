@@ -6,6 +6,15 @@
 // normalization), so a fixture diff means a user-visible markdown style
 // change and must be reviewed as such — never re-record to silence a
 // refactor.
+//
+// Provenance is reproducible: the replaced pipeline last lived at commit
+// 9e8101b800 (origin/master before the renderer swap merged). Checking out
+// that ref in a worktree, copying this spec, and running it records all
+// fixtures from react-markdown byte-identical to the ones committed here:
+//   git worktree add /tmp/parity origin/master --detach && cd /tmp/parity
+//   pnpm install && cp <this spec> packages/client/ui-primitives/tests/
+//   npx vitest run packages/client/ui-primitives/tests/markdown-dom-parity.spec.tsx
+//   diff -r <recorded fixtures> <this branch's fixtures>   # byte-identical
 import { cleanup, render } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -139,6 +148,21 @@ const CORPUS: Record<string, string> = {
     '    indented code block',
     '    second line',
   ].join('\n'),
+  'fence-trailing-blank-lines': [
+    '```',
+    'kept blank line follows',
+    '',
+    '```',
+    '',
+    '```ts',
+    'const doubled = true',
+    '',
+    '',
+    '```',
+    '',
+    'after',
+  ].join('\n'),
+  'table-header-only': '| a | b |\n| --- | --- |\n\nafter',
   'inline-code-with-newline': 'Spans `a\nb` across a line.',
   'links-and-autolinks': [
     '[https ok](https://example.com "with title") and [mailto ok](mailto:dev@example.com).',

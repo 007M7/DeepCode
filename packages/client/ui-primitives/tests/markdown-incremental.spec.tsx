@@ -12,7 +12,15 @@ import { parseGfm } from '../src/markdown/parse.ts'
 
 afterEach(cleanup)
 
-/** A many-block document exercising every freeze-sensitive construct. */
+/**
+ * A many-block document exercising every freeze-sensitive construct. The
+ * prefix-equivalence property below holds only while no reference or
+ * footnote definition lands on the far side of a freeze boundary from its
+ * use: a fresh mount parses everything in one tree while the live stream's
+ * frozen blocks are already baked (the fingerprint test demonstrates the
+ * documented deviation). Keep definitions adjacent to their references when
+ * extending this corpus.
+ */
 const STREAM_DOC = [
   '# Title',
   '',

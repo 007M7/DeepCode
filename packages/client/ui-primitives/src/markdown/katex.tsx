@@ -7,6 +7,12 @@
  * adjustments KaTeX output relies on) turns it into a tree this module maps
  * onto React elements — KaTeX output is a static span/MathML/SVG vocabulary
  * with no raw user HTML, the same trust shiki's tree gets in CodeBlock.
+ *
+ * React 18 has no MathML support, so the `.katex-mathml` subtree's elements
+ * land in the HTML namespace — exactly as they did under the replaced
+ * hast-util-to-jsx-runtime pipeline. The visual arm is the `.katex-html`
+ * span tree; the MathML arm serves assistive technology, which reads it by
+ * tag name regardless of namespace.
  */
 
 import { createElement } from 'react'

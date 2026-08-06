@@ -58,7 +58,10 @@ export interface IncrementalBlocks {
 /**
  * A block's render key: its absolute source start offset. A position-less
  * node (a grammar is free to omit positions) falls back to a negative
- * list-index key, which keeps sibling keys unique without inventing offsets.
+ * list-index key — unique within one update's tail, which is the only place
+ * the fallback can occur: freezing requires the cut block's position, so a
+ * position-less parse keeps every block in the tail (real grammars always
+ * stamp positions and never take this path).
  */
 function blockKey(node: RootContent, base: number, index: number): number {
   const offset = node.position?.start.offset
@@ -88,6 +91,12 @@ export class IncrementalMarkdownParser {
    */
   update(text: string): IncrementalBlocks {
     if (this.cached !== null && text === this.prevText) return this.cached
+    // Deliberate O(prefix) memcmp per update: sound divergence detection has
+    // to verify the whole retained prefix, and startsWith compares bytes two
+    // orders of magnitude faster than parsing them — the cost this class
+    // exists to remove. Passing append/reset deltas instead would push
+    // append bookkeeping across the session-projection seam for a check
+    // that stays sub-millisecond at realistic reply sizes.
     if (!text.startsWith(this.prevText)) {
       this.prevText = ''
       this.tailStart = 0

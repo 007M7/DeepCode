@@ -279,7 +279,10 @@ function renderCode(node: Md.Code, key: Key, context: MarkdownRenderContext): Re
   return (
     <CodeBlock
       key={key}
-      code={node.value}
+      // The replaced hast pipeline appended one synthetic newline that
+      // CodeBlock's display trim removes; feeding the bare value would make
+      // that trim eat a REAL trailing blank line inside the fence instead.
+      code={`${node.value}\n`}
       lang={context.streaming ? undefined : lang}
       copyLabel={context.codeLabels?.copyLabel}
       copiedLabel={context.codeLabels?.copiedLabel}
