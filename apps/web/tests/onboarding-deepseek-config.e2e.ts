@@ -167,9 +167,14 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
     // (welcome acknowledged, credential configured), yet each must LOAD its
     // private join before it can decide not to show. The chrome lives inside
     // the step (OnboardingSurface), so the deciding window paints and blocks
-    // nothing. Holding the join's settings.describe response widens that
-    // window from loopback-invisible to hundreds of milliseconds — without
-    // the hold, the assertions below would pass vacuously.
+    // nothing. Holding settings.describe widens that window from loopback
+    // RTT scale to a deterministic hundreds of milliseconds, removing all
+    // timing dependence from the sampler assertions below.
+    //
+    // The sampler init script persists across this shared page's later
+    // navigations (init scripts re-run per navigation); that stays harmless
+    // because no later scenario in this file legitimately shows the
+    // takeover, and only this test reads __takeoverSightings.
     await page.addInitScript(() => {
       const sightings: string[] = []
       ;(window as unknown as { __takeoverSightings: string[] }).__takeoverSightings = sightings
@@ -180,13 +185,17 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
         if (document.getElementById('root')?.inert === true) sightings.push('inert')
       }, 8)
     })
-    let releaseDescribe = (): void => {}
-    const held = new Promise<void>((resolve) => { releaseDescribe = resolve })
-    let gated = false
+    // EVERY settings.describe issued before the release is held — not just
+    // the first — so the pin cannot silently collapse back to loopback
+    // timing if a second boot-time consumer of the join ever appears.
+    let released = false
+    const heldRoutes: Array<() => void> = []
+    const releaseDescribe = (): void => {
+      released = true
+      for (const resolve of heldRoutes.splice(0)) resolve()
+    }
     await page.route('**/api/settings.describe', async (route) => {
-      if (gated) { await route.continue(); return }
-      gated = true
-      await held
+      if (!released) await new Promise<void>((resolve) => { heldRoutes.push(resolve) })
       await route.continue()
     })
     const warningsBefore = tripwire.warnings.length
