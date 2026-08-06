@@ -29,7 +29,7 @@ Claude Code／Codex hook 协议格式（wire format）的**共享核心**。它�
 
 通过 declaration merging 合并到 `SessionEventMap`（仅日志，与 `compact/*` 相同；不是 `SurfaceEventType`，没有 `surfaceOp`）：`hook/invoked`（hook 命令已运行）与 `hook/result`（其结果，按 `handlerId` 配对，决策规则由 `appendHookResult` 负责）。Payload 与每事件 JSDoc 位于生成的 [持久化日志事件目录](../../../docs/persistence-catalog.md)；`stderrSummary` 会截断到记录的 `stderrSummaryMaxChars`（桥接配置，参考默认值 `DEFAULT_STDERR_SUMMARY_MAX_CHARS` = 500；为空时省略）。
 
-Hook 溯源记录必须位于一个尚未结束的轮次内。轮次中的点（`PreToolUse`／`PostToolUse`／`Stop`）按构造满足这条由所有者定义的关系。`SessionStart` 与轮次前的 `UserPromptSubmit` 准入 seam 没有 `hook/*` 记录；获准的上下文改由其带来源的 `user/message` 作为证据，详见 hooks Agent Note。
+Hook 溯源记录必须位于一个尚未结束的轮次内。`UserPromptSubmit`、`PreToolUse`、`PostToolUse` 与 `Stop` 按构造满足这条由所有者定义的关系。`SessionStart` 在轮次 1 之前运行，因此没有 `hook/*` 记录；其获准的上下文会在 inbox 中保持待处理，直到唤醒交付打开一个轮次，详见 hooks Agent Note。
 
 ## 模型体验
 

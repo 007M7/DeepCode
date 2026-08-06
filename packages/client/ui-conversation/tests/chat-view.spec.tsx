@@ -274,11 +274,7 @@ describe('chat-flow derivation', () => {
       user(6, 'second'),
       assistant(7, 'clean tail', 2),
       user(10, 'user-only tail'),
-      {
-        kind: 'steering', messageId: 'steering-tail' as never,
-        seq: 13, time: 13_000, turn: 4,
-        content: [{ type: 'text', text: 'steering tail' }], source: null,
-      },
+      user(13, 'steering tail'),
     ]
     const seqs = messageBranchSeqs(nodes, new Map([[1, 5], [2, 8], [3, 11], [4, 14]]))
     expect([...seqs]).toEqual([7, 10, 13])
@@ -380,6 +376,9 @@ describe('ChatView', () => {
     expect(view.queryByText('later')).toBeNull()
     const pendingBubble = view.getByText('interrupt now').closest('[data-pending-steering]')
     expect(pendingBubble).not.toBeNull()
+    // Pending and durable steering carry the same interjection caption, so the
+    // hand-off does not change what the row says it is.
+    expect(within(pendingBubble as HTMLElement).getByText('插话')).toBeTruthy()
     fireEvent.click(within(pendingBubble as HTMLElement).getByRole('button', { name: '复制' }))
     expect(writeText).toHaveBeenCalledWith('interrupt now')
     expect(within(pendingBubble as HTMLElement).queryByRole('button', { name: '在新对话中分支' })).toBeNull()
@@ -393,7 +392,7 @@ describe('ChatView', () => {
           assistant(1, 'working'),
           {
             kind: 'steering', messageId: pending.messageId,
-            seq: 2, time: 2_000, turn: 1,
+            seq: 2, time: 2_000,
             content: [{ type: 'text', text: 'interrupt now' }], source: null,
           },
         ],
@@ -401,6 +400,7 @@ describe('ChatView', () => {
     })
     expect(view.getAllByText('interrupt now')).toHaveLength(1)
     expect(view.container.querySelector('[data-pending-steering]')).toBeNull()
+    expect(view.getAllByText('插话')).toHaveLength(1)
     expect(view.getAllByRole('button', { name: '复制' })).toHaveLength(2)
     const durableBubble = view.getByText('interrupt now').closest('[class*="userRow"]') as HTMLElement
     const unavailable = within(durableBubble).getByRole('button', { name: '在新对话中分支' })
@@ -430,8 +430,7 @@ describe('ChatView', () => {
     const h = makeHarness({
       queue: [pending],
       nodes: [{
-        kind: 'steering', messageId: pending.messageId,
-        seq: 2, time: 2_000, turn: 1,
+        kind: 'user', seq: 2, time: 2_000,
         content: pending.content, source: null,
       }],
       running: true,
@@ -447,6 +446,8 @@ describe('ChatView', () => {
     const nextRetry = { ...retry(3), turn: 2, retry: 2 }
     const context = {
       kind: 'context', seq: 4, time: 4_000, content: [], source: null,
+      provenance: { role: 'inject', label: null },
+      form: null,
     } as const satisfies ConversationNode
     const h = makeHarness({ nodes: [user(1, 'try'), retryNode], running: true })
     const view = render(<h.ChatView {...h.props} />)
@@ -538,6 +539,45 @@ describe('ChatView', () => {
     const view = render(<h.ChatView {...h.props} />)
     // The exact turn/end includes trailing tool activity after the final text.
     expect(view.getAllByText(/用时 19秒/)).toHaveLength(1)
+  })
+
+  it('the settled footer appends first-step ttft and turn decode throughput', () => {
+    const first: AssistantMessageNode = {
+      kind: 'assistant', seq: 2, time: 2_000, turn: 1, step: 1, blocks: [{ kind: 'text', text: 'mid' }],
+      timing: { stepStartTime: 1_000, firstTokenTime: 2_200, completedTime: 5_200 },
+      usage: { outputTokens: 40 },
+    }
+    const second: AssistantMessageNode = {
+      kind: 'assistant', seq: 16, time: 16_000, turn: 1, step: 2, blocks: [{ kind: 'text', text: 'final' }],
+      timing: { stepStartTime: 10_000, firstTokenTime: 10_200, completedTime: 12_200 },
+      usage: { outputTokens: 60 },
+    }
+    const h = makeHarness({
+      nodes: [user(1, 'hi'), first, second],
+      turnTimings: new Map([[1, { startTime: 1_000, endTime: 20_000 }]]),
+      turnEnds: new Map([[1, 20]]),
+    })
+    const view = render(<h.ChatView {...h.props} />)
+    // First-step ttft (1.2s) plus 100 tokens over 5s of decode.
+    expect(view.getAllByText(/用时 19秒/)).toHaveLength(1)
+    expect(view.getAllByText(/首 token 1\.2秒/)).toHaveLength(1)
+    expect(view.getAllByText(/20 tok\/s/)).toHaveLength(1)
+  })
+
+  it('withholds ttft and throughput while the turn is still running', () => {
+    const settled: AssistantMessageNode = {
+      kind: 'assistant', seq: 2, time: 2_000, turn: 1, step: 1, blocks: [{ kind: 'text', text: 'answer' }],
+      timing: { stepStartTime: 1_000, firstTokenTime: 1_500, completedTime: 2_000 },
+      usage: { outputTokens: 10 },
+    }
+    const h = makeHarness({
+      nodes: [user(1, 'hi'), settled],
+      turnTimings: new Map([[1, { startTime: 1_000 }]]),
+      turnEnds: new Map(),
+      running: true,
+    })
+    const view = render(<h.ChatView {...h.props} />)
+    expect(view.queryByText(/首 token|tok\/s/)).toBeNull()
   })
 
   it('user and assistant message containers scope the hover-revealed time chrome', () => {
@@ -732,9 +772,13 @@ describe('ChatView', () => {
     expect(status.textContent).toMatch(/^Deep diving\.\.\.2分0\d秒$/)
     expect(status.querySelector('[aria-hidden="true"]')).not.toBeNull()
     act(() => {
-      h.set({ nodes: [trigger, {
-        kind: 'steering', messageId: 'st' as never, seq: 2, time: Date.now(), turn: 1,
-        content: [{ type: 'text', text: 'also' }], source: null,
+      h.set({ queue: [{
+        id: 'steering-occurrence' as never,
+        messageId: 'steering-message' as never,
+        placement: 'steering',
+        content: [{ type: 'text', text: 'also' }],
+        preview: 'also',
+        text: 'also',
       }] })
     })
     expect(status.textContent).toMatch(/^Deep diving\.\.\.2分0\d秒$/)

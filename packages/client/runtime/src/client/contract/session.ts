@@ -9,7 +9,7 @@
  */
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type {
-  InboxItemId, QueueAction, RpcResult, SessionId,
+  MessageId, QueueAction, RpcResult, SessionId,
 } from '@deepseek-ai/dsh-client-connection/client'
 import type { ConversationSnapshot } from '../sessions/conversation.ts'
 import type { ObservableSnapshot } from './store.ts'
@@ -44,7 +44,7 @@ export interface ISession {
    * @param action - requested queue operation.
    * @returns acceptance, or a business/transport error.
    */
-  updateQueue(itemId: InboxItemId, action: QueueAction): Promise<RpcResult<{ accepted: true }>>
+  updateQueue(itemId: MessageId, action: QueueAction): Promise<RpcResult<{ accepted: true }>>
   /**
    * Cancel the running turn. Pending queued work remains and resumes in FIFO
    * order after the Host reaches cancellation quiescence.

@@ -14,7 +14,7 @@ tmux exposes this without a daemon: `$TMUX_PANE` names the process's pane, and `
 
 `@deepseek-ai/dsh-tmux-context` is an opt-in function plugin in `packages/context/tmux-context/`, alongside the other bounded request-context enrichments that define neither a tool nor a service. The shipped TUI mounts it because terminal-multiplexer context is specific to that surface; `dsh-agent-spine-demo` and the Web/headless surfaces stay silent.
 
-**Pull on the first step of each turn, not a tmux push.** The plugin prepends an `agent/step` listener and acts only when `step === 1`. A pull model needs no background process, no hook installation in the user's tmux, and no teardown; it re-reads current state each turn so a moved, renamed, or re-laid-out pane is picked up naturally. Gating on the first step makes the reading per-turn: a location is stable within a turn, and re-querying every step would add cost without new information. A pane moved mid-turn is reflected on the next turn, which is the accepted tradeoff for the simpler design.
+**Pull on the first step of each turn, not a tmux push.** The plugin prepends an `agent/pre-step` listener and acts only when `step === 1`. A pull model needs no background process, no hook installation in the user's tmux, and no teardown; it re-reads current state each turn so a moved, renamed, or re-laid-out pane is picked up naturally. Gating on the first step makes the reading per-turn: a location is stable within a turn, and re-querying every step would add cost without new information. A pane moved mid-turn is reflected on the next turn, which is the accepted tradeoff for the simpler design.
 
 **Read through the `ctx.bash` seam, never raw `child_process`.** The listener runs the tmux/`ps` read commands through `ctx.bash`, so the deployment's sandbox and policy apply and the plugin owns no subprocess code. Absent `ctx.bash`, absent tmux env, a wrong field count, or an empty pane id each make the attempt a no-op, matching how `workspace-context` no-ops without an `fs` provider.
 
@@ -36,7 +36,7 @@ The turn preamble is the volatile first line; the two-line state block below it 
 
 ### Durability and request reconstruction
 
-Each reading is a normal surface node until compaction shadows it; the plugin contributes nothing to system-prompt assembly and `request/header` carries no tmux-context text. The reading records a preparation attempt, not a committed step: because the prepended listener runs first, its append may remain when a later `agent/step` listener cancels or fails the attempt, and the append-only log performs no rollback.
+Each reading is a normal surface node until compaction shadows it; the plugin contributes nothing to system-prompt assembly and `request/header` carries no tmux-context text. The reading records a preparation attempt, not a committed step: because the prepended listener runs first, its append may remain when a later `agent/pre-step` listener cancels or fails the attempt, and the append-only log performs no rollback.
 
 The published `./invariant` companion registers no runtime check: a reading is a per-turn snapshot of external tmux state, so the session holds no cross-event relation to validate, and scheduling and format stay pinned by the package's pipeline tests.
 
@@ -46,7 +46,7 @@ An agent booted inside tmux now receives its own session/window/pane location an
 
 ## Testing
 
-Unit tests pin: first-step injection and source/surface metadata; the `$TMUX_PANE`-keyed command including its `#{pane_tty}`-vs-`ps -o tty=` guard; step-gating; change suppression across turns and re-injection on a moved pane; positive-interval suppression and threshold; every no-op path (no bash, nonzero exit, wrong field count, empty pane id, aborted signal, and a contained executor rejection from either `resolve()` or `run()` that warns instead of failing the turn); prepended ordering before ordinary `agent/step` listeners; resilience to a corrupt prior reading (non-text block, single-line text); and config rejection of negative and non-integer intervals. Per-file coverage is 100%.
+Unit tests pin: first-step injection and source/surface metadata; the `$TMUX_PANE`-keyed command including its `#{pane_tty}`-vs-`ps -o tty=` guard; step-gating; change suppression across turns and re-injection on a moved pane; positive-interval suppression and threshold; every no-op path (no bash, nonzero exit, wrong field count, empty pane id, aborted signal, and a contained executor rejection from either `resolve()` or `run()` that warns instead of failing the turn); prepended ordering before ordinary `agent/pre-step` listeners; resilience to a corrupt prior reading (non-text block, single-line text); and config rejection of negative and non-integer intervals. Per-file coverage is 100%.
 
 ## Alternatives considered
 

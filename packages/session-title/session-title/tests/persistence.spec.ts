@@ -25,7 +25,6 @@ async function appendPersistedTitle(ctx: Context, id: ReturnType<typeof SessionI
   const session = ctx.sessions.create(id)
   session.append('turn/start', {
     turn: 1,
-    trigger: { kind: 'message', source: { kind: 'user' } },
   })
   session.append('user/message', createUserMessage({
     content: [{ type: 'text', text: 'Persist this session title' }],

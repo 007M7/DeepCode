@@ -15,14 +15,14 @@ DeepSeek Harness SDK 运行时的共享协议格式（wire format）：一个按
 | 方向 | 方法 | 类型 |
 |---|---|---|
 | client→server | `initialize` | `InitializeParams` → `InitializeResult` |
-| client→server | `session/prompt` | `SessionPromptParams` → `SessionPromptResult`（仅在轮次结算完成后应答） |
+| client→server | `session/prompt` | `SessionPromptParams` → `SessionPromptResult`（持久入队回执） |
 | client→server | `shutdown` | 无参数 → `{}` |
 | server→client | `session.event` | `SessionEventNotification`（运行时内每个会话，不过滤） |
-| server→client | `session.finished` | `SessionFinishedNotification`（每个获准的提示词请求一条） |
+| server→client | `session.status` | `SessionStatusNotification`（整个 agent（智能体）的 `running`/`idle` 转换） |
 | server→client | `subagent.started` | `SubagentStartedNotification` |
 | server→client | `subagent.finished` | `SubagentFinishedNotification`（仅进程内运行） |
 
-`HarnessSdkRequestMap` 与 `HarnessSdkNotificationMap` 按方法名索引这些类型。`InitializeParams.maxTokens` 是可选的正的安全整数，用于限制 SDK 创建的 agent（智能体）及其进程内后代的每次对话模型输出；省略时会应用所选适配器的确切模型默认值，否则提供方行为保持不变。通知载荷类型依赖 `SessionEvent`（`dsh-session`）、`ContentBlock`（`dsh-llm`）与 `SubagentStopReason`（`dsh-subagent`）——协议以完整会话日志封套进行流式传输，因此会话词汇是协议格式契约的一部分。`serverInfo.name` 的协议值固定为 `deepseek-harness-sdk-runtime`。
+`HarnessSdkRequestMap` 与 `HarnessSdkNotificationMap` 按方法名索引这些类型。`SessionPromptResult.messageId` 标识已排队的 `UserMessage`；它不标识后续的助手消息、轮次结束或提示词结果。客户端根据自己对活动区间的所有权，组合持续开放的 `session.event` 流与 agent 级的 `session.status`。`InitializeParams.maxTokens` 是可选的正的安全整数，用于限制 SDK 创建的 agent 及其进程内后代的每次对话模型输出；省略时会应用所选适配器的确切模型默认值，否则提供方行为保持不变。通知载荷类型依赖 `SessionEvent`（`dsh-session`）、`ContentBlock`（`dsh-llm`）与 `SubagentStopReason`（`dsh-subagent`）——协议以完整会话日志封套进行流式传输，因此会话词汇是协议格式契约的一部分。`serverInfo.name` 的协议值固定为 `deepseek-harness-sdk-runtime`。
 
 ## 模型体验
 

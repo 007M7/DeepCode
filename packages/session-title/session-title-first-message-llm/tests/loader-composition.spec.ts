@@ -93,7 +93,6 @@ describe('session-title Loader composition', () => {
     const session = ctx.sessions.create(SessionId('loader-title'))
     session.append('turn/start', {
       turn: 1,
-      trigger: { kind: 'message', source: { kind: 'user' } },
     })
     const message = session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'Compose a title through Loader' }],

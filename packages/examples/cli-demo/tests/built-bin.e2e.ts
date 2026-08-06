@@ -161,14 +161,26 @@ describe.skipIf(!existsSync(cliBin))('dsh-cli-demo BUILT bin', () => {
 
     const json = await runBuiltBin(consumer, ['--config', './cordis.yml', '--output-format', 'json', 'json task'])
     expect(JSON.parse(json.stdout)).toMatchObject({
-      type: 'result', success: true, result: 'BUILT: json task', reason: { kind: 'completed' },
+      type: 'result', output: 'BUILT: json task',
       usage: { inputTokens: 4, outputTokens: 2 },
     })
 
     const stream = await runBuiltBin(consumer, ['--config', './cordis.yml', '--output-format', 'stream-json', 'stream task'])
     const lines = stream.stdout.trimEnd().split('\n').map(line => JSON.parse(line) as Record<string, unknown>)
-    expect(lines[0]).toMatchObject({ type: 'session_event', event: { type: 'turn/start' } })
-    expect(lines.at(-1)).toMatchObject({ type: 'result', success: true, result: 'BUILT: stream task' })
+    expect(lines[0]).toMatchObject({
+      type: 'session_event',
+      event: {
+        type: 'agent/inbox/spliced',
+        data: {
+          target: 'next-turn',
+          start: 0,
+          inserted: [{ content: [{ type: 'text', text: 'stream task' }], source: { kind: 'user' } }],
+        },
+      },
+    })
+    expect(lines.findIndex(line =>
+      (line['event'] as { type?: string } | undefined)?.type === 'turn/start')).toBeGreaterThan(0)
+    expect(lines.at(-1)).toMatchObject({ type: 'result', output: 'BUILT: stream task' })
     const sessionsRoot = join(consumer, '.sessions')
     const files = await readdir(sessionsRoot, { recursive: true })
     const logs = files.filter(file => file.endsWith('.jsonl.zstd'))
@@ -205,7 +217,7 @@ describe.skipIf(!existsSync(cliBin))('dsh-cli-demo BUILT bin', () => {
       )
       expect(result, JSON.stringify(result)).toMatchObject({ code, signal: null })
       expect(result.stdout).toContain('"kind":"aborted"')
-      expect(result.stderr).toContain('turn 1 was aborted')
+      expect(result.stderr).toBe(`dsh-cli-demo: received ${signal}\n`)
     }, 30_000)
   })
 })

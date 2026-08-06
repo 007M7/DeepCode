@@ -173,9 +173,10 @@ export function parseSessionHeader(text: string): { id: string; createdAt: numbe
 /**
  * Reconstruct the per-`stream()` replay script from a recorded session log.
  *
- * Groups `assistant/chunk` events by turn and step. Every group must end in a
- * `finish`; a missing terminator means the live stream threw, so derivation
- * rejects and the scenario must provide an explicit override.
+ * Splits `assistant/chunk` events at every `finish`, using turn and step changes
+ * to detect an unterminated prior call. A missing terminator means the live
+ * stream threw, so derivation rejects and the scenario must provide an explicit
+ * override. Multiple calls may share one turn and step when the loop retries.
  * @param events - the recorded session's events; only `assistant/chunk` is consulted.
  * @returns one `chunks` entry per recorded model call, in call order.
  */
@@ -197,14 +198,16 @@ export function deriveReplayScript(events: SessionEvent[]): ReplayEntry[] {
     if (event.type !== 'assistant/chunk') continue
     const { turn, step, chunk } = event.data
     const key = `${turn}/${step}`
-    if (key !== currentKey) {
-      // A new (turn, step) — i.e. a new stream() call. Close the previous one
-      // (skip the initial empty buffer before any chunk has been seen).
+    if (current.length > 0 && key !== currentKey) {
       close(currentKey, current)
-      currentKey = key
+    }
+    if (current.length === 0) currentKey = key
+    current.push(chunk)
+    if (chunk.type === 'finish') {
+      close(currentKey, current)
+      currentKey = undefined
       current = []
     }
-    current.push(chunk)
   }
   close(currentKey, current)
   return script

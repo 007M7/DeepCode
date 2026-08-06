@@ -77,7 +77,7 @@ describe('real Loader composition', () => {
     expect(unloaded).toEqual([])
     expect(loaded.get('toolResultPrune')).toBeInstanceOf(ToolResultPruneService)
     expect(loaded.get('compact')).toBeInstanceOf(BasicCompactService)
-    expect((loaded.compact as BasicCompactService).config).toMatchObject({
+    expect((loaded.compact as unknown as BasicCompactService).config).toMatchObject({
       thresholdRatio: 0.5,
       retainRatio: 0.125,
       auto: false,
