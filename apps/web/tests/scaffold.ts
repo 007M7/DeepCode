@@ -34,7 +34,13 @@ import Loader from '@cordisjs/plugin-loader'
 import Include, { type PatchOptions } from '@cordisjs/plugin-include'
 import Group from '@cordisjs/plugin-group'
 import { scrubRequestHeaders } from '@deepseek-ai/dsh-acp-snapshot'
-import { assertEntriesLoaded, loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
+import {
+  addHarnessSourceSection,
+  assertEntriesLoaded,
+  composeEntries,
+  healProfilesModuleFallback,
+  loadOverlayPatches,
+} from '@deepseek-ai/dsh-app-boot'
 import { dshHomePath } from '@deepseek-ai/dsh-paths'
 import {
   WELCOME_NOTICE_ACK_FIELD, WELCOME_NOTICE_SETTINGS_NAMESPACE, WELCOME_NOTICE_VERSION,
@@ -55,7 +61,6 @@ import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 // Empty type imports carry the httpServer/agents/sessionPersistence Context merges.
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-agent'
-import { addHarnessSourceSection, healProfilesModuleFallback } from '@deepseek-ai/dsh-app-boot'
 import { REPO_ROOT, requireDist } from './support.ts'
 
 /** Snapshot mode for the lane, from $DSH_SNAPSHOT (same vocabulary as the other snapshot suites). */
@@ -255,6 +260,11 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   const extraOverlayPatches = options.extraOverlayPath === undefined
     ? []
     : loadOverlayPatches('web e2e scaffold', options.extraOverlayPath)
+  const composedRows = composeEntries([basePatches, surfacePatches, extraOverlayPatches])
+  const webRuntimeConfig = composedRows.find(row => row.id === 'web-runtime')?.config as {
+    surfaceContext?: boolean
+  } | undefined
+  const surfaceContext = webRuntimeConfig?.surfaceContext !== false
   const patches: PatchOptions[] = [
     ...basePatches,
     ...surfacePatches,
@@ -305,7 +315,9 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     },
     // The bundle's web-runtime row resolves the same built dist under test
     // (apps/web IS @deepseek-ai/dsh-frontend); only the URL line is silenced.
-    { id: 'web-runtime', config: { mode: 'production', printUrl: false } },
+    // Preserve the composed surface-context choice because a patch replaces
+    // the row's complete config.
+    { id: 'web-runtime', config: { mode: 'production', printUrl: false, surfaceContext } },
     ...options.remoteAuthority === undefined
       ? []
       : [{ id: 'connection', config: { trustedHosts: [options.remoteAuthority] } }],
@@ -366,7 +378,9 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     // The shipped CLI deliberately has no dependency on this opt-in package.
     // Keep the Loader row real without broadening the product installation.
     if (options.cordisTools === true) ctx.loader.builtins['tool-cordis'] = ToolCordis
-    ctx.inject(['systemPrompt'], (promptCtx) => { addHarnessSourceSection(promptCtx, REPO_ROOT) })
+    if (surfaceContext) {
+      ctx.inject(['systemPrompt'], (promptCtx) => { addHarnessSourceSection(promptCtx, REPO_ROOT) })
+    }
     await ctx.loader.create({
       name: 'cordis:include',
       config: { path: pathToFileURL(rootConfig).href, patches },
