@@ -85,7 +85,7 @@ describe('PiAiAdapter provider routing', () => {
     })
   })
 
-  it('uses a dynamic request effort and rejects unsupported efforts before network I/O', async () => {
+  it('uses a dynamic request effort and reports unsupported efforts before network I/O', async () => {
     const server = await mockServer([{ events: textEvents }, { events: textEvents }])
     const ctx = await harness(server.url, { reasoning: 'max' })
 
@@ -104,11 +104,15 @@ describe('PiAiAdapter provider routing', () => {
     expect(server.requests[1]).toMatchObject({ thinking: { type: 'disabled' } })
     expect(server.requests[1]).not.toHaveProperty('reasoning_effort')
 
-    await expect(assemble(ctx, {
+    const unsupported = await assemble(ctx, {
       model: 'deepseek-v4-flash',
       reasoningEffort: ReasoningEffortId('xhigh'),
       messages: [],
-    })).rejects.toMatchObject({ code: 'UNSUPPORTED_REASONING_EFFORT' })
+    })
+    expect(unsupported.finish).toMatchObject({
+      kind: 'error',
+      failure: { code: 'UNSUPPORTED_REASONING_EFFORT' },
+    })
     expect(server.requests).toHaveLength(2)
   })
 
@@ -125,19 +129,19 @@ describe('PiAiAdapter provider routing', () => {
     expect(result.message.content).toEqual([{ type: 'text', text: 'hello' }])
   })
 
-  it('rejects stop sequences rather than silently ignoring them', async () => {
+  it('reports unsupported stop sequences rather than silently ignoring them', async () => {
     const server = await mockServer([])
     const ctx = await harness(server.url)
-    await expect(assemble(ctx, { model: 'deepseek-v4-flash', messages: [], stop: ['END'] }))
-      .rejects.toMatchObject({ code: 'UNSUPPORTED_OPTION' })
+    const result = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [], stop: ['END'] })
+    expect(result.finish).toMatchObject({ kind: 'error', failure: { code: 'UNSUPPORTED_OPTION' } })
     expect(server.requests).toEqual([])
   })
 
-  it('rejects unknown catalog models before network I/O', async () => {
+  it('reports unknown catalog models before network I/O', async () => {
     const server = await mockServer([])
     const ctx = await harness(server.url)
-    await expect(assemble(ctx, { model: 'not-in-the-catalog', messages: [] }))
-      .rejects.toMatchObject({ code: 'UNKNOWN_MODEL' })
+    const result = await assemble(ctx, { model: 'not-in-the-catalog', messages: [] })
+    expect(result.finish).toMatchObject({ kind: 'error', failure: { code: 'UNKNOWN_MODEL' } })
     expect(server.requests).toEqual([])
   })
 
@@ -237,8 +241,8 @@ describe('PiAiAdapter provider routing', () => {
     const server = await mockServer([{ events: textEvents, delayMs: 200 }])
     const ctx = await harness(server.url, { streamIdleTimeoutMs: 20 })
 
-    await expect(assemble(ctx, { model: 'deepseek-v4-flash', messages: [] }))
-      .rejects.toMatchObject({ code: 'TIMEOUT' })
+    const result = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
+    expect(result.finish).toMatchObject({ kind: 'error', failure: { code: 'TIMEOUT' } })
     await Promise.race([
       server.responseClosed,
       new Promise<never>((_resolve, reject) => {
@@ -393,10 +397,12 @@ describe('provider profile lifecycle', () => {
     vi.stubEnv('DEEPSEEK_API_KEY', 'ambient-key')
     const server = await mockServer([{ events: textEvents }])
     const ctx = await harness(server.url, { apiKey: undefined, apiKeyEnv: 'PI_CUSTOM_REF_KEY' })
-    await expect(assemble(ctx, { model: 'deepseek-v4-flash', messages: [] }))
-      .rejects.toMatchObject({ code: 'MISSING_CREDENTIAL' })
-    await expect(assemble(ctx, { model: 'deepseek-v4-flash', messages: [] }))
-      .rejects.toThrow(/provider route "deepseek".*PI_CUSTOM_REF_KEY/s)
+    const first = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
+    expect(first.finish).toMatchObject({ kind: 'error', failure: { code: 'MISSING_CREDENTIAL' } })
+    const second = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
+    expect(second.finish.kind).toBe('error')
+    if (second.finish.kind !== 'error') throw new Error('expected an error finish')
+    expect(second.finish.failure.message).toMatch(/provider route "deepseek".*PI_CUSTOM_REF_KEY/s)
     expect(server.requests).toHaveLength(0)
   })
 

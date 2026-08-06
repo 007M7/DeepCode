@@ -8,7 +8,7 @@ Status: implemented
 
 生产方向模型侧对话补充的一切内容，进入 Web transcript（文本记录）后只剩两种匿名形态。每一条已记录的非用户 `user/message`——skill 目录、运行时快照、经过对账的 `AGENTS.md` 指令、guard 提示、子 agent 汇报、跨会话快照——都塌缩成同一行 `上下文注入`，读者不逐行展开去读原始 JSON 就无从知道究竟注入了什么。steering（中途引导）的情况更糟：它渲染成与开轮提示完全相同的气泡，于是 transcript 无法说明哪一条消息打断了正在运行的轮次。
 
-这些区分本来就是持久事实。`user/message.source` 是每个生产方都必须提供的可合并扩展来源，steering 另有自己的 `steering/message` 事件；把它们丢掉的只有呈现层。被这套 Web UI 取代的终端 transcript 本来会写出每张卡片的生产者，因此面对同一份日志，Web 侧是一次倒退。
+这些区分本来就是持久事实。`user/message.source` 是每个生产方都必须提供的可合并扩展来源，`agent/inbox/spliced` 则记录有身份的消息是从 `next-turn` 还是 `next-step` 进入和离开；把这些事实丢掉的只有呈现层。被这套 Web UI 取代的终端 transcript 本来会写出每张卡片的生产者，因此面对同一份日志，Web 侧是一次倒退。
 
 ## Decision
 
@@ -20,7 +20,7 @@ transcript 为非提示消息可能承担的三种角色分别命名：注入上
 
 `recall` 覆盖 `session-reference`，因为它是当前唯一会把另一个会话的材料搬进本会话的已发布来源。今天没有任何 Web 叶子挂载 `dsh-session-reference`——它此前只有终端宿主——因此该分支的存在是为了日志可移植性，而不是为了某个已打包的生产方，其覆盖来自单元测试而非组装后的 Web 场景。
 
-`MessageItem` 为持久与待处理的 steering 气泡加上 `插话` 标注。这推翻了[取消 steer 入口与插话装饰](../simplification/2026-07-31-web-ui-no-steer-entry-or-interjection-chrome.md)中的一条结论——当时移除徽章，是因为 composer 无法 steer，标签指向了用户做不到的动作。此后 composer 获得了 Steer 手势，却没有同步修订那份 note；本决策提供了它在「重新引入」条款中要求的产品决策，并订正了其中留下的过时事实。标注是这里唯一的 steering 装饰：composer 模式、Queue dock 的严格 steer 操作、待处理 steering 的生命周期仍归各自的所有者。
+`MessageItem` 为持久与待处理的 steering 气泡加上 `插话` 标注。runtime 会重放持久 `agent/inbox/spliced` 事件；如果一条用户来源的消息以相同身份从 `next-step` 被领取，后续 `user/message` 就投影为 `SteeringMessageNode`。从排队轮次领取的消息仍是 `UserMessageNode`，非用户来源的 next-step 消息仍是上下文。这推翻了[取消 steer 入口与插话装饰](../simplification/2026-07-31-web-ui-no-steer-entry-or-interjection-chrome.md)中的一条结论。当时移除徽章，是因为 composer 无法 steer，标签指向了用户做不到的动作。此后 composer 获得了 Steer 手势，却没有同步修订那份 note；本决策提供了它在「重新引入」条款中要求的产品决策，并订正了其中留下的过时事实。标注是这里唯一的 steering 装饰：composer 模式、Queue dock 的严格 steer 操作、待处理 steering 的生命周期仍归各自的所有者。
 
 ## Alternatives considered
 
@@ -36,7 +36,7 @@ transcript 为非提示消息可能承担的三种角色分别命名：注入上
 
 ## Testing
 
-- `packages/client/runtime` 单元覆盖钉住每个来源分支、名称字段缺失／为空／类型不符时的回退，以及来源没有可读 kind 时的无名降级。
+- `packages/client/runtime` 单元覆盖钉住每个来源分支、名称字段缺失／为空／类型不符时的回退、来源没有可读 kind 时的无名降级，以及 reset 和实时 append 路径上的 steering 重建。
 - `packages/client/ui-conversation` 的 jsdom 覆盖钉住角色标题、标题旁的生产者名称、展开后该名称的留存、无名时的标题形态，以及持久与待处理气泡上的 steering 标注。
 - 无密钥的组装 Web 黄金基线携带带名称的标题栏与 steering 标注，因此证明这些标识的是组装后的 transcript，而不只是组件测试。
 
@@ -45,4 +45,5 @@ transcript 为非提示消息可能承担的三种角色分别命名：注入上
 - 读者一眼即可归因 transcript 中每一条非提示消息；即便面对本客户端版本从未见过其生产者的日志，标题栏依然如实。
 - 只要来源仅携带插件 id，UI 中的生产者名称就呈现为包名形态（`dsh-tool-skill`、`@deepseek-ai/dsh-system-prompt`）。这是拒绝客户端名称表的代价；想要更好名称的生产者应当记录更好的来源。
 - `ContextMessageNode` 增加了一个必填字段，因此每一处构造该节点的代码——包括测试 fixture——都必须提供它。
+- 即使 agent loop 现在把已经接纳的 steering 记录为 `user/message`，`SteeringMessageNode` 仍是独立的呈现节点；它的身份来自持久 inbox 历史，而不是独立消息事件。
 - 在某个宿主挂载 `dsh-session-reference` 之前，`recall` 分支在已发布的 Web 叶子中没有生产者，只能通过别处写入的日志抵达。

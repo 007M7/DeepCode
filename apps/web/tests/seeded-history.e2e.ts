@@ -57,8 +57,7 @@ function withCompaction(raw: string): string {
     .filter(event => event.surfaceOp === 'append'
       && (event.type === 'user/message'
         || event.type === 'assistant/message'
-        || event.type === 'tool/result'
-        || event.type === 'steering/message'))
+        || event.type === 'tool/result'))
     .map(event => event.seq)
   const first = surfaceSeqs[0]
   const last = surfaceSeqs.at(-1)
@@ -86,7 +85,7 @@ function withCompaction(raw: string): string {
     lines.push(JSON.stringify({ ...event, seq: taken, time: time++ }))
     return taken
   }
-  at({ type: 'turn/start', data: { turn, trigger: { kind: 'injection', source: { kind: 'plugin', plugin: 'compact' } } } })
+  at({ type: 'turn/start', data: { turn } })
   const startSeq = at({ type: 'compact/start', data: { turn } })
   const summarySeq = at({
     type: 'compact/summary',
@@ -216,7 +215,7 @@ describe('web e2e: seeded history renders through cold resume', () => {
 
     const agent = scaffold.ctx.agents.get(SessionId(SEED_ID))
     if (agent === undefined) throw new Error('seeded session did not attach an agent')
-    agent.inject(createUserMessage({
+    agent.session.append('user/message', createUserMessage({
       content: [{
         type: 'text',
         text: '<system-reminder>\n'
@@ -236,7 +235,7 @@ describe('web e2e: seeded history renders through cold resume', () => {
           digest: 'context-injection-browser-snapshot',
         }],
       },
-    }))
+    }), { surfaceOp: 'append' })
     // The header names the producer the durable source records, so the
     // reconciled instruction file is readable without expanding the row.
     await page.getByRole('button', { name: 'Context injection AGENTS.md', exact: true })
@@ -364,13 +363,13 @@ describe('web e2e: seeded history renders through cold resume', () => {
     await compareOrRefreshGolden(COMMAND_ROW_EXPECTED, snapshot, MODE)
   }, 60_000)
 
-  it.skipIf(MODE === 'record')('fits short injected context without a scrollport', async () => {
+  it.skipIf(MODE === 'record')('fits short logged context without a scrollport', async () => {
     const agent = scaffold.ctx.agents.get(SessionId(SEED_ID))
     if (agent === undefined) throw new Error('seeded session did not attach an agent')
-    agent.inject(createUserMessage({
+    agent.session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'Short injected context.' }],
       source: { kind: 'plugin', plugin: 'fixture' },
-    }))
+    }), { surfaceOp: 'append' })
 
     const disclosure = page.getByRole('button', { name: 'Context injection fixture', exact: true })
     await disclosure.waitFor({ timeout: 10_000 })

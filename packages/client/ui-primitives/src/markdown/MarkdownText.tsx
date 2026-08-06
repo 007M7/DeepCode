@@ -5,11 +5,16 @@ import rehypeKatex from 'rehype-katex'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import { CodeBlock } from './CodeBlock.tsx'
+import { remarkMathCompatibility } from './remarkMathCompatibility.ts'
 import 'katex/dist/katex.min.css'
 import css from './MarkdownText.module.css'
 
 const streamingRemarkPlugins = [remarkGfm]
-const settledRemarkPlugins = [remarkGfm, remarkMath]
+const settledRemarkPlugins = [
+  remarkGfm,
+  remarkMathCompatibility,
+  remarkMath,
+]
 const settledRehypePlugins = [rehypeKatex]
 
 function sanitizeUrl(url: string): string {

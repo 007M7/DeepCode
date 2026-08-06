@@ -18,29 +18,29 @@ Idle `inject()` exposed a second mismatch. Injection did not request model execu
 
 `inject()` is the only caller-facing operation for supplementary model-facing input, and a turn means one execution of the model loop.
 
-`SendOptions` contains only `target` and `wakeup`. A caller that owns context delivers an identified, frozen `UserMessage` through `inject()` and submits the direct message independently with `send()` or `steer()`.
+A caller that owns context delivers an identified, frozen `UserMessage` through `inject()` and submits the direct message independently with `followup()` or `steer()`.
 
-Prompt and tool extension points still return `additionalContexts`. These values are outputs of the extension point, not attachments captured from a caller's inbox item. Prompt admission runs before `run()` opens a turn. An allowed prompt and its returned additional contexts enter the new turn as separate messages; a blocked prompt writes neither and opens no turn. Tool-produced additional contexts enter the outbox after the corresponding tool results.
+An entering pre-step returns the complete `PreStepDecision.messages` batch for the request being finalized. Tool extension points still return `additionalContexts`, which enter the next-step inbox only after the corresponding tool results. These values are extension-point outputs, not attachments captured from a caller's inbox item.
 
-Every additional context is an independent `user/message` whose `source` records provenance. There is no `context/message`, prompt-prefix placement, stable request delimiter, or prompt envelope. Transcript and UI consumers distinguish direct user messages from injected context by `source`.
+Every additional context is an independent `UserMessage` whose `source` records provenance. Inbox insertion is durable immediately; admission later records the same value as `user/message`. There is no `context/message`, prompt-prefix placement, stable request delimiter, or prompt envelope. Transcript and UI consumers distinguish direct user messages from injected context by `source`.
 
 ## Injection lifecycle
 
-During prompt admission or an open turn, `inject()` stages context in the loop outbox. The private next-step acceptance window opens before `agent/prompt-submit` and closes before `turn/end`, so steering and context accepted for one boundary reach the same following request while a `turn/end` listener's late steering becomes a queued prompt. The loop drains the outbox at a safe step boundary, preserving tool protocol adjacency: context accepted during an assistant tool-call batch appears only after that batch's complete ordered results.
+`inject()` always inserts context into the non-waking `next-step` inbox and commits that queue mutation as `agent/inbox/spliced`. A running driver claims it at the nearest later pre-step boundary. An idle driver leaves it pending until `followup()` or `steer()` supplies waking work; cancellation or disposal may discard it first without erasing the durable queue history.
 
-Outside that window, `inject()` appends its `user/message` immediately. It does not increment turn numbering, emit `turn/start` or `turn/end`, change agent status, or run the model; persistence observes the append through `session/event`.
+The loop claims the current next-step batch before running `agent/pre-step`, so an injection that arrives after that claim may miss the request already being finalized. The next boundary claims it instead. An enter decision appends its returned messages inside the owning turn before the request consumes them. Context produced during an assistant tool-call batch therefore appears after that batch's complete ordered results.
 
-If prompt admission blocks or fails, a caller-staged context-only batch appends immediately without a turn. Steering and context staged beside it remain in the outbox for a later admitted prompt; cancellation or disposal may discard them. Hook-produced `additionalContexts` never materialize because they belong to the rejected admission decision.
+If pre-step rejects or throws, its claimed injected context, steering, and queued prompt stay removed and no returned batch is appended. Messages inserted after that atomic claim are unaffected and remain pending.
 
-The session invariant permits `user/message` between turns while continuing to require turn enclosure for core execution events, steering, assistant output, and tools. Merge-extensible event relations belong to their declaring plugin rather than a core default. Persistence, recovery, resume, fork, and compaction treat valid between-turn events as committed session history rather than an interrupted or discardable turn tail.
+The loop appends injected `user/message` events only from entered batches inside a turn. Core execution events, steering, assistant output, and tools remain turn-enclosed; merge-extensible event relations belong to their declaring plugin rather than a core default.
 
 ## Extension and caller semantics
 
-`PromptDecision.content` continues to replace only the direct prompt. `PromptDecision.additionalContexts` and tool-result `additionalContexts` retain FIFO order and individual provenance, but no longer select placement. A waterfall listener that delegates with `next()` must preserve downstream prompt content and additional contexts unless it intentionally returns replacements.
+The enter branch's `PreStepDecision.messages` is the complete batch for the proposed step. A waterfall listener that delegates with `next()` preserves downstream messages unless it intentionally replaces them; additions follow natural waterfall return order. Tool-result `additionalContexts` retain FIFO order and individual provenance.
 
-Caller-driven injection and hook-produced additional context deliberately have different admission ownership. A hook's additional contexts materialize only after that hook allows the prompt or tool result. Outside a next-step acceptance window, a caller that invokes `inject(context)` and then `send(prompt)` commits context independently; callers requiring all-or-nothing behavior use a domain-specific admission wrapper.
+Caller-driven injection and current-step context deliberately use different timing. `inject()` joins the next pre-step available and cannot promise that a request already being finalized will consume it. A listener that must affect that exact request returns the context in `PreStepDecision.messages`; downstream rejection or failure then prevents it from materializing.
 
-Cross-session references use that domain composition: TUI prepares the snapshot, then either adds it to the prompt's admission decision outside an acceptance window or injects it beside steering during one. The target log contains two simple messages, so later source mutation cannot change replay and transcript consumers do not need a prompt envelope. This supersedes the attachment mechanism in the [cross-session reference decision](../feature/2026-07-21-cross-session-references.md) while retaining its snapshot and trust-boundary rules.
+Cross-session references use that domain composition: TUI prepares the snapshot, returns it from the idle direct message's pre-step beside that message, or injects it before waking steering during a running turn. The target log contains two simple messages, so later source mutation cannot change replay and transcript consumers do not need a prompt envelope. This supersedes the attachment mechanism in the [cross-session reference decision](../feature/2026-07-21-cross-session-references.md) while retaining its snapshot and trust-boundary rules.
 
 This decision preserves the caller-owned framing decision from [unwrapped injected content](../simplification/2026-07-20-unwrap-injected-content-envelopes.md) and the one-item turn rule from [one send, one turn](../simplification/2026-07-17-one-send-one-turn.md). The later [standalone log-only event decision](../simplification/2026-07-28-remove-synthetic-log-only-turns.md) applies the same execution-only meaning to plugin-owned records.
 
@@ -48,27 +48,27 @@ This decision preserves the caller-owned framing decision from [unwrapped inject
 
 **Keep `SendOptions.contexts` as an atomic attachment.** This preserves all-or-nothing delivery when prompt admission blocks, but it keeps context inside inbox lifecycle state and requires every queue transition and observation event to carry it. The generic agent API should not encode a domain transaction that most callers can express as context injection followed by message delivery.
 
-**Keep a distinct `context/message` session event.** A separate event makes the out-of-turn exception narrower, but user-role model input would again have two event types with identical projection. `user/message.source` already carries the distinction needed by policy, transcript, and replay consumers.
+**Keep a distinct `context/message` session event.** User-role model input would again have two event types with identical projection. `user/message.source` already carries the distinction needed by policy, transcript, and replay consumers.
 
-**Keep one-shot turns for idle injection.** This retains universal turn enclosure and a convenient flush boundary, but it makes turn counts and turn observers report work that never ran the model. Durability is an independent session concern and can be awaited without fabricating execution.
+**Keep one-shot turns for idle injection.** Durable inbox insertion already records idle context without opening a turn. A synthetic turn would make turn counts and observers report work that never ran the model; non-waking context remains pending until real waking work supplies a request.
 
 **Keep `prompt-prefix` as an optional placement.** Prefix baking can make the context and request appear in one provider message, but it introduces a second representation of the direct prompt and spreads placement handling across admission, steering, logging, replay, and UI code. Producers that require textual framing may include it in their own context content.
 
-**Let hooks call `inject()` directly instead of returning additional contexts.** Direct injection would erase the extension point's admission ownership: a listener could append context before a downstream listener blocks the operation. Returning `additionalContexts` keeps the waterfall result authoritative while sharing the same post-admission outbox path.
+**Let prompt hooks call `inject()` instead of returning messages.** An injection may miss the request whose prompt is already being finalized and would escape a downstream block of that decision. Returning the complete message batch keeps current-request context under the waterfall's authority.
 
 ## Verification
 
-- `SendOptions` and steering inbox records contain no attached contexts; `agent/inbox/enqueue` reports only the message plus its resolved queued-or-steering placement.
+- Delivery inputs and steering inbox records contain no attached contexts; `agent/inbox/inserted` reports only the inserted message, while the durable splice retains its target list.
 - `UserMessage` is the shared identified, frozen shape across prompt interception, tool execution, hook bridges, guards, and context producers.
 - Prompt-prefix placement, prompt envelopes, and `context/message` are absent from public types, durable events, projection, and UI replay.
-- Idle `inject()` appends one sourced `user/message` without a turn or model call.
-- Admission-time and active-turn injection drain at safe boundaries after complete tool-result batches and before the request that consumes them.
-- Blocked prompt admission opens no turn and appends neither the prompt nor hook-produced additional contexts; caller context alone falls back to an idle append, while a steering boundary remains available to retry.
-- Unit, persistence/resume, invariant, host/client queue, and TUI coverage pin event order, admission ownership, and reconnect classification.
+- Idle `inject()` immediately appends one durable inbox insertion but no model-visible `user/message`; a later waking delivery may start pre-step processing.
+- Active-turn injection is claimed at the nearest later pre-step boundary, after complete tool-result batches and before the request that consumes it.
+- Rejected or failed pre-step drops its claimed batch; input inserted after the claim remains pending.
+- Unit, persistence/resume, invariant, and TUI coverage pin event order, claim ownership, and durable replay.
 
 ## Consequences
 
-- One surface event is valid outside turns, so persistence scanning, crash repair, forking, compaction, and session queries distinguish execution enclosure from session history.
+- Idle injection is not model-visible until a later pre-step enters it and may be discarded by cancellation or disposal, while its durable inbox lifecycle remains recorded.
 - Consecutive user-role messages replace one baked prompt message; provider adapters preserve that ordering.
-- Outside an acceptance window, `inject()` followed by a blocked `send()` leaves context without its intended direct prompt unless the caller supplies domain-specific admission ownership.
+- Exact-current-request context must be returned from `agent/pre-step`; ordinary injection provides only nearest-later-boundary delivery.
 - The public delivery contract and inbox records remain small: no context attachment, context-placement metadata, prompt envelope, or duplicate durable event type.

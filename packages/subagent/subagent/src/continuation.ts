@@ -847,16 +847,13 @@ export class SubagentContinuationManager {
       // quiet Agent from one whose accepted turn has not been admitted yet.
       // Registered through the child's own scoped context, so scope filtering
       // already restricts both listeners to this exact agent.
-      handle.agent.ctx.on('agent/inbox/dequeue', (_agent, item) => {
-        /* v8 ignore next -- a dequeue of an id this manager never admitted needs
+      handle.agent.ctx.on('agent/inbox/claimed', (_agent, { message }) => {
+        /* v8 ignore next -- a claim of an id this manager never admitted needs
          * another sender on the same child, which no current path allows. */
-        if (activation.accepted.delete(item.message.id)) this.wake(activation)
+        if (activation.accepted.delete(message.id)) this.wake(activation)
       })
-      handle.agent.ctx.on('agent/inbox/discard', (_agent, items) => {
-        // Deleting every id in the batch is unconditional; waking once afterwards
-        // costs nothing and avoids branching on which ids this manager admitted.
-        for (const item of items) activation.accepted.delete(item.message.id)
-        this.wake(activation)
+      handle.agent.ctx.on('agent/inbox/discarded', (_agent, { message }) => {
+        if (activation.accepted.delete(message.id)) this.wake(activation)
       })
       // Agent creation committed setup at its publication boundary;
       // revocations from here on are immediate live revocation.
