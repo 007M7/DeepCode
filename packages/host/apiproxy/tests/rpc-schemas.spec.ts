@@ -190,10 +190,16 @@ describe('sessions domain schemas', () => {
     expect(sessionHistoryRequestSchema.parse({ sessionId: 's1', beforeSeq: 3, maxMessages: 5 }).beforeSeq).toBe(3)
     expect(() => sessionHistoryRequestSchema.parse({ sessionId: 's1', maxMessages: 0 })).toThrow()
     expect(sessionHistoryValueSchema.parse({
-      events: [],
+      events: [{
+        event: { type: 'tool/result', seq: 3, time: 30, data: {} },
+        call: { name: 'skill', arguments: '{"name":"review"}', time: 20 },
+      }],
       hasMore: false,
       modelTarget: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
-    }).hasMore).toBe(false)
+    })).toMatchObject({
+      events: [{ call: { name: 'skill', arguments: '{"name":"review"}', time: 20 } }],
+      hasMore: false,
+    })
     expect(sessionModelsRequestSchema.parse({ sessionId: 's1' }).sessionId).toBe('s1')
     expect(sessionModelsValueSchema.parse({
       current: { provider: 'deepseek-official', model: 'deepseek-v4-flash', reasoningEffort: 'max' },

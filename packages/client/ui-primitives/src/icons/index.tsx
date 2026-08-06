@@ -750,6 +750,13 @@ export const IconSparkle16 = ({ size = 16, className }: IconProps) => (
   </svg>
 )
 
+/** inspect_outline_12 (shared tool-row trajectory affordance glyph) */
+export const IconInspectOutline12 = ({ size = 12, className }: IconProps) => (
+  <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
+    <path d="M16 8L10.8571 12V10.552L14.1383 8L10.8571 5.448V4L16 8ZM5.14286 10.552L1.86171 8L5.14286 5.448V4L0 8L5.14286 12V10.552ZM9.02514 4L5.59657 12H6.84057L10.2691 4H9.02514Z" fill="currentColor" />
+  </svg>
+)
+
 /** skill_outline_16 (skill tool-row glyph; document instructions + sparkle) */
 export const IconSkillOutline16 = ({ size = 16, className }: IconProps) => (
   <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">

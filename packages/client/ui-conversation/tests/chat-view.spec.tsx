@@ -282,12 +282,12 @@ describe('chat-flow derivation', () => {
 })
 
 describe('ChatView', () => {
-  it('a windowless tool result (call head truncated) renders with an empty tool name', () => {
+  it('an orphan tool result renders through the generic fallback', () => {
     const h = makeHarness({
       nodes: [{ ...toolResult(3, 'w1'), call: null }],
     })
     const view = render(<h.ChatView {...h.props} />)
-    // classifyTool('') → others; the summary slot falls back to the callId.
+    // No durable call exists for this id, so the summary falls back to callId.
     expect(view.container.querySelector('[data-variant="others"]')).not.toBeNull()
     expect(view.getByText('w1')).toBeTruthy()
   })

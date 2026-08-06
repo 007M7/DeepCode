@@ -14,6 +14,7 @@
 import { Context } from 'cordis'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import { SlashService } from '@deepseek-ai/dsh-client-ui-slash/client'
 import type { ClientSessionContext, SlashSource } from '@deepseek-ai/dsh-client-ui-slash/client'
 import { apply, inject } from '../src/client/index.ts'
@@ -25,33 +26,28 @@ type ListResult =
   | { ok: false; error: { code: string; message: string; details: object } }
 type ListFn = (payload: object, signal?: AbortSignal) => Promise<{ result: ListResult }>
 
-interface PresentationRegistration {
-  name: string
-  key?: string
-  locale?: string
-}
-
 interface PresentationCapture {
-  registration?: PresentationRegistration
-  component?: unknown
+  slots: SlotsService
   dictionaries: Array<{ namespace: string; dictionaries: unknown }>
+  localeDisposed: boolean
 }
 
 /** Provide the presentation registries and capture the plugin's registrations. */
 function providePresentation(ctx: Context): PresentationCapture {
-  const capture: PresentationCapture = { dictionaries: [] }
+  const slots = new SlotsService(ctx)
+  slots.register({
+    name: 'root',
+    children: { 'conversation.chat.toolview': { kind: 'keyed', scope: 'session' } },
+  } as never, () => null)
+  const capture: PresentationCapture = {
+    slots,
+    dictionaries: [],
+    localeDisposed: false,
+  }
   ctx.provide('locale', {
     register(namespace: string, dictionaries: unknown) {
       capture.dictionaries.push({ namespace, dictionaries })
-      return () => {}
-    },
-  })
-  ctx.provide('slots', {
-    inject(_name: string, factory: () => unknown) { factory() },
-    register(registration: PresentationRegistration, component: unknown) {
-      capture.registration = registration
-      capture.component = component
-      return () => {}
+      return () => { capture.localeDisposed = true }
     },
   })
   return capture
@@ -110,10 +106,10 @@ describe('apply', () => {
     ctx.provide('sessions', { subagentAddress: () => undefined })
     const presentation = providePresentation(ctx)
     await ctx.plugin({ inject: [...inject], apply }).await()
-    expect(presentation.registration).toEqual({
-      name: 'conversation.chat.toolview', key: 'skill', locale: 'skill',
-    })
-    expect(presentation.component).toBe(SkillToolRow)
+    const entry = presentation.slots.entries('conversation.chat.toolview')[0]
+    expect(entry?.options).toMatchObject({ key: 'skill' })
+    expect(entry?.locale).toBe('skill')
+    expect(entry?.component).toBe(SkillToolRow)
     expect(presentation.dictionaries).toEqual([{
       namespace: 'skill', dictionaries: {
         zh: {
@@ -138,7 +134,7 @@ describe('apply', () => {
     ctx.provide('sessions', {})
     await ctx.plugin(SlashService).await()
     ctx.provide('connection', { api: { skills: { list: listOk(CATALOG) } } })
-    providePresentation(ctx)
+    const presentation = providePresentation(ctx)
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
     const slash = ctx.get('slash') as SlashService
@@ -153,6 +149,8 @@ describe('apply', () => {
     // …and fiber teardown releases it.
     await fiber.dispose()
     expect(() => slash.registerSource(rival)).not.toThrow()
+    expect(presentation.slots.entries('conversation.chat.toolview')).toHaveLength(0)
+    expect(presentation.localeDisposed).toBe(true)
   })
 })
 

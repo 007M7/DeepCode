@@ -4,7 +4,7 @@
 
 import { useState, type KeyboardEvent, type ReactNode } from 'react'
 import {
-  IconChevronDownOutline14, IconSkillOutline16, StateDot,
+  IconChevronDownOutline14, IconInspectOutline12, IconSkillOutline16, StateDot,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ToolRowProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
@@ -45,7 +45,8 @@ function skillName(argsRaw: string, callId: string): string {
   return argsRaw === '' ? callId : firstLine(argsRaw)
 }
 
-/** Flatten the durable result exactly like the generic row's text fallback. */
+/** Flatten durable result blocks under the generic tool-row text contract.
+ *  Keep aligned with ui-conversation's contract/tool-call-model.ts `resultText`. */
 function resultText(block: ToolRowProps['block']): string | null {
   if (!('kind' in block)) return null
   const parts: string[] = []
@@ -108,15 +109,6 @@ function stateStatus(state: SkillRowState, t: SkillRowProps['t']): string | null
   }
 }
 
-/** Inspect affordance glyph shared with the transcript's other tool rows. */
-function IconInspect() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
-      <path d="M16 8L10.8571 12V10.552L14.1383 8L10.8571 5.448V4L16 8ZM5.14286 10.552L1.86171 8L5.14286 5.448V4L0 8L5.14286 12V10.552ZM9.02514 4L5.59657 12H6.84057L10.2691 4H9.02514Z" fill="currentColor" />
-    </svg>
-  )
-}
-
 /**
  * Render one `skill` tool call as an accent summary and instructions disclosure.
  * @param props - keyed toolview payload plus the skill locale seat.
@@ -129,7 +121,6 @@ export function SkillRow({ block, inspect, t }: SkillRowProps) {
   const open = expanded && expandable
   const status = stateStatus(model.state, t)
   const summary = model.errorSummary ?? model.name
-  const ariaLabel = status === null ? `Skill ${summary}` : `${status} Skill ${summary}`
   const toggleExpand = (): void => {
     setExpanded(value => !value)
   }
@@ -138,18 +129,20 @@ export function SkillRow({ block, inspect, t }: SkillRowProps) {
     event.preventDefault()
     toggleExpand()
   }
+  const disclosureProps = expandable ? {
+    role: 'button' as const,
+    tabIndex: 0,
+    'aria-expanded': open,
+    onClick: toggleExpand,
+    onKeyDown: toggleFromKeyboard,
+  } : {}
   const leading = disclosureLeading(model.state, open, expandable)
   return (
     <div className={css.card} data-tool="skill" data-state={model.state}>
       <div
         className={css.row}
         data-expandable={expandable || undefined}
-        role={expandable ? 'button' : undefined}
-        tabIndex={expandable ? 0 : undefined}
-        aria-expanded={expandable ? open : undefined}
-        aria-label={expandable ? ariaLabel : undefined}
-        onClick={expandable ? toggleExpand : undefined}
-        onKeyDown={expandable ? toggleFromKeyboard : undefined}
+        {...disclosureProps}
       >
         <span className={css.leading}>{leading}</span>
         {status !== null ? <span className={css.visuallyHidden}>{status}</span> : null}
@@ -167,7 +160,7 @@ export function SkillRow({ block, inspect, t }: SkillRowProps) {
           </section>
           {inspect !== undefined ? (
             <button type="button" className={css.inspectButton} onClick={inspect}>
-              <IconInspect />
+              <IconInspectOutline12 />
               Inspect
             </button>
           ) : null}
