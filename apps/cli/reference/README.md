@@ -55,7 +55,7 @@ Both modes treat the invoking directory as the default workspace root, load appl
 
 New sessions default to the `workspace-write` permission preset. Bash and filesystem mutations are restricted to the session workspace and platform temporary roots; reads, network access, and process visibility are not confined. `DSH_PERMISSION_MODE` changes the process fallback. Stored General-settings permissions affect later Web sessions, not an already-open one.
 
-`DSH_TOOLS_MODE` selects `native`, `code`, or `both` for the Web/headless process; another value fails at boot. [`config/core-web.cordis.yml`](../config/core-web.cordis.yml) is an optional Web overlay that reduces the native model surface to persistent `bash` and `str_replace_editor` while retaining the shipped host, browser, workspace, persistence, and permission composition.
+`DSH_TOOLS_MODE` selects `native`, `code`, or `both` for the ordinary Web/headless process; another value fails at boot. [`config/core-web.cordis.yml`](../config/core-web.cordis.yml) is an optional RL-compatible Web overlay that pins native mode, renders only `DSH_SYSTEM_PROMPT` or `You are a helpful software engineer assistant.` as the system prompt, disables Workspace instructions and Web runtime prompt context, and exposes only persistent `bash` and `str_replace_editor` while retaining the shipped host, browser, workspace, persistence, and permission composition.
 
 ## Shared deployment behavior
 

@@ -46,6 +46,12 @@
 # `dshClient` rows are the browser roster the modules node half scans into
 # window.__DSH_BOOT__; the modules row is simultaneously a host row.
 - insert:
+    # Launcher-provided builtin: owns Web GUI orientation in the model prompt
+    # and the matching managed Bash variables. Profiles with a complete prompt
+    # contract disable this row instead of relying on launcher special cases.
+    - id: web-runtime-context
+      name: cordis:web-runtime-context
+
     - id: session-projection
       name: '@deepseek-ai/dsh-session-projection'
 

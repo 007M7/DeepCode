@@ -22,6 +22,7 @@ const SOURCE_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 
 const DSH_WEB_URL = 'DSH_WEB_URL' as const
 const DSH_WEB_MODE = 'DSH_WEB_MODE' as const
+const WEB_RUNTIME_CONTEXT_BUILTIN = 'web-runtime-context' as const
 
 type WebMode = 'production' | 'development'
 
@@ -53,16 +54,8 @@ function localWebUrl(ctx: Context): string {
   return `http://${LOOPBACK_HOST}:${String(port)}`
 }
 
-/**
- * Register the launcher-owned prompt and shell runtime context before the
- * shared config tree mounts. The earlier injections install the prompt
- * sections and managed Bash contributor when their owning services activate;
- * dynamic values read the bound server only when consumed.
- * @param ctx - Web root context with Loader installed but no config tree mounted.
- * @param sourceRoot - absolute checkout root resolved from the launcher module.
- * @param mode - whether this process mounted the client-plugin HMR receiver.
- */
-export function prepareWebRuntimeContext(ctx: Context, sourceRoot: string, mode: WebMode): void {
+/** Register the model-facing Web orientation and its matching shell variables. */
+function applyWebRuntimeContext(ctx: Context, sourceRoot: string, mode: WebMode): void {
   ctx.inject(['systemPrompt'], (promptCtx) => {
     addHarnessSourceSection(promptCtx, sourceRoot)
     promptCtx.systemPrompt.section({
@@ -81,6 +74,31 @@ export function prepareWebRuntimeContext(ctx: Context, sourceRoot: string, mode:
       resolve: () => ({ [DSH_WEB_URL]: localWebUrl(runtimeCtx), [DSH_WEB_MODE]: mode }),
     })
   })
+}
+
+/**
+ * Register the launcher-owned runtime-context builtin before the config tree
+ * mounts. The Web overlay decides whether to mount it, so profiles that own
+ * their complete model prompt can disable the contribution without changing
+ * launcher control flow. Dynamic values read the bound server only when used.
+ * @param ctx - Web root context with Loader installed but no config tree mounted.
+ * @param sourceRoot - absolute checkout root resolved from the launcher module.
+ * @param mode - whether this process mounted the client-plugin HMR receiver.
+ */
+export function prepareWebRuntimeContext(ctx: Context, sourceRoot: string, mode: WebMode): void {
+  const { builtins } = ctx.loader
+  if (builtins[WEB_RUNTIME_CONTEXT_BUILTIN] !== undefined) {
+    throw new Error(`dsh web: Loader builtin "${WEB_RUNTIME_CONTEXT_BUILTIN}" is already registered`)
+  }
+  const plugin = (runtimeCtx: Context): void => {
+    applyWebRuntimeContext(runtimeCtx, sourceRoot, mode)
+  }
+  builtins[WEB_RUNTIME_CONTEXT_BUILTIN] = plugin
+  ctx.effect(() => () => {
+    if (builtins[WEB_RUNTIME_CONTEXT_BUILTIN] === plugin) {
+      Reflect.deleteProperty(builtins, WEB_RUNTIME_CONTEXT_BUILTIN)
+    }
+  }, 'dsh web runtime-context builtin')
 }
 
 /**

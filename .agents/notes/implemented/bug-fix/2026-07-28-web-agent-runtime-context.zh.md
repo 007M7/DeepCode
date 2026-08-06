@@ -10,13 +10,13 @@ CLI 共享 base 配置了空的部署 persona，Web overlay 没有替换它，�
 
 ## 决策
 
-`apps/cli/config/web.cordis.yml` 这份 Web／无头共享 overlay 提供一段简洁的编码 agent persona，其中包含解析后的 `{{model}}` 与会话 `{{cwd}}`。`dsh web` 还会根据启动器模块的 URL 解析 harness checkout，安装现有的 `harness:source` 提示词段，并在对外提供请求服务前添加 `app:web-surface` 提示词段。启动器会在挂载配置树前注册这项设置；因此，它的 `systemPrompt` 注入会在 agent loop（智能体循环）等后续提示词消费方激活并发出 request header 之前安装这两个提示词段。源码提示词段的措辞，以及其中不得从一条路径推断另一条路径的警告，均由另行记录的[源码 checkout 与工作目录区分决策](2026-07-30-source-checkout-workdir-distinction.md)负责。
+`apps/cli/config/web.cordis.yml` 这份 Web／无头共享 overlay 提供一段简洁的编码 agent persona，其中包含解析后的 `{{model}}` 与会话 `{{cwd}}`。挂载该配置树前，`dsh web` 会注册一个由启动器提供的 `cordis:web-runtime-context` builtin；常规 Web overlay 会挂载它，以根据启动器模块的 URL 解析 harness checkout、安装现有的 `harness:source` 提示词段并添加 `app:web-surface` 提示词段。拥有完整提示词的 profile 可以禁用该 builtin 配置行，而每项已挂载的提示词贡献仍会在 agent loop（智能体循环）等后续消费方发出 request header 前激活。源码提示词段的措辞，以及其中不得从一条路径推断另一条路径的警告，均由另行记录的[源码 checkout 与工作目录区分决策](2026-07-30-source-checkout-workdir-distinction.md)负责。
 
 Web 提示词段把未限定的「这个页面」「这个 GUI」或「这个应用」解释为 DeepSeek Harness Web GUI。同时，它会明确说明浏览器不会隐式提供 DOM、路由或截图上下文，使模型能够识别产品，但不会声称掌握未收到的视觉状态。组装后的文本会记录在 `request/header` 中，从而保持「模型可见内容必须有日志记录」这一不变量。
 
 ## 验证
 
-聚焦启动顺序的测试会注册一个后续的 `systemPrompt` 消费方，并证明该消费方首次激活时就能观察到启动器的两个提示词段。无密钥的 Web fresh-round-trip 场景会启动已交付的 base 与 Web overlay，注册与 `dsh web` 相同的启动器上下文，并通过 HTTP／SSE 应用运行一个真实会话。测试会把源码路径和工作目录规范化，然后对系统提示词的前四个段落生成快照。该快照按请求顺序固定 harness 身份、源码 checkout、Web 界面定位，以及解析后的编码 agent persona。
+聚焦启动顺序的测试会挂载启动器 builtin，注册一个后续的 `systemPrompt` 消费方，并证明该消费方首次激活时就能观察到启动器的两个提示词段。无密钥的 Web fresh-round-trip 场景会启动已交付的 base 与 Web overlay，注册与 `dsh web` 相同的启动器上下文，并通过 HTTP／SSE 应用运行一个真实会话。测试会把源码路径和工作目录规范化，然后对系统提示词的前四个段落生成快照。该快照按请求顺序固定 harness 身份、源码 checkout、Web 界面定位，以及解析后的编码 agent persona。Core Web 快照会禁用该 builtin，并固定其完整的 RL 系统提示词。
 
 ## 考虑过的替代方案
 
@@ -30,4 +30,4 @@ Web 提示词段把未限定的「这个页面」「这个 GUI」或「这个应
 
 ## 影响
 
-Web 请求会增加一段较短且稳定的提示词前缀；部署此变更时，模型提供方的前缀缓存可能失效一次。agent 可以区分 GUI 源码 checkout 与所选 Workspace，并且无需再经过一轮澄清即可解析对当前应用的一般指代。对特定视觉状态的指代仍受「无 DOM／无路由／无截图」这一显式边界约束，必要时仍需用户提供路径、描述或附件。
+常规 Web 请求会增加一段较短且稳定的提示词前缀；部署此变更时，模型提供方的前缀缓存可能失效一次。agent 可以区分 GUI 源码 checkout 与所选 Workspace，并且无需再经过一轮澄清即可解析对当前应用的一般指代。对特定视觉状态的指代仍受「无 DOM／无路由／无截图」这一显式边界约束，必要时仍需用户提供路径、描述或附件。拥有完整提示词的 profile 无需检查启动器路径即可选择退出。
