@@ -10,7 +10,7 @@
 
 ## Markdown 渲染
 
-`MarkdownText` 通过 React 元素渲染来自不受信任 assistant 输出的 GFM 与 `$…$`、`$$…$$`、`\(…\)` 和 `\[…\]` TeX 公式，公式由 KaTeX 排版并禁用受信任命令；块级同一行 `$$…$$` 是显示公式并支持 `\tag{}`。它会省略原始 HTML，使相对链接及非 HTTP(S)/mailto 链接失效，以安全的外部链接属性打开 HTTP(S) 链接，并在不发送 referrer 的情况下渲染采用绝对 HTTP(S) URL 的图片；相对路径、绝对本地路径、`file:` URL 与不受支持的 scheme 会保留其 alt 文本。`MessageText` 仍是用户创作内容使用的字面文本原语。`extractMarkdownPlainText` 会移除 Markdown 呈现标记以用于紧凑标签，同时将原始 HTML 保留为字面文本。元素间距、响应式图片、表格、链接与行内代码使用与 deepsuite `@deepseek/md` 相同的 `--dsw-alias-markdown-*` / `--dsw-font-markdown-*` token。围栏代码块通过 `CodeBlock` 渲染（语言横幅、复制控件，以及对已注册语法使用 shiki）。
+`MarkdownText` 通过 React 元素渲染来自不受信任 assistant 输出的 GFM 与 `$…$`、`$$…$$`、`\(…\)` 和 `\[…\]` TeX 公式，公式由 KaTeX 排版并禁用受信任命令；块级同一行 `$$…$$` 是显示公式并支持 `\tag{}`。一个小范围的 micromark 扩展允许由星号标记、以标点结尾的粗体在紧邻的 CJK 文本前闭合，以适应 CJK 文本通常省略 CommonMark 所要求空格的写法；单星号强调、紧邻非 CJK 文本的情况、转义、代码与数学公式仍沿用上游解析行为。它会省略原始 HTML，使相对链接及非 HTTP(S)/mailto 链接失效，以安全的外部链接属性打开 HTTP(S) 链接，并在不发送 referrer 的情况下渲染采用绝对 HTTP(S) URL 的图片；相对路径、绝对本地路径、`file:` URL 与不受支持的 scheme 会保留其 alt 文本。完整内容为绝对 HTTP(S) URL 的行内代码会保留代码样式，并获得同样安全的外部链接；命令、非完整 URL、其他 scheme 与围栏代码仍不会成为链接。`MessageText` 仍是用户创作内容使用的字面文本原语。`extractMarkdownPlainText` 会移除 Markdown 呈现标记以用于紧凑标签，同时将原始 HTML 保留为字面文本。元素间距、响应式图片、表格、链接与行内代码使用与 deepsuite `@deepseek/md` 相同的 `--dsw-alias-markdown-*` / `--dsw-font-markdown-*` token。围栏代码块通过 `CodeBlock` 渲染（语言横幅、复制控件，以及对已注册语法使用 shiki）。
 
 ## 终端输出
 
