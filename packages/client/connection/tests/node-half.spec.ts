@@ -30,15 +30,11 @@ function fakeRequest(headers: Record<string, string>, url = `${API_PATH}/session
 }
 
 /** Response recorder compatible with both the fence's short-circuit and the bridge. */
-function fakeResponse(): { response: ServerResponse; state: { status?: number; body?: unknown; headers?: Record<string, string> } } {
-  const state: { status?: number; body?: unknown; headers?: Record<string, string> } = {}
+function fakeResponse(): { response: ServerResponse; state: { status?: number; body?: unknown } } {
+  const state: { status?: number; body?: unknown } = {}
   const response = Object.assign(new EventEmitter(), {
     writableEnded: false,
-    writeHead(value: number, headers?: Record<string, string>) {
-      state.status = value
-      if (headers !== undefined) state.headers = headers
-      return this
-    },
+    writeHead(value: number) { state.status = value; return this },
     write() { return true },
     end(this: { writableEnded: boolean }, value?: unknown) {
       if (value !== undefined) state.body = value
@@ -72,7 +68,8 @@ describe('connection node half', () => {
 
   it('registers the /api prefix route and removes it with the fiber', async () => {
     const { routes, dispose } = await mounted()
-    expect(routes).toMatchObject([{ kind: 'prefix', path: API_PATH }])
+    expect(routes).toHaveLength(1)
+    expect(routes[0]).toMatchObject({ kind: 'prefix', path: API_PATH })
     await dispose()
     expect(routes).toHaveLength(0)
   })

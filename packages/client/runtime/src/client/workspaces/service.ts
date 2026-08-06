@@ -239,7 +239,6 @@ export class WorkspacesService implements IWorkspaces {
     }
   }
 
-
   /**
    * Rename a Workspace.
    * @param workspaceId - target workspace.

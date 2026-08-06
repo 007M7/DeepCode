@@ -62,5 +62,4 @@ describe('connection client apply', () => {
     }
     expect(seen.some(u => u.includes('/api/'))).toBe(true)
   })
-
 })

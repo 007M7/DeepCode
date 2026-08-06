@@ -13,7 +13,7 @@ export { API_PATH } from './api-path.ts'
 /** Stable Cordis plugin name. */
 export const name = 'client-connection'
 
-/** Services required before mounting the routes. */
+/** Services required before mounting the route. */
 export const inject = ['httpServer', 'apiProxy']
 
 /** Plugin config: the deployment's non-loopback serving authorities. */
@@ -96,5 +96,4 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
     },
   }
   ctx.effect(() => ctx.httpServer.register(route), 'client-connection: /api route')
-
 }

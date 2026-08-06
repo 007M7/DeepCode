@@ -98,7 +98,6 @@ export class TestWorkspaces implements IWorkspaces {
     await (this.stubs.get('openPath')?.(path) as Promise<void> | undefined)
   }
 
-
   /**
    * Directory picker (recorded). The default cancels (null); stub to select.
    * @returns the picked path, or null.

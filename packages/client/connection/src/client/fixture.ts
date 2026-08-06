@@ -2362,7 +2362,6 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
       })
       return Promise.resolve({ accepted: true })
     },
-
   }
 }
 

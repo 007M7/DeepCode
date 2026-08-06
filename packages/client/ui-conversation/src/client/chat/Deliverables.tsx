@@ -2,8 +2,7 @@
 // from the mutation tools' follow-along locations (see turnDeliverables), never
 // from the closing prose, so the answer carries its own output whether or not
 // the model remembered to name it. Clicking one goes through the same openFile
-// the tool rows use — in the browser that is a new tab served from the session
-// workspace, and outside it the Host's own opener.
+// the tool rows use — the Host's own opener, on the Host machine.
 
 import type { ChatViewSlotProps } from '../contract/slots.ts'
 import css from './Deliverables.module.css'
