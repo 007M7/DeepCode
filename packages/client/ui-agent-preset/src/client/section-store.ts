@@ -107,7 +107,17 @@ export class AgentPresetSectionController {
   /** Page snapshot the renderer subscribes to. */
   readonly store: SnapshotStore<AgentPresetSectionState> = createSnapshotStore(INITIAL)
 
-  constructor(private readonly api: Pick<IApiClient, 'agentPresets' | 'settings'>) {}
+  constructor(
+    private readonly api: Pick<IApiClient, 'agentPresets' | 'settings'>,
+    /**
+     * Called after this page changes the roster DIRECTORY, so the other
+     * surfaces reading the same roster re-read it. A settings field moving is
+     * already announced by the host through `settings/changed`; a file written
+     * or deleted here is not, and the new-session chip has no other way to
+     * learn a preset it should offer now exists.
+     */
+    private readonly rosterChanged: () => void = () => {},
+  ) {}
 
   private set(patch: Partial<AgentPresetSectionState>): void {
     this.store.set({ ...this.store.getSnapshot(), ...patch })
@@ -265,6 +275,7 @@ export class AgentPresetSectionController {
       }
       this.set({ draft: null })
       await this.load()
+      this.rosterChanged()
     } catch (error) {
       this.patchDraft({ saving: false, error: messageOf(error) })
     }
@@ -303,6 +314,7 @@ export class AgentPresetSectionController {
         draft: draft?.id === pendingDelete && !draft.creating ? null : draft,
       })
       await this.load()
+      this.rosterChanged()
     } catch (error) {
       this.set({ deleting: false, pendingDelete: null, error: messageOf(error) })
     }
