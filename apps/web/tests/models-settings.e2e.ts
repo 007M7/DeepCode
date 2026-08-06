@@ -9,9 +9,9 @@
 // settings/credentials/llm-domain traffic, so there is no fixture and a
 // stray stream would fail loud on the open seam. The provider under test is
 // minimax-cn so a developer's real ANTHROPIC/OPENAI environment keys can
-// never shadow the derived reference. Removing that row is guarded by the
-// localized, identified provider-confirmation dialog before the credential
-// and settings unsets reach the wire.
+// never shadow the derived reference. The deletion dialog distinguishes a
+// reference-free profile from a page-managed key before the credential and
+// settings unsets reach the wire.
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
@@ -27,6 +27,7 @@ import { ZH_BROWSER_LOCALE, saveFailureShot } from './support.ts'
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/models-settings', import.meta.url))
 const EMPTY_EXPECTED = join(SNAPSHOT_DIR, 'empty.expected.md')
 const CONFIGURED_EXPECTED = join(SNAPSHOT_DIR, 'configured.expected.md')
+const NATIVE_DELETE_EXPECTED = join(SNAPSHOT_DIR, 'native-delete.expected.md')
 const DELETE_EXPECTED = join(SNAPSHOT_DIR, 'delete.expected.md')
 const MODE = webSnapshotMode()
 
@@ -86,6 +87,21 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
     const document = await readFile(join(scaffold.harnessHome, 'settings.yaml'), 'utf8')
     expect(document).toContain('minimax-cn: {}')
     expect(document).not.toContain('MINIMAX_CN_API_KEY')
+  }, 60_000)
+
+  it('describes reference-free deletion without claiming a credential exists', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-models-native-delete'))
+    const settingsDialog = page.getByRole('dialog', { name: '设置' })
+    await settingsDialog.getByRole('button', { name: '删除 minimax-cn', exact: true }).click()
+    const deleteDialog = page.getByRole('dialog', { name: '删除 minimax-cn？' })
+    await deleteDialog.waitFor({ timeout: 10_000 })
+    const snapshot = await captureStableAria(
+      page,
+      '[role="dialog"][aria-label="删除 minimax-cn？"]',
+      scaffold.workspaceCwd,
+    )
+    await compareOrRefreshGolden(NATIVE_DELETE_EXPECTED, snapshot, MODE)
+    await deleteDialog.getByRole('button', { name: '取消', exact: true }).click()
   }, 60_000)
 
   it('stores the key under the derived reference and keeps the route live', async () => {
@@ -163,6 +179,8 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
   }, 60_000)
 
   it.skipIf(MODE === 'record')('keeps the fixture inventory closed', async () => {
-    await assertFixtureInventory(SNAPSHOT_DIR, ['configured.expected.md', 'delete.expected.md', 'empty.expected.md'])
+    await assertFixtureInventory(SNAPSHOT_DIR, [
+      'configured.expected.md', 'delete.expected.md', 'empty.expected.md', 'native-delete.expected.md',
+    ])
   })
 })

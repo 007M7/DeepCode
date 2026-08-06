@@ -816,7 +816,7 @@ describe('ModelsSection', () => {
     expect(set).not.toHaveBeenCalled()
   })
 
-  it('retries only the credential after settings already committed', async () => {
+  it('retries only the credential after refreshed settings already committed', async () => {
     const committed = wireNamespaces()[2]!
     const afterSettings: SettingsNamespaceView = {
       ...committed,
@@ -834,7 +834,7 @@ describe('ModelsSection', () => {
     const set = vi.fn()
       .mockResolvedValueOnce(fail('credential store unavailable', 'credential-rejected'))
       .mockResolvedValueOnce(ok({}))
-    await mountSection({ mutate, set })
+    const { face, controller } = await mountSection({ mutate, set })
     fireEvent.click(screen.getByText(en.add))
     await screen.findByLabelText(en.provider)
     const keys = screen.getAllByLabelText<HTMLInputElement>(en.keyInput)
@@ -842,6 +842,13 @@ describe('ModelsSection', () => {
     fireEvent.click(screen.getAllByText(en.apply)[1] as HTMLElement)
     await screen.findByText('credential store unavailable')
     expect(mutate).toHaveBeenCalledOnce()
+    face.settings.describe.mockResolvedValue(ok({
+      writable: true,
+      hasDocument: false,
+      namespaces: wireNamespaces().map(namespace => namespace.ns === 'llm-pi-ai' ? afterSettings : namespace),
+    }))
+    await act(async () => { await controller.load() })
+    expect(controller.store.getSnapshot().namespaces.get('llm-pi-ai')?.revision).toBe(1)
     fireEvent.click(screen.getAllByText(en.apply)[1] as HTMLElement)
     await waitFor(() => { expect(set).toHaveBeenCalledTimes(2) })
     expect(mutate).toHaveBeenCalledOnce()

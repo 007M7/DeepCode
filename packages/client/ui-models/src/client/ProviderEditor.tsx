@@ -133,9 +133,9 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
   const [keyState, setKeyState] = useState<CredentialView | undefined>(undefined)
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string | undefined>(undefined)
-  // A settings success becomes the next retry baseline immediately. If the
-  // following credential write fails, retry sends only the credential instead
-  // of replaying the already-committed settings write with a stale revision.
+  // A settings success advances both retry baselines immediately. Keeping the
+  // derived fields in the draft prevents a pushed namespace refresh from
+  // turning them into deletions when the following credential write is retried.
   const [committedOriginal, setCommittedOriginal] = useState<unknown>(
     () => getPath(namespace.user, settingsPath),
   )
@@ -215,6 +215,7 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
       }
       setCommittedOriginal(getPath(response.result.value.user, settingsPath))
       setExpectedRevision(response.result.value.revision)
+      setDraft(next)
     }
     if (normalizedKey.length > 0) {
       const stored = await api.credentials.set({ ref: keyRef, value: normalizedKey })
