@@ -35,7 +35,7 @@ const ESCAPE = "globalThis.constructor.constructor('return process')()"
 /** One controllable child run: the test (or auto mode) settles it. */
 interface ControlledRun {
   request: SubagentStartRequest
-  /** Fulfill the provider's async start with a ready child. */
+  /** Fulfill the provider's async start with a published child. */
   publish(): void
   /** Reject the provider's async start before ownership transfer. */
   rejectStart(error: unknown): void
@@ -548,7 +548,7 @@ describe('dsh-workflow-workerthread', () => {
           // The rejection VALUE's own coercion throws: a warn built with bare
           // String(error) would itself throw, skipping the ChildDisposed ack
           // and wedging the script's finally until the grace/terminate path.
-          // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- the non-Error rejection IS the scenario under test
+          // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- the non-Error rejection IS the scenario under test
           dispose: () => Promise.reject({ toString: () => { throw new Error('coercion trap') } }),
         }),
       }

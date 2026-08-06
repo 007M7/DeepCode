@@ -2,13 +2,13 @@
 
 [English](session-query.md) | 中文
 
-本文定义面向优先使用 live 数据的逻辑会话语料库的查询词汇。[接口包（package）](../../packages/session-query/session-query)负责精确读取、来源优先级、关系追踪、语义提取，以及与提供方无关的过滤器；[SQLite 包](../../packages/session-query/session-query-sqlite)负责具体全文索引的生命周期。
+本文定义逻辑会话语料库的查询词汇；当 live 数据存在时，该语料库优先使用 live 数据。[接口包](../../packages/session-query/session-query)负责精确读取、来源优先级、关系追踪、语义提取，以及与提供方无关的过滤器；[SQLite 包](../../packages/session-query/session-query-sqlite)负责具体全文索引的生命周期。
 
 源码：[`packages/session-query/session-query/src/types.ts`](../../packages/session-query/session-query/src/types.ts)
 
 ## 逻辑记录
 
-`SessionRecord` 由跨语料库列表返回。它独立于克隆后的实时优先 header 暴露源可用性。`SessionEventRecord` 是轻量的原始日志投影；分类使用与 model-history 推导相同的 `foldSurface()` 状态转换。
+`SessionRecord` 由全语料库列表返回。它除了克隆的、优先取自 live 源的 header 外，还单独公开各源的可用性。`SessionEventRecord` 是轻量的原始日志投影；分类使用与模型历史推导相同的 `foldSurface()` 状态转换。
 
 ```ts type-equiv
 /** Whether an event is current model context, replaced context, or raw-log-only. */
@@ -51,7 +51,7 @@ interface SessionSurfaceSnapshot {
 }
 ```
 
-`SessionTitleObservation` 将同样的原子观测规则应用于标题折叠，使授权消费者能够验证提供标题的源 header。批量读取会按顺序为每个唯一请求 id 返回一个 `SessionTitleObservationResult`：操作失败只影响对应 id，而取消会拒绝整个操作。
+`SessionTitleObservation` 将同样的原子观测规则应用于标题折叠，使执行授权检查的消费方能够验证提供标题的源 header。批量读取会按顺序为每个唯一请求 id 返回一个 `SessionTitleObservationResult`：操作失败只影响对应 id，而取消会拒绝整个操作。
 
 ```ts type-equiv
 /** Latest folded title bound to the same session-header observation. */
@@ -102,7 +102,7 @@ interface SessionEventRecord {
 
 ## 与提供方无关的过滤器和文档
 
-会话和事件过滤器数组内的各项按逻辑与（AND）组合；单个列表子句中的各值按逻辑或（OR）组合。范围包含两端。事件的 `text` 子句会对提取出的语义文本执行正则表达式扫描：搜索文本按字面量处理，Unicode 字符不区分大小写，空白字符可灵活匹配；该过程与全文搜索提供方无关。
+会话和事件过滤器数组内的各项按逻辑与（AND）组合；单个列表子句中的各值按逻辑或（OR）组合。范围包含两端。事件的 `text` 子句会对提取出的语义文本执行正则表达式扫描：搜索文本按字面量处理，按 Unicode 规则执行不区分大小写的匹配，并允许灵活匹配空白字符；该过程与全文搜索提供方无关。
 
 ```ts type-equiv
 /**
@@ -191,7 +191,7 @@ interface SessionSearchPage<T> {
 }
 ```
 
-与跨会话分组 hit 不同，会话内搜索即使没有命中项，也必须公开它观测到的目标 header。
+与跨会话分组 hit 不同，会话内搜索结果即使没有命中项，也必须公开搜索时观测到的目标 header。
 
 ```ts type-equiv
 /** Event-search results bound to the indexed target-session observation. */
@@ -219,7 +219,7 @@ interface SessionSearchHit extends SessionRecord {
 
 ## 会话谱系
 
-`SessionLineageTrace` 按由近及远的顺序携带已知 parent，并携带一片由直接 descendant 递归嵌套而成的森林。完整性判别字段使已知 root 与缺失 parent 互斥。
+`SessionLineageTrace` 按由近及远的顺序携带已知 parent，以及由直接 descendant 递归嵌套而成的森林。完整性判别字段使已知 root 与缺失 parent 互斥。
 
 ```ts type-equiv
 /** Recursive descendant node in a session-lineage trace. */
@@ -292,7 +292,7 @@ interface SessionEventWindow {
 
 ## 事件关系
 
-事件追踪会区分位置性的 surface 替换与已记录 provenance。除 `replacementChain` 外，每个 seq 列表都包含直接链接；该链从目标沿直接 replacer 追踪到最终的位置替换。
+事件追踪会区分位置替换与日志中记录的来源关系。除 `replacementChain` 外，每个 seq 列表都只包含直接链接；该链从目标沿直接 replacer 追踪到最终的位置替换。
 
 ```ts type-equiv
 /** Request for direct surface and provenance relationships around one event. */
@@ -338,6 +338,7 @@ interface SessionEventTraceObservation extends SessionEventTrace {
 /** Stable machine-routable failure taxonomy for session reads, traces, and search. */
 type SessionQueryErrorCode =
   | 'SESSION_QUERY_ABORTED'
+  | 'SESSION_QUERY_CORRUPT_SESSION'
   | 'SESSION_QUERY_EVENT_NOT_FOUND'
   | 'SESSION_QUERY_INDEX_FAILED'
   | 'SESSION_QUERY_INVALID_CONFIG'

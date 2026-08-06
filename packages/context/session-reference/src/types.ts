@@ -6,6 +6,8 @@ import type { SessionId, UserMessage } from '@deepseek-ai/dsh-session'
 /** Durable provenance for one prepared cross-session context. */
 export interface SessionReferenceSource {
   kind: 'session-reference'
+  /** Material lifted out of another session's log (`recall` context form). */
+  form: 'recall'
   version: 1
   references: {
     sessionId: string

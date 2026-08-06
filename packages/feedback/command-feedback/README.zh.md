@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-与触发方式无关的会话反馈，以及面向用户的 `/feedback` 采集。本包（package）导出 `recordFeedback(session, text)`，后者追加一个仅写入日志的 `feedback/record` 事件。该插件通过 [`ctx.commands`](../../ui/commands/README.md) 注册一个全局命令，因此每个已组合的命令适配器都能发现它；随附 TUI 无需模型轮次即可执行。
+与触发方式无关的会话反馈，以及面向用户的 `/feedback` 采集。本包导出 `recordFeedback(session, text)`，后者追加一个仅写入日志的 `feedback/record` 事件。该插件通过 [`ctx.commands`](../../ui/commands/README.md) 注册一个全局命令，因此每个已组合的命令适配器都能发现它；随附的 Web 客户端无需模型轮次即可执行。
 
 ## 命令契约
 
@@ -32,7 +32,7 @@
   name: '@deepseek-ai/dsh-command-feedback'
 ```
 
-TUI 应用无条件挂载此命令；它没有配置，也不依赖持久 goal 栈。无头 CLI、ACP 自动化和 JSON-RPC 适配器不消费 `ctx.commands`，因此不会暴露它。
+随附的 `dsh` 基础组合无条件挂载此命令；它没有配置，也不依赖持久 goal 栈。Web 客户端通过命令适配器暴露该命令。无头模式、ACP 自动化和 JSON-RPC 不提供命令适配器，因此不会暴露它。
 
 ## 模型体验
 
@@ -56,4 +56,4 @@ TUI 应用无条件挂载此命令；它没有配置，也不依赖持久 goal �
 - **没有结构化字段**：一条条目就是一个自由文本字符串，没有类别、严重程度或关联事件链接，因此无法在不重读文本的情况下按主题过滤反馈。
 - **不支持修改或撤回**：会话日志是仅追加的，本包也不新增 tombstone，因此错误的条目会一直保留在记录中，只能由后续条目取代。
 - **没有显式持久化屏障**：确认文本紧随追加而非 flush，因此紧临崩溃前记录的条目可能与其他未 flush 的尾部一同丢失。为反馈强制同步写盘并不值得；需要该保证的消费方可自行等待 `ctx.sessions.flush(session)`。
-- **随附应用中只有 TUI 使用此命令**：无头 CLI、ACP 自动化和 JSON-RPC 适配器不挂载 `ctx.commands`，因此 `/feedback` 在那里不可用。
+- **随附的产品入口中只有 Web 使用此命令**：无头模式、ACP 自动化和 JSON-RPC 不提供命令适配器，因此 `/feedback` 在那里不可用。

@@ -2,14 +2,14 @@
  * SlotsService: the cordis Service layer of the slot system over the pure
  * SlotCore (ui-slots owns registration semantics, the declaration ledger,
  * the load-time validations, and the unload cascade). This layer owns what
- * needs the runtime: the 'slots/changed' event bridge, register through the
- * caller's ctx.effect (fiber unload collects registrations), the renderer
- * install seam (install()/renderSlot('root') + the SlotRendererHost face),
- * and the store INSTANCE axis — handle x scope key -> create/cache, dropped
- * with the last holding entry, session instances cleared (with persisted
- * state) on scope death.
+ * needs the runtime: the 'slots/changed' event bridge, register and
+ * declaration injection through the caller's ctx.effect (fiber unload
+ * collects both), the renderer install seam (install()/renderSlot('root') +
+ * the SlotRendererHost face), and the store INSTANCE axis — handle x scope
+ * key -> create/cache, dropped with the last holding entry, session instances
+ * cleared (with persisted state) on scope death.
  */
-/* eslint-disable @typescript-eslint/no-redundant-type-constituents --
+/* oxlint-disable typescript/no-redundant-type-constituents --
  * `keyof SlotMap & string` is the declare-merge key pattern: SlotMap only
  * holds this package's 'root' row in this compilation unit, but consumers
  * merge keys in; the rule fires on the narrow-map view, not on real
@@ -18,7 +18,7 @@ import { Service } from 'cordis'
 import type { Context } from 'cordis'
 import { SlotCore } from '@deepseek-ai/dsh-client-ui-slots'
 import type {
-  OwnerOf, SlotEntryDef, SlotMap, SlotRenderer, SlotRendererHost,
+  LocaleFace, OwnerOf, SlotEntryDef, SlotMap, SlotRenderer, SlotRendererHost,
   SlotScope, SlotSpec, StoreDecl, StoredEntry, StoreInstanceLike,
 } from '@deepseek-ai/dsh-client-ui-slots'
 
@@ -70,11 +70,16 @@ interface ErasedRegisterOptions {
   select?: (owner: never) => unknown
   /** Chain-slot explicit ordering override (ascending; registration order otherwise). */
   priority?: number
+  /** Declared dictionary namespace (the renderer synthesizes the `t` seat from it). */
+  locale?: string
   registrant?: string
 }
 
 /** Erased core call face (the service re-erases at its own boundary; the core's typed face targets end callers). */
 interface ErasedCore { register(options: object, component: unknown): () => void }
+
+/** One synchronous effect installed while an injected slot declaration is live. */
+type SlotInjectionEffect = (() => void) | Iterable<() => void, void, void>
 
 /** cordis Service layer of the slot system; see the module doc for the split with SlotCore. */
 export class SlotsService extends Service {
@@ -82,6 +87,7 @@ export class SlotsService extends Service {
   /** Store-instance axis: handle -> mounted scope, refcount, resolved instances. */
   private readonly _stores = new Map<EngineStoreHandle, StoreAxisRecord>()
   private _renderer: SlotRenderer | undefined
+  private _locale: LocaleFace | undefined
   private _host: SlotRendererHost | undefined
 
   /**
@@ -112,6 +118,85 @@ export class SlotsService extends Service {
   declare readonly register: SlotCore['register']
 
   /**
+   * Install an effect for each declaration lifetime of a slot. The callback
+   * runs synchronously when the declaration already exists; otherwise it runs
+   * inside the declaring `register()` call after the declaration is committed.
+   * Collapse disposes the effect and a later declaration runs it again.
+   * Callback effects are synchronous disposers; iterable effects install
+   * transactionally and dispose in reverse order. The controller belongs to
+   * the caller's fiber, so plugin unload cancels a pending wait and removes any
+   * active contribution.
+   *
+   * @param key - declared SlotMap key to depend on.
+   * @param callback - creates one disposer or an iterable of disposers.
+   * @returns idempotent disposer for the wait and active effect.
+   * @throws callback setup failures synchronously when the slot is already declared.
+   */
+  inject(key: keyof SlotMap & string, callback: () => SlotInjectionEffect): () => void {
+    const ctx = this.ctx
+    const disposeController = ctx.effect(() => {
+      let active: (() => void) | undefined
+      let activeEpoch: number | undefined
+      let stopped = false
+      let unsubscribe = (): void => {}
+
+      const stop = (): void => {
+        if (stopped) return
+        // Failure callers retire the injection permanently: a delayed setup
+        // failure never retries on a later declaration.
+        stopped = true
+        unsubscribe()
+        const dispose = active
+        active = undefined
+        activeEpoch = undefined
+        dispose?.()
+      }
+
+      const reconcile = (): void => {
+        if (stopped) return
+        const spec = this._core.specDynamic(key)
+        const epoch = this._core.declarationEpoch(key)
+        if (active !== undefined && activeEpoch === epoch) return
+        const dispose = active
+        active = undefined
+        activeEpoch = undefined
+        dispose?.()
+        if (spec === undefined) return
+        // A declaration lifetime is a nested Cordis effect. This gives
+        // generator callbacks the same transactional setup, reverse teardown,
+        // diagnostics tree, and idempotence as every other plugin effect.
+        const disposeEffect = ctx.effect(callback, `slots.inject(${JSON.stringify(key)}): declaration`)
+        active = () => { void disposeEffect() }
+        activeEpoch = epoch
+      }
+
+      const changed = (): void => {
+        try {
+          reconcile()
+        } catch (error) {
+          if ((error as { code?: unknown } | null)?.code === 'INACTIVE_EFFECT') {
+            stop()
+            return
+          }
+          stop()
+          const failure = error instanceof Error ? error : new Error(String(error))
+          queueMicrotask(() => { throw failure })
+        }
+      }
+
+      unsubscribe = this._core.subscribeDeclaration(key, changed)
+      try {
+        reconcile()
+      } catch (error) {
+        stop()
+        throw error
+      }
+      return stop
+    }, `slots.inject(${JSON.stringify(key)})`)
+    return () => { void disposeController() }
+  }
+
+  /**
    * Install the shell's renderer (web-react's createSlotRenderer product).
    * Boot-once: a second install throws. Runs through the caller's ctx.effect,
    * so shell fiber unload uninstalls the renderer.
@@ -125,6 +210,23 @@ export class SlotsService extends Service {
         if (this._renderer === renderer) this._renderer = undefined
       }
     }, 'slots.install()')
+  }
+
+  /**
+   * Install the locale face backing the `t` standard seat (the locale
+   * plugin's product; same boot-once discipline as the renderer install).
+   * Runs through the caller's ctx.effect, so the installing fiber's unload
+   * uninstalls the face.
+   * @param face - namespace binder + revision observable.
+   */
+  installLocale(face: LocaleFace): void {
+    if (this._locale !== undefined) throw new Error('locale face already installed (installLocale() is boot-once)')
+    this.ctx.effect(() => {
+      this._locale = face
+      return () => {
+        if (this._locale === face) this._locale = undefined
+      }
+    }, 'slots.installLocale()')
   }
 
   /**
@@ -246,6 +348,12 @@ export class SlotsService extends Service {
     if (workspaces === undefined) {
       throw new Error("renderSlot('root') before the workspaces service mounted — boot order puts runtime apply first")
     }
+    // `locale` is a live getter: the face installs (and, under HMR, swaps)
+    // on the locale plugin's own fiber lifetime, while this host object is
+    // built once — a captured value would strand renders on a dead face. The
+    // alias is required: `this` inside the getter is the host literal.
+    // oxlint-disable-next-line typescript/no-this-alias
+    const service = this
     this._host = {
       subscribe: (key, fn) => this._core.subscribe(key, fn),
       getVersion: key => this._core.getVersion(key),
@@ -259,6 +367,7 @@ export class SlotsService extends Service {
         provideInfo: sessions.currentProvideInfo,
       },
       workspaces: { list: workspaces.list },
+      get locale() { return service._locale },
     }
     return this._host
   }
@@ -310,6 +419,6 @@ export class SlotsService extends Service {
     // The core's overloads proved the shares; the implementation works on
     // the erased view (same pattern as the core's own implementation arm).
     const options = rawOptions as ErasedRegisterOptions
-    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
+    // oxlint-disable-next-line typescript/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
     return this.ctx.effect(() => this['_register'](options, component), 'slots.register()')
   }

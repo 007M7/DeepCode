@@ -8,7 +8,9 @@
  * dispatch) stay on the class, invisible out here.
  */
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
-import type { RpcResult, SessionId } from '@deepseek-ai/dsh-client-connection/client'
+import type {
+  MessageId, QueueAction, RpcResult, SessionId,
+} from '@deepseek-ai/dsh-client-connection/client'
 import type { ConversationSnapshot } from '../sessions/conversation.ts'
 import type { ObservableSnapshot } from './store.ts'
 
@@ -37,10 +39,25 @@ export interface ISession {
    */
   prompt(content: ContentBlock[], mode: 'queue' | 'steer'): Promise<RpcResult<{ accepted: true }>>
   /**
-   * Cancel the running turn.
+   * Apply one edit, remove, or strict steer action to a still-pending queue occurrence.
+   * @param itemId - agent-owned inbox occurrence identity.
+   * @param action - requested queue operation.
+   * @returns acceptance, or a business/transport error.
+   */
+  updateQueue(itemId: MessageId, action: QueueAction): Promise<RpcResult<{ accepted: true }>>
+  /**
+   * Cancel the running turn. Pending queued work remains and resumes in FIFO
+   * order after the Host reaches cancellation quiescence.
    * @returns acceptance, or the business error.
    */
   cancel(): Promise<RpcResult<{ accepted: true }>>
+  /**
+   * Rename this session (explicit user title; pins it against automatic
+   * regeneration).
+   * @param title - raw title text (the host normalizes acceptance).
+   * @returns the normalized accepted title and its event seq, or the business error.
+   */
+  rename(title: string): Promise<RpcResult<{ title: string; seq: number }>>
   /**
    * Extend the history window backwards (older messages pagination).
    * @returns completion; failures land in snapshot.openState/loadingOlder.

@@ -1,8 +1,8 @@
-# Cookbook: adding a tool
+# Tool authoring reference
 
 English | [中文](adding-a-tool.zh.md)
 
-How to give the model a new capability. The minimal shape below shows the contract; `packages/bash/tool-bash` is the production-grade three-package seam.
+Reference for the contracts a model-facing tool must satisfy. For an ordered first tool, follow [Build a tool](../user/develop/basic/tool.md). `packages/bash/tool-bash` is the production-grade three-package example.
 
 ## The minimal shape
 
@@ -35,7 +35,7 @@ export function apply(ctx: Context) {
 }
 ```
 
-Registration is effect-based: disposing the plugin fiber unregisters the tool (write the HMR test). Schemas flow into the system-prompt assembly automatically.
+Registration is effect-based: disposing the plugin fiber unregisters the tool. Schemas flow into the system-prompt assembly automatically.
 
 ## Rules of the execute() contract
 
@@ -78,6 +78,8 @@ Both methods return a **`card`-tagged render intent** — pick the card kind tha
   - `generic` supplies an optional title and content.
   - `terminal` supplies raw output and optional exit metadata; each UI renders its capable or fallback view.
   - `diff` supplies applied hunks, often derived by `output.presentationMeta` and carried in persisted `result.meta` so replay reproduces them. Mutation tools keep a diff result because the completed view replaces the pending card.
+  - `search` supplies a discovery result reconstructed from persisted `result.meta`: grouped-by-file matches (`shape: 'matches'`, grep) or a flat path list (`shape: 'paths'`, glob), plus `truncated`/`total` so a UI never presents a capped result as complete. The view carries no result text (a UI without a search card falls back to the raw result content), and there is no `search` call view — a discovery call's pending state stays a generic card, since matches exist only after `execute`. (tool-fs-search `grep`/`glob`.)
+  - `web` supplies a completed web retrieval, discriminated by `kind: 'search' | 'fetch'` (the structured search sources or the fetch summary), derived from `result.meta`; it carries no body copy, so a UI without the `web` capability falls back to the raw result content. (tool-web `web_search`/`web_fetch`.)
 
 Hard rules (they bite if broken):
 
@@ -85,8 +87,8 @@ Hard rules (they bite if broken):
 - **UI-only formatting stays out of the model result.** A fenced ` ```console ` block, a diff, a relativized path—none of these belongs in the canonical value or Native content merely to serve a UI. `output.render` owns model-facing prose; `presentationMeta` plus the card presenters own replayable UI state. A `terminal` result view carries raw output and the adapter adds any fallback framing.
 - **`defineTool` soft-validates the display path.** A malformed/older logged arg shape makes the wrapper return `undefined` (a generic fallback) rather than throw — display must never crash a replay.
 
-The neutral vocabulary lives in `dsh-tools`; tools never import a UI or transport type. The TUI and host/client runtime map each `card` into their own view. The design and the why are in [the render-intent-union Agent Note](../../.agents/notes/implemented/architecture/2026-07-02-tool-render-intent-union.md); `dsh-tool-fs` (generic/diff) and `dsh-tool-bash` (terminal) are the reference implementations.
+The neutral vocabulary lives in `dsh-tools`; tools never import a UI or transport type. Host/client runtimes map each `card` into their own view. The design and the why are in [the render-intent-union Agent Note](../../.agents/notes/implemented/architecture/2026-07-02-tool-render-intent-union.md); `dsh-tool-fs` (generic/diff) and `dsh-tool-bash` (terminal) are the reference implementations.
 
-## Tests every tool needs
+## Verification
 
-Cover argument rejection, every canonical value and Native rendering shape, output-schema rejection, and HMR disposal. For a side-effecting tool, drive the real tool through the agent loop with a scripted `MockAdapter` and assert its `tool/call` and projected `tool/result` session events; prove the canonical value itself is not persisted. For a UI card, assert the exact `presentCall` and `presentResult` views and exercise the owning TUI or host/client projection. Add an assembled snapshot for the shipped model or UI behavior the tool changes.
+Follow the [repository testing policy](../testing.md) and the owning package's test documentation. A shipped model- or UI-visible change requires the assembled coverage specified there.

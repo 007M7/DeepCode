@@ -4,7 +4,7 @@
 
 一个 Cordis 插件，在 harness 的规范拦截 seam 上运行用户现有 **Claude Code** hook 配置（`hooks.json` 或 settings 文件的 `hooks` key）中受支持的 command hook 子集。它是 hooks 子系统的 **CC 方言**部分，负责桥接中 CC 格式的逐事件 stdin payload、CC 的 env 和 `${CLAUDE_PLUGIN_ROOT}`／`${CLAUDE_PROJECT_DIR}` 替换，以及将 hook 的中性结果映射为 harness 的类型化 Decision。方言无关原语（matcher、退出码／stdout codec、`ctx.bash` 执行、最严格合并、`hook/*` 事件）来自 [`@deepseek-ai/dsh-hook-protocol`](../hook-protocol/README.md)。
 
-原生 Cordis 插件可以完成此桥接的所有工作，功能更强，且具有类型化返回，没有序列化边界。**该桥接只是已映射 CC command hook 子集的兼容路径**；所有定制行为都应当使用相同 seam 上的原生插件（见 [拦截 seam Agent Note（agent 决策记录）](../../../.agents/notes/implemented/feature/2026-06-30-interception-seams.md)）。
+原生 Cordis 插件可以完成此桥接的所有工作，功能更强，且具有类型化返回，没有序列化边界。**该桥接只是已映射 CC command hook 子集的兼容路径**；所有定制行为都应当使用相同 seam 上的原生插件（见 [拦截 seam Agent Note](../../../.agents/notes/implemented/feature/2026-06-30-interception-seams.md)）。
 
 ## 配置
 
@@ -28,7 +28,7 @@ const config: Config = {
     projectDir: .
 ```
 
-配置只在加载时解析**一次**。`configPath` 是**进程级**配置：相对路径在加载时根据进程启动 cwd 解析，因此一份配置应用于整个进程。尚未进行每会话（`session/new.cwd`）配置发现（`TODO(per-session-hook-config)`）。读取／解析失败会被隔离处理：桥接记录警告且不注册任何内容，而不是使启动崩溃（路径拼写错误不应使 agent（智能体）停止）。只运行 shell 形式 `type: 'command'` hook；`http`／`mcp_tool`／`prompt`／`agent` hook 会被解析并跳过，同时记录警告。没有每 hook `timeout` 的 hook 会使用协议参考默认值 `DEFAULT_HOOK_TIMEOUT_MS`（来自 `dsh-hook-protocol`，10 分钟，即 CC 默认值）。
+配置只在加载时解析**一次**。`configPath` 是**进程级**配置：相对路径在加载时根据进程启动 cwd 解析，因此一份配置应用于整个进程。尚未进行每会话（`session/new.cwd`）配置发现（`TODO(per-session-hook-config)`）。读取／解析失败会被隔离处理，其中包括实际消费 matcher 的事件所带的无效 matcher 正则（会报告其 pattern 与事件）：桥接记录警告且不注册任何内容，而不是使启动崩溃（路径拼写错误不应使 agent（智能体）停止）。只运行 shell 形式 `type: 'command'` hook；`http`／`mcp_tool`／`prompt`／`agent` hook 会被解析并跳过，同时记录警告。没有每 hook `timeout` 的 hook 会使用协议参考默认值 `DEFAULT_HOOK_TIMEOUT_MS`（来自 `dsh-hook-protocol`，10 分钟，即 CC 默认值）。
 
 hook **本身**会在 agent 的会话工作区中运行：对 agent scope 点，桥接会将会话 `cwd`（`session/new.cwd`）作为 hook 进程工作目录，因此 hook 的 `pwd`／相对路径／marker 作用于用户项目树，而非服务器启动目录。
 
@@ -37,7 +37,7 @@ hook **本身**会在 agent 的会话工作区中运行：对 agent scope 点，
 | CC hook | Harness seam | 映射 |
 |---|---|---|
 | `SessionStart` | `agent/session-start`（emit） | additionalContext → `agent.inject()` 到新会话（无法阻塞） |
-| `UserPromptSubmit` | `agent/prompt-submit`（waterfall，瀑布式事件） | `deny` → `PromptDecision.block`；仅 additionalContext → 通过 `next()` 委托，再将一个单独标记源的上下文前置到下游 `additionalContexts`（后续 listener 仍可阻塞／改写） |
+| `UserPromptSubmit` | `agent/pre-step`（waterfall，瀑布式事件） | `deny` → `PreStepDecision.reject`；仅 additionalContext → 通过 `next()` 委托，再向下游 `enter` 决策追加一条单独标记来源的消息（后续外层 listener 仍可 reject／改写） |
 | `PreToolUse` | `tools/pre-execute`（waterfall） | `deny` → `PreToolDecision.deny`；`ask` → `PreToolDecision.ask` |
 | `PostToolUse` | `tools/post-execute`（waterfall） | `deny` → 带反馈的 `block`；仅 additionalContext → 通过 `next()` 委托，再将一个单独标记源的上下文前置到下游决策；Code Mode 将子调用上下文延迟到外层 `run_code` 结果 |
 | `Stop` | `agent/turn-stopping`（serial） | 阻塞 Stop hook 通过 `steer()` 送入其原因，强制再执行一步 |
@@ -52,7 +52,7 @@ matcher subject 是工具名称（`PreToolUse`／`PostToolUse`）、会话源（
 
 ## 上下文源
 
-注入上下文携带显式 `{ kind: 'plugin', plugin: 'hooks-claude' }` 源。`agent.inject()` 会将缺失源默认为 `{ kind: 'user' }`，这会将插件上下文错误标记为用户提示词，因此桥接始终标注自身。
+注入上下文携带显式 `{ kind: 'plugin', plugin: 'hooks-claude' }` 来源，因此持久消息绝不会被误认为用户提示词。
 
 ## 模型体验
 
@@ -68,7 +68,7 @@ hook 不返回上下文时没有成本。Hook 文本取决于数据，会被记�
 
 #### KV Cache 影响
 
-仅追加；新可见内容位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
+仅追加；新可见内容位于可复用请求前缀之后，不会使现有 KV Cache 条目失效。
 
 ### 已阻塞提示词或工具结果
 
@@ -86,7 +86,7 @@ hook 不返回上下文时没有成本。Hook 文本取决于数据，会被记�
 
 ## 已知限制与暂缓事项
 
-- **不支持的 hook 事件（Claude Code 当前 30 项中的 23 项）：** `Setup`、`InstructionsLoaded`、`UserPromptExpansion`、`MessageDisplay`、`PermissionRequest`、`PostToolUseFailure`、`PostToolBatch`、`PermissionDenied`、`Notification`、`TaskCreated`、`TaskCompleted`、`StopFailure`、`TeammateIdle`、`ConfigChange`、`CwdChanged`、`FileChanged`、`WorktreeCreate`、`WorktreeRemove`、`PreCompact`、`PostCompact`、`SessionEnd`、`Elicitation` 和 `ElicitationResult`。这些事件的配置会被解析，但绝不分派。比较基线是 Claude Code [官方 hook 事件参考](https://code.claude.com/docs/en/hooks#hook-events)。
+- **不支持的 hook 事件（Claude Code 当前 30 项中的 23 项）：** `Setup`、`InstructionsLoaded`、`UserPromptExpansion`、`MessageDisplay`、`PermissionRequest`、`PostToolUseFailure`、`PostToolBatch`、`PermissionDenied`、`Notification`、`TaskCreated`、`TaskCompleted`、`StopFailure`、`TeammateIdle`、`ConfigChange`、`CwdChanged`、`FileChanged`、`WorktreeCreate`、`WorktreeRemove`、`PreCompact`、`PostCompact`、`SessionEnd`、`Elicitation` 和 `ElicitationResult`。这些事件的配置会在配置组解析前被忽略，因此不支持的事件既不会使配置失效，也不会注册 hook。比较基线是 Claude Code [官方 hook 事件参考](https://code.claude.com/docs/en/hooks#hook-events)。
 - **`SessionStart` 只支持部分功能：** 会消费 JSON `additionalContext`，但不支持纯 stdout 上下文、`initialUserMessage`、`sessionTitle`、`watchPaths`、`reloadSkills` 与 `CLAUDE_ENV_FILE`。hook 脱离运行，因此上下文可能错过第一个请求（`TODO(session-start-gating)`），payload 会省略 `model`、`agent_type` 和 `session_title` 等当前可选字段。
 - **`UserPromptSubmit` 只支持部分功能：** 支持阻塞与 JSON `additionalContext`，但不支持纯 stdout 上下文、`sessionTitle` 和 `suppressOriginalPrompt`。除非被覆盖，否则桥接还会使用自身 600 秒默认值，而非 Claude Code 的事件特定 30 秒 command 超时。
 - **`PreToolUse` 只支持部分功能：** `deny` 与 `ask` 决策可用；`allow` 不会预审批，不支持 `defer`，`additionalContext` 会被忽略，`updatedInput` 会被记录 + 警告但不应用（见 [pre-tool-input-rewrite Agent Note](../../../.agents/notes/proposed/feature/2026-06-30-pre-tool-input-rewrite.md)）。

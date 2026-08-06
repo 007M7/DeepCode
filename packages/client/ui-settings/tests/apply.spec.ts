@@ -1,4 +1,4 @@
-/** Settings shell registration: declaration-aware deferral, the ledger projections, and HMR recovery. */
+/** Settings shell registration: slot declaration injection, the ledger projections, and HMR recovery. */
 import { Context } from 'cordis'
 import { describe, expect, it, vi } from 'vitest'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
@@ -24,12 +24,14 @@ function injectedOf(slots: SlotsService): SettingsRootInjected {
   return (entry.inject as () => SettingsRootInjected)()
 }
 
-/** The shell's four child declarations (chrome seats + the section list). */
+/** The shell's child declarations (chrome, actions, sections, and onboarding overlays). */
 const CHILD_SPECS = {
   'settings.trigger': { kind: 'single', scope: 'root' },
   'settings.header': { kind: 'single', scope: 'root' },
+  'settings.action': { kind: 'list', scope: 'root' },
   'settings.close': { kind: 'single', scope: 'root' },
   'settings.section': { kind: 'list', scope: 'root' },
+  'settings.onboarding': { kind: 'list', scope: 'root' },
 } as const
 
 describe('ui-settings apply', () => {
@@ -37,7 +39,7 @@ describe('ui-settings apply', () => {
     expect(inject).toEqual(['slots'])
   })
 
-  it('registers the shell and declares the four child slots, before or after the declaration', async () => {
+  it('registers the shell and declares every child slot, before or after the declaration', async () => {
     const before = await bench()
     declare(before.slots)
     await before.ctx.plugin({ inject: [...inject], apply }).await()
@@ -82,6 +84,29 @@ describe('ui-settings apply', () => {
     off()
   })
 
+  it('projects onboarding entries into stable coordinator order', async () => {
+    const b = await bench()
+    declare(b.slots)
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    const { onboardingSteps } = injectedOf(b.slots).hooks
+    b.slots.register({ name: 'settings.onboarding', id: 'credential', order: 0 } as never, () => null)
+    b.slots.register({ name: 'settings.onboarding', id: 'welcome', order: -100 } as never, () => null)
+    b.slots.register({ name: 'settings.onboarding', id: 'default-order' } as never, () => null)
+    const steps = onboardingSteps.getSnapshot()
+    expect(steps).toEqual([
+      { id: 'welcome', order: -100 },
+      { id: 'credential', order: 0 },
+      { id: 'default-order', order: 0 },
+    ])
+    expect(onboardingSteps.getSnapshot()).toBe(steps)
+    const listener = vi.fn()
+    const off = onboardingSteps.subscribe(listener)
+    b.slots.register({ name: 'settings.onboarding', id: 'later', order: 10 } as never, () => null)
+    await Promise.resolve()
+    expect(listener).toHaveBeenCalledOnce()
+    off()
+  })
+
   it('re-registers after an HMR collapse re-declares the slot (stale disposer must not block)', async () => {
     const b = await bench()
     const redeclare = declare(b.slots)
@@ -100,7 +125,7 @@ describe('ui-settings apply', () => {
     }
   })
 
-  it('unregisters the shell and collapses all four child slots on teardown', async () => {
+  it('unregisters the shell and collapses every child slot on teardown', async () => {
     const b = await bench()
     declare(b.slots)
     const fiber = b.ctx.plugin({ inject: [...inject], apply })

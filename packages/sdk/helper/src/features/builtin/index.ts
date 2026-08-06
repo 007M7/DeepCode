@@ -34,6 +34,7 @@ export function createBuiltinRegistry(profile: ProjectProfile): FeatureRegistry 
       required: true,
       baseResources: [
         { kind: 'npm-cordis-config-entry', id: 'subprocess', package: '@deepseek-ai/dsh-subprocess-local' },
+        { kind: 'npm-cordis-config-entry', id: 'bash-env', package: '@deepseek-ai/dsh-bash-env' },
         { kind: 'npm-cordis-config-entry', id: 'tool-bash', package: '@deepseek-ai/dsh-tool-bash' },
       ],
       options: [
@@ -154,7 +155,7 @@ config:
       ],
       options: [
         {
-          id: 'deepseek',
+          id: 'deepseek-official',
           label: 'DeepSeek search',
           default: true,
           markers: [{ id: 'web-search-deepseek', name: '@deepseek-ai/dsh-web-search-deepseek' }],
@@ -209,7 +210,14 @@ config:
       id: 'subagent',
       summary: 'Delegate work to child agents',
       mode: 'multiple',
-      baseResources: [{ kind: 'npm-cordis-config-entry', id: 'subagent', package: '@deepseek-ai/dsh-subagent' }],
+      // In-process options select continuable background delegation; the
+      // follow-up adapter remains an independently loadable global tool.
+      baseResources: [
+        { kind: 'npm-cordis-config-entry', id: 'tasks', package: '@deepseek-ai/dsh-tasks-local' },
+        { kind: 'npm-cordis-config-entry', id: 'tool-tasks', package: '@deepseek-ai/dsh-tool-tasks' },
+        { kind: 'npm-cordis-config-entry', id: 'subagent', package: '@deepseek-ai/dsh-subagent' },
+        { kind: 'npm-cordis-config-entry', id: 'tool-subagent-control', package: '@deepseek-ai/dsh-tool-subagent-control' },
+      ],
       options: [
         {
           id: 'spawn',
@@ -221,7 +229,7 @@ config:
               kind: 'npm-cordis-config-entry',
               id: 'tool-subagent',
               package: '@deepseek-ai/dsh-tool-subagent',
-              config: { provider: 'spawn' } satisfies ToolSubagentConfig,
+              config: { provider: 'spawn', backgroundMode: 'continuable' } satisfies ToolSubagentConfig,
             },
           ],
         },
@@ -234,7 +242,11 @@ config:
               kind: 'npm-cordis-config-entry',
               id: 'tool-subagent-fork',
               package: '@deepseek-ai/dsh-tool-subagent',
-              config: { provider: 'fork', toolName: 'subagent_fork' } satisfies ToolSubagentConfig,
+              config: {
+                provider: 'fork',
+                toolName: 'subagent_fork',
+                backgroundMode: 'continuable',
+              } satisfies ToolSubagentConfig,
             },
           ],
         },
@@ -343,22 +355,6 @@ config:
           kind: 'npm-cordis-config-entry',
           id: 'timeout-policy',
           package: '@deepseek-ai/dsh-timeout-policy',
-        }],
-      }],
-    },
-    {
-      id: 'ask-user',
-      summary: 'Ask the user from the model loop',
-      mode: 'single',
-      supportedInterfaces: ['tui'],
-      options: [{
-        id: 'default',
-        label: 'ask_user_question tool',
-        default: true,
-        resources: [{
-          kind: 'npm-cordis-config-entry',
-          id: 'tool-ask-user',
-          package: '@deepseek-ai/dsh-tool-ask-user',
         }],
       }],
     },

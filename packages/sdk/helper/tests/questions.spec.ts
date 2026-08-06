@@ -376,14 +376,14 @@ describe('feature configurator', () => {
     name: 'demo',
     description: 'demo',
     runtime: { model: 'deepseek-v4-flash' },
-    runInterface: 'tui',
+    runInterface: 'embed',
     packageManager: new NpmPackageManager('10.0.0'),
     releaseVersion: '0.0.1',
   }
 
   it('shares exclusive, multiple, fixed, and secret behavior', async () => {
     const registry = createBuiltinRegistry(profile)
-    const port = new QueuePromptPort(['sqlite', ['spawn', 'fork'], 'deepseek', 'new-key'])
+    const port = new QueuePromptPort(['sqlite', ['spawn', 'fork'], 'deepseek-official', 'new-key'])
     const configurator = new FeatureConfigurator(port)
     await expect(configurator.configure(registry.get(featureId('persistence')), profile)).resolves.toMatchObject({
       options: ['sqlite'],
@@ -394,7 +394,7 @@ describe('feature configurator', () => {
     await expect(configurator.configure(
       registry.get(featureId('provider')),
       profile,
-      { id: featureId('provider'), options: ['deepseek'], secrets: { apiKey: 'old-key' } },
+      { id: featureId('provider'), options: ['deepseek-official'], secrets: { apiKey: 'old-key' } },
     )).resolves.toMatchObject({ secrets: { apiKey: 'new-key' } })
     expect(port.requests).toEqual([
       'Choose durable session storage',
@@ -412,13 +412,13 @@ describe('feature configurator', () => {
     })
     const requiredSecret = new FeatureConfigurator(new QueuePromptPort([]))
     await expect(requiredSecret.configure(
-      registry.get(featureId('provider')), profile, undefined, ['deepseek'], { apiKey: '' },
+      registry.get(featureId('provider')), profile, undefined, ['deepseek-official'], { apiKey: '' },
     )).rejects.toThrow('required')
-    const keep = new FeatureConfigurator(new QueuePromptPort(['deepseek', '']))
+    const keep = new FeatureConfigurator(new QueuePromptPort(['deepseek-official', '']))
     await expect(keep.configure(
       registry.get(featureId('provider')),
       profile,
-      { id: featureId('provider'), options: ['deepseek'], secrets: { apiKey: 'old' } },
+      { id: featureId('provider'), options: ['deepseek-official'], secrets: { apiKey: 'old' } },
     )).resolves.toMatchObject({ secrets: { apiKey: 'old' } })
     const custom = registry.get(featureId('provider'))
     await expect(new FeatureConfigurator(new QueuePromptPort(['custom'])).configure(

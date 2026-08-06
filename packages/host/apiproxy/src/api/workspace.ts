@@ -22,7 +22,7 @@ export interface WorkspaceView {
   workspaceId: WorkspaceId
   /** Canonical directory path (host-side realpath canon). */
   path: string
-  /** Unique display title (defaults to the path basename at create). */
+  /** Display title (defaults to the path basename at create). */
   title: string
   /**
    * Sessions accounted under this workspace, in manually owned order
@@ -37,8 +37,13 @@ export interface WorkspaceView {
 
 /** Workspace-domain unary methods (the map keys workspace.* of RpcMethodMap). */
 export interface WorkspaceApi {
-  /** Lists all workspaces in the registry's durable display order. */
-  list(request: RpcRequest<{}>): Promise<RpcResponse<{ items: WorkspaceView[] }>>
+  /**
+   * Lists all workspaces in the registry's durable display order, plus the
+   * registry-global archive set (the reconnect baseline of
+   * `host/archived-sessions-changed`). Archived sessions stay in their
+   * workspace's `sessionIds` account; grouping surfaces hide them.
+   */
+  list(request: RpcRequest<{}>): Promise<RpcResponse<{ items: WorkspaceView[]; archivedSessionIds: SessionId[] }>>
 
   /**
    * Creates (or idempotently resolves) a workspace. Exactly one of `path` /
@@ -48,8 +53,8 @@ export interface WorkspaceApi {
    * root before registering. Either spelling resolving to a directory already
    * owned by a workspace returns that workspace (`created: false`) for the
    * existing-folder spelling. Create-by-name rejects an existing title with
-   * `workspace-name-conflict`; a new path whose basename duplicates another
-   * Workspace title is rejected by the registry with the same code.
+   * `workspace-name-conflict`; path adoption allows distinct canonical paths
+   * whose basenames produce the same display title.
    * A new name-created workspace uses `name` as both directory name and title;
    * a path-created workspace uses the registry's basename title default.
    */
@@ -86,4 +91,15 @@ export interface WorkspaceApi {
     sessionId: SessionId
     beforeSessionId?: SessionId
   }>): Promise<RpcResponse<{ workspace: WorkspaceView }>>
+
+  /**
+   * Adds one session to the registry-global archive set: the session
+   * disappears from every grouping surface but keeps its session log and its
+   * workspace accounting slot (a future unarchive restores its position).
+   * Idempotent for an already archived id. A session neither live nor in
+   * session persistence fails with `session-not-found`. Returns the full
+   * updated set (same snapshot the changed frame carries).
+   */
+  archiveSession(request: RpcRequest<{ sessionId: SessionId }>):
+  Promise<RpcResponse<{ archivedSessionIds: SessionId[] }>>
 }

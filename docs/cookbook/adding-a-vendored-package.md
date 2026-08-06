@@ -42,7 +42,7 @@ Local relative imports/exports in vendored TypeScript source use explicit `.ts` 
 | `vendor/README.md` | add a manifest table row (dir, npm name, version, upstream repo, commit SHA) and log any local modifications |
 | `scripts/publint-all.ts` | only if the vendored package is itself published from here (vendored deps normally are not — skip) |
 
-Covered automatically by globs — no edits needed: root `package.json` workspaces (`vendor/*`), `tsdown.config.ts`, `vitest.config.ts`, `eslint.config.mjs`. A per-package `vendor/<dir>/tsdown.config.ts` is needed ONLY if the build shape diverges from the root default (dual ESM/CJS or multiple entries — see `vendor/schemastery` and `vendor/logger-console`); its entry should read the JS emitted under `lib/types`.
+Covered automatically by globs — no edits needed: root `package.json` workspaces (`vendor/*`), `tsdown.config.ts`, `vitest.config.ts`, `.oxlintrc.json`. A per-package `vendor/<dir>/tsdown.config.ts` is needed ONLY if the build shape diverges from the root default (dual ESM/CJS or multiple entries — see `vendor/schemastery` and `vendor/logger-console`); its entry should read the JS emitted under `lib/types`.
 
 ## 3. Mind the manifest guard
 
@@ -53,7 +53,7 @@ Covered automatically by globs — no edits needed: root `package.json` workspac
 ```sh
 pnpm install        # registers the workspace
 pnpm run typecheck
-pnpm run build && pnpm run test && pnpm run constraints
+pnpm run build && pnpm run constraints
 ```
 
-The source `paths` map lives once in `tsconfig.base.json` and serves every graph. The important isolation boundary is the project-reference graph: vendored source must be referenced through its own `vendor/<dir>/tsconfig.json`, not pulled into an aggregate's strict program ([layout](../development.md#typescript-project-layout)).
+Run the behavior checks selected by the [testing policy](../testing.md). The source `paths` map lives once in `tsconfig.base.json` and serves every graph. The important isolation boundary is the project-reference graph: vendored source must be referenced through its own `vendor/<dir>/tsconfig.json`, not pulled into an aggregate's strict program ([layout](../development.md#typescript-project-layout)).

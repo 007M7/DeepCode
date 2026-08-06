@@ -42,9 +42,22 @@ function withPnpmEntrypoint<T>(action: () => T): T {
   }
 }
 
+function withEnv<T>(name: string, value: string | undefined, action: () => T): T {
+  const previous = process.env[name]
+  if (value === undefined) Reflect.deleteProperty(process.env, name)
+  else process.env[name] = value
+  try {
+    return action()
+  } finally {
+    if (previous === undefined) Reflect.deleteProperty(process.env, name)
+    else process.env[name] = previous
+  }
+}
+
 describe('gate graph validation', () => {
   it.each([
     'ci-primary',
+    'ci-linux-primary',
     'ci-static',
     'ci-lint',
     'ci-coverage',
@@ -96,30 +109,103 @@ describe('gate graph validation', () => {
   })
 })
 
-describe('Node 24 consumer graph', () => {
-  it('owns the seven-command pool and orders restored-artifact consumers', () => {
+describe('Oxlint gate', () => {
+  it('uses the package script when no worker bound is configured', () => {
+    const subject = withEnv('DSH_OXLINT_THREADS', undefined, () =>
+      withPnpmEntrypoint(() => gatesForMode('ci-lint')[0]))
+
+    expect(subject).toMatchObject({
+      id: 'lint',
+      displayCommand: 'pnpm run lint',
+      command: process.execPath,
+      args: ['/private/pnpm.cjs', 'run', 'lint'],
+    })
+  })
+
+  it('surfaces the configured worker bound on the shared package script', () => {
+    const subject = withEnv('DSH_OXLINT_THREADS', '4', () =>
+      withPnpmEntrypoint(() => gatesForMode('ci-lint')[0]))
+
+    expect(subject).toMatchObject({
+      id: 'lint',
+      displayCommand: 'DSH_OXLINT_THREADS=4 pnpm run lint',
+      command: process.execPath,
+      args: ['/private/pnpm.cjs', 'run', 'lint'],
+    })
+  })
+})
+
+describe('Node compatibility graph', () => {
+  it('runs the jsdom environment smoke on every advertised Node line', () => {
+    const subject = withPnpmEntrypoint(() => gatesForMode('node-compat'))
+
+    expect(subject.find(item => item.id === 'vitest-jsdom-smoke')).toMatchObject({
+      label: 'Vitest jsdom smoke',
+      args: [
+        '/private/pnpm.cjs',
+        'exec',
+        'vitest',
+        'run',
+        'scripts/vitest-environment.compat.spec.ts',
+      ],
+    })
+  })
+})
+
+describe('Node 24 lane ownership', () => {
+  it('keeps the static lane source-only', () => {
+    const subject = withPnpmEntrypoint(() => gatesForMode('ci-static'))
+
+    expect(subject.map(item => item.id)).not.toContain('build')
+    expect(subject.map(item => item.id)).not.toContain('doc-typecheck')
+  })
+
+  it('owns the build and orders its artifact consumers', () => {
     const subject = withPnpmEntrypoint(() => gatesForMode('ci-consumers'))
 
     expect(defaultConcurrency('ci-consumers', subject.length, 4)).toEqual({
-      workers: 7,
+      workers: 10,
       source: 'ci-consumers gate count',
     })
     expect(subject.map(item => item.id)).toEqual([
-      'lint-and-duplication',
+      'build',
       'node-compat',
-      'snapshot',
       'publint',
-      'node-next-types',
       'built-package-invariants',
+      'lint-and-duplication',
+      'snapshot',
+      'web-snapshot',
+      'doc-typecheck',
+      'node-next-types',
       'built-bin-smoke',
     ])
-    expect(subject.find(item => item.id === 'publint')?.needs).toBeUndefined()
+    expect(subject.find(item => item.id === 'publint')?.needs).toEqual(['build'])
     expect(subject.find(item => item.id === 'built-package-invariants')?.needs).toEqual(['publint'])
     expect(subject.find(item => item.id === 'lint-and-duplication')?.needs).toEqual(['built-package-invariants'])
-    for (const id of ['snapshot', 'node-next-types', 'built-bin-smoke']) {
+    for (const id of ['snapshot', 'web-snapshot', 'doc-typecheck', 'node-next-types', 'built-bin-smoke']) {
       expect(subject.find(item => item.id === id)?.needs).toEqual(['built-package-invariants'])
     }
     expect(subject.find(item => item.id === 'snapshot')?.env).toEqual({ DSH_EXAMPLE_MODE: 'lib' })
+    expect(subject.find(item => item.id === 'doc-typecheck')?.env).toEqual({
+      DSH_DOC_TYPECHECK_USE_BUILD_OUTPUT: '1',
+    })
+    expect(subject.find(item => item.id === 'web-snapshot')).toMatchObject({
+      displayCommand: 'DSH_SNAPSHOT=replay pnpm run test:web:built',
+      env: { DSH_SNAPSHOT: 'replay' },
+    })
+  })
+})
+
+describe('Linux primary graph', () => {
+  it('adds the same compare-only web gate after built client artifacts', () => {
+    const subject = withPnpmEntrypoint(() => gatesForMode('ci-linux-primary'))
+    const web = subject.find(item => item.id === 'web-snapshot')
+
+    expect(web).toMatchObject({
+      displayCommand: 'DSH_SNAPSHOT=replay pnpm run test:web:built',
+      env: { DSH_SNAPSHOT: 'replay' },
+      needs: ['built-package-invariants'],
+    })
   })
 })
 

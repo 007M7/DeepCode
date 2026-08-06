@@ -45,7 +45,7 @@ describe('first-message LLM title provider', () => {
     providerPlugin.apply(ctx, LLM_CONFIG)
 
     await expect(registered!.generate({
-      session: new Session(SessionId('empty-first-provider')),
+      session: Session.create(SessionId('empty-first-provider')),
       messages: [],
       signal: new AbortController().signal,
     })).rejects.toThrow(/requires one human message/)
@@ -60,7 +60,7 @@ describe('first-message LLM title provider', () => {
     ctx.llm.registerAdapter(['title-route'], adapter)
     await ctx.plugin(providerPlugin, LLM_CONFIG)
     const session = ctx.sessions.create(SessionId('first-plugin'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     const first = session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'first input' }], source: { kind: 'user' },
     }), { surfaceOp: 'append' })

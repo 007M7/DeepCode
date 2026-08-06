@@ -17,9 +17,9 @@ const PERSIST_KEY = 'dsh.layout.panels'
 beforeEach(() => { localStorage.clear() })
 
 describe('createLayoutStore', () => {
-  it('initializes both panels at their default widths', () => {
+  it('initializes the sidebar at its default width, details closed, wide viewport assumed', () => {
     const { store } = createLayoutStore().create()
-    expect(store.getSnapshot()).toEqual({ sidebar: SIDEBAR_DEFAULT, details: DETAILS_DEFAULT })
+    expect(store.getSnapshot()).toEqual({ sidebar: SIDEBAR_DEFAULT, details: 0, narrow: false, narrowExpanded: false })
   })
 
   it('each create() is an independent instance (factory is not a singleton)', () => {
@@ -50,9 +50,32 @@ describe('createLayoutStore', () => {
     expect(store.getSnapshot().sidebar).toBe(SIDEBAR_DEFAULT)
   })
 
-  it('openDetails is a no-op when already open; closeDetails zeroes', () => {
+  it('narrow toggleSidebar flips only the re-expand override; the width preference survives', () => {
     const { store, actions } = createLayoutStore().create()
-    actions.closeDetails()
+    actions.setSidebar(400)
+    actions.setNarrow(true)
+    actions.toggleSidebar()
+    expect(store.getSnapshot()).toEqual({ sidebar: 400, details: 0, narrow: true, narrowExpanded: true })
+    actions.toggleSidebar()
+    expect(store.getSnapshot().narrowExpanded).toBe(false)
+    expect(store.getSnapshot().sidebar).toBe(400)
+  })
+
+  it('crossing the breakpoint drops the override; a same-value setNarrow keeps it', () => {
+    const { store, actions } = createLayoutStore().create()
+    actions.setNarrow(true)
+    actions.toggleSidebar()
+    expect(store.getSnapshot().narrowExpanded).toBe(true)
+    actions.setNarrow(true)
+    expect(store.getSnapshot().narrowExpanded).toBe(true)
+    actions.setNarrow(false)
+    expect(store.getSnapshot()).toMatchObject({ narrow: false, narrowExpanded: false })
+    actions.setNarrow(true)
+    expect(store.getSnapshot().narrowExpanded).toBe(false)
+  })
+
+  it('openDetails uses the contract default, preserves an open width, and closeDetails zeroes', () => {
+    const { store, actions } = createLayoutStore().create()
     actions.openDetails()
     expect(store.getSnapshot().details).toBe(DETAILS_DEFAULT)
     actions.setDetails(500)
@@ -65,13 +88,16 @@ describe('createLayoutStore', () => {
   it('does not persist panel geometry', () => {
     const first = createLayoutStore().create()
     first.actions.setSidebar(400)
-    first.actions.closeDetails()
+    first.actions.openDetails()
+    first.actions.setDetails(500)
     expect(localStorage.getItem(PERSIST_KEY)).toBeNull()
 
     const second = createLayoutStore().create()
     expect(second.store.getSnapshot()).toEqual({
       sidebar: SIDEBAR_DEFAULT,
-      details: DETAILS_DEFAULT,
+      details: 0,
+      narrow: false,
+      narrowExpanded: false,
     })
   })
 })

@@ -7,6 +7,15 @@
   "main": "lib/index.cjs",
   "module": "lib/index.mjs",
   "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "import": "./lib/index.mjs",
+      "require": "./lib/index.cjs"
+    },
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
   "files": [
     "lib/index.mjs",
     "lib/index.cjs",

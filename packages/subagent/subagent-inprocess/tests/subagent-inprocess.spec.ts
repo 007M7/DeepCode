@@ -9,7 +9,7 @@ import InvariantService from '@deepseek-ai/dsh-invariants'
 import * as SessionInvariant from '@deepseek-ai/dsh-session/invariant'
 import * as AgentInvariant from '@deepseek-ai/dsh-agent/invariant'
 import * as AgentLoopInvariant from '@deepseek-ai/dsh-agent-loop/invariant'
-import SubagentService from '@deepseek-ai/dsh-subagent'
+import SubagentService, { snapshotSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
 import { maxTokensResponse, MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import { startInProcessRun } from '../src/index.ts'
 
@@ -35,7 +35,17 @@ async function setup(script: Script, parentOptions: Partial<AgentOptions> = {}) 
 }
 
 function request(parent: Agent, signal = new AbortController().signal) {
-  return { prompt: [{ type: 'text' as const, text: 'child task' }], parent, signal }
+  return {
+    label: 'child task',
+    prompt: [{ type: 'text' as const, text: 'child task' }],
+    parent,
+    signal,
+    descriptor: snapshotSubagentDescriptor({
+      mode: 'one-shot',
+      provider: 'test',
+      label: 'child task',
+    }),
+  }
 }
 
 function text(blocks: readonly { type: string; text?: string }[]): string {
@@ -56,7 +66,71 @@ describe('startInProcessRun', () => {
     expect(ctx.agents.get(run.id)).toBeUndefined()
   })
 
-  it('reports the message-turn outcome when a later non-message turn completes during flush', async () => {
+  it('uses explicit child model selectors when the parent has none and preserves its cwd', async () => {
+    const { ctx } = await setup([textResponse('driver answer')])
+    const parent = ctx.agentLoop.create(SessionId('bare-parent'), {}, { cwd: '/workspace' })
+    const run = await startInProcessRun({
+      ...request(parent),
+      agentOptions: { provider: 'mock', model: 'mock' },
+    }, {})
+
+    const child = ctx.agents.get(run.id)!
+    expect(child.options).toMatchObject({ provider: 'mock', model: 'mock' })
+    expect(child.session.header.cwd).toBe('/workspace')
+    await expect(run.result).resolves.toMatchObject({ stopReason: 'completed' })
+    await run.dispose()
+  })
+
+  it('does not add a final durability checkpoint to a foreground run', async () => {
+    const { ctx, parent } = await setup([textResponse('driver answer')])
+    let flushes = 0
+    ctx.on('session/flush', (session) => {
+      if (session.header.parentSession === undefined) return
+      flushes++
+      throw new Error('disk full')
+    })
+
+    const run = await startInProcessRun(request(parent), {})
+    await expect(run.result).resolves.toMatchObject({ stopReason: 'completed' })
+    expect(flushes).toBe(0)
+    await run.dispose()
+  })
+
+  it('keeps published run and handle disposal failures on separate channels', async () => {
+    const { ctx, parent } = await setup([])
+    const runError = new Error('published run failed')
+    const disposalError = new Error('published handle disposal failed')
+    const beforeAgents = ctx.agents.list().length
+    const beforeSessions = ctx.sessions.list().length
+    const parentWithFailedDisposal = {
+      options: parent.options,
+      session: parent.session,
+      ctx: {
+        get: () => undefined,
+        agents: {
+          create: async (options: Parameters<typeof ctx.agents.create>[0]) => {
+            const handle = await ctx.agents.create(options)
+            handle.agent.followup = () => { throw runError }
+            return {
+              ...handle,
+              dispose: async () => {
+                await handle.dispose()
+                throw disposalError
+              },
+            }
+          },
+        },
+      },
+    } as unknown as Agent
+
+    const run = await startInProcessRun(request(parentWithFailedDisposal), {})
+    expect(ctx.agents.get(run.id)).toBeDefined()
+    await expect(run.result).rejects.toBe(runError)
+    await expect(run.dispose()).rejects.toBe(disposalError)
+    expect(ctx.agents.list()).toHaveLength(beforeAgents)
+    expect(ctx.sessions.list()).toHaveLength(beforeSessions)
+  })
+  it('reports the turn outcome when later metadata is appended during flush', async () => {
     const { ctx, parent } = await setup([maxTokensResponse('partial answer')])
     let injected = false
     ctx.on('session/flush', (session) => {
@@ -64,25 +138,19 @@ describe('startInProcessRun', () => {
       const lastEnd = session.events.findLast(event => event.type === 'turn/end')
       if (lastEnd?.type !== 'turn/end' || lastEnd.data.reason.kind !== 'max-tokens') return
       injected = true
-      const turn = lastEnd.data.turn + 1
-      session.append('turn/start', {
-        turn,
-        trigger: { kind: 'injection', source: { kind: 'plugin', plugin: 'late-metadata' } },
-      })
       session.append('user/message', createUserMessage({
         content: [{ type: 'text', text: 'late metadata' }],
         source: { kind: 'plugin', plugin: 'late-metadata' },
       }), { surfaceOp: 'append' })
-      session.append('turn/end', { turn, reason: { kind: 'completed' } })
     })
 
     const run = await startInProcessRun(request(parent), {})
     const result = await run.result
     const child = ctx.agents.get(run.id)!
 
-    expect(injected).toBe(true)
+    expect(injected).toBe(false)
     expect(child.session.events.findLast(event => event.type === 'turn/end'))
-      .toMatchObject({ data: { reason: { kind: 'completed' } } })
+      .toMatchObject({ data: { reason: { kind: 'max-tokens' } } })
     expect(result.stopReason).toBe('max-tokens')
     await run.dispose()
   })
@@ -101,13 +169,16 @@ describe('startInProcessRun', () => {
     await run.dispose()
   })
 
-  it('persists the child depth in its session header', async () => {
+  it('persists the child origin and depth in its session header', async () => {
     const { ctx, parent } = await setup([textResponse('child answer')])
     const run = await startInProcessRun(request(parent), {})
     await run.result
     // The recursion budget is durable session data, not only runtime options —
     // a depth that lived only in AgentOptions would reset to 0 on resume.
-    expect(ctx.agents.get(run.id)!.session.header.delegationDepth).toBe(1)
+    expect(ctx.agents.get(run.id)!.session.header).toMatchObject({
+      origin: 'subagent',
+      delegationDepth: 1,
+    })
     await run.dispose()
   })
 
@@ -186,6 +257,21 @@ describe('startInProcessRun', () => {
     expect(ctx.sessions.list()).toHaveLength(beforeSessions)
   })
 
+  it('stamps only the resolved depth when neither parent nor request declares a model route', async () => {
+    // The one-shot analogue of the deleted resume coverage ("resumes without
+    // inventing undeclared agent model options"): a bare parent with no request
+    // agentOptions yields a child whose options carry ONLY the stamped depth —
+    // no provider/model is fabricated, so the child's turn errors for want of a
+    // route rather than silently adopting one.
+    const { ctx } = await setup([])
+    const parent = ctx.agentLoop.create(SessionId('routeless-parent'), {})
+    const run = await startInProcessRun(request(parent), {})
+    const child = ctx.agents.get(run.id)!
+    expect(child.options).toEqual({ subagentDepth: 1 })
+    await expect(run.result).resolves.toMatchObject({ stopReason: 'error' })
+    await run.dispose()
+  })
+
   it('uses the request signal after publication and dispose as cancellation paths', async () => {
     const { parent, adapter } = await setup(['hang', 'hang'])
     const controller = new AbortController()
@@ -196,7 +282,7 @@ describe('startInProcessRun', () => {
     expect(adapter.requests[0]?.signal?.reason).toEqual({ kind: 'parent' })
     const child = parent.ctx.agents.get(signalled.id)
     const turnEnd = child?.session.events.findLast(event => event.type === 'turn/end')
-    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted' })
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted', reason: { kind: 'parent' } })
     await signalled.dispose()
 
     const disposed = await startInProcessRun(request(parent), {})
@@ -217,7 +303,7 @@ describe('startInProcessRun', () => {
     expect(ctx.sessions.list()).toHaveLength(beforeSessions)
   })
 
-  it('closes the abort handoff after the factory detaches its creation listener', async () => {
+  it('treats abort after factory publication as a cancelled run with an id', async () => {
     const { ctx, parent } = await setup([])
     const controller = new AbortController()
     const beforeAgents = ctx.agents.list().length
@@ -233,15 +319,17 @@ describe('startInProcessRun', () => {
           create: async (options: Parameters<typeof ctx.agents.create>[0]) => {
             const handle = await ctx.agents.create(options)
             // `create()` has detached its creation-only listener, but the
-            // provider continuation has not installed its live-run listener.
+            // published run has not installed its live listener yet.
             controller.abort('handoff race')
             return handle
           },
         },
       },
     } as unknown as Agent
-    await expect(startInProcessRun(request(parentWithAbortAtHandoff, controller.signal), {}))
-      .rejects.toThrow('aborted before child publication')
+    const run = await startInProcessRun(request(parentWithAbortAtHandoff, controller.signal), {})
+    expect(ctx.agents.get(run.id)).toBeDefined()
+    await expect(run.result).resolves.toEqual({ output: [], stopReason: 'aborted' })
+    await run.dispose()
     expect(ctx.agents.list()).toHaveLength(beforeAgents)
     expect(ctx.sessions.list()).toHaveLength(beforeSessions)
   })

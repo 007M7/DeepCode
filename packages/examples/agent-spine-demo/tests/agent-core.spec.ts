@@ -4,13 +4,16 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
-import { TOOL_ORDER_REST } from '@deepseek-ai/dsh-system-prompt'
+import { renderPrompt, TOOL_ORDER_REST } from '@deepseek-ai/dsh-system-prompt'
 import * as agentCore from '../src/index.ts'
 import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
+import LocalBashExecutor from '@deepseek-ai/dsh-bash-local'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
-import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
-import { createUserMessage,
+import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
+import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
+import {
+  createUserMessage,
   CallId,
   LlmAdapter,
   LlmError,
@@ -36,7 +39,16 @@ declare module '@deepseek-ai/dsh-tasks' {
 
 async function composePrefix(ctx: Context, cwd: string): Promise<Message[]> {
   const agent = ctx.agentLoop.create(SessionId('agent-spine-prefix'), {}, { cwd })
-  await agentEvents(ctx, agent).serial('agent/step', 1, 1, new AbortController().signal)
+  const signal = new AbortController().signal
+  const decision = await agentEvents(ctx, agent).waterfall(
+    'agent/pre-step', [], { turn: 1, step: 1, signal },
+    () => Promise.resolve({ kind: 'enter', messages: [] }),
+  )
+  if (decision.kind === 'enter') {
+    for (const message of decision.messages) {
+      agent.session.append('user/message', message, { surfaceOp: 'append' })
+    }
+  }
   return agent.session.deriveMessages()
 }
 
@@ -163,7 +175,6 @@ describe('dsh-agent-spine-demo bundle', () => {
     const session = ctx.sessions.create(SessionId('configured-title-limits'))
     session.append('turn/start', {
       turn: 1,
-      trigger: { kind: 'message', source: { kind: 'user' } },
     })
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'One two three four' }],
@@ -206,8 +217,8 @@ describe('dsh-agent-spine-demo bundle', () => {
   it('mounts package companions and forwards invariant selection config', async () => {
     const nestedTurn = (ctx: Context): void => {
       const session = ctx.sessions.create()
-      session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-      session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
+      session.append('turn/start', { turn: 1 })
+      session.append('turn/start', { turn: 2 })
     }
 
     const enabled = await mount({ workspaceContext: false })
@@ -324,7 +335,7 @@ describe('dsh-agent-spine-demo bundle', () => {
     try {
       await mkdir(join(root, '.git'), { recursive: true })
       await writeFile(join(root, 'AGENTS.md'), 'bundled project rule')
-      const adapter = new MockAdapter([textResponse('ok')])
+      const adapter = new MockAdapter([textResponse('first')])
       const ctx = await mount({ workspaceContext: { maxBytes: 65536 } })
       await ctx.plugin(LocalFileSystem, { cwd: '/' })
       ctx.llm.registerAdapter(['mock'], adapter)
@@ -338,9 +349,10 @@ describe('dsh-agent-spine-demo bundle', () => {
       agent.followup(createUserMessage({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }))
       await waitForIdle(ctx, agent)
 
-      const sentText = adapter.requests[0]?.messages.map(messageText).join('\n')
-      expect(sentText).toContain('hi')
-      expect(sentText).toContain('bundled project rule')
+      expect(adapter.requests).toHaveLength(1)
+      const firstRequestText = adapter.requests[0]?.messages.map(messageText).join('\n')
+      expect(firstRequestText).toContain('hi')
+      expect(firstRequestText).toContain('bundled project rule')
       expect(adapter.requests[0]?.system).toContain('You are an AI agent powered by the DeepSeek Harness SDK.')
       expect(adapter.requests[0]?.system).not.toContain('bundled project rule')
       await handle.dispose()
@@ -404,6 +416,146 @@ describe('dsh-agent-spine-demo bundle', () => {
     await ctx.fiber.dispose()
   })
 
+  it('snapshots a created project skill through catalog refresh and progressive loading', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-agent-spine-demo-skill-refresh-'))
+    const home = await mkdtemp(join(tmpdir(), 'dsh-agent-spine-demo-skill-refresh-home-'))
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      const skillPath = '.agents/skills/hot-skill/SKILL.md'
+      const skillSource = '---\nname: hot-skill\ndescription: Hot-added skill\n---\n\nUse the freshly loaded body.\n'
+      const adapter = new MockAdapter([
+        toolCallResponse('mkdir-skill', 'bash', {
+          command: 'mkdir -p .agents/skills/hot-skill',
+          description: 'Create the project skill directory',
+        }),
+        toolCallResponse('write-skill', 'write', {
+          file_path: skillPath,
+          content: skillSource,
+        }),
+        toolCallResponse('load-skill', 'skill', { name: 'hot-skill' }),
+        textResponse('SKILL_REFRESH_OK'),
+      ])
+      const ctx = await mount({
+        workspaceContext: false,
+        skills: {
+          local: {
+            dshHome: join(home, '.dsh'),
+            agentsHome: join(home, '.agents'),
+            watchStabilityThresholdMs: 20,
+            watchPollIntervalMs: 10,
+          },
+        },
+      })
+      await ctx.plugin(LocalBashExecutor, {})
+      await ctx.plugin(LocalFileSystem, { cwd: root })
+      await ctx.plugin(ToolFs)
+      ctx.llm.registerAdapter(['mock'], adapter)
+      const handle = await ctx.agents.create({
+        sessionId: SessionId('skill-refresh-session'),
+        meta: { cwd: root },
+        agentOptions: { provider: 'mock', model: 'mock' },
+      })
+
+      handle.agent.followup(createUserMessage({
+        content: [{ type: 'text', text: 'Create and load the project skill.' }],
+        source: { kind: 'user' },
+      }))
+      await waitForIdle(ctx, handle.agent)
+
+      expect(adapter.requests).toHaveLength(4)
+      expect(adapter.requests.slice(0, 2).map(request => request.messages.map(messageText).join('\n')))
+        .toEqual([
+          expect.not.stringContaining('hot-skill'),
+          expect.not.stringContaining('hot-skill'),
+        ])
+      const catalogRequest = adapter.requests[2]?.messages.map(messageText).join('\n')
+      expect(catalogRequest).toContain('The following skills are available in this session:')
+      expect(catalogRequest).toContain('- `hot-skill`: Hot-added skill')
+      const loadedRequest = JSON.stringify(adapter.requests[3]?.messages)
+      expect(loadedRequest).toContain('<skill_instructions>')
+      expect(loadedRequest).toContain('Use the freshly loaded body.')
+
+      const transcript = handle.agent.session.events.flatMap<Record<string, unknown>>((event) => {
+        if (event.type === 'user/message' && event.data.source.kind === 'skill-catalog') {
+          return [{
+            type: event.type,
+            source: event.data.source,
+            text: event.data.content.map(block => block.type === 'text' ? block.text : '').join('\n'),
+          }]
+        }
+        if (event.type === 'tool/result'
+          && ['write-skill', 'load-skill'].includes(event.data.message.source.callId)) {
+          const result = event.data.message.content[0]
+          return [{
+            type: event.type,
+            callId: event.data.message.source.callId,
+            isError: result.isError,
+            text: result.content.map(block => block.type === 'text' ? block.text : '').join('\n')
+              .replaceAll(root, '{{cwd}}'),
+          }]
+        }
+        return []
+      })
+      expect(transcript).toMatchInlineSnapshot(`
+        [
+          {
+            "callId": "write-skill",
+            "isError": false,
+            "text": "<path>{{cwd}}/.agents/skills/hot-skill/SKILL.md</path>
+        <type>file</type>
+        <content>
+        Created file
+        </content>",
+            "type": "tool/result",
+          },
+          {
+            "source": {
+              "entries": [
+                {
+                  "description": "Hot-added skill",
+                  "name": "hot-skill",
+                },
+              ],
+              "form": "catalog",
+              "kind": "skill-catalog",
+            },
+            "text": "<system-reminder>
+        A skill is a reusable set of task-specific instructions. The following skills are available in this session:
+
+        <available_skills>
+        - \`hot-skill\`: Hot-added skill
+        </available_skills>
+
+        If the user names a skill, or the task clearly matches a skill's description, call the \`skill\` tool with the exact skill name before taking task actions. Load all applicable skills, then follow their full instructions. This catalog contains summaries only; do not infer or follow a skill's instructions until it has been loaded.
+        </system-reminder>",
+            "type": "user/message",
+          },
+          {
+            "callId": "load-skill",
+            "isError": false,
+            "text": "<skill_content name="hot-skill">
+        <skill_resources>
+        Base directory for this skill: {{cwd}}/.agents/skills/hot-skill
+        Resolve relative paths mentioned by this skill against the base directory before using them. Load referenced resources only as needed.
+        </skill_resources>
+
+        <skill_instructions>
+        Use the freshly loaded body.
+        </skill_instructions>
+        </skill_content>",
+            "type": "tool/result",
+          },
+        ]
+      `)
+
+      await handle.dispose()
+      await ctx.fiber.dispose()
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
   it('shares top-level dshHome between local skills and the managed bash environment', async () => {
     const home = await mkdtemp(join(tmpdir(), 'dsh-agent-core-shared-home-'))
     const agentsHome = await mkdtemp(join(tmpdir(), 'dsh-agent-core-shared-agents-'))
@@ -438,12 +590,12 @@ describe('dsh-agent-spine-demo bundle', () => {
     }).toThrow('agent-spine-demo: dshHome and skills.local.dshHome must resolve to the same directory')
   })
 
-  it('places workspace instructions before the skill catalog in the session prefix', async () => {
+  it('delivers workspace instructions ahead of the first-step skill catalog', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-agent-spine-demo-prefix-order-'))
     try {
       await mkdir(join(root, '.git'), { recursive: true })
       await writeFile(join(root, 'AGENTS.md'), 'workspace rule before skills')
-      const adapter = new MockAdapter([textResponse('ok')])
+      const adapter = new MockAdapter([textResponse('first')])
       const ctx = await mount({ workspaceContext: { maxBytes: 65536 } })
       await ctx.plugin(LocalFileSystem, { cwd: '/' })
       ctx.llm.registerAdapter(['mock'], adapter)
@@ -462,8 +614,16 @@ describe('dsh-agent-spine-demo bundle', () => {
       handle.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }))
       await waitForIdle(ctx, handle.agent)
 
-      expect(messageText(adapter.requests[0]?.messages[1])).toContain('workspace rule before skills')
-      expect(messageText(adapter.requests[0]?.messages[2])).toContain('prefix-order-skill')
+      expect(adapter.requests).toHaveLength(1)
+      const workspaceIndex = adapter.requests[0]!.messages.findIndex(
+        message => messageText(message).includes('workspace rule before skills'),
+      )
+      const catalogIndex = adapter.requests[0]!.messages.findIndex(
+        message => messageText(message).includes('prefix-order-skill'),
+      )
+      expect(workspaceIndex).toBeGreaterThanOrEqual(0)
+      expect(catalogIndex).toBeGreaterThanOrEqual(0)
+      expect(workspaceIndex).toBeLessThan(catalogIndex)
       await handle.dispose()
       await ctx.fiber.dispose()
     } finally {
@@ -515,9 +675,27 @@ describe('dsh-agent-spine-demo bundle', () => {
     await ctx.fiber.dispose()
   })
 
+  it('can omit the bundled bash tool and Harness identity for a compatibility deployment', async () => {
+    const ctx = await mount({
+      includeHarnessIdentity: false,
+      persona: 'You are a helpful software engineer assistant.',
+      workspaceContext: false,
+      skills: { enabled: false },
+      toolBash: false,
+      toolTasks: false,
+    }, true)
+
+    expect(ctx.tools.schemas()).toEqual([])
+    expect(renderPrompt(await ctx.systemPrompt.assemble()))
+      .toBe('You are a helpful software engineer assistant.')
+
+    await ctx.fiber.dispose()
+  })
+
   it('picks shared spine config without leaking front-door fields', () => {
     const appConfig = {
       model: 'front-door-only',
+      includeHarnessIdentity: false,
       persona: 'You are merged.',
       toolOrder: ['zulu'],
       tools: { mode: 'native' as const },
@@ -531,6 +709,7 @@ describe('dsh-agent-spine-demo bundle', () => {
     }
 
     expect(agentCore.pickSpineConfig(appConfig)).toEqual({
+      includeHarnessIdentity: appConfig.includeHarnessIdentity,
       persona: appConfig.persona,
       toolOrder: appConfig.toolOrder,
       tools: appConfig.tools,

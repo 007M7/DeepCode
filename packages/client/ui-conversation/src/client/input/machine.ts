@@ -14,6 +14,7 @@
  * paste-upgrade all answer their bail events this way).
  */
 import type { CommandClaim, ReferenceInsert, TokenSpan } from '@deepseek-ai/dsh-client-ui-slash/client'
+import type { InputSubmitMode } from '../contract/composer-submission.ts'
 import type {
   ConsumeTokenGuard, EditRange, EditSelection, InputEffect, InputEvent, InputMachineOptions,
   InputState, Occurrence, PasteAttemptState, PasteComponent, SubmitAttempt,
@@ -112,7 +113,6 @@ export class InputMachine {
   private inflight: {
     readonly attempt: SubmitAttempt
     readonly controller: AbortController
-    readonly mode: 'queue' | 'steer'
   } | undefined
   private log: Transaction[] = []
   private redoStack: Transaction[] = []
@@ -150,7 +150,6 @@ export class InputMachine {
   dispatch(ev: InputEvent): readonly InputEffect[] {
     switch (ev.type) {
       case 'draft-changed': return this.onDraftChanged(ev.draft, ev.editRange)
-      case 'newline': return this.onNewline(ev.selection)
       case 'begin-command': return this.onBeginCommand(ev.claim, ev.span)
       case 'insert-ref': return this.onInsertRef(ev.reference, ev.span)
       case 'consume-token': return this.onConsumeToken(ev.guard)
@@ -255,19 +254,6 @@ export class InputMachine {
     return []
   }
 
-  /** F1: caret newline as an ordinary machine transaction (execCommand path removed). */
-  private onNewline(selection: EditSelection): InputEffect[] {
-    const { start, end } = selection
-    if (start < 0 || start > end || end > this.draft.length) return []
-    this.pushTxn(selection)
-    this.typingRun = undefined
-    this.reconcile({ start, end, insertedLength: 1 })
-    this.adopt(this.draft.slice(0, start) + '\n' + this.draft.slice(end))
-    this.watchClaim()
-    this.paste = undefined
-    return []
-  }
-
   /** Span CAS: revision equality (content identity follows) plus bounds sanity. */
   private casOk(span: TokenSpan): boolean {
     return span.draftRev === this.draftRev
@@ -297,14 +283,23 @@ export class InputMachine {
     return []
   }
 
-  /** Shared chip-insertion transaction: replace [span) with one placeholder occurrence (insert-ref and paste-upgrade both land here). */
-  private replaceSpanWithChip(reference: ReferenceInsert, span: TokenSpan): void {
+  /**
+   * Shared chip-insertion transaction: replace [span) with one placeholder
+   * occurrence (insert-ref and paste-upgrade both land here). A separating
+   * space follows the chip unless one is already next.
+   * @returns the inserted length (placeholder plus optional gap).
+   */
+  private replaceSpanWithChip(reference: ReferenceInsert, span: TokenSpan): number {
     this.pushTxn()
     this.typingRun = undefined
-    this.reconcile({ start: span.start, end: span.end, insertedLength: 1 })
+    const tail = this.draft.slice(span.end)
+    const gap = tail.length === 0 || tail[0] !== ' ' ? ' ' : ''
+    const inserted = PLACEHOLDER + gap
+    this.reconcile({ start: span.start, end: span.end, insertedLength: inserted.length })
     this.withMinted([this.mint(reference, span.start)])
-    this.adopt(this.draft.slice(0, span.start) + PLACEHOLDER + this.draft.slice(span.end))
+    this.adopt(this.draft.slice(0, span.start) + inserted + tail)
     this.watchClaim()
+    return inserted.length
   }
 
   /**
@@ -442,10 +437,10 @@ export class InputMachine {
     if (attempt === undefined || attempt.attemptId !== attemptId) return []
     if (this.phase !== 'plain' && this.phase !== 'claimed') return []
     if (!this.casOk(span) || span.start === span.end) return []
-    this.replaceSpanWithChip(reference, span)
+    const insertedLength = this.replaceSpanWithChip(reference, span)
     this.paste = {
       ...attempt,
-      insertedRange: { start: attempt.insertedRange.start, end: attempt.insertedRange.end + 1 - (span.end - span.start) },
+      insertedRange: { start: attempt.insertedRange.start, end: attempt.insertedRange.end + insertedLength - (span.end - span.start) },
     }
     return []
   }
@@ -453,15 +448,15 @@ export class InputMachine {
   // ---- submit plane ----
 
   /** Mint the next SubmitAttempt and take the in-flight slot. */
-  private beginAttempt(mode: 'queue' | 'steer'): SubmitAttempt {
+  private beginAttempt(mode: InputSubmitMode): SubmitAttempt {
     const controller = new AbortController()
     this.seq += 1
-    const attempt: SubmitAttempt = { seq: this.seq, signal: controller.signal, draftSnapshot: this.draft }
-    this.inflight = { attempt, controller, mode }
+    const attempt: SubmitAttempt = { seq: this.seq, signal: controller.signal, draftSnapshot: this.draft, mode }
+    this.inflight = { attempt, controller }
     return attempt
   }
 
-  private onEnter(mode: 'queue' | 'steer'): InputEffect[] {
+  private onEnter(mode: InputSubmitMode): InputEffect[] {
     if (this.phase === 'adjudicating' || this.phase === 'submitting') return []
     if (this.phase === 'claimed' && this.claim !== undefined) {
       const attempt = this.beginAttempt(mode)
@@ -498,7 +493,7 @@ export class InputMachine {
     this.inflight = undefined
     this.phase = 'plain'
     return outcome === undefined
-      ? [{ type: 'default-sink', draft: attempt.draftSnapshot, mode: flight.mode }]
+      ? [{ type: 'default-sink', draft: attempt.draftSnapshot, mode: attempt.mode }]
       : []
   }
 

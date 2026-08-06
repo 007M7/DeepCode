@@ -126,7 +126,7 @@ function heritageExemption(
           returnType = d.type.type
         } else continue
         baseParams ??= new Set()
-        // Leading underscores are the deliberately-unused marker (eslint
+        // Leading underscores are the deliberately-unused marker (lint
         // argsIgnorePattern), not a rename: `_cwd` overriding `cwd` is the
         // same parameter, so compare underscore-stripped on both sides.
         for (const p of params) if (ts.isIdentifier(p.name)) baseParams.add(p.name.text.replace(/^_+/, ''))

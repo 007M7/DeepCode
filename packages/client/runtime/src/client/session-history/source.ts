@@ -1,12 +1,16 @@
 import type {
   HistoryEntry, IApiClient, MuxFrame, RpcError, SessionId,
 } from '@deepseek-ai/dsh-client-connection/client'
+import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type {
   SessionHistoryFace, SessionHistorySnapshot,
 } from '../contract/session-history.ts'
-import { createHistoryInspection } from '../sessions/history.ts'
+import {
+  compactHistoryInspectionEntries, createHistoryInspection,
+} from '../sessions/history.ts'
 import { Notifier } from '../sessions/notifier.ts'
+import { isVisibleAssistantChunk, PartialAccumulator } from '../sessions/partial.ts'
 
 const HISTORY_PAGE_MESSAGES = 50
 
@@ -16,7 +20,8 @@ function isAborted(signal: AbortSignal | undefined): boolean {
 
 /** Independent raw-history owner used only by inspection consumers. */
 export class SessionHistorySource implements SessionHistoryFace {
-  private entries: readonly HistoryEntry[] = []
+  private entries: HistoryEntry[] = []
+  private inspectionEntries: readonly HistoryEntry[] = []
   private baseSeq = 0
   private hasMore = false
   private state: SessionHistorySnapshot['state'] = 'cold'
@@ -33,6 +38,8 @@ export class SessionHistorySource implements SessionHistoryFace {
     entries: readonly HistoryEntry[]
     value: SessionHistorySnapshot['inspection']
   } | null = null
+  private streamPublishToken: object | null = null
+  private streamPartial: PartialAccumulator | null = null
   private snapshotCache: SessionHistorySnapshot
   private readonly notifier = new Notifier(() => {
     this.snapshotCache = this.buildSnapshot()
@@ -68,37 +75,29 @@ export class SessionHistorySource implements SessionHistoryFace {
   }
 
   /**
-   * Load the tail and exhaust all available older pages.
+   * Load the current tail without reading older pages.
    * @param signal - Consumer lifetime.
-   * @returns When paging completes, fails to advance, or is aborted.
+   * @returns When the tail is ready or loading fails.
    */
-  async loadAll(signal?: AbortSignal): Promise<void> {
-    if (signal?.aborted === true) return
+  async loadTail(signal?: AbortSignal): Promise<void> {
+    if (isAborted(signal)) return
     this.trackConsumer(signal)
     await this.open()
-    while (
-      !isAborted(signal)
-      && this.state === 'ready'
-      && this.hasMore
-    ) {
-      const previousBaseSeq = this.baseSeq
-      await this.loadOlder()
-      if (isAborted(signal) || this.baseSeq === previousBaseSeq) return
-    }
   }
 
-  /** Rebuild and page for whichever mounted consumers survive a reconnect. */
-  private async loadForConsumers(): Promise<void> {
+  /**
+   * Prepend one older page when the current window has a predecessor.
+   * @param signal - Consumer lifetime.
+   * @returns Whether the loaded window advanced.
+   */
+  async loadOlder(signal?: AbortSignal): Promise<boolean> {
+    if (isAborted(signal)) return false
+    this.trackConsumer(signal)
     await this.open()
-    while (
-      this.hasConsumer()
-      && this.state === 'ready'
-      && this.hasMore
-    ) {
-      const previousBaseSeq = this.baseSeq
-      await this.loadOlder()
-      if (!this.hasConsumer() || this.baseSeq === previousBaseSeq) return
-    }
+    if (isAborted(signal)) return false
+    const previousBaseSeq = this.baseSeq
+    await this.loadOlderPage()
+    return this.baseSeq !== previousBaseSeq
   }
 
   /**
@@ -125,7 +124,7 @@ export class SessionHistorySource implements SessionHistoryFace {
     if (this.state !== 'cold') {
       this.state = 'cold'
       this.error = null
-      this.notifier.markDirty()
+      this.publishDirtyNow()
     }
   }
 
@@ -139,12 +138,13 @@ export class SessionHistorySource implements SessionHistoryFace {
     this.liveBuffer = []
     this.subscribedLastSeq = null
     this.entries = []
+    this.inspectionEntries = []
     this.baseSeq = 0
     this.hasMore = false
     this.state = 'cold'
     this.error = null
-    this.notifier.markDirty()
-    void this.loadForConsumers()
+    this.publishDirtyNow()
+    void this.open()
   }
 
   /** Stop future refresh work after the host removes the session. */
@@ -155,6 +155,8 @@ export class SessionHistorySource implements SessionHistoryFace {
     this.openPromise = null
     this.olderPromise = null
     this.liveBuffer = []
+    this.streamPublishToken = null
+    this.streamPartial = null
   }
 
   private open(): Promise<void> {
@@ -188,7 +190,7 @@ export class SessionHistorySource implements SessionHistoryFace {
   private async doOpen(generation: number): Promise<void> {
     this.state = 'loading'
     this.error = null
-    this.notifier.markDirty()
+    this.publishDirtyNow()
     try {
       let { result } = await this.api.sessions.history({
         sessionId: this.sessionId,
@@ -222,11 +224,11 @@ export class SessionHistorySource implements SessionHistoryFace {
       /* v8 ignore next -- transportError always returns the error branch. */
       this.error = folded.ok ? null : folded.error
     } finally {
-      if (generation === this.generation) this.notifier.markDirty()
+      if (generation === this.generation) this.publishDirtyNow()
     }
   }
 
-  private loadOlder(): Promise<void> {
+  private loadOlderPage(): Promise<void> {
     if (this.olderPromise !== null) return this.olderPromise
     if (this.state !== 'ready' || !this.hasMore) return Promise.resolve()
     const generation = this.generation
@@ -252,6 +254,7 @@ export class SessionHistorySource implements SessionHistoryFace {
           return
         }
         this.entries = [...older, ...this.entries]
+        this.inspectionEntries = compactHistoryInspectionEntries([...this.entries])
         this.baseSeq = older[0]?.event.seq ?? this.baseSeq
         this.hasMore = result.value.hasMore
       } catch (error) {
@@ -261,7 +264,7 @@ export class SessionHistorySource implements SessionHistoryFace {
     const settled = operation.finally(() => {
       if (this.olderPromise !== settled) return
       this.olderPromise = null
-      this.notifier.markDirty()
+      this.publishDirtyNow()
     })
     this.olderPromise = settled
     return settled
@@ -283,10 +286,11 @@ export class SessionHistorySource implements SessionHistoryFace {
       this.entries = [...prefix, ...tail]
     }
     this.baseSeq = this.entries[0]?.event.seq ?? 0
+    this.inspectionEntries = compactHistoryInspectionEntries([...this.entries])
     const buffered = this.liveBuffer
     this.liveBuffer = []
     for (const entry of buffered) this.appendLive(entry)
-    this.notifier.markDirty()
+    this.publishDirtyNow()
   }
 
   private acceptLive(entry: HistoryEntry): void {
@@ -301,14 +305,84 @@ export class SessionHistorySource implements SessionHistoryFace {
       void this.repairGap()
       return
     }
+    if (
+      entry.event.type === 'assistant/chunk'
+      && entry.event.data.chunk.type !== 'usage'
+    ) {
+      if (!this.appendIncrementalChunk(entry, entry.event)) return
+      this.publishStreamDirty()
+      return
+    }
     this.appendLive(entry)
-    this.notifier.markDirty()
+    this.publishDirtyNow()
   }
 
   private appendLive(entry: HistoryEntry): void {
     const tailSeq = this.tailSeq()
     if (tailSeq !== null && entry.event.seq <= tailSeq) return
-    this.entries = [...this.entries, entry]
+    this.entries.push(entry)
+    this.inspectionEntries = [...this.inspectionEntries, entry]
+    if (entry.event.type === 'assistant/message') {
+      this.inspectionEntries = compactHistoryInspectionEntries(this.inspectionEntries)
+    }
+  }
+
+  /** Append a chunk against the cached finalized projection; false means no visible publish. */
+  private appendIncrementalChunk(
+    entry: HistoryEntry,
+    event: SessionEvent<'assistant/chunk'>,
+  ): boolean {
+    const { turn, step, chunk } = event.data
+    if (!isVisibleAssistantChunk(chunk.type)) {
+      const inspection = this.currentInspection()
+      this.appendLive(entry)
+      this.inspectionCache = { entries: this.inspectionEntries, value: inspection }
+      return false
+    }
+    const base = this.currentInspection()
+    if (
+      this.streamPartial === null
+      || this.streamPartial.turn !== turn
+      || this.streamPartial.step !== step
+    ) {
+      const current = base.partial
+      this.streamPartial = new PartialAccumulator(
+        turn,
+        step,
+        current?.turn === turn && current.step === step ? current.blocks : [],
+      )
+    }
+    this.streamPartial.push(chunk)
+    this.appendLive(entry)
+    this.inspectionCache = {
+      entries: this.inspectionEntries,
+      value: { ...base, partial: this.streamPartial.toPartial() },
+    }
+    return true
+  }
+
+  /** Coalesce token-stream projection and rendering work to one publish per browser frame. */
+  private publishStreamDirty(): void {
+    if (this.streamPublishToken !== null) return
+    const token = {}
+    this.streamPublishToken = token
+    const publish = () => {
+      if (this.streamPublishToken !== token) return
+      this.streamPublishToken = null
+      this.notifier.markDirty()
+    }
+    if (typeof globalThis.requestAnimationFrame === 'function') {
+      globalThis.requestAnimationFrame(publish)
+    } else {
+      queueMicrotask(publish)
+    }
+  }
+
+  /** Publish structural changes immediately and invalidate an older scheduled stream publish. */
+  private publishDirtyNow(): void {
+    this.streamPublishToken = null
+    this.streamPartial = null
+    this.notifier.markDirty()
   }
 
   private async repairGap(): Promise<void> {
@@ -335,18 +409,24 @@ export class SessionHistorySource implements SessionHistoryFace {
   }
 
   private buildSnapshot(): SessionHistorySnapshot {
-    if (this.inspectionCache?.entries !== this.entries) {
-      const entries = this.entries
+    return {
+      state: this.state,
+      error: this.error,
+      hasMore: this.hasMore,
+      baseSeq: this.baseSeq,
+      inspection: this.currentInspection(),
+    }
+  }
+
+  /** Inspection pinned to the source's current immutable entry array. */
+  private currentInspection(): SessionHistorySnapshot['inspection'] {
+    if (this.inspectionCache?.entries !== this.inspectionEntries) {
+      const entries = this.inspectionEntries
       this.inspectionCache = {
         entries,
         value: createHistoryInspection(() => entries),
       }
     }
-    return {
-      state: this.state,
-      error: this.error,
-      hasMore: this.hasMore,
-      inspection: this.inspectionCache.value,
-    }
+    return this.inspectionCache.value
   }
 }

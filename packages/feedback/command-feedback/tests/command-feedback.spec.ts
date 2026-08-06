@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import CommandService from '@deepseek-ai/dsh-commands'
 import SessionStore, { foldSurface, Session, SessionId } from '@deepseek-ai/dsh-session'
@@ -17,19 +17,21 @@ interface Harness {
 /** Build a live idle agent over a store-owned session, as an app's spine does. */
 function stubAgent(ctx: Context, id: string): { agent: Agent; session: Session } {
   const session = ctx.sessions.create(SessionId(id))
+  const inbox = new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} })
   let status: AgentStatus = 'idle'
   const agent: Agent = {
     id: session.id,
     options: {},
     session,
+    inbox,
     ctx: new Context(),
     get status() { return status },
-    get acceptsNextStep() { return status === 'running' },
     send: () => {},
     followup: () => {},
     steer: () => {},
     inject: () => {},
     cancel() { status = 'idle' },
+    runMaintenance: task => task(new AbortController().signal),
     whenIdle() { return Promise.resolve() },
   }
   return { agent, session }
@@ -133,7 +135,7 @@ describe('/feedback human command', () => {
   it('records concurrent submissions in dispatch order', async () => {
     const test = await harness()
     const signal = new AbortController().signal
-    // The shipped TUI dispatches commands fire-and-forget.
+    // Command adapters may dispatch concurrent requests without awaiting one another.
     const settled = await Promise.all([
       test.ctx.commands.execute(test.agent, '/feedback first', signal),
       test.ctx.commands.execute(test.agent, '/feedback second', signal),

@@ -4,48 +4,55 @@
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
-- text: "Use the read tool twice in one assistant message: read a.txt and b.txt. Then reply with the single word DONE and stop. {{clock}}"
-- button "复制":
+- text: "Use the read tool twice in one assistant message: read a.txt and b.txt. Then reply with the single word DONE and stop. 7/25 {{clock}}"
+- button "Copy":
   - img
-- tooltip "复制"
-- button "在新对话中分支":
+- tooltip "Copy"
+- button "Branch into a new conversation" [disabled]:
   - img
-- button "编辑":
-  - img
+- text: Available only on the last message of a completed turn
 - button "Think The user wants me to read a.txt and b.txt, then reply with \"DONE\". Let me do both reads in parallel.":
   - img
   - img
   - text: Think The user wants me to read a.txt and b.txt, then reply with "DONE". Let me do both reads in parallel.
-- button "复制":
+- paragraph: I will read both files before answering.
+- button "Copy":
   - img
-- button "在新对话中分支":
+- button "Branch into a new conversation" [disabled]:
   - img
-- text: {{clock}}
-- img
-- text: Read
-- button "a.txt"
-- img
-- text: Read
-- button "b.txt"
+- text: Available only on the last message of a completed turn 7/25 {{clock}} Ran for {{duration}} TTFT {{duration}} {{throughput}} tok/s
+- button "Read a.txt":
+  - img
+  - img
+  - text: Read
+  - button "a.txt"
+- button "Read b.txt":
+  - img
+  - img
+  - text: Read
+  - button "b.txt"
 - button "Think Both files have been read. a.txt contains \"alpha\" and b.txt contains \"beta\". I'll now reply with DONE as instructed.":
   - img
   - img
   - text: Think Both files have been read. a.txt contains "alpha" and b.txt contains "beta". I'll now reply with DONE as instructed.
+- text: Stopped Now give the final answer. 7/25 {{clock}}
+- button "Copy":
+  - img
+- button "Branch into a new conversation" [disabled]:
+  - img
+- text: Available only on the last message of a completed turn
 - paragraph: DONE
-- button "复制":
+- button "Copy":
   - img
-- button "在新对话中分支":
+- button "Branch into a new conversation":
   - img
-- text: {{clock}} cache hit 98% · 15,962 tokens · 1 turns · 2 steps
+- text: 7/25 {{clock}} Ran for {{duration}}
 - textbox "Message the agent"
-- button "Add attachment":
+- button "Commands":
   - img
-- text: Danger Full Access
-- combobox "Access mode":
-  - option "Read Only"
-  - option "Workspace Write"
-  - option "Danger Full Access" [selected]
-- button "选择模型，当前 deepseek-v4-flash":
-  - text: deepseek-v4-flash
+- 'button "Access mode, current: Workspace Write"': Workspace Write
+- button "Select model":
+  - text: Select model
   - img
 - button "Send message" [disabled]
+- text: 2 turns · 3 steps LLM {{duration}} · Tool call {{duration}} TTFT avg {{duration}} · {{throughput}} tok/s Cache hit 98% Input 7.8K tok · Output 103 tok

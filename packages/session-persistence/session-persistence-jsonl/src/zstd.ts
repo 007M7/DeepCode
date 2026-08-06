@@ -5,14 +5,21 @@
  * @module dsh-session-persistence-jsonl/zstd
  */
 
-import { constants, zstdCompress, zstdDecompress, type ZstdOptions } from 'node:zlib'
+import {
+  constants, zstdCompress, zstdDecompress, type ZstdOptions,
+} from 'node:zlib'
 import { promisify } from 'node:util'
+import { NodePrivateZstdFrameDecoder } from './zstd-private-decoder.ts'
+import { PublicZstdFrameDecoder } from './zstd-public-decoder.ts'
 
 const ZSTD_MAGIC = 0xFD2FB528
 const zstdCompressAsync = promisify(zstdCompress)
 const zstdDecompressAsync = promisify(zstdDecompress)
 const CHECKSUM_OPTIONS: ZstdOptions = {
   params: { [constants.ZSTD_c_checksumFlag]: 1 },
+}
+const INCOMPLETE_FRAME_OPTIONS: ZstdOptions = {
+  finishFlush: constants.ZSTD_e_flush,
 }
 
 /** Byte range occupied by one structurally complete Zstandard frame. */
@@ -106,11 +113,44 @@ export async function compressZstdFrame(input: Buffer | string): Promise<Buffer>
 }
 
 /**
- * Decompress one complete frame or the available prefix of a torn final frame.
- * Complete-frame checksums are validated by Node's decoder.
- * @param input - bytes beginning at a Zstandard frame boundary.
- * @returns plaintext produced from the available input.
+ * Decompress one complete frame and validate its checksum.
+ * @param input - one structurally complete Zstandard frame.
+ * @returns the frame plaintext.
  */
 export async function decompressZstdFrame(input: Buffer): Promise<Buffer> {
   return zstdDecompressAsync(input)
+}
+
+/** Common lifecycle for interchangeable synchronous multi-frame decoders. */
+export interface ZstdFrameDecoder {
+  /**
+   * Decode and checksum complete frames in source order. Each yielded buffer
+   * remains valid only until the iterator advances to the next frame.
+   * @param source - concatenated Zstandard frame bytes.
+   * @param frames - structurally complete ranges within `source`.
+   * @returns one plaintext buffer per frame.
+   */
+  decode(source: Buffer, frames: readonly ZstdFrameRange[]): Generator<Buffer, void, void>
+  /** Release decoder-owned resources; repeated calls are harmless. */
+  close(): void
+}
+
+/**
+ * Select the shared private decoder when the running Node 22/24/26 shape is
+ * compatible, otherwise preserve correctness with the public one-shot API.
+ * @returns a synchronous decoder with an implementation-independent lifecycle.
+ */
+export function createZstdFrameDecoder(): ZstdFrameDecoder {
+  return NodePrivateZstdFrameDecoder.create() ?? new PublicZstdFrameDecoder()
+}
+
+/**
+ * Recover available plaintext from a structurally incomplete final frame.
+ * `ZSTD_e_flush` deliberately suppresses final-frame and checksum completion;
+ * callers must establish the torn frame boundary before using this helper.
+ * @param input - available bytes from a known incomplete Zstandard frame.
+ * @returns plaintext produced from the available input.
+ */
+export async function decompressZstdPrefix(input: Buffer): Promise<Buffer> {
+  return zstdDecompressAsync(input, INCOMPLETE_FRAME_OPTIONS)
 }

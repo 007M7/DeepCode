@@ -119,6 +119,26 @@ export interface LlmProviderInfo {
   name: string
 }
 
+/**
+ * One provider route an adapter plugin can activate through configuration,
+ * whether or not the route is currently registered. Configuration surfaces
+ * merge this directory with `listProviders()` to offer every configurable
+ * provider alongside its live/dormant state.
+ */
+export interface LlmConfigurableProvider {
+  /** Provider route key this entry activates when configured. */
+  provider: string
+  /** Human-readable provider name for configuration surfaces. */
+  displayName: string
+  /** User-settings namespace whose section configures this provider. */
+  settingsNs: string
+  /**
+   * Path from that namespace's section root to this provider's profile
+   * object; empty when the whole section is the profile.
+   */
+  settingsPath: readonly string[]
+}
+
 /** One adapter-discovered model; catalog membership is advisory, not request validation. */
 export interface LlmModelInfo {
   /** Provider route that owns this model entry. */
@@ -162,6 +182,8 @@ export interface LlmModelReasoningInfo {
 export interface LlmResolvedModelInfo extends LlmModelInfo {
   /** Provider-owned context capacity when known. */
   context?: LlmModelContext
+  /** Adapter-configured per-request output cap materialized when callers omit one. */
+  defaultMaxTokens?: number
   /** Adapter-owned selectable reasoning levels when exposed. */
   reasoning?: LlmModelReasoningInfo
 }
@@ -170,8 +192,9 @@ export interface LlmResolvedModelInfo extends LlmModelInfo {
  * Raw streaming protocol emitted by adapters.
  * Block indexes correlate interleaved deltas, and `block-end` carries the
  * assembled block. Adapters emit usage before the terminal finish and nothing
- * afterward; tool arguments remain raw JSON strings. Failures either throw or
- * end with `error`/`aborted`, and consumers must handle both paths.
+ * afterward; tool arguments remain raw JSON strings. An adapter implementation
+ * may throw, but `LlmService.stream()` normalizes that failure to a terminal
+ * `error` or `aborted` finish before exposing it to consumers.
  */
 export type StreamChunk =
   | { type: 'block-start'; index: number; blockType: ContentBlockType }

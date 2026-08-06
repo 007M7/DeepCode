@@ -5,8 +5,8 @@
  * forward eagerly over committed session events. Domain host plugins
  * contribute pure mathematics (init/apply/view); the framework owns the
  * subscription, the per-session watermark cache, and change notification;
- * carriers (api-proxy today, TUI/ACP/headless later) consume the snapshot
- * read face and the change feed. Neither side knows the other
+ * carriers consume the snapshot read face and the change feed. Neither side
+ * knows the other
  * (capability-seam three-way split). Design authority: the session-projection
  * RFC (.agents/notes/proposed/architecture/2026-07-27-session-projection-and-command-log.md).
  *

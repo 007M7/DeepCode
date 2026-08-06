@@ -110,8 +110,8 @@ export class SessionReferenceService extends Service {
    */
   async listCandidates(
     agent: Agent,
-    query = '',
-    limit = this.config.candidateLimit,
+    query: string = '',
+    limit: number = this.config.candidateLimit,
     signal?: AbortSignal,
   ): Promise<SessionReferenceCandidate[]> {
     if (!Number.isSafeInteger(limit) || limit <= 0) {
@@ -199,6 +199,7 @@ export class SessionReferenceService extends Service {
     const prompt = renderPrompt(rendered.map(source => source.data))
     const source: SessionReferenceSource = {
       kind: 'session-reference',
+      form: 'recall',
       version: 1,
       references: rendered.map((source, index) => ({
         sessionId: source.data.sessionId,

@@ -1,6 +1,0 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
-#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-07-27-assistant-timing-header-trailing.md
-2026-07-27-assistant-timing-header-trailing.md: a315a0620c63f25660220e55cf5187d7117c14d1
-2026-07-27-assistant-timing-header-trailing.zh.md: 84b8612337a345912371e37952195e4602f7ca25

@@ -150,7 +150,7 @@ sequenceDiagram
 每个拆除请求加入一条记忆化路径。顺序为：
 
 1. 停用创建或驱动，让同步发布完成。
-2. 停止并排空 driver，包括空闲注入刷新。
+2. 停止并排空 driver，丢弃仍处于待处理状态的注入。
 3. 分离 agent。
 4. 分离会话。
 5. Dispose agent 作用域。
@@ -238,7 +238,7 @@ Scope 直接解决了真正的隔离问题。结构化输出贡献注册在子�
 
 对于 Code Mode SDK 调用，内层成功结果记录 `{ parentToken, value }` 而非提交。观察者等待 token 匹配 `parentToken` 的 `run_code` 执行，仅在该外层最终结果也成功时才提交。程序失败、运行时中止或外层 post-policy 拒绝会丢弃待定值。
 
-一旦值处于待定或已提交状态，作用域单调守卫拒绝后续工具调用。提交后，普通串行的 `agent/turn-stop` 监听器在 continuation 和 steering（中途引导）已折叠之后返回停止决策。Schema 验证失败仍然是普通的 `INVALID_ARGS` 工具错误，子级可以在同一轮次内重试。
+一旦值处于待定或已提交状态，作用域单调守卫拒绝后续工具调用。成功的结构化输出执行会调用 `exec.concludeTurn()`，因此其自身不可变结果携带 `concludesTurn: true`，循环在该步骤结束工具循环。Schema 验证失败仍然是普通的 `INVALID_ARGS` 工具错误，子级可以在同一轮次内重试。
 
 纯 Code Mode 的注册表贡献从原生 wire schema 中省略 `structured_output`，并通过生成的 SDK 暴露它。Assembly waterfall 可以有意改变该展示；执行仍然针对子作用域定义进行验证，监听器拥有其创建的任何替代模型可见路由的一致性。
 
@@ -250,9 +250,9 @@ Scope 直接解决了真正的隔离问题。结构化输出贡献注册在子�
 |---|---|---|
 | 工具 pre-policy | 单调拒绝 | 后续监听器不得重新允许已被拒绝的调用 |
 | 工具结果 | 观察不可变的已提交结果 | 结构化输出必须仅提交实际逃出流水线的结果 |
-| 轮次 continuation | 在普通 continuation 折叠之后停止 | 已提交的终端输出必须结束轮次 |
+| 轮次 continuation | 通过已提交工具结果终止 | 已提交的终端输出必须结束轮次 |
 
-`ToolGuard` 是单调策略注册表。已提交的工具观察是上述被隔离的 `tools/result` 点。终端结构化输出监听普通串行的 `agent/turn-stop` 折叠，在正常 continuation 和 steering 决策之后；类型化的监听器契约不需要公开的 `strictSerial()` dispatcher。
+`ToolGuard` 是单调策略注册表。已提交的工具观察是上述被隔离的 `tools/result` 点。终端结构化输出在自身执行上标记 `concludesTurn`，因此终止性成为权威结果上的数据，而不是独立 hook 决策。
 
 ### Skill 和 approval 服务信任类型化调用方
 
@@ -260,19 +260,19 @@ Skill 注册表定义和 approval 策略是 readonly 的同进程契约。它们
 
 Skill 仍然验证外部 skill 文件和解析的提供方输出，通过调用 agent 的工具视图路由目录，并精确 dispose 注册。Approval 仍然解析策略、观察取消、按 `request.agent` 路由 `approval/request`、记录持久化审计对，并隔离应答者和提交后观察者的失败。
 
-## Subagent：就绪即 start promise
+## Subagent：发布即 start promise
 
-Subagent 启动有一次所有权转移。提供方拥有部分资源直到其 start promise 以一个就绪的已发布 run 兑现；调用方拥有返回的 run 并必须 dispose 它。
+Subagent 启动有一次所有权转移。提供方拥有未发布资源，直到其 start promise 以一个已发布 run 兑现；调用方拥有返回的 run 并必须 dispose 它。
 
 ### 服务契约有一个取消通道
 
-`SubagentProvider.start()` 和 `SubagentService.start()` 返回 `Promise<SubagentRun>`。Promise 仅在后端建立了它所承诺的子级之后才兑现，因此调用方和 `subagent/start` 观察者从不需要第二个 `run.started` 就绪 promise。
+`SubagentProvider.start()` 和 `SubagentService.start()` 返回 `Promise<SubagentRun>`。Promise 会在后端跨过发布边界后兑现，因此调用方和 `subagent/start` 观察者从不需要第二个 `run.started` promise。提供方工作如果在发布前失败，`start()` 就会被拒绝；发布后的提示词、轮次、取消与基础设施结果会通过 `SubagentRun.result` 结算，且不会隐藏 child id，这也是[持久化目录决策](../feature/2026-07-22-durable-subagent-catalog-and-list-agents.md)所要求的契约。
 
-`SubagentStartRequest.signal` 是必需的。中止它会在启动期间和就绪之后请求取消。`SubagentRun.dispose()` 也请求取消并等待完全停稳。没有单独的公开 `run.cancel()` 通道。
+`SubagentStartRequest.signal` 是必需的。中止它会在启动期间，以及已发布 run 的剩余就绪或轮次工作中请求取消。`SubagentRun.dispose()` 也请求取消并等待完全停稳。没有单独的公开 `run.cancel()` 通道。
 
-可选的 `sendMessage()` 支持能接受 steering 的活跃后端。可选的 `resume()` 返回 `Promise<SubagentRun>`，因为恢复的子级有相同的异步就绪边界。
+可继续对话使用各自独立的创建和后续操作，并且没有 `SubagentRun`；其管理器拥有每个驻留中的 `AgentHandle`。
 
-服务在调用提供方之前验证提供方能力和请求语义。提供方拒绝在拒绝逃出之前清理所有部分资源，且不发射 `subagent/start`/`subagent/end` 对。兑现之后，服务附加结果观察、发射作用域 start 并返回 run。提供方移除阻止后续 start，但不撤销提供方已接受的 run。
+服务在调用提供方之前验证提供方能力和请求语义。提供方 rejection 在逃出之前清理未发布资源，且不发射 `subagent/start`/`subagent/end` 对。兑现之后，服务附加结果观察、发射作用域 start 并返回 run；发布后的结果 rejection 会结束该事件对。提供方移除会阻止后续 start，但不撤销提供方已接受的 run。
 
 ### 进程内提供方复用核心事务
 
@@ -318,7 +318,7 @@ Worker 边界仍然序列化请求和结果。宿主保留首个终端结果仲�
 
 ### 类型使常规路径难以误用
 
-Readonly 契约描述借用的同进程值。`Scoped<T>` 标记事件接收器，`agentEvents()` 融合载体和主体，工具输入省略注册表拥有的 token，subagent 异步返回类型直接暴露就绪性。
+Readonly 契约描述借用的同进程值。`Scoped<T>` 标记事件接收器，`agentEvents()` 融合载体和主体，工具输入省略注册表拥有的 token，subagent 异步返回类型直接暴露发布与结算。
 
 TypeScript 无法管控 JavaScript 强制转换、直接 Cordis dispatch、进程消息或持久化文件，因此运行时强制保留在这些逃逸点。
 
@@ -356,7 +356,7 @@ TypeScript 无法管控 JavaScript 强制转换、直接 Cordis dispatch、进�
 
 ### 保留同步 subagent start 加 `run.started`
 
-这将提供方接受与就绪分离，迫使每个消费方注册部分 run、附加结果观察、等待就绪并清理就绪失败。异步 start promise 使提供方到调用方的所有权转移本身成为就绪边界。
+这将提供方接受与发布分离，迫使每个消费方注册部分 run、附加结果观察、等待发布并清理发布失败。异步 start promise 将提供方到调用方的所有权转移保持在发布边界；现有的结果 promise 负责所有剩余就绪工作，无需增加另一个生命周期 promise。
 
 ### 在 assembly 之后恢复选定的提示词或工具贡献
 
@@ -378,7 +378,7 @@ Worker 消息、进程死亡和持久化输入确实跨越所有权和序列化�
 - 持久化、队列、模型、worker、进程和协议格式的值在其真实边界处被拥有；类型化的同进程值遵循 readonly 契约。
 - ToolRegistry 的展示、查找和执行在专家 assembly 变换之前解析相同的活跃视图，已提交的结果有一个不可变的观察点。
 - 注册表贡献是确定性输入，而可信的 assembly waterfall 拥有最终的模型可见组合。
-- Subagent start 仅返回就绪的 run，必需的 signal 取消待定或活跃的工作，dispose 到达后端的完全停稳契约。
+- Subagent start 仅返回已发布的 run，必需的 signal 取消待定或活跃的工作，dispose 到达后端的完全停稳契约。
 - Worker/进程结果优先级和清理在死亡、迟到消息和有界拆除下保持正确。
 
 ### 代价与局限

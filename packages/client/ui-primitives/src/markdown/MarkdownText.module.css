@@ -1,5 +1,5 @@
 /* Visual baseline: deepsuite `@deepseek/md` markdown.css, adapted to CSS
-   Modules. Cite pills, KaTeX, header anchors, and thinking-small variants are
+   Modules. Cite pills, header anchors, and thinking-small variants are
    intentionally absent (no matching DOM). Token names match that sheet. */
 
 .markdown {
@@ -160,6 +160,12 @@
   font-family: var(--ds-font-family-code);
 }
 
+.markdown :global(.katex-display) {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
 .markdown input[type='checkbox'] {
   margin: 0 8px 0 0;
   accent-color: var(--dsw-alias-label-secondary);
@@ -223,4 +229,15 @@
 .imageAlt {
   color: var(--dsw-alias-label-tertiary);
   font-style: italic;
+}
+
+.image {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  margin: 0;
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-base);
+  object-fit: contain;
 }

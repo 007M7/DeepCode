@@ -7,22 +7,36 @@
  * so the host-reported current target is the single fact both surfaces echo
  * — a switch made in either entry is what the other shows next. Failures
  * ride each entry's own retry surface (popup shell error/retry; seat menu
- * inline error) without forking the state.
+ * inline error) without forking the state. Addressed subagent sessions expose
+ * neither entry because those Agent-bound RPCs would activate persisted
+ * history outside the direct-parent continuation seam.
  */
 import type { ModelTarget, SessionModels } from '@deepseek-ai/dsh-client-connection/client'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type { CommandServiceContract, SelectOption } from '@deepseek-ai/dsh-client-ui-command/client'
 // Type-only: pulls the ui-conversation SlotMap merge (the input.model seat).
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+// Type-only: pulls the locale plugin's Context merge (ctx.locale).
+import type {} from '@deepseek-ai/dsh-client-locale/client'
+import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ModelDirectoryState } from './directory.ts'
 import { ModelService } from './service.ts'
 import type { ModelSelectInjected } from './slots.ts'
 import { ModelSelect } from './ModelSelect.tsx'
+import { en, zh, type ModelKey } from './locales.ts'
 
 export { ModelDirectory } from './directory.ts'
 export type { ModelDirectoryState } from './directory.ts'
 export { ModelService } from './service.ts'
 export type { ModelSelectInjected } from './slots.ts'
+export type { ModelKey } from './locales.ts'
+
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface LocaleNamespaceMap {
+    /** The model selection surfaces' copy (/model popup + composer seat). */
+    model: ModelKey
+  }
+}
 
 /** One selectable row's id: an opaque row key (resolved by lookup, never parsed). */
 function rowId(providerId: string, modelId: string): string {
@@ -30,23 +44,25 @@ function rowId(providerId: string, modelId: string): string {
 }
 
 /** Flatten the directory into popup rows; failure rows are listed for visibility but never selectable. */
-function optionsOf(directory: SessionModels): SelectOption[] {
+function optionsOf(directory: SessionModels, t: TranslateNS<'model'>): SelectOption[] {
   const rows: SelectOption[] = []
   for (const group of directory.groups) {
     for (const model of group.models) {
       rows.push({
         id: rowId(group.id, model.id),
         label: model.name,
-        detail: model.unlisted === true
-          ? `${group.name} · 未列入目录`
-          : model.description !== undefined ? `${group.name} · ${model.description}` : group.name,
+        detail: model.description !== undefined ? `${group.name} · ${model.description}` : group.name,
         ...(directory.current.provider === group.id && directory.current.model === model.id
           ? { active: true } : {}),
       })
     }
   }
   for (const failure of directory.failures) {
-    rows.push({ id: `failure/${failure.id}`, label: failure.name, detail: `目录加载失败：${failure.message}` })
+    rows.push({
+      id: `failure/${failure.id}`,
+      label: failure.name,
+      detail: t('option.loadError', { message: failure.message }),
+    })
   }
   return rows
 }
@@ -76,29 +92,50 @@ function targetOf(state: ModelDirectoryState, id: string): ModelTarget | undefin
   return undefined
 }
 
-/** Required services: the contribution registry, the seat's slot registry, and the service's own faces. */
-export const inject = ['command', 'connection', 'sessions', 'slots']
+/** Dictionary namespace owned by this plugin. */
+const NS = 'model'
+
+/** Required services: the contribution registry, the seat's slot registry, locale, and the service's own faces. */
+export const inject = ['command', 'connection', 'locale', 'sessions', 'slots']
 
 /**
- * Client plugin body: mount ModelService, then register the /model popup
- * contribution and the composer model seat over it.
+ * Client plugin body: mount ModelService, register the `model` dictionaries,
+ * then register the /model popup contribution and the composer model seat
+ * over the service.
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
   ctx.plugin(ModelService)
 
-  // Entry 1: the /model popupSelect over the shared directory.
+  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-model: dictionaries')
+
+  // Non-slot faces (the command description, the popup option builder) read
+  // through the bound translate; the seat component reads the standard seat.
+  const t = ctx.locale.bind(NS)
+
+  // Entry 1: the /model popupSelect over the shared directory. The command
+  // description is registry-held text: it reads t() once at registration and
+  // refreshes only on re-registration, not on locale change.
   ctx.inject(['command', 'models'], (scope: ClientContext) => {
     const command = scope.get('command') as CommandServiceContract
     const models = scope.models
+    const sessions = scope.sessions
     scope.effect(() => command.register({
       name: 'model',
-      description: 'Select the model for this conversation',
-      available: () => true,
+      description: t('command.description'),
+      available: session => sessions.subagentAddress(session.sessionId) === undefined,
       ui: {
         kind: 'popupSelect',
-        options: async session => optionsOf(await models.directoryFor(session.sessionId).load()),
+        options: async (session) => {
+          if (sessions.subagentAddress(session.sessionId) !== undefined) {
+            throw new Error('model selection is unavailable for addressed subagent sessions')
+          }
+          return optionsOf(await models.directoryFor(session.sessionId).load(), t)
+        },
         onSelect: async (option, session) => {
+          if (sessions.subagentAddress(session.sessionId) !== undefined) {
+            throw new Error('model selection is unavailable for addressed subagent sessions')
+          }
           const directory = models.directoryFor(session.sessionId)
           const target = targetOf(directory.store.getSnapshot(), option.id)
           if (target === undefined) {
@@ -111,20 +148,26 @@ export function apply(ctx: ClientContext): void {
   })
 
   // Entry 2: the composer's named model seat over the SAME directory.
-  // Conditional mount: the seat is declared by the composer-bar entry; the
-  // conversation service's presence is the registration-safe signal.
-  ctx.inject(['slots', 'conversation', 'models'], (scope: ClientContext) => {
+  ctx.inject(['slots', 'models'], (scope: ClientContext) => {
     const models = scope.models
-    scope.effect(() => scope.slots.register({
+    const sessions = scope.sessions
+    scope.slots.inject('conversation.input.model', () => scope.slots.register({
       name: 'conversation.input.model',
+      locale: NS,
       inject: (sessionId): ModelSelectInjected => {
         const directory = models.directoryFor(sessionId)
+        const available = sessions.subagentAddress(sessionId) === undefined
         return {
+          available,
           directory: directory.store,
-          load: () => { directory.load().catch(() => { /* surfaced on the store */ }) },
-          select: (target: ModelTarget) => directory.select(target).then(() => true, () => false),
+          load: () => {
+            if (available) directory.load().catch(() => { /* surfaced on the store */ })
+          },
+          select: (target: ModelTarget) => available
+            ? directory.select(target).then(() => true, () => false)
+            : Promise.resolve(false),
         }
       },
-    }, ModelSelect), 'ui-model: composer model seat registration')
+    }, ModelSelect))
   })
 }

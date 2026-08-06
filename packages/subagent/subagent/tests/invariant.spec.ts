@@ -68,15 +68,25 @@ describe('subagent invariants', () => {
 
   it('rejects malformed and unpaired run transitions', async () => {
     const ctx = await setup()
-    expect(() => { emitRun(ctx, 'subagent/start', start()) }).toThrow(/inactive provider/)
-    ctx.emit('subagent/provider-added', provider('mock'))
+    expect(() => { emitRun(ctx, 'subagent/start', start({ provider: '' })) })
+      .toThrow(/provider, runId, and child id must be non-empty/)
     expect(() => { emitRun(ctx, 'subagent/start', start({ runId: SubagentRunId('') })) })
-      .toThrow(/runId and child id must be non-empty/)
+      .toThrow(/provider, runId, and child id must be non-empty/)
     emitRun(ctx, 'subagent/start', start())
     expect(() => { emitRun(ctx, 'subagent/start', start()) }).toThrow(/repeated run id/)
     expect(() => { emitRun(ctx, 'subagent/end', end({ runId: SubagentRunId('missing') })) })
       .toThrow(/no matching subagent\/start/)
     expect(() => { emitRun(ctx, 'subagent/end', end({ id: SessionId('other') })) })
       .toThrow(/identity diverges/)
+  })
+
+  it('accepts historical provider provenance after registration ends', async () => {
+    const ctx = await setup()
+    const historical = provider('historical')
+    ctx.emit('subagent/provider-added', historical)
+    ctx.emit('subagent/provider-removed', historical.name)
+
+    emitRun(ctx, 'subagent/start', start({ provider: historical.name }))
+    emitRun(ctx, 'subagent/end', end({ provider: historical.name }))
   })
 })

@@ -19,6 +19,7 @@ export interface Config {
 /** Stable machine-routable failure taxonomy for session reads, traces, and search. */
 export type SessionQueryErrorCode =
   | 'SESSION_QUERY_ABORTED'
+  | 'SESSION_QUERY_CORRUPT_SESSION'
   | 'SESSION_QUERY_EVENT_NOT_FOUND'
   | 'SESSION_QUERY_INDEX_FAILED'
   | 'SESSION_QUERY_INVALID_CONFIG'
@@ -39,7 +40,7 @@ export class SessionQueryError extends HarnessError {
   declare readonly code: SessionQueryErrorCode
 
   // The base stores the value; this signature narrows its open string code.
-  // eslint-disable-next-line @typescript-eslint/no-useless-constructor
+  // oxlint-disable-next-line typescript/no-useless-constructor
   constructor(message: string, code: SessionQueryErrorCode, options?: ErrorOptions) {
     super(message, code, options)
   }

@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/support/invariants/README.md
 README.md: 203dbd5ad09f5b1378061fbf9adcff885889eae2
-README.zh.md: 841e7a32f8e2605c25aadef35862a0223046933f
+README.zh.md: fb9d15f3d0cd77f8002c6ff1a909e09e8c6c61fa

@@ -1,8 +1,20 @@
 #!/usr/bin/env node
 import { randomUUID } from 'node:crypto'
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import {
+  closeSync,
+  existsSync,
+  fstatSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
+import lefthookPackage from 'lefthook/package.json' with { type: 'json' }
 
 const MINIMUM_GIT = [2, 26, 0]
 const HOOKS_DIRECTORY = 'dsh-hooks'
@@ -11,6 +23,7 @@ const OWNERSHIP_MARKER_VERSION = 1
 const OWNERSHIP_MARKER_OWNER = 'deepseek-harness worktree-local lefthook hooks'
 const INSTALL_LOCK = 'dsh-lefthook-install.lock'
 const INSTALL_LOCK_TIMEOUT_MS = 30_000
+const INSTALL_LOCK_INITIALIZATION_TIMEOUT_MS = 1_000
 const INSTALL_LOCK_POLL_MS = 50
 const ALLOW_HOOKS_PATH_OVERRIDE = 'DSH_LEFTHOOK_ALLOW_HOOKS_PATH_OVERRIDE'
 const REPOSITORY_EXTENSION_PATTERN = '^extensions\\.'
@@ -303,6 +316,11 @@ function parseInstallLock(record) {
   return Number.isSafeInteger(owner) ? owner : undefined
 }
 
+function installLockRecordMayBeIncomplete(record) {
+  // Exclusive creation exposes the inode before its owner record is fully written.
+  return record === '' || (!record.endsWith('\n') && /^[1-9]\d*(?: [0-9a-f-]*)?$/i.test(record))
+}
+
 function lockOwnerIsAlive(owner) {
   try {
     process.kill(owner, 0)
@@ -351,11 +369,29 @@ async function acquireInstallLock(commonDirectory) {
   const lockPath = join(commonDirectory, INSTALL_LOCK)
   const deadline = Date.now() + INSTALL_LOCK_TIMEOUT_MS
   const ownedRecord = `${String(process.pid)} ${randomUUID()}\n`
+  let initializingLock
   while (true) {
     try {
-      writeFileSync(lockPath, ownedRecord, { flag: 'wx', mode: 0o600 })
-      const ownedStat = installLockStat(lockPath)
-      if (ownedStat === undefined || !ownedStat.isFile() || ownedStat.isSymbolicLink()) {
+      const lockHandle = openSync(lockPath, 'wx', 0o600)
+      let ownedStat
+      try {
+        ownedStat = fstatSync(lockHandle)
+        const writeDelay = Number(process.env.DSH_TEST_LEFTHOOK_LOCK_WRITE_DELAY_MS ?? 0)
+        if (writeDelay > 0) {
+          await new Promise(resolveWait => setTimeout(resolveWait, writeDelay))
+        }
+        writeFileSync(lockHandle, ownedRecord)
+      } finally {
+        closeSync(lockHandle)
+      }
+      const publishedStat = installLockStat(lockPath)
+      if (
+        publishedStat === undefined
+        || !publishedStat.isFile()
+        || publishedStat.isSymbolicLink()
+        || publishedStat.dev !== ownedStat.dev
+        || publishedStat.ino !== ownedStat.ino
+      ) {
         throw lockOwnershipChangedError(lockPath)
       }
       return () => releaseInstallLock(lockPath, ownedRecord, ownedStat)
@@ -368,8 +404,36 @@ async function acquireInstallLock(commonDirectory) {
       }
       const existingRecord = readInstallLock(lockPath)
       if (existingRecord === undefined) continue
+      const verifiedStat = installLockStat(lockPath)
+      if (verifiedStat === undefined) continue
+      if (!verifiedStat.isFile() || verifiedStat.isSymbolicLink()) {
+        throw manualLockRecoveryError(lockPath, 'invalid')
+      }
+      if (verifiedStat.dev !== existingStat.dev || verifiedStat.ino !== existingStat.ino) continue
       const owner = parseInstallLock(existingRecord)
-      if (owner === undefined) throw manualLockRecoveryError(lockPath, 'invalid')
+      if (owner === undefined) {
+        if (!installLockRecordMayBeIncomplete(existingRecord)) {
+          throw manualLockRecoveryError(lockPath, 'invalid')
+        }
+        const now = Date.now()
+        if (
+          initializingLock === undefined
+          || initializingLock.dev !== existingStat.dev
+          || initializingLock.ino !== existingStat.ino
+        ) {
+          initializingLock = {
+            deadline: now + INSTALL_LOCK_INITIALIZATION_TIMEOUT_MS,
+            dev: existingStat.dev,
+            ino: existingStat.ino,
+          }
+        }
+        if (now >= initializingLock.deadline) {
+          throw manualLockRecoveryError(lockPath, 'invalid')
+        }
+        await new Promise(resolveWait => setTimeout(resolveWait, INSTALL_LOCK_POLL_MS))
+        continue
+      }
+      initializingLock = undefined
       if (!lockOwnerIsAlive(owner)) throw manualLockRecoveryError(lockPath, 'stale')
       if (Date.now() >= deadline) {
         throw new Error(`timed out waiting for Lefthook installer lock ${lockPath}`)
@@ -533,6 +597,7 @@ function refuseScopedHooksPath(entry) {
 
 async function main() {
   if (process.env.CI === 'true' || process.env.GITHUB_ACTIONS === 'true') return
+  if (typeof lefthookPackage.bin?.lefthook !== 'string') return
   const probe = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' })
   if (probe.status !== 0) return
   const root = stripGitLineTerminator(probe.stdout)

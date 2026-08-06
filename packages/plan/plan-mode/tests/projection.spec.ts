@@ -58,7 +58,7 @@ function runPlanCommand(session: Session, args: string, index: number): void {
 
 /** Commit one plan/mode flip inside an open turn (the invariant's turn-enclosure rule). */
 function commitPlanMode(session: Session, active: boolean, turn: number): void {
-  session.append('turn/start', { turn, trigger: { kind: 'message', source: { kind: 'user' } } })
+  session.append('turn/start', { turn })
   session.append('plan/mode', { active })
   session.append('turn/end', { turn, reason: { kind: 'completed' } })
 }

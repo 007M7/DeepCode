@@ -16,6 +16,7 @@ import type {
   EditRange, EditSelection, InputActions, InputEffect, InputNotice, InputState,
   PasteComponent, QueuedMessage, SessionInput, SubmitAttempt,
 } from './contract.ts'
+import type { InputSubmitMode } from '../contract/composer-submission.ts'
 import { InputMachine } from './machine.ts'
 
 /** Popup face the shell needs (dismissal only; typed structurally to avoid a value import). */
@@ -39,7 +40,7 @@ export interface SessionInputDeps {
   /** Queue read face; overlaid onto InputState.queue (absent = empty). */
   queue?: ObservableSnapshot<readonly QueuedMessage[]> | undefined
   /** The plain-message sink (send choreography / materialize fork — the hub owns it). */
-  defaultSink(text: string, mode: 'queue' | 'steer'): void
+  defaultSink(text: string, mode: InputSubmitMode): void
 }
 
 /** Guard tier from the machine phase. */
@@ -68,7 +69,7 @@ export class SessionInputShell implements SessionInput {
   /** The public provide-channel action face (one stable identity per session — decision 20). */
   readonly actions: InputActions = {
     setDraft: (text) => { this.setDraft(text) },
-    submit: (mode) => { this.submit(mode) },
+    submit: () => { this.submit('queue') },
   }
 
   // Real wall clock: the typing-run merge window must actually expire in
@@ -104,15 +105,6 @@ export class SessionInputShell implements SessionInput {
    */
   commitSend(): void {
     this.run(this.core.dispatch({ type: 'send-committed' }))
-  }
-
-  /**
-   * Insert a newline at the selection as one machine transaction (the
-   * execCommand path is gone — a second undo history would fork).
-   * @param selection - current DOM selection in draft coordinates.
-   */
-  newline(selection: EditSelection): void {
-    this.run(this.core.dispatch({ type: 'newline', selection }))
   }
 
   /** Undo the latest transaction (InputBar intercepts the platform chord). */
@@ -151,9 +143,8 @@ export class SessionInputShell implements SessionInput {
    * from the machine; this method only feeds the event. Lock entry
    * (adjudicating/submitting) force-closes the transient layers: the popup
    * dismisses and the menu tracks frozen.
-   * @param mode - default-sink mode (queue appends; steer interrupts).
    */
-  submit(mode: 'queue' | 'steer' = 'queue'): void {
+  submit(mode: InputSubmitMode = 'queue'): void {
     this.run(this.core.dispatch({ type: 'enter', mode }))
     const phase = this.snapshot.phase
     if (phase === 'adjudicating' || phase === 'submitting') {
@@ -354,7 +345,7 @@ export class SessionInputShell implements SessionInput {
    * send — notice + draft and chips retained, never a silent downgrade to
    * the clipboard text. Chip-free drafts skip the async detour.
    */
-  private sinkSerialized(draft: string, mode: 'queue' | 'steer'): void {
+  private sinkSerialized(draft: string, mode: InputSubmitMode): void {
     const occurrences = this.core.state.occurrences
     if (occurrences.length === 0) {
       this.deps.defaultSink(draft.trim(), mode)

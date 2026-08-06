@@ -12,12 +12,20 @@ import type {
   ConversationSnapshot, RunningToolCall, SessionId, SessionListState, ToolResultNode, WorkspaceListState,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-client-connection/client'
-import type { SelectionTarget, ToolRowOwnerProps, ToolRowProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { CHAT_TERMINAL_MAX_LINES, terminalCardModel } from '../src/client/contract/terminal-card-model.ts'
+import type { SelectionTarget } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
+import { terminalCardModel, terminalFailed } from '../src/client/contract/terminal-card-model.ts'
 import { createChatStore } from '../src/client/stores.ts'
-import { GenericToolCard } from '../src/client/chat/GenericToolCard.tsx'
+import { GenericToolCard, type GenericToolCardProps } from '../src/client/chat/GenericToolCard.tsx'
 import { DetailsPanel } from '../src/client/skeleton/DetailsPanel.tsx'
 import { BashRow } from '../src/client/toolviews/bash-sample.tsx'
+import { zh } from '../src/client/locales.ts'
+
+type BashRowProps = Parameters<typeof BashRow>[0]
+
+// Mirrors the real lookup chain (conversation namespace, then common).
+const t: GenericToolCardProps['t'] = makeTranslate(zh, commonZh)
 
 afterEach(cleanup)
 
@@ -85,6 +93,19 @@ describe('terminalCardModel', () => {
     expect(terminalCardModel(settled({
       resultView: { card: 'terminal', output: '', signal: 'SIGTERM' },
     }))?.card.signal).toBe('SIGTERM')
+  })
+
+  it('flags a failing exit as terminalFailed; clean exits and running cards are not', () => {
+    // isError stays false on a failing command (the exit status is result
+    // data), so this predicate is the row's only failure signal.
+    expect(terminalFailed(terminalCardModel(settled({
+      resultView: resultTerminal({ exitCode: 2 }),
+    }))!)).toBe(true)
+    expect(terminalFailed(terminalCardModel(settled({
+      resultView: { card: 'terminal', output: '', signal: 'SIGTERM' },
+    }))!)).toBe(true)
+    expect(terminalFailed(terminalCardModel(settled())!)).toBe(false)
+    expect(terminalFailed(terminalCardModel(running())!)).toBe(false)
   })
 
   it('takes the result view\'s replacement title over the pending one', () => {
@@ -217,40 +238,43 @@ describe('terminalCardModel', () => {
 })
 
 describe('chat row terminal body', () => {
-  const ownerProps = (block: RunningToolCall | ToolResultNode): ToolRowOwnerProps => ({
-    callId: 'c1', toolName: 'bash', block, openFile: vi.fn(),
+  const ownerProps = (block: RunningToolCall | ToolResultNode): GenericToolCardProps => ({
+    callId: 'c1', toolName: 'bash', block, openFile: vi.fn(), t,
   })
 
-  it('the expanded body is the command output, capped tighter than the panel', () => {
-    expect(CHAT_TERMINAL_MAX_LINES).toBeLessThan(16)
+  /** The whole summary row is the expand toggle (ToolRow's unified interaction). */
+  const toggleRow = (view: { container: HTMLElement }) => {
+    fireEvent.click(view.container.querySelector('[data-expandable]')!)
+  }
+
+  it('the expanded body is the command output inside the row scroll container', () => {
     const view = render(<GenericToolCard {...ownerProps(settled())} />)
     // Collapsed: the one-line summary row only, no output.
     expect(view.getByText('List files')).toBeTruthy()
     expect(view.queryByText(/a\.ts/)).toBeNull()
-    fireEvent.click(view.container.querySelector('button')!)
+    toggleRow(view)
     expect(view.getByText('a.ts  b.ts', RAW)).toBeTruthy()
     expect(view.getByText('ls -la')).toBeTruthy()
     // The args JSON body the generic path would have shown is gone.
     expect(view.queryByText(/"command"/)).toBeNull()
   })
 
-  it('the cap collapses a long output inside the row, expandable in place', () => {
-    const lines = Array.from({ length: CHAT_TERMINAL_MAX_LINES + 3 }, (_, i) => `line-${i}`)
+  it('a long output renders in full — the scroll container replaces the middle collapse', () => {
+    const lines = Array.from({ length: 20 }, (_, i) => `line-${i}`)
     const view = render(<GenericToolCard {...ownerProps(settled({
       resultView: resultTerminal({ output: `${lines.join('\n')}\n` }),
     }))} />)
-    fireEvent.click(view.container.querySelector('button')!)
-    expect(view.getByText('… 其余 3 行')).toBeTruthy()
-    expect(view.queryByText('line-5')).toBeNull()
-    fireEvent.click(view.getByRole('button', { name: '展开其余 3 行输出' }))
+    toggleRow(view)
     expect(view.getByText('line-5')).toBeTruthy()
+    expect(view.getByText('line-19')).toBeTruthy()
+    expect(view.queryByText(/其余/)).toBeNull()
   })
 
   it('renders a multi-line command as one prompt row per line', () => {
     const view = render(<GenericToolCard {...ownerProps(settled({
       callView: callTerminal({ title: 'ls -la\necho done' }),
     }))} />)
-    fireEvent.click(view.container.querySelector('button')!)
+    toggleRow(view)
     const rows = view.container.querySelectorAll('[class^="_promptLine_"]')
     expect([...rows].map(row => row.textContent)).toEqual(['$ls -la', '$echo done'])
     // Still one dot for the call, on the first row.
@@ -275,14 +299,14 @@ describe('chat row terminal body', () => {
       callView: callTerminal({ description: 'Terminal 3' }),
     }))} />)
     expect(view.getByText('Terminal 3')).toBeTruthy()
-    fireEvent.click(view.container.querySelector('button')!)
+    toggleRow(view)
     expect(view.container.querySelector('[data-terminal]')).not.toBeNull()
     expect(view.getByText('Terminal 3')).toBeTruthy()
   })
 
   it('a running terminal call expands to the prompt line with no output yet', () => {
     const view = render(<GenericToolCard {...ownerProps(running())} />)
-    fireEvent.click(view.container.querySelector('button')!)
+    toggleRow(view)
     expect(view.getByText('ls -la')).toBeTruthy()
     expect(view.queryByText('复制')).toBeNull()
     // The card states its own run state: a running command reads as running
@@ -294,7 +318,7 @@ describe('chat row terminal body', () => {
     const view = render(<GenericToolCard {...ownerProps(settled({
       callView: null, resultView: null,
     }))} />)
-    fireEvent.click(view.container.querySelector('button')!)
+    toggleRow(view)
     expect(view.getByText(/"command"/)).toBeTruthy()
   })
 
@@ -303,32 +327,45 @@ describe('chat row terminal body', () => {
     const view = render(<GenericToolCard {...ownerProps(settled({
       call: { name: 'bash', argsRaw: '' },
     }))} />)
-    fireEvent.click(view.container.querySelector('button')!)
+    toggleRow(view)
     expect(view.getByText('a.ts  b.ts', RAW)).toBeTruthy()
+  })
+
+  it('a failing exit status surfaces as the collapsed row\'s error state', () => {
+    const view = render(<GenericToolCard {...ownerProps(settled({
+      resultView: resultTerminal({ exitCode: 2 }),
+    }))} />)
+    expect(view.container.querySelector('[data-state]')?.getAttribute('data-state')).toBe('error')
   })
 })
 
 describe('BashRow terminal card', () => {
   const list = () => createSnapshotStore<SessionListState>({
     ids: [SID],
-    byId: { [SID]: { id: SID, displayTitle: 'r', running: false, blank: false, waitingApproval: false, updatedAt: 0 } },
+    byId: { [SID]: { id: SID, displayTitle: 'r', running: false, blank: false, updatedAt: 0 } },
     current: undefined,
     phase: 'ready',
+    subagentsByParent: {},
+    currentAddress: undefined,
   })
 
-  const rowProps = (block: RunningToolCall | ToolResultNode): ToolRowProps => ({
+  const rowProps = (block: RunningToolCall | ToolResultNode): BashRowProps => ({
     callId: 'c1', toolName: 'bash', block, openFile: vi.fn(),
     sessionId: SID, useSessions: bindSnapshotSelector(list()),
-  } as unknown as ToolRowProps)
+    t,
+  } as unknown as BashRowProps)
 
-  it('renders the command output under the summary row, without an expand gesture', () => {
+  it('collapses to the summary row; the whole row toggles the command output', () => {
     const view = render(<BashRow {...rowProps(settled())} />)
     expect(view.getByText('List files')).toBeTruthy()
+    expect(view.queryByText(/a\.ts/)).toBeNull()
+    fireEvent.click(view.container.querySelector('[data-expandable]')!)
     expect(view.getByText('a.ts  b.ts', RAW)).toBeTruthy()
-    // The card's controls are the row's only interactions: a bash row is not a
-    // path link and no longer a details-panel target, so nothing here navigates.
-    expect(view.container.querySelector('[data-clickable]')).toBeNull()
     expect(view.getByText('复制')).toBeTruthy()
+    // Collapse back in place: the summary row returns, the card unmounts.
+    fireEvent.click(view.container.querySelector('[data-expandable]')!)
+    expect(view.queryByText(/a\.ts/)).toBeNull()
+    expect(view.getByText('List files')).toBeTruthy()
   })
 
   // The row's leading StateDot and the card's run-state dot describe the same
@@ -337,11 +374,20 @@ describe('BashRow terminal card', () => {
   it('agrees with the summary row about the run state', () => {
     const runningView = render(<BashRow {...rowProps(running())} />)
     expect(runningView.container.querySelector('[data-variant="bash"]')?.getAttribute('data-state')).toBe('running')
+    fireEvent.click(runningView.container.querySelector('[data-expandable]')!)
     expect(runStateOf(runningView.container)).toBe('ongoing')
     cleanup()
     const settledView = render(<BashRow {...rowProps(settled())} />)
     expect(settledView.container.querySelector('[data-variant="bash"]')?.getAttribute('data-state')).toBe('ok')
+    fireEvent.click(settledView.container.querySelector('[data-expandable]')!)
     expect(runStateOf(settledView.container)).toBe('done')
+  })
+
+  it('a failing exit status surfaces as the collapsed row\'s error state', () => {
+    const view = render(<BashRow {...rowProps(settled({
+      resultView: resultTerminal({ exitCode: 2 }),
+    }))} />)
+    expect(view.container.querySelector('[data-variant="bash"]')?.getAttribute('data-state')).toBe('error')
   })
 
   it('shows the terminal presenter\'s description instead of the args summary', () => {
@@ -368,6 +414,28 @@ describe('BashRow terminal card', () => {
     }))} />)
     expect(view.getByText('List files')).toBeTruthy()
     expect(view.queryByText(/a\.ts/)).toBeNull()
+    expect(view.container.querySelector('[data-sample="bash"]')?.getAttribute('role')).toBeNull()
+  })
+
+  it('expands a generic execution error to its original args and full output', () => {
+    const view = render(<BashRow {...rowProps(settled({
+      content: [{ type: 'text', text: 'Error: command aborted' }],
+      isError: true,
+      callView: { card: 'generic', title: 'ls -la', kind: 'execute' },
+      resultView: { card: 'generic' },
+    }))} />)
+    const row = view.container.querySelector('[data-sample="bash"]')!
+    expect(row.getAttribute('role')).toBe('button')
+    expect(row.getAttribute('aria-expanded')).toBe('false')
+    expect(view.queryByText(/"command": "ls -la"/)).toBeNull()
+
+    fireEvent.click(row)
+
+    expect(row.getAttribute('aria-expanded')).toBe('true')
+    expect(view.getByText('IN')).toBeTruthy()
+    expect(view.getByText('OUT')).toBeTruthy()
+    expect(view.getByText(/"command": "ls -la"/)).toBeTruthy()
+    expect(view.container.querySelector('[data-error]')?.textContent).toBe('Error: command aborted')
   })
 })
 
@@ -377,15 +445,17 @@ describe('DetailsPanel Output section', () => {
     const chat = createChatStore().create()
     if (selection !== null) chat.actions.select(selection)
     const sessions = createSnapshotStore<SessionListState>(cwd === undefined
-      ? { ids: [], byId: {}, current: undefined, phase: 'ready' }
+      ? { ids: [], byId: {}, current: undefined, phase: 'ready', subagentsByParent: {}, currentAddress: undefined }
       : {
         ids: [SID],
-        byId: { [SID]: { id: SID, displayTitle: 'r', running: false, blank: false, waitingApproval: false, updatedAt: 0, cwd } },
+        byId: { [SID]: { id: SID, displayTitle: 'r', running: false, blank: false, updatedAt: 0, cwd } },
         current: SID,
         phase: 'ready',
+        subagentsByParent: {},
+        currentAddress: undefined,
       })
     const workspaces = createSnapshotStore<WorkspaceListState>({
-      items: [], state: 'idle', phase: 'ready', error: null,
+      items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
     })
     return render(
@@ -400,16 +470,17 @@ describe('DetailsPanel Output section', () => {
         useStore={bindSnapshotSelector(chat)}
         actions={chat.actions}
         closeDetails={vi.fn()}
+        t={t}
       />,
     )
   }
 
   function snapshot(over: Partial<ConversationSnapshot> = {}): ConversationSnapshot {
     return {
-      sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
+      sessionId: SID, nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [], codeDispatches: new Map(),
       pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
       openState: 'open', openError: null, hasMore: false, loadingOlder: false,
-      promptError: null, blank: false, lastAgentError: null, ...over,
+      promptError: null, blank: false, subagent: null, lastAgentError: null, ...over,
     }
   }
 
@@ -507,7 +578,7 @@ describe('DetailsPanel Output section', () => {
     // No terminal card: the generic path renders the result text in the Output
     // section's <pre> (the Input section has its own, hence the scoping).
     expect(view.container.querySelector('[data-terminal]')).toBeNull()
-    const output = view.getByText('Output').closest('section')
+    const output = view.getByText('输出').closest('section')
     expect(output?.querySelector('pre')?.textContent).toContain('a.ts  b.ts')
   })
 
@@ -524,8 +595,8 @@ describe('DetailsPanel Output section', () => {
       nodes: [settled({ call: null, callView: null, resultView: resultTerminal({ title: 'ls -la' }) })],
     }), target)
     expect(view.getByText('c1')).toBeTruthy()
-    expect(view.queryByText('Input')).toBeNull()
-    expect(view.getByText('Output')).toBeTruthy()
+    expect(view.queryByText('输入')).toBeNull()
+    expect(view.getByText('输出')).toBeTruthy()
   })
 
   it('scans past other nodes and other calls before reporting the call out of window', () => {
@@ -560,9 +631,12 @@ describe('DetailsPanel Output section', () => {
         sessionId={SID}
         useSession={bindSnapshotSelector({ getSnapshot: () => snap, subscribe: () => () => {} })}
         useSessions={bindSnapshotSelector(createSnapshotStore<SessionListState>(
-          { ids: [], byId: {}, current: undefined, phase: 'ready' }))}
+          {
+            ids: [], byId: {}, current: undefined, phase: 'ready',
+            subagentsByParent: {}, currentAddress: undefined,
+          }))}
         useWorkspaces={bindSnapshotSelector(createSnapshotStore<WorkspaceListState>({
-          items: [], state: 'idle', phase: 'ready', error: null,
+          items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
           baselinesReady: true, recentWorkspaceId: undefined,
         }))}
         useInput={(() => { throw new Error('unused') })}
@@ -571,6 +645,7 @@ describe('DetailsPanel Output section', () => {
         useStore={bindSnapshotSelector(chat)}
         actions={chat.actions}
         closeDetails={closeDetails}
+        t={t}
       />,
     )
     fireEvent.click(view.getByRole('button', { name: '关闭详情' }))
@@ -586,7 +661,7 @@ describe('DetailsPanel Output section', () => {
     }), target)
     // Scope to the Output section: the Input section's CodeBlock renders a
     // <pre> of its own, and it comes first in document order.
-    expect(nonText.getByText('Output').closest('section')?.querySelector('pre')?.textContent)
+    expect(nonText.getByText('输出').closest('section')?.querySelector('pre')?.textContent)
       .toBe('{\n  "type": "reasoning",\n  "text": "why"\n}')
     cleanup()
     const empty = mount(snapshot({
