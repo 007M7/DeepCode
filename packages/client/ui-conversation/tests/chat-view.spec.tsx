@@ -158,9 +158,9 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
   return { set, ChatView, props, openDetails, openFile, loadOlder, inspectCall, chatScroll, forkAt, setSelection }
 }
 
-/** Simulate reader input before the browser delivers the host scroll event. */
+/** Simulate reader input (any device): a delivered position that deviates
+ * from the observed-top ledger of programmatic writes. */
 function readerScroll(element: HTMLElement, top: number): void {
-  fireEvent.wheel(element, { deltaY: top < element.scrollTop ? -120 : 120 })
   element.scrollTop = top
   fireEvent.scroll(element)
 }
@@ -939,7 +939,7 @@ describe('ChatView', () => {
     expect(view.queryByLabelText('回到底部')).toBeNull()
   })
 
-  it('keeps following when a delayed clamp scroll arrives after layout regrows', () => {
+  it('keeps following when a stream-finalization shrink clamp delivers its scroll', () => {
     const h = makeHarness({ nodes: [user(1, 'q'), assistant(2, 'a')] })
     const view = render(<h.ChatView {...h.props} />)
     const scroller = view.container.querySelector('[class*="scroll"]') as HTMLDivElement
@@ -947,12 +947,12 @@ describe('ChatView', () => {
     scroller.scrollTop = 700
     fireEvent.scroll(scroller)
 
-    // The wheel cannot move farther down. A stream-finalization shrink clamps
-    // the old position, then reflow grows the layout before scroll delivery.
-    fireEvent.wheel(scroller, { deltaY: 120 })
-    metrics.setLayout(1_040, 500)
+    // Stream finalization shrinks the column: the browser clamps the pinned
+    // position onto the new floor and delivers a scroll event. The clamp
+    // lands exactly on the ledger's floor min, so it is not reader input.
+    metrics.setLayout(800, 700)
     fireEvent.scroll(scroller)
-    expect(scroller.scrollTop).toBe(740)
+    expect(scroller.scrollTop).toBe(500)
     expect(view.queryByLabelText('回到底部')).toBeNull()
     expect(h.chatScroll.read()).toBeNull()
 
@@ -961,7 +961,7 @@ describe('ChatView', () => {
     expect(scroller.scrollTop).toBe(900)
   })
 
-  it('uses the last delivered top when compositor scrolling precedes passive wheel delivery', () => {
+  it('uses the last delivered top when compositor scrolling precedes scroll delivery', () => {
     const h = makeHarness({ nodes: [user(1, 'q'), assistant(2, 'a')] })
     const view = render(<h.ChatView {...h.props} />)
     const scroller = view.container.querySelector('[class*="scroll"]') as HTMLDivElement
@@ -969,8 +969,10 @@ describe('ChatView', () => {
     scroller.scrollTop = 700
     fireEvent.scroll(scroller)
 
+    // Chromium advances compositor geometry before delivering the event:
+    // attribution must compare against the observed-top ledger, never a
+    // baseline sampled from already-moved raw geometry.
     scroller.scrollTop = 500
-    fireEvent.wheel(scroller, { deltaY: -200 })
     fireEvent.scroll(scroller)
     expect(view.getByLabelText('回到底部')).toBeTruthy()
   })
