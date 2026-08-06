@@ -2,18 +2,19 @@
 
 English | [中文](README.zh.md)
 
-Compiler-independent declarations shared by business packages, generated TypeRT artifacts, the Host Gateway, and Client API. This package owns Remote decorators, the explicit Service binding, merge-extensible protocol maps, invocation descriptors, codecs, and provider contracts; it does not run TypeScript analysis or provide a Cordis service.
+Compiler-independent declarations shared by business packages, generated TypeRT artifacts, the Host Gateway, and Client API. This package owns the Remote Service base, decorators, explicit binding fallback, merge-extensible protocol maps, invocation descriptors, codecs, and provider contracts; it does not run TypeScript analysis or register a concrete Cordis service.
 
 ## Remote declarations
 
 - `@Remote` marks a public instance method for direct invocation on its registered Cordis Service.
 - `@RemoteContext(key)` marks a method whose receiver is selected from a merge-declared scoped Context kind.
-- `bindTypeRTGateway(this, serviceKey, options?)` creates the visible, frozen binding between a Service instance, its exact Cordis key, and its wire namespace.
+- `GatewayService` binds the Cordis key passed to `super(ctx, serviceKey, options?)` to the same default wire namespace.
+- `bindTypeRTGateway(this, serviceKey, options?)` provides the same visible, frozen binding for a Service that cannot inherit from `GatewayService`.
 - `remoteMethods(service)` returns a detached declaration-order snapshot used by the Gateway's SRC fallback.
 
 A Host method opts into cooperative cancellation by declaring `signal: AbortSignal` as its final parameter. `InvocationDescriptor.cancellation` records that reserved injection point; the signal never becomes a JSON parameter or lookup field. SRC recognizes the final parameter name, while strict generation also verifies the global `AbortSignal` type.
 
-Decorator initializers retain markers in a module-private `WeakMap` keyed by the Service prototype. They do not add constructor symbols, prototype properties, parameter metadata, or runtime reflection fields. The Service opts in explicitly through its `typertGateway` binding field.
+Decorator initializers retain markers in a module-private `WeakMap` keyed by the Service prototype. They do not add constructor symbols, prototype properties, parameter metadata, or runtime reflection fields. A `GatewayService` exposes the same public readonly `typertGateway` binding that the explicit helper returns.
 
 ## TypeRT protocol
 

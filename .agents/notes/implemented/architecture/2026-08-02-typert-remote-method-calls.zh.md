@@ -16,7 +16,7 @@ Host 与 Browser Client 使用独立的 TypeScript Program，因为两边会以�
 
 ## 决策
 
-业务 Service 通过 `@Remote` 或 `@RemoteContext()` 声明可调用方法，并通过 `bindTypeRTGateway()` 显式加入 Gateway。TypeRT 从 Host Program 生成 Host 本地反射产物和平台无关的 Remote 消费端投影；Client Program 继续独立生成自己的本地反射产物。
+业务 Service 继承 `GatewayService`，并通过 `@Remote` 或 `@RemoteContext()` 声明可调用方法；已有其他基类的 Service 可以改用 `bindTypeRTGateway()` 暴露同一绑定。TypeRT 从 Host Program 生成 Host 本地反射产物和平台无关的 Remote 消费端投影；Client Program 继续独立生成自己的本地反射产物。
 
 Remote 消费端投影同时包含 `.d.ts`、`.d.ts.map` 和 `.js`。`.d.ts` 只暴露被 Remote decorator 标记的方法，并引用业务包唯一的公共类型符号；`.d.ts.map` 把消费端 API 方法导航回 Host 业务方法实现；`.js` 携带同一契约的 endpoint、参数、Context 和 Zod 信息。Browser Client 在 assembly 层把需要的 Remote JS 贡献集中挂到 Client API Service；该投影和 API 抽象保持平台无关，以便未来 TUI 复用。
 
@@ -26,7 +26,7 @@ Remote 消费端投影同时包含 `.d.ts`、`.d.ts.map` 和 `.js`。`.d.ts` 只
 
 | 组件 | Cordis 服务 | 职责 |
 |---|---|---|
-| `@deepseek-ai/dsh-type-meta` | 只声明 `ctx.typert` 的最小协议 | decorator、binding、descriptor、lookup/Context 和 Remote map；不依赖 compiler、Zod、Connection 或 Browser |
+| `@deepseek-ai/dsh-type-meta` | 只声明 `ctx.typert` 的最小协议 | `GatewayService`、decorator、binding 回退、descriptor、lookup/Context 和 Remote map；不依赖 compiler、Zod、Connection 或 Browser |
 | TypeRT registry | `ctx.typert` | 分开保存当前环境 reflection、导入的 Remote contribution、lookup provider 和 Context provider |
 | TypeRT generator/loader | 无新增业务服务 | 从 Host/Client Program 生成三类 `lib` 产物，并把当前环境产物注册到 `ctx.typert` |
 | Host API Gateway 的 Host face | `ctx.typertGateway` | 关联 Host definition 与活 Service，解码参数、解析 receiver、调用方法和编码结果 |
@@ -43,8 +43,10 @@ Host Gateway 不依赖 `ctx.agents`、`ctx.sessions`、`ctx.goals` 或 `ctx.http
 普通直接调用使用 `@Remote`。迁移到现存 Service 或 Registry 时不重命名、不改变存量方法；类末尾新增 `remoteExport*` 出口，并由 decorator 参数声明短 API 名。方法需要哪个业务对象，就在顶层参数位置显式声明该对象：
 
 ```text
-export class GoalService extends Service {
-  readonly typertGateway = bindTypeRTGateway(this, 'goals')
+export class GoalService extends GatewayService {
+  constructor(ctx: Context) {
+    super(ctx, 'goals')
+  }
 
   create(agent: Agent, request: CreateGoalRequest): CreateGoalResult {
     // Existing business method remains unchanged.
@@ -57,13 +59,15 @@ export class GoalService extends Service {
 }
 ```
 
-`goals` 是明确的 Cordis service key，并默认作为 wire namespace。只有协议 namespace 确实需要与 service key 不同时，才通过 `bindTypeRTGateway()` 的选项覆盖。
+`goals` 是传给 `super()` 的明确 Cordis service key，并默认作为 wire namespace。只有协议 namespace 确实需要与 service key 不同时，才通过第三个参数传入 `namespace` 选项。
 
 需要在某类隔离 Context 中查找 Service receiver 时使用 `@RemoteContext()`。Context identity 不进入业务方法参数：
 
 ```text
-export class ScopedGoalService extends Service {
-  readonly typertGateway = bindTypeRTGateway(this, 'goals')
+export class ScopedGoalService extends GatewayService {
+  constructor(ctx: Context) {
+    super(ctx, 'goals')
+  }
 
   @RemoteContext('agent', 'create')
   remoteExportCreate(request: CreateGoalRequest): Promise<CreateGoalResult> {
@@ -74,17 +78,17 @@ export class ScopedGoalService extends Service {
 
 同一个 endpoint 只能选择一种调用模式。需要显式 `Agent` 参数的流程使用 `@Remote`；需要切换到 Agent Context 再解析 scoped receiver 的流程使用 `@RemoteContext('agent')`，两者不会由 TypeRT 根据方法体或参数缺失自动猜测。
 
-业务包只依赖轻量的 `@deepseek-ai/dsh-type-meta`。它提供 decorator、`bindTypeRTGateway()`、lookup、Remote Context 和 descriptor 的声明协议，不依赖 TypeScript compiler、Zod、HTTP 或 Client runtime。
+业务包只依赖轻量的 `@deepseek-ai/dsh-type-meta`。它提供 `GatewayService`，以及 decorator、binding 回退、lookup、Remote Context 和 descriptor 的声明协议，不依赖 TypeScript compiler、Zod、HTTP 或 Client runtime。
 
 支持协作式取消的方法会把 `signal: AbortSignal` 声明为最后一个 Host 参数。这个保留参数不是业务值、lookup 或 JSON 字段。生成的消费方方法将其暴露为最后一个可选参数，因此普通调用保持不变，而拥有取消控制权的调用方可以传入 signal。
 
 ## Decorator 与显式 Gateway facet
 
-Decorator 只表达“该方法参与 Remote 契约”，不负责运行时类型反射，也不向 Service constructor 注入隐藏 symbol。`@Remote('create')` 和 `@RemoteContext('agent', 'create')` 的参数是外部方法名，实际成员名保持 `remoteExportCreate`；未给别名时才使用成员名作为外部方法名。`typertGateway` 是 Service 加入 Gateway 的唯一显式标志，使业务类和运行时实例都能直接看出这项能力。
+Decorator 只表达“该方法参与 Remote 契约”，不负责运行时类型反射，也不向 Service constructor 注入隐藏 symbol。`@Remote('create')` 和 `@RemoteContext('agent', 'create')` 的参数是外部方法名，实际成员名保持 `remoteExportCreate`；未给别名时才使用成员名作为外部方法名。继承 `GatewayService` 是 Service 加入 Gateway 的常规显式声明；其 public readonly `typertGateway` 字段使运行时实例上的绑定保持可见。
 
 SRC 运行时允许 decorator 在 `dsh-type-meta` 内部的 `WeakMap` 记录 prototype、方法名和调用模式。它不向 Service 实例、prototype、constructor 或方法函数写入自定义属性。
 
-LIB 的严格方法发现、类型解析和 descriptor 生成由 TypeRT compiler 完成。生成过程不改写业务源码，也不向 `bindTypeRTGateway()` 偷注生成参数。
+LIB 的严格方法发现、类型解析和 descriptor 生成由 TypeRT compiler 完成。它接受 `GatewayService` 直接 `super()` 调用中的字面量 service key，或显式 binding 回退；生成过程不改写业务源码，也不注入隐藏注册元数据。
 
 ## Lookup 与 Remote Context 注册
 

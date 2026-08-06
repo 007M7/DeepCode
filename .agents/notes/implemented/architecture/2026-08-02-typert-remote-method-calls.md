@@ -16,7 +16,7 @@ The Host and Browser Client use separate TypeScript Programs because each side a
 
 ## Decision
 
-A business Service declares callable methods with `@Remote` or `@RemoteContext()` and explicitly joins the Gateway through `bindTypeRTGateway()`. TypeRT generates the Host-local reflection artifact and a platform-independent Remote consumer projection from the Host Program. The Client Program continues to generate its own local reflection artifact independently.
+A business Service extends `GatewayService` and declares callable methods with `@Remote` or `@RemoteContext()`. A Service that already has another base class may instead expose the same binding through `bindTypeRTGateway()`. TypeRT generates the Host-local reflection artifact and a platform-independent Remote consumer projection from the Host Program. The Client Program continues to generate its own local reflection artifact independently.
 
 The Remote consumer projection contains `.d.ts`, `.d.ts.map`, and `.js` files. The `.d.ts` exposes only methods marked with a Remote decorator and refers to the business package's single public type symbols. The `.d.ts.map` navigates consumer API methods back to their Host business method implementations. The `.js` carries endpoint, parameter, Context, and Zod information for the same contract. At the assembly layer, the Browser Client mounts the required Remote JS contributions onto the Client API Service. The projection and API abstraction remain platform-independent so that a future TUI can reuse them.
 
@@ -26,7 +26,7 @@ The Remote consumer projection contains `.d.ts`, `.d.ts.map`, and `.js` files. T
 
 | Component | Cordis service | Responsibility |
 |---|---|---|
-| `@deepseek-ai/dsh-type-meta` | Declares only the minimal `ctx.typert` protocol | Decorators, bindings, descriptors, lookup/Context, and the Remote map; no dependency on the compiler, Zod, Connection, or Browser |
+| `@deepseek-ai/dsh-type-meta` | Declares only the minimal `ctx.typert` protocol | `GatewayService`, decorators, binding fallback, descriptors, lookup/Context, and the Remote map; no dependency on the compiler, Zod, Connection, or Browser |
 | TypeRT registry | `ctx.typert` | Separately stores reflection for the current environment, imported Remote contributions, lookup providers, and Context providers |
 | TypeRT generator/loader | No new business service | Generates three kinds of `lib` artifacts from the Host/Client Programs and registers the current environment's artifacts with `ctx.typert` |
 | Host API Gateway's Host face | `ctx.typertGateway` | Associates Host definitions with live Services, decodes parameters, resolves receivers, invokes methods, and encodes results |
@@ -43,8 +43,10 @@ The Host Gateway does not depend on concrete implementations of `ctx.agents`, `c
 Ordinary direct calls use `@Remote`. When migrating to an existing Service or Registry, do not rename or alter existing methods. Add `remoteExport*` entry points at the end of the class and use decorator arguments to declare their short API names. A method explicitly declares every required business object in a top-level parameter position:
 
 ```text
-export class GoalService extends Service {
-  readonly typertGateway = bindTypeRTGateway(this, 'goals')
+export class GoalService extends GatewayService {
+  constructor(ctx: Context) {
+    super(ctx, 'goals')
+  }
 
   create(agent: Agent, request: CreateGoalRequest): CreateGoalResult {
     // Existing business method remains unchanged.
@@ -57,13 +59,15 @@ export class GoalService extends Service {
 }
 ```
 
-`goals` is an explicit Cordis service key and is the default wire namespace. Override it through an option to `bindTypeRTGateway()` only when the protocol namespace genuinely needs to differ from the service key.
+`goals` is the explicit Cordis service key passed to `super()` and is the default wire namespace. Pass a `namespace` option as the third argument only when the protocol namespace genuinely needs to differ from the service key.
 
 Use `@RemoteContext()` when the Service receiver must be resolved within an isolated kind of Context. Context identity does not enter the business method's parameters:
 
 ```text
-export class ScopedGoalService extends Service {
-  readonly typertGateway = bindTypeRTGateway(this, 'goals')
+export class ScopedGoalService extends GatewayService {
+  constructor(ctx: Context) {
+    super(ctx, 'goals')
+  }
 
   @RemoteContext('agent', 'create')
   remoteExportCreate(request: CreateGoalRequest): Promise<CreateGoalResult> {
@@ -74,17 +78,17 @@ export class ScopedGoalService extends Service {
 
 An endpoint selects exactly one invocation mode. A flow that needs an explicit `Agent` parameter uses `@Remote`. A flow that first switches to an Agent Context and then resolves a scoped receiver uses `@RemoteContext('agent')`. TypeRT does not infer either mode from the method body or from a missing parameter.
 
-Business packages depend only on the lightweight `@deepseek-ai/dsh-type-meta`. It provides declaration protocols for decorators, `bindTypeRTGateway()`, lookup, Remote Context, and descriptors, without depending on the TypeScript compiler, Zod, HTTP, or the Client runtime.
+Business packages depend only on the lightweight `@deepseek-ai/dsh-type-meta`. It provides `GatewayService` and declaration protocols for decorators, the binding fallback, lookup, Remote Context, and descriptors, without depending on the TypeScript compiler, Zod, HTTP, or the Client runtime.
 
 A method that cooperatively supports cancellation declares `signal: AbortSignal` as its final Host parameter. This reserved parameter is not a business value, lookup, or JSON field. The generated consumer method exposes it as a final optional parameter so ordinary calls remain unchanged while callers that own cancellation can pass a signal.
 
 ## Decorators and the explicit Gateway facet
 
-A decorator only states that a method participates in the Remote contract. It performs no runtime type reflection and injects no hidden symbol into a Service constructor. The arguments to `@Remote('create')` and `@RemoteContext('agent', 'create')` are external method names, while the actual member remains named `remoteExportCreate`. The member name becomes the external method name only when no alias is provided. `typertGateway` is the sole explicit marker that a Service has joined the Gateway, making this capability visible on both the business class and its runtime instance.
+A decorator only states that a method participates in the Remote contract. It performs no runtime type reflection and injects no hidden symbol into a Service constructor. The arguments to `@Remote('create')` and `@RemoteContext('agent', 'create')` are external method names, while the actual member remains named `remoteExportCreate`. The member name becomes the external method name only when no alias is provided. Inheriting `GatewayService` is the normal explicit declaration that a Service has joined the Gateway; its public readonly `typertGateway` field keeps the binding visible on the runtime instance.
 
 In SRC mode, the decorator may record the prototype, method name, and invocation mode in a `WeakMap` internal to `dsh-type-meta`. It writes no custom properties to a Service instance, prototype, constructor, or method function.
 
-In LIB mode, the TypeRT compiler performs strict method discovery, type resolution, and descriptor generation. Generation neither rewrites business source nor secretly supplies generated arguments to `bindTypeRTGateway()`.
+In LIB mode, the TypeRT compiler performs strict method discovery, type resolution, and descriptor generation. It accepts a literal service key in `GatewayService`'s direct `super()` call or the explicit binding fallback; generation neither rewrites business source nor injects hidden registration metadata.
 
 ## Lookup and Remote Context registration
 

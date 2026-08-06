@@ -1,4 +1,4 @@
-import { Remote, RemoteContext, bindTypeRTGateway } from '@deepseek-ai/dsh-type-meta'
+import { GatewayService, Remote, RemoteContext } from '@deepseek-ai/dsh-type-meta'
 import type { Agent } from '@fixture/domain'
 import type {
   CreateGoalRequest,
@@ -8,8 +8,10 @@ import type {
 } from './types.ts'
 
 /** Remote-only business Service with no Cordis declaration merge. */
-export class GoalService {
-  readonly typertGateway = bindTypeRTGateway(this, 'goals')
+export class GoalService extends GatewayService {
+  constructor() {
+    super(undefined, 'goals')
+  }
 
   @Remote
   async create(agent: Agent, request: CreateGoalRequest, signal: AbortSignal): Promise<CreateGoalResult> {

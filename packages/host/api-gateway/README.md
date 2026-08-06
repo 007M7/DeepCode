@@ -6,7 +6,7 @@ Two-sided Remote control for Host and Client Cordis environments. The Host entry
 
 ## Host service: `TypertGatewayService` (ctx key: `typertGateway`)
 
-`ctx.typertGateway.invoke()` resolves the current descriptor and Cordis Service for each call, validates exact named arguments, resolves registered object or Context identities, invokes the public business method, and validates its result. Business Services declare participation with `bindTypeRTGateway()` and `@Remote` or `@RemoteContext` from [`dsh-type-meta`](../../typert/type-meta/README.md).
+`ctx.typertGateway.invoke()` resolves the current descriptor and Cordis Service for each call, validates exact named arguments, resolves registered object or Context identities, invokes the public business method, and validates its result. Business Services extend `GatewayService` and mark methods with `@Remote` or `@RemoteContext` from [`dsh-type-meta`](../../typert/type-meta/README.md); `bindTypeRTGateway()` remains available when another base class owns inheritance.
 
 Strict mode reads generated invocation descriptors from `ctx.typert.local`. Lookup parameters use registered `ctx.typert.lookups` providers, while `@RemoteContext` resolves its receiver through a registered Host Context provider. SRC mode is a development fallback for endpoints that have never had a strict definition; it parses simple parameter names and accepts only JSON-safe values for non-lookup parameters. Withdrawing an observed strict definition fails instead of weakening validation.
 

@@ -219,8 +219,56 @@ export type GenericResult = {
   it.each([
     {
       name: 'missing binding',
-      edit: (source: string) => source.replace("  readonly typertGateway = bindTypeRTGateway(this, 'goals')\n\n", ''),
-      message: 'Remote methods require readonly typertGateway',
+      edit: (source: string) => source.replace(
+        "export class GoalService extends GatewayService {\n  constructor() {\n    super(undefined, 'goals')\n  }",
+        'export class GoalService {',
+      ),
+      message: 'Remote methods require GatewayService',
+    },
+    {
+      name: 'dynamic GatewayService key',
+      edit: (source: string) => source.replace(
+        "  constructor() {\n    super(undefined, 'goals')\n  }",
+        '  constructor(serviceKey: string) {\n    super(undefined, serviceKey)\n  }',
+      ),
+      message: 'Gateway service key must be a string literal',
+    },
+    {
+      name: 'GatewayService without a constructor',
+      edit: (source: string) => source.replace(
+        "  constructor() {\n    super(undefined, 'goals')\n  }\n\n",
+        '',
+      ),
+      message: 'GatewayService subclasses must declare a constructor',
+    },
+    {
+      name: 'GatewayService without a direct super call',
+      edit: (source: string) => source.replace(
+        "    super(undefined, 'goals')",
+        '    void undefined',
+      ),
+      message: 'GatewayService constructor must call super',
+    },
+    {
+      name: 'GatewayService super call without a service key',
+      edit: (source: string) => source.replace(
+        "    super(undefined, 'goals')",
+        '    super(undefined)',
+      ),
+      message: 'GatewayService super\\(\\) requires context, service key',
+    },
+    {
+      name: 'duplicate GatewayService field binding',
+      edit: (source: string) => source
+        .replace(
+          'import { GatewayService, Remote, RemoteContext }',
+          'import { GatewayService, Remote, RemoteContext, bindTypeRTGateway }',
+        )
+        .replace(
+          'export class GoalService extends GatewayService {',
+          "export class GoalService extends GatewayService {\n  readonly typertGateway = bindTypeRTGateway(this, 'goals')",
+        ),
+      message: 'GatewayService subclasses must not declare a second typertGateway binding',
     },
     {
       name: 'private method',
@@ -351,8 +399,10 @@ export type GenericResult = {
   it('rejects duplicate endpoints across Remote services', () => {
     const root = copyFixture()
     editFile(root, 'packages/remote/src/index.ts', source => `${source}
-export class DuplicateGoalService {
-  readonly typertGateway = bindTypeRTGateway(this, 'duplicate', { namespace: 'goals' })
+export class DuplicateGoalService extends GatewayService {
+  constructor() {
+    super(undefined, 'duplicate', { namespace: 'goals' })
+  }
 
   @Remote
   create(request: CreateGoalRequest): CreateGoalResult {
@@ -521,7 +571,7 @@ ctx.api.goals.create('agent-1', { title: 'must not compile' })
   if (config.error !== undefined) throw new Error(formatDiagnostics([config.error]))
   const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, consumerRoot, undefined, configPath)
   const diagnostics = ts.getPreEmitDiagnostics(ts.createProgram(parsed.fileNames, parsed.options))
-  expect(diagnostics).toHaveLength(1)
+  expect(diagnostics, formatDiagnostics(diagnostics)).toHaveLength(1)
   expect(diagnostics[0]?.code).toBe(2339)
   expect(ts.flattenDiagnosticMessageText(diagnostics[0]?.messageText ?? '', '\n')).toContain("Property 'goals' does not exist")
 }

@@ -26,6 +26,19 @@ declare module '@deepseek-ai/dsh-type-meta' {
     readonly descriptors: readonly unknown[]
   }
 
+  export abstract class GatewayService {
+    readonly typertGateway: {
+      readonly service: GatewayService
+      readonly serviceKey: string
+      readonly namespace: string
+    }
+    protected constructor(
+      ctx: unknown,
+      serviceKey: string,
+      options?: { readonly namespace?: string },
+    )
+  }
+
   export function bindTypeRTGateway<Service extends object>(
     service: Service,
     serviceKey: string,

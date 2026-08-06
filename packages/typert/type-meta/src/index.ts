@@ -4,6 +4,7 @@
  * @module @deepseek-ai/dsh-type-meta
  */
 
+import { Service, type Context } from 'cordis'
 import type { TypeRTContextMap } from './types.ts'
 
 export type {
@@ -102,6 +103,23 @@ export function bindTypeRTGateway<Service extends object>(
   const namespace = options.namespace ?? serviceKey
   validateName('namespace', namespace)
   return Object.freeze({ service, serviceKey, namespace })
+}
+
+/** Cordis Service base that exposes its registered name through TypeRT Gateway. */
+export abstract class GatewayService<out T = never> extends Service<T> {
+  /** Visible binding consumed by the Gateway's source-mode discovery. */
+  readonly typertGateway: TypeRTGatewayBinding<this>
+
+  /**
+   * Register the Service and bind the same key to TypeRT Gateway.
+   * @param ctx - owning Cordis Context.
+   * @param serviceKey - exact Cordis service key and default wire namespace.
+   * @param options - optional distinct wire namespace.
+   */
+  protected constructor(ctx: Context, serviceKey: string, options: TypeRTGatewayBindingOptions = {}) {
+    super(ctx, serviceKey)
+    this.typertGateway = bindTypeRTGateway(this, this.name, options)
+  }
 }
 
 /**

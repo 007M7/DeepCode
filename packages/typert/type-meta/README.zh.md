@@ -2,18 +2,19 @@
 
 [English](README.md) | 中文
 
-该包提供不依赖编译器的声明，由业务包、生成的 TypeRT 产物、Host Gateway 和 Client API 共享。它负责 Remote 装饰器、显式服务绑定、可通过声明合并扩展的协议映射、调用描述符、编解码器和提供方契约；它不执行 TypeScript 分析，也不提供 Cordis 服务。
+该包提供不依赖编译器的声明，由业务包、生成的 TypeRT 产物、Host Gateway 和 Client API 共享。它负责 Remote Service 基类、装饰器、显式 binding 回退、可通过声明合并扩展的协议映射、调用描述符、编解码器和提供方契约；它不执行 TypeScript 分析，也不注册具体 Cordis 服务。
 
 ## Remote 声明
 
 - `@Remote` 将公开实例方法标记为可在其注册的 Cordis 服务上直接调用。
 - `@RemoteContext(key)` 标记接收者选自合并声明的作用域 Context 类型的方法。
-- `bindTypeRTGateway(this, serviceKey, options?)` 在服务实例、其准确的 Cordis key 与协议命名空间之间创建可见且冻结的绑定。
+- `GatewayService` 将 `super(ctx, serviceKey, options?)` 接收的 Cordis key 同时绑定为默认 wire namespace。
+- `bindTypeRTGateway(this, serviceKey, options?)` 为无法继承 `GatewayService` 的 Service 提供同样可见且冻结的绑定。
 - `remoteMethods(service)` 返回按声明顺序排列、与内部状态分离的快照，供 Gateway 的 SRC 回退路径使用。
 
 Host 方法通过将 `signal: AbortSignal` 声明为最后一个参数来启用协作式取消。`InvocationDescriptor.cancellation` 记录这个保留的注入点；signal 绝不会成为 JSON 参数或 lookup 字段。SRC 识别末位参数名，严格生成还会校验它是否具有全局 `AbortSignal` 类型。
 
-装饰器初始化器将标记保存在以服务 prototype 为键的模块私有 `WeakMap` 中。它们不会在构造函数上添加 symbol，也不会添加 prototype 属性、参数元数据或运行时反射字段。服务通过自身的 `typertGateway` 绑定字段显式接入。
+装饰器初始化器将标记保存在以服务 prototype 为键的模块私有 `WeakMap` 中。它们不会在构造函数上添加 symbol，也不会添加 prototype 属性、参数元数据或运行时反射字段。`GatewayService` 会暴露与显式 helper 相同的 public readonly `typertGateway` 绑定。
 
 ## TypeRT 协议
 

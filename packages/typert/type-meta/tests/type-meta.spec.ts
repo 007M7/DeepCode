@@ -1,8 +1,10 @@
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { Context } from 'cordis'
 import { describe, expect, it } from 'vitest'
 import {
   bindTypeRTGateway,
+  GatewayService,
   Remote,
   RemoteContext,
   remoteMethods,
@@ -16,9 +18,11 @@ declare module '@deepseek-ai/dsh-type-meta' {
 }
 
 describe('type-meta Remote declarations', () => {
-  it('executes standard decorator syntax through the Vitest source transform', () => {
-    class Goals {
-      readonly typertGateway = bindTypeRTGateway(this, 'goals')
+  it('binds a GatewayService name and executes decorators through the Vitest source transform', async () => {
+    class Goals extends GatewayService {
+      constructor(ctx: Context) {
+        super(ctx, 'goals')
+      }
 
       @Remote
       create(value: string): string {
@@ -31,11 +35,26 @@ describe('type-meta Remote declarations', () => {
       }
     }
 
-    const goals = new Goals()
+    class NamespacedGoals extends GatewayService {
+      constructor(ctx: Context) {
+        super(ctx, 'internalGoals', { namespace: 'goals' })
+      }
+    }
+
+    const ctx = new Context()
+    const goals = new Goals(ctx)
+    const namespaced = new NamespacedGoals(ctx)
+    expect(goals.typertGateway).toEqual({ service: goals, serviceKey: 'goals', namespace: 'goals' })
+    expect(namespaced.typertGateway).toEqual({
+      service: namespaced,
+      serviceKey: 'internalGoals',
+      namespace: 'goals',
+    })
     expect(remoteMethods(goals)).toEqual([
       { method: 'create', invocation: { kind: 'direct' } },
       { method: 'scoped', invocation: { kind: 'context', context: 'metaFixture' } },
     ])
+    await ctx.fiber.dispose()
   })
 
   it('executes standard decorator syntax through the TSX source launcher', () => {

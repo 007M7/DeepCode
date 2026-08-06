@@ -142,7 +142,7 @@ interface StaticContextDeclaration {
 interface GatewayBinding {
   readonly service: string
   readonly namespace: string
-  readonly site: ts.PropertyDeclaration
+  readonly site: ts.Node
 }
 
 type ReferenceSite = ts.TypeReferenceNode | ts.ExpressionWithTypeArguments | ts.ImportTypeNode
@@ -927,7 +927,10 @@ class FaceAnalyzer {
         if (first === undefined) continue
         const binding = this.gatewayBinding(statement)
         if (binding === undefined) {
-          this.fail(first.method, 'Remote methods require readonly typertGateway = bindTypeRTGateway(this, serviceKey)')
+          this.fail(
+            first.method,
+            'Remote methods require GatewayService or readonly typertGateway = bindTypeRTGateway(this, serviceKey)',
+          )
         }
         for (const { method, invocation } of marked) {
           result.push(this.invocationModel(registration, binding, method, invocation))
@@ -1089,6 +1092,15 @@ class FaceAnalyzer {
   }
 
   private gatewayBinding(declaration: ts.ClassDeclaration): GatewayBinding | undefined {
+    const field = this.gatewayFieldBinding(declaration)
+    const base = this.gatewayServiceBinding(declaration)
+    if (field !== undefined && base !== undefined) {
+      this.fail(field.site, 'GatewayService subclasses must not declare a second typertGateway binding')
+    }
+    return field ?? base
+  }
+
+  private gatewayFieldBinding(declaration: ts.ClassDeclaration): GatewayBinding | undefined {
     const candidates = declaration.members.filter((member): member is ts.PropertyDeclaration =>
       ts.isPropertyDeclaration(member) && memberName(member.name) === 'typertGateway')
     const [property, duplicate] = candidates
@@ -1111,10 +1123,38 @@ class FaceAnalyzer {
     if (call.arguments[0]?.kind !== ts.SyntaxKind.ThisKeyword) {
       this.fail(call.arguments[0] ?? call, 'bindTypeRTGateway() first argument must be this')
     }
+    return this.gatewayBindingArguments(call, property)
+  }
+
+  private gatewayServiceBinding(declaration: ts.ClassDeclaration): GatewayBinding | undefined {
+    const heritage = (declaration.heritageClauses ?? [])
+      .filter(clause => clause.token === ts.SyntaxKind.ExtendsKeyword)
+      .flatMap(clause => [...clause.types])
+      .find(type => this.isTypeMetaSymbol(type.expression, 'GatewayService'))
+    if (heritage === undefined) return undefined
+
+    const constructor = declaration.members.find(ts.isConstructorDeclaration)
+    if (constructor?.body === undefined) {
+      this.fail(heritage, 'GatewayService subclasses must declare a constructor with super(ctx, serviceKey)')
+    }
+    const call = constructor.body.statements.flatMap((statement) => {
+      if (!ts.isExpressionStatement(statement) || !ts.isCallExpression(statement.expression)) return []
+      return statement.expression.expression.kind === ts.SyntaxKind.SuperKeyword ? [statement.expression] : []
+    })[0]
+    if (call === undefined) {
+      this.fail(constructor, 'GatewayService constructor must call super(ctx, serviceKey) directly')
+    }
+    if (call.arguments.length < 2 || call.arguments.length > 3) {
+      this.fail(call, 'GatewayService super() requires context, service key, and an optional options object')
+    }
+    return this.gatewayBindingArguments(call, heritage)
+  }
+
+  private gatewayBindingArguments(call: ts.CallExpression, site: ts.Node): GatewayBinding {
     const serviceArgument = call.arguments[1]
-    if (serviceArgument === undefined) this.fail(call, 'bindTypeRTGateway() service key must be a string literal')
+    if (serviceArgument === undefined) this.fail(call, 'Gateway service key must be a string literal')
     const service = stringLiteralValue(serviceArgument)
-    if (service === undefined) this.fail(serviceArgument, 'bindTypeRTGateway() service key must be a string literal')
+    if (service === undefined) this.fail(serviceArgument, 'Gateway service key must be a string literal')
     let namespace = service
     const options = call.arguments[2]
     if (options !== undefined) {
@@ -1133,7 +1173,7 @@ class FaceAnalyzer {
     }
     if (!isRemoteSegment(service)) this.fail(serviceArgument, 'Gateway service key must be nonempty and must not contain "/"')
     if (!isRemoteSegment(namespace)) this.fail(options ?? call, 'Gateway namespace must be nonempty and must not contain "/"')
-    return { service, namespace, site: property }
+    return { service, namespace, site }
   }
 
   private remoteMarker(

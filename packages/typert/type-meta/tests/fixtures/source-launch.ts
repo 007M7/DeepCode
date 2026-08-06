@@ -1,12 +1,15 @@
+import { Context } from 'cordis'
 import {
-  bindTypeRTGateway,
+  GatewayService,
   Remote,
   RemoteContext,
   remoteMethods,
 } from '@deepseek-ai/dsh-type-meta'
 
-class Goals {
-  readonly typertGateway = bindTypeRTGateway(this, 'goals')
+class Goals extends GatewayService {
+  constructor(ctx: Context) {
+    super(ctx, 'goals')
+  }
 
   @Remote
   create(value: string): string {
@@ -19,7 +22,7 @@ class Goals {
   }
 }
 
-const methods = remoteMethods(new Goals())
+const methods = remoteMethods(new Goals(new Context()))
 const actual = JSON.stringify(methods)
 const expected = JSON.stringify([
   { method: 'create', invocation: { kind: 'direct' } },

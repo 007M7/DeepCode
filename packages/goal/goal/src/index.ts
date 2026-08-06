@@ -5,14 +5,14 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { Context, Service } from 'cordis'
+import { Context } from 'cordis'
 import z from 'schemastery'
 import { z as zod } from 'zod'
 import type { ZodType } from 'zod'
 import { agentEvents } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
-import { Remote, bindTypeRTGateway } from '@deepseek-ai/dsh-type-meta'
+import { GatewayService, Remote } from '@deepseek-ai/dsh-type-meta'
 // Type-only: resolves ctx.sessionProjections for the optional unit child.
 import type {} from '@deepseek-ai/dsh-session-projection'
 import {
@@ -180,7 +180,7 @@ function resolveBlockReason(reason: unknown): GoalBlockReason {
 }
 
 /** Goal service (`ctx.goals`) backed exclusively by the owning session log. */
-export class GoalService extends Service {
+export class GoalService extends GatewayService {
   static inject = ['agents']
 
   static Config: z<Config> = z.object({
@@ -189,9 +189,6 @@ export class GoalService extends Service {
 
   private readonly resolved: ResolvedConfig
   private readonly caches = new WeakMap<Session, GoalCache>()
-
-  /** Explicit participation in the TypeRT Gateway under the Cordis service key. */
-  readonly typertGateway = bindTypeRTGateway(this, 'goals')
 
   constructor(ctx: Context, config: Config = {}) {
     super(ctx, 'goals')
