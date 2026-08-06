@@ -2103,8 +2103,11 @@ async drainContinuableDescendants(parents: readonly Agent[]): Promise<void>
  * resuming an Agent and without any query seam: the listing merges the live
  * session store with optional session persistence (live-preferred) and
  * serves each child's durable mode/label from the registered `subagent`
- * projection unit — the registry's watermark snapshot for a live child, one
- * persistence inspection folded through the registry for a cold one. The
+ * projection unit down a three-rung ladder — the registry's watermark
+ * snapshot for a live child; for a cold one, a durable projection-cache
+ * row when the optional cache already serves the identity (the value is
+ * immutable, so staleness cannot matter), else one persistence inspection
+ * folded through the registry. The
  * projection fold is the single classification authority; per-child
  * diagnostics relay a fold that served no identity or a failed inspection,
  * never a list-time descriptor parse. Absent persistence, enumeration is
