@@ -6,26 +6,76 @@
 import type { Context } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import type { ScheduleRecord } from './types.ts'
-import { foldScheduleEvents, renderReminderFraming, ScheduleLogError } from './domain.ts'
+import type {
+  EveryScheduleRecord,
+  OneShotScheduleRecord,
+} from './types.ts'
+import {
+  foldScheduleEvents,
+  MIN_RECURRING_INTERVAL_SECONDS,
+  renderReminderBatchFraming,
+  renderReminderFraming,
+  resolveEveryOccurrence,
+  ScheduleLogError,
+} from './domain.ts'
+import type { FoldedSchedules } from './domain.ts'
 import { flushSchedulePersistence } from './persistence.ts'
 import { runScheduleTransaction } from './transaction.ts'
 
 /** Largest delay that Node timers represent without clamping. */
 export const MAX_TIMER_DELAY_MS = 2_147_483_647
 
-/** Select the earliest target while preserving create order for ties. */
-function earliest(records: readonly ScheduleRecord[]): ScheduleRecord | undefined {
-  let selected: ScheduleRecord | undefined
-  let selectedAt = Number.POSITIVE_INFINITY
-  for (const record of records) {
-    const target = Date.parse(record.scheduledAt)
-    if (target < selectedAt) {
-      selected = record
-      selectedAt = target
+interface RecurringDue {
+  readonly record: EveryScheduleRecord
+  readonly occurrenceAt: string
+}
+
+type DueDecision =
+  | { readonly kind: 'one-shot'; readonly record: OneShotScheduleRecord }
+  | { readonly kind: 'recurring'; readonly reminders: readonly RecurringDue[]; readonly acceptedAt: string }
+  | { readonly kind: 'wait'; readonly target?: number }
+
+/** Select one unblocked one-shot, one complete recurring batch, or the next wake. */
+function dueDecision(folded: FoldedSchedules, now: number): DueDecision {
+  const indexed = folded.active.map((record, index) => ({ record, index }))
+  const dueOneShots = indexed
+    .filter((entry): entry is { record: OneShotScheduleRecord; index: number } =>
+      entry.record.kind !== 'every' && Date.parse(entry.record.scheduledAt) <= now)
+    .sort((left, right) =>
+      Date.parse(left.record.scheduledAt) - Date.parse(right.record.scheduledAt)
+      || left.index - right.index)
+  const oneShot = dueOneShots[0]?.record
+  if (oneShot !== undefined) return { kind: 'one-shot', record: oneShot }
+
+  const recurring = indexed
+    .filter((entry): entry is { record: EveryScheduleRecord; index: number } =>
+      entry.record.kind === 'every' && Date.parse(entry.record.scheduledAt) <= now)
+    .sort((left, right) =>
+      Date.parse(left.record.scheduledAt) - Date.parse(right.record.scheduledAt)
+      || left.index - right.index)
+  const gate = folded.lastRecurringAcceptedAt === undefined
+    ? Number.NEGATIVE_INFINITY
+    : Date.parse(folded.lastRecurringAcceptedAt) + MIN_RECURRING_INTERVAL_SECONDS * 1_000
+  if (recurring.length > 0 && now >= gate) {
+    return {
+      kind: 'recurring',
+      acceptedAt: new Date(now).toISOString(),
+      reminders: recurring.map(({ record }) => ({
+        record,
+        occurrenceAt: resolveEveryOccurrence(record, now).occurrenceAt,
+      })),
     }
   }
-  return selected
+
+  const future = folded.active
+    .map(record => Date.parse(record.scheduledAt))
+    .filter(target => target > now)
+  if (recurring.length > 0) future.push(gate)
+  const target = future.reduce<number | undefined>(
+    (selected, candidate) => selected === undefined || candidate < selected ? candidate : selected,
+    undefined,
+  )
+  return { kind: 'wait', ...(target === undefined ? {} : { target }) }
 }
 
 /** Render an unknown value for process-local diagnostics only. */
@@ -158,13 +208,12 @@ export class ScheduleOwner {
   }
 
   /** Fold the current exact owner suffix and contain a corrupt durable stream. */
-  private readEarliest(): ScheduleRecord | undefined {
+  private readFolded(): FoldedSchedules | undefined {
     try {
-      const folded = foldScheduleEvents(
+      return foldScheduleEvents(
         this.agent.session.events,
         this.agent.session.header.seedLength ?? 0,
       )
-      return earliest(folded.active)
     } catch (error: unknown) {
       this.faulted = true
       const detail = error instanceof ScheduleLogError ? error.message : renderThrown(error)
@@ -173,7 +222,7 @@ export class ScheduleOwner {
     }
   }
 
-  /** Preflight, fold, arm, or dispatch the next active one-shot reminder. */
+  /** Preflight, fold, arm, or dispatch the next one-shot or recurring batch. */
   private async driveOnce(): Promise<void> {
     this.clearTimer()
     if (this.stopping || !this.isLive()) return
@@ -188,13 +237,12 @@ export class ScheduleOwner {
     // oxlint-disable-next-line typescript/no-unnecessary-condition -- disposal or replacement can win while persistence is awaited.
     if (this.stopping || !this.isLive()) return
 
-    const record = this.readEarliest()
-    if (record === undefined) return
-
-    const target = Date.parse(record.scheduledAt)
+    const folded = this.readFolded()
+    if (folded === undefined) return
     const wakeNow = Date.now()
-    if (wakeNow < target) {
-      this.arm(target, wakeNow)
+    const wakeDecision = dueDecision(folded, wakeNow)
+    if (wakeDecision.kind === 'wait') {
+      if (wakeDecision.target !== undefined) this.arm(wakeDecision.target, wakeNow)
       return
     }
 
@@ -202,17 +250,20 @@ export class ScheduleOwner {
     try {
       maintenance = this.agent.runMaintenance(() => {
         if (this.stopping || !this.isLive()) return Promise.resolve(false)
-        const claimedRecord = this.readEarliest()
-        if (claimedRecord === undefined) return Promise.resolve(false)
-        const claimedTarget = Date.parse(claimedRecord.scheduledAt)
+        const claimed = this.readFolded()
+        if (claimed === undefined) return Promise.resolve(false)
         const decisionNow = Date.now()
-        if (decisionNow < claimedTarget) {
-          this.arm(claimedTarget, decisionNow)
+        const decision = dueDecision(claimed, decisionNow)
+        if (decision.kind === 'wait') {
+          if (decision.target !== undefined) this.arm(decision.target, decisionNow)
           return Promise.resolve(false)
         }
         try {
+          const text = decision.kind === 'one-shot'
+            ? renderReminderFraming(decision.record)
+            : renderReminderBatchFraming(decision.reminders)
           const message = createUserMessage({
-            content: [{ type: 'text', text: renderReminderFraming(claimedRecord) }],
+            content: [{ type: 'text', text }],
             source: { kind: 'plugin', plugin: 'tool-schedule' },
           })
           this.agent.followup(message)
@@ -223,11 +274,22 @@ export class ScheduleOwner {
           return Promise.resolve(false)
         }
         try {
-          this.agent.session.append('schedule/change', {
-            version: 1,
-            operation: 'dispatch',
-            id: claimedRecord.id,
-          })
+          if (decision.kind === 'one-shot') {
+            this.agent.session.append('schedule/change', {
+              version: 1,
+              operation: 'dispatch',
+              id: decision.record.id,
+            })
+          } else {
+            for (const { record } of decision.reminders) {
+              this.agent.session.append('schedule/change', {
+                version: 1,
+                operation: 'dispatch',
+                id: record.id,
+                acceptedAt: decision.acceptedAt,
+              })
+            }
+          }
         } catch (error: unknown) {
           this.faulted = true
           this.clearTimer()

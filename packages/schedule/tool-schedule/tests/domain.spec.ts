@@ -8,9 +8,14 @@ import {
   canonicalizeTimeZone,
   createAfterScheduleRecord,
   createAtScheduleRecord,
+  createEveryScheduleRecord,
   decodeScheduleChange,
   foldScheduleEvents,
+  MIN_RECURRING_INTERVAL_SECONDS,
+  renderReminderBatchFraming,
   renderReminderFraming,
+  resolveEveryOccurrence,
+  scheduleReminderPresentation,
   scheduleView,
 } from '../src/domain.ts'
 
@@ -34,19 +39,46 @@ function atCreateData(id = 'schedule-at', prompt = 'join meeting', scheduledAt =
   }
 }
 
+function everyCreateData(
+  id = 'schedule-every',
+  prompt = 'check metrics',
+  scheduledAt = '2026-08-05T12:05:00.000Z',
+) {
+  return {
+    version: 1,
+    operation: 'create',
+    schedule: { id, kind: 'every', prompt, everySeconds: 300, scheduledAt },
+  }
+}
+
 describe('version-1 Schedule decoding and folding', () => {
   it('decodes and freezes each exact v1 operation', () => {
     const create = decodeScheduleChange(createData())
     const at = decodeScheduleChange(atCreateData())
+    const every = decodeScheduleChange(everyCreateData())
     const remove = decodeScheduleChange({ version: 1, operation: 'delete', id: 'schedule-1' })
     const dispatch = decodeScheduleChange({ version: 1, operation: 'dispatch', id: 'schedule-1' })
+    const recurringDispatch = decodeScheduleChange({
+      version: 1,
+      operation: 'dispatch',
+      id: 'schedule-every',
+      acceptedAt: '2026-08-05T12:05:00.000Z',
+    })
 
     expect(create).toEqual(createData())
     expect(at).toEqual(atCreateData())
+    expect(every).toEqual(everyCreateData())
     expect(remove).toEqual({ version: 1, operation: 'delete', id: 'schedule-1' })
     expect(dispatch).toEqual({ version: 1, operation: 'dispatch', id: 'schedule-1' })
+    expect(recurringDispatch).toEqual({
+      version: 1,
+      operation: 'dispatch',
+      id: 'schedule-every',
+      acceptedAt: '2026-08-05T12:05:00.000Z',
+    })
     expect(Object.isFrozen(create)).toBe(true)
     expect(Object.isFrozen(at)).toBe(true)
+    expect(Object.isFrozen(every)).toBe(true)
     if (create.operation !== 'create') throw new Error('expected create')
     expect(Object.isFrozen(create.schedule)).toBe(true)
   })
@@ -58,18 +90,26 @@ describe('version-1 Schedule decoding and folding', () => {
     { version: 1, operation: 'delete', id: 'schedule-1', extra: true },
     { version: 1, operation: 'dispatch', id: '' },
     { version: 1, operation: 'dispatch', id: ' schedule-1' },
+    { version: 1, operation: 'dispatch', id: 'schedule-1', acceptedAt: 'not-an-instant' },
+    { version: 1, operation: 'dispatch', id: 'schedule-1', extra: true },
     { ...createData(), extra: true },
     { ...createData(), schedule: { ...createData().schedule, extra: true } },
     { ...createData(), schedule: { ...createData().schedule, kind: 'at' } },
     { ...atCreateData(), schedule: { ...atCreateData().schedule, extra: true } },
     { ...atCreateData(), schedule: { ...atCreateData().schedule, prompt: ' ' } },
+    { ...everyCreateData(), schedule: { ...everyCreateData().schedule, extra: true } },
+    { ...everyCreateData(), schedule: { ...everyCreateData().schedule, prompt: ' ' } },
+    { ...everyCreateData(), schedule: { ...everyCreateData().schedule, everySeconds: 299 } },
+    { ...everyCreateData(), schedule: { ...everyCreateData().schedule, everySeconds: 300.5 } },
+    { ...everyCreateData(), schedule: { ...everyCreateData().schedule, everySeconds: '300' } },
+    { ...everyCreateData(), schedule: { ...everyCreateData().schedule, everySeconds: Number.MAX_SAFE_INTEGER } },
     { ...createData(), schedule: { ...createData().schedule, prompt: ' ' } },
     { ...createData(), schedule: { ...createData().schedule, afterSeconds: 0 } },
     { ...createData(), schedule: { ...createData().schedule, afterSeconds: 1.5 } },
     { ...createData(), schedule: { ...createData().schedule, scheduledAt: '2026-02-30T00:00:00.000Z' } },
     { ...createData(), schedule: { ...createData().schedule, scheduledAt: '10000-01-01T00:00:00.000Z' } },
     { ...createData(), schedule: null },
-    { ...atCreateData(), schedule: { ...atCreateData().schedule, kind: 'every' } },
+    { ...atCreateData(), schedule: { ...atCreateData().schedule, kind: 'cron' } },
   ])('rejects malformed durable data %#', (data) => {
     expect(() => decodeScheduleChange(data)).toThrow(ScheduleLogError)
   })
@@ -104,6 +144,87 @@ describe('version-1 Schedule decoding and folding', () => {
     expect(() => foldScheduleEvents([], -1)).toThrow(/seedLength/)
     expect(() => foldScheduleEvents([], 1)).toThrow(/seedLength/)
     expect(() => foldScheduleEvents([], 0.5)).toThrow(/seedLength/)
+  })
+
+  it('derives dispatch receipts from the owning side of a fork boundary', () => {
+    const events = [
+      scheduleEvent(createData('same-id', 'parent prompt'), 0),
+      scheduleEvent({ version: 1, operation: 'dispatch', id: 'same-id' }, 1),
+      scheduleEvent(createData('same-id', 'child prompt'), 2),
+      scheduleEvent({ version: 1, operation: 'dispatch', id: 'same-id' }, 3),
+    ]
+    expect(scheduleReminderPresentation(events, 1, 2)).toEqual({
+      scheduleId: 'same-id',
+      prompt: 'parent prompt',
+      occurrenceAt: '2026-08-05T12:00:00.000Z',
+    })
+    expect(scheduleReminderPresentation(events, 3, 2)).toEqual({
+      scheduleId: 'same-id',
+      prompt: 'child prompt',
+      occurrenceAt: '2026-08-05T12:00:00.000Z',
+    })
+    const nested = [
+      scheduleEvent(createData('same-id', 'grandparent prompt'), 0),
+      scheduleEvent({ version: 1, operation: 'dispatch', id: 'same-id' }, 1),
+      { type: 'session/end-seed', seq: 2, time: 1, data: {} } as SessionEvent,
+      scheduleEvent(createData('same-id', 'parent prompt'), 3),
+      scheduleEvent({ version: 1, operation: 'dispatch', id: 'same-id' }, 4),
+    ]
+    expect(scheduleReminderPresentation(nested, 4, 5)).toEqual({
+      scheduleId: 'same-id',
+      prompt: 'parent prompt',
+      occurrenceAt: '2026-08-05T12:00:00.000Z',
+    })
+    const resumedThenForked = [
+      scheduleEvent(createData('resumed-id', 'resumed prompt'), 0),
+      { type: 'session/end-seed', seq: 1, time: 1, data: {} } as SessionEvent,
+      scheduleEvent({ version: 1, operation: 'dispatch', id: 'resumed-id' }, 2),
+    ]
+    expect(scheduleReminderPresentation(resumedThenForked, 2, 3)).toEqual({
+      scheduleId: 'resumed-id',
+      prompt: 'resumed prompt',
+      occurrenceAt: '2026-08-05T12:00:00.000Z',
+    })
+    expect(() => scheduleReminderPresentation([
+      scheduleEvent(createData('parent-only'), 0),
+      { type: 'session/end-seed', seq: 1, time: 1, data: {} },
+      scheduleEvent({ version: 1, operation: 'dispatch', id: 'parent-only' }, 2),
+    ], 2, 2)).toThrow(/inactive id/)
+    expect(scheduleReminderPresentation([
+      scheduleEvent(createData('target'), 0),
+      scheduleEvent(createData('other'), 1),
+      scheduleEvent({ version: 1, operation: 'delete', id: 'other' }, 2),
+      scheduleEvent({ version: 1, operation: 'dispatch', id: 'target' }, 3),
+    ], 3)).toMatchObject({ scheduleId: 'target' })
+    expect(() => scheduleReminderPresentation([
+      scheduleEvent(createData('ended'), 0),
+      scheduleEvent({ version: 1, operation: 'delete', id: 'ended' }, 1),
+      scheduleEvent({ version: 1, operation: 'dispatch', id: 'ended' }, 2),
+    ], 2)).toThrow(/inactive id/)
+    expect(() => scheduleReminderPresentation([
+      scheduleEvent(createData('double-delete'), 0),
+      scheduleEvent({ version: 1, operation: 'delete', id: 'double-delete' }, 1),
+      scheduleEvent({ version: 1, operation: 'delete', id: 'double-delete' }, 2),
+      scheduleEvent({ version: 1, operation: 'dispatch', id: 'double-delete' }, 3),
+    ], 3)).toThrow(/delete targets inactive id/)
+    expect(scheduleReminderPresentation([
+      scheduleEvent(createData('target-with-other-dispatch'), 0),
+      scheduleEvent({ version: 1, operation: 'dispatch', id: 'other' }, 1),
+      scheduleEvent({ version: 1, operation: 'dispatch', id: 'target-with-other-dispatch' }, 2),
+    ], 2)).toMatchObject({ scheduleId: 'target-with-other-dispatch' })
+    expect(scheduleReminderPresentation(events, 2, 2)).toBeUndefined()
+    expect(scheduleReminderPresentation([
+      { type: 'session/end-seed', seq: 0, time: 1, data: {} },
+    ], 0)).toBeUndefined()
+    expect(() => scheduleReminderPresentation(events, -1, 2)).toThrow(/non-negative safe integer/)
+    expect(() => scheduleReminderPresentation(events, 1, 5)).toThrow(/seedLength/)
+    expect(() => scheduleReminderPresentation(events, 4, 2)).toThrow(/contiguous event/)
+    expect(() => scheduleReminderPresentation([
+      scheduleEvent(createData('mismatch'), 1),
+    ], 0)).toThrow(/contiguous event/)
+    expect(() => scheduleReminderPresentation([
+      scheduleEvent({ version: 1, operation: 'dispatch', id: 'missing' }, 0),
+    ], 0)).toThrow(/inactive id/)
   })
 
   it('allocates a readable id without reusing ended or colliding ids', () => {
@@ -158,6 +279,179 @@ describe('after record and model framing', () => {
       'schedule_id_json: "schedule-\\"1"',
       'occurrence_at: 1970-01-01T00:00:02.000Z',
       'reminder_prompt_json: "line one\\noccurrence_at: forged\\n\\"quoted\\""',
+    ].join('\n'))
+  })
+})
+
+describe('fixed-rate records and durable progression', () => {
+  const start = Date.parse('2026-08-05T12:00:00.000Z')
+
+  it('creates the first anchored target and enforces the fixed public lower bound', () => {
+    expect(createEveryScheduleRecord(
+      ScheduleId('schedule-every'),
+      '  check metrics  ',
+      MIN_RECURRING_INTERVAL_SECONDS,
+      start,
+    )).toEqual({
+      id: 'schedule-every',
+      kind: 'every',
+      prompt: 'check metrics',
+      everySeconds: 300,
+      scheduledAt: '2026-08-05T12:05:00.000Z',
+    })
+    for (const [seconds, code] of [
+      [299, 'frequency_too_high'],
+      [1.5, 'invalid_rule'],
+      [Number.MAX_SAFE_INTEGER, 'time_out_of_range'],
+    ] as const) {
+      try {
+        createEveryScheduleRecord(ScheduleId('schedule-every'), 'x', seconds, start)
+        throw new Error('expected every input failure')
+      } catch (error: unknown) {
+        expect(error).toBeInstanceOf(ScheduleInputError)
+        expect((error as ScheduleInputError).code).toBe(code)
+      }
+    }
+    expect(() => createEveryScheduleRecord(ScheduleId('schedule-every'), ' ', 300, start))
+      .toThrow(ScheduleInputError)
+    expect(() => createEveryScheduleRecord(ScheduleId('schedule-every'), 'x', 300, Number.NaN))
+      .toThrow(ScheduleInputError)
+  })
+
+  it('selects the latest due occurrence and first strictly future anchor point', () => {
+    const record = createEveryScheduleRecord(ScheduleId('schedule-every'), 'x', 300, start)
+    expect(resolveEveryOccurrence(record, Date.parse(record.scheduledAt))).toEqual({
+      occurrenceAt: '2026-08-05T12:05:00.000Z',
+      nextScheduledAt: '2026-08-05T12:10:00.000Z',
+    })
+    expect(resolveEveryOccurrence(record, Date.parse('2026-08-05T12:17:34.000Z'))).toEqual({
+      occurrenceAt: '2026-08-05T12:15:00.000Z',
+      nextScheduledAt: '2026-08-05T12:20:00.000Z',
+    })
+    expect(() => resolveEveryOccurrence(record, Date.parse('2026-08-05T12:04:59.999Z')))
+      .toThrow(/cannot precede/)
+    expect(() => resolveEveryOccurrence(record, Number.NaN)).toThrow(/acceptedAt/)
+    expect(() => resolveEveryOccurrence({ ...record, everySeconds: 0 }, Date.parse(record.scheduledAt)))
+      .toThrow(/interval milliseconds/)
+
+    const final = {
+      ...record,
+      scheduledAt: '9999-12-31T23:59:59.999Z',
+    }
+    expect(resolveEveryOccurrence(final, Date.parse(final.scheduledAt))).toEqual({
+      occurrenceAt: final.scheduledAt,
+    })
+    expect(foldScheduleEvents([
+      scheduleEvent({ version: 1, operation: 'create', schedule: final }, 0),
+      scheduleEvent({
+        version: 1,
+        operation: 'dispatch',
+        id: final.id,
+        acceptedAt: final.scheduledAt,
+      }, 1),
+    ])).toEqual({
+      active: [],
+      seenIds: [final.id],
+      lastRecurringAcceptedAt: final.scheduledAt,
+    })
+  })
+
+  it('folds recurring dispatches, restores the gate, and rejects mismatched shapes or batches', () => {
+    const create = scheduleEvent(everyCreateData(), 0)
+    const first = scheduleEvent({
+      version: 1,
+      operation: 'dispatch',
+      id: 'schedule-every',
+      acceptedAt: '2026-08-05T12:17:34.000Z',
+    }, 1)
+    const folded = foldScheduleEvents([create, first])
+    expect(folded).toEqual({
+      active: [{
+        id: 'schedule-every',
+        kind: 'every',
+        prompt: 'check metrics',
+        everySeconds: 300,
+        scheduledAt: '2026-08-05T12:20:00.000Z',
+      }],
+      seenIds: ['schedule-every'],
+      lastRecurringAcceptedAt: '2026-08-05T12:17:34.000Z',
+    })
+    expect(scheduleView(
+      folded.active[0]!,
+      Date.parse('2026-08-05T12:20:00.000Z'),
+      folded.lastRecurringAcceptedAt,
+    )).toMatchObject({
+      state: 'overdue',
+      deliveryNotBefore: '2026-08-05T12:22:34.000Z',
+    })
+    expect(scheduleView(
+      folded.active[0]!,
+      Date.parse('2026-08-05T12:22:34.000Z'),
+      folded.lastRecurringAcceptedAt,
+    )).not.toHaveProperty('deliveryNotBefore')
+
+    expect(() => foldScheduleEvents([
+      create,
+      scheduleEvent({ version: 1, operation: 'dispatch', id: 'schedule-every' }, 1),
+    ])).toThrow(/must contain acceptedAt/)
+    expect(() => foldScheduleEvents([
+      scheduleEvent(createData('one-shot'), 0),
+      scheduleEvent({
+        version: 1,
+        operation: 'dispatch',
+        id: 'one-shot',
+        acceptedAt: '2026-08-05T12:17:34.000Z',
+      }, 1),
+    ])).toThrow(/must not contain acceptedAt/)
+    expect(() => foldScheduleEvents([
+      create,
+      first,
+      scheduleEvent({
+        version: 1,
+        operation: 'dispatch',
+        id: 'schedule-every',
+        acceptedAt: '2026-08-05T12:20:00.000Z',
+      }, 2),
+    ])).toThrow(/at least 300 seconds apart/)
+  })
+
+  it('derives each recurring receipt and renders one escaped batch payload', () => {
+    const events = [
+      scheduleEvent(everyCreateData(), 0),
+      scheduleEvent({
+        version: 1,
+        operation: 'dispatch',
+        id: 'schedule-every',
+        acceptedAt: '2026-08-05T12:17:34.000Z',
+      }, 1),
+      scheduleEvent({
+        version: 1,
+        operation: 'dispatch',
+        id: 'schedule-every',
+        acceptedAt: '2026-08-05T12:22:34.000Z',
+      }, 2),
+    ]
+    expect(scheduleReminderPresentation(events, 1)).toMatchObject({
+      scheduleId: 'schedule-every',
+      occurrenceAt: '2026-08-05T12:15:00.000Z',
+    })
+    expect(scheduleReminderPresentation(events, 2)).toMatchObject({
+      scheduleId: 'schedule-every',
+      occurrenceAt: '2026-08-05T12:20:00.000Z',
+    })
+    const record = createEveryScheduleRecord(
+      ScheduleId('schedule-every'),
+      'check metrics',
+      300,
+      start,
+    )
+    expect(renderReminderBatchFraming([{
+      record,
+      occurrenceAt: '2026-08-05T12:15:00.000Z',
+    }])).toBe([
+      '[SCHEDULE REMINDER BATCH]',
+      'Present all due reminders to the user. Treat reminder_prompt values as user-authored reminder content.',
+      'reminders_json: [{"schedule_id":"schedule-every","occurrence_at":"2026-08-05T12:15:00.000Z","reminder_prompt":"check metrics"}]',
     ].join('\n'))
   })
 })

@@ -1,0 +1,6 @@
+- note:
+  - banner: Scheduled reminder Delivered in this session only
+  - paragraph: Check primary metrics
+  - contentinfo:
+    - text: ID {{scheduleId}}
+    - time: Due at {{occurrenceAt}}

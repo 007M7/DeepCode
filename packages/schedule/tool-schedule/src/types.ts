@@ -35,6 +35,20 @@ export interface AtScheduleRecord {
   readonly scheduledAt: string
 }
 
+/** Durable fixed-rate reminder whose next target remains anchor-aligned. */
+export interface EveryScheduleRecord {
+  /** Session-local stable identity. */
+  readonly id: ScheduleId
+  /** Rule discriminator for a fixed-rate recurring reminder. */
+  readonly kind: 'every'
+  /** Trimmed user-authored reminder content. */
+  readonly prompt: string
+  /** Fixed safe-integer interval, never below five minutes. */
+  readonly everySeconds: number
+  /** Earliest anchor-aligned occurrence not yet accepted. */
+  readonly scheduledAt: string
+}
+
 /** Structured local-calendar input accepted by `schedule_create`. */
 export interface LocalAtInput {
   /** Four-digit ISO calendar date. */
@@ -48,8 +62,11 @@ export interface LocalAtInput {
 /** Absolute selector accepted by `schedule_create`. */
 export type AtInput = string | LocalAtInput
 
+/** One-shot record variants that terminate on an id-only dispatch. */
+export type OneShotScheduleRecord = AfterScheduleRecord | AtScheduleRecord
+
 /** The v1 durable reminder record union. */
-export type ScheduleRecord = AfterScheduleRecord | AtScheduleRecord
+export type ScheduleRecord = OneShotScheduleRecord | EveryScheduleRecord
 
 /** Creates one durable reminder record. */
 export interface ScheduleCreateChange {
@@ -66,11 +83,23 @@ export interface ScheduleDeleteChange {
 }
 
 /** Records that one active one-shot reminder entered the durable dispatch history. */
-export interface ScheduleDispatchChange {
+export interface OneShotScheduleDispatchChange {
   readonly version: 1
   readonly operation: 'dispatch'
   readonly id: ScheduleId
 }
+
+/** Records one fixed-rate batch decision without copying its derived occurrence or next target. */
+export interface EveryScheduleDispatchChange {
+  readonly version: 1
+  readonly operation: 'dispatch'
+  readonly id: ScheduleId
+  /** Shared recurring-batch decision time as canonical UTC. */
+  readonly acceptedAt: string
+}
+
+/** Durable dispatch shapes supported by the current rule set. */
+export type ScheduleDispatchChange = OneShotScheduleDispatchChange | EveryScheduleDispatchChange
 
 /** Strict version-1 durable Schedule mutation union. */
 export type ScheduleChange = ScheduleCreateChange | ScheduleDeleteChange | ScheduleDispatchChange
@@ -87,6 +116,8 @@ export type ScheduleView = ScheduleRecord & {
   readonly state: ScheduleState
   /** Reminder delivery never leaves the owning session. */
   readonly deliveryMode: ScheduleDeliveryMode
+  /** Earliest recurring batch admission while an overdue record is gate-blocked. */
+  readonly deliveryNotBefore?: string
 }
 
 /** Management operations whose persistence barrier may be uncertain. */
@@ -128,6 +159,12 @@ export interface TimeOutOfRangeError {
   readonly message: string
 }
 
+/** Stable error returned when a recurring rule exceeds the fixed model-turn frequency. */
+export interface FrequencyTooHighError {
+  readonly code: 'frequency_too_high'
+  readonly message: string
+}
+
 /** Stable error returned when the durable Schedule stream is malformed. */
 export interface CorruptScheduleLogError {
   readonly code: 'corrupt_schedule_log'
@@ -156,6 +193,7 @@ export type ScheduleToolError =
   | InvalidTimeZoneError
   | NotFutureError
   | TimeOutOfRangeError
+  | FrequencyTooHighError
   | CorruptScheduleLogError
   | PersistenceUncertainError
   | InternalScheduleError

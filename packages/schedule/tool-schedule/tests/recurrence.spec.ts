@@ -1,0 +1,63 @@
+import { describe, expect, it } from 'vitest'
+import fc from 'fast-check'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import {
+  ScheduleId,
+  createEveryScheduleRecord,
+  foldScheduleEvents,
+  resolveEveryOccurrence,
+} from '../src/domain.ts'
+
+const BASE = Date.parse('2000-01-01T00:00:00.000Z')
+
+function event(data: unknown, seq: number): SessionEvent {
+  return { type: 'schedule/change', seq, time: BASE, data } as SessionEvent
+}
+
+describe('fixed-rate recurrence properties', () => {
+  it('keeps runtime calculation and durable folding on the same anchor sequence', () => {
+    fc.assert(fc.property(
+      fc.integer({ min: 300, max: 86_400 }),
+      fc.integer({ min: 0, max: 10_000 }),
+      fc.nat({ max: 86_399_999 }),
+      (everySeconds, skipped, rawOffset) => {
+        const record = createEveryScheduleRecord(
+          ScheduleId('schedule-property'),
+          'property reminder',
+          everySeconds,
+          BASE,
+        )
+        const interval = everySeconds * 1_000
+        const target = Date.parse(record.scheduledAt)
+        const accepted = target + skipped * interval + rawOffset % interval
+        const calculated = resolveEveryOccurrence(record, accepted)
+        const expectedOccurrence = new Date(target + skipped * interval).toISOString()
+        const expectedNext = new Date(target + (skipped + 1) * interval).toISOString()
+        expect(calculated).toEqual({
+          occurrenceAt: expectedOccurrence,
+          nextScheduledAt: expectedNext,
+        })
+
+        const folded = foldScheduleEvents([
+          event({ version: 1, operation: 'create', schedule: record }, 0),
+          event({
+            version: 1,
+            operation: 'dispatch',
+            id: record.id,
+            acceptedAt: new Date(accepted).toISOString(),
+          }, 1),
+        ])
+        expect(folded.active).toEqual([{ ...record, scheduledAt: expectedNext }])
+        expect(folded.lastRecurringAcceptedAt).toBe(new Date(accepted).toISOString())
+      },
+    ), { numRuns: 300 })
+  })
+
+  it('derives the 288-batch rolling-day bound from the fixed spacing', () => {
+    const spacing = 300_000
+    const day = 86_400_000
+    const accepted = Array.from({ length: 289 }, (_, index) => BASE + index * spacing)
+    expect(accepted.slice(0, 288).every(value => value >= BASE && value < BASE + day)).toBe(true)
+    expect(accepted[288]).toBe(BASE + day)
+  })
+})
