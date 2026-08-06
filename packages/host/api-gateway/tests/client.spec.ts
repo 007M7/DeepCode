@@ -17,11 +17,18 @@ declare module '@deepseek-ai/dsh-type-meta' {
   }
 
   interface TypeRTRemoteMap {
-    'goals/create': (agentId: string, request: { readonly objective: string }) => Promise<{ readonly ref: string }>
+    'goals/create': (
+      agentId: string,
+      request: { readonly objective: string },
+      signal?: AbortSignal,
+    ) => Promise<{ readonly ref: string }>
   }
 
   interface TypeRTRemoteContextMap {
-    'fixture:goals/create': (request: { readonly objective: string }) => Promise<{ readonly ref: string }>
+    'fixture:goals/create': (
+      request: { readonly objective: string },
+      signal?: AbortSignal,
+    ) => Promise<{ readonly ref: string }>
     'fixture:goals/rename': (request: { readonly objective: string }) => Promise<{ readonly renamed: boolean }>
   }
 
@@ -58,6 +65,7 @@ function directDescriptor(): InvocationDescriptor {
       source: 'json',
       codec: { mode: 'strict', typeSymbol: '@fixture#CreateRequest', schema: requestSchema },
     }],
+    cancellation: { parameter: 'signal' },
     result: { mode: 'strict', typeSymbol: '@fixture#CreateResult', schema: createResultSchema },
   }
 }
@@ -114,6 +122,19 @@ describe('Client TypeRT API', () => {
       { args: { agentId: 'agent-1', request: { objective: 'ship' } } },
       expect.any(AbortSignal),
     )
+    const callerAbort = new AbortController()
+    await expect(ctx.api.goals.create(
+      'agent-1',
+      { objective: 'cancel me' },
+      callerAbort.signal,
+    )).resolves.toEqual({ ref: 'goal-1' })
+    const combinedSignal = call.mock.calls.at(-1)?.[3]
+    expect(combinedSignal).toBeInstanceOf(AbortSignal)
+    expect(combinedSignal).not.toBe(callerAbort.signal)
+    const cancellation = new Error('caller cancelled')
+    callerAbort.abort(cancellation)
+    expect(combinedSignal?.aborted).toBe(true)
+    expect(combinedSignal?.reason).toBe(cancellation)
     await expect(ctx.api.goals.create('', { objective: 'ship' })).rejects.toThrow('rejected "agentId"')
 
     call.mockResolvedValueOnce({ ok: true, value: { ref: 1 } })
@@ -299,10 +320,18 @@ describe('Client TypeRT API', () => {
       .mockResolvedValue({ ok: true, value: { ref: 'goal-1' } })
     const ctx = await bench(call)
     const descriptor = directDescriptor()
-    const dispose = ctx.api.mount({ package: '@fixture/goals', descriptors: [descriptor] })
+    const dispose = ctx.api.mount({
+      package: '@fixture/goals',
+      descriptors: [descriptor, contextDescriptor()],
+    })
     const create = ctx.api.goals.create as unknown as (...args: unknown[]) => Promise<unknown>
+    const goals = (ctx as FixtureContext).goals
+    const rename = goals.rename as unknown as (...args: unknown[]) => Promise<unknown>
 
-    await expect(create('agent-1')).rejects.toThrow('expected 2 argument(s), got 1')
+    await expect(create('agent-1')).rejects.toThrow('expected 2 business argument(s) plus an optional AbortSignal, got 1')
+    await expect(create('agent-1', { objective: 'ship' }, undefined, 'extra'))
+      .rejects.toThrow('got 4')
+    await expect(rename.call(goals)).rejects.toThrow('expected 1 argument(s), got 0')
     await expect((ctx as FixtureContext).goals.create({ objective: 'ship' }))
       .rejects.toThrow('no Client Context binder')
 

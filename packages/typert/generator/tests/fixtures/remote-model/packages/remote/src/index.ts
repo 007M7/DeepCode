@@ -12,7 +12,8 @@ export class GoalService {
   readonly typertGateway = bindTypeRTGateway(this, 'goals')
 
   @Remote
-  async create(agent: Agent, request: CreateGoalRequest): Promise<CreateGoalResult> {
+  async create(agent: Agent, request: CreateGoalRequest, signal: AbortSignal): Promise<CreateGoalResult> {
+    signal.throwIfAborted()
     return { ref: `${agent.id}:${request.title}` }
   }
 

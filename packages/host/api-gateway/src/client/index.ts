@@ -223,9 +223,13 @@ class ClientApiService extends Service implements ClientApi {
     const endpoint = endpointOf(descriptor)
     if (!token.active) throw new Error(`client api: Remote method ${endpoint} is no longer mounted`)
     const expected = descriptor.parameters.length - (projection?.parameterIndex === undefined ? 0 : 1)
-    if (values.length !== expected) {
+    const hasCallerSignal = descriptor.cancellation !== undefined && values.length === expected + 1
+    if (values.length !== expected && !hasCallerSignal) {
+      const contract = descriptor.cancellation === undefined
+        ? `${String(expected)} argument(s)`
+        : `${String(expected)} business argument(s) plus an optional AbortSignal`
       throw new Error(
-        `client api: ${endpoint} expected ${String(expected)} argument(s), got ${String(values.length)}`,
+        `client api: ${endpoint} expected ${contract}, got ${String(values.length)}`,
       )
     }
     const args: Record<string, unknown> = {}
@@ -248,7 +252,11 @@ class ClientApiService extends Service implements ClientApi {
     })
     const connection = this.ownerCtx.get('connection') as ConnectionHandle | undefined
     if (connection === undefined) throw new Error(`client api: ${endpoint} has no active Connection`)
-    const result = await connection.rpc.call('/api', endpoint, { args }, token.abort.signal)
+    const callerSignal = hasCallerSignal ? values[expected] as AbortSignal | undefined : undefined
+    const signal = callerSignal === undefined
+      ? token.abort.signal
+      : AbortSignal.any([token.abort.signal, callerSignal])
+    const result = await connection.rpc.call('/api', endpoint, { args }, signal)
     if (!mountActive(token)) throw new Error(`client api: Remote method ${endpoint} was withdrawn during invocation`)
     if (!result.ok) throw remoteFailure(endpoint, result.error)
     return parse(descriptor.result, result.value, endpoint, 'result')

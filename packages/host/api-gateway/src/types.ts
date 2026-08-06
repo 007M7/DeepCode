@@ -11,6 +11,8 @@ export interface InvokeRemoteRequest {
   readonly method: string
   /** Named wire values; fields must exactly match the descriptor. */
   readonly args: Readonly<Record<string, unknown>>
+  /** Carrier or direct-caller cancellation injected only into cancellation-aware methods. */
+  readonly signal?: AbortSignal
 }
 
 /** Stable infrastructure and boundary failures emitted before or after business execution. */

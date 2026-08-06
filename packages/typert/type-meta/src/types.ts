@@ -157,6 +157,11 @@ export interface InvocationDescriptor {
   }
   /** Ordered business parameters. */
   readonly parameters: readonly InvocationParameterDescriptor[]
+  /** Transport cancellation injected after business parameters instead of entering wire args. */
+  readonly cancellation?: {
+    /** Reserved final Host method parameter. */
+    readonly parameter: 'signal'
+  }
   /** Codec for the resolved method result. */
   readonly result: TypeRTCodec
   /** Source declaration used only for diagnostics. */

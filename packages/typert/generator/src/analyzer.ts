@@ -963,8 +963,9 @@ class FaceAnalyzer {
     const lookups = this.lookupDeclarations()
     const lookupByHost = new Map(lookups.map(lookup => [lookup.hostSymbol, lookup]))
     const parameters: InvocationParameterModel[] = []
+    let cancellation: InvocationModel['cancellation']
     const wires = new Set<string>()
-    for (const parameter of method.parameters) {
+    for (const [parameterIndex, parameter] of method.parameters.entries()) {
       if (!ts.isIdentifier(parameter.name)) {
         this.fail(parameter, 'Remote parameters must use identifier bindings')
       }
@@ -973,6 +974,18 @@ class FaceAnalyzer {
       if (parameter.questionToken !== undefined) this.fail(parameter, 'Remote parameters cannot be optional')
       if (parameter.name.text === 'this') this.fail(parameter, 'Remote methods cannot declare an explicit this parameter')
       const authoredType = this.requiredType(parameter, parameter.type, 'parameter')
+      const cancellationName = parameter.name.text === 'signal'
+      const cancellationType = this.isGlobalAbortSignal(authoredType)
+      if (cancellationName || cancellationType) {
+        if (!cancellationName || !cancellationType) {
+          this.fail(parameter, 'Remote cancellation must use a parameter named signal with the global AbortSignal type')
+        }
+        if (parameterIndex !== method.parameters.length - 1) {
+          this.fail(parameter, 'Remote cancellation signal must be the final parameter')
+        }
+        cancellation = { parameter: 'signal' }
+        continue
+      }
       const hostSymbol = this.symbolAtType(authoredType)
       const lookup = hostSymbol === undefined ? undefined : lookupByHost.get(this.symbolId(hostSymbol))
       let modeled: InvocationParameterModel
@@ -1065,6 +1078,7 @@ class FaceAnalyzer {
       invocation: receiver,
       ...(scope === undefined ? {} : { scope }),
       parameters,
+      ...(cancellation === undefined ? {} : { cancellation }),
       result: this.remoteBoundary(
         resultType,
         `${registration.name}#${binding.namespace}/${exportedMethod}:result`,
@@ -1179,6 +1193,13 @@ class FaceAnalyzer {
     const declaration = preferredDeclaration(resolved)
     if (declaration === undefined || !isStandardLibraryFile(declaration.getSourceFile().fileName)) return authored
     return resultType
+  }
+
+  private isGlobalAbortSignal(type: ts.TypeNode): boolean {
+    const symbol = this.symbolAtType(type)
+    if (symbol?.name !== 'AbortSignal') return false
+    return symbol.declarations?.some(declaration =>
+      isStandardLibraryFile(declaration.getSourceFile().fileName)) === true
   }
 
   private lookupDeclarations(): readonly StaticLookupDeclaration[] {

@@ -83,6 +83,7 @@ function invocationTypertSource(pkgName: string): string {
     '      name: \'request\', wire: \'request\', source: \'json\',',
     `      codec: { mode: 'strict', typeSymbol: '${pkgName}/types#Request', schema: Text },`,
     '    }],',
+    "    cancellation: { parameter: 'signal' },",
     `    result: { mode: 'strict', typeSymbol: '${pkgName}/types#Result', schema: Text },`,
     '    sourceLocation: { file: \'src/index.ts\', line: 8, column: 3 },',
     '  }],',
@@ -157,6 +158,7 @@ describe('typert loader', () => {
       id: '@fixture/invocation#goals/create',
       invocation: { kind: 'direct' },
       parameters: [{ wire: 'request', source: 'json' }],
+      cancellation: { parameter: 'signal' },
       sourceLocation: { file: 'src/index.ts', line: 8, column: 3 },
     })
     expect(descriptor?.parameters[0]?.codec.mode).toBe('strict')
@@ -502,6 +504,9 @@ describe('validateTypertManifest', () => {
     const descriptor = strictInvocation()
     const manifest = { ...base, invocations: [descriptor] }
     expect(validateTypertManifest('pkg', manifest)).toBe(manifest)
+    const cancellable = { ...descriptor, cancellation: { parameter: 'signal' } }
+    expect(validateTypertManifest('pkg', { ...base, invocations: [cancellable] }).invocations)
+      .toEqual([cancellable])
     const scoped = {
       ...descriptor,
       scope: { context: 'agent', wire: 'agentId' },
@@ -526,6 +531,14 @@ describe('validateTypertManifest', () => {
       ...base,
       invocations: [{ ...descriptor, result: { mode: 'src-json' } }],
     })).toThrow('result codec must use a strict codec')
+    expect(() => validateTypertManifest('pkg', {
+      ...base,
+      invocations: [{ ...descriptor, cancellation: null }],
+    })).toThrow('cancellation must be an object')
+    expect(() => validateTypertManifest('pkg', {
+      ...base,
+      invocations: [{ ...descriptor, cancellation: { parameter: 'abort' } }],
+    })).toThrow('cancellation parameter must be "signal"')
     expect(() => validateTypertManifest('pkg', {
       ...base,
       invocations: [{ ...descriptor, result: { mode: 'strict', typeSymbol: 'pkg#Result', schema: zodish } }],

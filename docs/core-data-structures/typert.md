@@ -38,7 +38,7 @@ interface TypeRTLookupDefinition {
 
 ## Invocation descriptors
 
-An `InvocationDescriptor` is local reflection, not a wire message. Host and consumer builds generate corresponding descriptors; the request sends only the endpoint and named `args`. Strict codecs carry generated schemas, while SRC codecs enforce JSON-safe values without structural type recovery.
+An `InvocationDescriptor` is local reflection, not a wire message. Host and consumer builds generate corresponding descriptors; the request sends only the endpoint and named `args`. Strict codecs carry generated schemas, while SRC codecs enforce JSON-safe values without structural type recovery. Cancellation is an out-of-band carrier signal injected after business parameters and never enters `args`.
 
 ```ts type-equiv
 /** Codec attached to one invocation parameter or result. */
@@ -100,6 +100,11 @@ interface InvocationDescriptor {
   }
   /** Ordered business parameters. */
   readonly parameters: readonly InvocationParameterDescriptor[]
+  /** Transport cancellation injected after business parameters instead of entering wire args. */
+  readonly cancellation?: {
+    /** Reserved final Host method parameter. */
+    readonly parameter: 'signal'
+  }
   /** Codec for the resolved method result. */
   readonly result: TypeRTCodec
   /** Source declaration used only for diagnostics. */
@@ -130,7 +135,7 @@ interface TypeRTRemoteNamespaceMap {}
 
 ## Host Gateway
 
-Connection decodes its carrier envelope before calling `ctx.typertGateway`. The request carries exact named wire fields; infrastructure and boundary failures use the Gateway's in-process error taxonomy, although the current RPC adapter folds them into the transport's `internal` error code.
+Connection decodes its carrier envelope before calling `ctx.typertGateway`. The request carries exact named wire fields and the carrier's cancellation signal separately; infrastructure and boundary failures use the Gateway's in-process error taxonomy, although the current RPC adapter folds them into the transport's `internal` error code.
 
 ```ts type-equiv
 /** One Remote method request after a carrier has decoded its envelope. */
@@ -141,6 +146,8 @@ interface InvokeRemoteRequest {
   readonly method: string
   /** Named wire values; fields must exactly match the descriptor. */
   readonly args: Readonly<Record<string, unknown>>
+  /** Carrier or direct-caller cancellation injected only into cancellation-aware methods. */
+  readonly signal?: AbortSignal
 }
 ```
 

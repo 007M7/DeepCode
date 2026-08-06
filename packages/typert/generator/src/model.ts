@@ -140,6 +140,9 @@ export interface InvocationModel {
     readonly wire: string
   }
   readonly parameters: readonly InvocationParameterModel[]
+  readonly cancellation?: {
+    readonly parameter: 'signal'
+  }
   readonly result: RemoteBoundaryModel
   readonly location: SourceLocation
 }

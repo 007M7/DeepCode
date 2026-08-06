@@ -16,6 +16,7 @@ interface RuntimeSchema {
 
 interface RuntimeDescriptor {
   readonly id: string
+  readonly cancellation?: { readonly parameter: 'signal' }
   readonly parameters: readonly {
     readonly wire: string
     readonly codec: { readonly schema: RuntimeSchema }
@@ -83,6 +84,7 @@ describe('Remote model generation', { timeout: 60_000 }, () => {
           boundary: { typeSymbol: '@fixture/remote/types#CreateGoalRequest' },
         },
       ],
+      cancellation: { parameter: 'signal' },
       result: { typeSymbol: '@fixture/remote/types#CreateGoalResult' },
     })
     expect(model.invocations[1]).toMatchObject({
@@ -107,12 +109,12 @@ describe('Remote model generation', { timeout: 60_000 }, () => {
 
     expect(artifact?.js).toContain('invocations: [')
     expect(artifact?.remote?.dts).toContain(
-      "'goals/create': (agentId: AgentId, request: CreateGoalRequest) => Promise<CreateGoalResult>",
+      "'goals/create': (agentId: AgentId, request: CreateGoalRequest, signal?: AbortSignal) => Promise<CreateGoalResult>",
     )
     expect(artifact?.remote?.dts).toContain('interface TypeRTRemoteNamespace$676f616c73 {\n    create:')
     expect(artifact?.remote?.dts).toContain("'goals': TypeRTRemoteNamespace$676f616c73")
     expect(artifact?.remote?.dts).toContain(
-      "'agent:goals/create': (request: CreateGoalRequest) => Promise<CreateGoalResult>",
+      "'agent:goals/create': (request: CreateGoalRequest, signal?: AbortSignal) => Promise<CreateGoalResult>",
     )
     expect(artifact?.remote?.dts).toContain(
       "'agent:goals/rename': (request: RenameGoalRequest) => Promise<RenameGoalResult>",
@@ -124,6 +126,7 @@ describe('Remote model generation', { timeout: 60_000 }, () => {
     const generated = await import(`data:text/javascript,${encodeURIComponent(executable)}`) as RuntimeRemoteModule
     expect(generated.TYPERT_REMOTE.package).toBe('@fixture/remote')
     const create = generated.TYPERT_REMOTE.descriptors[0]
+    expect(create?.cancellation).toEqual({ parameter: 'signal' })
     expect(create?.parameters[1]?.codec.schema.safeParse({ title: 'ship' }).success).toBe(true)
     expect(create?.parameters[1]?.codec.schema.safeParse({ title: 1 }).success).toBe(false)
     expect(create?.result.schema.safeParse({ ref: 'goal-1' }).success).toBe(true)
@@ -234,8 +237,8 @@ export type GenericResult = {
       edit: (source: string) => source
         .replace('export class GoalService', 'export abstract class GoalService')
         .replace(
-          '  async create(agent: Agent, request: CreateGoalRequest): Promise<CreateGoalResult> {\n    return { ref: `${agent.id}:${request.title}` }\n  }',
-          '  abstract create(agent: Agent, request: CreateGoalRequest): Promise<CreateGoalResult>',
+          '  async create(agent: Agent, request: CreateGoalRequest, signal: AbortSignal): Promise<CreateGoalResult> {\n    signal.throwIfAborted()\n    return { ref: `${agent.id}:${request.title}` }\n  }',
+          '  abstract create(agent: Agent, request: CreateGoalRequest, signal: AbortSignal): Promise<CreateGoalResult>',
         ),
       message: 'Remote methods must have a concrete implementation',
     },
@@ -266,6 +269,24 @@ export type GenericResult = {
       name: 'optional parameter',
       edit: (source: string) => source.replace('request: CreateGoalRequest', 'request?: CreateGoalRequest'),
       message: 'Remote parameters cannot be optional',
+    },
+    {
+      name: 'wrong cancellation type',
+      edit: (source: string) => source.replace('signal: AbortSignal', 'signal: string'),
+      message: 'cancellation must use a parameter named signal with the global AbortSignal type',
+    },
+    {
+      name: 'wrong cancellation name',
+      edit: (source: string) => source.replace('signal: AbortSignal', 'abort: AbortSignal'),
+      message: 'cancellation must use a parameter named signal with the global AbortSignal type',
+    },
+    {
+      name: 'non-final cancellation',
+      edit: (source: string) => source.replace(
+        'agent: Agent, request: CreateGoalRequest, signal: AbortSignal',
+        'agent: Agent, signal: AbortSignal, request: CreateGoalRequest',
+      ),
+      message: 'cancellation signal must be the final parameter',
     },
   ])('rejects $name', ({ edit, message }) => {
     const root = copyFixture()
@@ -399,12 +420,14 @@ declare const create: TypeRTRemoteMap['goals/create']
 declare const createScoped: TypeRTRemoteContextMap['agent:goals/create']
 declare const rename: TypeRTRemoteContextMap['agent:goals/rename']
 const created: Promise<CreateGoalResult> = create('agent-1', { title: 'ship' })
+const cancellable: Promise<CreateGoalResult> = create('agent-1', { title: 'ship' }, new AbortController().signal)
 const createdScoped: Promise<CreateGoalResult> = createScoped({ title: 'ship' })
 const renamed: Promise<RenameGoalResult> = rename({ ref: 'goal-1', title: 'land' })
 declare const ctx: { api: TypeRTRemoteNamespaceMap }
 const navigated: Promise<CreateGoalResult> = ctx.api.goals.create('agent-1', { title: 'navigate' })
 void contribution
 void created
+void cancellable
 void createdScoped
 void renamed
 void navigated

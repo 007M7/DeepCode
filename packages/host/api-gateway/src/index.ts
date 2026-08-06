@@ -36,6 +36,7 @@ interface ResolvedBinding {
 }
 
 type ConnectionRpcResult = Awaited<ReturnType<ConnectionRpcHandler>>
+const NEVER_ABORTED_SIGNAL = new AbortController().signal
 
 /** Dispatch failure produced outside the invoked business method. */
 export class TypertGatewayError extends Error {
@@ -129,6 +130,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
     }
     validateBinding(receiver, descriptor.service, descriptor.namespace, endpoint)
     const args = descriptor.parameters.map(parameter => this.resolveParameter(parameter, request.args, endpoint))
+    if (descriptor.cancellation !== undefined) args.push(request.signal ?? NEVER_ABORTED_SIGNAL)
     const implementation = descriptor.implementation ?? descriptor.method
     const method = Reflect.get(receiver, implementation) as unknown
     if (typeof method !== 'function') {
@@ -146,13 +148,12 @@ export class TypertGatewayService extends Service implements TypertGateway {
   private async dispatchRpc(
     endpoint: string,
     payload: unknown,
-    _signal: AbortSignal,
+    signal: AbortSignal,
   ): Promise<ConnectionRpcResult> {
-    // Remote methods have no cancellation parameter yet, so disconnects do not cancel business work.
-    return this.invokeRpc(endpoint, payload)
+    return this.invokeRpc(endpoint, payload, signal)
   }
 
-  private async invokeRpc(endpoint: string, payload: unknown): Promise<ConnectionRpcResult> {
+  private async invokeRpc(endpoint: string, payload: unknown, signal: AbortSignal): Promise<ConnectionRpcResult> {
     try {
       const segments = endpoint.split('/')
       if (segments.length !== 2 || segments[0] === '' || segments[1] === '') {
@@ -171,6 +172,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
         namespace,
         method,
         args: payload.args,
+        signal,
       })
       return { ok: true, value }
     } catch (error) {
@@ -226,9 +228,22 @@ export class TypertGatewayService extends Service implements TypertGateway {
     endpoint: string,
   ): InvocationDescriptor {
     const names = methodParameterNames(binding.service, marker.method, endpoint)
+    const signalIndex = names.indexOf('signal')
+    if (signalIndex >= 0 && signalIndex !== names.length - 1) {
+      throw new TypertGatewayError(
+        'signature-invalid',
+        endpoint,
+        'SRC cancellation parameter signal must be the final parameter',
+        { field: 'signal' },
+      )
+    }
+    const cancellation = signalIndex >= 0
+      ? { parameter: 'signal' as const }
+      : undefined
+    const businessNames = cancellation === undefined ? names : names.slice(0, -1)
     const parameters: InvocationParameterDescriptor[] = []
     const wires = new Set<string>()
-    for (const name of names) {
+    for (const name of businessNames) {
       const matches = this.ctx.typert.lookups.definitions()
         .filter(definition => definition.parameter === name)
       if (matches.length > 1) {
@@ -295,6 +310,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
       ...(marker.method === method ? {} : { implementation: marker.method }),
       invocation: receiver,
       parameters,
+      ...(cancellation === undefined ? {} : { cancellation }),
       result: { mode: 'src-json' },
     }
   }

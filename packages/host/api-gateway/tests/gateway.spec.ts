@@ -45,6 +45,7 @@ const emptyModel: TypertContribution['model'] = {
 class GoalService extends Service {
   readonly typertGateway = bindTypeRTGateway(this, 'goals')
   readonly calls: string[] = []
+  lastSignal: AbortSignal | undefined
   nextResult: unknown = undefined
   businessError: Error | undefined
 
@@ -53,8 +54,9 @@ class GoalService extends Service {
   }
 
   @Remote
-  create(agent: FixtureAgent, request: { readonly title: string }): unknown {
+  create(agent: FixtureAgent, request: { readonly title: string }, signal: AbortSignal): unknown {
     this.calls.push('create')
+    this.lastSignal = signal
     return {
       agentId: agent.id,
       title: request.title,
@@ -224,6 +226,19 @@ class RestParameterService extends Service {
   }
 }
 
+class NonFinalSignalService extends Service {
+  readonly typertGateway = bindTypeRTGateway(this, 'nonFinalSignal', { namespace: 'invalid-signal' })
+
+  constructor(ctx: Context) {
+    super(ctx, 'nonFinalSignal')
+  }
+
+  @Remote
+  run(signal: AbortSignal, value: string): string {
+    return signal.aborted ? '' : value
+  }
+}
+
 class WrongBindingService extends Service {
   readonly typertGateway = bindTypeRTGateway(this, 'notWrongBinding', { namespace: 'wrong-binding' })
 
@@ -334,13 +349,24 @@ describe('TypertGatewayService', () => {
     registerAgentLookup(ctx, agent)
     registerStrict(ctx, [createDescriptor()])
     const caller = ctx.extend({ fixtureScope: 'direct-caller' })
+    const abort = new AbortController()
 
     await expect(caller.typertGateway.invoke({
       namespace: 'goals',
       method: 'create',
       args: { agentId: 'agent-1', request: { title: '  ship  ' } },
+      signal: abort.signal,
     })).resolves.toEqual({ agentId: 'agent-1', title: 'ship', scope: 'direct-caller' })
     expect(service.calls).toEqual(['create'])
+    expect(service.lastSignal).toBe(abort.signal)
+
+    await expect(caller.typertGateway.invoke({
+      namespace: 'goals',
+      method: 'create',
+      args: { agentId: 'agent-1', request: { title: 'again' } },
+    })).resolves.toEqual({ agentId: 'agent-1', title: 'again', scope: 'direct-caller' })
+    expect(service.lastSignal).toBeInstanceOf(AbortSignal)
+    expect(service.lastSignal?.aborted).toBe(false)
   })
 
   it('resolves strict Remote Context identity without adding a business argument', async () => {
@@ -358,16 +384,19 @@ describe('TypertGatewayService', () => {
   })
 
   it('derives SRC direct lookup and JSON parameters from marker and parameter names', async () => {
-    const { ctx } = await setup()
+    const { ctx, service } = await setup()
     const agent = { id: 'agent-1' }
     registerAgentLookup(ctx, agent)
     const caller = ctx.extend({ fixtureScope: 'direct-src' })
+    const abort = new AbortController()
 
     await expect(caller.typertGateway.invoke({
       namespace: 'goals',
       method: 'create',
       args: { agentId: 'agent-1', request: { title: 'ship' } },
+      signal: abort.signal,
     })).resolves.toEqual({ agentId: 'agent-1', title: 'ship', scope: 'direct-src' })
+    expect(service.lastSignal).toBe(abort.signal)
   })
 
   it('does not downgrade an observed SRC lookup after its provider unloads', async () => {
@@ -605,6 +634,7 @@ describe('TypertGatewayService', () => {
       { plugin: DefaultParameterService, namespace: 'invalid-default', args: { value: 'x' } },
       { plugin: DestructuredParameterService, namespace: 'invalid-destructure', args: { value: { value: 'x' } } },
       { plugin: RestParameterService, namespace: 'invalid-rest', args: { values: ['x'] } },
+      { plugin: NonFinalSignalService, namespace: 'invalid-signal', args: { value: 'x' } },
     ] as const
     for (const testCase of cases) {
       const ctx = await setupGateway()
@@ -874,7 +904,8 @@ describe('TypertGatewayService', () => {
     expect(connection.matches?.('goals')).toBe(false)
     expect(connection.matches?.('goals/missing')).toBe(false)
     expect(connection.matches?.('legacy/list')).toBe(false)
-    const signal = new AbortController().signal
+    const abort = new AbortController()
+    const signal = abort.signal
     const handler = connection.handler
     if (handler === undefined) throw new Error('fixture Connection did not retain the /api interceptor')
     await expect(handler('goals/create', {
@@ -883,6 +914,10 @@ describe('TypertGatewayService', () => {
       ok: true,
       value: { agentId: 'agent-1', title: 'ship', scope: 'rpc-caller' },
     })
+    const service = rawGoalService(ctx)
+    expect(service.lastSignal).toBe(signal)
+    abort.abort(new Error('client disconnected'))
+    expect(service.lastSignal?.aborted).toBe(true)
     const invalid = await handler('goals/create', { invalid: true }, signal)
     expect(invalid).toMatchObject({
       ok: false,
@@ -904,7 +939,6 @@ describe('TypertGatewayService', () => {
       expect(result.error.message).toContain('plain-object args field')
     }
 
-    const service = rawGoalService(ctx)
     service.businessError = 'non-error failure' as unknown as Error
     await expect(handler('goals/fail', { args: { request: null } }, signal)).resolves.toEqual({
       ok: false,
@@ -1099,6 +1133,7 @@ function createDescriptor(): InvocationDescriptor {
         })),
       },
     ],
+    cancellation: { parameter: 'signal' },
     result: strictCodec('@fixture/gateway#CreateResult', z.object({
       agentId: z.string(),
       title: z.string(),

@@ -38,7 +38,7 @@ interface TypeRTLookupDefinition {
 
 ## 调用 descriptor
 
-`InvocationDescriptor` 是本地反射信息，不是 wire message。Host 与消费方构建会生成彼此对应的 descriptor；请求只发送 endpoint 与具名 `args`。strict codec 携带生成的 schema，SRC codec 则在不恢复结构类型的前提下强制要求 JSON 安全值。
+`InvocationDescriptor` 是本地反射信息，不是 wire message。Host 与消费方构建会生成彼此对应的 descriptor；请求只发送 endpoint 与具名 `args`。strict codec 携带生成的 schema，SRC codec 则在不恢复结构类型的前提下强制要求 JSON 安全值。取消通过带外 carrier signal 表达：它在业务参数之后注入，绝不进入 `args`。
 
 ```ts type-equiv
 /** Codec attached to one invocation parameter or result. */
@@ -100,6 +100,11 @@ interface InvocationDescriptor {
   }
   /** Ordered business parameters. */
   readonly parameters: readonly InvocationParameterDescriptor[]
+  /** Transport cancellation injected after business parameters instead of entering wire args. */
+  readonly cancellation?: {
+    /** Reserved final Host method parameter. */
+    readonly parameter: 'signal'
+  }
   /** Codec for the resolved method result. */
   readonly result: TypeRTCodec
   /** Source declaration used only for diagnostics. */
@@ -130,7 +135,7 @@ interface TypeRTRemoteNamespaceMap {}
 
 ## Host Gateway
 
-Connection 会先解码 carrier envelope，再调用 `ctx.typertGateway`。请求携带精确的具名 wire 字段；基础设施与边界失败使用 Gateway 的进程内错误分类体系，但当前 RPC 适配器会把这些错误折叠为传输层的 `internal` 错误码。
+Connection 会先解码 carrier envelope，再调用 `ctx.typertGateway`。请求将精确的具名 wire 字段与 carrier 的取消 signal 分开携带；基础设施与边界失败使用 Gateway 的进程内错误分类体系，但当前 RPC 适配器会把这些错误折叠为传输层的 `internal` 错误码。
 
 ```ts type-equiv
 /** One Remote method request after a carrier has decoded its envelope. */
@@ -141,6 +146,8 @@ interface InvokeRemoteRequest {
   readonly method: string
   /** Named wire values; fields must exactly match the descriptor. */
   readonly args: Readonly<Record<string, unknown>>
+  /** Carrier or direct-caller cancellation injected only into cancellation-aware methods. */
+  readonly signal?: AbortSignal
 }
 ```
 

@@ -76,6 +76,8 @@ An endpoint selects exactly one invocation mode. A flow that needs an explicit `
 
 Business packages depend only on the lightweight `@deepseek-ai/dsh-type-meta`. It provides declaration protocols for decorators, `bindTypeRTGateway()`, lookup, Remote Context, and descriptors, without depending on the TypeScript compiler, Zod, HTTP, or the Client runtime.
 
+A method that cooperatively supports cancellation declares `signal: AbortSignal` as its final Host parameter. This reserved parameter is not a business value, lookup, or JSON field. The generated consumer method exposes it as a final optional parameter so ordinary calls remain unchanged while callers that own cancellation can pass a signal.
+
 ## Decorators and the explicit Gateway facet
 
 A decorator only states that a method participates in the Remote contract. It performs no runtime type reflection and injects no hidden symbol into a Service constructor. The arguments to `@Remote('create')` and `@RemoteContext('agent', 'create')` are external method names, while the actual member remains named `remoteExportCreate`. The member name becomes the external method name only when no alias is provided. `typertGateway` is the sole explicit marker that a Service has joined the Gateway, making this capability visible on both the business class and its runtime instance.
@@ -126,6 +128,7 @@ InvocationDescriptor {
   parameters: [
     { name, wire, source: json | lookup, lookup?, codec }
   ]
+  cancellation?: { parameter: 'signal' }
   result: codec
   sourceLocation
 }
@@ -135,7 +138,7 @@ InvocationDescriptor {
 
 The strict generator writes `scope` only when a direct method has exactly one lookup parameter, a `TypeRTContextMap` declaration with the same name exists, and both use the same wire type symbol. `scope.wire` must identify that lookup parameter. It declares that a consumer may fill this parameter from the Context in which the call occurs, without changing the Host receiver or endpoint. No scoped projection is generated when there are multiple lookups, no Context declaration, or mismatched wire types; a type mismatch is a build error.
 
-Parameter order comes from the method signature. HTTP fields come from parameter names or lookup declarations. The Gateway does not infer optional fields, Context types, lookup types, or missing arguments from request contents, and it does not synthesize business defaults.
+Parameter order comes from the method signature. HTTP fields come from parameter names or lookup declarations. A cancellation descriptor reserves only the final `signal` position and keeps it outside named `args`; Connection or a direct Gateway caller supplies the actual signal. The Gateway does not infer optional fields, Context types, lookup types, or missing arguments from request contents, and it does not synthesize business defaults.
 
 A LIB codec contains a Zod schema and a canonical `typeSymbol` consisting of "package + public subpath + export name." An SRC codec is marked only as `src-json`. When the Host and consumer run in different JavaScript realms, each holds its own Zod instances, but both sets are generated from the same TypeRT model and symbol keys.
 
@@ -239,6 +242,7 @@ interface TypeRTRemoteNamespace$676f616c73 {
   create: (
     agentId: SessionId,
     request: CreateGoalRequest,
+    signal?: AbortSignal,
   ) => Promise<CreateGoalResult>
 }
 
@@ -246,6 +250,7 @@ interface TypeRTRemoteMap {
   'goals/create': (
     agentId: SessionId,
     request: CreateGoalRequest,
+    signal?: AbortSignal,
   ) => Promise<CreateGoalResult>
 }
 
@@ -256,6 +261,7 @@ interface TypeRTRemoteNamespaceMap {
 interface TypeRTRemoteContextMap {
   'agent:goals/create': (
     request: CreateGoalRequest,
+    signal?: AbortSignal,
   ) => Promise<CreateGoalResult>
 }
 ```
@@ -296,7 +302,7 @@ Client business packages depend only on `@deepseek-ai/dsh-client-remotes/client`
 
 `ctx.api.mount()` registers a contribution with `TypeRT.remotes`, and its disposer is owned by the Cordis fiber that called the method. Duplicate endpoints, conflicting invocation modes for the same namespace and method, or conflicts between a descriptor and an existing type identity fail immediately.
 
-The API Service materializes each `@Remote` descriptor as a real function on the root `api`. The function constructs named `args` in descriptor parameter order, applies the Client's strict codec, and then calls `ctx.connection.rpc.call('/api', endpoint, { args })`.
+The API Service materializes each `@Remote` descriptor as a real function on the root `api`. The function constructs named `args` in descriptor parameter order, applies the Client's strict codec, and then calls `ctx.connection.rpc.call('/api', endpoint, { args }, signal)`. For a cancellation-aware descriptor, the generated function accepts a final optional signal and combines it with the contribution mount lifetime; unmounting therefore cancels every in-flight carrier call, while a caller can cancel one call independently.
 
 Neither a direct descriptor with `scope` nor a `@RemoteContext` descriptor copies functions into every Agent Scope. The API Service creates one root singleton Cordis Service for each scoped namespace and materializes methods on that Service. When `agent.goals.create()` is called, the Cordis tracker rebinds the Service's `this.ctx` to the current Agent Context. The method then asks the corresponding Context binder for identity from `this.ctx`. A direct scoped projection substitutes this identity at the lookup position named by `scope.wire`; a Context descriptor writes the identity into the receiver's separate wire field. Both issue the same kind of `/api` call.
 
@@ -332,11 +338,11 @@ The Web already depends on build artifacts such as `lib/client.js`, so it requir
 
 SRC supports local source startup. The `WeakMap` records created by `@Remote` and `@RemoteContext()` provide method names and invocation modes. At runtime, the system reads ordered parameter names from the JavaScript function signature and combines them with registered lookup/Context providers to produce a permissive descriptor.
 
-For example, `@Remote('create') remoteExportCreate(agent, request)` resolves to the external method `create`, implementation member `remoteExportCreate`, and two top-level parameters. Lookup registration rewrites `agent` to the wire field `agentId`, while `request` is passed as a same-named JSON parameter. SRC does not start a `ts.Program`, use a preload or loader hook, generate or rewrite source, or inspect the internal structure of an ordinary JSON object.
+For example, `@Remote('create') remoteExportCreate(agent, request, signal)` resolves to the external method `create`, implementation member `remoteExportCreate`, two top-level business parameters, and one cancellation injection point. Lookup registration rewrites `agent` to the wire field `agentId`, `request` is passed as a same-named JSON parameter, and the final `signal` stays outside the payload. SRC does not start a `ts.Program`, use a preload or loader hook, generate or rewrite source, or inspect the internal structure of an ordinary JSON object.
 
 A signature that SRC cannot resolve unambiguously fails when the Service mounts. It does not guess at object destructuring, ambiguity caused by default parameters, rest parameters, nested lookups, or complex types.
 
-LIB supports CI, releases, and the prerequisite Web build. TypeRT scans the complete Host project and checks Remote decorators, explicit bindings, service keys, endpoint conflicts, lookup/Context declarations, public-symbol reachability, JSON codecs, and result codecs, then generates strict descriptors.
+LIB supports CI, releases, and the prerequisite Web build. TypeRT scans the complete Host project and checks Remote decorators, explicit bindings, service keys, endpoint conflicts, lookup/Context declarations, public-symbol reachability, JSON codecs, result codecs, and that a reserved final `signal` parameter has the global `AbortSignal` type, then generates strict descriptors.
 
 At runtime, LIB only loads definitions from `lib`; it does not start the TypeScript compiler. The subsequent association of Services, lookup, Context resolution, invocation, and response encoding in the Host Gateway does not depend on whether a descriptor came from permissive SRC parsing or strict LIB generation.
 
@@ -348,17 +354,18 @@ The Host Gateway registers one `/api` interceptor with Connection and does not m
 
 Invocation resolves the descriptor, receiver, lookup providers, and Context provider again from current state. A current strict descriptor takes precedence over SRC. After a strict endpoint has appeared, `TypeRTLocalRegistry.hasSeen()` keeps it owned when that descriptor is withdrawn and forbids SRC fallback for the remainder of the registry lifetime; re-registering the strict descriptor restores calls. Removing a Service or provider makes invocation fail explicitly, and the Gateway neither retains invalid objects nor invokes a method with a raw lookup ID.
 
-An ordinary `@Remote` call retains the original Service instance as receiver. After lookups succeed, the Gateway calls the member identified by `implementation ?? method` with parameters in descriptor order.
+An ordinary `@Remote` call retains the original Service instance as receiver. After lookups succeed, the Gateway calls the member identified by `implementation ?? method` with parameters in descriptor order, followed by the carrier signal when the descriptor declares cancellation.
 
 A `@RemoteContext('agent')` call first asks the Agent Context provider to resolve the wire identity, then reads the descriptor's service key from that Context and invokes the scoped receiver. The business method receives neither a hidden Context parameter nor an Agent ID.
 
 ```text
-ctx.typertGateway.invoke({ namespace, method, args })
+ctx.typertGateway.invoke({ namespace, method, args, signal })
 → 查找本地 InvocationDescriptor 与 live receiver
 → 按参数 descriptor 读取具名 wire 字段
 → codec 解码普通值或 lookup ID
 → lookup provider 把 ID 解析为活对象
 → direct 使用原 Service；context 先解析 scoped Context 和 Service
+→ cancellation descriptor 存在时把 signal 追加到业务参数末尾
 → Reflect.apply(receiver[implementation ?? method], receiver, orderedArgs)
 → result codec 编码业务结果
 ```
@@ -373,10 +380,10 @@ Connection owns one `/api` route on the HTTP Server. The Gateway mounts a synchr
 ctx.connection.rpc.intercept(
   '/api',
   endpoint => ownsRemoteEndpoint(endpoint),
-  (endpoint, payload) => {
+  (endpoint, payload, signal) => {
     const { namespace, method } = parseEndpoint(endpoint)
     const { args } = parsePayload(payload)
-    return ctx.typertGateway.invoke({ namespace, method, args })
+    return ctx.typertGateway.invoke({ namespace, method, args, signal })
   },
 )
 ```
@@ -405,15 +412,16 @@ The Remote payload is a named JSON object, not a positional array, and does not 
 The complete path is:
 
 ```text
-ctx.api.goals.create(sessionId, request)
+ctx.api.goals.create(sessionId, request, signal?)
 → Client InvocationDescriptor 编码 { args: { agentId, request } }
-→ ctx.connection.rpc.call('/api', 'goals/create', { args })
+→ Client 合并 caller signal 与 contribution mount lifetime
+→ ctx.connection.rpc.call('/api', 'goals/create', { args }, signal)
 → Connection 创建 rpcId 和既有 client-request envelope
 → 当前 carrier 发送 POST /api/goals/create
 → Connection Host half 执行共享 trust，再由 bridge 创建标准 Request
 → 复合 FetchHandler 判断 endpoint ownership 并选择目标 FetchHandler
-→ TypeRT interceptor 调用 ctx.typertGateway.invoke(...)
-→ Host InvocationDescriptor 解码、lookup、receiver 解析和 Reflect.apply
+→ TypeRT interceptor 调用 ctx.typertGateway.invoke(..., request.signal)
+→ Host InvocationDescriptor 解码、lookup、receiver 解析并把 signal 注入 Reflect.apply
 → result codec 编码
 → Connection 写入既有 RPC result 并回送相同 rpcId
 → Client result codec 验证并返回 CreateGoalResult
@@ -421,7 +429,7 @@ ctx.api.goals.create(sessionId, request)
 
 Remote does not define a second-layer `{ ok, value/error }` response. Successful values and Gateway errors use the existing RPC response's `result` directly. The current adapter converts every Gateway and business-invocation failure to the existing `RpcError` envelope with `code: 'internal'`; the Gateway's structured error category remains available only in-process, while the message carries the diagnostic across Connection.
 
-The Gateway does not handle per-method permissions, caller identity, cancellation, idempotency, or long-lived connection state. TypeRT endpoints use Connection's trusted-host policy; unclaimed endpoints retain the legacy API Proxy's trust and privileged-method policies. Connection's WebSocket migration remains separate follow-up work.
+The Gateway does not handle per-method permissions, caller identity, idempotency, or long-lived connection state. It only propagates cooperative cancellation from Connection into explicitly cancellation-aware business methods. TypeRT endpoints use Connection's trusted-host policy; unclaimed endpoints retain the legacy API Proxy's trust and privileged-method policies. Connection's WebSocket migration remains separate follow-up work.
 
 ## Connection and protocol boundaries
 
@@ -475,6 +483,7 @@ Connection supplies the shared-channel interceptor and current HTTP carrier mapp
 - Root and Agent-scoped calls cross the real shared `/api` carrier, resolve `agentId` to the live Agent, invoke the original Goal receiver, and return through the existing RPC envelope.
 - The Remote artifacts and maps contain only marked methods and no Browser dependency, preserving the same consumer boundary for a future TUI.
 - Lifecycle tests withdraw and remount descriptors, Services, lookups, Context providers, and Client namespaces; unavailable dependencies fail without stale calls or raw-ID fallback.
+- Cancellation tests cover strict generation, SRC final-name recognition, Client signal fusion, Connection-to-Gateway propagation, and Host injection outside wire `args`.
 - Unclaimed endpoints continue through the existing API Proxy path with its trust, privileged-method, Permission/Approval, and Session event-stream behavior unchanged.
 
 ## Consequences
@@ -499,4 +508,4 @@ Remote endpoints use Connection's `trusted-host` authority. Loopback is accepted
 
 `hasSeen()` favors strict-definition safety over SRC availability. While a strict descriptor is withdrawn, such as during HMR, the Gateway continues to claim the endpoint and reports it unavailable instead of falling back to a weak SRC descriptor. Re-registration restores it; only a TypeRT registry restart forgets the historical strict definition.
 
-Connection supplies an `AbortSignal`, but Remote business signatures have no cancellation parameter. A client disconnect therefore does not cancel business work; cancellation remains deferred rather than being implied by the transport handler shape.
+Cancellation-aware Remote signatures receive Connection's request `AbortSignal`, so an HTTP disconnect or Client-side abort reaches ongoing business work without entering the JSON protocol. Cancellation remains cooperative: methods without the reserved final parameter continue running, and a method that receives the signal must pass it to its own cancellable operations or observe it directly.

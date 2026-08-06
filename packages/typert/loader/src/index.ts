@@ -226,6 +226,12 @@ function requireInvocation(pkgName: string, value: unknown): void {
     parameters.set(wire, parameter)
     requireStrictCodec(pkgName, parameter.codec, `invocation "${id}" parameter codec`)
   }
+  if (invocation.cancellation !== undefined) {
+    const cancellation = requireObject(pkgName, invocation.cancellation, `invocation "${id}" cancellation`)
+    if (cancellation.parameter !== 'signal') {
+      throw new Error(`typert-loader: ${pkgName} invocation "${id}" cancellation parameter must be "signal"`)
+    }
+  }
   if (invocation.scope !== undefined) {
     if (receiver.kind !== 'direct') {
       throw new Error(`typert-loader: ${pkgName} invocation "${id}" Context receiver cannot declare a direct scope projection`)

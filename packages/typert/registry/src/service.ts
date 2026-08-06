@@ -562,6 +562,9 @@ function validateInvocation(descriptor: InvocationDescriptor): void {
     }
     validateCodec(parameter.codec, `${descriptor.id} parameter ${parameter.name}`)
   }
+  if (descriptor.cancellation !== undefined && descriptor.cancellation.parameter !== 'signal') {
+    throw new Error(`typert: invocation "${descriptor.id}" cancellation parameter must be "signal"`)
+  }
   if (descriptor.scope !== undefined) {
     if (descriptor.invocation.kind !== 'direct') {
       throw new Error(`typert: invocation "${descriptor.id}" Context receiver cannot declare a direct scope projection`)

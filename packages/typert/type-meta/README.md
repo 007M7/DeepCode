@@ -11,6 +11,8 @@ Compiler-independent declarations shared by business packages, generated TypeRT 
 - `bindTypeRTGateway(this, serviceKey, options?)` creates the visible, frozen binding between a Service instance, its exact Cordis key, and its wire namespace.
 - `remoteMethods(service)` returns a detached declaration-order snapshot used by the Gateway's SRC fallback.
 
+A Host method opts into cooperative cancellation by declaring `signal: AbortSignal` as its final parameter. `InvocationDescriptor.cancellation` records that reserved injection point; the signal never becomes a JSON parameter or lookup field. SRC recognizes the final parameter name, while strict generation also verifies the global `AbortSignal` type.
+
 Decorator initializers retain markers in a module-private `WeakMap` keyed by the Service prototype. They do not add constructor symbols, prototype properties, parameter metadata, or runtime reflection fields. The Service opts in explicitly through its `typertGateway` binding field.
 
 ## TypeRT protocol

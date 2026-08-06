@@ -411,6 +411,7 @@ describe('TypertRegistry', () => {
       ...invocation('@fixture/remote#strict'),
       implementation: 'remoteExportCreate',
       parameters: [{ name: 'request', wire: 'request', source: 'json', codec: strict }],
+      cancellation: { parameter: 'signal' },
       result: strict,
     }
     const dispose = ctx.typert.remotes.register({ package: '@fixture/strict', descriptors: [strictInvocation] })
@@ -420,6 +421,10 @@ describe('TypertRegistry', () => {
       [{ ...invocation(), id: '' }, 'invocation id'],
       [{ ...invocation(), namespace: 'bad/name' }, 'namespace'],
       [{ ...invocation(), implementation: 'bad/name' }, 'implementation method'],
+      [{
+        ...invocation(),
+        cancellation: { parameter: 'abort' } as unknown as { readonly parameter: 'signal' },
+      }, 'cancellation parameter'],
       [{
         ...invocation(),
         parameters: [

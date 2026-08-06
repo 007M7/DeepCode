@@ -315,6 +315,9 @@ export class FaceModelEmitter {
       lines.push('    },')
     })
     lines.push('  ],')
+    if (invocation.cancellation !== undefined) {
+      lines.push("  cancellation: { parameter: 'signal' },")
+    }
     lines.push(`  result: ${indent(strictCodec(
       invocation.result,
       schemas.boundary(resultBoundaryKey(invocation)),
@@ -459,6 +462,7 @@ export class FaceModelEmitter {
     const parameters = invocation.parameters.filter(parameter =>
       !scoped || invocation.invocation.kind === 'context' || parameter.wire !== invocation.scope?.wire).map(parameter =>
       `${safeIdentifier(parameter.wire)}: ${this.renderer.renderType(parameter.boundary.type, referenceNames)}`)
+    if (invocation.cancellation !== undefined) parameters.push('signal?: AbortSignal')
     const result = this.renderer.renderType(invocation.result.type, referenceNames)
     return `(${parameters.join(', ')}) => Promise<${result}>`
   }

@@ -11,6 +11,8 @@
 - `bindTypeRTGateway(this, serviceKey, options?)` 在服务实例、其准确的 Cordis key 与协议命名空间之间创建可见且冻结的绑定。
 - `remoteMethods(service)` 返回按声明顺序排列、与内部状态分离的快照，供 Gateway 的 SRC 回退路径使用。
 
+Host 方法通过将 `signal: AbortSignal` 声明为最后一个参数来启用协作式取消。`InvocationDescriptor.cancellation` 记录这个保留的注入点；signal 绝不会成为 JSON 参数或 lookup 字段。SRC 识别末位参数名，严格生成还会校验它是否具有全局 `AbortSignal` 类型。
+
 装饰器初始化器将标记保存在以服务 prototype 为键的模块私有 `WeakMap` 中。它们不会在构造函数上添加 symbol，也不会添加 prototype 属性、参数元数据或运行时反射字段。服务通过自身的 `typertGateway` 绑定字段显式接入。
 
 ## TypeRT 协议
