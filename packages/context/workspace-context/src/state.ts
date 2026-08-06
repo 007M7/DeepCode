@@ -40,6 +40,8 @@ export interface WorkspaceInstructionSource {
   form: 'instructions'
   /** Marks the complete startup/resume baseline rather than a later delta. */
   baseline?: true
+  /** Discovery, precedence, and budget identity used to validate a resumed baseline. */
+  baselineIdentity?: string
   changes: WorkspaceInstructionChange[]
 }
 
@@ -251,6 +253,8 @@ export async function reconcileInstructionContext(
     scopeMessages: readonly UserMessage[]
     touchedPaths: readonly string[]
     includeBaselineScopes: boolean
+    excludedBaselineScopes?: ReadonlySet<string>
+    projectRoot?: string
     signal?: AbortSignal
   },
 ): Promise<ReconciledInstructionContext | undefined> {
@@ -260,7 +264,8 @@ export async function reconcileInstructionContext(
   const cwd = session.header.cwd ?? process.cwd()
   // TODO(frozen-project-root): retain the baseline root for the loop instance;
   // recomputing it after marker edits reinterprets the existing relative scope keys.
-  const projectRoot = await findProjectRoot(cwd, resolved.projectRootMarkers, fileSystem, options.signal)
+  const projectRoot = options.projectRoot
+    ?? await findProjectRoot(cwd, resolved.projectRootMarkers, fileSystem, options.signal)
   const scopes = new Set<string>()
   const baselineScopes = new Set<string>()
   const addDirScopes = (target: Set<string>, directory: string): void => {
@@ -324,11 +329,23 @@ export async function reconcileInstructionContext(
     else directoryScopes.push(scope)
   }
   for (const [directory, directoryScopes] of scopesByDirectory) {
+    const probedScopes: string[] = []
+    for (const scope of directoryScopes) {
+      if (options.excludedBaselineScopes !== undefined
+        && baselineScopes.has(scope)
+        && options.excludedBaselineScopes.has(scope)) {
+        const previous = effective.get(scope)
+        if (previous === undefined || previous.action === 'remove') versions.delete(scope)
+        else pushRemoval(scope, previous.path)
+      } else {
+        probedScopes.push(scope)
+      }
+    }
     const itemStart = items.length
     const versionUpdateStart = versionUpdates.length
     const addedAbsolutePaths: string[] = []
-    const priorVersions = new Map(directoryScopes.map(scope => [scope, versions.get(scope)]))
-    for (const scope of directoryScopes) {
+    const priorVersions = new Map(probedScopes.map(scope => [scope, versions.get(scope)]))
+    for (const scope of probedScopes) {
       const previous = effective.get(scope)
       const probe = await probeScopeInstruction(scope, projectRoot, resolved, fileSystem, options.signal)
       if (probe.kind === 'unavailable') {

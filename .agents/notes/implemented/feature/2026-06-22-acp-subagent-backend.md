@@ -57,6 +57,6 @@ Persistent-process pooling (reuse a warm child across runs) is a performance opt
 
 Every run pays a fresh subprocess (spawn + `initialize` + `newSession`). The parent surfaces only the child's final answer: `session/update` thoughts and tool-call cards are consumed and dropped, and permission prompts never reach a human — the configured policy answers them. The child's environment is credential-scrubbed by default, so its own model key is supplied explicitly via `config.env`.
 
-## Future providers
+## Product-provider siblings
 
-The same out-of-process spawn/prompt/stream/cancel shape generalizes to other transports named in the seam Agent Note — A2A, the Codex app-server, and the Claude Code Agent SDK — each a sibling provider registered by name. The ACP backend is the proof that the seam supports the boundary; those are mechanically similar.
+The [Codex app-server and Claude Code Agent SDK providers](2026-08-04-claude-code-and-codex-subagent-backends.md) apply the same out-of-process spawn/prompt/settle/cancel boundary as siblings registered by name. A2A remains a future sibling transport; the ACP backend proves that the common seam supports this boundary without owning product-private protocols.
