@@ -132,9 +132,9 @@ function toError(value: unknown): Error {
 export interface RunResultSettlement {
   /** The turn attempt (typically racing local cancellation); returns the terminal result. */
   attempt: () => Promise<SubagentResult>
-  /** Snapshot of the child output streamed so far (a partial answer survives failure). */
+  /** Snapshot the provider exposes when cancellation or failure wins settlement. */
   collectOutput: () => ContentBlock[]
-  /** Whether local cancellation settled (an in-flight rejection then reads as `aborted`). */
+  /** Whether local cancellation settled before the attempt's outcome is observed. */
   cancelled: () => boolean
   /** Diagnostic sink for a failure flattened to a stop reason; a throw from it is contained. */
   onError?: ((error: Error, stopReason: SubagentStopReason) => void) | undefined
@@ -146,16 +146,19 @@ export interface RunResultSettlement {
 
 /**
  * Settle an out-of-process run result under the seam contract: `result` never
- * rejects after publication. A rejection from the attempt resolves as
- * `aborted` when cancellation already settled locally, else it is flattened
- * to `stopReason: 'error'` through the contained diagnostic sink; the abort
- * listener is removed on every path.
+ * rejects after publication. A normally completed or rejected attempt resolves
+ * as `aborted` when cancellation already settled locally; another rejection is
+ * flattened to `stopReason: 'error'` through the contained diagnostic sink.
+ * The abort listener is removed on every path.
  * @param parts - the attempt, output snapshot, cancellation state, sink, and signal wiring.
  * @returns the terminal result (never a rejection).
  */
 export async function settleRunResult(parts: RunResultSettlement): Promise<SubagentResult> {
   try {
-    return await parts.attempt()
+    const result = await parts.attempt()
+    return parts.cancelled()
+      ? { output: parts.collectOutput(), stopReason: 'aborted' }
+      : result
   } catch (error: unknown) {
     // Cover a rejection already queued when cancellation arrives.
     if (parts.cancelled()) return { output: parts.collectOutput(), stopReason: 'aborted' }
