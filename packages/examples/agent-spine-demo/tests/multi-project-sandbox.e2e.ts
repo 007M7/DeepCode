@@ -15,7 +15,7 @@ import SandboxPolicyService from '@deepseek-ai/dsh-sandbox-policy'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import type { ToolResult } from '@deepseek-ai/dsh-tools'
-import { launcherPath } from 'node-addon-landlock-run'
+import { launcherPath } from '@deepseek-ai/node-addon-landlock-run'
 import * as agentSpine from '../src/index.ts'
 
 const bwrapUsable = spawnSync('bwrap', [

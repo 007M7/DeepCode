@@ -853,12 +853,12 @@ importers:
 
   native/landlock-run:
     devDependencies:
+      '@deepseek-ai/node-addon-landlock-run':
+        specifier: workspace:*
+        version: link:packages/entry
       '@types/node':
         specifier: ^26.0.1
         version: 26.1.2
-      node-addon-landlock-run:
-        specifier: workspace:*
-        version: link:packages/entry
       tsx:
         specifier: ^4.20.6
         version: 4.22.4
@@ -868,10 +868,10 @@ importers:
 
   native/landlock-run/packages/entry:
     optionalDependencies:
-      node-addon-landlock-run-linux-arm64:
+      '@deepseek-ai/node-addon-landlock-run-linux-arm64':
         specifier: workspace:*
         version: link:../linux-arm64
-      node-addon-landlock-run-linux-x64:
+      '@deepseek-ai/node-addon-landlock-run-linux-x64':
         specifier: workspace:*
         version: link:../linux-x64
 
@@ -1010,12 +1010,12 @@ importers:
       '@deepseek-ai/dsh-subprocess-local':
         specifier: workspace:^
         version: link:../../subprocess/subprocess-local
+      '@deepseek-ai/node-addon-landlock-run':
+        specifier: workspace:*
+        version: link:../../../native/landlock-run/packages/entry
       cordis:
         specifier: ^4.0.0-rc.7
         version: link:../../../vendor/cordis
-      node-addon-landlock-run:
-        specifier: workspace:*
-        version: link:../../../native/landlock-run/packages/entry
 
   packages/bash/pwsh-local:
     dependencies:
@@ -2969,12 +2969,12 @@ importers:
       '@deepseek-ai/dsh-workspace-context':
         specifier: workspace:^
         version: link:../../context/workspace-context
+      '@deepseek-ai/node-addon-landlock-run':
+        specifier: workspace:*
+        version: link:../../../native/landlock-run/packages/entry
       cordis:
         specifier: ^4.0.0-rc.7
         version: link:../../../vendor/cordis
-      node-addon-landlock-run:
-        specifier: workspace:*
-        version: link:../../../native/landlock-run/packages/entry
 
   packages/examples/cli-demo:
     devDependencies:
@@ -4255,7 +4255,7 @@ importers:
 
   packages/sandbox/sandbox-local:
     dependencies:
-      node-addon-landlock-run:
+      '@deepseek-ai/node-addon-landlock-run':
         specifier: workspace:*
         version: link:../../../native/landlock-run/packages/entry
       schemastery:

@@ -41,6 +41,6 @@
     "@deepseek-ai/dsh-sandbox-local": "workspace:^",
     "@deepseek-ai/dsh-sandbox-policy": "workspace:^",
     "cordis": "^4.0.0-rc.7",
-    "node-addon-landlock-run": "workspace:*"
+    "@deepseek-ai/node-addon-landlock-run": "workspace:*"
   }
 }

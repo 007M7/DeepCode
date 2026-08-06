@@ -31,10 +31,14 @@ const vendoredPackages = new Set([
   '@cordisjs/plugin-logger-console',
 ])
 const publicLandlockPackages = new Set([
-  'node-addon-landlock-run',
-  'node-addon-landlock-run-linux-arm64',
-  'node-addon-landlock-run-linux-x64',
+  '@deepseek-ai/node-addon-landlock-run',
+  '@deepseek-ai/node-addon-landlock-run-linux-arm64',
+  '@deepseek-ai/node-addon-landlock-run-linux-x64',
 ])
+/** Deliberate source payloads whose exact bytes are part of the package's audit surface. */
+const publicationSourceAllowlist: Readonly<Record<string, readonly string[]>> = {
+  '@deepseek-ai/node-addon-landlock-run': ['src/main.c'],
+}
 const repositoryUrl = 'git+https://github.com/deepseek-harness/deepseek-harness.git'
 
 const localArtifactDirs = new Set(['node_modules'])
@@ -200,8 +204,9 @@ function checkWorkspace({ dir, manifest }: WorkspaceManifest): string[] {
   }
 
   if (manifest.name?.startsWith('@deepseek-ai/')) {
+    const allowedSources = publicationSourceAllowlist[manifest.name] ?? []
     for (const file of manifest.files ?? []) {
-      if (isForbiddenPublicationFile(file)) {
+      if (isForbiddenPublicationFile(file) && !allowedSources.includes(file)) {
         errors.push(`${label}: package.json files must not publish ${JSON.stringify(file)}`)
       }
     }

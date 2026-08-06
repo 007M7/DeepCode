@@ -23,6 +23,7 @@ const packageDir = fileURLToPath(new URL('..', import.meta.url))
 const repoRoot = fileURLToPath(new URL('../../../..', import.meta.url))
 const nativeDir = join(repoRoot, 'native/landlock-run')
 const sourceLauncher = join(nativeDir, 'packages', `linux-${process.arch}`, 'bin', 'landlock-run')
+const platformPackageName = `@deepseek-ai/node-addon-landlock-run-linux-${process.arch}`
 
 /** The harness closure the consumer needs; native tarballs are packed through their mode-preserving release script. */
 const WORKSPACE_CLOSURE = [
@@ -108,7 +109,7 @@ describe.skipIf(!packable)('sandbox-local: packed-tarball distribution (publish-
       import { spawnSync } from 'node:child_process'
       import { existsSync } from 'node:fs'
       import { Context } from 'cordis'
-      import { launcherPath } from 'node-addon-landlock-run'
+      import { launcherPath } from '@deepseek-ai/node-addon-landlock-run'
       import { LocalSandboxProvider } from '@deepseek-ai/dsh-sandbox-local'
       const ctx = new Context()
       await ctx.plugin(LocalSandboxProvider, {})
@@ -145,7 +146,7 @@ describe.skipIf(!packable)('sandbox-local: packed-tarball distribution (publish-
   })
 
   it('installs this checkout\'s launcher for the host: present, executable, byte-identical, and right ELF arch', () => {
-    const installed = join(consumerDir, 'node_modules', `node-addon-landlock-run-linux-${process.arch}`, 'bin', 'landlock-run')
+    const installed = join(consumerDir, 'node_modules', ...platformPackageName.split('/'), 'bin', 'landlock-run')
     expect(existsSync(installed), 'platform package missing from the installed tree').toBe(true)
     // A tarball or extraction step that strips the mode bit would leave the
     // probe failing exactly like a non-enforcing kernel — assert it apart.
@@ -156,7 +157,7 @@ describe.skipIf(!packable)('sandbox-local: packed-tarball distribution (publish-
 
   it('the installed provider resolves the launcher INSIDE the consumer node_modules platform package', () => {
     expect(verdict.launcher)
-      .toBe(join(consumerDir, 'node_modules', `node-addon-landlock-run-linux-${process.arch}`, 'bin', 'landlock-run'))
+      .toBe(join(consumerDir, 'node_modules', ...platformPackageName.split('/'), 'bin', 'landlock-run'))
   })
 
   it('confines through the installed launcher (enforcing kernel) or fails closed (non-enforcing) — never unconfined', async () => {

@@ -5,9 +5,9 @@ The package family uses the same broad shape as native packages such as esbuild:
 ## Published packages
 
 ```text
-node-addon-landlock-run
-node-addon-landlock-run-linux-x64
-node-addon-landlock-run-linux-arm64
+@deepseek-ai/node-addon-landlock-run
+@deepseek-ai/node-addon-landlock-run-linux-x64
+@deepseek-ai/node-addon-landlock-run-linux-arm64
 ```
 
 Unsupported platforms are intentionally absent from `optionalDependencies` — see [support-matrix.md](support-matrix.md).
