@@ -161,6 +161,9 @@ importers:
       '@deepseek-ai/dsh-pty-local':
         specifier: workspace:^
         version: link:../../packages/pty/pty-local
+      '@deepseek-ai/dsh-pwsh-local':
+        specifier: workspace:^
+        version: link:../../packages/bash/pwsh-local
       '@deepseek-ai/dsh-session-reference':
         specifier: workspace:^
         version: link:../../packages/context/session-reference
@@ -176,6 +179,9 @@ importers:
       '@deepseek-ai/dsh-tool-cordis':
         specifier: workspace:^
         version: link:../../packages/cordis/tool-cordis
+      '@deepseek-ai/dsh-tool-pwsh':
+        specifier: workspace:^
+        version: link:../../packages/bash/tool-pwsh
       '@deepseek-ai/dsh-web-app':
         specifier: workspace:^
         version: link:../../packages/bundle/web-app
@@ -922,6 +928,9 @@ importers:
       '@deepseek-ai/dsh-plan-mode':
         specifier: workspace:^
         version: link:../../plan/plan-mode
+      '@deepseek-ai/dsh-pwsh-local':
+        specifier: workspace:^
+        version: link:../../bash/pwsh-local
       '@deepseek-ai/dsh-repeat-tool-guard':
         specifier: workspace:^
         version: link:../../guard/repeat-tool-guard
@@ -1006,6 +1015,9 @@ importers:
       '@deepseek-ai/dsh-tool-goal':
         specifier: workspace:^
         version: link:../../goal/tool-goal
+      '@deepseek-ai/dsh-tool-pwsh':
+        specifier: workspace:^
+        version: link:../../bash/tool-pwsh
       '@deepseek-ai/dsh-tool-ralph':
         specifier: workspace:^
         version: link:../../workflow/tool-ralph

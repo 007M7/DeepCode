@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-01-windows-pwsh-default.md
+2026-08-01-windows-pwsh-default.md: 1fa30ef757ccb81544479a08887355839fb86d46
+2026-08-01-windows-pwsh-default.zh.md: c6e1361dba29cff8340ef6e26bf071f81544642b

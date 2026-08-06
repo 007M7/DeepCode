@@ -1,0 +1,34 @@
+# The dsh-base Windows platform layer: applied by the dsh launcher on win32
+# hosts, between the bundle layers and the user layers, replacing the
+# POSIX-only bash stack with the PowerShell stack. The launcher reads THIS
+# file from the base bundle package (never through dsh.bundle.patch — that
+# field names the one universal layer). A Windows host that prefers bash
+# overrides the rows here through its profile or home cordis.patch.yml.
+#
+# Windows hosts cannot run the shipped bash executor (POSIX-only: hardcoded
+# `bash -c` argv and process-group semantics), so the shipped Windows
+# experience is PowerShell-native: pwsh-local backs `ctx.bash` and tool-pwsh
+# is the model-facing shell tool. dsh-permission requires a confining
+# executor (its presets bundle a sandbox mode the unconfined pwsh executor
+# cannot honor), so the permission service and its client knob leave the
+# Windows roster with the bash stack; the fs tools keep the sandbox policy
+# and the approval service, so file confinement and escalation still apply.
+
+- id: bash-sandbox
+  disabled: true
+
+- id: tool-bash
+  disabled: true
+
+- id: permission
+  disabled: true
+
+- id: ui-permission
+  disabled: true
+
+- insert:
+    - id: pwsh-local
+      name: '@deepseek-ai/dsh-pwsh-local'
+
+    - id: tool-pwsh
+      name: '@deepseek-ai/dsh-tool-pwsh'

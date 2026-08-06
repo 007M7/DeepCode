@@ -27,6 +27,7 @@ import {
 import { resolveDshHome } from '@deepseek-ai/dsh-paths'
 import type { HeadlessIo } from '@deepseek-ai/dsh-headless'
 import { createProcessShutdown, type ProcessShutdown } from './process-shutdown.ts'
+import { resolveWindowsShellLayer } from './windows-shell.ts'
 
 const NAME = 'dsh'
 
@@ -103,6 +104,8 @@ interface ComposedProfile {
   profile: Profile
   /** Bundle layers concatenated — the part below the user layers on a live reload. */
   bundlePatches: PatchOptions[]
+  /** The win32 shell platform layer (the base bundle's `windows.cordis.patch.yml`), between bundles and user layers. */
+  windowsShellPatches: PatchOptions[]
   /** The home-level user layer (`$DSH_HOME/cordis.patch.yml`), applied after the profile's own. */
   homePatches: PatchOptions[]
   /** Layers above the user layers on a live reload: --patch overlays, flag patches, the telemetry switch. */
@@ -117,16 +120,23 @@ interface ComposedProfile {
 
 /** The full patch stack of one composed profile, in application order. */
 function allPatches(composed: ComposedProfile): PatchOptions[] {
-  return [...composed.bundlePatches, ...composed.profile.patches, ...composed.homePatches, ...composed.overlayAndFlags]
+  return [
+    ...composed.bundlePatches,
+    ...composed.windowsShellPatches,
+    ...composed.profile.patches,
+    ...composed.homePatches,
+    ...composed.overlayAndFlags,
+  ]
 }
 
 /**
  * Load `name` and compose its effective patch stack: bundle layers in
- * `dsh.profile.bundles` order, the profile's user layer, the home-level user layer
- * (`$DSH_HOME/cordis.patch.yml` — machine-local preferences that apply to
- * every profile, so it outranks the per-profile layer), `--patch` overlays,
- * then flag patches derived from the composed rows, then the telemetry
- * switch.
+ * `dsh.profile.bundles` order, the win32 shell platform layer (when the host
+ * is Windows), the
+ * profile's user layer, the home-level user layer (`$DSH_HOME/cordis.patch.yml`
+ * — machine-local preferences that apply to every profile, so it outranks the
+ * per-profile layer), `--patch` overlays, then flag patches derived from the
+ * composed rows, then the telemetry switch.
  * @param name - the profile name.
  * @param patchFiles - `--patch` overlay paths, in argv order.
  * @param deriveFlagPatches - launcher hook turning composed rows into flag patches.
@@ -141,14 +151,15 @@ function composeProfile(
   const homePatches = loadOptionalPatches(NAME, homePatchPath()) ?? []
   const overlays = patchFiles.flatMap(file => loadOverlayPatches(NAME, resolve(file)))
   const bundlePatches = profile.layers.flatMap(layer => layer.patches)
+  const windowsShellPatches = resolveWindowsShellLayer(process.platform, profile.layers, NAME)?.patches ?? []
   const rows = new Map<string, { name?: string; config?: unknown }>()
-  for (const row of composeEntries([bundlePatches, profile.patches, homePatches, overlays])) {
+  for (const row of composeEntries([bundlePatches, windowsShellPatches, profile.patches, homePatches, overlays])) {
     if (typeof row.id === 'string') rows.set(row.id, row)
   }
   const overlayAndFlags = [...overlays, ...deriveFlagPatches(rows)]
   const telemetryPatch = resolveTelemetryPatch(process.env.DSH_TELEMETRY_DISABLED, rows.has(TELEMETRY_ROW_ID))
   if (telemetryPatch !== undefined) overlayAndFlags.push(telemetryPatch)
-  return { profile, bundlePatches, homePatches, overlayAndFlags, rows }
+  return { profile, bundlePatches, windowsShellPatches, homePatches, overlayAndFlags, rows }
 }
 
 /** Options for {@link runProfile}. */
@@ -215,6 +226,7 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
   // removing the override could never revert the row to the bundle default.
   const composeLive = (): PatchOptions[] => structuredClone([
     ...composed.bundlePatches,
+    ...composed.windowsShellPatches,
     ...loadOptionalPatches(NAME, composed.profile.patchPath) ?? [],
     ...loadOptionalPatches(NAME, homePatchPath()) ?? [],
     ...composed.overlayAndFlags,

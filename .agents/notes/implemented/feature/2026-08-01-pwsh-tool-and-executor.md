@@ -17,7 +17,7 @@ Two new packages under `packages/bash/`:
 
 Windows vitest coverage is deliberately NOT part of this change: the repo's Windows CI lane owns build/static gates, and unit coverage runs on Linux, where both packages' suites run against a real `pwsh` (preinstalled on the GitHub-hosted runners) or self-skip when absent. The vitest `windowsUnsupportedPackages` exclusion narrows from `packages/bash/*` to the bash-requiring packages so the pwsh suites can also run natively on Windows dev machines.
 
-The roadmap beyond this decision — defaulting Windows hosts to `pwsh` (bash off), and pwsh TUI/GUI rendering — is recorded separately as [a proposal](../../proposed/feature/2026-08-01-windows-pwsh-default.md).
+The roadmap beyond this decision — defaulting Windows hosts to `pwsh` (bash off), and pwsh TUI/GUI rendering — is recorded separately as [the Windows pwsh default decision](2026-08-01-windows-pwsh-default.md).
 
 ## Alternatives considered
 

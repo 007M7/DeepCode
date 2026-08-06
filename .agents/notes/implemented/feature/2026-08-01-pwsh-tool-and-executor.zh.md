@@ -17,7 +17,7 @@ harness 在每个平台只说一种 shell 方言：`bash`。Windows 主机只能
 
 Windows vitest 覆盖率刻意不属本次改动：仓库的 Windows CI 通道负责构建/静态门禁，单元覆盖在 Linux 上运行，两个包的套件在那里以真实 `pwsh` 运行（GitHub 托管 runner 预装）或缺失时自行跳过。vitest 的 `windowsUnsupportedPackages` 排除从 `packages/bash/*` 收窄为真正需要 bash 的包，使 pwsh 套件也能在 Windows 开发机上原生运行。
 
-本决策之后的路线图——让 Windows 主机默认 `pwsh`（关闭 bash）与 pwsh TUI/GUI 渲染——另行记录为[提案](../../proposed/feature/2026-08-01-windows-pwsh-default.md)。
+本决策之后的路线图——让 Windows 主机默认 `pwsh`（关闭 bash）与 pwsh TUI/GUI 渲染——已落地为 [Windows 默认 pwsh 决策](2026-08-01-windows-pwsh-default.md)。
 
 ## 备选方案
 
