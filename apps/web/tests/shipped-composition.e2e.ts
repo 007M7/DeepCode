@@ -11,6 +11,8 @@ import type {} from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import type {} from '@deepseek-ai/dsh-user-approval'
 import type {} from '@deepseek-ai/dsh-permission'
+import { SessionId } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-agent-presets'
 import { launchWebScaffold, type WebScaffold } from './scaffold.ts'
 
 /**
@@ -63,11 +65,26 @@ afterEach(async () => {
 
 it('assembles the shipped Web catalog with the confined access default', async () => {
   scaffold = await launchWebScaffold()
-  const names = scaffold.ctx.tools.schemas().map(schema => schema.name).sort()
-  expect(names.filter(name => !RIPGREP_TOOLS.includes(name))).toEqual(EXPECTED_TOOLS)
-  // The packaged ripgrep binary ships with the dependency, so the pair is a
-  // fixed roster member on every host.
-  expect(names.filter(name => RIPGREP_TOOLS.includes(name))).toEqual(RIPGREP_TOOLS)
+  const ctx = scaffold.ctx
+  // The catalog belongs to an AGENT, not to the process: every model-facing row
+  // now lives in a preset mounted under one session's scope, so the global
+  // layer holds nothing and a caller must name the agent to see anything. This
+  // composes from the deployment default — what a session that names no preset
+  // gets — which is the shape this test has always been about.
+  expect(ctx.tools.schemas().map(schema => schema.name)).toEqual([])
+  const handle = await ctx.agents.create({
+    sessionId: SessionId('shipped-composition'),
+    setup: agentCtx => ctx.agentPresets.mount(agentCtx).then(() => undefined),
+  })
+  try {
+    const names = ctx.tools.schemas(handle.agent).map(schema => schema.name).sort()
+    expect(names.filter(name => !RIPGREP_TOOLS.includes(name))).toEqual(EXPECTED_TOOLS)
+    // The packaged ripgrep binary ships with the dependency, so the pair is a
+    // fixed roster member on every host.
+    expect(names.filter(name => RIPGREP_TOOLS.includes(name))).toEqual(RIPGREP_TOOLS)
+  } finally {
+    await handle.dispose()
+  }
   // `workspace-write` is not "the workspace and nothing else": the shared roots
   // helper always admits the temp directories too. Pinning it against an
   // explicit mode keeps the claim independent of this surface's default, and

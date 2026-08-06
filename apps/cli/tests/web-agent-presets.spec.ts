@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { Context } from 'cordis'
 import { boot, loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
 import { SessionId } from '@deepseek-ai/dsh-session'
@@ -22,6 +22,7 @@ const WEB_OVERLAY = join(CONFIG_DIR, 'web.cordis.yml')
  * agent's capabilities is the real thing, including both shipped presets.
  */
 async function bootWeb(settingsFile: string, extra: PatchOptions[] = []): Promise<Context> {
+  const storageRoot = join(dirname(settingsFile), 'storages')
   const patches: PatchOptions[] = [
     ...loadOverlayPatches('dsh-test', WEB_OVERLAY),
     // The settings row defaults to `$DSH_HOME/settings.yaml`. Left alone it
@@ -30,6 +31,11 @@ async function bootWeb(settingsFile: string, extra: PatchOptions[] = []): Promis
     // outcome. Point it at a temp file for the same reason the roster below
     // names only the shipped root.
     { id: 'settings', config: { path: settingsFile, watch: false } },
+    // storage-json's root is anchored to the real $DSH_HOME. Unpinned, this
+    // file writes the developer's own `~/.dsh/storages/` — and then reads it
+    // back on the next run, so a stored document from any other build decides
+    // this test's boot. Same reason the settings row above is pinned.
+    { id: 'storage-json', config: { root: storageRoot } },
     // Host rows with side effects outside this process: a bound port, a served
     // asset tree, a telemetry exporter. `api-gateway` and `directory-picker`
     // stay ENABLED on purpose — the api-proxy is the host row that injects

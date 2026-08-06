@@ -33,22 +33,15 @@
 
 # ── shell ───────────────────────────────────────────────────────────────────
 
-# `tool-bash` reads as a tool but provides the `bashEnv` service, so it needs a
-# realm like any other provider. The executor behind it (`bash-sandbox`) stays
-# in the host composition, where the sandbox policy owns it.
-- id: shell
-  name: cordis:group
-  group: true
-  isolate:
-    bashEnv: true
-  config:
-    # The registry and its consumer share the realm: a consumer left outside
-    # would resolve the host's `bashEnv`, which this plane no longer provides.
-    - id: bash-env
-      name: '@deepseek-ai/dsh-bash-env'
-
-    - id: tool-bash
-      name: '@deepseek-ai/dsh-tool-bash'
+# `bash-env` stays in the HOST composition: `apps/cli/src/web.ts` injects it to
+# publish `DSH_WEB_URL`/`DSH_WEB_MODE`, and a host row that injects a service is
+# the criterion for host-plane ownership — injection resolves before any session
+# exists, so there is no agent to key by. Behind a preset realm those variables
+# never reached the model's shell at all. `tool-bash` consumes the host registry
+# from here; the executor behind it (`bash-sandbox`) is host-plane too, where the
+# sandbox policy owns it.
+- id: tool-bash
+  name: '@deepseek-ai/dsh-tool-bash'
 
 # ── filesystem ──────────────────────────────────────────────────────────────
 
@@ -166,6 +159,12 @@
 # `workflows` is different — nothing outside an agent reads it — so every row
 # that reaches it shares one entry-local realm here, and a consumer left
 # outside would resolve a host registry this preset does not populate.
+#
+# `tool-subagent-report` is host-plane for the same reason as the registry,
+# not because a preset may not want it: it registers a CONTINUABLE SETUP on
+# that singleton rather than a tool this agent calls, and the setup list is
+# not scope-aware — one copy per mounted preset means every child gets
+# `report` registered once per live session, which throws on the second.
 - id: delegation
   name: cordis:group
   group: true
@@ -191,9 +190,6 @@
         provider: fork
         toolName: subagent_fork
         backgroundMode: continuable
-
-    - id: tool-subagent-report
-      name: '@deepseek-ai/dsh-tool-subagent-report'
 
     - id: workflow-workerthread
       name: '@deepseek-ai/dsh-workflow-workerthread'

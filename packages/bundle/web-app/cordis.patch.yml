@@ -206,8 +206,6 @@
 # absent from a surface overlay would silently reappear the day someone reorders
 # the composition.
 
-- id: bash-env
-  disabled: true
 
 - id: tool-bash
   disabled: true
@@ -280,9 +278,6 @@
   disabled: true
 
 - id: tool-subagent-fork
-  disabled: true
-
-- id: tool-subagent-report
   disabled: true
 
 - id: workflow-workerthread

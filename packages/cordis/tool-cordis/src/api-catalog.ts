@@ -98,15 +98,15 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async read(id: string): Promise<string>',
-        jsDoc: '/**\n * Read one profile\'s composition text.\n * @param id - the profile id.\n * @returns the composition exactly as stored.\n * @throws when no configured root supplies that id.\n */',
+        jsDoc: '/**\n * Read one preset\'s composition text.\n * @param id - the preset id.\n * @returns the composition exactly as stored.\n * @throws when no configured root supplies that id.\n */',
       },
       {
         signature: 'async write(id: string, content: string, metadata: PresetMetadata = {}): Promise<void>',
-        jsDoc: '/**\n * Create or replace a locally authored profile.\n *\n * The text is shape-checked before it lands, so a save cannot leave a file no\n * session could load; it is NOT mounted, so a composition that parses but\n * names a missing plugin still fails at the next session that selects it.\n * @param id - the profile id, which becomes its directory name.\n * @param content - the composition text.\n * @param metadata - display name and description; clearing both removes the file.\n * @throws when the id is unusable, the text is not an entry list, or the\n * deployment configures no writable root.\n */',
+        jsDoc: '/**\n * Create or replace a locally authored preset.\n *\n * The text is shape-checked before it lands, so a save cannot leave a file no\n * session could load; it is NOT mounted, so a composition that parses but\n * names a missing plugin still fails at the next session that selects it.\n * @param id - the preset id, which becomes its directory name.\n * @param content - the composition text.\n * @param metadata - display name and description; clearing both removes the file.\n * @throws when the id is unusable, the text is not an entry list, or the\n * deployment configures no writable root.\n */',
       },
       {
         signature: 'async remove(id: string): Promise<void>',
-        jsDoc: '/**\n * Delete a locally authored profile.\n * @param id - the profile id.\n * @throws when the profile is unknown or ships with the deployment.\n */',
+        jsDoc: '/**\n * Delete a locally authored preset.\n * @param id - the preset id.\n * @throws when the preset is unknown or ships with the deployment.\n */',
       },
       {
         signature: 'serviceFor<K extends string & keyof Context>(agent: { ctx: Context }, name: K): Context[K] | undefined',
@@ -2228,16 +2228,16 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type PrepareSessionOptions = (CreateSessionOptions & {\n    readonly seedSource?: undefined;\n}) | RestoredSessionOptions;',
   },
   {
+    name: 'PresetMetadata',
+    declaration: 'export interface PresetMetadata {\n    readonly name?: string;\n    readonly description?: string;\n    readonly order?: number;\n}',
+  },
+  {
     name: 'PresetOption',
     declaration: 'export interface PresetOption {\n    value: string;\n    name: string;\n    description?: string;\n}',
   },
   {
     name: 'PresetSpec',
     declaration: 'export interface PresetSpec {\n    sandbox: SandboxMode;\n    approval: ApprovalPolicy;\n    name?: string;\n    description?: string;\n}',
-  },
-  {
-    name: 'PresetMetadata',
-    declaration: 'export interface PresetMetadata {\n    readonly name?: string;\n    readonly description?: string;\n    readonly order?: number;\n}',
   },
   {
     name: 'PresetTrust',
