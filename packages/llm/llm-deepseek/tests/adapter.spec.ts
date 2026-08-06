@@ -991,3 +991,33 @@ describe('plugin registration and config', () => {
     expect(ctx.llm.listProviders()).toEqual([])
   })
 })
+
+describe('API key format', () => {
+  it('trims a padded literal apiKey', () => {
+    expect(resolveAdapterOptions({ apiKey: '  sk-abc  ' }).apiKey).toBe('sk-abc')
+  })
+
+  it('leaves an omitted apiKey absent so apiKeyEnv still resolves it', () => {
+    expect(resolveAdapterOptions({}).apiKey).toBeUndefined()
+  })
+
+  it('rejects a literal apiKey of whitespace only', () => {
+    expect(() => resolveAdapterOptions({ apiKey: '   ' }))
+      .toThrow(/apiKey is empty; omit it/)
+  })
+
+  it('rejects a literal apiKey no header can carry', () => {
+    expect(() => resolveAdapterOptions({ apiKey: 'sk-\u{1F600}' }))
+      .toThrow(/no HTTP header can carry/)
+  })
+
+  it('never echoes the key in the rejection', () => {
+    const secret = 'sk-\u{1F600}supersecret'
+    expect(() => resolveAdapterOptions({ apiKey: secret })).toThrow()
+    try {
+      resolveAdapterOptions({ apiKey: secret })
+    } catch (error) {
+      expect((error as Error).message).not.toContain('supersecret')
+    }
+  })
+})

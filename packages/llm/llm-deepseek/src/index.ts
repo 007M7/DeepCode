@@ -13,7 +13,7 @@
 
 import type { Context } from 'cordis'
 import z from 'schemastery'
-import { LlmError, resolveRetryPolicy, RetryPolicySchema } from '@deepseek-ai/dsh-llm'
+import { assertUsableApiKey, LlmError, normalizeApiKey, resolveRetryPolicy, RetryPolicySchema } from '@deepseek-ai/dsh-llm'
 import type { RetryPolicyConfig } from '@deepseek-ai/dsh-llm'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { deepEqualJson, installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
@@ -58,7 +58,11 @@ const DEFAULT_MODELS: DeepSeekCatalogModel[] = [
  * reasoning effort resolves to `high`.
  */
 export interface Config {
-  /** Literal API key; prefer {@link apiKeyEnv} so no secret enters configuration files. */
+  /**
+   * Literal API key; prefer {@link apiKeyEnv} so no secret enters configuration files. Trimmed
+   * and format-checked by {@link resolveAdapterOptions}; a value no HTTP header can carry fails
+   * there rather than inside `fetch`.
+   */
   apiKey?: string
   /** Credential reference (environment-variable name) resolved per request; defaults to `DEEPSEEK_API_KEY`. */
   apiKeyEnv?: string
@@ -174,8 +178,21 @@ export function resolveAdapterOptions(config: Config): ResolvedDeepSeekOptions {
       `llm-deepseek: streamIdleTimeoutMs must be a positive finite number no greater than ${MAX_TIMER_DELAY_MS}`,
     )
   }
+  // An absent apiKey is not a failure: it falls through to apiKeyEnv below.
+  // A supplied one must be usable, so a malformed literal fails here beside
+  // the other beyond-schema bounds instead of inside `fetch`.
+  let apiKey: string | undefined
+  if (config.apiKey !== undefined) {
+    const checked = normalizeApiKey(config.apiKey)
+    if (!checked.ok) {
+      throw new Error(checked.reason === 'empty'
+        ? 'llm-deepseek: apiKey is empty; omit it to resolve the key from apiKeyEnv'
+        : 'llm-deepseek: apiKey contains characters no HTTP header can carry; paste the raw key only')
+    }
+    apiKey = checked.value
+  }
   return {
-    ...config.apiKey !== undefined && config.apiKey.length > 0 ? { apiKey: config.apiKey } : {},
+    ...apiKey === undefined ? {} : { apiKey },
     apiKeyEnv: credentialRef(config.apiKeyEnv ?? DEFAULT_API_KEY_ENV),
     baseURL: config.baseURL ?? process.env.DEEPSEEK_BASE_URL ?? PUBLIC_BASE_URL,
     defaults: {
@@ -223,12 +240,12 @@ export function apply(ctx: Context, config: Config): void {
     const credentials = ctx.get('credentials')
     if (credentials !== undefined) {
       const hit = await credentials.resolve(ref)
-      if (hit !== undefined) return hit.value
+      if (hit !== undefined) return assertUsableApiKey(hit.value, 'llm-deepseek', ref)
     } else {
       // Without the seam, keep the historical ambient fallback so a plain
       // cordis.yml composition works from the environment alone.
       const ambient = process.env[ref]
-      if (ambient !== undefined && ambient.length > 0) return ambient
+      if (ambient !== undefined && ambient.length > 0) return assertUsableApiKey(ambient, 'llm-deepseek', ref)
     }
     throw new LlmError(
       `llm-deepseek: no API key for provider route "${PROVIDER}"; store ${ref} through the credentials`

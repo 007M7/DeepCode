@@ -642,7 +642,11 @@ Requires: `llm`
  * reasoning effort resolves to `high`.
  */
 export interface Config {
-  /** Literal API key; prefer {@link apiKeyEnv} so no secret enters configuration files. */
+  /**
+   * Literal API key; prefer {@link apiKeyEnv} so no secret enters configuration files. Trimmed
+   * and format-checked by {@link resolveAdapterOptions}; a value no HTTP header can carry fails
+   * there rather than inside `fetch`.
+   */
   apiKey?: string
   /** Credential reference (environment-variable name) resolved per request; defaults to `DEEPSEEK_API_KEY`. */
   apiKeyEnv?: string
