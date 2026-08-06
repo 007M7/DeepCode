@@ -12,6 +12,10 @@ import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
+import SessionProjectionCache from '@deepseek-ai/dsh-session-projection-cache'
+import Storage from '@deepseek-ai/dsh-storage'
+import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
+import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
 import SubagentService, {
   SUBAGENT_DESCRIPTOR_VERSION,
   SubagentError,
@@ -28,7 +32,10 @@ afterEach(() => {
 })
 
 /** Boot the continuable stack with real JSONL session persistence. */
-async function setup(script: Script, options: { sessionProjections?: boolean } = {}) {
+async function setup(
+  script: Script,
+  options: { sessionProjections?: boolean; projectionCache?: boolean } = {},
+) {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
   const root = mkdtempSync(join(tmpdir(), 'dsh-subagent-list-'))
@@ -36,6 +43,14 @@ async function setup(script: Script, options: { sessionProjections?: boolean } =
   await ctx.plugin(JsonlSessionPersistence, { root })
   await ctx.plugin(AgentLoop, { agents: [] })
   if (options.sessionProjections !== false) await ctx.plugin(SessionProjectionRegistry)
+  if (options.projectionCache === true) {
+    await ctx.plugin(Storage)
+    ctx.storage.backend.register('memory', new MemoryStorageBackend(new MemoryMediaPool()))
+    const facility = new DomainFacility(ctx, { backend: 'memory', routes: {} })
+    ctx.storage.mount('domain', facility)
+    ctx.provide('storageDomain', facility)
+    await ctx.plugin(SessionProjectionCache, { writeEveryEvents: 100, writeIntervalMs: 60_000 })
+  }
   await ctx.plugin(SubagentService)
   await ctx.plugin(SubagentSpawn, { providerName: 'spawn' })
   await ctx.plugin(SubagentFork, { providerName: 'fork' })
@@ -604,6 +619,78 @@ describe('SubagentService.listChildren', () => {
     expect(inspected.filter(id => id === coldStarted)).toHaveLength(1)
     expect(inspected.filter(id => id === coldAuthored)).toHaveLength(1)
     expect(inspected).not.toContain(liveId)
+  })
+
+  it('serves a cold child from the projection cache without any inspection', async () => {
+    const { ctx, parent } = await setup([textResponse('done')], { projectionCache: true })
+    const childId = await startChild(ctx, parent, 'cached child')
+    // The child's turn/end and disposal are the cache's mandatory checkpoint
+    // points; both writes are fail-soft asynchronous, so wait for the row.
+    const header = (await ctx.sessionPersistence.list()).find(meta => meta.id === childId)
+    await vi.waitFor(() => {
+      expect(ctx.sessionProjectionCache.cachedSnapshot(header!)?.values.subagent).toBeDefined()
+    }, { timeout: 5_000 })
+    const inspect = vi.spyOn(ctx.sessionPersistence, 'inspect')
+    await expect(ctx.subagents.listChildren(parent.id)).resolves.toEqual([{
+      kind: 'child', id: childId, label: 'cached child', mode: 'continuable',
+      activity: 'inactive', hasChildren: false,
+    }])
+    expect(inspect).not.toHaveBeenCalled()
+  })
+
+  it('falls back to inspection when the cache serves no identity for the child', async () => {
+    const { ctx, parent } = await setup([], { projectionCache: true })
+    const foreign = await authorChild(ctx, '00000000-0000-4000-8000-00000000ac01', {
+      parentSession: parent.id,
+      origin: 'subagent',
+    }, childEvents(descriptorPayload('uncached child')))
+    const expected = [{
+      kind: 'child', id: foreign, label: 'uncached child', mode: 'continuable',
+      activity: 'inactive', hasChildren: false,
+    }]
+    // No stored row at all for a foreign child this process never ran.
+    const inspect = vi.spyOn(ctx.sessionPersistence, 'inspect')
+    await expect(ctx.subagents.listChildren(parent.id)).resolves.toEqual(expected)
+    expect(inspect).toHaveBeenCalledTimes(1)
+    // A stored row whose cut predates the descriptor: the subagent key is
+    // absent from the served values, and preparation still rules.
+    ctx.sessionProjectionCache.cachedSnapshot = () => ({ asOfSeq: 0, values: {} })
+    await expect(ctx.subagents.listChildren(parent.id)).resolves.toEqual(expected)
+    expect(inspect).toHaveBeenCalledTimes(2)
+  })
+
+  it('takes the preparation rung directly when no projection cache is mounted', async () => {
+    const { ctx, parent } = await setup([])
+    expect(ctx.get('sessionProjectionCache')).toBeUndefined()
+    const foreign = await authorChild(ctx, '00000000-0000-4000-8000-00000000ac02', {
+      parentSession: parent.id,
+      origin: 'subagent',
+    }, childEvents(descriptorPayload('uncacheable child')))
+    const inspect = vi.spyOn(ctx.sessionPersistence, 'inspect')
+    await expect(ctx.subagents.listChildren(parent.id)).resolves.toEqual([{
+      kind: 'child', id: foreign, label: 'uncacheable child', mode: 'continuable',
+      activity: 'inactive', hasChildren: false,
+    }])
+    expect(inspect).toHaveBeenCalledTimes(1)
+  })
+
+  it('silently falls through to preparation when the cache read throws', async () => {
+    const { ctx, parent } = await setup([], { projectionCache: true })
+    const recovered = await authorChild(ctx, '00000000-0000-4000-8000-00000000ac03', {
+      parentSession: parent.id,
+      origin: 'subagent',
+    }, childEvents(descriptorPayload('recovered child')))
+    ctx.sessionProjectionCache.cachedSnapshot = () => {
+      // A poisoned stored row (any unit's) detonates at view time; the cache
+      // is derived data, so its failure must not become a verdict.
+      throw new Error('poisoned cache row')
+    }
+    const inspect = vi.spyOn(ctx.sessionPersistence, 'inspect')
+    await expect(ctx.subagents.listChildren(parent.id)).resolves.toEqual([{
+      kind: 'child', id: recovered, label: 'recovered child', mode: 'continuable',
+      activity: 'inactive', hasChildren: false,
+    }])
+    expect(inspect).toHaveBeenCalledTimes(1)
   })
 
   it('does not count an ordinary grandchild without subagent origin', async () => {

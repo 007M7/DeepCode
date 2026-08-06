@@ -3,9 +3,11 @@
  * from the live session store and optional session persistence — no query
  * seam. Candidates are the live-preferred merge of both listings filtered to
  * durable `origin: 'subagent'` under the parent; each child's mode/label is
- * the registered `subagent` projection unit's value, served from the
- * registry's watermark cache for a live child and folded once over one
- * persistence inspection for a cold one. The projection fold is the single
+ * the registered `subagent` projection unit's value, resolved down a
+ * three-rung ladder: the registry's watermark cache for a live child, a
+ * durable projection-cache row when the optional cache already serves the
+ * identity, and one persistence inspection folded through the registry
+ * otherwise. The projection fold is the single
  * classification authority — this module parses no descriptor itself. Absent
  * persistence, enumeration is live-only: a cold child is unreachable for
  * resume anyway, so its absence is capability absence, not an error. The
@@ -19,6 +21,7 @@ import type { Context } from 'cordis'
 import type { Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import type { SessionProjectionRegistry } from '@deepseek-ai/dsh-session-projection'
+import type { SessionProjectionCache } from '@deepseek-ai/dsh-session-projection-cache'
 import { SubagentError } from './error.ts'
 import type { SubagentIdentityProjection } from './projection-types.ts'
 
@@ -88,11 +91,13 @@ export type SubagentListEntry =
  * Enumerate one parent's origin-classified direct children from the
  * live-preferred merge of `ctx.sessions` and optional session persistence,
  * serving each identity from the `subagent` projection unit: the registry's
- * watermark snapshot for a live child, one bounded-concurrency persistence
- * inspection folded through the registry for a cold one.
+ * watermark snapshot for a live child; for a cold one, a durable
+ * projection-cache row when the optional cache already serves the identity,
+ * else one bounded-concurrency persistence inspection folded through the
+ * registry.
  * @see SubagentService.listChildren for the public cancellation and failure contract.
  * @param ctx - context carrying the session store, the projection registry,
- *   and optional persistence.
+ *   optional persistence, and the optional projection cache.
  * @param parentSessionId - parent session whose direct children are listed.
  * @param signal - caller-owned cancellation observed around every persistence read.
  * @returns children and per-child diagnostics ordered by `createdAt`, then id.
@@ -126,6 +131,10 @@ export async function listChildren(
   }
   assertListingNotCancelled(signal)
   const persistence = ctx.get('sessionPersistence')
+  // Optional acceleration only: an absent cache service just means every
+  // cold candidate takes the authoritative preparation rung, so it carries
+  // no error code and no configuration check.
+  const cache = ctx.get('sessionProjectionCache')
   let persistedHeaders: readonly SessionHeader[] = []
   if (persistence !== undefined) {
     try {
@@ -158,11 +167,11 @@ export async function listChildren(
       || a.header.id.localeCompare(b.header.id))
 
   const rows: (SubagentListEntry | undefined)[] = Array.from({ length: candidates.length })
-  const coldReads: { index: number; id: SessionId }[] = []
+  const coldReads: { index: number; header: SessionHeader }[] = []
   candidates.forEach((candidate, index) => {
     const childId = candidate.header.id
     if (candidate.live === undefined) {
-      coldReads.push({ index, id: childId })
+      coldReads.push({ index, header: candidate.header })
       return
     }
     // The registry's watermark cache serves the live value with zero log
@@ -191,8 +200,9 @@ export async function listChildren(
       { length: Math.min(COLD_READ_CONCURRENCY, queue.length) },
       async () => {
         for (let job = queue.shift(); job !== undefined; job = queue.shift()) {
-          rows[job.index] = await inspectColdIdentity(
-            persistence, projections, job.id, subagentParents.has(job.id), signal,
+          rows[job.index] = await resolveColdIdentity(
+            persistence, projections, cache, job.header,
+            subagentParents.has(job.header.id), signal,
           )
         }
       },
@@ -203,20 +213,38 @@ export async function listChildren(
 }
 
 /**
- * Resolve one cold candidate: one persistence inspection folded through the
- * projection registry (the same detached recipe the API proxy uses for
- * detached session projections). A failed inspection is one transient
- * `unavailable` row retried on the next listing; a settled log the fold
- * cannot identify — or that makes any registered unit throw — is final, so
- * it reports `corrupt`.
+ * Resolve one cold candidate down the remaining ladder: a durable
+ * projection-cache row when it already serves the identity, otherwise one
+ * persistence inspection folded through the projection registry (the same
+ * detached recipe the API proxy uses for detached session projections). A
+ * failed inspection is one transient `unavailable` row retried on the next
+ * listing; a settled log the fold cannot identify — or that makes any
+ * registered unit throw — is final, so it reports `corrupt`.
  */
-async function inspectColdIdentity(
+async function resolveColdIdentity(
   persistence: SessionPersistence,
   projections: SessionProjectionRegistry,
-  childId: SessionId,
+  cache: SessionProjectionCache | undefined,
+  header: SessionHeader,
   hasChildren: boolean,
   signal: AbortSignal | undefined,
 ): Promise<SubagentListEntry> {
+  const childId = header.id
+  if (cache !== undefined) {
+    let cached: SubagentIdentityProjection | undefined
+    try {
+      cached = cache.cachedSnapshot(header)?.values.subagent
+    } catch {
+      // Unlike the preparation fold below, a throwing cache read renders no
+      // verdict: the cache is derived data, so its damage (a poisoned stored
+      // row of ANY unit) silently falls through to the authoritative re-fold.
+      cached = undefined
+    }
+    // The identity is immutable once appended, so a cached value is final
+    // regardless of the row's watermark; an absent key (a checkpoint cut
+    // before the descriptor was appended) falls through to preparation.
+    if (cached !== undefined) return childRow(childId, cached, 'inactive', hasChildren)
+  }
   assertListingNotCancelled(signal)
   let events: readonly SessionEvent[]
   try {
