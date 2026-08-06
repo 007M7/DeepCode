@@ -16,11 +16,14 @@ import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import { SessionId } from '@deepseek-ai/dsh-session'
+import type { ContentBlock, Message } from '@deepseek-ai/dsh-llm'
+import { deriveEventMessage, SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import type { TokenMeterService } from '@deepseek-ai/dsh-token-meter'
 import { join } from 'node:path'
 import {
   assertFixtureInventory, captureStableAria, compareOrRefreshGolden, fixtureUserPrompts,
-  launchWebScaffold, recordFixture, seedSession, watchConsole, webSnapshotMode, type WebScaffold,
+  launchWebScaffold, realizeSeedFixture, recordFixture, seedSession, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
 import { newEnglishPage, saveFailureShot } from './support.ts'
 
@@ -41,17 +44,22 @@ const PROMPT = 'Use the read tool twice in one assistant message: read a.txt and
  * deterministic condition before seeding it cold, so the scenario pins the bug
  * this change fixes — a landed compaction must not erase history the reader
  * already saw — through the real host and the real browser.
- * @param raw - the committed seed fixture text.
+ * @param raw - the seed fixture text, already realized (placeholder-free) so
+ * the shadow price below is computed from the exact strings the host folds.
+ * @param meter - the composed token meter; the appended `compact/summary`'s
+ * shadow price must be the exact heuristic price of the shadowed nodes, the
+ * way compact-basic derives it, because the token-meter projections subtract
+ * it verbatim.
  * @returns the fixture with a compacted turn appended.
  */
-function withCompaction(raw: string): string {
+function withCompaction(raw: string, meter: TokenMeterService): string {
   const lines = raw.trimEnd().split('\n')
   const events = lines.slice(1).map(line => JSON.parse(line) as {
     type: string
     seq: number
     time: number
     surfaceOp?: unknown
-    data?: { turn?: unknown }
+    data?: { turn?: unknown; message?: unknown; content?: unknown; callId?: unknown; isError?: unknown }
   })
   const surfaceSeqs = events
     .filter(event => event.surfaceOp === 'append'
@@ -87,6 +95,31 @@ function withCompaction(raw: string): string {
   }
   at({ type: 'turn/start', data: { turn } })
   const startSeq = at({ type: 'compact/start', data: { turn } })
+  // Load-bearing exactness: the projections subtract this count verbatim, so
+  // it must equal what the host's fold prices for these nodes. The estimator
+  // prices message CONTENT only, so a minimal wrapper per storage shape is
+  // exact — pre-identity rows carry bare `content` (the persistence read path
+  // upgrades them), a current row carries the full `message` envelope.
+  const priceRow = (row: (typeof events)[number]): number => {
+    if (row.data?.message !== undefined) {
+      const message = deriveEventMessage(row as unknown as SessionEvent)
+      return message === null ? 0 : meter.estimateMessage(message)
+    }
+    const content = row.data?.content as ContentBlock[]
+    if (row.type === 'tool/result') {
+      return meter.estimateMessage({
+        content: [{ type: 'tool-result', toolCallId: row.data?.callId, content, isError: row.data?.isError === true }],
+      } as unknown as Message)
+    }
+    // An empty-content assistant message derives no transcript entry.
+    if (row.type === 'assistant/message' && content.length === 0) return 0
+    return meter.estimateMessage({ content } as unknown as Message)
+  }
+  const shadowedTokenCount = surfaceSeqs.reduce((total, surfaceSeq) => {
+    const event = events.find(candidate => candidate.seq === surfaceSeq)
+    if (event === undefined) throw new Error(`seeded-history compaction: shadowed seq ${surfaceSeq} is not in the seed`)
+    return total + priceRow(event)
+  }, 0)
   const summarySeq = at({
     type: 'compact/summary',
     data: {
@@ -96,7 +129,7 @@ function withCompaction(raw: string): string {
       }],
       shadowedRange: { start: first, end: last },
       shadowedSeqs: surfaceSeqs,
-      shadowedTokenCount: 10_000,
+      shadowedTokenCount,
       provider: 'snapshot',
       model: 'snapshot-compactor',
     },
@@ -137,7 +170,10 @@ describe('web e2e: seeded history renders through cold resume', () => {
     if (MODE !== 'record') {
       const raw = await readFile(SEED, 'utf8')
       expect(fixtureUserPrompts(raw), 'seed fixture must carry exactly the drive prompt').toEqual([PROMPT])
-      await seedSession(scaffold, withCompaction(raw), SEED_ID)
+      const meter = scaffold.ctx.get('tokenMeter')
+      if (meter === undefined) throw new Error('seeded-history requires the composed token meter')
+      const realized = realizeSeedFixture(scaffold, raw, SEED_ID)
+      await seedSession(scaffold, withCompaction(realized, meter), SEED_ID)
     }
     browser = await chromium.launch()
     page = await newEnglishPage(browser)

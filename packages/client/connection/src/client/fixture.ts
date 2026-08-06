@@ -27,7 +27,7 @@ import type {
 // Type-only: the brand constructor is host-side; the fixture casts at its
 // wire-fabrication boundary (the schema layer's one-cast-point posture).
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
-import { foldSurface } from '@deepseek-ai/dsh-session/surface'
+import { deriveEventMessage, foldSurface } from '@deepseek-ai/dsh-session/surface'
 import type {
   ApiProxy, ClientRequest, ClientResponse, HistoryEntry, HostFrame, MuxFrame, RpcReceipt,
   ModelProviderGroup, ModelTarget, RpcRequest, RpcResponse, RpcResult, ServerRequest, ServerResponse, SessionSummary,
@@ -358,6 +358,12 @@ function buildAlphaLog(): SessionEvent[] {
     events.push({ seq, time: (time += 800), ...authored })
     return seq
   }
+  // This resident history represents completed model requests, so retain the
+  // route capacity that accompanied them just as the live prompt path does.
+  push({
+    type: 'request/context',
+    data: { provider: 'deepseek-official', model: 'deepseek-v4-flash', contextWindow: 128_000 },
+  })
   for (let turn = 0; turn < 60; turn++) {
     push({ type: 'turn/start', data: { turn } })
     const userSeq = push({
@@ -819,6 +825,62 @@ interface FixtureRequestContext {
   contextWindow?: number
 }
 
+interface FixtureContextBreakdownProjection {
+  systemTokens: number
+  toolsTokens: number
+  messageTokens: number
+}
+
+/** Fixed token-meter heuristic constants mirrored by this client-only fixture. */
+const CHARS_PER_TOKEN = 4
+const BLOCK_OVERHEAD = 4
+const ROLE_OVERHEAD = 4
+
+/** Price fixture content with token-meter's fixed-density heuristic. */
+function estimateFixtureContent(blocks: readonly ContentBlock[]): number {
+  const densityPrice = (value: string): number => Math.ceil(value.length / CHARS_PER_TOKEN)
+  return blocks.reduce((tokens, block) => {
+    if (block.type === 'text' || block.type === 'reasoning') {
+      return tokens + densityPrice(block.text) + BLOCK_OVERHEAD
+    }
+    if (block.type === 'tool-call') {
+      return tokens + densityPrice(block.name) + densityPrice(block.arguments) + BLOCK_OVERHEAD
+    }
+    // ContentBlockMap is merge-extensible: this client graph sees only the
+    // base four members, but fixture turns do carry extended blocks at
+    // runtime, so the structural JSON fallback below is live code.
+    // oxlint-disable-next-line typescript/no-unnecessary-condition -- the type collapses without the out-of-graph merges (see above).
+    if (block.type === 'tool-result') {
+      return tokens + estimateFixtureContent(block.content) + BLOCK_OVERHEAD
+    }
+    return tokens + densityPrice(JSON.stringify(block)) + BLOCK_OVERHEAD
+  }, 0)
+}
+
+/** Fixture parallel of token-meter's heuristic context-composition projection. */
+function contextBreakdownOf(log: readonly SessionEvent[]): FixtureContextBreakdownProjection {
+  const headerEvent = log.findLast(event => event.type === 'request/header')
+  const header = headerEvent === undefined
+    ? undefined
+    : headerEvent.data.header
+  let messageTokens = 0
+  for (const seq of foldSurface(log).nodes) {
+    const event = log[seq]
+    if (event === undefined) continue
+    const message = deriveEventMessage(event)
+    if (message !== null) messageTokens += estimateFixtureContent(message.content) + ROLE_OVERHEAD
+  }
+  return {
+    systemTokens: header?.system === undefined
+      ? 0
+      : Math.ceil(header.system.length / CHARS_PER_TOKEN) + ROLE_OVERHEAD,
+    toolsTokens: header?.tools === undefined || header.tools.length === 0
+      ? 0
+      : Math.ceil(JSON.stringify(header.tools).length / CHARS_PER_TOKEN) + BLOCK_OVERHEAD,
+    messageTokens,
+  }
+}
+
 /** Latest log-only route context, or undefined before any request ran. */
 function lastRequestContext(
   log: readonly SessionEvent[],
@@ -832,7 +894,11 @@ function lastRequestContext(
 /**
  * Fixture parallel of token-meter's request-pressure projection: the last
  * provider-reported prompt size paired with the last recorded capacity. The
- * two need not come from one request — see the token-meter README.
+ * two need not come from one request — see the token-meter README. The host's
+ * `projectedTokens` is deliberately absent: reproducing it would mean
+ * reimplementing the estimator client-side, and every consumer falls back to
+ * the bare sample, so a fixture-driven view simply lags a compaction the way
+ * the projection did before that field existed.
  */
 function contextPressureOf(
   log: readonly SessionEvent[],
@@ -870,28 +936,44 @@ function projectionValuesOf(log: readonly SessionEvent[]): Record<string, unknow
   values['tokenUsage'] = tokenUsageOf(log)
   // Always present (token-meter composed): last request pressure and capacity.
   values['contextPressure'] = contextPressureOf(log)
+  // Always present (token-meter composed): heuristic request composition.
+  values['contextBreakdown'] = contextBreakdownOf(log)
   return values
 }
 
 /** Host push-frame parallel: emit one session/projection frame per key the given event advanced. */
 function projectionFramesOf(id: SessionId, log: readonly SessionEvent[], event: SessionEvent): Extract<MuxFrame, { type: 'session/projection' }>[] {
   const type = (event as { type: string }).type
+  const frames: Extract<MuxFrame, { type: 'session/projection' }>[] = []
   // One usage sample advances both token-meter units.
   if (usageSampleOf(event) !== undefined) {
-    return [
+    frames.push(
       { type: 'session/projection', sessionId: id, key: 'tokenUsage', value: tokenUsageOf(log), seq: event.seq },
       { type: 'session/projection', sessionId: id, key: 'contextPressure', value: contextPressureOf(log), seq: event.seq },
-    ]
+    )
   }
   if (type === 'request/context') {
-    return [{
+    frames.push({
       type: 'session/projection',
       sessionId: id,
       key: 'contextPressure',
       value: contextPressureOf(log),
       seq: event.seq,
-    }]
+    })
   }
+  if (type === 'request/header'
+    || type === 'user/message'
+    || type === 'assistant/message'
+    || type === 'tool/result') {
+    frames.push({
+      type: 'session/projection',
+      sessionId: id,
+      key: 'contextBreakdown',
+      value: contextBreakdownOf(log),
+      seq: event.seq,
+    })
+  }
+  if (frames.length > 0) return frames
   if (type === 'session/title') {
     const values = projectionValuesOf(log)
     /* v8 ignore next -- the advancing title event is in the log, so the key is present. */
