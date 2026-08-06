@@ -119,7 +119,8 @@ export function HeroShell({ t, children }: HeroShellProps) {
         <div className={css.headline}>
           {/* figma 34:10412: fish 34×25 leading the headline, gap 10. */}
           <FishLogo size={34} className={css.fish} />
-          {t('hero.headline')}
+          <span className={css.headlineText}>{t('hero.headline')}</span>
+          <span className={css.previewBadge}>{t('hero.preview')}</span>
         </div>
         <div className={css.body}>
           {/* The resident composer (ConversationRoot wrapActiveBody seat; the

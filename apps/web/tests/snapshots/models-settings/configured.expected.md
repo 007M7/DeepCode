@@ -21,3 +21,6 @@
   - button "添加提供方":
     - img
     - text: 添加提供方
+  - button "添加自定义提供方":
+    - img
+    - text: 添加自定义提供方
