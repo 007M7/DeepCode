@@ -14,7 +14,7 @@ import type { ReactNode } from 'react'
 import type { IApiClient } from '@deepseek-ai/dsh-client-connection/client'
 import { Button, IconPlusOutline16, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-web-react'
-import { messageOf } from './store.ts'
+import { deriveKeyRef, messageOf } from './store.ts'
 import type { ModelsSettingsState, ModelsSettingsStore, ProviderRow } from './store.ts'
 import { ProviderEditor } from './ProviderEditor.tsx'
 import type { en } from './locales.ts'
@@ -38,42 +38,53 @@ export interface ModelsSectionInjected {
  */
 export type ModelsSectionProps = Partial<ModelsSectionInjected>
 
-/** The editor target: an existing row or a dormant directory entry. */
-interface EditorTarget {
+/** Provider identity shared by row actions and confirmation copy. */
+export interface ProviderIdentity {
+  /** Stable provider route id. */
   provider: string
+  /** Human-facing provider name. */
   displayName: string
+}
+
+/** One existing row or dormant directory entry addressed by an editor action. */
+interface EditorTarget extends ProviderIdentity {
   settingsNs: string
   settingsPath: readonly string[]
+  /** Writable credential identified under this page's conventional reference. */
+  credentialRef?: string
 }
 
 /**
- * Remove one user-added provider profile by unsetting its path in the stored
- * user section, then reload. The removal names the profile rather than
- * rebuilding the section: this page only ever holds the redacted descriptor,
- * so a rebuilt section would drop every literal secret stored elsewhere in
- * the namespace along with the profile being removed.
- * @param api - settings wire face.
+ * Remove one user-added provider and its page-managed credential. Credential
+ * removal comes first so a second-step failure leaves the provider row visible
+ * and the whole operation safely retryable; both unsets are idempotent.
+ * The settings removal names the profile rather than rebuilding its redacted
+ * namespace, which would drop literal secrets stored elsewhere.
+ * @param api - settings and credential wire faces.
  * @param controller - the page store to refresh.
- * @param target - the provider's settings address.
+ * @param target - the provider's settings address and optional managed credential.
  * @returns the failure message, or undefined once the write and reload landed.
  */
 export async function removeProviderProfile(
-  api: Pick<IApiClient, 'settings'>,
+  api: Pick<IApiClient, 'settings' | 'credentials'>,
   controller: ModelsSettingsStore,
-  target: { settingsNs: string; settingsPath: readonly string[] },
+  target: { settingsNs: string; settingsPath: readonly string[]; credentialRef?: string },
 ): Promise<string | undefined> {
-  let response
   try {
-    response = await api.settings.mutate({
+    if (target.credentialRef !== undefined) {
+      const credential = await api.credentials.unset({ ref: target.credentialRef })
+      if (!credential.result.ok) return credential.result.error.message
+    }
+    const response = await api.settings.mutate({
       ns: target.settingsNs,
       ops: [{ op: 'unset', path: [...target.settingsPath] }],
     })
+    if (!response.result.ok) return response.result.error.message
   } catch (error) {
     // The transport rejected rather than answering; the caller must be able
-    // to say so instead of the row silently staying put.
+    // to retry the idempotent operation instead of the row silently staying.
     return messageOf(error)
   }
-  if (!response.result.ok) return response.result.error.message
   await controller.load()
   return undefined
 }
@@ -92,12 +103,31 @@ export function needsSetup(row: ProviderRow): boolean {
 }
 
 function targetOf(row: ProviderRow): EditorTarget {
+  const managedRef = deriveKeyRef(row.entry.provider)
+  const credentialRef = row.apiKeyEnv === managedRef
+    && row.credential?.configured === true
+    && row.credential.writable
+    ? managedRef
+    : undefined
   return {
     provider: row.entry.provider,
     displayName: row.entry.displayName,
     settingsNs: row.entry.settingsNs,
     settingsPath: row.entry.settingsPath,
+    ...credentialRef === undefined ? {} : { credentialRef },
   }
+}
+
+/** Stable visible and accessible identity for one provider target. */
+export function providerTargetLabel(target: ProviderIdentity): string {
+  return target.provider === target.displayName
+    ? target.provider
+    : `${target.displayName} (${target.provider})`
+}
+
+/** Replace the one provider placeholder in localized destructive-action copy. */
+export function providerCopy(template: string, target: ProviderIdentity): string {
+  return template.replace('{provider}', () => providerTargetLabel(target))
 }
 
 /**
@@ -118,6 +148,7 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
   const [adding, setAdding] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<EditorTarget | undefined>(undefined)
   const [deleting, setDeleting] = useState(false)
+  const [deleteFailure, setDeleteFailure] = useState<string | undefined>(undefined)
 
   const closeEditor = (changed: boolean): void => {
     setEditing(undefined)
@@ -128,16 +159,18 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
   const closeDelete = (): void => {
     if (deleting) return
     setDeleteTarget(undefined)
+    setDeleteFailure(undefined)
   }
 
   const confirmDelete = (): void => {
     /* v8 ignore next -- the action only renders with a target and is disabled while a deletion is pending */
     if (deleteTarget === undefined || deleting) return
     setDeleting(true)
+    setDeleteFailure(undefined)
     void removeProviderProfile(api, controller, deleteTarget)
       .then((failure) => {
         if (failure !== undefined) {
-          controller.fail(failure)
+          setDeleteFailure(failure)
           return
         }
         setDeleteTarget(undefined)
@@ -202,6 +235,7 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
                   <button
                     type="button"
                     className={styles['secondaryButton']}
+                    aria-label={providerCopy(t('editProvider'), target)}
                     onClick={() => { setAdding(false); setEditing(open ? undefined : target) }}
                   >
                     {t('edit')}
@@ -211,8 +245,9 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
                       <button
                         type="button"
                         className={styles['dangerButton']}
+                        aria-label={providerCopy(t('removeProvider'), target)}
                         disabled={!state.writable}
-                        onClick={() => { setDeleteTarget(target) }}
+                        onClick={() => { setDeleteFailure(undefined); setDeleteTarget(target) }}
                       >
                         {t('remove')}
                       </button>
@@ -296,9 +331,16 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
       <Modal
         open={deleteTarget !== undefined}
         onClose={closeDelete}
-        title={t('deleteTitle')}
+        title={deleteTarget === undefined ? '' : providerCopy(t('deleteTitle'), deleteTarget)}
         closeLabel={t('close')}
-        description={t('deleteDescription')}
+        description={deleteTarget === undefined
+          ? ''
+          : providerCopy(
+            deleteTarget.credentialRef === undefined
+              ? t('deleteDescription')
+              : t('deleteDescriptionWithCredential'),
+            deleteTarget,
+          )}
         className={styles['deleteDialog'] as string}
         footer={(
           <>
@@ -311,11 +353,15 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
               disabled={deleting}
               onClick={confirmDelete}
             >
-              {deleting ? t('deleting') : t('deleteConfirm')}
+              {deleteTarget === undefined
+                ? ''
+                : providerCopy(deleting ? t('deleting') : t('deleteConfirm'), deleteTarget)}
             </Button>
           </>
         )}
-      />
+      >
+        {deleteFailure === undefined ? null : <p className={styles['error']}>{deleteFailure}</p>}
+      </Modal>
     </div>
   )
 }

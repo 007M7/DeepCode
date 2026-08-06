@@ -699,6 +699,13 @@ describe('plugin registration and config', () => {
     })
   })
 
+  it('normalizes a literal API key and treats whitespace as absent', () => {
+    expect(resolveAdapterOptions({ apiKey: '  key  ' }).apiKey).toBe('key')
+    const whitespace = resolveAdapterOptions({ apiKey: ' \t ', apiKeyEnv: 'CUSTOM_API_KEY' })
+    expect(whitespace.apiKey).toBeUndefined()
+    expect(whitespace.apiKeyEnv).toBe('CUSTOM_API_KEY')
+  })
+
   it('uses the default model catalog when apply is called directly', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
