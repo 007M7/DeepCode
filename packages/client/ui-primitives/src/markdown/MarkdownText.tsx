@@ -1,17 +1,19 @@
-import { isValidElement, useMemo } from 'react'
+import { isValidElement, useMemo, type ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import type { Components, UrlTransform } from 'react-markdown'
 import rehypeKatex from 'rehype-katex'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import { CodeBlock } from './CodeBlock.tsx'
+import { remarkCjkFriendlyStrong } from './remarkCjkFriendlyStrong.ts'
 import { remarkMathCompatibility } from './remarkMathCompatibility.ts'
 import 'katex/dist/katex.min.css'
 import css from './MarkdownText.module.css'
 
-const streamingRemarkPlugins = [remarkGfm]
+const streamingRemarkPlugins = [remarkGfm, remarkCjkFriendlyStrong]
 const settledRemarkPlugins = [
   remarkGfm,
+  remarkCjkFriendlyStrong,
   remarkMathCompatibility,
   remarkMath,
 ]
@@ -34,6 +36,30 @@ function sanitizeUrl(url: string): string {
 
 const safeUrl: UrlTransform = url => sanitizeUrl(url)
 
+function renderSafeLink(href: string, children: ReactNode): ReactNode {
+  const safeHref = sanitizeUrl(href)
+  if (safeHref === '') return <>{children}</>
+  const external = ['http:', 'https:'].includes(new URL(safeHref).protocol)
+  return (
+    <a
+      href={safeHref}
+      {...(external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+    >
+      {children}
+    </a>
+  )
+}
+
+function inlineCodeHttpUrl(value: string): string | undefined {
+  if (value.trim() !== value) return undefined
+  try {
+    const protocol = new URL(value).protocol
+    return protocol === 'http:' || protocol === 'https:' ? value : undefined
+  } catch {
+    return undefined
+  }
+}
+
 /** Copy-button labels forwarded to fence CodeBlocks (this package is cordis-free, so copy arrives via props). */
 export interface MarkdownCodeLabels {
   /** Copy-button idle label. */
@@ -54,18 +80,10 @@ function remoteImageUrl(url: string): string | undefined {
 /** Build the component table; while `streaming`, fences render the plain arm (see CodeBlock). */
 function buildComponents(streaming: boolean, codeLabels?: MarkdownCodeLabels): Components {
   return {
-    a: ({ href = '', children }) => {
-      const safeHref = sanitizeUrl(href)
-      if (safeHref === '') return <>{children}</>
-      const external = ['http:', 'https:'].includes(new URL(safeHref).protocol)
-      return (
-        <a
-          href={safeHref}
-          {...(external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
-        >
-          {children}
-        </a>
-      )
+    a: ({ href = '', children }) => renderSafeLink(href, children),
+    code: ({ className, children }) => {
+      const href = typeof children === 'string' ? inlineCodeHttpUrl(children) : undefined
+      return <code className={className}>{href === undefined ? children : renderSafeLink(href, children)}</code>
     },
     img: ({ alt = '', src = '' }) => {
       const imageSrc = remoteImageUrl(src)
@@ -88,10 +106,11 @@ function buildComponents(streaming: boolean, codeLabels?: MarkdownCodeLabels): C
     ),
     // Fenced blocks route through the shared CodeBlock (shiki for registered
     // grammars, identical-geometry plain fallback for unknown/absent
-    // languages); inline code keeps the default <code> path (the :not(pre)
-    // rule styles it). While the message streams, the fence renders the
-    // plain arm — retokenizing a growing fence on every chunk is quadratic
-    // main-thread work; the finalize swap highlights it once.
+    // languages); inline code keeps the <code> path (the :not(pre) rule
+    // styles it), with a safe anchor only for complete HTTP(S) values. While
+    // the message streams, the fence renders the plain arm — retokenizing a
+    // growing fence on every chunk is quadratic main-thread work; the
+    // finalize swap highlights it once.
     pre: ({ children }) => {
       // The markdown pipeline always hands `pre` its single `code` element;
       // the undefined arm guards a react-markdown representation change.
@@ -126,7 +145,8 @@ const streamingComponents = buildComponents(true)
  * component table memoizes on its identity and a fresh literal per render
  * would rebuild it every streaming chunk.
  * @returns A GFM document with TeX math rendered through KaTeX; raw HTML,
- * relative links, and unsafe protocols are disabled, while absolute HTTP(S)
+ * relative links, and unsafe protocols are disabled; complete HTTP(S)
+ * inline-code values become safe external links, while absolute HTTP(S)
  * images render directly.
  */
 export function MarkdownText({ text, streaming = false, codeLabels }: {
