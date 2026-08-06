@@ -319,6 +319,9 @@ importers:
       '@deepseek-ai/dsh-commands':
         specifier: workspace:*
         version: link:../packages/ui/commands
+      '@deepseek-ai/dsh-compact':
+        specifier: workspace:*
+        version: link:../packages/compact/compact
       '@deepseek-ai/dsh-compact-basic':
         specifier: workspace:*
         version: link:../packages/compact/compact-basic

@@ -1323,6 +1323,49 @@ describe('workspace context request injection', () => {
     }
   })
 
+  it('folds a compacted baseline into the next entering pre-step before another filesystem touch', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'first post-compaction request rule')
+      const ctx = new Context()
+      await mountWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
+      const agent = stubAgent(root)
+      await composeBaselinePrefix(ctx, agent)
+      const baseline = baselineEvents(agent)[0]
+      expect(baseline).toBeDefined()
+
+      agent.session.append('user/message', createUserMessage({
+        content: [{ type: 'text', text: 'compacted summary' }],
+        source: { kind: 'plugin', plugin: 'compact' },
+      }), {
+        surfaceOp: { op: 'replace', start: baseline!.seq, end: baseline!.seq },
+        sourceEventSeqs: [baseline!.seq],
+      })
+      const prompt = createUserMessage({
+        content: [{ type: 'text', text: 'continue after compaction' }],
+        source: { kind: 'user' },
+      })
+
+      const decision = await agentEvents(ctx, agent).waterfall(
+        'agent/pre-step',
+        { messages: [prompt], turn: 2, step: 1, signal: AbortSignal.timeout(1000) },
+        () => Promise.resolve({ kind: 'enter' as const, messages: [prompt] }),
+      )
+
+      if (decision.kind !== 'enter') throw new Error('post-compaction request was rejected')
+      expect(decision.messages).toHaveLength(2)
+      expect(decision.messages[0]).toBe(prompt)
+      expect(decision.messages[1]?.source).toMatchObject({ kind: 'workspace-instructions', baseline: true })
+      expect(blocksText(decision.messages[1]?.content)).toContain('first post-compaction request rule')
+      expect(agent.inbox.nextStep).toEqual([])
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
   it('recomposes the baseline from current files when a resumed session edited it offline', async () => {
     const root = await tempRepo()
     const home = await tempRepo()

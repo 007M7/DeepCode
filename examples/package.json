@@ -21,6 +21,7 @@
     "@deepseek-ai/dsh-code-runtime-worker": "workspace:*",
     "@deepseek-ai/dsh-command-goal": "workspace:*",
     "@deepseek-ai/dsh-commands": "workspace:*",
+    "@deepseek-ai/dsh-compact": "workspace:*",
     "@deepseek-ai/dsh-compact-basic": "workspace:*",
     "@deepseek-ai/dsh-compact-tool-result-prune": "workspace:*",
     "@deepseek-ai/dsh-credentials-local": "workspace:*",
