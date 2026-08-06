@@ -107,7 +107,7 @@ function onInboxMessage(
   agent: Agent,
   listener: (message: UserMessage) => void,
 ): () => void {
-  return ctx.on('agent/inbox/inserted', (subject, { message }) => {
+  return ctx.on('agent/inbox/inserted', ({ agent: subject, message }) => {
     if (subject === agent) listener(message)
   })
 }
@@ -118,7 +118,7 @@ function onClaimedMessage(
   agent: Agent,
   listener: (message: UserMessage) => void,
 ): () => void {
-  return ctx.on('agent/inbox/claimed', (subject, { message }) => {
+  return ctx.on('agent/inbox/claimed', ({ agent: subject, message }) => {
     if (subject === agent) listener(message)
   })
 }
@@ -247,7 +247,7 @@ describe('same-session goal driving', () => {
 
   it('maps a downstream step rejection to blocked without entering the round', async () => {
     const test = await harness([])
-    test.ctx.on('agent/pre-step', (_agent, messages, _signal, next) => messages[0]?.source.kind === 'goal'
+    test.ctx.on('agent/pre-step', ({ messages }, next) => messages[0]?.source.kind === 'goal'
       ? Promise.resolve({ kind: 'reject' as const })
       : next())
     test.ctx.goals.create(test.agent, { objective: 'respect policy' })
@@ -265,10 +265,10 @@ describe('same-session goal driving', () => {
 
   it('does not reserve again when a stopped-goal observer queues cancel-scoped work', async () => {
     const test = await harness([textResponse('human follow-up')])
-    test.ctx.on('agent/pre-step', (_agent, messages, _signal, next) => messages[0]?.source.kind === 'goal'
+    test.ctx.on('agent/pre-step', ({ messages }, next) => messages[0]?.source.kind === 'goal'
       ? Promise.resolve({ kind: 'reject' as const })
       : next())
-    test.ctx.on('goal/changed', (agent, change) => {
+    test.ctx.on('goal/changed', ({ agent, change }) => {
       if (change.operation === 'block') agent.followup(createUserMessage({ content: [{ type: 'text', text: 'inspect the blocker' }], source: { kind: 'user' } }))
     })
     test.ctx.goals.create(test.agent, { objective: 'stop and inspect' })
@@ -370,7 +370,7 @@ describe('same-session goal driving', () => {
   it('rechecks revision after downstream prompt hooks before admitting', async () => {
     const test = await harness([textResponse('new revision')])
     let edited = false
-    test.ctx.on('agent/pre-step', (agent, messages, _signal, next) => {
+    test.ctx.on('agent/pre-step', ({ agent, messages }, next) => {
       if (messages[0]?.source.kind === 'goal' && !edited) {
         edited = true
         const current = test.ctx.goals.get(agent)
@@ -389,7 +389,7 @@ describe('same-session goal driving', () => {
 
   it('does not block a goal that downstream paused before rejecting its prompt', async () => {
     const test = await harness([])
-    test.ctx.on('agent/pre-step', async (agent, messages, _context, next) => {
+    test.ctx.on('agent/pre-step', async ({ agent, messages }, next) => {
       if (!messages.some(message => message.source.kind === 'goal' && message.source.round > 0)) {
         return next()
       }
@@ -432,7 +432,7 @@ describe('same-session goal driving', () => {
       test.agent.inbox.prepend('next-step', roundZeroContext)
     })
     let edited = false
-    test.ctx.on('agent/pre-step', async (agent, messages, _context, next) => {
+    test.ctx.on('agent/pre-step', async ({ agent, messages }, next) => {
       const decision = await next()
       if (!messages.some(message => message.source.kind === 'goal' && message.source.round > 0) || edited) return decision
       edited = true
@@ -513,8 +513,10 @@ describe('same-session goal driving', () => {
     const test = await harness([])
     test.ctx.on('session/flush', () => Promise.reject(new Error('clear checkpoint failed')))
     agentEvents(test.ctx, test.agent).emit('goal/changed', {
-      operation: 'clear',
-      ref: { id: GoalId('cleared-goal'), revision: 2 },
+      change: {
+        operation: 'clear',
+        ref: { id: GoalId('cleared-goal'), revision: 2 },
+      },
     })
     await new Promise<void>((resolve) => { setImmediate(resolve) })
 
@@ -529,7 +531,7 @@ describe('same-session goal driving', () => {
     ])
     // The llm-retry shape: schedule one retry for the failed goal-round request.
     let retried = false
-    test.ctx.on('agent/request-error', async (_subject) => {
+    test.ctx.on('agent/request-error', async (_payload) => {
       if (!retried) {
         retried = true
         return { kind: 'retry' }
@@ -552,7 +554,7 @@ describe('same-session goal driving', () => {
     // attempt through cancel-requested) and THEN throws: the catch finds no
     // matching reservation and must not reschedule a paused goal.
     let fired = false
-    test.ctx.on('agent/pre-step', async (agent, messages, _signal, next) => {
+    test.ctx.on('agent/pre-step', async ({ agent, messages }, next) => {
       if (messages[0]?.source.kind === 'goal' && !fired) {
         fired = true
         agent.cancel({ kind: 'user' })
@@ -576,7 +578,7 @@ describe('same-session goal driving', () => {
     // Registered after goal-session's own listener: the throw propagates back
     // through goal-session's next() await, dropping the whole step proposal.
     let threw = false
-    test.ctx.on('agent/pre-step', async (_agent, messages, _signal, next) => {
+    test.ctx.on('agent/pre-step', async ({ messages }, next) => {
       if (messages[0]?.source.kind === 'goal' && !threw) {
         threw = true
         throw new Error('downstream pre-step hook exploded')
@@ -598,7 +600,7 @@ describe('same-session goal driving', () => {
       textResponse('goal round ran'),
     ])
     let retried = false
-    test.ctx.on('agent/request-error', async (_subject) => {
+    test.ctx.on('agent/request-error', async (_payload) => {
       if (!retried) {
         retried = true
         return { kind: 'retry' }
@@ -721,7 +723,7 @@ describe('same-session goal driving', () => {
   it('fails a post-hook read closed before the prompt can enter history', async () => {
     const test = await harness([])
     let armed = true
-    test.ctx.on('agent/pre-step', (_agent, messages, _signal, next) => {
+    test.ctx.on('agent/pre-step', ({ messages }, next) => {
       if (messages[0]?.source.kind === 'goal' && armed) {
         armed = false
         vi.spyOn(test.ctx.goals, 'get').mockImplementationOnce(() => {
@@ -809,7 +811,7 @@ describe('same-session goal driving', () => {
   it('rejects the step when downstream cancellation clears the reservation', async () => {
     const test = await harness([])
     let cancelled = false
-    test.ctx.on('agent/pre-step', (agent, messages, _signal, next) => {
+    test.ctx.on('agent/pre-step', ({ agent, messages }, next) => {
       if (messages[0]?.source.kind === 'goal' && !cancelled) {
         cancelled = true
         agent.cancel({ kind: 'user' })
@@ -864,7 +866,7 @@ describe('same-session goal driving', () => {
   it('resets process-local scheduling state at a session-start edge', async () => {
     const test = await harness([textResponse('after explicit resume')])
     const created = test.ctx.goals.create(test.agent, { objective: 'restart safely', maxGoalRounds: 1 })
-    agentEvents(test.ctx, test.agent).emit('agent/session-start', 'resume')
+    agentEvents(test.ctx, test.agent).emit('agent/session-start', { source: 'resume' })
     await Promise.resolve()
 
     expect(test.ctx.goals.get(test.agent)).toMatchObject({ activation: 'disarmed', roundsStarted: 0 })
@@ -898,7 +900,7 @@ describe('same-session goal driving', () => {
     const test = await harness([textResponse('round one')])
     test.ctx.on('session/event', (session, event) => {
       if (session === test.agent.session && event.type === 'turn/end') {
-        agentEvents(test.ctx, test.agent).emit('agent/error', event.data.turn, 1, new Error('post-turn flush failed'))
+        agentEvents(test.ctx, test.agent).emit('agent/error', { turn: event.data.turn, step: 1, error: new Error('post-turn flush failed') })
       }
     })
     test.ctx.goals.create(test.agent, { objective: 'stop when durability is lost', maxGoalRounds: 8 })
@@ -923,7 +925,7 @@ describe('same-session goal driving', () => {
     await handle.dispose()
     const warn = vi.spyOn(test.ctx.logger, 'warn')
 
-    agentEvents(test.ctx, handle.agent).emit('agent/error', closed.data.turn, 1, new Error('late flush failure'))
+    agentEvents(test.ctx, handle.agent).emit('agent/error', { turn: closed.data.turn, step: 1, error: new Error('late flush failure') })
 
     expect(test.ctx.agents.get(handle.agent.id)).toBeUndefined()
     expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('goal-session'))
@@ -959,7 +961,7 @@ describe('same-session goal driving', () => {
 
   it('waits for work queued by a pause observer before considering the next round', async () => {
     const test = await harness(['hang', textResponse('inspection answer')])
-    test.ctx.on('goal/changed', (agent, change) => {
+    test.ctx.on('goal/changed', ({ agent, change }) => {
       if (agent === test.agent && change.operation === 'pause') {
         agent.followup(createUserMessage({ content: [{ type: 'text', text: 'inspect the pause' }], source: { kind: 'user' } }))
       }
@@ -982,7 +984,7 @@ describe('same-session goal driving', () => {
   it('does not re-block a goal the downstream veto already saw cancelled', async () => {
     const test = await harness([])
     let vetoed = false
-    test.ctx.on('agent/pre-step', (agent, messages, _signal, next) => {
+    test.ctx.on('agent/pre-step', ({ agent, messages }, next) => {
       if (messages[0]?.source.kind === 'goal' && !vetoed) {
         vetoed = true
         agent.cancel({ kind: 'user' })
@@ -1007,7 +1009,7 @@ describe('same-session goal driving', () => {
   it('awaits a claimed reservation stuck in pre-step during teardown without cancelling', async () => {
     const test = await harness([])
     let release: (() => void) | undefined
-    test.ctx.on('agent/pre-step', async (_agent, messages, _signal, next) => {
+    test.ctx.on('agent/pre-step', async ({ messages }, next) => {
       if (messages[0]?.source.kind === 'goal' && release === undefined) {
         await new Promise<void>((resolve) => { release = resolve })
       }

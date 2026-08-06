@@ -60,17 +60,17 @@ describe('Agent', () => {
     ctx.on('session/event', (session, event) => {
       if (session === agent.session && event.type === 'turn/start') lifecycle.push('turn/start')
     })
-    ctx.on('agent/inbox/inserted', (subject, event) => {
-      if (subject === agent) inserted.push(event)
+    ctx.on('agent/inbox/inserted', ({ agent: subject, message }) => {
+      if (subject === agent) inserted.push({ message })
     })
-    ctx.on('agent/inbox/claimed', (subject, event) => {
+    ctx.on('agent/inbox/claimed', ({ agent: subject, message, turn }) => {
       if (subject === agent) {
         lifecycle.push('agent/inbox/claimed')
-        claimed.push(event)
+        claimed.push({ message, turn })
       }
     })
-    ctx.on('agent/inbox/discarded', (subject, event) => {
-      if (subject === agent) discarded.push(event)
+    ctx.on('agent/inbox/discarded', ({ agent: subject, message }) => {
+      if (subject === agent) discarded.push({ message })
     })
     const context = createUserMessage({
       content: [{ type: 'text', text: 'discard me' }],
@@ -114,7 +114,7 @@ describe('Agent', () => {
     const ctx = await harness(new MockAdapter([textResponse('ok')]))
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     const statuses: string[] = []
-    ctx.on('agent/status', (subject, status) => {
+    ctx.on('agent/status', ({ agent: subject, status }) => {
       if (subject === agent) statuses.push(status)
     })
 
@@ -152,7 +152,7 @@ describe('Agent', () => {
     const ctx = await harness(new MockAdapter([textResponse('ok')]))
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    ctx.on('agent/status', (_subject, status) => {
+    ctx.on('agent/status', ({ status }) => {
       throw new Error(`bad ${status} listener`)
     })
 
