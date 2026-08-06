@@ -131,7 +131,7 @@ export function apply(ctx: Context): void {
 
   // The per-session input machine registry (InputService face; published as
   // ctx.conversation.input by the service below sharing this one instance).
-  const inputHub = new InputHub(ctx)
+  const inputHub = new InputHub(ctx, t)
 
   // Decision 19/20: the input machine feeds every session-scope slot
   // component through the standard provide channel — the 'input' hook plus

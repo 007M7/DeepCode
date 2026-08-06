@@ -247,9 +247,20 @@ export function InputBar({
     e.preventDefault()
     if (e.repeat) return // held-down Enter must not machine-gun sends
     if (locked || machineBusy) return
+    const accelerated = e.ctrlKey || e.metaKey
+    // Empty-draft accelerated Enter acts on the queue instead of the (empty)
+    // draft: the machine rejects empty drafts, so the gesture steers every
+    // still-pending queued message into the running turn (the dock's per-row
+    // steer button applied to the whole queue). Steering needs the same
+    // window as the per-row button: a running ordinary session.
+    if (accelerated && empty && running && subagent === null
+      && input.queue.some(row => row.placement === 'queued')) {
+      keyboard.steerQueue()
+      return
+    }
     keyboard.submit(resolveSubmitMode(
       running,
-      e.ctrlKey || e.metaKey ? 'accelerated' : 'enter',
+      accelerated ? 'accelerated' : 'enter',
       subagent === null,
     ))
   }
