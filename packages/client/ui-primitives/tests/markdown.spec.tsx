@@ -1,9 +1,8 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
-import type { Extension } from 'micromark-util-types'
 import { JsonBlock, MarkdownText, MessageText } from '@deepseek-ai/dsh-client-ui-primitives'
-import { remarkMathCompatibility } from '../src/markdown/remarkMathCompatibility.ts'
+import { mathCompatibility } from '../src/markdown/mathCompatibility.ts'
 
 afterEach(cleanup)
 
@@ -321,11 +320,11 @@ describe('MarkdownText', () => {
     expect(container.querySelector('pre code')?.textContent).toContain('$$x \\tag{1}$$')
   })
 
-  it('registers the compatibility extension on a bare remark processor', () => {
-    const data: { micromarkExtensions?: Extension[] } = {}
-    remarkMathCompatibility.call({ data: () => data })
+  it('exposes the compatibility syntax as a micromark extension', () => {
+    const extension = mathCompatibility()
 
-    expect(data.micromarkExtensions).toHaveLength(1)
+    expect(Object.keys(extension)).toEqual(['flow', 'text'])
+    expect(mathCompatibility()).toBe(extension)
   })
 
   it('defers TeX rendering while streaming so incomplete formulas never flash KaTeX errors', () => {
