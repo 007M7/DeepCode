@@ -533,24 +533,13 @@ export async function seedSession(scaffold: WebScaffold, fixtureText: string, id
 
 /**
  * Normalize an aria snapshot: uuid, cwd, workspace-basename, duration, and
- * decode-throughput volatility collapse to stable tokens, and the stats line's
- * wall-clock-gated segments drop out entirely.
+ * decode-throughput volatility collapse to stable tokens.
  *
  * Throughput needs a token for the same reason durations do, and no fixture
  * can supply one: the figure divides a replayed step's output tokens by the
  * wall time the local run took to stream them, so it moves between two runs
  * on one machine (measured 69 → 70 tok/s) and swings wildly on a fast replay
  * (26333 tok/s for a 3 ms stream).
- *
- * Tokenizing those values is not enough, because `StatsLine` renders each such
- * segment only while its measurement exceeds zero (`llmMs`, `toolMs`, and
- * `decodeMs` all gate on `> 0`). A replay that finishes a step inside one
- * millisecond therefore omits the segment a slower machine keeps, and the
- * golden would record how fast the recording machine was rather than what the
- * page shows: goldens recorded across this suite disagree on the `LLM` segment
- * for exactly that reason, and CI failed on whichever test happened to run on
- * a slow enough runner. Dropping the segments makes presence stop deciding.
- * `TTFT avg` stays: it gates on a step count the fixture determines.
  */
 function normalizeAria(snapshot: string, workspaceCwd: string): string {
   // The session heading renders the workspace's basename, not the full
@@ -571,13 +560,6 @@ function normalizeAria(snapshot: string, workspaceCwd: string): string {
       duration => duration.startsWith('约') ? duration : '{{duration}}',
     )
     .replace(/\d+(?:\.\d+)?(?= tok\/s(?!\w))/g, '{{throughput}}')
-    // Each removal takes one adjacent separator with it, so nothing is left
-    // holding a dangling `·` or a doubled space: a segment followed by its
-    // intra-group separator loses that, and one ending its group loses the
-    // space in front of it instead.
-    .replace(/(?:LLM|Tool call|工具调用) \{\{duration\}\} · /g, '')
-    .replace(/ (?:LLM|Tool call|工具调用) \{\{duration\}\}/g, '')
-    .replace(/ (?:· )?\{\{throughput\}\} tok\/s/g, '')
     // Message IconActions clocks widen by calendar day/year; collapse every
     // shape so goldens stay stable across midnight and year boundaries.
     .replace(/\d{4}年\d{1,2}月\d{1,2}日 \d{2}:\d{2}/g, '{{clock}}')
