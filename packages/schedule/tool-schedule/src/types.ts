@@ -13,7 +13,7 @@ export type ScheduleId = Branded<'ScheduleId'>
 export interface AfterScheduleRecord {
   /** Session-local stable identity. */
   readonly id: ScheduleId
-  /** Rule discriminator; v1 supports only delayed one-shot reminders. */
+  /** Rule discriminator for a delayed one-shot reminder. */
   readonly kind: 'after'
   /** Trimmed reminder content supplied at creation. */
   readonly prompt: string
@@ -23,8 +23,33 @@ export interface AfterScheduleRecord {
   readonly scheduledAt: string
 }
 
+/** Durable one-shot reminder created from an absolute instant. */
+export interface AtScheduleRecord {
+  /** Session-local stable identity. */
+  readonly id: ScheduleId
+  /** Rule discriminator for an absolute one-shot reminder. */
+  readonly kind: 'at'
+  /** Trimmed user-authored reminder content. */
+  readonly prompt: string
+  /** Four-digit-year RFC 3339 UTC target. */
+  readonly scheduledAt: string
+}
+
+/** Structured local-calendar input accepted by `schedule_create`. */
+export interface LocalAtInput {
+  /** Four-digit ISO calendar date. */
+  readonly date: string
+  /** Local wall-clock time with optional one-to-three digit milliseconds. */
+  readonly time: string
+  /** Explicit IANA zone; omit only when current request authority permits the Session zone. */
+  readonly time_zone?: string
+}
+
+/** Absolute selector accepted by `schedule_create`. */
+export type AtInput = string | LocalAtInput
+
 /** The v1 durable reminder record union. */
-export type ScheduleRecord = AfterScheduleRecord
+export type ScheduleRecord = AfterScheduleRecord | AtScheduleRecord
 
 /** Creates one durable reminder record. */
 export interface ScheduleCreateChange {
@@ -56,8 +81,8 @@ export type ScheduleState = 'scheduled' | 'overdue'
 /** Fixed v1 delivery boundary: the original session must be live. */
 export type ScheduleDeliveryMode = 'session-local'
 
-/** Complete model-facing view of one active after reminder. */
-export interface ScheduleView extends AfterScheduleRecord {
+/** Complete model-facing view of one active reminder. */
+export type ScheduleView = ScheduleRecord & {
   /** Whether the target remains in the future. */
   readonly state: ScheduleState
   /** Reminder delivery never leaves the owning session. */
@@ -82,6 +107,26 @@ export interface InvalidSelectorError {
 /** Stable error returned for an invalid rule or management argument. */
 export interface InvalidRuleError {
   readonly code: 'invalid_rule'
+  readonly message: string
+}
+
+/** Stable error returned for an invalid or unsupported IANA time zone. */
+export interface InvalidTimeZoneError {
+  readonly code: 'invalid_time_zone'
+  readonly message: string
+}
+
+/** Stable error returned when a local absolute time needs an explicit zone choice. */
+export interface TimeZoneConfirmationRequiredError {
+  readonly code: 'timezone_confirmation_required'
+  readonly message: string
+  readonly sessionTimeZone: string
+  readonly clientTimeZones: string[]
+}
+
+/** Stable error returned when an absolute target is not strictly future. */
+export interface NotFutureError {
+  readonly code: 'not_future'
   readonly message: string
 }
 
@@ -116,6 +161,9 @@ export type ScheduleToolError =
   | InvalidPromptError
   | InvalidSelectorError
   | InvalidRuleError
+  | InvalidTimeZoneError
+  | TimeZoneConfirmationRequiredError
+  | NotFutureError
   | TimeOutOfRangeError
   | CorruptScheduleLogError
   | PersistenceUncertainError

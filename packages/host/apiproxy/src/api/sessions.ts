@@ -22,7 +22,7 @@ declare module '@deepseek-ai/dsh-llm' {
      * echoed provisional message with the event stream). kind stays `'user'` — the model face
      * carries no transport vocabulary; rpcId is an extra durable-JSON field passed back to the client with the event.
      */
-    'user-rpc': { kind: 'user'; rpcId: RpcId }
+    'user-rpc': { kind: 'user'; rpcId: RpcId; clientTimeZone: string }
   }
 }
 
@@ -204,12 +204,19 @@ export interface SessionsApi {
   /**
    * Creates a real session and its idle agent. At most one of `workspaceId` /
    * `cwd` is accepted; an omitted project uses the Host cwd. A caller may
-   * preallocate `sessionId`: retries with the same id and cwd return the same
-   * session, while a different cwd fails with `session-conflict`. Workspace
+   * preallocate `sessionId`: retries with the same id, cwd, and canonical time
+   * zone return the same session, while a different owned identity fails with
+   * `session-conflict`. A headerless persisted session remains compatible with
+   * the same cwd but never absorbs the request zone. Workspace
    * creation attaches the session after publication; an attach failure
    * returns `workspace-attach-failed` with the published session id.
    */
-  create(request: RpcRequest<{ workspaceId?: WorkspaceId; cwd?: string; sessionId?: SessionId }>):
+  create(request: RpcRequest<{
+    workspaceId?: WorkspaceId
+    cwd?: string
+    sessionId?: SessionId
+    timeZone?: string
+  }>):
   Promise<RpcResponse<{ sessionId: SessionId }>>
 
   /**
@@ -289,7 +296,12 @@ export interface SessionsApi {
   Promise<RpcResponse<{ sessionId: SessionId }>>
 
   /** Sends a message to an ordinary session Agent. Session-backed subagents reject with `agent-busy` and use `subagent.prompt`. */
-  prompt(request: RpcRequest<{ sessionId: SessionId; mode: 'queue' | 'steer'; content: ContentBlock[] }>):
+  prompt(request: RpcRequest<{
+    sessionId: SessionId
+    mode: 'queue' | 'steer'
+    content: ContentBlock[]
+    clientTimeZone?: string
+  }>):
   Promise<RpcResponse<{ accepted: true; command?: { kind: 'success'; text?: string } }>>
 
   /**

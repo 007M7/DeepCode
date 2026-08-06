@@ -6,11 +6,14 @@
 import type { Context } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import { decodeTimeContextSource } from '@deepseek-ai/dsh-time-context'
+import type { TimeContextAuthority } from '@deepseek-ai/dsh-time-context'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView } from '@deepseek-ai/dsh-tools'
 import {
   allocateScheduleId,
   createAfterScheduleRecord,
+  createAtScheduleRecord,
   foldScheduleEvents,
   ScheduleId,
   ScheduleInputError,
@@ -20,7 +23,7 @@ import {
 import { flushSchedulePersistence } from './persistence.ts'
 import { runScheduleTransaction } from './transaction.ts'
 import type {
-  AfterScheduleRecord,
+  AtInput,
   PersistenceUncertainError,
   ScheduleCreateValue,
   ScheduleDeleteValue,
@@ -28,22 +31,38 @@ import type {
   InternalScheduleError,
   ScheduleListValue,
   SchedulePersistenceOperation,
+  ScheduleRecord,
   ScheduleToolError,
 } from './types.ts'
 
-const VIEW_SCHEMA = {
+const SHARED_VIEW_PROPERTIES = {
+  id: { type: 'string', required: true },
+  prompt: { type: 'string', required: true },
+  scheduledAt: { type: 'string', required: true },
+  state: { type: 'string', required: true, enum: ['scheduled', 'overdue'] },
+  deliveryMode: { type: 'string', required: true, const: 'session-local' },
+} as const
+
+const AFTER_VIEW_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    id: { type: 'string', required: true },
+    ...SHARED_VIEW_PROPERTIES,
     kind: { type: 'string', required: true, const: 'after' },
-    prompt: { type: 'string', required: true },
     afterSeconds: { type: 'integer', required: true },
-    scheduledAt: { type: 'string', required: true },
-    state: { type: 'string', required: true, enum: ['scheduled', 'overdue'] },
-    deliveryMode: { type: 'string', required: true, const: 'session-local' },
   },
 } as const
+
+const AT_VIEW_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    ...SHARED_VIEW_PROPERTIES,
+    kind: { type: 'string', required: true, const: 'at' },
+  },
+} as const
+
+const VIEW_SCHEMA = { oneOf: [AFTER_VIEW_SCHEMA, AT_VIEW_SCHEMA] } as const
 
 /** Build one exact two-field error schema while preserving its literal code. */
 function basicErrorSchema<const C extends string>(code: C) {
@@ -61,10 +80,23 @@ const BASIC_ERROR_SCHEMAS = [
   basicErrorSchema('invalid_prompt'),
   basicErrorSchema('invalid_selector'),
   basicErrorSchema('invalid_rule'),
+  basicErrorSchema('invalid_time_zone'),
+  basicErrorSchema('not_future'),
   basicErrorSchema('time_out_of_range'),
   basicErrorSchema('corrupt_schedule_log'),
   basicErrorSchema('internal_error'),
 ] as const
+
+const TIME_ZONE_CONFIRMATION_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    code: { type: 'string', required: true, const: 'timezone_confirmation_required' },
+    message: { type: 'string', required: true },
+    sessionTimeZone: { type: 'string', required: true },
+    clientTimeZones: { type: 'array', required: true, items: { type: 'string' } },
+  },
+} as const
 
 const PERSISTENCE_ERROR_SCHEMA = {
   type: 'object',
@@ -77,7 +109,11 @@ const PERSISTENCE_ERROR_SCHEMA = {
   },
 } as const
 
-const ERROR_SCHEMAS = [...BASIC_ERROR_SCHEMAS, PERSISTENCE_ERROR_SCHEMA] as const
+const ERROR_SCHEMAS = [
+  ...BASIC_ERROR_SCHEMAS,
+  TIME_ZONE_CONFIRMATION_SCHEMA,
+  PERSISTENCE_ERROR_SCHEMA,
+] as const
 
 const CREATE_OUTPUT_SCHEMA = { oneOf: [VIEW_SCHEMA, ...ERROR_SCHEMAS] } as const
 const LIST_OUTPUT_SCHEMA = {
@@ -110,9 +146,10 @@ const DELETE_OUTPUT_SCHEMA = {
 } as const
 
 const CREATE_DESCRIPTION =
-  'Create one reminder in the current session. v1 accepts only a non-empty prompt and a positive '
-  + 'safe-integer after_seconds delay. Delivery is session-local: the reminder runs on time only '
-  + 'while this session is live and otherwise becomes overdue until the session is resumed.'
+  'Create one reminder in the current session. Supply a non-empty prompt and exactly one selector: '
+  + 'a positive safe-integer after_seconds delay, or at as a strict offset date-time or local '
+  + 'date/time object. Delivery is session-local: the reminder runs on time only while this session '
+  + 'is live and otherwise becomes overdue until the session is resumed.'
 
 const LIST_DESCRIPTION =
   'List every active reminder in the current session in creation order, including its exact id, '
@@ -174,8 +211,84 @@ function persistenceError(
   }
 }
 
+/** Request-local zone evidence returned with an implicit-local confirmation failure. */
+interface AtTimeZoneContext {
+  readonly implicitTimeZone?: string
+  readonly sessionTimeZone: string
+  readonly clientTimeZones: string[]
+}
+
+/** Find the last time-context authority belonging to the currently open step. */
+function currentTimeContextAuthority(agent: Agent): TimeContextAuthority | undefined {
+  const events = agent.session.events
+  let start = -1
+  let turn = 0
+  let step = 0
+  for (let index = events.length - 1; index >= 0; index--) {
+    const event = events[index]
+    /* v8 ignore next -- the loop bounds index to the dense Session event array. */
+    if (event === undefined) continue
+    if (event.type === 'step/end') return undefined
+    if (event.type === 'step/start') {
+      start = index
+      turn = event.data.turn
+      step = event.data.step
+      break
+    }
+  }
+  if (start < 0) return undefined
+  for (let index = events.length - 1; index > start; index--) {
+    const event = events[index]
+    /* v8 ignore next -- the loop bounds index to the dense Session event array. */
+    if (event === undefined || event.type !== 'user/message') continue
+    const source = event.data.source
+    if (source.kind !== 'plugin' || source.plugin !== 'time-context') continue
+    let decoded: ReturnType<typeof decodeTimeContextSource>
+    try {
+      decoded = decodeTimeContextSource(source)
+    } catch {
+      return undefined
+    }
+    if (decoded.authority.turn === turn && decoded.authority.step === step) {
+      return decoded.authority
+    }
+  }
+  return undefined
+}
+
+/** Resolve the only authority state that may supply an omitted local time zone. */
+function atTimeZoneContext(agent: Agent): AtTimeZoneContext {
+  const sessionTimeZone = agent.session.header.timeZone ?? 'unavailable'
+  const authority = currentTimeContextAuthority(agent)
+  const clientTimeZones = authority === undefined || authority.client.kind === 'missing'
+    ? []
+    : authority.client.kind === 'resolved'
+      ? [authority.client.timeZone]
+      : [...authority.client.timeZones]
+  const implicitTimeZone = sessionTimeZone !== 'unavailable'
+    && authority?.session.kind === 'resolved'
+    && authority.session.timeZone === sessionTimeZone
+    && authority.client.kind === 'resolved'
+    && authority.client.timeZone === sessionTimeZone
+    ? sessionTimeZone
+    : undefined
+  return {
+    ...(implicitTimeZone === undefined ? {} : { implicitTimeZone }),
+    sessionTimeZone,
+    clientTimeZones,
+  }
+}
+
 /** Translate a contained input failure to the closed tool union. */
-function inputError(error: ScheduleInputError): ScheduleToolError {
+function inputError(error: ScheduleInputError, timeZone?: AtTimeZoneContext): ScheduleToolError {
+  if (error.code === 'timezone_confirmation_required') {
+    return {
+      code: error.code,
+      message: error.message,
+      sessionTimeZone: timeZone?.sessionTimeZone ?? 'unavailable',
+      clientTimeZones: timeZone?.clientTimeZones ?? [],
+    }
+  }
   return { code: error.code, message: error.message }
 }
 
@@ -211,18 +324,24 @@ async function preflight(
 }
 
 /** Validate the v1 selector constraints that the open parameter root cannot express. */
-function validateCreateArgs(args: { prompt: string; after_seconds: number }): ScheduleToolError | undefined {
+function validateCreateArgs(args: {
+  prompt: string
+  after_seconds?: number
+  at?: AtInput
+}): ScheduleToolError | undefined {
   const keys = Object.keys(args as unknown as Record<string, unknown>)
-  if (keys.some(key => key !== 'prompt' && key !== 'after_seconds')) {
+  if (keys.some(key => key !== 'prompt' && key !== 'after_seconds' && key !== 'at')
+    || Number(args.after_seconds !== undefined) + Number(args.at !== undefined) !== 1) {
     return {
       code: 'invalid_selector',
-      message: 'schedule_create accepts exactly the after_seconds selector in this version.',
+      message: 'schedule_create accepts exactly one of after_seconds or at.',
     }
   }
   if (args.prompt.trim().length === 0) {
     return { code: 'invalid_prompt', message: 'prompt must be non-empty after trimming.' }
   }
-  if (!Number.isSafeInteger(args.after_seconds) || args.after_seconds <= 0) {
+  if (args.after_seconds !== undefined
+    && (!Number.isSafeInteger(args.after_seconds) || args.after_seconds <= 0)) {
     return { code: 'invalid_rule', message: 'after_seconds must be a positive safe integer.' }
   }
   return undefined
@@ -265,8 +384,22 @@ export function registerScheduleTools(
         },
         after_seconds: {
           type: 'number',
-          required: true,
           description: 'Positive safe-integer delay in seconds.',
+        },
+        at: {
+          description: 'Absolute target as strict offset RFC 3339 or local date/time with optional IANA zone.',
+          oneOf: [
+            { type: 'string' },
+            {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                date: { type: 'string', required: true },
+                time: { type: 'string', required: true },
+                time_zone: { type: 'string' },
+              },
+            },
+          ],
         },
       },
       output: { schema: CREATE_OUTPUT_SCHEMA, render: renderValue },
@@ -281,11 +414,26 @@ export function registerScheduleTools(
           const folded = foldForTool(agent)
           if (isToolError(folded)) return folded
           const id = allocateScheduleId(folded)
-          let record: AfterScheduleRecord
+          let record: ScheduleRecord
+          let timeZone: AtTimeZoneContext | undefined
           try {
-            record = createAfterScheduleRecord(id, args.prompt, args.after_seconds, Date.now())
+            if (args.after_seconds === undefined) {
+              const at = args.at as AtInput
+              timeZone = typeof at === 'string' || at.time_zone !== undefined
+                ? undefined
+                : atTimeZoneContext(agent)
+              record = createAtScheduleRecord(
+                id,
+                args.prompt,
+                at,
+                Date.now(),
+                timeZone?.implicitTimeZone,
+              )
+            } else {
+              record = createAfterScheduleRecord(id, args.prompt, args.after_seconds, Date.now())
+            }
           } catch (error: unknown) {
-            return error instanceof ScheduleInputError ? inputError(error) : internalError()
+            return error instanceof ScheduleInputError ? inputError(error, timeZone) : internalError()
           }
           const cancelledBeforeAppend = cancellationPlaceholder(exec.signal)
           if (cancelledBeforeAppend !== undefined) return cancelledBeforeAppend

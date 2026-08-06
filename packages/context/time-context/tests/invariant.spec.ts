@@ -22,13 +22,27 @@ function event(
   content?: unknown[],
   plugin = 'time-context',
 ): SessionEvent<'user/message'> {
+  const position = /turn (\d+), step (\d+):/.exec(text)
+  const turn = Number(position?.[1] ?? '1')
+  const step = Number(position?.[2] ?? '1')
   return {
     type: 'user/message',
     seq: 0,
     time,
     data: createUserMessage({
       content: (content ?? [{ type: 'text', text }]) as ContentBlock[],
-      source: { kind: 'plugin', plugin },
+      source: plugin === 'time-context'
+        ? {
+          kind: 'plugin',
+          plugin,
+          authority: {
+            turn,
+            step,
+            session: { kind: 'unavailable' },
+            client: { kind: 'missing' },
+          },
+        }
+        : { kind: 'plugin', plugin },
     }),
   }
 }
@@ -40,6 +54,8 @@ function reading(
   timestamp = '2026-07-14T00:00:00+00:00[UTC]',
 ): string {
   return `Time sampled while preparing turn ${turn}, step ${step}: ${timestamp}\n`
+    + 'Session time zone: unavailable.\n'
+    + 'Client time zone for this request: missing.\n'
     + `Elapsed since the preceding ${baseline}: unavailable.`
 }
 
@@ -63,9 +79,19 @@ function preparing(turn: number, step: number): Session {
 }
 
 function appendReading(session: Session, text: string): void {
+  const position = /turn (\d+), step (\d+):/.exec(text)
   session.append('user/message', createUserMessage({
     content: [{ type: 'text', text }],
-    source: { kind: 'plugin', plugin: 'time-context' },
+    source: {
+      kind: 'plugin',
+      plugin: 'time-context',
+      authority: {
+        turn: Number(position?.[1] ?? '1'),
+        step: Number(position?.[2] ?? '1'),
+        session: { kind: 'unavailable' },
+        client: { kind: 'missing' },
+      },
+    },
   }), { surfaceOp: 'append' })
 }
 
@@ -73,6 +99,8 @@ describe('time-context invariants', () => {
   it('accepts a reading whose turn, step, baseline, and timestamp agree', async () => {
     const ctx = await setup()
     const text = 'Time sampled while preparing turn 2, step 3: 2026-07-14T00:00:00+00:00[UTC]\n'
+      + 'Session time zone: unavailable.\n'
+      + 'Client time zone for this request: missing.\n'
       + 'Elapsed since the preceding step context: 4m 2s.'
     expect(() => { ctx.emit('session/event', preparing(2, 3), event(text)) }).not.toThrow()
   })
@@ -129,20 +157,25 @@ describe('time-context invariants', () => {
     const session = preparing(1, 2)
     session.append('turn/end', { turn: 1, reason: { kind: 'aborted', reason: { kind: 'user' } } })
     expect(() => { ctx.emit('session/event', session, event(reading('1', '2', 'step context'))) })
-      .toThrow(/at a prompt boundary/)
+      .toThrow(/inside an open turn/)
   })
 
-  it('rejects a reading outside a prompt boundary', async () => {
+  it('accepts context-only settlement before step/start', async () => {
+    const ctx = await setup()
+    const session = Session.create(SessionId('time-invariant-turn-only'))
+    session.append('turn/start', { turn: 1 })
+    expect(() => { ctx.emit('session/event', session, event(reading())) }).not.toThrow()
+  })
+
+  it('rejects a reading outside its open preparation', async () => {
     const ctx = await setup()
     const ended = preparing(1, 1)
     ended.append('step/end', { turn: 1, step: 1 })
-    expect(() => { ctx.emit('session/event', ended, event(reading())) }).toThrow(/at a prompt boundary/)
-    const notEntered = Session.create(SessionId('time-invariant-turn-only'))
-    notEntered.append('turn/start', { turn: 1 })
-    expect(() => { ctx.emit('session/event', notEntered, event(reading())) }).toThrow(/at a prompt boundary/)
+    expect(() => { ctx.emit('session/event', ended, event(reading())) })
+      .toThrow(/expected turn 1\/step 2/)
     expect(() => {
       ctx.emit('session/event', Session.create(SessionId('time-invariant-empty')), event(reading()))
-    }).toThrow(/at a prompt boundary/)
+    }).toThrow(/inside an open turn/)
   })
 
   it.each([

@@ -51,6 +51,36 @@ type PreparedStep =
   | { kind: 'reject' }
   | { kind: 'enter'; messages: UserMessage[]; assembly: PromptAssembly }
 
+/** The exact private time-context source shape that may span prompt assembly. */
+function isPreparationAuthority(message: UserMessage, turn: number, step: number): boolean {
+  const source = message.source as unknown
+  if (typeof source !== 'object' || source === null || Array.isArray(source)) return false
+  const record = source as Record<string, unknown>
+  if (record['kind'] !== 'plugin' || record['plugin'] !== 'time-context') return false
+  const authority = record['authority']
+  return typeof authority === 'object'
+    && authority !== null
+    && !Array.isArray(authority)
+    && (authority as Record<string, unknown>)['turn'] === turn
+    && (authority as Record<string, unknown>)['step'] === step
+}
+
+/**
+ * Invoke the concrete driver's private Inbox range primitive without adding a
+ * cross-package public method or a source-only package import.
+ */
+function claimPreparationRange(
+  inbox: Inbox,
+  start: number,
+  count: number,
+  turn: number,
+): UserMessage[] {
+  type DriverInbox = {
+    claimRange(target: InboxTarget, start: number, count: number, turn: number, publish?: boolean): UserMessage[]
+  }
+  return (inbox as unknown as DriverInbox).claimRange('next-step', start, count, turn)
+}
+
 /** Remove adapter-derived values before plugins propose the next request config. */
 function requestProposal(header: EpochHeader): LlmCallConfig {
   if (header.adapterDefaults === undefined) return header.config
@@ -231,15 +261,84 @@ export class ReactLoopAgent implements Agent {
     signal.throwIfAborted()
     const sections = renderContextSections(assembly)
     const context = this.runtimeContext.project(joinContextSections(sections), sections)
+    const proposal = context === undefined ? claimed : [...claimed, context]
+    const preparation = this.preparationEnvelope(position.turn, position.step)
+      .filter(message => !isPreparationAuthority(message, position.turn, position.step))
     const decision = await this.dispatch.waterfall(
-      'agent/pre-step', { messages: claimed, ...position, signal },
+      'agent/pre-step', { messages: [...proposal, ...preparation], ...position, signal },
       (): Promise<PreStepDecision> => Promise.resolve<PreStepDecision>({
         kind: 'enter',
-        messages: context === undefined ? claimed : [...claimed, context],
+        messages: [...proposal, ...preparation],
       }),
     )
     signal.throwIfAborted()
     return decision.kind === 'reject' ? decision : { ...decision, assembly }
+  }
+
+  /**
+   * Read the closed assembly envelope without consuming it. Non-authority
+   * messages enter the pre-step proposal; the final authority is resolved
+   * only after downstream pre-step transforms have settled.
+   */
+  private preparationEnvelope(turn: number, step: number): UserMessage[] {
+    const pending = this.inbox.nextStep
+    const first = pending.findIndex(message => isPreparationAuthority(message, turn, step))
+    if (first < 0) return []
+    let last = first
+    for (let index = first + 1; index < pending.length; index += 1) {
+      const message = pending[index]
+      if (message !== undefined && isPreparationAuthority(message, turn, step)) last = index
+    }
+    return pending.slice(first, last + 1)
+  }
+
+  /**
+   * Claim the closed assembly envelope. Messages before or after its first and
+   * last authority retain ordinary next-step ownership.
+   */
+  private claimPreparationEnvelope(turn: number, step: number): UserMessage[] {
+    const envelope = this.preparationEnvelope(turn, step)
+    const firstMessage = envelope[0]
+    if (firstMessage === undefined) return []
+    const first = this.inbox.nextStep.findIndex(message => message.id === firstMessage.id)
+    /* v8 ignore next -- preparationEnvelope returned a live next-step member. */
+    if (first < 0) throw new Error('preparation envelope moved before it could be claimed')
+    return claimPreparationRange(this.inbox, first, envelope.length, turn)
+  }
+
+  /**
+   * Close context-only assembly output inside a turn that never reached
+   * `step/start`. Each authority leaves the inbox before its surface append,
+   * so an append rejection fails closed instead of leaking it into a later
+   * turn. Steering and unrelated pending input are not touched.
+   */
+  private settlePreparationAuthorities(turn: number, step: number): void {
+    let finalAuthority: UserMessage | undefined
+    for (const authority of [...this.inbox.nextStep]) {
+      if (!isPreparationAuthority(authority, turn, step)) continue
+      const index = this.inbox.nextStep.findIndex(message => message.id === authority.id)
+      if (index < 0) continue
+      let claimed: UserMessage[]
+      try {
+        claimed = claimPreparationRange(this.inbox, index, 1, turn)
+      } catch (error: unknown) {
+        this.dispatch.emit('agent/error', { turn, step, error })
+        this.loopCtx.logger.warn(
+          `agent "${this.id}": failed to remove pre-step time context: ${errorChain(error)}`,
+        )
+        continue
+      }
+      finalAuthority = claimed.at(-1) ?? finalAuthority
+    }
+    if (finalAuthority === undefined) return
+    try {
+      this.session.append('user/message', finalAuthority, { surfaceOp: 'append' })
+    } catch (error: unknown) {
+      this.dispatch.emit('agent/error', { turn, step, error })
+      this.loopCtx.logger.warn(
+        `agent "${this.id}": dropped pre-step time context after append failed: ${errorChain(error)}`,
+      )
+    }
   }
 
   /** Open one turn before claiming its first proposed step. */
@@ -259,19 +358,27 @@ export class ReactLoopAgent implements Agent {
     phase.turn = turn
     let turnEnds: TurnEndReason | null = null
     let target: InboxTarget = 'next-turn'
+    let preparingStep: number | undefined
     try {
       while (true) {
         signal.throwIfAborted()
         const step = phase.step + 1
+        preparingStep = step
         const decision = await this.preStep(target, { turn, step })
         if (decision.kind === 'reject') {
           turnEnds = { kind: 'blocked' }
           return false
         }
-        if (turnEnds && decision.messages.length === 0) break
+        if (turnEnds && decision.messages.length === 0) {
+          this.claimPreparationEnvelope(turn, step)
+          preparingStep = undefined
+          break
+        }
         // A removed waking message or an enter decision rewritten to empty
         // still owns the initial turn boundary, but it spends no model call.
         if (phase.step === 0 && decision.messages.length === 0) {
+          this.claimPreparationEnvelope(turn, step)
+          preparingStep = undefined
           turnEnds = { kind: 'completed' }
           return false
         }
@@ -279,7 +386,14 @@ export class ReactLoopAgent implements Agent {
         this.session.append('step/start', { turn, step })
         phase.step = step
         try {
-          for (const message of decision.messages) {
+          const preparation = this.claimPreparationEnvelope(turn, step)
+          preparingStep = undefined
+          const finalAuthority = preparation.findLast(message =>
+            isPreparationAuthority(message, turn, step))
+          for (const message of [
+            ...decision.messages,
+            ...(finalAuthority === undefined ? [] : [finalAuthority]),
+          ]) {
             this.session.append('user/message', message, { surfaceOp: 'append' })
           }
           // max-tokens is sticky: once any step hits the ceiling, later steps
@@ -314,6 +428,10 @@ export class ReactLoopAgent implements Agent {
       }
       this.throwError(error)
     } finally {
+      if (preparingStep !== undefined) {
+        this.settlePreparationAuthorities(turn, preparingStep)
+        preparingStep = undefined
+      }
       try {
         // oxlint-disable-next-line typescript/no-non-null-assertion -- every exit assigns a turn ending
         this.session.append('turn/end', { turn, reason: turnEnds! })

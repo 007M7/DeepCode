@@ -11,7 +11,10 @@ import type { HostFrame, MuxFrame, RpcMessage, RpcRequest } from '../src/client/
 import { FixtureApiClient, createFixtureApi } from '../src/client/fixture.ts'
 
 const sid = (id: string): SessionId => id as SessionId
-const req = <P>(payload: P): RpcRequest<P> => ({ rpcId: RpcId(`t-${Math.abs(Math.sin(reqCount++)).toString(36).slice(2, 10)}`), payload })
+const req = <P>(payload: P): RpcRequest<P> => ({
+  rpcId: RpcId(`t-${Math.abs(Math.sin(reqCount++)).toString(36).slice(2, 10)}`),
+  payload: { timeZone: 'UTC', clientTimeZone: 'UTC', ...payload },
+})
 let reqCount = 0
 
 interface TimingHooks {
@@ -755,6 +758,79 @@ describe('createFixtureApi', () => {
     })
   })
 
+  it('mirrors canonical Session and message-bound client zone handling', async () => {
+    const api = createFixtureApi({ empty: true })
+    const sessionId = sid('fx-zone')
+    const alias = 'US/Eastern'
+    const canonical = new Intl.DateTimeFormat('en-US', { timeZone: alias })
+      .resolvedOptions().timeZone
+
+    await expect(api.sessions.create(req({ sessionId, timeZone: alias }))).resolves.toMatchObject({
+      result: { ok: true, value: { sessionId } },
+    })
+    await expect(api.sessions.create(req({ sessionId, timeZone: canonical }))).resolves.toMatchObject({
+      result: { ok: true, value: { sessionId } },
+    })
+    const conflict = await api.sessions.create(req({ sessionId, timeZone: 'Asia/Shanghai' }))
+    expect(conflict.result).toMatchObject({
+      ok: false,
+      error: {
+        code: 'session-conflict',
+        details: {
+          sessionId,
+          requestedTimeZone: 'Asia/Shanghai',
+          existingTimeZone: canonical,
+        },
+      },
+    })
+
+    const prompted = await api.sessions.prompt(req({
+      sessionId,
+      mode: 'queue',
+      content: [{ type: 'text', text: 'zone-bound' }],
+      clientTimeZone: alias,
+    }))
+    expect(prompted.result).toMatchObject({ ok: true })
+    const history = await api.sessions.history(req({ sessionId }))
+    if (!history.result.ok) throw new Error('fixture history failed')
+    const user = history.result.value.events.find(entry => entry.event.type === 'user/message')
+    expect(user?.event).toMatchObject({
+      type: 'user/message',
+      data: { source: { kind: 'user', clientTimeZone: canonical } },
+    })
+  })
+
+  it.each([
+    ['timeZone', undefined],
+    ['timeZone', 'CST'],
+    ['timeZone', 'Not/A_Real_Zone'],
+    ['clientTimeZone', undefined],
+    ['clientTimeZone', 'CST'],
+    ['clientTimeZone', 'Not/A_Real_Zone'],
+  ] as const)('rejects invalid fixture %s input %j', async (field, value) => {
+    const api = createFixtureApi({ empty: true })
+    if (field === 'timeZone') {
+      const created = await api.sessions.create(req({ timeZone: value }))
+      expect(created.result).toMatchObject({
+        ok: false,
+        error: { code: 'invalid-time-zone', details: { field, value: value ?? null } },
+      })
+      return
+    }
+    const created = await api.sessions.create(req({ timeZone: 'UTC' }))
+    if (!created.result.ok) throw new Error('fixture create failed')
+    const prompted = await api.sessions.prompt(req({
+      sessionId: created.result.value.sessionId,
+      mode: 'queue',
+      content: [{ type: 'text', text: 'rejected' }],
+      clientTimeZone: value,
+    }))
+    expect(prompted.result).toMatchObject({
+      ok: false,
+      error: { code: 'invalid-time-zone', details: { field, value: value ?? null } },
+    })
+  })
+
   it('attaches an existing ungrouped Session to a matching Workspace', async () => {
     const api = createFixtureApi()
     const sessionId = sid('fx-existing-ungrouped')
@@ -786,7 +862,12 @@ describe('createFixtureApi', () => {
       error: {
         code: 'session-conflict',
         message: `session ${existing.sessionId} already uses no cwd`,
-        details: { sessionId: existing.sessionId, requestedCwd: '/tmp/fixture' },
+        details: {
+          sessionId: existing.sessionId,
+          requestedCwd: '/tmp/fixture',
+          requestedTimeZone: 'UTC',
+          existingTimeZone: 'UTC',
+        },
       },
     })
   })
@@ -983,11 +1064,16 @@ describe('FixtureApiClient (protocol-level fake carrier)', () => {
       { query: 'fixture' },
       new AbortController().signal,
     )).result.ok).toBe(true)
-    const created = await client.sessions.create({})
+    const created = await client.sessions.create({ timeZone: 'UTC' })
     if (!created.result.ok) throw new Error('create failed')
     const id = created.result.value.sessionId
     expect((await client.sessions.history({ sessionId: id })).result.ok).toBe(true)
-    expect((await client.sessions.prompt({ sessionId: id, mode: 'queue', content: [{ type: 'text', text: '嗨' }] })).result.ok).toBe(true)
+    expect((await client.sessions.prompt({
+      sessionId: id,
+      mode: 'queue',
+      content: [{ type: 'text', text: '嗨' }],
+      clientTimeZone: 'UTC',
+    })).result.ok).toBe(true)
     expect((await client.sessions.cancel({ sessionId: id })).result.ok).toBe(true)
     expect((await client.host.describe({})).result.ok).toBe(true)
     expect((await client.workspace.list({})).result.ok).toBe(true)
@@ -998,7 +1084,7 @@ describe('FixtureApiClient (protocol-level fake carrier)', () => {
     const renamed = await client.workspace.rename({ workspaceId: wsid, title: 'via-client-2' })
     if (!renamed.result.ok) throw new Error('workspace rename failed')
     expect(renamed.result.value.workspace.title).toBe('via-client-2')
-    const attached = await client.sessions.create({ workspaceId: wsid })
+    const attached = await client.sessions.create({ workspaceId: wsid, timeZone: 'UTC' })
     if (!attached.result.ok) throw new Error('attached create failed')
     const moved = await client.workspace.insertSessionBefore({ workspaceId: wsid, sessionId: attached.result.value.sessionId })
     if (!moved.result.ok) throw new Error('workspace move failed')
@@ -1058,6 +1144,7 @@ describe('FixtureApiClient (protocol-level fake carrier)', () => {
     const created = await client.sessions.create({
       workspaceId: made.result.value.workspace.workspaceId,
       sessionId,
+      timeZone: 'UTC',
     })
     expect(created.result).toMatchObject({ ok: true, value: { sessionId } })
     const frames = await framesPromise
@@ -1066,6 +1153,7 @@ describe('FixtureApiClient (protocol-level fake carrier)', () => {
       sessionId,
       mode: 'queue',
       content: [{ type: 'text', text: 'retain' }],
+      clientTimeZone: 'UTC',
     })
     expect(rejected.result).toMatchObject({ ok: false, error: { code: 'agent-busy' } })
   })
@@ -1076,6 +1164,7 @@ describe('FixtureApiClient (protocol-level fake carrier)', () => {
     const partialResult = await partial.sessions.create({
       workspaceId: 'fx-ws-fixture' as WorkspaceId,
       sessionId: sid('fx-query-partial'),
+      timeZone: 'UTC',
     })
     expect(partialResult.result).toMatchObject({
       ok: false,
@@ -1087,6 +1176,7 @@ describe('FixtureApiClient (protocol-level fake carrier)', () => {
     await expect(dropped.sessions.create({
       workspaceId: 'fx-ws-fixture' as WorkspaceId,
       sessionId: sid('fx-query-dropped'),
+      timeZone: 'UTC',
     })).rejects.toThrow(/dropped session\.create response/)
   })
 

@@ -31,7 +31,10 @@ const sid = (id: string): SessionId => id as SessionId
 
 let nextRpc = 1
 function request<P>(payload: P): RpcRequest<P> {
-  return { rpcId: RpcId(`cold-${String(nextRpc++)}`), payload }
+  return {
+    rpcId: RpcId(`cold-${String(nextRpc++)}`),
+    payload: { timeZone: 'UTC', clientTimeZone: 'UTC', ...payload },
+  }
 }
 
 function header(id: string, createdAt: number, extra: Partial<SessionHeader> = {}): SessionHeader {
@@ -507,6 +510,44 @@ describe('degenerate composition (no persistence, no factory)', () => {
     expect(response.result.ok).toBe(false)
     if (!response.result.ok) expect(response.result.error.code).toBe('session-not-found')
     expect(inspect).not.toHaveBeenCalled()
+  })
+})
+
+describe('cold Session zone identity', () => {
+  it('rejects a different requested zone before resuming a persisted identity', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(UserInteractionService)
+    const sessionId = sid('session-cold-zone-conflict')
+    const meta = header('session-cold-zone-conflict', 1000, { timeZone: 'UTC' })
+    ctx.provide('sessionPersistence', {
+      list: () => Promise.resolve([meta]),
+      inspect: () => Promise.resolve({ meta, events: [] as SessionEvent[] }),
+      locate: () => undefined,
+    } as never)
+    const resume = vi.spyOn(ctx.agents, 'resume')
+    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
+
+    const response = await api.sessions.create(request({
+      sessionId,
+      cwd: '/proj',
+      timeZone: 'Asia/Shanghai',
+    }))
+
+    expect(response.result).toMatchObject({
+      ok: false,
+      error: {
+        code: 'session-conflict',
+        details: {
+          sessionId,
+          existingCwd: '/proj',
+          existingTimeZone: 'UTC',
+          requestedTimeZone: 'Asia/Shanghai',
+        },
+      },
+    })
+    expect(resume).not.toHaveBeenCalled()
   })
 })
 

@@ -25,6 +25,7 @@ import { isVisibleAssistantChunk, PartialAccumulator } from './partial.ts'
 import { ProjectionValueStore } from './projection-store.ts'
 import type { ProjectionsBaseline } from './projection-store.ts'
 import { ToolCallTree } from './tool-call-tree.ts'
+import { resolvedClientTimeZone } from '../time-zone.ts'
 
 /** Messages requested per history page. */
 export const PAGE_MESSAGES = 50
@@ -232,7 +233,12 @@ export class Session implements SessionFace {
     let result: RpcResult<{ accepted: true }>
     try {
       if (this.address === undefined) {
-        result = (await this.api.sessions.prompt({ sessionId: this.sessionId, mode, content })).result
+        result = (await this.api.sessions.prompt({
+          sessionId: this.sessionId,
+          mode,
+          content,
+          clientTimeZone: resolvedClientTimeZone(),
+        })).result
       } else if (this.address.mode === 'one-shot') {
         result = {
           ok: false,

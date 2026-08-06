@@ -1,0 +1,6 @@
+- note:
+  - banner: Scheduled reminder Delivered in this session only
+  - paragraph: Review the release window
+  - contentinfo:
+    - text: ID {{scheduleId}}
+    - time: Due at {{occurrenceAt}}

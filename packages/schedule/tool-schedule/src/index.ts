@@ -1,5 +1,5 @@
 /**
- * Agent-scoped durable after reminders over the session event log.
+ * Agent-scoped durable one-shot reminders over the session event log.
  * @module @deepseek-ai/dsh-tool-schedule
  */
 

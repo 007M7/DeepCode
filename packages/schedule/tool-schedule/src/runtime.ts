@@ -6,7 +6,7 @@
 import type { Context } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import type { AfterScheduleRecord } from './types.ts'
+import type { ScheduleRecord } from './types.ts'
 import { foldScheduleEvents, renderReminderFraming, ScheduleLogError } from './domain.ts'
 import { flushSchedulePersistence } from './persistence.ts'
 import { runScheduleTransaction } from './transaction.ts'
@@ -15,8 +15,8 @@ import { runScheduleTransaction } from './transaction.ts'
 export const MAX_TIMER_DELAY_MS = 2_147_483_647
 
 /** Select the earliest target while preserving create order for ties. */
-function earliest(records: readonly AfterScheduleRecord[]): AfterScheduleRecord | undefined {
-  let selected: AfterScheduleRecord | undefined
+function earliest(records: readonly ScheduleRecord[]): ScheduleRecord | undefined {
+  let selected: ScheduleRecord | undefined
   let selectedAt = Number.POSITIVE_INFINITY
   for (const record of records) {
     const target = Date.parse(record.scheduledAt)
@@ -158,7 +158,7 @@ export class ScheduleOwner {
   }
 
   /** Fold the current exact owner suffix and contain a corrupt durable stream. */
-  private readEarliest(): AfterScheduleRecord | undefined {
+  private readEarliest(): ScheduleRecord | undefined {
     try {
       const folded = foldScheduleEvents(
         this.agent.session.events,

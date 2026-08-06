@@ -2,12 +2,14 @@ import { Context } from 'cordis'
 import { describe, expect, it } from 'vitest'
 import type { SessionId, WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-client-connection/client'
 import { SessionsService } from '../src/client/sessions/service.ts'
+import { resolvedClientTimeZone } from '../src/client/time-zone.ts'
 import { WorkspaceManager } from '../src/client/workspaces/manager.ts'
 import { DirectoryBrowseError, WorkspaceCreateError, WorkspacesService } from '../src/client/workspaces/service.ts'
 import { FakeApiClient, deferred, err, ok } from './fake-api.ts'
 
 const sid = (id: string): SessionId => id as SessionId
 const wid = (id: string): WorkspaceId => id as WorkspaceId
+const CLIENT_TIME_ZONE = resolvedClientTimeZone()
 
 function workspace(id: string, sessionIds: SessionId[] = [], createdAt = '2026-01-01T00:00:00.000Z'): WorkspaceView {
   return {
@@ -188,7 +190,10 @@ describe('WorkspacesService', () => {
     // Miss: beta has only a non-blank session → host create with workspaceId.
     api.onCreate = () => Promise.resolve(ok({ sessionId: sid('s-fresh') }))
     await expect(workspaces.connectWorkspace(wid('beta'))).resolves.toBe('s-fresh')
-    expect(api.callsOf('session.create')).toEqual([{ workspaceId: 'beta' }])
+    expect(api.callsOf('session.create')).toEqual([{
+      workspaceId: 'beta',
+      timeZone: CLIENT_TIME_ZONE,
+    }])
     // Same guarantee on the create arm (draft hand-off writes the machine pre-open).
     expect(sessions.binding(sid('s-fresh'))).toBeDefined()
 
@@ -196,7 +201,10 @@ describe('WorkspacesService', () => {
     // never reused, a fresh accounted session is created instead.
     api.onCreate = () => Promise.resolve(ok({ sessionId: sid('s-fresh-3') }))
     await expect(workspaces.connectWorkspace(wid('gamma'))).resolves.toBe('s-fresh-3')
-    expect(api.callsOf('session.create')).toEqual([{ workspaceId: 'beta' }, { workspaceId: 'gamma' }])
+    expect(api.callsOf('session.create')).toEqual([
+      { workspaceId: 'beta', timeZone: CLIENT_TIME_ZONE },
+      { workspaceId: 'gamma', timeZone: CLIENT_TIME_ZONE },
+    ])
 
     // Unknown workspace fails loud instead of silently creating in nowhere.
     await expect(workspaces.connectWorkspace(wid('ghost'))).rejects.toThrow(/unknown workspace ghost/)
@@ -411,7 +419,10 @@ describe('startInitialSelection', () => {
     await b.sessions.refresh()
     // Store notifications and the connect round trip are microtask-batched.
     await new Promise(resolve => setTimeout(resolve, 0))
-    expect(b.api.callsOf('session.create')).toEqual([{ workspaceId: 'recent' }])
+    expect(b.api.callsOf('session.create')).toEqual([{
+      workspaceId: 'recent',
+      timeZone: CLIENT_TIME_ZONE,
+    }])
     expect(b.sessions.list.getSnapshot().current).toBe('s-new')
     stop()
   })

@@ -85,14 +85,15 @@ forever:
   -> 'turn/start'
   claim next-step input plus one next-turn message
   -> emit agent/inbox/claimed({ message, turn }) for each claimed message
-  -> agent/pre-step({ agent, messages, turn, step, signal })
+  -> assemble system prompt; providers may stage a bounded preparation envelope
+  -> agent/pre-step({ agent, messages: claimed + staged non-authority messages, turn, step, signal })
     reject, empty input, cancellation, or listener failure
-      -> the claimed batch stays removed; close the no-step turn; stop the driver
+      -> remove the preparation envelope; close the no-step turn; stop the driver
     enter -> step loop:
       'step/start'
-      append the returned batch as separate 'user/message' events
-      assemble ordered prompt and tool schemas -> snapshot derived messages
-      agent/request (config only) -> resolve adapter defaults and mark defaulted fields + context capacity under turn signal -> log request/header (+ request/context on route change) -> llm/stream (frozen, registration-bound)
+      append the returned batch and final preparation authority as separate 'user/message' events
+      render the assembled prompt and tool schemas -> snapshot derived messages
+      agent/request (config only) -> prepare adapter defaults/provenance + context capacity under turn signal -> log request/header (+ request/context on route change) -> llm/stream (frozen, registration-bound)
       'assistant/chunk'
       'assistant/message'
       schedule tool calls by ctx.tools.executionMode:
@@ -102,7 +103,7 @@ forever:
         model-order result -> ordered tools/post-execute -> 'tool/result'
       'step/end'
       tools owe another request or next-step inbox is nonempty
-        -> claim -> agent/pre-step -> append entered batch -> continue
+        -> claim -> assemble -> agent/pre-step -> append entered batch -> continue
       otherwise agent/turn-stopping -> re-check the next-step inbox
     'turn/end'
   start the next waking queued message, or emit agent/status(idle)
@@ -112,9 +113,9 @@ idle inject:
   leave it pending until followup or steer wakes the driver
 ```
 
-Each step assembles ordered prompt sections, tool schemas, and variables; unknown references fail the turn. `dsh-system-prompt` owns identity and persona; the loop supplies `provider`, `model`, and `cwd` ([prompt ownership](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)).
+Each proposed step assembles ordered prompt sections, tool schemas, and variables before pre-step; unknown references fail the turn. `dsh-system-prompt` owns identity and persona; the loop supplies `provider`, `model`, and `cwd` ([prompt ownership](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)).
 
-`inject()` queues non-waking `next-step` context; an idle driver leaves it pending until `followup()` or `steer()` wakes the driver. Post-tool `additionalContexts` use the same inbox. The `agent/pre-step` payload carries the exclusive claimed batch and the upcoming turn, step, and signal. Reject opens no step; enter supplies the complete batch appended after `step/start`. Empty tool continuations still traverse the waterfall, whose final value settles all rewrites.
+`inject()` queues non-waking `next-step` context; an idle driver leaves it pending until `followup()` or `steer()` wakes the driver. Post-tool `additionalContexts` use the same inbox. `agent/pre-step` receives the exclusive claimed batch, any ordinary messages inside a bounded assembly envelope, and the upcoming turn, step, and signal. Preparation authorities stay outside downstream transformations; an accepted step appends only the final authority after the returned batch. Reject opens no step, an empty decision cannot be revived by authority alone, and a failed preparation removes its envelope before the turn closes. Empty tool continuations still traverse the waterfall, whose final value settles all rewrites.
 
 Pruning precedes summaries; overflow retries require durable progress. `agent/request-error` may authorize a same-step retry of the frozen prompt; cancellation wins. Adapter `retryPolicy` bounds normal mode, while always mode retries after specialized recovery ([compaction](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md), [retry foundation](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md), [provider policy](../.agents/notes/implemented/feature/2026-07-24-provider-retry-policies.md)). The generated [agent lifecycle](agent-lifecycle.md) owns exact event order, and the [agent-loop README](../packages/core/agent-loop/README.md) owns queue, steering, retry, and cancellation mechanics.
 
