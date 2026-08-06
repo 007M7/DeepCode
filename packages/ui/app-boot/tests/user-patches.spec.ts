@@ -17,12 +17,12 @@ import {
   boot,
   loadOptionalPatches,
   PROFILE_PATCH_FILENAME,
-  watchPersonalPatches,
+  watchUserPatches,
 } from '../src/index.ts'
 
 const NAME = 'dsh-test-bin'
 
-const tmp = (): string => mkdtempSync(join(tmpdir(), 'dsh-personal-config-'))
+const tmp = (): string => mkdtempSync(join(tmpdir(), 'dsh-user-patches-'))
 
 async function eventually(test: () => boolean, message: string): Promise<void> {
   const deadline = Date.now() + 10_000
@@ -39,15 +39,15 @@ describe('loadOptionalPatches', () => {
     delete process.env.DSH_HOME
   })
 
-  it('returns undefined when no personal patches file exists', () => {
+  it('returns undefined when no user patch file exists', () => {
     expect(loadOptionalPatches(NAME, join(tmp(), PROFILE_PATCH_FILENAME))).toBeUndefined()
   })
 
   it('parses a patch list and preserves !!js expressions as loader expression nodes', () => {
     const dir = tmp()
     writeFileSync(join(dir, PROFILE_PATCH_FILENAME), [
-      '- id: tui-agent',
-      "  name: '@deepseek-ai/dsh-tui-demo'",
+      '- id: agent-loop',
+      "  name: '@deepseek-ai/dsh-agent-loop'",
       '  config:',
       '    model: !!js process.env.DSH_SPEC_MODEL',
       '- insert:',
@@ -58,13 +58,13 @@ describe('loadOptionalPatches', () => {
     const patches = loadOptionalPatches(NAME, join(dir, PROFILE_PATCH_FILENAME))
     expect(patches).toHaveLength(2)
     expect(patches?.[0]).toMatchObject({
-      id: 'tui-agent',
+      id: 'agent-loop',
       config: { model: { __jsExpr: 'process.env.DSH_SPEC_MODEL' } },
     })
     expect(patches?.[1]?.insert).toHaveLength(1)
   })
 
-  it('fails loud on an unreadable file (a present personal config is never skipped)', () => {
+  it('fails loud on an unreadable file (a present user patch layer is never skipped)', () => {
     const dir = tmp()
     mkdirSync(join(dir, PROFILE_PATCH_FILENAME)) // a directory: present, unreadable as a file
     expect(() => loadOptionalPatches(NAME, join(dir, PROFILE_PATCH_FILENAME)))
@@ -92,7 +92,7 @@ describe('loadOptionalPatches', () => {
   })
 })
 
-describe('boot with personal patches', () => {
+describe('boot with user patches', () => {
   function writeTree(dir: string): string {
     writeFileSync(join(dir, 'noop.mjs'), [
       'export const name = "noop"',
@@ -111,31 +111,31 @@ describe('boot with personal patches', () => {
 
   it('applies id-targeted overrides, inserts, and interpolates !!js from the environment', async () => {
     const dir = tmp()
-    const personal = tmp()
-    writeFileSync(join(personal, PROFILE_PATCH_FILENAME), [
+    const userDir = tmp()
+    writeFileSync(join(userDir, PROFILE_PATCH_FILENAME), [
       '- id: noop',
       '  name: ./noop.mjs',
       '  config:',
-      '    value: !!js process.env.DSH_APP_BOOT_PERSONAL_SPEC',
+      '    value: !!js process.env.DSH_APP_BOOT_USER_SPEC',
       '- insert:',
-      '    - id: personal-extra',
+      '    - id: user-extra',
       '      name: ./noop.mjs',
       '',
     ].join('\n'))
-    process.env['DSH_APP_BOOT_PERSONAL_SPEC'] = 'personal-value'
-    const ctx = await boot(NAME, writeTree(dir), loadOptionalPatches(NAME, join(personal, PROFILE_PATCH_FILENAME)))
+    process.env['DSH_APP_BOOT_USER_SPEC'] = 'user-value'
+    const ctx = await boot(NAME, writeTree(dir), loadOptionalPatches(NAME, join(userDir, PROFILE_PATCH_FILENAME)))
     try {
       const noop = [...ctx.loader.entries()].find(entry => entry.options.id === 'noop')
       // The mounted plugin received the interpolated environment value.
-      expect(noop?.fiber?.config).toEqual({ value: 'personal-value' })
-      expect([...ctx.loader.entries()].some(entry => entry.options.id === 'personal-extra')).toBe(true)
+      expect(noop?.fiber?.config).toEqual({ value: 'user-value' })
+      expect([...ctx.loader.entries()].some(entry => entry.options.id === 'user-extra')).toBe(true)
     } finally {
       await ctx.fiber.dispose()
-      delete process.env['DSH_APP_BOOT_PERSONAL_SPEC']
+      delete process.env['DSH_APP_BOOT_USER_SPEC']
     }
   })
 
-  it('mounts no patch layer for an absent or empty personal overlay', async () => {
+  it('mounts no patch layer for an absent or empty user layer', async () => {
     const dir = tmp()
     const ctx = await boot(NAME, writeTree(dir), loadOptionalPatches(NAME, join(tmp(), PROFILE_PATCH_FILENAME)))
     try {
@@ -155,8 +155,8 @@ describe('boot with personal patches', () => {
 
   it('watches add, failure, recovery, and removal through transactional HMR', { timeout: 20_000 }, async () => {
     const dir = tmp()
-    const personal = tmp()
-    const filename = join(personal, PROFILE_PATCH_FILENAME)
+    const userDir = tmp()
+    const filename = join(userDir, PROFILE_PATCH_FILENAME)
     const basePatches = [{ id: 'noop', config: { value: 'generated' } }]
     const ctx = await boot(NAME, writeTree(dir), basePatches)
     await ctx.plugin(Timer)
@@ -165,14 +165,14 @@ describe('boot with personal patches', () => {
     ctx.on('hmr/config-update-failed', (failedFilename, error) => {
       failures.push({ filename: failedFilename, error })
     })
-    const dispose = await watchPersonalPatches(ctx, {
+    const dispose = await watchUserPatches(ctx, {
       binName: NAME,
       filename,
-      compose: personalPatches => [...basePatches, ...personalPatches],
+      compose: userPatches => [...basePatches, ...userPatches],
     })
     try {
       writeFileSync(filename, '- id: noop\n  config:\n    value: live\n')
-      await eventually(() => (entryConfig(ctx, 'noop') as { value?: string }).value === 'live', 'personal config addition was not applied')
+      await eventually(() => (entryConfig(ctx, 'noop') as { value?: string }).value === 'live', 'user patch addition was not applied')
 
       writeFileSync(filename, '- id: noop\n  config:\n    fail: true\n')
       await eventually(() => failures.length === 1, 'failed candidate was not broadcast')
@@ -192,17 +192,17 @@ describe('boot with personal patches', () => {
       await settleChokidarChangeThrottle()
 
       unlinkSync(filename)
-      await eventually(() => (entryConfig(ctx, 'noop') as { value?: string }).value === 'generated', 'personal config removal did not restore the app-owned patch')
+      await eventually(() => (entryConfig(ctx, 'noop') as { value?: string }).value === 'generated', 'user patch removal did not restore the app-owned patch')
       expect(failures).toHaveLength(2)
       await settleChokidarChangeThrottle()
 
-      // Default compose: the personal overlay IS the whole patch list, so a
+      // Default compose: the user layer IS the whole patch list, so a
       // fresh generation replaces the app-owned layer instead of stacking on it.
       await dispose()
-      const disposeDefault = await watchPersonalPatches(ctx, { binName: NAME, filename })
+      const disposeDefault = await watchUserPatches(ctx, { binName: NAME, filename })
       try {
         writeFileSync(filename, '- id: noop\n  config:\n    value: identity\n')
-        await eventually(() => (entryConfig(ctx, 'noop') as { value?: string }).value === 'identity', 'default-compose personal patch was not applied')
+        await eventually(() => (entryConfig(ctx, 'noop') as { value?: string }).value === 'identity', 'default-compose user patch was not applied')
       } finally {
         await disposeDefault()
       }
@@ -215,7 +215,7 @@ describe('boot with personal patches', () => {
   it('fails loud when the exact watcher lacks HMR or a root Include', async () => {
     const dir = tmp()
     const withoutHmr = await boot(NAME, writeTree(dir))
-    await expect(watchPersonalPatches(withoutHmr, { binName: NAME, filename: join(tmp(), PROFILE_PATCH_FILENAME) })).rejects.toThrow('requires the Cordis HMR service')
+    await expect(watchUserPatches(withoutHmr, { binName: NAME, filename: join(tmp(), PROFILE_PATCH_FILENAME) })).rejects.toThrow('requires the Cordis HMR service')
     await withoutHmr.fiber.dispose()
 
     const withoutInclude = new Context()
@@ -223,7 +223,7 @@ describe('boot with personal patches', () => {
     await withoutInclude.plugin(Loader)
     await withoutInclude.plugin(Timer)
     await withoutInclude.plugin(Hmr, { root: [], ignored: [], debounce: 0 })
-    await expect(watchPersonalPatches(withoutInclude, { binName: NAME, filename: join(tmp(), PROFILE_PATCH_FILENAME) })).rejects.toThrow('requires the root Include entry')
+    await expect(watchUserPatches(withoutInclude, { binName: NAME, filename: join(tmp(), PROFILE_PATCH_FILENAME) })).rejects.toThrow('requires the root Include entry')
     await withoutInclude.fiber.dispose()
   })
 
@@ -238,7 +238,7 @@ describe('boot with personal patches', () => {
     try {
       const teardown = Object.assign(new Error('cannot create effect on inactive context'), { code: 'INACTIVE_EFFECT' })
       ctx.provide('hmr', { registerConfig: () => Promise.reject(teardown) })
-      const dispose = await watchPersonalPatches(ctx, { binName: NAME, filename: join(tmp(), PROFILE_PATCH_FILENAME) })
+      const dispose = await watchUserPatches(ctx, { binName: NAME, filename: join(tmp(), PROFILE_PATCH_FILENAME) })
       await expect(dispose()).resolves.toBeUndefined()
     } finally {
       await ctx.fiber.dispose()
@@ -252,9 +252,9 @@ describe('boot with personal patches', () => {
     try {
       await ctx.plugin(Timer)
       await ctx.plugin(Hmr, { root: [], ignored: [], debounce: 0 })
-      const dispose = await watchPersonalPatches(ctx, { binName: NAME, filename })
-      // Same personal path registered twice: HMR refuses; not a teardown race.
-      await expect(watchPersonalPatches(ctx, { binName: NAME, filename })).rejects.toThrow('already registered')
+      const dispose = await watchUserPatches(ctx, { binName: NAME, filename })
+      // Same user-layer path registered twice: HMR refuses; not a teardown race.
+      await expect(watchUserPatches(ctx, { binName: NAME, filename })).rejects.toThrow('already registered')
       await dispose()
     } finally {
       await ctx.fiber.dispose()

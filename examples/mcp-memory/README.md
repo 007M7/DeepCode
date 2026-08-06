@@ -42,7 +42,7 @@ dsh web --patch "${DSH_HOME:-$HOME/.dsh}/memory.cordis.yml"
 
 Replace `memorix.cordis.yml` in the URL with either of the other filenames to select it. Review a downloaded overlay before running it: Cordis configuration can contain executable `!!js` expressions.
 
-To keep the selection in personal configuration, merge the chosen file's single `insert` patch into `$DSH_HOME/config.yaml` (normally `~/.dsh/config.yaml`). Do not copy over an existing file: it may already contain unrelated personal patches.
+To keep the selection across runs, merge the chosen file's single `insert` patch into a user patch layer — `$DSH_HOME/profiles/<name>/cordis.patch.yml` for one profile, or `$DSH_HOME/cordis.patch.yml` for every profile on the machine. Do not copy over an existing file: it may already contain unrelated user patches.
 
 ## Provider setup
 
