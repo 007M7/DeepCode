@@ -875,7 +875,7 @@ describe('PersistenceCoordinator session preparations', () => {
 
       second = await coordinator.prepare(id)
       expect(second.session).toBe(first.session)
-      expect(backend.loadAttempts).toBe(1)
+      expect(backend.loadAttempts).toBe(2)
       expect(backend.repairAttempts).toBe(1)
     } finally {
       second?.[Symbol.dispose]()
@@ -885,7 +885,52 @@ describe('PersistenceCoordinator session preparations', () => {
     }
   })
 
-  it('rejects preparation when storage disappears after repair', async () => {
+  it('reloads the committed graph when another writer appends after repair', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const backend = new ControlledBackend()
+    const id = SessionId('repair-external-append')
+    backend.store.set(id, {
+      meta: meta(id),
+      events: [{ type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } }],
+    })
+    const commitRepair = backend.commitRepair.bind(backend)
+    vi.spyOn(backend, 'commitRepair').mockImplementation(async (header, tornMarker, closers) => {
+      await commitRepair(header, tornMarker, closers)
+      const entry = backend.store.get(id)
+      if (entry === undefined) throw new Error('test repair must keep storage materialized')
+      const seq = entry.events.length
+      entry.events.push(
+        { type: 'turn/start', seq, time: 3, data: { turn: 2 } },
+        { type: 'turn/end', seq: seq + 1, time: 4, data: { turn: 2, reason: { kind: 'completed' } } },
+      )
+    })
+    let coordinator!: PersistenceCoordinator<never>
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      coordinator = new PersistenceCoordinator(inner, backend)
+    }, { inject: ['sessions'] }))
+    let preparation: Awaited<ReturnType<typeof coordinator.prepare>> | undefined
+
+    try {
+      preparation = await coordinator.prepare(id)
+
+      expect(preparation.session.events.map(event => event.type)).toEqual([
+        'turn/start',
+        'turn/end',
+        'turn/start',
+        'turn/end',
+        'session/end-seed',
+      ])
+      expect(backend.loadAttempts).toBe(2)
+      expect(backend.repairAttempts).toBe(1)
+    } finally {
+      preparation?.[Symbol.dispose]()
+      await fiber.dispose()
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('rejects preparation when storage disappears during the post-repair reload', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const backend = new ControlledBackend()
@@ -894,24 +939,20 @@ describe('PersistenceCoordinator session preparations', () => {
       meta: meta(id),
       events: [{ type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } }],
     })
+    const commitRepair = backend.commitRepair.bind(backend)
+    vi.spyOn(backend, 'commitRepair').mockImplementation(async (header, tornMarker, closers) => {
+      await commitRepair(header, tornMarker, closers)
+      backend.store.delete(id)
+    })
     let coordinator!: PersistenceCoordinator<never>
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
       coordinator = new PersistenceCoordinator(inner, backend)
     }, { inject: ['sessions'] }))
 
     try {
-      await coordinator.inspect(id)
-      const readStoredRevision = backend.readStoredRevision.bind(backend)
-      let revisionReads = 0
-      vi.spyOn(backend, 'readStoredRevision').mockImplementation((sessionId, signal) => {
-        revisionReads += 1
-        if (revisionReads === 2) return Promise.resolve(undefined)
-        return readStoredRevision(sessionId, signal)
-      })
-
-      await expect(coordinator.prepare(id)).rejects.toThrow(/disappeared after persistence repair/)
+      await expect(coordinator.prepare(id)).rejects.toThrow(/not found/)
       expect(backend.repairAttempts).toBe(1)
-      expect(revisionReads).toBe(2)
+      expect(backend.loadAttempts).toBe(2)
     } finally {
       await fiber.dispose()
       await ctx.fiber.dispose()
@@ -1084,6 +1125,36 @@ describe('PersistenceCoordinator observation cancellation', () => {
     } finally {
       loadGate.resolve(true)
       prepared?.[Symbol.dispose]()
+      await fiber.dispose()
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('preserves inspect cancellation when the session concurrently becomes live', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const backend = new ControlledBackend()
+    const id = SessionId('cancelled-inspect-became-live')
+    backend.store.set(id, { meta: meta(id), events: oneTurnLog() })
+    const controller = new AbortController()
+    const reason = new Error('inspect cancelled while publishing')
+    backend.beforeLoadStored = async () => {
+      controller.abort(reason)
+      throw new Error('load stopped after cancellation')
+    }
+    let coordinator!: PersistenceCoordinator<never>
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      coordinator = new PersistenceCoordinator(inner, backend)
+    }, { inject: ['sessions'] }))
+    const live = Session.create(id, oneTurnLog(), meta(id))
+    const get = vi.spyOn(ctx.sessions, 'get')
+      .mockReturnValueOnce(undefined)
+      .mockReturnValueOnce(live)
+
+    try {
+      await expect(coordinator.inspect(id, controller.signal)).rejects.toBe(reason)
+    } finally {
+      get.mockRestore()
       await fiber.dispose()
       await ctx.fiber.dispose()
     }

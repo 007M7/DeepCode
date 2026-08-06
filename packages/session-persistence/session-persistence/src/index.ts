@@ -147,9 +147,10 @@ export abstract class SessionPersistence extends Service {
    * Session instead yields its current immutable snapshot, which may contain an
    * open turn and its `session/end-seed` boundary. Coordinator-backed
    * implementations retain the exact cold unpublished Session for bounded
-   * reuse by a later {@link prepare}, reloading it when its durable revision
-   * changes; callers borrow only its immutable header and log. Continuous
-   * external writers may delay revision convergence.
+   * reuse by a later {@link prepare}. A stale ready source is reloaded; a source
+   * already committing or reserved for resume remains exclusive, and inspection
+   * may borrow its immutable view. Callers borrow only the immutable header and
+   * log. Continuous external writers may delay revision convergence.
    * @param id - the persisted session to inspect.
    * @param signal - optional cancellation for queued and backend read work.
    * @returns the validated header and current logical event log.

@@ -704,9 +704,10 @@ export class PersistenceCoordinator<TornMarker = unknown> {
 
   /**
    * Inspect a logical session without publishing it or committing recovery.
-   * Retained cold state is reloaded after its durable revision changes. Revision
-   * retries converge once the log is stable for one read/check round trip;
-   * continuous external writers may delay completion.
+   * A stale ready source is reloaded. A source already committing or reserved
+   * for resume remains exclusive, and inspection may borrow its immutable view.
+   * Revision retries converge once the log is stable for one read/check round
+   * trip; continuous external writers may delay completion.
    * @param id - persisted session to inspect.
    * @param signal - optional cancellation for preparation work.
    * @returns immutable prepared metadata and events; a live view may have an open turn.
@@ -737,6 +738,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
           return source.inspection
         }
       } catch (error: unknown) {
+        signal?.throwIfAborted()
         const attached = this.ctx.sessions.get(id)
         if (attached !== undefined) return this.inspectLive(attached)
         throw error
@@ -859,14 +861,11 @@ export class PersistenceCoordinator<TornMarker = unknown> {
       throw new Error(`session "${id}" already has a live persistence owner`)
     }
     if (!await this.isPreparedSourceCurrent(source)) return undefined
-    let committedSource = source
     if (source.tornMarker !== undefined || source.closers.length > 0) {
       await this.backend.commitRepair(source.inspection.meta, source.tornMarker, source.closers)
-      const revision = await this.backend.readStoredRevision(id)
-      if (revision === undefined) {
-        throw new Error(`session "${id}" disappeared after persistence repair`)
-      }
-      committedSource = { ...source, revision, tornMarker: undefined, closers: [] }
+      // The repair changed the durable revision. Reload the exact committed
+      // graph instead of associating the old in-memory view with a newer revision.
+      return undefined
     }
     const state = existing ?? {
       meta: source.inspection.meta,
@@ -878,7 +877,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     state.materialized = true
     this.states.set(id, state)
     return {
-      source: committedSource,
+      source,
       state,
     }
   }

@@ -1208,9 +1208,10 @@ abstract load(id: SessionId): Promise<SessionInspection>
  * Session instead yields its current immutable snapshot, which may contain an
  * open turn and its `session/end-seed` boundary. Coordinator-backed
  * implementations retain the exact cold unpublished Session for bounded
- * reuse by a later {@link prepare}, reloading it when its durable revision
- * changes; callers borrow only its immutable header and log. Continuous
- * external writers may delay revision convergence.
+ * reuse by a later {@link prepare}. A stale ready source is reloaded; a source
+ * already committing or reserved for resume remains exclusive, and inspection
+ * may borrow its immutable view. Callers borrow only the immutable header and
+ * log. Continuous external writers may delay revision convergence.
  * @param id - the persisted session to inspect.
  * @param signal - optional cancellation for queued and backend read work.
  * @returns the validated header and current logical event log.
@@ -1706,7 +1707,7 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 
 Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [PrepareSessionOptions](../core-data-structures/persistence.md) · [Session](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:801`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:803`](../../packages/core/session/src/index.ts)
 
 ## `ctx.sessionTitle` — `SessionTitleService`
 

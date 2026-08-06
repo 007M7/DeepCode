@@ -184,11 +184,10 @@ export class SessionPreparations<Source extends PreparedSource, CommitState> {
   /**
    * Discard a prepared view after the durable log changes.
    * @param id - changed session identity.
-   * @param expected - when supplied, invalidate only that exact source.
    */
-  invalidate(id: SessionId, expected?: Source): void {
+  invalidate(id: SessionId): void {
     const entry = this.entries.get(id)
-    if (entry !== undefined && (expected === undefined || entry.source === expected)) this.remove(entry)
+    if (entry !== undefined) this.remove(entry)
   }
 
   /**
@@ -219,7 +218,7 @@ export class SessionPreparations<Source extends PreparedSource, CommitState> {
   /**
    * Remove a completed entry for an already-serialized append adoption.
    * @param id - adopted session identity.
-   * @returns the prepared source, or undefined when no entry exists.
+   * @returns the prepared source, or undefined when no ready entry exists.
    */
   takeReady(id: SessionId): Source | undefined {
     const entry = this.entries.get(id)
