@@ -66,11 +66,13 @@ beforeAll(async () => {
 }, 120_000)
 
 describe('the shipped Web composition', () => {
-  it('leaves only the host UI tool in the global layer', () => {
-    // `ask_user_question` is the host's own interaction surface, not an agent
-    // capability, so it stays global. Every other tool now belongs to a
-    // preset; a regression here means an agent-plane row came back to base.
-    expect(toolNames(ctx)).toEqual(['ask_user_question'])
+  it('leaves the global tool layer empty', () => {
+    // Every model-facing tool belongs to a preset, `ask_user_question`
+    // included: a tool in the global layer reaches EVERY agent regardless of
+    // which preset composed it, so a two-tool benchmark surface would really
+    // present three. A regression here means an agent-plane row came back to
+    // the host composition.
+    expect(toolNames(ctx)).toEqual([])
   })
 
   it('supplies both shipped presets, and only those, from the system root', async () => {
@@ -110,7 +112,8 @@ describe('the shipped Web composition', () => {
       setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'core-web').then(() => undefined),
     })
     try {
-      expect(toolNames(ctx, handle.agent)).toEqual(['ask_user_question', 'bash', 'str_replace_editor'])
+      // Exactly what the preset lists — nothing arrives from the host.
+      expect(toolNames(ctx, handle.agent)).toEqual(['bash', 'str_replace_editor'])
     } finally {
       await handle.dispose()
     }
@@ -126,14 +129,14 @@ describe('the shipped Web composition', () => {
       setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'core-web').then(() => undefined),
     })
     try {
-      expect(toolNames(ctx, minimal.agent)).toEqual(['ask_user_question', 'bash', 'str_replace_editor'])
+      expect(toolNames(ctx, minimal.agent)).toEqual(['bash', 'str_replace_editor'])
       expect(toolNames(ctx, full.agent).length).toBeGreaterThan(10)
 
       await minimal.dispose()
 
       // Tearing the minimal session down leaves the full one whole.
       expect(toolNames(ctx, full.agent).length).toBeGreaterThan(10)
-      expect(toolNames(ctx)).toEqual(['ask_user_question'])
+      expect(toolNames(ctx)).toEqual([])
     } finally {
       await full.dispose()
     }

@@ -15,20 +15,12 @@
     text: >-
       You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}.
 
-# `tool-bash` provides the `bashEnv` service, so it needs a realm even alone.
-- id: shell
-  name: cordis:group
-  group: true
-  isolate:
-    bashEnv: true
-  config:
-    # The registry and its consumer share the realm: a consumer left outside
-    # would resolve the host's `bashEnv`, which this plane no longer provides.
-    - id: bash-env
-      name: '@deepseek-ai/dsh-bash-env'
-
-    - id: tool-bash
-      name: '@deepseek-ai/dsh-tool-bash'
+# `bash-env` stays in the HOST composition: `apps/cli/src/web.ts` injects it to
+# publish `DSH_WEB_URL`/`DSH_WEB_MODE`, and a host row that injects a service is
+# the criterion for host-plane ownership. `tool-bash` consumes that host
+# registry from here.
+- id: tool-bash
+  name: '@deepseek-ai/dsh-tool-bash'
 
 - id: tool-str-replace-editor
   name: '@deepseek-ai/dsh-tool-str-replace-editor'
