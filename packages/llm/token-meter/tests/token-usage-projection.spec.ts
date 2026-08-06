@@ -419,6 +419,25 @@ describe('contextPressure session projection', () => {
     expect(compacted.projectedTokens).toBeLessThan(beforeCompaction!)
   })
 
+  it('folds a replacement without a claim at zero', async () => {
+    const { ctx, session } = await harness()
+    const question = appendUser(session, 'a question from an unmetered log')
+    startStep(session, 1, 1)
+    usageChunk(session, { inputTokens: 100, outputTokens: 1 }, 1, 1)
+    session.append('step/end', { turn: 1, step: 1 })
+    const before = pressure(ctx, session)
+
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'summary without a preceding claim' }],
+      source: { kind: 'plugin', plugin: 'test' },
+    }), {
+      surfaceOp: { op: 'replace', start: question, end: question },
+      sourceEventSeqs: [question],
+    })
+
+    expect(pressure(ctx, session)).toEqual(before)
+  })
+
   it('clamps a projection that heuristic error drove below zero', async () => {
     const { ctx, session } = await harness()
     recordContext(session, 'large', 128_000)

@@ -40,7 +40,7 @@ function send(agent: Agent, text: string) {
 /** Resolve on the agent's next idle transition (event-based, not status poll). */
 function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
-    const dispose = ctx.on('agent/status', (subject, status) => {
+    const dispose = ctx.on('agent/status', ({ agent: subject, status }) => {
       if (subject === agent && status === 'idle') { dispose(); resolve() }
     })
   })
@@ -156,7 +156,7 @@ describe('Agent.cancel()', () => {
 
     const running = Promise.withResolvers<undefined>()
     let disposalDone: Promise<void> | undefined
-    ctx.on('agent/status', (subject, status) => {
+    ctx.on('agent/status', ({ agent: subject, status }) => {
       if (subject !== agent || status !== 'running') return
       disposalDone = handle.dispose()
       running.resolve(undefined)
@@ -200,7 +200,7 @@ describe('Agent.cancel()', () => {
 
     const replacementRegistered = Promise.withResolvers<undefined>()
     let replacementObservation: Promise<{ status: string; requests: number; turns: number }> | undefined
-    ctx.on('agent/status', (subject, status) => {
+    ctx.on('agent/status', ({ agent: subject, status }) => {
       if (subject !== agent || status !== 'idle' || replacementObservation !== undefined) return
       send(agent, 'cancelled replacement')
       replacementObservation = agent.whenIdle().then(() => ({
@@ -239,7 +239,7 @@ describe('Agent.cancel()', () => {
 
     const replacementRegistered = Promise.withResolvers<undefined>()
     let replacementIdle: Promise<void> | undefined
-    ctx.on('agent/status', (subject, status) => {
+    ctx.on('agent/status', ({ agent: subject, status }) => {
       if (subject !== agent || status !== 'idle' || replacementIdle !== undefined) return
       send(agent, 'cancelled replacement')
       agent.cancel({ kind: 'user' })
@@ -440,7 +440,7 @@ describe('Agent.cancel()', () => {
     })
 
     let cancelled = false
-    ctx.on('agent/turn-stopping', (subject) => {
+    ctx.on('agent/turn-stopping', ({ agent: subject }) => {
       if (subject === agent && !cancelled) {
         cancelled = true
         agent.cancel({ kind: 'user' })
@@ -465,7 +465,7 @@ describe('Agent.cancel()', () => {
     // durable turn-start commit and must drop the reserved work.
     let streamed = false
     ctx.on('session/event', (_s, event) => { if (event.type === 'assistant/chunk') streamed = true })
-    const dispose = ctx.on('agent/status', (subject, status) => {
+    const dispose = ctx.on('agent/status', ({ agent: subject, status }) => {
       if (subject === agent && status === 'running') agent.cancel({ kind: 'user' })
     })
 
@@ -485,7 +485,7 @@ describe('Agent.cancel()', () => {
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     let replaced = false
-    const dispose = ctx.on('agent/status', (subject, status) => {
+    const dispose = ctx.on('agent/status', ({ agent: subject, status }) => {
       if (subject !== agent || status !== 'running' || replaced) return
       replaced = true
       agent.cancel({ kind: 'user' })
@@ -664,7 +664,7 @@ describe('Agent.cancel()', () => {
 
     switch (stage) {
       case 'pre-step':
-        ctx.on('agent/pre-step', async (subject, _message, { signal }, next) => {
+        ctx.on('agent/pre-step', async ({ agent: subject, signal }, next) => {
           if (subject === agent) await blockUntilAbort(signal)
           return next()
         })
@@ -679,13 +679,13 @@ describe('Agent.cancel()', () => {
         })
         break
       case 'request':
-        ctx.on('agent/request', async (subject, _turn, _step, signal, next) => {
+        ctx.on('agent/request', async ({ agent: subject, signal }, next) => {
           if (subject === agent) await blockUntilAbort(signal)
           return next()
         })
         break
       case 'stopping':
-        ctx.on('agent/turn-stopping', async (subject, _turn, signal) => {
+        ctx.on('agent/turn-stopping', async ({ agent: subject, signal }) => {
           if (subject === agent) await blockUntilAbort(signal)
         })
         break
