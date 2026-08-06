@@ -486,7 +486,7 @@ The provider topology changed: an adapter registered or unregistered routes, or 
 'llm/adapters-updated'(): void
 ```
 
-Source: [`packages/llm/llm/src/index.ts:69`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:71`](../../packages/llm/llm/src/index.ts)
 
 ### `llm/stream` — waterfall
 
@@ -510,7 +510,7 @@ Waterfall around every streaming model call (retry, replay, routing). Bound to t
 
 Types: [GenerateOptions](../core-data-structures/core.md) · [LlmService](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:58`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:60`](../../packages/llm/llm/src/index.ts)
 
 ## `session/*`
 
@@ -624,7 +624,7 @@ One registered namespace's RAW user section changed, whether or not the resolved
 
 Types: [SettingsNamespace](../core-data-structures/settings.md)
 
-Source: [`packages/settings/settings/src/index.ts:150`](../../packages/settings/settings/src/index.ts)
+Source: [`packages/settings/settings/src/index.ts:170`](../../packages/settings/settings/src/index.ts)
 
 ### `settings/updated` — emit
 
@@ -651,7 +651,7 @@ Committed change to one registered namespace's resolved value. Emitted after the
 
 Types: [SettingsNamespace](../core-data-structures/settings.md) · [SettingsUpdateSource](../core-data-structures/settings.md)
 
-Source: [`packages/settings/settings/src/index.ts:137`](../../packages/settings/settings/src/index.ts)
+Source: [`packages/settings/settings/src/index.ts:157`](../../packages/settings/settings/src/index.ts)
 
 ## `skills/*`
 
