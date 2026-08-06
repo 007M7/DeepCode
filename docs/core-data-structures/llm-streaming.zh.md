@@ -15,8 +15,9 @@
  * Raw streaming protocol emitted by adapters.
  * Block indexes correlate interleaved deltas, and `block-end` carries the
  * assembled block. Adapters emit usage before the terminal finish and nothing
- * afterward; tool arguments remain raw JSON strings. Failures either throw or
- * end with `error`/`aborted`, and consumers must handle both paths.
+ * afterward; tool arguments remain raw JSON strings. An adapter implementation
+ * may throw, but `LlmService.stream()` normalizes that failure to a terminal
+ * `error` or `aborted` finish before exposing it to consumers.
  */
 type StreamChunk =
   | { type: 'block-start'; index: number; blockType: ContentBlockType }
@@ -64,10 +65,10 @@ interface LlmFailure {
 - **提供方停顿在传输层受到时限约束。** 两个已交付的远程适配器都暴露正数且有限的 `streamIdleTimeoutMs`，默认五分钟。watchdog 只在 iterator `next()` 尚未完成时启动，整个请求使用同一个稳定 signal，把自身到期映射为 `TIMEOUT`，并把更早发生的调用方中止保留为 `ABORTED`。
 - **上下文溢出只有一个规范 code。** 两个 DeepSeek 适配器都通过 `isContextWindowExceededError()` 对提供方的显式细节分类并暴露 `CONTEXT_WINDOW_EXCEEDED`，无论失败以抛出的 HTTP `LlmError` 还是带内 finish error 到达。消费方按 code 路由，绝不依赖提供方文本。
 - **空 completion 是可重试错误，而不是静默的成功结果。** 两个适配器都把没有携带任何内容块的终止性 `stop` 结束映射为携带规范 `EMPTY_RESPONSE` code 的 `finish {kind:'error'}`，`dsh-llm-retry` 默认会重试它；详见[空模型响应可重试](../../.agents/notes/implemented/bug-fix/2026-07-24-empty-model-response-is-retryable.md)。
-- **每个提供方 HTTP 请求都携带应用归属头。** 适配器发送 `attributionHeaders()`（见下文）作为 `User-Agent` 基线，并通过协议级测试加以证明（mock 服务器断言收到的 header，或对基于库的适配器使用库的 header 钩子）。
+- **每个提供方 HTTP 请求都携带应用归属头。** 适配器发送下文的 `attributionHeaders()`，即 `User-Agent` 基线。
 - **回放状态归适配器所有。** 成功的 `finish` 可以携带重建提供方原生响应所需的无损 JSON 状态。循环会将其与组装后的 assistant 消息一起存储。后续请求中，仅当历史提供方与目标提供方当前注册到完全相同的适配器实例时，`LlmService` 才会传递该状态。该适配器负责校验状态并拥有所有跨模型或跨提供方转换；其他适配器只会收到提供方无关的内容与 provenance，不会收到私有状态。
 
-该契约由两个有意保持独立的实现锁定：`dsh-llm-deepseek`（直接 fetch，SSE（Server-Sent Events）分帧经由 `eventsource-parser`）和 `dsh-llm-pi-ai`（通过 `@earendil-works/pi-ai` 实现的通用多提供方适配器）。基于库的适配器覆盖 finish 分片错误路径，而传输边界测试证明每个空闲 watchdog 都会停止其实际请求。
+两个彼此独立的实现遵循该契约：`dsh-llm-deepseek` 使用直接 fetch，并通过 `eventsource-parser` 进行 SSE（Server-Sent Events）分帧；`dsh-llm-pi-ai` 则通过 `@earendil-works/pi-ai` 提供通用多提供方适配器。两者都会把取消与空闲 watchdog 传递至提供方请求。
 
 ## `ResolvedRetryPolicy`
 
@@ -75,7 +76,7 @@ interface LlmFailure {
 
 ## `AppIdentity`：应用归属
 
-每个适配器都会向提供方发送的静态公开应用标识（[`packages/llm/llm/src/attribution.ts`](../../packages/llm/llm/src/attribution.ts)）。`attributionHeaders(identity?)` 只把它映射到标准 `User-Agent` header；该契约有意不支持 OpenRouter 特有的应用归属 header。默认 `APP_IDENTITY` 从包（package） manifest（元数据清单）获取版本；每个字段都是公开产品事实——不含 secret、路径、会话 id 或逐用户标识，且任何逐请求信息都不得影响这些值。设计理由见[强制 `User-Agent` 归属](../../.agents/notes/implemented/architecture/2026-06-21-mandatory-app-attribution-headers.md)。
+每个适配器都会向提供方发送的静态公开应用标识（[`packages/llm/llm/src/attribution.ts`](../../packages/llm/llm/src/attribution.ts)）。`attributionHeaders(identity?)` 只把它映射到标准 `User-Agent` header；该契约有意不支持 OpenRouter 特有的应用归属 header。默认 `APP_IDENTITY` 从包 manifest（元数据清单）获取版本；每个字段都是公开产品事实——不含 secret、路径、会话 id 或逐用户标识，且任何逐请求信息都不得影响这些值。设计理由见[强制 `User-Agent` 归属](../../.agents/notes/implemented/architecture/2026-06-21-mandatory-app-attribution-headers.md)。
 
 ```ts type-equiv
 /**
@@ -141,8 +142,9 @@ declare class BlockAssembler {
   push(chunk: StreamChunk): void;
   /**
    * Assemble all blocks seen so far, in stream order.
-   * @returns one block per seen index; an open block assembles from its
-   *   accumulated deltas (an unknown block type never closed by `block-end` throws).
+   * @returns one block per seen index, except that max-token truncation drops
+   *   tool calls that cannot be executed safely; an open block assembles from
+   *   its accumulated deltas (an unknown block type never closed by `block-end` throws).
    */
   blocks(): ContentBlock[];
   /** Usage from the `usage` chunk; undefined until one arrives. */
@@ -169,6 +171,8 @@ declare class BlockAssembler {
 interface PreparedLlmCall {
   /** Detached, deep-frozen config with any adapter-owned default materialized. */
   readonly config: LlmCallConfig
+  /** Immutable retry policy captured with the adapter registration. */
+  readonly retryPolicy: ResolvedRetryPolicy
   /** Detached context metadata resolved with the registration-bound call. */
   readonly context?: LlmModelContext
   /** Config fields materialized by the captured adapter rather than proposed by the caller. */

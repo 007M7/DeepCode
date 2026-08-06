@@ -1,7 +1,7 @@
 /**
  * apiproxy contract-layer barrel. api/ has zero Node dependencies and is
- * importable from the browser; the TS interfaces are the authoritative contract, HTTP/SSE are
- * merely physical channels (four-quadrant message model).
+ * importable from the browser; the TS interfaces are the authoritative contract, while HTTP,
+ * WebSocket, and in-process SSE are merely physical channels (four-quadrant message model).
  */
 
 import type { SessionsApi } from './sessions.ts'
@@ -71,7 +71,6 @@ export type {
 // ---- Errors and ids ----
 export { RpcId, transportError } from './rpc.ts'
 export type { RpcError, RpcErrorCode, RpcErrorDetailsMap, RpcResult } from './rpc.ts'
-export type { InboxItemId } from '@deepseek-ai/dsh-agent/brand'
 
 // ---- Fixed session-search product bounds ----
 export {

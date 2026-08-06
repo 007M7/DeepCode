@@ -1,5 +1,5 @@
 /**
- * events domain contract: signatures and frame unions for the two SSE
+ * events domain contract: signatures and frame unions for the two logical
  * streams. Four-quadrant: streams yield the narrow form `RpcRequest<Frame>` (server-request
  * view) — rpcId must be exposed to the business layer, because responses to answerable frames
  * (approval/question requested) echo it; for pure pushes it identifies that one push.
@@ -9,7 +9,7 @@
 import type { AskUserQuestionItem } from '@deepseek-ai/dsh-user-interaction/types'
 import type { ApprovalOutcome, ApprovalRequestId } from '@deepseek-ai/dsh-user-approval/types'
 import type { Message } from '@deepseek-ai/dsh-llm/types'
-import type { InboxItemId } from '@deepseek-ai/dsh-agent/brand'
+import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { CallId } from '@deepseek-ai/dsh-llm/brand'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools/presentation'
@@ -34,15 +34,15 @@ export type ToolEventView =
 
 /** One pending inbox occurrence in the authoritative `session/queue` snapshot. */
 export interface QueuedInboxItem {
-  /** Agent-owned occurrence identity; queue mutations address only `queued` items. */
-  id: InboxItemId
-  /** Agent-resolved FIFO placement; clients render queued and steering items on different surfaces. */
-  placement: 'queued' | 'steering'
+  /** Message identity used by inbox mutations. */
+  id: MessageId
+  /** Agent-resolved FIFO placement; queued and steering items render on different surfaces, context items stay invisible until claimed. */
+  placement: 'queued' | 'steering' | 'context'
   /** Complete pending message; it is not durable until the Agent claims it. */
   message: Message
 }
 
-/** Streaming face of the contract: the two SSE stream openers (mux + host). */
+/** Streaming face of the contract: the two logical stream openers (mux + host). */
 export interface EventsApi {
   /**
    * All-session aggregated mux stream. On open, emits a subscribed control frame for every

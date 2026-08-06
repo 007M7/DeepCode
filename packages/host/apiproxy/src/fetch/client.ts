@@ -1,6 +1,6 @@
 /**
  * Client side of the fetch carrier. AbstractApiClient holds every protocol invariant: rpcId minting,
- * four-quadrant envelope wrap/unwrap, zod parsing, SSE frame decoding, and the payload-direct
+ * four-quadrant envelope wrap/unwrap, zod parsing, in-process SSE frame decoding, and the payload-direct
  * IApiClient domain methods (business code never mints). Platform differences ride two aspects:
  * abstract doFetch (transport) + overridable onEnvelope (tap). ApiProxy (the impl face) is untouched.
  */
@@ -49,7 +49,8 @@ import {
   goalClearValueSchema,
 } from '../api/goals.schema.ts'
 import {
-  settingsDescribeValueSchema, settingsMutateValueSchema, settingsReplaceValueSchema, settingsUpdateValueSchema,
+  settingsDescribeValueSchema, settingsMutateValueSchema, settingsOpenDocumentValueSchema,
+  settingsReplaceValueSchema, settingsUpdateValueSchema,
 } from '../api/settings.schema.ts'
 import {
   credentialsDescribeValueSchema, credentialsSetValueSchema, credentialsUnsetValueSchema,
@@ -69,8 +70,8 @@ import {
  * Bounded calls merge it with the instance timeout via AbortSignal.any; user-paced calls
  * carry only that external signal. In both cases the signal rides beside the request, never
  * on the wire, like the stream signatures.
- * Stream methods accept an optional onOpen callback: it fires once the SSE transport is
- * readable (response headers received, before any frame) — the "stream established" signal
+ * Stream methods accept an optional onOpen callback: it fires once the physical transport is
+ * readable (before any frame) — the "stream established" signal
  * connection controllers need for the readiness handshake. Generators are lazy, so the
  * underlying fetch (and therefore onOpen) only happens once iteration starts.
  * Relationship: ApiProxy is the narrow-form signature contract the impl side implements;
@@ -132,6 +133,7 @@ export interface IApiClient {
   }
   settings: {
     describe(payload: RequestPayload<'settings.describe'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'settings.describe'>>>
+    openDocument(payload: RequestPayload<'settings.openDocument'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'settings.openDocument'>>>
     update(payload: RequestPayload<'settings.update'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'settings.update'>>>
     replace(payload: RequestPayload<'settings.replace'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'settings.replace'>>>
     mutate(payload: RequestPayload<'settings.mutate'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'settings.mutate'>>>
@@ -189,6 +191,7 @@ const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseV
   'goal.complete': goalCompleteValueSchema,
   'goal.clear': goalClearValueSchema,
   'settings.describe': settingsDescribeValueSchema,
+  'settings.openDocument': settingsOpenDocumentValueSchema,
   'settings.update': settingsUpdateValueSchema,
   'settings.replace': settingsReplaceValueSchema,
   'settings.mutate': settingsMutateValueSchema,
@@ -449,6 +452,7 @@ export abstract class AbstractApiClient implements IApiClient {
 
   readonly settings: IApiClient['settings'] = {
     describe: (payload, signal) => this.callUnary('settings.describe', payload, signal),
+    openDocument: (payload, signal) => this.callUnary('settings.openDocument', payload, signal),
     update: (payload, signal) => this.callUnary('settings.update', payload, signal),
     replace: (payload, signal) => this.callUnary('settings.replace', payload, signal),
     mutate: (payload, signal) => this.callUnary('settings.mutate', payload, signal),

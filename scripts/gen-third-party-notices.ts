@@ -562,7 +562,7 @@ ${vendored.map(row => `| \`${row.npmName}\` | [${row.upstream.replace('https://'
 
 ## Runtime npm dependencies
 
-External packages that a workspace package resolves at runtime. \`scripts/install.sh\` installs this repository itself, so the tier covers every plugin a user can mount from \`cordis.yml\` — not only what the \`dsh\` CLI/TUI, the Web UI, and the Python SDK runtime load by default.
+External packages that a workspace package resolves at runtime. \`scripts/install.sh\` installs this repository itself, so the tier covers every plugin a user can mount from \`cordis.yml\` — not only what the \`dsh\` CLI, Web UI, and Python SDK runtime load by default.
 
 ${renderNpmTable(runtimeDeps)}
 

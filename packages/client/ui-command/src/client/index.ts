@@ -55,14 +55,10 @@ export const inject = ['slash', 'sessions', 'connection', 'locale']
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-command: dictionaries')
   ctx.plugin(CommandService)
-  // Conditional mount, same seam as ui-slash's MenuView registration:
-  // 'conversation.input.overlay' is declared by the conversation composer
-  // entry, and the conversation service's presence is the registration-safe
-  // signal that the declaration is on the ledger.
-  ctx.inject(['slots', 'conversation', 'command', 'sessions'], (scope: ClientContext) => {
+  ctx.inject(['slots', 'command', 'sessions'], (scope: ClientContext) => {
     const command = scope.command
     const sessions = scope.sessions
-    scope.effect(() => scope.slots.register({
+    scope.slots.inject('conversation.input.overlay', () => scope.slots.register({
       name: 'conversation.input.overlay',
       id: 'command-popup',
       order: 1,
@@ -72,6 +68,6 @@ export function apply(ctx: ClientContext): void {
         if (actx === undefined) throw new Error(`ui-command: session "${String(sessionId)}" resolved no scope`)
         return { popup: command.popupFor(actx) }
       },
-    }, PopupSelectView), 'ui-command: popupSelect overlay registration')
+    }, PopupSelectView))
   })
 }

@@ -47,4 +47,4 @@ The bash owner-token comparison relies on the shared `Agent.id`/`SessionId` bein
 
 ## Consequences
 
-This touched public interfaces (`Agent`, `AgentFactory`, the bash seam) deliberately, not as a local ACP patch. The simple synchronous `Agent.send()` ergonomics were preserved; the async lifecycle path is additive, for owners that need it.
+This touched public interfaces (`Agent`, `AgentFactory`, the bash seam) deliberately, not as a local ACP patch. Synchronous agent delivery remains simple; the async lifecycle path is additive for owners that need it.

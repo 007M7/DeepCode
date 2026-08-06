@@ -340,10 +340,10 @@ export async function watchPersonalPatches(
   try {
     return await register
   } catch (error) {
-    // A surface can dispose the whole tree while the watcher is still opening
-    // (a TUI `/exit` typed during startup): the HMR effect registration then
-    // fails with INACTIVE_EFFECT. That is the app exiting exactly as asked,
-    // not a watch failure — return a no-op disposer instead of crashing.
+    // A surface can dispose the whole tree while the watcher is still opening;
+    // the HMR effect registration then fails with INACTIVE_EFFECT. That is the
+    // app exiting exactly as asked, not a watch failure, so return a no-op
+    // disposer instead of crashing.
     if ((error as { code?: string } | null)?.code === 'INACTIVE_EFFECT') return async () => {}
     throw error
   }
@@ -625,11 +625,10 @@ export async function boot(
     stage = 'plugin tree failed to load'
     await mountRootInclude(ctx, absoluteConfigPath, patches)
     // A surface can finish and dispose the whole tree while startup is still
-    // in flight: the TUI renders as soon as its own fiber starts, so an `/exit`
-    // typed before the last entry settles tears the context down under us. The
-    // Loader service goes with it, and the activation audit describes a live
-    // tree — reading `ctx.loader` past this point would throw a TypeError over
-    // an app that exited exactly as asked. Transactional group updates settle
+    // in flight, before the last entry settles. The Loader service goes with
+    // it, and the activation audit describes a live tree — reading `ctx.loader`
+    // past this point would throw a TypeError over an app that exited exactly
+    // as asked. Transactional group updates settle
     // lifecycle inside the mount, so the teardown can land before it returns;
     // re-check after every await.
     await ctx.get('loader')?.await()

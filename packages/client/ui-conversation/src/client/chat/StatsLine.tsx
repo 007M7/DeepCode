@@ -2,10 +2,14 @@
 // Mounted on 'conversation.composer.dock' so it sticks with the composer in the
 // active conversation scrollport (see ConversationRoot data-conversation-scroll).
 
-import { Fragment, memo, useMemo } from 'react'
+import { Fragment, memo, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ConversationSnapshot, UseProjection } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ContextPressureProjection, TokenUsageProjection } from '@deepseek-ai/dsh-token-meter/client'
+import type { ComposerBarProps } from '../contract/slots.ts'
+import { formatTokensPerSecond } from './message-chrome.ts'
+import { assistantStepReading } from './turn-metrics.ts'
 import css from './StatsLine.module.css'
 
 interface WindowStats {
@@ -15,6 +19,14 @@ interface WindowStats {
   llmMs: number
   /** Summed tool wall time (tool/call → tool/result); 0 when no pair is in-window. */
   toolMs: number
+  /** Summed first-token latency over `ttftSteps`; 0 when no step records it. */
+  ttftMs: number
+  /** Steps carrying a recorded TTFT. */
+  ttftSteps: number
+  /** Summed decode wall time over steps that also report output tokens. */
+  decodeMs: number
+  /** Summed output tokens over the same decode-timed steps. */
+  decodeTokens: number
 }
 
 /**
@@ -32,6 +44,10 @@ export function deriveStats(nodes: ConversationSnapshot['nodes']): WindowStats {
   let steps = 0
   let llmMs = 0
   let toolMs = 0
+  let ttftMs = 0
+  let ttftSteps = 0
+  let decodeMs = 0
+  let decodeTokens = 0
   for (const node of nodes) {
     if (node.kind === 'tool-result') {
       if (node.callTime !== null) toolMs += Math.max(0, node.time - node.callTime)
@@ -43,8 +59,17 @@ export function deriveStats(nodes: ConversationSnapshot['nodes']): WindowStats {
     if (node.timing !== undefined && node.timing.stepStartTime !== null) {
       llmMs += Math.max(0, node.timing.completedTime - node.timing.stepStartTime)
     }
+    const reading = assistantStepReading(node)
+    if (reading.ttftMs !== null) {
+      ttftMs += reading.ttftMs
+      ttftSteps += 1
+    }
+    if (reading.decodeMs !== null && reading.outputTokens !== null) {
+      decodeMs += reading.decodeMs
+      decodeTokens += reading.outputTokens
+    }
   }
-  return { turns: turns.size, steps, llmMs, toolMs }
+  return { turns: turns.size, steps, llmMs, toolMs, ttftMs, ttftSteps, decodeMs, decodeTokens }
 }
 
 /**
@@ -84,30 +109,41 @@ export function cacheHitPercent(usage: TokenUsageProjection): number | null {
     : Math.round(usage.cacheReadTokens / denominator * 100)
 }
 
-/** Sum the three disjoint prompt-side billing buckets. */
-function billedInputTokens(usage: TokenUsageProjection): number {
+/**
+ * Sum the three disjoint prompt-side billing buckets.
+ * @param usage - the session's token-usage projection value.
+ * @returns billed input tokens.
+ */
+export function billedInputTokens(usage: TokenUsageProjection): number {
   return usage.uncachedInputTokens + usage.cacheReadTokens + usage.cacheWriteTokens
 }
 
 interface ContextOccupancy {
   percent: number
+  usedTokens: number
   contextWindow: number
 }
 
 /**
  * Approximate context occupancy, using the TUI's integer rounding and upper
- * clamp. The numerator and capacity are independent last-wins projection
- * fields, so this is a reference figure rather than an exact measurement of one
- * request (see the token-meter README).
+ * clamp. The numerator is `projectedTokens` — the provider sample carried
+ * forward over the surface's movement since — so compaction shows immediately
+ * instead of waiting for the next request to report usage; it falls back to the
+ * bare sample only for a log whose projection predates that field. Numerator
+ * and capacity remain independent last-wins projection fields, so this is a
+ * reference figure rather than an exact measurement of one request (see the
+ * token-meter README).
  * @param pressure - the session's context-pressure projection value.
- * @returns occupancy and its denominator, or null until both values are known.
+ * @returns occupancy with its numerator and denominator, or null until both values are known.
  */
 export function contextOccupancy(
   pressure: ContextPressureProjection | undefined,
 ): ContextOccupancy | null {
-  if (pressure?.pressureTokens === undefined || pressure.contextWindow === undefined) return null
+  const usedTokens = pressure?.projectedTokens ?? pressure?.pressureTokens
+  if (usedTokens === undefined || pressure?.contextWindow === undefined) return null
   return {
-    percent: Math.min(100, Math.round(pressure.pressureTokens / pressure.contextWindow * 100)),
+    percent: Math.min(100, Math.round(usedTokens / pressure.contextWindow * 100)),
+    usedTokens,
     contextWindow: pressure.contextWindow,
   }
 }
@@ -116,46 +152,73 @@ export function contextOccupancy(
 export interface StatsLineProps {
   useSession: SnapshotSelectorHook<ConversationSnapshot>
   useProjection: UseProjection
+  /** The owning dock's locale seat. */
+  t: ComposerBarProps['t']
 }
 
-export const StatsLine = memo(function StatsLine({ useSession, useProjection }: StatsLineProps) {
+export const StatsLine = memo(function StatsLine({ useSession, useProjection, t }: StatsLineProps) {
   const nodes = useSession(s => s.nodes)
   const usage = useProjection('tokenUsage')
-  const pressure = useProjection('contextPressure')
   const stats = useMemo(() => deriveStats(nodes), [nodes])
   // Pipe-separated groups (figma stats strip); a group with no data drops out whole.
   const groups: string[] = []
   if (stats.steps > 0) {
-    groups.push(`${stats.turns} turns · ${stats.steps} steps`)
+    groups.push(t('stats.counts', { turns: stats.turns, steps: stats.steps }))
     const durations: string[] = []
-    if (stats.llmMs > 0) durations.push(`LLM ${formatDuration(stats.llmMs)}`)
-    if (stats.toolMs > 0) durations.push(`Tool call ${formatDuration(stats.toolMs)}`)
+    if (stats.llmMs > 0) durations.push(t('stats.llm', { duration: formatDuration(stats.llmMs) }))
+    if (stats.toolMs > 0) durations.push(t('stats.toolCall', { duration: formatDuration(stats.toolMs) }))
     if (durations.length > 0) groups.push(durations.join(' · '))
+    // Window-scoped like the wall times above: averages describe loaded steps.
+    const speeds: string[] = []
+    if (stats.ttftSteps > 0) {
+      speeds.push(t('stats.ttftAverage', { duration: formatDuration(stats.ttftMs / stats.ttftSteps) }))
+    }
+    if (stats.decodeMs > 0) {
+      speeds.push(t('stats.tokensPerSecond', {
+        throughput: formatTokensPerSecond(stats.decodeTokens / (stats.decodeMs / 1_000)),
+      }))
+    }
+    if (speeds.length > 0) groups.push(speeds.join(' · '))
   }
-  const context = contextOccupancy(pressure)
-  if (context !== null) {
-    groups.push(`Context ${context.percent}% of ${formatTokens(context.contextWindow)}`)
-  }
+  // Context occupancy deliberately lives on the composer's ContextMeter ring,
+  // not here — one home per fact.
   // Billing rides the durable projection, so these survive paging and
   // compaction. Suppress the empty projection on a brand-new session.
   if (usage !== undefined
     && (stats.steps > 0 || billedInputTokens(usage) > 0 || usage.outputTokens > 0)) {
     const cacheHit = cacheHitPercent(usage)
-    if (cacheHit !== null) groups.push(`Cache hit ${cacheHit}%`)
-    groups.push(
-      `Input ${formatTokens(billedInputTokens(usage))} tok`
-      + ` · Output ${formatTokens(usage.outputTokens)} tok`,
-    )
+    if (cacheHit !== null) groups.push(t('stats.cacheHit', { percent: cacheHit }))
+    groups.push(t('stats.tokens', {
+      input: formatTokens(billedInputTokens(usage)),
+      output: formatTokens(usage.outputTokens),
+    }))
   }
+  const line = groups.join(' | ')
+  // The row elides with ellipsis when overlong; a delayed hover tooltip carries
+  // the full line, enabled only while content is actually clipped.
+  const rootRef = useRef<HTMLDivElement | null>(null)
+  const [truncated, setTruncated] = useState(false)
+  useLayoutEffect(() => {
+    const el = rootRef.current
+    if (el === null) return
+    const measure = () => { setTruncated(el.scrollWidth > el.clientWidth) }
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    return () => { observer.disconnect() }
+  }, [line])
   if (groups.length === 0) return null
   return (
-    <div className={css.root}>
-      {groups.map((group, i) => (
-        <Fragment key={group}>
-          {i > 0 && <span className={css.sep} aria-hidden>|</span>}
-          <span>{group}</span>
-        </Fragment>
-      ))}
-    </div>
+    <Tooltip label={line} side="top" delayMs={500} disabled={!truncated}>
+      <div ref={rootRef} className={css.root}>
+        {groups.map((group, i) => (
+          <Fragment key={group}>
+            {i > 0 && <><span className={css.sep} aria-hidden>|</span>{' '}</>}
+            <span>{group}</span>
+          </Fragment>
+        ))}
+      </div>
+    </Tooltip>
   )
 })

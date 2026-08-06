@@ -1,4 +1,4 @@
-/** Settings shell registration: declaration-aware deferral, the ledger projections, and HMR recovery. */
+/** Settings shell registration: slot declaration injection, the ledger projections, and HMR recovery. */
 import { Context } from 'cordis'
 import { describe, expect, it, vi } from 'vitest'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
@@ -24,10 +24,11 @@ function injectedOf(slots: SlotsService): SettingsRootInjected {
   return (entry.inject as () => SettingsRootInjected)()
 }
 
-/** The shell's five child declarations (chrome, sections, and onboarding overlays). */
+/** The shell's child declarations (chrome, actions, sections, and onboarding overlays). */
 const CHILD_SPECS = {
   'settings.trigger': { kind: 'single', scope: 'root' },
   'settings.header': { kind: 'single', scope: 'root' },
+  'settings.action': { kind: 'list', scope: 'root' },
   'settings.close': { kind: 'single', scope: 'root' },
   'settings.section': { kind: 'list', scope: 'root' },
   'settings.onboarding': { kind: 'list', scope: 'root' },
@@ -38,7 +39,7 @@ describe('ui-settings apply', () => {
     expect(inject).toEqual(['slots'])
   })
 
-  it('registers the shell and declares the five child slots, before or after the declaration', async () => {
+  it('registers the shell and declares every child slot, before or after the declaration', async () => {
     const before = await bench()
     declare(before.slots)
     await before.ctx.plugin({ inject: [...inject], apply }).await()
@@ -124,7 +125,7 @@ describe('ui-settings apply', () => {
     }
   })
 
-  it('unregisters the shell and collapses all five child slots on teardown', async () => {
+  it('unregisters the shell and collapses every child slot on teardown', async () => {
     const b = await bench()
     declare(b.slots)
     const fiber = b.ctx.plugin({ inject: [...inject], apply })

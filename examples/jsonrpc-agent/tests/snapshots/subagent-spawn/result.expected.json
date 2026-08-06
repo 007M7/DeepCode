@@ -1,1 +1,1 @@
-{"status":"ok","reason":{"kind":"completed"},"finalResponse":"child answer 42."}
+{"sessionId":"{{sessionId}}","finalResponse":"child answer 42."}

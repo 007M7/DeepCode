@@ -16,7 +16,9 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding: 16px 24px;
+  /* Sides = composer clearance + 16px: on narrow viewports the transcript
+     stays exactly 32px narrower than the input card (the shared width rule). */
+  padding: 16px calc(var(--dsh-composer-side-clearance) + 16px);
 }
 
 :global([data-conversation-scroll]) .root {
@@ -31,10 +33,11 @@
   min-height: auto;
 }
 
-/* Message column: 736px fixed width, centered on the same axis as the
-   input box; the scroller itself stays full-bleed. */
+/* Message column: shared chat width (ConversationRoot --dsh-chat-content-width),
+   centered on the same axis as the input box (which caps at chat + 16px); the
+   scroller itself stays full-bleed. */
 .column {
-  max-width: 736px;
+  max-width: var(--dsh-chat-content-width);
   width: 100%;
   margin: 0 auto;
   display: flex;
@@ -166,7 +169,7 @@
   height: 0;
   display: flex;
   justify-content: flex-end;
-  padding-right: max(0px, calc((100% - 736px) / 2));
+  padding-right: max(0px, calc((100% - var(--dsh-chat-content-width)) / 2));
   pointer-events: none;
 }
 

@@ -69,7 +69,7 @@ function browserSourcePath(source: string, sourcemapPath: string): string {
  * own tsdown.config.ts (a preset-side glob hides it from the mechanical check).
  * @returns tsdown user configs emitting lib/*.js and lib/client.js.
  */
-export function clientBundle(id: string, libEntry: readonly string[]): UserConfig[] {
+export function clientBundle(id: string, libEntry: readonly string[]): [UserConfig, UserConfig] {
   return [{
     entry: [...libEntry],
     outDir: 'lib',

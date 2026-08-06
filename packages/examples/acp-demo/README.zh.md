@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-ACP（Agent Client Protocol）自动化服务器应用：默认 agent（智能体）主干、客户端通过 [`@deepseek-ai/dsh-acp`](../../acp/acp/README.md) 创建的 agent、JSONL 持久化，以及由一个 JSON-RPC stdio bin 提供的语义检查点。程序化客户端创建新会话；此包（package）不挂载人工交互 UI。
+ACP（Agent Client Protocol）自动化服务器应用：默认 agent（智能体）主干、客户端通过 [`@deepseek-ai/dsh-acp`](../../acp/acp/README.md) 创建的 agent、JSONL 持久化，以及由一个 JSON-RPC stdio bin 提供的语义检查点。程序化客户端创建新会话；此包不挂载人工交互 UI。
 
 ## 组合
 

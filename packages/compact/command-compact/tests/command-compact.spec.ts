@@ -67,7 +67,7 @@ async function harness(): Promise<Harness> {
   await ctx.plugin(CommandService)
   const compact = new StubCompactService(ctx)
   const plugin = await ctx.plugin(commandCompact)
-  const session = new Session(SessionId('command-compact'))
+  const session = Session.create(SessionId('command-compact'))
   const agent = {
     session,
     status: 'idle',
@@ -175,6 +175,7 @@ describe('/compact human command', () => {
 
   it.each([
     ['busy', 'Compaction is unavailable because this process has an active compaction, or the agent is not idle.'],
+    ['cancelled', 'Compaction cancelled.'],
     ['changed', 'The history selected for compaction changed before it could be replaced. The conversation is unchanged; the attempt is recorded in the session log.'],
     ['summary', 'Compaction could not produce a useful summary. The conversation is unchanged; the attempt is recorded in the session log.'],
     ['commit', 'Compaction did not finish cleanly; some session history may have changed. Inspect the current session state before retrying.'],

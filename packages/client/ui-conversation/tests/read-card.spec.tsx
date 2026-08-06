@@ -167,7 +167,7 @@ describe('GenericToolCard read body', () => {
 describe('ReadRow keyed toolview', () => {
   const list = () => createSnapshotStore<SessionListState>({
     ids: [SID],
-    byId: { [SID]: { id: SID, displayTitle: 'r', running: false, blank: false, waitingApproval: false, updatedAt: 0, cwd: '/w/app' } },
+    byId: { [SID]: { id: SID, displayTitle: 'r', running: false, blank: false, updatedAt: 0, cwd: '/w/app' } },
     current: SID,
     phase: 'ready',
     subagentsByParent: {},
@@ -237,11 +237,14 @@ describe('ReadRow keyed toolview', () => {
 
   it('registers under the read key of the keyed toolview slot', () => {
     const registered: { name: unknown; key?: unknown }[] = []
-    const ctx = { slots: { register: (options: { name: unknown; key?: unknown }) => { registered.push(options) } } } as unknown as Context
+    const ctx = { slots: {
+      inject: (_name: string, callback: () => () => void) => callback(),
+      register: (options: { name: unknown; key?: unknown }) => { registered.push(options); return () => undefined },
+    } } as unknown as Context
     readToolview.apply(ctx)
     // The row composes ToolRow, so it declares its locale namespace at the seat.
     expect(registered).toEqual([{ name: 'conversation.chat.toolview', key: 'read', locale: 'conversation' }])
-    expect(readToolview.inject).toContain('conversation')
+    expect(readToolview.inject).toEqual(['slots'])
   })
 })
 
@@ -254,7 +257,7 @@ describe('DetailsPanel Output section (read)', () => {
       ? { ids: [], byId: {}, current: undefined, phase: 'ready', subagentsByParent: {}, currentAddress: undefined }
       : {
         ids: [SID],
-        byId: { [SID]: { id: SID, displayTitle: 'r', running: false, blank: false, waitingApproval: false, updatedAt: 0, cwd } },
+        byId: { [SID]: { id: SID, displayTitle: 'r', running: false, blank: false, updatedAt: 0, cwd } },
         current: SID,
         phase: 'ready',
         subagentsByParent: {},

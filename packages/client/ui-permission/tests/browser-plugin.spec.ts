@@ -48,7 +48,7 @@ async function bench() {
       settings: {
         describe: () => Promise.resolve({
           rpcId: 'describe',
-          result: { ok: true as const, value: { writable: true, namespaces: [] } },
+          result: { ok: true as const, value: { writable: true, hasDocument: false, namespaces: [] } },
         }),
         mutate: () => Promise.reject(new Error('settings mutation is not exercised')),
       },

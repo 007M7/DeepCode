@@ -40,7 +40,7 @@ describe('session dispatch carriers', () => {
     otherScope.ctx.on('session/created', session => void heard.push(`other-created:${session.id}`))
 
     const session = scope.ctx.sessions.create()
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
 
     expect(heard).toEqual([
       `owner-created:${session.id}`,
@@ -57,7 +57,7 @@ describe('session dispatch carriers', () => {
     scope.ctx.on('session/event', (_s, event) => void heard.push(`owner:${event.type}`))
 
     const bare = ctx.sessions.create()
-    bare.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    bare.append('turn/start', { turn: 1 })
     expect(heard).toEqual(['global:turn/start'])
   })
 

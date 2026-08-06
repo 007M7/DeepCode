@@ -1,15 +1,15 @@
 /**
- * Four-quadrant RPC message model. Channels and messages are
- * decoupled: HTTP is the client→server physical channel, SSE the server→client one; logical
- * messages are channel-independent, and the wire full form is a four-member discriminated union.
+ * Four-quadrant RPC message model. Channels and messages are decoupled: HTTP,
+ * WebSocket, and in-process SSE are physical carriers, while logical messages
+ * are channel-independent and form a four-member discriminated union.
  * api/ contract layer: zero Node dependencies, importable from the browser.
  */
 
 import type { z as zCore } from 'zod'
 type ZodIssue = zCore.core.$ZodIssue
 import type { Branded } from '@deepseek-ai/dsh-brand'
+import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import type { InboxItemId } from '@deepseek-ai/dsh-agent/brand'
 
 /**
  * Message correlation id: the initiator mints it on a request; a response
@@ -45,8 +45,8 @@ export interface RpcErrorDetailsMap {
   'directory-create-failed': { path: string }
   'directory-picker-unavailable': { capability: string }
   'agent-busy': { reason: string }
-  'queue-item-not-found': { itemId: InboxItemId }
-  'steer-unavailable': { itemId: InboxItemId }
+  'queue-item-not-found': { itemId: MessageId }
+  'steer-unavailable': { itemId: MessageId }
   /** A known slash command reported a usage/state error; the message is the command's own text. */
   'command-error': {}
   /** A leading-/ prompt named no registered command; the message names the token. */
@@ -147,7 +147,7 @@ export interface ServerResponse {
 }
 
 /**
- * Message initiated by the server (wire carrier: SSE frame). Answerable interactions
+ * Message initiated by the server (wire carrier: downstream stream frame). Answerable interactions
  * (approval/question requested — stable rpcId, reused on replay) and pure pushes
  * (session/event etc. — rpcId identifies that one push) share this shape; whether a
  * response is expected is determined statically by method (a strict dichotomy, no third kind).

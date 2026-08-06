@@ -1,7 +1,7 @@
 import { describe, expect, expectTypeOf, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
-import AgentRegistry, {} from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { TaskId } from '@deepseek-ai/dsh-tasks'
 import type { TaskHooks, TaskKind, TaskOutcome, TaskSnapshot, TaskStart } from '@deepseek-ai/dsh-tasks'
@@ -18,20 +18,20 @@ const agentScopeDisposers = new WeakMap<Agent, () => Promise<void>>()
 function stubAgent(ctx: Context, rawId: string): Agent {
   const id = SessionId(rawId)
   const scopeFiber = ctx.plugin(() => {})
+  const session = Session.create(id)
   const agent = {
     id,
     options: {},
-    session: new Session(id),
+    session,
+    inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
     status: 'idle' as const,
-    acceptsNextStep: false,
     ctx: scopeFiber.ctx,
+    send: () => {},
     followup: () => {},
     steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }),
     inject: () => {},
-    send: () => {},
-    updateInbox: (): 'not-found' => 'not-found',
-    reserveTurnAdmission: () => undefined,
     cancel() {},
+    runMaintenance: <T>(task: (signal: AbortSignal) => Promise<T>) => task(new AbortController().signal),
     whenIdle() { return Promise.resolve() },
   }
   agentScopeDisposers.set(agent, async () => { await scopeFiber.dispose() })
