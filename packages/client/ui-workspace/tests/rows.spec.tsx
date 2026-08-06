@@ -64,6 +64,7 @@ describe('workspace browser rows', () => {
       title: 'Result title',
       workspace: 'Workspace context',
       running: true,
+      completed: false,
       snippet: 'matching message excerpt',
     }
     render(<SearchResultItem result={result} currentId={result.id} onOpen={onOpen} t={t} />)
@@ -85,7 +86,7 @@ describe('workspace browser rows', () => {
   ] as const)('shows %s ahead of running in search results', (pendingInteraction, label) => {
     const result: SearchResultNode = {
       id: sid(pendingInteraction), title: 'Needs input', workspace: 'Project',
-      pendingInteraction, running: true,
+      pendingInteraction, running: true, completed: false,
     }
     render(<SearchResultItem result={result} currentId={undefined} onOpen={vi.fn()} t={t} />)
     const row = screen.getByRole('treeitem')
@@ -114,7 +115,7 @@ describe('workspace browser rows', () => {
 
   it('renders and opens a selected running Session row', () => {
     const node: SessionNode = {
-      id: sid('session'), title: 'Session', blank: false, running: true, updatedAt: 0,
+      id: sid('session'), title: 'Session', blank: false, running: true, completed: false, updatedAt: 0,
     }
     const onOpen = vi.fn()
     render(
@@ -128,6 +129,38 @@ describe('workspace browser rows', () => {
     expect(screen.queryByRole('button', { name: /展开|收起/ })).toBeNull()
     fireEvent.click(row)
     expect(onOpen).toHaveBeenCalledWith(node.id)
+  })
+
+  it('shows the green done dot only on a finished, unviewed session (running wins the slot)', () => {
+    const renderRow = (over: Partial<SessionNode>) => render(
+      <SessionNodeItem
+        node={{ id: sid('s1'), title: 'One', blank: false, running: false, completed: false, updatedAt: 0, ...over }}
+        currentId={undefined} now={0} onOpen={vi.fn()}
+        onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t}
+      />,
+    )
+    const stateDot = (view: ReturnType<typeof renderRow>) =>
+      view.container.querySelector('[data-state]')
+    // No completion reminder, not running: no state dot at all.
+    const plain = renderRow({})
+    expect(stateDot(plain)).toBeNull()
+    plain.unmount()
+    // Completed while unviewed: the green done dot.
+    const done = renderRow({ completed: true })
+    expect(done.container.querySelector('[data-state="done"]')).not.toBeNull()
+    done.unmount()
+    // Running wins the slot: the animated ongoing dot, no done dot.
+    const running = renderRow({ completed: true, running: true })
+    expect(running.container.querySelector('[data-state="ongoing"]')).not.toBeNull()
+    expect(running.container.querySelector('[data-state="done"]')).toBeNull()
+  })
+
+  it('shows the green done dot on a finished search result row', () => {
+    render(<SearchResultItem
+      result={{ id: sid('result'), title: 'Done', workspace: 'Workspace', running: false, completed: true }}
+      currentId={undefined} onOpen={vi.fn()} t={t}
+    />)
+    expect(screen.getByRole('treeitem').querySelector('[data-state="done"]')).not.toBeNull()
   })
 
   it('workspace row menu opens on the ellipsis, renames, and shows the danger delete row', () => {
@@ -198,7 +231,7 @@ describe('workspace browser rows', () => {
     vi.useFakeTimers()
     try {
       const node: SessionNode = {
-        id: sid('s-blank'), title: 'ignored', blank: true, running: false, updatedAt: 0,
+        id: sid('s-blank'), title: 'ignored', blank: true, running: false, completed: false, updatedAt: 0,
       }
       render(<SessionNodeItem node={node} currentId={node.id} now={0} onOpen={vi.fn()}
         onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />)
@@ -224,7 +257,7 @@ describe('workspace browser rows', () => {
     const onFork = vi.fn()
     const onArchive = vi.fn()
     const node: SessionNode = {
-      id: sid('s1'), title: 'One', blank: false, running: false, updatedAt: 0,
+      id: sid('s1'), title: 'One', blank: false, running: false, completed: false, updatedAt: 0,
     }
     render(<SessionNodeItem node={node} currentId={undefined} now={0} onOpen={onOpen}
       onRename={onRename} onFork={onFork} onArchive={onArchive} t={t} />)
@@ -257,7 +290,7 @@ describe('workspace browser rows', () => {
     vi.useFakeTimers()
     try {
       const node: SessionNode = {
-        id: sid('s1'), title: 'Hovered', blank: false, running: true, updatedAt: 0,
+        id: sid('s1'), title: 'Hovered', blank: false, running: true, completed: false, updatedAt: 0,
       }
       render(<SessionNodeItem node={node} currentId={undefined} now={60_000} onOpen={vi.fn()}
         onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />)
@@ -288,7 +321,7 @@ describe('workspace browser rows', () => {
     try {
       const node: SessionNode = {
         id: sid(pendingInteraction), title: 'Needs input', blank: false,
-        pendingInteraction, running: true, updatedAt: 0,
+        pendingInteraction, running: true, completed: false, updatedAt: 0,
       }
       const view = render(<SessionNodeItem node={node} currentId={undefined} now={0} onOpen={vi.fn()}
         onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />)
@@ -314,7 +347,7 @@ describe('workspace browser rows', () => {
     vi.useFakeTimers()
     try {
       const node: SessionNode = {
-        id: sid('s1'), title: 'Quiet', blank: false, running: false, updatedAt: 0,
+        id: sid('s1'), title: 'Quiet', blank: false, running: false, completed: false, updatedAt: 0,
       }
       render(<SessionNodeItem node={node} currentId={undefined} now={0} onOpen={vi.fn()}
         onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />)
@@ -327,9 +360,26 @@ describe('workspace browser rows', () => {
     }
   })
 
+  it('completed hover card shows the Completed status line', () => {
+    vi.useFakeTimers()
+    try {
+      const node: SessionNode = {
+        id: sid('s1'), title: 'Done', blank: false, running: false, completed: true, updatedAt: 0,
+      }
+      render(<SessionNodeItem node={node} currentId={undefined} now={0} onOpen={vi.fn()}
+        onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />)
+      fireEvent.pointerEnter(screen.getByRole('treeitem').parentElement as HTMLElement)
+      act(() => { vi.advanceTimersByTime(500) })
+      // Row's visually-hidden reminder label plus the hover card's status line.
+      expect(screen.getAllByText('已完成')).toHaveLength(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('draggable row wires start/end and gates hover/drop on an active same-group drag', () => {
     const node: SessionNode = {
-      id: sid('s1'), title: 'Drag me', blank: false, running: false, updatedAt: 0,
+      id: sid('s1'), title: 'Drag me', blank: false, running: false, completed: false, updatedAt: 0,
     }
     const inactive = dragProps()
     const { rerender } = render(

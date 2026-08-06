@@ -184,13 +184,13 @@ export function apply(ctx: Context, config: AcpConfig): void {
     }
   })
 
-  ctx.on('agent/inbox/claimed', (agent, { message, turn }) => {
+  ctx.on('agent/inbox/claimed', ({ agent, message, turn }) => {
     const record = ownedRecord(agent)
     const inflight = record?.inflight
     if (inflight !== undefined && inflight.messageId === message.id) inflight.turn = turn
   })
 
-  ctx.on('agent/error', (agent, turn, _step, error) => {
+  ctx.on('agent/error', ({ agent, turn, error }) => {
     const record = ownedRecord(agent)
     const inflight = record?.inflight
     if (record === undefined || inflight === undefined || inflight.turn === turn) return

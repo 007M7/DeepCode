@@ -8,10 +8,29 @@ import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import {
-  encodeSegment, eventLines, logPath, projectDir, projectKey, scanLog, sessionDir, toHeaderLine,
+  encodeSegment, eventLines, logPath, projectDir, projectKey, scanLog, sessionDir, SessionLogScanner, toHeaderLine,
 } from '../src/format.ts'
 import { runPersistenceContract, meta, oneTurnLog, appendLog } from '../../session-persistence/tests/contract.ts'
 import { runCoordinatorContract, type CoordinatorFixture } from '../../session-persistence/tests/coordinator-contract.ts'
+
+const statRace = vi.hoisted(() => ({
+  path: undefined as string | undefined,
+  reads: 0,
+}))
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return {
+    ...actual,
+    stat: (async (...args: Parameters<typeof actual.stat>) => {
+      const identity = await actual.stat(...args)
+      if (String(args[0]) !== statRace.path || !('mtimeNs' in identity)) return identity
+      statRace.reads += 1
+      if (statRace.reads !== 2) return identity
+      return { ...identity, mtimeNs: identity.mtimeNs + 1n }
+    }) as typeof actual.stat,
+  }
+})
 
 let root: string
 const dirs: string[] = []
@@ -54,6 +73,8 @@ function rawLogPath(root: string, cwd: string | undefined, id: SessionId): strin
 }
 
 afterEach(async () => {
+  statRace.path = undefined
+  statRace.reads = 0
   vi.restoreAllMocks()
   for (const d of dirs.splice(0)) await rm(d, { recursive: true, force: true })
 })
@@ -253,6 +274,57 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
 
     await reopenedCtx.fiber.dispose()
     await otherCtx.fiber.dispose()
+  })
+
+  it('binds a full stored prefix to the same revision as a lightweight read', async () => {
+    const m = meta('stored-prefix-revision')
+    await ctx.sessionPersistence.create(m)
+    await ctx.sessionPersistence.append(m.id, oneTurnLog())
+    const persistence = ctx.sessionPersistence as SessionPersistenceJsonl
+
+    const stored = await persistence.loadStored(m.id)
+    expect(stored?.revision).toBe(await persistence.readStoredRevision(m.id))
+    expect(await persistence.readStoredRevision(SessionId('missing-revision'))).toBeUndefined()
+  })
+
+  it('retries a full-prefix read when the file revision changes during the read', async () => {
+    const m = meta('stored-prefix-revision-race')
+    await ctx.sessionPersistence.create(m)
+    await ctx.sessionPersistence.append(m.id, oneTurnLog())
+    const persistence = ctx.sessionPersistence as SessionPersistenceJsonl
+    statRace.path = rawLogPath(root, m.cwd, m.id)
+
+    await expect(persistence.loadStored(m.id)).resolves.toMatchObject({ events: oneTurnLog() })
+    expect(statRace.reads).toBe(4)
+  })
+
+  it('handles revision-stat races and errors after log discovery', async () => {
+    const m = meta('stored-revision-race')
+    await ctx.sessionPersistence.create(m)
+    await ctx.sessionPersistence.append(m.id, oneTurnLog())
+    const persistence = ctx.sessionPersistence as SessionPersistenceJsonl
+    const internals = persistence as unknown as {
+      findLog(id: SessionId, signal?: AbortSignal): Promise<string | undefined>
+    }
+    const path = rawLogPath(root, m.cwd, m.id)
+    const findLog = vi.spyOn(internals, 'findLog').mockResolvedValue(path)
+
+    await rm(path)
+    expect(await persistence.readStoredRevision(m.id)).toBeUndefined()
+
+    const invalidPath = `${path}\0`
+    findLog.mockResolvedValue(invalidPath)
+    await expect(persistence.readStoredRevision(m.id)).rejects.toMatchObject({
+      code: 'ERR_INVALID_ARG_VALUE',
+    })
+
+    const reason = new Error('revision read cancelled after discovery')
+    const controller = new AbortController()
+    findLog.mockImplementation(async () => {
+      controller.abort(reason)
+      return invalidPath
+    })
+    await expect(persistence.readStoredRevision(m.id, controller.signal)).rejects.toBe(reason)
   })
 
   it('omits a snapshot artifact removed after discovery', async () => {
@@ -519,14 +591,12 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     }
   })
 
-  it('load returns a meta copy: mutating it does not corrupt backend pathing', async () => {
+  it('load returns immutable meta without exposing backend pathing', async () => {
     const m = meta('meta-copy', '/proj')
     await ctx.sessionPersistence.create(m)
     await ctx.sessionPersistence.append(m.id, oneTurnLog())
     const loaded = await ctx.sessionPersistence.load(m.id)
-    // A consumer mutates the returned meta's cwd. The backend's stored pathing
-    // metadata must be unaffected, so a later append still finds the right log.
-    mutableHeader(loaded.meta).cwd = '/evil'
+    expect(() => { mutableHeader(loaded.meta).cwd = '/evil' }).toThrow()
     await ctx.sessionPersistence.append(m.id, [
       { type: 'turn/start', seq: 6, time: 9, data: { turn: 2 } },
       { type: 'turn/end', seq: 7, time: 10, data: { turn: 2, reason: { kind: 'completed' } } },
@@ -624,6 +694,65 @@ describe('SessionPersistenceJsonl: write path (session/event → flush)', () => 
 
 
 describe('SessionPersistenceJsonl: scanLog unit', () => {
+  it('requires exactly one newline-terminated header record', () => {
+    const header = JSON.stringify(toHeaderLine(meta('scanner-header')))
+    expect(() => new SessionLogScanner(Buffer.alloc(0))).toThrow(/header-less/)
+    expect(() => new SessionLogScanner(Buffer.from(header))).toThrow(/header-less/)
+    expect(() => new SessionLogScanner(Buffer.from(`${header}\n${header}\n`))).toThrow(/header-less/)
+  })
+
+  it('handles empty writes, boundary newlines, torn fragments, and scanner completion', () => {
+    const header = Buffer.from(`${JSON.stringify(toHeaderLine(meta('scanner-lifecycle')))}\n`)
+    const event = Buffer.from(JSON.stringify(oneTurnLog()[0]))
+    const scanner = new SessionLogScanner(header)
+
+    scanner.write(Buffer.alloc(0))
+    scanner.write(event)
+    scanner.write(Buffer.from('\nignored torn tail'))
+    const result = scanner.finish()
+
+    expect(result.events).toEqual([oneTurnLog()[0]])
+    expect(result.committedBytes).toBe(header.length + event.length + 1)
+    expect(() => { scanner.write(Buffer.from('\n')) }).toThrow(/finished/)
+  })
+
+  it('keeps scanning after a tolerable corrupt suffix until a committed turn end appears', () => {
+    const header = Buffer.from(`${JSON.stringify(toHeaderLine(meta('scanner-corrupt-suffix')))}\n`)
+    const scanner = new SessionLogScanner(header)
+    scanner.write(Buffer.from([
+      JSON.stringify(oneTurnLog()[0]),
+      '{not json',
+      JSON.stringify({ type: 'step/start', seq: 1, time: 2, data: { turn: 1, step: 1 } }),
+      '',
+    ].join('\n')))
+    expect(scanner.finish().events).toEqual([oneTurnLog()[0]])
+
+    const committed = new SessionLogScanner(header)
+    expect(() => { committed.write(Buffer.from([
+      JSON.stringify({ type: 'turn/end', seq: 1, time: 2, data: { turn: 1, reason: { kind: 'completed' } } }),
+      '',
+    ].join('\n'))) }).toThrow(/seq gap in committed region/)
+  })
+
+  it('incrementally scans records split across reusable decoder chunks', () => {
+    const header = Buffer.from(`${JSON.stringify(toHeaderLine(meta('incremental')))}\n`)
+    const body = Buffer.from(`${oneTurnLog().map(event => JSON.stringify(event)).join('\n').replace('"hi"', '"你好"')}\n`)
+    const split = body.indexOf(Buffer.from('你')) + 1
+    const firstChunk = Buffer.from(body.subarray(0, split))
+    const scanner = new SessionLogScanner(header)
+
+    scanner.write(firstChunk)
+    const checkpoint = scanner.checkpoint()
+    firstChunk.fill(0)
+    scanner.write(body.subarray(split))
+
+    expect(checkpoint).toMatchObject({
+      inputBytes: header.length + split,
+      eventCount: 1,
+    })
+    expect(scanner.finish()).toEqual(scanLog(Buffer.concat([header, body])))
+  })
+
   it('rejects a header-less / empty log', () => {
     expect(() => scanLog(Buffer.from(''))).toThrow()
   })

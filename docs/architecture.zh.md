@@ -66,15 +66,15 @@ waterfall（瀑布式事件）是环绕中间件：监听器通过 `next()` 委�
 
 ## 默认循环生命周期
 
-**会话**采用仅追加方式。一个**轮次**领取一条已排队的后续消息，等待前一轮次的检查点，并可与其共用 `running` 区间（[决策](../.agents/notes/implemented/simplification/2026-07-17-one-send-one-turn.md)）；注入不领取输入。一个**步骤**包含一次模型请求及其工具。[时序](agent-lifecycle.md)中的引号标记持久事件。
+**会话**采用仅追加方式。一个**轮次**领取一条已排队的后续消息，等待前一轮次的检查点，并可与其共用 `running` 区间（[决策](../.agents/notes/implemented/simplification/2026-07-17-one-send-one-turn.md)）；注入不领取输入。一个**步骤**包含一次模型请求及其工具。新建与持久化恢复会先取得精确的未发布 `SessionPreparation`；只有基于该 Session 的私有设置准备完毕后，系统才会发布 agent 与会话（[决策](../.agents/notes/implemented/architecture/2026-08-05-session-preparation.md)）。[时序](agent-lifecycle.md)中的引号标记持久事件。
 
 创建时若未提供 id，流程会生成 `<config-id>-session-<uuid>`；`sessionId` 用于恢复或创建会话，而 `resumeSessionId` 要求已有历史。恢复流程在发布前还原沿袭关系和委托深度；初始化失败会发出 `agent-loop/config-start-failed`。
 
 ### 轮次流程
 
 ```text
-choose declarative identity and fresh/resume path
-  -> prepare private session + agent.ctx -> await unpublished setup
+choose declarative identity and acquire fresh/restored SessionPreparation
+  -> prepare private agent.ctx around exact Session -> await unpublished setup -> invoke optional synchronous setup commit
   -> enter session + agent -> session/created -> agent/created
   -> enable driving -> agent/session-start(source) -> start driver
 forever:
@@ -83,7 +83,7 @@ forever:
   -> 'turn/start'
   claim next-step input plus one next-turn message
   -> emit agent/inbox/claimed({ message, turn }) for each claimed message
-  -> agent/pre-step(messages, { turn, step, signal })
+  -> agent/pre-step({ agent, messages, turn, step, signal })
     reject, empty input, cancellation, or listener failure
       -> the claimed batch stays removed; close the no-step turn; stop the driver
     enter -> step loop:
@@ -112,7 +112,7 @@ idle inject:
 
 每个步骤都会组装有序的提示词片段、工具 schema 和变量；未知引用会使该轮次失败。`dsh-system-prompt` 负责身份和角色设定；循环提供 `provider`、`model` 和 `cwd`（[提示词归属](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)）。
 
-`inject()` 将不会唤醒驱动器的上下文排入 `next-step`；空闲驱动器会让它保持待处理，直至 `followup()` 或 `steer()` 唤醒。工具执行后的 `additionalContexts` 使用同一个 inbox。`agent/pre-step` 接收独占的已领取批次，以及即将使用的轮次、步骤和信号。拒绝则不进入步骤；进入则提供在 `step/start` 后追加的完整批次。空的工具续跑仍会经过 waterfall，其最终值一次性结算所有改写。
+`inject()` 将不会唤醒驱动器的上下文排入 `next-step`；空闲驱动器会让它保持待处理，直至 `followup()` 或 `steer()` 唤醒。工具执行后的 `additionalContexts` 使用同一个 inbox。`agent/pre-step` 的 payload 携带独占的已领取批次，以及即将使用的轮次、步骤和信号。拒绝则不进入步骤；进入则提供在 `step/start` 后追加的完整批次。空的工具续跑仍会经过 waterfall，其最终值一次性结算所有改写。
 
 裁剪先于摘要；溢出重试必须取得持久进展。`agent/request-error` 可以授权使用冻结提示词进行同步骤重试；取消优先。适配器的 `retryPolicy` 使 normal mode 保持有界，always mode 则在专门恢复后重试（[压缩](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md)、[重试基础](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)、[提供方策略](../.agents/notes/implemented/feature/2026-07-24-provider-retry-policies.md)）。精确事件顺序由生成的 [agent 生命周期](agent-lifecycle.md)定义；队列、steering、重试与取消机制由 [agent-loop README](../packages/core/agent-loop/README.md)定义。
 

@@ -66,15 +66,15 @@ Waterfalls are around-middleware: listeners delegate with `next()`; returning wi
 
 ## Default Loop Lifecycle
 
-A **session** is append-only. A **turn** claims one queued follow-up, waits for its predecessor's checkpoint, and may share its `running` interval ([decision](../.agents/notes/implemented/simplification/2026-07-17-one-send-one-turn.md)); injection claims none. A **step** is one model request plus tools. Quotes in the [sequence](agent-lifecycle.md) mark durable events.
+A **session** is append-only. A **turn** claims one queued follow-up, waits for its predecessor's checkpoint, and may share its `running` interval ([decision](../.agents/notes/implemented/simplification/2026-07-17-one-send-one-turn.md)); injection claims none. A **step** is one model request plus tools. Fresh creation and persisted resume first acquire an exact unpublished `SessionPreparation`; Agent and session publication happen only after private setup against that Session is ready ([decision](../.agents/notes/implemented/architecture/2026-08-05-session-preparation.md)). Quotes in the [sequence](agent-lifecycle.md) mark durable events.
 
 Creation without an id mints `<config-id>-session-<uuid>`; `sessionId` resumes or creates, while `resumeSessionId` requires history. Resume restores lineage and delegation depth before publication; setup failure emits `agent-loop/config-start-failed`.
 
 ### Turn Flow
 
 ```text
-choose declarative identity and fresh/resume path
-  -> prepare private session + agent.ctx -> await unpublished setup
+choose declarative identity and acquire fresh/restored SessionPreparation
+  -> prepare private agent.ctx around exact Session -> await unpublished setup -> invoke optional synchronous setup commit
   -> enter session + agent -> session/created -> agent/created
   -> enable driving -> agent/session-start(source) -> start driver
 forever:
@@ -83,7 +83,7 @@ forever:
   -> 'turn/start'
   claim next-step input plus one next-turn message
   -> emit agent/inbox/claimed({ message, turn }) for each claimed message
-  -> agent/pre-step(messages, { turn, step, signal })
+  -> agent/pre-step({ agent, messages, turn, step, signal })
     reject, empty input, cancellation, or listener failure
       -> the claimed batch stays removed; close the no-step turn; stop the driver
     enter -> step loop:
@@ -112,7 +112,7 @@ idle inject:
 
 Each step assembles ordered prompt sections, tool schemas, and variables; unknown references fail the turn. `dsh-system-prompt` owns identity and persona; the loop supplies `provider`, `model`, and `cwd` ([prompt ownership](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)).
 
-`inject()` queues non-waking `next-step` context; an idle driver leaves it pending until `followup()` or `steer()` wakes the driver. Post-tool `additionalContexts` use the same inbox. `agent/pre-step` receives the exclusive claimed batch and upcoming turn, step, and signal. Reject opens no step; enter supplies the complete batch appended after `step/start`. Empty tool continuations still traverse the waterfall, whose final value settles all rewrites.
+`inject()` queues non-waking `next-step` context; an idle driver leaves it pending until `followup()` or `steer()` wakes the driver. Post-tool `additionalContexts` use the same inbox. The `agent/pre-step` payload carries the exclusive claimed batch and the upcoming turn, step, and signal. Reject opens no step; enter supplies the complete batch appended after `step/start`. Empty tool continuations still traverse the waterfall, whose final value settles all rewrites.
 
 Pruning precedes summaries; overflow retries require durable progress. `agent/request-error` may authorize a same-step retry of the frozen prompt; cancellation wins. Adapter `retryPolicy` bounds normal mode, while always mode retries after specialized recovery ([compaction](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md), [retry foundation](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md), [provider policy](../.agents/notes/implemented/feature/2026-07-24-provider-retry-policies.md)). The generated [agent lifecycle](agent-lifecycle.md) owns exact event order, and the [agent-loop README](../packages/core/agent-loop/README.md) owns queue, steering, retry, and cancellation mechanics.
 

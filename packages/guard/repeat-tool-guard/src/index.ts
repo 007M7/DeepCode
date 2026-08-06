@@ -200,7 +200,10 @@ export function apply(ctx: Context, config: Config): void {
     const text = count === thresholds[0]
       ? GENTLE_REMINDER
       : detailedReminder(exec.name, count, previewArguments(canonical, argumentsPreviewChars))
-    return createUserMessage({ content: [{ type: 'text', text }], source: PLUGIN_SOURCE })
+    return createUserMessage({
+      content: [{ type: 'text', text }],
+      source: { ...PLUGIN_SOURCE, form: 'notice', summary: `${exec.name} × ${count}` },
+    })
   }
 
   // Observe-and-enrich, never veto: count first (state advances regardless of
@@ -223,7 +226,7 @@ export function apply(ctx: Context, config: Config): void {
   // A user interjection changes the context; repetition across it is not a
   // loop. Pure reset hook: always delegates (attaching nothing, vetoing
   // nothing).
-  ctx.on('agent/pre-step', (agent, messages, _context, next): Promise<PreStepDecision> => {
+  ctx.on('agent/pre-step', ({ agent, messages }, next): Promise<PreStepDecision> => {
     if (messages.some(message => message.source.kind === 'user')) chains.delete(agent)
     return next()
   })

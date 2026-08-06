@@ -41,7 +41,7 @@ async function composePrefix(ctx: Context, cwd: string): Promise<Message[]> {
   const agent = ctx.agentLoop.create(SessionId('agent-spine-prefix'), {}, { cwd })
   const signal = new AbortController().signal
   const decision = await agentEvents(ctx, agent).waterfall(
-    'agent/pre-step', [], { turn: 1, step: 1, signal },
+    'agent/pre-step', { messages: [], turn: 1, step: 1, signal },
     () => Promise.resolve({ kind: 'enter', messages: [] }),
   )
   if (decision.kind === 'enter') {
@@ -476,9 +476,7 @@ describe('dsh-agent-spine-demo bundle', () => {
       expect(loadedRequest).toContain('Use the freshly loaded body.')
 
       const transcript = handle.agent.session.events.flatMap<Record<string, unknown>>((event) => {
-        if (event.type === 'user/message'
-          && event.data.source.kind === 'plugin'
-          && event.data.source.plugin === 'dsh-tool-skill') {
+        if (event.type === 'user/message' && event.data.source.kind === 'skill-catalog') {
           return [{
             type: event.type,
             source: event.data.source,
@@ -512,8 +510,14 @@ describe('dsh-agent-spine-demo bundle', () => {
           },
           {
             "source": {
-              "kind": "plugin",
-              "plugin": "dsh-tool-skill",
+              "entries": [
+                {
+                  "description": "Hot-added skill",
+                  "name": "hot-skill",
+                },
+              ],
+              "form": "catalog",
+              "kind": "skill-catalog",
             },
             "text": "<system-reminder>
         A skill is a reusable set of task-specific instructions. The following skills are available in this session:

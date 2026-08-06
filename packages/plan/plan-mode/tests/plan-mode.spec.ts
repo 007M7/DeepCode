@@ -45,7 +45,7 @@ async function agentWithSession(ctx: Context, id = 'agent-1', { active }: { acti
   // Seeded plan state lands before the creation announcement, matching resume.
   if (active !== undefined) session.append('plan/mode', { active })
   // The loop announces creation after publication.
-  ctx.emit('agent/created', agent)
+  ctx.emit('agent/created', { agent })
   return agent
 }
 
@@ -74,8 +74,7 @@ async function boundary(ctx: Context, agent: Agent & { session: Session }, type:
   const signal = new AbortController().signal
   const decision = await events.waterfall(
     'agent/pre-step',
-    [message],
-    { turn: 1, step: 1, signal },
+    { messages: [message], turn: 1, step: 1, signal },
     () => Promise.resolve({ kind: 'enter' as const, messages: [message] }),
   )
   if (decision.kind === 'enter') {

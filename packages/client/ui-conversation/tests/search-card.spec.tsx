@@ -349,8 +349,13 @@ describe('SearchRow keyed card', () => {
     const registered: { key: unknown; locale: unknown; component: unknown }[] = []
     const ctx = {
       slots: {
+        inject: (_name: string, callback: () => Iterable<() => void>) => {
+          for (const _dispose of callback()) { /* exhaust transactional setup */ }
+          return () => undefined
+        },
         register: (options: { name: string; key: string; locale?: string }, component: unknown) => {
           registered.push({ key: options.key, locale: options.locale, component })
+          return () => undefined
         },
       },
     } as never
@@ -361,7 +366,7 @@ describe('SearchRow keyed card', () => {
     // One component, two keys.
     expect(registered[0]!.component).toBe(SearchRow)
     expect(registered[1]!.component).toBe(SearchRow)
-    expect(searchToolview.inject).toEqual(['slots', 'conversation'])
+    expect(searchToolview.inject).toEqual(['slots'])
   })
 })
 

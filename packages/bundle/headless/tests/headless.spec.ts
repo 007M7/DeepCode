@@ -70,9 +70,9 @@ async function run(events: ScriptedEvent[], options: { promptFails?: boolean } =
   // flip the agent idle exactly as the loop would. Foreign agents and
   // non-idle transitions must not settle the run.
   await new Promise(resolve => setTimeout(resolve, 10))
-  ctx.emit('agent/status', { id: 'OTHER' } as Agent, 'idle')
-  ctx.emit('agent/status', { id: 'S1' } as Agent, 'running')
-  ctx.emit('agent/status', { id: 'S1' } as Agent, 'idle')
+  ctx.emit('agent/status', { agent: { id: 'OTHER' } as Agent, status: 'idle' })
+  ctx.emit('agent/status', { agent: { id: 'S1' } as Agent, status: 'running' })
+  ctx.emit('agent/status', { agent: { id: 'S1' } as Agent, status: 'idle' })
   const code = await exited
   await ctx.fiber.dispose()
   return { code, out, err }
@@ -168,7 +168,7 @@ describe('headless runner', () => {
     ctx.provide('httpServer', { port: 1 } as never)
     apply(ctx, { task: 't' })
     await new Promise(resolve => setTimeout(resolve, 10))
-    ctx.emit('agent/status', { id: 'S1' } as Agent, 'idle')
+    ctx.emit('agent/status', { agent: { id: 'S1' } as Agent, status: 'idle' })
     expect(await exited).toBe(1)
     expect(err).toContain('event stream failed')
     await ctx.fiber.dispose()

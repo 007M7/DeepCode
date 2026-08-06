@@ -433,12 +433,20 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Describe provider routes with a registered adapter.\n * @returns detached provider metadata in registration order.\n */',
       },
       {
-        signature: 'registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): () => void',
-        jsDoc: '/**\n * Declare provider routes an adapter plugin can activate through\n * configuration. Registration is all-or-nothing: an empty list, invalid\n * entry, or a provider already declared by any registration throws\n * `LlmError` without registering the rest. Disposed with the fiber.\n * @param entries - every configurable provider this plugin owns.\n * @returns the disposer that withdraws all of them.\n */',
+        signature: 'registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): DirectoryRegistrationHandle',
+        jsDoc: '/**\n * Declare provider routes an adapter plugin can activate through\n * configuration. Registration is all-or-nothing: an empty list, invalid\n * entry, or a provider already declared by any registration throws\n * `LlmError` without registering the rest. Disposed with the fiber.\n * @param entries - every configurable provider this plugin owns.\n * @returns a handle that withdraws all of them, and can atomically replace them.\n */',
       },
       {
         signature: 'listConfigurableProviders(): LlmConfigurableProvider[]',
         jsDoc: '/**\n * List every declared configurable provider, registered or dormant.\n * @returns detached directory entries in declaration order.\n */',
+      },
+      {
+        signature: 'registerModelDiscovery( settingsNs: string, discover: (request: LlmModelDiscoveryRequest) => Promise<readonly LlmDiscoveredModel[]>, ): () => void',
+        jsDoc: '/**\n * Offer to interrogate provider endpoints on behalf of the settings\n * namespace this plugin owns. The namespace is the key because that is what\n * a configuration surface already holds from the configurable-provider\n * directory, and because a provider being *added* has no route to name yet.\n * Disposed with the fiber.\n * @param settingsNs - the namespace whose profiles this discovery serves.\n * @param discover - interrogates one endpoint; must honor `request.signal`.\n * @returns the disposer that withdraws the offer.\n */',
+      },
+      {
+        signature: 'async discoverModels( settingsNs: string, request: LlmModelDiscoveryRequest, ): Promise<LlmDiscoveredModel[]>',
+        jsDoc: '/**\n * Interrogate one provider endpoint for the models it advertises. The\n * request describes a draft, not a stored route, so nothing here reads or\n * writes settings or credentials — the caller owns both, and the reply is\n * candidate metadata a surface may offer for adoption.\n * @param settingsNs - namespace whose registered discovery serves this draft.\n * @param request - the endpoint, protocol, and one-shot credential to use.\n * @returns the advertised models, deduplicated in endpoint order.\n */',
       },
       {
         signature: 'providerRetryPolicy(provider: string): ResolvedRetryPolicy',
@@ -589,16 +597,20 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Durably persist a batch of events. Honors the append-only and contiguous-\n * seq contracts: the first event\'s `seq` MUST equal the stored next-seq\n * (after `load` has durably closed any interrupted turn). Rejects non-JSON-\n * serializable `event.data` with an error naming the offending event type.\n * @param id - the session the batch belongs to.\n * @param events - the contiguous batch to persist, in seq order.\n */',
       },
       {
-        signature: 'abstract load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }>',
-        jsDoc: '/**\n * Load a header and balanced contiguous log. A complete interrupted final\n * turn is preserved and durably closed with missing tool errors plus any open\n * step and turn boundaries; only a torn final record is discarded. Unknown\n * versions and corruption in the committed prefix reject. Implementations\n * MUST NOT crash-repair an identity still bound to a live Session: a balanced\n * live log may return with its stored header as a durable snapshot, while an\n * open live turn rejects.\n * A coordinator-backed cold load reserves the identity across storage awaits,\n * so concurrent publication of a same-id live Session rejects.\n * Returned events are detached, and every identified message is deeply\n * frozen. Coordinator-backed implementations upgrade supported pre-identity\n * message events before validation; other malformed messages reject before\n * any stored event is returned.\n * @param id - the persisted session to reload.\n * @returns the header and a log ending on a balanced `turn/end`.\n */',
+        signature: 'async prepare(id: SessionId, signal?: AbortSignal): Promise<SessionPreparation>',
+        jsDoc: '/**\n * Prepare the exact unpublished Session used by resume. Implementations may\n * reuse object graphs retained by an earlier {@link inspect} after confirming\n * their durable revision is still current; disposal releases an unpublished\n * reservation. Revision retries require the durable log to remain unchanged\n * for one read/check round trip; continuous external writers may delay completion.\n * @param id - persisted session to prepare.\n * @param signal - optional cancellation for preparation work.\n * @returns one owned unpublished Session preparation.\n */',
       },
       {
-        signature: 'abstract inspect(id: SessionId, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }>',
-        jsDoc: '/**\n * Inspect a header and its valid contiguous stored prefix without repairing\n * a torn tail, closing an interrupted turn, or publishing coordinator state.\n * This read is serialized with writes for the same id and returns detached\n * values with upgraded, deeply frozen identified messages, so observers\n * cannot mutate message identity/content or backend-owned state. Other\n * malformed messages reject.\n * @param id - the persisted session to inspect.\n * @param signal - optional cancellation for queued and backend read work.\n * @returns the header and valid stored event prefix exactly as observed.\n */',
+        signature: 'abstract load(id: SessionId): Promise<SessionInspection>',
+        jsDoc: '/**\n * Load an immutable balanced logical view and commit any required cold\n * recovery. A complete interrupted final turn is preserved and durably\n * closed with missing tool errors plus any open step and turn boundaries;\n * only a torn final record is discarded. Unknown versions and corruption in\n * the committed prefix reject. Implementations MUST NOT crash-repair an\n * identity still bound to a live Session: a balanced live log may return as a\n * durable snapshot, while an open live turn rejects. Returned values may be\n * shared with immutable live or prepared state and must not be mutated.\n * Revision-based implementations may wait for one stable read/check round trip.\n * @param id - the persisted session to reload.\n * @returns the header and a log ending on a balanced `turn/end`.\n */',
+      },
+      {
+        signature: 'abstract inspect(id: SessionId, signal?: AbortSignal): Promise<SessionInspection>',
+        jsDoc: '/**\n * Inspect an immutable logical session without committing recovery or\n * publishing it. A cold complete interrupted turn receives synthetic closers\n * in memory and a torn physical tail remains untouched. An already-live\n * Session instead yields its current immutable snapshot, which may contain an\n * open turn and its `session/end-seed` boundary. Coordinator-backed\n * implementations retain the exact cold unpublished Session for bounded\n * reuse by a later {@link prepare}. A stale ready source is reloaded; a source\n * already committing or reserved for resume remains exclusive, and inspection\n * may borrow its immutable view. Callers borrow only the immutable header and\n * log. Continuous external writers may delay revision convergence.\n * @param id - the persisted session to inspect.\n * @param signal - optional cancellation for queued and backend read work.\n * @returns the validated header and current logical event log.\n */',
       },
       {
         signature: 'abstract readFrom(id: SessionId, fromSeq: number, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }>',
-        jsDoc: '/**\n * Read the stored events from `fromSeq` onward — the read-from-seq\n * primitive for read models that resume from a watermark (e.g. a persisted\n * projection cache folding only the tail past its checkpoint). Like\n * {@link inspect} it is non-mutating and detached: no torn-tail truncation,\n * no synthetic closers, no coordinator-state publication; only events from\n * the valid contiguous stored prefix are returned, so a torn fragment never\n * reaches the caller. `fromSeq` at or beyond the stored prefix returns an\n * empty event list (never an error). Backends whose medium can seek by seq\n * (SQLite) read only the suffix; sequential media (JSONL, both encodings)\n * still parse the whole artifact and skip forward — the primitive bounds\n * what is RETURNED and refolded, not every backend\'s physical read.\n * @param id - the persisted session to read.\n * @param fromSeq - first event seq to include; a non-negative safe integer.\n * @param signal - optional cancellation for queued and backend read work.\n * @returns the header and the stored events with `seq >= fromSeq`.\n */',
+        jsDoc: '/**\n * Read the stored events from `fromSeq` onward — the read-from-seq\n * primitive for read models that resume from a watermark (e.g. a persisted\n * projection cache folding only the tail past its checkpoint). Unlike\n * {@link inspect}, it is a detached physical suffix read: no preparation\n * cache, torn-tail truncation, synthetic closers, or coordinator-state\n * publication. Only events from the valid contiguous stored prefix are\n * returned, so a torn fragment never reaches the caller. `fromSeq` at or\n * beyond the stored prefix returns an empty event list (never an error).\n * Backends whose medium can seek by seq\n * (SQLite) read only the suffix; sequential media (JSONL, both encodings)\n * still parse the whole artifact and skip forward — the primitive bounds\n * what is RETURNED and refolded, not every backend\'s physical read.\n * @param id - the persisted session to read.\n * @param fromSeq - first event seq to include; a non-negative safe integer.\n * @param signal - optional cancellation for queued and backend read work.\n * @returns the header and the stored events with `seq >= fromSeq`.\n */',
       },
       {
         signature: 'abstract list(signal?: AbortSignal): Promise<SessionHeader[]>',
@@ -747,8 +759,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Create a session owned by the calling fiber: disposing that fiber stops\n * event notification and removes the session from the store. `options.seed`\n * populates the session with a copy of those events (replay/fork);\n * `options.meta` attaches creation metadata (validated absolute `cwd`, seed\n * and parent lineage, and delegation depth) as the immutable\n * {@link SessionHeader} (the store fills `version`/`id`/`createdAt`).\n *\n * For an agent whose session must be torn down IN ORDER with its loop (so the\n * loop\'s final events are published before the store attachment ends), do NOT use this\n * — fold the session lifecycle into the agent\'s own effect via\n * {@link prepare} + {@link enter} + {@link announce} (see\n * `dsh-agent-loop`\'s creation transaction).\n *\n * @param id - the session id; omitted, the store mints `session-<n>`.\n * @param options - seed events and/or creation metadata for the header.\n * @returns the live session, already entered and announced.\n * @throws if a session with `id` already exists, metadata is not a plain\n *   lossless-JSON record with valid scalar fields, or `meta.cwd` is a\n *   non-absolute path (storage backends key directories off it).\n */',
       },
       {
-        signature: 'prepare(id?: SessionId, options?: CreateSessionOptions): Session',
-        jsDoc: '/**\n * Build a session WITHOUT entering it into the store — validate the id/cwd and\n * construct the {@link Session} (with its immutable {@link SessionHeader}).\n * Pairs with {@link enter} + {@link announce}: a caller that owns a composite\n * `ctx.effect` (the agent factory) folds the session lifecycle into that ONE\n * effect so a fiber unload tears the session + agent down as a single ORDERED\n * chain rather than as racing sibling effects — which would remove the publication hooks\n * before the driver\'s closing events commit, dropping them.\n *\n * @param id - the session id; omitted, the store mints `session-<n>`.\n * @param options - seed events and/or creation metadata for the header.\n * @returns the constructed session, NOT yet in the store.\n * @throws if a session with `id` already exists, metadata is not a plain\n *   lossless-JSON record with valid scalar fields, or `meta.cwd` is a\n *   non-absolute path.\n */',
+        signature: 'prepare(id?: SessionId, options?: PrepareSessionOptions): Session',
+        jsDoc: '/**\n * Build a session WITHOUT entering it into the store — validate the id/cwd and\n * construct the {@link Session} (with its immutable {@link SessionHeader}).\n * Pairs with {@link enter} + {@link announce}: a caller that owns a composite\n * `ctx.effect` (the agent factory) folds the session lifecycle into that ONE\n * effect so a fiber unload tears the session + agent down as a single ORDERED\n * chain rather than as racing sibling effects — which would remove the publication hooks\n * before the driver\'s closing events commit, dropping them.\n *\n * @param id - the session id; omitted, the store mints `session-<n>`.\n * @param options - seed events and/or creation metadata for the header. With\n *   `seedSource: \'persistence\'`, metadata and events must be fresh detached\n *   graphs whose ownership transfers to this call: they are validated and\n *   frozen in place through {@link Session.fromRestore}, so the caller must\n *   retain no mutable aliases.\n * @returns the constructed session, NOT yet in the store.\n * @throws if a session with `id` already exists, metadata is not a plain\n *   lossless-JSON record with valid scalar fields, or `meta.cwd` is a\n *   non-absolute path.\n */',
       },
       {
         signature: 'enter(session: Session): () => void',
@@ -1048,7 +1060,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'estimateMessage(message: Message): number',
-        jsDoc: '/**\n * Heuristically price one model-visible message.\n * @param message - message to price without mutation.\n * @returns content and role-framing tokens under the fixed service heuristic.\n */',
+        jsDoc: '/**\n * Heuristically price one model-visible message (instance face of the pure\n * `estimateMessage` export from `estimate.ts`).\n * @param message - message to price without mutation.\n * @returns content and role-framing tokens under the fixed service heuristic.\n */',
       },
     ],
   },
@@ -1066,7 +1078,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'pruneSession(session: Session): PruneResult',
-        jsDoc: '/**\n * Prune every over-budget tool result from one stable current-surface snapshot.\n * Each replacement preserves the complete event data except for `content`,\n * and points at the shadowed node for durable provenance and replay.\n * @param session - session whose current surface is rewritten.\n * @returns landed replacements and aggregate Unicode-code-point savings.\n * @throws when the session rejects a replacement; replacements committed\n * earlier in the pass remain durable.\n */',
+        jsDoc: '/**\n * Prune every over-budget tool result from one stable current-surface snapshot.\n * Each replacement preserves the complete event data except for `content`,\n * points at the shadowed node for durable provenance and replay, and is\n * immediately preceded by a `compact/prune` shadow-price event pricing the\n * shadowed node through the injected token meter, so pure consumers can\n * subtract it without per-node state.\n * @param session - session whose current surface is rewritten.\n * @returns landed replacements and aggregate Unicode-code-point savings.\n * @throws when the session rejects a replacement; replacements committed\n * earlier in the pass remain durable.\n */',
       },
     ],
   },
@@ -1221,92 +1233,92 @@ export const EVENT_API: readonly EventApiEntry[] = [
   {
     name: 'agent-loop/config-start-failed',
     mode: 'emit',
-    signature: '\'agent-loop/config-start-failed\'(sessionId: SessionId, error: unknown): void',
-    jsDoc: '/**\n * A declarative agent entry failed before it could publish a live agent.\n * Consumers that buffer work for the configured identity use this\n * transient signal to reject that work instead of waiting forever. Normal\n * factory teardown suppresses failures from the cancelled startup attempt.\n * @param sessionId - exact shared agent/session identity that failed startup.\n * @param error - persistence, setup, or publication failure.\n * @mode emit\n */',
+    signature: '\'agent-loop/config-start-failed\'(payload: { sessionId: SessionId; error: unknown }): void',
+    jsDoc: '/**\n * A declarative agent entry failed before it could publish a live agent.\n * Consumers that buffer work for the configured identity use this\n * transient signal to reject that work instead of waiting forever. Normal\n * factory teardown suppresses failures from the cancelled startup attempt.\n * @param payload.sessionId - exact shared agent/session identity that failed startup.\n * @param payload.error - persistence, setup, or publication failure.\n * @mode emit\n */',
     summary: 'A declarative agent entry failed before it could publish a live agent.',
   },
   {
     name: 'agent/created',
     mode: 'emit',
-    signature: '\'agent/created\'(this: Scoped<Agent>, agent: Agent): void',
-    jsDoc: '/**\n * A fully configured agent and live session were published. Setup is\n * composition-only; `agent/session-start` is the first startup-driving seam.\n * Synchronous listener failure vetoes publication, while returned-promise\n * rejection is reported. Detach requested during dispatch waits until every\n * creation listener has observed the stable entry.\n * @param agent - the newly registered agent with its live session and completed setup.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    signature: '\'agent/created\'(this: Scoped<Agent>, payload: { agent: Agent }): void',
+    jsDoc: '/**\n * A fully configured agent and live session were published. Setup is\n * composition-only; `agent/session-start` is the first startup-driving seam.\n * Synchronous listener failure vetoes publication, while returned-promise\n * rejection is reported. Detach requested during dispatch waits until every\n * creation listener has observed the stable entry.\n * @param payload.agent - the newly registered agent with its live session and completed setup.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
     summary: 'A fully configured agent and live session were published.',
   },
   {
     name: 'agent/disposed',
     mode: 'emit',
-    signature: '\'agent/disposed\'(this: Scoped<Agent>, agent: Agent): void',
-    jsDoc: '/**\n * An agent left the registry; AgentLoop emits this after driver quiescence\n * and scoped-registration unwind, but before session detachment. Custom\n * registry users own their driver-ordering contract.\n * @param agent - the exact agent removed from the registry.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    signature: '\'agent/disposed\'(this: Scoped<Agent>, payload: { agent: Agent }): void',
+    jsDoc: '/**\n * An agent left the registry; AgentLoop emits this after driver quiescence\n * and scoped-registration unwind, but before session detachment. Custom\n * registry users own their driver-ordering contract.\n * @param payload.agent - the exact agent removed from the registry.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
     summary: 'An agent left the registry; AgentLoop emits this after driver quiescence and scoped-registration unwind, but before session detachment.',
   },
   {
     name: 'agent/error',
     mode: 'emit',
-    signature: '\'agent/error\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: unknown): void',
-    jsDoc: '/**\n * A step or turn errored. The machine reports a failure here even when\n * the error has no in-turn position for a durable record.\n * @param agent - the agent whose turn errored.\n * @param turn - the turn in which the failure surfaced.\n * @param step - the step at which the failure surfaced.\n * @param error - the failure, verbatim.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    signature: '\'agent/error\'(this: Scoped<Agent>, payload: { agent: Agent; turn: number; step: number; error: unknown }): void',
+    jsDoc: '/**\n * A step or turn errored. The machine reports a failure here even when\n * the error has no in-turn position for a durable record.\n * @param payload.agent - the agent whose turn errored.\n * @param payload.turn - the turn in which the failure surfaced.\n * @param payload.step - the step at which the failure surfaced.\n * @param payload.error - the failure, verbatim.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
     summary: 'A step or turn errored.',
   },
   {
     name: 'agent/inbox/claimed',
     mode: 'emit',
-    signature: '\'agent/inbox/claimed\'(this: Scoped<Agent>, agent: Agent, event: { message: UserMessage; turn: number }): void',
-    jsDoc: '/**\n * One message left the inbox inside its open turn. If the proposed step\n * is rejected, the claimed message ends here: it is neither discarded nor\n * re-emitted as a user/message, and the turn closes without a step.\n * @param agent - the agent whose inbox changed.\n * @param event - the claimed message and owning turn.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    signature: '\'agent/inbox/claimed\'(this: Scoped<Agent>, payload: { agent: Agent; message: UserMessage; turn: number }): void',
+    jsDoc: '/**\n * One message left the inbox inside its open turn. If the proposed step\n * is rejected, the claimed message ends here: it is neither discarded nor\n * re-emitted as a user/message, and the turn closes without a step.\n * @param payload.agent - the agent whose inbox changed.\n * @param payload.message - the claimed message.\n * @param payload.turn - the owning turn.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
     summary: 'One message left the inbox inside its open turn.',
   },
   {
     name: 'agent/inbox/discarded',
     mode: 'emit',
-    signature: '\'agent/inbox/discarded\'(this: Scoped<Agent>, agent: Agent, event: { message: UserMessage }): void',
-    jsDoc: '/**\n * One message was discarded from the live inbox.\n * @param agent - the agent whose inbox changed.\n * @param event - the discarded message.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    signature: '\'agent/inbox/discarded\'(this: Scoped<Agent>, payload: { agent: Agent; message: UserMessage }): void',
+    jsDoc: '/**\n * One message was discarded from the live inbox.\n * @param payload.agent - the agent whose inbox changed.\n * @param payload.message - the discarded message.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
     summary: 'One message was discarded from the live inbox.',
   },
   {
     name: 'agent/inbox/inserted',
     mode: 'emit',
-    signature: '\'agent/inbox/inserted\'(this: Scoped<Agent>, agent: Agent, event: { message: UserMessage }): void',
-    jsDoc: '/**\n * One message entered the live inbox.\n * @param agent - the agent whose inbox changed.\n * @param event - the inserted message.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    signature: '\'agent/inbox/inserted\'(this: Scoped<Agent>, payload: { agent: Agent; message: UserMessage }): void',
+    jsDoc: '/**\n * One message entered the live inbox.\n * @param payload.agent - the agent whose inbox changed.\n * @param payload.message - the inserted message.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
     summary: 'One message entered the live inbox.',
   },
   {
     name: 'agent/pre-step',
     mode: 'waterfall',
-    signature: '\'agent/pre-step\'(this: Scoped<Agent>, agent: Agent, messages: UserMessage[], context: PreStepContext, next: () => Promise<PreStepDecision>): Promise<PreStepDecision>',
-    jsDoc: '/**\n * Reject a proposed step or replace the messages that enter it. Calling\n * `next()` preserves the current messages.\n * @param agent - the agent proposing the step.\n * @param messages - messages removed from the inbox for this step.\n * @param context - proposed turn and step coordinates plus cancellation.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n */',
+    signature: '\'agent/pre-step\'(this: Scoped<Agent>, payload: { agent: Agent; messages: UserMessage[]; turn: number; step: number; signal: AbortSignal }, next: () => Promise<PreStepDecision>): Promise<PreStepDecision>',
+    jsDoc: '/**\n * Reject a proposed step or replace the messages that enter it. Calling\n * `next()` preserves the current messages.\n * @param payload.agent - the agent proposing the step.\n * @param payload.messages - messages removed from the inbox for this step.\n * @param payload.turn - the turn that will own the step.\n * @param payload.step - the step proposed by the loop.\n * @param payload.signal - the current turn\'s cancellation signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n */',
     summary: 'Reject a proposed step or replace the messages that enter it.',
   },
   {
     name: 'agent/request',
     mode: 'waterfall',
-    signature: '\'agent/request\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, signal: AbortSignal, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>',
-    jsDoc: '/**\n * Replace the frozen call configuration. `await next()` yields the config\n * the machine would use (agent options on the first request, the logged\n * header afterwards); return a replacement to switch. Model-visible\n * content must use logged channels; this seam cannot mutate messages.\n * @param agent - the agent making the model call.\n * @param turn - the open turn number.\n * @param step - the step whose request this is.\n * @param signal - the current turn\'s explicit abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n*/',
+    signature: '\'agent/request\'(this: Scoped<Agent>, payload: { agent: Agent; turn: number; step: number; signal: AbortSignal }, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>',
+    jsDoc: '/**\n * Replace the frozen call configuration. `await next()` yields the config\n * the machine would use (agent options on the first request, the logged\n * header afterwards); return a replacement to switch. Model-visible\n * content must use logged channels; this seam cannot mutate messages.\n * @param payload.agent - the agent making the model call.\n * @param payload.turn - the open turn number.\n * @param payload.step - the step whose request this is.\n * @param payload.signal - the current turn\'s explicit abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n*/',
     summary: 'Replace the frozen call configuration.',
   },
   {
     name: 'agent/request-error',
     mode: 'waterfall',
-    signature: '\'agent/request-error\'(this: Scoped<Agent>, agent: Agent, context: RequestFailureContext, signal: AbortSignal, next: () => Promise<RequestErrorAction>): Promise<RequestErrorAction>',
-    jsDoc: '/**\n * Handle one failed model-request attempt before the loop retries or closes\n * its step. A listener returns `{ kind: \'retry\' }` without calling `next()`\n * when it owns recovery, or calls `next()` to delegate. The default\n * `undefined` leaves the failure terminal.\n * @param agent - the agent whose request failed.\n * @param context - request coordinates, provider, normalized failure, and serving policy.\n * @param signal - the turn abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n */',
+    signature: '\'agent/request-error\'(this: Scoped<Agent>, payload: { agent: Agent; turn: number; step: number; provider: string; failure: LlmFailure; retryPolicy: ResolvedRetryPolicy | undefined; signal: AbortSignal }, next: () => Promise<RequestErrorAction>): Promise<RequestErrorAction>',
+    jsDoc: '/**\n * Handle one failed model-request attempt before the loop retries or closes\n * its step. A listener returns `{ kind: \'retry\' }` without calling `next()`\n * when it owns recovery, or calls `next()` to delegate. The default\n * `undefined` leaves the failure terminal.\n * @param payload.agent - the agent whose request failed.\n * @param payload.turn - the turn containing the failed request.\n * @param payload.step - the step containing the failed request attempt.\n * @param payload.provider - the provider selected for the failed request.\n * @param payload.failure - serializable facts normalized at the final adapter boundary.\n * @param payload.retryPolicy - the policy of the adapter registration that served the failed request.\n * @param payload.signal - the turn abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n */',
     summary: 'Handle one failed model-request attempt before the loop retries or closes its step.',
   },
   {
     name: 'agent/session-start',
     mode: 'emit',
-    signature: '\'agent/session-start\'(this: Scoped<Agent>, agent: Agent, source: SessionStartSource): void',
-    jsDoc: '/**\n * The session lifecycle began, once before the first turn. Use\n * `agent.inject()` to seed model-facing context. This is a notification, not\n * a veto; disposal requested by a lifecycle owner is rechecked before the\n * driver starts.\n * @param agent - the agent whose session lifecycle began.\n * @param source - why the session started (fresh startup, resume, …).\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    signature: '\'agent/session-start\'(this: Scoped<Agent>, payload: { agent: Agent; source: SessionStartSource }): void',
+    jsDoc: '/**\n * The session lifecycle began, once before the first turn. Use\n * `agent.inject()` to seed model-facing context. This is a notification, not\n * a veto; disposal requested by a lifecycle owner is rechecked before the\n * driver starts.\n * @param payload.agent - the agent whose session lifecycle began.\n * @param payload.source - why the session started (fresh startup, resume, …).\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
     summary: 'The session lifecycle began, once before the first turn.',
   },
   {
     name: 'agent/status',
     mode: 'emit',
-    signature: '\'agent/status\'(this: Scoped<Agent>, agent: Agent, status: AgentStatus): void',
-    jsDoc: '/**\n * Agent status changed (`idle` ⇄ `running`). A waking delivery enters\n * `running` synchronously after reserving cancellation; `idle` means no\n * driver remains scheduled or active.\n * @param agent - the agent whose status flipped.\n * @param status - the status just entered (the transition\'s destination).\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    signature: '\'agent/status\'(this: Scoped<Agent>, payload: { agent: Agent; status: AgentStatus }): void',
+    jsDoc: '/**\n * Agent status changed (`idle` ⇄ `running`). A waking delivery enters\n * `running` synchronously after reserving cancellation; `idle` means no\n * driver remains scheduled or active.\n * @param payload.agent - the agent whose status flipped.\n * @param payload.status - the status just entered (the transition\'s destination).\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
     summary: 'Agent status changed (`idle` ⇄ `running`).',
   },
   {
     name: 'agent/turn-stopping',
     mode: 'serial',
-    signature: '\'agent/turn-stopping\'(this: Scoped<Agent>, agent: Agent, turn: number, signal: AbortSignal): Promise<void> | void',
-    jsDoc: '/**\n * The turn is about to close: the model owes no response (no live tool\n * calls, no fresh steering). Awaited before the boundary commits — a\n * listener that objects steers (`agent.steer(...)`) and the machine\n * re-reads its inbox: fresh steering runs another step, none closes the\n * turn. Data decides, so listener order cannot change the outcome. The\n * inverse control (stop a tool loop early) is data too: a tool result\n * carrying `concludesTurn` ends the turn at its step. The conclusion\n * never short-circuits already-submitted next-step work: same-step\n * `additionalContexts` or racing steering still runs, and the turn\n * closes only when that inbox drains.\n * @param agent - the agent whose turn is at its stop boundary.\n * @param turn - the turn about to close.\n * @param signal - the current turn\'s explicit abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode serial\n */',
+    signature: '\'agent/turn-stopping\'(this: Scoped<Agent>, payload: { agent: Agent; turn: number; signal: AbortSignal }): Promise<void> | void',
+    jsDoc: '/**\n * The turn is about to close: the model owes no response (no live tool\n * calls, no fresh steering). Awaited before the boundary commits — a\n * listener that objects steers (`agent.steer(...)`) and the machine\n * re-reads its inbox: fresh steering runs another step, none closes the\n * turn. Data decides, so listener order cannot change the outcome. The\n * inverse control (stop a tool loop early) is data too: a tool result\n * carrying `concludesTurn` ends the turn at its step. The conclusion\n * never short-circuits already-submitted next-step work: same-step\n * `additionalContexts` or racing steering still runs, and the turn\n * closes only when that inbox drains.\n * @param payload.agent - the agent whose turn is at its stop boundary.\n * @param payload.turn - the turn about to close.\n * @param payload.signal - the current turn\'s explicit abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode serial\n */',
     summary: 'The turn is about to close: the model owes no response (no live tool calls, no fresh steering).',
   },
   {
@@ -1361,8 +1373,8 @@ export const EVENT_API: readonly EventApiEntry[] = [
   {
     name: 'goal/changed',
     mode: 'emit',
-    signature: '\'goal/changed\'(this: import(\'@deepseek-ai/dsh-scope\').Scoped<Agent>, agent: Agent, change: GoalChanged): void',
-    jsDoc: '/**\n * Goal mutation accepted by one live agent. The matching `goal/change`\n * session event has already committed. Listener failures are contained.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @param agent - agent whose session owns the goal.\n * @param change - fresh current projection or clear tombstone.\n * @mode emit\n */',
+    signature: '\'goal/changed\'(this: import(\'@deepseek-ai/dsh-scope\').Scoped<Agent>, payload: { agent: Agent; change: GoalChanged }): void',
+    jsDoc: '/**\n * Goal mutation accepted by one live agent. The matching `goal/change`\n * session event has already committed. Listener failures are contained.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @param payload.agent - agent whose session owns the goal.\n * @param payload.change - fresh current projection or clear tombstone.\n * @mode emit\n */',
     summary: 'Goal mutation accepted by one live agent.',
   },
   {
@@ -1798,6 +1810,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ContentBlockType = keyof ContentBlockMap;',
   },
   {
+    name: 'ContextFormed',
+    declaration: 'export type ContextFormed = {\n    readonly form?: never;\n} | {\n    readonly form: \'instructions\';\n} | {\n    readonly form: \'catalog\';\n} | {\n    readonly form: \'snapshot\';\n    readonly sections: readonly ContextSnapshotSection[];\n} | {\n    readonly form: \'notice\';\n    readonly summary: string;\n} | {\n    readonly form: \'relay\';\n} | {\n    readonly form: \'recall\';\n};',
+  },
+  {
+    name: 'ContextSnapshotSection',
+    declaration: 'export interface ContextSnapshotSection {\n    readonly name: string;\n    readonly text: string;\n}',
+  },
+  {
     name: 'ContinuableCreateRequest',
     declaration: 'export interface ContinuableCreateRequest {\n    readonly sessionId: SessionId;\n    readonly parent: Agent;\n    readonly signal: AbortSignal;\n}',
   },
@@ -1872,6 +1892,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'DirectoryPickerNativeCapability',
     declaration: 'export interface DirectoryPickerNativeCapability {\n    kind: \'native\';\n    pick(signal: AbortSignal): Promise<string | null>;\n}',
+  },
+  {
+    name: 'DirectoryRegistrationHandle',
+    declaration: 'export interface DirectoryRegistrationHandle {\n    (): void;\n    replace(entries: readonly LlmConfigurableProvider[]): void;\n}',
   },
   {
     name: 'Domain',
@@ -2078,12 +2102,20 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface LlmConfigurableProvider {\n    provider: string;\n    displayName: string;\n    settingsNs: string;\n    settingsPath: readonly string[];\n}',
   },
   {
+    name: 'LlmDiscoveredModel',
+    declaration: 'export interface LlmDiscoveredModel {\n    id: string;\n    name?: string;\n    contextWindow?: number;\n    maxTokens?: number;\n}',
+  },
+  {
     name: 'LlmFailure',
     declaration: 'export interface LlmFailure {\n    readonly message: string;\n    readonly code: string;\n    readonly status?: number;\n    readonly providerRetryAfterMs?: number;\n    readonly requestId?: ProviderRequestId;\n}',
   },
   {
     name: 'LlmModelContext',
     declaration: 'export interface LlmModelContext {\n    contextWindow: number;\n}',
+  },
+  {
+    name: 'LlmModelDiscoveryRequest',
+    declaration: 'export interface LlmModelDiscoveryRequest {\n    provider?: string;\n    baseURL?: string;\n    api?: string;\n    apiKey?: string;\n    signal?: AbortSignal;\n}',
   },
   {
     name: 'LlmModelInfo',
@@ -2123,7 +2155,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'MessageSourceMap',
-    declaration: 'export interface MessageSourceMap {\n    user: {\n        kind: \'user\';\n    };\n    plugin: {\n        kind: \'plugin\';\n        plugin: string;\n    };\n    model: ModelMessageSource;\n    tool: ToolMessageSource;\n}',
+    declaration: 'export interface MessageSourceMap {\n    user: {\n        kind: \'user\';\n    };\n    plugin: {\n        kind: \'plugin\';\n        plugin: string;\n    } & ContextFormed;\n    model: ModelMessageSource;\n    tool: ToolMessageSource;\n}',
   },
   {
     name: 'ModelMessageSource',
@@ -2148,6 +2180,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'PreparedReferencedMessage',
     declaration: 'export interface PreparedReferencedMessage {\n    content: ContentBlock[];\n    additionalContext?: UserMessage;\n}',
+  },
+  {
+    name: 'PrepareSessionOptions',
+    declaration: 'export type PrepareSessionOptions = (CreateSessionOptions & {\n    readonly seedSource?: undefined;\n}) | RestoredSessionOptions;',
   },
   {
     name: 'PresetOption',
@@ -2326,6 +2362,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ResolvedSubagentStartRequest extends SubagentStartRequest {\n    readonly descriptor: SubagentDescriptorData;\n}',
   },
   {
+    name: 'RestoredSessionOptions',
+    declaration: 'export interface RestoredSessionOptions {\n    readonly seed: SessionEvent[];\n    readonly meta: SessionHeader;\n    readonly seedSource: \'persistence\';\n}',
+  },
+  {
     name: 'ResumeAgentOptions',
     declaration: 'export interface ResumeAgentOptions {\n    readonly resumeSessionId: SessionId;\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: AgentSetup;\n}',
   },
@@ -2383,7 +2423,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'Session',
-    declaration: 'export class Session {\n    get surface(): SessionSurface;\n    readonly header: SessionHeader;\n    get id(): SessionId;\n    readonly firstLiveSeq: number;\n    static create(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader): Session;\n    get events(): readonly SessionEvent[];\n    get seq(): number;\n    append<T extends SessionEventType>(type: T, data: SessionEventMap[T], ...opts: T extends SurfaceEventType ? [\n        opts: SurfaceIntent\n    ] : [\n    ]): SessionEvent<T>;\n    requestHeader(): EpochHeader | undefined;\n    requestContext(): RequestContext | undefined;\n    deriveMessages(): Message[];\n    deriveEventMessage(event: SessionEvent): Message | null;\n}',
+    declaration: 'export class Session {\n    get surface(): SessionSurface;\n    readonly header: SessionHeader;\n    get id(): SessionId;\n    readonly firstLiveSeq: number;\n    static create(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader): Session;\n    static fromRestore(id: SessionId, seed: readonly SessionEvent[], header: SessionHeader): Session;\n    get events(): readonly SessionEvent[];\n    get seq(): number;\n    append<T extends SessionEventType>(type: T, data: SessionEventMap[T], ...opts: T extends SurfaceEventType ? [\n        opts: SurfaceIntent\n    ] : [\n    ]): SessionEvent<T>;\n    requestHeader(): EpochHeader | undefined;\n    requestContext(): RequestContext | undefined;\n    deriveMessages(): Message[];\n    deriveEventMessage(event: SessionEvent): Message | null;\n}',
   },
   {
     name: 'SessionAvailability',
@@ -2466,6 +2506,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type SessionId = Branded<\'SessionId\'>;',
   },
   {
+    name: 'SessionInspection',
+    declaration: 'export interface SessionInspection {\n    readonly meta: SessionHeader;\n    readonly events: readonly SessionEvent[];\n}',
+  },
+  {
     name: 'SessionLineageNode',
     declaration: 'export interface SessionLineageNode {\n    session: SessionRecord;\n    descendants: SessionLineageNode[];\n}',
   },
@@ -2488,6 +2532,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionPersistenceSnapshot',
     declaration: 'export interface SessionPersistenceSnapshot {\n    header: SessionHeader;\n    revision: SessionPersistenceRevision;\n}',
+  },
+  {
+    name: 'SessionPreparation',
+    declaration: 'export class SessionPreparation implements Disposable {\n    readonly session: Session;\n    static create(session: Session, options?: SessionPreparationOptions): SessionPreparation;\n    [Symbol.dispose](): void;\n}',
+  },
+  {
+    name: 'SessionPreparationOptions',
+    declaration: 'export interface SessionPreparationOptions {\n    readonly release?: () => void;\n}',
   },
   {
     name: 'SessionProjectionMap',
@@ -2611,7 +2663,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SettingsRegisterOptions',
-    declaration: 'export interface SettingsRegisterOptions<T> {\n    base?: Partial<T>;\n    applies?: SettingsApplies;\n}',
+    declaration: 'export interface SettingsRegisterOptions<T> {\n    base?: Partial<T>;\n    applies?: SettingsApplies;\n    validate?: (value: T) => void;\n}',
   },
   {
     name: 'SettingsScope',

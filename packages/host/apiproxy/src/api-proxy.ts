@@ -972,7 +972,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     if (meta === undefined || meta.cwd === undefined) throw new SessionNotFound(`session "${sessionId}" not found`)
     const inspected = await persistence.inspect(sessionId)
     if (inspected.meta.cwd === undefined) throw new SessionNotFound(`session "${sessionId}" not found`)
-    return inspected
+    return { meta: inspected.meta, events: [...inspected.events] }
   }
 
   /**
@@ -2506,6 +2506,30 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       async models(request) {
         return ok(request, await buildModelCatalog(ctx))
       },
+
+      async discoverModels(request, signal) {
+        const { settingsNs, provider, baseURL, api, apiKey } = request.payload
+        try {
+          const models = await ctx.llm.discoverModels(settingsNs, {
+            ...provider === undefined ? {} : { provider },
+            ...baseURL === undefined ? {} : { baseURL },
+            ...api === undefined ? {} : { api },
+            ...apiKey === undefined ? {} : { apiKey },
+            ...signal === undefined ? {} : { signal },
+          })
+          return ok(request, { models })
+        } catch (error: unknown) {
+          // Every failure here is the user's next move, not a transport fault:
+          // a wrong endpoint, a rejected key, or a protocol with no listing all
+          // end at the same place — fill the models in by hand. The details
+          // repeat only what the caller already sent, never the credential.
+          return err(request, {
+            code: 'model-discovery-failed',
+            message: error instanceof Error ? error.message : String(error),
+            details: { settingsNs, ...baseURL === undefined ? {} : { baseURL } },
+          })
+        }
+      },
     },
 
     events: {
@@ -2595,10 +2619,10 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           ctx.on('session/disposed', (session: Session) => {
             queue.push(frame({ type: 'host/session-removed', sessionId: session.id }))
           }),
-          ctx.on('agent/status', (agent: Agent, status: AgentStatus) => {
+          ctx.on('agent/status', ({ agent, status }: { agent: Agent; status: AgentStatus }) => {
             queue.push(frame({ type: 'host/session-status', sessionId: agent.id, running: status === 'running' }))
           }),
-          ctx.on('agent/error', (agent: Agent, _turn: number, _step: number, error: unknown) => {
+          ctx.on('agent/error', ({ agent, error }: { agent: Agent; error: unknown }) => {
             queue.push(frame({ type: 'host/agent-error', sessionId: agent.id, message: errorChain(error) }))
           }),
           ctx.on('domain/changed', (change) => {

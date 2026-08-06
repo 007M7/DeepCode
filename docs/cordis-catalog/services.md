@@ -44,7 +44,7 @@ async resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandl
 
 Types: [Agent](../core-data-structures/core.md) · [AgentOptions](../core-data-structures/core.md) · [SessionHeader](../core-data-structures/persistence.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/agent-loop/src/index.ts:253`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:277`](../../packages/core/agent-loop/src/index.ts)
 
 ## `ctx.agents` — `AgentRegistry`
 
@@ -862,15 +862,38 @@ listProviders(): LlmProviderInfo[]
  * entry, or a provider already declared by any registration throws
  * `LlmError` without registering the rest. Disposed with the fiber.
  * @param entries - every configurable provider this plugin owns.
- * @returns the disposer that withdraws all of them.
+ * @returns a handle that withdraws all of them, and can atomically replace them.
  */
-registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): () => void
+registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): DirectoryRegistrationHandle
 
 /**
  * List every declared configurable provider, registered or dormant.
  * @returns detached directory entries in declaration order.
  */
 listConfigurableProviders(): LlmConfigurableProvider[]
+
+/**
+ * Offer to interrogate provider endpoints on behalf of the settings
+ * namespace this plugin owns. The namespace is the key because that is what
+ * a configuration surface already holds from the configurable-provider
+ * directory, and because a provider being *added* has no route to name yet.
+ * Disposed with the fiber.
+ * @param settingsNs - the namespace whose profiles this discovery serves.
+ * @param discover - interrogates one endpoint; must honor `request.signal`.
+ * @returns the disposer that withdraws the offer.
+ */
+registerModelDiscovery( settingsNs: string, discover: (request: LlmModelDiscoveryRequest) => Promise<readonly LlmDiscoveredModel[]>, ): () => void
+
+/**
+ * Interrogate one provider endpoint for the models it advertises. The
+ * request describes a draft, not a stored route, so nothing here reads or
+ * writes settings or credentials — the caller owns both, and the reply is
+ * candidate metadata a surface may offer for adoption.
+ * @param settingsNs - namespace whose registered discovery serves this draft.
+ * @param request - the endpoint, protocol, and one-shot credential to use.
+ * @returns the advertised models, deduplicated in endpoint order.
+ */
+async discoverModels( settingsNs: string, request: LlmModelDiscoveryRequest, ): Promise<LlmDiscoveredModel[]>
 
 /**
  * Resolve the retry policy captured when one provider route was registered.
@@ -934,9 +957,9 @@ async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<Prepared
 stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 ```
 
-Types: [AdapterRegistrationHandle](../core-data-structures/core.md) · [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmCallConfig](../core-data-structures/core.md) · [LlmConfigurableProvider](../core-data-structures/core.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [LlmResolvedModelInfo](../core-data-structures/core.md) · [PreparedLlmCall](../core-data-structures/llm-streaming.md) · [ResolvedRetryPolicy](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
+Types: [AdapterRegistrationHandle](../core-data-structures/core.md) · [DirectoryRegistrationHandle](../core-data-structures/core.md) · [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmCallConfig](../core-data-structures/core.md) · [LlmConfigurableProvider](../core-data-structures/core.md) · [LlmDiscoveredModel](../core-data-structures/core.md) · [LlmModelDiscoveryRequest](../core-data-structures/core.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [LlmResolvedModelInfo](../core-data-structures/core.md) · [PreparedLlmCall](../core-data-structures/llm-streaming.md) · [ResolvedRetryPolicy](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:232`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:255`](../../packages/llm/llm/src/index.ts)
 
 ## `ctx.permission` — `PermissionService`
 
@@ -1193,46 +1216,59 @@ abstract create(meta: SessionHeader): Promise<void>
 abstract append(id: SessionId, events: readonly SessionEvent[]): Promise<void>
 
 /**
- * Load a header and balanced contiguous log. A complete interrupted final
- * turn is preserved and durably closed with missing tool errors plus any open
- * step and turn boundaries; only a torn final record is discarded. Unknown
- * versions and corruption in the committed prefix reject. Implementations
- * MUST NOT crash-repair an identity still bound to a live Session: a balanced
- * live log may return with its stored header as a durable snapshot, while an
- * open live turn rejects.
- * A coordinator-backed cold load reserves the identity across storage awaits,
- * so concurrent publication of a same-id live Session rejects.
- * Returned events are detached, and every identified message is deeply
- * frozen. Coordinator-backed implementations upgrade supported pre-identity
- * message events before validation; other malformed messages reject before
- * any stored event is returned.
+ * Prepare the exact unpublished Session used by resume. Implementations may
+ * reuse object graphs retained by an earlier {@link inspect} after confirming
+ * their durable revision is still current; disposal releases an unpublished
+ * reservation. Revision retries require the durable log to remain unchanged
+ * for one read/check round trip; continuous external writers may delay completion.
+ * @param id - persisted session to prepare.
+ * @param signal - optional cancellation for preparation work.
+ * @returns one owned unpublished Session preparation.
+ */
+async prepare(id: SessionId, signal?: AbortSignal): Promise<SessionPreparation>
+
+/**
+ * Load an immutable balanced logical view and commit any required cold
+ * recovery. A complete interrupted final turn is preserved and durably
+ * closed with missing tool errors plus any open step and turn boundaries;
+ * only a torn final record is discarded. Unknown versions and corruption in
+ * the committed prefix reject. Implementations MUST NOT crash-repair an
+ * identity still bound to a live Session: a balanced live log may return as a
+ * durable snapshot, while an open live turn rejects. Returned values may be
+ * shared with immutable live or prepared state and must not be mutated.
+ * Revision-based implementations may wait for one stable read/check round trip.
  * @param id - the persisted session to reload.
  * @returns the header and a log ending on a balanced `turn/end`.
  */
-abstract load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }>
+abstract load(id: SessionId): Promise<SessionInspection>
 
 /**
- * Inspect a header and its valid contiguous stored prefix without repairing
- * a torn tail, closing an interrupted turn, or publishing coordinator state.
- * This read is serialized with writes for the same id and returns detached
- * values with upgraded, deeply frozen identified messages, so observers
- * cannot mutate message identity/content or backend-owned state. Other
- * malformed messages reject.
+ * Inspect an immutable logical session without committing recovery or
+ * publishing it. A cold complete interrupted turn receives synthetic closers
+ * in memory and a torn physical tail remains untouched. An already-live
+ * Session instead yields its current immutable snapshot, which may contain an
+ * open turn and its `session/end-seed` boundary. Coordinator-backed
+ * implementations retain the exact cold unpublished Session for bounded
+ * reuse by a later {@link prepare}. A stale ready source is reloaded; a source
+ * already committing or reserved for resume remains exclusive, and inspection
+ * may borrow its immutable view. Callers borrow only the immutable header and
+ * log. Continuous external writers may delay revision convergence.
  * @param id - the persisted session to inspect.
  * @param signal - optional cancellation for queued and backend read work.
- * @returns the header and valid stored event prefix exactly as observed.
+ * @returns the validated header and current logical event log.
  */
-abstract inspect(id: SessionId, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }>
+abstract inspect(id: SessionId, signal?: AbortSignal): Promise<SessionInspection>
 
 /**
  * Read the stored events from `fromSeq` onward — the read-from-seq
  * primitive for read models that resume from a watermark (e.g. a persisted
- * projection cache folding only the tail past its checkpoint). Like
- * {@link inspect} it is non-mutating and detached: no torn-tail truncation,
- * no synthetic closers, no coordinator-state publication; only events from
- * the valid contiguous stored prefix are returned, so a torn fragment never
- * reaches the caller. `fromSeq` at or beyond the stored prefix returns an
- * empty event list (never an error). Backends whose medium can seek by seq
+ * projection cache folding only the tail past its checkpoint). Unlike
+ * {@link inspect}, it is a detached physical suffix read: no preparation
+ * cache, torn-tail truncation, synthetic closers, or coordinator-state
+ * publication. Only events from the valid contiguous stored prefix are
+ * returned, so a torn fragment never reaches the caller. `fromSeq` at or
+ * beyond the stored prefix returns an empty event list (never an error).
+ * Backends whose medium can seek by seq
  * (SQLite) read only the suffix; sequential media (JSONL, both encodings)
  * still parse the whole artifact and skip forward — the primitive bounds
  * what is RETURNED and refolded, not every backend's physical read.
@@ -1263,9 +1299,9 @@ abstract list(signal?: AbortSignal): Promise<SessionHeader[]>
 abstract listSnapshots(signal?: AbortSignal): Promise<SessionPersistenceSnapshot[]>
 ```
 
-Types: [SessionEvent](../core-data-structures/core.md) · [SessionHeader](../core-data-structures/persistence.md) · [SessionId](../core-data-structures/core.md) · [SessionLocation](../core-data-structures/persistence.md) · [SessionPersistenceSnapshot](../core-data-structures/persistence.md)
+Types: [SessionEvent](../core-data-structures/core.md) · [SessionHeader](../core-data-structures/persistence.md) · [SessionId](../core-data-structures/core.md) · [SessionInspection](../core-data-structures/persistence.md) · [SessionLocation](../core-data-structures/persistence.md) · [SessionPersistenceSnapshot](../core-data-structures/persistence.md) · [SessionPreparation](../core-data-structures/persistence.md)
 
-Source: [`packages/session-persistence/session-persistence/src/index.ts:52`](../../packages/session-persistence/session-persistence/src/index.ts)
+Source: [`packages/session-persistence/session-persistence/src/index.ts:70`](../../packages/session-persistence/session-persistence/src/index.ts)
 
 ## `ctx.sessionProjectionCache` — `SessionProjectionCache`
 
@@ -1620,13 +1656,17 @@ create(id?: SessionId, options?: CreateSessionOptions): Session
  * before the driver's closing events commit, dropping them.
  *
  * @param id - the session id; omitted, the store mints `session-<n>`.
- * @param options - seed events and/or creation metadata for the header.
+ * @param options - seed events and/or creation metadata for the header. With
+ *   `seedSource: 'persistence'`, metadata and events must be fresh detached
+ *   graphs whose ownership transfers to this call: they are validated and
+ *   frozen in place through {@link Session.fromRestore}, so the caller must
+ *   retain no mutable aliases.
  * @returns the constructed session, NOT yet in the store.
  * @throws if a session with `id` already exists, metadata is not a plain
  *   lossless-JSON record with valid scalar fields, or `meta.cwd` is a
  *   non-absolute path.
  */
-prepare(id?: SessionId, options?: CreateSessionOptions): Session
+prepare(id?: SessionId, options?: PrepareSessionOptions): Session
 
 /**
  * Enter a {@link prepare}d session into the store: install the module-private
@@ -1706,9 +1746,9 @@ list(): Session[]
 fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session
 ```
 
-Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [Session](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md)
+Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [PrepareSessionOptions](../core-data-structures/persistence.md) · [Session](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:767`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:800`](../../packages/core/session/src/index.ts)
 
 ## `ctx.sessionTitle` — `SessionTitleService`
 
@@ -1840,7 +1880,7 @@ async mutate(ns: SettingsNamespace, ops: readonly SettingsPathOp[], expectedRevi
 
 Types: [SettingsDescribeOptions](../core-data-structures/settings.md) · [SettingsDescriptor](../core-data-structures/settings.md) · [SettingsNamespace](../core-data-structures/settings.md) · [SettingsPathOp](../core-data-structures/settings.md) · [SettingsRegisterOptions](../core-data-structures/settings.md) · [SettingsScope](../core-data-structures/settings.md)
 
-Source: [`packages/settings/settings/src/index.ts:365`](../../packages/settings/settings/src/index.ts)
+Source: [`packages/settings/settings/src/index.ts:387`](../../packages/settings/settings/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 
@@ -2196,7 +2236,7 @@ async assemble(context: AssembleContext = {}): Promise<PromptAssembly>
 
 Types: [AssembleContext](../core-data-structures/system-prompt.md) · [PromptContext](../core-data-structures/system-prompt.md) · [PromptSection](../core-data-structures/system-prompt.md) · [ToolProviderResult](../core-data-structures/system-prompt.md)
 
-Source: [`packages/core/system-prompt/src/index.ts:290`](../../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:314`](../../packages/core/system-prompt/src/index.ts)
 
 ## `ctx.tasks` — `TaskService` (abstract seam)
 
@@ -2340,7 +2380,8 @@ Replay owner for one service-wide estimator and isolated per-session folds.
 measure(session: Session, requestHeader?: EpochHeader): TokenMeasurement
 
 /**
- * Heuristically price one model-visible message.
+ * Heuristically price one model-visible message (instance face of the pure
+ * `estimateMessage` export from `estimate.ts`).
  * @param message - message to price without mutation.
  * @returns content and role-framing tokens under the fixed service heuristic.
  */
@@ -2349,7 +2390,7 @@ estimateMessage(message: Message): number
 
 Types: [EpochHeader](../core-data-structures/session.md) · [Message](../core-data-structures/core.md) · [Session](../core-data-structures/session.md) · [TokenMeasurement](../core-data-structures/token-meter.md)
 
-Source: [`packages/llm/token-meter/src/index.ts:85`](../../packages/llm/token-meter/src/index.ts)
+Source: [`packages/llm/token-meter/src/index.ts:74`](../../packages/llm/token-meter/src/index.ts)
 
 ## `ctx.toolResultPrune` — `ToolResultPruneService`
 
@@ -2375,7 +2416,10 @@ pruneContent(blocks: readonly ContentBlock[]): ContentBlock[] | null
 /**
  * Prune every over-budget tool result from one stable current-surface snapshot.
  * Each replacement preserves the complete event data except for `content`,
- * and points at the shadowed node for durable provenance and replay.
+ * points at the shadowed node for durable provenance and replay, and is
+ * immediately preceded by a `compact/prune` shadow-price event pricing the
+ * shadowed node through the injected token meter, so pure consumers can
+ * subtract it without per-node state.
  * @param session - session whose current surface is rewritten.
  * @returns landed replacements and aggregate Unicode-code-point savings.
  * @throws when the session rejects a replacement; replacements committed
@@ -2386,7 +2430,7 @@ pruneSession(session: Session): PruneResult
 
 Types: [ContentBlock](../core-data-structures/core.md) · [PruneResult](../core-data-structures/compaction.md) · [Session](../core-data-structures/session.md)
 
-Source: [`packages/compact/compact-tool-result-prune/src/index.ts:40`](../../packages/compact/compact-tool-result-prune/src/index.ts)
+Source: [`packages/compact/compact-tool-result-prune/src/index.ts:44`](../../packages/compact/compact-tool-result-prune/src/index.ts)
 
 ## `ctx.tools` — `ToolRegistry`
 

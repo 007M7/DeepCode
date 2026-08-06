@@ -138,8 +138,7 @@ async function fire(
 ): Promise<void> {
   const decision = await agentEvents(ctx, agent).waterfall(
     'agent/pre-step',
-    [],
-    { turn, step, signal },
+    { messages: [], turn, step, signal },
     () => Promise.resolve({ kind: 'enter' as const, messages: [] }),
   )
   if (decision.kind === 'enter') {
@@ -170,7 +169,14 @@ describe('tmux-context injection', () => {
     ])
     const event = session.events.at(-1)
     if (event?.type !== 'user/message') throw new Error('missing tmux context')
-    expect(event.data.source).toEqual({ kind: 'plugin', plugin: 'tmux-context' })
+    // `snapshot` form: one named contribution carrying exactly the reading the
+    // model saw, so a consumer attributes it without re-splitting prose.
+    expect(event.data.source).toMatchObject({
+      kind: 'plugin',
+      plugin: 'tmux-context',
+      form: 'snapshot',
+      sections: [{ name: 'tmux-context' }],
+    })
     expect(event.surfaceOp).toBe('append')
   })
 
