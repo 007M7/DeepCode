@@ -6,5 +6,5 @@
 
 | 包（package） | 职责 |
 |---|---|
-| [`@deepseek-ai/dsh-session-telemetry`](session-telemetry/) | seam 本体：捕获点、投影、脱敏、即时或暂存交接、游标、运维信号，以及最小后端契约（`emit`/`flush?`/`shutdown`）。 |
+| [`@deepseek-ai/dsh-session-telemetry`](session-telemetry/) | seam 本体：捕获点、投影、脱敏、实时或按需捕获、游标、运维信号，以及最小后端契约（`emit`/`flush?`/`shutdown`）。 |
 | [`@deepseek-ai/dsh-session-telemetry-otel`](session-telemetry-otel/) | 部署方要加载的后端：围绕 OTel JS SDK 日志流水线实施 `FULL`、`FEEDBACK_ONLY` 或 `DISABLED` 策略。 |

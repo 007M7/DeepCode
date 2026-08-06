@@ -6,5 +6,5 @@ Outbound session reporting: the telemetry seam plus its OpenTelemetry backend. T
 
 | Package | Role |
 |---|---|
-| [`@deepseek-ai/dsh-session-telemetry`](session-telemetry/) | The seam: capture points, projection, redaction, immediate or held handoff, cursor, ops signals, and the minimal backend contract (`emit`/`flush?`/`shutdown`). |
+| [`@deepseek-ai/dsh-session-telemetry`](session-telemetry/) | The seam: capture points, projection, redaction, live or on-demand capture, cursor, ops signals, and the minimal backend contract (`emit`/`flush?`/`shutdown`). |
 | [`@deepseek-ai/dsh-session-telemetry-otel`](session-telemetry-otel/) | The backend a deployment loads: `FULL`, `FEEDBACK_ONLY`, or `DISABLED` policy around the OTel JS SDK log pipeline. |
