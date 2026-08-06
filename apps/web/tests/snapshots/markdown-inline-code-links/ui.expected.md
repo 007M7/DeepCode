@@ -1,0 +1,43 @@
+- banner:
+  - navigation "Session hierarchy":
+    - button "Inline code links" [disabled]
+  - tablist:
+    - tab "Chat" [selected]
+    - tab "Trajectory"
+- text: Show the local preview URL. {{clock}}
+- button "Copy":
+  - img
+- button "Branch into a new conversation" [disabled]:
+  - img
+- text: Available only on the last message of a completed turn
+- heading "Inline code links" [level=2]
+- paragraph:
+  - text: "Preview:"
+  - code:
+    - link "{{linkUrl}}":
+      - /url: {{linkUrl}}
+- paragraph:
+  - text: "Standard:"
+  - link "Open preview":
+    - /url: {{linkUrl}}
+- paragraph:
+  - text: "Command:"
+  - code: curl {{linkUrl}}
+- paragraph:
+  - text: "Unsafe:"
+  - code: javascript:alert(1)
+- paragraph: INLINE_CODE_LINK_DONE
+- button "Copy":
+  - img
+- button "Branch into a new conversation":
+  - img
+- text: {{clock}}Ran for {{duration}}
+- textbox "Message the agent"
+- button "Commands":
+  - img
+- 'button "Access mode, current: Workspace Write"': Workspace Write
+- button "Select model":
+  - text: Select model
+  - img
+- button "Send message" [disabled]
+- text: 1 turns · 1 steps Input 0 tok · Output 0 tok
