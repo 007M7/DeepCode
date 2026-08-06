@@ -461,7 +461,12 @@ describe('SubagentService.listChildren', () => {
   })
 
   it.each([
+    ['version', (meta: SessionHeader): SessionHeader => ({ ...meta, version: meta.version + 1 })],
+    ['id', (meta: SessionHeader): SessionHeader => ({ ...meta, id: SessionId('another-lifecycle') })],
     ['createdAt', (meta: SessionHeader): SessionHeader => ({ ...meta, createdAt: meta.createdAt + 1 })],
+    ['cwd', (meta: SessionHeader): SessionHeader => ({ ...meta, cwd: '/elsewhere' })],
+    ['parentSession', (meta: SessionHeader): SessionHeader => ({ ...meta, parentSession: SessionId('another-parent') })],
+    ['seedLength', (meta: SessionHeader): SessionHeader => ({ ...meta, seedLength: (meta.seedLength ?? 0) + 1 })],
     ['delegationDepth', (meta: SessionHeader): SessionHeader => ({ ...meta, delegationDepth: (meta.delegationDepth ?? 0) + 1 })],
   ] as const)('diagnoses an inspection returning another lifecycle (%s) as corrupt', async (_field, mutate) => {
     const { ctx, parent } = await setup([textResponse('done')])

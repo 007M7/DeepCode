@@ -5,9 +5,10 @@
  * durable `origin: 'subagent'` under the parent; each child's mode/label is
  * the registered `subagent` projection unit's value, resolved down a
  * three-rung ladder: the registry's watermark cache for a live child, a
- * durable projection-cache row when the optional cache already serves the
- * identity, and one persistence inspection folded through the registry
- * otherwise. The projection fold is the single
+ * durable projection-cache row when it serves an own-suffix identity (the
+ * seq gate), and one persistence inspection folded through the registry
+ * otherwise, validated against the enumerated lifecycle. The projection
+ * fold is the single
  * classification authority — this module parses no descriptor itself. Absent
  * persistence, enumeration is live-only: a cold child is unreachable for
  * resume anyway, so its absence is capability absence, not an error. The
@@ -92,7 +93,7 @@ export type SubagentListEntry =
  * live-preferred merge of `ctx.sessions` and optional session persistence,
  * serving each identity from the `subagent` projection unit: the registry's
  * watermark snapshot for a live child; for a cold one, a durable
- * projection-cache row when the optional cache already serves the identity,
+ * projection-cache row when it serves an own-suffix identity (the seq gate),
  * else one bounded-concurrency persistence inspection folded through the
  * registry.
  * @see SubagentService.listChildren for the public cancellation and failure contract.

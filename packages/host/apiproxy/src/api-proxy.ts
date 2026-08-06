@@ -527,6 +527,28 @@ function detachedProjectionsFor(
   return registry.restore({}, events, 0).snapshot
 }
 
+/**
+ * Best-effort projections for one subagent history page, fail-soft like
+ * {@link listProjectionsFor}: a registered unit throwing on a corrupt payload
+ * never blocks transcript reading — the page is served without the block.
+ * @param ctx - context carrying the logger for the degradation warning.
+ * @param childSessionId - the child whose page is being decorated.
+ * @param compute - the arm-specific fold (live watermark or detached restore).
+ * @returns the projections block, or undefined when the fold failed.
+ */
+function subagentHistoryProjections(
+  ctx: Context,
+  childSessionId: SessionId,
+  compute: () => SessionProjectionsBlock | undefined,
+): SessionProjectionsBlock | undefined {
+  try {
+    return compute()
+  } catch (error) {
+    ctx.logger.warn(`subagent.history: projections for "${childSessionId}" failed (serving the page without them): ${String(error)}`)
+    return undefined
+  }
+}
+
 /** Map continuation admission failures without exposing provider details. */
 function subagentPromptError(
   request: RpcRequest<{ childSessionId: SessionId }>,
@@ -1928,14 +1950,16 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         if (attached !== undefined) {
           header = attached.header
           events = [...attached.events]
-          projections = beforeSeq === undefined ? projectionsFor(ctx, attached) : undefined
+          projections = beforeSeq === undefined
+            ? subagentHistoryProjections(ctx, childSessionId, () => projectionsFor(ctx, attached))
+            : undefined
         } else {
           try {
             const inspected = await inspectServable(childSessionId)
             header = inspected.meta
             events = inspected.events
             projections = beforeSeq === undefined
-              ? detachedProjectionsFor(ctx, inspected.events)
+              ? subagentHistoryProjections(ctx, childSessionId, () => detachedProjectionsFor(ctx, inspected.events))
               : undefined
           } catch (error: unknown) {
             if (signal?.aborted) {

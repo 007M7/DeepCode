@@ -128,6 +128,7 @@ export type SubagentListEntry =
 - live/persisted header 冲突，旧实现是 per-child corrupt；现枚举 live 优先、不做一致性校验，冲突不再被察觉，以 live 记录成行。
 - 损坏存储的源读失败（如坏 surface 被冷读整读拒收），旧实现映射 per-child `corrupt`，现统一成 `unavailable` 行（读侧无从区分成因）。
 - 未知 parent，旧实现经 session-query 抛 not-found（'parent session … was not found'）；现自管合并对不存在的 parent 得到空子集，枚举返回空列表，wire 上后续操作落到 child 级 subagent-not-found——语义与文案的静默变化，显式接受。
+- rung 2 的更晚事件窗口：cache 行恰在首个自有描述符之后落盘，日志随后追加第二个自有描述符（或 malformed 载荷置 null 哨兵），且进程在下一次 checkpoint 前崩溃——此后冷列表的 rung 2 凭 seq≥seedLength 门持续供出行内旧身份（第一个自有描述符的值），与权威重折（last-wins 第二个）分歧，且 rung 2 命中期间不触发重折、无从察觉。边界三条：①前提是同一 child 出现第二个自有描述符，违反 establishing provider"恰追加一次"契约，属损坏类数据，与多描述符偏差同族同源；②需"损坏 + 崩溃错过 checkpoint（turn/end 与 disposal 两个 mandatory 点及 count/interval 节流点全部未及）"双条件同时成立；③健康 child（恰一自有描述符）不受影响——seq 门放行的正是唯一真身份。自愈条件：该 child 任一次 live 运行（turn/end mandatory checkpoint）或任何触发 cache.write 的时点，都会以新 fold 整行覆写（whole-record replace），rung 2 随即供正；权威路径（rung 3 重折、live snapshot、resume 折叠）自始正确，分歧只存在于持续冷、行未再更新期间的列表读。机制修法不采：gate 对账需知日志末端 seq，冷路径零读不可得；cache 行携 revision 是 opaque token，无法比较且跨域改 schema——按"cache 永不为权威"总纲归档为接受项。
 
 消费面：wire、tool、GUI 的 diagnostic 处理**全部保持原状零改动**（`list_agents` 的 description 与 output schema 未动；该插件仅加载要求收窄——inject 去掉 `sessionQuery`）。行为上动的只有 apiproxy：路由段的 `hasSubagentDescriptor()` 扫描已删除，`hasSubagentOwner` 只看 `header.origin`——pre-#1569 的无 `origin` 存量不再被认作 subagent 属主，其本就不进目录，pre-release 立场接受；`subagents.history` 与 `session.history` 同源对齐——live child 用内存事件与注册表水位快照，cold child 用 `inspectServable` 直读持久化并 detached 折叠，不经查询服务，SESSION_QUERY_* 错误臂随之退役，wire 形状不变（`history` 的 JSDoc 措辞改为 live 内存快照／cold 持久日志双臂）。
 
@@ -172,7 +173,7 @@ export type SubagentListEntry =
 - subagent 列表不再要求 query backend：纯 live 与无 persistence 的部署都能列表；`SUBAGENT_CONTROL_SESSION_QUERY_UNAVAILABLE` 消失，`list_agents` 插件加载不再要求 `sessionQuery`。
 - 身份解释只存在于 registry 注册的一份 unit：列表三级阶梯与 GUI history 冷读走的都是 registry 与 cache 的既有读法（snapshot、cachedSnapshot、restore），不存在旁路折叠；若未来某消费面绕开 registry 手写折叠，各读面的值将漂移——这是本设计要求维持的纪律，不是机制保证。
 - per-child 隔离回归：单 child 冷读失败只损失该行，healthy sibling 不受影响；persistence 列表失败仍使整次枚举失败。
-- 诊断与枚举语义留下五处边界偏差（stillborn fork 祖先身份误现、多描述符取末者、header 冲突不再被察觉、损坏源读失败由 `corrupt` 转 `unavailable`、未知 parent 由 not-found 改为空列表），完整语义见已知边界偏差清单；前四处为残骸级数据的展示或分类偏差，恢复鉴权不受影响，未知 parent 一处是查询语义的静默变化，显式接受。
+- 诊断与枚举语义留下六处边界偏差（stillborn fork 祖先身份误现、多描述符取末者、header 冲突不再被察觉、损坏源读失败由 `corrupt` 转 `unavailable`、未知 parent 由 not-found 改为空列表、rung 2 更晚事件窗口），完整语义见已知边界偏差清单；前四处为残骸级数据的展示或分类偏差，未知 parent 一处是查询语义的静默变化，rung 2 窗口一处是损坏加崩溃双条件下可自愈的缓存供值分歧；恢复鉴权均不受影响，显式接受。
 - pre-#1569 的无 `origin` 存量不再被认作 subagent 属主；其本就不进目录，pre-release 无兼容承诺。
 
 ## 相关

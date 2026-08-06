@@ -24,6 +24,8 @@ function bench(options: {
   storedChild?: false
   /** Attach the child to the live session store instead of persistence only. */
   liveChild?: true
+  /** Every registered projection unit throws on this child's payloads. */
+  projectionsThrow?: true
   historyParent?: SessionId
 } = {}) {
   const parent = { id: PARENT }
@@ -60,8 +62,14 @@ function bench(options: {
   const inspect = vi.fn(() => Promise.resolve({ meta: childHeader, events: childEvents }))
   const liveBlock = { values: {}, asOfSeq: 3 }
   const coldBlock = { values: {}, asOfSeq: 0 }
-  const snapshot = vi.fn(() => liveBlock)
-  const restore = vi.fn(() => ({ snapshot: coldBlock }))
+  const snapshot = vi.fn(() => {
+    if (options.projectionsThrow === true) throw new Error('hostile unit')
+    return liveBlock
+  })
+  const restore = vi.fn(() => {
+    if (options.projectionsThrow === true) throw new Error('hostile unit')
+    return { snapshot: coldBlock }
+  })
   const ctx = new Context()
   ctx.provide('agents', { get: getAgent })
   ctx.provide('subagents', { listChildren, followup })
@@ -153,6 +161,29 @@ describe('subagent gateway', () => {
     expect(snapshot).toHaveBeenCalledTimes(1)
     expect(restore).not.toHaveBeenCalled()
     expect(inspect).not.toHaveBeenCalled()
+  })
+
+  it('serves the page without projections when a hostile unit breaks the fold', async () => {
+    const cold = bench({ projectionsThrow: true })
+    const coldResponse = await cold.api.subagents.history(request({
+      parentSessionId: PARENT, childSessionId: CHILD, mode: 'continuable',
+    }))
+    expect(coldResponse.result).toMatchObject({
+      ok: true,
+      value: { hasMore: false, events: [{ event: { type: 'user/message', seq: 0 } }] },
+    })
+    if (coldResponse.result.ok) expect('projections' in coldResponse.result.value).toBe(false)
+
+    const live = bench({ projectionsThrow: true, liveChild: true })
+    const liveResponse = await live.api.subagents.history(request({
+      parentSessionId: PARENT, childSessionId: CHILD, mode: 'continuable',
+    }))
+    expect(liveResponse.result).toMatchObject({
+      ok: true,
+      value: { hasMore: false, events: [{ event: { type: 'user/message', seq: 0 } }] },
+    })
+    if (liveResponse.result.ok) expect('projections' in liveResponse.result.value).toBe(false)
+    expect(live.snapshot).toHaveBeenCalledTimes(1)
   })
 
   it('reads one-shot history and rejects an address with the wrong mode', async () => {
