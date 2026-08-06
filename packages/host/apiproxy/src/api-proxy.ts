@@ -567,6 +567,15 @@ function subagentPromptError(
   return err(request, { code: 'internal', message: 'subagent prompt failed', details: {} })
 }
 
+/** Stable RPC face of the missing projections capability, shared by every catalog read path. */
+function projectionsUnavailableError(): RpcError {
+  return {
+    code: 'internal',
+    message: 'subagent listing is unavailable: this deployment does not mount the sessionProjections registry (load @deepseek-ai/dsh-session-projection)',
+    details: {},
+  }
+}
+
 /** Verify one address and mode against the complete direct-child catalog. */
 async function catalogChild(
   ctx: Context,
@@ -604,6 +613,9 @@ async function catalogChild(
       || (error instanceof SubagentError && error.code === 'CANCELLED')
       || (error instanceof SessionQueryError && error.code === 'SESSION_QUERY_ABORTED')) {
       return { error: { code: 'cancelled', message: 'subagent catalog read was cancelled', details: {} } }
+    }
+    if (error instanceof SubagentError && error.code === 'SUBAGENT_CONTROL_PROJECTIONS_UNAVAILABLE') {
+      return { error: projectionsUnavailableError() }
     }
     if (error instanceof SessionQueryError && error.code === 'SESSION_QUERY_SESSION_NOT_FOUND') {
       return {
@@ -925,28 +937,16 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     })
   }
 
-  /** Whether the session's own suffix carries the durable subagent discriminator. */
-  function hasSubagentDescriptor(session: Pick<Session, 'events' | 'header'>): boolean {
-    const events = session.events
-    // Indexed scan from the own-suffix start: slicing copies the whole suffix
-    // on every Agent-bound RPC, including each `session.prompt` on long
-    // transcripts.
-    for (let index = session.header.seedLength ?? 0; index < events.length; index += 1) {
-      if (events[index]?.type === 'subagent/descriptor') return true
-    }
-    return false
-  }
-
   /**
-   * Generic Host interaction cannot claim a durably classified subagent or an
-   * Agent created through its live parent. The runtime-owner arm also covers
-   * descriptor-less child publication windows and older stored headers.
+   * Generic Host interaction cannot claim a durably classified subagent
+   * (`origin: 'subagent'` in the header) or an Agent runtime-owned by its
+   * live parent.
    */
   function hasSubagentOwner(
-    session: Pick<Session, 'events' | 'header'>,
+    session: Pick<Session, 'header'>,
     agent: Agent | undefined,
   ): boolean {
-    if (session.header.origin === 'subagent' || hasSubagentDescriptor(session)) return true
+    if (session.header.origin === 'subagent') return true
     const parentId = session.header.parentSession
     if (parentId === undefined || agent === undefined) return false
     const parent = ctx.agents.get(parentId)
@@ -1002,7 +1002,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       resume = (async () => {
         try {
           const inspected = await inspectServable(sessionId)
-          if (hasSubagentOwner({ header: inspected.meta, events: inspected.events }, undefined)) {
+          if (hasSubagentOwner({ header: inspected.meta }, undefined)) {
             throw new SubagentSessionOwnership(sessionId)
           }
           const publishedSession = ctx.sessions.get(sessionId)
@@ -1121,7 +1121,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           // Ownership first: explicit-id adoption of a session-backed
           // subagent must answer `agent-busy` regardless of the requested
           // cwd (the api/commands.ts contract), not a cwd conflict.
-          if (hasSubagentOwner({ header: inspected.meta, events: inspected.events }, undefined)) {
+          if (hasSubagentOwner({ header: inspected.meta }, undefined)) {
             throw new SubagentSessionOwnership(sessionId)
           }
           if (inspected.meta.cwd !== cwd) {
@@ -1911,6 +1911,9 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               message: 'subagent catalog read was cancelled',
               details: {},
             })
+          }
+          if (error instanceof SubagentError && error.code === 'SUBAGENT_CONTROL_PROJECTIONS_UNAVAILABLE') {
+            return err(request, projectionsUnavailableError())
           }
           return err(request, {
             code: 'internal',

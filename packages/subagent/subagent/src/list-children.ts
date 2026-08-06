@@ -1,33 +1,39 @@
 /**
- * Read-only interpretation of session-query lineage as durable subagent
- * children. Only descendants with durable `origin: 'subagent'` enter per-child
- * inspection. The module owns no catalog state and does not consult Activation,
- * Agent-registry, continuation-manager, or provider state. A child's descriptor
- * distinguishes one-shot work from a continuable conversation.
+ * Read-only enumeration of one parent's durable subagent children straight
+ * from the live session store and optional session persistence — no query
+ * seam. Candidates are the live-preferred merge of both listings filtered to
+ * durable `origin: 'subagent'` under the parent; each child's mode/label is
+ * the registered `subagent` projection unit's value, served from the
+ * registry's watermark cache for a live child and folded once over one
+ * persistence inspection for a cold one. The projection fold is the single
+ * classification authority — this module parses no descriptor itself. Absent
+ * persistence, enumeration is live-only: a cold child is unreachable for
+ * resume anyway, so its absence is capability absence, not an error. The
+ * module owns no catalog state and does not consult Activation,
+ * Agent-registry, continuation-manager, or provider state.
  *
  * @module @deepseek-ai/dsh-subagent
  */
 
 import type { Context } from 'cordis'
-import type { SessionId } from '@deepseek-ai/dsh-session'
-import type { SessionQueryService, SessionRecord } from '@deepseek-ai/dsh-session-query'
-import type SubagentService from './index.ts'
+import type { Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
+import type { SessionProjectionRegistry } from '@deepseek-ai/dsh-session-projection'
 import { SubagentError } from './error.ts'
-import { foldSubagentDescriptor } from './descriptor.ts'
+import type { SubagentIdentityProjection } from './projection-types.ts'
 
-type SessionQueryRuntime = Pick<
-  typeof import('@deepseek-ai/dsh-session-query'),
-  'assertSessionHeadersCompatible' | 'SessionQueryError'
->
+/** Concurrent cold inspections per listing; a constant because it bounds one read-only scan, not deployment behavior. */
+const COLD_READ_CONCURRENCY = 4
 
 /**
- * One entry of a {@link listChildren} result in trace candidate order. Only a
- * candidate whose durable header has `origin: 'subagent'` is inspected. A
- * valid descriptor produces a `child`, a per-child inspection failure produces
- * a `diagnostic`, and a candidate without its own descriptor is omitted.
- * Healthy rows include a one-level, origin-classified descendant hint.
- * Diagnostics are transient query results, never session events or catalog
- * state, and never expose model-hidden descriptor content.
+ * One entry of a {@link listChildren} result, ordered by header `createdAt`
+ * with ties broken on id. Only a candidate whose durable header has
+ * `origin: 'subagent'` is interpreted. A served `subagent` projection value
+ * produces a `child`; a settled candidate whose fold served no identity
+ * produces a `diagnostic`; a running candidate without one is omitted — its
+ * descriptor may not be appended yet (the creation window). Diagnostics
+ * relay the projection fold's outcome or a failed read, never a per-child
+ * event scan, and never expose model-hidden descriptor content.
  */
 export type SubagentListEntry =
   | {
@@ -35,7 +41,7 @@ export type SubagentListEntry =
     /** The durable child session id, stable across Activations. */
     readonly id: SessionId
     /**
-     * Corpus snapshot activity: `running` means the logical record is live in
+     * Store snapshot activity: `running` means the logical record is live in
      * `ctx.sessions`; `inactive` means it exists only in persistence. Neither
      * encodes a durable outcome, and a continuable child may still reject
      * delivery as an ownership conflict.
@@ -59,179 +65,185 @@ export type SubagentListEntry =
   )
   | {
     readonly kind: 'diagnostic'
-    /** The traced candidate's session id. */
+    /** The candidate's session id. */
     readonly id: SessionId
     /**
-     * Why the candidate was omitted: `corrupt` for invalid surfaces, header
-     * conflicts, or malformed/duplicated descriptors; `unsupported` for an
-     * unknown descriptor version; `unavailable` when the child disappeared or
-     * its per-child read hit a persistence failure.
+     * Why the candidate has no `child` row: `corrupt` for a settled candidate
+     * whose projection fold served no identity (a missing, malformed, or
+     * unrecognized-version descriptor — deliberately undistinguished);
+     * `unavailable` when the candidate's persistence inspection failed
+     * (retried on the next listing). `unsupported` is kept for consumers
+     * already routing on it but is no longer produced.
      */
     readonly reason: 'corrupt' | 'unsupported' | 'unavailable'
   }
 
 /**
- * Interpret one parent's origin-classified direct descendants as session-backed
- * subagents without loading or resuming an Agent. Ordinary forks are skipped
- * before per-child event inspection.
- * @see {@link SubagentService.listChildren} for the public cancellation and
- *   failure contract.
- * @param ctx - context carrying the optional session-query service.
+ * Enumerate one parent's origin-classified direct children from the
+ * live-preferred merge of `ctx.sessions` and optional session persistence,
+ * serving each identity from the `subagent` projection unit: the registry's
+ * watermark snapshot for a live child, one bounded-concurrency persistence
+ * inspection folded through the registry for a cold one.
+ * @see SubagentService.listChildren for the public cancellation and failure contract.
+ * @param ctx - context carrying the session store, the projection registry,
+ *   and optional persistence.
  * @param parentSessionId - parent session whose direct children are listed.
- * @param signal - caller-owned cancellation.
- * @returns children and per-child diagnostics in stable trace order.
- * @throws {@link SubagentError} when session query is unavailable or
- *   the caller cancels the scan.
+ * @param signal - caller-owned cancellation observed around every persistence read.
+ * @returns children and per-child diagnostics ordered by `createdAt`, then id.
+ * @throws {@link SubagentError} when the projection registry is not mounted
+ *   or the caller cancels the listing.
  */
 export async function listChildren(
   ctx: Context,
   parentSessionId: SessionId,
   signal?: AbortSignal,
-): ReturnType<SubagentService['listChildren']> {
-  const query = ctx.get('sessionQuery')
-  if (query === undefined) {
+): Promise<SubagentListEntry[]> {
+  const projections = ctx.get('sessionProjections')
+  const sessions = ctx.get('sessions')
+  // Checked before any read, even with zero candidates: mode/label are the
+  // row's strong contract, so a missing fold capability is a deterministic
+  // deployment configuration error, never an empty success.
+  if (projections === undefined) {
     throw new SubagentError(
-      'listing subagents requires session query (load a dsh-session-query backend)',
-      'SUBAGENT_CONTROL_SESSION_QUERY_UNAVAILABLE',
+      'listing subagents requires the sessionProjections registry (load @deepseek-ai/dsh-session-projection)',
+      'SUBAGENT_CONTROL_PROJECTIONS_UNAVAILABLE',
+    )
+  }
+  if (sessions === undefined) {
+    throw new SubagentError(
+      'listing subagents requires the sessions registry (load @deepseek-ai/dsh-session)',
+      'SUBAGENT_CONTROL_PROJECTIONS_UNAVAILABLE',
     )
   }
   assertListingNotCancelled(signal)
-  // Keep runtime values behind the listing-only boundary so ordinary
-  // subagent imports and control operations do not evaluate the optional peer.
-  const queryRuntime: SessionQueryRuntime = await import('@deepseek-ai/dsh-session-query')
-  assertListingNotCancelled(signal)
-  const trace = await runListingQuery(
-    () => query.traceSession(parentSessionId, signal),
-    signal,
-  )
-  const entries: SubagentListEntry[] = []
-  for (const node of trace.descendants) {
-    if (node.session.header.origin !== 'subagent') continue
-    const hasChildren = node.descendants.some(
-      descendant => descendant.session.header.origin === 'subagent',
-    )
-    const entry = await inspectChild(
-      query, queryRuntime, parentSessionId, node.session, hasChildren, signal,
-    )
-    // Cancellation can race the inspection's last checkpoint or diagnostic
-    // mapping; do not return success or begin another candidate afterward.
-    assertListingNotCancelled(signal)
-    if (entry !== undefined) entries.push(entry)
-  }
-  return entries
-}
-
-/** Interpret one traced direct-child record as a child, diagnostic, or exclusion. */
-async function inspectChild(
-  query: SessionQueryService,
-  queryRuntime: SessionQueryRuntime,
-  parentSessionId: SessionId,
-  candidate: SessionRecord,
-  hasChildren: boolean,
-  signal?: AbortSignal,
-): Promise<SubagentListEntry | undefined> {
-  const childId = candidate.header.id
-  try {
-    const records = await runListingQuery(() => query.listEvents(childId), signal)
-    // Only the child's own suffix: a fork seed may replay an ancestor's
-    // descriptor without making the fork itself a subagent.
-    const seedLength = candidate.header.seedLength ?? 0
-    const descriptorSeqs = records
-      .filter(record => record.seq >= seedLength && record.type === 'subagent/descriptor')
-      .map(record => record.seq)
-    if (descriptorSeqs.length === 0) return undefined
-    if (descriptorSeqs.length > 1) {
-      return { kind: 'diagnostic', id: childId, reason: 'corrupt' }
-    }
-    // The length-one branch proves this exact-read sequence exists.
-    // oxlint-disable-next-line typescript/no-non-null-assertion
-    const seq = descriptorSeqs[0]!
-    const window = await runListingQuery(
-      () => query.readEvent({ sessionId: childId, seq }, signal),
-      signal,
-    )
-    queryRuntime.assertSessionHeadersCompatible(window.session, candidate.header)
-    if (window.session.parentSession !== parentSessionId || window.target.type !== 'subagent/descriptor') {
-      return { kind: 'diagnostic', id: childId, reason: 'corrupt' }
-    }
-    let descriptor: ReturnType<typeof foldSubagentDescriptor>
+  const persistence = ctx.get('sessionPersistence')
+  let persistedHeaders: readonly SessionHeader[] = []
+  if (persistence !== undefined) {
     try {
-      descriptor = foldSubagentDescriptor([window.target])
-    } catch {
-      return { kind: 'diagnostic', id: childId, reason: 'corrupt' }
+      persistedHeaders = await persistence.list(signal)
+    } catch (error: unknown) {
+      // The backend may reject with its own abort failure after observing the
+      // forwarded signal; cancellation stays a stable subagent failure.
+      assertListingNotCancelled(signal)
+      throw error
     }
-    if (descriptor === undefined) {
-      return { kind: 'diagnostic', id: childId, reason: 'unsupported' }
-    }
-    const activity = candidate.live ? 'running' : 'inactive'
-    if (descriptor.mode === 'one-shot') {
-      return {
-        kind: 'child',
-        id: childId,
-        mode: descriptor.mode,
-        ...descriptor.label !== undefined ? { label: descriptor.label } : {},
-        activity,
-        hasChildren,
-      }
-    }
-    return {
-      kind: 'child', id: childId, mode: descriptor.mode, label: descriptor.label,
-      activity, hasChildren,
-    }
-  } catch (error: unknown) {
-    const reason = perChildDiagnosticReason(error, queryRuntime.SessionQueryError)
-    if (reason === undefined) throw error
-    return { kind: 'diagnostic', id: childId, reason }
+    assertListingNotCancelled(signal)
   }
+  // Live-preferred merge without header reconciliation: a live record wins
+  // its id wholesale, exactly as a live-preferred corpus would serve it.
+  const corpus = new Map<SessionId, { header: SessionHeader; live: Session | undefined }>()
+  for (const header of persistedHeaders) corpus.set(header.id, { header, live: undefined })
+  for (const session of sessions.list()) {
+    corpus.set(session.header.id, { header: session.header, live: session })
+  }
+  const subagentParents = new Set<SessionId>()
+  for (const record of corpus.values()) {
+    if (record.header.origin === 'subagent' && record.header.parentSession !== undefined) {
+      subagentParents.add(record.header.parentSession)
+    }
+  }
+  const candidates = [...corpus.values()]
+    .filter(record => record.header.parentSession === parentSessionId
+      && record.header.origin === 'subagent')
+    .sort((a, b) => a.header.createdAt - b.header.createdAt
+      || (a.header.id < b.header.id ? -1 : a.header.id > b.header.id ? 1 : 0))
+
+  const rows: (SubagentListEntry | undefined)[] = Array.from({ length: candidates.length })
+  const coldReads: { index: number; id: SessionId }[] = []
+  candidates.forEach((candidate, index) => {
+    const childId = candidate.header.id
+    if (candidate.live === undefined) {
+      coldReads.push({ index, id: childId })
+      return
+    }
+    // The registry's watermark cache serves the live value with zero log
+    // reads; a live child without an identity yet is the creation window
+    // before the establishing provider appends its descriptor.
+    const identity = projections.snapshot(candidate.live).values.subagent
+    if (identity === undefined) return
+    rows[index] = childRow(childId, identity, 'running', subagentParents.has(childId))
+  })
+
+  // Cold candidates exist only when persistence listed them, so the narrow
+  // re-check is about types, not reachability.
+  if (persistence !== undefined && coldReads.length > 0) {
+    const queue = [...coldReads]
+    await Promise.all(Array.from(
+      { length: Math.min(COLD_READ_CONCURRENCY, queue.length) },
+      async () => {
+        for (let job = queue.shift(); job !== undefined; job = queue.shift()) {
+          rows[job.index] = await inspectColdIdentity(
+            persistence, projections, job.id, subagentParents.has(job.id), signal,
+          )
+        }
+      },
+    ))
+  }
+  assertListingNotCancelled(signal)
+  return rows.filter((row): row is SubagentListEntry => row !== undefined)
 }
 
-/** Stop a listing scan at its next cancellation checkpoint. */
+/**
+ * Resolve one cold candidate: one persistence inspection folded through the
+ * projection registry (the same detached recipe the API proxy uses for
+ * detached session projections). A failed inspection is one transient
+ * `unavailable` row retried on the next listing; a settled log the fold
+ * cannot identify is final, so it reports `corrupt`.
+ */
+async function inspectColdIdentity(
+  persistence: SessionPersistence,
+  projections: SessionProjectionRegistry,
+  childId: SessionId,
+  hasChildren: boolean,
+  signal: AbortSignal | undefined,
+): Promise<SubagentListEntry | undefined> {
+  assertListingNotCancelled(signal)
+  let events: readonly SessionEvent[]
+  try {
+    events = (await persistence.inspect(childId, signal)).events
+  } catch {
+    // Per-child isolation: the child vanished or its backend read failed —
+    // one diagnostic row, and the listing itself still succeeds.
+    assertListingNotCancelled(signal)
+    return { kind: 'diagnostic', id: childId, reason: 'unavailable' }
+  }
+  assertListingNotCancelled(signal)
+  const identity = projections.restore({}, events, 0).snapshot.values.subagent
+  if (identity === undefined) {
+    return { kind: 'diagnostic', id: childId, reason: 'corrupt' }
+  }
+  return childRow(childId, identity, 'inactive', hasChildren)
+}
+
+/** Materialize one served identity as its child row. */
+function childRow(
+  id: SessionId,
+  identity: SubagentIdentityProjection,
+  activity: 'running' | 'inactive',
+  hasChildren: boolean,
+): SubagentListEntry {
+  return identity.mode === 'one-shot'
+    ? {
+      kind: 'child',
+      id,
+      mode: 'one-shot',
+      ...identity.label !== undefined ? { label: identity.label } : {},
+      activity,
+      hasChildren,
+    }
+    : {
+      kind: 'child',
+      id,
+      mode: 'continuable',
+      label: identity.label,
+      activity,
+      hasChildren,
+    }
+}
+
+/** Stop a listing at its next cancellation checkpoint. */
 function assertListingNotCancelled(signal: AbortSignal | undefined): void {
   if (signal?.aborted) {
     throw new SubagentError('subagent listing was cancelled', 'CANCELLED')
-  }
-}
-
-/**
- * Run one session-query operation between cancellation checkpoints. Query
- * implementations may reject with their own abort error after observing the
- * forwarded signal; cancellation remains a stable subagent failure.
- */
-async function runListingQuery<T>(
-  operation: () => Promise<T>,
-  signal: AbortSignal | undefined,
-): Promise<T> {
-  assertListingNotCancelled(signal)
-  try {
-    const result = await operation()
-    assertListingNotCancelled(signal)
-    return result
-  } catch (error: unknown) {
-    assertListingNotCancelled(signal)
-    throw error
-  }
-}
-
-/**
- * Map a per-child query failure to a fixed diagnostic. Configuration errors
- * and unrecognized failures remain operation failures.
- */
-function perChildDiagnosticReason(
-  error: unknown,
-  SessionQueryError: SessionQueryRuntime['SessionQueryError'],
-): 'corrupt' | 'unavailable' | undefined {
-  if (!(error instanceof SessionQueryError)) return undefined
-  switch (error.code) {
-    case 'SESSION_QUERY_CORRUPT_SESSION':
-      return 'corrupt'
-    case 'SESSION_QUERY_SESSION_NOT_FOUND':
-    case 'SESSION_QUERY_EVENT_NOT_FOUND':
-    case 'SESSION_QUERY_PERSISTENCE_FAILED':
-      return 'unavailable'
-    case 'SESSION_QUERY_INVALID_SURFACE':
-    case 'SESSION_QUERY_SOURCE_CONFLICT':
-      return 'corrupt'
-    default:
-      return undefined
   }
 }

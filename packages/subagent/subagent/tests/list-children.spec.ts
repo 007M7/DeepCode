@@ -9,7 +9,7 @@ import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-test
 import SessionStore, { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
-import { SessionQueryError } from '@deepseek-ai/dsh-session-query'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SubagentService, {
   SUBAGENT_DESCRIPTOR_VERSION,
   SubagentError,
@@ -17,7 +17,6 @@ import SubagentService, {
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn'
 import * as SubagentFork from '@deepseek-ai/dsh-subagent-fork'
 import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
-import { TestSessionQueryService } from '../../../session-query/session-query/tests/test-service.ts'
 
 type Script = ConstructorParameters<typeof MockAdapter>[0]
 
@@ -26,18 +25,18 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 
-/** Boot the continuable stack plus a concrete session-query service. */
-async function setup(script: Script, options: { sessionQuery?: boolean } = {}) {
+/** Boot the continuable stack with real JSONL session persistence. */
+async function setup(script: Script, options: { sessionProjections?: boolean } = {}) {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
   const root = mkdtempSync(join(tmpdir(), 'dsh-subagent-list-'))
   roots.push(root)
   await ctx.plugin(JsonlSessionPersistence, { root })
   await ctx.plugin(AgentLoop, { agents: [] })
+  if (options.sessionProjections !== false) await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(SubagentService)
   await ctx.plugin(SubagentSpawn, { providerName: 'spawn' })
   await ctx.plugin(SubagentFork, { providerName: 'fork' })
-  if (options.sessionQuery !== false) await ctx.plugin(TestSessionQueryService)
   ctx.llm.registerAdapter(['mock'], new MockAdapter(script))
   const parent = ctx.agentLoop.create(SessionId('parent'), { provider: 'mock', model: 'mock' })
   return { ctx, parent }
@@ -102,37 +101,38 @@ function descriptorPayload(label: string, version = SUBAGENT_DESCRIPTOR_VERSION)
 }
 
 describe('SubagentService.listChildren', () => {
-  it('lists through session query without the Activation continuation runtime', async () => {
+  it('lists live children without persistence, query services, or the continuation runtime', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(SubagentService)
-    await ctx.plugin(TestSessionQueryService)
     expect(ctx.get('tasks')).toBeUndefined()
     expect(ctx.get('agents')).toBeUndefined()
+    expect(ctx.get('sessionPersistence')).toBeUndefined()
 
-    const parentId = SessionId('query-only-parent')
+    const parentId = SessionId('live-only-parent')
     ctx.sessions.create(parentId)
-    const childId = SessionId('query-only-child')
+    const childId = SessionId('live-only-child')
     const child = ctx.sessions.create(childId, {
       meta: { parentSession: parentId, origin: 'subagent' },
     })
     child.append('turn/start', {
       turn: 1,
     })
-    child.append('subagent/descriptor', descriptorPayload('query-only child'))
+    child.append('subagent/descriptor', descriptorPayload('live-only child'))
 
     await expect(ctx.subagents.listChildren(parentId)).resolves.toEqual([
       {
-        kind: 'child', id: childId, label: 'query-only child', mode: 'continuable',
+        kind: 'child', id: childId, label: 'live-only child', mode: 'continuable',
         activity: 'running', hasChildren: false,
       },
     ])
   })
 
-  it('fails loud before any work when session query is not loaded', async () => {
-    const { ctx, parent } = await setup([], { sessionQuery: false })
+  it('fails loud when the projection registry is not mounted, even with no children', async () => {
+    const { ctx, parent } = await setup([], { sessionProjections: false })
     await expect(ctx.subagents.listChildren(parent.id)).rejects.toThrow(
-      expect.objectContaining({ code: 'SUBAGENT_CONTROL_SESSION_QUERY_UNAVAILABLE' }) as Error,
+      expect.objectContaining({ code: 'SUBAGENT_CONTROL_PROJECTIONS_UNAVAILABLE' }) as Error,
     )
   })
 
@@ -148,7 +148,7 @@ describe('SubagentService.listChildren', () => {
     ])
   })
 
-  it('lists one-shot and continuable children from the same trace', async () => {
+  it('lists one-shot and continuable children under the same parent', async () => {
     const { ctx, parent } = await setup([textResponse('once'), textResponse('again')])
     const oneShot = await ctx.subagents.start('spawn', {
       prompt: [{ type: 'text', text: 'finish once' }],
@@ -205,7 +205,7 @@ describe('SubagentService.listChildren', () => {
     ])
   })
 
-  it('orders children by createdAt then id without inspecting ordinary forks', async () => {
+  it('orders children by createdAt then id without listing ordinary forks', async () => {
     const { ctx, parent } = await setup([])
     // Authored headers pin the ordering key deterministically: same createdAt
     // ties break on id, different createdAt orders ascending.
@@ -227,11 +227,11 @@ describe('SubagentService.listChildren', () => {
     // An ordinary session fork shares parentSession but has no subagent origin.
     const fork = ctx.sessions.fork(parent.session, undefined, SessionId('plain-fork'))
     await ctx.sessions.flush(fork)
-    const listEvents = vi.spyOn(ctx.sessionQuery, 'listEvents')
+    const inspect = vi.spyOn(ctx.sessionPersistence, 'inspect')
     const entries = await ctx.subagents.listChildren(parent.id)
     expect(entries.map(entry => entry.id)).toEqual([tieA, tieB, late])
     expect(entries.every(entry => entry.kind === 'child')).toBe(true)
-    expect(listEvents).not.toHaveBeenCalledWith(fork.id)
+    expect(inspect).not.toHaveBeenCalledWith(fork.id, expect.anything())
   })
 
   it('reports a live child as running while keeping settled siblings complete', async () => {
@@ -256,7 +256,7 @@ describe('SubagentService.listChildren', () => {
     })
   })
 
-  it('diagnoses duplicate descriptors as corrupt without hiding healthy siblings', async () => {
+  it('lists the last descriptor when a log carries more than one', async () => {
     const { ctx, parent } = await setup([textResponse('done')])
     const healthy = await startChild(ctx, parent, 'healthy sibling')
     const events = childEvents(descriptorPayload('twice'))
@@ -267,22 +267,27 @@ describe('SubagentService.listChildren', () => {
       data: descriptorPayload('twice again'),
     } as SessionEvent)
     events[4] = { ...events[4]!, seq: 4 }
-    const corrupt = await authorChild(ctx, '00000000-0000-4000-8000-00000000dupe', {
+    const doubled = await authorChild(ctx, '00000000-0000-4000-8000-00000000dupe', {
       parentSession: parent.id,
       origin: 'subagent',
     }, events)
+    // The last-wins projection fold serves the final descriptor's identity; a
+    // repeated descriptor is not a per-child corruption diagnostic.
     const entries = await ctx.subagents.listChildren(parent.id)
-    expect(entries).toContainEqual({ kind: 'diagnostic', id: corrupt, reason: 'corrupt' })
+    expect(entries).toContainEqual({
+      kind: 'child', id: doubled, label: 'twice again', mode: 'continuable',
+      activity: 'inactive', hasChildren: false,
+    })
     expect(entries).toContainEqual({
       kind: 'child', id: healthy, label: 'healthy sibling', mode: 'continuable',
       activity: 'inactive', hasChildren: false,
     })
   })
 
-  it('diagnoses a child rejected by persisted Session preparation as corrupt', async () => {
+  it('maps a child rejected by persistence inspection to unavailable', async () => {
     const { ctx, parent } = await setup([])
-    // The surface-eligible user/message lacks its required surfaceOp. The
-    // first-party persistence inspection rejects before session-query can fold it.
+    // The surface-eligible user/message lacks its required surfaceOp, so the
+    // first-party inspection rejects before any projection fold can run.
     const invalid = await authorChild(ctx, '00000000-0000-4000-8000-0000000000ee', {
       parentSession: parent.id,
       origin: 'subagent',
@@ -297,7 +302,7 @@ describe('SubagentService.listChildren', () => {
       { type: 'subagent/descriptor', seq: 2, time: 3, data: descriptorPayload('broken surface') },
     ] as SessionEvent[])
     const entries = await ctx.subagents.listChildren(parent.id)
-    expect(entries).toEqual([{ kind: 'diagnostic', id: invalid, reason: 'corrupt' }])
+    expect(entries).toEqual([{ kind: 'diagnostic', id: invalid, reason: 'unavailable' }])
   })
 
   it('diagnoses a malformed descriptor payload as corrupt', async () => {
@@ -310,28 +315,36 @@ describe('SubagentService.listChildren', () => {
     expect(entries).toEqual([{ kind: 'diagnostic', id: malformed, reason: 'corrupt' }])
   })
 
-  it('diagnoses an unknown descriptor version as unsupported', async () => {
+  it('diagnoses an unknown descriptor version as corrupt', async () => {
     const { ctx, parent } = await setup([])
     const future = await authorChild(ctx, '00000000-0000-4000-8000-0000000000aa', {
       parentSession: parent.id,
       origin: 'subagent',
     }, childEvents(descriptorPayload('from the future', SUBAGENT_DESCRIPTOR_VERSION + 1)))
+    // The projection fold does not distinguish an unrecognized version from
+    // other invalid descriptors: both serve no identity, and a settled
+    // no-value candidate is corrupt.
     const entries = await ctx.subagents.listChildren(parent.id)
-    expect(entries).toEqual([{ kind: 'diagnostic', id: future, reason: 'unsupported' }])
+    expect(entries).toEqual([{ kind: 'diagnostic', id: future, reason: 'corrupt' }])
   })
 
-  it('ignores an ancestor descriptor replayed inside a fork seed', async () => {
+  it('lists a fork whose seed replays an ancestor descriptor under that identity', async () => {
     const { ctx, parent } = await setup([])
-    // A fork child whose seed replays a parent log containing a descriptor:
-    // the seed's descriptor is the ANCESTOR's, not this child's.
+    // The last-wins fold serves a seed-replayed ancestor descriptor until the
+    // child's own descriptor overrides it (known deviation #1 in the design).
     const seed = childEvents(descriptorPayload('ancestor label'))
-    await authorChild(ctx, '00000000-0000-4000-8000-0000000000f0', {
+    const forkChild = await authorChild(ctx, '00000000-0000-4000-8000-0000000000f0', {
       parentSession: parent.id,
       seedLength: seed.length,
       origin: 'subagent',
     }, seed)
     const entries = await ctx.subagents.listChildren(parent.id)
-    expect(entries).toEqual([])
+    expect(entries).toEqual([
+      {
+        kind: 'child', id: forkChild, label: 'ancestor label', mode: 'continuable',
+        activity: 'inactive', hasChildren: false,
+      },
+    ])
   })
 
   it('does not filter by provider availability: children of unmounted providers stay listed', async () => {
@@ -354,103 +367,35 @@ describe('SubagentService.listChildren', () => {
     ])
   })
 
-  it('maps a per-child read failure to one unavailable diagnostic after a successful trace', async () => {
+  it('maps a failed cold inspection to one unavailable diagnostic and retries it next listing', async () => {
     const { ctx, parent } = await setup([textResponse('done')])
-    const childId = await startChild(ctx, parent, 'flaky storage')
-    const query = ctx.get('sessionQuery')!
-    const originalListEvents = query.listEvents.bind(query)
-    query.listEvents = (sessionId) => {
-      if (sessionId === childId) {
-        return Promise.reject(new SessionQueryError('backend read failed', 'SESSION_QUERY_PERSISTENCE_FAILED'))
+    const healthy = await startChild(ctx, parent, 'healthy sibling')
+    const flaky = await authorChild(ctx, '00000000-0000-4000-8000-00000000f1a7', {
+      parentSession: parent.id,
+      origin: 'subagent',
+    }, childEvents(descriptorPayload('flaky storage')))
+    const original = ctx.sessionPersistence.inspect.bind(ctx.sessionPersistence)
+    ctx.sessionPersistence.inspect = (sessionId, signal) => {
+      if (sessionId === flaky) {
+        return Promise.reject(new Error('backend read failed'))
       }
-      return originalListEvents(sessionId)
+      return original(sessionId, signal)
     }
-    const entries = await ctx.subagents.listChildren(parent.id)
-    expect(entries).toEqual([{ kind: 'diagnostic', id: childId, reason: 'unavailable' }])
-  })
-
-  it.each([
-    ['session', 'SESSION_QUERY_SESSION_NOT_FOUND'],
-    ['descriptor event', 'SESSION_QUERY_EVENT_NOT_FOUND'],
-  ] as const)('maps a missing child %s to unavailable', async (_target, code) => {
-    const { ctx, parent } = await setup([textResponse('done')])
-    const childId = await startChild(ctx, parent, 'vanishing child')
-    const query = ctx.get('sessionQuery')!
-    query.listEvents = () =>
-      Promise.reject(new SessionQueryError('gone', code))
-    const entries = await ctx.subagents.listChildren(parent.id)
-    expect(entries).toEqual([{ kind: 'diagnostic', id: childId, reason: 'unavailable' }])
-  })
-
-  it('maps an invalid child surface to corrupt', async () => {
-    const { ctx, parent } = await setup([textResponse('done')])
-    const childId = await startChild(ctx, parent, 'invalid surface')
-    const query = ctx.get('sessionQuery')!
-    query.listEvents = () =>
-      Promise.reject(new SessionQueryError('invalid surface', 'SESSION_QUERY_INVALID_SURFACE'))
-
-    const entries = await ctx.subagents.listChildren(parent.id)
-    expect(entries).toEqual([{ kind: 'diagnostic', id: childId, reason: 'corrupt' }])
-  })
-
-  it('diagnoses a read whose header no longer names this parent as corrupt', async () => {
-    const { ctx, parent } = await setup([textResponse('done')])
-    const childId = await startChild(ctx, parent, 'reparented child')
-    const query = ctx.get('sessionQuery')!
-    const originalReadEvent = query.readEvent.bind(query)
-    query.readEvent = async (request) => {
-      const window = await originalReadEvent(request)
-      return {
-        ...window,
-        session: { ...window.session, parentSession: SessionId('someone-else') },
-      }
-    }
-    const entries = await ctx.subagents.listChildren(parent.id)
-    // The exact read's conflicting immutable header is per-child corruption.
-    expect(entries).toEqual([{ kind: 'diagnostic', id: childId, reason: 'corrupt' }])
-  })
-
-  it('diagnoses a read whose target is no longer the descriptor event as corrupt', async () => {
-    const { ctx, parent } = await setup([textResponse('done')])
-    const childId = await startChild(ctx, parent, 'shifted log')
-    const query = ctx.get('sessionQuery')!
-    const originalReadEvent = query.readEvent.bind(query)
-    query.readEvent = async (request) => {
-      const window = await originalReadEvent(request)
-      return { ...window, target: { ...window.target, type: 'turn/start' } as typeof window.target }
-    }
-    const entries = await ctx.subagents.listChildren(parent.id)
-    expect(entries).toEqual([{ kind: 'diagnostic', id: childId, reason: 'corrupt' }])
-  })
-
-  it('fails the whole call when the initial trace fails', async () => {
-    const { ctx, parent } = await setup([textResponse('done')])
-    await startChild(ctx, parent, 'never listed')
-    const query = ctx.get('sessionQuery')!
-    query.traceSession = () =>
-      Promise.reject(new SessionQueryError('listing failed', 'SESSION_QUERY_PERSISTENCE_FAILED'))
-    await expect(ctx.subagents.listChildren(parent.id)).rejects.toThrow(
-      expect.objectContaining({ code: 'SESSION_QUERY_PERSISTENCE_FAILED' }) as Error,
-    )
-  })
-
-  it('propagates an unrecognized per-child failure as an operation failure', async () => {
-    const { ctx, parent } = await setup([textResponse('done')])
-    await startChild(ctx, parent, 'strange failure')
-    const query = ctx.get('sessionQuery')!
-    query.listEvents = () => Promise.reject(new Error('not a query failure'))
-    await expect(ctx.subagents.listChildren(parent.id)).rejects.toThrow('not a query failure')
-  })
-
-  it('propagates a configuration/window query failure instead of diagnosing the child', async () => {
-    const { ctx, parent } = await setup([textResponse('done')])
-    await startChild(ctx, parent, 'misconfigured query')
-    const query = ctx.get('sessionQuery')!
-    query.listEvents = () =>
-      Promise.reject(new SessionQueryError('bad window', 'SESSION_QUERY_INVALID_WINDOW'))
-    await expect(ctx.subagents.listChildren(parent.id)).rejects.toThrow(
-      expect.objectContaining({ code: 'SESSION_QUERY_INVALID_WINDOW' }) as Error,
-    )
+    // Per-child isolation: the failed child degrades to one diagnostic while
+    // the healthy sibling stays complete.
+    const degraded = await ctx.subagents.listChildren(parent.id)
+    expect(degraded).toContainEqual({ kind: 'diagnostic', id: flaky, reason: 'unavailable' })
+    expect(degraded).toContainEqual({
+      kind: 'child', id: healthy, label: 'healthy sibling', mode: 'continuable',
+      activity: 'inactive', hasChildren: false,
+    })
+    // Nothing is memoized: with the backend healthy again, the next listing
+    // folds the same child to its identity.
+    ctx.sessionPersistence.inspect = original
+    await expect(ctx.subagents.listChildren(parent.id)).resolves.toContainEqual({
+      kind: 'child', id: flaky, label: 'flaky storage', mode: 'continuable',
+      activity: 'inactive', hasChildren: false,
+    })
   })
 
   it('lists compacted and uncompacted children identically', async () => {
@@ -492,19 +437,18 @@ describe('SubagentService.listChildren', () => {
     ])
   })
 
-  it('reports an origin-classified grandchild without reading its events', async () => {
+  it('reports an origin-classified grandchild without inspecting it', async () => {
     const { ctx, parent } = await setup([textResponse('done')])
     const childId = await startChild(ctx, parent, 'direct child')
     const grandchildId = await authorChild(ctx, '00000000-0000-4000-8000-0000000000cc', {
       parentSession: childId,
       origin: 'subagent',
     }, childEvents(descriptorPayload('grandchild')))
-    const query = ctx.get('sessionQuery')!
-    const originalListEvents = query.listEvents.bind(query)
     const inspected: SessionId[] = []
-    query.listEvents = (sessionId) => {
+    const original = ctx.sessionPersistence.inspect.bind(ctx.sessionPersistence)
+    ctx.sessionPersistence.inspect = (sessionId, signal) => {
       inspected.push(sessionId)
-      return originalListEvents(sessionId)
+      return original(sessionId, signal)
     }
     const entries = await ctx.subagents.listChildren(parent.id)
     expect(entries).toEqual([
@@ -513,6 +457,7 @@ describe('SubagentService.listChildren', () => {
         activity: 'inactive', hasChildren: true,
       },
     ])
+    // The grandchild contributes only its header to the hasChildren hint.
     expect(inspected).toContain(childId)
     expect(inspected).not.toContain(grandchildId)
   })
@@ -550,115 +495,92 @@ describe('SubagentService.listChildren', () => {
     }])
   })
 
-  it('stops the scan at the between-candidates checkpoint when the signal aborts', async () => {
-    const { ctx, parent } = await setup([textResponse('one'), textResponse('two')])
-    await startChild(ctx, parent, 'first child')
-    await startChild(ctx, parent, 'second child')
-    const controller = new AbortController()
-    const query = ctx.get('sessionQuery')!
-    const originalListEvents = query.listEvents.bind(query)
-    let inspected = 0
-    query.listEvents = (sessionId) => {
-      inspected += 1
-      // Cancel while the first candidate's read is in flight: the loop's next
-      // between-candidates checkpoint must stop before the second read.
-      controller.abort()
-      return originalListEvents(sessionId)
-    }
-    await expect(ctx.subagents.listChildren(parent.id, controller.signal)).rejects.toThrow(
-      expect.objectContaining({ code: 'CANCELLED' }) as Error,
-    )
-    expect(inspected).toBe(1)
-  })
-
-  it('forwards cancellation to the initial trace and reports the stable subagent error', async () => {
+  it('a pre-aborted signal stops before any persistence read', async () => {
     const { ctx, parent } = await setup([])
     const controller = new AbortController()
-    const query = ctx.get('sessionQuery')!
-    const entered = Promise.withResolvers<undefined>()
-    query.traceSession = (_sessionId, signal) => {
-      entered.resolve(undefined)
-      return new Promise((_resolve, reject) => {
-        signal?.addEventListener('abort', () => {
-          reject(new Error('query trace aborted'))
-        }, { once: true })
-      })
-    }
-    const listing = ctx.subagents.listChildren(parent.id, controller.signal)
-    await entered.promise
     controller.abort()
-    await expect(listing).rejects.toThrow(
-      expect.objectContaining({ code: 'CANCELLED' }) as Error,
-    )
-  })
-
-  it('forwards cancellation to the exact descriptor read and reports the stable subagent error', async () => {
-    const { ctx, parent } = await setup([textResponse('done')])
-    await startChild(ctx, parent, 'cancelled exact read')
-    const controller = new AbortController()
-    const query = ctx.get('sessionQuery')!
-    const entered = Promise.withResolvers<undefined>()
-    query.readEvent = (_request, signal) => {
-      entered.resolve(undefined)
-      return new Promise((_resolve, reject) => {
-        signal?.addEventListener('abort', () => {
-          reject(new Error('query read aborted'))
-        }, { once: true })
-      })
-    }
-    const listing = ctx.subagents.listChildren(parent.id, controller.signal)
-    await entered.promise
-    controller.abort()
-    await expect(listing).rejects.toThrow(
-      expect.objectContaining({ code: 'CANCELLED' }) as Error,
-    )
-  })
-
-  it('stops after a per-child read when the signal aborts mid-inspection', async () => {
-    const { ctx, parent } = await setup([textResponse('done')])
-    await startChild(ctx, parent, 'cancelled mid-read')
-    const controller = new AbortController()
-    const query = ctx.get('sessionQuery')!
-    const originalReadEvent = query.readEvent.bind(query)
-    let exactReads = 0
-    query.readEvent = async (request) => {
-      exactReads += 1
-      const window = await originalReadEvent(request)
-      controller.abort()
-      return window
-    }
-    // The post-read checkpoint throws a subagent error, which is not a
-    // session-query failure and therefore propagates instead of becoming a
-    // per-child diagnostic.
-    await expect(ctx.subagents.listChildren(parent.id, controller.signal))
-      .rejects.toThrow(expect.objectContaining({ code: 'CANCELLED' }) as Error)
-    expect(exactReads).toBe(1)
-  })
-
-  it('a mapped per-child failure during an abort cannot become a successful result', async () => {
-    const { ctx, parent } = await setup([textResponse('done')])
-    await startChild(ctx, parent, 'aborted behind a diagnostic')
-    const controller = new AbortController()
-    const query = ctx.get('sessionQuery')!
-    query.listEvents = () => {
-      // The read fails with a diagnostic-mapped code while the caller aborts:
-      // cancellation normalization must fail the scan rather than return a
-      // one-diagnostic success.
-      controller.abort()
-      return Promise.reject(new SessionQueryError('backend read failed', 'SESSION_QUERY_PERSISTENCE_FAILED'))
-    }
+    ctx.sessionPersistence.list = () => Promise.reject(new Error('must not be called'))
     await expect(ctx.subagents.listChildren(parent.id, controller.signal)).rejects.toThrow(
       expect.objectContaining({ code: 'CANCELLED' }) as Error,
     )
   })
 
-  it('a pre-aborted signal stops before any candidate read', async () => {
-    const { ctx, parent } = await setup([textResponse('done')])
-    await startChild(ctx, parent, 'never read')
+  it('forwards cancellation to the persisted listing and reports the stable subagent error', async () => {
+    const { ctx, parent } = await setup([])
     const controller = new AbortController()
+    const entered = Promise.withResolvers<undefined>()
+    ctx.sessionPersistence.list = (signal) => {
+      entered.resolve(undefined)
+      return new Promise((_resolve, reject) => {
+        signal?.addEventListener('abort', () => {
+          reject(new Error('backend listing aborted'))
+        }, { once: true })
+      })
+    }
+    const listing = ctx.subagents.listChildren(parent.id, controller.signal)
+    await entered.promise
     controller.abort()
-    const query = ctx.get('sessionQuery')!
-    query.listEvents = () => Promise.reject(new Error('must not be called'))
+    await expect(listing).rejects.toThrow(
+      expect.objectContaining({ code: 'CANCELLED' }) as Error,
+    )
+  })
+
+  it('forwards cancellation to a cold inspection and reports the stable subagent error', async () => {
+    const { ctx, parent } = await setup([])
+    await authorChild(ctx, '00000000-0000-4000-8000-00000000ce11', {
+      parentSession: parent.id,
+      origin: 'subagent',
+    }, childEvents(descriptorPayload('cancelled cold read')))
+    const controller = new AbortController()
+    const entered = Promise.withResolvers<undefined>()
+    ctx.sessionPersistence.inspect = (_sessionId, signal) => {
+      entered.resolve(undefined)
+      return new Promise((_resolve, reject) => {
+        signal?.addEventListener('abort', () => {
+          reject(new Error('backend read aborted'))
+        }, { once: true })
+      })
+    }
+    const listing = ctx.subagents.listChildren(parent.id, controller.signal)
+    await entered.promise
+    controller.abort()
+    await expect(listing).rejects.toThrow(
+      expect.objectContaining({ code: 'CANCELLED' }) as Error,
+    )
+  })
+
+  it('an abort observed after a cold inspection resolves cannot become a successful result', async () => {
+    const { ctx, parent } = await setup([])
+    await authorChild(ctx, '00000000-0000-4000-8000-00000000ce12', {
+      parentSession: parent.id,
+      origin: 'subagent',
+    }, childEvents(descriptorPayload('cancelled mid-listing')))
+    const controller = new AbortController()
+    const original = ctx.sessionPersistence.inspect.bind(ctx.sessionPersistence)
+    ctx.sessionPersistence.inspect = async (sessionId, signal) => {
+      const result = await original(sessionId, signal)
+      controller.abort()
+      return result
+    }
+    // The post-read checkpoint throws the stable subagent error instead of
+    // interpreting the fully-read log as a successful listing.
+    await expect(ctx.subagents.listChildren(parent.id, controller.signal))
+      .rejects.toThrow(expect.objectContaining({ code: 'CANCELLED' }) as Error)
+  })
+
+  it('a cold inspection failure during an abort cannot become an unavailable diagnostic', async () => {
+    const { ctx, parent } = await setup([])
+    await authorChild(ctx, '00000000-0000-4000-8000-00000000ce13', {
+      parentSession: parent.id,
+      origin: 'subagent',
+    }, childEvents(descriptorPayload('aborted behind a failure')))
+    const controller = new AbortController()
+    ctx.sessionPersistence.inspect = () => {
+      // The read fails while the caller aborts: cancellation normalization
+      // must fail the listing rather than return a one-diagnostic success.
+      controller.abort()
+      return Promise.reject(new Error('backend read failed'))
+    }
     await expect(ctx.subagents.listChildren(parent.id, controller.signal)).rejects.toThrow(
       expect.objectContaining({ code: 'CANCELLED' }) as Error,
     )
@@ -671,9 +593,9 @@ describe('SubagentService.listChildren', () => {
   })
 
   it('SubagentError from listChildren is typed with its stable code', async () => {
-    const { ctx, parent } = await setup([], { sessionQuery: false })
+    const { ctx, parent } = await setup([], { sessionProjections: false })
     const caught: unknown = await ctx.subagents.listChildren(parent.id).catch((error: unknown) => error)
     expect(caught).toBeInstanceOf(SubagentError)
-    expect((caught as SubagentError).code).toBe('SUBAGENT_CONTROL_SESSION_QUERY_UNAVAILABLE')
+    expect((caught as SubagentError).code).toBe('SUBAGENT_CONTROL_PROJECTIONS_UNAVAILABLE')
   })
 })

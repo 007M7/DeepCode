@@ -17,9 +17,36 @@ export interface SubagentTimingProjection {
   }
 }
 
+/**
+ * Durable identity of one descriptor-backed subagent session: lifecycle mode
+ * plus creation label, folded last-wins from `subagent/descriptor` events.
+ * Label strength follows the descriptor schema: a continuable child always
+ * carries one, a one-shot child may omit it.
+ */
+export type SubagentIdentityProjection =
+  | {
+    /** A terminal one-shot child. */
+    mode: 'one-shot'
+    /** Optional durable creation label from the child's descriptor. */
+    label?: string
+  }
+  | {
+    /** A resumable conversation. */
+    mode: 'continuable'
+    /** Durable creation label from the child's descriptor. */
+    label: string
+  }
+
 declare module '@deepseek-ai/dsh-session-projection/types' {
   interface SessionProjectionMap {
     /** Active-turn duration for a descriptor-backed subagent session. */
     subagentTiming: SubagentTimingProjection
+    /**
+     * Identity of a descriptor-backed subagent session. No value ⟺ no valid
+     * descriptor: a missing, malformed, or unrecognized-version descriptor is
+     * served identically as `undefined` in a live snapshot, and as an absent
+     * key after any JSON boundary (query-index rows, wire frames) drops it.
+     */
+    subagent: SubagentIdentityProjection
   }
 }

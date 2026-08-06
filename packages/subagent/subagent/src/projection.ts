@@ -1,12 +1,16 @@
 /**
- * Pure session projection for subagent active-turn duration.
+ * Pure session projections for subagent identity (mode/label) and active-turn
+ * duration.
  *
  * @module @deepseek-ai/dsh-subagent/projection
  */
 
 import { z } from 'zod'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
-import type { SubagentTimingProjection } from './projection-types.ts'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import { foldSubagentDescriptor } from './descriptor.ts'
+import type { SubagentDescriptorData } from './descriptor.ts'
+import type { SubagentIdentityProjection, SubagentTimingProjection } from './projection-types.ts'
 
 interface TimingState {
   /** Milliseconds accumulated across completed post-descriptor turns. */
@@ -79,4 +83,65 @@ ProjectionDefinition<'subagentTiming', TimingState> = {
     ...(state.active === undefined ? {} : { active: state.active }),
   }),
   stateVersion: 2,
+}
+
+interface IdentityState {
+  /** Identity from the last valid descriptor; absent before one, and after an invalid one. */
+  identity?: SubagentIdentityProjection
+}
+
+// Zod's optional output includes explicit `undefined`; with
+// exactOptionalPropertyTypes the public map entry permits omission only, and
+// JSON boundaries drop the undefined-valued key entirely.
+const identitySchema = z.discriminatedUnion('mode', [
+  z.object({
+    mode: z.literal('one-shot'),
+    label: z.string().optional(),
+  }).strict(),
+  z.object({
+    mode: z.literal('continuable'),
+    label: z.string(),
+  }).strict(),
+]).optional() as unknown as z.ZodType<SubagentIdentityProjection>
+
+/** Interpret one `subagent/descriptor` event's identity; no value when the payload cannot be trusted. */
+function descriptorIdentity(event: SessionEvent): SubagentIdentityProjection | undefined {
+  let descriptor: SubagentDescriptorData | undefined
+  try {
+    descriptor = foldSubagentDescriptor([event])
+  } catch {
+    // Only a malformed current-version payload throws in descriptor parsing;
+    // a projection fold must never throw, so damage folds to no value.
+    descriptor = undefined
+  }
+  if (descriptor === undefined) return undefined
+  return descriptor.mode === 'one-shot'
+    ? { mode: 'one-shot', ...descriptor.label !== undefined ? { label: descriptor.label } : {} }
+    : { mode: 'continuable', label: descriptor.label }
+}
+
+/**
+ * Fold the durable mode/label identity from `subagent/descriptor` events,
+ * last-wins: a fork seed may replay an ancestor's descriptor, and the child's
+ * own descriptor must override it — the same reset discipline as
+ * {@link subagentTimingProjectionDefinition}. A malformed or unknown-version
+ * payload resets to no value instead of throwing, so a fork of a healthy
+ * ancestor never inherits an identity its own descriptor failed to establish;
+ * no value ⟺ no valid descriptor, with the causes deliberately undistinguished.
+ */
+export const subagentIdentityProjectionDefinition:
+ProjectionDefinition<'subagent', IdentityState> = {
+  key: 'subagent',
+  schema: identitySchema,
+  init: () => ({}),
+  apply: (state, event) => {
+    if (event.type !== 'subagent/descriptor') return state
+    const identity = descriptorIdentity(event)
+    return identity === undefined ? {} : { identity }
+  },
+  // A no-value log serves `undefined` (the schema's optional side); the map
+  // entry stays non-optional because every consumer reads through `Partial`
+  // snapshot values, where absence is already the type.
+  view: state => state.identity as SubagentIdentityProjection,
+  stateVersion: 1,
 }
