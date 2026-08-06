@@ -13,7 +13,10 @@ const css = readFileSync(fileURLToPath(new URL('../src/client/chat/ToolRow.modul
 const declarationText = css.replace(/\/\*[\s\S]*?\*\//g, ' ')
 
 function declarations(selector: string): string[] {
-  const rule = new RegExp(`\\${selector}\\s*\\{([^{}]*)\\}`).exec(declarationText)
+  // Anchored at a rule boundary: an unanchored match would silently read a
+  // compound rule that merely contains the selector (`.root:hover .summarySuffix`)
+  // if one ever lands above the base rule.
+  const rule = new RegExp(`(?:^|\\})\\s*\\${selector}\\s*\\{([^{}]*)\\}`).exec(declarationText)
   if (rule === null) throw new Error(`ToolRow.module.css has no \`${selector}\` rule`)
   return (rule[1] ?? '').split(';').map(part => part.trim()).filter(Boolean)
 }
