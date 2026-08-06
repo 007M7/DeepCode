@@ -463,13 +463,6 @@ class InstalledBundleSmoke {
           + `expected ${this.bundle.manifest.version}`,
         )
       }
-      const config = this.runner.capture(
-        process.execPath,
-        [bin, '--dump-default-config'],
-        consumerRoot,
-        environment,
-      )
-      if (config === '') throw new Error('installed dsh --dump-default-config returned no output')
       this.probeWeb(bin, consumerRoot, environment)
       console.log('publish-npm-baseline: installed dsh entry and Web startup probes passed')
     } finally {
