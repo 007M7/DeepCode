@@ -493,7 +493,7 @@ The provider topology changed: an adapter registered or unregistered routes, or 
 'llm/adapters-updated'(): void
 ```
 
-Source: [`packages/llm/llm/src/index.ts:71`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:73`](../../packages/llm/llm/src/index.ts)
 
 ### `llm/stream` — waterfall
 
@@ -517,7 +517,7 @@ Waterfall around every streaming model call (retry, replay, routing). Bound to t
 
 Types: [GenerateOptions](../core-data-structures/core.md) · [LlmService](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:60`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:62`](../../packages/llm/llm/src/index.ts)
 
 ## `session/*`
 
