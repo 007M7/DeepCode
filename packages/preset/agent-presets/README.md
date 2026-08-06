@@ -42,6 +42,12 @@ A directly-plugged subtree is absent from `ctx.loader.entries()`, so no boot aud
 
 The package invariant re-checks that last rule on every service notification, because a row that publishes from a timer or an asynchronous continuation would escape the one-shot audit.
 
+## A preset file is an input, never a persistence target
+
+The Loader writes a tree back to its source file whenever it decides the config changed, and a row disposing its own fiber is enough to decide that: the entry is marked `disabled` and the tree is written. Inherited, that would burn one session's runtime state into a file every session shares — comments stripped by the YAML round trip, and a `writeFile` rejection inside a `setTimeout` for a read-only shipped preset.
+
+The mounted subtree therefore overrides `write()` as a no-op. Nothing in this package writes a composition; authoring one is a separate, explicit operation.
+
 ## Trust
 
 Presets are compositions, so a preset is exactly as privileged as the plugins it names. A `user` preset — authored by a person or by an agent — carries the same trust as shell access; the `trust` field exists so consumers can present that difference, not to enforce it.
