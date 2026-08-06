@@ -58,6 +58,7 @@ import type {
   ContinuableStart,
   ContinuableStartSpec,
   SubagentFollowupOptions,
+  SubagentInterruptAuthority,
   SubagentReportOptions,
 } from './continuation.ts'
 import SubagentActivationSetupRegistry from './activation-setup-registry.ts'
@@ -111,6 +112,7 @@ export type {
   ContinuableStartSpec,
   CoordinatorMessageSource,
   SubagentFollowupOptions,
+  SubagentInterruptAuthority,
   SubagentReportDelivery,
   SubagentReportMessageSource,
   SubagentReportOptions,
@@ -229,6 +231,24 @@ export class SubagentService extends Service {
     options: SubagentFollowupOptions,
   ): Promise<MessageId> {
     return this.requireContinuations().followup(parent, childId, content, options)
+  }
+
+  /**
+   * Interrupt one live continuable child's current turn under a human parent
+   * address or an exact live ancestor Agent. Fire-and-return: the cancel
+   * signal is issued before this returns, but the target may keep running
+   * until it observes the signal. Pending inbox work, the Activation, and
+   * published descendants are preserved; only a later waking send resumes the
+   * parked FIFO queue. An absent target — including a one-shot or unknown id —
+   * is an accepted no-op, as is a manager-less composition, which cannot own a
+   * live Activation.
+   * @param targetSessionId - the durable child session id to interrupt.
+   * @param authority - the human parent address or exact live ancestor Agent.
+   * @throws {SubagentError} `UNAUTHORIZED` when the authority does not own the
+   *   live target.
+   */
+  interrupt(targetSessionId: SessionId, authority: SubagentInterruptAuthority): void {
+    this.continuations?.interrupt(targetSessionId, authority)
   }
 
   /**

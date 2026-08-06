@@ -103,6 +103,15 @@ export interface ContinuableStart {
   readonly messageId: MessageId
 }
 
+/**
+ * Authority under which one interrupt request is admitted. `user` carries the
+ * durable direct-parent address a human client presented; `ancestor` carries
+ * the exact live Agent object whose recorded lineage must contain the caller.
+ */
+export type SubagentInterruptAuthority =
+  | { readonly kind: 'user'; readonly parentSessionId: SessionId }
+  | { readonly kind: 'ancestor'; readonly agent: Agent }
+
 /** Options for following up with one continuable child. */
 export interface SubagentFollowupOptions {
   /** Durable attribution retained on the delivered message; it grants no authority. */
@@ -410,6 +419,68 @@ export class SubagentContinuationManager {
       options.signal.throwIfAborted()
       /* v8 ignore stop */
     }
+  }
+
+  /**
+   * Interrupt one live continuable child's current turn. Admission is
+   * synchronous and the effect is asynchronous: this authorizes the caller,
+   * requests `Agent.cancel(cause, { keepInbox: true })` on the target, and
+   * returns without waiting for the target to observe the signal or reach
+   * quiescence. The Activation, its handle, accepted pending inbox work, and
+   * already-published descendants are untouched; the parked queue resumes only
+   * on a later waking send.
+   *
+   * An absent target is an accepted no-op, which uniformly covers natural
+   * completion races, repeated requests, one-shot ids, and unknown ids without
+   * consulting the durable catalog. A target whose disposal transaction is
+   * already open is likewise an accepted no-op after authorization.
+   * @param targetSessionId - the durable child session id to interrupt.
+   * @param authority - the human parent address or exact live ancestor Agent.
+   * @throws {SubagentError} `UNAUTHORIZED` when the presented authority does
+   *   not own the live target: a stale or self-targeting ancestor caller, a
+   *   parent address that is not the live target's durable direct parent, or
+   *   an ancestor outside the target's recorded live lineage.
+   */
+  interrupt(targetSessionId: SessionId, authority: SubagentInterruptAuthority): void {
+    if (authority.kind === 'ancestor') {
+      const caller = authority.agent
+      // A stale caller is rejected even when the target is absent, so a
+      // replaced same-id Agent can never probe this manager's state.
+      if (this.ctx.agents.get(caller.id) !== caller) {
+        throw new SubagentError(
+          `interrupting "${targetSessionId}" requires the exact live ancestor agent`,
+          'UNAUTHORIZED',
+        )
+      }
+      if (caller.id === targetSessionId) {
+        throw new SubagentError(
+          `agent "${caller.id}" cannot interrupt itself`,
+          'UNAUTHORIZED',
+        )
+      }
+    }
+    const activation = this.activations.get(targetSessionId)
+    if (activation === undefined) return
+    if (authority.kind === 'user') {
+      if (activation.handle.agent.session.header.parentSession !== authority.parentSessionId) {
+        throw new SubagentError(
+          `subagent "${targetSessionId}" belongs to another parent session`,
+          'UNAUTHORIZED',
+        )
+      }
+    } else if (!activation.ancestry.has(authority.agent)) {
+      throw new SubagentError(
+        `subagent "${targetSessionId}" is not a live descendant of agent "${authority.agent.id}"`,
+        'UNAUTHORIZED',
+      )
+    }
+    // Disposal already stopped the target with a whole-Activation teardown;
+    // a second cancel would be a redundant signal on a closing handle.
+    if (activation.disposal !== undefined) return
+    activation.handle.agent.cancel(
+      authority.kind === 'user' ? { kind: 'user' } : { kind: 'parent' },
+      { keepInbox: true },
+    )
   }
 
   /**

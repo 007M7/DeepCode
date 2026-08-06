@@ -929,6 +929,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Deliver one later message to a continuable child as its next FIFO turn. A\n * resident child\'s Agent inbox accepts it directly (waking a `waiting`\n * Activation), while an absent one is cold-resumed from its persisted\n * Session. The Agent inbox is the only queue, so every accepted message has\n * one observable order.\n * @param parent - the exact live direct parent authorizing this delivery.\n * @param childId - durable child session id.\n * @param content - user-role content to deliver.\n * @param options - durable provenance and caller cancellation, which stops the\n *   operation only before inbox acceptance.\n * @returns the accepted message\'s inbox id.\n * @throws when continuation services are unavailable, parent authority is\n *   rejected, or the message was not admitted.\n */',
       },
       {
+        signature: 'interrupt(targetSessionId: SessionId, authority: SubagentInterruptAuthority): void',
+        jsDoc: '/**\n * Interrupt one live continuable child\'s current turn under a human parent\n * address or an exact live ancestor Agent. Fire-and-return: the cancel\n * signal is issued before this returns, but the target may keep running\n * until it observes the signal. Pending inbox work, the Activation, and\n * published descendants are preserved; only a later waking send resumes the\n * parked FIFO queue. An absent target — including a one-shot or unknown id —\n * is an accepted no-op, as is a manager-less composition, which cannot own a\n * live Activation.\n * @param targetSessionId - the durable child session id to interrupt.\n * @param authority - the human parent address or exact live ancestor Agent.\n * @throws {SubagentError} `UNAUTHORIZED` when the authority does not own the\n *   live target.\n */',
+      },
+      {
         signature: 'async reportFrom( child: Agent, content: ContentBlock[], options: SubagentReportOptions, ): Promise<MessageId>',
         jsDoc: '/**\n * Deliver selected content from one live continuable child to its durable\n * direct parent. The child is the authority credential; callers cannot name a\n * recipient. Reporting does not conclude the child\'s turn or Activation.\n * @param child - exact live reporting child.\n * @param content - selected model-facing content.\n * @param options - parent scheduling and pre-acceptance cancellation.\n * @returns the stable identity of the parent-accepted message.\n * @throws when continuation services are unavailable, sender authorization\n *   fails, or the direct parent is not live.\n */',
       },
@@ -2786,6 +2790,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SubagentFollowupOptions',
     declaration: 'export interface SubagentFollowupOptions {\n    readonly source: MessageSource;\n    readonly signal: AbortSignal;\n}',
+  },
+  {
+    name: 'SubagentInterruptAuthority',
+    declaration: 'export type SubagentInterruptAuthority = {\n    readonly kind: \'user\';\n    readonly parentSessionId: SessionId;\n} | {\n    readonly kind: \'ancestor\';\n    readonly agent: Agent;\n};',
   },
   {
     name: 'SubagentListEntry',
