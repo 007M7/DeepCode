@@ -348,6 +348,37 @@ describe('Schedule timer and admission runtime', () => {
     await owner.dispose()
   })
 
+  it('waits for the recurring gate instead of staggered recurring targets', async () => {
+    const test = await harness()
+    appendEvery(test, 'schedule-overdue', 300, Date.parse('2026-08-05T11:53:00.000Z'), 'overdue')
+    const owner = ownerFor(test)
+    owner.start()
+    await settle()
+    expect(test.followed).toHaveLength(1)
+
+    appendEvery(test, 'schedule-staggered', 300, Date.parse('2026-08-05T11:59:00.000Z'), 'staggered')
+    owner.requestDrive()
+    await settle()
+
+    await vi.advanceTimersByTimeAsync(180_000)
+    await settle()
+    const flushesAtFirstDue = test.controls.flushCount
+    expect(test.followed).toHaveLength(1)
+
+    await vi.advanceTimersByTimeAsync(60_000)
+    await settle()
+    expect(test.controls.flushCount).toBe(flushesAtFirstDue)
+
+    await vi.advanceTimersByTimeAsync(60_000)
+    await settle()
+    expect(test.followed).toHaveLength(2)
+    const batch = test.followed[1]?.content[0]
+    if (batch?.type !== 'text') throw new Error('expected recurring batch text')
+    expect(batch.text).toContain('"schedule_id":"schedule-overdue"')
+    expect(batch.text).toContain('"schedule_id":"schedule-staggered"')
+    await owner.dispose()
+  })
+
   it('rechecks the wall clock after claiming maintenance before queuing', async () => {
     const test = await harness()
     appendAfter(test, 'schedule-1', 1, Date.now() - 1_000)

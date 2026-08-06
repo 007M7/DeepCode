@@ -641,6 +641,13 @@ export function foldScheduleEvents(
       }
     }
   }
+  // A gate beyond the supported time profile can never admit another Every batch.
+  if (lastRecurringAcceptedAt !== undefined
+    && Date.parse(lastRecurringAcceptedAt) + MIN_RECURRING_INTERVAL_SECONDS * 1_000 > MAX_FOUR_DIGIT_YEAR_MS) {
+    for (const [id, record] of active) {
+      if (record.kind === 'every') active.delete(id)
+    }
+  }
   return Object.freeze({
     active: Object.freeze([...active.values()]),
     seenIds: Object.freeze([...seen]),
@@ -801,7 +808,8 @@ export function createEveryScheduleRecord(
   const interval = everySeconds * 1_000
   const target = now + interval
   if (!Number.isSafeInteger(now) || !Number.isSafeInteger(interval)
-    || !Number.isSafeInteger(target) || target <= now || target > MAX_FOUR_DIGIT_YEAR_MS) {
+    || !Number.isSafeInteger(target) || target <= now
+    || target < MIN_FOUR_DIGIT_YEAR_MS || target > MAX_FOUR_DIGIT_YEAR_MS) {
     throw new ScheduleInputError(
       'time_out_of_range',
       'The scheduled time must be representable as a four-digit-year RFC 3339 UTC instant.',

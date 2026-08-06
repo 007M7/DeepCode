@@ -2,7 +2,10 @@
 // root Agent receives schedule_create through the complete tool pipeline; the
 // one-second owner path queues a best-effort followup, commits dispatch, and
 // renders the Host's durability-gated reminder sidecar. A separate browser
-// scenario drives local at through the real zone wire and model tool call.
+// scenario drives local at through the real zone wire and model tool call. A
+// JSONL restart lane resumes backdated fixed-rate records,
+// captures their exact batch framing, and renders both receipts. No model
+// fixture is installed: later prompt failure cannot retract a receipt.
 import { mkdtemp, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -26,13 +29,17 @@ import {
   createAfterScheduleRecord,
   foldScheduleEvents,
 } from '@deepseek-ai/dsh-tool-schedule'
-import { createEveryScheduleRecord } from '../../../packages/schedule/tool-schedule/src/domain.ts'
+import {
+  createEveryScheduleRecord,
+  resolveEveryOccurrence,
+} from '../../../packages/schedule/tool-schedule/src/domain.ts'
 
 const MODE = webSnapshotMode()
 const OVERLAY = fileURLToPath(new URL('../../../examples/web-schedule/cordis.yml', import.meta.url))
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/schedule-after', import.meta.url))
 const RECEIPT_EXPECTED = fileURLToPath(new URL('./snapshots/schedule-after/receipt.expected.md', import.meta.url))
 const AT_RECEIPT_EXPECTED = fileURLToPath(new URL('./snapshots/schedule-after/at-receipt.expected.md', import.meta.url))
+const EVERY_BATCH_EXPECTED = fileURLToPath(new URL('./snapshots/schedule-after/every-batch.expected.md', import.meta.url))
 const EVERY_RECEIPT_EXPECTED = fileURLToPath(new URL('./snapshots/schedule-after/every-receipt.expected.md', import.meta.url))
 const SESSION_TIME_ZONE = 'UTC'
 const PROMPT = 'Check the deployment log'
@@ -361,6 +368,7 @@ describe.skipIf(MODE === 'record')('web e2e: browser-zone local at reminder', ()
   it('keeps the fixture inventory closed', async () => {
     await assertFixtureInventory(SNAPSHOT_DIR, [
       'at-receipt.expected.md',
+      'every-batch.expected.md',
       'every-receipt.expected.md',
       'receipt.expected.md',
     ])
@@ -448,12 +456,24 @@ describe.skipIf(MODE === 'record')('web e2e: fixed-rate restart and batch receip
         expect(active).toMatchObject({ kind: 'every', everySeconds: 300 })
         expect(Date.parse(active.scheduledAt)).toBeGreaterThan(Date.parse(acceptedAt))
       }
-      expect(agent.session.events.filter(event =>
+      const batchMessages = agent.session.events.filter(event =>
         event.type === 'user/message'
         && event.data.source.kind === 'plugin'
         && event.data.source.plugin === 'tool-schedule'
         && event.data.content.some(block =>
-          block.type === 'text' && block.text.startsWith('[SCHEDULE REMINDER BATCH]')))).toHaveLength(1)
+          block.type === 'text' && block.text.startsWith('[SCHEDULE REMINDER BATCH]')))
+      expect(batchMessages).toHaveLength(1)
+      const batchMessage = batchMessages[0]
+      if (batchMessage?.type !== 'user/message') throw new Error('missing recurring batch message')
+      const batchBlock = batchMessage.data.content.find(block => block.type === 'text')
+      if (batchBlock?.type !== 'text') throw new Error('missing recurring batch text')
+      let batchSnapshot = batchBlock.text
+      const occurrencePlaceholders = ['{{primaryOccurrenceAt}}', '{{secondaryOccurrenceAt}}'] as const
+      for (const [index, record] of records.entries()) {
+        const occurrenceAt = resolveEveryOccurrence(record, Date.parse(acceptedAt)).occurrenceAt
+        batchSnapshot = batchSnapshot.split(occurrenceAt).join(occurrencePlaceholders[index])
+      }
+      await compareOrRefreshGolden(EVERY_BATCH_EXPECTED, batchSnapshot, MODE)
 
       const history = await scaffold.ctx.apiProxy.sessions.history({
         rpcId: RpcId('schedule-every-history'), payload: { sessionId },

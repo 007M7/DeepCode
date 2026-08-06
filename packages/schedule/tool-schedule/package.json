@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-tool-schedule",
-  "description": "Agent-scoped durable one-shot reminders over the session event log",
+  "description": "Agent-scoped durable one-shot and fixed-rate reminders over the session event log",
   "version": "0.0.1",
   "private": true,
   "type": "module",

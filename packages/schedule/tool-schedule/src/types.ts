@@ -120,6 +120,16 @@ export type ScheduleView = ScheduleRecord & {
   readonly deliveryNotBefore?: string
 }
 
+/** JSON-compatible Web receipt derived from one durable dispatch. */
+export interface ScheduleReminderPresentation {
+  /** Session-local reminder identity. */
+  readonly scheduleId: ScheduleId
+  /** Original user-authored reminder content. */
+  readonly prompt: string
+  /** Scheduled occurrence represented by the dispatch. */
+  readonly occurrenceAt: string
+}
+
 /** Management operations whose persistence barrier may be uncertain. */
 export type SchedulePersistenceOperation = 'create' | 'list' | 'delete'
 

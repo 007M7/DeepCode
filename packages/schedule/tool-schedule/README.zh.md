@@ -14,7 +14,7 @@
 
 ## 持久状态
 
-此包（package）拥有严格的版本 1 `schedule/change` create、delete 与 dispatch 联合。每条 create 记录都包含稳定的会话本地 `ScheduleId`、已 trim 的 prompt，以及使用四位年份的 RFC 3339 UTC `scheduledAt`。`after` 记录还会存储 `afterSeconds`；`at` 记录不会保留所提交的偏移量、本地日历字段或解释该值时所用的时区；`every` 记录会存储 `everySeconds` 和最早尚未接受的目标，而不另存锚点。delete 与一次性 dispatch 只携带 id。Every dispatch 会带上共享 batch 的 `acceptedAt`；折叠过程会派生该记录最近一次到期的 occurrence 和第一个与锚点对齐的未来目标。
+此包（package）拥有严格的版本 1 `schedule/change` create、delete 与 dispatch 联合。每条 create 记录都包含稳定的会话本地 `ScheduleId`、已 trim 的 prompt，以及使用四位年份的 RFC 3339 UTC `scheduledAt`。`after` 记录还会存储 `afterSeconds`；`at` 记录不会保留所提交的偏移量、本地日历字段或解释该值时所用的时区；`every` 记录会存储 `everySeconds` 和最早尚未接受的目标，而不另存锚点。delete 与一次性 dispatch 只携带 id。Every dispatch 会带上共享 batch 的 `acceptedAt`；折叠过程会派生该记录最近一次到期的 occurrence 和第一个与锚点对齐的未来目标，或在共享门控不再有年份为四位数的准入时点时终结所有剩余的 Every record。
 
 回放会拒绝未知版本、额外字段、重复使用的 id、不匹配的 dispatch 形状、间隔不足 300 秒的周期性 batch，以及针对非活动记录的转换。普通会话折叠完整日志。fork 只折叠 `session.events.slice(session.header.seedLength ?? 0)`，因此不会继承父会话的提醒。此包的 `./invariant` 配套项会对现有日志和候选事件应用相同策略。
 
@@ -42,7 +42,7 @@ Web Host 会在创建 Session 时以及每次提交提示词时校验并规范�
 
 live owner 从持久折叠结果派生各个目标与最近一次周期性 batch。它会拆分超过 Node timer 范围的等待，并在每次唤醒后重新读取墙钟，因此时钟回拨不会提前触发，时钟前跳则会使记录进入 overdue 状态。固定频率推进始终锚定首个目标：延迟唤醒只选择最近一次到期的 occurrence，并推进至第一个严格位于未来的目标，而不会回放错过期间积压的 occurrence。
 
-overdue 提醒首先为持久化建立检查点。如果 agent 已被某个轮次或另一项 maintenance task 占用，`runMaintenance()` 会拒绝对 idle phase 的认领；记录会保持活动，owner 会在 `whenIdle()` 后重试。一次性提醒会绕过周期性门控，仍走单条消息、只含 id 的 dispatch 路径。周期性 batch 之间至少间隔 300 秒：门控开放时，owner 会采样一次决策时间，按目标／create 顺序选择所有 overdue 固定频率记录，构造完整 JSON batch，同步将一个 `followup()` 入队，并在释放 phase 前为每条记录追加独立的 `{ id, acceptedAt }` dispatch。触发唤醒的 input 会保持 parked，直到该 phase 释放；随后 owner 为整个 batch 建立检查点。framing 构造或同步 followup 失败不会写入 dispatch。追加失败会使该 owner 进入故障状态，因为消息可能已经入队；barrier 拒绝会把这些 dispatch 留给后续普通 preflight 处理，而不会启动私有重试 timer。
+overdue 提醒首先为持久化建立检查点。如果 agent 已被某个轮次或另一项 maintenance task 占用，`runMaintenance()` 会拒绝对 idle phase 的认领；记录会保持活动，owner 会在 `whenIdle()` 后重试。一次性提醒会绕过周期性门控，仍走单条消息、只含 id 的 dispatch 路径。只要有周期性记录因门控关闭而处于 overdue，owner 就会在该门控时点或更早的一次性提醒到期时唤醒，而不会在其间的周期性目标处唤醒。周期性 batch 之间至少间隔 300 秒：门控开放时，owner 会采样一次决策时间，按目标／create 顺序选择所有 overdue 固定频率记录，构造完整 JSON batch，同步将一个 `followup()` 入队，并在释放 phase 前为每条记录追加独立的 `{ id, acceptedAt }` dispatch。触发唤醒的 input 会保持 parked，直到该 phase 释放；随后 owner 为整个 batch 建立检查点。framing 构造或同步 followup 失败不会写入 dispatch。追加失败会使该 owner 进入故障状态，因为消息可能已经入队；barrier 拒绝会把这些 dispatch 留给后续普通 preflight 处理，而不会启动私有重试 timer。
 
 agent 或插件执行 dispose（资源释放）时，会取消 timer、停止新工作，并等待进行中的 preflight 和 idle wait。清理期间绝不会追加 delete 记录。
 

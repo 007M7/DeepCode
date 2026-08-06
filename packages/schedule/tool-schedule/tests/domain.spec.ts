@@ -316,6 +316,18 @@ describe('fixed-rate records and durable progression', () => {
       .toThrow(ScheduleInputError)
     expect(() => createEveryScheduleRecord(ScheduleId('schedule-every'), 'x', 300, Number.NaN))
       .toThrow(ScheduleInputError)
+    try {
+      createEveryScheduleRecord(
+        ScheduleId('schedule-every'),
+        'x',
+        300,
+        Date.parse('0000-12-31T23:50:00.000Z'),
+      )
+      throw new Error('expected every lower-bound failure')
+    } catch (error: unknown) {
+      expect(error).toBeInstanceOf(ScheduleInputError)
+      expect((error as ScheduleInputError).code).toBe('time_out_of_range')
+    }
   })
 
   it('selects the latest due occurrence and first strictly future anchor point', () => {
@@ -410,6 +422,37 @@ describe('fixed-rate records and durable progression', () => {
         acceptedAt: '2026-08-05T12:20:00.000Z',
       }, 2),
     ])).toThrow(/at least 300 seconds apart/)
+  })
+
+  it('terminates every record when the shared gate has no four-digit-year admission', () => {
+    const folded = foldScheduleEvents([
+      scheduleEvent(everyCreateData(
+        'schedule-final',
+        'final batch',
+        '9999-12-31T23:55:00.000Z',
+      ), 0),
+      scheduleEvent(everyCreateData(
+        'schedule-staggered',
+        'staggered target',
+        '9999-12-31T23:58:00.000Z',
+      ), 1),
+      scheduleEvent(createData(
+        'schedule-once',
+        'one shot survives',
+        '9999-12-31T23:59:00.000Z',
+      ), 2),
+      scheduleEvent({
+        version: 1,
+        operation: 'dispatch',
+        id: 'schedule-final',
+        acceptedAt: '9999-12-31T23:57:30.000Z',
+      }, 3),
+    ])
+    expect(folded).toEqual({
+      active: [expect.objectContaining({ id: 'schedule-once', kind: 'after' })],
+      seenIds: ['schedule-final', 'schedule-staggered', 'schedule-once'],
+      lastRecurringAcceptedAt: '9999-12-31T23:57:30.000Z',
+    })
   })
 
   it('derives each recurring receipt and renders one escaped batch payload', () => {

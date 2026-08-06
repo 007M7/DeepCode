@@ -68,6 +68,7 @@ function dueDecision(folded: FoldedSchedules, now: number): DueDecision {
   }
 
   const future = folded.active
+    .filter(record => recurring.length === 0 || record.kind !== 'every')
     .map(record => Date.parse(record.scheduledAt))
     .filter(target => target > now)
   if (recurring.length > 0) future.push(gate)
