@@ -308,6 +308,14 @@ function applySurfaceEvent(
   baseSeq: number,
 ): SurfaceFoldReplacement | undefined {
   const plan = planSurfaceEvent(state, event, expectedSeq, events, baseSeq)
+  return applySurfacePlan(state, plan)
+}
+
+/** Commit one previously validated surface transition. */
+function applySurfacePlan(
+  state: SurfaceFoldState,
+  plan: SurfacePlan | undefined,
+): SurfaceFoldReplacement | undefined {
   if (plan?.kind === 'append') {
     state.nodes.push(plan.seq)
   } else if (plan?.kind === 'replace') {
@@ -345,6 +353,8 @@ export class SurfaceManager implements SessionSurface {
   private _state = createFoldState()
   /** Last processed absolute seq. */
   private _lastProcessedSeq: number
+  /** Candidate already validated by `validateNext`, pending exact log admission. */
+  private _pendingPlan: { event: SessionEvent; expectedSeq: number; plan: SurfacePlan | undefined } | undefined
 
   /**
    * @param log - Contiguous complete log or loaded event window.
@@ -363,13 +373,12 @@ export class SurfaceManager implements SessionSurface {
    */
   validateNext(event: SessionEvent): void {
     if (this._lastProcessedSeq < this.baseSeq + this.log.length - 1) this._processDelta()
-    planSurfaceEvent(
-      this._state,
+    const expectedSeq = this.baseSeq + this.log.length
+    this._pendingPlan = {
       event,
-      this.baseSeq + this.log.length,
-      this.log,
-      this.baseSeq,
-    )
+      expectedSeq,
+      plan: planSurfaceEvent(this._state, event, expectedSeq, this.log, this.baseSeq),
+    }
   }
 
   /** Monotonic count of folded positional replacements. */
@@ -390,7 +399,14 @@ export class SurfaceManager implements SessionSurface {
     for (let seq = this._lastProcessedSeq + 1; seq <= tailSeq; seq++) {
       const index = seq - this.baseSeq
       // oxlint-disable-next-line typescript/no-non-null-assertion -- bounded by the loop condition
-      applySurfaceEvent(this._state, this.log[index]!, seq, this.log, this.baseSeq)
+      const event = this.log[index]!
+      const pending = this._pendingPlan
+      if (pending?.event === event && pending.expectedSeq === seq) {
+        applySurfacePlan(this._state, pending.plan)
+      } else {
+        applySurfaceEvent(this._state, event, seq, this.log, this.baseSeq)
+      }
+      if (pending !== undefined && pending.expectedSeq <= seq) this._pendingPlan = undefined
       this._lastProcessedSeq = seq
     }
   }
