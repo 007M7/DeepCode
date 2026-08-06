@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 
 /**
  * Built-artifact smoke for the first generated Remote: plain Node boots the
- * Host and Browser bundle handoffs, then crosses the real `/api2` HTTP route.
+ * Host and Browser bundle handoffs, then crosses the shared `/api` HTTP route.
  */
 
 const packageDir = fileURLToPath(new URL('..', import.meta.url))
@@ -98,7 +98,9 @@ describe.skipIf(!requiredArtifacts)('Goal Remote built LIB chain', () => {
       host.agents.register(rootAgent)
       host.agents.register(scopedAgent)
 
-      if (routes.length !== 1) throw new Error('Gateway did not register exactly one /api2 route')
+      if (routes.length !== 1 || routes[0].path !== '/api') {
+        throw new Error('Connection did not register exactly one /api route')
+      }
       const server = createServer((request, response) => { void routes[0].handler(request, response) })
       await new Promise(resolveListen => server.listen(0, '127.0.0.1', resolveListen))
       const address = server.address()
