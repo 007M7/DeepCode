@@ -404,7 +404,7 @@ describe('goal tool state transitions', () => {
     let turn = openTurn(root, { kind: 'user' })
     const created = ctx.goals.create(root.agent, { objective: 'continue later' })
     closeTurn(root, turn)
-    agentEvents(ctx, root.agent).emit('agent/session-start', 'resume')
+    agentEvents(ctx, root.agent).emit('agent/session-start', { source: 'resume' })
     expect(ctx.goals.get(root.agent)?.activation).toBe('disarmed')
     turn = openTurn(root, { kind: 'user' }, '继续')
     const resumed = await execute(ctx, 'update_goal', {

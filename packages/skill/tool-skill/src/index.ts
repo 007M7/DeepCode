@@ -163,9 +163,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   // Register after the tool so reverse teardown removes guidance first. Exact definition
   // identity prevents a scoped shadow merely named `skill` from inheriting this catalog.
   ctx.on('agent/pre-step', async (
-    agent: Agent,
-    _messages,
-    { signal },
+    { agent, signal },
     next,
   ): Promise<PreStepDecision> => {
     const decision = await next()

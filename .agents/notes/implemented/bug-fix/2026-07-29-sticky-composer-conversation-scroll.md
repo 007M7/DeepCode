@@ -10,7 +10,7 @@ The active conversation column split scrolling: the chat (and trajectory) view o
 
 ## Decision
 
-While a session exists, `ConversationRoot` always supplies a `wrapActiveBody` owner callback that wraps the view ring in a `data-conversation-scroll` body and places a `data-composer-seat` around the whole `'conversation.composer'` chain output (fallback + elected overlay siblings from `overlay: true`). Active CSS sticks that seat with `position: sticky; bottom: 0` so Question/Approval takeovers stay visible when the user is not pinned to the floor; hero CSS centers the fallback stack inside the scroll body. `ConversationSession` keeps a chrome-hidden header + body shell while blank so that tree seat does not change on the first send. The session header remains `flex: none` column chrome above the scrollport when visible. ChatView and Trajectory/Waterfall keep a local scroller only when mounted outside that host (unit tests); under the host they set `overflow: visible` and resolve bottom-follow / prepend anchoring through `closest('[data-conversation-scroll]')`.
+`ConversationRoot` always owns one `data-conversation-scroll` body, with the strict `conversation.session` view outlet before a `data-composer-seat` around the whole `'conversation.composer'` chain output (fallback + elected overlay siblings from `overlay: true`). The separate strict `conversation.session.header` outlet remains `flex: none` column chrome above that scrollport and hides while the Session is blank. This fixed parent tree keeps the scroll body and composer seat mounted from no session through the blank Hero and active conversation. Active CSS sticks that seat with `position: sticky; bottom: 0` so Question/Approval takeovers stay visible when the user is not pinned to the floor; Hero CSS centers the fallback stack inside the scroll body. ChatView and Trajectory/Waterfall keep a local scroller only when mounted outside that host (unit tests); under the host they set `overflow: visible` and resolve bottom-follow / prepend anchoring through `closest('[data-conversation-scroll]')`.
 
 Session stats live on `'conversation.composer.dock'` (above `'conversation.input.dock'`). The InputBar textarea, when inside the host, chains `wheel` with `{ passive: false }`: while the capped textarea can still scroll in that direction it keeps the native gesture; only at its own edge does it `preventDefault` and apply `deltaY` to the host.
 
@@ -22,7 +22,7 @@ Chat history prepend follows reader intent through stable rendered node/call ide
 
 **Fixed flex-none composer below the scrollport with wheel forwarding.** Rejected: the product requires the composer to stick inside the transcript scrollport so the footer is part of that scroll hit-testing surface, not a sibling that only forwards deltas.
 
-**Portal the composer into ChatView's scroller.** Rejected: the composer is shared across view tabs; the wrap target is the Session body owned by the resident shell.
+**Portal the composer into ChatView's scroller.** Rejected: the composer is shared across view tabs; its target is the root-owned scrollport in the resident shell.
 
 **Keep StatsLine inside ChatView below the message column.** Rejected: outside the sticky composer it would scroll away while the input stayed pinned.
 
@@ -30,4 +30,4 @@ Chat history prepend follows reader intent through stable rendered node/call ide
 
 ## Consequences
 
-Wheel over the footer scrolls the transcript; the visible layout is a fixed header, scrolling transcript, and sticky bottom composer. Stats appear on every active view tab. Nested view scrollers under the host are suppressed so sticky Turn headers in Trajectory stick to the column host. Concurrent history, streaming, tool expansion, and composer reflow preserve wheel/trackpad scroll decisions, including Chromium's compositor-first delivery and stream-finalization clamp/regrow. Other browser scroll inputs do not change follow ownership under this narrow provenance rule. Hero → active keeps the same textarea DOM node (assembled slash-flow snapshot) and the InputHub draft.
+Wheel over the footer scrolls the transcript; the visible layout is a fixed header, scrolling transcript, and sticky bottom composer. Stats appear on every active view tab. Nested view scrollers under the host are suppressed so sticky Turn headers in Trajectory stick to the column host. Concurrent history, streaming, tool expansion, and composer reflow preserve wheel/trackpad scroll decisions, including Chromium's compositor-first delivery and stream-finalization clamp/regrow. Other browser scroll inputs do not change follow ownership under this narrow provenance rule. No session → blank Hero and Hero → active both keep the same textarea DOM node and InputHub draft.

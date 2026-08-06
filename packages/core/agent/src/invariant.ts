@@ -14,7 +14,7 @@ export const inject = ['invariants']
 /** Install the agent contribution into its child registration fiber. */
 const install: InvariantInstaller = (ctx, fail) => {
   const lastStatus = new WeakMap<Agent, AgentStatus>()
-  ctx.on('agent/status', (agent, status) => {
+  ctx.on('agent/status', ({ agent, status }) => {
     const previous = lastStatus.get(agent)
     if (previous === status) {
       fail(`agent/status repeated ${status} (no-op transition)`)
