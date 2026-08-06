@@ -4,6 +4,7 @@
  * @module @deepseek-ai/dsh-workspace-context/config
  */
 
+import { relative } from 'node:path'
 import z from 'schemastery'
 import { resolveDshHome } from '@deepseek-ai/dsh-paths'
 
@@ -56,6 +57,28 @@ export interface ResolvedDiscoveryConfig {
 export interface ResolvedConfig extends ResolvedDiscoveryConfig {
   maxBytes: number
   maxSourceBytes: number
+}
+
+/**
+ * Identify the discovery, precedence, and budget semantics of one baseline.
+ * @param config - normalized plugin configuration.
+ * @param cwd - absolute session working directory.
+ * @param projectRoot - project root selected for the current baseline.
+ * @returns stable serialized identity for compatibility checks on resume.
+ */
+export function workspaceBaselineIdentity(
+  config: ResolvedConfig,
+  cwd: string,
+  projectRoot: string,
+): string {
+  return JSON.stringify({
+    projectRoot: relative(cwd, projectRoot),
+    projectRootMarkers: config.projectRootMarkers,
+    maxBytes: config.maxBytes,
+    maxSourceBytes: config.maxSourceBytes,
+    instructionFileCandidates: config.instructionFileCandidates,
+    localInstructionFileCandidates: config.localInstructionFileCandidates,
+  })
 }
 
 /**
