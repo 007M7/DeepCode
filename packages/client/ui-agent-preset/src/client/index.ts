@@ -51,7 +51,13 @@ export const inject = ['slots', 'locale', 'connection']
 export function apply(ctx: ClientContext): void {
   const { api } = ctx.get('connection') as ConnectionHandle
   const controller = new AgentPresetSettingsController(api)
-  const section = new AgentPresetSectionController(api)
+  // One roster, four surfaces. The chip is registered in a later scope, so it
+  // subscribes here rather than being reached from this one.
+  const rosterReaders = new Set<() => void>()
+  const section = new AgentPresetSectionController(api, () => {
+    void controller.load()
+    for (const read of rosterReaders) read()
+  })
 
   ctx.effect(() => ctx.locale.register('settings.agentPreset', { zh, en }), 'ui-agent-preset: settings row dictionaries')
 
@@ -119,6 +125,12 @@ export function apply(ctx: ClientContext): void {
         if (ns !== undefined && ns !== AGENT_PRESET_SETTINGS_NS) return
         void seat.load()
       })
+      // Authoring writes a FILE, not a setting, so nothing on the wire
+      // announces it — without this the screen that starts the next session
+      // keeps offering the roster as it stood when the chip first loaded, and
+      // a preset authored to be used is missing from the one place it is used.
+      const readRoster = (): void => { void seat.load() }
+      rosterReaders.add(readRoster)
       const chip = scope.slots.register({
         name: 'conversation.hero.agentPreset',
         locale: 'settings.agentPreset',
@@ -134,6 +146,7 @@ export function apply(ctx: ClientContext): void {
       return () => {
         stop()
         settingsMoved()
+        rosterReaders.delete(readRoster)
         chip()
         label()
       }

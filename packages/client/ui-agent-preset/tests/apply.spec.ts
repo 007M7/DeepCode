@@ -30,6 +30,21 @@ const ROSTER_ONE = {
   result: { ok: true as const, value: { presets: [{ id: 'standard', trust: 'system', isDefault: true }], authorable: true } },
 }
 
+/** The roster after this browser authored one preset of its own. */
+const ROSTER_AUTHORED = {
+  rpcId: 'r',
+  result: {
+    ok: true as const,
+    value: {
+      presets: [
+        { id: 'standard', trust: 'system', isDefault: true },
+        { id: 'mine', trust: 'user', isDefault: false },
+      ],
+      authorable: true,
+    },
+  },
+}
+
 /** The same roster with a second preset carrying the default. */
 const ROSTER_MOVED = {
   rpcId: 'r',
@@ -49,7 +64,7 @@ async function bench() {
   const ctx = new Context()
   // The host's answer, mutable so a spec can move the default the way the
   // settings surface does and watch who re-reads it.
-  let ROSTER: typeof ROSTER_ONE | typeof ROSTER_MOVED = ROSTER_ONE
+  let ROSTER: typeof ROSTER_ONE | typeof ROSTER_MOVED | typeof ROSTER_AUTHORED = ROSTER_ONE
   const moveDefault = (): void => { ROSTER = ROSTER_MOVED }
   await ctx.plugin(SlotsService).await()
   const locale = new LocaleService(ctx)
@@ -63,7 +78,13 @@ async function bench() {
           rpcId: 'r',
           result: { ok: true as const, value: { agentPreset: 'standard', trust: 'system', content: '', writable: false } },
         }),
-        write: () => Promise.resolve({ rpcId: 'r', result: { ok: true as const, value: { agentPreset: 'standard' } } }),
+        write: (payload: { agentPreset: string }) => {
+          calls.push(`write:${payload.agentPreset}`)
+          // The host's roster now contains it, which is the whole point of the
+          // write and what every surface must converge on.
+          ROSTER = ROSTER_AUTHORED
+          return Promise.resolve({ rpcId: 'r', result: { ok: true as const, value: { agentPreset: payload.agentPreset } } })
+        },
         remove: () => Promise.resolve({ rpcId: 'r', result: { ok: true as const, value: {} } }),
         select: (payload: { agentPreset: string }) => {
           calls.push(`select:${payload.agentPreset}`)
@@ -278,6 +299,35 @@ describe('ui-agent-preset apply', () => {
     ctx.emit('settings/changed', 'agent-presets')
     await vi.waitFor(() => {
       expect(seat.hooks.agentPresetSeat.getSnapshot().current).toBe('minimal')
+    })
+    conversation()
+  })
+
+  it('offers a just-authored preset on the new-session chip', async () => {
+    const { ctx, slots } = await bench()
+    declareRoot(slots)
+    const conversation = declareConversation(slots)
+    ctx.provide('conversation', {} as never)
+    ctx.provide('sessions', sessionsDouble({ byId: {} }) as never)
+    await ctx.plugin({ inject: [...inject, 'conversation', 'sessions'], apply }).await()
+
+    const chip = slots.entries('conversation.hero.agentPreset')[0]!
+    const seat = (chip.inject as unknown as () => AgentPresetSeatInjected)()
+    await seat.load()
+    expect(seat.hooks.agentPresetSeat.getSnapshot().options.map(option => option.id)).toEqual(['standard'])
+
+    const section = (slots.entries('settings.section')[0]!.inject as unknown as () => AgentPresetSectionInjected)()
+    await section.load()
+    await section.createFrom()
+    section.setId('mine')
+    section.setName('我的模式')
+    await section.save()
+
+    // Authoring writes a file rather than a setting, so nothing on the wire
+    // announces it: a preset authored to be used must appear on the one screen
+    // that starts sessions, without a reload.
+    await vi.waitFor(() => {
+      expect(seat.hooks.agentPresetSeat.getSnapshot().options.map(option => option.id)).toEqual(['standard', 'mine'])
     })
     conversation()
   })
