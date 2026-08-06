@@ -79,9 +79,26 @@ async resolve(id?: string): Promise<AgentPreset>
  * @throws when the preset is unknown or its composition is unusable.
  */
 async mount(agentCtx: Context, id?: string): Promise<AgentPreset>
+
+/**
+ * One agent's instance of a service its preset mounted.
+ *
+ * A preset publishes services behind `isolate` realms, which are invisible
+ * outside the group that declares them — including to the host. This is how a
+ * caller holding the agent reads one anyway: a request that is ABOUT a
+ * session but arrives from outside it, which is every browser RPC.
+ *
+ * Read addressing only. A host row that `inject`s a service cannot use this,
+ * because injection resolves before any session exists and has no agent to
+ * key by; such a service belongs on the host plane instead.
+ * @param agent - the agent whose composition to look inside.
+ * @param name - the service name as the preset's rows resolve it.
+ * @returns the agent's instance, or undefined when its preset mounts none.
+ */
+serviceFor<K extends string & keyof Context>(agent: { ctx: Context }, name: K): Context[K] | undefined
 ```
 
-Source: [`packages/preset/agent-presets/src/index.ts:37`](../../packages/preset/agent-presets/src/index.ts)
+Source: [`packages/preset/agent-presets/src/index.ts:39`](../../packages/preset/agent-presets/src/index.ts)
 
 ## `ctx.agents` — `AgentRegistry`
 
@@ -1390,7 +1407,7 @@ Source: [`packages/session-projection/session-projection-cache/src/index.ts:71`]
 
 ## `ctx.sessionProjections` — `SessionProjectionRegistry`
 
-`ctx.sessionProjections`: the projection unit table and its drive. The service subscribes to `session/event` once; every committed event passes every registered unit's `apply` (eager drive), and a changed state reference notifies the change feed with the schema-validated view. Cells build lazily — a unit registered after events flowed, or a session older than the registry, folds `init` over the in-memory log on first touch (event or read). Registration is an effect (disposer rides the calling fiber): an unloaded domain plugin's key disappears from snapshots and clients read it as capability absence. Duplicate keys throw. Domain plugins register under `ctx.inject(['sessionProjections'], …)` so headless assemblies without the registry stay unaffected.
+`ctx.sessionProjections`: the projection unit table and its drive. The service subscribes to `session/event` once; every committed event passes every registered unit's `apply` (eager drive), and a changed state reference notifies the change feed with the schema-validated view. Cells build lazily — a unit registered after events flowed, or a session older than the registry, folds `init` over the in-memory log on first touch (event or read). Registration is an effect (disposer rides the calling fiber): an unloaded domain plugin's key disappears from snapshots and clients read it as capability absence. Domain plugins register under `ctx.inject(['sessionProjections'], …)` so headless assemblies without the registry stay unaffected. Registrants sharing a key share one unit and are counted: the same tool package mounted in N agent presets registers N times, and the key survives until the last one unloads.
 
 ```ts cordis-catalog
 /**
@@ -1494,7 +1511,7 @@ restore(checkpoint: ProjectionCheckpoint, events: readonly SessionEvent[], baseS
 
 Types: [Session](../core-data-structures/session.md) · [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/session-projection/session-projection/src/index.ts:156`](../../packages/session-projection/session-projection/src/index.ts)
+Source: [`packages/session-projection/session-projection/src/index.ts:171`](../../packages/session-projection/session-projection/src/index.ts)
 
 ## `ctx.sessionQuery` — `SessionQueryService` (abstract seam)
 
@@ -2273,7 +2290,7 @@ async assemble(context: AssembleContext = {}): Promise<PromptAssembly>
 
 Types: [AssembleContext](../core-data-structures/system-prompt.md) · [PromptContext](../core-data-structures/system-prompt.md) · [PromptSection](../core-data-structures/system-prompt.md) · [ToolProviderResult](../core-data-structures/system-prompt.md)
 
-Source: [`packages/core/system-prompt/src/index.ts:314`](../../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:325`](../../packages/core/system-prompt/src/index.ts)
 
 ## `ctx.tasks` — `TaskService` (abstract seam)
 

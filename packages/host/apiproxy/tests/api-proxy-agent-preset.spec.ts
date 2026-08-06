@@ -153,6 +153,28 @@ describe('session.create with an agent preset', () => {
 
     expect(ctx.sessions.get(SessionId('s6'))?.header.agentPreset).toBeUndefined()
   })
+
+  it('says why a preset-less session cannot be adopted under one', async () => {
+    // Two callers reach this: a deployment that composes no roster, and a
+    // session created before one existed. Both record no preset, so naming
+    // any is a conflict rather than an adoption — the history was produced
+    // under a composition this roster cannot name. The message has to say
+    // that, because "already runs agent preset undefined" reads as a bug.
+    const { api } = await harness()
+    await api.sessions.create(request({ sessionId: SessionId('s7') }))
+
+    const response = await api.sessions.create(request({ sessionId: SessionId('s7'), agentPreset: 'standard' }))
+
+    expect(response.result.ok).toBe(false)
+    if (response.result.ok) throw new Error('unreachable')
+    expect(response.result.error.code).toBe('agent-preset-conflict')
+    expect(response.result.error.message).toContain('records no agent preset')
+    expect(response.result.error.details).toEqual({
+      sessionId: 's7',
+      requestedPreset: 'standard',
+      existingPreset: undefined,
+    })
+  })
 })
 
 /**

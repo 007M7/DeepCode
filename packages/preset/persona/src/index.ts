@@ -17,11 +17,12 @@ import type { Context } from 'cordis'
 import z from 'schemastery'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 
-/** The section name this plugin registers; the prompt registry's persona slot. */
-export const PERSONA_SECTION = 'deployment:persona'
+// Imported rather than restated: the registry declares the slot this row
+// replaces, and two hardcoded copies would drift into a preset whose persona
+// silently lands beside the deployment's instead of shadowing it.
+import { PERSONA_ORDER, PERSONA_SECTION } from '@deepseek-ai/dsh-system-prompt'
 
-/** Prompt order of the persona slot, matching the registry's own default. */
-export const PERSONA_ORDER = 0
+export { PERSONA_ORDER, PERSONA_SECTION }
 
 /** Cordis plugin name. */
 export const name = 'persona'

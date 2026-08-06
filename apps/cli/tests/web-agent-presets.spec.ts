@@ -22,11 +22,17 @@ const WEB_OVERLAY = join(CONFIG_DIR, 'web.cordis.yml')
 async function bootWeb(): Promise<Context> {
   const patches: PatchOptions[] = [
     ...loadOverlayPatches('dsh-test', WEB_OVERLAY),
-    // Host rows with side effects outside this process.
+    // Host rows with side effects outside this process: a bound port, a
+    // served asset tree, a telemetry exporter.
     { id: 'webserver', disabled: true },
     { id: 'telemetry-otel', disabled: true },
     { id: 'modules', disabled: true },
     { id: 'connection', disabled: true },
+    // NOT a side-effect row: the api-proxy cannot mount in THIS layer at all,
+    // because it injects `subagents` and the subagent registry moved into the
+    // presets here. That is the breakage a later layer returns to the host
+    // plane; when it does, this line comes out and the boot audit covers the
+    // whole host-plane injection graph again.
     { id: 'api-gateway', disabled: true },
     { id: 'directory-picker', disabled: true },
     // The roster AppCLIEntry would patch in; only the shipped root, so a
@@ -134,6 +140,11 @@ describe('the shipped Web composition', () => {
       setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'standard').then(() => undefined),
     })
     await handle.dispose()
+    // Slack, not a race the number has to win. The write is driven by the
+    // Loader's fiber-unload listener, which fires as the subtree's fibers
+    // settle rather than when `dispose()` resolves, and the Loader exposes no
+    // flush to await. A regression writes synchronously inside that listener,
+    // so any wait past settlement fails; a longer one only slows the test.
     await new Promise(resolve => setTimeout(resolve, 50))
 
     expect(await readFile(path, 'utf8')).toBe(before)
@@ -185,7 +196,7 @@ describe('a forked session', () => {
 })
 
 describe('a session keeps the preset it was created with', () => {
-  it('refuses to adopt a live session under a different preset', async () => {
+  it('records the preset the gateway guard reads', async () => {
     const handle = await ctx.agents.create({
       sessionId: SessionId('preset-locked'),
       meta: { agentPreset: 'core-web' },

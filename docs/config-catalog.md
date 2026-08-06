@@ -1038,7 +1038,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/preset/persona/src/index.ts:33`](../packages/preset/persona/src/index.ts)
+Source: [`packages/preset/persona/src/index.ts:34`](../packages/preset/persona/src/index.ts)
 
 ## `@deepseek-ai/dsh-plan-mode`
 
@@ -1790,7 +1790,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:166`](../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:177`](../packages/core/system-prompt/src/index.ts)
 
 ## `@deepseek-ai/dsh-time-context`
 

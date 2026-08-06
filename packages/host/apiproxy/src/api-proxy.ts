@@ -642,7 +642,6 @@ class SubagentSessionOwnership extends Error {
   }
 }
 
-/** Requested identity already belongs to a session with another project cwd. */
 /**
  * The requested preset differs from the one this session already runs.
  *
@@ -658,12 +657,16 @@ class AgentPresetConflict extends Error {
     readonly existingPreset: string | undefined,
   ) {
     super(
-      `session "${sessionId}" already runs agent preset ${JSON.stringify(existingPreset)}; `
+      existingPreset === undefined
+        ? `session "${sessionId}" records no agent preset, so it cannot be adopted under one; `
+        + 'a deployment composing no roster records none on any session — '
+        : `session "${sessionId}" already runs agent preset ${JSON.stringify(existingPreset)}; `
       + `requested ${JSON.stringify(requestedPreset)}. A session's preset is fixed at creation.`,
     )
   }
 }
 
+/** Requested identity already belongs to a session with another project cwd. */
 class SessionCwdConflict extends Error {
   constructor(
     readonly sessionId: SessionId,

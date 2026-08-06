@@ -61,6 +61,11 @@ class PresetTree extends Include {
    * shipped composition to `[]` the first time a session ends. Persisting a
    * preset is also meaningless: nothing here is user state, and the same file
    * backs every session that names it.
+   *
+   * Dropping the write drops the `loader/config-update` the inherited method
+   * emits with it. Nothing observes one for a preset subtree today, and a
+   * future "edit your preset while it runs" flow needs a deliberate
+   * persistence path rather than this method's return.
    */
   override write(): void {
   }
