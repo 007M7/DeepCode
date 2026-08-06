@@ -55,6 +55,8 @@ dsh web --dump-config
 
 `DSH_TOOLS_MODE` 为进程选择 `native`、`code` 或 `both`；其他值会导致启动失败。[`config/core-web.cordis.yml`](../config/core-web.cordis.yml) 是可选的 RL 兼容 `--patch` overlay：它固定使用 `native` 模式，仅将 `DSH_SYSTEM_PROMPT` 或 `You are a helpful software engineer assistant.` 渲染为系统提示词，禁用 Workspace 指令与所有 Web 运行时提示词贡献，并且在保留随附宿主、浏览器、workspace、持久化和权限组合的同时，仅暴露持久 `bash` 和 `str_replace_editor`。
 
+`DSH_SYSTEM_PROMPT` 会传给系统提示词的 [`persona`](../../../packages/core/system-prompt/README.md#config)：完整的 `{{…}}` 分组遵循该契约的严格变量插值规则，且无法转义为字面花括号；任何已设置的值（包括空字符串）都具有权威性，因此空值会移除系统提示词，只有未设置该变量时才会选择后备值。
+
 ## 共享部署行为
 
 基础组合包挂载原生 DeepSeek 适配器、settings 与凭据提供方、稳定的 `web_search`、repository Plugin 支持和会话遥测。提供方凭据存放在 `$DSH_HOME/.env` 或环境中；启动器从不把凭据文件提升到 `process.env`，因此凭据可以轮换。搜索使用 `DEEPSEEK_API_KEY` 并接受 `DEEPSEEK_SEARCH_BASE_URL`；只有 patch 层插入提供方并启用 `web_fetch` 后，该工具才可用。
