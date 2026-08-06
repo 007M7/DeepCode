@@ -50,7 +50,7 @@ Host 带 placement 的 `session/queue` 快照也会携带待处理 steering。Qu
 
 `src/client/` 按领域组织。`contract/` 是唯一的跨领域共享表层（`slots.ts` slot 声明与组合后的 props、`views.ts` 共享原语、`tool-call-model.ts`）；`skeleton/`、`chat/` 和 `toolviews/` 目录只导入 contract 文件，彼此之间从不互相导入。`apply.ts` 是唯一允许导入全部三个领域的组装点。`/client` 导出表层只包含契约：`apply`／`inject`、两个服务类和 `contract/` 类型家族；实现组件与 store factory 保持内部，经 apply 的 slot 注册抵达页面。
 
-完成的一轮以它产出的文件收尾。`chat-flow.ts` 的 `turnDeliverables` 从改写工具自身的跟随文件 `locations` 中读出它们——diff 卡片，或 `kind` 为 `edit` 的 generic 卡片（即 `str_replace_editor` 的 insert 所呈现的形状）——因此无论收尾消息是否点名，这一轮的产出都会被列出；新的改写工具靠声明自己做了什么加入，而不是靠被加进某张名单。read、删除与失败的调用不贡献任何条目；同一路径在一轮内按首见顺序只出现一次；累积在 turn 边界重置，因此一轮若先改写文件、随后没有正文内容就结束，不会溢进下一轮的行里。该行渲染在收尾 assistant 正文之下、其 IconActions 之上，键控到 `assistantActionsSeqs` 选出的同一个 seq。它展示六枚 chip（文本为文件名，完整路径作为 title），外加一个显式的剩余计数，每枚 chip 都经由工具行所用的同一个 `openFile` 打开。
+完成的一轮以一个 turn-tail 空位收尾：chat 视图在收尾 assistant 正文与其 IconActions 之间渲染 `conversation.chat.turnTail` list slot，每轮一次、位于 `assistantActionsSeqs` 选出的 seq，派发 `TurnTailOwnerProps`（快照节点、收尾 seq，以及工具行的 `openFile`）。本包只拥有空位；填充它的产物行——从改写工具 `locations` 的派生、chip 上限、文案——都在 `@deepseek-ai/dsh-client-ui-deliverables` 里，因此把那个插件从 cordis.yml 中组合掉即可关闭该交互面，空位以零成本渲染为空。
 
 ## 模型体验
 

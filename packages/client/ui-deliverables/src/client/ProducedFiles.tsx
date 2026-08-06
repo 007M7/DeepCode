@@ -1,0 +1,61 @@
+// ProducedFiles: the produced-file row a finished turn ends with. The paths
+// come from the mutation tools' follow-along locations (see
+// producedForClosing), never from the closing prose, so the answer carries
+// its own output whether or not the model remembered to name it. Clicking one
+// goes through the same openFile the tool rows use — the Host's own opener,
+// on the Host machine.
+
+import { useMemo } from 'react'
+import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
+import type { TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { producedForClosing } from './turn-deliverables.ts'
+import type { NS } from './locales.ts'
+import css from './ProducedFiles.module.css'
+
+/** Files past this stay counted but unlisted: a refactor turn must not bury the answer. */
+const SHOWN = 6
+
+/** Trailing path segment, the part that identifies the file at a glance. */
+function basename(path: string): string {
+  const at = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'))
+  return at === -1 ? path : path.slice(at + 1)
+}
+
+/** Full props: the turn-tail owner currency plus this plugin's locale seat. */
+export type ProducedFilesProps = TurnTailOwnerProps & PropsLocale<typeof NS>
+
+/**
+ * Render one turn's produced files as openable chips.
+ * @param props - the tail hole's owner currency (snapshot nodes, the closing
+ * assistant's seq, the chat view's file opener) and the locale seat.
+ * @returns The row, or `null` when the turn produced nothing.
+ */
+export function ProducedFiles({ nodes, seq, openFile, t }: ProducedFilesProps) {
+  // Per-closing-message derivation over the windowed snapshot: O(nodes) on
+  // node-identity change only, which is the same cadence the owning view
+  // re-derives its own flow at.
+  const paths = useMemo(() => producedForClosing(nodes, seq), [nodes, seq])
+  if (paths.length === 0) return null
+  const shown = paths.slice(0, SHOWN)
+  const hidden = paths.length - shown.length
+  return (
+    <div className={css.root}>
+      <span className={css.label}>{t('produced.label')}</span>
+      {shown.map(path => (
+        <button
+          key={path}
+          type="button"
+          className={css.file}
+          // The full path is the disambiguator when two turns produce files
+          // that share a basename; the chip itself stays short.
+          title={path}
+          aria-label={t('produced.open', { name: path })}
+          onClick={() => { openFile(path) }}
+        >
+          {basename(path)}
+        </button>
+      ))}
+      {hidden > 0 && <span className={css.more}>{t('produced.more', { count: String(hidden) })}</span>}
+    </div>
+  )
+}

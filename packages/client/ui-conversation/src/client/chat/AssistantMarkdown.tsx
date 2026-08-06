@@ -9,13 +9,12 @@
 // only when the node is also the completed turn's transcript tail. Think /
 // tool-head-only nodes stay chrome-free.
 
-import { memo, useMemo } from 'react'
+import { memo, useMemo, type ReactNode } from 'react'
 import type { AssistantBlock } from '@deepseek-ai/dsh-client-runtime/client'
 import {
   IconThinkOutline14, JsonBlock, MarkdownText,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatViewSlotProps } from '../contract/slots.ts'
-import { Deliverables } from './Deliverables.tsx'
 import { MessageIconActions } from './MessageIconActions.tsx'
 import { ToolRow } from './ToolRow.tsx'
 import css from './AssistantMarkdown.module.css'
@@ -39,11 +38,9 @@ export interface AssistantMarkdownProps {
   seq?: number | undefined
   /** Fork the session through this finalized message's completed turn when eligible. */
   onFork?: ((seq: number) => void) | undefined
-  /** Files the closing turn produced, listed under the body; omitted for a
-   *  mid-turn assistant and for a turn that wrote nothing. */
-  produced?: readonly string[] | undefined
-  /** Opens one produced file; omitted wherever `produced` is. */
-  openFile?: ((path: string) => void) | undefined
+  /** Turn-tail content (the chat view's turnTail hole, rendered by the
+   *  owner); omitted for a mid-turn assistant. */
+  tail?: ReactNode | undefined
   /** The message is not the transcript tail of a completed turn. */
   forkUnavailable?: boolean | undefined
   /** The owning view's locale seat, passed down as a plain prop. */
@@ -92,7 +89,7 @@ function ThinkRow({ text, running, t }: { text: string; running: boolean; t: Ass
 }
 
 export const AssistantMarkdown = memo(function AssistantMarkdown({
-  blocks, streaming, interrupted, time, runMs, ttftMs, tokensPerSecond, seq, onFork, forkUnavailable, produced, openFile, t,
+  blocks, streaming, interrupted, time, runMs, ttftMs, tokensPerSecond, seq, onFork, forkUnavailable, tail, t,
 }: AssistantMarkdownProps) {
   // Stable per locale revision (t identity changes on switch): a fresh object
   // per render would rebuild MarkdownText's component table every chunk.
@@ -130,9 +127,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
         })}
         {interrupted && <span className={css.stopped}>{t('message.stopped')}</span>}
       </div>
-      {showActions && produced !== undefined && openFile !== undefined && (
-        <Deliverables paths={produced} openFile={openFile} t={t} />
-      )}
+      {showActions && tail}
       {showActions && (
         <MessageIconActions
           text={copyText(blocks)}

@@ -20,7 +20,7 @@ import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts
 import { createChatStore } from '../src/client/stores.ts'
 import { ChatView } from '../src/client/chat/ChatView.tsx'
 import { zh } from '../src/client/locales.ts'
-import { assistantActionsSeqs, deriveChatFlow, flowKeys, messageBranchSeqs, runningTurnStartTime, turnDeliverables } from '../src/client/chat/chat-flow.ts'
+import { assistantActionsSeqs, deriveChatFlow, flowKeys, messageBranchSeqs, runningTurnStartTime } from '../src/client/chat/chat-flow.ts'
 import { formatRunDuration } from '../src/client/chat/message-chrome.ts'
 
 afterEach(() => {
@@ -240,93 +240,6 @@ describe('chat-flow derivation', () => {
       assistant(7, 'second turn', 2),
     ])
     expect([...seqs].sort((a, b) => a - b)).toEqual([5, 7])
-  })
-
-  it('turnDeliverables attributes each turn’s written files to the assistant that closes it', () => {
-    const wrote = (seq: number, callId: string, ...paths: string[]): ToolResultNode => ({
-      ...toolResult(seq, callId, 'write'),
-      callView: {
-        card: 'diff', title: `Write ${paths[0] ?? ''}`,
-        diffs: paths.map(path => ({ path, oldText: null, newText: 'x' })),
-        locations: paths.map(path => ({ path })),
-      },
-    })
-    const produced = turnDeliverables([
-      user(1, 'build it'),
-      assistant(2, 'writing', 1),
-      wrote(3, 'a', 'out/index.html'),
-      // Same file touched twice in one turn is one deliverable, in first-seen order.
-      wrote(4, 'b', 'out/app.css', 'out/index.html'),
-      // A read is not a deliverable; a failed write has no file to open.
-      { ...toolResult(5, 'c', 'read'), callView: { card: 'generic', title: 'Read x', locations: [{ path: 'x.ts' }] } },
-      { ...wrote(6, 'd', 'out/broken.html'), isError: true },
-      assistant(7, 'done', 1),
-      user(8, 'again'),
-      assistant(9, 'second turn', 2),
-    ])
-    expect(produced.get(7)).toEqual(['out/index.html', 'out/app.css'])
-    // A turn that produced nothing is absent, not an empty row.
-    expect(produced.has(9)).toBe(false)
-    // Nothing at all written: no entries.
-    expect(turnDeliverables([user(1, 'hi'), assistant(2, 'hello', 1)]).size).toBe(0)
-  })
-
-  it('turnDeliverables counts a generic edit and never spills across the turn boundary', () => {
-    const inserted = (seq: number, callId: string, path: string): ToolResultNode => ({
-      ...toolResult(seq, callId, 'str_replace_editor'),
-      // str_replace_editor's insert mutates behind a generic card, so the
-      // discriminant is the render intent, not the card shape alone.
-      callView: { card: 'generic', title: `insert ${path}`, kind: 'edit', locations: [{ path }] },
-    })
-    const wrote = (seq: number, callId: string, path: string): ToolResultNode => ({
-      ...toolResult(seq, callId, 'write'),
-      callView: {
-        card: 'diff', title: 'Write', diffs: [{ path, oldText: null, newText: 'x' }], locations: [{ path }],
-      },
-    })
-    const produced = turnDeliverables([
-      user(1, 'insert a line'),
-      inserted(2, 'i', 'notes.md'),
-      assistant(3, 'inserted', 1),
-      // Turn 2 mutates and then ends with no content text (interrupted, or its
-      // last text preceded the tool): its paths must not ride into turn 3.
-      user(4, 'now rewrite it'),
-      wrote(5, 'w', 'leaked.txt'),
-      user(6, 'and again'),
-      wrote(7, 'w2', 'notes.md'),
-      assistant(8, 'done', 3),
-    ])
-    expect(produced.get(3)).toEqual(['notes.md'])
-    // Turn 3 lists only its own file — and `seen` did not suppress the rewrite
-    // of a path an earlier turn already touched.
-    expect(produced.get(8)).toEqual(['notes.md'])
-    expect([...produced.values()].flat()).not.toContain('leaked.txt')
-  })
-
-  it('renders the produced files under the closing message and opens one on click', () => {
-    const wrote = (seq: number, callId: string, ...paths: string[]): ToolResultNode => ({
-      ...toolResult(seq, callId, 'write'),
-      callView: {
-        card: 'diff', title: 'Write',
-        diffs: paths.map(path => ({ path, oldText: null, newText: 'x' })),
-        locations: paths.map(path => ({ path })),
-      },
-    })
-    // Seven files: six chips plus an explicit remainder — the row bounds what
-    // it shows and says so rather than dropping the rest silently.
-    const paths = ['deep/a.html', 'b.css', 'c.ts', 'd.ts', 'e.ts', 'f.ts', 'g.ts']
-    const h = makeHarness({
-      nodes: [user(1, 'build it'), wrote(2, 'w', ...paths), assistant(3, 'done', 1)],
-    })
-    const view = render(<h.ChatView {...h.props} />)
-    expect(view.getByText('产物')).toBeTruthy()
-    // Chips carry the basename; the full path stays reachable as the title.
-    const chip = view.getByRole('button', { name: '打开 deep/a.html' })
-    expect(chip.textContent).toBe('a.html')
-    expect(view.queryByRole('button', { name: '打开 g.ts' })).toBeNull()
-    expect(view.getByText('还有 1 个')).toBeTruthy()
-    fireEvent.click(chip)
-    expect(h.openFile).toHaveBeenCalledWith('deep/a.html')
   })
 
   it('runningTurnStartTime selects the latest turn/start without a turn/end', () => {
@@ -790,7 +703,9 @@ describe('ChatView', () => {
     // Count renderSlot invocations: the memo boundary holds when CallRow does
     // not re-render, so the row's renderSlot call count freezes during chunks.
     let rowRenders = 0
-    h.props.renderSlot = ((_key: string, _owner: object) => {
+    h.props.renderSlot = ((key: string, _owner: object) => {
+      // The turnTail hole renders through the same share; only tool rows count here.
+      if (key !== 'conversation.chat.toolview') return null
       rowRenders += 1
       return <div data-testid="counting-row" />
     })
