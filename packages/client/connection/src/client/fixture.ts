@@ -167,7 +167,7 @@ const SEARCH_MATCHES_FIXTURE: { path: string; matches: { lineNumber: number; lin
       { lineNumber: 33, line: 'export function SearchRow({ toolName, block, inspect, t }: SearchRowProps) {' },
       { lineNumber: 35, line: '  const search = searchCardModel(block)' },
       { lineNumber: 52, line: '      search={search}' },
-      { lineNumber: 73, line: "    ctx.slots.register({ name: 'conversation.chat.toolview', key: 'grep', locale: NS }, SearchRow)" },
+      { lineNumber: 78, line: "      yield ctx.slots.register({ name: 'conversation.chat.toolview', key: 'grep', locale: NS }, SearchRow)" },
     ],
   },
 ]

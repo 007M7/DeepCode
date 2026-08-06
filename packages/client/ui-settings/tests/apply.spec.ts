@@ -1,4 +1,4 @@
-/** Settings shell registration: declaration-aware deferral, the ledger projections, and HMR recovery. */
+/** Settings shell registration: slot declaration injection, the ledger projections, and HMR recovery. */
 import { Context } from 'cordis'
 import { describe, expect, it, vi } from 'vitest'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
