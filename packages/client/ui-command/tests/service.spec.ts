@@ -164,11 +164,31 @@ describe('candidates', () => {
     expect(b.listCalls).toEqual([])
   })
 
-  it('pulls the session catalog; prefix filter and hint mapping apply', async () => {
+  it('pulls the session catalog; fuzzy filter and hint mapping apply', async () => {
     const { source, listCalls } = await bench()
     const list = await source.candidates(proj('s1'), req('g'))
     expect(listCalls).toEqual([{ sessionId: sid('s1') }])
     expect(list).toEqual([{ name: 'goal', description: 'leadingInput kind', hint: 'goal text' }])
+  })
+
+  it('matches case-insensitive subsequences and ranks prefixes, boundaries, adjacency, gaps, then source order', async () => {
+    const commands: CommandDescriptor[] = [
+      { name: 'q-xylophone', description: '' },
+      { name: 'qx-long', description: '' },
+      { name: 'fabulous', description: '' },
+      { name: 'foo-bar', description: '' },
+      { name: 'zuv', description: '' },
+      { name: 'zu1v', description: '' },
+      { name: 'yu1v', description: '' },
+      { name: 'zu12v', description: '' },
+    ]
+    const { source } = await bench({ commands: () => Promise.resolve({ commands }) })
+    const names = async (query: string) => (await source.candidates(proj('s1'), req(query))).map(c => c.name)
+    await expect(names('QX')).resolves.toEqual(['qx-long', 'q-xylophone'])
+    await expect(names('fb')).resolves.toEqual(['foo-bar', 'fabulous'])
+    await expect(names('uv')).resolves.toEqual(['zuv', 'zu1v', 'yu1v', 'zu12v'])
+    await expect(names('zzz')).resolves.toEqual([])
+    await expect(names('query-longer-than-every-name')).resolves.toEqual([])
   })
 
   it('catalogs are per session: another session pulls its own key', async () => {
@@ -195,10 +215,10 @@ describe('candidates', () => {
     expect(s2Names).not.toContain('theme')
   })
 
-  it('contribution rows ride the same query prefix filter', async () => {
+  it('contribution rows ride the same fuzzy query filter', async () => {
     const { command, source } = await bench()
     command.register(themeContribution())
-    const names = (await source.candidates(proj('s1'), req('th'))).map(c => c.name)
+    const names = (await source.candidates(proj('s1'), req('tm'))).map(c => c.name)
     expect(names).toEqual(['theme'])
   })
 
