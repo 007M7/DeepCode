@@ -153,6 +153,9 @@ importers:
       '@deepseek-ai/dsh-client-ui-agent-preset':
         specifier: workspace:^
         version: link:../../packages/client/ui-agent-preset
+      '@deepseek-ai/dsh-cmdline':
+        specifier: workspace:^
+        version: link:../../packages/boot/cmdline
       '@deepseek-ai/dsh-command-compact':
         specifier: workspace:^
         version: link:../../packages/compact/command-compact

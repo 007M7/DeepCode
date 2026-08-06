@@ -193,8 +193,105 @@ function createEnvironmentProbeProfile(home: string, project: string): void {
   ].join('\n'))
 }
 
+interface StartupFixture {
+  home: string
+  ready: string
+  echo: string
+  /** An always-running row's echo, used to observe that a user patch reload landed. */
+  witness: string
+}
+
+/**
+ * A custom profile whose bundle owns a command line: a startup row whose
+ * `cmdlineArgs` injection identifies it to the launcher, and a row that reads
+ * what it resolved through a `!!js` config expression. Both plugin modules resolve
+ * `@deepseek-ai/dsh-cmdline` and `commander` through the profile module
+ * fallback, exactly as an installed out-of-tree bundle does.
+ */
+function createStartupFixture(): StartupFixture {
+  const home = mkdtempSync(join(tmpdir(), 'dsh-profile-startup-'))
+  const profileDir = join(home, 'profiles', 'startup')
+  // Written straight into the installed location: a row module resolves its
+  // own imports from where it is installed, and only inside the profile does
+  // Node's parent walk reach the installation fallback these plugins need.
+  const bundleDir = join(profileDir, 'node_modules', 'dsh-startup-bundle')
+  mkdirSync(bundleDir, { recursive: true })
+  writeFileSync(join(bundleDir, 'startup.mjs'), [
+    "import { Command } from 'commander'",
+    "import { runStartup } from '@deepseek-ai/dsh-cmdline'",
+    "export const name = 'fixture-startup'",
+    "export const inject = ['cmdlineArgs']",
+    'export function apply(ctx) {',
+    "  const program = new Command().name('fixture').option('--generation <value>', 'echoed generation')",
+    "  return runStartup(ctx, 'fixtureStartup', program, parsed => ({ generation: parsed.opts().generation }))",
+    '}',
+    '',
+  ].join('\n'))
+  writeFileSync(join(bundleDir, 'waiting.mjs'), [
+    "import { writeFileSync } from 'node:fs'",
+    "import { join } from 'node:path'",
+    "export const name = 'startup-fixture'",
+    'export function apply(ctx, config = {}) {',
+    '  const heartbeat = setInterval(() => {}, 1000)',
+    "  writeFileSync(join(process.env.DSH_HOME, 'config-echo'), String(config.generation ?? 'bundle-default'))",
+    "  writeFileSync(process.env.RAW_READY_FILE, 'ready')",
+    '  ctx.effect(() => () => { clearInterval(heartbeat) })',
+    '}',
+    '',
+  ].join('\n'))
+  writeFileSync(join(bundleDir, 'witness.mjs'), [
+    "import { writeFileSync } from 'node:fs'",
+    "import { join } from 'node:path'",
+    "export const name = 'reload-witness'",
+    'export function apply(ctx, config = {}) {',
+    "  writeFileSync(join(process.env.DSH_HOME, 'witness'), String(config.generation ?? 'bundle-default'))",
+    '}',
+    '',
+  ].join('\n'))
+  writeFileSync(join(bundleDir, 'cordis.patch.yml'), [
+    '- insert:',
+    '    - id: startup-fixture',
+    `      name: ${pathToFileURL(join(bundleDir, 'waiting.mjs')).href}`,
+    '      inject: [fixtureStartup]',
+    '      config:',
+    // The flag the startup row resolved wins over the value written beside it.
+    "        generation: !!js ctx.get('fixtureStartup')?.generation ?? 'bundle-default'",
+    '    - id: fixture-startup',
+    `      name: ${pathToFileURL(join(bundleDir, 'startup.mjs')).href}`,
+    '      inject: [cmdlineArgs]',
+    '    - id: reload-witness',
+    `      name: ${pathToFileURL(join(bundleDir, 'witness.mjs')).href}`,
+    '',
+  ].join('\n'))
+  writeFileSync(join(bundleDir, 'package.json'), JSON.stringify({
+    name: 'dsh-startup-bundle',
+    version: '0.0.0',
+    type: 'module',
+    dsh: { bundle: { patch: './cordis.patch.yml' } },
+  }, undefined, 2))
+  writeFileSync(join(profileDir, 'package.json'), JSON.stringify({
+    name: 'dsh-profile-startup',
+    private: true,
+    dependencies: {},
+    dsh: { profile: { bundles: ['dsh-startup-bundle'] } },
+  }, undefined, 2))
+  writeFileSync(join(profileDir, 'cordis.patch.yml'), '[]\n')
+  return { home, ready: join(home, 'ready'), echo: join(home, 'config-echo'), witness: join(home, 'witness') }
+}
+
+function startStartupProfile(fixture: StartupFixture, args: readonly string[]) {
+  return execa(process.execPath, [dshBin, '--profile', 'startup', ...args], {
+    cwd: fixture.home,
+    input: '',
+    reject: false,
+    timeout: 25_000,
+    killSignal: 'SIGKILL',
+    env: { DSH_HOME: fixture.home, RAW_READY_FILE: fixture.ready },
+  })
+}
+
 describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', () => {
-  it('requires --profile and rejects inputs outside the current grammar', async () => {
+  it('requires --profile and rejects removed commands', async () => {
     const bare = await runBuiltBin()
     expect(bare.code).toBe(1)
     expect(bare.stdout).toBe('')
@@ -202,46 +299,63 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
     const help = await runBuiltBin(['--help'])
     expect(help.code).toBe(0)
     expect(help.stdout).toContain('dsh --profile web')
-    expect(help.stdout).toContain('dsh run "run the tests"')
     expect(help.stdout).toContain('dsh plugin --profile')
     expect(help.stdout).not.toMatch(/^\s+(?:tui|meta|upgrade)\b/mu)
-    for (const outsideGrammar of [['tui'], ['--config', 'x.yml'], ['-p', 'task'], ['--profile', 'headless', 'task']]) {
-      const result = await runBuiltBin(outsideGrammar)
+    for (const removed of [['tui'], ['--config', 'x.yml'], ['-p', 'task'], ['run', 'task']]) {
+      const result = await runBuiltBin(removed)
       expect(result.code).toBe(1)
     }
   }, 30_000)
 
-  it('prints run help without initializing the selected profile', async () => {
-    const parent = mkdtempSync(join(tmpdir(), 'dsh-run-help-'))
-    const home = join(parent, 'not-created')
+  it('routes help and usage errors without activating startup-dependent rows', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'dsh-app-help-'))
     try {
-      const result = await runBuiltBin(['run', '--help'], { DSH_HOME: home })
-      expect(result.code).toBe(0)
-      expect(result.stderr).toBe('')
-      expect(result.stdout).toContain('Usage: dsh run [options] <task...>')
-      expect(existsSync(home)).toBe(false)
-    } finally {
-      rmSync(parent, { recursive: true, force: true })
-    }
-  })
+      const web = await runBuiltBin(['--profile', 'web', '--help'], {
+        DSH_HOME: home,
+        DSH_TELEMETRY_DISABLED: '1',
+      })
+      expect(web.code).toBe(0)
+      expect(web.stderr).toBe('')
+      expect(web.stdout).toContain('Usage: dsh --profile web')
+      expect(web.stdout).toContain('--port <port>')
+      expect(web.stdout).not.toContain('dsh web: http://')
 
-  it('runs the default headless profile through the published run command', async () => {
-    const apiKey = 'built-dsh-run-key'
+      const headlessHelp = await runBuiltBin(['--profile', 'headless', '--help'], {
+        DSH_HOME: home,
+        DSH_TELEMETRY_DISABLED: '1',
+      })
+      expect(headlessHelp.code).toBe(0)
+      expect(headlessHelp.stderr).toBe('')
+      expect(headlessHelp.stdout).toContain('Usage: dsh --profile headless')
+
+      const missingTask = await runBuiltBin(['--profile', 'headless'], {
+        DSH_HOME: home,
+        DSH_TELEMETRY_DISABLED: '1',
+      })
+      expect(missingTask.code).toBe(1)
+      expect(missingTask.stderr).toContain('a task is required')
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
+  }, 30_000)
+
+  it('runs the headless profile through its app-owned task positional', async () => {
+    const apiKey = 'built-dsh-headless-key'
     const server = await startMockLlmServer({
       sequence: ['success'],
       apiKey,
-      successText: 'published dsh run reached the mock',
+      successText: 'published headless profile reached the mock',
     })
-    const home = mkdtempSync(join(tmpdir(), 'dsh-built-run-'))
+    const home = mkdtempSync(join(tmpdir(), 'dsh-built-headless-'))
     try {
-      const result = await runBuiltBin(['run', 'answer', 'from', 'the', 'published', 'entry'], {
+      const result = await runBuiltBin(['--profile', 'headless', 'answer', 'from', 'the', 'published', 'entry'], {
         DSH_HOME: home,
         DSH_TELEMETRY_DISABLED: '1',
         DEEPSEEK_API_KEY: apiKey,
         DEEPSEEK_BASE_URL: server.baseURL,
       })
       expect(result.code, result.stderr).toBe(0)
-      expect(result.stdout).toBe('published dsh run reached the mock')
+      expect(result.stdout).toBe('published headless profile reached the mock')
       expect(result.stderr).toBe('')
       expect(server.requests.length).toBeGreaterThan(0)
       expect(server.requests.every(request => request.path === '/chat/completions')).toBe(true)
@@ -317,9 +431,9 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
   }, 30_000)
 
   it('reports a patch-overlay boot failure without hanging', async () => {
-    // An HMR main-watcher initial scan that refreshes the include
-    // mid-initial-apply deadlocks the failing apply's rollback against the
-    // refresh drain: dsh exits 13 with no diagnostic instead of settling
+    // The HMR main watcher's initial scan once refreshed the include
+    // mid-initial-apply, deadlocking the failing apply's rollback against the
+    // refresh drain: dsh exited 13 with no diagnostic instead of settling
     // ([Agent Note](../../../.agents/notes/implemented/bug-fix/2026-08-03-hmr-initial-scan-boot-deadlock.md)).
     const home = mkdtempSync(join(tmpdir(), 'dsh-invalid-patch-'))
     try {
@@ -333,6 +447,18 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
       expect(result.stderr).toContain('llm-pi-ai')
     } finally {
       rmSync(home, { recursive: true, force: true })
+    }
+  }, 30_000)
+
+  it('rejects arguments when no active row injects the profile command line', async () => {
+    const fixture = createProfileLifecycleFixture()
+    try {
+      const result = await runBuiltBin(['--profile', 'lifecycle', '--help'], { DSH_HOME: fixture.home })
+      expect(result.code).toBe(1)
+      expect(result.stderr).toContain('takes no app arguments because no active row injects cmdlineArgs')
+      expect(existsSync(fixture.ready)).toBe(false)
+    } finally {
+      rmSync(fixture.home, { recursive: true, force: true })
     }
   }, 30_000)
 
@@ -400,6 +526,83 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
       expect(existsSync(fixture.disposed)).toBe(true)
     } finally {
       child.kill('SIGKILL')
+      rmSync(fixture.home, { recursive: true, force: true })
+    }
+  }, 30_000)
+
+  it('hands the app arguments to the profile, which applies them before its rows start', async () => {
+    const fixture = createStartupFixture()
+    const child = startStartupProfile(fixture, ['--generation', 'flagged'])
+    try {
+      await waitForFile(fixture.ready)
+      // The waiting row started once, already carrying the flag value: the
+      // launcher never saw --generation, and the app resolved it first.
+      expect(readFileSync(fixture.echo, 'utf8')).toBe('flagged')
+      child.kill('SIGTERM')
+      expect((await child).exitCode).toBe(0)
+    } finally {
+      child.kill('SIGKILL')
+      rmSync(fixture.home, { recursive: true, force: true })
+    }
+  }, 30_000)
+
+  it('starts a waiting row on its composed value when the invocation carries no app arguments', async () => {
+    const fixture = createStartupFixture()
+    const child = startStartupProfile(fixture, [])
+    try {
+      await waitForFile(fixture.ready)
+      expect(readFileSync(fixture.echo, 'utf8')).toBe('bundle-default')
+      child.kill('SIGTERM')
+      expect((await child).exitCode).toBe(0)
+    } finally {
+      child.kill('SIGKILL')
+      rmSync(fixture.home, { recursive: true, force: true })
+    }
+  }, 30_000)
+
+  it('keeps the app arguments across a user patch reload', async () => {
+    // A live edit recomposes every row while the startup service remains
+    // active, so each config expression reads the same invocation value (a
+    // served port does not move back to its composed fallback).
+    const fixture = createStartupFixture()
+    const profilePatch = join(fixture.home, 'profiles', 'startup', 'cordis.patch.yml')
+    const child = startStartupProfile(fixture, ['--generation', 'flagged'])
+    try {
+      // Both rows: the waiting one carries the flag value, and the witness is
+      // what a reload will re-mount. They start independently, so neither
+      // marker implies the other.
+      await waitForFile(fixture.ready)
+      await waitForFile(fixture.witness)
+      expect(readFileSync(fixture.echo, 'utf8')).toBe('flagged')
+      // An edit to an unrelated row: the witness re-mounts, which is how this
+      // test knows the whole tree was recomposed.
+      rmSync(fixture.witness)
+      writeFileSync(profilePatch, [
+        '- id: reload-witness',
+        '  config:',
+        '    generation: reloaded',
+        '',
+      ].join('\n'))
+      await waitForFile(fixture.witness)
+      expect(readFileSync(fixture.witness, 'utf8')).toBe('reloaded')
+      expect(readFileSync(fixture.echo, 'utf8')).toBe('flagged')
+      child.kill('SIGTERM')
+      expect((await child).exitCode).toBe(0)
+    } finally {
+      child.kill('SIGKILL')
+      rmSync(fixture.home, { recursive: true, force: true })
+    }
+  }, 30_000)
+
+  it("prints the app's own help, starts none of its rows, and exits", async () => {
+    const fixture = createStartupFixture()
+    try {
+      const result = await startStartupProfile(fixture, ['--help'])
+      expect(result.exitCode).toBe(0)
+      expect(result.stdout).toContain('Usage: fixture')
+      expect(result.stdout).toContain('--generation')
+      expect(existsSync(fixture.ready)).toBe(false)
+    } finally {
       rmSync(fixture.home, { recursive: true, force: true })
     }
   }, 30_000)
@@ -488,20 +691,6 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
       expect(stdout).toContain('agents: []')
       expect(stdout).toContain('# == @deepseek-ai/dsh-base')
       expect(stdout).toContain("name: '@deepseek-ai/dsh-host-webserver'")
-    }, 30_000)
-
-    it('prints a headless profile with no Host, HTTP, or browser rows', async () => {
-      const { stdout, code, stderr } = await runBuiltBin(
-        ['--profile', 'headless', '--dump-default-config'],
-        { DSH_HOME: home },
-      )
-      expect(code).toBe(0)
-      expect(stderr).toBe('')
-      expect(stdout).toContain("name: '@deepseek-ai/dsh-agent-default-model'")
-      expect(stdout).toContain("name: '@deepseek-ai/dsh-headless'")
-      expect(stdout).not.toContain("name: '@deepseek-ai/dsh-host-")
-      expect(stdout).not.toContain("name: '@deepseek-ai/dsh-web-app'")
-      expect(stdout).not.toContain("name: '@deepseek-ai/dsh-client-")
     }, 30_000)
 
     it('composes the profile user layer and a --patch overlay in order', async () => {

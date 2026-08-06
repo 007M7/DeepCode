@@ -21,22 +21,28 @@ function exitCode(argv: string[]): number {
 afterEach(() => { vi.restoreAllMocks() })
 
 describe('parseDshArgs', () => {
-  it('routes profile boots, one-shot runs, and the web alias', () => {
-    expect(parse(['--profile', 'tui'])).toEqual({ mode: 'profile', profile: 'tui', patches: [] })
+  it('routes profile boots and the web alias, handing the rest to the app', () => {
+    expect(parse(['--profile', 'tui'])).toEqual({ mode: 'profile', profile: 'tui', patches: [], args: [] })
     expect(parse(['--profile', 'tui', '--patch', 'a.yml', '--patch', 'b.yml']))
-      .toEqual({ mode: 'profile', profile: 'tui', patches: ['a.yml', 'b.yml'] })
-    expect(parse(['run', 'run', 'the', 'tests']))
-      .toEqual({ mode: 'run', profile: 'headless', patches: [], task: 'run the tests' })
-    expect(parse(['run', '--profile', 'custom', '--patch', 'a.yml', '--patch', 'b.yml', 'run', 'the', 'tests']))
-      .toEqual({ mode: 'run', profile: 'custom', patches: ['a.yml', 'b.yml'], task: 'run the tests' })
-    expect(parse(['run', '--', '--profile', 'is', 'task', 'text']))
-      .toEqual({ mode: 'run', profile: 'headless', patches: [], task: '--profile is task text' })
-    expect(parse(['web'])).toEqual({ mode: 'web', dev: false, patches: [] })
-    expect(parse(['web', '--patch', 'web.yml'])).toEqual({ mode: 'web', dev: false, patches: ['web.yml'] })
+      .toEqual({ mode: 'profile', profile: 'tui', patches: ['a.yml', 'b.yml'], args: [] })
+    expect(parse(['web'])).toEqual({ mode: 'profile', profile: 'web', patches: [], args: [] })
+    expect(parse(['web', '--patch', 'web.yml']))
+      .toEqual({ mode: 'profile', profile: 'web', patches: ['web.yml'], args: [] })
+  })
+
+  it('ends the launcher flags at the first token it does not own', () => {
+    // App flags, including its -h, and positionals reach the app verbatim.
+    expect(parse(['--profile', 'tui', '--resume', 'abc']))
+      .toEqual({ mode: 'profile', profile: 'tui', patches: [], args: ['--resume', 'abc'] })
+    expect(parse(['--profile', 'web', '-h']))
+      .toEqual({ mode: 'profile', profile: 'web', patches: [], args: ['-h'] })
     expect(parse(['web', '--host', '0.0.0.0', '--port', '8080', '--dev']))
-      .toEqual({ mode: 'web', host: '0.0.0.0', port: 8080, dev: true, patches: [] })
-    expect(parse(['web', '--trusted-host', 'harness.internal:3080', 'lab.internal', '--trusted-host', '10.0.0.9']))
-      .toEqual({ mode: 'web', dev: false, patches: [], trustedHosts: ['harness.internal:3080', 'lab.internal', '10.0.0.9'] })
+      .toEqual({ mode: 'profile', profile: 'web', patches: [], args: ['--host', '0.0.0.0', '--port', '8080', '--dev'] })
+    expect(parse(['--profile', 'headless', 'run', 'the', 'tests']))
+      .toEqual({ mode: 'profile', profile: 'headless', patches: [], args: ['run', 'the', 'tests'] })
+    // Launcher flags placed after that boundary belong to the app too.
+    expect(parse(['--profile', 'tui', '--patch', 'a.yml', '--resume', 'b', '--patch', 'late.yml']))
+      .toEqual({ mode: 'profile', profile: 'tui', patches: ['a.yml'], args: ['--resume', 'b', '--patch', 'late.yml'] })
   })
 
   it('routes the plugin pnpm forwarder', () => {
@@ -64,18 +70,12 @@ describe('parseDshArgs', () => {
       .toEqual({ mode: 'dump-config', profile: 'web', defaultOnly: true, patches: [] })
   })
 
-  it('rejects missing profile, flags outside the current grammar, and contradictory inputs', () => {
+  it('rejects missing profile, removed flags, and contradictory inputs', () => {
     expect(exitCode([])).toBe(1)
-    expect(exitCode(['tui'])).toBe(1) // a bare word is a task without --profile
-    expect(exitCode(['--config', 'c.yml'])).toBe(1) // outside the current grammar
-    expect(exitCode(['-p', 'task'])).toBe(1) // outside the current grammar
-    expect(exitCode(['--profile', 'headless', 'task'])).toBe(1) // tasks belong to `run`
-    expect(exitCode(['run'])).toBe(1)
-    expect(exitCode(['run', ''])).toBe(1)
-    expect(exitCode(['run', '--profile', '', 'task'])).toBe(1)
-    expect(exitCode(['run', '--patch=', 'task'])).toBe(1)
-    expect(exitCode(['--profile', 'headless', 'run', 'task'])).toBe(1)
-    expect(exitCode(['--patch', 'parent.yml', 'run', 'task'])).toBe(1)
+    expect(exitCode(['tui'])).toBe(1) // an app argument without --profile has no app to reach
+    expect(exitCode(['--config', 'c.yml'])).toBe(1) // removed
+    expect(exitCode(['-p', 'task'])).toBe(1) // removed
+    expect(exitCode(['run', 'task'])).toBe(1) // app-owned task replaced the launcher subcommand
     expect(exitCode(['--profile', ''])).toBe(1)
     expect(exitCode(['--profile', 'x', '--patch='])).toBe(1)
     expect(exitCode(['--dump-config'])).toBe(1)
@@ -87,21 +87,20 @@ describe('parseDshArgs', () => {
     expect(exitCode(['web', '--dump-config', '--dump-default-config'])).toBe(1)
     expect(exitCode(['web', '--dump-default-config', '--patch', 'w.yml'])).toBe(1)
     expect(exitCode(['web', '--patch='])).toBe(1)
-    // Boot-free dumps derive no flag patches; silently dropping the flags
-    // would print a tree that differs from the same invocation's boot.
+    // A dump never runs the app's startup row, so it cannot show what that
+    // app's own flags would decide; printing a tree that differs from the same
+    // invocation's boot would mislead.
     expect(exitCode(['web', '--dump-config', '--port', '8080'])).toBe(1)
-    expect(exitCode(['web', '--dump-config', '--dev'])).toBe(1)
-    // A non-numeric port fails at the flag, not deep in the webserver schema.
-    expect(exitCode(['web', '--port', 'abc'])).toBe(1)
+    expect(exitCode(['--profile', 'web', '--dump-config', '-h'])).toBe(1)
     expect(exitCode(['plugin', 'add', 'x'])).toBe(1) // --profile required
     expect(exitCode(['plugin', '--profile', 'tui'])).toBe(1) // nothing to forward
     expect(exitCode(['plugin', '--profile', ''])).toBe(1)
     expect(exitCode(['--profile', 'x', 'plugin', 'add', 'y'])).toBe(1)
   })
 
-  it('exits 0 for help and version', () => {
+  it('keeps its own help for an invocation with no app to hand it to', () => {
     expect(exitCode(['--help'])).toBe(0)
-    expect(exitCode(['run', '--help'])).toBe(0)
+    expect(exitCode(['-h'])).toBe(0)
     expect(exitCode(['--version'])).toBe(0)
   })
 })
