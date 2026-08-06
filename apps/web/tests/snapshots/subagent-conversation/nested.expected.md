@@ -11,8 +11,6 @@
 - text: Give one concrete event sourcing example. {{clock}}
 - button "Copy":
   - img
-- button "Branch into a new conversation":
-  - img
 - status:
   - strong: This subagent is read-only for now
   - text: The parent session is offline; reopen it to continue sending messages.

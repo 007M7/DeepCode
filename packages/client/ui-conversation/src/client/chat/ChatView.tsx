@@ -30,7 +30,7 @@ import type {
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import { IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatViewSlotProps } from '../contract/slots.ts'
-import { assistantActionsSeqs, deriveChatFlow, messageBranchSeqs, runningTurnStartTime, type ChatFlowItem } from './chat-flow.ts'
+import { assistantActionsSeqs, assistantBranchSeqs, deriveChatFlow, runningTurnStartTime, type ChatFlowItem } from './chat-flow.ts'
 import { AssistantMarkdown } from './AssistantMarkdown.tsx'
 import { GenericCommandCard } from './GenericCommandCard.tsx'
 import { GenericToolCard } from './GenericToolCard.tsx'
@@ -362,7 +362,7 @@ export function ChatView({
   // mid-turn text and every node of a running turn omit `time`, so
   // AssistantMarkdown stays chrome-free until the answer settles.
   const actionSeqs = useMemo(() => assistantActionsSeqs(nodes, turnEnds), [nodes, turnEnds])
-  const branchSeqs = useMemo(() => messageBranchSeqs(nodes, turnEnds), [nodes, turnEnds])
+  const branchSeqs = useMemo(() => assistantBranchSeqs(nodes, turnEnds), [nodes, turnEnds])
   const runningTurnStart = useMemo(() => runningTurnStartTime(turnTimings), [turnTimings])
   const turnMetrics = useMemo(() => deriveTurnMetrics(nodes), [nodes])
 
@@ -632,8 +632,6 @@ export function ChatView({
       <MessageItem
         node={node}
         retryActive={node.kind === 'model-retry' && node.seq === activeRetry}
-        onFork={forkAt}
-        forkUnavailable={!branchSeqs.has(node.seq)}
         t={t}
       />
     )

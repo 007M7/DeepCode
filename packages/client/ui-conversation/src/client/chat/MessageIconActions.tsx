@@ -27,8 +27,6 @@ export interface MessageIconActionsProps {
   onBranch?: (() => void) | undefined
   /** The message is not a completed transcript tail, so branch stays visible but unavailable. */
   branchUnavailable?: boolean | undefined
-  /** Additional branch visibility gate for transient message chrome; defaults to true. */
-  showBranch?: boolean | undefined
   /** Parent layout class composed onto the actions row. */
   className?: string | undefined
   /** The owning view's locale seat, passed down as a plain prop. */
@@ -41,7 +39,7 @@ export interface MessageIconActionsProps {
  * @returns The actions row element.
  */
 export function MessageIconActions({
-  text, time, runMs, ttftMs, tokensPerSecond, clock, onBranch, branchUnavailable = false, showBranch = true, className, t,
+  text, time, runMs, ttftMs, tokensPerSecond, clock, onBranch, branchUnavailable = false, className, t,
 }: MessageIconActionsProps) {
   const day = useCalendarDay()
   const reasonId = useId()
@@ -111,7 +109,7 @@ export function MessageIconActions({
           {copied ? <IconCheckOutline16 /> : <IconCopyOutline16 />}
         </button>
       </Tooltip>
-      {showBranch && onBranch !== undefined && (
+      {onBranch !== undefined && (
         <Tooltip label={branchUnavailable ? t('message.branchUnavailable') : t('message.branch')} side="bottom">
           {/* Native disabled buttons do not deliver the hover/focus events Tooltip needs. */}
           <button
@@ -127,7 +125,7 @@ export function MessageIconActions({
           </button>
         </Tooltip>
       )}
-      {showBranch && onBranch !== undefined && branchUnavailable && (
+      {onBranch !== undefined && branchUnavailable && (
         <span id={reasonId} className={css.visuallyHidden}>{t('message.branchUnavailable')}</span>
       )}
       {clock === 'end' ? clockEl : null}

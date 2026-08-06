@@ -75,15 +75,18 @@ export function runningTurnStartTime(
 }
 
 /**
- * Seq set of message rows that may fork: the last transcript node of a
- * completed turn, when that node owns message chrome. A later tool, reasoning,
- * error, or other transcript node leaves the earlier message's branch action
- * unavailable because the Host would include the whole turn.
+ * Seq set of assistant answers that may fork: the completed turn's transcript
+ * tail, when that tail is the turn's own content-text assistant. A later tool,
+ * reasoning, error, or other transcript node leaves the answer's branch action
+ * unavailable because the Host would include the whole turn. User and steering
+ * bubbles carry no branch action at all: a fork at their seq cuts at the same
+ * `turn/end` as the answer's, so the affordance lives only under the settled
+ * answer.
  * @param nodes - snapshot nodes in event order.
  * @param turnEnds - completed turn boundaries retained from the event window.
- * @returns Message seq values whose visible position matches the fork boundary.
+ * @returns Assistant seq values whose visible position matches the fork boundary.
  */
-export function messageBranchSeqs(
+export function assistantBranchSeqs(
   nodes: readonly ConversationNode[],
   turnEnds: ReadonlyMap<number, number>,
 ): ReadonlySet<number> {
@@ -98,8 +101,7 @@ export function messageBranchSeqs(
       tail = candidate
       nodeIndex++
     }
-    if (tail?.kind === 'user' || tail?.kind === 'steering'
-      || (tail?.kind === 'assistant' && tail.turn === turn && hasContentText(tail.blocks))) {
+    if (tail?.kind === 'assistant' && tail.turn === turn && hasContentText(tail.blocks)) {
       result.add(tail.seq)
     }
   }

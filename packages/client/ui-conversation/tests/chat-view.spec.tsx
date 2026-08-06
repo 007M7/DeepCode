@@ -20,7 +20,7 @@ import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts
 import { createChatStore } from '../src/client/stores.ts'
 import { ChatView } from '../src/client/chat/ChatView.tsx'
 import { zh } from '../src/client/locales.ts'
-import { assistantActionsSeqs, deriveChatFlow, flowKeys, messageBranchSeqs, runningTurnStartTime } from '../src/client/chat/chat-flow.ts'
+import { assistantActionsSeqs, assistantBranchSeqs, deriveChatFlow, flowKeys, runningTurnStartTime } from '../src/client/chat/chat-flow.ts'
 import { formatRunDuration } from '../src/client/chat/message-chrome.ts'
 
 afterEach(() => {
@@ -264,7 +264,7 @@ describe('chat-flow derivation', () => {
     expect(formatRunDuration(125_000, t)).toBe('2分05秒')
   })
 
-  it('messageBranchSeqs keeps only message rows at completed transcript tails', () => {
+  it('assistantBranchSeqs keeps only content-assistant tails; user/steering tails own no branch', () => {
     const interruptedThink: AssistantMessageNode = {
       kind: 'assistant', seq: 4.1, time: 4_100, turn: 1, step: 2,
       blocks: [{ kind: 'reasoning', text: 'bad path' }], interrupted: true,
@@ -279,8 +279,8 @@ describe('chat-flow derivation', () => {
       user(10, 'user-only tail'),
       user(13, 'steering tail'),
     ]
-    const seqs = messageBranchSeqs(nodes, new Map([[1, 5], [2, 8], [3, 11], [4, 14]]))
-    expect([...seqs]).toEqual([7, 10, 13])
+    const seqs = assistantBranchSeqs(nodes, new Map([[1, 5], [2, 8], [3, 11], [4, 14]]))
+    expect([...seqs]).toEqual([7])
   })
 })
 
@@ -405,22 +405,23 @@ describe('ChatView', () => {
     expect(view.container.querySelector('[data-pending-steering]')).toBeNull()
     expect(view.getAllByText('插话')).toHaveLength(1)
     // Only the durable steering bubble: the turn is still running, so its
-    // assistant narration owns no footer yet.
+    // assistant narration owns no footer yet, and a steering bubble never
+    // carries a branch action.
     expect(view.getAllByRole('button', { name: '复制' })).toHaveLength(1)
     const durableBubble = view.getByText('interrupt now').closest('[class*="userRow"]') as HTMLElement
-    const unavailable = within(durableBubble).getByRole('button', { name: '在新对话中分支' })
-    expect(unavailable.getAttribute('aria-disabled')).toBe('true')
-    fireEvent.click(unavailable)
-    expect(h.forkAt).not.toHaveBeenCalled()
+    expect(within(durableBubble).queryByRole('button', { name: '在新对话中分支' })).toBeNull()
 
     act(() => {
       h.set({ running: false, turnEnds: new Map([[1, 3]]) })
     })
+    // The completed turn's transcript tail is the steering bubble, not the
+    // narration, so the assistant's branch action stays unavailable and the
+    // steering bubble still offers none.
     const branchButtons = view.getAllByRole('button', { name: '在新对话中分支' })
-    expect(branchButtons).toHaveLength(2)
-    expect(branchButtons.map(button => button.getAttribute('aria-disabled'))).toEqual(['true', null])
-    fireEvent.click(branchButtons[1]!)
-    expect(h.forkAt).toHaveBeenCalledWith(2)
+    expect(branchButtons).toHaveLength(1)
+    expect(branchButtons[0]!.getAttribute('aria-disabled')).toBe('true')
+    fireEvent.click(branchButtons[0]!)
+    expect(h.forkAt).not.toHaveBeenCalled()
   })
 
   it('keeps a later pending occurrence visible when it reuses a durable MessageId', () => {
@@ -523,11 +524,11 @@ describe('ChatView', () => {
       turnEnds: new Map([[1, 4], [2, 6]]),
     })
     const view = render(<h.ChatView {...h.props} />)
-    // Every message footer keeps branch visible; only completed assistant tails enable it.
+    // Branch renders only under assistant answers; user bubbles keep copy alone.
     expect(view.getAllByRole('button', { name: '复制' })).toHaveLength(4)
     const branchButtons = view.getAllByRole('button', { name: '在新对话中分支' })
-    expect(branchButtons).toHaveLength(4)
-    expect(branchButtons.map(button => button.getAttribute('aria-disabled'))).toEqual(['true', null, 'true', null])
+    expect(branchButtons).toHaveLength(2)
+    expect(branchButtons.map(button => button.getAttribute('aria-disabled'))).toEqual([null, null])
   })
 
   it('withholds assistant IconActions while the turn is still running', () => {
@@ -635,11 +636,11 @@ describe('ChatView', () => {
       turnEnds: new Map([[1, 3]]),
     })
     const view = render(<h.ChatView {...h.props} />)
+    // The user bubble offers no branch; the settled answer's is live.
     const buttons = view.getAllByRole('button', { name: '在新对话中分支' })
-    expect(buttons).toHaveLength(2)
-    expect(buttons.map(button => button.getAttribute('aria-disabled'))).toEqual(['true', null])
+    expect(buttons).toHaveLength(1)
+    expect(buttons[0]!.getAttribute('aria-disabled')).toBeNull()
     fireEvent.click(buttons[0]!)
-    fireEvent.click(buttons[1]!)
     expect(h.forkAt.mock.calls).toEqual([[2]])
   })
 
@@ -655,10 +656,9 @@ describe('ChatView', () => {
     const view = render(<h.ChatView {...h.props} />)
     expect(view.getAllByRole('button', { name: '复制' })).toHaveLength(2)
     const buttons = view.getAllByRole('button', { name: '在新对话中分支' })
-    expect(buttons).toHaveLength(2)
-    expect(buttons.every(button => button.getAttribute('aria-disabled') === 'true')).toBe(true)
+    expect(buttons).toHaveLength(1)
+    expect(buttons[0]!.getAttribute('aria-disabled')).toBe('true')
     fireEvent.click(buttons[0]!)
-    fireEvent.click(buttons[1]!)
     expect(h.forkAt).not.toHaveBeenCalled()
   })
 

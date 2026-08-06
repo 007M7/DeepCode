@@ -7,9 +7,6 @@
 - text: Show the local preview URL. {{clock}}
 - button "Copy":
   - img
-- button "Branch into a new conversation" [disabled]:
-  - img
-- text: Available only on the last message of a completed turn
 - heading "Inline code links" [level=2]
 - paragraph:
   - text: "Preview:"

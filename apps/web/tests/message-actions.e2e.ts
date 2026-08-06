@@ -107,17 +107,17 @@ describe('web e2e: message IconActions and clocks on settled history', () => {
     await expect.poll(() => page.getByText('DONE', { exact: true }).count(), { timeout: 15_000 }).toBe(1)
 
     // Focus-reveal the footers (hover:hover keeps them opacity-hidden until
-    // hover/focus-within). Every durable message footer keeps branch visible,
-    // but only the final assistant at a completed transcript tail enables it.
+    // hover/focus-within). Branch renders only under assistant answers — user
+    // bubbles carry none — and only a completed transcript tail enables it.
     const copyButtons = page.getByRole('button', { name: 'Copy' })
     await expect.poll(() => copyButtons.count(), { timeout: 10_000 }).toBeGreaterThanOrEqual(4)
     await copyButtons.first().focus()
     const branchButtons = page.getByRole('button', { name: 'Branch into a new conversation' })
-    await expect.poll(() => branchButtons.count(), { timeout: 5_000 }).toBe(4)
+    await expect.poll(() => branchButtons.count(), { timeout: 5_000 }).toBe(2)
     await expect.poll(
       () => branchButtons.evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-disabled'))),
       { timeout: 5_000 },
-    ).toEqual(['true', 'true', 'true', null])
+    ).toEqual(['true', null])
     await branchButtons.first().focus()
     await expect.poll(() => page.getByRole('tooltip').textContent(), { timeout: 5_000 })
       .toBe('Available only on the last message of a completed turn')

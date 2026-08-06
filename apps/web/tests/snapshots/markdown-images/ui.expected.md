@@ -7,9 +7,6 @@
 - text: Show the Markdown image policy. {{clock}}
 - button "Copy":
   - img
-- button "Branch into a new conversation" [disabled]:
-  - img
-- text: Available only on the last message of a completed turn
 - heading "Markdown images" [level=2]
 - paragraph:
   - img "Remote test image"

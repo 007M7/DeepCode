@@ -1,8 +1,8 @@
 // MessageItem: simple chat nodes — user and consumed-steering bubbles
-// (right-aligned, with clock + copy / branch IconActions; steering adds the
-// interjection caption that names it), pending steering (caption + copy only),
-// context injection, compaction marker, retry disclosure, and unknown-surface
-// JSON rows.
+// (right-aligned, with clock + copy IconActions; steering adds the
+// interjection caption that names it; branch lives only under assistant
+// answers), pending steering (caption + copy only), context injection,
+// compaction marker, retry disclosure, and unknown-surface JSON rows.
 
 import { memo, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
@@ -27,10 +27,6 @@ export interface MessageItemProps {
     | TurnErrorNode
     | UnknownSurfaceNode
   retryActive?: boolean
-  /** Fork through this message's completed turn when eligible. */
-  onFork?: (seq: number) => void
-  /** The message is not the transcript tail of a completed turn. */
-  forkUnavailable?: boolean
   /** The owning view's locale seat, passed down as a plain prop. */
   t: ChatViewSlotProps['t']
 }
@@ -217,7 +213,6 @@ export function PendingSteeringBubble({ content, t }: {
         <MessageIconActions
           text={text}
           clock="start"
-          showBranch={false}
           className={css.actions}
           t={t}
         />
@@ -227,7 +222,7 @@ export function PendingSteeringBubble({ content, t }: {
 }
 
 export const MessageItem = memo(function MessageItem({
-  node, retryActive = false, onFork, forkUnavailable = false, t,
+  node, retryActive = false, t,
 }: MessageItemProps) {
   const truncated = (total: number): string => t('json.truncated', { total })
   switch (node.kind) {
@@ -243,8 +238,6 @@ export const MessageItem = memo(function MessageItem({
               text={text}
               time={node.time}
               clock="start"
-              onBranch={onFork === undefined ? undefined : () => { onFork(node.seq) }}
-              branchUnavailable={forkUnavailable}
               className={css.actions}
               t={t}
             />
