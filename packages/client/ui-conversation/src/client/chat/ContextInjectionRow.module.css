@@ -24,6 +24,18 @@
 }
 
 .source {
+  flex: none;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 14px;
+  line-height: 24px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A notice's one-line account: the reason it rarely needs expanding. */
+.summary {
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;

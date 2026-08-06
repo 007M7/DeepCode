@@ -345,31 +345,242 @@ export function CatalogBody({ content, source, t }: {
   )
 }
 
+/** One named contribution to a runtime snapshot, as the durable source records it. */
+interface SnapshotSection {
+  name: string
+  text: string
+}
+
+/** Snapshot sections read off the source, or null when the record is unusable. */
+function snapshotSections(source: unknown): SnapshotSection[] | null {
+  const record = asRecord(source)
+  const list = record === null ? undefined : record['sections']
+  if (!Array.isArray(list)) return null
+  const sections: SnapshotSection[] = []
+  for (const item of list as readonly unknown[]) {
+    const section = asRecord(item)
+    if (section === null) return null
+    const name = section['name']
+    const text = section['text']
+    if (typeof name !== 'string' || name === '' || typeof text !== 'string') return null
+    sections.push({ name, text })
+  }
+  return sections.length === 0 ? null : sections
+}
+
+/**
+ * `snapshot` form: the named contributions this snapshot assembled, in order.
+ *
+ * The sections are the same bytes the model read, split at the boundaries the
+ * producer assembled them on, so a reader sees which subsystem contributed
+ * which state instead of one undifferentiated wall.
+ *
+ * One sentence of the model-facing text is NOT in any section: the producer's
+ * framing line declaring that this snapshot supersedes earlier ones. Unlike the
+ * `<system-reminder>` wrapper an instruction context carries — which wraps
+ * content and cannot be separated from it — that line states the form's own
+ * semantics, so the body states them as a caption instead of reprinting the
+ * joined prose beside the sections it was split from.
+ * @param props - Durable content, its source, and the locale seat.
+ * @returns The snapshot context body, or the opaque body when unreadable.
+ */
+export function SnapshotBody({ content, source, t }: {
+  content: ContextMessageNode['content']
+  source: unknown
+  t: Translate
+}): ReactNode {
+  const sections = snapshotSections(source)
+  /* v8 ignore next -- contextBody reads the sections before choosing this body. */
+  if (sections === null) return <OpaqueBody content={content} source={source} t={t} />
+  return (
+    <>
+      <p className={css.catalogNotice} data-context-snapshot-supersedes>
+        {t('message.context.snapshot.supersedes')}
+      </p>
+      <dl className={css.sections} data-context-sections>
+        {sections.map((section, index) => (
+          <div key={index} className={css.section}>
+            <dt className={css.sectionName}>{section.name}</dt>
+            <dd className={css.sectionText}>{boundedText(section.text, t)}</dd>
+          </div>
+        ))}
+      </dl>
+    </>
+  )
+}
+
+/**
+ * `notice` form: what just happened, with the model-facing text beneath it.
+ *
+ * The one-line account also rides the collapsed row ({@link contextBody}), so a
+ * notice is usually readable without expanding at all.
+ * @param props - Durable content, its source, and the locale seat.
+ * @returns The notice context body.
+ */
+export function NoticeBody({ content, t }: {
+  content: ContextMessageNode['content']
+  source: unknown
+  t: Translate
+}): ReactNode {
+  return <ModelFacingContent content={content} t={t} />
+}
+
+/**
+ * `relay` form: which agent sent this, then what it said.
+ *
+ * The sender is an opaque session id; it is shown as provenance rather than a
+ * label, because this client cannot resolve it to a title.
+ * @param props - Durable content, its source, and the locale seat.
+ * @returns The relay context body.
+ */
+export function RelayBody({ content, source, t }: {
+  content: ContextMessageNode['content']
+  source: unknown
+  t: Translate
+}): ReactNode {
+  const sender = relaySender(source)
+  /* v8 ignore next -- contextBody resolves the sender before choosing this body. */
+  if (sender === null) return <OpaqueBody content={content} source={source} t={t} />
+  return (
+    <>
+      <p className={css.relaySender} data-context-relay-sender>
+        {t('message.context.relay.from', { session: sender })}
+      </p>
+      <ModelFacingContent content={content} t={t} />
+    </>
+  )
+}
+
+/** The sending agent's session id, or null when the record does not name one. */
+function relaySender(source: unknown): string | null {
+  const sender = asRecord(source)?.['senderSessionId']
+  return typeof sender === 'string' && sender !== '' ? sender : null
+}
+
+/** One recalled session, as the durable source records it. */
+interface RecalledSession {
+  label: string
+  retained: number
+  omitted: number
+  truncated: boolean
+}
+
+/** Recalled sessions read off the source, or null when the record is unusable. */
+function recalledSessions(source: unknown): RecalledSession[] | null {
+  const record = asRecord(source)
+  const list = record === null ? undefined : record['references']
+  if (!Array.isArray(list)) return null
+  const sessions: RecalledSession[] = []
+  for (const item of list as readonly unknown[]) {
+    const reference = asRecord(item)
+    if (reference === null) return null
+    const label = reference['label']
+    const retained = reference['retainedMessages']
+    const omitted = reference['omittedMessages']
+    const truncated = reference['truncated']
+    // Completeness is the fact this card exists to report, so a reference that
+    // cannot state it is not a readable recall — showing the label alone would
+    // present a confident card over unknown loss.
+    if (typeof label !== 'string' || label === ''
+      || typeof retained !== 'number' || typeof omitted !== 'number'
+      || typeof truncated !== 'boolean') return null
+    sessions.push({ label, retained, omitted, truncated })
+  }
+  return sessions.length === 0 ? null : sessions
+}
+
+/**
+ * `recall` form: which sessions this material came from and how much of each
+ * survived the read, then the material itself.
+ *
+ * Completeness is the fact a reader needs first: recalled context is bounded on
+ * the way in, so a card that hid the omitted count would overstate what the
+ * model received.
+ * @param props - Durable content, its source, and the locale seat.
+ * @returns The recall context body, or the opaque body when unreadable.
+ */
+export function RecallBody({ content, source, t }: {
+  content: ContextMessageNode['content']
+  source: unknown
+  t: Translate
+}): ReactNode {
+  const sessions = recalledSessions(source)
+  if (sessions === null) return <OpaqueBody content={content} source={source} t={t} />
+  return (
+    <>
+      <ul className={css.recalls} data-context-recalls>
+        {sessions.map((session, index) => (
+          <li key={index} className={css.recall}>
+            <span className={css.recallLabel}>{session.label}</span>
+            <span className={css.recallCounts}>
+              {t('message.context.recall.counts', {
+                retained: session.retained,
+                omitted: session.omitted,
+              })}
+            </span>
+            {session.truncated && (
+              <span className={css.recallCounts}>{t('message.context.recall.truncated')}</span>
+            )}
+          </li>
+        ))}
+      </ul>
+      <ModelFacingContent content={content} t={t} />
+    </>
+  )
+}
+
+/** The one-line account a `notice` puts on its collapsed row, when it records one. */
+function noticeSummary(source: unknown): string | null {
+  const summary = asRecord(source)?.['summary']
+  return typeof summary === 'string' && summary !== '' ? summary : null
+}
+
 /**
  * Choose the body for one context node.
  *
  * Returns the form the body actually rendered as, which is not always the
  * declared one: a declared form whose fields are unreadable falls back to
  * opaque, and the caller labels the row with what it really shows.
+ * `summary` is the collapsed row's one-line account, which only a `notice`
+ * records: its whole point is being readable without expanding.
  * @param form - the producer-declared form projected onto the node.
  * @param props - durable content, its source, and the locale seat.
- * @returns the rendered form (null for opaque) and its body.
+ * @returns the rendered form (null for opaque), its collapsed summary, and its body.
  */
 export function contextBody(
   form: ContextMessageNode['form'],
   props: { content: ContextMessageNode['content']; source: unknown; t: Translate },
-): { rendered: KnownContextForm | null; body: ReactNode } {
+): { rendered: KnownContextForm | null; summary: string | null; body: ReactNode } {
+  const opaque = { rendered: null, summary: null, body: <OpaqueBody {...props} /> }
   switch (form) {
     case 'instructions':
       return instructionChanges(props.source) === null
-        ? { rendered: null, body: <OpaqueBody {...props} /> }
-        : { rendered: 'instructions', body: <InstructionsBody {...props} /> }
+        ? opaque
+        : { rendered: 'instructions', summary: null, body: <InstructionsBody {...props} /> }
     case 'catalog':
       return catalogEntries(props.source) === null
-        ? { rendered: null, body: <OpaqueBody {...props} /> }
-        : { rendered: 'catalog', body: <CatalogBody {...props} /> }
+        ? opaque
+        : { rendered: 'catalog', summary: null, body: <CatalogBody {...props} /> }
+    case 'snapshot':
+      return snapshotSections(props.source) === null
+        ? opaque
+        : { rendered: 'snapshot', summary: null, body: <SnapshotBody {...props} /> }
+    case 'notice': {
+      const summary = noticeSummary(props.source)
+      return summary === null
+        ? opaque
+        : { rendered: 'notice', summary, body: <NoticeBody {...props} /> }
+    }
+    case 'relay':
+      return relaySender(props.source) === null
+        ? opaque
+        : { rendered: 'relay', summary: null, body: <RelayBody {...props} /> }
+    case 'recall':
+      return recalledSessions(props.source) === null
+        ? opaque
+        : { rendered: 'recall', summary: null, body: <RecallBody {...props} /> }
     case null:
-      return { rendered: null, body: <OpaqueBody {...props} /> }
+      return opaque
     /* v8 ignore next 4 -- closed-union backstop; the compiler rejects a new
     KnownContextForm here rather than letting it degrade to opaque silently. */
     default: {

@@ -50,11 +50,48 @@ export type ContextForm =
   | 'instructions'
   /** A catalog of items available in this session, republished as it changes. */
   | 'catalog'
+  /** Current state, where a later snapshot from the same producer supersedes an earlier one. */
+  | 'snapshot'
+  /** A one-off account of something that just happened; it supersedes nothing. */
+  | 'notice'
+  /** A message another agent addressed to this one. */
+  | 'relay'
+  /** Material lifted out of another session's log, possibly reduced on the way in. */
+  | 'recall'
 
-/** Optional producer-declared {@link ContextForm}, mixed into the source shapes that carry one. */
-export interface ContextFormed {
-  readonly form?: ContextForm
+/** One named contribution to a `snapshot`-form context, in assembly order. */
+export interface ContextSnapshotSection {
+  /** The contributing subsystem's name. */
+  readonly name: string
+  /** That contribution's model-facing text, exactly as assembled. */
+  readonly text: string
 }
+
+/**
+ * Producer-declared {@link ContextForm} and the fields that form requires,
+ * mixed into the source shapes that carry one.
+ *
+ * Discriminated by `form` so a producer cannot declare a shape without the
+ * facts that shape is presented from: a `notice` must record its one-line
+ * account, a `snapshot` its sections. Omitting `form` stays valid — an
+ * undeclared context is the documented default.
+ */
+export type ContextFormed =
+  | { readonly form?: never }
+  | { readonly form: 'instructions' }
+  | { readonly form: 'catalog' }
+  | {
+    readonly form: 'snapshot'
+    /** The named contributions this snapshot assembled, in order. */
+    readonly sections: readonly ContextSnapshotSection[]
+  }
+  | {
+    readonly form: 'notice'
+    /** One-line account of what happened, shown without expanding the row. */
+    readonly summary: string
+  }
+  | { readonly form: 'relay' }
+  | { readonly form: 'recall' }
 
 /**
  * Where a message (or injected content) came from.
@@ -65,6 +102,24 @@ export interface MessageSourceMap {
   plugin: { kind: 'plugin'; plugin: string } & ContextFormed
   model: ModelMessageSource
   tool: ToolMessageSource
+}
+
+/**
+ * Bound for a `notice` summary. The account rides a collapsed transcript row
+ * and is committed to the durable log, while its inputs — task labels, goal
+ * objectives, tool arguments — are caller text with no length of their own.
+ */
+export const CONTEXT_SUMMARY_MAX_CHARS = 120
+
+/**
+ * Bound one `notice` summary to {@link CONTEXT_SUMMARY_MAX_CHARS}.
+ * @param summary - the producer's one-line account, of any length.
+ * @returns the account, ellipsized when it exceeds the bound.
+ */
+export function boundContextSummary(summary: string): string {
+  return summary.length <= CONTEXT_SUMMARY_MAX_CHARS
+    ? summary
+    : `${summary.slice(0, CONTEXT_SUMMARY_MAX_CHARS - 1)}…`
 }
 
 /** Any known message source, derived from {@link MessageSourceMap}; switch on `kind` and fall through unknowns (merge-extensible). */

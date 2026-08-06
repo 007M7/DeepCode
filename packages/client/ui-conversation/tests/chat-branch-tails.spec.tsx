@@ -571,6 +571,145 @@ describe('MessageItem arms', () => {
     expect(fields).toEqual(['plugin', 'form'])
   })
 
+  it('the snapshot form attributes each part to the subsystem that produced it', () => {
+    const view = render(
+      <MessageItem t={t} node={{
+        kind: 'context',
+        seq: 3,
+        content: [{ type: 'text', text: 'Current runtime context.\n\nsandbox\n\nworkspace' }],
+        source: {
+          kind: 'plugin',
+          plugin: '@deepseek-ai/dsh-system-prompt',
+          form: 'snapshot',
+          sections: [{ name: 'sandbox:policy', text: 'workspace-write' }, { name: 'workspace', text: '/repo' }],
+        },
+        provenance: { role: 'inject', label: '@deepseek-ai/dsh-system-prompt' },
+        form: 'snapshot',
+      } as never}
+      />,
+    )
+    fireEvent.click(view.getByRole('button', { name: /^上下文注入\s*@deepseek-ai\/dsh-system-prompt$/ }))
+    const rows = [...view.container.querySelectorAll('[data-context-sections] div')].map(node => node.textContent)
+    expect(rows).toEqual(['sandbox:policyworkspace-write', 'workspace/repo'])
+  })
+
+  it('a notice puts its account on the collapsed row', () => {
+    // The whole point of the form: readable without expanding.
+    const view = render(
+      <MessageItem t={t} node={{
+        kind: 'context',
+        seq: 3,
+        content: [{ type: 'text', text: 'background task bash-1 finished.' }],
+        source: { kind: 'plugin', plugin: 'tool-tasks', form: 'notice', summary: 'bash pnpm test [status: completed]' },
+        provenance: { role: 'inject', label: 'tool-tasks' },
+        form: 'notice',
+      } as never}
+      />,
+    )
+    expect(view.container.querySelector('[data-context-summary]')?.textContent)
+      .toBe('bash pnpm test [status: completed]')
+    expect(view.container.querySelector('[data-context-injection-body]')).toBeNull()
+  })
+
+  it('a notice without its account falls back to the opaque body', () => {
+    const view = render(
+      <MessageItem t={t} node={{
+        kind: 'context', seq: 3, content: [{ type: 'text', text: 'notice prose' }],
+        source: { kind: 'plugin', plugin: 'tool-tasks', form: 'notice' },
+        provenance: { role: 'inject', label: 'tool-tasks' },
+        form: 'notice',
+      } as never}
+      />,
+    )
+    expect(view.container.querySelector('[data-context-summary]')).toBeNull()
+    fireEvent.click(view.getByRole('button', { name: /^上下文注入\s*tool-tasks$/ }))
+    expect(view.container.querySelector('[data-context-fields]')).not.toBeNull()
+  })
+
+  it('each form falls back to the opaque body when its required facts are unreadable', () => {
+    // The fallback chain is the load-bearing wall: every dedicated form must
+    // reach it, and the row marker must not claim a form that did not render.
+    const cases = [
+      { form: 'snapshot', source: { kind: 'plugin', form: 'snapshot', sections: 'not-a-list' }, label: 'plugin' },
+      { form: 'relay', source: { kind: 'subagent-report', form: 'relay' }, label: 'subagent-report' },
+      { form: 'recall', source: { kind: 'session-reference', form: 'recall', references: [{ label: 'x' }] }, label: 'session-reference' },
+    ] as const
+    for (const { form, source, label } of cases) {
+      cleanup()
+      const view = render(
+        <MessageItem t={t} node={{
+          kind: 'context', seq: 3, content: [{ type: 'text', text: `${form} prose` }],
+          source, provenance: { role: 'inject', label }, form,
+        } as never}
+        />,
+      )
+      fireEvent.click(view.getByRole('button', { name: new RegExp(`^上下文注入\\s*${label}$`) }))
+      expect(view.container.querySelector('[data-context-text]')?.textContent).toBe(`${form} prose`)
+      expect(view.container.querySelector('[data-context-injection-body]')?.getAttribute('data-context-form'))
+        .toBeNull()
+    }
+  })
+
+  it('a snapshot states the supersession its framing line carries', () => {
+    const view = render(
+      <MessageItem t={t} node={{
+        kind: 'context', seq: 3, content: [{ type: 'text', text: 'Current runtime context.' }],
+        source: { kind: 'plugin', form: 'snapshot', sections: [{ name: 'sandbox', text: 'w' }] },
+        provenance: { role: 'inject', label: 'plugin' },
+        form: 'snapshot',
+      } as never}
+      />,
+    )
+    fireEvent.click(view.getByRole('button', { name: /^上下文注入\s*plugin$/ }))
+    expect(view.container.querySelector('[data-context-snapshot-supersedes]')?.textContent)
+      .toBe('取代先前的快照')
+  })
+
+  it('a relay names the agent that sent it above what it said', () => {
+    const view = render(
+      <MessageItem t={t} node={{
+        kind: 'context',
+        seq: 3,
+        content: [{ type: 'text', text: 'child report body' }],
+        source: { kind: 'subagent-report', form: 'relay', senderSessionId: 'child-7' },
+        provenance: { role: 'inject', label: 'subagent-report' },
+        form: 'relay',
+      } as never}
+      />,
+    )
+    fireEvent.click(view.getByRole('button', { name: /^上下文注入\s*subagent-report$/ }))
+    expect(view.container.querySelector('[data-context-relay-sender]')?.textContent).toBe('来自会话 child-7')
+    expect(view.container.querySelector('[data-context-text]')?.textContent).toBe('child report body')
+  })
+
+  it('a recall reports how much of each source session survived the read', () => {
+    // Recalled context is bounded on the way in, so hiding the omitted count
+    // would overstate what the model received.
+    const view = render(
+      <MessageItem t={t} node={{
+        kind: 'context',
+        seq: 3,
+        content: [{ type: 'text', text: 'recalled material' }],
+        source: {
+          kind: 'session-reference',
+          form: 'recall',
+          version: 1,
+          references: [
+            { label: '重构 loader', retainedMessages: 18, omittedMessages: 42, truncated: true },
+            { label: '修 CI', retainedMessages: 3, omittedMessages: 0, truncated: false },
+          ],
+        },
+        provenance: { role: 'recall', label: '重构 loader, 修 CI' },
+        form: 'recall',
+      } as never}
+      />,
+    )
+    fireEvent.click(view.getByRole('button', { name: /^跨会话召回\s*重构 loader, 修 CI$/ }))
+    const rows = [...view.container.querySelectorAll('[data-context-recalls] li')].map(node => node.textContent)
+    expect(rows).toEqual(['重构 loader保留 18 条 · 省略 42 条已截断', '修 CI保留 3 条 · 省略 0 条'])
+    expect(view.container.querySelector('[data-context-text]')?.textContent).toBe('recalled material')
+  })
+
   it('unknown nodes retain the generic JSON row', () => {
     const unknownView = render(
       <MessageItem t={t} node={{ kind: 'unknown', seq: 4, type: 'surface/next', data: { x: 1 } } as never} />,

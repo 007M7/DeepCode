@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-05-context-form-vocabulary.md
-2026-08-05-context-form-vocabulary.md: c111acfec4fa85fe9e25adeb615371d65098f20f
-2026-08-05-context-form-vocabulary.zh.md: d4da218c4c6026eb875513c2acbfcd18ced8faa1
+2026-08-05-context-form-vocabulary.md: 618c11b925208d09a62d10101656e3358e327ddb
+2026-08-05-context-form-vocabulary.zh.md: 66278b261f23601461c96f08e87ea58766b2bfc2

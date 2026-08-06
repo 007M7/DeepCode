@@ -196,13 +196,52 @@ type ContextForm =
   | 'instructions'
   /** A catalog of items available in this session, republished as it changes. */
   | 'catalog'
+  /** Current state, where a later snapshot from the same producer supersedes an earlier one. */
+  | 'snapshot'
+  /** A one-off account of something that just happened; it supersedes nothing. */
+  | 'notice'
+  /** A message another agent addressed to this one. */
+  | 'relay'
+  /** Material lifted out of another session's log, possibly reduced on the way in. */
+  | 'recall'
 ```
 
 ```ts type-equiv
-/** Optional producer-declared {@link ContextForm}, mixed into the source shapes that carry one. */
-interface ContextFormed {
-  readonly form?: ContextForm
+/** One named contribution to a `snapshot`-form context, in assembly order. */
+interface ContextSnapshotSection {
+  /** The contributing subsystem's name. */
+  readonly name: string
+  /** That contribution's model-facing text, exactly as assembled. */
+  readonly text: string
 }
+```
+
+```ts type-equiv
+/**
+ * Producer-declared {@link ContextForm} and the fields that form requires,
+ * mixed into the source shapes that carry one.
+ *
+ * Discriminated by `form` so a producer cannot declare a shape without the
+ * facts that shape is presented from: a `notice` must record its one-line
+ * account, a `snapshot` its sections. Omitting `form` stays valid — an
+ * undeclared context is the documented default.
+ */
+type ContextFormed =
+  | { readonly form?: never }
+  | { readonly form: 'instructions' }
+  | { readonly form: 'catalog' }
+  | {
+    readonly form: 'snapshot'
+    /** The named contributions this snapshot assembled, in order. */
+    readonly sections: readonly ContextSnapshotSection[]
+  }
+  | {
+    readonly form: 'notice'
+    /** One-line account of what happened, shown without expanding the row. */
+    readonly summary: string
+  }
+  | { readonly form: 'relay' }
+  | { readonly form: 'recall' }
 ```
 
 ## 流式输出

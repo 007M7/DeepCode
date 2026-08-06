@@ -33,7 +33,7 @@ export function ContextInjectionRow({ content, source, provenance, form, t }: Co
   const [open, setOpen] = useState(false)
   // Resolved rather than declared: a form whose fields are unreadable renders
   // the opaque body, and the marker must say what the row actually shows.
-  const { rendered, body } = contextBody(form, { content, source, t })
+  const { rendered, summary, body } = contextBody(form, { content, source, t })
 
   return (
     <DisclosureRow
@@ -48,6 +48,12 @@ export function ContextInjectionRow({ content, source, provenance, form, t }: Co
         <>
           <span className={css.sep} aria-hidden />
           <span className={css.source} data-context-source>{provenance.label}</span>
+          {summary !== null && (
+            <>
+              <span className={css.sep} aria-hidden />
+              <span className={css.summary} data-context-summary>{summary}</span>
+            </>
+          )}
         </>
       )}
       keepContentWhenOpen
