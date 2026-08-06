@@ -58,5 +58,4 @@ Prefix-stable for the life of an agent: a composition is installed once, before 
 
 - **A preset cannot be changed on a live agent** — the mount happens once during creation, so switching a running session's composition would mean unwinding its subtree mid-turn, dropping tools the model may already have called. Changing the default affects only sessions created afterwards.
 - **Display names are the directory id** — a preset carries no manifest, so pickers and settings surfaces show the id until a consumer needs richer metadata.
-- **`isolate` realms cannot be expressed across rows without `cordis:group`** — an entry-local realm works on a single row, but grouping a provider with its consumers under one shared realm needs the group builtin, which `dsh-app-boot` does not register.
 - **Root scans are not watched** — every read hits the filesystem instead, which keeps the roster fresh but puts one `readdir` per root on each `list()`.

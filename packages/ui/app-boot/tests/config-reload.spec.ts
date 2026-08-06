@@ -8,9 +8,8 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import type { Context } from 'cordis'
+import { Context } from 'cordis'
 import type { Include } from '@cordisjs/plugin-include'
-import { Group } from '@cordisjs/plugin-loader'
 import { boot } from '../src/index.ts'
 
 const NAME = 'dsh-test-bin'
@@ -219,8 +218,10 @@ describe('loader tree replacement', () => {
   })
 
   it('stops and restores descendants when an ancestor group is disabled and re-enabled', async () => {
+    // No manual builtin registration: `boot()` supplies `cordis:group` beside
+    // `cordis:include`, which is what lets a composition give one `isolate`
+    // realm to a provider and its consumers together.
     const { ctx, dir, include } = await bootTree('- id: noop\n  name: ./noop.mjs\n')
-    ctx.loader.builtins.group = Group
     try {
       const config = (disabled: boolean) => [
         '- id: parent',
@@ -253,7 +254,6 @@ describe('loader tree replacement', () => {
     const { ctx } = await bootTree('- id: noop\n  name: ./noop.mjs\n', {
       'movable.mjs': plugin('movablePlugin', 'if (config.fail) throw new Error("candidate config failed")'),
     })
-    ctx.loader.builtins.group = Group
     try {
       const groupId = await ctx.loader.create({ name: 'cordis:group', group: true, config: [] })
       const targetId = await ctx.loader.create({ name: './movable.mjs', config: { fail: false } })
@@ -382,6 +382,49 @@ describe('include patches layered over one base', () => {
       expect(dropped?.options.disabled).toBe(true)
       expect(dropped?.fiber).toBeUndefined()
     } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+})
+
+describe('shipped builtins', () => {
+  it('lets a booted composition share one isolate realm across a group of rows', async () => {
+    // The reason `boot()` registers `cordis:group`: a composition — notably an
+    // agent preset living outside this workspace, which cannot resolve
+    // `@cordisjs/plugin-group` by name — gives a provider and its consumer one
+    // named realm so the service stays out of the root realm while remaining
+    // visible to the rows that need it.
+    const { ctx } = await bootTree([
+      '- id: realm',
+      '  name: cordis:group',
+      '  isolate:',
+      '    demoRealmSvc: true',
+      '  config:',
+      '    - id: provider',
+      '      name: ./provider.mjs',
+      '    - id: consumer',
+      '      name: ./consumer.mjs',
+      '',
+    ].join('\n'), {
+      'provider.mjs': 'export const name = "provider"\n'
+        + 'export function apply(ctx) { ctx.effect(() => ctx.reflect.provide("demoRealmSvc", { tag: "realm" })) }\n',
+      'consumer.mjs': 'export const name = "consumer"\n'
+        + 'export const inject = ["demoRealmSvc"]\n'
+        + 'export function apply(ctx) { globalThis.__REALM_SEEN__ = ctx.get("demoRealmSvc").tag }\n',
+    })
+    try {
+      expect((globalThis as { __REALM_SEEN__?: string }).__REALM_SEEN__).toBe('realm')
+      // `provide` mints the root symbol unconditionally (cordis `reflect.ts`),
+      // so the name IS in the root realm — pinned here because it is the half
+      // that looks like the claim and is not. The claim is the other half: no
+      // implementation is stored under that symbol, so the root realm cannot
+      // resolve the service and a second composition mounting the same rows
+      // cannot collide with this one.
+      const rootKey = ctx.root[Context.isolate].demoRealmSvc
+      expect(rootKey).toBeDefined()
+      expect(ctx.reflect.store[rootKey!]).toBeUndefined()
+    } finally {
+      delete (globalThis as { __REALM_SEEN__?: string }).__REALM_SEEN__
       await ctx.fiber.dispose()
     }
   })

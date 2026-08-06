@@ -58,5 +58,4 @@ Indirectly, through the plugins a mounted composition registers, which own every
 
 - **无法在存活的 agent 上更换 preset** —— 挂载只在创建时发生一次，因此切换运行中会话的组装意味着要在轮次进行途中卸载其子树，抽走模型可能已经调用的工具。更改默认值只影响此后创建的会话。
 - **展示名称就是目录 id** —— preset 不携带 manifest，因此选择器与设置界面在有消费方需要更丰富的元数据之前，只显示 id。
-- **跨多行的 `isolate` realm 需要 `cordis:group` 才能表达** —— 单行可用 entry 本地 realm，但要把一个提供方与它的消费方归入同一个共享 realm，需要 group 内建插件，而 `dsh-app-boot` 并未注册它。
 - **根目录扫描不做监听** —— 每次读取都实际访问文件系统，这让名单保持新鲜，但每次 `list()` 会对每个根目录产生一次 `readdir`。

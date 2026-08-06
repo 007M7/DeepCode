@@ -5,6 +5,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "@cordisjs/plugin-group": "workspace:^",
     "@cordisjs/plugin-include": "workspace:^",
     "@cordisjs/plugin-loader": "workspace:^",
     "@cordisjs/plugin-timer": "workspace:^",

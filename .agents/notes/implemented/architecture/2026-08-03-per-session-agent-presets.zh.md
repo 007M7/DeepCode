@@ -29,6 +29,8 @@ Status: implemented
 
 **直接挂载的子树对启动审计不可见。** 它不会把自己关联到 `Entry`，因此不在 `ctx.loader.entries()` 中，`assertEntriesActivated` 也看不到它。改由挂载过程自行校验各行，通过一个会公开自身 tree 的 `Include` 子类读取。
 
+**preset 能写出 group，是因为 app 注册了它。** 跨行共享 realm 就是一个 `cordis:group` 行，而住在本工作区之外的 preset——也就是 Harness home 下由人或 agent 创作的那些，正是这套设计的目的——无法按名字解析 `@cordisjs/plugin-group`：Node 向上查找 `node_modules` 的路径从那里永远走不到 harness。因此 `boot()` 把 `cordis:group` 与 `cordis:include` 并排注册为 loader builtin，两者都经由环境模块管线加载，而不依赖被包含树自身的说明符解析。没有它，上文那套 `isolate` 词汇就只能一行一行地表达，提供方也永远无法与它的消费方归入同一组。
+
 **preset 不得把服务发布进根 realm。** 这类服务是进程级全局而非按会话的，因此第二个挂载同一 preset 的会话会与第一个相撞——而这次相撞表现为 `setup` 永远观察不到的未处理 rejection，留下一个看起来健康、实则组装到一半的 agent。挂载改为直接拒绝它；本包的运行时不变量还会在每次服务通知时复查，因为从定时器或异步续体中发布的行会绕过一次性审计。
 
 **失败会让 agent 回滚。** `setup` 在发布之前运行，因此挂载被拒绝会让 `ctx.agents.create()` 失败且不留残留。这正是 `setup` 是唯一受支持调用点的原因。
