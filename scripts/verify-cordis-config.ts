@@ -107,8 +107,9 @@ if (errors.length > 0) {
  */
 function validatePresetPlaneSeparation(): string[] {
   const problems: string[] = []
-  const hostFile = 'apps/cli/config/base.cordis.yml'
-  const overlayFile = 'apps/cli/config/web.cordis.yml'
+  // The shipped Web surface is two bundle patch layers over an empty root.
+  const hostFile = 'packages/bundle/base/cordis.patch.yml'
+  const overlayFile = 'packages/bundle/web-app/cordis.patch.yml'
   const hostRows = rowIds(hostFile)
   const overlay = loadEntries(overlayFile)
   const disabled = new Set<string>()
