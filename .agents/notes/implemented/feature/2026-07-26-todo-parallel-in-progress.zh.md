@@ -45,6 +45,10 @@ Status: implemented
 
 `summarySuffix` 是 `ToolRow` 上的槽位，而不是 todo 工具行自有的标记：每个 toolview 都经由这个共享组件渲染，而它的 `summary` 是一个会被省略号截断的普通字符串，容不下一个必须挺过截断的片段。该后缀落在 `.summary` 规则之外，因此重复了该规则的 `font-size` 与 `line-height`——Web 外壳把正文字号留在浏览器默认值而非该行的 14px，所以未加样式的 span 会明显大于同一 24px 行内与之并列的文本。错误行会丢弃该后缀，因为它折叠态的摘要是失败行，而非任何由调用 args 推导出的内容。
 
+## 暂缓项
+
+两条 review 结论在此记录而非在本分支修复。`summarySuffix` 这个 span 没有无障碍名称，屏幕阅读器读出的数量缺少它所修饰的名词（`… 实现 fixture 样本 +1`）；为它命名会引入带自身测试契约的本地化文案，这属于对整条 `ToolRow` 摘要行做的无障碍专项，而不属于某一行。以及，当*第一个*活跃条目的 content 不可用时——缺失、类型不对、或 trim 后为空——行会连同数量一起丢掉活跃子句，于是并行计划渲染成裸计数；向后跳到第一个可用活跃条目的方案被否决，因为调用 args 是一处明确未经校验的边界，模型给出的顺序是该行唯一能遵循的顺序，而只丢掉不可用的那个子句可以保住 `done`/`total` 计数——这两个数无论如何都是可信的。
+
 ## 后果
 
 现在 todo 列表可以忠实反映并行执行，并且每个 UI 都能一次渲染多个活跃标记：TUI 按状态区分的前缀无需改动，计划横条的表头会计数活跃条目，工具行则需要上述推导。设置 `allowParallelInProgress: true` 的组合不再拒绝一种此前无效的快照形状；设置为 `false` 的组合仍保留旧的拒绝行为，而持久日志不变式两者都接受。面向模型的描述发生了变化，这重新记录了 tool-catalog 页面以及每个带有 todo schema 的快照 sidecar。此处不记录数量：该集合会随每个新落地的 pin 场景增长，而本 Note 先前记过的两次点时刻计数都在几天内失实。有效规则是：改动工具描述的分支必须刷新它分叉之后落地的那些 sidecar —— 包括固定 subagent 类工具的编号文件 `tool-schemas.<n>.expected.json`，其 schema 不被父场景覆盖 —— `pnpm run test:snapshot:refresh` 可以无 key 地对整个语料完成刷新。web fixture 的 todo 样本现在有两个条目处于 `in_progress`，因此两个由 fixture 驱动的展示面渲染的都是并行计划。`packages/client/ui-conversation/tests/todo-panel.spec.tsx` 在 src 上固定工具行摘要与计划横条，ACP `todo-write` 场景录制的是三条目、两个活跃的计划，而 `apps/web/tests/todo-row.snapshot.ts` 在组装后的应用中固定这两个面——它从构建产物 `packages/client/*/lib/client.js` 启动，因此是唯一覆盖 keyed 注册与打包接线的地方。该文件把 `summary`、`suffix` 与横条表头记录为独立字段，因此即便拼接后的文本读起来一样，把 `+N` 计数折回摘要字符串也会改变预期输出。
