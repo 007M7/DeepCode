@@ -14,7 +14,7 @@ The Session row's Fork action forks at the source's last completed turn, increme
 
 Session rows render the runtime's live `pendingInteraction` classification: approvals report **Waiting for approval**, plan reviews report **Plan awaiting review**, and ordinary questions report **Waiting for answer**. Every pending interaction uses an amber warning dot that takes precedence over the running indicator; ordinary rows repeat the localized status in their hover card, and both ordinary and search-result rows carry the same text as a visually hidden label for assistive technology. Running uses the blue indicator and its hidden label; an idle row leaves the reserved status slot empty.
 
-Both target slots are declared by other plugins, so `apply` registers through declaration-aware deferral and re-registers after a declaring slot is restored.
+Both target slots are declared by other plugins, so `apply` uses `slots.inject()` to register for each declaration lifetime and re-register after a declaring slot is restored.
 
 The shared sidebar projection hides rows whose durable Session summary has `origin: 'subagent'`; users enter those conversations through the selected parent's subagent header catalog. Ordinary forks remain visible because lineage alone does not set that origin. The runtime keeps hidden rows available for conversation, title, and addressed transport state.
 

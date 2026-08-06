@@ -168,6 +168,7 @@ export function apply(ctx: Context, config: Config): void {
           content: baselineContent,
           source: {
             kind: 'workspace-instructions',
+            form: 'instructions',
             baseline: true,
             baselineIdentity: identity,
             changes: baselineChanges,
@@ -205,6 +206,7 @@ export function apply(ctx: Context, config: Config): void {
       content,
       source: {
         kind: 'workspace-instructions',
+        form: 'instructions',
         ...desiredBaseline ? { baseline: true } : {},
         ...desiredBaseline ? { baselineIdentity: identity } : {},
         changes,
@@ -271,9 +273,7 @@ export function apply(ctx: Context, config: Config): void {
   }
 
   ctx.on('agent/pre-step', async (
-    agent: Agent,
-    messages,
-    { step, signal },
+    { agent, messages, step, signal },
     next,
   ): Promise<PreStepDecision> => {
     const decision = await next()

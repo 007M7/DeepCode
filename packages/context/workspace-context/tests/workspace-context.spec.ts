@@ -209,8 +209,7 @@ async function workspaceContextOf(agent: Agent): Promise<UserMessage> {
 
 async function syncWorkspaceContext(ctx: Context, agent: Agent): Promise<void> {
   await agentEvents(ctx, agent).waterfall(
-    'agent/pre-step', [],
-    { turn: 1, step: 1, signal: testToolSignal },
+    'agent/pre-step', { messages: [], turn: 1, step: 1, signal: testToolSignal },
     async () => ({ kind: 'enter' as const, messages: [] }),
   )
 }
@@ -245,15 +244,13 @@ async function composeBaselinePrefix(ctx: Context, agent: Agent): Promise<Messag
   const signal = AbortSignal.timeout(1000)
   await agentEvents(ctx, agent).waterfall(
     'agent/pre-step',
-    [],
-    { turn: 1, step: 1, signal },
+    { messages: [], turn: 1, step: 1, signal },
     () => Promise.resolve({ kind: 'enter' as const, messages: [] }),
   )
   const claimed = agent.inbox.claim('next-step', 1)
   const decision = await agentEvents(ctx, agent).waterfall(
     'agent/pre-step',
-    claimed,
-    { turn: 1, step: 2, signal },
+    { messages: claimed, turn: 1, step: 2, signal },
     () => Promise.resolve({ kind: 'enter' as const, messages: claimed }),
   )
   const entered = decision.kind === 'enter' ? decision.messages : []
@@ -916,6 +913,7 @@ describe('workspace context request injection', () => {
           role: 'user',
           source: {
             kind: 'workspace-instructions',
+            form: 'instructions',
             baseline: true,
             changes: [{ action: 'set', scope: sk('.', 'AGENTS.md'), path: 'AGENTS.md' }],
           },
@@ -1229,8 +1227,7 @@ describe('workspace context request injection', () => {
       const original = stubAgent(root)
       await agentEvents(ctx, original).waterfall(
         'agent/pre-step',
-        [],
-        { turn: 1, step: 1, signal: AbortSignal.timeout(1000) },
+        { messages: [], turn: 1, step: 1, signal: AbortSignal.timeout(1000) },
         () => Promise.resolve({ kind: 'enter' as const, messages: [] }),
       )
       const inserted = original.inbox.nextStep[0]
@@ -1239,12 +1236,11 @@ describe('workspace context request injection', () => {
       await fiber.dispose()
       await ctx.plugin(workspaceContext, { dshHome: home, maxBytes: 65536 })
       const resumed = stubAgent(root, [...original.session.events])
-      agentEvents(ctx, resumed).emit('agent/session-start', 'resume')
+      agentEvents(ctx, resumed).emit('agent/session-start', { source: 'resume' })
       const claimed = resumed.inbox.claim('next-step', 1)
       const decision = await agentEvents(ctx, resumed).waterfall(
         'agent/pre-step',
-        claimed,
-        { turn: 1, step: 1, signal: AbortSignal.timeout(1000) },
+        { messages: claimed, turn: 1, step: 1, signal: AbortSignal.timeout(1000) },
         () => Promise.resolve({ kind: 'enter' as const, messages: claimed }),
       )
       if (decision.kind !== 'enter') throw new Error('recovered baseline was rejected')
@@ -1276,8 +1272,7 @@ describe('workspace context request injection', () => {
       const original = stubAgent(root)
       await agentEvents(ctx, original).waterfall(
         'agent/pre-step',
-        [],
-        { turn: 1, step: 1, signal: AbortSignal.timeout(1000) },
+        { messages: [], turn: 1, step: 1, signal: AbortSignal.timeout(1000) },
         () => Promise.resolve({ kind: 'enter' as const, messages: [] }),
       )
       const stale = original.inbox.nextStep[0]
@@ -1287,12 +1282,11 @@ describe('workspace context request injection', () => {
       await fiber.dispose()
       await ctx.plugin(workspaceContext, { dshHome: home, maxBytes: 65536 })
       const resumed = stubAgent(root, [...original.session.events])
-      agentEvents(ctx, resumed).emit('agent/session-start', 'resume')
+      agentEvents(ctx, resumed).emit('agent/session-start', { source: 'resume' })
       const staleClaim = resumed.inbox.claim('next-step', 1)
       const staleDecision = await agentEvents(ctx, resumed).waterfall(
         'agent/pre-step',
-        staleClaim,
-        { turn: 1, step: 1, signal: AbortSignal.timeout(1000) },
+        { messages: staleClaim, turn: 1, step: 1, signal: AbortSignal.timeout(1000) },
         () => Promise.resolve({ kind: 'enter' as const, messages: staleClaim }),
       )
 
@@ -1331,8 +1325,7 @@ describe('workspace context request injection', () => {
       const original = stubAgent(root)
       await agentEvents(originalCtx, original).waterfall(
         'agent/pre-step',
-        [],
-        { turn: 1, step: 1, signal: AbortSignal.timeout(1000) },
+        { messages: [], turn: 1, step: 1, signal: AbortSignal.timeout(1000) },
         () => Promise.resolve({ kind: 'enter' as const, messages: [] }),
       )
       const stale = original.inbox.nextStep[0]
@@ -1342,12 +1335,11 @@ describe('workspace context request injection', () => {
       if (provideFs) await resumedCtx.plugin(LocalFileSystem, { cwd: '/' })
       await resumedCtx.plugin(workspaceContext, { dshHome: home, maxBytes })
       const resumed = stubAgent(root, [...original.session.events])
-      agentEvents(resumedCtx, resumed).emit('agent/session-start', 'resume')
+      agentEvents(resumedCtx, resumed).emit('agent/session-start', { source: 'resume' })
       const claimed = resumed.inbox.claim('next-step', 1)
       const decision = await agentEvents(resumedCtx, resumed).waterfall(
         'agent/pre-step',
-        claimed,
-        { turn: 1, step: 1, signal: AbortSignal.timeout(1000) },
+        { messages: claimed, turn: 1, step: 1, signal: AbortSignal.timeout(1000) },
         () => Promise.resolve({ kind: 'enter' as const, messages: claimed }),
       )
 
@@ -1374,6 +1366,7 @@ describe('workspace context request injection', () => {
         content: [{ type: 'text', text: 'stale nested instructions' }],
         source: {
           kind: 'workspace-instructions',
+          form: 'instructions',
           changes: [{ action: 'set', scope: sk('pkg', 'AGENTS.md'), path: join('pkg', 'AGENTS.md'), digest: 'stale' }],
         },
       }), {
@@ -1407,6 +1400,7 @@ describe('workspace context request injection', () => {
         content: [{ type: 'text', text: 'stale nested instructions' }],
         source: {
           kind: 'workspace-instructions',
+          form: 'instructions',
           changes: [{ action: 'set', scope: sk('pkg', 'AGENTS.md'), path: join('pkg', 'AGENTS.md'), digest: 'stale' }],
         },
       }), {
@@ -1449,8 +1443,7 @@ describe('workspace context request injection', () => {
 
       const decision = await agentEvents(ctx, agent).waterfall(
         'agent/pre-step',
-        [prompt],
-        { turn: 1, step: 1, signal: AbortSignal.timeout(1000) },
+        { messages: [prompt], turn: 1, step: 1, signal: AbortSignal.timeout(1000) },
         () => Promise.resolve(downstream),
       )
 
@@ -1507,8 +1500,7 @@ describe('workspace context request injection', () => {
 
       const decision = await agentEvents(ctx, agent).waterfall(
         'agent/pre-step',
-        [],
-        { turn: 1, step: 1, signal: AbortSignal.timeout(1000) },
+        { messages: [], turn: 1, step: 1, signal: AbortSignal.timeout(1000) },
         () => Promise.resolve(downstream),
       )
 
@@ -1619,8 +1611,7 @@ describe('workspace context request injection', () => {
 
       const decision = await agentEvents(ctx, agent).waterfall(
         'agent/pre-step',
-        [prompt],
-        { turn: 2, step: 1, signal: AbortSignal.timeout(1000) },
+        { messages: [prompt], turn: 2, step: 1, signal: AbortSignal.timeout(1000) },
         () => Promise.resolve({ kind: 'enter' as const, messages: [prompt] }),
       )
 
@@ -1653,7 +1644,7 @@ describe('workspace context request injection', () => {
       const resumed = stubAgent(root, [...original.session.events])
 
       // Resume announces its lifecycle start before the first step.
-      agentEvents(ctx, resumed).emit('agent/session-start', 'resume')
+      agentEvents(ctx, resumed).emit('agent/session-start', { source: 'resume' })
       await composeBaselinePrefix(ctx, resumed)
 
       const baselines = baselineEvents(resumed)
@@ -1704,7 +1695,7 @@ describe('workspace context request injection', () => {
       await write(join(root, 'AGENTS.md'), 'repo rule')
       const ctx = new Context()
       await mountWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      ctx.on('agent/pre-step', async (_agent, _messages, _context, next) => {
+      ctx.on('agent/pre-step', async (_payload, next) => {
         const decision = await next()
         if (decision.kind === 'reject') return decision
         return {
@@ -1978,8 +1969,7 @@ describe('workspace context request injection', () => {
       const reason = new Error('cancel prefix')
       const pending = agentEvents(ctx, stubAgent(root)).waterfall(
         'agent/pre-step',
-        [],
-        { turn: 1, step: 1, signal: controller.signal },
+        { messages: [], turn: 1, step: 1, signal: controller.signal },
         () => Promise.resolve({ kind: 'enter' as const, messages: [] }),
       )
 
@@ -2521,7 +2511,7 @@ describe('dynamic nested workspace context injection', () => {
       expect(result.isError).toBe(false)
       expect(((await syncedWorkspaceContext(ctx, agent))).source).toMatchObject({ kind: 'workspace-instructions' })
       const queuedSource = ((await syncedWorkspaceContext(ctx, agent))).source
-      expect(queuedSource).toMatchObject({ kind: 'workspace-instructions' })
+      expect(queuedSource).toMatchObject({ kind: 'workspace-instructions', form: 'instructions' })
       expect(queuedSource.kind === 'workspace-instructions' && queuedSource.changes.some(change =>
         change.action === 'set'
         && change.scope === sk('pkg', 'AGENTS.md')
@@ -2864,6 +2854,7 @@ describe('dynamic nested workspace context injection', () => {
 
       expect(((await syncedWorkspaceContext(ctx, agent))).source).toMatchObject({
         kind: 'workspace-instructions',
+        form: 'instructions',
         changes: [{ action: 'replace', scope: sk('pkg', 'AGENTS.md'), path: join('pkg', 'AGENTS.md') }],
       })
       expect(blocksText(((await syncedWorkspaceContext(ctx, agent))).content)).toBe([
@@ -2973,7 +2964,7 @@ describe('dynamic nested workspace context injection', () => {
         if (previous === undefined) throw new Error('missing AGENTS.md baseline state')
         const authoritative = createUserMessage({
           content: [{ type: 'text', text: 'nested rule' }],
-          source: { kind: 'workspace-instructions', changes: [previous] },
+          source: { kind: 'workspace-instructions', form: 'instructions', changes: [previous] },
         })
         if (authority === 'visible') {
           agent.session.append('user/message', authoritative, { surfaceOp: 'append' })
@@ -2999,6 +2990,7 @@ describe('dynamic nested workspace context injection', () => {
               content: [{ type: 'text', text: 'pending baseline duplicate' }],
               source: {
                 kind: 'workspace-instructions',
+                form: 'instructions',
                 changes: [{ action: 'set', scope: sk('.', 'AGENTS.md'), path: 'AGENTS.md' }],
               },
             })],
@@ -3042,7 +3034,7 @@ describe('dynamic nested workspace context injection', () => {
       if (previous === undefined) throw new Error('missing AGENTS.md baseline state')
       const authoritative = createUserMessage({
         content: [{ type: 'text', text: 'repo rule' }],
-        source: { kind: 'workspace-instructions', changes: [previous] },
+        source: { kind: 'workspace-instructions', form: 'instructions', changes: [previous] },
       })
       agent.session.append('user/message', authoritative, { surfaceOp: 'append' })
       const resolved = resolveConfig({ dshHome: home, maxBytes: 65536, localInstructionFileCandidates: [] })
@@ -3239,6 +3231,7 @@ describe('dynamic nested workspace context injection', () => {
 
       expect(((await syncedWorkspaceContext(ctx, agent))).source).toMatchObject({
         kind: 'workspace-instructions',
+        form: 'instructions',
         changes: [{ action: 'remove', scope: sk('pkg', 'AGENTS.md'), path: join('pkg', 'AGENTS.md') }],
       })
       expect(blocksText(((await syncedWorkspaceContext(ctx, agent))).content)).toBe([
@@ -3641,6 +3634,7 @@ describe('dynamic nested workspace context injection', () => {
         ],
         source: {
           kind: 'workspace-instructions',
+          form: 'instructions',
           changes: [
             null,
             { action: 'unknown', scope: 'pkg', path: join('pkg', 'AGENTS.md') },
@@ -3794,6 +3788,7 @@ describe('dynamic nested workspace context injection', () => {
       expect(((await syncedWorkspaceContext(ctx, agent))).source).toMatchObject({ kind: 'workspace-instructions' })
       expect(((await syncedWorkspaceContext(ctx, agent))).source).toMatchObject({
         kind: 'workspace-instructions',
+        form: 'instructions',
         changes: [{ action: 'set', scope: sk('pkg', 'AGENTS.md'), path: join('pkg', 'AGENTS.md') }],
       })
       expect(blocksText(((await syncedWorkspaceContext(ctx, agent))).content)).toContain('nested package rule')
@@ -4236,8 +4231,7 @@ describe('workspace context inbox synchronization', () => {
       controller.abort(new Error('abort pre-step reconciliation'))
 
       await expect(agentEvents(ctx, agent).waterfall(
-        'agent/pre-step', [],
-        { turn: 1, step: 1, signal: controller.signal },
+        'agent/pre-step', { messages: [], turn: 1, step: 1, signal: controller.signal },
         async () => ({ kind: 'enter' as const, messages: [] }),
       )).rejects.toThrow('abort pre-step reconciliation')
 
@@ -4347,8 +4341,7 @@ describe('workspace context inbox synchronization', () => {
       const downstream = { kind: 'enter' as const, messages: claimed }
 
       const decision = await agentEvents(ctx, agent).waterfall(
-        'agent/pre-step', claimed,
-        { turn: 1, step: 1, signal: testToolSignal },
+        'agent/pre-step', { messages: claimed, turn: 1, step: 1, signal: testToolSignal },
         async () => downstream,
       )
 

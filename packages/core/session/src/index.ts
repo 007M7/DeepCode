@@ -15,7 +15,7 @@ import type { Message } from '@deepseek-ai/dsh-llm'
 import { SESSION_FORMAT_VERSION, SessionId } from './types.ts'
 import type { CreateSessionOptions, EpochHeader, PrepareSessionOptions, RequestContext, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType } from './types.ts'
 import { snapshotJsonValue } from './json.ts'
-import { SurfaceManager } from './surface.ts'
+import { deriveEventMessage, SurfaceManager } from './surface.ts'
 import type { SessionSurface } from './surface.ts'
 import { foldRequestHeader } from './request-header.ts'
 
@@ -29,7 +29,7 @@ export { interruptedTurnClosers, lastActivityTime, TOOL_NOT_STARTED, TOOL_OUTCOM
 export { decodeStorageRecord, packChunkRuns } from './chunk-rows.ts'
 export type { ChunkRow, StorageRecord } from './chunk-rows.ts'
 export type { SessionSurface, SurfaceFoldReplacement, SurfaceFoldResult } from './surface.ts'
-export { foldSurface, isAppendSurfaceEvent, isReplacementSurfaceEvent, isSurfaceEvent, isSurfaceEligibleType } from './surface.ts'
+export { deriveEventMessage, foldSurface, isAppendSurfaceEvent, isReplacementSurfaceEvent, isSurfaceEvent, isSurfaceEligibleType } from './surface.ts'
 export { canonicalHeader, foldRequestHeader, headerEquals } from './request-header.ts'
 
 /**
@@ -755,50 +755,13 @@ export class Session {
   }
 
   /**
-   * Project a single event into the LLM message it derives to, or null when
-   * it produces none — a non-surface event (chunk, boundary, log-only record)
-   * or an empty-content assistant/message (which exists only to host usage).
-   * The per-node pure function {@link deriveMessages} folds over the surface;
-   * an external reconstructor (or the dev invariant) folds the same function
-   * over a log prefix's surface to rebuild the exact messages any request was
-   * built from (the reconstructability Agent Note). The returned message is
-   * the already frozen message nested in the event wrapper and shared by
-   * delivery, durable history, and model requests.
+   * Instance face of the pure per-node `deriveEventMessage` export from
+   * `surface.ts`.
    * @param event - the event to project.
    * @returns the derived message, or null when the event produces none.
    */
   deriveEventMessage(event: SessionEvent): Message | null {
-    // Intentionally non-exhaustive: only message-producing events derive
-    // history; turn/step boundaries, chunks, usage, and errors are
-    // trace/replay data.
-
-    switch (event.type) {
-      // Ordinary prompts and injected context project in user role: the
-      // event's model-facing content stays verbatim. Do NOT
-      // re-add per-type framing (e.g. `<context>`) here: framing is
-      // caller-owned — a producer bakes it into `content`, as workspace-context
-      // does with `<system-reminder>` — or, if reintroduced, must be driven by
-      // the event `meta` map and a dedicated renderer, keeping this projection a
-      // verbatim pass-through. See the deferred design note in
-      // ../../../../.agents/notes/implemented/simplification/2026-07-20-unwrap-injected-content-envelopes.md
-      case 'user/message': {
-        return event.data
-      }
-      case 'assistant/message': {
-        // Skip an empty-content assistant/message: it exists only to host a
-        // max-tokens step's usage and must not inject a content-less assistant
-        // turn into the provider transcript.
-        if (event.data.message.content.length === 0) return null
-        return event.data.message
-      }
-      case 'tool/result': {
-        return event.data.message
-      }
-      default:
-        // A non-surface event (boundary, chunk, log-only record) projects to
-        // no message. Merge-extensible union: no assertNever here.
-        return null
-    }
+    return deriveEventMessage(event)
   }
 }
 

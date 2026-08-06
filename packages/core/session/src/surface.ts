@@ -8,6 +8,7 @@
  * @module @deepseek-ai/dsh-session/surface
  */
 
+import type { Message } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent, SurfaceEvent, SurfaceEventType, SurfaceOp } from './types.ts'
 
 /** Runtime counterpart of the message-producing event union. */
@@ -64,6 +65,52 @@ export function isReplacementSurfaceEvent(
   event: SessionEvent,
 ): event is SurfaceEvent & { surfaceOp: Extract<SurfaceOp, { op: 'replace' }> } {
   return isSurfaceEvent(event) && event.surfaceOp !== 'append'
+}
+
+/**
+ * Project a single event into the LLM message it derives to, or null when it
+ * produces none — a non-surface event (chunk, boundary, log-only record) or an
+ * empty-content assistant/message (which exists only to host usage). This is
+ * THE per-node projection rule: `Session.deriveMessages` folds it over the
+ * live surface, external reconstructors and pure projections fold the same
+ * function over a log prefix's surface to rebuild the exact messages any
+ * request was built from. The returned message is the already frozen message
+ * nested in the event wrapper and shared by delivery, durable history, and
+ * model requests.
+ * @param event - the event to project.
+ * @returns the derived message, or null when the event produces none.
+ */
+export function deriveEventMessage(event: SessionEvent): Message | null {
+  // Intentionally non-exhaustive: only message-producing events derive
+  // history; turn/step boundaries, chunks, usage, and errors are trace/replay
+  // data.
+  switch (event.type) {
+    // Ordinary prompts and injected context project in user role: the event's
+    // model-facing content stays verbatim. Do NOT re-add per-type framing
+    // (e.g. `<context>`) here: framing is caller-owned — a producer bakes it
+    // into `content`, as workspace-context does with `<system-reminder>` — or,
+    // if reintroduced, must be driven by the event `meta` map and a dedicated
+    // renderer, keeping this projection a verbatim pass-through. See the
+    // deferred design note in
+    // ../../../../.agents/notes/implemented/simplification/2026-07-20-unwrap-injected-content-envelopes.md
+    case 'user/message': {
+      return event.data
+    }
+    case 'assistant/message': {
+      // Skip an empty-content assistant/message: it exists only to host a
+      // max-tokens step's usage and must not inject a content-less assistant
+      // turn into the provider transcript.
+      if (event.data.message.content.length === 0) return null
+      return event.data.message
+    }
+    case 'tool/result': {
+      return event.data.message
+    }
+    default:
+      // A non-surface event (boundary, chunk, log-only record) projects to
+      // no message. Merge-extensible union: no assertNever here.
+      return null
+  }
 }
 
 /** One replacement operation observed while folding a session surface. */

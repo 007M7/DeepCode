@@ -144,9 +144,7 @@ export class BasicCompactService extends CompactService {
     }
 
     ctx.on('agent/pre-step', async (
-      agent: Agent,
-      _messages,
-      { signal },
+      { agent, signal },
       next,
     ): Promise<PreStepDecision> => {
       if (!signal.aborted) {
@@ -165,7 +163,7 @@ export class BasicCompactService extends CompactService {
       return next()
     })
 
-    ctx.on('agent/status', (agent, status) => {
+    ctx.on('agent/status', ({ agent, status }) => {
       if (status === 'idle') this.overflowRetries.delete(agent)
     })
 
@@ -178,12 +176,9 @@ export class BasicCompactService extends CompactService {
     })
 
     ctx.on('agent/request-error', async (
-      agent,
-      context,
-      signal,
+      { agent, failure, signal },
       next,
     ) => {
-      const { failure } = context
       if (failure.code !== CONTEXT_WINDOW_EXCEEDED_CODE || signal.aborted) return next()
       this.overflowAgents.set(agent.session, agent)
       const target = routedTarget(agent.session)

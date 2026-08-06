@@ -160,10 +160,82 @@ Where a message came from is itself a merge-extensible sum type:
  */
 interface MessageSourceMap {
   user: { kind: 'user' }
-  plugin: { kind: 'plugin'; plugin: string }
+  plugin: { kind: 'plugin'; plugin: string } & ContextFormed
   model: ModelMessageSource
   tool: ToolMessageSource
 }
+```
+
+Provenance and shape are two independent axes. `kind` answers *who produced this*; the optional `form` a producer mixes in answers *what shape of information it is*, so several producers may share one presentation and one producer may emit more than one shape over a session. The vocabulary is semantic and grows one value at a time; an absent or unrecognized value is the documented default, presented as opaque content:
+
+```ts type-equiv
+/**
+ * What SHAPE of information a producer-supplied context carries, declared by
+ * the producer beside its provenance.
+ *
+ * `MessageSource.kind` answers *who produced this*; `form` answers *what kind
+ * of thing it is*, and the two axes are deliberately independent — several
+ * producers share one form (three snapshot producers today), and one producer
+ * may emit more than one form over a session.
+ *
+ * The vocabulary is SEMANTIC, never visual: a value states that the content is
+ * a file's instructions or a catalog of available items, and a consumer decides
+ * what that looks like. Colors, icons, ordering, and collapse defaults are the
+ * consumer's business and must not enter this union. It grows one value at a
+ * time as producers gain the structured fields their form needs; an absent or
+ * unknown value is the documented default, presented as opaque content.
+ */
+type ContextForm =
+  /** Instructions read out of workspace files the model is expected to follow. */
+  | 'instructions'
+  /** A catalog of items available in this session, republished as it changes. */
+  | 'catalog'
+  /** Current state, where a later snapshot from the same producer supersedes an earlier one. */
+  | 'snapshot'
+  /** A one-off account of something that just happened; it supersedes nothing. */
+  | 'notice'
+  /** A message another agent addressed to this one. */
+  | 'relay'
+  /** Material lifted out of another session's log, possibly reduced on the way in. */
+  | 'recall'
+```
+
+```ts type-equiv
+/** One named contribution to a `snapshot`-form context, in assembly order. */
+interface ContextSnapshotSection {
+  /** The contributing subsystem's name. */
+  readonly name: string
+  /** That contribution's model-facing text, exactly as assembled. */
+  readonly text: string
+}
+```
+
+```ts type-equiv
+/**
+ * Producer-declared {@link ContextForm} and the fields that form requires,
+ * mixed into the source shapes that carry one.
+ *
+ * Discriminated by `form` so a producer cannot declare a shape without the
+ * facts that shape is presented from: a `notice` must record its one-line
+ * account, a `snapshot` its sections. Omitting `form` stays valid — an
+ * undeclared context is the documented default.
+ */
+type ContextFormed =
+  | { readonly form?: never }
+  | { readonly form: 'instructions' }
+  | { readonly form: 'catalog' }
+  | {
+    readonly form: 'snapshot'
+    /** The named contributions this snapshot assembled, in order. */
+    readonly sections: readonly ContextSnapshotSection[]
+  }
+  | {
+    readonly form: 'notice'
+    /** One-line account of what happened, shown without expanding the row. */
+    readonly summary: string
+  }
+  | { readonly form: 'relay' }
+  | { readonly form: 'recall' }
 ```
 
 ## Streaming
@@ -255,6 +327,55 @@ interface LlmModelInfo {
   name: string
   /** Optional user-facing distinction from otherwise similar models. */
   description?: string
+}
+```
+
+A provider a surface is still drafting has no route and no catalog, so interrogation is described separately: the request carries the draft the user is editing, and the reply is candidates a surface may adopt rather than a catalog it must serve.
+
+```ts type-equiv
+/**
+ * One interrogation of a provider endpoint that configuration has not stored
+ * yet. Configuration surfaces send the draft a user is still editing, so the
+ * request carries the endpoint and credential directly instead of naming a
+ * route: a provider being added has no route to name.
+ */
+interface LlmModelDiscoveryRequest {
+  /**
+   * Route the draft is editing, when it edits an existing one. A route whose
+   * adapter already knows its models answers from that knowledge instead of
+   * asking the endpoint — the adapter's own registry is the better answer, and
+   * it costs no network call.
+   */
+  provider?: string
+  /**
+   * Endpoint to interrogate. Optional because a route the adapter already
+   * describes needs none; a route it does not must supply one.
+   */
+  baseURL?: string
+  /** Wire protocol the endpoint speaks, when the draft names one. */
+  api?: string
+  /** Credential for this interrogation alone; the harness never stores it. */
+  apiKey?: string
+  /** Caller cancellation; implementations must settle promptly after it aborts. */
+  signal?: AbortSignal
+}
+```
+
+```ts type-equiv
+/**
+ * One model an endpoint reports about itself. Every field but the id is
+ * optional because most provider listings disclose an id and nothing else;
+ * a surface adopting one of these still owes the capacities its adapter needs.
+ */
+interface LlmDiscoveredModel {
+  /** Model id the endpoint accepts. */
+  id: string
+  /** Human-readable name when the endpoint supplies one. */
+  name?: string
+  /** Maximum combined request and response context, when disclosed. */
+  contextWindow?: number
+  /** Maximum output tokens, when disclosed. */
+  maxTokens?: number
 }
 ```
 
@@ -607,19 +728,7 @@ Pre-step decisions use the same identified `UserMessage` shape as durable user-r
 
 Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
-`agent/pre-step` receives the exclusive claimed batch and the proposed step's coordinates and cancellation signal. The initial proposal runs inside an open turn before any step; a tool continuation may submit an empty claimed batch between steps:
-
-```ts type-equiv
-/** Coordinates and cancellation for a proposed step. */
-interface PreStepContext {
-  /** Turn that will own the step. */
-  readonly turn: number
-  /** Step proposed by the loop. */
-  readonly step: number
-  /** Current turn cancellation signal. */
-  readonly signal: AbortSignal
-}
-```
+`agent/pre-step` receives one payload carrying the exclusive claimed batch (`messages`), the proposed step's coordinates (`turn`, `step`), and the current turn's cancellation `signal`. The initial proposal runs inside an open turn before any step; a tool continuation may submit an empty claimed batch between steps:
 
 It returns a `PreStepDecision`. Reject opens no step. Enter supplies the complete message batch appended after `step/start`; claimed messages omitted by the final decision remain removed, while input inserted after the claim stays pending:
 
