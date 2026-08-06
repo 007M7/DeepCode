@@ -161,6 +161,49 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)
 
+  it('never paints the takeover chrome on a configured reload, even with the settings join held open', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-onboarding-configured-reload'))
+    // Regression pin for the reload white flash: both steps are satisfied
+    // (welcome acknowledged, credential configured), yet each must LOAD its
+    // private join before it can decide not to show. The chrome lives inside
+    // the step (OnboardingSurface), so the deciding window paints and blocks
+    // nothing. Holding the join's settings.describe response widens that
+    // window from loopback-invisible to hundreds of milliseconds — without
+    // the hold, the assertions below would pass vacuously.
+    await page.addInitScript(() => {
+      const sightings: string[] = []
+      ;(window as unknown as { __takeoverSightings: string[] }).__takeoverSightings = sightings
+      setInterval(() => {
+        if (document.querySelector('[class*="onboardingStage"], [class*="onboardingMask"]') !== null) {
+          sightings.push('chrome')
+        }
+        if (document.getElementById('root')?.inert === true) sightings.push('inert')
+      }, 8)
+    })
+    let releaseDescribe = (): void => {}
+    const held = new Promise<void>((resolve) => { releaseDescribe = resolve })
+    let gated = false
+    await page.route('**/api/settings.describe', async (route) => {
+      if (gated) { await route.continue(); return }
+      gated = true
+      await held
+      await route.continue()
+    })
+    const warningsBefore = tripwire.warnings.length
+    await page.reload({ waitUntil: 'commit' })
+    await page.waitForSelector('[class*="frame"]', { timeout: 15_000 })
+    // The app is painted and interactive while the steps are still deciding.
+    await page.waitForTimeout(600)
+    releaseDescribe()
+    await page.waitForTimeout(400)
+    await page.unroute('**/api/settings.describe')
+    acknowledgeReloadConnectionLoss(tripwire, warningsBefore)
+    expect(await page.evaluate(() =>
+      (window as unknown as { __takeoverSightings: string[] }).__takeoverSightings)).toEqual([])
+    expect(await page.locator('[class*="onboardingStage"]').count()).toBe(0)
+    expect(tripwire.pageErrors).toEqual([])
+  }, 60_000)
+
   it('configures arbitrary DeepSeek models and prompts after the selected model is removed', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-onboarding-deepseek-models'))
     // Opened here rather than inherited: the credential test reloads the page
