@@ -1,0 +1,101 @@
+# Agent Note: 在 API Key 进入 HTTP header 之前校验其格式
+
+Status: proposed
+
+[English](2026-08-06-api-key-format-validation.md) | 中文
+
+## Problem
+
+一个含有 HTTP header value 无法承载的字符的 API Key,会被每一层配置界面接受,直到构造请求时才失败——离引发它的那个字段已经很远。
+
+把含 emoji、中文或全角标点的 Key 粘进 Web 模型设置页,保存会报成功。第一轮对话随即失败于 `Cannot convert argument to a ByteString because the character at index 7 has a value of 55357 which is greater than 255`——其中的下标与码点是 UTF-16 内部细节,不附带任何可执行动作,却泄露了 Key 中某一个字符的码点。`llm-deepseek` 之所以产出这句,是因为 `fetch` 在 [adapter.ts](../../../../packages/llm/llm-deepseek/src/adapter.ts) 的 `try` 内部构造 `Bearer` header,而那个 `catch` 把一切失败都标为 `TRANSPORT`;该标签又在 `DEFAULT_RETRYABLE_CODES` 之中,于是一个永久且确定的故障还会被重试三次。
+
+同样的输入在 `llm-pi-ai` 上更糟。它的探测路径在 [discovery.ts](../../../../packages/llm/llm-pi-ai/src/discovery.ts) 里用裸 `fetch` 构造同一个 header,并把一切失败包装成 `could not reach <url>`,于是一个本地的 Key 故障被报成网络不可达。这条探测在保存之前就够得着:`ProviderEditor` 把用户输入的 `keyDraft` 直接放进探测请求,所以「获取模型列表」按钮会在任何东西落盘之前就把非法 Key 发出去。
+
+空白字符能通过每一道检查。`ProviderEditor` 判的是 `keyDraft.length`,`resolveAdapterOptions` 判的是 `config.apiKey.length`,于是三个空格构成的 Key 会被存下,随后以 `Bearer` 加若干空格去认证。`llm-pi-ai` 在 `resolveProfiles` 中拒绝空的字面量 `apiKey`,却对来自凭据或环境的 Key 完全不做检查——而那正是模型设置页写入的路径,也就是用户真正走的路径。
+
+来源:deepseek-harness#1594 与 #1595;dsh-external#247、#249、#266、#210。
+
+## Proposal
+
+一条规则定义什么是合法 Key:**trim 之后非空,且每个字符都落在 `[\x21-\x7E]`**——可打印 ASCII,不含空格。
+
+这一个断言覆盖了来源列出的全部输入:空值、首尾空白、中间空白、C0 控制字符、emoji、中文、全角标点。它同时正是造成 ByteString 失败的那条约束,所以两个 issue 收敛于同一个定义,而不是两个恰好相关的修复。
+
+第二条更窄的规则用于识别整行粘贴的环境变量:拒绝匹配 `^[A-Z][A-Z0-9_]*=` 或首尾成对引号的输入。把前缀限定为全大写可以让真实 Key 与之绝缘——`sk-` 这类形态会在连字符处中断标识符匹配。
+
+### 不变量属于每一层,启发式属于人所在的那一层
+
+字符集规则是不变量。非 ASCII 字符对任何 provider 都**不可能**在 header value 中传输,因此在浏览器、在各个 resolver、在每一次凭据读取上执行它,是结构上的一致而非约定上的一致。
+
+形状规则是对人如何粘贴的猜测,因此**只在浏览器中运行**。`llm-pi-ai` 前面挂着 OpenAI、Anthropic 以及任意手工声明的网关,本仓库并不掌握它们的 Key 格式;若这条规则运行在 resolver 中,一个签发形如 `TENANT1=abc` 的网关会让用户被彻底锁死、无路可走——设置页拒绝它,手写的 `.env` 在读取时同样被拒。把启发式限制在粘贴动作发生的那一层,环境变量便始终是那条出路。
+
+### 「没有 Key」是一种配置状态,不是缺失
+
+在这里,「没有 API Key」意味着三件完全不同的事,其中只有一件是错误。规则作用于**已提供**的值;至于究竟有没有提供,由各个调用方自行判断。
+
+**未指定。** 既不写 `apiKey` 也不写 `apiKeyEnv` 的 profile,是由 harness 所持有的 Key 之外的东西来鉴权的。[provider.ts](../../../../packages/llm/llm-pi-ai/src/provider.ts) 中的 `routeAuth` 保留内置 catalog provider 自身的鉴权,正是为了让 provider 原生的 ambient 发现得以存活;而该 catalog 附带的 `openai-codex` 通过 OAuth 鉴权,并会直接拒绝一个显式的 Key。`namesCredential` 的存在就是为了承载这一区分。在 `llm-deepseek` 中,缺省的 `apiKey` 同样会回落到 `apiKeyEnv`。未指定的情形永不参与校验。
+
+**Web UI 中留空的输入框。** 即便某个 provider 的 Key 已经存好,该输入框也是空着打开的——`keyStored` 的文案写的是「已配置——输入新值以替换」——所以留空意味着*保持已存储的值*。`ProviderEditor` 在草稿为空时本就完全跳过 `credentials.set`,这一点保持不变:留空绝不能拦截提交,否则改一个 base URL 都得重新输一遍 Key。
+
+**已提供,但为空或纯空白。** 这是唯一的错误,因为用户表达了设置 Key 的意图却什么都没给。`llm-pi-ai` 在 `resolveProfiles` 中的措辞本就是对的——*has an empty apiKey; omit it to use ambient authentication*——这种指明合法替代路径而非单纯拒绝的形态,正是其他界面要采用的。
+
+因此 `normalizeApiKey` 接受 `string`,而绝非 `string | undefined`。
+
+### 规则住在哪里
+
+`normalizeApiKey` 是 `dsh-llm` seam 的新模块,与已经承担共享 header 事务的 [attribution.ts](../../../../packages/llm/llm/src/attribution.ts) 并列。两个适配器都依赖该 seam 且都需要这条规则,因此它拥有两个当前消费者而非一个预设消费者。它返回 trim 后的值,或一个原因(`empty`、`illegalCharacters`)。
+
+客户端无法引入它:client 包只 reference client 包,因此 `packages/client/ui-models` 镜像这个断言并持有本地化文案,正如今天 `validateDeepSeekModels` 镜像 host 侧的 `catalogModel` schema。两侧在注释中互相指名。
+
+### 各个界面各做什么
+
+| 界面 | 改动 |
+|---|---|
+| `dsh-llm` | 新增 `normalizeApiKey`;新增 `INVALID_CREDENTIAL`,刻意不进 `DEFAULT_RETRYABLE_CODES`。 |
+| `llm-deepseek` `resolveAdapterOptions` | 归一化已提供的 `apiKey`,与既有的超出 schema 的边界检查并排抛错;使用 trim 后的值。缺省的 `apiKey` 仍照旧回落到 `apiKeyEnv`。关闭 dsh-external#210。 |
+| `llm-deepseek` `resolveApiKey` | 归一化凭据 seam 或环境返回的值;以 `INVALID_CREDENTIAL` 拒绝,消息指明模型设置页,绝不回显 Key。 |
+| `llm-pi-ai` `resolveProfiles` | 把既有的空值检查扩展为这条共享规则,并保留其「omit it to use ambient authentication」的措辞。 |
+| `llm-pi-ai` `resolveApiKey` | 归一化今天完全未受检的凭据与环境路径。不指定任何凭据的 profile 仍原样返回 `undefined`,ambient 与 OAuth 路由不受影响。 |
+| `llm-pi-ai` `discoverModels` | 在构造 header 之前归一化,使非法 Key 不再被报成端点不可达。不带 Key 的探测照旧保持未鉴权。 |
+| `ui-models` | 镜像字符集规则,加入形状启发式,在探测与 `credentials.set` 之前 trim `keyDraft`,并修正 `stringAt` 的空值判断。留空的输入框仍是可以提交的空操作;只含空白的输入框则以字段级失败呈现,使已输入的内容绝不被静默丢弃。按既有 `modelFailure` 的模式拦截提交并在字段上呈现失败。 |
+
+`ProviderEditor` 同时服务 DeepSeek 与 pi-ai 两种布局,因此一处客户端改动覆盖两个 provider。
+
+`credentials-local` 刻意不动。它存储各类凭据,而可打印 ASCII 是 HTTP header 的约束而非凭据存储的约束;它既有的、拒绝任何 dotenv 样式都无法表示的值的行为保持原样。
+
+## Alternatives considered
+
+**在 `apiKey` schema 字段上加 `.pattern()`。** vendor 中的 schemastery 支持它,且该 pattern 会随命名空间 schema 一同序列化到浏览器——一条规则,投递而非镜像。它落败于 pattern 无法先行 trim:那样 `cordis.yml` 会拒绝带首尾空白的 Key 而 `.env` 却容忍,resolver 与 schema 会对同一个字符串给出分歧。在 `resolveAdapterOptions` 中校验可以让每一层都是 trim-then-validate,而该函数本就是本包重新裁定 schema 无法表达的边界之处。
+
+**由 client 与 host 共享一个校验模块。** 被 source plane 布局否决:client 包只 reference client 包外加 `vendor/cordis` 与 `support/invariants`,把它放宽到够得着 host 包会撞上这一分割本就要隔开的两份 `Context` 合并。在两侧各镜像一行断言并各配一份测试,是此处的既定形态。
+
+**在适配器的 `catch` 中嗅探 `TypeError`。** 这只是事后归类 ByteString 失败,header 构造本身仍无防护。它依赖 Node 错误消息的措辞,因而会随运行时版本静默失效;它也帮不到 `llm-pi-ai`——后者的 header 构造在 pi-ai SDK 内部。在交出 Key 之前就拒绝,则对两个适配器与探测路径同时有效。
+
+**在 `credentials-local.set` 中执行。** 它能一次性拦住所有写入方,包括手工编辑的文件。它落败于该 provider 存储各种类型的凭据,而一条源自 HTTP header 编码的规则并不属于它。
+
+**让形状启发式也在 resolver 中运行。** 更对称,且能拦住直接写进 `.env` 的整行环境变量。因上文所述的锁死风险而否决:resolver 中的一次误判会让用户无路可走,浏览器中的一次误判则仍留有环境变量这条路。
+
+**在保存时探测 provider 以证明 Key 可用。** 它能关掉来源真正开篇抱怨的那件事——保存报成功、第一轮才失败。因超出范围而否决,且在今天的代码上无法建成:对 pi-ai 恰好自带 catalog 的那些 provider,`discoverModels` 会在任何网络调用之前短路到内置 catalog,因而对 Key 什么都验证不了;而 DeepSeek 卡片根本没有探测。验证器的价值在于分清「Key 被拒」与「无法连通」,而这正是本 Agent Note 要让其变得可靠的区分;先建验证器只会得到一个分不清自身结果的验证器。同类产品也不在保存时验证,因此保存时的阻断式网络调用会是一个意外行为,而非一处缺失。
+
+## Acceptance criteria
+
+- 浏览器、两个 resolver 与两处凭据读取接受与拒绝同一组**已提供**的字符串:纯空白、带首尾空白、含中间空格、C0 控制字符、emoji、中文、全角输入均被拒绝;可打印 ASCII 的 Key 被接受并 trim。
+- 不指定任何凭据的 profile 仍解析为「没有 Key」,通过内置 provider 自身的 ambient 发现或 OAuth 鉴权的路由原样可用。
+- 留空的 Key 输入框可以保存卡片其余部分而不写入凭据;只含空白的输入框则以字段级失败呈现,而不是被静默丢弃。
+- 被拒绝的 Key 在 Web UI 中定位到 API Key 字段并拦截提交;settings 与凭据均不写入。
+- 非法抵达 resolver 的 Key 以 `INVALID_CREDENTIAL` 失败,消息指明修复位置、不含 Key 的任何片段,且不被重试。
+- `llm-pi-ai` 的探测把非法 Key 报为 Key 故障,而非端点不可达。
+- 合法 Key 仍沿既有 `credentials.set` 路径原样通过。
+
+## Risks
+
+形状启发式可能拒绝一个真实的 Key。全大写标识符接 `=`、以及首尾成对引号,都是已知 provider 不会签发的形态,且该规则只在浏览器中运行,因此撞上它的用户仍可通过环境变量设置该凭据。残留代价是对一个尚无人报告过的 Key 给出一次令人困惑的拒绝。
+
+限定为可打印 ASCII 比传输本身的要求更严:header value 是可以承载 `\x80`–`\xFF` 的。放行 latin-1 会让 `é` 通过并换回一个语焉不详的 401,而不是一次本地的、有解释的拒绝,因此从严是刻意的。若某个 provider 签发 latin-1 的 Key,这条规则需要放宽。
+
+字符集断言存在两份,每个 source plane 一份。布局禁止共享它,重复检测门禁可能会标记这一对;两侧各自带测试并在注释中指名其孪生体。
+
+把这件事做错的最大代价,是把「未指定」当成「非法」。一条施加到 `undefined` 上的规则会打断每一条依赖 ambient 发现或 OAuth 鉴权的路由——`openai-codex` 根本无法接受 Key——而一个会拦截提交的空输入框,则会让改动任何其他设置都必须重新输入 Key。这两点都应落在测试里,而不只是写在本 Agent Note 中。
+
+早先版本已存下的 Key 会经 `resolveApiKey` 读取,因此一个非法的既存值将从解析时开始失败,而非到请求时才失败。这正是意图所在——诊断变好了——但对当前正持有这类值的人而言,失败点提前了。
