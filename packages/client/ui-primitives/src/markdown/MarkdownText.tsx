@@ -5,13 +5,15 @@ import rehypeKatex from 'rehype-katex'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import { CodeBlock } from './CodeBlock.tsx'
+import { remarkCjkFriendlyStrong } from './remarkCjkFriendlyStrong.ts'
 import { remarkMathCompatibility } from './remarkMathCompatibility.ts'
 import 'katex/dist/katex.min.css'
 import css from './MarkdownText.module.css'
 
-const streamingRemarkPlugins = [remarkGfm]
+const streamingRemarkPlugins = [remarkGfm, remarkCjkFriendlyStrong]
 const settledRemarkPlugins = [
   remarkGfm,
+  remarkCjkFriendlyStrong,
   remarkMathCompatibility,
   remarkMath,
 ]
