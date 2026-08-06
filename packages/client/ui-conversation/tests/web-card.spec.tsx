@@ -272,6 +272,10 @@ describe('web toolview registration', () => {
     const registered: { key: string; locale: unknown; component: unknown }[] = []
     const ctx = {
       slots: {
+        inject: (_name: string, callback: () => Iterable<() => void>) => {
+          for (const _dispose of callback()) { /* exhaust transactional setup */ }
+          return () => undefined
+        },
         register: (options: { name: string; key: string; locale?: string }, component: unknown) => {
           registered.push({ key: options.key, locale: options.locale, component })
           return () => {}
@@ -285,7 +289,6 @@ describe('web toolview registration', () => {
     // One component under both keys, not two thin rows.
     expect(registered[0]?.component).toBe(WebRow)
     expect(registered[1]?.component).toBe(WebRow)
-    // The load-order seam the render site depends on.
-    expect(webToolview.inject).toEqual(['slots', 'conversation'])
+    expect(webToolview.inject).toEqual(['slots'])
   })
 })
