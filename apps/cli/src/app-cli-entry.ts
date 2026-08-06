@@ -141,9 +141,15 @@ export interface AppCLIEntryOptions {
    */
   overlayPath: string
   /**
-   * Optional explicit overlay applied after {@link overlayPath} and before
+   * Launcher-owned patches applied after {@link overlayPath} and before the
+   * personal or explicit overlay, so user configuration can still override
+   * surface activation choices.
+   */
+  launcherPatches?: readonly PatchOptions[]
+  /**
+   * Optional explicit overlay applied after {@link launcherPatches} and before
    * this entry's own profile/flag patches. When absent, the personal
-   * `$DSH_HOME/config.yaml` overlay is applied instead.
+   * `$DSH_HOME/config.yaml` overlay is applied in the same position instead.
    */
   extraOverlayPath?: string
   /** Whether to append client-bundle HMR (the Web surface's prod/dev difference). */
@@ -261,10 +267,12 @@ export class AppCLIEntry {
   private async bootTree(): Promise<void> {
     // One include of the shared base with every overlay as a sibling patch
     // list: patches never cross an include boundary, so nesting them would
-    // silently stop reaching base rows. The surface overlay applies first, then
-    // this entry's profile-json and CLI-flag patches, which therefore win.
+    // silently stop reaching base rows. The shared surface overlay applies
+    // first, then launcher activation, user configuration, and finally this
+    // entry's profile-json and CLI-flag patches.
     const compose = (overlay: PatchOptions[]): PatchOptions[] => [
       ...loadOverlayPatches('dsh', this.options.overlayPath),
+      ...(this.options.launcherPatches ?? []),
       ...overlay,
       ...this.patches,
     ]

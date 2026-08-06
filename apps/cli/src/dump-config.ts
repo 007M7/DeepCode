@@ -14,6 +14,7 @@ import {
   type ConfigDumpLayer,
 } from '@deepseek-ai/dsh-app-boot'
 import { resolveDshHome } from '@deepseek-ai/dsh-paths'
+import { WEB_RUNTIME_CONTEXT_ENABLE_PATCH } from './web.ts'
 
 const NAME = 'dsh'
 const BASE_CONFIG = fileURLToPath(new URL('../config/base.cordis.yml', import.meta.url))
@@ -36,6 +37,7 @@ export function runDumpConfig(surface: 'config' | 'web', defaultOnly: boolean, c
     }
   } else {
     layers.push({ label: basename(WEB_OVERLAY), patches: loadOverlayPatches(NAME, WEB_OVERLAY) })
+    layers.push({ label: 'dsh web launcher', patches: [WEB_RUNTIME_CONTEXT_ENABLE_PATCH] })
     if (!defaultOnly) {
       if (config === undefined) {
         const personal = loadPersonalPatches(NAME)

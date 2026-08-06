@@ -10,6 +10,7 @@ const repoRoot = fileURLToPath(new URL('../../../', import.meta.url))
 const dshBin = join(repoRoot, 'apps/cli/lib/bin.js')
 const rawOverlay = fileURLToPath(new URL('./fixtures/raw-overlay.cordis.yml', import.meta.url))
 const rawInvalidProvider = fileURLToPath(new URL('./fixtures/raw-invalid-provider.cordis.yml', import.meta.url))
+const coreWebOverlay = fileURLToPath(new URL('../config/core-web.cordis.yml', import.meta.url))
 
 async function runBuiltBin(
   args: readonly string[] = [],
@@ -200,6 +201,17 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
       expect(code).toBe(0)
       expect(stdout).toContain("name: '@deepseek-ai/dsh-host-webserver'")
       expect(stdout).toContain('provider: personal-provider')
+      expect(stdout).toMatch(/- id: web-runtime-context\n  name: cordis:web-runtime-context\n  disabled: false/u)
+    }, 30_000)
+
+    it('lets an explicit Web profile override launcher activation', async () => {
+      const { stdout, code, stderr } = await runBuiltBin(
+        ['web', '--dump-config', '--config', coreWebOverlay],
+        { DSH_HOME: home },
+      )
+      expect(code).toBe(0)
+      expect(stderr).toBe('')
+      expect(stdout).toMatch(/- id: web-runtime-context\n  name: cordis:web-runtime-context\n  disabled: true/u)
     }, 30_000)
   })
 })

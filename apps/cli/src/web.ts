@@ -8,6 +8,7 @@
 
 import { fileURLToPath } from 'node:url'
 import type { Context } from 'cordis'
+import type { PatchOptions } from '@cordisjs/plugin-include'
 import { addHarnessSourceSection, resolveConfigPath } from '@deepseek-ai/dsh-app-boot'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -23,6 +24,12 @@ const SOURCE_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 const DSH_WEB_URL = 'DSH_WEB_URL' as const
 const DSH_WEB_MODE = 'DSH_WEB_MODE' as const
 const WEB_RUNTIME_CONTEXT_BUILTIN = 'web-runtime-context' as const
+
+/** Web-launcher activation applied before personal or explicit configuration. */
+export const WEB_RUNTIME_CONTEXT_ENABLE_PATCH = {
+  id: WEB_RUNTIME_CONTEXT_BUILTIN,
+  disabled: false,
+} as const satisfies PatchOptions
 
 type WebMode = 'production' | 'development'
 
@@ -125,6 +132,7 @@ export async function runWeb(
   const entry = new AppCLIEntry({
     configPath: BASE_CONFIG,
     overlayPath: WEB_OVERLAY,
+    launcherPatches: [WEB_RUNTIME_CONTEXT_ENABLE_PATCH],
     ...config !== undefined && { extraOverlayPath: resolveConfigPath(config, undefined) },
     dev,
     prepare: (ctx) => { prepareWebRuntimeContext(ctx, SOURCE_ROOT, mode) },

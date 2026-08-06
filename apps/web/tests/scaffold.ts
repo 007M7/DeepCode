@@ -53,7 +53,7 @@ import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 // Empty type imports carry the httpServer/agents/sessionPersistence Context merges.
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-agent'
-import { prepareWebRuntimeContext } from '../../cli/src/web.ts'
+import { prepareWebRuntimeContext, WEB_RUNTIME_CONTEXT_ENABLE_PATCH } from '../../cli/src/web.ts'
 import { DIST_INDEX, REPO_ROOT, requireDist } from './support.ts'
 
 /** Snapshot mode for the lane, from $DSH_SNAPSHOT (same vocabulary as the other snapshot suites). */
@@ -249,6 +249,8 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     : loadOverlayPatches('web e2e scaffold', options.extraOverlayPath)
   const patches: PatchOptions[] = [
     ...surfacePatches,
+    // Mirror dsh web: launcher activation precedes the profile that may disable it.
+    WEB_RUNTIME_CONTEXT_ENABLE_PATCH,
     ...extraOverlayPatches,
     { id: 'session-persistence-jsonl', config: { root: persistenceRoot } },
     { id: 'session-query-sqlite', config: { path: ':memory:', openAt: 'first-search' } },
