@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-Web `ask_user_question` 功能插件。只有选择 Web 功能时，其主机侧才会挂载 `dsh-tool-ask-user`；浏览器侧会把 `question` 配置项注册到会话拥有的 `conversation.composer` 键控 slot 中。
+Web 提问功能插件：其浏览器侧把 `question` 配置项注册到会话拥有的 `conversation.composer` 键控 slot 中。其主机侧刻意为空——在那里挂载 `dsh-tool-ask-user` 会把工具放进注册表的**全局层**，而全局层会并入每一个 agent，无论它由哪个 preset 组装，于是一个"两工具"的 benchmark preset 实际会呈现三个。渲染提问是宿主的 UI 能力，拥有该工具则是 agent 的能力，因此 `tool-ask-user` 行属于需要它的各个 preset（以及没有 preset 的 TUI 组装）。
 
 组件每次渲染一个问题，提供进度导航、单选和多选选项、由标签后缀派生的推荐徽标，以及自定义答案。用户打开或编辑自定义答案时，多选题草稿会保留已选中的标签，因此提交项可以同时携带 `selected` 与 `custom`；单选题的自定义答案仍保持互斥。问题详情复用助手输出的 `MarkdownText` 原语，包括其 GFM 渲染与不受信任内容策略。限高卡片保持标题、导航与提交动作固定，超长的详情与选项共享内部滚动区。单选选项会立即前进；所有问题均已回答或跳过后，Enter 会提交；IME 输入法组合期间按 Enter 只会确认输入候选，不会前进。组件为整个请求提交一批结构化答案：「跳过此问题」会保留其他草稿，并为该项发出既有的空 `{ selected: [] }` 形状；关闭则以 `ASK_CANCELLED` 拒绝整个等待。
 

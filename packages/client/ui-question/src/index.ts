@@ -1,17 +1,14 @@
 /**
- * Web question plugin, node half: enabling this UI feature also exposes the
- * model-facing ask_user_question tool on the host composition.
+ * Web question plugin, node half.
+ *
+ * Deliberately empty. Mounting `ask_user_question` here put it in the tools
+ * registry's GLOBAL layer, so every agent saw it no matter which preset
+ * composed it — a two-tool benchmark preset actually presented three, and a
+ * locally authored `bash-only` preset presented two. Rendering a question is
+ * a host UI capability; having the tool is an agent capability, and only a
+ * preset decides that. The `tool-ask-user` row belongs in the presets that
+ * want it (and in the TUI composition, which has no presets).
  */
-import type { Context } from 'cordis'
-import * as toolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 
-/** Host services required by the model-facing tool. */
-export const inject = ['tools', 'userInteraction']
-
-/**
- * Mount ask_user_question for hosts that selected the Web question plugin.
- * @param ctx - Host plugin context carrying tools and userInteraction.
- */
-export function apply(ctx: Context): void {
-  toolAskUser.apply(ctx)
-}
+/** Host plugin body — the model-facing tool is composed per preset, not here. */
+export function apply(): void {}
