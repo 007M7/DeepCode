@@ -688,7 +688,7 @@ export class SubagentContinuationManager {
   }
 
   /**
-   * Cold-resume a persisted child: load and authorize its Session, fold the
+   * Cold-resume a persisted child: inspect and authorize its Session, fold the
    * generic descriptor, create the Activation through `ctx.agents.resume()`,
    * and submit the waiting turn. This never dispatches through a subagent
    * provider — the persisted Session already holds the initial prefix and the
@@ -701,13 +701,13 @@ export class SubagentContinuationManager {
     options: SubagentFollowupOptions,
   ): Promise<MessageId> {
     const persistence = this.requirePersistence()
-    let loaded: Awaited<ReturnType<typeof persistence.load>>
+    let loaded: Awaited<ReturnType<typeof persistence.inspect>>
     try {
-      loaded = await persistence.load(childId)
+      loaded = await persistence.inspect(childId, options.signal)
     } catch (error: unknown) {
+      options.signal.throwIfAborted()
       throw new SubagentError(`subagent "${childId}" is unavailable`, 'NOT_RESUMABLE', { cause: error })
     }
-    // The persistence seam takes no signal; recheck before any child work.
     options.signal.throwIfAborted()
     this.assertAdmitting(parent)
     // Authorize the persisted header before folding: only the durable child's
@@ -724,17 +724,24 @@ export class SubagentContinuationManager {
         'NOT_RESUMABLE',
       )
     }
-    const activation = await this.materialize({
-      childId,
-      provider: descriptor.provider,
-      parent,
-      agentOptions: {
-        ...descriptor.agentProvider !== undefined ? { provider: descriptor.agentProvider } : {},
-        ...descriptor.agentModel !== undefined ? { model: descriptor.agentModel } : {},
-      },
-      composition: { persona: descriptor.persona, toolFilter: descriptor.toolFilter },
-      signal: options.signal,
-    })
+    let activation: Activation
+    try {
+      activation = await this.materialize({
+        childId,
+        provider: descriptor.provider,
+        parent,
+        agentOptions: {
+          ...descriptor.agentProvider !== undefined ? { provider: descriptor.agentProvider } : {},
+          ...descriptor.agentModel !== undefined ? { model: descriptor.agentModel } : {},
+        },
+        composition: { persona: descriptor.persona, toolFilter: descriptor.toolFilter },
+        signal: options.signal,
+      })
+    } catch (error: unknown) {
+      options.signal.throwIfAborted()
+      if (error instanceof SubagentError) throw error
+      throw new SubagentError(`subagent "${childId}" is unavailable`, 'NOT_RESUMABLE', { cause: error })
+    }
     return this.submitMaterialized(activation, content, options.source, parent, options.signal)
   }
 

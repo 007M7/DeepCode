@@ -66,15 +66,15 @@ waterfall（瀑布式事件）是环绕中间件：监听器通过 `next()` 委�
 
 ## 默认循环生命周期
 
-**会话**采用仅追加方式。一个**轮次**领取一条已排队的后续消息，等待前一轮次的检查点，并可与其共用 `running` 区间（[决策](../.agents/notes/implemented/simplification/2026-07-17-one-send-one-turn.md)）；注入不领取输入。一个**步骤**包含一次模型请求及其工具。[时序](agent-lifecycle.md)中的引号标记持久事件。
+**会话**采用仅追加方式。一个**轮次**领取一条已排队的后续消息，等待前一轮次的检查点，并可与其共用 `running` 区间（[决策](../.agents/notes/implemented/simplification/2026-07-17-one-send-one-turn.md)）；注入不领取输入。一个**步骤**包含一次模型请求及其工具。新建与持久化恢复会先取得精确的未发布 `SessionPreparation`；只有基于该 Session 的私有设置准备完毕后，系统才会发布 agent 与会话（[决策](../.agents/notes/implemented/architecture/2026-08-05-session-preparation.md)）。[时序](agent-lifecycle.md)中的引号标记持久事件。
 
 创建时若未提供 id，流程会生成 `<config-id>-session-<uuid>`；`sessionId` 用于恢复或创建会话，而 `resumeSessionId` 要求已有历史。恢复流程在发布前还原沿袭关系和委托深度；初始化失败会发出 `agent-loop/config-start-failed`。
 
 ### 轮次流程
 
 ```text
-choose declarative identity and fresh/resume path
-  -> prepare private session + agent.ctx -> await unpublished setup
+choose declarative identity and acquire fresh/restored SessionPreparation
+  -> prepare private agent.ctx around exact Session -> await unpublished setup -> invoke optional synchronous setup commit
   -> enter session + agent -> session/created -> agent/created
   -> enable driving -> agent/session-start(source) -> start driver
 forever:
