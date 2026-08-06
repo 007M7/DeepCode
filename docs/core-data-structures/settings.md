@@ -17,7 +17,7 @@ type SettingsNamespace = Branded<'SettingsNamespace'>
 
 ## Registration
 
-Registration binds a schemastery schema to a namespace on the calling plugin's fiber — disposing that fiber removes the namespace and its observers. The options carry the composition layer and the owner's effect timing.
+Registration binds a schemastery schema to a namespace on the calling plugin's fiber — disposing that fiber removes the namespace and its observers. The options carry the composition layer, the owner's effect timing, and an optional check for what the schema cannot express.
 
 ```ts type-equiv
 /** Registration options beyond the namespace schema. */
@@ -26,8 +26,30 @@ interface SettingsRegisterOptions<T> {
   base?: Partial<T>
   /** Owner's effect timing, surfaced to configuration UIs; defaults to `live`. */
   applies?: SettingsApplies
+  /**
+   * Reject a resolved section the owner could not act on, for constraints its
+   * schema cannot express — a cross-field requirement, or one field's validity
+   * depending on another's. Throwing here refuses the *write* that produced the
+   * value, so a caller learns at `update`/`replace`/`mutate` instead of storing
+   * something that would silently disable the owner.
+   *
+   * Kept separate from the schema because the schema is also what a
+   * configuration surface renders and what an absent section resolves through;
+   * folding a cross-field check into it would change both.
+   *
+   * Once the owner is registered, a stored section that fails this keeps the
+   * namespace's last good value and warns, exactly as a schema failure does,
+   * so an externally edited document cannot strand a running owner. At
+   * registration there is no last good value yet, so a stored section that
+   * already fails rejects the registration itself — again exactly as a schema
+   * failure does.
+   * @param value - the resolved section, schema-valid by construction.
+   */
+  validate?: (value: T) => void
 }
 ```
+
+`validate` runs after the schema admits a value, so it sees defaults and the composition base exactly as the owner will. `dsh-llm-pi-ai` uses it to refuse a provider profile it could not serve at the write that produced it, rather than storing one that would disable every route in its namespace.
 
 `applies` is a UI hint, not a mechanism: a `restart` owner simply never watches, so its value is read once at construction and configuration surfaces can badge the pending change.
 

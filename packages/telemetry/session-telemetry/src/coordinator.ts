@@ -89,7 +89,7 @@ export class TelemetryCoordinator {
         this.hintFlush(session)
       })
     })
-    ctx.on('agent/error', (agent, turn, step, error) => {
+    ctx.on('agent/error', ({ agent, turn, step, error }) => {
       this.contain(() => {
         this.relayAgentError(agent, turn, step, error)
       })

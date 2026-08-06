@@ -19,7 +19,7 @@ afterEach(async () => { for (const d of dirs.splice(0)) await rm(d, { recursive:
 
 function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
-    const dispose = ctx.on('agent/status', (subject, status) => {
+    const dispose = ctx.on('agent/status', ({ agent: subject, status }) => {
       if (subject === agent && status === 'idle') { dispose(); resolve() }
     })
   })
@@ -170,7 +170,7 @@ describe('config-driven session id', () => {
     await cleanupStarted.promise
     expect(first.status).toBe('idle')
     const failures: unknown[] = []
-    ctx.on('agent-loop/config-start-failed', (_id, error) => { failures.push(error) })
+    ctx.on('agent-loop/config-start-failed', ({ error }) => { failures.push(error) })
     const secondLoop = await ctx.plugin(AgentLoop, config)
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(ctx.agents.get(sessionId)).toBe(first)
@@ -234,7 +234,7 @@ describe('config-driven session id', () => {
     const failures: { sessionId: SessionId; error: unknown }[] = []
     ctx.on('agent-loop/config-start-failed', () => { throw listenerFailure })
     ctx.on('agent-loop/config-start-failed', () => Promise.reject(asyncListenerFailure) as never)
-    ctx.on('agent-loop/config-start-failed', (sessionId, error) => {
+    ctx.on('agent-loop/config-start-failed', ({ sessionId, error }) => {
       failures.push({ sessionId, error })
     })
     vi.spyOn(ctx.sessionPersistence, 'list').mockRejectedValue(failure)
@@ -274,7 +274,7 @@ describe('config-driven session id', () => {
     // Deliberately violate the normal Error-only rejection rule to exercise the unknown boundary.
     // oxlint-disable-next-line typescript/prefer-promise-reject-errors
     ctx.on('agent-loop/config-start-failed', () => Promise.reject(unrenderable) as never)
-    ctx.on('agent-loop/config-start-failed', (_sessionId, error) => { failures.push(error) })
+    ctx.on('agent-loop/config-start-failed', ({ error }) => { failures.push(error) })
     vi.spyOn(ctx.sessionPersistence, 'list').mockRejectedValue(unrenderable)
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
 
@@ -307,7 +307,7 @@ describe('config-driven session id', () => {
       const released = vi.fn()
       const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
       const failures: unknown[] = []
-      ctx.on('agent-loop/config-start-failed', (_sessionId, error) => { failures.push(error) })
+      ctx.on('agent-loop/config-start-failed', ({ error }) => { failures.push(error) })
 
       const loop = await ctx.plugin(AgentLoop, {
         agents: [{ id: 'main', sessionId: SessionId('config-exact-dispose'), model: 'mock' }],
@@ -479,7 +479,7 @@ describe('startup reporting after factory teardown', () => {
     gate.promise.catch(() => undefined)
     vi.spyOn(ctx.sessionPersistence, 'list').mockReturnValue(gate.promise)
     const failures: unknown[] = []
-    ctx.on('agent-loop/config-start-failed', (_id, error) => { failures.push(error) })
+    ctx.on('agent-loop/config-start-failed', ({ error }) => { failures.push(error) })
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
 
     const loop = await ctx.plugin(AgentLoop, {

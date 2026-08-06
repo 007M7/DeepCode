@@ -209,8 +209,7 @@ async function workspaceContextOf(agent: Agent): Promise<UserMessage> {
 
 async function syncWorkspaceContext(ctx: Context, agent: Agent): Promise<void> {
   await agentEvents(ctx, agent).waterfall(
-    'agent/pre-step', [],
-    { turn: 1, step: 1, signal: testToolSignal },
+    'agent/pre-step', { messages: [], turn: 1, step: 1, signal: testToolSignal },
     async () => ({ kind: 'enter' as const, messages: [] }),
   )
 }
@@ -245,15 +244,13 @@ async function composeBaselinePrefix(ctx: Context, agent: Agent): Promise<Messag
   const signal = AbortSignal.timeout(1000)
   await agentEvents(ctx, agent).waterfall(
     'agent/pre-step',
-    [],
-    { turn: 1, step: 1, signal },
+    { messages: [], turn: 1, step: 1, signal },
     () => Promise.resolve({ kind: 'enter' as const, messages: [] }),
   )
   const claimed = agent.inbox.claim('next-step', 1)
   const decision = await agentEvents(ctx, agent).waterfall(
     'agent/pre-step',
-    claimed,
-    { turn: 1, step: 2, signal },
+    { messages: claimed, turn: 1, step: 2, signal },
     () => Promise.resolve({ kind: 'enter' as const, messages: claimed }),
   )
   const entered = decision.kind === 'enter' ? decision.messages : []
@@ -958,6 +955,267 @@ describe('workspace context request injection', () => {
     }
   })
 
+  it('retains one visible baseline across repeated session resumes', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'repo rule')
+      const ctx = new Context()
+      await mountWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
+      const original = stubAgent(root)
+      await composeBaselinePrefix(ctx, original)
+
+      const firstResume = stubAgent(root, [...original.session.events])
+      await composeBaselinePrefix(ctx, firstResume)
+      const secondResume = stubAgent(root, [...firstResume.session.events])
+      await composeBaselinePrefix(ctx, secondResume)
+
+      expect(baselineEvents(firstResume)).toHaveLength(1)
+      expect(baselineEvents(secondResume)).toHaveLength(1)
+      expect(secondResume.session.events.filter(event => event.type === 'user/message'
+        && event.data.source.kind === 'workspace-instructions')).toHaveLength(1)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('preserves a visible baseline when its source is unavailable during resume', async () => {
+    const root = join(await tempRepo(), 'virtual-repo')
+    const home = join(await tempRepo(), 'virtual-home')
+    const ctx = new Context()
+    try {
+      await ctx.plugin(RecordingFileSystem)
+      const fs = ctx.fs as RecordingFileSystem
+      fs.entries.set(join(root, '.git'), { type: 'directory' })
+      fs.entries.set(join(root, 'AGENTS.md'), { type: 'file', content: 'repo rule' })
+      await ctx.plugin(workspaceContext, { dshHome: home, maxBytes: 65536 })
+      const original = stubAgent(root)
+      await composeBaselinePrefix(ctx, original)
+
+      fs.throwOnStat.add(join(root, 'AGENTS.md'))
+      const resumed = stubAgent(root, [...original.session.events])
+      await composeBaselinePrefix(ctx, resumed)
+
+      expect(baselineEvents(resumed)).toHaveLength(1)
+      expect(resumed.session.events.filter(event => event.type === 'user/message'
+        && event.data.source.kind === 'workspace-instructions')).toHaveLength(1)
+    } finally {
+      await ctx.fiber.dispose()
+      await rm(dirname(root), { recursive: true, force: true })
+      await rm(dirname(home), { recursive: true, force: true })
+    }
+  })
+
+  it('does not promote an unchanged budget-omitted baseline file during resume', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      const cwd = join(root, 'pkg')
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'root '.repeat(200))
+      await write(join(cwd, 'AGENTS.md'), 'package rule')
+      const ctx = new Context()
+      await mountWorkspaceContext(ctx, { dshHome: home, maxBytes: 700 })
+      const original = stubAgent(cwd)
+      await composeBaselinePrefix(ctx, original)
+
+      const firstResume = stubAgent(cwd, [...original.session.events])
+      await composeBaselinePrefix(ctx, firstResume)
+      const secondResume = stubAgent(cwd, [...firstResume.session.events])
+      await composeBaselinePrefix(ctx, secondResume)
+
+      expect(baselineEvents(secondResume)).toHaveLength(1)
+      expect(secondResume.session.events.filter(event => event.type === 'user/message'
+        && event.data.source.kind === 'workspace-instructions')).toHaveLength(1)
+      expect(blocksText(secondResume.session.deriveMessages()[0]?.content)).toContain('omitted AGENTS.md')
+      expect(blocksText(secondResume.session.deriveMessages()[0]?.content)).not.toContain('root root')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('removes a previously visible baseline file that leaves the retained budget set', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      const cwd = join(root, 'pkg')
+      await mkdir(join(root, '.git'), { recursive: true })
+      await mkdir(cwd, { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'root '.repeat(200))
+      const ctx = new Context()
+      await mountWorkspaceContext(ctx, { dshHome: home, maxBytes: 700 })
+      const original = stubAgent(cwd)
+      await composeBaselinePrefix(ctx, original)
+
+      await write(join(cwd, 'AGENTS.md'), 'package rule')
+      const resumed = stubAgent(cwd, [...original.session.events])
+      await composeBaselinePrefix(ctx, resumed)
+
+      expect(baselineEvents(resumed)).toHaveLength(1)
+      const update = resumed.session.events.findLast(event => event.type === 'user/message'
+        && event.data.source.kind === 'workspace-instructions'
+        && event.data.source.baseline !== true)
+      expect(update?.type === 'user/message' && update.data.source.kind === 'workspace-instructions'
+        ? update.data.source.changes
+        : undefined).toMatchObject([
+        { action: 'remove', scope: sk('.', 'AGENTS.md'), path: 'AGENTS.md' },
+        { action: 'set', scope: sk('pkg', 'AGENTS.md'), path: join('pkg', 'AGENTS.md') },
+      ])
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('recomposes the baseline when candidate precedence changes between resumes', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    const originalCtx = new Context()
+    const resumedCtx = new Context()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'agents rule')
+      await write(join(root, 'CLAUDE.md'), 'claude rule')
+      await mountWorkspaceContext(originalCtx, { dshHome: home, maxBytes: 65536 })
+      const original = stubAgent(root)
+      await composeBaselinePrefix(originalCtx, original)
+
+      await mountWorkspaceContext(resumedCtx, {
+        dshHome: home,
+        maxBytes: 65536,
+        instructionFileCandidates: ['CLAUDE.md', 'AGENTS.md'],
+      })
+      const resumed = stubAgent(root, [...original.session.events])
+      await composeBaselinePrefix(resumedCtx, resumed)
+
+      const baselines = baselineEvents(resumed)
+      expect(baselines).toHaveLength(2)
+      const replacement = baselines.at(-1)
+      const replacementText = replacement?.type === 'user/message'
+        ? blocksText(replacement.data.content)
+        : ''
+      expect(replacementText).toContain('replaces all earlier workspace instruction baselines')
+      expect(replacementText.indexOf('Instructions from: CLAUDE.md'))
+        .toBeLessThan(replacementText.indexOf('Instructions from: AGENTS.md'))
+      const baselineIdentities = baselines.flatMap(event => event.type === 'user/message'
+        && event.data.source.kind === 'workspace-instructions'
+        && typeof event.data.source.baselineIdentity === 'string'
+        ? [event.data.source.baselineIdentity]
+        : [])
+      expect(new Set(baselineIdentities).size).toBe(2)
+
+      const repeated = stubAgent(root, [...resumed.session.events])
+      await composeBaselinePrefix(resumedCtx, repeated)
+      expect(baselineEvents(repeated)).toHaveLength(2)
+    } finally {
+      await originalCtx.fiber.dispose()
+      await resumedCtx.fiber.dispose()
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('tombstones candidates removed across successive baseline configurations', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    const agentsCtx = new Context()
+    const claudeCtx = new Context()
+    const restoredCtx = new Context()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'agents rule')
+      await write(join(root, 'CLAUDE.md'), 'claude rule')
+      await mountWorkspaceContext(agentsCtx, {
+        dshHome: home,
+        maxBytes: 65536,
+        instructionFileCandidates: ['AGENTS.md'],
+      })
+      const original = stubAgent(root)
+      await composeBaselinePrefix(agentsCtx, original)
+
+      await mountWorkspaceContext(claudeCtx, {
+        dshHome: home,
+        maxBytes: 65536,
+        instructionFileCandidates: ['CLAUDE.md'],
+      })
+      const claudeResume = stubAgent(root, [...original.session.events])
+      await composeBaselinePrefix(claudeCtx, claudeResume)
+      const claudeBaseline = baselineEvents(claudeResume).at(-1)
+      expect(claudeBaseline?.type === 'user/message' && claudeBaseline.data.source.kind === 'workspace-instructions'
+        ? claudeBaseline.data.source.changes
+        : undefined).toMatchObject([
+        { action: 'remove', scope: sk('.', 'AGENTS.md'), path: 'AGENTS.md' },
+        { action: 'set', scope: sk('.', 'CLAUDE.md'), path: 'CLAUDE.md' },
+      ])
+
+      await mountWorkspaceContext(restoredCtx, {
+        dshHome: home,
+        maxBytes: 65536,
+        instructionFileCandidates: ['AGENTS.md'],
+      })
+      const restored = stubAgent(root, [...claudeResume.session.events])
+      await composeBaselinePrefix(restoredCtx, restored)
+      const restoredBaseline = baselineEvents(restored).at(-1)
+      expect(restoredBaseline?.type === 'user/message' && restoredBaseline.data.source.kind === 'workspace-instructions'
+        ? restoredBaseline.data.source.changes
+        : undefined).toMatchObject([
+        { action: 'remove', scope: sk('.', 'CLAUDE.md'), path: 'CLAUDE.md' },
+        { action: 'set', scope: sk('.', 'AGENTS.md'), path: 'AGENTS.md' },
+      ])
+    } finally {
+      await agentsCtx.fiber.dispose()
+      await claudeCtx.fiber.dispose()
+      await restoredCtx.fiber.dispose()
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('supersedes an incompatible visible baseline when no current candidate exists', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    const originalCtx = new Context()
+    const resumedCtx = new Context()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'agents rule')
+      await mountWorkspaceContext(originalCtx, { dshHome: home, maxBytes: 65536 })
+      const original = stubAgent(root)
+      await composeBaselinePrefix(originalCtx, original)
+
+      await mountWorkspaceContext(resumedCtx, {
+        dshHome: home,
+        maxBytes: 65536,
+        instructionFileCandidates: ['POLICY.md'],
+      })
+      const resumed = stubAgent(root, [...original.session.events])
+      await composeBaselinePrefix(resumedCtx, resumed)
+
+      const baselines = baselineEvents(resumed)
+      expect(baselines).toHaveLength(2)
+      const replacement = baselines.at(-1)
+      expect(replacement?.type === 'user/message' ? blocksText(replacement.data.content) : '')
+        .toContain('No workspace instructions are currently active.')
+      expect(replacement?.type === 'user/message' && replacement.data.source.kind === 'workspace-instructions'
+        ? replacement.data.source.changes
+        : undefined).toMatchObject([
+        { action: 'remove', scope: sk('.', 'AGENTS.md'), path: 'AGENTS.md' },
+      ])
+
+      const repeated = stubAgent(root, [...resumed.session.events])
+      await composeBaselinePrefix(resumedCtx, repeated)
+      expect(baselineEvents(repeated)).toHaveLength(2)
+    } finally {
+      await originalCtx.fiber.dispose()
+      await resumedCtx.fiber.dispose()
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
   it('reuses an inserted but unadmitted baseline after session recovery and plugin reload', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
@@ -969,8 +1227,7 @@ describe('workspace context request injection', () => {
       const original = stubAgent(root)
       await agentEvents(ctx, original).waterfall(
         'agent/pre-step',
-        [],
-        { turn: 1, step: 1, signal: AbortSignal.timeout(1000) },
+        { messages: [], turn: 1, step: 1, signal: AbortSignal.timeout(1000) },
         () => Promise.resolve({ kind: 'enter' as const, messages: [] }),
       )
       const inserted = original.inbox.nextStep[0]
@@ -979,12 +1236,11 @@ describe('workspace context request injection', () => {
       await fiber.dispose()
       await ctx.plugin(workspaceContext, { dshHome: home, maxBytes: 65536 })
       const resumed = stubAgent(root, [...original.session.events])
-      agentEvents(ctx, resumed).emit('agent/session-start', 'resume')
+      agentEvents(ctx, resumed).emit('agent/session-start', { source: 'resume' })
       const claimed = resumed.inbox.claim('next-step', 1)
       const decision = await agentEvents(ctx, resumed).waterfall(
         'agent/pre-step',
-        claimed,
-        { turn: 1, step: 1, signal: AbortSignal.timeout(1000) },
+        { messages: claimed, turn: 1, step: 1, signal: AbortSignal.timeout(1000) },
         () => Promise.resolve({ kind: 'enter' as const, messages: claimed }),
       )
       if (decision.kind !== 'enter') throw new Error('recovered baseline was rejected')
@@ -1016,8 +1272,7 @@ describe('workspace context request injection', () => {
       const original = stubAgent(root)
       await agentEvents(ctx, original).waterfall(
         'agent/pre-step',
-        [],
-        { turn: 1, step: 1, signal: AbortSignal.timeout(1000) },
+        { messages: [], turn: 1, step: 1, signal: AbortSignal.timeout(1000) },
         () => Promise.resolve({ kind: 'enter' as const, messages: [] }),
       )
       const stale = original.inbox.nextStep[0]
@@ -1027,12 +1282,11 @@ describe('workspace context request injection', () => {
       await fiber.dispose()
       await ctx.plugin(workspaceContext, { dshHome: home, maxBytes: 65536 })
       const resumed = stubAgent(root, [...original.session.events])
-      agentEvents(ctx, resumed).emit('agent/session-start', 'resume')
+      agentEvents(ctx, resumed).emit('agent/session-start', { source: 'resume' })
       const staleClaim = resumed.inbox.claim('next-step', 1)
       const staleDecision = await agentEvents(ctx, resumed).waterfall(
         'agent/pre-step',
-        staleClaim,
-        { turn: 1, step: 1, signal: AbortSignal.timeout(1000) },
+        { messages: staleClaim, turn: 1, step: 1, signal: AbortSignal.timeout(1000) },
         () => Promise.resolve({ kind: 'enter' as const, messages: staleClaim }),
       )
 
@@ -1071,8 +1325,7 @@ describe('workspace context request injection', () => {
       const original = stubAgent(root)
       await agentEvents(originalCtx, original).waterfall(
         'agent/pre-step',
-        [],
-        { turn: 1, step: 1, signal: AbortSignal.timeout(1000) },
+        { messages: [], turn: 1, step: 1, signal: AbortSignal.timeout(1000) },
         () => Promise.resolve({ kind: 'enter' as const, messages: [] }),
       )
       const stale = original.inbox.nextStep[0]
@@ -1082,12 +1335,11 @@ describe('workspace context request injection', () => {
       if (provideFs) await resumedCtx.plugin(LocalFileSystem, { cwd: '/' })
       await resumedCtx.plugin(workspaceContext, { dshHome: home, maxBytes })
       const resumed = stubAgent(root, [...original.session.events])
-      agentEvents(resumedCtx, resumed).emit('agent/session-start', 'resume')
+      agentEvents(resumedCtx, resumed).emit('agent/session-start', { source: 'resume' })
       const claimed = resumed.inbox.claim('next-step', 1)
       const decision = await agentEvents(resumedCtx, resumed).waterfall(
         'agent/pre-step',
-        claimed,
-        { turn: 1, step: 1, signal: AbortSignal.timeout(1000) },
+        { messages: claimed, turn: 1, step: 1, signal: AbortSignal.timeout(1000) },
         () => Promise.resolve({ kind: 'enter' as const, messages: claimed }),
       )
 
@@ -1191,8 +1443,7 @@ describe('workspace context request injection', () => {
 
       const decision = await agentEvents(ctx, agent).waterfall(
         'agent/pre-step',
-        [prompt],
-        { turn: 1, step: 1, signal: AbortSignal.timeout(1000) },
+        { messages: [prompt], turn: 1, step: 1, signal: AbortSignal.timeout(1000) },
         () => Promise.resolve(downstream),
       )
 
@@ -1249,8 +1500,7 @@ describe('workspace context request injection', () => {
 
       const decision = await agentEvents(ctx, agent).waterfall(
         'agent/pre-step',
-        [],
-        { turn: 1, step: 1, signal: AbortSignal.timeout(1000) },
+        { messages: [], turn: 1, step: 1, signal: AbortSignal.timeout(1000) },
         () => Promise.resolve(downstream),
       )
 
@@ -1334,7 +1584,50 @@ describe('workspace context request injection', () => {
     }
   })
 
-  it('recomposes the baseline from current files when a resumed session edited it offline', async () => {
+  it('folds a compacted baseline into the next entering pre-step before another filesystem touch', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'first post-compaction request rule')
+      const ctx = new Context()
+      await mountWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
+      const agent = stubAgent(root)
+      await composeBaselinePrefix(ctx, agent)
+      const baseline = baselineEvents(agent)[0]
+      expect(baseline).toBeDefined()
+
+      agent.session.append('user/message', createUserMessage({
+        content: [{ type: 'text', text: 'compacted summary' }],
+        source: { kind: 'plugin', plugin: 'compact' },
+      }), {
+        surfaceOp: { op: 'replace', start: baseline!.seq, end: baseline!.seq },
+        sourceEventSeqs: [baseline!.seq],
+      })
+      const prompt = createUserMessage({
+        content: [{ type: 'text', text: 'continue after compaction' }],
+        source: { kind: 'user' },
+      })
+
+      const decision = await agentEvents(ctx, agent).waterfall(
+        'agent/pre-step',
+        { messages: [prompt], turn: 2, step: 1, signal: AbortSignal.timeout(1000) },
+        () => Promise.resolve({ kind: 'enter' as const, messages: [prompt] }),
+      )
+
+      if (decision.kind !== 'enter') throw new Error('post-compaction request was rejected')
+      expect(decision.messages).toHaveLength(2)
+      expect(decision.messages[0]).toBe(prompt)
+      expect(decision.messages[1]?.source).toMatchObject({ kind: 'workspace-instructions', baseline: true })
+      expect(blocksText(decision.messages[1]?.content)).toContain('first post-compaction request rule')
+      expect(agent.inbox.nextStep).toEqual([])
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('appends a replacement transition when a resumed session edited its baseline offline', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     try {
@@ -1345,24 +1638,22 @@ describe('workspace context request injection', () => {
       const original = stubAgent(root)
       await composeBaselinePrefix(ctx, original)
 
-      // Offline edit to the baseline file, then resume on a fresh session whose
-      // seeded log already carries the original baseline. A resumed session is
-      // registered after this mount's apply(), so the remount guard never seeds
-      // it: its first step re-composes a fresh baseline from current files,
-      // reflecting the offline edit before the first resumed request. The old
-      // baseline stays in history unmutated (note: resume without mutating an
-      // earlier history event).
+      // The first resumed pre-step retains the compatible visible baseline and
+      // appends only the offline file transition needed to reach current state.
       await write(join(root, 'AGENTS.md'), 'new root rule after offline edit')
       const resumed = stubAgent(root, [...original.session.events])
 
       // Resume announces its lifecycle start before the first step.
-      agentEvents(ctx, resumed).emit('agent/session-start', 'resume')
+      agentEvents(ctx, resumed).emit('agent/session-start', { source: 'resume' })
       await composeBaselinePrefix(ctx, resumed)
 
       const baselines = baselineEvents(resumed)
       expect(baselines).toHaveLength(1)
       const latest = resumed.session.events.findLast(event =>
         event.type === 'user/message' && event.data.source.kind === 'workspace-instructions')
+      expect(latest?.type === 'user/message' ? latest.data.source : undefined).toMatchObject({
+        changes: [{ action: 'replace', scope: sk('.', 'AGENTS.md'), path: 'AGENTS.md' }],
+      })
       expect(latest?.type === 'user/message' && blocksText(latest.data.content))
         .toContain('new root rule after offline edit')
       const original0 = baselines[0]
@@ -1404,7 +1695,7 @@ describe('workspace context request injection', () => {
       await write(join(root, 'AGENTS.md'), 'repo rule')
       const ctx = new Context()
       await mountWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      ctx.on('agent/pre-step', async (_agent, _messages, _context, next) => {
+      ctx.on('agent/pre-step', async (_payload, next) => {
         const decision = await next()
         if (decision.kind === 'reject') return decision
         return {
@@ -1678,8 +1969,7 @@ describe('workspace context request injection', () => {
       const reason = new Error('cancel prefix')
       const pending = agentEvents(ctx, stubAgent(root)).waterfall(
         'agent/pre-step',
-        [],
-        { turn: 1, step: 1, signal: controller.signal },
+        { messages: [], turn: 1, step: 1, signal: controller.signal },
         () => Promise.resolve({ kind: 'enter' as const, messages: [] }),
       )
 
@@ -2765,6 +3055,80 @@ describe('dynamic nested workspace context injection', () => {
       await ctx.fiber.dispose()
       await rm(dirname(root), { recursive: true, force: true })
       await rm(dirname(home), { recursive: true, force: true })
+    }
+  })
+
+  it('ignores an unavailable scope whose visible state is already removed', async () => {
+    const root = join(await tempRepo(), 'virtual-repo')
+    const home = join(await tempRepo(), 'virtual-home')
+    const ctx = new Context()
+    try {
+      await ctx.plugin(RecordingFileSystem)
+      const fs = ctx.fs as RecordingFileSystem
+      fs.entries.set(join(root, '.git'), { type: 'directory' })
+      fs.throwOnStat.add(join(root, 'pkg/AGENTS.md'))
+      const agent = stubAgent(root)
+      agent.session.append('user/message', createUserMessage({
+        content: [{ type: 'text', text: 'removed nested instructions' }],
+        source: {
+          kind: 'workspace-instructions',
+          form: 'instructions',
+          changes: [{ action: 'remove', scope: sk('pkg', 'AGENTS.md'), path: join('pkg', 'AGENTS.md') }],
+        },
+      }), { surfaceOp: 'append' })
+      const resolved = resolveConfig({
+        dshHome: home,
+        maxBytes: 65536,
+        instructionFileCandidates: ['AGENTS.md'],
+        localInstructionFileCandidates: [],
+      })
+
+      const result = await reconcileInstructionContext(agent, resolved, new WeakMap(), fs, {
+        authorityMessages: [],
+        scopeMessages: [],
+        touchedPaths: [],
+        includeBaselineScopes: false,
+        signal: testToolSignal,
+      })
+
+      expect(result).toBeUndefined()
+    } finally {
+      await ctx.fiber.dispose()
+      await rm(dirname(root), { recursive: true, force: true })
+      await rm(dirname(home), { recursive: true, force: true })
+    }
+  })
+
+  it('loads one transition when user-global and project scopes resolve to the same file', async () => {
+    const root = join(await tempRepo(), 'virtual-repo')
+    const ctx = new Context()
+    try {
+      await ctx.plugin(RecordingFileSystem)
+      const fs = ctx.fs as RecordingFileSystem
+      fs.entries.set(join(root, '.git'), { type: 'directory' })
+      fs.entries.set(join(root, 'AGENTS.md'), { type: 'file', content: 'shared rule' })
+      const agent = stubAgent(root)
+      const resolved = resolveConfig({
+        dshHome: root,
+        maxBytes: 65536,
+        instructionFileCandidates: ['AGENTS.md'],
+        localInstructionFileCandidates: [],
+      })
+
+      const result = await reconcileInstructionContext(agent, resolved, new WeakMap(), fs, {
+        authorityMessages: [],
+        scopeMessages: [],
+        touchedPaths: [],
+        includeBaselineScopes: true,
+        signal: testToolSignal,
+      })
+
+      expect(result?.context.source).toMatchObject({
+        changes: [{ action: 'set', scope: sk(USER_GLOBAL_DIRECTORY, USER_GLOBAL_FILE) }],
+      })
+    } finally {
+      await ctx.fiber.dispose()
+      await rm(dirname(root), { recursive: true, force: true })
     }
   })
 
@@ -3868,8 +4232,7 @@ describe('workspace context inbox synchronization', () => {
       controller.abort(new Error('abort pre-step reconciliation'))
 
       await expect(agentEvents(ctx, agent).waterfall(
-        'agent/pre-step', [],
-        { turn: 1, step: 1, signal: controller.signal },
+        'agent/pre-step', { messages: [], turn: 1, step: 1, signal: controller.signal },
         async () => ({ kind: 'enter' as const, messages: [] }),
       )).rejects.toThrow('abort pre-step reconciliation')
 
@@ -3979,8 +4342,7 @@ describe('workspace context inbox synchronization', () => {
       const downstream = { kind: 'enter' as const, messages: claimed }
 
       const decision = await agentEvents(ctx, agent).waterfall(
-        'agent/pre-step', claimed,
-        { turn: 1, step: 1, signal: testToolSignal },
+        'agent/pre-step', { messages: claimed, turn: 1, step: 1, signal: testToolSignal },
         async () => downstream,
       )
 

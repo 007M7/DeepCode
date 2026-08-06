@@ -75,7 +75,7 @@ function prePublicationAbort(): Error {
 /** Append one one-shot descriptor inside the child's initial turn before its first request. */
 function attachDescriptorAppend(childCtx: Context, descriptor: SubagentDescriptorData): void {
   let appended = false
-  childCtx.on('agent/pre-step', async (agent, _messages, _context, next) => {
+  childCtx.on('agent/pre-step', async ({ agent }, next) => {
     const decision = await next()
     if (!appended && decision.kind === 'enter') {
       appended = true
