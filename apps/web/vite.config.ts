@@ -22,32 +22,40 @@ function rejectStandaloneServe(): Plugin {
  * Vendor-chunk membership, by exact npm package name — the heavy render
  * families (math, highlight, markdown) that change only on dependency bumps.
  * Only packages workspace code imports DIRECTLY need listing: their private
- * transitive dependencies (unified/hast/oniguruma machinery, ~50 packages)
- * are imported solely by these and rollup's chunk coloring pulls them into
+ * transitive dependencies (oniguruma machinery, character tables, …) are
+ * imported solely by these and rollup's chunk coloring pulls them into
  * vendor automatically. A dependency shared with index-side code falls back
  * to index — a few kB of dilution, never a correctness problem. Anything not
  * listed (react family, the vendored cordis workspace, tiny helpers like
  * anser/clsx, all workspace code) stays in the default `index` chunk, so
  * editing shell code re-hashes only index and returning clients keep the
  * cached vendor chunk.
+ *
+ * Boundary invariant: every member must be react-free. A package that
+ * imports react/jsx-runtime must never be listed — rollup folds a module
+ * shared between the entry and a manual chunk into the manual chunk, so one
+ * react-importing member would drag the single shared react copy into
+ * vendor. The React side of markdown/math rendering is workspace code and
+ * rides index.
  */
 const VENDOR_PACKAGES: ReadonlySet<string> = new Set([
   // math
   'katex',
-  'rehype-katex',
   // syntax highlight (@shikijs/langs is handled separately below —
   // lazy grammars must not land here)
   'shiki',
-  // markdown pipeline
-  'react-markdown',
-  'remark-gfm',
-  'remark-math',
+  // markdown parse pipeline (micromark/mdast; the incremental React renderer
+  // over it is workspace code)
   'mdast-util-from-markdown',
   'mdast-util-gfm',
+  'mdast-util-math',
+  'micromark-core-commonmark',
   'micromark-extension-gfm',
   'micromark-extension-math',
   'micromark-factory-space',
   'micromark-util-character',
+  'micromark-util-classify-character',
+  'micromark-util-sanitize-uri',
   'micromark-util-symbol',
   'micromark-util-types',
 ])
@@ -74,7 +82,8 @@ function npmPackageOf(id: string): string | undefined {
   if (parts.length === 1) return undefined
   const [first, second] = parts[parts.length - 1].split('/')
   if (first.startsWith('.')) return undefined // .pnpm store segment, not a package
-  return first.startsWith('@') ? `${first}/${second}` : first
+  if (first.startsWith('@')) return second === undefined ? undefined : `${first}/${second}`
+  return first
 }
 
 export default defineConfig({
