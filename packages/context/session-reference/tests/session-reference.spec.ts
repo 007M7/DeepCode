@@ -97,25 +97,19 @@ function appendConversation(session: Session): void {
     { surfaceOp: 'append' },
   )
   session.append(
-    'steering/message',
-    {
-      turn: 2,
-      message: createUserMessage({
-        content: [{ type: 'text', text: 'human steer' }],
-        source: { kind: 'user' },
-      }),
-    },
+    'user/message',
+    createUserMessage({
+      content: [{ type: 'text', text: 'human steer' }],
+      source: { kind: 'user' },
+    }),
     { surfaceOp: 'append' },
   )
   session.append(
-    'steering/message',
-    {
-      turn: 2,
-      message: createUserMessage({
-        content: [{ type: 'text', text: 'plugin steer' }],
-        source: { kind: 'plugin', plugin: 'goal' },
-      }),
-    },
+    'user/message',
+    createUserMessage({
+      content: [{ type: 'text', text: 'plugin steer' }],
+      source: { kind: 'plugin', plugin: 'goal' },
+    }),
     { surfaceOp: 'append' },
   )
   session.append(
@@ -161,14 +155,11 @@ function appendConversation(session: Session): void {
     { surfaceOp: 'append' },
   )
   session.append(
-    'steering/message',
-    {
-      turn: 2,
-      message: createUserMessage({
-        content: [{ type: 'reasoning', text: 'empty projected steering' }],
-        source: { kind: 'user' },
-      }),
-    },
+    'user/message',
+    createUserMessage({
+      content: [{ type: 'reasoning', text: 'empty projected steering' }],
+      source: { kind: 'user' },
+    }),
     { surfaceOp: 'append' },
   )
   session.append(

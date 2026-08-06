@@ -9,7 +9,7 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { LlmRetryEventData } from '@deepseek-ai/dsh-llm-retry/types'
 import type { TodoItem } from '@deepseek-ai/dsh-session/types'
 import type {
-  InboxItemId, RpcError, SessionId, SubagentAddress, ToolCallView, ToolResultView,
+  RpcError, SessionId, SubagentAddress, ToolCallView, ToolResultView,
 } from '@deepseek-ai/dsh-client-connection/client'
 import type { PendingInteraction } from './pending.ts'
 import type { ContextProvenanceView, KnownContextForm } from './context-provenance.ts'
@@ -103,15 +103,14 @@ export interface AssistantMessageNode {
   interrupted?: true
 }
 
-/** A steering message injected mid-turn. */
+/** A human message admitted from the next-step inbox while a turn was running. */
 export interface SteeringMessageNode {
   kind: 'steering'
-  /** Stable identity shared with its pre-admission inbox occurrence. */
+  /** Stable message identity shared with its pre-admission inbox occurrence. */
   messageId: MessageId
   seq: number
   /** Unix epoch ms from the source session event. */
   time: number
-  turn: number
   content: readonly ContentBlock[]
   source: unknown
 }
@@ -281,11 +280,11 @@ export interface RunningToolCall {
 
 /** One transient inbox occurrence from the authoritative `session/queue` snapshot. */
 export interface QueuedMessage {
-  readonly id: InboxItemId
+  readonly id: MessageId
   /** Stable message identity used for transient-to-durable steering handoff. */
   readonly messageId: MessageId
   /** Agent-resolved placement; only queued rows accept queue mutations. */
-  readonly placement: 'queued' | 'steering'
+  readonly placement: 'queued' | 'steering' | 'context'
   /** Complete content used to render pending steering before it becomes durable. */
   readonly content: readonly ContentBlock[]
   readonly preview: string

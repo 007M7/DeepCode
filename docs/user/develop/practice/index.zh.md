@@ -2,6 +2,10 @@
 
 [English](index.md) | 中文
 
+本文分为两部分：先参考三层能力模式的概念，再通过高级教程构建一项能力。请先完成[基础插件路径](../basic/)和[服务教程](../framework/service.md)。
+
+## 概念参考
+
 当一项能力足够通用，需要支持可替换的实现时（例如 Bash 执行），Harness 会将其拆成三个包：**接口**、**实现**和**消费方**。这样便可独立替换其中任何一层。
 
 ## 以 Bash 为例
@@ -32,10 +36,7 @@
 # Local execution
 - name: '@deepseek-ai/dsh-bash-local'
 
-# Or a future remote sandbox implementation
-# - name: '@deepseek-ai/dsh-bash-remote'
-#   config:
-#     endpoint: 'https://sandbox.example.com'
+# Replace this row with another package that implements the same service.
 ```
 
 更换实现时，接口和工具均保持不变。
@@ -52,17 +53,9 @@
 - 消费方依赖接口。
 - 实现和消费方**互不依赖**。
 
-## Harness 中内置的三件套
+当前内置系列及其包链接由[能力 seam 参考](../../../capability-seams.md)负责。
 
-| 能力 | 接口（seam） | 实现 | 消费方（工具） |
-|------|-------------|------|---------------|
-| Bash | `dsh-bash` | `dsh-bash-local` | `dsh-tool-bash` |
-| 文件系统 | `dsh-fs` | `dsh-fs-local` + `dsh-fs-policy` | `dsh-tool-fs` |
-| Web | `dsh-web` | `dsh-web-fetch-local` / `dsh-web-search-*` | `dsh-tool-web` |
-| 子代理 | `dsh-subagent` | `dsh-subagent-spawn` / `dsh-subagent-fork` | `dsh-tool-subagent` |
-| 压缩 | `dsh-compact` | `dsh-compact-basic` | 由实现插件消费 agent-loop 的扩展事件 |
-
-## 开发你自己的三件套
+## 教程：开发三层能力
 
 ### 第一步：定义接口
 

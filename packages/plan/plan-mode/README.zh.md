@@ -8,7 +8,7 @@
 
 `plan/mode`（`{ active: boolean }`）是一个仅存在于日志中、每次以完整值替换的 `SessionEventMap` 成员。`foldPlanMode(events)` 返回最后记录的值，如果没有则返回 `false`，因此恢复、fork 和压缩（compaction）都能直接从会话日志恢复 plan 状态。UI 通过 `session/event` 观察已提交的切换。
 
-`ctx.planMode.set(agent, active)` 在 agent 空闲时立即提交：下一个 prompt 前不会出现任何边界，因此独立的 `plan/mode` 事件会立即写入日志。agent 运行时，该方法会暂存选择，直到下一个轮内请求边界再生效；返回值区分 `committed`、`queued`、反转待处理选择的 `cancelled` 和 `noop`。`get(agent)` 返回 `{ active, pending? }`，将塑造当前步骤的日志状态与用户在轮次中作出的选择分开。此机制覆盖提示词提交、常规继续执行和请求恢复重试；当最后记录的请求头描述了另一种状态时，用户选择的变更会追加一条来源为插件的 `user/message` 通知，两条提交路径都遵循这一规则。
+`ctx.planMode.set(agent, active)` 在 agent 空闲时立即提交——下一个 prompt 之前不会有任何边界到来，因此独立的 `plan/mode` 事件当场落账——在 agent 运行中则持有待生效选择、等下一个被接受的轮内 pre-step；返回值说明发生了哪种（`committed`/`queued`）、一次 `cancelled` 反转或 `noop`。`get(agent)` 返回 `{ active, pending? }`，将塑造当前步骤的日志状态与用户的轮中选择分开。初始与续步 pre-step 边界都在覆盖范围内；同一步骤的请求恢复重试会复用已冻结的 assembly，并将该选择保留到下一个 pre-step。当最后记录的请求头描述了另一状态时，用户选择的变更会贡献一条插件来源的 `user/message` 通知（两条提交路径皆然）。
 
 ## 模型与人类交互
 
@@ -18,7 +18,7 @@
 
 组合 `ctx.commands` 时，该包会注册 `/plan [message]`，并将参数恰好为 `off` 的情况保留给直接退出。不带参数的 `/plan` 会启用 plan mode；任何其他非空参数都会先启用 plan mode，再通过 `agent.steer()` 提交，因此它会在 plan 引导下成为下一步骤的常规已记录用户消息。`/plan off` 会选择停用状态，不发送模型输入；它还可以在启用 plan mode 的待处理选择到达请求边界之前将其取消。
 
-TUI 使用该插件提供的 `/plan` 命令；其他入口可以直接驱动同一服务，无需定义第二套 mode 词汇。
+Web 客户端使用该插件提供的 `/plan` 命令；其他入口可以直接驱动同一服务，无需定义第二套 mode 词汇。
 
 ## 会话投影
 
@@ -94,5 +94,4 @@ mode 转换不改变工具目录；plan 参数与评审结果按常规方式扩�
 - Plan mode 只进行引导，而不强制执行；需要硬边界的部署必须组合独立的沙箱与批准控制。
 - 如果进程在下一个边界之前退出，空闲时作出的待生效选择会丢失，因此 UI 必须重新应用它。
 - Fork 的 agent 会继承已记录的 plan 状态，新 spawn 的 agent 则从未激活状态开始；不存在创建时 plan 选项。
-- `exit_plan_mode` 评审弧有一个组装应用快照，即 Web `plan-review` e2e 通道（提交 → 决定卡片 → 已批准切换）。已拒绝反馈与放弃审阅两个分支仅由包测试覆盖，TUI 无密钥场景只演练 `/plan` 进入和 `/plan off` 退出。
-- 只有 Web UI 渲染 `plan-review` 意图；TUI 通过其通用问题流程呈现该评审，可以回答，但读起来不像一个计划关口。
+- 只有 Web UI 具备专用的 `plan-review` 渲染器；其他交互提供方可以通过通用选项流程呈现同一请求。

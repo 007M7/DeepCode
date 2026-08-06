@@ -19,6 +19,7 @@ export interface Config {
 /** Stable machine-routable failure taxonomy for session reads, traces, and search. */
 export type SessionQueryErrorCode =
   | 'SESSION_QUERY_ABORTED'
+  | 'SESSION_QUERY_CORRUPT_SESSION'
   | 'SESSION_QUERY_EVENT_NOT_FOUND'
   | 'SESSION_QUERY_INDEX_FAILED'
   | 'SESSION_QUERY_INVALID_CONFIG'

@@ -1,7 +1,7 @@
 // Synthetic long-chat history for browser behavior contracts. The fixture is
 // generated through Session so pagination exercises the same event shapes as
-// persisted conversations, while unique markers let tests identify semantic
-// rows without depending on CSS-module names or the eventual virtualizer DOM.
+// persisted conversations, while unique markers identify semantic rows
+// without depending on CSS-module names or virtualizer DOM positions.
 import {
   CallId,
   createAssistantMessage,
@@ -184,7 +184,6 @@ export function createChatScrollFixture(options: ChatScrollFixtureOptions): Chat
   for (let turn = 1; turn <= turns; turn += 1) {
     session.append('turn/start', {
       turn,
-      trigger: { kind: 'message', source: { kind: 'user' } },
     })
     const user = session.append('user/message', createUserMessage({
       content: text(

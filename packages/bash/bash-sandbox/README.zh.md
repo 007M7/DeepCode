@@ -36,8 +36,6 @@
   name: '@deepseek-ai/dsh-bash-sandbox'
 ```
 
-无密钥消费方集成证明是 `tests/bwrap.e2e.ts`、`tests/landlock.e2e.ts` 和 `tests/seatbelt.e2e.ts`（通过 `ctx.bash` 驱动真实提供方 + 真实 runner，从外部验证实际文件效果，并在相应 runner 缺失时各自自行跳过）。agent-spine e2e 还会在一个 Cordis 上下文中驱动两个并发会话，并证明每个真实 bash 工具调用只能写入自身项目。可运行 demo 见 [acp-agent 示例的默认组合](../../../examples/acp-agent/)。
-
 ## 模型体验
 
 ### 间接的 Bash 工具 schema

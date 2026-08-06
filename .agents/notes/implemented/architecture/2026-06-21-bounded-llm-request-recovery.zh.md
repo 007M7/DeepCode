@@ -4,11 +4,11 @@ Status: implemented
 
 [English](2026-06-21-bounded-llm-request-recovery.md) | 中文
 
-[按提供方配置的请求重试策略](../feature/2026-07-24-provider-retry-policies.md)在此基础上增加了确切提供方配置与显式无界 mode。本说明继续负责结构化失败事实、已关闭步骤的恢复边界、normal mode 的暂时性默认值、可见的单次尝试和持久重试状态。
+[按提供方配置的请求重试策略](../feature/2026-07-24-provider-retry-policies.md)在此基础上增加了确切提供方配置与显式无界 mode。本说明继续负责结构化失败事实、已关闭步骤的恢复边界、normal mode 的暂时性默认值、可见的单次尝试和持久重试状态。[LLM 流的终止失败](2026-07-29-terminal-llm-stream-failures.md)取代了其中关于抛出错误身份和 stream sidecar 的机制。
 
 ## 问题
 
-`dsh-llm` 可能在适配器分发或迭代时抛出异常，也可能以 `finish { kind: 'error' | 'aborted' }` 结束，以这两种形式报告提供方失败。最终适配器边界会标记抛出的失败，使 `dsh-agent-loop` 能将其与中间件和结果处理缺陷区分开。循环关闭失败步骤后，会把两种交付形式统一规范化为 `agent/request-error`。未被处理的失败是终态；处理失败的监听器修复策略自有状态，返回 `{ kind: 'retry' }`，并停止 waterfall（瀑布式事件）委托。[重试动作决策](../simplification/2026-07-27-request-error-retry-action.md)规定这一返回契约。
+提供方适配器可能在分发或迭代时抛出异常，也可能以 `finish { kind: 'error' | 'aborted' }` 结束。最终适配器边界会在 `dsh-agent-loop` 接收前把抛出值规范化为该终止 finish 协议；middleware 与结果处理缺陷仍会抛出。loop 会将终止模型请求失败交给 `agent/request-error`。未被处理的失败是终态；处理失败的监听器修复策略自有状态，返回 `{ kind: 'retry' }`，并停止 waterfall 委托。[重试动作决策](../simplification/2026-07-27-request-error-retry-action.md)规定这一返回契约。
 
 该边界已能安全地再次发起请求。原始 `assistant/chunk` 事件携带失败的 `turn` 和 `step`；除非某条成功的 `assistant/message` 引用这些事件，否则消息派生会忽略它们。只有终止性 finish 成功且组装完成后，系统才会分发工具调用；重试则会从持久日志开启新的编号轮次。因此，harness 无需引入第二套响应生命周期或暂定输出协议，即可分隔两次尝试。
 
@@ -40,9 +40,9 @@ interface LlmFailure {
 
 `code` 仍是 `HarnessError` 建立的提供方无关机器路由分类体系；新字段是在提供方边界观测到的事实。`ProviderRequestId` 由 `dsh-llm` 拥有并构造，序列化后为提供方发放的字符串。该载荷有意不包含 `retryable`、`failover`、`partialOutput`、提供方、模型、阶段或路由 id 字段。是否可重试属于策略，提供方／模型已位于持久请求头中，部分输出则从失败步骤的 `assistant/chunk` 事件派生。
 
-`LlmError` 携带 `failure: LlmFailure`，并保持 `failure.code === error.code`。`FinishReasonMap.error` 和 `FinishReasonMap.aborted` 携带同一载荷，而不是并行的失败形状。适配器抛出的 `Error` 保留其精确的对象标识：最终适配器 scope 在调用局部的伴随状态中把规范化事实与该对象关联，然后原样重新抛出；非 `Error` 抛出值则依旧被包装。`llmFailureOf(stream, error)` 会在现有来源检查旁取回这些事实，而没有错误对象的带内 finish 则会成为新的 `LlmError`。这既保留了按错误类型或标识分流的监听器，又使所有最终适配器失败（包括未知 SDK 异常）都获得 `UNKNOWN` 终止载荷。
+`LlmError` 携带 `failure: LlmFailure`，并保持 `failure.code === error.code`。`FinishReasonMap.error` 和 `FinishReasonMap.aborted` 携带同一载荷，而不是并行的失败形状。最终适配器边界会从适配器抛出值中分离这些事实，并发出相应的终止 finish；未知 SDK 异常会获得 `UNKNOWN` 载荷。精确的抛出对象身份不会跨越 LLM stream seam。
 
-agent loop（智能体循环）会保留 `RequestError` 作为该精确的错误对象，并将 `LlmFailure` 作为独立参数传给 `agent/request-error`；它不会改动可能已冻结的第三方错误。在转换带内 finish 以及记录未恢复的 `turn/end.reason` 时，循环也会使用该载荷。
+agent loop（智能体循环）会将终止 finish 的 `LlmFailure` 传给 `agent/request-error`，并在记录未恢复的 `turn/end.reason` 时使用同一载荷。
 
 适配器会先提取结构化事实，再回退到消息检查。它们会验证 HTTP 状态，将 `Retry-After` 的秒数或日期解析为正的有限毫秒延迟，在提供方公开请求 id 时将其品牌化，并区分自身超时与调用方中止。提供方专用 code 和消息可以细化映射，但恢复监听器不会解析它们。
 
@@ -106,8 +106,8 @@ agent-spine 演示组合包加载该插件，因此共享的 stdio/TUI、一次�
 
 ## 验证
 
-- `LlmFailure` 是最终适配器抛出失败、错误 finish 和中止 finish 使用的唯一可序列化载荷；在可用时，规范化保留稳定 code、状态、重试延迟、品牌化的提供方请求 id、错误原因，以及调用方中止与适配器超时之间的分类。
-- 适配器抛出的 `Error` 会以完全相同的对象抵达 `agent/request-error`，其伴随的 `LlmFailure` 则抵达相邻参数；测试保留针对可扩展及冻结第三方错误的现有对象标识断言。
+- `LlmFailure` 是适配器抛出、错误 finish 和中止 finish 使用的唯一可序列化载荷；在可用时，规范化保留稳定 code、状态、重试延迟、品牌化的提供方请求 id，以及调用方中止与适配器超时之间的分类。
+- 适配器抛出值会在抵达消费方前成为终止失败 chunk；middleware 与消费方异常仍在模型请求恢复之外抛出。
 - DeepSeek 和 pi-ai 适配器测试覆盖具有代表性的 400、401/403、429、5xx、连接、格式错误／截断流、超时、中止、Retry-After 秒数／日期、请求 id 和未知 SDK 错误路径，恢复策略无需解析消息文本。
 - pi-ai 将 SDK 选项固定为零次重试，并针对可重试的提供方响应执行一次可观测的线路请求尝试；独立测试确保移除任一边界都会失败。
 - `agent/request-error` 携带当前失败事实、不可变的先前已重试失败事实，以及实际服务注册所对应的不可变重试策略；成功会清除历史，暂时性失败／上下文溢出交替发生的集成测试证明两种策略只消耗各自的有限预算。

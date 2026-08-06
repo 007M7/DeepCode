@@ -94,15 +94,19 @@ export class WorkspacesService implements IWorkspaces {
     // would miss the reuse scan and mint another hidden blank session.
     const inflight = this.connecting.get(workspaceId)
     if (inflight !== undefined) return inflight
-    // Reuse: blank && same canonical cwd (workspace.path is the host realpath
-    // canon; summary cwd is the session header passthrough of the same canon).
-    // An archived blank is never reused: reuse would open a session no
-    // grouping surface can show, so New Session mints a fresh one instead.
+    // Reuse requires workspace membership (id in sessionIds AND same
+    // canonical cwd — the host's own membership rule), never cwd alone:
+    // a cwd match can belong to no account (sessions the CLI/TUI birthed at
+    // the host cwd, or a deleted/recreated registration) and reusing it
+    // would open a session no grouping surface shows under this workspace.
+    // An archived blank is never reused either: reuse would open a session
+    // no grouping surface can show, so New Session mints a fresh one instead.
     const archived = this.list.getSnapshot().archivedSessionIds
     const sessions = this.sessions.list.getSnapshot()
     for (const id of sessions.ids) {
       const summary = sessions.byId[id]
       if (summary !== undefined && summary.blank && summary.cwd === workspace.path
+        && workspace.sessionIds.includes(summary.id)
         && !archived.includes(summary.id)) return summary.id
     }
     const attempt = this.sessions.create({ workspaceId })

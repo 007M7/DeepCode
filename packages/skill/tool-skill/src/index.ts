@@ -7,7 +7,7 @@
 import { createHash } from 'node:crypto'
 import type { Context } from 'cordis'
 import z from 'schemastery'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { assertNever, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
@@ -162,23 +162,46 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   // Register after the tool so reverse teardown removes guidance first. Exact definition
   // identity prevents a scoped shadow merely named `skill` from inheriting this catalog.
-  ctx.on('agent/step', async (agent: Agent, _turn, _step, signal): Promise<void> => {
+  ctx.on('agent/pre-step', async (
+    agent: Agent,
+    _messages,
+    { signal },
+    next,
+  ): Promise<PreStepDecision> => {
+    const decision = await next()
+    if (decision.kind === 'reject') return decision
+    signal.throwIfAborted()
     const toolVisible = ctx.tools.get(skillTool.name, agent) === registeredSkillTool
     const snapshot = toolVisible
       ? await ctx.skills.snapshot({ cwd: agent.session.header.cwd, signal })
       : { skills: [], complete: true }
     signal.throwIfAborted()
-    if (!snapshot.complete) return
+    if (!snapshot.complete) return decision
     const skills = snapshot.skills.filter(isModelInvocable)
     const entries = catalogSourceEntries(skills, catalogDescriptionMaxLength)
     const digest = digestCatalogEntries(entries)
     const history = catalogHistory(agent)
-    if (history.visibleDigest === digest) return
-    if (!history.published && skills.length === 0) return
+    const existing = catalogMessage(decision.messages)
+    if (history.visibleDigest === digest) {
+      return existing === undefined
+        ? decision
+        : { kind: 'enter', messages: decision.messages.filter(message => message.id !== existing.message.id) }
+    }
+    if (existing !== undefined && digestCatalogEntries(existing.entries) === digest) return decision
+    if (!history.published && skills.length === 0) {
+      return existing === undefined
+        ? decision
+        : { kind: 'enter', messages: decision.messages.filter(message => message.id !== existing.message.id) }
+    }
     const catalog = history.published
       ? renderCatalogUpdate(entries)
       : renderCatalogMessage(entries)
-    agent.inject(catalog)
+    return {
+      kind: 'enter',
+      messages: existing === undefined
+        ? [...decision.messages, catalog]
+        : decision.messages.map(message => message.id === existing.message.id ? catalog : message),
+    }
   })
 }
 
@@ -348,6 +371,17 @@ function catalogHistory(agent: Agent): { visibleDigest?: string; published: bool
     if (visible.has(event.seq)) return { visibleDigest: digest, published }
   }
   return { published }
+}
+
+function catalogMessage(
+  messages: readonly UserMessage[],
+): { message: UserMessage; entries: SkillCatalogSource['entries'] } | undefined {
+  for (const message of messages) {
+    if (message.source.kind !== 'skill-catalog') continue
+    const entries = readCatalogEntries(message.source)
+    if (entries !== undefined) return { message, entries }
+  }
+  return undefined
 }
 
 /** Normalized, length-bounded description exactly as the catalog publishes it (unescaped). */

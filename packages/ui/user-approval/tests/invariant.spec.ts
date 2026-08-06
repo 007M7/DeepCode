@@ -14,7 +14,7 @@ async function setup(): Promise<Context> {
 }
 
 function startTurn(session: Session): void {
-  session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+  session.append('turn/start', { turn: 1 })
 }
 
 describe('approval invariants', () => {
@@ -32,7 +32,7 @@ describe('approval invariants', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create()
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     const id = ApprovalRequestId('ask-resume')
     session.append('approval/asked', { id, toolName: 'bash' })
     await ctx.plugin(InvariantService)
@@ -54,7 +54,7 @@ describe('approval invariants', () => {
     expect(() => {
       ctx.emit('session/event', session, {
         type: 'turn/start', seq: 0, time: 0,
-        data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+        data: { turn: 1 },
       })
       ctx.emit('session/event', session, asked)
       ctx.emit('session/event', session, decided)

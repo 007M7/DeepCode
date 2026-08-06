@@ -15,7 +15,7 @@ import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type { Agent, AgentOptions } from './types.ts'
 
 export * from './types.ts'
-export * from './brand.ts'
+export * from './inbox.ts'
 export * from './llm-target.ts'
 export { agentCarrier, agentEvents, assembleContextFor, emitAgentEvent } from './dispatch.ts'
 export type { AgentEventDispatch, AgentSubjectEvent } from './dispatch.ts'
@@ -187,8 +187,8 @@ export interface AgentFactory {
    */
   createAgent(ownerCtx: Context, options: CreateAgentOptions): Promise<AgentHandle>
   /**
-   * Load a persisted session and resume an agent on it. Async because it awaits
-   * both `ctx.sessionPersistence.load` and the optional unpublished setup
+   * Prepare a persisted session and resume an agent on it. Async because it awaits
+   * both `ctx.sessionPersistence.prepare` and the optional unpublished setup
    * transaction; must be called after that service exists (consumers inject
    * `sessionPersistence`). Publication follows the same setup-commit and
    * ordered boundary as {@link createAgent}.

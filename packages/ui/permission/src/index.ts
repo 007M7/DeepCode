@@ -270,7 +270,7 @@ export class PermissionService extends Service {
           if (!this.names.includes(name)) {
             return { kind: 'error', text: `unknown preset "${name}" (available: ${this.names.join(', ')})` }
           }
-          this.set(agent.session, name)
+          this.apply(agent.session, name, (policy) =>{  this.ctx.approval.setPolicy(agent, policy) })
           return { kind: 'success', text: `preset ${name}` }
         },
       })
@@ -373,6 +373,11 @@ export class PermissionService extends Service {
    * @param name - the preset to switch to; unknown names throw.
    */
   set(session: Session, name: string): void {
+    this.apply(session, name, (policy) =>{  setApprovalPolicy(session, policy) })
+  }
+
+  /** Apply one preset with the caller-selected live or initialization policy writer. */
+  private apply(session: Session, name: string, setApproval: (policy: ApprovalPolicy) => void): void {
     const spec = this.resolve(name)
     if (this.current(session.events) !== name) {
       session.append('permission/preset', { preset: name })
@@ -382,7 +387,7 @@ export class PermissionService extends Service {
       setSandboxMode(session, spec.sandbox)
     }
     if (spec.approval !== (effectiveApprovalPolicy(events) ?? this.ctx.approval.config.policy ?? 'ask')) {
-      setApprovalPolicy(session, spec.approval)
+      setApproval(spec.approval)
     }
   }
 

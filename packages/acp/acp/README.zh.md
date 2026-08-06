@@ -4,7 +4,7 @@
 
 通过 JSON-RPC stdio 提供的仅面向自动化的 [ACP（Agent Client Protocol）](https://agentclientprotocol.com) 服务器。程序化客户端可以创建新 harness agent（智能体）、发送文本提示词、收集已提交的 assistant 文本、按策略响应一次性权限请求并取消工作。仓库中的主要客户端是 [`dsh-subagent-acp`](../../subagent/subagent-acp/README.md)。
 
-此包是传输适配器，而非 UI 集成或能力 seam。它不公开编辑器导航、transcript（文本记录）回放、命令、模式、配置选择器、信息征集、推理（reasoning）、计划、标题或工具展示。交互式渲染与向用户提问属于 Web 和 TUI 模块。
+此包是传输适配器，而非 UI 集成或能力 seam。它不公开编辑器导航、transcript（文本记录）回放、命令、模式、配置选择器、信息征集、推理（reasoning）、计划、标题或工具展示。交互式渲染与向用户提问属于 Web 宿主和客户端模块。
 
 ## 插件
 
@@ -24,7 +24,7 @@
 | `initialize` | 协商受支持的版本，并仅公布基线提示词（无图像、音频或嵌入上下文能力）。不公布会话、编辑器、终端、文件系统或 MCP 能力。 |
 | `authenticate` | 空操作，因为服务器不公布身份验证方法。 |
 | `session/new` | 以绝对路径作为主 `cwd` 创建新 agent；接受空的 `additionalDirectories` 和 `mcpServers`，拒绝非空值。 |
-| `session/prompt` | 拼接文本块，将基线资源链接渲染为带方括号的文本引用，拒绝空输入或超出基线的输入，每个会话只允许一个正在处理的请求，并根据该请求所属的持久 `turn/end` 结算。 |
+| `session/prompt` | 拼接文本块，将基线资源链接渲染为带方括号的文本引用，拒绝空输入或超出基线的输入，每个会话只允许一个正在处理的请求，并等待整个 agent 进入 idle。正常完全停稳时报告 `end_turn`；显式 ACP 取消、资源释放，或准入被丢弃的提示词（turnless 槽位）时报告 `cancelled`。 |
 | `session/cancel` | 仅取消指定的 agent，并将其待处理提示词结算为 `cancelled`；未知 id 为空操作。 |
 | `session/update` | 为每个非空文本块发出一个 `agent_message_chunk`；这些文本块来自已提交的 `assistant/message`。省略原始增量和非消息事件。 |
 | `session/request_permission` | 为携带工具调用 id、由桥接层拥有的批准请求提供一次性允许／拒绝选项。客户端可以自动回答。 |
@@ -36,6 +36,8 @@
 ## 生命周期
 
 客户端断开与 Cordis 释放共用同一个记忆化清理流程。桥接层先拒绝新会话和提示词，结算待处理提示词，然后只 drain 此连接确切拥有的 Agent 之下的可继续后代，再并行释放这些 handle，并等待全部结果结算后才报告失败。其他共享该上下文的前端会保留其可继续森林和准入。因此，仅 ACP 的插件重载不会遗留 agent。
+
+ACP 要求每个提示词响应都携带 `stopReason`，但桥接层不声称它表示提示词专属的轮次结果。已提交的 assistant 消息会在整个自有活动期间流式输出，agent 进入 idle 前发生的 steering（中途引导）或注入工作也可能参与其中。因此，因 token 上限而结束的轮次不会成为提示词级 ACP 停止原因（它们以 `end_turn` 结算）；关联轮次上的模型错误会立即 reject 提示词。
 
 ## 运行
 

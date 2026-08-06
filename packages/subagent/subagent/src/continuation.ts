@@ -693,7 +693,7 @@ export class SubagentContinuationManager {
   }
 
   /**
-   * Cold-resume a persisted child: load and authorize its Session, fold the
+   * Cold-resume a persisted child: inspect and authorize its Session, fold the
    * generic descriptor, create the Activation through `ctx.agents.resume()`,
    * and submit the waiting turn. This never dispatches through a subagent
    * provider — the persisted Session already holds the initial prefix and the
@@ -706,13 +706,13 @@ export class SubagentContinuationManager {
     options: SubagentFollowupOptions,
   ): Promise<MessageId> {
     const persistence = this.requirePersistence()
-    let loaded: Awaited<ReturnType<typeof persistence.load>>
+    let loaded: Awaited<ReturnType<typeof persistence.inspect>>
     try {
-      loaded = await persistence.load(childId)
+      loaded = await persistence.inspect(childId, options.signal)
     } catch (error: unknown) {
+      options.signal.throwIfAborted()
       throw new SubagentError(`subagent "${childId}" is unavailable`, 'NOT_RESUMABLE', { cause: error })
     }
-    // The persistence seam takes no signal; recheck before any child work.
     options.signal.throwIfAborted()
     this.assertAdmitting(parent)
     // Authorize the persisted header before folding: only the durable child's
@@ -729,17 +729,24 @@ export class SubagentContinuationManager {
         'NOT_RESUMABLE',
       )
     }
-    const activation = await this.materialize({
-      childId,
-      provider: descriptor.provider,
-      parent,
-      agentOptions: {
-        ...descriptor.agentProvider !== undefined ? { provider: descriptor.agentProvider } : {},
-        ...descriptor.agentModel !== undefined ? { model: descriptor.agentModel } : {},
-      },
-      composition: { persona: descriptor.persona, toolFilter: descriptor.toolFilter },
-      signal: options.signal,
-    })
+    let activation: Activation
+    try {
+      activation = await this.materialize({
+        childId,
+        provider: descriptor.provider,
+        parent,
+        agentOptions: {
+          ...descriptor.agentProvider !== undefined ? { provider: descriptor.agentProvider } : {},
+          ...descriptor.agentModel !== undefined ? { model: descriptor.agentModel } : {},
+        },
+        composition: { persona: descriptor.persona, toolFilter: descriptor.toolFilter },
+        signal: options.signal,
+      })
+    } catch (error: unknown) {
+      options.signal.throwIfAborted()
+      if (error instanceof SubagentError) throw error
+      throw new SubagentError(`subagent "${childId}" is unavailable`, 'NOT_RESUMABLE', { cause: error })
+    }
     return this.submitMaterialized(activation, content, options.source, parent, options.signal)
   }
 
@@ -852,16 +859,13 @@ export class SubagentContinuationManager {
       // quiet Agent from one whose accepted turn has not been admitted yet.
       // Registered through the child's own scoped context, so scope filtering
       // already restricts both listeners to this exact agent.
-      handle.agent.ctx.on('agent/inbox/dequeue', (_agent, item) => {
-        /* v8 ignore next -- a dequeue of an id this manager never admitted needs
+      handle.agent.ctx.on('agent/inbox/claimed', (_agent, { message }) => {
+        /* v8 ignore next -- a claim of an id this manager never admitted needs
          * another sender on the same child, which no current path allows. */
-        if (activation.accepted.delete(item.message.id)) this.wake(activation)
+        if (activation.accepted.delete(message.id)) this.wake(activation)
       })
-      handle.agent.ctx.on('agent/inbox/discard', (_agent, items) => {
-        // Deleting every id in the batch is unconditional; waking once afterwards
-        // costs nothing and avoids branching on which ids this manager admitted.
-        for (const item of items) activation.accepted.delete(item.message.id)
-        this.wake(activation)
+      handle.agent.ctx.on('agent/inbox/discarded', (_agent, { message }) => {
+        if (activation.accepted.delete(message.id)) this.wake(activation)
       })
       // Agent creation committed setup at its publication boundary;
       // revocations from here on are immediate live revocation.

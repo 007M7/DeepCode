@@ -223,7 +223,7 @@ describe('headless stream-json snapshots', () => {
     expect(normalized).toBe(await readFile(streamExpected, 'utf8'))
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
-  it('surfaces actionable missing-credential guidance through the one-shot app', async () => {
+  it('logs actionable missing-credential guidance through the one-shot app', async () => {
     const streamExpected = join(credentialsScenarioDir, 'stream-json.expected.jsonl')
     let runCwd = ''
     const result = await runLoaderSmoke({
@@ -239,22 +239,19 @@ describe('headless stream-json snapshots', () => {
         DEEPSEEK_BASE_URL: '',
         NODE_OPTIONS: [process.env.NODE_OPTIONS, '--disable-warning=ExperimentalWarning'].filter(Boolean).join(' '),
       },
-      // The designed failure surface: the one-shot app reports the failed turn.
-      expectedExitCode: 1,
       prepare: (cwd) => { runCwd = cwd },
     })
 
-    // The guidance leads with the credential store — the path that keeps the
-    // secret out of configuration files — and offers a literal key last.
-    expect(result.stderr).toBe(
-      'dsh-cli-demo: turn 1 failed at step 1: llm-deepseek: no API key for provider route "deepseek-official";'
-      + ' store DEEPSEEK_API_KEY through the credentials service (the web Models page writes it),'
-      + ' export DEEPSEEK_API_KEY in the launching environment, or — as a last resort — set a literal'
-      + ' "apiKey" in the llm-deepseek settings section\n',
-    )
+    expect(result.stderr).toBe('')
     const normalized = normalizeHeadlessStream(result.stdout, runCwd)
     if (refreshing) await writeFile(streamExpected, normalized)
     expect(normalized).toBe(await readFile(streamExpected, 'utf8'))
+    // The durable failure leads with the credential store — the path that
+    // keeps the secret out of configuration files — and offers a literal key last.
+    expect(normalized).toContain(
+      'store DEEPSEEK_API_KEY through the credentials service (the web Models page writes it),',
+    )
+    expect(normalized).toContain('as a last resort')
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
   it('logs the model default and a dynamic next-step reasoning effort', async () => {
@@ -461,19 +458,11 @@ describe('headless stream-json snapshots', () => {
         const probeContent = probeMessage?.content as JsonObject[] | undefined
         expect(probeContent?.[0]?.isError).toBe(true)
         expect((probeData?.error as JsonObject | undefined)?.code).toBe('GOAL_NOT_FOUND')
-        const goalChanges = records.filter((record) => {
-          if (record.type !== 'user/message') return false
-          const data = record.data as JsonObject | undefined
-          const source = data?.source as JsonObject | undefined
-          const change = source?.change as JsonObject | undefined
-          return source?.kind === 'goal' && change?.kind === 'goal/change'
-        })
+        const goalChanges = records.filter(record => record.type === 'goal/change')
         expect(goalChanges).toHaveLength(1)
         const data = goalChanges[0]?.data as JsonObject | undefined
-        const source = data?.source as JsonObject | undefined
-        const change = source?.change as JsonObject | undefined
-        const goal = change?.goal as JsonObject | undefined
-        expect(change?.operation).toBe('create')
+        const goal = data?.goal as JsonObject | undefined
+        expect(data?.operation).toBe('create')
         expect(goal).toMatchObject({
           objective: 'Finish the headless goal-tool snapshot proof',
           phase: 'active',

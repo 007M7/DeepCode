@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// Remaining chat branch tails: MessageItem context/unknown/steering arms,
+// Remaining chat branch tails: MessageItem context/unknown arms,
 // user IconActions, StatsLine no-cache join,
 // AssistantMarkdown single-line reasoning. (Tool-row dispatch tails live
 // with the keyed-slot machinery specs since the tool ring dissolved into

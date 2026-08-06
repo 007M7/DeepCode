@@ -4,16 +4,7 @@ English | [中文](README.zh.md)
 
 The **filesystem provider seam**: an abstract `FileSystem` service (`ctx.fs`) defining the storage primitives a backend provides — resolve a path, stat metadata, no-follow path metadata, read/stream text, list directories, write atomically, and apply a literal edit — without saying HOW. Both mutations take their version guard **optionally**, so `ctx.fs` on its own is a complete, unconstrained text-storage seam. This package also owns the `fs/*` policy event vocabulary the tool dispatches and the policy plugin listens for.
 
-This package is the provider-seam layer of the four-layer filesystem stack, split so each concern can evolve (and be swapped) independently (see [the capability-seam Agent Note](../../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md), [the filesystem capability-seam Agent Note](../../../.agents/notes/implemented/architecture/2026-06-17-filesystem-capability-seam.md), [the split-the-filesystem-seam Agent Note](../../../.agents/notes/implemented/simplification/2026-06-26-fsspec-style-fs-seam.md), and [the file-context event-gate Agent Note](../../../.agents/notes/implemented/architecture/2026-06-26-file-context-as-event-gate.md)):
-
-| Layer | Package | Role |
-|---|---|---|
-| tool / executor | `@deepseek-ai/dsh-tool-fs` | model-facing `read`/`write`/`edit` schemas + read windowing + text rendering; reads/writes/edits via `ctx.fs`, dispatches the `fs/*` events |
-| policy | `@deepseek-ai/dsh-fs-policy` | observed-state + read-before-edit + version-guarded write/edit, contributed through the `fs/*` event gate (no service) |
-| provider seam | `@deepseek-ai/dsh-fs` (this) | `ctx.fs`: text IO + atomic mutation primitives (optional version guard); owns the `fs/*` event vocabulary |
-| provider | `@deepseek-ai/dsh-fs-local` | the host-filesystem implementation |
-
-A future sandboxed, virtual, or remote backend implements this interface and the policy/tool layers don't change.
+This package is the provider-seam layer of the [filesystem family](../README.md). The [tool](../tool-fs/README.md), [policy](../fs-policy/README.md), and [local](../fs-local/README.md) and [sandboxed](../fs-sandbox/README.md) backends remain separate consumers and implementations; the capability-seam decisions own the split ([foundation](../../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md), [filesystem seam](../../../.agents/notes/implemented/architecture/2026-06-17-filesystem-capability-seam.md), [provider split](../../../.agents/notes/implemented/simplification/2026-06-26-fsspec-style-fs-seam.md), [event gate](../../../.agents/notes/implemented/architecture/2026-06-26-file-context-as-event-gate.md)).
 
 ## Service API (`ctx.fs`)
 
@@ -46,6 +37,10 @@ This package declares three events (see the generated [events catalog](../../../
 
 `FsTargetKey` / `FsVersion` are branded opaque ids ([the branded-ids Agent Note](../../../.agents/notes/implemented/architecture/2026-06-20-branded-ids.md)) — consumers must not parse `targetKey` or interpret `version`; only `displayPath` is for model/UI output. `FsWriteIntent` is the explicit GUARDED write intent (`createIfAbsent` creates a missing target and rejects an existing one with `FS_NOT_OBSERVED`; `replaceIfVersion` replaces only at the observed version, else `FS_STALE_VERSION`); omitting it from `writeText` is the third, unconditional state. `FsPathInfo` is the no-follow metadata shape that can report `symlink`, unlike target-level `FsInfo`. Failures throw `FsError` (extends `HarnessError`, [the structured error taxonomy Agent Note](../../../.agents/notes/implemented/architecture/2026-06-11-structured-error-taxonomy.md)) carrying a stable `FsErrorCode` (`FS_NOT_FOUND`, `FS_NOT_DIRECTORY`, `FS_NOT_TEXT`, `FS_NOT_REGULAR_FILE`, `FS_PERMISSION_DENIED`, `FS_IO_ERROR`, `FS_STALE_VERSION`, `FS_NOT_OBSERVED`, `FS_AMBIGUOUS_EDIT`, `FS_EDIT_NOT_FOUND`, `FS_ABORTED`); the tool registry surfaces `{ name, code }` on `isError` results. See `src/types.ts` for the full contracts.
 
+## No IO deadline
+
+Filesystem primitives accept an optional `AbortSignal` but arm no deadline. Local IO is only best-effort abortable: a timeout cannot force an in-progress `fsync` or `rename` to stop, so a fixed deadline would promise control the backend cannot provide. Process-backed discovery owns its separate timeout contract.
+
 ## Model Experience
 
 Indirectly, through `dsh-tool-fs`, which renders provider text and errors as bounded, retained filesystem tool results.
@@ -58,5 +53,5 @@ No direct invalidation; the named consumer owns any request-prefix changes.
 
 - **Text-only by contract** — backends reject binary/non-UTF-8 content with `FS_NOT_TEXT`; binary-safe operations are a deliberate deferral of [the tool-schemas Agent Note](../../../.agents/notes/implemented/feature/2026-06-17-filesystem-tool-schemas.md).
 - **Eight primitives only** — no delete, rename/move, copy, or watch; `listDir` is single-level, with recursion, globbing, pagination, and search out of scope per [the directory-listing Agent Note](../../../.agents/notes/archived/architecture/2026-07-03-filesystem-directory-listing-seam.md).
-- **No IO deadline** — the seam arms no timeout; cancellation is a best-effort optional `AbortSignal` per primitive (the deliberate [fs-family stance](../README.md)).
+- **No IO deadline** — cancellation is best-effort at primitive boundaries.
 - **Resolve-then-operate costs a remote backend two round-trips per tool call** — folding or caching resolution is left to such a backend.

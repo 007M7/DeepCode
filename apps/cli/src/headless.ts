@@ -32,39 +32,50 @@ async function unwrap<T>(response: RpcResponse<T>, shutdown: () => Promise<void>
 }
 
 /**
- * Consume mux frames until the task turn ends, per the cli-demo runOneShot
- * correlation precedent: anchor on the first turn/start whose trigger kind is
- * 'message' (startup-injected turns are skipped), aggregate text from that
- * turn's assistant/message events (last one wins), finish on its turn/end.
+ * Consume mux frames until the agent reaches idle, per the one-shot CLI
+ * idle-to-idle contract: the stream opens immediately before the prompt, and
+ * its first observed turn/start begins the task. Text is the last committed
+ * assistant message of the whole interval (steering or injected work may run
+ * further turns before quiescence), and the outcome reason is the final
+ * turn/end's kind. Idleness is signalled out of band by the caller's
+ * `agent/status` subscription; the stream itself carries no status frame.
+ * @param frames - the mux stream opened before the prompt.
+ * @param sessionId - the headless session.
+ * @param idle - resolves when the agent reaches quiescence.
+ * @returns the aggregated outcome.
  */
-async function consumeUntilTurnEnd(frames: AsyncIterable<RpcRequest<MuxFrame>>, sessionId: SessionId): Promise<TurnOutcome> {
-  let targetTurn: number | undefined
+async function consumeUntilIdle(
+  frames: AsyncIterable<RpcRequest<MuxFrame>>,
+  sessionId: SessionId,
+  idle: Promise<void>,
+): Promise<TurnOutcome> {
+  let started = false
   let text = ''
-  try {
-    for await (const frame of frames) {
-      const payload = frame.payload
-      if (payload.type === 'stream/error') {
-        process.stderr.write(`dsh: stream error: ${payload.error.message}\n`)
-        return { text, reason: 'error' }
+  let reason: string = 'error'
+  void (async () => {
+    try {
+      for await (const frame of frames) {
+        const payload = frame.payload
+        if (payload.type === 'stream/error') return
+        if (payload.type !== 'session/event' || payload.sessionId !== sessionId) continue
+        const event = payload.event
+        if (event.type === 'turn/start') {
+          started = true
+          continue
+        }
+        if (!started) continue
+        if (event.type === 'assistant/message') {
+          const joined = event.data.message.content.filter(block => block.type === 'text').map(block => block.text).join('')
+          if (joined !== '') text = joined
+        }
+        if (event.type === 'turn/end') reason = event.data.reason.kind
       }
-      if (payload.type !== 'session/event' || payload.sessionId !== sessionId) continue
-      const event = payload.event
-      if (targetTurn === undefined) {
-        if (event.type === 'turn/start' && event.data.trigger.kind === 'message') targetTurn = event.data.turn
-        continue
-      }
-      if (event.type === 'assistant/message' && event.data.turn === targetTurn) {
-        const joined = event.data.message.content.filter(block => block.type === 'text').map(block => block.text).join('')
-        if (joined !== '') text = joined
-      }
-      if (event.type === 'turn/end' && event.data.turn === targetTurn) {
-        return { text, reason: event.data.reason.kind }
-      }
+    } catch (error: unknown) {
+      process.stderr.write(`dsh: event stream failed: ${String(error)}\n`)
     }
-  } catch (error: unknown) {
-    process.stderr.write(`dsh: event stream failed: ${String(error)}\n`)
-  }
-  return { text, reason: 'error' }
+  })()
+  await idle
+  return { text, reason }
 }
 
 /**
@@ -99,7 +110,12 @@ export async function runHeadless(task: string): Promise<void> {
   // to a remote HTTP carrier unchanged.
   const abort = new AbortController()
   const frames = api.events.mux({}, abort.signal)
-  const done = consumeUntilTurnEnd(frames, created.sessionId)
+  const idle = new Promise<void>((resolve) => {
+    ctx.on('agent/status', (agent, status) => {
+      if (agent.id === created.sessionId && status === 'idle') resolve()
+    })
+  })
+  const done = consumeUntilIdle(frames, created.sessionId, idle)
 
   await unwrap(await api.sessions.prompt({
     sessionId: created.sessionId,

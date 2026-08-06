@@ -207,7 +207,6 @@ function epochStopReason(events: readonly SessionEvent[]): SubagentResult['stopR
       return 'max-tokens'
     case 'aborted':
     case 'interrupted':
-    case 'disposed':
       return 'aborted'
     case 'error':
       return 'error'
