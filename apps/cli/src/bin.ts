@@ -28,27 +28,29 @@ const environment = loadLayeredEnv('dsh')
 const invocation = parseDshArgs(process.argv.slice(2), readVersion())
 
 switch (invocation.mode) {
-  case 'config': {
-    const { runConfig } = await import('./config.ts')
-    await runConfig(environment, invocation.config)
+  case 'profile': {
+    const { runProfile } = await import('./profile-boot.ts')
+    await runProfile({
+      environment,
+      profile: invocation.profile,
+      patchFiles: invocation.patches,
+      ...invocation.task !== undefined && { task: invocation.task },
+    })
     break
   }
   case 'web': {
     const { runWeb } = await import('./web.ts')
-    await runWeb(
-      environment, invocation.host, invocation.port, invocation.dev,
-      invocation.workspaceRoot, invocation.trustedHosts, invocation.config,
-    )
+    await runWeb(invocation, environment)
     break
   }
-  case 'headless': {
-    const { runHeadless } = await import('./headless.ts')
-    await runHeadless(environment, invocation.prompt, invocation.config)
+  case 'plugin': {
+    const { runPlugin } = await import('./plugin.ts')
+    process.exit(runPlugin(invocation.profile, invocation.args))
     break
   }
   case 'dump-config': {
     const { runDumpConfig } = await import('./dump-config.ts')
-    runDumpConfig(invocation.surface, invocation.defaultOnly, invocation.config)
+    runDumpConfig(invocation.profile, invocation.defaultOnly, invocation.patches)
     break
   }
   default:

@@ -5,9 +5,9 @@
  * @module @deepseek-ai/dsh-llm-retry
  */
 
-import type { Context } from 'cordis'
+import type { Context, Events } from 'cordis'
 import z from 'schemastery'
-import type { Agent, RequestErrorAction, RequestFailureContext } from '@deepseek-ai/dsh-agent'
+import type { Agent, RequestErrorAction } from '@deepseek-ai/dsh-agent'
 import type { LlmFailure, ResolvedRetryPolicy } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 
@@ -172,12 +172,9 @@ export function apply(ctx: Context, config: Config = {}, internals: RetryInterna
   }
 
   async function recover(
-    agent: Agent,
-    context: RequestFailureContext,
-    signal: AbortSignal,
+    { agent, turn, step, provider, failure, retryPolicy: policy, signal }: Parameters<Events['agent/request-error']>[0],
     next: () => Promise<RequestErrorAction>,
   ): Promise<RequestErrorAction> {
-    const { turn, step, provider, failure, retryPolicy: policy } = context
     if (policy === undefined) return next()
     if (policy.mode === 'always') {
       if (signal.aborted || lifetime.signal.aborted) return
@@ -228,16 +225,14 @@ export function apply(ctx: Context, config: Config = {}, internals: RetryInterna
   }
 
   const disposeListener = ctx.on('agent/request-error', (
-    agent: Agent,
-    context: RequestFailureContext,
-    signal: AbortSignal,
+    payload,
     next: () => Promise<RequestErrorAction>,
   ) => {
     // A waterfall may have captured this callback before its registration was
     // removed. Lifetime cancellation must prevent that stale callback from
     // entering a downstream policy after disposal.
     if (lifetime.signal.aborted) return Promise.resolve<RequestErrorAction>(undefined)
-    return track(recover(agent, context, signal, next))
+    return track(recover(payload, next))
   })
 
   ctx.effect(() => async () => {

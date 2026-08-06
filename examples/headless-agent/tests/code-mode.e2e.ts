@@ -302,7 +302,7 @@ describe('Code Mode typed values: keyless real-worker contracts', () => {
 
 function waitForIdle(harness: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
-    const dispose = harness.on('agent/status', (subject, status) => {
+    const dispose = harness.on('agent/status', ({ agent: subject, status }) => {
       if (subject === agent && status === 'idle') {
         dispose()
         resolve()

@@ -59,7 +59,7 @@ export const inject = ['llm']
 /** Register the keyless `cli-mock` adapter. */
 export function apply(ctx: Context): void {
   ctx.llm.registerAdapter(['cli-mock'], new CliMockAdapter())
-  ctx.on('agent/request', async (_agent, _turn, step, _signal, next) => {
+  ctx.on('agent/request', async ({ step }, next) => {
     const config = await next()
     return step === 2 ? { ...config, reasoningEffort: OFF } : config
   })

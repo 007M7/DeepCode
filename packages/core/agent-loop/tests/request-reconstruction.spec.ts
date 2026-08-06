@@ -38,7 +38,7 @@ async function harnessRoutes(
 
 function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
-    const dispose = ctx.on('agent/status', (subject, status) => {
+    const dispose = ctx.on('agent/status', ({ agent: subject, status }) => {
       if (subject === agent && status === 'idle') {
         dispose()
         resolve()
@@ -122,7 +122,7 @@ describe('request stability across the loop', () => {
     const adapter = new MockAdapter([textResponse('one'), textResponse('two')], reasoning)
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('effort'), { provider: 'mock', model: 'mock' })
-    ctx.on('agent/request', async (_agent, turn, _step, _signal, next) => {
+    ctx.on('agent/request', async ({ turn }, next) => {
       const config = await next()
       return turn === 2 ? { ...config, reasoningEffort: ReasoningEffortId('max') } : config
     })
@@ -198,7 +198,7 @@ describe('request stability across the loop', () => {
       provider: 'deepseek',
       model: 'deepseek-model',
     })
-    ctx.on('agent/request', async (_agent, turn, _step, _signal, next) => {
+    ctx.on('agent/request', async ({ turn }, next) => {
       const config = await next()
       return turn === 2
         ? { ...config, provider: 'other', model: 'other-model' }
@@ -232,7 +232,7 @@ describe('request stability across the loop', () => {
       model: 'deepseek-model',
       maxTokens: 4_096,
     })
-    ctx.on('agent/request', async (_agent, turn, _step, _signal, next) => {
+    ctx.on('agent/request', async ({ turn }, next) => {
       const config = await next()
       return turn === 2
         ? { ...config, provider: 'other', model: 'other-model' }
@@ -460,7 +460,7 @@ describe('request stability across the loop', () => {
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     let injected = false
-    ctx.on('agent/request', async (_agent, _turn, _step, _signal, next) => {
+    ctx.on('agent/request', async (_payload, next) => {
       if (!injected) {
         injected = true
         agent.inject(createUserMessage({ content: [{ type: 'text', text: '[late context]' }], source: { kind: 'plugin', plugin: 'test' } }))
@@ -539,7 +539,7 @@ describe('request stability across the loop', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    ctx.on('agent/request', async (_agent, _turn, _step, _signal, next) => {
+    ctx.on('agent/request', async (_payload, next) => {
       const config = await next()
       // next() resolves the SAME frozen seed — in-place shaping after
       // delegation is unrepresentable, so a "mutate what next() returned"
@@ -576,7 +576,7 @@ describe('request stability across the loop', () => {
     send(agent, 'go')
     await waitForIdle(ctx, agent)
     ctx.systemPrompt.section({ name: 'extra', order: 2, text: 'now with guidance' })
-    ctx.on('agent/request', async (_agent, _turn, _step, _signal, next) => ({
+    ctx.on('agent/request', async (_payload, next) => ({
       ...await next(), temperature: 0.5, maxTokens: 99, stop: ['<END>'],
     }))
     send(agent, 'again')
@@ -658,7 +658,7 @@ describe('request/context capacity records', () => {
 
     send(agent, 'first')
     await waitForIdle(ctx, agent)
-    ctx.on('agent/request', (subject, _turn, _step, _signal, next) => subject === agent
+    ctx.on('agent/request', ({ agent: subject }, next) => subject === agent
       ? Promise.resolve({ provider: 'mock', model: 'large' })
       : next())
     send(agent, 'second')
@@ -686,7 +686,7 @@ describe('request/context capacity records', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('capacity-clear'), { provider: 'mock', model: 'known' })
     let model = 'known'
-    ctx.on('agent/request', (subject, _turn, _step, _signal, next) => subject === agent
+    ctx.on('agent/request', ({ agent: subject }, next) => subject === agent
       ? Promise.resolve({ provider: 'mock', model })
       : next())
 

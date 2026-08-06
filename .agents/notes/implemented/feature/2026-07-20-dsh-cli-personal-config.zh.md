@@ -10,6 +10,8 @@ Status: implemented
 
 ## Decision
 
+下文的各入口模式，以及个人文件的名称与位置，已被 [profile 插件组合包决策](../architecture/2026-08-05-profile-plugin-bundles.md)取代：`dsh` 启动 profile，个人层变成逐 profile 与 home 级的 `cordis.patch.yml`。保留不变的是本笔记的实质：以 Harness home 作为机器级层的根目录、在随附组合之上使用 patch 语义，以及解析时的大声失败。
+
 两个耦合的部分，与 `dsh web` PR（#443）提出的 `apps/` 装配层对齐：
 
 **`dsh` CLI（`apps/cli`，npm 名 `@deepseek-ai/dsh`）。** `apps/*` 是位于 `packages/*` 库之上的产品组装层。一个 bin 负责分发默认交互式 TUI、`-p`/`--prompt` 无头轮次和 `web` 界面。TUI 以调用目录为 workspace，启动 `examples/tui-agent/cordis.yml`（或 `--config` 指定的配置）。已提交的 `bin/dsh` 启动器通过自身真实路径解析 checkout，并使用 tsx 的 ESM hook 运行应用；该契约由[源码启动决策](../architecture/2026-07-29-dsh-source-launch-tsx-esm.md)维护。`pnpm run demo:tui` 运行同一入口。
@@ -17,7 +19,7 @@ Status: implemented
 **个人配置（`dsh-app-boot`）。** 个人 overlay 存放在 Harness home——`$DSH_HOME`，否则 `~/.dsh`——由共享的 [`resolveDshHome`](../architecture/2026-07-24-single-harness-home-resolver.md)（`@deepseek-ai/dsh-paths`）解析，与 skills、AGENTS.md 解析所依据的单一根目录相同。dsh 的 TUI、Web 和无头界面使用其中两个可选文件；各示例 bin 仍然逐字节按已提交的配置树启动：
 
 - `.env`——在调用目录的 `.env` 之后加载；`process.loadEnvFile` 从不覆盖已有值，因此优先级为环境变量 > 项目 `.env` > 个人 `.env`。
-- `config.yaml`——[已随个人 composition 层一并删除](../simplification/2026-08-04-remove-personal-composition-layer.md)；它存在期间是顶层 YAML 数组，元素为 `@cordisjs/plugin-include` 的 `PatchOptions`，用 include 自己的 `!!js` 方言解析（`loadPersonalPatches`）并传给 `boot()`，由它作为根 include 的 `patches` 转发。补丁语义与交付的 surface overlay 一致：按 id 定位的补丁替换该配置项的整个 `config`，`insert` 追加配置项，未匹配的 id 静默不执行任何操作。[仓库插件集成](2026-07-30-config-only-repository-plugins.md)通过一个已交付配置项，使精确 GitHub 源列表成为纯配置选择。
+- `config.yaml`——顶层 YAML 数组，元素为 `@cordisjs/plugin-include` 的 `PatchOptions`，用 include 自己的 `!!js` 方言解析（`loadPersonalPatches`）并传给 `boot()`，由它作为根 include 的 `patches` 转发。补丁语义与交付的 surface overlay 一致：按 id 定位的补丁替换该配置项的整个 `config`，`insert` 追加配置项，未匹配的 id 静默不执行任何操作。[仓库插件集成](2026-07-30-config-only-repository-plugins.md)通过一个已交付配置项，使精确 GitHub 源列表成为纯配置选择。
 - 文件缺失即无 overlay；文件存在但不可读、不可解析或非数组则在启动时抛出（配置错误响亮失败，绝不静默跳过）。
 
 PTY 冒烟测试的启动器把 `$DSH_HOME` 隔离到每个测试自己的目录，与它已有的 `DSH_AGENTS_HOME` 隔离方式完全一致，开发者真实的个人 overlay 不可能泄漏进 fixture；只有 dsh CLI 读取个人配置，因此其他测试启动器无需改动。
@@ -46,4 +48,4 @@ TUI 和 Web 启动后通过 Cordis HMR（热模块替换）注册确切的个人
 
 ## Testing
 
-该 overlay 自己的 spec 曾固定解析、启动时应用、确切路径的新增／失败／恢复／移除、最后可用状态回滚、失败广播以及应用自有 patch 的保留；它已随该层一并删除。`apps/cli/tests/tui-keyless-smoke.e2e.ts` 仍然启动真实 dsh bin，覆盖无 overlay、点名 `--config` 的环境与 UI patch、纯配置的缓存 repository skill，以及无效的 overlay YAML。测试启动器会隔离 `$DSH_HOME`，因此开发者的真实 overlay 不会泄漏进 fixture。
+`packages/ui/app-boot/tests/user-patches.spec.ts` 固定解析、启动时应用、确切路径的新增／失败／恢复／移除、最后可用状态回滚、失败广播以及应用自有 patch 的保留。`apps/cli/tests/built-bin.e2e.ts` 启动真实 dsh bin 并基于 profile 端到端验证实时 patch 层。测试启动器会隔离 `$DSH_HOME`，因此开发者的真实 overlay 不会泄漏进 fixture。

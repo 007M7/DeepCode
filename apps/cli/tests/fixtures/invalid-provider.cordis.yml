@@ -1,4 +1,4 @@
-# Invalid raw overlay used to prove boot failures settle and exit.
+# Invalid `--patch` overlay used to prove boot failures settle and exit.
 
 - id: llm-pi-ai
   config:

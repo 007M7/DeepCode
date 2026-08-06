@@ -3,9 +3,10 @@
  * surface `measure()` serves and compaction plans against. The projection
  * units deliberately do NOT share this fold — their state must stay O(1)
  * for the persisted checkpoint, so they ride `surface-projection.ts`'s
- * shadow-price protocol instead. The two stay in agreement by construction:
- * both price through `estimate.ts`, and every logged shadow price is derived
- * from THIS fold's nodes by the replace producer.
+ * shadow-price protocol instead. Fully metered logs stay in agreement by
+ * construction: both price through `estimate.ts`, and every logged shadow
+ * price is derived from THIS fold's nodes by the replace producer. A
+ * projection replacement without a claim deliberately folds with zero delta.
  *
  * @module @deepseek-ai/dsh-token-meter/surface-fold
  */
