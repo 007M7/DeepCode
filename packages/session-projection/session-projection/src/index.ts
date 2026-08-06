@@ -134,10 +134,22 @@ interface UnitCell {
   observedSeq: number
 }
 
-/** One live registration: the unit plus its per-session cells (dropped whole on disposal). */
+/**
+ * One live registration: the unit plus its per-session cells (dropped whole
+ * once the last registrant releases it).
+ *
+ * `refs` exists because one unit definition already serves every session — the
+ * cells are keyed by `Session` — while the registrants are now per-session:
+ * an agent preset mounts the same tool package once per agent, so N sessions
+ * on one preset register the same key N times. Without a count the first
+ * registrant would own the disposer, and its session ending would strip the
+ * projection from every other live session.
+ */
 interface Registration {
   readonly def: ErasedDefinition
   readonly cells: WeakMap<Session, UnitCell>
+  /** Live registrants sharing this unit; the last one out removes the key. */
+  refs: number
 }
 
 /**
@@ -149,9 +161,12 @@ interface Registration {
  * older than the registry, folds `init` over the in-memory log on first
  * touch (event or read). Registration is an effect (disposer rides the
  * calling fiber): an unloaded domain plugin's key disappears from snapshots
- * and clients read it as capability absence. Duplicate keys throw. Domain
+ * and clients read it as capability absence. Domain
  * plugins register under `ctx.inject(['sessionProjections'], …)` so headless
- * assemblies without the registry stay unaffected.
+ * assemblies without the registry stay unaffected. Registrants sharing a key
+ * share one unit and are counted: the same tool package mounted in N agent
+ * presets registers N times, and the key survives until the last one
+ * unloads.
  */
 export class SessionProjectionRegistry extends Service {
   private readonly registrations = new Map<string, Registration>()
@@ -182,12 +197,25 @@ export class SessionProjectionRegistry extends Service {
     }
     const dispose = this.ctx.effect(function* (this: SessionProjectionRegistry) {
       const key = definition.key as string
-      if (this.registrations.has(key)) {
-        throw new Error(`session projection key ${JSON.stringify(key)} is already registered`)
+      const existing = this.registrations.get(key)
+      if (existing === undefined) {
+        this.registrations.set(key, { def: definition, cells: new WeakMap(), refs: 1 })
+      } else {
+        // A differing `stateVersion` is the one incompatibility this can name:
+        // the versioned contract says the cached state shape differs, so the
+        // two registrants cannot share cells. Anything else about a definition
+        // is functions, which no runtime comparison can tell apart.
+        if (existing.def.stateVersion !== definition.stateVersion) {
+          throw new Error(`session projection key ${JSON.stringify(key)} is already registered at stateVersion ${String(existing.def.stateVersion)}; refusing to share it with stateVersion ${String(definition.stateVersion)}`)
+        }
+        existing.refs += 1
       }
-      this.registrations.set(key, { def: definition, cells: new WeakMap() })
       yield () => {
-        this.registrations.delete(key)
+        const live = this.registrations.get(key)
+        /* v8 ignore next -- the disposer runs once per successful registration, so the entry it counted is still here */
+        if (live === undefined) return
+        live.refs -= 1
+        if (live.refs === 0) this.registrations.delete(key)
       }
     }.bind(this), 'sessionProjections.register()')
     return () => void dispose()
