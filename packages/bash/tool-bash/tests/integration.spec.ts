@@ -202,7 +202,12 @@ describe('bash tool through the agent loop', () => {
     expect(pendingNotice.content.some(
       block => block.type === 'text' && block.text.includes('background task bash-1 (bash: echo bg-ok) finished'),
     )).toBe(true)
-    expect(pendingNotice.source).toEqual({ kind: 'plugin', plugin: 'tool-tasks' })
+    expect(pendingNotice.source).toEqual({
+      kind: 'plugin',
+      plugin: 'tool-tasks',
+      form: 'notice',
+      summary: 'bash echo bg-ok [status: completed, exit code: 0]',
+    })
 
     // The next turn first admits that notice as user/message, then collects
     // the output through the generic task tool.

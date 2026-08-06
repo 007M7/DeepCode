@@ -313,7 +313,7 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
       { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
       { type: 'user/message', seq: 1, time: 2, data: createUserMessage({
         content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' },
-      }) },
+      }), surfaceOp: 'append' },
     ])
     await b1.dispose()
 
@@ -576,6 +576,19 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     await b.dispose()
   })
 
+  it('binds a full stored prefix to the same revision as a lightweight read', async () => {
+    const b = await backend()
+    const m = meta('stored-prefix-revision')
+    await b.ctx.sessionPersistence.create(m)
+    await b.ctx.sessionPersistence.append(m.id, oneTurnLog())
+    const persistence = b.ctx.sessionPersistence as SessionPersistenceSqlite
+
+    const stored = await persistence.loadStored(m.id)
+    expect(stored?.revision).toBe(await persistence.readStoredRevision(m.id))
+    expect(await persistence.readStoredRevision(SessionId('missing-revision'))).toBeUndefined()
+    await b.dispose()
+  })
+
   it('changes revisions when a deleted session id is materialized again in the same database', async () => {
     const path = await freshDbPath()
     const m = meta('recreated-revision')
@@ -641,6 +654,38 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
 })
 
 describe('SessionPersistenceSqlite: edge cases', () => {
+  it('resolves the preparation-cache default without schema normalization', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    let persistence!: SessionPersistenceSqlite
+    await ctx.plugin(Object.assign((inner: Context) => {
+      persistence = new SessionPersistenceSqlite(inner, {
+        path: ':memory:',
+        journalMode: 'wal',
+      })
+    }, { inject: ['sessions'] }))
+
+    expect(await persistence.list()).toEqual([])
+    await ctx.fiber.dispose()
+  })
+
+  it('uses the configured preparation cache through the public service', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(SessionPersistenceSqlite, {
+      path: ':memory:',
+      preparedSessionCacheSize: 1,
+    })
+    const m = meta('sqlite-preparation-cache')
+    await ctx.sessionPersistence.create(m)
+    await ctx.sessionPersistence.append(m.id, oneTurnLog())
+
+    const preparation = await ctx.sessionPersistence.prepare(m.id)
+    expect(preparation.session.header).toEqual(m)
+    preparation[Symbol.dispose]()
+    await fiber.dispose()
+  })
+
   it('rejects and closes a current-schema database with an invalid store identity', async () => {
     const path = await freshDbPath()
     const db = openDatabase(path, 'wal')

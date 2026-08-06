@@ -234,12 +234,13 @@ export function apply(ctx: Context, config: Config): void {
     if (location === undefined) return decision
     const state = renderState(location)
     if (previous !== undefined && previous.state === state) return decision
+    const text = renderReading(location, turn)
     return {
       kind: 'enter',
       messages: [
         createUserMessage({
-          content: [{ type: 'text', text: renderReading(location, turn) }],
-          source: { kind: 'plugin', plugin: name },
+          content: [{ type: 'text', text }],
+          source: { kind: 'plugin', plugin: name, form: 'snapshot', sections: [{ name, text }] },
         }),
         ...decision.messages,
       ],

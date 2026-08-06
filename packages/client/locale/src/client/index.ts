@@ -11,7 +11,6 @@
  * string-typed. The rule fires on the narrow-map view, not real redundancy. */
 import type { Context } from 'cordis'
 import {
-  deferRegistration,
   type BoundActions, type LocaleDictOf, type LocaleNamespaceMap, type Translate, type TranslateNS,
 } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
@@ -384,16 +383,12 @@ export function apply(ctx: ClientContext): void {
       setLocale: (id) => { locale.setLocale(id) },
     }
   }
-  ctx.effect(() => {
-    const deferred = deferRegistration(ctx.slots, 'settings.general.item', LanguageRow, () =>
-      ctx.slots.register({
-        name: 'settings.general.item',
-        id: 'language',
-        order: 0,
-        store,
-        locale: SETTINGS_NS,
-        inject: injected,
-      }, LanguageRow))
-    return () => { deferred.dispose() }
-  }, 'locale: language settings row registration')
+  ctx.slots.inject('settings.general.item', () => ctx.slots.register({
+    name: 'settings.general.item',
+    id: 'language',
+    order: 0,
+    store,
+    locale: SETTINGS_NS,
+    inject: injected,
+  }, LanguageRow))
 }

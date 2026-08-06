@@ -55,20 +55,20 @@ export function WebRow({ toolName, block, inspect, t }: WebRowProps) {
 }
 
 /**
- * The web rows as a plain registrant plugin, riding the same load-order seam as
- * the bash sample: `inject: ['conversation']` guarantees the chat entry (and
- * with it the 'conversation.chat.toolview' declaration) is on the ledger. One
- * WebRow component registers under both web tool names.
+ * The web rows follow the chat toolview declaration across activation and
+ * reload. One WebRow component registers under both web tool names.
  */
 export const webToolview = {
   name: 'web-toolview',
-  inject: ['slots', 'conversation'],
+  inject: ['slots'],
   /**
    * Register the web row under both web tool names' keyed toolview holes.
    * @param ctx - registrant context (disposal rides ctx.effect inside slots.register).
    */
   apply(ctx: Context): void {
-    ctx.slots.register({ name: 'conversation.chat.toolview', key: 'web_search', locale: NS }, WebRow)
-    ctx.slots.register({ name: 'conversation.chat.toolview', key: 'web_fetch', locale: NS }, WebRow)
+    ctx.slots.inject('conversation.chat.toolview', function* () {
+      yield ctx.slots.register({ name: 'conversation.chat.toolview', key: 'web_search', locale: NS }, WebRow)
+      yield ctx.slots.register({ name: 'conversation.chat.toolview', key: 'web_fetch', locale: NS }, WebRow)
+    })
   },
 }

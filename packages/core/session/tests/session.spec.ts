@@ -941,6 +941,36 @@ describe('Session', () => {
     expect(() => { appendedEvent.data.todos[0]!.content = 'mutated' }).toThrow(TypeError)
   })
 
+  it('iteratively freezes deeply nested restored event data', () => {
+    const depth = 20_000
+    const data: Record<string, unknown> = {}
+    let tail = data
+    for (let index = 0; index < depth; index += 1) {
+      const child: Record<string, unknown> = {}
+      tail['child'] = child
+      tail = child
+    }
+    const event = {
+      type: 'test/deep-restore', seq: 0, time: 1, data,
+    } as unknown as SessionEvent
+
+    expect(() => Session.fromRestore(SessionId('deep-restore'), [event], {
+      version: SESSION_FORMAT_VERSION,
+      id: SessionId('deep-restore'),
+      createdAt: 1,
+    })).not.toThrow()
+
+    let current: unknown = event
+    let frozenNodes = 0
+    for (let index = 0; index <= depth + 1; index += 1) {
+      if (!Object.isFrozen(current)) break
+      frozenNodes += 1
+      current = (current as Record<string, unknown>)['data']
+        ?? (current as Record<string, unknown>)['child']
+    }
+    expect(frozenNodes).toBe(depth + 2)
+  })
+
   it('returns cached frozen event-array snapshots that do not grow after append', () => {
     const session = Session.create(SessionId('events-snapshot'))
     session.append('turn/start', { turn: 1 })
@@ -998,6 +1028,15 @@ describe('Session', () => {
 
     expect(() => Session.create(SessionId('header-invalid'), undefined, new ExoticHeader()))
       .toThrow(/not losslessly JSON-serializable/)
+    expect(() => Session.fromRestore(SessionId('header-invalid'), [], new ExoticHeader()))
+      .toThrow(/not a plain JSON record/)
+    for (const header of [null, 1, []]) {
+      expect(() => Session.fromRestore(
+        SessionId('header-invalid'),
+        [],
+        header as unknown as SessionHeader,
+      )).toThrow(/not a plain JSON record/)
+    }
     expect(() => Session.create(SessionId('header-invalid'), undefined, {
       version: SESSION_FORMAT_VERSION,
       id: SessionId('header-invalid'),
@@ -1050,7 +1089,6 @@ describe('Session', () => {
       { ...base, seq: -1 },
       { ...base, time: '1' },
       { ...base, time: 0.5 },
-      { ...base, time: -1 },
       { type: base.type, seq: base.seq, time: base.time },
     ]
 

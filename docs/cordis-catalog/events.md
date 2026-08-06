@@ -297,7 +297,7 @@ A declarative agent entry failed before it could publish a live agent. Consumers
 
 Types: [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/agent-loop/src/index.ts:158`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:182`](../../packages/core/agent-loop/src/index.ts)
 
 ## `approval/*`
 
@@ -535,7 +535,7 @@ Creation announcement during session publication. A synchronous throw vetoes and
 
 Types: [Scoped](../core-data-structures/scope.md) · [Session](../core-data-structures/session.md)
 
-Source: [`packages/core/session/src/index.ts:71`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:73`](../../packages/core/session/src/index.ts)
 
 ### `session/disposed` — emit
 
@@ -556,7 +556,7 @@ Emitted once when an announced session leaves the store, including publication r
 
 Types: [Scoped](../core-data-structures/scope.md) · [Session](../core-data-structures/session.md)
 
-Source: [`packages/core/session/src/index.ts:81`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:83`](../../packages/core/session/src/index.ts)
 
 ### `session/event` — emit
 
@@ -579,7 +579,7 @@ Post-commit, fire-and-forget append feed. The listener snapshot resolves before 
 
 Types: [Scoped](../core-data-structures/scope.md) · [Session](../core-data-structures/session.md) · [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:93`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:95`](../../packages/core/session/src/index.ts)
 
 ### `session/flush` — parallel
 
@@ -599,7 +599,7 @@ Awaited parallel durability checkpoint: every listener runs and the caller await
 
 Types: [Scoped](../core-data-structures/scope.md) · [Session](../core-data-structures/session.md)
 
-Source: [`packages/core/session/src/index.ts:102`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:104`](../../packages/core/session/src/index.ts)
 
 ## `settings/*`
 
