@@ -62,18 +62,24 @@ Automatic callers state why policy is running; implementations may treat confirm
 type CompactionTrigger = 'pressure' | 'context-overflow'
 ```
 
-`CompactService` exposes `compactIfNeeded(agent, trigger, signal)` for automatic `pressure` or `context-overflow` policy, `compactNow(agent, signal)` for one useful idle-session reduction even below pressure, and `compactRegion(...)` for an explicit inclusive surface range. `compactNow()` synchronously reserves the agent's next-turn admission, returns `null` without writing when no useful range exists, records a standalone `turn: null` bracket before summarization, flushes a closed attempt, and then releases admission so ordinary queued prompts derive from the new surface. Every backend marks its replacement `user/message` with `COMPACT_CHECKPOINT_SOURCE`; client and wire consumers import that value and `isCompactCheckpointSource()` from the cordis-free `@deepseek-ai/dsh-compact/checkpoint` subpath, while the package root re-exports both for host consumers. The predicate keeps checkpoint recognition independent of any one backend. Implementations must forward the supplied signal to summarization. The seam owns no pricing API: the singleton [`ctx.tokenMeter`](token-meter.md) directly owns estimation and replay, while `dsh-compact-basic` owns retention, event sequencing, routed summarization calls, and their configuration.
+`CompactService` exposes `compactIfNeeded(agent, trigger, signal)` for automatic `pressure` or `context-overflow` policy, `compactNow(agent, signal)` for one useful idle-session reduction even below pressure, and `compactRegion(...)` for an explicit inclusive surface range. `compactNow()` runs as agent maintenance between turns, returns `null` without writing when no useful range exists, records a standalone `turn: null` bracket before summarization, and flushes a closed attempt before later queued prompts may derive from the new surface. Every backend marks its replacement `user/message` with `COMPACT_CHECKPOINT_SOURCE`; client and wire consumers import that value and `isCompactCheckpointSource()` from the cordis-free `@deepseek-ai/dsh-compact/checkpoint` subpath, while the package root re-exports both for host consumers. The predicate keeps checkpoint recognition independent of any one backend. Implementations must forward the supplied signal to summarization. The seam owns no pricing API: the singleton [`ctx.tokenMeter`](token-meter.md) directly owns estimation and replay, while `dsh-compact-basic` owns retention, event sequencing, routed summarization calls, and their configuration.
 
 Expected manual failures use `ManualCompactionErrorCode`:
 
 ```ts type-equiv
 /** Expected failure classes for an explicit idle-session compaction request. */
-type ManualCompactionErrorCode = 'busy' | 'changed' | 'summary' | 'commit' | 'persistence'
+type ManualCompactionErrorCode =
+  | 'busy'
+  | 'cancelled'
+  | 'changed'
+  | 'summary'
+  | 'commit'
+  | 'persistence'
 ```
 
 `changed` and `summary` leave the conversation surface unchanged but still close and persist the failed attempt in the log. `commit` may follow partial mutation; `persistence` means the in-memory bracket closed but its flush failed. Cancellation remains separate and throws the exact abort reason after required cleanup.
 
-Pressure compaction runs at serial `agent/step` before request derivation. Once pressure or canonical overflow qualifies, compact-basic invokes optional [`ctx.toolResultPrune`](../../packages/compact/compact-tool-result-prune/README.md) before range selection, remeasures through `ctx.tokenMeter`, and can advance the surface without a summary. Failed-request recovery runs through `agent/request-error` after the failed step closes and returns a retry action only when the surface replacement generation advances, even if later summary work throws after pruning; cancellation still wins. Region boundaries preserve tool-call/result pairing but not whole turns, allowing early closed steps of one oversized turn to compact. `dsh-compact-basic` owns thresholds, retained-tail policy, overflow caps, and failure handling.
+Pressure compaction runs at serial `agent/pre-step` before request derivation. Once pressure or canonical overflow qualifies, compact-basic invokes optional [`ctx.toolResultPrune`](../../packages/compact/compact-tool-result-prune/README.md) before range selection, remeasures through `ctx.tokenMeter`, and can advance the surface without a summary. Failed-request recovery runs through `agent/request-error` after the failed step closes and returns a retry action only when the surface replacement generation advances, even if later summary work throws after pruning; cancellation still wins. Region boundaries preserve tool-call/result pairing but not whole turns, allowing early closed steps of one oversized turn to compact. `dsh-compact-basic` owns thresholds, retained-tail policy, overflow caps, and failure handling.
 
 The seam exports `toolPairingBalancedBefore(session, seq)` and `toolPairingBalancedAfter(session, seq)` for those edge checks. Both validate current surface membership and reject missing seqs and orphan results; the [package contract](../../packages/compact/compact/README.md#tool-pairing-boundaries) owns their cache semantics.
 

@@ -1,4 +1,4 @@
-// Shared IconActions chrome for user, steering, and assistant messages: copy
+// Shared IconActions chrome for user and assistant messages: copy
 // live, optional branch wiring, and an optional date-aware clock.
 
 import { useCallback, useEffect, useId, useRef, useState } from 'react'

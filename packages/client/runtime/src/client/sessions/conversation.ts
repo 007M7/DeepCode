@@ -9,7 +9,7 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { LlmRetryEventData } from '@deepseek-ai/dsh-llm-retry/types'
 import type { TodoItem } from '@deepseek-ai/dsh-session/types'
 import type {
-  InboxItemId, RpcError, SessionId, SubagentAddress, ToolCallView, ToolResultView,
+  RpcError, SessionId, SubagentAddress, ToolCallView, ToolResultView,
 } from '@deepseek-ai/dsh-client-connection/client'
 import type { PendingInteraction } from './pending.ts'
 export type { TodoItem }
@@ -100,19 +100,6 @@ export interface AssistantMessageNode {
   /** Frozen partial of an aborted turn (no finalize ever arrives): rendered with a 已停止 marker.
    *  Synthetic seq (fractional, derived from the turn/end seq) keeps it ordered inside the flow. */
   interrupted?: true
-}
-
-/** A steering message injected mid-turn. */
-export interface SteeringMessageNode {
-  kind: 'steering'
-  /** Stable identity shared with its pre-admission inbox occurrence. */
-  messageId: MessageId
-  seq: number
-  /** Unix epoch ms from the source session event. */
-  time: number
-  turn: number
-  content: readonly ContentBlock[]
-  source: unknown
 }
 
 /** A context/system injection surfaced in the flow. */
@@ -236,7 +223,6 @@ export interface CommandNode {
 export type ConversationNode =
   | UserMessageNode
   | AssistantMessageNode
-  | SteeringMessageNode
   | ContextMessageNode
   | ModelRetryNode
   | TurnErrorNode
@@ -276,11 +262,11 @@ export interface RunningToolCall {
 
 /** One transient inbox occurrence from the authoritative `session/queue` snapshot. */
 export interface QueuedMessage {
-  readonly id: InboxItemId
+  readonly id: MessageId
   /** Stable message identity used for transient-to-durable steering handoff. */
   readonly messageId: MessageId
   /** Agent-resolved placement; only queued rows accept queue mutations. */
-  readonly placement: 'queued' | 'steering'
+  readonly placement: 'queued' | 'steering' | 'context'
   /** Complete content used to render pending steering before it becomes durable. */
   readonly content: readonly ContentBlock[]
   readonly preview: string

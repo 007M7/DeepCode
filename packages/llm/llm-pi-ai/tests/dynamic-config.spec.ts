@@ -105,8 +105,8 @@ describe('request-level dynamic profiles', () => {
     // composition route stays.
     await ctx.settings.replace(NS, {})
     expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['openai'])
-    await expect(assemble(ctx, { provider: 'deepseek', model: 'deepseek-v4-flash', messages: [] }))
-      .rejects.toMatchObject({ code: 'NO_ADAPTER' })
+    const removed = await assemble(ctx, { provider: 'deepseek', model: 'deepseek-v4-flash', messages: [] })
+    expect(removed.finish).toMatchObject({ kind: 'error', failure: { code: 'NO_ADAPTER' } })
   })
 
   it('rotates the per-request credential referenced by apiKeyEnv', async () => {

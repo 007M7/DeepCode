@@ -23,7 +23,7 @@ const summary = (overrides: Record<string, unknown> = {}) => ({
 })
 
 function startTurn(session: ReturnType<Context['sessions']['create']>, turn = 1): void {
-  session.append('turn/start', { turn, trigger: { kind: 'message', source: { kind: 'user' } } })
+  session.append('turn/start', { turn })
 }
 
 describe('compaction invariants', () => {
@@ -142,7 +142,7 @@ describe('compaction invariants', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create()
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     session.append('compact/start', { turn: 1 })
     await ctx.plugin(InvariantService)
     await ctx.plugin(CompactInvariant)
@@ -156,7 +156,7 @@ describe('compaction invariants', () => {
     expect(() => {
       ctx.emit('session/event', session, {
         type: 'turn/start', seq: 0, time: 0,
-        data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+        data: { turn: 1 },
       })
       ctx.emit('session/event', session, {
         type: 'step/start', seq: 1, time: 1, data: { turn: 1, step: 1 },

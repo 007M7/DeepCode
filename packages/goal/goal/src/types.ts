@@ -52,7 +52,7 @@ export interface GoalSnapshot extends GoalRef {
 
 /**
  * The `goal` projection value: the current durable goal with its replay
- * counters, exactly as the latest `goal/change` source carried them.
+ * counters, exactly as the latest `goal/change` event carried them.
  * Activation is process-local (never persisted) and deliberately absent —
  * the projection reflects durable phase only.
  */

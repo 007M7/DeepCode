@@ -12,10 +12,10 @@
 |---|---|
 | `locate(meta): SessionLocation \| undefined` | 在不执行 I/O 或实体化的情况下解析绝对的每会话产物目标。没有独立本地产物的后端返回 `undefined`。 |
 | `create(meta): Promise<void>` | 注册新会话元数据。可以将物理写入延迟到第一次 `append`（延迟实体化）。 |
-| `append(id, events): Promise<void>` | 持久保存一个批次。仅追加；任何修复后，第一个事件 `seq` == 已存储 next-seq；非 JSON 可序列化数据会被拒绝，并指出导致问题的类型。 |
-| `load(id): Promise<{ meta; events }>` | 返回已存储 header 和平衡、连续的日志，其中事件已脱离并验证，带标识的消息已深度冻结。协调器会在返回快照中，将消息标识机制引入前的四种消息事件形状升级为当前包装层；其余过时或格式错误的形状仍会被拒绝。实时 load 先 flush 其快照，并在轮次开放时拒绝；冷 load 保留中断的最终轮次，并用合成 `tool/result`/`step/end?`/`turn/end {interrupted}` 事件关闭它。只丢弃撕裂尾部碎片；已提交损坏和未知 `version` 会被拒绝。 |
-| `inspect(id, signal?): Promise<{ meta; events }>` | 返回脱离的有效已存储前缀，其中带标识的消息已经升级、验证并深度冻结；不截断撕裂尾部、合成恢复 closer 或发布协调器状态。它与同 id 写入串行化；可选信号会迅速拒绝已排队调用方，阻止该后端读取启动，并取消正在进行的后端读取工作。用于绝不应恢复日志的读模型和其他观察者。 |
-| `readFrom(id, fromSeq, signal?): Promise<{ meta; events }>` | read-from-seq 原语：返回 header 和 `seq >= fromSeq` 的有效已存储事件，与 `inspect` 同样脱离且非变更（不截断、不合成 closer、不发布协调器状态）。`fromSeq` 达到或超过已存储末尾时返回空事件列表；负数或非安全整数 `fromSeq` 会被拒绝。可寻址后端（SQLite）只读后缀；顺序后端（JSONL）仍解析整个产物并向前跳过——原语约束的是返回和重折叠的量，不是每个后端的物理读取。用于从水位续折尾部的 checkpoint 消费方（例如持久投影缓存）。 |
+| `append(id, events): Promise<void>` | 持久保存一个批次。仅追加；任何修复后，第一个事件 `seq` == 已存储 next-seq；非 JSON 可序列化数据会被拒绝，并命名违规类型。 |
+| `load(id): Promise<{ meta; events }>` | 返回已存储 header 和平衡、连续的日志，其中事件已脱离并验证，带标识的消息已深度冻结。协调器会将受支持的同版本消息形状与 react-loop 重构前的事件形状升级为当前读取快照；其余过时或格式错误的形状仍会被拒绝。实时 load 先 flush 其快照，并在轮次开放时拒绝；冷 load 保留中断的最终轮次，并用合成 `tool/result`/`step/end?`/`turn/end {interrupted}` 事件关闭它。只丢弃撕裂尾部碎片；已提交损坏和未知 `version` 会被拒绝。 |
+| `inspect(id, signal?): Promise<{ meta; events }>` | 返回脱离的有效已存储前缀，其中带标识的消息已经升级、验证并深度冻结；不截断撕裂尾部、合成恢复 closer 或发布协调器状态。它与同 id 写入串行化；可选信号会迅速拒绝已排队调用方，阻止该后端读取启动，并取消活动后端读取工作。用于绝不应恢复日志的读模型和其他观察者。 |
+| `readFrom(id, fromSeq, signal?): Promise<{ meta; events }>` | read-from-seq 原语：返回 header 和 `seq >= fromSeq` 的有效已存储事件，与 `inspect` 同样脱离且非变更（不截断、不合成 closer、不发布协调器状态）。`fromSeq` 达到或超过已存储末尾时返回空事件列表；负数或非安全整数 `fromSeq` 会被拒绝。可寻址后端（SQLite）只读后缀，除非后缀中的旧版事件需要前缀上下文才能完成规范化；顺序后端（JSONL）会解析整个产物并向前跳过。用于从水位续折尾部的 checkpoint 消费方（例如持久投影缓存）。 |
 | `list(signal?): Promise<SessionHeader[]>` | 从元数据轻量列出，不解析完整日志。可选信号取消后端列表工作。零事件延迟实体化会话不在 `list` 中。 |
 | `listSnapshots(signal?): Promise<SessionPersistenceSnapshot[]>` | 返回轻量元数据和每份日志一个不透明、带品牌类型的修订值，不加载事件日志。日志及其后端存储不变时，修订保持相等；append 或变更性 load 修复后会改变；不会仅因两个存储使用相同本地计数器而冲突。可选信号请求取消后端发现工作；第一方后端会先等待所有已启动的列出工作结束，再予以拒绝，因此调用返回拒绝时，相关工作已完全停稳。 |
 
@@ -34,7 +34,7 @@
 
 崩溃修复只适用于冷状态。对于实时 id，`load(id)` 为权威内存日志制作快照，等待该快照持久，并只在平衡时将其与协调器已存储 header 一起返回；开放实时轮次会被拒绝，而不会收到合成中断 closer。冷 load 在后端读取和修复写入期间保留 id，因此同 id 实时 `Session` 的并发发布会拒绝并回滚。HMR 接管通过 `loadStored` 读取，应用协调器 cwd 检查，并绝不关闭活动轮次。
 
-后端读取会在当前形状验证前，规范化消息标识机制引入前的 `user/message`、`assistant/message`、`tool/result` 和 `steering/message` 载荷。每条导入消息都会获得确定性的 id `legacy-message:<session-id>:<event-seq>`；工具结果的内容替换会继承其目标导入后的 id。协调器对 `load`、`inspect`、无所有者状态的认领和 HMR 前缀接管使用同一份规范化视图，因此恢复后的会话可以追加当前事件，不会被误判为发生前缀冲突。存储仍然仅追加：读取不会重写旧记录，此后追加的每个事件都使用当前形状。这是[消息标识机制引入前的消息恢复决策](../../../.agents/notes/implemented/bug-fix/2026-07-28-load-pre-identity-session-messages.md)所规定的范围受限的导入例外，并不构成通用的 v0 迁移承诺。
+后端读取会在当前形状验证前，规范化明确受支持的同版本形状。消息标识机制引入前的消息会获得确定性的 id `legacy-message:<session-id>:<event-seq>`；工具结果的内容替换会继承其目标导入后的 id。react-loop 重构前的 `turn/start` 会移除过时的 trigger，已移除的 steering（中途引导）事件 `steering/message` 会转换为同一条带标识的 `user/message`；旧版 `turn/end` 会在不虚构无法获得的取消来源的前提下映射终止原因。协调器对 `load`、`inspect`、`readFrom`、无 owner 状态的认领和 HMR 前缀接管使用同一份规范化视图。存储仍然仅追加：读取不会重写旧记录，此后追加的事件使用当前形状。这些是[消息标识机制引入前的消息](../../../.agents/notes/implemented/bug-fix/2026-07-28-load-pre-identity-session-messages.md)与 [react-loop 重构前会话](../../../.agents/notes/implemented/bug-fix/2026-08-04-load-pre-react-loop-sessions.md)决策所规定的范围受限的导入例外，并不构成通用的 v0 迁移承诺。
 
 实时会话发出 `session/disposed` 时，协调器等待其 controller，串行化最终 drain，然后释放该精确 `Session` 对象拥有的状态。失败退役会将 controller 保留在实时会话 map 中，使后端拆卸可重试。后端拆卸先停止事件接纳，flush 每个剩余 controller，等待每 id 操作，最后才关闭存储句柄。
 

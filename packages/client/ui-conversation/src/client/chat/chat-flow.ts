@@ -87,7 +87,6 @@ export function messageBranchSeqs(
       nodeIndex++
     }
     if (tail?.kind === 'user'
-      || (tail?.kind === 'steering' && tail.turn === turn)
       || (tail?.kind === 'assistant' && tail.turn === turn && hasContentText(tail.blocks))) {
       result.add(tail.seq)
     }

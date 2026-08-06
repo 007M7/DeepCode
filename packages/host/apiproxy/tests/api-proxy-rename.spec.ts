@@ -57,7 +57,7 @@ async function composed(withTitles = true): Promise<Context> {
 function liveAgent(ctx: Context, id: string, turns: number): Session {
   const session = ctx.sessions.create(sid(id), { meta: { cwd: '/proj' } })
   for (let turn = 1; turn <= turns; turn++) {
-    session.append('turn/start', { turn, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn })
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: `prompt ${String(turn)}` }],
       source: { kind: 'user' },
