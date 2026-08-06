@@ -25,13 +25,32 @@ import type { AgentPresetSeatInjected } from '../src/client/AgentPresetSeat.tsx'
 // the shipped Chinese copy, so they state the browser they assume.
 usePinnedBrowserLanguages('zh-CN')
 
-const ROSTER = {
+const ROSTER_ONE = {
   rpcId: 'r',
   result: { ok: true as const, value: { presets: [{ id: 'standard', trust: 'system', isDefault: true }], authorable: true } },
 }
 
+/** The same roster with a second preset carrying the default. */
+const ROSTER_MOVED = {
+  rpcId: 'r',
+  result: {
+    ok: true as const,
+    value: {
+      presets: [
+        { id: 'standard', trust: 'system', isDefault: false },
+        { id: 'minimal', trust: 'system', isDefault: true },
+      ],
+      authorable: true,
+    },
+  },
+}
+
 async function bench() {
   const ctx = new Context()
+  // The host's answer, mutable so a spec can move the default the way the
+  // settings surface does and watch who re-reads it.
+  let ROSTER: typeof ROSTER_ONE | typeof ROSTER_MOVED = ROSTER_ONE
+  const moveDefault = (): void => { ROSTER = ROSTER_MOVED }
   await ctx.plugin(SlotsService).await()
   const locale = new LocaleService(ctx)
   ctx.provide('locale', locale)
@@ -56,7 +75,7 @@ async function bench() {
       },
     },
   } as never)
-  return { ctx, slots: ctx.get('slots') as SlotsService, calls }
+  return { ctx, slots: ctx.get('slots') as SlotsService, calls, moveDefault }
 }
 
 function declareRoot(slots: SlotsService): () => void {
@@ -235,6 +254,31 @@ describe('ui-agent-preset apply', () => {
     expect(slots.entries('conversation.hero.agentPreset')).toHaveLength(0)
     expect(slots.entries('conversation.session.header.actions')).toHaveLength(0)
     expect(slots.entries('settings.section')).toHaveLength(0)
+    conversation()
+  })
+
+  it('moves the chip when the default changes on the settings surface', async () => {
+    const { ctx, slots, moveDefault } = await bench()
+    declareRoot(slots)
+    const conversation = declareConversation(slots)
+    ctx.provide('conversation', {} as never)
+    ctx.provide('sessions', sessionsDouble({ byId: {} }) as never)
+    await ctx.plugin({ inject: [...inject, 'conversation', 'sessions'], apply }).await()
+
+    const chip = slots.entries('conversation.hero.agentPreset')[0]!
+    const seat = (chip.inject as unknown as () => AgentPresetSeatInjected)()
+    await seat.load()
+    expect(seat.hooks.agentPresetSeat.getSnapshot().current).toBe('standard')
+
+    // The chip opens on the deployment default, and the setting it comes from
+    // lives on another screen: without this the next session — the very one
+    // the setting governs — would be composed from the previous default until
+    // a reload.
+    moveDefault()
+    ctx.emit('settings/changed', 'agent-presets')
+    await vi.waitFor(() => {
+      expect(seat.hooks.agentPresetSeat.getSnapshot().current).toBe('minimal')
+    })
     conversation()
   })
 
