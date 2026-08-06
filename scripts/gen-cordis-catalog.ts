@@ -172,6 +172,7 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   ContinuableStart: 'subagent.md',
   ContinuableStartSpec: 'subagent.md',
   CoordinatorMessageSource: 'subagent.md',
+  SubagentDescendantListEntry: 'subagent.md',
   SubagentFollowupOptions: 'subagent.md',
   SubagentInterruptAuthority: 'subagent.md',
   SubagentListEntry: 'subagent.md',

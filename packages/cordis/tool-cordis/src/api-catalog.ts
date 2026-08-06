@@ -949,6 +949,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Enumerate the parent\'s direct session-backed subagents without loading or\n * resuming an Agent and without any query seam: the listing merges the live\n * session store with optional session persistence (live-preferred) and\n * serves each child\'s durable mode/label from the registered `subagent`\n * projection unit down a three-rung ladder — the registry\'s watermark\n * snapshot for a live child; for a cold one, a durable projection-cache\n * row when the optional cache serves an own-suffix identity (its `seq`\n * gate proves the value postdates the fork seed, where a child\'s own\n * descriptor is immutable once appended), else one persistence inspection\n * folded through the registry. The\n * projection fold is the single classification authority; per-child\n * diagnostics relay a fold that served no identity or a failed inspection,\n * never a list-time descriptor parse. Absent persistence, enumeration is\n * live-only (a cold child cannot be resumed then either, so its absence is\n * capability absence, not an error). This service consults no Agent\n * registrations, Activations, or providers.\n *\n * Every persistence read receives `signal`, and the listing rechecks\n * cancellation around each of those awaits. Read rejections that settle\n * after an abort become a stable `SubagentError` with code `CANCELLED`.\n * @param parentSessionId - parent session whose direct children are listed.\n * @param signal - caller-owned cancellation forwarded to persistence reads\n *   and observed around every read await.\n * @returns children and per-child diagnostics ordered by `createdAt`, then id.\n * @throws {@link SubagentError} when the projection registry or the session\n *   store is not mounted, or the caller cancels the listing.\n */',
       },
       {
+        signature: 'listDescendants(rootSessionId: SessionId, signal?: AbortSignal): Promise<SubagentDescendantListEntry[]>',
+        jsDoc: '/**\n * Enumerate the root\'s complete session-backed subagent tree in stable\n * pre-order from one lineage trace, without loading or resuming an Agent.\n * Ordinary sessions and one-shot children are traversed so continuable\n * descendants below them are discovered; each returned entry adds its\n * verified `parentId` and root-relative `depth`. Cancellation follows the\n * same contract as {@link listChildren}.\n * @param rootSessionId - session whose complete descendant tree is listed.\n * @param signal - caller-owned cancellation forwarded where supported and\n *   observed around every query await.\n * @returns children and per-candidate diagnostics with tree position, in\n *   stable pre-order.\n * @throws {@link SubagentError} when session query is unavailable or the\n *   caller cancels the scan.\n */',
+      },
+      {
         signature: 'registerProvider(provider: SubagentProvider): () => void',
         jsDoc: '/**\n * Register a provider under its name. Registration is effect-scoped and HMR\n * safe; removing a provider blocks new starts but does not revoke runs that\n * were already returned to their holders.\n * @param provider - the trusted provider implementation.\n * @returns the exact Cordis effect disposer.\n */',
       },
@@ -2782,6 +2786,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SubagentCapabilities',
     declaration: 'export interface SubagentCapabilities {\n    readonly outputSchema: boolean;\n    readonly depthLimit: boolean;\n    readonly toolFilter: boolean;\n    readonly persona: boolean;\n}',
+  },
+  {
+    name: 'SubagentDescendantListEntry',
+    declaration: 'export type SubagentDescendantListEntry = SubagentListEntry & {\n    readonly parentId: SessionId;\n    readonly depth: number;\n};',
   },
   {
     name: 'SubagentDescriptorData',
