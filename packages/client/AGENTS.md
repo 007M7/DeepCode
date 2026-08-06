@@ -51,7 +51,7 @@ Non-negotiables across the layers:
 
 - **Business data lives in the object layer, never a store.** Entry-declared stores carry shared viewing/interaction state (selection, drafts, panel widths); sessions, frames, and connections stay in the object layer.
 - **rpcId is strictly bidirectional**: the initiator mints, the responder echoes; business signatures see only `RpcRequest<P>`, minting stays in the carrier layer ([layering and RPC protocol note](../../.agents/notes/implemented/architecture/2026-07-19-gui-layering-and-rpc-protocol.md)).
-- **Notifier dual-channel discipline**: `notifyNow` only as the direct echo of a user gesture; frame-driven updates always go through `markDirty` (microtask-batched). See `runtime/src/client/sessions/notifier.ts`.
+- **Notifier publication discipline**: `notifyNow` is only the direct echo of a user gesture; structural updates use microtask-batched `markDirty`, while visible streaming chunks use cumulative `markFrameDirty`. See `runtime/src/client/sessions/notifier.ts`.
 - **The web layer is pure presentation.** Nothing that is "how to draw" (tool-card views, queue states) enters the session log; the host computes such data per frame or pushes it live, and replay recomputes it — falling back to the generic form when it can't. A new *model-visible* input still requires a session event (repo-wide rule).
 
 ## Directory regime (plugin packages)
@@ -60,24 +60,24 @@ One UI feature = one plugin package (`src/client/` browser half). A multi-domain
 
 ## Styling
 
-[docs/web-styling.md](../../docs/web-styling.md) is authoritative. In short: design tokens live in `web-ui/src/style/global.css` (`:root` light values, `[data-theme='dark']` overrides); component CSS references tokens only — no literal color values. CSS Modules + `clsx`; no component library, no tailwind ([framework ruling](../../.agents/notes/implemented/process/2026-07-19-web-styling-system.md)). Product copy is Chinese; code comments are English.
+[docs/web-styling.md](../../docs/web-styling.md) is authoritative. Shared `--dsw-*` tokens and global sheets live in `ui-theme/src/styles/`; feature components consume semantic aliases through CSS Modules and `clsx`, with no literal colors, component library, or Tailwind. Product copy is Chinese; code comments are English.
 
 ## Testing and coverage
 
 The GUI test structure (three tiers, lane map) is settled in the [GUI testing system note](../../.agents/notes/implemented/process/2026-07-20-gui-testing-system.md); repo-wide policy in [docs/testing.md](../../docs/testing.md).
 
-- **Both client packages are inside the per-file 100% coverage gate** (`pnpm run test:coverage`). `web-runtime` is covered by node-env object/protocol suites; `web-ui` rides the jsdom lane. Genuinely unreachable defensive arms take a `/* v8 ignore -- <reason> */` comment with a real reason, never a bare ignore.
-- **web-ui specs are end-to-end behavior checks, not unit tests.** A jsdom spec renders the component with realistic props (or a driven fixture runtime) and asserts what the user would see — never class names, hook internals, or render counts. Components are consumables: behavior-shaped specs survive a rewrite, implementation-shaped specs don't.
-- The jsdom environment comes from a per-file `// @vitest-environment jsdom` pragma on the spec's first line — the shared config stays node-env. Start a new spec from an existing one (`web-ui/tests/tool-card.spec.tsx` is a good template).
-- **Each tier asserts its own layer.** Data-layer semantics (state machines, wire shapes, reference stability) belong to the `web-runtime` and `apiproxy` suites — don't re-assert them from component specs.
+- Client source packages are inside the per-file 100% coverage gate (`pnpm run test:coverage`). Genuinely unreachable defensive arms take a `/* v8 ignore -- <reason> */` comment with a real reason, never a bare ignore.
+- Component specs render with realistic props or a driven fixture runtime and assert user-visible behavior, not class names, hook internals, or render counts.
+- The jsdom environment comes from a per-file `// @vitest-environment jsdom` pragma on the spec's first line; the shared config stays node-env.
+- Each tier asserts its own layer. Data-layer semantics belong to the runtime and host suites; component specs cover presentation behavior.
 
 ## Before you push: the local check ladder
 
 Run the narrowest rung that covers what you touched; escalate only when the change surface demands it.
 
 1. **Every GUI code change** — `pnpm run test:gui` (seconds; no browser, no server): the client suites plus the host-side GUI packages. This is the inner loop; run it as freely as a typecheck.
-2. **Changes to the build surface, boot wiring, static serving, or the wire carriage** (`apps/web`, vite config, `dsh-host-webserver`, connection/handler/SSE) — additionally `pnpm run test:web`: rebuilds the frontend dist, then runs the browser smoke pair (the real-host case self-skips without `DEEPSEEK_API_KEY`) plus the keyless replayed e2e scenarios (`DSH_SNAPSHOT=refresh` rewrites their aria goldens after an intentional conversation-UI change; `DSH_SNAPSHOT=record` re-records fixtures with a key).
-3. **Before a PR** — `pnpm run check:pre-push` (the repo-wide gate ladder). Between PR windows this rung is not expected on every commit.
+2. **Any change that can alter the assembled browser or visible conversation/UI output** (client components or copy, `apps/web`, Vite, `dsh-host-webserver`, connection/handler/SSE) — additionally `DSH_SNAPSHOT=replay pnpm run test:web`: rebuilds the frontend dist, then runs the browser smoke pair (the real-host case self-skips without `DEEPSEEK_API_KEY`) plus the keyless replayed e2e scenarios. Linux PR CI uses the same read-only replay mode. Use `DSH_SNAPSHOT=refresh` only after confirming an intentional output change, or `DSH_SNAPSHOT=record` with a key to re-record fixtures.
+3. **Before a PR** — use [dsh-pre-push-checks](../../.agents/skills/dsh-pre-push-checks/SKILL.md) to select the narrow checks for the outgoing diff; there is no repo-wide pre-push aggregate.
 
 If `test:gui` is red on code you did not touch, neither silently fix nor ignore it: note it in your handoff so it lands in the next PR window's sweep.
 
@@ -86,9 +86,9 @@ If `test:gui` is red on code you did not touch, neither silently fix nor ignore 
 Bringing up a new `packages/client/<name>` plugin package (ui-workspace is the latest walked example; ui-sidebar/ui-question are good skeletons to copy):
 
 1. **Package skeleton**: `package.json` (`@deepseek-ai/dsh-client-<name>`, exports `.`/`./invariant`/`./client`/`./src/*`/`./package.json`, `dshClient` manifest, `files` list), `tsconfig.json` (extends `tsconfig.base.client.json`, one `references` entry per workspace dependency plus `support/invariants`), `tsdown.config.ts` (`clientBundle(id, ['lib/types/index.js', 'lib/types/invariant.js'])`), `src/index.ts` (empty node-half apply), `src/invariant.ts` (companion with a real reason), `src/css-modules.d.ts` when using CSS Modules, `README.md` with the Model Experience section.
-2. **Three registration surfaces, all required** (missing any one fails at a different, later point): the `tsconfig.client.json` aggregate `references` entry; a `dshClient` row in `apps/cli/cordis.yml`; an `apps/cli/package.json` dependency (Loader resolves each config-tree package against the composing app's URL — a row whose package is not an `apps/cli` dependency fails to import). `pnpm-workspace.yaml` already globs `packages/*/*`.
+2. **Three registration surfaces, all required** (missing any one fails at a different, later point): the `tsconfig.client.json` aggregate `references` entry; a `dshClient` row in `apps/cli/config/web.cordis.yml`; an `apps/cli/package.json` dependency (Loader resolves each config-tree package against the composing app's URL — a row whose package is not an `apps/cli` dependency fails to import). `pnpm-workspace.yaml` already globs `packages/*/*`.
 3. **dshClient manifest semantics**: `platform: 'web'` always; `immediately: true` only for stage-one-prefetch infrastructure rows. `inject` lists package-name dependency edges — they are **informational only** (preflight display, HMR diffing); they do not sequence entry activation or apply order. Activation order is cordis fiber inject waiting on *services*, nothing else.
-4. **Registering into another package's slot**: if the declaring host provides no waitable service, your apply's order relative to the host's is unconstrained — a bare `slots.register` into its slot races boot (intermittent `slot "..." is not declared` page failures). Register with declaration-aware deferral: check `ctx.slots.spec(name)`, otherwise `ctx.slots.subscribe(name)` and register on the declaration event (SlotCore supports subscribing ahead of declaration); make the registration idempotent, and unsubscribe + dispose in the effect disposer. Only take a service edge in `inject` when the host actually provides one (ui-question → `'conversation'` is that case).
+4. **Registering into another package's slot**: apply order is unconstrained, and a business service is not a declaration barrier. Use `ctx.slots.inject(name, () => ctx.slots.register(...))`; it waits on the actual declaration, removes the contribution when that declaration collapses, reruns after redeclaration, and leaves with the caller's plugin fiber. Return a generator yielding each registration when several contributions must install and roll back atomically. A bare `slots.register` into an undeclared slot remains an error; keep service edges only for services the contribution actually reads.
 5. Rebuild the bundle (`pnpm --filter <pkg> bundle`) before probing a live `dsh web` server — the registry serves `lib/client.js`, not sources.
 
 ## New component checklist
@@ -97,5 +97,5 @@ Bringing up a new `packages/client/<name>` plugin package (ui-workspace is the l
 2. Type the props as the four shares (`PropsRuntime` & `PropsRenderSlots` & `PropsStore` & inject face) — derive, don't hand-write. Shared/surviving state goes in a `createXXXStore()` factory declared at register; component-private state stays local.
 3. Component tests feed props directly (`createXXXStore().create()` for the store share; plain stubs for framework hooks) — behavior-shaped assertions, no render machinery.
 4. Tokens only in CSS; Chinese product copy; English comments.
-5. `pnpm run test:gui` green (plus `test:web` if you touched the build surface).
+5. `pnpm run test:gui` green; if the component changes visible assembled output, also run `DSH_SNAPSHOT=replay pnpm run test:web`.
 6. Non-trivial change? It needs an Agent Note in the same PR (repo-wide rule) — the GUI notes above are the precedents to extend.

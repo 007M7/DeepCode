@@ -23,7 +23,7 @@ Namespace 插件（`name`／`inject`／`Config`／`apply`，无默认导出）�
 |---|---|---|
 | `command` | （必填） | 要 spawn 的可执行文件：绝对路径，或在加载时从子进程 PATH 解析。不使用 shell 启动。 |
 | `args` | `[]` | 传给可执行文件的参数。 |
-| `env` | `{}` | 合并到已清理 credential 的环境之上的额外 env（匹配 `KEY`／`SECRET`／`TOKEN` 的变量不会转发）；显式 `DSH_*` 条目在 seam 清除环境中同名值之后合并。 |
+| `env` | `{}` | 合并到已清理 credential 的环境之上的额外 env（匹配 `KEY`／`PASSWORD`／`SECRET`／`TOKEN` 的变量不会转发）；显式 `DSH_*` 条目在 seam 清除环境中同名值之后合并。 |
 | `extensionToLanguage` | （必填） | 小写、以点开头的扩展名 → LSP language id（例如 `{ '.ts': 'typescript' }`）。 |
 | `initializationOptions` | `null` | 转发给服务器的静态 `initialize` 选项。 |
 | `configuration` | `null` | 每个 `workspace/configuration` 配置项的静态答案。 |
@@ -53,6 +53,6 @@ Namespace 插件（`name`／`inject`／`Config`／`apply`，无默认导出）�
 
 ## 已知限制与暂缓事项
 
-- **仅限可信主机本地环境**：没有沙箱隔离，也没有私有 cache／temp 写入契约；支持不受信任 binary 或受限／远程／虚拟 Workspace，需要后续的进程／文件系统契约及不同提供方（见 [seam Agent Note（agent 决策记录）](../../../.agents/notes/implemented/architecture/2026-07-15-lsp-capability-seam.md)）。限制逻辑先解析 `realpath`，再通过一个带 `O_NOFOLLOW | O_NONBLOCK` 的 handle 打开源文件（最终组件符号链接防护，并以非阻塞方式拒绝 FIFO），同时进行有界读取；并发修改方如果在解析与打开之间把*祖先*目录替换为符号链接，会造成残余 TOCTOU。在该可信部署模型下接受此风险，不使用不可移植的 `openat` 逐 segment 遍历来封闭。
-- **临时打开兼容性下限**：同步能力省略打开／关闭（或声明 `None`）的服务器不受支持，即使关闭文档查询能够工作；固定的 TypeScript e2e 只建立一项兼容性下限，不代表跨语言承诺。
+- **仅限可信主机本地环境**：没有沙箱隔离，也没有私有 cache／temp 写入契约；支持不受信任 binary 或受限／远程／虚拟 Workspace，需要后续的进程／文件系统契约及不同提供方（见 [seam Agent Note](../../../.agents/notes/implemented/architecture/2026-07-15-lsp-capability-seam.md)）。限制逻辑先解析 `realpath`，再通过一个带 `O_NOFOLLOW | O_NONBLOCK` 的 handle 打开源文件（最终组件符号链接防护，并以非阻塞方式拒绝 FIFO），同时进行有界读取；并发修改方如果在解析与打开之间把*祖先*目录替换为符号链接，会造成残余 TOCTOU。在该可信部署模型下接受此风险，不使用不可移植的 `openat` 逐 segment 遍历来封闭。
+- **临时打开兼容性下限**：同步能力省略打开／关闭（或声明 `None`）的服务器不受支持，即使关闭文档查询能够工作；与一个 TypeScript 服务器兼容，并不表示支持其他语言。
 - **逐服务器／Workspace 串行化延迟**：共享同一个服务器与 Workspace 的并行 agent（智能体）会在一个进程后排队；长生命周期 Workspace 进程会占用内存直到 dispose。

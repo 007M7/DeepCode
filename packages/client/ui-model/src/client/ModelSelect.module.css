@@ -15,7 +15,8 @@
   height: 28px;
   padding: 0 4px 0 8px;
   border: none;
-  border-radius: 8px;
+  /* Rounded chip chrome, matching the sibling permission trigger. */
+  border-radius: 24px;
   outline: none;
   background: transparent;
   color: var(--dsw-alias-label-secondary);
@@ -197,18 +198,13 @@
   white-space: nowrap;
 }
 
-.description,
-.unlisted {
+.description {
   overflow: hidden;
   color: var(--dsw-alias-label-tertiary);
   font-size: 12px;
   line-height: 18px;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.unlisted {
-  color: var(--dsw-alias-state-warn-label);
 }
 
 .check {

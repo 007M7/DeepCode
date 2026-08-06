@@ -14,13 +14,13 @@ Status: implemented
 
 工具环作为独立基础设施已消失：工具行是**各视图为自己声明的 keyed 子槽**，client 全域只剩一种注册模型。上述理由是空的——keyed slot 的 *key 空间*本就运行时开放（SlotMap 声明槽、从不声明 key；ask-user composer 的 `key: 'question'` 即先例），开放的 tool 名集合天然适配 `entryKey` 分发。
 
-落地形态（现状叙述同见[架构注](2026-07-19-gui-web-client-architecture.md)）：chat 条目的 `children` 表声明 `'conversation.chat.toolview'`（keyed/session）；渲染点逐行以 `entryKey: toolName` 分发、以 `GenericToolCard` 作调用点 `fallback`（默认卡片是域产权；fallback 选项就是普通 renderSlot 文法）。owner 载荷是统一的 `ToolRowOwnerProps`（`callId`/`toolName`/`block`/`openDetails`——details 是会话级设施，非 chat 私货），`ToolRowProps` 把它与 session 标配 kit 预组合供注册方组件取用。注册方就是普通插件：`ctx.slots.register({ name: 'conversation.chat.toolview', key: '<tool>', inject? }, Row)`，以 `inject: ['slots', 'conversation']` 作加载序缝——apply 把 `ConversationService` 挂在 chat 注册*之后*，故服务在场即保证槽已声明，构造使然。会话维差异化在组件内完成（`useSessions` 读 `parentId`——决策放在已有全部信息的地方）；bash 样例即第三方姿态的样板，并与 Think 绘制同一套 ToolRow chrome（`Bash · {description}`，scoped badge 仅出现在子会话）。trajectory/waterfall 的 toolview 槽共用这套形状（槽名按槽名纪律 `<域>.<条目>.<孔位>` 定死，共用一张 owner 类型），随各自的行渲染点落地——RendersCheck 拒绝无人渲染的声明，挡住提前空声明的是类型系统而非约定。
+落地形态（现状叙述同见[架构注](2026-07-19-gui-web-client-architecture.md)）：chat 条目的 `children` 表声明 `'conversation.chat.toolview'`（keyed/session）；渲染点逐行以 `entryKey: toolName` 分发、以 `GenericToolCard` 作调用点 `fallback`（默认卡片是域产权；fallback 选项就是普通 renderSlot 文法）。owner 载荷是统一的 `ToolRowOwnerProps`（`callId`/`toolName`/`block`/`openDetails`——details 是会话级设施，非 chat 私货），`ToolRowProps` 把它与 session 标配 kit 预组合供注册方组件取用。注册方是使用 `ctx.slots.inject('conversation.chat.toolview', () => ctx.slots.register({ name: 'conversation.chat.toolview', key: '<tool>', inject? }, Row))` 的普通插件；声明本身控制激活与替换，不再引入虚假的 `ConversationService` 依赖（[决策](2026-08-05-slot-declaration-injection.md)）。bash 样例即第三方姿态的样板，并与 Think 绘制同一套 ToolRow chrome（`Bash · {description}`）。trajectory/waterfall 的 toolview 槽共用这套形状（槽名按槽名纪律 `<域>.<条目>.<孔位>` 定死，共用一张 owner 类型），随各自的行渲染点落地——RendersCheck 拒绝无人渲染的声明，挡住提前空声明的是类型系统而非约定。
 
 registry 时代的职责各有后继居所：inject 缓存与行错误隔离乘框架渲染器（entry×scope 缓存、per-entry `SlotErrorBoundary`）；subscribe/getVersion 乘 slot core 的 per-key 版本机；将来的「store 席位」就是 keyed slot 本就拥有的普通 store 席位（交互草稿耐久性是其首个具名消费者）；miss 兜底即调用点 `fallback` 选项。
 
 ## 接受的语义变化
 
-四项行为增量是刻意接受而非疏漏。跨视图出场=逐视图注册——行本须适配各视图版式，一视图一注册是正确耦合，复用即同一组件写两次 register。同 key 重复注册从注册表的 later-wins 静默覆盖变为 loud throw——纪律修正而非损失。会话维分发从注册表谓词移入组件。第三方在 registry 级覆盖形态（scoped 注册压过 global）不复存在；真出现的未来需求走 key 命名空间约定或组件内小 resolver，永不复活平行注册表。
+四项行为增量是刻意接受而非疏漏。跨视图出场=逐视图注册——行本须适配各视图版式，一视图一注册是正确耦合，复用即同一组件写两次 register。同 key 重复注册从注册表的 later-wins 静默覆盖变为 loud throw——纪律修正而非损失。会话维分发若行需要，归组件内部（标配 kit 已带 `useSessions`），不走注册表谓词——今天没有已落地的会话变体样例。第三方在 registry 级覆盖形态（scoped 注册压过 global）不复存在；真出现的未来需求走 key 命名空间约定或组件内小 resolver，永不复活平行注册表。
 
 ## Alternatives considered
 
@@ -34,4 +34,4 @@ registry 时代的职责各有后继居所：inject 缓存与行错误隔离乘�
 
 ## Consequences
 
-client 只有一种注册模型；审计谁渲染工具行 = 读 register 调用，与其他所有 slot 同一套审计。注册方免费获得框架的错误隔离、inject 缓存与 store 席位——没有能力要建两遍。代价即上文接受的语义变化（主要是：跨视图行要逐视图注册、第三方无 registry 级覆盖），外加加载序缝携带的一处微妙：注册方插件须声明 `inject: ['conversation']` 才排在槽声明之后，这条约定由序缝构造保证正确、但不对第三方静态强制。
+client 只有一种注册模型；审计谁渲染工具行 = 读 register 调用，与其他所有 slot 同一套审计。注册方免费获得框架的错误隔离、inject 缓存与 store 席位——没有能力要建两遍。代价即上文接受的语义变化（主要是：跨视图行要逐视图注册、第三方无 registry 级覆盖）。独立注册方在 `ctx.slots.inject` 中点名有类型约束的 slot，因此依赖关系既显式，又能跟随声明替换，无需服务顺序约定。

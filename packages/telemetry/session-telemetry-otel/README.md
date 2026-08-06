@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-The OpenTelemetry backend for [the telemetry seam](../session-telemetry/) — the only entry a deployment loads. Its `mode` decides whether the seam follows session events live, replays the canonical log only at recorded feedback, or keeps telemetry local. Uploading modes compose the OTel JS SDK as-is (`LoggerProvider` → `BatchLogRecordProcessor` → OTLP/HTTP log exporter) and map each handed-over record onto `logger.emit()`, under two instrumentation scopes: ledger records on `@deepseek-ai/dsh-session-telemetry-otel`, operational records on `@deepseek-ai/dsh-session-telemetry-otel/ops`. Resource identity (`service.name`/`service.version`) comes from `dsh-llm`'s `APP_IDENTITY`, the same source the attribution headers use.
+The OpenTelemetry backend for [the telemetry seam](../session-telemetry/) — the only entry a deployment loads. Its `mode` decides whether the seam follows session events live, replays the canonical log only at recorded feedback, or keeps telemetry local. Uploading modes compose the OTel JS SDK as-is (`LoggerProvider` → `BatchLogRecordProcessor` → OTLP/HTTP log exporter) and map each handed-over record onto `logger.emit()`, under two instrumentation scopes: ledger records on `@deepseek-ai/dsh-session-telemetry-otel`, operational records on `@deepseek-ai/dsh-session-telemetry-otel/ops`. Resource identity contains `service.name`/`service.version` from `dsh-llm`'s `APP_IDENTITY` plus this package's anonymous `user.id` (`$DSH_HOME/.userid`, a random UUID created on first use and reset by deleting the file), carried once per export batch rather than per record.
 
 ## Config
 
@@ -11,6 +11,7 @@ The OpenTelemetry backend for [the telemetry seam](../session-telemetry/) — th
   name: '@deepseek-ai/dsh-session-telemetry-otel'
   config:
     mode: FULL                # FULL (default), FEEDBACK_ONLY, or DISABLED
+    shutdownTimeoutMillis: 3000 # optional; defaults to 3000
     exporter:                # passed verbatim to the SDK's OTLP/HTTP log exporter
       url: https://collector.example.com/v1/logs
       headers:
@@ -28,7 +29,7 @@ Programmatic TypeScript configuration uses the exported `TelemetryMode` enum (`T
 
 Upload authorization is positive and fail-closed. An unknown direct-construction mode fails before transport configuration is read. Only `FULL` accepts direct `ctx.telemetry.emit()` calls. `FEEDBACK_ONLY` gives its on-demand coordinator a private backend capability and treats only the exact `feedback/record` object already stored at `session.events[event.seq]` as consent; an independently emitted bus value is ignored. `DISABLED` never constructs the SDK pipeline, even when exporter options are present.
 
-`exporter.url` is required in `FULL` and `FEEDBACK_ONLY`, has no default, and must parse as `http(s)`; it is optional and unused in `DISABLED`. Uploading modes also reject a non-positive-integer `processor.maxExportBatchSize`, which the SDK accepts but then hangs on at shutdown. Everything else is the SDK's option shape, owned and documented by the SDK, and both blocks pass through whole: every `OTLPExporterNodeConfigBase` field (`headers`, `timeoutMillis`, `compression`, `keepAlive`, …) reaches the exporter, and batching, export cadence (`scheduledDelayMillis`), retry, queue bounds, and loss policy under sustained failure are the SDK's documented behavior, tuned through the `processor` passthrough. The backend deliberately implements no `flush()`: the batch processor is the only flusher in the process, which is what makes `shutdown()`'s drain complete.
+`exporter.url` is required in `FULL` and `FEEDBACK_ONLY`, has no default, and must parse as `http(s)`; it is optional and unused in `DISABLED`. In uploading modes, `shutdownTimeoutMillis` is a positive finite DSH-owned outer deadline that defaults to 3000 ms, and a non-positive-integer `processor.maxExportBatchSize` also fails at plugin load because the SDK accepts it but then hangs on shutdown. Both SDK blocks pass through whole: every `OTLPExporterNodeConfigBase` field (`headers`, `timeoutMillis`, `compression`, `keepAlive`, …) reaches the exporter, and batching, export cadence (`scheduledDelayMillis`), retry, queue bounds, and loss policy under sustained failure are SDK behavior tuned through `processor`. The backend implements no `flush()`: the batch processor owns ordinary flushing. During shutdown, OTel awaits `exporter.forceFlush()` before the processor's `exportTimeoutMillis`-bounded completion promise; if that transport promise never settles, this package abandons the wait at `shutdownTimeoutMillis`, logs the contained shutdown failure through the coordinator, and lets application teardown continue. The deadline cannot cancel the SDK transport, so records still pending then may be lost at process exit.
 
 ## What leaves the machine
 
@@ -49,5 +50,5 @@ None; this package neither assembles nor sends a provider request.
 ## Known Limitations and Deferred Work
 
 - **Upstream experimental tree** — `@opentelemetry/sdk-logs` is still published from the upstream experimental tree; SDK API churn lands here and only here — the seam contract does not move.
-- **No live-collector coverage** — every test exports to a local mock collector; the keyless Loader-composition e2e (`tests/loader-composition.e2e.ts`) covers the wire shape on every run, and behavior against a real OTLP deployment (auth, TLS, throttling) is the SDK exporter's documented territory.
+- **Live-collector behavior belongs to the SDK exporter** — authentication, TLS, throttling, and other real OTLP deployment behavior follow the upstream SDK rather than a package-owned compatibility layer.
 - **Feedback-time snapshot** — `FEEDBACK_ONLY` retains no telemetry-owned copy before feedback. It reads and redacts the current canonical log when feedback is recorded; a crash before feedback uploads nothing, and policy changes before feedback affect what that replay exports.

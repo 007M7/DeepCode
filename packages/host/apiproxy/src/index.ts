@@ -5,7 +5,7 @@
  * platform subclasses on the client side), and the host-side implementation
  * (api-proxy.ts: createApiProxy + the ApiProxyService gateway plugin providing
  * `ctx.apiProxy`). Transport-agnostic by design: this package registers no
- * routes — carriers (HTTP today, IPC later) wrap `ctx.apiProxy` themselves.
+ * routes — physical carriers wrap `ctx.apiProxy` themselves.
  */
 
 import { resolve } from 'node:path'
@@ -45,7 +45,10 @@ export interface Config {
  * project directory and the fallback parent for name-created Workspaces.
  */
 export class ApiProxyService extends Service implements ApiProxy {
-  static inject = ['agents', 'directoryPicker', 'llm', 'sessions', 'tools', 'userInteraction', 'workspace']
+  static inject = [
+    'agents', 'directoryPicker', 'llm', 'sessions', 'subagents', 'sessionQuery',
+    'tools', 'userInteraction', 'workspace',
+  ]
 
   static Config: z<Config> = z.object({
     provider: z.string().required(),
@@ -54,11 +57,15 @@ export class ApiProxyService extends Service implements ApiProxy {
   })
 
   readonly sessions: ApiProxy['sessions']
+  readonly subagents: ApiProxy['subagents']
   readonly workspace: ApiProxy['workspace']
   readonly host: ApiProxy['host']
   readonly commands: ApiProxy['commands']
   readonly goals: ApiProxy['goals']
   readonly skills: ApiProxy['skills']
+  readonly settings: ApiProxy['settings']
+  readonly credentials: ApiProxy['credentials']
+  readonly llm: ApiProxy['llm']
   readonly events: ApiProxy['events']
   readonly respond: ApiProxy['respond']
 
@@ -72,11 +79,15 @@ export class ApiProxyService extends Service implements ApiProxy {
       workspaceRoot: resolve(config.workspaceRoot ?? cwd),
     })
     this.sessions = api.sessions
+    this.subagents = api.subagents
     this.workspace = api.workspace
     this.host = api.host
     this.commands = api.commands
     this.goals = api.goals
     this.skills = api.skills
+    this.settings = api.settings
+    this.credentials = api.credentials
+    this.llm = api.llm
     this.events = api.events
     // createApiProxy returns closures (no `this` capture); bind only satisfies
     // the unbound-method lint without changing behavior.

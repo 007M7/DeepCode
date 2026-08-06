@@ -1,25 +1,25 @@
 /**
  * The model-facing `grep` tool: search file contents with a ripgrep regular
- * expression. Execution goes through the bash seam (`ctx.bash`) with a fixed
- * line-oriented `rg --json` command so file path, line number, and line text
- * parse without colon-splitting ambiguity — this module owns the model-facing
- * schema, argument validation, shell-safe command construction, `--json`
- * record parsing, per-line preview retention, match retention, grouping, and
- * formatting; process concerns stay behind `ctx.bash`.
+ * expression. Execution spawns the packaged ripgrep binary
+ * (`@vscode/ripgrep`) directly through the subprocess seam with a plain argv
+ * vector using a fixed line-oriented `rg --json` command so file path, line
+ * number, and line text parse without colon-splitting ambiguity — this module
+ * owns the model-facing schema, argument validation, argv construction,
+ * `--json` record parsing, per-line preview retention, match retention,
+ * grouping, and formatting; process concerns stay behind `ctx.subprocess`.
  *
  * @module @deepseek-ai/dsh-tool-fs-search/grep
  */
 
 import type { Context } from 'cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { GenericCallView } from '@deepseek-ai/dsh-tools'
-import { ItemRetainer, TextRetainer } from '@deepseek-ai/dsh-retention'
+import type { GenericCallView, SearchResultView, ToolResult } from '@deepseek-ai/dsh-tools'
 import type { RetainedItems } from '@deepseek-ai/dsh-retention'
 import type { SpillRef } from '@deepseek-ai/dsh-spill'
-import type {} from '@deepseek-ai/dsh-bash'
 import type {} from '@deepseek-ai/dsh-system-prompt'
-import { SearchError, runRipgrep, toWorkdirRelative, trySaveFormattedResult } from './search-core.ts'
-import { singleQuote } from './shell-quote.ts'
+import type { GrepMatch } from './search-core.ts'
+import { SearchError, previewLine, retainGrepMatches, runRipgrep, toWorkdirRelative, trySaveFormattedResult } from './search-core.ts'
+import { grepSearchMeta, searchViewFromMeta } from './presentation.ts'
 import { acceptedSurfaceValue } from './surface.ts'
 
 /**
@@ -41,8 +41,14 @@ export interface GrepToolCaps {
   maxMatches: number
   /** Max bytes retained per matched-line preview. */
   maxLineBytes: number
+  /** Max bytes of serialized `presentationMeta`; trailing file groups drop past it. */
+  maxMetaBytes: number
   /** Cap on the complete raw `rg` stdout the tool will parse. */
   rawOutputMaxBytes: number
+  /** Terminate-escalation grace period (ms) for the search process. */
+  graceMs: number
+  /** Cap on the retained stderr diagnostic tail. */
+  stderrMaxBytes: number
   /** Cooperative tool-call budget (ms) attached as `ToolDefinition.timeoutMs`. */
   timeoutMs: number
 }
@@ -52,13 +58,6 @@ export interface GrepInput {
   pattern: string
   path?: string
   include?: string
-}
-
-/** One parsed match: the file, the 1-based line number, and the (possibly previewed) line text. */
-export interface GrepMatch {
-  path: string
-  lineNumber: number
-  line: string
 }
 
 /**
@@ -100,20 +99,21 @@ export function parseGrepArgs(args: { pattern: string; path?: string; include?: 
 }
 
 /**
- * Build the fixed line-oriented `rg --json` command for one `grep` call. Every
+ * Build the fixed line-oriented `rg --json` argv for one `grep` call. Every
  * model-controlled value ({@link GrepInput.pattern}, {@link GrepInput.path},
- * {@link GrepInput.include}) passes through {@link singleQuote}; the pattern
- * and include ride in `--flag=value` form and the target behind `--`, so a
- * leading-dash value can never be parsed as a flag.
+ * {@link GrepInput.include}) is a plain argv element — no shell layer exists,
+ * so no quoting applies; the pattern and include ride in `--flag=value` form
+ * and the target behind `--`, so a leading-dash value can never be parsed as
+ * a flag.
  *
  * @param input - the validated arguments.
- * @returns the complete, shell-safe command string.
+ * @returns the complete ripgrep argument vector (excluding the binary itself).
  */
-export function buildGrepCommand(input: GrepInput): string {
-  const parts = ['rg --json', `--regexp=${singleQuote(input.pattern)}`]
-  if (input.include !== undefined) parts.push(`--glob=${singleQuote(input.include)}`)
-  if (input.path !== undefined) parts.push('--', singleQuote(input.path))
-  return parts.join(' ')
+export function buildGrepCommand(input: GrepInput): string[] {
+  const parts = ['--json', `--regexp=${input.pattern}`]
+  if (input.include !== undefined) parts.push(`--glob=${input.include}`)
+  if (input.path !== undefined) parts.push('--', input.path)
+  return parts
 }
 
 /**
@@ -177,22 +177,6 @@ export function parseGrepMatches(stdout: string): GrepMatch[] {
   return matches
 }
 
-/**
- * Bound one matched-line preview to `maxBytes` (UTF-8 boundary preserved) and
- * mark the cut. The cap is a per-line budget fact; the complete line stays in
- * the searched file for `read`.
- *
- * @param line - the matched line text (trailing newline already stripped).
- * @param maxBytes - the preview budget in bytes.
- * @returns the preview, suffixed with ` (line truncated)` when bytes were cut.
- */
-export function previewLine(line: string, maxBytes: number): string {
-  const retainer = new TextRetainer({ kind: 'head', maxBytes })
-  retainer.push(line)
-  const kept = retainer.finish()
-  return kept.truncated ? `${kept.text} (line truncated)` : kept.text
-}
-
 /** `match` / `matches` for a count. */
 function matchNoun(count: number): string {
   return count === 1 ? 'match' : 'matches'
@@ -241,18 +225,10 @@ export function formatGrepOutput(retained: RetainedItems<GrepMatch>, spillRef: S
   return `${header}\n\n${body}\n\n(${recovery})`
 }
 
-/** Apply the Native per-line preview budget without changing the canonical matches. */
-function previewGrepMatches(matches: GrepMatch[], maxLineBytes: number): GrepMatch[] {
-  return matches.map(match => ({ ...match, line: previewLine(match.line, maxLineBytes) }))
-}
-
-/** Retain and format one canonical match list for the Native surface. */
-function renderGrepMatches(matches: GrepMatch[], maxMatches: number, maxLineBytes: number, spillRef?: SpillRef): string {
-  if (matches.length === 0) return 'No matches found'
-  const previewed = previewGrepMatches(matches, maxLineBytes)
-  const retainer = new ItemRetainer<GrepMatch>({ kind: 'head', maxItems: maxMatches })
-  for (const match of previewed) retainer.push(match)
-  return formatGrepOutput(retainer.finish(), spillRef)
+/** Format one already-retained match list for the Native surface. */
+function formatRetainedGrep(retained: RetainedItems<GrepMatch>, spillRef?: SpillRef): string {
+  if (retained.seen === 0) return 'No matches found'
+  return formatGrepOutput(retained, spillRef)
 }
 
 /**
@@ -269,10 +245,31 @@ export function presentGrepCall(args: { pattern: string; path?: string; include?
 }
 
 /**
+ * Completed-call presentation: the search card projected from the result's
+ * `presentationMeta` (matches grouped by file, with the truncation signal). A UI
+ * without a search card falls back to the raw `tool/result` content, so the view
+ * carries no result text of its own. Malformed or absent metadata (an obsolete or
+ * hand-edited replayed log) falls back to the generic card.
+ *
+ * @param _args - the raw tool arguments; unused, the view derives from the result.
+ * @param result - the final model-facing tool result carrying the projected metadata.
+ * @returns the search card view, or `undefined` for the generic fallback.
+ */
+export function presentGrepResult(
+  _args: { pattern: string; path?: string; include?: string },
+  result: ToolResult,
+): SearchResultView | undefined {
+  if (result.isError) return undefined
+  const view = searchViewFromMeta(result.meta)
+  if (view === undefined || view.shape !== 'matches') return undefined
+  return view
+}
+
+/**
  * Register the `grep` tool and its system-prompt guidance.
  *
  * @param ctx - the plugin context; registrations are effects scoped to it, and
- *   execution uses its `bash` service.
+ *   execution uses its `subprocess` service.
  * @param caps - the deployment's resolved grep caps (plugin config after defaulting).
  */
 export function applyGrepTool(ctx: Context, caps: GrepToolCaps): void {
@@ -315,12 +312,14 @@ export function applyGrepTool(ctx: Context, caps: GrepToolCaps): void {
       },
       render: (_args, value) => [{
         type: 'text',
-        text: renderGrepMatches(value.matches, caps.maxMatches, caps.maxLineBytes),
+        text: formatRetainedGrep(retainGrepMatches(value.matches, caps.maxMatches, caps.maxLineBytes)),
       }],
+      presentationMeta: (_args, value) =>
+        grepSearchMeta(retainGrepMatches(value.matches, caps.maxMatches, caps.maxLineBytes), caps.maxMetaBytes),
     },
     async execute(args, exec) {
       const input = parseGrepArgs(args)
-      const run = await runRipgrep(ctx, exec, 'grep', buildGrepCommand(input), caps.rawOutputMaxBytes)
+      const run = await runRipgrep(ctx, exec, 'grep', buildGrepCommand(input), caps.rawOutputMaxBytes, caps.graceMs, caps.stderrMaxBytes)
       if (run.noMatches) return { matches: [] }
 
       const all: GrepMatch[] = []
@@ -335,6 +334,7 @@ export function applyGrepTool(ctx: Context, caps: GrepToolCaps): void {
       return { matches: all }
     },
     presentCall: presentGrepCall,
+    presentResult: presentGrepResult,
   })
   ctx.tools.register(tool)
 
@@ -344,17 +344,20 @@ export function applyGrepTool(ctx: Context, caps: GrepToolCaps): void {
     if (value === undefined) return decision
     const matches = value.matches
     if (matches.length <= caps.maxMatches) return decision
+    // The spill artifact holds the COMPLETE result: preview each line, but keep
+    // every match (no inline cap), so the recovery file is the full search.
+    const previewedAll = matches.map(match => ({ ...match, line: previewLine(match.line, caps.maxLineBytes) }))
     const spillRef = await trySaveFormattedResult(
       ctx,
       exec,
       'grep-results.txt',
-      `Found ${matches.length} ${matchNoun(matches.length)}\n\n${formatGrepMatches(previewGrepMatches(matches, caps.maxLineBytes))}`,
+      `Found ${matches.length} ${matchNoun(matches.length)}\n\n${formatGrepMatches(previewedAll)}`,
     )
     return {
       kind: 'accept',
       content: [{
         type: 'text',
-        text: renderGrepMatches(matches, caps.maxMatches, caps.maxLineBytes, spillRef),
+        text: formatRetainedGrep(retainGrepMatches(matches, caps.maxMatches, caps.maxLineBytes), spillRef),
       }],
       ...decision.additionalContexts !== undefined ? { additionalContexts: decision.additionalContexts } : {},
     }

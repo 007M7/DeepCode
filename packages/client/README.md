@@ -2,33 +2,38 @@
 
 English | [中文](README.zh.md)
 
-The browser side of the dsh web GUI: shell kernel, module system, wire consumer, React-free object services, the slot system, and the `ui-*` feature-plugin roster. Authoring rules live in [AGENTS.md](AGENTS.md); the host half is [`host/`](../host/README.md). All **product** packages, named `@deepseek-ai/dsh-client-<name>`.
+The browser side of the dsh web GUI: shell boot, browser-host communication, shared UI services, and feature plugins. Authoring rules live in [AGENTS.md](AGENTS.md); the host half is [`host/`](../host/README.md). All except `test-runtime` are **product** packages named `@deepseek-ai/dsh-client-<name>`.
 
-| Package | Role | ctx key / slot |
-|---|---|---|
-| `web/` | Shell kernel: `AppWebEntry` runs the two-stage boot over the host-pushed entry graph | (boots the tree) |
-| `modules/` | Client module system: browser peer of Node's ESM loader as a lazy CJS table under the vendored cordis Loader | (module face) |
-| `web-react/` | Shell-side React glue: `createSlotRenderer` + `SessionProvider` render seats | (renderer install) |
-| `connection/` | Wire consumer both ends: browser `ctx.connection` (shared api client + stream loop) and the node half mounting the `/api` route with its browser-trust fence | `ctx.connection` |
-| `runtime/` | Client cordis boot and React-free object services: slots, Sessions, Workspaces, per-session bindings | `ctx.slots` `ctx.sessions` `ctx.workspaces` |
-| `hmr/` | Dev-only hot reload for fetch-arrival client plugins (`--dev` graphs) | (dev entry) |
-| `locale/` | Browser locale preference (`zh`/`en`) plus the ns×locale dictionary registry | `ctx.locale` |
-| `ui-slots/` | Slot registry pure core: SlotMap merging, single `register` API, the four-share props family | (types + core) |
-| `ui-theme/` | Theme preference over the `--dsw-*` token stylesheets (`light`/`dark`/`system`) | `ctx.theme` |
-| `ui-primitives/` | Pure React atoms: icons, Button/Pill/Menu/Modal/Input, markdown family | (component library) |
-| `ui-layout/` | Shell three-column AppFrame; declares `sidebar` / `conversation` / `details` / `conversation.empty` | `ctx.layout` |
-| `ui-sidebar/` | Sidebar shell: Workspace/session rail, search, collapse; declares `sidebar.workspaces` | (slot host) |
-| `ui-workspace/` | Shared Workspace picker: browser region + hero picker over the same creation flow | (fills `sidebar.workspaces`, `conversation.hero.workspace`) |
-| `ui-conversation/` | Conversation domain: skeleton, chat view, input dock, per-tool row slots | (slot host) |
-| `ui-trajectory/` | Trajectory/Waterfall view tabs; the minimal pure-consumer plugin exemplar | (fills `conversation.view`) |
-| `ui-command/` | Command surface: session-keyed directory cache, `/` source, three-kind dispatch | `ctx.command` |
-| `ui-slash/` | Input trigger pipeline: `/` and `@` detection, grouped candidate menu, source roster | `ctx.slash` |
-| `ui-skill/` | `/`-trigger skill reference source over the `skill.list` RPC | (registers into `ctx.slash`) |
-| `ui-subagent/` | `@`-trigger subagent reference source over the sessions snapshot | (registers into `ctx.slash`) |
-| `ui-model/` | Model selection: `/model` popupSelect + the composer model seat over `ModelService` | `ctx.models` |
-| `ui-question/` | Web `ask_user_question`: host half mounts the tool, browser half fills the composer seat | (fills `conversation.composer`) |
-| `ui-settings/` | Settings shell: trigger chrome + modal panel; declares the `settings.*` slots | (slot host) |
-| `ui-settings-general/` | Settings ownerless copy: chrome content + General section skeleton | (fills `settings.*`) |
-| `ui-models/` | Models settings nav entry (content column lands in a later phase) | (fills `settings.section`) |
+| Package | Purpose |
+|---|---|
+| [`web/`](web/README.md) | Boots the browser shell from the client entry graph. |
+| [`modules/`](modules/README.md) | Loads browser-side client modules. |
+| [`web-react/`](web-react/README.md) | Connects the shell runtime to React rendering. |
+| [`connection/`](connection/README.md) | Maintains browser-host RPC communication and event delivery. |
+| [`runtime/`](runtime/README.md) | Provides shared client services for sessions, workspaces, and UI composition. |
+| [`hmr/`](hmr/README.md) | Refreshes client plugins during development. |
+| [`locale/`](locale/README.md) | Provides localization preferences and message dictionaries. |
+| [`schema-form/`](schema-form/README.md) | Provides schema-backed draft handling for settings editors. |
+| [`test-runtime/`](test-runtime/README.md) | Provides shared repository test support for client feature packages. |
+| [`ui-slots/`](ui-slots/README.md) | Defines how UI features register and compose extension slots. |
+| [`ui-theme/`](ui-theme/README.md) | Applies the selected color theme. |
+| [`ui-primitives/`](ui-primitives/README.md) | Provides shared React controls, icons, and content renderers. |
+| [`ui-layout/`](ui-layout/README.md) | Arranges the main application regions. |
+| [`ui-sidebar/`](ui-sidebar/README.md) | Presents workspace and session navigation. |
+| [`ui-workspace/`](ui-workspace/README.md) | Provides workspace selection and creation surfaces. |
+| [`ui-conversation/`](ui-conversation/README.md) | Presents the active conversation and its input surface. |
+| [`ui-goal/`](ui-goal/README.md) | Presents and manages the current goal. |
+| [`ui-trajectory/`](ui-trajectory/README.md) | Presents alternate views of agent activity. |
+| [`ui-command/`](ui-command/README.md) | Provides session-aware command discovery and dispatch. |
+| [`ui-slash/`](ui-slash/README.md) | Coordinates inline command and reference suggestions. |
+| [`ui-skill/`](ui-skill/README.md) | Adds skill references to inline suggestions. |
+| [`ui-subagent/`](ui-subagent/README.md) | Provides subagent navigation, child transcript states, and inline references. |
+| [`ui-model/`](ui-model/README.md) | Provides model selection in conversation surfaces. |
+| [`ui-permission/`](ui-permission/README.md) | Configures default permissions and switches the current session's access. |
+| [`ui-plan/`](ui-plan/README.md) | Presents active plan-mode status and its exit control. |
+| [`ui-question/`](ui-question/README.md) | Presents interactive questions requested by the agent. |
+| [`ui-settings/`](ui-settings/README.md) | Hosts the settings interface and its extension areas. |
+| [`ui-settings-general/`](ui-settings-general/README.md) | Provides the general settings section. |
+| [`ui-models/`](ui-models/README.md) | Provides model-provider configuration and DeepSeek onboarding. |
 
-Feature UI composes only through the slot system (`ctx.slots.register`) — the [slot system standard](../../.agents/notes/implemented/architecture/2026-07-22-slot-type-chain-implementation.md) is the definitive model; the [web client architecture note](../../.agents/notes/implemented/architecture/2026-07-19-gui-web-client-architecture.md) owns the loading chain and object layer.
+Each child reference owns its contract and detailed behavior. The [slot system standard](../../.agents/notes/implemented/architecture/2026-07-22-slot-type-chain-implementation.md) and [web client architecture note](../../.agents/notes/implemented/architecture/2026-07-19-gui-web-client-architecture.md) own the cross-package composition and loading decisions.

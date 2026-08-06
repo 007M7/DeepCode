@@ -6,11 +6,11 @@ The `jsonrpc` plugin serves newline-delimited JSON-RPC over stdio so out-of-proc
 
 ## Wiring
 
-`inject: ['agents']`. The server gets or creates one agent per `sessionId`. It forwards subagent completions only when the service-snapshotted lifecycle `local` flag is true; provider names, child ids, and durable lineage never establish locality. A registered adapter wins, an unowned `deepseek` route mounts `dsh-llm-deepseek`, and any other unowned provider fails initialization. Other capabilities come from the surrounding `cordis.yml`.
+`inject: ['agents']`. The server gets or creates one agent per `sessionId`. It forwards subagent completions only when the service-snapshotted lifecycle `local` flag is true; provider names, child ids, and durable lineage never establish locality. A registered adapter wins, an unowned `deepseek-official` route mounts `dsh-llm-deepseek`, and any other unowned provider fails initialization. Other capabilities come from the surrounding `cordis.yml`.
 
 ## Config
 
-`maxTokensAsSuccess` defaults to `false`. Set it to `true` for evaluation hosts that distinguish an accepted, token-limited agent result from an infrastructure failure. `JsonRpcConfig.input`, `output`, and `exit` are runtime-only transport seams; production uses process stdio and `process.exit`.
+`maxTokensAsSuccess` defaults to `false` and affects only the deployment-mapped status on `subagent.finished`; root-session prompts have no prompt-level status. `JsonRpcConfig.input`, `output`, and `exit` are runtime-only transport seams; production uses process stdio and `process.exit`.
 
 ## stdout is the protocol
 
@@ -18,11 +18,11 @@ Stdout carries only JSON-RPC frames. The deployment must not compose a stdout lo
 
 ## Shutdown and exit semantics
 
-The plugin answers `shutdown`, disposes SDK-owned agents and subscriptions to quiescence, closes the transport, then exits with code 0. EOF and signal exits belong to the app bin, which disposes the root context. Unloading only this plugin stops serving without exiting the process.
+The plugin answers `shutdown`, flushes the response, disposes the root context so SDK-owned agents, subscriptions, and persistence reach quiescence, then exits with code 0. EOF and signal exits belong to the app bin, which also disposes the root context. Unloading only this plugin stops serving without exiting the process.
 
 ## Wire notes
 
-`initialize.serverInfo.name` is the wire-stable `deepseek-harness-sdk-runtime`. An optional positive `initialize.maxTokens` becomes the request output cap of each SDK-created agent and its in-process descendants; invalid values reject initialization, while omission sends no cap and preserves provider defaults. A session accepts one in-flight prompt; overlap fails immediately, other sessions remain independent, and the session is reusable after settlement. `session.finished` reports that prompt's message-triggered turn outcome; later between-turn records still stream as `session.event` notifications but cannot replace the prompt status. Persistence roots and persona come from `cordis.yml`.
+`initialize.serverInfo.name` is the wire-stable `deepseek-harness-sdk-runtime`. An optional positive `initialize.maxTokens` becomes the request output cap of each SDK-created agent and its in-process descendants; invalid values reject initialization, while omission sends no SDK cap and allows the selected adapter or provider route default to apply. `session/prompt` queues one identified user message and immediately returns `{ messageId }`. The server streams every durable fact as `session.event` and every whole-agent lifecycle transition as `session.status`; it does not assign an assistant message or `turn/end` to that prompt. Independent requests may enqueue more work on the same session. Persistence roots and persona come from `cordis.yml`.
 
 ## Model Experience
 
@@ -42,6 +42,7 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 ## Known Limitations and Deferred Work
 
-- **The wire has no per-session close or prompt-cancel method** — SDK-created agents remain live until process shutdown, and one accepted prompt runs to agent idle before that session accepts another.
+- **The wire has no per-session close or prompt-cancel method** — SDK-created agents remain live until process shutdown.
+- **There is no per-prompt result** — `MessageId` identifies inbox admission only; clients that own an automation interval must define and observe that interval themselves.
 - **stdout purity is deployment-enforced** — a surrounding config can still load a stdout logger and corrupt the JSON-RPC channel; this plugin does not inspect or veto sibling loggers.
 - **Automatic adapter mounting is DeepSeek-specific** — `initialize` can reuse any pre-registered model adapter, but its only fallback mounts `dsh-llm-deepseek`.

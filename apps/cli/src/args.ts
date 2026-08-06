@@ -1,21 +1,27 @@
 /**
- * Commander adapter for the `dsh` command-line entry: the one place argv is
- * parsed and routed to a mode. `bin.ts` switches on the returned discriminant
- * and dynamic-imports that mode's module. One program: the default (no
- * subcommand) is the TUI/headless surface with option-only flags; `web` is a
- * real subcommand. Commander owns `--help`/`--version` and parse errors — it
- * prints and exits at the point of failure (a domain failure routes through
- * `command.error`), so this returns only a resolved mode.
+ * Commander adapter for the `dsh` command-line entry. The default command
+ * boots one required `--config` overlay over the shipped base; `-p` selects
+ * the one-shot headless path and `web` selects the browser application.
+ * Commander owns help, version, and parse errors.
  * @module @deepseek-ai/dsh/args
  */
 
 import { Command, CommanderError } from 'commander'
 
-/** Interactive TUI: the default mode. `--config` swaps the tree; `--resume <id>` rehydrates a session. */
-interface TuiInvocation {
-  mode: 'tui'
+/** Boot a caller-selected overlay over the shipped base config. */
+interface ConfigInvocation {
+  mode: 'config'
+  config: string
+}
+
+/** Print a composed config tree and exit without booting. */
+interface DumpConfigInvocation {
+  mode: 'dump-config'
+  surface: 'config' | 'web'
+  /** Omit every caller or personal layer and print the shipped tree. */
+  defaultOnly: boolean
+  /** Explicit overlay to compose over the base or Web surface. */
   config?: string
-  resume?: string
 }
 
 /** Headless one-shot: `dsh -p "task"`. */
@@ -25,46 +31,66 @@ interface HeadlessInvocation {
 }
 
 /**
- * Browser UI: `dsh web`. `host`/`port` are present only when the flag was
- * passed — pass-through overrides with no CLI default and no CLI validation:
- * the `dsh-host-webserver` schema (`host` a loopback/all-interfaces literal,
- * `port` a natural ≤ 65535) is the single source of both the default (the
- * shipped `cordis.yml` value stands when a flag is absent) and validity (a bad
- * value fails loud at boot). `port` is `Number`-coerced only because the schema
- * wants a number, not a string. `dev` mounts the client HMR driver;
- * `workspaceRoot` is the parent directory for name-created workspaces.
+ * Browser UI: `dsh web`. Host and port remain unvalidated pass-throughs to
+ * the webserver schema; absent values leave the shipped Web overlay intact.
  */
 interface WebInvocation {
   mode: 'web'
+  /** Overlay applied over the shipped Web composition instead of the personal one. */
+  config?: string
   host?: string
   port?: number
   dev: boolean
   workspaceRoot?: string
-  /** Extra authorities for the /api browser-trust fence (`host` or `host:port`); LAN IP literals are derived, not listed here. */
+  /** Extra authorities for the /api browser-trust fence. */
   trustedHosts?: string[]
 }
 
-/** The resolved `dsh` invocation: exactly one mode. `--help`/`--version`/errors exit inside {@link parseDshArgs}. */
-export type DshInvocation = TuiInvocation | HeadlessInvocation | WebInvocation
+/** The resolved `dsh` invocation. Help, version, and errors exit inside {@link parseDshArgs}. */
+export type DshInvocation = ConfigInvocation | DumpConfigInvocation | HeadlessInvocation | WebInvocation
 
 /** Raw web-subcommand options straight from Commander. */
 interface WebOptions {
+  config?: string
   host?: string
   port?: string
   dev?: boolean
   workspaceRoot?: string
   trustedHost?: string[]
+  dumpConfig?: boolean
+  dumpDefaultConfig?: boolean
 }
 
-/**
- * Narrow the raw `web` options into a {@link WebInvocation}. No host/port
- * validation: both flow to the webserver schema, which is the sole gate. `port`
- * is coerced to a number (the schema rejects a string) but not range-checked
- * here — `NaN`/out-of-range fail loud at the schema on boot.
- */
+/** Resolve config-dump flags for one command shape. */
+function resolveDump(
+  surface: 'config' | 'web',
+  options: { config?: string; dumpConfig?: boolean; dumpDefaultConfig?: boolean },
+  error: (message: string) => never,
+): DumpConfigInvocation | undefined {
+  if (options.dumpConfig !== true && options.dumpDefaultConfig !== true) return undefined
+  if (options.dumpConfig === true && options.dumpDefaultConfig === true) {
+    error('error: --dump-config and --dump-default-config are mutually exclusive')
+  }
+  const defaultOnly = options.dumpDefaultConfig === true
+  if (defaultOnly && options.config !== undefined) {
+    error('error: --dump-default-config prints the shipped tree and takes no --config')
+  }
+  if (surface === 'config' && !defaultOnly && options.config === undefined) {
+    error('error: --dump-config requires --config <path>')
+  }
+  return {
+    mode: 'dump-config',
+    surface,
+    defaultOnly,
+    ...options.config !== undefined && { config: options.config },
+  }
+}
+
+/** Narrow raw `web` options into a {@link WebInvocation}. */
 function resolveWeb(options: WebOptions): WebInvocation {
   return {
     mode: 'web',
+    ...options.config !== undefined && { config: options.config },
     ...options.host !== undefined && { host: options.host },
     ...options.port !== undefined && { port: Number(options.port) },
     dev: options.dev === true,
@@ -74,62 +100,86 @@ function resolveWeb(options: WebOptions): WebInvocation {
 }
 
 /**
- * Resolve the raw argv into a {@link DshInvocation}, or print and exit for
- * `--help`/`--version`/a parse error. The default (no subcommand) is the
- * TUI/headless surface; `web` is a subcommand.
- * @param argv - the arguments after the node binary and script (`process.argv.slice(2)`).
- * @param version - the version string `--version` prints; read from this app's package.json.
- * @returns the resolved invocation (only reached on a valid, non-help invocation).
+ * Resolve argv into one invocation, or print and exit for help, version, or an
+ * error.
+ * @param argv - arguments after the Node binary and script.
+ * @param version - version string printed by `--version`.
+ * @returns the resolved invocation.
  */
 export function parseDshArgs(argv: readonly string[], version: string): DshInvocation {
   let resolved: DshInvocation | undefined
   const program = new Command()
     .name('dsh')
     .version(version, '-V, --version', 'output the version number')
-    .description('dsh: interactive TUI (default), headless task, and browser UI')
+    .description('dsh: boot a DeepSeek Harness config overlay over the shipped base configuration.')
+    .addHelpText('after', `
+Examples:
+  dsh --config ./app.cordis.yml  boot an overlay over the shipped base
+  dsh -p "run the tests"         answer one task, print the result, and exit
+  dsh web                       serve the browser UI
+`)
     .exitOverride()
-    // Default surface: option-only (no positional), so `web` can be a real
-    // subcommand without a positional collision.
-    .option('--config <path>', 'boot an alternate cordis.yml instead of the shipped tree (TUI mode)')
-    .option('-p, --prompt <task>', 'run one headless turn for this task, print the result, and exit')
-    .option('--resume <id>', 'resume the persisted session with this id (TUI mode)')
-    .action((options: { config?: string; prompt?: string; resume?: string }) => {
-      if (options.prompt !== undefined) {
-        // A headless prompt owns the invocation; an empty task has nothing to
-        // run, and --config/--resume are TUI inputs that must not silently
-        // vanish from a headless run.
-        if (options.prompt === '') program.error('error: --prompt needs a task')
-        if (options.config !== undefined || options.resume !== undefined) {
-          program.error('error: --prompt takes no --config or --resume')
+    .enablePositionalOptions()
+    .option('-p, --prompt <task>', 'answer this task without an interactive UI, then exit')
+    .option('--config <path>', 'overlay of loader patches to apply over the shipped base')
+    .option('--dump-config', 'print the base plus --config overlay and exit')
+    .option('--dump-default-config', 'print the shipped base config and exit')
+    .action((options: {
+      config?: string
+      prompt?: string
+      dumpConfig?: boolean
+      dumpDefaultConfig?: boolean
+    }) => {
+      if (options.config === '') program.error('error: --config needs a path')
+      const dump = resolveDump('config', options, message => program.error(message))
+      if (dump !== undefined) {
+        if (options.prompt !== undefined) {
+          program.error('error: --dump-config/--dump-default-config take no -p/--prompt')
         }
+        resolved = dump
+        return
+      }
+      if (options.prompt !== undefined) {
+        if (options.prompt === '') program.error('error: --prompt needs a task')
+        if (options.config !== undefined) program.error('error: --prompt takes no --config')
         resolved = { mode: 'headless', prompt: options.prompt }
         return
       }
-      // An empty --resume= id would silently start a fresh session downstream
-      // (agent-loop treats '' as no-resume), so a mistyped resume must fail loud.
-      if (options.resume === '') program.error('error: --resume needs a session id')
-      resolved = {
-        mode: 'tui',
-        ...options.config !== undefined && { config: options.config },
-        ...options.resume !== undefined && { resume: options.resume },
-      }
+      const config = options.config ?? program.error('error: --config <path> is required')
+      resolved = { mode: 'config', config }
     })
 
-  const web = program.command('web').description('serve the browser UI (host/port default to the shipped config)')
+  /** Reject parent options that crossed a subcommand boundary. */
+  const rejectParentOptions = (command: string): void => {
+    const parent = program.opts<{
+      config?: string
+      prompt?: string
+      dumpConfig?: boolean
+      dumpDefaultConfig?: boolean
+    }>()
+    if (parent.config !== undefined || parent.prompt !== undefined
+      || parent.dumpConfig !== undefined || parent.dumpDefaultConfig !== undefined) {
+      program.error(`error: ${command} takes none of parent --config, -p/--prompt, --dump-config, or --dump-default-config`)
+    }
+  }
+
+  const web = program.command('web').description('serve the browser UI on the configured host and port')
   web
-    .option('--host <host>', 'override the config bind host (127.0.0.1 or 0.0.0.0)')
-    .option('--port <port>', 'override the config listen port (0 requests an OS-assigned port)')
-    .option('--dev', 'mount the client HMR driver and watch plugin bundles for rebuilds')
-    .option('--workspace-root <path>', 'parent directory for name-created workspaces')
+    .option('--config <path>', 'apply this overlay of loader patches over the shipped Web configuration')
+    .option('--host <host>', 'bind host; pass 0.0.0.0 to reach it from another machine')
+    .option('--port <port>', 'listen port; pass 0 to let the OS pick a free one')
+    .option('--dev', 'mount the client-plugin HMR receiver (run pnpm run dev:web separately to rebuild bundles)')
+    .option('--workspace-root <path>', 'parent directory for workspaces created from the browser UI')
     .option('--trusted-host <authority...>', 'extra authority the /api browser-trust fence accepts (host or host:port; repeatable)')
+    .option('--dump-config', 'print the composed config tree (base + web + --config/personal overlay) and exit')
+    .option('--dump-default-config', 'print the shipped config tree (base + web overlay, no user layer) and exit')
     .action((options: WebOptions) => {
-      // Commander parses the parent (default-surface) options on either side of
-      // the subcommand into `program.opts()`. `web` shares none of them, so a
-      // leaked `--config`/`-p`/`--resume` is a mistyped invocation that must
-      // fail loud rather than silently start the web server and drop it.
-      const parent = program.opts<{ config?: string; prompt?: string; resume?: string }>()
-      if (parent.config !== undefined || parent.prompt !== undefined || parent.resume !== undefined) {
-        program.error('error: web takes none of --config, -p/--prompt, or --resume')
+      rejectParentOptions('web')
+      if (options.config === '') program.error('error: --config needs a path')
+      const dump = resolveDump('web', options, message => program.error(message))
+      if (dump !== undefined) {
+        resolved = dump
+        return
       }
       resolved = resolveWeb(options)
     })
@@ -137,12 +187,9 @@ export function parseDshArgs(argv: readonly string[], version: string): DshInvoc
   try {
     program.parse(argv, { from: 'user' })
   } catch (error) {
-    // Commander printed help/version/the error under `exitOverride`; exit with
-    // the code it chose (0 for help/version, 1 for a parse or domain error).
-    /* v8 ignore next -- Commander only throws CommanderError from parse/error under exitOverride */
     return process.exit(error instanceof CommanderError ? error.exitCode : 1)
   }
-  /* v8 ignore next -- the default action or a subcommand action always resolves, or parse throws above */
+  /* v8 ignore next -- an action resolves or Commander throws */
   if (resolved === undefined) throw new Error('dsh: no invocation resolved')
   return resolved
 }

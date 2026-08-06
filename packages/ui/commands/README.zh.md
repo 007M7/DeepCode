@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-由插件负责、供交互式 UI 适配器使用的面向用户命令注册表。[插件命令注册 Agent Note（agent 决策记录）](../../../.agents/notes/implemented/feature/2026-07-19-plugin-command-registration.md)定义了其边界与分发契约。
+由插件负责、供交互式 UI 适配器使用的面向用户命令注册表。[插件命令注册 Agent Note](../../../.agents/notes/implemented/feature/2026-07-19-plugin-command-registration.md)定义了其边界与分发契约。
 
 ## 服务契约
 
@@ -16,7 +16,7 @@
 
 ## 组合
 
-终端应用组合包会将此服务与 `dsh-tui` 一起挂载；无 UI 的 agent 主干和 ACP（Agent Client Protocol）自动化应用不会挂载它。自定义交互式组合与命令生产方会显式挂载 `@deepseek-ai/dsh-commands`。
+随产品交付的 `dsh` 基础组合会挂载此服务，Web 客户端通过它分派命令。无 UI 的演示主干和 ACP（Agent Client Protocol）自动化不提供命令适配器。自定义交互式组合与命令生产方会显式挂载 `@deepseek-ai/dsh-commands`。
 
 ## 模型体验
 

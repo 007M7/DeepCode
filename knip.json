@@ -20,11 +20,16 @@
   "workspaces": {
     ".": {
       "entry": [
-        "scripts/**/*.mjs"
+        "scripts/**/*.mjs",
+        "scripts/**/*.cjs"
       ],
       "project": [
         "scripts/**/*.ts",
-        "scripts/**/*.mjs"
+        "scripts/**/*.mjs",
+        "scripts/**/*.cjs"
+      ],
+      "ignoreDependencies": [
+        "playwright"
       ]
     },
     "examples": {
@@ -38,7 +43,9 @@
         "headless-agent/tests/fixtures/telemetry-otel-driver.ts",
         "headless-agent/tests/fixtures/telemetry-redact-rule.ts",
         "acp-agent/tests/snapshots/lsp-definition/workspace/subject.ts",
-        "tui-agent/tests/fixtures/tui-scripted-llm.ts",
+        "acp-agent/tests/fixtures/partial-landlock-sandbox.ts",
+        "acp-agent/tests/fixtures/subagent-durability-failure.ts",
+        "acp-agent/tests/fixtures/subagent-settlement-marker.ts",
         "acp-agent/tests/fixtures/subagent/subagent-acp/mock-delegating-llm.ts",
         "acp-agent/tests/fixtures/subagent/subagent-acp/driver.ts",
         "jsonrpc-agent/tests/fixtures/subagent/subagent-dsh-sdk/driver.ts",
@@ -51,8 +58,8 @@
         "**/*.ts"
       ],
       "ignoreDependencies": [
-        "@deepseek-ai/.+",
-        "@cordisjs/.+"
+        "@cordisjs/plugin-logger-console",
+        "@deepseek-ai/.+"
       ]
     },
     "packages/util/home": {
@@ -71,6 +78,16 @@
       "project": [
         "src/**/*.ts",
         "tests/**/*.ts"
+      ]
+    },
+    "packages/host/directory-picker-native": {
+      "entry": [
+        "tests/**/*.spec.{ts,tsx}",
+        "tests/**/*.e2e.ts"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx}",
+        "tests/**/*.{ts,tsx}"
       ]
     },
     "packages/client/web-ui": {
@@ -148,6 +165,25 @@
     "packages/*/*": {
       "entry": [
         "tests/**/*.spec.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ]
+    },
+    "packages/core/tools": {
+      "entry": [
+        "tests/**/*.spec.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ]
+    },
+    "packages/typert/generator": {
+      "entry": [
+        "tests/**/*.spec.ts",
+        "tests/fixtures/type-model/**/*.ts"
       ],
       "project": [
         "src/**/*.ts",
@@ -456,29 +492,10 @@
         "tests/**/*.ts"
       ]
     },
-    "packages/examples/tui-demo": {
-      "entry": [
-        "tests/**/*.spec.ts"
-      ],
-      "project": [
-        "src/**/*.ts",
-        "tests/**/*.ts"
-      ]
-    },
     "packages/examples/cli-demo": {
       "entry": [
         "tests/**/*.spec.ts",
         "tests/**/*.e2e.ts"
-      ],
-      "project": [
-        "src/**/*.ts",
-        "tests/**/*.ts"
-      ]
-    },
-    "packages/ui/tui": {
-      "entry": [
-        "tests/**/*.spec.ts",
-        "tests/**/*.snapshot.ts"
       ],
       "project": [
         "src/**/*.ts",
@@ -554,9 +571,6 @@
       "project": [
         "src/**/*.ts",
         "tests/**/*.ts"
-      ],
-      "ignoreBinaries": [
-        "rg"
       ]
     },
     "packages/mcp/mcp-client": {
@@ -587,6 +601,7 @@
     "apps/web": {
       "entry": [
         "tests/**/*.e2e.ts",
+        "tests/**/*.perf.ts",
         "tests/**/*.snapshot.ts",
         "tests/support.ts",
         "src/node-module-stub.ts"
@@ -606,12 +621,16 @@
       ]
     },
     "apps/cli": {
+      "entry": [
+        "tests/**/*.spec.ts",
+        "tests/**/*.e2e.ts"
+      ],
       "project": [
-        "src/**/*.ts"
+        "src/**/*.ts",
+        "tests/**/*.ts"
       ],
       "ignoreDependencies": [
-        "@deepseek-ai/.+",
-        "@cordisjs/.+"
+        "@deepseek-ai/.+"
       ]
     },
     "packages/client/modules": {

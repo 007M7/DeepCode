@@ -1,16 +1,21 @@
 /**
  * apply wiring on a real cordis Context + SlotsService: SlashService mounts
  * as ctx.slash once its sessions dependency is up; the MenuView overlay
- * registration waits on the conversation seam (ctx.inject scope), lands once
- * the declarer is up, resolves the per-session controller from the slot's
+ * registration follows the slot declaration, resolves the per-session controller from the slot's
  * sessionId, and unregisters on fiber teardown.
  */
 import { Context } from 'cordis'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
+import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
+import { usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import { createScope, scopeOf, SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import { apply, inject, SlashService } from '@deepseek-ai/dsh-client-ui-slash/client'
 import type { MenuViewInjected } from '@deepseek-ai/dsh-client-ui-slash/client'
+
+// The service reads its initial locale from the browser; these specs assert
+// the shipped Chinese copy, so they state the browser they assume.
+usePinnedBrowserLanguages('zh-CN')
 
 const sid = (k: string): SessionId => k as SessionId
 
@@ -19,8 +24,8 @@ async function bench() {
   await ctx.plugin(SlotsService).await()
   const slots = ctx.get('slots') as SlotsService
   // Stand-in for the ui-conversation composer entry: declare the overlay
-  // slot, then provide the conversation service (declaration precedes the
-  // service exactly as the real apply orders them).
+  // slot without providing ConversationService, which is not its lifecycle
+  // signal.
   slots.register(
     { name: 'root', children: { 'conversation.input.overlay': { kind: 'list', scope: 'session' } } } as never,
     () => null,
@@ -31,12 +36,25 @@ async function bench() {
     scope: (id: SessionId) => (id === sid('a') ? scope.ctx : undefined),
     scopeOf: (c: Context) => scopeOf(c),
   })
-  return { ctx, slots }
+  const locale = new LocaleService(ctx)
+  ctx.provide('locale', locale)
+  return { ctx, slots, locale }
 }
 
 describe('apply', () => {
-  it('declares the sessions dependency (controller resolution reads the scope tree)', () => {
-    expect(inject).toEqual(['sessions'])
+  it('declares the sessions and locale dependencies (scope tree + localized menu copy)', () => {
+    expect(inject).toEqual(['sessions', 'locale'])
+  })
+
+  it('registers the bilingual menu dictionaries (group titles by source name + the pending row)', async () => {
+    const { ctx, locale } = await bench()
+    await ctx.plugin({ inject: [...inject], apply }).await()
+    const t = locale.bind('slash.menu')
+    expect(t('command')).toBe('命令')
+    locale.setLocale('en')
+    expect(t('skill')).toBe('Skills')
+    expect(t('subagent')).toBe('Subagents')
+    expect(t('loading')).toBe('Loading…')
   })
 
   it('mounts ctx.slash once sessions is up, before any conversation service exists', async () => {
@@ -48,13 +66,11 @@ describe('apply', () => {
   it('registers MenuView into the overlay and resolves the per-session controller by slot sessionId', async () => {
     const { ctx, slots } = await bench()
     await ctx.plugin({ inject: [...inject], apply }).await()
-    expect(slots.entries('conversation.input.overlay')).toHaveLength(0)
-
-    ctx.provide('conversation', {})
-    // The inject scope activates asynchronously on the service arrival.
-    await vi.waitFor(() => { expect(slots.entries('conversation.input.overlay')).toHaveLength(1) })
+    expect(slots.entries('conversation.input.overlay')).toHaveLength(1)
     const entries = slots.entries('conversation.input.overlay')
     expect(entries[0]!.options.id).toBe('slash-menu')
+    // Copy rides the standard locale seat, not the business face.
+    expect(entries[0]!.locale).toBe('slash.menu')
 
     const slash = ctx.get('slash') as SlashService
     // StoredEntry.inject is declaration-typed ((...args: never[]) shape);
@@ -68,6 +84,9 @@ describe('apply', () => {
     // The pick face routes into the controller pipeline (closed menu → no-op).
     injected.onPick('command', 0)
     expect(controller.menu.getSnapshot().open).toBe(false)
+    // The dismiss face routes into the controller too (closed menu → no-op).
+    injected.onDismiss()
+    expect(controller.menu.getSnapshot().open).toBe(false)
     // An unknown session id fails loud (no silent scope miss).
     expect(() => injectEntry(sid('ghost'))).toThrow(/resolved no scope/)
   })
@@ -76,8 +95,7 @@ describe('apply', () => {
     const { ctx, slots } = await bench()
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
-    ctx.provide('conversation', {})
-    await vi.waitFor(() => { expect(slots.entries('conversation.input.overlay')).toHaveLength(1) })
+    expect(slots.entries('conversation.input.overlay')).toHaveLength(1)
 
     await fiber.dispose()
     expect(slots.entries('conversation.input.overlay')).toHaveLength(0)

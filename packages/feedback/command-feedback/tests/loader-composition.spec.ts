@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import Include from '@cordisjs/plugin-include'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import CommandService from '@deepseek-ai/dsh-commands'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
@@ -27,19 +27,21 @@ function agent(ctx: Context): Agent {
   const scope = ctx.plugin(() => {})
   const id = SessionId('feedback-loader-agent')
   const session = ctx.sessions.create(id)
+  const inbox = new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} })
   let status: AgentStatus = 'idle'
   const value: Agent = {
     id,
     options: {},
     session,
+    inbox,
     ctx: scope.ctx,
     get status() { return status },
-    get acceptsNextStep() { return status === 'running' },
     send: () => {},
     followup: () => {},
     steer: () => {},
     inject: () => {},
     cancel() { status = 'idle' },
+    runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
   }
   ctx.agents.register(value)

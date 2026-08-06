@@ -39,12 +39,13 @@ function writeHooks(dir: string, hooks: unknown): void {
   writeFileSync(join(dir, 'hooks.json'), JSON.stringify({ hooks }))
 }
 
-async function harness(dir: string, adapter: MockAdapter): Promise<Context> {
+async function harness(dir: string, adapter: MockAdapter, beforeHooks?: (ctx: Context) => void): Promise<Context> {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(LocalSubprocessService)
   await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
+  beforeHooks?.(ctx)
   await ctx.plugin(HooksCodex, { configPath: join(dir, 'hooks.json'), model: 'test-model' })
   ctx.llm.registerAdapter(['mock'], adapter)
   return ctx
@@ -88,11 +89,11 @@ describe('hooks-codex bridge', () => {
 
   it('a Stop hook (exit 2) forces the turn to continue with the reason as steering', async () => {
     const dir = configDir()
-    // Block once with a marker; until the loop guard lands, an always-blocking
-    // hook would never let this test finish.
+    // Stop ignores its malformed matcher field. Block once with a marker;
+    // until the loop guard lands, an always-blocking hook would never finish.
     const marker = join(dir, 'fired')
     const cont = script(dir, 'cont.sh', `#!/usr/bin/env bash\nif [ -e "${marker}" ]; then exit 0; fi\ntouch "${marker}"\necho "keep going: address the goal" >&2\nexit 2\n`)
-    writeHooks(dir, { Stop: [{ hooks: [{ type: 'command', command: cont }] }] })
+    writeHooks(dir, { Stop: [{ matcher: '[', hooks: [{ type: 'command', command: cont }] }] })
 
     const adapter = new MockAdapter([textResponse('first answer'), textResponse('second answer after goal')])
     const ctx = await harness(dir, adapter)
@@ -102,7 +103,7 @@ describe('hooks-codex bridge', () => {
 
     expect(adapter.requests).toHaveLength(2)
     expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('keep going: address the goal')
-  })
+  }, 15_000) // Two real hook subprocesses and agent steps need startup and teardown headroom under load.
 
   it('turn cancellation aborts and reaps a running UserPromptSubmit hook before idle', async () => {
     const dir = configDir()
@@ -124,8 +125,9 @@ describe('hooks-codex bridge', () => {
 
     expect(() => process.kill(pid, 0)).toThrow()
     expect(adapter.requests).toHaveLength(0)
-    expect(events(agent).some(event => event.type === 'turn/start')).toBe(false)
-    expect(events(agent).some(event => event.type === 'hook/invoked' || event.type === 'hook/result')).toBe(false)
+    expect(events(agent).filter(event => event.type === 'turn/start' || event.type === 'hook/invoked'
+      || event.type === 'hook/result' || event.type === 'turn/end').map(event => event.type))
+      .toEqual(['turn/start', 'hook/invoked', 'hook/result', 'turn/end'])
   })
 
   it('only the five bridge-supported Codex events are honored — a SubagentStop entry is ignored', async () => {
@@ -149,6 +151,26 @@ describe('hooks-codex bridge', () => {
     agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
     expect(adapter.requests).toHaveLength(1)
+  })
+
+  it('an invalid regex matcher is reported and registers no hooks', async () => {
+    const dir = configDir()
+    writeHooks(dir, {
+      UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'exit 2' }] }],
+      PreToolUse: [{ matcher: '[', hooks: [{ type: 'command', command: 'exit 2' }] }],
+    })
+    const adapter = new MockAdapter([textResponse('ok')])
+    const warn = vi.fn()
+    const ctx = await harness(dir, adapter, (ctx) => { ctx.logger.warn = warn as never })
+    const agent = ctx.agentLoop.create(SessionId('invalid-codex-matcher'), { provider: 'mock', model: 'mock' })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, agent)
+    expect(adapter.requests).toHaveLength(1)
+    expect(events(agent).some(event => event.type === 'hook/invoked')).toBe(false)
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(
+      'invalid codex regex matcher "[" on event "PreToolUse"',
+    ))
   })
 
   it('disposing the bridge fiber removes its listeners (HMR safety)', async () => {

@@ -7,8 +7,8 @@
  * boundary axiom, everything downstream of that call (batching, retry,
  * queueing, loss policy) is the SDK's documented behavior, configured
  * verbatim through the `exporter`/`processor` passthroughs. This package owns
- * only whether capture is live, feedback-triggered from the canonical log, or
- * disabled.
+ * capture mode and an outer shutdown deadline: the SDK's export timeout does
+ * not bound its preceding `forceFlush()` wait.
  *
  * @module @deepseek-ai/dsh-session-telemetry-otel
  */
@@ -25,6 +25,7 @@ import {
   type TelemetrySeverity,
 } from '@deepseek-ai/dsh-session-telemetry'
 import { APP_IDENTITY } from '@deepseek-ai/dsh-llm'
+import { getOrCreateAnonymousUserId } from './user-id.ts'
 import {
   BatchLogRecordProcessor,
   LoggerProvider,
@@ -72,9 +73,9 @@ function assertNever(value: never): never {
 }
 
 /**
- * Plugin configuration: one sharing policy plus two verbatim SDK option
- * shapes. `exporter.url` is required for modes that upload and unused for
- * `DISABLED`.
+ * Plugin configuration: one sharing policy, two verbatim SDK option shapes,
+ * and one DSH-owned shutdown bound. Uploading modes validate their endpoint
+ * and shutdown deadline at plugin load; `DISABLED` reads neither.
  */
 export interface Config {
   /** Sharing policy; defaults to immediate `FULL` delivery. */
@@ -94,21 +95,31 @@ export interface Config {
    * which this plugin fills); the SDK owns and documents these knobs.
    */
   processor?: Omit<BatchLogRecordProcessorOptions, 'exporter'>
+  /** Maximum time spent awaiting the SDK provider's complete shutdown path. */
+  shutdownTimeoutMillis?: number
 }
 
 /**
  * Schemastery validator for {@link Config}; cordis runs it before the plugin
- * starts. Shape-level only — the mode-dependent `exporter.url` check lives in
- * the constructor so its error message names the field. Both SDK slots are
- * opaque passthroughs: the SDK owns their shapes and validates its own
- * options; re-declaring them field-by-field here would violate the boundary
- * axiom (and silently drop every field not re-declared).
+ * starts. Shape-level only — load-bearing value checks live in the constructor
+ * so their errors name the fields. Both SDK slots are opaque passthroughs:
+ * the SDK owns their shapes and validates its own options;
+ * re-declaring them field-by-field here would violate the boundary axiom
+ * (and silently drop every field not re-declared).
  */
 export const Config: z<Config> = z.object({
   mode: z.union(Object.values(TelemetryMode)).default(DEFAULT_TELEMETRY_MODE),
   exporter: z.any(),
   processor: z.any(),
+  shutdownTimeoutMillis: z.number(),
 })
+
+/** Default outer allowance for the SDK's complete shutdown sequence. */
+export const DEFAULT_SHUTDOWN_TIMEOUT_MILLIS = 3_000
+
+// Node clamps larger timer delays to one millisecond. This is a runtime
+// protocol limit, not a deployment default.
+const MAX_TIMER_DELAY_MILLIS = 2_147_483_647
 
 /** Severity mapping from the seam's three-level vocabulary to OTel severity numbers. */
 const SEVERITY: Record<TelemetrySeverity, { severityNumber: SeverityNumber; severityText: string }> = {
@@ -129,6 +140,7 @@ export class TelemetryOtel extends Telemetry {
 
   private readonly directEmit: TelemetryBackend['emit']
   private readonly provider: LoggerProvider | undefined
+  private readonly shutdownTimeoutMillis: number
 
   constructor(ctx: Context, config: Config) {
     const mode = resolveMode(config.mode)
@@ -136,6 +148,7 @@ export class TelemetryOtel extends Telemetry {
     if (mode === TelemetryMode.DISABLED) {
       this.directEmit = DROP_RECORD
       this.provider = undefined
+      this.shutdownTimeoutMillis = DEFAULT_SHUTDOWN_TIMEOUT_MILLIS
       ctx.on('session/event', (_session, event) => {
         if (event.type === 'feedback/record') ctx.logger.warn(DISABLED_FEEDBACK_WARNING)
       })
@@ -164,10 +177,19 @@ export class TelemetryOtel extends Telemetry {
     if (batchSize !== undefined && (!Number.isInteger(batchSize) || batchSize < 1)) {
       throw new Error(`session-telemetry-otel: processor.maxExportBatchSize must be a positive integer, got ${String(batchSize)}`)
     }
+    const shutdownTimeoutMillis = config.shutdownTimeoutMillis ?? DEFAULT_SHUTDOWN_TIMEOUT_MILLIS
+    if (!Number.isFinite(shutdownTimeoutMillis) || shutdownTimeoutMillis <= 0 || shutdownTimeoutMillis > MAX_TIMER_DELAY_MILLIS) {
+      throw new Error(`session-telemetry-otel: shutdownTimeoutMillis must be a positive finite number no greater than ${MAX_TIMER_DELAY_MILLIS}, got ${String(shutdownTimeoutMillis)}`)
+    }
+    this.shutdownTimeoutMillis = shutdownTimeoutMillis
     this.provider = new LoggerProvider({
       resource: resourceFromAttributes({
         'service.name': APP_IDENTITY.product,
         'service.version': APP_IDENTITY.version,
+        // OTel semconv's standard user attribute, carried once per export
+        // batch on the Resource rather than per record: the collector
+        // aggregates by Resource, and the id is process-stable anyway.
+        'user.id': getOrCreateAnonymousUserId(),
       }),
       processors: [
         new BatchLogRecordProcessor({
@@ -238,17 +260,29 @@ export class TelemetryOtel extends Telemetry {
   // the revival Agent Note.
 
   /**
-   * Delegate disposal to the SDK's shutdown contract: drain the queue and
-   * quiesce. With no concurrent `forceFlush()` in the process (see above),
-   * shutdown's internal drain is complete — everything handed to the SDK
-   * before this call is exported before the exporter closes. In `FULL`, that
-   * includes dispose-time `shutdown` markers; `FEEDBACK_ONLY` creates no ops
-   * records. Awaited (and error-contained) by the coordinator's disposer. A
-   * disabled backend resolves immediately.
-   * @returns resolves when the SDK pipeline has quiesced.
+   * Ask the SDK to drain and quiesce, but reject after the backend-owned
+   * deadline. OTel's processor export timeout wraps `exportCompleted` only;
+   * shutdown awaits `exporter.forceFlush()` first, which can remain pending
+   * when the transport never obtains a socket. The provider promise remains
+   * observed after the deadline so a later rejection cannot become unhandled.
+   * `DISABLED` has no provider and resolves immediately.
+   * @returns resolves when the SDK pipeline quiesces or is disabled, or rejects at the configured deadline.
    */
-  shutdown(): Promise<void> {
-    return this.provider === undefined ? Promise.resolve() : this.provider.shutdown()
+  async shutdown(): Promise<void> {
+    if (this.provider === undefined) return
+    const providerShutdown = this.provider.shutdown()
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const deadline = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        reject(new Error(`session-telemetry-otel: provider shutdown exceeded ${this.shutdownTimeoutMillis}ms`))
+      }, this.shutdownTimeoutMillis)
+    })
+    try {
+      await Promise.race([providerShutdown, deadline])
+    } finally {
+      /* v8 ignore else -- the Promise executor assigns timer synchronously before this race starts. */
+      if (timer !== undefined) clearTimeout(timer)
+    }
   }
 }
 

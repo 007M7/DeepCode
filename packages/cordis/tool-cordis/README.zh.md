@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-自引用 Cordis 工具集：三个面向模型的工具，操作当前 DSH 进程中的实时运行时。沙箱语义、临时插件生命周期与组合、生成的 API 目录及既定决策详见[工具集 Agent Note（agent 决策记录）](../../../.agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md)。
+自引用 Cordis 工具集：三个面向模型的工具，操作当前 DSH 进程中的实时运行时。沙箱语义、临时插件生命周期与组合、生成的 API 目录及既定决策详见[工具集 Agent Note](../../../.agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md)。
 
 ## 功能
 
@@ -14,7 +14,7 @@
 
 规范成功结果分别为检查字符串、挂载 `{ id, pluginName, state, provides, waitingFor }`，以及卸载 `{ id, pluginName }`。原生渲染会说明临时插件正在运行还是等待中，并说明它可用至被卸载或 DSH 重启；卸载结果确认它已移除。
 
-临时插件只存在于共享 DSH 进程内存中。它可跨后续轮次保持活跃，也可能影响同一进程中的其他会话，但会在 `cordis_unmount`、工具集卸载或 DSH 重启后消失。它不会创建插件文件、安装任何包（package）、修改 `cordis.yml` 或个人／项目配置、跨重启存续，也不能自动转为正式插件。若要保留实验结果，应让 agent（智能体）通过常规开发流程实现普通的本地、项目或仓库插件。
+临时插件只存在于共享 DSH 进程内存中。它可跨后续轮次保持活跃，也可能影响同一进程中的其他会话，但会在 `cordis_unmount`、工具集卸载或 DSH 重启后消失。它不会创建插件文件、安装任何包、修改 `cordis.yml` 或个人／项目配置、跨重启存续，也不能自动转为正式插件。若要保留实验结果，应让 agent（智能体）通过常规开发流程实现普通的本地、项目或仓库插件。
 
 ## 信任立场
 
@@ -28,7 +28,7 @@
 
 ## 生成的 API 目录
 
-`src/api-catalog.ts` 由 `scripts/gen-cordis-api.ts` 生成，使用与 [docs/cordis-catalog](../../../docs/cordis-catalog/services.md) 相同的 AST 遍历，并由 `pnpm run verify-cordis-api`（位于 `doc-sync` 中）实施新鲜度门禁，绝不可手工编辑。`cordis_inspect` 在调用时把该目录与存活服务 store 取交集。宽泛的 `api`／`events` 报告只渲染摘要与签名；精确 `name` 会选择保留的方法／事件 JSDoc，未知或未运行的服务目标会明确报错。
+`src/api-catalog.ts` 与 [docs/cordis-catalog](../../../docs/cordis-catalog/services.md) 由同一个 Typert `FaceModel` 投影生成，并由 `pnpm run verify-cordis-api`（位于 `doc-sync` 中）实施新鲜度门禁，绝不可手工编辑。`scripts/gen-cordis-api.ts` 是该统一投影的兼容入口，而非第二套收集器。`cordis_inspect` 在调用时把已提交的目录与存活服务 store 取交集；它在运行时不依赖 Typert。宽泛的 `api`／`events` 报告只渲染摘要与签名；精确 `name` 会选择保留的方法／事件 JSDoc，未知或未运行的服务目标会高声失败。
 
 ## 渲染
 
@@ -66,7 +66,7 @@ Namespace 插件：命名导出 `name`／`inject`／`Config`／`apply`，无默�
 
 #### KV Cache 影响
 
-仅追加；新可见内容位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
+仅追加；新可见内容位于可复用请求前缀之后，不会使现有 KV Cache 条目失效。
 
 ### cordis_mount 后的后续请求
 

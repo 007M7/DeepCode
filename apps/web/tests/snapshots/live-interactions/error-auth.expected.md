@@ -5,22 +5,23 @@
     - tab "Chat" [selected]
     - tab "Trajectory"
 - text: Reply with a one-sentence description of event sourcing, then stop. {{clock}}
-- button "复制":
+- button "Copy":
   - img
-- button "在新对话中分支":
+- button "Branch into a new conversation" [disabled]:
   - img
-- button "编辑":
+- text: Available only on the last message of a completed turn
+- button "Context injection @deepseek-ai/dsh-system-prompt":
   - img
-- button "▸ 上下文注入"
+  - img
+  - text: Context injection @deepseek-ai/dsh-system-prompt
+- status:
+  - text: This turn failedAPI key is invalid
+  - code: AUTH
 - textbox "Message the agent"
-- button "Add attachment":
+- button "Commands":
   - img
-- text: Danger Full Access
-- combobox "Access mode":
-  - option "Read Only"
-  - option "Workspace Write"
-  - option "Danger Full Access" [selected]
-- button "选择模型，当前 DeepSeek-V4-Flash":
+- 'button "Access mode, current: Workspace Write"': Workspace Write
+- button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]

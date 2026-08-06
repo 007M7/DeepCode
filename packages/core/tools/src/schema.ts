@@ -546,19 +546,19 @@ export function defineTool<const S extends ParameterSchemaSpec, const O extends 
   options: DefineToolOptions<S, O>,
 ): ToolDefinition {
   // Object-literal methods do not use `this`; retaining references is safe.
-  // eslint-disable-next-line @typescript-eslint/unbound-method
+  // oxlint-disable-next-line typescript/unbound-method
   const userExecute = options.execute
-  // eslint-disable-next-line @typescript-eslint/unbound-method
+  // oxlint-disable-next-line typescript/unbound-method
   const userFinalizeContent = options.finalizeContent
-  // eslint-disable-next-line @typescript-eslint/unbound-method
+  // oxlint-disable-next-line typescript/unbound-method
   const userRender = options.output.render
-  // eslint-disable-next-line @typescript-eslint/unbound-method
+  // oxlint-disable-next-line typescript/unbound-method
   const userPresentationMeta = options.output.presentationMeta
-  // eslint-disable-next-line @typescript-eslint/unbound-method
+  // oxlint-disable-next-line typescript/unbound-method
   const userPresentCall = options.presentCall
-  // eslint-disable-next-line @typescript-eslint/unbound-method
+  // oxlint-disable-next-line typescript/unbound-method
   const userPresentResult = options.presentResult
-  // eslint-disable-next-line @typescript-eslint/unbound-method
+  // oxlint-disable-next-line typescript/unbound-method
   const userIsConcurrencySafe = options.isConcurrencySafe
   if (options.timeoutMs !== undefined && (!Number.isFinite(options.timeoutMs) || options.timeoutMs <= 0)) {
     throw new Error(`defineTool(${options.name}): timeoutMs must be a positive finite number`)

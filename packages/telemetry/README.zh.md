@@ -1,10 +1,10 @@
-# telemetry/
+# telemetry/：会话遥测能力家族
 
 [English](README.md) | 中文
 
-面向外部的会话上报：遥测（telemetry）seam 及其 OpenTelemetry 后端。边界公理、脱敏 waterfall（瀑布式事件）、固定分片投影、handoff 游标及运维记录通道的决定见[复活 Agent Note（agent 决策记录）](../../.agents/notes/implemented/feature/2026-07-23-session-telemetry-otel-revival.md)；即时、反馈门控及禁用投递由[模式决策](../../.agents/notes/implemented/feature/2026-08-05-feedback-gated-session-telemetry.md)统一规定。
+本家族将会话活动投影为外发遥测，并将投递委派给配置的上报后端。[遥测决策](../../.agents/notes/implemented/feature/2026-07-23-session-telemetry-otel-revival.md)记录上报边界；[模式决策](../../.agents/notes/implemented/feature/2026-08-05-feedback-gated-session-telemetry.md)记录即时、反馈门控与禁用投递。
 
-| 包（package） | 职责 |
+| 包 | 职责 |
 |---|---|
-| [`@deepseek-ai/dsh-session-telemetry`](session-telemetry/) | seam 本体：捕获点、投影、脱敏、实时或按需捕获、游标、运维信号，以及最小后端契约（`emit`/`flush?`/`shutdown`）。 |
-| [`@deepseek-ai/dsh-session-telemetry-otel`](session-telemetry-otel/) | 部署方要加载的后端：围绕 OTel JS SDK 日志流水线实施 `FULL`、`FEEDBACK_ONLY` 或 `DISABLED` 策略。 |
+| [`session-telemetry/`](session-telemetry/README.md) | 定义捕获、脱敏、投影，以及实时或按需后端投递。 |
+| [`session-telemetry-otel/`](session-telemetry-otel/README.md) | 通过 OpenTelemetry 日志以 `FULL`、`FEEDBACK_ONLY` 或 `DISABLED` 模式投递遥测。 |

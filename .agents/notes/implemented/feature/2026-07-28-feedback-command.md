@@ -8,7 +8,7 @@ English | [中文](2026-07-28-feedback-command.zh.md)
 
 A user who notices something wrong mid-session has nowhere to put that observation. Telling the model wastes a turn, changes the conversation the user was having, and buries the remark in derived history where no later reader can find it. Writing it outside the session loses the context that makes it meaningful — which session, at which point, against which work.
 
-The capture surface has to be usable at the moment of annoyance, which rules out anything requiring the user to leave the TUI, and it must not perturb the run in progress: no model tokens, no turn of work, no change to the request the user is waiting on.
+The capture surface has to be usable at the moment of annoyance, which rules out anything requiring the user to leave the interactive client, and it must not perturb the run in progress: no model tokens, no turn of work, no change to the request the user is waiting on.
 
 ## Decision
 
@@ -54,10 +54,10 @@ Surrounding whitespace is discarded, but nothing else is parsed. `/feedback /pla
 
 ## Consequences
 
-The TUI mounts the command unconditionally — no configuration, no dependency on the goal stack. The headless CLI, ACP, and JSON-RPC apps do not consume `ctx.commands`, so `/feedback` is unavailable there.
+The shipped `dsh` base mounts the command unconditionally — no configuration, no dependency on the goal stack. The Web client exposes it through its command adapter. Headless mode, ACP, and JSON-RPC do not provide a command adapter, so `/feedback` is unavailable there.
 
 The package owns one independent append-only event with no cross-event or mutable-data relation for an invariant companion to check. The event follows the session log's existing replay, fork, persistence, and crash-tail behavior.
 
 Deferred: no product or model consumer; no structured fields; no amend or withdraw, since the log is append-only and this package adds no tombstone; and no explicit durability barrier, so an entry recorded immediately before a crash can be lost with any other unflushed tail. The optional telemetry consumer treats the event only as an export-policy trigger.
 
-No snapshot accompanies this change. AGENTS.md asks for a keyless snapshot through a runnable example for product-user-visible behavior; this was skipped at the requester's explicit direction. The package tests plus a real Loader composition test over a `cordis.yml` are the whole of the evidence, alongside interactive verification in the assembled TUI.
+No keyless transcript snapshot accompanies this change, at the requester's explicit direction. Package tests, a real Loader composition test over a `cordis.yml`, and the shipped Web composition test cover registration, capture, model exclusion, and product assembly.

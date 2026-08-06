@@ -21,9 +21,7 @@
   "files": [
     "lib/index.js",
     "lib/invariant.js",
-    "lib/types/**/*.d.ts",
-    "lib/types/**/*.d.ts.map",
-    "src"
+    "lib/types/**/*.d.ts"
   ],
   "license": "BSD-3-Clause",
   "peerDependencies": {
@@ -42,6 +40,7 @@
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-scope": "workspace:^",
+    "@deepseek-ai/dsh-session": "workspace:^",
     "@deepseek-ai/dsh-skill": "workspace:^",
     "@deepseek-ai/dsh-skill-local": "workspace:^",
     "@deepseek-ai/dsh-tools": "workspace:^",

@@ -4,7 +4,7 @@
  * the attacker's domain while the socket reaches this server) and cross-site
  * requests fired from a malicious page. The Host fence binds every request,
  * browser-looking or not: over plain HTTP a browser attaches neither Origin
- * nor Fetch-Metadata to reads (EventSource, images, navigations — those
+ * nor Fetch-Metadata to reads (images and navigations — those
  * headers go only to trustworthy destinations), so an unmarked request may
  * still be a rebound browser read and Host is the one header rebinding cannot
  * forge. Non-browser and remote clients pass the same fence via loopback, the
@@ -14,6 +14,7 @@
  */
 
 import type { IncomingHttpHeaders } from 'node:http'
+import { isLoopbackHostname } from './loopback-hostname.ts'
 
 /** The request facts the fence reads (structural subset of IncomingMessage). */
 interface ApiTrustRequest {
@@ -23,14 +24,6 @@ interface ApiTrustRequest {
 function header(headers: IncomingHttpHeaders, name: string): string | undefined {
   const value = headers[name]
   return typeof value === 'string' ? value : undefined
-}
-
-function isLoopbackHostname(hostname: string): boolean {
-  if (hostname === 'localhost' || hostname === '[::1]') return true
-  const parts = hostname.split('.')
-  return parts.length === 4
-    && parts[0] === '127'
-    && parts.every(part => /^\d{1,3}$/.test(part) && Number(part) <= 255)
 }
 
 /** Normalized URL of a Host-header authority (hostname lowercased, default port stripped, IPv6 bracketed), or undefined when unparsable. */
@@ -104,7 +97,7 @@ export function isTrustedApiRequest(request: ApiTrustRequest, trustedHosts: read
   // fills Host from the URL it believes it is talking to, so a rebound page
   // carries the attacker's domain here even though the socket lands on this
   // server. There is no marker shortcut — a browser read over plain HTTP
-  // (EventSource, images, navigations) arrives with neither Origin nor
+  // (images and navigations) arrives with neither Origin nor
   // Fetch-Metadata, indistinguishable from curl, and its response is readable
   // by the rebound page.
   const host = header(request.headers, 'host')

@@ -39,10 +39,12 @@ export class ModelDirectory {
   /**
    * @param sessions - the session wire face (captured from the plugin's root connection).
    * @param sessionId - the owning session.
+   * @param available - whether this session may use Agent-bound model RPCs.
    */
   constructor(
     private readonly sessions: Pick<IApiClient['sessions'], 'models' | 'selectModel'>,
     private readonly sessionId: SessionId,
+    private readonly available: () => boolean,
   ) {}
 
   /**
@@ -51,6 +53,7 @@ export class ModelDirectory {
    * @returns the fresh directory value.
    */
   async load(): Promise<SessionModels> {
+    this.assertAvailable()
     const generation = ++this.generation
     this.store.update((s) => { s.status = 'loading'; s.error = null })
     const { result } = await this.sessions.models({ sessionId: this.sessionId })
@@ -80,6 +83,7 @@ export class ModelDirectory {
    * @param target - provider, provider-owned model id, and optional adapter-owned effort.
    */
   async select(target: ModelTarget): Promise<void> {
+    this.assertAvailable()
     const generation = ++this.generation
     this.store.update((s) => { s.status = 'selecting'; s.error = null })
     const { result } = await this.sessions.selectModel({
@@ -116,11 +120,18 @@ export class ModelDirectory {
       s.status = 'idle'
       s.error = null
     })
+    if (!this.available()) return
     void this.load().catch(() => { /* the next menu open remains the explicit retry surface */ })
   }
 
   /** Scope teardown: late settlements lose write access to the store. */
   dispose(): void {
     this.disposed = true
+  }
+
+  private assertAvailable(): void {
+    if (!this.available()) {
+      throw new Error('model selection is unavailable for addressed subagent sessions')
+    }
   }
 }

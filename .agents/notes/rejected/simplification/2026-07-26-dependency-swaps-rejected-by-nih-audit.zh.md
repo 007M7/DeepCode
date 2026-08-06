@@ -48,7 +48,7 @@ Status: rejected — 下列每一项替换在证据上都未达到净简化门�
 - **以 `pidtree`/`ps-tree` 承担 pty 进程巡检器**：它们只给裸 PID 树；这段代码需要对抗 PID 复用的启动时间身份校验，加上 `/proc` stdin 等待检测，没有包做这些。
 - **以 `execa` 承担 subagent-subprocess 的 dispose（资源释放）阶梯**：`forceKillAfterDelay` 覆盖 SIGTERM→SIGKILL，但覆盖不了先发 stdin EOF 的协作层级，也覆盖不了「无退出沿即 reject」契约；在这里采用它意味着重写各 spawn 调用点、同时阶梯照旧保留。（测试基础设施的 spawn 管线是另一回事——见 [execa Agent Note](../../implemented/testing/2026-07-26-execa-for-test-subprocess-plumbing.md)。）
 - **以 `tree-kill` 承担 acp-snapshot 拆除与 lsp 进程终止**：那些代码行做的是排空顺序与错误传播，不是进程树遍历；lsp/bash 已经使用分离的进程组加 taskkill。
-- **在 TUI 测试驱动器上到处使用 node-pty**：[Windows TUI 决策](../../implemented/feature/2026-07-20-windows-tui-support.md)已明确否决在每个宿主上都用 node-pty；它已经是 Windows 那一条腿。
+- **在 TUI 测试驱动器上到处使用 node-pty**：已归档的 [Windows TUI 决策](../../archived/feature/2026-07-20-windows-tui-support.md)明确否决了在每个宿主上都使用 node-pty；它当时已经是 Windows 那一条腿。
 
 **服务器与 HTTP：**
 

@@ -59,8 +59,8 @@ declare module '@deepseek-ai/dsh-session' {
     /**
      * The session's approval policy was switched — log-only, durable,
      * replayable, never in the model transcript (the model learns the policy
-     * from the prompt section and the narrator's notices). The LAST such
-     * event is the session's override ({@link effectiveApprovalPolicy}).
+     * from the runtime-context snapshot and live switch notices). The LAST
+     * such event is the session's override ({@link effectiveApprovalPolicy}).
      * `source: 'delegation'` marks an override seeded into a child; an absent
      * source is a runtime switch.
      */
@@ -90,41 +90,17 @@ const OUTCOMES: readonly ApprovalOutcome[] = ['allowed-once', 'rejected', 'cance
  *   (exactly today's behavior).
  * - `'never'` — never prompt anyone: every ask resolves `'rejected'`
  *   deterministically. The strict headless stance (CI, unattended runs) and
- *   the only policy value stated in the system prompt — unlike `'ask'`, its
- *   outcome is knowable without asking, so stating it cannot overclaim.
+ *   the policy whose outcome is knowable without asking.
  */
 export type ApprovalPolicy = 'ask' | 'never'
 
 /** Every {@link ApprovalPolicy}, for option advertisement and runtime validation of untrusted policy strings. */
 export const APPROVAL_POLICIES: readonly ApprovalPolicy[] = ['ask', 'never']
 
-/**
- * The prompt sentence stating a `'never'` policy — visibility for the one
- * deterministic policy (see {@link ApprovalPolicy}). Narrator persistence
- * does NOT parse this prose: deployments can quote it in a persona or another
- * section, so the section also emits a source-owned marker.
- */
+/** Model-facing statement for the deterministic `'never'` policy. */
 const NEVER_SENTENCE = 'Approval prompts are disabled in this session: actions that require approval are rejected automatically — do not request sandbox escalation (do not set `sandbox_permissions`).'
-
-/** Source-owned prompt markers used to reconstruct the policy in a logged header. */
-const POLICY_MARKERS = {
-  ask: '<!-- dsh-user-approval-policy:ask -->',
-  never: '<!-- dsh-user-approval-policy:never -->',
-} as const satisfies Record<ApprovalPolicy, string>
-
-/**
- * Read the policy fact emitted by this service from a logged system prompt.
- * The section is ordered after deployment persona text, and the last marker
- * wins so a persona quoting an earlier marker cannot shadow the service's own
- * contribution. Ordinary policy prose is deliberately ignored.
- */
-function toldApprovalPolicy(system: string | undefined): ApprovalPolicy | undefined {
-  if (system === undefined) return undefined
-  const ask = system.lastIndexOf(POLICY_MARKERS.ask)
-  const never = system.lastIndexOf(POLICY_MARKERS.never)
-  if (ask < 0 && never < 0) return undefined
-  return never > ask ? 'never' : 'ask'
-}
+/** Model-facing statement for an interactive policy that may still fail closed. */
+const ASK_SENTENCE = 'Approval policy: ask. Operations that require approval may ask through the configured answerers; without an available answerer, the request fails closed.'
 
 /**
  * The session's approval-policy override: the last `approval/policy` event in
@@ -212,7 +188,7 @@ export interface Config {
 /**
  * Approval service that applies session policy before answerers and logs every
  * ask/outcome pair to the requesting session. It exposes deterministic policy
- * changes to the model through prompt and pre-step notices.
+ * changes to the model through the runtime-context snapshot and switch notices.
  */
 export class ApprovalService extends Service {
   static Config: z<Config> = z.object({
@@ -224,9 +200,10 @@ export class ApprovalService extends Service {
 
     const effective = (agent: Agent): ApprovalPolicy => this.effectivePolicy(agent.session)
 
-    // State only deterministic policy; a marker records the otherwise silent state.
+    // The complete current value travels after retained history, so switching
+    // policy does not rewrite the stable system-prompt cache prefix.
     ctx.inject(['systemPrompt'], (scope: Context) => {
-      scope.systemPrompt.section({
+      scope.systemPrompt.context({
         name: 'approval:policy',
         order: 115,
         text: (context) => {
@@ -234,54 +211,30 @@ export class ApprovalService extends Service {
           // A bare assemble() (tests, diagnostics) has no session to state.
           if (agent === undefined) return ''
           const policy = effective(agent)
-          return policy === 'never' ? `${NEVER_SENTENCE}\n${POLICY_MARKERS.never}` : POLICY_MARKERS.ask
+          return policy === 'never' ? NEVER_SENTENCE : ASK_SENTENCE
         },
       })
     })
+  }
 
-    // Visibility layer 2: the boundary narrator. agent/step runs before the
-    // request history is derived, so the notice is
-    // seen by THIS step's request: idle-time flip-flops coalesce at the
-    // turn's first step (net-zero → nothing), and a mid-turn switch is
-    // narrated no later than the next step. What each session was last told
-    // is in-memory with a log-derived fallback (the folded header's system
-    // text), so restarts lose nothing. Attribution is positional: an
-    // override event after the log's last `request/header` was a runtime
-    // switch by the user; otherwise the configured default moved under the
-    // session (operator/config).
-    const narrated = new WeakMap<Agent['session'], ApprovalPolicy>()
-    ctx.on('agent/step', (agent) => {
-      const session = agent.session
-      const events = session.events
-      let overrideIndex = -1
-      let overrideSource: 'delegation' | undefined
-      let headerIndex = -1
-      for (let index = events.length - 1; index >= 0 && (overrideIndex < 0 || headerIndex < 0); index -= 1) {
-        const event = events[index] as (typeof events)[number]
-        if (overrideIndex < 0 && event.type === 'approval/policy') {
-          overrideIndex = index
-          overrideSource = event.data.source
-        } else if (headerIndex < 0 && event.type === 'request/header') {
-          headerIndex = index
-        }
-      }
-      // Same fold effectivePolicy performs — override is scanned here anyway
-      // for POSITIONAL attribution; the default lives once, in the method.
-      const current = this.effectivePolicy(session)
-      const header = session.requestHeader()
-      const told = narrated.get(session) ?? toldApprovalPolicy(header?.system)
-      narrated.set(session, current)
-      // Cold start (nothing ever told) narrates nothing — the section about
-      // to go out states the truth, and there is no delta to explain.
-      if (told === undefined || told === current) return
-      const cause = overrideSource === 'delegation'
-        ? 'inherited from the delegating session'
-        : overrideIndex > headerIndex ? 'changed by the user' : 'changed by the operator/config'
-      agent.inject(createUserMessage({
-        content: [{ type: 'text', text: `The approval policy changed from "${told}" to "${current}" (${cause}).` }],
-        source: { kind: 'plugin', plugin: 'user-approval' },
-      }))
-    })
+  /**
+   * Switch one live agent's policy and queue the transition for its next model
+   * step. Session initialization uses {@link setApprovalPolicy} directly
+   * because there is no previously visible policy to change.
+   * @param agent - the live agent whose policy is changing.
+   * @param policy - the new effective policy.
+   */
+  setPolicy(agent: Agent, policy: ApprovalPolicy): void {
+    const previous = this.effectivePolicy(agent.session)
+    if (previous === policy) return
+    setApprovalPolicy(agent.session, policy)
+    agent.inject(createUserMessage({
+      content: [{
+        type: 'text',
+        text: `The approval policy changed from "${previous}" to "${policy}" (changed by the user).`,
+      }],
+      source: { kind: 'plugin', plugin: 'user-approval' },
+    }))
   }
 
   /**

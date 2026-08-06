@@ -231,6 +231,22 @@ describe('store scope pinning', () => {
 })
 
 describe('subscription surface', () => {
+  it('tracks declaration epochs separately from ordinary entry mutations', () => {
+    const core = new SlotCore()
+    expect(core.declarationEpoch('root')).toBe(1)
+    expect(core.declarationEpoch('test.list')).toBe(0)
+    const disposeFrame = mountFrame(core)
+    const declared = core.declarationEpoch('test.list')
+    expect(declared).toBe(1)
+    const disposeEntry = core.register({ name: 'test.list', id: 'a' }, Comp)
+    disposeEntry()
+    expect(core.declarationEpoch('test.list')).toBe(declared)
+    disposeFrame()
+    expect(core.declarationEpoch('test.list')).toBe(declared + 1)
+    mountFrame(core)
+    expect(core.declarationEpoch('test.list')).toBe(declared + 2)
+  })
+
   it('entries() returns a stable cached reference between mutations', () => {
     const core = new SlotCore()
     mountFrame(core)
@@ -265,6 +281,44 @@ describe('subscription surface', () => {
     mountFrame(core)
     await flushMicrotasks()
     expect(fn).toHaveBeenCalledTimes(1)
+  })
+
+  it('notifies declaration subscribers synchronously, excluding entries, until unsubscribe', () => {
+    const core = new SlotCore()
+    const fn = vi.fn()
+    const unsubscribe = core.subscribeDeclaration('test.list', fn)
+    const disposeFrame = mountFrame(core)
+    expect(fn).toHaveBeenCalledTimes(1)
+    core.register({ name: 'test.list', id: 'ordinary' }, Comp)
+    expect(fn).toHaveBeenCalledTimes(1)
+    disposeFrame()
+    expect(fn).toHaveBeenCalledTimes(2)
+    unsubscribe()
+    mountFrame(core)
+    expect(fn).toHaveBeenCalledTimes(2)
+  })
+
+  it('commits sibling declarations before notifying declaration subscribers', () => {
+    const core = new SlotCore()
+    let duplicateDeclaration: unknown
+    const unsubscribe = core.subscribeDeclaration('test.single', () => {
+      core.register({ name: 'test.list', id: 'from-listener' }, Comp)
+      try {
+        core.register({
+          name: 'test.single',
+          children: { 'test.list': { kind: 'list', scope: 'root' } },
+        }, Comp as never)
+      } catch (error) {
+        duplicateDeclaration = error
+      }
+    })
+
+    const disposeFrame = mountFrame(core)
+    expect(core.entries('test.list')).toHaveLength(1)
+    expect(String(duplicateDeclaration)).toContain('already declared')
+    unsubscribe()
+    disposeFrame()
+    expect(core.specDynamic('test.list')).toBeUndefined()
   })
 
   it('notifies only subscribers of the touched key; unsubscribe stops delivery', async () => {

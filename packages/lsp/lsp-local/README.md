@@ -23,7 +23,7 @@ The `servers` record key is the stable provider id reserved on `ctx.lsp`; each v
 |---|---|---|
 | `command` | (required) | Executable to spawn — absolute, or resolved on the child PATH at load. Launch uses no shell. |
 | `args` | `[]` | Arguments passed to the executable. |
-| `env` | `{}` | Extra env merged on top of the credential-scrubbed ambient env (vars matching `KEY`/`SECRET`/`TOKEN` are not forwarded); an explicit `DSH_*` entry merges after the seam's scrub of ambient ones. |
+| `env` | `{}` | Extra env merged on top of the credential-scrubbed ambient env (vars matching `KEY`/`PASSWORD`/`SECRET`/`TOKEN` are not forwarded); an explicit `DSH_*` entry merges after the seam's scrub of ambient ones. |
 | `extensionToLanguage` | (required) | Lowercase leading-dot extension → LSP language id (e.g. `{ '.ts': 'typescript' }`). |
 | `initializationOptions` | `null` | Static `initialize` options forwarded to the server. |
 | `configuration` | `null` | Static answer to every `workspace/configuration` item. |
@@ -54,5 +54,5 @@ No direct invalidation; `dsh-tool-lsp` owns request-prefix changes.
 ## Known Limitations and Deferred Work
 
 - **Trusted host-local only** — no sandbox confinement, no private cache/temp write contract; supporting untrusted binaries or restricted/remote/virtual workspaces requires a later process/filesystem contract and a different provider ([seam Agent Note](../../../.agents/notes/implemented/architecture/2026-07-15-lsp-capability-seam.md)). Containment resolves `realpath`, then opens the source through one handle with `O_NOFOLLOW | O_NONBLOCK` (final-component symlink guard plus nonblocking rejection of FIFOs) and a bounded read; a concurrent mutator that swaps an *ancestor* directory for a symlink between the resolve and the open is an accepted residual TOCTOU under this trusted-deployment model, not closed with non-portable `openat` segment walks.
-- **Transient-open compatibility floor** — servers whose synchronization omits open/close (or advertise `None`) are unsupported even if closed-document queries would work; the pinned TypeScript e2e establishes one compatibility floor, not a cross-language claim.
+- **Transient-open compatibility floor** — servers whose synchronization omits open/close (or advertise `None`) are unsupported even if closed-document queries would work; compatibility with one TypeScript server does not imply cross-language support.
 - **Per-server/workspace serialization latency** — parallel agents sharing one server and workspace queue behind one process; long-lived workspace processes consume memory until disposal.

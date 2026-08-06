@@ -8,9 +8,11 @@ New Session starts the runtime's page-local frontend Session Intent; a real Work
 
 `SidebarRootComponentProps` composes the layout owner share, the global `useSessions` and `useWorkspaces` hooks, the declared `sidebar.workspace` and `sidebar.settings` child slots, and injected `startSession`, `open`, and sidebar-toggle callbacks. There is no plugin store: `deriveGroups` consumes object-layer snapshots and component-local expansion/search state.
 
+Scrollbars in the column are a pointer affordance: the shell rebinds ui-theme's [scrollbar indirection](../ui-theme/README.md) to `transparent` whenever the pointer is outside it, and keeps the thumb drawn for 2s after the pointer leaves, so a list nobody is pointing at carries no bar. The reservation that keeps rows from moving belongs to the scrolling region ([ui-workspace](../ui-workspace/README.md)), so revealing a thumb never reflows.
+
 The foot is the `sidebar.settings` seat: the sidebar renders only the bottom-pinned layout slot and shares its column state (`wide`); ui-settings registers the trigger row and settings panel there.
 
-The `/client` export surface is the plugin body (`apply`/`inject`) plus the contract types only — SidebarRoot, the row components, and the tree derivation are internal (the slot registration closes over them; tests import src paths directly).
+The `/client` export surface is the plugin body (`apply`/`inject`) plus the contract types only; SidebarRoot, the row components, and the tree derivation remain package-internal behind the slot registration.
 
 ## Model Experience
 
@@ -22,6 +24,6 @@ None; this package neither assembles nor sends a provider request.
 
 ## Known Limitations and Deferred Work
 
-- **State dots have two live data states (running/none)** — the done/error/amber sources arrive with P-II approvals and notifications; the four-color primitive is already wired.
-- **Group-by menu ships by-workspace only** — Update/Status grouping strategies are drawn without specs and deferred.
+- **Session state-dot rendering is owned by [ui-workspace](../ui-workspace/README.md)** — no done/error notification sources are available.
+- **Group-by supports Workspace only** — Update and Status are not available strategies.
 - **"New task completed" unread marking is local viewing state** — completion-time > last-seen never reaches the host.

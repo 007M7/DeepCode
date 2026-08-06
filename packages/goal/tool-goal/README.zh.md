@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-[`ctx.goals`](../goal/README.md) 的面向模型控制接口：`get_goal`、`create_goal` 和 `update_goal`。[goal 工具 Agent Note（agent 决策记录）](../../../.agents/notes/implemented/feature/2026-07-19-model-facing-goal-tools.md) 负责权限拆分与 Codex 风格用户体验。
+[`ctx.goals`](../goal/README.md) 的面向模型控制接口：`get_goal`、`create_goal` 和 `update_goal`。[goal 工具 Agent Note](../../../.agents/notes/implemented/feature/2026-07-19-model-facing-goal-tools.md) 负责权限拆分与 Codex 风格用户体验。
 
 ## 工具
 
@@ -18,7 +18,7 @@
 
 ## 权限
 
-执行要求完全相同的活跃 `exec.agent`、其继承的 `AgentRegistry` initiator、running 状态与开放轮次。create、edit、pause 和 resume 还要求运行时根 agent 的当前轮次中存在已接受的 `{ kind: 'user' }` 消息或 steering 事件。持久 fork 谱系不会降低已恢复根 agent 的等级；活跃 subagent 所有权会降低。
+执行要求完全相同的活跃 `exec.agent`、其继承的 `AgentRegistry` initiator、running 状态与开放轮次。create、edit、pause 和 resume 还要求运行时根 agent（智能体）的当前轮次中存在已接受的 `{ kind: 'user' }` 消息或 steering 事件。持久 fork 谱系不会降低已恢复根 agent 的等级；活跃 subagent 所有权会降低。
 
 `{ kind: 'user' }` 是宿主证明。`Agent.followup()` 与 `steer()` 会在调用方省略 source 时分配该值，因此插件、调度器与其他非人类生产方必须传入自己的 source，不能继承用户权限。
 
@@ -61,20 +61,20 @@ Use goal tools for one long-running completion objective in the current session.
 
 #### 模型看到的内容
 
-生成的 [`get_goal`、`create_goal` 和 `update_goal` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-goal)。成功结果是紧凑 JSON。变更结果之后是工具批次结束后由 goal 领域产生的原始 `<goal_state>` 快照。结果中的 `activation` 是实时观察值，绝不会成为回放权限依据。
+生成的 [`get_goal`、`create_goal` 和 `update_goal` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-goal)。成功结果是紧凑 JSON。变更会追加 goal 领域的持久 `goal/change` 事件，而不会把模型上下文排队。结果中的 `activation` 是实时观察值，绝不会成为回放权限依据。
 
 #### Token 影响
 
-固定 schema 成本，加上每次调用的一条紧凑结果。变更还会保留领域快照，直到压缩（compaction）。
+固定 schema 成本，加上每次调用的一条紧凑结果。持久变更不会增加单独的模型可见上下文。
 
 #### KV Cache 影响
 
-schema 的定义与可见性不变时，前缀保持稳定。调用、结果和生成的 goal 快照会追加到可复用请求前缀之后，不会使更早条目失效。
+schema 的定义与可见性不变时，前缀保持稳定。调用和结果会追加到可复用请求前缀之后，不会使更早条目失效。
 
 ## 已知限制与暂缓事项
 
 - **语义意图仍由模型判断**：执行只能证明人类直接来源，无法证明请求是否足够重大而值得创建 goal。
 - **阻塞条件是否相同仍由模型判断**：运行时强制统计互不重复的已准入 Goal Round，而不判断障碍在语义上是否等价；独立评估器的实现暂缓。
 - **不负责调度或直接面向人类呈现**：这些工具只变更状态；同会话驱动器与 [`dsh-command-goal`](../command-goal/README.md) 是同一领域的独立消费方。
-- **Goal Round 权限需要驱动器**：除非续行驱动器准入 goal 来源的用户轮次，否则自主 `complete`／`blocked` 路径不会启用；只挂载这个包（package）不会创建这些轮次。
+- **Goal Round 权限需要驱动器**：除非续行驱动器准入 goal 来源的用户轮次，否则自主 `complete`／`blocked` 路径不会启用；只挂载这个包不会创建这些轮次。
 - **提示词注册与过滤相互独立**：某个范围可能隐藏工具，却保留指引，除非部署将两项注册限定在同一范围。

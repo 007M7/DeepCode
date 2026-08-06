@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Trigger-independent session feedback plus human-facing `/feedback` capture. The package exports `recordFeedback(session, text)`, which appends one log-only `feedback/record` event. Its plugin registers one global command through [`ctx.commands`](../../ui/commands/README.md), so every composed command adapter discovers it; the shipped TUI executes it without a model turn.
+Trigger-independent session feedback plus human-facing `/feedback` capture. The package exports `recordFeedback(session, text)`, which appends one log-only `feedback/record` event. Its plugin registers one global command through [`ctx.commands`](../../ui/commands/README.md), so every composed command adapter discovers it; the shipped Web client executes it without a model turn.
 
 ## Command contract
 
@@ -32,7 +32,7 @@ The producer injects only `commands`. A custom app mounts the registry plus this
   name: '@deepseek-ai/dsh-command-feedback'
 ```
 
-The TUI app mounts this command unconditionally; it has no configuration and no dependency on the persisted-goal stack. The headless CLI, ACP automation, and JSON-RPC adapters do not consume `ctx.commands`, so they do not expose it.
+The shipped `dsh` base mounts this command unconditionally; it has no configuration and no dependency on the persisted-goal stack. The Web client exposes it through the command adapter. Headless mode, ACP automation, and JSON-RPC do not provide a command adapter, so they do not expose it.
 
 ## Model Experience
 
@@ -56,4 +56,4 @@ Independent of the model request path. Recording appends to the session log only
 - **No structured fields** — an entry is one free-text string with no category, severity, or referenced-event link, so feedback cannot be filtered by subject without re-reading its text.
 - **No amend or withdraw** — the session log is append-only and this package adds no tombstone, so a mistaken entry stays recorded and can only be superseded by a later one.
 - **No explicit durability barrier** — the acknowledgement follows the append, not a flush, so an entry recorded immediately before a crash can be lost with any other unflushed tail. Feedback is not worth forcing a synchronous disk write for; a consumer that needs one awaits `ctx.sessions.flush(session)`.
-- **TUI only in the shipped apps** — the headless CLI, ACP automation, and JSON-RPC adapters do not mount `ctx.commands`, so `/feedback` is unavailable there.
+- **Web only in the shipped front doors** — headless mode, ACP automation, and JSON-RPC do not provide a command adapter, so `/feedback` is unavailable there.

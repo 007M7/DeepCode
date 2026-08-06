@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { mkdir, readdir, readFile, stat, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rename, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context } from 'cordis'
 import SkillService from '@deepseek-ai/dsh-skill'
-import { FileSystem, FsVersion, type FsDirEntry, type FsEditOutcome, type FsEditRequest, type FsInfo, type FsPathInfo, type FsTarget, type FsWriteOutcome } from '@deepseek-ai/dsh-fs'
+import { FileSystem, FsError, FsVersion, type FsDirEntry, type FsEditOutcome, type FsEditRequest, type FsInfo, type FsPathInfo, type FsTarget, type FsWriteOutcome } from '@deepseek-ai/dsh-fs'
 import * as SkillLocal from '../src/index.ts'
 
 async function tempDir(name: string): Promise<string> {
@@ -26,19 +26,26 @@ class TestFileSystem extends FileSystem {
   listDirCalls = 0
   failResolvePaths = new Set<string>()
   failStatPaths = new Set<string>()
+  failListDirPaths = new Set<string>()
+  errorResolvePaths = new Set<string>()
+  errorStatPaths = new Set<string>()
+  errorReadPaths = new Set<string>()
+  missingReadPaths = new Set<string>()
   statOverrides = new Map<string, FsInfo | undefined>()
   statSignals: Array<AbortSignal | undefined> = []
   readTextSignals: Array<AbortSignal | undefined> = []
   readTextOverride?: (target: FsTarget, signal?: AbortSignal) => Promise<string>
 
   override async resolve(path: string): Promise<FsTarget> {
-    if (this.failResolvePaths.has(path)) throw new Error('resolve failed')
+    if (this.failResolvePaths.has(path)) throw new FsError('resolve failed', 'FS_NOT_FOUND')
+    if (this.errorResolvePaths.has(path)) throw new Error('resolve temporarily failed')
     return { targetKey: path as never, displayPath: path }
   }
 
   override async stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined> {
     this.statSignals.push(signal)
-    if (this.failStatPaths.has(target.displayPath)) throw new Error('stat failed')
+    if (this.failStatPaths.has(target.displayPath)) throw new FsError('stat failed', 'FS_NOT_FOUND')
+    if (this.errorStatPaths.has(target.displayPath)) throw new Error('stat temporarily failed')
     if (this.statOverrides.has(target.displayPath)) return this.statOverrides.get(target.displayPath)
     try {
       const fs = await import('node:fs/promises')
@@ -70,8 +77,10 @@ class TestFileSystem extends FileSystem {
   override async readText(target: FsTarget, signal?: AbortSignal): Promise<string> {
     this.readTextSignals.push(signal)
     if (this.readTextOverride !== undefined) return await this.readTextOverride(target, signal)
+    if (this.missingReadPaths.has(target.displayPath)) throw new FsError('read failed', 'FS_NOT_FOUND')
+    if (this.errorReadPaths.has(target.displayPath)) throw new Error('read temporarily failed')
     const text = await readFile(target.displayPath, 'utf8')
-    if (text.includes('\uFFFD')) throw new Error('not text')
+    if (text.includes('\uFFFD')) throw new FsError('not text', 'FS_NOT_TEXT')
     return text
   }
 
@@ -81,6 +90,7 @@ class TestFileSystem extends FileSystem {
 
   override async listDir(target: FsTarget): Promise<FsDirEntry[]> {
     this.listDirCalls += 1
+    if (this.failListDirPaths.has(target.displayPath)) throw new Error('list temporarily failed')
     const entries = await readdir(target.displayPath, { withFileTypes: true, encoding: 'utf8' })
     const result: FsDirEntry[] = []
     for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
@@ -122,9 +132,20 @@ async function setupLocal(home: string, config: Partial<SkillLocal.Config> = {})
   await ctx.plugin(SkillLocal, {
     dshHome: join(home, '.dsh'),
     agentsHome: join(home, '.agents'),
+    watch: false,
     ...config,
   })
   return ctx
+}
+
+async function waitFor<T>(read: () => Promise<T>, accept: (value: T) => boolean): Promise<T> {
+  const deadline = Date.now() + 5000
+  while (true) {
+    const value = await read()
+    if (accept(value)) return value
+    if (Date.now() >= deadline) throw new Error('timed out waiting for watcher state')
+    await new Promise(resolve => setTimeout(resolve, 20))
+  }
 }
 
 describe('dsh-skill-local plugin exports', () => {
@@ -200,7 +221,7 @@ describe('LocalSkillProvider', () => {
     expect((await ctx.skills.get('runtime-name', { cwd: project }))?.description).toBe('Runtime wins')
   })
 
-  it('parses flat skills and filters invalid or model-disabled skills from listing', async () => {
+  it('parses flat skills and filters invalid skills from the invocation-neutral listing', async () => {
     const home = await tempDir('skill-flat')
     const root = join(home, '.dsh/skills')
     await writeFlatSkill(root, 'flat-skill', 'flat description', 'Flat instructions.')
@@ -209,7 +230,8 @@ describe('LocalSkillProvider', () => {
       'name: rich-skill',
       'description: rich description',
       'whenToUse: For richer local parsing',
-      'disableModelInvocation: false',
+      'disable-model-invocation: off',
+      'user-invocable: YES',
       'metadata:',
       '  owner: tests',
       '---',
@@ -225,24 +247,108 @@ describe('LocalSkillProvider', () => {
     await writeFile(join(root, 'no-trailing-body.md'), '---\nname: no-trailing-body\ndescription: No trailing body\n---')
     await writeFile(join(root, 'notes.txt'), 'ignored')
     await mkdir(join(root, 'not-a-skill'), { recursive: true })
-    await writeSkill(root, 'hidden-skill', 'hidden description', 'Hidden.')
-    await writeFile(join(root, 'hidden-skill/SKILL.md'), '---\nname: hidden-skill\ndescription: hidden description\ndisableModelInvocation: true\n---\n\nHidden.\n')
+    await writeSkill(root, 'user-only-skill', 'user-only description', 'User-only.')
+    await writeFile(join(root, 'user-only-skill/SKILL.md'), '---\nname: user-only-skill\ndescription: user-only description\ndisable-model-invocation: true\n---\n\nUser-only.\n')
+    await writeSkill(root, 'model-only-skill', 'model-only description', 'Model-only.')
+    await writeFile(join(root, 'model-only-skill/SKILL.md'), '---\nname: model-only-skill\ndescription: model-only description\nuser-invocable: false\n---\n\nModel-only.\n')
 
     const ctx = await setupLocal(home)
     const listedBeforeDelete = await ctx.skills.list()
     const flatSummary = listedBeforeDelete.find(skill => skill.name === 'flat-skill')
     if (flatSummary === undefined) throw new Error('expected flat-skill')
-    await writeFile(join(root, 'flat-skill.md'), '')
+    await rm(join(root, 'flat-skill.md'))
 
-    expect(listedBeforeDelete.map(skill => skill.name)).toEqual(['flat-skill', 'no-trailing-body', 'rich-skill'])
+    expect(listedBeforeDelete.map(skill => skill.name)).toEqual([
+      'flat-skill',
+      'model-only-skill',
+      'no-trailing-body',
+      'rich-skill',
+      'user-only-skill',
+    ])
+    expect(flatSummary.invocation).toEqual({ modelInvocable: true, userInvocable: true })
     expect(await ctx.skills.get('flat-skill')).toBeUndefined()
-    expect((await ctx.skills.get('hidden-skill'))?.content).toContain('Hidden.')
+    expect(await ctx.skills.get('no-trailing-body')).toMatchObject({
+      invocation: { modelInvocable: true, userInvocable: true },
+    })
+    expect(await ctx.skills.get('user-only-skill')).toMatchObject({
+      invocation: { modelInvocable: false, userInvocable: true },
+      content: 'User-only.',
+    })
+    expect(await ctx.skills.get('model-only-skill')).toMatchObject({
+      invocation: { modelInvocable: true, userInvocable: false },
+      content: 'Model-only.',
+    })
     expect(await ctx.skills.get('rich-skill')).toMatchObject({
       whenToUse: 'For richer local parsing',
-      disableModelInvocation: false,
+      invocation: { modelInvocable: true, userInvocable: true },
       metadata: { owner: 'tests' },
     })
     expect(await ctx.skills.get('Bad_Name')).toBeUndefined()
+  })
+
+  it('accepts the documented boolean spellings for invocation frontmatter', async () => {
+    const home = await tempDir('skill-invocation-booleans')
+    const root = join(home, '.dsh/skills')
+    await mkdir(root, { recursive: true })
+    const truthy = ['true', 'TRUE', '"true"', 'yes', 'ON', '1', '"1"']
+    const falsy = ['false', 'FALSE', '"false"', 'no', 'OFF', '0', '"0"']
+    for (const [index, value] of truthy.entries()) {
+      await writeFile(join(root, `truthy-${index}.md`), [
+        '---',
+        `name: truthy-${index}`,
+        `description: Truthy ${index}`,
+        `disable-model-invocation: ${value}`,
+        '---',
+        '',
+        'Truthy.',
+      ].join('\n'))
+    }
+    for (const [index, value] of falsy.entries()) {
+      await writeFile(join(root, `falsy-${index}.md`), [
+        '---',
+        `name: falsy-${index}`,
+        `description: Falsy ${index}`,
+        `user-invocable: ${value}`,
+        '---',
+        '',
+        'Falsy.',
+      ].join('\n'))
+    }
+
+    const ctx = await setupLocal(home)
+
+    for (const [index] of truthy.entries()) {
+      expect((await ctx.skills.get(`truthy-${index}`))?.invocation).toEqual({
+        modelInvocable: false,
+        userInvocable: true,
+      })
+    }
+    for (const [index] of falsy.entries()) {
+      expect((await ctx.skills.get(`falsy-${index}`))?.invocation).toEqual({
+        modelInvocable: true,
+        userInvocable: false,
+      })
+    }
+  })
+
+  it('rejects legacy and invalid invocation frontmatter without hiding valid siblings', async () => {
+    const home = await tempDir('skill-invalid-invocation')
+    const root = join(home, '.dsh/skills')
+    await writeSkill(root, 'good-skill', 'Good skill')
+    const invalid = [
+      ['legacy-model', 'disableModelInvocation: true'],
+      ['legacy-positive-model', 'modelInvocable: false'],
+      ['legacy-user', 'userInvocable: false'],
+      ['bad-string', 'disable-model-invocation: maybe'],
+      ['bad-value', 'user-invocable: null'],
+    ] as const
+    for (const [name, field] of invalid) {
+      await writeFile(join(root, `${name}.md`), `---\nname: ${name}\ndescription: ${name}\n${field}\n---\n\nBad.\n`)
+    }
+
+    const ctx = await setupLocal(home)
+
+    expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['good-skill'])
   })
 
   it('supports CRLF frontmatter and ignores delimiter-looking text inside YAML values', async () => {
@@ -335,7 +441,7 @@ describe('LocalSkillProvider', () => {
       size: 0,
     })
     await ctx.plugin(SkillService)
-    await ctx.plugin(SkillLocal, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents') })
+    await ctx.plugin(SkillLocal, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), watch: false })
 
     expect((await ctx.skills.list({ cwd: nestedCwd })).map(skill => [skill.name, skill.source])).toEqual([
       ['backend-root', 'project-agents'],
@@ -359,6 +465,92 @@ describe('LocalSkillProvider', () => {
     expect((await bundledCtx.skills.get('bundled-host'))?.source).toBe('bundled')
   })
 
+  it('reports transient root reads as incomplete without caching an empty catalog', async () => {
+    const home = await tempDir('skill-transient-root')
+    const root = join(home, '.agents/skills')
+    await writeSkill(root, 'stable-skill', 'Stable skill')
+    const ctx = new Context()
+    await ctx.plugin(TestFileSystem)
+    const fs = ctx.fs as TestFileSystem
+    await ctx.plugin(SkillService)
+    await ctx.plugin(SkillLocal, {
+      dshHome: join(home, '.dsh'),
+      agentsHome: join(home, '.agents'),
+      watch: false,
+    })
+
+    expect(await ctx.skills.snapshot()).toMatchObject({
+      skills: [{ name: 'stable-skill' }],
+      complete: true,
+    })
+    fs.failListDirPaths.add(root)
+    const path = join(root, 'stable-skill/SKILL.md')
+    ctx.emit(
+      'fs/observed',
+      { targetKey: path as never, displayPath: path },
+      FsVersion('failed-read'),
+      { name: 'edit' },
+    )
+    expect(await ctx.skills.snapshot()).toEqual({ skills: [], complete: false })
+
+    fs.failListDirPaths.clear()
+    expect(await ctx.skills.snapshot()).toMatchObject({
+      skills: [{ name: 'stable-skill' }],
+      complete: true,
+    })
+  })
+
+  it('distinguishes transient filesystem entry failures from confirmed disappearance', async () => {
+    const home = await tempDir('skill-transient-entry')
+    const root = join(home, '.agents/skills')
+    const path = join(root, 'stable-skill/SKILL.md')
+    await writeSkill(root, 'stable-skill', 'Stable skill')
+    const ctx = new Context()
+    await ctx.plugin(TestFileSystem)
+    const fs = ctx.fs as TestFileSystem
+    await ctx.plugin(SkillService)
+    await ctx.plugin(SkillLocal, {
+      dshHome: join(home, '.dsh'),
+      agentsHome: join(home, '.agents'),
+      watch: false,
+    })
+    const invalidate = (): void => {
+      ctx.emit(
+        'fs/observed',
+        { targetKey: path as never, displayPath: path },
+        FsVersion('entry-failure'),
+        { name: 'write' },
+      )
+    }
+
+    expect((await ctx.skills.snapshot()).complete).toBe(true)
+    for (const failures of [fs.errorResolvePaths, fs.errorStatPaths, fs.errorReadPaths]) {
+      failures.add(path)
+      invalidate()
+      expect((await ctx.skills.snapshot()).complete).toBe(false)
+      failures.clear()
+    }
+
+    fs.missingReadPaths.add(path)
+    invalidate()
+    expect(await ctx.skills.snapshot()).toEqual({ skills: [], complete: true })
+    fs.missingReadPaths.clear()
+    invalidate()
+    expect(await ctx.skills.snapshot()).toMatchObject({
+      skills: [{ name: 'stable-skill' }],
+      complete: true,
+    })
+  })
+
+  it('marks an unexpected native skill-file read failure incomplete', async () => {
+    const home = await tempDir('skill-native-read-failure')
+    const root = join(home, '.agents/skills')
+    await mkdir(join(root, 'broken-skill/SKILL.md'), { recursive: true })
+    const ctx = await setupLocal(home)
+
+    expect(await ctx.skills.snapshot()).toEqual({ skills: [], complete: false })
+  })
+
   it('forwards cancellation to filesystem reads while loading a skill', async () => {
     const home = await tempDir('skill-read-abort')
     await writeSkill(join(home, '.dsh/skills'), 'abortable-skill', 'Abortable skill')
@@ -367,7 +559,7 @@ describe('LocalSkillProvider', () => {
     await ctx.plugin(TestFileSystem)
     const fs = ctx.fs as TestFileSystem
     await ctx.plugin(SkillService)
-    await ctx.plugin(SkillLocal, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents') })
+    await ctx.plugin(SkillLocal, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), watch: false })
     expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['abortable-skill'])
 
     fs.statSignals = []
@@ -394,6 +586,223 @@ describe('LocalSkillProvider', () => {
     expect(fs.readTextSignals).toEqual([controller.signal])
   })
 
+  it('refreshes additions, metadata changes, deletions, and a recreated missing root', { timeout: 20000 }, async () => {
+    const home = await tempDir('skill-watch-home')
+    const agentsRoot = join(home, '.agents/skills')
+    const ctx = new Context()
+    await ctx.plugin(SkillService)
+    const fiber = await ctx.plugin(SkillLocal, {
+      dshHome: join(home, '.dsh'),
+      agentsHome: join(home, '.agents'),
+      watch: true,
+      watchStabilityThresholdMs: 20,
+      watchPollIntervalMs: 10,
+    })
+    try {
+      expect(await ctx.skills.list()).toEqual([])
+
+      await writeSkill(agentsRoot, 'watched-skill', 'First description', 'First body.')
+      const added = await waitFor(
+        async () => await ctx.skills.list(),
+        skills => skills.some(skill => skill.name === 'watched-skill'),
+      )
+      expect(added.find(skill => skill.name === 'watched-skill')?.description).toBe('First description')
+
+      await writeSkill(agentsRoot, 'watched-skill', 'Second description', 'Second body.')
+      const changed = await waitFor(
+        async () => await ctx.skills.list(),
+        skills => skills.find(skill => skill.name === 'watched-skill')?.description === 'Second description',
+      )
+      expect(changed).toHaveLength(1)
+      expect((await ctx.skills.get('watched-skill'))?.content).toBe('Second body.')
+
+      await writeFlatSkill(agentsRoot, 'flat-added', 'Flat added')
+      expect(await waitFor(
+        async () => (await ctx.skills.list()).map(skill => skill.name),
+        names => names.includes('flat-added'),
+      )).toEqual(['flat-added', 'watched-skill'])
+
+      await rename(join(agentsRoot, 'watched-skill'), join(agentsRoot, 'renamed-skill'))
+      await writeSkill(agentsRoot, 'renamed-skill', 'Renamed skill')
+      expect(await waitFor(
+        async () => (await ctx.skills.list()).map(skill => skill.name),
+        names => names.includes('renamed-skill') && !names.includes('watched-skill'),
+      )).toEqual(['flat-added', 'renamed-skill'])
+
+      await rm(join(agentsRoot, 'renamed-skill'), { recursive: true })
+      expect(await waitFor(
+        async () => (await ctx.skills.list()).map(skill => skill.name),
+        names => !names.includes('renamed-skill'),
+      )).toEqual(['flat-added'])
+
+      await rm(join(home, '.agents'), { recursive: true })
+      expect(await waitFor(
+        async () => await ctx.skills.list(),
+        skills => skills.length === 0,
+      )).toEqual([])
+
+      await writeSkill(agentsRoot, 'recreated-skill', 'Recreated')
+      expect(await waitFor(
+        async () => (await ctx.skills.list()).map(skill => skill.name),
+        names => names.includes('recreated-skill'),
+      )).toEqual(['recreated-skill'])
+    } finally {
+      await fiber.dispose()
+    }
+
+  })
+
+  it('uses fs/observed as a synchronous first-party invalidation path without a watcher', async () => {
+    const home = await tempDir('skill-observed-home')
+    const root = join(home, '.agents/skills')
+    const ctx = await setupLocal(home)
+    expect(await ctx.skills.list()).toEqual([])
+    let invalidations = 0
+    ctx.on('skills/change', () => { invalidations += 1 })
+
+    await writeSkill(root, 'observed-skill', 'Observed skill')
+    const path = join(root, 'observed-skill/SKILL.md')
+    const emitObserved = (displayPath: string, actor?: object): void => {
+      ctx.emit(
+        'fs/observed',
+        { targetKey: displayPath as never, displayPath },
+        FsVersion('observed'),
+        actor,
+      )
+    }
+    emitObserved(path)
+    emitObserved(path, {})
+    emitObserved(path, { name: 'read' })
+    emitObserved(join(home, 'outside.md'), { name: 'write' })
+    emitObserved(root, { name: 'write' })
+    emitObserved(join(root, 'observed-skill/references/notes.md'), { name: 'write' })
+    emitObserved(join(home, '.dsh/skills/.system/SKILL.md'), { name: 'write' })
+    emitObserved(join(root, 'flat-skill.md'), { name: 'write' })
+    ctx.emit(
+      'fs/observed',
+      { targetKey: path as never, displayPath: path },
+      FsVersion('observed'),
+      { name: 'edit' },
+    )
+
+    expect(invalidations).toBe(2)
+    expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['observed-skill'])
+  })
+
+  it('bounds project watchers and re-observes an evicted project on its next lookup', async () => {
+    const home = await tempDir('skill-watch-lru-home')
+    const first = await tempDir('skill-watch-lru-first')
+    const second = await tempDir('skill-watch-lru-second')
+    await mkdir(join(first, '.git'), { recursive: true })
+    await mkdir(join(second, '.git'), { recursive: true })
+    await writeSkill(join(first, '.agents/skills'), 'first-project', 'First project')
+    await writeSkill(join(second, '.agents/skills'), 'second-project', 'Second project')
+    const ctx = new Context()
+    await ctx.plugin(SkillService)
+    const fiber = await ctx.plugin(SkillLocal, {
+      dshHome: join(home, '.dsh'),
+      agentsHome: join(home, '.agents'),
+      customSkillDirs: [join(first, '.agents/skills')],
+      watch: true,
+      watchMaxProjects: 1,
+      watchStabilityThresholdMs: 20,
+      watchPollIntervalMs: 10,
+    })
+    try {
+      expect((await ctx.skills.list({ cwd: first })).map(skill => skill.name)).toContain('first-project')
+      expect((await ctx.skills.list({ cwd: second })).map(skill => skill.name)).toContain('second-project')
+      await writeSkill(join(first, '.agents/skills'), 'first-project', 'First project refreshed')
+
+      expect((await ctx.skills.list({ cwd: first })).find(skill => skill.name === 'first-project')?.description)
+        .toBe('First project refreshed')
+    } finally {
+      await fiber.dispose()
+    }
+
+    const noWatch = new Context()
+    await noWatch.plugin(SkillService)
+    await noWatch.plugin(SkillLocal, {
+      dshHome: join(home, '.dsh'),
+      agentsHome: join(home, '.agents'),
+      watch: false,
+      watchMaxProjects: 1,
+    })
+    await noWatch.skills.list({ cwd: first })
+    await noWatch.skills.list({ cwd: second })
+  })
+
+  it('contains repeated disposal and late first-party observations', async () => {
+    const home = await tempDir('skill-watch-dispose')
+    const nonDirectoryRoot = join(home, 'not-a-directory')
+    await writeFile(nonDirectoryRoot, 'not a skill root')
+    await writeSkill(join(home, '.agents/skills'), 'disposed-skill', 'Disposed skill')
+    const ctx = new Context()
+    await ctx.plugin(SkillService)
+    let provider!: SkillLocal.LocalSkillProvider
+    const disposeProvider = ctx.skills.registerProvider((control) => {
+      provider = new SkillLocal.LocalSkillProvider(ctx, control, {
+        dshHome: join(home, '.dsh'),
+        agentsHome: join(home, '.agents'),
+        customSkillDirs: [nonDirectoryRoot],
+        watch: true,
+        watchStabilityThresholdMs: 20,
+        watchPollIntervalMs: 10,
+      })
+      return provider
+    })
+    const beforeDisposal = await provider.list({})
+    expect((Array.isArray(beforeDisposal) ? beforeDisposal : beforeDisposal.candidates).map(skill => skill.name))
+      .toEqual(['disposed-skill'])
+
+    await provider.dispose()
+    await provider.dispose()
+    provider.observeHostMutation(join(home, '.agents/skills/disposed-skill/SKILL.md'))
+
+    const afterDisposal = await provider.list({})
+    expect((Array.isArray(afterDisposal) ? afterDisposal : afterDisposal.candidates).map(skill => skill.name))
+      .toEqual(['disposed-skill'])
+    disposeProvider()
+  })
+
+  it('refreshes frontmatter through a followed skill symlink', { timeout: 10000 }, async () => {
+    const home = await tempDir('skill-watch-symlink-home')
+    const external = await tempDir('skill-watch-symlink-external')
+    const root = join(home, '.dsh/skills')
+    await writeSkill(external, 'linked-skill', 'First linked description')
+    await mkdir(root, { recursive: true })
+    await symlink(join(external, 'linked-skill'), join(root, 'linked-skill'))
+    const ctx = new Context()
+    await ctx.plugin(SkillService)
+    const fiber = await ctx.plugin(SkillLocal, {
+      dshHome: join(home, '.dsh'),
+      agentsHome: join(home, '.agents'),
+      watch: true,
+      watchFollowSymlinks: true,
+      watchStabilityThresholdMs: 20,
+      watchPollIntervalMs: 10,
+    })
+    try {
+      expect((await ctx.skills.list())[0]?.description).toBe('First linked description')
+      await writeSkill(external, 'linked-skill', 'Second linked description')
+      const refreshed = await waitFor(
+        async () => await ctx.skills.list(),
+        skills => skills[0]?.description === 'Second linked description',
+      )
+      expect(refreshed[0]?.name).toBe('linked-skill')
+    } finally {
+      await fiber.dispose()
+    }
+  })
+
+  it('validates watcher tunables at plugin load', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SkillService)
+
+    await expect(ctx.plugin(SkillLocal, { watchMaxProjects: 0 })).rejects.toThrow('watchMaxProjects')
+    await expect(ctx.plugin(SkillLocal, { watchPollIntervalMs: 1.5 })).rejects.toThrow('watchPollIntervalMs')
+    await expect(ctx.plugin(SkillLocal, { watchStabilityThresholdMs: 0 })).rejects.toThrow('watchStabilityThresholdMs')
+  })
+
   it('uses default home root resolution without exposing builtin skills', async () => {
     const previousDshHome = process.env.DSH_HOME
     const previousAgentsHome = process.env.DSH_AGENTS_HOME
@@ -408,19 +817,38 @@ describe('LocalSkillProvider', () => {
       await writeSkill(bundled, 'env-bundled-skill', 'Env bundled skill')
       const ctx = new Context()
       await ctx.plugin(SkillService)
-      await ctx.plugin(SkillLocal)
+      await ctx.plugin(SkillLocal, { watch: false })
       expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['env-bundled-skill', 'env-skill'])
+
+      // Isolated providers see only their explicit roots: the environment
+      // bundled root is a default root, so includeDefaultRoots: false must
+      // drop it — repository providers never re-claim the app's builtins.
+      const isolated = new Context()
+      await isolated.plugin(SkillService)
+      const customOnly = join(envHome, 'custom-only')
+      await writeSkill(customOnly, 'custom-isolated-skill', 'Custom isolated skill')
+      await isolated.plugin(SkillLocal, {
+        providerName: 'isolated',
+        includeDefaultRoots: false,
+        customSkillDirs: [customOnly],
+        watch: false,
+      })
+      expect((await isolated.skills.list()).map(skill => skill.name)).toEqual(['custom-isolated-skill'])
+      await isolated.fiber.dispose()
 
       process.env.DSH_HOME = join(envHome, 'empty-dsh')
       delete process.env.DSH_BUNDLED_SKILL_DIR
       process.env.DSH_AGENTS_HOME = join(envHome, 'empty-agents')
       const empty = new Context()
       await empty.plugin(SkillService)
-      SkillLocal.apply(empty, {})
+      SkillLocal.apply(empty, { watch: false })
       expect(await empty.skills.list()).toEqual([])
 
       delete process.env.DSH_AGENTS_HOME
-      expect(new SkillLocal.LocalSkillProvider(empty, { dshHome: join(envHome, 'empty-dsh') }).name).toBe('local')
+      expect(new SkillLocal.LocalSkillProvider(empty, {
+        signal: new AbortController().signal,
+        invalidate() {},
+      }, { dshHome: join(envHome, 'empty-dsh') }).name).toBe('local')
     } finally {
       if (previousDshHome === undefined) {
         delete process.env.DSH_HOME

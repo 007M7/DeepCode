@@ -14,11 +14,15 @@ import { Context } from 'cordis'
 import { describe, expect, it, vi } from 'vitest'
 import { cleanup, render } from '@testing-library/react'
 import { afterEach } from 'vitest'
-import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import { SlotsService, type SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { GoalProjection } from '@deepseek-ai/dsh-goal/client'
+import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
+import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import type { GoalBarActions } from '../src/client/slots.ts'
 import { apply, inject } from '../src/client/index.ts'
 import { GoalDock } from '../src/client/GoalBar.tsx'
+import { zh } from '../src/client/locales.ts'
 import { apply as nodeApply } from '../src/index.ts'
 
 afterEach(cleanup)
@@ -41,7 +45,7 @@ function makeProjection(revision = 3): GoalProjection {
 }
 
 /** Boot the plugin over fake faces; goals verbs record payloads and answer per the script. */
-function bench(options: { projection?: GoalProjection | null | undefined; failWith?: { code: string; message: string } } = {}) {
+async function bench(options: { projection?: GoalProjection | null | undefined; failWith?: { code: string; message: string } } = {}) {
   const ctx = new Context()
   const calls: { method: string; payload: unknown }[] = []
   function answer<T>(method: string, value: T) {
@@ -57,17 +61,15 @@ function bench(options: { projection?: GoalProjection | null | undefined; failWi
   const ref = { id: 'g-1', revision: 3 }
   ctx.provide('connection', { api: { goals: {
     edit: answer('goal.edit', { ref }),
+    pause: answer('goal.pause', { ref }),
     resume: answer('goal.resume', { ref }),
     clear: answer('goal.clear', { cleared: true as const }),
   } } })
-  const entries = new Map<string, { id?: string; order?: number; inject?: (sessionId: SessionId) => GoalBarActions }>()
-  ctx.provide('slots', {
-    register(reg: { name: string; id?: string; order?: number; inject?: (sessionId: SessionId) => GoalBarActions }) {
-      entries.set(reg.name, reg)
-      return () => { entries.delete(reg.name) }
-    },
-  })
-  ctx.provide('conversation', {})
+  await ctx.plugin(SlotsService).await()
+  ctx.slots.register({
+    name: 'root', children: { 'conversation.input.dock': { kind: 'list', scope: 'session' } },
+  } as never, (() => null) as never)
+  ctx.provide('locale', new LocaleService(ctx))
   ctx.provide('sessions', {
     binding: (id: SessionId) => ({
       sessionId: id,
@@ -83,38 +85,48 @@ function bench(options: { projection?: GoalProjection | null | undefined; failWi
     ctx,
     fiber,
     calls,
-    entry: () => entries.get('conversation.input.dock'),
+    entry: () => {
+      const entry = ctx.slots.entries('conversation.input.dock')[0]
+      if (entry === undefined) return undefined
+      return {
+        ...entry.options,
+        locale: entry.locale,
+        inject: entry.inject as unknown as ((sessionId: SessionId) => GoalBarActions) | undefined,
+      }
+    },
   }
 }
 
 describe('ui-goal browser plugin', () => {
   it('registers the GoalBar dock entry with the documented id and order', async () => {
-    const b = bench()
+    const b = await bench()
     await b.fiber.await()
-    expect(b.entry()).toMatchObject({ id: 'goal', order: 1 })
+    expect(b.entry()).toMatchObject({ id: 'goal', order: 10, locale: 'goal' })
     expect(b.entry()?.inject).toBeTypeOf('function')
   })
 
   it('verbs read the CAS ref from the current projected value at call time', async () => {
-    const b = bench({ projection: makeProjection(5) })
+    const b = await bench({ projection: makeProjection(5) })
     await b.fiber.await()
     const verbs = b.entry()!.inject!(sid('s1'))
     expect(await verbs.onEdit('New objective')).toEqual({ ok: true })
+    expect(await verbs.onPause()).toEqual({ ok: true })
     expect(await verbs.onResume()).toEqual({ ok: true })
     expect(await verbs.onClear()).toEqual({ ok: true })
-    expect(b.calls.map(c => c.method)).toEqual(['goal.edit', 'goal.resume', 'goal.clear'])
+    expect(b.calls.map(c => c.method)).toEqual(['goal.edit', 'goal.pause', 'goal.resume', 'goal.clear'])
     const ref = { id: 'g-1', revision: 5 }
     expect(b.calls[0]?.payload).toEqual({ sessionId: 's1', ref, objective: 'New objective' })
     expect(b.calls[1]?.payload).toEqual({ sessionId: 's1', ref })
     expect(b.calls[2]?.payload).toEqual({ sessionId: 's1', ref })
+    expect(b.calls[3]?.payload).toEqual({ sessionId: 's1', ref })
   })
 
   it('a null or absent projection short-circuits every verb without touching the wire', async () => {
     for (const projection of [null, undefined]) {
-      const b = bench({ projection })
+      const b = await bench({ projection })
       await b.fiber.await()
       const verbs = b.entry()!.inject!(sid('s1'))
-      for (const result of [await verbs.onEdit('x'), await verbs.onResume(), await verbs.onClear()]) {
+      for (const result of [await verbs.onEdit('x'), await verbs.onPause(), await verbs.onResume(), await verbs.onClear()]) {
         expect(result).toEqual({ ok: false, error: { code: 'no-current-goal', message: 'no current goal to mutate' } })
       }
       expect(b.calls).toHaveLength(0)
@@ -122,14 +134,14 @@ describe('ui-goal browser plugin', () => {
   })
 
   it('maps a settled RPC error onto the inline-render shape', async () => {
-    const b = bench({ projection: makeProjection(), failWith: { code: 'internal', message: 'stale revision' } })
+    const b = await bench({ projection: makeProjection(), failWith: { code: 'internal', message: 'stale revision' } })
     await b.fiber.await()
     const verbs = b.entry()!.inject!(sid('s1'))
     expect(await verbs.onEdit('x')).toEqual({ ok: false, error: { code: 'internal', message: 'stale revision' } })
   })
 
   it('drops the dock entry when the plugin fiber unloads (HMR safety)', async () => {
-    const b = bench()
+    const b = await bench()
     await b.fiber.await()
     expect(b.entry()).toBeDefined()
     await b.fiber.dispose()
@@ -143,11 +155,13 @@ describe('GoalDock adapter', () => {
     const useProjection = vi.fn(() => projection)
     const actions: GoalBarActions = {
       onEdit: () => Promise.resolve({ ok: true }),
+      onPause: () => Promise.resolve({ ok: true }),
       onResume: () => Promise.resolve({ ok: true }),
       onClear: () => Promise.resolve({ ok: true }),
     }
+    const t = makeTranslate(zh, commonZh)
     const dockProps = (up: () => GoalProjection | null | undefined) =>
-      ({ useProjection: up, ...actions }) as unknown as Parameters<typeof GoalDock>[0]
+      ({ useProjection: up, ...actions, t }) as unknown as Parameters<typeof GoalDock>[0]
     const shown = render(<GoalDock {...dockProps(useProjection)} />)
     expect(shown.getByText('Ship it')).toBeTruthy()
     cleanup()

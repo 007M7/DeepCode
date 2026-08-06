@@ -25,7 +25,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 }
 
-/** Injected business face of the MenuView overlay entry. */
+/** Injected business face of the MenuView overlay entry (copy rides the standard locale seat, not this face). */
 export interface MenuViewInjected {
   /** The service's menu state store (read-only here; MenuView subscribes). */
   menu: SnapshotStore<MenuState>
@@ -35,4 +35,6 @@ export interface MenuViewInjected {
    * @param index - candidate index within the group.
    */
   onPick: (source: string, index: number) => void
+  /** Dismiss the menu (external pointer outside the composer area). */
+  onDismiss: () => void
 }

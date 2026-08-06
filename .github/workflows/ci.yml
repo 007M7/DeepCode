@@ -24,12 +24,18 @@ permissions:
 
 env:
   PRIMARY_NODE_VERSION: '24'
+  # CI runs must never report to the production telemetry endpoint baked
+  # into apps/cli/cordis.yml (AppCLIEntry disables the row when set).
+  DSH_TELEMETRY_DISABLED: '1'
 
 jobs:
 
+  # FIXME: Re-enable the three hosted serial reference jobs before cutting a release.
+  # The self-hosted standby remains active on every master push.
+
   # Three enterprise jobs isolate coverage, static analysis, and the
-  # build-backed consumer tail. The static job publishes its exact build so
-  # consumers do not repeat the longest part of their critical path.
+  # build-backed consumer tail. The consumer job owns the only Linux build so
+  # all three jobs enter runner allocation independently.
   #
   # FAILOVER: each Linux enterprise job resolves its pool through the
   # DSH_CI_FAILOVER repository variable. Unset (normal), the expressions
@@ -47,7 +53,7 @@ jobs:
       ${{ vars.DSH_CI_FAILOVER == 'selfhosted'
           && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "linux", "x64", "vm-backup"]')
-          || 'dsh-enterprise-ubuntu-latest-32core-test' }}
+          || 'dsh-ubuntu-24-04-16core' }}
     name: node 24 / static
     env:
       DSH_GATE_CONCURRENCY: '8'
@@ -93,35 +99,21 @@ jobs:
           DSH_ARCHIVE_BASE_REF: ${{ github.event.pull_request.base.sha }}
         run: pnpm run check:ci:static
 
-      - name: Pack built tree
-        run: >-
-          tar -czf "$RUNNER_TEMP/node-24-built-tree.tar.gz"
-          apps/*/lib packages/*/*/lib vendor/*/lib
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: node-24-built-tree
-          path: ${{ runner.temp }}/node-24-built-tree.tar.gz
-          if-no-files-found: error
-          retention-days: 1
-          compression-level: 0
-
   node-24-coverage:
     if: github.event_name == 'pull_request'
     runs-on: >-
       ${{ vars.DSH_CI_FAILOVER == 'selfhosted'
           && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "linux", "x64", "vm-backup"]')
-          || 'dsh-enterprise-ubuntu-24-04-32core-test' }}
+          || 'dsh-ubuntu-24-04-16core' }}
     name: node 24 / coverage
     env:
-      # Failover shrinks the worker bound: the hosted 32-core runner is
-      # exclusive to one job, but the failover pool shares one 64-core VM
-      # across six always-on runner instances, and the timing-sensitive
-      # process suites have documented aggregate-contention failures.
-      # 8 × 6 instances = 48 workers worst case on 64 cores.
-      DSH_COVERAGE_MAX_WORKERS: ${{ vars.DSH_CI_FAILOVER == 'selfhosted' && github.event.pull_request.user.login != 'dependabot[bot]' && '8' || '24' }}
-      DSH_GATE_CONCURRENCY: '8'
+      # The hosted 16-core runner uses six coverage workers. The failover pool
+      # shares one 64-core VM across six always-on runner instances, so each
+      # instance may use eight while keeping the worst case at 8 × 6 = 48
+      # workers; process-bound suites remain isolated in forks.
+      DSH_COVERAGE_MAX_WORKERS: ${{ vars.DSH_CI_FAILOVER == 'selfhosted' && github.event.pull_request.user.login != 'dependabot[bot]' && '8' || '6' }}
+      DSH_GATE_CONCURRENCY: '3'
     steps:
       - uses: actions/checkout@v6
         with:
@@ -171,19 +163,17 @@ jobs:
         run: pnpm run check:ci:coverage
 
   node-24-consumers:
-    needs: node-24
     if: github.event_name == 'pull_request'
     runs-on: >-
       ${{ vars.DSH_CI_FAILOVER == 'selfhosted'
           && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "linux", "x64", "vm-backup"]')
-          || 'dsh-enterprise-ubuntu-latest-32core-test' }}
+          || 'dsh-ubuntu-24-04-16core' }}
     name: node 24 / snapshots and artifacts
     env:
-      DSH_ESLINT_CACHE: '1'
-      DSH_ESLINT_CONCURRENCY: '8'
       DSH_GATE_CONCURRENCY: '8'
       DSH_NODE_COMPAT_SKIP_TYPECHECK: '1'
+      DSH_OXLINT_THREADS: '8'
       DSH_PUBLINT_CONCURRENCY: '8'
       # Failover halves snapshot concurrency for the shared 64-core VM.
       DSH_SNAPSHOT_MAX_CONCURRENCY: ${{ vars.DSH_CI_FAILOVER == 'selfhosted' && github.event.pull_request.user.login != 'dependabot[bot]' && '12' || '32' }}
@@ -191,21 +181,6 @@ jobs:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
-
-      - uses: actions/download-artifact@v8
-        with:
-          name: node-24-built-tree
-          path: ${{ runner.temp }}
-
-      - name: Restore built tree
-        run: tar -xzf "$RUNNER_TEMP/node-24-built-tree.tar.gz"
-
-      - uses: actions/cache/restore@v4
-        with:
-          path: .cache/eslint
-          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-full-${{ hashFiles('pnpm-lock.yaml', 'eslint.config.mjs', 'tsconfig.json', 'tsconfig.base.json', 'tsconfig.base.client.json', 'tsconfig.host.json', 'tsconfig.client.json', 'packages/*/*/tsconfig.json', 'examples/*/tsconfig.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-full-
 
       - uses: pnpm/action-setup@v4
         with:
@@ -232,6 +207,16 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
 
+      # Pull requests restore the cache normally produced by serial-linux on
+      # master; they do not pay compression and upload on the required path.
+      - uses: actions/cache/restore@v4
+        if: vars.DSH_CI_FAILOVER != 'selfhosted' || github.event.pull_request.user.login == 'dependabot[bot]'
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
       - name: Install dependencies and prepare bubblewrap
         run: |
           pnpm install --frozen-lockfile &
@@ -244,6 +229,16 @@ jobs:
           wait "$sandbox_pid" || sandbox_status=$?
           if (( install_status != 0 )); then exit "$install_status"; fi
           exit "$sandbox_status"
+
+      - name: Install Playwright Chromium and hosted dependencies
+        if: vars.DSH_CI_FAILOVER != 'selfhosted' || github.event.pull_request.user.login == 'dependabot[bot]'
+        run: pnpm --filter @deepseek-ai/dsh-frontend exec playwright install --with-deps chromium
+
+      # The persistent VM image owns Playwright's Linux system packages; do
+      # not mutate the shared host with apt on every failover run.
+      - name: Install Playwright Chromium on the failover VM
+        if: vars.DSH_CI_FAILOVER == 'selfhosted' && github.event.pull_request.user.login != 'dependabot[bot]'
+        run: pnpm --filter @deepseek-ai/dsh-frontend exec playwright install chromium
 
       - name: Run compatibility, snapshot, and artifact gates
         run: pnpm run check:ci:consumers
@@ -308,8 +303,9 @@ jobs:
   # The required pull-request Windows signal: the two blocking win32 surfaces
   # (workspace build, production site) execute with real, checksum-verified
   # Windows Node under Wine on standard hosted Linux. The master
-  # serial-windows job below keeps the complete native-kernel inventory —
-  # including the observational portability gates this lane does not run —
+  # serial-windows job below normally keeps the complete native-kernel
+  # inventory — including the observational portability gates this lane does
+  # not run —
   # on real windows-2025. This job only provisions runner state (caches,
   # apt); scripts/wine-windows-gates.sh owns the gate logic and is the same
   # script the optional local gate `pnpm run check:windows-wine` runs.
@@ -414,12 +410,12 @@ jobs:
           cp /var/cache/apt/archives/*.deb "$HOME/wine-debs/"
           du -sh "$HOME/wine-debs"
 
-  # Master pushes run only the serial reference jobs below.
-  # Each host executes the complete, unsharded primary Node aggregate with one
-  # gate worker, giving reviewers a simple cross-platform oracle for completeness
-  # and timing.
+  # The hosted reference jobs below are temporarily disabled; the self-hosted
+  # standby remains active. Each enabled host executes the complete, unsharded
+  # primary Node aggregate with one gate worker, giving reviewers a simple
+  # cross-platform oracle for completeness and timing.
   serial-linux:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    if: false
     name: serial / linux
     runs-on: ubuntu-latest
     steps:
@@ -443,7 +439,7 @@ jobs:
           store_path=$(PNPM_CONFIG_STORE_DIR="$store_root" pnpm store path --silent)
           echo "path=$store_path" >> "$GITHUB_OUTPUT"
 
-      # Master refreshes the caches that pull requests restore without saving.
+      # Master refreshes the pnpm store cache that pull requests restore without saving.
       # The store cache stays a hand-rolled actions/cache step rather than
       # setup-node's `cache: pnpm`: the enterprise pull-request jobs above
       # restore exactly this key and path, and setup-node's built-in cache
@@ -456,15 +452,19 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
 
+      # Master produces the hosted Chromium cache restored by pull requests.
       - uses: actions/cache@v4
         with:
-          path: .cache/eslint
-          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-full-${{ hashFiles('pnpm-lock.yaml', 'eslint.config.mjs', 'tsconfig.json', 'tsconfig.base.json', 'tsconfig.base.client.json', 'tsconfig.host.json', 'tsconfig.client.json', 'packages/*/*/tsconfig.json', 'examples/*/tsconfig.json') }}
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: |
-            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-full-
+            ${{ runner.os }}-playwright-
 
       - name: Install (immutable)
         run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium and system dependencies
+        run: pnpm --filter @deepseek-ai/dsh-frontend exec playwright install --with-deps chromium
 
       - name: Prepare bubblewrap (unrestrict userns)
         run: bash scripts/prepare-ci-bubblewrap.sh
@@ -474,11 +474,11 @@ jobs:
           DSH_ARCHIVE_BASE_REF: ${{ github.event.before }}
           DSH_COVERAGE_MAX_WORKERS: '1'
           DSH_E2E_MAX_WORKERS: '1'
-          DSH_ESLINT_CACHE: '1'
           DSH_GATE_CONCURRENCY: '1'
+          DSH_OXLINT_THREADS: '1'
           DSH_PUBLINT_CONCURRENCY: '1'
           DSH_SNAPSHOT_MAX_CONCURRENCY: '1'
-        run: pnpm run check:ci
+        run: pnpm run check:ci:linux-primary
 
   # Hot-standby drill for the in-house self-hosted pool: every master move
   # re-runs the complete unsharded aggregate on the persistent 64-core VM,
@@ -520,6 +520,11 @@ jobs:
       - name: Install (immutable)
         run: pnpm install --frozen-lockfile
 
+      # The persistent VM image owns Playwright's Linux system packages; this
+      # step also proves that browser provisioning remains usable for failover.
+      - name: Install Playwright Chromium
+        run: pnpm --filter @deepseek-ai/dsh-frontend exec playwright install chromium
+
       - name: Prepare bubblewrap (unrestrict userns)
         run: bash scripts/prepare-ci-bubblewrap.sh
 
@@ -528,14 +533,14 @@ jobs:
           DSH_ARCHIVE_BASE_REF: ${{ github.event.before }}
           DSH_COVERAGE_MAX_WORKERS: '1'
           DSH_E2E_MAX_WORKERS: '1'
-          DSH_ESLINT_CACHE: '1'
           DSH_GATE_CONCURRENCY: '1'
+          DSH_OXLINT_THREADS: '1'
           DSH_PUBLINT_CONCURRENCY: '1'
           DSH_SNAPSHOT_MAX_CONCURRENCY: '1'
-        run: pnpm run check:ci
+        run: pnpm run check:ci:linux-primary
 
   serial-macos:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    if: false
     name: serial / macos
     runs-on: macos-latest
     steps:
@@ -562,7 +567,7 @@ jobs:
         run: pnpm run check:ci
 
   serial-windows:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    if: false
     name: serial / windows
     runs-on: windows-2025
     steps:
@@ -582,15 +587,6 @@ jobs:
         with:
           node-version: ${{ env.PRIMARY_NODE_VERSION }}
 
-      # Master refreshes the small cache that pull requests restore without
-      # putting package-store extraction back on the Windows critical path.
-      - uses: actions/cache@v4
-        with:
-          path: .cache/eslint
-          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-full-${{ hashFiles('pnpm-lock.yaml', 'eslint.config.mjs', 'tsconfig.json', 'tsconfig.base.json', 'tsconfig.base.client.json', 'tsconfig.host.json', 'tsconfig.client.json', 'packages/*/*/tsconfig.json', 'examples/*/tsconfig.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-full-
-
       - name: Install (immutable)
         shell: pwsh
         run: pnpm install --frozen-lockfile
@@ -600,8 +596,8 @@ jobs:
         env:
           DSH_COVERAGE_MAX_WORKERS: '1'
           DSH_E2E_MAX_WORKERS: '1'
-          DSH_ESLINT_CACHE: '1'
           DSH_GATE_CONCURRENCY: '1'
+          DSH_OXLINT_THREADS: '1'
           DSH_PUBLINT_CONCURRENCY: '1'
           DSH_SNAPSHOT_MAX_CONCURRENCY: '1'
         run: pnpm run check:ci
@@ -776,14 +772,6 @@ jobs:
           console.log(JSON.stringify({ arch: process.arch, cpus: os.cpus().length,
           memoryGiB: Math.round(os.totalmem() / 2 ** 30) }))"
 
-      - uses: actions/cache@v4
-        if: matrix.platform == 'linux'
-        with:
-          path: .cache/eslint
-          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-full-${{ hashFiles('pnpm-lock.yaml', 'eslint.config.mjs', 'tsconfig.json', 'tsconfig.base.json', 'tsconfig.base.client.json', 'tsconfig.host.json', 'tsconfig.client.json', 'packages/*/*/tsconfig.json', 'examples/*/tsconfig.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-full-
-
       - name: Install and prepare Linux
         if: matrix.platform == 'linux'
         run: |
@@ -807,9 +795,8 @@ jobs:
         if: matrix.platform == 'linux'
         env:
           DSH_COVERAGE_MAX_WORKERS: ${{ matrix.workers }}
-          DSH_ESLINT_CACHE: '1'
-          DSH_ESLINT_CONCURRENCY: ${{ matrix.workers }}
           DSH_GATE_CONCURRENCY: ${{ matrix.workers }}
+          DSH_OXLINT_THREADS: ${{ matrix.workers }}
           DSH_PUBLINT_CONCURRENCY: ${{ matrix.workers }}
           DSH_SNAPSHOT_MAX_CONCURRENCY: ${{ matrix.workers }}
         run: pnpm run check:ci

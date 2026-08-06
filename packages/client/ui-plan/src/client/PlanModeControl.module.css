@@ -1,5 +1,4 @@
-/* Read-only plan status badge: quiet chip; the × affordance appears on
-   hover/focus and the whole chip is the /plan off button. */
+/* Active plan status follows Figma's warn-state pill. */
 
 .wrap {
   display: inline-flex;
@@ -11,22 +10,24 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 6px 8px;
+  min-width: 34px;
+  padding: 2px 8px;
   border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--dsw-alias-label-secondary);
-  font-size: 14px;
+  border-radius: 999px;
+  background: var(--dsw-alias-state-warn-tertiary);
+  color: var(--dsw-alias-state-warn-label);
+  font-size: 13px;
+  font-weight: 500;
   line-height: 20px;
   cursor: pointer;
 }
 
 .chip:hover:not(:disabled) {
-  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-state-warn-primary);
 }
 
 .chip:focus-visible {
-  outline: 2px solid var(--dsw-alias-label-secondary);
+  outline: 2px solid var(--dsw-alias-state-warn-label);
   outline-offset: 2px;
 }
 
@@ -38,15 +39,7 @@
 .close {
   display: inline-flex;
   align-items: center;
-  color: var(--dsw-alias-label-caption);
-  opacity: 0;
-  transition: opacity 0.12s ease;
-}
-
-.chip:hover .close,
-.chip:focus-visible .close {
-  opacity: 1;
-  color: var(--dsw-alias-label-secondary);
+  color: currentColor;
 }
 
 .error {

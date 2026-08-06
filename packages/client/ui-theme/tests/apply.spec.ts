@@ -5,10 +5,15 @@ import { Context } from 'cordis'
 import { describe, expect, it } from 'vitest'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
+import { usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply, inject, SETTINGS_NS } from '@deepseek-ai/dsh-client-ui-theme/client'
 import type { AppearanceRowInjected, ThemeService } from '@deepseek-ai/dsh-client-ui-theme/client'
 import { AppearanceRow } from '../src/client/AppearanceRow.tsx'
 import type { createAppearanceRowStore } from '../src/client/settings-store.ts'
+
+// The service reads its initial locale from the browser; these specs assert
+// the shipped Chinese copy, so they state the browser they assume.
+usePinnedBrowserLanguages('zh-CN')
 
 const SLOT = 'settings.general.item'
 
@@ -73,7 +78,8 @@ describe('ui-theme apply', () => {
     const { instance, face } = faceOf(b.slots)
     // The inject-time re-sync sealed the init window: the mirror is current.
     expect(instance.getSnapshot().preference).toBe('dark')
-    expect(face.t('appearance.dark')).toBe('深色')
+    // Copy rides the standard locale seat: the entry declares the namespace.
+    expect(b.slots.entries(SLOT).find(e => e.component === AppearanceRow)!.locale).toBe(SETTINGS_NS)
 
     face.setTheme('system')
     expect(theme.getTheme().preference).toBe('system')

@@ -8,7 +8,7 @@
  * consumer `declare module` augmentation merges with declarations lexically in
  * the augmented module, not with re-exports.
  */
-/* eslint-disable @typescript-eslint/no-redundant-type-constituents --
+/* oxlint-disable typescript/no-redundant-type-constituents --
  * `keyof SlotMap & string` is the declare-merge key pattern: SlotMap is empty
  * in THIS compilation unit (so the intersection reads as `never`), but every
  * consumer merges keys in and the intersection is what keeps them string-typed.
@@ -19,10 +19,70 @@ import type { BoundActions, HandleOf, PropsStore, SnapshotSelectorHook, StoreDec
 
 export * from './store.ts'
 export * from './renderer.ts'
-export * from './deferred.ts'
 
 /** Slot contract table. Owners extend via declaration merging; entries are {@link SlotEntryDef}. */
 export interface SlotMap {}
+
+/**
+ * Locale namespace table. Dictionary owners extend via declaration merging
+ * (exactly like {@link SlotMap}, and declared in this entry module for the
+ * same lexical-merge reason): the key is the namespace string, the value is
+ * the union of its dictionary keys. Register sites declare one of these
+ * namespaces (`locale:`), which puts the typed `t` standard seat on the
+ * component props.
+ */
+export interface LocaleNamespaceMap {}
+
+/**
+ * Translate a dictionary key with optional `{name}` template params.
+ * `K` narrows the accepted keys to the owning namespace's dictionary union
+ * (plus the shared common vocabulary where composed).
+ */
+export type Translate<K extends string = string> =
+  (key: K, params?: Record<string, unknown>) => string
+
+/**
+ * The shared `common` vocabulary keys as merged by the locale plugin;
+ * resolves to `never` in programs without the merge (this package's tests),
+ * keeping the union collapse harmless.
+ */
+export type CommonKeyOf = LocaleNamespaceMap extends { common: infer C } ? C & string : never
+
+/**
+ * Key domain of a namespace-bound translate: the namespace's own dictionary
+ * union plus the shared common vocabulary (the lookup chain consults common
+ * after the namespace misses).
+ */
+export type LocaleKeysOf<N extends keyof LocaleNamespaceMap & string> =
+  (LocaleNamespaceMap[N] & string) | CommonKeyOf
+
+/**
+ * Namespace-addressed translate — the developer-facing alias over
+ * {@link Translate}: `TranslateNS<'model'>` is the translate function of the
+ * `model` namespace (key domain = its dictionary union plus the shared
+ * common vocabulary), the exact type of the framework-injected `t` seat and
+ * of the locale service's typed `bind`.
+ */
+export type TranslateNS<N extends keyof LocaleNamespaceMap & string> = Translate<LocaleKeysOf<N>>
+
+/**
+ * Dictionary shape for a declared namespace: exactly the keys the namespace
+ * merged into {@link LocaleNamespaceMap} — a missing or extra key at a typed
+ * registration site is a compile error.
+ */
+export type LocaleDictOf<N extends keyof LocaleNamespaceMap & string> =
+  Record<LocaleNamespaceMap[N] & string, string>
+
+/**
+ * Locale share of the composed component props: the framework-injected `t`
+ * seat, present exactly on entries whose registration declares `locale:`.
+ */
+export type PropsLocale<N> = N extends keyof LocaleNamespaceMap & string
+  ? {
+    /** Translate a dictionary key of the declared namespace (or the shared common vocabulary). */
+    t: TranslateNS<N>
+  }
+  : object
 
 /** Slot cardinality: single occupant, ordered list, key-dispatched, or selector-routed chain. */
 export type SlotKind = 'single' | 'list' | 'keyed' | 'chain'
@@ -244,10 +304,11 @@ export type InjectFace<I extends object> =
   I extends { hooks: infer HS extends HooksSources } ? Omit<I, 'hooks'> & PropsHooks<HS> : I
 
 /**
- * The four-share component props intersection: runtime share (SlotMap) +
+ * The composed component props intersection: runtime share (SlotMap) +
  * child-render share (children declaration) + store share (declared handle) +
  * the registrant's injected business face (its hooks compartment bound, see
- * {@link InjectFace}). Each share derives from its single source of truth;
+ * {@link InjectFace}) + the locale `t` seat (declared namespace, see
+ * {@link PropsLocale}). Each share derives from its single source of truth;
  * components reference this composition, never re-type it.
  */
 export type ComposedProps<
@@ -256,7 +317,8 @@ export type ComposedProps<
   H,
   I extends object,
   M = never,
-> = PropsRuntime<K> & PropsRenderSlots<S> & PropsStore<H> & InjectFace<I> & MatchedShare<SlotMap[K], M>
+  N = undefined,
+> = PropsRuntime<K> & PropsRenderSlots<S> & PropsStore<H> & InjectFace<I> & MatchedShare<SlotMap[K], M> & PropsLocale<N>
 
 /**
  * Inject factory parameter list, derived from the registration's declaration:
@@ -275,10 +337,17 @@ export type InjectParams<K extends keyof SlotMap & string, H> =
         : [sessionId: SessionIdOf | undefined])
       : ([H] extends [StoreDecl] ? [actions: BoundActions<HandleOf<H>>] : [])
 
+/**
+ * A list-entry display label: a plain string, or a thunk re-evaluated per
+ * read so registration-time text (nav rows, tabs) follows the active locale
+ * without re-registration. Owners resolve through {@link resolveSlotLabel}.
+ */
+export type SlotLabel = string | (() => string)
+
 /** Kind shape fields carried in register options (keyed dispatch key; list id/order/label; chain select/priority). */
 export type KindOptions<E extends SlotEntryDef, M = never> =
   E['kind'] extends 'keyed' ? { key: string }
-    : E['kind'] extends 'list' ? { id: string; order?: number; label?: string }
+    : E['kind'] extends 'list' ? { id: string; order?: number; label?: SlotLabel }
       : E['kind'] extends 'chain' ? {
         /** Routing selector, mandatory on chain entries; `M` (the component's `matched` prop) infers from its return. */
         select: ChainSelect<E extends { owner: infer O extends object } ? O : object, M>
@@ -303,13 +372,20 @@ type RendersCheck<C, D> =
       : unknown
 
 /** Common register options share (see {@link SlotCore.register} for semantics). */
-type BaseOptions<K extends keyof SlotMap & string, D extends ChildrenDecl, H, M = never> = {
+type BaseOptions<K extends keyof SlotMap & string, D extends ChildrenDecl, H, M = never, N = undefined> = {
   /** Target slot key (the entry contributes INTO this slot). */
   name: K
   /** Child-slot declaration + render authorization + runtime spec, in one table. */
   children?: D
   /** Store seat: a shared handle (apply-constructed) or an exclusive factory (framework-called per entry x scope). */
   store?: H
+  /**
+   * Dictionary namespace of this entry's copy. Declaring it puts the
+   * framework-synthesized `t` seat (typed to the namespace's dictionary
+   * union) on the component props; rendering requires an installed locale
+   * face — fails loud otherwise.
+   */
+  locale?: N
   /** Registrant identity label for diagnostics (the runtime Service wrapper stamps the caller's fiber name). */
   registrant?: string
 } & KindOptions<SlotMap[K], M>
@@ -321,7 +397,7 @@ type BaseOptions<K extends keyof SlotMap & string, D extends ChildrenDecl, H, M 
  */
 export interface StoredEntry {
   component: unknown
-  options: { key?: string; id?: string; order?: number; label?: string; priority?: number }
+  options: { key?: string; id?: string; order?: number; label?: SlotLabel; priority?: number }
   /** Chain routing selector (type-erased like `inject`; present exactly on chain-slot entries). */
   select?: ((owner: never) => unknown) | undefined
   /** Registrant business face; positional params derive from the declaration (sessionId?, actions?). */
@@ -330,8 +406,21 @@ export interface StoredEntry {
   children?: Readonly<Record<string, SlotSpec<SlotEntryDef>>> | undefined
   /** Declared store seat (instance resolution and lifecycle live with the host machinery). */
   store?: StoreDecl | undefined
+  /** Declared dictionary namespace (the render machinery synthesizes the `t` seat from it). */
+  locale?: string | undefined
   /** Diagnostics label of who registered. */
   registrant?: string | undefined
+}
+
+/**
+ * Resolve a possibly-thunked list label at read time (thunks follow the
+ * active locale; owners projecting ledger rows call this instead of reading
+ * `options.label` raw).
+ * @param label - the stored label.
+ * @returns the display string, or undefined when the entry declared none.
+ */
+export function resolveSlotLabel(label: SlotLabel | undefined): string | undefined {
+  return typeof label === 'function' ? label() : label
 }
 
 /**
@@ -345,12 +434,13 @@ interface ErasedOptions {
   key?: string | undefined
   id?: string | undefined
   order?: number | undefined
-  label?: string | undefined
+  label?: SlotLabel | undefined
   select?: ((owner: never) => unknown) | undefined
   priority?: number | undefined
   children?: Record<string, SlotSpec<SlotEntryDef>> | undefined
   store?: StoreDecl | undefined
-  /* eslint-disable-next-line @typescript-eslint/no-explicit-any --
+  locale?: string | undefined
+  /* oxlint-disable-next-line typescript/no-explicit-any --
    * implementation-signature position only (both public overloads type inject
    * exactly); `never[]` would fail overload-to-implementation compatibility
    * against the per-declaration InjectParams tuples. */
@@ -366,9 +456,12 @@ interface SlotRecord {
   spec: SlotSpec<SlotEntryDef> | undefined
   /** Diagnostics: which slot's entry declared this key ('(built-in)' for root). */
   declaredBy: string | undefined
+  /** Monotonic declaration lifetime, distinct from ordinary entry mutations. */
+  declarationEpoch: number
   entries: readonly StoredEntry[]
   version: number
   listeners: Set<() => void>
+  declarationListeners: Set<() => void>
 }
 
 const NO_ENTRIES: readonly StoredEntry[] = Object.freeze([])
@@ -382,8 +475,10 @@ const NO_ENTRIES: readonly StoredEntry[] = Object.freeze([])
  *
  * Change propagation contract: versions bump and {@link SlotCore.onMutate}
  * fires synchronously per mutation (registry state is consistent when they
- * fire); {@link SlotCore.subscribe} notifications batch per microtask, so N
- * same-tick mutations produce one notification per touched key.
+ * fire); {@link SlotCore.subscribeDeclaration} fires synchronously for each
+ * declaration lifetime boundary; {@link SlotCore.subscribe} notifications
+ * batch per microtask, so N same-tick mutations produce one notification per
+ * touched key.
  */
 export class SlotCore {
   private records = new Map<string, SlotRecord>()
@@ -400,6 +495,7 @@ export class SlotCore {
     const root = this.record('root')
     root.spec = { kind: 'single', scope: 'root' }
     root.declaredBy = '(built-in)'
+    root.declarationEpoch = 1
   }
 
   /**
@@ -427,16 +523,20 @@ export class SlotCore {
    * @returns disposer removing the registration and its declarations
    * (idempotent; stale disposers after a cascade are no-ops).
    */
+  /* jscpd:ignore-start -- the two register overloads are deliberately
+   * parallel declarations differing only in the inject share; folding them
+   * would lose the per-overload inference of I. */
   register<
     K extends keyof SlotMap & string,
     const D extends ChildrenDecl = Record<never, never>,
     H extends StoreDecl | undefined = undefined,
     M = never,
+    N extends (keyof LocaleNamespaceMap & string) | undefined = undefined,
     C extends SlotComponent<never> = SlotComponent<never>,
   >(
-    options: BaseOptions<K, D, H, M> & { inject?: undefined },
+    options: BaseOptions<K, D, H, M, N> & { inject?: undefined },
     component: C
-      & SlotComponent<ComposedProps<K, keyof NoInfer<D> & keyof SlotMap & string, HandleOf<NoInfer<H>>, object, NoInfer<M>>>
+      & SlotComponent<ComposedProps<K, keyof NoInfer<D> & keyof SlotMap & string, HandleOf<NoInfer<H>>, object, NoInfer<M>, NoInfer<N>>>
       & RendersCheck<C, D>,
   ): () => void
   /**
@@ -455,13 +555,15 @@ export class SlotCore {
     const D extends ChildrenDecl = Record<never, never>,
     H extends StoreDecl | undefined = undefined,
     M = never,
+    N extends (keyof LocaleNamespaceMap & string) | undefined = undefined,
     C extends SlotComponent<never> = SlotComponent<never>,
   >(
-    options: BaseOptions<K, D, H, M> & { inject: (...args: InjectParams<K, H>) => I },
+    options: BaseOptions<K, D, H, M, N> & { inject: (...args: InjectParams<K, H>) => I },
     component: C
-      & SlotComponent<ComposedProps<K, keyof NoInfer<D> & keyof SlotMap & string, HandleOf<NoInfer<H>>, I, NoInfer<M>>>
+      & SlotComponent<ComposedProps<K, keyof NoInfer<D> & keyof SlotMap & string, HandleOf<NoInfer<H>>, I, NoInfer<M>, NoInfer<N>>>
       & RendersCheck<C, D>,
   ): () => void
+  /* jscpd:ignore-end */
   register(options: ErasedOptions, component: unknown): () => void {
     const rec = this.records.get(options.name)
     if (!rec?.spec) {
@@ -523,6 +625,7 @@ export class SlotCore {
       ...(options.inject !== undefined ? { inject: options.inject } : {}),
       ...(options.children !== undefined ? { children: options.children } : {}),
       ...(options.store !== undefined ? { store: options.store } : {}),
+      ...(options.locale !== undefined ? { locale: options.locale } : {}),
       ...(options.registrant !== undefined ? { registrant: options.registrant } : {}),
     }
     const next = [...rec.entries, entry]
@@ -533,11 +636,21 @@ export class SlotCore {
     rec.entries = next
     this.markDirty(options.name, rec)
     if (options.children) {
+      const declarations: [key: string, record: SlotRecord][] = []
       for (const [childKey, childSpec] of Object.entries(options.children)) {
         const childRec = this.record(childKey)
         childRec.spec = childSpec
         childRec.declaredBy = `an entry in "${options.name}"${options.registrant ? ` (${options.registrant})` : ''}`
+        childRec.declarationEpoch += 1
+        declarations.push([childKey, childRec])
+      }
+      // Synchronous listeners may register into or try to redeclare a sibling;
+      // publish only after the whole children table owns its declarations.
+      for (const [childKey, childRec] of declarations) {
         this.markDirty(childKey, childRec)
+      }
+      for (const [, childRec] of declarations) {
+        this.notifyDeclaration(childRec)
       }
     }
     return () => {
@@ -595,6 +708,16 @@ export class SlotCore {
   }
 
   /**
+   * Read the declaration lifetime of a key. Entry additions and removals do
+   * not change it; declaration creation and collapse each advance it.
+   * @param key - slot key.
+   * @returns monotonic epoch (0 before the first declaration).
+   */
+  declarationEpoch(key: string): number {
+    return this.records.get(key)?.declarationEpoch ?? 0
+  }
+
+  /**
    * Subscribe to registration changes for a key (microtask-batched).
    * Subscribing ahead of declaration is allowed; the declaration notifies.
    * @param key - slot key.
@@ -605,6 +728,22 @@ export class SlotCore {
     const rec = this.record(key)
     rec.listeners.add(fn)
     return () => { rec.listeners.delete(fn) }
+  }
+
+  /**
+   * Subscribe to declaration lifetime boundaries for a key. Notifications
+   * are synchronous so declaration teardown finishes before a subsequent
+   * same-tick registration can observe stale resources. Ordinary entry
+   * mutations do not notify this surface. A children table commits every
+   * sibling declaration before its first notification.
+   * @param key - slot key.
+   * @param fn - declaration or collapse callback.
+   * @returns unsubscribe.
+   */
+  subscribeDeclaration(key: string, fn: () => void): () => void {
+    const rec = this.record(key)
+    rec.declarationListeners.add(fn)
+    return () => { rec.declarationListeners.delete(fn) }
   }
 
   /**
@@ -648,8 +787,10 @@ export class SlotCore {
       const doomed = childRec.entries
       childRec.spec = undefined
       childRec.declaredBy = undefined
+      childRec.declarationEpoch += 1
       childRec.entries = NO_ENTRIES
       this.markDirty(childKey, childRec)
+      this.notifyDeclaration(childRec)
       for (const dead of doomed) this.releaseEntry(dead)
     }
   }
@@ -657,7 +798,15 @@ export class SlotCore {
   private record(key: string): SlotRecord {
     let rec = this.records.get(key)
     if (!rec) {
-      rec = { spec: undefined, declaredBy: undefined, entries: NO_ENTRIES, version: 0, listeners: new Set() }
+      rec = {
+        spec: undefined,
+        declaredBy: undefined,
+        declarationEpoch: 0,
+        entries: NO_ENTRIES,
+        version: 0,
+        listeners: new Set(),
+        declarationListeners: new Set(),
+      }
       this.records.set(key, rec)
     }
     return rec
@@ -671,6 +820,10 @@ export class SlotCore {
       this.flushScheduled = true
       queueMicrotask(() => { this.flush() })
     }
+  }
+
+  private notifyDeclaration(rec: SlotRecord): void {
+    for (const fn of [...rec.declarationListeners]) fn()
   }
 
   private flush(): void {

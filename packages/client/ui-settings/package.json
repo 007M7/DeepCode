@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-client-ui-settings",
-  "description": "Settings shell plugin: sidebar trigger + modal panel occupying sidebar.settings; declares the settings.section list slot",
+  "description": "Settings shell plugin: sidebar trigger, modal panel, feature sections, and an ordered full-page onboarding stage",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -43,24 +43,26 @@
     "@deepseek-ai/dsh-client-ui-slots": "^0.0.1",
     "@deepseek-ai/dsh-invariants": "^0.0.1",
     "cordis": "^4.0.0-rc.7",
-    "react": "^18.2.0"
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-client-locale": "workspace:^",
     "@deepseek-ai/dsh-client-runtime": "workspace:^",
     "@deepseek-ai/dsh-client-ui-primitives": "workspace:^",
     "@deepseek-ai/dsh-client-ui-sidebar": "workspace:^",
     "@deepseek-ai/dsh-client-ui-slots": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
+    "@types/react-dom": "~18.3.0",
     "@types/react": "~18.3.1",
     "cordis": "^4.0.0-rc.7",
-    "react": "^18.2.0"
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
   },
   "files": [
     "lib/index.js",
     "lib/invariant.js",
     "lib/client.js",
-    "lib/types/**/*.d.ts",
-    "lib/types/**/*.d.ts.map",
-    "src"
+    "lib/types/**/*.d.ts"
   ]
 }

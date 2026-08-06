@@ -1,10 +1,29 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import type { ApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
-import PermissionService, { CUSTOM_PRESET, effectivePermissionPreset } from '@deepseek-ai/dsh-permission'
+import PermissionService, {
+  CUSTOM_PRESET, effectivePermissionPreset, PERMISSION_SETTINGS_NAMESPACE,
+} from '@deepseek-ai/dsh-permission'
 import type { Config } from '@deepseek-ai/dsh-permission'
+import { Settings } from '@deepseek-ai/dsh-settings'
+import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
+
+/** Writable memory provider for the permission/settings lifecycle specs. */
+class MemorySettings extends Settings {
+  readonly doc: Record<string, unknown> = {}
+  readonly writable = true
+
+  protected load(): Promise<Record<string, unknown>> {
+    return Promise.resolve(structuredClone(this.doc))
+  }
+
+  protected persist(ns: SettingsNamespace, section: Record<string, unknown>): Promise<void> {
+    this.doc[ns] = structuredClone(section)
+    return Promise.resolve()
+  }
+}
 
 async function mounted(options: {
   config?: Config
@@ -12,6 +31,7 @@ async function mounted(options: {
   approvalDefault?: ApprovalPolicy | undefined
 } = {}): Promise<Context> {
   const ctx = new Context()
+  await ctx.plugin(SessionStore)
   ctx.provide('bash', {
     sandboxMode: 'bashDefault' in options ? options.bashDefault : 'workspace-write',
     resolve() { throw new Error('permission tests do not execute bash') },
@@ -24,7 +44,24 @@ async function mounted(options: {
 }
 
 function freshSession(id: string): Session {
-  return new Session(SessionId(id))
+  return Session.create(SessionId(id))
+}
+
+async function mountedStore(options: { approvalDefault?: ApprovalPolicy | undefined } = {}): Promise<Context> {
+  const ctx = new Context()
+  await ctx.plugin(SessionStore)
+  await ctx.plugin(MemorySettings)
+  ctx.provide('bash', {
+    sandboxMode: 'workspace-write',
+    resolve() { throw new Error('permission tests do not execute bash') },
+    run() { throw new Error('permission tests do not execute bash') },
+    start() { throw new Error('permission tests do not execute bash') },
+  })
+  ctx.provide('approval', {
+    config: { policy: 'approvalDefault' in options ? options.approvalDefault : 'ask' },
+  })
+  await ctx.plugin(PermissionService, {})
+  return ctx
 }
 
 describe('effectivePermissionPreset', () => {
@@ -66,8 +103,11 @@ describe('PermissionService', () => {
     expect(() => ctx.permission.resolve(CUSTOM_PRESET)).toThrow(/unknown preset/)
   })
 
-  it('composition defaults outside the table derive custom at zero events', async () => {
-    const ctx = await mounted({ approvalDefault: 'never' })
+  it('composition defaults outside the table still derive custom when an explicit new-session default is configured', async () => {
+    const ctx = await mounted({
+      approvalDefault: 'never',
+      config: { defaultPreset: 'workspace-write' },
+    })
     const session = freshSession('sess-defaults-custom')
     expect(ctx.permission.current(session.events)).toBe(CUSTOM_PRESET)
   })
@@ -138,11 +178,124 @@ describe('PermissionService', () => {
       .rejects.toThrow(/reserved for the derived not-a-preset state/)
   })
 
+  it('requires an explicit default when composition defaults match no preset', async () => {
+    await expect(mounted({ approvalDefault: 'never' }))
+      .rejects.toThrow(/configure defaultPreset explicitly/)
+  })
+
   it('reads a schema-less approval stand-in as the ask default', async () => {
     const ctx = await mounted({ approvalDefault: undefined })
     const session = freshSession('sess-standin')
     ctx.permission.set(session, 'workspace-write')
     expect(session.events).toHaveLength(0)
     expect(ctx.permission.current(session.events)).toBe('workspace-write')
+  })
+})
+
+describe('new-session default', () => {
+  it('pins the current setting into each new session without changing earlier sessions', async () => {
+    const ctx = await mountedStore()
+    const first = ctx.sessions.create(SessionId('first'))
+    expect(first.events.map(event => [event.type, event.data])).toEqual([
+      ['permission/preset', { preset: 'workspace-write' }],
+      ['sandbox/mode', { mode: 'workspace-write' }],
+      ['approval/policy', { policy: 'ask' }],
+    ])
+
+    await ctx.settings.update(PERMISSION_SETTINGS_NAMESPACE, {
+      defaultPreset: 'danger-full-access',
+    })
+    expect(ctx.permission.defaultPreset).toBe('danger-full-access')
+    const second = ctx.sessions.create(SessionId('second'))
+    expect(ctx.permission.current(first.events)).toBe('workspace-write')
+    expect(ctx.permission.current(second.events)).toBe('danger-full-access')
+    expect(second.events.map(event => event.type)).toEqual([
+      'permission/preset', 'sandbox/mode', 'approval/policy',
+    ])
+  })
+
+  it('preserves a seeded legacy session instead of applying the latest user default', async () => {
+    const ctx = await mountedStore()
+    await ctx.settings.update(PERMISSION_SETTINGS_NAMESPACE, {
+      defaultPreset: 'danger-full-access',
+    })
+    const legacy = freshSession('legacy-source')
+    legacy.append('turn/start', { turn: 1 })
+    legacy.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    const resumed = ctx.sessions.create(SessionId('legacy-resumed'), { seed: legacy.events })
+    expect(ctx.permission.current(resumed.events)).toBe('workspace-write')
+    expect(resumed.events.slice(-3).map(event => event.type)).toEqual([
+      'permission/preset', 'sandbox/mode', 'approval/policy',
+    ])
+  })
+
+  it('preserves composition defaults when an empty stored session resumes', async () => {
+    const ctx = await mountedStore()
+    await ctx.settings.update(PERMISSION_SETTINGS_NAMESPACE, {
+      defaultPreset: 'danger-full-access',
+    })
+    const resumed = ctx.sessions.create(SessionId('empty-resumed'), { seed: [] })
+    expect(ctx.permission.current(resumed.events)).toBe('workspace-write')
+    expect(resumed.events.map(event => event.type)).toEqual([
+      'session/end-seed', 'permission/preset', 'sandbox/mode', 'approval/policy',
+    ])
+  })
+
+  it('pins sessions that already exist when the service remounts', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    ctx.provide('bash', {
+      sandboxMode: 'workspace-write',
+      resolve() { throw new Error('permission tests do not execute bash') },
+      run() { throw new Error('permission tests do not execute bash') },
+      start() { throw new Error('permission tests do not execute bash') },
+    })
+    ctx.provide('approval', { config: { policy: 'ask' } })
+    const existing = ctx.sessions.create(SessionId('existing-before-permission'))
+    expect(existing.events).toEqual([])
+
+    await ctx.plugin(PermissionService, {})
+    expect(existing.events.map(event => event.type)).toEqual([
+      'permission/preset', 'sandbox/mode', 'approval/policy',
+    ])
+    expect(ctx.permission.current(existing.events)).toBe('workspace-write')
+  })
+
+  it('fills only missing legacy facts and preserves an unmatched seeded combination', async () => {
+    const ctx = await mountedStore()
+    const partial = freshSession('partial-source')
+    partial.append('sandbox/mode', { mode: 'workspace-write' })
+    partial.append('approval/policy', { policy: 'ask' })
+    const resumed = ctx.sessions.create(SessionId('partial-resumed'), { seed: partial.events })
+    expect(resumed.events.at(-1)).toMatchObject({
+      type: 'permission/preset',
+      data: { preset: 'workspace-write' },
+    })
+
+    const custom = freshSession('custom-source')
+    custom.append('sandbox/mode', { mode: 'read-only' })
+    custom.append('approval/policy', { policy: 'never' })
+    const unmatched = ctx.sessions.create(SessionId('custom-resumed'), { seed: custom.events })
+    expect(ctx.permission.current(unmatched.events)).toBe(CUSTOM_PRESET)
+    expect(unmatched.events.at(-1)?.type).toBe('session/end-seed')
+  })
+
+  it('materializes ask when a legacy seed and approval stand-in omit the policy', async () => {
+    const ctx = await mountedStore({ approvalDefault: undefined })
+    const partial = freshSession('approval-fallback-source')
+    partial.append('sandbox/mode', { mode: 'workspace-write' })
+    const resumed = ctx.sessions.create(SessionId('approval-fallback-resumed'), { seed: partial.events })
+    expect(resumed.events.at(-1)).toMatchObject({
+      type: 'approval/policy',
+      data: { policy: 'ask' },
+    })
+  })
+
+  it('rejects a stored default outside the configured preset table', async () => {
+    const ctx = await mountedStore()
+    await expect(ctx.settings.update(PERMISSION_SETTINGS_NAMESPACE, {
+      defaultPreset: 'missing',
+    })).rejects.toThrow()
+    expect(ctx.permission.defaultPreset).toBe('workspace-write')
   })
 })

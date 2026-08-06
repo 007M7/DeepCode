@@ -14,9 +14,15 @@
 }
 
 .ledger {
+  position: relative;
+  z-index: 0;
+  isolation: isolate;
   display: flex;
   flex: 1;
   min-height: 0;
   min-width: 0;
   overflow: hidden;
+
+  /* ConversationRoot publishes the floating composer's live height. */
+  --dsh-trajectory-bottom-clearance: calc(var(--dsh-composer-height, 152px) + 16px);
 }

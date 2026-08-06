@@ -9,7 +9,7 @@ import type { LocalPluginBlueprint } from '../plugins/local-plugin-blueprint.ts'
 import type { FeatureId } from '../ids.ts'
 
 /** Runtime front door selected for a generated project. */
-export type RunInterface = 'acp' | 'tui' | 'embed'
+export type RunInterface = 'acp' | 'embed'
 
 /** Values shared by the required provider and app features. */
 interface ProjectRuntimeOptions {

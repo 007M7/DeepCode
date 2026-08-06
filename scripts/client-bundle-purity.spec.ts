@@ -1,15 +1,22 @@
 /**
- * Pins the client-bundle purity gate (tsdown preset resolveId classifier),
- * the build-time mirror of the module-edge rules: platform module-table
- * entries stay external, inline-safe wire layers inline, and every other
- * @deepseek-ai value import — including a bare plugin-package name and a
- * cross-plugin /client subpath — must fail the build loudly (cross-plugin
- * collaboration goes through cordis services, never module imports).
+ * Pins shared client-bundle preset contracts: the module-edge purity gate and
+ * the physical watch dependencies hidden behind virtual CSS Modules.
  */
-import { describe, expect, it } from 'vitest'
+import { fileURLToPath } from 'node:url'
+import { describe, expect, it, vi } from 'vitest'
 import { CLIENT_EXTERNALS, clientBundle } from '../packages/client/tsdown.client.ts'
 
 type ResolveId = (source: string) => null | { id: string; external: boolean }
+
+interface CssModulePlugin {
+  name: string
+  resolveId?: (source: string, importer: string | undefined) => null | string
+  load?: (this: { addWatchFile: (id: string) => void }, id: string) => Promise<unknown>
+}
+
+function clientSourceMapPath(packagePath: string): string {
+  return fileURLToPath(new URL(`../packages/${packagePath}/lib/client.js.map`, import.meta.url))
+}
 
 function purityResolveId(): ResolveId {
   // libEntry is spelled at every call site (no default) so the
@@ -19,6 +26,16 @@ function purityResolveId(): ResolveId {
   const gate = plugins.find(p => p.name === 'dsh-client-bundle-purity')
   if (gate?.resolveId === undefined) throw new Error('purity plugin missing from client config')
   return gate.resolveId as ResolveId
+}
+
+function cssModulePlugin(): CssModulePlugin {
+  const configs = clientBundle('@deepseek-ai/dsh-client-test', ['lib/types/index.js', 'lib/types/invariant.js'])
+  const plugins = (configs[1] as { plugins: CssModulePlugin[] }).plugins
+  const plugin = plugins.find(candidate => candidate.name === 'dsh-css-modules-inline')
+  if (plugin?.resolveId === undefined || plugin.load === undefined) {
+    throw new Error('CSS Modules plugin missing from client config')
+  }
+  return plugin
 }
 
 describe('client bundle purity gate', () => {
@@ -58,5 +75,74 @@ describe('client bundle purity gate', () => {
     const dshClientChannels = CLIENT_EXTERNALS.filter(
       entry => entry.startsWith('@deepseek-ai/') && entry.endsWith('/client'))
     expect(dshClientChannels).toEqual(['@deepseek-ai/dsh-client-runtime/client'])
+  })
+})
+
+describe('client bundle debug artifacts', () => {
+  it('emits source maps for plugin TS and TSX outside the Vite module graph', () => {
+    const configs = clientBundle('@deepseek-ai/dsh-client-test', ['lib/types/index.js', 'lib/types/invariant.js'])
+    expect(configs[1]?.sourcemap).toBe(true)
+  })
+
+  it('maps first-party sources to their repository package paths', () => {
+    const configs = clientBundle('@deepseek-ai/dsh-client-ui-goal', ['lib/types/index.js', 'lib/types/invariant.js'])
+    const outputOptions = configs[1]?.outputOptions
+    if (typeof outputOptions !== 'object' || outputOptions === null) throw new Error('client output options missing')
+    const transform = outputOptions.sourcemapPathTransform
+    if (transform === undefined) throw new Error('client sourcemap path transform missing')
+
+    const source = transform('../src/client/GoalBar.tsx', clientSourceMapPath('client/ui-goal'))
+    expect(source).toBe('../../../packages/client/ui-goal/src/client/GoalBar.tsx')
+    const resolved = new URL(source, 'https://dsh.test/plugins/@deepseek-ai/dsh-client-ui-goal/client.js.map')
+    expect(resolved.pathname).toBe('/packages/client/ui-goal/src/client/GoalBar.tsx')
+  })
+
+  it('maps dual-face host sources to the host package group', () => {
+    const configs = clientBundle('@deepseek-ai/dsh-host-directory-picker-native', ['lib/types/index.js'])
+    const outputOptions = configs[1]?.outputOptions
+    if (typeof outputOptions !== 'object' || outputOptions === null) throw new Error('client output options missing')
+    const transform = outputOptions.sourcemapPathTransform
+    if (transform === undefined) throw new Error('client sourcemap path transform missing')
+
+    const source = transform('../src/client/index.ts', clientSourceMapPath('host/directory-picker-native'))
+    expect(source).toBe('../../../packages/host/directory-picker-native/src/client/index.ts')
+  })
+
+  it('maps inlined workspace sources to packages and leaves dependencies outside it unchanged', () => {
+    const configs = clientBundle('@deepseek-ai/dsh-client-connection', ['lib/types/index.js'])
+    const outputOptions = configs[1]?.outputOptions
+    if (typeof outputOptions !== 'object' || outputOptions === null) throw new Error('client output options missing')
+    const transform = outputOptions.sourcemapPathTransform
+    if (transform === undefined) throw new Error('client sourcemap path transform missing')
+
+    const sourceMapPath = clientSourceMapPath('client/connection')
+    const workspaceSource = transform('../../../host/apiproxy/src/api/rpc.ts', sourceMapPath)
+    expect(workspaceSource).toBe('../../../packages/host/apiproxy/src/api/rpc.ts')
+    const resolved = new URL(workspaceSource, 'https://dsh.test/plugins/@deepseek-ai/dsh-client-connection/client.js.map')
+    expect(resolved.pathname).toBe('/packages/host/apiproxy/src/api/rpc.ts')
+
+    const dependencySource = '../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/index.js'
+    expect(transform(dependencySource, sourceMapPath)).toBe(dependencySource)
+  })
+})
+
+describe('client bundle CSS Modules watch graph', () => {
+  it('registers the physical stylesheet read behind a virtual module', async () => {
+    const plugin = cssModulePlugin()
+    const importer = fileURLToPath(new URL(
+      '../packages/client/ui-conversation/src/client/queue/QueueDock.tsx',
+      import.meta.url,
+    ))
+    const stylesheet = fileURLToPath(new URL(
+      '../packages/client/ui-conversation/src/client/queue/QueueDock.module.css',
+      import.meta.url,
+    ))
+    const virtualId = plugin.resolveId?.('./QueueDock.module.css', importer)
+    if (virtualId === null || virtualId === undefined) throw new Error('CSS Modules import was not resolved')
+    const addWatchFile = vi.fn()
+
+    await plugin.load?.call({ addWatchFile }, virtualId)
+
+    expect(addWatchFile).toHaveBeenCalledExactlyOnceWith(stylesheet)
   })
 })

@@ -15,10 +15,10 @@ export const name = 'client-ui-settings-general-invariant'
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: a copy-owning registrant contributing chrome content
- * and the General section into shell-declared slots — it emits no cordis
- * events and owns no cross-plugin mutable relation; slot conflicts already
- * fail loud in the slot core at load time.
+ * No runtime invariant: the settings seam validates and publishes the durable
+ * welcome section, while slot conflicts fail loud in the slot core. The local
+ * document action is browser state over typed RPC responses and is covered by
+ * store/component tests rather than a Cordis runtime relationship.
  */
 const install: InvariantInstaller = () => {}
 

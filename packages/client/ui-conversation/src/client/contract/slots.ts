@@ -1,12 +1,13 @@
 /** Conversation slot declarations and their composed component props. */
 import type { ReactNode, RefObject } from 'react'
 import type {
-  InjectFace, MaybeSnapshotSelectorHook, PropsRenderSlots, PropsRuntime, PropsStore, SnapshotSelectorHook,
+  InjectFace, MaybeSnapshotSelectorHook, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore, SnapshotSelectorHook,
 } from '@deepseek-ai/dsh-client-ui-slots'
 import type { CommandNode, ConversationSnapshot, ObservableSnapshot, PendingInteraction, PendingWait, SessionId, ToolCallBlock, WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
-import type { ComposerKeyboard, InputActions, InputNotice, InputState } from '../input/contract.ts'
+import type { ComposerKeyboard, EditSelection, InputActions, InputNotice, InputState } from '../input/contract.ts'
 import type { createChatStore } from '../stores.ts'
+import type { ComposerSubmitGesture, InputSubmitMode } from './composer-submission.ts'
 import type { CallId, SelectionTarget, ViewTab } from './views.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -17,6 +18,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * remounted when the current session id changes.
      */
     'conversation.session': { kind: 'single'; scope: 'session'; owner: ConversationSessionOwnerProps }
+    /** Session-header actions contributed by feature plugins. */
+    'conversation.session.header.actions': { kind: 'list'; scope: 'session'; owner: ConversationHeaderActionOwnerProps }
     /**
      * The conversation view ring: one list entry per view tab (chat here;
      * trajectory/waterfall from ui-trajectory), rendered one-at-a-time by
@@ -67,7 +70,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * design §6 MIX evidence: entries coexist in fixed order).
      */
     'conversation.input.dock': { kind: 'list'; scope: 'session'; owner: InputZone }
-    /** The composer top-edge band (stats line family). */
+    /** The band under the composer card (stats line family), rendered inside the bar's width column via the `footer` owner prop. */
     'conversation.composer.dock': { kind: 'list'; scope: 'session'; owner: InputZone }
     /** Tool-row left region inside the input card (existing chrome stays in place beside entries). */
     'conversation.input.left': { kind: 'list'; scope: 'session'; owner: InputZone }
@@ -77,11 +80,15 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * The default composer body: a single slot rendered as the composer
      * chain's fallback (decision 20 — a real entry, not a chain rider, so a
      * takeover election hides rather than unmounts it and the textarea DOM
-     * survives). InputBar registers here from this package's apply; its
-     * machine state arrives through the standard provide channel (useInput +
-     * inputActions), the keyboard command face through its own inject.
+     * survives). Session-maybe: the bar stays mounted across the
+     * no-session/session transition — the no-workspace hero renders the SAME
+     * textarea DOM disabled instead of a parallel inert tree — with the
+     * machine hooks absent until a session is current. InputBar registers
+     * here from this package's apply; its machine state arrives through the
+     * standard provide channel (useInput + inputActions), the keyboard
+     * command face through its own inject.
      */
-    'conversation.composer.bar': { kind: 'single'; scope: 'session'; owner: ComposerBarOwnerProps }
+    'conversation.composer.bar': { kind: 'single'; scope: 'session-maybe'; owner: ComposerBarOwnerProps }
     /**
      * The Plan-mode status seat in the composer tool row (left group,
      * right of the access-mode control). Declared by the composer-bar
@@ -117,7 +124,22 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
 /** Owner share of the strict session content seat. */
 export interface ConversationSessionOwnerProps {
+  /**
+   * Wrap the view ring in the transcript scrollport that also hosts the
+   * sticky composer seat (whole `'conversation.composer'` chain output).
+   * Supplied for every real session (hero/settling/active) so the composer
+   * keeps one tree seat across the blank → active flip; the header stays
+   * outside that wrapper as ordinary column chrome (`flex: none`), while
+   * active CSS sticks the seat to the bottom of the same scrollport so wheel
+   * over the footer scrolls the flow.
+   * @param view - the session view-ring content (null while blank chrome is hidden).
+   * @returns the scrollport containing `view` and the sticky composer seat.
+   */
+  wrapActiveBody?: (view: ReactNode) => ReactNode
 }
+
+/** Header actions derive their state from the standard session/global kit. */
+export interface ConversationHeaderActionOwnerProps {}
 
 /**
  * The input-region slot currency (plan §1.4): dock/left/right entries read
@@ -131,13 +153,17 @@ export interface InputZone {
 }
 
 /**
- * View-slot owner share: deliberately empty — ConversationRoot supplies
- * nothing at its renderSlot site (sessionId and the snapshot hook arrive as
+ * View-slot owner share: the cross-view inspect handoff (otherwise views need
+ * nothing from the render site — sessionId and the snapshot hook arrive as
  * framework-standard props; tool rows go through each view's own declared
- * toolview hole). Kept as the named owner seat so a future cross-view
- * payload has a home.
+ * toolview hole).
  */
-export interface ConvViewOwnerProps {}
+export interface ConvViewOwnerProps {
+  /** One-shot inspect request from another view (chat's Inspect button); null when idle. */
+  inspect?: { callId: CallId } | null
+  /** Acknowledge the inspect request once applied (clears the store field). */
+  onInspectDone?: () => void
+}
 
 /**
  * Owner share of a per-view toolview slot: the call material the rendering
@@ -160,6 +186,11 @@ export interface ToolRowOwnerProps {
    * The chat view resolves relative paths against the session cwd.
    */
   openFile: (path: string) => void
+  /**
+   * Jump to this call's record in the trajectory view (the expanded row's
+   * hover Inspect affordance). Undefined when no trajectory jump is wired.
+   */
+  inspect?: (() => void) | undefined
 }
 
 /**
@@ -232,6 +263,12 @@ export interface ConversationSessionInjected {
 export interface ComposerBarOwnerProps {
   /** Hero = empty-state centered card; composer = resident bottom bar. */
   variant: 'hero' | 'composer'
+  /**
+   * Inert no-workspace state: the bar renders its normal DOM fully disabled
+   * (textarea, add, send) so the workspace pick transitions in place instead
+   * of swapping component trees.
+   */
+  disabled?: boolean
   placeholder?: string
   /** Optional content rendered above the textarea. */
   accessory?: ReactNode
@@ -241,28 +278,43 @@ export interface ComposerBarOwnerProps {
   leftItems?: ReactNode
   /** input.right slot entries (tool row, before the primary button). */
   rightItems?: ReactNode
-  onAdd?: () => void
-  addLabel?: string
+  /** composer.dock entries (stats line), rendered under the card inside the bar's width column. */
+  footer?: ReactNode
 }
 
 /** Injected share of the composer-bar entry (package-internal faces). */
 export interface ComposerBarInjected {
-  /** The InputBar-exclusive keyboard/DOM command face (decision 20 private plane). */
-  keyboard: ComposerKeyboard
-  /** Cancel the in-flight turn. */
-  stop: () => void
+  /** The InputBar-exclusive keyboard/DOM command face (decision 20 private plane); absent with the session. */
+  keyboard: ComposerKeyboard | undefined
+  /** Resolve one keyboard submission gesture against the current running state and persisted preference. */
+  resolveSubmitMode: (
+    running: boolean,
+    gesture: ComposerSubmitGesture,
+    steeringAvailable: boolean,
+  ) => InputSubmitMode
+  /** Toggle the shared slash menu with only its command source; absent without ui-slash or a session. */
+  toggleCommandMenu: ((selection: EditSelection) => void) | undefined
+  /** Cancel the in-flight turn; absent with the session. */
+  stop: (() => void) | undefined
   /**
    * Submit one slash-command line against this session's agent (the chrome
-   * controls' write path — the permission chip submits `/permission <preset>`).
+   * controls' write path — the permission chip submits `/permission <preset>`);
+   * absent with the session.
    * Resolves admission: false = rejected/unmatched/transport failure.
    */
-  command: (line: string) => Promise<boolean>
-  /** Registrant hooks compartment: the renderer binds these to useNotices/useLexicon. */
+  command: ((line: string) => Promise<boolean>) | undefined
+  /**
+   * Registrant hooks compartment: the renderer binds these to
+   * useNotices/useLexicon (static absent sources without a session — hook
+   * order stays constant).
+   */
   hooks: {
     /** Latest surfaced notice (null after none; seq keys re-render of repeats). */
     notices: ObservableSnapshot<InputNotice | null>
     /** Hot plain-text reference lexicon for the decoration scan (decision 21). */
     lexicon: ObservableSnapshot<ReadonlyMap<'/' | '@', readonly string[]>>
+    /** Source name opened by the programmatic menu launcher, or null. */
+    menuLauncher: ObservableSnapshot<string | null>
   }
 }
 
@@ -275,11 +327,12 @@ export interface InputControlOwnerProps {
   locked: boolean
 }
 
-/** Full composer-bar component props: standard kit & owner share & control-seat render share & injected share (hooks compartment bound). */
+/** Full composer-bar props: standard kit & owner share & control-seat render share & injected share (hooks bound) & locale seat. */
 export type ComposerBarProps =
   PropsRuntime<'conversation.composer.bar'>
   & PropsRenderSlots<'conversation.input.plan' | 'conversation.input.model'>
   & InjectFace<ComposerBarInjected>
+  & PropsLocale<'conversation'>
 
 /**
  * Composer chain currency: what ConversationRoot dispatches at its
@@ -290,11 +343,14 @@ export type ComposerBarProps =
  */
 export interface ComposerChainProps {
   interactions: readonly PendingInteraction[]
+  /** Current conversation facts for feature-owned takeover selectors. */
+  session: ConversationSnapshot | undefined
 }
 
 /**
  * Full conversation-slot component props: runtime & child-render (view ring
- * + composer chain/bar + input-region + hero picker slots) & store & injected shares.
+ * + composer chain/bar + input-region + hero picker slots) & store & injected
+ * shares & the locale seat.
  */
 export type ConversationSlotProps =
   PropsRuntime<'conversation'> & PropsRenderSlots<
@@ -305,13 +361,15 @@ export type ConversationSlotProps =
     | 'conversation.hero.workspace'
   >
   & ConversationInjected
+  & PropsLocale<'conversation'>
 
-/** Full strict-session content props: per-session store, view ring, and callbacks. */
+/** Full strict-session content props: per-session store, view ring, callbacks, and the locale seat. */
 export type ConversationSessionSlotProps =
   PropsRuntime<'conversation.session'>
-  & PropsRenderSlots<'conversation.view'>
+  & PropsRenderSlots<'conversation.view' | 'conversation.session.header.actions'>
   & PropsStore<ChatStore>
   & ConversationSessionInjected
+  & PropsLocale<'conversation'>
 
 /** The pending approval carrier the owner dispatches into the composer chain. */
 export type ApprovalWait = PendingWait<'approval'>
@@ -369,11 +427,23 @@ export class PendingApproval {
 /**
  * Full approval-composer props: the framework runtime share (chain currency +
  * session/global standard kit) plus the chain `matched` share — the entry's
- * selector result, already narrowed to the approval carrier. No injected
- * share: the carrier plus the domain face above carry the whole behavior
- * surface; the paired command line derives from useSession in-component.
+ * selector result, already narrowed to the approval carrier — plus the
+ * standard locale seat. No injected share: the carrier plus the domain face
+ * above carry the whole behavior surface; the paired command line derives
+ * from useSession in-component.
  */
-export type ApprovalComposerProps = PropsRuntime<'conversation.composer'> & { matched: ApprovalWait }
+export type ApprovalComposerProps =
+  PropsRuntime<'conversation.composer'> & { matched: ApprovalWait } & PropsLocale<'conversation'>
+
+/** In-memory reader position resilient to transcript width reflow. */
+export interface ChatScrollPosition {
+  /** Stable rendered node/call identity nearest the visible reading edge. */
+  readonly anchorKey: string
+  /** Anchor top relative to the transcript scrollport when saved. */
+  readonly anchorTop: number
+  /** Approximate offset used before the semantic anchor is measured. */
+  readonly scrollTop: number
+}
 
 /**
  * Injected share of the chat view entry: the two callbacks whose targets live
@@ -388,12 +458,27 @@ export interface ChatViewInjected {
    */
   openFile: (path: string) => void
   loadOlder: () => void
+  /** Hand a call off to the trajectory view: write the one-shot inspect target and switch tabs. */
+  inspectCall: (callId: CallId) => void
+  /**
+   * Per-session scroll memory surviving view switches (in-memory, never
+   * persisted): the view saves on every scroll and restores on remount; a
+   * fresh page load starts empty and keeps the open-jump-to-bottom default.
+   */
+  chatScroll: {
+    /** Record a semantic reader position; null clears it when pinned. */
+    save: (position: ChatScrollPosition | null) => void
+    /** Last reader position, or null when pinned or never recorded. */
+    read: () => ChatScrollPosition | null
+  }
+  /** Fork through the completed turn ending at the eligible message `seq`, then open the child. */
+  forkAt: (seq: number) => void
 }
 
-/** Full chat-view component props: runtime share & the declared toolview/commandview holes' render share & store share & injected share. */
+/** Full chat-view component props: runtime & the declared toolview/commandview holes' render share & store & injected & locale seat. */
 export type ChatViewSlotProps =
   PropsRuntime<'conversation.view'> & PropsRenderSlots<'conversation.chat.toolview' | 'conversation.chat.commandview'>
-  & PropsStore<ChatStore> & ChatViewInjected
+  & PropsStore<ChatStore> & ChatViewInjected & PropsLocale<'conversation'>
 
 /**
  * Injected share of the details slot: the panel is otherwise a pure reader of
@@ -404,8 +489,8 @@ export interface DetailsInjected {
   closeDetails: () => void
 }
 
-/** Full details-slot component props: selection arrives through the shared store, call material through useSession. */
-export type DetailsSlotProps = PropsRuntime<'details'> & PropsStore<ChatStore> & DetailsInjected
+/** Full details-slot component props: selection rides the shared store, call material useSession; copy the locale seat. */
+export type DetailsSlotProps = PropsRuntime<'details'> & PropsStore<ChatStore> & DetailsInjected & PropsLocale<'conversation'>
 
 /** Owner share common to the hero / New-Session Workspace pickers. */
 export interface EmptyWorkspaceOwnerProps {

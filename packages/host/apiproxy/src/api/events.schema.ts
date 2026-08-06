@@ -10,7 +10,9 @@ import type { HostFrame, MuxFrame } from './events.ts'
 import type { Wire } from './rpc.schema.ts'
 import { rpcErrorSchema, rpcIdSchema } from './rpc.schema.ts'
 import { approvalRequestIdSchema } from './approvals.schema.ts'
-import { contentBlockSchema, sessionEventSchema, sessionIdSchema, toolEventViewSchema } from './sessions.schema.ts'
+import {
+  contentBlockSchema, messageIdSchema, sessionEventSchema, sessionIdSchema, toolEventViewSchema,
+} from './sessions.schema.ts'
 import { workspaceIdSchema, workspaceViewSchema } from './workspace.schema.ts'
 
 /** Question shape validated strictly against core dsh-user-interaction. */
@@ -21,6 +23,11 @@ export const askUserQuestionItemSchema = z.object({
   detail: z.string().optional(),
   options: z.array(z.object({ label: z.string(), description: z.string().optional() })).optional(),
   multiSelect: z.boolean().optional(),
+  // Presentation intent: a tagged union on the wire, so an unknown tag is a
+  // rejected frame rather than a silently generic render.
+  intent: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('plan-review'), approve: z.string() }),
+  ]).optional(),
 }) satisfies z.ZodType<Wire<AskUserQuestionItem>>
 
 /** Unified message envelope carried by transient queue frames. */
@@ -42,7 +49,15 @@ export const muxFrameSchema = z.discriminatedUnion('type', [
   // and must fail loud here, not reach the composer.
   z.object({ type: z.literal('question/requested'), sessionId: sessionIdSchema, questions: z.array(askUserQuestionItemSchema).min(1) }),
   z.object({ type: z.literal('question/resolved'), sessionId: sessionIdSchema, questionRpcId: rpcIdSchema, outcome: z.union([z.literal('answered'), z.literal('cancelled')]) }),
-  z.object({ type: z.literal('session/queued'), sessionId: sessionIdSchema, message: messageSchema, steering: z.boolean() }),
+  z.object({
+    type: z.literal('session/queue'),
+    sessionId: sessionIdSchema,
+    items: z.array(z.object({
+      id: messageIdSchema,
+      placement: z.union([z.literal('queued'), z.literal('steering'), z.literal('context')]),
+      message: messageSchema,
+    })),
+  }),
   // value stays wide: it already passed its unit's own schema on the host,
   // and deep-validating here would import every domain's schema into the carrier.
   z.object({ type: z.literal('session/projection'), sessionId: sessionIdSchema, key: z.string().min(1), value: z.unknown(), seq: z.number().int().nonnegative() }),
@@ -51,12 +66,23 @@ export const muxFrameSchema = z.discriminatedUnion('type', [
 
 /** HostFrame union (payload slot of a host-stream ServerRequest). */
 export const hostFrameSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('host/session-added'), sessionId: sessionIdSchema, blank: z.boolean(), parentSessionId: sessionIdSchema.optional(), cwd: z.string().optional() }),
+  z.object({
+    type: z.literal('host/session-added'),
+    sessionId: sessionIdSchema,
+    blank: z.boolean(),
+    parentSessionId: sessionIdSchema.optional(),
+    origin: z.literal('subagent').optional(),
+    cwd: z.string().optional(),
+  }),
   z.object({ type: z.literal('host/session-removed'), sessionId: sessionIdSchema }),
   z.object({ type: z.literal('host/session-status'), sessionId: sessionIdSchema, running: z.boolean() }),
   z.object({ type: z.literal('host/agent-error'), sessionId: sessionIdSchema, message: z.string() }),
   z.object({ type: z.literal('host/workspace-changed'), workspace: workspaceViewSchema }),
   z.object({ type: z.literal('host/workspace-removed'), workspaceId: workspaceIdSchema }),
+  z.object({ type: z.literal('host/archived-sessions-changed'), archivedSessionIds: z.array(sessionIdSchema) }),
   z.object({ type: z.literal('host/commands-changed') }),
+  z.object({ type: z.literal('host/settings-changed'), ns: z.string() }),
+  z.object({ type: z.literal('host/credentials-changed'), ref: z.string() }),
+  z.object({ type: z.literal('host/models-changed') }),
   z.object({ type: z.literal('stream/error'), error: rpcErrorSchema }),
 ]) as unknown as z.ZodType<HostFrame>

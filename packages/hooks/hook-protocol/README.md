@@ -10,7 +10,7 @@ Why a shared lib at all: Codex deliberately reimplements a *subset* of the Claud
 
 | Concern | Here (`dsh-hook-protocol`) | The bridge (`dsh-hooks-claude` / `-codex`) |
 |---|---|---|
-| Matcher test | `matchesMatcher(pattern, query, mode)` — literal-or-regex by `mode` | picks its `mode` (`claude` = literal-or-regex, `codex` = always regex) |
+| Matcher validation + test | `matcherDiagnostic(pattern, mode)` for parse-time diagnostics; `matchesMatcher(pattern, query, mode)` for contained runtime matching | picks its `mode` (`claude` = literal-or-regex, `codex` = always regex) and rejects a config group carrying a diagnostic |
 | Run a hook | `runHook(bash, hook, opts, now)` — stdin payload + env via `ctx.bash`, decode | builds the per-event stdin **payload** + the dialect's **env** |
 | Decode output | `parseHookOutput(exit, stdout, stderr)` → neutral `HookOutput` | maps the neutral `HookOutput` onto a seam-specific typed Decision |
 | Merge N hooks | `mergeHookOutputs(outputs)` → most-restrictive `MergedHookOutcome` | — |
@@ -19,7 +19,7 @@ Why a shared lib at all: Codex deliberately reimplements a *subset* of the Claud
 
 ## Primitives
 
-- **`matchesMatcher(matcher, query, mode)`** — match-all on absent/`''`/`'*'`; `claude` mode treats a pure `[A-Za-z0-9_|]+` pattern as a literal (pipe = exact-match alternation) and anything else as a regex; `codex` mode is always an unanchored regex. An invalid regex matches nothing (never throws).
+- **`matcherDiagnostic(matcher, mode)` / `matchesMatcher(matcher, query, mode)`** — match-all on absent/`''`/`'*'`; `claude` mode treats a pure `[A-Za-z0-9_|]+` pattern as a literal (pipe = exact-match alternation) and anything else as a regex; `codex` mode is always an unanchored regex. Bridge parsers discard matcher fields for events without matcher subjects, then use `matcherDiagnostic` to reject an invalid consumed regex with a stable diagnostic before registering any hooks. The runtime predicate still contains an invalid pattern as a non-match, so a direct library caller cannot throw into the agent loop.
 - **`runHook(bash, hook, options, now)`** — require and forward the caller-owned `options.signal`, serialize `options.payload` to the hook's stdin (with a trailing newline iff `options.trailingNewline`), merge `options.env` after the executor's credential scrub (the `dsh-bash` trusted-plugin surface), honor the hook's `timeoutSec` (else `options.defaultTimeoutMs` — the bridge owns the default, its config defaulting to the lib's `DEFAULT_HOOK_TIMEOUT_MS` 10-minute reference), and decode the result (threading `options.expectedEventName` to the codec). Cancellation therefore reaches the executor's process-group kill and join boundary. Never throws: an executor rejection (infra fault) becomes a `HookOutput` with `exitCode: undefined` (a non-blocking error). `now` is injected for testable durations.
 - **`parseHookOutput(exitCode, stdout, stderr, expectedEventName?)`** decodes exit status and structured stdout. Exit 2 blocks with stderr; other failures are non-blocking. A matching hook-specific permission decision overrides the legacy top-level decision; mismatched or missing event discriminators suppress only event-specific fields. Top-level fields remain event-agnostic, and successful non-JSON output is left to the bridge.
 - **`mergeHookOutputs(outputs)`** — fold the results of every hook that matched one point: permission precedence **deny > ask > allow**, halt sticky on the first `continue:false`, block reasons joined with `\n\n`, `additionalContext`/`systemMessages` accumulated in order.
@@ -29,7 +29,7 @@ Why a shared lib at all: Codex deliberately reimplements a *subset* of the Claud
 
 Declaration-merged into `SessionEventMap` (log-only, like `compact/*` — NOT a `SurfaceEventType`, no `surfaceOp`): `hook/invoked` (a hook command ran) and `hook/result` (its outcome, paired by `handlerId`, with `appendHookResult` owning the decision rule). Payloads and per-event JSDoc are in the generated [persistence log event catalog](../../../docs/persistence-catalog.md); `stderrSummary` is truncated to the record's `stderrSummaryMaxChars` (the bridge's config, reference default `DEFAULT_STDERR_SUMMARY_MAX_CHARS` = 500; omitted when empty).
 
-Hook provenance records must sit inside an open turn. The mid-turn points (`PreToolUse`/`PostToolUse`/`Stop`) satisfy that owner-defined relation by construction. `SessionStart` and the pre-turn `UserPromptSubmit` admission seam get no `hook/*` record; allowed context is instead evidenced by its sourced `user/message` — see the hooks Agent Note.
+Hook provenance records must sit inside an open turn. `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, and `Stop` satisfy that owner-defined relation by construction. `SessionStart` runs before turn 1 and gets no `hook/*` record; its allowed context remains pending in the inbox until a waking delivery opens a turn — see the hooks Agent Note.
 
 ## Model Experience
 
@@ -42,4 +42,3 @@ No direct invalidation; the named consumer owns any request-prefix changes.
 ## Known Limitations and Deferred Work
 
 - **`HookOutput.updatedInput` is parsed but not honored** — input rewrite is a deferred consistency-design problem ([the pre-tool-input-rewrite Agent Note](../../../.agents/notes/proposed/feature/2026-06-30-pre-tool-input-rewrite.md)); a bridge logs + warns when a hook sets it. See `src/types.ts` for the full contracts.
-- **An invalid matcher regex matches nothing, silently** — `matchesMatcher` never throws; surfacing the error needs a diagnostic-returning variant or parse-time validation (`TODO(matcher-diagnostics)`).

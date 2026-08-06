@@ -1,6 +1,6 @@
 /**
  * Pure derivation of the terminal-card props from a frozen call slice: the
- * `card:'terminal'` render intent the bash tool declares arrives on the
+ * `card:'terminal'` render intent the shell tools declare arrives on the
  * snapshot as `callView`/`resultView`, and this is the one place that turns
  * that pair into what {@link TerminalBlock} draws. Both conversation render
  * sites (the chat tool row's expanded body and the details panel's Output
@@ -8,19 +8,34 @@
  * are derived once.
  * @module
  */
-import type { TerminalBlockProps } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { TerminalBlockLabels, TerminalBlockProps } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import { resolveToolPath, type ToolCallBlock } from './tool-call-model.ts'
 
 /**
- * Output lines the chat row's expanded terminal body shows before collapsing
- * the middle — half the primitive's own default, which the details panel
- * keeps. A chat row is a summary surface inside the message flow: the flow
- * must stay scannable across many calls, while the details panel is the
- * single-call reading surface. A design constant of this UI's row geometry,
- * not a deployment choice, so it is fixed here rather than a plugin Config
- * field.
+ * Build the TerminalBlock display copy from the conversation locale seat —
+ * the one place the primitive's label surface pairs with this package's
+ * dictionary, shared by every terminal render site (chat row, bash row,
+ * details panel).
+ * @param t - the render site's conversation locale seat.
+ * @returns the full label set for {@link TerminalBlockProps}'s `labels`.
  */
-export const CHAT_TERMINAL_MAX_LINES = 8
+export function terminalBlockLabels(t: TranslateNS<'conversation'>): TerminalBlockLabels {
+  return {
+    signal: signal => t('terminal.signal', { signal }),
+    exitCode: code => t('terminal.exitCode', { code }),
+    running: t('terminal.running'),
+    failed: t('terminal.failed'),
+    done: t('terminal.done'),
+    copy: t('copy'),
+    copied: t('copied'),
+    noOutput: t('terminal.noOutput'),
+    collapseAria: t('terminal.collapseAria'),
+    collapse: t('collapse'),
+    expandAria: hidden => t('terminal.expandAria', { n: hidden }),
+    expand: hidden => t('terminal.expandRest', { n: hidden }),
+  }
+}
 
 /**
  * The {@link TerminalBlock} props this derivation owns. Picked off the
@@ -42,6 +57,20 @@ export interface TerminalCardModel {
    * a row then keeps its args-derived summary.
    */
   description: string | undefined
+}
+
+/**
+ * True when a settled terminal card reports a failing exit — a non-zero code
+ * or a terminating signal. The bash tool settles a failing command as a
+ * completed call (`isError` stays false: the exit status is result data), so
+ * this is the collapsed row's only failure signal; without it the red exit
+ * pill would be visible only after expanding the card.
+ * @param model - a derived terminal card.
+ * @returns whether the card's exit status is a failure.
+ */
+export function terminalFailed(model: TerminalCardModel): boolean {
+  const { exitCode, signal, running } = model.card
+  return running !== true && ((exitCode !== undefined && exitCode !== 0) || signal !== undefined)
 }
 
 /**
