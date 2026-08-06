@@ -73,7 +73,7 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
     expect(options).toContain('anthropic')
     expect(options).toContain('minimax-cn')
     await pick.selectOption('minimax-cn')
-    await dialog.getByLabel('API 密钥').waitFor({ timeout: 10_000 })
+    await dialog.getByRole('textbox', { name: 'API 密钥', exact: true }).waitFor({ timeout: 10_000 })
     const snapshot = await captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(EMPTY_EXPECTED, snapshot, MODE)
   }, 60_000)
@@ -84,6 +84,9 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
     await dialog.getByRole('button', { name: '保存', exact: true }).click()
     const row = dialog.getByText('minimax-cn', { exact: true }).first()
     await row.waitFor({ timeout: 10_000 })
+    await dialog.getByText('已保存 minimax-cn。', { exact: true }).waitFor({ timeout: 10_000 })
+    expect(await dialog.getByRole('img', { name: 'API 密钥已配置' }).count()).toBe(0)
+    expect(await dialog.getByRole('img', { name: 'API 密钥缺失' }).count()).toBe(0)
     const document = await readFile(join(scaffold.harnessHome, 'settings.yaml'), 'utf8')
     expect(document).toContain('minimax-cn: {}')
     expect(document).not.toContain('MINIMAX_CN_API_KEY')
@@ -108,12 +111,17 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-models-add'))
     const dialog = page.getByRole('dialog', { name: '设置' })
     await dialog.getByRole('button', { name: '编辑 minimax-cn' }).click()
-    await dialog.getByLabel('API 密钥').fill('sk-e2e-minimax')
+    await dialog.getByRole('textbox', { name: 'API 密钥', exact: true }).fill('sk-e2e-minimax')
     await dialog.getByRole('button', { name: '保存', exact: true }).click()
     // The profile lands in settings.yaml with only the derived reference, the
     // key value lands in the harness home's .env, the dormant route
     // registers, and the topology frame invalidates the page into the row.
-    await expect.poll(async () => dialog.getByLabel('API 密钥').count(), { timeout: 10_000 }).toBe(0)
+    await expect.poll(
+      async () => dialog.getByRole('textbox', { name: 'API 密钥', exact: true }).count(),
+      { timeout: 10_000 },
+    ).toBe(0)
+    await dialog.getByRole('img', { name: 'API 密钥已配置' }).waitFor({ timeout: 10_000 })
+    await dialog.getByText('已保存 minimax-cn。', { exact: true }).waitFor({ timeout: 10_000 })
     const document = await readFile(join(scaffold.harnessHome, 'settings.yaml'), 'utf8')
     expect(document).toContain('minimax-cn:')
     expect(document).toContain('apiKeyEnv: MINIMAX_CN_API_KEY')
@@ -138,6 +146,7 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
     // The editor closes back to the row; the fold's write merged into the
     // stored profile beside the reference.
     await expect.poll(async () => dialog.getByLabel('推理强度').count(), { timeout: 10_000 }).toBe(0)
+    await dialog.getByText('已保存 minimax-cn。', { exact: true }).waitFor({ timeout: 10_000 })
     const document = await readFile(join(scaffold.harnessHome, 'settings.yaml'), 'utf8')
     expect(document).toContain('reasoning: high')
     expect(document).toContain('apiKeyEnv: MINIMAX_CN_API_KEY')

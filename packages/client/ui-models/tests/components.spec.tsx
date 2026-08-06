@@ -213,7 +213,34 @@ describe('ModelsSection', () => {
     expect(screen.getByText('openai')).toBeTruthy()
     expect(screen.queryByText('Active')).toBeNull()
     expect(screen.queryByText('Inactive')).toBeNull()
+    const configured = screen.getByRole('img', { name: en.credentialConfigured })
+    expect(configured.getAttribute('title')).toBe(en.credentialConfigured)
+    expect(configured.className).toContain('credentialDotConfigured')
+    expect(configured.closest('li')?.textContent).toContain('openai')
+    expect(screen.queryByRole('img', { name: en.credentialMissing })).toBeNull()
     expect(screen.getByText(en.add)).toBeTruthy()
+  })
+
+  it('marks only a confirmed missing reference and leaves native or unavailable state unmarked', async () => {
+    const { face } = scriptedFace()
+    face.credentials.describe.mockImplementation((payload: { refs: string[] }) => Promise.resolve(ok({
+      credentials: Object.fromEntries(payload.refs.map(ref => [ref, { configured: false, writable: true }])),
+    })))
+    const controller = new ModelsSettingsStore(face as unknown as WireFace)
+    await controller.load()
+    render(<ModelsSection
+      controller={controller}
+      useSnapshot={bindSnapshotSelector(controller.store)}
+      api={face as never}
+      t={t}
+    />)
+
+    const missing = screen.getByRole('img', { name: en.credentialMissing })
+    expect(missing.getAttribute('title')).toBe(en.credentialMissing)
+    expect(missing.className).toContain('credentialDotMissing')
+    expect(missing.closest('li')?.textContent).toContain('openai')
+    expect(screen.queryByRole('img', { name: en.credentialConfigured })).toBeNull()
+    expect(screen.getByText('zombie').closest('li')?.querySelector('[role="img"]')).toBeNull()
   })
 
   it('turns the setup card into a row once the credential reports configured', async () => {
@@ -286,6 +313,11 @@ describe('ModelsSection', () => {
     await waitFor(() => { expect(set).toHaveBeenCalledWith({ ref: 'DEEPSEEK_API_KEY', value: 'sk-live' }) })
     expect(update).not.toHaveBeenCalled()
     await waitFor(() => { expect(face.settings.describe.mock.calls.length).toBeGreaterThan(1) })
+    expect((await screen.findByRole('status')).textContent).toBe(
+      providerCopy(en.savedProvider, { provider: 'deepseek-official', displayName: 'DeepSeek' }),
+    )
+    fireEvent.click(screen.getByText(en.add))
+    expect(screen.queryByRole('status')).toBeNull()
   })
 
   it('applies customized deepseek fields as path ops', async () => {
@@ -943,6 +975,7 @@ describe('ModelsSection', () => {
     fireEvent.change(key, { target: { value: 'sk-live' } })
     fireEvent.click(screen.getByText(en.apply))
     await screen.findByText(/shadowed by the read-only environment/)
+    expect(screen.queryByRole('status')).toBeNull()
   })
 
   it('locks the key input when the launch environment provides the credential', async () => {

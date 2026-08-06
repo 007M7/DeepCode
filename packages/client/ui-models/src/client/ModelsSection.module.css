@@ -38,6 +38,13 @@
   color: var(--dsw-alias-state-warn-label);
 }
 
+.savedNotice {
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-state-success-primary);
+}
+
 .rows {
   list-style: none;
   /* Extra air between the title/intro block and the first provider card. */
@@ -65,11 +72,35 @@
   gap: 10px;
 }
 
+.rowIdentity {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
 .rowName {
   font-size: 14px;
   line-height: 22px;
   font-weight: 500;
   color: var(--dsw-alias-label-primary);
+}
+
+.credentialDot {
+  box-sizing: border-box;
+  display: inline-block;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.credentialDotConfigured {
+  background: var(--dsw-alias-state-success-primary);
+}
+
+.credentialDotMissing {
+  background: var(--dsw-alias-state-error-primary);
 }
 
 .rowActions {

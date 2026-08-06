@@ -1,10 +1,11 @@
 /**
  * Models settings section: the provider rows joined from the configurable
  * directory, settings namespaces, and credential states, with one editor
- * card at a time. A whole-section provider without a configured key (the
- * unconfigured DeepSeek posture) renders as its open setup card instead of a
- * row; the add flow is a card carrying the dormant-provider select. Every
- * mutation writes through the wire, while a provider removal first requires
+ * card at a time. Rows expose only confirmed API-key state through accessible
+ * solid configured or missing dots. A whole-section provider without a
+ * configured key (the unconfigured DeepSeek posture) renders as its open setup
+ * card instead of a row; the add flow is a card carrying the dormant-provider
+ * select. Every mutation writes through the wire, while a provider removal first requires
  * confirmation; the page re-renders from pushed invalidations or the
  * post-apply reload.
  */
@@ -149,11 +150,15 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
   const [deleteTarget, setDeleteTarget] = useState<EditorTarget | undefined>(undefined)
   const [deleting, setDeleting] = useState(false)
   const [deleteFailure, setDeleteFailure] = useState<string | undefined>(undefined)
+  const [savedTarget, setSavedTarget] = useState<ProviderIdentity | undefined>(undefined)
 
-  const closeEditor = (changed: boolean): void => {
+  const closeEditor = (changed: boolean, target: ProviderIdentity): void => {
     setEditing(undefined)
     setAdding(false)
-    if (changed) void controller.load()
+    if (changed) {
+      setSavedTarget(target)
+      void controller.load()
+    }
   }
 
   const closeDelete = (): void => {
@@ -202,6 +207,13 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
       <h2 className={styles['title']}>{t('title')}</h2>
       <p className={styles['intro']}>{t('intro')}</p>
       {!state.writable && state.status === 'ready' ? <p className={styles['notice']}>{t('readOnly')}</p> : null}
+      {savedTarget === undefined
+        ? null
+        : (
+          <p className={styles['savedNotice']} role="status" aria-live="polite">
+            {providerCopy(t('savedProvider'), savedTarget)}
+          </p>
+        )}
       <ul className={styles['rows']}>
         {configured.map((row) => {
           const target = targetOf(row)
@@ -221,22 +233,51 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
                   api={api}
                   t={t}
                   readOnly={!state.writable}
-                  onClose={closeEditor}
+                  onClose={(changed) => { closeEditor(changed, target) }}
                 />
               </li>
             )
           }
           const open = !adding && editing?.provider === row.entry.provider
+          const credentialConfigured = row.literalApiKeyConfigured || row.credential?.configured === true
+          const credentialMissing = !credentialConfigured
+            && row.apiKeyEnv !== undefined
+            && row.credential?.configured === false
           return (
             <li key={row.entry.provider} className={styles['rowCard']}>
               <div className={styles['rowHead']}>
-                <span className={styles['rowName']}>{row.entry.displayName}</span>
+                <span className={styles['rowIdentity']}>
+                  <span className={styles['rowName']}>{row.entry.displayName}</span>
+                  {credentialConfigured
+                    ? (
+                      <span
+                        className={`${styles['credentialDot']} ${styles['credentialDotConfigured']}`}
+                        role="img"
+                        aria-label={t('credentialConfigured')}
+                        title={t('credentialConfigured')}
+                      />
+                    )
+                    : credentialMissing
+                      ? (
+                        <span
+                          className={`${styles['credentialDot']} ${styles['credentialDotMissing']}`}
+                          role="img"
+                          aria-label={t('credentialMissing')}
+                          title={t('credentialMissing')}
+                        />
+                      )
+                      : null}
+                </span>
                 <span className={styles['rowActions']}>
                   <button
                     type="button"
                     className={styles['secondaryButton']}
                     aria-label={providerCopy(t('editProvider'), target)}
-                    onClick={() => { setAdding(false); setEditing(open ? undefined : target) }}
+                    onClick={() => {
+                      setSavedTarget(undefined)
+                      setAdding(false)
+                      setEditing(open ? undefined : target)
+                    }}
                   >
                     {t('edit')}
                   </button>
@@ -247,7 +288,11 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
                         className={styles['dangerButton']}
                         aria-label={providerCopy(t('removeProvider'), target)}
                         disabled={!state.writable}
-                        onClick={() => { setDeleteFailure(undefined); setDeleteTarget(target) }}
+                        onClick={() => {
+                          setSavedTarget(undefined)
+                          setDeleteFailure(undefined)
+                          setDeleteTarget(target)
+                        }}
                       >
                         {t('remove')}
                       </button>
@@ -265,7 +310,7 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
                     api={api}
                     t={t}
                     readOnly={!state.writable}
-                    onClose={closeEditor}
+                    onClose={(changed) => { closeEditor(changed, target) }}
                   />
                 )
                 : null}
@@ -305,7 +350,7 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
                 api={api}
                 t={t}
                 readOnly={!state.writable}
-                onClose={closeEditor}
+                onClose={(changed) => { closeEditor(changed, addTarget) }}
               />
             </div>
           )
@@ -318,6 +363,7 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
                 const first = addable[0]
                 /* v8 ignore next -- the button is disabled while nothing is addable */
                 if (first === undefined) return
+                setSavedTarget(undefined)
                 setAdding(true)
                 setEditing(targetOf(first))
               }}

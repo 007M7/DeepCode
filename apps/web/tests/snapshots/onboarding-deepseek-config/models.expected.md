@@ -16,6 +16,7 @@
   - list:
     - listitem:
       - text: DeepSeek
+      - img "API 密钥已配置"
       - button "编辑 DeepSeek (deepseek-official)": 编辑
       - text: DeepSeek deepseek-official API 密钥
       - textbox "API 密钥":
