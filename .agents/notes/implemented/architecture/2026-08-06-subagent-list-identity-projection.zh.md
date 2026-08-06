@@ -127,7 +127,7 @@ export type SubagentListEntry =
 - 损坏存储的源读失败（如坏 surface 被冷读整读拒收），旧实现映射 per-child `corrupt`，现统一成 `unavailable` 行（读侧无从区分成因）。
 - 未知 parent，旧实现经 session-query 抛 not-found（'parent session … was not found'）；现自管合并对不存在的 parent 得到空子集，枚举返回空列表，wire 上后续操作落到 child 级 subagent-not-found——语义与文案的静默变化，显式接受。
 
-消费面：wire、tool、GUI 的 diagnostic 处理**全部保持原状零改动**（`list_agents` 的 description 与 output schema 未动；该插件仅加载要求收窄——inject 去掉 `sessionQuery`）。行为上唯一动的是 apiproxy 路由段：`hasSubagentDescriptor()` 扫描已删除，`hasSubagentOwner` 只看 `header.origin`——pre-#1569 的无 `origin` 存量不再被认作 subagent 属主，其本就不进目录，pre-release 立场接受。
+消费面：wire、tool、GUI 的 diagnostic 处理**全部保持原状零改动**（`list_agents` 的 description 与 output schema 未动；该插件仅加载要求收窄——inject 去掉 `sessionQuery`）。行为上动的只有 apiproxy：路由段的 `hasSubagentDescriptor()` 扫描已删除，`hasSubagentOwner` 只看 `header.origin`——pre-#1569 的无 `origin` 存量不再被认作 subagent 属主，其本就不进目录，pre-release 立场接受；`subagents.history` 与 `session.history` 同源对齐——live child 用内存事件与注册表水位快照，cold child 用 `inspectServable` 直读持久化并 detached 折叠，不经查询服务，SESSION_QUERY_* 错误臂随之退役，wire 形状不变（`history` 的 JSDoc 措辞改为 live 内存快照／cold 持久日志双臂）。
 
 ### 改动落点
 
@@ -135,9 +135,9 @@ export type SubagentListEntry =
 | --- | --- | --- |
 | subagent | projection.ts、projection-types.ts、index.ts | 新 `subagent` unit 与注册 |
 | subagent | list-children.ts 及类型 | 重写为自管枚举 + 投影阶梯四态映射；删 session-query 依赖、逐 child 事件读取与就地分类机器；错误码 `SUBAGENT_CONTROL_SESSION_QUERY_UNAVAILABLE` 换 `SUBAGENT_CONTROL_PROJECTIONS_UNAVAILABLE`；新增可选依赖 dsh-session-projection-cache（纯加速读取，缺席跳过） |
-| host/apiproxy | api-proxy.ts | 删 `hasSubagentDescriptor`，属主判定只看 `header.origin` |
+| host/apiproxy | api-proxy.ts | 删 `hasSubagentDescriptor`，属主判定只看 `header.origin`；`subagents.history` 与 `session.history` 同源——live 用内存事件与注册表水位快照，cold 用 `inspectServable` 直读持久化并 detached 折叠，不经查询服务，SESSION_QUERY_* 错误臂随之退役 |
 | tool | tool-subagent-control/list-agents.ts | 加载要求收窄（inject 去 `sessionQuery`）；model-visible schema、描述与渲染零改动 |
-| wire/client | api/subagents.ts、runtime sessions/service.ts、GUI | **零改动**——行形状与 diagnostic 处理不变 |
+| wire/client | api/subagents.ts、runtime sessions/service.ts、GUI | 类型、行形状与 diagnostic 处理**零改动**；api/subagents.ts 仅 `history` 的 JSDoc 措辞改为双臂 |
 | core/session、session-persistence、session-projection(-cache)、session-query(-sqlite) | — | **零改动** |
 
 ## 考虑过的替代方案

@@ -1918,44 +1918,63 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           parentSessionId, childSessionId, mode,
         }, signal)
         if (verified.error !== undefined) return err(request, verified.error)
-        try {
-          const snapshot = await ctx.sessionQuery.readSession(childSessionId)
-          signal?.throwIfAborted()
-          if (snapshot.session.parentSession !== parentSessionId) {
+        // The generic-history data plane: an attached child serves its
+        // in-memory snapshot and the registry's live watermark projections; a
+        // cold child is one persistence inspection plus a detached fold.
+        let header: SessionHeader
+        let events: SessionEvent[]
+        let projections: SessionProjectionsBlock | undefined
+        const attached = ctx.sessions.get(childSessionId)
+        if (attached !== undefined) {
+          header = attached.header
+          events = [...attached.events]
+          projections = beforeSeq === undefined ? projectionsFor(ctx, attached) : undefined
+        } else {
+          try {
+            const inspected = await inspectServable(childSessionId)
+            header = inspected.meta
+            events = inspected.events
+            projections = beforeSeq === undefined
+              ? detachedProjectionsFor(ctx, inspected.events)
+              : undefined
+          } catch (error: unknown) {
+            if (signal?.aborted) {
+              return err(request, {
+                code: 'cancelled',
+                message: 'subagent history read was cancelled',
+                details: {},
+              })
+            }
+            if (error instanceof SessionNotFound) {
+              return err(request, {
+                code: 'subagent-not-found',
+                message: 'subagent disappeared during history read',
+                details: { parentSessionId, childSessionId },
+              })
+            }
             return err(request, {
-              code: 'subagent-unauthorized',
-              message: 'subagent parent changed during history read',
-              details: { childSessionId },
-            })
-          }
-          const page = historyPage(ctx, snapshot.events, beforeSeq, maxMessages)
-          const projections = beforeSeq === undefined
-            ? detachedProjectionsFor(ctx, snapshot.events)
-            : undefined
-          return ok(request, { ...page, ...projections === undefined ? {} : { projections } })
-        } catch (error: unknown) {
-          if (signal?.aborted
-            || (error instanceof SessionQueryError && error.code === 'SESSION_QUERY_ABORTED')) {
-            return err(request, {
-              code: 'cancelled',
-              message: 'subagent history read was cancelled',
+              code: 'internal',
+              message: 'subagent history read failed',
               details: {},
             })
           }
-          if (error instanceof SessionQueryError
-            && error.code === 'SESSION_QUERY_SESSION_NOT_FOUND') {
-            return err(request, {
-              code: 'subagent-not-found',
-              message: 'subagent disappeared during history read',
-              details: { parentSessionId, childSessionId },
-            })
-          }
+        }
+        if (signal?.aborted) {
           return err(request, {
-            code: 'internal',
-            message: 'subagent history read failed',
+            code: 'cancelled',
+            message: 'subagent history read was cancelled',
             details: {},
           })
         }
+        if (header.parentSession !== parentSessionId) {
+          return err(request, {
+            code: 'subagent-unauthorized',
+            message: 'subagent parent changed during history read',
+            details: { childSessionId },
+          })
+        }
+        const page = historyPage(ctx, events, beforeSeq, maxMessages)
+        return ok(request, { ...page, ...projections === undefined ? {} : { projections } })
       },
 
       async prompt(request, signal) {

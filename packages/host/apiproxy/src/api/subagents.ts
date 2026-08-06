@@ -70,7 +70,8 @@ export interface SubagentsApi {
   ): Promise<RpcResponse<SubagentCatalog>>
 
   /**
-   * Reads one healthy catalog child's persisted raw log with ordinary
+   * Reads one healthy catalog child's transcript — the in-memory snapshot of
+   * a live child, the persisted log of a cold one — with ordinary
    * message-aligned pagination and render intents, without Agent activation.
    */
   history(

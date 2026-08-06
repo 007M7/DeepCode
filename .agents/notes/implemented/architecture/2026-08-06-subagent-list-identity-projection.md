@@ -127,7 +127,7 @@ Known boundary deviations (deliberately accepted, recorded with this note):
 - A source-read failure on damaged storage (e.g. a bad surface rejected by the cold full read): the old implementation mapped it to per-child `corrupt`; it is now uniformly an `unavailable` row (the read side cannot tell the causes apart).
 - An unknown parent: the old implementation threw not-found through session-query ('parent session … was not found'); the subagent-owned merge now yields an empty subset for a nonexistent parent, enumeration returns an empty list, and later operations on the wire land as child-level subagent-not-found — a silent change of semantics and wording, recorded as explicitly accepted.
 
-Consuming surfaces: diagnostic handling across wire, tool, and GUI **stays entirely as it was, zero changes** (the `list_agents` description and output schema are untouched; the plugin only narrows its load requirement — `sessionQuery` dropped from inject). The only behavioral change is the apiproxy route segment: the `hasSubagentDescriptor()` scan is deleted and `hasSubagentOwner` looks only at `header.origin` — pre-#1569 data without `origin` is no longer recognized as a subagent owner; it never entered the catalog anyway, and the pre-release stance accepts this.
+Consuming surfaces: diagnostic handling across wire, tool, and GUI **stays entirely as it was, zero changes** (the `list_agents` description and output schema are untouched; the plugin only narrows its load requirement — `sessionQuery` dropped from inject). The only behavioral changes are in apiproxy: on the route segment, the `hasSubagentDescriptor()` scan is deleted and `hasSubagentOwner` looks only at `header.origin` — pre-#1569 data without `origin` is no longer recognized as a subagent owner; it never entered the catalog anyway, and the pre-release stance accepts this; and `subagents.history` is aligned with `session.history`'s source — a live child served from in-memory events and the registry's watermark snapshot, a cold child from `inspectServable` reading persistence directly with a detached fold, no query service involved, the SESSION_QUERY_* error arms retired with it, and the wire shape unchanged (the `history` JSDoc wording becomes the live in-memory snapshot / cold persisted log dual arm).
 
 ### Change footprint
 
@@ -135,9 +135,9 @@ Consuming surfaces: diagnostic handling across wire, tool, and GUI **stays entir
 | --- | --- | --- |
 | subagent | projection.ts, projection-types.ts, index.ts | New `subagent` unit and its registration |
 | subagent | list-children.ts and its types | Rewritten as subagent-owned enumeration plus the projection-ladder four-state mapping; the session-query dependency, per-child event reads, and in-place classification machinery deleted; error code `SUBAGENT_CONTROL_SESSION_QUERY_UNAVAILABLE` replaced by `SUBAGENT_CONTROL_PROJECTIONS_UNAVAILABLE`; new optional dependency dsh-session-projection-cache (pure read acceleration, skipped when absent) |
-| host/apiproxy | api-proxy.ts | `hasSubagentDescriptor` deleted; the owner check looks only at `header.origin` |
+| host/apiproxy | api-proxy.ts | `hasSubagentDescriptor` deleted; the owner check looks only at `header.origin`; `subagents.history` shares `session.history`'s source — live from in-memory events and the registry's watermark snapshot, cold from `inspectServable` reading persistence directly with a detached fold, no query service, the SESSION_QUERY_* error arms retired with it |
 | tool | tool-subagent-control/list-agents.ts | Load requirement narrowed (`sessionQuery` dropped from inject); model-visible schema, description, and rendering unchanged |
-| wire/client | api/subagents.ts, runtime sessions/service.ts, GUI | **Zero changes** — row shape and diagnostic handling unchanged |
+| wire/client | api/subagents.ts, runtime sessions/service.ts, GUI | Types, row shape, and diagnostic handling **unchanged**; api/subagents.ts only reworded the `history` JSDoc to the dual arm |
 | core/session, session-persistence, session-projection(-cache), session-query(-sqlite) | — | **Zero changes** |
 
 ## Alternatives considered
