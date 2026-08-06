@@ -115,6 +115,7 @@ export type SubagentListEntry =
 
 - `unsupported` 不再被产出：类型与 wire 枚举按"数据结构保持现状"留存该成员，本记录留档其为不再产出。
 - descriptor-less 定局残骸从旧实现的 omit 归入 `corrupt` diagnostic——库里的坏、死子会话可见，不静默消失，这正是保留 diagnostic 的原始动机。
+- 任一注册 unit 的 fold/schema 在该 child 日志上抛错，同样收纳为该 child 的 diagnostic 行，reason `corrupt`——确定性数据故障，对齐旧实现 `SESSION_QUERY_CORRUPT_SESSION`→`corrupt` 的映射语义；live 与 cold 同待遇，逐 child 隔离，sibling 与列表本身不受影响。它与「无值 + running → omit」正交：创建窗口是"尚无数据"，fold 抛错是"数据坏了"——running 的中毒 child 也出 `corrupt` 行而非 omit。
 
 已知边界偏差（有意接受，随本记录留档）：
 
@@ -122,6 +123,7 @@ export type SubagentListEntry =
 - own suffix 出现多个描述符，旧实现判 corrupt，现 last-wins 取末者（provider 契约本就保证恰一）。
 - live/persisted header 冲突，旧实现是 per-child corrupt；现枚举 live 优先、不做一致性校验，冲突不再被察觉，以 live 记录成行。
 - 损坏存储的源读失败（如坏 surface 被冷读整读拒收），旧实现映射 per-child `corrupt`，现统一成 `unavailable` 行（读侧无从区分成因）。
+- 未知 parent，旧实现经 session-query 抛 not-found（'parent session … was not found'）；现自管合并对不存在的 parent 得到空子集，枚举返回空列表，wire 上后续操作落到 child 级 subagent-not-found——语义与文案的静默变化，显式接受。
 
 消费面：wire、tool、GUI 的 diagnostic 处理**全部保持原状零改动**（`list_agents` 的 description 与 output schema 未动；该插件仅加载要求收窄——inject 去掉 `sessionQuery`）。行为上唯一动的是 apiproxy 路由段：`hasSubagentDescriptor()` 扫描已删除，`hasSubagentOwner` 只看 `header.origin`——pre-#1569 的无 `origin` 存量不再被认作 subagent 属主，其本就不进目录，pre-release 立场接受。
 
@@ -158,7 +160,7 @@ export type SubagentListEntry =
 
 ## 验证
 
-`packages/subagent/subagent/tests/list-children.spec.ts` 重写为本契约：无 persistence、query 服务与继续运行时的 live-only 列表；registry 缺席时零 children 也响亮报 `SUBAGENT_CONTROL_PROJECTIONS_UNAVAILABLE`；live child 全程零 `inspect`、cold child 每次列表恰一次；多描述符 last-wins 取末者；损坏载荷与未知版本折为 `corrupt`；冷读失败映射 `unavailable` 且下次列表重试；fork seed 里的祖先描述符按该身份成行（偏差一钉住）；普通 fork 与无 subagent origin 的后代不入列也不计入 `hasChildren`；`createdAt`→id 排序；provider 未挂载不影响列表；压缩与未压缩孪生一致；预中止、持久化列表与冷读取消三例归一 `CANCELLED`；空列表与稳定错误码。`tool-subagent-control` 的 list-agents 测试随加载要求收窄更新；`optional-session-query.spec.ts` 随依赖消失删除；无密钥 ACP 快照（`subagent-list-agents` 等）未重录——wire 与 model-visible 面零改动由既有快照钉住。
+`packages/subagent/subagent/tests/list-children.spec.ts` 重写为本契约：无 persistence、query 服务与继续运行时的 live-only 列表；registry 缺席时零 children 也响亮报 `SUBAGENT_CONTROL_PROJECTIONS_UNAVAILABLE`；live child 全程零 `inspect`、cold child 每次列表恰一次；多描述符 last-wins 取末者；损坏载荷与未知版本折为 `corrupt`；冷读失败映射 `unavailable` 且下次列表重试；fork seed 里的祖先描述符按该身份成行（偏差一钉住）；普通 fork 与无 subagent origin 的后代不入列也不计入 `hasChildren`；`createdAt`→id 排序；provider 未挂载不影响列表；压缩与未压缩孪生一致；预中止、持久化列表与冷读取消三例归一 `CANCELLED`；空列表与稳定错误码。敌意 unit 双路探针（`apply` 惰性置毒、`view` 引爆）证明任一注册 unit 在该 child 日志上的 fold/schema 抛错，在 live 与 cold 两条取值路径上都收纳为该 child 的 `corrupt` 行，sibling 与列表本身不受影响。`tool-subagent-control` 的 list-agents 测试随加载要求收窄更新；`optional-session-query.spec.ts` 随依赖消失删除；无密钥 ACP 快照（`subagent-list-agents` 等）未重录——wire 与 model-visible 面零改动由既有快照钉住。
 
 ## 后果
 
@@ -166,7 +168,7 @@ export type SubagentListEntry =
 - subagent 列表不再要求 query backend：纯 live 与无 persistence 的部署都能列表；`SUBAGENT_CONTROL_SESSION_QUERY_UNAVAILABLE` 消失，`list_agents` 插件加载不再要求 `sessionQuery`。
 - 身份解释只存在于 registry 注册的一份 unit：列表两级阶梯与 GUI history 冷读走同两处读法（snapshot/restore），不存在旁路折叠；若未来某消费面绕开 registry 手写折叠，各读面的值将漂移——这是本设计要求维持的纪律，不是机制保证。
 - per-child 隔离回归：单 child 冷读失败只损失该行，healthy sibling 不受影响；persistence 列表失败仍使整次枚举失败。
-- 诊断语义留下四处边界偏差（stillborn fork 祖先身份误现、多描述符取末者、header 冲突不再被察觉、损坏源读失败由 `corrupt` 转 `unavailable`），完整语义见已知边界偏差清单；均为残骸级数据的展示或分类偏差，恢复鉴权不受影响。
+- 诊断与枚举语义留下五处边界偏差（stillborn fork 祖先身份误现、多描述符取末者、header 冲突不再被察觉、损坏源读失败由 `corrupt` 转 `unavailable`、未知 parent 由 not-found 改为空列表），完整语义见已知边界偏差清单；前四处为残骸级数据的展示或分类偏差，恢复鉴权不受影响，未知 parent 一处是查询语义的静默变化，显式接受。
 - pre-#1569 的无 `origin` 存量不再被认作 subagent 属主；其本就不进目录，pre-release 无兼容承诺。
 
 ## 相关

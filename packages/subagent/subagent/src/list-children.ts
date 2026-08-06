@@ -74,10 +74,12 @@ export type SubagentListEntry =
     /**
      * Why the candidate has no `child` row: `corrupt` for a settled candidate
      * whose projection fold served no identity (a missing, malformed, or
-     * unrecognized-version descriptor — deliberately undistinguished);
-     * `unavailable` when the candidate's persistence inspection failed
-     * (retried on the next listing). `unsupported` is kept for consumers
-     * already routing on it but is no longer produced.
+     * unrecognized-version descriptor — deliberately undistinguished), and
+     * for any candidate whose log makes a registered unit's fold or schema
+     * throw (deterministic data damage, contained per child); `unavailable`
+     * when the candidate's persistence inspection failed (retried on the
+     * next listing). `unsupported` is kept for consumers already routing on
+     * it but is no longer produced.
      */
     readonly reason: 'corrupt' | 'unsupported' | 'unavailable'
   }
@@ -166,7 +168,17 @@ export async function listChildren(
     // The registry's watermark cache serves the live value with zero log
     // reads; a live child without an identity yet is the creation window
     // before the establishing provider appends its descriptor.
-    const identity = projections.snapshot(candidate.live).values.subagent
+    let identity: SubagentIdentityProjection | undefined
+    try {
+      identity = projections.snapshot(candidate.live).values.subagent
+    } catch {
+      // The snapshot folds EVERY registered unit over this child's log, so
+      // any unit's fold or schema can reject damaged payloads. That is
+      // deterministic data damage in this one child; it degrades to one
+      // corrupt diagnostic instead of failing the whole listing.
+      rows[index] = { kind: 'diagnostic', id: childId, reason: 'corrupt' }
+      return
+    }
     if (identity === undefined) return
     rows[index] = childRow(childId, identity, 'running', subagentParents.has(childId))
   })
@@ -195,7 +207,8 @@ export async function listChildren(
  * projection registry (the same detached recipe the API proxy uses for
  * detached session projections). A failed inspection is one transient
  * `unavailable` row retried on the next listing; a settled log the fold
- * cannot identify is final, so it reports `corrupt`.
+ * cannot identify — or that makes any registered unit throw — is final, so
+ * it reports `corrupt`.
  */
 async function inspectColdIdentity(
   persistence: SessionPersistence,
@@ -215,7 +228,15 @@ async function inspectColdIdentity(
     return { kind: 'diagnostic', id: childId, reason: 'unavailable' }
   }
   assertListingNotCancelled(signal)
-  const identity = projections.restore({}, events, 0).snapshot.values.subagent
+  let identity: SubagentIdentityProjection | undefined
+  try {
+    identity = projections.restore({}, events, 0).snapshot.values.subagent
+  } catch {
+    // The restore folds EVERY registered unit over this child's log, so any
+    // unit's fold or schema can reject damaged payloads — deterministic data
+    // damage in this one child, contained as its own corrupt diagnostic.
+    return { kind: 'diagnostic', id: childId, reason: 'corrupt' }
+  }
   if (identity === undefined) {
     return { kind: 'diagnostic', id: childId, reason: 'corrupt' }
   }

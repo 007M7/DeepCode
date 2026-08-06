@@ -157,6 +157,33 @@ describe('subagent gateway', () => {
     expect(readSession).not.toHaveBeenCalled()
   })
 
+  it('maps the missing projections capability to one wire face on list, history, and prompt', async () => {
+    const listError = () => new SubagentError(
+      'listing subagents requires the sessionProjections registry (load @deepseek-ai/dsh-session-projection)',
+      'SUBAGENT_CONTROL_PROJECTIONS_UNAVAILABLE',
+    )
+    const expected = {
+      code: 'internal',
+      message: 'subagent listing is unavailable: this deployment does not mount the sessionProjections registry (load @deepseek-ai/dsh-session-projection)',
+    }
+
+    const list = bench({ listError: listError() })
+    expect((await list.api.subagents.list(request({ parentSessionId: PARENT }))).result)
+      .toMatchObject({ ok: false, error: expected })
+
+    const history = bench({ listError: listError() })
+    expect((await history.api.subagents.history(request({
+      parentSessionId: PARENT, childSessionId: CHILD, mode: 'continuable',
+    }))).result).toMatchObject({ ok: false, error: expected })
+    expect(history.readSession).not.toHaveBeenCalled()
+
+    const prompt = bench({ listError: listError() })
+    expect((await prompt.api.subagents.prompt(request({
+      parentSessionId: PARENT, childSessionId: CHILD, mode: 'continuable', content: [],
+    }), new AbortController().signal)).result).toMatchObject({ ok: false, error: expected })
+    expect(prompt.followup).not.toHaveBeenCalled()
+  })
+
   it('routes human content through the exact live parent with rpc attribution', async () => {
     const { api, parent, followup } = bench()
     const content = [{ type: 'text' as const, text: '继续' }]

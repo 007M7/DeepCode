@@ -609,22 +609,11 @@ async function catalogChild(
     }
     return { entry }
   } catch (error: unknown) {
-    if (signal?.aborted
-      || (error instanceof SubagentError && error.code === 'CANCELLED')
-      || (error instanceof SessionQueryError && error.code === 'SESSION_QUERY_ABORTED')) {
+    if (signal?.aborted || (error instanceof SubagentError && error.code === 'CANCELLED')) {
       return { error: { code: 'cancelled', message: 'subagent catalog read was cancelled', details: {} } }
     }
     if (error instanceof SubagentError && error.code === 'SUBAGENT_CONTROL_PROJECTIONS_UNAVAILABLE') {
       return { error: projectionsUnavailableError() }
-    }
-    if (error instanceof SessionQueryError && error.code === 'SESSION_QUERY_SESSION_NOT_FOUND') {
-      return {
-        error: {
-          code: 'subagent-not-found',
-          message: `parent session "${parentSessionId}" was not found`,
-          details: { parentSessionId, childSessionId },
-        },
-      }
     }
     return { error: { code: 'internal', message: 'subagent catalog read failed', details: {} } }
   }
@@ -1903,9 +1892,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             parentAvailable: ctx.agents.get(request.payload.parentSessionId) !== undefined,
           })
         } catch (error: unknown) {
-          if (signal?.aborted
-            || (error instanceof SubagentError && error.code === 'CANCELLED')
-            || (error instanceof SessionQueryError && error.code === 'SESSION_QUERY_ABORTED')) {
+          if (signal?.aborted || (error instanceof SubagentError && error.code === 'CANCELLED')) {
             return err(request, {
               code: 'cancelled',
               message: 'subagent catalog read was cancelled',

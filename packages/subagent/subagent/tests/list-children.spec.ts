@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { z } from 'zod'
 import { Context } from 'cordis'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
@@ -10,6 +11,7 @@ import SessionStore, { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/ds
 import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
+import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 import SubagentService, {
   SUBAGENT_DESCRIPTOR_VERSION,
   SubagentError,
@@ -98,6 +100,34 @@ function childEvents(descriptor: unknown): SessionEvent[] {
 
 function descriptorPayload(label: string, version = SUBAGENT_DESCRIPTOR_VERSION) {
   return { version, mode: 'continuable' as const, provider: 'spawn', label }
+}
+
+declare module '@deepseek-ai/dsh-session-projection/types' {
+  interface SessionProjectionMap {
+    /** Test-only hostile probe proving per-child isolation of foreign unit failures. */
+    subagentListHostileProbe: null
+  }
+}
+
+/**
+ * A foreign registered unit that rejects one specific child's log at view
+ * time: `apply` never throws (the eager drive passes every committed event
+ * through it), while the poisoned state detonates only when a listing read
+ * folds or serves this child through the registry.
+ */
+const hostileProjectionDefinition: ProjectionDefinition<'subagentListHostileProbe', { poisoned?: boolean }> = {
+  key: 'subagentListHostileProbe',
+  schema: z.null(),
+  init: () => ({}),
+  apply: (state, event) =>
+    event.type === 'subagent/descriptor' && (event.data as { label?: string }).label === 'poison me'
+      ? { poisoned: true }
+      : state,
+  view: (state) => {
+    if (state.poisoned === true) throw new Error('hostile unit rejects the poisoned log')
+    return null
+  },
+  stateVersion: 1,
 }
 
 describe('SubagentService.listChildren', () => {
@@ -400,6 +430,56 @@ describe('SubagentService.listChildren', () => {
         activity: 'inactive', hasChildren: false,
       },
     ])
+  })
+
+  it('contains a foreign unit failure during a cold fold to that child as corrupt', async () => {
+    const { ctx, parent } = await setup([textResponse('done')])
+    ctx.sessionProjections.register(hostileProjectionDefinition)
+    const healthy = await startChild(ctx, parent, 'healthy sibling')
+    const poisoned = await authorChild(ctx, '00000000-0000-4000-8000-00000000d00d', {
+      parentSession: parent.id,
+      origin: 'subagent',
+    }, childEvents(descriptorPayload('poison me')))
+    // The subagent unit itself folds this child cleanly; the FOREIGN unit's
+    // view throws, and that damage stays contained to the one child.
+    const entries = await ctx.subagents.listChildren(parent.id)
+    expect(entries).toContainEqual({ kind: 'diagnostic', id: poisoned, reason: 'corrupt' })
+    expect(entries).toContainEqual({
+      kind: 'child', id: healthy, label: 'healthy sibling', mode: 'continuable',
+      activity: 'inactive', hasChildren: false,
+    })
+  })
+
+  it('contains a foreign unit failure during a live snapshot to that child as corrupt', async () => {
+    const { ctx, parent } = await setup([])
+    ctx.sessionProjections.register(hostileProjectionDefinition)
+    const poisonedId = SessionId('live-poisoned-child')
+    const poisoned = ctx.sessions.create(poisonedId, {
+      meta: { parentSession: parent.id, origin: 'subagent' },
+    })
+    poisoned.append('turn/start', { turn: 1 })
+    poisoned.append('subagent/descriptor', descriptorPayload('poison me'))
+    const healthyId = SessionId('live-healthy-child')
+    const healthy = ctx.sessions.create(healthyId, {
+      meta: { parentSession: parent.id, origin: 'subagent' },
+    })
+    healthy.append('turn/start', { turn: 1 })
+    healthy.append('subagent/descriptor', descriptorPayload('live healthy'))
+    const entries = await ctx.subagents.listChildren(parent.id)
+    expect(entries).toContainEqual({ kind: 'diagnostic', id: poisonedId, reason: 'corrupt' })
+    expect(entries).toContainEqual({
+      kind: 'child', id: healthyId, label: 'live healthy', mode: 'continuable',
+      activity: 'running', hasChildren: false,
+    })
+  })
+
+  it('fails the whole enumeration when the persisted listing itself fails', async () => {
+    const { ctx, parent } = await setup([textResponse('done')])
+    await startChild(ctx, parent, 'never listed')
+    ctx.sessionPersistence.list = () => Promise.reject(new Error('backend listing failed'))
+    // Without any abort in flight, the original backend failure propagates
+    // as the operation failure — no cancellation mapping, no diagnostic rows.
+    await expect(ctx.subagents.listChildren(parent.id)).rejects.toThrow('backend listing failed')
   })
 
   it('maps a failed cold inspection to one unavailable diagnostic and retries it next listing', async () => {
