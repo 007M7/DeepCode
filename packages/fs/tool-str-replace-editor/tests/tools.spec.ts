@@ -6,7 +6,7 @@ import { Context } from 'cordis'
 import { FsVersion } from '@deepseek-ai/dsh-fs'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import * as FsPolicy from '@deepseek-ai/dsh-fs-policy'
@@ -28,20 +28,20 @@ afterEach(async () => {
 function agent(ctx: Context, cwd: string): Agent {
   const id = SessionId(`str-replace-editor-owner-${callNumber}`)
   const scope = ctx.plugin(() => {})
+  const session = Session.create(id, [], { version: 0, id, createdAt: 0, cwd })
   const value: Agent = {
     id,
     options: {},
-    session: new Session(id, [], { version: 0, id, createdAt: 0, cwd }),
+    session,
+    inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
     status: 'idle',
-    acceptsNextStep: false,
     ctx: scope.ctx,
-    followup: () => {},
-    steer: () => {},
-    inject: () => {},
     send: () => {},
-    updateInbox: () => 'not-found',
-    reserveTurnAdmission: () => undefined,
+    followup: () => {},
+    steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }),
+    inject: () => {},
     cancel() {},
+    runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
   }
   ctx.agents.register(value)
@@ -244,8 +244,10 @@ describe('tool-str-replace-editor', () => {
     expect(listing).not.toContain('too-deep.txt')
     expect(listing).not.toContain('index.js')
     expect(listing).not.toContain('module.pyc')
-    expect(listing).toContain('node_modules_old/kept.js')
-    expect(listing).toContain('__pycache__backup/kept.py')
+    // The listing carries absolute display paths; the POSIX-style substrings
+    // only match on Linux, so assert with platform separators.
+    expect(listing).toContain(join('node_modules_old', 'kept.js'))
+    expect(listing).toContain(join('__pycache__backup', 'kept.py'))
 
     const clipped = await setup({ maxOutputChars: 10 })
     await writeFile(join(clipped.root, 'large.txt'), 'x'.repeat(100))

@@ -5,7 +5,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import {
-  addHarnessSourceSection, assertEntriesActivated, assertEntriesLoaded, boot, HARNESS_SOURCE_SECTION,
+  addHarnessSourceSection, assertEntriesActivated, assertEntriesLoaded, boot,
+  FAIL_LOUD_RELEASE_TIMEOUT_MS, HARNESS_SOURCE_SECTION,
   installFailLoud, loadEnv, loadOverlayPatches, resolveConfigPath, type FailLoudProcess,
 } from '../src/index.ts'
 
@@ -109,16 +110,22 @@ describe('installFailLoud', () => {
     expect(proc.exits).toEqual([1])
   })
 
+  // One rejection is reported per install: the first is the diagnosis, so each
+  // formatting case needs its own handler rather than reusing a latched one.
   it('stringifies a non-Error rejection and an Error without a stack falls back to its message', () => {
-    const proc = fakeProc()
-    installFailLoud(NAME, proc)
-    proc.handlers[0]!('plain failure')
-    expect(proc.written[0]).toContain('plain failure')
+    const plain = fakeProc()
+    installFailLoud(NAME, plain)
+    plain.handlers[0]!('plain failure')
+    expect(plain.written[0]).toContain('plain failure')
+    expect(plain.exits).toEqual([1])
+
     const stackless = new Error('no stack')
     delete (stackless as { stack?: string }).stack
-    proc.handlers[0]!(stackless)
-    expect(proc.written[1]).toContain('no stack')
-    expect(proc.exits).toEqual([1, 1])
+    const bare = fakeProc()
+    installFailLoud(NAME, bare)
+    bare.handlers[0]!(stackless)
+    expect(bare.written[0]).toContain('no stack')
+    expect(bare.exits).toEqual([1])
   })
 
   it('returns an uninstaller that removes the handler (and defaults to the real process)', () => {
@@ -161,6 +168,64 @@ describe('installFailLoud', () => {
     await expect(audit).rejects.toThrow('assembled activation failure')
     proc.handlers[0]!(error)
     expect(proc.exits).toEqual([1])
+  })
+
+  // The Loader mounts entries concurrently, so a terminal-owning surface can
+  // already hold raw mode when a sibling entry rejects. Exiting without running
+  // its teardown strands the terminal on the user's shell.
+  it('awaits the release hook before exiting so the terminal owner can restore it', async () => {
+    const proc = fakeProc()
+    const order: string[] = []
+    installFailLoud(NAME, proc, async () => {
+      await Promise.resolve()
+      order.push('released')
+    })
+    proc.handlers[0]!(new Error('sibling entry rejected'))
+    expect(proc.written[0]).toContain(`${NAME}: fatal load failure: `)
+    // The release is in flight, so the exit has not committed yet.
+    expect(proc.exits).toEqual([])
+    await vi.waitFor(() => { expect(proc.exits).toEqual([1]) })
+    expect(order).toEqual(['released'])
+  })
+
+  it('still exits when the release hook rejects', async () => {
+    const proc = fakeProc()
+    installFailLoud(NAME, proc, () => Promise.reject(new Error('terminal stop failed')))
+    proc.handlers[0]!(new Error('boom'))
+    await vi.waitFor(() => { expect(proc.exits).toEqual([1]) })
+  })
+
+  it('exits without waiting when a release hook never settles', async () => {
+    vi.useFakeTimers()
+    try {
+      const proc = fakeProc()
+      installFailLoud(NAME, proc, () => new Promise<void>(() => {}))
+      proc.handlers[0]!(new Error('boom'))
+      expect(proc.exits).toEqual([])
+      await vi.advanceTimersByTimeAsync(FAIL_LOUD_RELEASE_TIMEOUT_MS)
+      expect(proc.exits).toEqual([1])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // Loader failures arrive in bursts, and teardown's own disposers may reject.
+  // Only the first rejection is the diagnosis; the handler must stay installed
+  // so a later one cannot become uncaught and kill the process mid-teardown.
+  it('reports only the first rejection and keeps handling later ones during the release', async () => {
+    const proc = fakeProc()
+    let released = false
+    installFailLoud(NAME, proc, async () => {
+      await Promise.resolve()
+      released = true
+    })
+    proc.handlers[0]!(new Error('first rejection'))
+    proc.handlers[0]!(new Error('second rejection'))
+    expect(proc.handlers).toHaveLength(1)
+    expect(proc.written).toHaveLength(1)
+    expect(proc.written[0]).toContain('first rejection')
+    await vi.waitFor(() => { expect(proc.exits).toEqual([1]) })
+    expect(released).toBe(true)
   })
 })
 
@@ -325,6 +390,22 @@ describe('boot', () => {
     }
   })
 
+  it('disposes partial host setup and labels non-Error preparation failures', async () => {
+    const dir = tmp()
+    const failure = 42
+    let disposed = false
+    const task = boot(NAME, join(dir, 'cordis.yml'), undefined, (ctx) => {
+      ctx.effect(() => () => { disposed = true })
+      throw failure
+    })
+
+    await expect(task).rejects.toMatchObject({
+      message: `${NAME}: host preparation failed: ${failure}`,
+      cause: failure,
+    })
+    expect(disposed).toBe(true)
+  })
+
   it('exposes dshHomePath to Loader config expressions', async () => {
     const dir = tmp()
     const dshHome = join(dir, 'home')
@@ -354,11 +435,10 @@ describe('boot', () => {
   })
 
   it('returns instead of asserting over a tree a surface disposed mid-startup', async () => {
-    // What a TUI `/exit` does (ui-tui's disposeRootAndExit): dispose the root
-    // fiber, which lands while boot() is still awaiting the Loader whenever the
-    // surface renders before the last entry settles. The Loader service goes
-    // with the tree, so reading it for the post-boot assertions would crash an
-    // app that exited exactly as the user asked.
+    // A surface can dispose the root fiber while boot() is still awaiting the
+    // Loader, before the last entry settles. The Loader service goes with the
+    // tree, so reading it for the post-boot assertions would crash an app that
+    // exited exactly as the user asked.
     const dir = tmp()
     writeFileSync(join(dir, 'exiting.mjs'), [
       'export const name = "exiting"',
@@ -375,7 +455,37 @@ describe('boot', () => {
   it('rejects (never exits 0 half-empty) when a config names a plugin that cannot be imported', async () => {
     const dir = tmp()
     writeFileSync(join(dir, 'cordis.yml'), '- id: ghost\n  name: ./missing.mjs\n')
-    await expect(boot(NAME, join(dir, 'cordis.yml'))).rejects.toThrow(`${NAME}: plugin(s) failed to load: ./missing.mjs`)
+    await expect(boot(NAME, join(dir, 'cordis.yml'))).rejects.toThrow(
+      `${NAME}: plugin tree failed to load: failed to apply loader entry`,
+    )
+  })
+
+  it('appends the deepest cause with its original stack to the load failure', async () => {
+    const dir = tmp()
+    writeFileSync(join(dir, 'failing.mjs'), [
+      'export function apply() {',
+      "  const failure = new Error('pinned activation failure')",
+      "  failure.stack = 'Error: pinned activation failure\\n    at failing-fixture'",
+      '  throw failure',
+      '}',
+      '',
+    ].join('\n'))
+    writeFileSync(join(dir, 'cordis.yml'), '- id: failing\n  name: ./failing.mjs\n')
+    await expect(boot(NAME, join(dir, 'cordis.yml'))).rejects.toThrow(new RegExp([
+      String.raw`failed to apply loader entry failing \(\./failing\.mjs\): pinned activation failure\n`,
+      String.raw`Error: pinned activation failure\n {4}at failing-fixture$`,
+    ].join('')))
+  })
+
+  it('falls back to the deepest cause message when its stack was erased', async () => {
+    const dir = tmp()
+    const deepest = new Error('stackless deep failure')
+    delete (deepest as { stack?: string }).stack
+    await expect(boot(NAME, join(dir, 'cordis.yml'), undefined, () => {
+      throw new Error('wrapped setup failure', { cause: deepest })
+    })).rejects.toThrow(
+      `${NAME}: host preparation failed: wrapped setup failure\nstackless deep failure`,
+    )
   })
 
   it('reports a pending real Loader fiber and the service unresolved in its own context', async () => {
@@ -391,9 +501,9 @@ describe('boot', () => {
 
 describe('addHarnessSourceSection', () => {
   const SOURCE_ROOT = `${sep}opt${sep}harness-src`
-  const EXPECTED = `Your own source code is the checkout at ${SOURCE_ROOT}; you can read it there to learn how dsh works and how to extend it.`
+  const EXPECTED = `The DeepSeek Harness implementation checkout is at ${SOURCE_ROOT}. The checkout location and current working directory are separate values and may differ; never infer the working directory from this path. Use pwd to determine the current working directory. Use this checkout only to inspect or extend DSH itself.`
 
-  it('adds the source path between the harness identity and the deployment persona', async () => {
+  it('distinguishes the source path from the current workdir between identity and persona', async () => {
     const ctx = new Context()
     try {
       await ctx.plugin(SystemPrompt, { persona: 'You are a coding agent.' })

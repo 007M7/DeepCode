@@ -1,19 +1,35 @@
 /**
- * Shared driver for in-process subagent providers. The agent factory's
+ * Shared driver for in-process ONE-SHOT subagent providers. The agent factory's
  * creation transaction owns unpublished setup and rollback; after publication
  * the returned AgentHandle is the one quiescent lifecycle owner held by the
  * provider's caller.
+ *
+ * Continuable children never come through here: the continuation manager
+ * composes and drives them directly, so this driver owns exactly one turn with
+ * one result.
  *
  * @module @deepseek-ai/dsh-subagent-inprocess
  */
 
 import { randomUUID } from 'node:crypto'
 import type { Context } from 'cordis'
-import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
 import { findLastMessageTurnEnd, SessionId, type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session'
 import { createUserMessage, type ContentBlock } from '@deepseek-ai/dsh-llm'
-import { assertSubagentMaxDepth, delegationDepthOf } from '@deepseek-ai/dsh-subagent'
-import type { SubagentResult, SubagentRun, SubagentStartRequest, SubagentStopReason } from '@deepseek-ai/dsh-subagent'
+import {
+  applyChildComposition,
+  assertSubagentMaxDepth,
+  childSessionMeta,
+  resolveChildAgentOptions,
+  resolveChildDepth,
+} from '@deepseek-ai/dsh-subagent'
+import type {
+  ResolvedSubagentStartRequest,
+  SubagentDescriptorData,
+  SubagentResult,
+  SubagentRun,
+  SubagentStopReason,
+} from '@deepseek-ai/dsh-subagent'
 // Type-only: make `ctx.get('sandboxPolicy')` / `ctx.get('approval')` resolve
 // to the policy services when composed — the driver consumes both
 // opportunistically (the documented `ctx.get` pattern), never as a hard dep.
@@ -29,14 +45,6 @@ export {
   STRUCTURED_OUTPUT_INSTRUCTION,
 } from './structured.ts'
 
-/** Thrown when starting a child would exceed the requested depth cap. */
-class SubagentDepthError extends Error {
-  constructor(public readonly attemptedDepth: number, public readonly maxDepth: number) {
-    super(`subagent depth ${attemptedDepth} exceeds maxDepth ${maxDepth}`)
-    this.name = 'SubagentDepthError'
-  }
-}
-
 /** Map a session turn outcome to the subagent seam's terminal vocabulary. */
 function toStopReason(reason: TurnEndReason | undefined): SubagentStopReason {
   switch (reason?.kind) {
@@ -47,7 +55,6 @@ function toStopReason(reason: TurnEndReason | undefined): SubagentStopReason {
     case 'aborted':
       return 'aborted'
     case 'error':
-    case 'disposed':
     case 'interrupted':
     default:
       return 'error'
@@ -65,42 +72,42 @@ function prePublicationAbort(): Error {
   return new Error('subagent request was aborted before child publication')
 }
 
+/** Append one one-shot descriptor inside the child's initial turn before its first request. */
+function attachDescriptorAppend(childCtx: Context, descriptor: SubagentDescriptorData): void {
+  let appended = false
+  childCtx.on('agent/pre-step', async ({ agent }, next) => {
+    const decision = await next()
+    if (!appended && decision.kind === 'enter') {
+      appended = true
+      agent.session.append('subagent/descriptor', descriptor)
+    }
+    return decision
+  })
+}
+
 /**
- * Establish and drive one in-process child. Fulfillment means the agent is
- * already published in the registry; rejection means the agent factory's
- * creation transaction and any partially-created child have reached quiescence.
+ * Establish and drive one in-process one-shot child. Fulfillment means the agent
+ * is already published in the registry and transfers its turn, cancellation,
+ * and disposal work through the returned run. Rejection means the agent
+ * factory's unpublished creation transaction reached quiescence without
+ * publishing a child. Every start appends its resolved descriptor inside the
+ * child's initial turn.
  * @param request - the trusted typed start request, including its required signal.
  * @param options - the optional fork seed.
- * @returns a ready holder-owned run.
+ * @returns a published holder-owned run.
  */
 export async function startInProcessRun(
-  request: SubagentStartRequest,
+  request: ResolvedSubagentStartRequest,
   options: InProcessRunOptions,
 ): Promise<SubagentRun> {
   assertSubagentMaxDepth(request.maxDepth)
   if (request.signal.aborted) throw prePublicationAbort()
   const parent = request.parent
-  const childDepth = delegationDepthOf(parent) + 1
-  if (!Number.isSafeInteger(childDepth)) {
-    throw new RangeError('subagent child depth exceeds the safe-integer range')
-  }
-  if (request.maxDepth !== undefined && childDepth > request.maxDepth) {
-    throw new SubagentDepthError(childDepth, request.maxDepth)
-  }
+  const childDepth = resolveChildDepth(parent, request.maxDepth)
 
   const childId = SessionId(randomUUID())
-  const seedLength = options.seed?.length ?? 0
-  const parentHeader = parent.session.header
-  const parentProvider = parent.options.provider
-  const parentModel = parent.options.model
-  const parentMaxTokens = parent.options.maxTokens
-  const agentOptions: AgentOptions = {
-    ...parentProvider !== undefined ? { provider: parentProvider } : {},
-    ...parentModel !== undefined ? { model: parentModel } : {},
-    ...parentMaxTokens !== undefined ? { maxTokens: parentMaxTokens } : {},
-    ...request.agentOptions,
-    subagentDepth: childDepth,
-  }
+  const seed = options.seed
+  const activationBoundary = seed?.length ?? 0
 
   // Capture before the first await: a later parent switch belongs to the
   // parent's future.
@@ -109,6 +116,8 @@ export async function startInProcessRun(
 
   let structured: StructuredAttachment | undefined
   const setup = (childCtx: Context): void => {
+    // Inherited overrides land on the child's own log, so its effective policy
+    // is reconstructable from that log alone.
     const childSession = (childCtx.agent as Agent).session
     if (inheritedMode !== undefined) {
       childSession.append('sandbox/mode', { mode: inheritedMode, source: 'delegation' })
@@ -116,60 +125,72 @@ export async function startInProcessRun(
     if (inheritedPolicy !== undefined) {
       childSession.append('approval/policy', { policy: inheritedPolicy, source: 'delegation' })
     }
-    if (request.persona !== undefined) {
-      childCtx.systemPrompt.section({ name: 'deployment:persona', order: 0, text: request.persona })
-    }
-    if (request.toolFilter !== undefined) childCtx.tools.restrict(request.toolFilter)
+    applyChildComposition(childCtx, {
+      persona: request.persona,
+      toolFilter: request.toolFilter,
+    })
     if (request.outputSchema !== undefined) {
       structured = attachStructuredRuntime(childCtx, request.outputSchema)
     }
+    attachDescriptorAppend(childCtx, request.descriptor)
   }
 
-  const flags = { cancelled: false }
   const handle = await parent.ctx.agents.create({
     sessionId: childId,
-    meta: {
-      ...parentHeader.cwd !== undefined ? { cwd: parentHeader.cwd } : {},
-      parentSession: parentHeader.id,
-      // Durable: the recursion budget must survive persistence and resume.
-      delegationDepth: childDepth,
-      ...seedLength > 0 ? { seedLength } : {},
-    },
-    ...options.seed === undefined ? {} : { seed: options.seed },
-    agentOptions,
+    meta: childSessionMeta(parent, childDepth, activationBoundary),
+    ...seed !== undefined ? { seed } : {},
+    agentOptions: resolveChildAgentOptions(parent, request.agentOptions, childDepth),
     signal: request.signal,
     setup,
   })
-  const child = handle.agent
-  // Agent creation detaches its creation-only abort listener before returning.
-  // Close the narrow handoff race before installing the live-run listener.
-  // Static analysis does not model the abort that may land between the
-  // factory's listener detachment and this continuation.
-  // oxlint-disable-next-line typescript/no-unnecessary-condition
-  if (request.signal.aborted) {
-    flags.cancelled = true
-    await handle.dispose()
-    throw prePublicationAbort()
-  }
+  return drivePublishedRun(
+    handle,
+    request.signal,
+    request.prompt,
+    childId,
+    activationBoundary,
+    structured,
+  )
+}
 
+/**
+ * Wrap a published child in the single run lifecycle that owns signal handoff,
+ * one turn, result settlement, and quiescent disposal.
+ */
+function drivePublishedRun(
+  handle: AgentHandle,
+  signal: AbortSignal,
+  prompt: ContentBlock[],
+  childId: SessionId,
+  boundary: number,
+  structured: StructuredAttachment | undefined,
+): SubagentRun {
+  const child = handle.agent
+  const flags = { cancelled: false }
   const onAbort = (): void => {
     flags.cancelled = true
     child.cancel({ kind: 'parent' })
   }
-  request.signal.addEventListener('abort', onAbort, { once: true })
+  signal.addEventListener('abort', onAbort, { once: true })
+  // Agent creation detaches its creation-only listener before returning. The
+  // post-registration check closes that handoff without treating an already
+  // published child as a failed start.
+  if (signal.aborted) onAbort()
 
   const result: Promise<SubagentResult> = (async () => {
     try {
-      child.followup(createUserMessage({ content: request.prompt, source: { kind: 'user' } }))
-      await child.whenIdle()
+      if (!flags.cancelled) {
+        child.followup(createUserMessage({ content: prompt, source: { kind: 'user' } }))
+        await child.whenIdle()
+      }
       return readResult(
         child,
-        seedLength,
+        boundary,
         flags.cancelled,
         structured ? { captured: structured.captured() } : undefined,
       )
     } finally {
-      request.signal.removeEventListener('abort', onAbort)
+      signal.removeEventListener('abort', onAbort)
     }
   })()
 
@@ -177,32 +198,33 @@ export async function startInProcessRun(
     id: childId,
     localAgent: child,
     result,
-    dispose(): Promise<void> {
-      request.signal.removeEventListener('abort', onAbort)
+    async dispose(): Promise<void> {
+      signal.removeEventListener('abort', onAbort)
       flags.cancelled = true
-      return handle.dispose()
+      const settlements = await Promise.allSettled([handle.dispose(), result])
+      const disposal = settlements[0]
+      // The result channel owns run faults; disposal reports only failure to
+      // release the published handle after both operations settle.
+      if (disposal.status === 'rejected') throw disposal.reason
     },
   }
 }
 
-/** Read one settled child's result from events after its optional fork seed. */
+/** Read one settled child's result from events after its activation boundary. */
 function readResult(
   child: Agent,
-  seedLength: number,
+  boundary: number,
   cancelled: boolean,
   structured?: { captured?: { value: unknown } | undefined },
 ): SubagentResult {
-  const own = child.session.events.slice(seedLength)
+  const own = child.session.events.slice(boundary)
   const lastMessage = own.findLast((event): event is SessionEvent<'assistant/message'> => event.type === 'assistant/message')
   const lastEnd = findLastMessageTurnEnd(own)
   const output: ContentBlock[] = lastMessage?.data.message.content ?? []
   const recorded = toStopReason(lastEnd?.data.reason)
   // Disposal can tear the owner down before the loop records its ordinary
-  // `aborted` end, yielding `disposed` instead. A requested cancellation owns
-  // every non-completed in-flight outcome; a turn already completed stays so.
-  const stopReason: SubagentStopReason = cancelled && recorded !== 'completed'
-    ? 'aborted'
-    : recorded
+  // `aborted` end, yielding `disposed` instead.
+  const stopReason: SubagentStopReason = cancelled && recorded !== 'completed' ? 'aborted' : recorded
   if (structured !== undefined) {
     if (structured.captured !== undefined) {
       return { output, structured: structured.captured.value, stopReason }

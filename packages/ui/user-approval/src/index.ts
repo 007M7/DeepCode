@@ -8,7 +8,7 @@ import { randomUUID } from 'node:crypto'
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { CallId } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, type CallId } from '@deepseek-ai/dsh-llm'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
@@ -59,8 +59,8 @@ declare module '@deepseek-ai/dsh-session' {
     /**
      * The session's approval policy was switched — log-only, durable,
      * replayable, never in the model transcript (the model learns the policy
-     * from the cache-safe runtime-context snapshot). The LAST such
-     * event is the session's override ({@link effectiveApprovalPolicy}).
+     * from the runtime-context snapshot and live switch notices). The LAST
+     * such event is the session's override ({@link effectiveApprovalPolicy}).
      * `source: 'delegation'` marks an override seeded into a child; an absent
      * source is a runtime switch.
      */
@@ -188,7 +188,7 @@ export interface Config {
 /**
  * Approval service that applies session policy before answerers and logs every
  * ask/outcome pair to the requesting session. It exposes deterministic policy
- * changes to the model through the cache-safe runtime-context snapshot.
+ * changes to the model through the runtime-context snapshot and switch notices.
  */
 export class ApprovalService extends Service {
   static Config: z<Config> = z.object({
@@ -215,6 +215,26 @@ export class ApprovalService extends Service {
         },
       })
     })
+  }
+
+  /**
+   * Switch one live agent's policy and queue the transition for its next model
+   * step. Session initialization uses {@link setApprovalPolicy} directly
+   * because there is no previously visible policy to change.
+   * @param agent - the live agent whose policy is changing.
+   * @param policy - the new effective policy.
+   */
+  setPolicy(agent: Agent, policy: ApprovalPolicy): void {
+    const previous = this.effectivePolicy(agent.session)
+    if (previous === policy) return
+    setApprovalPolicy(agent.session, policy)
+    agent.inject(createUserMessage({
+      content: [{
+        type: 'text',
+        text: `The approval policy changed from "${previous}" to "${policy}" (changed by the user).`,
+      }],
+      source: { kind: 'plugin', plugin: 'user-approval' },
+    }))
   }
 
   /**

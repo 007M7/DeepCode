@@ -1,6 +1,6 @@
 /**
  * Client side of the fetch carrier. AbstractApiClient holds every protocol invariant: rpcId minting,
- * four-quadrant envelope wrap/unwrap, zod parsing, SSE frame decoding, and the payload-direct
+ * four-quadrant envelope wrap/unwrap, zod parsing, in-process SSE frame decoding, and the payload-direct
  * IApiClient domain methods (business code never mints). Platform differences ride two aspects:
  * abstract doFetch (transport) + overridable onEnvelope (tap). ApiProxy (the impl face) is untouched.
  */
@@ -49,12 +49,18 @@ import {
   goalClearValueSchema,
 } from '../api/goals.schema.ts'
 import {
-  settingsDescribeValueSchema, settingsMutateValueSchema, settingsReplaceValueSchema, settingsUpdateValueSchema,
+  settingsDescribeValueSchema, settingsMutateValueSchema, settingsOpenDocumentValueSchema,
+  settingsReplaceValueSchema, settingsUpdateValueSchema,
 } from '../api/settings.schema.ts'
 import {
   credentialsDescribeValueSchema, credentialsSetValueSchema, credentialsUnsetValueSchema,
 } from '../api/credentials.schema.ts'
-import { llmModelsValueSchema, llmProvidersValueSchema } from '../api/llm.schema.ts'
+import { llmDiscoverModelsValueSchema, llmModelsValueSchema, llmProvidersValueSchema } from '../api/llm.schema.ts'
+import {
+  subagentHistoryValueSchema,
+  subagentListValueSchema,
+  subagentPromptValueSchema,
+} from '../api/subagents.schema.ts'
 
 /**
  * Client consumption face of the contract (shape a): same domain tree as ApiProxy, but unary
@@ -64,8 +70,8 @@ import { llmModelsValueSchema, llmProvidersValueSchema } from '../api/llm.schema
  * Bounded calls merge it with the instance timeout via AbortSignal.any; user-paced calls
  * carry only that external signal. In both cases the signal rides beside the request, never
  * on the wire, like the stream signatures.
- * Stream methods accept an optional onOpen callback: it fires once the SSE transport is
- * readable (response headers received, before any frame) — the "stream established" signal
+ * Stream methods accept an optional onOpen callback: it fires once the physical transport is
+ * readable (before any frame) — the "stream established" signal
  * connection controllers need for the readiness handshake. Generators are lazy, so the
  * underlying fetch (and therefore onOpen) only happens once iteration starts.
  * Relationship: ApiProxy is the narrow-form signature contract the impl side implements;
@@ -85,6 +91,11 @@ export interface IApiClient {
     prompt(payload: RequestPayload<'session.prompt'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.prompt'>>>
     updateQueue(payload: RequestPayload<'session.updateQueue'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.updateQueue'>>>
     cancel(payload: RequestPayload<'session.cancel'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.cancel'>>>
+  }
+  subagents: {
+    list(payload: RequestPayload<'subagent.list'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'subagent.list'>>>
+    history(payload: RequestPayload<'subagent.history'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'subagent.history'>>>
+    prompt(payload: RequestPayload<'subagent.prompt'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'subagent.prompt'>>>
   }
   host: {
     describe(payload: RequestPayload<'host.describe'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'host.describe'>>>
@@ -122,6 +133,7 @@ export interface IApiClient {
   }
   settings: {
     describe(payload: RequestPayload<'settings.describe'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'settings.describe'>>>
+    openDocument(payload: RequestPayload<'settings.openDocument'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'settings.openDocument'>>>
     update(payload: RequestPayload<'settings.update'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'settings.update'>>>
     replace(payload: RequestPayload<'settings.replace'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'settings.replace'>>>
     mutate(payload: RequestPayload<'settings.mutate'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'settings.mutate'>>>
@@ -134,6 +146,7 @@ export interface IApiClient {
   llm: {
     providers(payload: RequestPayload<'llm.providers'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'llm.providers'>>>
     models(payload: RequestPayload<'llm.models'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'llm.models'>>>
+    discoverModels(payload: RequestPayload<'llm.discoverModels'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'llm.discoverModels'>>>
   }
   /** client-response passthrough (rpcId is a backfill of the server-request's id — never minted here). */
   respond(message: ClientResponse, signal?: AbortSignal): Promise<RpcReceipt>
@@ -155,6 +168,9 @@ const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseV
   'session.prompt': sessionPromptValueSchema,
   'session.updateQueue': sessionUpdateQueueValueSchema,
   'session.cancel': sessionCancelValueSchema,
+  'subagent.list': subagentListValueSchema,
+  'subagent.history': subagentHistoryValueSchema,
+  'subagent.prompt': subagentPromptValueSchema,
   'host.describe': hostDescribeValueSchema,
   'host.pickDirectory': hostPickDirectoryValueSchema,
   'host.listDirectory': hostListDirectoryValueSchema,
@@ -176,6 +192,7 @@ const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseV
   'goal.complete': goalCompleteValueSchema,
   'goal.clear': goalClearValueSchema,
   'settings.describe': settingsDescribeValueSchema,
+  'settings.openDocument': settingsOpenDocumentValueSchema,
   'settings.update': settingsUpdateValueSchema,
   'settings.replace': settingsReplaceValueSchema,
   'settings.mutate': settingsMutateValueSchema,
@@ -184,6 +201,7 @@ const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseV
   'credentials.unset': credentialsUnsetValueSchema,
   'llm.providers': llmProvidersValueSchema,
   'llm.models': llmModelsValueSchema,
+  'llm.discoverModels': llmDiscoverModelsValueSchema,
 }
 
 /** Default timeout for bounded unary calls (rpc-compare 2026-07-19: a hung host must not leave callers pending forever). */
@@ -385,6 +403,12 @@ export abstract class AbstractApiClient implements IApiClient {
     cancel: (payload, signal) => this.callUnary('session.cancel', payload, signal),
   }
 
+  readonly subagents: IApiClient['subagents'] = {
+    list: (payload, signal) => this.callUnary('subagent.list', payload, signal),
+    history: (payload, signal) => this.callUnary('subagent.history', payload, signal),
+    prompt: (payload, signal) => this.callUnary('subagent.prompt', payload, signal),
+  }
+
   readonly host: IApiClient['host'] = {
     describe: (payload, signal) => this.callUnary('host.describe', payload, signal),
     // A native system dialog is user-paced and may legitimately stay open
@@ -430,6 +454,7 @@ export abstract class AbstractApiClient implements IApiClient {
 
   readonly settings: IApiClient['settings'] = {
     describe: (payload, signal) => this.callUnary('settings.describe', payload, signal),
+    openDocument: (payload, signal) => this.callUnary('settings.openDocument', payload, signal),
     update: (payload, signal) => this.callUnary('settings.update', payload, signal),
     replace: (payload, signal) => this.callUnary('settings.replace', payload, signal),
     mutate: (payload, signal) => this.callUnary('settings.mutate', payload, signal),
@@ -444,6 +469,7 @@ export abstract class AbstractApiClient implements IApiClient {
   readonly llm: IApiClient['llm'] = {
     providers: (payload, signal) => this.callUnary('llm.providers', payload, signal),
     models: (payload, signal) => this.callUnary('llm.models', payload, signal),
+    discoverModels: (payload, signal) => this.callUnary('llm.discoverModels', payload, signal),
   }
 
   readonly events: IApiClient['events'] = {

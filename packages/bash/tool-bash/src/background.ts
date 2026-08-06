@@ -16,10 +16,10 @@ import type { BashProcess } from '@deepseek-ai/dsh-bash'
  */
 export function processOutcome(proc: BashProcess): { status: 'completed' | 'killed'; detail: string } {
   // TODO(background-infrastructure-outcome): widen BashProcess with an explicit
-  // infrastructure-failure outcome, then map spawn failures and
-  // sandbox.runnerFailed to task `failed`. The current seam aliases a spawn
-  // failure with a signal-less kill and a runner failure with an ordinary
-  // wrapper exit; real nonzero command exits must remain `completed`.
+  // infrastructure-failure outcome, then map it to task `failed`. Restricted
+  // runner failures expose sandbox.runnerFailed, but unconfined spawn failures
+  // still alias a signal-less kill; real nonzero command exits must remain
+  // `completed`.
   if (proc.status === 'killed') {
     return { status: 'killed', detail: proc.signal !== null ? `signal: ${proc.signal}` : 'killed before exit' }
   }

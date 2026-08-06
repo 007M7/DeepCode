@@ -37,6 +37,7 @@ export interface HeaderLine {
   cwd?: string
   parentSession?: SessionId
   seedLength?: number
+  origin?: 'subagent'
   delegationDepth: number
 }
 
@@ -54,6 +55,7 @@ export function toHeaderLine(header: SessionHeader): HeaderLine {
     ...header.cwd !== undefined ? { cwd: header.cwd } : {},
     ...header.parentSession !== undefined ? { parentSession: header.parentSession } : {},
     ...header.seedLength !== undefined ? { seedLength: header.seedLength } : {},
+    ...header.origin !== undefined ? { origin: header.origin } : {},
     delegationDepth: header.delegationDepth ?? 0,
   }
 }
@@ -74,6 +76,7 @@ export function fromHeaderLine(line: HeaderLine): SessionHeader {
     ...line.cwd !== undefined ? { cwd: line.cwd } : {},
     ...line.parentSession !== undefined ? { parentSession: line.parentSession } : {},
     ...line.seedLength !== undefined ? { seedLength: line.seedLength } : {},
+    ...line.origin !== undefined ? { origin: line.origin } : {},
     delegationDepth: line.delegationDepth,
   }
 }
@@ -93,6 +96,8 @@ function isHeaderLine(value: unknown): value is HeaderLine {
     && Number.isSafeInteger((value as { delegationDepth: number }).delegationDepth)
     && (value as { delegationDepth: number }).delegationDepth >= 0
     && !Object.is((value as { delegationDepth: number }).delegationDepth, -0)
+    && ((value as { origin?: unknown }).origin === undefined
+      || (value as { origin?: unknown }).origin === 'subagent')
   )
 }
 
@@ -212,106 +217,157 @@ export function eventLines(events: readonly SessionEvent[], packChunks: boolean)
   return records.map(record => JSON.stringify(record)).join('\n')
 }
 
-/**
- * Parse a JSONL log buffer into its preserved event prefix (the header is line
- * 0). Event lines pass through verbatim; packed chunk rows expand back into
- * their events, so callers see one contiguous event list regardless of layout.
- * Fully written events in an interrupted final turn remain part of the
- * prefix. The first unparsable record or seq gap after the last `turn/end`
- * marks a tolerated torn tail; the same hole in the committed region rejects.
- *
- * @param buffer - the raw bytes of the log file (header line first).
- * @returns the header, the preserved event prefix, and `committedBytes` — the
- *   byte offset the next append truncates any torn tail to.
- */
-export function scanLog(buffer: Buffer): { meta: SessionHeader; events: SessionEvent[]; committedBytes: number } {
-  const text = buffer.toString('utf8')
-  // Track complete lines by byte offset: a non-newline tail is torn and ignored,
-  // and a running counter avoids rescanning a long multi-byte log.
-  const lines: { text: string; endByte: number }[] = []
-  let start = 0
-  let byteOffset = 0
-  for (let i = 0; i < text.length; i++) {
-    if (text[i] === '\n') {
-      const lineText = text.slice(start, i)
-      byteOffset += Buffer.byteLength(lineText, 'utf8') + 1 // +1 for the '\n' (a 1-byte char)
-      lines.push({ text: lineText, endByte: byteOffset })
-      start = i + 1
-    }
+interface SessionLogScan {
+  meta: SessionHeader
+  events: SessionEvent[]
+  committedBytes: number
+}
+
+/** Parse one complete header record supplied independently from event rows. */
+function parseHeaderRecord(record: Buffer): SessionHeader {
+  if (record.length === 0 || record.at(-1) !== 0x0A || record.indexOf(0x0A) !== record.length - 1) {
+    throw new Error('empty or header-less session log')
   }
-
-  const [headerEntry, ...eventEntries] = lines
-  if (headerEntry === undefined) throw new Error('empty or header-less session log')
-
-  // Line 0 is the header.
-  let parsedHeader: unknown
+  let parsed: unknown
   try {
-    parsedHeader = JSON.parse(headerEntry.text)
+    parsed = JSON.parse(record.subarray(0, -1).toString('utf8'))
   } catch {
     throw new Error('corrupt session log: header line is not valid JSON')
   }
-  if (!isHeaderLine(parsedHeader)) {
+  if (!isHeaderLine(parsed)) {
     throw new Error('corrupt session log: first line is not a session header')
   }
-  const headerLine = parsedHeader
+  return fromHeaderLine(parsed)
+}
 
-  // Parse and decode every complete line first so the last valid `turn/end`
-  // determines whether an earlier hole interrupts an otherwise closed
-  // execution or belongs to a tolerable final suffix. One line yields one
-  // event, or a whole run for a packed chunk row; a row-tagged line that fails
-  // row validation is a hole, exactly like unparsable JSON.
-  interface Parsed { ok: boolean; events?: SessionEvent[]; endByte: number }
-  const parsed: Parsed[] = eventEntries.map((entry) => {
-    try {
-      return { ok: true, events: decodeStorageRecord(JSON.parse(entry.text)), endByte: entry.endByte }
-    } catch {
-      return { ok: false, endByte: entry.endByte }
-    }
-  })
+/**
+ * Incrementally scan complete JSONL event records after an independently
+ * supplied header record. Newline search and byte offsets stay on raw buffers;
+ * only complete records are decoded to UTF-8. A fragment crossing writes is
+ * copied because a decoder may reuse its output buffer after `write()` returns.
+ */
+export class SessionLogScanner {
+  private readonly meta: SessionHeader
+  private readonly events: SessionEvent[] = []
+  private fragments: Buffer[] = []
+  private fragmentBytes = 0
+  private inputBytes: number
+  private committedBytes: number
+  private eventLine = 0
+  private issue: Error | undefined
+  private finished = false
 
-  // The last index (into eventEntries) that ends in a valid `turn/end`. A hole
-  // before this boundary cannot be a torn final suffix because later execution
-  // already closed. Standalone events after it remain part of the preserved
-  // contiguous prefix. A packed row never stores a turn/end, so only
-  // single-event lines can match.
-  let lastTurnEnd = -1
-  for (let i = parsed.length - 1; i >= 0; i--) {
-    const p = parsed[i]
-    if (p?.ok && p.events?.some(e => e.type === 'turn/end')) { lastTurnEnd = i; break }
+  /**
+   * Create an event scanner from exactly one newline-terminated header record.
+   * @param headerRecord - the complete first JSONL record, including its newline.
+   */
+  constructor(headerRecord: Buffer) {
+    this.meta = parseHeaderRecord(headerRecord)
+    this.inputBytes = headerRecord.length
+    this.committedBytes = headerRecord.length
   }
 
-  // Preserve the contiguous prefix, including a complete interrupted turn;
-  // holes through the last committed boundary throw, while later holes stop.
-  // Contiguity is a cursor over seqs (not the line index): a packed row
-  // advances the cursor by its whole run.
-  const preserved: SessionEvent[] = []
-  let lastPreservedLine = -1
-  scan: for (let i = 0; i < parsed.length; i++) {
-    const p = parsed[i]
-    if (!p?.ok || p.events === undefined) {
-      if (i <= lastTurnEnd) throw new Error(`corrupt session log: unparsable committed event at line ${i + 1}`)
-      break // torn tail fragment after the last turn/end — stop, tolerate
-    }
-    for (const event of p.events) {
-      if (event.seq !== preserved.length) {
-        if (i <= lastTurnEnd) {
-          throw new Error(`corrupt session log: seq gap in committed region at line ${i + 1} (expected ${preserved.length}, got ${event.seq})`)
-        }
-        break scan // gap after the last turn/end — torn tail, stop
+  /**
+   * Consume the next raw plaintext chunk, retaining only an incomplete final record.
+   * @param chunk - bytes immediately following all previously supplied bytes.
+   */
+  write(chunk: Buffer): void {
+    if (this.finished) throw new Error('cannot write to a finished session log scanner')
+    const chunkStart = this.inputBytes
+    this.inputBytes += chunk.length
+    let lineStart = 0
+    for (
+      let newline = chunk.indexOf(0x0A);
+      newline !== -1;
+      newline = chunk.indexOf(0x0A, lineStart)
+    ) {
+      const fragment = chunk.subarray(lineStart, newline)
+      let line = fragment
+      if (this.fragments.length > 0) {
+        if (fragment.length > 0) this.fragments.push(fragment)
+        line = Buffer.concat(this.fragments, this.fragmentBytes + fragment.length)
+        this.fragments = []
+        this.fragmentBytes = 0
       }
-      preserved.push(event)
+      this.consumeEventLine(line, chunkStart + newline + 1)
+      lineStart = newline + 1
     }
-    lastPreservedLine = i
+    if (lineStart < chunk.length) {
+      const fragment = Buffer.from(chunk.subarray(lineStart))
+      this.fragments.push(fragment)
+      this.fragmentBytes += fragment.length
+    }
   }
 
-  // committedBytes = end of the last FULLY preserved line (header if none): the
-  // next append truncates any torn bytes past this point before writing the
-  // synthetic closers + new events. A line is preserved whole or not at all —
-  // a mid-row seq gap discards the whole row, keeping the truncation offset on
-  // a line boundary.
-  const lastPreserved = parsed[lastPreservedLine]
-  const committedBytes = lastPreserved !== undefined ? lastPreserved.endByte : headerEntry.endByte
-  return { meta: fromHeaderLine(headerLine), events: preserved, committedBytes }
+  /**
+   * Snapshot progress before appending a recoverable torn-frame prefix.
+   * @returns byte, committed-prefix, and expanded-event cursors.
+   */
+  checkpoint(): { inputBytes: number; committedBytes: number; eventCount: number } {
+    return {
+      inputBytes: this.inputBytes,
+      committedBytes: this.committedBytes,
+      eventCount: this.events.length,
+    }
+  }
+
+  /**
+   * Finish scanning, ignoring a final record without a newline as a torn tail.
+   * @returns the header, contiguous event prefix, and safe truncation offset.
+   */
+  finish(): SessionLogScan {
+    this.finished = true
+    return { meta: this.meta, events: this.events, committedBytes: this.committedBytes }
+  }
+
+  /** Decode one complete event row and update the contiguous prefix. */
+  private consumeEventLine(line: Buffer, endByte: number): void {
+    this.eventLine += 1
+    let decoded: SessionEvent[]
+    try {
+      decoded = decodeStorageRecord(JSON.parse(line.toString('utf8')))
+    } catch {
+      this.issue ??= new Error(`corrupt session log: unparsable committed event at line ${this.eventLine}`)
+      return
+    }
+
+    if (this.issue !== undefined) {
+      if (decoded.some(event => event.type === 'turn/end')) throw this.issue
+      return
+    }
+
+    const rowStart = this.events.length
+    for (const event of decoded) {
+      if (event.seq !== this.events.length) {
+        const expected = this.events.length
+        this.events.length = rowStart
+        this.issue = new Error(
+          `corrupt session log: seq gap in committed region at line ${this.eventLine} `
+          + `(expected ${expected}, got ${event.seq})`,
+        )
+        if (decoded.some(candidate => candidate.type === 'turn/end')) throw this.issue
+        return
+      }
+      this.events.push(event)
+    }
+    this.committedBytes = endByte
+  }
+}
+
+/**
+ * Parse a complete or torn JSONL buffer into its preserved event prefix. This
+ * compatibility wrapper supplies the first record separately, then delegates
+ * event rows to {@link SessionLogScanner}.
+ *
+ * @param buffer - the raw bytes of the log file (header line first).
+ * @returns the header, preserved event prefix, and byte offset safe to append at.
+ */
+export function scanLog(buffer: Buffer): SessionLogScan {
+  const headerEnd = buffer.indexOf(0x0A)
+  if (headerEnd === -1) throw new Error('empty or header-less session log')
+  const scanner = new SessionLogScanner(buffer.subarray(0, headerEnd + 1))
+  scanner.write(buffer.subarray(headerEnd + 1))
+  return scanner.finish()
 }
 
 /**

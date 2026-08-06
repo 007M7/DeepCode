@@ -1,12 +1,13 @@
 /** Node-half composition diagnostics for package metadata and built client bundles. */
 
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { Context } from 'cordis'
 import { afterEach, describe, expect, it } from 'vitest'
-import type { HttpServerService } from '@deepseek-ai/dsh-host-webserver'
+import type { HttpServerService, WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import { ClientModuleHostService } from '../src/index.ts'
 
 let root: string | undefined
@@ -33,8 +34,8 @@ function writePackage(packageName: string): string {
   return clientPath
 }
 
-/** Construct the node-half service over the enabled fixture entries. */
-function construct(packageNames: string[]): ClientModuleHostService {
+/** Construct the node-half service and capture its plugin-bundle route. */
+function constructWithRoute(packageNames: string[]): { service: ClientModuleHostService; route: WebRoute } {
   const ctx = new Context()
   ctx.baseUrl = pathToFileURL(root!).href + '/'
   ctx.provide('loader', {
@@ -44,13 +45,24 @@ function construct(packageNames: string[]): ClientModuleHostService {
       }
     },
   })
+  let route: WebRoute | undefined
   const httpServer: Pick<HttpServerService, 'port' | 'register' | 'tapIndex'> = {
     port: 0,
-    register: () => () => {},
+    register: (candidate) => {
+      if (candidate.path === '/plugins') route = candidate
+      return () => {}
+    },
     tapIndex: () => () => {},
   }
   ctx.provide('httpServer', httpServer as HttpServerService)
-  return new ClientModuleHostService(ctx)
+  const service = new ClientModuleHostService(ctx)
+  if (route === undefined) throw new Error('client bundle route was not registered')
+  return { service, route }
+}
+
+/** Construct the node-half service over the enabled fixture entries. */
+function construct(packageNames: string[]): ClientModuleHostService {
+  return constructWithRoute(packageNames).service
 }
 
 describe('client bundle activation', () => {
@@ -83,5 +95,41 @@ describe('client bundle activation', () => {
     expect(String(thrown)).toContain('  other failures:')
     expect(String(thrown)).toContain('EISDIR')
     expect(String(thrown)).not.toContain('pnpm run build')
+  })
+
+  it('serves the source map beside a registered client bundle', async () => {
+    const packageName = '@fixture/source-map'
+    const clientPath = writePackage(packageName)
+    mkdirSync(dirname(clientPath), { recursive: true })
+    writeFileSync(clientPath, 'module.exports = {}\n')
+    const map = '{"version":3,"sources":["src/client/index.tsx"]}\n'
+    writeFileSync(`${clientPath}.map`, map)
+    const { route } = constructWithRoute([packageName])
+    let status = 0
+    let headers: Record<string, string> | undefined
+    let body = ''
+    const response = {
+      writeHead(nextStatus: number, nextHeaders?: Record<string, string>) {
+        status = nextStatus
+        headers = nextHeaders
+        return response
+      },
+      end(chunk?: Uint8Array) {
+        body = chunk === undefined ? '' : Buffer.from(chunk).toString('utf8')
+        return response
+      },
+    } as unknown as ServerResponse
+
+    await route.handler({
+      method: 'GET',
+      url: `/plugins/${packageName}/client.js.map`,
+    } as IncomingMessage, response)
+
+    expect(status).toBe(200)
+    expect(headers).toEqual({
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': 'no-cache',
+    })
+    expect(body).toBe(map)
   })
 })

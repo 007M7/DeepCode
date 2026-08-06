@@ -21,7 +21,7 @@ describe('installAgentLlmTarget()', () => {
 
     expect((await ctx.systemPrompt.assemble()).variables).toEqual({})
     await expect(agentEvents(ctx, agent).waterfall(
-      'agent/request', 1, 0, signal, () => Promise.resolve(seed),
+      'agent/request', { turn: 1, step: 0, signal }, () => Promise.resolve(seed),
     )).resolves.toBe(seed)
 
     target.current = {
@@ -32,7 +32,7 @@ describe('installAgentLlmTarget()', () => {
     expect((await ctx.systemPrompt.assemble()).variables).toMatchObject({ provider: 'alpha', model: 'a1' })
     target.current = { provider: 'beta', model: 'b1' }
     await expect(agentEvents(ctx, agent).waterfall(
-      'agent/request', 1, 0, signal, () => Promise.resolve(seed),
+      'agent/request', { turn: 1, step: 0, signal }, () => Promise.resolve(seed),
     )).resolves.toEqual({
       provider: 'alpha',
       model: 'a1',
@@ -48,13 +48,13 @@ describe('installAgentLlmTarget()', () => {
       temperature: 0.2,
     }
     await expect(agentEvents(ctx, agent).waterfall(
-      'agent/request', 1, 1, signal, () => Promise.resolve(inherited),
+      'agent/request', { turn: 1, step: 1, signal }, () => Promise.resolve(inherited),
     )).resolves.toEqual({ provider: 'beta', model: 'b1', temperature: 0.2 })
 
     dispose()
     expect((await ctx.systemPrompt.assemble()).variables).toEqual({})
     await expect(agentEvents(ctx, agent).waterfall(
-      'agent/request', 2, 0, signal, () => Promise.resolve(seed),
+      'agent/request', { turn: 2, step: 0, signal }, () => Promise.resolve(seed),
     )).resolves.toBe(seed)
     await ctx.fiber.dispose()
   })

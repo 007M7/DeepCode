@@ -46,7 +46,16 @@ async function isolatedSkillsConfig(catalogDescriptionMaxLength?: number): Promi
 
 async function composePrefix(ctx: Context): Promise<Message[]> {
   const agent = ctx.agentLoop.create(SessionId(`acp-demo-prefix-${randomUUID()}`), {}, { cwd: '/tmp' })
-  await agentEvents(ctx, agent).serial('agent/step', 1, 1, new AbortController().signal)
+  const signal = new AbortController().signal
+  const decision = await agentEvents(ctx, agent).waterfall(
+    'agent/pre-step', { messages: [], turn: 1, step: 1, signal },
+    () => Promise.resolve({ kind: 'enter', messages: [] }),
+  )
+  if (decision.kind === 'enter') {
+    for (const message of decision.messages) {
+      agent.session.append('user/message', message, { surfaceOp: 'append' })
+    }
+  }
   return agent.session.deriveMessages()
 }
 

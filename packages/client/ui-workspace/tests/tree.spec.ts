@@ -11,13 +11,13 @@ import { createWorkspaceViewStore } from '../src/client/stores.ts'
 const sid = (id: string) => id as SessionId
 const wid = (id: string) => id as WorkspaceId
 const summary = (id: string, updatedAt: number, cwd?: string): SessionSummary => ({
-  id: sid(id), displayTitle: id, running: false, waitingApproval: false, blank: false, updatedAt, ...(cwd === undefined ? {} : { cwd }),
+  id: sid(id), displayTitle: id, running: false, blank: false, updatedAt, ...(cwd === undefined ? {} : { cwd }),
 })
 const list = (...items: SessionSummary[]): SessionListState => ({
   ids: items.map(item => item.id),
   byId: Object.fromEntries(items.map(item => [item.id, item])),
   current: undefined,
-  phase: 'ready',
+  phase: 'ready', subagentsByParent: {}, currentAddress: undefined,
 })
 const workspace = (id: string, sessionIds: string[], title = id): WorkspaceView => ({
   workspaceId: wid(id), path: `/projects/${id}`, title,
@@ -36,6 +36,14 @@ describe('deriveGroups', () => {
     const groups = deriveGroups(sessions, workspaces, noArchive, view(['first']))
     expect(groups.map(group => group.key)).toEqual(['first', 'empty'])
     expect(groups[0]!.sessions.map(session => session.id)).toEqual([sid('older'), sid('newer')])
+  })
+
+  it('projects pending-interaction state into grouped and flat rows', () => {
+    const awaiting = { ...summary('awaiting', 10), pendingInteraction: 'plan-review' as const, running: true }
+    const sessions = list(awaiting)
+    const grouped = deriveGroups(sessions, [workspace('project', ['awaiting'])], noArchive, view(['project']))
+    expect(grouped[0]!.sessions[0]).toMatchObject({ pendingInteraction: 'plan-review', running: true })
+    expect(deriveFlat(sessions, noArchive)[0]).toMatchObject({ pendingInteraction: 'plan-review', running: true })
   })
 
   it('puts only real unaccounted Sessions in the trailing Ungrouped group', () => {
@@ -67,6 +75,38 @@ describe('deriveGroups', () => {
     // A non-current blank stray never surfaces an Ungrouped bucket either.
     const strayGroups = deriveGroups(list({ ...summary('stray', 2), blank: true }), [workspace('first', [])], noArchive, view())
     expect(strayGroups.map(group => group.key)).toEqual(['first'])
+  })
+
+  it('projects the completion reminder into session and search rows (absent = false)', () => {
+    const done = { ...summary('done', 3), completed: true }
+    const plain = summary('plain', 2)
+    const sessions = list(done, plain)
+    const groups = deriveGroups(
+      sessions, [workspace('first', ['done', 'plain'])], noArchive, view(['first']),
+    )
+    const doneNode = groups[0]!.sessions.find(session => session.id === done.id)!
+    const plainNode = groups[0]!.sessions.find(session => session.id === plain.id)!
+    expect(doneNode.completed).toBe(true)
+    expect(plainNode.completed).toBe(false)
+    expect(deriveFlat(sessions, noArchive).find(node => node.id === done.id)!.completed).toBe(true)
+    const search = deriveSearchResults(sessions, [workspace('first', ['done', 'plain'])], 'done', noArchive, { items: [], hasMore: false }, 10)
+    expect(search.items[0]?.completed).toBe(true)
+  })
+
+  it('hides subagent-origin sessions without hiding ordinary forks', () => {
+    const parent = summary('parent', 1)
+    const fork = { ...summary('fork', 2), parentId: parent.id }
+    const subagent = { ...summary('subagent', 3), parentId: parent.id, origin: 'subagent' as const }
+    const sessions = { ...list(parent, fork, subagent), current: subagent.id }
+    const groups = deriveGroups(
+      sessions,
+      [workspace('first', ['parent', 'fork', 'subagent'])],
+      noArchive,
+      view(['first']),
+    )
+
+    expect(groups[0]!.sessions.map(node => node.id)).toEqual([parent.id, fork.id])
+    expect(groups[0]!.sessionCount).toBe(2)
   })
 
   it('ignores fork lineage and sorts every ungrouped session as a top-level row', () => {
@@ -143,6 +183,17 @@ describe('deriveFlat', () => {
     expect(rows.map(row => row.id)).toEqual([sid('child'), sid('tie-a'), sid('tie-b'), sid('parent')])
   })
 
+  it('hides subagent-origin rows but keeps ordinary forks', () => {
+    const parent = summary('parent', 1)
+    const fork = { ...summary('fork', 2), parentId: parent.id }
+    const subagent = { ...summary('subagent', 3), parentId: parent.id, origin: 'subagent' as const }
+    const rows = deriveFlat(
+      { ...list(parent, fork, subagent), current: subagent.id },
+      noArchive,
+    )
+    expect(rows.map(row => row.id)).toEqual([fork.id, parent.id])
+  })
+
   it('tolerates ids whose summary has not landed yet', () => {
     const partial: SessionListState = { ...list(summary('present', 1)), ids: [sid('ghost'), sid('present')] }
     expect(deriveFlat(partial, noArchive).map(row => row.id)).toEqual([sid('present')])
@@ -190,6 +241,7 @@ describe('deriveSearchResults', () => {
   it('merges local title/Workspace matches before ranked content hits and enriches duplicates', () => {
     const titleHit = summary('title-hit', 30, '/projects/a')
     titleHit.displayTitle = 'Needle title'
+    titleHit.pendingInteraction = 'plan-review'
     const workspaceHit = summary('workspace-hit', 20, '/projects/b')
     workspaceHit.displayTitle = 'Ordinary title'
     const contentHit = summary('content-hit', 10, '/projects/c')
@@ -222,6 +274,8 @@ describe('deriveSearchResults', () => {
           title: 'Needle title',
           workspace: 'Alpha',
           running: false,
+          pendingInteraction: 'plan-review',
+          completed: false,
           snippet: 'title session body excerpt',
         },
         {
@@ -229,12 +283,14 @@ describe('deriveSearchResults', () => {
           title: 'Ordinary title',
           workspace: 'Needle Workspace',
           running: false,
+          completed: false,
         },
         {
           id: contentHit.id,
           title: 'content-hit',
           workspace: 'c',
           running: false,
+          completed: false,
           snippet: 'body needle excerpt',
         },
       ],

@@ -6,7 +6,7 @@ English | [中文](2026-07-29-human-transcript-append-origin.zh.md)
 
 ## Problem
 
-The terminal and the host history gateway both treated the model-visible surface as the human transcript. A successful compaction replaces a surface range with one checkpoint node, so the moment that replacement landed the terminal dropped every message it shadowed — conversation the user had already read — and re-ran that destructive rebuild on any later replacement. The same confusion reached pagination: `maxMessages` counted every `user/message`, `assistant/message`, and `steering/message` in the window, so a model-only replacement copy consumed a page slot the human never filled, and the cut could land between a compaction's log-only provenance and the replacement that cites it.
+The terminal and the host history gateway both treated the model-visible surface as the human transcript. A successful compaction replaces a surface range with one checkpoint node, so the moment that replacement landed the terminal dropped every message it shadowed — conversation the user had already read — and re-ran that destructive rebuild on any later replacement. The same confusion reached pagination: `maxMessages` counted every `user/message` and `assistant/message` in the window, so a model-only replacement copy consumed a page slot the human never filled, and the cut could land between a compaction's log-only provenance and the replacement that cites it.
 
 Nothing was lost from the log. `Session.events` still held every original message and full tool result; the surface only decides what the model is sent next. The defect was entirely in the projection.
 
@@ -26,7 +26,7 @@ No persisted event, RPC envelope, compaction transaction, or model-visible surfa
 
 The browser client is fixed separately, in [the web transcript projection note](2026-07-30-web-transcript-log-ordered-projection.md): it projects the same append-origin transcript in log order and renders a marker component, and it closes the pagination hole this change opened — because `session.history` no longer spends quota on the checkpoint, it never cuts on the checkpoint's provenance group, so a page can carry a checkpoint citing a `surfaceOp.start` outside the window, which the browser's surface fold rejected. That hole predates this change (counting could already run past a checkpoint into the range it shadows), but the old rule accidentally covered the case where the checkpoint was the oldest counted message and pulled the whole shadowed range onto its page.
 
-The terminal's [live compaction progress decision](../feature/2026-07-30-compaction-progress-visibility.md) uses standalone bracket events to drive the existing one-cell indicator. It does not change the completion marker owned here or add scale: the checkpoint's `sourceEventSeqs` remain available for a separately justified count or range. Progress therefore needs neither marker-content changes nor a prerequisite `renderReplacement(event)` extraction.
+The terminal's [archived live compaction progress decision](../../archived/feature/2026-07-30-compaction-progress-visibility.md) uses standalone bracket events to drive the existing one-cell indicator. It does not change the completion marker owned here or add scale: the checkpoint's `sourceEventSeqs` remain available for a separately justified count or range. Progress therefore needs neither marker-content changes nor a prerequisite `renderReplacement(event)` extraction.
 
 ## Alternatives considered
 

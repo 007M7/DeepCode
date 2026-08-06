@@ -30,7 +30,7 @@ const result = (overrides: Record<string, unknown> = {}) => ({
 })
 
 function startTurn(session: Session, turn = 1): void {
-  session.append('turn/start', { turn, trigger: { kind: 'message', source: { kind: 'user' } } })
+  session.append('turn/start', { turn })
 }
 
 describe('hook-protocol invariants', () => {
@@ -49,7 +49,7 @@ describe('hook-protocol invariants', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create()
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     session.append('hook/invoked', invoked())
     await ctx.plugin(InvariantService)
     await ctx.plugin(HookInvariant)
@@ -59,11 +59,11 @@ describe('hook-protocol invariants', () => {
 
   it('adopts a bare session first observed through publication', async () => {
     const ctx = await setup()
-    const session = new Session(SessionId('bare-hook-session'))
+    const session = Session.create(SessionId('bare-hook-session'))
     expect(() => {
       ctx.emit('session/event', session, {
         type: 'turn/start', seq: 0, time: 0,
-        data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+        data: { turn: 1 },
       })
       ctx.emit('session/event', session, {
         type: 'hook/invoked', seq: 1, time: 1, data: invoked(),

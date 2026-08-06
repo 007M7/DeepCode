@@ -14,7 +14,7 @@ Model-request recovery was decided inside `agent/request-error` but communicated
 
 The loop reads the action after the waterfall settles, closes the failed turn, and opens one retry turn from durable history. It rechecks the turn signal when consuming the action, so cancellation or disposal during recovery prevents the retry even if a listener returns it afterward. A thrown recovery never produces an action.
 
-`Agent` and `ReactLoopAgent` expose no `retry()` method. Ordinary new work enters through `send()` and its `followup()`, `steer()`, and `inject()` presets; only a handled model-request failure can open a promptless retry turn.
+`Agent` and `ReactLoopAgent` expose no `retry()` method. Ordinary new work enters through `followup()`, `steer()`, and `inject()`; only a handled model-request failure can open a promptless retry turn.
 
 ## Alternatives considered
 

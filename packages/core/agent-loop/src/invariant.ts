@@ -6,7 +6,7 @@
 import type { Context } from 'cordis'
 import { isAgentLoopRequest, type GenerateOptions } from '@deepseek-ai/dsh-llm'
 import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
-import { Session, SessionId, foldRequestHeader } from '@deepseek-ai/dsh-session'
+import { foldRequestHeader } from '@deepseek-ai/dsh-session'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-agent-loop'
 
@@ -17,8 +17,7 @@ export const inject = ['invariants']
 
 /** Install the request-reconstruction contribution into its child registration fiber. */
 const install: InvariantInstaller = Object.assign((ctx: Context, fail: InvariantFailure) => {
-  // Prepend prevents a short-circuiting replay listener from silencing the
-  // check; correctness itself comes from the sequence-bounded reconstruction.
+  // Prepend prevents a short-circuiting replay listener from silencing the check.
   ctx.on('llm/stream', (options: GenerateOptions, next) => {
     if (!isAgentLoopRequest(options)) return next()
     if (!Object.isFrozen(options)) fail('a loop-built request must be frozen')
@@ -30,27 +29,16 @@ const install: InvariantInstaller = Object.assign((ctx: Context, fail: Invariant
     }
 
     const events = session.events
-    let boundary = -1
-    for (let index = events.length - 1; index >= 0; index -= 1) {
-      if (events[index]?.type === 'step/start') {
-        boundary = index
-        break
-      }
-    }
-    if (boundary === -1) {
+    if (!events.some(event => event.type === 'step/start')) {
       return fail('a loop-built request with no step/start in its session log')
     }
     const header = foldRequestHeader(events)
     if (header === undefined) {
       return fail('a loop-built request with no request/header event in its session log')
     }
-    const rebuilt = new Session(
-      SessionId(`${String(session.id)}-invariant-rebuild`),
-      structuredClone(events.slice(0, boundary)),
-    )
-    const expected = rebuilt.deriveMessages()
+    const expected = session.deriveMessages()
     if (JSON.stringify(options.messages) !== JSON.stringify(expected)) {
-      fail(`llm request for session "${String(session.id)}" diverges from the boundary derivation (log-reconstruction desync)`)
+      fail(`llm request for session "${String(session.id)}" diverges from the dispatch-time durable derivation (log-reconstruction desync)`)
     }
 
     const headerMatches = options.model === header.config.model

@@ -128,11 +128,11 @@ describe('assembled search card', () => {
     win.__DSH_BOOT__ = { rev: 'fx', entries: PLUGINS.map(({ dir: _dir, ...plugin }) => plugin) }
     act(() => {
       const entry = new AppWebEntry(root, {
-        fetchBundle: (url) => {
+        loadBundle: async (url) => {
           const code = bundles.get(url)
-          return code === undefined ? Promise.reject(new Error(`missing built bundle ${url}`)) : Promise.resolve(code)
+          if (code === undefined) throw new Error(`missing built bundle ${url}`)
+          ;(0, eval)(code)
         },
-        executeBundle: (code) => { (0, eval)(code) },
       })
       void entry.run()
       unmount = () => { entry.dispose() }
@@ -143,7 +143,7 @@ describe('assembled search card', () => {
     // Wait for chat content to reach the fixture's later turns (the bash sample
     // is turn 65, the grep card turn 66).
     await waitFor(() => {
-      expect(document.querySelector('[data-sample="bash-global"]')).not.toBeNull()
+      expect(document.querySelector('[data-sample="bash"]')).not.toBeNull()
     }, { timeout: 10_000 })
     // The grep turn's keyed SearchRow composes ToolRow: the card is collapsed
     // by default, so wait for the summary row, then expand it to reach the card.

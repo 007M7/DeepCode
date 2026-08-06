@@ -16,8 +16,9 @@ export const inject = ['invariants']
 
 /**
  * No runtime invariant: the settings seam validates and publishes the durable
- * welcome section, while slot conflicts fail loud in the slot core; this
- * package owns no additional event/data relationship between those systems.
+ * welcome section, while slot conflicts fail loud in the slot core. The local
+ * document action is browser state over typed RPC responses and is covered by
+ * store/component tests rather than a Cordis runtime relationship.
  */
 const install: InvariantInstaller = () => {}
 

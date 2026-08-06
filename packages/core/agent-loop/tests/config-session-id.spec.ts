@@ -5,7 +5,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import LlmService from '@deepseek-ai/dsh-llm'
-import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId, SessionPreparation } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
@@ -19,7 +19,7 @@ afterEach(async () => { for (const d of dirs.splice(0)) await rm(d, { recursive:
 
 function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
-    const dispose = ctx.on('agent/status', (subject, status) => {
+    const dispose = ctx.on('agent/status', ({ agent: subject, status }) => {
       if (subject === agent && status === 'idle') { dispose(); resolve() }
     })
   })
@@ -146,8 +146,9 @@ describe('config-driven session id', () => {
     dirs.push(root)
     const ctx = await makeCoreContext()
     await ctx.plugin(SessionPersistenceJsonl, { root })
+    ctx.llm.registerAdapter(['mock'], new MockAdapter([textResponse('saved')]))
     const sessionId = SessionId('config-exact-overlap')
-    const config = { agents: [{ id: 'main', sessionId, model: 'mock' }] }
+    const config = { agents: [{ id: 'main', sessionId, provider: 'mock', model: 'mock' }] }
     const firstLoop = await ctx.plugin(AgentLoop, config)
     await expect.poll(() => ctx.agents.get(sessionId)).toBeDefined()
     const first = ctx.agents.get(sessionId) as Agent
@@ -158,7 +159,9 @@ describe('config-driven session id', () => {
       cleanupStarted.resolve(undefined)
       await cleanupGate.promise
     })
-    first.inject(createUserMessage({ content: [{ type: 'text', text: 'persist before replacement' }], source: { kind: 'plugin', plugin: 'test' } }))
+    const idle = waitForIdle(ctx, first)
+    first.followup(createUserMessage({ content: [{ type: 'text', text: 'persist before replacement' }], source: { kind: 'user' } }))
+    await idle
     await ctx.sessions.flush(first.session)
     expect(JSON.stringify((await ctx.sessionPersistence.inspect(sessionId)).events))
       .toContain('persist before replacement')
@@ -167,7 +170,7 @@ describe('config-driven session id', () => {
     await cleanupStarted.promise
     expect(first.status).toBe('idle')
     const failures: unknown[] = []
-    ctx.on('agent-loop/config-start-failed', (_id, error) => { failures.push(error) })
+    ctx.on('agent-loop/config-start-failed', ({ error }) => { failures.push(error) })
     const secondLoop = await ctx.plugin(AgentLoop, config)
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(ctx.agents.get(sessionId)).toBe(first)
@@ -231,7 +234,7 @@ describe('config-driven session id', () => {
     const failures: { sessionId: SessionId; error: unknown }[] = []
     ctx.on('agent-loop/config-start-failed', () => { throw listenerFailure })
     ctx.on('agent-loop/config-start-failed', () => Promise.reject(asyncListenerFailure) as never)
-    ctx.on('agent-loop/config-start-failed', (sessionId, error) => {
+    ctx.on('agent-loop/config-start-failed', ({ sessionId, error }) => {
       failures.push({ sessionId, error })
     })
     vi.spyOn(ctx.sessionPersistence, 'list').mockRejectedValue(failure)
@@ -271,7 +274,7 @@ describe('config-driven session id', () => {
     // Deliberately violate the normal Error-only rejection rule to exercise the unknown boundary.
     // oxlint-disable-next-line typescript/prefer-promise-reject-errors
     ctx.on('agent-loop/config-start-failed', () => Promise.reject(unrenderable) as never)
-    ctx.on('agent-loop/config-start-failed', (_sessionId, error) => { failures.push(error) })
+    ctx.on('agent-loop/config-start-failed', ({ error }) => { failures.push(error) })
     vi.spyOn(ctx.sessionPersistence, 'list').mockRejectedValue(unrenderable)
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
 
@@ -293,35 +296,33 @@ describe('config-driven session id', () => {
   })
 
   it.each(['resolve', 'reject'] as const)(
-    'abandons an exact-id persistence lookup that later %s when AgentLoop disposal starts',
+    'abandons an exact-id preparation that later %s when AgentLoop disposal starts',
     async (outcome) => {
       const root = await mkdtemp(join(tmpdir(), 'dsh-cfg-exact-dispose-'))
       dirs.push(root)
       const ctx = await makeCoreContext()
       await ctx.plugin(SessionPersistenceJsonl, { root })
-      const loading = Promise.withResolvers<Awaited<ReturnType<typeof ctx.sessionPersistence.load>>>()
-      vi.spyOn(ctx.sessionPersistence, 'load').mockReturnValue(loading.promise)
+      const preparing = Promise.withResolvers<SessionPreparation>()
+      vi.spyOn(ctx.sessionPersistence, 'prepare').mockReturnValue(preparing.promise)
+      const released = vi.fn()
       const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
       const failures: unknown[] = []
-      ctx.on('agent-loop/config-start-failed', (_sessionId, error) => { failures.push(error) })
+      ctx.on('agent-loop/config-start-failed', ({ error }) => { failures.push(error) })
 
       const loop = await ctx.plugin(AgentLoop, {
         agents: [{ id: 'main', sessionId: SessionId('config-exact-dispose'), model: 'mock' }],
       })
       await loop.dispose()
       if (outcome === 'resolve') {
-        loading.resolve({
-          meta: {
-            id: SessionId('config-exact-dispose'),
-            version: 0,
-            createdAt: Date.now(),
-          },
-          events: [],
-        })
+        preparing.resolve(SessionPreparation.create(
+          ctx.sessions.prepare(SessionId('config-exact-dispose')),
+          { release: released },
+        ))
       } else {
-        loading.reject(new Error('startup cancelled by teardown'))
+        preparing.reject(new Error('startup cancelled by teardown'))
       }
       await Promise.resolve()
+      if (outcome === 'resolve') await expect.poll(() => released).toHaveBeenCalledOnce()
       expect(ctx.agents.get(SessionId('config-exact-dispose'))).toBeUndefined()
       expect(failures).toEqual([])
       expect(warn).not.toHaveBeenCalled()
@@ -478,7 +479,7 @@ describe('startup reporting after factory teardown', () => {
     gate.promise.catch(() => undefined)
     vi.spyOn(ctx.sessionPersistence, 'list').mockReturnValue(gate.promise)
     const failures: unknown[] = []
-    ctx.on('agent-loop/config-start-failed', (_id, error) => { failures.push(error) })
+    ctx.on('agent-loop/config-start-failed', ({ error }) => { failures.push(error) })
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
 
     const loop = await ctx.plugin(AgentLoop, {

@@ -110,7 +110,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
       await waitForIdle(ctx, agent)
       expect(existsSync(marker)).toBe(true) // substituted command ran
-    })
+    }, 15_000) // Real agent and hook subprocess startup can exceed Vitest's default under coverage concurrency.
 
     it('warns and honors updatedInput as a no-op (input rewrite deferred)', async () => {
       const d = dir()
@@ -322,7 +322,9 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
       await waitForIdle(ctx, agent)
-      expect(events(agent).some(e => e.type === 'turn/start')).toBe(false)
+      expect(events(agent).filter(e => e.type === 'turn/start' || e.type === 'hook/invoked'
+        || e.type === 'hook/result' || e.type === 'turn/end').map(e => e.type))
+        .toEqual(['turn/start', 'hook/invoked', 'hook/result', 'turn/end'])
     })
 
     it('a PreToolUse ask with NO reason omits the reason (false arm)', async () => {
@@ -495,7 +497,9 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const adapter = new MockAdapter([textResponse('should not run')])
       const ctx = await harness(path, adapter)
       // A later listener that blocks every prompt (registered AFTER the bridge).
-      ctx.on('agent/prompt-submit', async () => ({ kind: 'block' as const, reason: 'policy veto' }))
+      ctx.on('agent/pre-step', async () => ({
+        kind: 'reject' as const,
+      }))
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
       await waitForIdle(ctx, agent)
@@ -503,21 +507,25 @@ export function defineCoverageCases(group: CoverageGroup): void {
       // recorded, and the (sole, fully-blocked) prompt closed the turn `rejected`
       expect(adapter.requests).toHaveLength(0)
       expect(events(agent).some(e => e.type === 'user/message' && e.data.source.kind !== 'user')).toBe(false)
-      expect(events(agent).some(e => e.type === 'turn/start')).toBe(false)
+      expect(events(agent).filter(e => e.type === 'turn/start' || e.type === 'hook/invoked'
+        || e.type === 'hook/result' || e.type === 'turn/end').map(e => e.type))
+        .toEqual(['turn/start', 'hook/invoked', 'hook/result', 'turn/end'])
     })
 
     it('preserves separate bridge and downstream prompt contexts with framing and metadata', async () => {
-    // Both the bridge hook and a later prompt-submit listener attach context; the
+    // Both the bridge hook and a later pre-step listener attach context; the
     // request must see both as separately sourced durable events.
       const d = dir()
       const s = sh(d, 'ctx.sh', '#!/usr/bin/env bash\necho \'{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"from-bridge"}}\'\n')
       const path = hooks(d, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: s }] }] })
       const adapter = new MockAdapter([textResponse('ok')])
       const ctx = await harness(path, adapter)
-      ctx.on('agent/prompt-submit', async () => ({
-        kind: 'allow' as const,
-        content: [{ type: 'text' as const, text: 'rewritten-prompt' }],
-        additionalContexts: [createUserMessage({
+      ctx.on('agent/pre-step', async ({ messages }) => ({
+        kind: 'enter' as const,
+        messages: [{
+          ...messages[0]!,
+          content: [{ type: 'text' as const, text: 'rewritten-prompt' }],
+        }, createUserMessage({
           content: [{ type: 'text' as const, text: 'from-downstream' }],
           source: { kind: 'plugin' as const, plugin: 'policy' },
         })],
@@ -534,8 +542,8 @@ export function defineCoverageCases(group: CoverageGroup): void {
       expect(userMsg?.type === 'user/message' && userMsg.data.content.some(b => b.type === 'text' && b.text === 'rewritten-prompt')).toBe(true)
       const contexts = events(agent).filter(event => event.type === 'user/message' && event.data.source.kind !== 'user')
       expect(contexts.map(event => event.type === 'user/message' && event.data.source)).toEqual([
-        { kind: 'plugin', plugin: 'hooks-claude' },
         { kind: 'plugin', plugin: 'policy' },
+        { kind: 'plugin', plugin: 'hooks-claude' },
       ])
     })
 
@@ -681,12 +689,11 @@ export function defineCoverageCases(group: CoverageGroup): void {
     })
 
     it('runs a SubagentStop hook in the CHILD session workspace, not the server cwd', async () => {
-    // `SubagentStop` recovers the child at `subagent/end`; a relative marker proves `runPoint`
-    // receives that agent and runs in the child's cwd rather than the executor default.
       const serverDir = dir()
       const childDir = dir()
       const marker = join(childDir, 'stopwhere')
-      hooks(serverDir, { SubagentStop: [{ hooks: [{ type: 'command', command: 'pwd > stopwhere' }] }] })
+      const payload = join(childDir, 'stoppayload')
+      hooks(serverDir, { SubagentStop: [{ hooks: [{ type: 'command', command: 'cat > stoppayload.tmp; mv stoppayload.tmp stoppayload; pwd > stopwhere' }] }] })
       const ctx = new Context()
       await mountAgentLoopTestDependencies(ctx)
       await ctx.plugin(AgentLoop, { agents: [] })
@@ -698,15 +705,22 @@ export function defineCoverageCases(group: CoverageGroup): void {
 
       const { SessionId } = await import('@deepseek-ai/dsh-session')
       const childHandle = await ctx.agents.create({ sessionId: SessionId('child-stop-session'), meta: { cwd: childDir }, agentOptions: { provider: 'mock', model: 'mock' } })
-      ctx.emit(subagentCarrier(ctx), 'subagent/end', { runId: SubagentRunId('run-stop'), provider: 'inproc', id: childHandle.agent.id, local: true, stopReason: 'completed' })
+      const runId = SubagentRunId('run-stop')
+      const identity = { runId, provider: 'inproc', id: childHandle.agent.id, local: true }
+      // Start is the registry-backed capture edge; end deliberately follows
+      // handle disposal, matching continuable Activation settlement.
+      ctx.emit(subagentCarrier(ctx), 'subagent/start', identity)
+      await childHandle.dispose()
+      expect(ctx.agents.get(childHandle.agent.id)).toBeUndefined()
+      ctx.emit(subagentCarrier(ctx), 'subagent/end', { ...identity, stopReason: 'completed' })
 
       await waitFor(() => existsSync(marker))
       expect(existsSync(marker)).toBe(true) // the marker landed in the CHILD dir
-      const { readFileSync } = await import('node:fs')
       const where = readFileSync(marker, 'utf8').trim()
+      const input = JSON.parse(readFileSync(payload, 'utf8')) as { cwd: string; session_id: string }
       // `pwd` may resolve symlinks (/var → /private/var etc.), so compare basenames.
       expect(where.endsWith(childDir.split('/').pop()!)).toBe(true)
-      await childHandle.dispose()
+      expect(input).toMatchObject({ cwd: childDir, session_id: childHandle.agent.id })
     })
   })
 

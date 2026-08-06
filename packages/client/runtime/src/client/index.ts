@@ -31,7 +31,8 @@ export type { IWorkspaces } from './contract/workspaces.ts'
 export type {
   SessionBinding, SessionListState, SessionProvideContribution, SessionProvideDescriptor, SessionSummary,
 } from './sessions/service.ts'
-export type { SessionListPhase, SessionSearchResultItem } from './sessions/manager.ts'
+export type { SessionListPhase, SessionSearchResultItem, SubagentCatalogSnapshot } from './sessions/manager.ts'
+export type { SubagentAddress } from '@deepseek-ai/dsh-client-connection/client'
 export type { WorkspaceListPhase } from './workspaces/manager.ts'
 export type { WorkspaceListState } from './workspaces/service.ts'
 export type {
@@ -53,12 +54,17 @@ export type {
   ConversationContext, ConversationContextOriginKind,
 } from './sessions/conversation-context.ts'
 export type {
+  ContextProvenanceView, ContextRole, KnownContextForm,
+} from './sessions/context-provenance.ts'
+export type {
   ConversationPromptSnapshot, RequestInspectionSnapshot, RequestPromptChange, RequestView,
 } from './sessions/request-inspection.ts'
 export type { ConversationHistoryProjection } from './session-history/history-fold.ts'
 export type { SessionHistoryInspection } from './sessions/history.ts'
 export { PendingWait } from './sessions/pending.ts'
-export type { PendingInteraction, PendingKind, PendingPayloads } from './sessions/pending.ts'
+export type {
+  PendingInteraction, PendingInteractionStatus, PendingKind, PendingPayloads,
+} from './sessions/pending.ts'
 // Projection value store (session-projection RFC, push model): host-computed
 // whole values per key; domains ship projection support with zero client code.
 export type {

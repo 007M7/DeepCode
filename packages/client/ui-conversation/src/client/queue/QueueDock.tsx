@@ -4,12 +4,12 @@
 // The 'conversation.input.dock' SlotMap declaration lives in
 // ../contract/slots.ts beside the other input-region slots.
 import type { Context } from 'cordis'
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useMemo, useState } from 'react'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import {
-  IconCheckOutline16, IconChevronDownOutline14, IconChevronUpOutline14,
-  IconCloseOutline16, IconEditOutline16, IconTrashOutline16,
+  IconCheckOutline16, IconChevronDownOutline14, IconChevronUpOutline14, IconCloseOutline16,
+  IconEditOutline16, IconQueueOutline14, IconSendOutline14, IconTrashOutline16, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { QueueAction, QueueItemId } from '../contract/queue.ts'
 import { NS } from '../locales.ts'
@@ -29,7 +29,10 @@ export type QueueDockProps = PropsRuntime<'conversation.input.dock'> & QueueDock
  * collapsible count header; an empty queue renders nothing.
  */
 export function QueueDock({ useSession, updateQueue, notify, t }: QueueDockProps) {
-  const queue = useSession(s => s.queue)
+  const inbox = useSession(s => s.queue)
+  const queue = useMemo(() => inbox.filter(row => row.placement === 'queued'), [inbox])
+  const running = useSession(s => s.running)
+  const queueMutable = useSession(s => s.subagent === null)
   const [editing, setEditing] = useState<{ id: QueueItemId; text: string } | null>(null)
   const [busy, setBusy] = useState<QueueItemId | null>(null)
   const [collapsed, setCollapsed] = useState(true)
@@ -37,12 +40,12 @@ export function QueueDock({ useSession, updateQueue, notify, t }: QueueDockProps
 
   useEffect(() => {
     if (queue.length === 0 && !collapsed) setCollapsed(true)
-    if (editing !== null && !queue.some(row => row.id === editing.id)) setEditing(null)
-  }, [collapsed, editing, queue])
+    if (editing !== null && (!queueMutable || !queue.some(row => row.id === editing.id))) setEditing(null)
+  }, [collapsed, editing, queue, queueMutable])
 
   if (queue.length === 0) return null
 
-  const interactionActive = editing !== null || busy !== null
+  const interactionActive = queueMutable && (editing !== null || busy !== null)
   const expanded = !collapsed || interactionActive
   const listVisible = queue.length === 1 || expanded
 
@@ -84,6 +87,7 @@ export function QueueDock({ useSession, updateQueue, notify, t }: QueueDockProps
             disabled={interactionActive}
             onClick={() => { setCollapsed(value => !value) }}
           >
+            <span className={css.lead} aria-hidden><IconQueueOutline14 /></span>
             <span className={css.count}>{t('queue.count', { n: queue.length })}</span>
             <span className={css.chevron} aria-hidden>
               {expanded ? <IconChevronDownOutline14 /> : <IconChevronUpOutline14 />}
@@ -93,6 +97,8 @@ export function QueueDock({ useSession, updateQueue, notify, t }: QueueDockProps
         <ul id={listId} className={css.list} hidden={!listVisible}>
           {listVisible && queue.map(row => (
             <li key={row.id} className={css.row}>
+              {/* Single-item strip has no count header, so the row itself carries the queue glyph. */}
+              {queue.length === 1 && <span className={css.lead} aria-hidden><IconQueueOutline14 /></span>}
               {editing?.id === row.id
                 ? (
                   <input
@@ -114,65 +120,90 @@ export function QueueDock({ useSession, updateQueue, notify, t }: QueueDockProps
                   />
                 )
                 : <span className={css.preview}>{row.preview}</span>}
-              <div className={css.actions}>
+              {queueMutable && <div className={css.actions}>
                 {editing?.id === row.id
                   ? (
                     <>
-                      <button
-                        type="button"
-                        className={css.action}
-                        aria-label={t('queue.save')}
-                        title={t('queue.save')}
-                        disabled={busy !== null || editing.text.trim() === ''}
-                        onClick={() => { void saveEdit() }}
-                      >
-                        <IconCheckOutline16 size={14} />
-                      </button>
-                      <button
-                        type="button"
-                        className={css.action}
-                        aria-label={t('queue.cancelEdit')}
-                        title={t('queue.cancelEdit')}
-                        disabled={busy !== null}
-                        onClick={() => { setEditing(null) }}
-                      >
-                        <IconCloseOutline16 size={14} />
-                      </button>
+                      <Tooltip label={t('queue.save')} side="bottom" delayMs={500}>
+                        <button
+                          type="button"
+                          className={css.action}
+                          aria-label={t('queue.save')}
+                          disabled={busy !== null || editing.text.trim() === ''}
+                          onClick={() => { void saveEdit() }}
+                        >
+                          <IconCheckOutline16 size={14} />
+                        </button>
+                      </Tooltip>
+                      <Tooltip label={t('queue.cancelEdit')} side="bottom" delayMs={500}>
+                        <button
+                          type="button"
+                          className={css.action}
+                          aria-label={t('queue.cancelEdit')}
+                          disabled={busy !== null}
+                          onClick={() => { setEditing(null) }}
+                        >
+                          <IconCloseOutline16 size={14} />
+                        </button>
+                      </Tooltip>
                     </>
                   )
                   : (
                     <>
-                      <button
-                        type="button"
-                        className={css.action}
-                        aria-label={t('queue.edit')}
-                        title={row.text === null ? t('queue.edit.unsupported') : t('queue.edit')}
-                        disabled={busy !== null || row.text === null}
-                        onClick={() => {
-                          if (row.text !== null) setEditing({ id: row.id, text: row.text })
-                        }}
-                      >
-                        <IconEditOutline16 size={14} />
-                      </button>
-                      <button
-                        type="button"
-                        className={css.action}
-                        aria-label={t('queue.remove')}
-                        title={t('queue.remove')}
-                        disabled={busy !== null}
-                        onClick={() => {
-                          void applyAction(
-                            row.id,
-                            { kind: 'remove' },
-                            t('queue.removeFailed'),
-                          )
-                        }}
-                      >
-                        <IconTrashOutline16 size={14} />
-                      </button>
+                      <Tooltip label={t('queue.edit')} side="bottom" delayMs={500} disabled={row.text === null}>
+                        <button
+                          type="button"
+                          className={css.action}
+                          aria-label={t('queue.edit')}
+                          // Disabled buttons fire no hover events, so the
+                          // unsupported hint stays a native title.
+                          title={row.text === null ? t('queue.edit.unsupported') : undefined}
+                          disabled={busy !== null || row.text === null}
+                          onClick={() => {
+                            if (row.text !== null) setEditing({ id: row.id, text: row.text })
+                          }}
+                        >
+                          <IconEditOutline16 size={14} />
+                        </button>
+                      </Tooltip>
+                      <Tooltip label={t('queue.remove')} side="bottom" delayMs={500}>
+                        <button
+                          type="button"
+                          className={css.action}
+                          aria-label={t('queue.remove')}
+                          disabled={busy !== null}
+                          onClick={() => {
+                            void applyAction(
+                              row.id,
+                              { kind: 'remove' },
+                              t('queue.removeFailed'),
+                            )
+                          }}
+                        >
+                          <IconTrashOutline16 size={14} />
+                        </button>
+                      </Tooltip>
+                      <Tooltip label={t('queue.steer')} side="bottom" delayMs={500} disabled={!running}>
+                        <button
+                          type="button"
+                          className={css.action}
+                          aria-label={t('queue.steer')}
+                          title={running ? undefined : t('queue.steer.unavailable')}
+                          disabled={busy !== null || !running}
+                          onClick={() => {
+                            void applyAction(
+                              row.id,
+                              { kind: 'steer' },
+                              t('queue.steerFailed'),
+                            )
+                          }}
+                        >
+                          <IconSendOutline14 />
+                        </button>
+                      </Tooltip>
                     </>
                   )}
-              </div>
+              </div>}
             </li>
           ))}
         </ul>
@@ -182,8 +213,8 @@ export function QueueDock({ useSession, updateQueue, notify, t }: QueueDockProps
 }
 
 /**
- * The dock entry as a plain registrant plugin. The conversation service is the
- * ordering and action seam; session scopes provide the exact queue owner.
+ * The dock entry as a plain registrant plugin. The conversation service is
+ * the action seam; the slot declaration is its independent lifecycle seam.
  */
 export const queueDockEntry = {
   name: 'conversation-queue-dock',
@@ -193,7 +224,7 @@ export const queueDockEntry = {
    * @param ctx - registrant context (disposal rides ctx.effect inside slots.register).
    */
   apply(ctx: Context): void {
-    ctx.slots.register({
+    ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
       name: 'conversation.input.dock',
       id: 'queue',
       order: 20,
@@ -208,6 +239,6 @@ export const queueDockEntry = {
           notify: (level, text) => { conversation.input.for(actx).notify(level, text) },
         }
       },
-    }, QueueDock)
+    }, QueueDock))
   },
 }

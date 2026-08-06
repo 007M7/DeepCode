@@ -3,13 +3,13 @@
 // inline edit form, and resume/clear icon actions — driven purely through
 // props, no wire. Loading, absent, and complete goals render nothing.
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { GoalSnapshot } from '@deepseek-ai/dsh-goal/client'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { GoalBar } from '../src/client/GoalBar.tsx'
-import type { GoalBarActions } from '../src/client/slots.ts'
+import type { GoalActionResult, GoalBarActions } from '../src/client/slots.ts'
 import { zh } from '../src/client/locales.ts'
 
 // The framework-injected t seat, stubbed over the zh dictionaries (the default locale).
@@ -52,13 +52,34 @@ describe('GoalBar', () => {
     expect(complete.container.firstChild).toBeNull()
   })
 
-  it('active goal: sparkle, "进行中的目标", truncated objective, edit and clear actions', () => {
+  it('active goal: goal glyph, "进行中的目标", truncated objective, edit and clear actions', () => {
     const actions = makeActions()
     render(<GoalBar goal={makeGoal()} {...actions} t={t} />)
     expect(screen.getByText('进行中的目标')).toBeTruthy()
     expect(screen.getByText('Ship the redesign')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '清除目标' }))
     expect(actions.onClear).toHaveBeenCalledTimes(1)
+  })
+
+  it('single-flights rapid clear clicks and hides the committed goal before its projection catches up', async () => {
+    const actions = makeActions()
+    let resolveClear!: (result: GoalActionResult) => void
+    actions.onClear.mockImplementation(() => new Promise((resolve) => { resolveClear = resolve }))
+    const { container, rerender } = render(<GoalBar goal={makeGoal()} {...actions} t={t} />)
+    const clear = screen.getByRole<HTMLButtonElement>('button', { name: '清除目标' })
+
+    act(() => {
+      clear.click()
+      clear.click()
+    })
+    expect(actions.onClear).toHaveBeenCalledTimes(1)
+    expect(clear.disabled).toBe(true)
+
+    await act(async () => { resolveClear({ ok: true }) })
+    expect(container.firstChild).toBeNull()
+
+    rerender(<GoalBar goal={makeGoal({ id: 'g2' as GoalSnapshot['id'], objective: 'Next goal' })} {...actions} t={t} />)
+    expect(screen.getByText('Next goal')).toBeTruthy()
   })
 
   it('edit swaps the strip for a prefilled form; Enter saves, empty stays disabled', async () => {
@@ -180,5 +201,7 @@ describe('GoalBar', () => {
     fireEvent.click(screen.getByRole('button', { name: '清除目标' }))
     expect((await screen.findByRole('alert')).textContent).toBe('clear failed (agent-busy)')
     expect(screen.getByText('Ship the redesign')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '清除目标' }))
+    await waitFor(() => { expect(actions.onClear).toHaveBeenCalledTimes(2) })
   })
 })

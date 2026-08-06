@@ -2,9 +2,9 @@
 
 [English](README.md) | 中文
 
-用于无密钥快照测试的大语言模型（LLM）回放插件。它根据已记录的**会话 JSONL** fixture（测试前置数据）重建模型流，使测试无需 API 密钥即可针对固定的模型 transcript（文本记录）启动真实 agent（智能体）。配置 `providers` 后，它会注册仅用于回放的适配器，其模型目录可供测试模型发现功能的场景使用；未配置 `providers` 时，它会安装无需模型发现功能的测试所用 catch-all `llm/stream` waterfall（瀑布式事件）。
+用于无密钥快照测试的 LLM（大语言模型）回放插件。它根据已记录的**会话 JSONL** fixture（测试前置数据）重建模型流，使测试无需 API 密钥即可针对固定的模型 transcript（文本记录）启动真实 agent（智能体）。配置 `providers` 后，它会注册仅用于回放的适配器，其模型目录可供测试模型发现功能的场景使用；未配置 `providers` 时，它会安装无需模型发现功能的测试所用 catch-all `llm/stream` waterfall（瀑布式事件）。
 
-其消费方包括 ACP（Agent Client Protocol）、headless `stream-json` 和 TUI 快照套件，以及 Web 浏览器 e2e 流水线。Loader 驱动的套件使用此插件替代真实 LLM 适配器；Web 流水线直接安装它，以保留清理阶段的消费检查句柄。将派生和回放逻辑放在此处，可使其受 `packages/*/src` 的逐文件 100% 覆盖率门禁约束。
+其消费方包括 ACP（Agent Client Protocol）与 headless `stream-json` 快照套件，以及 Web 浏览器 e2e 流水线。Loader 驱动的套件使用此插件替代真实 LLM 适配器；Web 流水线直接安装它，以保留清理阶段的消费检查句柄。
 
 ## fixture 的工作方式
 
@@ -12,18 +12,20 @@ fixture 就是持久化的会话日志（`<scenario>/session.jsonl`）。其 `as
 
 有两种失败模式无法仅根据 `assistant/chunk` 重建：在产生任何分片前直接抛出异常（例如 HTTP 401，此时日志只有 `turn/end {error}` 而没有分片），以及取消或挂起（差异在时序，而非分片内容）。需要这些行为的场景可提供伴随文件（`<scenario>/replay.override.json`）：它可以替换派生脚本（裸 `ReplayEntry[]`），也可以增补派生脚本（`{ patches: [{ at, entry }] }`：保留所有从 JSONL 派生的调用，只替换指定的从 0 开始计数的调用索引；当 `at` 等于派生长度时，则在注入瞬态异常后的重试位置追加一次调用）。补丁索引不得重复。文件加载时会校验覆写文档、每个补丁和条目，以及每个分片的判别标签。`hang` 条目可以指定 `readyFile`；当前缀分片到达循环后、开始等待取消前，回放会写入这个空标记，使外部驱动程序无需观察展示层更新即可确定性地取消。
 
+脚本字符串可以内嵌 `{{fromRequest:<regex>}}`，用来填入静态伴随文件不可能预知的值——例如模型必须原样回填到 `update_goal` 的随机生成 goal id。回放时每个占位符针对实时请求解析：语料是请求消息的所有字符串叶子按换行拼接的结果，取该模式在语料中的最后一次匹配，用其第一个捕获组（无捕获组时用整个匹配）原位替换。模式匹配不到内容、模式非法、占位符未闭合都会明确报错。连续右花括号串的最后两个花括号才是占位符结束符，因此模式可以以花括号量词收尾（如 `[0-9a-f]{4}`），但不能在 `}}` 之后还有后续模式内容。解析作用于所有脚本条目，包括从已记录 JSONL 派生的条目——若录制文本本身合法地含有该字面量标记，需改用不含标记的伴随文件表达。
+
 ## 嵌套 agent：每会话键控
 
-父 agent 委托给进程内 subagent（子 agent）的场景会记录多个日志：父会话使用 `session.jsonl`，每个子会话各使用一个日志（`session.1.jsonl` 等）。每个 agent 都在同一上下文中作为独立的 `Session` 运行，因此回放必须为每个 agent 提供各自的脚本。
+父 agent 委托给进程内 subagent 的场景会记录多个日志：父会话使用 `session.jsonl`，每个子会话各使用一个日志（`session.1.jsonl` 等）。每个 agent 都在同一上下文中作为独立的 `Session` 运行，因此回放必须为每个 agent 提供各自的脚本。
 
-回放根据发起调用的会话 id 为每次调用建立键（`GenerateOptions.sessionId` 由 agent loop 写入）。实时会话 id 每次运行时都会重新随机生成，绝不会等于记录中的 id，因此实时会话按**首次调用顺序**绑定到已记录脚本：脚本按 header 中的 `createdAt` 排序（父会话在前，因为它必须先开始流式输出才能委托）；第一个发起调用的实时会话取得第一个脚本，下一个新会话取得下一个脚本，以此类推。此后每个会话分别推进自己的游标。没有 `sessionId` 的调用视为一个绑定主脚本的匿名会话，因此单会话场景的行为与以前完全相同。不同实时会话的数量超过已记录脚本数时会明确报错。
+回放根据发起调用的会话 id 为每次调用建立键（`GenerateOptions.sessionId` 由 agent loop（智能体循环）写入）。实时会话 id 每次运行时都会重新随机生成，绝不会等于记录中的 id，因此实时会话按**首次调用顺序**绑定到已记录脚本：脚本按 header 中的 `createdAt` 排序（父会话在前，因为它必须先开始流式输出才能委托）；第一个发起调用的实时会话取得第一个脚本，下一个新会话取得下一个脚本，以此类推。此后每个会话分别推进自己的游标。没有 `sessionId` 的调用视为一个绑定主脚本的匿名会话，因此单会话场景的行为与以前完全相同。不同实时会话的数量超过已记录脚本数时会明确报错。
 
 ## 配置
 
 | 键 | 类型 | 默认值 | 说明 |
 |---|---|---|---|
 | `file` | string | `$DSH_SNAPSHOT_FILE` | 主（父）`session.jsonl` fixture 的路径。必需（配置或 env）。 |
-| `overrideFile` | string | `$DSH_SNAPSHOT_OVERRIDE` | 主会话的可选 `ReplayOverrideDoc` sidecar：裸 `ReplayEntry[]` 替换其派生脚本，`{ patches }` 则按调用索引增补该脚本。 |
+| `overrideFile` | string | `$DSH_SNAPSHOT_OVERRIDE` | 主会话的可选 `ReplayOverrideDoc` 伴随文件：裸 `ReplayEntry[]` 替换其派生脚本，`{ patches }` 则按调用索引增补该脚本。 |
 | `childFiles` | string[] | `$DSH_SNAPSHOT_CHILD_FILES`（以路径分隔符分隔） | 嵌套场景中已记录的 subagent 子会话日志；单会话场景为空。 |
 | `providers` | `ReplayProviderConfig[]` | 无 | 可选的仅回放提供方和模型目录。每个提供方可以设置 `retryPolicy`，每个模型可以发布 `contextWindow`；已配置路由通过回放适配器分派，绝不执行提供方 I/O。 |
 | `paceMs` | number | 无（突发） | 可选的每分片毫秒延迟，使下游传输（例如真实浏览器观察到的 Web SSE（Server-Sent Events）多路复用器）看到真正的增量传递。它只是仿真开关，测试不得依赖它保证正确性。值必须是非负整数；pace 等待期间中止会迅速取消流。 |
@@ -53,9 +55,9 @@ fixture 就是持久化的会话日志（`<scenario>/session.jsonl`）。其 `as
 ## 导出项
 
 - `installLlmReplay(ctx, config)`：安装已配置回放适配器或 catch-all `llm/stream` 监听器；返回 `ReplayHandle`（包含用于保证 HMR（热模块替换）安全的 `dispose()`，以及清理阶段执行的 `assertConsumed()` 检查；后者确保每个已记录脚本都绑定到实时会话，且每个已绑定游标都已耗尽，从而将场景静默驱动的模型调用少于记录数转换为明确诊断）。在测试中使用它，可以不通过 Loader 或 env var 驱动回放。
-- `loadSessionScripts(config)`：解析场景的有序的 `SessionScript[]`（主会话 + 子会话），准备按首次调用顺序绑定到实时会话。
+- `loadSessionScripts(config)`：解析场景中有序的 `SessionScript[]`（主会话 + 子会话），准备按首次调用顺序绑定到实时会话。
 - `loadReplayScript(config)`：只解析主会话的 `ReplayEntry[]`（如果伴随文件存在，则使用经校验的替换或补丁；否则从 JSONL 派生；fixture 缺失时明确报错）。
-- `deriveReplayScript(events)` / `parseSessionLog(text)` / `parseSessionHeader(text)`：将已记录会话日志转换为脚本并读取其 header `id`/`createdAt` 的纯辅助工具。派生分组必须以 `finish` 分片结束；没有该分片的分组是 `stream()` 抛出异常的指纹，必须改用 override sidecar 表达。
+- `deriveReplayScript(events)` / `parseSessionLog(text)` / `parseSessionHeader(text)` / `resolveScriptedEntry(entry, messages)`：将已记录会话日志转换为脚本、读取其 header `id`/`createdAt`、并针对单次实时请求解析 `{{fromRequest:...}}` 占位符的纯辅助工具。派生分组必须以 `finish` 分片结束；没有该分片的分组是 `stream()` 抛出异常的指纹，必须改用 override 伴随文件表达。
 - 类型 `ReplayEntry` / `ReplayOverrideDoc` / `ReplayOverridePatch` / `SessionScript` / `ReplayConfig` / `ReplayProviderConfig` / `ReplayModelConfig` / `ReplayHandle` / `Config`。
 
 ## 插件导出形态
@@ -68,7 +70,7 @@ fixture 就是持久化的会话日志（`<scenario>/session.jsonl`）。其 `as
 
 #### KV Cache 影响
 
-无；该包（package）既不组装也不发送提供方请求。
+无；该包既不组装也不发送提供方请求。
 
 ## 已知限制与暂缓事项
 

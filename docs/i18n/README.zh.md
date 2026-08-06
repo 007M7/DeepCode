@@ -43,7 +43,7 @@
 
 **排除**（永不配对，门禁拒绝为它们建 `.zh.md` 或 `.i18n.yaml`）：
 
-- `docs/cordis-catalog/`、`docs/tool-catalog/`、`docs/config-catalog.md`、`docs/persistence-catalog.md`、`docs/module-graph.md`、`docs/agent-lifecycle.md`、`docs/capability-seams.md`、`docs/event-producer-consumer.md`、`docs/graph-atlas.md` 与 `docs/tool-execution-pipeline.md`：生成文件；生成器目前只输出英文，手写译文在每次重新生成时必然陈旧。计划中的后续工作是让生成器同时输出中文，届时这些文件移出排除清单。
+- `docs/cordis-catalog/`、`docs/tool-catalog/`、`docs/config-catalog.md`、`docs/persistence-catalog.md`、`docs/module-graph.md`、`docs/agent-lifecycle.md`、`docs/capability-seams.md`、`docs/event-producer-consumer.md`、`docs/graph-atlas.md` 与 `docs/tool-execution-pipeline.md`：生成文件，其生成器只输出英文；手写译文会在重新生成时变得陈旧。
 - `docs/AGENTS.md`、`.agents/notes/**/AGENTS.md` 以及指向它们的 `CLAUDE.md` 指令符号链接：agent 指令，与根 `AGENTS.md` 一样只以英文维护。
 - `docs/i18n/terminology.md` 与 [style-samples.md](style-samples.md)：二者本身即为中英对照文档。
 - [translation-prompt.md](translation-prompt.md)：自动翻译流水线的提示词模板；正文逐字进入模型请求，配对翻译会改变流水线行为。

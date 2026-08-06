@@ -43,14 +43,24 @@ const WAIT_POLL_INTERVAL_MS = 10
  * reference, since a committed file cannot know the id in advance.
  *
  * `promptAndCancel` starts a prompt without awaiting completion, waits for a
- * readiness condition, then cancels and awaits completion. `waitForFile`
- * observes a cwd-relative marker; the default observes the durable turn start.
+ * readiness condition, then cancels and awaits completion. Its optional
+ * `waitForFile` observes a cwd-relative marker; otherwise it waits for the
+ * durable turn start. The standalone `waitForFile` holds the next script step
+ * behind the same marker.
  * `promptAndWaitForAgentMessage` arms an exact text-chunk waiter before sending
  * the prompt, then keeps the application live until that later update arrives.
  * `waitForTurnStart` waits for an open durable turn, optionally at or beyond a
  * specified turn number. `waitForTurnEnd` holds the subprocess open until the
  * selected session's latest complete raw-JSONL turn boundary is `turn/end`.
+ * `waitForGoalPhase` waits for the latest durable goal snapshot to reach one phase.
+ * `waitForInboxMessage` waits for inserted inbox text containing a scenario marker.
+ * `waitForSubagentTurnEnd` waits until one background child has persisted a
+ * closed model-work turn after its own descriptor; child progress has no ACP
+ * update to wait on.
  * `waitForTitleAfterTurnEnd` additionally waits for a later durable title.
+ * `waitForEventAfterTurnEnd` waits until a complete record of the given event
+ * type follows the latest closed turn — for scenarios whose asserted state
+ * (e.g. a goal pause) is appended only after cancellation reaches idle.
  * A standalone `cancel` may also wait for a cwd-relative readiness marker.
  * All wait timeouts default to 10s.
  */
@@ -66,9 +76,14 @@ export type InputStep =
     text: string
     waitForFile?: { path: string; timeoutMs?: number }
   }
+  | { op: 'waitForFile'; path: string; timeoutMs?: number }
   | { op: 'waitForTurnStart'; minimumTurn?: number; timeoutMs?: number }
   | { op: 'waitForTurnEnd'; timeoutMs?: number }
+  | { op: 'waitForSubagentTurnEnd'; child?: number; minimumTurn?: number; timeoutMs?: number }
+  | { op: 'waitForGoalPhase'; phase: 'active' | 'paused' | 'blocked' | 'complete'; timeoutMs?: number }
+  | { op: 'waitForInboxMessage'; text: string; timeoutMs?: number }
   | { op: 'waitForTitleAfterTurnEnd'; timeoutMs?: number }
+  | { op: 'waitForEventAfterTurnEnd'; type: string; timeoutMs?: number }
   | { op: 'cancel'; waitForFile?: { path: string; timeoutMs?: number } }
 
 /** A scenario's `input.json`: an ordered list of input steps. */
@@ -290,7 +305,11 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
         (id) => { sessionId = id },
         (id, timeoutMs, minimumTurn) => waitForPersistedTurnStart(sessionsRoot, id, timeoutMs, minimumTurn),
         (id, timeoutMs) => waitForPersistedTurnEnd(sessionsRoot, id, timeoutMs),
+        (child, timeoutMs, minimumTurn) => waitForPersistedChildTurnEnd(sessionsRoot, child, timeoutMs, minimumTurn),
+        (id, phase, timeoutMs) => waitForPersistedGoalPhase(sessionsRoot, id, phase, timeoutMs),
+        (id, text, timeoutMs) => waitForPersistedInboxMessage(sessionsRoot, id, text, timeoutMs),
         (id, timeoutMs) => waitForPersistedTitleAfterTurnEnd(sessionsRoot, id, timeoutMs),
+        (id, type, timeoutMs) => waitForPersistedEventAfterTurnEnd(sessionsRoot, id, type, timeoutMs),
       )
       // A permission exchange happens while a step's request is in flight, so
       // by the time the step settles any script bug it exposed is captured —
@@ -364,7 +383,11 @@ async function runStep(
   setSessionId: (id: string) => void,
   waitForTurnStart: (sessionId: string, timeoutMs?: number, minimumTurn?: number) => Promise<void>,
   waitForTurnEnd: (sessionId: string, timeoutMs?: number) => Promise<void>,
+  waitForChildTurnEnd: (child: number, timeoutMs?: number, minimumTurn?: number) => Promise<void>,
+  waitForGoalPhase: (sessionId: string, phase: string, timeoutMs?: number) => Promise<void>,
+  waitForInboxMessage: (sessionId: string, text: string, timeoutMs?: number) => Promise<void>,
   waitForTitleAfterTurnEnd: (sessionId: string, timeoutMs?: number) => Promise<void>,
+  waitForEventAfterTurnEnd: (sessionId: string, type: string, timeoutMs?: number) => Promise<void>,
 ): Promise<void> {
   switch (step.op) {
     case 'initialize':
@@ -436,16 +459,40 @@ async function runStep(
       await promptDone
       return
     }
+    case 'waitForFile':
+      await waitForWorkspaceFile(cwd, step.path, step.timeoutMs)
+      return
     case 'waitForTurnEnd': {
       const sessionId = getSessionId()
       if (sessionId === undefined) throw new Error('snapshot-harness: waitForTurnEnd before newSession')
       await waitForTurnEnd(sessionId, step.timeoutMs)
       return
     }
+    case 'waitForSubagentTurnEnd':
+      await waitForChildTurnEnd(step.child ?? 1, step.timeoutMs, step.minimumTurn)
+      return
+    case 'waitForGoalPhase': {
+      const sessionId = getSessionId()
+      if (sessionId === undefined) throw new Error('snapshot-harness: waitForGoalPhase before newSession')
+      await waitForGoalPhase(sessionId, step.phase, step.timeoutMs)
+      return
+    }
+    case 'waitForInboxMessage': {
+      const sessionId = getSessionId()
+      if (sessionId === undefined) throw new Error('snapshot-harness: waitForInboxMessage before newSession')
+      await waitForInboxMessage(sessionId, step.text, step.timeoutMs)
+      return
+    }
     case 'waitForTitleAfterTurnEnd': {
       const sessionId = getSessionId()
       if (sessionId === undefined) throw new Error('snapshot-harness: waitForTitleAfterTurnEnd before newSession')
       await waitForTitleAfterTurnEnd(sessionId, step.timeoutMs)
+      return
+    }
+    case 'waitForEventAfterTurnEnd': {
+      const sessionId = getSessionId()
+      if (sessionId === undefined) throw new Error('snapshot-harness: waitForEventAfterTurnEnd before newSession')
+      await waitForEventAfterTurnEnd(sessionId, step.type, step.timeoutMs)
       return
     }
     case 'waitForTurnStart': {
@@ -515,6 +562,95 @@ async function waitForPersistedTurnEnd(
   }, { interval: WAIT_POLL_INTERVAL_MS, timeout: timeoutMs })
 }
 
+/**
+ * Wait until the Nth harvested child Session closes a model work turn.
+ *
+ * Harvest order matches `session.1.jsonl`, `session.2.jsonl`, and so on. A
+ * continuable child appends its descriptor after any inherited history and
+ * before accepting its first prompt, so only a later request header proves its
+ * own model work reached a closed turn.
+ */
+async function waitForPersistedChildTurnEnd(
+  root: string,
+  child: number,
+  timeoutMs = DEFAULT_WAIT_TIMEOUT_MS,
+  minimumTurn = 1,
+): Promise<void> {
+  await vi.waitFor(async () => {
+    const log = (await harvestSessionLogs(root))[child]
+    if (log === undefined || !latestTurnIsClosed(log.content)
+      || !hasRequestHeaderAfterDescriptor(log.content)
+      || !hasClosedTurn(log.content, minimumTurn)) {
+      throw new Error(
+        `snapshot-harness: subagent child #${child} did not persist closed turn ${minimumTurn} within ${timeoutMs}ms`,
+      )
+    }
+  }, { interval: WAIT_POLL_INTERVAL_MS, timeout: timeoutMs })
+}
+
+/** Whether a raw session log contains the requested closed turn. */
+function hasClosedTurn(content: string, turn: number): boolean {
+  return content.split('\n').filter(Boolean).some((line) => {
+    const event = JSON.parse(line) as { type?: unknown; data?: { turn?: unknown } }
+    return event.type === 'turn/end' && event.data?.turn === turn
+  })
+}
+
+/** Wait until the latest durable goal snapshot reaches one phase. */
+async function waitForPersistedGoalPhase(
+  root: string,
+  sessionId: string,
+  phase: string,
+  timeoutMs = DEFAULT_WAIT_TIMEOUT_MS,
+): Promise<void> {
+  await vi.waitFor(async () => {
+    const content = (await harvestSessionLogs(root)).find(log => log.id === sessionId)?.content
+    const matched = content?.split('\n').filter(Boolean).some((line) => {
+      const event = JSON.parse(line) as { type?: unknown; data?: { goal?: { phase?: unknown } } }
+      return event.type === 'goal/change' && event.data?.goal?.phase === phase
+    }) ?? false
+    if (!matched) {
+      throw new Error(`snapshot-harness: session "${sessionId}" did not persist goal phase "${phase}" within ${timeoutMs}ms`)
+    }
+  }, { interval: WAIT_POLL_INTERVAL_MS, timeout: timeoutMs })
+}
+
+/** Wait until an inserted inbox message contains scenario-owned text. */
+async function waitForPersistedInboxMessage(
+  root: string,
+  sessionId: string,
+  text: string,
+  timeoutMs = DEFAULT_WAIT_TIMEOUT_MS,
+): Promise<void> {
+  await vi.waitFor(async () => {
+    const log = (await harvestSessionLogs(root)).find(candidate => candidate.id === sessionId)
+    const matched = log?.content.split('\n').some((line) => {
+      if (line.length === 0) return false
+      const record = JSON.parse(line) as {
+        type?: unknown
+        data?: { inserted?: Array<{ content?: Array<{ type?: unknown; text?: unknown }> }> }
+      }
+      return record.type === 'agent/inbox/spliced' && record.data?.inserted?.some(message =>
+        message.content?.some(block => block.type === 'text'
+          && typeof block.text === 'string' && block.text.includes(text))) === true
+    }) ?? false
+    if (!matched) {
+      throw new Error(`snapshot-harness: session "${sessionId}" did not persist expected inbox message within ${timeoutMs}ms`)
+    }
+  }, { interval: WAIT_POLL_INTERVAL_MS, timeout: timeoutMs })
+}
+
+/** Whether a child log contains model work after its own descriptor event. */
+function hasRequestHeaderAfterDescriptor(content: string): boolean {
+  const events = content.slice(0, content.lastIndexOf('\n') + 1)
+    .split('\n')
+    .filter(line => line.length > 0)
+    .map(line => JSON.parse(line) as { type?: unknown })
+  const descriptor = events.findLastIndex(event => event.type === 'subagent/descriptor')
+  return descriptor >= 0
+    && events.slice(descriptor + 1).some(event => event.type === 'request/header')
+}
+
 /** Wait until a complete provider or fallback title record follows the latest closed turn. */
 async function waitForPersistedTitleAfterTurnEnd(
   root: string,
@@ -525,6 +661,21 @@ async function waitForPersistedTitleAfterTurnEnd(
     const log = (await harvestSessionLogs(root)).find(candidate => candidate.id === sessionId)
     if (log === undefined || !latestTitleFollowsTurnEnd(log.content)) {
       throw new Error(`snapshot-harness: session "${sessionId}" did not persist session/title after turn/end within ${timeoutMs}ms`)
+    }
+  }, { interval: WAIT_POLL_INTERVAL_MS, timeout: timeoutMs })
+}
+
+/** Wait until a complete record of `type` follows the latest closed turn. */
+async function waitForPersistedEventAfterTurnEnd(
+  root: string,
+  sessionId: string,
+  type: string,
+  timeoutMs = DEFAULT_WAIT_TIMEOUT_MS,
+): Promise<void> {
+  await vi.waitFor(async () => {
+    const log = (await harvestSessionLogs(root)).find(candidate => candidate.id === sessionId)
+    if (log === undefined || !latestEventFollowsTurnEnd(log.content, type)) {
+      throw new Error(`snapshot-harness: session "${sessionId}" did not persist ${type} after turn/end within ${timeoutMs}ms`)
     }
   }, { interval: WAIT_POLL_INTERVAL_MS, timeout: timeoutMs })
 }
@@ -555,6 +706,13 @@ function latestTitleFollowsTurnEnd(content: string): boolean {
   const complete = content.slice(0, content.lastIndexOf('\n') + 1)
   const turnEnd = complete.lastIndexOf('\n{"type":"turn/end",')
   return turnEnd >= 0 && complete.lastIndexOf('\n{"type":"session/title",') > turnEnd
+}
+
+/** Return whether a complete record of `type` occurs after the last complete turn end. */
+function latestEventFollowsTurnEnd(content: string, type: string): boolean {
+  const complete = content.slice(0, content.lastIndexOf('\n') + 1)
+  const turnEnd = complete.lastIndexOf('\n{"type":"turn/end",')
+  return turnEnd >= 0 && complete.lastIndexOf(`\n{"type":"${type}",`) > turnEnd
 }
 
 /** Return the latest open turn number, validating the persisted boundary record. */

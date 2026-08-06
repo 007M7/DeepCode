@@ -8,10 +8,11 @@
 import { useState } from 'react'
 import clsx from 'clsx'
 import {
-  HoverCard, IconBranchOutline16, IconDownloadOutline16, IconEditOutline16,
+  HoverCard, IconArchiveOutline20, IconBranchOutline16, IconEditOutline16,
   IconEllipsisOutline16, IconFolderClose16, IconFolderOpen16, IconPlusOutline16,
   IconTrashOutline16, IconTriangleRightFill14, Menu, StateDot,
 } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { WorkspaceBrowserProps } from '../contract/slots.ts'
 import type { GroupNode, SearchResultNode, SessionNode } from '../tree.ts'
 import { relativeTime } from '../tree.ts'
@@ -165,16 +166,32 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, t }: {
   )
 }
 
-/**
- * One top-level 34px session row with running dot and relative time.
- * @param props.node - derived session node.
- * @param props.currentId - selected session id (row highlight).
- * @param props.now - epoch ms for relative-time formatting.
- * @param props.onOpen - open a session by id.
- * @returns the session row.
- */
-/** Hover-card body: full title, relative time, and the status line (running/idle until wire status lands). */
+/* v8 ignore next 3 -- closed-union backstop; only reached if the status is forged */
+function assertNever(value: never): never {
+  throw new Error(`unknown pending interaction: ${String(value)}`)
+}
+
+/** Session status presentation; pending user interaction outranks the running state. */
+function sessionStatus(
+  node: Pick<SessionNode, 'pendingInteraction' | 'running' | 'completed'>,
+  t: RowTranslate,
+): { state: StateDotState; label: string } {
+  switch (node.pendingInteraction) {
+    case 'approval': return { state: 'warning', label: t('status.waitingApproval') }
+    case 'plan-review': return { state: 'warning', label: t('status.planReview') }
+    case 'question': return { state: 'warning', label: t('status.waitingAnswer') }
+    case undefined: break
+    /* v8 ignore next -- closed PendingInteractionStatus union */
+    default: return assertNever(node.pendingInteraction)
+  }
+  if (node.running) return { state: 'ongoing', label: t('status.running') }
+  if (node.completed) return { state: 'done', label: t('status.completed') }
+  return { state: 'done', label: t('status.idle') }
+}
+
+/** Hover-card body: full title, relative time, and interaction/running/completed/idle status. */
 function SessionHoverContent({ node, now, t }: { node: SessionNode; now: number; t: RowTranslate }) {
+  const status = sessionStatus(node, t)
   return (
     <div className={css.hoverContent}>
       <div className={css.hoverTitle}>{displayTitle(node, t)}</div>
@@ -182,8 +199,8 @@ function SessionHoverContent({ node, now, t }: { node: SessionNode; now: number;
           before the first prompt. */}
       {!node.blank && <div className={css.hoverTime}>{hoverTimeLabel(node.updatedAt, now, t)}</div>}
       <div className={css.hoverStatus}>
-        <StateDot state={node.running ? 'ongoing' : 'done'} />
-        <span>{node.running ? t('status.running') : t('status.idle')}</span>
+        <StateDot state={status.state} />
+        <span>{status.label}</span>
       </div>
     </div>
   )
@@ -214,14 +231,17 @@ export interface RowDragProps {
  * @param props.result - merged local/content search row.
  * @param props.currentId - selected session id.
  * @param props.onOpen - open the selected session.
+ * @param props.t - Workspace-browser translation seat.
  * @returns the result button.
  */
-export function SearchResultItem({ result, currentId, onOpen }: {
+export function SearchResultItem({ result, currentId, onOpen, t }: {
   result: SearchResultNode
   currentId: string | undefined
   onOpen: (id: SearchResultNode['id']) => void
+  t: RowTranslate
 }) {
   const selected = result.id === currentId
+  const status = sessionStatus(result, t)
   return (
     <button
       type="button"
@@ -231,7 +251,14 @@ export function SearchResultItem({ result, currentId, onOpen }: {
       onClick={() => { onOpen(result.id) }}
     >
       <span className={css.searchResultHeading}>
-        <span className={css.slot}>{result.running && <StateDot state="ongoing" />}</span>
+        <span className={css.slot}>
+          {(status.state !== 'done' || result.completed) && (
+            <>
+              <StateDot state={status.state} />
+              <span className={css.visuallyHidden}>{status.label}</span>
+            </>
+          )}
+        </span>
         <span className={css.searchResultTitle}>{result.title}</span>
       </span>
       <span className={css.searchResultWorkspace}>{result.workspace}</span>
@@ -248,6 +275,20 @@ function rowHalf(e: { clientY: number; currentTarget: HTMLElement }): 'before' |
   return e.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
 }
 
+/**
+ * One top-level 34px session row: status dot (pending user interaction outranks
+ * running), title, relative time, and the row actions menu.
+ * @param props.node - derived session node.
+ * @param props.currentId - selected session id (row highlight).
+ * @param props.now - epoch ms for relative-time formatting.
+ * @param props.onOpen - open a session by id.
+ * @param props.onRename - open the session rename dialog (id + current title).
+ * @param props.onFork - fork a session at its last completed turn.
+ * @param props.onArchive - archive a session by id.
+ * @param props.drag - optional draggable-row wiring.
+ * @param props.t - the browser root's locale seat.
+ * @returns the session row.
+ */
 export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork, onArchive, drag, t }: {
   node: SessionNode
   currentId: string | undefined
@@ -266,6 +307,7 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
   const row = node
   const title = displayTitle(node, t)
   const selected = node.id === currentId
+  const status = sessionStatus(node, t)
   const [menuOpen, setMenuOpen] = useState(false)
   // Archive replaces the former Delete placeholder: it hides the row through
   // the registry-global archive set and never touches the session log, so it
@@ -273,7 +315,8 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
   const sessionMenuItems = [
     { id: 'rename', label: t('rename'), icon: <IconEditOutline16 /> },
     { id: 'fork', label: t('menu.fork'), icon: <IconBranchOutline16 /> },
-    { id: 'archive', label: t('menu.archiveSession'), icon: <IconDownloadOutline16 /> },
+    // 20-native glyph in the menu's 16px icon slot (Menu.module.css .itemIcon).
+    { id: 'archive', label: t('menu.archiveSession'), icon: <IconArchiveOutline20 size={16} /> },
   ]
   // Figma session cell: pad 8, status slot 16, then a 4px title gap.
   const ownRow = (
@@ -309,7 +352,17 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
           drag.drop(rowHalf(e))
         }}
     >
-      <span className={css.slot}>{row.running && <StateDot state="ongoing" />}</span>
+      {/* Pending interactions and running outrank the idle state; a
+          finished-but-unviewed session shows the green done reminder dot
+          (cleared by opening the session). */}
+      <span className={css.slot}>
+        {(status.state !== 'done' || row.completed) && (
+          <>
+            <StateDot state={status.state} />
+            <span className={css.visuallyHidden}>{status.label}</span>
+          </>
+        )}
+      </span>
       <span className={css.title}>{title}</span>
       {/* A blank New Session row is a provisional placeholder: nothing has
           happened in it yet, so a "now" timestamp and the row verbs

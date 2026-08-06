@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import PtyService from '@deepseek-ai/dsh-pty'
 import type {
@@ -29,25 +29,25 @@ afterEach(async () => {
 function agent(ctx: Context, cwd: string | undefined): Agent {
   const id = SessionId(`persistent-bash-owner-${callNumber}`)
   const scope = ctx.plugin(() => {})
+  const session = Session.create(id, [], {
+    version: 0,
+    id,
+    createdAt: 0,
+    ...cwd === undefined ? {} : { cwd },
+  })
   const value: Agent = {
     id,
     options: {},
-    session: new Session(id, [], {
-      version: 0,
-      id,
-      createdAt: 0,
-      ...cwd === undefined ? {} : { cwd },
-    }),
+    session,
+    inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
     status: 'idle',
-    acceptsNextStep: false,
     ctx: scope.ctx,
-    followup: () => {},
-    steer: () => {},
-    inject: () => {},
     send: () => {},
-    updateInbox: () => 'not-found',
-    reserveTurnAdmission: () => undefined,
+    followup: () => {},
+    steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }),
+    inject: () => {},
     cancel() {},
+    runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
   }
   ctx.agents.register(value)

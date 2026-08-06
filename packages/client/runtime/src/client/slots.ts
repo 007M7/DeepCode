@@ -2,12 +2,12 @@
  * SlotsService: the cordis Service layer of the slot system over the pure
  * SlotCore (ui-slots owns registration semantics, the declaration ledger,
  * the load-time validations, and the unload cascade). This layer owns what
- * needs the runtime: the 'slots/changed' event bridge, register through the
- * caller's ctx.effect (fiber unload collects registrations), the renderer
- * install seam (install()/renderSlot('root') + the SlotRendererHost face),
- * and the store INSTANCE axis — handle x scope key -> create/cache, dropped
- * with the last holding entry, session instances cleared (with persisted
- * state) on scope death.
+ * needs the runtime: the 'slots/changed' event bridge, register and
+ * declaration injection through the caller's ctx.effect (fiber unload
+ * collects both), the renderer install seam (install()/renderSlot('root') +
+ * the SlotRendererHost face), and the store INSTANCE axis — handle x scope
+ * key -> create/cache, dropped with the last holding entry, session instances
+ * cleared (with persisted state) on scope death.
  */
 /* oxlint-disable typescript/no-redundant-type-constituents --
  * `keyof SlotMap & string` is the declare-merge key pattern: SlotMap only
@@ -78,6 +78,9 @@ interface ErasedRegisterOptions {
 /** Erased core call face (the service re-erases at its own boundary; the core's typed face targets end callers). */
 interface ErasedCore { register(options: object, component: unknown): () => void }
 
+/** One synchronous effect installed while an injected slot declaration is live. */
+type SlotInjectionEffect = (() => void) | Iterable<() => void, void, void>
+
 /** cordis Service layer of the slot system; see the module doc for the split with SlotCore. */
 export class SlotsService extends Service {
   private readonly _core = new SlotCore()
@@ -113,6 +116,85 @@ export class SlotsService extends Service {
    * own root ctx and silently break per-plugin disposal.
    */
   declare readonly register: SlotCore['register']
+
+  /**
+   * Install an effect for each declaration lifetime of a slot. The callback
+   * runs synchronously when the declaration already exists; otherwise it runs
+   * inside the declaring `register()` call after the declaration is committed.
+   * Collapse disposes the effect and a later declaration runs it again.
+   * Callback effects are synchronous disposers; iterable effects install
+   * transactionally and dispose in reverse order. The controller belongs to
+   * the caller's fiber, so plugin unload cancels a pending wait and removes any
+   * active contribution.
+   *
+   * @param key - declared SlotMap key to depend on.
+   * @param callback - creates one disposer or an iterable of disposers.
+   * @returns idempotent disposer for the wait and active effect.
+   * @throws callback setup failures synchronously when the slot is already declared.
+   */
+  inject(key: keyof SlotMap & string, callback: () => SlotInjectionEffect): () => void {
+    const ctx = this.ctx
+    const disposeController = ctx.effect(() => {
+      let active: (() => void) | undefined
+      let activeEpoch: number | undefined
+      let stopped = false
+      let unsubscribe = (): void => {}
+
+      const stop = (): void => {
+        if (stopped) return
+        // Failure callers retire the injection permanently: a delayed setup
+        // failure never retries on a later declaration.
+        stopped = true
+        unsubscribe()
+        const dispose = active
+        active = undefined
+        activeEpoch = undefined
+        dispose?.()
+      }
+
+      const reconcile = (): void => {
+        if (stopped) return
+        const spec = this._core.specDynamic(key)
+        const epoch = this._core.declarationEpoch(key)
+        if (active !== undefined && activeEpoch === epoch) return
+        const dispose = active
+        active = undefined
+        activeEpoch = undefined
+        dispose?.()
+        if (spec === undefined) return
+        // A declaration lifetime is a nested Cordis effect. This gives
+        // generator callbacks the same transactional setup, reverse teardown,
+        // diagnostics tree, and idempotence as every other plugin effect.
+        const disposeEffect = ctx.effect(callback, `slots.inject(${JSON.stringify(key)}): declaration`)
+        active = () => { void disposeEffect() }
+        activeEpoch = epoch
+      }
+
+      const changed = (): void => {
+        try {
+          reconcile()
+        } catch (error) {
+          if ((error as { code?: unknown } | null)?.code === 'INACTIVE_EFFECT') {
+            stop()
+            return
+          }
+          stop()
+          const failure = error instanceof Error ? error : new Error(String(error))
+          queueMicrotask(() => { throw failure })
+        }
+      }
+
+      unsubscribe = this._core.subscribeDeclaration(key, changed)
+      try {
+        reconcile()
+      } catch (error) {
+        stop()
+        throw error
+      }
+      return stop
+    }, `slots.inject(${JSON.stringify(key)})`)
+    return () => { void disposeController() }
+  }
 
   /**
    * Install the shell's renderer (web-react's createSlotRenderer product).

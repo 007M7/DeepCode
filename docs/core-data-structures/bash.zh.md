@@ -2,7 +2,7 @@
 
 [English](bash.md) | 中文
 
-bash 执行 seam 分为接口（[dsh-bash](../../packages/bash/bash)，`ctx.bash`）、实现（[dsh-bash-local](../../packages/bash/bash-local) 与 [dsh-bash-sandbox](../../packages/bash/bash-sandbox)）和消费方（[dsh-tool-bash](../../packages/bash/tool-bash)，即 `bash` schema）。通用后台任务的 id、所有权与控制位于 [tasks.md](tasks.md)；本 seam 返回一个不含任务概念的进程句柄。原始进程组机制位于[进程管理器 seam](subprocess.md)之后。
+bash 执行 seam 分为接口（[dsh-bash](../../packages/bash/bash)，`ctx.bash`）、实现（[dsh-bash-local](../../packages/bash/bash-local) 与 [dsh-bash-sandbox](../../packages/bash/bash-sandbox)）和消费方（[dsh-tool-bash](../../packages/bash/tool-bash)，即 `bash` schema）。通用后台任务的 task id、所有权与控制位于 [tasks.md](tasks.md)；本 seam 返回一个不含任务概念的进程句柄。原始进程组机制位于[进程管理器 seam](subprocess.md)之后。
 
 源码：[`packages/bash/bash/src/types.ts`](../../packages/bash/bash/src/types.ts)
 
@@ -12,7 +12,7 @@ bash 执行 seam 分为接口（[dsh-bash](../../packages/bash/bash)，`ctx.bash
 
 ## 请求与规格：`resolve()` 拆分
 
-该 seam 将**面向模型/插件的请求**（`workdir`/`timeoutMs`/`stdoutMaxBytes` 可选，由配置或请求策略补全）与执行器实际使用的**完全解析后的 spec**（这些字段均为必填）分开。工具层在二者之间调用 `ctx.bash.resolve(request)`——这具体落实了仓库的「包（package） seam 上显式优于隐式」规则：`BashExecSpec` 的读者不必猜测工作目录或输出预算来自何处。
+该 seam 将**面向模型/插件的请求**（`workdir`/`timeoutMs`/`stdoutMaxBytes` 可选，由配置或请求策略补全）与执行器实际使用的**完全解析后的 spec**（这些字段均为必填）分开。工具层在二者之间调用 `ctx.bash.resolve(request)`——这具体落实了仓库的「包 seam 上显式优于隐式」规则：`BashExecSpec` 的读者不必猜测工作目录或输出预算来自何处。
 
 ```ts type-equiv
 /**
@@ -98,13 +98,13 @@ interface BashExecSpec {
 }
 ```
 
-`stdin` 和 `env` 是受信任的进程内插件输入，不由 `dsh-tool-bash` 暴露。本地执行器会先清除环境中的凭据，再合并调用方显式提供的 env。见 [bash-stdin-env Agent Note（agent 决策记录）](../../.agents/notes/implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md)。
+`stdin` 和 `env` 是受信任的进程内插件输入，不由 `dsh-tool-bash` 暴露。本地执行器会先清除环境中的凭据，再合并调用方显式提供的 env。见 [bash-stdin-env Agent Note](../../.agents/notes/implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md)。
 
 `stdoutMaxBytes` 同样仅供受信任插件使用。它让前台消费方能在有界解析预算内请求完整 stdout，而不会改变 stderr、后台任务或面向模型的 bash 工具的常规输出上限。
 
 ## 前台运行：`BashRunResult`
 
-一次已完成（或被终止）的前台运行的结果。正交的结果**独立报告**：一个进程可以同时超时并以退出码 0 退出（因为它捕获了信号），因此 `timedOut`、`aborted`、`signal` 和 `exitCode` 各自独立为一个字段；调用方永远不会把一次被截断的运行误读为干净的成功。
+一次已完成（或被终止）的前台运行的结果。正交的结果**独立报告**：一个进程可以同时超时并以退出码 0 退出（因为它捕获了信号），因此 `timedOut`、`aborted`、`signal` 和 `exitCode` 各自独立为一个字段；调用方永远不会把一次被提前中断的运行误读为正常成功。
 
 ```ts type-equiv
 /** The outcome of one completed (or killed) foreground run. */
@@ -166,7 +166,7 @@ interface BashSandboxInfo {
 
 ## 后台进程：`BashProcess`
 
-`start()` 返回不含 id 或所有者的句柄。`dsh-tool-bash` 将它适配为 `ctx.tasks.start()` 钩子；随后由通用运行时拥有任务标识与生命周期。`done` 在进程关闭时 resolve 且绝不 reject；进程结束后仍可读取，并且沙箱事实会在 `done` resolve 前写入。
+`start()` 返回不含 id 或所有者的句柄。`dsh-tool-bash` 将它适配为 `ctx.tasks.start()` 钩子；随后由通用运行时拥有任务标识与生命周期。`done` 在进程关闭时完成且绝不被拒绝；进程结束后仍可读取，并且沙箱事实会在 `done` 完成前写入。
 
 ```ts type-equiv
 /**
@@ -200,7 +200,7 @@ interface BashProcess {
 }
 ```
 
-`readOutput()` 返回增量 delta 与 spill 恢复事实：
+`readOutput()` 返回增量内容与 spill 恢复信息：
 
 ```ts type-equiv
 /** One incremental {@link BashProcess.readOutput} read. */
@@ -218,4 +218,4 @@ interface BashProcessRead {
 
 ## 服务
 
-`BashExecutor` 拥有 `resolve`、前台 `run`、后台进程 `start` 以及 `sandboxMode` 能力事实。`dsh-bash-local` 拥有命令默认值补全、超时/中止分类、终端环境以及后台读取合并；进程组、有界收集器、spill 文件、凭据清除与 dispose（资源释放）后完全停稳归[进程管理器](subprocess.md)所有。`dsh-tool-bash` 拥有面向模型的渲染，并将后台句柄适配到[通用任务运行时](tasks.md)。
+`BashExecutor` 拥有 `resolve`、前台 `run`、后台进程 `start` 以及 `sandboxMode` 能力事实。`dsh-bash-local` 拥有命令默认值补全、超时/中止分类、终端环境以及后台读取合并；进程组、有界收集器、spill 文件、凭据清除与 dispose（资源释放）后完全停稳归[进程管理器](subprocess.md)所有。`dsh-tool-bash` 拥有面向模型的渲染，并将后台句柄适配到[通用任务运行时](tasks.md)。`dsh-bash` 拥有 shell 工具共享的退出状态契约：导出的 `parseExitStatus`/`ParsedExitStatus` 是 `dsh-tool-bash` 的 `renderResult` 与 `dsh-tool-pwsh` 的 `renderPwshResult` 所追加的 `[exit code: N]` / `[killed by signal: X]` 标记的逆解析，两个工具的 `presentResult` 都用它把渲染文本拆分为 terminal 卡的输出正文与退出状态 pill。

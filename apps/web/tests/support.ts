@@ -35,7 +35,7 @@ export async function newEnglishPage(browser: Browser, height = 1000): Promise<P
 /** Fail loud on a stale checkout instead of testing yesterday's bundle. */
 export function requireDist(): void {
   if (!existsSync(DIST_INDEX)) {
-    throw new Error('web app dist not built — run `pnpm --filter @deepseek-ai/dsh-frontend build` (pnpm run test:web does this first)')
+    throw new Error('web app dist not built — run `pnpm run build` from the repository root (`pnpm run test:web` does this first)')
   }
 }
 
@@ -85,6 +85,28 @@ export async function connectFreshWorkspace(page: Page, root: string, name = 'wo
   // The pick connected the workspace: the blank session's live composer
   // replaces the locked placeholder and enables.
   await page.locator('textarea:enabled[placeholder="Describe what you want to build"]')
+    .waitFor({ timeout: 15_000 })
+}
+
+/**
+ * {@link connectFreshWorkspace} over the product default Chinese locale: the
+ * English helper's anchors assume the locale every other scenario boots, so a
+ * scenario that deliberately keeps zh needs the localized picker copy.
+ * @param page - the browser page under test.
+ * @param root - workspace parent directory.
+ * @param name - directory created under `root` and connected.
+ */
+export async function connectFreshWorkspaceZh(page: Page, root: string, name = 'workspace'): Promise<void> {
+  mkdirSync(join(root, name), { recursive: true })
+  await page.getByRole('button', { name: '选择工作区' }).click()
+  const dialog = page.getByRole('dialog', { name: '选择工作区目录' })
+  await dialog.waitFor({ timeout: 10_000 })
+  await dialog.getByRole('button', { name: '编辑路径' }).click()
+  const pathInput = dialog.getByRole('textbox', { name: '编辑路径' })
+  await pathInput.fill(join(root, name))
+  await pathInput.press('Enter')
+  await dialog.getByRole('button', { name: '打开', exact: true }).click()
+  await page.locator('textarea:enabled[placeholder="描述你想要构建的内容"]')
     .waitFor({ timeout: 15_000 })
 }
 

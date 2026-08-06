@@ -2,7 +2,7 @@
  * SDK-facing JSON-RPC plugin over stdio. An external `cordis.yml` decides
  * whether to load it; see the single-executable Agent Note and package README.
  * Stdout is reserved for protocol frames, so the tree must not load a stdout logger.
- * This plugin answers `shutdown`, disposes its own fiber, and exits 0; the app bin
+ * This plugin answers `shutdown`, disposes the complete root runtime, and exits 0; the app bin
  * owns EOF and signal exits. Keep named plugin exports with no default export so
  * Loader `unwrapExports` preserves `name`, `inject`, `Config`, and `apply`.
  *
@@ -40,14 +40,15 @@ export const Config: Schema<JsonRpcConfig> = Schema.object({
 /**
  * Serve SDK requests over the configured streams. Effect disposal shuts down
  * SDK-created agents and closes the transport. A `shutdown` response is flushed
- * before this plugin's fiber is disposed and the process exits 0; the app bin
+ * before the root runtime is disposed and the process exits 0; the app bin
  * owns root-context disposal for EOF and signals.
  */
 export function apply(ctx: Context, config: JsonRpcConfig): void {
   // Cordis applies the schema default before invoking the plugin.
   const resolvedConfig = config as JsonRpcConfig & { maxTokensAsSuccess: boolean }
-  // The later transport callback must dispose this plugin's fiber, not its ambient context.
-  const fiber = ctx.fiber
+  // Protocol shutdown owns the complete runtime process, so it must await the
+  // root lifecycle (including persistence) before exiting.
+  const rootFiber = ctx.root.fiber
   /* v8 ignore next -- production stdio wiring; tests always inject the runtime seams */
   const input = config.input ?? process.stdin
   /* v8 ignore next -- production stdio wiring; tests always inject the runtime seams */
@@ -60,12 +61,13 @@ export function apply(ctx: Context, config: JsonRpcConfig): void {
     maxTokensAsSuccess: resolvedConfig.maxTokensAsSuccess,
   })
 
-  // Share one exit task and attempt flush and disposal independently before exiting.
+  // Share one exit task so racing shutdown requests cannot dispose the root or
+  // exit the process more than once.
   let exitTask: Promise<void> | undefined
   const disposeAndExit = (): Promise<void> => {
     exitTask ??= (async () => {
       await Promise.allSettled([Promise.resolve().then(() => transport.flush())])
-      await Promise.allSettled([Promise.resolve().then(() => fiber.dispose())])
+      await Promise.allSettled([Promise.resolve().then(() => rootFiber.dispose())])
       exit(0)
     })()
     return exitTask

@@ -7,6 +7,10 @@
   user-select: none;
 }
 
+.root :global([role='tooltip']) {
+  font: var(--dsw-font-xxxs-11);
+}
+
 .plot {
   display: grid;
   grid-template-columns: 44px minmax(0, 1fr);
@@ -51,6 +55,50 @@
   overflow: hidden;
   cursor: crosshair;
   touch-action: none;
+}
+
+.track[data-panning='true'] {
+  cursor: grabbing;
+}
+
+.earlierHistory {
+  position: absolute;
+  z-index: 5;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  width: 28px;
+  align-items: center;
+  justify-content: flex-start;
+  appearance: none;
+  box-sizing: border-box;
+  padding-left: 3px;
+  border: 0;
+  outline: none;
+  background: linear-gradient(
+    to right,
+    var(--dsw-alias-bg-layer-2) 0,
+    var(--dsw-alias-bg-layer-2) 38%,
+    transparent 100%
+  );
+  color: var(--dsw-alias-label-secondary);
+  font: var(--dsw-font-xs-13);
+  line-height: 1;
+  opacity: 0.72;
+  cursor: pointer;
+}
+
+.earlierHistory:hover {
+  opacity: 1;
+}
+
+.earlierHistory[aria-disabled='true'] {
+  cursor: default;
+}
+
+.earlierHistory:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--dsw-alias-border-l2);
 }
 
 .empty {
@@ -105,8 +153,15 @@
 .span {
   position: absolute;
   top: calc(var(--trajectory-span-lane) * 14px);
-  left: calc(var(--trajectory-span-left) + 1px);
-  width: max(2px, calc(var(--trajectory-span-width) - 2px));
+  left: calc(var(--trajectory-span-left) + var(--trajectory-span-gap));
+  width: max(
+    2px,
+    calc(
+      var(--trajectory-span-width)
+      - var(--trajectory-span-gap)
+      - var(--trajectory-span-gap)
+    )
+  );
   height: 8px;
   min-width: 2px;
   border-radius: 1px;
@@ -127,23 +182,35 @@
 }
 
 .span[data-timeline-span='message'] {
-  background: color-mix(
+  --trajectory-assistant-decoding-color: color-mix(
     in srgb,
     var(--dsw-alias-brand-primary-new-colorprimary-new-color) 60%,
     var(--dsw-alias-state-error-secondary)
   );
-}
-
-.span[data-timeline-span='tool'] {
-  background: var(--dsw-alias-state-warn-label);
-}
-
-.span[data-timeline-span='subtool'] {
-  background: color-mix(
+  --trajectory-assistant-ttft-color: color-mix(
     in srgb,
-    var(--dsw-alias-state-warn-label) 62%,
-    var(--dsw-alias-label-tertiary)
+    var(--trajectory-assistant-decoding-color) 54%,
+    var(--dsw-alias-bg-layer-2)
   );
+
+  background: var(--trajectory-assistant-decoding-color);
+  opacity: 1;
+}
+
+.span[data-timeline-span='message'][data-assistant-timing='true'] {
+  background: linear-gradient(
+    to right,
+    var(--trajectory-assistant-ttft-color) 0,
+    var(--trajectory-assistant-ttft-color) var(--trajectory-assistant-ttft),
+    var(--trajectory-assistant-decoding-color) var(--trajectory-assistant-ttft),
+    var(--trajectory-assistant-decoding-color) 100%
+  );
+}
+
+.span[data-timeline-span='tool'],
+.span[data-timeline-span='subtool'] {
+  background: var(--dsw-alias-state-warn-label);
+  opacity: 1;
 }
 
 .span[data-error='true'] {
@@ -161,7 +228,7 @@
 
 .span[data-hovered='true']:not([data-current='true']) {
   z-index: 1;
-  opacity: 0.78;
+  opacity: 1;
   box-shadow:
     0 0 0 1px var(--dsw-alias-bg-layer-2),
     0 0 0 2px color-mix(

@@ -4,7 +4,8 @@
  * remains visible.
  */
 import type {
-  SessionId, SessionListState, SessionSearchResultItem, SessionSummary, WorkspaceId, WorkspaceView,
+  PendingInteractionStatus, SessionId, SessionListState, SessionSearchResultItem, SessionSummary,
+  WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
 
 /** Group key for Sessions outside every Workspace. */
@@ -20,7 +21,11 @@ export interface SessionNode {
   title: string
   /** The provisional blank session (renderer shows the localized New Session title). */
   blank: boolean
+  /** The runtime Session list reports an interaction awaiting this user. */
+  pendingInteraction?: PendingInteractionStatus
   running: boolean
+  /** Finished running while not selected and not yet opened (the green "done" reminder dot). */
+  completed: boolean
   updatedAt: number
 }
 
@@ -48,7 +53,11 @@ export interface SearchResultNode {
   id: SessionId
   title: string
   workspace: string
+  /** The runtime Session list reports an interaction awaiting this user. */
+  pendingInteraction?: PendingInteractionStatus
   running: boolean
+  /** Finished running while not selected and not yet opened (the green "done" reminder dot). */
+  completed: boolean
   snippet?: string
 }
 
@@ -92,11 +101,14 @@ function byRecency(a: SessionSummary, b: SessionSummary): number {
 
 /**
  * Ordinary sessions are visible; among blank sessions, only the current one
- * is visible; archived sessions are visible nowhere (their accounting slots
- * remain, so unarchiving restores position).
+ * is visible. Subagent children use their parent header catalog; archived
+ * sessions are visible nowhere, while their accounting slots remain so
+ * unarchiving restores position.
  */
 function sessionVisible(session: SessionSummary, current: SessionId | undefined, archived: ReadonlySet<SessionId>): boolean {
-  return !archived.has(session.id) && (!session.blank || session.id === current)
+  return session.origin !== 'subagent'
+    && !archived.has(session.id)
+    && (!session.blank || session.id === current)
 }
 
 /**
@@ -167,7 +179,9 @@ function sessionNode(s: SessionSummary): SessionNode {
     title: sessionTitle(s),
     blank: s.blank,
     running: s.running,
+    completed: s.completed === true,
     updatedAt: s.updatedAt,
+    ...(s.pendingInteraction === undefined ? {} : { pendingInteraction: s.pendingInteraction }),
   }
 }
 
@@ -318,6 +332,10 @@ export function deriveSearchResults(
         title: sessionTitle(summary),
         workspace: labelOf(summary),
         running: summary.running,
+        ...(summary.pendingInteraction === undefined
+          ? {}
+          : { pendingInteraction: summary.pendingInteraction }),
+        completed: summary.completed === true,
         ...match === undefined ? {} : { snippet: match.snippet },
       }
     }),

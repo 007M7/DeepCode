@@ -68,7 +68,7 @@ export interface Config {
   thinking?: 'enabled' | 'disabled'
   /** Default thinking effort (default `high`); `off` disables thinking per request. */
   reasoningEffort?: 'off' | 'high' | 'max'
-  /** Default per-request output cap (default 256,000); explicit request values win. */
+  /** Default per-request output cap (default 256,000); a model's own cap and explicit request values win. */
   maxTokens?: number
   /** Positive context capacity used when the selected model has no exact value (default 1,000,000). */
   defaultContextWindow?: number
@@ -85,6 +85,7 @@ const catalogModel: z<DeepSeekCatalogModel> = z.object({
   name: z.string(),
   description: z.string(),
   contextWindow: z.number().step(1).min(1),
+  maxTokens: z.number().step(1).min(1),
 })
 
 export const Config: z<Config> = z.object({
@@ -125,6 +126,12 @@ function resolveModels(models: readonly DeepSeekCatalogModel[] | undefined): Dee
         `llm-deepseek: catalog model "${model.id}" contextWindow must be a positive integer`,
       )
     }
+    if (model.maxTokens !== undefined
+      && (!Number.isInteger(model.maxTokens) || model.maxTokens <= 0)) {
+      throw new Error(
+        `llm-deepseek: catalog model "${model.id}" maxTokens must be a positive integer`,
+      )
+    }
     if (seen.has(model.id)) throw new Error(`llm-deepseek: duplicate catalog model "${model.id}"`)
     seen.add(model.id)
     return {
@@ -132,6 +139,7 @@ function resolveModels(models: readonly DeepSeekCatalogModel[] | undefined): Dee
       ...model.name === undefined ? {} : { name: model.name },
       ...model.description === undefined ? {} : { description: model.description },
       ...model.contextWindow === undefined ? {} : { contextWindow: model.contextWindow },
+      ...model.maxTokens === undefined ? {} : { maxTokens: model.maxTokens },
     }
   })
 }

@@ -1,13 +1,15 @@
 /**
- * Cross-platform open-with-default-application used by the local GUI carrier.
+ * Cross-platform native path and text-document openers used by the local GUI
+ * carrier.
  *
- * A document a browser RENDERS is opened with the user's default browser
- * rather than the default application for its type, when the platform can name
- * one: a developer who binds `.html` to an editor would otherwise click a
- * produced page and get source code. The contract is uniform — prefer the
- * default browser, fall back to the default application — while how completely
- * a platform can answer "which browser" differs, and every failure falls back
- * rather than surfacing.
+ * Under the default intent, a document a browser RENDERS is opened with the
+ * user's default browser rather than the default application for its type,
+ * when the platform can name one: a developer who binds `.html` to an editor
+ * would otherwise click a produced page and get source code. The contract is
+ * uniform — prefer the default browser, fall back to the default application —
+ * while how completely a platform can answer "which browser" differs, and
+ * every failure falls back rather than surfacing. The text-editor intent never
+ * consults the browser: it exists to open the document's TEXT.
  */
 
 import { extname } from 'node:path'
@@ -76,32 +78,30 @@ async function openInBrowser(
   return false
 }
 
+/** Native path-open intent; macOS distinguishes text editing from file association. */
+type PathOpenIntent = 'default' | 'text-editor'
+
 /** PowerShell single-quoted literal (doubles embedded quotes). */
 function powershellLiteral(path: string): string {
   return `'${path.replace(/'/g, "''")}'`
 }
 
-/**
- * Open a filesystem path with the operating system's default application, or
- * with the default browser when the path names a document a browser renders.
- * @param path - absolute or host-resolvable path (caller owns resolution).
- * @param signal - caller/connection lifetime; abort terminates the native command.
- * @param internals - platform, environment, and runner seam for deterministic tests.
- */
-export async function openNativePath(
+/** Dispatch one shell-free platform command for the requested open intent. */
+async function openNativePathWithIntent(
   path: string,
   signal: AbortSignal,
+  intent: PathOpenIntent,
   internals: PathOpenerInternals = {},
 ): Promise<void> {
   const platform = internals.platform ?? process.platform
   const run = internals.run ?? runNativeCommand
   const env = internals.env ?? process.env
 
-  if (BROWSER_DOCUMENTS.has(extname(path).toLowerCase())
+  if (intent === 'default' && BROWSER_DOCUMENTS.has(extname(path).toLowerCase())
     && await openInBrowser(path, signal, platform, run, env)) return
 
   if (platform === 'darwin') {
-    await run('open', [path], signal)
+    await run('open', intent === 'text-editor' ? ['-t', path] : [path], signal)
     return
   }
 
@@ -120,4 +120,34 @@ export async function openNativePath(
   }
 
   throw new Error(`native path opener is unsupported on ${platform}`)
+}
+
+/**
+ * Open a filesystem path with the operating system's default application, or
+ * with the default browser when the path names a document a browser renders.
+ * @param path - absolute or host-resolvable path (caller owns resolution).
+ * @param signal - caller/connection lifetime; abort terminates the native command.
+ * @param internals - platform, environment, and runner seam for deterministic tests.
+ */
+export function openNativePath(
+  path: string,
+  signal: AbortSignal,
+  internals: PathOpenerInternals = {},
+): Promise<void> {
+  return openNativePathWithIntent(path, signal, 'default', internals)
+}
+
+/**
+ * Open a text document for editing; macOS bypasses the file-type association
+ * so a YAML association with a browser cannot consume the gesture.
+ * @param path - absolute or host-resolvable text-document path.
+ * @param signal - caller/connection lifetime; abort terminates the native command.
+ * @param internals - platform and runner seam for deterministic tests.
+ */
+export function openNativeTextFile(
+  path: string,
+  signal: AbortSignal,
+  internals: PathOpenerInternals = {},
+): Promise<void> {
+  return openNativePathWithIntent(path, signal, 'text-editor', internals)
 }

@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-这是一个仅提供建议的循环中断器，而非面向模型的工具：它不会出现在工具列表中，不会否决或改写调用，只增加一种行为。它监视每个 agent（智能体）的工具调用流，统计以完全相同的规范化参数连续调用同一工具的次数；达到所配置的连续次数时，它会注入逐级增强的提示，要求模型停止重复、重新阅读上一次结果，并改用其他方案或结束任务。究竟是换一种方式重试、收集更多证据还是完成任务，仍完全由模型决定：合理的重复调用既不会延迟，也不会受阻。决策记录见 [repeat-tool-guard Agent Note（agent 决策记录）](../../../.agents/notes/archived/feature/2026-07-08-repeat-tool-guard.md)。
+这是一个仅提供建议的循环中断器，而非面向模型的工具：它不会出现在工具列表中，不会否决或改写调用，只增加一种行为。它监视每个 agent（智能体）的工具调用流，统计以完全相同的规范化参数连续调用同一工具的次数；达到所配置的连续次数时，它会注入逐级增强的提示，要求模型停止重复、重新阅读上一次结果，并改用其他方案或结束任务。究竟是换一种方式重试、收集更多证据还是完成任务，仍完全由模型决定：合理的重复调用既不会延迟，也不会受阻。决策记录见 [repeat-tool-guard Agent Note](../../../.agents/notes/archived/feature/2026-07-08-repeat-tool-guard.md)。
 
 ## 配置
 
@@ -27,16 +27,12 @@
 - **不受跟踪的调用对链透明。** 被 `include`／`exclude` 排除的调用既不递增计数器，也不重置计数器；因此，`grep X → todo_write → grep X` 仍算作连续两次 `grep X`，即使 `todo_write` 已被排除。这正是排除机制的价值：循环中穿插的记录类工具不能掩盖循环。
 - **被拒绝的调用也计数。** 检测位于 `tools/post-execute`；即便调用被 `tools/pre-execute` 监听器拒绝，该事件也会运行。模型反复尝试被拒绝的调用，恰恰是需要打断的循环。
 - **忽略没有 agent 的调用。** 直接调用 `ctx.tools.execute()` 的调用方没有需要提醒的模型，也没有可作为键的活跃 agent 对象。
-- **按 agent 分键。** 工具注册表位于上下文层级，subagent 会交错通过同一个 waterfall（瀑布式事件），因此每条链使用 `WeakMap<Agent, Chain>`，以活跃 agent 对象为键。一个 agent 的重复调用绝不会触发另一个 agent 的提醒。用户提示词（`agent/prompt-submit`）会重置提交该提示词的 agent 链；对象生命周期会自然限制弱引用条目的寿命，无需 dispose（资源释放）监听器。
+- **按 agent 分键。** 工具注册表位于上下文层级，subagent 会交错通过同一个 waterfall（瀑布式事件），因此每条链使用 `WeakMap<Agent, Chain>`，以活跃 agent 对象为键。一个 agent 的重复调用绝不会触发另一个 agent 的提醒。用户提示词（`agent/pre-step`）会重置提交该提示词的 agent 链；对象生命周期会自然限制弱引用条目的寿命，无需 dispose（资源释放）监听器。
 - **仅驻留内存。** 从持久化恢复的会话会从一条全新的链开始：guard 是启发式提醒，并非有日志记录的不变量；提醒会延后，这是可接受的代价。
 
 ## 提醒传递
 
 提醒通过 post-execute 决策中的 `additionalContexts`（来源为 `{kind: 'plugin', plugin: 'repeat-tool-guard'}`）传递，绝不替换 `content`；用于审计的 `tool/result` 事件仍保留工具自己的输出。循环会缓冲这段上下文，并在该步骤的工具结果之后将其作为注入的 `user/message` 追加；会话会将它渲染为普通的合成用户消息。因此，提醒对模型可见、带有来源归属，并且无需增加会话事件即可从会话日志重建。guard 始终通过 `next()` 委派，并将自己的提醒放在下游决策的上下文数组之前（两种结果都适用：被阻止的调用也会收到提醒）；每个条目保留自己的来源和元数据。
-
-## 测试
-
-单元测试使用 mock 适配器（无网络）驱动真实 agent loop，并对上述链语义实现逐文件 100% 覆盖率。快照层负责 transcript（文本记录）接口：脚本化回放场景会将同一调用重复 5 次，并在 ACP（Agent Client Protocol）的 transcript 中固定两个提醒层级，即第 3 次的温和提醒和第 5 次的详细提醒；二者均为注入的 `user/message`。
 
 ## 模型体验
 
@@ -58,7 +54,7 @@ You are repeating the exact same tool call with identical arguments. Carefully a
 
 #### KV Cache 影响
 
-仅追加；新出现的内容位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
+仅追加；新出现的内容位于可复用请求前缀之后，不会使现有 KV Cache 条目失效。
 
 ### 后续阈值的上下文消息
 
@@ -82,7 +78,7 @@ The repeated calls are not making progress. Do not call this tool with these exa
 
 #### KV Cache 影响
 
-仅追加；新出现的内容位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
+仅追加；新出现的内容位于可复用请求前缀之后，不会使现有 KV Cache 条目失效。
 
 ## 已知限制与暂缓事项
 

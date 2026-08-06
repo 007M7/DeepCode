@@ -1,15 +1,15 @@
 // @vitest-environment jsdom
 // The built-bundle boot smoke: the ONE assembled-jsdom test that loads the
 // real `packages/client/*/lib/client.js` artifacts through AppWebEntry's
-// ModuleLoader path (fetchBundle/executeBundle) and proves the boot graph
+// ModuleLoader path (loadBundle) and proves the boot graph
 // assembles — staged activation across the immediately tier and the inject
 // layers, per-plugin CSS injection, and a rendered journey reaching chat
 // content from the keyless FixtureApiClient transport.
 //
-// Behavior assertions do NOT belong here: component and wiring behavior is
-// pinned by the per-package suites (SlotTestRuntime benches over src), which
-// this smoke's plugin set cannot influence — bundling, module-table
-// resolution, and boot layering are the only failure modes left to it.
+// Component behavior remains owned by per-package suites (SlotTestRuntime
+// benches over src). This smoke additionally pins the resident interaction
+// fixture's cross-plugin projection because only the built connection/runtime/
+// workspace graph can prove that transport-to-row path end to end.
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
@@ -91,11 +91,11 @@ it('boots the built plugin graph and renders a fixture session end to end', asyn
   win.__DSH_BOOT__ = { rev: 'fx', entries: PLUGINS.map(({ dir: _dir, ...plugin }) => plugin) }
   act(() => {
     const entry = new AppWebEntry(root, {
-      fetchBundle: (url) => {
+      loadBundle: async (url) => {
         const code = bundles.get(url)
-        return code === undefined ? Promise.reject(new Error(`missing built bundle ${url}`)) : Promise.resolve(code)
+        if (code === undefined) throw new Error(`missing built bundle ${url}`)
+        ;(0, eval)(code)
       },
-      executeBundle: (code) => { (0, eval)(code) },
     })
     void entry.run()
     unmount = () => { entry.dispose() }
@@ -105,11 +105,36 @@ it('boots the built plugin graph and renders a fixture session end to end', asyn
   const tree = await screen.findByRole('tree', { name: 'Sessions' }, { timeout: 10_000 })
   await within(tree).findByText('4 sessions')
 
+  // The resident fixture has both a question and an approval; composer routing
+  // exposes the question first, and the assembled workspace plugin mirrors that
+  // actionable wait instead of the underlying running state.
+  const waitingTitle = await within(tree).findByText('Fixture 历史会话')
+  const waitingRow = waitingTitle.closest<HTMLElement>('[role="treeitem"]')
+  if (waitingRow === null) throw new Error('fixture Session title must belong to a tree row')
+  expect(waitingRow.querySelector('[data-state="warning"]')).not.toBeNull()
+  expect(waitingRow.querySelector('[data-state="ongoing"]')).toBeNull()
+  within(waitingRow).getByText('Waiting for answer')
+
   // Opening a session reaches chat content through the fixture transport.
-  fireEvent.click(await within(tree).findByText('Fixture 历史会话'))
+  fireEvent.click(waitingTitle)
   await waitFor(() => {
-    expect(document.querySelector('[data-sample="bash-global"]')).not.toBeNull()
+    expect(document.querySelector('[data-sample="bash"]')).not.toBeNull()
   }, { timeout: 10_000 })
+
+  // Resolve the resident approval so the ordinary composer bar (which owns
+  // ContextMeter) resumes without replacing the session shell. This minimal
+  // boot graph intentionally does not mount the separate question UI plugin.
+  fireEvent.click(await screen.findByRole('button', { name: 'Allow once' }))
+
+  // The fixture mirrors all three token-meter projections, so the assembled
+  // ContextMeter reaches its composition panel instead of only the occupancy
+  // fallback path.
+  const contextTrigger = await screen.findByRole('button', { name: /of context used/ })
+  fireEvent.click(contextTrigger)
+  const contextPanel = await screen.findByRole('dialog', { name: 'of context used' })
+  within(contextPanel).getByText('System prompt')
+  within(contextPanel).getByText('Tools')
+  within(contextPanel).getByText('Messages')
 
   // The write/edit turns render a real diff card through the assembled graph
   // (the keyed FileMutationRow composing ToolRow + DiffBlock), not just the

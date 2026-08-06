@@ -12,7 +12,7 @@ import type { TokenMeterService } from '@deepseek-ai/dsh-token-meter'
 import type { Session } from '@deepseek-ai/dsh-session'
 import { CONTEXT_WINDOW_EXCEEDED_CODE, assertNever } from '@deepseek-ai/dsh-llm'
 import type { LlmCallConfig } from '@deepseek-ai/dsh-llm'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 // Type-only: makes the optional sibling service available to `ctx.get()`.
 import type {} from '@deepseek-ai/dsh-compact-tool-result-prune'
 import {
@@ -143,28 +143,28 @@ export class BasicCompactService extends CompactService {
       )
     }
 
-    ctx.on('agent/step', async (
-      agent: Agent,
-      _turn: number,
-      _step: number,
-      signal: AbortSignal,
-    ) => {
-      if (signal.aborted) return
-      try {
-        const result = await this.compactIfNeeded(agent, 'pressure', signal)
-        if (result !== null) logResult(result, 'step pressure')
-      } catch (error: unknown) {
-        if (error instanceof TargetPressureConfigError) {
-          if (this.warnedPressureConfigTargets.has(error.targetKey)) return
-          this.warnedPressureConfigTargets.add(error.targetKey)
+    ctx.on('agent/pre-step', async (
+      { agent, signal },
+      next,
+    ): Promise<PreStepDecision> => {
+      if (!signal.aborted) {
+        try {
+          const result = await this.compactIfNeeded(agent, 'pressure', signal)
+          if (result !== null) logResult(result, 'step pressure')
+        } catch (error: unknown) {
+          if (error instanceof TargetPressureConfigError) {
+            if (this.warnedPressureConfigTargets.has(error.targetKey)) return next()
+            this.warnedPressureConfigTargets.add(error.targetKey)
+          }
+          const message = error instanceof Error ? error.message : String(error)
+          ctx.logger.warn(`step compaction failed: ${message}; continuing the turn`)
         }
-        const message = error instanceof Error ? error.message : String(error)
-        ctx.logger.warn(`step compaction failed: ${message}; continuing the turn`)
       }
+      return next()
     })
 
-    ctx.on('agent/settled', (agent) => {
-      this.overflowRetries.delete(agent)
+    ctx.on('agent/status', ({ agent, status }) => {
+      if (status === 'idle') this.overflowRetries.delete(agent)
     })
 
     // A successful response starts a fresh overflow-recovery sequence even
@@ -176,14 +176,7 @@ export class BasicCompactService extends CompactService {
     })
 
     ctx.on('agent/request-error', async (
-      agent,
-      _turn,
-      _step,
-      _error,
-      failure,
-      _priorFailures,
-      _retryPolicy,
-      signal,
+      { agent, failure, signal },
       next,
     ) => {
       if (failure.code !== CONTEXT_WINDOW_EXCEEDED_CODE || signal.aborted) return next()
@@ -367,43 +360,55 @@ export class BasicCompactService extends CompactService {
    * Force one useful idle-session compaction below the pressure threshold, and
    * resolve only after its standalone marker pair is durably checkpointed.
    * @param agent - idle agent whose next-turn admission this call reserves.
-   * @param signal - command-owned cancellation forwarded to summarization.
+   * @param signal - cancellation scoped to this compaction request.
    * @returns the committed result, or `null` when no safe useful range exists.
    */
-  override async compactNow(
-    agent: Agent,
-    signal: AbortSignal,
-  ): Promise<CompactionResult | null> {
+  override compactNow(agent: Agent, signal: AbortSignal): Promise<CompactionResult | null> {
     signal.throwIfAborted()
-    const releaseTurnAdmission = agent.reserveTurnAdmission()
-    if (releaseTurnAdmission === undefined) {
+    try {
+      return agent.runMaintenance(async (agentSignal) => {
+        const operationSignal = AbortSignal.any([agentSignal, signal])
+        try {
+          operationSignal.throwIfAborted()
+          const range = selectCompactableRange(
+            agent.session,
+            this.ctx.tokenMeter.measure(agent.session),
+            0,
+          )
+          if (range === null) return null
+          return await compactSurfaceRegion(
+            this.regionDependencies(),
+            agent.session,
+            range.start,
+            range.end,
+            agent,
+            {
+              owner: null,
+              stability: 'selected-span',
+              flush: async () => {
+                await this.ctx.sessions.flush(agent.session)
+              },
+            },
+            operationSignal,
+          )
+        } catch (error: unknown) {
+          if (agentSignal.aborted && operationSignal.reason === agentSignal.reason) {
+            throw new ManualCompactionError(
+              'cancelled',
+              'manual compaction was cancelled',
+              { cause: error },
+            )
+          }
+          operationSignal.throwIfAborted()
+          throw error
+        }
+      })
+    } catch (error: unknown) {
       throw new ManualCompactionError(
         'busy',
         'manual compaction requires an idle agent with no waking queued work',
+        { cause: error },
       )
-    }
-    try {
-      const range = selectCompactableRange(
-        agent.session,
-        this.ctx.tokenMeter.measure(agent.session),
-        0,
-      )
-      if (range === null) return null
-      return await compactSurfaceRegion(
-        this.regionDependencies(),
-        agent.session,
-        range.start,
-        range.end,
-        agent,
-        {
-          owner: null,
-          stability: 'selected-span',
-          flush: () => this.ctx.sessions.flush(agent.session),
-        },
-        signal,
-      )
-    } finally {
-      releaseTurnAdmission()
     }
   }
 

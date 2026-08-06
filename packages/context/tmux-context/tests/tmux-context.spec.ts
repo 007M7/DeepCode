@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
-import AgentRegistry, { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { agentEvents, Inbox, type Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { BashExecutor } from '@deepseek-ai/dsh-bash'
 import type { BashExecRequest, BashExecSpec, BashProcess, BashRunResult } from '@deepseek-ai/dsh-bash'
@@ -96,24 +96,21 @@ function sessionAgent(session: Session, id = 'agent'): Agent {
     id: SessionId(id),
     options: {},
     session,
+    inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
     status: 'running',
-    acceptsNextStep: true,
     ctx: new Context(),
+    send: () => {},
     followup: () => {},
     steer: () => {},
-    updateInbox: () => 'not-found',
-    inject(input) {
-      session.append('user/message', input, { surfaceOp: 'append' })
-    },
-    send: () => {},
-    reserveTurnAdmission: () => undefined,
+    inject: () => { throw new Error('tmux-context must append directly to the open step') },
     cancel() {},
+    runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
   }
 }
 
 function openMessageTurn(session: Session, turn: number): void {
-  session.append('turn/start', { turn, trigger: { kind: 'message', source: { kind: 'user' } } })
+  session.append('turn/start', { turn })
   session.append('user/message', createUserMessage({
     content: [{ type: 'text', text: `turn ${turn}` }],
     source: { kind: 'user' },
@@ -139,7 +136,16 @@ async function fire(
   step: number,
   signal: AbortSignal = SIGNAL,
 ): Promise<void> {
-  await agentEvents(ctx, agent).serial('agent/step', turn, step, signal)
+  const decision = await agentEvents(ctx, agent).waterfall(
+    'agent/pre-step',
+    { messages: [], turn, step, signal },
+    () => Promise.resolve({ kind: 'enter' as const, messages: [] }),
+  )
+  if (decision.kind === 'enter') {
+    for (const message of decision.messages) {
+      agent.session.append('user/message', message, { surfaceOp: 'append' })
+    }
+  }
 }
 
 afterEach(() => {
@@ -150,7 +156,7 @@ afterEach(() => {
 describe('tmux-context injection', () => {
   it('injects the tmux location on the first step of a turn', async () => {
     const { ctx } = await mount({}, true)
-    const session = new Session(SessionId('first'))
+    const session = Session.create(SessionId('first'))
     openMessageTurn(session, 1)
 
     await fire(ctx, sessionAgent(session), 1, 1)
@@ -163,13 +169,20 @@ describe('tmux-context injection', () => {
     ])
     const event = session.events.at(-1)
     if (event?.type !== 'user/message') throw new Error('missing tmux context')
-    expect(event.data.source).toEqual({ kind: 'plugin', plugin: 'tmux-context' })
+    // `snapshot` form: one named contribution carrying exactly the reading the
+    // model saw, so a consumer attributes it without re-splitting prose.
+    expect(event.data.source).toMatchObject({
+      kind: 'plugin',
+      plugin: 'tmux-context',
+      form: 'snapshot',
+      sections: [{ name: 'tmux-context' }],
+    })
     expect(event.surfaceOp).toBe('append')
   })
 
   it('queries the pane this process runs in and matches its controlling tty', async () => {
     const { ctx, bash } = await mount({}, true)
-    const session = new Session(SessionId('command'))
+    const session = Session.create(SessionId('command'))
     openMessageTurn(session, 1)
 
     await fire(ctx, sessionAgent(session), 1, 1)
@@ -187,7 +200,7 @@ describe('tmux-context injection', () => {
 
   it('does not run on later steps of a turn', async () => {
     const { ctx, bash } = await mount({}, true)
-    const session = new Session(SessionId('later-step'))
+    const session = Session.create(SessionId('later-step'))
     openMessageTurn(session, 1)
 
     await fire(ctx, sessionAgent(session), 1, 2)
@@ -198,7 +211,7 @@ describe('tmux-context injection', () => {
 
   it('re-injects a new turn only when tmux state changed', async () => {
     const { ctx, bash } = await mount({}, true)
-    const session = new Session(SessionId('change'))
+    const session = Session.create(SessionId('change'))
     const agent = sessionAgent(session)
 
     openMessageTurn(session, 1)
@@ -226,7 +239,7 @@ describe('tmux-context injection', () => {
     vi.useFakeTimers()
     vi.setSystemTime(1_000)
     const { ctx, bash } = await mount({ refreshIntervalMs: 10_000 }, true)
-    const session = new Session(SessionId('interval'))
+    const session = Session.create(SessionId('interval'))
     const agent = sessionAgent(session)
 
     openMessageTurn(session, 1)
@@ -253,7 +266,7 @@ describe('tmux-context injection', () => {
 describe('tmux-context prior-reading resilience', () => {
   it('treats a prior non-text plugin reading as absent and injects afresh', async () => {
     const { ctx, bash } = await mount({}, true)
-    const session = new Session(SessionId('prior-non-text'))
+    const session = Session.create(SessionId('prior-non-text'))
     const agent = sessionAgent(session)
     openMessageTurn(session, 1)
     session.append('user/message', createUserMessage({
@@ -269,7 +282,7 @@ describe('tmux-context prior-reading resilience', () => {
 
   it('treats a prior single-line plugin reading (no newline) as empty state', async () => {
     const { ctx, bash } = await mount({}, true)
-    const session = new Session(SessionId('prior-single-line'))
+    const session = Session.create(SessionId('prior-single-line'))
     const agent = sessionAgent(session)
     openMessageTurn(session, 1)
     session.append('user/message', createUserMessage({
@@ -288,7 +301,7 @@ describe('tmux-context prior-reading resilience', () => {
 describe('tmux-context no-op paths', () => {
   it('is a no-op when no bash executor is mounted', async () => {
     const { ctx } = await mount()
-    const session = new Session(SessionId('no-bash'))
+    const session = Session.create(SessionId('no-bash'))
     openMessageTurn(session, 1)
 
     await fire(ctx, sessionAgent(session), 1, 1)
@@ -299,7 +312,7 @@ describe('tmux-context no-op paths', () => {
   it('is a no-op when the tmux query exits nonzero (outside tmux, or an inherited env whose tty does not match the pane)', async () => {
     const { ctx, bash } = await mount({}, true)
     bash.result = runResult('', { exitCode: 1 })
-    const session = new Session(SessionId('outside-tmux'))
+    const session = Session.create(SessionId('outside-tmux'))
     openMessageTurn(session, 1)
 
     await fire(ctx, sessionAgent(session), 1, 1)
@@ -310,7 +323,7 @@ describe('tmux-context no-op paths', () => {
   it('is a no-op when the reading has the wrong field count', async () => {
     const { ctx, bash } = await mount({}, true)
     bash.result = runResult('0\\t1\\tnode\n')
-    const session = new Session(SessionId('malformed'))
+    const session = Session.create(SessionId('malformed'))
     openMessageTurn(session, 1)
 
     await fire(ctx, sessionAgent(session), 1, 1)
@@ -321,7 +334,7 @@ describe('tmux-context no-op paths', () => {
   it('is a no-op when the pane id is empty', async () => {
     const { ctx, bash } = await mount({}, true)
     bash.result = runResult(`${tmuxLine({ paneId: '' })}\n`)
-    const session = new Session(SessionId('empty-pane'))
+    const session = Session.create(SessionId('empty-pane'))
     openMessageTurn(session, 1)
 
     await fire(ctx, sessionAgent(session), 1, 1)
@@ -333,7 +346,7 @@ describe('tmux-context no-op paths', () => {
     const { ctx, bash } = await mount({}, true)
     bash.runError = new Error('bash executor unavailable')
     const warn = vi.spyOn(ctx.logger, 'warn')
-    const session = new Session(SessionId('run-rejected'))
+    const session = Session.create(SessionId('run-rejected'))
     openMessageTurn(session, 1)
 
     await fire(ctx, sessionAgent(session), 1, 1)
@@ -346,7 +359,7 @@ describe('tmux-context no-op paths', () => {
     const { ctx, bash } = await mount({}, true)
     bash.resolveError = new Error('command denied by policy')
     const warn = vi.spyOn(ctx.logger, 'warn')
-    const session = new Session(SessionId('resolve-rejected'))
+    const session = Session.create(SessionId('resolve-rejected'))
     openMessageTurn(session, 1)
 
     await fire(ctx, sessionAgent(session), 1, 1)
@@ -360,7 +373,7 @@ describe('tmux-context no-op paths', () => {
     // Non-Error throw: the executor seam is typed, but a bad impl can reject with anything.
     bash.runError = 'spawn refused' as unknown as Error
     const warn = vi.spyOn(ctx.logger, 'warn')
-    const session = new Session(SessionId('non-error-rejection'))
+    const session = Session.create(SessionId('non-error-rejection'))
     openMessageTurn(session, 1)
 
     await fire(ctx, sessionAgent(session), 1, 1)
@@ -369,19 +382,11 @@ describe('tmux-context no-op paths', () => {
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('spawn refused'))
   })
 
-  it('skips an already-aborted step and runs before ordinary agent/step listeners', async () => {
+  it('skips an already-aborted prompt submission', async () => {
     const { ctx } = await mount({}, true)
-    const session = new Session(SessionId('ordering'))
+    const session = Session.create(SessionId('ordering'))
     const agent = sessionAgent(session)
     openMessageTurn(session, 1)
-    let ordinarySawContext = false
-    ctx.on('agent/step', (subject) => {
-      ordinarySawContext = subject.session.events.some(
-        event => event.type === 'user/message'
-          && event.data.source.kind === 'plugin'
-          && event.data.source.plugin === 'tmux-context',
-      )
-    })
 
     const abort = new AbortController()
     abort.abort()
@@ -389,7 +394,6 @@ describe('tmux-context no-op paths', () => {
     expect(contextTexts(session)).toHaveLength(0)
 
     await fire(ctx, agent, 1, 1)
-    expect(ordinarySawContext).toBe(true)
     expect(contextTexts(session)).toHaveLength(1)
   })
 })

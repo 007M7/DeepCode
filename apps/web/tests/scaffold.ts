@@ -2,8 +2,8 @@
 // .agents/notes/implemented/testing/2026-07-24-web-gui-browser-e2e-lane.md).
 // Boots the REAL web composition — the shipped base plus web overlay through
 // the vendored Loader (the same include boot AppCLIEntry drives), patched the
-// snapshot way — so a real chromium exercises the real HTTP/SSE wire, the
-// api-gateway, agent loop, tools, and persistence. Modes ride $DSH_SNAPSHOT:
+// snapshot way — so a real chromium exercises the real HTTP uplink/WebSocket
+// downlink, api-gateway, agent loop, tools, and persistence. Modes ride $DSH_SNAPSHOT:
 // replay (default, keyless: normally disables the llm-deepseek row and
 // inserts dsh-llm-replay in providers mode), record (real adapter + key,
 // harvests fixtures from live session memory), refresh (keyless replay that
@@ -53,9 +53,10 @@ import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 // Empty type imports carry the httpServer/agents/sessionPersistence Context merges.
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-agent'
+import { prepareWebRuntimeContext } from '../../cli/src/web.ts'
 import { DIST_INDEX, REPO_ROOT, requireDist } from './support.ts'
 
-/** Snapshot mode for the lane, from $DSH_SNAPSHOT (same vocabulary as the ACP/TUI suites). */
+/** Snapshot mode for the lane, from $DSH_SNAPSHOT (same vocabulary as the other snapshot suites). */
 export type WebSnapshotMode = 'replay' | 'record' | 'refresh'
 
 /**
@@ -84,11 +85,19 @@ const REPLAY_PROVIDERS = [{
   models: [{ id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', contextWindow: 128_000 }],
 }]
 
+function replayProviders(contextWindow: number | undefined): typeof REPLAY_PROVIDERS {
+  if (contextWindow === undefined) return REPLAY_PROVIDERS
+  return REPLAY_PROVIDERS.map(provider => ({
+    ...provider,
+    models: provider.models.map(model => ({ ...model, contextWindow })),
+  }))
+}
+
 /** A booted web scaffold: real composition, mode-selected model backend, temp world. */
 export interface WebScaffold {
   /** The active snapshot mode this scaffold booted under. */
   mode: WebSnapshotMode
-  /** Browser-facing origin (http://127.0.0.1:<bound port>). */
+  /** Browser-facing origin for the bound test server. */
   baseUrl: string
   /** Settled root context (the in-process barrier seam; headless event subscription is its sanctioned use). */
   ctx: Context
@@ -121,6 +130,11 @@ export interface LaunchOptions {
    */
   replayFixture?: string
   /**
+   * Recorded child logs assigned in child creation order. Each child owns its
+   * own positional replay cursor across initial and continuation turns.
+   */
+  replayChildFixtures?: string[]
+  /**
    * Optional replay.override.json sidecar (whole-script replacement or
    * `{ patches }` augmentation) for throw/hang scenarios not expressible as
    * recorded chunks; replay/refresh only.
@@ -128,6 +142,8 @@ export interface LaunchOptions {
   replayOverride?: string
   /** Per-chunk replay pacing (ms) so the browser observes genuinely incremental SSE; replay/refresh only. */
   paceMs?: number
+  /** Synthetic model capacity for UI scenarios whose seeded history must remain uncompacted. */
+  replayContextWindow?: number
   /**
    * Tool presentation mode patched onto the shipped `tools` row (`code`
    * collapses the wire to run_code + the SDK prompt section). Omit for the
@@ -160,6 +176,12 @@ export interface LaunchOptions {
   }
   /** Leave the current welcome notice unacknowledged; ordinary scenarios publish it as complete before browser boot. */
   welcomeNoticePending?: boolean
+  /**
+   * Browse through a trusted non-loopback hostname that the browser resolves
+   * to loopback (for example `*.localhost`). The test server stays bound to
+   * 127.0.0.1; a non-resolving authority fails before Host trust is exercised.
+   */
+  remoteAuthority?: string
 }
 
 /** Dispose the booted tree and remove both owned temp roots, reporting every independent cleanup failure. */
@@ -179,6 +201,7 @@ async function cleanupScaffoldWorld(ctx: Context, workspaceCwd: string, persiste
 export async function launchWebScaffold(options: LaunchOptions = {}): Promise<WebScaffold> {
   requireDist()
   const mode = webSnapshotMode()
+  const browserHost = options.remoteAuthority ?? '127.0.0.1'
   if (mode === 'record') {
     // Both owning vitest configs (web unconditionally, snapshot in record
     // mode) load the repo-root .env before this file runs.
@@ -255,7 +278,13 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     // to the production OTLP endpoint (or whatever DSH_TELEMETRY_OTLP_URL
     // names in the ambient environment).
     { id: 'telemetry-otel', disabled: true },
-    { id: 'webserver', config: { host: '127.0.0.1', port: 0, distIndex: DIST_INDEX } },
+    {
+      id: 'webserver',
+      config: { host: '127.0.0.1', port: 0, distIndex: DIST_INDEX },
+    },
+    ...options.remoteAuthority === undefined
+      ? []
+      : [{ id: 'connection', config: { trustedHosts: [options.remoteAuthority] } }],
     { id: 'settings', config: { dshHome: harnessHome } },
     { id: 'credentials', config: { dshHome: harnessHome } },
     // The shipped directory-picker row is the -auto chooser, which resolves
@@ -300,6 +329,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     // The shipped CLI deliberately has no dependency on this opt-in package.
     // Keep the Loader row real without broadening the product installation.
     if (options.cordisTools === true) ctx.loader.builtins['tool-cordis'] = ToolCordis
+    prepareWebRuntimeContext(ctx, REPO_ROOT, 'production')
     await ctx.loader.create({
       name: 'cordis:include',
       config: { path: pathToFileURL(resolve(CONFIG_PATH)).href, patches },
@@ -324,8 +354,9 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     if (mode !== 'record' && options.replayFixture !== undefined) {
       replayHandle = installLlmReplay(ctx, {
         file: options.replayFixture,
-        providers: REPLAY_PROVIDERS,
+        providers: replayProviders(options.replayContextWindow),
         ...(options.replayOverride === undefined ? {} : { overrideFile: options.replayOverride }),
+        ...(options.replayChildFixtures === undefined ? {} : { childFiles: options.replayChildFixtures }),
         ...(options.paceMs === undefined ? {} : { paceMs: options.paceMs }),
       })
     }
@@ -344,30 +375,25 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   return {
     harnessHome,
     mode,
-    baseUrl: `http://127.0.0.1:${port}`,
+    baseUrl: `http://${browserHost}:${port}`,
     ctx,
     workspaceCwd,
     persistenceRoot,
-    // Barrier stack: the in-process turn/end identifies the session, then
-    // agent.whenIdle() covers the persistence flush (the idle flip follows
-    // the flush), and the caller's browser settled-poll comes last because
-    // host completion strictly precedes render.
+    // Barrier stack: the in-process turn/end identifies the session, its
+    // explicit flush makes the transcript durable, and the caller's browser
+    // settled-poll comes last because host completion strictly precedes render.
     whenTurnSettled(timeoutMs = mode === 'record' ? 180_000 : 30_000): Promise<SessionId> {
       return new Promise<SessionId>((resolveSettled, reject) => {
         const timer = setTimeout(() => {
           off()
           reject(new Error(`no turn/end within ${timeoutMs}ms`))
         }, timeoutMs)
-        const off = ctx.on('session/event', (session: { id: SessionId }, event: SessionEvent) => {
+        const off = ctx.on('session/event', (session: Session, event: SessionEvent) => {
           if (event.type !== 'turn/end') return
           clearTimeout(timer)
           off()
-          const agent = ctx.agents.get(session.id)
-          if (agent === undefined) {
-            reject(new Error(`turn/end for ${session.id} but no live agent`))
-            return
-          }
-          agent.whenIdle().then(() => { resolveSettled(session.id) }, reject)
+          ctx.sessions.flush(session)
+            .then(() => { resolveSettled(session.id) }, reject)
         })
       })
     },
@@ -450,15 +476,29 @@ export function fixtureUserPrompts(fixtureText: string): string[] {
  * @param id - the seeded session id (stable for deterministic goldens).
  * @returns the seeded id.
  */
-export async function seedSession(scaffold: WebScaffold, fixtureText: string, id: string): Promise<SessionId> {
+/**
+ * Realize a recorded seed fixture against one scaffold: substitute the
+ * `{{sessionId}}`/`{{cwd}}` placeholders and rewrite the recorded cwd to the
+ * scaffold's workspace. Idempotent, so a caller may realize early (e.g. to
+ * price content exactly as the host will fold it) and still pass the result
+ * through {@link seedSession}.
+ * @param scaffold - the booted scaffold whose workspace the seed targets.
+ * @param fixtureText - the committed seed fixture text.
+ * @param id - the session id the seed is realized for.
+ * @returns the realized fixture text.
+ */
+export function realizeSeedFixture(scaffold: WebScaffold, fixtureText: string, id: string): string {
   const realized = fixtureText
     .split('{{sessionId}}').join(id)
     .split('{{cwd}}').join(scaffold.workspaceCwd)
   const fixtureCwd = (JSON.parse(realized.split('\n', 1)[0]!) as { cwd?: string }).cwd
-  const rewritten = fixtureCwd === undefined
+  return fixtureCwd === undefined
     ? realized
     : realized.split(fixtureCwd).join(scaffold.workspaceCwd)
-  const events = parseSessionLog(rewritten)
+}
+
+export async function seedSession(scaffold: WebScaffold, fixtureText: string, id: string): Promise<SessionId> {
+  const events = parseSessionLog(realizeSeedFixture(scaffold, fixtureText, id))
   if (events.length === 0) throw new Error('seed fixture has no events')
   const last = events[events.length - 1]!
   // An open final turn would be mutated by resume's crash repair on first
@@ -492,8 +532,14 @@ export async function seedSession(scaffold: WebScaffold, fixtureText: string, id
 }
 
 /**
- * Normalize an aria snapshot: uuid, cwd, workspace-basename, and duration
- * volatility collapse to stable tokens.
+ * Normalize an aria snapshot: uuid, cwd, workspace-basename, duration, and
+ * decode-throughput volatility collapse to stable tokens.
+ *
+ * Throughput needs a token for the same reason durations do, and no fixture
+ * can supply one: the figure divides a replayed step's output tokens by the
+ * wall time the local run took to stream them, so it moves between two runs
+ * on one machine (measured 69 → 70 tok/s) and swings wildly on a fast replay
+ * (26333 tok/s for a 3 ms stream).
  */
 function normalizeAria(snapshot: string, workspaceCwd: string): string {
   // The session heading renders the workspace's basename, not the full
@@ -503,11 +549,22 @@ function normalizeAria(snapshot: string, workspaceCwd: string): string {
     .split(workspaceCwd).join('{{cwd}}')
     .split(base).join('{{workspace}}')
     .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '{{uuid}}')
-    .replace(/\b\d+(?:\.\d+)?(?:ms|s|秒)\b/g, '{{duration}}')
+    // The optional space in `\d+m ?\d+s` covers both minute spellings: the
+    // stats line's compact `2m42s` and the message-chrome template's `2m 42s`.
+    .replace(
+      /~\d+(?:y(?: \d+mo)?|mo(?: \d+d)?)|\b(?:\d+d(?: \d+h(?: \d+m \d+s)?)?|\d+h \d+m \d+s|\d+m ?\d+s|\d+(?:\.\d+)?s|\d+(?:\.\d+)?ms)\b/g,
+      duration => duration.startsWith('~') ? duration : '{{duration}}',
+    )
+    .replace(
+      /约\d+(?:年(?:\d+个月)?|个月(?:\d+天)?)|\d+(?:天(?:\d+小时(?:\d+分\d+秒)?)?|小时\d+分\d+秒|分\d+秒|(?:\.\d+)?秒)/g,
+      duration => duration.startsWith('约') ? duration : '{{duration}}',
+    )
+    .replace(/\d+(?:\.\d+)?(?= tok\/s(?!\w))/g, '{{throughput}}')
     // Message IconActions clocks widen by calendar day/year; collapse every
     // shape so goldens stay stable across midnight and year boundaries.
     .replace(/\d{4}年\d{1,2}月\d{1,2}日 \d{2}:\d{2}/g, '{{clock}}')
     .replace(/\d{1,2}月\d{1,2}日 \d{2}:\d{2}/g, '{{clock}}')
+    .replace(/(?<!\d)\d{1,2}:\d{2}:\d{2}(?:\.\d+)?(?:\s*[AP]M)?(?!\d)/gi, '{{clock}}')
     .replace(/(?<!\d)\d{2}:\d{2}(?!\d)/g, '{{clock}}')
 }
 
@@ -553,9 +610,9 @@ export async function compareOrRefreshGolden(goldenPath: string, actual: string,
 }
 
 /**
- * Fixture-inventory guard (the TUI afterAll shape): the scenario directory
- * holds exactly the expected files and every committed JSONL is a scrub
- * fixed-point without a run-local browser RPC id.
+ * Fixture-inventory guard: the scenario directory holds exactly the expected
+ * files and every committed JSONL is a scrub fixed-point without a run-local
+ * browser RPC id.
  * @param dir - the scenario snapshot directory.
  * @param expected - the exact expected file inventory.
  */

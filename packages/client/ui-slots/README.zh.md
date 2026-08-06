@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-Slot 注册表纯核心、slot 终端设计：SlotMap 声明合并、SlotCore 上唯一的 `register` 组合 API、四 share 组件 props 类型家族、store seat 类型家族，以及 renderer 安装 seam 契约。只使用 React 类型；该包（package）不依赖 React，也不依赖 Cordis。
+Slot 注册表纯核心、slot 终端设计：SlotMap 声明合并、SlotCore 上唯一的 `register` 组合 API、四 share 组件 props 类型家族、store seat 类型家族，以及 renderer 安装 seam 契约。只使用 React 类型；该包不依赖 React，也不依赖 Cordis。
 
 一次 `register({ name, children?, store?, inject?, ...kind }, Component)` 调用会向已声明 slot 贡献一个组件，同时声明子 slot（声明 = 渲染授权 = 运行时规范，三者共用一张表）、store seat 以及注册方的业务表层。组件会在调用点依据 `ComposedProps` 接受检查；该类型是四个 share 的交集，每个 share 都从各自的唯一真源派生：
 
@@ -19,7 +19,7 @@ chain-kind slot 会反转键控路由：条目自行提名，而不是由分发�
 
 store 家族（输入 `defineStore` 规范／输出 `StoreHandle<T, A>`）为 store seat 建模：`init` 推断状态 schema；`actions` 是完整的 draft-transform 写入集合；`BakedActions` 移除 draft 参数，成为组件和 inject factory 收到的回调。`defineStore` 值实现位于 runtime 包（引擎所属位置），并满足这里导出的 `DefineStore` 契约。引擎产物与 renderer host 契约携带裸快照 source（`getSnapshot`／`subscribe`），绝不携带 React hook；hook 绑定属于渲染机制这一侧的 seam，只有 props 契约 hook 类型（`SnapshotSelectorHook`）位于这里。
 
-`SlotCore` 在构造时预置 `'root'` slot，并强制执行加载时验证（注册未声明 slot、重复声明子项、在两个 scope 下使用同一个共享 handle、chain 注册缺少 `select`，这些情况都在 register 时抛出）。条目的 disposer 会递归移除其声明的子 slot：账本行、贡献和 store 挂载都会随同一生命周期结束而移除。`renderer.ts` 携带安装 seam（`SlotRenderer`、`SlotRendererHost`）以及 `StaleAuthorizationError`／`SlotOwnershipError`；实现在 web-react 中，安装则在外壳启动中完成。
+`SlotCore` 在构造时预置 `'root'` slot，并强制执行加载时验证（注册未声明 slot、重复声明子项、在两个 scope 下使用同一个共享 handle、chain 注册缺少 `select`，这些情况都在 register 时抛出）。条目的 disposer 会递归移除其声明的子 slot：账本行、贡献和 store 挂载都会随同一生命周期结束而移除。每个 key 还携带一个 declaration epoch（声明代次），它只在声明与折叠时递增；运行时将其用于 [`ctx.slots.inject`](../runtime/README.md#slot-declaration-injection)，且与普通条目版本相互独立。`renderer.ts` 携带安装 seam（`SlotRenderer`、`SlotRendererHost`）以及 `StaleAuthorizationError`／`SlotOwnershipError`；实现在 web-react 中，安装则在外壳启动中完成。
 
 ## 模型体验
 

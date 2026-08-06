@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Headless one-shot app and bin for running one agent task without an interactive UI or editor client. It composes [`@deepseek-ai/dsh-agent-spine-demo`](../agent-spine-demo/README.md), JSONL persistence, and exactly one fresh top-level agent. The bin submits the task, waits for its durable turn ending, renders the selected output, disposes to quiescence, and exits.
+Headless one-shot app and bin for running one agent task without an interactive UI or editor client. It composes [`@deepseek-ai/dsh-agent-spine-demo`](../agent-spine-demo/README.md), JSONL persistence, and exactly one fresh top-level agent. The bin owns one idle-to-idle activity interval, renders its selected output, disposes to quiescence, and exits.
 
 The package mounts no console logger, interactive UI, user-interaction service, or `ask_user_question` tool. Stdout is reserved for the selected output format; diagnostics use stderr.
 
@@ -44,12 +44,12 @@ Loader configs resolve bare package specifiers through the optional native helpe
 ### Output formats
 
 - `text` writes the last assistant message containing text, followed by one newline.
-- `json` writes one DSH-native result record: `{ type: "result", success, sessionId, turn, result, reason, usage? }`. `usage` sums each model step in the task turn once, including billed failed retry attempts that produced usage without a committed assistant message.
-- `stream-json` writes each canonical event from the top-level session's task turn as `{ type: "session_event", sessionId, event }`, then the same result record. Child-agent activity appears only through the parent tool events and results.
+- `json` writes one DSH-native result record: `{ type: "result", sessionId, output, usage? }`. `output` is the last committed assistant text in the activity interval. `usage` sums each model step in that interval once, including billed failed attempts that produced usage without a committed assistant message.
+- `stream-json` writes each canonical event from the top-level session's owned activity interval as `{ type: "session_event", sessionId, event }`, then the same result record. Child-agent activity appears only through the parent tool events and results.
 
-Only `reason.kind === "completed"` exits successfully. Other durable turn endings still emit partial text or a result record, add a stderr diagnostic, and exit nonzero. Argument and boot failures leave stdout empty. SIGINT and SIGTERM cancel active work, await disposal, and exit 130 and 143 respectively.
+Normal idle completion exits successfully without assigning a turn reason to the task. Argument, boot, observation, and persistence failures leave stdout empty. SIGINT and SIGTERM cancel active work, await disposal, and exit 130 and 143 respectively.
 
-The task turn is explicitly flushed before final output. Session logs remain under `persistenceRoot` after the process exits.
+The owned activity is explicitly flushed before final output. Session logs remain under `persistenceRoot` after the process exits.
 
 ## Operational safety
 
@@ -57,11 +57,11 @@ The headless-agent leaf supplies local bash, filesystem, skill, subagent, workfl
 
 ## Model Experience
 
-### One-shot task turn
+### One-shot activity
 
 #### What the model sees
 
-The positional task becomes one user message. Through `dsh-agent-spine-demo`, the top-level agent also receives configured workspace instructions and persona, the skill catalog, visible tool schemas, and retained tool results needed for later steps in the same turn.
+The positional task becomes one user message. Through `dsh-agent-spine-demo`, the top-level agent also receives configured workspace instructions and persona, the skill catalog, visible tool schemas, and retained tool results needed for later steps in the owned activity.
 
 #### Token effect
 
@@ -75,4 +75,4 @@ Tool-round history is append-only while the one-shot agent's prompt, schemas, mo
 
 - **One fresh top-level session per process** — its workspace cwd is the launch directory; there is no resume, second prompt, stdin context, or concurrent top-level session in this app.
 - **No interactive question or approval provider** — tools that require a human answer cannot complete unless a different leaf composes a non-interactive provider with explicit policy.
-- **Streaming is top-level-session-only** — child sessions are not flattened into the stream, and aggregate usage covers only model steps recorded on the parent task turn.
+- **Streaming is top-level-session-only** — child sessions are not flattened into the stream, and aggregate usage covers only model steps recorded on the parent activity interval.

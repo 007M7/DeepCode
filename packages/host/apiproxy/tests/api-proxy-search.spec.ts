@@ -138,7 +138,7 @@ describe('session.search', () => {
       eventFilters: [
         {
           kind: 'type',
-          values: ['user/message', 'assistant/message', 'steering/message'],
+          values: ['user/message', 'assistant/message'],
         },
         { kind: 'surface', values: ['current'] },
       ],
@@ -182,7 +182,7 @@ describe('session.search', () => {
           withBestMatch(0, { sessionId: sid('hidden') }),
           withBestMatch(1, { surface: 'shadowed' }),
           withBestMatch(2, { type: 'tool/result' }),
-          withBestMatch(3, { type: 'steering/message', snippet: 'allowed snippet' }),
+          withBestMatch(3, { type: 'user/message', snippet: 'allowed snippet' }),
         ],
       }),
     } as never)

@@ -22,7 +22,7 @@ ApiProxy explicitly adds `permission` to its Web settings allowlist beside the c
 
 Changing Permission in Settings updates `settings.yaml` and the selector immediately, but does not alter the open session. Every later session is reconstructable from its three pinned permission facts, including after the user changes the default again or the process restarts. Deployments whose composed sandbox and approval defaults match no preset must configure `defaultPreset` explicitly.
 
-The assembled Web snapshot now contains a functional Permission selector. Its keyless browser scenario writes `read-only`, verifies an existing `danger-full-access` session is unchanged, and verifies a subsequently created session starts with the read-only event triplet.
+The assembled Web snapshot contains a functional Permission selector. Its keyless browser scenario writes `read-only`, verifies an existing `workspace-write` session is unchanged, and verifies a subsequently created session starts with the read-only event triplet.
 
 ## Alternatives considered
 

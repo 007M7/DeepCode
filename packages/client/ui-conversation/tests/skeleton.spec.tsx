@@ -12,12 +12,14 @@ import type {
 import type { ConversationRootProps } from '../src/client/skeleton/ConversationRoot.tsx'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { en as commonEn } from '@deepseek-ai/dsh-client-locale/src/locales/en.ts'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { createChatStore } from '../src/client/stores.ts'
 import { SessionInputShell } from '../src/client/input/facade.ts'
-import { zh } from '../src/client/locales.ts'
+import { en, zh } from '../src/client/locales.ts'
 import { ConversationRoot } from '../src/client/skeleton/ConversationRoot.tsx'
-import { ConversationSession } from '../src/client/skeleton/ConversationSession.tsx'
+import { ConversationSession, ConversationSessionHeader } from '../src/client/skeleton/ConversationSession.tsx'
+import { HeroShell } from '../src/client/skeleton/EmptyHero.tsx'
 import { InputBar } from '../src/client/skeleton/InputBar.tsx'
 import type { InputBarProps } from '../src/client/skeleton/InputBar.tsx'
 import type {
@@ -68,10 +70,10 @@ const workspaceState = (items: readonly WorkspaceView[]): WorkspaceListState => 
 
 function conversationSnapshot(overrides: Partial<ConversationSnapshot> = {}): ConversationSnapshot {
   return {
-    sessionId: SID, nodes: [], partial: null, runningCalls: [], codeDispatches: new Map(),
+    sessionId: SID, nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [], codeDispatches: new Map(),
     pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
     openState: 'open', openError: null, hasMore: false, loadingOlder: false,
-    promptError: null, blank: false, lastAgentError: null,
+    promptError: null, blank: false, subagent: null, lastAgentError: null,
     ...overrides,
   }
 }
@@ -87,20 +89,23 @@ function mount(
     summaryBlank?: boolean
     /** Drop the session's summary row entirely (a session the list has not caught up with). */
     omitSummaryRow?: boolean
+    /** Classify the selected child as a subagent instead of an ordinary fork. */
+    summaryOrigin?: 'subagent'
   } = {},
 ) {
   const root = sid('root')
-  const rootRow = { id: root, displayTitle: 'Root', running: false, waitingApproval: false, blank: false, updatedAt: 1 }
+  const rootRow = { id: root, displayTitle: 'Root', running: false, blank: false, updatedAt: 1 }
   const childRow = {
     id: SID, displayTitle: 'Child', parentId: root, cwd: '/projects/one',
-    running: false, waitingApproval: false, blank: options.summaryBlank ?? false, updatedAt: 2,
+    running: false, blank: options.summaryBlank ?? false, updatedAt: 2,
+    ...(options.summaryOrigin === undefined ? {} : { origin: options.summaryOrigin }),
   }
   const listed = options.omitSummaryRow !== true
   const sessions = createSnapshotStore<SessionListState>({
     ids: listed ? [root, SID] : [root],
     byId: { [root]: rootRow, ...listed && { [SID]: childRow } },
     current: SID,
-    phase: 'ready',
+    phase: 'ready', subagentsByParent: {}, currentAddress: undefined,
   })
   const workspaces = createSnapshotStore<WorkspaceListState>(workspaceState(workspaceRows))
   const session = createSnapshotStore<ConversationSnapshot>(snapshot)
@@ -111,11 +116,39 @@ function mount(
   const useInput = bindSnapshotSelector(wiring.state)
   const inputActions = wiring.actions
   const stop = vi.fn()
+  const open = vi.fn()
   const slotCalls: string[] = []
   let pickerOwner: unknown
   const renderSlot = ((key: string, owner: object, opts?: { only?: string }) => {
     slotCalls.push(key)
     if (key === 'conversation.hero.workspace') { pickerOwner = owner; return null }
+    if (key === 'conversation.session.header') {
+      return (
+        <ConversationSessionHeader
+          sessionId={SID}
+          SessionProvider={({ children }) => children(SID)}
+          useSession={useSession}
+          useSessions={props.useSessions}
+          useWorkspaces={props.useWorkspaces}
+          useProjection={(() => undefined)}
+          useInput={useInput}
+          inputActions={inputActions}
+          useStore={bindSnapshotSelector(chat)}
+          actions={chat.actions}
+          renderSlot={renderSlot as never}
+          views={{
+            list: () => [
+              { id: 'chat', label: 'Chat' },
+              { id: 'trajectory', label: 'Trajectory' },
+            ],
+            subscribe: () => () => {},
+            version: () => 1,
+          }}
+          open={open}
+          t={t}
+        />
+      )
+    }
     if (key === 'conversation.session') {
       return (
         <ConversationSession
@@ -139,7 +172,6 @@ function mount(
             version: () => 1,
           }}
           bindDraftMirror={write => wiring.bindMirror(write)}
-          {...owner}
         />
       )
     }
@@ -158,6 +190,7 @@ function mount(
           useInput={useInput}
           inputActions={inputActions}
           keyboard={wiring}
+          resolveSubmitMode={() => 'queue'}
           toggleCommandMenu={vi.fn()}
           useNotices={bindSnapshotSelector(wiring.notices)}
           useLexicon={bindSnapshotSelector(wiring.lexicon)}
@@ -200,11 +233,19 @@ function mount(
   }
   const view = render(<ConversationRoot {...props} />)
   return {
-    view, chat, sink, retargetWorkspace, session, slotCalls,
+    view, chat, sink, retargetWorkspace, session, slotCalls, open,
     pickerOwner: () => pickerOwner,
     rerender: () => { view.rerender(<ConversationRoot {...props} />) },
   }
 }
+
+describe('Hero chrome', () => {
+  it('renders the English preview badge through the hero locale seat', () => {
+    const view = render(<HeroShell t={makeTranslate(en, commonEn)} />)
+    expect(view.getByText('Let\'s start building')).toBeTruthy()
+    expect(view.getByText('Preview')).toBeTruthy()
+  })
+})
 
 describe('ConversationRoot resident composer', () => {
   it('keeps composer text in the machine, mirrors to the chat store, and submits through the sink', () => {
@@ -214,9 +255,17 @@ describe('ConversationRoot resident composer', () => {
     fireEvent.change(box, { target: { value: 'ordinary revised' } })
     expect(b.chat.store.getSnapshot().draft).toBe('ordinary revised')
     fireEvent.keyDown(box, { key: 'Enter' })
-    expect(b.sink).toHaveBeenCalledWith('ordinary revised')
-    expect(b.view.getByRole('heading', { name: 'Child', level: 1 })).toBeTruthy()
+    expect(b.sink).toHaveBeenCalledWith('ordinary revised', 'queue')
+    expect((b.view.getByRole('button', { name: 'Child' }) as HTMLButtonElement).disabled).toBe(true)
     expect(b.view.queryByText('Root')).toBeNull()
+  })
+
+  it('shows hierarchy only for subagents and opens their ordinary owner', () => {
+    const b = mount(conversationSnapshot(), undefined, undefined, { summaryOrigin: 'subagent' })
+    const root = b.view.getByRole('button', { name: 'Root' })
+    expect((b.view.getByRole('button', { name: 'Child' }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(root)
+    expect(b.open).toHaveBeenCalledWith(sid('root'))
   })
 
   it('active phase: fixed header outside the scrollport; sticky composer seat inside it', () => {
@@ -258,6 +307,7 @@ describe('ConversationRoot resident composer', () => {
     expect(host).not.toBeNull()
     expect(header?.getAttribute('aria-hidden')).toBe('true')
     expect(b.view.getByText('开始构建吧')).toBeTruthy()
+    expect(b.view.getByText('预览版')).toBeTruthy()
     expect(b.view.queryByTestId('view-chat')).toBeNull()
     // The same machine-backed textarea is live in the hero, and the
     // persistence mirror stays bound (ConversationSession mounts chrome-hidden
@@ -314,7 +364,7 @@ describe('ConversationRoot resident composer', () => {
     const before = b.view.getByRole('textbox')
     fireEvent.change(before, { target: { value: 'kept across flip' } })
     // First message landed: content exists, phase leaves blank. Composer
-    // already sat in the Session scrollport during hero, so the textarea
+    // already sat in the resident scrollport during hero, so the textarea
     // node and InputHub draft both survive.
     b.session.set(conversationSnapshot({ composerPhase: 'active', blank: false }))
     b.rerender()

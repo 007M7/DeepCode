@@ -1,10 +1,11 @@
 /**
  * The model-facing `glob` tool: discover files whose paths match a glob
- * pattern, sorted by modification time. Execution goes through the bash seam
- * (`ctx.bash`) with a fixed `rg --files` command — this module owns the
- * model-facing schema, argument validation, shell-safe command construction,
- * result parsing, inline sampling, and formatting; process concerns (defaulting,
- * scrubbing, kill, backend substitution) stay behind `ctx.bash`.
+ * pattern, sorted by modification time. Execution spawns the packaged
+ * ripgrep binary (`@vscode/ripgrep`) directly through the subprocess seam
+ * with a plain argv vector — this module owns the model-facing schema,
+ * argument validation, argv construction, result parsing, inline sampling,
+ * and formatting; process concerns (spawn execution, tree termination,
+ * environment scrubbing, output capture) stay behind `ctx.subprocess`.
  * @module @deepseek-ai/dsh-tool-fs-search/glob
  */
 
@@ -13,11 +14,9 @@ import { sep } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, SearchResultView, ToolResult } from '@deepseek-ai/dsh-tools'
 import type { SpillRef } from '@deepseek-ai/dsh-spill'
-import type {} from '@deepseek-ai/dsh-bash'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { runRipgrep, toWorkdirRelative, trySaveFormattedResult } from './search-core.ts'
 import { globSearchMeta, searchViewFromMeta } from './presentation.ts'
-import { singleQuote } from './shell-quote.ts'
 import { acceptedSurfaceValue } from './surface.ts'
 
 /**
@@ -48,6 +47,10 @@ export interface GlobToolCaps {
   maxMetaBytes: number
   /** Cap on the complete raw `rg` stdout the tool will parse. */
   rawOutputMaxBytes: number
+  /** Terminate-escalation grace period (ms) for the search process. */
+  graceMs: number
+  /** Cap on the retained stderr diagnostic tail. */
+  stderrMaxBytes: number
   /** Cooperative tool-call budget (ms) attached as `ToolDefinition.timeoutMs`. */
   timeoutMs: number
 }
@@ -73,32 +76,35 @@ export function parseGlobArgs(args: { pattern: string; path?: string }): GlobInp
 }
 
 /**
- * Build the fixed `rg --files` command for one `glob` call. Every
+ * Build the fixed `rg --files` argv for one `glob` call. Every
  * model-controlled value ({@link GlobInput.pattern}, {@link GlobInput.path})
- * passes through {@link singleQuote}; the search root rides behind `--` so a
- * leading-dash path can never be parsed as a flag. `--sort=modified` orders by
- * modification time, `--no-ignore --hidden` searches ignored and hidden files,
- * and {@link GLOB_VCS_EXCLUDES} keeps VCS metadata out.
+ * is a plain argv element — no shell layer exists, so no quoting applies; the
+ * search root rides behind `--` so a leading-dash path can never be parsed as
+ * a flag. `--sort=modified` orders by modification time, `--no-ignore
+ * --hidden` searches ignored and hidden files, and
+ * {@link GLOB_VCS_EXCLUDES} keeps VCS metadata out.
  *
  * @param input - the validated arguments.
- * @returns the complete, shell-safe command string.
+ * @returns the complete ripgrep argument vector (excluding the binary itself).
  */
-export function buildGlobCommand(input: GlobInput): string {
+export function buildGlobCommand(input: GlobInput): string[] {
   const parts = [
-    'rg --files',
-    `--glob=${singleQuote(input.pattern)}`,
-    '--sort=modified --no-ignore --hidden',
+    '--files',
+    `--glob=${input.pattern}`,
+    '--sort=modified',
+    '--no-ignore',
+    '--hidden',
     // Two negated globs per VCS name: the bare form prunes the directory
     // during traversal; the /** form still excludes the contents when the
     // search root is AT or INSIDE the directory (where the bare form,
     // matched against root-prefixed paths, never fires).
     ...GLOB_VCS_EXCLUDES.flatMap(name => [
-      `--glob=${singleQuote(`!**/${name}`)}`,
-      `--glob=${singleQuote(`!**/${name}/**`)}`,
+      `--glob=!**/${name}`,
+      `--glob=!**/${name}/**`,
     ]),
   ]
-  if (input.path !== undefined) parts.push('--', singleQuote(input.path))
-  return parts.join(' ')
+  if (input.path !== undefined) parts.push('--', input.path)
+  return parts
 }
 
 /**
@@ -285,7 +291,7 @@ export function presentGlobResult(_args: { pattern: string; path?: string }, res
  * Register the `glob` tool and its system-prompt guidance.
  *
  * @param ctx - the plugin context; registrations are effects scoped to it, and
- *   execution uses its `bash` service.
+ *   execution uses its `subprocess` service.
  * @param caps - the deployment's resolved glob caps (plugin config after defaulting).
  */
 export function applyGlobTool(ctx: Context, caps: GlobToolCaps): void {
@@ -335,7 +341,7 @@ export function applyGlobTool(ctx: Context, caps: GlobToolCaps): void {
     },
     async execute(args, exec) {
       const input = parseGlobArgs(args)
-      const run = await runRipgrep(ctx, exec, 'glob', buildGlobCommand(input), caps.rawOutputMaxBytes)
+      const run = await runRipgrep(ctx, exec, 'glob', buildGlobCommand(input), caps.rawOutputMaxBytes, caps.graceMs, caps.stderrMaxBytes)
       const root = input.path === undefined ? '.' : toWorkdirRelative(input.path, run.workdir)
       if (run.noMatches) return { root, paths: [] }
 

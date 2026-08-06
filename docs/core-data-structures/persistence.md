@@ -4,7 +4,7 @@ English | [中文](persistence.zh.md)
 
 The **durability seam** for the event log. [session.md](session.md) describes the in-memory `Session` — the append-only `SessionEvent` log that is the source of truth. This page describes how that log is made durable: the abstract `SessionPersistence` service, its backends, the flush checkpoint, crash recovery, and the metadata header that travels alongside the log. The event vocabulary the log carries is enumerated, member by member, in the generated [persistence log event catalog](../persistence-catalog.md).
 
-The seam is a textbook [capability seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md): one abstract service ([dsh-session-persistence](../../packages/session-persistence/session-persistence), `ctx.sessionPersistence`) defining locate/create/append, crash-repairing load, non-mutating inspect, and lightweight list/snapshot observation over the existing `SessionEvent` — **no parallel persisted type** — and two interchangeable backends that pass the same `runPersistenceContract` suite. See the [session-persistence Agent Note](../../.agents/notes/implemented/architecture/2026-06-14-session-persistence.md).
+The seam is a textbook [capability seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md): one abstract service ([dsh-session-persistence](../../packages/session-persistence/session-persistence), `ctx.sessionPersistence`) defining locate/create/append, reusable Session preparation, logical load/inspect, physical suffix reads, and lightweight list/snapshot observation over the existing `SessionEvent` — **no parallel persisted event type** — and two interchangeable backends implementing the same contract. See the [session-persistence Agent Note](../../.agents/notes/implemented/architecture/2026-06-14-session-persistence.md).
 
 ## The flush checkpoint
 
@@ -14,9 +14,9 @@ The seam is a textbook [capability seam](../../.agents/notes/implemented/archite
 
 A backend that reloads a log crashed mid-turn finds an open `turn/start` with no `turn/end`. It does **not** truncate — a single turn can be huge in a long-horizon task (many steps, large tool output), and those events were durably appended before the crash. Instead it closes the orphaned turn with a synthetic `turn/end { reason: { kind: 'interrupted' } }`, keeping the interrupted execution balanced without changing any standalone events before or after it. `interrupted` is the one `TurnEndReason` no loop emits (see [session.md](session.md#why-a-turn-ended-turnendreasonmap)).
 
-Repair applies only to cold sessions. For a live id, `SessionPersistence.load(id)` snapshots the in-memory log, waits until that snapshot is durable, and returns it with the stored header only when balanced; an open live turn rejects rather than receiving synthetic interruption boundaries. A coordinator-backed cold load reserves the id across backend reads and repair writes, so concurrent publication of a same-id live session rejects and rolls back. HMR also adopts a live prefix without closing its active turn.
+Repair applies only to cold sessions. For a live id, `SessionPersistence.load(id)` waits until the authoritative in-memory snapshot is durable and returns it only when balanced; an open live turn rejects rather than receiving synthetic interruption boundaries. HMR adopts a live prefix without closing its active turn.
 
-`SessionPersistence.inspect(id)` is the observer counterpart to recovery: it returns a detached valid stored prefix without truncating a torn record, adding interruption closers, or publishing write state. Same-id serialization keeps it coherent with backend writes. Derived read models use `inspect`, never `load`, so observing a checkpointed open turn cannot mutate the log if live ownership begins concurrently.
+`SessionPersistence.inspect(id)` constructs an immutable logical Session without publishing it or writing recovery. Cold inspection balances an interrupted turn in memory while leaving torn physical tails untouched; inspection of an already-live Session borrows its current immutable snapshot and may therefore contain an open turn. Coordinator-backed implementations retain the exact cold unpublished Session in a bounded LRU, so repeated history reads and a later `prepare(id)` share one read, decompression, validation, freeze, and Session construction. `prepare(id)` reserves the Session, commits pending repair, and returns a disposable publication handle; `load(id)` uses the same machinery to commit repair without publication. The [Session preparation decision](../../.agents/notes/implemented/architecture/2026-08-05-session-preparation.md) owns this lifecycle.
 
 ## `SessionLocation` — optional per-session artifact target
 
@@ -67,6 +67,11 @@ interface SessionHeader {
    */
   readonly seedLength?: number
   /**
+   * Coarse product classification for a session created as a subagent child.
+   * This is presentation metadata, not proof that the child is continuable.
+   */
+  readonly origin?: 'subagent'
+  /**
    * Delegation depth: absent (zero) for a top-level session, parent depth + 1
    * for a subagent child. Persisted so a recursion budget survives restart and
    * resume — a runtime-only depth would reset a resumed child to top-level.
@@ -77,7 +82,7 @@ interface SessionHeader {
 
 ## `CreateSessionOptions` — seeding and metadata
 
-Creating a `Session` through the store takes a `seed` (initial replay or fork history) and `meta` (the storage-level fields the store folds into a `SessionHeader`). The store fills in `version`/`id` and defaults `createdAt`; the caller supplies the validated absolute `cwd`, the `parentSession` lineage, the `seedLength` seed boundary, the `delegationDepth`, and — only when reconstructing a persisted session — the original `createdAt` to preserve it.
+Creating a `Session` through the store takes a `seed` (initial replay or fork history) and `meta` (the storage-level fields the store folds into a `SessionHeader`). The store fills in `version`/`id` and defaults `createdAt`; the caller may supply the validated absolute `cwd`, the `parentSession` lineage, the `seedLength` seed boundary, the optional coarse `origin`, the `delegationDepth`, and an existing `createdAt`. `origin: 'subagent'` lets product navigation hide duplicate child rows; it does not prove that a descriptor is valid or that the child can resume.
 
 ```ts type-equiv
 /**
@@ -97,12 +102,79 @@ interface CreateSessionOptions {
     readonly parentSession?: SessionId
     readonly createdAt?: number
     readonly seedLength?: number
+    readonly origin?: 'subagent'
     readonly delegationDepth?: number
   }
 }
 ```
 
 Replay/fork is therefore `ctx.sessions.create(id, { seed: seedEvents })`; resuming a *persisted* session into a live agent is `ctx.agents.resume({ resumeSessionId })`.
+
+## Preparation and restoration ownership
+
+`SessionStore.prepare()` accepts ordinary creation options or fresh persistence graphs transferred through `RestoredSessionOptions`. The restoration branch validates and freezes the transferred header and events in place, so callers must retain no mutable aliases. `SessionPreparation` then owns the exact unpublished Session until publication or rollback; disposal is synchronous and idempotent. Persistence inspection exposes only `SessionInspection`, an immutable logical view borrowed from the same prepared Session.
+
+```ts type-equiv
+/**
+ * Fresh storage values transferred to {@link SessionStore.prepare} without a
+ * second serialization copy. Callers retain no mutable aliases.
+ */
+interface RestoredSessionOptions {
+  /** Fresh detached storage events to validate and freeze in place. */
+  readonly seed: SessionEvent[]
+  /** Fresh detached storage metadata to validate and freeze in place. */
+  readonly meta: SessionHeader
+  /** Select the persistence ownership-transfer path. */
+  readonly seedSource: 'persistence'
+}
+```
+
+```ts type-equiv
+/** Inputs accepted while constructing an unpublished Session. */
+type PrepareSessionOptions =
+  | (CreateSessionOptions & { readonly seedSource?: undefined })
+  | RestoredSessionOptions
+```
+
+```ts type-equiv
+/** Options for a preparation whose provider retains unpublished state. */
+interface SessionPreparationOptions {
+  /** Release provider-owned state when the Session was not published. */
+  readonly release?: () => void
+}
+```
+
+```ts public-api
+/**
+ * One exact unpublished Session and the provider state that keeps it usable.
+ * Disposal is synchronous and idempotent. Providers decide whether release
+ * returns the Session to a cache or discards it; publication may consume that
+ * state before disposal, making the callback a no-op.
+ */
+declare class SessionPreparation implements Disposable {
+  /** The exact Session to use for setup and publication. */
+  readonly session: Session;
+  /**
+   * Wrap an unpublished Session in one preparation lifetime.
+   * @param session - exact unpublished Session.
+   * @param options - optional provider release behavior.
+   * @returns a preparation disposed after publication or rollback.
+   */
+  static create(session: Session, options?: SessionPreparationOptions): SessionPreparation;
+  /** Release provider state once when this preparation leaves its caller. */
+  [Symbol.dispose](): void;
+}
+```
+
+```ts type-equiv
+/** Immutable logical session prepared from persistence or a live owner. */
+interface SessionInspection {
+  /** Validated immutable session metadata. */
+  readonly meta: SessionHeader
+  /** Validated contiguous logical event log. */
+  readonly events: readonly SessionEvent[]
+}
+```
 
 ## Lightweight source revisions
 
@@ -128,7 +200,7 @@ interface SessionPersistenceSnapshot {
 
 ## The backends
 
-Both implement the same abstract `SessionPersistence` (locate/create/append/load/inspect/list/listSnapshots over `SessionEvent`, with optional cancellation on observation methods) and pass `runPersistenceContract`, proving the seam is genuinely backend-agnostic:
+Both implement the same abstract `SessionPersistence` (locate/create/append/prepare/load/inspect/readFrom/list/listSnapshots over `SessionEvent`, with optional cancellation on observation methods) and pass `runPersistenceContract`, proving the seam is genuinely backend-agnostic:
 
 - **[dsh-session-persistence-jsonl](../../packages/session-persistence/session-persistence-jsonl)** — an append-only logical JSONL log per session, stored as checksummed concatenated Zstandard frames by default or raw lines by configuration, with crash-safe atomic writes, interrupted-turn recovery, and a read/replay path.
 - **[dsh-session-persistence-sqlite](../../packages/session-persistence/session-persistence-sqlite)** — `node:sqlite`, one row per `SessionEvent`. The row shape `(session_id, seq, type, time, data, source_event_seqs, surface_op)` maps 1:1 onto the event, including optional surface metadata, so there is no parallel persisted schema to keep in sync.

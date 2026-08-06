@@ -61,11 +61,9 @@ export async function apply(ctx: Context): Promise<void> {
       // nothing is left to unmount or await then.
       const entry = ctx.loader.store[id]
       if (entry === undefined) return
-      const fiber = entry.fiber
-      ctx.loader.remove(id)
-      // remove() only starts the fiber's dispose; join it so the chooser's
-      // unload signals completion only after the backend quiesced.
-      await fiber?.dispose()
+      // remove() disposes the entry transactionally, so the chooser's unload
+      // signals completion only after the backend quiesced.
+      await ctx.loader.remove(id)
     }
   }, 'directory-picker-auto: backend entry')
 }

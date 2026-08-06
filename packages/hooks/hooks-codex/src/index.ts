@@ -15,7 +15,7 @@
 import { readFileSync } from 'node:fs'
 import type { Context } from 'cordis'
 import z from 'schemastery'
-import type { Agent, PromptDecision } from '@deepseek-ai/dsh-agent'
+import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
@@ -108,7 +108,7 @@ export function apply(ctx: Context, config: Config): void {
    * Run and fold one configured Codex hook point.
    *
    * A supplied turn records the hook provenance pair inside that open turn.
-   * Pre-turn `UserPromptSubmit` and detached lifecycle points omit it.
+   * Detached lifecycle points omit it.
    */
   async function runPoint(
     point: string,
@@ -185,7 +185,7 @@ export function apply(ctx: Context, config: Config): void {
   // SessionStart injects plain stdout when its detached hook resolves; a slow
   // hook may miss the first request.
   // TODO(session-start-gating): add a startup gate before promising first-turn delivery.
-  ctx.on('agent/session-start', (agent, source) => {
+  ctx.on('agent/session-start', ({ agent, source }) => {
     detached.track(runPoint('SessionStart', source, { ...base(ctx, agent, 'SessionStart', model), source }, { agent, plainStdoutAsContext: true, signal: detached.signal })
       .then((merged) => {
         const context = contextFrom(merged)
@@ -195,25 +195,29 @@ export function apply(ctx: Context, config: Config): void {
     /* jscpd:ignore-end */
   })
 
-  // UserPromptSubmit → PromptDecision. Codex supports block, not allow or ask.
-  ctx.on('agent/prompt-submit', async (agent, message, signal, next): Promise<PromptDecision> => {
+  // UserPromptSubmit → PreStepDecision. Codex supports reject, not rewrite or ask.
+  ctx.on('agent/pre-step', async ({ agent, messages, turn, signal }, next): Promise<PreStepDecision> => {
+    if (messages.length === 0) return next()
     const payload = {
       ...base(ctx, agent, 'UserPromptSubmit', model),
-      turn_id: String(lastTurn(agent) + 1),
-      prompt: blocksToText(message.content),
+      turn_id: String(turn),
+      prompt: blocksToText(messages.flatMap(message => message.content)),
     }
-    const merged = await runPoint('UserPromptSubmit', '', payload, { agent, plainStdoutAsContext: true, signal })
+    const merged = await runPoint('UserPromptSubmit', '', payload, {
+      agent, turn, plainStdoutAsContext: true, signal,
+    })
     /* jscpd:ignore-start */
-    if (merged.decision === 'deny') return { kind: 'block', reason: merged.reason ?? 'blocked by UserPromptSubmit hook' }
-    // Context alone is not a veto: DELEGATE so a later prompt-submit listener can
-    // still block/rewrite, then fold our context onto its decision.
+    if (merged.decision === 'deny') {
+      return { kind: 'reject' }
+    }
+    // Context alone is not a veto: DELEGATE so a later pre-step listener can
+    // still reject/rewrite, then fold our context onto its decision.
     const downstream = await next()
     const ours = contextFrom(merged)
-    if (!ours || downstream.kind !== 'allow') return downstream
+    if (!ours || downstream.kind !== 'enter') return downstream
     return {
-      kind: 'allow',
-      ...downstream.content !== undefined ? { content: downstream.content } : {},
-      additionalContexts: prependContext(ours, downstream.additionalContexts),
+      kind: 'enter',
+      messages: [...downstream.messages, ours],
     }
   })
 
@@ -253,7 +257,7 @@ export function apply(ctx: Context, config: Config): void {
   // TODO(stop-loop-guard): Codex supplies `stop_hook_active` so a Stop hook can
   // avoid continuing the same turn indefinitely. It is always false here, so an
   // unconditionally blocking hook force-continues every step until it self-limits.
-  ctx.on('agent/turn-stopping', async (agent, turn, signal): Promise<void> => {
+  ctx.on('agent/turn-stopping', async ({ agent, turn, signal }): Promise<void> => {
     const merged = await runPoint('Stop', '', { ...turnBase(ctx, agent, 'Stop', model), stop_hook_active: false, last_assistant_message: null }, { agent, turn, signal })
     /* jscpd:ignore-end */
     if (merged.decision === 'deny') {

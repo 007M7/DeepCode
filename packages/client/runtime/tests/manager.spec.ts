@@ -12,7 +12,13 @@ import { entries, plainTurn } from './event-script.ts'
 const S1 = 'fk-m1' as SessionId
 const S2 = 'fk-m2' as SessionId
 
-type SummaryOver = Partial<{ updatedAt: number; running: boolean; blank: boolean; parentSessionId: SessionId }>
+type SummaryOver = Partial<{
+  updatedAt: number
+  running: boolean
+  blank: boolean
+  parentSessionId: SessionId
+  origin: 'subagent'
+}>
 
 function summary(sessionId: SessionId, over: SummaryOver = {}) {
   return { sessionId, updatedAt: 100, running: false, blank: false, ...over }
@@ -34,6 +40,7 @@ describe('instances', () => {
     const manager = new SessionManager(api)
     // Uninstantiated: approval buffers, plain session/event drops.
     manager.handleMuxEnvelope({ rpcId: 'ra' as never, payload: { type: 'approval/requested', sessionId: S1, approvalId: 'ap1' as never, toolName: 'rm' } })
+    manager.handleMuxEnvelope({ rpcId: 'ra' as never, payload: { type: 'approval/requested', sessionId: S1, approvalId: 'ap1' as never, toolName: 'rm' } })
     manager.handleMuxEnvelope({ rpcId: 're' as never, payload: { type: 'session/event', sessionId: S1, event: plainTurn(0, 0, 'x', 'y')[0] as never } })
     const session = manager.get(S1)
     expect(session.getSnapshot().pending).toMatchObject([{ kind: 'approval', payload: { approvalId: 'ap1' } }])
@@ -41,16 +48,26 @@ describe('instances', () => {
     expect(manager.get(S2).getSnapshot().pending).toEqual([])
   })
 
-  it('caps the pending buffer at 32 keeping the newest, and drops it on session-removed', () => {
+  it('retains every live answerable request and compacts resolutions before instantiation', () => {
     const api = new FakeApiClient()
     const manager = new SessionManager(api)
-    // 40 distinct question frames for an uninstantiated session: only the newest 32 survive.
+    manager.handleHostEnvelope({ rpcId: 'h1' as never, payload: { type: 'host/session-added', sessionId: S1, blank: false } })
     for (let i = 0; i < 40; i++) {
       manager.handleMuxEnvelope({ rpcId: `q${i}` as never, payload: { type: 'question/requested', sessionId: S1, questions: [] } })
     }
-    const pending = manager.get(S1).getSnapshot().pending
-    expect(pending).toHaveLength(32)
-    expect(pending.map(p => p.key)).toEqual(Array.from({ length: 32 }, (_, i) => `q:q${i + 8}`)) // oldest 8 dropped
+    expect(manager.getListSnapshot().items[0]?.pendingInteraction).toBe('question')
+    for (let i = 0; i < 40; i++) {
+      manager.handleMuxEnvelope({
+        rpcId: `r${i}` as never,
+        payload: { type: 'question/resolved', sessionId: S1, questionRpcId: `q${i}` as never, outcome: 'answered' },
+      })
+    }
+    expect(manager.getListSnapshot().items[0]?.pendingInteraction).toBeUndefined()
+    expect(manager.get(S1).getSnapshot().pending).toEqual([])
+  })
+
+  it('drops buffered answerable requests on session removal', () => {
+    const manager = new SessionManager(new FakeApiClient())
     // Removed session: buffered frames must not replay on a future instantiation.
     manager.handleMuxEnvelope({ rpcId: 'qz' as never, payload: { type: 'question/requested', sessionId: S2, questions: [] } })
     manager.handleHostEnvelope({ rpcId: 'hz' as never, payload: { type: 'host/session-removed', sessionId: S2 } })
@@ -272,6 +289,402 @@ describe('host frame routing', () => {
   })
 })
 
+describe('subagent catalogs', () => {
+  it('keeps a catalog-discovered child address across ordinary selection and status frames', async () => {
+    const api = new FakeApiClient()
+    api.onList = () => Promise.resolve(ok({ items: [
+      summary(S1),
+      summary(S2, { parentSessionId: S1, origin: 'subagent' }),
+    ] as never[] }))
+    api.onSubagentList = () => Promise.resolve(ok({
+      entries: [{
+        kind: 'child', id: S2, mode: 'continuable', label: 'worker',
+        activity: 'running', hasChildren: false,
+      }] as never[],
+      parentAvailable: true,
+    }))
+    const manager = new SessionManager(api)
+    await manager.refreshList()
+    await manager.refreshSubagents(S1)
+    manager.selectSubagent({ parentSessionId: S1, childSessionId: S2, mode: 'continuable' })
+
+    expect(manager.getListSnapshot().currentAddress).toEqual({
+      parentSessionId: S1, childSessionId: S2, mode: 'continuable',
+    })
+    expect(manager.get(S2).getSnapshot().subagent).toEqual({
+      address: { parentSessionId: S1, childSessionId: S2, mode: 'continuable' },
+      parentAvailable: true,
+    })
+    // Clicking the same child through an ordinary list-selection path must not
+    // erase the catalog-derived address and fall back to session.* transport.
+    manager.select(S2)
+    expect(manager.getListSnapshot().currentAddress).toEqual({
+      parentSessionId: S1, childSessionId: S2, mode: 'continuable',
+    })
+    expect(manager.get(S2).getSnapshot().subagent).toEqual({
+      address: { parentSessionId: S1, childSessionId: S2, mode: 'continuable' },
+      parentAvailable: true,
+    })
+    await manager.get(S2).open()
+    await manager.get(S2).prompt([{ type: 'text', text: 'continue' }], 'queue')
+    expect(api.callsOf('subagent.history')).toEqual([
+      { parentSessionId: S1, childSessionId: S2, mode: 'continuable', maxMessages: 50 },
+    ])
+    expect(api.callsOf('subagent.prompt')).toEqual([
+      {
+        parentSessionId: S1, childSessionId: S2, mode: 'continuable',
+        content: [{ type: 'text', text: 'continue' }],
+      },
+    ])
+    expect(api.callsOf('session.history')).toEqual([])
+    expect(api.callsOf('session.prompt')).toEqual([])
+    const listCalls = api.callsOf('subagent.list').length
+    manager.handleHostEnvelope({
+      rpcId: 'child-complete' as never,
+      payload: { type: 'host/session-status', sessionId: S2, running: false },
+    })
+    expect(manager.getListSnapshot().subagentsByParent[S1]?.entries[0]).toMatchObject({
+      kind: 'child', id: S2, activity: 'inactive',
+    })
+    expect(api.callsOf('subagent.list')).toHaveLength(listCalls)
+
+    manager.handleHostEnvelope({
+      rpcId: 'child-detached' as never,
+      payload: { type: 'host/session-removed', sessionId: S2 },
+    })
+    expect(manager.getListSnapshot().items.find(item => item.sessionId === S2)).toMatchObject({
+      origin: 'subagent', parentSessionId: S1, running: false,
+    })
+    expect(manager.get(S2).getSnapshot()).toMatchObject({
+      removed: false,
+      subagent: {
+        address: { parentSessionId: S1, childSessionId: S2, mode: 'continuable' },
+      },
+    })
+  })
+
+  it('refetches debounced membership only while the parent catalog is open', async () => {
+    vi.useFakeTimers()
+    try {
+      const api = new FakeApiClient()
+      const manager = new SessionManager(api)
+      await manager.refreshSubagents(S1)
+      manager.setSubagentCatalogOpen(S1, true)
+      await Promise.resolve()
+      const baseline = api.callsOf('subagent.list').length
+      manager.handleHostEnvelope({
+        rpcId: 'child-added' as never,
+        payload: {
+          type: 'host/session-added', sessionId: S2, parentSessionId: S1, blank: false,
+        },
+      })
+      manager.handleHostEnvelope({
+        rpcId: 'child-added-again' as never,
+        payload: {
+          type: 'host/session-added', sessionId: 'fk-m3' as SessionId, parentSessionId: S1, blank: false,
+        },
+      })
+      await vi.advanceTimersByTimeAsync(50)
+      expect(api.callsOf('subagent.list')).toHaveLength(baseline + 1)
+
+      manager.setSubagentCatalogOpen(S1, false)
+      manager.handleHostEnvelope({
+        rpcId: 'child-added-closed' as never,
+        payload: {
+          type: 'host/session-added', sessionId: 'fk-m4' as SessionId, parentSessionId: S1, blank: false,
+        },
+      })
+      await vi.advanceTimersByTimeAsync(50)
+      expect(api.callsOf('subagent.list')).toHaveLength(baseline + 1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('marks a loaded parent row expandable only for a direct subagent publication', async () => {
+    const api = new FakeApiClient()
+    const root = 'fk-root' as SessionId
+    api.onSubagentList = () => Promise.resolve(ok({
+      entries: [
+        {
+          kind: 'child', id: S1, mode: 'continuable', label: 'parent',
+          activity: 'inactive', hasChildren: false,
+        },
+        {
+          kind: 'child', id: S2, mode: 'continuable', label: 'ordinary parent',
+          activity: 'inactive', hasChildren: false,
+        },
+      ] as never[],
+      parentAvailable: true,
+    }))
+    const manager = new SessionManager(api)
+    await manager.refreshSubagents(root)
+
+    manager.handleHostEnvelope({
+      rpcId: 'nested-subagent' as never,
+      payload: {
+        type: 'host/session-added', sessionId: 'fk-grandchild' as SessionId,
+        parentSessionId: S1, origin: 'subagent', blank: false,
+      },
+    })
+    manager.handleHostEnvelope({
+      rpcId: 'ordinary-fork' as never,
+      payload: {
+        type: 'host/session-added', sessionId: 'fk-fork' as SessionId,
+        parentSessionId: S2, blank: false,
+      },
+    })
+
+    expect(manager.getListSnapshot().subagentsByParent[root]?.entries).toMatchObject([
+      { kind: 'child', id: S1, hasChildren: true },
+      { kind: 'child', id: S2, hasChildren: false },
+    ])
+  })
+
+  it('preserves a live expandability hint across only the older in-flight catalog response', async () => {
+    const api = new FakeApiClient()
+    const root = 'fk-root' as SessionId
+    const response = deferred<Awaited<ReturnType<FakeApiClient['onSubagentList']>>>()
+    api.onSubagentList = () => response.promise
+    const manager = new SessionManager(api)
+    const refresh = manager.refreshSubagents(root)
+
+    manager.handleHostEnvelope({
+      rpcId: 'nested-subagent' as never,
+      payload: {
+        type: 'host/session-added', sessionId: 'fk-grandchild' as SessionId,
+        parentSessionId: S1, origin: 'subagent', blank: false,
+      },
+    })
+    response.resolve(ok({
+      entries: [{
+        kind: 'child', id: S1, mode: 'continuable', label: 'parent',
+        activity: 'inactive', hasChildren: false,
+      }] as never[],
+      parentAvailable: true,
+    }))
+    await refresh
+
+    expect(manager.getListSnapshot().subagentsByParent[root]?.entries).toMatchObject([
+      { kind: 'child', id: S1, hasChildren: true },
+    ])
+
+    api.onSubagentList = () => Promise.resolve(ok({
+      entries: [{
+        kind: 'child', id: S1, mode: 'continuable', label: 'parent',
+        activity: 'inactive', hasChildren: false,
+      }] as never[],
+      parentAvailable: true,
+    }))
+    await manager.refreshSubagents(root)
+    expect(manager.getListSnapshot().subagentsByParent[root]?.entries).toMatchObject([
+      { kind: 'child', id: S1, hasChildren: false },
+    ])
+  })
+
+  it('replays status frames over an older in-flight catalog response', async () => {
+    const api = new FakeApiClient()
+    const root = 'fk-root' as SessionId
+    const response = deferred<Awaited<ReturnType<FakeApiClient['onSubagentList']>>>()
+    api.onSubagentList = () => response.promise
+    const manager = new SessionManager(api)
+    const refresh = manager.refreshSubagents(root)
+
+    manager.handleHostEnvelope({
+      rpcId: 'child-stopped' as never,
+      payload: { type: 'host/session-status', sessionId: S1, running: false },
+    })
+    manager.handleHostEnvelope({
+      rpcId: 'child-started' as never,
+      payload: { type: 'host/session-status', sessionId: S2, running: true },
+    })
+    response.resolve(ok({
+      entries: [
+        {
+          kind: 'child', id: S1, mode: 'continuable', label: 'stopped',
+          activity: 'running', hasChildren: false,
+        },
+        {
+          kind: 'child', id: S2, mode: 'continuable', label: 'started',
+          activity: 'inactive', hasChildren: false,
+        },
+      ] as never[],
+      parentAvailable: true,
+    }))
+    await refresh
+
+    expect(manager.getListSnapshot().subagentsByParent[root]?.entries).toMatchObject([
+      { kind: 'child', id: S1, activity: 'inactive' },
+      { kind: 'child', id: S2, activity: 'running' },
+    ])
+  })
+
+  it('marks a detached catalog child inactive without requiring a selected address', async () => {
+    const api = new FakeApiClient()
+    api.onSubagentList = () => Promise.resolve(ok({
+      entries: [{
+        kind: 'child', id: S2, mode: 'continuable', label: 'worker',
+        activity: 'running', hasChildren: false,
+      }] as never[],
+      parentAvailable: true,
+    }))
+    const manager = new SessionManager(api)
+    await manager.refreshSubagents(S1)
+
+    manager.handleHostEnvelope({
+      rpcId: 'child-detached' as never,
+      payload: { type: 'host/session-removed', sessionId: S2 },
+    })
+
+    expect(manager.getListSnapshot().subagentsByParent[S1]?.entries).toMatchObject([
+      { kind: 'child', id: S2, activity: 'inactive' },
+    ])
+  })
+
+  it('coalesces overlapping catalog reads without scheduling a trailing pull', async () => {
+    const api = new FakeApiClient()
+    const root = 'fk-root' as SessionId
+    const first = deferred<Awaited<ReturnType<FakeApiClient['onSubagentList']>>>()
+    api.onSubagentList = () => first.promise
+    const manager = new SessionManager(api)
+
+    const refresh = manager.refreshSubagents(root)
+    expect(manager.refreshSubagents(root)).toBe(refresh)
+    api.onSubagentList = () => Promise.resolve(ok({ entries: [], parentAvailable: true }))
+    first.resolve(ok({ entries: [], parentAvailable: true }))
+    await refresh
+
+    expect(api.callsOf('subagent.list')).toHaveLength(1)
+  })
+
+  it('runs one trailing catalog refresh for a membership change coalesced into an in-flight pull', async () => {
+    vi.useFakeTimers()
+    try {
+      const api = new FakeApiClient()
+      const root = 'fk-root' as SessionId
+      const first = deferred<Awaited<ReturnType<FakeApiClient['onSubagentList']>>>()
+      const second = deferred<Awaited<ReturnType<FakeApiClient['onSubagentList']>>>()
+      api.onSubagentList = () => first.promise
+      const manager = new SessionManager(api, root)
+      const refresh = manager.refreshSubagents(root)
+
+      // A membership frame arrives while the pull is in flight; the debounced
+      // refresh it schedules fires 50ms later and is coalesced into the pull —
+      // which was requested before the new child existed. The stale mark must
+      // queue one trailing pull carrying the change.
+      manager.handleHostEnvelope({
+        rpcId: 'child-added' as never,
+        payload: {
+          type: 'host/session-added', sessionId: S2, parentSessionId: root, blank: false,
+        },
+      })
+      await vi.advanceTimersByTimeAsync(50)
+      api.onSubagentList = () => second.promise
+      first.resolve(ok({
+        entries: [{
+          kind: 'child', id: S1, mode: 'continuable', label: 'older',
+          activity: 'inactive', hasChildren: false,
+        }] as never[],
+        parentAvailable: true,
+      }))
+      await refresh
+      // The trailing pull is already in flight (kicked synchronously in finally).
+      second.resolve(ok({
+        entries: [
+          {
+            kind: 'child', id: S1, mode: 'continuable', label: 'older',
+            activity: 'inactive', hasChildren: false,
+          },
+          {
+            kind: 'child', id: S2, mode: 'continuable', label: 'new child',
+            activity: 'inactive', hasChildren: false,
+          },
+        ] as never[],
+        parentAvailable: true,
+      }))
+      await second.promise
+
+      expect(api.callsOf('subagent.list')).toHaveLength(2)
+      expect(manager.getListSnapshot().subagentsByParent[root]?.entries).toMatchObject([
+        { kind: 'child', id: S1, label: 'older' },
+        { kind: 'child', id: S2, label: 'new child' },
+      ])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps removal invalidation across a stale success and failed trailing pull', async () => {
+    const api = new FakeApiClient()
+    const root = 'fk-root' as SessionId
+    const child = () => ({
+      kind: 'child' as const, id: S2, mode: 'continuable' as const, label: 'worker',
+      activity: 'inactive' as const, hasChildren: false,
+    })
+    const first = deferred<Awaited<ReturnType<FakeApiClient['onSubagentList']>>>()
+    api.onSubagentList = () => first.promise
+    const manager = new SessionManager(api)
+    const refresh = manager.refreshSubagents(root)
+    first.resolve(ok({ entries: [child()] as never[], parentAvailable: true }))
+    await refresh
+    manager.selectSubagent({ parentSessionId: root, childSessionId: S2, mode: 'continuable' })
+
+    // The removal lands while a second pull is in flight: the invalidation
+    // must survive the pre-removal ok response, so one trailing pull runs.
+    const mid = deferred<Awaited<ReturnType<FakeApiClient['onSubagentList']>>>()
+    api.onSubagentList = () => mid.promise
+    const midRefresh = manager.refreshSubagents(root)
+    manager.handleHostEnvelope({
+      rpcId: 'parent-removed-mid-pull' as never,
+      payload: { type: 'host/session-removed', sessionId: root },
+    })
+    const trailing = deferred<Awaited<ReturnType<FakeApiClient['onSubagentList']>>>()
+    api.onSubagentList = () => trailing.promise
+    mid.resolve(ok({ entries: [child()] as never[], parentAvailable: true }))
+    await midRefresh
+    expect(manager.getListSnapshot().subagentsByParent[root]?.parentAvailable).toBe(false)
+    expect(manager.get(S2).getSnapshot().subagent).toMatchObject({ parentAvailable: false })
+
+    trailing.resolve(err({ code: 'internal', message: 'trailing pull failed', details: {} }))
+    await vi.waitFor(() => {
+      expect(manager.getListSnapshot().subagentsByParent[root]).toMatchObject({
+        state: 'error',
+        parentAvailable: false,
+      })
+    })
+
+    const rootCalls = api.callsOf('subagent.list')
+      .filter(call => (call as { parentSessionId: SessionId }).parentSessionId === root)
+    expect(rootCalls).toHaveLength(3)
+    expect(manager.getListSnapshot().subagentsByParent[root]?.parentAvailable).toBe(false)
+    expect(manager.get(S2).getSnapshot().subagent).toMatchObject({ parentAvailable: false })
+  })
+
+  it('invalidates catalog availability when the owning parent is removed', async () => {
+    const api = new FakeApiClient()
+    const root = 'fk-root' as SessionId
+    api.onSubagentList = () => Promise.resolve(ok({
+      entries: [{
+        kind: 'child', id: S2, mode: 'continuable', label: 'worker',
+        activity: 'inactive', hasChildren: false,
+      }] as never[],
+      parentAvailable: true,
+    }))
+    const manager = new SessionManager(api)
+    await manager.refreshSubagents(root)
+    manager.selectSubagent({ parentSessionId: root, childSessionId: S2, mode: 'continuable' })
+    expect(manager.get(S2).getSnapshot().subagent).toMatchObject({ parentAvailable: true })
+
+    manager.handleHostEnvelope({
+      rpcId: 'parent-removed' as never,
+      payload: { type: 'host/session-removed', sessionId: root },
+    })
+
+    expect(manager.getListSnapshot().subagentsByParent[root]?.parentAvailable).toBe(false)
+    expect(manager.get(S2).getSnapshot().subagent).toMatchObject({ parentAvailable: false })
+  })
+})
+
 describe('remaining branches', () => {
   it('refreshList folds a transport throw into the error state', async () => {
     const api = new FakeApiClient()
@@ -409,9 +822,17 @@ describe('remaining branches', () => {
     const api = new FakeApiClient()
     const manager = new SessionManager(api)
     manager.handleHostEnvelope({ rpcId: 'h1' as never, payload: { type: 'host/session-added', blank: true, sessionId: S1 } })
-    manager.handleHostEnvelope({ rpcId: 'h2' as never, payload: { type: 'host/session-added', blank: true, sessionId: S2, parentSessionId: S1 } })
+    manager.handleHostEnvelope({
+      rpcId: 'h2' as never,
+      payload: {
+        type: 'host/session-added', blank: true, sessionId: S2,
+        parentSessionId: S1, origin: 'subagent',
+      },
+    })
     const items = manager.getListSnapshot().items
-    expect(items.find(e => e.sessionId === S2)).toMatchObject({ parentSessionId: S1, depth: 1 })
+    expect(items.find(e => e.sessionId === S2)).toMatchObject({
+      parentSessionId: S1, origin: 'subagent', depth: 1,
+    })
   })
 })
 
@@ -435,50 +856,119 @@ describe('connected generation', () => {
       expect(api.callsOf('session.history').length).toBe(historyCallsBefore + 1)
     })
   })
+
+  it('reloads the durable parent address for a restored child selection', async () => {
+    const api = new FakeApiClient()
+    const address = {
+      parentSessionId: S1, childSessionId: S2, mode: 'continuable' as const,
+    }
+    const manager = new SessionManager(api, S2, address)
+
+    manager.handleConnected()
+
+    await vi.waitFor(() => {
+      expect(api.callsOf('subagent.list')).toContainEqual({ parentSessionId: S1 })
+    })
+    expect(manager.getListSnapshot().currentAddress).toEqual(address)
+  })
 })
 
-describe('waiting-approval list bit', () => {
-  it('lights on requested, survives replay duplicates, and clears on resolved — without instantiation', () => {
+describe('pending-interaction list status', () => {
+  it('tracks approval requests through replay and resolution without instantiation', () => {
     const manager = new SessionManager(new FakeApiClient())
     manager.handleHostEnvelope({ rpcId: 'h1' as never, payload: { type: 'host/session-added', sessionId: S1, blank: false } })
-    expect(manager.getListSnapshot().items[0]?.waitingApproval).toBe(false)
+    expect(manager.getListSnapshot().items[0]?.pendingInteraction).toBeUndefined()
     manager.handleMuxEnvelope({ rpcId: 'ra' as never, payload: { type: 'approval/requested', sessionId: S1, approvalId: 'ap1' as never, toolName: 'rm' } })
-    expect(manager.getListSnapshot().items[0]?.waitingApproval).toBe(true)
+    expect(manager.getListSnapshot().items[0]?.pendingInteraction).toBe('approval')
     // Mux-open replay of the same question (same approvalId) is idempotent.
     manager.handleMuxEnvelope({ rpcId: 'ra' as never, payload: { type: 'approval/requested', sessionId: S1, approvalId: 'ap1' as never, toolName: 'rm' } })
-    expect(manager.getListSnapshot().items[0]?.waitingApproval).toBe(true)
+    expect(manager.getListSnapshot().items[0]?.pendingInteraction).toBe('approval')
     manager.handleMuxEnvelope({ rpcId: 'rx' as never, payload: { type: 'approval/resolved', sessionId: S1, approvalId: 'ap1' as never, outcome: 'allowed-once' as never } })
-    expect(manager.getListSnapshot().items[0]?.waitingApproval).toBe(false)
+    expect(manager.getListSnapshot().items[0]?.pendingInteraction).toBeUndefined()
   })
 
-  it('clears only when the last outstanding question resolves; session-removed drops the bit', () => {
+  it('classifies ordinary questions and renderable plan reviews, then clears by question rpcId', () => {
+    const manager = new SessionManager(new FakeApiClient())
+    manager.handleHostEnvelope({ rpcId: 'h1' as never, payload: { type: 'host/session-added', sessionId: S1, blank: false } })
+    manager.handleMuxEnvelope({
+      rpcId: 'q1' as never,
+      payload: { type: 'question/requested', sessionId: S1, questions: [{ id: 'name', question: 'Name?' }] },
+    })
+    expect(manager.getListSnapshot().items[0]?.pendingInteraction).toBe('question')
+    manager.handleMuxEnvelope({ rpcId: 'qx' as never, payload: { type: 'question/resolved', sessionId: S1, questionRpcId: 'q1' as never, outcome: 'answered' } })
+    expect(manager.getListSnapshot().items[0]?.pendingInteraction).toBeUndefined()
+
+    manager.handleMuxEnvelope({
+      rpcId: 'q2' as never,
+      payload: {
+        type: 'question/requested',
+        sessionId: S1,
+        questions: [{
+          id: 'plan', question: 'Approve?', detail: '# Plan',
+          options: [{ label: 'Approve' }, { label: 'Refuse' }],
+          intent: { kind: 'plan-review', approve: 'Approve' },
+        }],
+      },
+    })
+    expect(manager.getListSnapshot().items[0]?.pendingInteraction).toBe('plan-review')
+    manager.handleMuxEnvelope({ rpcId: 'qy' as never, payload: { type: 'question/resolved', sessionId: S1, questionRpcId: 'q2' as never, outcome: 'cancelled' } })
+    expect(manager.getListSnapshot().items[0]?.pendingInteraction).toBeUndefined()
+  })
+
+  it.each([
+    ['missing detail', {}],
+    ['multi-select', { detail: '# Plan', multiSelect: true }],
+    ['more than two options', { detail: '# Plan', options: [{ label: 'Approve' }, { label: 'Refuse' }, { label: 'Revise' }] }],
+    ['missing approve option', { detail: '# Plan', options: [{ label: 'Refuse' }] }],
+  ])('keeps an unrenderable %s plan intent on the ordinary question flow', (_name, over) => {
+    const manager = new SessionManager(new FakeApiClient())
+    manager.handleHostEnvelope({ rpcId: 'h1' as never, payload: { type: 'host/session-added', sessionId: S1, blank: false } })
+    manager.handleMuxEnvelope({
+      rpcId: 'q-plan' as never,
+      payload: {
+        type: 'question/requested', sessionId: S1,
+        questions: [{
+          id: 'plan', question: 'Approve?', options: [{ label: 'Approve' }],
+          intent: { kind: 'plan-review', approve: 'Approve' },
+          ...over,
+        }],
+      },
+    })
+    expect(manager.getListSnapshot().items[0]?.pendingInteraction).toBe('question')
+  })
+
+  it('the first question outranks sibling approvals and resolving it reveals the remaining wait', () => {
     const manager = new SessionManager(new FakeApiClient())
     manager.handleHostEnvelope({ rpcId: 'h1' as never, payload: { type: 'host/session-added', sessionId: S1, blank: false } })
     manager.handleMuxEnvelope({ rpcId: 'r1' as never, payload: { type: 'approval/requested', sessionId: S1, approvalId: 'a1' as never, toolName: 'rm' } })
-    manager.handleMuxEnvelope({ rpcId: 'r2' as never, payload: { type: 'approval/requested', sessionId: S1, approvalId: 'a2' as never, toolName: 'rm' } })
+    manager.handleMuxEnvelope({
+      rpcId: 'q1' as never,
+      payload: { type: 'question/requested', sessionId: S1, questions: [{ id: 'name', question: 'Name?' }] },
+    })
+    expect(manager.getListSnapshot().items[0]?.pendingInteraction).toBe('question')
+    manager.handleMuxEnvelope({ rpcId: 'qy' as never, payload: { type: 'question/resolved', sessionId: S1, questionRpcId: 'q1' as never, outcome: 'answered' } })
+    expect(manager.getListSnapshot().items[0]?.pendingInteraction).toBe('approval')
     manager.handleMuxEnvelope({ rpcId: 'rx' as never, payload: { type: 'approval/resolved', sessionId: S1, approvalId: 'a1' as never, outcome: 'rejected' as never } })
-    expect(manager.getListSnapshot().items[0]?.waitingApproval).toBe(true)
-    manager.handleMuxEnvelope({ rpcId: 'ry' as never, payload: { type: 'approval/resolved', sessionId: S1, approvalId: 'a2' as never, outcome: 'rejected' as never } })
-    expect(manager.getListSnapshot().items[0]?.waitingApproval).toBe(false)
-    // Removed sessions drop their bit outright.
-    manager.handleMuxEnvelope({ rpcId: 'r3' as never, payload: { type: 'approval/requested', sessionId: S1, approvalId: 'a3' as never, toolName: 'rm' } })
+    expect(manager.getListSnapshot().items[0]?.pendingInteraction).toBeUndefined()
+
+    manager.handleMuxEnvelope({ rpcId: 'r2' as never, payload: { type: 'approval/requested', sessionId: S1, approvalId: 'a2' as never, toolName: 'rm' } })
     manager.handleHostEnvelope({ rpcId: 'h2' as never, payload: { type: 'host/session-removed', sessionId: S1 } })
     expect(manager.getListSnapshot().items).toHaveLength(0)
   })
 
-  it('drops stale bits at generation death — BEFORE the reopen replay re-adds still-pending questions', () => {
+  it('drops stale status at generation death before replay re-adds live interactions', () => {
     const manager = new SessionManager(new FakeApiClient())
     manager.handleHostEnvelope({ rpcId: 'h1' as never, payload: { type: 'host/session-added', sessionId: S1, blank: false } })
     manager.handleMuxEnvelope({ rpcId: 'ra' as never, payload: { type: 'approval/requested', sessionId: S1, approvalId: 'ap1' as never, toolName: 'rm' } })
-    expect(manager.getListSnapshot().items[0]?.waitingApproval).toBe(true)
+    expect(manager.getListSnapshot().items[0]?.pendingInteraction).toBe('approval')
     // Generation death clears (resolved-while-disconnected questions send no frame)…
     manager.handleDisconnected()
-    expect(manager.getListSnapshot().items[0]?.waitingApproval).toBe(false)
+    expect(manager.getListSnapshot().items[0]?.pendingInteraction).toBeUndefined()
     // …and a replayed frame arriving before onConnected (stream open precedes
     // the readiness handshake) survives the later handleConnected untouched.
     manager.handleMuxEnvelope({ rpcId: 'ra' as never, payload: { type: 'approval/requested', sessionId: S1, approvalId: 'ap1' as never, toolName: 'rm' } })
     manager.handleConnected()
-    expect(manager.getListSnapshot().items[0]?.waitingApproval).toBe(true)
+    expect(manager.getListSnapshot().items[0]?.pendingInteraction).toBe('approval')
   })
 
   it('generation death drops buffered answerable frames (a dead generation cannot be answered)', () => {
@@ -493,5 +983,130 @@ describe('waiting-approval list bit', () => {
     // no pending waits.
     const session = manager.get(S1)
     expect(session.getSnapshot().pending).toEqual([])
+  })
+})
+
+describe('completed reminder', () => {
+  const status = (rpcId: string, sessionId: SessionId, running: boolean) => ({
+    rpcId: rpcId as never,
+    payload: { type: 'host/session-status' as const, sessionId, running },
+  })
+  const added = (rpcId: string, sessionId: SessionId) => ({
+    rpcId: rpcId as never,
+    payload: { type: 'host/session-added' as const, sessionId, blank: false },
+  })
+  const entry = (manager: SessionManager, sessionId: SessionId) =>
+    manager.getListSnapshot().items.find(item => item.sessionId === sessionId)
+
+  it('arms on a running→idle flip of a non-selected session and clears on select', () => {
+    const manager = new SessionManager(new FakeApiClient())
+    manager.handleHostEnvelope(added('h1', S1))
+    manager.handleHostEnvelope(added('h2', S2))
+    manager.select(S1)
+    expect(entry(manager, S2)?.completed).toBe(false)
+    manager.handleHostEnvelope(status('s1', S2, true))
+    manager.handleHostEnvelope(status('s2', S2, false))
+    expect(entry(manager, S2)?.completed).toBe(true)
+    // Opening the session consumes the reminder.
+    manager.select(S2)
+    expect(entry(manager, S2)?.completed).toBe(false)
+  })
+
+  it('never arms for the session being watched and re-arms after a switch-away re-run', () => {
+    const manager = new SessionManager(new FakeApiClient())
+    manager.handleHostEnvelope(added('h1', S1))
+    manager.handleHostEnvelope(added('h2', S2))
+    manager.select(S2)
+    manager.handleHostEnvelope(status('s1', S2, true))
+    manager.handleHostEnvelope(status('s2', S2, false))
+    expect(entry(manager, S2)?.completed).toBe(false) // watched to completion: no reminder
+    // Switch away; a fresh run completing again arms the reminder.
+    manager.select(S1)
+    manager.handleHostEnvelope(status('s3', S2, true))
+    manager.handleHostEnvelope(status('s4', S2, false))
+    expect(entry(manager, S2)?.completed).toBe(true)
+  })
+
+  it('a re-run disarms the reminder while running and re-arms on its completion', () => {
+    const manager = new SessionManager(new FakeApiClient())
+    manager.handleHostEnvelope(added('h1', S1))
+    manager.handleHostEnvelope(added('h2', S2))
+    manager.select(S1)
+    manager.handleHostEnvelope(status('s1', S2, true))
+    manager.handleHostEnvelope(status('s2', S2, false))
+    expect(entry(manager, S2)?.completed).toBe(true)
+    // The user starts a new run without opening the session: running wins.
+    manager.handleHostEnvelope(status('s3', S2, true))
+    expect(entry(manager, S2)?.completed).toBe(false)
+    manager.handleHostEnvelope(status('s4', S2, false))
+    expect(entry(manager, S2)?.completed).toBe(true)
+  })
+
+  it('session-removed drops the reminder and a re-add starts clean', () => {
+    const manager = new SessionManager(new FakeApiClient())
+    manager.handleHostEnvelope(added('h1', S1))
+    manager.handleHostEnvelope(added('h2', S2))
+    manager.select(S1)
+    manager.handleHostEnvelope(status('s1', S2, true))
+    manager.handleHostEnvelope(status('s2', S2, false))
+    expect(entry(manager, S2)?.completed).toBe(true)
+    manager.handleHostEnvelope({ rpcId: 'rm' as never, payload: { type: 'host/session-removed', sessionId: S2 } })
+    expect(manager.getListSnapshot().items.find(item => item.sessionId === S2)).toBeUndefined()
+    manager.handleHostEnvelope(added('h3', S2))
+    expect(entry(manager, S2)?.completed).toBe(false)
+  })
+
+  it('a list refresh carrying the running→idle transition arms the reminder', async () => {
+    const api = new FakeApiClient()
+    api.onList = () => Promise.resolve(ok({ items: [summary(S1), summary(S2, { updatedAt: 200, running: true })] as never[] }))
+    const manager = new SessionManager(api)
+    await manager.refreshList()
+    manager.select(S1)
+    expect(entry(manager, S2)?.completed).toBe(false)
+    api.onList = () => Promise.resolve(ok({ items: [summary(S1), summary(S2, { updatedAt: 200, running: false })] as never[] }))
+    await manager.refreshList()
+    expect(entry(manager, S2)?.completed).toBe(true)
+  })
+
+  it('never arms for sessions already idle at first observation', async () => {
+    const api = new FakeApiClient()
+    api.onList = () => Promise.resolve(ok({ items: [summary(S1), summary(S2, { updatedAt: 200 })] as never[] }))
+    const manager = new SessionManager(api)
+    await manager.refreshList()
+    manager.select(S1)
+    expect(entry(manager, S2)?.completed).toBe(false)
+    api.onList = () => Promise.resolve(ok({ items: [summary(S1), summary(S2, { updatedAt: 201 })] as never[] }))
+    await manager.refreshList()
+    expect(entry(manager, S2)?.completed).toBe(false)
+  })
+
+  it('arms a completion that happened during an in-flight first pull (baseline running, replayed idle)', async () => {
+    const api = new FakeApiClient()
+    const gate = deferred<Awaited<ReturnType<FakeApiClient['onList']>>>()
+    api.onList = () => gate.promise
+    const manager = new SessionManager(api)
+    const refresh = manager.refreshList()
+    // The session finishes while the first pull is still in flight; the pull
+    // response recorded it as running at pull time.
+    manager.handleHostEnvelope(status('s-mid', S2, false))
+    gate.resolve(ok({ items: [summary(S1), summary(S2, { updatedAt: 200, running: true })] as never[] }))
+    await refresh
+    expect(entry(manager, S2)?.completed).toBe(true)
+  })
+
+  it('arms when a session ran and completed entirely between in-flight mutations (baseline idle)', async () => {
+    const api = new FakeApiClient()
+    const gate = deferred<Awaited<ReturnType<FakeApiClient['onList']>>>()
+    api.onList = () => gate.promise
+    const manager = new SessionManager(api)
+    const refresh = manager.refreshList()
+    // The unknown session starts and finishes while the first pull is in
+    // flight; the pull-time baseline recorded it idle, so the running→idle
+    // edge lives entirely inside the replayed mutations.
+    manager.handleHostEnvelope(status('s-start', S2, true))
+    manager.handleHostEnvelope(status('s-finish', S2, false))
+    gate.resolve(ok({ items: [summary(S1), summary(S2, { updatedAt: 200 })] as never[] }))
+    await refresh
+    expect(entry(manager, S2)?.completed).toBe(true)
   })
 })

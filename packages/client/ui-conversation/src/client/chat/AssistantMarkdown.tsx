@@ -4,9 +4,10 @@
 // view groups them into tool rows through its keyed toolview slot (figma
 // step-summary flow). Shared by finalized nodes and the streaming partial;
 // the turn-level loading dots live in the chat view's tail, not here.
-// Finalized turn-tail content (text) nodes append IconActions once streaming
-// ends (`time` is omitted for mid-turn narration); Think / tool-head-only
-// nodes stay chrome-free.
+// Finalized content (text) nodes append IconActions once streaming ends
+// (`time` is omitted for mid-turn narration); their branch action is enabled
+// only when the node is also the completed turn's transcript tail. Think /
+// tool-head-only nodes stay chrome-free.
 
 import { memo, useMemo } from 'react'
 import type { AssistantBlock } from '@deepseek-ai/dsh-client-runtime/client'
@@ -27,15 +28,24 @@ export interface AssistantMarkdownProps {
   /** Unix epoch ms for the IconActions clock; omitted while streaming or when
    *  the parent withholds chrome (mid-turn content assistants). */
   time?: number | undefined
+  /** Turn wall time in ms for the IconActions run-time label; omitted when the
+   *  turn's triggering input is outside the loaded window. */
+  runMs?: number | undefined
+  /** Turn first-step TTFT in ms for the IconActions label; omitted when unrecorded. */
+  ttftMs?: number | undefined
+  /** Turn decode throughput for the IconActions label; omitted when unrecorded. */
+  tokensPerSecond?: number | undefined
   /** Event sequence used as the fork boundary; omitted while streaming. */
   seq?: number | undefined
-  /** Fork the session through the turn containing this finalized message. */
+  /** Fork the session through this finalized message's completed turn when eligible. */
   onFork?: ((seq: number) => void) | undefined
   /** Files the closing turn produced, listed under the body; omitted for a
    *  mid-turn assistant and for a turn that wrote nothing. */
   produced?: readonly string[] | undefined
   /** Opens one produced file; omitted wherever `produced` is. */
   openFile?: ((path: string) => void) | undefined
+  /** The message is not the transcript tail of a completed turn. */
+  forkUnavailable?: boolean | undefined
   /** The owning view's locale seat, passed down as a plain prop. */
   t: ChatViewSlotProps['t']
 }
@@ -43,6 +53,13 @@ export interface AssistantMarkdownProps {
 function firstLine(text: string): string {
   const nl = text.indexOf('\n')
   return nl === -1 ? text : text.slice(0, nl)
+}
+
+/** Latest non-blank reasoning line while the block is still streaming. */
+function latestLine(text: string): string {
+  const visible = text.trimEnd()
+  const nl = visible.lastIndexOf('\n')
+  return nl === -1 ? visible : visible.slice(nl + 1)
 }
 
 /** Joined text blocks for the copy action (reasoning / tool heads stay out). */
@@ -67,7 +84,7 @@ function ThinkRow({ text, running, t }: { text: string; running: boolean; t: Ass
       variant="think"
       icon={<IconThinkOutline14 size={14} />}
       title="Think"
-      summary={firstLine(text)}
+      summary={running ? latestLine(text) : firstLine(text)}
       body={text}
       state={running ? 'running' : 'ok'}
     />
@@ -75,7 +92,7 @@ function ThinkRow({ text, running, t }: { text: string; running: boolean; t: Ass
 }
 
 export const AssistantMarkdown = memo(function AssistantMarkdown({
-  blocks, streaming, interrupted, time, seq, onFork, produced, openFile, t,
+  blocks, streaming, interrupted, time, runMs, ttftMs, tokensPerSecond, seq, onFork, forkUnavailable, produced, openFile, t,
 }: AssistantMarkdownProps) {
   // Stable per locale revision (t identity changes on switch): a fresh object
   // per render would rebuild MarkdownText's component table every chunk.
@@ -91,7 +108,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
   // Footer only under settled content text; Think-only / streaming omit it.
   const showActions = !streaming && time !== undefined && hasContentText(blocks)
   return (
-    <div className={css.root} data-streaming={streaming || undefined}>
+    <div className={css.root} data-streaming={streaming || undefined} data-time-hover-root>
       <div className={css.body}>
         {blocks.map((block, i) => {
           switch (block.kind) {
@@ -120,8 +137,12 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
         <MessageIconActions
           text={copyText(blocks)}
           time={time}
+          runMs={runMs}
+          ttftMs={ttftMs}
+          tokensPerSecond={tokensPerSecond}
           clock="end"
           onBranch={onFork === undefined || seq === undefined ? undefined : () => { onFork(seq) }}
+          branchUnavailable={forkUnavailable}
           className={css.actions}
           t={t}
         />
