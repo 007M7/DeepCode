@@ -25,13 +25,15 @@ dsh --profile web --patch ./extra.yml --dump-config
 
 ## Plugin management
 
-`dsh plugin --profile <name> <args...>` initializes the profile when missing (shipped template, or `@deepseek-ai/dsh-base` alone for other names), then forwards `<args...>` verbatim to `pnpm` with the profile directory as working directory — `add`, `remove`, `why`, `update`, and every other pnpm verb work unchanged; pnpm must be on PATH. After a successful `add`, a package whose manifest declares `"dsh": { "patch": "./cordis.patch.yml" }` is appended to `dsh.plugins` (last layer); a package without that declaration stays a plain dependency and prints a warning. `remove` drops the package from `dsh.plugins`.
+`dsh plugin --profile <name> <args...>` initializes the profile when missing (shipped template, or `@deepseek-ai/dsh-base` alone for other names), then forwards `<args...>` to `pnpm` with the profile directory as working directory — `add`, `remove`, `why`, `update`, and every other pnpm verb work unchanged; pnpm must be on PATH. Relative path specs (`.`, `../plugin`, and their `file:`/`link:` forms) are anchored to the invoking directory first, so `add .` from a plugin checkout installs that checkout, not the profile. After every successful run, `dsh.plugins` is reconciled against the installed state: each dependency resolving to a package whose manifest declares `"dsh": { "patch": "./cordis.patch.yml" }` joins the layer stack (so an `update` that gains the declaration activates it), a patch-less dependency stays plain with a one-time warning, and a removed dependency leaves the stack.
 
 ```sh
 dsh plugin --profile tui add github:deepseek-harness/turtle-ui
 dsh plugin --profile tui remove turtle-ui
 dsh --profile tui
 ```
+
+Git-hosted plugins that ship sources build during install through their `prepare` script, which pnpm ≥10 blocks until the consumer allows it: the first `add` fails with pnpm's `allowBuilds` hint (and a dsh pointer at the profile's `pnpm-workspace.yaml`); copy the printed key there and re-run. Installing a built tarball or a local checkout needs no allowance.
 
 ## Web alias
 

@@ -25,13 +25,15 @@ dsh --profile web --patch ./extra.yml --dump-config
 
 ## 插件管理
 
-`dsh plugin --profile <name> <args...>` 在 profile 缺失时先初始化它（有随附模板的用模板，其他名称只装 `@deepseek-ai/dsh-base`），然后以 profile 目录为工作目录，把 `<args...>` 原样转发给 `pnpm`：`add`、`remove`、`why`、`update` 及其他所有 pnpm 子命令都照常可用；pnpm 必须在 PATH 上。`add` 成功后，manifest 中声明 `"dsh": { "patch": "./cordis.patch.yml" }` 的包会被追加到 `dsh.plugins`（最后一层）；没有该声明的包保持为普通依赖并打印警告。`remove` 把包从 `dsh.plugins` 中移除。
+`dsh plugin --profile <name> <args...>` 在 profile 缺失时先初始化它（有随附模板的用模板，其他名称只装 `@deepseek-ai/dsh-base`），然后以 profile 目录为工作目录，把 `<args...>` 转发给 `pnpm`：`add`、`remove`、`why`、`update` 及其他所有 pnpm 子命令都照常可用；pnpm 必须在 PATH 上。相对路径 spec（`.`、`../plugin` 及其 `file:`/`link:` 形式）会先锚定到调用目录，因此在插件 checkout 中执行 `add .` 安装的是该 checkout，而不是 profile。每次成功运行后，`dsh.plugins` 都会与已安装状态对齐：每个解析到 manifest 中声明了 `"dsh": { "patch": "./cordis.patch.yml" }` 的包的依赖加入层栈（因此让包获得该声明的 `update` 会将其激活），没有 patch 的依赖保持为普通依赖并给出一次性警告，已移除的依赖则退出层栈。
 
 ```sh
 dsh plugin --profile tui add github:deepseek-harness/turtle-ui
 dsh plugin --profile tui remove turtle-ui
 dsh --profile tui
 ```
+
+Git 托管、随附源码的插件在安装期间通过其 `prepare` 脚本构建，而 pnpm ≥10 在消费方允许之前会阻止该脚本：首次 `add` 会失败并给出 pnpm 的 `allowBuilds` 提示（以及 dsh 指向该 profile 的 `pnpm-workspace.yaml` 的指引）；把打印出的键复制到那里并重新运行即可。安装已构建的 tarball 或本地 checkout 不需要任何允许。
 
 ## Web 别名
 

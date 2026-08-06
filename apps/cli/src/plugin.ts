@@ -2,15 +2,17 @@
  * `dsh plugin --profile <name> <args...>` — profile plugin management as a
  * thin pnpm forwarder: initialize the profile on first use, run
  * `pnpm <args...>` in the profile directory, then reconcile the `dsh.plugins`
- * bundle-layer list from the manifest's dependency diff (a package exporting
- * a `dsh.patch` joins the layer stack; one without only warns — it is a plain
- * library dependency; a removed dependency leaves the stack).
+ * bundle-layer list against the installed state (a dependency resolving to a
+ * package that declares `dsh.patch` joins the layer stack; a removed or
+ * patch-less dependency leaves it). Reconciling by installed state, not by
+ * dependency diff, means `update` activates a package that gained its
+ * `dsh.patch` in a newer version.
  * @module @deepseek-ai/dsh/plugin
  */
 
 import { spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import {
   DEFAULT_PROFILE_PLUGINS,
   initProfile,
@@ -43,34 +45,44 @@ function exportsPatch(packageName: string, profileDir: string): boolean {
 }
 
 /**
- * Reconcile `dsh.plugins` against the manifest's dependency diff: pnpm has
- * already written the real installed names, so a git/path/tarball/alias spec
- * on the command line reconciles by its true package name. Added bundle
- * dependencies append (in dependency order); removed dependencies drop.
+ * Reconcile `dsh.plugins` against the installed state: pnpm has already
+ * written the real installed names (so a git/path/tarball/alias spec on the
+ * command line reconciles by its true package name) and materialized the
+ * packages. A dependency that resolves to a `dsh.patch`-declaring package
+ * joins the layer stack (appended in dependency order); a dependency-listed
+ * name that no longer does — removed, or the installed version dropped the
+ * declaration — leaves it. In-box bundles from the profile template are not
+ * dependencies and are never touched. Warns once per newly-added patch-less
+ * dependency (a plain library is fine; the warning is orientation).
  */
 function reconcilePlugins(before: ProfileManifest, profileDir: string): void {
   const after = readProfileManifest(NAME, profileDir)
   const beforeDeps = new Set(Object.keys(before.dependencies ?? {}))
-  const afterDeps = Object.keys(after.dependencies ?? {})
+  const dependencies = Object.keys(after.dependencies ?? {})
   const plugins = after.dsh?.plugins ?? []
   let changed = false
-  for (const packageName of afterDeps) {
-    if (beforeDeps.has(packageName) || plugins.includes(packageName)) continue
-    if (!exportsPatch(packageName, profileDir)) {
+  for (const packageName of dependencies) {
+    const isBundle = exportsPatch(packageName, profileDir)
+    if (isBundle && !plugins.includes(packageName)) {
+      plugins.push(packageName)
+      changed = true
+    } else if (!isBundle && !beforeDeps.has(packageName)) {
       process.stderr.write(
         `${NAME}: warning: ${packageName} declares no dsh.patch — installed as a plain dependency, not a profile layer `
-        + '(if it gains one later, add it to dsh.plugins in the profile\'s package.json)\n',
+        + '(a later update that gains one activates it automatically)\n',
       )
-      continue
     }
-    plugins.push(packageName)
-    changed = true
   }
-  const afterSet = new Set(afterDeps)
-  for (const packageName of beforeDeps) {
-    if (afterSet.has(packageName) || !plugins.includes(packageName)) continue
-    plugins.splice(plugins.indexOf(packageName), 1)
-    changed = true
+  const dependencySet = new Set(dependencies)
+  for (const packageName of [...plugins]) {
+    // Only dependency-managed entries are subject to removal; template
+    // bundles (dsh-base and friends) are not dependencies.
+    const wasDependency = beforeDeps.has(packageName) || dependencySet.has(packageName)
+    const stillBundle = dependencySet.has(packageName) && exportsPatch(packageName, profileDir)
+    if (wasDependency && !stillBundle) {
+      plugins.splice(plugins.indexOf(packageName), 1)
+      changed = true
+    }
   }
   if (!changed) return
   after.dsh = { ...after.dsh, plugins }
@@ -78,9 +90,30 @@ function reconcilePlugins(before: ProfileManifest, profileDir: string): void {
 }
 
 /**
+ * Rewrite relative filesystem specs against the user's invoking directory.
+ * pnpm runs with cwd = the profile directory, so a bare `.` or `../plugin`
+ * (or their `file:`/`link:` forms) would silently resolve inside the profile
+ * — `add .` from a plugin checkout would self-link the profile. Absolute
+ * specs, registry names, and every other pnpm argument pass through
+ * untouched.
+ * @param argument - one pnpm argument, verbatim from argv.
+ * @param cwd - the directory `dsh` was invoked from.
+ * @returns the argument with a relative path spec anchored to `cwd`.
+ */
+function anchorPathSpec(argument: string, cwd: string): string {
+  const match = /^(?<prefix>(?:file|link):)?(?<path>\.{1,2}(?:[/\\].*)?)$/.exec(argument)
+  if (match?.groups?.path === undefined) return argument
+  // A bare path stays bare and a prefixed spec keeps its prefix: pnpm's
+  // link-vs-copy semantics differ between `file:` and a plain directory
+  // path, and the anchor must not change which one the user asked for.
+  const prefix = match.groups.prefix ?? ''
+  return `${prefix}${resolve(cwd, match.groups.path)}`
+}
+
+/**
  * Run one `dsh plugin` invocation: init if needed, forward to pnpm, reconcile.
  * @param profile - the profile name.
- * @param args - pnpm arguments, verbatim.
+ * @param args - pnpm arguments with relative path specs anchored to the invoking directory.
  * @returns the pnpm exit code.
  */
 export function runPlugin(profile: string, args: readonly string[]): number {
@@ -92,7 +125,7 @@ export function runPlugin(profile: string, args: readonly string[]): number {
   const before = readProfileManifest(NAME, dir)
   // Windows resolves pnpm through its .cmd shim, which spawn() refuses
   // without a shell since the CVE-2024-27980 hardening.
-  const result = spawnSync('pnpm', [...args], {
+  const result = spawnSync('pnpm', args.map(argument => anchorPathSpec(argument, process.cwd())), {
     cwd: dir,
     stdio: 'inherit',
     shell: process.platform === 'win32',
@@ -106,6 +139,19 @@ export function runPlugin(profile: string, args: readonly string[]): number {
     throw result.error
   }
   const exitCode = result.status ?? 1
-  if (exitCode === 0) reconcilePlugins(before, dir)
+  if (exitCode === 0) {
+    reconcilePlugins(before, dir)
+  } else {
+    // pnpm's own diagnostics name pnpm-workspace.yaml without saying WHICH
+    // one; the profile owns it, and the commonest failure here is pnpm ≥10
+    // blocking a git dependency's prepare (build) script until allowlisted.
+    process.stderr.write(`${NAME}: pnpm failed in profile directory ${dir}\n`)
+    if (args.some(argument => /^git\+|^github:|\.git(?:#|$)/.test(argument))) {
+      process.stderr.write(
+        `${NAME}: git-hosted plugins build on install via their prepare script, which pnpm blocks until allowed — `
+        + `add the exact key pnpm printed above under allowBuilds in ${join(dir, 'pnpm-workspace.yaml')}, then re-run\n`,
+      )
+    }
+  }
   return exitCode
 }
