@@ -195,35 +195,36 @@ describe('connection node half', () => {
     await dispose()
   })
 
-  it('provides a disposable generic RPC channel without requiring apiProxy', async () => {
+  it('provides a disposable dedicated RPC channel without requiring apiProxy', async () => {
     const ctx = new Context()
     const routes: WebRoute[] = []
     ctx.provide('httpServer', fakeHttpServer(routes, []) as HttpServerService)
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
-    expect(routes).toHaveLength(0)
+    expect(routes).toHaveLength(1)
+    expect(routes[0]).toMatchObject({ kind: 'prefix', path: API_PATH })
 
     const connection = ctx.get('connection') as HostConnectionHandle
     const calls: unknown[] = []
-    const remove = connection.rpc.handle('/api2', async (endpoint, payload) => {
+    const remove = connection.rpc.handle('/rpc', async (endpoint, payload) => {
       calls.push({ endpoint, payload })
       return { ok: true, value: { accepted: true } }
     }, { authority: 'trusted-host' })
-    const route = routes.find(candidate => candidate.path === '/api2')
+    const route = routes.find(candidate => candidate.path === '/rpc')
     expect(route).toBeDefined()
 
     const request: ClientRequest = {
       type: 'client-request',
-      rpcId: RpcId('rpc-api2'),
+      rpcId: RpcId('rpc-dedicated'),
       method: 'goals/create',
       payload: { args: { agentId: 'agent-1' } },
     }
     const result = fakeResponse()
-    await route!.handler(fakePost({ host: '127.0.0.1:3080' }, '/api2/goals/create', request), result.response)
+    await route!.handler(fakePost({ host: '127.0.0.1:3080' }, '/rpc/goals/create', request), result.response)
     expect(result.state.status).toBe(200)
     expect(JSON.parse(String(result.state.body))).toEqual({
       type: 'server-response',
-      rpcId: 'rpc-api2',
+      rpcId: 'rpc-dedicated',
       result: { ok: true, value: { accepted: true } },
     })
     expect(calls).toEqual([{
@@ -231,11 +232,90 @@ describe('connection node half', () => {
       payload: { args: { agentId: 'agent-1' } },
     }])
 
-    expect(() => connection.rpc.handle('/api2', async () => ({ ok: true, value: null }), {
+    expect(() => connection.rpc.handle('/rpc', async () => ({ ok: true, value: null }), {
       authority: 'trusted-host',
     })).toThrow(/duplicate route/)
     await remove()
+    expect(routes.map(candidate => candidate.path)).toEqual([API_PATH])
+    await fiber.dispose()
     expect(routes).toHaveLength(0)
+  })
+
+  it('dispatches claimed /api endpoints before the API Proxy fallback and withdraws the claim', async () => {
+    const ctx = new Context()
+    const routes: WebRoute[] = []
+    ctx.provide('httpServer', fakeHttpServer(routes, []) as HttpServerService)
+    ctx.provide('apiProxy', {} as unknown as ApiProxy)
+    const fiber = ctx.plugin({ inject: [...inject], apply }, { trustedHosts: ['harness.example'] })
+    await fiber.await()
+    const connection = ctx.get('connection') as HostConnectionHandle
+    const calls: unknown[] = []
+    const remove = connection.rpc.intercept(
+      '/api',
+      endpoint => endpoint === 'goals/create',
+      async (endpoint, payload) => {
+        calls.push({ endpoint, payload })
+        return { ok: true, value: { accepted: true } }
+      },
+      { authority: 'trusted-host' },
+    )
+    expect(() => connection.rpc.intercept(
+      '/api',
+      () => true,
+      async () => ({ ok: true, value: null }),
+      { authority: 'trusted-host' },
+    )).toThrow('already has an interceptor')
+    expect(() => connection.rpc.intercept(
+      '/rpc' as '/api',
+      () => true,
+      async () => ({ ok: true, value: null }),
+      { authority: 'trusted-host' },
+    )).toThrow('invalid shared RPC channel')
+    const route = routes.find(candidate => candidate.path === API_PATH)!
+    const request: ClientRequest = {
+      type: 'client-request',
+      rpcId: RpcId('rpc-shared'),
+      method: 'goals/create',
+      payload: { args: { agentId: 'agent-1' } },
+    }
+
+    const claimed = fakeResponse()
+    await route.handler(fakePost({ host: '127.0.0.1:3080' }, '/api/goals/create', request), claimed.response)
+    expect(JSON.parse(String(claimed.state.body))).toEqual({
+      type: 'server-response',
+      rpcId: 'rpc-shared',
+      result: { ok: true, value: { accepted: true } },
+    })
+    expect(calls).toEqual([{
+      endpoint: 'goals/create',
+      payload: { args: { agentId: 'agent-1' } },
+    }])
+
+    const denied = fakeResponse()
+    await route.handler(fakePost({ host: 'other.example' }, '/api/goals/create', request), denied.response)
+    expect(denied.state).toMatchObject({ status: 403, body: 'forbidden' })
+    expect(calls).toHaveLength(1)
+
+    const unclaimed = fakeResponse()
+    await route.handler(fakeRequest({ host: '127.0.0.1:3080' }, '/api/session.list'), unclaimed.response)
+    expect(unclaimed.state.status).toBe(404)
+
+    await remove()
+    const withdrawn = fakeResponse()
+    await route.handler(fakePost({ host: '127.0.0.1:3080' }, '/api/goals/create', request), withdrawn.response)
+    expect(withdrawn.state.status).toBe(404)
+    expect(calls).toHaveLength(1)
+
+    const removeLoopback = connection.rpc.intercept(
+      '/api',
+      endpoint => endpoint === 'goals/create',
+      async () => ({ ok: true, value: null }),
+      { authority: 'loopback' },
+    )
+    const loopbackOnly = fakeResponse()
+    await route.handler(fakePost({ host: 'harness.example' }, '/api/goals/create', request), loopbackOnly.response)
+    expect(loopbackOnly.state.status).toBe(403)
+    await removeLoopback()
     await fiber.dispose()
   })
 
@@ -246,20 +326,20 @@ describe('connection node half', () => {
     const fiber = ctx.plugin({ inject: [...inject], apply }, { trustedHosts: ['harness.example'] })
     await fiber.await()
     const connection = ctx.get('connection') as HostConnectionHandle
-    const remove = connection.rpc.handle('/api2', async (endpoint) => {
+    const remove = connection.rpc.handle('/rpc', async (endpoint) => {
       if (endpoint === 'fail') throw new Error('handler broke')
       return { ok: true, value: null }
     }, {
       authority: 'trusted-host',
     })
-    const route = routes[0]!
+    const route = routes.find(candidate => candidate.path === '/rpc')!
 
     const denied = fakeResponse()
-    await route.handler(fakePost({ host: 'other.example' }, '/api2/goals/create', {}), denied.response)
+    await route.handler(fakePost({ host: 'other.example' }, '/rpc/goals/create', {}), denied.response)
     expect(denied.state).toMatchObject({ status: 403, body: 'forbidden' })
 
     const methodMismatch = fakeResponse()
-    await route.handler(fakePost({ host: 'harness.example' }, '/api2/goals/create', {
+    await route.handler(fakePost({ host: 'harness.example' }, '/rpc/goals/create', {
       type: 'client-request', rpcId: 'rpc-bad', method: 'other', payload: {},
     }), methodMismatch.response)
     expect(JSON.parse(String(methodMismatch.state.body))).toMatchObject({
@@ -268,12 +348,12 @@ describe('connection node half', () => {
     })
 
     for (const [request, status] of [
-      [fakeRequest({ host: 'harness.example' }, '/api2/goals/create'), 404],
+      [fakeRequest({ host: 'harness.example' }, '/rpc/goals/create'), 404],
       [fakePost({ host: 'harness.example' }, '/outside/goals/create', {}), 404],
-      [fakePost({ host: 'harness.example' }, '/api2/goals//create', {}), 404],
-      [fakeRawPost({ host: 'harness.example' }, '/api2/goals/create', '{}'), 415],
-      [fakeRawPost({ host: 'harness.example', 'content-type': 'text/plain' }, '/api2/goals/create', '{}'), 415],
-      [fakeRawPost({ host: 'harness.example', 'content-type': 'application/json; charset=utf-8' }, '/api2/goals/create', '{'), 400],
+      [fakePost({ host: 'harness.example' }, '/rpc/goals//create', {}), 404],
+      [fakeRawPost({ host: 'harness.example' }, '/rpc/goals/create', '{}'), 415],
+      [fakeRawPost({ host: 'harness.example', 'content-type': 'text/plain' }, '/rpc/goals/create', '{}'), 415],
+      [fakeRawPost({ host: 'harness.example', 'content-type': 'application/json; charset=utf-8' }, '/rpc/goals/create', '{'), 400],
     ] as const) {
       const response = fakeResponse()
       await route.handler(request, response.response)
@@ -286,7 +366,7 @@ describe('connection node half', () => {
       [null, 'invalid-request'],
     ] as const) {
       const response = fakeResponse()
-      await route.handler(fakePost({ host: 'harness.example' }, '/api2/goals/create', body), response.response)
+      await route.handler(fakePost({ host: 'harness.example' }, '/rpc/goals/create', body), response.response)
       expect(JSON.parse(String(response.state.body))).toMatchObject({
         rpcId,
         result: { ok: false, error: { code: 'bad-request' } },
@@ -294,7 +374,7 @@ describe('connection node half', () => {
     }
 
     const failed = fakeResponse()
-    await route.handler(fakePost({ host: 'harness.example' }, '/api2/fail', {
+    await route.handler(fakePost({ host: 'harness.example' }, '/rpc/fail', {
       type: 'client-request', rpcId: 'rpc-fail', method: 'fail', payload: {},
     }), failed.response)
     expect(failed.state).toMatchObject({ status: 500, body: 'handler failure: Error: handler broke' })

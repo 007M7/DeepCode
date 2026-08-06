@@ -109,7 +109,7 @@ describe('Client TypeRT API', () => {
 
     await expect(ctx.api.goals.create('agent-1', { objective: 'ship' })).resolves.toEqual({ ref: 'goal-1' })
     expect(call).toHaveBeenCalledWith(
-      '/api2',
+      '/api',
       'goals/create',
       { args: { agentId: 'agent-1', request: { objective: 'ship' } } },
       expect.any(AbortSignal),
@@ -144,7 +144,7 @@ describe('Client TypeRT API', () => {
 
     await expect(agentCtx.goals.create({ objective: 'ship scoped' })).resolves.toEqual({ ref: 'goal-2' })
     expect(call).toHaveBeenCalledWith(
-      '/api2',
+      '/api',
       'goals/create',
       { args: { agentId: 'agent-2', request: { objective: 'ship scoped' } } },
       expect.any(AbortSignal),
@@ -175,7 +175,7 @@ describe('Client TypeRT API', () => {
 
     await expect(agentCtx.goals.rename({ objective: 'land' })).resolves.toEqual({ renamed: true })
     expect(call).toHaveBeenCalledWith(
-      '/api2',
+      '/api',
       'goals/rename',
       { args: { agentId: 'agent-2', request: { objective: 'land' } } },
       expect.any(AbortSignal),

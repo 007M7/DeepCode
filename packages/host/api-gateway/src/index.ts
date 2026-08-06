@@ -5,6 +5,7 @@
  */
 
 import { Context, Service, symbols } from 'cordis'
+import type { ConnectionRpcHandler } from '@deepseek-ai/dsh-client-connection'
 import {
   remoteMethods,
   type InvocationDescriptor,
@@ -35,26 +36,7 @@ interface ResolvedBinding {
   readonly original: object
 }
 
-type ConnectionRpcResult =
-  | { readonly ok: true; readonly value: unknown }
-  | {
-    readonly ok: false
-    readonly error: {
-      readonly code: 'internal'
-      readonly message: string
-      readonly details: Record<never, never>
-    }
-  }
-
-interface HostConnectionLike {
-  readonly rpc: {
-    handle(
-      channel: string,
-      handler: (endpoint: string, payload: unknown, signal: AbortSignal) => Promise<ConnectionRpcResult>,
-      options: { readonly authority: 'trusted-host' | 'loopback' },
-    ): () => Promise<void>
-  }
-}
+type ConnectionRpcResult = Awaited<ReturnType<ConnectionRpcHandler>>
 
 /** Dispatch failure produced outside the invoked business method. */
 export class TypertGatewayError extends Error {
@@ -101,13 +83,30 @@ export class TypertGatewayService extends Service implements TypertGateway {
   constructor(ctx: Context) {
     super(ctx, 'typertGateway')
     ctx.inject(['connection'], (connectionCtx) => {
-      const connection = connectionCtx.get('connection') as unknown as HostConnectionLike
-      connection.rpc.handle(
-        '/api2',
+      connectionCtx.connection.rpc.intercept(
+        '/api',
+        endpoint => this.claimsEndpoint(endpoint),
         (endpoint, payload, signal) => this.dispatchRpc(endpoint, payload, signal),
         { authority: 'trusted-host' },
       )
     })
+  }
+
+  private claimsEndpoint(endpoint: string): boolean {
+    const segments = endpoint.split('/')
+    if (segments.length !== 2 || segments[0] === '' || segments[1] === '') return false
+    const [namespace, method] = segments as [string, string]
+    if (this.ctx.typert.local.get(endpoint) !== undefined || this.ctx.typert.local.hasSeen(endpoint)) return true
+    for (const [serviceKey, definition] of Object.entries(this.ctx.reflect.props)) {
+      if (definition.type !== 'service') continue
+      const receiver = this.ctx.get(serviceKey) as unknown
+      if (!isObject(receiver)) continue
+      const original = originalOf(receiver)
+      const binding = Reflect.get(original, 'typertGateway') as unknown
+      if (!isObject(binding) || Reflect.get(binding, 'namespace') !== namespace) continue
+      if (remoteMethods(original).some(candidate => (candidate.exportName ?? candidate.method) === method)) return true
+    }
+    return false
   }
 
   /**

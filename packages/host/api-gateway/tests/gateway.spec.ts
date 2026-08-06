@@ -96,6 +96,7 @@ type FakeRpcHandler = (endpoint: string, payload: unknown, signal: AbortSignal) 
 class FakeConnectionService extends Service {
   channel: string | undefined
   authority: string | undefined
+  matches: ((endpoint: string) => boolean) | undefined
   handler: FakeRpcHandler | undefined
 
   constructor(ctx: Context) {
@@ -105,14 +106,21 @@ class FakeConnectionService extends Service {
   get rpc() {
     const owner = this.ctx
     return {
-      handle: (channel: string, handler: FakeRpcHandler, options: { readonly authority: string }) =>
+      intercept: (
+        channel: string,
+        matches: (endpoint: string) => boolean,
+        handler: FakeRpcHandler,
+        options: { readonly authority: string },
+      ) =>
         owner.effect(() => {
           this.channel = channel
           this.authority = options.authority
+          this.matches = matches
           this.handler = handler
           return () => {
             this.channel = undefined
             this.authority = undefined
+            this.matches = undefined
             this.handler = undefined
           }
         }),
@@ -820,7 +828,7 @@ describe('TypertGatewayService', () => {
     }), 'invocation-unavailable')
   })
 
-  it('mounts /api2 through an optional Connection and returns existing RPC results', async () => {
+  it('mounts a shared /api interceptor through an optional Connection and returns existing RPC results', async () => {
     const ctx = new Context().extend({ fixtureScope: 'rpc-caller' })
     await ctx.plugin(TypertRegistry)
     await ctx.plugin(FakeConnectionService)
@@ -828,13 +836,18 @@ describe('TypertGatewayService', () => {
     await gatewayFiber
     await ctx.plugin(GoalService)
     const connection = rawConnection(ctx)
-    expect(connection).toMatchObject({ channel: '/api2', authority: 'trusted-host' })
+    expect(connection).toMatchObject({ channel: '/api', authority: 'trusted-host' })
 
     registerAgentLookup(ctx, { id: 'agent-1' })
     registerStrict(ctx, [createDescriptor()])
+    expect(connection.matches?.('goals/create')).toBe(true)
+    expect(connection.matches?.('goals/passthrough')).toBe(true)
+    expect(connection.matches?.('goals')).toBe(false)
+    expect(connection.matches?.('goals/missing')).toBe(false)
+    expect(connection.matches?.('legacy/list')).toBe(false)
     const signal = new AbortController().signal
     const handler = connection.handler
-    if (handler === undefined) throw new Error('fixture Connection did not retain the /api2 handler')
+    if (handler === undefined) throw new Error('fixture Connection did not retain the /api interceptor')
     await expect(handler('goals/create', {
       args: { agentId: 'agent-1', request: { title: 'ship' } },
     }, signal)).resolves.toEqual({
@@ -873,7 +886,7 @@ describe('TypertGatewayService', () => {
     expect(connection.handler).toBeUndefined()
   })
 
-  it('dispatches a generated invocation through the real /api2 HTTP carrier', async () => {
+  it('dispatches claimed invocations through /api and leaves unclaimed endpoints to its fallback', async () => {
     const ctx = new Context().extend({ fixtureScope: 'http-caller' })
     const routes: WebRoute[] = []
     ctx.provide('httpServer', fakeHttpServer(routes) as HttpServerService)
@@ -886,11 +899,12 @@ describe('TypertGatewayService', () => {
     await goalFiber
     const removeLookup = registerAgentLookup(ctx, { id: 'agent-1' })
     const removeStrict = registerStrict(ctx, [createDescriptor()])
+    let strictActive = true
     expect(routes).toHaveLength(1)
     const server = await serveRoute(routes[0]!)
 
     try {
-      const response = await fetch(`${server.origin}/api2/goals/create`, {
+      const response = await fetch(`${server.origin}/api/goals/create`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
@@ -909,9 +923,54 @@ describe('TypertGatewayService', () => {
           value: { agentId: 'agent-1', title: 'ship', scope: 'http-caller' },
         },
       })
+
+      const invalid = await fetch(`${server.origin}/api/goals/create`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          type: 'client-request',
+          rpcId: 'rpc-invalid',
+          method: 'goals/create',
+          payload: { invalid: true },
+        }),
+      })
+      expect(invalid.status).toBe(200)
+      await expect(invalid.json()).resolves.toMatchObject({
+        type: 'server-response',
+        rpcId: 'rpc-invalid',
+        result: {
+          ok: false,
+          error: { code: 'internal', message: expect.stringContaining('plain-object args field') },
+        },
+      })
+
+      await removeStrict()
+      strictActive = false
+      const withdrawn = await fetch(`${server.origin}/api/goals/create`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          type: 'client-request',
+          rpcId: 'rpc-withdrawn',
+          method: 'goals/create',
+          payload: { args: { agentId: 'agent-1', request: { title: 'ship' } } },
+        }),
+      })
+      expect(withdrawn.status).toBe(200)
+      await expect(withdrawn.json()).resolves.toMatchObject({
+        type: 'server-response',
+        rpcId: 'rpc-withdrawn',
+        result: {
+          ok: false,
+          error: { code: 'internal', message: expect.stringContaining('strict definition was withdrawn') },
+        },
+      })
+
+      const unclaimed = await fetch(`${server.origin}/api/legacy/list`, { method: 'POST' })
+      expect(unclaimed.status).toBe(404)
     } finally {
       await server.close()
-      await removeStrict()
+      if (strictActive) await removeStrict()
       await removeLookup()
       await goalFiber.dispose()
       await gatewayFiber.dispose()

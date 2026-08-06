@@ -11,9 +11,11 @@ import {
   type RpcId as RpcIdType,
   type ServerResponse as RpcServerResponse,
 } from '@deepseek-ai/dsh-host-apiproxy/api'
-import { bridge } from './http-bridge.ts'
+import { bridge, type FetchHandler } from './http-bridge.ts'
 import { isTrustedApiRequest } from './api-request-trust.ts'
+import { API_PATH } from './api-path.ts'
 import type {
+  ConnectionRpcEndpointMatcher,
   ConnectionRpcHandler,
   ConnectionRpcHandlerOptions,
   HostConnectionHandle,
@@ -24,8 +26,23 @@ const INVALID_REQUEST_RPC_ID = RpcId('invalid-request')
 const CHANNEL_PATTERN = /^\/[A-Za-z0-9._~-]+$/
 const ENDPOINT_SEGMENT_PATTERN = /^[A-Za-z0-9_$.-]+$/
 
+interface ConnectionRpcInterceptor {
+  readonly matches: ConnectionRpcEndpointMatcher
+  readonly fetchHandler: FetchHandler
+  readonly options: ConnectionRpcHandlerOptions
+}
+
+declare module 'cordis' {
+  interface Context {
+    /** Host Connection transport and RPC registrations. */
+    connection: HostConnectionHandle
+  }
+}
+
 /** Host Connection service whose channel registrations belong to the caller fiber. */
 export class HostConnectionService extends Service implements HostConnectionHandle {
+  private readonly interceptors = new Map<string, ConnectionRpcInterceptor>()
+
   /**
    * Provide the Host half over the active HTTP server.
    * @param ctx - owning Connection plugin context.
@@ -40,6 +57,33 @@ export class HostConnectionService extends Service implements HostConnectionHand
     const owner = this.ctx
     return {
       handle: (channel, handler, options) => this.register(owner, channel, handler, options),
+      intercept: (channel, matches, handler, options) =>
+        this.registerInterceptor(owner, channel, matches, handler, options),
+    }
+  }
+
+  /**
+   * Compose one shared-channel Fetch handler from its interceptor and fallback.
+   * @param channel - shared channel mounted by Connection.
+   * @param fallback - handler for endpoints not claimed by the interceptor.
+   * @returns Fetch handler that selects exactly one target for each request.
+   */
+  createSharedFetchHandler(
+    channel: '/api',
+    fallback: FetchHandler,
+  ): FetchHandler {
+    return {
+      fetch: (request) => {
+        const endpoint = endpointFromPath(channel, new URL(request.url).pathname)
+        const interceptor = this.interceptors.get(channel)
+        if (endpoint === undefined || interceptor === undefined || !interceptor.matches(endpoint)) {
+          return fallback.fetch(request)
+        }
+        if (interceptor.options.authority === 'loopback' && !isTrustedApiRequest(request, [])) {
+          return Promise.resolve(new Response('forbidden', { status: 403 }))
+        }
+        return interceptor.fetchHandler.fetch(request)
+      },
     }
   }
 
@@ -69,12 +113,38 @@ export class HostConnectionService extends Service implements HostConnectionHand
       `client-connection: ${channel} rpc channel`,
     )
   }
+
+  private registerInterceptor(
+    owner: Context,
+    channel: string,
+    matches: ConnectionRpcEndpointMatcher,
+    handler: ConnectionRpcHandler,
+    options: ConnectionRpcHandlerOptions,
+  ): () => Promise<void> {
+    if (channel !== API_PATH) {
+      throw new Error(`connection: invalid shared RPC channel ${JSON.stringify(channel)}`)
+    }
+    const interceptor: ConnectionRpcInterceptor = {
+      matches,
+      fetchHandler: rpcFetchHandler(channel, handler),
+      options,
+    }
+    return owner.effect(() => {
+      if (this.interceptors.has(channel)) {
+        throw new Error(`connection: shared RPC channel ${JSON.stringify(channel)} already has an interceptor`)
+      }
+      this.interceptors.set(channel, interceptor)
+      return () => {
+        this.interceptors.delete(channel)
+      }
+    }, `client-connection: ${channel} rpc interceptor`)
+  }
 }
 
 function rpcFetchHandler(
   channel: string,
   handler: ConnectionRpcHandler,
-): { fetch(request: Request): Promise<Response> } {
+): FetchHandler {
   return {
     async fetch(request: Request): Promise<Response> {
       const endpoint = endpointFromPath(channel, new URL(request.url).pathname)

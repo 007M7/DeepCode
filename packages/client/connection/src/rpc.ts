@@ -18,17 +18,35 @@ export type ConnectionRpcHandler = (
   signal: AbortSignal,
 ) => Promise<RpcResult<unknown>>
 
+/** Synchronous ownership test for one endpoint on a shared RPC channel. */
+export type ConnectionRpcEndpointMatcher = (endpoint: string) => boolean
+
 /** Host registry for logical RPC channels carried by the current transport. */
 export interface HostConnectionRpc {
   /**
    * Register one absolute channel prefix and its trust policy.
-   * @param channel - absolute logical channel such as `/api2`.
+   * @param channel - absolute logical channel such as `/rpc`.
    * @param handler - decoded endpoint handler returning the existing RPC result shape.
    * @param options - channel trust policy.
    * @returns asynchronous disposer removing the channel and its physical route.
    */
   handle(
     channel: string,
+    handler: ConnectionRpcHandler,
+    options: ConnectionRpcHandlerOptions,
+  ): () => Promise<void>
+
+  /**
+   * Intercept owned endpoints on the shared `/api` channel before its fallback.
+   * @param channel - reserved shared channel; currently `/api`.
+   * @param matches - synchronous endpoint ownership test.
+   * @param handler - decoded endpoint handler returning the existing RPC result shape.
+   * @param options - trust policy for every endpoint claimed by this interceptor.
+   * @returns asynchronous disposer removing the interceptor.
+   */
+  intercept(
+    channel: '/api',
+    matches: ConnectionRpcEndpointMatcher,
     handler: ConnectionRpcHandler,
     options: ConnectionRpcHandlerOptions,
   ): () => Promise<void>
@@ -44,7 +62,7 @@ export interface HostConnectionHandle {
 export interface ClientConnectionRpc {
   /**
    * Call one endpoint through an already registered logical channel.
-   * @param channel - absolute logical channel such as `/api2`.
+   * @param channel - absolute logical channel such as `/api`.
    * @param endpoint - channel-relative endpoint such as `goals/create`.
    * @param payload - channel-owned request payload.
    * @param signal - optional caller cancellation.

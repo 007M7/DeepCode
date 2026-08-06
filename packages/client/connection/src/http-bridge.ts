@@ -5,7 +5,13 @@
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 
-interface FetchHandler {
+/** Transport-independent request handler consumed by the Host HTTP bridge. */
+export interface FetchHandler {
+  /**
+   * Handle one standard Fetch request.
+   * @param request - request produced by the active transport bridge.
+   * @returns complete or streaming Fetch response.
+   */
   fetch(request: Request): Promise<Response>
 }
 

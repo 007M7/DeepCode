@@ -248,7 +248,7 @@ class ClientApiService extends Service implements ClientApi {
     })
     const connection = this.ownerCtx.get('connection') as ConnectionHandle | undefined
     if (connection === undefined) throw new Error(`client api: ${endpoint} has no active Connection`)
-    const result = await connection.rpc.call('/api2', endpoint, { args }, token.abort.signal)
+    const result = await connection.rpc.call('/api', endpoint, { args }, token.abort.signal)
     if (!mountActive(token)) throw new Error(`client api: Remote method ${endpoint} was withdrawn during invocation`)
     if (!result.ok) throw remoteFailure(endpoint, result.error)
     return parse(descriptor.result, result.value, endpoint, 'result')

@@ -204,7 +204,7 @@ describe('connection client apply', () => {
     expect(sockets[0]?.readyState).toBe(FakeWebSocket.CLOSED)
   })
 
-  it('carries generic RPC calls over the isolated channel with rpcId echo validation', async () => {
+  it('carries RPC calls over the shared API channel with rpcId echo validation', async () => {
     ;(globalThis as Win).location = { hostname: 'localhost', search: '' }
     const handle = await mount()
     const original = globalThis.fetch
@@ -221,13 +221,13 @@ describe('connection client apply', () => {
       })
     }
     try {
-      await expect(handle.rpc.call('/api2', 'goals/create', { args: { agentId: 'agent-1' } }))
+      await expect(handle.rpc.call('/api', 'goals/create', { args: { agentId: 'agent-1' } }))
         .resolves.toEqual({ ok: true, value: { ref: 'goal-1' } })
     } finally {
       globalThis.fetch = original
     }
     expect(seen).toHaveLength(1)
-    expect(seen[0]?.url).toBe('http://dsh.internal/api2/goals/create')
+    expect(seen[0]?.url).toBe('http://dsh.internal/api/goals/create')
     expect(seen[0]?.body).toMatchObject({
       type: 'client-request',
       method: 'goals/create',
@@ -244,10 +244,10 @@ describe('connection client apply', () => {
     const abort = new AbortController()
     globalThis.fetch = vi.fn().mockResolvedValue(new Response('unavailable', { status: 503 }))
     try {
-      await expect(handle.rpc.call('/api2', 'goals/create', {}, abort.signal))
+      await expect(handle.rpc.call('/api', 'goals/create', {}, abort.signal))
         .rejects.toThrow('HTTP 503')
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        new URL('https://harness.example/api2/goals/create'),
+        new URL('https://harness.example/api/goals/create'),
         expect.objectContaining({ signal: abort.signal }),
       )
 
@@ -257,9 +257,9 @@ describe('connection client apply', () => {
         rpcId: 'different-rpc',
         result: { ok: true, value: null },
       }))
-      await expect(handle.rpc.call('/api2', 'goals/create', {})).rejects.toThrow('rpcId mismatch')
+      await expect(handle.rpc.call('/api', 'goals/create', {})).rejects.toThrow('rpcId mismatch')
       const fetch = vi.mocked(globalThis.fetch)
-      expect(fetch.mock.calls[0]?.[0]).toEqual(new URL('http://dsh.internal/api2/goals/create'))
+      expect(fetch.mock.calls[0]?.[0]).toEqual(new URL('http://dsh.internal/api/goals/create'))
       expect(fetch.mock.calls[0]?.[1]).not.toHaveProperty('signal')
     } finally {
       globalThis.fetch = original
@@ -267,12 +267,12 @@ describe('connection client apply', () => {
 
     for (const [channel, endpoint] of [
       ['api2', 'goals/create'],
-      ['/api2/path', 'goals/create'],
-      ['/api2', ''],
-      ['/api2', '.'],
-      ['/api2', '..'],
-      ['/api2', 'goals//create'],
-      ['/api2', 'goals/create?unsafe'],
+      ['/api/path', 'goals/create'],
+      ['/api', ''],
+      ['/api', '.'],
+      ['/api', '..'],
+      ['/api', 'goals//create'],
+      ['/api', 'goals/create?unsafe'],
     ] as const) {
       await expect(handle.rpc.call(channel, endpoint, {})).rejects.toThrow('invalid RPC target')
     }
@@ -281,6 +281,6 @@ describe('connection client apply', () => {
   it('keeps generic Remote calls unavailable in the client-only fixture', async () => {
     ;(globalThis as Win).location = { hostname: 'localhost', search: '?fixture' }
     const handle = await mount()
-    await expect(handle.rpc.call('/api2', 'goals/create', {})).rejects.toThrow(/unavailable in fixture mode/)
+    await expect(handle.rpc.call('/api', 'goals/create', {})).rejects.toThrow(/unavailable in fixture mode/)
   })
 })
