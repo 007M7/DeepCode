@@ -597,6 +597,22 @@
         "@deepseek-ai/dsh-client-ui-theme"
       ]
     },
+    "packages/client/ui-settings": {
+      "entry": [
+        "tests/**/*.spec.ts",
+        "tests/**/*.spec.tsx"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "src/**/*.tsx",
+        "tests/**/*.ts",
+        "tests/**/*.tsx"
+      ],
+      "ignoreDependencies": [
+        "@types/react-dom",
+        "react-dom"
+      ]
+    },
     "apps/web": {
       "entry": [
         "tests/**/*.e2e.ts",
