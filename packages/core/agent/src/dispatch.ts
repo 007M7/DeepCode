@@ -1,7 +1,8 @@
 /**
- * Agent-scoped dispatch and prompt assembly helpers. Ordinary events use the
- * fused dispatcher so subject and scope key cannot diverge; registry lifecycle
- * code instead captures one stable carrier for both edges.
+ * Agent-scoped dispatch and prompt assembly helpers. The fused dispatcher
+ * {@link agentEvents} couples the agent subject to its scope carrier, so the
+ * scope key and the payload's `agent` cannot diverge; repeat dispatchers (the
+ * loop driver) build it once in the agent's constructor and reuse it.
  * @module @deepseek-ai/dsh-agent/dispatch
  */
 
@@ -83,9 +84,10 @@ export interface AgentEventDispatch {
 /**
  * Build the fused scope carrier for one agent subject.
  *
- * The carrier is a stateless routing object; callers that dispatch repeatedly
- * for the same agent (the loop driver) build it once in the agent's
- * constructor and reuse it, so hot-path dispatches never allocate.
+ * The carrier is a stateless routing object. {@link agentEvents} accepts an
+ * existing carrier, so callers that dispatch repeatedly for the same agent
+ * (the loop driver) build it once in the agent's constructor and reuse it,
+ * keeping hot-path dispatches allocation-free.
  * @param agent - the subject agent and scope key.
  * @returns the carrier passed as the event dispatcher `this` value.
  */
@@ -97,10 +99,12 @@ export function agentCarrier(agent: Agent): Scoped<Agent> {
  * Build a dispatcher that couples the agent subject to its scope carrier.
  * @param ctx - the context to dispatch through (any context of the app).
  * @param agent - the subject agent; also the scope-carrier key.
+ * @param carrier - the scope carrier to dispatch through; defaults to
+ * {@link agentCarrier} for the agent. Pass a constructor-built carrier to
+ * avoid rebuilding it for every dispatch.
  * @returns the fused dispatcher.
  */
-export function agentEvents(ctx: Context, agent: Agent): AgentEventDispatch {
-  const carrier = agentCarrier(agent)
+export function agentEvents(ctx: Context, agent: Agent, carrier: Scoped<Agent> = agentCarrier(agent)): AgentEventDispatch {
   // The ordinary dispatch methods forward through Cordis' variadic mixins. The
   // fused (carrier, name, payload, ...rest) tuple is provably a valid argument
   // list for the matching thisArg overload, but TypeScript cannot relate the
@@ -108,8 +112,10 @@ export function agentEvents(ctx: Context, agent: Agent): AgentEventDispatch {
   // tuple — hence one contained, shape-preserving cast per method.
   const fused = <K extends AgentSubjectEvent>(payload: PayloadRest<K>): PayloadOf<K> =>
     // The dispatcher owns the subject injection; callers pass PayloadRest, so
-    // the fused record is exactly the declared payload.
-    ({ agent, ...payload } as PayloadOf<K>)
+    // the fused record is exactly the declared payload. The spread comes
+    // first, so a structurally acceptable payload that happens to carry an
+    // `agent` field can never override the injected subject.
+    ({ ...payload, agent } as PayloadOf<K>)
   return {
     emit(name, payload) {
       // Cordis emit invokes callbacks through Array.map: one synchronous throw

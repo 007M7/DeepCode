@@ -11,6 +11,7 @@ import type {
   Agent,
   AgentCancelCause,
   AgentFactory,
+  AgentStatus,
   CreateAgentOptions,
   ResumeAgentOptions,
 } from '@deepseek-ai/dsh-agent'
@@ -304,6 +305,21 @@ describe('agentEvents()', () => {
     await agentEvents(ctx, agent).serial('agent/turn-stopping', { turn: 3, signal })
 
     expect(heard).toEqual([{ agent, turn: 3, signal }])
+  })
+
+  it('injects the fused subject even when the payload carries a conflicting agent field', async () => {
+    const ctx = new Context()
+    const agent = stubAgent('fused-subject')
+    const other = stubAgent('payload-agent')
+    const heard: Agent[] = []
+    ctx.on('agent/status', ({ agent: subject }) => void heard.push(subject))
+    // A structurally acceptable payload may carry an extra `agent` field; the
+    // dispatcher's injected subject must win over it.
+    const payload: { status: AgentStatus; agent: Agent } = { status: 'running', agent: other }
+
+    agentEvents(ctx, agent).emit('agent/status', payload)
+
+    expect(heard).toEqual([agent])
   })
 })
 
