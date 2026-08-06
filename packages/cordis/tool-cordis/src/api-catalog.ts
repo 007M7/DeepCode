@@ -147,6 +147,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     summary: 'Approval service that applies session policy before answerers and logs every ask/outcome pair to the requesting session.',
     methods: [
       {
+        signature: 'setPolicy(agent: Agent, policy: ApprovalPolicy): void',
+        jsDoc: '/**\n * Switch one live agent\'s policy and queue the transition for its next model\n * step. Session initialization uses {@link setApprovalPolicy} directly\n * because there is no previously visible policy to change.\n * @param agent - the live agent whose policy is changing.\n * @param policy - the new effective policy.\n */',
+      },
+      {
         signature: 'async request(req: ApprovalRequest): Promise<ApprovalOutcome>',
         jsDoc: '/**\n * Ask the composed answerers to decide one readonly same-process request.\n * The service borrows the request, agent, session, and live signal directly.\n * The request requires an open turn because the audit pair must be enclosed\n * by the durable log\'s commit/replay boundary; an idle ask rejects before\n * appending anything. The answerer phase always produces an outcome: an\n * aborted signal yields `\'cancelled\'`, a missing or throwing answerer yields\n * `\'unavailable\'` (fail closed), and a rogue non-vocabulary return value is\n * normalized to `\'unavailable\'`. A failure that prevents either audit append\n * from committing still rejects because returning an unlogged decision would\n * violate the pair. Session contains post-commit observer failures, so an\n * authoritative append cannot reject the request or suppress its matching\n * audit event.\n * @param req - the pending decision (agent, tool identity, reason, signal).\n * @returns the closed outcome; `\'allowed-once\'` is the only grant.\n * @throws when no turn is open or either audit event fails before the session\n *   append commit point.\n */',
       },
@@ -260,7 +264,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'abstract compactNow( agent: ManualCompactAgentContext, signal: AbortSignal, ): Promise<CompactionResult | null>',
-        jsDoc: '/**\n * Explicitly compact useful history even below automatic pressure thresholds.\n * Implementations reserve idle turn admission synchronously before any\n * asynchronous work, select a useful range without writing on a no-op, then\n * append a standalone `compact/start` before summarization. That durable\n * marker is the compaction lock until one `compact/end` attempt. Later waking\n * prompts remain accepted in FIFO order and start only after the optional\n * durability checkpoint and admission release. Context injected while the\n * summary runs may sit between the marker pair; only the selected span must\n * remain stable.\n *\n * @param agent - idle agent whose durable history should be compacted.\n * @param signal - command-owned cancellation forwarded to summarization.\n * @returns the compaction result, or `null` when no safe useful range exists.\n * @throws {@link ManualCompactionError} for expected busy, changed-span,\n * summarization/shrink, commit-stage, or persistence failures, and the exact\n * abort reason when cancelled. Failed attempts remain visible in the log.\n */',
+        jsDoc: '/**\n * Explicitly compact useful history even below automatic pressure thresholds.\n * Implementations synchronously start an idle task before any asynchronous\n * work, select a useful range without writing on a no-op, then\n * append a standalone `compact/start` before summarization. That durable\n * marker is the compaction lock until one `compact/end` attempt. Later waking\n * prompts remain accepted in FIFO order and start only after the optional\n * durability checkpoint and idle-task settlement. Context injected while the\n * summary runs may sit between the marker pair; only the selected span must\n * remain stable.\n *\n * @param agent - idle agent whose durable history should be compacted.\n * @param signal - cancellation scoped to this compaction request.\n * @returns the compaction result, or `null` when no safe useful range exists.\n * @throws {@link ManualCompactionError} for expected busy, agent-cancellation,\n * changed-span, summarization/shrink, commit-stage, or persistence failures;\n * an aborted request preserves its exact abort reason. Failed attempts remain\n * visible in the log.\n */',
       },
       {
         signature: 'abstract compactRegion( start: number, end: number, agent: CompactAgentContext, signal?: AbortSignal, ): Promise<CompactionResult>',
@@ -450,7 +454,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'stream(options: GenerateOptions): AsyncIterable<StreamChunk>',
-        jsDoc: '/**\n * Stream one model call as raw chunks (token-level deltas). Throws\n * `LlmError` with code `NO_ADAPTER` if no adapter is registered for\n * `options.provider`. Replay state is retained only when the same adapter\n * instance owns its historical provider and the target provider. Final\n * adapter selection remains fixed through asynchronous exact-model resolution\n * and dispatch. Selection, dispatch, and iteration failures retain their\n * original Error identity and are tagged in a call-local scope for narrow\n * agent-loop request recovery; middleware and nested-call failures remain\n * untagged for the outer call.\n * @param options - the full request; `options.provider` selects the adapter.\n * @returns the chunk stream, possibly wrapped by `llm/stream` listeners.\n */',
+        jsDoc: '/**\n * Stream one model call as raw chunks (token-level deltas). Replay state is\n * retained only when the same adapter instance owns its historical provider\n * and the target provider. Final adapter selection remains fixed through\n * asynchronous exact-model resolution and dispatch. Adapter selection,\n * dispatch, and iteration failures become terminal `error` or `aborted`\n * finish chunks; middleware, nested-call, cleanup, and consumer failures\n * remain thrown.\n * @param options - the full request; `options.provider` selects the adapter.\n * @returns the chunk stream, possibly wrapped by `llm/stream` listeners.\n */',
       },
     ],
   },
@@ -732,11 +736,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       {
         signature: 'create(id?: SessionId, options?: CreateSessionOptions): Session',
-        jsDoc: '/**\n * Create a session owned by the calling fiber: disposing that fiber stops\n * event notification and removes the session from the store. `options.seed`\n * populates the session with a copy of those events (replay/fork);\n * `options.meta` attaches creation metadata (validated absolute `cwd`, seed\n * and parent lineage, and delegation depth) as the immutable\n * {@link SessionHeader} (the store fills `version`/`id`/`createdAt`).\n *\n * For an agent whose session must be torn down IN ORDER with its loop (so the\n * loop\'s final flush is captured before the store attachment ends), do NOT use this\n * — fold the session lifecycle into the agent\'s own effect via\n * {@link prepare} + {@link enter} + {@link announce} (see\n * `dsh-agent-loop`\'s creation transaction).\n *\n * @param id - the session id; omitted, the store mints `session-<n>`.\n * @param options - seed events and/or creation metadata for the header.\n * @returns the live session, already entered and announced.\n * @throws if a session with `id` already exists, metadata is not a plain\n *   lossless-JSON record with valid scalar fields, or `meta.cwd` is a\n *   non-absolute path (storage backends key directories off it).\n */',
+        jsDoc: '/**\n * Create a session owned by the calling fiber: disposing that fiber stops\n * event notification and removes the session from the store. `options.seed`\n * populates the session with a copy of those events (replay/fork);\n * `options.meta` attaches creation metadata (validated absolute `cwd`, seed\n * and parent lineage, and delegation depth) as the immutable\n * {@link SessionHeader} (the store fills `version`/`id`/`createdAt`).\n *\n * For an agent whose session must be torn down IN ORDER with its loop (so the\n * loop\'s final events are published before the store attachment ends), do NOT use this\n * — fold the session lifecycle into the agent\'s own effect via\n * {@link prepare} + {@link enter} + {@link announce} (see\n * `dsh-agent-loop`\'s creation transaction).\n *\n * @param id - the session id; omitted, the store mints `session-<n>`.\n * @param options - seed events and/or creation metadata for the header.\n * @returns the live session, already entered and announced.\n * @throws if a session with `id` already exists, metadata is not a plain\n *   lossless-JSON record with valid scalar fields, or `meta.cwd` is a\n *   non-absolute path (storage backends key directories off it).\n */',
       },
       {
         signature: 'prepare(id?: SessionId, options?: CreateSessionOptions): Session',
-        jsDoc: '/**\n * Build a session WITHOUT entering it into the store — validate the id/cwd and\n * construct the {@link Session} (with its immutable {@link SessionHeader}).\n * Pairs with {@link enter} + {@link announce}: a caller that owns a composite\n * `ctx.effect` (the agent factory) folds the session lifecycle into that ONE\n * effect so a fiber unload tears the session + agent down as a single ORDERED\n * chain rather than as racing sibling effects — which would remove the publication hooks\n * before the loop\'s closing `session/flush`, dropping the closing events.\n *\n * @param id - the session id; omitted, the store mints `session-<n>`.\n * @param options - seed events and/or creation metadata for the header.\n * @returns the constructed session, NOT yet in the store.\n * @throws if a session with `id` already exists, metadata is not a plain\n *   lossless-JSON record with valid scalar fields, or `meta.cwd` is a\n *   non-absolute path.\n */',
+        jsDoc: '/**\n * Build a session WITHOUT entering it into the store — validate the id/cwd and\n * construct the {@link Session} (with its immutable {@link SessionHeader}).\n * Pairs with {@link enter} + {@link announce}: a caller that owns a composite\n * `ctx.effect` (the agent factory) folds the session lifecycle into that ONE\n * effect so a fiber unload tears the session + agent down as a single ORDERED\n * chain rather than as racing sibling effects — which would remove the publication hooks\n * before the driver\'s closing events commit, dropping them.\n *\n * @param id - the session id; omitted, the store mints `session-<n>`.\n * @param options - seed events and/or creation metadata for the header.\n * @returns the constructed session, NOT yet in the store.\n * @throws if a session with `id` already exists, metadata is not a plain\n *   lossless-JSON record with valid scalar fields, or `meta.cwd` is a\n *   non-absolute path.\n */',
       },
       {
         signature: 'enter(session: Session): () => void',
@@ -748,7 +752,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async flush(session: Session): Promise<boolean>',
-        jsDoc: '/**\n * Dispatch the awaited `session/flush` durability checkpoint for `session`,\n * with the carrier captured at {@link enter}. THE flush entry point: the\n * store owns the carrier, so callers (the loop\'s turn-end checkpoint, idle\n * injection, teardown drains) must come through here rather than dispatch a\n * raw `ctx.parallel(\'session/flush\', …)` — one owner, one spelling, and the\n * scoped-dispatch invariant can pin it.\n * @param session - the session whose buffered events must reach durable storage.\n * @returns whether at least one durability listener participated, after every\n *   listener has settled successfully.\n * @throws the first registered listener failure after every listener settles.\n */',
+        jsDoc: '/**\n * Dispatch the awaited `session/flush` durability checkpoint for `session`,\n * with the carrier captured at {@link enter}. THE flush entry point: the\n * store owns the carrier, so callers (the checkpoint policy\'s per-request\n * barrier, goal-session\'s idle checkpoint, teardown drains, and consumers\n * that flush themselves before reading storage) must come through here\n * rather than dispatch a raw `ctx.parallel(\'session/flush\', …)` — one owner,\n * one spelling, and the scoped-dispatch invariant can pin it.\n * @param session - the session whose buffered events must reach durable storage.\n * @returns whether at least one durability listener participated, after every\n *   listener has settled successfully.\n * @throws the first registered listener failure after every listener settles.\n */',
       },
       {
         signature: 'get(id: SessionId): Session | undefined',
@@ -954,7 +958,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'context(context: PromptContext): () => void',
-        jsDoc: '/**\n * Register ordered cache-safe dynamic context in the calling context\'s scope.\n * A scoped context shadows a global context with the same name; duplicates\n * within one layer and non-finite orders throw. Registration and disposal\n * emit `system-prompt/change`.\n * @param context - the context contribution to register.\n * @returns the exact Cordis effect disposer.\n */',
+        jsDoc: '/**\n * Register ordered dynamic context in the calling context\'s scope. Scoped\n * entries shadow global entries with the same name.\n * @param context - the context contribution to register.\n * @returns the exact Cordis effect disposer.\n */',
       },
       {
         signature: 'tools(provider: (context: AssembleContext) => ToolProviderResult): () => void',
@@ -1214,13 +1218,6 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'A declarative agent entry failed before it could publish a live agent.',
   },
   {
-    name: 'agent/cancel-requested',
-    mode: 'emit',
-    signature: '\'agent/cancel-requested\'(this: Scoped<Agent>, agent: Agent, cause: AgentCancelCause): void',
-    jsDoc: '/**\n * Effective broad cancellation was requested, before queued/outbox work\n * is cleared or the active turn is aborted. This observe-only notification\n * cannot veto cancellation; listener failures are contained.\n * @param agent - the agent whose current work is being cancelled.\n * @param cause - the explicit typed cancellation cause.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
-    summary: 'Effective broad cancellation was requested, before queued/outbox work is cleared or the active turn is aborted.',
-  },
-  {
     name: 'agent/created',
     mode: 'emit',
     signature: '\'agent/created\'(this: Scoped<Agent>, agent: Agent): void',
@@ -1238,43 +1235,36 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'agent/error',
     mode: 'emit',
     signature: '\'agent/error\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: unknown): void',
-    jsDoc: '/**\n * A step or turn errored. The machine reports a failure here (plus the\n * logger) even when the error has no in-turn position for a durable record.\n * @param agent - the agent whose turn errored.\n * @param turn - the turn in which the failure surfaced.\n * @param step - the step at which the failure surfaced.\n * @param error - the failure, verbatim.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    jsDoc: '/**\n * A step or turn errored. The machine reports a failure here even when\n * the error has no in-turn position for a durable record.\n * @param agent - the agent whose turn errored.\n * @param turn - the turn in which the failure surfaced.\n * @param step - the step at which the failure surfaced.\n * @param error - the failure, verbatim.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
     summary: 'A step or turn errored.',
   },
   {
-    name: 'agent/inbox/dequeue',
+    name: 'agent/inbox/claimed',
     mode: 'emit',
-    signature: '\'agent/inbox/dequeue\'(this: Scoped<Agent>, agent: Agent, item: InboxItem): void',
-    jsDoc: '/**\n * The driver claimed one item out of the inbox: a queued item at a turn\n * boundary, or steering drained between steps. Fires after the item leaves\n * its FIFO and before it becomes a durable message.\n * @param agent - the agent whose inbox item was claimed.\n * @param item - the exact claimed occurrence.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
-    summary: 'The driver claimed one item out of the inbox: a queued item at a turn boundary, or steering drained between steps.',
+    signature: '\'agent/inbox/claimed\'(this: Scoped<Agent>, agent: Agent, event: { message: UserMessage; turn: number }): void',
+    jsDoc: '/**\n * One message left the inbox inside its open turn. If the proposed step\n * is rejected, the claimed message ends here: it is neither discarded nor\n * re-emitted as a user/message, and the turn closes without a step.\n * @param agent - the agent whose inbox changed.\n * @param event - the claimed message and owning turn.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    summary: 'One message left the inbox inside its open turn.',
   },
   {
-    name: 'agent/inbox/discard',
+    name: 'agent/inbox/discarded',
     mode: 'emit',
-    signature: '\'agent/inbox/discard\'(this: Scoped<Agent>, agent: Agent, items: InboxItem[]): void',
-    jsDoc: '/**\n * Pending inbox items were dropped without delivering them, so every\n * enqueue occurrence receives exactly one terminal `agent/inbox/dequeue` OR\n * `agent/inbox/discard`. `cancel()` without `keepInbox`, including disposal,\n * emits this after `agent/cancel-requested` when applicable and before\n * aborting the active work. Fires once per drop with every dropped item.\n * @param agent - the agent whose inbox items were dropped.\n * @param items - the discarded occurrences in FIFO order (queued then steering); never empty.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
-    summary: 'Pending inbox items were dropped without delivering them, so every enqueue occurrence receives exactly one terminal `agent/inbox/dequeue` OR `agent/inbox/discard`.',
+    signature: '\'agent/inbox/discarded\'(this: Scoped<Agent>, agent: Agent, event: { message: UserMessage }): void',
+    jsDoc: '/**\n * One message was discarded from the live inbox.\n * @param agent - the agent whose inbox changed.\n * @param event - the discarded message.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    summary: 'One message was discarded from the live inbox.',
   },
   {
-    name: 'agent/inbox/enqueue',
+    name: 'agent/inbox/inserted',
     mode: 'emit',
-    signature: '\'agent/inbox/enqueue\'(this: Scoped<Agent>, agent: Agent, item: InboxItem): void',
-    jsDoc: '/**\n * An item entered the queued or steering inbox. `placement` is the\n * acceptance-time routing result; listeners must not reconstruct it from\n * later agent or session state.\n * @param agent - the owning agent.\n * @param item - accepted occurrence, message, and resolved placement.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
-    summary: 'An item entered the queued or steering inbox.',
+    signature: '\'agent/inbox/inserted\'(this: Scoped<Agent>, agent: Agent, event: { message: UserMessage }): void',
+    jsDoc: '/**\n * One message entered the live inbox.\n * @param agent - the agent whose inbox changed.\n * @param event - the inserted message.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    summary: 'One message entered the live inbox.',
   },
   {
-    name: 'agent/inbox/update',
-    mode: 'emit',
-    signature: '\'agent/inbox/update\'(this: Scoped<Agent>, agent: Agent, item: InboxItem): void',
-    jsDoc: '/**\n * A still-pending queued item changed content. The item id, placement, and\n * position remain stable while the event carries the replacement message.\n * @param agent - the owning agent.\n * @param item - the complete post-update occurrence.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
-    summary: 'A still-pending queued item changed content.',
-  },
-  {
-    name: 'agent/prompt-submit',
+    name: 'agent/pre-step',
     mode: 'waterfall',
-    signature: '\'agent/prompt-submit\'(this: Scoped<Agent>, agent: Agent, message: UserMessage, signal: AbortSignal, next: () => Promise<PromptDecision>): Promise<PromptDecision>',
-    jsDoc: '/**\n * Allow, rewrite, or block one claimed prompt before it becomes a user\n * message or opens a turn. Call `next()` for the unchanged default. The\n * signal controls only this admission attempt; listeners may cooperate with\n * it but must not retain it for a later attempt or turn.\n * @param agent - the agent whose turn claimed the message.\n * @param message - the frozen claimed message, including identity and source.\n * @param signal - the current turn\'s explicit abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n */',
-    summary: 'Allow, rewrite, or block one claimed prompt before it becomes a user message or opens a turn.',
+    signature: '\'agent/pre-step\'(this: Scoped<Agent>, agent: Agent, messages: UserMessage[], context: PreStepContext, next: () => Promise<PreStepDecision>): Promise<PreStepDecision>',
+    jsDoc: '/**\n * Reject a proposed step or replace the messages that enter it. Calling\n * `next()` preserves the current messages.\n * @param agent - the agent proposing the step.\n * @param messages - messages removed from the inbox for this step.\n * @param context - proposed turn and step coordinates plus cancellation.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n */',
+    summary: 'Reject a proposed step or replace the messages that enter it.',
   },
   {
     name: 'agent/request',
@@ -1286,9 +1276,9 @@ export const EVENT_API: readonly EventApiEntry[] = [
   {
     name: 'agent/request-error',
     mode: 'waterfall',
-    signature: '\'agent/request-error\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: RequestError, failure: LlmFailure, priorFailures: readonly LlmFailure[], retryPolicy: ResolvedRetryPolicy | undefined, signal: AbortSignal, next: () => Promise<RequestErrorAction>): Promise<RequestErrorAction>',
-    jsDoc: '/**\n * Handle a model-request failure after its failed step has closed but\n * before the failed turn closes. A listener returns `{ kind: \'retry\' }`\n * without calling `next()` when it owns the error, or calls `next()` to\n * delegate. The default `undefined` leaves the failure terminal.\n * @param agent - the agent whose request failed.\n * @param turn - the open turn number.\n * @param step - the failed step number.\n * @param error - the original model-request failure.\n * @param failure - serializable facts normalized at the final adapter boundary.\n * @param priorFailures - immutable failures that already authorized another\n * retry turn in this consecutive sequence.\n * @param retryPolicy - immutable policy of the adapter registration that served\n * the failed request, or `undefined` if no final adapter served it.\n * @param signal - the turn abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n */',
-    summary: 'Handle a model-request failure after its failed step has closed but before the failed turn closes.',
+    signature: '\'agent/request-error\'(this: Scoped<Agent>, agent: Agent, context: RequestFailureContext, signal: AbortSignal, next: () => Promise<RequestErrorAction>): Promise<RequestErrorAction>',
+    jsDoc: '/**\n * Handle one failed model-request attempt before the loop retries or closes\n * its step. A listener returns `{ kind: \'retry\' }` without calling `next()`\n * when it owns recovery, or calls `next()` to delegate. The default\n * `undefined` leaves the failure terminal.\n * @param agent - the agent whose request failed.\n * @param context - request coordinates, provider, normalized failure, and serving policy.\n * @param signal - the turn abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n */',
+    summary: 'Handle one failed model-request attempt before the loop retries or closes its step.',
   },
   {
     name: 'agent/session-start',
@@ -1298,31 +1288,17 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'The session lifecycle began, once before the first turn.',
   },
   {
-    name: 'agent/settled',
-    mode: 'emit',
-    signature: '\'agent/settled\'(this: Scoped<Agent>, agent: Agent, turn: number, reason: SettleReason): void',
-    jsDoc: '/**\n * One drain chain reached its terminal turn: that turn\'s `turn/end` is\n * already committed. Automatically recovered failed turns do not emit this\n * notification, and neither does a run that aborts or fails before its\n * `turn/start` commits — there is no durable turn to settle against.\n * `reason` says why; model-request recovery is exhausted when an error\n * reaches it.\n * @param agent - the agent whose turn closed.\n * @param turn - the terminal turn number.\n * @param reason - why the terminal turn ended, with live error facts when it failed.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
-    summary: 'One drain chain reached its terminal turn: that turn\'s `turn/end` is already committed.',
-  },
-  {
     name: 'agent/status',
     mode: 'emit',
     signature: '\'agent/status\'(this: Scoped<Agent>, agent: Agent, status: AgentStatus): void',
-    jsDoc: '/**\n * Agent status changed (`idle` ⇄ `running`). `send()` does not enter\n * `running` synchronously; drive lifecycle from this event.\n * @param agent - the agent whose status flipped.\n * @param status - the status just entered (the transition\'s destination).\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    jsDoc: '/**\n * Agent status changed (`idle` ⇄ `running`). A waking delivery enters\n * `running` synchronously after reserving cancellation; `idle` means no\n * driver remains scheduled or active.\n * @param agent - the agent whose status flipped.\n * @param status - the status just entered (the transition\'s destination).\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
     summary: 'Agent status changed (`idle` ⇄ `running`).',
-  },
-  {
-    name: 'agent/step',
-    mode: 'serial',
-    signature: '\'agent/step\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, signal: AbortSignal): Promise<void> | void',
-    jsDoc: '/**\n * Awaited serial checkpoint before EVERY request of a turn is built (the\n * first as well as each post-tools continuation). The single "between\n * steps" extension point: inject context, steer, or edit the session log\n * here — the request\'s history derives from the log right after this settles.\n * @param agent - the agent about to send a request.\n * @param turn - the open turn number.\n * @param step - the step number about to open.\n * @param signal - the turn abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode serial\n */',
-    summary: 'Awaited serial checkpoint before EVERY request of a turn is built (the first as well as each post-tools continuation).',
   },
   {
     name: 'agent/turn-stopping',
     mode: 'serial',
     signature: '\'agent/turn-stopping\'(this: Scoped<Agent>, agent: Agent, turn: number, signal: AbortSignal): Promise<void> | void',
-    jsDoc: '/**\n * The turn is about to close: the model owes no response (no live tool\n * calls, no fresh steering). Awaited before the boundary commits — a\n * listener that objects steers (`agent.steer(...)`) and the machine\n * re-reads its inbox: fresh steering runs another step, none closes the\n * turn. Data decides, so listener order cannot change the outcome. The\n * inverse control (stop a tool loop early) is data too: a tool result\n * carrying `concludesTurn` ends the turn at its step.\n * @param agent - the agent whose turn is at its stop boundary.\n * @param turn - the turn about to close.\n * @param signal - the current turn\'s explicit abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode serial\n */',
+    jsDoc: '/**\n * The turn is about to close: the model owes no response (no live tool\n * calls, no fresh steering). Awaited before the boundary commits — a\n * listener that objects steers (`agent.steer(...)`) and the machine\n * re-reads its inbox: fresh steering runs another step, none closes the\n * turn. Data decides, so listener order cannot change the outcome. The\n * inverse control (stop a tool loop early) is data too: a tool result\n * carrying `concludesTurn` ends the turn at its step. The conclusion\n * never short-circuits already-submitted next-step work: same-step\n * `additionalContexts` or racing steering still runs, and the turn\n * closes only when that inbox drains.\n * @param agent - the agent whose turn is at its stop boundary.\n * @param turn - the turn about to close.\n * @param signal - the current turn\'s explicit abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode serial\n */',
     summary: 'The turn is about to close: the model owes no response (no live tool calls, no fresh steering).',
   },
   {
@@ -1378,7 +1354,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'goal/changed',
     mode: 'emit',
     signature: '\'goal/changed\'(this: import(\'@deepseek-ai/dsh-scope\').Scoped<Agent>, agent: Agent, change: GoalChanged): void',
-    jsDoc: '/**\n * Goal mutation accepted by one live agent. The matching context event is\n * already appended or queued in that agent\'s active tool-batch FIFO.\n * Listener failures are contained.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @param agent - agent whose session owns the goal.\n * @param change - fresh current projection or clear tombstone.\n * @mode emit\n */',
+    jsDoc: '/**\n * Goal mutation accepted by one live agent. The matching `goal/change`\n * session event has already committed. Listener failures are contained.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @param agent - agent whose session owns the goal.\n * @param change - fresh current projection or clear tombstone.\n * @mode emit\n */',
     summary: 'Goal mutation accepted by one live agent.',
   },
   {
@@ -1587,11 +1563,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'Agent',
-    declaration: 'export interface Agent {\n    readonly id: SessionId;\n    readonly options: AgentOptions;\n    readonly session: Session;\n    readonly status: AgentStatus;\n    readonly acceptsNextStep: boolean;\n    readonly ctx: Context;\n    send(message: UserMessage, options: SendOptions): void;\n    reserveTurnAdmission(): (() => void) | undefined;\n    updateInbox(id: InboxItemId, action: InboxAction): InboxActionResult;\n    cancel(cause: AgentCancelCause, options?: CancelOptions): void;\n    whenIdle(): Promise<void>;\n    followup(message: UserMessage): void;\n    steer(message: UserMessage): SteeringReceipt;\n    inject(message: UserMessage): void;\n}',
+    declaration: 'export interface Agent {\n    readonly id: SessionId;\n    readonly options: AgentOptions;\n    readonly session: Session;\n    readonly inbox: Inbox;\n    readonly status: AgentStatus;\n    readonly ctx: Context;\n    cancel(cause: AgentCancelCause, options?: CancelOptions): void;\n    whenIdle(): Promise<void>;\n    runMaintenance<T>(task: (signal: AbortSignal) => Promise<T>): Promise<T>;\n    send(message: UserMessage, target: InboxTarget, wakeup: boolean): void;\n    followup(message: UserMessage): void;\n    steer(message: UserMessage): void;\n    inject(message: UserMessage): void;\n}',
   },
   {
     name: 'AgentCancelCause',
-    declaration: 'export type AgentCancelCause = {\n    readonly kind: \'user\';\n} | {\n    readonly kind: \'parent\';\n};',
+    declaration: 'export type AgentCancelCause = {\n    readonly kind: \'user\';\n} | {\n    readonly kind: \'parent\';\n} | {\n    readonly kind: \'hook\';\n    readonly reason: string;\n} | {\n    readonly kind: \'disposed\';\n};',
   },
   {
     name: 'AgentFactory',
@@ -1723,7 +1699,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CancelOptions',
-    declaration: 'export interface CancelOptions {\n    keepInbox?: boolean;\n}',
+    declaration: 'export interface CancelOptions {\n    keepInbox?: boolean | undefined;\n}',
   },
   {
     name: 'CodeBindingErrorClass',
@@ -2030,16 +2006,16 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface GoalView extends GoalSnapshot {\n    readonly roundsStarted: number;\n    readonly createdAt: number;\n    readonly updatedAt: number;\n    readonly activation: GoalActivation;\n}',
   },
   {
-    name: 'InboxAction',
-    declaration: 'export type InboxAction = {\n    readonly kind: \'edit\';\n    readonly content: ContentBlock[];\n} | {\n    readonly kind: \'remove\';\n} | {\n    readonly kind: \'steer\';\n};',
+    name: 'Inbox',
+    declaration: 'export class Inbox {\n    constructor(private readonly session: Session, private readonly notifications: InboxNotifications);\n    get nextTurn(): readonly UserMessage[];\n    get nextStep(): readonly UserMessage[];\n    get hasPending(): boolean;\n    clear(): void;\n    claim(target: InboxTarget, turn: number): UserMessage[];\n    append(target: InboxTarget, message: UserMessage): void;\n    prepend(target: InboxTarget, message: UserMessage): void;\n    replace(messageId: MessageId, newMessage: UserMessage): boolean;\n    remove(messageId: MessageId): boolean;\n    splice(target: InboxTarget, start: number, deleteCount: number, inserted: UserMessage[]): UserMessage[];\n}',
   },
   {
-    name: 'InboxActionResult',
-    declaration: 'export type InboxActionResult = \'applied\' | \'not-found\' | \'steer-unavailable\';',
+    name: 'InboxNotifications',
+    declaration: 'export interface InboxNotifications {\n    inserted(message: UserMessage): void;\n    discarded(message: UserMessage): void;\n    claimed(message: UserMessage, turn: number): void;\n}',
   },
   {
-    name: 'InboxItemId',
-    declaration: 'export type InboxItemId = Branded<\'InboxItemId\'>;',
+    name: 'InboxTarget',
+    declaration: 'export type InboxTarget = \'next-turn\' | \'next-step\';',
   },
   {
     name: 'InvariantFailure',
@@ -2123,7 +2099,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ManualCompactAgentContext',
-    declaration: 'export interface ManualCompactAgentContext extends CompactAgentContext {\n    reserveTurnAdmission(): (() => void) | undefined;\n}',
+    declaration: 'export interface ManualCompactAgentContext extends CompactAgentContext {\n    runMaintenance<T>(task: (signal: AbortSignal) => Promise<T>): Promise<T>;\n}',
   },
   {
     name: 'Message',
@@ -2159,7 +2135,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'PreparedLlmCall',
-    declaration: 'export interface PreparedLlmCall {\n    readonly config: LlmCallConfig;\n    readonly context?: LlmModelContext;\n    readonly adapterDefaults: LlmCallConfigAdapterDefaults;\n    stream(options: GenerateOptions): AsyncIterable<StreamChunk>;\n}',
+    declaration: 'export interface PreparedLlmCall {\n    readonly config: LlmCallConfig;\n    readonly retryPolicy: ResolvedRetryPolicy;\n    readonly context?: LlmModelContext;\n    readonly adapterDefaults: LlmCallConfigAdapterDefaults;\n    stream(options: GenerateOptions): AsyncIterable<StreamChunk>;\n}',
   },
   {
     name: 'PreparedReferencedMessage',
@@ -2398,14 +2374,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type SearchResultView = SearchMatchesResultView | SearchPathsResultView;',
   },
   {
-    name: 'SendOptions',
-    declaration: 'export interface SendOptions {\n    target: SendTarget;\n    wakeup: boolean;\n}',
-  },
-  {
-    name: 'SendTarget',
-    declaration: 'export type SendTarget = \'next-turn\' | \'next-step\';',
-  },
-  {
     name: 'Session',
     declaration: 'export class Session {\n    get surface(): SessionSurface;\n    readonly header: SessionHeader;\n    get id(): SessionId;\n    readonly firstLiveSeq: number;\n    static create(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader): Session;\n    get events(): readonly SessionEvent[];\n    get seq(): number;\n    append<T extends SessionEventType>(type: T, data: SessionEventMap[T], ...opts: T extends SurfaceEventType ? [\n        opts: SurfaceIntent\n    ] : [\n    ]): SessionEvent<T>;\n    requestHeader(): EpochHeader | undefined;\n    requestContext(): RequestContext | undefined;\n    deriveMessages(): Message[];\n    deriveEventMessage(event: SessionEvent): Message | null;\n}',
   },
@@ -2419,7 +2387,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionEventMap',
-    declaration: 'export interface SessionEventMap {\n    \'turn/start\': {\n        turn: number;\n        trigger: TurnTrigger;\n    };\n    \'turn/end\': {\n        turn: number;\n        reason: TurnEndReason;\n    };\n    \'step/start\': {\n        turn: number;\n        step: number;\n    };\n    \'step/end\': {\n        turn: number;\n        step: number;\n    };\n    \'user/message\': UserMessage;\n    \'assistant/chunk\': {\n        turn: number;\n        step: number;\n        chunk: StreamChunk;\n    };\n    \'assistant/message\': {\n        turn: number;\n        step: number;\n        message: AssistantMessage;\n        usage?: TokenUsage;\n    };\n    \'tool/call\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        name: string;\n        arguments: string;\n    };\n    \'tool/result\': {\n        turn: number;\n        step: number;\n        message: ToolResultMessage;\n        error?: {\n            name: string;\n            code: string;\n        };\n        meta?: JsonValue;\n    };\n    \'steering/message\': {\n        turn: number;\n        message: UserMessage;\n    };\n    \'todo/write\': {\n        todos: TodoItem[];\n    };\n    \'request/header\': {\n        header: EpochHeader;\n        reason: RequestHeaderReason;\n    };\n    \'request/context\': RequestContext;\n    \'session/end-seed\': Record<string, never>;\n}',
+    declaration: 'export interface SessionEventMap {\n    \'turn/start\': {\n        turn: number;\n    };\n    \'turn/end\': {\n        turn: number;\n        reason: TurnEndReason;\n    };\n    \'step/start\': {\n        turn: number;\n        step: number;\n    };\n    \'step/end\': {\n        turn: number;\n        step: number;\n    };\n    \'user/message\': UserMessage;\n    \'assistant/chunk\': {\n        turn: number;\n        step: number;\n        chunk: StreamChunk;\n    };\n    \'assistant/message\': {\n        turn: number;\n        step: number;\n        message: AssistantMessage;\n        usage?: TokenUsage;\n    };\n    \'tool/call\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        name: string;\n        arguments: string;\n    };\n    \'tool/result\': {\n        turn: number;\n        step: number;\n        message: ToolResultMessage;\n        error?: {\n            name: string;\n            code: string;\n        };\n        meta?: JsonValue;\n    };\n    \'todo/write\': {\n        todos: TodoItem[];\n    };\n    \'request/header\': {\n        header: EpochHeader;\n        reason: RequestHeaderReason;\n    };\n    \'request/context\': RequestContext;\n    \'session/end-seed\': Record<string, never>;\n}',
   },
   {
     name: 'SessionEventMetadataFilter',
@@ -2706,14 +2674,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SpillSource {\n    toolName: string;\n    callId: CallId;\n    label: string;\n}',
   },
   {
-    name: 'SteeringOutcome',
-    declaration: 'export type SteeringOutcome = {\n    readonly status: \'admitted\';\n    readonly turn: number;\n    readonly step: number;\n} | {\n    readonly status: \'rejected\';\n};',
-  },
-  {
-    name: 'SteeringReceipt',
-    declaration: 'export interface SteeringReceipt {\n    readonly outcome: Promise<SteeringOutcome>;\n}',
-  },
-  {
     name: 'StorageForms',
     declaration: 'export interface StorageForms {\n}',
   },
@@ -2815,7 +2775,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SurfaceEventType',
-    declaration: 'export type SurfaceEventType = \'user/message\' | \'assistant/message\' | \'tool/result\' | \'steering/message\';',
+    declaration: 'export type SurfaceEventType = \'user/message\' | \'assistant/message\' | \'tool/result\';',
   },
   {
     name: 'SurfaceIntent',
@@ -3006,20 +2966,16 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ToolSchema {\n    name: string;\n    description: string;\n    parameters: Record<string, unknown>;\n}',
   },
   {
+    name: 'TurnEndCancelCause',
+    declaration: 'export type TurnEndCancelCause = AgentCancelCause | {\n    readonly kind: \'legacy\';\n};',
+  },
+  {
     name: 'TurnEndReason',
     declaration: 'export type TurnEndReason = TurnEndReasonMap[keyof TurnEndReasonMap];',
   },
   {
     name: 'TurnEndReasonMap',
-    declaration: 'export interface TurnEndReasonMap {\n    completed: {\n        kind: \'completed\';\n    };\n    aborted: {\n        kind: \'aborted\';\n    };\n    error: {\n        kind: \'error\';\n        step: number;\n    } & ({\n        failure: LlmFailure;\n        message?: never;\n        code?: never;\n    } | {\n        message: string;\n        code?: string;\n        failure?: never;\n    });\n    disposed: {\n        kind: \'disposed\';\n    };\n    \'max-tokens\': {\n        kind: \'max-tokens\';\n    };\n    interrupted: {\n        kind: \'interrupted\';\n    };\n}',
-  },
-  {
-    name: 'TurnTrigger',
-    declaration: 'export type TurnTrigger = TurnTriggerMap[keyof TurnTriggerMap];',
-  },
-  {
-    name: 'TurnTriggerMap',
-    declaration: 'export interface TurnTriggerMap {\n    message: {\n        kind: \'message\';\n        source: MessageSource;\n    };\n    retry: {\n        kind: \'retry\';\n    };\n    injection: {\n        kind: \'injection\';\n        source: MessageSource;\n    };\n}',
+    declaration: 'export interface TurnEndReasonMap {\n    completed: {\n        kind: \'completed\';\n    };\n    aborted: {\n        kind: \'aborted\';\n        reason: TurnEndCancelCause;\n    };\n    blocked: {\n        kind: \'blocked\';\n    };\n    error: {\n        kind: \'error\';\n        error: LlmFailure;\n    };\n    \'max-tokens\': {\n        kind: \'max-tokens\';\n    };\n    interrupted: {\n        kind: \'interrupted\';\n    };\n}',
   },
   {
     name: 'TypertContribution',

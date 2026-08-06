@@ -276,6 +276,8 @@ const SCENARIOS: Scenario[] = [
   // symlinked instruction file to its target's content. A second nested path
   // containing a literal closing tag is created at runtime: Git cannot check
   // that name out on Windows, so this delimiter-injection case is POSIX-only.
+  // The fixture also shadows the baseline after the first touch finishes its
+  // projection; the next entering pre-step restores it before request 2.
   // The scenario-specific config keeps home/root discovery hermetic, and the
   // resulting prefix needs its own pinned header class.
   {
@@ -402,12 +404,13 @@ const SCENARIOS: Scenario[] = [
   // tool/code-dispatch events. Each overlay composes and pins its own header class.
   { name: 'code-mode-turn', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'code', configPath: CODE_MODE_CONFIG },
   // A nested fs dispatch inside run_code discovers workspace instructions. The
-  // injected user/message must follow the outer result while retaining workspace
-  // provenance, which proves Code Mode carries deferred tool context end to end.
+  // projection enters the inbox after the outer result and becomes model-visible
+  // on the following step, retaining workspace provenance end to end.
   {
     name: 'code-mode-workspace-context',
     hasModelTurn: true,
-    recorded: true,
+    recorded: false,
+    overridden: true,
     pinsHeader: true,
     headerClass: 'code-workspace-context',
     systemPromptSource: 'code-mode-turn',
@@ -490,15 +493,25 @@ it('packed ACP fixture retains every chunk row kind without changing the logical
   expect([...new Set(rowTypes)].sort()).toStrictEqual(['reasoning-chunks', 'text-chunks', 'tool-call-chunks'])
   const withoutMessageId = (record: unknown): unknown => {
     const cloned = structuredClone(record) as {
+      time?: unknown
       type?: unknown
-      data?: { id?: unknown; message?: { id?: unknown } }
+      data?: {
+        durationMs?: unknown
+        id?: unknown
+        inserted?: Array<{ id?: unknown }>
+        message?: { id?: unknown }
+      }
+    }
+    delete cloned.time
+    if (cloned.type === 'agent/inbox/spliced') {
+      for (const message of cloned.data?.inserted ?? []) delete message.id
     }
     if (cloned.type === 'user/message') delete cloned.data?.id
     if (cloned.type === 'assistant/message'
-      || cloned.type === 'tool/result'
-      || cloned.type === 'steering/message') {
+      || cloned.type === 'tool/result') {
       delete cloned.data?.message?.id
     }
+    if (cloned.type === 'hook/result') delete cloned.data?.durationMs
     return cloned
   }
   const logicalRecords = (records: readonly unknown[]): unknown[] => [

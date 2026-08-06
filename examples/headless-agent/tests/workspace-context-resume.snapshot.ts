@@ -69,7 +69,7 @@ async function seedVisibleBaseline(
       : { instructionFileCandidates: options.instructionFileCandidates },
   })
   const events: SessionEvent[] = [
-    { type: 'turn/start', seq: 0, time: 10, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+    { type: 'turn/start', seq: 0, time: 10, data: { turn: 1 } },
     {
       type: 'user/message',
       seq: 1,
@@ -162,14 +162,12 @@ describe('workspace-context resume snapshot', () => {
     const records = result.stdout.trimEnd().split('\n').map(line => JSON.parse(line) as Record<string, unknown>)
     expect(records.at(-1)).toMatchObject({
       type: 'result',
-      success: true,
       sessionId,
-      result: 'RESUME_DONE',
-      reason: { kind: 'completed' },
+      output: 'RESUME_DONE',
     })
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
-  it('recomposes a compatible current-order baseline when precedence changed offline', async () => {
+  it('supersedes an incompatible baseline when precedence changed offline', async () => {
     let cwd = ''
     let sessionPath = ''
     const result = await runLoaderSmoke({
@@ -227,10 +225,8 @@ describe('workspace-context resume snapshot', () => {
     expect(result.stdout.trimEnd().split('\n').map(line => JSON.parse(line) as Record<string, unknown>).at(-1))
       .toMatchObject({
         type: 'result',
-        success: true,
         sessionId,
-        result: 'RESUME_DONE',
-        reason: { kind: 'completed' },
+        output: 'RESUME_DONE',
       })
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 })

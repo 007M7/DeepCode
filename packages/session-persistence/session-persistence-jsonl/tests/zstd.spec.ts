@@ -285,7 +285,7 @@ describe('SessionPersistenceJsonl: default Zstandard encoding', () => {
     const path = logPath(root, header.cwd, header.id, 'zstd')
     const before = await readFile(path)
     const secondTurn = [
-      { type: 'turn/start', seq: 6, time: 7, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      { type: 'turn/start', seq: 6, time: 7, data: { turn: 2 } },
       { type: 'turn/end', seq: 7, time: 8, data: { turn: 2, reason: { kind: 'completed' } } },
     ] as SessionEvent[]
     await ctx.sessionPersistence.append(header.id, secondTurn)
@@ -380,7 +380,7 @@ describe('SessionPersistenceJsonl: default Zstandard encoding', () => {
     const path = logPath(root, header.cwd, header.id, 'zstd')
     const committed = await readFile(path)
     const openTurn = [
-      { type: 'turn/start', seq: 6, time: 7, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      { type: 'turn/start', seq: 6, time: 7, data: { turn: 2 } },
       { type: 'step/start', seq: 7, time: 8, data: { turn: 2, step: 1 } },
       { type: 'assistant/chunk', seq: 8, time: 9, data: { turn: 2, step: 1, chunk: { type: 'text-delta', index: 0, text: deterministicNoise(300_000) } } },
     ] as SessionEvent[]
@@ -427,7 +427,7 @@ describe('SessionPersistenceJsonl: default Zstandard encoding', () => {
     await ctx.sessionPersistence.append(header.id, oneTurnLog())
     const path = logPath(root, header.cwd, header.id, 'zstd')
     const secondTurn = [
-      { type: 'turn/start', seq: 6, time: 7, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      { type: 'turn/start', seq: 6, time: 7, data: { turn: 2 } },
       { type: 'turn/end', seq: 7, time: 8, data: { turn: 2, reason: { kind: 'completed' } } },
     ] as SessionEvent[]
     const frame = await compressZstdFrame(secondTurn.map(e => JSON.stringify(e)).join('\n') + '\n')
@@ -475,7 +475,7 @@ describe('SessionPersistenceJsonl: default Zstandard encoding', () => {
       return realSync.call(this)
     })
     const secondTurn = [
-      { type: 'turn/start', seq: 6, time: 7, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      { type: 'turn/start', seq: 6, time: 7, data: { turn: 2 } },
       { type: 'turn/end', seq: 7, time: 8, data: { turn: 2, reason: { kind: 'completed' } } },
     ] as SessionEvent[]
     await expect(ctx.sessionPersistence.append(header.id, secondTurn)).rejects.toThrow(/simulated Zstandard fsync failure/)

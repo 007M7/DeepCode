@@ -35,7 +35,8 @@ export function apply(ctx: Context): void {
       const history = ctx.sessionHistory.source(sessionId)
       return {
         hooks: { history, duration },
-        loadAllHistory: signal => history.loadAll(signal),
+        loadHistoryTail: signal => history.loadTail(signal),
+        loadOlderHistory: signal => history.loadOlder(signal),
         setActualDuration: (value) => { duration.set(value) },
       }
     },

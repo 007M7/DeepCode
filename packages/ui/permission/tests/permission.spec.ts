@@ -220,7 +220,7 @@ describe('new-session default', () => {
       defaultPreset: 'danger-full-access',
     })
     const legacy = freshSession('legacy-source')
-    legacy.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    legacy.append('turn/start', { turn: 1 })
     legacy.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     const resumed = ctx.sessions.create(SessionId('legacy-resumed'), { seed: legacy.events })
     expect(ctx.permission.current(resumed.events)).toBe('workspace-write')

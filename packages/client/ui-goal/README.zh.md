@@ -8,11 +8,11 @@ Goal 界面插件（浏览器端部分）：`GoalBar` 条带是 `conversation.in
 
 ## 模型体验
 
-间接影响：条带动词提交的 `goal.edit`/`goal.pause`/`goal.resume`/`goal.clear` RPC 每次被接受后，会向会话追加一条模型可见的 `goal/change` 上下文消息（与投影折叠的正是同一条持久事件），模型在下一轮即可看到更新后的 goal 状态。条带自身不添加任何提示词内容。
+间接影响：条带动词提交的 `goal.edit`/`goal.pause`/`goal.resume`/`goal.clear` RPC 每次被接受后，变更都会在持久 `agent/inbox/spliced` 插入项中提交，goal 投影会立即折叠该插入项，同时将一条 `goal/change` 上下文消息排队。只有后续 pre-step 准入该上下文时，模型才会看到它；丢弃已排队的消息不会回滚投影状态。条带自身不添加任何提示词内容。
 
 #### KV Cache 影响
 
-除 goal 变更自身的上下文事件（如同任何消息一样追加在日志尾部）外无额外影响。
+除非已排队的 goal 上下文获准，否则没有影响。获准的上下文会像其他消息一样扩展历史尾部；准入前被丢弃的插入项不会影响缓存。
 
 ## 已知限制与暂缓事项
 

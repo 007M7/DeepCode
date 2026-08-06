@@ -8,7 +8,7 @@ Source: [`packages/core/system-prompt/src/index.ts`](../../packages/core/system-
 
 ## Assembly context
 
-`AssembleContext` identifies the scope layer one assembly resolves and may carry the explicit control signal for that request. It is merge-extensible: `dsh-agent` adds the optional live `agent` field and `modelRequest?: true` marker. `assembleContextFor(agent, signal)` builds an agent-scoped inspection context; `assembleRequestContextFor(agent, signal)` marks a result that the caller will materialize into the next model request. A bare assembly has neither scope nor signal.
+`AssembleContext` identifies the scope layer one assembly resolves and may carry the explicit control signal for that request. It is merge-extensible: `dsh-agent` adds the optional live `agent` field, and `assembleContextFor(agent, signal)` sets the explicit fields together. A bare assembly has neither scope nor signal.
 
 ```ts type-equiv
 /** Merge-extensible context for one prompt assembly. */
@@ -66,15 +66,11 @@ interface PromptSection {
 `PromptContext` is the cache-safe counterpart to `PromptSection`. The assembly resolves and orders these contributions, while agent-loop logs their complete current snapshot after retained model history only when it changed or compaction removed it.
 
 ```ts type-equiv
-/**
- * One dynamic model-context contribution. Unlike a {@link PromptSection}, its
- * rendered text is materialized as a durable user-role snapshot at the request
- * tail, so changing runtime state preserves the stable system/history prefix.
- */
+/** Dynamic model context materialized as a durable user-role snapshot. */
 interface PromptContext {
   /** Unique name — a duplicate registration throws (see {@link SystemPrompt.context}). */
   readonly name: string
-  /** Contexts are joined in ascending order, independently of system-section order. */
+  /** Contexts are joined in ascending order. */
   readonly order: number
   /** Static text or a provider evaluated for each assembly. Empty text contributes nothing. */
   readonly text: string | ((context: AssembleContext) => string)

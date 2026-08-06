@@ -56,9 +56,12 @@ interface LoadOptions extends DiscoverOptions {
   replacePreviousBaseline?: boolean
 }
 
-/** Rendered baseline plus the files that survived byte budgeting. */
+/** Rendered baseline plus the successfully read and byte-budget-retained files. */
 export interface RenderedInstructionSet {
   rendered: RenderedWorkspaceContext
+  /** Successfully read candidates before content deduplication and byte budgeting. */
+  observed: LoadedInstructionFile[]
+  /** Candidates retained by content deduplication and byte budgeting. */
   included: LoadedInstructionFile[]
 }
 
@@ -422,6 +425,7 @@ export async function loadBaselineInstructionSet(
         maxBytes: config.maxBytes,
         replacePreviousBaseline: true,
       }),
+      observed: [],
       included: [],
     }
   }
@@ -432,7 +436,11 @@ export async function loadBaselineInstructionSet(
       : { replacePreviousBaseline: options.replacePreviousBaseline },
   })
   const omitted = new Set(rendered.omitted.map(file => file.absolutePath))
-  return { rendered, included: deduped.filter(file => !omitted.has(file.absolutePath)) }
+  return {
+    rendered,
+    observed: loaded,
+    included: deduped.filter(file => !omitted.has(file.absolutePath)),
+  }
 }
 
 /**

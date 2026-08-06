@@ -36,7 +36,7 @@
 
 ## UI presentation
 
-工具拥有自己的 `presentCall`/`presentResult` 呈现意图。前台调用是携带命令、描述与可选 cwd 的 `terminal` 卡；`run_in_background` 调用是携带原始命令的 `generic` 卡，镜像 bash 工具的后台呈现。完成的结果是以 `console` 围栏包裹渲染输出的 `generic` 卡。bash 工具那种带解析退出状态 pill 的 terminal 卡在 pwsh 侧暂无对应——PowerShell 感知的呈现属于路线图工作。这些 presenter 是纯函数且可重放。
+工具拥有自己的 `presentCall`/`presentResult` 呈现意图。前台调用是携带命令、描述与可选 cwd 的 `terminal` 卡；`run_in_background` 调用是携带原始命令的 `generic` 卡，镜像 bash 工具的后台呈现。完成的前台结果同样是 `terminal` 卡：退出 marker 变成卡片的退出状态 pill（`exitCode`/`signal`），去 marker 的正文成为卡片输出——与 bash 工具的 terminal 卡故事完全一致，经由 `@deepseek-ai/dsh-bash` 的共享退出状态解析。后台 ack 与执行错误保持 `generic` 卡，以 `console` 围栏包裹渲染输出。这些 presenter 是纯函数且可重放。
 
 ## Model Experience
 
@@ -121,5 +121,4 @@ ack 是固定短行；任务输出按读取有界。
 - **无 sandbox 升级** — 没有 `sandbox_permissions`/`justification`；升级等待 Windows-confining 执行器（bash 工具的 sandbox 面不被镜像）。
 - **无持久 shell 或 PTY** — 每次调用都启动全新的 `pwsh -Command`；PTY 后端目前仅限 Linux/macOS，Windows ConPTY 持久 shell 属于路线图工作。
 - **PowerShell 方言契约** — 模型必须写 PowerShell（原生路径、`$env:` 变量），而不是 bash；没有方言翻译。
-- **通用 UI 呈现** — 结果使用 generic 卡；带退出状态 pill 的 PowerShell 感知 terminal 卡属于路线图工作。
 - **会话 cwd 身份不做规范化** — workdir 基座直接取会话头 cwd 原值，不同于 bash 工具经 sandbox-root 规范化的身份；此处只涉及无 sandbox 场景。

@@ -93,7 +93,8 @@ export function isQuotaExceededError(detail: string): boolean {
 /**
  * Render a thrown value with its full `cause` chain and AggregateError
  * members, so transport wrappers like undici's `TypeError: fetch failed`
- * surface the underlying failure instead of masking it. Diagnostic-surface
+ * surface the underlying failure instead of masking it. Plain structured
+ * failures render their own data-backed `message`. Diagnostic-surface
  * rendering only (messages, notices, logs) — never parse the result; route on
  * {@link HarnessError.code}.
  * @param value - the caught value (`unknown` in catch clauses).
@@ -109,7 +110,15 @@ export function errorChain(value: unknown): string {
     if (path.has(current)) return '<circular cause>'
     path.add(current)
     try {
-      if (!(current instanceof Error)) return String(current)
+      if (!(current instanceof Error)) {
+        if (typeof current === 'object' && current !== null) {
+          const descriptor = Object.getOwnPropertyDescriptor(current, 'message')
+          if (descriptor !== undefined && 'value' in descriptor && typeof descriptor.value === 'string') {
+            return descriptor.value
+          }
+        }
+        return String(current)
+      }
       const message = current.message === '' ? current.name : current.message
       const members = current instanceof AggregateError && current.errors.length > 0
         ? ` [${current.errors.map(render).join('; ')}]`
