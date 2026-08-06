@@ -204,8 +204,13 @@ describe('connection client apply', () => {
     expect(sockets[0]?.readyState).toBe(FakeWebSocket.CLOSED)
   })
 
-  it('carries RPC calls over the shared API channel with rpcId echo validation', async () => {
+  it('carries RPC calls without requiring secure-context randomUUID', async () => {
     ;(globalThis as Win).location = { hostname: 'localhost', search: '' }
+    vi.stubGlobal('crypto', {
+      getRandomValues(bytes: Uint8Array) {
+        return bytes.fill(0)
+      },
+    })
     const handle = await mount()
     const original = globalThis.fetch
     const seen: { url: string; body: unknown }[] = []
@@ -225,11 +230,13 @@ describe('connection client apply', () => {
         .resolves.toEqual({ ok: true, value: { ref: 'goal-1' } })
     } finally {
       globalThis.fetch = original
+      vi.unstubAllGlobals()
     }
     expect(seen).toHaveLength(1)
     expect(seen[0]?.url).toBe('http://dsh.internal/api/goals/create')
     expect(seen[0]?.body).toMatchObject({
       type: 'client-request',
+      rpcId: '00000000-0000-4000-8000-000000000000',
       method: 'goals/create',
       payload: { args: { agentId: 'agent-1' } },
     })

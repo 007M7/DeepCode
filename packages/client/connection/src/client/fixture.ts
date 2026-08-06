@@ -35,10 +35,11 @@ import type {
 } from './api.ts'
 import type { RequestPayload, ResponseValue, RpcMethodMap } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { AbstractApiClient, RpcId, SESSION_SEARCH_RESULT_LIMIT } from './api.ts'
+import { randomUuid } from './random-uuid.ts'
 
 /** The fake carrier mints like a real one (business code never mints). */
 function rpcRequest<P>(payload: P): RpcRequest<P> {
-  return { rpcId: RpcId(crypto.randomUUID()), payload }
+  return { rpcId: RpcId(randomUuid()), payload }
 }
 
 function text(t: string): ContentBlock[] {
