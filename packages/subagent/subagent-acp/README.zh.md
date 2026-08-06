@@ -14,7 +14,7 @@ ACP（Agent Client Protocol）提供方会在全新的子进程中运行每个 s
 
 发布后，提供方发送提示词，并把流式 `agent_message_chunk` 文本收集到 `SubagentResult.output`。提示词/传输失败会以 `stopReason: 'error'` 兑现；如果必需的请求信号或 dispose（资源释放）请求了取消，则以 `aborted` 兑现。
 
-`dispose()` 是幂等的。它会移除信号监听器，在可行时请求 ACP 取消，然后经由该 seam 的动词运行本后端自有的拆卸阶梯（`disposeAcpChild`）：先关闭 stdin 并等待 `disposeEofGraceMs` 让子进程协作式完全停稳，再触发句柄的 `terminate()` 升级（SIGTERM、spawn 宽限期、SIGKILL——Windows 直接强制终止），最后进行有界的整树退出等待；若仍有存活进程，则拒绝。每次运行都使用全新进程；尚未实现进程池。
+`dispose()` 是幂等的。它会移除信号监听器，在可行时请求 ACP 取消，然后经由该 seam 的动词运行本后端自有的拆卸阶梯（`disposeAcpChild`）：先关闭 stdin 并等待 `disposeEofGraceMs` 让子进程协作式完全停稳，再触发句柄的 `terminate()` 升级（SIGTERM、spawn 宽限期、SIGKILL——Windows 直接强制终止），并等待子进程责任方给出整棵进程树的退出证明。每次运行都使用全新进程；尚未实现进程池。
 
 ## 能力与上下文
 
@@ -30,8 +30,8 @@ ACP 不声明任何启动时能力，因为当前进程无法强制执行远程�
 | `cwd` | 父会话 cwd | 子进程及其 ACP 会话的工作目录覆盖值；不得为空。相对值会在加载时以 harness 启动目录为基准解析，结果必须指向 harness 可以进入的目录。 |
 | `permission` | `reject` | 自动回答权限请求：拒绝，或选择第一个允许形态的选项。 |
 | `env` | `{}` | 显式子进程环境，叠加到已清理凭据的父进程环境之上。 |
-| `disposeEofGraceMs` | `6000` | stdin EOF 之后、平台终止之前的宽限时间。 |
-| `disposeGraceMs` | `3000` | 终止后的退出确认宽限时间；POSIX 在 SIGTERM 后、SIGKILL 前也会等待同样时长。 |
+| `disposeEofGraceMs` | `6000` | stdin EOF 之后、平台终止之前的宽限时间须为正值，且不得大于 [`MAX_TIMER_DELAY_MS`](../../util/timeout/README.md)。 |
+| `disposeGraceMs` | `3000` | POSIX 在 SIGTERM 后、SIGKILL 前的宽限时间（Windows 直接强制终止），须为正值且不得大于 [`MAX_TIMER_DELAY_MS`](../../util/timeout/README.md)。 |
 
 ```yaml
 - id: subagent-acp
@@ -57,7 +57,7 @@ ACP 不声明任何启动时能力，因为当前进程无法强制执行远程�
 
 ## 进程边界
 
-子进程经由 [`dsh-subprocess`](../../subprocess/subprocess/README.md) seam spawn：共享的凭据清除先移除疑似凭据的环境变量和环境中已有的 `DSH_*` 名称，显式 `config.env` 值在清除之后合并（有意转发的 `DEEPSEEK_API_KEY` 会保留下来，`DSH_PERMISSION_MODE` 这类 `DSH_*` 部署事实也以同样的方式到达子进程——清除只丢弃其陈旧的同名环境值），stderr 会继承到父进程自身的流，dispose 则以本插件配置的宽限期运行该 seam 的协作式 stdin EOF→SIGTERM→SIGKILL 阶梯。ACP 协议格式（wire format）是真正的序列化边界；同进程 subagent 值不会为防御目的而克隆。
+子进程经由 [`dsh-subprocess`](../../subprocess/subprocess/README.md) seam spawn：共享的凭据清除先移除疑似凭据的环境变量和环境中已有的 `DSH_*` 名称，显式 `config.env` 值在清除之后合并（有意转发的 `DEEPSEEK_API_KEY` 会保留下来，`DSH_PERMISSION_MODE` 这类 `DSH_*` 部署事实也以同样的方式到达子进程——清除只丢弃其陈旧的同名环境值），stderr 会继承到父进程自身的流，dispose 则先应用本插件的 EOF 时间窗，再由子进程责任方执行 SIGTERM→SIGKILL 升级并等待整棵进程树退出。ACP 协议格式（wire format）是真正的序列化边界；同进程 subagent 值不会为防御目的而克隆。
 
 本包没有默认导出。否则 Cordis loader 的解包会隐藏具名 `inject` 元数据；见[事故复盘（postmortem）0001](../../../docs/postmortem/0001-acp-default-export-drops-inject.md)。
 

@@ -18,7 +18,7 @@ Status: implemented
 
 有一处触发缺口是接受而非绕过的：lefthook 只检视磁盘上存在的文件，因此**删除**清单文件不会触发任何任务，移除一个包会落到测试 lane 的断言上。重构暂存文件列表以纳入删除的做法试过，不成立——无论怎么给列表，lefthook 都会拿工作树过滤一遍。这个场景正由断言兜底。
 
-文件只披露**直接**依赖。完整的 npm 闭包连同锁定版本已记录在 `pnpm-lock.yaml`（`pnpm licenses list` 可渲染），Python 闭包记录在 `python/sdk/uv.lock`；再用散文誊一遍只会得到一份更差的副本。
+文件默认只披露**直接**依赖。完整的 npm 闭包连同锁定版本已记录在 `pnpm-lock.yaml`（`pnpm licenses list` 可渲染），Python 闭包记录在 `python/sdk/uv.lock`；再用散文誊一遍只会得到一份更差的副本。唯一明确披露的传递依赖，是 `@anthropic-ai/claude-agent-sdk` 通过 `optionalDependencies` 声明的官方 Claude 平台载荷集合，因为这些包承载随产品分发的 Claude Code 可执行文件，而非普通的库实现细节。
 
 **分层依据是声明方所在区域，而非清单字段名。** 只要 `DEV_ONLY_AREAS` 之外的任一清单——即根清单、`packages/support/`、`packages/client/test-runtime/`、`website/`、`examples/`、`native/` 之外——在 `dependencies` 或 `optionalDependencies` 里点名某个包，它就是运行时依赖。单看字段名在两个方向上都会出错：测试支撑包把 `vitest` 写在 `dependencies` 里却并不交付它；而 `bin/dsh` 启动器 exec 经过的 `tsx`，根本没有任何清单把它声明为运行时依赖，只能由生成器显式标记。
 
@@ -26,9 +26,13 @@ Status: implemented
 
 清单集合由两个 `pnpm-workspace.yaml`——根工作区与嵌套的 Landlock 工作区——各自声明的 `packages:` 成员派生，因此新增成员区域在声明当天就会被读取，而不必等谁想起来去补一份列表。许可证与仓库地址取自已安装的 pnpm store，根 store 与 Landlock 工作区的 store 都会查；某个包两处都解析不到时直接失败，而不是留下空单元格。`OVERRIDES` 收录已发布清单答不上来的包：用 Rust 构建、发布时省略 `license` 字段的 npm 可执行包，以及 `modelcontextprotocol/servers` 系列——该仓库正处在 MIT 向 Apache-2.0 的重新许可过程中，实际条款按贡献逐条而定。运行时依赖的许可证若不在宽松清单内即为硬失败：交付 copyleft 是一项分发决策，不该被一次重新生成悄悄吸收。被源码收编的包会与 `vendor/README.md` 交叉核对，出现非 MIT 即报错；`pnpm-workspace.yaml` 的 `patchedDependencies` 列在运行时表格之后，因为 pnpm 在安装期就会打上这些补丁——交付产物携带的是改动过的 `@earendil-works/pi-tui` 与 `node-pty`，补丁文件本身就是改动的完整记录。
 
+项目所有者另行授权分发每个官方 `@anthropic-ai/claude-agent-sdk` 版本，以及该版本通过 `optionalDependencies` 声明的官方 Claude Code CLI 与平台载荷。生成器将其表示为一项精确匹配直接包身份的例外，而非宽松许可证覆盖项：`SEE LICENSE IN README.md` 与 `SEE LICENSE IN LICENSE.md` 仍归类为非宽松，所有无关的非宽松运行时依赖仍以默认拒绝方式失败。存在该 SDK 时，生成器会读取其已安装清单，拒绝不符合官方 SDK 载荷前缀的可选包身份，推导当前 SDK、CLI 与载荷版本，核验已安装宿主载荷的身份、版本和声明许可证字段，并在单独的声明章节中渲染 SDK 声明的完整载荷集合。版本、声明许可证和载荷集合发生变化时无需新的身份授权，但仍须经过常规的依赖、锁文件、兼容性、条款和声明评审。
+
 ## Testing
 
 断言新鲜度的同一个 spec 也用夹具清单钉住分层规则，覆盖促成该规则的两个场景：测试支撑包的 `dependencies` 条目，以及没有任何应用挂载的插件包。它还把各解析器钉在那些原本会让某个包无声消失的形态上：不再覆盖全部收编目录的 `vendor/README.md` 表、含 extras 的依赖数组（`"httpx[http2]"`）、完全不带版本的依赖、作者自取名字的 `[dependency-groups]` 表，以及任何硬编码列表都不含的工作区成员区域。这些都是静默漏报路径——正是披露文件最担不起的失败方式。
+
+Claude 分发测试证明：只有精确匹配的直接 SDK 身份会绕过通常的非宽松运行时拒绝；该绕过不会改变许可证分类；载荷集合来自 SDK 清单，而非版本或平台允许列表。SDK 身份错误、载荷缺失或存在无关的可选包身份时，测试都会失败。
 
 ## Alternatives considered
 
@@ -42,6 +46,8 @@ Status: implemented
 
 **只按已交付装配的可达性分层**（`apps/*` 加 `python/sdk-runtime`）。这样得到的运行时层更紧凑，但会把 MCP 客户端与 OpenTelemetry 导出器判为仅开发用途——而运行已安装仓库的用户完全可以挂载它们。这会低估披露，对法务通告来说错在了更危险的一侧。
 
+**将 Claude SDK 条款视为宽松条款，或新增可复用的非宽松允许列表。** 两种方案都会误述上游声明，并让无关运行时依赖继承从未授予它的授权。这项窄例外只匹配官方直接 SDK 身份；其可选载荷身份仅作为该 SDK 声明的数据被接受，并继续明确归类为非宽松。
+
 **把披露文件做成双语对。** 其他根文档都是成对的，但这份文件是上游包名、SPDX 标识与网址构成的表格，可翻译的只有寥寥几段章节导语。`scripts/translation-pairing.ts` 的发现范围限定在 `README*`、`.agents/notes/**`、`docs/**` 与 `python/**`，根目录下的非 README 文件在构造上就不属于双语语料；双语入口由 README 对承担。
 
 ## Consequences
@@ -51,3 +57,5 @@ Status: implemented
 生成器需要已安装的工作树，因此比纯源码生成器更重；发布元数据不可用的新包需要补一条 `OVERRIDES`，而不是默默渲染出空白许可证。这两类失败都会明确报错并指出补救方式。
 
 分层规则是编码在一个常量里的政策。若新增了不参与交付的工作区区域——第二层测试基础设施、另一个站点——就要同步扩展 `DEV_ONLY_AREAS`，否则其依赖会被当作运行时依赖披露出去。
+
+Claude 身份例外刻意比其启用的载荷披露范围更窄。升级 SDK 无需新的所有者授权，但如果已安装的 SDK 未公开自身版本、CLI 版本和至少一个官方平台载荷，或当前宿主载荷与 SDK 声明不符，重新生成就会失败。维护者仍须评审发生变化的条款与兼容性；生成器会阻止授权悄然扩大到其他包。
