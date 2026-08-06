@@ -507,7 +507,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/bundle/headless/src/index.ts:31`](../packages/bundle/headless/src/index.ts)
+Source: [`packages/bundle/headless/src/index.ts:33`](../packages/bundle/headless/src/index.ts)
 
 ## `@deepseek-ai/dsh-hooks-claude`
 
@@ -2204,6 +2204,13 @@ export interface Config {
   mode: WebMode
   /** Print the URL line on activation; a headless layer over this bundle turns it off. */
   printUrl: boolean
+  /**
+   * Register the model-visible surface context (the `app:web-surface` prompt
+   * section and the `DSH_WEB_URL`/`DSH_WEB_MODE` bash variables). A one-shot
+   * layer turns it off: its user is not interacting through the GUI, so the
+   * orientation text would be false.
+   */
+  surfaceContext: boolean
   /**
    * LAN IPv4 addresses sampled once by the launcher when the effective bind
    * is all-interfaces — the exact snapshot the /api trust fence was
