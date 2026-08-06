@@ -162,7 +162,7 @@ describe('MarkdownText', () => {
     expect(() => tokenizer?.call({
       parser: { constructs: { attentionMarkers: {} } },
       previous: null,
-    }, {}, () => undefined, () => undefined)).toThrow(
+    } as never, {} as never, () => undefined, () => undefined)).toThrow(
       'micromark CommonMark attention markers are unavailable',
     )
   })

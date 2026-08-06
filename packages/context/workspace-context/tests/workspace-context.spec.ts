@@ -3815,13 +3815,18 @@ describe('dynamic nested workspace context injection', () => {
         signal: testToolSignal,
         callId: CallId('read-tiny-budget-1'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
       })
+      await syncWorkspaceContext(ctx, agent)
       const second = await ctx.tools.execute({
         signal: testToolSignal,
         callId: CallId('read-tiny-budget-2'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
       })
+      await syncWorkspaceContext(ctx, agent)
 
       expect(first.additionalContexts).toBeUndefined()
       expect(second.additionalContexts).toBeUndefined()
+      // Nothing was emitted, and the uncommitted version made the second sync
+      // probe the instruction file again — the retry.
+      expect(agent.inbox.nextStep).toHaveLength(0)
       expect(fs.readTargets.filter(path => path === instructionPath)).toHaveLength(2)
     } finally {
       await ctx.fiber.dispose()
@@ -3916,7 +3921,7 @@ describe('workspace context inbox synchronization', () => {
     }
   })
 
-  it('keeps a dynamic change within a one-byte positive render budget', async () => {
+  it('holds back a dynamic change a one-byte positive render budget cannot represent', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     const ctx = new Context()
@@ -3934,8 +3939,10 @@ describe('workspace context inbox synchronization', () => {
 
       await syncWorkspaceContext(ctx, agent)
 
-      expect(agent.inbox.nextStep).toHaveLength(1)
-      expect(Buffer.byteLength(blocksText(agent.inbox.nextStep[0]?.content), 'utf8')).toBeLessThanOrEqual(1)
+      // One byte cannot semantically represent the transition, so nothing is
+      // emitted and nothing commits — the uncommitted version retries on the
+      // next touch instead of committing state the model never saw.
+      expect(agent.inbox.nextStep).toHaveLength(0)
     } finally {
       await ctx.fiber.dispose()
       await rm(root, { recursive: true, force: true })
