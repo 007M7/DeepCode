@@ -22,6 +22,7 @@ import {
 import {
   DeepSeekModelsEditor, modelDrafts, validateDeepSeekModels,
 } from './DeepSeekModelsEditor.tsx'
+import { apiKeyFailure } from './apiKey.ts'
 import { EditorFooter } from './EditorFooter.tsx'
 import { ModelListEditor } from './ModelListEditor.tsx'
 import { deriveKeyRef, messageOf } from './store.ts'
@@ -163,7 +164,7 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
 
   const stringAt = (source: unknown, key: string): string | undefined => {
     const value = getPath(source, [key])
-    return typeof value === 'string' && value.length > 0 ? value : undefined
+    return typeof value === 'string' && value.trim().length > 0 ? value : undefined
   }
   const setField = (key: string, next: string | undefined): void => {
     setDraft(current => next === undefined ? deletePath(current, [key]) : setPath(current, [key], next))
@@ -172,6 +173,12 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
   // The model list is validated by the same per-row checker for both families,
   // so a bad row is named by its position rather than by a blanket message.
   const modelFailure = validateDeepSeekModels(getPath(draft, ['models']))
+  const keyFailure = apiKeyFailure(keyDraft)
+  // What a probe or a write must carry: the typed key with paste whitespace
+  // removed. A blank field yields an empty string, which both call sites read
+  // as "no key supplied" rather than as a key — that is how a card whose
+  // provider already has a stored key is edited without re-entering it.
+  const keyValue = keyDraft.trim()
   // What the form currently shows, which is what an interrogation must ask:
   // an edited-but-unsaved endpoint, and a key typed but not yet stored.
   const probeApi = stringAt(draft, 'api') ?? stringAt(fallback, 'api')
@@ -183,7 +190,7 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
     provider: props.provider,
     ...probeBaseURL === undefined ? {} : { baseURL: probeBaseURL },
     ...probeApi === undefined ? {} : { api: probeApi },
-    ...keyDraft.length === 0 ? {} : { apiKey: keyDraft },
+    ...keyValue.length === 0 ? {} : { apiKey: keyValue },
   }
   /**
    * The write for this card, or a failure message. Every edit travels as
@@ -226,8 +233,8 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
           : response.result.error.message
       }
     }
-    if (keyDraft.length > 0) {
-      const stored = await api.credentials.set({ ref: keyRef, value: keyDraft })
+    if (keyValue.length > 0) {
+      const stored = await api.credentials.set({ ref: keyRef, value: keyValue })
       if (!stored.result.ok) return stored.result.error.message
     }
     setKeyDraft('')
@@ -313,6 +320,7 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
             disabled={disabled || keyLocked}
             onChange={(event) => { setKeyDraft(event.target.value) }}
           />
+          {keyFailure === undefined ? null : <p className={styles['error']}>{t(keyFailure)}</p>}
         </div>
         <details className={styles['customized']}>
           <summary className={styles['customizedSummary']}>{t('customized')}</summary>
@@ -396,7 +404,8 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
       <EditorFooter
         t={t}
         busy={busy}
-        submitDisabled={disabled || layout === 'unknown' || modelFailure !== undefined}
+        submitDisabled={disabled || layout === 'unknown' || modelFailure !== undefined
+          || keyFailure !== undefined}
         submitLabel="apply"
         submitBusyLabel="applying"
         onCancel={() => { props.onClose(false) }}

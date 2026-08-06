@@ -862,4 +862,106 @@ describe('hand-declared providers', () => {
     await waitFor(() => { expect(screen.queryByText(en.customTitle)).toBeNull() })
     expect(screen.getByRole('button', { name: en.customAdd })).toBeTruthy()
   })
+
+  it('refuses an unusable key on the field and blocks creation', () => {
+    const { mutate, set } = mountCard()
+
+    fireEvent.change(screen.getByLabelText(en.customRoute), { target: { value: 'acme-gateway' } })
+    fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: 'https://gateway.acme.example/v1' } })
+    fireEvent.click(screen.getByRole('button', { name: en.addModel }))
+    fireEvent.change(screen.getByLabelText(`${en.modelId} 1`), { target: { value: 'acme-large' } })
+    fireEvent.change(screen.getByLabelText(en.keyInput), { target: { value: 'sk-\u{1F600}' } })
+
+    // A hand-declared route reaches the same judgement as an edited one, so a
+    // key that no header can carry never becomes a profile plus a bad secret.
+    expect(screen.getByText(en.keyIllegalCharacters)).toBeTruthy()
+    expect(buttonNamed(en.create).disabled).toBe(true)
+    expect(mutate).not.toHaveBeenCalled()
+    expect(set).not.toHaveBeenCalled()
+  })
+
+  it('creates without a key when the route authenticates some other way', async () => {
+    const { set, onClose } = mountCard()
+
+    fireEvent.change(screen.getByLabelText(en.customRoute), { target: { value: 'ambient-gateway' } })
+    fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: 'https://gateway.acme.example/v1' } })
+    fireEvent.click(screen.getByRole('button', { name: en.addModel }))
+    fireEvent.change(screen.getByLabelText(`${en.modelId} 1`), { target: { value: 'acme-large' } })
+    fireEvent.click(screen.getByText(en.create))
+
+    await waitFor(() => { expect(onClose).toHaveBeenCalledWith(true) })
+    expect(set).not.toHaveBeenCalled()
+  })
+})
+
+describe('API key field', () => {
+  it('submits with a blank key field without writing a credential', async () => {
+    const { mutate, set } = await mountSection()
+    openEditor('openai')
+
+    // The field opens empty even for a provider whose key is stored, where it
+    // means "keep that one" — so editing anything else must not require it.
+    fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: 'https://moved.example/v1' } })
+    expect(buttonNamed(en.apply).disabled).toBe(false)
+    fireEvent.click(screen.getByText(en.apply))
+
+    await waitFor(() => { expect(mutate).toHaveBeenCalled() })
+    expect(set).not.toHaveBeenCalled()
+  })
+
+  it('blocks submit and names the field when the key holds only whitespace', async () => {
+    const { mutate, set } = await mountSection()
+    openEditor('openai')
+
+    fireEvent.change(screen.getByLabelText(en.keyInput), { target: { value: '   ' } })
+
+    expect(screen.getByText(en.keyBlank)).toBeTruthy()
+    expect(buttonNamed(en.apply).disabled).toBe(true)
+    expect(mutate).not.toHaveBeenCalled()
+    expect(set).not.toHaveBeenCalled()
+  })
+
+  it('blocks submit when the key contains characters no header can carry', async () => {
+    const { set } = await mountSection()
+    openEditor('openai')
+
+    fireEvent.change(screen.getByLabelText(en.keyInput), { target: { value: 'sk-\u{1F600}' } })
+
+    expect(screen.getByText(en.keyIllegalCharacters)).toBeTruthy()
+    expect(buttonNamed(en.apply).disabled).toBe(true)
+    expect(set).not.toHaveBeenCalled()
+  })
+
+  it('blocks submit when a whole NAME=value line was pasted', async () => {
+    await mountSection()
+    openEditor('openai')
+
+    fireEvent.change(screen.getByLabelText(en.keyInput), { target: { value: 'OPENAI_API_KEY=sk-abc' } })
+
+    expect(screen.getByText(en.keyLooksWrapped)).toBeTruthy()
+    expect(buttonNamed(en.apply).disabled).toBe(true)
+  })
+
+  it('trims a padded key before storing it', async () => {
+    const { set } = await mountSection()
+    openEditor('openai')
+
+    fireEvent.change(screen.getByLabelText(en.keyInput), { target: { value: '  sk-abc  ' } })
+    expect(buttonNamed(en.apply).disabled).toBe(false)
+    fireEvent.click(screen.getByText(en.apply))
+
+    await waitFor(() => { expect(set).toHaveBeenCalled() })
+    expect((set.mock.calls[0]?.[0] as { value: string }).value).toBe('sk-abc')
+  })
+
+  it('carries the trimmed key into an interrogation, not the padded draft', async () => {
+    const { discover } = await mountSection()
+    openEditor('openai')
+
+    fireEvent.change(screen.getByLabelText(en.keyInput), { target: { value: '  sk-abc  ' } })
+    fireEvent.click(screen.getByRole('button', { name: en.fetchModels }))
+
+    await waitFor(() => { expect(discover).toHaveBeenCalled() })
+    expect(firstProbe(discover)).toMatchObject({ apiKey: 'sk-abc' })
+  })
 })
