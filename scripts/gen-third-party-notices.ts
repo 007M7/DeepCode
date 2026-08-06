@@ -191,8 +191,8 @@ export function virtualManifest(virtual: string, name: string): VirtualManifest 
 function installedMetadata(name: string): { license: string; repo: string } {
   const override = OVERRIDES[name]
   let manifest: (Manifest & { license?: string; repository?: string | { url?: string }; homepage?: string }) | undefined
-  // The nested Landlock workspace installs into its own store, so a package
-  // only that workspace depends on is unreachable from the root one.
+  // Workspace-local link farms can expose a dependency that is not linked at
+  // the repository root; both are backed by the root workspace's lockfile.
   for (const store of ['node_modules', 'native/landlock-run/node_modules']) {
     const direct = resolve(root, store, name, 'package.json')
     if (existsSync(direct)) {
@@ -208,7 +208,7 @@ function installedMetadata(name: string): { license: string; repo: string } {
   const rawRepo = typeof manifest?.repository === 'string' ? manifest.repository : manifest?.repository?.url ?? manifest?.homepage
   const repo = override?.repo ?? normalizeRepo(rawRepo)
   if (license === undefined || repo === undefined) {
-    throw new Error(`gen-third-party-notices: cannot resolve ${license === undefined ? 'license' : 'repository'} for ${name}; run \`pnpm install\` (or, for a Landlock-only dependency, \`pnpm --dir native/landlock-run install\`), or add an OVERRIDES entry.`)
+    throw new Error(`gen-third-party-notices: cannot resolve ${license === undefined ? 'license' : 'repository'} for ${name}; run \`pnpm install\`, or add an OVERRIDES entry.`)
   }
   return { license, repo }
 }
@@ -544,7 +544,7 @@ DeepSeek Harness is licensed under [BSD 3-Clause](LICENSE). It depends on the th
 
 This file lists **direct** dependencies declared by the workspace. It is generated from the workspace manifests by \`scripts/gen-third-party-notices.ts\`: a pre-commit hook regenerates it whenever a staged file changes one of its inputs, and \`scripts/gen-third-party-notices.spec.ts\` asserts in the test lane that the committed bytes match. Deleting a manifest runs no hook, so that case is caught by the assertion instead. Run \`pnpm run verify-third-party-notices\` for the standalone check.
 
-The complete npm transitive closure, with exact pinned versions, is recorded in [\`pnpm-lock.yaml\`](pnpm-lock.yaml) — inspect it with \`pnpm licenses list\`. The Python closure is recorded in [\`python/sdk/uv.lock\`](python/sdk/uv.lock), and the Landlock launcher workspace keeps its own in [\`native/landlock-run/pnpm-lock.yaml\`](native/landlock-run/pnpm-lock.yaml).
+The complete npm transitive closure, including the Landlock launcher workspace, is recorded with exact pinned versions in [\`pnpm-lock.yaml\`](pnpm-lock.yaml) — inspect it with \`pnpm licenses list\`. The Python closure is recorded separately in [\`python/sdk/uv.lock\`](python/sdk/uv.lock).
 
 ## Vendored source (\`vendor/\`)
 

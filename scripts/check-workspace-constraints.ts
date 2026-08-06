@@ -35,6 +35,7 @@ const publicLandlockPackages = new Set([
   'node-addon-landlock-run-linux-arm64',
   'node-addon-landlock-run-linux-x64',
 ])
+const repositoryUrl = 'git+https://github.com/deepseek-harness/deepseek-harness.git'
 
 const localArtifactDirs = new Set(['node_modules'])
 const appPackageFiles: Readonly<Record<string, readonly string[]>> = {
@@ -63,6 +64,7 @@ interface PackageManifest {
   >
   files?: string[]
   publishConfig?: { access?: string }
+  repository?: { type?: string; url?: string; directory?: string }
   peerDependencies?: Record<string, string>
   devDependencies?: Record<string, string>
 }
@@ -89,12 +91,12 @@ function packageDirs(base: string, depth: number): string[] {
       .filter(entry => entry.isDirectory())
       .filter(entry => !localArtifactDirs.has(entry.name))
       .filter(entry => existsSync(join(root, base, entry.name, 'package.json')))
-      .map(entry => join(base, entry.name))
+      .map(entry => `${base}/${entry.name}`)
   }
   return readdirSync(join(root, base), { withFileTypes: true })
     .filter(entry => entry.isDirectory())
     .filter(entry => !localArtifactDirs.has(entry.name))
-    .flatMap(group => packageDirs(join(base, group.name), depth - 1))
+    .flatMap(group => packageDirs(`${base}/${group.name}`, depth - 1))
 }
 
 function workspaceManifests(): WorkspaceManifest[] {
@@ -182,6 +184,12 @@ function checkWorkspace({ dir, manifest }: WorkspaceManifest): string[] {
     }
     if (manifest.publishConfig?.access !== 'public') {
       errors.push(`${label}: published Landlock package must set publishConfig.access to "public"`)
+    }
+    const expectedDirectory = dir
+    if (manifest.repository?.type !== 'git'
+      || manifest.repository.url !== repositoryUrl
+      || manifest.repository.directory !== expectedDirectory) {
+      errors.push(`${label}: published Landlock package repository must use ${repositoryUrl} with directory ${expectedDirectory} for trusted publishing`)
     }
   } else if (manifest.private !== true) {
     errors.push(`${label}: package.json must set "private": true`)

@@ -6,20 +6,6 @@ updates:
     exclude-paths:
       # Vendored Cordis sources follow vendor/README.md instead of registry updates.
       - "vendor/**"
-      # This independently locked pnpm workspace has its own update entry below.
-      - "native/landlock-run/**"
-    schedule:
-      interval: "cron"
-      cronjob: "0 4 * * *"
-      timezone: "Asia/Shanghai"
-    cooldown:
-      default-days: 30
-    labels:
-      - "cleanup"
-      - "area/infra"
-
-  - package-ecosystem: "npm"
-    directory: "/native/landlock-run"
     schedule:
       interval: "cron"
       cronjob: "0 4 * * *"
