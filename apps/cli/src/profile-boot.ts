@@ -17,15 +17,28 @@ import {
   composeEntries,
   healProfilesModuleFallback,
   installFailLoud,
+  loadOptionalPatches,
   loadOverlayPatches,
   loadProfile,
+  PROFILE_PATCH_FILENAME,
   watchPersonalPatches,
   type Profile,
 } from '@deepseek-ai/dsh-app-boot'
+import { resolveDshHome } from '@deepseek-ai/dsh-paths'
 import type { HeadlessIo } from '@deepseek-ai/dsh-headless'
 import { createProcessShutdown, type ProcessShutdown } from './process-shutdown.ts'
 
 const NAME = 'dsh'
+
+/**
+ * The home-level user patch layer (`$DSH_HOME/cordis.patch.yml`), applied
+ * over every profile's own layer. Resolved per call, not at module load:
+ * `$DSH_HOME` may be set by the test or launcher after import.
+ * @returns the absolute patch-file path.
+ */
+export function homePatchPath(): string {
+  return join(resolveDshHome(), PROFILE_PATCH_FILENAME)
+}
 
 /** Absolute path of this dsh installation's package.json (both anchors: src/ and lib/ sit one level under apps/cli). */
 export const INSTALL_ANCHOR = fileURLToPath(new URL('../package.json', import.meta.url))
@@ -85,12 +98,14 @@ export function prepareProfile(name: string, userLayer = true): Profile {
 /** One profile's patch layers (application order) and the row index of its pre-flag composition. */
 interface ComposedProfile {
   profile: Profile
-  /** Bundle layers concatenated — the part below the user layer on a live reload. */
+  /** Bundle layers concatenated — the part below the user layers on a live reload. */
   bundlePatches: PatchOptions[]
-  /** Layers above the user layer on a live reload: --patch overlays, flag patches, the telemetry switch. */
+  /** The home-level user layer (`$DSH_HOME/cordis.patch.yml`), applied after the profile's own. */
+  homePatches: PatchOptions[]
+  /** Layers above the user layers on a live reload: --patch overlays, flag patches, the telemetry switch. */
   overlayAndFlags: PatchOptions[]
   /**
-   * id → row of the pre-flag composition (bundles + user layer + overlays),
+   * id → row of the pre-flag composition (bundles + user layers + overlays),
    * for flag merges and row checks. Flag patches must not insert rows the
    * launcher consults here (they only override values and insert dev glue).
    */
@@ -99,13 +114,16 @@ interface ComposedProfile {
 
 /** The full patch stack of one composed profile, in application order. */
 function allPatches(composed: ComposedProfile): PatchOptions[] {
-  return [...composed.bundlePatches, ...composed.profile.patches, ...composed.overlayAndFlags]
+  return [...composed.bundlePatches, ...composed.profile.patches, ...composed.homePatches, ...composed.overlayAndFlags]
 }
 
 /**
  * Load `name` and compose its effective patch stack: bundle layers in
- * `dsh.plugins` order, the profile's user layer, `--patch` overlays, then
- * flag patches derived from the composed rows, then the telemetry switch.
+ * `dsh.plugins` order, the profile's user layer, the home-level user layer
+ * (`$DSH_HOME/cordis.patch.yml` — machine-local preferences that apply to
+ * every profile, so it outranks the per-profile layer), `--patch` overlays,
+ * then flag patches derived from the composed rows, then the telemetry
+ * switch.
  * @param name - the profile name.
  * @param patchFiles - `--patch` overlay paths, in argv order.
  * @param deriveFlagPatches - launcher hook turning composed rows into flag patches.
@@ -117,16 +135,17 @@ function composeProfile(
   deriveFlagPatches: (rows: ComposedProfile['rows']) => PatchOptions[] = () => [],
 ): ComposedProfile {
   const profile = prepareProfile(name)
+  const homePatches = loadOptionalPatches(NAME, homePatchPath()) ?? []
   const overlays = patchFiles.flatMap(file => loadOverlayPatches(NAME, resolve(file)))
   const bundlePatches = profile.layers.flatMap(layer => layer.patches)
   const rows = new Map<string, { name?: string; config?: unknown }>()
-  for (const row of composeEntries([bundlePatches, profile.patches, overlays])) {
+  for (const row of composeEntries([bundlePatches, profile.patches, homePatches, overlays])) {
     if (typeof row.id === 'string') rows.set(row.id, row)
   }
   const overlayAndFlags = [...overlays, ...deriveFlagPatches(rows)]
   const telemetryPatch = resolveTelemetryPatch(process.env.DSH_TELEMETRY_DISABLED, rows.has(TELEMETRY_ROW_ID))
   if (telemetryPatch !== undefined) overlayAndFlags.push(telemetryPatch)
-  return { profile, bundlePatches, overlayAndFlags, rows }
+  return { profile, bundlePatches, homePatches, overlayAndFlags, rows }
 }
 
 /** Options for {@link runProfile}. */
@@ -181,16 +200,20 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
   })
 
   const rootConfig = join(composed.profile.dir, PROFILE_ROOT_FILENAME)
-  // Recomposition for the live profile layer: bundle layers below, overlays
-  // and flag patches above, so a profile edit can never displace them.
+  // Recomposition for the live user layers: bundle layers below, overlays
+  // and flag patches above, so a user edit can never displace them. BOTH
+  // user files are re-read per generation (the HMR watcher hands us only the
+  // changed file's patches, which one of the reads duplicates — fresh reads
+  // keep the two watchers from stitching in each other's stale copy).
   // Fresh clones per generation: the include pushes `insert` rows into the
   // mounted tree BY REFERENCE and later id-targeted patches mutate those
   // objects in place. Reusing one parsed patch object across applications
   // would bake a user override into the bundle's in-memory insert row, so
   // removing the override could never revert the row to the bundle default.
-  const composeLive = (profilePatches: PatchOptions[]): PatchOptions[] => structuredClone([
+  const composeLive = (): PatchOptions[] => structuredClone([
     ...composed.bundlePatches,
-    ...profilePatches,
+    ...loadOptionalPatches(NAME, composed.profile.patchPath) ?? [],
+    ...loadOptionalPatches(NAME, homePatchPath()) ?? [],
     ...composed.overlayAndFlags,
   ])
   // One-shot runs exit through the runner; watching would only hold the
@@ -231,6 +254,11 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
     await watchPersonalPatches(ctx, {
       binName: NAME,
       filename: composed.profile.patchPath,
+      compose: composeLive,
+    })
+    await watchPersonalPatches(ctx, {
+      binName: NAME,
+      filename: homePatchPath(),
       compose: composeLive,
     })
   }

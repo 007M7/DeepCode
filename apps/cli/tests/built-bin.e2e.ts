@@ -200,6 +200,17 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
       writeFileSync(profilePatch, '[]\n')
       await waitForFile(fixture.ready)
       expect(readFileSync(configFile, 'utf8')).toBe('bundle-default')
+      // The home-level user layer ($DSH_HOME/cordis.patch.yml) is live too
+      // and outranks the per-profile layer.
+      rmSync(fixture.ready)
+      writeFileSync(join(fixture.home, 'cordis.patch.yml'), [
+        '- id: profile-lifecycle-fixture',
+        '  config:',
+        '    generation: home',
+        '',
+      ].join('\n'))
+      await waitForFile(fixture.ready)
+      expect(readFileSync(configFile, 'utf8')).toBe('home')
       child.kill('SIGTERM')
       const result = await child
       expect(result.exitCode).toBe(0)

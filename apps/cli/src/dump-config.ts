@@ -9,11 +9,12 @@
 import { existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import {
+  loadOptionalPatches,
   loadOverlayPatches,
   renderConfigDump,
   type ConfigDumpLayer,
 } from '@deepseek-ai/dsh-app-boot'
-import { prepareProfile, PROFILE_ROOT_FILENAME } from './profile-boot.ts'
+import { homePatchPath, prepareProfile, PROFILE_ROOT_FILENAME } from './profile-boot.ts'
 
 const NAME = 'dsh'
 
@@ -35,6 +36,11 @@ export function runDumpConfig(profile: string, defaultOnly: boolean, patches: re
   if (!defaultOnly) {
     if (existsSync(loaded.patchPath)) {
       layers.push({ label: loaded.patchPath, patches: loaded.patches })
+    }
+    const homePatchFile = homePatchPath()
+    const homePatches = loadOptionalPatches(NAME, homePatchFile)
+    if (homePatches !== undefined) {
+      layers.push({ label: homePatchFile, patches: homePatches })
     }
     for (const file of patches) {
       const absolute = resolve(file)

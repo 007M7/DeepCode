@@ -17,7 +17,7 @@ The invoking directory is the default workspace root. The `web` and `headless` p
 
 ## Profiles
 
-A profile directory holds a `package.json` (out-of-tree plugin dependencies plus the ordered `dsh.plugins` bundle list) and a `cordis.patch.yml` (the user's own patch layer, hot-reloaded on long-lived surfaces). The tree composes over an empty root: each bundle's patch in `dsh.plugins` order, then `cordis.patch.yml`, then `--patch` overlays, then flag patches. Bundles named in `dsh.plugins` resolve from the dsh installation first (`@deepseek-ai/dsh-base`, `@deepseek-ai/dsh-web-app`, `@deepseek-ai/dsh-headless`), then from the profile's own `node_modules`, where pnpm installs out-of-tree plugins. Use `--dump-default-config` and `--dump-config` to inspect the composed tree without booting it.
+A profile directory holds a `package.json` (out-of-tree plugin dependencies plus the ordered `dsh.plugins` bundle list) and a `cordis.patch.yml` (the user's own patch layer, hot-reloaded on long-lived surfaces). The tree composes over an empty root: each bundle's patch in `dsh.plugins` order, then the profile's `cordis.patch.yml`, then the home-level `$DSH_HOME/cordis.patch.yml`, then `--patch` overlays, then flag patches. Bundles named in `dsh.plugins` resolve from the dsh installation first (`@deepseek-ai/dsh-base`, `@deepseek-ai/dsh-web-app`, `@deepseek-ai/dsh-headless`), then from the profile's own `node_modules`, where pnpm installs out-of-tree plugins. Use `--dump-default-config` and `--dump-config` to inspect the composed tree without booting it.
 
 The [CLI behavior reference](reference/README.md) owns exact layer precedence, flags, shutdown behavior, deployment defaults, and the source launcher.
 
