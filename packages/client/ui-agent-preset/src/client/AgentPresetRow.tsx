@@ -52,7 +52,12 @@ export function AgentPresetRow({ load, select, useAgentPreset, t }: AgentPresetR
   // every session shares the host composition — the row simply does not exist.
   if (state.status === 'unavailable') return null
   const busy = state.status === 'loading' || state.status === 'saving'
-  const label = state.currentValue === '' ? t('loading') : state.currentValue
+  // The metadata name is what every other surface shows — the new-session chip,
+  // the session header, the preset cards — so this row shows it too; the id is
+  // the addressing, not the label. A preset that names itself nothing falls
+  // back to its id, which is then all there is to say about it.
+  const chosen = state.options.find(option => option.id === state.currentValue)
+  const label = state.currentValue === '' ? t('loading') : (chosen?.name ?? state.currentValue)
   const description: string = state.error ?? t('description')
 
   return (
@@ -69,7 +74,9 @@ export function AgentPresetRow({ load, select, useAgentPreset, t }: AgentPresetR
         // every preset as shipped and vetted.
         items={state.options.map(option => ({
           id: option.id,
-          label: option.trust === 'user' ? `${option.id} · ${t('userTrust')}` : option.id,
+          label: option.trust === 'user'
+            ? `${option.name ?? option.id} · ${t('userTrust')}`
+            : option.name ?? option.id,
         }))}
         selectedId={state.currentValue}
         onSelect={(id) => {

@@ -28,7 +28,9 @@ const ROW_READY: AgentPresetSettingsState = {
   error: null,
   writable: true,
   currentValue: 'standard',
-  options: [{ id: 'standard', trust: 'system' }, { id: 'mine', trust: 'user' }],
+  // `mine` deliberately names itself nothing: the row must fall back to the
+  // id for a preset whose author wrote no metadata.
+  options: [{ id: 'standard', trust: 'system', name: '标准模式' }, { id: 'mine', trust: 'user' }],
 }
 
 const SEAT_READY: AgentPresetSeatState = {
@@ -88,7 +90,7 @@ describe('the General-settings row', () => {
     const actions = renderRow()
 
     await waitFor(() => { expect(actions.load).toHaveBeenCalledTimes(1) })
-    expect(screen.getByRole('button').textContent).toContain('standard')
+    expect(screen.getByRole('button').textContent).toContain('标准模式')
   })
 
   it('marks a locally authored option as local', () => {
@@ -100,7 +102,7 @@ describe('the General-settings row', () => {
     // list says which rows are local rather than presenting all as vetted.
     expect(screen.getByText(`mine · ${en.userTrust}`)).toBeTruthy()
     // The shipped one carries no marker; only local rows are called out.
-    expect(screen.getAllByText('standard')).toHaveLength(2)
+    expect(screen.getAllByText('标准模式')).toHaveLength(2)
   })
 
   it('writes the picked preset and closes the menu', () => {

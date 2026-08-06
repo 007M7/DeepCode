@@ -64,7 +64,7 @@ export const en: Record<AgentPresetSettingsKey, string> = {
 /** Simplified Chinese copy. */
 export const zh: Record<AgentPresetSettingsKey, string> = {
   title: 'Agent 预设',
-  description: '对此后新建的会话生效。运行中的会话保持它开始时的 preset。',
+  description: '对此后新建的会话生效。运行中的会话保持它开始时的预设。',
   loading: '正在加载预设…',
   error: '无法加载 Agent 预设。',
   userTrust: '自定义',
