@@ -126,7 +126,7 @@ describe('TodoPanel', () => {
   it('marks every parallel active item, and counts them all in the header', () => {
     render(<TodoPanel todos={PARALLEL} t={t} />)
     fireEvent.click(screen.getByRole('button', { expanded: false }))
-    // The cap this branch removes made this list unreachable: three items carry
+    // The old unconditional cap made this list unreachable: three items carry
     // the in-progress glyph at once, and the header counts all three.
     const statuses = screen.getAllByRole('listitem').map(li => li.getAttribute('data-status'))
     expect(statuses.filter(s => s === 'in_progress')).toHaveLength(3)

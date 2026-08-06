@@ -140,13 +140,13 @@ describe('dsh-tool-todo', () => {
     expect(agent.session.events.findLast(e => e.type === 'todo/write')!.data.todos).toEqual(todos)
   })
 
-  describe('allowParallelInProgress: false', () => {
+  describe('allowParallelInProgress', () => {
     const parallel = [
       { content: 'run subagent a', status: 'in_progress' },
       { content: 'run subagent b', status: 'in_progress' },
     ]
 
-    it('rejects a call marking several items in_progress', async () => {
+    it('false rejects a call marking several items in_progress', async () => {
       const ctx = await setup(false)
       const agent = agentWithSession('single-active')
       const result = await callTodo(ctx, { todos: parallel }, { agent })
@@ -156,7 +156,7 @@ describe('dsh-tool-todo', () => {
       expect(agent.session.events.some(e => e.type === 'todo/write')).toBe(false)
     })
 
-    it('still accepts one active item', async () => {
+    it('false still accepts one active item', async () => {
       const ctx = await setup(false)
       const todos: TodoItem[] = [
         { content: 'run subagent a', status: 'in_progress' },
@@ -166,7 +166,7 @@ describe('dsh-tool-todo', () => {
       expect(result.isError).toBe(false)
     })
 
-    it('an explicit true accepts a parallel write', async () => {
+    it('true accepts the very list false rejects', async () => {
       const ctx = await setup(true)
       const result = await callTodo(ctx, { todos: parallel })
       expect(result.isError).toBe(false)
