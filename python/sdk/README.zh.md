@@ -29,9 +29,11 @@ with DeepSeekHarness(
     result = harness.run("Make the requested code change.")
 ```
 
-`provider` 用于选择当前 Cordis 组合已注册的提供方路由；`model` 是该适配器解析的模型 ID。`max_tokens` 是可选的正整数，用于限制根 agent 及其进程内后代每次请求的输出 token；省略时由提供方默认值控制。压缩摘要继续使用压缩插件单独配置的上限。内置默认组合注册 `deepseek-official`。自定义组合可以挂载 `llm-pi-ai`，在其中配置各提供方的凭据与端点，再选择 pi-ai 已安装目录中的任意提供方/模型组合。
+`provider` 用于选择当前 Cordis 组合已注册的提供方路由；`model` 是该适配器解析的模型 ID。`max_tokens` 是可选的正整数，用于限制根 agent（智能体）及其进程内后代每次请求的输出 token；省略时由提供方默认值控制。压缩摘要继续使用压缩插件单独配置的上限。内置默认组合注册 `deepseek-official`。自定义组合可以挂载 `llm-pi-ai`，在其中配置各提供方的凭据与端点，再选择 pi-ai 已安装目录中的任意提供方/模型组合。
 
-`HarnessClient` 会在运行时进程的生命周期内保留已发现的 subagent（子 agent）祖先关系。每次执行 `Session.run()` 时，`TurnResult.notifications` 与 `on_notification` 会按协议传输顺序收到根会话及所有已知后代的通知，其中包括嵌套 subagent 的生命周期事件与会话事件。`TurnResult.events` 仍只保存根会话的完整事件流，`TurnResult.final_response` 则取该会话最后一个 `assistant/message` 的文本内容，因此后代消息不会覆盖根会话回复。
+`Session.run()` 拥有一个从提示词的持久 inbox 回执开始、到整个 agent 下一次进入 idle 为止的活动区间，并返回 `RunResult(session_id, final_response, events, notifications, session_root)`。结果不携带提示词级状态或轮次原因：`final_response` 是该区间内根会话最后提交的助手文本，并非因果上归属于该提示词的输出。steering（中途引导）、注入的上下文和其他排队工作都可能在 idle 前参与其中。
+
+`HarnessClient` 会在运行时进程的生命周期内保留已发现的 subagent（子 agent）祖先关系。每次执行 `Session.run()` 时，`RunResult.notifications` 与 `on_notification` 会按协议传输顺序收到根会话及所有已知后代的通知，其中包括嵌套 subagent 的生命周期事件与会话事件。`RunResult.events` 只包含根会话事件，因此后代消息不会覆盖根会话回复。底层 `session_prompt()` 会立即返回已排队消息的 `MessageId`；绕过 `Session.run()` 的调用方必须自行负责后续的活动边界。
 
 同样的行为也可以通过 `DSH_CORDIS_CONFIG` 为运行时子进程选定。注入逻辑位于 `HarnessClient.start()`，因此底层客户端的默认启动也具有此行为：当启动解析到内置运行时，且 `cordis` 与非空的 `DSH_CORDIS_CONFIG` 均未设置时（运行时把空值视为缺省，注入检查与之一致），使用内置的默认配置；显式给出 `runtime_bin`、`bridge_bin` 或 `launch_args_override` 则完全禁用注入。运行时载体（生产用 exe 与仅限开发的 `node` 闭包）及其获取方式见 [sdk-runtime README](../sdk-runtime/README.md)。
 

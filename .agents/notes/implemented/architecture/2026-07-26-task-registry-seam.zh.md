@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-[后台任务运行时](2026-06-20-generic-long-running-tool-runtime.md)交付时把 `TaskService` 做成了单个具体包（package）：`@deepseek-ai/dsh-tasks` 既拥有每个生产方和控制接口面向编程的 `ctx.tasks` 契约，也拥有进程内实现（内存存储、结算簿记、所有者清理 effect、拆除）。这种捆绑重新耦合了仓库[能力 seam 规则](2026-06-13-capability-seams.md)本要分离的两种变化速率：一旦替换注册表的存储或生命周期后端，被搅动的就是同一个包，而生产方（`dsh-tool-bash`、`dsh-tool-pty`、`dsh-tool-subagent`）、控制接口（`dsh-tool-tasks`）和 `TaskKindMap` 扩展方正是从这个包导入类型与 `ctx.tasks` 接口。harness 中其余每项可替换能力——bash、pty、fs、skill（技能）、subagent、web、会话持久化——都已具备接口／实现／消费方三分；任务注册表曾是仅剩的 `core` 模式例外，仅由一条 `TODO(task-service-backend)` 注释把守。
+[后台任务运行时](2026-06-20-generic-long-running-tool-runtime.md)交付时把 `TaskService` 做成了单个具体包：`@deepseek-ai/dsh-tasks` 既拥有每个生产方和控制接口面向编程的 `ctx.tasks` 契约，也拥有进程内实现（内存存储、结算簿记、所有者清理 effect、拆除）。这种捆绑重新耦合了仓库[能力 seam 规则](2026-06-13-capability-seams.md)本要分离的两种变化速率：一旦替换注册表的存储或生命周期后端，被搅动的就是同一个包，而生产方（`dsh-tool-bash`、`dsh-tool-pty`、`dsh-tool-subagent`）、控制接口（`dsh-tool-tasks`）和 `TaskKindMap` 扩展方正是从这个包导入类型与 `ctx.tasks` 接口。harness 中其余每项可替换能力——bash、pty、fs、skill（技能）、subagent、web、会话持久化——都已具备接口／实现／消费方三分；任务注册表曾是仅剩的 `core` 模式例外，仅由一条 `TODO(task-service-backend)` 注释把守。
 
 ## 决策
 
@@ -16,7 +16,7 @@ Status: implemented
 - **`@deepseek-ai/dsh-tasks-local`（实现）**——`LocalTaskService`，即原样迁移的进程内注册表：内存存储、按 kind 划分的计数器、等待方簿记、`TASK_WAIT_TIMEOUT` deadline 代码、所有者清理 effect，以及强制失败的拆除。`dsh-timeout` 依赖随之迁入此包；seam 包不含任何实现依赖。
 - **`@deepseek-ai/dsh-tool-tasks`（消费方）**——保持不变；它注入 `'tasks'`，从不导入实现类型。
 
-各组合在原先加载 `dsh-tasks` 的位置改为加载 `dsh-tasks-local`：CLI（命令行界面）的 cordis.yml 配置项、`agent-spine-demo`、各测试 harness，以及工具目录生成器的启动流程。生产方的配置错误诊断信息（「background tasks unavailable: load …」）点名 `dsh-tasks`——即定义缺失的 `ctx.tasks` 服务的 seam 包；seam 自身的表面（其 README 与直接挂载防线）会指向各实现，因此当另一个后端日后成为推荐默认时，生产方的消息依旧正确。生产方、`TaskKindMap` 声明合并和控制接口仍然只导入 `@deepseek-ai/dsh-tasks`。
+各组合在原先加载 `dsh-tasks` 的位置改为加载 `dsh-tasks-local`：CLI（命令行界面）的 cordis.yml 配置项、`agent-spine-demo`、各测试 harness，以及工具目录生成器的启动流程。生产方的配置错误诊断信息（「background tasks unavailable: load …」）点名 `dsh-tasks`——即定义缺失的 `ctx.tasks` 服务的 seam 包；seam 自身的对外呈现（其 README 与直接挂载防线）会指向各实现，因此当另一个后端日后成为推荐默认时，生产方的消息依旧正确。生产方、`TaskKindMap` 声明合并和控制接口仍然只导入 `@deepseek-ai/dsh-tasks`。
 
 该 seam 保持进程内契约语义不变：`TaskStart.run()` 仍然传入回调和确切的 `Agent` 对象，因此持久化或跨进程后端在能实现此接口之前仍有设计工作要做（身份、重启、所有权、观察）。这次拆分把该项未来工作移出了每个消费方的依赖图；它并不预先设计后端。
 
@@ -30,6 +30,6 @@ Status: implemented
 
 ## 后果
 
-换来的是：任务注册表如今与全仓库通行的 seam 形态一致；持久化、远程或带插桩的注册表将是一个实现八个抽象方法的兄弟包，这样的注册表落地时，任何生产方、控制接口或 `TaskKindMap` 扩展方都无需改动。seam 包的 README 陈述契约；生命周期簿记方面的事实归实现包的 README 所有。注册表行为测试套件（所有者清理、结算、等待、拆除）随 `dsh-tasks-local` 存放；seam 包保留一个桩子类（stub subclass）测试，固定 `ctx.tasks` 下的注册行为与单一服务的重复注册行为，外加基于探针的不变式测试套件。
+换来的是：任务注册表如今与全仓库通行的 seam 形态一致；持久化、远程或带插桩的注册表将是一个实现八个抽象方法的同级包，这样的注册表落地时，任何生产方、控制接口或 `TaskKindMap` 扩展方都无需改动。seam 包的 README 陈述契约；生命周期簿记方面的事实归实现包的 README 所有。注册表行为测试套件（所有者清理、结算、等待、拆除）随 `dsh-tasks-local` 存放；seam 包保留一个桩子类（stub subclass）测试，固定 `ctx.tasks` 下的注册行为与单一服务的重复注册行为，外加基于探针的不变式测试套件。
 
-代价是：多出一个包，即多一份 manifest（元数据清单）、tsconfig、README 与不变式配套插件；同时各组合必须点名实现包。`abstract` 在运行时会被擦除，而这个包名过去正是可挂载的具体注册表，因此 seam 的构造函数在被直接挂载时会响亮失败——一条过期的组合配置行会在加载时得到「load an implementation such as @deepseek-ai/dsh-tasks-local」，而不是一个方法残缺的 `ctx.tasks` 在远离错误配置处才失败。
+代价是：多出一个包，即多一份 manifest（元数据清单）、tsconfig、README 与不变式配套插件；同时各组合必须点名实现包。`abstract` 在运行时会被擦除，而这个包名过去正是可挂载的具体注册表，因此直接挂载 seam 时，其构造函数会明确报错——一条陈旧的组合配置行会在加载时得到「load an implementation such as @deepseek-ai/dsh-tasks-local」，而不是一个未完整注册的 `ctx.tasks` 在远离错误配置处才失败。

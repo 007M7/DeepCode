@@ -396,7 +396,7 @@ describe('CommandService', () => {
     const ctx = await mount()
     const { agent } = await mintAgentScope(ctx, 'a')
     ctx.commands.register(command('mid'))
-    agent.session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    agent.session.append('turn/start', { turn: 1 })
     await ctx.commands.execute(agent, '/mid', new AbortController().signal)
     expect(agent.session.events.map(event => event.type)).toEqual([
       'turn/start', 'command/run', 'command/done',

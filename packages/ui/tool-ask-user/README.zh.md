@@ -15,11 +15,11 @@
 - `options`：可选选项，包含 `label` 和 `description`。如需推荐某个选项，请将其置于首位，并在该标签末尾追加 `(Recommended)`。
 - `multi_select`：该问题是否可以返回多个选中的选项。
 
-工具调用 `ctx.userInteraction.ask()`，并返回规范的 `{ answers: [{ id, selected, custom? }] }`。`selected` 包含选项标签；`custom` 携带自由填写的回答，对于多选题会补充 `selected`，对于单选题则会覆盖它。Native renderer 会保留紧凑的 JSON 文本形式 `{ "answers": [{ "id": "...", "selected": ["..."], "custom": "..." }] }`。
+工具调用 `ctx.userInteraction.ask()`，并返回规范的 `{ answers: [{ id, selected, custom? }] }`。`selected` 包含选项标签；`custom` 携带自由填写的回答，对于多选题会补充 `selected`，对于单选题则会覆盖它。Native 渲染器会保留紧凑的 JSON 文本形式 `{ "answers": [{ "id": "...", "selected": ["..."], "custom": "..." }] }`。
 
 ## 职责
 
-此包（package）是用户交互 seam 的消费方。它不渲染 UI，也不了解输入的收集方式；它只将模型参数转换为 `AskUserQuestionRequest`，并把用户回答返回给 agent loop（智能体循环）。
+此包是用户交互 seam 的消费方。它不渲染 UI，也不了解输入的收集方式；它只将模型参数转换为 `AskUserQuestionRequest`，并把用户回答返回给 agent loop（智能体循环）。
 
 ## 模型体验
 
@@ -49,7 +49,7 @@
 
 #### KV Cache 影响
 
-仅追加；新可见内容位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
+仅追加；新可见内容位于可复用请求前缀之后，不会使现有 KV Cache 条目失效。
 
 ## 已知限制与暂缓事项
 

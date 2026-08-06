@@ -59,7 +59,7 @@ function liveAgent(
 ): Session {
   const session = ctx.sessions.create(sid(id), { meta: { cwd: '/proj', ...lineage } })
   for (let turn = 1; turn <= turns; turn++) {
-    session.append('turn/start', { turn, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn })
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: `prompt ${String(turn)}` }],
       source: { kind: 'user' },
@@ -67,12 +67,15 @@ function liveAgent(
     session.append('turn/end', { turn, reason: { kind: 'completed' } })
   }
   if (tail !== 'none') {
-    session.append('turn/start', { turn: turns + 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: turns + 1 })
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'open prompt' }],
       source: { kind: 'user' },
     }), { surfaceOp: 'append' })
-    if (tail === 'aborted') session.append('turn/end', { turn: turns + 1, reason: { kind: 'aborted' } })
+    if (tail === 'aborted') session.append('turn/end', {
+      turn: turns + 1,
+      reason: { kind: 'aborted', reason: { kind: 'user' } },
+    })
   }
   ctx.agents.register({ id: session.id, session, status: 'idle', ctx } as Agent)
   return session

@@ -96,7 +96,8 @@ describe('request-level dynamic configuration', () => {
     const server = await mockServer([{ kind: 'sse', events: textEvents }])
     const { ctx } = await boot(dir, { baseURL: server.url })
 
-    await expect(prompt(ctx)).rejects.toMatchObject({ code: 'MISSING_CREDENTIAL' })
+    const keyless = await prompt(ctx)
+    expect(keyless.finish).toMatchObject({ kind: 'error', failure: { code: 'MISSING_CREDENTIAL' } })
     await ctx.credentials.set(KEY_REF, 'sk-arrived')
     await prompt(ctx)
     expect(server.headers[0]?.authorization).toBe('Bearer sk-arrived')

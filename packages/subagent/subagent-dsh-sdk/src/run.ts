@@ -70,8 +70,8 @@ export const DEFAULT_SHUTDOWN_TIMEOUT_MS = 1_000
 
 /**
  * Map a child turn-end reason to a harness {@link SubagentStopReason}.
- * @param reason - the `session.finished` reason, or `undefined` when the
- * child settled without running a turn.
+ * @param reason - the owned child run's final durable turn reason, or
+ * `undefined` when it settled without running a turn.
  * @returns the harness equivalent; an absent or unknown reason maps to
  * `error`, so an unclean stop is never reported as `completed`.
  */
@@ -191,7 +191,10 @@ export async function startSdkRun(request: SubagentStartRequest, spec: SdkRunSpe
         cancelSettled.then(() => 'cancelled' as const),
       ])
       if (turn === 'cancelled') return { output: collectOutput(), stopReason: 'aborted' }
-      return { output: collectOutput(), stopReason: sdkStopReason(turn.reason) }
+      const lastEnd = turn.events.findLast(
+        (event): event is Extract<SessionEvent, { type: 'turn/end' }> => event.type === 'turn/end',
+      )
+      return { output: collectOutput(), stopReason: sdkStopReason(lastEnd?.data.reason) }
     },
     collectOutput,
     cancelled: () => flags.cancelled,

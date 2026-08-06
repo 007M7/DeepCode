@@ -36,13 +36,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 /** Dictionary namespace owned by this plugin. */
 const NS = 'question'
 
-/**
- * Required services (cordis fiber inject). 'conversation' is an ordering
- * edge, not a call dependency: the 'conversation.composer' chain slot is
- * declared by ui-conversation's apply, and register() into an undeclared
- * slot throws — service waiting orders this apply after the declaring one.
- */
-export const inject = ['slots', 'conversation', 'locale']
+/** Required services: the slot registry and the question composer's copy. */
+export const inject = ['slots', 'locale']
 
 /** Chain routing: claim the composer while a question wait is pending (pure — owner props only). */
 function selectQuestion({ interactions }: ComposerChainProps): QuestionWait | null {
@@ -58,11 +53,8 @@ function selectQuestion({ interactions }: ComposerChainProps): QuestionWait | nu
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-question: dictionaries')
 
-  ctx.effect(
-    () => ctx.slots.register(
-      { name: 'conversation.composer', select: selectQuestion, locale: NS },
-      QuestionComposer,
-    ),
-    'ui-question: composer chain registration',
-  )
+  ctx.slots.inject('conversation.composer', () => ctx.slots.register(
+    { name: 'conversation.composer', select: selectQuestion, locale: NS },
+    QuestionComposer,
+  ))
 }

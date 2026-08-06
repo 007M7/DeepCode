@@ -6,7 +6,7 @@
 
 ## 生命周期
 
-基线会在每个实时会话的第一个 `agent/step` 注入。它先读取 `$DSH_HOME/AGENTS.md`，随后针对项目根目录到 `agent.session.header.cwd` 的每个目录，先读取每个现有基础候选文件，再读取每个现有本地 overlay 候选文件。同一目录中，如果候选文件在去除首尾空白后字节完全一致，就会按已配置顺序折叠到最早候选文件，因此 `CLAUDE.md` 若只是复制同级 `AGENTS.md`，只会渲染一次。这条持久的带来源 `user/message` 与被认领的提示词进入同一个请求。
+每个实时会话第一次符合条件的 `agent/pre-step` 会组合基线。当下游决策让非空的第一步批次进入时，插件会将基线折入最终批次、紧随已领取的直接提示词之后，使直接提示词与持久基线一同进入步骤 1，并共同抵达第一次请求。reject 或空的第一步决策会将基线留在 agent 的 `next-step` inbox，等待后续唤醒。loader 先读取 `$DSH_HOME/AGENTS.md`，随后针对项目根目录到 `agent.session.header.cwd` 的每个目录，先读取每个现有基础候选文件，再读取每个现有本地 overlay 候选文件。同一目录中，如果候选文件在去除首尾空白后字节完全一致，就会按已配置顺序折叠到最早候选文件，因此 `CLAUDE.md` 若只是复制同级 `AGENTS.md`，只会渲染一次。若之前排队的 workspace 上下文仍在等待，插件会删除并替换该确切 inbox 条目，而不会不断累积副本。
 
 该插件还会监听 `tools/post-execute` 中成功的第一方 `read`、`write` 和 `edit` 调用。每次 touch 都会检查新达到的后代 scope 以及之前加载的每个 scope。每个已配置候选名称都是所在目录中的独立 scope：新出现的文件通过结果的 `additionalContexts` 附加；已改变文件追加替换；文件消失或成为同一目录中较早候选文件的重复项时，追加移除通知。原生调用与 Code Mode 子分派共享该路径：`run_code` 将每个嵌套上下文延迟到外层结果，因此 loop 仍会在工具调用／结果相邻关系完成后追加更新。这种发现跟随结构化文件系统活动，而不是 shell `cd`，因为每次本地 bash 调用都启动新 shell，解析任意 shell 语法也不可靠。
 
@@ -48,11 +48,11 @@ These instructions apply to work under `packages/app`. Use them as guidance when
 
 ## 状态与刷新
 
-模型可见文本不含隐藏状态标记。每个基线或动态上下文事件改为携带带类型的 `workspace-instructions` 来源，其中包含 `{ action, scope, path, digest? }` 变更列表；完整的启动或恢复基线还会携带 `baseline: true`。每次相关工具 touch 时，插件会从可见会话事件重建已加载状态，并叠加一个短暂内存 pending 窗口，用于不可变顶层 `tools/result` 上存在但 loop 尚未追加的上下文。匹配的持久 `user/message` 会确认 pending 转换。如果所属 `step/end` 在匹配上下文进入日志之前到达，插件会清除 pending 转换及其版本快速路径，使下一次成功 touch 可以重新加载。嵌套 Code Mode 结果会在外层执行 token 下暂存 pending 变更，用于抑制同次运行中的重复项；外层结果会回滚该状态，再只重新提交经过外层策略的上下文。
+模型可见文本不含隐藏状态标记。每个基线或动态上下文事件改为携带带类型的 `workspace-instructions` 来源，其中包含 `{ action, scope, path, digest? }` 变更列表；完整的启动或恢复基线还会携带 `baseline: true`。匹配的持久 `user/message` 会确认已排队基线及其候选版本。进入步骤的 pre-step 会把新组合的上下文折入最终批次，位置紧随已领取的消息，并移除 inbox 中仍待处理的副本；reject 则让当前上下文继续排队。若监听器改写掉已领取的 workspace 消息，又没有让替代消息进入，后续边界会重新组合当前上下文。每次相关工具 touch 时，插件会从可见会话事件重建已加载状态，并叠加一个短暂内存 pending 窗口，用于不可变顶层 `tools/result` 上存在但 loop 尚未追加的上下文。如果所属 `step/end` 在匹配的动态上下文进入日志之前到达，插件会清除该 pending 转换及其版本快速路径，使下一次成功 touch 可以重新加载。嵌套 Code Mode 结果会在外层执行 token 下暂存 pending 变更，用于抑制同次运行中的重复项；外层结果会回滚该状态，再只重新提交经过外层策略的上下文。
 
 路径与 SHA-1 内容 digest 都未变时，不会重复注入。每会话、每 scope 提供方 cache 只存储 `{ path, version, digest, trimmedDigest }`：当提供方的不透明 `FsVersion` 与有效可见状态都匹配时，对账会跳过内容读取；版本改变会在任何模型可见更新之前触发有界读取与 SHA-1 确认。`trimmedDigest` 是针对去除空白后内容的 SHA-1，也是每目录重复 key，因此较早候选文件与某个未更改文件的内容收敛后，后者仍可被移除。恢复可行，因为 SHA-1 状态持久化在带类型的来源中，而空的内存版本 cache 只会导致一次确认读取。压缩（compaction）会在 scope 的上下文事件离开可见表层后重新启用它，即使缓存版本未变。移除是 tombstone，因此候选文件之后重新出现时会重新加载。只有在字节预算内实际渲染的模型可见变更才会进入来源、pending 状态和版本 cache；已省略变更仍可在后续 touch 处理，而相同 digest 的版本刷新只更新提供方 cache。
 
-初始基线事件自身不会被改写。其带类型的变更仅在该事件仍位于可见会话表层时才是权威状态；下一次成功的文件系统 touch 会在压缩后重新添加未变的基线 scope，或追加其替换或移除。内存中的 scope 标记和提供方版本 cache 只负责选择探测对象并加速探测。插件热重挂只有在其带类型的事件仍然可见时才保留基线，同时会重建当前 scope 与版本跟踪状态；否则会注入当前基线。恢复的 loop 始终重新组合当前基线，并在第一个请求前对账仍可见的动态 scope。没有文件 watcher，因此磁盘变更会在下一次成功 `read`、`write` 或 `edit` touch 时可见，也会在恢复 loop 准备基线时可见。
+初始基线事件自身不会被改写。其带类型的变更仅在该事件仍位于可见会话表层时才是权威状态；下一次成功的文件系统 touch 会在压缩后重新添加未变的基线 scope，或追加其替换或移除。内存中的 scope 标记和提供方版本 cache 只负责选择探测对象并加速探测。插件热重挂只有在其带类型的事件仍然可见时才保留基线，同时会重建当前 scope 与版本跟踪状态；否则会排队当前基线。恢复的 loop 始终在第一次 pre-step 重新组合当前基线，并对账仍可见的动态 scope；首次请求若进入步骤，就会在同一步骤记录该上下文。没有文件 watcher，因此磁盘变更会在下一次成功 `read`、`write` 或 `edit` touch 时可见，也会在恢复 loop 准备基线时可见。
 
 ## 配置
 

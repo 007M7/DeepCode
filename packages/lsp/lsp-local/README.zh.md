@@ -53,6 +53,6 @@ Namespace 插件（`name`／`inject`／`Config`／`apply`，无默认导出）�
 
 ## 已知限制与暂缓事项
 
-- **仅限可信主机本地环境**：没有沙箱隔离，也没有私有 cache／temp 写入契约；支持不受信任 binary 或受限／远程／虚拟 Workspace，需要后续的进程／文件系统契约及不同提供方（见 [seam Agent Note（agent 决策记录）](../../../.agents/notes/implemented/architecture/2026-07-15-lsp-capability-seam.md)）。限制逻辑先解析 `realpath`，再通过一个带 `O_NOFOLLOW | O_NONBLOCK` 的 handle 打开源文件（最终组件符号链接防护，并以非阻塞方式拒绝 FIFO），同时进行有界读取；并发修改方如果在解析与打开之间把*祖先*目录替换为符号链接，会造成残余 TOCTOU。在该可信部署模型下接受此风险，不使用不可移植的 `openat` 逐 segment 遍历来封闭。
-- **临时打开兼容性下限**：同步能力省略打开／关闭（或声明 `None`）的服务器不受支持，即使关闭文档查询能够工作；固定的 TypeScript e2e 只建立一项兼容性下限，不代表跨语言承诺。
+- **仅限可信主机本地环境**：没有沙箱隔离，也没有私有 cache／temp 写入契约；支持不受信任 binary 或受限／远程／虚拟 Workspace，需要后续的进程／文件系统契约及不同提供方（见 [seam Agent Note](../../../.agents/notes/implemented/architecture/2026-07-15-lsp-capability-seam.md)）。限制逻辑先解析 `realpath`，再通过一个带 `O_NOFOLLOW | O_NONBLOCK` 的 handle 打开源文件（最终组件符号链接防护，并以非阻塞方式拒绝 FIFO），同时进行有界读取；并发修改方如果在解析与打开之间把*祖先*目录替换为符号链接，会造成残余 TOCTOU。在该可信部署模型下接受此风险，不使用不可移植的 `openat` 逐 segment 遍历来封闭。
+- **临时打开兼容性下限**：同步能力省略打开／关闭（或声明 `None`）的服务器不受支持，即使关闭文档查询能够工作；与一个 TypeScript 服务器兼容，并不表示支持其他语言。
 - **逐服务器／Workspace 串行化延迟**：共享同一个服务器与 Workspace 的并行 agent（智能体）会在一个进程后排队；长生命周期 Workspace 进程会占用内存直到 dispose。

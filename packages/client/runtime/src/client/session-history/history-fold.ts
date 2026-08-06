@@ -11,11 +11,15 @@ import type {
   PartialAssistant, RunningToolCall,
 } from '../sessions/conversation.ts'
 import { toAssistantBlocks } from '../sessions/conversation.ts'
+import { contextForm, contextProvenance } from '../sessions/context-provenance.ts'
+import { SteeringHistory } from '../sessions/steering-history.ts'
 import type {
   ConversationContext, ConversationContextOriginKind,
 } from '../sessions/conversation-context.ts'
 import type { ConversationPromptSnapshot } from '../sessions/request-inspection.ts'
 import { PartialAccumulator } from '../sessions/partial.ts'
+import type { AssistantStepMetadata } from '../sessions/assistant-timing.ts'
+import { indexAssistantStepTiming, settledAssistantTiming } from '../sessions/assistant-timing.ts'
 
 interface CallIndexEntry {
   name: string
@@ -30,11 +34,6 @@ interface FoldedContext {
   originSeq?: number
 }
 
-interface AssistantStepMetadata {
-  stepStartTime: number | null
-  firstTokenTime: number | null
-}
-
 /** Immutable conversation projections derived only from the history source. */
 export interface ConversationHistoryProjection {
   eventNodes: readonly ConversationNode[]
@@ -45,22 +44,10 @@ export interface ConversationHistoryProjection {
   codeDispatches: ReadonlyMap<string, readonly CodeSubCall[]>
 }
 
-function assistantStepKey(turn: number, step: number): string {
-  return `${turn}\u0000${step}`
-}
-
-// Trajectory owns surface-window reconstruction so its immutable ledger does
-// not depend on Chat's live fold adapter or Session's mutable state.
-/* jscpd:ignore-start */
-function paddingEvent(seq: number): SessionEvent {
-  return { type: 'noop/padding', seq, time: 0, data: {} } as unknown as SessionEvent
-}
-
 function replacementCrossesWindowHead(event: SessionEvent, baseSeq: number): boolean {
   if (!isSurfaceEvent(event) || event.surfaceOp === 'append') return false
   return event.surfaceOp.start < baseSeq || event.surfaceOp.end < baseSeq
 }
-/* jscpd:ignore-end */
 
 function contextOriginKind(event: SessionEvent | undefined): ConversationContextOriginKind {
   if (event?.type !== 'user/message') return 'rewrite'
@@ -72,39 +59,61 @@ function contextOriginKind(event: SessionEvent | undefined): ConversationContext
   return 'rewrite'
 }
 
-function isTokenDelta(chunk: SessionEvent<'assistant/chunk'>['data']['chunk']): boolean {
-  switch (chunk.type) {
-    case 'text-delta':
-    case 'reasoning-delta':
-      return chunk.text !== ''
-    case 'tool-call-delta':
-      return chunk.argumentsDelta !== '' || chunk.name !== undefined
-    default:
-      return false
-  }
-}
-
 function foldContexts(events: readonly SessionEvent[]): readonly FoldedContext[] {
   const replay: SessionEvent[] = []
+  const originalSeqs: number[] = []
+  const rebasedSeqByOriginal = new Map<number, number>()
   const surface = new SurfaceManager(replay)
   const contexts: FoldedContext[] = []
   let generation = 0
   let originSeq: number | undefined
+  const originalNodes = () => surface.nodes.map((seq) => {
+    const original = originalSeqs[seq]
+    if (original === undefined) throw new Error(`rebased surface seq ${seq} has no origin`)
+    return original
+  })
   for (const event of events) {
-    if (isSurfaceEvent(event) && event.surfaceOp !== 'append') {
+    if (!isSurfaceEvent(event)) continue
+    if (event.surfaceOp !== 'append') {
       contexts.push({
         generation,
-        nodes: [...surface.nodes],
+        nodes: originalNodes(),
         ...(originSeq === undefined ? {} : { originSeq }),
       })
       generation++
       originSeq = event.seq
     }
-    replay.push(event)
+    const rebasedSeq = replay.length
+    const {
+      sourceEventSeqs: rawSources,
+      ...eventWithoutSources
+    } = event as SessionEvent & { sourceEventSeqs?: readonly number[] }
+    const mappedSourceEventSeqs = rawSources?.flatMap((seq) => {
+      const rebased = rebasedSeqByOriginal.get(seq)
+      return rebased === undefined ? [] : [rebased]
+    })
+    const sourceEventSeqs = mappedSourceEventSeqs?.length === 0
+      ? undefined
+      : mappedSourceEventSeqs
+    const surfaceOp = event.surfaceOp === 'append'
+      ? event.surfaceOp
+      : {
+        ...event.surfaceOp,
+        start: rebasedSeqByOriginal.get(event.surfaceOp.start) ?? event.surfaceOp.start,
+        end: rebasedSeqByOriginal.get(event.surfaceOp.end) ?? event.surfaceOp.end,
+      }
+    originalSeqs.push(event.seq)
+    rebasedSeqByOriginal.set(event.seq, rebasedSeq)
+    replay.push({
+      ...eventWithoutSources,
+      seq: rebasedSeq,
+      surfaceOp,
+      ...(sourceEventSeqs === undefined ? {} : { sourceEventSeqs }),
+    } as SessionEvent)
   }
   contexts.push({
     generation,
-    nodes: [...surface.nodes],
+    nodes: originalNodes(),
     ...(originSeq === undefined ? {} : { originSeq }),
   })
   return contexts
@@ -119,12 +128,22 @@ function materializeNode(
   resultView: ToolResultView | null,
   assistantTiming: AssistantTiming | undefined,
   requestConfig: AssistantRequestConfig | undefined,
+  steering: boolean,
 ): ConversationNode {
   switch (event.type) {
     case 'user/message':
       if (event.data.source.kind !== 'user') {
         return {
           kind: 'context', seq: event.seq, time: event.time,
+          content: event.data.content, source: event.data.source,
+          provenance: contextProvenance(event.data.source),
+          form: contextForm(event.data.source),
+        }
+      }
+      if (steering) {
+        return {
+          kind: 'steering', messageId: event.data.id,
+          seq: event.seq, time: event.time,
           content: event.data.content, source: event.data.source,
         }
       }
@@ -143,12 +162,6 @@ function materializeNode(
         },
         ...(requestConfig === undefined ? {} : { requestConfig }),
         ...(assistantTiming === undefined ? {} : { timing: assistantTiming }),
-      }
-    case 'steering/message':
-      return {
-        kind: 'steering', messageId: event.data.message.id,
-        seq: event.seq, time: event.time, turn: event.data.turn,
-        content: event.data.message.content, source: event.data.message.source,
       }
     case 'tool/result': {
       const result = event.data.message.content[0]
@@ -331,11 +344,13 @@ export function projectConversationHistory(
   entries: readonly HistoryEntry[],
 ): ConversationHistoryProjection {
   const events = entries.map(entry => entry.event)
+  const steeringHistory = new SteeringHistory()
+  const steeringSeqs = new Set<number>()
+  for (const event of events) {
+    if (steeringHistory.apply(event)) steeringSeqs.add(event.seq)
+  }
   const baseSeq = events[0]?.seq ?? 0
-  const padded = [
-    ...Array.from({ length: baseSeq }, (_, seq) => paddingEvent(seq)),
-    ...events,
-  ]
+  const eventsBySeq = new Map(events.map(event => [event.seq, event]))
   const callIndex = new Map<string, CallIndexEntry>()
   const resultViews = new Map<number, ToolResultView>()
   const assistantSteps = new Map<string, AssistantStepMetadata>()
@@ -362,6 +377,7 @@ export function projectConversationHistory(
       contextGeneration++
       if (activePrompt !== undefined) promptsByContext.set(contextGeneration, activePrompt)
     }
+    indexAssistantStepTiming(assistantSteps, event)
     if (event.type === 'request/header') {
       activeRequestConfig = event.data.header.config
       activePrompt = {
@@ -370,30 +386,10 @@ export function projectConversationHistory(
         tools: event.data.header.tools ?? [],
       }
       promptsByContext.set(contextGeneration, activePrompt)
-    } else if (event.type === 'step/start') {
-      assistantSteps.set(
-        assistantStepKey(event.data.turn, event.data.step),
-        { stepStartTime: event.time, firstTokenTime: null },
-      )
-    } else if (event.type === 'assistant/chunk' && isTokenDelta(event.data.chunk)) {
-      const key = assistantStepKey(event.data.turn, event.data.step)
-      const current = assistantSteps.get(key) ?? {
-        stepStartTime: null,
-        firstTokenTime: null,
-      }
-      if (current.firstTokenTime === null) {
-        assistantSteps.set(key, { ...current, firstTokenTime: event.time })
-      }
     } else if (event.type === 'assistant/message') {
       assistantTimings.set(
         event.seq,
-        {
-          ...(assistantSteps.get(assistantStepKey(event.data.turn, event.data.step)) ?? {
-            stepStartTime: null,
-            firstTokenTime: null,
-          }),
-          completedTime: event.time,
-        },
+        settledAssistantTiming(assistantSteps, event.data.turn, event.data.step, event.time),
       )
       if (activeRequestConfig !== undefined) {
         assistantRequestConfigs.set(event.seq, activeRequestConfig)
@@ -405,7 +401,7 @@ export function projectConversationHistory(
   const materialize = (seq: number): ConversationNode | undefined => {
     const cached = nodeCache.get(seq)
     if (cached !== undefined) return cached
-    const event = padded[seq]
+    const event = eventsBySeq.get(seq)
     if (event === undefined || !isSurfaceEligibleType(event.type)) return
     const node = materializeNode(
       event,
@@ -413,6 +409,7 @@ export function projectConversationHistory(
       resultViews.get(seq) ?? null,
       assistantTimings.get(seq),
       assistantRequestConfigs.get(seq),
+      steeringSeqs.has(seq),
     )
     nodeCache.set(seq, node)
     return node
@@ -431,7 +428,7 @@ export function projectConversationHistory(
     }]
   } else {
     try {
-      contexts = foldContexts(padded).map((context): ConversationContext => {
+      contexts = foldContexts(events).map((context): ConversationContext => {
         const nodes = context.nodes.flatMap((seq) => {
           const node = materialize(seq)
           return node === undefined ? [] : [node]
@@ -444,7 +441,7 @@ export function projectConversationHistory(
             nodes,
           }
         }
-        const originEvent = padded[context.originSeq]
+        const originEvent = eventsBySeq.get(context.originSeq)
         return {
           id: context.generation,
           parentId: context.generation - 1,

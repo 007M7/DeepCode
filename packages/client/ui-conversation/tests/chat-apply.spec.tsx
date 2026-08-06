@@ -3,8 +3,8 @@
 // as the first 'conversation.view' ring entry declaring the keyed toolview
 // hole, the slot registrations land against a root entry's children
 // declarations (the AppFrame role), the shared store handle rides all strict
-// session entries, and the bash sample + todo row mount through the
-// load-order seam as keyed entries. Full-chain rendering belongs to the
+// session entries, and the bash sample + todo row mount through declaration
+// injection as keyed entries. Full-chain rendering belongs to the
 // machinery spec (chat-toolview-slot.spec.tsx) and the shell e2e; this spec
 // stops at the assembly surface.
 
@@ -90,10 +90,9 @@ describe('apply wiring', () => {
     await b.runtime.dispose()
   })
 
-  it('mounts the bash sample, the read row, the file-mutation rows, the search rows (grep + glob), the web rows, and the product rows as keyed entries through the load-order seam', async () => {
+  it('mounts the tool rows as keyed entries through declaration injection', async () => {
     const b = await bench()
-    // Every registrant plugin's inject: ['slots', 'conversation'] resolved — the
-    // service being present implies the chat entry declared the hole first. The
+    // The actual toolview declaration activates every registrant. The
     // file-mutation registrant claims both write and edit for the diff card; the
     // one search row registers under both grep and glob; the web rows register
     // one component under both web tool names.

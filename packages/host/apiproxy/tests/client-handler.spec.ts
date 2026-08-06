@@ -96,7 +96,8 @@ function scriptedApi(overrides: {
       ...overrides.goals,
     },
     settings: {
-      describe: r => ok(r, { writable: true, namespaces: [] }),
+      describe: r => ok(r, { writable: true, hasDocument: false, namespaces: [] }),
+      openDocument: r => ok(r, { opened: true as const }),
       update: err,
       replace: err,
       mutate: err,
@@ -679,7 +680,8 @@ describe('config unary surface', () => {
     const group = { id: 'deepseek-official', name: 'DeepSeek', models: [{ id: 'deepseek-v4-flash', name: 'Flash' }] }
     const api = scriptedApi({
       settings: {
-        describe: record('settings.describe', r => ok(r, { writable: true, namespaces: [view] })),
+        describe: record('settings.describe', r => ok(r, { writable: true, hasDocument: false, namespaces: [view] })),
+        openDocument: record('settings.openDocument', r => ok(r, { opened: true as const })),
         update: record('settings.update', r => ok(r, view)),
         replace: record('settings.replace', r => ok(r, view)),
         mutate: record('settings.mutate', r => ok(r, view)),
@@ -697,7 +699,8 @@ describe('config unary surface', () => {
     const c = client(api)
 
     const described = await c.settings.describe({})
-    expect(described.result).toEqual({ ok: true, value: { writable: true, namespaces: [view] } })
+    expect(described.result).toEqual({ ok: true, value: { writable: true, hasDocument: false, namespaces: [view] } })
+    expect((await c.settings.openDocument({})).result).toEqual({ ok: true, value: { opened: true } })
     const updated = await c.settings.update({ ns: 'llm-deepseek', patch: { baseURL: 'https://next' } })
     expect(updated.result).toEqual({ ok: true, value: view })
     const replaced = await c.settings.replace({ ns: 'llm-deepseek', section: {} })
@@ -718,14 +721,14 @@ describe('config unary surface', () => {
     expect(models.result).toEqual({ ok: true, value: { groups: [group], failures: [] } })
 
     expect(seen.map(call => call.method)).toEqual([
-      'settings.describe', 'settings.update', 'settings.replace', 'settings.mutate',
+      'settings.describe', 'settings.openDocument', 'settings.update', 'settings.replace', 'settings.mutate',
       'credentials.describe', 'credentials.set', 'credentials.unset',
       'llm.providers', 'llm.models',
     ])
-    expect(seen[1]?.payload).toEqual({ ns: 'llm-deepseek', patch: { baseURL: 'https://next' } })
-    expect(seen[3]?.payload)
+    expect(seen[2]?.payload).toEqual({ ns: 'llm-deepseek', patch: { baseURL: 'https://next' } })
+    expect(seen[4]?.payload)
       .toEqual({ ns: 'llm-deepseek', ops: [{ op: 'unset', path: ['baseURL'] }], expectedRevision: 0 })
-    expect(seen[5]?.payload).toEqual({ ref: 'OPENAI_API_KEY', value: 'sk-x' })
+    expect(seen[6]?.payload).toEqual({ ref: 'OPENAI_API_KEY', value: 'sk-x' })
   })
 
   it('rejects an invalid credential reference name at the carrier boundary', async () => {
