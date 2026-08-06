@@ -8,10 +8,6 @@ import type { Construct, Extension, Previous, State, Tokenizer } from 'micromark
 
 // oxlint-disable typescript/no-this-alias -- micromark binds tokenizer context only on the outer callback.
 
-interface RemarkProcessor {
-  data(): { micromarkExtensions?: Extension[] }
-}
-
 const previousBackslash: Previous = function (code) {
   if (code !== codes.backslash) return true
   const tail = this.events.at(-1)
@@ -342,12 +338,12 @@ const backslashMath: Extension = {
 }
 
 /**
- * Add TeX backslash delimiters and same-line display-dollar blocks for remark-math.
- * The same processor must register remark-math to compile the emitted math tokens.
- * @returns Nothing.
+ * TeX backslash delimiters and same-line display-dollar blocks as a micromark
+ * syntax extension reusing `micromark-extension-math`'s token vocabulary; the
+ * caller must also register `math()` on the same parse so the emitted tokens
+ * compile to standard math nodes.
+ * @returns The micromark syntax extension.
  */
-export function remarkMathCompatibility(this: RemarkProcessor): undefined {
-  const data = this.data()
-  const extensions = data.micromarkExtensions ?? (data.micromarkExtensions = [])
-  extensions.push(backslashMath)
+export function mathCompatibility(): Extension {
+  return backslashMath
 }

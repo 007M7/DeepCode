@@ -11,6 +11,8 @@ import type {
   PartialAssistant, RunningToolCall,
 } from '../sessions/conversation.ts'
 import { toAssistantBlocks } from '../sessions/conversation.ts'
+import { contextForm, contextProvenance } from '../sessions/context-provenance.ts'
+import { SteeringHistory } from '../sessions/steering-history.ts'
 import type {
   ConversationContext, ConversationContextOriginKind,
 } from '../sessions/conversation-context.ts'
@@ -126,12 +128,22 @@ function materializeNode(
   resultView: ToolResultView | null,
   assistantTiming: AssistantTiming | undefined,
   requestConfig: AssistantRequestConfig | undefined,
+  steering: boolean,
 ): ConversationNode {
   switch (event.type) {
     case 'user/message':
       if (event.data.source.kind !== 'user') {
         return {
           kind: 'context', seq: event.seq, time: event.time,
+          content: event.data.content, source: event.data.source,
+          provenance: contextProvenance(event.data.source),
+          form: contextForm(event.data.source),
+        }
+      }
+      if (steering) {
+        return {
+          kind: 'steering', messageId: event.data.id,
+          seq: event.seq, time: event.time,
           content: event.data.content, source: event.data.source,
         }
       }
@@ -332,6 +344,11 @@ export function projectConversationHistory(
   entries: readonly HistoryEntry[],
 ): ConversationHistoryProjection {
   const events = entries.map(entry => entry.event)
+  const steeringHistory = new SteeringHistory()
+  const steeringSeqs = new Set<number>()
+  for (const event of events) {
+    if (steeringHistory.apply(event)) steeringSeqs.add(event.seq)
+  }
   const baseSeq = events[0]?.seq ?? 0
   const eventsBySeq = new Map(events.map(event => [event.seq, event]))
   const callIndex = new Map<string, CallIndexEntry>()
@@ -392,6 +409,7 @@ export function projectConversationHistory(
       resultViews.get(seq) ?? null,
       assistantTimings.get(seq),
       assistantRequestConfigs.get(seq),
+      steeringSeqs.has(seq),
     )
     nodeCache.set(seq, node)
     return node
