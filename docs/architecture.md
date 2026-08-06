@@ -48,6 +48,7 @@ Harnesses are [Cordis](cordis-primer.md) contexts; packages contribute services,
 | `ctx.credentials` | [`credentials/`](../packages/credentials/README.md) | named secret references resolved per operation, never inlined in configuration |
 | `ctx.directoryPicker` | [`host/directory-picker`](../packages/host/directory-picker/README.md) | GUI-host directory picking (`native`/`browse` interactions) |
 | `ctx.typert` | [`typert/registry`](../packages/typert/registry/README.md) | runtime registry for generated package reflection and live Zod schemas |
+| `ctx.typertGateway` | [`host/api-gateway`](../packages/host/api-gateway/README.md) | dispatches TypeRT Remote unary calls through the [API Gateway](api-gateway.md) |
 | `ctx.invariants` | [`support/invariants`](../packages/support/invariants/README.md) | package-name-selected registry of package-owned runtime checks |
 
 ## Event
