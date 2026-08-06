@@ -39,8 +39,8 @@ Host RPC `subagent.interrupt` 接收 continuable 的 `SubagentAddress` 并返回
 
 仅凭地址的 RPC 会暴露一位在线驻留信息：不存在的目标会被接受，而 parent 不匹配的在线目标会返回 `subagent-unauthorized`。单用户本地 Host 的信任模型接受这种可观察性；未来的多主体 Host 必须重新审视权限和响应不可区分性。
 
-Web 的 Stop 操作和面向模型的 `interrupt_agent` 工具在 issue #1535 的后续 stacked PR 中基于此原语构建。
+Web 侧复用现有的 primary Send/Stop 切换而不新增第二个操作：客户端 `Session.cancel()` 将 continuable 地址路由到 `subagent.interrupt`（one-shot 地址保持不可取消，普通会话仍走 `session.cancel`）；parent 离线但仍在运行的 continuable child 保留默认 composer 并禁用其输入区，让同一个 primary Stop 保持可达，停止后恢复只读替代（周边目录与 composer 契约由 [Web subagent 对话](2026-07-27-web-subagent-conversations.md)拥有）。面向模型的 `interrupt_agent` 工具在 issue #1535 的后续 stacked PR 中基于此原语构建。
 
 ## Testing
 
-`packages/subagent/subagent/tests/continuation.spec.ts` 中的核心覆盖证明了持久化 `turn/end` 中止、队列先暂停后按 FIFO 恢复、后代不受影响、两种授权及其取消 cause、self/sibling/stale/非 ancestor 拒绝、absent/一次性/disposal 竞态 no-op，以及 `keepInbox` 循环行为不变。`packages/host/apiproxy/tests` 中的 Host 覆盖证明 RPC 只调用核心原语（不读 agents/目录/历史）、`subagent-unauthorized`／`internal` 映射、wire schema 的 continuable 模式围栏以及 carrier 往返。
+`packages/subagent/subagent/tests/continuation.spec.ts` 中的核心覆盖证明了持久化 `turn/end` 中止、队列先暂停后按 FIFO 恢复、后代不受影响、两种授权及其取消 cause、self/sibling/stale/非 ancestor 拒绝、absent/一次性/disposal 竞态 no-op，以及 `keepInbox` 循环行为不变。`packages/host/apiproxy/tests` 中的 Host 覆盖证明 RPC 只调用核心原语（不读 agents/目录/历史）、`subagent-unauthorized`／`internal` 映射、wire schema 的 continuable 模式围栏以及 carrier 往返。客户端覆盖固定按地址路由的 `Session.cancel()`、InputBar 的 Send/Stop 切换及 parent 离线时锁定输入的状态，以及只读 composer selector 的运行例外；keyless 组装 Web 场景（`apps/web/tests/subagent-interrupt.e2e.ts`、`subagent-interrupt-ui.e2e.ts`）用 replay hang 条目保持真实 child 轮次打开，端到端证明中断传输、中止的 `turn/end`、follow-up 暂停以及 FIFO 恢复。

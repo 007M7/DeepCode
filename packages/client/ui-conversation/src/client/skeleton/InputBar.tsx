@@ -83,11 +83,15 @@ export function InputBar({
   // (undefined = capability absent → the chip renders nothing).
   const permissions = useProjection('permissions')
 
+  // A continuable child without its live parent cannot accept human input,
+  // but its primary Stop below stays available while it runs.
+  const continuable = subagent?.address.mode === 'continuable'
+  const parentOffline = continuable && !subagent.parentAvailable
   // Queue cut 1: running input stays free; locked = session removed, the
-  // inert no-workspace state, or the machine faces absent (no session). The
-  // transient machine locks (adjudicating pending / submitting) render
-  // read-only — the draft stays visible and focused, keystrokes drop.
-  const disabled = removed || inert || !live || blocked !== undefined
+  // inert no-workspace state, the machine faces absent (no session), or a
+  // parent-offline continuable child. An owner block also disables input;
+  // adjudicating and submitting render read-only so the draft stays visible.
+  const disabled = removed || inert || !live || blocked !== undefined || parentOffline
   const locked = disabled
   // The model seat is the ONE control a block leaves live: every block this
   // contract has is cleared by choosing a model, so locking it too would leave
@@ -350,8 +354,9 @@ export function InputBar({
     if (el !== null) toggleCommandMenu?.(selectionOf(el))
   }
 
-  const ordinary = subagent === null
-  const stopping = running && ordinary
+  // Ordinary sessions and continuable children stop through the same primary
+  // action; one-shot children stay send-and-stop-free (read-only takeover).
+  const stopping = running && (subagent === null || continuable)
   const primaryLabel = stopping ? t('input.stop') : t('input.send')
   const onPrimary = (): void => {
     if (stopping) {
@@ -478,9 +483,11 @@ export function InputBar({
               disabled={locked}
               readOnly={machineBusy}
               data-phase={input?.phase ?? 'inert'}
-              placeholder={placeholder ?? (disabled
-                ? t('placeholder.unavailable')
-                : planActive ? t('placeholder.plan') : t('placeholder.default'))}
+              placeholder={placeholder ?? (parentOffline
+                ? t('placeholder.parentOffline')
+                : disabled
+                  ? t('placeholder.unavailable')
+                  : planActive ? t('placeholder.plan') : t('placeholder.default'))}
               rows={2}
               onChange={onChange}
               onKeyDown={onKeyDown}
