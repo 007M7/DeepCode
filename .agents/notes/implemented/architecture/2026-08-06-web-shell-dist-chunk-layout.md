@@ -14,8 +14,9 @@ The apps/web shell previously built into a single ~1.2 MB (minified) index chunk
 
 **Membership** (`VENDOR_PACKAGES`, by exact npm package name):
 
-- `vendor` = the **facade packages** of the three heavy rendering families: math (katex, rehype-katex), highlight (shiki), markdown (react-markdown, remark-gfm, remark-math, mdast-util-from-markdown, mdast-util-gfm, micromark-extension-gfm, micromark-extension-math, micromark-factory-space, micromark-util-character, micromark-util-symbol, micromark-util-types). The list only needs the packages that workspace code **imports directly**: private transitive dependencies (the unified/hast family, the oniguruma family, @shikijs/core, and dozens more) are referenced only by these facades, so rollup's chunk coloring pulls them into vendor automatically; dependencies shared with the index side fall back to index, diluting it by a few KB — not a correctness issue.
-- `index` (the default chunk) = the react family, vendored cordis, all workspace code, and the unlisted small pieces (anser, clsx).
+- `vendor` = the three heavy rendering families: math (katex), highlight (shiki), markdown (the micromark/mdast parse pipeline — the incremental React renderer above it is workspace code and not part of this). The live membership is `VENDOR_PACKAGES`; the list is the packages workspace code **imports directly**: the remaining private transitive dependencies (the oniguruma family, @shikijs/core, character tables, dozens more) are referenced only by listed members, so rollup's chunk coloring pulls them into vendor automatically; dependencies shared with the index side fall back to index, diluting it by a few KB — not a correctness issue.
+- **Every vendor member must be react-free (the boundary invariant)**: rollup folds a module shared between the entry and a manual chunk into the manual chunk — one listed package importing react/jsx-runtime would drag the single shared react copy into vendor, away from index. The React side of markdown/math rendering is workspace code and naturally lives in index, so the whole react family stays pinned to index.
+- `index` (the default chunk) = the react family (react, react-dom, scheduler, use-sync-external-store), vendored cordis, all workspace code, and the unlisted small pieces (anser, clsx).
 - `@shikijs/langs` is special-cased: the boot grammars (`BOOT_GRAMMAR_FILES`: typescript, shellscript, json — the three that highlight.ts statically imports, all self-contained data modules with zero internal imports) go into vendor; the remaining 23 lazy-loaded grammars get no assignment and each keeps its own on-demand chunk.
 - `index.html` is wired up automatically by vite: index loads via `<script>` and vendor via `<link rel="modulepreload">`, so the two chunks fetch in parallel with no waterfall.
 
@@ -23,7 +24,7 @@ The apps/web shell previously built into a single ~1.2 MB (minified) index chunk
 
 - The `assets/` root keeps only the index and vendor js (with their adjacent sourcemaps) and css.
 - Grammar chunks go under `assets/langs/`. The criterion is whether a chunk's `moduleIds` include an `@shikijs/langs` member, not the facade: the shared chunks of embedded grammars (php/ruby/mdx embed html+javascript, which rollup splits out for sharing) **have no facade**, so a facade criterion would miss them; index and vendor are excluded by name, because vendor legitimately carries the three boot grammars.
-- Fonts go under `assets/fonts/` (`FONT_EXTENSIONS`: woff2/woff/ttf; today all of them are KaTeX faces referenced by vendor.css, and the browser fetches only woff2, on demand and only when a formula renders).
+- Fonts go under `assets/fonts/` (`FONT_EXTENSIONS`: woff2/woff/ttf; today all of them are KaTeX faces referenced by vendor.css — katex.min.css is imported by an index-side component, but CSS modules go through manualChunks like any module and follow `katex` into vendor.css; the browser fetches only woff2, on demand and only when a formula renders).
 - Sourcemaps need no arrangement: rollup writes each `.map` next to its js and references it by bare relative filename, so when a chunk moves directories its map follows automatically.
 
 All cross-directory references (index's dynamic imports into `langs/`, same-directory relative references among grammar chunks, vendor.css's relative references into `fonts/`) are emitted by the bundler, so the runtime needs zero accompanying changes; the host-side webserver serves the nested paths verbatim under its static prefix.
@@ -34,11 +35,12 @@ All cross-directory references (index's dynamic imports into `langs/`, same-dire
 - **An inverse catch-all rule (everything in node_modules except the react family goes to vendor)**: membership cannot be read off the configuration, and small pieces like anser/clsx get misassigned to vendor; superseded by the positive exact-package-name list.
 - **Regex family matching**: hard to read; exact package names plus rollup's automatic coloring of transitive dependencies make pattern matching unnecessary.
 - **Identifying grammar chunks by facadeModuleId**: the facade-less shared chunks of embedded grammars would go undetected and fall back to the root directory; the `moduleIds` membership criterion covers both shapes.
+- **Sheltering a react-edged rendering facade in vendor** (the historical react-markdown was one): rollup's shared-module folding would drag the single react copy into vendor, breaking the "react belongs to index" boundary; the constraint is codified as the list's boundary invariant.
 - **Lazy-loading KaTeX wholesale, or turning the boot TypeScript grammar lazy**: either would change first-frame rendering behavior (the fallback for formulas / the first code block); that trade-off is independent of the dist layout and is decided separately.
 
 ## Verification
 
-A sourcemap byte-attribution audit proves that vendor contains no workspace bytes and that the npm side of index retains only the react family plus anser/clsx; the lazy grammar chunk count matches the `LAZY_GRAMMARS` table one to one; the browser keyless replay case is verbatim-identical to the pre-change baseline (apart from environment-specific local reds), so the two-chunk shell loads and renders with no regression.
+The audit tool ships with the repository: `node scripts/attribute-chunk-bytes.mjs <chunk.js>` (zero-dependency sourcemap VLQ byte attribution, aggregated by npm package / workspace directory). It verifies that vendor contains no workspace bytes, that the react family (including react/jsx-runtime) sits entirely in index, and that the npm side of index retains only the react family plus anser/clsx; the lazy grammar chunk count matches the `LAZY_GRAMMARS` table one to one; the browser keyless replay case is verbatim-identical to the pre-change baseline (apart from environment-specific local reds), so the two-chunk shell loads and renders with no regression.
 
 ## Consequences
 
