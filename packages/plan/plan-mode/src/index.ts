@@ -464,7 +464,8 @@ export class PlanModeService extends Service {
       : 'The user switched this session back to the default mode.'
     return createUserMessage({
       content: [{ type: 'text', text }],
-      source: { kind: 'plugin', plugin: 'plan-mode' },
+      // The narration is already one sentence, so it is its own summary.
+      source: { kind: 'plugin', plugin: 'plan-mode', form: 'notice', summary: text },
     })
   }
 }

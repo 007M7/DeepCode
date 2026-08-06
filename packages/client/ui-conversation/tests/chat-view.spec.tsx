@@ -376,6 +376,9 @@ describe('ChatView', () => {
     expect(view.queryByText('later')).toBeNull()
     const pendingBubble = view.getByText('interrupt now').closest('[data-pending-steering]')
     expect(pendingBubble).not.toBeNull()
+    // Pending and durable steering carry the same interjection caption, so the
+    // hand-off does not change what the row says it is.
+    expect(within(pendingBubble as HTMLElement).getByText('插话')).toBeTruthy()
     fireEvent.click(within(pendingBubble as HTMLElement).getByRole('button', { name: '复制' }))
     expect(writeText).toHaveBeenCalledWith('interrupt now')
     expect(within(pendingBubble as HTMLElement).queryByRole('button', { name: '在新对话中分支' })).toBeNull()
@@ -388,7 +391,8 @@ describe('ChatView', () => {
         nodes: [
           assistant(1, 'working'),
           {
-            kind: 'user', seq: 2, time: 2_000,
+            kind: 'steering', messageId: pending.messageId,
+            seq: 2, time: 2_000,
             content: [{ type: 'text', text: 'interrupt now' }], source: null,
           },
         ],
@@ -396,6 +400,7 @@ describe('ChatView', () => {
     })
     expect(view.getAllByText('interrupt now')).toHaveLength(1)
     expect(view.container.querySelector('[data-pending-steering]')).toBeNull()
+    expect(view.getAllByText('插话')).toHaveLength(1)
     expect(view.getAllByRole('button', { name: '复制' })).toHaveLength(2)
     const durableBubble = view.getByText('interrupt now').closest('[class*="userRow"]') as HTMLElement
     const unavailable = within(durableBubble).getByRole('button', { name: '在新对话中分支' })
@@ -441,6 +446,8 @@ describe('ChatView', () => {
     const nextRetry = { ...retry(3), turn: 2, retry: 2 }
     const context = {
       kind: 'context', seq: 4, time: 4_000, content: [], source: null,
+      provenance: { role: 'inject', label: null },
+      form: null,
     } as const satisfies ConversationNode
     const h = makeHarness({ nodes: [user(1, 'try'), retryNode], running: true })
     const view = render(<h.ChatView {...h.props} />)

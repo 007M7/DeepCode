@@ -22,6 +22,8 @@ import type { COMPACT_CHECKPOINT_SOURCE } from '@deepseek-ai/dsh-compact/checkpo
 import type { ToolCallView, ToolEventView, ToolResultView } from '@deepseek-ai/dsh-client-connection/client'
 import type { CommandNode, CompactionSummaryNode, ConversationNode } from './conversation.ts'
 import { toAssistantBlocks } from './conversation.ts'
+import { contextForm, contextProvenance } from './context-provenance.ts'
+import { SteeringHistory } from './steering-history.ts'
 import type { AssistantStepMetadata } from './assistant-timing.ts'
 import { indexAssistantStepTiming, settledAssistantTiming } from './assistant-timing.ts'
 
@@ -46,11 +48,12 @@ interface CallIndexEntry {
   callView: ToolCallView | null
 }
 
-/** One event -> UI node (pure function; the eight-variant ConversationNode union). */
+/** One event -> UI node (pure function; the ten-variant ConversationNode union). */
 function materializeNode(
   event: SessionEvent,
   callIndex: ReadonlyMap<string, CallIndexEntry>,
   resultView: ToolResultView | null,
+  steering: boolean,
   stepTimings: ReadonlyMap<string, AssistantStepMetadata>,
 ): ConversationNode {
   switch (event.type) {
@@ -61,6 +64,15 @@ function materializeNode(
       if (event.data.source.kind !== 'user') {
         return {
           kind: 'context', seq: event.seq, time: event.time,
+          content: event.data.content, source: event.data.source,
+          provenance: contextProvenance(event.data.source),
+          form: contextForm(event.data.source),
+        }
+      }
+      if (steering) {
+        return {
+          kind: 'steering', messageId: event.data.id,
+          seq: event.seq, time: event.time,
           content: event.data.content, source: event.data.source,
         }
       }
@@ -178,6 +190,8 @@ export class TranscriptAdapter {
   private stepTimings = new Map<string, AssistantStepMetadata>()
   /** Wire result views keyed by the tool/result event's seq (views ride the envelope, not the event). */
   private resultViews = new Map<number, ToolResultView>()
+  /** Durable inbox replay used to distinguish next-step human input from queued prompts. */
+  private readonly steeringHistory = new SteeringHistory()
   /**
    * Command lifecycle nodes by commandId (insertion = run order). The
    * `command/run`/`command/done` pair is log-only, so it is not a surface
@@ -206,6 +220,8 @@ export class TranscriptAdapter {
     this.callIdx = new Map()
     this.resultViews.clear()
     this.commandIdx = new Map()
+    this.steeringHistory.reset()
+    const steeringSeqs = new Set<number>()
     this.stepTimings = new Map()
     for (let i = 0; i < events.length; i++) {
       const event = events[i]
@@ -214,13 +230,14 @@ export class TranscriptAdapter {
       this.eventIndex.set(event.seq, event)
       this.indexCall(event, views?.[i])
       this.indexCommand(event)
+      if (this.steeringHistory.apply(event)) steeringSeqs.add(event.seq)
       indexAssistantStepTiming(this.stepTimings, event)
     }
     // Indexes first, then project: a tool/result materializes against the
     // complete call index, and a checkpoint against the complete event index.
     const projected: ConversationNode[] = []
     for (const event of events) {
-      if (isTranscriptEvent(event)) projected.push(this.materialize(event))
+      if (isTranscriptEvent(event)) projected.push(this.materialize(event, steeringSeqs.has(event.seq)))
     }
     this.projected = projected
   }
@@ -237,10 +254,11 @@ export class TranscriptAdapter {
   append(event: SessionEvent, view?: ToolEventView): void {
     this.eventIndex.set(event.seq, event)
     this.indexCall(event, view)
+    const steering = this.steeringHistory.apply(event)
     indexAssistantStepTiming(this.stepTimings, event)
     if (this.indexCommand(event)) this.rev++
     if (!isTranscriptEvent(event)) return
-    this.projected = [...this.projected, this.materialize(event)]
+    this.projected = [...this.projected, this.materialize(event, steering)]
     this.rev++
   }
 
@@ -273,10 +291,16 @@ export class TranscriptAdapter {
   }
 
   /** Materialize one transcript event against the complete current indexes. */
-  private materialize(event: SessionEvent): ConversationNode {
+  private materialize(event: SessionEvent, steering: boolean): ConversationNode {
     return isCompactCheckpoint(event)
       ? materializeCompaction(event, this.eventIndex)
-      : materializeNode(event, this.callIdx, this.resultViews.get(event.seq) ?? null, this.stepTimings)
+      : materializeNode(
+        event,
+        this.callIdx,
+        this.resultViews.get(event.seq) ?? null,
+        steering,
+        this.stepTimings,
+      )
   }
 
   /**

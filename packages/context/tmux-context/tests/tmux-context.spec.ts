@@ -170,7 +170,14 @@ describe('tmux-context injection', () => {
     ])
     const event = session.events.at(-1)
     if (event?.type !== 'user/message') throw new Error('missing tmux context')
-    expect(event.data.source).toEqual({ kind: 'plugin', plugin: 'tmux-context' })
+    // `snapshot` form: one named contribution carrying exactly the reading the
+    // model saw, so a consumer attributes it without re-splitting prose.
+    expect(event.data.source).toMatchObject({
+      kind: 'plugin',
+      plugin: 'tmux-context',
+      form: 'snapshot',
+      sections: [{ name: 'tmux-context' }],
+    })
     expect(event.surfaceOp).toBe('append')
   })
 
