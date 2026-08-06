@@ -175,11 +175,11 @@ declare module 'cordis' {
      * Consumers that buffer work for the configured identity use this
      * transient signal to reject that work instead of waiting forever. Normal
      * factory teardown suppresses failures from the cancelled startup attempt.
-     * @param sessionId - exact shared agent/session identity that failed startup.
-     * @param error - persistence, setup, or publication failure.
+     * @param payload.sessionId - exact shared agent/session identity that failed startup.
+     * @param payload.error - persistence, setup, or publication failure.
      * @mode emit
      */
-    'agent-loop/config-start-failed'(sessionId: SessionId, error: unknown): void
+    'agent-loop/config-start-failed'(payload: { sessionId: SessionId; error: unknown }): void
   }
 }
 
@@ -351,7 +351,7 @@ export class AgentLoop extends Service implements AgentFactory {
   ): void {
     if (!this.ownership.isActive()) return
     this.ctx.logger.warn(`agent "${configId}": config-driven ${action} of "${sessionId}" failed: ${errorChain(error)}`)
-    const args: unknown[] = ['agent-loop/config-start-failed', sessionId, error]
+    const args: unknown[] = ['agent-loop/config-start-failed', { sessionId, error }]
     for (const callback of this.ctx.events.dispatch('emit', args)) {
       try {
         const returned: unknown = callback(...args)
@@ -400,7 +400,7 @@ export class AgentLoop extends Service implements AgentFactory {
         released.resolve()
       }
     }
-    const disposeAgentListener = ownerCtx.on('agent/disposed', checkReleased)
+    const disposeAgentListener = ownerCtx.on('agent/disposed', () => { checkReleased() })
     const disposeSessionListener = ownerCtx.on('session/disposed', checkReleased)
     try {
       checkReleased()
@@ -525,7 +525,7 @@ export class AgentLoop extends Service implements AgentFactory {
           // A synchronous announce/session-start listener may have started
           // teardown; the machine is already live (delivery works from the
           // session-start seam), so only the liveness recheck is owed.
-          emitAgentEvent(loopCtx, agent, 'agent/session-start', source)
+          emitAgentEvent(loopCtx, agent, 'agent/session-start', { source })
           assertLive()
           return { agent, dispose }
         },

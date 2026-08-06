@@ -10,7 +10,7 @@ Status: implemented
 
 ## Decision
 
-只要存在会话，`ConversationRoot` 就会始终提供 `wrapActiveBody` owner 回调，将视图环包进 `data-conversation-scroll` 主体，并用 `data-composer-seat` 包住整条 `'conversation.composer'` chain 输出（`overlay: true` 下的 fallback 与选举出的 overlay 兄弟节点）。活跃阶段 CSS 以 `position: sticky; bottom: 0` 钉住该 seat，使用户未贴底时 Question／Approval 接管仍可见；hero CSS 在滚动主体内居中 fallback 栈。`ConversationSession` 在 blank 时保留隐藏 chrome 的 header + body 壳，使首次发送时树座位不变。可见时会话标题栏仍是滚动容器之上的 `flex: none` 列 chrome。ChatView 与 Trajectory/Waterfall 仅在宿主之外挂载时（单元测试）保留本地 scroller；位于宿主下时设为 `overflow: visible`，并通过 `closest('[data-conversation-scroll]')` 解析贴底跟随与前置锚定。
+`ConversationRoot` 始终拥有同一个 `data-conversation-scroll` 主体，其中严格 `conversation.session` view outlet 位于 `data-composer-seat` 之前；该 seat 包住整条 `'conversation.composer'` chain 输出（`overlay: true` 下的 fallback 与选举出的 overlay 兄弟节点）。独立的严格 `conversation.session.header` outlet 作为 `flex: none` 列 chrome 位于滚动容器上方，并在 Session 仍为 blank 时隐藏。固定的父级树让滚动主体与 composer seat 从无 session、blank Hero 到活跃对话始终保持挂载。活跃阶段 CSS 以 `position: sticky; bottom: 0` 钉住该 seat，使用户未贴底时 Question／Approval 接管仍可见；Hero CSS 在滚动主体内居中 fallback 栈。ChatView 与 Trajectory/Waterfall 仅在宿主之外挂载时（单元测试）保留本地 scroller；位于宿主下时设为 `overflow: visible`，并通过 `closest('[data-conversation-scroll]')` 解析贴底跟随与前置锚定。
 
 会话统计挂在 `'conversation.composer.dock'`（位于 `'conversation.input.dock'` 之上）。InputBar 的 textarea 在宿主内以 `{ passive: false }` 链式处理 `wheel`：在限高 textarea 仍能沿该方向滚动时保留原生手势；仅在自身边缘才 `preventDefault` 并将 `deltaY` 施加到宿主。
 
@@ -22,7 +22,7 @@ Chat 历史前插通过稳定的已渲染 node／call 身份跟随读者意图�
 
 **滚动容器下方 flex-none 固定编辑器并转发滚轮。** 否决：产品要求编辑器 sticky 在 transcript 滚动容器内，使页脚成为该滚动命中面的一部分，而不是仅转发增量的兄弟节点。
 
-**把编辑器 portal 进 ChatView 的 scroller。** 否决：编辑器跨视图标签共享；包装目标是常驻壳拥有的 Session 主体。
+**把编辑器 portal 进 ChatView 的 scroller。** 否决：编辑器跨视图标签共享；其目标是常驻壳中由 root 持有的滚动容器。
 
 **把 StatsLine 留在 ChatView 消息列下方。** 否决：落在 sticky 编辑器之外会随内容滚走，而输入区仍钉在底部。
 
@@ -30,4 +30,4 @@ Chat 历史前插通过稳定的已渲染 node／call 身份跟随读者意图�
 
 ## Consequences
 
-在页脚上滚轮会滚动 transcript；可见布局是固定标题栏、可滚动 transcript 与 sticky 底部编辑器。统计出现在每一个活跃视图标签上。宿主下的嵌套视图 scroller 被抑制，因而 Trajectory 的 sticky Turn 标题贴在列宿主上。并发历史加载、流式输出、工具展开与编辑器重排会保留滚轮／触控板的滚动决定，包括 Chromium 先推进合成器几何状态再交付事件，以及流收尾阶段滚动位置受钳制后滚动容器重新增长的情况。在这条窄范围的输入来源规则下，其他浏览器滚动输入不会改变贴底跟随所有权。hero → active 保持同一 textarea DOM 节点（assembled slash-flow 快照）以及 InputHub 草稿。
+在页脚上滚轮会滚动 transcript；可见布局是固定标题栏、可滚动 transcript 与 sticky 底部编辑器。统计出现在每一个活跃视图标签上。宿主下的嵌套视图 scroller 被抑制，因而 Trajectory 的 sticky Turn 标题贴在列宿主上。并发历史加载、流式输出、工具展开与编辑器重排会保留滚轮／触控板的滚动决定，包括 Chromium 先推进合成器几何状态再交付事件，以及流收尾阶段滚动位置受钳制后滚动容器重新增长的情况。在这条窄范围的输入来源规则下，其他浏览器滚动输入不会改变贴底跟随所有权。无 session → blank Hero 与 Hero → active 都保持同一 textarea DOM 节点以及 InputHub 草稿。

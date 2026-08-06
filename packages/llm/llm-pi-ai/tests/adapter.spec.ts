@@ -129,6 +129,23 @@ describe('PiAiAdapter provider routing', () => {
     expect(result.message.content).toEqual([{ type: 'text', text: 'hello' }])
   })
 
+  it('names a route by its displayName, and by its own key once the profiles drop it', () => {
+    const adapter = adapterOf({ 'acme-gateway': {
+      apiKey: 'k',
+      displayName: 'Acme Gateway',
+      api: 'openai-completions',
+      baseURL: 'https://acme.test/v1',
+      models: [{ id: 'acme-large' }],
+    } })
+    expect(adapter.providerInfo('acme-gateway')).toEqual({ id: 'acme-gateway', name: 'Acme Gateway' })
+
+    // The registry and the profiles can disagree for a moment: a refused
+    // registration swap leaves the previous routes serving while resolution
+    // has already moved on, so a selector may ask about a route the current
+    // profiles no longer describe. It gets the key rather than nothing.
+    expect(adapter.providerInfo('departed')).toEqual({ id: 'departed', name: 'departed' })
+  })
+
   it('reports unsupported stop sequences rather than silently ignoring them', async () => {
     const server = await mockServer([])
     const ctx = await harness(server.url)
@@ -339,12 +356,11 @@ describe('provider profile lifecycle', () => {
       ReasoningEffortId('xhigh'),
       ReasoningEffortId('max'),
     ])
-    await expect(ctx.llm.resolveModelInfo('openai', 'gpt-4.1'))
-      .resolves.toMatchObject({
-        reasoning: {
-          efforts: [{ id: ReasoningEffortId('off'), name: 'Off' }],
-        },
-      })
+    // A catalog model without reasoning is the same case as a hand-declared
+    // one: pi-ai reports the single level `off`, which translates to omitting
+    // the reasoning option — exactly what naming no effort already does. The
+    // capability is reported unavailable rather than offering that control.
+    expect((await ctx.llm.resolveModelInfo('openai', 'gpt-4.1')).reasoning).toBeUndefined()
   })
 
   it('uses a supported profile reasoning value as the model default and rejects an unsupported one', async () => {
@@ -406,12 +422,14 @@ describe('provider profile lifecycle', () => {
     expect(server.requests).toHaveLength(0)
   })
 
-  it('validates empty, unknown, legacy-shaped, and explicitly blank profiles', () => {
+  it('validates empty, underspecified, legacy-shaped, and explicitly blank profiles', () => {
     // Empty and omitted dicts are the dormant zero-route posture, not errors.
     expect(resolveProfiles({}).size).toBe(0)
     expect(resolveProfiles(undefined).size).toBe(0)
     expect(() => resolveProfiles({ '': {} })).toThrow(/non-empty/)
-    expect(() => resolveProfiles({ 'not-real': {} })).toThrow(/unknown/)
+    // A route the installed catalog does not ship is allowed, but it has no
+    // defaults to fall back on: it must describe its own models.
+    expect(() => resolveProfiles({ 'not-real': {} })).toThrow(/resolves no models/)
     // The pre-release array shape and its per-profile provider field fail
     // loud with migration directions instead of half-working.
     expect(() => resolveProfiles([{ provider: 'openai' }] as never)).toThrow(/dict keyed by provider/)

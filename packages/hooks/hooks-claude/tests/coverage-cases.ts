@@ -520,7 +520,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const path = hooks(d, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: s }] }] })
       const adapter = new MockAdapter([textResponse('ok')])
       const ctx = await harness(path, adapter)
-      ctx.on('agent/pre-step', async (_agent, messages) => ({
+      ctx.on('agent/pre-step', async ({ messages }) => ({
         kind: 'enter' as const,
         messages: [{
           ...messages[0]!,

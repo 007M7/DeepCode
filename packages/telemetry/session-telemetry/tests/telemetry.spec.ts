@@ -264,7 +264,7 @@ describe('TelemetryCoordinator on-demand capture', () => {
     session.append('turn/start', { turn: 1 })
     await ctx.parallel('session/flush', session)
     const agent = { id: 'agent-1', session } as Agent
-    ctx.emit('agent/error', agent, 1, 1, new Error('local only'))
+    ctx.emit('agent/error', { agent, turn: 1, step: 1, error: new Error('local only') })
     expect(backend.flush).not.toHaveBeenCalled()
     expect(backend.records).toEqual([])
     expect(redact).not.toHaveBeenCalled()
@@ -536,7 +536,7 @@ describe('TelemetryCoordinator lifecycle and containment', () => {
     const session = liveSession(ctx, 'erring')
     // Only the members the relay reads; the full Agent surface is irrelevant here.
     const agent = { id: 'agent-1', session } as Agent
-    ctx.emit('agent/error', agent, 3, 2, error)
+    ctx.emit('agent/error', { agent, turn: 3, step: 2, error })
     const record = backend.records.find(r => r.channel === 'ops')!
     expect(record.severity).toBe('error')
     expect(record.attributes).toMatchObject({

@@ -17,7 +17,7 @@ type SettingsNamespace = Branded<'SettingsNamespace'>
 
 ## 注册
 
-注册把 schemastery schema 绑定到调用方插件 fiber 上的 namespace——dispose 该 fiber 即移除 namespace 及其观察者。options 携带组合层与 owner 的生效时机。
+注册把 schemastery schema 绑定到调用方插件 fiber 上的 namespace——dispose 该 fiber 即移除 namespace 及其观察者。options 携带组合层、owner 的生效时机，以及一个可选的、用于校验 schema 表达不了的约束的钩子。
 
 ```ts type-equiv
 /** Registration options beyond the namespace schema. */
@@ -26,8 +26,30 @@ interface SettingsRegisterOptions<T> {
   base?: Partial<T>
   /** Owner's effect timing, surfaced to configuration UIs; defaults to `live`. */
   applies?: SettingsApplies
+  /**
+   * Reject a resolved section the owner could not act on, for constraints its
+   * schema cannot express — a cross-field requirement, or one field's validity
+   * depending on another's. Throwing here refuses the *write* that produced the
+   * value, so a caller learns at `update`/`replace`/`mutate` instead of storing
+   * something that would silently disable the owner.
+   *
+   * Kept separate from the schema because the schema is also what a
+   * configuration surface renders and what an absent section resolves through;
+   * folding a cross-field check into it would change both.
+   *
+   * Once the owner is registered, a stored section that fails this keeps the
+   * namespace's last good value and warns, exactly as a schema failure does,
+   * so an externally edited document cannot strand a running owner. At
+   * registration there is no last good value yet, so a stored section that
+   * already fails rejects the registration itself — again exactly as a schema
+   * failure does.
+   * @param value - the resolved section, schema-valid by construction.
+   */
+  validate?: (value: T) => void
 }
 ```
+
+`validate` 在 schema 接纳该值之后运行，因此它看到的默认值与组合 base 与 owner 将看到的完全一致。`dsh-llm-pi-ai` 用它在写入处拒绝自己无法服务的提供方 profile，而不是先存下来、再让该 namespace 下每条路由失效。
 
 `applies` 是 UI 提示而非机制：`restart` 的 owner 只是从不 watch，其值在构造期读取一次，配置界面可为待生效变更加标。
 

@@ -87,7 +87,7 @@ describe('ACP prompt lifecycle', () => {
     const sessionId = await newSession(harness)
     const agent = harness.ctx.agents.get(SessionId(sessionId))!
     let injected = false
-    harness.ctx.on('agent/inbox/inserted', (subject, { message }) => {
+    harness.ctx.on('agent/inbox/inserted', ({ agent: subject, message }) => {
       if (subject === agent && message.source.kind === 'user' && !injected) {
         injected = true
         agent.inject(createUserMessage({ content: [{ type: 'text', text: 'context' }], source: { kind: 'plugin', plugin: 'test' } }))
@@ -235,7 +235,7 @@ describe('ACP prompt lifecycle', () => {
     harness = await makeBridgeHarness({ script: [errorResponse('transient boom'), textResponse('recovered')] })
     // A recovery policy: schedule one retry for the failed request.
     let retried = false
-    harness.ctx.on('agent/request-error', async (_subject) => {
+    harness.ctx.on('agent/request-error', async () => {
       if (!retried) {
         retried = true
         return { kind: 'retry' }
@@ -272,7 +272,7 @@ describe('ACP prompt lifecycle', () => {
   it('cancels a prompt removed before its turn claims it', async () => {
     harness = await makeBridgeHarness({ script: [] })
     const sessionId = await newSession(harness)
-    const dispose = harness.ctx.on('agent/inbox/inserted', (agent, { message }) => {
+    const dispose = harness.ctx.on('agent/inbox/inserted', ({ agent, message }) => {
       if (message.source.kind === 'user') agent.inbox.remove(message.id)
     })
 
