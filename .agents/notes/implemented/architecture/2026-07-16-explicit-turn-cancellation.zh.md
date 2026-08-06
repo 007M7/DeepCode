@@ -20,7 +20,7 @@ AgentLoop 为每个待启动轮次私有地持有一个 `TurnCancellation`。它
 
 对于轮次被认领前已取消的排队工作，驱动器只保留一个不携带取消原因的运行前标记。实际生效的 `cancel()` 会先发出仅供观察的 `agent/cancel-requested` 通知并携带最终确定的类型化取消原因，然后才清除排队工作和 steering（中途引导）工作或中止持有者；通知失败不能阻止此次停止，空闲状态下调用则不发出任何通知。通知观察者同步加入队列的工作也会被这次清除，而稍后由 signal 中止观察者加入队列的工作属于下一个轮次。若 `running` 监听器同步取消旧工作并发送替代提示词，驱动器会丢弃已中止的持有者，并为替代提示词创建全新的持有者。同一活跃持有者上的重复取消遵循首次请求优先，后续调用仍可清除新入队的待处理工作。
 
-显式事件签名保留位置参数形式，并把 `signal` 放入 `PreStepContext`，或放在 waterfall（瀑布式事件）的最后一个参数 `next` 之前。pre-step 进入决策、请求配置、请求错误恢复、模型生成、工具执行、审批、轮次停止以及 subagent 或工作流请求都会收到当前 signal。钩子桥接器也必须提供 `RunHookOptions.signal`，使轮次取消能够到达 Bash 执行器终止进程组并等待其退出的边界。`SystemPrompt.assemble()` 在 `AssembleContext` 中携带 `signal?: AbortSignal`，因为该对象是显式请求值，也可表示轮次之外不携带 signal 的组装。监听器可以配合该 signal 取消，但不得保留它来控制其他轮次。
+显式事件签名传递单个 payload 对象：agent 作用域事件在 payload 中携带 `agent` 和 `signal`，`next` 位于最后；其余 seam 保持 `signal` 紧邻 waterfall（瀑布式事件）的最终 `next` 之前。`PreStepContext` 与 `RequestFailureContext` 已退役，其字段并入 `agent/pre-step` 与 `agent/request-error` 的 payload（[payload-object 事件](2026-08-06-agent-event-payload-objects.md)）。pre-step 进入决策、请求配置、请求错误恢复、模型生成、工具执行、审批、轮次停止以及 subagent 或工作流请求都会收到当前 signal。钩子桥接器也必须提供 `RunHookOptions.signal`，使轮次取消能够到达 Bash 执行器终止进程组并等待其退出的边界。`SystemPrompt.assemble()` 在 `AssembleContext` 中携带 `signal?: AbortSignal`，因为该对象是显式请求值，也可表示轮次之外不携带 signal 的组装。监听器可以配合该 signal 取消，但不得保留它来控制其他轮次。
 
 `ctx.agents` 仍只携带发起 Agent。环境中的 Agent 并不代表存活、当前轮次或取消权限。cause 读取器是 loop 私有的，它直接陈述机器私有的 slot 不变量（只有 `cancel()` 会中止轮次控制器，且总是携带规范的冻结 cause），而不是对 reason 做结构化再校验；不存在从任意 signal 读取 cause 的公开辅助函数。并发 Agent 会同时隔离各自的发起方身份和轮次 signal；子驱动会遮蔽父发起方，而父请求 signal 仍通过 subagent seam 传递。
 
@@ -44,7 +44,7 @@ Agent dispose（资源释放）会在活跃持有者上请求仅用于运行时�
 
 **现在就定义推测性的 `superseded`、`timeout` 和 `shutdown` 变体。** 当前没有 Agent 取消生产方实现这些语义。`shutdown` 已经属于生命周期 dispose；超时或替代只有在拥有明确归属策略和唯一终态含义时才应进入联合类型。
 
-**公开轮次或步骤上下文包装类型。** 现有位置参数 seam 已经标识 Agent、轮次和步骤。包装类型会加宽所有 API、重复归属，并诱导调用方把捕获的对象当成持久权限。
+**公开轮次或步骤上下文包装类型。** 现有 seam 已经标识 Agent、轮次和步骤。包装类型会加宽所有 API、重复归属，并诱导调用方把捕获的对象当成持久权限。
 
 **在宽限期后放弃不协作的工作。** 同进程工作仍在运行时就报告空闲状态，会破坏资源清理与资源归属保证。硬终止需要 worker 或进程隔离边界，不属于该控制 seam。
 

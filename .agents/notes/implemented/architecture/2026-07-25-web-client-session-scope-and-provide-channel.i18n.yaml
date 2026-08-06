@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-07-25-web-client-session-scope-and-provide-channel.md
-2026-07-25-web-client-session-scope-and-provide-channel.md: aeefbe22a397e3d7ffb9f6427a3c70c8c8e8b940
-2026-07-25-web-client-session-scope-and-provide-channel.zh.md: 056d50d45cef891e0e635d8bb4f2e73064ccdb87
+2026-07-25-web-client-session-scope-and-provide-channel.md: 3c51f06fca23a495f0fbc0cc4f1c289edea07b3b
+2026-07-25-web-client-session-scope-and-provide-channel.zh.md: 06fc1005785d9d11b52839f91c3bb4b99cad7d63

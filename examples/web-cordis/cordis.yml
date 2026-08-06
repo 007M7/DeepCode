@@ -1,21 +1,16 @@
 # Opt-in Web composition for inspecting the self-referential Cordis tools.
 # Temporary Plugin code can reach every injected live capability; treat this
 # deployment like shell access, not as a security boundary.
-# This file is an OVERLAY over the shipped web composition (`base.cordis.yml` +
-# `web.cordis.yml`), not a tree: `dsh web --config` applies it as one more
-# sibling patch list at the same include level, so these patches reach base and
-# overlay rows alike. A patch replaces the targeted row's whole `config`.
+# This file is a PATCH OVERLAY over the web profile (dsh-base + dsh-web-app
+# bundle layers), not a tree: `dsh web --patch` applies it as one more sibling
+# patch list at the same include level, so these patches reach every bundle
+# row. A patch replaces the targeted row's whole `config`.
 
-# AppCLIEntry normally injects the assembly-owned dist path before `dsh web`
-# boots; pinning the port here keeps this demo off the default 3080.
+# Pinning the port here keeps this demo off the default 3080.
 - id: webserver
   config:
     host: 127.0.0.1
     port: 3081
-    # Plain concatenation, not URL.pathname: a cwd with spaces
-    # percent-encodes through the URL round-trip and the encoded
-    # path never resolves.
-    distIndex: !!js "process.cwd() + '/apps/web/dist/index.html'"
 
 - insert:
     - id: tool-cordis

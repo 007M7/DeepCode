@@ -213,9 +213,7 @@ export function apply(ctx: Context, config: Config): void {
   }
 
   ctx.on('agent/pre-step', async (
-    agent: Agent,
-    messages,
-    { step, signal },
+    { agent, messages, step, signal },
     next,
   ): Promise<PreStepDecision> => {
     const decision = await next()

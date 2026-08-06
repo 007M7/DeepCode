@@ -66,7 +66,7 @@ function preparationFromSnapshot(
 
 function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
-    const dispose = ctx.on('agent/status', (subject, status) => {
+    const dispose = ctx.on('agent/status', ({ agent: subject, status }) => {
       if (subject === agent && status === 'idle') { dispose(); resolve() }
     })
   })
@@ -260,7 +260,7 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     const adapter1 = new MockAdapter([textResponse('a')])
     const { ctx: ctx1, root } = await persistentHarness(adapter1)
     const sources1: string[] = []
-    ctx1.on('agent/session-start', (_agent, source) => void sources1.push(source))
+    ctx1.on('agent/session-start', ({ source }) => void sources1.push(source))
     const a1 = (await ctx1.agents.create({ sessionId: SessionId('start-sess') })).agent
     expect(sources1).toEqual(['startup'])
     a1.followup(createUserMessage({ content: [{ type: 'text', text: 'q' }], source: { kind: 'user' } }))
@@ -279,7 +279,7 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     await ctx2.plugin(SessionPersistenceJsonl, { root })
     ctx2.llm.registerAdapter(['mock'], adapter2)
     const sources2: string[] = []
-    ctx2.on('agent/session-start', (_agent, source) => void sources2.push(source))
+    ctx2.on('agent/session-start', ({ source }) => void sources2.push(source))
     await ctx2.agents.resume({ resumeSessionId: SessionId('start-sess') })
     expect(sources2).toEqual(['resume'])
     await ctx2.fiber.dispose()
@@ -298,11 +298,11 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
       expect(ctx.agents.get(sessionId)?.session).toBe(session)
       order.push('session/created')
     })
-    ctx.on('agent/created', (agent) => {
+    ctx.on('agent/created', ({ agent }) => {
       expect(agent.status).toBe('idle')
       order.push('agent/created')
     })
-    ctx.on('agent/session-start', (agent) => {
+    ctx.on('agent/session-start', ({ agent }) => {
       expect(() => { agent.cancel({ kind: 'user' }) }).not.toThrow()
       order.push('agent/session-start')
     })
@@ -882,7 +882,7 @@ describe('configured-start failure edges', () => {
     configured.llm.registerAdapter(['mock'], new MockAdapter([]))
     configured.sessionPersistence.prepare = (id, signal) => ctx.sessionPersistence.prepare(id, signal)
     const configFailures: unknown[] = []
-    configured.on('agent-loop/config-start-failed', (_id, error) => { configFailures.push(error) })
+    configured.on('agent-loop/config-start-failed', ({ error }) => { configFailures.push(error) })
     const configWarnings: string[] = []
     const configWarn = configured.logger.warn.bind(configured.logger)
     configured.logger.warn = ((...args: unknown[]) => {
@@ -915,7 +915,7 @@ describe('configured-start failure edges', () => {
       return gate.promise
     }
     const failures: unknown[] = []
-    ctx.on('agent-loop/config-start-failed', (_id, error) => { failures.push(error) })
+    ctx.on('agent-loop/config-start-failed', ({ error }) => { failures.push(error) })
 
     const configured = new Context()
     await configured.plugin(LlmService)
@@ -926,7 +926,7 @@ describe('configured-start failure edges', () => {
     await configured.plugin(SessionPersistenceJsonl, { root })
     configured.llm.registerAdapter(['mock'], new MockAdapter([]))
     configured.sessionPersistence.prepare = (id, signal) => ctx.sessionPersistence.prepare(id, signal)
-    configured.on('agent-loop/config-start-failed', (_id, error) => { failures.push(error) })
+    configured.on('agent-loop/config-start-failed', ({ error }) => { failures.push(error) })
     const loop = await configured.plugin(AgentLoop, {
       agents: [{ id: 'main', resumeSessionId: sessionId, provider: 'mock', model: 'mock' }],
     })

@@ -24,16 +24,16 @@ A fully configured agent and live session were published. Setup is composition-o
  * Synchronous listener failure vetoes publication, while returned-promise
  * rejection is reported. Detach requested during dispatch waits until every
  * creation listener has observed the stable entry.
- * @param agent - the newly registered agent with its live session and completed setup.
+ * @param payload.agent - the newly registered agent with its live session and completed setup.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode emit
  */
-'agent/created'(this: Scoped<Agent>, agent: Agent): void
+'agent/created'(this: Scoped<Agent>, payload: { agent: Agent }): void
 ```
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:178`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:154`](../../packages/core/agent/src/types.ts)
 
 ### `agent/disposed` — emit
 
@@ -44,16 +44,16 @@ An agent left the registry; AgentLoop emits this after driver quiescence and sco
  * An agent left the registry; AgentLoop emits this after driver quiescence
  * and scoped-registration unwind, but before session detachment. Custom
  * registry users own their driver-ordering contract.
- * @param agent - the exact agent removed from the registry.
+ * @param payload.agent - the exact agent removed from the registry.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode emit
  */
-'agent/disposed'(this: Scoped<Agent>, agent: Agent): void
+'agent/disposed'(this: Scoped<Agent>, payload: { agent: Agent }): void
 ```
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:187`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:163`](../../packages/core/agent/src/types.ts)
 
 ### `agent/error` — emit
 
@@ -63,19 +63,19 @@ A step or turn errored. The machine reports a failure here even when the error h
 /**
  * A step or turn errored. The machine reports a failure here even when
  * the error has no in-turn position for a durable record.
- * @param agent - the agent whose turn errored.
- * @param turn - the turn in which the failure surfaced.
- * @param step - the step at which the failure surfaced.
- * @param error - the failure, verbatim.
+ * @param payload.agent - the agent whose turn errored.
+ * @param payload.turn - the turn in which the failure surfaced.
+ * @param payload.step - the step at which the failure surfaced.
+ * @param payload.error - the failure, verbatim.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode emit
  */
-'agent/error'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: unknown): void
+'agent/error'(this: Scoped<Agent>, payload: { agent: Agent; turn: number; step: number; error: unknown }): void
 ```
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:302`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:285`](../../packages/core/agent/src/types.ts)
 
 ### `agent/inbox/claimed` — emit
 
@@ -86,17 +86,18 @@ One message left the inbox inside its open turn. If the proposed step is rejecte
  * One message left the inbox inside its open turn. If the proposed step
  * is rejected, the claimed message ends here: it is neither discarded nor
  * re-emitted as a user/message, and the turn closes without a step.
- * @param agent - the agent whose inbox changed.
- * @param event - the claimed message and owning turn.
+ * @param payload.agent - the agent whose inbox changed.
+ * @param payload.message - the claimed message.
+ * @param payload.turn - the owning turn.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode emit
  */
-'agent/inbox/claimed'(this: Scoped<Agent>, agent: Agent, event: { message: UserMessage; turn: number }): void
+'agent/inbox/claimed'(this: Scoped<Agent>, payload: { agent: Agent; message: UserMessage; turn: number }): void
 ```
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [UserMessage](../core-data-structures/session.md)
 
-Source: [`packages/core/agent/src/types.ts:215`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:192`](../../packages/core/agent/src/types.ts)
 
 ### `agent/inbox/discarded` — emit
 
@@ -105,17 +106,17 @@ One message was discarded from the live inbox.
 ```ts cordis-catalog
 /**
  * One message was discarded from the live inbox.
- * @param agent - the agent whose inbox changed.
- * @param event - the discarded message.
+ * @param payload.agent - the agent whose inbox changed.
+ * @param payload.message - the discarded message.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode emit
  */
-'agent/inbox/discarded'(this: Scoped<Agent>, agent: Agent, event: { message: UserMessage }): void
+'agent/inbox/discarded'(this: Scoped<Agent>, payload: { agent: Agent; message: UserMessage }): void
 ```
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [UserMessage](../core-data-structures/session.md)
 
-Source: [`packages/core/agent/src/types.ts:223`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:200`](../../packages/core/agent/src/types.ts)
 
 ### `agent/inbox/inserted` — emit
 
@@ -124,17 +125,17 @@ One message entered the live inbox.
 ```ts cordis-catalog
 /**
  * One message entered the live inbox.
- * @param agent - the agent whose inbox changed.
- * @param event - the inserted message.
+ * @param payload.agent - the agent whose inbox changed.
+ * @param payload.message - the inserted message.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode emit
  */
-'agent/inbox/inserted'(this: Scoped<Agent>, agent: Agent, event: { message: UserMessage }): void
+'agent/inbox/inserted'(this: Scoped<Agent>, payload: { agent: Agent; message: UserMessage }): void
 ```
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [UserMessage](../core-data-structures/session.md)
 
-Source: [`packages/core/agent/src/types.ts:205`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:181`](../../packages/core/agent/src/types.ts)
 
 ### `agent/pre-step` — waterfall
 
@@ -144,18 +145,20 @@ Reject a proposed step or replace the messages that enter it. Calling `next()` p
 /**
  * Reject a proposed step or replace the messages that enter it. Calling
  * `next()` preserves the current messages.
- * @param agent - the agent proposing the step.
- * @param messages - messages removed from the inbox for this step.
- * @param context - proposed turn and step coordinates plus cancellation.
+ * @param payload.agent - the agent proposing the step.
+ * @param payload.messages - messages removed from the inbox for this step.
+ * @param payload.turn - the turn that will own the step.
+ * @param payload.step - the step proposed by the loop.
+ * @param payload.signal - the current turn's cancellation signal.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode waterfall
  */
-'agent/pre-step'(this: Scoped<Agent>, agent: Agent, messages: UserMessage[], context: PreStepContext, next: () => Promise<PreStepDecision>): Promise<PreStepDecision>
+'agent/pre-step'(this: Scoped<Agent>, payload: { agent: Agent; messages: UserMessage[]; turn: number; step: number; signal: AbortSignal }, next: () => Promise<PreStepDecision>): Promise<PreStepDecision>
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [PreStepContext](../core-data-structures/core.md) · [PreStepDecision](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [UserMessage](../core-data-structures/session.md)
+Types: [Agent](../core-data-structures/core.md) · [PreStepDecision](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [UserMessage](../core-data-structures/session.md)
 
-Source: [`packages/core/agent/src/types.ts:247`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:226`](../../packages/core/agent/src/types.ts)
 
 ### `agent/request` — waterfall
 
@@ -167,19 +170,19 @@ Replace the frozen call configuration. `await next()` yields the config the mach
  * the machine would use (agent options on the first request, the logged
  * header afterwards); return a replacement to switch. Model-visible
  * content must use logged channels; this seam cannot mutate messages.
- * @param agent - the agent making the model call.
- * @param turn - the open turn number.
- * @param step - the step whose request this is.
- * @param signal - the current turn's explicit abort signal.
+ * @param payload.agent - the agent making the model call.
+ * @param payload.turn - the open turn number.
+ * @param payload.step - the step whose request this is.
+ * @param payload.signal - the current turn's explicit abort signal.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode waterfall
 */
-'agent/request'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, signal: AbortSignal, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>
+'agent/request'(this: Scoped<Agent>, payload: { agent: Agent; turn: number; step: number; signal: AbortSignal }, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>
 ```
 
 Types: [Agent](../core-data-structures/core.md) · [LlmCallConfig](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:260`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:239`](../../packages/core/agent/src/types.ts)
 
 ### `agent/request-error` — waterfall
 
@@ -191,18 +194,22 @@ Handle one failed model-request attempt before the loop retries or closes its st
  * its step. A listener returns `{ kind: 'retry' }` without calling `next()`
  * when it owns recovery, or calls `next()` to delegate. The default
  * `undefined` leaves the failure terminal.
- * @param agent - the agent whose request failed.
- * @param context - request coordinates, provider, normalized failure, and serving policy.
- * @param signal - the turn abort signal.
+ * @param payload.agent - the agent whose request failed.
+ * @param payload.turn - the turn containing the failed request.
+ * @param payload.step - the step containing the failed request attempt.
+ * @param payload.provider - the provider selected for the failed request.
+ * @param payload.failure - serializable facts normalized at the final adapter boundary.
+ * @param payload.retryPolicy - the policy of the adapter registration that served the failed request.
+ * @param payload.signal - the turn abort signal.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode waterfall
  */
-'agent/request-error'(this: Scoped<Agent>, agent: Agent, context: RequestFailureContext, signal: AbortSignal, next: () => Promise<RequestErrorAction>): Promise<RequestErrorAction>
+'agent/request-error'(this: Scoped<Agent>, payload: { agent: Agent; turn: number; step: number; provider: string; failure: LlmFailure; retryPolicy: ResolvedRetryPolicy | undefined; signal: AbortSignal }, next: () => Promise<RequestErrorAction>): Promise<RequestErrorAction>
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [RequestErrorAction](../core-data-structures/core.md) · [RequestFailureContext](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
+Types: [Agent](../core-data-structures/core.md) · [LlmFailure](../core-data-structures/llm-streaming.md) · [RequestErrorAction](../core-data-structures/core.md) · [ResolvedRetryPolicy](../core-data-structures/llm-streaming.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:272`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:255`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-start` — emit
 
@@ -214,17 +221,17 @@ The session lifecycle began, once before the first turn. Use `agent.inject()` to
  * `agent.inject()` to seed model-facing context. This is a notification, not
  * a veto; disposal requested by a lifecycle owner is rechecked before the
  * driver starts.
- * @param agent - the agent whose session lifecycle began.
- * @param source - why the session started (fresh startup, resume, …).
+ * @param payload.agent - the agent whose session lifecycle began.
+ * @param payload.source - why the session started (fresh startup, resume, …).
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode emit
  */
-'agent/session-start'(this: Scoped<Agent>, agent: Agent, source: SessionStartSource): void
+'agent/session-start'(this: Scoped<Agent>, payload: { agent: Agent; source: SessionStartSource }): void
 ```
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [SessionStartSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:235`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:212`](../../packages/core/agent/src/types.ts)
 
 ### `agent/status` — emit
 
@@ -235,17 +242,17 @@ Agent status changed (`idle` ⇄ `running`). A waking delivery enters `running` 
  * Agent status changed (`idle` ⇄ `running`). A waking delivery enters
  * `running` synchronously after reserving cancellation; `idle` means no
  * driver remains scheduled or active.
- * @param agent - the agent whose status flipped.
- * @param status - the status just entered (the transition's destination).
+ * @param payload.agent - the agent whose status flipped.
+ * @param payload.status - the status just entered (the transition's destination).
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode emit
  */
-'agent/status'(this: Scoped<Agent>, agent: Agent, status: AgentStatus): void
+'agent/status'(this: Scoped<Agent>, payload: { agent: Agent; status: AgentStatus }): void
 ```
 
 Types: [Agent](../core-data-structures/core.md) · [AgentStatus](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:197`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:173`](../../packages/core/agent/src/types.ts)
 
 ### `agent/turn-stopping` — serial
 
@@ -263,18 +270,18 @@ The turn is about to close: the model owes no response (no live tool calls, no f
  * never short-circuits already-submitted next-step work: same-step
  * `additionalContexts` or racing steering still runs, and the turn
  * closes only when that inbox drains.
- * @param agent - the agent whose turn is at its stop boundary.
- * @param turn - the turn about to close.
- * @param signal - the current turn's explicit abort signal.
+ * @param payload.agent - the agent whose turn is at its stop boundary.
+ * @param payload.turn - the turn about to close.
+ * @param payload.signal - the current turn's explicit abort signal.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode serial
  */
-'agent/turn-stopping'(this: Scoped<Agent>, agent: Agent, turn: number, signal: AbortSignal): Promise<void> | void
+'agent/turn-stopping'(this: Scoped<Agent>, payload: { agent: Agent; turn: number; signal: AbortSignal }): Promise<void> | void
 ```
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:290`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:273`](../../packages/core/agent/src/types.ts)
 
 ## `agent-loop/*`
 
@@ -288,11 +295,11 @@ A declarative agent entry failed before it could publish a live agent. Consumers
  * Consumers that buffer work for the configured identity use this
  * transient signal to reject that work instead of waiting forever. Normal
  * factory teardown suppresses failures from the cancelled startup attempt.
- * @param sessionId - exact shared agent/session identity that failed startup.
- * @param error - persistence, setup, or publication failure.
+ * @param payload.sessionId - exact shared agent/session identity that failed startup.
+ * @param payload.error - persistence, setup, or publication failure.
  * @mode emit
  */
-'agent-loop/config-start-failed'(sessionId: SessionId, error: unknown): void
+'agent-loop/config-start-failed'(payload: { sessionId: SessionId; error: unknown }): void
 ```
 
 Types: [SessionId](../core-data-structures/core.md)
@@ -456,11 +463,11 @@ Goal mutation accepted by one live agent. The matching `goal/change` session eve
  * Goal mutation accepted by one live agent. The matching `goal/change`
  * session event has already committed. Listener failures are contained.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
- * @param agent - agent whose session owns the goal.
- * @param change - fresh current projection or clear tombstone.
+ * @param payload.agent - agent whose session owns the goal.
+ * @param payload.change - fresh current projection or clear tombstone.
  * @mode emit
  */
-'goal/changed'(this: import('@deepseek-ai/dsh-scope').Scoped<Agent>, agent: Agent, change: GoalChanged): void
+'goal/changed'(this: import('@deepseek-ai/dsh-scope').Scoped<Agent>, payload: { agent: Agent; change: GoalChanged }): void
 ```
 
 Types: [Agent](../core-data-structures/core.md) · [GoalChanged](../core-data-structures/goal.md) · [Scoped](../core-data-structures/scope.md)
