@@ -2650,7 +2650,7 @@ Resolve strict generated definitions or conservative SRC markers against current
 async invoke(request: InvokeRemoteRequest): Promise<unknown>
 ```
 
-Source: [`packages/host/api-gateway/src/index.ts:94`](../../packages/host/api-gateway/src/index.ts)
+Source: [`packages/host/api-gateway/src/index.ts:76`](../../packages/host/api-gateway/src/index.ts)
 
 ## `ctx.userInteraction` — `UserInteractionService`
 
