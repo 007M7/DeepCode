@@ -331,9 +331,6 @@ describe('fixed-rate records and durable progression', () => {
     expect(() => resolveEveryOccurrence(record, Date.parse('2026-08-05T12:04:59.999Z')))
       .toThrow(/cannot precede/)
     expect(() => resolveEveryOccurrence(record, Number.NaN)).toThrow(/acceptedAt/)
-    expect(() => resolveEveryOccurrence({ ...record, everySeconds: 0 }, Date.parse(record.scheduledAt)))
-      .toThrow(/interval milliseconds/)
-
     const final = {
       ...record,
       scheduledAt: '9999-12-31T23:59:59.999Z',

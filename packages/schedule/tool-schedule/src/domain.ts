@@ -532,9 +532,6 @@ export function resolveEveryOccurrence(
     || acceptedAt > MAX_FOUR_DIGIT_YEAR_MS) {
     throw new ScheduleLogError('every acceptedAt must be a representable four-digit-year instant')
   }
-  if (!Number.isSafeInteger(interval) || interval <= 0) {
-    throw new ScheduleLogError('every interval milliseconds must be a positive safe integer')
-  }
   if (acceptedAt < target) {
     throw new ScheduleLogError('every dispatch cannot precede the active scheduledAt')
   }

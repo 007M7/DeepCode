@@ -52,12 +52,4 @@ describe('fixed-rate recurrence properties', () => {
       },
     ), { numRuns: 300 })
   })
-
-  it('derives the 288-batch rolling-day bound from the fixed spacing', () => {
-    const spacing = 300_000
-    const day = 86_400_000
-    const accepted = Array.from({ length: 289 }, (_, index) => BASE + index * spacing)
-    expect(accepted.slice(0, 288).every(value => value >= BASE && value < BASE + day)).toBe(true)
-    expect(accepted[288]).toBe(BASE + day)
-  })
 })

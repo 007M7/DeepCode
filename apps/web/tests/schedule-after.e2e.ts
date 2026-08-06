@@ -358,110 +358,6 @@ describe.skipIf(MODE === 'record')('web e2e: browser-zone local at reminder', ()
     expect(tripwire.warnings).toEqual([])
   }, 60_000)
 
-  it('batches backdated fixed-rate records into independent durable receipts and future targets', async () => {
-    onTestFailed(() => saveFailureShot(page, 'web-e2e-schedule-every'))
-    await waitForFact(() => agentHandle.agent.status === 'idle', 10_000)
-    const seededAt = Date.now()
-    const records = [
-      createEveryScheduleRecord(
-        ScheduleId('schedule-every-primary'),
-        EVERY_PROMPTS[0],
-        300,
-        seededAt - 1_200_000,
-      ),
-      createEveryScheduleRecord(
-        ScheduleId('schedule-every-secondary'),
-        EVERY_PROMPTS[1],
-        300,
-        seededAt - 1_140_000,
-      ),
-    ]
-    const [primary, secondary] = records
-    if (primary === undefined || secondary === undefined) throw new Error('missing every fixtures')
-    const recordIds = new Set(records.map(record => record.id))
-    for (const record of records) {
-      agentHandle.agent.session.append('schedule/change', {
-        version: 1,
-        operation: 'create',
-        schedule: record,
-      })
-    }
-    await expect(scaffold.ctx.sessions.flush(agentHandle.agent.session)).resolves.toBe(true)
-    const listed = await scaffold.ctx.tools.execute({
-      signal: AbortSignal.timeout(10_000),
-      callId: CallId('schedule-every-list'),
-      name: 'schedule_list',
-      arguments: {},
-      agent: agentHandle.agent,
-    })
-    expect(listed.isError).toBe(false)
-
-    await waitForFact(() => records.every(record => agentHandle.agent.session.events.some(event =>
-      event.type === 'schedule/change'
-      && event.data.operation === 'dispatch'
-      && event.data.id === record.id)), 15_000)
-    await agentHandle.agent.whenIdle()
-    await expect(scaffold.ctx.sessions.flush(agentHandle.agent.session)).resolves.toBe(true)
-
-    const dispatches = agentHandle.agent.session.events.filter(event =>
-      event.type === 'schedule/change'
-      && event.data.operation === 'dispatch'
-      && recordIds.has(event.data.id))
-    expect(dispatches).toHaveLength(2)
-    const accepted = dispatches.map((event) => {
-      if (event.type !== 'schedule/change' || event.data.operation !== 'dispatch'
-        || !('acceptedAt' in event.data)) throw new Error('expected recurring dispatch')
-      return event.data.acceptedAt
-    })
-    expect(new Set(accepted).size).toBe(1)
-    const acceptedAt = accepted[0]
-    if (acceptedAt === undefined) throw new Error('missing recurring batch time')
-    const folded = foldScheduleEvents(agentHandle.agent.session.events)
-    for (const record of records) {
-      const active = folded.active.find(candidate => candidate.id === record.id)
-      if (active === undefined) throw new Error(`missing active every record ${record.id}`)
-      expect(active).toMatchObject({ kind: 'every', everySeconds: 300 })
-      expect(Date.parse(active.scheduledAt)).toBeGreaterThan(Date.parse(acceptedAt))
-    }
-    const batchMessages = agentHandle.agent.session.events.filter(event =>
-      event.type === 'user/message'
-      && event.data.source.kind === 'plugin'
-      && event.data.source.plugin === 'tool-schedule'
-      && event.data.content.some(block => block.type === 'text' && block.text.startsWith('[SCHEDULE REMINDER BATCH]')))
-    expect(batchMessages).toHaveLength(1)
-
-    const history = await scaffold.ctx.apiProxy.sessions.history({
-      rpcId: RpcId('schedule-every-history'), payload: { sessionId: agentHandle.agent.id },
-    })
-    if (!history.result.ok) throw new Error(history.result.error.message)
-    const receiptViews = history.result.value.events?.filter(entry =>
-      entry.event.type === 'schedule/change'
-      && entry.event.data.operation === 'dispatch'
-      && recordIds.has(entry.event.data.id))
-    expect(receiptViews).toHaveLength(2)
-    expect(receiptViews?.map(entry => entry.view?.view)).toEqual([
-      expect.objectContaining({ scheduleId: primary.id, prompt: EVERY_PROMPTS[0] }),
-      expect.objectContaining({ scheduleId: secondary.id, prompt: EVERY_PROMPTS[1] }),
-    ])
-
-    const receipts = EVERY_PROMPTS.map(prompt =>
-      page.locator(`[data-schedule-reminder]:has-text("${prompt}")`))
-    for (const [index, receipt] of receipts.entries()) {
-      await receipt.waitFor({ timeout: 15_000 })
-      expect(await receipt.getByText(EVERY_PROMPTS[index]!, { exact: true }).count()).toBe(1)
-    }
-    const snapshot = (await captureStableAria(
-      page,
-      `[data-schedule-reminder]:has-text("${EVERY_PROMPTS[0]}")`,
-      scaffold.workspaceCwd,
-    ))
-      .split(primary.id).join('{{scheduleId}}')
-      .replace(/\d{4}-\d{2}-\d{2}T(?:\d{2}:\d{2}:\d{2}\.\d{3}|\{\{clock\}\})Z/gu, '{{occurrenceAt}}')
-    await compareOrRefreshGolden(EVERY_RECEIPT_EXPECTED, snapshot, MODE)
-    expect(tripwire.pageErrors).toEqual([])
-    expect(tripwire.warnings).toEqual([])
-  }, 60_000)
-
   it('keeps the fixture inventory closed', async () => {
     await assertFixtureInventory(SNAPSHOT_DIR, [
       'at-receipt.expected.md',
@@ -469,6 +365,142 @@ describe.skipIf(MODE === 'record')('web e2e: browser-zone local at reminder', ()
       'receipt.expected.md',
     ])
   })
+})
+
+describe.skipIf(MODE === 'record')('web e2e: fixed-rate restart and batch receipts', () => {
+  it('resumes backdated JSONL records, accepts each latest occurrence once, and renders both receipts', async () => {
+    const workspaceCwd = await realpath(await mkdtemp(join(tmpdir(), 'dsh-schedule-every-ws-')))
+    const persistenceRoot = await mkdtemp(join(tmpdir(), 'dsh-schedule-every-sessions-'))
+    const world = { workspaceCwd, persistenceRoot }
+    const sessionId = SessionId('schedule-every-restart')
+    let scaffold: WebScaffold | undefined
+    let browser: Browser | undefined
+    try {
+      scaffold = await launchWebScaffold({ extraOverlayPath: OVERLAY, world })
+      const workspace = await scaffold.ctx.workspace.create(workspaceCwd, 'Schedule every restart')
+      const seeded = scaffold.ctx.sessions.create(sessionId, {
+        meta: { cwd: workspaceCwd, timeZone: SESSION_TIME_ZONE },
+      })
+      appendCompletedTurn(seeded, 'seed fixed-rate reminders')
+      seeded.append('session/title', {
+        title: 'Every restart session', messageSeqs: [], source: { kind: 'user' },
+      })
+      const seededAt = Date.now()
+      const records = [
+        createEveryScheduleRecord(
+          ScheduleId('schedule-every-primary'),
+          EVERY_PROMPTS[0],
+          300,
+          seededAt - 1_200_000,
+        ),
+        createEveryScheduleRecord(
+          ScheduleId('schedule-every-secondary'),
+          EVERY_PROMPTS[1],
+          300,
+          seededAt - 1_140_000,
+        ),
+      ]
+      const [primary, secondary] = records
+      if (primary === undefined || secondary === undefined) throw new Error('missing every fixtures')
+      const recordIds = new Set(records.map(record => record.id))
+      for (const record of records) {
+        seeded.append('schedule/change', { version: 1, operation: 'create', schedule: record })
+      }
+      await expect(scaffold.ctx.sessions.flush(seeded)).resolves.toBe(true)
+      await workspace.attachSession(sessionId)
+      await scaffold.close()
+      scaffold = undefined
+
+      scaffold = await launchWebScaffold({ extraOverlayPath: OVERLAY, world })
+      const resumedWorkspace = await scaffold.ctx.workspace.create(workspaceCwd, 'Schedule every restart')
+      await resumedWorkspace.attachSession(sessionId)
+      const resumed = await scaffold.ctx.apiProxy.sessions.create({
+        rpcId: RpcId('schedule-every-resume'),
+        payload: { sessionId, cwd: workspaceCwd, timeZone: SESSION_TIME_ZONE },
+      })
+      if (!resumed.result.ok) throw new Error(resumed.result.error.message)
+      const agent = scaffold.ctx.agents.get(sessionId)
+      if (agent === undefined) throw new Error('fixed-rate Session did not resume')
+      await waitForFact(() => records.every(record => agent.session.events.some(event =>
+        event.type === 'schedule/change'
+        && event.data.operation === 'dispatch'
+        && event.data.id === record.id)), 15_000)
+      await agent.whenIdle()
+      await expect(scaffold.ctx.sessions.flush(agent.session)).resolves.toBe(true)
+
+      const dispatches = agent.session.events.filter(event =>
+        event.type === 'schedule/change'
+        && event.data.operation === 'dispatch'
+        && recordIds.has(event.data.id))
+      expect(dispatches).toHaveLength(2)
+      const accepted = dispatches.map((event) => {
+        if (event.type !== 'schedule/change' || event.data.operation !== 'dispatch'
+          || !('acceptedAt' in event.data)) throw new Error('expected recurring dispatch')
+        return event.data.acceptedAt
+      })
+      expect(new Set(accepted).size).toBe(1)
+      const acceptedAt = accepted[0]
+      if (acceptedAt === undefined) throw new Error('missing recurring batch time')
+      const folded = foldScheduleEvents(agent.session.events)
+      for (const record of records) {
+        const active = folded.active.find(candidate => candidate.id === record.id)
+        if (active === undefined) throw new Error(`missing active every record ${record.id}`)
+        expect(active).toMatchObject({ kind: 'every', everySeconds: 300 })
+        expect(Date.parse(active.scheduledAt)).toBeGreaterThan(Date.parse(acceptedAt))
+      }
+      expect(agent.session.events.filter(event =>
+        event.type === 'user/message'
+        && event.data.source.kind === 'plugin'
+        && event.data.source.plugin === 'tool-schedule'
+        && event.data.content.some(block =>
+          block.type === 'text' && block.text.startsWith('[SCHEDULE REMINDER BATCH]')))).toHaveLength(1)
+
+      const history = await scaffold.ctx.apiProxy.sessions.history({
+        rpcId: RpcId('schedule-every-history'), payload: { sessionId },
+      })
+      if (!history.result.ok) throw new Error(history.result.error.message)
+      const receiptViews = history.result.value.events?.filter(entry =>
+        entry.event.type === 'schedule/change'
+        && entry.event.data.operation === 'dispatch'
+        && recordIds.has(entry.event.data.id))
+      expect(receiptViews?.map(entry => entry.view?.view)).toEqual([
+        expect.objectContaining({ scheduleId: primary.id, prompt: EVERY_PROMPTS[0] }),
+        expect.objectContaining({ scheduleId: secondary.id, prompt: EVERY_PROMPTS[1] }),
+      ])
+
+      browser = await chromium.launch()
+      const page = await newEnglishPage(browser)
+      const tripwire = watchConsole(page)
+      await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+      await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+      const group = page.locator('[role="treeitem"]').first()
+      await group.waitFor({ timeout: 15_000 })
+      if (await group.getAttribute('aria-expanded') !== 'true') await group.click()
+      const session = page.locator('[role="treeitem"]:has-text("Every restart session")')
+      await session.waitFor({ timeout: 10_000 })
+      await session.click()
+      for (const prompt of EVERY_PROMPTS) {
+        const receipt = page.locator(`[data-schedule-reminder]:has-text("${prompt}")`)
+        await receipt.waitFor({ timeout: 15_000 })
+        expect(await receipt.getByText(prompt, { exact: true }).count()).toBe(1)
+      }
+      const selector = `[data-schedule-reminder]:has-text("${EVERY_PROMPTS[0]}")`
+      const snapshot = (await captureStableAria(page, selector, workspaceCwd))
+        .split(primary.id).join('{{scheduleId}}')
+        .replace(/\d{4}-\d{2}-\d{2}T(?:\d{2}:\d{2}:\d{2}\.\d{3}|\{\{clock\}\})Z/gu, '{{occurrenceAt}}')
+      await compareOrRefreshGolden(EVERY_RECEIPT_EXPECTED, snapshot, MODE)
+      expect(tripwire.pageErrors).toEqual([])
+      expect(tripwire.warnings).toEqual([])
+    } finally {
+      const failures: unknown[] = []
+      await browser?.close().catch((error: unknown) => failures.push(error))
+      await scaffold?.close().catch((error: unknown) => failures.push(error))
+      await rm(workspaceCwd, { recursive: true, force: true }).catch((error: unknown) => failures.push(error))
+      await rm(persistenceRoot, { recursive: true, force: true }).catch((error: unknown) => failures.push(error))
+      if (failures.length === 1) throw failures[0]
+      if (failures.length > 1) throw new AggregateError(failures, 'Every Web evidence teardown failed')
+    }
+  }, 120_000)
 })
 
 describe.skipIf(MODE === 'record')('web e2e: Schedule restart, fork, and cold history', () => {
