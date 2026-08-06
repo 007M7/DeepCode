@@ -147,6 +147,7 @@ export function apply(ctx: Context, config: Config): void {
       content,
       source: {
         kind: 'workspace-instructions',
+        form: 'instructions',
         ...desiredBaseline ? { baseline: true } : {},
         changes,
       },

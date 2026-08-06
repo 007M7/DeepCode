@@ -15,7 +15,8 @@ import type { ReactNode } from 'react'
 import type { IApiClient } from '@deepseek-ai/dsh-client-connection/client'
 import { Button, IconPlusOutline16, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-web-react'
-import { deriveKeyRef, messageOf } from './store.ts'
+import { CustomProviderCard } from './CustomProviderCard.tsx'
+import { deriveKeyRef, messageOf, protocolChoices } from './store.ts'
 import type { ModelsSettingsState, ModelsSettingsStore, ProviderRow } from './store.ts'
 import { ProviderEditor } from './ProviderEditor.tsx'
 import type { en } from './locales.ts'
@@ -28,7 +29,7 @@ export interface ModelsSectionInjected {
   /** uSES subscription hook bound to the store. */
   useSnapshot: SnapshotSelectorHook<ModelsSettingsState>
   /** Wire faces the editor writes through. */
-  api: Pick<IApiClient, 'settings' | 'credentials'>
+  api: Pick<IApiClient, 'settings' | 'credentials' | 'llm'>
   /** Section copy. */
   t: (key: keyof typeof en) => string
 }
@@ -151,10 +152,12 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
   const [deleting, setDeleting] = useState(false)
   const [deleteFailure, setDeleteFailure] = useState<string | undefined>(undefined)
   const [savedTarget, setSavedTarget] = useState<ProviderIdentity | undefined>(undefined)
+  const [declaring, setDeclaring] = useState(false)
 
   const closeEditor = (changed: boolean, target: ProviderIdentity): void => {
     setEditing(undefined)
     setAdding(false)
+    setDeclaring(false)
     if (changed) {
       setSavedTarget(target)
       void controller.load()
@@ -201,6 +204,10 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
   const addable = state.rows.filter(row => !row.configured && row.entry.settingsNs !== '')
   const addTarget = adding ? editing : undefined
   const addNamespace = addTarget === undefined ? undefined : state.namespaces.get(addTarget.settingsNs)
+  // Hand-declared routes live in the pi-ai namespace, which is also the only
+  // one whose schema names the protocols one may speak; without it mounted
+  // there is nothing to declare and the entry point stays disabled.
+  const protocols = protocolChoices(state.namespaces.get('llm-pi-ai'))
 
   return (
     <div className={styles['section']}>
@@ -275,6 +282,10 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
                     aria-label={providerCopy(t('editProvider'), target)}
                     onClick={() => {
                       setSavedTarget(undefined)
+                      // One card at a time: leaving `declaring` set would show
+                      // the create card beside this editor, and closing either
+                      // one discards the other's draft.
+                      setDeclaring(false)
                       setAdding(false)
                       setEditing(open ? undefined : target)
                     }}
@@ -354,25 +365,64 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
               />
             </div>
           )
-          : (
-            <button
-              type="button"
-              className={styles['addButton']}
-              disabled={addable.length === 0 || !state.writable}
-              onClick={() => {
-                const first = addable[0]
-                /* v8 ignore next -- the button is disabled while nothing is addable */
-                if (first === undefined) return
-                setSavedTarget(undefined)
-                setAdding(true)
-                setEditing(targetOf(first))
-              }}
-            >
-              {/* Same glyph as the composer's attach button. */}
-              <IconPlusOutline16 size={14} />
-              {t('add')}
-            </button>
-          )}
+          : declaring
+            ? (
+              <div className={styles['addCard']}>
+                <CustomProviderCard
+                  taken={state.rows.map(row => row.entry.provider)}
+                  protocols={protocols}
+                  /* v8 ignore next -- the card only opens from a button disabled without this namespace */
+                  revision={state.namespaces.get('llm-pi-ai')?.revision ?? 0}
+                  api={api}
+                  t={t}
+                  readOnly={!state.writable}
+                  onClose={(changed) => {
+                    setDeclaring(false)
+                    if (changed) void controller.load()
+                  }}
+                />
+              </div>
+            )
+            : (
+              // One row for the two ways to gain a provider: adopt one the
+              // adapter already knows, or declare one it does not. Side by side
+              // and equal-width so they read as siblings and line up with the
+              // rows above, rather than two pills of different lengths.
+              <div className={styles['addActions']}>
+                <button
+                  type="button"
+                  className={styles['addButton']}
+                  disabled={addable.length === 0 || !state.writable}
+                  onClick={() => {
+                    const first = addable[0]
+                    /* v8 ignore next -- the button is disabled while nothing is addable */
+                    if (first === undefined) return
+                    setSavedTarget(undefined)
+                    setDeclaring(false)
+                    setAdding(true)
+                    setEditing(targetOf(first))
+                  }}
+                >
+                  {/* Same glyph as the composer's attach button. */}
+                  <IconPlusOutline16 size={14} />
+                  {t('add')}
+                </button>
+                <button
+                  type="button"
+                  className={styles['addButton']}
+                  disabled={protocols.length === 0 || !state.writable}
+                  onClick={() => {
+                    setSavedTarget(undefined)
+                    setAdding(false)
+                    setEditing(undefined)
+                    setDeclaring(true)
+                  }}
+                >
+                  <IconPlusOutline16 size={14} />
+                  {t('customAdd')}
+                </button>
+              </div>
+            )}
       </div>
       <Modal
         open={deleteTarget !== undefined}

@@ -85,20 +85,83 @@ describe('TranscriptAdapter', () => {
 
   it('materializes every append-origin variant with field mapping', () => {
     const adapter = new TranscriptAdapter()
+    const steering = createUserMessage({
+      content: [{ type: 'text', text: '插话' }],
+      source: { kind: 'user' },
+    })
     adapter.reset([
       ev.user(0, '用户'),
       ev.assistant(1, 0, '助手'),
-      at(2, { type: 'user/message', surfaceOp: 'append', data: createUserMessage({
+      at(2, { type: 'agent/inbox/spliced', data: {
+        target: 'next-step', start: 0, inserted: [steering],
+      } }),
+      at(3, { type: 'agent/inbox/spliced', data: {
+        target: 'next-step', start: 0, removedCount: 1, inserted: [],
+      } }),
+      at(4, { type: 'user/message', surfaceOp: 'append', data: steering }),
+      at(5, { type: 'user/message', surfaceOp: 'append', data: createUserMessage({
         content: [{ type: 'text', text: '上下文' }], source: { kind: 'plugin', plugin: 'p' },
       }) }),
-      ev.toolCall(3, 0, 'c1', 'echo', '{"x":1}'),
-      ev.toolResult(4, 0, 'c1', '结果'),
+      ev.toolCall(6, 0, 'c1', 'echo', '{"x":1}'),
+      ev.toolResult(7, 0, 'c1', '结果'),
     ])
     const nodes = adapter.nodes()
-    expect(nodes.map(n => n.kind)).toEqual(['user', 'assistant', 'context', 'tool-result'])
+    expect(nodes.map(n => n.kind)).toEqual(['user', 'assistant', 'steering', 'context', 'tool-result'])
+    expect(nodes.find(n => n.kind === 'steering')).toMatchObject({ messageId: steering.id })
     expect(nodes.find(n => n.kind === 'tool-result')).toMatchObject({
       callId: 'c1', call: { name: 'echo', argsRaw: '{"x":1}' }, isError: false,
     })
+  })
+
+  it('identifies steering on the live append path', () => {
+    const adapter = new TranscriptAdapter()
+    const steering = createUserMessage({
+      content: [{ type: 'text', text: 'live steer' }],
+      source: { kind: 'user' },
+    })
+    adapter.reset([])
+    adapter.append(at(0, { type: 'agent/inbox/spliced', data: {
+      target: 'next-step', start: 0, inserted: [steering],
+    } }))
+    adapter.append(at(1, { type: 'agent/inbox/spliced', data: {
+      target: 'next-step', start: 0, removedCount: 1, inserted: [],
+    } }))
+    adapter.append(at(2, { type: 'user/message', surfaceOp: 'append', data: steering }))
+    expect(adapter.nodes()).toMatchObject([{ kind: 'steering', messageId: steering.id }])
+  })
+
+  it('does not mark queued, canceled, or non-user next-step messages as steering', () => {
+    const adapter = new TranscriptAdapter()
+    const queued = createUserMessage({ content: [{ type: 'text', text: 'queued' }], source: { kind: 'user' } })
+    const canceled = createUserMessage({ content: [{ type: 'text', text: 'canceled' }], source: { kind: 'user' } })
+    const context = createUserMessage({
+      content: [{ type: 'text', text: 'context' }],
+      source: { kind: 'plugin', plugin: 'test' },
+    })
+    adapter.reset([
+      at(0, { type: 'agent/inbox/spliced', data: {
+        target: 'next-turn', start: 0, inserted: [queued],
+      } }),
+      at(1, { type: 'agent/inbox/spliced', data: {
+        target: 'next-turn', start: 0, removedCount: 1, inserted: [],
+      } }),
+      at(2, { type: 'user/message', surfaceOp: 'append', data: queued }),
+      at(3, { type: 'agent/inbox/spliced', data: {
+        target: 'next-step', start: 0, inserted: [canceled],
+      } }),
+      at(4, { type: 'agent/inbox/spliced', data: {
+        target: 'next-step', start: 0, removedCount: 1, inserted: [], outcome: 'canceled',
+      } }),
+      at(5, { type: 'user/message', surfaceOp: 'append', data: canceled }),
+      at(6, { type: 'agent/inbox/spliced', data: {
+        target: 'next-step', start: 0, inserted: [context],
+      } }),
+      at(7, { type: 'agent/inbox/spliced', data: {
+        target: 'next-step', start: 0, removedCount: 1, inserted: [],
+      } }),
+      at(8, { type: 'user/message', surfaceOp: 'append', data: context }),
+    ])
+    expect(adapter.nodes().map(node => node.kind)).toEqual(['user', 'user', 'context'])
   })
 
   it('skips events core does not call surface-eligible, marker or not', () => {
@@ -198,10 +261,15 @@ describe('TranscriptAdapter', () => {
       adapter.reset([
         at(0, { type: 'user/message', surfaceOp: 'append', data: createUserMessage({
           content: [{ type: 'text', text: '注入的上下文' }],
-          source: { kind: 'plugin', plugin: 'compact' },
+          source: { kind: 'plugin', plugin: 'compact', form: 'instructions' },
         }) }),
       ])
-      expect(adapter.nodes()).toMatchObject([{ kind: 'context', seq: 0 }])
+      expect(adapter.nodes()).toMatchObject([{
+        kind: 'context',
+        seq: 0,
+        provenance: { role: 'inject', label: 'compact' },
+        form: 'instructions',
+      }])
     })
 
     it('ignores a foreign plugin s replacement user/message', () => {

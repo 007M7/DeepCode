@@ -916,6 +916,7 @@ describe('workspace context request injection', () => {
           role: 'user',
           source: {
             kind: 'workspace-instructions',
+            form: 'instructions',
             baseline: true,
             changes: [{ action: 'set', scope: sk('.', 'AGENTS.md'), path: 'AGENTS.md' }],
           },
@@ -1113,6 +1114,7 @@ describe('workspace context request injection', () => {
         content: [{ type: 'text', text: 'stale nested instructions' }],
         source: {
           kind: 'workspace-instructions',
+          form: 'instructions',
           changes: [{ action: 'set', scope: sk('pkg', 'AGENTS.md'), path: join('pkg', 'AGENTS.md'), digest: 'stale' }],
         },
       }), {
@@ -1146,6 +1148,7 @@ describe('workspace context request injection', () => {
         content: [{ type: 'text', text: 'stale nested instructions' }],
         source: {
           kind: 'workspace-instructions',
+          form: 'instructions',
           changes: [{ action: 'set', scope: sk('pkg', 'AGENTS.md'), path: join('pkg', 'AGENTS.md'), digest: 'stale' }],
         },
       }), {
@@ -2218,7 +2221,7 @@ describe('dynamic nested workspace context injection', () => {
       expect(result.isError).toBe(false)
       expect(((await syncedWorkspaceContext(ctx, agent))).source).toMatchObject({ kind: 'workspace-instructions' })
       const queuedSource = ((await syncedWorkspaceContext(ctx, agent))).source
-      expect(queuedSource).toMatchObject({ kind: 'workspace-instructions' })
+      expect(queuedSource).toMatchObject({ kind: 'workspace-instructions', form: 'instructions' })
       expect(queuedSource.kind === 'workspace-instructions' && queuedSource.changes.some(change =>
         change.action === 'set'
         && change.scope === sk('pkg', 'AGENTS.md')
@@ -2561,6 +2564,7 @@ describe('dynamic nested workspace context injection', () => {
 
       expect(((await syncedWorkspaceContext(ctx, agent))).source).toMatchObject({
         kind: 'workspace-instructions',
+        form: 'instructions',
         changes: [{ action: 'replace', scope: sk('pkg', 'AGENTS.md'), path: join('pkg', 'AGENTS.md') }],
       })
       expect(blocksText(((await syncedWorkspaceContext(ctx, agent))).content)).toBe([
@@ -2670,7 +2674,7 @@ describe('dynamic nested workspace context injection', () => {
         if (previous === undefined) throw new Error('missing AGENTS.md baseline state')
         const authoritative = createUserMessage({
           content: [{ type: 'text', text: 'nested rule' }],
-          source: { kind: 'workspace-instructions', changes: [previous] },
+          source: { kind: 'workspace-instructions', form: 'instructions', changes: [previous] },
         })
         if (authority === 'visible') {
           agent.session.append('user/message', authoritative, { surfaceOp: 'append' })
@@ -2696,6 +2700,7 @@ describe('dynamic nested workspace context injection', () => {
               content: [{ type: 'text', text: 'pending baseline duplicate' }],
               source: {
                 kind: 'workspace-instructions',
+                form: 'instructions',
                 changes: [{ action: 'set', scope: sk('.', 'AGENTS.md'), path: 'AGENTS.md' }],
               },
             })],
@@ -2739,7 +2744,7 @@ describe('dynamic nested workspace context injection', () => {
       if (previous === undefined) throw new Error('missing AGENTS.md baseline state')
       const authoritative = createUserMessage({
         content: [{ type: 'text', text: 'repo rule' }],
-        source: { kind: 'workspace-instructions', changes: [previous] },
+        source: { kind: 'workspace-instructions', form: 'instructions', changes: [previous] },
       })
       agent.session.append('user/message', authoritative, { surfaceOp: 'append' })
       const resolved = resolveConfig({ dshHome: home, maxBytes: 65536, localInstructionFileCandidates: [] })
@@ -2863,6 +2868,7 @@ describe('dynamic nested workspace context injection', () => {
 
       expect(((await syncedWorkspaceContext(ctx, agent))).source).toMatchObject({
         kind: 'workspace-instructions',
+        form: 'instructions',
         changes: [{ action: 'remove', scope: sk('pkg', 'AGENTS.md'), path: join('pkg', 'AGENTS.md') }],
       })
       expect(blocksText(((await syncedWorkspaceContext(ctx, agent))).content)).toBe([
@@ -3265,6 +3271,7 @@ describe('dynamic nested workspace context injection', () => {
         ],
         source: {
           kind: 'workspace-instructions',
+          form: 'instructions',
           changes: [
             null,
             { action: 'unknown', scope: 'pkg', path: join('pkg', 'AGENTS.md') },
@@ -3418,6 +3425,7 @@ describe('dynamic nested workspace context injection', () => {
       expect(((await syncedWorkspaceContext(ctx, agent))).source).toMatchObject({ kind: 'workspace-instructions' })
       expect(((await syncedWorkspaceContext(ctx, agent))).source).toMatchObject({
         kind: 'workspace-instructions',
+        form: 'instructions',
         changes: [{ action: 'set', scope: sk('pkg', 'AGENTS.md'), path: join('pkg', 'AGENTS.md') }],
       })
       expect(blocksText(((await syncedWorkspaceContext(ctx, agent))).content)).toContain('nested package rule')
