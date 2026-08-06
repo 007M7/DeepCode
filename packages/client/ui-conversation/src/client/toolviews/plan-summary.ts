@@ -27,7 +27,7 @@ export interface PlanItemLike {
 export interface PlanSummary {
   done: number
   total: number
-  /** First `in_progress` content, or null when there is no usable one to name. */
+  /** First `in_progress` content, or null when that first item is unusable. */
   activeContent: string | null
   /** Active items beyond the first; 0 whenever there is no `activeContent` to sit beside. */
   activeExtra: number
