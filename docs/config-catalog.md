@@ -439,6 +439,20 @@ export interface Config {
 
 Source: [`packages/credentials/credentials-local/src/index.ts:26`](../packages/credentials/credentials-local/src/index.ts)
 
+## `@deepseek-ai/dsh-frontend-static`
+
+Requires: `httpServer`
+
+```ts config-catalog
+/** Plugin config: the dist anchor. */
+export interface Config {
+  /** Absolute path of index.html inside the dist root. */
+  distIndex: string
+}
+```
+
+Source: [`packages/host/frontend-static/src/index.ts:28`](../packages/host/frontend-static/src/index.ts)
+
 ## `@deepseek-ai/dsh-fs-local`
 
 ```ts config-catalog
@@ -482,6 +496,20 @@ export interface Config {
 ```
 
 Source: [`packages/goal/goal/src/index.ts:114`](../packages/goal/goal/src/index.ts)
+
+## `@deepseek-ai/dsh-headless`
+
+Requires: `apiProxy` · `httpServer`
+
+```ts config-catalog
+/** Plugin config: the task, patched in by the launcher. */
+export interface Config {
+  /** The prompt text for the single turn. */
+  task: string
+}
+```
+
+Source: [`packages/bundle/headless/src/index.ts:33`](../packages/bundle/headless/src/index.ts)
 
 ## `@deepseek-ai/dsh-hooks-claude`
 
@@ -577,18 +605,16 @@ Source: [`packages/host/directory-picker-browse/src/index.ts:181`](../packages/h
 ## `@deepseek-ai/dsh-host-webserver`
 
 ```ts config-catalog
-/** Gateway config: listen address plus the static dist anchor (injected by the composing app, never self-resolved). */
+/** Gateway config: the listen address. */
 export interface Config {
   /** Listen host; the two supported values are loopback and all-interfaces. */
   host: '127.0.0.1' | '0.0.0.0'
   /** Listen port; zero requests an OS-assigned port. */
   port: number
-  /** Absolute path of index.html inside the static root (dist location is workspace knowledge of the app). */
-  distIndex: string
 }
 ```
 
-Source: [`packages/host/webserver/src/index.ts:47`](../packages/host/webserver/src/index.ts)
+Source: [`packages/host/webserver/src/index.ts:45`](../packages/host/webserver/src/index.ts)
 
 ## `@deepseek-ai/dsh-invariants`
 
@@ -2216,6 +2242,39 @@ export interface WebServiceConfig {
 
 Source: [`packages/web/web/src/index.ts:55`](../packages/web/web/src/index.ts)
 
+## `@deepseek-ai/dsh-web-app`
+
+Requires: `httpServer`
+
+```ts config-catalog
+/** Plugin config: the surface facts the launcher patches over this bundle's defaults. */
+export interface Config {
+  /** Whether this process mounted the client-plugin HMR receiver (`dsh web --dev`). */
+  mode: WebMode
+  /** Print the URL line on activation; a headless layer over this bundle turns it off. */
+  printUrl: boolean
+  /**
+   * Register the model-visible surface context (the `app:web-surface` prompt
+   * section and the `DSH_WEB_URL`/`DSH_WEB_MODE` bash variables). A one-shot
+   * layer turns it off: its user is not interacting through the GUI, so the
+   * orientation text would be false.
+   */
+  surfaceContext: boolean
+  /**
+   * LAN IPv4 addresses sampled once by the launcher when the effective bind
+   * is all-interfaces — the exact snapshot the /api trust fence was
+   * configured with, so the printed LAN URL can never name an address the
+   * fence rejects. Empty on a loopback bind.
+   */
+  lanAddresses: string[]
+}
+
+/** Web runtime mode: production, or development when the client-plugin HMR receiver is active. */
+export type WebMode = 'production' | 'development'
+```
+
+Source: [`packages/bundle/web-app/src/index.ts:32`](../packages/bundle/web-app/src/index.ts)
+
 ## `@deepseek-ai/dsh-web-fetch-local`
 
 Requires: `web`
@@ -2445,6 +2504,7 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-agent-loop-testkit` ([`packages/support/agent-loop-testkit/src/index.ts`](../packages/support/agent-loop-testkit/src/index.ts))
 - `@deepseek-ai/dsh-app-boot` ([`packages/ui/app-boot/src/index.ts`](../packages/ui/app-boot/src/index.ts))
 - `@deepseek-ai/dsh-atomic-write` ([`packages/util/atomic-write/src/index.ts`](../packages/util/atomic-write/src/index.ts))
+- `@deepseek-ai/dsh-base` ([`packages/bundle/base/src/index.ts`](../packages/bundle/base/src/index.ts))
 - `@deepseek-ai/dsh-brand` ([`packages/util/brand/src/index.ts`](../packages/util/brand/src/index.ts))
 - `@deepseek-ai/dsh-client-schema-form` ([`packages/client/schema-form/src/index.ts`](../packages/client/schema-form/src/index.ts))
 - `@deepseek-ai/dsh-client-test-runtime` ([`packages/client/test-runtime/src/index.ts`](../packages/client/test-runtime/src/index.ts))
