@@ -75,7 +75,6 @@ async function provideSlotFaces(ctx: Context): Promise<void> {
       'conversation.composer': { kind: 'chain', scope: 'session' },
     },
   } as never, () => null)
-  ctx.provide('conversation', {})
 }
 
 /** Boot the plugin over fake slash/sessions faces; returns the captured source and the list face. */
@@ -113,7 +112,7 @@ const req = (query: string) =>
 
 describe('apply', () => {
   it('declares the services it binds', () => {
-    expect(inject).toEqual(['slash', 'sessions', 'conversation', 'slots', 'locale'])
+    expect(inject).toEqual(['slash', 'sessions', 'slots', 'locale'])
   })
 
   it('registers the "@" subagent source; disposal frees the name (HMR safety)', async () => {

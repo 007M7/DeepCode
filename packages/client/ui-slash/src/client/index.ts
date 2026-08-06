@@ -55,14 +55,10 @@ export const inject = ['sessions', 'locale']
 export function apply(ctx: ClientContext): void {
   ctx.plugin(SlashService)
   ctx.effect(() => ctx.locale.register(MENU_NS, { zh, en }), 'ui-slash: menu dictionaries')
-  // Conditional mount: 'conversation.input.overlay' is declared by the
-  // conversation composer entry, and the conversation service is mounted
-  // after that declaration lands on the ledger — its presence is the
-  // registration-safe signal (same seam as toolview registrants).
-  ctx.inject(['slots', 'conversation', 'slash', 'sessions'], (scope: ClientContext) => {
+  ctx.inject(['slots', 'slash', 'sessions'], (scope: ClientContext) => {
     const slash = scope.slash
     const sessions = scope.sessions
-    scope.effect(() => scope.slots.register({
+    scope.slots.inject('conversation.input.overlay', () => scope.slots.register({
       name: 'conversation.input.overlay',
       id: 'slash-menu',
       order: 0,
@@ -79,6 +75,6 @@ export function apply(ctx: ClientContext): void {
           onDismiss: () => { controller.dismiss() },
         }
       },
-    }, MenuView), 'ui-slash: MenuView overlay registration')
+    }, MenuView))
   })
 }

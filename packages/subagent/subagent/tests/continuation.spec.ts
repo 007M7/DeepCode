@@ -568,6 +568,47 @@ describe('SubagentService.followup residency routing', () => {
       .rejects.toMatchObject({ code: 'NOT_RESUMABLE' })
   })
 
+  it('propagates cancellation while inspecting a cold child', async () => {
+    const { ctx, parent } = await setup([textResponse('first')])
+    const started = await ctx.subagents.startContinuable(startSpec(parent))
+    await waitNoActivation(ctx, started.childId)
+    const inspectStarted = Promise.withResolvers<undefined>()
+    const inspect = vi.spyOn(ctx.sessionPersistence, 'inspect').mockImplementation((_id, signal) => {
+      return new Promise<never>((_resolve, reject) => {
+        if (signal === undefined) {
+          reject(new Error('cold inspection must receive the followup signal'))
+          return
+        }
+        inspectStarted.resolve(undefined)
+        signal.addEventListener('abort', () => {
+          reject(reason)
+        }, { once: true })
+      })
+    })
+    const controller = new AbortController()
+    const reason = new Error('cold inspection cancelled')
+
+    try {
+      const delivery = followup(ctx, parent, started.childId, message('cancel me'), controller.signal)
+      await inspectStarted.promise
+      controller.abort(reason)
+      await expect(delivery).rejects.toBe(reason)
+    } finally {
+      inspect.mockRestore()
+    }
+  })
+
+  it('preserves a SubagentError raised while cold-materializing a child', async () => {
+    const { ctx, parent } = await setup([textResponse('first')])
+    const started = await ctx.subagents.startContinuable(startSpec(parent))
+    await waitNoActivation(ctx, started.childId)
+    const failure = new SubagentError('materialization denied', 'UNAUTHORIZED')
+    ctx.agents.resume = () => Promise.reject(failure)
+
+    await expect(followup(ctx, parent, started.childId, message('continue')))
+      .rejects.toBe(failure)
+  })
+
   it('cold-resumes a delivery that lost the race with final disposal', async () => {
     const { ctx, parent } = await setup([textResponse('first'), textResponse('after the race')])
     const started = await ctx.subagents.startContinuable(startSpec(parent))
