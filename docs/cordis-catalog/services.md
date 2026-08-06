@@ -2105,8 +2105,9 @@ async drainContinuableDescendants(parents: readonly Agent[]): Promise<void>
  * serves each child's durable mode/label from the registered `subagent`
  * projection unit down a three-rung ladder — the registry's watermark
  * snapshot for a live child; for a cold one, a durable projection-cache
- * row when the optional cache already serves the identity (the value is
- * immutable, so staleness cannot matter), else one persistence inspection
+ * row when the optional cache serves an own-suffix identity (its `seq`
+ * gate proves the value postdates the fork seed, where a child's own
+ * descriptor is immutable once appended), else one persistence inspection
  * folded through the registry. The
  * projection fold is the single classification authority; per-child
  * diagnostics relay a fold that served no identity or a failed inspection,

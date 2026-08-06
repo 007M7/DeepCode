@@ -29,12 +29,21 @@ export type SubagentIdentityProjection =
     mode: 'one-shot'
     /** Optional durable creation label from the child's descriptor. */
     label?: string
+    /**
+     * Seq of the `subagent/descriptor` event this identity was folded from.
+     * `seq >= header.seedLength` proves the identity comes from the child's
+     * OWN log suffix — where a descriptor is immutable once appended — and
+     * not from a fork seed's replayed ancestor descriptor.
+     */
+    seq: number
   }
   | {
     /** A resumable conversation. */
     mode: 'continuable'
     /** Durable creation label from the child's descriptor. */
     label: string
+    /** Seq of the folded descriptor event; see the one-shot arm for the own-suffix proof. */
+    seq: number
   }
 
 declare module '@deepseek-ai/dsh-session-projection/types' {

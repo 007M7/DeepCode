@@ -216,12 +216,13 @@ export async function listChildren(
 
 /**
  * Resolve one cold candidate down the remaining ladder: a durable
- * projection-cache row when it already serves the identity, otherwise one
- * persistence inspection folded through the projection registry (the same
- * detached recipe the API proxy uses for detached session projections). A
- * failed inspection is one transient `unavailable` row retried on the next
- * listing; a settled log the fold cannot identify — or that makes any
- * registered unit throw — is final, so it reports `corrupt`.
+ * projection-cache row when it serves an own-suffix identity (the seq gate),
+ * otherwise one persistence inspection folded through the projection
+ * registry (the same detached recipe the API proxy uses for detached session
+ * projections). A failed inspection is one transient `unavailable` row
+ * retried on the next listing; an inspection naming another lifecycle, and a
+ * settled log the fold cannot identify — or that makes any registered unit
+ * throw — are final, so they report `corrupt`.
  */
 async function resolveColdIdentity(
   persistence: SessionPersistence,
@@ -242,19 +243,22 @@ async function resolveColdIdentity(
       // row of ANY unit) silently falls through to the authoritative re-fold.
       cached = undefined
     }
-    // A served identity is immutable once appended, so a cached one is final
-    // regardless of the row's watermark. Both no-value forms fall through to
-    // preparation: an absent key (a checkpoint cut before the descriptor was
-    // appended) and the `null` sentinel, whose verdict belongs to the
-    // authoritative re-fold, not to a derived row.
-    if (cached !== undefined && cached !== null) {
+    // A child's OWN descriptor is immutable once appended, so a cached
+    // identity is final only when the seq gate proves it was folded from the
+    // own suffix: a creation-window checkpoint may instead carry a fork
+    // seed's replayed ANCESTOR descriptor (seq below `seedLength`), which
+    // must not outrank the re-fold. Everything else also falls through to
+    // preparation: an absent key (a cut before any descriptor) and the
+    // `null` sentinel, whose verdict belongs to the authoritative re-fold,
+    // not to a derived row.
+    if (cached !== undefined && cached !== null && cached.seq >= (header.seedLength ?? 0)) {
       return childRow(childId, cached, 'inactive', hasChildren)
     }
   }
   assertListingNotCancelled(signal)
-  let events: readonly SessionEvent[]
+  let inspected: { meta: SessionHeader; events: readonly SessionEvent[] }
   try {
-    events = (await persistence.inspect(childId, signal)).events
+    inspected = await persistence.inspect(childId, signal)
   } catch {
     // Per-child isolation: the child vanished or its backend read failed —
     // one diagnostic row, and the listing itself still succeeds.
@@ -262,9 +266,15 @@ async function resolveColdIdentity(
     return { kind: 'diagnostic', id: childId, reason: 'unavailable' }
   }
   assertListingNotCancelled(signal)
+  // A session id names a slot, not a lifecycle: a child deleted and
+  // re-published under another owner between the enumeration and this read
+  // must not leak into the old parent's listing.
+  if (!sameLifecycle(inspected.meta, header)) {
+    return { kind: 'diagnostic', id: childId, reason: 'corrupt' }
+  }
   let identity: SubagentIdentityProjection | null | undefined
   try {
-    identity = projections.restore({}, events, 0).snapshot.values.subagent
+    identity = projections.restore({}, inspected.events, 0).snapshot.values.subagent
   } catch {
     // The restore folds EVERY registered unit over this child's log, so any
     // unit's fold or schema can reject damaged payloads — deterministic data
@@ -301,6 +311,19 @@ function childRow(
       activity,
       hasChildren,
     }
+}
+
+/** Immutable header fields that distinguish one session lifecycle from another under the same id. */
+const LIFECYCLE_WITNESS_KEYS = [
+  'version', 'id', 'createdAt', 'cwd', 'parentSession', 'seedLength', 'delegationDepth',
+] as const
+
+/**
+ * Whether an inspected log still belongs to the enumerated lifecycle,
+ * mirroring the retired query-source compatibility check's field set.
+ */
+function sameLifecycle(meta: SessionHeader, expected: SessionHeader): boolean {
+  return LIFECYCLE_WITNESS_KEYS.every(key => meta[key] === expected[key])
 }
 
 /** Stop a listing at its next cancellation checkpoint. */

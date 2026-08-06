@@ -373,7 +373,7 @@ describe('SubagentService.listChildren', () => {
     live.append('turn/start', { turn: 1 })
     live.append('subagent/descriptor', descriptorPayload('was valid'))
     expect(ctx.sessionProjections.snapshot(live).values.subagent)
-      .toEqual({ mode: 'continuable', label: 'was valid' })
+      .toEqual({ mode: 'continuable', label: 'was valid', seq: 1 })
     // Last-wins: the malformed follow-up resets the identity to the sentinel.
     live.append(
       'subagent/descriptor',
@@ -407,6 +407,82 @@ describe('SubagentService.listChildren', () => {
     await expect(ctx.subagents.listChildren(parent.id)).resolves.toEqual([
       { kind: 'diagnostic', id: invalidated, reason: 'corrupt' },
     ])
+  })
+
+  it('serves a cached own-suffix identity directly without inspection', async () => {
+    const { ctx, parent } = await setup([], { projectionCache: true })
+    const child = await authorChild(ctx, '00000000-0000-4000-8000-00000000ae01', {
+      parentSession: parent.id,
+      origin: 'subagent',
+    }, childEvents(descriptorPayload('disk label')))
+    // seq 2 >= seedLength 0: the cached identity provably comes from the
+    // child's own suffix, so it is final and the log is never re-read — the
+    // divergent label proves the row, not the log, produced the entry.
+    ctx.sessionProjectionCache.cachedSnapshot = () => ({
+      asOfSeq: 2,
+      values: { subagent: { mode: 'continuable', label: 'cached own', seq: 2 } },
+    })
+    const inspect = vi.spyOn(ctx.sessionPersistence, 'inspect')
+    await expect(ctx.subagents.listChildren(parent.id)).resolves.toEqual([{
+      kind: 'child', id: child, label: 'cached own', mode: 'continuable',
+      activity: 'inactive', hasChildren: false,
+    }])
+    expect(inspect).not.toHaveBeenCalled()
+  })
+
+  it('refuses a cached ancestor identity from the fork seed and lets preparation rule', async () => {
+    const { ctx, parent } = await setup([], { projectionCache: true })
+    // A fork child: the seed replays the ancestor's descriptor (seq 2), and
+    // the child's own descriptor arrives in its first own turn (seq 5).
+    const seed = childEvents(descriptorPayload('ancestor label'))
+    const events = [
+      ...seed,
+      { type: 'turn/start', seq: 4, time: 5, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      { type: 'subagent/descriptor', seq: 5, time: 6, data: descriptorPayload('own label') },
+      { type: 'turn/end', seq: 6, time: 7, data: { turn: 2, reason: { kind: 'completed' } } },
+    ] as SessionEvent[]
+    const forkChild = await authorChild(ctx, '00000000-0000-4000-8000-00000000ae02', {
+      parentSession: parent.id,
+      seedLength: seed.length,
+      origin: 'subagent',
+    }, events)
+    // A creation-window checkpoint carried the ANCESTOR identity: its seq 2
+    // fails the own-suffix gate (< seedLength 4), so preparation rules.
+    ctx.sessionProjectionCache.cachedSnapshot = () => ({
+      asOfSeq: 2,
+      values: { subagent: { mode: 'continuable', label: 'ancestor label', seq: 2 } },
+    })
+    const inspect = vi.spyOn(ctx.sessionPersistence, 'inspect')
+    await expect(ctx.subagents.listChildren(parent.id)).resolves.toEqual([{
+      kind: 'child', id: forkChild, label: 'own label', mode: 'continuable',
+      activity: 'inactive', hasChildren: false,
+    }])
+    expect(inspect).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ['createdAt', (meta: SessionHeader): SessionHeader => ({ ...meta, createdAt: meta.createdAt + 1 })],
+    ['delegationDepth', (meta: SessionHeader): SessionHeader => ({ ...meta, delegationDepth: (meta.delegationDepth ?? 0) + 1 })],
+  ] as const)('diagnoses an inspection returning another lifecycle (%s) as corrupt', async (_field, mutate) => {
+    const { ctx, parent } = await setup([textResponse('done')])
+    const healthy = await startChild(ctx, parent, 'healthy sibling')
+    const reborn = await authorChild(ctx, '00000000-0000-4000-8000-00000000ae03', {
+      parentSession: parent.id,
+      origin: 'subagent',
+    }, childEvents(descriptorPayload('reborn child')))
+    const original = ctx.sessionPersistence.inspect.bind(ctx.sessionPersistence)
+    ctx.sessionPersistence.inspect = async (sessionId, signal) => {
+      const result = await original(sessionId, signal)
+      if (sessionId !== reborn) return result
+      // The id was re-published as a different lifecycle after enumeration.
+      return { ...result, meta: mutate(result.meta) }
+    }
+    const entries = await ctx.subagents.listChildren(parent.id)
+    expect(entries).toContainEqual({ kind: 'diagnostic', id: reborn, reason: 'corrupt' })
+    expect(entries).toContainEqual({
+      kind: 'child', id: healthy, label: 'healthy sibling', mode: 'continuable',
+      activity: 'inactive', hasChildren: false,
+    })
   })
 
   it('lets preparation rule when the cache serves the null sentinel', async () => {
