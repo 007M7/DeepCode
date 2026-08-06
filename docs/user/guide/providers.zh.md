@@ -23,6 +23,8 @@ Harness 出厂就带 DeepSeek，同时挂着一个通用的多提供方适配器
 
 **添加内置目录里的提供方。** 点**添加提供方**，从 pi-ai 内置目录中选一个（anthropic、openai 等），填入该提供方的 API 密钥。端点、协议和模型目录都由内置目录提供，你只需要给密钥。
 
+只对以 API 密钥认证的提供方成立。目录里也有 Bedrock、Vertex、Azure、Codex：它们分别需要 AWS 凭据与区域、ADC 项目配置、`api-version`、OAuth，只填密钥框不会让它们工作——这类提供方靠 pi-ai 自己的环境发现认证，凭据按各自的原生方式准备。
+
 **添加自定义提供方。** 点**添加自定义提供方**，用于内置目录没有的路由——公司网关、自建服务，或比内置目录更新的提供方。需要填 Provider ID（请求里点名它、也作为凭据名的小写标识）、API 地址、协议，以及至少一个模型。
 
 ![自定义提供方表单：Provider ID、显示名称、API 地址、API 协议、API 密钥](providers-custom-form.zh.png)
@@ -93,17 +95,18 @@ settings 段落**逐个提供方**地盖在 `cordis.yml` 的同名配置之上�
 
 ## 让 agent 用上新提供方
 
-配好的路由会出现在 Web 的模型选择器里，随时可切。要改默认值，就在 `cordis.yml` 里改 `agent-loop` 那条的 `provider` 与 `model`：
+配好的路由会出现在 Web 的模型选择器里，随时可切，这也是最常用的方式。
+
+新会话的默认模型来自 `api-gateway` 那条（`@deepseek-ai/dsh-host-apiproxy`）的 `provider` 与 `model`，出厂值是 `deepseek-official` 与 `deepseek-v4-flash`。要改默认值，就在 `$DSH_HOME/config.yaml` 里覆盖该条：
 
 ```yaml
-- id: agent-loop
-  name: '@deepseek-ai/dsh-agent-loop'
+- id: api-gateway
   config:
-    agents:
-      - id: main
-        provider: acme-gateway
-        model: acme-large
+    provider: acme-gateway
+    model: acme-large
 ```
+
+补丁会整体替换该条的 `config`，所以要把这条需要保留的键一并写出。自行组装的 `cordis.yml`（例如 headless）改的则是 `agent-loop` 的 `agents`。
 
 ## 排错
 

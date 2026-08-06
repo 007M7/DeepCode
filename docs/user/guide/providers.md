@@ -23,6 +23,8 @@ Start `pnpm run dsh web` and open **Settings → Models**.
 
 **Add a provider from the installed catalog.** Choose **Add provider**, pick one of pi-ai's catalog providers (anthropic, openai, and so on), and enter that provider's API key. The endpoint, protocol, and model catalog all come from the catalog; the key is the only thing you owe.
 
+That holds for providers that authenticate with an API key. The catalog also carries Bedrock, Vertex, Azure, and Codex, which need AWS credentials and a region, an ADC project, an `api-version`, and OAuth respectively: filling in the key field alone will not make them work. Those authenticate through pi-ai's own environment discovery, with credentials prepared the way each one requires.
+
 **Add a custom provider.** Choose **Add a custom provider** for a route the catalog does not ship — a company gateway, a self-hosted server, or a provider newer than the installed catalog. It asks for a Provider ID (the lowercase identifier that names the route in requests and as its credential), a base URL, a protocol, and at least one model.
 
 ![The custom provider form: Provider ID, display name, base URL, API protocol, and API key](providers-custom-form.png)
@@ -93,17 +95,18 @@ References resolve from `$DSH_HOME/.env` — what the Models page's key fields w
 
 ## Point an agent at the new provider
 
-A configured route appears in the web model picker and can be switched at any time. To change the default, edit the `agent-loop` entry's `provider` and `model` in `cordis.yml`:
+A configured route appears in the web model picker and can be switched at any time, which is how most people use it.
+
+A new session's default model comes from the `api-gateway` entry (`@deepseek-ai/dsh-host-apiproxy`) and its `provider` and `model`, which ship as `deepseek-official` and `deepseek-v4-flash`. To change that default, override the entry in `$DSH_HOME/config.yaml`:
 
 ```yaml
-- id: agent-loop
-  name: '@deepseek-ai/dsh-agent-loop'
+- id: api-gateway
   config:
-    agents:
-      - id: main
-        provider: acme-gateway
-        model: acme-large
+    provider: acme-gateway
+    model: acme-large
 ```
+
+A patch replaces that entry's whole `config`, so write out every key it needs to keep. A composition you assemble yourself — headless, for instance — sets `agent-loop`'s `agents` instead.
 
 ## Troubleshooting
 
