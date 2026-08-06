@@ -19,6 +19,7 @@ import { PwshLocalExecutor, ENCODING_PREAMBLE, candidatePwshPaths, resolvePwshPa
 import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 import SubprocessService from '@deepseek-ai/dsh-subprocess'
 import type { SubprocessHandle, SubprocessOutputReader, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
+import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import type { BashProcess } from '@deepseek-ai/dsh-bash'
 
 const spillDir = mkdtempSync(join(tmpdir(), 'dsh-pwsh-exec-spec-'))
@@ -187,6 +188,8 @@ describe.skipIf(!hasPwsh)('PwshLocalExecutor.run', () => {
     await expect(setup({ maxOutputBytes: -1 })).rejects.toThrow(/maxOutputBytes/)
     await expect(setup({ maxSpillBytes: 0 })).rejects.toThrow(/maxSpillBytes/)
     await expect(setup({ graceMs: 0 })).rejects.toThrow(/graceMs/)
+    await expect(setup({ graceMs: MAX_TIMER_DELAY_MS + 1 }))
+      .rejects.toThrow(`graceMs must be no greater than ${MAX_TIMER_DELAY_MS}`)
 
     const { bash } = await setup()
     expect(() => bash.resolve({ command: 'Write-Output ok', timeoutMs: Number.NaN })).toThrow(/request\.timeoutMs/)

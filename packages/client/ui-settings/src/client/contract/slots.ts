@@ -57,7 +57,13 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * Root-scoped onboarding steps contributed by settings features. The
      * shell mounts one ordered step at a time; the active registrant either
      * completes itself or keeps ownership until the user completes its sole
-     * path. Registrants own readiness, copy, and dialog behavior.
+     * path. Registrants own readiness, copy, dialog behavior, AND the
+     * takeover chrome: a step wraps its visible content in the
+     * OnboardingSurface primitive (mask, opaque stage, `#root` inert) and
+     * renders null while its private facts are still loading — the shell
+     * paints no chrome of its own, so a mounted-but-deciding step shows and
+     * blocks nothing (the reload white-flash fix; a bare unwrapped step
+     * would render without mask or stage).
      */
     'settings.onboarding': { kind: 'list'; scope: 'root'; owner: SettingsOnboardingOwnerProps }
   }

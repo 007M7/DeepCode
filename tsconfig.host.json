@@ -207,6 +207,8 @@
     { "path": "./packages/subagent/subagent-spawn" },
     { "path": "./packages/subagent/subagent-fork" },
     { "path": "./packages/subagent/subagent-acp" },
+    { "path": "./packages/subagent/subagent-claude-code" },
+    { "path": "./packages/subagent/subagent-codex" },
     { "path": "./packages/subagent/subagent-dsh-sdk" },
     { "path": "./packages/tasks/tasks" },
     { "path": "./packages/tasks/tasks-local" },
