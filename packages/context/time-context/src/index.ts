@@ -157,9 +157,7 @@ export function apply(ctx: Context, config: Config): void {
   const resolvedTimeZone = formatter.resolvedOptions().timeZone
 
   ctx.on('agent/pre-step', async (
-    agent: Agent,
-    _messages,
-    { turn, step, signal },
+    { agent, turn, step, signal },
     next,
   ): Promise<PreStepDecision> => {
     const decision = await next()

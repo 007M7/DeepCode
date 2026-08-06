@@ -11,9 +11,10 @@ import type {
   AgentStatus,
   CancelOptions,
   InboxTarget,
+  PreStepDecision,
   RequestErrorAction,
 } from '@deepseek-ai/dsh-agent'
-import { Inbox, agentCarrier, agentEvents, assembleContextFor, emitAgentEvent } from '@deepseek-ai/dsh-agent'
+import { Inbox, agentCarrier, assembleContextFor, emitAgentEvent } from '@deepseek-ai/dsh-agent'
 import type { GenerateOptions, LlmCallConfig, Message, PreparedLlmCall } from '@deepseek-ai/dsh-llm'
 import {
   BlockAssembler,
@@ -23,7 +24,7 @@ import {
   errorChain,
   markAgentLoopRequest,
 } from '@deepseek-ai/dsh-llm'
-import type { Scope } from '@deepseek-ai/dsh-scope'
+import type { Scope, Scoped } from '@deepseek-ai/dsh-scope'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import type { EpochHeader, RequestContext, Session, SessionId, TurnEndReason, UserMessage } from '@deepseek-ai/dsh-session'
 import { canonicalHeader, headerEquals } from '@deepseek-ai/dsh-session'
@@ -68,6 +69,9 @@ export class ReactLoopAgent implements Agent {
   readonly scope: Scope
   readonly ctx: Context
 
+  /** Fused scope carrier, built once in the constructor for every dispatch. */
+  readonly carrier: Scoped<Agent>
+
   /** Whether this loop instance has appended its initial/resume request anchor. */
   private requestHeaderLogged = false
   private readonly runtimeContext: RuntimeContextProjection
@@ -78,6 +82,7 @@ export class ReactLoopAgent implements Agent {
     public readonly options: AgentOptions,
     public readonly session: Session,
   ) {
+    this.carrier = agentCarrier(this)
     this.inbox = new Inbox(session, {
       inserted: (message) => { emitAgentEvent(loopCtx, this, 'agent/inbox/inserted', { message }) },
       discarded: (message) => { emitAgentEvent(loopCtx, this, 'agent/inbox/discarded', { message }) },
@@ -100,7 +105,7 @@ export class ReactLoopAgent implements Agent {
     this.phase = next
     const status = this.status
     if (status !== previousStatus) {
-      emitAgentEvent(this.loopCtx, this, 'agent/status', status)
+      emitAgentEvent(this.loopCtx, this, 'agent/status', { status })
     }
   }
 
@@ -178,7 +183,7 @@ export class ReactLoopAgent implements Agent {
   private throwError(error: unknown): never {
     const turn = this.phase.kind === 'running' ? this.phase.turn : this.phase.lastTurn
     const step = this.phase.kind === 'running' ? this.phase.step : 0
-    emitAgentEvent(this.loopCtx, this, 'agent/error', turn, step, error)
+    emitAgentEvent(this.loopCtx, this, 'agent/error', { turn, step, error })
     throw error
   }
 
@@ -203,9 +208,9 @@ export class ReactLoopAgent implements Agent {
     const assembly = await this.loopCtx.systemPrompt.assemble(assembleContextFor(this, signal))
     signal.throwIfAborted()
     const context = this.runtimeContext.project(renderContextSnapshot(assembly))
-    const decision = await agentEvents(this.loopCtx, this).waterfall(
-      'agent/pre-step', claimed, { ...position, signal },
-      () => Promise.resolve({
+    const decision = await this.loopCtx.waterfall(
+      this.carrier, 'agent/pre-step', { agent: this, messages: claimed, ...position, signal },
+      (): Promise<PreStepDecision> => Promise.resolve<PreStepDecision>({
         kind: 'enter',
         messages: context === undefined ? claimed : [...claimed, context],
       }),
@@ -265,7 +270,7 @@ export class ReactLoopAgent implements Agent {
         }
         signal.throwIfAborted()
         if (turnEnds && this.inbox.nextStep.length === 0) {
-          await this.loopCtx.serial(agentCarrier(this), 'agent/turn-stopping', this, turn, signal)
+          await this.loopCtx.serial(this.carrier, 'agent/turn-stopping', { agent: this, turn, signal })
           signal.throwIfAborted()
         }
         if (turnEnds && this.inbox.nextStep.length === 0) break
@@ -323,13 +328,15 @@ export class ReactLoopAgent implements Agent {
       const finish = assembler.finish
       if (finish.kind === 'error' || finish.kind === 'aborted') {
         const action = await this.loopCtx.waterfall(
-          agentCarrier(this), 'agent/request-error', this, {
+          this.carrier, 'agent/request-error', {
+            agent: this,
             turn,
             step,
             provider: request.provider,
             failure: finish.failure,
             retryPolicy: preparedCall?.retryPolicy,
-          }, signal,
+            signal,
+          },
           () => Promise.resolve<RequestErrorAction>(undefined),
         )
         signal.throwIfAborted()
@@ -405,7 +412,7 @@ export class ReactLoopAgent implements Agent {
         },
     ))
     const proposedConfig = await this.loopCtx.waterfall(
-      agentCarrier(this), 'agent/request', this, turn, step, signal,
+      this.carrier, 'agent/request', { agent: this, turn, step, signal },
       () => Promise.resolve(seedConfig),
     )
     signal.throwIfAborted()
