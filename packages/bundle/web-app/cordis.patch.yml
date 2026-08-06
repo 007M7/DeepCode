@@ -209,6 +209,11 @@
 # absent from a surface overlay would silently reappear the day someone reorders
 # the composition.
 
+# `bash-env` STAYS in the host plane: `apps/cli/src/web.ts` injects it to
+# publish `DSH_WEB_URL`/`DSH_WEB_MODE`, and a host row that injects a service is
+# the criterion for host-plane ownership — injection resolves before any session
+# exists, so there is no agent to key by. Behind a preset realm those variables
+# would never reach the model's shell at all.
 
 - id: tool-bash
   disabled: true
@@ -282,6 +287,12 @@
 
 - id: tool-subagent-fork
   disabled: true
+
+# `tool-subagent-report` is host-plane for the same reason as the registry, not
+# because a preset may not want it: it registers a CONTINUABLE SETUP on that
+# singleton rather than a tool this agent calls, and the setup list is not
+# scope-aware — one copy per mounted preset means every child gets `report`
+# registered once per live session, which throws on the second.
 
 - id: workflow-workerthread
   disabled: true
