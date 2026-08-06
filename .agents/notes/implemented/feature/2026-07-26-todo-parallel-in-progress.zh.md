@@ -41,10 +41,10 @@ Status: implemented
 
 工具行改用 `toolviews/plan-summary.ts` 中的 `planSummary`。它给出第一个活跃条目，并计数其余活跃项，因此工具行报告的是有多少任务在跑，而不是暗示只有一个。列出全部活跃条目被否决了：工具行是单行，无上界的拼接会溢出——在列表做不到的地方，计数能够可预测地降级。该推导放在 toolviews 域内而非 `contract/`（域间共享面）：面板自行内联计算其计数，与工具行不共享任何东西，因此放进 contract 会声明一种已不存在的共享关系。
 
-`planSummary` 把任务名与计数作为两个独立字段返回，而不是一个拼好的字符串，因为工具行用 `overflow: hidden` / `text-overflow: ellipsis` 截断其摘要文本。计数接在任务名之后时位于可截断文本的末端，于是恰恰是让计数变得有意义的那些场景——窄视口、长任务名——会把它裁掉，让并行计划看起来与顺序计划无异。因此工具行把计数渲染在自己的 `flex: none` span 中，与被省略号截断的文本并列；一个预先拼好的字符串无法表达这个切分，而把计数放到任务名之前也被否决了：读者首先要找的是任务名。
+`planSummary` 把任务名与计数作为两个独立字段返回，而不是一个拼好的字符串，因为工具行用 `overflow: hidden` / `text-overflow: ellipsis` 截断其摘要文本。计数接在任务名之后时位于可截断文本的末端，于是恰恰是让计数变得有意义的那些场景——窄视口、长任务名——会把它裁掉，让并行计划看起来与顺序计划无异。因此工具行把计数交给共享的 `ToolRow`，作为 `summarySuffix`——一个紧邻被省略号截断的摘要文本、且不会收缩的槽位；一个预先拼好的字符串无法表达这个切分，而把计数放到任务名之前也被否决了：读者首先要找的是任务名。
 
-把计数拆进独立 span 也意味着它落在 `.summary` 规则之外，因此必须重复该规则的 `font-size` 与 `line-height`。Web 外壳把正文字号留在浏览器默认值而非该行的 14px，所以未加样式的 span 会明显大于同一 24px 行内与之并列的文本。另一个方案是从共同父元素继承；重复这两条声明让被拆开的两个 span 保持互不影响，而这正是省略号边界所需要的性质。
+`summarySuffix` 是 `ToolRow` 上的槽位，而不是 todo 工具行自有的标记：每个 toolview 都经由这个共享组件渲染，而它的 `summary` 是一个会被省略号截断的普通字符串，容不下一个必须挺过截断的片段。该后缀落在 `.summary` 规则之外，因此重复了该规则的 `font-size` 与 `line-height`——Web 外壳把正文字号留在浏览器默认值而非该行的 14px，所以未加样式的 span 会明显大于同一 24px 行内与之并列的文本。错误行会丢弃该后缀，因为它折叠态的摘要是失败行，而非任何由调用 args 推导出的内容。
 
 ## 后果
 
-现在 todo 列表可以忠实反映并行执行，并且每个 UI 都能一次渲染多个活跃标记：TUI 按状态区分的前缀无需改动，计划横条的表头会计数活跃条目，工具行则需要上述推导。设置 `allowParallelInProgress: true` 的组合不再拒绝一种此前无效的快照形状；设置为 `false` 的组合仍保留旧的拒绝行为，而持久日志不变式两者都接受。面向模型的描述发生了变化，这重新记录了 tool-catalog 页面以及每个带有 todo schema 的 `tool-schemas.expected.json` sidecar（树中八个里有七个）。组合出相同 header 的场景通过 `toolSchemasSource` 共用同一份 sidecar，而非各自保留副本，因此这个数量对应的是不同的 header 组合，而不是场景数；改动工具描述的分支仍须刷新它分叉之后落地的那些 sidecar —— `pnpm run test:snapshot:refresh` 可以无 key 完成。web fixture 的 todo 样本现在有两个条目处于 `in_progress`，因此组装后的 web transcript 回放的是一个并行计划；若任一展示面退回单活跃项推导，它会再次失败。
+现在 todo 列表可以忠实反映并行执行，并且每个 UI 都能一次渲染多个活跃标记：TUI 按状态区分的前缀无需改动，计划横条的表头会计数活跃条目，工具行则需要上述推导。设置 `allowParallelInProgress: true` 的组合不再拒绝一种此前无效的快照形状；设置为 `false` 的组合仍保留旧的拒绝行为，而持久日志不变式两者都接受。面向模型的描述发生了变化，这重新记录了 tool-catalog 页面以及每个带有 todo schema 的 `tool-schemas.expected.json` sidecar（树中八个里有七个）。组合出相同 header 的场景通过 `toolSchemasSource` 共用同一份 sidecar，而非各自保留副本，因此这个数量对应的是不同的 header 组合，而不是场景数；改动工具描述的分支仍须刷新它分叉之后落地的那些 sidecar —— `pnpm run test:snapshot:refresh` 可以无 key 完成。web fixture 的 todo 样本现在有两个条目处于 `in_progress`，因此两个由 fixture 驱动的展示面渲染的都是并行计划——`packages/client/ui-conversation/tests/todo-panel.spec.tsx` 固定工具行摘要与计划横条，ACP `todo-write` 场景录制的是三条目、两个活跃的计划——任一推导退回单活跃项，对应的测试都会失败。
