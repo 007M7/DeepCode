@@ -16,7 +16,7 @@
   - list:
     - listitem:
       - text: DeepSeek
-      - button "编辑"
+      - button "编辑 DeepSeek (deepseek-official)": 编辑
       - text: DeepSeek deepseek-official API 密钥
       - textbox "API 密钥":
         - /placeholder: 已配置——输入新值可替换
