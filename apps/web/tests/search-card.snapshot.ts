@@ -18,10 +18,9 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-import { hasClass, installAssembledBootEnv, mountAssembledApp } from './assembled-boot.ts'
+import { hasClass, installAssembledBootEnv, mountAssembledApp, REFRESHING_GOLDEN } from './assembled-boot.ts'
 
 const EXPECTED = join(process.cwd(), 'apps/web/tests/snapshots/search-card/grep-card.expected.txt')
-const refreshing = process.env.DSH_SNAPSHOT === 'record' || process.env.DSH_SNAPSHOT === 'refresh'
 
 installAssembledBootEnv()
 
@@ -72,7 +71,7 @@ describe('assembled search card', () => {
       expect(grepRow.querySelector('[data-search]')).not.toBeNull()
     }, { timeout: 10_000 })
     const shape = cardShape(grepRow)
-    if (refreshing) {
+    if (REFRESHING_GOLDEN) {
       mkdirSync(dirname(EXPECTED), { recursive: true })
       writeFileSync(EXPECTED, shape)
     }

@@ -124,3 +124,10 @@ export function mountAssembledApp(): void {
 export function hasClass(el: Element, name: string): boolean {
   return [...el.classList].some(cls => cls === name || cls.endsWith(`_${name}`) || cls.startsWith(`_${name}_`) || cls.includes(`_${name}_`))
 }
+
+/**
+ * Whether this run rewrites its golden instead of comparing against it, set by
+ * the snapshot gate's `DSH_SNAPSHOT` mode (`record` re-runs the scenarios from
+ * scratch, `refresh` re-derives the expected text from the existing ones).
+ */
+export const REFRESHING_GOLDEN = process.env.DSH_SNAPSHOT === 'record' || process.env.DSH_SNAPSHOT === 'refresh'

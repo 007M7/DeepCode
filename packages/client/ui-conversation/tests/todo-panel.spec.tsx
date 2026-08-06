@@ -62,12 +62,16 @@ describe('planSummary', () => {
   })
 
   it('has no hint when the first active item carries no usable content (model JSON)', () => {
-    // Unvalidated args: a missing, mistyped, or empty content yields no hint —
-    // and no orphan count, even with a second active item to count.
+    // Unvalidated args: a missing, mistyped, empty, or whitespace-only content
+    // yields no hint — and no orphan count, even with a second active item to
+    // count. Whitespace-only is the tool's own rejection rule (trimmed
+    // non-empty), and a rejected call keeps its args verbatim.
     expect(planSummary([{ status: 'in_progress' }, { content: 'x', status: 'in_progress' }]))
       .toMatchObject({ activeContent: null, activeExtra: 0 })
     expect(planSummary([{ content: 42, status: 'in_progress' }]).activeContent).toBeNull()
     expect(planSummary([{ content: '', status: 'in_progress' }]).activeContent).toBeNull()
+    expect(planSummary([{ content: '   ', status: 'in_progress' }, { content: 'x', status: 'in_progress' }]))
+      .toMatchObject({ activeContent: null, activeExtra: 0 })
   })
 
   it('is empty-safe', () => {
