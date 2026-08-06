@@ -71,18 +71,18 @@ export function TodoRow({ toolName, block, inspect, t }: TodoRowProps) {
 }
 
 /**
- * The todo row as a plain registrant plugin, riding the same load-order seam
- * as the bash sample: `inject: ['conversation']` guarantees the chat entry
- * (and with it the 'conversation.chat.toolview' declaration) is on the ledger.
+ * The todo row as a plain registrant plugin following the chat toolview
+ * declaration across independent activation and reload lifetimes.
  */
 export const todoToolview = {
   name: 'todo-toolview',
-  inject: ['slots', 'conversation'],
+  inject: ['slots'],
   /**
    * Register the todo row into the chat view's keyed toolview hole.
    * @param ctx - registrant context (disposal rides ctx.effect inside slots.register).
    */
   apply(ctx: Context): void {
-    ctx.slots.register({ name: 'conversation.chat.toolview', key: 'todo_write', locale: NS }, TodoRow)
+    ctx.slots.inject('conversation.chat.toolview', () =>
+      ctx.slots.register({ name: 'conversation.chat.toolview', key: 'todo_write', locale: NS }, TodoRow))
   },
 }

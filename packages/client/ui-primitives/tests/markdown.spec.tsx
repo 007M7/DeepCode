@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { Extension } from 'micromark-util-types'
 import { JsonBlock, MarkdownText, MessageText } from '@deepseek-ai/dsh-client-ui-primitives'
+import { remarkCjkFriendlyStrong } from '../src/markdown/remarkCjkFriendlyStrong.ts'
 import { remarkMathCompatibility } from '../src/markdown/remarkMathCompatibility.ts'
 
 afterEach(cleanup)
@@ -66,6 +67,104 @@ describe('MarkdownText', () => {
     expect(container.querySelector('br')).not.toBeNull()
     expect(screen.getByRole('link', { name: 'safe' }).getAttribute('target')).toBe('_blank')
     expect(screen.getByRole('link', { name: 'https://deepseek.com' })).toBeTruthy()
+  })
+
+  it('closes punctuation-terminated strong emphasis before adjacent CJK text', () => {
+    const cases = [
+      ['**注意：**内容', '注意：'],
+      ['**Notice:**内容', 'Notice:'],
+      ['**事件中间件（waterfall）**实现', '事件中间件（waterfall）'],
+      ['**事件中间件(waterfall)**实现', '事件中间件(waterfall)'],
+      ['**句号。**后续', '句号。'],
+      ['**Period.**后续', 'Period.'],
+      ['**提醒！**继续', '提醒！'],
+      ['**Warning!**继续', 'Warning!'],
+    ] as const
+    const source = cases.map(([markdown]) => markdown).join('\n\n')
+
+    for (const streaming of [false, true]) {
+      const rendered = render(<MarkdownText text={source} streaming={streaming} />)
+      expect([...rendered.container.querySelectorAll('strong')].map(node => node.textContent))
+        .toEqual(cases.map(([, strong]) => strong))
+      rendered.unmount()
+    }
+  })
+
+  it('keeps the CJK strong extension out of escaped, code, math, and ASCII contexts', () => {
+    const source = [
+      String.raw`\**注意：**内容`,
+      '`**注意：**内容`',
+      '**Notice:**text',
+      '*提醒！*继续',
+      '$**注意：**内容$',
+      '```md',
+      '**注意：**内容',
+      '```',
+      '**普通**内容',
+      '*普通*内容',
+    ].join('\n\n')
+    const { container } = render(<MarkdownText text={source} />)
+
+    expect([...container.querySelectorAll('strong')].map(node => node.textContent)).toEqual(['普通'])
+    expect([...container.querySelectorAll('em')].map(node => node.textContent)).toEqual(['普通'])
+    expect(container.querySelector('code')?.textContent).toBe('**注意：**内容')
+    expect(container.querySelector('.katex annotation')?.textContent).toBe('**注意：**内容')
+    expect(container.querySelector('pre code')?.textContent).toContain('**注意：**内容')
+    expect(container.textContent).toContain('**Notice:**text')
+    expect(container.textContent).toContain('*提醒！*继续')
+    expect(container.textContent).toContain('**注意：**内容')
+  })
+
+  it('links complete HTTP(S) inline code without promoting commands, unsafe schemes, or fences', () => {
+    const localUrl = 'http://127.0.0.1:3199/?demo=1'
+    const remoteUrl = 'https://example.com/preview?q=one%20two#result'
+    const source = [
+      `\`${localUrl}\``,
+      `\`${remoteUrl}\``,
+      '`curl http://127.0.0.1:3199/?demo=1`',
+      '`javascript:alert(1)`',
+      '`mailto:dev@example.com`',
+      `\`  ${localUrl}  \``,
+      '```',
+      localUrl,
+      '```',
+    ].join('\n\n')
+    const { container } = render(<MarkdownText text={source} />)
+
+    const links = screen.getAllByRole('link')
+    expect(links.map(link => link.getAttribute('href'))).toEqual([localUrl, remoteUrl])
+    for (const link of links) {
+      expect(link.closest('code')).not.toBeNull()
+      expect(link.getAttribute('target')).toBe('_blank')
+      expect(link.getAttribute('rel')).toBe('noopener noreferrer')
+    }
+    links[0]?.focus()
+    expect(document.activeElement).toBe(links[0])
+    expect(screen.getByText('curl http://127.0.0.1:3199/?demo=1').closest('a')).toBeNull()
+    expect(screen.getByText('javascript:alert(1)').closest('a')).toBeNull()
+    expect(screen.getByText('mailto:dev@example.com').closest('a')).toBeNull()
+    const paddedCode = [...container.querySelectorAll('code')]
+      .find(code => code.textContent === ` ${localUrl} `)
+    expect(paddedCode?.querySelector('a')).toBeNull()
+    expect(container.querySelector('pre code a')).toBeNull()
+  })
+
+  it('registers the CJK strong extension and rejects a parser without CommonMark attention markers', () => {
+    const data: { micromarkExtensions?: Extension[] } = {}
+    const processor = { data: () => data }
+    remarkCjkFriendlyStrong.call(processor)
+    remarkCjkFriendlyStrong.call(processor)
+
+    expect(data.micromarkExtensions).toHaveLength(2)
+    const construct = data.micromarkExtensions?.[0]?.text?.[42]
+    const tokenizer = Array.isArray(construct) ? construct[0]?.tokenize : construct?.tokenize
+    expect(tokenizer).toBeTypeOf('function')
+    expect(() => tokenizer?.call({
+      parser: { constructs: { attentionMarkers: {} } },
+      previous: null,
+    } as never, {} as never, () => undefined, () => undefined)).toThrow(
+      'micromark CommonMark attention markers are unavailable',
+    )
   })
 
   it('a fence labeled with an inherited object key renders plain, never crashing shiki', () => {
