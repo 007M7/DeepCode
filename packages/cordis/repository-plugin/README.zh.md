@@ -30,7 +30,7 @@
 
 ## 独立应用配置
 
-随附 `dsh` 中供原始配置、Web 与无头模式使用的基础配置包含一个空 `repository-plugins` 配置项。Web 或无头用户可在 `$DSH_HOME/config.yaml`（默认 `~/.dsh/config.yaml`）中替换该配置项的配置，以启用精确指定的 GitHub generation；原始配置部署则在显式 overlay 中 patch 同一配置项：
+每个 profile 都以之为起点的随附 `dsh-base` 组合包包含一个空 `repository-plugins` 配置项。用户可在用户 patch 层中替换该配置项的配置来启用精确指定的 GitHub generation：写入 `$DSH_HOME/profiles/<name>/cordis.patch.yml`，或写入各 profile 共享的 home 级 `$DSH_HOME/cordis.patch.yml`；`--patch` overlay 则只为单次运行 patch 同一配置项：
 
 ```yaml
 - id: repository-plugins
@@ -43,7 +43,7 @@
 
 每个源都必须采用 `github:owner/repository#<ref>`。省略 `&path:` 时选择 `/.dsh-plugin`；显式路径是仓库内的绝对路径，并且必须以 `.dsh-plugin` 结尾。commit ref 提供最清晰的不可变身份；tag 和 branch 仍可作为精确配置值使用。`cacheDir` 可覆盖默认缓存根 `$DSH_HOME/cache/repository-plugins`。
 
-Web 通过 Cordis HMR（热模块替换）监视 `config.yaml`。有效的源列表变更会安装并替换整套 repository Plugin generation；拉取、准备、导入或插件应用失败时，最后一个可用树保持运行，并广播 `hmr/config-update-failed(filename, error)`。无头模式只在启动时读取该文件，原始配置模式只读取其显式 overlay。相同的源字符串会永久复用其已准备缓存条目，因此必须改变 ref、路径或其他源配置，才能选择发生变化的代码。应用集成依据见[仅凭配置接入 repository Plugin 的 Agent Note](../../../.agents/notes/implemented/feature/2026-07-30-config-only-repository-plugins.md)。
+长期运行的 surface 通过 Cordis HMR（热模块替换）监视两个 `cordis.patch.yml` 层。有效的源列表变更会安装并替换整套 repository Plugin generation；拉取、准备、导入或插件应用失败时，最后一个可用树保持运行，并广播 `hmr/config-update-failed(filename, error)`。一次性运行只在启动时读取这些层，`--patch` overlay 则从不被监视。相同的源字符串会永久复用其已准备缓存条目，因此必须改变 ref、路径或其他源配置，才能选择发生变化的代码。应用集成依据见[仅凭配置接入 repository Plugin 的 Agent Note](../../../.agents/notes/implemented/feature/2026-07-30-config-only-repository-plugins.md)。
 
 ## 准备阶段
 

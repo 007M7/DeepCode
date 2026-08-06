@@ -769,7 +769,7 @@ Source: [`packages/goal/goal/src/index.ts:181`](../../packages/goal/goal/src/ind
 
 ## `ctx.httpServer` — `HttpServerService`
 
-The web-shape HTTP carrier service. Activation listens immediately (route registration order carries no request-facing semantics: named routes are composed to be disjoint, and the static dist fallback answers anything not yet claimed during the boot window). A listen failure throws out of init — a FAILED fiber the boot's fail-loud sweep reports.
+The web-shape HTTP carrier service. Activation listens immediately (route registration order carries no request-facing semantics: named routes are composed to be disjoint, and the fallback seat answers anything not yet claimed during the boot window — 404 until its owner registers). A listen failure throws out of init — a FAILED fiber the boot's fail-loud sweep reports.
 
 ```ts cordis-catalog
 /**
@@ -789,15 +789,33 @@ register(route: WebRoute): () => void
 registerUpgrade(route: WebUpgradeRoute): () => void
 
 /**
- * Register an index.html transform, applied to every index response in
- * registration order.
+ * Claim the fallback seat: the handler answering every request no named
+ * route matches (the SPA dist server in the shipped Web composition). One
+ * owner only — a second registration throws, because two fallbacks cannot
+ * compose.
+ * @param handler - owns the full response lifecycle of unmatched requests.
+ * @returns the disposer releasing the seat.
+ */
+registerFallback(handler: WebRoute['handler']): () => void
+
+/**
+ * Register an index.html transform, applied by the fallback owner to every
+ * index response ({@link applyIndexTaps}) in registration order.
  * @param transform - pure html-to-html function.
  * @returns the disposer removing the transform.
  */
 tapIndex(transform: (html: string) => string): () => void
+
+/**
+ * Run an index.html body through the registered taps in registration order
+ * — called by the fallback owner on every index response it renders.
+ * @param html - the raw index.html body.
+ * @returns the transformed body.
+ */
+applyIndexTaps(html: string): string
 ```
 
-Source: [`packages/host/webserver/src/index.ts:63`](../../packages/host/webserver/src/index.ts)
+Source: [`packages/host/webserver/src/index.ts:60`](../../packages/host/webserver/src/index.ts)
 
 ## `ctx.invariants` — `InvariantService`
 

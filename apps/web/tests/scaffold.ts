@@ -1,7 +1,8 @@
 // Shared scaffold for the keyless browser e2e lane (Agent Note:
 // .agents/notes/implemented/testing/2026-07-24-web-gui-browser-e2e-lane.md).
-// Boots the REAL web composition — the shipped base plus web overlay through
-// the vendored Loader (the same include boot AppCLIEntry drives), patched the
+// Boots the REAL web composition — the dsh-base and dsh-web-app bundle
+// patches over the empty profile root through the vendored Loader (the same
+// layer stack the profile boot composes), patched the
 // snapshot way — so a real chromium exercises the real HTTP uplink/WebSocket
 // downlink, api-gateway, agent loop, tools, and persistence. Modes ride $DSH_SNAPSHOT:
 // replay (default, keyless: normally disables the llm-deepseek row and
@@ -11,7 +12,7 @@
 // masking its credential, without making a model call.
 //
 // Composition divergences from `dsh web`, all deliberate, all via include
-// patches after the shipped surface overlay, over the SAME tree (never a
+// patches after the shipped bundle layers, over the SAME tree (never a
 // second yml): temp persistenceRoot; host-level skill roots confined to the
 // temp workspace while project skill discovery remains real; workspace-context
 // disabled (recorded fixtures must not embed this repo's AGENTS.md);
@@ -22,9 +23,9 @@
 // (the plugin-row path discards the ReplayHandle; the direct install keeps
 // assertConsumed for the teardown fixture-consumption check).
 import { existsSync } from 'node:fs'
-import { mkdtemp, readFile, readdir, realpath, rm, utimes, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { Page } from 'playwright'
 import { expect } from 'vitest'
@@ -32,7 +33,13 @@ import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import Include, { type PatchOptions } from '@cordisjs/plugin-include'
 import { scrubRequestHeaders } from '@deepseek-ai/dsh-acp-snapshot'
-import { assertEntriesLoaded, loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
+import {
+  addHarnessSourceSection,
+  assertEntriesLoaded,
+  composeEntries,
+  healProfilesModuleFallback,
+  loadOverlayPatches,
+} from '@deepseek-ai/dsh-app-boot'
 import { dshHomePath } from '@deepseek-ai/dsh-paths'
 import {
   WELCOME_NOTICE_ACK_FIELD, WELCOME_NOTICE_SETTINGS_NAMESPACE, WELCOME_NOTICE_VERSION,
@@ -53,8 +60,7 @@ import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 // Empty type imports carry the httpServer/agents/sessionPersistence Context merges.
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-agent'
-import { prepareWebRuntimeContext } from '../../cli/src/web.ts'
-import { DIST_INDEX, REPO_ROOT, requireDist } from './support.ts'
+import { REPO_ROOT, requireDist } from './support.ts'
 
 /** Snapshot mode for the lane, from $DSH_SNAPSHOT (same vocabulary as the other snapshot suites). */
 export type WebSnapshotMode = 'replay' | 'record' | 'refresh'
@@ -70,9 +76,11 @@ export function webSnapshotMode(): WebSnapshotMode {
   throw new Error(`DSH_SNAPSHOT must be replay, record, or refresh; got ${JSON.stringify(value)}`)
 }
 
-/** The shipped composition under test: apps/cli's shared base and web overlay. */
-const CONFIG_PATH = join(REPO_ROOT, 'apps/cli/config/base.cordis.yml')
-const WEB_OVERLAY_PATH = join(REPO_ROOT, 'apps/cli/config/web.cordis.yml')
+/** The shipped composition under test: the dsh-base and dsh-web-app bundle patches over the empty profile root. */
+const BASE_PATCH_PATH = join(REPO_ROOT, 'packages/bundle/base/cordis.patch.yml')
+const WEB_PATCH_PATH = join(REPO_ROOT, 'packages/bundle/web-app/cordis.patch.yml')
+/** The installation anchor whose dependency surface the profile module fallback mirrors. */
+const INSTALL_ANCHOR = join(REPO_ROOT, 'apps/cli/package.json')
 
 // Replay publishes the provider catalog the gateway routes to (providers
 // mode, never catch-all: with llm-deepseek disabled no adapter exists, so a
@@ -117,7 +125,7 @@ export interface WebScaffold {
 export interface LaunchOptions {
   /**
    * Optional product overlay applied after the shipped Web surface and before
-   * the scaffold's hermetic test patches, matching AppCLIEntry's `--config`
+   * the scaffold's hermetic test patches, matching the launcher's `--patch`
    * ordering.
    */
   extraOverlayPath?: string
@@ -240,14 +248,22 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   }
   if (maskDeepSeekCredential) Reflect.deleteProperty(process.env, 'DEEPSEEK_API_KEY')
 
-  // The include patch set — the same mechanism AppCLIEntry and the ACP
-  // snapshot overlay use, applied over the SAME shipped tree (a patch id that
-  // stops matching a row fails the boot sweep loudly instead of drifting).
-  const surfacePatches = loadOverlayPatches('web e2e scaffold', WEB_OVERLAY_PATH)
+  // The include patch set — the same layer stack the profile boot composes
+  // (bundle patches in dsh.profile.bundles order), applied over the SAME empty root (a
+  // patch id that stops matching a row fails the boot sweep loudly instead of
+  // drifting).
+  const basePatches = loadOverlayPatches('web e2e scaffold', BASE_PATCH_PATH)
+  const surfacePatches = loadOverlayPatches('web e2e scaffold', WEB_PATCH_PATH)
   const extraOverlayPatches = options.extraOverlayPath === undefined
     ? []
     : loadOverlayPatches('web e2e scaffold', options.extraOverlayPath)
+  const composedRows = composeEntries([basePatches, surfacePatches, extraOverlayPatches])
+  const webRuntimeConfig = composedRows.find(row => row.id === 'web-runtime')?.config as {
+    surfaceContext?: boolean
+  } | undefined
+  const surfaceContext = webRuntimeConfig?.surfaceContext !== false
   const patches: PatchOptions[] = [
+    ...basePatches,
     ...surfacePatches,
     ...extraOverlayPatches,
     { id: 'session-persistence-jsonl', config: { root: persistenceRoot } },
@@ -280,8 +296,13 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     { id: 'telemetry-otel', disabled: true },
     {
       id: 'webserver',
-      config: { host: '127.0.0.1', port: 0, distIndex: DIST_INDEX },
+      config: { host: '127.0.0.1', port: 0 },
     },
+    // The bundle's web-runtime row resolves the same built dist under test
+    // (apps/web IS @deepseek-ai/dsh-frontend); only the URL line is silenced.
+    // Preserve the composed surface-context choice because a patch replaces
+    // the row's complete config.
+    { id: 'web-runtime', config: { mode: 'production', printUrl: false, surfaceContext } },
     ...options.remoteAuthority === undefined
       ? []
       : [{ id: 'connection', config: { trustedHosts: [options.remoteAuthority] } }],
@@ -321,7 +342,15 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   let replayHandle: ReplayHandle | undefined
   try {
     process.chdir(workspaceCwd)
-    ctx.baseUrl = pathToFileURL(join(resolve(CONFIG_PATH), '..')).href + '/'
+    // The production resolution shape: an empty profile root inside the temp
+    // harness home, with bare plugin names resolving through the flat module
+    // fallback the launcher heals under <home>/profiles.
+    healProfilesModuleFallback(INSTALL_ANCHOR, harnessHome)
+    const profileDir = join(harnessHome, 'profiles', 'scaffold')
+    await mkdir(profileDir, { recursive: true })
+    const rootConfig = join(profileDir, 'cordis.yml')
+    await writeFile(rootConfig, '[]\n')
+    ctx.baseUrl = pathToFileURL(profileDir).href + '/'
     // This direct Loader harness supplies the same root-path capability as app-boot.
     ctx.provide('dshHomePath', dshHomePath)
     await ctx.plugin(Loader)
@@ -329,10 +358,12 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     // The shipped CLI deliberately has no dependency on this opt-in package.
     // Keep the Loader row real without broadening the product installation.
     if (options.cordisTools === true) ctx.loader.builtins['tool-cordis'] = ToolCordis
-    prepareWebRuntimeContext(ctx, REPO_ROOT, 'production')
+    if (surfaceContext) {
+      ctx.inject(['systemPrompt'], (promptCtx) => { addHarnessSourceSection(promptCtx, REPO_ROOT) })
+    }
     await ctx.loader.create({
       name: 'cordis:include',
-      config: { path: pathToFileURL(resolve(CONFIG_PATH)).href, patches },
+      config: { path: pathToFileURL(rootConfig).href, patches },
     })
     await ctx.loader.await()
     assertEntriesLoaded(ctx, 'web e2e scaffold')

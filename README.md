@@ -39,22 +39,24 @@ dsh web
 
 The path above is the installer's default. If you set `DSH_SOURCE` or `DSH_CURRENT`, or reused an existing checkout, replace `~/.dsh/source/current` with that checkout path; see [`scripts/install.sh`](scripts/install.sh) for details. The Web UI is served at `http://127.0.0.1:3080` by default.
 
-### Configured runtime
+### Profiles
 
-Raw `dsh` requires a patch-list configuration applied over the shipped base:
+`dsh` boots profiles — ordered stacks of plugin-bundle patch layers under your own overrides in `$DSH_HOME/profiles/<name>`:
 
 ```sh
-dsh --config ./app.cordis.yml
+dsh --profile web                       # the browser UI (same as: dsh web)
+dsh plugin --profile tui add <package>  # install a plugin into a custom profile
+dsh --profile tui                       # boot it
 ```
 
-The [CLI contract](apps/cli/README.md#raw-config) describes the base, overlay semantics, and config dump commands.
+The [CLI contract](apps/cli/README.md#profiles) describes profile layout, layer semantics, and config dump commands.
 
 ### Headless
 
 Run one task, print the final answer, and exit:
 
 ```sh
-dsh -p "summarize this workspace"
+dsh --profile headless "summarize this workspace"
 ```
 
 ### Automation and SDKs
