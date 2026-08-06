@@ -110,6 +110,15 @@ export function apply(ctx: ClientContext): void {
       // and either way the chip's pick predates it — so the stage is applied
       // when the session arrives, not when it was made.
       const stop = scope.sessions.list.subscribe(() => { void seat.apply() })
+      // The chip opens on the deployment default, so a default changed from
+      // the settings surface moves it too — otherwise the screen that starts
+      // the next session keeps offering the previous default until a reload,
+      // which is exactly the session the setting claims to govern. A staged
+      // pick survives: `load()` prefers it over the refreshed fallback.
+      const settingsMoved = scope.on('settings/changed', (ns?: string) => {
+        if (ns !== undefined && ns !== AGENT_PRESET_SETTINGS_NS) return
+        void seat.load()
+      })
       const chip = scope.slots.register({
         name: 'conversation.hero.agentPreset',
         locale: 'settings.agentPreset',
@@ -124,6 +133,7 @@ export function apply(ctx: ClientContext): void {
       }, AgentPresetLabel)
       return () => {
         stop()
+        settingsMoved()
         chip()
         label()
       }
