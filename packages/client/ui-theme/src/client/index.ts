@@ -1,12 +1,14 @@
 /**
  * Browser theme registry over the `--dsw-*` token stylesheets. The service
- * owns the theme preference (light/dark/system), resolves `system` through
+ * owns the live theme preference (light/dark/system), resolves `system` through
  * `prefers-color-scheme`, and publishes immutable snapshots; it never touches
- * the DOM — ui-layout's presenter consumes the resolved snapshot. The plugin
- * also registers the Appearance preference row into the settings General
- * section — the theme feature owns its own settings surface.
+ * the DOM — ui-layout's presenter consumes the resolved snapshot. The Host
+ * settings controller loads and stores the preference in the user-settings
+ * document. The plugin also registers the Appearance preference row into the
+ * settings General section — the theme feature owns its own settings surface.
  */
 import type { Context } from 'cordis'
+import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
@@ -14,11 +16,22 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type { AppearanceRowInjected } from './AppearanceRow.tsx'
 import { AppearanceRow } from './AppearanceRow.tsx'
 import { createAppearanceRowStore } from './settings-store.ts'
+import { ThemeSettingsController } from './theme-settings.ts'
 import { en, zh, type ThemeKey } from './locales.ts'
+import {
+  DEFAULT_PREFERENCE, isThemePreference, THEME_SETTINGS_NAMESPACE,
+  type ThemePreference,
+} from '../theme-settings.ts'
 
 export type { AppearanceRowComponentProps, AppearanceRowInjected } from './AppearanceRow.tsx'
 export type { AppearanceRowState } from './settings-store.ts'
+export type { ThemePreferenceTarget } from './theme-settings.ts'
+export { ThemeSettingsController } from './theme-settings.ts'
 export type { ThemeKey } from './locales.ts'
+export {
+  DEFAULT_PREFERENCE, THEME_PREFERENCE_FIELD, THEME_SETTINGS_NAMESPACE,
+  type ThemePreference,
+} from '../theme-settings.ts'
 
 /** Namespace owning this feature's settings-row copy. */
 export const SETTINGS_NS = 'settings.theme'
@@ -32,9 +45,6 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
 /** Theme token dictionary: --dsw-alias-* overrides keyed by variable name. */
 export type ThemeTokens = Record<string, string>
-
-/** Theme preference: a concrete theme id or follow-the-OS. */
-export type ThemePreference = 'light' | 'dark' | 'system'
 
 /** One selectable theme: id, dark/light semantics, and alias-token overrides. */
 export interface ThemeDefinition {
@@ -76,12 +86,6 @@ declare module 'cordis' {
   }
 }
 
-/** localStorage key holding the persisted theme preference. */
-export const STORAGE_KEY = 'dsh.theme'
-
-/** Default preference when nothing (or garbage) is persisted. */
-export const DEFAULT_PREFERENCE: ThemePreference = 'system'
-
 const BUILTIN_THEMES: readonly ThemeDefinition[] = Object.freeze([
   Object.freeze({ id: 'light', colorScheme: 'light' as const, tokens: Object.freeze({}) }),
   Object.freeze({ id: 'dark', colorScheme: 'dark' as const, tokens: Object.freeze({}) }),
@@ -103,14 +107,17 @@ export class ThemeService {
   private revision = 0
   private snapshot: ThemeSnapshot
   private readonly media: MediaQueryList | undefined
+  private persist: (preference: ThemePreference) => void
 
   /**
    * @param ctx - owning context (change events are emitted on it; the
    * media-query listener is released through ctx.effect on dispose).
+   * @param persist - durable write callback for built-in preferences.
    */
-  constructor(ctx: Context) {
+  constructor(ctx: Context, persist: (preference: ThemePreference) => void = () => {}) {
     this.ctx = ctx
-    this.preference = restorePreference()
+    this.persist = persist
+    this.preference = DEFAULT_PREFERENCE
     // Non-browser runs (node e2e booting the client tree) have no matchMedia.
     this.media = typeof matchMedia === 'undefined' ? undefined : matchMedia('(prefers-color-scheme: dark)')
     this.snapshot = this.buildSnapshot()
@@ -136,8 +143,17 @@ export class ThemeService {
   }
 
   /**
-   * Switch the theme preference — the only preference write entry. Persists
-   * the preference and emits `theme/change`.
+   * Bind the owning plugin's durable writer before the service is provided.
+   * @param persist - callback accepting built-in preference changes.
+   */
+  bindPersistence(persist: (preference: ThemePreference) => void): void {
+    this.persist = persist
+  }
+
+  /**
+   * Switch the theme preference — the only user preference write entry.
+   * Built-in preferences are persisted and every accepted value emits
+   * `theme/change`.
    * @param id - a registered theme id or `system`; unknown ids throw.
    */
   setTheme(id: string): void {
@@ -146,7 +162,17 @@ export class ThemeService {
     }
     if (this.preference === id) return
     this.preference = id as ThemePreference
-    persistPreference(this.preference)
+    if (isThemePreference(id)) this.persist(id)
+    this.publish()
+  }
+
+  /**
+   * Apply a preference read from Host settings without writing it back.
+   * @param preference - validated durable preference.
+   */
+  syncPreference(preference: ThemePreference): void {
+    if (this.preference === preference) return
+    this.preference = preference
     this.publish()
   }
 
@@ -170,7 +196,7 @@ export class ThemeService {
       this.themes = this.themes.filter(t => t.id !== definition.id)
       if (this.preference === definition.id) {
         this.preference = DEFAULT_PREFERENCE
-        persistPreference(this.preference)
+        this.persist(this.preference)
       }
       this.publish()
     }
@@ -200,32 +226,8 @@ export class ThemeService {
   }
 }
 
-/** Read the persisted preference; unknown or unreadable values fall back to the default. */
-function restorePreference(): ThemePreference {
-  // Non-browser runs (node e2e booting the client tree) have no localStorage.
-  if (typeof localStorage === 'undefined') return DEFAULT_PREFERENCE
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY)
-    if (stored === 'light' || stored === 'dark' || stored === 'system') return stored
-  } catch {
-    // Storage access can throw (privacy mode); the default below covers it.
-  }
-  return DEFAULT_PREFERENCE
-}
-
-/** Persist the preference; storage failures are non-fatal (preference resets next boot). */
-function persistPreference(preference: ThemePreference): void {
-  if (typeof localStorage === 'undefined') return
-  try {
-    localStorage.setItem(STORAGE_KEY, preference)
-  } catch {
-    // Storage access can throw (privacy mode / quota); the preference simply
-    // does not survive the session.
-  }
-}
-
-/** Required services: slots + locale (the feature registers its own settings row with localized copy). */
-export const inject = ['slots', 'locale']
+/** Required services: settings transport plus slots/locale for the Appearance row. */
+export const inject = ['slots', 'locale', 'connection']
 
 /**
  * Client plugin body: provide the theme service and register the
@@ -233,9 +235,32 @@ export const inject = ['slots', 'locale']
  * slot (a feature owns its settings surface).
  * @param ctx - client cordis context.
  */
-export function apply(ctx: ClientContext): void {
+export async function apply(ctx: ClientContext): Promise<void> {
+  const connection = ctx.get('connection') as ConnectionHandle
   const theme = new ThemeService(ctx)
+  const controller = new ThemeSettingsController(
+    connection.api,
+    theme,
+    connection.isLoopback ? 'host' : 'memory',
+  )
+  theme.bindPersistence((preference) => { void controller.persist(preference) })
+  await controller.load()
   ctx.provide('theme', theme)
+
+  ctx.effect(() => {
+    const refresh = (ns?: string): void => {
+      if (ns !== undefined && ns !== THEME_SETTINGS_NAMESPACE) return
+      void controller.load()
+    }
+    const disposers = [
+      ctx.on('settings/changed', refresh),
+      ctx.on('connection/reset', () => { refresh() }),
+    ]
+    return () => {
+      controller.dispose()
+      for (const dispose of disposers) dispose()
+    }
+  }, 'ui-theme: settings invalidations')
 
   ctx.effect(() => ctx.locale.register(SETTINGS_NS, { zh, en }), 'ui-theme: settings row dictionaries')
 

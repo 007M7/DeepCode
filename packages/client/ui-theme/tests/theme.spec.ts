@@ -1,21 +1,22 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import type { ThemeSnapshot } from '@deepseek-ai/dsh-client-ui-theme/client'
-import { STORAGE_KEY, ThemeService } from '@deepseek-ai/dsh-client-ui-theme/client'
+import { ThemeService } from '@deepseek-ai/dsh-client-ui-theme/client'
 
-const make = (): { ctx: Context; theme: ThemeService; events: ThemeSnapshot[] } => {
+const make = (persist = vi.fn()): {
+  ctx: Context
+  theme: ThemeService
+  events: ThemeSnapshot[]
+  persist: typeof persist
+} => {
   const ctx = new Context()
   const events: ThemeSnapshot[] = []
   ctx.on('theme/change', (snapshot) => { events.push(snapshot) })
-  return { ctx, theme: new ThemeService(ctx), events }
+  return { ctx, theme: new ThemeService(ctx, persist), events, persist }
 }
 
 describe('ThemeService', () => {
-  beforeEach(() => {
-    localStorage.clear()
-  })
-
   it('defaults to the system preference resolved against prefers-color-scheme', () => {
     const { theme } = make()
     const snapshot = theme.getTheme()
@@ -26,12 +27,12 @@ describe('ThemeService', () => {
     expect(snapshot.themes.map(t => t.id)).toEqual(['light', 'dark'])
   })
 
-  it('setTheme switches, persists, republishes, and keeps DOM untouched', () => {
-    const { theme, events } = make()
+  it('setTheme switches, requests persistence, republishes, and keeps DOM untouched', () => {
+    const { theme, events, persist } = make()
     theme.setTheme('dark')
     expect(theme.getTheme().preference).toBe('dark')
     expect(theme.getTheme().active.colorScheme).toBe('dark')
-    expect(localStorage.getItem(STORAGE_KEY)).toBe('dark')
+    expect(persist).toHaveBeenCalledWith('dark')
     expect(events).toHaveLength(1)
     expect(events[0]).toBe(theme.getTheme())
     // The service never touches presentation state.
@@ -39,13 +40,17 @@ describe('ThemeService', () => {
     // Same-value set is a no-op (no extra event).
     theme.setTheme('dark')
     expect(events).toHaveLength(1)
+    expect(persist).toHaveBeenCalledOnce()
   })
 
-  it('restores a persisted preference and falls back on garbage', () => {
-    localStorage.setItem(STORAGE_KEY, 'dark')
-    expect(make().theme.getTheme().preference).toBe('dark')
-    localStorage.setItem(STORAGE_KEY, 'sepia')
-    expect(make().theme.getTheme().preference).toBe('system')
+  it('syncs a Host preference without writing it back', () => {
+    const { theme, events, persist } = make()
+    theme.syncPreference('dark')
+    expect(theme.getTheme().preference).toBe('dark')
+    expect(events).toHaveLength(1)
+    expect(persist).not.toHaveBeenCalled()
+    theme.syncPreference('dark')
+    expect(events).toHaveLength(1)
   })
 
   it('throws on unknown setTheme ids, duplicate registration, and the system id', () => {
@@ -56,7 +61,7 @@ describe('ThemeService', () => {
   })
 
   it('registered themes join the snapshot; disposing the active one resets to default', () => {
-    const { theme, events } = make()
+    const { theme, events, persist } = make()
     const dispose = theme.register({ id: 'sepia', colorScheme: 'light', tokens: { '--dsw-alias-bg-base': 'red' } })
     expect(theme.getTheme().themes.map(t => t.id)).toEqual(['light', 'dark', 'sepia'])
     theme.setTheme('sepia')
@@ -64,7 +69,10 @@ describe('ThemeService', () => {
     dispose()
     expect(theme.getTheme().preference).toBe('system')
     expect(theme.getTheme().themes.map(t => t.id)).toEqual(['light', 'dark'])
-    expect(localStorage.getItem(STORAGE_KEY)).toBe('system')
+    // Custom ids are in-process extension themes; only the built-in product
+    // preferences cross the Host settings schema.
+    expect(persist).toHaveBeenCalledTimes(1)
+    expect(persist).toHaveBeenCalledWith('system')
     // register + set + dispose = three publishes; disposer is idempotent.
     expect(events.length).toBe(3)
     dispose()
@@ -88,16 +96,11 @@ describe('ThemeService', () => {
     expect(events.map(e => e.revision)).toEqual([1, 2, 3, 4])
   })
 
-  it('runs without localStorage (node boots): defaults on read, no-op on write', () => {
-    vi.stubGlobal('localStorage', undefined)
-    try {
-      const { theme } = make()
-      expect(theme.getTheme().preference).toBe('system')
-      theme.setTheme('dark')
-      expect(theme.getTheme().preference).toBe('dark')
-    } finally {
-      vi.unstubAllGlobals()
-    }
+  it('uses a no-op persistence callback when constructed directly', () => {
+    const ctx = new Context()
+    const theme = new ThemeService(ctx)
+    theme.setTheme('dark')
+    expect(theme.getTheme().preference).toBe('dark')
   })
 
   describe('prefers-color-scheme resolution (stubbed matchMedia)', () => {

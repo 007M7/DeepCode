@@ -9,6 +9,9 @@
   ],
   "references": [
     {
+      "path": "../connection"
+    },
+    {
       "path": "../locale"
     },
     {
@@ -22,6 +25,9 @@
     },
     {
       "path": "../../../vendor/cordis"
+    },
+    {
+      "path": "../../settings/settings"
     },
     {
       "path": "../../support/invariants"

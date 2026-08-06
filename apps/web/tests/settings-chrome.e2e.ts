@@ -1,6 +1,6 @@
 // Web e2e scenarios: the settings surface — the modal shell (trigger, nav,
 // section switching, both close paths), the Appearance preference row (the
-// real theme gesture — click 深色 and the whole cascade runs: ThemeService preference -> localStorage dsh.theme
+// real theme gesture — click 深色 and the whole cascade runs: ThemeService preference -> Host settings
 // -> theme/change -> ui-layout's presenter -> body attribute -> alias token)
 // the Language row (settings-scoped localization + persisted dsh.locale),
 // the busy-state Enter preference, plus Permission as the persisted default
@@ -152,13 +152,13 @@ describe('web e2e: settings modal and General preferences', () => {
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)
 
-  it('flips the theme through the Appearance cubes and persists across reload', async () => {
+  it('flips the theme through the Appearance cubes and persists across reload and a distinct port', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-settings-appearance'))
-    const readState = async (): Promise<{ attr: boolean; token: string; stored: string | null }> =>
-      await page.evaluate(() => ({
+    const readState = async (target: Page = page): Promise<{ attr: boolean; token: string; legacy: string | null }> =>
+      await target.evaluate(() => ({
         attr: document.body.hasAttribute('data-ds-dark-theme'),
         token: getComputedStyle(document.body).getPropertyValue('--dsw-alias-bg-base').trim(),
-        stored: localStorage.getItem('dsh.theme'),
+        legacy: localStorage.getItem('dsh.theme'),
       }))
     // Pin the OS scheme to light so the default `system` preference resolves
     // light and the dark flip below is unambiguously the gesture's doing.
@@ -172,13 +172,15 @@ describe('web e2e: settings modal and General preferences', () => {
     const darkCube = dialog.getByRole('button', { name: '深色' })
     expect(await darkCube.getAttribute('aria-pressed')).toBe('false')
     await darkCube.click()
-    // The full cascade: pressed state, persisted preference, body attribute,
+    // The full cascade: pressed state, Host-backed preference, body attribute,
     // alias token flip — all from one real user gesture.
     await expect.poll(() => darkCube.getAttribute('aria-pressed'), { timeout: 5_000 }).toBe('true')
     const dark = await readState()
     expect(dark.attr).toBe(true)
-    expect(dark.stored).toBe('dark')
+    expect(dark.legacy).toBeNull()
     expect(dark.token).not.toBe(light.token)
+    await expect.poll(async () => readFile(join(scaffold.harnessHome, 'settings.yaml'), 'utf8'), { timeout: 5_000 })
+      .toMatch(/ui-theme:\n\s+preference: dark/)
     await page.keyboard.press('Escape')
 
     // Reload: the preference survives boot (restore + presenter initial apply).
@@ -189,7 +191,28 @@ describe('web e2e: settings modal and General preferences', () => {
     await page.emulateMedia({ colorScheme: 'light' })
     const reloaded = await readState()
     expect(reloaded.attr).toBe(true)
-    expect(reloaded.stored).toBe('dark')
+    expect(reloaded.legacy).toBeNull()
+
+    // A second live Host binds another ephemeral port but shares the same
+    // user-settings home. Its fresh origin has no theme localStorage and must
+    // still render dark before the settings dialog opens.
+    const second = await launchWebScaffold({ harnessHome: scaffold.harnessHome })
+    const secondPage = await browser.newPage({ viewport: { width: 1680, height: 1000 }, locale: ZH_BROWSER_LOCALE })
+    const secondTripwire = watchConsole(secondPage)
+    try {
+      expect(second.baseUrl).not.toBe(scaffold.baseUrl)
+      await secondPage.emulateMedia({ colorScheme: 'light' })
+      await secondPage.goto(second.baseUrl, { waitUntil: 'load' })
+      await secondPage.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+      const crossPort = await readState(secondPage)
+      expect(crossPort.attr).toBe(true)
+      expect(crossPort.legacy).toBeNull()
+      expect(secondTripwire.pageErrors).toEqual([])
+      expect(secondTripwire.warnings).toEqual([])
+    } finally {
+      await secondPage.close()
+      await second.close()
+    }
 
     // `system` follows the emulated OS scheme (dark stays dark, light clears).
     await page.getByRole('button', { name: '设置', exact: true }).click()

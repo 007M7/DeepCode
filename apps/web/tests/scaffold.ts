@@ -185,6 +185,8 @@ export interface LaunchOptions {
    * 127.0.0.1; a non-resolving authority fails before Host trust is exercised.
    */
   remoteAuthority?: string
+  /** Reuse an existing harness home so a second Host can verify user settings across origins. */
+  harnessHome?: string
 }
 
 /** Dispose the booted tree and remove both owned temp roots, reporting every independent cleanup failure. */
@@ -231,7 +233,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   // Isolated harness home: the settings/credentials rows resolve $DSH_HOME
   // paths at load, and an in-process boot must NEVER touch the developer's
   // real ~/.dsh document or credential file.
-  const harnessHome = join(workspaceCwd, '.dsh-home')
+  const harnessHome = options.harnessHome ?? join(workspaceCwd, '.dsh-home')
   let persistenceRoot: string
   try {
     persistenceRoot = await mkdtemp(join(tmpdir(), 'dsh-web-e2e-sessions-'))

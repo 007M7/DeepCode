@@ -10,7 +10,7 @@ import {
   IconDarkOutline16, IconFollowsystemOutline16, IconLightOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ThemePreference } from './index.ts'
+import type { ThemePreference } from '../theme-settings.ts'
 import type { ThemeKey } from './locales.ts'
 import type {} from './settings-contract.ts'
 import type { createAppearanceRowStore } from './settings-store.ts'
