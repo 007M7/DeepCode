@@ -29,7 +29,10 @@ const NAME = 'dsh'
  */
 export function runDumpConfig(profile: string, defaultOnly: boolean, patches: readonly string[]): void {
   healProfilesModuleFallback(INSTALL_ANCHOR)
-  const loaded = loadProfile(NAME, profile, INSTALL_ANCHOR)
+  // The default dump never reads the user layer: it doubles as the recovery
+  // diagnostic for a broken cordis.patch.yml, so parsing that file here would
+  // defeat its purpose.
+  const loaded = loadProfile(NAME, profile, INSTALL_ANCHOR, undefined, { userLayer: !defaultOnly })
   const layers: ConfigDumpLayer[] = loaded.layers.map(layer => ({
     label: layer.packageName,
     patches: layer.patches,

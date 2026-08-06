@@ -168,8 +168,18 @@ Examples:
         if (defaultOnly && patches.length > 0) {
           program.error('error: --dump-default-config prints the bundle layers and takes no --patch')
         }
+        // The dump is boot-free and does not derive flag patches; silently
+        // dropping them would print a tree that differs from the same
+        // invocation's boot.
+        if (options.host !== undefined || options.port !== undefined || options.dev === true
+          || options.workspaceRoot !== undefined || options.trustedHost !== undefined) {
+          program.error('error: config dumps take no web flags (--host/--port/--dev/--workspace-root/--trusted-host)')
+        }
         resolved = { mode: 'dump-config', profile: 'web', defaultOnly, patches }
         return
+      }
+      if (options.port !== undefined && !/^\d+$/.test(options.port)) {
+        program.error(`error: --port must be a number, got ${JSON.stringify(options.port)}`)
       }
       resolved = {
         mode: 'web',

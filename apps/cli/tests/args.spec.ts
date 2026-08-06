@@ -76,6 +76,12 @@ describe('parseDshArgs', () => {
     expect(exitCode(['web', '--dump-config', '--dump-default-config'])).toBe(1)
     expect(exitCode(['web', '--dump-default-config', '--patch', 'w.yml'])).toBe(1)
     expect(exitCode(['web', '--patch='])).toBe(1)
+    // Boot-free dumps derive no flag patches; silently dropping the flags
+    // would print a tree that differs from the same invocation's boot.
+    expect(exitCode(['web', '--dump-config', '--port', '8080'])).toBe(1)
+    expect(exitCode(['web', '--dump-config', '--dev'])).toBe(1)
+    // A non-numeric port fails at the flag, not deep in the webserver schema.
+    expect(exitCode(['web', '--port', 'abc'])).toBe(1)
     expect(exitCode(['plugin', 'add', 'x'])).toBe(1) // --profile required
     expect(exitCode(['plugin', '--profile', 'tui'])).toBe(1) // nothing to forward
     expect(exitCode(['plugin', '--profile', ''])).toBe(1)

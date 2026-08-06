@@ -1,7 +1,8 @@
 // Shared scaffold for the keyless browser e2e lane (Agent Note:
 // .agents/notes/implemented/testing/2026-07-24-web-gui-browser-e2e-lane.md).
-// Boots the REAL web composition — the shipped base plus web overlay through
-// the vendored Loader (the same include boot AppCLIEntry drives), patched the
+// Boots the REAL web composition — the dsh-base and dsh-web-app bundle
+// patches over the empty profile root through the vendored Loader (the same
+// layer stack the profile boot composes), patched the
 // snapshot way — so a real chromium exercises the real HTTP uplink/WebSocket
 // downlink, api-gateway, agent loop, tools, and persistence. Modes ride $DSH_SNAPSHOT:
 // replay (default, keyless: normally disables the llm-deepseek row and

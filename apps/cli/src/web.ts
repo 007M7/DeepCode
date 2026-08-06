@@ -85,7 +85,15 @@ function deriveWebFlagPatches(
   if (flags.workspaceRoot !== undefined) put('api-gateway', 'workspaceRoot', flags.workspaceRoot)
   const composedHost = (rows.get('webserver')?.config as { host?: string } | undefined)?.host
   const { lanAddresses, trustedHosts } = resolveLanTrust(flags.host ?? composedHost, flags.trustedHosts ?? [])
-  if (trustedHosts.length > 0) put('connection', 'trustedHosts', trustedHosts)
+  if (trustedHosts.length > 0) {
+    // Additive over the composed value: a cordis.patch.yml-configured fence
+    // authority must survive the derived LAN literals and flag extras — a
+    // silent drop of security-relevant fence configuration.
+    const composedTrusted = (rows.get('connection')?.config as { trustedHosts?: string[] } | undefined)?.trustedHosts ?? []
+    put('connection', 'trustedHosts', [...composedTrusted, ...trustedHosts])
+  }
+  // mode and lanAddresses are launcher-derived on every boot (--dev also
+  // inserts the client-hmr row), never pass-throughs of composed values.
   put('web-runtime', 'mode', flags.dev ? 'development' : 'production')
   put('web-runtime', 'lanAddresses', lanAddresses)
   const patches = [...overrides.entries()].map(([id, bag]): PatchOptions => {
@@ -98,9 +106,11 @@ function deriveWebFlagPatches(
 }
 
 /**
- * Serve the browser UI from the web profile. Flags are passed through only
- * when given; absent, the composed profile values stand. The URL line is
- * printed by the web-app bundle's runtime row after Loader settlement.
+ * Serve the browser UI from the web profile. Host/port/workspace-root flags
+ * are passed through only when given (absent, the composed profile values
+ * stand); `web-runtime.mode` and `lanAddresses` are launcher-derived on
+ * every boot. The URL line is printed by the web-app bundle's runtime row
+ * after Loader settlement.
  * @param flags - the parsed `dsh web` flag family.
  */
 export async function runWeb(flags: WebFlags): Promise<void> {

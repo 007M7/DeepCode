@@ -174,6 +174,36 @@ describe('headless runner', () => {
     await ctx.fiber.dispose()
   })
 
+  it('waits for Loader settlement and abandons the run when the tree died during it', async () => {
+    const ctx = new Context()
+    let err = ''
+    let exited = false
+    ctx.provide('headlessIo', {
+      stdout: { write: () => true },
+      stderr: { write: (chunk: string) => { err += chunk; return true } },
+      exit: () => { exited = true },
+    } satisfies HeadlessIo)
+    ctx.provide('apiProxy', scriptedApi([]) as never)
+    // The webserver is provided by a child fiber whose disposal (early
+    // SIGTERM during the boot window) removes the service; settlement
+    // resolves only afterwards, and the runner must abandon rather than
+    // crash on the torn-down port read.
+    const webserverFiber = ctx.plugin((childCtx: Context) => {
+      childCtx.provide('httpServer', { port: 1 } as never)
+    })
+    await webserverFiber
+    let release: () => void
+    const settlement = new Promise<void>((resolve) => { release = resolve })
+    ctx.provide('loader', { await: () => settlement } as never)
+    apply(ctx, { task: 't' })
+    await webserverFiber.dispose()
+    release!()
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(err).toBe('')
+    expect(exited).toBe(false)
+    await ctx.fiber.dispose()
+  })
+
   it('fails loud without the launcher-owned headlessIo seam', () => {
     const ctx = new Context()
     ctx.provide('apiProxy', scriptedApi([]) as never)

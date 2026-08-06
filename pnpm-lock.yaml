@@ -161,6 +161,15 @@ importers:
       '@deepseek-ai/dsh-pty-local':
         specifier: workspace:^
         version: link:../../packages/pty/pty-local
+      '@deepseek-ai/dsh-session-reference':
+        specifier: workspace:^
+        version: link:../../packages/context/session-reference
+      '@deepseek-ai/dsh-tmux-context':
+        specifier: workspace:^
+        version: link:../../packages/context/tmux-context
+      '@deepseek-ai/dsh-tool-ask-user':
+        specifier: workspace:^
+        version: link:../../packages/ui/tool-ask-user
       '@deepseek-ai/dsh-tool-bash-persistent':
         specifier: workspace:^
         version: link:../../packages/pty/tool-bash-persistent
@@ -1053,6 +1062,9 @@ importers:
         specifier: ^3.18.0
         version: link:../../../vendor/schemastery
     devDependencies:
+      '@cordisjs/plugin-loader':
+        specifier: workspace:^
+        version: link:../../../vendor/loader
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
         version: link:../../core/agent

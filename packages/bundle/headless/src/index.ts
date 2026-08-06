@@ -17,6 +17,8 @@ import { InProcessApiClient, toFetchHandler } from '@deepseek-ai/dsh-host-apipro
 // Empty type imports carry the httpServer and agent/status Context merges used below.
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-agent'
+// Empty type import carries the loader Context merge for the settlement await.
+import type {} from '@cordisjs/plugin-loader'
 import type { MuxFrame } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { RpcRequest, RpcResponse } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
 import type { SessionId } from '@deepseek-ai/dsh-session'
@@ -136,13 +138,20 @@ export function apply(ctx: Context, config: Config): void {
   // Fire-and-forget by design: the run outlives plugin activation, and every
   // failure path inside ends in io.exit, not a rejection.
   void (async () => {
+    // The Loader mounts sibling rows concurrently and this plugin's inject
+    // gate covers only apiProxy/httpServer; prompting before the agent loop,
+    // adapters, and tools settle would fail the turn on a half-mounted tree.
+    // The old launcher ran strictly after settled boot — preserve that.
+    // A tree disposed mid-settlement (early SIGTERM) has nothing to run.
+    await ctx.get('loader')?.await()
+    if (ctx.get('httpServer') === undefined) return
     // The headless session is web-observable while it runs (same composition).
     io.stderr.write(`dsh: observing at http://127.0.0.1:${String(ctx.httpServer.port)}\n`)
     const api = new InProcessApiClient(toFetchHandler(ctx.apiProxy))
     const created = await unwrap(await api.sessions.create({}), io)
-    // Open the stream before prompting so no frame is lost — kept in this
-    // order even though in-process delivery has no race, so the code survives
-    // a move to a remote HTTP carrier unchanged.
+    // Open the stream before prompting so no frame is lost. The quiescence
+    // anchor below is an in-process ctx subscription, so a remote-carrier
+    // port of this runner must replace it with a wire-visible idle signal.
     const abort = new AbortController()
     const frames = api.events.mux({}, abort.signal)
     const idle = new Promise<void>((resolve) => {

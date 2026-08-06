@@ -55,11 +55,15 @@ function createProfileLifecycleFixture(): ProfileLifecycleFixture {
   mkdirSync(bundleDir, { recursive: true })
   writeFileSync(join(bundleDir, 'plugin.mjs'), [
     "import { writeFileSync } from 'node:fs'",
+    "import { join } from 'node:path'",
     "export const name = 'profile-lifecycle-fixture'",
-    'export function apply(ctx) {',
+    'export function apply(ctx, config = {}) {',
     '  let active = true',
     '  // Keep the event loop alive so process lifetime is signal-owned, like a real surface.',
     '  const heartbeat = setInterval(() => {}, 1000)',
+    '  // Echo the mounted generation so the hot-reload e2e can assert both an',
+    '  // applied override and its removal reverting to this bundle default.',
+    "  writeFileSync(join(process.env.DSH_HOME, 'config-echo'), String(config.generation ?? 'bundle-default'))",
     "  writeFileSync(process.env.RAW_READY_FILE, 'ready')",
     '  void ctx.loader.await().then(() => {',
     "    if (active) writeFileSync(process.env.RAW_SETTLED_FILE, 'settled')",
@@ -166,24 +170,36 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
     }
   }, 30_000)
 
-  it('fully settles a custom profile, hot-reloads its patch layer, and disposes on a signal', async () => {
+  it('fully settles a custom profile, hot-reloads its patch layer with removal reverting, and disposes on a signal', async () => {
     const fixture = createProfileLifecycleFixture()
     const child = startProfileLifecycle(fixture)
+    const profilePatch = join(fixture.home, 'profiles', 'lifecycle', 'cordis.patch.yml')
+    const configFile = join(fixture.home, 'config-echo')
     try {
       await waitForFile(fixture.settled)
       // The live profile layer: even without an hmr row in the composition,
       // the launcher mounts a config-only watcher, so an edited
       // cordis.patch.yml lands in the running tree (the reload disposes the
       // patched row's old fiber — observable as the disposed marker — and
-      // mounts the new config, which re-writes the ready marker).
+      // mounts the new config, which echoes its generation and re-writes the
+      // ready marker).
       rmSync(fixture.ready)
-      writeFileSync(join(fixture.home, 'profiles', 'lifecycle', 'cordis.patch.yml'), [
+      writeFileSync(profilePatch, [
         '- id: profile-lifecycle-fixture',
         '  config:',
         '    generation: 2',
         '',
       ].join('\n'))
       await waitForFile(fixture.ready)
+      expect(readFileSync(configFile, 'utf8')).toBe('2')
+      // Removal reverts: the bundle's inserted row must return to its own
+      // default config, not keep the removed override — the insert-aliasing
+      // regression (a shared patch object mutated in place by a former
+      // generation would make this impossible).
+      rmSync(fixture.ready)
+      writeFileSync(profilePatch, '[]\n')
+      await waitForFile(fixture.ready)
+      expect(readFileSync(configFile, 'utf8')).toBe('bundle-default')
       child.kill('SIGTERM')
       const result = await child
       expect(result.exitCode).toBe(0)

@@ -57,7 +57,10 @@ function reconcilePlugins(before: ProfileManifest, profileDir: string): void {
   for (const packageName of afterDeps) {
     if (beforeDeps.has(packageName) || plugins.includes(packageName)) continue
     if (!exportsPatch(packageName, profileDir)) {
-      process.stderr.write(`${NAME}: warning: ${packageName} declares no dsh.patch — installed as a plain dependency, not a profile layer\n`)
+      process.stderr.write(
+        `${NAME}: warning: ${packageName} declares no dsh.patch — installed as a plain dependency, not a profile layer `
+        + '(if it gains one later, add it to dsh.plugins in the profile\'s package.json)\n',
+      )
       continue
     }
     plugins.push(packageName)

@@ -49,6 +49,7 @@ export interface DshManifestSection {
 export interface ProfileManifest {
   name?: string
   dependencies?: Record<string, string>
+  peerDependencies?: Record<string, string>
   dsh?: DshManifestSection
 }
 
@@ -85,7 +86,9 @@ export interface Profile {
  * @returns the absolute profile directory (which may not exist yet).
  */
 export function resolveProfileDir(name: string, home: string = resolveDshHome()): string {
-  if (name === '' || name.includes('/') || name.includes('\\') || name === '.' || name === '..') {
+  if (name === '' || name.includes('/') || name.includes('\\') || name === '.' || name === '..'
+    // The launcher-maintained flat module fallback lives at this sibling path.
+    || name === 'node_modules') {
     throw new Error(`dsh: invalid profile name ${JSON.stringify(name)}`)
   }
   return join(home, PROFILES_DIR, name)
@@ -109,9 +112,13 @@ const PROFILE_PATCH_TEMPLATE = `# Your patch layer for this dsh profile, applied
 // The hoisted linker gives out-of-tree plugins a flat node_modules whose
 // missing peers (cordis and friends) fall through to the healed
 // profiles/node_modules installation fallback, so every plugin shares the
-// installation's single cordis instance instead of a duplicate.
-const PROFILE_NPMRC = `node-linker=hoisted
-auto-install-peers=false
+// installation's single cordis instance instead of a duplicate. pnpm ≥10
+// reads its settings from pnpm-workspace.yaml, not .npmrc.
+const PROFILE_PNPM_WORKSPACE = `packages:
+  - .
+
+nodeLinker: hoisted
+autoInstallPeers: false
 `
 
 /**
@@ -138,8 +145,8 @@ export function initProfile(dir: string, plugins: readonly string[]): void {
   }
   const patchPath = join(dir, PROFILE_PATCH_FILENAME)
   if (!existsSync(patchPath)) writeFileSync(patchPath, PROFILE_PATCH_TEMPLATE)
-  const npmrcPath = join(dir, '.npmrc')
-  if (!existsSync(npmrcPath)) writeFileSync(npmrcPath, PROFILE_NPMRC)
+  const workspacePath = join(dir, 'pnpm-workspace.yaml')
+  if (!existsSync(workspacePath)) writeFileSync(workspacePath, PROFILE_PNPM_WORKSPACE)
 }
 
 /** Ensure `link` is a symlink to `target`, replacing a wrong or dangling link; a real directory throws. */
@@ -176,17 +183,20 @@ function ensureSymlink(link: string, target: string): void {
 
 /**
  * Maintain the flat module fallback `$DSH_HOME/profiles/node_modules`: one
- * symlink per package that the dsh app and each of its in-box bundle
- * dependencies declare, resolved from their own real locations. Node's
- * parent-directory walk from any profile finds this directory after the
- * profile's own `node_modules`, so every in-box plugin (and its host-shared
- * peers like cordis) resolves without pnpm ever managing it — the exact
- * "bundles come from the installation" contract. Symlinked packages resolve
- * their own dependencies from their real directories (Node's default
- * symlink-following), so only this first hop needs maintaining. Idempotent:
- * correct links are kept and moved installations are re-pointed; a stale
- * link to a vanished package stays until its name is reused (dangling links
- * are invisible to resolution).
+ * symlink per package in the dsh app's resolvable dependency CLOSURE (BFS
+ * over `dependencies` from the app manifest), each resolved from its own
+ * real location. Node's parent-directory walk from any profile finds this
+ * directory after the profile's own `node_modules`, so every in-box plugin
+ * resolves without pnpm ever managing it — the exact "bundles come from the
+ * installation" contract. The closure (not just direct dependencies) is
+ * required for out-of-tree plugins: their peer dependencies name seam
+ * packages (`dsh-compact`, `dsh-invariants`, ...) that the app reaches only
+ * through its implementation packages. Symlinked packages resolve their own
+ * dependencies from their real directories (Node's default
+ * symlink-following), so each package needs only its one flat link.
+ * Idempotent: correct links are kept and moved installations are
+ * re-pointed; a stale link to a vanished package stays until its name is
+ * reused (dangling links are invisible to resolution).
  * @param installAnchor - absolute path of the dsh app's package.json.
  * @param home - the Harness home; defaults to {@link resolveDshHome}.
  */
@@ -194,32 +204,27 @@ export function healProfilesModuleFallback(installAnchor: string, home: string =
   const profilesDir = join(home, PROFILES_DIR)
   const modulesDir = join(profilesDir, 'node_modules')
   mkdirSync(modulesDir, { recursive: true })
-  // The app manifest plus every resolvable direct dependency's manifest that
-  // itself declares a dsh patch (a bundle): their dependency names form the
-  // fallback surface.
   const appManifest = JSON.parse(readFileSync(installAnchor, 'utf8')) as ProfileManifest
-  const anchors: { anchor: string; manifest: ProfileManifest }[] = [{ anchor: installAnchor, manifest: appManifest }]
-  /* v8 ignore next -- a real app manifest always declares dependencies */
-  for (const dep of Object.keys(appManifest.dependencies ?? {})) {
-    const dir = packageDirFromAnchor(installAnchor, dep)
-    if (dir === undefined) continue // declared but not installed — nothing to mirror
-    const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as ProfileManifest
-    if (manifest.dsh?.patch !== undefined) anchors.push({ anchor: join(dir, 'package.json'), manifest })
-  }
   const links = new Map<string, string>()
-  for (const { anchor, manifest } of anchors) {
-    /* v8 ignore next -- bundle anchors reach here only with a dependencies map */
-    for (const dep of Object.keys(manifest.dependencies ?? {})) {
+  /* v8 ignore next -- a real app manifest always declares its name */
+  if (appManifest.name !== undefined) links.set(appManifest.name, dirname(installAnchor))
+  // BFS over the resolvable dependency graph; the visited set is the link
+  // map itself (first resolution wins, matching Node's own nearest-wins).
+  const queue: { anchor: string; manifest: ProfileManifest }[] = [{ anchor: installAnchor, manifest: appManifest }]
+  for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
+    // Peer dependencies participate: seam packages (dsh-subprocess,
+    // dsh-compact, ...) are peers of their implementations, never plain
+    // dependencies, yet out-of-tree plugins import them directly.
+    /* v8 ignore next -- a real app manifest always declares dependencies */
+    for (const dep of [...Object.keys(next.manifest.dependencies ?? {}), ...Object.keys(next.manifest.peerDependencies ?? {})]) {
       if (links.has(dep)) continue
-      const dir = packageDirFromAnchor(anchor, dep)
+      const dir = packageDirFromAnchor(next.anchor, dep)
       // A declared-but-uninstalled dependency cannot be a loader-visible
       // plugin; skip it rather than fail the whole boot.
-      if (dir !== undefined) links.set(dep, dir)
-    }
-    // The anchor package itself is part of the surface (a profile may list it
-    // in dsh.plugins or a row may name it).
-    if (manifest.name !== undefined && !links.has(manifest.name)) {
-      links.set(manifest.name, dirname(anchor))
+      if (dir === undefined) continue
+      links.set(dep, dir)
+      const manifestPath = join(dir, 'package.json')
+      queue.push({ anchor: manifestPath, manifest: JSON.parse(readFileSync(manifestPath, 'utf8')) as ProfileManifest })
     }
   }
   for (const [packageName, target] of links) {
@@ -319,10 +324,14 @@ export function resolveBundleDir(
  * @param name - the profile name.
  * @param installAnchor - absolute path of the dsh app's package.json (first resolution anchor).
  * @param home - the Harness home; defaults to {@link resolveDshHome}.
- * @returns the loaded profile.
+ * @param options - `userLayer: false` skips reading `cordis.patch.yml`, so a
+ * bundles-only consumer (`--dump-default-config`, a recovery diagnostic)
+ * cannot fail on a broken user layer.
+ * @returns the loaded profile (empty `patches` when the user layer is skipped).
  */
 export function loadProfile(
   binName: string, name: string, installAnchor: string, home: string = resolveDshHome(),
+  options: { userLayer?: boolean } = {},
 ): Profile {
   const dir = resolveProfileDir(name, home)
   if (!existsSync(join(dir, 'package.json'))) {
@@ -348,7 +357,9 @@ export function loadProfile(
     return { packageName, packageDir, patchPath, patches: loadOverlayPatches(binName, patchPath) }
   })
   const patchPath = join(dir, PROFILE_PATCH_FILENAME)
-  const patches = existsSync(patchPath) ? loadOverlayPatches(binName, patchPath) : []
+  const patches = options.userLayer !== false && existsSync(patchPath)
+    ? loadOverlayPatches(binName, patchPath)
+    : []
   return { name, dir, layers, patchPath, patches }
 }
 

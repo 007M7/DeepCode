@@ -35,6 +35,13 @@ export interface Config {
   /** Print the URL line on activation; a headless layer over this bundle turns it off. */
   printUrl: boolean
   /**
+   * Register the model-visible surface context (the `app:web-surface` prompt
+   * section and the `DSH_WEB_URL`/`DSH_WEB_MODE` bash variables). A one-shot
+   * layer turns it off: its user is not interacting through the GUI, so the
+   * orientation text would be false.
+   */
+  surfaceContext: boolean
+  /**
    * LAN IPv4 addresses sampled once by the launcher when the effective bind
    * is all-interfaces — the exact snapshot the /api trust fence was
    * configured with, so the printed LAN URL can never name an address the
@@ -46,6 +53,7 @@ export interface Config {
 export const Config: z<Config> = z.object({
   mode: z.union([z.const('production'), z.const('development')]).default('production'),
   printUrl: z.boolean().default(true),
+  surfaceContext: z.boolean().default(true),
   lanAddresses: z.array(String).default([]),
 })
 
@@ -104,23 +112,25 @@ export const internals: { resolveDistIndex: () => string } = { resolveDistIndex 
  */
 export function apply(ctx: Context, config: Config): void {
   ctx.plugin(FrontendStatic, { distIndex: internals.resolveDistIndex() })
-  ctx.inject(['systemPrompt'], (promptCtx) => {
-    promptCtx.systemPrompt.section({
-      name: 'app:web-surface',
-      order: -98,
-      text: () => webSurfacePrompt(localWebUrl(promptCtx), config.mode),
+  if (config.surfaceContext) {
+    ctx.inject(['systemPrompt'], (promptCtx) => {
+      promptCtx.systemPrompt.section({
+        name: 'app:web-surface',
+        order: -98,
+        text: () => webSurfacePrompt(localWebUrl(promptCtx), config.mode),
+      })
     })
-  })
-  ctx.inject(['bashEnv'], (runtimeCtx) => {
-    runtimeCtx.bashEnv.register({
-      name: 'web-runtime',
-      variables: {
-        [DSH_WEB_URL]: { description: 'Canonical local URL of the DeepSeek Harness Web GUI serving this session.' },
-        [DSH_WEB_MODE]: { description: 'Web runtime mode: production, or development when the client-plugin HMR receiver is active.' },
-      },
-      resolve: () => ({ [DSH_WEB_URL]: localWebUrl(runtimeCtx), [DSH_WEB_MODE]: config.mode }),
+    ctx.inject(['bashEnv'], (runtimeCtx) => {
+      runtimeCtx.bashEnv.register({
+        name: 'web-runtime',
+        variables: {
+          [DSH_WEB_URL]: { description: 'Canonical local URL of the DeepSeek Harness Web GUI serving this session.' },
+          [DSH_WEB_MODE]: { description: 'Web runtime mode: production, or development when the client-plugin HMR receiver is active.' },
+        },
+        resolve: () => ({ [DSH_WEB_URL]: localWebUrl(runtimeCtx), [DSH_WEB_MODE]: config.mode }),
+      })
     })
-  })
+  }
   if (config.printUrl) {
     // The URL line is a readiness signal: supervisors (and the keyless CLI
     // smoke) RPC as soon as they observe it, so it must not print while

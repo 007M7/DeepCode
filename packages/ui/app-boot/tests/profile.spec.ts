@@ -56,14 +56,14 @@ describe('resolveProfileDir', () => {
 })
 
 describe('initProfile', () => {
-  it('creates manifest, user patch layer, and npmrc once, never overwriting', () => {
+  it('creates manifest, user patch layer, and pnpm workspace once, never overwriting', () => {
     const home = tmp()
     const dir = resolveProfileDir('tui', home)
     initProfile(dir, ['@deepseek-ai/dsh-base'])
     const manifest = readProfileManifest('t', dir)
     expect(manifest.dsh?.plugins).toEqual(['@deepseek-ai/dsh-base'])
     expect(readFileSync(join(dir, PROFILE_PATCH_FILENAME), 'utf8')).toContain('[]')
-    expect(readFileSync(join(dir, '.npmrc'), 'utf8')).toContain('node-linker=hoisted')
+    expect(readFileSync(join(dir, 'pnpm-workspace.yaml'), 'utf8')).toContain('nodeLinker: hoisted')
     // Re-init keeps user edits.
     writeFileSync(join(dir, PROFILE_PATCH_FILENAME), '- id: x\n  config: {}\n')
     initProfile(dir, ['other'])

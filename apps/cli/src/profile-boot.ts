@@ -186,15 +186,22 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
     composed.profile.layers.reduce((n, layer) => n + layer.patches.length, 0)
     + composed.profile.patches.length,
   )
-  const composeLive = (profilePatches: PatchOptions[]): PatchOptions[] => [
+  // Fresh clones per generation: the include pushes `insert` rows into the
+  // mounted tree BY REFERENCE and later id-targeted patches mutate those
+  // objects in place. Reusing one parsed patch object across applications
+  // would bake a user override into the bundle's in-memory insert row, so
+  // removing the override could never revert the row to the bundle default.
+  const composeLive = (profilePatches: PatchOptions[]): PatchOptions[] => structuredClone([
     ...composed.profile.layers.flatMap(layer => layer.patches),
     ...profilePatches,
     ...overlayAndFlags,
-  ]
+  ])
   // One-shot runs exit through the runner; watching would only hold the
   // process open after its exit request.
   const watchProfilePatch = options.task === undefined
-  const ctx = await boot(NAME, rootConfig, composed.patches, async (hostCtx) => {
+  // Cloned for the same insert-aliasing reason as composeLive: the boot
+  // application must not mutate the objects later reloads recompose from.
+  const ctx = await boot(NAME, rootConfig, structuredClone(composed.patches), async (hostCtx) => {
     app.current = hostCtx
     if (options.task !== undefined) {
       const io: HeadlessIo = {

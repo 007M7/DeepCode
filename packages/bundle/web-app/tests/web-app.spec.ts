@@ -69,7 +69,7 @@ describe('web-app runtime glue', () => {
       },
     } as never)
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-    apply(ctx, new Config({ mode: 'development', printUrl: true, lanAddresses: ['192.168.1.5'] }))
+    apply(ctx, new Config({ mode: 'development', printUrl: true, surfaceContext: true, lanAddresses: ['192.168.1.5'] }))
     await ctx.plugin(SystemPrompt, { persona: '' })
     // Settle the injected registrations.
     await new Promise(resolve => setTimeout(resolve, 0))
@@ -90,7 +90,7 @@ describe('web-app runtime glue', () => {
     const ctx = new Context()
     ctx.provide('httpServer', fakeHttpServer().server)
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-    apply(ctx, new Config({ mode: 'production', printUrl: false, lanAddresses: [] }))
+    apply(ctx, new Config({ mode: 'production', printUrl: false, surfaceContext: true, lanAddresses: [] }))
     await ctx.plugin(SystemPrompt, { persona: '' })
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(log).not.toHaveBeenCalled()
@@ -100,12 +100,32 @@ describe('web-app runtime glue', () => {
     await ctx.fiber.dispose()
   })
 
+  it('skips the surface context when disabled (the one-shot layer): no prompt section, no bash variables', async () => {
+    stageDist()
+    const ctx = new Context()
+    ctx.provide('httpServer', fakeHttpServer().server)
+    const contributions: BashContribution[] = []
+    ctx.provide('bashEnv', {
+      register: (contribution: BashContribution) => {
+        contributions.push(contribution)
+        return () => {}
+      },
+    } as never)
+    apply(ctx, new Config({ mode: 'production', printUrl: false, surfaceContext: false, lanAddresses: [] }))
+    await ctx.plugin(SystemPrompt, { persona: '' })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    const assembly = await ctx.systemPrompt.assemble()
+    expect(assembly.sections.some(entry => entry.name === 'app:web-surface')).toBe(false)
+    expect(contributions).toEqual([])
+    await ctx.fiber.dispose()
+  })
+
   it('prints the loopback-only URL line when no LAN snapshot exists', async () => {
     stageDist()
     const ctx = new Context()
     ctx.provide('httpServer', fakeHttpServer().server)
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-    apply(ctx, new Config({ mode: 'production', printUrl: true, lanAddresses: [] }))
+    apply(ctx, new Config({ mode: 'production', printUrl: true, surfaceContext: true, lanAddresses: [] }))
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(log).toHaveBeenCalledWith('dsh web: http://127.0.0.1:4567')
     await ctx.fiber.dispose()
@@ -121,7 +141,7 @@ describe('web-app runtime glue', () => {
     const settlement = new Promise<void>((resolve) => { release = resolve })
     settled.provide('loader', { await: () => settlement } as never)
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-    apply(settled, new Config({ mode: 'production', printUrl: true, lanAddresses: [] }))
+    apply(settled, new Config({ mode: 'production', printUrl: true, surfaceContext: true, lanAddresses: [] }))
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(log).not.toHaveBeenCalled()
     release!()
@@ -140,7 +160,7 @@ describe('web-app runtime glue', () => {
     let releaseTorn: () => void
     const tornSettlement = new Promise<void>((resolve) => { releaseTorn = resolve })
     torn.provide('loader', { await: () => tornSettlement } as never)
-    apply(torn, new Config({ mode: 'production', printUrl: true, lanAddresses: [] }))
+    apply(torn, new Config({ mode: 'production', printUrl: true, surfaceContext: true, lanAddresses: [] }))
     await child.dispose() // the httpServer service goes away
     releaseTorn!()
     await new Promise(resolve => setTimeout(resolve, 0))
@@ -156,7 +176,7 @@ describe('web-app runtime glue', () => {
     const { server } = fakeHttpServer()
     Object.defineProperty(server, 'port', { get: () => undefined })
     ctx.provide('httpServer', server)
-    apply(ctx, new Config({ mode: 'production', printUrl: false, lanAddresses: [] }))
+    apply(ctx, new Config({ mode: 'production', printUrl: false, surfaceContext: true, lanAddresses: [] }))
     await ctx.plugin(SystemPrompt, { persona: '' })
     await new Promise(resolve => setTimeout(resolve, 0))
     await expect(ctx.systemPrompt.assemble()).rejects.toThrow('httpServer service missing')
