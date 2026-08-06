@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-03-per-session-agent-presets.md
-2026-08-03-per-session-agent-presets.md: b0f0de131b6f5051bb5a17a38636826ebd5771fd
-2026-08-03-per-session-agent-presets.zh.md: 9ca1374d1b4b43fda24fea81adf741d474dc0084
+2026-08-03-per-session-agent-presets.md: ba8476690f6b4b71e571ef7a19b61a2b31d00724
+2026-08-03-per-session-agent-presets.zh.md: fcca281068055d24475e3bbfdc959f9930815a30
