@@ -937,7 +937,7 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
       }
     })
 
-    it('stored-prefix adoption keeps a headerless record headerless for a zoned live session', async () => {
+    it('stored-prefix adoption rejects a zoned live session for a headerless record', async () => {
       const fix = await makeFixture()
       const log = [
         ...oneTurnLog(),
@@ -962,8 +962,7 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
       })
       const second = await fix.mount(ctx)
       try {
-        await expect(ctx.sessions.flush(live)).resolves.toBe(true)
-        expect((await ctx.sessionPersistence.load(live.id)).meta.timeZone).toBeUndefined()
+        await expect(ctx.sessions.flush(live)).rejects.toThrow(/different timeZone|id collision/)
       } finally {
         await second.dispose()
         await ctx.fiber.dispose()
@@ -1167,7 +1166,7 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
       }
     })
 
-    it('a zoned live session claims headerless ownerless state without backfilling it', async () => {
+    it('a zoned live session cannot claim headerless ownerless state', async () => {
       const fix = await makeFixture()
       const { ctx, fiber } = await freshCtx(fix)
       try {
@@ -1177,8 +1176,7 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
           meta: { cwd: WORK, timeZone: 'Asia/Shanghai' },
         })
 
-        await expect(ctx.sessions.flush(live)).resolves.toBe(true)
-        expect((await ctx.sessionPersistence.load(live.id)).meta.timeZone).toBeUndefined()
+        await expect(ctx.sessions.flush(live)).rejects.toThrow(/different timeZone|id collision/)
       } finally {
         await fiber.dispose()
         await fix.cleanup()

@@ -21,6 +21,7 @@
   "files": [
     "lib/index.js",
     "lib/invariant.js",
+    "lib/request-zone-*.js",
     "lib/types/**/*.d.ts"
   ],
   "license": "BSD-3-Clause",

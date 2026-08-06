@@ -122,15 +122,15 @@ describe.skipIf(MODE === 'record')('web e2e: durable after reminder receipt', ()
     await waitForFact(() => agentHandle.agent.session.events.some(event =>
       event.type === 'user/message'
       && (event.data as { source?: { plugin?: unknown } }).source?.plugin === 'time-context'), 10_000)
-    const authority = agentHandle.agent.session.events.find(event =>
+    const timeReading = agentHandle.agent.session.events.find(event =>
       event.type === 'user/message'
-      && (event.data as { source?: { plugin?: unknown } }).source?.plugin === 'time-context')?.data as {
-        source?: { authority?: unknown }
-      } | undefined
-    expect(authority?.source?.authority).toMatchObject({
-      session: { kind: 'resolved', timeZone: SESSION_TIME_ZONE },
-      client: { kind: 'missing' },
-    })
+      && event.data.source.kind === 'plugin'
+      && event.data.source.plugin === 'time-context')
+    if (timeReading?.type !== 'user/message') throw new Error('missing time-context reading')
+    expect(timeReading.data.source).toEqual({ kind: 'plugin', plugin: 'time-context' })
+    const timeText = timeReading.data.content.find(block => block.type === 'text')?.text
+    expect(timeText).toContain(`Session time zone: ${SESSION_TIME_ZONE}.`)
+    expect(timeText).toContain('Client time zone for this request: missing.')
     const listed = await scaffold.ctx.apiProxy.sessions.list({
       rpcId: RpcId('schedule-list-baseline'), payload: {},
     })

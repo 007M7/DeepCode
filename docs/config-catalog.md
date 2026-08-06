@@ -1884,7 +1884,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/context/time-context/src/index.ts:34`](../packages/context/time-context/src/index.ts)
+Source: [`packages/context/time-context/src/index.ts:28`](../packages/context/time-context/src/index.ts)
 
 ## `@deepseek-ai/dsh-tmux-context`
 

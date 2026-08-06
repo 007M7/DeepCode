@@ -85,13 +85,13 @@ forever:
   -> 'turn/start'
   claim next-step input plus one next-turn message
   -> emit agent/inbox/claimed({ message, turn }) for each claimed message
-  -> assemble system prompt; providers may stage a bounded preparation envelope
-  -> agent/pre-step({ agent, messages: claimed + staged non-authority messages, turn, step, signal })
+  -> assemble system prompt
+  -> agent/pre-step({ agent, messages, turn, step, signal })
     reject, empty input, cancellation, or listener failure
-      -> remove the preparation envelope; close the no-step turn; stop the driver
+      -> the claimed batch stays removed; close the no-step turn; stop the driver
     enter -> step loop:
       'step/start'
-      append the returned batch and final preparation authority as separate 'user/message' events
+      append the returned batch as separate 'user/message' events
       render the assembled prompt and tool schemas -> snapshot derived messages
       agent/request (config only) -> prepare adapter defaults/provenance + context capacity under turn signal -> log request/header (+ request/context on route change) -> llm/stream (frozen, registration-bound)
       'assistant/chunk'
@@ -103,7 +103,7 @@ forever:
         model-order result -> ordered tools/post-execute -> 'tool/result'
       'step/end'
       tools owe another request or next-step inbox is nonempty
-        -> claim -> assemble -> agent/pre-step -> append entered batch -> continue
+        -> claim -> agent/pre-step -> append entered batch -> continue
       otherwise agent/turn-stopping -> re-check the next-step inbox
     'turn/end'
   start the next waking queued message, or emit agent/status(idle)
@@ -113,9 +113,9 @@ idle inject:
   leave it pending until followup or steer wakes the driver
 ```
 
-每个拟议步骤都会在 pre-step 前组装有序的提示词片段、工具 schema 和变量；未知引用会使该轮次失败。`dsh-system-prompt` 负责身份和角色设定；循环提供 `provider`、`model` 和 `cwd`（[提示词归属](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)）。
+每个步骤都会组装有序的提示词片段、工具 schema 和变量；未知引用会使该轮次失败。`dsh-system-prompt` 负责身份和角色设定；循环提供 `provider`、`model` 和 `cwd`（[提示词归属](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)）。
 
-`inject()` 将不会唤醒驱动器的上下文排入 `next-step`；空闲驱动器会让它保持待处理，直至 `followup()` 或 `steer()` 唤醒。工具执行后的 `additionalContexts` 使用同一个 inbox。`agent/pre-step` 接收独占的已领取批次、有界组装 envelope 中的普通消息，以及即将使用的轮次、步骤和信号。准备权威不进入下游转换；获准进入的步骤会在返回批次后仅追加最终权威。拒绝则不进入步骤，空决策不能仅凭权威重新激活，准备失败则会在轮次关闭前移除其 envelope。空的工具续跑仍会经过 waterfall，其最终值一次性结算所有改写。
+`inject()` 将不会唤醒驱动器的上下文排入 `next-step`；空闲驱动器会让它保持待处理，直至 `followup()` 或 `steer()` 唤醒。工具执行后的 `additionalContexts` 使用同一个 inbox。`agent/pre-step` 接收独占的已领取批次，以及即将使用的轮次、步骤和信号。拒绝则不进入步骤；进入则提供在 `step/start` 后追加的完整批次。空的工具续跑仍会经过 waterfall，其最终值一次性结算所有改写。
 
 裁剪先于摘要；溢出重试必须取得持久进展。`agent/request-error` 可以授权使用冻结提示词进行同步骤重试；取消优先。适配器的 `retryPolicy` 使 normal mode 保持有界，always mode 则在专门恢复后重试（[压缩](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md)、[重试基础](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)、[提供方策略](../.agents/notes/implemented/feature/2026-07-24-provider-retry-policies.md)）。精确事件顺序由生成的 [agent 生命周期](agent-lifecycle.md)定义；队列、steering（中途引导）、重试与取消机制由 [agent-loop README](../packages/core/agent-loop/README.md)定义。
 

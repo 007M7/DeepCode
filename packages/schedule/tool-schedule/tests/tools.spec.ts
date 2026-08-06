@@ -91,21 +91,16 @@ function value(result: ToolExecutionResult): unknown {
   return result.value
 }
 
-function appendTimeAuthority(
-  agent: Agent,
-  authority: {
-    turn: number
-    step: number
-    session: { kind: 'resolved'; timeZone: string } | { kind: 'unavailable' }
-    client:
-      | { kind: 'resolved'; timeZone: string }
-      | { kind: 'mixed'; timeZones: string[] }
-      | { kind: 'missing' }
-  },
-): void {
+function appendRequestContext(agent: Agent, clientTimeZones: readonly string[]): void {
+  for (const [index, clientTimeZone] of clientTimeZones.entries()) {
+    agent.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: `request ${index + 1}` }],
+      source: { kind: 'user', clientTimeZone } as never,
+    }), { surfaceOp: 'append' })
+  }
   agent.session.append('user/message', createUserMessage({
-    content: [{ type: 'text', text: 'time authority' }],
-    source: { kind: 'plugin', plugin: 'time-context', authority },
+    content: [{ type: 'text', text: 'time context' }],
+    source: { kind: 'plugin', plugin: 'time-context' },
   }), { surfaceOp: 'append' })
 }
 
@@ -254,7 +249,7 @@ describe('Schedule tool protocol', () => {
     expect(changes[0]?.data).not.toHaveProperty('time_zone')
   })
 
-  it('fails closed when local at lacks confirmed request-zone authority', async () => {
+  it('fails closed when local at lacks confirmed request-zone context', async () => {
     const test = await harness()
     expect(value(await execute(test, 'schedule_create', {
       prompt: 'ambiguous', at: { date: '2026-08-06', time: '09:00:00' },
@@ -268,16 +263,11 @@ describe('Schedule tool protocol', () => {
     expect(test.agent.session.events.filter(event => event.type === 'schedule/change')).toEqual([])
   })
 
-  it('uses only the current-step matching zone authority for implicit local at', async () => {
+  it('uses the current turn request zones behind a current-step time-context marker', async () => {
     const test = await harness(true, 'Asia/Shanghai')
     test.agent.session.append('turn/start', { turn: 1 })
     test.agent.session.append('step/start', { turn: 1, step: 1 })
-    appendTimeAuthority(test.agent, {
-      turn: 1,
-      step: 1,
-      session: { kind: 'resolved', timeZone: 'Asia/Shanghai' },
-      client: { kind: 'resolved', timeZone: 'Asia/Shanghai' },
-    })
+    appendRequestContext(test.agent, ['Asia/Shanghai'])
 
     expect(value(await execute(test, 'schedule_create', {
       prompt: 'implicit local', at: { date: '2026-08-06', time: '09:00:00' },
@@ -291,12 +281,7 @@ describe('Schedule tool protocol', () => {
     const mismatch = await harness(true, 'Asia/Shanghai')
     mismatch.agent.session.append('turn/start', { turn: 1 })
     mismatch.agent.session.append('step/start', { turn: 1, step: 1 })
-    appendTimeAuthority(mismatch.agent, {
-      turn: 1,
-      step: 1,
-      session: { kind: 'resolved', timeZone: 'Asia/Shanghai' },
-      client: { kind: 'resolved', timeZone: 'America/New_York' },
-    })
+    appendRequestContext(mismatch.agent, ['America/New_York'])
     expect(value(await execute(mismatch, 'schedule_create', {
       prompt: 'mismatch', at: { date: '2026-08-06', time: '09:00:00' },
     }))).toEqual({
@@ -309,18 +294,7 @@ describe('Schedule tool protocol', () => {
     const mixed = await harness(true, 'Asia/Shanghai')
     mixed.agent.session.append('turn/start', { turn: 1 })
     mixed.agent.session.append('step/start', { turn: 1, step: 1 })
-    appendTimeAuthority(mixed.agent, {
-      turn: 1,
-      step: 1,
-      session: { kind: 'resolved', timeZone: 'Asia/Shanghai' },
-      client: { kind: 'resolved', timeZone: 'Asia/Shanghai' },
-    })
-    appendTimeAuthority(mixed.agent, {
-      turn: 1,
-      step: 1,
-      session: { kind: 'resolved', timeZone: 'Asia/Shanghai' },
-      client: { kind: 'mixed', timeZones: ['America/New_York', 'Asia/Shanghai'] },
-    })
+    appendRequestContext(mixed.agent, ['Asia/Shanghai', 'America/New_York'])
     expect(value(await execute(mixed, 'schedule_create', {
       prompt: 'mixed', at: { date: '2026-08-06', time: '09:00:00' },
     }))).toMatchObject({
@@ -331,12 +305,7 @@ describe('Schedule tool protocol', () => {
     const unavailable = await harness()
     unavailable.agent.session.append('turn/start', { turn: 1 })
     unavailable.agent.session.append('step/start', { turn: 1, step: 1 })
-    appendTimeAuthority(unavailable.agent, {
-      turn: 1,
-      step: 1,
-      session: { kind: 'unavailable' },
-      client: { kind: 'resolved', timeZone: 'America/New_York' },
-    })
+    appendRequestContext(unavailable.agent, ['America/New_York'])
     expect(value(await execute(unavailable, 'schedule_create', {
       prompt: 'legacy', at: { date: '2026-08-06', time: '09:00:00' },
     }))).toMatchObject({
@@ -345,16 +314,11 @@ describe('Schedule tool protocol', () => {
     })
   })
 
-  it('ignores prior-step authority and fails closed on a malformed current authority', async () => {
+  it('requires a simple current-step marker and fails closed on a malformed source', async () => {
     const test = await harness(true, 'Asia/Shanghai')
     test.agent.session.append('turn/start', { turn: 1 })
     test.agent.session.append('step/start', { turn: 1, step: 1 })
-    appendTimeAuthority(test.agent, {
-      turn: 1,
-      step: 1,
-      session: { kind: 'resolved', timeZone: 'Asia/Shanghai' },
-      client: { kind: 'resolved', timeZone: 'Asia/Shanghai' },
-    })
+    appendRequestContext(test.agent, ['Asia/Shanghai'])
     test.agent.session.append('step/end', { turn: 1, step: 1 })
     test.agent.session.append('step/start', { turn: 1, step: 2 })
     test.agent.session.append('user/message', createUserMessage({
@@ -368,6 +332,41 @@ describe('Schedule tool protocol', () => {
 
     expect(value(await execute(test, 'schedule_create', {
       prompt: 'fail closed', at: { date: '2026-08-06', time: '09:00:00' },
+    }))).toMatchObject({
+      sessionTimeZone: 'Asia/Shanghai',
+      clientTimeZones: [],
+    })
+  })
+
+  it.each(['step/end', 'turn/end'] as const)(
+    'fails closed after the current %s boundary',
+    async (boundary) => {
+      const test = await harness(true, 'Asia/Shanghai')
+      test.agent.session.append('turn/start', { turn: 1 })
+      test.agent.session.append('step/start', { turn: 1, step: 1 })
+      appendRequestContext(test.agent, ['Asia/Shanghai'])
+      test.agent.session.append('step/end', { turn: 1, step: 1 })
+      if (boundary === 'turn/end') {
+        test.agent.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+      }
+
+      expect(value(await execute(test, 'schedule_create', {
+        prompt: `closed ${boundary}`,
+        at: { date: '2026-08-06', time: '09:00:00' },
+      }))).toMatchObject({
+        sessionTimeZone: 'Asia/Shanghai',
+        clientTimeZones: [],
+      })
+    },
+  )
+
+  it('fails closed when an open step has no owning turn boundary', async () => {
+    const test = await harness(true, 'Asia/Shanghai')
+    test.agent.session.append('step/start', { turn: 1, step: 1 })
+    appendRequestContext(test.agent, ['Asia/Shanghai'])
+
+    expect(value(await execute(test, 'schedule_create', {
+      prompt: 'missing turn', at: { date: '2026-08-06', time: '09:00:00' },
     }))).toMatchObject({
       sessionTimeZone: 'Asia/Shanghai',
       clientTimeZones: [],

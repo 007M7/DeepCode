@@ -8,7 +8,7 @@ English | [中文](README.zh.md)
 
 Load this function plugin after `ctx.sessions`, `ctx.agents`, `ctx.tools`, `ctx.sessionPersistence`, and the persistence listener that implements Session flushes. Static injection makes a missing persistence service a composition error. The plugin listens only to later `agent/created` events, installs on runtime roots, and registers all tools through the exact `agent.ctx`. Agents that already existed when the plugin loaded and runtime children do not receive Schedule.
 
-Load `@deepseek-ai/dsh-time-context` before publishing a root that should resolve local `at` values without an explicit zone. The official Schedule Web overlay does so. Explicit-offset and explicit-zone values remain usable without an implicit-zone authority.
+Load `@deepseek-ai/dsh-time-context` before publishing a root that should resolve local `at` values without an explicit zone. The official Schedule Web overlay does so. Explicit-offset and explicit-zone values remain usable without implicit request-zone context.
 
 Every operation that reads or decides from the Schedule fold first awaits `ctx.sessions.flush(session)`. A missing, rejected, or detached persistence path returns `persistence_uncertain`; it never turns an unconfirmed live suffix into a list or not-found answer. A successful create or actual delete also awaits a post-append barrier before confirming the mutation.
 
@@ -20,11 +20,11 @@ Replay rejects unknown versions, extra fields, reused ids, and delete or dispatc
 
 `scheduleReminderPresentation(events, dispatchSeq, seedLength)` is the pure Host-facing receipt projection. It returns `scheduleId`, prompt, and occurrence from the dispatch's nearest preceding same-id create; the client renderer adds the fixed `session-local` label. The current fork's `seedLength` is a hard boundary for child-owned dispatches, while inherited dispatches search their persisted prefix; resumed ancestors therefore remain renderable, nested generations may reuse session-local ids, and presentation never changes live ownership.
 
-## Absolute-time authority
+## Absolute-time context
 
-The `at` selector is either a strict `YYYY-MM-DDTHH:mm:ss[.S|.SS|.SSS](Z|±HH:MM)` string or `{ date: "YYYY-MM-DD", time: "HH:mm:ss[.S|.SS|.SSS]", time_zone?: string }`. The offset form already identifies one instant. The local form validates an explicit `UTC` or IANA Area/Location zone, or may omit `time_zone` only when the current step's final time-context authority reports one resolved client zone equal to the immutable Session zone.
+The `at` selector is either a strict `YYYY-MM-DDTHH:mm:ss[.S|.SS|.SSS](Z|±HH:MM)` string or `{ date: "YYYY-MM-DD", time: "HH:mm:ss[.S|.SS|.SSS]", time_zone?: string }`. The offset form already identifies one instant. The local form validates an explicit `UTC` or IANA Area/Location zone, or may omit `time_zone` only when the current open step has a time-context reading and the original user-rpc sources in that turn derive one client zone equal to the immutable Session zone.
 
-The Web Host validates and canonicalizes the browser zone at Session creation and on every prompt. Session creation fixes `SessionHeader.timeZone`; each prompt instead carries its own `clientTimeZone` in the user-message source, so concurrent tabs do not overwrite shared state. A headerless Session, a missing or mixed client authority, or a client/Session mismatch returns `timezone_confirmation_required` with the known zones and requires an explicit `time_zone`.
+The Web Host validates and canonicalizes the browser zone at Session creation and on every prompt. Session creation fixes `SessionHeader.timeZone`; each prompt instead carries its own `clientTimeZone` in the user-message source, so concurrent tabs do not overwrite shared state. Schedule derives directly from those original owners rather than copying them into the time-context source. A headerless Session, a missing or mixed client-zone result, or a client/Session mismatch returns `timezone_confirmation_required` with the known zones and requires an explicit `time_zone`.
 
 Local times inside a daylight-saving gap are rejected. An overlap chooses its first, earlier instant. A successful create retains only the canonical UTC target, and no Schedule path reads the process time zone.
 

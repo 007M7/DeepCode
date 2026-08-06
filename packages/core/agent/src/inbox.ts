@@ -71,32 +71,11 @@ export class Inbox {
    * @internal - The agent loop's step-boundary operation, not a plugin extension point.
    */
   claim(target: InboxTarget, turn: number): UserMessage[] {
-    const claimed = this.claimRange('next-step', 0, this.nextStep.length, turn, false)
+    const claimed = this.mutate('next-step', 0, this.nextStep.length, [], false)
     if (target === 'next-turn') {
-      claimed.push(...this.claimRange('next-turn', 0, 1, turn, false))
+      claimed.push(...this.mutate('next-turn', 0, 1, [], false))
     }
     for (const message of claimed) this.notifications.claimed(message, turn)
-    return claimed
-  }
-
-  /**
-   * Remove one contiguous pending range into an open turn without classifying
-   * it as cancellation. Concrete drivers may use this protected primitive to
-   * finish a private step-boundary drain while keeping {@link Inbox}'s public
-   * claim semantics unchanged.
-   * @internal
-   */
-  private claimRange(
-    target: InboxTarget,
-    start: number,
-    count: number,
-    turn: number,
-    publish = true,
-  ): UserMessage[] {
-    const claimed = this.mutate(target, start, count, [], false)
-    if (publish) {
-      for (const message of claimed) this.notifications.claimed(message, turn)
-    }
     return claimed
   }
 

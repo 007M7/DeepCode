@@ -1007,10 +1007,8 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     if (meta.cwd !== session.header.cwd) {
       throw new Error(`session "${session.header.id}" is already persisted at a different cwd (persisted: ${String(meta.cwd)}, live: ${String(session.header.cwd)}) (id collision)`)
     }
-    // A stored headerless session is the one compatibility case: it remains
-    // headerless even if a current caller supplied a zone for the live object.
-    if (meta.timeZone !== undefined && meta.timeZone !== session.header.timeZone) {
-      throw new Error(`session "${session.header.id}" is already persisted with a different timeZone (persisted: ${meta.timeZone}, live: ${String(session.header.timeZone)}) (id collision)`)
+    if (meta.timeZone !== session.header.timeZone) {
+      throw new Error(`session "${session.header.id}" is already persisted with a different timeZone (persisted: ${String(meta.timeZone)}, live: ${String(session.header.timeZone)}) (id collision)`)
     }
   }
 

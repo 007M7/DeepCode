@@ -3,7 +3,7 @@
 import type { Context } from 'cordis'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
-import { decodeTimeContextSource, renderTimeContextAuthority } from './authority.ts'
+import { deriveClientTimeZoneContext, renderTimeZoneContext } from './request-zone.ts'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-time-context'
 const SOURCE_NAME = 'time-context'
@@ -21,21 +21,15 @@ export const name = 'time-context-invariant'
 /** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
-/**
- * Derive the step preparation owned by a time-context reading. A normal
- * reading follows `step/start`; a pre-step failure may settle context-only
- * output in the still-open turn before that boundary.
- */
+/** Derive the open step owned by a time-context reading. */
 function preparationPosition(history: readonly SessionEvent[], fail: InvariantFailure): { turn: number; step: number } {
   let openTurn: number | undefined
   let openStep: number | undefined
-  let nextStep = 1
   for (const event of history) {
     switch (event.type) {
       case 'turn/start': {
         openTurn = event.data.turn
         openStep = undefined
-        nextStep = 1
         break
       }
       case 'step/start': {
@@ -44,7 +38,6 @@ function preparationPosition(history: readonly SessionEvent[], fail: InvariantFa
       }
       case 'step/end': {
         openStep = undefined
-        nextStep = event.data.step + 1
         break
       }
       case 'turn/end': {
@@ -57,11 +50,19 @@ function preparationPosition(history: readonly SessionEvent[], fail: InvariantFa
     }
   }
   if (openTurn === undefined) fail('time-context reading must be appended inside an open turn')
-  return { turn: openTurn, step: openStep ?? nextStep }
+  if (openStep === undefined) fail('time-context reading must follow step/start')
+  return { turn: openTurn, step: openStep }
+}
+
+/** Collect the entered user messages belonging to one open turn. */
+function requestMessages(history: readonly SessionEvent[], turn: number) {
+  const start = history.findLastIndex(event => event.type === 'turn/start' && event.data.turn === turn)
+  return history.slice(start + 1).flatMap(event => event.type === 'user/message' ? [event.data] : [])
 }
 
 /** Validate one plugin-attributed time reading against its session position and timestamp. */
 function validateReading(
+  session: Session,
   history: readonly SessionEvent[],
   event: SessionEvent<'user/message'>,
   fail: InvariantFailure,
@@ -81,18 +82,16 @@ function validateReading(
   if (turn !== expected.turn || step !== expected.step) {
     fail(`time-context reading names turn ${turn}/step ${step}, expected turn ${expected.turn}/step ${expected.step}`)
   }
-  let source: ReturnType<typeof decodeTimeContextSource>
-  try {
-    source = decodeTimeContextSource(event.data.source)
-  } catch (error: unknown) {
-    fail(error instanceof Error ? error.message : String(error))
-  }
-  if (source.authority.turn !== turn || source.authority.step !== step) {
-    fail('time-context text and source authority name different positions')
+  if (Object.keys(event.data.source).length !== 2) {
+    fail('time-context source must not duplicate request authority')
   }
   const renderedAuthority = `Session time zone: ${match[4]}.\nClient time zone for this request: ${match[5]}.`
-  if (renderedAuthority !== renderTimeContextAuthority(source.authority)) {
-    fail('time-context text and source authority describe different zones')
+  const expectedAuthority = renderTimeZoneContext(
+    session.header.timeZone,
+    deriveClientTimeZoneContext(requestMessages(history, turn)),
+  )
+  if (renderedAuthority !== expectedAuthority) {
+    fail('time-context text does not match the Session and current request zones')
   }
   const baseline = match[6]
   if ((step === 1) !== (baseline === 'model-visible message')) {
@@ -115,7 +114,7 @@ function validateSession(session: Session, fail: InvariantFailure): void {
     if (event.type !== 'user/message'
       || event.data.source.kind !== 'plugin'
       || event.data.source.plugin !== SOURCE_NAME) continue
-    validateReading(session.events.slice(0, index), event, fail)
+    validateReading(session, session.events.slice(0, index), event, fail)
   }
 }
 
@@ -128,7 +127,7 @@ const install: InvariantInstaller = Object.assign((ctx: Context, fail: Invariant
     if (event.type !== 'user/message'
       || event.data.source.kind !== 'plugin'
       || event.data.source.plugin !== SOURCE_NAME) return
-    validateReading(session.events, event, fail)
+    validateReading(session, session.events, event, fail)
   }, { global: true })
 }, { inject: ['sessions'] })
 /* jscpd:ignore-end */

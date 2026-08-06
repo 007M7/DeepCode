@@ -171,30 +171,29 @@ describe('durable step context', () => {
       timeZone: 'Asia/Shanghai',
     })
     session.append('turn/start', { turn: 1 })
+    const agent = sessionAgent(session)
 
-    await fire(ctx, sessionAgent(session), 1, 1, SIGNAL, [
+    await fire(ctx, agent, 1, 1, SIGNAL, [
       rpcMessage('local request', 'Asia/Shanghai'),
     ])
 
     expect(contextTexts(session)[0]).toContain(
       '2026-07-14T08:00:00+08:00[Asia/Shanghai]',
     )
+    expect(contextTexts(session)[0]).toContain('Session time zone: Asia/Shanghai.')
+    expect(contextTexts(session)[0]).toContain('Client time zone for this request: Asia/Shanghai.')
     const reading = session.events.at(-1)
     expect(reading).toMatchObject({
       type: 'user/message',
       data: {
-        source: {
-          kind: 'plugin',
-          plugin: 'time-context',
-          authority: {
-            turn: 1,
-            step: 1,
-            session: { kind: 'resolved', timeZone: 'Asia/Shanghai' },
-            client: { kind: 'resolved', timeZone: 'Asia/Shanghai' },
-          },
-        },
+        source: { kind: 'plugin', plugin: 'time-context' },
       },
     })
+
+    await fire(ctx, agent, 1, 2, SIGNAL, [
+      rpcMessage('same zone again', 'Asia/Shanghai'),
+    ])
+    expect(contextTexts(session)).toHaveLength(2)
   })
 
   it('reports sorted mixed zones from the current request chain without changing the Session zone', async () => {
@@ -215,21 +214,10 @@ describe('durable step context', () => {
       rpcMessage('second tab', 'America/New_York'),
     ])
 
-    const reading = session.events.at(-1)
-    expect(reading).toMatchObject({
-      type: 'user/message',
-      data: {
-        source: {
-          authority: {
-            session: { kind: 'resolved', timeZone: 'Asia/Shanghai' },
-            client: {
-              kind: 'mixed',
-              timeZones: ['America/New_York', 'Asia/Shanghai'],
-            },
-          },
-        },
-      },
-    })
+    expect(contextTexts(session)[0]).toContain('Session time zone: Asia/Shanghai.')
+    expect(contextTexts(session)[0]).toContain(
+      'Client time zone for this request: mixed ["America/New_York","Asia/Shanghai"].',
+    )
   })
 
   it('records turn, step, zoned time, and the preceding model-visible message baseline', async () => {
@@ -252,12 +240,6 @@ describe('durable step context', () => {
     expect(event.data.source).toEqual({
       kind: 'plugin',
       plugin: 'time-context',
-      authority: {
-        turn: 1,
-        step: 1,
-        session: { kind: 'unavailable' },
-        client: { kind: 'missing' },
-      },
     })
     expect(event.surfaceOp).toBe('append')
   })
@@ -435,6 +417,20 @@ describe('configuration and lifecycle', () => {
     await expect(unresolved.plugin(timeContext, {})).rejects.toThrow(/failed to resolve the system time zone/)
   })
 
+  it('fails loud when a persisted Session names an invalid zone', async () => {
+    const { ctx } = await mount()
+    const id = SessionId('invalid-session-zone')
+    const session = Session.create(id, [], {
+      version: 0,
+      id,
+      createdAt: BASE,
+      timeZone: 'Not/A_Real_Zone',
+    })
+    openMessageTurn(session, 1)
+
+    await expect(fire(ctx, sessionAgent(session), 1, 1)).rejects.toThrow(/invalid Session time zone/)
+  })
+
   it('rejects invalid refresh intervals at plugin load with one diagnostic', async () => {
     const invalid = [-1, 0.5, Number.MAX_SAFE_INTEGER + 1, Number.POSITIVE_INFINITY, Number.NaN]
     for (const refreshIntervalMs of invalid) {
@@ -456,13 +452,26 @@ describe('configuration and lifecycle', () => {
 
     expect(contextTexts(session)).toHaveLength(1)
   })
+
+  it('lets an already-stopped direct registration delegate without contributing', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    const stop = timeContext.apply(ctx, {})
+    stop()
+    const session = Session.create(SessionId('stopped-direct-registration'))
+    openMessageTurn(session, 1)
+
+    await fire(ctx, sessionAgent(session), 1, 1)
+
+    expect(contextTexts(session)).toEqual([])
+  })
 })
 
 describe('real agent-loop request history', () => {
   it.each([
-    ['throws', 1],
+    ['throws', 0],
     ['cancels', 0],
-  ] as const)('settles preparation context when a downstream pre-step listener %s', async (mode, expectedContexts) => {
+  ] as const)('does not persist context when a downstream pre-step listener %s', async (mode, expectedContexts) => {
     const adapter = new ScriptedAdapter([textResponse('unused')])
     const ctx = await loopHarness(adapter)
     ctx.on('agent/pre-step', ({ agent: subject }, next) => {
@@ -481,23 +490,17 @@ describe('real agent-loop request history', () => {
     await ctx.fiber.dispose()
   })
 
-  it('drains late assembly steering between initial and superseding same-step authorities', async () => {
-    const adapter = new ScriptedAdapter([textResponse('done')])
+  it('leaves steering that arrives after claim for the next step and derives fresh context', async () => {
+    const adapter = new ScriptedAdapter([textResponse('first'), textResponse('second')])
     const ctx = await loopHarness(adapter)
     const entered = Promise.withResolvers<undefined>()
     const release = Promise.withResolvers<undefined>()
-    let proposedTexts: string[] = []
+    let blocked = true
     ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
-      if (context.agent !== undefined) {
+      if (blocked && context.agent !== undefined) {
         entered.resolve(undefined)
         await release.promise
       }
-      return next()
-    })
-    ctx.on('agent/pre-step', async ({ messages }, next) => {
-      proposedTexts = messages.flatMap(message => message.content)
-        .filter(block => block.type === 'text')
-        .map(block => block.text)
       return next()
     })
     const agent = ctx.agentLoop.create(SessionId('late-steering'), { provider: 'mock', model: 'mock' })
@@ -505,99 +508,24 @@ describe('real agent-loop request history', () => {
     agent.followup(rpcMessage('start in Shanghai', 'Asia/Shanghai'))
     await entered.promise
     agent.steer(rpcMessage('switch to New York', 'America/New_York'))
+    blocked = false
     release.resolve(undefined)
     await agent.whenIdle()
 
-    expect(adapter.requests).toHaveLength(1)
+    expect(adapter.requests).toHaveLength(2)
     expect(agent.inbox.hasPending).toBe(false)
-    const enteredMessages = agent.session.events.filter(
-      (event): event is SessionEvent<'user/message'> => event.type === 'user/message',
+    expect(requestText(adapter.requests[0]!)).toContain('start in Shanghai')
+    expect(requestText(adapter.requests[0]!)).not.toContain('switch to New York')
+    expect(requestText(adapter.requests[0]!)).toContain('Client time zone for this request: Asia/Shanghai.')
+    expect(requestText(adapter.requests[1]!)).toContain('switch to New York')
+    expect(requestText(adapter.requests[1]!)).toContain(
+      'Client time zone for this request: mixed ["America/New_York","Asia/Shanghai"].',
     )
-    const texts = enteredMessages.map(message =>
-      message.data.content.find(block => block.type === 'text')?.text)
-    expect(texts).toEqual([
-      'start in Shanghai',
-      'switch to New York',
-      expect.stringContaining('Client time zone for this request: mixed ["America/New_York","Asia/Shanghai"].'),
-    ])
-    expect(proposedTexts).toEqual([
-      'start in Shanghai',
-      'switch to New York',
-    ])
-    const authorities = enteredMessages
-      .filter(message => message.data.source.kind === 'plugin')
-      .map(message => message.data.source.kind === 'plugin' && 'authority' in message.data.source
-        ? message.data.source.authority
-        : undefined)
-    expect(authorities).toEqual([
-      expect.objectContaining({
-        turn: 1,
-        step: 1,
-        client: {
-          kind: 'mixed',
-          timeZones: ['America/New_York', 'Asia/Shanghai'],
-        },
-      }),
-    ])
+    expect(contextTexts(agent.session)).toHaveLength(2)
     await ctx.fiber.dispose()
   })
 
-  it('collapses edited and discarded late steering to one truthful final authority', async () => {
-    const adapter = new ScriptedAdapter([textResponse('done')])
-    const ctx = await loopHarness(adapter)
-    const entered = Promise.withResolvers<undefined>()
-    const release = Promise.withResolvers<undefined>()
-    ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
-      if (context.agent !== undefined) {
-        entered.resolve(undefined)
-        await release.promise
-      }
-      return next()
-    })
-    const agent = ctx.agentLoop.create(SessionId('edited-late-steering'), {
-      provider: 'mock',
-      model: 'mock',
-    })
-
-    agent.followup(rpcMessage('start in Shanghai', 'Asia/Shanghai'))
-    await entered.promise
-    const edited = rpcMessage('switch to New York', 'America/New_York')
-    agent.steer(edited)
-    const replacement = rpcMessage('stay in Shanghai', 'Asia/Shanghai')
-    expect(agent.inbox.replace(edited.id, replacement)).toBe(true)
-    const discarded = rpcMessage('temporary New York tab', 'America/New_York')
-    agent.steer(discarded)
-    expect(agent.inbox.remove(discarded.id)).toBe(true)
-    release.resolve(undefined)
-    await agent.whenIdle()
-
-    expect(agent.inbox.hasPending).toBe(false)
-    const request = requestText(adapter.requests[0]!)
-    expect(request).toContain('start in Shanghai')
-    expect(request).toContain('stay in Shanghai')
-    expect(request).not.toContain('switch to New York')
-    expect(request).not.toContain('temporary New York tab')
-    expect(request).not.toContain('Client time zone for this request: mixed')
-    const authorities = agent.session.events.filter(event =>
-      event.type === 'user/message'
-      && event.data.source.kind === 'plugin'
-      && event.data.source.plugin === 'time-context')
-    expect(authorities).toHaveLength(1)
-    expect(authorities[0]).toMatchObject({
-      data: {
-        source: {
-          authority: {
-            turn: 1,
-            step: 1,
-            client: { kind: 'resolved', timeZone: 'Asia/Shanghai' },
-          },
-        },
-      },
-    })
-    await ctx.fiber.dispose()
-  })
-
-  it('does not let preparation authority create a step after downstream suppression', async () => {
+  it('does not let time context create an initial step after downstream suppression', async () => {
     const adapter = new ScriptedAdapter([textResponse('unused')])
     const ctx = await loopHarness(adapter)
     ctx.on('agent/pre-step', async (_payload, next) => {
@@ -619,7 +547,7 @@ describe('real agent-loop request history', () => {
     await ctx.fiber.dispose()
   })
 
-  it('settles authorities but preserves steering when keep-inbox cancellation wins assembly', async () => {
+  it('preserves post-claim steering without persisting failed-turn context', async () => {
     const adapter = new ScriptedAdapter([textResponse('resumed')])
     const ctx = await loopHarness(adapter)
     const entered = Promise.withResolvers<undefined>()
@@ -644,21 +572,16 @@ describe('real agent-loop request history', () => {
     await agent.whenIdle()
 
     expect(agent.session.events.some(event => event.type === 'step/start')).toBe(false)
-    expect(contextTexts(agent.session)).toHaveLength(1)
+    expect(contextTexts(agent.session)).toHaveLength(0)
     expect(agent.inbox.nextStep).toEqual([steering])
     expect(agent.inbox.nextStep.some(message =>
       message.source.kind === 'plugin' && message.source.plugin === 'time-context')).toBe(false)
-    const turnEnd = agent.session.events.findLast(event => event.type === 'turn/end')
-    const lastAuthority = agent.session.events.findLast(event =>
-      event.type === 'user/message'
-      && event.data.source.kind === 'plugin'
-      && event.data.source.plugin === 'time-context')
-    expect(lastAuthority?.seq).toBeLessThan(turnEnd?.seq ?? -1)
 
     agent.followup(rpcMessage('wake', 'America/New_York'))
     await agent.whenIdle()
     expect(adapter.requests).toHaveLength(1)
     expect(requestText(adapter.requests[0]!)).toContain('preserve this steering')
+    expect(requestText(adapter.requests[0]!)).toContain('Time sampled while preparing turn 2, step 1:')
     await ctx.fiber.dispose()
   })
 
@@ -691,55 +614,6 @@ describe('real agent-loop request history', () => {
     expect(requestText(adapter.requests[0]!)).not.toContain('Time sampled while preparing')
     expect(contextTexts(agent.session)).toEqual([])
     expect(agent.inbox.nextStep).toEqual([])
-    await ctx.fiber.dispose()
-  })
-
-  it('drops a rejected context append instead of leaking its authority to the next turn', async () => {
-    const adapter = new ScriptedAdapter([textResponse('resumed')])
-    const ctx = await loopHarness(adapter)
-    const entered = Promise.withResolvers<undefined>()
-    const release = Promise.withResolvers<undefined>()
-    let blocked = true
-    ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
-      if (blocked && context.agent !== undefined) {
-        entered.resolve(undefined)
-        await release.promise
-      }
-      return next()
-    })
-    const agent = ctx.agentLoop.create(SessionId('context-append-rejection'), {
-      provider: 'mock',
-      model: 'mock',
-    })
-    const originalAppend = agent.session.append.bind(agent.session)
-    let rejectContext = true
-    vi.spyOn(agent.session, 'append').mockImplementation(((type, data, options) => {
-      if (rejectContext && type === 'user/message'
-        && (data as UserMessage).source.kind === 'plugin'
-        && (data as UserMessage).source.plugin === 'time-context') {
-        rejectContext = false
-        throw new Error('context append unavailable')
-      }
-      return originalAppend(type, data, options)
-    }) as typeof agent.session.append)
-
-    agent.followup(rpcMessage('start', 'Asia/Shanghai'))
-    await entered.promise
-    agent.cancel({ kind: 'user' }, { keepInbox: true })
-    blocked = false
-    release.resolve(undefined)
-    await agent.whenIdle()
-
-    expect(contextTexts(agent.session)).toHaveLength(0)
-    expect(agent.inbox.nextStep.some(message =>
-      message.source.kind === 'plugin' && message.source.plugin === 'time-context')).toBe(false)
-
-    agent.followup(rpcMessage('wake', 'Asia/Shanghai'))
-    await agent.whenIdle()
-    expect(adapter.requests).toHaveLength(1)
-    const request = requestText(adapter.requests[0]!)
-    expect(request).toContain('Time sampled while preparing turn 2, step 1:')
-    expect(request).not.toContain('Time sampled while preparing turn 1, step 1:')
     await ctx.fiber.dispose()
   })
 

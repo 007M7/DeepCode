@@ -33,15 +33,15 @@ Status: implemented
 
 每次成功的管理 preflight 也会要求 live owner 重新计算。这闭合了 create 已成功追加、但 post-append barrier 拒绝时的恢复路径：后续 list 可以确认 coordinator 保留的 batch、返回活动 record，并在没有 Schedule 私有重试循环的情况下 arm timer。
 
-### Session 与请求时区权威
+### Session 与请求时区归属
 
 官方 Web create 路径要求浏览器提供 IANA 时区，在 Host 边界校验并规范化后，将其一次性存为不可变的 `SessionHeader.timeZone`。resume 保留该值，fork 复制该值；若针对相同 id 与 cwd 的另一次 create 得到的规范化时区不同，则发生冲突。Session core 保持该字段可选，使时区支持前的 Session 仍可读取，但其时区明确为 `unavailable`；绝不会用后续浏览器请求回填 legacy header。JSONL 保留该可选 header；SQLite schema v14 增加 nullable `time_zone`，并以原子方式升级自有 v13 数据库，不为既有行猜测值。
 
 每条 Web 提示词都会单独采样自己的 `clientTimeZone`；Host 在进入 Agent 前校验该值，并把它绑定到不可变的 `user-rpc` 消息来源。它是请求 provenance，而不是连接或 Session 的可变属性，因此并发 tab 无法相互覆盖，排队、steering（中途引导）、编辑、重试和持久化 history 都会保留来源时区。
 
-Time-context 在系统提示词组装时打开请求权威包络。它向模型显示的读数按照 Session 时区给出当前日期、本地时间和 offset；机器源则标明拟议的轮次与步骤，以及 Session 的 `resolved`／`unavailable` 状态和 client 的 `resolved`／`mixed`／`missing` 状态。异步组装期间获准进入的 steering 后面，会同步追加同一步骤的取代权威；模型与 Schedule 工具都使用该轮次和步骤的最后一条权威。AgentLoop 只排空以这些权威消息为首尾的闭合包络。如果拟议步骤在 `step/start` 前退出，AgentLoop 会在失败轮次内结算可追加的权威消息，或移除无法追加的权威消息，同时保留既有 steering 政策，从而防止旧轮次／步骤的权威泄漏到后续请求。
+Time-context 会委托 `agent/pre-step`，从不可变 Session header 和与消息绑定的浏览器来源派生最终进入请求的时区，再向已经进入的步骤追加一条模型可见读数。其来源仍是简单插件标记，不会把这些事实复制成另一份持久权威。AgentLoop 领取当前批次后才插入的 steering（中途引导）保留常规 next-step 归属，并在该步骤进入时获得新上下文。`step/start` 之前发生 reject、取消或失败时，不会记录读数；本功能也不增加 inbox 或 AgentLoop 生命周期状态。
 
-只有最终权威包含一个已解析的 client 时区，且它等于已解析的 Session 时区，才会接受隐式 local `at`。无 header 的 Session、client provenance 缺失或 mixed，或 client／Session 不匹配，都会返回 `timezone_confirmation_required` 及已知时区。显式 `time_zone` 可绕过这项歧义检查，但仍要通过相同的 IANA 校验。
+Schedule 要求当前步骤存在 time-context 标记，然后直接从 open turn 的原始 `user-rpc` 来源派生请求时区。只有派生结果包含一个与 Session 时区相等的 client 时区，才会接受隐式 local `at`。无 header 的 Session、client provenance 缺失或 mixed，或 client／Session 不匹配，都会返回 `timezone_confirmation_required` 及已知时区。显式 `time_zone` 可绕过这项歧义检查，但仍要通过相同的 IANA 校验。
 
 ### 绝对时间规范化
 
@@ -69,7 +69,7 @@ Host 在 append 时继续发送所有 raw event。它在 `WeakMap` 中按 exact 
 
 已附加 history 会独立 inspect persistence，只有 stored event prefix 的 header identity 与每个 event 都和 live Session 匹配时才添加 view。persistence 会把顶层缺失的 `delegationDepth` 规范写成零，因此两种形式在身份上等价；cwd、lineage、origin、时间戳、版本、id 与每个 event 仍必须精确匹配。inspect 缺失、失败、分歧或比 live 更长时，只会省略 view，raw history 仍然返回。已分离 history 本身就是持久前缀。因此复制进 fork seed 的 parent dispatch 只有在 child storage 证明该前缀后才会显示。
 
-浏览器 Session 只有在 durable event 深度一致时才接受重复 seq，随后立即升级 sidecar，不再追加 event。只有尾部加载与真正的 gap repair 才会将尚未覆盖的事件保留在既有 `liveBuffer` 中；已接受的 repair 快照在推进 tail 但仍留下后续已缓冲的 gap 时会启动另一次 pull，身份冲突则会触发全量重新同步。普通旧页分页会让当前数组继续接收 live tail 事件，当前 window 以下的 sidecar 则由 in-flight page 自身暂存，只有该页返回身份完全相同的事件时才附着。重连 generation 会阻止陈旧的 page 或 repair 结果以及 `finally` 块触碰重建后的 window。`TranscriptAdapter` 创建按持久事件类型键控的通用 `PresentedEventNode`。`ui-conversation` 通过 `conversation.chat.eventview` 分发，并保留可展开 JSON fallback；`ui-schedule` 则拥有双语 `schedule/change` 提醒行。
+浏览器 Session 只有在 durable event 深度一致时才接受重复 seq，随后立即升级 sidecar，不再追加 event。尾部加载与真正的 gap repair 会将尚未覆盖的事件保留在既有 `liveBuffer` 中；已接受的 repair 快照在推进 tail 但仍留下后续已缓冲的 gap 时会启动另一次 pull，身份冲突则会触发全量重新同步。普通旧页分页会让当前数组继续接收 live tail 事件，当前 window 以下的 sidecar 则由 in-flight page 自身暂存，只有该页返回身份完全相同的事件时才附着。重连 generation 会阻止陈旧的 page 或 repair 结果以及 `finally` 块触碰重建后的 window。`TranscriptAdapter` 创建按持久事件类型键控的通用 `PresentedEventNode`。`ui-conversation` 通过 `conversation.chat.eventview` 分发，并保留可展开 JSON fallback；`ui-schedule` 则拥有双语 `schedule/change` 提醒行。
 
 ```text
 schedule_create → Session create event → persistence
@@ -107,7 +107,7 @@ due → admission → followup → dispatch → flush(true) → session/flushed
 
 package 测试以逐文件 100% coverage 固定严格 decoding、transition、fork suffix、id 不复用、offset 与 local-calendar profile、IANA 校验、gap 拒绝、overlap-first 选择、mismatch confirmation、时间边界、有界等待、墙钟变化、overdue 准入、固定 framing、入队与 append 失败、barrier 恢复、注册 rollback 和完全停稳 dispose。persistence 测试依据实际 durable cursor 覆盖 new、fork 与 resumed 初始化失败、可选 header round-trip、一次真实 SQLite v13 到 v14 migration，以及 production JSONL restart。组装后的 Loader/Web restart lane 证明 pending 恢复、fork 隔离、单次 durable dispatch、无需激活 agent 的 cold-history rendering，以及再次 restart 后不重投。Host/client 测试覆盖 live、stored 与 concurrent-create 路径中的 zone identity、逐操作提示词 provenance、commit gating、反序 watermark、语义 header identity、逐 event 前缀匹配、same-seq 升级、每个 window merge 出口和 reconnect generation。
 
-Time-context 与 AgentLoop 生命周期测试覆盖已排队、已编辑、已丢弃、已取消和已重试的输入；混合 tab；带有晚到 steering 的延迟组装；pre-step 钩子、组装、检查点、追加与处置阶段的失败；同一步骤内选择最后一条权威；以及权威不会泄漏到下一轮次。显式 Loader 组合可以启动 source 与 built package。无密钥真实浏览器场景会通过完整工具 pipeline，针对既有的短 `after` case 和一个 absolute-time case 执行 `schedule_create`，观察 identity-matched 持久前缀，并从已附加 history 渲染 durable reminder card。刻意缺少的模型 adapter 会在 dispatch 后以错误关闭 turn，从而证明模型失败不会移除回执。
+Time-context 测试覆盖最终 pre-step 消息、当前 turn 的唯一／混合／缺失时区派生、领取后 steering 进入下一步骤、取消、空值抑制、重试、简单来源校验和执行中释放。Schedule 测试会从持久 `user-rpc` 来源独立派生同一组请求时区，并在缺少当前步骤标记时 fail closed。显式 Loader 组合可以启动 source 与 built package。无密钥真实浏览器场景会通过完整工具 pipeline，针对既有的短 `after` case 和一个 absolute-time case 执行 `schedule_create`，观察 identity-matched 持久前缀，并从已附加 history 渲染 durable reminder card。刻意缺少的模型 adapter 会在 dispatch 后以错误关闭 turn，从而证明模型失败不会移除回执。
 
 ## 后果
 

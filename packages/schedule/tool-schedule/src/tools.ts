@@ -6,8 +6,7 @@
 import type { Context } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import { decodeTimeContextSource } from '@deepseek-ai/dsh-time-context'
-import type { TimeContextAuthority } from '@deepseek-ai/dsh-time-context'
+import { deriveClientTimeZoneContext } from '@deepseek-ai/dsh-time-context'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView } from '@deepseek-ai/dsh-tools'
 import {
@@ -218,58 +217,47 @@ interface AtTimeZoneContext {
   readonly clientTimeZones: string[]
 }
 
-/** Find the last time-context authority belonging to the currently open step. */
-function currentTimeContextAuthority(agent: Agent): TimeContextAuthority | undefined {
+/** Derive request zones only while the current open step contains a time-context reading. */
+function currentClientTimeZoneContext(agent: Agent): ReturnType<typeof deriveClientTimeZoneContext> | undefined {
   const events = agent.session.events
-  let start = -1
+  let stepStart = -1
   let turn = 0
-  let step = 0
   for (let index = events.length - 1; index >= 0; index--) {
     const event = events[index]
     /* v8 ignore next -- the loop bounds index to the dense Session event array. */
     if (event === undefined) continue
-    if (event.type === 'step/end') return undefined
+    if (event.type === 'step/end' || event.type === 'turn/end') return undefined
     if (event.type === 'step/start') {
-      start = index
+      stepStart = index
       turn = event.data.turn
-      step = event.data.step
       break
     }
   }
-  if (start < 0) return undefined
-  for (let index = events.length - 1; index > start; index--) {
-    const event = events[index]
-    /* v8 ignore next -- the loop bounds index to the dense Session event array. */
-    if (event === undefined || event.type !== 'user/message') continue
-    const source = event.data.source
-    if (source.kind !== 'plugin' || source.plugin !== 'time-context') continue
-    let decoded: ReturnType<typeof decodeTimeContextSource>
-    try {
-      decoded = decodeTimeContextSource(source)
-    } catch {
-      return undefined
-    }
-    if (decoded.authority.turn === turn && decoded.authority.step === step) {
-      return decoded.authority
-    }
-  }
-  return undefined
+  if (stepStart < 0) return undefined
+  const hasReading = events.slice(stepStart + 1).some(event => event.type === 'user/message'
+    && event.data.source.kind === 'plugin'
+    && event.data.source.plugin === 'time-context'
+    && Object.keys(event.data.source).length === 2)
+  if (!hasReading) return undefined
+  const turnStart = events.findLastIndex(event => event.type === 'turn/start' && event.data.turn === turn)
+  if (turnStart < 0) return undefined
+  const messages = events.slice(turnStart + 1)
+    .flatMap(event => event.type === 'user/message' ? [event.data] : [])
+  return deriveClientTimeZoneContext(messages)
 }
 
-/** Resolve the only authority state that may supply an omitted local time zone. */
+/** Resolve the only request state that may supply an omitted local time zone. */
 function atTimeZoneContext(agent: Agent): AtTimeZoneContext {
   const sessionTimeZone = agent.session.header.timeZone ?? 'unavailable'
-  const authority = currentTimeContextAuthority(agent)
-  const clientTimeZones = authority === undefined || authority.client.kind === 'missing'
+  const client = currentClientTimeZoneContext(agent)
+  const clientTimeZones = client === undefined || client.kind === 'missing'
     ? []
-    : authority.client.kind === 'resolved'
-      ? [authority.client.timeZone]
-      : [...authority.client.timeZones]
+    : client.kind === 'resolved'
+      ? [client.timeZone]
+      : [...client.timeZones]
   const implicitTimeZone = sessionTimeZone !== 'unavailable'
-    && authority?.session.kind === 'resolved'
-    && authority.session.timeZone === sessionTimeZone
-    && authority.client.kind === 'resolved'
-    && authority.client.timeZone === sessionTimeZone
+    && client?.kind === 'resolved'
+    && client.timeZone === sessionTimeZone
     ? sessionTimeZone
     : undefined
   return {
@@ -279,14 +267,17 @@ function atTimeZoneContext(agent: Agent): AtTimeZoneContext {
   }
 }
 
-/** Translate a contained input failure to the closed tool union. */
+/** Translate one contained input failure to the closed tool union. */
 function inputError(error: ScheduleInputError, timeZone?: AtTimeZoneContext): ScheduleToolError {
   if (error.code === 'timezone_confirmation_required') {
+    // The domain emits this code only for the omitted-zone local-at arm,
+    // whose request context is computed immediately before decoding.
+    const requestTimeZone = timeZone as AtTimeZoneContext
     return {
       code: error.code,
       message: error.message,
-      sessionTimeZone: timeZone?.sessionTimeZone ?? 'unavailable',
-      clientTimeZones: timeZone?.clientTimeZones ?? [],
+      sessionTimeZone: requestTimeZone.sessionTimeZone,
+      clientTimeZones: requestTimeZone.clientTimeZones,
     }
   }
   return { code: error.code, message: error.message }
