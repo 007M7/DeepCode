@@ -1152,6 +1152,11 @@
     },
     {
       "doc": "docs/core-data-structures/subagent.md",
+      "symbol": "SubagentInterruptAuthority",
+      "source": "packages/subagent/subagent/src/continuation.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subagent.md",
       "symbol": "ContinuableStart",
       "source": "packages/subagent/subagent/src/continuation.ts"
     },
