@@ -22,7 +22,7 @@
 
 ## 绝对时间上下文
 
-`at` selector 可以是严格的 `YYYY-MM-DDTHH:mm:ss[.S|.SS|.SSS](Z|±HH:MM)` 字符串，也可以是 `{ date: "YYYY-MM-DD", time: "HH:mm:ss[.S|.SS|.SSS]", time_zone?: string }`。偏移量形式本身即可确定一个时刻。本地形式会校验显式指定的 `UTC` 或 IANA Area/Location 时区；仅当当前 open step 含有 time-context 读数，并且该 turn 的原始 user-rpc 来源派生出唯一一个与不可变 Session 时区相等的客户端时区时，才可以省略 `time_zone`。
+`at` selector 可以是严格的 `YYYY-MM-DDTHH:mm:ss[.S|.SS|.SSS](Z|±HH:MM)` 字符串，也可以是 `{ date: "YYYY-MM-DD", time: "HH:mm:ss[.S|.SS|.SSS]", time_zone?: string }`。偏移量形式本身即可确定一个时刻。本地形式会校验显式指定的 `UTC` 或 IANA Area/Location 时区；仅当当前 open turn 含有 time-context 读数，并且其原始 user-rpc 来源派生出唯一一个与不可变 Session 时区相等的客户端时区时，才可以省略 `time_zone`。
 
 Web Host 会在创建 Session 时以及每次提交提示词时校验并规范化浏览器时区。Session 创建会固定 `SessionHeader.timeZone`；每条提示词则会在用户消息来源中携带自己的 `clientTimeZone`，因此并发标签页不会覆盖共享状态。Schedule 会直接从这些原始拥有方派生，而不会把它们复制进 time-context source。如果 Session 没有 header、客户端时区结果缺失或混杂，或客户端与 Session 不匹配，系统会返回 `timezone_confirmation_required` 并附上已知时区，同时要求显式指定 `time_zone`。
 

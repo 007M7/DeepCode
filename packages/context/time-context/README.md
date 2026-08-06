@@ -11,7 +11,7 @@ Opt-in durable context with the current zoned time, immutable Session zone, requ
   name: '@deepseek-ai/dsh-time-context'
   config:
     timeZone: Asia/Shanghai  # optional fallback for headerless Sessions; omit for the process zone
-    refreshIntervalMs: 60000 # optional; omit or set to 0 for every entered request step
+    refreshIntervalMs: 60000 # optional; omit or set to 0 for every non-empty entered request batch
 ```
 
 When a Session has `SessionHeader.timeZone`, that immutable IANA zone formats its readings. A headerless Session instead uses the configured fallback; when `timeZone` is omitted, the plugin resolves the Node process's system zone once at plugin load. Node honors `TZ`; without that override, the host or container supplies the fallback. An explicit `timeZone` is validated at plugin load but does not override a Session-owned zone.
@@ -42,7 +42,7 @@ The time reading stays in derived conversation history until a later compaction 
 
 #### What the model sees
 
-On each entered step that injects, one source-tagged context message contains the four lines below. `<timestamp>` is an ISO-shaped local timestamp with numeric offset and IANA zone; durations use compact whole-second units. The Session line reports the immutable Session zone or `unavailable`, and the client line reports one resolved zone, a sorted mixed set, or `missing`. Positive intervals can let an entered step reuse prior history without a new reading.
+On each non-empty entered batch that injects, one source-tagged context message contains the four lines below. `<timestamp>` is an ISO-shaped local timestamp with numeric offset and IANA zone; durations use compact whole-second units. The Session line reports the immutable Session zone or `unavailable`, and the client line reports one resolved zone, a sorted mixed set, or `missing`. An empty continuation or positive interval can let an entered step reuse prior history without a new reading.
 
 ##### First step
 
@@ -64,7 +64,7 @@ Elapsed since the preceding step context: <duration-or-unavailable>.
 
 #### Token effect
 
-Each injected four-line message accumulates until compaction shadows it. A positive interval reduces additions; omission or `0` adds one for every entered request step.
+Each injected four-line message accumulates until compaction shadows it. A positive interval reduces additions; omission or `0` adds one for every non-empty entered request batch.
 
 #### KV Cache effect
 
@@ -76,4 +76,4 @@ Append-only; newly visible content follows the reusable request prefix and does 
 - **Session-event baseline** — elapsed time starts from durable append timestamps, not a client transport's original send timestamp.
 - **Headerless fallback zone** — a Session without `SessionHeader.timeZone` renders through the configured or process fallback but reports its Session zone as `unavailable`; consumers that require unambiguous local-time interpretation must request an explicit zone.
 - **Immutable Session zone** — a Session zone does not change when another browser resumes it. The request-bound browser sources expose disagreement instead of silently changing the displayed default.
-- **History cost between compactions** — omission or `0` retains one reading for every entered request step, including steps whose later request preparation fails; a positive interval reduces but does not eliminate this cost.
+- **History cost between compactions** — omission or `0` retains one reading for every non-empty entered request batch, including batches whose later request preparation fails; empty continuations reuse prior history, while a positive interval reduces but does not eliminate this cost.

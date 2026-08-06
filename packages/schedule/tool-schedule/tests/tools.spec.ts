@@ -261,6 +261,21 @@ describe('Schedule tool protocol', () => {
     })
     expect(test.flushes.count).toBe(1)
     expect(test.agent.session.events.filter(event => event.type === 'schedule/change')).toEqual([])
+
+    const unmarked = await harness(true, 'Asia/Shanghai')
+    unmarked.agent.session.append('turn/start', { turn: 1 })
+    unmarked.agent.session.append('step/start', { turn: 1, step: 1 })
+    unmarked.agent.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'request without time reading' }],
+      source: { kind: 'user', clientTimeZone: 'Asia/Shanghai' } as never,
+    }), { surfaceOp: 'append' })
+    expect(value(await execute(unmarked, 'schedule_create', {
+      prompt: 'unmarked', at: { date: '2026-08-06', time: '09:00:00' },
+    }))).toMatchObject({
+      code: 'timezone_confirmation_required',
+      sessionTimeZone: 'Asia/Shanghai',
+      clientTimeZones: [],
+    })
   })
 
   it('uses the current turn request zones behind a current-step time-context marker', async () => {
@@ -314,7 +329,7 @@ describe('Schedule tool protocol', () => {
     })
   })
 
-  it('requires a simple current-step marker and fails closed on a malformed source', async () => {
+  it('reuses a simple same-turn marker across an empty continuation and ignores a malformed source', async () => {
     const test = await harness(true, 'Asia/Shanghai')
     test.agent.session.append('turn/start', { turn: 1 })
     test.agent.session.append('step/start', { turn: 1, step: 1 })
@@ -331,10 +346,10 @@ describe('Schedule tool protocol', () => {
     }), { surfaceOp: 'append' })
 
     expect(value(await execute(test, 'schedule_create', {
-      prompt: 'fail closed', at: { date: '2026-08-06', time: '09:00:00' },
+      prompt: 'same-turn local', at: { date: '2026-08-06', time: '09:00:00' },
     }))).toMatchObject({
-      sessionTimeZone: 'Asia/Shanghai',
-      clientTimeZones: [],
+      kind: 'at',
+      scheduledAt: '2026-08-06T01:00:00.000Z',
     })
   })
 

@@ -22,7 +22,7 @@ Replay rejects unknown versions, extra fields, reused ids, and delete or dispatc
 
 ## Absolute-time context
 
-The `at` selector is either a strict `YYYY-MM-DDTHH:mm:ss[.S|.SS|.SSS](Z|±HH:MM)` string or `{ date: "YYYY-MM-DD", time: "HH:mm:ss[.S|.SS|.SSS]", time_zone?: string }`. The offset form already identifies one instant. The local form validates an explicit `UTC` or IANA Area/Location zone, or may omit `time_zone` only when the current open step has a time-context reading and the original user-rpc sources in that turn derive one client zone equal to the immutable Session zone.
+The `at` selector is either a strict `YYYY-MM-DDTHH:mm:ss[.S|.SS|.SSS](Z|±HH:MM)` string or `{ date: "YYYY-MM-DD", time: "HH:mm:ss[.S|.SS|.SSS]", time_zone?: string }`. The offset form already identifies one instant. The local form validates an explicit `UTC` or IANA Area/Location zone, or may omit `time_zone` only when the current open turn has a time-context reading and its original user-rpc sources derive one client zone equal to the immutable Session zone.
 
 The Web Host validates and canonicalizes the browser zone at Session creation and on every prompt. Session creation fixes `SessionHeader.timeZone`; each prompt instead carries its own `clientTimeZone` in the user-message source, so concurrent tabs do not overwrite shared state. Schedule derives directly from those original owners rather than copying them into the time-context source. A headerless Session, a missing or mixed client-zone result, or a client/Session mismatch returns `timezone_confirmation_required` with the known zones and requires an explicit `time_zone`.
 
