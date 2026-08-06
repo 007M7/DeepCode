@@ -149,6 +149,8 @@ Agent 收件箱是唯一的队列。每条继续执行消息都会成为一个 `
 /** Attribution for a model coordinator's follow-up to one of its children. */
 interface CoordinatorMessageSource {
   readonly kind: 'coordinator'
+  /** A message another agent addressed to this one (`relay` context form). */
+  readonly form: 'relay'
   /** Session id of the agent whose tool call produced the follow-up. */
   readonly senderSessionId: SessionId
 }
@@ -182,6 +184,8 @@ interface ContinuableStart {
 /** Durable attribution for a continuable child's explicit parent report. */
 interface SubagentReportMessageSource {
   readonly kind: 'subagent-report'
+  /** A message another agent addressed to this one (`relay` context form). */
+  readonly form: 'relay'
   /** Session id of the reporting child. */
   readonly senderSessionId: SessionId
 }

@@ -1278,7 +1278,7 @@ describe('the run_code dispatch bridge', () => {
         return Promise.resolve(observedDepth)
       },
     }))
-    const session = new Session(SessionId('deep-code-arguments'))
+    const session = Session.create(SessionId('deep-code-arguments'))
     const agent = { session } as Agent
     runtime.behavior = async (request) => {
       let nested: JsonValue = 'leaf'
@@ -1441,7 +1441,7 @@ describe('the run_code dispatch bridge', () => {
   })
 
   it('a tool/code-dispatch event never derives a model message', () => {
-    const session = new Session(SessionId('code-mode-derive'))
+    const session = Session.create(SessionId('code-mode-derive'))
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' },
     }), { surfaceOp: 'append' })

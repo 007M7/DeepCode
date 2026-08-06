@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
-import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { agentEvents, Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import GoalService, { GoalId } from '@deepseek-ai/dsh-goal'
 import type { GoalRef } from '@deepseek-ai/dsh-goal'
@@ -21,26 +21,25 @@ interface StubAgent {
   setStatus(status: AgentStatus): void
 }
 
-/** Build one registry-compatible live agent whose injections append in place. */
+/** Build one registry-compatible live agent whose injections enter the durable inbox. */
 function stubAgent(rawId: string, supplied?: Session): StubAgent {
-  const session = supplied ?? new Session(SessionId(rawId))
+  const session = supplied ?? Session.create(SessionId(rawId))
   let status: AgentStatus = 'running'
   const agent: Agent = {
     id: session.id,
     options: {},
     session,
+    inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
     get status() { return status },
-    get acceptsNextStep() { return status === 'running' },
     ctx: new Context(),
     send: () => {},
-    updateInbox: () => 'not-found',
     followup: () => {},
     steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }),
     inject(input) {
-      session.append('user/message', input, { surfaceOp: 'append' })
+      this.inbox.append('next-step', input)
     },
-    reserveTurnAdmission: () => undefined,
     cancel() {},
+    runMaintenance: task => task(new AbortController().signal),
     whenIdle() { return Promise.resolve() },
   }
   return { agent, session, setStatus(value) { status = value } }
@@ -51,11 +50,17 @@ function openTurn(stub: StubAgent, source: MessageSource, text = 'prompt'): numb
   const turn = stub.session.events
     .filter(event => event.type === 'turn/start')
     .reduce((max, event) => Math.max(max, event.data.turn), 0) + 1
-  stub.session.append('turn/start', { turn, trigger: { kind: 'message', source } })
-  stub.session.append('user/message', createUserMessage({
+  const message = createUserMessage({
     content: [{ type: 'text', text }],
     source,
-  }), { surfaceOp: 'append' })
+  })
+  stub.agent.inbox.append('next-turn', message)
+  const claimed = stub.agent.inbox.claim('next-turn', turn)
+  if (claimed.length === 0) throw new Error('expected queued turn input')
+  stub.session.append('turn/start', { turn })
+  for (const admitted of claimed) {
+    stub.session.append('user/message', admitted, { surfaceOp: 'append' })
+  }
   return turn
 }
 
@@ -253,7 +258,7 @@ describe('goal tool execution authority', () => {
     const created = ctx.goals.create(root.agent, { objective: 'resume the fork' })
     closeTurn(root, originalTurn)
     const forkId = SessionId('goal-tool-resumed-fork')
-    const forkSession = new Session(forkId, root.session.events, {
+    const forkSession = Session.create(forkId, root.session.events, {
       version: SESSION_FORMAT_VERSION,
       id: forkId,
       createdAt: Date.now(),
@@ -300,16 +305,13 @@ describe('goal tool execution authority', () => {
     const humanTurn = openTurn(root, { kind: 'user' })
     const created = ctx.goals.create(root.agent, { objective: 'steer me' })
     closeTurn(root, humanTurn)
-    const round = openTurn(root, {
+    openTurn(root, {
       kind: 'goal', goalId: created.id, revision: created.revision, round: 1,
     })
-    root.session.append('steering/message', {
-      turn: round,
-      message: createUserMessage({
-        content: [{ type: 'text', text: 'pause now' }],
-        source: { kind: 'user' },
-      }),
-    }, { surfaceOp: 'append' })
+    root.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'pause now' }],
+      source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
     const paused = await execute(ctx, 'update_goal', {
       goal_id: created.id, revision: created.revision, action: 'pause',
     }, root.agent)
@@ -372,7 +374,12 @@ describe('goal tool state transitions', () => {
     expect(complete.concludesTurn).toBeUndefined()
     const contexts = complete.additionalContexts ?? []
     expect(contexts).toHaveLength(1)
-    expect(contexts[0]?.source).toEqual({ kind: 'plugin', plugin: 'tool-goal' })
+    expect(contexts[0]?.source).toEqual({
+      kind: 'plugin',
+      plugin: 'tool-goal',
+      form: 'notice',
+      summary: 'complete: pause cleanly',
+    })
     const block = contexts[0]?.content[0]
     if (block?.type !== 'text') throw new Error('expected one text wrap-up block')
     expect(block.text).toContain('<goal_complete>')
@@ -397,7 +404,7 @@ describe('goal tool state transitions', () => {
     let turn = openTurn(root, { kind: 'user' })
     const created = ctx.goals.create(root.agent, { objective: 'continue later' })
     closeTurn(root, turn)
-    agentEvents(ctx, root.agent).emit('agent/session-start', 'resume')
+    agentEvents(ctx, root.agent).emit('agent/session-start', { source: 'resume' })
     expect(ctx.goals.get(root.agent)?.activation).toBe('disarmed')
     turn = openTurn(root, { kind: 'user' }, '继续')
     const resumed = await execute(ctx, 'update_goal', {

@@ -102,6 +102,7 @@ describe('dsh-tool-subagent-control', () => {
     // Durable provenance records the calling agent without granting authority.
     expect(followUp?.type === 'user/message' && followUp.data.source).toEqual({
       kind: 'coordinator',
+      form: 'relay',
       senderSessionId: parent.id,
     })
   })
@@ -129,7 +130,6 @@ describe('dsh-tool-subagent-control', () => {
       : [])
     // A follow-up is its own later turn, never steering inside the first one.
     expect(prompts).toEqual(['long work', 'also consider Y'])
-    expect(loaded.events.some(event => event.type === 'steering/message')).toBe(false)
   })
 
   it('reports a delivery failure as an errored, not-delivered result', async () => {

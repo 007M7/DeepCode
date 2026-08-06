@@ -1,7 +1,7 @@
 /** Single-sample LAN-trust resolution for the /api browser-trust fence (`resolveLanTrust`). */
 
 import { describe, expect, it, vi } from 'vitest'
-import { resolveLanTrust } from '../src/app-cli-entry.ts'
+import { resolveLanTrust } from '../src/web.ts'
 
 vi.mock('node:os', () => ({
   networkInterfaces: () => ({

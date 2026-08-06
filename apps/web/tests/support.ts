@@ -88,6 +88,28 @@ export async function connectFreshWorkspace(page: Page, root: string, name = 'wo
     .waitFor({ timeout: 15_000 })
 }
 
+/**
+ * {@link connectFreshWorkspace} over the product default Chinese locale: the
+ * English helper's anchors assume the locale every other scenario boots, so a
+ * scenario that deliberately keeps zh needs the localized picker copy.
+ * @param page - the browser page under test.
+ * @param root - workspace parent directory.
+ * @param name - directory created under `root` and connected.
+ */
+export async function connectFreshWorkspaceZh(page: Page, root: string, name = 'workspace'): Promise<void> {
+  mkdirSync(join(root, name), { recursive: true })
+  await page.getByRole('button', { name: '选择工作区' }).click()
+  const dialog = page.getByRole('dialog', { name: '选择工作区目录' })
+  await dialog.waitFor({ timeout: 10_000 })
+  await dialog.getByRole('button', { name: '编辑路径' }).click()
+  const pathInput = dialog.getByRole('textbox', { name: '编辑路径' })
+  await pathInput.fill(join(root, name))
+  await pathInput.press('Enter')
+  await dialog.getByRole('button', { name: '打开', exact: true }).click()
+  await page.locator('textarea:enabled[placeholder="描述你想要构建的内容"]')
+    .waitFor({ timeout: 15_000 })
+}
+
 /** Failure evidence goes to the gitignored .artifacts/ (repo convention). */
 export async function saveFailureShot(page: Page, name: string): Promise<void> {
   const dir = fileURLToPath(new URL('../../../.artifacts', import.meta.url))

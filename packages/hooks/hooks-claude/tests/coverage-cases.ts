@@ -110,7 +110,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
       await waitForIdle(ctx, agent)
       expect(existsSync(marker)).toBe(true) // substituted command ran
-    })
+    }, 15_000) // Real agent and hook subprocess startup can exceed Vitest's default under coverage concurrency.
 
     it('warns and honors updatedInput as a no-op (input rewrite deferred)', async () => {
       const d = dir()
@@ -322,7 +322,9 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
       await waitForIdle(ctx, agent)
-      expect(events(agent).some(e => e.type === 'turn/start')).toBe(false)
+      expect(events(agent).filter(e => e.type === 'turn/start' || e.type === 'hook/invoked'
+        || e.type === 'hook/result' || e.type === 'turn/end').map(e => e.type))
+        .toEqual(['turn/start', 'hook/invoked', 'hook/result', 'turn/end'])
     })
 
     it('a PreToolUse ask with NO reason omits the reason (false arm)', async () => {
@@ -495,7 +497,9 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const adapter = new MockAdapter([textResponse('should not run')])
       const ctx = await harness(path, adapter)
       // A later listener that blocks every prompt (registered AFTER the bridge).
-      ctx.on('agent/prompt-submit', async () => ({ kind: 'block' as const, reason: 'policy veto' }))
+      ctx.on('agent/pre-step', async () => ({
+        kind: 'reject' as const,
+      }))
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
       await waitForIdle(ctx, agent)
@@ -503,21 +507,25 @@ export function defineCoverageCases(group: CoverageGroup): void {
       // recorded, and the (sole, fully-blocked) prompt closed the turn `rejected`
       expect(adapter.requests).toHaveLength(0)
       expect(events(agent).some(e => e.type === 'user/message' && e.data.source.kind !== 'user')).toBe(false)
-      expect(events(agent).some(e => e.type === 'turn/start')).toBe(false)
+      expect(events(agent).filter(e => e.type === 'turn/start' || e.type === 'hook/invoked'
+        || e.type === 'hook/result' || e.type === 'turn/end').map(e => e.type))
+        .toEqual(['turn/start', 'hook/invoked', 'hook/result', 'turn/end'])
     })
 
     it('preserves separate bridge and downstream prompt contexts with framing and metadata', async () => {
-    // Both the bridge hook and a later prompt-submit listener attach context; the
+    // Both the bridge hook and a later pre-step listener attach context; the
     // request must see both as separately sourced durable events.
       const d = dir()
       const s = sh(d, 'ctx.sh', '#!/usr/bin/env bash\necho \'{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"from-bridge"}}\'\n')
       const path = hooks(d, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: s }] }] })
       const adapter = new MockAdapter([textResponse('ok')])
       const ctx = await harness(path, adapter)
-      ctx.on('agent/prompt-submit', async () => ({
-        kind: 'allow' as const,
-        content: [{ type: 'text' as const, text: 'rewritten-prompt' }],
-        additionalContexts: [createUserMessage({
+      ctx.on('agent/pre-step', async ({ messages }) => ({
+        kind: 'enter' as const,
+        messages: [{
+          ...messages[0]!,
+          content: [{ type: 'text' as const, text: 'rewritten-prompt' }],
+        }, createUserMessage({
           content: [{ type: 'text' as const, text: 'from-downstream' }],
           source: { kind: 'plugin' as const, plugin: 'policy' },
         })],
@@ -534,8 +542,8 @@ export function defineCoverageCases(group: CoverageGroup): void {
       expect(userMsg?.type === 'user/message' && userMsg.data.content.some(b => b.type === 'text' && b.text === 'rewritten-prompt')).toBe(true)
       const contexts = events(agent).filter(event => event.type === 'user/message' && event.data.source.kind !== 'user')
       expect(contexts.map(event => event.type === 'user/message' && event.data.source)).toEqual([
-        { kind: 'plugin', plugin: 'hooks-claude' },
         { kind: 'plugin', plugin: 'policy' },
+        { kind: 'plugin', plugin: 'hooks-claude' },
       ])
     })
 

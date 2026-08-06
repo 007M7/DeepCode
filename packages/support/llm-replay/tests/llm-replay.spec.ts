@@ -107,9 +107,25 @@ describe('parseSessionLog', () => {
 })
 
 describe('deriveReplayScript', () => {
-  it('groups assistant/chunk by (turn, step) into one entry per stream() call', () => {
+  it('groups one finished assistant/chunk stream into one replay entry', () => {
     const events: SessionEvent[] = TEXT_CHUNKS.map((c, i) => chunkEvent(i + 1, 1, 1, c))
     expect(deriveReplayScript(events)).toEqual([{ kind: 'chunks', chunks: TEXT_CHUNKS }])
+  })
+
+  it('separates retry calls that share one turn and step at their finish chunks', () => {
+    const failed: StreamChunk[] = [
+      { type: 'usage', usage: { inputTokens: 0, outputTokens: 0 } },
+      { type: 'finish', reason: { kind: 'error', failure: { message: 'empty', code: 'EMPTY_RESPONSE' } } },
+    ]
+    let seq = 1
+    const events: SessionEvent[] = [
+      ...failed.map(chunk => chunkEvent(seq++, 1, 1, chunk)),
+      ...TEXT_CHUNKS.map(chunk => chunkEvent(seq++, 1, 1, chunk)),
+    ]
+    expect(deriveReplayScript(events)).toEqual([
+      { kind: 'chunks', chunks: failed },
+      { kind: 'chunks', chunks: TEXT_CHUNKS },
+    ])
   })
 
   it('produces one entry per distinct (turn, step), in log order', () => {
@@ -142,7 +158,7 @@ describe('deriveReplayScript', () => {
   it('ignores non-assistant/chunk events', () => {
     let seq = 1
     const events: SessionEvent[] = [
-      { type: 'turn/start', seq: seq++, time: 0, data: { turn: 1, trigger: { kind: 'injection', source: { kind: 'user' } } } },
+      { type: 'turn/start', seq: seq++, time: 0, data: { turn: 1 } },
       ...TEXT_CHUNKS.map(c => chunkEvent(seq++, 1, 1, c)),
       { type: 'turn/end', seq: seq++, time: 0, data: { turn: 1, reason: { kind: 'completed' } } },
     ]
@@ -167,7 +183,7 @@ describe('deriveReplayScript', () => {
     const events: SessionEvent[] = [
       chunkEvent(1, 1, 1, { type: 'block-start', index: 0, blockType: 'text' }),
       chunkEvent(2, 1, 1, { type: 'text-delta', index: 0, text: 'par' }),
-      { type: 'turn/end', seq: 3, time: 0, data: { turn: 1, reason: { kind: 'error', step: 1, message: 'x' } } },
+      { type: 'turn/end', seq: 3, time: 0, data: { turn: 1, reason: { kind: 'error', error: { message: 'x', code: 'UNKNOWN' } } } },
     ]
     expect(() => deriveReplayScript(events)).toThrow(/without a finish chunk.*replay\.override\.json/s)
   })
@@ -177,6 +193,14 @@ describe('deriveReplayScript', () => {
       chunkEvent(1, 2, 3, { type: 'block-start', index: 0, blockType: 'text' }),
     ]
     expect(() => deriveReplayScript(events)).toThrow(/2\/3/)
+  })
+
+  it('rejects an unfinished call before consuming chunks from a new step', () => {
+    const events: SessionEvent[] = [
+      chunkEvent(1, 1, 1, { type: 'block-start', index: 0, blockType: 'text' }),
+      chunkEvent(2, 1, 2, { type: 'finish', reason: { kind: 'stop' } }),
+    ]
+    expect(() => deriveReplayScript(events)).toThrow(/model call 1\/1 ended without a finish chunk/)
   })
 })
 

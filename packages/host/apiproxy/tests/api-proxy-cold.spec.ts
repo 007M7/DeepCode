@@ -10,10 +10,17 @@ import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import SessionStore from '@deepseek-ai/dsh-session'
-import AgentRegistry, { InboxItemId } from '@deepseek-ai/dsh-agent'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
+import { MessageId } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import type { SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
+import {
+  PersistenceCoordinator,
+  SessionPersistenceRevision,
+  type PersistenceBackend,
+  type StoredPrefix,
+} from '@deepseek-ai/dsh-session-persistence'
 import type { RpcRequest } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
 import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
 import { createApiProxy } from '@deepseek-ai/dsh-host-apiproxy'
@@ -89,7 +96,7 @@ describe('attached updatedAt excludes end-seed', () => {
     const worked = 1_000_000
     const resumed = ctx.sessions.create(sid('resumed-untouched'), {
       seed: [
-        { type: 'turn/start', seq: 0, time: worked, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+        { type: 'turn/start', seq: 0, time: worked, data: { turn: 1 } },
         { type: 'turn/end', seq: 1, time: worked, data: { turn: 1, reason: { kind: 'completed' } } },
       ],
       meta: { cwd: '/proj', createdAt: 500 },
@@ -105,11 +112,71 @@ describe('attached updatedAt excludes end-seed', () => {
     expect(summary?.updatedAt).toBe(worked)
 
     // Real work appended after end-seed does move it.
-    resumed.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
+    resumed.append('turn/start', { turn: 2 })
     const after = await api.sessions.list(request({}))
     if (!after.result.ok) throw new Error('list failed')
     const moved = after.result.value.items.find(item => item.sessionId === 'resumed-untouched')
     expect(moved?.updatedAt).toBeGreaterThan(worked)
+  })
+})
+
+describe('cold history recovery view', () => {
+  it('shows in-memory interruption repair without activating the session', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(UserInteractionService)
+    const sessionId = sid('session-interrupted')
+    const meta = header(sessionId, 1000)
+    const stored: StoredPrefix<never> = {
+      meta,
+      events: [{ type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } }],
+      revision: SessionPersistenceRevision('history-recovery-test:1'),
+    }
+    const backend: PersistenceBackend<never> = {
+      name: 'history-recovery-test',
+      loadStored: id => Promise.resolve(id === sessionId ? structuredClone(stored) : undefined),
+      readStoredRevision: id => Promise.resolve(
+        id === sessionId ? SessionPersistenceRevision('history-recovery-test:1') : undefined,
+      ),
+      appendBatch: () => Promise.resolve(),
+      commitRepair: () => Promise.resolve(),
+      list: () => Promise.resolve([structuredClone(meta)]),
+    }
+    const coordinator = new PersistenceCoordinator(ctx, backend)
+    ctx.provide('sessionPersistence', {
+      list: (signal?: AbortSignal) => backend.list(signal),
+      inspect: (id: SessionId, signal?: AbortSignal) => coordinator.inspect(id, signal),
+      locate: () => undefined,
+    } as never)
+    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
+
+    const history = await api.sessions.history(request({ sessionId, beforeSeq: 2, maxMessages: 10 }))
+    if (!history.result.ok) throw new Error('history failed')
+    expect(history.result.value.events.map(entry => entry.event)).toMatchInlineSnapshot(`
+      [
+        {
+          "data": {
+            "turn": 1,
+          },
+          "seq": 0,
+          "time": 1,
+          "type": "turn/start",
+        },
+        {
+          "data": {
+            "reason": {
+              "kind": "interrupted",
+            },
+            "turn": 1,
+          },
+          "seq": 1,
+          "time": 1,
+          "type": "turn/end",
+        },
+      ]
+    `)
+    expect(ctx.sessions.get(sessionId)).toBeUndefined()
+    await ctx.fiber.dispose()
   })
 })
 
@@ -216,7 +283,7 @@ describe('subagent ownership fence', () => {
 
     const queued = await api.sessions.updateQueue(request({
       sessionId: originChild.id,
-      itemId: InboxItemId('queued-item'),
+      itemId: MessageId('queued-item'),
       action: { kind: 'remove' },
     }))
     expect(queued.result.ok).toBe(false)

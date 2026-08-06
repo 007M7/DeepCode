@@ -150,7 +150,7 @@ sequenceDiagram
 每个拆除请求加入一条记忆化路径。顺序为：
 
 1. 停用创建或驱动，让同步发布完成。
-2. 停止并排空 driver，包括空闲注入刷新。
+2. 停止并排空 driver，丢弃仍处于待处理状态的注入。
 3. 分离 agent。
 4. 分离会话。
 5. Dispose agent 作用域。
@@ -238,7 +238,7 @@ Scope 直接解决了真正的隔离问题。结构化输出贡献注册在子�
 
 对于 Code Mode SDK 调用，内层成功结果记录 `{ parentToken, value }` 而非提交。观察者等待 token 匹配 `parentToken` 的 `run_code` 执行，仅在该外层最终结果也成功时才提交。程序失败、运行时中止或外层 post-policy 拒绝会丢弃待定值。
 
-一旦值处于待定或已提交状态，作用域单调守卫拒绝后续工具调用。提交后，普通串行的 `agent/turn-stop` 监听器在 continuation 和 steering（中途引导）已折叠之后返回停止决策。Schema 验证失败仍然是普通的 `INVALID_ARGS` 工具错误，子级可以在同一轮次内重试。
+一旦值处于待定或已提交状态，作用域单调守卫拒绝后续工具调用。成功的结构化输出执行会调用 `exec.concludeTurn()`，因此其自身不可变结果携带 `concludesTurn: true`，循环在该步骤结束工具循环。Schema 验证失败仍然是普通的 `INVALID_ARGS` 工具错误，子级可以在同一轮次内重试。
 
 纯 Code Mode 的注册表贡献从原生 wire schema 中省略 `structured_output`，并通过生成的 SDK 暴露它。Assembly waterfall 可以有意改变该展示；执行仍然针对子作用域定义进行验证，监听器拥有其创建的任何替代模型可见路由的一致性。
 
@@ -250,9 +250,9 @@ Scope 直接解决了真正的隔离问题。结构化输出贡献注册在子�
 |---|---|---|
 | 工具 pre-policy | 单调拒绝 | 后续监听器不得重新允许已被拒绝的调用 |
 | 工具结果 | 观察不可变的已提交结果 | 结构化输出必须仅提交实际逃出流水线的结果 |
-| 轮次 continuation | 在普通 continuation 折叠之后停止 | 已提交的终端输出必须结束轮次 |
+| 轮次 continuation | 通过已提交工具结果终止 | 已提交的终端输出必须结束轮次 |
 
-`ToolGuard` 是单调策略注册表。已提交的工具观察是上述被隔离的 `tools/result` 点。终端结构化输出监听普通串行的 `agent/turn-stop` 折叠，在正常 continuation 和 steering 决策之后；类型化的监听器契约不需要公开的 `strictSerial()` dispatcher。
+`ToolGuard` 是单调策略注册表。已提交的工具观察是上述被隔离的 `tools/result` 点。终端结构化输出在自身执行上标记 `concludesTurn`，因此终止性成为权威结果上的数据，而不是独立 hook 决策。
 
 ### Skill 和 approval 服务信任类型化调用方
 

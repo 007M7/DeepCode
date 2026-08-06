@@ -63,6 +63,22 @@ export interface SandboxPolicy extends SandboxExecutionPolicy {
 }
 
 /**
+ * Evidence that identifies a sandbox runner failing before it executes the
+ * wrapped command. A consumer first applies {@link allowedExitCodes} when
+ * present, removes {@link informationalLines} by case-insensitive exact line
+ * equality, then matches {@link fatalSignatures} case-insensitively within
+ * each remaining stderr line. Exit status alone never proves runner failure.
+ */
+export interface RunnerFailureRule {
+  /** Nonzero process exit codes on which this rule may match; omitted permits any nonzero exit. */
+  allowedExitCodes?: readonly number[]
+  /** Non-empty substrings identifying a fatal runner diagnostic on one stderr line. */
+  fatalSignatures: readonly string[]
+  /** Benign stderr lines excluded by exact full-line equality before fatal matching. */
+  informationalLines?: readonly string[]
+}
+
+/**
  * A {@link SandboxProvider.confine} result: the argv to spawn in place of
  * the caller's own, plus the enforcement completeness the selected backend
  * achieves for it.
@@ -82,11 +98,12 @@ export interface ConfinedArgv {
    */
   denialSignatures: readonly string[]
   /**
-   * Case-insensitive signatures for runner failure before command execution.
-   * Consumers check these before denial signatures: runner failure means the
+   * Structured runner-failure evidence rules. Consumers require a matching
+   * fatal stderr line (after informational exclusions) and any rule-specific
+   * exit-code gate before checking denial signatures: runner failure means the
    * command never ran, while denial means confinement worked and blocked it.
    */
-  runnerFailureSignatures: readonly string[]
+  runnerFailureRules: readonly RunnerFailureRule[]
 }
 
 /**

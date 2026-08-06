@@ -8,18 +8,14 @@
   - img
   - img
   - text: "goal Goal created Status: active Objective: Keep the composer context panels aligned Rounds: 0/256 Activation: armed Commands: /goal edit <objective>, /goal pause, /goal clear"
-- button "Context injection":
+- button "Context injection goal":
   - img
   - img
-  - text: Context injection
-- button "Context injection":
+  - text: Context injection goal
+- button "Context injection @deepseek-ai/dsh-system-prompt":
   - img
   - img
-  - text: Context injection
-- button "Context injection":
-  - img
-  - img
-  - text: Context injection
+  - text: Context injection @deepseek-ai/dsh-system-prompt
 - paragraph: partial
 - status: Deep diving...
 - region "To-dos":

@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-07-23-toolview-dissolution.md
-2026-07-23-toolview-dissolution.md: 406e5c181aabb635f9d6dcb12d8a9b8b6697368e
-2026-07-23-toolview-dissolution.zh.md: 311affcbd9605ff81b78e974f75ee83328d93f68
+2026-07-23-toolview-dissolution.md: 97d8beb4de43d9bc6348d942e5460d0321592b32
+2026-07-23-toolview-dissolution.zh.md: db93c6252d5d42d1fd85ce81ad430d95f4324cf2

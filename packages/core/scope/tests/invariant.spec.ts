@@ -2,7 +2,7 @@ import { freezeMessage, MessageId } from '@deepseek-ai/dsh-llm'
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import type { Events } from 'cordis'
-import { InboxItemId, type Agent } from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import * as ScopeInvariant from '@deepseek-ai/dsh-scope/invariant'
 import InvariantService from '@deepseek-ai/dsh-invariants'
@@ -28,7 +28,7 @@ describe('scoped-dispatch invariants', () => {
     const ctx = await setup()
     expect(() => { emit(ctx, undefined, 'ordinary/event', []) }).not.toThrow()
     const agent = { id: 'a1' }
-    expect(() => { emit(ctx, undefined, 'agent/error', [agent, 1, 0, new Error('x')]) })
+    expect(() => { emit(ctx, undefined, 'agent/error', [{ agent, turn: 1, step: 0, error: new Error('x') }]) })
       .toThrow(/dispatched without a scope carrier/)
   })
 
@@ -44,39 +44,35 @@ describe('scoped-dispatch invariants', () => {
       content: [],
       source: { kind: 'user' },
     })
-    const item = { id: InboxItemId('i'), message, placement: 'queued' as const }
     const agentRows = {
-      'agent/created': [agent],
-      'agent/disposed': [agent],
-      'agent/status': [agent, 'idle'],
-      'agent/inbox/enqueue': [agent, item],
-      'agent/inbox/update': [agent, item],
-      'agent/inbox/dequeue': [agent, item],
-      'agent/inbox/discard': [agent, []],
-      'agent/cancel-requested': [agent, { kind: 'user' }],
-      'agent/session-start': [agent, 'startup'],
-      'agent/step': [agent, 1, 1, signal],
-      'agent/prompt-submit': [agent, message, signal, () => Promise.resolve({ kind: 'allow' })],
-      'agent/request': [agent, 1, 1, signal, () => Promise.resolve(config)],
+      'agent/created': [{ agent }],
+      'agent/disposed': [{ agent }],
+      'agent/status': [{ agent, status: 'idle' }],
+      'agent/inbox/inserted': [{ agent, message }],
+      'agent/inbox/claimed': [{ agent, message, turn: 1 }],
+      'agent/inbox/discarded': [{ agent, message }],
+      'agent/session-start': [{ agent, source: 'startup' }],
+      'agent/pre-step': [{ agent, messages: [message], turn: 1, step: 1, signal }, () => Promise.resolve({ kind: 'enter', messages: [message] })],
+      'agent/request': [{ agent, turn: 1, step: 1, signal }, () => Promise.resolve(config)],
       'agent/request-error': [
-        agent,
-        1,
-        1,
-        new Error('request'),
-        { message: 'request', code: 'UNKNOWN' },
-        [],
-        undefined,
-        signal,
+        {
+          agent,
+          turn: 1,
+          step: 1,
+          provider: 'p',
+          failure: { message: 'request', code: 'UNKNOWN' },
+          retryPolicy: undefined,
+          signal,
+        },
         () => Promise.resolve(undefined),
       ],
-      'agent/turn-stopping': [agent, 1, signal],
-      'agent/settled': [agent, 1, { kind: 'completed' }],
-      'agent/error': [agent, 1, 0, new Error('x')],
+      'agent/turn-stopping': [{ agent, turn: 1, signal }],
+      'agent/error': [{ agent, turn: 1, step: 0, error: new Error('x') }],
     } satisfies { [K in AgentEventName]: EventArgs<K> }
     const rows: Array<[string, unknown[]]> = [
       ...Object.entries(agentRows),
       ['approval/request', [{ agent, toolName: 'echo' }, () => Promise.resolve('unavailable')]],
-      ['goal/changed', [agent, { operation: 'create', ref: { id: 'goal-a', revision: 1 } }]],
+      ['goal/changed', [{ agent, change: { operation: 'create', ref: { id: 'goal-a', revision: 1 } } }]],
       ['system-prompt/assemble', [[], { scope: agent }]],
       ['tools/code-dispatch-log', [{ exec: { callId: 'c', name: 't', arguments: {} }, agent, subCallId: 'c:code:1', name: 't', isError: false, content: [] }, () => Promise.resolve([])]],
       ['tools/execute', [{ callId: 'c', name: 't', arguments: {}, agent }, () => Promise.resolve({ content: [], isError: false })]],

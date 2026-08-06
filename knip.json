@@ -20,11 +20,13 @@
   "workspaces": {
     ".": {
       "entry": [
-        "scripts/**/*.mjs"
+        "scripts/**/*.mjs",
+        "scripts/**/*.cjs"
       ],
       "project": [
         "scripts/**/*.ts",
-        "scripts/**/*.mjs"
+        "scripts/**/*.mjs",
+        "scripts/**/*.cjs"
       ],
       "ignoreDependencies": [
         "playwright"
@@ -41,6 +43,7 @@
         "headless-agent/tests/fixtures/telemetry-otel-driver.ts",
         "headless-agent/tests/fixtures/telemetry-redact-rule.ts",
         "acp-agent/tests/snapshots/lsp-definition/workspace/subject.ts",
+        "acp-agent/tests/fixtures/partial-landlock-sandbox.ts",
         "acp-agent/tests/fixtures/subagent-durability-failure.ts",
         "acp-agent/tests/fixtures/subagent-settlement-marker.ts",
         "acp-agent/tests/fixtures/subagent/subagent-acp/mock-delegating-llm.ts",
@@ -682,6 +685,17 @@
       "project": [
         "src/**/*.ts",
         "tests/**/*.ts"
+      ]
+    },
+    "packages/bundle/base": {
+      "ignoreDependencies": [
+        "@deepseek-ai/.+",
+        "@cordisjs/.+"
+      ]
+    },
+    "packages/bundle/web-app": {
+      "ignoreDependencies": [
+        "@deepseek-ai/.+"
       ]
     }
   }

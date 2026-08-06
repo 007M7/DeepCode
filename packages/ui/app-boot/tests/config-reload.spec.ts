@@ -341,12 +341,11 @@ describe('include refresh with overlay patches', () => {
 
 describe('include patches layered over one base', () => {
   it('lets a later patch configure or disable a row an earlier patch inserted', async () => {
-    // The surface/`--config`/personal composition: `dsh` includes one shared
-    // base and applies each source as its own patch list at the SAME include
+    // The bundle/user-layer/`--patch` composition: `dsh` includes one root
+    // and applies each source as its own patch list at the SAME include
     // level, because patches never cross an include boundary. A later layer
-    // must therefore be able to reach a row an earlier layer inserted —
-    // otherwise every surface-only row (the whole TUI front door) would be
-    // invisible to the user's `~/.dsh/config.yaml`.
+    // must therefore be able to reach a row an earlier layer inserted, or
+    // bundle-only rows would be invisible to the user's patch layer.
     const dir = mkdtempSync(join(tmpdir(), 'dsh-config-layered-'))
     writeFileSync(join(dir, 'noop.mjs'), NOOP_PLUGIN)
     writeFileSync(join(dir, 'base.yml'), '- id: shared\n  name: ./noop.mjs\n  config:\n    value: base\n')
@@ -356,30 +355,30 @@ describe('include patches layered over one base', () => {
       '  config:',
       '    path: ./base.yml',
       '    patches:',
-      // Layer 1 (a surface overlay): patch a base row and add two of its own.
+      // Layer 1 (a bundle layer): patch a base row and add two of its own.
       '      - id: shared',
       '        config:',
-      '          value: surface',
+      '          value: bundle',
       '      - insert:',
-      '          - id: surface-kept',
+      '          - id: bundle-kept',
       '            name: ./noop.mjs',
       '            config:',
-      '              value: surface-default',
-      '          - id: surface-dropped',
+      '              value: bundle-default',
+      '          - id: bundle-dropped',
       '            name: ./noop.mjs',
       // Layer 2 (the user): reconfigure one inserted row and disable the other.
-      '      - id: surface-kept',
+      '      - id: bundle-kept',
       '        config:',
-      '          value: personal',
-      '      - id: surface-dropped',
+      '          value: user',
+      '      - id: bundle-dropped',
       '        disabled: true',
       '',
     ].join('\n'))
     const ctx = await boot(NAME, join(dir, 'cordis.yml'))
     try {
-      expect(entryConfig(ctx, 'shared')).toEqual({ value: 'surface' })
-      expect(entryConfig(ctx, 'surface-kept')).toEqual({ value: 'personal' })
-      const dropped = [...ctx.loader.entries()].find(entry => entry.options.id === 'surface-dropped')
+      expect(entryConfig(ctx, 'shared')).toEqual({ value: 'bundle' })
+      expect(entryConfig(ctx, 'bundle-kept')).toEqual({ value: 'user' })
+      const dropped = [...ctx.loader.entries()].find(entry => entry.options.id === 'bundle-dropped')
       expect(dropped?.options.disabled).toBe(true)
       expect(dropped?.fiber).toBeUndefined()
     } finally {

@@ -2,15 +2,16 @@
 
 English | [中文](README.zh.md)
 
-The host side of the dsh web GUI: the API gateway every client shape shares, and the plain HTTP server it rides on. The browser side lives in [`client/`](../client/README.md); the composed application is [`apps/cli`](../../apps/cli/config/base.cordis.yml) serving [`apps/web`](../../apps/web/). All **product** packages.
+The host side of the dsh web GUI: the API gateway every client shape shares, and the plain HTTP server it rides on. The browser side lives in [`client/`](../client/README.md); the composed application is [`apps/cli`](../../apps/cli/README.md) booting the [`dsh-base` bundle](../bundle/base/cordis.patch.yml) serving [`apps/web`](../../apps/web/). All **product** packages.
 
 | Package | Role | ctx key |
 |---|---|---|
-| `apiproxy/` | The shared API gateway: the zero-Node TS wire contract (`src/api/`), the fetch carrier pair (`toFetchHandler` host-side, `AbstractApiClient` client-side), and the host implementation over `ctx.agents`/`ctx.workspace` | `ctx.apiProxy` |
-| `webserver/` | Plain HTTP route-registration carrier: `node:http` server listening on activation; routes register as named `exact`/`prefix` handlers | `ctx.httpServer` |
-| `directory-picker/` | Workspace-directory picking seam: discriminated `native`/`browse` capability the gateway's picker RPCs delegate to | `ctx.directoryPicker` |
-| `directory-picker-native/` | Dual-face native interaction: OS-chooser backend (osascript / PowerShell / Zenity+KDialog, host-display only) + the browser half filling ui-workspace's directory-flow slots | (registers `ctx.directoryPicker`) |
-| `directory-picker-browse/` | Dual-face browse interaction: listing/creation primitives over Node stdlib (remote-capable) + the browser half rendering the in-app Select Workspace Directory dialog | (registers `ctx.directoryPicker`) |
-| `directory-picker-auto/` | Adaptive chooser: resolves the host's situation once at boot (bind host, SSH, display) and mounts the matching dual-face backend as an in-memory Loader entry | (mounts a backend row) |
+| [`apiproxy/`](apiproxy/README.md) | Shared host API gateway and wire contract | `ctx.apiProxy` |
+| [`webserver/`](webserver/README.md) | HTTP route carrier | `ctx.httpServer` |
+| [`frontend-static/`](frontend-static/README.md) | SPA dist server on the webserver fallback seat | consumes `ctx.httpServer` |
+| [`directory-picker/`](directory-picker/README.md) | Workspace-directory picking seam | `ctx.directoryPicker` |
+| [`directory-picker-native/`](directory-picker-native/README.md) | Native directory-picker backend and browser interaction | registers `ctx.directoryPicker` |
+| [`directory-picker-browse/`](directory-picker-browse/README.md) | In-app directory-browser backend and interaction | registers `ctx.directoryPicker` |
+| [`directory-picker-auto/`](directory-picker-auto/README.md) | Host-adaptive picker composition | mounts a backend |
 
-`apiproxy` is transport-agnostic by design — it registers no routes; carriers wrap `ctx.apiProxy` themselves. The HTTP carrier route (with its `/api` browser-trust fence) is mounted by [`client/connection`](../client/connection/README.md)'s node half, which is why that package lives in the client group: it owns both ends of the wire.
+`apiproxy` remains transport-independent; [`client/connection`](../client/connection/README.md) supplies the browser/HTTP carrier. Picker implementations replace one another behind the shared seam.

@@ -19,13 +19,13 @@
   - img
 - button "Branch into a new conversation":
   - img
-- text: {{clock}}Ran for {{duration}}
+- text: {{clock}} Ran for {{duration}}
 - textbox "Message the agent"
 - button "Commands":
   - img
 - 'button "Access mode, current: Workspace Write"': Workspace Write
-- button "Select model, current deepseek-v4-flash":
-  - text: deepseek-v4-flash
+- button "Select model":
+  - text: Select model
   - img
 - button "Send message" [disabled]
-- text: 1 turns · 1 steps Input 0 tok · Output 0 tok
+- text: 1 turns · 1 steps LLM {{duration}} Input 0 tok · Output 0 tok

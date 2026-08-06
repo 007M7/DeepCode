@@ -1,4 +1,4 @@
-# Agent Note：用户设置 seam（`ctx.settings`）与文件 provider
+# Agent Note: 用户设置 seam（`ctx.settings`）与文件 provider
 
 Status: implemented
 

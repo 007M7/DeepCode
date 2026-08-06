@@ -58,6 +58,14 @@ async function boot(options?: ConstructorParameters<typeof MemorySettings>[1]) {
   return { ctx, provider, fiber }
 }
 
+describe('provider metadata', () => {
+  it('does not advertise a local document unless the provider overrides it', async () => {
+    const { ctx } = await boot()
+    expect(ctx.settings.documentPath).toBeUndefined()
+    await expect(ctx.settings.prepareDocument()).resolves.toBeUndefined()
+  })
+})
+
 /** Record every settings/updated emission. */
 function recordUpdates(ctx: Context) {
   const events: Array<{ ns: string; next: unknown; prev: unknown; source: SettingsUpdateSource }> = []
@@ -85,6 +93,44 @@ describe('registration', () => {
     })
     // theme: user layer wins; fontSize: base wins over the schema default.
     expect(scope.get()).toEqual({ theme: 'light', fontSize: 16 })
+  })
+
+  it('refuses a write its owner could not act on, and keeps the last good value for a stored one', async () => {
+    const { ctx } = await boot()
+    const ns = settingsNamespace('ui-theme')
+    // A constraint the schema cannot express: this owner cannot serve a size
+    // it considers unreadable, whatever the schema admits.
+    const scope = ctx.settings.register(ns, ThemeSchema, {
+      validate: (value) => {
+        if (value.fontSize < 10) throw new Error(`font size ${String(value.fontSize)} is unreadable`)
+      },
+    })
+    const before = scope.get()
+
+    await expect(ctx.settings.update(ns, { fontSize: 4 })).rejects.toThrow(/unreadable/)
+    expect(scope.get()).toEqual(before)
+
+    // An externally edited document must not strand the owner: the namespace
+    // keeps its last good value, exactly as a schema failure would.
+    ;(ctx.settings as unknown as { publish(doc: Record<string, unknown>): void })
+      .publish({ 'ui-theme': { fontSize: 4 } })
+    expect(scope.get()).toEqual(before)
+
+    await ctx.settings.update(ns, { fontSize: 18 })
+    expect(scope.get()).toMatchObject({ fontSize: 18 })
+  })
+
+  it('fails the registration itself when the already-stored section is unserviceable', async () => {
+    // The other direction of the same contract: `register` resolves inline, so
+    // at cold start there is no last good value to keep. A stored section the
+    // owner cannot serve therefore refuses the registration rather than
+    // mounting an owner over configuration it rejects.
+    const { ctx } = await boot({ doc: { 'ui-theme': { fontSize: 4 } } })
+    expect(() => ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema, {
+      validate: (value) => {
+        if (value.fontSize < 10) throw new Error(`font size ${String(value.fontSize)} is unreadable`)
+      },
+    })).toThrow(/unreadable/)
   })
 
   it('rejects a duplicate namespace loud', async () => {

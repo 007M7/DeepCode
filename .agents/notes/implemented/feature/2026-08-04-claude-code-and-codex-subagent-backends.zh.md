@@ -14,7 +14,7 @@ Status: implemented
 
 harness 将两个一次性兄弟提供方作为可独立安装、选择启用的包交付。用户在自己的 `cordis.yml` 中加载提供方与现有的通用 subagent 工具：`subagent_codex` 绑定 `codex`，`subagent_claude_code` 绑定 `claude-code`。随产品交付的 CLI（命令行界面）依赖闭包，以及基础、Web 与 headless 配置都不会加载任一提供方。每个工具只接受独立文本任务；产品选择与后台执行都不作为模型参数。
 
-这两个提供方都报告 `inheritsParentContext: false`，不声明任何可选的启动时功能，并传递父会话 cwd，但不会复制父级对话。文档所示的工具会禁用后台执行，并使用 `maxDepth: 'provider-managed'`，将递归策略留给进程外产品，而不是发送提供方无法强制执行的限制。每次调用都会创建一个全新的产品进程和一次不可续接的产品对话。共享 subagent 服务继续负责请求解析、生命周期事件、结果结算和前台收集；共享子进程服务负责凭证清洗、进程树终止以及整棵进程树的退出观测。
+这两个提供方都报告 `inheritsParentContext: false`，不声明任何可选的启动能力，并传递父会话 cwd，但不会复制父级对话。文档所示的工具会禁用后台执行，并使用 `maxDepth: 'provider-managed'`，将递归策略留给进程外产品，而不是发送提供方无法强制执行的限制。每次调用都会创建一个全新的产品进程和一次不可续接的产品对话。共享 subagent 服务继续负责请求解析、生命周期事件、结果结算和前台收集；共享子进程服务负责凭证清洗、进程树终止以及整棵进程树的退出观测。
 
 ```text
 fixed tool → shared subagent service → product provider → official product process
