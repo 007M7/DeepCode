@@ -17,11 +17,15 @@ Adding a provider therefore rarely means editing `cordis.yml` — writing settin
 
 Start `pnpm run dsh web` and open **Settings → Models**.
 
+![The Models page: the DeepSeek card, with Add provider and Add a custom provider below it](providers-models-page.png)
+
 **Give DeepSeek its key.** The DeepSeek card carries one API-key field; fill it in, save, and the provider is ready.
 
 **Add a provider from the installed catalog.** Choose **Add provider**, pick one of pi-ai's catalog providers (anthropic, openai, and so on), and enter that provider's API key. The endpoint, protocol, and model catalog all come from the catalog; the key is the only thing you owe.
 
 **Add a custom provider.** Choose **Add a custom provider** for a route the catalog does not ship — a company gateway, a self-hosted server, or a provider newer than the installed catalog. It asks for a Provider ID (the lowercase identifier that names the route in requests and as its credential), a base URL, a protocol, and at least one model.
+
+![The custom provider form: Provider ID, display name, base URL, API protocol, and API key](providers-custom-form.png)
 
 **Let the endpoint report its models.** Expand **Model catalog** and choose **Fetch available models**: the interrogation asks the endpoint **the form currently shows** — including a base URL edited but not yet saved and a key typed but not yet stored — and offers what it reports as candidates to pick from. A route the installed catalog describes is answered from that catalog with no network call. Adopting a candidate only writes rows into the draft; nothing is stored until you save.
 
