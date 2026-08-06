@@ -46,12 +46,8 @@ export enum TelemetryMode {
   DISABLED = 'DISABLED',
 }
 
-/** Supported session-sharing policies for runtime configuration validation. */
-export const TELEMETRY_MODES = [
-  TelemetryMode.FULL,
-  TelemetryMode.FEEDBACK_ONLY,
-  TelemetryMode.DISABLED,
-] as const
+/** Default session-sharing policy for schema and direct construction. */
+export const DEFAULT_TELEMETRY_MODE = TelemetryMode.FULL
 
 const DISABLED_FEEDBACK_WARNING = 'session telemetry is DISABLED; nothing will be shared and this feedback remains local'
 const NON_CANONICAL_FEEDBACK_WARNING = 'session telemetry ignored a feedback event absent from the canonical session log'
@@ -59,7 +55,7 @@ const DROP_RECORD: TelemetryBackend['emit'] = () => {}
 
 /** Resolve the default and reject unknown runtime values before transport setup. */
 function resolveMode(mode: TelemetryMode | undefined): TelemetryMode {
-  const resolved = mode ?? TelemetryMode.FULL
+  const resolved = mode ?? DEFAULT_TELEMETRY_MODE
   switch (resolved) {
     case TelemetryMode.FULL:
     case TelemetryMode.FEEDBACK_ONLY:
@@ -109,7 +105,7 @@ export interface Config {
  * axiom (and silently drop every field not re-declared).
  */
 export const Config: z<Config> = z.object({
-  mode: z.union(TELEMETRY_MODES).default(TelemetryMode.FULL),
+  mode: z.union(Object.values(TelemetryMode)).default(DEFAULT_TELEMETRY_MODE),
   exporter: z.any(),
   processor: z.any(),
 })

@@ -13,7 +13,7 @@ import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import { recordFeedback } from '@deepseek-ai/dsh-command-feedback'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
-import TelemetryOtel, { Config, TelemetryMode } from '../src/index.ts'
+import TelemetryOtel, { Config, DEFAULT_TELEMETRY_MODE, TelemetryMode } from '../src/index.ts'
 
 interface Capture {
   headers: import('node:http').IncomingHttpHeaders
@@ -330,6 +330,8 @@ describe('TelemetryOtel config fails loud', () => {
     expectTypeOf<Config['mode']>().toEqualTypeOf<TelemetryMode | undefined>()
     expectTypeOf<'FULL'>().not.toExtend<TelemetryMode>()
     expectTypeOf<TelemetryMode.FULL>().toExtend<TelemetryMode>()
+    expect(DEFAULT_TELEMETRY_MODE).toBe(TelemetryMode.FULL)
+    expect(Config({}).mode).toBe(DEFAULT_TELEMETRY_MODE)
   })
 
   it.each([
