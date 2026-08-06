@@ -46,7 +46,9 @@ describe('dsh-base bundle', () => {
       .map(patch => patch.id)
     // The POSIX-only sandboxed stacks leave the Windows roster as one unit:
     // shell (bash-sandbox/tool-bash), the permission switcher it requires,
-    // and the fs/sandbox policy stack whose OS runners do not exist on win32.
+    // the fs/sandbox policy stack whose OS runners do not exist on win32,
+    // and the approval service — nothing on Windows asks for approval, so
+    // the model is never told approval exists or that asks auto-reject.
     expect(disables).toEqual(
       expect.arrayContaining([
         'bash-sandbox',
@@ -56,6 +58,7 @@ describe('dsh-base bundle', () => {
         'sandbox',
         'sandbox-policy',
         'fs-sandbox',
+        'approval',
       ]),
     )
     const inserted = parsed
@@ -64,9 +67,7 @@ describe('dsh-base bundle', () => {
     expect(inserted).toEqual(
       expect.arrayContaining(['pwsh-local', 'tool-pwsh', 'fs-local']),
     )
-    // Full danger-full-access degradation: no approval prompts on Windows.
-    expect(parsed.find(patch => patch.id === 'approval')?.config).toEqual({
-      policy: 'never',
-    })
+    // Full danger-full-access degradation: no approval surface at all.
+    expect(parsed.find(patch => patch.id === 'approval')?.config).toBeUndefined()
   })
 })

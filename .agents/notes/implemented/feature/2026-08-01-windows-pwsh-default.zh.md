@@ -12,7 +12,7 @@ harness 交付的执行画像在每个平台都是 bash 优先。Windows 主机�
 
 启动交付 profile（`dsh web`、`dsh --profile headless`、一次性任务）的 Windows 主机默认获得 PowerShell 栈；POSIX 主机不变。
 
-- **平台层是数据文件，不是清单重写。** `@deepseek-ai/dsh-base` 随通用 `cordis.patch.yml` 一起交付 [`windows.cordis.patch.yml`](../../../../packages/bundle/base/windows.cordis.patch.yml)：它禁用 `bash-sandbox`/`tool-bash`（仅 POSIX 的执行器及其方言工具）并插入 `pwsh-local`/`tool-pwsh`。Windows 上没有 OS 级 sandbox runner（landlock/bwrap/seatbelt 均为 POSIX 专属），因此该层整体移除 sandbox 栈——`sandbox`、`sandbox-policy`、`fs-sandbox` 被禁用，由不限权的 `dsh-fs-local` 提供 `ctx.fs`——并完全退化为 danger-full-access：`permission`/`ui-permission` 离开清单（dsh-permission 要求有限权能力的执行器——preset 捆绑的是无限制执行器无法兑现的 sandbox 模式；见其构造函数守卫——客户端旋钮会宣传一个并不存在的边界），`approval` 策略为 `never`。保留仅限 fs 的路径规则是摆设：不限权的 shell 一条命令即可绕过，因此诚实的 Windows 姿态是全权访问，而不是一个只有 fs 工具假装执行的边界。
+- **平台层是数据文件，不是清单重写。** `@deepseek-ai/dsh-base` 随通用 `cordis.patch.yml` 一起交付 [`windows.cordis.patch.yml`](../../../../packages/bundle/base/windows.cordis.patch.yml)：它禁用 `bash-sandbox`/`tool-bash`（仅 POSIX 的执行器及其方言工具）并插入 `pwsh-local`/`tool-pwsh`。Windows 上没有 OS 级 sandbox runner（landlock/bwrap/seatbelt 均为 POSIX 专属），因此该层整体移除 sandbox 栈——`sandbox`、`sandbox-policy`、`fs-sandbox` 被禁用，由不限权的 `dsh-fs-local` 提供 `ctx.fs`——并完全退化为 danger-full-access：`permission`/`ui-permission` 离开清单（dsh-permission 要求有限权能力的执行器——preset 捆绑的是无限制执行器无法兑现的 sandbox 模式；见其构造函数守卫——客户端旋钮会宣传一个并不存在的边界），`approval` 服务也被禁用——Windows 清单里没有任何动作需要审批，模型也不会被告知"审批存在"或"请求会被自动拒绝"。保留仅限 fs 的路径规则是摆设：不限权的 shell 一条命令即可绕过，因此诚实的 Windows 姿态是全权访问，而不是一个只有 fs 工具假装执行的边界。
 - **启动器按平台注入该层。** `apps/cli/src/windows-shell.ts` 在 `win32` 主机上从 base bundle 层的 `packageDir` 解析它，置于 bundle 层与用户层之间，覆盖所有组合路径（启动、config-only HMR 重组合、配置转储）。覆盖交付默认是组合决策：偏好 bash 栈（或偏好有限权）的 Windows 主机通过其 profile 或 home 的 `cordis.patch.yml` 重新启用 bash 行。未挂 base bundle 的自定义 profile 被跳过（它们自己拥有 shell 栈）；base bundle 缺 `windows.cordis.patch.yml` 时 fail loud。
 - **冷启动的模块解析已恢复。** profiles 重构把 pwsh 包从 `apps/cli` 的依赖闭包中删掉了，`healProfilesModuleFallback` 因此从未把它们链接进 `$DSH_HOME/profiles/node_modules`，新 Windows 主机解析不到插入的行。`apps/cli` 与 `dsh-base` 重新声明 `dsh-pwsh-local`/`dsh-tool-pwsh`，`dsh-base` 还声明 `dsh-fs-local`；按仓库惯例，base bundle 把每个行插件都列为依赖。
 
@@ -33,12 +33,12 @@ harness 交付的执行画像在每个平台都是 bash 优先。Windows 主机�
 ## 后果
 
 - 运行交付版 `dsh` 表面的 Windows 主机无需配置即获得 `pwsh` 作为 shell 工具、PowerShell 作为 `ctx.bash` 执行器；那里的模型可见清单中没有 `bash`（其工具行被禁用）。
-- Windows 上没有任何沙箱：fs 工具不限权运行（`dsh-fs-local`）、`approval` 策略为 `never`、权限切换器消失。模型可见的姿态是诚实的全权访问，而不是一个 shell 可以绕过的边界。
+- Windows 上没有任何沙箱：fs 工具不限权运行（`dsh-fs-local`）、`approval` 服务不存在（没有任何动作需要审批，模型也不会被告知审批存在）、权限切换器消失。模型可见的姿态是诚实的全权访问，而不是一个 shell 可以绕过的边界。
 - POSIX 主机不变：平台层永不生效，bash 栈仍是通用 `cordis.patch.yml` 的行。
 - 偏好 bash 栈的 Windows 主机（例如 PATH 上有 WSL/Git-Bash 时）通过其 profile 或 home 的 `cordis.patch.yml` 覆盖交付默认——组合配置是唯一的覆盖通道。
 
 ## 验证
 
-- 单元：`apps/cli/tests/windows-shell.spec.ts` 固定 win32 默认、自定义 profile 跳过与缺文件失败，平台注入；`packages/bundle/base/tests/base.spec.ts` 固定交付的 Windows 清单（禁用、插入与 `never` approval 策略）。
+- 单元：`apps/cli/tests/windows-shell.spec.ts` 固定 win32 默认、自定义 profile 跳过与缺文件失败，平台注入；`packages/bundle/base/tests/base.spec.ts` 固定交付的 Windows 清单（禁用、插入与缺席的 approval 服务）。
 - Keyless：win32 上的 `dsh --profile <name> --dump-config` 显示带 `windows.cordis.patch.yml` 出处的 pwsh 行、被禁用的 bash 行；POSIX 转储（CI Linux）不变。
 - 真实组合冒烟在 win32 上启动 web profile，pwsh 栈挂载成功（即本笔记描述的确切清单）。
