@@ -132,7 +132,7 @@ describe('TodoPanel', () => {
     expect(statuses.filter(s => s === 'in_progress')).toHaveLength(3)
     expect(screen.getByText('跑后台构建')).toBeTruthy()
     expect(screen.getByText('读源码')).toBeTruthy()
-    expect(screen.getByText('1 已完成 · 3 进行中 · 1 待处理')).toBeTruthy()
+    expect(screen.getByText('1 已完成 · 3 进行中 · 1 待处理')).toBeTruthy()
   })
 
   it('an all-completed list collapses the summary to the done count alone', () => {

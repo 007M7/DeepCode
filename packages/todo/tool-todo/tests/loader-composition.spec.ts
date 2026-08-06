@@ -6,12 +6,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
-import { Context, FiberState } from 'cordis'
+import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import Include from '@cordisjs/plugin-include'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
@@ -30,9 +30,13 @@ afterEach(async () => {
 function agent(ctx: Context): Agent {
   const scope = ctx.plugin(() => {})
   const id = SessionId('todo-loader-agent')
+  const session = Session.create(id)
   const value: Agent = {
-    id, options: {}, session: new Session(id), status: 'idle', acceptsNextStep: false, ctx: scope.ctx,
-    followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
+    id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
+    status: 'idle', ctx: scope.ctx,
+    followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, cancel() {},
+    runMaintenance: task => task(new AbortController().signal),
+    whenIdle: () => Promise.resolve(),
   }
   ctx.agents.register(value)
   return value
@@ -126,23 +130,10 @@ describe('tool-todo real Loader composition through cordis.yml', () => {
 
   it.each([
     { label: 'is omitted', configLines: [], failure: '$.allowParallelInProgress missing required value' },
-    { label: 'is not boolean', configLines: ['    allowParallelInProgress: "no"'], failure: '$.allowParallelInProgress' },
+    { label: 'is not boolean', configLines: ['    allowParallelInProgress: "no"'], failure: '$.allowParallelInProgress expected boolean' },
   ])('fails loading when allowParallelInProgress $label', async ({ configLines, failure }) => {
-    // loader.await() is all-settled; configuration failure leaves a FAILED
-    // entry and escapes as a late rejection for the host boot to report.
-    const rejections: unknown[] = []
-    const onUnhandled = (err: unknown): void => { rejections.push(err) }
-    process.on('unhandledRejection', onUnhandled)
-    try {
-      const ctx = await boot(configLines)
-      const entry = [...ctx.loader.entries()].find(e => e.options.name === '@deepseek-ai/dsh-tool-todo')
-      expect(entry?.fiber?.state).toBe(FiberState.FAILED)
-      for (let i = 0; i < 100 && rejections.length === 0; i++) {
-        await new Promise(resolve => setTimeout(resolve, 10))
-      }
-      expect(rejections.map(String).join('\n')).toContain(failure)
-    } finally {
-      process.off('unhandledRejection', onUnhandled)
-    }
+    // The policy is self-contained, so misconfiguration fails at load: the
+    // entry's apply rejects and boot never reaches a running tool.
+    await expect(boot(configLines)).rejects.toThrow(failure)
   }, 30_000)
 })
