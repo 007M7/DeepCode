@@ -115,6 +115,40 @@ describe('MarkdownText', () => {
     expect(container.textContent).toContain('**注意：**内容')
   })
 
+  it('links complete HTTP(S) inline code without promoting commands, unsafe schemes, or fences', () => {
+    const localUrl = 'http://127.0.0.1:3199/?demo=1'
+    const remoteUrl = 'https://example.com/preview?q=one%20two#result'
+    const source = [
+      `\`${localUrl}\``,
+      `\`${remoteUrl}\``,
+      '`curl http://127.0.0.1:3199/?demo=1`',
+      '`javascript:alert(1)`',
+      '`mailto:dev@example.com`',
+      `\`  ${localUrl}  \``,
+      '```',
+      localUrl,
+      '```',
+    ].join('\n\n')
+    const { container } = render(<MarkdownText text={source} />)
+
+    const links = screen.getAllByRole('link')
+    expect(links.map(link => link.getAttribute('href'))).toEqual([localUrl, remoteUrl])
+    for (const link of links) {
+      expect(link.closest('code')).not.toBeNull()
+      expect(link.getAttribute('target')).toBe('_blank')
+      expect(link.getAttribute('rel')).toBe('noopener noreferrer')
+    }
+    links[0]?.focus()
+    expect(document.activeElement).toBe(links[0])
+    expect(screen.getByText('curl http://127.0.0.1:3199/?demo=1').closest('a')).toBeNull()
+    expect(screen.getByText('javascript:alert(1)').closest('a')).toBeNull()
+    expect(screen.getByText('mailto:dev@example.com').closest('a')).toBeNull()
+    const paddedCode = [...container.querySelectorAll('code')]
+      .find(code => code.textContent === ` ${localUrl} `)
+    expect(paddedCode?.querySelector('a')).toBeNull()
+    expect(container.querySelector('pre code a')).toBeNull()
+  })
+
   it('registers the CJK strong extension and rejects a parser without CommonMark attention markers', () => {
     const data: { micromarkExtensions?: Extension[] } = {}
     const processor = { data: () => data }
