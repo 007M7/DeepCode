@@ -20,7 +20,7 @@ import type {} from '@deepseek-ai/dsh-command-feedback'
 import {
   Telemetry,
   TelemetryCoordinator,
-  type TelemetryCapture,
+  type TelemetryBackend,
   type TelemetryRecord,
   type TelemetrySeverity,
 } from '@deepseek-ai/dsh-session-telemetry'
@@ -54,6 +54,26 @@ export const TELEMETRY_MODES = [
 ] as const
 
 const DISABLED_FEEDBACK_WARNING = 'session telemetry is DISABLED; nothing will be shared and this feedback remains local'
+const NON_CANONICAL_FEEDBACK_WARNING = 'session telemetry ignored a feedback event absent from the canonical session log'
+const DROP_RECORD: TelemetryBackend['emit'] = () => {}
+
+/** Resolve the default and reject unknown runtime values before transport setup. */
+function resolveMode(mode: TelemetryMode | undefined): TelemetryMode {
+  const resolved = mode ?? TelemetryMode.FULL
+  switch (resolved) {
+    case TelemetryMode.FULL:
+    case TelemetryMode.FEEDBACK_ONLY:
+    case TelemetryMode.DISABLED:
+      return resolved
+    default:
+      return assertNever(resolved)
+  }
+}
+
+/** Fail closed when direct construction bypasses the runtime config schema. */
+function assertNever(value: never): never {
+  throw new Error(`session-telemetry-otel: unsupported mode ${JSON.stringify(value)}`)
+}
 
 /**
  * Plugin configuration: one sharing policy plus two verbatim SDK option
@@ -111,17 +131,15 @@ export class TelemetryOtel extends Telemetry {
   static inject = ['sessions']
   static Config = Config
 
+  private readonly directEmit: TelemetryBackend['emit']
   private readonly provider: LoggerProvider | undefined
-  private readonly ledger: Logger | undefined
-  private readonly ops: Logger | undefined
 
   constructor(ctx: Context, config: Config) {
+    const mode = resolveMode(config.mode)
     super(ctx)
-    const mode = config.mode ?? TelemetryMode.FULL
     if (mode === TelemetryMode.DISABLED) {
+      this.directEmit = DROP_RECORD
       this.provider = undefined
-      this.ledger = undefined
-      this.ops = undefined
       ctx.on('session/event', (_session, event) => {
         if (event.type === 'feedback/record') ctx.logger.warn(DISABLED_FEEDBACK_WARNING)
       })
@@ -168,37 +186,50 @@ export class TelemetryOtel extends Telemetry {
         }),
       ],
     })
-    this.ledger = this.provider.getLogger('@deepseek-ai/dsh-session-telemetry-otel', version)
-    this.ops = this.provider.getLogger('@deepseek-ai/dsh-session-telemetry-otel/ops', version)
-    const capture: TelemetryCapture = mode === TelemetryMode.FULL ? 'live' : 'on-demand'
-    const coordinator = new TelemetryCoordinator(ctx, this, capture)
-    if (mode === TelemetryMode.FEEDBACK_ONLY) {
-      // Session.append commits before publishing `session/event`, so the
-      // canonical log already includes this feedback record when replay begins.
-      ctx.on('session/event', (session, event) => {
-        if (event.type === 'feedback/record') coordinator.captureSession(session, event.seq)
+    const ledger = this.provider.getLogger('@deepseek-ai/dsh-session-telemetry-otel', version)
+    const ops = this.provider.getLogger('@deepseek-ai/dsh-session-telemetry-otel/ops', version)
+    const enqueue: TelemetryBackend['emit'] = (record) => {
+      const logger: Logger = record.channel === 'ops' ? ops : ledger
+      logger.emit({
+        timestamp: record.time,
+        observedTimestamp: record.time,
+        ...SEVERITY[record.severity],
+        // JSON-serializable by the seam's contract (validated at Session.append),
+        // which is exactly the AnyValue subset.
+        body: record.body as AnyValue,
+        attributes: record.attributes,
       })
     }
+    const backend: TelemetryBackend = {
+      emit: enqueue,
+      shutdown: () => this.shutdown(),
+    }
+    if (mode === TelemetryMode.FULL) {
+      this.directEmit = enqueue
+      new TelemetryCoordinator(ctx, backend, 'live')
+      return
+    }
+    this.directEmit = DROP_RECORD
+    const coordinator = new TelemetryCoordinator(ctx, backend, 'on-demand')
+    ctx.on('session/event', (session, event) => {
+      if (event.type !== 'feedback/record') return
+      // Consent is the committed record, not an independently emitted bus value.
+      if (session.events[event.seq] !== event) {
+        ctx.logger.warn(NON_CANONICAL_FEEDBACK_WARNING)
+        return
+      }
+      coordinator.captureSession(session, event.seq)
+    })
   }
 
   /**
-   * Map one seam record onto the SDK logger for its channel — a synchronous
-   * enqueue into the batch processor's queue. Direct calls are no-ops in
-   * `DISABLED`, where no coordinator or SDK pipeline exists.
-   * @param record - the logical record handed over by the coordinator.
+   * Hand a direct service record to the SDK only in `FULL`. Direct calls are
+   * no-ops in `FEEDBACK_ONLY` and `DISABLED`; feedback replay uses a private
+   * backend capability created only for the canonical feedback listener.
+   * @param record - the logical record offered directly to the service.
    */
   emit(record: TelemetryRecord): void {
-    const logger = record.channel === 'ops' ? this.ops : this.ledger
-    if (logger === undefined) return
-    logger.emit({
-      timestamp: record.time,
-      observedTimestamp: record.time,
-      ...SEVERITY[record.severity],
-      // JSON-serializable by the seam's contract (validated at Session.append),
-      // which is exactly the AnyValue subset.
-      body: record.body as AnyValue,
-      attributes: record.attributes,
-    })
+    this.directEmit(record)
   }
 
   // The seam's optional flush() hint is deliberately NOT implemented. The

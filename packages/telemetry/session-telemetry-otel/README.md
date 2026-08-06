@@ -26,6 +26,8 @@ The OpenTelemetry backend for [the telemetry seam](../session-telemetry/) — th
 
 Programmatic TypeScript configuration uses the exported `TelemetryMode` enum (`TelemetryMode.FULL`, `TelemetryMode.FEEDBACK_ONLY`, or `TelemetryMode.DISABLED`); raw string literals are not assignable. Serialized Cordis configuration continues to use the string values shown above.
 
+Upload authorization is positive and fail-closed. An unknown direct-construction mode fails before transport configuration is read. Only `FULL` accepts direct `ctx.telemetry.emit()` calls. `FEEDBACK_ONLY` gives its on-demand coordinator a private backend capability and treats only the exact `feedback/record` object already stored at `session.events[event.seq]` as consent; an independently emitted bus value is ignored. `DISABLED` never constructs the SDK pipeline, even when exporter options are present.
+
 `exporter.url` is required in `FULL` and `FEEDBACK_ONLY`, has no default, and must parse as `http(s)`; it is optional and unused in `DISABLED`. Uploading modes also reject a non-positive-integer `processor.maxExportBatchSize`, which the SDK accepts but then hangs on at shutdown. Everything else is the SDK's option shape, owned and documented by the SDK, and both blocks pass through whole: every `OTLPExporterNodeConfigBase` field (`headers`, `timeoutMillis`, `compression`, `keepAlive`, …) reaches the exporter, and batching, export cadence (`scheduledDelayMillis`), retry, queue bounds, and loss policy under sustained failure are the SDK's documented behavior, tuned through the `processor` passthrough. The backend deliberately implements no `flush()`: the batch processor is the only flusher in the process, which is what makes `shutdown()`'s drain complete.
 
 ## What leaves the machine

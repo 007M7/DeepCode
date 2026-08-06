@@ -105,6 +105,13 @@ describe('TelemetryOtel wire', () => {
     const session = ctx.sessions.create(SessionId('wire'), { meta: { cwd: '/tmp/w' } })
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('turn/end', { turn: 1, reason: { kind: 'error', step: 1, message: 'boom' } })
+    ctx.telemetry.emit({
+      channel: 'ledger',
+      time: Date.now(),
+      severity: 'info',
+      attributes: { 'session.id': 'wire', 'event.type': 'manual', 'event.seq': 99 },
+      body: { direct: true },
+    })
     await fiber.dispose()
 
     expect(captures.length).toBeGreaterThan(0)
@@ -128,6 +135,7 @@ describe('TelemetryOtel wire', () => {
     const end = ledger.find(r => r.record.attributes?.some(a => a.key === 'event.type' && a.value.stringValue === 'turn/end'))
     expect(end?.record.severityNumber).toBe(17)
     expect(end?.record.severityText).toBe('ERROR')
+    expect(eventTypes(captures)).toContain('manual')
 
     expect(ops).toHaveLength(1)
     expect(ops[0]!.record.attributes).toContainEqual({ key: 'telemetry.op', value: { stringValue: 'shutdown' } })
@@ -214,6 +222,16 @@ describe('TelemetryOtel wire', () => {
       mode: TelemetryMode.FEEDBACK_ONLY,
       exporter: { url },
     })
+    ctx.on('telemetry/record', (_record, next) => {
+      ctx.telemetry.emit({
+        channel: 'ledger',
+        time: Date.now(),
+        severity: 'info',
+        attributes: { 'session.id': 'feedback-only', 'event.type': 'direct-bypass', 'event.seq': 99 },
+        body: { mustStayLocal: true },
+      })
+      return next()
+    })
     const session = ctx.sessions.create(SessionId('feedback-only'), { meta: {} })
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     recordFeedback(session, 'first report')
@@ -231,25 +249,48 @@ describe('TelemetryOtel wire', () => {
     expect(allRecords(captures).some(({ scope }) => scope.endsWith('/ops'))).toBe(false)
   })
 
-  it('sends no request when feedback-only mode ends without feedback', async () => {
+  it('ignores direct emits and non-canonical feedback in feedback-only mode', async () => {
     const { url, captures } = await mockCollector()
     const ctx = new Context()
     await ctx.plugin(SessionStore)
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
     const fiber = await ctx.plugin(TelemetryOtel, {
       mode: TelemetryMode.FEEDBACK_ONLY,
       exporter: { url },
     })
     const session = ctx.sessions.create(SessionId('no-feedback'), { meta: {} })
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    ctx.telemetry.emit({
+      channel: 'ledger',
+      time: Date.now(),
+      severity: 'info',
+      attributes: { 'session.id': 'no-feedback', 'event.type': 'direct', 'event.seq': 99 },
+      body: { mustStayLocal: true },
+    })
+    ctx.emit('session/event', session, {
+      type: 'feedback/record',
+      seq: session.events.length,
+      time: Date.now(),
+      data: { text: 'not committed' },
+    })
     await fiber.dispose()
+
+    expect(warn).toHaveBeenCalledWith(
+      'session telemetry ignored a feedback event absent from the canonical session log',
+    )
     expect(captures).toEqual([])
   })
 
-  it('boots disabled without exporter config and warns when feedback stays local', async () => {
+  it('constructs no disabled transport even when exporter options are present', async () => {
+    const { url, captures } = await mockCollector()
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
-    const fiber = await ctx.plugin(TelemetryOtel, { mode: TelemetryMode.DISABLED })
+    const fiber = await ctx.plugin(TelemetryOtel, {
+      mode: TelemetryMode.DISABLED,
+      exporter: { url },
+      processor: { maxExportBatchSize: 0 },
+    })
     const session = ctx.sessions.create(SessionId('disabled'), { meta: {} })
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     recordFeedback(session, 'local report')
@@ -268,6 +309,7 @@ describe('TelemetryOtel wire', () => {
     await fiber.dispose()
     recordFeedback(session, 'after disposal')
     expect(warn).toHaveBeenCalledTimes(1)
+    expect(captures).toEqual([])
   })
 
   it('defaults direct construction to full delivery', async () => {
@@ -305,6 +347,22 @@ describe('TelemetryOtel config fails loud', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await expect(ctx.plugin(TelemetryOtel, config as Config)).rejects.toThrow(message)
+  })
+
+  it('rejects an unknown direct mode before reading transport config', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    let exporterRead = false
+    const config = {
+      mode: 'INVALID',
+      get exporter() {
+        exporterRead = true
+        throw new Error('transport config was read')
+      },
+    } as unknown as Config
+
+    expect(() => new TelemetryOtel(ctx, config)).toThrow(/unsupported mode "INVALID"/)
+    expect(exporterRead).toBe(false)
   })
 })
 

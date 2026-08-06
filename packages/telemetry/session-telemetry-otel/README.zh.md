@@ -26,6 +26,8 @@
 
 程序化 TypeScript 配置使用导出的 `TelemetryMode` 枚举（`TelemetryMode.FULL`、`TelemetryMode.FEEDBACK_ONLY` 或 `TelemetryMode.DISABLED`）；原始字符串字面量不可赋值。序列化后的 Cordis 配置继续使用上表所示的字符串值。
 
+上传授权采用显式许可，且为 fail-closed。通过直接构造传入未知模式时，会在读取传输配置前失败。只有 `FULL` 接受对 `ctx.telemetry.emit()` 的直接调用。`FEEDBACK_ONLY` 向其按需协调器提供私有后端能力，并且仅在 `feedback/record` 对象已经存储于 `session.events[event.seq]` 且对象身份完全相同时，才将其视为同意；独立发出的总线值会被忽略。即使存在导出器选项，`DISABLED` 也绝不会构造 SDK 流水线。
+
 `exporter.url` 在 `FULL` 与 `FEEDBACK_ONLY` 中必填，无默认值，且必须能解析为 `http(s)`；在 `DISABLED` 中可省略且不使用。上传模式也会拒绝不是正整数的 `processor.maxExportBatchSize`，SDK 虽会接受该值，但随后会在关闭时挂起。其余全部是 SDK 自己的选项形态，由 SDK 拥有并在 SDK 文档中说明，两个配置块都整体透传（passthrough）：`OTLPExporterNodeConfigBase` 的每个字段（`headers`、`timeoutMillis`、`compression`、`keepAlive` 等）都会到达导出器；批处理、导出节奏（`scheduledDelayMillis`）、重试、队列上限，以及持续失败下的丢失策略，都是 SDK 的文档化行为，经 `processor` 透传调优。该后端刻意不实现 `flush()`：批处理器是进程内唯一执行 flush 的组件，`shutdown()` 的排空正因如此才是完整的。
 
 ## 哪些数据会离开本机
