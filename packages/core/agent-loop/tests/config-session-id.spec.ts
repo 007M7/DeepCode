@@ -5,7 +5,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import LlmService from '@deepseek-ai/dsh-llm'
-import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId, SessionPreparation } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
@@ -296,14 +296,15 @@ describe('config-driven session id', () => {
   })
 
   it.each(['resolve', 'reject'] as const)(
-    'abandons an exact-id persistence lookup that later %s when AgentLoop disposal starts',
+    'abandons an exact-id preparation that later %s when AgentLoop disposal starts',
     async (outcome) => {
       const root = await mkdtemp(join(tmpdir(), 'dsh-cfg-exact-dispose-'))
       dirs.push(root)
       const ctx = await makeCoreContext()
       await ctx.plugin(SessionPersistenceJsonl, { root })
-      const loading = Promise.withResolvers<Awaited<ReturnType<typeof ctx.sessionPersistence.load>>>()
-      vi.spyOn(ctx.sessionPersistence, 'load').mockReturnValue(loading.promise)
+      const preparing = Promise.withResolvers<SessionPreparation>()
+      vi.spyOn(ctx.sessionPersistence, 'prepare').mockReturnValue(preparing.promise)
+      const released = vi.fn()
       const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
       const failures: unknown[] = []
       ctx.on('agent-loop/config-start-failed', (_sessionId, error) => { failures.push(error) })
@@ -313,18 +314,15 @@ describe('config-driven session id', () => {
       })
       await loop.dispose()
       if (outcome === 'resolve') {
-        loading.resolve({
-          meta: {
-            id: SessionId('config-exact-dispose'),
-            version: 0,
-            createdAt: Date.now(),
-          },
-          events: [],
-        })
+        preparing.resolve(SessionPreparation.create(
+          ctx.sessions.prepare(SessionId('config-exact-dispose')),
+          { release: released },
+        ))
       } else {
-        loading.reject(new Error('startup cancelled by teardown'))
+        preparing.reject(new Error('startup cancelled by teardown'))
       }
       await Promise.resolve()
+      if (outcome === 'resolve') await expect.poll(() => released).toHaveBeenCalledOnce()
       expect(ctx.agents.get(SessionId('config-exact-dispose'))).toBeUndefined()
       expect(failures).toEqual([])
       expect(warn).not.toHaveBeenCalled()

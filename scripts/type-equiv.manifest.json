@@ -401,6 +401,32 @@
     },
     {
       "doc": "docs/core-data-structures/persistence.md",
+      "symbol": "RestoredSessionOptions",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/persistence.md",
+      "symbol": "PrepareSessionOptions",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/persistence.md",
+      "symbol": "SessionPreparationOptions",
+      "source": "packages/core/session/src/preparation.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/persistence.md",
+      "symbol": "SessionPreparation",
+      "source": "packages/core/session/src/preparation.ts",
+      "projection": "public-api"
+    },
+    {
+      "doc": "docs/core-data-structures/persistence.md",
+      "symbol": "SessionInspection",
+      "source": "packages/session-persistence/session-persistence/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/persistence.md",
       "symbol": "SessionLocation",
       "source": "packages/session-persistence/session-persistence/src/index.ts"
     },
