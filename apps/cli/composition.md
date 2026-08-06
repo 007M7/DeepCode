@@ -3,11 +3,11 @@
 
 # DSH Base Composition
 
-The raw CLI applies one required caller-selected patch list over this shared base; Web and headless apply their own shipped overlays.
+The dsh-base bundle patch every profile applies first; mode bundles (dsh-web-app, dsh-headless) and the user's profile layer patch over it.
 
 ```mermaid
 flowchart LR
-  cfg["apps/cli/config/base.cordis.yml<br/>cordis.yml"]
+  cfg["packages/bundle/base/cordis.patch.yml<br/>cordis.yml"]
   plugin_dsh_base_timer["timer<br/>@cordisjs/plugin-timer"]
   cfg --> plugin_dsh_base_timer
   plugin_dsh_base_hmr["hmr<br/>@cordisjs/plugin-hmr"]
@@ -220,6 +220,6 @@ flowchart LR
 | `fs-sandbox` | `@deepseek-ai/dsh-fs-sandbox` |
 | `llm-deepseek` | `@deepseek-ai/dsh-llm-deepseek` |
 
-Source config: [`apps/cli/config/base.cordis.yml`](config/base.cordis.yml).
+Source config: [`packages/bundle/base/cordis.patch.yml`](../../packages/bundle/base/cordis.patch.yml).
 
 Maintenance mode: hybrid: the leaf plugin list is parsed from its `cordis.yml`; app package expansion is curated from package source.
