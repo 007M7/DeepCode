@@ -47,7 +47,7 @@ try {
     arguments: { name: 'dsh-badge' },
     signal: new AbortController().signal,
   })
-  process.stdout.write(`${JSON.stringify({ catalog, summary, result })}\n`)
+  process.stdout.write(`${JSON.stringify({ catalog: catalog ?? null, summary: summary ?? null, result })}\n`)
 } finally {
   await ctx.fiber.dispose()
 }

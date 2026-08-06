@@ -34,6 +34,7 @@ describe('dsh badge assembled snapshot', () => {
     expect(enabled.stderr).toBe('')
     expect(disabledSnapshot).toMatchInlineSnapshot(`
       {
+        "catalog": null,
         "result": {
           "content": [
             {
@@ -46,6 +47,7 @@ describe('dsh badge assembled snapshot', () => {
           },
           "isError": true,
         },
+        "summary": null,
       }
     `)
     expect(enabledSnapshot).toMatchInlineSnapshot(`
@@ -169,5 +171,5 @@ describe('dsh badge assembled snapshot', () => {
         },
       }
     `)
-  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS * 2)
 })

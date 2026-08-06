@@ -7,14 +7,14 @@
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import type { Context } from 'cordis'
-import type {
-  SkillCandidate,
-  SkillDefinition,
-  SkillProvider,
+import {
+  BUNDLED_SKILL_RANK,
+  type SkillCandidate,
+  type SkillDefinition,
+  type SkillProvider,
 } from '@deepseek-ai/dsh-skill'
 
 const PROVIDER_NAME = 'dsh-badge'
-const BUNDLED_RANK = 600
 const SKILL_BODY_URL = new URL('../assets/dsh-badge.md', import.meta.url)
 const RESOURCE_BASE = {
   kind: 'directory',
@@ -29,7 +29,7 @@ const CANDIDATE: SkillCandidate = {
   provider: PROVIDER_NAME,
   source: 'bundled',
   resourceBase: RESOURCE_BASE,
-  rank: BUNDLED_RANK,
+  rank: BUNDLED_SKILL_RANK,
   locator: SKILL_BODY_URL,
 }
 

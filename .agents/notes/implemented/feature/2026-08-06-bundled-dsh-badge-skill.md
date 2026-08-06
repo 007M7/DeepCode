@@ -6,7 +6,7 @@ English | [中文](2026-08-06-bundled-dsh-badge-skill.zh.md)
 
 ## Problem
 
-DeepSeek Harness has an official attribution badge skill, but keeping it only in a developer's personal skill directory makes it unavailable to other DSH installations and gives the shipped application no explicit opt-in point.
+The [Cordis tutorial](../../../../docs/cordis-tutorial/index.md) uses an official “powered by dsh” badge across its pages, but the shipped CLI has no reusable instructions or explicit opt-in provider for applying the same attribution elsewhere.
 
 ## Decision
 
@@ -18,7 +18,7 @@ The provider uses the bundled rank after project, custom, and user filesystem so
 
 ## Alternatives considered
 
-A Codex marketplace plugin was rejected because it would install into a different runtime and would not participate in DSH's `ctx.skills` seam. Mounting `dsh-skill-local` over the packaged files was rejected because filesystem discovery, parsing, and watching add lifecycle machinery that an immutable single-skill provider does not need.
+**Mount packaged files through `dsh-skill-local`.** Rejected because filesystem discovery, parsing, and watching add lifecycle machinery that an immutable single-skill provider does not need.
 
 ## Consequences
 

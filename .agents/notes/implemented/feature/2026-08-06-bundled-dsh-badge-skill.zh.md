@@ -6,19 +6,19 @@ Status: implemented
 
 ## 问题
 
-DeepSeek Harness 已有官方署名徽章 skill（技能），但如果它只保存在某位开发者的个人 skill 目录中，其他 DSH 安装实例便无法使用，交付的应用也没有显式的选择加入点。
+[Cordis 教程](../../../../docs/cordis-tutorial/index.md)的各个页面都使用官方「powered by dsh」徽章，但交付的 CLI（命令行界面）既没有用于在其他位置应用同样署名的可复用指令，也没有可显式选择加入的提供方。
 
 ## 决策
 
 `@deepseek-ai/dsh-skill-badge` 是一个原生 Cordis 插件，会在 `ctx.skills` 上注册一个不可变的内置提供方。该提供方负责 `dsh-badge` 的摘要、指令正文和 PNG 资源基底；`dsh-tool-skill` 仍是面向模型的目录与 loader 渲染的唯一归属方。
 
-交付的 CLI（命令行界面）组合将 `skill-badge` 声明为禁用。启用这个现有配置行就是显式选择加入；禁用它的安装实例不会公开任何徽章 skill，也不会获得任何模型可见内容。
+交付的 CLI 组合将 `skill-badge` 声明为禁用。启用这个现有配置行就是显式选择加入；禁用它的安装实例不会公开任何徽章 skill（技能），也不会获得任何模型可见内容。
 
 该提供方使用排在项目、自定义及用户文件系统来源之后的内置 rank，因此用户自有的 `dsh-badge` 定义可通过注册表的常规优先级契约覆盖它。提供方释放时，注册表拥有的 effect 会移除该贡献。
 
 ## 曾考虑的替代方案
 
-未采用 Codex marketplace 插件，因为它会安装到不同的运行时，无法参与 DSH 的 `ctx.skills` seam。未采用使用 `dsh-skill-local` 挂载随包文件的方案，因为文件系统发现、解析和监视会引入不必要的生命周期机制，而不可变的单一 skill 提供方并不需要这些机制。
+**通过 `dsh-skill-local` 挂载随包文件。** 否决，因为文件系统发现、解析和监视会引入生命周期机制，而不可变的单一 skill 提供方并不需要这些机制。
 
 ## 后果
 

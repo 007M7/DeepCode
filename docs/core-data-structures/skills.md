@@ -2,9 +2,9 @@
 
 English | [中文](skills.zh.md)
 
-The [skill capability family](../../packages/skill) is split across three packages: the registry ([dsh-skill](../../packages/skill/skill), `ctx.skills`) merges provider catalogs; the local provider ([dsh-skill-local](../../packages/skill/skill-local)) scans and watches project/custom/user directories; the consumer ([dsh-tool-skill](../../packages/skill/tool-skill)) owns the initial and replacement catalogs plus the model-facing `skill` tool. Skills are optional instructions, not session events, so their vocabulary lives here rather than in [core.md](core.md).
+The [skill capability family](../../packages/skill) includes the registry ([dsh-skill](../../packages/skill/skill), `ctx.skills`), the local provider ([dsh-skill-local](../../packages/skill/skill-local)), the optional packaged badge provider ([dsh-skill-badge](../../packages/skill/skill-badge)), and the consumer ([dsh-tool-skill](../../packages/skill/tool-skill)). The registry merges provider catalogs; providers contribute local or packaged skills; the consumer owns the initial and replacement catalogs plus the model-facing `skill` tool. Skills are optional instructions, not session events, so their vocabulary lives here rather than in [core.md](core.md).
 
-Source: [`packages/skill/skill/src/index.ts`](../../packages/skill/skill/src/index.ts), [`packages/skill/skill-local/src/index.ts`](../../packages/skill/skill-local/src/index.ts), and [`packages/skill/tool-skill/src/index.ts`](../../packages/skill/tool-skill/src/index.ts).
+Source: [`packages/skill/skill/src/index.ts`](../../packages/skill/skill/src/index.ts), [`packages/skill/skill-local/src/index.ts`](../../packages/skill/skill-local/src/index.ts), [`packages/skill/skill-badge/src/index.ts`](../../packages/skill/skill-badge/src/index.ts), and [`packages/skill/tool-skill/src/index.ts`](../../packages/skill/tool-skill/src/index.ts).
 
 ## Provider registry
 
@@ -72,7 +72,9 @@ The shipped local provider scans roots in rank order:
 | 500 | `user-agents` | `<agentsHome>/skills` |
 | 600 | `bundled` | `Config.bundledSkillDir` when configured |
 
-The project root is the nearest ancestor containing `.git`; without one, the current cwd is used. When `ctx.fs` is available, the git-root walk probes `.git` through the filesystem service so remote or sandboxed workspaces do not fall back to the host filesystem boundary. The user DSH root skips its `.system` child. The local provider does not ship built-in system skills; deployments supply built-ins through another provider.
+The project root is the nearest ancestor containing `.git`; without one, the current cwd is used. When `ctx.fs` is available, the git-root walk probes `.git` through the filesystem service so remote or sandboxed workspaces do not fall back to the host filesystem boundary. The user DSH root skips its `.system` child. The local provider does not synthesize built-in system skills; deployments supply packaged skills through configured bundled roots or dedicated providers.
+
+`dsh-skill-badge` registers one immutable `bundled` candidate at `BUNDLED_SKILL_RANK` and exposes its packaged asset directory through `resourceBase`. The shipped CLI declares the plugin disabled, so enabling its composition row is an explicit opt-in.
 
 Chokidar watches existing roots for direct bundle/flat-entry additions and removals plus direct skill-entry changes. A missing root is followed one absent path segment at a time from its nearest existing ancestor until Chokidar can attach. Resource files below a bundle are not catalog changes. Model-facing `write` and `edit` observations synchronously invalidate the provider when their target is catalog-relevant, while the host watcher covers IDE, Git, shell, and external-process mutations. Watcher failures make the current observation incomplete without hiding readable candidates from direct loads; project-scoped watchers use a configured bounded LRU.
 
