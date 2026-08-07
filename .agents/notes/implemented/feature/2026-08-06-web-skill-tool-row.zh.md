@@ -12,7 +12,7 @@ Web transcript（文本记录）通过通用后备行渲染 `skill` 调用，使
 
 `ui-skill` 在现有的 `conversation.chat.toolview` 键控 slot 下注册 key 为 `skill` 的组件。该组件基于公开的 `ToolRowProps` 契约自行实现行 chrome，沿用 Bash 示例的独立注册方姿态，而不导入 conversation 私有组件。
 
-收起的行使用 16 像素的文档与闪光组合图标，并沿用 Bash 行的中性色层级：图标采用三级色，`Skill` 标题采用二级色，分隔符采用 caption 色，skill 名称采用三级色。运行、失败和中断调用分别沿用 transcript 的扫光、错误状态点加首行摘要，以及警告状态点语义。已结算调用可以通过整个摘要行展开一个高度上限为 260 像素的 `Instructions` 卡片，其中原样呈现持久化结果文本；用于跳转至 trajectory 的现有 `Inspect` 入口仍保留在卡片下方。
+收起的行使用 14 像素的文档与闪光组合图标，并沿用 Bash 行的中性色层级：图标采用三级色，`Skill` 标题采用二级色，分隔符采用 caption 色，skill 名称采用三级色。运行、失败和中断调用分别沿用 transcript 的扫光、错误状态点加首行摘要，以及警告状态点语义。已结算调用可以通过整个摘要行展开一个高度上限为 260 像素的 `Instructions` 卡片，其中原样呈现持久化结果文本；用于跳转至 trajectory 的现有 `Inspect` 入口仍保留在卡片下方。
 
 该行的所有可见值均派生自当前 runtime 窗口中已配对的调用／结果片段。skill 名称来自已记录的 `name` 参数，指令来自持久化的结果内容；该行绝不关联当前 skill 目录来读取描述或提供方元数据。如果分页将调用留在窗口外，结果便没有工具身份，并继续使用通用后备路径，而不是扩展 history 协议契约。现有的 ACP（Agent Client Protocol）`skill-load` 记录经由真实的 Web 持久化与组合路径写入，用于无需密钥的交互和无障碍快照。
 
