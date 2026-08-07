@@ -198,6 +198,35 @@ function err<T>(request: RpcRequest<unknown>, error: RpcError): RpcResponse<T> {
   return { rpcId: request.rpcId, result: { ok: false, error } }
 }
 
+/**
+ * The RPC refusal a preset failure becomes, or undefined when the failure is
+ * about something else.
+ *
+ * Both the session-create path and the switch path can be handed the same two
+ * failures, and a client that has to branch on the code needs them worded the
+ * same from either.
+ * @param request - the request being answered.
+ * @param error - the thrown value.
+ * @returns the refusal, or undefined when the caller should keep handling.
+ */
+function presetFailure(request: RpcRequest<unknown>, error: unknown): RpcResponse<never> | undefined {
+  if (error instanceof UnknownPresetError) {
+    return err(request, {
+      code: 'agent-preset-not-found',
+      message: error.message,
+      details: { agentPreset: error.presetId, available: [...error.available] },
+    })
+  }
+  if (error instanceof PresetMountError) {
+    return err(request, {
+      code: 'agent-preset-invalid',
+      message: error.message,
+      details: { agentPreset: error.presetId, reason: error.reason },
+    })
+  }
+  return undefined
+}
+
 /** Simple async queue: core callbacks push, the AsyncIterable pulls; abort/return cleans up. */
 class FrameQueue<F> {
   private buffer: F[] = []
@@ -1771,20 +1800,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               },
             })
           }
-          if (error instanceof UnknownPresetError) {
-            return err(request, {
-              code: 'agent-preset-not-found',
-              message: error.message,
-              details: { agentPreset: error.presetId, available: [...error.available] },
-            })
-          }
-          if (error instanceof PresetMountError) {
-            return err(request, {
-              code: 'agent-preset-invalid',
-              message: error.message,
-              details: { agentPreset: error.presetId, reason: error.reason },
-            })
-          }
+          const refused = presetFailure(request, error)
+          if (refused !== undefined) return refused
           if (error instanceof SessionCwdConflict) {
             return err(request, {
               code: 'session-conflict',
@@ -2595,20 +2612,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             agent.session.append('agent-preset/selected', { agentPreset: preset.id })
             return ok(request, { agentPreset: preset.id })
           } catch (error: unknown) {
-            if (error instanceof UnknownPresetError) {
-              return err(request, {
-                code: 'agent-preset-not-found',
-                message: error.message,
-                details: { agentPreset: error.presetId, available: [...error.available] },
-              })
-            }
-            if (error instanceof PresetMountError) {
-              return err(request, {
-                code: 'agent-preset-invalid',
-                message: error.message,
-                details: { agentPreset: error.presetId, reason: error.reason },
-              })
-            }
+            const refused = presetFailure(request, error)
+            if (refused !== undefined) return refused
             return err(request, {
               code: 'internal',
               message: `failed to select agent preset "${agentPreset}": ${String(error)}`,
