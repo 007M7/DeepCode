@@ -25,8 +25,8 @@ Two further consequences. Loader mounts sibling rows concurrently, so one row ca
 Four framework facts shape the mechanism:
 
 - **A profile's rows arrive inside the root include's `patches` option.** Include is an entry-tree owner, so its static entry-config resolver interpolates Include's own options while preserving nested `!!js` nodes for their target rows instead of recursively evaluating them in the Include context.
-- **Cordis activates a fiber only after all declared injections are active.** Loader supplies a deferred config resolver to that fiber; the resolver runs immediately before each activation against the fiber's own context, after Cordis snapshots its injected services.
-- **Provider replacement and HMR must preserve the same contract.** Fiber reactivation re-runs the resolver, HMR carries it to the replacement fiber, and a pending row accepts option changes without prematurely evaluating expressions against absent services.
+- **Cordis activates a fiber only after all declared injections are active.** Immediately before each activation, Cordis runs the `internal/config` waterfall against the fiber's own context; Loader's listener interpolates the raw config after Cordis snapshots its injected services.
+- **Provider replacement and HMR must preserve the same contract.** Fiber reactivation re-runs the waterfall, HMR carries the raw config to the replacement fiber, and a pending row accepts option changes without prematurely evaluating expressions against absent services.
 - **A row cannot be inserted from inside a mounting plugin** — `tree.create` returns a prefixed id it then fails to resolve — so a conditional row ships `disabled: true` and an active row enables it (`dsh web --dev` and its reload chain); the enabled row then follows ordinary injection ordering.
 
 This puts dependency ordering at the seam that owns it. Rows keep their `inject` and config, Loader mounts the composition once, and the launcher only provides argv and process-lifecycle services.

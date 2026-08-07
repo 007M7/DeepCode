@@ -11,7 +11,7 @@
 import { networkInterfaces } from 'node:os'
 import { Command } from 'commander'
 import type { Context } from 'cordis'
-import type { EntryOptions } from '@cordisjs/plugin-loader'
+import { interpolate, type EntryOptions } from '@cordisjs/plugin-loader'
 import { runStartup } from '@deepseek-ai/dsh-cmdline'
 
 /** Stable Cordis plugin name. */
@@ -49,6 +49,20 @@ export interface WebStartupValues {
 
 /** The webserver schema's all-interfaces bind literal: only this bind derives LAN authorities. */
 const ALL_INTERFACES_HOST = '0.0.0.0'
+
+/**
+ * Read the deployment trust list before its row mounts and validates config.
+ * @param config - the connection row's config resolved before `webStartup` exists.
+ * @returns its configured authorities, or an empty list when absent.
+ * @throws when the file-backed config is not an array of strings.
+ */
+function configuredTrustedHosts(config: unknown): string[] {
+  const value = (config as { trustedHosts?: unknown } | undefined)?.trustedHosts
+  if (value === undefined) return []
+  const valid = Array.isArray(value) && value.every((entry: unknown) => typeof entry === 'string')
+  if (!valid) throw new Error('web-startup: the composed connection trustedHosts must be an array of strings')
+  return value
+}
 
 /**
  * Non-internal IPv4 interface addresses of this machine — the IP-literal
@@ -118,19 +132,33 @@ Examples:
  * Turn the parsed flags into the values the web rows read.
  * @param program - the parsed web command.
  * @param rows - the waiting rows' composed options, in tree order.
+ * @param ctx - the startup context used to resolve composed fallbacks before `webStartup` exists.
  * @returns the web rows' service value.
  */
-function planWebStartup(program: Command, rows: readonly EntryOptions[]): WebStartupValues {
+function planWebStartup(program: Command, rows: readonly EntryOptions[], ctx: Context): WebStartupValues {
   const options = program.opts<WebOptions>()
   if (options.port !== undefined && !/^\d+$/.test(options.port)) {
     program.error(`error: --port must be a number, got ${JSON.stringify(options.port)}`)
   }
-  const webserver = rows.find(row => row.id === 'webserver')
-  if (webserver === undefined) throw new Error('web-startup: the web composition has no waiting "webserver" row to configure')
-  // The bind this invocation ends on: the flag, else what the row falls back
-  // to, which is the same literal its config expression names.
-  const bindHost = options.host ?? (webserver.config as { host?: string } | undefined)?.host
-  const { lanAddresses, trustedHosts } = resolveLanTrust(bindHost, options.trustedHost ?? [])
+  const row = (id: string): EntryOptions => {
+    const found = rows.find(candidate => candidate.id === id)
+    if (found === undefined) throw new Error(`web-startup: the web composition has no waiting ${JSON.stringify(id)} row to configure`)
+    return found
+  }
+  const webserver = row('webserver')
+  row('api-gateway')
+  row('web-runtime')
+  const connection = row('connection')
+  // Include preserves nested row expressions until their own injections are
+  // active. Resolve just the composed fields this startup plan needs against
+  // the pre-service context, where their `ctx.get('webStartup')` fallback wins.
+  const webserverConfig = interpolate(ctx, webserver.config) as { host?: string } | undefined
+  const connectionConfig: unknown = interpolate(ctx, connection.config)
+  const bindHost = options.host ?? webserverConfig?.host
+  const sampled = resolveLanTrust(bindHost, options.trustedHost ?? [])
+  // Preserve deployment authorities when invocation-derived LAN literals or
+  // explicit extras become the runtime value read by the connection row.
+  const composedTrusted = configuredTrustedHosts(connectionConfig)
   return {
     ...options.host !== undefined && { host: options.host },
     ...options.port !== undefined && { port: Number(options.port) },
@@ -138,15 +166,15 @@ function planWebStartup(program: Command, rows: readonly EntryOptions[]): WebSta
     // mode and lanAddresses describe this invocation, never the deployment, so
     // they are resolved on every boot.
     mode: options.dev === true ? 'development' : 'production',
-    trustedHosts,
-    lanAddresses,
+    trustedHosts: [...composedTrusted, ...sampled.trustedHosts],
+    lanAddresses: sampled.lanAddresses,
   }
 }
 
 /**
- * Resolve the web flag family and start the rows that read it.
+ * Resolve the web flag family for rows waiting on `webStartup`.
  * @param ctx - plugin context carrying the command line and the Loader.
- * @returns nothing once the web rows are started, or once `--help` requested exit.
+ * @returns nothing once the values are provided, or once `--help` requested exit.
  */
 export function apply(ctx: Context): void {
   runStartup(ctx, WEB_STARTUP_SERVICE, webCommand(), planWebStartup)

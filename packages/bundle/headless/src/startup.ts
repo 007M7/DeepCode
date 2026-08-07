@@ -64,7 +64,7 @@ function planHeadlessStartup(program: Command, rows: readonly EntryOptions[]): H
 }
 
 /**
- * Resolve the task and start the runner that reads it.
+ * Resolve the task for the runner waiting on `headlessStartup`.
  * @param ctx - plugin context carrying the command line and the Loader.
  * @returns nothing once the runner is started, or once `--help` or a missing task requested exit.
  */

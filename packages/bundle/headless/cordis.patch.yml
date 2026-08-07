@@ -33,4 +33,4 @@
       name: '@deepseek-ai/dsh-headless'
       inject: [headlessStartup]
       config:
-        task: !!js ctx.get('headlessStartup')?.task
+        task: !!js ctx.headlessStartup.task

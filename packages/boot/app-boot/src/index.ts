@@ -199,7 +199,7 @@ export function loadLayeredEnv(
 const bootstrapIncludes = new WeakMap<Context, Entry>()
 
 // The include's YAML dialect (`!!js` scalars become expression nodes the
-// Loader interpolates against each entry's context at mount time), imported
+// Loader interpolates against each entry's injection-ready context), imported
 // from the include itself so patch parsing and config dumping can never drift
 // from what the include mounts. User patch layers share it so they may
 // reference `process.env`.
@@ -525,31 +525,6 @@ export async function mountRootInclude(
   const entry = loader.resolve(includeId)
   bootstrapIncludes.set(ctx, entry)
   return entry
-}
-
-/**
- * Re-apply the root include's patch list on a booted tree, and wait for the
- * result to settle.
- *
- * This is how a boot mounts its composition in phases: an app's startup row
- * resolves what the rest of the tree reads (`!!js ctx.get('webStartup')?.port`),
- * and a row's config expressions are evaluated when the include applies them —
- * so the rest of the composition must be applied after the startup rows are
- * active, not before.
- * @param ctx - the booted context whose root include to re-apply.
- * @param patches - the full patch list for this generation.
- * @returns nothing once the new generation has settled; a disposed tree is a no-op.
- * @throws when the tree was booted without the root include.
- */
-export async function applyRootPatches(ctx: Context, patches: readonly PatchOptions[]): Promise<void> {
-  const entry = bootstrapIncludes.get(ctx)
-  if (entry === undefined) throw new Error('dsh: applying root patches requires the root Include entry')
-  // A surface can dispose the whole tree while a startup row is still parsing
-  // (`--help`, or an early SIGTERM); there is then nothing left to mount.
-  if (ctx.get('loader') === undefined) return
-  const { patches: _previous, ...includeConfig } = entry.options.config as Include.Config
-  await entry.update({ config: { ...includeConfig, patches: [...patches] } })
-  await ctx.get('loader')?.await()
 }
 
 /**

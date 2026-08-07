@@ -35,7 +35,7 @@ Loader 行的注入同时也是发现声明，因此无需组合包 manifest 字
   inject: [cmdlineArgs]
 ```
 
-启动器在组合结果中找出带有该注入的活跃行，并先于其他一切挂载它们。
+启动器只用该注入来拒绝那些没有命令行所有者却带有应用参数的组合。Loader 只挂载一次整套组合，并让每一行等待自身的注入激活。
 
 应用用 flag 配置的每一行随后读取启动行解析出的取值，各自点名自己取用的键，以及回退时使用的值：
 
@@ -44,19 +44,19 @@ Loader 行的注入同时也是发现声明，因此无需组合包 manifest 字
   name: '@deepseek-ai/dsh-host-webserver'
   inject: [webStartup]
   config:
-    host: !!js ctx.get('webStartup')?.host ?? '127.0.0.1'
-    port: !!js ctx.get('webStartup')?.port ?? 3080
+    host: !!js ctx.webStartup.host ?? '127.0.0.1'
+    port: !!js ctx.webStartup.port ?? 3080
 ```
 
-`runStartup` 解析参数，向 `plan` 索取取值，并把它们作为服务提供出去。遇到 `--help`、`--version`、解析错误，或 `plan` 发出的 `program.error(...)` 时，它输出 commander 的文本并请求退出：什么也不会被提供，组合的其余部分也从不挂载。
+`runStartup` 解析参数，向 `plan` 索取取值，并把它们作为服务提供出去。遇到 `--help`、`--version`、解析错误，或 `plan` 发出的 `program.error(...)` 时，它输出 commander 的文本并请求退出：什么也不会被提供，因此依赖启动服务的行不会激活。
 
-`plan` 收到的是所有注入该服务的行的选项，用于那些必须顾及组合本身的取值：随附的例子是 `/api` 栅栏 authority，因为组合所配置的 bind 决定了是否要派生 LAN 字面量。
+`plan` 会收到启动上下文，以及所有注入该服务的行的选项，用于那些必须顾及组合本身的取值。此时 Include 仍保留着嵌套表达式的原始形态，因此需要组合回退值的 plan 可以基于服务提供前的启动上下文插值相关行配置；随附的例子是 `/api` 栅栏 authority。
 
-### 为什么 boot 分阶段
+### 注入如何排列配置求值
 
-行的配置表达式在 include 施加该行时求值，而严格的 `ctx.get` 只对提供方 fiber 已经 active 的服务作答。因此一套组合分两趟挂载：先是各个活跃的 `cmdlineArgs` 消费方，然后才是其余部分。后一趟的行读到的是活的取值，`--help` 在第二趟存在之前就退出，而用户编辑一个活动的 patch 文件时，这一趟会针对仍然在线的服务重新运行，因此 flag 不会被悄悄重置。
+Loader 会把一行的 `!!js` 插值推迟到该行声明的注入全部激活之后，再基于该行的插件上下文求值。所以上例可以直接读取 `ctx.webStartup`：Loader 索取 `webserver` 的配置之前，Cordis 已经填入了这个注入服务。Include 树会保留嵌套表达式节点，直到各个目标行到达这一时点。提供方替换与活动 patch 重载都会针对当前注入服务重新插值，因此启动 flag 不会被悄悄重置。
 
-`enableRow(ctx, id)` 打开某个组合包以禁用状态交付、只有部分调用才需要的行（`dsh web --dev` 及其客户端插件重载链路）。要从与被启用行同一趟挂载的行里调用它，而不是从启动行：在第一趟被启用的行会去等待第二趟才挂载的服务。
+`enableRow(ctx, id)` 打开某个组合包以禁用状态交付、只有部分调用才需要的行（`dsh web --dev` 及其客户端插件重载链路）。Loader 会对启用后的行应用普通的注入顺序。
 
 ### 一条命令行，一个所有者
 

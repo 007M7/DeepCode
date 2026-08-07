@@ -11,11 +11,10 @@ import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Hmr from '@deepseek-ai/cordis-plugin-hmr'
+import Include, { type PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Timer from '@deepseek-ai/cordis-plugin-timer'
-import type { PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import {
-  applyRootPatches,
   boot,
   loadOptionalPatches,
   PROFILE_PATCH_FILENAME,
@@ -110,61 +109,81 @@ function entryConfig(ctx: Context, id: string): unknown {
   return [...ctx.loader.entries()].find(entry => entry.options.id === id)?.options.config
 }
 
-describe('applyRootPatches', () => {
-  it('mounts a later phase whose rows read what the first phase provided', async () => {
-    // The phased boot in one test: a row's `!!js` config is evaluated when the
-    // include applies it, so a value an earlier phase provided is what a later
-    // phase's rows read.
+describe('Loader config interpolation', () => {
+  it("resolves Include's own !!js options", async () => {
     const dir = tmp()
-    writeFileSync(join(dir, 'provider.mjs'), [
-      'export const name = "provider"',
-      'export function apply(ctx) { ctx.provide("phaseOne", { value: "resolved" }) }',
-      '',
-    ].join('\n'))
-    writeFileSync(join(dir, 'reader.mjs'), [
-      'export const name = "reader"',
-      'export const inject = ["phaseOne"]',
-      'export function apply() {}',
-      '',
-    ].join('\n'))
-    writeFileSync(join(dir, 'cordis.yml'), '[]\n')
-    const composition: PatchOptions[] = [{
-      insert: [
-        { id: 'provider', name: './provider.mjs' },
-        {
-          id: 'reader',
-          name: './reader.mjs',
-          inject: ['phaseOne'],
-          config: { value: { __jsExpr: "ctx.get('phaseOne')?.value ?? 'fallback'" } },
-        },
-      ],
-    }]
-    const ctx = await boot(NAME, join(dir, 'cordis.yml'), [
-      ...structuredClone(composition),
-      { id: 'reader', disabled: true },
-    ])
+    writeFileSync(join(dir, 'noop.mjs'), 'export function apply() {}\n')
+    writeFileSync(join(dir, 'cordis.yml'), '- id: noop\n  name: ./noop.mjs\n')
+    const ctx = new Context()
+    await ctx.plugin(Loader)
+    ctx.loader.builtins.include = Include
+    ctx.provide('includePath', pathToFileURL(join(dir, 'cordis.yml')).href)
     try {
-      // Phase one leaves the reader disabled, so the plugin never ran.
-      const reader = [...ctx.loader.entries()].find(entry => entry.options.id === 'reader')
-      expect(reader?.fiber).toBeUndefined()
-      await applyRootPatches(ctx, structuredClone(composition))
-      // Phase two evaluates its config expression against the provided value.
-      expect(entryConfig(ctx, 'reader')).toEqual({ value: 'resolved' })
+      await ctx.loader.create({
+        name: 'cordis:include',
+        config: { path: { __jsExpr: "ctx.get('includePath')" } },
+      })
+      await ctx.loader.await()
+      expect([...ctx.loader.entries()].some(entry => entry.options.id === 'noop')).toBe(true)
     } finally {
       await ctx.fiber.dispose()
     }
   })
 
-  it('does nothing on a tree that was already disposed', async () => {
+  it('waits for row injections before resolving !!js and resolves again after provider replacement', async () => {
     const dir = tmp()
-    const ctx = await boot(NAME, writeTree(dir))
-    await ctx.fiber.dispose()
-    await expect(applyRootPatches(ctx, [])).resolves.toBeUndefined()
-  })
+    writeFileSync(join(dir, 'provider.mjs'), [
+      'export const name = "provider"',
+      'export function apply(ctx, config) { ctx.provide("phaseOne", config) }',
+      '',
+    ].join('\n'))
+    writeFileSync(join(dir, 'reader.mjs'), [
+      'export const name = "reader"',
+      'export const inject = ["phaseOne"]',
+      'export function apply(ctx, config) { ctx.provide("readerResult", config) }',
+      '',
+    ].join('\n'))
+    writeFileSync(join(dir, 'cordis.yml'), '[]\n')
+    const composition: PatchOptions[] = [{
+      insert: [
+        {
+          // Consumer-first order proves interpolation follows injection
+          // readiness rather than YAML position.
+          id: 'reader',
+          name: './reader.mjs',
+          inject: ['phaseOne'],
+          config: { value: { __jsExpr: 'ctx.phaseOne.fail ? (() => { throw new Error("rejected provider") })() : ctx.phaseOne.value' } },
+        },
+        { id: 'provider', name: './provider.mjs', config: { value: 'first' } },
+      ],
+    }]
+    const ctx = await boot(NAME, join(dir, 'cordis.yml'), composition)
+    try {
+      expect(ctx.get('readerResult')).toEqual({ value: 'first' })
+      const provider = [...ctx.loader.entries()].find(entry => entry.options.id === 'provider')
+      expect(provider).toBeDefined()
+      await provider?.update({ disabled: true })
+      await ctx.loader.await()
+      expect(ctx.get('readerResult')).toBeUndefined()
+      await provider?.update({ config: { value: 'second' } })
+      await provider?.update({ disabled: false })
+      await ctx.loader.await()
+      expect(ctx.get('readerResult')).toEqual({ value: 'second' })
 
-  it('fails loud when the tree was booted without the root include', async () => {
-    const ctx = new Context()
-    await expect(applyRootPatches(ctx, [])).rejects.toThrow('requires the root Include entry')
+      await provider?.update({ disabled: true })
+      await provider?.update({ config: { fail: true } })
+      await provider?.update({ disabled: false })
+      await expect(ctx.loader.await()).rejects.toThrow('rejected provider')
+      expect(ctx.get('readerResult')).toBeUndefined()
+
+      await provider?.update({ disabled: true })
+      await provider?.update({ config: { value: 'recovered' } })
+      await provider?.update({ disabled: false })
+      await ctx.loader.await()
+      expect(ctx.get('readerResult')).toEqual({ value: 'recovered' })
+    } finally {
+      await ctx.fiber.dispose()
+    }
   })
 })
 

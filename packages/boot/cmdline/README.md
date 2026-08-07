@@ -35,7 +35,7 @@ The Loader-row injection is also its discovery declaration, so no bundle manifes
   inject: [cmdlineArgs]
 ```
 
-The launcher finds active rows with that injection in the composed tree and mounts them before everything else.
+The launcher uses that injection only to reject arguments for a composition with no command-line owner. Loader mounts the composition once and holds each row until its own injections are active.
 
 Every row the app configures from flags then reads what the startup row resolved, naming the key it takes and the value it falls back to:
 
@@ -44,19 +44,19 @@ Every row the app configures from flags then reads what the startup row resolved
   name: '@deepseek-ai/dsh-host-webserver'
   inject: [webStartup]
   config:
-    host: !!js ctx.get('webStartup')?.host ?? '127.0.0.1'
-    port: !!js ctx.get('webStartup')?.port ?? 3080
+    host: !!js ctx.webStartup.host ?? '127.0.0.1'
+    port: !!js ctx.webStartup.port ?? 3080
 ```
 
-`runStartup` parses the arguments, asks `plan` for the values, and provides them as the service. On `--help`, `--version`, a parse error, or a `program.error(...)` from the plan, it writes commander's text and requests exit — nothing is provided, and the rest of the composition never mounts.
+`runStartup` parses the arguments, asks `plan` for the values, and provides them as the service. On `--help`, `--version`, a parse error, or a `program.error(...)` from the plan, it writes commander's text and requests exit — nothing is provided, so rows that depend on the startup service never activate.
 
-`plan` receives the options of every row that injects the service, for a value that has to take the composition into account: the `/api` fence authorities are the shipped example, since a bind the composition configured decides whether LAN literals are derived at all.
+`plan` receives the startup context and the options of every row that injects the service, for a value that has to take the composition into account. Include still holds nested expressions raw at this point, so a plan that needs a composed fallback can interpolate the relevant row config against the pre-service startup context; the `/api` fence authorities are the shipped example.
 
-### Why the boot has phases
+### How injection orders config
 
-A row's config expressions are evaluated when the include applies it, and a strict `ctx.get` only answers for a service whose providing fiber is already active. A composition therefore mounts in two passes: active `cmdlineArgs` consumers alone, then everything else. The rows of the later pass read live values, a `--help` exits before the second pass exists, and a user editing a live patch file re-runs that pass against services that are still up, so a flag cannot be silently reset.
+Loader defers a row's `!!js` interpolation until that row's declared injections are active, then evaluates against the row's plugin context. The example above can therefore read `ctx.webStartup` directly: Cordis has already populated that injected service before Loader asks for `webserver`'s config. Include trees preserve nested expression nodes until each target row reaches this point. Provider replacement and live patch reload repeat interpolation against the current injected services, so a launch flag cannot be silently reset.
 
-`enableRow(ctx, id)` turns on a row a bundle ships disabled because only some invocations want it (`dsh web --dev` and its client-plugin reload chain). Call it from a row that mounts beside the one being enabled, not from the startup row: a row enabled in the first pass would wait for services the second pass has yet to mount.
+`enableRow(ctx, id)` turns on a row a bundle ships disabled because only some invocations want it (`dsh web --dev` and its client-plugin reload chain). Loader applies the enabled row's ordinary injection ordering.
 
 ### One command line, one owner
 

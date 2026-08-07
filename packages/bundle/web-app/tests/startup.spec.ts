@@ -40,14 +40,16 @@ afterEach(async () => {
 
 /**
  * Mount the real startup row over a stand-in for the `webserver` row whose
- * composed bind it reads, the way a profile mounts phase one.
+ * composed bind it reads before the dependent rows activate.
  * @param args - the invocation's inner arguments.
  * @param webserverConfig - the composed `webserver` row config, or `null` to omit the row.
+ * @param trustedHosts - authorities the composed connection row already carries, or `null` when it carries none.
  * @returns the resolved service value (absent when the app requested exit) and what the boot observed.
  */
 async function bootStartup(
   args: string[],
   webserverConfig: Record<string, unknown> | null = { host: '127.0.0.1', port: 3080 },
+  trustedHosts: unknown = [],
 ): Promise<{ values: WebStartupValues | undefined; observed: Observed; ctx: Context }> {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-web-startup-'))
   const observed: Observed = { exits: [], out: '' }
@@ -68,8 +70,20 @@ export const apply = ctx => globalThis.__webStartupApply(ctx)
       `  inject: [${WEB_STARTUP_SERVICE}]`,
       '  disabled: true',
       '  config:',
-      ...Object.entries(webserverConfig).map(([key, value]) => `    ${key}: ${JSON.stringify(value)}`),
+      ...Object.entries(webserverConfig).map(([key, value]) => `    ${key}: !!js ctx.get('${WEB_STARTUP_SERVICE}')?.${key} ?? ${JSON.stringify(value)}`),
     ],
+    '- id: connection',
+    `  name: ${rowUrl}`,
+    `  inject: [${WEB_STARTUP_SERVICE}]`,
+    '  disabled: true',
+    ...trustedHosts === null ? [] : [
+      '  config:',
+      `    trustedHosts: !!js ctx.get('${WEB_STARTUP_SERVICE}')?.trustedHosts ?? ${JSON.stringify(trustedHosts)}`,
+    ],
+    '- id: api-gateway',
+    `  name: ${rowUrl}`,
+    `  inject: [${WEB_STARTUP_SERVICE}]`,
+    '  disabled: true',
     // A second reader keeps the composition honest when the webserver row is
     // the one under test: the service must still have someone to serve.
     '- id: web-runtime',
@@ -121,11 +135,34 @@ describe('web startup', () => {
     expect(values).not.toHaveProperty('port')
   })
 
-  it('derives the LAN literals for an all-interfaces bind, and the extras with them', async () => {
-    const { values } = await bootStartup(['--host', '0.0.0.0', '--trusted-host', 'lab.internal'])
-    expect(values?.trustedHosts).toEqual(['192.168.1.5', 'lab.internal'])
+  it('adds LAN literals and explicit extras after the composed fence authorities', async () => {
+    const { values } = await bootStartup(
+      ['--host', '0.0.0.0', '--trusted-host', 'lab.internal', 'lab-2.internal', '--trusted-host', '10.0.0.9'],
+      { host: '127.0.0.1', port: 3080 },
+      ['profile.internal'],
+    )
+    expect(values?.trustedHosts).toEqual([
+      'profile.internal', '192.168.1.5', 'lab.internal', 'lab-2.internal', '10.0.0.9',
+    ])
     // Display gets the same single sample the fence was configured with.
     expect(values?.lanAddresses).toEqual(['192.168.1.5'])
+  })
+
+  it('starts from an empty trust list when the composed connection row names none', async () => {
+    const { values } = await bootStartup(
+      ['--trusted-host', 'lab.internal'],
+      { host: '127.0.0.1', port: 3080 },
+      null,
+    )
+    expect(values?.trustedHosts).toEqual(['lab.internal'])
+  })
+
+  it.each([
+    'profile.internal',
+    ['profile.internal', 1],
+  ])('rejects an invalid composed trust list before transforming it (%j)', async (trustedHosts) => {
+    await expect(bootStartup([], { host: '127.0.0.1', port: 3080 }, trustedHosts))
+      .rejects.toThrow('the composed connection trustedHosts must be an array of strings')
   })
 
   it('reads the composed bind when no flag names one, so a configured 0.0.0.0 still derives them', async () => {
@@ -135,8 +172,8 @@ describe('web startup', () => {
 
   it('reports the development mode for --dev, which the web runtime reads', async () => {
     const { values } = await bootStartup(['--dev'])
-    // The runtime row is what turns the reload chain on, in the phase whose
-    // host rows it needs; this row only reports the mode.
+    // The runtime row turns the reload chain on after its host dependencies
+    // activate; this row only reports the mode.
     expect(values?.mode).toBe('development')
   })
 
