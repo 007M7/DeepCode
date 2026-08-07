@@ -112,8 +112,7 @@ export class ReactLoopAgent implements Agent {
 
   send(message: UserMessage, target: InboxTarget, wakeup: boolean): void {
     // Waking input cannot join an aborted activity, so it starts the next turn.
-    // The classification is captured BEFORE the insertion: a reentrant cancel
-    // from a synchronous splice observer must not reclassify this wake.
+    // Captured before the insertion so a reentrant cancel from a splice observer cannot reclassify it.
     const wakingAfterAbort = wakeup && this.phase.kind !== 'idle' && this.phase.abort.signal.aborted
     const resolvedTarget = wakingAfterAbort ? 'next-turn' : target
     this.inbox.splice(resolvedTarget, Infinity, 0, [message])
@@ -165,20 +164,16 @@ export class ReactLoopAgent implements Agent {
   /**
    * Start one driver, or latch its wake behind maintenance or an aborted
    * activity. A wake sent while idle always opens its turn boundary, even
-   * when its message is cleared before the driver claims; only a latched
-   * replay is suppressed when the queue no longer holds the wake.
-   * @param wakeAfterAbort - the send-time classification from {@link send}:
-   *   the wake landed after the abort fired. Captured before the inbox
-   *   insertion so a reentrant cancel cannot reclassify it.
+   * when its message was cleared; only a latched replay is suppressed when
+   * the queue no longer holds the wake.
+   * @param wakeAfterAbort - the {@link send} classification, captured before
+   *   the inbox insertion so a reentrant cancel cannot reclassify it.
    */
   private wakeDriver(wakeAfterAbort = false): void {
     if (this.phase.kind !== 'idle') {
-      // The current activity cannot deliver this wake: a maintenance task
-      // never reads the queue, and an aborted activity converges without
-      // restarting — both latch for the exiting activity to replay. A live
-      // driver claims queued work itself, so it needs no latch. A disposal
-      // cancel never latches: replaying would make `whenIdle()` wait on a
-      // full model turn over a session being torn down.
+      // Maintenance and aborted drivers cannot deliver the wake: latch it for
+      // replay at convergence. Live drivers claim queued work themselves;
+      // disposal never latches, so teardown waits on no model turn.
       const reason = this.phase.abort.signal.reason as AgentCancelCause | undefined
       if (reason?.kind !== 'disposed' && (this.phase.kind === 'maintenance' || wakeAfterAbort)) {
         this.phase.wakeRequested = true
@@ -328,8 +323,7 @@ export class ReactLoopAgent implements Agent {
     }
     if (!this.inbox.hasPending) return false
     phase.abort = new AbortController()
-    // The driver keeps running with a fresh controller: any latch set on the
-    // old one is stale, and the live driver claims the queue itself.
+    // A fresh controller makes a latch set on the old one stale: the live driver claims the queue itself.
     phase.wakeRequested = false
     phase.step = 0
     return true
