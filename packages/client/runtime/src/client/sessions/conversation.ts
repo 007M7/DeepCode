@@ -230,7 +230,10 @@ export interface CommandNode {
   commandId: CommandId
   /** Command name (run payload's structured field); null when the run fell outside the window. */
   name: string | null
-  /** Verbatim rawInput after the name, separator whitespace included (run payload); null when the run fell outside the window. */
+  /**
+   * Verbatim rawInput after the name, including separator whitespace; null
+   * when omitted by the command or when the run fell outside the window.
+   */
   args: string | null
   /** Settlement outcome (done payload); null while the command is still executing. */
   outcome: { kind: 'success' | 'error'; text?: string } | null

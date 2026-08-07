@@ -160,6 +160,29 @@ export function apply(ctx: Context, config: Config): void {}
     expect(entries[0]?.refs).toEqual([{ alias: 'Remote', imported: 'Remote', specifier: '@fix/dep' }])
   })
 
+  it('pastes an enum referenced by the config type', () => {
+    const entries = collectConfigCatalog(make({
+      'src/index.ts': `import type { Context } from 'cordis'
+/** Fixture mode. */
+export enum Mode {
+  A = 'a',
+  B = 'b',
+}
+/** Fixture config. */
+export interface Config {
+  /** The mode. */
+  mode?: Mode
+}
+/** Load. */
+export function apply(ctx: Context, config: Config): void {}
+`,
+    }))
+    expect(entries[0]?.pastes?.map(p => p.text)).toEqual([
+      '/** Fixture config. */\nexport interface Config {\n  /** The mode. */\n  mode?: Mode\n}',
+      "/** Fixture mode. */\nexport enum Mode {\n  A = 'a',\n  B = 'b',\n}",
+    ])
+  })
+
   it('hard-errors on a referenced type name that resolves nowhere', () => {
     expect(() => collectConfigCatalog(make({
       'src/index.ts': `import type { Context } from 'cordis'
