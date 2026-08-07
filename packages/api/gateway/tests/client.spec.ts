@@ -436,12 +436,12 @@ describe('Client TypeRT API', () => {
     const ctx = await bench(vi.fn<ConnectionHandle['rpc']['call']>())
     const dispose = await ctx.remote.$mount({ package: '@fixture/goals', descriptors: [directDescriptor()] })
     const namespace = ctx.get('remote.goals') as unknown as object
-    const getter = Object.getOwnPropertyDescriptor(namespace, 'create')?.get
+    const getWithdrawn = Object.getOwnPropertyDescriptor(namespace, 'create')?.get?.bind(namespace)
 
     await dispose()
 
-    expect(getter).toBeTypeOf('function')
-    const withdrawn = getter?.call(namespace) as (...args: unknown[]) => Promise<unknown>
+    expect(getWithdrawn).toBeTypeOf('function')
+    const withdrawn = getWithdrawn?.() as (...args: unknown[]) => Promise<unknown>
     expect(() => withdrawn('agent-1', { objective: 'ship' }))
       .toThrow('Remote method is no longer mounted')
   })
