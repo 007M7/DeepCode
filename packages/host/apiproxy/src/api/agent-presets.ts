@@ -38,7 +38,11 @@ export interface AgentPresetEntry {
 /** agent-preset-domain unary methods (the map key agentPreset.* of RpcMethodMap). */
 export interface AgentPresetsApi {
   /**
-   * Lists every preset the deployment currently supplies, ordered by id.
+   * Lists every preset the deployment currently supplies, in root-precedence
+   * order — the roots as configured, each root's own presets sorted by id,
+   * and the first root to supply an id wins. The order is not globally
+   * sorted: a user root's preset sits in that root's block, not among the
+   * shipped ids.
    * An empty roster means the deployment composes no presets at all, and
    * every session shares the host composition. `authorable` reports whether
    * the deployment configures a root new presets can be written to, which is
