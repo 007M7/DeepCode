@@ -85,10 +85,10 @@ export function applyEntryPatches(
         data.push(...insert)
       }
       // Index what this patch added so a LATER patch in the same list can
-      // target it. Patch lists compose one layer per source (surface overlay,
-      // then `--config`, then the user's), and a layer must be able to
-      // configure or disable a row an earlier layer inserted; without this,
-      // inserted rows were silently unpatchable.
+      // target it. Patch lists compose one layer per source (each bundle
+      // layer, then the user's, then `--patch` overlays), and a layer must be
+      // able to configure or disable a row an earlier layer inserted; without
+      // this, inserted rows were silently unpatchable.
       buildMap(insert)
       continue
     }
