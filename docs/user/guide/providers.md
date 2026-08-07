@@ -59,6 +59,16 @@ llm-pi-ai:
         - id: claude-sonnet-4-5
           contextWindow: 200000
 
+    # Catalog route with one model reshaped in place; the rest of the catalog
+    # keeps serving (a models list would replace it instead).
+    deepseek:
+      apiKeyEnv: DEEPSEEK_API_KEY
+      modelOverrides:
+        deepseek-v4-pro:
+          reasoningEfforts:
+            off:
+            high: high
+
     # Hand-declared route: pi-ai ships nothing under this key, so the profile
     # supplies the whole provider.
     acme-gateway:
@@ -66,11 +76,22 @@ llm-pi-ai:
       apiKeyEnv: ACME_GATEWAY_API_KEY
       api: openai-completions
       baseURL: https://gateway.acme.example/v1
+      # Reasoning dialect for an endpoint whose URL pi-ai cannot recognize.
+      compat:
+        thinkingFormat: deepseek
       models:
         - id: acme-large
           name: Acme Large
           contextWindow: 65536
           maxTokens: 4096
+        - id: acme-think
+          name: Acme Think
+          # key = level offered in the picker, value = what goes on the wire;
+          # only off may leave the value empty (supported, send nothing).
+          reasoningEfforts:
+            off:
+            high: high
+            max: ultra
 ```
 
 A settings section merges over the matching `cordis.yml` configuration **per provider**, so you can override one field of one route and leave the rest as the composition set them.
@@ -79,9 +100,15 @@ A profile the adapter could not serve is refused **where it is written**: a hand
 
 ## The model catalog
 
-A profile's `models` list *replaces* that route's installed catalog rather than extending it; omitting it or leaving it empty serves the catalog unchanged. Each entry defaults its unset fields from the installed model of the same `id`, so narrowing a route to two models, correcting one capacity, or adding a model newer than the installed catalog are each a one-line edit.
+A profile's `models` list *replaces* that route's installed catalog rather than extending it; omitting it or leaving it empty serves the catalog unchanged. Each entry defaults its unset fields from the installed model of the same `id`, so narrowing a route to two models, correcting one capacity, or adding a model newer than the installed catalog are each a one-line edit — but once you declare the list, every model the route should keep serving must appear in it, an entry of nothing but `id` being enough.
 
-Only the four fields the harness consumes are configurable: `id`, `name`, `contextWindow`, and `maxTokens`. Pricing and input modalities have no consumer, and reasoning is not per-model configurable at all — it rides the installed catalog entry.
+Reshaping a few catalog models while keeping the rest is `modelOverrides`' job: it is keyed by catalog model id, takes the same fields a `models` entry does, and leaves the rest of the catalog serving untouched. An override naming a model the catalog does not describe — or set beside a `models` list, or on a custom provider — is refused rather than silently skipped.
+
+The configurable model fields are `id`, `name`, `contextWindow`, `maxTokens`, `reasoningEfforts`, and `compat`. Pricing and input modalities have no consumer and ride the installed entry.
+
+**Declare reasoning levels per model.** `reasoningEfforts` lists the levels a model offers: each key appears in the composer's effort picker, and its value is what dispatch sends on the wire — `high: high` passes the name through, `max: ultra` renames it for a gateway with its own vocabulary. A level you leave out is not offered. `off` is special: declared without a value, Off appears in the picker and selecting it sends nothing; left out entirely, the model cannot stop thinking. `reasoningEfforts: false` declares a non-reasoning model, which is also how you strip reasoning from a catalog model your gateway cannot serve. Without this field a custom model does not reason and a catalog model keeps its catalog levels.
+
+**Pick the reasoning dialect.** How a level travels — plain `reasoning_effort`, DeepSeek's `thinking: {type}` plus effort, and so on — is normally guessed from the endpoint URL, and a private gateway's URL says nothing, so a DeepSeek-style gateway would be spoken to in the OpenAI dialect. `compat.thinkingFormat` sets the dialect explicitly, and `compat.supportsReasoningEffort: false` holds the parameter back from an endpoint that rejects it; both work on the route (its models' default) or per model, for `openai-completions` routes only.
 
 A model neither the entry nor the catalog sizes takes the route's `defaultContextWindow` (262,144) and `defaultMaxTokens` (32,768). Both are guesses by construction, which is why they are route fields: a deployment whose gateway serves smaller models corrects them once.
 
@@ -114,6 +141,7 @@ If the provider a saved default names is later removed, the composer says **Sele
 
 - **`MISSING_CREDENTIAL`** — the variable the profile's `apiKeyEnv` names holds no value. Store the key once through the Models page, or export the variable.
 - **`UNKNOWN_MODEL`** — the requested model is not in the route's configured catalog. Add it to `models`, or use an id the catalog already carries.
+- **`UNSUPPORTED_REASONING_EFFORT`** — the request asked the model for a level it does not offer. Pick a level the composer lists for that model, or declare the missing one in the model's `reasoningEfforts`.
 - **`settings-rejected`** — the written profile cannot be served, and the message names the route and model. For a hand-declared route, check that `api`, `baseURL`, and `models` are all present.
 - **Fetching available models answers 401** — the endpoint refused the interrogation. Check the key; if the base URL points at an Anthropic-style gateway, note that the interrogation reads only the OpenAI-compatible `GET /models`, so enter the models by hand instead.
 
