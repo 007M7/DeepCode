@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/core-data-structures/lsp.md
 lsp.md: 03d0ce2dbe246aadb6f6c9a702fa50e3e792eb09
-lsp.zh.md: ef9623f01124bc459d3bbceba340c3870e678baa
+lsp.zh.md: d428f2b5f9568b231b0b50a13bd4a41f7ea81346

@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/core-data-structures/filesystem.md
 filesystem.md: addded9f673ed435e95109d4fb772967514c0b87
-filesystem.zh.md: 3ef16ede1e137d2a1310861941ac3244ca105650
+filesystem.zh.md: 1e378928ed570b97dbec73b836a7e6ff18726ff8

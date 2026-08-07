@@ -280,18 +280,18 @@ describe('spawnSubprocess', () => {
 
   it('does not wait for a Linux group that has only zombie members', async () => {
     const pidFile = join(spillDir, `zombie-group-${Date.now()}.pid`)
-    let hasLiveMembers = false
     const running = spawnSubprocess(spec(`sleep 60 & echo $! > ${pidFile}; echo leader-done`, { graceMs: 100 }), {
       platform: 'linux',
-      linuxProcessGroupHasLiveMembers: () => hasLiveMembers,
+      linuxProcessGroupHasLiveMembers: () => false,
     })
     const descendant = await waitForPidFile(pidFile)
     try {
       await running.done
       await expect(running.waitForExit()).resolves.toBe(true)
     } finally {
-      hasLiveMembers = true
-      running.terminate()
+      // The confirmed-absent verdict is a permanent no-more-signals boundary,
+      // so terminate() must stay inert here; reap the live survivor directly.
+      process.kill(descendant, 'SIGKILL')
       await waitGone(descendant)
     }
   })

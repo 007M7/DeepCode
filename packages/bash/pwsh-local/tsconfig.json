@@ -18,19 +18,19 @@
       "path": "../../../vendor/schemastery"
     },
     {
-      "path": "../code-runtime"
+      "path": "../../util/brand"
     },
     {
-      "path": "../code-runtime-worker"
+      "path": "../../util/timeout"
+    },
+    {
+      "path": "../../bash/bash"
     },
     {
       "path": "../../subprocess/subprocess"
     },
     {
       "path": "../../support/invariants"
-    },
-    {
-      "path": "../../util/timeout"
     }
   ]
 }

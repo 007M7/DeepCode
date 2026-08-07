@@ -26,12 +26,12 @@
 | `ctx.llm` | [`llm/`](../packages/llm/README.md) | 适配器注册表和模型流式调用 |
 | `ctx.tokenMeter` | [`llm/token-meter`](../packages/llm/token-meter/README.md) | 感知回放的单实例请求压力与表面压力 |
 | `ctx.bash` | [`bash/`](../packages/bash/README.md) | 前台和后台命令执行 |
-| `ctx.subprocess` | [`subprocess/`](../packages/subprocess/README.md) | 供 bash、LSP 与 ACP subagent 后端使用的受管子进程树 |
+| `ctx.subprocess` | [`subprocess/`](../packages/subprocess/README.md) | 可执行文件查找、受管进程树、终端 |
 | `ctx.pty` | [`pty/`](../packages/pty/README.md) | 按 owner 隔离的持久化终端会话 |
 | `ctx.sandbox` | [`sandbox/`](../packages/sandbox/README.md) | 通过 argv 包装和逐调用策略限制同一执行环境内的进程 |
 | `ctx.sandboxPolicy` | [`sandbox/`](../packages/sandbox/README.md) | 共享沙箱策略归属点 |
 | `ctx.codeRuntime` | [`code-runtime/`](../packages/code-runtime/README.md) | 执行模型编写的程序 |
-| `ctx.fs` | [`fs/`](../packages/fs/README.md) | 文件系统提供方原语和策略事件 |
+| `ctx.fs` | [`fs/`](../packages/fs/README.md) | 执行世界路径、有界 I/O 和策略事件 |
 | `ctx.lsp` | [`lsp/`](../packages/lsp/README.md) | 语义导航注册表 |
 | `ctx.skills` | [`skill/`](../packages/skill/README.md) | skill（技能）提供方注册表和渐进式披露 |
 | `ctx.web` | [`web/`](../packages/web/README.md) | 搜索与抓取提供方注册表 |
@@ -155,7 +155,7 @@ idle inject:
 
 ### 功能模式
 
-可替换功能通常具有**接口／实现／消费方**三层：服务和事件、后端、面向模型的工具和提示词。Bash 是参考实现；[功能图](capability-seams.md)映射了每个包族。
+能力分为**接口／实现／消费方**三层。文件系统与进程管理提供方共同定义一个执行世界；Bash、PTY 和 LSP 都在其中运行，无需提供方专用 fork。参见[功能图](capability-seams.md)。
 
 例外情况包括 LLM（大语言模型）合并接口和消费方、文件系统整合策略、web 使用注册表、skill 和 subagent 使用具名提供方。subagent 可以通过 spawn 创建全新实例、fork 一个已完成轮次的前缀、使用 ACP（Agent Client Protocol）子 agent，或将一个独立完整的轮次委派给 Codex 等真实产品提供方（[subagent.md](core-data-structures/subagent.md)）。
 

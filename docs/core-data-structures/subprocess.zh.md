@@ -1,4 +1,4 @@
-# 进程管理器
+# 子进程
 
 [English](subprocess.md) | 中文
 
@@ -12,7 +12,7 @@
 
 ## 受管环境命名空间与捕获的输出
 
-`DSH_*` 变量是归 Harness 所有的子进程事实；实现会在合并调用方显式 `env` 之前丢弃环境中已有的 `DSH_*` 名称，因此当前事实只会以有意提供的条目形式到达，每条被收集的流都通过 `CollectedOutput` 报告自身的截断与 spill 恢复状态。
+`DSH_*` 变量是归 Harness 所有的子进程事实；实现会在合并调用方显式 `env` 之前丢弃环境中已有的 `DSH_*` 名称，因此当前事实只会以有意提供的字符串条目形式到达，而显式的 `undefined` tombstone 会删除普通环境中已有的值。每条被收集的流都通过 `CollectedOutput` 报告自身的截断与 spill 恢复状态。
 
 ```ts type-equiv
 /** One environment key inside the managed {@link DSH_ENV_PREFIX} namespace. */
@@ -36,7 +36,7 @@ interface CollectedOutput {
 }
 ```
 
-## Node 形状的 stdio 处置方式（disposition）
+## Node 风格的 stdio 处置方式（disposition）
 
 每条流的处置方式都显式给出，由各消费方自行选择：原始管道用于协议分帧（LSP JSON-RPC、ACP ndjson），inherit 用于直通的诊断输出，收集模式用于有界的批量输出；其中 spill 文件是可选的，因此诊断尾部（语言服务器的 stderr）可以只在内存中缓冲，不留下任何文件。
 
@@ -88,7 +88,7 @@ interface SubprocessStdio {
 
 ## 完全显式的 spawn spec
 
-该 seam 不应用任何默认值：每项处置方式、限制与目录都在 spec 上显式给出，因此由调用方自己的配置决定它们，而不是由某个隐藏的进程管理器默认值决定。`argv` 绝不经过 shell 解释。
+该 seam 不应用任何默认值：每项处置方式、限制与目录都在 spec 上显式给出，因此由调用方自己的配置决定它们，而不是由某个隐藏的子进程服务默认值决定。`argv` 绝不经过 shell 解释。
 
 ```ts type-equiv
 /**
@@ -105,10 +105,11 @@ interface SubprocessSpawnSpec {
   /** Per-stream stdio dispositions. */
   stdio: SubprocessStdio
   /**
-   * Grace period in milliseconds for the {@link SubprocessHandle.terminate}
-   * escalation and for draining still-open collected pipes after the process
-   * exits (an inherited descriptor held by a surviving descendant cannot hold
-   * the outcome open indefinitely).
+   * Positive finite grace period in milliseconds, no greater than
+   * `MAX_TIMER_DELAY_MS`, for the {@link SubprocessHandle.terminate} escalation
+   * and for draining still-open collected pipes after the process exits (an
+   * inherited descriptor held by a surviving descendant cannot hold the
+   * outcome open indefinitely).
    */
   graceMs: number
   /**
@@ -119,19 +120,18 @@ interface SubprocessSpawnSpec {
   signal?: AbortSignal | undefined
   /**
    * Explicit environment entries merged onto the implementation's scrubbed
-   * parent base (see `scrubbedParentEnv`), with no namespace validation:
-   * every entry is a deliberate caller opt-in, so a forwarded
-   * credential-shaped entry or a current `DSH_*` fact survives precisely
-   * because this layer merges after the scrub that drops its ambient
-   * namesake.
+   * parent base (see `scrubbedParentEnv`), with no namespace validation. A
+   * string is a deliberate caller opt-in, so a forwarded credential-shaped
+   * entry or current `DSH_*` fact survives the scrub; `undefined` is a
+   * tombstone that removes an ordinary ambient entry from the child.
    */
-  env?: Record<string, string> | undefined
+  env?: NodeJS.ProcessEnv | undefined
 }
 ```
 
 ## 句柄：流、读取器与以进程树为范围的终止
 
-spawn 会立即返回一个实时句柄。收集模式的读取器接受全流字节偏移量且从不消费，因此独立的读取器不会抢走彼此的增量；管道化的流归调用方所有。终止在每个平台上都以进程树为范围：`terminate()`（唯一的终止动词）执行 SIGTERM→宽限期→SIGKILL 升级，`waitForExit()` 观察整棵进程树——这足以让消费方构建自己的拆卸阶梯（ACP 后端以 stdin EOF 打头的 `disposeAcpChild` 即是模板）。
+spawn 会立即返回一个活动句柄。收集模式的读取器接受全流字节偏移量且从不消费，因此独立的读取器不会抢走彼此的增量；管道化的流归调用方所有。终止在每个平台上都以进程树为范围：`terminate()`（唯一的终止动词）执行 SIGTERM→宽限期→SIGKILL 升级，`waitForExit()` 观察整棵进程树。这足以让消费方构建自己的拆卸阶梯；ACP 后端的 `disposeAcpChild` 以 stdin EOF 开始，即为仓库内模板。
 
 ```ts type-equiv
 /**

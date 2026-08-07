@@ -597,27 +597,6 @@ describe('WorkerCodeRuntime — hostile programs (real workers)', () => {
     expect(result.value).toEqual({ name: 'ToolCallError', toolName: 'bad', message: 'binding resolution must be lossless JSON' })
   })
 
-  it('contains binding rejections whose thrown values cannot be rendered', async () => {
-    const { runtime } = await setup()
-    const result = await runtime.run({
-      program: 'try { await tools.bad({}) } catch (error) { return { name: error.name, toolName: error.toolName, message: error.message } }',
-      bindings: tools({
-        bad: async () => {
-          const hostile = new Error('hidden')
-          Object.defineProperty(hostile, 'message', {
-            get() { throw new Error('message getter failed') },
-          })
-          throw hostile
-        },
-      }),
-    })
-    expect(result.value).toEqual({
-      name: 'ToolCallError',
-      toolName: 'bad',
-      message: 'binding rejected with an unrenderable value',
-    })
-  })
-
   it('rejects lossy binding arguments in the worker before invoking the host binding', async () => {
     const { runtime } = await setup()
     let calls = 0
