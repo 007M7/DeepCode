@@ -39,6 +39,6 @@ harness 交付的执行画像在每个平台都是 bash 优先。Windows 主机�
 
 ## 验证
 
-- 单元：`apps/cli/tests/windows-shell.spec.ts` 固定 win32 默认、自定义 profile 跳过与缺文件失败，平台注入；`packages/bundle/base/tests/base.spec.ts` 固定交付的 Windows 清单（禁用、插入与缺席的 approval 服务）。
+- 单元：`apps/cli/tests/windows-shell.spec.ts` 以平台注入固定 win32 默认、自定义 profile 跳过与缺文件失败，并通过启动所用的 patch 算法组合真实交付的 bundle 层（从应用安装解析的 dsh-base + dsh-web-app）断言 win32 danger-full-access 清单与 base-only profile 警告；`packages/bundle/base/tests/base.spec.ts` 固定交付的 Windows patch 文件形状（禁用、插入与缺席的 approval 服务）。
 - Keyless：win32 上的 `dsh --profile <name> --dump-config` 显示带 `windows.cordis.patch.yml` 出处的 pwsh 行、被禁用的 bash 行；POSIX 转储（CI Linux）不变。
 - 真实组合冒烟在 win32 上启动 web profile，pwsh 栈挂载成功（即本笔记描述的确切清单）。

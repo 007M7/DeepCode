@@ -39,6 +39,6 @@ The pwsh GUI rendering stage (stage 2 of the original roadmap) shipped earlier w
 
 ## Verification
 
-- Unit: `apps/cli/tests/windows-shell.spec.ts` pins the win32 default, the custom-profile skip, and the missing-patch failure, with the platform injected; `packages/bundle/base/tests/base.spec.ts` pins the shipped Windows roster (disables, inserts, and the absent approval service).
+- Unit: `apps/cli/tests/windows-shell.spec.ts` pins the win32 default, the custom-profile skip, and the missing-patch failure with the platform injected, and composes the REAL shipped bundle layers (dsh-base + dsh-web-app resolved from the app installation) through the boot's patch algorithm to assert the win32 danger-full-access roster and the base-only-profile warning; `packages/bundle/base/tests/base.spec.ts` pins the shipped Windows patch file shape (disables, inserts, and the absent approval service).
 - Keyless: a win32 `dsh --profile <name> --dump-config` shows the pwsh rows with `windows.cordis.patch.yml` provenance and the bash rows disabled; the POSIX dump (CI Linux) is unchanged.
 - The real-composition smoke boots the web profile on win32 with the pwsh stack mounted (the exact roster this note describes).
