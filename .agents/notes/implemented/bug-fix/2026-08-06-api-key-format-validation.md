@@ -38,7 +38,7 @@ The shape rule is a guess about how people paste, so it runs **only in the brows
 
 **A blank field in the web UI.** The key input opens empty even for a provider whose key is already stored — the `keyStored` copy reads "Configured — enter a new value to replace" — so blank means *keep what is stored*. `ProviderEditor` skips `credentials.set` entirely when the draft is empty, and that stays a no-op: a blank field never blocks submit, or editing a base URL would demand re-entering the key.
 
-**Provided, but empty or whitespace-only.** This is the one error, because the user expressed an intent to set a key and supplied nothing. `llm-pi-ai` already worded it correctly in `resolveProfiles` — *has an empty apiKey; omit it to use ambient authentication* — and that shape, naming the legitimate alternative rather than just refusing, is what the other surfaces adopt.
+**Provided, but empty or whitespace-only.** What this means depends on what absence selects for that surface, and the two adapters differ for a reason. In `llm-pi-ai` it is an error, because absence there switches authentication mode — to the installed provider's ambient discovery or OAuth — so a blank key leaves genuine ambiguity about which was meant; its wording names the legitimate alternative rather than just refusing (*has an empty apiKey; omit it to use ambient authentication*). In `llm-deepseek` absence merely selects a different *source* for the same key, `apiKeyEnv`, so a blank literal resolves through that fallback exactly as an omitted one does. In the browser it is always a failure, on both cards: the field is where a person just typed, and silently discarding what they typed is never the right answer.
 
 `normalizeApiKey` therefore takes `string`, never `string | undefined`.
 
@@ -55,7 +55,7 @@ The client cannot import any of this: client packages reference only client pack
 | Surface | Behavior |
 |---|---|
 | `dsh-llm` | Owns `normalizeApiKey`, `assertUsableApiKey`, and `INVALID_CREDENTIAL_CODE`, which is deliberately outside `DEFAULT_RETRYABLE_CODES`. |
-| `llm-deepseek` `resolveAdapterOptions` | Normalizes a present `apiKey`, throwing beside the other beyond-schema bounds; uses the trimmed value. An absent one falls through to `apiKeyEnv`. |
+| `llm-deepseek` `resolveAdapterOptions` | Refuses a literal `apiKey` no header can carry, beside the other beyond-schema bounds; uses the trimmed value. An absent or blank one falls through to `apiKeyEnv`. |
 | `llm-deepseek` `resolveApiKey` | Normalizes what the credentials seam or environment returns, rejecting with `INVALID_CREDENTIAL` naming the Models page and never echoing the key. |
 | `llm-pi-ai` `resolveProfiles` | Applies the shared rule, keeping its "omit it to use ambient authentication" wording, and writes the trimmed value into the resolved profile. |
 | `llm-pi-ai` `resolveApiKey` | Normalizes the credential and environment paths. A profile naming no credential still returns `undefined`, so ambient and OAuth routes are unaffected. |

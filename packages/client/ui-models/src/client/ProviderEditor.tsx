@@ -3,7 +3,9 @@
  * field is a single write-only **API key** input (the page never asks for an
  * environment-variable name — a typed key stores through `credentials.set`
  * under the profile's reference, deriving `<ROUTE>_API_KEY` when the profile
- * has none, and the pi-ai profile records that derivation as `apiKeyEnv`);
+ * has none. The pi-ai profile records that derivation as `apiKeyEnv` only when
+ * a key is entered; a blank key materializes a reference-free profile for
+ * provider-native authentication);
  * the collapsed 自定义设置 area carries the per-family extras (`baseURL` for
  * both families, `reasoningEffort` for deepseek / `reasoning` for pi-ai, and
  * DeepSeek's id/name/context-window model catalog). Everything else stays
@@ -134,10 +136,13 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
   const [keyState, setKeyState] = useState<CredentialView | undefined>(undefined)
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string | undefined>(undefined)
-  // The revision this card opened at. A write carrying it is refused if
-  // anything else — another tab, an external edit of settings.yaml — moved the
-  // namespace meanwhile, instead of silently overwriting that change.
-  const [openedAt] = useState(() => namespace.revision)
+  // A settings success advances both retry baselines immediately. Keeping the
+  // derived fields in the draft prevents a pushed namespace refresh from
+  // turning them into deletions when the following credential write is retried.
+  const [committedOriginal, setCommittedOriginal] = useState<unknown>(
+    () => getPath(namespace.user, settingsPath),
+  )
+  const [expectedRevision, setExpectedRevision] = useState(() => namespace.revision)
   const root = useMemo(() => rehydrateSchema(namespace.schema), [namespace.schema])
   const node = useMemo(() => nodeAtPath(root, settingsPath), [root, settingsPath])
   const fallback = getPath(namespace.value, settingsPath)
@@ -206,11 +211,10 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
    */
   const applyOnce = async (): Promise<string | undefined> => {
     const ns = namespace.ns
-    const original = getPath(namespace.user, settingsPath)
-    // The pi-ai profile must name the reference the key stores under, so a
-    // dormant add (or a legacy profile without one) records the derivation.
+    // A pi-ai profile names the conventional reference only when this page is
+    // about to store a key. Otherwise the provider keeps its native auth path.
     const next = layout === 'pi-ai' && stringAt(draft, 'apiKeyEnv') === undefined
-      && stringAt(fallback, 'apiKeyEnv') === undefined
+      && stringAt(fallback, 'apiKeyEnv') === undefined && keyValue.length > 0
       ? setPath(draft, ['apiKeyEnv'], keyRef)
       : draft
     {
@@ -229,14 +233,23 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
       const sectionError = validateDraft(node, next)
       if (sectionError !== undefined) return sectionError
     }
-    const ops = pathOps(settingsPath, original, next)
+    const materializesNativeProfile = layout === 'pi-ai'
+      && fallback === undefined
+      && committedOriginal === undefined
+      && Object.keys(next).length === 0
+    const ops: SettingsPathOpView[] = materializesNativeProfile
+      ? [{ op: 'set', path: [...settingsPath], value: {} }]
+      : pathOps(settingsPath, committedOriginal, next)
     if (ops.length > 0) {
-      const response = await api.settings.mutate({ ns, ops, expectedRevision: openedAt })
+      const response = await api.settings.mutate({ ns, ops, expectedRevision })
       if (!response.result.ok) {
         return response.result.error.code === 'settings-conflict'
           ? t('conflict')
           : response.result.error.message
       }
+      setCommittedOriginal(getPath(response.result.value.user, settingsPath))
+      setExpectedRevision(response.result.value.revision)
+      setDraft(next)
     }
     if (keyValue.length > 0) {
       const stored = await api.credentials.set({ ref: keyRef, value: keyValue })
@@ -298,6 +311,11 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
     const models = modelDrafts(modelsOverridden ? customModels : inheritedModels())
     const defaultContextWindow = getPath(fallback, ['defaultContextWindow'])
     const defaultMaxTokens = getPath(fallback, ['maxTokens'])
+    const keyPlaceholder = keyLocked
+      ? t('keyEnvLocked')
+      : keyState?.configured === true
+        ? t('keyStored')
+        : family === 'pi-ai' ? t('keyPlaceholderNative') : t('keyPlaceholder')
     /** What both family editors take: the rows, whose layer owns them, and the two writes. */
     const catalogProps = {
       models,
@@ -318,9 +336,7 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
             type="password"
             autoComplete="off"
             value={keyDraft}
-            placeholder={keyLocked
-              ? t('keyEnvLocked')
-              : keyState?.configured === true ? t('keyStored') : t('keyPlaceholder')}
+            placeholder={keyPlaceholder}
             aria-label={t('keyInput')}
             disabled={disabled || keyLocked}
             onChange={(event) => { setKeyDraft(event.target.value) }}

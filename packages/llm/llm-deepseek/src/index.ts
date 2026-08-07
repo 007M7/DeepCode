@@ -59,9 +59,11 @@ const DEFAULT_MODELS: DeepSeekCatalogModel[] = [
  */
 export interface Config {
   /**
-   * Literal API key; prefer {@link apiKeyEnv} so no secret enters configuration files. Trimmed
-   * and format-checked by {@link resolveAdapterOptions}; a value no HTTP header can carry fails
-   * there rather than inside `fetch`.
+   * Trimmed literal API key; whitespace-only is absent, so it resolves through
+   * {@link apiKeyEnv} like an omitted one. Prefer {@link apiKeyEnv} to keep
+   * secrets out of configuration files. {@link resolveAdapterOptions} also
+   * format-checks what remains: a value no HTTP header can carry fails there
+   * rather than inside `fetch`.
    */
   apiKey?: string
   /** Credential reference (environment-variable name) resolved per request; defaults to `DEEPSEEK_API_KEY`. */
@@ -181,15 +183,19 @@ export function resolveAdapterOptions(config: Config): ResolvedDeepSeekOptions {
   // An absent apiKey is not a failure: it falls through to apiKeyEnv below.
   // A supplied one must be usable, so a malformed literal fails here beside
   // the other beyond-schema bounds instead of inside `fetch`.
+  // Absence is not a failure, and a blank literal is absence: both resolve
+  // through apiKeyEnv below, which is this adapter's defined fallback. (The
+  // pi-ai adapter refuses a blank one instead, because there absence selects a
+  // different authentication mode rather than a different source for the same
+  // key.) What a literal cannot be is unusable: a value no HTTP header can
+  // carry fails here beside the other beyond-schema bounds, not inside `fetch`.
   let apiKey: string | undefined
   if (config.apiKey !== undefined) {
     const checked = normalizeApiKey(config.apiKey)
-    if (!checked.ok) {
-      throw new Error(checked.reason === 'empty'
-        ? 'llm-deepseek: apiKey is empty; omit it to resolve the key from apiKeyEnv'
-        : 'llm-deepseek: apiKey contains characters no HTTP header can carry; paste the raw key only')
+    if (!checked.ok && checked.reason === 'illegalCharacters') {
+      throw new Error('llm-deepseek: apiKey contains characters no HTTP header can carry; paste the raw key only')
     }
-    apiKey = checked.value
+    apiKey = checked.ok ? checked.value : undefined
   }
   return {
     ...apiKey === undefined ? {} : { apiKey },

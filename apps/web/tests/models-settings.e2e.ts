@@ -1,15 +1,17 @@
 // Web e2e scenario: the Models settings page end to end through the real
-// wire — the add card offers the dormant pi-ai catalog, typing an API key
+// wire — the add card offers the dormant pi-ai catalog, a blank key saves a
+// reference-free profile for provider-native auth, and typing an API key later
 // stores it write-only under the derived reference (`MINIMAX_CN_API_KEY`)
-// while the settings document records only that reference; the saved row
-// appears after the route topology invalidation without presenting liveness
-// as provider status. The customized-settings fold writes the curated
+// while the settings document records only that reference. Each saved row
+// appears after route topology invalidation without presenting liveness as
+// provider status. The customized-settings fold writes the curated
 // reasoning field as a merge patch. Zero model calls: configuration is pure
 // settings/credentials/llm-domain traffic, so there is no fixture and a
 // stray stream would fail loud on the open seam. The provider under test is
 // minimax-cn so a developer's real ANTHROPIC/OPENAI environment keys can
-// never shadow the derived reference. Removing that row is guarded by the
-// localized provider-confirmation dialog before the unset reaches the wire.
+// never shadow the derived reference. The deletion dialog distinguishes a
+// reference-free profile from a page-managed key before the credential and
+// settings unsets reach the wire.
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
@@ -25,6 +27,7 @@ import { ZH_BROWSER_LOCALE, saveFailureShot } from './support.ts'
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/models-settings', import.meta.url))
 const EMPTY_EXPECTED = join(SNAPSHOT_DIR, 'empty.expected.md')
 const CONFIGURED_EXPECTED = join(SNAPSHOT_DIR, 'configured.expected.md')
+const NATIVE_DELETE_EXPECTED = join(SNAPSHOT_DIR, 'native-delete.expected.md')
 const DELETE_EXPECTED = join(SNAPSHOT_DIR, 'delete.expected.md')
 const MODE = webSnapshotMode()
 
@@ -70,7 +73,7 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
     expect(options).toContain('anthropic')
     expect(options).toContain('minimax-cn')
     await pick.selectOption('minimax-cn')
-    await dialog.getByLabel('API 密钥').waitFor({ timeout: 10_000 })
+    await dialog.getByRole('textbox', { name: 'API 密钥', exact: true }).waitFor({ timeout: 10_000 })
     const snapshot = await captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(EMPTY_EXPECTED, snapshot, MODE)
   }, 60_000)
@@ -94,29 +97,66 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
     expect(await dialog.getByText('该 API 密钥格式错误，请检查。').count()).toBe(0)
   }, 60_000)
 
-  it('stores the key under the derived reference and the route registers live', async () => {
+  it('saves a blank key as a reference-free provider-native profile', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-models-native-auth'))
+    const dialog = page.getByRole('dialog', { name: '设置' })
+    await dialog.getByRole('button', { name: '保存', exact: true }).click()
+    const row = dialog.getByText('minimax-cn', { exact: true }).first()
+    await row.waitFor({ timeout: 10_000 })
+    await dialog.getByText('已保存 minimax-cn。', { exact: true }).waitFor({ timeout: 10_000 })
+    expect(await dialog.getByRole('img', { name: 'API 密钥已配置' }).count()).toBe(0)
+    expect(await dialog.getByRole('img', { name: 'API 密钥缺失' }).count()).toBe(0)
+    const document = await readFile(join(scaffold.harnessHome, 'settings.yaml'), 'utf8')
+    expect(document).toContain('minimax-cn: {}')
+    expect(document).not.toContain('MINIMAX_CN_API_KEY')
+  }, 60_000)
+
+  it('describes reference-free deletion without claiming a credential exists', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-models-native-delete'))
+    const settingsDialog = page.getByRole('dialog', { name: '设置' })
+    await settingsDialog.getByRole('button', { name: '删除 minimax-cn', exact: true }).click()
+    const deleteDialog = page.getByRole('dialog', { name: '删除 minimax-cn？' })
+    await deleteDialog.waitFor({ timeout: 10_000 })
+    const snapshot = await captureStableAria(
+      page,
+      '[role="dialog"][aria-label="删除 minimax-cn？"]',
+      scaffold.workspaceCwd,
+    )
+    await compareOrRefreshGolden(NATIVE_DELETE_EXPECTED, snapshot, MODE)
+    await deleteDialog.getByRole('button', { name: '取消', exact: true }).click()
+  }, 60_000)
+
+  it('stores the key under the derived reference and keeps the route live', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-models-add'))
     const dialog = page.getByRole('dialog', { name: '设置' })
-    await dialog.getByLabel('API 密钥').fill('sk-e2e-minimax')
+    await dialog.getByRole('button', { name: '编辑 minimax-cn' }).click()
+    await dialog.getByRole('textbox', { name: 'API 密钥', exact: true }).fill('sk-e2e-minimax')
     await dialog.getByRole('button', { name: '保存', exact: true }).click()
     // The profile lands in settings.yaml with only the derived reference, the
     // key value lands in the harness home's .env, the dormant route
     // registers, and the topology frame invalidates the page into the row.
-    const row = dialog.getByText('minimax-cn', { exact: true }).first()
-    await row.waitFor({ timeout: 10_000 })
+    await expect.poll(
+      async () => dialog.getByRole('textbox', { name: 'API 密钥', exact: true }).count(),
+      { timeout: 10_000 },
+    ).toBe(0)
+    await dialog.getByRole('img', { name: 'API 密钥已配置' }).waitFor({ timeout: 10_000 })
+    await dialog.getByText('已保存 minimax-cn。', { exact: true }).waitFor({ timeout: 10_000 })
     const document = await readFile(join(scaffold.harnessHome, 'settings.yaml'), 'utf8')
     expect(document).toContain('minimax-cn:')
     expect(document).toContain('apiKeyEnv: MINIMAX_CN_API_KEY')
     expect(document).not.toContain('sk-e2e-minimax')
-    const stored = await readFile(join(scaffold.harnessHome, '.env'), 'utf8')
-    expect(stored).toContain('MINIMAX_CN_API_KEY=sk-e2e-minimax')
+    const credentialFile = join(scaffold.harnessHome, '.env')
+    await expect.poll(
+      async () => readFile(credentialFile, 'utf8').catch(() => ''),
+      { timeout: 10_000 },
+    ).toContain('MINIMAX_CN_API_KEY=sk-e2e-minimax')
     expect(await page.content()).not.toContain('sk-e2e-minimax')
   }, 60_000)
 
   it('applies a customized-settings field as a merge patch', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-models-customized'))
     const dialog = page.getByRole('dialog', { name: '设置' })
-    await dialog.getByRole('button', { name: '编辑' }).click()
+    await dialog.getByRole('button', { name: '编辑 minimax-cn' }).click()
     await dialog.getByText('自定义设置').click()
     const effort = dialog.getByLabel('推理强度')
     await effort.waitFor({ timeout: 10_000 })
@@ -125,6 +165,7 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
     // The editor closes back to the row; the fold's write merged into the
     // stored profile beside the reference.
     await expect.poll(async () => dialog.getByLabel('推理强度').count(), { timeout: 10_000 }).toBe(0)
+    await dialog.getByText('已保存 minimax-cn。', { exact: true }).waitFor({ timeout: 10_000 })
     const document = await readFile(join(scaffold.harnessHome, 'settings.yaml'), 'utf8')
     expect(document).toContain('reasoning: high')
     expect(document).toContain('apiKeyEnv: MINIMAX_CN_API_KEY')
@@ -133,32 +174,32 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)
 
-  it('confirms provider deletion before removing its settings profile', async () => {
+  it('confirms an identified provider deletion before removing its profile and key', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-models-delete'))
     const settingsDialog = page.getByRole('dialog', { name: '设置' })
-    await settingsDialog.getByRole('button', { name: '删除', exact: true }).click()
-    const deleteDialog = page.getByRole('dialog', { name: '删除模型提供方？' })
+    await settingsDialog.getByRole('button', { name: '删除 minimax-cn', exact: true }).click()
+    const deleteDialog = page.getByRole('dialog', { name: '删除 minimax-cn？' })
     await deleteDialog.waitFor({ timeout: 10_000 })
     const snapshot = await captureStableAria(
       page,
-      '[role="dialog"][aria-label="删除模型提供方？"]',
+      '[role="dialog"][aria-label="删除 minimax-cn？"]',
       scaffold.workspaceCwd,
     )
     await compareOrRefreshGolden(DELETE_EXPECTED, snapshot, MODE)
 
     await deleteDialog.getByRole('button', { name: '取消', exact: true }).click()
     expect(await readFile(join(scaffold.harnessHome, 'settings.yaml'), 'utf8')).toContain('minimax-cn:')
-    await settingsDialog.getByRole('button', { name: '删除', exact: true }).click()
-    await page.getByRole('dialog', { name: '删除模型提供方？' })
-      .getByRole('button', { name: '删除提供方', exact: true }).click()
+    await settingsDialog.getByRole('button', { name: '删除 minimax-cn', exact: true }).click()
+    await page.getByRole('dialog', { name: '删除 minimax-cn？' })
+      .getByRole('button', { name: '删除 minimax-cn', exact: true }).click()
     await expect.poll(
       async () => readFile(join(scaffold.harnessHome, 'settings.yaml'), 'utf8'),
       { timeout: 10_000 },
     ).not.toContain('minimax-cn:')
     expect(await readFile(join(scaffold.harnessHome, '.env'), 'utf8'))
-      .toContain('MINIMAX_CN_API_KEY=sk-e2e-minimax')
+      .not.toContain('MINIMAX_CN_API_KEY')
     await expect.poll(
-      async () => page.getByRole('dialog', { name: '删除模型提供方？' }).count(),
+      async () => page.getByRole('dialog', { name: '删除 minimax-cn？' }).count(),
       { timeout: 10_000 },
     ).toBe(0)
     await page.keyboard.press('Escape')
@@ -166,6 +207,8 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
   }, 60_000)
 
   it.skipIf(MODE === 'record')('keeps the fixture inventory closed', async () => {
-    await assertFixtureInventory(SNAPSHOT_DIR, ['configured.expected.md', 'delete.expected.md', 'empty.expected.md'])
+    await assertFixtureInventory(SNAPSHOT_DIR, [
+      'configured.expected.md', 'delete.expected.md', 'empty.expected.md', 'native-delete.expected.md',
+    ])
   })
 })

@@ -38,7 +38,7 @@ Status: implemented
 
 **Web UI 中留空的输入框。** 即便某个 provider 的 Key 已经存好，该输入框也是空着打开的——`keyStored` 的文案写的是「已配置——输入新值以替换」——所以留空意味着*保持已存储的值*。`ProviderEditor` 在草稿为空时完全跳过 `credentials.set`，这一点保持不变：留空绝不拦截提交，否则改一个 base URL 都得重新输一遍 Key。
 
-**已提供，但为空或纯空白。** 这是唯一的错误，因为用户表达了设置 Key 的意图却什么都没给。`llm-pi-ai` 在 `resolveProfiles` 中的措辞本就是对的——*has an empty apiKey; omit it to use ambient authentication*——这种指明合法替代路径而非单纯拒绝的形态，正是其他界面所采用的。
+**已提供，但为空或纯空白。** 它意味着什么，取决于「缺失」在该界面上选中了什么，而两个适配器的差异是有依据的。在 `llm-pi-ai` 中它是错误，因为那里的缺失切换的是**鉴权方式**——转向内置 provider 的 ambient 发现或 OAuth——因此一个空 Key 究竟想选哪一种是真有歧义；它的措辞指明了合法替代路径而非单纯拒绝（*has an empty apiKey; omit it to use ambient authentication*）。在 `llm-deepseek` 中，缺失只是为同一把 Key 选择了另一个**来源** `apiKeyEnv`，因此空白字面量会像缺省一样经该回落解析。在浏览器中它始终是失败，两张卡片皆然：字段是人刚刚敲过字的地方，静默丢弃他敲进去的内容永远不是正确答案。
 
 因此 `normalizeApiKey` 接受 `string`，而绝非 `string | undefined`。
 
@@ -55,7 +55,7 @@ Status: implemented
 | 界面 | 行为 |
 |---|---|
 | `dsh-llm` | 拥有 `normalizeApiKey`、`assertUsableApiKey` 与 `INVALID_CREDENTIAL_CODE`，后者刻意不进 `DEFAULT_RETRYABLE_CODES`。 |
-| `llm-deepseek` `resolveAdapterOptions` | 归一化已提供的 `apiKey`，与其他超出 schema 的边界检查并排抛错；使用 trim 后的值。缺省的 `apiKey` 回落到 `apiKeyEnv`。 |
+| `llm-deepseek` `resolveAdapterOptions` | 拒绝标头无法承载的字面量 `apiKey`，与其他超出 schema 的边界检查并排；使用 trim 后的值。缺省或空白的 `apiKey` 回落到 `apiKeyEnv`。 |
 | `llm-deepseek` `resolveApiKey` | 归一化凭据 seam 或环境返回的值，以 `INVALID_CREDENTIAL` 拒绝，消息指明模型设置页，绝不回显 Key。 |
 | `llm-pi-ai` `resolveProfiles` | 施加这条共享规则，保留其「omit it to use ambient authentication」的措辞，并把 trim 后的值写进解析后的 profile。 |
 | `llm-pi-ai` `resolveApiKey` | 归一化凭据与环境路径。不指定任何凭据的 profile 仍返回 `undefined`，ambient 与 OAuth 路由不受影响。 |

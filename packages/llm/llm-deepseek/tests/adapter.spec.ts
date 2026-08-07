@@ -699,6 +699,13 @@ describe('plugin registration and config', () => {
     })
   })
 
+  it('normalizes a literal API key and treats whitespace as absent', () => {
+    expect(resolveAdapterOptions({ apiKey: '  key  ' }).apiKey).toBe('key')
+    const whitespace = resolveAdapterOptions({ apiKey: ' \t ', apiKeyEnv: 'CUSTOM_API_KEY' })
+    expect(whitespace.apiKey).toBeUndefined()
+    expect(whitespace.apiKeyEnv).toBe('CUSTOM_API_KEY')
+  })
+
   it('uses the default model catalog when apply is called directly', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
@@ -1001,9 +1008,14 @@ describe('API key format', () => {
     expect(resolveAdapterOptions({}).apiKey).toBeUndefined()
   })
 
-  it('rejects a literal apiKey of whitespace only', () => {
-    expect(() => resolveAdapterOptions({ apiKey: '   ' }))
-      .toThrow(/apiKey is empty; omit it/)
+  it('treats a whitespace-only literal apiKey as absent, not as a failure', () => {
+    // This adapter's absence has a defined fallback, so a blank literal
+    // resolves through apiKeyEnv like an omitted one. (llm-pi-ai refuses a
+    // blank one instead: there, absence selects provider-native or OAuth
+    // authentication rather than a different source for the same key.)
+    const resolved = resolveAdapterOptions({ apiKey: '   ', apiKeyEnv: 'CUSTOM_API_KEY' })
+    expect(resolved.apiKey).toBeUndefined()
+    expect(resolved.apiKeyEnv).toBe('CUSTOM_API_KEY')
   })
 
   it('rejects a literal apiKey no header can carry', () => {
