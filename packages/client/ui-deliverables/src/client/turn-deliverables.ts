@@ -83,7 +83,8 @@ export function producedForClosing(nodes: readonly ConversationNode[], seq: numb
  * @param owner - Turn-tail owner currency for the closing assistant.
  * @returns Produced paths as the component's match, or null to decline before mount.
  */
-export function selectProducedFiles({ nodes, seq }: TurnTailOwnerProps): readonly string[] | null {
+export function selectProducedFiles(owner: TurnTailOwnerProps): readonly string[] | null {
+  const { nodes, seq } = owner
   const paths = producedForClosing(nodes, seq)
   return paths.length === 0 ? null : paths
 }
