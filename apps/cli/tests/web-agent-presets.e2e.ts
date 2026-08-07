@@ -1,9 +1,9 @@
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { Context } from 'cordis'
-import { boot, loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
+import { boot, healProfilesModuleFallback, loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { PatchOptions } from '@cordisjs/plugin-include'
@@ -13,8 +13,12 @@ import { resolveSessionPreset, SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-agent
 import type {} from '@deepseek-ai/dsh-tools'
 
 const CONFIG_DIR = fileURLToPath(new URL('../config/', import.meta.url))
-const BASE_CONFIG = join(CONFIG_DIR, 'base.cordis.yml')
-const WEB_OVERLAY = join(CONFIG_DIR, 'web.cordis.yml')
+const REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
+/** The shipped Web surface: the dsh-base and dsh-web-app bundle patches over an empty preset root. */
+const BASE_PATCH = join(REPO_ROOT, 'packages/bundle/base/cordis.patch.yml')
+const WEB_PATCH = join(REPO_ROOT, 'packages/bundle/web-app/cordis.patch.yml')
+/** The installation anchor whose dependency surface the preset module fallback mirrors. */
+const INSTALL_ANCHOR = join(REPO_ROOT, 'apps/cli/package.json')
 
 /**
  * Boot the shipped Web composition, minus the rows that would bind a port,
@@ -23,7 +27,8 @@ const WEB_OVERLAY = join(CONFIG_DIR, 'web.cordis.yml')
  */
 async function bootWeb(settingsFile: string): Promise<Context> {
   const patches: PatchOptions[] = [
-    ...loadOverlayPatches('dsh-test', WEB_OVERLAY),
+    ...loadOverlayPatches('dsh-test', BASE_PATCH),
+    ...loadOverlayPatches('dsh-test', WEB_PATCH),
     // The settings row defaults to `$DSH_HOME/settings.yaml`. Left alone it
     // reads the developer's own document — and since the default preset is a
     // setting, a stored `agent-presets.default` would decide this file's
@@ -33,6 +38,8 @@ async function bootWeb(settingsFile: string): Promise<Context> {
     // Host rows with side effects outside this process: a bound port, a
     // served asset tree, a telemetry exporter.
     { id: 'webserver', disabled: true },
+    // Waits for `httpServer`, which the disabled webserver above provides.
+    { id: 'web-runtime', disabled: true },
     { id: 'telemetry-otel', disabled: true },
     { id: 'modules', disabled: true },
     { id: 'connection', disabled: true },
@@ -52,7 +59,19 @@ async function bootWeb(settingsFile: string): Promise<Context> {
       config: { default: 'standard', roots: [{ path: join(CONFIG_DIR, 'agent-presets'), trust: 'system' }] },
     },
   ]
-  return await boot('dsh-test', BASE_CONFIG, patches)
+  // The composition boots from an empty preset root, exactly as `dsh web`
+  // does: the root's own directory is outside this workspace, so bare plugin
+  // names cannot resolve by Node's upward walk. The flat fallback the preset
+  // boot maintains is what makes them resolvable — the same mechanism, not a
+  // test-only shim. It links each package's published entry, so this file
+  // consumes the ARTIFACT plane and lives in the lane that builds.
+  const home = dirname(settingsFile)
+  healProfilesModuleFallback(INSTALL_ANCHOR, home)
+  const presetDir = join(home, 'profiles', 'spec')
+  await mkdir(presetDir, { recursive: true })
+  const rootConfig = join(presetDir, 'cordis.yml')
+  await writeFile(rootConfig, '[]\n')
+  return await boot('dsh-test', rootConfig, patches)
 }
 
 const toolNames = (ctx: Context, agent?: Agent): string[] =>
@@ -314,7 +333,7 @@ describe('the default preset as a user setting', () => {
       try {
         // `mount()` with no id resolves the effective default. Two tools, not
         // `standard`'s catalog: the setting decided the composition.
-        expect(toolNames(ctx, handle.agent)).toEqual(['ask_user_question', 'bash', 'str_replace_editor'])
+        expect(toolNames(ctx, handle.agent)).toEqual(['bash', 'str_replace_editor'])
       } finally {
         await handle.dispose()
       }
