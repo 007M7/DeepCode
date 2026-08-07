@@ -44,7 +44,6 @@
 - button "Commands":
   - img
 - 'button "Access mode, current: Read Only"': Read Only
-- text: standard
 - button "Select model":
   - text: Select model
   - img

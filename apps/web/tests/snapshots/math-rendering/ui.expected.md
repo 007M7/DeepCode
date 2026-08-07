@@ -37,7 +37,6 @@
 - button "Commands":
   - img
 - 'button "Access mode, current: Workspace Write"': Workspace Write
-- text: standard
 - button "Select model":
   - text: Select model
   - img
