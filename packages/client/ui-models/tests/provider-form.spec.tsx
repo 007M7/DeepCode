@@ -987,7 +987,7 @@ describe('API key field', () => {
 
     fireEvent.change(screen.getByLabelText(en.keyInput), { target: { value: 'OPENAI_API_KEY=sk-abc' } })
 
-    expect(screen.getByText(en.keyLooksWrapped)).toBeTruthy()
+    expect(screen.getByText(en.keyIllegalCharacters)).toBeTruthy()
     expect(buttonNamed(en.apply).disabled).toBe(true)
   })
 

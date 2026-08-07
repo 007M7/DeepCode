@@ -22,8 +22,14 @@ const LEGAL_API_KEY = /^[\x21-\x7E]+$/
  */
 const ENV_LINE = /^[A-Z][A-Z0-9_]*=[^=]/
 
-/** Copy key naming why a typed key cannot be saved. */
-export type ApiKeyFailureKey = 'keyBlank' | 'keyIllegalCharacters' | 'keyLooksWrapped'
+/**
+ * Copy key naming why a typed key cannot be saved. A wrapped paste reports the
+ * same format failure as an illegal character: the reader's next move is the
+ * same either way — look at the key and paste it again — so naming the two
+ * causes apart would spend the field's one line on a distinction that changes
+ * nothing about what to do.
+ */
+export type ApiKeyFailureKey = 'keyBlank' | 'keyIllegalCharacters'
 
 /** Whether a value is wrapped in one matching pair of quotes. */
 function isQuoted(value: string): boolean {
@@ -46,7 +52,7 @@ export function apiKeyFailure(draft: string): ApiKeyFailureKey | undefined {
   if (draft.length === 0) return undefined
   const value = draft.trim()
   if (value.length === 0) return 'keyBlank'
-  if (ENV_LINE.test(value) || isQuoted(value)) return 'keyLooksWrapped'
+  if (ENV_LINE.test(value) || isQuoted(value)) return 'keyIllegalCharacters'
   if (!LEGAL_API_KEY.test(value)) return 'keyIllegalCharacters'
   return undefined
 }

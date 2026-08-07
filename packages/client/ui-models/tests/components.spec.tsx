@@ -1121,8 +1121,8 @@ describe('apiKeyFailure', () => {
     ['double quotes', '"sk-abc"'],
     ['single quotes', '\'sk-abc\''],
     ['backticks', '`sk-abc`'],
-  ])('fails %s as wrapped', (_label, draft) => {
-    expect(apiKeyFailure(draft)).toBe('keyLooksWrapped')
+  ])('fails %s as a format failure', (_label, draft) => {
+    expect(apiKeyFailure(draft)).toBe('keyIllegalCharacters')
   })
 
   it('needs a matching closing quote before it calls a value wrapped', () => {

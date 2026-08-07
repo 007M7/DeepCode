@@ -22,7 +22,7 @@ One rule defines a legal key: **after trimming, non-empty, and every character w
 
 This single predicate covers every input the sources list: empty, leading and trailing whitespace, interior whitespace, C0 control characters, emoji, CJK text, and full-width punctuation. It is also exactly the constraint that produced the ByteString failure, so the two issues close on one definition rather than on two coincidentally related fixes.
 
-A second, narrower rule catches a pasted environment line: input matching `^[A-Z][A-Z0-9_]*=` or wrapped in matching quotes is refused. Restricting the prefix to upper-case keeps real keys clear of it — `sk-` forms break the identifier match at the hyphen.
+A second, narrower rule catches a pasted environment line: input matching `^[A-Z][A-Z0-9_]*=[^=]` or wrapped in matching quotes is refused. Restricting the prefix to upper-case keeps real keys clear of it — `sk-` forms break the identifier match at the hyphen — and requiring a non-`=` character after the separator keeps base64 padding clear of it too. It reports the same format failure as an illegal character rather than its own message: the reader's next move is identical either way, so a separate line would name a cause without changing what to do.
 
 ### Invariants belong at every layer; heuristics belong where the human is
 
