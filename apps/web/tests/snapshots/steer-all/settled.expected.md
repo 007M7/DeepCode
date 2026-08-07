@@ -7,9 +7,6 @@
 - text: Use the ask_user_question tool to ask me exactly one question with id "checkpoint", question "Ready to continue?", header "Checkpoint", and options labeled "Yes" and "No". After I answer, reply with one short sentence acknowledging my answer and stop. {{clock}}
 - button "Copy":
   - img
-- button "Branch into a new conversation" [disabled]:
-  - img
-- text: Available only on the last message of a completed turn
 - button "Context injection @deepseek-ai/dsh-system-prompt":
   - img
   - img
@@ -25,14 +22,9 @@
 - text: "Interjection Interjection: include the word BANANA in your final reply. {{clock}}"
 - button "Copy":
   - img
-- button "Branch into a new conversation" [disabled]:
-  - img
-- text: "Available only on the last message of a completed turn Interjection Interjection: include the word ORANGE in your final reply. {{clock}}"
+- text: "Interjection Interjection: include the word ORANGE in your final reply. {{clock}}"
 - button "Copy":
   - img
-- button "Branch into a new conversation" [disabled]:
-  - img
-- text: Available only on the last message of a completed turn
 - paragraph: "Got it: BANANA and ORANGE."
 - button "Copy":
   - img
