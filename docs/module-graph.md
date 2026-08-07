@@ -202,6 +202,9 @@ flowchart TD
     pkg_cli_demo["cli-demo"]
     pkg_jsonrpc_demo["jsonrpc-demo"]
   end
+  subgraph group_feedback["packages/feedback"]
+    pkg_command_feedback["command-feedback"]
+  end
   subgraph group_guard["packages/guard"]
     pkg_repeat_tool_guard["repeat-tool-guard"]
   end
@@ -677,6 +680,9 @@ flowchart TD
   pkg_client_ui_conversation --> pkg_client_ui_slots
   pkg_client_ui_conversation --> pkg_invariants
   pkg_client_ui_conversation --> pkg_token_meter
+  pkg_command_feedback --> pkg_commands
+  pkg_command_feedback --> pkg_invariants
+  pkg_command_feedback --> pkg_session
   pkg_pty_local --> pkg_agent
   pkg_pty_local --> pkg_invariants
   pkg_pty_local --> pkg_pty
@@ -1233,6 +1239,7 @@ flowchart TD
 | [`acp`](../packages/acp/acp) | `acp` | [`agent`](../packages/core/agent), [`invariants`](../packages/support/invariants), [`session`](../packages/core/session), [`user-approval`](../packages/ui/user-approval) |
 | [`permission`](../packages/ui/permission) | `ui` | [`bash`](../packages/bash/bash), [`commands`](../packages/ui/commands), [`invariants`](../packages/support/invariants), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`session`](../packages/core/session), [`session-projection`](../packages/session-projection/session-projection), [`settings`](../packages/settings/settings), [`user-approval`](../packages/ui/user-approval) |
 | [`client-ui-conversation`](../packages/client/ui-conversation) | `client` | [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slash`](../packages/client/ui-slash), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/support/invariants), [`token-meter`](../packages/llm/token-meter) |
+| [`command-feedback`](../packages/feedback/command-feedback) | `feedback` | [`commands`](../packages/ui/commands), [`invariants`](../packages/support/invariants), [`session`](../packages/core/session) |
 | [`pty-local`](../packages/pty/pty-local) | `pty` | [`agent`](../packages/core/agent), [`invariants`](../packages/support/invariants), [`pty`](../packages/pty/pty), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`session`](../packages/core/session), [`subprocess`](../packages/subprocess/subprocess) |
 | [`tasks-local`](../packages/tasks/tasks-local) | `tasks` | [`agent`](../packages/core/agent), [`invariants`](../packages/support/invariants), [`tasks`](../packages/tasks/tasks), [`timeout`](../packages/util/timeout) |
 | [`session-telemetry-otel`](../packages/telemetry/session-telemetry-otel) | `telemetry` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`paths`](../packages/util/paths), [`session`](../packages/core/session), [`session-telemetry`](../packages/telemetry/session-telemetry) |

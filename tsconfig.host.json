@@ -130,6 +130,7 @@
     { "path": "./packages/goal/tool-goal" },
     { "path": "./packages/goal/goal-session" },
     { "path": "./packages/goal/command-goal" },
+    { "path": "./packages/feedback/command-feedback" },
     { "path": "./packages/context/time-context" },
     { "path": "./packages/context/tmux-context" },
     { "path": "./packages/context/session-reference" },
