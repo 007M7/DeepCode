@@ -25,6 +25,7 @@ import {
   type Profile,
 } from '@deepseek-ai/dsh-app-boot'
 import { resolveDshHome } from '@deepseek-ai/dsh-paths'
+import { DSH_ENVIRONMENT_KEY, type EnvironmentSnapshot } from '@deepseek-ai/dsh-environment'
 import type { HeadlessIo } from '@deepseek-ai/dsh-headless'
 import { createProcessShutdown, type ProcessShutdown } from './process-shutdown.ts'
 
@@ -163,6 +164,8 @@ export interface RunProfileOptions {
   task?: string
   /** Surface setup registered after Loader installation and before any config-tree entry mounts. */
   prepare?: (ctx: Context, rows: ProfileRows) => Promise<void> | void
+  /** This run's frozen environment snapshot, provided to the tree before any entry mounts. */
+  environment: EnvironmentSnapshot
 }
 
 /**
@@ -226,6 +229,9 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
   // application must not mutate the objects later reloads recompose from.
   const ctx = await boot(NAME, rootConfig, structuredClone(allPatches(composed)), async (hostCtx) => {
     app.current = hostCtx
+    // Before any config-tree entry mounts, so a plugin that resolves a
+    // user-facing value at construction already sees this run's layers.
+    hostCtx.provide(DSH_ENVIRONMENT_KEY, options.environment)
     if (options.task !== undefined) {
       const io: HeadlessIo = {
         stdout: process.stdout,

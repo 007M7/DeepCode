@@ -246,16 +246,22 @@ describe('headless stream-json snapshots', () => {
       prepare: (cwd) => { runCwd = cwd },
     })
 
+    // The failure reaches the caller through the stream, not stderr; the
+    // recorded transcript below pins the guidance text itself, which names
+    // both places a credential can come from and nothing else.
     expect(result.stderr).toBe('')
     const normalized = normalizeHeadlessStream(result.stdout, runCwd)
     if (refreshing) await writeFile(streamExpected, normalized)
     expect(normalized).toBe(await readFile(streamExpected, 'utf8'))
     // The durable failure leads with the credential store — the path that
-    // keeps the secret out of configuration files — and offers a literal key last.
+    // keeps the secret out of configuration files — then names the launching
+    // environment, and stops there: configuration carries the reference, so
+    // there is no literal-key escape hatch left to offer.
     expect(normalized).toContain(
       'store DEEPSEEK_API_KEY through the credentials service (the web Models page writes it),',
     )
-    expect(normalized).toContain('as a last resort')
+    expect(normalized).toContain('or export DEEPSEEK_API_KEY in the launching environment')
+    expect(normalized).not.toContain('as a last resort')
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
   it('logs actionable invalid-credential guidance through the one-shot app', async () => {
@@ -351,6 +357,9 @@ describe('headless stream-json snapshots', () => {
         ],
         tsconfigPath,
         env: {
+          // Configuration carries only the reference; the key rides the
+          // launching environment, which is the whole credential plane here.
+          DEEPSEEK_API_KEY: 'snapshot-key',
           DSH_SNAPSHOT_BASE_URL: server.url,
           NODE_OPTIONS: [process.env.NODE_OPTIONS, '--disable-warning=ExperimentalWarning'].filter(Boolean).join(' '),
         },

@@ -19,7 +19,6 @@ function row(overrides: Partial<ProviderRow> = {}): ProviderRow {
     removable: false,
     apiKeyEnv: 'DEEPSEEK_API_KEY',
     credential: missingCredential,
-    literalApiKeyConfigured: false,
     ...overrides,
   }
 }
@@ -61,13 +60,6 @@ describe('deepSeekReadiness', () => {
     }))).toEqual({ kind: 'configured' })
     expect(deepSeekReadiness(state({
       rows: [row({ credential: { configured: true, source: 'env', writable: false } })],
-    }))).toEqual({ kind: 'configured' })
-  })
-
-  it('accepts the redacted literal-key sidecar before judging the credential domain', () => {
-    expect(deepSeekReadiness(state({
-      credentialError: 'credentials service absent',
-      rows: [row({ literalApiKeyConfigured: true, credential: undefined })],
     }))).toEqual({ kind: 'configured' })
   })
 
