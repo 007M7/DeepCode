@@ -190,11 +190,16 @@ export class AgentPresets extends Service {
     try {
       await mountPreset(agentCtx, preset)
     } catch (error) {
-      if (previous !== undefined && previous !== preset.id) {
+      if (previous !== undefined) {
+        // Restored unconditionally, same id included: the roster is a live
+        // directory, so "the same inputs that worked a moment ago" does not
+        // hold — the file may have changed between the original mount and
+        // this one, which is exactly how a same-id reselect fails. Skipping
+        // the restore there left the agent with no composition at all.
         await this.mount(agentCtx, previous).catch(() => {
           // The agent now has no composition, but the switch failure below is
-          // the actionable diagnostic and the restore had the same inputs that
-          // worked a moment ago; reporting its failure instead would hide why.
+          // the actionable diagnostic; reporting the restore's instead would
+          // hide why the switch was attempted and what the operator must fix.
         })
       }
       throw error
