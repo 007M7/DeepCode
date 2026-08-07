@@ -10,8 +10,8 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 /**
  * Key-gated smoke for mid-session compaction. It verifies the compact event
  * pair, replacement of older surface nodes, and a final answer after compaction.
- * A keyless assembled snapshot with an explicit summarization replay override
- * is tracked in https://github.com/deepseek-harness/deepseek-harness/issues/1971.
+ * TODO(compaction-snapshot): Add a keyless assembled snapshot with an explicit
+ * summarization replay override.
  */
 
 let workdir: string | undefined

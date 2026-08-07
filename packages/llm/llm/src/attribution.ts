@@ -40,8 +40,7 @@ export interface AppIdentity {
 export const APP_IDENTITY: AppIdentity = {
   product: 'deepseek-harness',
   version,
-  // The public-home release blocker is tracked in
-  // https://github.com/deepseek-harness/deepseek-harness/issues/1972.
+  // TODO(public-home): Ensure this public source repository exists before release.
   url: 'https://github.com/deepseek-ai/deepseek-harness-sdk',
 }
 

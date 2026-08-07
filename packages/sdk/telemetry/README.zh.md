@@ -14,7 +14,7 @@
 
 Consent 由 `cordis.yml` 中的 telemetry 配置项承载，因此禁用 telemetry 就是禁用该配置项。telemetry 默认上报，只有已经存在的 telemetry 配置项被显式设为 `disabled` 时才关闭：缺少 `cordis.yml`（首次 `create`）、配置项已启用，或 `cordis.yml` 中没有 telemetry 配置项时都会上报。`DO_NOT_TRACK`／CI 始终拒绝。无配置与缺少配置项的默认值可以通过 `ConsentResolver` 配置。
 
-收集端点是固定常量（`DSH_TELEMETRY_ENDPOINT`）；[#1973](https://github.com/deepseek-harness/deepseek-harness/issues/1973) 跟踪服务部署，以及发布前将作为安全兜底的 `.invalid` 占位值替换为真实端点。
+收集端点是固定常量（`DSH_TELEMETRY_ENDPOINT`）；发布前必须将作为安全兜底的 `.invalid` 占位值替换为真实端点。
 
 ## 模型体验
 
@@ -26,5 +26,5 @@ Consent 由 `cordis.yml` 中的 telemetry 配置项承载，因此禁用 telemet
 
 ## 已知限制与暂缓事项
 
-- **占位端点**：`DSH_TELEMETRY_ENDPOINT` 指向 `.invalid`，直至 [#1973](https://github.com/deepseek-harness/deepseek-harness/issues/1973) 跟踪的服务就绪。
+- **占位端点**：`DSH_TELEMETRY_ENDPOINT` 指向 `.invalid`，直到设置真实端点。
 - **脱敏依赖启发式规则**：这只是保守后备，不是保证；密钥应存放于 `.env`，而该文件绝不会被读取或上报。

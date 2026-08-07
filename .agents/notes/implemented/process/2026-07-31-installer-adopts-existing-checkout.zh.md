@@ -46,6 +46,6 @@ Status: implemented
 
 ## Testing
 
-`scripts/install.sh` 现有一套位于 `apps/cli/tests/install-script.spec.ts` 的真实 shell PTY 回归测试，使用 stub 依赖覆盖接管路径和 curl 风格路径。[#1890](https://github.com/deepseek-harness/deepseek-harness/issues/1890) 跟踪安装器的长期删除工作，届时将改用 pnpm/npx。
+`scripts/install.sh` 现有一套位于 `apps/cli/tests/install-script.spec.ts` 的真实 shell PTY 回归测试，使用 stub 依赖覆盖接管路径和 curl 风格路径。curl 风格安装默认使用公开的 `deepseek-ai/deepseek-harness-sdk` 源，而以 pnpm/npx 替换安装器仍是另一项工作。
 
 验证是手工完成的，通过一个一次性测试装置以打桩的`pnpm`驱动真实脚本：接管独立克隆；从 linked worktree 接管进其已有容器；显式`DSH_SOURCE`仍回到克隆路径；工作树不干净时静默接管、既不提示也不警告，且其未提交文件留在原处；非 git 检出失败并给出指引；以及`curl`式克隆安装断言所构建的布局——正是这项回归测试捕获了`REPO_ROOT`未解析的缺陷。交互路径在 tmux 下从一个不干净的检出走通，确认整个过程不出现接管提示即可到达启动器，最终`dsh`从新的 staging worktree 运行，而原检出保持其分支不变、未提交文件仍在。

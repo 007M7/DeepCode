@@ -17,10 +17,10 @@ import { SecretRedactor } from './secret-redactor.ts'
 
 /**
  * Fail-safe placeholder collection endpoint. The `.invalid` TLD guarantees
- * delivery fails harmlessly until the service tracked in
- * https://github.com/deepseek-harness/deepseek-harness/issues/1973 is ready.
- * This is a fixed protocol constant, not a deployment tunable.
+ * delivery fails harmlessly until a collector is deployed. This is a fixed
+ * protocol constant, not a deployment tunable.
  */
+// TODO(telemetry-endpoint): Replace the placeholder before release.
 export const DSH_TELEMETRY_ENDPOINT = 'https://telemetry.example.invalid/v1/dsh-sdk'
 
 /** Wire-envelope schema version; bump on any incompatible body change. */

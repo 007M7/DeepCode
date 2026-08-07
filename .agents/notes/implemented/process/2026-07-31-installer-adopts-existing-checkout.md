@@ -46,6 +46,6 @@ A container adopting an outside clone is also no longer self-contained: deleting
 
 ## Testing
 
-`scripts/install.sh` now has a real-shell PTY regression suite in `apps/cli/tests/install-script.spec.ts`, covering adoption and curl-style paths with stubbed dependencies. The installer's longer-term deletion in favor of pnpm/npx is tracked in [#1890](https://github.com/deepseek-harness/deepseek-harness/issues/1890).
+`scripts/install.sh` now has a real-shell PTY regression suite in `apps/cli/tests/install-script.spec.ts`, covering adoption and curl-style paths with stubbed dependencies. Curl-style installs default to the public `deepseek-ai/deepseek-harness-sdk` source, while replacing the installer with pnpm/npx remains separate work.
 
 Verification was manual, through a throwaway harness driving the real script with a stubbed `pnpm`: adopting a standalone clone; adopting from a linked worktree into its existing container; an explicit `DSH_SOURCE` still opting back into cloning; a dirty tree adopting silently with no prompt or warning while its uncommitted file stays behind; a non-git checkout failing with guidance; and a `curl`-style clone install asserting the built layout, which is the regression that caught the unresolved-`REPO_ROOT` defect. The interactive path was exercised under tmux from a dirty checkout, confirming the run reaches the launcher with no adoption prompt and ends with `dsh` running from the new staging worktree while the original checkout keeps its branch and its uncommitted file.

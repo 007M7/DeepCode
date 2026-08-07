@@ -14,7 +14,7 @@ Launcher-side telemetry primitives for the dsh-sdk toolchain. This is a plain li
 
 Consent is carried by the telemetry entry in `cordis.yml`, so disabling telemetry is disabling that entry. Telemetry reports by default and is off only when a present telemetry entry is explicitly `disabled`: a missing `cordis.yml` (first `create`), an enabled entry, or a `cordis.yml` with no telemetry entry all report. `DO_NOT_TRACK`/CI always deny. The no-config and absent-entry defaults are configurable on `ConsentResolver`.
 
-The collection endpoint is a fixed constant (`DSH_TELEMETRY_ENDPOINT`); [#1973](https://github.com/deepseek-harness/deepseek-harness/issues/1973) tracks deploying the service and replacing its fail-safe `.invalid` placeholder before release.
+The collection endpoint is a fixed constant (`DSH_TELEMETRY_ENDPOINT`); its fail-safe `.invalid` placeholder must be replaced with the real endpoint before release.
 
 ## Model Experience
 
@@ -26,5 +26,5 @@ None; this package neither assembles nor sends a provider request.
 
 ## Known Limitations and Deferred Work
 
-- **Placeholder endpoint** — `DSH_TELEMETRY_ENDPOINT` points at `.invalid` until the service tracked in [#1973](https://github.com/deepseek-harness/deepseek-harness/issues/1973) is ready.
+- **Placeholder endpoint** — `DSH_TELEMETRY_ENDPOINT` points at `.invalid` until the real endpoint is set.
 - **Redaction is heuristic** — a conservative backstop, not a guarantee; secrets belong in `.env`, which is never read or reported.

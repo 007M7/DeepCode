@@ -90,8 +90,8 @@ async function prepareFsSearchWorkspace(cwd: string): Promise<void> {
   }
 }
 
-// https://github.com/deepseek-harness/deepseek-harness/issues/1970 tracks moving
-// backend/product scenarios to headless while retaining ACP protocol contracts here.
+// TODO(acp-snapshot-ownership): Move backend/product scenarios to headless while
+// retaining ACP protocol contracts here.
 
 function fixtureRecords(name: string): unknown[] {
   return readFileSync(join(SNAPSHOTS_DIR, name, 'session.jsonl'), 'utf8')

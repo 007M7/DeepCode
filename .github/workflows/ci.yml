@@ -30,8 +30,7 @@ env:
 
 jobs:
 
-  # https://github.com/deepseek-harness/deepseek-harness/issues/1967 tracks
-  # restoring the three hosted serial reference jobs before release.
+  # TODO(hosted-serial-ci): Re-enable the three hosted serial reference jobs before release.
   # The self-hosted standby remains active on every master push.
 
   # Three enterprise jobs isolate coverage, static analysis, and the
