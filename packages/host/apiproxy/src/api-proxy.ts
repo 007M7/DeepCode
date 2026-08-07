@@ -548,6 +548,28 @@ function detachedProjectionsFor(
   return registry.restore({}, events, 0).snapshot
 }
 
+/**
+ * Best-effort projections for one subagent history page, fail-soft like
+ * {@link listProjectionsFor}: a registered unit throwing on a corrupt payload
+ * never blocks transcript reading — the page is served without the block.
+ * @param ctx - context carrying the logger for the degradation warning.
+ * @param childSessionId - the child whose page is being decorated.
+ * @param compute - the arm-specific fold (live watermark or detached restore).
+ * @returns the projections block, or undefined when the fold failed.
+ */
+function subagentHistoryProjections(
+  ctx: Context,
+  childSessionId: SessionId,
+  compute: () => SessionProjectionsBlock | undefined,
+): SessionProjectionsBlock | undefined {
+  try {
+    return compute()
+  } catch (error) {
+    ctx.logger.warn(`subagent.history: projections for "${childSessionId}" failed (serving the page without them): ${String(error)}`)
+    return undefined
+  }
+}
+
 /** Map continuation admission failures without exposing provider details. */
 function subagentPromptError(
   request: RpcRequest<{ childSessionId: SessionId }>,
@@ -588,6 +610,15 @@ function subagentPromptError(
   return err(request, { code: 'internal', message: 'subagent prompt failed', details: {} })
 }
 
+/** Stable RPC face of the missing projections capability, shared by every catalog read path. */
+function projectionsUnavailableError(): RpcError {
+  return {
+    code: 'internal',
+    message: 'subagent catalog is unavailable: this deployment does not mount the sessionProjections registry (load @deepseek-ai/dsh-session-projection)',
+    details: {},
+  }
+}
+
 /** Verify one address and mode against the complete direct-child catalog. */
 async function catalogChild(
   ctx: Context,
@@ -621,19 +652,11 @@ async function catalogChild(
     }
     return { entry }
   } catch (error: unknown) {
-    if (signal?.aborted
-      || (error instanceof SubagentError && error.code === 'CANCELLED')
-      || (error instanceof SessionQueryError && error.code === 'SESSION_QUERY_ABORTED')) {
+    if (signal?.aborted || (error instanceof SubagentError && error.code === 'CANCELLED')) {
       return { error: { code: 'cancelled', message: 'subagent catalog read was cancelled', details: {} } }
     }
-    if (error instanceof SessionQueryError && error.code === 'SESSION_QUERY_SESSION_NOT_FOUND') {
-      return {
-        error: {
-          code: 'subagent-not-found',
-          message: `parent session "${parentSessionId}" was not found`,
-          details: { parentSessionId, childSessionId },
-        },
-      }
+    if (error instanceof SubagentError && error.code === 'SUBAGENT_CONTROL_PROJECTIONS_UNAVAILABLE') {
+      return { error: projectionsUnavailableError() }
     }
     return { error: { code: 'internal', message: 'subagent catalog read failed', details: {} } }
   }
@@ -1036,28 +1059,16 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     })
   }
 
-  /** Whether the session's own suffix carries the durable subagent discriminator. */
-  function hasSubagentDescriptor(session: Pick<Session, 'events' | 'header'>): boolean {
-    const events = session.events
-    // Indexed scan from the own-suffix start: slicing copies the whole suffix
-    // on every Agent-bound RPC, including each `session.prompt` on long
-    // transcripts.
-    for (let index = session.header.seedLength ?? 0; index < events.length; index += 1) {
-      if (events[index]?.type === 'subagent/descriptor') return true
-    }
-    return false
-  }
-
   /**
-   * Generic Host interaction cannot claim a durably classified subagent or an
-   * Agent created through its live parent. The runtime-owner arm also covers
-   * descriptor-less child publication windows and older stored headers.
+   * Generic Host interaction cannot claim a durably classified subagent
+   * (`origin: 'subagent'` in the header) or an Agent runtime-owned by its
+   * live parent.
    */
   function hasSubagentOwner(
-    session: Pick<Session, 'events' | 'header'>,
+    session: Pick<Session, 'header'>,
     agent: Agent | undefined,
   ): boolean {
-    if (session.header.origin === 'subagent' || hasSubagentDescriptor(session)) return true
+    if (session.header.origin === 'subagent') return true
     const parentId = session.header.parentSession
     if (parentId === undefined || agent === undefined) return false
     const parent = ctx.agents.get(parentId)
@@ -1113,7 +1124,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       resume = (async () => {
         try {
           const inspected = await inspectServable(sessionId)
-          if (hasSubagentOwner({ header: inspected.meta, events: inspected.events }, undefined)) {
+          if (hasSubagentOwner({ header: inspected.meta }, undefined)) {
             throw new SubagentSessionOwnership(sessionId)
           }
           const publishedSession = ctx.sessions.get(sessionId)
@@ -1249,7 +1260,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           // Ownership first: explicit-id adoption of a session-backed
           // subagent must answer `agent-busy` regardless of the requested
           // cwd (the api/commands.ts contract), not a cwd conflict.
-          if (hasSubagentOwner({ header: inspected.meta, events: inspected.events }, undefined)) {
+          if (hasSubagentOwner({ header: inspected.meta }, undefined)) {
             throw new SubagentSessionOwnership(sessionId)
           }
           if (inspected.meta.cwd !== cwd) {
@@ -2095,14 +2106,15 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             parentAvailable: ctx.agents.get(request.payload.parentSessionId) !== undefined,
           })
         } catch (error: unknown) {
-          if (signal?.aborted
-            || (error instanceof SubagentError && error.code === 'CANCELLED')
-            || (error instanceof SessionQueryError && error.code === 'SESSION_QUERY_ABORTED')) {
+          if (signal?.aborted || (error instanceof SubagentError && error.code === 'CANCELLED')) {
             return err(request, {
               code: 'cancelled',
               message: 'subagent catalog read was cancelled',
               details: {},
             })
+          }
+          if (error instanceof SubagentError && error.code === 'SUBAGENT_CONTROL_PROJECTIONS_UNAVAILABLE') {
+            return err(request, projectionsUnavailableError())
           }
           return err(request, {
             code: 'internal',
@@ -2120,44 +2132,65 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           parentSessionId, childSessionId, mode,
         }, signal)
         if (verified.error !== undefined) return err(request, verified.error)
-        try {
-          const snapshot = await ctx.sessionQuery.readSession(childSessionId)
-          signal?.throwIfAborted()
-          if (snapshot.session.parentSession !== parentSessionId) {
-            return err(request, {
-              code: 'subagent-unauthorized',
-              message: 'subagent parent changed during history read',
-              details: { childSessionId },
-            })
-          }
-          const page = historyPage(ctx, snapshot.events, beforeSeq, maxMessages, ctx.agents.get(childSessionId))
-          const projections = beforeSeq === undefined
-            ? detachedProjectionsFor(ctx, snapshot.events)
+        // The generic-history data plane: an attached child serves its
+        // in-memory snapshot and the registry's live watermark projections; a
+        // cold child is one persistence inspection plus a detached fold.
+        let header: SessionHeader
+        let events: SessionEvent[]
+        let projections: SessionProjectionsBlock | undefined
+        const attached = ctx.sessions.get(childSessionId)
+        if (attached !== undefined) {
+          header = attached.header
+          events = [...attached.events]
+          projections = beforeSeq === undefined
+            ? subagentHistoryProjections(ctx, childSessionId, () => projectionsFor(ctx, attached))
             : undefined
-          return ok(request, { ...page, ...projections === undefined ? {} : { projections } })
-        } catch (error: unknown) {
-          if (signal?.aborted
-            || (error instanceof SessionQueryError && error.code === 'SESSION_QUERY_ABORTED')) {
+        } else {
+          try {
+            const inspected = await inspectServable(childSessionId)
+            header = inspected.meta
+            events = inspected.events
+            projections = beforeSeq === undefined
+              ? subagentHistoryProjections(ctx, childSessionId, () => detachedProjectionsFor(ctx, inspected.events))
+              : undefined
+          } catch (error: unknown) {
+            if (signal?.aborted) {
+              return err(request, {
+                code: 'cancelled',
+                message: 'subagent history read was cancelled',
+                details: {},
+              })
+            }
+            if (error instanceof SessionNotFound) {
+              return err(request, {
+                code: 'subagent-not-found',
+                message: 'subagent disappeared during history read',
+                details: { parentSessionId, childSessionId },
+              })
+            }
             return err(request, {
-              code: 'cancelled',
-              message: 'subagent history read was cancelled',
+              code: 'internal',
+              message: 'subagent history read failed',
               details: {},
             })
           }
-          if (error instanceof SessionQueryError
-            && error.code === 'SESSION_QUERY_SESSION_NOT_FOUND') {
-            return err(request, {
-              code: 'subagent-not-found',
-              message: 'subagent disappeared during history read',
-              details: { parentSessionId, childSessionId },
-            })
-          }
+        }
+        if (signal?.aborted) {
           return err(request, {
-            code: 'internal',
-            message: 'subagent history read failed',
+            code: 'cancelled',
+            message: 'subagent history read was cancelled',
             details: {},
           })
         }
+        if (header.parentSession !== parentSessionId) {
+          return err(request, {
+            code: 'subagent-unauthorized',
+            message: 'subagent parent changed during history read',
+            details: { childSessionId },
+          })
+        }
+        const page = historyPage(ctx, events, beforeSeq, maxMessages)
+        return ok(request, { ...page, ...projections === undefined ? {} : { projections } })
       },
 
       async prompt(request, signal) {

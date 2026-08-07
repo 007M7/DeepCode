@@ -30,8 +30,9 @@ export const SYSTEM_PROMPT = 'You are a coding agent. Use bash for file operatio
 /** System prompt for the todo_write e2e: nudges the model to plan with the tool. */
 export const TODO_SYSTEM_PROMPT = 'You are a coding agent. For multi-step work, '
   + 'use the todo_write tool to track a task list: send the WHOLE list each call, '
-  + 'keep at most one task in_progress (exactly one while work remains), and mark '
-  + 'a task completed as soon as it is done.'
+  + 'mark every task being actively worked on in_progress (several at once when '
+  + 'work runs in parallel, at least one while work remains), and mark a task '
+  + 'completed as soon as it is done.'
 
 /** Options for {@link codingHarness}. */
 export interface CodingHarnessOptions {
@@ -65,7 +66,7 @@ export async function codingHarness(workdir: string, options: CodingHarnessOptio
   await ctx.plugin(BashEnvPlugin)
   await ctx.plugin(LocalBashExecutor, { cwd: workdir, timeoutMs: 30_000 })
   await ctx.plugin(ToolBash)
-  await ctx.plugin(ToolTodo)
+  await ctx.plugin(ToolTodo, { allowParallelInProgress: true })
   // Compaction is opt-in: only the compaction e2e loads the reusable meter and backend.
   if (options.compact !== undefined) {
     await ctx.plugin(TokenMeterService)
