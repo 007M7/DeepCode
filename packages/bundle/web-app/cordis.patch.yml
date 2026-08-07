@@ -45,9 +45,6 @@
 # `dshClient` rows are the browser roster the modules node half scans into
 # window.__DSH_BOOT__; the modules row is simultaneously a host row.
 - insert:
-    - id: session-projection
-      name: '@deepseek-ai/dsh-session-projection'
-
     - id: code-runtime
       name: '@deepseek-ai/dsh-code-runtime-worker'
 
