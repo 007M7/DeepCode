@@ -184,6 +184,15 @@ export interface PiAiModelProfile {
   compat?: PiAiCompatProfile
 }
 
+/**
+ * Customization of one installed catalog model, keyed by its id in the
+ * route's `modelOverrides` dict — the same fields a `models` entry may set,
+ * with the id living in the key. Unlike a `models` list, overrides leave the
+ * rest of the catalog serving untouched, which is what makes "correct one
+ * model, keep the other thirty-seven" a three-line edit.
+ */
+export type PiAiModelOverride = Omit<PiAiModelProfile, 'id'>
+
 /** The route-level facts model materialization reads. */
 export interface RouteCatalogRequest {
   /** Provider route key, stamped onto every materialized model. */
@@ -194,6 +203,8 @@ export interface RouteCatalogRequest {
   baseURL?: string
   /** Configured catalog; absent means the whole installed catalog for this route. */
   models?: readonly PiAiModelProfile[]
+  /** Installed-catalog customizations by model id; only meaningful while `models` is absent. */
+  modelOverrides?: Readonly<Record<string, PiAiModelOverride>>
   /** Reasoning-dispatch switches for every `openai-completions` model on the route; entries override per field. */
   compat?: PiAiCompatProfile
   /** Context capacity for a model neither the entry nor the catalog sizes. */
@@ -381,9 +392,35 @@ export function resolveRouteModels(request: RouteCatalogRequest): RouteCatalog {
   // schema materializes `[]` for the absent case, and an empty catalog could
   // serve no request anyway, so both mean "serve the installed catalog".
   const configured = request.models ?? []
+  const overrides = request.modelOverrides ?? {}
+  // Every miss is refused, never skipped: an override that lands nowhere is a
+  // typo someone would otherwise hunt for in a silently unchanged model.
+  for (const [id, override] of Object.entries(overrides)) {
+    if (id.length === 0) invalid(provider, 'has a modelOverrides entry with an empty model id')
+    if (defaults.size === 0) {
+      invalid(provider, `sets modelOverrides for "${id}", but the installed catalog does not describe this route;`
+        + ' a declared route spells every model out in its models list')
+    }
+    if (configured.length > 0) {
+      invalid(provider, `sets modelOverrides for "${id}" beside a models list; models already replaces the served`
+        + ' catalog, so declare the fields on its entries')
+    }
+    if (!defaults.has(id)) {
+      invalid(provider, `modelOverrides names "${id}", which the installed catalog does not describe`)
+    }
+    // The id lives in the dict key; a value carrying its own would quietly
+    // rename the model it meant to customize. The static shape already omits
+    // it — this guards the schema boundary, which passes unknown keys through.
+    if ('id' in override) {
+      invalid(provider, `modelOverrides entry "${id}" sets "id", which is the dict key`)
+    }
+  }
+  // An override becomes the catalog entry's configuration, so everything a
+  // models entry may declare — capacities, efforts, compat — resolves through
+  // the same path with the same diagnostics and request-default semantics.
   const entries: readonly PiAiModelProfile[] = configured.length > 0
     ? configured
-    : [...defaults.values()].map(model => ({ id: model.id }))
+    : [...defaults.values()].map(model => ({ id: model.id, ...overrides[model.id] }))
   if (entries.length === 0) {
     invalid(provider, 'resolves no models; the installed catalog does not describe this route, so its models'
       + ' must be listed in configuration')

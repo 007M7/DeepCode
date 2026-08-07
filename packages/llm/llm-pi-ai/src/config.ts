@@ -22,7 +22,7 @@ import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { normalizeApiKey, resolveRetryPolicy, RetryPolicySchema } from '@deepseek-ai/dsh-llm'
 import type { ResolvedRetryPolicy, RetryPolicyConfig } from '@deepseek-ai/dsh-llm'
 import { resolveRouteModels, SUPPORTED_THINKING_FORMATS, THINKING_LEVELS } from './catalog.ts'
-import type { PiAiCompatProfile, PiAiModelProfile, PiAiReasoningEfforts } from './catalog.ts'
+import type { PiAiCompatProfile, PiAiModelOverride, PiAiModelProfile, PiAiReasoningEfforts } from './catalog.ts'
 import { buildProvider, supportedProtocols } from './provider.ts'
 
 /** Default maximum idle interval while an adapter stream read is outstanding. */
@@ -34,7 +34,13 @@ export const DEFAULT_CONTEXT_WINDOW = 262_144
 /** Output capability assumed for a model neither configuration nor the catalog sizes. */
 export const DEFAULT_MAX_TOKENS = 32_768
 
-export type { PiAiCompatProfile, PiAiModelProfile, PiAiReasoningEfforts, PiAiThinkingFormat } from './catalog.ts'
+export type {
+  PiAiCompatProfile,
+  PiAiModelOverride,
+  PiAiModelProfile,
+  PiAiReasoningEfforts,
+  PiAiThinkingFormat,
+} from './catalog.ts'
 
 /** Configuration for one pi-ai provider route; the `providers` dict key IS the route. */
 export interface PiAiProviderProfile {
@@ -62,6 +68,15 @@ export interface PiAiProviderProfile {
    * unset fields from the installed model of the same id.
    */
   models?: PiAiModelProfile[]
+  /**
+   * Installed-catalog customizations by model id: each entry reshapes that
+   * one model with the same fields a {@link models} entry takes, while the
+   * rest of the catalog keeps serving untouched. Only meaningful on a catalog
+   * route with no `models` list — `models` already replaces the catalog, so
+   * an override beside it, on a route the catalog does not ship, or naming a
+   * model the catalog does not describe is refused rather than skipped.
+   */
+  modelOverrides?: Record<string, PiAiModelOverride>
   /**
    * Reasoning-dispatch switches for every `openai-completions` model on this
    * route; each model's own `compat` overrides per field. What neither sets
@@ -176,6 +191,15 @@ const modelProfile: z<PiAiModelProfile> = z.object({
   compat: compatProfile,
 })
 
+/** A {@link modelProfile} whose id lives in the `modelOverrides` dict key. */
+const modelOverride: z<PiAiModelOverride> = z.object({
+  name: z.string(),
+  contextWindow: z.number().step(1).min(1),
+  maxTokens: z.number().step(1).min(1),
+  reasoningEfforts: z.union([z.const(false), reasoningEfforts]),
+  compat: compatProfile,
+})
+
 const profile = z.object({
   apiKey: z.string().role('secret'),
   apiKeyEnv: z.string().role('credential-ref'),
@@ -183,6 +207,7 @@ const profile = z.object({
   api: z.union(supportedProtocols()),
   baseURL: z.string(),
   models: z.array(modelProfile),
+  modelOverrides: z.dict(modelOverride),
   compat: compatProfile,
   defaultContextWindow: z.number().step(1).min(1).default(DEFAULT_CONTEXT_WINDOW),
   defaultMaxTokens: z.number().step(1).min(1).default(DEFAULT_MAX_TOKENS),
@@ -291,6 +316,7 @@ export function resolveProfiles(
       ...source.api === undefined ? {} : { api: source.api },
       ...source.baseURL === undefined ? {} : { baseURL: source.baseURL },
       ...source.models === undefined ? {} : { models: source.models },
+      ...source.modelOverrides === undefined ? {} : { modelOverrides: source.modelOverrides },
       ...source.compat === undefined ? {} : { compat: source.compat },
       defaultContextWindow: source.defaultContextWindow ?? DEFAULT_CONTEXT_WINDOW,
       defaultMaxTokens: source.defaultMaxTokens ?? DEFAULT_MAX_TOKENS,

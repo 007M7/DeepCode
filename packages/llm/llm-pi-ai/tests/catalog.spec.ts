@@ -573,6 +573,77 @@ describe('per-model reasoning efforts', () => {
   })
 })
 
+describe('modelOverrides', () => {
+  const deepseekModel = (): Model<Api> => {
+    const [model] = getBuiltinModels('deepseek')
+    if (model === undefined) throw new Error('the installed catalog ships no deepseek model')
+    return model
+  }
+
+  it('reshapes one catalog model while the rest of the catalog keeps serving', () => {
+    const catalogSize = getBuiltinModels('deepseek').length
+    const target = deepseekModel()
+    const resolved = resolveProfiles({
+      deepseek: {
+        modelOverrides: {
+          [target.id]: {
+            name: 'DeepSeek (proxied)',
+            maxTokens: 4096,
+            reasoningEfforts: { off: null, high: 'high' },
+          },
+        },
+      },
+    })
+    const models = resolved.get('deepseek')?.piProvider.getModels() ?? []
+    const reshaped = models.find(model => model.id === target.id)
+    if (reshaped === undefined) throw new Error('the overridden model vanished from the route')
+
+    // The whole catalog still serves — that is the difference from `models`,
+    // which replaces it.
+    expect(models).toHaveLength(catalogSize)
+    expect(reshaped.name).toBe('DeepSeek (proxied)')
+    expect(getSupportedThinkingLevels(reshaped)).toEqual(['off', 'high'])
+    // An override's cap is explicit configuration, so it becomes the request
+    // default exactly as a models entry's would.
+    expect(resolved.get('deepseek')?.configuredMaxTokens.get(target.id)).toBe(4096)
+    // A sibling the overrides do not name is byte-identical to the catalog.
+    const sibling = models.find(model => model.id !== target.id)
+    expect(sibling?.maxTokens).toBe(getBuiltinModels('deepseek').find(model => model.id === sibling?.id)?.maxTokens)
+  })
+
+  it('refuses every override that lands nowhere instead of skipping it', () => {
+    expect(() => resolveProfiles({
+      deepseek: { modelOverrides: { 'no-such-model': { name: 'ghost' } } },
+    })).toThrow(/which the installed catalog does not describe/)
+    expect(() => resolveProfiles({
+      'acme-gateway': {
+        api: 'openai-completions',
+        baseURL: 'https://acme.test',
+        models: [{ id: 'm' }],
+        modelOverrides: { m: { name: 'renamed' } },
+      },
+    })).toThrow(/a declared route spells every model out/)
+    const declaredOnly = deepseekModel()
+    expect(() => resolveProfiles({
+      deepseek: {
+        models: [{ id: declaredOnly.id }],
+        modelOverrides: { [declaredOnly.id]: { name: 'renamed' } },
+      },
+    })).toThrow(/models already replaces the served catalog/)
+    expect(() => resolveProfiles({
+      deepseek: { modelOverrides: { '': { name: 'nameless' } } },
+    })).toThrow(/empty model id/)
+    // The dict key is the id; a value smuggling its own would quietly rename
+    // the model it meant to customize. The schema passes unknown keys
+    // through, so resolution is the boundary that refuses it — the variable
+    // indirection mirrors that boundary by sidestepping the literal check.
+    const smuggled = { name: 'x', id: 'other' }
+    expect(() => resolveProfiles({
+      deepseek: { modelOverrides: { [deepseekModel().id]: smuggled } },
+    })).toThrow(/sets "id", which is the dict key/)
+  })
+})
+
 describe('reasoning-dispatch compat switches', () => {
   /** The materialized models of one route, keyed by id. */
   function modelsOf(providers: Record<string, LlmPiAi.PiAiProviderProfile>, route: string): Map<string, Model<Api>> {

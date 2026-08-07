@@ -70,6 +70,7 @@ export type { PiAiAdapterOptions } from './adapter.ts'
 export { Config } from './config.ts'
 export type {
   PiAiCompatProfile,
+  PiAiModelOverride,
   PiAiModelProfile,
   PiAiProviderProfile,
   PiAiReasoningEfforts,
