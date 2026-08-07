@@ -1,5 +1,5 @@
 /**
- * The web app's entrypoint row over a REAL Loader tree: every flag lands in the
+ * The web app's startup row over a REAL Loader tree: every flag lands in the
  * `webStartup` service the web rows read, the bind it reports comes from the
  * flag or from what the composition falls back to, `--help` resolves nothing,
  * and a rejected argument exits without resolving anything.
@@ -39,7 +39,7 @@ afterEach(async () => {
 })
 
 /**
- * Mount the real entrypoint row over a stand-in for the `webserver` row whose
+ * Mount the real startup row over a stand-in for the `webserver` row whose
  * composed bind it reads, the way a profile mounts phase one.
  * @param args - the invocation's inner arguments.
  * @param webserverConfig - the composed `webserver` row config, or `null` to omit the row.
@@ -55,7 +55,7 @@ async function bootStartup(
   // The Loader imports a row through Node's own resolver, which cannot resolve
   // this workspace's sources; the row delegates to the real plugin the test
   // imported through the source-plane path mapping.
-  writeFileSync(join(dir, 'entrypoint.mjs'), `
+  writeFileSync(join(dir, 'startup.mjs'), `
 export const name = 'web-startup'
 export const inject = ['cmdlineArgs']
 export const apply = ctx => globalThis.__webStartupApply(ctx)
@@ -82,7 +82,8 @@ export const apply = ctx => globalThis.__webStartupApply(ctx)
     `  inject: [${WEB_STARTUP_SERVICE}]`,
     '  disabled: true',
     '- id: web-startup',
-    `  name: ${pathToFileURL(join(dir, 'entrypoint.mjs')).href}`,
+    `  name: ${pathToFileURL(join(dir, 'startup.mjs')).href}`,
+    '  inject: [cmdlineArgs]',
     '',
   ].join('\n'))
   const observing = { write: (chunk: string) => { observed.out += chunk; return true } }
@@ -155,7 +156,7 @@ describe('web startup', () => {
   })
 
   it('fails the boot when the composition lost the row whose bind it reads', async () => {
-    // The bundle patch and this entrypoint must agree on the row set; a
+    // The bundle patch and this startup row must agree on the row set; a
     // missing row would otherwise silently drop the flag that targets it.
     await expect(bootStartup([], null))
       .rejects.toThrow('the web composition has no waiting "webserver" row to configure')

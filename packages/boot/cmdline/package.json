@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-cmdline",
-  "description": "Command-line seam between a dsh launcher and surface bundles: the cmdlineArgs service exposing the invocation's inner arguments, the startup host for contributing flag-derived config patches, and the commander adapter startup plugins share",
+  "description": "Command-line seam between a dsh launcher and app bundles: cmdlineArgs exposes inner arguments, while injected startup rows parse them into app-owned runtime services",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -28,7 +28,6 @@
     "commander": "^15.0.0"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis-plugin-include": "^1.0.4",
     "@deepseek-ai/cordis-plugin-loader": "^1.0.0-rc.5",
     "@deepseek-ai/dsh-invariants": "^0.0.1",
     "@deepseek-ai/cordis": "^4.0.0-rc.7"

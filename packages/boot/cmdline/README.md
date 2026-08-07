@@ -14,9 +14,9 @@ A launcher calls `provideCmdline(ctx, host)` before any tree entry mounts, which
 
 An embedding host with no command line provides an empty list; that is the honest answer, not a missing value.
 
-## Entrypoints, and the service their app reads
+## Startup rows, and the service their app reads
 
-An app reads those arguments from its **entrypoint row** — a plugin that injects `cmdlineArgs` and calls `runStartup(ctx, service, program, plan)`:
+An app reads those arguments from its **startup row** — a Loader row and plugin that inject `cmdlineArgs` and calls `runStartup(ctx, service, program, plan)`:
 
 ```ts ignore
 export const name = 'web-startup'
@@ -27,13 +27,17 @@ export function apply(ctx: Context): void {
 }
 ```
 
-The bundle's `package.json` names that row, which is what makes the boot mount it before everything else:
+The Loader-row injection is also its discovery declaration, so no bundle manifest field is needed:
 
-```json
-{ "dsh": { "bundle": { "patch": "./cordis.patch.yml", "entrypoint": "web-startup" } } }
+```yaml
+- id: web-startup
+  name: '@deepseek-ai/dsh-web-app/startup'
+  inject: [cmdlineArgs]
 ```
 
-Every row the app configures from flags then reads what the entrypoint resolved, naming the key it takes and the value it falls back to:
+The launcher finds active rows with that injection in the composed tree and mounts them before everything else.
+
+Every row the app configures from flags then reads what the startup row resolved, naming the key it takes and the value it falls back to:
 
 ```yaml
 - id: webserver
@@ -50,13 +54,13 @@ Every row the app configures from flags then reads what the entrypoint resolved,
 
 ### Why the boot has phases
 
-A row's config expressions are evaluated when the include applies it, and a strict `ctx.get` only answers for a service whose providing fiber is already active. A composition therefore mounts in two passes: the entrypoints alone, then everything else — which is exactly what the manifest declaration buys. The rows of a later pass read live values, a `--help` exits before the second pass exists, and a user editing a live patch file re-runs that pass against services that are still up, so a flag cannot be silently reset.
+A row's config expressions are evaluated when the include applies it, and a strict `ctx.get` only answers for a service whose providing fiber is already active. A composition therefore mounts in two passes: active `cmdlineArgs` consumers alone, then everything else. The rows of the later pass read live values, a `--help` exits before the second pass exists, and a user editing a live patch file re-runs that pass against services that are still up, so a flag cannot be silently reset.
 
-`enableRow(ctx, id)` turns on a row a bundle ships disabled because only some invocations want it (`dsh web --dev` and its client-plugin reload chain). Call it from a row that mounts beside the one being enabled, not from an entrypoint: a row enabled in the first pass would wait for services the second pass has yet to mount.
+`enableRow(ctx, id)` turns on a row a bundle ships disabled because only some invocations want it (`dsh web --dev` and its client-plugin reload chain). Call it from a row that mounts beside the one being enabled, not from the startup row: a row enabled in the first pass would wait for services the second pass has yet to mount.
 
 ### One command line, one owner
 
-A composition has exactly one command-line owner. An app that layers over another one disables the underlying entrypoint row and names both services, so the rows it absorbed start on the values their own fallbacks name — [`dsh-headless`](../../bundle/headless/README.md) does this over [`dsh-web-app`](../../bundle/web-app/README.md).
+A composition has exactly one command-line owner. An app that layers over another one disables the underlying startup row and names both services, so the rows it absorbed start on the values their own fallbacks name — [`dsh-headless`](../../bundle/headless/README.md) does this over [`dsh-web-app`](../../bundle/web-app/README.md).
 
 An out-of-tree plugin brings its own commander copy, so commander's control-flow errors are detected structurally rather than by class identity; an identity check would rethrow a printed help as a fatal load failure.
 
@@ -71,5 +75,5 @@ None; this package neither assembles nor sends a provider request.
 ## Known Limitations and Deferred Work
 
 - **Launcher flags must precede app arguments.** The split is positional: the first token the launcher does not recognize starts the inner arguments, so `--patch` placed after an app flag belongs to the app. The launcher's parser consumes one `--`, so an app argument that must survive as a literal `--` needs `-- --`.
-- **A startup service has no declared owner.** The rows name it and an entrypoint provides it; nothing links the two statically, so a bundle that ships reading rows without its entrypoint fails at settlement (pending entries naming the service) rather than at load.
+- **A startup service has no declared owner.** Reading rows name it and a `cmdlineArgs` consumer provides it; nothing links those two injections statically, so a bundle that ships reading rows without its startup row fails at settlement (pending entries naming the service) rather than at load.
 - **A user patch that replaces a row's whole `config` drops its expressions.** A flag beats the value written beside it, not a literal a user wrote in place of the expression; keeping the expression is what keeps the flag winning.

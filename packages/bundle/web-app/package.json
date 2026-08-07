@@ -33,8 +33,7 @@
   "license": "BSD-3-Clause",
   "dsh": {
     "bundle": {
-      "patch": "./cordis.patch.yml",
-      "entrypoint": "web-startup"
+      "patch": "./cordis.patch.yml"
     }
   },
   "dependencies": {

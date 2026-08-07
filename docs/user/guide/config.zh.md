@@ -18,6 +18,10 @@ Harness 使用 `cordis.yml` 描述 agent（智能体）加载哪些插件以及�
 ```yaml
 - id: llm-deepseek
   name: '@deepseek-ai/dsh-llm-deepseek'
+  config:
+    apiKey: !!js process.env.DEEPSEEK_API_KEY
+    models:
+      - deepseek-v4-flash
 
 - id: bash
   name: '@deepseek-ai/dsh-bash-local'
@@ -47,16 +51,17 @@ Cordis 会并发启动同级配置项。插件通过 `inject` 声明必需服务
 
 ## CLI 补丁层
 
-`dsh --profile <name>` 按该 profile 的 manifest（元数据清单）中 `dsh.profile.bundles` 列表的顺序，在空根之上组合各组合包补丁层，随后依次应用该 profile 自己的 `~/.dsh/profiles/<name>/cordis.patch.yml`、home 级 `$DSH_HOME/cordis.patch.yml`、每个 `--patch <path>` overlay，最后是 CLI（命令行界面）标志补丁。同一行以较后的层为准。
+`dsh --profile <name>` 按该 profile 的 manifest（元数据清单）中 `dsh.profile.bundles` 列表的顺序，在空根之上组合各组合包补丁层，随后依次应用该 profile 自己的 `~/.dsh/profiles/<name>/cordis.patch.yml`、home 级的 `$DSH_HOME/cordis.patch.yml` 与每个 `--patch <path>` overlay。同一行以较后的层为准。应用 flag 并不是另一层 patch：组合包中注入 `cmdlineArgs` 的启动行把它们解析成服务，而保留了读取该服务的 `!!js` 表达式的行会让本次调用的取值优先。
 
-补丁会替换目标行的整个 `config` 值，而不是深度合并各个键。例如，只用 `config: { thinking: disabled }` 修补 `llm-deepseek`，也会移除该行原有的 `apiKeyEnv` 与 `baseURL`；因此必须重新写出该行需要保留的全部键。
+补丁会替换目标行的整个 `config` 值，而不是深度合并各个键。例如，只用 `config: { thinking: disabled }` 修补 `llm-deepseek`，也会移除该行原有的 `apiKey` 与 `baseURL`；因此必须重新写出该行需要保留的全部键。
 
 ## JavaScript 值和环境变量
 
-Cordis loader 会求值以 `!!js` 标记的运行时表达式，用于非机密的运行时值。仓库内置的 LLM（大语言模型）适配器携带 `apiKeyEnv` 等凭据引用；对应的值应放在环境层或 `$DSH_HOME/.credentials.yaml`，而不是 Cordis 配置中。
+Cordis loader 使用 `!!js` 标签读取运行时表达式。API key 等凭据应放在仓库根目录、已被 Git 忽略的 `.env` 中，不能提交到配置文件。
 
 ```yaml
 config:
+  apiKey: !!js process.env.DEEPSEEK_API_KEY
   cwd: !!js process.cwd()
 ```
 
@@ -64,4 +69,4 @@ config:
 
 ## 精确配置参考
 
-每个插件当前支持的字段、类型和默认值见自动生成的[插件配置目录](../../config-catalog.md)。理解插件如何组合可继续阅读[架构说明](../../architecture.md)和[能力 seam](../../capability-seams.md)；要创建自己的配置，优先复制并修改[示例目录说明](../../../examples/README.md)中最接近的例子。
+每个插件当前支持的字段、类型和默认值见自动生成的[插件配置目录](../../config-catalog.md)。理解插件如何组合可继续阅读[架构说明](../../architecture.md)和[能力接口](../../capability-seams.md)；要创建自己的配置，优先复制并修改[示例目录说明](../../../examples/README.md)中最接近的例子。

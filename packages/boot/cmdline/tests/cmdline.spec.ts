@@ -1,8 +1,7 @@
 /**
  * The launcher-to-app command line over a REAL Loader tree, mounted the way a
- * profile boot mounts it: the entrypoint row first, then the rest of the
- * composition, whose rows read the entrypoint's values from their own config
- * expressions. `--help` never reaches that second phase.
+ * profile boot mounts it: Loader holds each row until its injections are
+ * active, then resolves that row's config against its injection-ready context.
  */
 
 import { mkdtempSync, writeFileSync } from 'node:fs'
@@ -15,7 +14,9 @@ import Loader from '@cordisjs/plugin-loader'
 import Include from '@cordisjs/plugin-include'
 import type { PatchOptions } from '@cordisjs/plugin-include'
 import { afterEach, describe, expect, it } from 'vitest'
-import { internals, provideCmdline, runStartup, type StartupPlan } from '../src/index.ts'
+import {
+  enableRow, hasCmdlineConsumer, internals, provideCmdline, runStartup, type StartupPlan,
+} from '../src/index.ts'
 
 /** Every value one boot of the fixture tree observed. */
 interface Observed {
@@ -56,8 +57,8 @@ const demoPlan: StartupPlan<{ port?: number }> = (program) => {
 const expression = (source: string): unknown => ({ __jsExpr: source })
 
 /**
- * Mount a two-row composition the way a profile boot does: the entrypoint row
- * alone first, then everything.
+ * Mount a two-row composition the way a profile boot does: both rows at once,
+ * with Loader ordering config resolution from their injections.
  * @param args - the invocation's inner arguments.
  * @param plan - the app's plan; defaults to the fixture's own.
  * @returns the booted fixture.
@@ -65,7 +66,7 @@ const expression = (source: string): unknown => ({ __jsExpr: source })
 async function bootFixture(
   args: string[],
   plan: StartupPlan = demoPlan,
-  options: { withoutEntrypoint?: boolean } = {},
+  options: { objectInject?: boolean; withoutStartup?: boolean } = {},
 ): Promise<Fixture> {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-cmdline-'))
   const observed: Observed = { exits: [], out: '' }
@@ -77,7 +78,7 @@ export function apply(ctx, config) { globalThis.__observed.started = config }
   // The Loader imports a row through Node's own resolver, which cannot resolve
   // this workspace's sources; the row delegates to the real function the test
   // imported through the source-plane path mapping.
-  writeFileSync(join(dir, 'entrypoint.mjs'), `
+  writeFileSync(join(dir, 'startup.mjs'), `
 export const name = 'demo-startup'
 export const inject = ['cmdlineArgs']
 export function apply(ctx) { return globalThis.__runStartup(ctx) }
@@ -94,14 +95,14 @@ export function apply(ctx) { return globalThis.__runStartup(ctx) }
   // config carries `!!js` expressions.
   const composition: PatchOptions[] = [{
     insert: [
-      ...options.withoutEntrypoint === true
+      ...options.withoutStartup === true
         ? []
-        : [{ id: 'demo-startup', name: pathToFileURL(join(dir, 'entrypoint.mjs')).href }],
+        : [{ id: 'demo-startup', name: pathToFileURL(join(dir, 'startup.mjs')).href, inject: ['cmdlineArgs'] }],
       {
         id: 'reader',
         name: pathToFileURL(join(dir, 'reader.mjs')).href,
-        inject: ['demoStartup'],
-        config: { port: expression("ctx.get('demoStartup')?.port ?? 3080") },
+        inject: options.objectInject === true ? { demoStartup: { required: true } } : ['demoStartup'],
+        config: { port: expression('ctx.demoStartup?.port ?? 3080') },
       },
     ],
   }]
@@ -109,21 +110,28 @@ export function apply(ctx) { return globalThis.__runStartup(ctx) }
   await ctx.plugin(Loader)
   ctx.loader.builtins.include = Include
   provideCmdline(ctx, { args, exit: code => void observed.exits.push(code) })
-  const rootConfig = { path: pathToFileURL(join(dir, 'cordis.yml')).href }
-  // Phase one: the entrypoint alone.
-  const includeId = await ctx.loader.create({
+  await ctx.loader.create({
     name: 'cordis:include',
-    config: { ...rootConfig, patches: [...structuredClone(composition), { id: 'reader', disabled: true }] },
+    config: { path: pathToFileURL(join(dir, 'cordis.yml')).href, patches: structuredClone(composition) },
   })
   await ctx.loader.await()
   disposers.push(async () => { await ctx.fiber.dispose() })
-  if (observed.exits.length === 0) {
-    // Phase two: the whole composition, now that the entrypoint's values answer.
-    await ctx.loader.resolve(includeId).update({ config: { ...rootConfig, patches: structuredClone(composition) } })
-    await ctx.loader.await()
-  }
   return { observed, ctx }
 }
+
+describe('hasCmdlineConsumer', () => {
+  it('recognizes active array and object injections', () => {
+    expect(hasCmdlineConsumer([
+      { id: 'ordinary', name: 'ordinary' },
+      { id: 'disabled-startup', name: 'disabled-startup', inject: ['cmdlineArgs'], disabled: true },
+      { id: 'tui-startup', name: 'tui-startup', inject: { cmdlineArgs: { required: true } } },
+    ])).toBe(true)
+    expect(hasCmdlineConsumer([
+      { id: 'ordinary', name: 'ordinary' },
+      { id: 'disabled-startup', name: 'disabled-startup', inject: ['cmdlineArgs'], disabled: true },
+    ])).toBe(false)
+  })
+})
 
 describe('runStartup', () => {
   it('lets a row read the flag value the app resolved', async () => {
@@ -135,6 +143,11 @@ describe('runStartup', () => {
   it('leaves a row on the value written beside the expression when no flag names one', async () => {
     const { observed } = await bootFixture([])
     expect(observed.started).toEqual({ port: 3080 })
+  })
+
+  it('recognizes the Loader object form of a startup-service injection', async () => {
+    const { observed } = await bootFixture(['--port', '8080'], demoPlan, { objectInject: true })
+    expect(observed.started).toEqual({ port: 8080 })
   })
 
   it('prints the app help, starts no reading row, and requests exit 0', async () => {
@@ -152,13 +165,13 @@ describe('runStartup', () => {
   })
 
   it('rethrows a plan failure that is not commander asking to exit', async () => {
-    const { ctx } = await bootFixture([], demoPlan, { withoutEntrypoint: true })
+    const { ctx } = await bootFixture([], demoPlan, { withoutStartup: true })
     const plan: StartupPlan = () => { throw new Error('plan exploded') }
     expect(() => { runStartup(ctx, 'demoStartup', demoCommand(), plan) }).toThrow('plan exploded')
   })
 
   it('rethrows a thrown value that is not an object at all', async () => {
-    const { ctx } = await bootFixture([], demoPlan, { withoutEntrypoint: true })
+    const { ctx } = await bootFixture([], demoPlan, { withoutStartup: true })
     const plan: StartupPlan = () => {
       const thrown: unknown = 'plan threw a string'
       throw thrown
@@ -167,17 +180,36 @@ describe('runStartup', () => {
   })
 
   it('fails loud when no row injects the service the app provides', async () => {
-    // The bundle patch and its entrypoint disagree; a silent no-op would leave
+    // The bundle patch and its startup row disagree; a silent no-op would leave
     // every row of the app on its fallbacks with no explanation.
-    const { ctx } = await bootFixture([], demoPlan, { withoutEntrypoint: true })
+    const { ctx } = await bootFixture([], demoPlan, { withoutStartup: true })
     expect(() => { runStartup(ctx, 'absentStartup', demoCommand()) })
       .toThrow('absentStartup: no row injects this startup service')
   })
 
   it('provides an empty value when the app declares no plan', async () => {
-    const { ctx } = await bootFixture([], demoPlan, { withoutEntrypoint: true })
+    const { ctx } = await bootFixture([], demoPlan, { withoutStartup: true })
     runStartup(ctx, 'demoStartup', demoCommand())
     expect(ctx.get('demoStartup')).toEqual({})
+  })
+})
+
+describe('enableRow', () => {
+  it('enables the named Loader row and fails loud when the Loader or row is absent', async () => {
+    const withoutLoader = new Context()
+    await expect(enableRow(withoutLoader, 'client-hmr')).rejects.toThrow('requires the Loader service')
+
+    const ctx = new Context()
+    let update: unknown
+    ctx.provide('loader', {
+      entries: () => [{
+        options: { id: 'client-hmr' },
+        update: async (options: unknown) => { update = options },
+      }],
+    } as never)
+    await enableRow(ctx, 'client-hmr')
+    expect(update).toEqual({ disabled: false })
+    await expect(enableRow(ctx, 'absent')).rejects.toThrow('no "absent" row to enable')
   })
 })
 
@@ -185,18 +217,20 @@ describe('provideCmdline', () => {
   it('hands the app a snapshot the caller cannot mutate afterwards', () => {
     const ctx = new Context()
     const args = ['--resume', 'abc']
-    provideCmdline(ctx, { args, exit: () => {} })
+    const ready = Promise.resolve()
+    provideCmdline(ctx, { args, exit: () => {}, ready })
     args.push('--tampered')
     expect(ctx.cmdlineArgs?.get()).toEqual(['--resume', 'abc'])
+    expect(ctx.appReady).toBe(ready)
   })
 
-  it('fails loud when an entrypoint runs without the launcher values', () => {
+  it('fails loud when a startup row runs without the launcher values', () => {
     const ctx = new Context()
     expect(() => { runStartup(ctx, 'demoStartup', demoCommand()) })
       .toThrow('the launcher must provide ctx.cmdlineArgs and ctx.appExit')
   })
 
-  it('resolves nothing when the tree was disposed while the entrypoint parsed', () => {
+  it('resolves nothing when the tree was disposed while the startup row parsed', () => {
     // An early SIGTERM takes the Loader with it; there is nothing left to
     // configure, and the bundle did nothing wrong.
     const exits: number[] = []

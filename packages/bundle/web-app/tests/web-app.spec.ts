@@ -2,7 +2,7 @@
  * Web runtime glue behavior: dist resolution through the bundle's own hook,
  * the frontend-static child claiming the fallback seat, the web-surface
  * prompt section and bash runtime variables, and URL-line printing with the
- * launcher's LAN snapshot.
+ * app startup row's LAN snapshot.
  */
 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
@@ -68,15 +68,25 @@ describe('web-app runtime glue', () => {
         return () => {}
       },
     } as never)
+    const hmrUpdates: unknown[] = []
+    ctx.provide('loader', {
+      entries: () => [{
+        options: { id: 'client-hmr' },
+        update: async (options: unknown) => { hmrUpdates.push(options) },
+      }],
+      await: async () => {},
+    } as never)
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-    apply(ctx, new Config({ mode: 'development', printUrl: true, surfaceContext: true, lanAddresses: ['192.168.1.5'] }))
+    await apply(ctx, new Config({ mode: 'development', printUrl: true, surfaceContext: true, lanAddresses: ['192.168.1.5'] }))
     await ctx.plugin(SystemPrompt, { persona: '' })
     // Settle the injected registrations.
     await new Promise(resolve => setTimeout(resolve, 0))
 
     expect(seat()).toBeDefined() // frontend-static claimed the fallback
+    expect(hmrUpdates).toEqual([{ disabled: false }])
     expect(log).toHaveBeenCalledWith('dsh web: http://127.0.0.1:4567 (LAN: http://192.168.1.5:4567)')
     const assembly = await ctx.systemPrompt.assemble()
+    expect(assembly.sections.find(entry => entry.name === 'harness:source')?.text).toContain('DeepSeek Harness implementation checkout')
     const section = assembly.sections.find(entry => entry.name === 'app:web-surface')
     expect(section?.text).toContain('http://127.0.0.1:4567')
     expect(section?.text).toContain('--dev')
@@ -90,7 +100,7 @@ describe('web-app runtime glue', () => {
     const ctx = new Context()
     ctx.provide('httpServer', fakeHttpServer().server)
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-    apply(ctx, new Config({ mode: 'production', printUrl: false, surfaceContext: true, lanAddresses: [] }))
+    await apply(ctx, new Config({ mode: 'production', printUrl: false, surfaceContext: true, lanAddresses: [] }))
     await ctx.plugin(SystemPrompt, { persona: '' })
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(log).not.toHaveBeenCalled()
@@ -111,11 +121,12 @@ describe('web-app runtime glue', () => {
         return () => {}
       },
     } as never)
-    apply(ctx, new Config({ mode: 'production', printUrl: false, surfaceContext: false, lanAddresses: [] }))
+    await apply(ctx, new Config({ mode: 'production', printUrl: false, surfaceContext: false, lanAddresses: [] }))
     await ctx.plugin(SystemPrompt, { persona: '' })
     await new Promise(resolve => setTimeout(resolve, 0))
     const assembly = await ctx.systemPrompt.assemble()
     expect(assembly.sections.some(entry => entry.name === 'app:web-surface')).toBe(false)
+    expect(assembly.sections.some(entry => entry.name === 'harness:source')).toBe(false)
     expect(contributions).toEqual([])
     await ctx.fiber.dispose()
   })
@@ -125,23 +136,23 @@ describe('web-app runtime glue', () => {
     const ctx = new Context()
     ctx.provide('httpServer', fakeHttpServer().server)
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-    apply(ctx, new Config({ mode: 'production', printUrl: true, surfaceContext: true, lanAddresses: [] }))
+    await apply(ctx, new Config({ mode: 'production', printUrl: true, surfaceContext: true, lanAddresses: [] }))
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(log).toHaveBeenCalledWith('dsh web: http://127.0.0.1:4567')
     await ctx.fiber.dispose()
   })
 
-  it('waits for the launcher readiness the phased boot provides, and stays quiet when that boot failed', async () => {
+  it('waits for launcher readiness and stays quiet when the whole boot failed', async () => {
     stageDist()
-    // The launcher-provided readiness wins over Loader settlement: a phased
-    // boot settles the Loader between phases, long before the app is up.
+    // Launcher readiness covers siblings that may still be mounting after
+    // this row itself has activated.
     const ready = new Context()
     ready.provide('httpServer', fakeHttpServer().server)
     ready.provide('loader', { await: () => Promise.resolve() } as never)
     let announce: () => void
     ready.provide('appReady', new Promise<void>((resolve) => { announce = resolve }))
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-    apply(ready, new Config({ mode: 'production', printUrl: true, surfaceContext: true, lanAddresses: [] }))
+    await apply(ready, new Config({ mode: 'production', printUrl: true, surfaceContext: true, lanAddresses: [] }))
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(log).not.toHaveBeenCalled()
     announce!()
@@ -157,7 +168,7 @@ describe('web-app runtime glue', () => {
     const rejection = Promise.reject(new Error('boot failed'))
     rejection.catch(() => {})
     failed.provide('appReady', rejection)
-    apply(failed, new Config({ mode: 'production', printUrl: true, surfaceContext: true, lanAddresses: [] }))
+    await apply(failed, new Config({ mode: 'production', printUrl: true, surfaceContext: true, lanAddresses: [] }))
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(log).not.toHaveBeenCalled()
     await failed.fiber.dispose()
@@ -173,7 +184,7 @@ describe('web-app runtime glue', () => {
     const settlement = new Promise<void>((resolve) => { release = resolve })
     settled.provide('loader', { await: () => settlement } as never)
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-    apply(settled, new Config({ mode: 'production', printUrl: true, surfaceContext: true, lanAddresses: [] }))
+    await apply(settled, new Config({ mode: 'production', printUrl: true, surfaceContext: true, lanAddresses: [] }))
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(log).not.toHaveBeenCalled()
     release!()
@@ -192,7 +203,7 @@ describe('web-app runtime glue', () => {
     let releaseTorn: () => void
     const tornSettlement = new Promise<void>((resolve) => { releaseTorn = resolve })
     torn.provide('loader', { await: () => tornSettlement } as never)
-    apply(torn, new Config({ mode: 'production', printUrl: true, surfaceContext: true, lanAddresses: [] }))
+    await apply(torn, new Config({ mode: 'production', printUrl: true, surfaceContext: true, lanAddresses: [] }))
     await child.dispose() // the httpServer service goes away
     releaseTorn!()
     await new Promise(resolve => setTimeout(resolve, 0))
@@ -208,7 +219,7 @@ describe('web-app runtime glue', () => {
     const { server } = fakeHttpServer()
     Object.defineProperty(server, 'port', { get: () => undefined })
     ctx.provide('httpServer', server)
-    apply(ctx, new Config({ mode: 'production', printUrl: false, surfaceContext: true, lanAddresses: [] }))
+    await apply(ctx, new Config({ mode: 'production', printUrl: false, surfaceContext: true, lanAddresses: [] }))
     await ctx.plugin(SystemPrompt, { persona: '' })
     await new Promise(resolve => setTimeout(resolve, 0))
     await expect(ctx.systemPrompt.assemble()).rejects.toThrow('httpServer service missing')

@@ -4,15 +4,17 @@
  * manifest field). The plugin owns the browser-surface glue: it resolves
  * the built frontend dist (workspace knowledge of this bundle, never user
  * config), mounts the `frontend-static` fallback owner over it, registers the
- * web-surface prompt section and the bash-visible web runtime variables, and
- * prints the URL line when configured to. Flag-derived values (`mode`,
- * `lanAddresses`, `printUrl`) arrive as launcher patches over this row.
+ * harness-source and web-surface prompt sections, the bash-visible web runtime
+ * variables, and the URL line. App command-line values arrive through the
+ * `webStartup` service expressions in the bundle patch.
  * @module @deepseek-ai/dsh-web-app
  */
 
 import { createRequire } from 'node:module'
+import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
+import { addHarnessSourceSection } from '@deepseek-ai/dsh-app-boot'
 import { enableRow } from '@deepseek-ai/dsh-cmdline'
 import * as FrontendStatic from '@deepseek-ai/dsh-frontend-static'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
@@ -26,13 +28,16 @@ export const name = 'web-app'
 /** The client-plugin reload chain row this bundle ships disabled, for `--dev`. */
 const HMR_ROW_ID = 'client-hmr'
 
+/** This dsh installation's root, from either this package's source or built entry. */
+const SOURCE_ROOT = fileURLToPath(new URL('../../../..', import.meta.url))
+
 /** Services required before the web runtime can mount. */
 export const inject = ['httpServer']
 
 /** Web runtime mode: production, or development when the client-plugin HMR receiver is active. */
 export type WebMode = 'production' | 'development'
 
-/** Plugin config: the surface facts the launcher patches over this bundle's defaults. */
+/** Plugin config: composed deployment settings plus per-invocation startup values. */
 export interface Config {
   /** Whether this process mounted the client-plugin HMR receiver (`dsh web --dev`). */
   mode: WebMode
@@ -46,7 +51,7 @@ export interface Config {
    */
   surfaceContext: boolean
   /**
-   * LAN IPv4 addresses sampled once by the launcher when the effective bind
+   * LAN IPv4 addresses sampled once by the app startup row when the effective bind
    * is all-interfaces — the exact snapshot the /api trust fence was
    * configured with, so the printed LAN URL can never name an address the
    * fence rejects. Empty on a loopback bind.
@@ -113,16 +118,17 @@ export const internals: { resolveDistIndex: () => string } = { resolveDistIndex 
  * variables, and the URL line.
  * @param ctx - plugin context carrying the httpServer service.
  * @param config - validated {@link Config}.
+ * @returns nothing once optional development rows are active and runtime contributions are registered.
  */
-export function apply(ctx: Context, config: Config): void {
+export async function apply(ctx: Context, config: Config): Promise<void> {
   ctx.plugin(FrontendStatic, { distIndex: internals.resolveDistIndex() })
   // The client-plugin reload chain is a row this bundle ships off, because it
   // exists only in development. Turning it on belongs here rather than in the
-  // entrypoint: it needs the host rows this phase of the boot mounts, and the
-  // entrypoint runs before them.
-  if (config.mode === 'development') void enableRow(ctx, HMR_ROW_ID)
+  // startup row: it needs host services that also activate after webStartup.
+  if (config.mode === 'development') await enableRow(ctx, HMR_ROW_ID)
   if (config.surfaceContext) {
     ctx.inject(['systemPrompt'], (promptCtx) => {
+      addHarnessSourceSection(promptCtx, SOURCE_ROOT)
       promptCtx.systemPrompt.section({
         name: 'app:web-surface',
         order: -98,
@@ -146,16 +152,15 @@ export function apply(ctx: Context, config: Config): void {
     // sibling rows (the /api route owner) are still mounting. Await Loader
     // settlement first; a hand-built tree without a Loader prints at once.
     const printUrl = (): void => {
-      // The launcher's boot-time LAN snapshot, not a fresh sample: the printed
+      // The startup row's boot-time LAN snapshot, not a fresh sample: the printed
       // LAN URL must name an address the /api trust fence was configured with.
       const lanCandidate = config.lanAddresses[0]
       const port = ctx.httpServer.port
       console.log(`dsh web: ${localWebUrl(ctx)}${lanCandidate === undefined ? '' : ` (LAN: http://${lanCandidate}:${String(port)})`}`)
     }
-    // A launcher that mounts in phases tells this row when the whole
-    // composition is up; Loader settlement alone would let the line print
-    // between phases, announcing a server whose boot can still fail. A
-    // hand-built tree has neither and prints at once.
+    // A launcher tells this row when the whole concurrent composition is up;
+    // this row's own activation can precede a sibling failure. A hand-built
+    // tree falls back to Loader settlement, or prints at once without Loader.
     const settled = ctx.get('appReady') ?? ctx.get('loader')?.await()
     if (settled === undefined) printUrl()
     else {

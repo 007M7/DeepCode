@@ -2,14 +2,14 @@
 
 [English](publish.md) | 中文
 
-前几篇教程通过 `--patch` overlay 加载本地插件。本教程把它打包成可安装的**组合包**，用 `dsh plugin add` 安装进一个 **profile**，并解释决定组合后配置的层顺序。请先完成[插件配置](./config.md)。
+前几篇教程通过 `--patch` overlay 加载本地插件。本教程把它打包成可安装的**组合包**（bundle），用 `dsh plugin add` 安装进一个 **profile**，并解释决定组合后配置的层顺序。请先完成[插件配置](./config.md)。
 
-## 两个概念，两种 manifest（元数据清单）
+## 两个概念，两种 manifest
 
-安装机制建立在两个概念之上。二者都由一份 `package.json` 描述，但它们在 `dsh` 键下携带的 manifest 种类不同，回答的问题也不同：
+安装机制建立在两个概念之上。二者都由一份 `package.json` 描述，但它们在 `dsh` 键下携带的 manifest（元数据清单）种类不同，回答的问题也不同：
 
-- **组合包**是附带一个配置层的 npm 包。它的 manifest 声明 `dsh.bundle`，回答的是「这个包贡献什么？」：一个插入或覆盖插件行的 patch 文件。
-- **profile** 是位于 `$DSH_HOME/profiles/<name>` 下、描述一份可启动组合的目录。它的 manifest 声明 `dsh.profile`，回答的是「这套配置由哪些组合包按什么顺序组成？」。
+- **组合包**是附带一个配置层的 npm 包。它的 manifest 声明 `dsh.bundle`，回答的是"这个包贡献什么？"：一个插入或覆盖插件行的 patch 文件。
+- **profile** 是位于 `$DSH_HOME/profiles/<name>` 下、描述一份可启动组合的目录。它的 manifest 声明 `dsh.profile`，回答的是"这套配置由哪些组合包按什么顺序组成？"。
 
 组合包是你编写并分发的东西；profile 是用户用 `dsh --profile <name>` 启动的东西。没有东西同时是两者。
 
@@ -98,7 +98,8 @@ dsh --profile demo
 2. profile 自己的 `cordis.patch.yml`。
 3. home 级的 `$DSH_HOME/cordis.patch.yml`——各 profile 共享的机器本地偏好。
 4. 每个 `--patch <path>` overlay，按 argv 顺序。
-5. 启动器 flag patch（例如 `dsh web --port`）。
+
+应用参数不是另一层 patch。表层组合包可以通过下文所述的启动服务解析它们。
 
 后应用的层按行胜出，且 patch 会替换目标行的整个 `config` 值，而不是深度合并各键。这给组合包作者带来两个推论：
 
@@ -106,6 +107,20 @@ dsh --profile demo
 - 用户可以在自己 profile 的 `cordis.patch.yml` 中覆盖你的行，无需改动你的包，所以优先给出用户大概率会保留的配置默认值，其余交给 schema 承担。
 
 内置组合包名称始终从 dsh 安装目录本身解析；pnpm 只管理树外的包，所以你的组合包可以放心依赖 `@deepseek-ai/dsh-base` 存在且与安装保持一致。
+
+## 让表层组合包持有自己的命令行
+
+定义了可运行应用的组合包可以通过启动行本来就需要的注入来标记它：
+
+```yaml
+- id: hello-startup
+  name: 'dsh-hello-plugin/startup'
+  inject: [cmdlineArgs]
+```
+
+该行使用应用自己的 commander program 调用 [`@deepseek-ai/dsh-cmdline`](../../../../packages/ui/cmdline/README.md) 中的 `runStartup`。启动器把自身 flag 之后的所有参数交给它，因此添加应用专属 flag 无需修改启动器。Loader 只挂载一次组合，等待每一行的注入，再基于其已注入的上下文求值该行的 `!!js` 配置。
+
+受这些参数配置的行会注入启动服务，并在自己的 `!!js` 选项中读取它，同时把部署取值写在旁边作为回退。遇到 `--help` 时，该服务不会被提供，所以这些行不会激活。叠加在另一应用之上的应用会禁用下层启动行，因为一套组合只能有一个命令行所有者。
 
 ## 从 GitHub 安装：构建脚本这道坎
 
@@ -127,7 +142,7 @@ dsh plugin --profile demo add github:you/hello-plugin
 
   然后重新执行 `add`。
 
-请如实看待这项授权：**允许该包的代码在安装时于你的机器上执行**，且不在 agent（智能体）运行的任何沙箱之内。只对源码可信的包授权，并锁定 commit（`github:you/hello-plugin#<sha>`），让后续推送无法悄悄改变实际运行的内容。
+请如实看待这项授权：**允许该包的代码在安装时于你的机器上执行**，且不在 agent 运行的任何沙箱之内。只对源码可信的包授权，并锁定 commit（`github:you/hello-plugin#<sha>`），让后续推送无法悄悄改变实际运行的内容。
 
 如果不想让用户做这项授权，就改为分发构建产物——以下两种形式都不需要任何构建权限：
 

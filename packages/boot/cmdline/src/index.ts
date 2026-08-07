@@ -10,14 +10,12 @@
  * An app consumes those arguments from a **startup plugin**: a row that
  * injects `cmdlineArgs` and calls {@link runStartup}. What that plugin resolves
  * becomes its own service, and the rows it configures read the values from
- * there — `port: !!js ctx.get('webStartup')?.port ?? 3080` — so a flag beats
+ * there — `port: !!js ctx.webStartup.port ?? 3080` — so a flag beats
  * the value written beside it. Nothing is handed back to the launcher.
  *
- * Those rows ship `disabled: true`, because a row's config is resolved when the
- * Loader creates its fiber and a strict `ctx.get` only sees a service whose
- * providing fiber is already active. The startup plugin enables them once its
- * own fiber is active, and keeps them enabled when a recomposition of the tree
- * puts them back.
+ * Loader delays each row's config interpolation until its declared injections
+ * are active. A startup row consumes `cmdlineArgs`, provides the app's resolved
+ * values, and thereby activates only the rows that depend on those values.
  * @module @deepseek-ai/dsh-cmdline
  */
 
@@ -70,10 +68,9 @@ export interface CmdlineHost {
    * Settles when the launcher has finished mounting, which a row that
    * publishes readiness (a URL line a supervisor waits for) must await.
    *
-   * A boot mounts in phases, so Loader settlement no longer means the whole
-   * composition is up: a row mounted in a later phase can observe a settled
-   * tree while rows beside it have yet to mount, or while the phase that
-   * mounted it is already rolling back. Rejects with the boot failure.
+   * Loader mounts sibling rows concurrently, so one row can become active
+   * while another is still mounting or while the whole boot is rolling back.
+   * Rejects with the boot failure.
    */
   ready?: Promise<void>
 }
@@ -92,6 +89,20 @@ export function provideCmdline(ctx: Context, host: CmdlineHost): void {
   if (host.ready !== undefined) ctx.provide('appReady', host.ready)
 }
 
+/**
+ * Detect whether an active row consumes the launcher's command line.
+ *
+ * The Loader-row injection is the declaration: an active row that names
+ * `cmdlineArgs` owns startup for this composition. No bundle manifest field or
+ * plugin import is needed, so an out-of-tree app adds its command line by
+ * adding the same injection its startup plugin already requires.
+ * @param rows - the composed Loader rows.
+ * @returns whether this composition has a command-line owner.
+ */
+export function hasCmdlineConsumer(rows: readonly EntryOptions[]): boolean {
+  return rows.some(row => row.disabled !== true && waitsForAny(row.inject, ['cmdlineArgs']))
+}
+
 /** The process streams commander output is written to; production writes to the process. */
 export const internals: { stdout: { write(chunk: string): unknown }; stderr: { write(chunk: string): unknown } } = {
   stdout: process.stdout,
@@ -107,26 +118,26 @@ export const internals: { stdout: { write(chunk: string): unknown }; stderr: { w
  * to reject the invocation with a usage message instead of throwing.
  * @param program - the parsed commander program.
  * @param rows - the waiting rows' composed options, in tree order.
+ * @param ctx - the startup row's context, for resolving composed fallbacks before the service exists.
  * @returns the service value the app's rows read; `undefined` keys let a row's
  * own fallback stand.
  */
-export type StartupPlan<T = unknown> = (program: Command, rows: readonly EntryOptions[]) => T
+export type StartupPlan<T = unknown> = (program: Command, rows: readonly EntryOptions[], ctx: Context) => T
 
 /**
  * Run one app's startup: parse the invocation's inner arguments with the app's
- * own commander program, provide the resolved values as `service`, and start
- * the rows that were waiting for it.
+ * own commander program and provide the resolved values as `service`. The
+ * Loader then activates the rows that were waiting for the provided service.
  *
  * The rows read their values from the service, so nothing is written into
- * their config from here: a row asks for `ctx.get('<service>')?.<key>` and
- * falls back to the value written beside it, which is why a flag wins. They are
- * enabled from inside an injection on the service itself, because a strict
- * `ctx.get` only resolves a service whose providing fiber is already active,
- * and re-enabled whenever a recomposition of the tree disables them again — a
- * user editing a live patch file must not take the app down.
+ * their config from here: a row asks for `ctx.<service>.<key>` and
+ * falls back to the value written beside it, which is why a flag wins. Loader
+ * resolves a row's config only after its injections are active. A live
+ * recomposition reads the service that remains active, so editing a user patch
+ * cannot reset an invocation value.
  *
  * Help, version, and rejected arguments are terminal for the process: the text
- * is written, the service is never provided, the app's rows stay disabled, and
+ * is written, the service is never provided, dependent rows stay pending, and
  * `ctx.appExit` is requested.
  *
  * An app that layers over another one (the one-shot bundle rides over the web
@@ -171,7 +182,7 @@ export function runStartup<T>(
     // and nothing to start, and the check below would blame the bundle for a
     // tree that simply went away.
     if (ctx.get('loader') === undefined) return undefined
-    values = plan(program, waitingRows(ctx, names))
+    values = plan(program, waitingRows(ctx, names), ctx)
   } catch (error) {
     // exitOverride turns help, version, a parse error, and a plan's own
     // program.error() into a CommanderError; commander has already written the
@@ -191,17 +202,16 @@ export function runStartup<T>(
  *
  * A row cannot be inserted from inside a mounting plugin — the Loader returns a
  * prefixed id it then fails to resolve — so a conditional row ships disabled
- * and an entrypoint enables it.
- * Call it from a row that mounts alongside the one being enabled: an
- * entrypoint runs before the rest of the composition, so a row it enabled
- * there would wait for services that have yet to mount.
+ * and a row mounted beside it enables it after startup resolves the invocation.
  * @param ctx - plugin context whose Loader tree carries the row.
  * @param id - the row id.
- * @returns nothing once the row has started.
- * @throws when the composition has no row with that id.
+ * @returns nothing once the row has started or is waiting for its dependencies.
+ * @throws when the Loader or named row is absent.
  */
 export async function enableRow(ctx: Context, id: string): Promise<void> {
-  const entry = [...ctx.loader.entries()].find(candidate => candidate.options.id === id)
+  const loader = ctx.get('loader')
+  if (loader === undefined) throw new Error('dsh-cmdline: enabling a row requires the Loader service')
+  const entry = [...loader.entries()].find(candidate => candidate.options.id === id)
   if (entry === undefined) throw new Error(`dsh-cmdline: the composition has no ${JSON.stringify(id)} row to enable`)
   await entry.update({ disabled: false })
 }

@@ -7,11 +7,11 @@
 #
 # Rows this app configures from flags read them from the `webStartup` service:
 # each names the key it takes and the value it falls back to, so a flag wins
-# over the value written beside it. The web-startup row is this bundle's
-# manifest-declared entrypoint, so it runs before any of them and has already
-# parsed --host/--port/--dev/--workspace-root/--trusted-host by the time their
-# config is resolved. `dsh --profile web --help` therefore prints this app's own
-# help and exits before the rest of the composition mounts at all.
+# over the value written beside it. The web-startup row injects `cmdlineArgs`,
+# so the launcher runs it first; it has parsed --host/--port/--dev/
+# --workspace-root/--trusted-host by the time those configs resolve.
+# `dsh --profile web --help` therefore prints this app's own help and exits
+# before the rest of the composition mounts at all.
 
 # ── surface-specific values the base deliberately omits ─────────────────────
 
@@ -85,11 +85,12 @@
       config:
         workspaceRoot: !!js ctx.get('webStartup')?.workspaceRoot
 
-    # This bundle's entrypoint (declared in its package.json): it owns the web
-    # flag family and its --help, and provides webStartup with the values this
-    # invocation resolved. The boot runs it before every row above.
+    # This app's command-line startup row: its `cmdlineArgs` injection makes the
+    # launcher mount it first. It owns the web flag family and its --help, and
+    # provides webStartup with the values this invocation resolved.
     - id: web-startup
       name: '@deepseek-ai/dsh-web-app/startup'
+      inject: [cmdlineArgs]
 
     # ── layer 2: transport/service ──────────────────────────────────────────────
 

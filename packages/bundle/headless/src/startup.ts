@@ -4,11 +4,6 @@
  * `--help` text, then provides {@link HEADLESS_STARTUP_SERVICE} with the task
  * the user asked for. The runner waits for it, so a missing task is a usage
  * error printed by this command instead of a schema failure inside the runner.
- *
- * This app layers over the web app, and a composition has exactly one
- * command-line owner: the bundle patch disables the web startup row, and this
- * one also provides {@link WEB_STARTUP_SERVICE} so the web rows start on their
- * composed (one-shot) values.
  * @module @deepseek-ai/dsh-headless/startup
  */
 
@@ -16,7 +11,6 @@ import { Command } from 'commander'
 import type { Context } from 'cordis'
 import type { EntryOptions } from '@cordisjs/plugin-loader'
 import { runStartup } from '@deepseek-ai/dsh-cmdline'
-import { WEB_STARTUP_SERVICE } from '@deepseek-ai/dsh-web-app/startup'
 
 /** Stable Cordis plugin name. */
 export const name = 'headless-startup'
@@ -75,5 +69,5 @@ function planHeadlessStartup(program: Command, rows: readonly EntryOptions[]): H
  * @returns nothing once the runner is started, or once `--help` or a missing task requested exit.
  */
 export function apply(ctx: Context): void {
-  runStartup(ctx, [HEADLESS_STARTUP_SERVICE, WEB_STARTUP_SERVICE], headlessCommand(), planHeadlessStartup)
+  runStartup(ctx, HEADLESS_STARTUP_SERVICE, headlessCommand(), planHeadlessStartup)
 }

@@ -1,5 +1,5 @@
 /**
- * The one-shot app's entrypoint row over a REAL Loader tree: the task
+ * The one-shot app's startup row over a REAL Loader tree: the task
  * positional becomes the value the runner row reads, a missing task is a usage
  * error, and the web service this app absorbs is provided too, so the web rows
  * it rides over resolve on their own fallbacks.
@@ -32,7 +32,7 @@ afterEach(async () => {
 })
 
 /**
- * Mount the real entrypoint row over stand-ins for the runner row and one web
+ * Mount the real startup row over stand-ins for the runner row and one web
  * row this app absorbs, the way a profile mounts phase one.
  * @param args - the invocation's inner arguments.
  * @param options - fixture knobs for the shapes a composition can take.
@@ -48,7 +48,7 @@ async function bootStartup(
   // The Loader imports a row through Node's own resolver, which cannot resolve
   // this workspace's sources; the row delegates to the real plugin the test
   // imported through the source-plane path mapping.
-  writeFileSync(join(dir, 'entrypoint.mjs'), `
+  writeFileSync(join(dir, 'startup.mjs'), `
 export const name = 'headless-startup'
 export const inject = ['cmdlineArgs']
 export const apply = ctx => globalThis.__headlessStartupApply(ctx)
@@ -56,7 +56,7 @@ export const apply = ctx => globalThis.__headlessStartupApply(ctx)
   const rowUrl = pathToFileURL(join(dir, 'row.mjs')).href
   writeFileSync(join(dir, 'cordis.yml'), [
     // A composition that lost the runner still injects the service, so the
-    // entrypoint reaches its own row check rather than the generic one.
+    // startup row reaches its own row check rather than the generic one.
     options.withoutRunner === true ? '- id: displaced-runner' : '- id: headless-runner',
     `  name: ${rowUrl}`,
     `  inject: [${HEADLESS_STARTUP_SERVICE}]`,
@@ -66,7 +66,8 @@ export const apply = ctx => globalThis.__headlessStartupApply(ctx)
     `  inject: [${WEB_STARTUP_SERVICE}]`,
     '  disabled: true',
     '- id: headless-startup',
-    `  name: ${pathToFileURL(join(dir, 'entrypoint.mjs')).href}`,
+    `  name: ${pathToFileURL(join(dir, 'startup.mjs')).href}`,
+    '  inject: [cmdlineArgs]',
     '',
   ].join('\n'))
   const observing = { write: (chunk: string) => { observed.out += chunk; return true } }
