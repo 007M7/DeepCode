@@ -313,10 +313,10 @@ export class TranscriptAdapter {
     // enter the client program, so this wire consumer narrows structurally
     // (the same posture as tool/code-dispatch in session.ts).
     if ((event.type as string) === 'command/run') {
-      const data = event.data as unknown as { commandId: CommandId; name: string; args: string }
+      const data = event.data as unknown as { commandId: CommandId; name: string; args?: string }
       this.commandIdx.set(data.commandId, {
         kind: 'command', seq: event.seq, time: event.time,
-        commandId: data.commandId, name: data.name, args: data.args, outcome: null,
+        commandId: data.commandId, name: data.name, args: data.args ?? null, outcome: null,
       })
       return true
     }

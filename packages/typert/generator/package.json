@@ -30,6 +30,7 @@
   ],
   "license": "BSD-3-Clause",
   "dependencies": {
+    "@jridgewell/gen-mapping": "^0.3.13",
     "typescript": "^6.0.3"
   },
   "peerDependencies": {

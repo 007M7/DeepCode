@@ -17,6 +17,8 @@ export const TYPERT = {
   schemas: [
     { name: 'Payload', schema: Payload },
   ],
+  invocations: [
+  ],
   model: {
     "services": [
       {
@@ -3815,6 +3817,7 @@ exports[`WorkspaceAnalyzer > builds independent face models with an explicit cro
                 "abstract": false,
                 "async": false,
                 "id": "type:packages/host/src/models.ts:123:11#1#['computed']@3756",
+                "jsonName": "computed",
                 "kind": "property",
                 "location": {
                   "column": 5,
@@ -5634,6 +5637,7 @@ exports[`WorkspaceAnalyzer > builds independent face models with an explicit cro
               "symbol": "@fixture/host:packages/host/src/models.ts#Variance",
             },
           ],
+          "invocations": [],
           "name": "@fixture/host",
           "objects": [
             {
@@ -6449,6 +6453,7 @@ exports[`WorkspaceAnalyzer > builds independent face models with an explicit cro
               "symbol": "<external>:../../../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/schemas.d.cts#ZodType",
             },
           ],
+          "invocations": [],
           "name": "@fixture/client",
           "objects": [],
           "root": "packages/client",

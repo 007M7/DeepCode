@@ -381,13 +381,24 @@ describe('provider profile lifecycle', () => {
     await expect(supported.llm.resolveModelInfo('deepseek', 'deepseek-v4-flash'))
       .resolves.toMatchObject({ reasoning: { defaultEffort: ReasoningEffortId('max') } })
 
+    // A profile level this model cannot take DESCRIBES as no default rather
+    // than failing: resolveModelInfo builds the model catalog, and a catalog
+    // that throws takes its whole provider out of every picker — one mis-set
+    // field would hide every model on the route, including the ones that do
+    // support the level. The request path below is where it is refused.
     const unsupported = new Context()
     await unsupported.plugin(LlmService)
     await unsupported.plugin(LlmPiAi, {
       providers: { deepseek: { reasoning: 'medium' } },
     })
-    await expect(unsupported.llm.resolveModelInfo('deepseek', 'deepseek-v4-flash'))
-      .rejects.toMatchObject({ code: 'UNSUPPORTED_REASONING_EFFORT' })
+    const described = await unsupported.llm.resolveModelInfo('deepseek', 'deepseek-v4-flash')
+    expect(described.reasoning?.defaultEffort).toBeUndefined()
+    expect(described.reasoning?.efforts.length).toBeGreaterThan(0)
+    await expect(assemble(unsupported, {
+      provider: 'deepseek', model: 'deepseek-v4-flash', messages: [],
+    })).resolves.toMatchObject({
+      finish: { kind: 'error', failure: { code: 'UNSUPPORTED_REASONING_EFFORT' } },
+    })
 
     const disabled = new Context()
     await disabled.plugin(LlmService)

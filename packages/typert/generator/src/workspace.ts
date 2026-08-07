@@ -9,6 +9,7 @@ import { TypertAnalysisError, WorkspaceAnalyzer } from './analyzer.ts'
 import type { DiscoveredTypertPackage } from './analyzer.ts'
 import { FaceModelEmitter } from './emitter.ts'
 import type { ModelEmitResult } from './emitter.ts'
+import type { TypertFace } from './model.ts'
 
 /** One emitted artifact paired with its source package root. */
 export interface WorkspaceEmitResult extends ModelEmitResult {
@@ -26,20 +27,29 @@ export class WorkspaceTypertGenerator {
   /**
    * Find public package faces that contribute Cordis services/events or
    * explicitly tagged Typert roots.
+   * @param faces - optional independent program faces to inspect.
    * @returns discovered packages in stable package-name order.
    */
-  discover(): DiscoveredTypertPackage[] {
-    return new WorkspaceAnalyzer({ root: this.root }).discoverPackages()
+  discover(faces?: readonly TypertFace[]): DiscoveredTypertPackage[] {
+    return new WorkspaceAnalyzer({
+      root: this.root,
+      ...(faces === undefined ? {} : { faces }),
+    }).discoverPackages()
   }
 
   /**
    * Generate all discovered contributors, or an explicit package subset.
    * @param packages - optional exact package names for a focused pass.
+   * @param faces - optional independent program faces to analyze.
    * @returns one artifact per package face.
    */
-  generate(packages?: readonly string[]): WorkspaceEmitResult[] {
-    const selected = packages ?? this.discover().map(candidate => candidate.package)
-    const workspace = new WorkspaceAnalyzer({ root: this.root, packages: selected }).analyze()
+  generate(packages?: readonly string[], faces?: readonly TypertFace[]): WorkspaceEmitResult[] {
+    const selected = packages ?? this.discover(faces).map(candidate => candidate.package)
+    const workspace = new WorkspaceAnalyzer({
+      root: this.root,
+      packages: selected,
+      ...(faces === undefined ? {} : { faces }),
+    }).analyze()
     const artifacts: WorkspaceEmitResult[] = []
     for (const face of workspace.faces) {
       const emitter = new FaceModelEmitter(face)
@@ -78,6 +88,37 @@ export class WorkspaceTypertGenerator {
     for (const file of [`lib/typert.${artifact.face}.js`, `lib/typert.${artifact.face}.d.ts`]) {
       if (!files.includes(file)) {
         throw new TypertAnalysisError(`typert(${artifact.face}): ${artifact.package} package files must include ${file}`)
+      }
+    }
+    if (artifact.face !== 'host') return
+    const remoteExpected = {
+      types: './lib/typert.remote-client.d.ts',
+      default: './lib/typert.remote-client.js',
+    }
+    const remoteActual = manifest.exports !== null && typeof manifest.exports === 'object'
+      ? (manifest.exports as Record<string, unknown>)['./remote']
+      : undefined
+    const remoteFiles = [
+      'lib/typert.remote-client.js',
+      'lib/typert.remote-client.d.ts',
+      'lib/typert.remote-client.d.ts.map',
+    ]
+    if (artifact.remote === undefined) {
+      if (remoteActual !== undefined || remoteFiles.some(file => files.includes(file))) {
+        throw new TypertAnalysisError(
+          `typert(host): ${artifact.package} publishes Remote artifacts but has no Remote methods`,
+        )
+      }
+      return
+    }
+    if (!sameExport(remoteActual, remoteExpected)) {
+      throw new TypertAnalysisError(
+        `typert(host): ${artifact.package} must export ./remote as ${JSON.stringify(remoteExpected)}`,
+      )
+    }
+    for (const file of remoteFiles) {
+      if (!files.includes(file)) {
+        throw new TypertAnalysisError(`typert(host): ${artifact.package} package files must include ${file}`)
       }
     }
   }

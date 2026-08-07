@@ -97,16 +97,18 @@ Under `dsh`, references resolve from the inherited environment, the Models page'
 
 A configured route appears in the web model picker and can be switched at any time, which is how most people use it.
 
-A new session's default model comes from the `api-gateway` entry (`@deepseek-ai/dsh-host-apiproxy`) and its `provider` and `model`, which ship as `deepseek-official` and `deepseek-v4-flash`. To change that default, override the entry in `$DSH_HOME/config.yaml`:
+Switching there also sets the default: the model you pick becomes the one the next new session starts on, recorded in `settings.yaml` under `api-gateway`. There is no separate gesture.
 
 ```yaml
-- id: api-gateway
-  config:
-    provider: acme-gateway
-    model: acme-large
+api-gateway:
+  provider: acme-gateway
+  model: acme-large
+  reasoningEffort: high   # optional
 ```
 
-A patch replaces that entry's whole `config`, so write out every key it needs to keep. A composition you assemble yourself — headless, for instance — sets `agent-loop`'s `agents` instead.
+A session that has already run a turn is never retargeted by it — that session derives its route from its own log, so changing the default only reaches sessions that have not started. The shipped fallback under this section is the `api-gateway` composition entry (`deepseek-official` / `deepseek-v4-flash`), which a self-assembled `cordis.yml` may override; a composition you assemble yourself — headless, for instance — sets `agent-loop`'s `agents` instead.
+
+If the provider a saved default names is later removed, the composer says **Select model** and refuses input until you pick one, rather than sending to a route nothing serves.
 
 ## Troubleshooting
 

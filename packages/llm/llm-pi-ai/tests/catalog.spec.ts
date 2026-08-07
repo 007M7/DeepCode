@@ -135,13 +135,22 @@ describe('hand-declared providers', () => {
   it('joins the configurable-provider directory so a settings surface can reach it', async () => {
     const server = await mockServer([])
     const ctx = await harness(gateway(`${server.url}/v1`))
+    const directory = ctx.llm.listConfigurableProviders()
 
-    expect(ctx.llm.listConfigurableProviders()).toContainEqual({
+    expect(directory).toContainEqual({
       provider: 'acme-gateway',
       displayName: 'Acme Gateway',
       settingsNs: 'llm-pi-ai',
       settingsPath: ['providers', 'acme-gateway'],
+      // Nothing in the installed catalog answers for this route, which is what
+      // configuration surfaces mark as a route this deployment declared.
+      declared: true,
     })
+    // Membership of the catalog, not of the settings document: a shipped
+    // provider carries a stored profile the moment anyone corrects it.
+    expect(directory.filter(entry => entry.declared).map(entry => entry.provider))
+      .toEqual(['acme-gateway'])
+    expect(directory.find(entry => entry.provider === 'deepseek')?.declared).toBe(false)
   })
 
   it('sizes a model the catalog cannot describe from the route\u2019s own fallbacks', () => {

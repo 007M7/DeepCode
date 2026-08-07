@@ -343,7 +343,7 @@ A command was registered or unregistered. This is an unfiltered registry notific
 'commands/change'(): void
 ```
 
-Source: [`packages/ui/commands/src/index.ts:154`](../../packages/ui/commands/src/index.ts)
+Source: [`packages/ui/commands/src/index.ts:161`](../../packages/ui/commands/src/index.ts)
 
 ## `credentials/*`
 
@@ -472,7 +472,7 @@ Goal mutation accepted by one live agent. The matching `goal/change` session eve
 
 Types: [Agent](../core-data-structures/core.md) · [GoalChanged](../core-data-structures/goal.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/goal/goal/src/domain.ts:141`](../../packages/goal/goal/src/domain.ts)
+Source: [`packages/goal/goal/src/domain.ts:114`](../../packages/goal/goal/src/domain.ts)
 
 ## `llm/*`
 
@@ -542,7 +542,7 @@ Creation announcement during session publication. A synchronous throw vetoes and
 
 Types: [Scoped](../core-data-structures/scope.md) · [Session](../core-data-structures/session.md)
 
-Source: [`packages/core/session/src/index.ts:73`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:74`](../../packages/core/session/src/index.ts)
 
 ### `session/disposed` — emit
 
@@ -563,7 +563,7 @@ Emitted once when an announced session leaves the store, including publication r
 
 Types: [Scoped](../core-data-structures/scope.md) · [Session](../core-data-structures/session.md)
 
-Source: [`packages/core/session/src/index.ts:83`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:84`](../../packages/core/session/src/index.ts)
 
 ### `session/event` — emit
 
@@ -586,7 +586,7 @@ Post-commit, fire-and-forget append feed. The listener snapshot resolves before 
 
 Types: [Scoped](../core-data-structures/scope.md) · [Session](../core-data-structures/session.md) · [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:95`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:96`](../../packages/core/session/src/index.ts)
 
 ### `session/flush` — parallel
 
@@ -606,7 +606,7 @@ Awaited parallel durability checkpoint: every listener runs and the caller await
 
 Types: [Scoped](../core-data-structures/scope.md) · [Session](../core-data-structures/session.md)
 
-Source: [`packages/core/session/src/index.ts:104`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:105`](../../packages/core/session/src/index.ts)
 
 ## `settings/*`
 
@@ -798,7 +798,7 @@ Source: [`packages/core/system-prompt/src/index.ts:35`](../../packages/core/syst
 
 ### `telemetry/record` — waterfall
 
-Transform one outbound record before it reaches the backend. This waterfall is the seam's redaction extension point. It ships NO rules of its own: the innermost `next()` passes the record through unchanged, and with no listener mounted records reach the backend as captured, so exported data is exactly as clean as the rules a deployment mounts. Listeners stack by transforming `next()`'s return value; returning without `next()` replaces everything beneath. Dispatched synchronously on the capture hot path inside the coordinator's containment: a throwing listener withholds that one record (fail-closed) and never reaches the agent loop. Redaction applies to the exported copy only; the canonical session log is never rewritten.
+Transform one outbound record before it reaches the backend. This waterfall is the seam's redaction extension point. It ships NO rules of its own: the innermost `next()` passes the record through unchanged, and with no listener mounted records reach the backend as captured, so exported data is exactly as clean as the rules a deployment mounts. Listeners stack by transforming `next()`'s return value; returning without `next()` replaces everything beneath. Dispatched synchronously on the capture hot path inside the coordinator's containment: a throwing listener withholds that one record (fail-closed) and never reaches the agent loop. Live capture dispatches at append time; on-demand capture dispatches while reading the canonical log. Redaction applies to the exported copy only; the canonical session log is never rewritten.
 
 ```ts cordis-catalog
 /**
@@ -812,8 +812,9 @@ Transform one outbound record before it reaches the backend. This waterfall is t
  * `next()` replaces everything beneath. Dispatched synchronously on the
  * capture hot path inside the coordinator's containment: a throwing
  * listener withholds that one record (fail-closed) and never reaches the
- * agent loop. Redaction applies to the exported copy only; the canonical
- * session log is never rewritten.
+ * agent loop. Live capture dispatches at append time; on-demand capture
+ * dispatches while reading the canonical log. Redaction applies to the
+ * exported copy only; the canonical session log is never rewritten.
  * @param record - the candidate record, already the coordinator's own deep
  *   copy; listeners return a (possibly new) record and must not mutate it.
  * @mode waterfall
@@ -821,7 +822,7 @@ Transform one outbound record before it reaches the backend. This waterfall is t
 'telemetry/record'(record: TelemetryRecord, next: () => TelemetryRecord): TelemetryRecord
 ```
 
-Source: [`packages/telemetry/session-telemetry/src/index.ts:41`](../../packages/telemetry/session-telemetry/src/index.ts)
+Source: [`packages/telemetry/session-telemetry/src/index.ts:43`](../../packages/telemetry/session-telemetry/src/index.ts)
 
 ## `tools/*`
 

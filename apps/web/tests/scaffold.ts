@@ -45,6 +45,10 @@ import {
   WELCOME_NOTICE_ACK_FIELD, WELCOME_NOTICE_SETTINGS_NAMESPACE, WELCOME_NOTICE_VERSION,
 } from '@deepseek-ai/dsh-client-ui-settings-general'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
+import { LlmAdapter } from '@deepseek-ai/dsh-llm'
+import type {
+  LlmModelInfo, LlmProviderInfo, LlmResolvedModelInfo, StreamChunk,
+} from '@deepseek-ai/dsh-llm'
 import type { ReplayHandle } from '@deepseek-ai/dsh-llm-replay'
 import { installLlmReplay, parseSessionLog } from '@deepseek-ai/dsh-llm-replay'
 import SessionStore, {
@@ -92,6 +96,46 @@ const REPLAY_PROVIDERS = [{
   name: 'DeepSeek',
   models: [{ id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', contextWindow: 128_000 }],
 }]
+
+/**
+ * The routes a shipped composition always has, with no ability to stream.
+ * A fixture-less keyless scenario issues no model calls, but its tree must
+ * still answer `listProviders()` — surfaces legitimately gate on whether any
+ * adapter serves a session's route, and an empty registry is a test artifact,
+ * not a product state.
+ */
+class RouteOnlyAdapter extends LlmAdapter {
+  constructor(private readonly providers: typeof REPLAY_PROVIDERS) {
+    super()
+  }
+
+  override providerInfo(provider: string): LlmProviderInfo {
+    return { id: provider, name: this.providers.find(entry => entry.id === provider)?.name ?? provider }
+  }
+
+  override listModels(provider: string): Promise<readonly LlmModelInfo[]> {
+    return Promise.resolve((this.providers.find(entry => entry.id === provider)?.models ?? [])
+      .map(model => ({ provider, id: model.id, name: model.name })))
+  }
+
+  override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+    const listed = this.providers.find(entry => entry.id === provider)?.models
+      .find(entry => entry.id === model)
+    return Promise.resolve({
+      provider,
+      id: model,
+      name: listed?.name ?? model,
+      ...listed?.contextWindow === undefined ? {} : { contextWindow: listed.contextWindow },
+    })
+  }
+
+  override async *stream(): AsyncIterable<StreamChunk> {
+    throw new Error(
+      'web e2e scaffold: a model call was issued by a scenario that declared no replay fixture'
+      + ' — pass replayFixture, or keep the scenario free of model calls',
+    )
+  }
+}
 
 function replayProviders(contextWindow: number | undefined): typeof REPLAY_PROVIDERS {
   if (contextWindow === undefined) return REPLAY_PROVIDERS
@@ -390,6 +434,16 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
         ...(options.replayChildFixtures === undefined ? {} : { childFiles: options.replayChildFixtures }),
         ...(options.paceMs === undefined ? {} : { paceMs: options.paceMs }),
       })
+    } else if (mode !== 'record' && options.deepSeekMissingCredential !== true) {
+      // No fixture and no shipped adapter would leave the tree with ZERO
+      // provider routes — a state no product composition has, and one the
+      // composer now correctly refuses to type into. Register the same routes
+      // a fixture would, with streaming that still fails loud: the scenario
+      // issues no model calls, and one that slipped in must not pass quietly.
+      ctx.effect(() => ctx.llm.registerAdapter(
+        replayProviders(options.replayContextWindow).map(provider => provider.id),
+        new RouteOnlyAdapter(replayProviders(options.replayContextWindow)),
+      ), 'web e2e scaffold: route-only adapter')
     }
   } catch (error) {
     if (process.cwd() !== originalCwd) process.chdir(originalCwd)
