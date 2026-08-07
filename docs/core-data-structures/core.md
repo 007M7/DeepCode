@@ -728,19 +728,7 @@ Pre-step decisions use the same identified `UserMessage` shape as durable user-r
 
 Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
-`agent/pre-step` receives the exclusive claimed batch and the proposed step's coordinates and cancellation signal. The initial proposal runs inside an open turn before any step; a tool continuation may submit an empty claimed batch between steps:
-
-```ts type-equiv
-/** Coordinates and cancellation for a proposed step. */
-interface PreStepContext {
-  /** Turn that will own the step. */
-  readonly turn: number
-  /** Step proposed by the loop. */
-  readonly step: number
-  /** Current turn cancellation signal. */
-  readonly signal: AbortSignal
-}
-```
+`agent/pre-step` receives one payload carrying the exclusive claimed batch (`messages`), the proposed step's coordinates (`turn`, `step`), and the current turn's cancellation `signal`. The initial proposal runs inside an open turn before any step; a tool continuation may submit an empty claimed batch between steps:
 
 It returns a `PreStepDecision`. Reject opens no step. Enter supplies the complete message batch appended after `step/start`; claimed messages omitted by the final decision remain removed, while input inserted after the claim stays pending:
 

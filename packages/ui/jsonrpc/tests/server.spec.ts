@@ -254,8 +254,8 @@ describe('HarnessSdkServer', () => {
       session,
     } satisfies Pick<Agent, 'id' | 'session'>) as Agent
 
-    ctx.emit('agent/status', agent, 'running')
-    ctx.emit('agent/status', agent, 'idle')
+    ctx.emit('agent/status', { agent, status: 'running' })
+    ctx.emit('agent/status', { agent, status: 'idle' })
 
     expect(transport.notifications.filter(notification => notification.method === 'session.status'))
       .toEqual([

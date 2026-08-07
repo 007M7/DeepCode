@@ -31,9 +31,10 @@
 | [`spill/`](spill/README.md) | 溢出能力系列：存储 seam、本地实现、工具结果溢出策略 | 产品：稳定表面 |
 | [`todo/`](todo/README.md) | 面向模型的 `todo_write` 工具 | 产品：稳定表面 |
 | [`plan/`](plan/README.md) | Plan 协作状态，提供直接进入命令与经评审的退出 | 产品：稳定表面 |
-| [`timeout/`](timeout/README.md) | 工具调用超时策略：`tools/execute` 截止时间强制执行器 | 产品：稳定表面 |
-| [`guard/`](guard/README.md) | 循环卫生守卫：建议性重复调用提醒 | 产品：稳定表面 |
-| [`cordis/`](cordis/README.md) | Cordis 运行时集成：自检／模型编写的临时 Plugin，以及受限 repository Plugin 加载 | 产品：稳定表面 |
+| [`timeout/`](timeout/README.md) | 工具调用 `tools/execute` 截止时间强制执行 | 产品：稳定表面 |
+| [`guard/`](guard/README.md) | 循环卫生建议性重复调用提醒 | 产品：稳定表面 |
+| [`bundle/`](bundle/README.md) | 可安装的 `dsh --profile` 补丁层 | 产品：稳定表面 |
+| [`cordis/`](cordis/README.md) | Cordis 运行时集成：自检、临时 Plugin、受限 repository Plugin 加载 | 产品：稳定表面 |
 | [`hooks/`](hooks/README.md) | 钩子桥接 + 共享 Claude Code／Codex 协议格式库 | 产品：稳定表面 |
 | [`session-persistence/`](session-persistence/README.md) | 持久化 seam + JSONL/SQLite 后端 | 产品：稳定表面 |
 | [`session-projection/`](session-projection/README.md) | 投影 seam：领域折叠单元供给全量值 | 产品：稳定表面 |

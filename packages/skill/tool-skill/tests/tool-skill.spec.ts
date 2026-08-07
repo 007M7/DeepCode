@@ -86,8 +86,7 @@ async function fireStep(ctx: Context, agent: Agent, turn: number, step: number):
   const signal = new AbortController().signal
   const decision = await agentEvents(ctx, agent).waterfall(
     'agent/pre-step',
-    [],
-    { turn, step, signal },
+    { messages: [], turn, step, signal },
     () => Promise.resolve({ kind: 'enter' as const, messages: [] }),
   )
   if (decision.kind === 'enter') {
@@ -105,8 +104,7 @@ async function proposeStep(
   const signal = new AbortController().signal
   return await agentEvents(ctx, agent).waterfall(
     'agent/pre-step',
-    messages,
-    { turn: 1, step: 1, signal },
+    { messages, turn: 1, step: 1, signal },
     () => Promise.resolve({ kind: 'enter' as const, messages }),
   )
 }
@@ -138,8 +136,7 @@ async function composePrefix(ctx: Context, cwd: string, signal = new AbortContro
 async function composePrefixForAgent(ctx: Context, agent: Agent, signal = new AbortController().signal): Promise<Message[]> {
   const decision = await agentEvents(ctx, agent).waterfall(
     'agent/pre-step',
-    [],
-    { turn: 1, step: 1, signal },
+    { messages: [], turn: 1, step: 1, signal },
     () => Promise.resolve({ kind: 'enter' as const, messages: [] }),
   )
   if (decision.kind === 'enter') {
@@ -241,7 +238,7 @@ describe('dsh-tool-skill', () => {
       source: 'runtime',
       content: 'User-only body.',
     })
-    ctx.on('agent/pre-step', async (_agent, _messages, _context, next) => {
+    ctx.on('agent/pre-step', async (_payload, next) => {
       const decision = await next()
       if (decision.kind === 'reject') return decision
       return {

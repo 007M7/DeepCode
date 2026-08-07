@@ -15,7 +15,8 @@ export type { ConversationKey } from './locales.ts'
 export type {
   ChatStore, ChatViewInjected, ChatViewSlotProps, CommandRowOwnerProps, CommandRowProps, ComposerBarInjected,
   ComposerChainProps, ConversationInjected,
-  ConversationSessionInjected, ConversationSlotProps, ConvViewOwnerProps, ConvViewProps, DetailsInjected, DetailsSlotProps,
+  ConversationSessionHeaderInjected, ConversationSessionInjected, ConversationSlotProps,
+  ConvViewOwnerProps, ConvViewProps, DetailsInjected, DetailsSlotProps,
   EmptyWorkspaceOwnerProps, ToolRowOwnerProps, ToolRowProps,
 } from './contract/slots.ts'
 // Export discipline: packages/client/AGENTS.md.

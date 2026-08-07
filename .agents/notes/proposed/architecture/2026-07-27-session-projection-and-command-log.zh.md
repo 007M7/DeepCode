@@ -56,6 +56,10 @@ declare module 'cordis' {
 - 注册是 effect（disposer 随 fiber 走）：插件卸载后其 key 从后续响应中消失，客户端将其读作能力缺失——HMR（热模块替换）语义随之自动成立。key 重复直接 throw。领域插件在 `ctx.inject(['sessionProjections'], …)` 下注册，因此不带注册表的 headless 组装完全不受影响。
 - 该包拥有 `./invariant`（每个被服务的 key 都有一条存活的注册）。
 
+### 已交付的消费方：subagent 身份单元
+
+注册表的两处读面已经服务于本 RFC 协议计划之外的一个已交付消费方：[subagent 列表经投影单元读取身份](../../implemented/architecture/2026-08-06-subagent-list-identity-projection.md)注册了 `subagent` 单元——从 `subagent/descriptor` 以 last-wins 折叠出的持久 mode/label 身份——`SubagentService.listChildren` 对 live child 经 `snapshot()` 读取（水位缓存，零日志读），对 cold child 经一次持久化检查上的 `restore({}, events, 0)` 读取。注册表契约不变：没有失败通道、没有新读面——单元永不抛错，值缺席本身就是信号，缺席如何呈现是该消费方自己的决定。
+
 ### 协议层：历史尾页上的 projections 块
 
 ```ts ignore-check

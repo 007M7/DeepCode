@@ -100,7 +100,7 @@ Sources: [`packages/core/session/src/types.ts:308`](../packages/core/session/src
 }
 ```
 
-Source: [`packages/core/agent/src/types.ts:313`](../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:296`](../packages/core/agent/src/types.ts)
 
 ### `approval/*`
 

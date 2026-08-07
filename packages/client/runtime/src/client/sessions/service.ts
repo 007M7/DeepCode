@@ -51,6 +51,8 @@ export interface SessionSummary {
   running: boolean
   /** User interaction currently blocking this session (sidebar amber-dot state). */
   pendingInteraction?: PendingInteractionStatus
+  /** Finished while not selected and not yet opened — the sidebar's green "done" reminder. Absent = false. */
+  completed?: boolean
   /**
    * Empty-log bit (host summary derivation mirror). New Session reuses a blank
    * one targeting the same workspace. Filtering stays with the consumer: the
@@ -614,6 +616,7 @@ export class SessionsService implements ISessions {
         id: entry.sessionId,
         displayTitle: displayTitleOf(entry.title, entry.cwd, entry.sessionId),
         running: entry.running,
+        ...(entry.completed ? { completed: true } : {}),
         blank: entry.blank,
         updatedAt: entry.updatedAt,
         ...(entry.pendingInteraction === undefined

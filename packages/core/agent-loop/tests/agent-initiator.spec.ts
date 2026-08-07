@@ -31,7 +31,7 @@ async function harness(adapter: LlmAdapter): Promise<Harness> {
 
 function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
-    const dispose = ctx.on('agent/status', (subject, status) => {
+    const dispose = ctx.on('agent/status', ({ agent: subject, status }) => {
       if (subject === agent && status === 'idle') {
         dispose()
         resolve()
@@ -164,18 +164,18 @@ describe('AgentLoop initiator scope', () => {
       if (context.agent === agent) capture(context.signal)
       return next()
     })
-    ctx.on('agent/pre-step', async (subject, _message, { signal }, next) => {
+    ctx.on('agent/pre-step', async ({ agent: subject, signal }, next) => {
       if (subject === agent) {
         expect(ctx.agents.requireInitiator()).toBe(agent)
         preStepSignals.push(signal)
       }
       return next()
     })
-    ctx.on('agent/request', async (subject, _turn, _step, signal, next) => {
+    ctx.on('agent/request', async ({ agent: subject, signal }, next) => {
       if (subject === agent) capture(signal)
       return next()
     })
-    ctx.on('agent/turn-stopping', (subject, _turn, signal) => {
+    ctx.on('agent/turn-stopping', ({ agent: subject, signal }) => {
       if (subject === agent) capture(signal)
     })
     ctx.tools.register(defineContentToolFixture({

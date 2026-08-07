@@ -53,7 +53,7 @@ pnpm run dsh web
 
 ## 回头看
 
-headless-agent 使用 `@deepseek-ai/dsh-cli-demo` app。`dsh web` 则组合 [`apps/cli/config/base.cordis.yml`](../../../apps/cli/config/base.cordis.yml) 与 [`apps/cli/config/web.cordis.yml`](../../../apps/cli/config/web.cordis.yml)，不使用 app 组合包。二者都会根据各自入口模式选择 DeepSeek 模型和能力插件。
+headless-agent 使用 `@deepseek-ai/dsh-cli-demo` app。`dsh web` 则启动 `web` profile：由 [`dsh-base`](../../../packages/bundle/base/cordis.patch.yml) 与 [`dsh-web-app`](../../../packages/bundle/web-app/cordis.patch.yml) 两个组合包的 patch 层在空根之上组合而成。二者都会根据各自入口模式选择 DeepSeek 模型和能力插件。
 
 ## 下一步
 

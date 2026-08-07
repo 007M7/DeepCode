@@ -13,19 +13,20 @@ import type { CallId, SelectionTarget, ViewTab } from './views.ts'
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
     /**
-     * Strict-session content inside the resident conversation shell. This
-     * subtree owns the per-session chat store, header, and view ring and is
-     * remounted when the current session id changes.
+     * Strict-session body inside the resident conversation scrollport. It
+     * owns the per-session draft mirror and active view ring.
      */
-    'conversation.session': { kind: 'single'; scope: 'session'; owner: ConversationSessionOwnerProps }
+    'conversation.session': { kind: 'single'; scope: 'session' }
+    /** Strict-session header above the resident conversation scrollport. */
+    'conversation.session.header': { kind: 'single'; scope: 'session' }
     /** Session-header actions contributed by feature plugins. */
     'conversation.session.header.actions': { kind: 'list'; scope: 'session'; owner: ConversationHeaderActionOwnerProps }
     /**
      * The conversation view ring: one list entry per view tab (chat here;
      * trajectory/waterfall from ui-trajectory), rendered one-at-a-time by
-     * ConversationRoot via `only: <active id>`. Declared by this package's
-     * 'conversation' entry (declaring is claiming). Session scope: views read
-     * the conversation snapshot through the standard kit.
+     * the session body via `only: <active id>`. Declared by this package's
+     * body entry (declaring is claiming). Session scope: views read the
+     * conversation snapshot through the standard kit.
      */
     'conversation.view': { kind: 'list'; scope: 'session'; owner: ConvViewOwnerProps }
     /**
@@ -122,22 +123,6 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 }
 
-/** Owner share of the strict session content seat. */
-export interface ConversationSessionOwnerProps {
-  /**
-   * Wrap the view ring in the transcript scrollport that also hosts the
-   * sticky composer seat (whole `'conversation.composer'` chain output).
-   * Supplied for every real session (hero/settling/active) so the composer
-   * keeps one tree seat across the blank → active flip; the header stays
-   * outside that wrapper as ordinary column chrome (`flex: none`), while
-   * active CSS sticks the seat to the bottom of the same scrollport so wheel
-   * over the footer scrolls the flow.
-   * @param view - the session view-ring content (null while blank chrome is hidden).
-   * @returns the scrollport containing `view` and the sticky composer seat.
-   */
-  wrapActiveBody?: (view: ReactNode) => ReactNode
-}
-
 /** Header actions derive their state from the standard session/global kit. */
 export interface ConversationHeaderActionOwnerProps {}
 
@@ -228,7 +213,7 @@ export type CommandRowProps = PropsRuntime<'conversation.chat.commandview'>
  */
 export type ConvViewProps = PropsRuntime<'conversation.view'>
 
-/** The shared chat store handle type (apply constructs one; the conversation, details, and chat-view registrations all declare it). */
+/** The shared chat store handle type declared by the Session header/body, details, and chat-view registrations. */
 export type ChatStore = ReturnType<typeof createChatStore>
 
 /** Business callbacks injected into the conversation slot. */
@@ -240,7 +225,7 @@ export interface ConversationInjected {
   selectWorkspace: (workspaceId: WorkspaceId) => Promise<void>
 }
 
-/** Business callbacks injected into the strict session content seat. */
+/** Business callbacks injected into the strict Session body seat. */
 export interface ConversationSessionInjected {
   /** Views projected from the `conversation.view` slot ledger. */
   views: {
@@ -250,6 +235,16 @@ export interface ConversationSessionInjected {
   }
   /** Bind the input machine's draft persistence mirror to the session store. */
   bindDraftMirror: (write: (text: string) => void) => () => void
+}
+
+/** Business callbacks injected into the strict session header seat. */
+export interface ConversationSessionHeaderInjected {
+  /** Views projected from the `conversation.view` slot ledger. */
+  views: {
+    list: () => readonly ViewTab[]
+    subscribe: (fn: () => void) => () => void
+    version: () => number
+  }
   /** Select a real Session through the runtime navigation owner. */
   open: (sessionId: SessionId) => void
 }
@@ -354,7 +349,8 @@ export interface ComposerChainProps {
  */
 export type ConversationSlotProps =
   PropsRuntime<'conversation'> & PropsRenderSlots<
-    | 'conversation.session' | 'conversation.composer' | 'conversation.composer.bar'
+    | 'conversation.session' | 'conversation.session.header'
+    | 'conversation.composer' | 'conversation.composer.bar'
     | 'conversation.input.overlay'
     | 'conversation.input.dock' | 'conversation.composer.dock'
     | 'conversation.input.left' | 'conversation.input.right'
@@ -363,12 +359,19 @@ export type ConversationSlotProps =
   & ConversationInjected
   & PropsLocale<'conversation'>
 
-/** Full strict-session content props: per-session store, view ring, callbacks, and the locale seat. */
+/** Full strict-session body props: per-session store, view ring, and draft mirror. */
 export type ConversationSessionSlotProps =
   PropsRuntime<'conversation.session'>
-  & PropsRenderSlots<'conversation.view' | 'conversation.session.header.actions'>
+  & PropsRenderSlots<'conversation.view'>
   & PropsStore<ChatStore>
   & ConversationSessionInjected
+
+/** Full strict-session header props: shared store, tabs/actions render shares, navigation, and locale. */
+export type ConversationSessionHeaderSlotProps =
+  PropsRuntime<'conversation.session.header'>
+  & PropsRenderSlots<'conversation.session.header.actions'>
+  & PropsStore<ChatStore>
+  & ConversationSessionHeaderInjected
   & PropsLocale<'conversation'>
 
 /** The pending approval carrier the owner dispatches into the composer chain. */

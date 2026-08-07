@@ -193,7 +193,7 @@ export class GoalService extends Service {
     this.resolved = {
       defaultMaxGoalRounds: resolveMaxGoalRounds(config.defaultMaxGoalRounds ?? 256),
     }
-    ctx.on('agent/session-start', (agent) => {
+    ctx.on('agent/session-start', ({ agent }) => {
       this.cache(agent.session).activation = 'disarmed'
     })
     // The `goal` projection unit: last-wins fold of goal/change whole values
@@ -547,7 +547,7 @@ export class GoalService extends Service {
       ref: { ...ref },
       ...goal === undefined ? {} : { goal },
     }
-    agentEvents(this.ctx, agent).emit('goal/changed', notification)
+    agentEvents(this.ctx, agent).emit('goal/changed', { change: notification })
   }
 
   /** Build a detached current view. */
