@@ -4,7 +4,7 @@
  * lookup, invocation, or type exposure.
  */
 
-import { Service } from 'cordis'
+import { Service, symbols } from 'cordis'
 import type { Context } from 'cordis'
 import type { ConnectionHandle, RpcError } from '@deepseek-ai/dsh-client-connection/client'
 import type {
@@ -84,7 +84,13 @@ class ClientApiService extends Service implements ClientApi {
     let disposeMethods: () => void | Promise<void>
     try {
       disposeMethods = callerCtx.effect(() => {
-        const installed = contribution.descriptors.map(descriptor => this.install(descriptor))
+        const installed: Array<() => void> = []
+        try {
+          for (const descriptor of contribution.descriptors) installed.push(this.install(descriptor))
+        } catch (error) {
+          for (const dispose of installed.reverse()) dispose()
+          throw error
+        }
         return () => {
           for (const dispose of installed.reverse()) dispose()
         }
@@ -169,21 +175,27 @@ class ClientApiService extends Service implements ClientApi {
 
   private installDirect(descriptor: InvocationDescriptor, token: MountToken): () => void {
     let namespace = this.direct.get(descriptor.namespace)
+    const fresh = namespace === undefined
     if (namespace === undefined) {
       namespace = { value: Object.create(null) as Record<string, RemoteMethod>, tokens: new Map() }
-      this.direct.set(descriptor.namespace, namespace)
       Object.defineProperty(this, descriptor.namespace, {
         configurable: true,
         enumerable: true,
         value: namespace.value,
       })
     }
+    try {
+      Object.defineProperty(namespace.value, descriptor.method, {
+        configurable: true,
+        enumerable: true,
+        value: (...args: unknown[]) => this.invoke(descriptor, undefined, token, this.ownerCtx, args),
+      })
+    } catch (error) {
+      if (fresh) Reflect.deleteProperty(this, descriptor.namespace)
+      throw error
+    }
+    if (fresh) this.direct.set(descriptor.namespace, namespace)
     namespace.tokens.set(descriptor.method, token)
-    Object.defineProperty(namespace.value, descriptor.method, {
-      configurable: true,
-      enumerable: true,
-      value: (...args: unknown[]) => this.invoke(descriptor, undefined, token, this.ownerCtx, args),
-    })
     return () => {
       /* v8 ignore next -- duplicate live methods are rejected before installation, so no newer token can replace this one. */
       if (namespace.tokens.get(descriptor.method) !== token) return
@@ -242,7 +254,7 @@ class ClientApiService extends Service implements ClientApi {
         `client api: ${endpoint} expected ${contract}, got ${String(values.length)}`,
       )
     }
-    const args: Record<string, unknown> = {}
+    const args = Object.create(null) as Record<string, unknown>
     if (projection !== undefined) {
       const binder = this.ownerCtx.typert.contexts.getClient(projection.context)
       if (binder === undefined) {
@@ -281,9 +293,12 @@ type InvokeRemote = (
   args: readonly unknown[],
 ) => Promise<unknown>
 
-class ScopedRemoteNamespace extends Service {
+class ScopedRemoteNamespace {
+  private readonly ctx: Context
   private readonly ownerCtx: Context
   private readonly methods = new Set<string>()
+  private provided = false
+  readonly name: string
 
   static assertMethodAvailable(namespace: string, method: string): void {
     if (SCOPED_NAMESPACE_FIELDS.has(method) || method in ScopedRemoteNamespace.prototype) {
@@ -296,8 +311,12 @@ class ScopedRemoteNamespace extends Service {
     name: string,
     private readonly invokeRemote: InvokeRemote,
   ) {
-    super(ctx, name)
+    this.ctx = ctx
     this.ownerCtx = ctx
+    this.name = name
+    Object.defineProperty(this, symbols.tracker, {
+      value: { associate: name, property: 'ctx' },
+    })
   }
 
   assertMethodAvailable(method: string): void {
@@ -309,15 +328,28 @@ class ScopedRemoteNamespace extends Service {
 
   install(descriptor: InvocationDescriptor, projection: ScopedProjection, token: MountToken): void {
     this.assertMethodAvailable(descriptor.method)
-    if (this.methods.size === 0) this.ownerCtx.set(this.name, this)
+    const activate = this.methods.size === 0
     const method = descriptor.method
-    Object.defineProperty(this, method, {
-      configurable: true,
-      enumerable: true,
-      value: function (this: ScopedRemoteNamespace, ...args: unknown[]): Promise<unknown> {
-        return this.invokeRemote(descriptor, projection, token, this.ctx, args)
-      },
-    })
+    try {
+      Object.defineProperty(this, method, {
+        configurable: true,
+        enumerable: true,
+        value: function (this: ScopedRemoteNamespace, ...args: unknown[]): Promise<unknown> {
+          return this.invokeRemote(descriptor, projection, token, this.ctx, args)
+        },
+      })
+      if (activate) {
+        if (this.provided) {
+          this.ownerCtx.set(this.name, this)
+        } else {
+          this.ownerCtx.reflect.provide(this.name, this)
+          this.provided = true
+        }
+      }
+    } catch (error) {
+      Reflect.deleteProperty(this, method)
+      throw error
+    }
     this.methods.add(method)
   }
 
@@ -328,7 +360,7 @@ class ScopedRemoteNamespace extends Service {
   }
 }
 
-const SCOPED_NAMESPACE_FIELDS = new Set(['ctx', 'invokeRemote', 'methods', 'name', 'ownerCtx'])
+const SCOPED_NAMESPACE_FIELDS = new Set(['ctx', 'invokeRemote', 'methods', 'name', 'ownerCtx', 'provided'])
 
 function endpointOf(descriptor: Pick<InvocationDescriptor, 'namespace' | 'method'>): string {
   return `${descriptor.namespace}/${descriptor.method}`

@@ -247,7 +247,7 @@ describe('TypertRegistry', () => {
     })).toThrow('endpoint "goals/create" is already registered')
   })
 
-  it.each(['create#v2', 'create goal'])('rejects untransportable invocation method %s', async (method) => {
+  it.each(['create#v2', 'create goal', '.', '..'])('rejects untransportable invocation method %s', async (method) => {
     const ctx = await makeCtx()
     expect(() => ctx.typert.remotes.register({
       package: '@fixture/invalid-endpoint',

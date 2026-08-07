@@ -90,6 +90,7 @@ export class WorkspaceTypertGenerator {
         throw new TypertAnalysisError(`typert(${artifact.face}): ${artifact.package} package files must include ${file}`)
       }
     }
+    if (artifact.face !== 'host') return
     const remoteExpected = {
       types: './lib/typert.remote-client.d.ts',
       default: './lib/typert.remote-client.js',

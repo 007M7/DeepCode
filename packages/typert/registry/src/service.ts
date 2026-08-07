@@ -600,7 +600,7 @@ function validateCodec(codec: InvocationDescriptor['result'], subject: string): 
 }
 
 function validateWireName(subject: string, value: string): void {
-  if (!/^[A-Za-z0-9_$.-]+$/.test(value)) {
+  if (value === '.' || value === '..' || !/^[A-Za-z0-9_$.-]+$/.test(value)) {
     throw new Error(`typert: invalid ${subject} "${value}" — must contain only RPC endpoint segment characters`)
   }
 }

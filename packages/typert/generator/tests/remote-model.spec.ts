@@ -274,7 +274,7 @@ export interface BoxPayload {
     assertRemoteConsumerTypechecks(artifact?.remote?.dts, artifact?.remote?.dtsMap, root)
   })
 
-  it.each(['create#v2', 'create goal'])('rejects untransportable Remote alias %s', (alias) => {
+  it.each(['create#v2', 'create goal', '.', '..'])('rejects untransportable Remote alias %s', (alias) => {
     const root = copyFixture()
     editFile(root, 'packages/remote/src/index.ts', source => source.replace(
       '  @Remote\n  async create(',
@@ -299,6 +299,37 @@ export interface RemainingSchema {
 
     expect(() => new WorkspaceTypertGenerator(root).generate())
       .toThrow('publishes Remote artifacts but has no Remote methods')
+  })
+
+  it('validates Remote artifacts only on the host face of a dual-face package', () => {
+    const root = copyFixture()
+    const manifestPath = join(root, 'packages/remote/package.json')
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+      dshClient?: object
+      exports: Record<string, unknown>
+      files: string[]
+    }
+    manifest.dshClient = {}
+    manifest.exports['./client'] = './src/client.ts'
+    manifest.exports['./client/typert'] = {
+      types: './lib/typert.client.d.ts',
+      default: './lib/typert.client.js',
+    }
+    manifest.files.push('lib/typert.client.js', 'lib/typert.client.d.ts')
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
+    writeFileSync(join(root, 'tsconfig.client.json'), `${JSON.stringify({
+      extends: './tsconfig.base.json',
+      files: [],
+      references: [{ path: './packages/remote' }],
+    }, null, 2)}\n`)
+    writeFileSync(join(root, 'packages/remote/src/client.ts'), `/** @typert schema */
+export interface ClientMarker {
+  readonly ready: boolean
+}
+`)
+
+    expect(new WorkspaceTypertGenerator(root).generate().map(artifact => artifact.face))
+      .toEqual(['host', 'client'])
   })
 
   it.each([

@@ -15,7 +15,7 @@ const TYPERT_REMOTE_SEGMENT_PATTERN = /^[A-Za-z0-9_$.-]+$/
  * @returns whether the value can cross the shared RPC carrier unchanged.
  */
 export function isTypeRTRemoteSegment(value: string): boolean {
-  return TYPERT_REMOTE_SEGMENT_PATTERN.test(value)
+  return value !== '.' && value !== '..' && TYPERT_REMOTE_SEGMENT_PATTERN.test(value)
 }
 
 export type {

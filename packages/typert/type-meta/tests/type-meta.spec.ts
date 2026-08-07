@@ -164,6 +164,8 @@ describe('type-meta Remote declarations', () => {
     expect(() => Remote('bad/name')).toThrow('export name')
     expect(() => Remote('bad#name')).toThrow('export name')
     expect(() => Remote('bad name')).toThrow('export name')
+    expect(() => Remote('.')).toThrow('export name')
+    expect(() => Remote('..')).toThrow('export name')
     expect(() => RemoteContext('' as 'metaFixture')).toThrow('Context key')
     expect(() => RemoteContext('metaFixture', 'bad/name')).toThrow('export name')
 

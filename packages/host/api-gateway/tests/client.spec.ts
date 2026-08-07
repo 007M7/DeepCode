@@ -321,6 +321,34 @@ describe('Client TypeRT API', () => {
     await disposeScoped()
   })
 
+  it('rolls back earlier descriptors when a later descriptor fails to install', async () => {
+    const ctx = await bench(vi.fn<ConnectionHandle['rpc']['call']>())
+    const { scope: _scope, ...first } = directDescriptor()
+    const second: InvocationDescriptor = {
+      ...first,
+      id: '@fixture/goals#goals/archive',
+      method: 'archive',
+    }
+    const defineProperty = Object.defineProperty
+    const spy = vi.spyOn(Object, 'defineProperty').mockImplementation((target, key, attributes) => {
+      if (key === 'archive') throw new Error('fixture later-descriptor failure')
+      return defineProperty(target, key, attributes)
+    })
+    try {
+      expect(() => ctx.api.mount({ package: '@fixture/failing-batch', descriptors: [first, second] }))
+        .toThrow('fixture later-descriptor failure')
+    } finally {
+      spy.mockRestore()
+    }
+
+    expect((ctx.api as unknown as Record<string, unknown>).goals).toBeUndefined()
+    await vi.waitFor(() => { expect(ctx.typert.remotes.list()).toEqual([]) })
+    const retry = ctx.api.mount({ package: '@fixture/retry-batch', descriptors: [first, second] })
+    expect(ctx.api.goals.create).toBeTypeOf('function')
+    expect((ctx.api.goals as unknown as Record<string, unknown>).archive).toBeTypeOf('function')
+    await retry()
+  })
+
   it('rejects weak parameter and Context codecs plus malformed scope projections', async () => {
     const ctx = await bench(vi.fn<ConnectionHandle['rpc']['call']>())
     const direct = directDescriptor()
@@ -409,6 +437,33 @@ describe('Client TypeRT API', () => {
     expect((ctx.api as unknown as Record<string, unknown>).goals).toBeUndefined()
   })
 
+  it('preserves a __proto__ wire parameter as an own named argument', async () => {
+    const call = vi.fn<ConnectionHandle['rpc']['call']>()
+      .mockResolvedValue({ ok: true, value: { ref: 'goal-1' } })
+    const ctx = await bench(call)
+    const { scope: _scope, ...base } = directDescriptor()
+    const descriptor: InvocationDescriptor = {
+      ...base,
+      id: '@fixture/goals#goals/prototype',
+      method: 'prototype',
+      parameters: [{
+        name: 'value',
+        wire: '__proto__',
+        source: 'json',
+        codec: { mode: 'strict', typeSymbol: '@fixture#PrototypeValue', schema: z.string() },
+      }],
+    }
+    const dispose = ctx.api.mount({ package: '@fixture/prototype', descriptors: [descriptor] })
+
+    const method = (ctx.api.goals as unknown as Record<string, (...args: unknown[]) => Promise<unknown>>).prototype
+    await expect(method?.('wire-value')).resolves.toEqual({ ref: 'goal-1' })
+    const payload = call.mock.calls[0]?.[2] as { readonly args: Record<string, unknown> }
+    expect(Object.getPrototypeOf(payload.args)).toBeNull()
+    expect(Object.hasOwn(payload.args, '__proto__')).toBe(true)
+    expect(payload.args.__proto__).toBe('wire-value')
+    await dispose()
+  })
+
   it('rolls back Remote registration when concrete method installation fails', async () => {
     const ctx = await bench(vi.fn<ConnectionHandle['rpc']['call']>())
     const defineProperty = Object.defineProperty
@@ -423,6 +478,31 @@ describe('Client TypeRT API', () => {
     } finally {
       spy.mockRestore()
     }
+
+    const retry = ctx.api.mount({ package: '@fixture/goals-retry', descriptors: [directDescriptor()] })
+    expect(ctx.api.goals.create).toBeTypeOf('function')
+    await retry()
+  })
+
+  it('withdraws a fresh scoped Service when its first method fails to install', async () => {
+    const ctx = await bench(vi.fn<ConnectionHandle['rpc']['call']>())
+    const defineProperty = Object.defineProperty
+    const spy = vi.spyOn(Object, 'defineProperty').mockImplementation((target, key, attributes) => {
+      if (key === 'rename') throw new Error('fixture scoped installation failure')
+      return defineProperty(target, key, attributes)
+    })
+    try {
+      expect(() => ctx.api.mount({ package: '@fixture/scoped-failure', descriptors: [contextDescriptor()] }))
+        .toThrow('fixture scoped installation failure')
+    } finally {
+      spy.mockRestore()
+    }
+
+    expect(ctx.get('goals')).toBeUndefined()
+    await vi.waitFor(() => { expect(ctx.typert.remotes.list()).toEqual([]) })
+    const retry = ctx.api.mount({ package: '@fixture/scoped-retry', descriptors: [contextDescriptor()] })
+    expect((ctx.get('goals') as unknown as Record<string, unknown>).rename).toBeTypeOf('function')
+    await retry()
   })
 
   it('throws RPC failures with the structured error as its cause', async () => {

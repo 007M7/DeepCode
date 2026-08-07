@@ -2810,7 +2810,9 @@ function stringLiteralValue(node: ts.Node | undefined): string | undefined {
 }
 
 function isRemoteSegment(value: string): boolean {
-  return /^[A-Za-z0-9_$.-]+$/.test(value)
+  // Generation bootstraps workspace artifacts before dsh-type-meta is built,
+  // so this extraction-only copy must mirror isTypeRTRemoteSegment().
+  return value !== '.' && value !== '..' && /^[A-Za-z0-9_$.-]+$/.test(value)
 }
 
 function expressionName(node: ts.Expression): string | undefined {
