@@ -95,6 +95,9 @@ export function prepareProfile(name: string, userLayer = true): Profile {
   return profile
 }
 
+/** Read-only row index of a profile composition before launcher flag patches. */
+export type ProfileRows = ReadonlyMap<string, { name?: string; config?: unknown }>
+
 /** One profile's patch layers (application order) and the row index of its pre-flag composition. */
 interface ComposedProfile {
   profile: Profile
@@ -109,7 +112,7 @@ interface ComposedProfile {
    * for flag merges and row checks. Flag patches must not insert rows the
    * launcher consults here (they only override values and insert dev glue).
    */
-  rows: Map<string, { name?: string; config?: unknown }>
+  rows: ProfileRows
 }
 
 /** The full patch stack of one composed profile, in application order. */
@@ -155,11 +158,11 @@ export interface RunProfileOptions {
   /** `--patch` overlay paths, in argv order. */
   patchFiles: readonly string[]
   /** Launcher hook turning the pre-flag composed rows into flag patches (the web alias's flag family). */
-  deriveFlagPatches?: (rows: ComposedProfile['rows']) => PatchOptions[]
+  deriveFlagPatches?: (rows: ProfileRows) => PatchOptions[]
   /** One-shot task text; requires the composition to mount the headless runner row. */
   task?: string
   /** Surface setup registered after Loader installation and before any config-tree entry mounts. */
-  prepare?: (ctx: Context) => Promise<void> | void
+  prepare?: (ctx: Context, rows: ProfileRows) => Promise<void> | void
 }
 
 /**
@@ -231,7 +234,7 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
       }
       hostCtx.provide('headlessIo', io)
     }
-    await options.prepare?.(hostCtx)
+    await options.prepare?.(hostCtx, composed.rows)
   })
   app.current = ctx
   // A surface can dispose the whole tree while startup was still in flight
