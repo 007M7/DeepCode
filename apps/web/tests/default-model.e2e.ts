@@ -4,11 +4,14 @@
 // a route keeps deriving from its own log — the tier order the gateway
 // resolves on every read.
 // Zero model calls: the switch is settings/llm-domain traffic only, so there
-// is no fixture and a stray stream would fail loud on the open seam. A second
-// route is declared host-side (not through the UI, which has its own
-// scenario) purely so the picker has somewhere to switch to: the keyless
-// replay catalog publishes a single model.
+// is no fixture and a stray stream would fail loud on the open seam. Both
+// routes are declared host-side (not through the UI, which has its own
+// scenario) through the pi-ai adapter the shipped tree already mounts: a
+// fixture-less scaffold registers no adapter at all, so the routes the
+// picker offers — and the one the composer must start on — have to come from
+// somewhere, and settings profiles are the product's own way to add them.
 import { readFile } from 'node:fs/promises'
+import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
@@ -18,7 +21,13 @@ import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { launchWebScaffold, watchConsole, type WebScaffold } from './scaffold.ts'
 import { ZH_BROWSER_LOCALE, connectFreshWorkspaceZh, saveFailureShot } from './support.ts'
 
-/** The route declared for this scenario, and the model the switch lands on. */
+/** Points the shipped `api-gateway` default at this scenario's own route. */
+const OVERLAY = fileURLToPath(new URL('./default-model.overlay.yml', import.meta.url))
+
+/** The route this scenario starts on, patched over the shipped default. */
+const START_ROUTE = 'origin-gateway'
+const START_MODEL = 'origin-large'
+/** The route the switch lands on, which then becomes the saved default. */
 const ROUTE = 'acme-gateway'
 const MODEL = 'acme-large'
 
@@ -49,12 +58,19 @@ describe('web e2e: the composer model switch is the default for later sessions',
   }
 
   beforeAll(async () => {
-    scaffold = await launchWebScaffold({})
-    // A second route so the picker has two models. Declared through the
-    // settings seam rather than the Models page: this scenario is about the
-    // composer, and the declaring flow is covered by models-settings.e2e.
+    scaffold = await launchWebScaffold({ extraOverlayPath: OVERLAY })
+    // Two routes so the picker has somewhere to start and somewhere to go.
+    // Declared through the settings seam rather than the Models page: this
+    // scenario is about the composer, and the declaring flow is covered by
+    // models-settings.e2e.
     await scaffold.ctx.settings.update(settingsNamespace('llm-pi-ai'), {
       providers: {
+        [START_ROUTE]: {
+          displayName: 'Origin Gateway',
+          api: 'openai-completions',
+          baseURL: 'https://gateway.origin.example/v1',
+          models: [{ id: START_MODEL, name: 'Origin Large' }],
+        },
         [ROUTE]: {
           displayName: 'Acme Gateway',
           api: 'openai-completions',
@@ -84,7 +100,7 @@ describe('web e2e: the composer model switch is the default for later sessions',
     // leaves behind: its own logged route.
     const loggedId = await createSession('default-model-logged')
     scaffold.ctx.sessions.get(SessionId(loggedId))?.append('request/header', {
-      header: { config: { provider: 'deepseek-official', model: 'deepseek-v4-flash' } },
+      header: { config: { provider: START_ROUTE, model: START_MODEL } },
       reason: 'initial',
     })
 
@@ -108,8 +124,35 @@ describe('web e2e: the composer model switch is the default for later sessions',
     expect(await currentOf(await createSession('default-model-after')))
       .toEqual({ provider: ROUTE, model: MODEL })
     // ...while the one holding a logged route keeps deriving from its log.
-    expect(await currentOf(loggedId))
-      .toEqual({ provider: 'deepseek-official', model: 'deepseek-v4-flash' })
+    expect(await currentOf(loggedId)).toEqual({ provider: START_ROUTE, model: START_MODEL })
+    expect(tripwire.pageErrors).toEqual([])
+  }, 60_000)
+
+  it('goes inert when the route the default names stops being served', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-default-model-blocked'))
+    const box = page.locator('textarea[data-input-phase], textarea').first()
+    await expect.poll(async () => box.isEnabled(), { timeout: 10_000 }).toBe(true)
+
+    // What removing the provider on the Models page leaves behind: the saved
+    // default still names the route, and nothing serves it any more.
+    // `replace`, not `update`: a merge patch of `{providers: {}}` leaves every
+    // stored profile in place.
+    await scaffold.ctx.settings.replace(settingsNamespace('llm-pi-ai'), { providers: {} })
+
+    await expect.poll(async () => box.isEnabled(), { timeout: 15_000 }).toBe(false)
+    expect(await box.getAttribute('placeholder')).toBe('当前模型不可用，请先选择模型')
+
+    // The block is an affordance; the refusal is the Host's. A client that
+    // never disabled anything still cannot start a turn on a dead route.
+    const refused = await scaffold.ctx.apiProxy.sessions.prompt({
+      rpcId: 'default-model-refused' as never,
+      payload: {
+        sessionId: SessionId(await createSession('default-model-refusal')),
+        mode: 'queue' as const,
+        content: [{ type: 'text' as const, text: 'hi' }],
+      },
+    })
+    expect(refused.result).toMatchObject({ ok: false, error: { code: 'model-unavailable' } })
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)
 })

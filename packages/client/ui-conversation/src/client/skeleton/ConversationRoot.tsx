@@ -13,7 +13,7 @@ import css from './ConversationRoot.module.css'
 export type ConversationRootProps = ConversationSlotProps
 
 export function ConversationRoot({
-  sessionId, useSession, useSessions, useWorkspaces, useInput,
+  sessionId, useSession, useSessions, useWorkspaces, useInput, useComposerBlock,
   renderSlot, renderSlotChain, selectWorkspace, t,
 }: ConversationRootProps) {
   const openState = useSession(s => s.openState)
@@ -24,6 +24,9 @@ export function ConversationRoot({
   const cwd = useSessions(s => sessionId === undefined ? undefined : s.byId[sessionId]?.cwd)
   const summaryBlank = useSessions(s => sessionId === undefined ? undefined : s.byId[sessionId]?.blank)
   const workspaces = useWorkspaces(s => s)
+  // A plugin this package cannot import (ui-model) says this session cannot
+  // send; its reason is already localized by whoever raised it.
+  const composerBlock = useComposerBlock(block => block)
 
   const [pickerOpen, setPickerOpen] = useState(false)
   const [pendingWorkspaceId, setPendingWorkspaceId] = useState<WorkspaceId | undefined>()
@@ -126,11 +129,17 @@ export function ConversationRoot({
   // bar is ONE session-maybe slot rendered unconditionally — inert is a prop,
   // not a different tree, so the textarea DOM survives the transition.
   const inert = sessionId === undefined || (hero && chipTitle === undefined)
+  // A raised block is the same inert posture with the blocker's own reason:
+  // one disabled textarea, never a second tree. The no-workspace state wins
+  // when both hold — picking a workspace is the earlier prerequisite.
+  const blocked = !inert && composerBlock !== undefined
   const inputBar = renderSlot('conversation.composer.bar', {
     variant: hero ? 'hero' : 'composer',
     ...(inert
       ? { disabled: true, placeholder: t('placeholder.workspace') }
-      : hero ? { placeholder: t('placeholder.hero') } : {}),
+      : blocked
+        ? { disabled: true, placeholder: composerBlock.reason }
+        : hero ? { placeholder: t('placeholder.hero') } : {}),
     overlay: renderSlot('conversation.input.overlay', {}),
     leftItems: zone === undefined ? null : renderSlot('conversation.input.left', zone),
     rightItems: zone === undefined ? null : renderSlot('conversation.input.right', zone),

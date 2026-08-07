@@ -74,6 +74,14 @@ import { openNativePath, openNativeTextFile } from './native-path-opener.ts'
 /** Page size when history is called without maxMessages. */
 const DEFAULT_MAX_MESSAGES = 50
 
+/**
+ * The settings namespace carrying the user's default route. Named for the
+ * gateway rather than for the package, because this key is what a person reads
+ * and writes in `settings.yaml`; the row id in a composition happens to match
+ * but does not determine it.
+ */
+export const API_GATEWAY_SETTINGS_NAMESPACE = settingsNamespace('api-gateway')
+
 /** Non-model settings namespaces intentionally served to the Web client. */
 const WEB_SETTINGS_NAMESPACES = ['permission'] as const
 
@@ -337,9 +345,11 @@ export interface ApiProxyDefaults {
    */
   defaultTarget: () => AgentLlmTarget
   /**
-   * Record a selection as the new default. Absent when the deployment stores
-   * no user settings, in which case a switch stays process-local. A rejection
-   * is reported and swallowed: the switch already applies to its own session,
+   * Record a selection as the new default. Either absent, or a closure that
+   * may itself decline — the gateway plugin always passes one, and it no-ops
+   * when the deployment mounts no settings provider or when the write races
+   * service teardown. A switch then stays process-local. A rejection is
+   * reported and swallowed: the switch already applies to its own session,
    * and undoing it because storage failed would be the worse outcome.
    */
   persistDefaultTarget?: (target: AgentLlmTarget) => Promise<void>
@@ -1330,6 +1340,19 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     }
   }
 
+  /**
+   * Whether an adapter currently serves this route, and therefore whether a
+   * session pointed at it can start a turn. Catalog membership cannot answer
+   * it: an adapter may serve a model its own catalog stopped advertising, so
+   * a route missing from the groups is not the same as one nothing serves.
+   * A composition with no llm registry at all cannot judge and says yes —
+   * the dispatch it would have refused fails on its own terms.
+   */
+  function routeServed(provider: string): boolean {
+    const llm = ctx.get('llm')
+    return llm === undefined || llm.listProviders().some(entry => entry.id === provider)
+  }
+
   /** Missing-service report shared by the settings domain (skills-domain stance). */
   function settingsAbsent(): RpcError {
     return { code: 'internal', message: 'settings service is absent: this deployment does not mount a settings provider (e.g. @deepseek-ai/dsh-settings-local) in its composition', details: {} }
@@ -1700,7 +1723,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         if ('error' in found) return err(request, found.error)
         const current = targetFor(found.agent).current
         const { groups, failures } = await buildModelCatalog(ctx)
-        return ok(request, { current: { ...current }, groups, failures })
+        const routable = routeServed(current.provider)
+        return ok(request, { current: { ...current }, routable, groups, failures })
       },
 
       async selectModel(request) {
@@ -1868,6 +1892,20 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const found = await agentFor(sessionId)
         if ('error' in found) return err(request, found.error)
         const agent = found.agent
+        // A route no adapter serves cannot start a turn, and letting it try
+        // spends the whole pre-step path to fail inside the adapter with a
+        // message about registration. Refusing here names the model the
+        // session is pointed at while the draft is still in the composer.
+        // This is the enforcement boundary: a client that disables its input
+        // is an affordance, and this method stays callable regardless.
+        const target = targetFor(agent).current
+        if (!routeServed(target.provider)) {
+          return err(request, {
+            code: 'model-unavailable',
+            message: `no adapter serves provider "${target.provider}"; select a model for this session`,
+            details: { provider: target.provider, model: target.model },
+          })
+        }
         // The rpcId rides MessageSource into user/message (merge declaration in api/sessions.ts; provisional correlation).
         const source: MessageSource = { kind: 'user', rpcId: request.rpcId }
         try {
@@ -2758,8 +2796,14 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             queue.push(frame({ type: 'host/settings-changed', ns: name }))
             // A provider's own settings carry its model catalog and endpoint,
             // so a change there invalidates the model list even when the route
-            // set is untouched — `llm/adapters-updated` alone misses it.
-            if (modelProviderNamespaces().has(name)) queue.push(frame({ type: 'host/models-changed' }))
+            // set is untouched — `llm/adapters-updated` alone misses it. The
+            // gateway's own section is the other such source: it names the
+            // route every session with no logged one resolves to, so an
+            // externally edited default (another tab, a hand-edited
+            // settings.yaml) has to reach an open selector too.
+            if (modelProviderNamespaces().has(name) || name === String(API_GATEWAY_SETTINGS_NAMESPACE)) {
+              queue.push(frame({ type: 'host/models-changed' }))
+            }
           }),
           ctx.on('credentials/updated', (ref) => {
             queue.push(frame({ type: 'host/credentials-changed', ref: String(ref) }))

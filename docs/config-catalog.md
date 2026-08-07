@@ -577,28 +577,29 @@ Source: [`packages/hooks/hooks-codex/src/index.ts:44`](../packages/hooks/hooks-c
 Requires: `agents` · `directoryPicker` · `llm` · `sessions` · `subagents` · `sessionQuery` · `tools` · `userInteraction` · `workspace`
 
 ```ts config-catalog
-/** Gateway plugin config: host-level agent routing and Workspace creation root. */
-export interface Config extends DefaultRouteSettings {
-  /** Parent directory for name-created Workspaces; defaults to the Host cwd. */
-  workspaceRoot?: string
-}
-
 /**
- * The user-settable slice of the gateway config: the route a session starts
- * from when its own log names none. `workspaceRoot` is deliberately not part
- * of it — that is a launcher fact, not a preference.
+ * Gateway plugin config: host-level agent routing and Workspace creation root.
+ *
+ * `reasoningEffort` is deliberately absent, so the section carries one field
+ * the composition cannot. The seam resolves a section by MERGING the user
+ * layer over the composition entry per field, and an absent key cannot
+ * override a present one — so a composition-set effort would survive every
+ * later switch to a model that has none, and strand it for the next session
+ * to fail on. Effort is a per-model fact anyway: a deployment default belongs
+ * on the adapter profile (`llm-pi-ai`'s `reasoning`, `llm-deepseek`'s own),
+ * which resolves per model rather than per gateway.
  */
-export interface DefaultRouteSettings {
+export interface Config {
   /** Default provider route for created agents. */
   provider: string
   /** Default model id. */
   model: string
-  /** Default reasoning effort; absence preserves the adapter/provider default. */
-  reasoningEffort?: string
+  /** Parent directory for name-created Workspaces; defaults to the Host cwd. */
+  workspaceRoot?: string
 }
 ```
 
-Source: [`packages/host/apiproxy/src/index.ts:64`](../packages/host/apiproxy/src/index.ts)
+Source: [`packages/host/apiproxy/src/index.ts:67`](../packages/host/apiproxy/src/index.ts)
 
 ## `@deepseek-ai/dsh-host-directory-picker-browse`
 

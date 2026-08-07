@@ -1975,6 +1975,9 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
       models: request => ok(request, {
         current: modelTargets.get(request.payload.sessionId)
           ?? { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+        // The fixture's routes all serve; a surface exercising the blocked
+        // posture drives it through its own stub.
+        routable: true,
         groups: fixtureModelGroups(),
         failures: [],
       }),

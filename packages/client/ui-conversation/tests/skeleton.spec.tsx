@@ -91,6 +91,8 @@ function mount(
     omitSummaryRow?: boolean
     /** Classify the selected child as a subagent instead of an ordinary fork. */
     summaryOrigin?: 'subagent'
+    /** A composer block another plugin raised for this session. */
+    composerBlock?: { reason: string }
   } = {},
 ) {
   const root = sid('root')
@@ -224,6 +226,7 @@ function mount(
     useSessions: bindSnapshotSelector(sessions),
     useWorkspaces: bindSnapshotSelector(workspaces),
     useProjection: (() => undefined),
+    useComposerBlock: select => select(options.composerBlock),
     useInput,
     inputActions,
     renderSlot,
@@ -248,6 +251,31 @@ describe('Hero chrome', () => {
 })
 
 describe('ConversationRoot resident composer', () => {
+  it('renders the composer inert with the blocker\u2019s own reason', () => {
+    const b = mount(conversationSnapshot(), undefined, undefined, {
+      composerBlock: { reason: 'select a model first' },
+    })
+    const box = b.view.getByRole('textbox') as HTMLTextAreaElement
+    // One disabled textarea with the blocker's placeholder, never a second
+    // tree: the DOM survives the block being raised and cleared.
+    expect(box.disabled).toBe(true)
+    expect(box.placeholder).toBe('select a model first')
+    fireEvent.keyDown(box, { key: 'Enter' })
+    expect(b.sink).not.toHaveBeenCalled()
+  })
+
+  it('lets the no-workspace posture win over a block', () => {
+    // Picking a workspace is the earlier prerequisite; naming a model first
+    // would send the user somewhere they cannot act yet.
+    const b = mount(conversationSnapshot({ composerPhase: 'blank' }), [], undefined, {
+      summaryBlank: true,
+      composerBlock: { reason: 'select a model first' },
+    })
+    const box = b.view.getByRole('textbox') as HTMLTextAreaElement
+    expect(box.disabled).toBe(true)
+    expect(box.placeholder).not.toBe('select a model first')
+  })
+
   it('keeps composer text in the machine, mirrors to the chat store, and submits through the sink', () => {
     const b = mount(conversationSnapshot())
     const box = b.view.getByRole('textbox')

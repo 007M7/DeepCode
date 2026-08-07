@@ -10,7 +10,7 @@ The route a new session started from was frozen into the gateway's composition e
 
 ## Decision
 
-`ApiProxyService` registers its `{provider, model, reasoningEffort?}` slice as the `api-gateway` settings section: the composition entry is the `base` layer and `settings.yaml` layers the user's choice over it. `workspaceRoot` stays outside the section — a launcher fact, not a preference. The section schema is picked out of `static Config` rather than restated, because the configuration-catalog generator reads that literal statically and a spread breaks it.
+`ApiProxyService` registers its `{provider, model, reasoningEffort?}` slice as the `api-gateway` settings section: the composition entry is the `base` layer and `settings.yaml` layers the user's choice over it. `workspaceRoot` stays outside the section — a launcher fact, not a preference. `reasoningEffort` is the mirror case: it lives in the section but NOT in the plugin config, because the seam merges the user layer over the composition entry per field and an absent key cannot override a present one. A composition-set effort would therefore survive every later switch to a model without one — precisely the stranding the wholesale `replace` exists to prevent. Effort is a per-model fact anyway; a deployment default for it belongs on the adapter profile, which resolves per model.
 
 `session.selectModel` records an accepted switch as the new default. There is no separate gesture: switching models in the composer IS how the default is chosen. The write is `replace`, not `update` — switching to a model with no reasoning effort has to clear a stored one, and a merged patch would strand it for the next session to fail on. A storage failure is logged without undoing the switch, which already applies to its own session, and a deployment with no settings provider keeps the entry with the switch staying process-local.
 
@@ -23,6 +23,16 @@ The stored route is not validated against the registry. A default naming a route
 ## Consequences
 
 `ApiProxyDefaults` changed shape, updating ~40 test construction sites. `host.describe` now reports the live default rather than a captured one, which is what it always meant. `settings.yaml` gains an `api-gateway:` section the moment a user switches models; the `api-gateway` namespace is deliberately NOT added to the gateway's exposed-namespace allowlist, so the Settings page neither reads nor writes it — the model picker is its editor.
+
+## Follow-up: blocking a session that cannot send
+
+A default naming a route the Models page has since removed leaves the composer saying "Select model" while the input still accepts a message, which then fails inside the adapter mid-turn. Two changes close it.
+
+The Host refuses. `session.prompt` checks whether an adapter serves the session's route and answers `model-unavailable` before opening a turn. This is the enforcement boundary: a client that disables its composer is an affordance, and the method stays callable regardless.
+
+The composer goes inert. `session.models` reports `routable`, and ui-model pushes a block through the new `ctx.conversation.blocks` registry; the bar renders the same disabled textarea it already renders without a workspace, with the blocker's own localized reason as the placeholder. The push direction is forced — ui-model already depends on ui-conversation, so ui-conversation cannot read it back.
+
+The gate is `routable`, NOT "the current target matches no advertised group". Catalog membership is advisory by design: a route serving a model it stopped advertising is absent from the groups yet perfectly usable, and blocking there would break a supported configuration (a narrowed `models` list over a live route). `routable` is also three-valued on the client — `null` before the first load or after a failed one never blocks, so a slow or unreachable Host cannot lock a working composer.
 
 ## Alternatives considered
 

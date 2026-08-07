@@ -303,6 +303,37 @@ describe('Web session model selection', () => {
     await ctx.fiber.dispose()
   })
 
+  it('refuses a prompt no adapter can route, and reports it on the directory', async () => {
+    const { ctx, sessionId } = await harness()
+    const api = createApiProxy(ctx, {
+      defaultTarget: () => ({ provider: 'deleted-gateway', model: 'deleted-model' }),
+      cwd: '/tmp',
+      workspaceRoot: '/tmp',
+    })
+
+    // The client disabling its input is an affordance; this method stays
+    // callable, so the refusal has to live here.
+    const refused = await api.sessions.prompt(request({
+      sessionId, mode: 'queue' as const, content: [{ type: 'text' as const, text: 'hi' }],
+    }))
+    expect(refused.result).toMatchObject({
+      ok: false,
+      error: { code: 'model-unavailable', details: { provider: 'deleted-gateway', model: 'deleted-model' } },
+    })
+    expect(expectValue(await api.sessions.models(request({ sessionId }))).routable).toBe(false)
+
+    // An advisory-unlisted model on a live route is NOT this: the route
+    // serves it, so the prompt goes through and nothing blocks.
+    expectValue(await api.sessions.selectModel(request({
+      sessionId, provider: 'deepseek-official', model: 'unlisted-but-served',
+    })))
+    const catalog = expectValue(await api.sessions.models(request({ sessionId })))
+    expect(catalog.routable).toBe(true)
+    expect(catalog.groups.flatMap(group => group.models.map(model => model.id)))
+      .not.toContain('unlisted-but-served')
+    await ctx.fiber.dispose()
+  })
+
   it('serves a session and its catalog when the stored default names a route that is gone', async () => {
     const { ctx, sessionId } = await harness()
     const api = createApiProxy(ctx, {

@@ -10,7 +10,7 @@ Status: implemented
 
 ## 决定
 
-`ApiProxyService` 把自己的 `{provider, model, reasoningEffort?}` 切片注册为 `api-gateway` 设置段：组合条目是 `base` 层，`settings.yaml` 把用户的选择叠加其上。`workspaceRoot` 留在段外——它是启动器事实，不是偏好。段 schema 从 `static Config` 里挑出来而不是重述一遍，因为配置目录生成器是静态读取那个字面量的，展开语法会让它失败。
+`ApiProxyService` 把自己的 `{provider, model, reasoningEffort?}` 切片注册为 `api-gateway` 设置段：组合条目是 `base` 层，`settings.yaml` 把用户的选择叠加其上。`workspaceRoot` 留在段外——它是启动器事实，不是偏好。`reasoningEffort` 则是镜像的一例：它在段里、但**不在**插件配置里，因为 seam 是按字段把用户层合并到组合条目之上的，缺席的键覆盖不了存在的键。组合层设的推理等级因此会在此后每一次切到不支持推理的模型时继续存活——正是整段 `replace` 想要杜绝的那种滞留。何况推理等级本就是按模型的事实，它的部署级默认值属于适配器 profile，那里是按模型解析的。
 
 `session.selectModel` 把被接受的切换记录为新的默认值。没有另一个单独的手势：在输入框切模型**就是**选定默认值的方式。写入用 `replace` 而非 `update`——切到一个不支持推理的模型必须清掉已存的等级，而合并补丁会把它滞留下来，让下一个会话在它上面失败。存储失败只记日志，不撤销这次切换（它对自己所在的会话已经生效）；没有设置提供方的部署保留组合条目，切换只停留在进程内。
 
@@ -23,6 +23,16 @@ Status: implemented
 ## 影响
 
 `ApiProxyDefaults` 形状变了，约 40 处测试构造点随之更新。`host.describe` 现在报告的是活的默认值而非捕获的快照，这本就是它一直想表达的含义。用户一旦切换模型，`settings.yaml` 就会多出一个 `api-gateway:` 段；`api-gateway` 这个 namespace 刻意**没有**加进网关的暴露名单，因此设置页既不读也不写它——模型选择器就是它的编辑器。
+
+## 后续：让发不出消息的会话禁止输入
+
+默认值指向一条模型页已删除的路由时，编辑器显示「选择模型」，输入框却仍接受消息，然后这一轮在适配器内部失败。两处改动关掉这个口子。
+
+宿主拒绝。`session.prompt` 检查是否有适配器服务该会话的路由，在开启轮次之前就以 `model-unavailable` 应答。这是执行边界：客户端禁用编辑器只是提示性设计，这个方法始终可被调用。
+
+编辑器变惰性。`session.models` 报告 `routable`，ui-model 经新的 `ctx.conversation.blocks` 注册表推送一个 block；输入栏渲染的仍是它在没有 Workspace 时就会渲染的那个禁用 textarea，只是把抬起方自己的本地化理由作为 placeholder。推送方向是被迫的——ui-model 本就依赖 ui-conversation，因此 ui-conversation 读不回去。
+
+闸门是 `routable`，**不是**「当前目标匹配不到任何已公布分组」。目录成员关系按设计是咨询性的：一条仍在服务、只是不再公布该模型的路由不在分组里，却完全可用，在那里阻断会破坏一种受支持的配置（对一条活着的路由收窄 `models` 列表）。`routable` 在客户端还是三值的——首次加载之前或加载失败之后的 `null` 绝不阻断，因此慢的或够不着的宿主锁不死一个本来能用的编辑器。
 
 ## 考虑过的替代方案
 

@@ -74,7 +74,15 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
   const [models, setModels] = useState<readonly ModelDraft[]>([])
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string | undefined>(undefined)
+  /**
+   * The profile write landed. Only the key write can still be outstanding, so
+   * the fields that describe the provider are settled and the retry path is
+   * the credential alone.
+   */
+  const [committed, setCommitted] = useState(false)
   const disabled = props.readOnly || busy
+  /** Everything but the key stops being editable once the provider exists. */
+  const profileDisabled = disabled || committed
 
   const routeInvalid = route.length > 0 && !ROUTE_PATTERN.test(route)
   const routeTaken = taken.includes(route)
@@ -98,34 +106,42 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
   /** Perform the create, returning a failure message or undefined. */
   const createOnce = async (): Promise<string | undefined> => {
     const keyRef = deriveKeyRef(route)
-    const storesKey = keyDraft.trim().length > 0
-    const profile = {
-      ...displayName.length === 0 ? {} : { displayName },
-      // The profile names the conventional reference only when this card is
-      // about to store a key, matching the editor: a route declared with the
-      // key left blank keeps its provider-native auth path (a credential
-      // chain, ADC) instead of resolving a reference nothing ever sets.
-      ...storesKey ? { apiKeyEnv: keyRef } : {},
-      api: protocol,
-      baseURL,
-      // Inherit is the field being absent, not an empty string: the schema
-      // types it as an effort name, and an empty one would fail the write.
-      ...effort === undefined ? {} : { [EFFORT_FIELD['pi-ai']]: effort },
-      models: models.map(model => ({ ...model })),
+    const normalizedKey = keyDraft.trim()
+    const storesKey = normalizedKey.length > 0
+    if (!committed) {
+      const profile = {
+        ...displayName.length === 0 ? {} : { displayName },
+        // The profile names the conventional reference only when this card is
+        // about to store a key, matching the editor: a route declared with the
+        // key left blank keeps its provider-native auth path (a credential
+        // chain, ADC) instead of resolving a reference nothing ever sets.
+        ...storesKey ? { apiKeyEnv: keyRef } : {},
+        api: protocol,
+        baseURL,
+        // Inherit is the field being absent, not an empty string: the schema
+        // types it as an effort name, and an empty one would fail the write.
+        ...effort === undefined ? {} : { [EFFORT_FIELD['pi-ai']]: effort },
+        models: models.map(model => ({ ...model })),
+      }
+      const response = await api.settings.mutate({
+        ns: NS,
+        ops: [{ op: 'set', path: ['providers', route], value: profile }],
+        // `taken` is a snapshot too, so the id check alone cannot see a route
+        // declared after this card opened; the revision makes that race a
+        // `settings-conflict` instead of a write over the other profile.
+        expectedRevision: openedAt,
+      })
+      if (!response.result.ok) return response.result.error.message
+      // The provider now exists. A retry after the key write below fails must
+      // not re-run this mutate: the revision it holds is the one this write
+      // just superseded, so the Host would answer `settings-conflict` and the
+      // key could never be stored from this card at all.
+      setCommitted(true)
     }
-    const response = await api.settings.mutate({
-      ns: NS,
-      ops: [{ op: 'set', path: ['providers', route], value: profile }],
-      // `taken` is a snapshot too, so the id check alone cannot see a route
-      // declared after this card opened; the revision makes that race a
-      // `settings-conflict` instead of a write over the other profile.
-      expectedRevision: openedAt,
-    })
-    if (!response.result.ok) return response.result.error.message
     if (storesKey) {
-      const stored = await api.credentials.set({ ref: keyRef, value: keyDraft })
+      const stored = await api.credentials.set({ ref: keyRef, value: normalizedKey })
       // The profile landed; saying the key did not is the only honest report,
-      // and the row is now editable so the key can be entered again there.
+      // and the retry above now goes straight back to this write.
       if (!stored.result.ok) return stored.result.error.message
     }
     return undefined
@@ -163,7 +179,7 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
           value={route}
           placeholder="acme-gateway"
           aria-label={t('customRoute')}
-          disabled={disabled}
+          disabled={profileDisabled}
           onChange={(event) => { setRoute(event.target.value) }}
         />
       </div>
@@ -178,7 +194,7 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
           value={displayName}
           placeholder={route.length === 0 ? t('customDisplayName') : route}
           aria-label={t('customDisplayName')}
-          disabled={disabled}
+          disabled={profileDisabled}
           onChange={(event) => { setDisplayName(event.target.value) }}
         />
       </div>
@@ -190,7 +206,7 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
           value={baseURL}
           placeholder="https://gateway.example/v1"
           aria-label={t('baseUrl')}
-          disabled={disabled}
+          disabled={profileDisabled}
           onChange={(event) => { setBaseURL(event.target.value) }}
         />
       </div>
@@ -200,7 +216,7 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
           className={styles['input']}
           value={protocol}
           aria-label={t('customApi')}
-          disabled={disabled}
+          disabled={profileDisabled}
           onChange={(event) => { setProtocol(event.target.value) }}
         >
           {protocols.map(choice => <option key={choice} value={choice}>{choice}</option>)}
@@ -226,7 +242,7 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
         value={effort ?? ''}
         onChange={setEffort}
         t={t}
-        disabled={disabled}
+        disabled={profileDisabled}
       />
       <ModelListEditor
         models={models}
@@ -239,7 +255,7 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
         }}
         api={api}
         t={t}
-        disabled={disabled}
+        disabled={profileDisabled}
       />
       {failure !== undefined ? <p className={styles['error']}>{failure}</p> : null}
       {/* Only the gates with something to say render; the route-id gate has its
@@ -251,7 +267,7 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
         submitDisabled={disabled || !ready}
         submitLabel="create"
         submitBusyLabel="creating"
-        onCancel={() => { props.onClose(false) }}
+        onCancel={() => { props.onClose(committed) }}
         onSubmit={() => { void create() }}
       />
     </div>

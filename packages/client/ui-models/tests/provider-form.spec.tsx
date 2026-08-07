@@ -650,8 +650,11 @@ describe('provider rows', () => {
 })
 
 describe('hand-declared providers', () => {
-  function mountCard(overrides: Partial<Parameters<typeof CustomProviderCard>[0]> = {}) {
-    const scripted = scriptedFace()
+  function mountCard(
+    overrides: Partial<Parameters<typeof CustomProviderCard>[0]> = {},
+    wire: Parameters<typeof scriptedFace>[0] = {},
+  ) {
+    const scripted = scriptedFace(wire)
     const onClose = vi.fn()
     render(
       <CustomProviderCard
@@ -734,6 +737,60 @@ describe('hand-declared providers', () => {
     fireEvent.click(screen.getByText(en.create))
     await waitFor(() => { expect(second.onClose).toHaveBeenCalledWith(true) })
     expect(firstMutate(second.mutate).ops[0]).not.toHaveProperty('value.reasoning')
+  })
+
+  it('retries only the key after the profile landed, and reports the provider on cancel', async () => {
+    const set = vi.fn()
+      .mockResolvedValueOnce(fail('credential store is read-only', 'credential-rejected'))
+      .mockResolvedValueOnce(ok({}))
+    const { mutate, onClose } = mountCard({}, { set })
+
+    fireEvent.change(screen.getByLabelText(en.customRoute), { target: { value: 'acme' } })
+    fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: 'https://acme.test/v1' } })
+    fireEvent.change(screen.getByLabelText(en.keyInput), { target: { value: '  gw-key  ' } })
+    fireEvent.click(screen.getByRole('button', { name: en.addModel }))
+    fireEvent.change(screen.getByLabelText(`${en.modelId} 1`), { target: { value: 'm' } })
+    fireEvent.click(screen.getByText(en.create))
+
+    // The profile landed; only the key failed. The card says so and stays open.
+    await waitFor(() => { expect(screen.getByText('credential store is read-only')).toBeTruthy() })
+    expect(onClose).not.toHaveBeenCalled()
+    expect(mutate).toHaveBeenCalledTimes(1)
+    // The key is stored trimmed, matching the editor.
+    expect(set).toHaveBeenNthCalledWith(1, { ref: 'ACME_API_KEY', value: 'gw-key' })
+
+    // The provider exists now, so the fields describing it are settled and
+    // only the key can still be corrected.
+    expect(screen.getByLabelText<HTMLInputElement>(en.customRoute).disabled).toBe(true)
+    expect(screen.getByLabelText<HTMLInputElement>(en.baseUrl).disabled).toBe(true)
+    expect(screen.getByLabelText<HTMLInputElement>(en.keyInput).disabled).toBe(false)
+
+    fireEvent.change(screen.getByLabelText(en.keyInput), { target: { value: 'gw-key-2' } })
+    fireEvent.click(screen.getByText(en.create))
+    await waitFor(() => { expect(onClose).toHaveBeenCalledWith(true) })
+    // Re-running the profile write would carry the revision this card's own
+    // first write superseded, so the Host would answer settings-conflict and
+    // the key could never be stored from here at all.
+    expect(mutate).toHaveBeenCalledTimes(1)
+    expect(set).toHaveBeenNthCalledWith(2, { ref: 'ACME_API_KEY', value: 'gw-key-2' })
+  })
+
+  it('reports the created provider when cancelled after its profile landed', async () => {
+    const set = vi.fn().mockResolvedValue(fail('nope', 'credential-rejected'))
+    const { onClose } = mountCard({}, { set })
+
+    fireEvent.change(screen.getByLabelText(en.customRoute), { target: { value: 'acme' } })
+    fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: 'https://acme.test/v1' } })
+    fireEvent.change(screen.getByLabelText(en.keyInput), { target: { value: 'gw-key' } })
+    fireEvent.click(screen.getByRole('button', { name: en.addModel }))
+    fireEvent.change(screen.getByLabelText(`${en.modelId} 1`), { target: { value: 'm' } })
+    fireEvent.click(screen.getByText(en.create))
+    await waitFor(() => { expect(screen.getByText('nope')).toBeTruthy() })
+
+    // Walking away leaves a real provider behind; reporting no change would
+    // leave the page without the row it now has.
+    fireEvent.click(screen.getByText(en.cancel))
+    expect(onClose).toHaveBeenCalledWith(true)
   })
 
   it('names the blocked gate under the form, and nothing once it is satisfied', () => {
