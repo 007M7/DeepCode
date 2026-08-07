@@ -14,7 +14,7 @@ import type { IApiClient } from '@deepseek-ai/dsh-client-connection/client'
 import {
   createSnapshotStore, type SessionId, type SnapshotStore,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import { messageOf } from './settings-store.ts'
+import { messageOf, presetOptions } from './settings-store.ts'
 import type { AgentPresetOption } from './settings-store.ts'
 
 /** Hero-chip snapshot. */
@@ -80,12 +80,7 @@ export class AgentPresetSeatController {
       const { presets } = response.result.value
       this.fallback = presets.find(preset => preset.isDefault)?.id ?? presets[0]?.id ?? ''
       this.set({
-        options: presets.map(preset => ({
-          id: preset.id,
-          trust: preset.trust,
-          ...preset.name === undefined ? {} : { name: preset.name },
-          ...preset.description === undefined ? {} : { description: preset.description },
-        })),
+        options: presetOptions(presets),
         current: this.staged ?? this.fallback,
         error: null,
       })

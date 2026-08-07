@@ -61,6 +61,27 @@ export interface AgentPresetOption {
   description?: string
 }
 
+/**
+ * The roster entries as every surface renders them.
+ *
+ * The chip, the row, and the management section all show the same three
+ * facts, and `exactOptionalPropertyTypes` makes "absent" and "present as
+ * undefined" different shapes — so the spread dance belongs in one place
+ * rather than once per store.
+ * @param presets - the roster the host answered with.
+ * @returns one option per preset, in roster order.
+ */
+export function presetOptions(
+  presets: readonly { id: string, trust: 'system' | 'user', name?: string, description?: string }[],
+): AgentPresetOption[] {
+  return presets.map(preset => ({
+    id: preset.id,
+    trust: preset.trust,
+    ...preset.name === undefined ? {} : { name: preset.name },
+    ...preset.description === undefined ? {} : { description: preset.description },
+  }))
+}
+
 /** Agent-preset settings-row snapshot. */
 export interface AgentPresetSettingsState {
   status: 'idle' | 'loading' | 'ready' | 'saving' | 'unavailable' | 'error'
@@ -127,12 +148,7 @@ export class AgentPresetSettingsController {
         status: 'ready',
         error: null,
         writable: described.result.ok && described.result.value.writable,
-        options: presets.map(preset => ({
-          id: preset.id,
-          trust: preset.trust,
-          ...preset.name === undefined ? {} : { name: preset.name },
-          ...preset.description === undefined ? {} : { description: preset.description },
-        })),
+        options: presetOptions(presets),
         // A roster can mark nothing default: settings can name a preset that
         // was since deleted, and the picker still has to show something.
         currentValue: presets.find(preset => preset.isDefault)?.id ?? first.id,
