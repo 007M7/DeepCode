@@ -27,9 +27,6 @@
         "scripts/**/*.ts",
         "scripts/**/*.mjs",
         "scripts/**/*.cjs"
-      ],
-      "ignoreDependencies": [
-        "playwright"
       ]
     },
     "examples": {
