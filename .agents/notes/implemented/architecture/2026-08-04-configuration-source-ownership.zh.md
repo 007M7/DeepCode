@@ -58,7 +58,6 @@ inherited process environment      (read-only, wins)
 - 含 `DSH_*`、`PATH` 或 proxy 变量的 `.env` 会导致启动失败而不是被应用。把开关放在仓库 `.env` 里的开发者需要改放到 shell——这是一次刻意且响亮的破坏。
 - composition 不再会被陈旧的 shell endpoint 覆盖。但它仍然会被用户已存的 `settings.yaml` 覆盖，这是 settings seam 的分层方式，本 Note 不改变它；产品 CLI 没有高于它的标志，因此需要压过已存 settings 的部署方要自带 bin 或 loader 配置树。
 - 未解决的：各层仍然会被物化进 `process.env`，因此普通项目变量继续按子进程清洗规则抵达子进程。bootstrap 变量完全不能来自文件；其余变量抵达子进程的限制记录在环境包中。
-- LLM 适配器不再接受字面 `apiKey`：配置只携带引用，因此 settings 文档无法成为第二个凭据存储。由于没有任何适配器 namespace 是 strict 的，写入该键会被 schema 丢弃而不是报错。web-search 提供方仍声明 `role('secret')` 的字面密钥字段；它们不注册 settings namespace，因此无法借此遮蔽已存凭据，但这条声明的范围是适配器，而不是整个仓库。
 - Exa 与 Perplexity 仍在加载时捕获密钥，而不是经凭据 seam。它们不再读裸 `process.env`——改为经受信层解析——但把它们改造成按请求经 seam 解析是另一件事。
 
 ## Alternatives considered

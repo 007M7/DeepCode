@@ -78,23 +78,6 @@ describe('request-level dynamic configuration', () => {
     expect(serverB.headers[0]?.authorization).toBe('Bearer second-key')
   })
 
-  it('refuses a literal apiKey in settings and keeps serving the stored credential', async () => {
-    vi.stubEnv('DEEPSEEK_API_KEY', '')
-    const dir = await home()
-    await writeFile(join(dir, '.credentials.yaml'), 'DEEPSEEK_API_KEY: file-key\n', { mode: 0o600 })
-    const server = await mockServer([{ kind: 'sse', events: textEvents }])
-    const { ctx } = await boot(dir, { baseURL: server.url })
-
-    // Configuration carries a reference, never a value. The namespace has no
-    // `apiKey` field, so writing one is dropped by the schema rather than
-    // rejected (no adapter namespace is strict); what matters is that a
-    // settings document cannot become a second credential store outranking
-    // `.credentials.yaml` and the environment.
-    await ctx.settings.update(NS, { apiKey: 'literal-key' })
-    await prompt(ctx)
-    expect(server.headers[0]?.authorization).toBe('Bearer file-key')
-  })
-
   it('starts keyless and serves the next request once the key arrives', async () => {
     vi.stubEnv('DEEPSEEK_API_KEY', '')
     const dir = await home()

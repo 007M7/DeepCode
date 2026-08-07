@@ -35,9 +35,7 @@ function capacityInputs(label: string): HTMLInputElement[] {
 }
 
 const PiAiConfig = Schema.object({
-  token: Schema.string().role('secret'),
   providers: Schema.dict(Schema.object({
-    apiKey: Schema.string().role('secret'),
     apiKeyEnv: Schema.string().role('credential-ref'),
     baseURL: Schema.string(),
     reasoning: Schema.union(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']),
@@ -46,7 +44,6 @@ const PiAiConfig = Schema.object({
 })
 
 const DeepSeekConfig = Schema.object({
-  apiKey: Schema.string().role('secret'),
   apiKeyEnv: Schema.string().role('credential-ref'),
   baseURL: Schema.string().pattern(/^https:\/\//),
   reasoningEffort: Schema.union(['off', 'high', 'max']),
@@ -100,7 +97,7 @@ function wireNamespaces(): SettingsNamespaceView[] {
       base: { defaultContextWindow: 1_000_000, maxTokens: 256_000, models: DEFAULT_DEEPSEEK_MODELS },
       user: { reasoningEffort: 'high' },
       applies: 'live',
-      secrets: [{ path: ['apiKey'], set: false }],
+      secrets: [],
       revision: 0,
     },
     {
@@ -119,7 +116,7 @@ function wireNamespaces(): SettingsNamespaceView[] {
       value: { providers: { openai: { apiKeyEnv: 'OPENAI_API_KEY', baseURL: 'https://proxy', headers: { 'X-Team': 'a' } }, zombie: {} } },
       user: { providers: { openai: { apiKeyEnv: 'OPENAI_API_KEY', baseURL: 'https://proxy', headers: { 'X-Team': 'a' } }, zombie: {} } },
       applies: 'live',
-      secrets: [{ path: ['token'], set: false }, { path: ['providers', 'openai', 'apiKey'], set: false }],
+      secrets: [],
       revision: 0,
     },
   ]
@@ -263,22 +260,17 @@ describe('ModelsSection', () => {
     expect(screen.queryByLabelText(en.keyInput)).toBeNull()
   })
 
-  it('decides setup need from the joined credential state and literal-key sidecar', () => {
+  it('decides setup need from the joined credential state', () => {
     const entry = { provider: 'p', displayName: 'p', settingsNs: 'llm-deepseek', settingsPath: [], active: true }
-    const row = (
-      credential: ProviderRow['credential'],
-      literalApiKeyConfigured = false,
-    ): ProviderRow => ({
+    const row = (credential: ProviderRow['credential']): ProviderRow => ({
       entry,
       configured: true,
       removable: false,
       apiKeyEnv: 'X',
       credential,
-      literalApiKeyConfigured,
     })
     expect(needsSetup(row(undefined))).toBe(true)
     expect(needsSetup(row({ configured: true, writable: true }))).toBe(false)
-    expect(needsSetup(row(undefined, true))).toBe(false)
     const nested = { ...row(undefined), entry: { ...entry, settingsPath: ['providers', 'x'] } }
     expect(needsSetup(nested)).toBe(false)
   })
@@ -295,9 +287,7 @@ describe('ModelsSection', () => {
     expect(providerTargetLabel(OPENAI_TARGET)).toBe('openai')
   })
 
-  it('names only the fields the card can see, so an unseen secret survives', () => {
-    // `before` is the REDACTED subtree: a stored literal apiKey is in neither
-    // side, so no op mentions it and the seam leaves it alone.
+  it('names only changed fields instead of rebuilding the section', () => {
     expect(pathOps(['providers', 'openai'], { baseURL: 'https://old', reasoning: 'high' }, { reasoning: 'high' }))
       .toEqual([{ op: 'unset', path: ['providers', 'openai', 'baseURL'] }])
     expect(pathOps([], { b: 1 }, { b: 2, d: 3 }))
@@ -725,8 +715,7 @@ describe('ModelsSection', () => {
   })
 
   it('clears an inherited override with an unset op, never a whole-section replace', async () => {
-    // The data-loss shape: the old path rebuilt the section from the REDACTED
-    // user layer and replaced it wholesale, deleting any stored literal key.
+    // The old path rebuilt the whole user section to clear one inherited field.
     const { replace, update, mutate } = await mountSection()
     fireEvent.click(screen.getByText(en.customized))
     const effort = screen.getByLabelText<HTMLSelectElement>(en.effort)
@@ -800,9 +789,7 @@ describe('ModelsSection', () => {
     fireEvent.click(screen.getAllByText(en.apply)[1] as HTMLElement)
     await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
     // Only the edited field travels: apiKeyEnv, baseURL and headers were
-    // already stored with these values, so no op restates them — and the
-    // profile's stored literal apiKey, absent from the redacted view the card
-    // read, is named by nothing at all.
+    // already stored with these values, so no op restates them.
     expect(mutate.mock.calls[0]?.[0]).toEqual({
       ns: 'llm-pi-ai',
       ops: [{ op: 'set', path: ['providers', 'openai', 'reasoning'], value: 'xhigh' }],
@@ -1134,8 +1121,8 @@ describe('ModelsSection', () => {
   })
 
   it('removes by unsetting the profile path, never by rebuilding the section', async () => {
-    // The section rebuild is what dropped stored literal secrets: this page
-    // only ever holds the redacted descriptor, so the removal names the path.
+    // The page only needs to name the profile path; rebuilding the section
+    // would widen the write for no benefit.
     const { face, mutate, replace, controller } = await mountSection()
     await removeProviderProfile(
       face as unknown as Parameters<typeof removeProviderProfile>[0],
