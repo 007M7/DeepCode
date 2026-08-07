@@ -388,6 +388,8 @@ describe('E2BSubprocessHandle', () => {
         '--split-string': 'literal-value',
         DEEPSEEK_API_KEY: 'explicit-secret',
         DSH_MODE: 'test',
+        // The seam's tombstone: an explicit undefined removes the ambient entry.
+        KEEP: undefined,
       },
     }), '/workspace/.dsh-e2b/processes/one')
     expect(handle.pid).toBe(-1)
@@ -433,7 +435,7 @@ describe('E2BSubprocessHandle', () => {
       '/workspace/.dsh-e2b/processes/one/stderr.log',
     ])
     expect(fake.writtenFileData.get('/workspace/.dsh-e2b/processes/one/environment')).toBe(
-      'PATH=/bin\0KEEP=safe\0UNICODE=你好\0HOME=/home/user\0FOO-BAR=hyphen-value\0--split-string=literal-value\0DEEPSEEK_API_KEY=explicit-secret\0DSH_MODE=test\0',
+      'PATH=/bin\0UNICODE=你好\0HOME=/home/user\0FOO-BAR=hyphen-value\0--split-string=literal-value\0DEEPSEEK_API_KEY=explicit-secret\0DSH_MODE=test\0',
     )
 
     let piped = ''
