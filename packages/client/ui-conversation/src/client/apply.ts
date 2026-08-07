@@ -303,6 +303,7 @@ export function apply(ctx: Context): void {
     children: {
       'conversation.chat.toolview': { kind: 'keyed', scope: 'session' },
       'conversation.chat.commandview': { kind: 'keyed', scope: 'session' },
+      'conversation.chat.turnTail': { kind: 'chain', scope: 'session' },
     },
     store: chatStore,
     inject: (sessionId: SessionId, actions: BoundActions<typeof chatStore>): ChatViewInjected => {

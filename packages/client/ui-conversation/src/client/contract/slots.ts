@@ -3,7 +3,7 @@ import type { ReactNode, RefObject } from 'react'
 import type {
   InjectFace, MaybeSnapshotSelectorHook, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore, SnapshotSelectorHook,
 } from '@deepseek-ai/dsh-client-ui-slots'
-import type { CommandNode, ConversationSnapshot, ObservableSnapshot, PendingInteraction, PendingWait, SessionId, ToolCallBlock, WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { CommandNode, ConversationNode, ConversationSnapshot, ObservableSnapshot, PendingInteraction, PendingWait, SessionId, ToolCallBlock, WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { ComposerKeyboard, EditSelection, InputActions, InputNotice, InputState } from '../input/contract.ts'
 import type { createChatStore } from '../stores.ts'
@@ -46,6 +46,14 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * registration, and a domain upgrades by registering one row component.
      */
     'conversation.chat.commandview': { kind: 'keyed'; scope: 'session'; owner: CommandRowOwnerProps }
+    /**
+     * The chat view's turn-tail chain: rendered between a closing assistant
+     * message's body and its IconActions footer, once per turn (the render
+     * site elects the closing seq). Entries derive a match from the owner
+     * currency before mounting, so presentation components never mount only
+     * to return null; an all-declined chain renders nothing.
+     */
+    'conversation.chat.turnTail': { kind: 'chain'; scope: 'session'; owner: TurnTailOwnerProps }
     /**
      * The composer takeover chain: entries are selector-routed replacements
      * of the default InputBar. Declared by this package's 'conversation'
@@ -148,6 +156,24 @@ export interface ConvViewOwnerProps {
   inspect?: { callId: CallId } | null
   /** Acknowledge the inspect request once applied (clears the store field). */
   onInspectDone?: () => void
+}
+
+/**
+ * Owner currency of the chat view's turn-tail hole: the finalized snapshot
+ * and the closing assistant's anchor. Registrants derive their own facts
+ * from the nodes (the owner never pre-chews a feature's vocabulary), and
+ * open files through the same opener the tool rows use.
+ */
+export interface TurnTailOwnerProps {
+  /** Finalized snapshot nodes in surface order. */
+  nodes: readonly ConversationNode[]
+  /** The closing assistant's seq — the anchor the tail renders under. */
+  seq: number
+  /**
+   * Open a filesystem path through the Host (tool-row semantics; the chat
+   * view resolves relative paths against the session cwd).
+   */
+  openFile: (path: string) => void
 }
 
 /**
@@ -480,7 +506,7 @@ export interface ChatViewInjected {
 
 /** Full chat-view component props: runtime & the declared toolview/commandview holes' render share & store & injected & locale seat. */
 export type ChatViewSlotProps =
-  PropsRuntime<'conversation.view'> & PropsRenderSlots<'conversation.chat.toolview' | 'conversation.chat.commandview'>
+  PropsRuntime<'conversation.view'> & PropsRenderSlots<'conversation.chat.toolview' | 'conversation.chat.commandview' | 'conversation.chat.turnTail'>
   & PropsStore<ChatStore> & ChatViewInjected & PropsLocale<'conversation'>
 
 /**

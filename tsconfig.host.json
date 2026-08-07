@@ -48,6 +48,7 @@
     "apps/web/tests/shipped-composition.e2e.ts",
     "apps/web/tests/goal-bar.e2e.ts",
     "apps/web/tests/startup-auto-selection.e2e.ts",
+    "apps/web/tests/produced-files.e2e.ts",
     "apps/web/tests/subagent-conversation.e2e.ts",
     "apps/web/tests/bash-abort-row.e2e.ts",
     "apps/web/tests/skill-tool-row.e2e.ts",
