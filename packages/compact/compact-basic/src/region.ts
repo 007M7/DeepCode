@@ -416,6 +416,7 @@ function commitCompactionBody(
     shadowedTokenCount,
     summary,
     rawOutput,
+    llmStreamCall,
     provider,
     model,
     maxTokens,
@@ -425,6 +426,7 @@ function commitCompactionBody(
   const summaryEvent = session.append('compact/summary', {
     summary,
     ...rawOutput === undefined ? {} : { rawOutput },
+    ...llmStreamCall === undefined ? {} : { llmStreamCall },
     shadowedRange: { start, end },
     shadowedSeqs: [...shadowedSeqs],
     shadowedTokenCount,

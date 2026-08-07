@@ -868,6 +868,7 @@ describe('compaction region transaction', () => {
       rawOutput: compact.rawOutput,
       usage: compact.usage,
     })
+    expect(summary?.data).not.toHaveProperty('llmStreamCall')
     const head = session.deriveMessages()[0]!
     expect(head.content[0]?.type).toBe('text')
     expect(head.content[0]?.type === 'text' ? head.content[0].text : '').toContain('<compacted-summary>')
@@ -1187,6 +1188,7 @@ describe('default one-shot summarizer', () => {
         { type: 'text', text: 'public summary' },
         { type: 'tool-call', id: CallId('unexpected'), name: 'x', arguments: '{}' },
       ],
+      llmStreamCall: true,
       provider: MODEL,
       model: MODEL,
       maxTokens: 321,
@@ -1300,6 +1302,7 @@ describe('default one-shot summarizer', () => {
     await compact.compactRegion(nodes[0]!, nodes[3]!, agent(session, MODEL), SIGNAL)
     expect(session.events.findLast(event => event.type === 'compact/summary')?.data).toMatchObject({
       summary: [{ type: 'text', text: 'routed summary' }],
+      llmStreamCall: true,
       provider: 'routed-summary-provider',
       model: 'routed-summary-model',
     })

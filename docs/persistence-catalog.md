@@ -237,7 +237,7 @@ Source: [`packages/ui/commands/src/index.ts:139`](../packages/ui/commands/src/in
 'compact/end': { turn: number | null; error?: string }
 ```
 
-Source: [`packages/compact/compact/src/types.ts:54`](../packages/compact/compact/src/types.ts)
+Source: [`packages/compact/compact/src/types.ts:62`](../packages/compact/compact/src/types.ts)
 
 #### `compact/prune` — log-only
 
@@ -261,7 +261,7 @@ Source: [`packages/compact/compact/src/types.ts:54`](../packages/compact/compact
 }
 ```
 
-Source: [`packages/compact/compact/src/types.ts:64`](../packages/compact/compact/src/types.ts)
+Source: [`packages/compact/compact/src/types.ts:72`](../packages/compact/compact/src/types.ts)
 
 #### `compact/start` — log-only
 
@@ -290,8 +290,16 @@ Source: [`packages/compact/compact/src/types.ts:19`](../packages/compact/compact
  */
 'compact/summary': {
   summary: ContentBlock[]
-  /** Complete provider output before the backend's safe summary projection. */
+  /**
+   * Complete provider output before the backend's safe summary projection;
+   * this alone does not identify the call path.
+   */
   rawOutput?: ContentBlock[]
+  /**
+   * Present only when producing the summary consumed exactly one call
+   * through this context's `ctx.llm.stream()`.
+   */
+  llmStreamCall?: true
   shadowedRange: { start: number; end: number }
   shadowedSeqs: number[]
   shadowedTokenCount: number

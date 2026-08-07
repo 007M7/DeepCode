@@ -87,8 +87,16 @@ export interface SummarizationInput {
 /** Safe summary content plus the exact auxiliary call envelope recorded in provenance. */
 export interface SummaryResult {
   summary: ContentBlock[]
-  /** Complete provider output before the text-only summary projection. */
+  /**
+   * Complete provider output before the text-only summary projection; this
+   * alone does not identify the call path.
+   */
   rawOutput?: ContentBlock[]
+  /**
+   * Present only when producing the summary consumed exactly one call through
+   * this context's `ctx.llm.stream()`.
+   */
+  llmStreamCall?: true
   provider: string
   model: string
   maxTokens?: number
@@ -162,6 +170,7 @@ export async function summarizeWithLlm(
   return {
     summary,
     rawOutput,
+    llmStreamCall: true,
     provider: options.provider,
     model: options.model,
     maxTokens: config.maxTokens,

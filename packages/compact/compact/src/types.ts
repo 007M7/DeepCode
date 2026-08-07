@@ -28,8 +28,16 @@ declare module '@deepseek-ai/dsh-session' {
      */
     'compact/summary': {
       summary: ContentBlock[]
-      /** Complete provider output before the backend's safe summary projection. */
+      /**
+       * Complete provider output before the backend's safe summary projection;
+       * this alone does not identify the call path.
+       */
       rawOutput?: ContentBlock[]
+      /**
+       * Present only when producing the summary consumed exactly one call
+       * through this context's `ctx.llm.stream()`.
+       */
+      llmStreamCall?: true
       shadowedRange: { start: number; end: number }
       shadowedSeqs: number[]
       shadowedTokenCount: number

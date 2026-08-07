@@ -177,8 +177,9 @@ export function parseSessionHeader(text: string): { id: string; createdAt: numbe
  * Reconstruct the per-`stream()` replay script from a recorded session log.
  *
  * Splits `assistant/chunk` events at every `finish`, using turn and step changes
- * to detect an unterminated prior call. A complete `compact/summary.rawOutput`
- * becomes a canonical successful stream at the summary's log position. A
+ * to detect an unterminated prior call. A `compact/summary` explicitly marked
+ * as one local LLM-stream call becomes a canonical successful stream from its
+ * complete `rawOutput` at the summary's log position. A
  * missing assistant terminator means the live stream threw, so derivation
  * rejects and the scenario must provide an explicit override. Multiple calls
  * may share one turn and step when the loop retries.
@@ -204,7 +205,10 @@ export function deriveReplayScript(events: SessionEvent[]): ReplayEntry[] {
       close(currentKey, current)
       currentKey = undefined
       current = []
-      if (event.data.rawOutput !== undefined) {
+      if (event.data.llmStreamCall === true) {
+        if (event.data.rawOutput === undefined) {
+          throw new Error('llm-replay: compact/summary marks an LLM stream call without rawOutput')
+        }
         const chunks: StreamChunk[] = []
         for (const [index, block] of event.data.rawOutput.entries()) {
           chunks.push({ type: 'block-start', index, blockType: block.type })
