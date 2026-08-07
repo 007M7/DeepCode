@@ -190,6 +190,17 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
     }
   }, 30_000)
 
+  it('does not load a project environment for --version', async () => {
+    const project = mkdtempSync(join(tmpdir(), 'dsh-version-project-'))
+    writeFileSync(join(project, '.env'), 'PATH=/project-only-path\n')
+    try {
+      const result = await runBuiltBin(['--version'], {}, project)
+      expect(result).toEqual({ code: 0, stdout: '0.0.1', stderr: '' })
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
+
   it('fails loud on a nonexistent profile with the plugin-command hint', async () => {
     const home = mkdtempSync(join(tmpdir(), 'dsh-missing-profile-'))
     try {

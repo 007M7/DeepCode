@@ -24,14 +24,13 @@ function readVersion(): string {
   return typeof manifest.version === 'string' ? manifest.version : '0.0.0'
 }
 
-const environment = loadLayeredEnv('dsh')
 const invocation = parseDshArgs(process.argv.slice(2), readVersion())
 
 switch (invocation.mode) {
   case 'profile': {
     const { runProfile } = await import('./profile-boot.ts')
     await runProfile({
-      environment,
+      environment: loadLayeredEnv('dsh'),
       profile: invocation.profile,
       patchFiles: invocation.patches,
       ...invocation.task !== undefined && { task: invocation.task },
@@ -40,7 +39,7 @@ switch (invocation.mode) {
   }
   case 'web': {
     const { runWeb } = await import('./web.ts')
-    await runWeb(invocation, environment)
+    await runWeb(invocation, loadLayeredEnv('dsh'))
     break
   }
   case 'plugin': {
