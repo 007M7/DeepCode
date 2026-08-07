@@ -1,22 +1,13 @@
 /** Host registration for the browser theme preference. */
 
 import type { Context } from 'cordis'
-import z from 'schemastery'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
-import {
-  DEFAULT_PREFERENCE, THEME_PREFERENCE_FIELD, THEME_PREFERENCES, THEME_SETTINGS_NAMESPACE,
-  type ThemeSettings,
-} from './theme-settings.ts'
+import { THEME_SETTINGS_NAMESPACE, ThemeSettingsSchema } from './theme-settings.ts'
 
 export {
   DEFAULT_PREFERENCE, THEME_PREFERENCE_FIELD, THEME_PREFERENCES, THEME_SETTINGS_NAMESPACE,
   type ThemePreference, type ThemeSettings,
 } from './theme-settings.ts'
-
-/** Durable theme schema; also the wire envelope the browser scope validates against. */
-export const ThemeSettingsSchema: z<ThemeSettings> = z.object({
-  [THEME_PREFERENCE_FIELD]: z.union([...THEME_PREFERENCES]).default(DEFAULT_PREFERENCE),
-})
 
 /**
  * Register the durable theme section when a settings provider exists.

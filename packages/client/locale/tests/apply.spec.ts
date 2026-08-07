@@ -8,8 +8,7 @@ import {
   apply, inject, SETTINGS_NS,
 } from '@deepseek-ai/dsh-client-locale/client'
 import type { LanguageRowInjected, LocaleService } from '@deepseek-ai/dsh-client-locale/client'
-import { LOCALE_SETTINGS_NAMESPACE } from '../src/locale-settings.ts'
-import { LocaleSettingsSchema } from '../src/index.ts'
+import { LOCALE_SETTINGS_NAMESPACE, LocaleSettingsSchema } from '../src/locale-settings.ts'
 import { LanguageRow } from '../src/client/LanguageRow.tsx'
 import type { createLanguageRowStore } from '../src/client/settings-store.ts'
 

@@ -6,11 +6,9 @@ import { describe, expect, it, vi } from 'vitest'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
 import { usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
-import {
-  apply, inject, SETTINGS_NS, THEME_SETTINGS_NAMESPACE,
-} from '@deepseek-ai/dsh-client-ui-theme/client'
+import { apply, inject, SETTINGS_NS } from '@deepseek-ai/dsh-client-ui-theme/client'
 import type { AppearanceRowInjected, ThemeService } from '@deepseek-ai/dsh-client-ui-theme/client'
-import { ThemeSettingsSchema } from '@deepseek-ai/dsh-client-ui-theme'
+import { THEME_SETTINGS_NAMESPACE, ThemeSettingsSchema } from '../src/theme-settings.ts'
 import { AppearanceRow } from '../src/client/AppearanceRow.tsx'
 import type { createAppearanceRowStore } from '../src/client/settings-store.ts'
 

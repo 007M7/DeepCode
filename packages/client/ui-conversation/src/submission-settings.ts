@@ -1,5 +1,7 @@
 /** Busy-Enter preference stored in the Host user-settings document. */
 
+import z from 'schemastery'
+
 /** Settings namespace owned by the conversation plugin. */
 export const CONVERSATION_SETTINGS_NAMESPACE = 'ui-conversation'
 
@@ -20,3 +22,8 @@ export interface ConversationSettings {
   /** Delivery mode for plain Enter while the addressed agent is busy. */
   busyEnter: BusyEnterBehavior
 }
+
+/** Durable conversation schema; also the wire envelope the browser scope validates against. */
+export const ConversationSettingsSchema: z<ConversationSettings> = z.object({
+  [BUSY_ENTER_FIELD]: z.union([...BUSY_ENTER_BEHAVIORS]).default(DEFAULT_BUSY_ENTER_BEHAVIOR),
+})
