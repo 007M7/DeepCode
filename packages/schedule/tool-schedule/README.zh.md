@@ -22,7 +22,7 @@
 
 生成的[工具目录](../../../docs/tool-catalog.md)负责 `schedule_create`、`schedule_list` 和 `schedule_delete` 的参数与输出 schema。虽然模型输入使用 `after_seconds`，但其规范值中的记录字段使用 camelCase。
 
-`schedule_create` 会在持久化前验证只依赖输入形状的失败，随后执行检查点、分配永不复用的 id、追加 create，再次执行检查点。`schedule_list` 按创建顺序返回所有活动记录，其中包含 `state: "scheduled" | "overdue"` 与 `deliveryMode: "session-local"`。`schedule_delete` 会在持久化前拒绝空 id 或前后带空白的 id，并只为活动 id 追加事件；未知或已终结的 id 会在 preflight（预检）后返回 `{ id, deleted: false, code: "schedule_not_found" }`。
+一条 Agent-scoped 队列会将每项已接纳的管理事务与 live owner 的到期事务从 preflight 到任何 post-append barrier 全程串行化。因此，直接调用方无法让一次 fold 与另一项 Schedule 变更交错，也无法在自身的 barrier 前观察到 dispatch。`schedule_create` 会在进入该队列前验证只依赖输入形状的失败，随后执行检查点、分配永不复用的 id、追加 create，再次执行检查点。`schedule_list` 按创建顺序返回所有活动记录，其中包含 `state: "scheduled" | "overdue"` 与 `deliveryMode: "session-local"`。`schedule_delete` 会在进入该队列前拒绝空 id 或前后带空白的 id，并只为活动 id 追加事件；未知或已终结的 id 会在 preflight（预检）后返回 `{ id, deleted: false, code: "schedule_not_found" }`。
 
 每次成功的管理 preflight 还会要求 live owner 重新计算。这对 create 或 delete barrier 返回 `persistence_uncertain` 的情况很重要：后续 list 或 mutation 可以确认保留的 batch，并立即 arm 或退役此时已持久化的 record，而无需私有 persistence retry timer。
 
@@ -79,7 +79,7 @@ reminder_prompt_json: <JSON.stringify(prompt)>
 ## 已知限制与暂缓事项
 
 - **仅限会话本地交付**：提醒只有在原会话 live 时才能准时运行；cold 会话不会收到外部通知，只有恢复后才会处理 overdue 记录。
-- **活动驱动的持久化重试**：到期 preflight 被拒绝后，overdue 记录仍保持活动，但不会启动私有重试 timer；后续 agent 活动进入 idle，或成功的 Schedule 管理 preflight 要求 owner 重新计算后，owner 会重试。
+- **活动驱动的重试**：到期 preflight 被拒绝或 framing／入队失败被收容后，overdue 记录仍保持活动，但不会启动私有重试 timer；后续 agent 活动进入 idle，或成功的 Schedule 管理 preflight 要求 owner 重新计算后，owner 会重试。
 - **仅支持 after 协议**：版本 1 拒绝 `at`、`every_seconds`、`cron` 和 `time_zone`；这些规则需要后续协议变体，而不是隐藏的兼容字段。
 - **存在狭窄的崩溃重复窗口**：同步 `followup` 获得准入后、dispatch 检查点完成前发生崩溃，可能使提醒在恢复后重复；此包不承诺模型完成、用户确认或外部副作用恰好一次。
 - **加载顺序边界**：插件不会扫描或接管加载时已经 live 的 agent。

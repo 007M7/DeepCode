@@ -16,7 +16,7 @@ const contexts: Context[] = []
 interface ToolHarness {
   readonly ctx: Context
   readonly agent: Agent
-  readonly flushes: { count: number; outcomes: Array<'resolve' | 'reject'> }
+  readonly flushes: { count: number; outcomes: Array<'resolve' | 'reject' | Promise<'resolve' | 'reject'>> }
   readonly changes: { count: number }
   readonly disposeTools: () => void
 }
@@ -50,11 +50,12 @@ async function harness(withPersistence = true): Promise<ToolHarness> {
   await ctx.plugin(ToolRegistry)
   const agent = stubAgent(ctx, `schedule-tools-${Math.random()}`)
   ctx.agents.register(agent)
-  const flushes = { count: 0, outcomes: [] as Array<'resolve' | 'reject'> }
+  const flushes = { count: 0, outcomes: [] as Array<'resolve' | 'reject' | Promise<'resolve' | 'reject'>> }
   if (withPersistence) {
     ctx.on('session/flush', async () => {
       flushes.count += 1
-      if (flushes.outcomes.shift() === 'reject') return Promise.reject(new Error('disk unavailable'))
+      const outcome = await (flushes.outcomes.shift() ?? 'resolve')
+      if (outcome === 'reject') return Promise.reject(new Error('disk unavailable'))
       return true as const
     })
   }
@@ -276,6 +277,31 @@ describe('Schedule persistence failure boundaries', () => {
       expect.objectContaining({ id: 'schedule-1' }),
     ])
     expect(test.changes.count).toBe(2)
+  })
+
+  it('serializes concurrent management transactions across both persistence barriers', async () => {
+    const test = await harness()
+    let releaseCreatePreflight: (() => void) | undefined
+    const createPreflight = new Promise<'resolve'>((resolve) => {
+      releaseCreatePreflight = () => { resolve('resolve') }
+    })
+    test.flushes.outcomes.push(createPreflight, 'reject', 'resolve')
+
+    const creating = execute(test, 'schedule_create', { prompt: 'persist me', after_seconds: 10 })
+    await vi.waitFor(() => { expect(test.flushes.count).toBe(1) })
+    const listing = execute(test, 'schedule_list', {})
+    await Promise.resolve()
+    expect(test.flushes.count).toBe(1)
+
+    if (releaseCreatePreflight === undefined) throw new Error('missing create preflight release')
+    releaseCreatePreflight()
+    expect(value(await creating)).toMatchObject({
+      code: 'persistence_uncertain', operation: 'create', id: 'schedule-1',
+    })
+    expect(value(await listing)).toEqual([
+      expect.objectContaining({ id: 'schedule-1', prompt: 'persist me' }),
+    ])
+    expect(test.flushes.count).toBe(3)
   })
 
   it('returns uncertainty before create or delete reads when their preflight rejects', async () => {

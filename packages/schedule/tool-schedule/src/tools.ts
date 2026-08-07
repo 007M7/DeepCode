@@ -18,6 +18,7 @@ import {
   scheduleView,
 } from './domain.ts'
 import { flushSchedulePersistence } from './persistence.ts'
+import { runScheduleTransaction } from './transaction.ts'
 import type {
   AfterScheduleRecord,
   PersistenceUncertainError,
@@ -255,31 +256,33 @@ export function registerScheduleTools(
         if (exec.agent !== agent) return internalError()
         const invalid = validateCreateArgs(args)
         if (invalid !== undefined) return invalid
-        const uncertain = await preflight(rootCtx, agent, 'create')
-        if (uncertain !== undefined) return uncertain
-        notifyDurableChange()
-        const folded = foldForTool(agent)
-        if (isToolError(folded)) return folded
-        const id = allocateScheduleId(folded)
-        let record: AfterScheduleRecord
-        try {
-          record = createAfterScheduleRecord(id, args.prompt, args.after_seconds, Date.now())
-        } catch (error: unknown) {
-          return error instanceof ScheduleInputError ? inputError(error) : internalError()
-        }
-        try {
-          agent.session.append('schedule/change', {
-            version: 1,
-            operation: 'create',
-            schedule: record,
-          })
-        } catch {
-          return internalError()
-        }
-        const barrier = await preflight(rootCtx, agent, 'create', id)
-        if (barrier !== undefined) return barrier
-        notifyDurableChange()
-        return scheduleView(record, Date.now())
+        return runScheduleTransaction(agent, async () => {
+          const uncertain = await preflight(rootCtx, agent, 'create')
+          if (uncertain !== undefined) return uncertain
+          notifyDurableChange()
+          const folded = foldForTool(agent)
+          if (isToolError(folded)) return folded
+          const id = allocateScheduleId(folded)
+          let record: AfterScheduleRecord
+          try {
+            record = createAfterScheduleRecord(id, args.prompt, args.after_seconds, Date.now())
+          } catch (error: unknown) {
+            return error instanceof ScheduleInputError ? inputError(error) : internalError()
+          }
+          try {
+            agent.session.append('schedule/change', {
+              version: 1,
+              operation: 'create',
+              schedule: record,
+            })
+          } catch {
+            return internalError()
+          }
+          const barrier = await preflight(rootCtx, agent, 'create', id)
+          if (barrier !== undefined) return barrier
+          notifyDurableChange()
+          return scheduleView(record, Date.now())
+        })
       },
       presentCall: args => present('Create reminder', 'other', args.prompt),
     })))
@@ -291,13 +294,15 @@ export function registerScheduleTools(
       output: { schema: LIST_OUTPUT_SCHEMA, render: renderValue },
       async execute(_args, exec): Promise<ScheduleListValue> {
         if (exec.agent !== agent) return internalError()
-        const uncertain = await preflight(rootCtx, agent, 'list')
-        if (uncertain !== undefined) return uncertain
-        notifyDurableChange()
-        const folded = foldForTool(agent)
-        if (isToolError(folded)) return folded
-        const now = Date.now()
-        return folded.active.map(record => scheduleView(record, now))
+        return runScheduleTransaction(agent, async () => {
+          const uncertain = await preflight(rootCtx, agent, 'list')
+          if (uncertain !== undefined) return uncertain
+          notifyDurableChange()
+          const folded = foldForTool(agent)
+          if (isToolError(folded)) return folded
+          const now = Date.now()
+          return folded.active.map(record => scheduleView(record, now))
+        })
       },
       presentCall: () => present('List reminders', 'read'),
     })))
@@ -315,23 +320,25 @@ export function registerScheduleTools(
         }
         const id = ScheduleId(args.id)
         if (exec.agent !== agent) return internalError()
-        const uncertain = await preflight(rootCtx, agent, 'delete', id)
-        if (uncertain !== undefined) return uncertain
-        notifyDurableChange()
-        const folded = foldForTool(agent)
-        if (isToolError(folded)) return folded
-        if (!folded.active.some(record => record.id === id)) {
-          return { id, deleted: false, code: 'schedule_not_found' }
-        }
-        try {
-          agent.session.append('schedule/change', { version: 1, operation: 'delete', id })
-        } catch {
-          return internalError()
-        }
-        const barrier = await preflight(rootCtx, agent, 'delete', id)
-        if (barrier !== undefined) return barrier
-        notifyDurableChange()
-        return { id, deleted: true }
+        return runScheduleTransaction(agent, async () => {
+          const uncertain = await preflight(rootCtx, agent, 'delete', id)
+          if (uncertain !== undefined) return uncertain
+          notifyDurableChange()
+          const folded = foldForTool(agent)
+          if (isToolError(folded)) return folded
+          if (!folded.active.some(record => record.id === id)) {
+            return { id, deleted: false, code: 'schedule_not_found' }
+          }
+          try {
+            agent.session.append('schedule/change', { version: 1, operation: 'delete', id })
+          } catch {
+            return internalError()
+          }
+          const barrier = await preflight(rootCtx, agent, 'delete', id)
+          if (barrier !== undefined) return barrier
+          notifyDurableChange()
+          return { id, deleted: true }
+        })
       },
       presentCall: args => present('Delete reminder', 'other', args.id),
     })))

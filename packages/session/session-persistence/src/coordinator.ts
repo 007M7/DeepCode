@@ -186,8 +186,6 @@ interface SessionState {
 
 /** One live session's initialization and bounded write-behind controller. */
 interface LiveSessionState {
-  /** Exclusive end of the immutable Session prefix present when this lifecycle was first seen. */
-  seedEnd: number
   /** Initialization settlement; retained after success and cleared only after rejection. */
   init: Promise<void> | undefined
   writes: SessionWriteBehind
@@ -1129,18 +1127,17 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   private createLiveState(session: Session): LiveSessionState {
     let live: LiveSessionState
     live = {
-      seedEnd: session.events.length,
       init: undefined,
       writes: this.createWriteBehind(session, () => this.ensureInitialized(session, live)),
     }
     return live
   }
 
-  /** Start or join one initialization attempt, rebuilding the immutable seed prefix on retry. */
+  /** Start or join one initialization attempt; a retry borrows current Session events and reconciles the durable cursor. */
   private ensureInitialized(session: Session, live: LiveSessionState): Promise<void> {
     if (live.init !== undefined) return live.init
     const init = this.serialize(session.header.id, async () => {
-      const seed = session.events.slice(0, live.seedEnd)
+      const seed = session.events
       await this.onCreated(session, seed)
     }).catch((error: unknown) => {
       live.init = undefined

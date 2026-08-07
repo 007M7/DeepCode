@@ -9,6 +9,7 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { AfterScheduleRecord } from './types.ts'
 import { foldScheduleEvents, renderReminderFraming, ScheduleLogError } from './domain.ts'
 import { flushSchedulePersistence } from './persistence.ts'
+import { runScheduleTransaction } from './transaction.ts'
 
 /** Largest delay that Node timers represent without clamping. */
 export const MAX_TIMER_DELAY_MS = 2_147_483_647
@@ -102,7 +103,7 @@ export class ScheduleOwner {
   private async runRequested(): Promise<void> {
     while (this.requested && !this.stopping && !this.faulted) {
       this.requested = false
-      await this.driveOnce()
+      await runScheduleTransaction(this.agent, () => this.driveOnce())
     }
   }
 

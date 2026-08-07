@@ -403,6 +403,9 @@ export class Session implements SessionFace {
     try {
       const { result } = await this.history({ beforeSeq: loading.beforeSeq, maxMessages: PAGE_MESSAGES })
       if (this.loadingOlder !== loading) return
+      // A concurrent gap repair may replace the window with a newer tail page.
+      // The captured older page no longer adjoins that window and must be dropped.
+      if (this.baseSeq !== loading.beforeSeq) return
       if (!result.ok) return // keep the window as-is; do not overwrite openError (open already succeeded)
       const older = result.value.events
       if (older.length === 0) {

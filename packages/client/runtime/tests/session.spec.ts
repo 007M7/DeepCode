@@ -286,6 +286,40 @@ describe('late event views', () => {
     ])
   })
 
+  it('drops an older page after a concurrent gap repair advances the window base', async () => {
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse(logRange(50, 100), true)
+    await session.open()
+
+    const repair = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
+    const page = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
+    api.onHistory = payload => payload.beforeSeq === undefined ? repair.promise : page.promise
+    const gapTail = ev.user(200, '修复后的新窗口')
+    session.handleMuxEnvelope('gap' as never, {
+      type: 'session/event', sessionId: SID, event: gapTail,
+    })
+    await vi.waitFor(() => {
+      expect(api.callsOf('session.history')).toHaveLength(2)
+    })
+
+    const loading = session.loadOlder()
+    repair.resolve(ok({
+      events: entries([...logRange(150, 200), gapTail]) as never[],
+      hasMore: true,
+    }))
+    await vi.waitFor(() => {
+      expect(session.getSnapshot().nodes.map(node => node.seq)).toEqual([200])
+    })
+
+    page.resolve(ok({
+      events: entries([...logRange(0, 44), ...plainTurn(44, 0, '陈旧问题', '陈旧回答')]) as never[],
+      hasMore: false,
+    }))
+    await loading
+    expect(session.getSnapshot()).toMatchObject({ hasMore: true })
+    expect(session.getSnapshot().nodes.map(node => node.seq)).toEqual([200])
+  })
+
   it('resyncs when repeated older-page late views disagree on event identity', async () => {
     const { api, session } = makeSession()
     const newer = logRange(6, 12)

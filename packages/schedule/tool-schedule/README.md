@@ -22,7 +22,7 @@ Replay rejects unknown versions, extra fields, reused ids, and delete or dispatc
 
 The generated [tool catalog](../../../docs/tool-catalog.md) owns the argument and output schemas for `schedule_create`, `schedule_list`, and `schedule_delete`. Their canonical values use camelCase record fields even though model input uses `after_seconds`.
 
-`schedule_create` validates shape-only failures before persistence, then checkpoints, allocates a never-reused id, appends the create, and checkpoints again. `schedule_list` returns every active record in create order with `state: "scheduled" | "overdue"` and `deliveryMode: "session-local"`. `schedule_delete` rejects an empty or whitespace-padded id before persistence and appends only for an active id; an unknown or terminal id returns `{ id, deleted: false, code: "schedule_not_found" }` after its preflight.
+One Agent-scoped queue serializes each accepted management transaction and the live owner's due transaction from preflight through any post-append barrier. Direct callers therefore cannot interleave a fold with another Schedule mutation or observe a dispatch before its own barrier. `schedule_create` validates shape-only failures before entering that queue, then checkpoints, allocates a never-reused id, appends the create, and checkpoints again. `schedule_list` returns every active record in create order with `state: "scheduled" | "overdue"` and `deliveryMode: "session-local"`. `schedule_delete` rejects an empty or whitespace-padded id before entering the queue and appends only for an active id; an unknown or terminal id returns `{ id, deleted: false, code: "schedule_not_found" }` after its preflight.
 
 Every successful management preflight also asks the live owner to recompute. This matters after a create or delete barrier returned `persistence_uncertain`: a later list or mutation can confirm the retained batch and immediately arm or retire the now-durable record without a private persistence-retry timer.
 
@@ -79,7 +79,7 @@ The reminder appends after existing history and preserves its reusable prefix. I
 ## Known Limitations and Deferred Work
 
 - **Session-local delivery only** — a reminder runs on time only while its original session is live; a cold session receives no external notification and processes an overdue record only after resume.
-- **Activity-driven persistence retry** — a rejected due preflight leaves the overdue record active but starts no private retry timer; the owner retries after later Agent activity reaches idle or a successful Schedule management preflight asks it to recompute.
+- **Activity-driven retry** — a rejected due preflight or contained framing/enqueue failure leaves the overdue record active but starts no private retry timer; the owner retries after later Agent activity reaches idle or a successful Schedule management preflight asks it to recompute.
 - **After-only protocol** — version 1 rejects `at`, `every_seconds`, `cron`, and `time_zone`; those rules require later protocol variants rather than hidden compatibility fields.
 - **Narrow crash duplicate window** — a crash after synchronous followup admission but before the dispatch checkpoint can repeat the reminder after recovery; the package does not claim model completion, user acknowledgement, or exactly-once external effects.
 - **Load-order boundary** — the plugin does not scan or adopt agents that were already live when it loaded.

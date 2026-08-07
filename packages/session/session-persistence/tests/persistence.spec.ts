@@ -55,7 +55,6 @@ interface MemoryConfig { store?: MemoryStore }
 interface CoordinatorInternals {
   states: Map<unknown, unknown>
   live: Map<unknown, {
-    seedEnd: number
     init: Promise<void> | undefined
     writes: { pending: unknown[]; active: Promise<void> | undefined; hasWork: boolean }
   }>
@@ -400,6 +399,8 @@ describe('PersistenceCoordinator retryable live initialization', () => {
       const session = ctx.sessions.create(SessionId('retry-new-empty'))
       await vi.waitFor(() => { expect(backend.loadAttempts).toBe(1) })
       const first = ctx.sessions.flush(session)
+      session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+      session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
       loadGate.resolve(undefined)
       await expect(first).rejects.toThrow('transient init read failure')
       const retries = [ctx.sessions.flush(session), ctx.sessions.flush(session)]
@@ -411,17 +412,14 @@ describe('PersistenceCoordinator retryable live initialization', () => {
       // more reads.
       expect(backend.loadAttempts).toBe(3)
 
-      session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-      session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-      await ctx.sessions.flush(session)
       expect(backend.store.get(session.id)?.events.map(event => event.seq)).toEqual([0, 1])
 
       const live = [...(coordinator as unknown as CoordinatorInternals).live.values()][0]
       if (live === undefined) throw new Error('live controller was not retained')
-      expect(live.seedEnd).toBe(0)
       expect(live.init).toBeInstanceOf(Promise)
       expect(live).not.toHaveProperty('initialized')
       expect(live).not.toHaveProperty('seed')
+      expect(live).not.toHaveProperty('seedEnd')
     } finally {
       loadGate.resolve(undefined)
       retryGate.resolve(undefined)

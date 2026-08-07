@@ -29,7 +29,7 @@ Status: implemented
 
 当前规则接受非空 prompt 与恰好一个正 safe-integer `after_seconds`。record 形状是 `{ id, kind: 'after', prompt, afterSeconds, scheduledAt }`；dispatch 只保存 id，因为 record 已经唯一确定 occurrence。`at`、`every_seconds`、`cron` 与 `time_zone` 会被拒绝，不会作为未使用字段隐藏在协议中。工具 value 派生 `scheduled` 或 `overdue`，并始终包含 `deliveryMode: 'session-local'`。
 
-每项从 fold 读取或作出判断的工具操作都会先等待 `ctx.sessions.flush(session)`。create 可以在这次 preflight 前拒绝只依赖输入 shape 的失败；preflight 成功后才分配 id、追加 create，并等待第二个 barrier。delete 在判断 id 是否活动前先 preflight，只有实际追加时才等待第二个 barrier。list 与未知或已终结 delete 绝不会从未确认的 live 后缀作答。barrier 失败会返回 `persistence_uncertain`，而不是猜测 eager write 是否已经提交。
+一个 Agent-scoped FIFO 会将每项已接纳的管理事务与 live owner 的到期事务从 preflight 到任何 post-append barrier 全程串行化。每项从 fold 读取或作出判断的工具操作都会先等待 `ctx.sessions.flush(session)`。create 可以在进入 FIFO 前拒绝只依赖输入 shape 的失败；preflight 成功后才分配 id、追加 create，并等待第二个 barrier。delete 在进入 FIFO 前验证其 id，随后在判断 id 是否活动前先 preflight，只有实际追加时才等待第二个 barrier。list 与未知或已终结 delete 绝不会从未确认的 live 后缀作答，也不会在自身的 barrier 前观察到 dispatch。barrier 失败会返回 `persistence_uncertain`，而不是猜测 eager write 是否已经提交。
 
 每次成功的管理 preflight 也会要求 live owner 重新计算。这闭合了 create 已成功追加、但 post-append barrier 拒绝时的恢复路径：后续 list 可以确认 coordinator 保留的 batch、返回活动 record，并在没有 Schedule 私有重试循环的情况下 arm timer。
 
@@ -41,7 +41,7 @@ persistence coordinator 只有在写路径完全停稳后才给出该确认。li
 
 ### Live 交付生命周期
 
-Agent-scoped owner 从持久 fold 派生最早目标。超长目标使用有界 timer 分段，每次 wake 都重新读取墙钟，因此回拨不会提前触发，前跳则会形成 overdue。如果 agent 已被某个轮次或另一项 maintenance task 占用，`runMaintenance()` 会拒绝此次认领；record 保持活动，并由一个 `whenIdle()` wait 触发稍后的重试。被拒绝的 persistence preflight 同样会让 record 保持活动，但不会运行私有重试 timer；后续 agent 活动进入 idle，或成功的 Schedule 管理 preflight 会要求 owner 再次尝试。
+Agent-scoped owner 从持久 fold 派生最早目标。超长目标使用有界 timer 分段，每次 wake 都重新读取墙钟，因此回拨不会提前触发，前跳则会形成 overdue。如果 agent 已被某个轮次或另一项 maintenance task 占用，`runMaintenance()` 会拒绝此次认领；record 保持活动，并由一个 `whenIdle()` wait 触发稍后的重试。被拒绝的 persistence preflight 或被收容的 framing／同步入队失败同样会让 record 保持活动，但不会运行私有重试 timer；后续 agent 活动进入 idle，或成功的 Schedule 管理 preflight 会要求 owner 再次尝试。
 
 获得准入的路径会先清空 pending persistence，并通过 `runMaintenance()` 认领真正的 idle phase。该任务会重新折叠确切的 Session 后缀，从而确保在认领竞态中胜出的直接管理变更之后不会跟随陈旧 dispatch；随后只采样一次 decision clock，使用 JSON-escaped id 与 prompt 构造完整固定 reminder frame，同步排入一次 `followup()`，再追加只含 id 的 dispatch。触发唤醒的 input 会保持 parked，直到 maintenance 结束，因此 driver 无法在 dispatch 进入 log 前认领消息；只有该任务释放 phase 后，owner 才会等待 dispatch barrier。framing 或同步入队失败会被收容，且不会追加 dispatch。append 失败会使该 owner fault，因为消息可能已经入队。后续 prompt admission、request checkpoint 或模型失败都不能撤回 dispatch。
 
