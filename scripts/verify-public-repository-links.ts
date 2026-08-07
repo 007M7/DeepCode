@@ -1,4 +1,4 @@
-/** Reject tracked files that expose the internal repository remote. */
+/** Reject tracked files that expose the internal repository identity. */
 
 import { execFileSync } from 'node:child_process'
 import { existsSync, lstatSync, readFileSync, readlinkSync } from 'node:fs'
@@ -6,7 +6,9 @@ import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 const root = resolve(import.meta.dirname, '..')
-const internalRepository = ['deepseek-harness', 'deepseek-harness'].join('/')
+const internalOwner = ['deepseek', 'harness'].join('-')
+const internalRepository = [internalOwner, internalOwner].join('/')
+const internalIssueShorthand = `${internalOwner}#`
 
 /** One tracked reference to the internal repository. */
 export interface InternalRepositoryReference {
@@ -25,7 +27,9 @@ export interface InternalRepositoryReference {
 export function findInternalRepositoryReferences(file: string, source: string): InternalRepositoryReference[] {
   const references: InternalRepositoryReference[] = []
   for (const [index, line] of source.split('\n').entries()) {
-    if (line.includes(internalRepository)) references.push({ file, line: index + 1 })
+    if (line.includes(internalRepository) || line.includes(internalIssueShorthand)) {
+      references.push({ file, line: index + 1 })
+    }
   }
   return references
 }
@@ -55,7 +59,7 @@ const isMain = invokedPath !== undefined && import.meta.url === pathToFileURL(re
 if (isMain) {
   const references = scanRepository(root)
   if (references.length === 0) {
-    console.log('verify-public-repository-links: tracked files expose no internal repository remote.')
+    console.log('verify-public-repository-links: tracked files expose no internal repository identity.')
   } else {
     console.error('verify-public-repository-links: internal repository references found:')
     for (const reference of references) console.error(`  ${reference.file}:${String(reference.line)}`)
