@@ -137,9 +137,7 @@ export class AgentPresetSectionController {
    * @returns once the snapshot reflects the host.
    */
   async load(): Promise<void> {
-    const roster = await beginRosterRead(
-      this.api, () => this.store.getSnapshot().status, (patch) => { this.set(patch) },
-    )
+    const roster = await beginRosterRead(this.api, this.store)
     if (roster === undefined) return
     const { presets, authorable } = roster
     if (presets.length === 0) {

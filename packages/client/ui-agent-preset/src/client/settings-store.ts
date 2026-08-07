@@ -115,20 +115,19 @@ export async function readRoster(api: Pick<IApiClient, 'agentPresets'>): Promise
  * further — either another read owns it, or this one already wrote the
  * failure. What differs between surfaces starts after this.
  * @param api - the agent-preset wire face.
- * @param status - reads the store's current status.
- * @param set - patches the store's status and error.
+ * @param store - the surface's own snapshot store.
  * @returns the roster, or undefined when the caller should return.
  */
-export async function beginRosterRead(
+export async function beginRosterRead<S extends { status: string; error: string | null }>(
   api: Pick<IApiClient, 'agentPresets'>,
-  status: () => string,
-  set: (patch: { status?: 'loading' | 'error'; error?: string | null }) => void,
+  store: SnapshotStore<S>,
 ): Promise<RosterValue | undefined> {
-  if (status() === 'loading') return undefined
-  set({ status: 'loading', error: null })
+  const before = store.getSnapshot()
+  if (before.status === 'loading') return undefined
+  store.set({ ...before, status: 'loading', error: null })
   const roster = await readRoster(api)
   if (roster.ok) return roster.value
-  set({ status: 'error', error: roster.error })
+  store.set({ ...store.getSnapshot(), status: 'error', error: roster.error })
   return undefined
 }
 
@@ -196,9 +195,7 @@ export class AgentPresetSettingsController {
    * @returns once the snapshot reflects the host.
    */
   async load(): Promise<void> {
-    const roster = await beginRosterRead(
-      this.api, () => this.store.getSnapshot().status, (patch) => { this.set(patch) },
-    )
+    const roster = await beginRosterRead(this.api, this.store)
     if (roster === undefined) return
     const { presets } = roster
     const [first] = presets
