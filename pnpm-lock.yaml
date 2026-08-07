@@ -502,6 +502,9 @@ importers:
       '@deepseek-ai/dsh-session-persistence-jsonl':
         specifier: workspace:*
         version: link:../packages/session-persistence/session-persistence-jsonl
+      '@deepseek-ai/dsh-session-projection':
+        specifier: workspace:*
+        version: link:../packages/session-projection/session-projection
       '@deepseek-ai/dsh-session-query':
         specifier: workspace:*
         version: link:../packages/session-query/session-query
@@ -1027,6 +1030,9 @@ importers:
       '@deepseek-ai/dsh-session-persistence-jsonl':
         specifier: workspace:^
         version: link:../../session-persistence/session-persistence-jsonl
+      '@deepseek-ai/dsh-session-projection':
+        specifier: workspace:^
+        version: link:../../session-projection/session-projection
       '@deepseek-ai/dsh-session-query-sqlite':
         specifier: workspace:^
         version: link:../../session-query/session-query-sqlite
@@ -1275,9 +1281,6 @@ importers:
       '@deepseek-ai/dsh-host-webserver':
         specifier: workspace:^
         version: link:../../host/webserver
-      '@deepseek-ai/dsh-session-projection':
-        specifier: workspace:^
-        version: link:../../session-projection/session-projection
       '@deepseek-ai/dsh-session-projection-cache':
         specifier: workspace:^
         version: link:../../session-projection/session-projection-cache
@@ -4597,6 +4600,9 @@ importers:
       '@deepseek-ai/dsh-tool-subagent':
         specifier: workspace:^
         version: link:../../subagent/tool-subagent
+      '@deepseek-ai/dsh-tool-todo':
+        specifier: workspace:^
+        version: link:../../todo/tool-todo
       '@deepseek-ai/dsh-tool-web':
         specifier: workspace:^
         version: link:../../web/tool-web
@@ -5339,9 +5345,15 @@ importers:
       '@deepseek-ai/dsh-session-projection':
         specifier: workspace:^
         version: link:../../session-projection/session-projection
-      '@deepseek-ai/dsh-session-query':
+      '@deepseek-ai/dsh-session-projection-cache':
         specifier: workspace:^
-        version: link:../../session-query/session-query
+        version: link:../../session-projection/session-projection-cache
+      '@deepseek-ai/dsh-storage':
+        specifier: workspace:^
+        version: link:../../storage/storage
+      '@deepseek-ai/dsh-storage-domain':
+        specifier: workspace:^
+        version: link:../../storage/storage-domain
       '@deepseek-ai/dsh-tasks':
         specifier: workspace:^
         version: link:../../tasks/tasks
@@ -5739,9 +5751,9 @@ importers:
       '@deepseek-ai/dsh-session-persistence-jsonl':
         specifier: workspace:^
         version: link:../../session-persistence/session-persistence-jsonl
-      '@deepseek-ai/dsh-session-query':
+      '@deepseek-ai/dsh-session-projection':
         specifier: workspace:^
-        version: link:../../session-query/session-query
+        version: link:../../session-projection/session-projection
       '@deepseek-ai/dsh-subagent':
         specifier: workspace:^
         version: link:../subagent
@@ -6084,10 +6096,19 @@ importers:
 
   packages/todo/tool-todo:
     dependencies:
+      schemastery:
+        specifier: ^3.18.0
+        version: link:../../../vendor/schemastery
       zod:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
+      '@cordisjs/plugin-include':
+        specifier: workspace:^
+        version: link:../../../vendor/include
+      '@cordisjs/plugin-loader':
+        specifier: workspace:^
+        version: link:../../../vendor/loader
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
         version: link:../../core/agent
