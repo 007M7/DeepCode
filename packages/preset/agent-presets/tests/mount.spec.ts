@@ -218,29 +218,60 @@ describe('a roster with nothing in it', () => {
   })
 })
 
-describe('attributing a service to a subtree', () => {
-  it('never writes the preset file back, however the subtree changes', async () => {
-    delete (globalThis as { __RECONFIGURE__?: unknown }).__RECONFIGURE__
-    const handle = await ctx.agents.create({
-      sessionId: SessionId('sess-write'),
-      setup: async (agentCtx: Context) => void await ctx.agentPresets.mount(agentCtx, 'standard'),
+describe('the preset file is an input, never a persistence target', () => {
+  it('survives a row that disposes itself, which makes the Loader persist a tree', async () => {
+    // The preset lives in a temp root, not under `fixtures/`: without the
+    // `write()` override the Loader REWRITES the composition it read, so a
+    // committed fixture would be mutated by the very run that proves the bug
+    // and every later run would compare against the damaged file and pass.
+    const root = await mkdtemp(join(tmpdir(), 'dsh-preset-write-'))
+    const dir = join(root, 'self-disposing')
+    await mkdir(dir)
+    const path = join(dir, COMPOSITION_FILE)
+    const composition = [
+      '- id: tool-kept',
+      `  name: ${join(FIXTURES, 'plugins', 'contribute.js')}`,
+      '  config:',
+      '    tool: kept',
+      '- id: goes-away',
+      `  name: ${join(FIXTURES, 'plugins', 'self-dispose.js')}`,
+      '',
+    ].join('\n')
+    await writeFile(path, composition)
+
+    const scoped = new Context()
+    scoped.baseUrl = pathToFileURL(FIXTURES).href + '/'
+    await scoped.plugin(Loader)
+    scoped.loader.builtins.include = Include
+    await scoped.plugin(LlmService)
+    await scoped.plugin(SessionStore)
+    await scoped.plugin(SystemPrompt, { persona: '' })
+    await scoped.plugin(ToolRegistry)
+    await scoped.plugin(AgentRegistry)
+    await scoped.plugin(AgentLoop, { agents: [] })
+    await scoped.plugin(AgentPresets, { default: 'self-disposing', roots: [{ path: root, trust: 'user' as const }] })
+
+    await scoped.agents.create({
+      sessionId: SessionId('sess-self-dispose'),
+      setup: async (agentCtx: Context) => void await scoped.agentPresets.mount(agentCtx),
     })
-    const file = join(FIXTURES, 'system', 'standard', 'agent.cordis.yml')
-    const before = await readFile(file, 'utf8')
+    await (globalThis as { __SELF_DISPOSED__?: Promise<unknown> }).__SELF_DISPOSED__
+    // Slack past the deterministic signal above, not a race the number has to
+    // win. The write rides the Loader's fiber-unload listener, which stamps
+    // `disabled: true` and calls `write()` in the same synchronous step; once
+    // the self-dispose has settled, a regression has already written. Polling
+    // would not help — the assertion is an ABSENCE, and no amount of waiting
+    // proves one — so the wait only has to clear settlement.
+    await new Promise(resolve => setTimeout(resolve, 50))
 
-    // The inherited `write()` persists the whole tree whenever the Loader
-    // decides a row's config moved, so one row reconfiguring itself would
-    // rewrite the shipped composition — here, with the row's new tool name.
-    const reconfigure = (globalThis as { __RECONFIGURE__?: (tool: string) => Promise<void> }).__RECONFIGURE__
-    expect(reconfigure).toBeTypeOf('function')
-    await reconfigure!('rewritten')
-
-    expect(toolNames(ctx, handle.agent)).toContain('rewritten')
-    expect(await readFile(file, 'utf8')).toBe(before)
-
-    await handle.dispose()
+    // Inherited, `EntryTree.write()` persists the dying tree — stamping
+    // `disabled: true` onto the row and, in the shipped case, truncating the
+    // composition every session shares.
+    expect(await readFile(path, 'utf8')).toBe(composition)
   })
+})
 
+describe('attributing a service to a subtree', () => {
   it('attributes nothing to a subtree that is already torn down', async () => {
     const handle = await ctx.agents.create({
       sessionId: SessionId('sess-torn'),
