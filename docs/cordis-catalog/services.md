@@ -398,7 +398,7 @@ abstract run(request: CodeRunRequest): Promise<CodeRunResult>
 
 Types: [CodeRunRequest](../core-data-structures/code-runtime.md) · [CodeRunResult](../core-data-structures/code-runtime.md)
 
-Source: [`packages/code-runtime/code-runtime/src/index.ts:33`](../../packages/code-runtime/code-runtime/src/index.ts)
+Source: [`packages/code-runtime/code-runtime/src/index.ts:104`](../../packages/code-runtime/code-runtime/src/index.ts)
 
 ## `ctx.commands` — `CommandService`
 
@@ -451,7 +451,7 @@ async execute( agent: Agent, line: string, signal: AbortSignal, ): Promise<Comma
 
 Types: [Agent](../core-data-structures/core.md) · [CommandDefinition](../core-data-structures/commands.md) · [CommandDescriptor](../core-data-structures/commands.md)
 
-Source: [`packages/ui/commands/src/index.ts:278`](../../packages/ui/commands/src/index.ts)
+Source: [`packages/ui/commands/src/index.ts:286`](../../packages/ui/commands/src/index.ts)
 
 ## `ctx.compact` — `CompactService` (abstract seam)
 
@@ -959,7 +959,7 @@ stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 
 Types: [AdapterRegistrationHandle](../core-data-structures/core.md) · [DirectoryRegistrationHandle](../core-data-structures/core.md) · [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmCallConfig](../core-data-structures/core.md) · [LlmConfigurableProvider](../core-data-structures/core.md) · [LlmDiscoveredModel](../core-data-structures/core.md) · [LlmModelDiscoveryRequest](../core-data-structures/core.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [LlmResolvedModelInfo](../core-data-structures/core.md) · [PreparedLlmCall](../core-data-structures/llm-streaming.md) · [ResolvedRetryPolicy](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:255`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:292`](../../packages/llm/llm/src/index.ts)
 
 ## `ctx.permission` — `PermissionService`
 
@@ -2364,7 +2364,7 @@ flush?(): void
 abstract shutdown(): Promise<void>
 ```
 
-Source: [`packages/telemetry/session-telemetry/src/index.ts:135`](../../packages/telemetry/session-telemetry/src/index.ts)
+Source: [`packages/telemetry/session-telemetry/src/index.ts:140`](../../packages/telemetry/session-telemetry/src/index.ts)
 
 ## `ctx.tokenMeter` — `TokenMeterService`
 
@@ -2523,7 +2523,7 @@ async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>
 
 Types: [ScopeKey](../core-data-structures/scope.md) · [ToolDefinition](../core-data-structures/tools.md) · [ToolExecutionInput](../core-data-structures/tools.md) · [ToolExecutionMode](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolGuard](../core-data-structures/tools.md) · [ToolRestriction](../core-data-structures/tools.md) · [ToolSchema](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:714`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:739`](../../packages/core/tools/src/index.ts)
 
 ## `ctx.typert` — `TypertRegistry`
 

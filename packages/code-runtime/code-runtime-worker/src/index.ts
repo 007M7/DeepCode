@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url'
 import { Context } from 'cordis'
 import z from 'schemastery'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
-import { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
+import { CodeRuntime, DUNDER_MEMBER, PORTABLE_RESERVED_WORDS, RESERVED_BINDING_GLOBALS, RESERVED_ERROR_MEMBERS } from '@deepseek-ai/dsh-code-runtime'
 import type { CodeBindingNamespace, CodeJsonValue, CodeRunFailure, CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
 import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
 import type { ReplyMessage, WorkerBootData, WorkerToHost } from './protocol.ts'
@@ -65,20 +65,12 @@ const ELU_POLL_INTERVAL_MS = 25
 /** Smallest cap that can represent the counted payloads: an empty logs array plus an empty JSON failure message. */
 const MIN_OUTPUT_BYTES = 4
 
-/** ECMAScript reserved words that cannot be async-function parameter names — rejected as binding globals. */
-const RESERVED_WORDS = new Set([
-  'await', 'break', 'case', 'catch', 'class', 'const', 'continue', 'debugger', 'default', 'delete', 'do',
-  'else', 'enum', 'export', 'extends', 'false', 'finally', 'for', 'function', 'if', 'import', 'in',
-  'instanceof', 'new', 'null', 'return', 'super', 'switch', 'this', 'throw', 'true', 'try', 'typeof',
-  'var', 'void', 'while', 'with', 'yield', 'let', 'static', 'implements', 'interface', 'package',
-  'private', 'protected', 'public', 'arguments', 'eval',
-])
-
-/** Valid async-function parameter name (the binding global becomes one). */
-const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/
-
-/** Error properties whose binding-member replacement would destroy the promised Error contract. */
-const RESERVED_ERROR_PROPERTIES = new Set(['name', 'message', 'stack'])
+/**
+ * The seam's language-portable identifier subset (see
+ * `CodeBindingNamespace.global`): no `$`, which is JS-only spelling — the same
+ * namespace list must be usable against every backend regardless of language.
+ */
+const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/
 
 /**
  * The shell a program is wrapped in for the type-strip, matching the
@@ -328,10 +320,19 @@ export class WorkerCodeRuntime extends CodeRuntime {
   private validateBindings(request: CodeRunRequest): Map<string, CodeBindingNamespace> {
     const bindings = new Map<string, CodeBindingNamespace>()
     for (const namespace of request.bindings) {
-      if (!IDENTIFIER.test(namespace.global) || RESERVED_WORDS.has(namespace.global)) {
+      if (!IDENTIFIER.test(namespace.global) || PORTABLE_RESERVED_WORDS.has(namespace.global)) {
         throw new Error(`dsh-code-runtime-worker: binding global ${JSON.stringify(namespace.global)} is not a usable identifier`)
       }
-      if (namespace.global === 'console' || bindings.has(namespace.global)) {
+      // RESERVED_BINDING_GLOBALS is the seam's shared backend-owned set:
+      // `console` is THIS backend's log-capture slot; the dunder entries exist
+      // for the Python side — its seeded/wrapped slots plus the `__debug__`
+      // compile-time constant — refused here too so the namespace list stays
+      // portable across backends. The seam declaration is the single home for
+      // why each entry is reserved.
+      if (RESERVED_BINDING_GLOBALS.has(namespace.global)) {
+        throw new Error(`dsh-code-runtime-worker: reserved binding global ${JSON.stringify(namespace.global)}`)
+      }
+      if (bindings.has(namespace.global)) {
         throw new Error(`dsh-code-runtime-worker: duplicate binding global ${JSON.stringify(namespace.global)}`)
       }
       bindings.set(namespace.global, namespace)
@@ -341,13 +342,17 @@ export class WorkerCodeRuntime extends CodeRuntime {
     for (const namespace of request.bindings) {
       const descriptor = namespace.errorClass
       if (!descriptor) continue
-      if (!IDENTIFIER.test(descriptor.name) || RESERVED_WORDS.has(descriptor.name)) {
+      if (!IDENTIFIER.test(descriptor.name) || PORTABLE_RESERVED_WORDS.has(descriptor.name)) {
         throw new Error(`dsh-code-runtime-worker: binding error class ${JSON.stringify(descriptor.name)} is not a usable identifier`)
       }
-      if (descriptor.name === 'console' || bindings.has(descriptor.name) || errorClassNames.has(descriptor.name)) {
+      if (RESERVED_BINDING_GLOBALS.has(descriptor.name)) {
+        throw new Error(`dsh-code-runtime-worker: reserved binding global ${JSON.stringify(descriptor.name)}`)
+      }
+      if (bindings.has(descriptor.name) || errorClassNames.has(descriptor.name)) {
         throw new Error(`dsh-code-runtime-worker: duplicate injected global ${JSON.stringify(descriptor.name)}`)
       }
-      if (descriptor.memberNameProperty.length === 0 || RESERVED_ERROR_PROPERTIES.has(descriptor.memberNameProperty)) {
+      const member = descriptor.memberNameProperty
+      if (member.length === 0 || RESERVED_ERROR_MEMBERS.has(member) || DUNDER_MEMBER.test(member)) {
         throw new Error(`dsh-code-runtime-worker: binding error member property ${JSON.stringify(descriptor.memberNameProperty)} is not usable`)
       }
       errorClassNames.add(descriptor.name)

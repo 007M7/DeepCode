@@ -142,7 +142,7 @@ async function mountSection(options: Parameters<typeof scriptedFace>[0] = {}) {
     t,
   }
   render(<ModelsSection {...injected} />)
-  return scripted
+  return { ...scripted, controller }
 }
 
 /** Open the editor of one configured row and expand its customized fold. */
@@ -861,5 +861,185 @@ describe('hand-declared providers', () => {
     fireEvent.click(screen.getByText(en.cancel))
     await waitFor(() => { expect(screen.queryByText(en.customTitle)).toBeNull() })
     expect(screen.getByRole('button', { name: en.customAdd })).toBeTruthy()
+  })
+
+  it('refuses an unusable key on the field and blocks creation', () => {
+    const { mutate, set } = mountCard()
+
+    fireEvent.change(screen.getByLabelText(en.customRoute), { target: { value: 'acme-gateway' } })
+    fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: 'https://gateway.acme.example/v1' } })
+    fireEvent.click(screen.getByRole('button', { name: en.addModel }))
+    fireEvent.change(screen.getByLabelText(`${en.modelId} 1`), { target: { value: 'acme-large' } })
+    fireEvent.change(screen.getByLabelText(en.keyInput), { target: { value: 'sk-\u{1F600}' } })
+
+    // A hand-declared route reaches the same judgement as an edited one, so a
+    // key that no header can carry never becomes a profile plus a bad secret.
+    expect(screen.getByText(en.keyIllegalCharacters)).toBeTruthy()
+    expect(buttonNamed(en.create).disabled).toBe(true)
+    expect(mutate).not.toHaveBeenCalled()
+    expect(set).not.toHaveBeenCalled()
+  })
+
+  it('stays silent about the other gates when only the key is refused', () => {
+    mountCard()
+
+    fireEvent.change(screen.getByLabelText(en.customRoute), { target: { value: 'acme-gateway' } })
+    fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: 'https://gateway.acme.example/v1' } })
+    fireEvent.click(screen.getByRole('button', { name: en.addModel }))
+    fireEvent.change(screen.getByLabelText(`${en.modelId} 1`), { target: { value: 'acme-large' } })
+    fireEvent.change(screen.getByLabelText(en.keyInput), { target: { value: 'sk-\u{1F600}' } })
+
+    // Route, endpoint, and models are all satisfied, so answering with the
+    // next unmet gate would print a second, false fault beside the real one.
+    expect(screen.getByText(en.keyIllegalCharacters)).toBeTruthy()
+    expect(screen.queryByText(en.customNeedsModels)).toBeNull()
+    expect(screen.queryByText(en.customNeedsBaseUrl)).toBeNull()
+  })
+
+  it('tells a whitespace-only key what a blank field means on a create card', () => {
+    const { mutate } = mountCard()
+
+    fireEvent.change(screen.getByLabelText(en.customRoute), { target: { value: 'acme-gateway' } })
+    fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: 'https://gateway.acme.example/v1' } })
+    fireEvent.click(screen.getByRole('button', { name: en.addModel }))
+    fireEvent.change(screen.getByLabelText(`${en.modelId} 1`), { target: { value: 'acme-large' } })
+    fireEvent.change(screen.getByLabelText(en.keyInput), { target: { value: '   ' } })
+
+    // There is no stored key to keep here, so the blank case says the thing
+    // that is true of a route being declared: it may authenticate elsewhere.
+    expect(screen.getByText(en.keyBlankNew)).toBeTruthy()
+    expect(screen.queryByText(en.keyBlank)).toBeNull()
+    expect(buttonNamed(en.fetchModels).title).toBe(en.keyBlankNew)
+    expect(buttonNamed(en.create).disabled).toBe(true)
+    expect(mutate).not.toHaveBeenCalled()
+  })
+
+  it('creates without a key when the route authenticates some other way', async () => {
+    const { set, onClose } = mountCard()
+
+    fireEvent.change(screen.getByLabelText(en.customRoute), { target: { value: 'ambient-gateway' } })
+    fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: 'https://gateway.acme.example/v1' } })
+    fireEvent.click(screen.getByRole('button', { name: en.addModel }))
+    fireEvent.change(screen.getByLabelText(`${en.modelId} 1`), { target: { value: 'acme-large' } })
+    fireEvent.click(screen.getByText(en.create))
+
+    await waitFor(() => { expect(onClose).toHaveBeenCalledWith(true) })
+    expect(set).not.toHaveBeenCalled()
+  })
+})
+
+describe('API key field', () => {
+  it('submits with a blank key field without writing a credential', async () => {
+    const { mutate, set } = await mountSection()
+    openEditor('openai')
+
+    // The field opens empty even for a provider whose key is stored, where it
+    // means "keep that one" — so editing anything else must not require it.
+    fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: 'https://moved.example/v1' } })
+    expect(buttonNamed(en.apply).disabled).toBe(false)
+    fireEvent.click(screen.getByText(en.apply))
+
+    await waitFor(() => { expect(mutate).toHaveBeenCalled() })
+    expect(set).not.toHaveBeenCalled()
+  })
+
+  it('clears a whitespace-only base URL instead of writing the spaces', async () => {
+    const { mutate } = await mountSection()
+    openEditor('openai')
+
+    // The field renders this as empty, so the draft must agree: storing the
+    // spaces would hand both adapters a non-empty string they accept as a URL.
+    fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: '   ' } })
+    fireEvent.click(screen.getByText(en.apply))
+
+    await waitFor(() => { expect(mutate).toHaveBeenCalled() })
+    const ops = firstMutate(mutate).ops
+    expect(ops.some(op => op.op === 'set' && op.path.includes('baseURL'))).toBe(false)
+    expect(ops.some(op => op.op === 'unset' && op.path.includes('baseURL'))).toBe(true)
+  })
+
+  it('blocks submit and names the field when the key holds only whitespace', async () => {
+    const { mutate, set } = await mountSection()
+    openEditor('openai')
+
+    fireEvent.change(screen.getByLabelText(en.keyInput), { target: { value: '   ' } })
+
+    expect(screen.getByText(en.keyBlank)).toBeTruthy()
+    expect(buttonNamed(en.apply).disabled).toBe(true)
+    expect(mutate).not.toHaveBeenCalled()
+    expect(set).not.toHaveBeenCalled()
+  })
+
+  it('blocks submit when the key contains characters no header can carry', async () => {
+    const { set } = await mountSection()
+    openEditor('openai')
+
+    fireEvent.change(screen.getByLabelText(en.keyInput), { target: { value: 'sk-\u{1F600}' } })
+
+    expect(screen.getByText(en.keyIllegalCharacters)).toBeTruthy()
+    expect(buttonNamed(en.apply).disabled).toBe(true)
+    expect(set).not.toHaveBeenCalled()
+  })
+
+  it('blocks submit when a whole NAME=value line was pasted', async () => {
+    await mountSection()
+    openEditor('openai')
+
+    fireEvent.change(screen.getByLabelText(en.keyInput), { target: { value: 'OPENAI_API_KEY=sk-abc' } })
+
+    expect(screen.getByText(en.keyIllegalCharacters)).toBeTruthy()
+    expect(buttonNamed(en.apply).disabled).toBe(true)
+  })
+
+  it('trims a padded key before storing it', async () => {
+    const { set } = await mountSection()
+    openEditor('openai')
+
+    fireEvent.change(screen.getByLabelText(en.keyInput), { target: { value: '  sk-abc  ' } })
+    expect(buttonNamed(en.apply).disabled).toBe(false)
+    fireEvent.click(screen.getByText(en.apply))
+
+    await waitFor(() => { expect(set).toHaveBeenCalled() })
+    expect((set.mock.calls[0]?.[0] as { value: string }).value).toBe('sk-abc')
+  })
+
+  it('blocks the interrogation too, rather than spending a round trip on a refused key', async () => {
+    const { discover } = await mountSection()
+    openEditor('openai')
+
+    fireEvent.change(screen.getByLabelText(en.keyInput), { target: { value: 'sk-\u{1F600}' } })
+
+    // The host would refuse this before building the header anyway; asking is
+    // a round trip to be told what the field already says.
+    expect(buttonNamed(en.fetchModels).disabled).toBe(true)
+    expect(buttonNamed(en.fetchModels).title).toBe(en.keyIllegalCharacters)
+    expect(discover).not.toHaveBeenCalled()
+  })
+
+  it('carries the trimmed key into an interrogation, not the padded draft', async () => {
+    const { discover } = await mountSection()
+    openEditor('openai')
+
+    fireEvent.change(screen.getByLabelText(en.keyInput), { target: { value: '  sk-abc  ' } })
+    fireEvent.click(screen.getByRole('button', { name: en.fetchModels }))
+
+    await waitFor(() => { expect(discover).toHaveBeenCalled() })
+    expect(firstProbe(discover)).toMatchObject({ apiKey: 'sk-abc' })
+  })
+
+  it('reloads the section after creating a hand-declared provider', async () => {
+    const { controller, mutate } = await mountSection()
+    const load = vi.spyOn(controller, 'load')
+
+    fireEvent.click(screen.getByRole('button', { name: en.customAdd }))
+    fireEvent.change(screen.getByLabelText(en.customRoute), { target: { value: 'acme' } })
+    fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: 'https://acme.test/v1' } })
+    fireEvent.click(screen.getByRole('button', { name: en.addModel }))
+    fireEvent.change(screen.getByLabelText(`${en.modelId} 1`), { target: { value: 'm' } })
+    fireEvent.click(screen.getByText(en.create))
+
+    await waitFor(() => { expect(mutate).toHaveBeenCalledOnce() })
+    await waitFor(() => { expect(load).toHaveBeenCalledOnce() })
+    expect(screen.queryByText(en.customTitle)).toBeNull()
   })
 })

@@ -5,7 +5,7 @@
  * for the default-exported Service class.
  */
 
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, expectTypeOf, it, vi } from 'vitest'
 import { createServer, type Server } from 'node:http'
 import { once } from 'node:events'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -15,8 +15,9 @@ import { gunzipSync } from 'node:zlib'
 import { Context } from 'cordis'
 import { getOrCreateAnonymousUserId } from '../src/user-id.ts'
 import Loader from '@cordisjs/plugin-loader'
+import { recordFeedback } from '@deepseek-ai/dsh-command-feedback'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
-import TelemetryOtel, { Config } from '../src/index.ts'
+import TelemetryOtel, { Config, DEFAULT_TELEMETRY_MODE, TelemetryMode } from '../src/index.ts'
 
 interface Capture {
   headers: import('node:http').IncomingHttpHeaders
@@ -34,6 +35,7 @@ interface OtlpLogsRequest {
         severityNumber: number
         severityText: string
         attributes?: { key: string; value: Record<string, unknown> }[]
+        body?: unknown
       }[]
     }[]
   }[]
@@ -107,6 +109,14 @@ function allRecords(captures: Capture[]) {
     s.logRecords.map(record => ({ scope: s.scope.name, record })))))
 }
 
+function eventTypes(captures: Capture[]): string[] {
+  return allRecords(captures).flatMap(({ record }) =>
+    record.attributes?.flatMap(attribute =>
+      attribute.key === 'event.type' && typeof attribute.value['stringValue'] === 'string'
+        ? [attribute.value['stringValue']]
+        : []) ?? [])
+}
+
 describe('TelemetryOtel wire', () => {
   it('ships session records and the ops shutdown marker through the real SDK pipeline', async () => {
     const { url, captures } = await mockCollector()
@@ -114,6 +124,13 @@ describe('TelemetryOtel wire', () => {
     const session = ctx.sessions.create(SessionId('wire'), { meta: { cwd: '/tmp/w' } })
     session.append('turn/start', { turn: 1 })
     session.append('turn/end', { turn: 1, reason: { kind: 'error', error: { message: 'boom', code: 'UNKNOWN' } } })
+    ctx.telemetry.emit({
+      channel: 'ledger',
+      time: Date.now(),
+      severity: 'info',
+      attributes: { 'session.id': 'wire', 'event.type': 'manual', 'event.seq': 99 },
+      body: { direct: true },
+    })
     await fiber.dispose()
 
     expect(captures.length).toBeGreaterThan(0)
@@ -138,6 +155,7 @@ describe('TelemetryOtel wire', () => {
     const end = ledger.find(r => r.record.attributes?.some(a => a.key === 'event.type' && a.value.stringValue === 'turn/end'))
     expect(end?.record.severityNumber).toBe(17)
     expect(end?.record.severityText).toBe('ERROR')
+    expect(eventTypes(captures)).toContain('manual')
 
     expect(ops).toHaveLength(1)
     expect(ops[0]!.record.attributes).toContainEqual({ key: 'telemetry.op', value: { stringValue: 'shutdown' } })
@@ -247,14 +265,134 @@ describe('TelemetryOtel wire', () => {
       r.record.attributes?.some(a => a.key === 'event.type' && a.value.stringValue === 'turn/start'))
     expect(start?.record.severityNumber).toBe(13)
   })
+
+  it('replays each session suffix only at the next feedback event', async () => {
+    const { url, captures } = await mockCollector()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(TelemetryOtel, {
+      mode: TelemetryMode.FEEDBACK_ONLY,
+      exporter: { url },
+    })
+    ctx.on('telemetry/record', (_record, next) => {
+      ctx.telemetry.emit({
+        channel: 'ledger',
+        time: Date.now(),
+        severity: 'info',
+        attributes: { 'session.id': 'feedback-only', 'event.type': 'direct-bypass', 'event.seq': 99 },
+        body: { mustStayLocal: true },
+      })
+      return next()
+    })
+    const session = ctx.sessions.create(SessionId('feedback-only'), { meta: {} })
+    session.append('turn/start', { turn: 1 })
+    recordFeedback(session, 'first report')
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    recordFeedback(session, 'second report')
+    session.append('turn/start', { turn: 2 })
+    await fiber.dispose()
+
+    const types = allRecords(captures).flatMap(({ record }) =>
+      record.attributes?.flatMap(attribute =>
+        attribute.key === 'event.type' ? [attribute.value.stringValue] : []) ?? [])
+    expect(types).toEqual(['turn/start', 'feedback/record', 'turn/end', 'feedback/record'])
+    expect(JSON.stringify(captures)).toContain('first report')
+    expect(JSON.stringify(captures)).toContain('second report')
+    expect(allRecords(captures).some(({ scope }) => scope.endsWith('/ops'))).toBe(false)
+  })
+
+  it('ignores direct emits and non-canonical feedback in feedback-only mode', async () => {
+    const { url, captures } = await mockCollector()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    const fiber = await ctx.plugin(TelemetryOtel, {
+      mode: TelemetryMode.FEEDBACK_ONLY,
+      exporter: { url },
+    })
+    const session = ctx.sessions.create(SessionId('no-feedback'), { meta: {} })
+    session.append('turn/start', { turn: 1 })
+    ctx.telemetry.emit({
+      channel: 'ledger',
+      time: Date.now(),
+      severity: 'info',
+      attributes: { 'session.id': 'no-feedback', 'event.type': 'direct', 'event.seq': 99 },
+      body: { mustStayLocal: true },
+    })
+    ctx.emit('session/event', session, {
+      type: 'feedback/record',
+      seq: session.events.length,
+      time: Date.now(),
+      data: { text: 'not committed' },
+    })
+    await fiber.dispose()
+
+    expect(warn).toHaveBeenCalledWith(
+      'session telemetry ignored a feedback event absent from the canonical session log',
+    )
+    expect(captures).toEqual([])
+  })
+
+  it('constructs no disabled transport even when exporter options are present', async () => {
+    const { url, captures } = await mockCollector()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    const fiber = await ctx.plugin(TelemetryOtel, {
+      mode: TelemetryMode.DISABLED,
+      exporter: { url },
+      processor: { maxExportBatchSize: 0 },
+    })
+    const session = ctx.sessions.create(SessionId('disabled'), { meta: {} })
+    session.append('turn/start', { turn: 1 })
+    recordFeedback(session, 'local report')
+
+    expect(warn).toHaveBeenCalledWith(
+      'session telemetry is DISABLED; nothing will be shared and this feedback remains local',
+    )
+    ctx.telemetry.emit({
+      channel: 'ledger',
+      time: 0,
+      severity: 'info',
+      attributes: {},
+      body: null,
+    })
+    await ctx.telemetry.shutdown()
+    await fiber.dispose()
+    recordFeedback(session, 'after disposal')
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(captures).toEqual([])
+  })
+
+  it('defaults direct construction to full delivery', async () => {
+    const { url, captures } = await mockCollector()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    new TelemetryOtel(ctx, { exporter: { url } })
+    const session = ctx.sessions.create(SessionId('direct-default'), { meta: {} })
+    session.append('turn/start', { turn: 1 })
+    await ctx.fiber.dispose()
+
+    expect(eventTypes(captures)).toContain('turn/start')
+  })
 })
 
 describe('TelemetryOtel config fails loud', () => {
+  it('exposes modes through the nominal enum', () => {
+    expectTypeOf<Config['mode']>().toEqualTypeOf<TelemetryMode | undefined>()
+    expectTypeOf<'FULL'>().not.toExtend<TelemetryMode>()
+    expectTypeOf<TelemetryMode.FULL>().toExtend<TelemetryMode>()
+    expect(DEFAULT_TELEMETRY_MODE).toBe(TelemetryMode.FULL)
+    expect(Config({}).mode).toBe(DEFAULT_TELEMETRY_MODE)
+  })
+
   it.each([
     [{}, /exporter\.url is required/],
     [{ exporter: { url: '' } }, /exporter\.url is required/],
     [{ exporter: { url: 'not a url' } }, /not a valid URL/],
     [{ exporter: { url: 'ftp://collector' } }, /must be http\(s\)/],
+    [{ mode: TelemetryMode.FEEDBACK_ONLY }, /exporter\.url is required/],
+    [{ mode: 'INVALID' }, /INVALID/],
     // The SDK accepts a non-positive batch size but its shutdown drain then
     // splices empty batches forever — dispose would hang, so reject at load.
     [{ exporter: { url: 'http://c/v1/logs' }, processor: { maxExportBatchSize: 0 } }, /maxExportBatchSize/],
@@ -265,6 +403,46 @@ describe('TelemetryOtel config fails loud', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await expect(ctx.plugin(TelemetryOtel, config as Config)).rejects.toThrow(message)
+  })
+
+  it('rejects an unknown direct mode before reading transport config', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    let exporterRead = false
+    const config = {
+      mode: 'INVALID',
+      get exporter() {
+        exporterRead = true
+        throw new Error('transport config was read')
+      },
+    } as unknown as Config
+
+    expect(() => new TelemetryOtel(ctx, config)).toThrow(/unsupported mode "INVALID"/)
+    expect(exporterRead).toBe(false)
+  })
+
+  it('does not read any transport setting in disabled mode', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const transportRead = vi.fn(() => {
+      throw new Error('transport config was read')
+    })
+    const config = {
+      mode: TelemetryMode.DISABLED,
+      get exporter() {
+        return transportRead()
+      },
+      get processor() {
+        return transportRead()
+      },
+      get shutdownTimeoutMillis() {
+        return transportRead()
+      },
+    } as unknown as Config
+
+    new TelemetryOtel(ctx, config)
+    expect(transportRead).not.toHaveBeenCalled()
+    await ctx.fiber.dispose()
   })
 })
 
