@@ -43,7 +43,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     'conversation.chat.tool': { kind: 'single'; scope: 'session'; owner: ToolTreeOwnerProps }
     /**
      * The chat view's per-event presentation hole: keyed dispatch on the
-     * Host-provided presentation key. The durable event remains in the
+     * durable event type. The durable event remains in the
      * runtime node; a feature plugin may replace the visible JSON fallback
      * with a domain renderer without entering ui-conversation.
      */

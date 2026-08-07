@@ -32,6 +32,9 @@ const install: InvariantInstaller = Object.assign((ctx: Context, fail: Invariant
   for (const session of ctx.sessions.list()) {
     validate(session.events, session.header.seedLength ?? 0, fail)
   }
+  ctx.on('session/created', (session) => {
+    validate(session.events, session.header.seedLength ?? 0, fail)
+  }, { global: true })
   ctx.on('internal/dispatch', (_mode, eventName, args) => {
     if (eventName !== 'session/event') return
     const [session, event] = args as [Session, SessionEvent]

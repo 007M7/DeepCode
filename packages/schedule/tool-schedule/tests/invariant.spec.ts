@@ -64,6 +64,16 @@ describe('Schedule package invariant', () => {
     await ctx.fiber.dispose()
   })
 
+  it('rejects a malformed seeded session created after companion setup', async () => {
+    const { ctx } = await harness()
+    const id = SessionId('schedule-invalid-future-seed')
+    expect(() => ctx.sessions.create(id, {
+      seed: [event({ version: 9, operation: 'delete', id: 'schedule-1' }, 0)],
+    })).toThrow(InvariantError)
+    expect(ctx.sessions.get(id)).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
   it('ignores inherited Schedule events before a fork seed boundary', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
