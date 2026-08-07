@@ -20,7 +20,7 @@ Web composer 原本会在 agent 运行期间把所有 Enter 提交作为 Queue �
 
 running 标志位只用于提示交互状态。在同步变更边界上，AgentLoop 的 `acceptsNextStep` 值才是权威依据。如果该窗口已经关闭，操作会保持 Queue 单次入队项不变并返回类型化的 `steer-unavailable` 错误，随后原唤醒单次入队项会经 Queue 继续执行。如果驱动器已经认领该项，则返回现有的 `queue-item-not-found` 错误，且独立轮次投递已经开始。UI 会把两种竞态都视为已收敛的 Queue 投递，不显示失败通知；传输和未知错误仍会显示。
 
-Composer 对新输入采用另一套尽力而为契约。所寻址会话空闲时，Enter 和 Cmd/Ctrl+Enter 都执行普通 Queue 发送。主会话运行期间，General Settings 偏好会把普通 Enter 分配为 Queue（默认值）或 Steer，Cmd/Ctrl+Enter 则执行另一种行为；Shift+Enter 用于换行。已寻址 subagent 会让这两个手势都使用其仅支持 Queue 的继续执行传输。浏览器会持久化该偏好，并且它只影响支持 steering 的繁忙态手势对。如果 composer 直接发出的 Steer 错过当前 next-step 窗口，AgentLoop 会自动将其接纳为下一条唤醒 Queue 轮次，Web 不显示失败。
+Composer 对新输入采用另一套尽力而为契约。所寻址会话空闲时，Enter 和 Cmd/Ctrl+Enter 都执行普通 Queue 发送。主会话运行期间，General Settings 偏好会把普通 Enter 分配为 Queue（默认值）或 Steer，Cmd/Ctrl+Enter 则执行另一种行为；Shift+Enter 用于换行。已寻址 subagent 会让这两个手势都使用其仅支持 Queue 的继续执行传输。Host settings 文档会在共享同一 DSH home 的 Web origin 之间持久化该偏好，并且它只影响支持 steering 的繁忙态手势对。如果 composer 直接发出的 Steer 错过当前 next-step 窗口，AgentLoop 会自动将其接纳为下一条唤醒 Queue 轮次，Web 不显示失败。
 
 ### Agent 与生命周期边界
 
@@ -38,7 +38,7 @@ Host 仍以现有 `queuedMirror` 作为唯一的瞬态 inbox 权威。`session/q
 
 AgentLoop 认领待处理 steering 时，会在同步追加持久 `user/message` 之前立即发出 `agent/inbox/dequeue`。Host 会等到下一个微任务才退役该 steering 行，让持久 session 事件先进入线性 mux 流。客户端 Session 接纳该实时事件时，会在发布快照前退役第一个匹配的当前 steering 单次入队项；历史回放不会消费后来复用同一 `MessageId` 的单次入队项。因此，ChatView 无需扫描持久历史就能每次只渲染一份权威，持久投影则会根据已记录的事件时间与序号恢复时钟、复制与 fork 操作。追加失败时，已认领行仍会退役。
 
-现有 `session.prompt(mode: 'steer')` 对主会话新输入仍采用尽力而为的契约：在 next-step 窗口之外，它会变为唤醒 agent 的后续轮次。Composer 会让显式 `queue | steer` 模式经过 slash 裁决与引用序列化，再调用该契约。浏览器本地的提交策略拥有持久化的繁忙态 Enter 偏好，并且只为支持 steering 的会话把普通 Enter 与加速 Enter 解析为互补手势；Settings 行和 InputBar 共享该策略，不重复实现存储或投递窗口权威。只有 Queue 行操作采用严格语义，因为任一种负面结果都会经原 Queue 单次入队项收敛。
+现有 `session.prompt(mode: 'steer')` 对主会话新输入仍采用尽力而为的契约：在 next-step 窗口之外，它会变为唤醒 agent 的后续轮次。Composer 会让显式 `queue | steer` 模式经过 slash 裁决与引用序列化，再调用该契约。浏览器提交策略拥有实时繁忙态 Enter 偏好，而 Host settings 服务拥有持久性；该策略只为支持 steering 的会话把普通 Enter 与加速 Enter 解析为互补手势，Settings 行和 InputBar 共享该策略，不重复实现存储或投递窗口权威。只有 Queue 行操作采用严格语义，因为任一种负面结果都会经原 Queue 单次入队项收敛。
 
 ### 验证
 

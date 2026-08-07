@@ -1,13 +1,8 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
-  BUSY_ENTER_STORAGE_KEY, ComposerSubmissionPolicy, DEFAULT_BUSY_ENTER_BEHAVIOR,
+  ComposerSubmissionPolicy, DEFAULT_BUSY_ENTER_BEHAVIOR,
 } from '../src/client/input/submission-policy.ts'
-
-afterEach(() => {
-  vi.unstubAllGlobals()
-  localStorage.clear()
-})
 
 describe('ComposerSubmissionPolicy', () => {
   it('defaults to Queue and only applies the preference while running', () => {
@@ -21,6 +16,8 @@ describe('ComposerSubmissionPolicy', () => {
     expect(policy.resolve(true, 'accelerated', false)).toBe('queue')
 
     const changed = vi.fn()
+    const persist = vi.fn()
+    policy.bindPersistence(persist)
     policy.busyEnter.subscribe(changed)
     policy.setBusyEnter('steer')
     expect(changed).toHaveBeenCalledTimes(1)
@@ -28,40 +25,25 @@ describe('ComposerSubmissionPolicy', () => {
     expect(policy.resolve(true, 'accelerated', true)).toBe('queue')
     expect(policy.resolve(false, 'enter', true)).toBe('queue')
     expect(policy.resolve(false, 'accelerated', true)).toBe('queue')
-    expect(localStorage.getItem(BUSY_ENTER_STORAGE_KEY)).toBe('steer')
+    expect(persist).toHaveBeenCalledWith('steer')
   })
 
-  it('restores a valid preference and leaves an identical write untouched', () => {
-    localStorage.setItem(BUSY_ENTER_STORAGE_KEY, 'steer')
-    const write = vi.spyOn(Storage.prototype, 'setItem')
-    const policy = new ComposerSubmissionPolicy()
+  it('syncs a Host preference without writing it back and leaves an identical write untouched', () => {
+    const persist = vi.fn()
+    const policy = new ComposerSubmissionPolicy(persist)
+    policy.syncPreference('steer')
     expect(policy.busyEnter.getSnapshot()).toBe('steer')
     policy.setBusyEnter('steer')
-    expect(write).not.toHaveBeenCalled()
-    write.mockRestore()
+    expect(persist).not.toHaveBeenCalled()
   })
 
-  it('uses Queue for invalid, unavailable, or unreadable storage', () => {
-    localStorage.setItem(BUSY_ENTER_STORAGE_KEY, 'invalid')
-    expect(new ComposerSubmissionPolicy().busyEnter.getSnapshot()).toBe('queue')
-
-    vi.stubGlobal('localStorage', undefined)
-    expect(new ComposerSubmissionPolicy().busyEnter.getSnapshot()).toBe('queue')
-
-    vi.stubGlobal('localStorage', {
-      getItem: () => { throw new Error('blocked') },
-      setItem: vi.fn(),
-    })
-    expect(new ComposerSubmissionPolicy().busyEnter.getSnapshot()).toBe('queue')
-  })
-
-  it('keeps the in-memory preference when persistence throws', () => {
-    vi.stubGlobal('localStorage', {
-      getItem: () => null,
-      setItem: () => { throw new Error('quota') },
-    })
+  it('publishes the in-memory preference before calling the durable writer', () => {
     const policy = new ComposerSubmissionPolicy()
+    const persist = vi.fn(() => {
+      expect(policy.busyEnter.getSnapshot()).toBe('steer')
+    })
+    policy.bindPersistence(persist)
     policy.setBusyEnter('steer')
-    expect(policy.busyEnter.getSnapshot()).toBe('steer')
+    expect(persist).toHaveBeenCalledOnce()
   })
 })

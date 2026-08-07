@@ -19,6 +19,12 @@ usePinnedBrowserLanguages('zh-CN')
 
 const SLOT = 'settings.general.item'
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((done) => { resolve = done })
+  return { promise, resolve }
+}
+
 async function bench(isLoopback = true) {
   const ctx = new Context()
   await ctx.plugin(SlotsService).await()
@@ -122,7 +128,7 @@ describe('ui-theme apply', () => {
     declareItems(b.slots)
     await b.ctx.plugin({ inject: [...inject], apply }).await()
     const theme = b.ctx.get('theme') as ThemeService
-    expect(theme.getTheme().preference).toBe('dark')
+    await vi.waitFor(() => { expect(theme.getTheme().preference).toBe('dark') })
     b.ctx.emit('settings/changed', 'unrelated')
     expect(b.describe).toHaveBeenCalledOnce()
     b.setHostPreference('light')
@@ -140,6 +146,30 @@ describe('ui-theme apply', () => {
     await Promise.resolve()
     expect(remote.describe).not.toHaveBeenCalled()
     expect(remote.mutate).not.toHaveBeenCalled()
+  })
+
+  it('activates before a slow initial settings read and converges when it settles', async () => {
+    const b = await bench()
+    b.setHostPreference('dark')
+    const describe = b.describe.getMockImplementation()!
+    const pending = deferred<Awaited<ReturnType<typeof describe>>>()
+    b.describe.mockImplementationOnce(() => pending.promise)
+    const fiber = b.ctx.plugin({ inject: [...inject], apply })
+    await fiber.await()
+    const theme = b.ctx.get('theme') as ThemeService
+    expect(theme.getTheme().preference).toBe('system')
+    pending.resolve(await describe())
+    await vi.waitFor(() => { expect(theme.getTheme().preference).toBe('dark') })
+    await fiber.dispose()
+  })
+
+  it('ignores an invalid preference crossing the settings wire', async () => {
+    const b = await bench()
+    b.setHostPreference('sepia')
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    const theme = b.ctx.get('theme') as ThemeService
+    await vi.waitFor(() => { expect(b.describe).toHaveBeenCalledOnce() })
+    expect(theme.getTheme().preference).toBe('system')
   })
 
   it('recovers after an HMR collapse of the declaring entry (stale disposer must not block)', async () => {

@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-client-ui-conversation",
-  "description": "Conversation domain: skeleton (header/tabs/composer), chat view, ctx.toolviews registry, minimal details panel",
+  "description": "Conversation domain: shell, chat and tool views, input policy with Host-backed busy-Enter preference, and details panel",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -24,6 +24,7 @@
   },
   "dshClient": {
     "inject": [
+      "@deepseek-ai/dsh-client-connection",
       "@deepseek-ai/dsh-client-locale",
       "@deepseek-ai/dsh-client-runtime",
       "@deepseek-ai/dsh-client-ui-layout"
@@ -36,9 +37,12 @@
   },
   "license": "BSD-3-Clause",
   "dependencies": {
-    "clsx": "^2.0.0"
+    "@deepseek-ai/dsh-settings": "workspace:^",
+    "clsx": "^2.0.0",
+    "schemastery": "^3.18.0"
   },
   "peerDependencies": {
+    "@deepseek-ai/dsh-client-connection": "^0.0.1",
     "@deepseek-ai/dsh-client-locale": "^0.0.1",
     "@deepseek-ai/dsh-client-runtime": "^0.0.1",
     "@deepseek-ai/dsh-client-ui-primitives": "^0.0.1",
@@ -50,6 +54,7 @@
     "react": "^18.2.0"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-client-connection": "workspace:^",
     "@deepseek-ai/dsh-client-locale": "workspace:^",
     "@deepseek-ai/dsh-client-runtime": "workspace:^",
     "@deepseek-ai/dsh-client-test-runtime": "workspace:^",

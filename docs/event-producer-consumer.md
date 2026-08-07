@@ -62,14 +62,14 @@ This matrix shows which packages dispatch each harness-owned event and which pac
 | Event string | Dispatchers | Listeners |
 | --- | --- | --- |
 | `commands/changed` | `runtime` (`emit`) | `ui-command` |
-| `connection/reset` | `runtime` (`emit`) | `ui-command`, `ui-models`, `ui-permission`, `ui-settings-general`, `ui-theme` |
+| `connection/reset` | `runtime` (`emit`) | `runtime`, `ui-command`, `ui-models`, `ui-permission`, `ui-settings-general` |
 | `credentials/changed` | `runtime` (`emit`) | `ui-models` |
 | `internal/dispatch` | - | [`commands`](../packages/ui/commands), [`compact`](../packages/compact/compact), [`fs`](../packages/fs/fs), [`goal`](../packages/goal/goal), [`goal-session`](../packages/goal/goal-session), [`hook-protocol`](../packages/hooks/hook-protocol), [`llm-retry`](../packages/llm/llm-retry), [`permission`](../packages/ui/permission), [`plan-mode`](../packages/plan/plan-mode), [`pty-local`](../packages/pty/pty-local), `runtime`, [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`session-title`](../packages/session-title/session-title), [`subagent`](../packages/subagent/subagent), [`time-context`](../packages/context/time-context), [`tool-todo`](../packages/todo/tool-todo), [`tools`](../packages/core/tools), [`user-approval`](../packages/ui/user-approval), [`workflow`](../packages/workflow/workflow) |
 | `internal/plugin` | - | `hmr`, `loader`, `modules`, `webserver` |
 | `internal/status` | - | [`agent`](../packages/core/agent) |
 | `locale/change` | `locale` (`emit`) | `locale` |
 | `models/changed` | `runtime` (`emit`) | `ui-models` |
-| `settings/changed` | `runtime` (`emit`) | `ui-models`, `ui-permission`, `ui-settings-general`, `ui-theme` |
+| `settings/changed` | `runtime` (`emit`) | `runtime`, `ui-models`, `ui-permission`, `ui-settings-general` |
 | `slash/input-begin-command` | - | `ui-conversation` |
 | `slash/input-consume-token` | - | `ui-conversation` |
 | `slash/input-insert-reference` | - | `ui-conversation` |

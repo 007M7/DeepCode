@@ -4,12 +4,12 @@ import type { Context } from 'cordis'
 import z from 'schemastery'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import {
-  DEFAULT_PREFERENCE, THEME_PREFERENCE_FIELD, THEME_SETTINGS_NAMESPACE,
+  DEFAULT_PREFERENCE, THEME_PREFERENCE_FIELD, THEME_PREFERENCES, THEME_SETTINGS_NAMESPACE,
   type ThemePreference,
 } from './theme-settings.ts'
 
 export {
-  DEFAULT_PREFERENCE, THEME_PREFERENCE_FIELD, THEME_SETTINGS_NAMESPACE,
+  DEFAULT_PREFERENCE, THEME_PREFERENCE_FIELD, THEME_PREFERENCES, THEME_SETTINGS_NAMESPACE,
   type ThemePreference,
 } from './theme-settings.ts'
 
@@ -18,7 +18,7 @@ interface ThemeSettings {
 }
 
 const ThemeSettingsSchema: z<ThemeSettings> = z.object({
-  [THEME_PREFERENCE_FIELD]: z.union(['light', 'dark', 'system']).default(DEFAULT_PREFERENCE),
+  [THEME_PREFERENCE_FIELD]: z.union([...THEME_PREFERENCES]).default(DEFAULT_PREFERENCE),
 })
 
 /**

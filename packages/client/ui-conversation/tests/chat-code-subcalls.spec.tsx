@@ -137,6 +137,7 @@ async function bench(snapshot: ConversationSnapshot) {
   }
   ctx.provide('workspaces', workspaces)
   ctx.provide('layout', layout)
+  ctx.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
   const locale = new LocaleService(ctx)
   ctx.provide('locale', locale)
   slots.installLocale(locale)

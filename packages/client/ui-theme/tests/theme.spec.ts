@@ -71,8 +71,7 @@ describe('ThemeService', () => {
     expect(theme.getTheme().themes.map(t => t.id)).toEqual(['light', 'dark'])
     // Custom ids are in-process extension themes; only the built-in product
     // preferences cross the Host settings schema.
-    expect(persist).toHaveBeenCalledTimes(1)
-    expect(persist).toHaveBeenCalledWith('system')
+    expect(persist).not.toHaveBeenCalled()
     // register + set + dispose = three publishes; disposer is idempotent.
     expect(events.length).toBe(3)
     dispose()

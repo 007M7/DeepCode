@@ -18,11 +18,46 @@ import { AppWebEntry } from '@deepseek-ai/dsh-client-web'
 const PLUGINS: readonly (WebBootEntry & { dir: string })[] = [
   { id: '@deepseek-ai/dsh-client-connection', dir: 'connection', url: '/plugins/connection.js', rev: 'fx', inject: [], immediately: true },
   { id: '@deepseek-ai/dsh-client-runtime', dir: 'runtime', url: '/plugins/runtime.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-connection'], immediately: true },
-  { id: '@deepseek-ai/dsh-client-ui-theme', dir: 'ui-theme', url: '/plugins/ui-theme.js', rev: 'fx', inject: [], immediately: true },
-  { id: '@deepseek-ai/dsh-client-locale', dir: 'locale', url: '/plugins/locale.js', rev: 'fx', inject: [], immediately: true },
-  { id: '@deepseek-ai/dsh-client-ui-layout', dir: 'ui-layout', url: '/plugins/ui-layout.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-runtime'] },
+  {
+    id: '@deepseek-ai/dsh-client-ui-theme',
+    dir: 'ui-theme',
+    url: '/plugins/ui-theme.js',
+    rev: 'fx',
+    inject: [
+      '@deepseek-ai/dsh-client-connection',
+      '@deepseek-ai/dsh-client-runtime',
+      '@deepseek-ai/dsh-client-locale',
+    ],
+    immediately: true,
+  },
+  {
+    id: '@deepseek-ai/dsh-client-locale',
+    dir: 'locale',
+    url: '/plugins/locale.js',
+    rev: 'fx',
+    inject: ['@deepseek-ai/dsh-client-connection', '@deepseek-ai/dsh-client-runtime'],
+    immediately: true,
+  },
+  {
+    id: '@deepseek-ai/dsh-client-ui-layout',
+    dir: 'ui-layout',
+    url: '/plugins/ui-layout.js',
+    rev: 'fx',
+    inject: ['@deepseek-ai/dsh-client-runtime', '@deepseek-ai/dsh-client-ui-theme'],
+  },
   { id: '@deepseek-ai/dsh-client-ui-sidebar', dir: 'ui-sidebar', url: '/plugins/ui-sidebar.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-ui-layout'] },
-  { id: '@deepseek-ai/dsh-client-ui-conversation', dir: 'ui-conversation', url: '/plugins/ui-conversation.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-ui-layout'] },
+  {
+    id: '@deepseek-ai/dsh-client-ui-conversation',
+    dir: 'ui-conversation',
+    url: '/plugins/ui-conversation.js',
+    rev: 'fx',
+    inject: [
+      '@deepseek-ai/dsh-client-connection',
+      '@deepseek-ai/dsh-client-locale',
+      '@deepseek-ai/dsh-client-runtime',
+      '@deepseek-ai/dsh-client-ui-layout',
+    ],
+  },
   {
     id: '@deepseek-ai/dsh-client-ui-workspace',
     dir: 'ui-workspace',
@@ -66,7 +101,8 @@ let unmount: (() => void) | undefined
 export function installAssembledBootEnv(): void {
   beforeEach(() => {
     localStorage.clear()
-    localStorage.setItem('dsh.locale', 'en')
+    Object.defineProperty(navigator, 'languages', { value: ['en-US'], configurable: true })
+    Object.defineProperty(navigator, 'language', { value: 'en-US', configurable: true })
     document.title = 'DeepSeek Harness'
     vi.stubGlobal('ResizeObserver', ResizeObserverStub)
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) =>
@@ -84,6 +120,9 @@ export function installAssembledBootEnv(): void {
     document.head.querySelectorAll('style[data-plugin]').forEach((style) => { style.remove() })
     document.title = ''
     history.replaceState(null, '', '/')
+    const ownNavigator = navigator as unknown as Record<string, unknown>
+    delete ownNavigator.languages
+    delete ownNavigator.language
     vi.unstubAllGlobals()
   })
 }

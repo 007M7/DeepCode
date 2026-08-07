@@ -8,28 +8,24 @@
  * settings General section — the theme feature owns its own settings surface.
  */
 import type { Context } from 'cordis'
-import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import { bindSettingsPreference, type ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type { AppearanceRowInjected } from './AppearanceRow.tsx'
 import { AppearanceRow } from './AppearanceRow.tsx'
 import { createAppearanceRowStore } from './settings-store.ts'
-import { ThemeSettingsController } from './theme-settings.ts'
 import { en, zh, type ThemeKey } from './locales.ts'
 import {
-  DEFAULT_PREFERENCE, isThemePreference, THEME_SETTINGS_NAMESPACE,
+  DEFAULT_PREFERENCE, isThemePreference, THEME_PREFERENCE_FIELD, THEME_SETTINGS_NAMESPACE,
   type ThemePreference,
 } from '../theme-settings.ts'
 
 export type { AppearanceRowComponentProps, AppearanceRowInjected } from './AppearanceRow.tsx'
 export type { AppearanceRowState } from './settings-store.ts'
-export type { ThemePreferenceTarget } from './theme-settings.ts'
-export { ThemeSettingsController } from './theme-settings.ts'
 export type { ThemeKey } from './locales.ts'
 export {
-  DEFAULT_PREFERENCE, THEME_PREFERENCE_FIELD, THEME_SETTINGS_NAMESPACE,
+  DEFAULT_PREFERENCE, THEME_PREFERENCE_FIELD, THEME_PREFERENCES, THEME_SETTINGS_NAMESPACE,
   type ThemePreference,
 } from '../theme-settings.ts'
 
@@ -196,7 +192,6 @@ export class ThemeService {
       this.themes = this.themes.filter(t => t.id !== definition.id)
       if (this.preference === definition.id) {
         this.preference = DEFAULT_PREFERENCE
-        this.persist(this.preference)
       }
       this.publish()
     }
@@ -235,32 +230,16 @@ export const inject = ['slots', 'locale', 'connection']
  * slot (a feature owns its settings surface).
  * @param ctx - client cordis context.
  */
-export async function apply(ctx: ClientContext): Promise<void> {
-  const connection = ctx.get('connection') as ConnectionHandle
+export function apply(ctx: ClientContext): void {
   const theme = new ThemeService(ctx)
-  const controller = new ThemeSettingsController(
-    connection.api,
-    theme,
-    connection.isLoopback ? 'host' : 'memory',
-  )
+  const controller = bindSettingsPreference(ctx, {
+    namespace: THEME_SETTINGS_NAMESPACE,
+    field: THEME_PREFERENCE_FIELD,
+    decode: value => isThemePreference(value) ? value : undefined,
+    sync: (preference) => { theme.syncPreference(preference) },
+  })
   theme.bindPersistence((preference) => { void controller.persist(preference) })
-  await controller.load()
   ctx.provide('theme', theme)
-
-  ctx.effect(() => {
-    const refresh = (ns?: string): void => {
-      if (ns !== undefined && ns !== THEME_SETTINGS_NAMESPACE) return
-      void controller.load()
-    }
-    const disposers = [
-      ctx.on('settings/changed', refresh),
-      ctx.on('connection/reset', () => { refresh() }),
-    ]
-    return () => {
-      controller.dispose()
-      for (const dispose of disposers) dispose()
-    }
-  }, 'ui-theme: settings invalidations')
 
   ctx.effect(() => ctx.locale.register(SETTINGS_NS, { zh, en }), 'ui-theme: settings row dictionaries')
 

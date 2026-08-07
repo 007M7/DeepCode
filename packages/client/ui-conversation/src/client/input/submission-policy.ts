@@ -1,5 +1,5 @@
 /**
- * Browser-local Composer submission policy. It owns the persisted busy-Enter
+ * Composer submission policy. It owns the live busy-Enter
  * preference and resolves keyboard gestures into queue/steer delivery modes;
  * Host and Agent keep the actual delivery-window authority.
  */
@@ -7,12 +7,9 @@ import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client
 import type {
   BusyEnterBehavior, ComposerSubmitGesture, InputSubmitMode,
 } from '../contract/composer-submission.ts'
+import { DEFAULT_BUSY_ENTER_BEHAVIOR } from '../../submission-settings.ts'
 
-/** localStorage key holding the busy-Enter preference. */
-export const BUSY_ENTER_STORAGE_KEY = 'dsh.conversation.busyEnter'
-
-/** Default preserves Enter-as-Queue for running conversations. */
-export const DEFAULT_BUSY_ENTER_BEHAVIOR: BusyEnterBehavior = 'queue'
+export { DEFAULT_BUSY_ENTER_BEHAVIOR } from '../../submission-settings.ts'
 
 /**
  * Persisted policy used by both the composer inject face and its Settings row.
@@ -21,7 +18,21 @@ export const DEFAULT_BUSY_ENTER_BEHAVIOR: BusyEnterBehavior = 'queue'
  */
 export class ComposerSubmissionPolicy {
   /** Reactive preference source for the Settings row. */
-  readonly busyEnter: SnapshotStore<BusyEnterBehavior> = createSnapshotStore(restoreBusyEnter())
+  readonly busyEnter: SnapshotStore<BusyEnterBehavior> = createSnapshotStore(DEFAULT_BUSY_ENTER_BEHAVIOR)
+  private persist: (behavior: BusyEnterBehavior) => void
+
+  /** @param persist - durable write callback for explicit behavior changes. */
+  constructor(persist: (behavior: BusyEnterBehavior) => void = () => {}) {
+    this.persist = persist
+  }
+
+  /**
+   * Bind the owning plugin's durable writer before the policy is exposed.
+   * @param persist - callback accepting explicit behavior changes.
+   */
+  bindPersistence(persist: (behavior: BusyEnterBehavior) => void): void {
+    this.persist = persist
+  }
 
   /**
    * Resolve one keyboard gesture without changing state.
@@ -42,36 +53,21 @@ export class ComposerSubmissionPolicy {
   }
 
   /**
-   * Change and persist the plain-Enter behavior used during busy state.
+   * Change the plain-Enter behavior used during busy state.
    * @param behavior - Queue or Steer.
    */
   setBusyEnter(behavior: BusyEnterBehavior): void {
     if (this.busyEnter.getSnapshot() === behavior) return
     this.busyEnter.set(behavior)
-    persistBusyEnter(behavior)
+    this.persist(behavior)
   }
-}
 
-/** Restore a valid preference; unavailable or corrupt storage uses Queue. */
-function restoreBusyEnter(): BusyEnterBehavior {
-  if (typeof localStorage === 'undefined') return DEFAULT_BUSY_ENTER_BEHAVIOR
-  let stored: string | null
-  try {
-    stored = localStorage.getItem(BUSY_ENTER_STORAGE_KEY)
-  } catch {
-    // Storage access can fail in privacy modes; the default remains usable.
-    return DEFAULT_BUSY_ENTER_BEHAVIOR
-  }
-  if (stored === 'queue' || stored === 'steer') return stored
-  return DEFAULT_BUSY_ENTER_BEHAVIOR
-}
-
-/** Persist a preference when browser storage is available. */
-function persistBusyEnter(behavior: BusyEnterBehavior): void {
-  if (typeof localStorage === 'undefined') return
-  try {
-    localStorage.setItem(BUSY_ENTER_STORAGE_KEY, behavior)
-  } catch {
-    // A storage failure makes the preference session-only; input stays usable.
+  /**
+   * Apply a Host preference without writing it back.
+   * @param behavior - validated behavior from settings.
+   */
+  syncPreference(behavior: BusyEnterBehavior): void {
+    if (this.busyEnter.getSnapshot() === behavior) return
+    this.busyEnter.set(behavior)
   }
 }

@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 // Branch tails the acceptance specs do not reach: ToolRow stopped-state dot,
-// bash sample state dots, the node-half empty apply, and AssistantMarkdown
+// bash sample state dots, the node-half optional settings registration, and AssistantMarkdown
 // reasoning/unknown block arms.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { Context } from 'cordis'
 import { cleanup, render } from '@testing-library/react'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
@@ -25,8 +26,8 @@ const t: GenericToolCardProps['t'] = makeTranslate(zh, commonZh)
 afterEach(cleanup)
 
 describe('tails', () => {
-  it('node-half apply is an intentional no-op', () => {
-    expect(() => { nodeApply() }).not.toThrow()
+  it('node-half apply tolerates a Host without settings', () => {
+    expect(() => { nodeApply(new Context()) }).not.toThrow()
   })
 
   it('ToolRow stopped state renders the warning dot in the leading slot', () => {

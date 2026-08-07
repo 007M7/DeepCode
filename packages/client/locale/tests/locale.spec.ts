@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import type { LocaleSnapshot } from '@deepseek-ai/dsh-client-locale/client'
-import { LocaleService, STORAGE_KEY } from '@deepseek-ai/dsh-client-locale/client'
+import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
 
 const make = (): { ctx: Context; svc: LocaleService; events: LocaleSnapshot[] } => {
   const ctx = new Context()
@@ -24,7 +24,6 @@ const stubLanguages = (...tags: string[]): void => {
 
 describe('LocaleService', () => {
   beforeEach(() => {
-    localStorage.clear()
     // A Chinese browser is the baseline these specs assert their zh state on.
     stubLanguages('zh-CN')
   })
@@ -132,16 +131,19 @@ describe('LocaleService', () => {
     expect(svc.getSnapshot().revision).toBe(before + 1)
   })
 
-  it('setLocale persists, republishes an immutable snapshot, and no-ops on same value', () => {
+  it('setLocale requests persistence, republishes an immutable snapshot, and no-ops on same value', () => {
     const { svc, events } = make()
+    const persist = vi.fn()
+    svc.bindPersistence(persist)
     svc.setLocale('en')
     expect(svc.getLocale().active).toBe('en')
-    expect(localStorage.getItem(STORAGE_KEY)).toBe('en')
+    expect(persist).toHaveBeenCalledWith('en')
     expect(events).toHaveLength(1)
     expect(events[0]).toBe(svc.getLocale())
     expect(events[0]!.revision).toBe(1)
     svc.setLocale('en')
     expect(events).toHaveLength(1)
+    expect(persist).toHaveBeenCalledOnce()
   })
 
   it('throws on unknown locale ids', () => {
@@ -149,14 +151,19 @@ describe('LocaleService', () => {
     expect(() => { svc.setLocale('fr') }).toThrow('not registered')
   })
 
-  it('restores a persisted locale over the browser language, and garbage reads as no preference', () => {
-    localStorage.setItem(STORAGE_KEY, 'en')
-    expect(make().svc.getLocale().active).toBe('en')
-    localStorage.setItem(STORAGE_KEY, 'fr')
-    expect(make().svc.getLocale().active).toBe('zh')
+  it('syncs a Host preference over the browser language without writing it back', () => {
+    const { svc, events } = make()
+    const persist = vi.fn()
+    svc.bindPersistence(persist)
+    svc.syncPreference('en')
+    expect(svc.getLocale().active).toBe('en')
+    expect(events).toHaveLength(1)
+    expect(persist).not.toHaveBeenCalled()
+    svc.syncPreference('en')
+    expect(events).toHaveLength(1)
   })
 
-  it('opens in the browser language when nothing is persisted, matching regional variants on their primary subtag', () => {
+  it('opens provisionally in the browser language, matching regional variants on their primary subtag', () => {
     stubLanguages('en-GB', 'zh-CN')
     expect(make().svc.getLocale().active).toBe('en')
     stubLanguages('zh-Hant-TW')
@@ -176,8 +183,7 @@ describe('LocaleService', () => {
     expect(make().svc.getLocale().active).toBe('zh')
   })
 
-  it('runs outside a browser (node boots): the fallback decides, the machine language does not, writes no-op', () => {
-    vi.stubGlobal('localStorage', undefined)
+  it('runs outside a browser (node boots): the fallback decides and the machine language does not', () => {
     vi.stubGlobal('window', undefined)
     // Node exposes its own global navigator; without a window it must not
     // reach the resolution at all.
@@ -188,12 +194,11 @@ describe('LocaleService', () => {
     expect(svc.getLocale().active).toBe('en')
   })
 
-  it('keeps the browser language out of the way once a preference exists', () => {
+  it('lets an explicit in-process preference replace the browser-derived value', () => {
     stubLanguages('en-US')
     const { svc } = make()
     svc.setLocale('zh')
-    expect(localStorage.getItem(STORAGE_KEY)).toBe('zh')
-    expect(make().svc.getLocale().active).toBe('zh')
+    expect(svc.getLocale().active).toBe('zh')
   })
 
   it('exposes the two shipped locales with self-described labels', () => {

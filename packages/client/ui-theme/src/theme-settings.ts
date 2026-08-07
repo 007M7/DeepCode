@@ -1,5 +1,8 @@
 /** Theme preferences stored in the Host user-settings document. */
 
+/** Built-in preferences accepted at the registry and settings boundaries. */
+export const THEME_PREFERENCES = ['light', 'dark', 'system'] as const
+
 /** Settings namespace owned by the theme plugin. */
 export const THEME_SETTINGS_NAMESPACE = 'ui-theme'
 
@@ -7,7 +10,7 @@ export const THEME_SETTINGS_NAMESPACE = 'ui-theme'
 export const THEME_PREFERENCE_FIELD = 'preference'
 
 /** Theme preference persisted by the product Appearance row. */
-export type ThemePreference = 'light' | 'dark' | 'system'
+export type ThemePreference = typeof THEME_PREFERENCES[number]
 
 /** Default preference when the user-settings document has no override. */
 export const DEFAULT_PREFERENCE: ThemePreference = 'system'
@@ -18,5 +21,5 @@ export const DEFAULT_PREFERENCE: ThemePreference = 'system'
  * @returns whether the value is a built-in preference.
  */
 export function isThemePreference(value: unknown): value is ThemePreference {
-  return value === 'light' || value === 'dark' || value === 'system'
+  return THEME_PREFERENCES.some(preference => preference === value)
 }

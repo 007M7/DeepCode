@@ -1286,6 +1286,16 @@ importers:
         version: link:../../../vendor/cordis
 
   packages/client/locale:
+    dependencies:
+      '@deepseek-ai/dsh-client-connection':
+        specifier: ^0.0.1
+        version: link:../connection
+      '@deepseek-ai/dsh-settings':
+        specifier: workspace:^
+        version: link:../../settings/settings
+      schemastery:
+        specifier: ^3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-client-runtime':
         specifier: workspace:^
@@ -1480,10 +1490,19 @@ importers:
 
   packages/client/ui-conversation:
     dependencies:
+      '@deepseek-ai/dsh-settings':
+        specifier: workspace:^
+        version: link:../../settings/settings
       clsx:
         specifier: ^2.0.0
         version: 2.1.1
+      schemastery:
+        specifier: ^3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
+      '@deepseek-ai/dsh-client-connection':
+        specifier: workspace:^
+        version: link:../connection
       '@deepseek-ai/dsh-client-locale':
         specifier: workspace:^
         version: link:../locale
@@ -2142,6 +2161,9 @@ importers:
 
   packages/client/ui-theme:
     dependencies:
+      '@deepseek-ai/dsh-client-connection':
+        specifier: ^0.0.1
+        version: link:../connection
       '@deepseek-ai/dsh-settings':
         specifier: workspace:^
         version: link:../../settings/settings
@@ -2152,9 +2174,6 @@ importers:
         specifier: ^3.18.0
         version: link:../../../vendor/schemastery
     devDependencies:
-      '@deepseek-ai/dsh-client-connection':
-        specifier: workspace:^
-        version: link:../connection
       '@deepseek-ai/dsh-client-locale':
         specifier: workspace:^
         version: link:../locale
