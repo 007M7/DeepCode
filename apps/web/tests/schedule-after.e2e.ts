@@ -3,7 +3,7 @@
 // one-second owner path queues a best-effort followup, commits dispatch, and
 // renders the Host's durability-gated reminder sidecar. A separate browser
 // scenario drives local at through the real zone wire and model tool call.
-import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -11,8 +11,8 @@ import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import type { AgentHandle } from '@deepseek-ai/dsh-agent'
-import { CallId, createUserMessage } from '@deepseek-ai/dsh-llm'
-import type { ReplayEntry } from '@deepseek-ai/dsh-llm-replay'
+import { CallId, createUserMessage, LlmAdapter } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
 import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
@@ -42,6 +42,50 @@ interface CreatedScheduleView {
   kind: 'after' | 'at'
   scheduledAt: string
   deliveryMode: 'session-local'
+}
+
+/** Deterministic model boundary that selects local at relative to its actual first request. */
+class BrowserZoneAtAdapter extends LlmAdapter {
+  readonly requests: GenerateOptions[] = []
+  scheduledAt: string | undefined
+
+  override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+    return Promise.resolve({ provider, id: model, name: model, contextWindow: 128_000 })
+  }
+
+  override async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
+    this.requests.push(options)
+    if (this.requests.length === 1) {
+      const target = Math.ceil((Date.now() + 10_000) / 1_000) * 1_000
+      const scheduledAt = new Date(target).toISOString()
+      this.scheduledAt = scheduledAt
+      const args = JSON.stringify({
+        prompt: AT_PROMPT,
+        at: { date: scheduledAt.slice(0, 10), time: scheduledAt.slice(11, 19) },
+      })
+      const callId = CallId('schedule-at-wire-call')
+      yield { type: 'block-start', index: 0, blockType: 'tool-call' }
+      yield {
+        type: 'tool-call-delta', index: 0, id: callId,
+        name: 'schedule_create', argumentsDelta: args,
+      }
+      yield {
+        type: 'block-end', index: 0,
+        block: { type: 'tool-call', id: callId, name: 'schedule_create', arguments: args },
+      }
+      yield { type: 'usage', usage: { inputTokens: 256, outputTokens: 32 } }
+      yield { type: 'finish', reason: { kind: 'tool-calls' } }
+      return
+    }
+    const text = this.requests.length === 2
+      ? 'The zone-aware reminder is scheduled.'
+      : 'The zone-aware reminder is due.'
+    yield { type: 'block-start', index: 0, blockType: 'text' }
+    yield { type: 'text-delta', index: 0, text }
+    yield { type: 'block-end', index: 0, block: { type: 'text', text } }
+    yield { type: 'usage', usage: { inputTokens: 128, outputTokens: 16 } }
+    yield { type: 'finish', reason: { kind: 'stop' } }
+  }
 }
 
 /** Wait for one in-process lifecycle fact without using test-scoped expect.poll in beforeAll. */
@@ -187,59 +231,12 @@ describe.skipIf(MODE === 'record')('web e2e: browser-zone local at reminder', ()
   let browser: Browser
   let page: Page
   let tripwire: ReturnType<typeof watchConsole>
-  let replayDir: string
-  let scheduledAt: string
+  const adapter = new BrowserZoneAtAdapter()
 
   beforeAll(async () => {
-    replayDir = await mkdtemp(join(tmpdir(), 'dsh-schedule-at-wire-replay-'))
-    const replayOverride = join(replayDir, 'replay.override.json')
-    const target = Math.ceil((Date.now() + 30_000) / 1_000) * 1_000
-    scheduledAt = new Date(target).toISOString()
-    const args = JSON.stringify({
-      prompt: AT_PROMPT,
-      at: { date: scheduledAt.slice(0, 10), time: scheduledAt.slice(11, 19) },
-    })
-    const callId = CallId('schedule-at-wire-call')
-    const toolCall: ReplayEntry = {
-      kind: 'chunks',
-      chunks: [
-        { type: 'block-start', index: 0, blockType: 'tool-call' },
-        {
-          type: 'tool-call-delta',
-          index: 0,
-          id: callId,
-          name: 'schedule_create',
-          argumentsDelta: args,
-        },
-        {
-          type: 'block-end',
-          index: 0,
-          block: { type: 'tool-call', id: callId, name: 'schedule_create', arguments: args },
-        },
-        { type: 'usage', usage: { inputTokens: 256, outputTokens: 32 } },
-        { type: 'finish', reason: { kind: 'tool-calls' } },
-      ],
-    }
-    const textReply = (text: string): ReplayEntry => ({
-      kind: 'chunks',
-      chunks: [
-        { type: 'block-start', index: 0, blockType: 'text' },
-        { type: 'text-delta', index: 0, text },
-        { type: 'block-end', index: 0, block: { type: 'text', text } },
-        { type: 'usage', usage: { inputTokens: 128, outputTokens: 16 } },
-        { type: 'finish', reason: { kind: 'stop' } },
-      ],
-    })
-    await writeFile(replayOverride, JSON.stringify([
-      toolCall,
-      textReply('The zone-aware reminder is scheduled.'),
-      textReply('The zone-aware reminder is due.'),
-    ] satisfies ReplayEntry[]))
     scaffold = await launchWebScaffold({
       extraOverlayPath: OVERLAY,
-      replayFixture: join(replayDir, 'override-only.jsonl'),
-      replayOverride,
-      replayContextWindow: 128_000,
+      fixtureAdapter: adapter,
     })
     browser = await chromium.launch()
     page = await browser.newPage({
@@ -258,7 +255,6 @@ describe.skipIf(MODE === 'record')('web e2e: browser-zone local at reminder', ()
     const failures: unknown[] = []
     await browser?.close().catch((error: unknown) => failures.push(error))
     await scaffold?.close().catch((error: unknown) => failures.push(error))
-    await rm(replayDir, { recursive: true, force: true }).catch((error: unknown) => failures.push(error))
     if (failures.length === 1) throw failures[0]
     if (failures.length > 1) throw new AggregateError(failures, 'Schedule at wire evidence teardown failed')
   })
@@ -300,6 +296,14 @@ describe.skipIf(MODE === 'record')('web e2e: browser-zone local at reminder', ()
     expect(timeContextIndex).toBeGreaterThanOrEqual(0)
     expect(toolCallIndex).toBeGreaterThan(timeContextIndex)
 
+    const firstRequest = adapter.requests[0]
+    if (firstRequest === undefined) throw new Error('model did not receive the browser prompt')
+    expect(JSON.stringify(firstRequest.messages)).toContain('Session time zone: UTC.')
+    expect(JSON.stringify(firstRequest.messages)).toContain('Client time zone for this request: UTC.')
+    expect(firstRequest.tools?.some(tool => tool.name === 'schedule_create')).toBe(true)
+
+    const scheduledAt = adapter.scheduledAt
+    if (scheduledAt === undefined) throw new Error('model did not choose a local at target')
     const created = agent.session.events.find(event =>
       event.type === 'schedule/change'
       && event.data.operation === 'create'
@@ -312,8 +316,9 @@ describe.skipIf(MODE === 'record')('web e2e: browser-zone local at reminder', ()
     await waitForFact(() => agent.session.events.some(event =>
       event.type === 'schedule/change'
       && event.data.operation === 'dispatch'
-      && event.data.id === scheduleId), 45_000)
+      && event.data.id === scheduleId), 20_000)
     await agent.whenIdle()
+    expect(adapter.requests).toHaveLength(3)
     await expect(scaffold.ctx.sessions.flush(agent.session)).resolves.toBe(true)
 
     const history = await scaffold.ctx.apiProxy.sessions.history({

@@ -173,6 +173,7 @@ function validateSession(session: Session, fail: InvariantFailure): void {
 /** Install validation for loaded and newly appended context readings. */
 const install: InvariantInstaller = Object.assign((ctx: Context, fail: InvariantFailure) => {
   for (const session of ctx.sessions.list()) validateSession(session, fail)
+  ctx.on('session/created', (session) => { validateSession(session, fail) }, { global: true })
   ctx.on('internal/dispatch', (_mode, eventName, args) => {
     if (eventName !== 'session/event') return
     const [session, event] = args as [Session, SessionEvent]

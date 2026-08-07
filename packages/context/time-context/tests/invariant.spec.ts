@@ -189,6 +189,38 @@ describe('time-context invariants', () => {
     }).toThrow(/Session time zone cannot format its durable timestamp/)
   })
 
+  it('rejects a malformed reading seeded after companion setup', async () => {
+    const ctx = await setup()
+    const id = SessionId('time-invariant-future-seed')
+    const text = reading(
+      '1',
+      '1',
+      'model-visible message',
+      '2026-07-14T00:00:00+00:00[UTC]',
+      'Asia/Shanghai',
+      'Asia/Shanghai',
+    )
+    expect(() => ctx.sessions.create(id, {
+      meta: { timeZone: 'Asia/Shanghai' },
+      seed: [
+        { type: 'turn/start', seq: 0, time: SECOND, data: { turn: 1 } },
+        {
+          type: 'user/message',
+          seq: 1,
+          time: SECOND,
+          surfaceOp: 'append',
+          data: createUserMessage({
+            content: [{ type: 'text', text: 'seeded request' }],
+            source: { kind: 'user', rpcId: 'seeded-request', clientTimeZone: 'Asia/Shanghai' } as never,
+          }),
+        },
+        { type: 'step/start', seq: 2, time: SECOND, data: { turn: 1, step: 1 } },
+        { ...event(text), seq: 3, surfaceOp: 'append' },
+      ],
+    })).toThrow(/rendered timestamp does not match the Session time zone/)
+    expect(ctx.sessions.get(id)).toBeUndefined()
+  })
+
   it('rejects a time-context source that duplicates request authority', async () => {
     const ctx = await setup()
     const base = event(reading())

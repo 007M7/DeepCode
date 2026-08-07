@@ -196,6 +196,8 @@ export interface LaunchOptions {
   paceMs?: number
   /** Synthetic model capacity for UI scenarios whose seeded history must remain uncompacted. */
   replayContextWindow?: number
+  /** Caller-owned keyless adapter for a fixture that must derive its response at stream time. */
+  fixtureAdapter?: LlmAdapter
   /**
    * Tool presentation mode patched onto the shipped `tools` row (`code`
    * collapses the wire to run_code + the SDK prompt section). Omit for the
@@ -263,6 +265,11 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   }
   if (mode === 'record' && options.deepSeekMissingCredential === true) {
     throw new Error('deepSeekMissingCredential is a keyless replay/refresh option')
+  }
+  if (options.fixtureAdapter !== undefined
+    && (mode === 'record' || options.replayFixture !== undefined
+      || options.deepSeekMissingCredential === true)) {
+    throw new Error('fixtureAdapter is exclusive with record, replayFixture, and deepSeekMissingCredential')
   }
   const maskDeepSeekCredential = mode !== 'record' && options.deepSeekMissingCredential === true
   const originalDeepSeekCredential = process.env.DEEPSEEK_API_KEY
@@ -442,8 +449,8 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
       // issues no model calls, and one that slipped in must not pass quietly.
       ctx.effect(() => ctx.llm.registerAdapter(
         replayProviders(options.replayContextWindow).map(provider => provider.id),
-        new RouteOnlyAdapter(replayProviders(options.replayContextWindow)),
-      ), 'web e2e scaffold: route-only adapter')
+        options.fixtureAdapter ?? new RouteOnlyAdapter(replayProviders(options.replayContextWindow)),
+      ), 'web e2e scaffold: fixture adapter')
     }
   } catch (error) {
     if (process.cwd() !== originalCwd) process.chdir(originalCwd)
