@@ -11,10 +11,11 @@
 
 import { memo, useMemo } from 'react'
 import type { AssistantBlock } from '@deepseek-ai/dsh-client-runtime/client'
+import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   IconThinkOutline14, JsonBlock, MarkdownText,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { ChatViewSlotProps } from '../contract/slots.ts'
+import type { ChatViewSlotProps, TurnTailOwnerProps } from '../contract/slots.ts'
 import { hasContentText } from './chat-flow.ts'
 import { MessageIconActions } from './MessageIconActions.tsx'
 import { ToolRow } from './ToolRow.tsx'
@@ -40,6 +41,8 @@ export interface AssistantMarkdownProps {
   seq?: number | undefined
   /** Fork the session through this finalized message's completed turn when eligible. */
   onFork?: ((seq: number) => void) | undefined
+  /** Turn-tail slot dispatch share and owner currency; omitted for a mid-turn assistant. */
+  turnTail?: (Pick<PropsRenderSlots<'conversation.chat.turnTail'>, 'renderSlotChain'> & { owner: TurnTailOwnerProps }) | undefined
   /** The message is not the transcript tail of a completed turn. */
   forkUnavailable?: boolean | undefined
   /** The owning view's locale seat, passed down as a plain prop. */
@@ -83,7 +86,7 @@ function ThinkRow({ text, running, t }: { text: string; running: boolean; t: Ass
 }
 
 export const AssistantMarkdown = memo(function AssistantMarkdown({
-  blocks, streaming, interrupted, time, runMs, ttftMs, tokensPerSecond, seq, onFork, forkUnavailable, t,
+  blocks, streaming, interrupted, time, runMs, ttftMs, tokensPerSecond, seq, onFork, forkUnavailable, turnTail, t,
 }: AssistantMarkdownProps) {
   // Stable per locale revision (t identity changes on switch): a fresh object
   // per render would rebuild MarkdownText's component table every chunk.
@@ -121,6 +124,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
         })}
         {interrupted && <span className={css.stopped}>{t('message.stopped')}</span>}
       </div>
+      {showActions && turnTail?.renderSlotChain('conversation.chat.turnTail', turnTail.owner)}
       {showActions && (
         <MessageIconActions
           text={copyText(blocks)}
