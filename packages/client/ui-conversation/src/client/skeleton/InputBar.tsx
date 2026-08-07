@@ -89,6 +89,8 @@ export function InputBar({
   const disabled = removed || inert || !live
   const locked = disabled
   const machineBusy = input?.phase === 'adjudicating' || input?.phase === 'submitting'
+  const canSteerQueue = !locked && !machineBusy && empty && running && subagent === null
+    && input.queue.some(row => row.placement === 'queued')
 
   // Scroll the draft scrollport the minimum that brings `caret` into view — the
   // browser's own behavior for typing, performed for the paths where it does
@@ -253,8 +255,7 @@ export function InputBar({
     // still-pending queued message into the running turn (the dock's per-row
     // steer button applied to the whole queue). Steering needs the same
     // window as the per-row button: a running ordinary session.
-    if (accelerated && empty && running && subagent === null
-      && input.queue.some(row => row.placement === 'queued')) {
+    if (accelerated && canSteerQueue) {
       keyboard.steerQueue()
       return
     }
@@ -485,7 +486,9 @@ export function InputBar({
               data-phase={input?.phase ?? 'inert'}
               placeholder={placeholder ?? (disabled
                 ? t('placeholder.unavailable')
-                : planActive ? t('placeholder.plan') : t('placeholder.default'))}
+                : canSteerQueue
+                  ? t('input.steerQueueShortcut')
+                  : planActive ? t('placeholder.plan') : t('placeholder.default'))}
               rows={2}
               onChange={onChange}
               onKeyDown={onKeyDown}
