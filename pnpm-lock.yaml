@@ -6172,9 +6172,6 @@ importers:
 
   packages/typert/generator:
     dependencies:
-      '@deepseek-ai/dsh-type-meta':
-        specifier: workspace:^
-        version: link:../type-meta
       '@jridgewell/gen-mapping':
         specifier: ^0.3.13
         version: 0.3.13

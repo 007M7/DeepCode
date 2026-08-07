@@ -8,7 +8,6 @@
 import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { dirname, extname, join, relative, resolve, sep } from 'node:path'
 import ts from 'typescript'
-import { isTypeRTRemoteSegment } from '@deepseek-ai/dsh-type-meta'
 import type {
   CrossFaceLink,
   DocumentationModel,
@@ -2811,7 +2810,7 @@ function stringLiteralValue(node: ts.Node | undefined): string | undefined {
 }
 
 function isRemoteSegment(value: string): boolean {
-  return isTypeRTRemoteSegment(value)
+  return /^[A-Za-z0-9_$.-]+$/.test(value)
 }
 
 function expressionName(node: ts.Expression): string | undefined {
