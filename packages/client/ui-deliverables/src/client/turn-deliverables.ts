@@ -4,6 +4,7 @@
  * own follow-along `locations`, never the closing prose.
  */
 import type { ConversationNode, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
+import type { TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 
 /**
  * Paths a call view reports having created or changed, by render intent rather
@@ -75,4 +76,14 @@ export function producedForClosing(nodes: readonly ConversationNode[], seq: numb
     if (node.kind === 'assistant' && node.seq === seq) return pending
   }
   return []
+}
+
+/**
+ * Claim the turn-tail chain only when its closing turn produced files.
+ * @param owner - Turn-tail owner currency for the closing assistant.
+ * @returns Produced paths as the component's match, or null to decline before mount.
+ */
+export function selectProducedFiles({ nodes, seq }: TurnTailOwnerProps): readonly string[] | null {
+  const paths = producedForClosing(nodes, seq)
+  return paths.length === 0 ? null : paths
 }

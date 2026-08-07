@@ -130,6 +130,8 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
   const chat = createChatStore().create()
   const renderSlot = ((_key: string, _owner: object, opts?: { fallback?: React.ReactNode }) =>
     opts?.fallback ?? null) as unknown as ChatViewSlotProps['renderSlot']
+  const renderSlotChain = ((_key: string, _owner: object, opts?: { fallback?: React.ReactNode }) =>
+    opts?.fallback ?? null) as unknown as ChatViewSlotProps['renderSlotChain']
   // SessionProvider seat arrives with the session-scope child declaration;
   // ChatView never invokes it (render-prop pass-through stub).
   const SessionProviderStub: ChatViewSlotProps['SessionProvider'] = ({ children }) => <>{children(SID)}</>
@@ -144,6 +146,7 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
     useStore: bindSnapshotSelector(chat),
     actions: chat.actions,
     renderSlot,
+    renderSlotChain,
     SessionProvider: SessionProviderStub,
     openDetails,
     openFile,
@@ -733,7 +736,6 @@ describe('ChatView', () => {
     // not re-render, so the row's renderSlot call count freezes during chunks.
     let rowRenders = 0
     h.props.renderSlot = ((key: string, _owner: object) => {
-      // The turnTail hole renders through the same share; only tool rows count here.
       if (key !== 'conversation.chat.toolview') return null
       rowRenders += 1
       return <div data-testid="counting-row" />

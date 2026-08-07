@@ -15,7 +15,7 @@ import type {
 import { apply as applyLocale } from '@deepseek-ai/dsh-client-locale/client'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { ProducedFiles } from '../src/client/ProducedFiles.tsx'
-import { producedForClosing } from '../src/client/turn-deliverables.ts'
+import { producedForClosing, selectProducedFiles } from '../src/client/turn-deliverables.ts'
 import { apply, inject } from '../src/client/index.ts'
 import { apply as applyNode } from '../src/index.ts'
 import { apply as applyInvariant } from '../src/invariant.ts'
@@ -64,6 +64,8 @@ describe('producedForClosing derivation', () => {
       assistant(9, 'second turn', 2),
     ]
     expect(producedForClosing(nodes, 7)).toEqual(['out/index.html', 'out/app.css'])
+    expect(selectProducedFiles({ nodes, seq: 7, openFile: () => {} })).toEqual(['out/index.html', 'out/app.css'])
+    expect(selectProducedFiles({ nodes, seq: 9, openFile: () => {} })).toBeNull()
     // A turn that produced nothing yields the empty list, and so does an
     // anchor the window does not contain.
     expect(producedForClosing(nodes, 9)).toEqual([])
@@ -126,8 +128,7 @@ describe('ProducedFiles row', () => {
     // it shows and says so rather than dropping the rest silently.
     const paths = ['deep/a.html', 'b.css', 'c.ts', 'd.ts', 'e.ts', 'f.ts', 'g.ts']
     const openFile = vi.fn<(path: string) => void>()
-    const nodes: ConversationNode[] = [user(1, 'build it'), wrote(2, 'w', ...paths), assistant(3, 'done', 1)]
-    const view = render(<ProducedFiles nodes={nodes} seq={3} openFile={openFile} t={t} />)
+    const view = render(<ProducedFiles matched={paths} openFile={openFile} t={t} />)
     expect(view.getByText('产物')).toBeTruthy()
     // Chips carry the basename; the full path stays reachable as the title.
     const chip = view.getByRole('button', { name: '打开 deep/a.html' })
@@ -137,12 +138,6 @@ describe('ProducedFiles row', () => {
     expect(view.getByText('还有 1 个')).toBeTruthy()
     fireEvent.click(chip)
     expect(openFile).toHaveBeenCalledWith('deep/a.html')
-  })
-
-  it('a turn that produced nothing renders no row at all', () => {
-    const nodes: ConversationNode[] = [user(1, 'hi'), assistant(2, 'hello', 1)]
-    const view = render(<ProducedFiles nodes={nodes} seq={2} openFile={() => {}} t={t} />)
-    expect(view.container.firstChild).toBeNull()
   })
 })
 
@@ -169,7 +164,7 @@ describe('plugin registration', () => {
     // The owning view's child declaration, stood up by a bench root entry.
     ctx.slots.register({
       name: 'root',
-      children: { 'conversation.chat.turnTail': { kind: 'list', scope: 'session' } },
+      children: { 'conversation.chat.turnTail': { kind: 'chain', scope: 'session' } },
     } as never, () => null)
     await ctx.plugin({ inject: ['slots'], apply: applyLocale }).await()
 

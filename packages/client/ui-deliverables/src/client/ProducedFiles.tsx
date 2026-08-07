@@ -1,14 +1,11 @@
 // ProducedFiles: the produced-file row a finished turn ends with. The paths
-// come from the mutation tools' follow-along locations (see
-// producedForClosing), never from the closing prose, so the answer carries
-// its own output whether or not the model remembered to name it. Clicking one
-// goes through the same openFile the tool rows use — the Host's own opener,
-// on the Host machine.
+// come pre-matched by the turn-tail chain from the mutation tools'
+// follow-along locations, never from the closing prose. Clicking one goes
+// through the same openFile the tool rows use — the Host's own opener, on the
+// Host machine.
 
-import { useMemo } from 'react'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { producedForClosing } from './turn-deliverables.ts'
 import type { NS } from './locales.ts'
 import css from './ProducedFiles.module.css'
 
@@ -21,21 +18,17 @@ function basename(path: string): string {
   return at === -1 ? path : path.slice(at + 1)
 }
 
-/** Full props: the turn-tail owner currency plus this plugin's locale seat. */
-export type ProducedFilesProps = TurnTailOwnerProps & PropsLocale<typeof NS>
+/** Matched paths plus the opener and locale seats needed to present them. */
+export type ProducedFilesProps = Pick<TurnTailOwnerProps, 'openFile'> & {
+  matched: readonly string[]
+} & PropsLocale<typeof NS>
 
 /**
  * Render one turn's produced files as openable chips.
- * @param props - the tail hole's owner currency (snapshot nodes, the closing
- * assistant's seq, the chat view's file opener) and the locale seat.
- * @returns The row, or `null` when the turn produced nothing.
+ * @param props - selector-matched paths, the chat view's file opener, and the locale seat.
+ * @returns The produced-files row.
  */
-export function ProducedFiles({ nodes, seq, openFile, t }: ProducedFilesProps) {
-  // Per-closing-message derivation over the windowed snapshot: O(nodes) on
-  // node-identity change only, which is the same cadence the owning view
-  // re-derives its own flow at.
-  const paths = useMemo(() => producedForClosing(nodes, seq), [nodes, seq])
-  if (paths.length === 0) return null
+export function ProducedFiles({ matched: paths, openFile, t }: ProducedFilesProps) {
   const shown = paths.slice(0, SHOWN)
   const hidden = paths.length - shown.length
   return (

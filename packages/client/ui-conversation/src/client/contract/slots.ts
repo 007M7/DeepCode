@@ -47,14 +47,13 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      */
     'conversation.chat.commandview': { kind: 'keyed'; scope: 'session'; owner: CommandRowOwnerProps }
     /**
-     * The chat view's turn-tail hole: rendered between a closing assistant
+     * The chat view's turn-tail chain: rendered between a closing assistant
      * message's body and its IconActions footer, once per turn (the render
-     * site elects the closing seq). Declared by the chat view entry; feature
-     * plugins (ui-deliverables' produced-files row) derive what they show
-     * from the owner currency, and an unregistered hole renders nothing —
-     * composing such a plugin out of cordis.yml turns its surface off.
+     * site elects the closing seq). Entries derive a match from the owner
+     * currency before mounting, so presentation components never mount only
+     * to return null; an all-declined chain renders nothing.
      */
-    'conversation.chat.turnTail': { kind: 'list'; scope: 'session'; owner: TurnTailOwnerProps }
+    'conversation.chat.turnTail': { kind: 'chain'; scope: 'session'; owner: TurnTailOwnerProps }
     /**
      * The composer takeover chain: entries are selector-routed replacements
      * of the default InputBar. Declared by this package's 'conversation'
