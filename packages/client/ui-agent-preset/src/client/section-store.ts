@@ -10,7 +10,7 @@
 
 import type { IApiClient } from '@deepseek-ai/dsh-client-connection/client'
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
-import { messageOf, writeDefaultPreset } from './settings-store.ts'
+import { beginRosterRead, messageOf, writeDefaultPreset } from './settings-store.ts'
 
 /** Ids a preset directory may be named, mirroring the host's own rule. */
 const PRESET_ID = /^[a-z0-9][a-z0-9-]*$/
@@ -137,23 +137,16 @@ export class AgentPresetSectionController {
    * @returns once the snapshot reflects the host.
    */
   async load(): Promise<void> {
-    if (this.store.getSnapshot().status === 'loading') return
-    this.set({ status: 'loading', error: null })
-    try {
-      const response = await this.api.agentPresets.list({})
-      if (!response.result.ok) {
-        this.set({ status: 'error', error: response.result.error.message })
-        return
-      }
-      const { presets, authorable } = response.result.value
-      if (presets.length === 0) {
-        this.set({ status: 'unavailable', rows: [], authorable, draft: null })
-        return
-      }
-      this.set({ status: 'ready', error: null, authorable, rows: presets.map(preset => ({ ...preset })) })
-    } catch (error) {
-      this.set({ status: 'error', error: messageOf(error) })
+    const roster = await beginRosterRead(
+      this.api, () => this.store.getSnapshot().status, patch => { this.set(patch) },
+    )
+    if (roster === undefined) return
+    const { presets, authorable } = roster
+    if (presets.length === 0) {
+      this.set({ status: 'unavailable', rows: [], authorable, draft: null })
+      return
     }
+    this.set({ status: 'ready', error: null, authorable, rows: presets.map(preset => ({ ...preset })) })
   }
 
   /**

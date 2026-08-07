@@ -61,6 +61,77 @@ export interface AgentPresetOption {
   description?: string
 }
 
+/** One roster entry exactly as the host reports it. */
+export interface RosterPreset {
+  /** Preset id and directory name. */
+  id: string
+  /** Whether the preset ships with the deployment or was authored locally. */
+  trust: 'system' | 'user'
+  /** Whether a session that names no preset gets this one. */
+  isDefault: boolean
+  /** Display name the preset published, absent when it published none. */
+  name?: string
+  /** One sentence on what the preset is for. */
+  description?: string
+}
+
+/** The roster the host answered with. */
+export interface RosterValue {
+  /** Every preset the deployment composes, in the order the host lists them. */
+  presets: readonly RosterPreset[]
+  /** Whether this browser may author presets at all. */
+  authorable: boolean
+}
+
+/** The roster, or the message to show in its place. */
+export type RosterRead = { ok: true, value: RosterValue } | { ok: false, error: string }
+
+/**
+ * Read the roster, folding both refusal shapes into one message.
+ *
+ * The wire refuses in two ways — the transport rejects, or it answers an
+ * `ok: false` envelope — and every surface treats them identically. Folding
+ * them here keeps each store's `load` about what it does with a roster rather
+ * than about how the call can fail.
+ * @param api - the agent-preset wire face.
+ * @returns the roster, or the message to show in its place.
+ */
+export async function readRoster(api: Pick<IApiClient, 'agentPresets'>): Promise<RosterRead> {
+  try {
+    const response = await api.agentPresets.list({})
+    return response.result.ok
+      ? { ok: true, value: response.result.value }
+      : { ok: false, error: response.result.error.message }
+  } catch (error) {
+    return { ok: false, error: messageOf(error) }
+  }
+}
+
+/**
+ * The opening move every roster-backed surface makes: refuse a read that is
+ * already in flight, mark the store loading, then read.
+ *
+ * A surface that gets `undefined` returns without touching its snapshot
+ * further — either another read owns it, or this one already wrote the
+ * failure. What differs between surfaces starts after this.
+ * @param api - the agent-preset wire face.
+ * @param status - reads the store's current status.
+ * @param set - patches the store's status and error.
+ * @returns the roster, or undefined when the caller should return.
+ */
+export async function beginRosterRead(
+  api: Pick<IApiClient, 'agentPresets'>,
+  status: () => string,
+  set: (patch: { status?: 'loading' | 'error', error?: string | null }) => void,
+): Promise<RosterValue | undefined> {
+  if (status() === 'loading') return undefined
+  set({ status: 'loading', error: null })
+  const roster = await readRoster(api)
+  if (roster.ok) return roster.value
+  set({ status: 'error', error: roster.error })
+  return undefined
+}
+
 /**
  * The roster entries as every surface renders them.
  *
@@ -125,20 +196,17 @@ export class AgentPresetSettingsController {
    * @returns once the snapshot reflects the host.
    */
   async load(): Promise<void> {
-    if (this.store.getSnapshot().status === 'loading') return
-    this.set({ status: 'loading', error: null })
+    const roster = await beginRosterRead(
+      this.api, () => this.store.getSnapshot().status, patch => { this.set(patch) },
+    )
+    if (roster === undefined) return
+    const { presets } = roster
+    const [first] = presets
+    if (first === undefined) {
+      this.set({ status: 'unavailable', options: [], currentValue: '' })
+      return
+    }
     try {
-      const response = await this.api.agentPresets.list({})
-      if (!response.result.ok) {
-        this.set({ status: 'error', error: response.result.error.message })
-        return
-      }
-      const presets = response.result.value.presets
-      const [first] = presets
-      if (first === undefined) {
-        this.set({ status: 'unavailable', options: [], currentValue: '' })
-        return
-      }
       // The roster says what may be chosen; `settings.describe` says whether
       // this browser may write the choice down. A non-loopback browser reaches
       // neither method, so a refused describe leaves the row read-only rather
