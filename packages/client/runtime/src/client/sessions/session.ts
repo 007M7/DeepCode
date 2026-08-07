@@ -943,6 +943,8 @@ export class Session implements SessionFace {
         retryGap = hasGap && repairedTail !== null
           && (previousTail === null || repairedTail > previousTail)
       } else {
+        // Keep buffered events for the next live frame or reconnect; retrying
+        // immediately would spin against the same unavailable history endpoint.
         this.mergeWindow()
       }
     } catch (error) {

@@ -25,6 +25,7 @@ import type {
   ScheduleCreateValue,
   ScheduleDeleteValue,
   ScheduleId as ScheduleIdType,
+  InternalScheduleError,
   ScheduleListValue,
   SchedulePersistenceOperation,
   ScheduleToolError,
@@ -134,8 +135,25 @@ function present(title: string, kind: 'read' | 'other', rawInput?: unknown): Gen
 }
 
 /** Stable error for failures not safe to expose. */
-function internalError(): ScheduleToolError {
+function internalError(): InternalScheduleError {
   return { code: 'internal_error', message: 'The schedule operation failed.' }
+}
+
+/** Placeholder the registry replaces with its canonical ABORTED result after body quiescence. */
+function cancellationPlaceholder(signal: AbortSignal): InternalScheduleError | undefined {
+  return signal.aborted ? internalError() : undefined
+}
+
+/** Serialize one operation, stopping a body whose caller cancelled before its FIFO turn. */
+function runCancellableScheduleTransaction<T>(
+  agent: Agent,
+  signal: AbortSignal,
+  task: () => Promise<T>,
+): Promise<T | InternalScheduleError> {
+  return runScheduleTransaction(agent, async () => {
+    const cancelled = cancellationPlaceholder(signal)
+    return cancelled ?? task()
+  })
 }
 
 /** Stable durable-log failure. */
@@ -256,7 +274,7 @@ export function registerScheduleTools(
         if (exec.agent !== agent) return internalError()
         const invalid = validateCreateArgs(args)
         if (invalid !== undefined) return invalid
-        return runScheduleTransaction(agent, async () => {
+        return runCancellableScheduleTransaction(agent, exec.signal, async () => {
           const uncertain = await preflight(rootCtx, agent, 'create')
           if (uncertain !== undefined) return uncertain
           notifyDurableChange()
@@ -269,6 +287,8 @@ export function registerScheduleTools(
           } catch (error: unknown) {
             return error instanceof ScheduleInputError ? inputError(error) : internalError()
           }
+          const cancelledBeforeAppend = cancellationPlaceholder(exec.signal)
+          if (cancelledBeforeAppend !== undefined) return cancelledBeforeAppend
           try {
             agent.session.append('schedule/change', {
               version: 1,
@@ -294,7 +314,7 @@ export function registerScheduleTools(
       output: { schema: LIST_OUTPUT_SCHEMA, render: renderValue },
       async execute(_args, exec): Promise<ScheduleListValue> {
         if (exec.agent !== agent) return internalError()
-        return runScheduleTransaction(agent, async () => {
+        return runCancellableScheduleTransaction(agent, exec.signal, async () => {
           const uncertain = await preflight(rootCtx, agent, 'list')
           if (uncertain !== undefined) return uncertain
           notifyDurableChange()
@@ -320,7 +340,7 @@ export function registerScheduleTools(
         }
         const id = ScheduleId(args.id)
         if (exec.agent !== agent) return internalError()
-        return runScheduleTransaction(agent, async () => {
+        return runCancellableScheduleTransaction(agent, exec.signal, async () => {
           const uncertain = await preflight(rootCtx, agent, 'delete', id)
           if (uncertain !== undefined) return uncertain
           notifyDurableChange()
@@ -329,6 +349,8 @@ export function registerScheduleTools(
           if (!folded.active.some(record => record.id === id)) {
             return { id, deleted: false, code: 'schedule_not_found' }
           }
+          const cancelledBeforeAppend = cancellationPlaceholder(exec.signal)
+          if (cancelledBeforeAppend !== undefined) return cancelledBeforeAppend
           try {
             agent.session.append('schedule/change', { version: 1, operation: 'delete', id })
           } catch {

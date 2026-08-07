@@ -9,6 +9,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import type { ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import { registerScheduleTools } from '../src/tools.ts'
+import { runScheduleTransaction } from '../src/transaction.ts'
 
 const signal = new AbortController().signal
 const contexts: Context[] = []
@@ -69,9 +70,10 @@ async function execute(
   name: string,
   args: unknown,
   agent: Agent = test.agent,
+  executionSignal: AbortSignal = signal,
 ): Promise<ToolExecutionResult> {
   return test.ctx.agents.withInitiator(agent, () => test.ctx.tools.execute({
-    signal,
+    signal: executionSignal,
     callId: CallId(`call-${Math.random()}`),
     name,
     arguments: args,
@@ -308,6 +310,87 @@ describe('Schedule persistence failure boundaries', () => {
       expect.objectContaining({ id: 'schedule-1', prompt: 'persist me' }),
     ])
     expect(test.flushes.count).toBe(3)
+  })
+
+  it('does not persist a create cancelled while it waits in the Schedule FIFO', async () => {
+    const test = await harness()
+    let releaseOwner: (() => void) | undefined
+    let markOwnerStarted: (() => void) | undefined
+    const ownerStarted = new Promise<void>((resolve) => {
+      markOwnerStarted = resolve
+    })
+    const owner = runScheduleTransaction(test.agent, async () => {
+      markOwnerStarted?.()
+      await new Promise<void>((resolve) => { releaseOwner = resolve })
+    })
+    await ownerStarted
+
+    const controller = new AbortController()
+    const creating = execute(test, 'schedule_create', {
+      prompt: 'cancelled before its turn', after_seconds: 1,
+    }, test.agent, controller.signal)
+    await Promise.resolve()
+    controller.abort()
+    if (releaseOwner === undefined) throw new Error('missing owner transaction release')
+    releaseOwner()
+    await owner
+
+    await expect(creating).resolves.toMatchObject({
+      isError: true,
+      error: { info: { name: 'AbortError', code: 'ABORTED' } },
+    })
+    expect(test.flushes.count).toBe(0)
+    expect(test.agent.session.events.filter(event => event.type === 'schedule/change')).toEqual([])
+  })
+
+  it('does not persist a create cancelled during its first preflight', async () => {
+    const test = await harness()
+    let releaseCreate: (() => void) | undefined
+    const blockedCreate = new Promise<'resolve'>((resolve) => {
+      releaseCreate = () => { resolve('resolve') }
+    })
+    test.flushes.outcomes.push(blockedCreate)
+    const controller = new AbortController()
+    const creating = execute(test, 'schedule_create', {
+      prompt: 'cancelled during preflight', after_seconds: 1,
+    }, test.agent, controller.signal)
+    await vi.waitFor(() => { expect(test.flushes.count).toBe(1) })
+    controller.abort()
+    if (releaseCreate === undefined) throw new Error('missing create preflight release')
+    releaseCreate()
+
+    await expect(creating).resolves.toMatchObject({
+      isError: true,
+      error: { info: { name: 'AbortError', code: 'ABORTED' } },
+    })
+    expect(test.flushes.count).toBe(1)
+    expect(test.agent.session.events.filter(event => event.type === 'schedule/change')).toEqual([])
+  })
+
+  it('does not persist a delete cancelled during its first preflight', async () => {
+    const test = await harness()
+    await execute(test, 'schedule_create', { prompt: 'keep me', after_seconds: 60 })
+    let releaseDelete: (() => void) | undefined
+    const blockedDelete = new Promise<'resolve'>((resolve) => {
+      releaseDelete = () => { resolve('resolve') }
+    })
+    test.flushes.outcomes.push(blockedDelete)
+    const controller = new AbortController()
+    const deleting = execute(test, 'schedule_delete', { id: 'schedule-1' }, test.agent, controller.signal)
+    await vi.waitFor(() => { expect(test.flushes.count).toBe(3) })
+    controller.abort()
+    if (releaseDelete === undefined) throw new Error('missing delete preflight release')
+    releaseDelete()
+
+    await expect(deleting).resolves.toMatchObject({
+      isError: true,
+      error: { info: { name: 'AbortError', code: 'ABORTED' } },
+    })
+    expect(test.flushes.count).toBe(3)
+    expect(test.agent.session.events.filter(event => event.type === 'schedule/change'))
+      .toHaveLength(1)
+    expect(value(await execute(test, 'schedule_list', {})))
+      .toEqual([expect.objectContaining({ id: 'schedule-1' })])
   })
 
   it('returns uncertainty before create or delete reads when their preflight rejects', async () => {
