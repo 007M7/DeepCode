@@ -277,6 +277,9 @@ importers:
       '@cordisjs/plugin-include':
         specifier: workspace:*
         version: link:../vendor/include
+      '@cordisjs/plugin-logger-console':
+        specifier: workspace:*
+        version: link:../vendor/logger-console
       '@cordisjs/plugin-timer':
         specifier: workspace:*
         version: link:../vendor/timer
@@ -313,6 +316,9 @@ importers:
       '@deepseek-ai/dsh-code-runtime-worker':
         specifier: workspace:*
         version: link:../packages/code-runtime/code-runtime-worker
+      '@deepseek-ai/dsh-command-feedback':
+        specifier: workspace:*
+        version: link:../packages/feedback/command-feedback
       '@deepseek-ai/dsh-command-goal':
         specifier: workspace:*
         version: link:../packages/goal/command-goal
@@ -5962,6 +5968,9 @@ importers:
       '@deepseek-ai/dsh-brand':
         specifier: workspace:^
         version: link:../../util/brand
+      '@deepseek-ai/dsh-command-feedback':
+        specifier: workspace:^
+        version: link:../../feedback/command-feedback
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../support/invariants

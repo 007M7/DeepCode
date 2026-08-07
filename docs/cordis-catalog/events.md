@@ -798,7 +798,7 @@ Source: [`packages/core/system-prompt/src/index.ts:35`](../../packages/core/syst
 
 ### `telemetry/record` — waterfall
 
-Transform one outbound record before it reaches the backend. This waterfall is the seam's redaction extension point. It ships NO rules of its own: the innermost `next()` passes the record through unchanged, and with no listener mounted records reach the backend as captured, so exported data is exactly as clean as the rules a deployment mounts. Listeners stack by transforming `next()`'s return value; returning without `next()` replaces everything beneath. Dispatched synchronously on the capture hot path inside the coordinator's containment: a throwing listener withholds that one record (fail-closed) and never reaches the agent loop. Redaction applies to the exported copy only; the canonical session log is never rewritten.
+Transform one outbound record before it reaches the backend. This waterfall is the seam's redaction extension point. It ships NO rules of its own: the innermost `next()` passes the record through unchanged, and with no listener mounted records reach the backend as captured, so exported data is exactly as clean as the rules a deployment mounts. Listeners stack by transforming `next()`'s return value; returning without `next()` replaces everything beneath. Dispatched synchronously on the capture hot path inside the coordinator's containment: a throwing listener withholds that one record (fail-closed) and never reaches the agent loop. Live capture dispatches at append time; on-demand capture dispatches while reading the canonical log. Redaction applies to the exported copy only; the canonical session log is never rewritten.
 
 ```ts cordis-catalog
 /**
@@ -812,8 +812,9 @@ Transform one outbound record before it reaches the backend. This waterfall is t
  * `next()` replaces everything beneath. Dispatched synchronously on the
  * capture hot path inside the coordinator's containment: a throwing
  * listener withholds that one record (fail-closed) and never reaches the
- * agent loop. Redaction applies to the exported copy only; the canonical
- * session log is never rewritten.
+ * agent loop. Live capture dispatches at append time; on-demand capture
+ * dispatches while reading the canonical log. Redaction applies to the
+ * exported copy only; the canonical session log is never rewritten.
  * @param record - the candidate record, already the coordinator's own deep
  *   copy; listeners return a (possibly new) record and must not mutate it.
  * @mode waterfall
@@ -821,7 +822,7 @@ Transform one outbound record before it reaches the backend. This waterfall is t
 'telemetry/record'(record: TelemetryRecord, next: () => TelemetryRecord): TelemetryRecord
 ```
 
-Source: [`packages/telemetry/session-telemetry/src/index.ts:41`](../../packages/telemetry/session-telemetry/src/index.ts)
+Source: [`packages/telemetry/session-telemetry/src/index.ts:43`](../../packages/telemetry/session-telemetry/src/index.ts)
 
 ## `tools/*`
 

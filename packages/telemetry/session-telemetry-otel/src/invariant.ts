@@ -15,10 +15,9 @@ export const name = 'session-telemetry-otel-invariant'
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: the backend forwards seam records into the OTel SDK's
- * in-process pipeline and appends nothing to any session; its only observable
- * effects (batching, export) happen inside the SDK past the seam's boundary
- * axiom, out of reach of an independent companion.
+ * No runtime invariant: mode selection changes capture handoff, SDK setup, and
+ * local diagnostics without mutating session or service state an independent
+ * companion can compare. Export remains inside the SDK past the seam boundary.
  */
 const install: InvariantInstaller = () => {}
 

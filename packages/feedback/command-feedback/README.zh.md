@@ -15,7 +15,7 @@
 
 ## 本插件做什么、不做什么
 
-`recordFeedback(session, text)` 是不依赖命令的写入路径。它拒绝规范化后为空的文本，并追加 `feedback/record { text }`；其他 UI、钩子或 host 集成无需构造斜杠命令即可调用它。`/feedback` 处理器通过该生产方写入，不启动任何模型工作；本仓库中也没有任何插件读取该事件。
+`recordFeedback(session, text)` 是不依赖命令的写入路径。它拒绝规范化后为空的文本，并追加 `feedback/record { text }`；其他 UI、钩子或 host 集成无需构造斜杠命令即可调用它。`/feedback` 处理器通过该生产方写入，且不启动任何模型工作。可选的 [`dsh-session-telemetry-otel`](../../telemetry/session-telemetry-otel/) 消费方会观察该事件，但不改变它的采集契约。
 
 反馈文本只出现在一个持久载荷中：`feedback/record`。[`dsh-commands`](../../ui/commands/README.md) 仍会追加通用的 `command/run` / `command/done` 配对，但此定义设置了 `recordInput: false`，因此 `command/run` 会省略 `args`；配对的 `command/done` 只携带结果。三个事件都仅写入日志，不出现在有序 surface、`deriveMessages()` 以及模型请求中。这些追加会启动持久化的常规即时排空，但两个生产方都不会强制 `session/flush`，因此确认文本表示反馈已进入日志，而不表示它已经落盘。被拒绝的空输入只会留下以 `kind: 'error'` 结算的命令配对，不会产生 `feedback/record`。
 
@@ -52,7 +52,7 @@
 
 ## 已知限制与暂缓工作
 
-- **没有任何消费方读取被记录的反馈**：采集刻意不产生任何后续动作。这里没有检索、聚合、导出或报告 surface，也没有面向模型的工具读取 `feedback/record`；消费方是另一个独立包。
+- **没有反馈检索或管理 surface**：可选的 OTel 插件仅将该事件用作共享触发器。本包不为 `feedback/record` 提供检索、聚合、分类或面向模型的工具。
 - **没有结构化字段**：一条条目就是一个自由文本字符串，没有类别、严重程度或关联事件链接，因此无法在不重读文本的情况下按主题过滤反馈。
 - **不支持修改或撤回**：会话日志是仅追加的，本包也不新增 tombstone，因此错误的条目会一直保留在记录中，只能由后续条目取代。
 - **没有显式持久化屏障**：确认文本紧随追加而非 flush，因此紧临崩溃前记录的条目可能与其他未 flush 的尾部一同丢失。为反馈强制同步写盘并不值得；需要该保证的消费方可自行等待 `ctx.sessions.flush(session)`。

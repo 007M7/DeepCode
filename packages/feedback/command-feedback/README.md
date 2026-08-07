@@ -15,7 +15,7 @@ Surrounding whitespace is discarded, but feedback is otherwise unparsed: no trun
 
 ## What this plugin does and does not do
 
-`recordFeedback(session, text)` is the command-independent write path. It rejects empty normalized text and appends `feedback/record { text }`; a different UI, hook, or host integration can call it without constructing a slash command. The `/feedback` handler uses that producer, starts no model work, and no plugin in this repository reads the event.
+`recordFeedback(session, text)` is the command-independent write path. It rejects empty normalized text and appends `feedback/record { text }`; a different UI, hook, or host integration can call it without constructing a slash command. The `/feedback` handler uses that producer and starts no model work. The optional [`dsh-session-telemetry-otel`](../../telemetry/session-telemetry-otel/) consumer observes the event without changing its capture contract.
 
 The feedback text appears in exactly one durable payload: `feedback/record`. [`dsh-commands`](../../ui/commands/README.md) still appends its generic `command/run` / `command/done` pairing, but this definition sets `recordInput: false`, so `command/run` omits `args`; the paired `command/done` carries only the outcome. All three events are log-only and absent from the ordered surface, `deriveMessages()`, and model requests. These appends start persistence's ordinary eager drain, but neither producer forces `session/flush`, so acknowledgement means the feedback is in the log, not that it has reached disk. Rejected empty input leaves only the command pairing settled as `kind: 'error'`, with no `feedback/record`.
 
@@ -52,7 +52,7 @@ Independent of the model request path. Recording appends to the session log only
 
 ## Known Limitations and Deferred Work
 
-- **Nothing consumes the recorded feedback** — capture is deliberately inert. There is no retrieval, aggregation, export, or reporting surface, and no model-facing tool reads `feedback/record`; a consumer is a separate package.
+- **No feedback retrieval or management surface** — the optional OTel plugin uses the event only as a sharing trigger. There is no retrieval, aggregation, categorization, or model-facing tool for `feedback/record`.
 - **No structured fields** — an entry is one free-text string with no category, severity, or referenced-event link, so feedback cannot be filtered by subject without re-reading its text.
 - **No amend or withdraw** — the session log is append-only and this package adds no tombstone, so a mistaken entry stays recorded and can only be superseded by a later one.
 - **No explicit durability barrier** — the acknowledgement follows the append, not a flush, so an entry recorded immediately before a crash can be lost with any other unflushed tail. Feedback is not worth forcing a synchronous disk write for; a consumer that needs one awaits `ctx.sessions.flush(session)`.
