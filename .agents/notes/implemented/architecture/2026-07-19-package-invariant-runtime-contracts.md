@@ -50,7 +50,7 @@ The current 103-package workspace has 21 executable companions and 82 justified 
 | `dsh-user-approval` | Approval asked/decided records pair by call and use valid outcomes and policies. |
 | `dsh-workflow` | Workflow and child-agent start/end events preserve run metadata, identity, outcome, count, and error relations. |
 | `dsh-tasks` | Current and terminal task snapshots preserve id/kind, owner, status, and timestamp relationships. |
-| `dsh-tool-todo` | Durable whole-list snapshots use unique trimmed items, closed statuses, and at most one active item. |
+| `dsh-tool-todo` | Durable whole-list snapshots use unique trimmed items and closed statuses. |
 | `dsh-time-context` | Plugin-attributed clock readings agree with the session's open turn, next pre-step position, and elapsed baseline; rendered time parses and does not postdate its event. |
 
 Session-backed companions validate existing durable events when they load, using the prefix preceding each candidate where the relationship depends on event order. Other checks observe the authoritative live event boundary or mutable service result. Validation runs before publication where accepting an invalid event would otherwise commit bad state.
