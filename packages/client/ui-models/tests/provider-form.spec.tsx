@@ -790,6 +790,26 @@ describe('hand-declared providers', () => {
     expect(onClose).toHaveBeenCalledWith(true)
   })
 
+  it('never contradicts a filled-in field with the next gate\u2019s copy', () => {
+    mountCard()
+    const routeField = screen.getByLabelText(en.customRoute)
+    fireEvent.change(routeField, { target: { value: '2' } })
+    fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: 'https://acme.test/v1' } })
+    fireEvent.click(screen.getByRole('button', { name: en.addModel }))
+    fireEvent.change(screen.getByLabelText(`${en.modelId} 1`), { target: { value: 'm' } })
+
+    // The route field explains itself right under the input; the shared line
+    // must stay silent rather than falling through to "no models yet" while
+    // the list above plainly has one.
+    expect(screen.getByText(en.customRouteInvalid)).toBeTruthy()
+    expect(screen.queryByText(en.customNeedsModels)).toBeNull()
+
+    // Fixing the route hands the line back to the gate that is actually unmet.
+    fireEvent.change(routeField, { target: { value: 'acme' } })
+    expect(screen.queryByText(en.customNeedsModels)).toBeNull()
+    expect(buttonNamed(en.create).disabled).toBe(false)
+  })
+
   it('refuses a route id whose derived credential reference would be illegal', () => {
     mountCard()
     const routeField = screen.getByLabelText(en.customRoute)

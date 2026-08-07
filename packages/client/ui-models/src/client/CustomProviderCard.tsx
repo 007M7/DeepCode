@@ -112,14 +112,17 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
   const ready = route.length > 0 && !routeInvalid && !routeTaken
     && baseURL.length > 0 && models.length > 0 && modelFailure === undefined
     && keyFailure === undefined
-  // The one blocked gate worth a line under the form. The route id is omitted
-  // because its own field already explains itself, and a satisfied card says
+  // The one blocked gate worth a line under the form. A satisfied card says
   // nothing at all rather than printing an empty paragraph.
   const hint = failure !== undefined || ready
     // The key field prints its own failure directly beneath itself, so a card
     // blocked only by the key stays silent here rather than answering with the
     // next unmet gate — which is satisfied, and reads as a second, false fault.
     || keyFailure !== undefined
+    // Same for the route id, and it must be tested rather than assumed: the
+    // fallback arm below reads "no models yet", so an unmet route gate used to
+    // fall through to it and contradict the filled-in list right above.
+    || route.length === 0 || routeInvalid || routeTaken
     ? undefined
     : baseURL.length === 0
       ? t('customNeedsBaseUrl')
