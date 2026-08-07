@@ -12,9 +12,6 @@
 - text: Explain event sourcing in one sentence. {{clock}}
 - button "Copy":
   - img
-- button "Branch into a new conversation" [disabled]:
-  - img
-- text: Available only on the last message of a completed turn
 - button "Context injection @deepseek-ai/dsh-system-prompt":
   - img
   - img
@@ -31,9 +28,6 @@
 - text: {{clock}} Ran for {{duration}} TTFT {{duration}} {{throughput}} tok/s Now give the same explanation to a human reader. {{clock}}
 - button "Copy":
   - img
-- button "Branch into a new conversation" [disabled]:
-  - img
-- text: Available only on the last message of a completed turn
 - button "Think The user is asking for a one-sentence description of event sourcing. This is a straightforward knowledge question that doesn't require any skill loading or tool calls.":
   - img
   - img
