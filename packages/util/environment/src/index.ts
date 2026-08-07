@@ -35,13 +35,6 @@ export interface EnvironmentEntry {
   path?: string
 }
 
-/** One environment layer's identity, for diagnostics. */
-export interface EnvironmentLayer {
-  source: EnvironmentSource
-  /** Absolute path of the file behind this layer; absent for `process`. */
-  path?: string
-}
-
 /**
  * The frozen environment of one launch. Construct through
  * {@link createEnvironmentSnapshot}; nothing mutates it afterwards, so a
@@ -65,8 +58,6 @@ export interface EnvironmentSnapshot {
    * @returns the first matching entry, or `undefined`.
    */
   getFrom(name: string, sources: readonly EnvironmentSource[]): EnvironmentEntry | undefined
-  /** The layers this snapshot was built from, most trusted first. */
-  readonly layers: readonly EnvironmentLayer[]
 }
 
 /**
@@ -121,12 +112,6 @@ export function createEnvironmentSnapshot(layers: readonly EnvironmentLayerInput
   return {
     get: name => getFrom(name, ENVIRONMENT_SOURCES),
     getFrom,
-    layers: ENVIRONMENT_SOURCES
-      .filter(source => bySource.has(source))
-      .map((source): EnvironmentLayer => {
-        const path = bySource.get(source)?.path
-        return { source, ...path === undefined ? {} : { path } }
-      }),
   }
 }
 

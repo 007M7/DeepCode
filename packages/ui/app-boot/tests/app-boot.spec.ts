@@ -151,7 +151,7 @@ describe('loadLayeredEnv', () => {
     }
   })
 
-  it('reports each layer with its absolute path', () => {
+  it('reports each file value with its absolute path', () => {
     const home = tmp()
     const project = tmp()
     writeFileSync(join(home, '.env'), `${NAMES[1]}=u\n`)
@@ -160,12 +160,8 @@ describe('loadLayeredEnv', () => {
     vi.stubEnv('DSH_HOME', home)
     try {
       const snapshot = loadLayeredEnv(NAME, project, vi.fn())
-      expect(snapshot.layers).toEqual([
-        { source: 'process' },
-        { source: 'project-env', path: join(project, '.env') },
-        { source: 'user-env', path: join(home, '.env') },
-      ])
       expect(snapshot.get(NAMES[1])).toEqual({ value: 'u', source: 'user-env', path: join(home, '.env') })
+      expect(snapshot.get(NAMES[2])).toEqual({ value: 'p', source: 'project-env', path: join(project, '.env') })
       // getFrom is a refusal, not a demotion: an omitted layer is invisible.
       expect(snapshot.getFrom(NAMES[2], ['process', 'user-env'])).toBeUndefined()
     } finally {
@@ -205,10 +201,8 @@ describe('loadLayeredEnv', () => {
     try {
       const snapshot = loadLayeredEnv(NAME, project, warn)
       expect(warn).toHaveBeenCalledWith(expect.stringContaining(`${NAME}: failed to load .env`))
-      expect(snapshot.layers).toEqual([
-        { source: 'process' },
-        { source: 'project-env', path: join(project, '.env') },
-      ])
+      expect(snapshot.get(NAMES[1])).toBeUndefined()
+      expect(snapshot.get(NAMES[2])).toEqual({ value: 'project-only', source: 'project-env', path: join(project, '.env') })
       expect(process.env[NAMES[2]]).toBe('project-only')
     } finally {
       clear()
@@ -227,10 +221,7 @@ describe('loadLayeredEnv', () => {
     try {
       const snapshot = loadLayeredEnv(NAME, project)
       expect(write).toHaveBeenCalledWith(expect.stringContaining(`${NAME}: failed to load .env`))
-      expect(snapshot.layers).toEqual([
-        { source: 'process' },
-        { source: 'project-env', path: join(project, '.env') },
-      ])
+      expect(snapshot.get(NAMES[2])).toEqual({ value: 'project-only', source: 'project-env', path: join(project, '.env') })
       expect(process.env[NAMES[2]]).toBe('project-only')
     } finally {
       write.mockRestore()
@@ -251,10 +242,7 @@ describe('loadLayeredEnv', () => {
       // layer is simply absent, and nothing is reported.
       const snapshot = loadLayeredEnv(NAME, project, warn)
       expect(warn).not.toHaveBeenCalled()
-      expect(snapshot.layers).toEqual([
-        { source: 'process' },
-        { source: 'project-env', path: join(project, '.env') },
-      ])
+      expect(snapshot.get(NAMES[2])).toEqual({ value: 'project-only', source: 'project-env', path: join(project, '.env') })
     } finally {
       clear()
       vi.unstubAllEnvs()
@@ -269,7 +257,6 @@ describe('loadLayeredEnv', () => {
     vi.stubEnv('APP_BOOT_LAYERED_INHERITED', 'inherited')
     try {
       const snapshot = loadLayeredEnv(NAME, project, vi.fn())
-      expect(snapshot.layers).toEqual([{ source: 'process' }])
       expect(snapshot.get('APP_BOOT_LAYERED_INHERITED')).toEqual({ value: 'inherited', source: 'process' })
     } finally {
       clear()
@@ -287,10 +274,6 @@ describe('loadLayeredEnv', () => {
       // is the more trusted of the two — reading it twice would otherwise
       // put the same path at two different ranks.
       const snapshot = loadLayeredEnv(NAME, both, vi.fn())
-      expect(snapshot.layers).toEqual([
-        { source: 'process' },
-        { source: 'project-env', path: join(both, '.env') },
-      ])
       expect(snapshot.get(NAMES[2])).toEqual({ value: 'one-file', source: 'project-env', path: join(both, '.env') })
     } finally {
       clear()

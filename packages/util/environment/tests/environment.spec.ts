@@ -28,15 +28,6 @@ describe('createEnvironmentSnapshot', () => {
     expect(layered.getFrom('SHARED', [])).toBeUndefined()
   })
 
-  it('lists its layers in trust order with their paths', () => {
-    expect(layered.layers).toEqual([
-      { source: 'process' },
-      { source: 'project-env', path: '/work/.env' },
-      { source: 'user-env', path: '/home/.dsh/.env' },
-    ])
-    expect(createEnvironmentSnapshot([{ source: 'process', values: {} }]).layers).toEqual([{ source: 'process' }])
-  })
-
   it('copies each layer, so a later mutation of the source object cannot change it', () => {
     const values: Record<string, string> = { KEY: 'first' }
     const snapshot = createEnvironmentSnapshot([{ source: 'process', values }])
@@ -76,7 +67,6 @@ describe('environmentOf', () => {
       // A host that discovered no files has exactly one layer, so the trusted
       // lookups every consumer makes still find what it was launched with.
       expect(snapshot.getFrom('DSH_ENV_SPEC_FALLBACK', ['process', 'user-env'])?.value).toBe('ambient')
-      expect(snapshot.layers).toEqual([{ source: 'process' }])
     } finally {
       vi.unstubAllEnvs()
     }
