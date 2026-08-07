@@ -367,8 +367,6 @@ describe('readTextForDiff', () => {
   })
 
   it('returns null when the opened file grows after descriptor stat', async () => {
-    // Pins the one-extra-byte EOF probe: with a buffer of exactly openedSize a
-    // grown file would read openedSize bytes and pass the consistency check.
     const file = join(dir, 'growing.txt')
     await writeFile(file, 'abcdef')
     vi.resetModules()
