@@ -668,7 +668,10 @@ Requires: `llm`
  * reasoning effort resolves to `high`.
  */
 export interface Config {
-  /** Literal API key; prefer {@link apiKeyEnv} so no secret enters configuration files. */
+  /**
+   * Trimmed literal API key; whitespace-only is absent. Prefer
+   * {@link apiKeyEnv} to keep secrets out of configuration files.
+   */
   apiKey?: string
   /** Credential reference (environment-variable name) resolved per request; defaults to `DEEPSEEK_API_KEY`. */
   apiKeyEnv?: string
@@ -2218,8 +2221,9 @@ export interface Config {
   /**
    * Model presentation. `native` (default) sends every visible schema; `code`
    * sends only `run_code` plus a generated SDK prompt; `both` sends both forms.
-   * Code modes require a TypeScript runtime and fail prompt assembly when it is
-   * absent or mismatched. Under `code`, native names in `toolOrder` are invalid.
+   * Code modes require a `ctx.codeRuntime` whose `language` has a registered
+   * SDK renderer (TypeScript or Python) and fail prompt assembly when it is
+   * absent or has no renderer. Under `code`, native names in `toolOrder` are invalid.
    */
   mode?: ToolPresentationMode
   /**
@@ -2236,7 +2240,7 @@ export interface Config {
 export type ToolPresentationMode = 'native' | 'code' | 'both'
 ```
 
-Source: [`packages/core/tools/src/index.ts:592`](../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:616`](../packages/core/tools/src/index.ts)
 
 ## `@deepseek-ai/dsh-typert-loader`
 
