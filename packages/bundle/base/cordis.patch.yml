@@ -217,6 +217,9 @@
     - id: commands
       name: '@deepseek-ai/dsh-commands'
 
+    - id: command-feedback
+      name: '@deepseek-ai/dsh-command-feedback'
+
     - id: goal
       name: '@deepseek-ai/dsh-goal'
 
