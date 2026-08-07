@@ -231,6 +231,8 @@
 
 - id: tool-todo
   name: '@deepseek-ai/dsh-tool-todo'
+  config:
+    allowParallelInProgress: true
 
 # The `web` service and its search provider stay in the host composition; only
 # the model-facing tool is per-session.
