@@ -256,3 +256,30 @@
   white-space: nowrap;
   vertical-align: baseline;
 }
+
+/* User-explicit skill invocation: the injected body collapses behind a
+   disclosure inside the user bubble. */
+.skillInvocationDetails {
+  margin-top: 6px;
+}
+
+.skillInvocationSummary {
+  cursor: pointer;
+  font-size: 0.8em;
+  color: var(--dsw-alias-label-secondary);
+  user-select: none;
+}
+
+.skillInvocationBody {
+  margin: 6px 0 0;
+  padding: 8px;
+  max-height: 320px;
+  overflow: auto;
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-secondary, rgba(0, 0, 0, 0.06));
+  font-family: var(--dsw-font-mono, monospace);
+  font-size: 0.78em;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

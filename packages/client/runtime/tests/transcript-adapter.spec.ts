@@ -164,6 +164,31 @@ describe('TranscriptAdapter', () => {
     expect(adapter.nodes().map(node => node.kind)).toEqual(['user', 'user', 'context'])
   })
 
+  it('materializes a skill-invocation source as its dedicated node', () => {
+    const adapter = new TranscriptAdapter()
+    adapter.reset([
+      at(0, { type: 'user/message', surfaceOp: 'append', data: createUserMessage({
+        content: [{ type: 'text', text: '<skill_content name="hidden-demo">body</skill_content>\n\ncheck the fixture' }],
+        source: { kind: 'skill-invocation', name: 'hidden-demo', args: 'check the fixture' } as never,
+      }) }),
+      at(1, { type: 'user/message', surfaceOp: 'append', data: createUserMessage({
+        content: [{ type: 'text', text: '<skill_content name="bare-skill">body</skill_content>' }],
+        source: { kind: 'skill-invocation', name: 'bare-skill' } as never,
+      }) }),
+    ])
+    const nodes = adapter.nodes()
+    expect(nodes.map(node => node.kind)).toEqual(['skill-invocation', 'skill-invocation'])
+    expect(nodes[0]).toMatchObject({ name: 'hidden-demo', args: 'check the fixture' })
+    expect(nodes[1]).toMatchObject({ name: 'bare-skill' })
+    expect((nodes[1] as { args?: string }).args).toBeUndefined()
+    // A malformed record (no readable name) degrades to injected context, not a crash.
+    adapter.append(at(2, { type: 'user/message', surfaceOp: 'append', data: createUserMessage({
+      content: [{ type: 'text', text: 'odd' }],
+      source: { kind: 'skill-invocation' } as never,
+    }) }))
+    expect(adapter.nodes().at(-1)?.kind).toBe('context')
+  })
+
   it('skips events core does not call surface-eligible, marker or not', () => {
     // The transcript is the append-origin surface, so log-only events (a chunk,
     // a turn boundary, a compact/* provenance record) and a future type core

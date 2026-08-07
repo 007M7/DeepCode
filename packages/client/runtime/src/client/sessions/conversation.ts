@@ -129,6 +129,25 @@ export interface ContextMessageNode {
   form: KnownContextForm | null
 }
 
+/**
+ * A user-explicit skill invocation: the host injected the rendered skill as a
+ * user message carrying the `skill-invocation` source, so the card presents
+ * `/name args` from source metadata and collapses the injected body.
+ */
+export interface SkillInvocationNode {
+  kind: 'skill-invocation'
+  seq: number
+  /** Unix epoch ms from the source session event. */
+  time: number
+  /** Invoked skill name read off the message source. */
+  name: string
+  /** Trailing user text read off the message source, when recorded. */
+  args?: string
+  /** Full injected model-facing content (collapsed by default in the UI). */
+  content: readonly ContentBlock[]
+  source: unknown
+}
+
 /** Durable notice that a closed failed step is waiting for a model-request retry. */
 export type ModelRetryNode = LlmRetryEventData & {
   kind: 'model-retry'
@@ -245,6 +264,7 @@ export type ConversationNode =
   | AssistantMessageNode
   | SteeringMessageNode
   | ContextMessageNode
+  | SkillInvocationNode
   | ModelRetryNode
   | TurnErrorNode
   | ToolResultNode

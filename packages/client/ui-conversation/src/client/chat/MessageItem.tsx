@@ -7,8 +7,8 @@
 import { memo, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import type {
-  CompactionSummaryNode, ContextMessageNode, ModelRetryNode, SteeringMessageNode,
-  TurnErrorNode, UnknownSurfaceNode, UserMessageNode,
+  CompactionSummaryNode, ContextMessageNode, ModelRetryNode, SkillInvocationNode,
+  SteeringMessageNode, TurnErrorNode, UnknownSurfaceNode, UserMessageNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { JsonBlock, MessageText, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatViewSlotProps } from '../contract/slots.ts'
@@ -22,6 +22,7 @@ export interface MessageItemProps {
     | UserMessageNode
     | SteeringMessageNode
     | ContextMessageNode
+    | SkillInvocationNode
     | CompactionSummaryNode
     | ModelRetryNode
     | TurnErrorNode
@@ -194,6 +195,38 @@ function UserStyleBubble({
 }
 
 /**
+ * A user-explicit skill invocation: the right-aligned bubble presents the
+ * `/name args` gesture from source metadata (never re-parsed from the body),
+ * and the injected `<skill_content>` collapses behind a disclosure — the
+ * durable content is model-facing bulk, not conversation prose.
+ */
+function SkillInvocationRow({ node, t }: {
+  node: SkillInvocationNode
+  t: ChatViewSlotProps['t']
+}): ReactNode {
+  const { text } = contentText(node.content)
+  return (
+    <div className={css.userRow} data-skill-invocation data-time-hover-root>
+      <div className={css.bubble}>
+        <span className={css.refChip} data-ref-chip="skill">{`/${node.name}`}</span>
+        {node.args !== undefined && <MessageText text={` ${node.args}`} />}
+        <details className={css.skillInvocationDetails}>
+          <summary className={css.skillInvocationSummary}>{t('message.skillInvocation.expand')}</summary>
+          <pre className={css.skillInvocationBody}>{text}</pre>
+        </details>
+      </div>
+      <MessageIconActions
+        text={text}
+        time={node.time}
+        clock="start"
+        className={css.actions}
+        t={t}
+      />
+    </div>
+  )
+}
+
+/**
  * Render one Host-authoritative pending steering item with the same visual
  * language as its eventual durable transcript node.
  * @param props - Pending message content and conversation translator.
@@ -254,6 +287,8 @@ export const MessageItem = memo(function MessageItem({
           t={t}
         />
       )
+    case 'skill-invocation':
+      return <SkillInvocationRow node={node} t={t} />
     case 'compaction':
       return <CompactionItem node={node} t={t} />
     case 'model-retry':

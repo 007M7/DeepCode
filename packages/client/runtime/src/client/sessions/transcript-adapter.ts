@@ -57,7 +57,20 @@ function materializeNode(
   stepTimings: ReadonlyMap<string, AssistantStepMetadata>,
 ): ConversationNode {
   switch (event.type) {
-    case 'user/message':
+    case 'user/message': {
+      // A user-explicit skill invocation carries its name (and optional args)
+      // on the source; the dedicated node lets the card render `/name args`
+      // from metadata instead of re-parsing the injected body. A record whose
+      // name is unreadable degrades to injected context below.
+      const source = event.data.source as { kind?: unknown; name?: unknown; args?: unknown }
+      if (source.kind === 'skill-invocation' && typeof source.name === 'string') {
+        return {
+          kind: 'skill-invocation', seq: event.seq, time: event.time,
+          name: source.name,
+          ...typeof source.args === 'string' ? { args: source.args } : {},
+          content: event.data.content, source: event.data.source,
+        }
+      }
       // Injected context (plugin/goal source) folds to a context node, not a
       // user message; only a direct human prompt is a user node. A compaction
       // checkpoint never reaches here (isCompactCheckpoint routes it away).
@@ -80,6 +93,7 @@ function materializeNode(
         kind: 'user', seq: event.seq, time: event.time,
         content: event.data.content, source: event.data.source,
       }
+    }
     case 'assistant/message':
       return {
         kind: 'assistant', seq: event.seq, time: event.time,
