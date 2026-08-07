@@ -1009,6 +1009,52 @@ describe('SubagentService.listDescendants', () => {
     ])
   })
 
+  it('returns an empty result when the root has no descendants', async () => {
+    const { ctx, parent } = await setup([])
+    await ctx.sessions.flush(parent.session)
+    await expect(ctx.subagents.listDescendants(parent.id)).resolves.toEqual([])
+  })
+
+  it('omits a live creation-window candidate while continuing through its subtree', async () => {
+    const { ctx, parent } = await setup([])
+    const bareId = SessionId('live-creation-window')
+    const bare = ctx.sessions.create(bareId, {
+      meta: { createdAt: 1, parentSession: parent.id, origin: 'subagent' },
+    })
+    bare.append('turn/start', { turn: 1 })
+    const below = await authorChild(ctx, '00000000-0000-4000-8000-00000000aaaf', {
+      parentSession: bareId,
+      createdAt: 2,
+      origin: 'subagent',
+    }, childEvents(descriptorPayload('below the creation window')))
+
+    await expect(ctx.subagents.listDescendants(parent.id)).resolves.toEqual([{
+      kind: 'child', id: below, label: 'below the creation window', mode: 'continuable',
+      activity: 'inactive', hasChildren: false, parentId: bareId, depth: 2,
+    }])
+  })
+
+  it('contains a corrupt parent cycle without revisiting the requested root', async () => {
+    const { ctx } = await setup([])
+    const rootId = SessionId('cycle-root')
+    const nodeId = SessionId('cycle-node')
+    await authorChild(ctx, rootId, {
+      parentSession: nodeId,
+      createdAt: 2,
+    }, childEvents(descriptorPayload('ordinary cycle root')))
+    await authorChild(ctx, nodeId, {
+      parentSession: rootId,
+      createdAt: 1,
+      origin: 'subagent',
+    }, childEvents(descriptorPayload('cycle child')))
+
+    await expect(ctx.subagents.listDescendants(rootId)).resolves.toEqual([{
+      kind: 'child', id: nodeId, label: 'cycle child', mode: 'continuable',
+      activity: 'inactive', hasChildren: false, parentId: rootId, depth: 1,
+    }])
+  })
+
+
   it('walks a deeply nested ordinary-session chain without consuming the call stack', async () => {
     const { ctx, parent } = await setup([])
     const depth = 10_000

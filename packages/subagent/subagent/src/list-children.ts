@@ -315,8 +315,9 @@ function descendantCandidates(
     .reverse()
   const visited = new Set<SessionId>([rootSessionId])
   while (stack.length > 0) {
-    const position = stack.pop()
-    if (position === undefined) break
+    // The length guard proves one frame exists.
+    // oxlint-disable-next-line typescript/no-non-null-assertion
+    const position = stack.pop()!
     const id = position.record.header.id
     if (visited.has(id)) continue
     visited.add(id)
