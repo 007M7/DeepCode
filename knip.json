@@ -36,6 +36,7 @@
       "entry": [
         "headless-agent/tests/fixtures/cli-mock-llm.ts",
         "headless-agent/tests/fixtures/semantic-checkpoint-agent.ts",
+        "headless-agent/tests/fixtures/subagent-diagnostic-agent.ts",
         "headless-agent/tests/fixtures/subagent-inheritance-agent.ts",
         "headless-agent/tests/fixtures/workspace-context-resume-agent.ts",
         "headless-agent/tests/fixtures/goal-domain/seed-goal.ts",

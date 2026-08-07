@@ -1,20 +1,17 @@
 /**
  * The globally named `list_agents` tool: a thin model-facing adapter over
- * the continuable projection of `ctx.subagents.listChildren()`. It is
- * separately loadable from the
- * root `send_message` plugin because it additionally requires the session
- * query service — a deployment may use `send_message` without loading session
- * query, and this plugin remains inactive until that service is available.
+ * the continuable projection of `ctx.subagents.listChildren()`. It stays
+ * separately loadable from the root `send_message` plugin so a deployment
+ * can register `send_message` without exposing the list tool.
  * @module @deepseek-ai/dsh-tool-subagent-control/list-agents
  */
 
 import type { Context } from 'cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type {} from '@deepseek-ai/dsh-session-query'
 import type {} from '@deepseek-ai/dsh-subagent'
 
 export const name = 'tool-subagent-list-agents'
-export const inject = ['tools', 'subagents', 'sessionQuery']
+export const inject = ['tools', 'subagents']
 
 type ListAgentsEntry =
   | {
@@ -31,7 +28,7 @@ type ListAgentsEntry =
 
 /**
  * Register the `list_agents` tool.
- * @param ctx - context carrying the tool registry, subagent service, and session query.
+ * @param ctx - context carrying the tool registry and subagent service.
  */
 export function apply(ctx: Context): void {
   ctx.tools.register(defineTool({
