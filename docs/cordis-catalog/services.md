@@ -2155,18 +2155,18 @@ listChildren(parentSessionId: SessionId, signal?: AbortSignal): Promise<Subagent
 
 /**
  * Enumerate the root's complete session-backed subagent tree in stable
- * pre-order from one lineage trace, without loading or resuming an Agent.
- * Ordinary sessions and one-shot children are traversed so continuable
- * descendants below them are discovered; each returned entry adds its
- * verified `parentId` and root-relative `depth`. Cancellation follows the
- * same contract as {@link listChildren}.
+ * pre-order from one live-preferred corpus, without loading or resuming an
+ * Agent. Ordinary sessions and one-shot children remain traversal nodes so
+ * continuable descendants below them are discovered; each returned entry
+ * adds its durable `parentId` and root-relative `depth`. Identity resolution,
+ * diagnostics, optional persistence, and cancellation follow the same
+ * projection-backed contract as {@link listChildren}.
  * @param rootSessionId - session whose complete descendant tree is listed.
- * @param signal - caller-owned cancellation forwarded where supported and
- *   observed around every query await.
+ * @param signal - caller-owned cancellation forwarded to persistence reads
+ *   and observed around every read await.
  * @returns children and per-candidate diagnostics with tree position, in
  *   stable pre-order.
- * @throws {@link SubagentError} when session query is unavailable or the
- *   caller cancels the scan.
+ * @throws {@link SubagentError} under the same conditions as {@link listChildren}.
  */
 listDescendants(rootSessionId: SessionId, signal?: AbortSignal): Promise<SubagentDescendantListEntry[]>
 
