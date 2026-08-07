@@ -30,7 +30,7 @@ A default naming a route the Models page has since removed leaves the composer s
 
 The Host refuses. `session.prompt` checks whether an adapter serves the session's route and answers `model-unavailable` before opening a turn. This is the enforcement boundary: a client that disables its composer is an affordance, and the method stays callable regardless.
 
-The composer goes inert. `session.models` reports `routable`, and ui-model pushes a block through the new `ctx.conversation.blocks` registry; the bar renders the same disabled textarea it already renders without a workspace, with the blocker's own localized reason as the placeholder. The push direction is forced — ui-model already depends on ui-conversation, so ui-conversation cannot read it back.
+The composer goes inert. `session.models` reports `routable`, and ui-model pushes a block through the new `ctx.conversation.blocks` registry; the bar renders the same disabled textarea it already renders without a workspace, with the blocker's own localized reason as the placeholder — except the model seat, which a block deliberately leaves live, because choosing a model is how the user clears it. The push direction is forced — ui-model already depends on ui-conversation, so ui-conversation cannot read it back.
 
 The gate is `routable`, NOT "the current target matches no advertised group". Catalog membership is advisory by design: a route serving a model it stopped advertising is absent from the groups yet perfectly usable, and blocking there would break a supported configuration (a narrowed `models` list over a live route). `routable` is also three-valued on the client — `null` before the first load or after a failed one never blocks, so a slow or unreachable Host cannot lock a working composer.
 

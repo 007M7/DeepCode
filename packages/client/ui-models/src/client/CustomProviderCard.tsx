@@ -13,6 +13,14 @@
  * The three fields a hand-declared route cannot default — endpoint, protocol,
  * and at least one model — are required here rather than at load, so the
  * failure names the field while the user is still looking at it.
+ *
+ * There is deliberately no reasoning-effort control. A hand-declared model
+ * carries no reasoning capability — pi-ai's installed catalog is what supplies
+ * one, and it has nothing under this route — so a profile effort here makes
+ * `resolveModel` throw UNSUPPORTED_REASONING_EFFORT for every model on the
+ * route, which drops the whole provider out of the model picker. The editor
+ * card hides the control for the same reason once the directory reports the
+ * route as declared.
  */
 
 import { useState } from 'react'
@@ -23,7 +31,6 @@ import { EditorFooter } from './EditorFooter.tsx'
 import { validateDeepSeekModels } from './DeepSeekModelsEditor.tsx'
 import { ModelListEditor } from './ModelListEditor.tsx'
 import type { ModelDraft } from './ModelListEditor.tsx'
-import { EFFORT_FIELD, ReasoningEffortField } from './ReasoningEffortField.tsx'
 import { deriveKeyRef, messageOf } from './store.ts'
 import type { en } from './locales.ts'
 import styles from './ModelsSection.module.css'
@@ -31,8 +38,15 @@ import styles from './ModelsSection.module.css'
 /** The settings namespace a hand-declared provider is written into. */
 const NS = 'llm-pi-ai'
 
-/** A route id usable as a settings key and as the stem of a credential name. */
-const ROUTE_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+/**
+ * A route id usable as a settings key AND as the stem of a credential name.
+ * The leading letter is the second half of that: `deriveKeyRef` uppercases the
+ * id and replaces every non-alphanumeric run with `_`, and a credential
+ * reference is a POSIX shell identifier, which cannot start with a digit. A
+ * digit-leading id passes every check this card makes and then fails at the
+ * credential seam with a raw regular expression the user cannot act on.
+ */
+const ROUTE_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
 
 /** Props of {@link CustomProviderCard}. */
 export interface CustomProviderCardProps {
@@ -71,7 +85,6 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
   const [baseURL, setBaseURL] = useState('')
   const [protocol, setProtocol] = useState(protocols[0] ?? '')
   const [keyDraft, setKeyDraft] = useState('')
-  const [effort, setEffort] = useState<string | undefined>(undefined)
   const [models, setModels] = useState<readonly ModelDraft[]>([])
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string | undefined>(undefined)
@@ -128,9 +141,6 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
         ...storesKey ? { apiKeyEnv: keyRef } : {},
         api: protocol,
         baseURL,
-        // Inherit is the field being absent, not an empty string: the schema
-        // types it as an effort name, and an empty one would fail the write.
-        ...effort === undefined ? {} : { [EFFORT_FIELD['pi-ai']]: effort },
         models: models.map(model => ({ ...model })),
       }
       const response = await api.settings.mutate({
@@ -251,15 +261,6 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
           ? null
           : <p className={styles['error']}>{t(keyFailure === 'keyBlank' ? 'keyBlankNew' : keyFailure)}</p>}
       </div>
-      {/* The same control the editor card shows for this namespace: a route
-          declared here and edited there must offer the same profile. */}
-      <ReasoningEffortField
-        family="pi-ai"
-        value={effort ?? ''}
-        onChange={setEffort}
-        t={t}
-        disabled={profileDisabled}
-      />
       <ModelListEditor
         models={models}
         onChange={setModels}

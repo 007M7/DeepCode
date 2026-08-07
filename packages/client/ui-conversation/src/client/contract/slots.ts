@@ -266,6 +266,14 @@ export interface ComposerBarOwnerProps {
   /** Hero = empty-state centered card; composer = resident bottom bar. */
   variant: 'hero' | 'composer'
   /**
+   * A block another plugin raised for this session: the bar refuses input and
+   * shows the blocker's reason as the placeholder, but — unlike `disabled` —
+   * keeps the model seat live. Every block this contract has is one the user
+   * clears by choosing a model, so locking that seat too would leave the
+   * composer telling them to do the one thing it prevents.
+   */
+  blocked?: { readonly reason: string }
+  /**
    * Inert no-workspace state: the bar renders its normal DOM fully disabled
    * (textarea, add, send) so the workspace pick transitions in place instead
    * of swapping component trees.

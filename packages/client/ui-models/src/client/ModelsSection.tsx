@@ -54,6 +54,8 @@ interface EditorTarget extends ProviderIdentity {
   settingsPath: readonly string[]
   /** Writable credential identified under this page's conventional reference. */
   credentialRef?: string
+  /** Directory passthrough: the owning adapter ships nothing under this route. */
+  declared?: boolean
 }
 
 /** Values that vary around the shared provider-editor rendering. */
@@ -71,6 +73,7 @@ function renderProviderEditor({ target, ...props }: ProviderEditorRenderProps): 
       provider={target.provider}
       displayName={target.displayName}
       settingsPath={target.settingsPath}
+      {...target.declared === undefined ? {} : { declared: target.declared }}
       {...props}
     />
   )
@@ -137,6 +140,7 @@ function targetOf(row: ProviderRow): EditorTarget {
     settingsNs: row.entry.settingsNs,
     settingsPath: row.entry.settingsPath,
     ...credentialRef === undefined ? {} : { credentialRef },
+    ...row.entry.declared === undefined ? {} : { declared: row.entry.declared },
   }
 }
 

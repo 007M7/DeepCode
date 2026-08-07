@@ -1,13 +1,14 @@
 /**
- * The provider-level reasoning-effort select, shared by every card that writes
- * a provider profile. It lives here rather than inside one card because both
- * write the SAME field of the same profile: a route declared without this
- * control and then edited with it would offer a setting the creating user was
- * never given, which is exactly the drift that put it here.
+ * The provider-level reasoning-effort select: the profile's own default
+ * effort, applied to every model on the route unless a request names one. The
+ * empty option means "inherit", which on the wire is the field being absent
+ * rather than an empty string.
  *
- * The value is the profile's own default effort, applied to every model on the
- * route unless a request names one; the empty option means "inherit", which on
- * the wire is the field being absent rather than an empty string.
+ * It carries the per-family vocabulary and field name so the editor's two
+ * layouts cannot spell them differently. Only routes the adapter ships get
+ * this control at all — a hand-declared model has no reasoning capability to
+ * configure, and a profile effort over one makes its whole route fail to
+ * resolve — so the create card renders nothing here by construction.
  */
 
 import type { ReactNode } from 'react'

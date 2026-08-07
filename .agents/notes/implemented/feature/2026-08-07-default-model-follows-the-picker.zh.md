@@ -30,7 +30,7 @@ Status: implemented
 
 宿主拒绝。`session.prompt` 检查是否有适配器服务该会话的路由，在开启轮次之前就以 `model-unavailable` 应答。这是执行边界：客户端禁用编辑器只是提示性设计，这个方法始终可被调用。
 
-编辑器变惰性。`session.models` 报告 `routable`，ui-model 经新的 `ctx.conversation.blocks` 注册表推送一个 block；输入栏渲染的仍是它在没有 Workspace 时就会渲染的那个禁用 textarea，只是把抬起方自己的本地化理由作为 placeholder。推送方向是被迫的——ui-model 本就依赖 ui-conversation，因此 ui-conversation 读不回去。
+编辑器变惰性。`session.models` 报告 `routable`，ui-model 经新的 `ctx.conversation.blocks` 注册表推送一个 block；输入栏渲染的仍是它在没有 Workspace 时就会渲染的那个禁用 textarea，只是把抬起方自己的本地化理由作为 placeholder——唯独模型 seat 被 block 刻意保留可用，因为用户正是靠选模型来解除它。推送方向是被迫的——ui-model 本就依赖 ui-conversation，因此 ui-conversation 读不回去。
 
 闸门是 `routable`，**不是**「当前目标匹配不到任何已公布分组」。目录成员关系按设计是咨询性的：一条仍在服务、只是不再公布该模型的路由不在分组里，却完全可用，在那里阻断会破坏一种受支持的配置（对一条活着的路由收窄 `models` 列表）。`routable` 在客户端还是三值的——首次加载之前或加载失败之后的 `null` 绝不阻断，因此慢的或够不着的宿主锁不死一个本来能用的编辑器。
 

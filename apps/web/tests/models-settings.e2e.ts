@@ -175,7 +175,7 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)
 
-  it('declares a route the adapter does not ship, with its own reasoning effort', async () => {
+  it('declares a route the adapter does not ship, without a reasoning control', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-models-declare'))
     const dialog = page.getByRole('dialog', { name: '设置' })
     const declare = dialog.getByRole('button', { name: '添加自定义提供方' })
@@ -184,10 +184,10 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
     await dialog.getByLabel('Provider ID').fill('acme-gateway')
     await dialog.getByLabel('显示名称').fill('Acme Gateway')
     await dialog.getByLabel('API 地址').fill('https://gateway.acme.example/v1')
-    // The create card offers the same provider-level effort the editor card
-    // does for this namespace; a route declared without it would gain the
-    // control only on reopening.
-    await dialog.getByLabel('推理强度').selectOption('high')
+    // No reasoning effort anywhere for a hand-declared route: its models carry
+    // no reasoning capability, so a profile effort would make every model on
+    // the route fail to resolve and drop the provider out of the picker.
+    expect(await dialog.getByLabel('推理强度').count()).toBe(0)
     await dialog.getByRole('button', { name: '添加模型' }).click()
     await dialog.getByLabel('模型 ID 1').fill('acme-large')
     await dialog.getByRole('button', { name: '创建提供方', exact: true }).click()
@@ -196,7 +196,6 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
     await row.waitFor({ timeout: 10_000 })
     const document = await readFile(join(scaffold.harnessHome, 'settings.yaml'), 'utf8')
     expect(document).toContain('acme-gateway:')
-    expect(document).toContain('reasoning: high')
 
     // The tag follows the adapter's installed catalog: this route is in no
     // catalog, while minimax-cn is — even though both now have profiles.

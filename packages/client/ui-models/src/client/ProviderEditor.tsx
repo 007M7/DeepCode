@@ -7,8 +7,10 @@
  * a key is entered; a blank key materializes a reference-free profile for
  * provider-native authentication);
  * the collapsed 自定义设置 area carries the per-family extras (`baseURL` for
- * both families, `reasoningEffort` for deepseek / `reasoning` for pi-ai, and
- * DeepSeek's id/name/context-window model catalog). Everything else stays
+ * both families, `reasoningEffort` for deepseek / `reasoning` for pi-ai —
+ * withheld for a hand-declared route, whose models have no reasoning
+ * capability to configure — and DeepSeek's id/name/context-window model
+ * catalog). Everything else stays
  * owned by `settings.yaml`. Profile edits land as minimal `settings.mutate`
  * path ops against the stored section — the card reads the redacted
  * descriptor, so it names only the fields it can see and a stored literal
@@ -55,6 +57,13 @@ export interface ProviderEditorProps {
   api: Pick<IApiClient, 'settings' | 'credentials' | 'llm'>
   /** Section copy. */
   t: (key: keyof typeof en) => string
+  /**
+   * Whether the owning adapter knows this route only because configuration
+   * declared it. Such a route's models carry no reasoning capability, so the
+   * effort control is withheld; absent means the adapter draws no such
+   * distinction and the control shows.
+   */
+  declared?: boolean
   /** Disable writes (read-only settings provider). */
   readOnly: boolean
   /** Close the editor; `changed` reports whether an Apply committed. */
@@ -352,13 +361,21 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
                 }}
               />
             </div>
-            <ReasoningEffortField
-              family={family}
-              value={stringAt(draft, effortField) ?? ''}
-              onChange={(effort) => { setField(effortField, effort) }}
-              t={t}
-              disabled={disabled}
-            />
+            {/* A hand-declared route's models carry no reasoning capability
+                (pi-ai's installed catalog is what supplies one, and it has
+                nothing under such a route), so a profile effort would make
+                `resolveModel` throw for every model on it and drop the whole
+                provider out of the picker. Offering the control at all would
+                be offering a way to break the route. */}
+            {props.declared === true ? null : (
+              <ReasoningEffortField
+                family={family}
+                value={stringAt(draft, effortField) ?? ''}
+                onChange={(effort) => { setField(effortField, effort) }}
+                t={t}
+                disabled={disabled}
+              />
+            )}
             {/* Both families edit the same rows through the same contract; only
                 the extras differ — DeepSeek's inherited capacities, pi-ai's
                 endpoint interrogation. */}

@@ -120,9 +120,14 @@ function mount(
   const stop = vi.fn()
   const open = vi.fn()
   const slotCalls: string[] = []
+  /** Owner share handed to the two composer tool-row seats, per render. */
+  const seatOwners: { key: string; owner: unknown }[] = []
   let pickerOwner: unknown
   const renderSlot = ((key: string, owner: object, opts?: { only?: string }) => {
     slotCalls.push(key)
+    if (key === 'conversation.input.model' || key === 'conversation.input.plan') {
+      seatOwners.push({ key, owner })
+    }
     if (key === 'conversation.hero.workspace') { pickerOwner = owner; return null }
     if (key === 'conversation.session.header') {
       return (
@@ -200,7 +205,12 @@ function mount(
           stop={stop}
           command={() => Promise.resolve(true)}
           t={t}
-          renderSlot={(() => null) as InputBarProps['renderSlot']}
+          renderSlot={((key: string, seatOwner: object) => {
+            // The bar's own seats: recorded so a case can assert what share
+            // each tool-row control received.
+            seatOwners.push({ key, owner: seatOwner })
+            return null
+          }) as InputBarProps['renderSlot']}
           {...bar}
         />
       )
@@ -236,7 +246,7 @@ function mount(
   }
   const view = render(<ConversationRoot {...props} />)
   return {
-    view, chat, sink, retargetWorkspace, session, slotCalls, open,
+    view, chat, sink, retargetWorkspace, session, slotCalls, seatOwners, open,
     pickerOwner: () => pickerOwner,
     rerender: () => { view.rerender(<ConversationRoot {...props} />) },
   }
@@ -262,6 +272,13 @@ describe('ConversationRoot resident composer', () => {
     expect(box.placeholder).toBe('select a model first')
     fireEvent.keyDown(box, { key: 'Enter' })
     expect(b.sink).not.toHaveBeenCalled()
+
+    // The model seat stays live. Locking it too would leave the composer
+    // asking for the one thing it prevents — every block this contract has is
+    // cleared by choosing a model.
+    const seat = (key: string) => b.seatOwners.filter(call => call.key === key).at(-1)?.owner
+    expect(seat('conversation.input.model')).toEqual({ locked: false })
+    expect(seat('conversation.input.plan')).toEqual({ locked: true })
   })
 
   it('lets the no-workspace posture win over a block', () => {

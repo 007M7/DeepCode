@@ -9,7 +9,7 @@ import { ModelsSection } from '../src/client/ModelsSection.tsx'
 import type { ModelsSectionInjected } from '../src/client/ModelsSection.tsx'
 import { CustomProviderCard } from '../src/client/CustomProviderCard.tsx'
 import { formatCapacity, parseCapacity } from '../src/client/DeepSeekModelsEditor.tsx'
-import { ModelsSettingsStore, protocolChoices } from '../src/client/store.ts'
+import { ModelsSettingsStore, deriveKeyRef, protocolChoices } from '../src/client/store.ts'
 import { en } from '../src/client/locales.ts'
 
 afterEach(cleanup)
@@ -705,38 +705,35 @@ describe('hand-declared providers', () => {
     expect(set).toHaveBeenCalledWith({ ref: 'ACME_GATEWAY_API_KEY', value: 'gw-key' })
   })
 
-  it('offers the same reasoning effort the editor does, and omits it when inherited', async () => {
-    const { mutate, onClose } = mountCard()
-    const declare = (): void => {
-      fireEvent.change(screen.getByLabelText(en.customRoute), { target: { value: 'acme' } })
-      fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: 'https://acme.test/v1' } })
-      fireEvent.click(screen.getByRole('button', { name: en.addModel }))
-      fireEvent.change(screen.getByLabelText(`${en.modelId} 1`), { target: { value: 'acme-large' } })
-    }
-    declare()
+  it('offers no reasoning effort at all, in either card, for a hand-declared route', async () => {
+    mountCard()
+    fireEvent.change(screen.getByLabelText(en.customRoute), { target: { value: 'acme' } })
+    fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: 'https://acme.test/v1' } })
+    // A hand-declared model carries no reasoning capability — pi-ai's
+    // installed catalog is what supplies one, and it ships nothing under this
+    // route — so a profile effort makes `resolveModel` throw
+    // UNSUPPORTED_REASONING_EFFORT for every model on it and drops the whole
+    // provider out of the picker. Offering the control would be offering a way
+    // to break the route.
+    expect(screen.queryByLabelText(en.effort)).toBeNull()
+    cleanup()
 
-    // The vocabulary is the namespace's, not DeepSeek's — a route declared
-    // here is edited by the pi-ai layout, which offers exactly these.
-    const select = screen.getByLabelText(en.effort) as HTMLSelectElement
+    // The editor card withholds it for the same route for the same reason...
+    await mountSection({
+      providers: { 'acme-gateway': { apiKeyEnv: 'ACME_GATEWAY_API_KEY', baseURL: 'https://acme.test/v1' } },
+      declaredRoutes: ['acme-gateway'],
+    })
+    openEditor('acme-gateway')
+    expect(screen.queryByLabelText(en.effort)).toBeNull()
+    cleanup()
+
+    // ...and keeps it for a route the adapter actually ships, whose models do
+    // carry the capability.
+    await mountSection({ providers: { openai: { apiKeyEnv: 'OPENAI_API_KEY' } } })
+    openEditor('openai')
+    const select = screen.getByLabelText<HTMLSelectElement>(en.effort)
     expect([...select.options].map(option => option.value))
       .toEqual(['', 'off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])
-
-    fireEvent.change(select, { target: { value: 'high' } })
-    fireEvent.click(screen.getByText(en.create))
-    await waitFor(() => { expect(onClose).toHaveBeenCalledWith(true) })
-    expect(firstMutate(mutate).ops[0]).toMatchObject({
-      path: ['providers', 'acme'],
-      value: { reasoning: 'high' },
-    })
-
-    // Inherit is the field being absent: an empty string would fail the schema
-    // that types this as an effort name.
-    cleanup()
-    const second = mountCard()
-    declare()
-    fireEvent.click(screen.getByText(en.create))
-    await waitFor(() => { expect(second.onClose).toHaveBeenCalledWith(true) })
-    expect(firstMutate(second.mutate).ops[0]).not.toHaveProperty('value.reasoning')
   })
 
   it('retries only the key after the profile landed, and reports the provider on cancel', async () => {
@@ -791,6 +788,32 @@ describe('hand-declared providers', () => {
     // leave the page without the row it now has.
     fireEvent.click(screen.getByText(en.cancel))
     expect(onClose).toHaveBeenCalledWith(true)
+  })
+
+  it('refuses a route id whose derived credential reference would be illegal', () => {
+    mountCard()
+    const routeField = screen.getByLabelText(en.customRoute)
+    fireEvent.change(routeField, { target: { value: 'https://acme.test/v1' } })
+
+    // A digit-leading id used to pass every check this card makes and then
+    // fail at the credential seam with a raw regular expression: the
+    // reference derives as `123_API_KEY`, and a credential reference is a
+    // POSIX shell identifier, which cannot start with a digit.
+    fireEvent.change(routeField, { target: { value: '123' } })
+    expect(screen.getByText(en.customRouteInvalid)).toBeTruthy()
+    expect(buttonNamed(en.create).disabled).toBe(true)
+
+    fireEvent.change(routeField, { target: { value: 'a1' } })
+    expect(screen.queryByText(en.customRouteInvalid)).toBeNull()
+  })
+
+  it('derives a reference the credential seam accepts for every id it admits', () => {
+    // The two rules have to stay in step; this is the relation, checked
+    // directly rather than through the DOM.
+    const CREDENTIAL_REF = /^[A-Za-z_][A-Za-z0-9_]*$/
+    for (const id of ['a', 'ds', 'a1', 'acme-gateway', 'x-1-y', 'zz9']) {
+      expect(CREDENTIAL_REF.test(deriveKeyRef(id))).toBe(true)
+    }
   })
 
   it('names the blocked gate under the form, and nothing once it is satisfied', () => {

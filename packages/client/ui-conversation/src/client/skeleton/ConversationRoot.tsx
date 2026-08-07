@@ -138,7 +138,10 @@ export function ConversationRoot({
     ...(inert
       ? { disabled: true, placeholder: t('placeholder.workspace') }
       : blocked
-        ? { disabled: true, placeholder: composerBlock.reason }
+        // `blocked`, not `disabled`: the bar refuses input either way, but a
+        // block keeps the model seat live because choosing a model is how the
+        // user clears it.
+        ? { blocked: composerBlock, placeholder: composerBlock.reason }
         : hero ? { placeholder: t('placeholder.hero') } : {}),
     overlay: renderSlot('conversation.input.overlay', {}),
     leftItems: zone === undefined ? null : renderSlot('conversation.input.left', zone),
