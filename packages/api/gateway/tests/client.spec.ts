@@ -316,6 +316,32 @@ describe('Client TypeRT API', () => {
     await retry()
   })
 
+  it('rolls back a direct projection when its scoped projection fails to install', async () => {
+    const ctx = await bench(vi.fn<ConnectionHandle['rpc']['call']>())
+    const disposeContext = await ctx.remote.$mount({
+      package: '@fixture/context-anchor',
+      descriptors: [contextDescriptor()],
+    })
+    const namespace = ctx.get('remote.goals') as unknown as {
+      installScoped: (...args: unknown[]) => void
+      readonly create?: unknown
+    }
+    const installScoped = vi.spyOn(namespace, 'installScoped').mockImplementation(() => {
+      throw new Error('fixture scoped projection failure')
+    })
+    try {
+      await expect(ctx.remote.$mount({
+        package: '@fixture/direct-projection-failure',
+        descriptors: [directDescriptor()],
+      })).rejects.toThrow('fixture scoped projection failure')
+    } finally {
+      installScoped.mockRestore()
+    }
+
+    expect(namespace.create).toBeUndefined()
+    await disposeContext()
+  })
+
   it('rejects weak parameter and Context codecs plus malformed scope projections', async () => {
     const ctx = await bench(vi.fn<ConnectionHandle['rpc']['call']>())
     const direct = directDescriptor()
@@ -404,6 +430,20 @@ describe('Client TypeRT API', () => {
 
     await expect(invocation).rejects.toThrow('withdrawn during invocation')
     expect((ctx.remote as unknown as Record<string, unknown>).goals).toBeUndefined()
+  })
+
+  it('rejects a method obtained from a withdrawn namespace getter', async () => {
+    const ctx = await bench(vi.fn<ConnectionHandle['rpc']['call']>())
+    const dispose = await ctx.remote.$mount({ package: '@fixture/goals', descriptors: [directDescriptor()] })
+    const namespace = ctx.get('remote.goals') as unknown as object
+    const getter = Object.getOwnPropertyDescriptor(namespace, 'create')?.get
+
+    await dispose()
+
+    expect(getter).toBeTypeOf('function')
+    const withdrawn = getter?.call(namespace) as (...args: unknown[]) => Promise<unknown>
+    await expect(withdrawn('agent-1', { objective: 'ship' }))
+      .rejects.toThrow('Remote method is no longer mounted')
   })
 
   it('preserves a __proto__ wire parameter as an own named argument', async () => {

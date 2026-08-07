@@ -194,7 +194,7 @@ class ClientRemoteService extends Service implements TypeRTClientRemote {
       throw error
     }
     return async () => {
-      if (!namespace.service.remove('direct', descriptor.method, token)) return
+      namespace.service.remove('direct', descriptor.method, token)
       await this.disposeNamespace(descriptor.namespace, namespace)
     }
   }
@@ -212,7 +212,7 @@ class ClientRemoteService extends Service implements TypeRTClientRemote {
       throw error
     }
     return async () => {
-      if (!namespace.service.remove('scoped', descriptor.method, token)) return
+      namespace.service.remove('scoped', descriptor.method, token)
       await this.disposeNamespace(descriptor.namespace, namespace)
     }
   }
@@ -390,50 +390,36 @@ class RemoteNamespaceService extends Service {
     let record = this.methods.get(method)
     const fresh = record === undefined
     record ??= {}
-    if (record[kind] !== undefined) {
-      throw new Error(`client api: ${kind} method ${this.namespace}/${method} is already mounted`)
+    if (fresh) {
+      Object.defineProperty(this, method, {
+        configurable: true,
+        enumerable: true,
+        get: function (this: RemoteNamespaceService): (...args: unknown[]) => Promise<unknown> {
+          const callerCtx = this.ctx
+          const current = this.methods.get(method)
+          const direct = current?.direct
+          const scoped = current?.scoped
+          return (...args: unknown[]) => {
+            return this.invokeRemote(direct, scoped, callerCtx, args)
+          }
+        },
+      })
+      this.methods.set(method, record)
     }
-    try {
-      if (fresh) {
-        Object.defineProperty(this, method, {
-          configurable: true,
-          enumerable: true,
-          get: function (this: RemoteNamespaceService): (...args: unknown[]) => Promise<unknown> {
-            const callerCtx = this.ctx
-            const current = this.methods.get(method)
-            const direct = current?.direct
-            const scoped = current?.scoped
-            return (...args: unknown[]) => {
-              return this.invokeRemote(direct, scoped, callerCtx, args)
-            }
-          },
-        })
-        this.methods.set(method, record)
-      }
-      if (kind === 'direct') record.direct = value
-      else record.scoped = value as ScopedMethod
-    } catch (error) {
-      if (kind === 'direct') delete record.direct
-      else delete record.scoped
-      if (fresh) {
-        this.methods.delete(method)
-        Reflect.deleteProperty(this, method)
-      }
-      throw error
-    }
+    if (kind === 'direct') record.direct = value
+    else record.scoped = value as ScopedMethod
   }
 
-  remove(kind: 'direct' | 'scoped', method: string, token: MountToken): boolean {
+  remove(kind: 'direct' | 'scoped', method: string, token: MountToken): void {
     const record = this.methods.get(method)
     const current = record?.[kind]
     /* v8 ignore next -- duplicate live variants are rejected before installation, so no newer token can replace this one. */
-    if (record === undefined || current?.token !== token) return false
+    if (record === undefined || current?.token !== token) return
     if (kind === 'direct') delete record.direct
     else delete record.scoped
-    if (record.direct !== undefined || record.scoped !== undefined) return true
+    if (record.direct !== undefined || record.scoped !== undefined) return
     this.methods.delete(method)
     Reflect.deleteProperty(this, method)
-    return true
   }
 }
 
