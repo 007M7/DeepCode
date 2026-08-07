@@ -20,7 +20,8 @@ export const inject = ['remote']
 /**
  * Mount the Host capabilities explicitly selected for this Client assembly.
  * @param ctx - Client Cordis root carrying the typed API service.
+ * @returns disposer after every selected Remote namespace is ready.
  */
-export function apply(ctx: Context): Promise<() => Promise<void>> {
-  return ctx.remote.$mount(goalsRemote)
+export async function apply(ctx: Context): Promise<() => Promise<void>> {
+  return await ctx.remote.$mount(goalsRemote)
 }
