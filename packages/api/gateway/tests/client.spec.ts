@@ -4,6 +4,7 @@ import { z } from 'zod'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import type {
   InvocationDescriptor,
+  TypeRTClientRemote,
   TypeRTContext,
   TypeRTRemoteScopeApi,
   TypeRTRemoteNamespace,
@@ -38,7 +39,9 @@ declare module '@deepseek-ai/dsh-type-meta' {
 
 }
 
-type FixtureContext = Omit<Context, 'remote'> & { readonly remote: TypeRTRemoteScopeApi<'fixture'> }
+type FixtureContext = Omit<Context, 'remote'> & {
+  readonly remote: TypeRTClientRemote & TypeRTRemoteScopeApi<'fixture'>
+}
 
 const idSchema = z.string().min(1)
 const requestSchema = z.object({ objective: z.string().min(1) })
