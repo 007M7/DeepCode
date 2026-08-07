@@ -55,6 +55,9 @@ interface BenchOptions {
   running?: boolean
   subagent?: Exclude<ConversationSnapshot['subagent'], null>
   disabled?: boolean
+  inert?: boolean
+  workspacePickerOpen?: boolean
+  onRequestWorkspace?: () => void
   promptError?: ConversationSnapshot['promptError']
   variant?: 'hero' | 'composer'
   placeholder?: string
@@ -135,6 +138,9 @@ function bench(over?: BenchOptions) {
     t: over?.t ?? makeTranslate(zh, commonZh),
     renderSlot,
     variant: over?.variant ?? 'composer',
+    ...(over?.inert === true ? { disabled: true } : {}),
+    ...(over?.workspacePickerOpen !== undefined ? { workspacePickerOpen: over.workspacePickerOpen } : {}),
+    ...(over?.onRequestWorkspace !== undefined ? { onRequestWorkspace: over.onRequestWorkspace } : {}),
     ...(over?.placeholder !== undefined ? { placeholder: over.placeholder } : {}),
     ...(over?.accessory !== undefined ? { accessory: over.accessory } : {}),
     ...(over?.overlay !== undefined ? { overlay: over.overlay } : {}),
@@ -537,6 +543,26 @@ describe('running and lock semantics (queue cut 1)', () => {
     expect(live.textarea.placeholder).toBe('给智能体发消息')
     const custom = bench({ placeholder: 'Custom placeholder' })
     expect(custom.textarea.placeholder).toBe('Custom placeholder')
+  })
+
+  it('the inert textarea opens the Workspace picker by pointer or keyboard', () => {
+    const onRequestWorkspace = vi.fn()
+    const { view, textarea } = bench({
+      inert: true,
+      workspacePickerOpen: false,
+      onRequestWorkspace,
+      placeholder: '选择一个工作区开始',
+    })
+    expect(textarea.disabled).toBe(false)
+    expect(textarea.readOnly).toBe(true)
+    expect(textarea.getAttribute('aria-haspopup')).toBe('menu')
+    expect(textarea.getAttribute('aria-expanded')).toBe('false')
+    expect((view.getByLabelText('命令') as HTMLButtonElement).disabled).toBe(true)
+
+    fireEvent.click(textarea)
+    fireEvent.keyDown(textarea, { key: 'Enter' })
+    fireEvent.keyDown(textarea, { key: ' ' })
+    expect(onRequestWorkspace).toHaveBeenCalledTimes(3)
   })
 
   it('the plan projection swaps the placeholder while its effective target is plan mode', () => {

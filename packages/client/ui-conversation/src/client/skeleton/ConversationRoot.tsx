@@ -120,7 +120,7 @@ export function ConversationRoot({
     </div>
   )
 
-  // The placeholder chip ("Choose workspace") and the inert input travel
+  // The placeholder chip ("Choose workspace") and the Workspace-trigger input travel
   // together: no workspace picked yet (cold start, no session at all), or a
   // blank session whose workspace vanished (deleted from the sidebar). The
   // bar is ONE session-maybe slot rendered unconditionally — inert is a prop,
@@ -129,7 +129,12 @@ export function ConversationRoot({
   const inputBar = renderSlot('conversation.composer.bar', {
     variant: hero ? 'hero' : 'composer',
     ...(inert
-      ? { disabled: true, placeholder: t('placeholder.workspace') }
+      ? {
+        disabled: true,
+        placeholder: t('placeholder.workspace'),
+        workspacePickerOpen: pickerOpen,
+        onRequestWorkspace: () => { setPickerOpen(true) },
+      }
       : hero ? { placeholder: t('placeholder.hero') } : {}),
     overlay: renderSlot('conversation.input.overlay', {}),
     leftItems: zone === undefined ? null : renderSlot('conversation.input.left', zone),

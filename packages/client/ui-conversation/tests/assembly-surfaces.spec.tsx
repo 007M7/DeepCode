@@ -189,12 +189,20 @@ describe('resident composer', () => {
     runtime.slots.installLocale(locale)
     await runtime.root.declare(LAYOUT_CHILDREN, AppRoot)
     await runtime.mount({ inject: [...inject], apply })
+    runtime.slots.register({ name: 'conversation.hero.workspace' }, WorkspaceProbe)
     const view = runtime.renderRoot()
-    // No session entity: the inert twin renders (disabled textarea), and the
-    // workspace picker chip is the only live control.
     const textarea = view.container.querySelector('textarea')
     expect(textarea).not.toBeNull()
-    expect(textarea!.disabled).toBe(true)
+    expect(textarea!.disabled).toBe(false)
+    expect(textarea!.readOnly).toBe(true)
+    expect(textarea!.getAttribute('aria-haspopup')).toBe('menu')
+    expect(view.getByTestId('workspace-probe').textContent).toBe('false:0')
+    fireEvent.click(textarea!)
+    expect(view.getByTestId('workspace-probe').textContent).toBe('true:0')
+    expect(textarea!.getAttribute('aria-expanded')).toBe('true')
+    fireEvent.click(view.getByRole('button', { name: '选择工作区' }))
+    fireEvent.keyDown(textarea!, { key: 'Enter' })
+    expect(view.getByTestId('workspace-probe').textContent).toBe('true:0')
     expect(view.getByRole('button', { name: '选择工作区' })).toBeTruthy()
     await runtime.dispose()
   })
@@ -219,7 +227,8 @@ describe('resident composer', () => {
     const textarea = view.container.querySelector('textarea')!
     const workspaceChip = view.getByRole('button', { name: '选择工作区' })
     const workspaceProbe = view.getByTestId('workspace-probe')
-    expect(textarea.disabled).toBe(true)
+    expect(textarea.disabled).toBe(false)
+    expect(textarea.readOnly).toBe(true)
 
     fireEvent.click(workspaceChip)
     fireEvent.click(workspaceProbe)
@@ -239,6 +248,7 @@ describe('resident composer', () => {
     expect(view.getByTestId('workspace-probe')).toBe(workspaceProbe)
     expect(workspaceProbe.textContent).toBe('true:1')
     expect(textarea.disabled).toBe(false)
+    expect(textarea.readOnly).toBe(false)
     await runtime.dispose()
   })
 

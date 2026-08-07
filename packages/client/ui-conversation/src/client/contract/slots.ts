@@ -83,8 +83,9 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * takeover election hides rather than unmounts it and the textarea DOM
      * survives). Session-maybe: the bar stays mounted across the
      * no-session/session transition — the no-workspace hero renders the SAME
-     * textarea DOM disabled instead of a parallel inert tree — with the
-     * machine hooks absent until a session is current. InputBar registers
+     * textarea DOM as a read-only Workspace-picker trigger instead of a
+     * parallel inert tree — with the machine hooks absent until a session is
+     * current. InputBar registers
      * here from this package's apply; its machine state arrives through the
      * standard provide channel (useInput + inputActions), the keyboard
      * command face through its own inject.
@@ -259,11 +260,14 @@ export interface ComposerBarOwnerProps {
   /** Hero = empty-state centered card; composer = resident bottom bar. */
   variant: 'hero' | 'composer'
   /**
-   * Inert no-workspace state: the bar renders its normal DOM fully disabled
-   * (textarea, add, send) so the workspace pick transitions in place instead
-   * of swapping component trees.
+   * Inert no-workspace state: the bar locks message actions while preserving
+   * its normal DOM so the Workspace pick transitions in place.
    */
   disabled?: boolean
+  /** Whether the Workspace picker opened from this bar is currently expanded. */
+  workspacePickerOpen?: boolean
+  /** Open the existing Workspace picker from the inert textarea. */
+  onRequestWorkspace?: () => void
   placeholder?: string
   /** Optional content rendered above the textarea. */
   accessory?: ReactNode

@@ -37,7 +37,9 @@ export type InputBarProps = ComposerBarProps
 export function InputBar({
   useSession, useInput, inputActions, keyboard, resolveSubmitMode, toggleCommandMenu, stop, command, t,
   renderSlot, useNotices, useLexicon, useMenuLauncher,
-  useProjection, sessionId, variant, disabled: inert = false, placeholder, accessory, overlay, leftItems, rightItems, footer,
+  useProjection, sessionId, variant, disabled: inert = false,
+  workspacePickerOpen = false, onRequestWorkspace,
+  placeholder, accessory, overlay, leftItems, rightItems, footer,
 }: InputBarProps) {
   const input = useInput(s => s)
   const notice = useNotices(s => s)
@@ -89,6 +91,12 @@ export function InputBar({
   const disabled = removed || inert || !live
   const locked = disabled
   const machineBusy = input?.phase === 'adjudicating' || input?.phase === 'submitting'
+  // The no-workspace textarea remains the resident DOM node but acts as the
+  // existing picker trigger. Message controls stay locked until a Session
+  // exists; the trigger itself is read-only rather than disabled so pointer
+  // and keyboard users can reach the recovery action.
+  const workspaceTrigger = inert && !removed && onRequestWorkspace !== undefined
+  const textareaDisabled = removed || (locked && !workspaceTrigger)
 
   // Scroll the draft scrollport the minimum that brings `caret` into view — the
   // browser's own behavior for typing, performed for the paths where it does
@@ -200,8 +208,15 @@ export function InputBar({
   }, [])
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
-    // Absent machine (no session): the textarea is disabled so events cannot
-    // fire; the guard narrows the faces for the paths below.
+    if (workspaceTrigger) {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault()
+        onRequestWorkspace()
+      }
+      return
+    }
+    // Absent machine without a Workspace recovery action stays disabled; the
+    // guard narrows the faces for the paths below.
     if (keyboard === undefined || inputActions === undefined) return
     // Shift+Enter is the native newline UNCONDITIONALLY — decided before the
     // IME guard so a composition-closing Shift+Enter still breaks the line.
@@ -255,7 +270,7 @@ export function InputBar({
   }
 
   const onChange = (e: ChangeEvent<HTMLTextAreaElement>): void => {
-    if (keyboard === undefined) return // absent machine: disabled textarea, no events
+    if (keyboard === undefined || locked) return // disabled/read-only states cannot edit the draft
     if (machineBusy) return // submitting is the read-only span; adjudicating holds the pending lock
     const next = e.target.value
     keyboard.setDraft(next)
@@ -281,7 +296,7 @@ export function InputBar({
   /* oxlint-enable typescript/no-unnecessary-condition */
 
   const onCopyOrCut = (e: React.ClipboardEvent<HTMLTextAreaElement>, cut: boolean): void => {
-    if (input === undefined || keyboard === undefined) return // absent machine: disabled textarea, no events
+    if (input === undefined || keyboard === undefined) return // absent machine: no draft can be copied or cut
     const el = e.currentTarget
     const { start, end } = selectionOf(el)
     if (start === end) return
@@ -306,7 +321,7 @@ export function InputBar({
   }
 
   const onPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>): void => {
-    if (keyboard === undefined) return // absent machine: disabled textarea, no events
+    if (keyboard === undefined) return // absent machine: no draft can accept a paste
     if (machineBusy || locked) return
     const text = e.clipboardData.getData('text/plain')
     if (text === '') return
@@ -469,8 +484,11 @@ export function InputBar({
               ref={inputRef}
               className={css.input}
               value={draft}
-              disabled={locked}
-              readOnly={machineBusy}
+              disabled={textareaDisabled}
+              readOnly={machineBusy || workspaceTrigger}
+              aria-label={workspaceTrigger ? t('hero.chooseWorkspace') : undefined}
+              aria-haspopup={workspaceTrigger ? 'menu' : undefined}
+              aria-expanded={workspaceTrigger ? workspacePickerOpen : undefined}
               data-phase={input?.phase ?? 'inert'}
               placeholder={placeholder ?? (disabled
                 ? t('placeholder.unavailable')
@@ -478,6 +496,7 @@ export function InputBar({
               rows={2}
               onChange={onChange}
               onKeyDown={onKeyDown}
+              onClick={workspaceTrigger ? onRequestWorkspace : undefined}
               onSelect={onSelect}
               onCopy={(e) => { onCopyOrCut(e, false) }}
               onCut={(e) => { onCopyOrCut(e, true) }}

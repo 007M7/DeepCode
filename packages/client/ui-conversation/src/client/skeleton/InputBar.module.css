@@ -243,6 +243,10 @@
   cursor: not-allowed;
 }
 
+.input[aria-haspopup='menu'] {
+  cursor: pointer;
+}
+
 .mirror {
   visibility: hidden;
   pointer-events: none;
