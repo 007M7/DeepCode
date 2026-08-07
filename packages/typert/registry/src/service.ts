@@ -7,7 +7,6 @@
 
 import { Context, Service } from 'cordis'
 import { z } from 'zod'
-import { isTypeRTRemoteSegment } from '@deepseek-ai/dsh-type-meta'
 import type {
   InvocationDescriptor,
   TypeRTClientContextBinder,
@@ -601,7 +600,7 @@ function validateCodec(codec: InvocationDescriptor['result'], subject: string): 
 }
 
 function validateWireName(subject: string, value: string): void {
-  if (!isTypeRTRemoteSegment(value)) {
+  if (!/^[A-Za-z0-9_$.-]+$/.test(value)) {
     throw new Error(`typert: invalid ${subject} "${value}" — must contain only RPC endpoint segment characters`)
   }
 }
