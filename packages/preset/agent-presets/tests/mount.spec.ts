@@ -219,22 +219,25 @@ describe('a roster with nothing in it', () => {
 
 describe('attributing a service to a subtree', () => {
   it('never writes the preset file back, however the subtree changes', async () => {
+    delete (globalThis as { __RECONFIGURE__?: unknown }).__RECONFIGURE__
     const handle = await ctx.agents.create({
       sessionId: SessionId('sess-write'),
       setup: async (agentCtx: Context) => void await ctx.agentPresets.mount(agentCtx, 'standard'),
     })
-    const [mount] = livePresetMounts().filter(entry => entry.presetId === 'standard')
-    expect(mount).toBeDefined()
     const file = join(FIXTURES, 'system', 'standard', 'agent.cordis.yml')
     const before = await readFile(file, 'utf8')
 
-    // The inherited `write()` persists the tree whenever the Loader thinks the
-    // config moved, and disposing an agent disposes its whole subtree — which
-    // is enough to trigger it. Inheriting that truncates the shipped preset to
-    // `[]` the first time a session ends.
-    await handle.dispose()
+    // The inherited `write()` persists the whole tree whenever the Loader
+    // decides a row's config moved, so one row reconfiguring itself would
+    // rewrite the shipped composition — here, with the row's new tool name.
+    const reconfigure = (globalThis as { __RECONFIGURE__?: (tool: string) => Promise<void> }).__RECONFIGURE__
+    expect(reconfigure).toBeTypeOf('function')
+    await reconfigure!('rewritten')
 
+    expect(toolNames(ctx, handle.agent)).toContain('rewritten')
     expect(await readFile(file, 'utf8')).toBe(before)
+
+    await handle.dispose()
   })
 
   it('attributes nothing to a subtree that is already torn down', async () => {
