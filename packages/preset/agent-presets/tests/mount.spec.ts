@@ -219,6 +219,25 @@ describe('a roster with nothing in it', () => {
 })
 
 describe('attributing a service to a subtree', () => {
+  it('never writes the preset file back, however the subtree changes', async () => {
+    const handle = await ctx.agents.create({
+      sessionId: SessionId('sess-write'),
+      setup: async (agentCtx: Context) => void await ctx.agentPresets.mount(agentCtx, 'standard'),
+    })
+    const [mount] = livePresetMounts().filter(entry => entry.presetId === 'standard')
+    expect(mount).toBeDefined()
+    const file = join(FIXTURES, 'system', 'standard', 'agent.cordis.yml')
+    const before = await readFile(file, 'utf8')
+
+    // The inherited `write()` persists the tree whenever the Loader thinks the
+    // config moved, and disposing an agent disposes its whole subtree — which
+    // is enough to trigger it. Inheriting that truncates the shipped preset to
+    // `[]` the first time a session ends.
+    await handle.dispose()
+
+    expect(await readFile(file, 'utf8')).toBe(before)
+  })
+
   it('attributes nothing to a subtree that is already torn down', async () => {
     const handle = await ctx.agents.create({
       sessionId: SessionId('sess-torn'),
