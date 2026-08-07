@@ -98,9 +98,15 @@ function appendRequestContext(agent: Agent, clientTimeZones: readonly string[]):
       source: { kind: 'user', clientTimeZone } as never,
     }), { surfaceOp: 'append' })
   }
+  const text = 'time context'
   agent.session.append('user/message', createUserMessage({
-    content: [{ type: 'text', text: 'time context' }],
-    source: { kind: 'plugin', plugin: 'time-context' },
+    content: [{ type: 'text', text }],
+    source: {
+      kind: 'plugin',
+      plugin: 'time-context',
+      form: 'snapshot',
+      sections: [{ name: 'time-context', text }],
+    },
   }), { surfaceOp: 'append' })
 }
 
@@ -329,7 +335,7 @@ describe('Schedule tool protocol', () => {
     })
   })
 
-  it('reuses a simple same-turn marker across an empty continuation and ignores a malformed source', async () => {
+  it('reuses a same-turn snapshot marker across an empty continuation and ignores a malformed source', async () => {
     const test = await harness(true, 'Asia/Shanghai')
     test.agent.session.append('turn/start', { turn: 1 })
     test.agent.session.append('step/start', { turn: 1, step: 1 })

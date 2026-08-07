@@ -6,6 +6,7 @@
 import type { Context } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { deriveClientTimeZoneContext } from '@deepseek-ai/dsh-time-context'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView } from '@deepseek-ai/dsh-tools'
@@ -217,6 +218,22 @@ interface AtTimeZoneContext {
   readonly clientTimeZones: string[]
 }
 
+/** Whether one durable message is the exact time-context snapshot marker. */
+function isTimeContextReading(event: SessionEvent): boolean {
+  if (event.type !== 'user/message') return false
+  const source = event.data.source
+  const [block] = event.data.content
+  return event.data.content.length === 1
+    && block?.type === 'text'
+    && source.kind === 'plugin'
+    && source.plugin === 'time-context'
+    && Object.keys(source).length === 4
+    && source.form === 'snapshot'
+    && source.sections.length === 1
+    && source.sections[0]?.name === 'time-context'
+    && source.sections[0].text === block.text
+}
+
 /** Derive request zones only while the current open turn contains a time-context reading. */
 function currentClientTimeZoneContext(agent: Agent): ReturnType<typeof deriveClientTimeZoneContext> | undefined {
   const events = agent.session.events
@@ -236,10 +253,7 @@ function currentClientTimeZoneContext(agent: Agent): ReturnType<typeof deriveCli
   if (stepStart < 0) return undefined
   const turnStart = events.findLastIndex(event => event.type === 'turn/start' && event.data.turn === turn)
   if (turnStart < 0) return undefined
-  const hasReading = events.slice(turnStart + 1).some(event => event.type === 'user/message'
-    && event.data.source.kind === 'plugin'
-    && event.data.source.plugin === 'time-context'
-    && Object.keys(event.data.source).length === 2)
+  const hasReading = events.slice(turnStart + 1).some(isTimeContextReading)
   if (!hasReading) return undefined
   const messages = events.slice(turnStart + 1)
     .flatMap(event => event.type === 'user/message' ? [event.data] : [])

@@ -107,7 +107,7 @@ due → admission → followup → dispatch → flush(true) → session/flushed
 
 package 测试以逐文件 100% coverage 固定严格 decoding、transition、fork suffix、id 不复用、offset 与 local-calendar profile、IANA 校验、gap 拒绝、overlap-first 选择、mismatch confirmation、时间边界、有界等待、墙钟变化、overdue 准入、固定 framing、入队与 append 失败、barrier 恢复、注册 rollback 和完全停稳 dispose。persistence 测试依据实际 durable cursor 覆盖 new、fork 与 resumed 初始化失败、可选 header round-trip、一次真实 SQLite v13 到 v14 migration，以及 production JSONL restart。组装后的 Loader/Web restart lane 证明 pending 恢复、fork 隔离、单次 durable dispatch、无需激活 agent 的 cold-history rendering，以及再次 restart 后不重投。Host/client 测试覆盖 live、stored 与 concurrent-create 路径中的 zone identity、逐操作提示词 provenance、commit gating、反序 watermark、语义 header identity、逐 event 前缀匹配、same-seq 升级、每个 window merge 出口和 reconnect generation。
 
-Time-context 测试覆盖最终 pre-step 消息、当前 turn 的唯一／混合／缺失时区派生、领取后 steering 进入下一步骤、取消、空值抑制、重试、简单来源校验和执行中释放。Schedule 测试会从持久 `user-rpc` 来源独立派生同一组请求时区，在空的续跑中复用同 turn 标记，并在缺少 open-turn 标记时 fail closed。显式 Loader 组合可以启动 source 与 built package。无密钥真实浏览器场景会通过完整工具 pipeline，针对既有的短 `after` case 和一个 absolute-time case 执行 `schedule_create`，观察 identity-matched 持久前缀，并从已附加 history 渲染 durable reminder card。刻意缺少的模型 adapter 会在 dispatch 后以错误关闭 turn，从而证明模型失败不会移除回执。
+Time-context 测试覆盖最终 pre-step 消息、当前 turn 的唯一／混合／缺失时区派生、领取后 steering 进入下一步骤、取消、空值抑制、重试、精确 snapshot 来源校验和执行中释放。Schedule 测试会从持久 `user-rpc` 来源独立派生同一组请求时区，在空的续跑中复用同 turn 标记，并在缺少 open-turn 标记时 fail closed。显式 Loader 组合可以启动 source 与 built package。无密钥真实浏览器场景会通过完整工具 pipeline，针对既有的短 `after` case 和一个 absolute-time case 执行 `schedule_create`，观察 identity-matched 持久前缀，并从已附加 history 渲染 durable reminder card。刻意缺少的模型 adapter 会在 dispatch 后以错误关闭 turn，从而证明模型失败不会移除回执。
 
 ## 后果
 
