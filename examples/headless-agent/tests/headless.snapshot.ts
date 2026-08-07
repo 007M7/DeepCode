@@ -29,6 +29,10 @@ const goalScenarioDir = join(snapshotsDir, 'goal-tools')
 const goalConfigPath = fileURLToPath(new URL('../goal.cordis.snapshot.yml', import.meta.url))
 const retryScenarioDir = join(snapshotsDir, 'provider-retry')
 const retryConfigPath = fileURLToPath(new URL('../retry.cordis.snapshot.yml', import.meta.url))
+const compactionScenarioDir = join(snapshotsDir, 'compaction-recovery')
+const compactionSessionFixture = join(compactionScenarioDir, 'session.jsonl')
+const compactionStreamExpected = join(compactionScenarioDir, 'stream-json.expected.jsonl')
+const compactionConfigPath = fileURLToPath(new URL('../compaction.cordis.snapshot.yml', import.meta.url))
 const credentialsScenarioDir = join(snapshotsDir, 'missing-credential')
 const credentialsConfigPath = fileURLToPath(new URL('../credentials.cordis.snapshot.yml', import.meta.url))
 // Same keyless composition as the missing-credential scenario: the endpoint is
@@ -225,6 +229,75 @@ describe('headless stream-json snapshots', () => {
     const normalized = normalizeHeadlessStream(result.stdout, runCwd)
     if (refreshing) await writeFile(streamExpected, normalized)
     expect(normalized).toBe(await readFile(streamExpected, 'utf8'))
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
+  it('recovers from context overflow through an assembled compaction', async () => {
+    const prompt = await scenarioPrompt(compactionScenarioDir, 'compaction-recovery')
+    let expectedSession = await readFile(compactionSessionFixture, 'utf8')
+    let runCwd = ''
+    const result = await runLoaderSmoke({
+      label: 'compaction recovery headless stream-json snapshot',
+      tempDirPrefix: 'headless-snapshot-compaction-recovery-',
+      binScript,
+      configPath: compactionConfigPath,
+      binArgs: ['--config', compactionConfigPath, '--output-format', 'stream-json', prompt],
+      tsconfigPath,
+      env: {
+        DSH_SNAPSHOT: 'replay',
+        DSH_SNAPSHOT_FILE: compactionSessionFixture,
+        NODE_OPTIONS: [process.env.NODE_OPTIONS, '--disable-warning=ExperimentalWarning'].filter(Boolean).join(' '),
+      },
+      prepare: (cwd) => { runCwd = cwd },
+      inspect: async (cwd) => {
+        const logs = await persistedLogs(cwd)
+        expect(logs).toHaveLength(1)
+        const actual = logs[0]
+        if (actual === undefined) throw new Error('compaction snapshot did not persist its session')
+        const records = parseJsonl(actual.content)
+        const types = records.map(record => record.type)
+        expect(types.filter(type => type === 'compact/start')).toHaveLength(1)
+        expect(types.filter(type => type === 'compact/summary')).toHaveLength(1)
+        expect(types.filter(type => type === 'compact/end')).toHaveLength(1)
+        const start = types.indexOf('compact/start')
+        const summary = types.indexOf('compact/summary')
+        const replacement = records.findIndex((record) => {
+          if (record.type !== 'user/message') return false
+          const surfaceOp = record.surfaceOp as JsonObject | undefined
+          return surfaceOp?.op === 'replace'
+        })
+        const end = types.indexOf('compact/end')
+        expect(start).toBeLessThan(summary)
+        expect(summary).toBeLessThan(replacement)
+        expect(replacement).toBeLessThan(end)
+        const summaryRecord = records[summary]
+        const summaryData = summaryRecord?.data as JsonObject | undefined
+        expect(summaryData?.shadowedSeqs).toEqual(expect.arrayContaining([expect.any(Number)]))
+        const final = [...records].reverse().find(record => record.type === 'assistant/message')
+        expect(JSON.stringify(final)).toContain('COMPACTION RECOVERED')
+
+        const actualContext = contextFromLogs([actual.content])
+        if (refreshing) {
+          const harvested: HarvestedLog = {
+            id: String(actual.header.id),
+            createdAt: Number(actual.header.createdAt),
+            content: actual.content,
+          }
+          const replacements = refreshFixtureReplacements([harvested], [expectedSession])
+          expectedSession = tokenizeSessionFixtureCwd(
+            stabilizeRefreshLog(actual.content, expectedSession, replacements, actualContext),
+          )
+          await writeFile(compactionSessionFixture, expectedSession)
+        }
+        const expectedContext = contextFromLogs([expectedSession])
+        expect(scrubRequestHeaders(normalizeSessionLog(actual.content, actualContext)))
+          .toBe(scrubRequestHeaders(normalizeSessionLog(expectedSession, expectedContext)))
+      },
+    })
+
+    expect(result.stderr).toBe('')
+    const normalized = normalizeHeadlessStream(result.stdout, runCwd)
+    if (refreshing) await writeFile(compactionStreamExpected, normalized)
+    expect(normalized).toBe(await readFile(compactionStreamExpected, 'utf8'))
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
   it('logs actionable missing-credential guidance through the one-shot app', async () => {
