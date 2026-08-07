@@ -1,0 +1,20 @@
+{
+  "patches": [
+    {
+      "at": 10,
+      "entry": {
+        "kind": "chunks",
+        "chunks": [
+          { "type": "block-start", "index": 0, "blockType": "text" },
+          { "type": "text-delta", "index": 0, "text": "两个 turn 均已完成，目标达成，标记 goal 为完成。" },
+          { "type": "block-end", "index": 0, "block": { "type": "text", "text": "两个 turn 均已完成，目标达成，标记 goal 为完成。" } },
+          { "type": "block-start", "index": 1, "blockType": "tool-call" },
+          { "type": "tool-call-delta", "index": 1, "id": "call_goal_complete", "name": "update_goal", "argumentsDelta": "{\"goal_id\":\"{{fromRequest:goal-[0-9a-f-]+}}\",\"revision\":1,\"action\":\"complete\"}" },
+          { "type": "block-end", "index": 1, "block": { "type": "tool-call", "id": "call_goal_complete", "name": "update_goal", "arguments": "{\"goal_id\":\"{{fromRequest:goal-[0-9a-f-]+}}\",\"revision\":1,\"action\":\"complete\"}" } },
+          { "type": "usage", "usage": { "inputTokens": 132, "outputTokens": 157, "cacheReadTokens": 10368, "reasoningTokens": 44 } },
+          { "type": "finish", "reason": { "kind": "tool-calls" } }
+        ]
+      }
+    }
+  ]
+}
