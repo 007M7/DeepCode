@@ -335,9 +335,89 @@ describe('mode-aware wire contribution', () => {
     await expect(systemPrompt.assemble()).rejects.toThrow(/requires a code runtime/)
   })
 
-  it("rejects every assembly when the runtime's language is not typescript", async () => {
-    const { systemPrompt } = await setup({ mode: 'code', runtime: { language: 'python' } })
-    await expect(systemPrompt.assemble()).rejects.toThrow(/language is "python"/)
+  it('rejects every assembly when the runtime language has no registered SDK renderer', async () => {
+    const { systemPrompt } = await setup({ mode: 'code', runtime: { language: 'ruby' } })
+    await expect(systemPrompt.assemble()).rejects.toThrow(/no SDK renderer registered for runtime language "ruby"/)
+  })
+
+  it('assembles under a python runtime by picking the Python SDK renderer', async () => {
+    const { ctx, systemPrompt } = await setup({ mode: 'code', runtime: { language: 'python' } })
+    registerEcho(ctx)
+    const assembly = await systemPrompt.assemble()
+    const sdk = assembly.sections.find(section => section.name === 'tools:sdk')
+    expect(sdk?.text).toContain('class Tools(Protocol):')
+    expect(sdk?.text).toContain('async def echo(self, args:')
+    expect(sdk?.text).toContain('top-level `await`')
+  })
+
+  it("assembles under a python runtime in mode 'both' as well, SDK and schema together", async () => {
+    // `both` reaches the same wireSchemas/requireCodeRuntime/SDK-section code
+    // as `code`, so this pins the mode-by-language matrix rather than a
+    // separate path — including that the `wireSchemas` projection behind
+    // `assembly.tools` picks the Python flavor under `both` instead of hitting
+    // the flavor-table guard.
+    const { ctx, systemPrompt } = await setup({ mode: 'both', runtime: { language: 'python' } })
+    registerEcho(ctx)
+    const assembly = await systemPrompt.assemble()
+    expect(assembly.sections.find(section => section.name === 'tools:sdk')?.text).toContain('class Tools(Protocol):')
+    const runCodeSchema = assembly.tools.find(tool => tool.name === RUN_CODE_NAME)
+    expect(runCodeSchema?.description).toContain('Execute a Python program')
+    // `both` keeps the native tools alongside run_code; `code` does not.
+    expect(assembly.tools.map(tool => tool.name)).toContain('echo')
+  })
+
+  it('emits a TypeScript-flavored run_code schema under a typescript runtime', async () => {
+    const { ctx, systemPrompt } = await setup({ mode: 'code', runtime: { language: 'typescript' } })
+    registerEcho(ctx)
+    const assembly = await systemPrompt.assemble()
+    const runCodeSchema = assembly.tools.find(tool => tool.name === RUN_CODE_NAME)
+    expect(runCodeSchema?.description).toContain('Execute a TypeScript program')
+    expect(runCodeSchema?.description).toContain('BODY of an')
+    const codeParam = (runCodeSchema?.parameters as { properties: { code: { description: string } } }).properties.code
+    expect(codeParam.description).toBe('The program: the body of an async TypeScript function.')
+  })
+
+  it('emits a Python-flavored run_code schema under a python runtime (matches the SDK language)', async () => {
+    const { ctx, systemPrompt } = await setup({ mode: 'code', runtime: { language: 'python' } })
+    registerEcho(ctx)
+    const assembly = await systemPrompt.assemble()
+    const runCodeSchema = assembly.tools.find(tool => tool.name === RUN_CODE_NAME)
+    expect(runCodeSchema?.description).toContain('Execute a Python program')
+    expect(runCodeSchema?.description).toContain('`return <value>`')
+    expect(runCodeSchema?.description).not.toContain('TypeScript')
+    const codeParam = (runCodeSchema?.parameters as { properties: { code: { description: string } } }).properties.code
+    expect(codeParam.description).toBe('The program: the body of an async Python function.')
+  })
+
+  it('resolves the run_code schema flavor lazily and fails loud on a language absent from the flavor table', async () => {
+    // The flavor getter reads the runtime directly (peekRuntime), so it — not
+    // requireCodeRuntime — owns the flavor-table guard. Keeping
+    // RUN_CODE_FLAVORS in step with SDK_RENDERERS is the compiler's job (both
+    // are `satisfies`-checked against CodeSdkLanguage), so what the guard
+    // covers is a mounted runtime naming a language absent from both tables,
+    // which throws when the schema is projected. Assembly's
+    // requireCodeRuntime rejects such a language earlier; this reaches the
+    // guard on its own.
+    const { ctx } = await setup({ mode: 'code', runtime: { language: 'ruby' } })
+    const definition = ctx.tools.get(RUN_CODE_NAME)
+    // Names the known languages, symmetric with the SDK_RENDERERS guard: this
+    // is the reachable rejection, so it must be at least as diagnosable.
+    expect(() => definition?.description)
+      .toThrow(/no run_code schema flavor registered for runtime language "ruby" \(known: "typescript", "python"\)/)
+  })
+
+  it('degrades the run_code flavor to TypeScript when no runtime is mounted', async () => {
+    // Any reader of the definition without a mounted runtime lands here; the
+    // shipped one is the tool-catalog generator, which boots the registry under
+    // `mode: code` and reads run_code's schema WITHOUT a runtime. peekRuntime
+    // returns undefined there, so the flavor getter degrades to the TS default
+    // rather than throwing. None of those readers feeds a model: assembly goes
+    // through wireSchemas, which requires a runtime first.
+    const { ctx } = await setup({ mode: 'code', runtime: false })
+    const definition = ctx.tools.get(RUN_CODE_NAME)
+    expect(definition?.description).toContain('Execute a TypeScript program')
+    const params = definition?.parameters as { properties: { code: { description: string } } }
+    expect(params.properties.code.description).toBe('The program: the body of an async TypeScript function.')
   })
 
   it("rejects the assembly when toolOrder names a native tool that mode 'code' no longer contributes", async () => {

@@ -22,8 +22,31 @@ import type { ToolCallView, ToolResultView } from './presentation.ts'
 import { assertSupportedJsonSchema, validateJsonSchemaValue } from './json-schema.ts'
 import type { JsonSchemaNode } from './json-schema.ts'
 import { createRunCodeTool, RUN_CODE_NAME, SDK_SECTION_ORDER } from './code-mode.ts'
+import type { CodeSdkLanguage } from './code-mode.ts'
 import { renderToolsSdk } from './ts-types.ts'
 import type { ToolSdkSchema } from './ts-types.ts'
+import { renderToolsSdkPy } from './py-types.ts'
+
+/**
+ * Language → SDK-section renderer. The registry looks up the loaded
+ * `ctx.codeRuntime.language` in this table when assembling the `tools:sdk`
+ * section under a non-native mode; a runtime whose language is not a key
+ * fails the assembly loudly (same idiom as `toolOrder` violations). Adding a
+ * new backend language is three parallel edits — a {@link CodeSdkLanguage}
+ * member, an entry here, and a `RUN_CODE_FLAVORS` entry in `code-mode.ts` for
+ * its `run_code` schema strings — plus the renderer function this table points
+ * at. The `satisfies` clause pins this table's key set to that union, which
+ * the flavor table is checked against too, so any of the three left out is a
+ * typecheck failure. What no check reaches is the prose that names the values
+ * instead of deriving them: the seam's `dsh-code-runtime` README pair, its
+ * `CodeRuntime.language` JSDoc, and `docs/core-data-structures/code-runtime.md`
+ * with its zh pair, plus this package's own README pair and the
+ * {@link Config.mode} JSDoc.
+ */
+const SDK_RENDERERS: Record<string, (schemas: ToolSdkSchema[]) => string> = {
+  typescript: renderToolsSdk,
+  python: renderToolsSdkPy,
+} satisfies Record<CodeSdkLanguage, (schemas: ToolSdkSchema[]) => string>
 
 export {
   defineTool,
@@ -65,6 +88,7 @@ export type { JsonValue } from '@deepseek-ai/dsh-session'
 
 export { CodeRunFailedError, RUN_CODE_NAME } from './code-mode.ts'
 export { jsonSchemaToTs, renderToolsSdk } from './ts-types.ts'
+export { jsonSchemaToPy, renderToolsSdkPy } from './py-types.ts'
 export { defineContentToolFixture, type ContentToolFixtureOptions } from './testing.ts'
 
 // The render-intent vocabulary a tool declares via `presentCall`/`presentResult`
@@ -594,8 +618,9 @@ export interface Config {
    * Model presentation for agents that declare none of their own. `native`
    * (default) sends every visible schema; `code` sends only `run_code` plus a
    * generated SDK prompt; `both` sends both forms. Code modes require a
-   * TypeScript runtime and fail prompt assembly when it is absent or
-   * mismatched. Under `code`, native names in `toolOrder` are invalid.
+   * `ctx.codeRuntime` whose `language` has a registered SDK renderer
+   * (TypeScript or Python) and fail prompt assembly when it is absent or has
+   * no renderer. Under `code`, native names in `toolOrder` are invalid.
    *
    * One agent overrides this for itself with {@link ToolRegistry.presentAs},
    * which is how an agent preset composes a Code Mode agent beside native
@@ -792,8 +817,13 @@ export class ToolRegistry extends Service {
       text: (context) => {
         const mode = this.modeFor(context.scope)
         if (mode === 'native') return ''
-        this.requireCodeRuntime(mode)
-        return renderToolsSdk(this.sdkSchemas(context.scope))
+        const runtime = this.requireCodeRuntime(mode)
+        // Own-property read: a language like `toString`/`constructor` would
+        // otherwise resolve an inherited Object.prototype member as a renderer.
+        const render = SDK_RENDERERS[runtime.language]
+        /* v8 ignore next -- requireCodeRuntime rejects an unknown language before this runs. */
+        if (render === undefined) throw new Error(`dsh-tools: no SDK renderer for ${runtime.language}`)
+        return render(this.sdkSchemas(context.scope))
       },
     }
   }
@@ -820,6 +850,10 @@ export class ToolRegistry extends Service {
   private requireCodeTransport(): ToolDefinition {
     this.codeTransport ??= createRunCodeTool(this, {
       requireRuntime: () => this.requireCodeRuntime(this.defaultMode),
+      // The language-aware description/parameters getters read the runtime
+      // without demanding one, so a native-default process can still project
+      // the transport for an agent that chose code.
+      peekRuntime: () => this.ctx.get('codeRuntime'),
       maxParallel: this.maxParallelSubCalls,
       shapeDispatchLog: dispatch => this.shapeDispatchLog(dispatch),
     })
@@ -868,12 +902,18 @@ export class ToolRegistry extends Service {
    */
   private wireSchemas(scope?: ScopeKey): ToolProviderResult {
     const view = this.view(scope)
-    const schemas = [...view.visible.values()].map(definition => this.schemaOf(definition, false))
     const mode = this.modeFor(scope)
     if (mode === 'native') {
+      const schemas = [...view.visible.values()].map(definition => this.schemaOf(definition, false))
       return { schemas, knownNames: [...view.knownNames] }
     }
+    // Validate the runtime language BEFORE projecting schemas: schemaOf reads
+    // run_code's language-aware description/parameters getters, whose own
+    // flavor-table guard would otherwise surface first. This keeps the
+    // renderer-table rejection the canonical assembly-time error for a
+    // language with no SDK renderer.
     this.requireCodeRuntime(mode)
+    const schemas = [...view.visible.values()].map(definition => this.schemaOf(definition, false))
     if (mode === 'code') {
       return {
         schemas: schemas.filter(schema => schema.name === RUN_CODE_NAME),
@@ -890,14 +930,23 @@ export class ToolRegistry extends Service {
    * behind it — hostage to a code runtime existing even under `mode:
    * 'native'` (the loop's optional-backend idiom, same as
    * `sessionPersistence`).
+   *
+   * Assembly and `run_code` execution read separately, so the language is not
+   * bound to a request. Harmless while one published backend exists — both
+   * reads return the same flavor — but a reload that swapped in a second
+   * language between them would hand a program written against one SDK to the
+   * other. Binding it belongs to the PR that publishes that backend, which is
+   * also the first point it can be tested; recorded in the
+   * [language-dispatch note](../../../../.agents/notes/implemented/feature/2026-07-31-code-mode-language-dispatch.md).
    */
   private requireCodeRuntime(mode: ToolPresentationMode): CodeRuntime {
     const runtime = this.ctx.get('codeRuntime')
     if (!runtime) {
       throw new Error(`dsh-tools: mode "${mode}" requires a code runtime — load a ctx.codeRuntime implementation (e.g. @deepseek-ai/dsh-code-runtime-worker) or set tools mode to "native"`)
     }
-    if (runtime.language !== 'typescript') {
-      throw new Error(`dsh-tools: mode "${mode}" generates a TypeScript SDK, but the loaded code runtime's language is "${runtime.language}"`)
+    if (!Object.hasOwn(SDK_RENDERERS, runtime.language)) {
+      const known = Object.keys(SDK_RENDERERS).map(name => JSON.stringify(name)).join(', ')
+      throw new Error(`dsh-tools: no SDK renderer registered for runtime language ${JSON.stringify(runtime.language)} (known: ${known})`)
     }
     return runtime
   }
