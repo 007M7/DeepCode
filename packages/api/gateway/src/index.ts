@@ -134,7 +134,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
     const endpoint = endpointOf(request.namespace, request.method)
     const descriptor = this.resolveDescriptor(request.namespace, request.method, endpoint)
     assertExactArguments(request.args, descriptor, endpoint)
-    const receiverContext = this.resolveReceiverContext(descriptor, request.args, endpoint)
+    const receiverContext = await this.resolveReceiverContext(descriptor, request.args, endpoint)
     const receiver = receiverContext.get(descriptor.service) as unknown
     if (!isObject(receiver)) {
       throw new TypertGatewayError(
@@ -331,11 +331,11 @@ export class TypertGatewayService extends Service implements TypertGateway {
     }
   }
 
-  private resolveReceiverContext(
+  private async resolveReceiverContext(
     descriptor: InvocationDescriptor,
     args: Readonly<Record<string, unknown>>,
     endpoint: string,
-  ): Context {
+  ): Promise<Context> {
     if (descriptor.invocation.kind === 'direct') return this.ctx
     const invocation = descriptor.invocation
     const provider = this.ctx.typert.contexts.getHost(invocation.context)
@@ -358,8 +358,9 @@ export class TypertGatewayService extends Service implements TypertGateway {
     const identity = decode(invocation.codec, args[invocation.wire], 'input-invalid', endpoint, invocation.wire)
     let context: Context | undefined
     try {
-      context = provider.resolve(identity)
+      context = await provider.resolve(identity)
     } catch (cause) {
+      if (cause instanceof TypeRTLookupFailure) throw cause
       throw new TypertGatewayError(
         'context-failed',
         endpoint,

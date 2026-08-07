@@ -10,6 +10,7 @@
 
 - `TypertRegistry` 是默认插件，并提供 `ctx.typert`。
 - `ctx.typert.lookups.register()` 注册业务包拥有的 wire 声明和默认 resolver；`configure()` 注册 Host 组合拥有、可异步执行的 resolver。两者生命周期独立，配置可以先于 provider，卸载配置会恢复默认策略。
+- `ctx.typert.contexts.registerHost()` 和 `configureHost()` 将同一所有权拆分应用于 scoped Context 身份；`registerClient()` 提供对应的 Client Context binder。
 - `register(contribution)` 会在提交任何内容之前拒绝格式错误的标识，以及重复的包与 face 组合键或 schema 键，随后返回 Cordis effect 提供的同一资源释放函数。
 - `get(key)`、`resolve(key)` 和 `list(filter?)` 查询当前有效的 schema。`resolve()` 能区分格式错误的键、未注册的包，以及已注册但未以该名称提供 schema 的包。
 - `getPackage(packageName, face?)` 和 `listPackages(filter?)` 查询生成的服务、事件和对象反射信息；默认 face 为 `host`。

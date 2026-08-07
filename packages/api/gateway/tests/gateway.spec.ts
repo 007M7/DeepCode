@@ -538,6 +538,22 @@ describe('TypertGatewayService', () => {
     expect(error.cause).toEqual(new Error('provider failed'))
   })
 
+  it('preserves a Host Context policy rejection for the active RPC adapter', async () => {
+    const { ctx } = await setup()
+    const rejection = new TypeRTLookupFailure({ code: 'agent-busy', message: 'owned', details: { reason: 'subagent' } })
+    ctx.typert.contexts.registerHost('gatewayFixture', {
+      ...contextProvider(ctx.extend()),
+      resolve: async () => { throw rejection },
+    })
+    registerStrict(ctx, [renameDescriptor()])
+
+    await expect(ctx.typertGateway.invoke({
+      namespace: 'goals',
+      method: 'rename',
+      args: { agentId: 'agent-1', request: { title: 'land' } },
+    })).rejects.toBe(rejection)
+  })
+
   it('reports Context provider metadata mismatch and unresolved identities', async () => {
     const { ctx } = await setup()
     registerStrict(ctx, [renameDescriptor()])

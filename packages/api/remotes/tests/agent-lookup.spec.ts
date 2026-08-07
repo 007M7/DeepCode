@@ -5,6 +5,8 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import SessionStore from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import { createApiRemoteAgentResolver } from '@deepseek-ai/dsh-api-remotes'
+import { TypeRTLookupFailure } from '@deepseek-ai/dsh-type-meta'
+import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 
 const sid = (value: string): SessionId => value as SessionId
 
@@ -14,6 +16,7 @@ function header(id: SessionId): SessionHeader {
 
 async function createContext(): Promise<Context> {
   const ctx = new Context()
+  await ctx.plugin(TypertRegistry)
   await ctx.plugin(SessionStore)
   await ctx.plugin(AgentRegistry)
   return ctx
@@ -106,5 +109,46 @@ describe('API Remote Agent resolver races', () => {
       expect(result).toMatchObject({ error: { code: 'agent-busy' } })
       await ctx.fiber.dispose()
     }
+  })
+
+  it('uses the shared cold-resume policy for the Agent Host Context', async () => {
+    const ctx = await createContext()
+    const sessionId = sid('context-cold-resume')
+    const meta = header(sessionId)
+    let published: Session | undefined
+    provideSession(ctx, meta, () => {
+      published = ctx.sessions.create(sessionId, { meta: { cwd: '/proj' } })
+      return Promise.resolve({ meta, events: [] })
+    })
+    const agentCtx = ctx.extend()
+    vi.spyOn(ctx.agents, 'resume').mockImplementation(async () => {
+      if (published === undefined) throw new Error('Session was not published')
+      return { agent: stubAgent(agentCtx, published), dispose: () => Promise.resolve() }
+    })
+    const defaultProvider = ctx.typert.contexts.getHost('agent')
+    createApiRemoteAgentResolver(ctx, {})
+    await vi.waitFor(() => { expect(ctx.typert.contexts.getHost('agent')).not.toBe(defaultProvider) })
+    const provider = ctx.typert.contexts.getHost('agent')
+    if (provider === undefined) throw new Error('Agent Host Context provider was not mounted')
+
+    await expect(provider.resolve(sessionId)).resolves.toBe(agentCtx)
+    await ctx.fiber.dispose()
+  })
+
+  it('applies the subagent ownership fence to the Agent Host Context', async () => {
+    const ctx = await createContext()
+    const sessionId = sid('context-owned-subagent')
+    const session = ctx.sessions.create(sessionId, { meta: { cwd: '/proj', origin: 'subagent' } })
+    ctx.agents.register(stubAgent(ctx.extend(), session))
+    const defaultProvider = ctx.typert.contexts.getHost('agent')
+    createApiRemoteAgentResolver(ctx, {})
+    await vi.waitFor(() => { expect(ctx.typert.contexts.getHost('agent')).not.toBe(defaultProvider) })
+    const provider = ctx.typert.contexts.getHost('agent')
+    if (provider === undefined) throw new Error('Agent Host Context provider was not mounted')
+
+    const resolution = provider.resolve(sessionId)
+    await expect(resolution).rejects.toBeInstanceOf(TypeRTLookupFailure)
+    await expect(resolution).rejects.toMatchObject({ failure: { code: 'agent-busy' } })
+    await ctx.fiber.dispose()
   })
 })

@@ -134,7 +134,8 @@ class ClientApiService extends Service implements TypeRTClientApi {
         for (const method of methods) record.service.assertMethodAvailable(method)
       } else {
         for (const method of methods) ScopedRemoteNamespace.assertMethodAvailable(namespace, method)
-        if (this.ownerCtx.reflect.props[namespace] !== undefined) {
+        const property = this.ownerCtx.reflect.props[namespace]
+        if (property?.type === 'accessor' || this.ownerCtx.get(namespace) !== undefined) {
           throw new Error(`client api: scoped namespace ${JSON.stringify(namespace)} conflicts with an existing Context property`)
         }
       }
@@ -224,6 +225,7 @@ class ClientApiService extends Service implements TypeRTClientApi {
       if (namespace.tokens.get(descriptor.method) !== token) return
       namespace.service.remove(descriptor.method)
       namespace.tokens.delete(descriptor.method)
+      if (namespace.tokens.size === 0) this.scoped.delete(descriptor.namespace)
     }
   }
 
@@ -289,7 +291,7 @@ class ScopedRemoteNamespace {
   private readonly ctx: Context
   private readonly ownerCtx: Context
   private readonly methods = new Set<string>()
-  private provided = false
+  private disposeService: (() => void) | undefined
   readonly name: string
 
   static assertMethodAvailable(namespace: string, method: string): void {
@@ -331,12 +333,7 @@ class ScopedRemoteNamespace {
         },
       })
       if (activate) {
-        if (this.provided) {
-          this.ownerCtx.set(this.name, this)
-        } else {
-          this.ownerCtx.reflect.provide(this.name, this)
-          this.provided = true
-        }
+        this.disposeService = this.ownerCtx.reflect.provide(this.name, this)
       }
     } catch (error) {
       Reflect.deleteProperty(this, method)
@@ -348,11 +345,14 @@ class ScopedRemoteNamespace {
   remove(method: string): void {
     Reflect.deleteProperty(this, method)
     this.methods.delete(method)
-    if (this.methods.size === 0) this.ownerCtx.set(this.name, undefined)
+    if (this.methods.size !== 0) return
+    const disposeService = this.disposeService
+    this.disposeService = undefined
+    disposeService?.()
   }
 }
 
-const SCOPED_NAMESPACE_FIELDS = new Set(['ctx', 'invokeRemote', 'methods', 'name', 'ownerCtx', 'provided'])
+const SCOPED_NAMESPACE_FIELDS = new Set(['ctx', 'disposeService', 'invokeRemote', 'methods', 'name', 'ownerCtx'])
 
 function endpointOf(descriptor: Pick<InvocationDescriptor, 'namespace' | 'method'>): string {
   return `${descriptor.namespace}/${descriptor.method}`

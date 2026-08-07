@@ -187,6 +187,7 @@ export function createApiRemoteAgentResolver(
     }
     typeCtx.typert.lookups.configure('agent', resolveAgent)
     typeCtx.typert.lookups.configure('session', async sessionId => (await resolveAgent(sessionId)).session)
+    typeCtx.typert.contexts.configureHost('agent', async sessionId => (await resolveAgent(sessionId)).ctx)
   })
 
   return agentFor

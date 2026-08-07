@@ -70,7 +70,7 @@ async function bench(options: {
     resume: answer(`${prefix}/resume`, { ref }),
     clear: answer(`${prefix}/clear`, ref),
   })
-  let activeGoals = goals('goals')
+  let activeGoals: ReturnType<typeof goals> | undefined = goals('goals')
   ctx.provide('api', {
     get goals() { return activeGoals },
   })
@@ -95,6 +95,7 @@ async function bench(options: {
     fiber,
     calls,
     remountGoals: () => { activeGoals = goals('remounted-goals') },
+    unmountGoals: () => { activeGoals = undefined },
     entry: () => {
       const entry = ctx.slots.entries('conversation.input.dock')[0]
       if (entry === undefined) return undefined
@@ -139,6 +140,18 @@ describe('ui-goal browser plugin', () => {
 
     expect(await verbs.onPause()).toEqual({ ok: true })
     expect(b.calls).toMatchObject([{ method: 'remounted-goals/pause' }])
+  })
+
+  it('settles every verb when the Remote namespace is temporarily absent', async () => {
+    const b = await bench({ projection: makeProjection() })
+    await b.fiber.await()
+    const verbs = b.entry()!.inject!(sid('s1'))
+    b.unmountGoals()
+
+    for (const result of [await verbs.onEdit('x'), await verbs.onPause(), await verbs.onResume(), await verbs.onClear()]) {
+      expect(result).toMatchObject({ ok: false, error: { code: 'internal' } })
+    }
+    expect(b.calls).toHaveLength(0)
   })
 
   it('a null or absent projection short-circuits every verb without touching the wire', async () => {

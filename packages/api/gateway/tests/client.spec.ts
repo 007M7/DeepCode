@@ -526,6 +526,20 @@ describe('Client TypeRT API', () => {
     await retry()
   })
 
+  it('unregisters an empty scoped namespace so another provider can claim its name', async () => {
+    const ctx = await bench(vi.fn<ConnectionHandle['rpc']['call']>())
+    const dispose = ctx.api.mount({ package: '@fixture/scoped', descriptors: [contextDescriptor()] })
+    expect(ctx.get('goals')).toBeDefined()
+
+    await dispose()
+
+    expect(ctx.get('goals')).toBeUndefined()
+    const replacement = { owner: 'replacement' }
+    const disposeReplacement = ctx.reflect.provide('goals', replacement)
+    expect(ctx.get('goals')).toBe(replacement)
+    await disposeReplacement()
+  })
+
   it('throws RPC failures with the structured error as its cause', async () => {
     const rpcError = { code: 'internal' as const, message: 'host failed', details: {} }
     const ctx = await bench(vi.fn<ConnectionHandle['rpc']['call']>().mockResolvedValue({ ok: false, error: rpcError }))

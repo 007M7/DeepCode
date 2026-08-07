@@ -38,10 +38,10 @@ const NS = 'goal'
 /** Required services: slots for the dock entry, sessions for the projected ref, API for Remote mutations, locale for the copy. */
 export const inject = ['slots', 'sessions', 'api', 'locale']
 
-/** Map one generated Remote call onto the strip's inline-render shape. */
-async function settle(result: Promise<unknown>): Promise<GoalActionResult> {
+/** Map one generated Remote call, including synchronous namespace lookup failures, onto the strip's inline-render shape. */
+async function settle(invoke: () => Promise<unknown>): Promise<GoalActionResult> {
   try {
-    await result
+    await invoke()
     return { ok: true }
   } catch (error) {
     const cause = error instanceof Error ? error.cause : undefined
@@ -94,22 +94,22 @@ export function apply(ctx: ClientContext): void {
       onEdit: async (objective) => {
         const ref = refOf(sessionId)
         if (ref === undefined) return noCurrentGoal
-        return settle(ctx.api.goals.edit(sessionId, ref, { objective }))
+        return settle(() => ctx.api.goals.edit(sessionId, ref, { objective }))
       },
       onPause: async () => {
         const ref = refOf(sessionId)
         if (ref === undefined) return noCurrentGoal
-        return settle(ctx.api.goals.pause(sessionId, ref))
+        return settle(() => ctx.api.goals.pause(sessionId, ref))
       },
       onResume: async () => {
         const ref = refOf(sessionId)
         if (ref === undefined) return noCurrentGoal
-        return settle(ctx.api.goals.resume(sessionId, ref))
+        return settle(() => ctx.api.goals.resume(sessionId, ref))
       },
       onClear: async () => {
         const ref = refOf(sessionId)
         if (ref === undefined) return noCurrentGoal
-        return settle(ctx.api.goals.clear(sessionId, ref))
+        return settle(() => ctx.api.goals.clear(sessionId, ref))
       },
     }),
   }, GoalDock))

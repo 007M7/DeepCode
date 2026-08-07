@@ -50,6 +50,7 @@ export type {
   TypeRTContextWire,
   TypeRTDisposer,
   TypeRTHostContextProvider,
+  TypeRTHostContextResolver,
   TypeRTLocalRegistry,
   TypeRTLookup,
   TypeRTLookupDefinition,

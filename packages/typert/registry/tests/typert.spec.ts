@@ -389,6 +389,36 @@ describe('TypertRegistry', () => {
     await disposeReloadedProvider()
   })
 
+  it('configures an asynchronous Host Context resolver independently of provider load order', async () => {
+    const ctx = await makeCtx()
+    const fallback = ctx.extend()
+    const configured = ctx.extend()
+    const disposeResolver = ctx.typert.contexts.configureHost('registryFixture', async id =>
+      id === 'configured' ? configured : undefined)
+
+    expect(ctx.typert.contexts.getHost('registryFixture')).toBeUndefined()
+    const disposeProvider = ctx.typert.contexts.registerHost('registryFixture', {
+      wire: 'agentId',
+      wireTypeSymbol: '@fixture/session#SessionId',
+      resolve: id => id === 'fallback' ? fallback : undefined,
+    })
+    await expect(ctx.typert.contexts.getHost('registryFixture')?.resolve('configured')).resolves.toBe(configured)
+    expect(() => ctx.typert.contexts.configureHost('registryFixture', () => undefined)).toThrow('already configured')
+
+    await disposeProvider()
+    expect(ctx.typert.contexts.getHost('registryFixture')).toBeUndefined()
+    const disposeReloadedProvider = ctx.typert.contexts.registerHost('registryFixture', {
+      wire: 'agentId',
+      wireTypeSymbol: '@fixture/session#SessionId',
+      resolve: id => id === 'fallback' ? fallback : undefined,
+    })
+    await expect(ctx.typert.contexts.getHost('registryFixture')?.resolve('configured')).resolves.toBe(configured)
+
+    await disposeResolver()
+    expect(ctx.typert.contexts.getHost('registryFixture')?.resolve('fallback')).toBe(fallback)
+    await disposeReloadedProvider()
+  })
+
   it('publishes provider changes, rejects duplicate providers, and disposes subscriptions', async () => {
     const ctx = await makeCtx()
     const changes: string[] = []

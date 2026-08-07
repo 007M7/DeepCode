@@ -238,8 +238,13 @@ export interface TypeRTHostContextProvider<Wire = unknown> {
    * @param id - validated wire identity.
    * @returns the scoped Context, or `undefined` when unavailable.
    */
-  resolve(id: Wire): Context | undefined
+  resolve(id: Wire): Context | undefined | Promise<Context | undefined>
 }
+
+/** Composition-owned resolver replacing one Host Context provider's default lookup policy. */
+export type TypeRTHostContextResolver<Wire = unknown> = (
+  id: Wire,
+) => Context | undefined | Promise<Context | undefined>
 
 /** Client resolver for the identity carried by the calling scoped Context. */
 export interface TypeRTClientContextBinder<Wire = unknown> {
@@ -366,6 +371,17 @@ export interface TypeRTContextRegistry {
   registerHost<K extends StringKeyOf<TypeRTContextMap>>(
     key: K,
     provider: TypeRTHostContextProvider<TypeRTContextWire<TypeRTContextMap[K]>>,
+  ): TypeRTDisposer
+  /**
+   * Override one Host Context key's identity policy for the calling fiber.
+   * Configuration may precede provider registration and restores the provider's default resolver on disposal.
+   * @param key - merge-declared Context key.
+   * @param resolver - composition-owned resolver used by every Host Context lookup of this key.
+   * @returns disposer restoring the provider's default resolver.
+   */
+  configureHost<K extends StringKeyOf<TypeRTContextMap>>(
+    key: K,
+    resolver: TypeRTHostContextResolver<TypeRTContextWire<TypeRTContextMap[K]>>,
   ): TypeRTDisposer
   /**
    * Register a Client Context identity binder.

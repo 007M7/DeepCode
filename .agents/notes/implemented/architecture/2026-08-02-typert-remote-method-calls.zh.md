@@ -164,7 +164,7 @@ ctx.typert.contexts  Host Context resolver 与 Client Context binder
 
 lookup 注册表会在活 resolver 卸载后保留稳定的 wire 声明。SRC 解析仍会把该参数归类为 lookup，而调用会以 `lookup-unavailable` 失败；系统绝不会把传入的 ID 重新归类为普通 JSON 业务对象。在同一个 TypeRT Service 的生命周期内，以不同参数、wire 或规范类型 symbol 重新注册同一 key 会直接失败。
 
-业务对象包通过 `register()` 拥有稳定声明和默认 resolver；Host 组合通过 `configure()` 为同一个 key 提供 effect-scoped 异步策略。配置可以先于 provider 注册，但没有活 provider 时不会单独形成可用 lookup；配置卸载后恢复 provider 默认 resolver。API Remotes 为 `agent` 和 `session` 创建共享的 `agentFor()` resolver：live Agent 直接复用，普通冷会话自动恢复，并发恢复按 Session ID 去重，subagent ownership fence 则返回既有 `agent-busy`。标准 Web API Proxy 提供 Agent 默认值和 scope 设置，并让旧方法使用该 resolver。`session` resolver 返回解析所得 Agent 的 Session，因而两种参数不会产生两套恢复生命周期。
+业务对象包和 scoped Context 包通过 `lookups.register()` 与 `contexts.registerHost()` 拥有稳定声明和默认 resolver；Host 组合通过 `lookups.configure()` 与 `contexts.configureHost()` 提供 effect-scoped 异步策略。配置可以先于 provider 注册，但没有活 provider 时不会单独形成可用身份；配置卸载后恢复 provider 默认 resolver。API Remotes 为 `agent`、`session` lookup 和 `agent` Host Context 创建共享的 `agentFor()` resolver：live Agent 直接复用，普通冷会话自动恢复，并发恢复按 Session ID 去重，subagent ownership fence 则返回既有 `agent-busy`。标准 Web API Proxy 提供 Agent 默认值和 scope 设置，并让旧方法使用该 resolver。`session` lookup 返回解析所得 Agent 的 Session，`agent` Host Context 返回其 Context，因此三种投影共用一个恢复生命周期。
 
 Registry 的 Host 根入口拥有完整 `TypeRTService` interface merge；Host 与 Client 共用的 registry 实现位于无环境声明的独立模块。Registry `/client` 入口只引用该共享实现，不经过 Host 根入口，因此不会把 Host Cordis 声明带入 Client Program。
 

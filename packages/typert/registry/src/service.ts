@@ -15,6 +15,7 @@ import type {
   TypeRTContextWire,
   TypeRTDisposer,
   TypeRTHostContextProvider,
+  TypeRTHostContextResolver,
   TypeRTLocalRegistry,
   TypeRTLookupHost,
   TypeRTLookupDefinition,
@@ -334,6 +335,7 @@ function lookupDefinitionEquals(left: TypeRTLookupDefinition, right: TypeRTLooku
 
 class ContextStore {
   private readonly hosts = new Map<string, ProviderEntry<TypeRTHostContextProvider>>()
+  private readonly hostResolvers = new Map<string, ProviderEntry<HostContextResolverEntry>>()
   private readonly clients = new Map<string, ProviderEntry<TypeRTClientContextBinder>>()
   private readonly changes: ChangeSource
 
@@ -347,14 +349,54 @@ class ContextStore {
         key: K,
         provider: TypeRTHostContextProvider<TypeRTContextWire<TypeRTContextMap[K]>>,
       ) => this.registerHost(ctx, key, provider),
+      configureHost: <K extends Extract<keyof TypeRTContextMap, string>>(
+        key: K,
+        resolver: TypeRTHostContextResolver<TypeRTContextWire<TypeRTContextMap[K]>>,
+      ) => this.configureHost(ctx, key, resolver),
       registerClient: <K extends Extract<keyof TypeRTContextMap, string>>(
         key: K,
         binder: TypeRTClientContextBinder<TypeRTContextWire<TypeRTContextMap[K]>>,
       ) => this.registerClient(ctx, key, binder),
-      getHost: key => this.hosts.get(key)?.provider,
+      getHost: key => this.getHost(key),
       getClient: key => this.clients.get(key)?.provider,
       subscribe: listener => this.changes.subscribe(ctx, listener),
     }
+  }
+
+  private getHost(key: string): TypeRTHostContextProvider | undefined {
+    const provider = this.hosts.get(key)?.provider
+    if (provider === undefined) return undefined
+    const resolver = this.hostResolvers.get(key)?.provider
+    if (resolver === undefined) return provider
+    return {
+      wire: provider.wire,
+      wireTypeSymbol: provider.wireTypeSymbol,
+      resolve: id => resolver.resolve(id),
+    }
+  }
+
+  private configureHost<Wire>(
+    ctx: Context,
+    key: string,
+    resolver: TypeRTHostContextResolver<Wire>,
+  ): TypeRTDisposer {
+    validateSegment('Context key', key)
+    if (this.hostResolvers.has(key)) throw new Error(`typert: host-context "${key}" resolver is already configured`)
+    const entry: ProviderEntry<HostContextResolverEntry> = {
+      provider: { resolve: async id => resolver(id as Wire) },
+      owner: {},
+    }
+    const { hostResolvers, changes } = this
+    return ctx.effect(function* () {
+      hostResolvers.set(key, entry)
+      changes.emit({ kind: 'host-context', key })
+      yield () => {
+        /* v8 ignore next -- duplicate configuration is rejected, so this effect remains the key's unique owner. */
+        if (hostResolvers.get(key) !== entry) return
+        hostResolvers.delete(key)
+        changes.emit({ kind: 'host-context', key })
+      }
+    }, `typert.contexts.configureHost(${JSON.stringify(key)})`)
   }
 
   private registerHost<Wire>(ctx: Context, key: string, provider: TypeRTHostContextProvider<Wire>): TypeRTDisposer {
@@ -390,6 +432,10 @@ class ContextStore {
       }
     }, `typert.contexts.register(${JSON.stringify(key)})`)
   }
+}
+
+interface HostContextResolverEntry {
+  resolve(id: unknown): Promise<Context | undefined>
 }
 
 /**
