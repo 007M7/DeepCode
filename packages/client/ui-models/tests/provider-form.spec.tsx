@@ -145,7 +145,7 @@ async function mountSection(options: Parameters<typeof scriptedFace>[0] = {}) {
     t,
   }
   render(<ModelsSection {...injected} />)
-  return scripted
+  return { ...scripted, controller }
 }
 
 /** Open the editor of one configured row and expand its customized fold. */
@@ -945,5 +945,21 @@ describe('hand-declared providers', () => {
     fireEvent.click(screen.getByText(en.cancel))
     await waitFor(() => { expect(screen.queryByText(en.customTitle)).toBeNull() })
     expect(screen.getByRole('button', { name: en.customAdd })).toBeTruthy()
+  })
+
+  it('reloads the section after creating a hand-declared provider', async () => {
+    const { controller, mutate } = await mountSection()
+    const load = vi.spyOn(controller, 'load')
+
+    fireEvent.click(screen.getByRole('button', { name: en.customAdd }))
+    fireEvent.change(screen.getByLabelText(en.customRoute), { target: { value: 'acme' } })
+    fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: 'https://acme.test/v1' } })
+    fireEvent.click(screen.getByRole('button', { name: en.addModel }))
+    fireEvent.change(screen.getByLabelText(`${en.modelId} 1`), { target: { value: 'm' } })
+    fireEvent.click(screen.getByText(en.create))
+
+    await waitFor(() => { expect(mutate).toHaveBeenCalledOnce() })
+    await waitFor(() => { expect(load).toHaveBeenCalledOnce() })
+    expect(screen.queryByText(en.customTitle)).toBeNull()
   })
 })

@@ -58,7 +58,10 @@ const DEFAULT_MODELS: DeepSeekCatalogModel[] = [
  * reasoning effort resolves to `high`.
  */
 export interface Config {
-  /** Literal API key; prefer {@link apiKeyEnv} so no secret enters configuration files. */
+  /**
+   * Trimmed literal API key; whitespace-only is absent. Prefer
+   * {@link apiKeyEnv} to keep secrets out of configuration files.
+   */
   apiKey?: string
   /** Credential reference (environment-variable name) resolved per request; defaults to `DEEPSEEK_API_KEY`. */
   apiKeyEnv?: string
@@ -153,6 +156,7 @@ function resolveModels(models: readonly DeepSeekCatalogModel[] | undefined): Dee
  * @returns validated connection facts plus the credential reference.
  */
 export function resolveAdapterOptions(config: Config): ResolvedDeepSeekOptions {
+  const apiKey = config.apiKey?.trim()
   if (config.thinking === 'disabled'
     && config.reasoningEffort !== undefined
     && config.reasoningEffort !== 'off') {
@@ -175,7 +179,7 @@ export function resolveAdapterOptions(config: Config): ResolvedDeepSeekOptions {
     )
   }
   return {
-    ...config.apiKey !== undefined && config.apiKey.length > 0 ? { apiKey: config.apiKey } : {},
+    ...apiKey !== undefined && apiKey.length > 0 ? { apiKey } : {},
     apiKeyEnv: credentialRef(config.apiKeyEnv ?? DEFAULT_API_KEY_ENV),
     baseURL: config.baseURL ?? process.env.DEEPSEEK_BASE_URL ?? PUBLIC_BASE_URL,
     defaults: {
