@@ -233,7 +233,7 @@ describe('unary round trip', () => {
     const c = client(scriptedApi())
 
     const listed = await c.agentPresets.list({})
-    expect(listed.result).toEqual({ ok: true, value: { presets: [] } })
+    expect(listed.result).toEqual({ ok: true, value: { presets: [], authorable: false } })
 
     // The switch carries the session it is about: the host refuses one whose
     // conversation has started, and it can only know which by id.
