@@ -148,11 +148,17 @@ describe.skipIf(!requiredArtifacts)('Goal Remote built LIB chain', () => {
         invalidRejected = true
       }
       const rootResult = await client.api.goals.create(rootAgent.id, { objective: 'root goal' })
+      const rootEdit = await client.api.goals.edit(
+        rootAgent.id,
+        rootResult.ref,
+        { objective: 'edited root goal' },
+      )
       const agentContext = client.extend({ builtAgentId: scopedAgent.id })
       const scopedResult = await agentContext.goals.create({ objective: 'scoped goal', maxGoalRounds: 3 })
       const result = {
         invalidRejected,
         rootResult,
+        rootEdit,
         scopedResult,
         rootGoal: host.goals.get(rootAgent)?.objective,
         scopedGoal: host.goals.get(scopedAgent)?.objective,
@@ -174,6 +180,7 @@ describe.skipIf(!requiredArtifacts)('Goal Remote built LIB chain', () => {
     const output = JSON.parse(result.stdout.trim().split('\n').at(-1) ?? '{}') as {
       invalidRejected: boolean
       rootResult: { ref: { id: string; revision: number } }
+      rootEdit: { objective: string; revision: number }
       scopedResult: { ref: { id: string; revision: number } }
       rootGoal: string
       scopedGoal: string
@@ -183,10 +190,11 @@ describe.skipIf(!requiredArtifacts)('Goal Remote built LIB chain', () => {
     expect(output).toMatchObject({
       invalidRejected: true,
       rootResult: { ref: { revision: 1 } },
+      rootEdit: { objective: 'edited root goal', revision: 2 },
       scopedResult: { ref: { revision: 1 } },
-      rootGoal: 'root goal',
+      rootGoal: 'edited root goal',
       scopedGoal: 'scoped goal',
-      rootEvents: 1,
+      rootEvents: 2,
       scopedEvents: 1,
     })
     expect(output.rootResult.ref.id).toMatch(/^goal-/)

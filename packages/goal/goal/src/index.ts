@@ -273,6 +273,7 @@ export class GoalService extends GatewayService {
    * @param request - at least one replacement field.
    * @returns the edited view.
    */
+  @Remote('edit')
   edit(agent: Agent, ref: GoalRef, request: EditGoalRequest): GoalView {
     const cache = this.prepareMutation(agent)
     const current = this.expectCurrent(cache, ref)
@@ -294,6 +295,7 @@ export class GoalService extends GatewayService {
    * @param ref - expected current revision.
    * @returns the paused view.
    */
+  @Remote('pause')
   pause(agent: Agent, ref: GoalRef): GoalView {
     return this.transition(agent, ref, 'pause', ['active'], 'paused', 'disarmed')
   }
@@ -305,6 +307,7 @@ export class GoalService extends GatewayService {
    * @param ref - expected current revision.
    * @returns the active view.
    */
+  @Remote('resume')
   resume(agent: Agent, ref: GoalRef): GoalView {
     const cache = this.prepareMutation(agent)
     const current = this.expectCurrent(cache, ref)
@@ -330,6 +333,7 @@ export class GoalService extends GatewayService {
    * @param ref - expected current revision.
    * @returns the completed view.
    */
+  @Remote('complete')
   complete(agent: Agent, ref: GoalRef): GoalView {
     return this.transition(
       agent,
@@ -369,6 +373,7 @@ export class GoalService extends GatewayService {
    * @param ref - expected current revision.
    * @returns the tombstone ref whose revision is one past the cleared snapshot.
    */
+  @Remote('clear')
   clear(agent: Agent, ref: GoalRef): GoalRef {
     const cache = this.prepareMutation(agent)
     const current = this.expectCurrent(cache, ref)
@@ -581,62 +586,6 @@ export class GoalService extends GatewayService {
   remoteExportCreate(agent: Agent, request: CreateGoalRequest): CreateGoalResult {
     const view = this.create(agent, request)
     return { ref: { id: view.id, revision: view.revision } }
-  }
-
-  /**
-   * Edit one Goal through the remote boundary.
-   * @param agent - exact live Agent resolved from the wire identity.
-   * @param ref - expected current revision.
-   * @param request - replacement fields.
-   * @returns the edited Goal view.
-   */
-  @Remote('edit')
-  remoteExportEdit(agent: Agent, ref: GoalRef, request: EditGoalRequest): GoalView {
-    return this.edit(agent, ref, request)
-  }
-
-  /**
-   * Pause one Goal through the remote boundary.
-   * @param agent - exact live Agent resolved from the wire identity.
-   * @param ref - expected current revision.
-   * @returns the paused Goal view.
-   */
-  @Remote('pause')
-  remoteExportPause(agent: Agent, ref: GoalRef): GoalView {
-    return this.pause(agent, ref)
-  }
-
-  /**
-   * Resume one Goal through the remote boundary.
-   * @param agent - exact live Agent resolved from the wire identity.
-   * @param ref - expected current revision.
-   * @returns the resumed Goal view.
-   */
-  @Remote('resume')
-  remoteExportResume(agent: Agent, ref: GoalRef): GoalView {
-    return this.resume(agent, ref)
-  }
-
-  /**
-   * Complete one Goal through the remote boundary.
-   * @param agent - exact live Agent resolved from the wire identity.
-   * @param ref - expected current revision.
-   * @returns the completed Goal view.
-   */
-  @Remote('complete')
-  remoteExportComplete(agent: Agent, ref: GoalRef): GoalView {
-    return this.complete(agent, ref)
-  }
-
-  /**
-   * Clear one terminal Goal through the remote boundary.
-   * @param agent - exact live Agent resolved from the wire identity.
-   * @param ref - expected current revision.
-   * @returns the committed clear revision.
-   */
-  @Remote('clear')
-  remoteExportClear(agent: Agent, ref: GoalRef): GoalRef {
-    return this.clear(agent, ref)
   }
 }
 

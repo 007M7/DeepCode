@@ -359,19 +359,19 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Create and arm a goal. A completed goal may be replaced; every other\n * current phase must be cleared or resumed instead.\n * @param agent - owning live agent.\n * @param request - objective and optional round cap.\n * @returns the created live view.\n */',
       },
       {
-        signature: 'edit(agent: Agent, ref: GoalRef, request: EditGoalRequest): GoalView',
+        signature: '@Remote(\'edit\') edit(agent: Agent, ref: GoalRef, request: EditGoalRequest): GoalView',
         jsDoc: '/**\n * Edit objective and/or round cap without changing phase.\n * @param agent - owning live agent.\n * @param ref - expected current revision.\n * @param request - at least one replacement field.\n * @returns the edited view.\n */',
       },
       {
-        signature: 'pause(agent: Agent, ref: GoalRef): GoalView',
+        signature: '@Remote(\'pause\') pause(agent: Agent, ref: GoalRef): GoalView',
         jsDoc: '/**\n * Pause an active goal and disarm automatic continuation.\n * @param agent - owning live agent.\n * @param ref - expected current revision.\n * @returns the paused view.\n */',
       },
       {
-        signature: 'resume(agent: Agent, ref: GoalRef): GoalView',
+        signature: '@Remote(\'resume\') resume(agent: Agent, ref: GoalRef): GoalView',
         jsDoc: '/**\n * Resume and arm a stopped goal, or rearm an active goal after a\n * session-start edge, while its round budget still has capacity.\n * @param agent - owning live agent.\n * @param ref - expected current revision.\n * @returns the active view.\n */',
       },
       {
-        signature: 'complete(agent: Agent, ref: GoalRef): GoalView',
+        signature: '@Remote(\'complete\') complete(agent: Agent, ref: GoalRef): GoalView',
         jsDoc: '/**\n * Mark a current non-complete goal complete and disarm it.\n * @param agent - owning live agent.\n * @param ref - expected current revision.\n * @returns the completed view.\n */',
       },
       {
@@ -379,32 +379,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Mark an active goal blocked and disarm it.\n * @param agent - owning live agent.\n * @param ref - expected current revision.\n * @param reason - policy-owned stable code and human-readable explanation.\n * @returns the blocked view with its durable reason.\n */',
       },
       {
-        signature: 'clear(agent: Agent, ref: GoalRef): GoalRef',
+        signature: '@Remote(\'clear\') clear(agent: Agent, ref: GoalRef): GoalRef',
         jsDoc: '/**\n * Clear the current goal while retaining a durable tombstone and history.\n * @param agent - owning live agent.\n * @param ref - expected current revision.\n * @returns the tombstone ref whose revision is one past the cleared snapshot.\n */',
       },
       {
         signature: '@Remote(\'create\') remoteExportCreate(agent: Agent, request: CreateGoalRequest): CreateGoalResult',
         jsDoc: '/**\n * Create one Goal through the remote boundary.\n * @param agent - exact live Agent resolved from the wire identity.\n * @param request - objective and optional round cap.\n * @returns the created Goal identity.\n */',
-      },
-      {
-        signature: '@Remote(\'edit\') remoteExportEdit(agent: Agent, ref: GoalRef, request: EditGoalRequest): GoalView',
-        jsDoc: '/**\n * Edit one Goal through the remote boundary.\n * @param agent - exact live Agent resolved from the wire identity.\n * @param ref - expected current revision.\n * @param request - replacement fields.\n * @returns the edited Goal view.\n */',
-      },
-      {
-        signature: '@Remote(\'pause\') remoteExportPause(agent: Agent, ref: GoalRef): GoalView',
-        jsDoc: '/**\n * Pause one Goal through the remote boundary.\n * @param agent - exact live Agent resolved from the wire identity.\n * @param ref - expected current revision.\n * @returns the paused Goal view.\n */',
-      },
-      {
-        signature: '@Remote(\'resume\') remoteExportResume(agent: Agent, ref: GoalRef): GoalView',
-        jsDoc: '/**\n * Resume one Goal through the remote boundary.\n * @param agent - exact live Agent resolved from the wire identity.\n * @param ref - expected current revision.\n * @returns the resumed Goal view.\n */',
-      },
-      {
-        signature: '@Remote(\'complete\') remoteExportComplete(agent: Agent, ref: GoalRef): GoalView',
-        jsDoc: '/**\n * Complete one Goal through the remote boundary.\n * @param agent - exact live Agent resolved from the wire identity.\n * @param ref - expected current revision.\n * @returns the completed Goal view.\n */',
-      },
-      {
-        signature: '@Remote(\'clear\') remoteExportClear(agent: Agent, ref: GoalRef): GoalRef',
-        jsDoc: '/**\n * Clear one terminal Goal through the remote boundary.\n * @param agent - exact live Agent resolved from the wire identity.\n * @param ref - expected current revision.\n * @returns the committed clear revision.\n */',
       },
     ],
   },

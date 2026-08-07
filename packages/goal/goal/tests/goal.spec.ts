@@ -245,14 +245,14 @@ describe('GoalService creation and replay', () => {
 })
 
 describe('GoalService mutations', () => {
-  it('exposes the supported mutation sequence through Remote wrappers', async () => {
+  it('adapts Remote creation and reuses business methods for later mutations', async () => {
     const { ctx, agent } = await harness()
     const created = ctx.goals.remoteExportCreate(agent, { objective: 'remote lifecycle' })
-    const edited = ctx.goals.remoteExportEdit(agent, created.ref, { objective: 'edited remotely' })
-    const paused = ctx.goals.remoteExportPause(agent, edited)
-    const resumed = ctx.goals.remoteExportResume(agent, paused)
-    const completed = ctx.goals.remoteExportComplete(agent, resumed)
-    const cleared = ctx.goals.remoteExportClear(agent, completed)
+    const edited = ctx.goals.edit(agent, created.ref, { objective: 'edited remotely' })
+    const paused = ctx.goals.pause(agent, edited)
+    const resumed = ctx.goals.resume(agent, paused)
+    const completed = ctx.goals.complete(agent, resumed)
+    const cleared = ctx.goals.clear(agent, completed)
 
     expect(edited).toMatchObject({ objective: 'edited remotely', revision: 2 })
     expect(paused).toMatchObject({ phase: 'paused', revision: 3 })

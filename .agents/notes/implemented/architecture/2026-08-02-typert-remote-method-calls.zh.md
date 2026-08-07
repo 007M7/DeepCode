@@ -40,7 +40,7 @@ Host Gateway 不依赖 `ctx.agents`、`ctx.sessions`、`ctx.goals` 或 `ctx.http
 
 ## 业务声明
 
-普通直接调用使用 `@Remote`。迁移到现存 Service 或 Registry 时不重命名、不改变存量方法；类末尾新增 `remoteExport*` 出口，并由 decorator 参数声明短 API 名。方法需要哪个业务对象，就在顶层参数位置显式声明该对象：
+普通直接调用使用 `@Remote`。现有方法的参数和结果已经是预期的 Remote 契约时，直接装饰该方法，不为此重命名。只有 wire 契约需要不同的请求或结果形态时，才新增 `remoteExport*` 适配器，并由 decorator 参数声明短 API 名。方法需要哪个业务对象，就在顶层参数位置显式声明该对象：
 
 ```text
 export class GoalService extends GatewayService {
@@ -48,13 +48,14 @@ export class GoalService extends GatewayService {
     super(ctx, 'goals')
   }
 
-  create(agent: Agent, request: CreateGoalRequest): CreateGoalResult {
+  create(agent: Agent, request: CreateGoalRequest): GoalView {
     // Existing business method remains unchanged.
   }
 
   @Remote('create')
   remoteExportCreate(agent: Agent, request: CreateGoalRequest): CreateGoalResult {
-    return this.create(agent, request)
+    const view = this.create(agent, request)
+    return { ref: { id: view.id, revision: view.revision } }
   }
 }
 ```
@@ -84,7 +85,7 @@ export class ScopedGoalService extends GatewayService {
 
 ## Decorator 与显式 Gateway facet
 
-Decorator 只表达“该方法参与 Remote 契约”，不负责运行时类型反射，也不向 Service constructor 注入隐藏 symbol。`@Remote('create')` 和 `@RemoteContext('agent', 'create')` 的参数是外部方法名，实际成员名保持 `remoteExportCreate`；未给别名时才使用成员名作为外部方法名。继承 `GatewayService` 是 Service 加入 Gateway 的常规显式声明；其 public readonly `typertGateway` 字段使运行时实例上的绑定保持可见。
+Decorator 只表达“该方法参与 Remote 契约”，不负责运行时类型反射，也不向 Service constructor 注入隐藏 symbol。`@Remote('create')` 和 `@RemoteContext('agent', 'create')` 的参数是外部方法名；被装饰成员既可以是业务方法本身，也可以是 `remoteExportCreate` 这样的适配器。未给别名时才使用成员名作为外部方法名。继承 `GatewayService` 是 Service 加入 Gateway 的常规显式声明；其 public readonly `typertGateway` 字段使运行时实例上的绑定保持可见。
 
 SRC 运行时允许 decorator 在 `dsh-type-meta` 内部的 `WeakMap` 记录 prototype、方法名和调用模式。它不向 Service 实例、prototype、constructor 或方法函数写入自定义属性。
 
@@ -174,7 +175,7 @@ import type { CreateGoalRequest, CreateGoalResult } from '@deepseek-ai/dsh-goal/
 
 因此 `SessionId`、Agent wire ID、request 和 result 在 Host 与 Browser Client 中都指向同一 TypeScript declaration，未来 TUI 复用时也不需要第二份类型。DTO 的跳转定义、重命名和引用查找回到业务类型的唯一源码位置，而不是停在生成文件中的副本。
 
-Remote API 方法本身使用 declaration map 导航。TypeRT 把 `InvocationModel.location` 固定在 Host 的 `remoteExport*` 方法名 token，并在 namespace interface 的对应属性上写入 source-map segment；TypeScript editor 从 `ctx.api.models.list` 取得生成 declaration 后，再沿 `typert.remote-client.d.ts.map` 跳到 Host Service 的 `remoteExportList` 远程出口。该出口继续显式调用不改名的存量 `list()`，map 不把 decorator、class 或整个签名误当成方法定义位置。
+Remote API 方法本身使用 declaration map 导航。TypeRT 把 `InvocationModel.location` 固定在 Host 被装饰方法的方法名 token，并在 namespace interface 的对应属性上写入 source-map segment。对于由适配器支撑的 endpoint，TypeScript editor 从 `ctx.api.models.list` 取得生成 declaration 后，再沿 `typert.remote-client.d.ts.map` 跳到 Host Service 的 `remoteExportList` 远程出口。该出口继续显式调用不改名的存量 `list()`，map 不把 decorator、class 或整个签名误当成方法定义位置。
 
 TypeRT 为同一 symbol key 生成 wire Zod codec。Host Gateway 用它校验输入和编码结果，Client API 可以用它编码参数并校验响应；复杂类型无法生成严格 codec 时，LIB 构建失败，不降级为 `unknown` 或无校验 JSON。
 
@@ -480,7 +481,7 @@ Connection 提供共享 channel interceptor 与当前 HTTP carrier 映射。WebS
 
 ## 验证
 
-- Goal Service 保留既有业务方法，并新增显式 `typertGateway` 与 `@Remote('create') remoteExportCreate(...)`，无需第二条路由、第二份 codec 或 Client 方法清单。
+- Goal Service 直接装饰业务签名已经符合 Remote 契约的变更类方法，仅保留 `remoteExportCreate(...)` 把 `GoalView` 适配为 `CreateGoalResult`，无需第二条路由、第二份 codec 或 Client 方法清单。
 - 一次干净的 `build:lib` 会在 Client 编译前生成 Host 与消费方 Remote 产物，包括业务包 `/remote` 下的 JS、DTS 和 declaration map。
 - 导入 `@deepseek-ai/dsh-goal/remote` 会加入严格的 `api.goals.create(...)` 类型，并可通过 declaration 导航到 `remoteExportCreate`；不导入时不会出现该 namespace。
 - 挂载同一次 import 得到的 JS contribution 会提供 endpoint、参数、结果、lookup、Context 和 Zod 反射，并在无需手写 stub 的情况下实体化调用。

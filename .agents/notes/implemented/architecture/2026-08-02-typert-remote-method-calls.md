@@ -40,7 +40,7 @@ The Host Gateway does not depend on concrete implementations of `ctx.agents`, `c
 
 ## Business declarations
 
-Ordinary direct calls use `@Remote`. When migrating to an existing Service or Registry, do not rename or alter existing methods. Add `remoteExport*` entry points at the end of the class and use decorator arguments to declare their short API names. A method explicitly declares every required business object in a top-level parameter position:
+Ordinary direct calls use `@Remote`. When an existing method's parameters and result are already the intended Remote contract, decorate that method directly without renaming it. Add a `remoteExport*` adapter only when the wire contract needs a distinct request or result shape, and use the decorator argument to declare its short API name. A method explicitly declares every required business object in a top-level parameter position:
 
 ```text
 export class GoalService extends GatewayService {
@@ -48,13 +48,14 @@ export class GoalService extends GatewayService {
     super(ctx, 'goals')
   }
 
-  create(agent: Agent, request: CreateGoalRequest): CreateGoalResult {
+  create(agent: Agent, request: CreateGoalRequest): GoalView {
     // Existing business method remains unchanged.
   }
 
   @Remote('create')
   remoteExportCreate(agent: Agent, request: CreateGoalRequest): CreateGoalResult {
-    return this.create(agent, request)
+    const view = this.create(agent, request)
+    return { ref: { id: view.id, revision: view.revision } }
   }
 }
 ```
@@ -84,7 +85,7 @@ A method that cooperatively supports cancellation declares `signal: AbortSignal`
 
 ## Decorators and the explicit Gateway facet
 
-A decorator only states that a method participates in the Remote contract. It performs no runtime type reflection and injects no hidden symbol into a Service constructor. The arguments to `@Remote('create')` and `@RemoteContext('agent', 'create')` are external method names, while the actual member remains named `remoteExportCreate`. The member name becomes the external method name only when no alias is provided. Inheriting `GatewayService` is the normal explicit declaration that a Service has joined the Gateway; its public readonly `typertGateway` field keeps the binding visible on the runtime instance.
+A decorator only states that a method participates in the Remote contract. It performs no runtime type reflection and injects no hidden symbol into a Service constructor. The arguments to `@Remote('create')` and `@RemoteContext('agent', 'create')` are external method names; the decorated member may be the business method itself or an adapter such as `remoteExportCreate`. The member name becomes the external method name only when no alias is provided. Inheriting `GatewayService` is the normal explicit declaration that a Service has joined the Gateway; its public readonly `typertGateway` field keeps the binding visible on the runtime instance.
 
 In SRC mode, the decorator may record the prototype, method name, and invocation mode in a `WeakMap` internal to `dsh-type-meta`. It writes no custom properties to a Service instance, prototype, constructor, or method function.
 
@@ -174,7 +175,7 @@ import type { CreateGoalRequest, CreateGoalResult } from '@deepseek-ai/dsh-goal/
 
 Consequently, `SessionId`, the Agent wire ID, the request, and the result all refer to the same TypeScript declaration in the Host and Browser Client. A future TUI can reuse them without a second set of types. Go to Definition, renames, and Find References for a DTO return to the one source location for the business type instead of stopping at a copy in a generated file.
 
-Remote API methods themselves use declaration-map navigation. TypeRT anchors `InvocationModel.location` to the method-name token of the Host `remoteExport*` method and emits a source-map segment on the corresponding property of the namespace interface. After the TypeScript editor resolves `ctx.api.models.list` to its generated declaration, `typert.remote-client.d.ts.map` takes it to the Host Service's `remoteExportList` entry point. That entry point explicitly calls the existing, unrenamed `list()` method; the map does not misidentify the decorator, class, or full signature as the method definition.
+Remote API methods themselves use declaration-map navigation. TypeRT anchors `InvocationModel.location` to the decorated Host method-name token and emits a source-map segment on the corresponding property of the namespace interface. For an adapter-backed endpoint, after the TypeScript editor resolves `ctx.api.models.list` to its generated declaration, `typert.remote-client.d.ts.map` takes it to the Host Service's `remoteExportList` entry point. That entry point explicitly calls the existing, unrenamed `list()` method; the map does not misidentify the decorator, class, or full signature as the method definition.
 
 TypeRT generates a wire Zod codec for the same symbol key. The Host Gateway uses it to validate input and encode results, while the Client API may use it to encode arguments and validate responses. If a complex type cannot produce a strict codec, the LIB build fails instead of degrading to `unknown` or unchecked JSON.
 
@@ -480,7 +481,7 @@ Connection supplies the shared-channel interceptor and current HTTP carrier mapp
 
 ## Verification
 
-- Goal Service keeps its existing business method and adds an explicit `typertGateway` plus `@Remote('create') remoteExportCreate(...)`, without a second route, codec, or Client method list.
+- Goal Service directly decorates mutation methods whose business signatures already match the Remote contract and keeps `remoteExportCreate(...)` only to adapt `GoalView` into `CreateGoalResult`, without a second route, codec, or Client method list.
 - A clean `build:lib` emits Host and consumer Remote artifacts before Client compilation, including the business package's JS, DTS, and declaration map under `/remote`.
 - Importing `@deepseek-ai/dsh-goal/remote` adds the strict `api.goals.create(...)` type and declaration navigation to `remoteExportCreate`; omitting that import omits the namespace.
 - Mounting the same import's JS contribution supplies endpoint, parameter, result, lookup, Context, and Zod reflection and materializes the call without a handwritten stub.
