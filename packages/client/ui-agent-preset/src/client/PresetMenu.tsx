@@ -28,8 +28,6 @@ export interface PresetMenuProps {
   chevronClassName: string | undefined
   /** Whether the trigger refuses interaction. */
   disabled: boolean
-  /** Native tooltip, absent where the surface offers none. */
-  title?: string
   /** Whether the menu is open — the surface owns this so it can force it shut. */
   open: boolean
   /** Report the menu's next open state. */
@@ -45,7 +43,7 @@ export interface PresetMenuProps {
  */
 export function PresetMenu({
   options, selectedId, label, userTrustLabel, buttonClassName, chevronClassName,
-  disabled, title, open, onOpenChange, onSelect,
+  disabled, open, onOpenChange, onSelect,
 }: PresetMenuProps) {
   return (
     <Menu
@@ -73,7 +71,6 @@ export function PresetMenu({
           className={buttonClassName}
           aria-haspopup="menu"
           aria-expanded={open}
-          {...title === undefined ? {} : { title }}
           disabled={disabled}
           onClick={() => { onOpenChange(!open) }}
         >

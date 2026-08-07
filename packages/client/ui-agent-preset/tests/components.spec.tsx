@@ -105,6 +105,29 @@ describe('the General-settings row', () => {
     expect(screen.getAllByText('标准模式')).toHaveLength(2)
   })
 
+  it('falls back to the id for a preset that published no name', () => {
+    renderRow({
+      currentValue: 'mine',
+      options: [
+        { id: 'standard', trust: 'system', name: '标准模式' },
+        { id: 'bare', trust: 'system' },
+        { id: 'mine', trust: 'user' },
+        { id: 'ours', trust: 'user', name: '团队模式' },
+      ],
+    })
+
+    // The trigger names the preset; with no metadata the id is all there is.
+    expect(screen.getByRole('button').textContent).toContain('mine')
+
+    fireEvent.click(screen.getByRole('button'))
+
+    // A locally authored preset is marked whether or not it named itself.
+    expect(screen.getByText(`团队模式 · ${en.userTrust}`)).toBeTruthy()
+    expect(screen.getByText(`mine · ${en.userTrust}`)).toBeTruthy()
+    // A shipped preset with no metadata is listed by id and carries no mark.
+    expect(screen.getByText('bare')).toBeTruthy()
+  })
+
   it('writes the picked preset and closes the menu', () => {
     const actions = renderRow()
     fireEvent.click(screen.getByRole('button'))

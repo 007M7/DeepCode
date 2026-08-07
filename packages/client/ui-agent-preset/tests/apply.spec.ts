@@ -300,7 +300,13 @@ describe('ui-agent-preset apply', () => {
     // lives on another screen: without this the next session — the very one
     // the setting governs — would be composed from the previous default until
     // a reload.
+    // An unrelated namespace moves nothing: the chip re-reads on its own
+    // setting, not on every settings write in the process.
     moveDefault()
+    ctx.emit('settings/changed', 'llm-deepseek')
+    await Promise.resolve()
+    expect(seat.hooks.agentPresetSeat.getSnapshot().current).toBe('standard')
+
     ctx.emit('settings/changed', 'agent-presets')
     await vi.waitFor(() => {
       expect(seat.hooks.agentPresetSeat.getSnapshot().current).toBe('minimal')

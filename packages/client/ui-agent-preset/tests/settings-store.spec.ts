@@ -419,4 +419,26 @@ describe('the new-session chip controller', () => {
 
     expect(controller.store.getSnapshot().error).toBe('socket closed')
   })
+
+  it('reports a refused describe as a failure rather than a half-read row', async () => {
+    const api = {
+      agentPresets: {
+        list: () => Promise.resolve({
+          rpcId: 'r',
+          result: { ok: true as const, value: { presets: [{ id: 'standard', trust: 'system', isDefault: true }], authorable: true } },
+        }),
+      },
+      // The roster answered; `settings.describe` is what rejected, and the row
+      // cannot claim a writable default it never confirmed.
+      settings: { describe: () => Promise.reject(new Error('socket closed')) },
+    } as unknown as IApiClient
+    const controller = new AgentPresetSettingsController(api)
+
+    await controller.load()
+
+    expect(controller.store.getSnapshot().status).toBe('error')
+    expect(controller.store.getSnapshot().error).toBe('socket closed')
+  })
+
+
 })

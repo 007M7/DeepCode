@@ -200,6 +200,16 @@ describe('the composition editor', () => {
     writable: true, name: '我的预设', description: '', saving: false, error: null,
   }
 
+  it('opens a blank draft without naming a preset it came from', () => {
+    const { source: _copied, ...blank } = draft
+    renderSection({ draft: { ...blank, id: '', creating: true } })
+
+    // "New preset" starts empty — copying is what the per-row Duplicate does,
+    // so a blank draft has no source to name and shows no copied-from hint.
+    expect(screen.getByText(en.newPreset)).toBeTruthy()
+    expect(screen.queryByText(new RegExp(en.copyOf))).toBeNull()
+  })
+
   it('replaces the list while editing, and returns to it', () => {
     const actions = renderSection({ draft })
 
