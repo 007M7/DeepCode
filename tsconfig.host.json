@@ -9,6 +9,7 @@
   },
   "include": [
     "apps/web/tests/scaffold.ts",
+    "apps/web/tests/default-model.e2e.ts",
     "apps/web/tests/support.ts",
     "apps/web/tests/scaffold-hermetic.e2e.ts",
     "apps/web/tests/core-web-profile.snapshot.ts",

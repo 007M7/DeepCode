@@ -37,7 +37,8 @@ export type InputBarProps = ComposerBarProps
 export function InputBar({
   useSession, useInput, inputActions, keyboard, resolveSubmitMode, toggleCommandMenu, stop, command, t,
   renderSlot, useNotices, useLexicon, useMenuLauncher,
-  useProjection, sessionId, variant, disabled: inert = false, placeholder, accessory, overlay, leftItems, rightItems, footer,
+  useProjection, sessionId, variant, disabled: inert = false, blocked, placeholder,
+  accessory, overlay, leftItems, rightItems, footer,
 }: InputBarProps) {
   const input = useInput(s => s)
   const notice = useNotices(s => s)
@@ -86,8 +87,13 @@ export function InputBar({
   // inert no-workspace state, or the machine faces absent (no session). The
   // transient machine locks (adjudicating pending / submitting) render
   // read-only — the draft stays visible and focused, keystrokes drop.
-  const disabled = removed || inert || !live
+  const disabled = removed || inert || !live || blocked !== undefined
   const locked = disabled
+  // The model seat is the ONE control a block leaves live: every block this
+  // contract has is cleared by choosing a model, so locking it too would leave
+  // the composer asking for the only thing it prevents. The other reasons to
+  // be disabled do lock it — there is no session to choose a model for.
+  const modelSeatLocked = removed || inert || !live
   const machineBusy = input?.phase === 'adjudicating' || input?.phase === 'submitting'
 
   // Scroll the draft scrollport the minimum that brings `caret` into view — the
@@ -512,7 +518,7 @@ export function InputBar({
           </div>
           <div className={css.trailing}>
             {rightItems}
-            {renderSlot('conversation.input.model', { locked })}
+            {renderSlot('conversation.input.model', { locked: modelSeatLocked })}
             <ContextMeter useProjection={useProjection} t={t} />
             {/* {machineBusy && <span className={css.pending} data-input-pending aria-label="处理中" />} */}
             <Tooltip label={primaryLabel} side="top" delayMs={500}>

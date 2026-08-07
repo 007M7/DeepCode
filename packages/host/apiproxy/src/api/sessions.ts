@@ -117,6 +117,15 @@ export interface ModelCatalogFailure {
 export interface SessionModels {
   /** Target selected for the session's next assembled step. */
   current: ModelTarget
+  /**
+   * Whether an adapter currently serves `current.provider`, and therefore
+   * whether this session can start a turn at all. Deliberately NOT derivable
+   * from `groups`: catalog membership is advisory, so a route serving a model
+   * it stopped advertising is absent from the groups yet perfectly usable,
+   * while a route whose adapter is gone can serve nothing. A surface that
+   * blocks input must read this rather than the groups.
+   */
+  routable: boolean
   /** Successfully loaded provider groups. */
   groups: ModelProviderGroup[]
   /** Provider-local failures; successful groups remain usable. */
