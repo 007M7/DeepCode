@@ -563,6 +563,20 @@ describe('running and lock semantics (queue cut 1)', () => {
     fireEvent.keyDown(textarea, { key: 'Enter' })
     fireEvent.keyDown(textarea, { key: ' ' })
     expect(onRequestWorkspace).toHaveBeenCalledTimes(3)
+
+    // The WHOLE capsule is the pick target, and its pointerdown never reaches
+    // the document — the open picker's outside-close must not race the reopen.
+    const card = view.container.querySelector('[data-composer-card]') as HTMLElement
+    fireEvent.click(card)
+    expect(onRequestWorkspace).toHaveBeenCalledTimes(4)
+    const onDocumentPointerDown = vi.fn()
+    document.addEventListener('pointerdown', onDocumentPointerDown)
+    try {
+      fireEvent.pointerDown(card)
+    } finally {
+      document.removeEventListener('pointerdown', onDocumentPointerDown)
+    }
+    expect(onDocumentPointerDown).not.toHaveBeenCalled()
   })
 
   it('the plan projection swaps the placeholder while its effective target is plan mode', () => {

@@ -10,7 +10,7 @@ The [session-scope decision](../architecture/2026-07-25-web-client-session-scope
 
 ## Decision
 
-While no Workspace owns the new Session, the resident textarea is read-only and activates the existing `conversation.hero.workspace` picker by pointer click, Enter, or Space. It exposes menu expansion state through `aria-haspopup` and `aria-expanded`. Message submission, command, permission, model, and other Session-scoped controls remain locked until Workspace selection creates or reconnects a real Session.
+While no Workspace owns the new Session, the whole composer card activates the existing `conversation.hero.workspace` picker by pointer click — the card owns the click handler and its disabled controls let pointer events fall through, so the full capsule is one target — and the read-only resident textarea does the same by Enter or Space, exposing menu expansion state through `aria-haspopup` and `aria-expanded`. A dashed l4 stroke (an SVG dash ring, since native `dashed` has a fixed pattern) with a business-blue hover marks the card as the pick affordance. The card contains `pointerdown`, so the open picker's outside-close cannot race the click's reopen — that close-then-open flickered the chip's expansion echo. Message submission, command, permission, model, and other Session-scoped controls remain locked until Workspace selection creates or reconnects a real Session.
 
 Workspace selection retains the existing owner and flow. `ConversationRoot` opens the picker, `WorkspacePicker` lists or creates the Workspace, and the same textarea DOM node becomes the editable composer after the Session arrives.
 
@@ -26,4 +26,4 @@ Workspace selection retains the existing owner and flow. `ConversationRoot` open
 
 The first composer click now continues the required setup flow, and keyboard users can activate the same path. The textarea accurately reports read-only state until a Session exists, while adjacent controls remain disabled. The UI introduces no new Workspace state, transport, or directory-selection flow.
 
-Component coverage pins pointer and keyboard activation, locked adjacent controls, picker expansion, and the same-node transition to an editable textarea. The assembled Web helper begins fresh Workspace setup through the textarea, so replayed browser scenarios exercise the shipped path.
+Component coverage pins pointer and keyboard activation, the card-wide click target, the contained `pointerdown`, locked adjacent controls, picker expansion, and the same-node transition to an editable textarea. The assembled Web helper begins fresh Workspace setup through the textarea, so replayed browser scenarios exercise the shipped path.

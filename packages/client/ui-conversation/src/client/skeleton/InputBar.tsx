@@ -467,7 +467,17 @@ export function InputBar({
           {notice.text}
         </div>
       )}
-      <div className={css.card} data-composer-card>
+      {/* Trigger clicks land on the card, not the textarea: the toolbar row's
+          disabled controls swallow clicks otherwise (the CSS state disarms
+          their pointer events), so the WHOLE capsule is the pick target.
+          pointerdown stops here so the Menu's outside-close cannot race the
+          click's reopen (close-then-open flickers the chip's open echo). */}
+      <div
+        className={clsx(css.card, workspaceTrigger && css.cardWorkspaceTrigger)}
+        data-composer-card
+        onClick={workspaceTrigger ? onRequestWorkspace : undefined}
+        onPointerDown={workspaceTrigger ? (e) => { e.stopPropagation() } : undefined}
+      >
         {overlay !== undefined && <div className={css.overlayAnchor}>{overlay}</div>}
         {accessory !== undefined && <div className={css.accessory}>{accessory}</div>}
         {/* One scrollport, two text layers. The hidden mirror renders draft+'\n' and stretches the
@@ -496,7 +506,6 @@ export function InputBar({
               rows={2}
               onChange={onChange}
               onKeyDown={onKeyDown}
-              onClick={workspaceTrigger ? onRequestWorkspace : undefined}
               onSelect={onSelect}
               onCopy={(e) => { onCopyOrCut(e, false) }}
               onCut={(e) => { onCopyOrCut(e, true) }}

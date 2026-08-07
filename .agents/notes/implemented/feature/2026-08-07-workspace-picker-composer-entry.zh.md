@@ -10,7 +10,7 @@ Status: implemented
 
 ## 决策
 
-新会话尚未归属任何 Workspace 时，常驻 textarea 为只读状态，并可通过鼠标点击、Enter 或 Space 激活现有的 `conversation.hero.workspace` 选择器。它通过 `aria-haspopup` 和 `aria-expanded` 暴露菜单展开状态。消息提交、命令、权限、模型及其他 Session 作用域控件会保持锁定，直到用户选择 Workspace 并创建或重新连接真实 Session。
+新会话尚未归属任何 Workspace 时，整张输入卡片都可通过鼠标点击激活现有的 `conversation.hero.workspace` 选择器——点击处理器归卡片所有，其禁用控件放行指针事件，因此整个胶囊是同一个目标；只读的常驻 textarea 也可经 Enter 或 Space 激活，并通过 `aria-haspopup` 和 `aria-expanded` 暴露菜单展开状态。虚线 l4 描边（SVG dash ring，因为原生 `dashed` 的间距不可调）配合 hover 时的 business 蓝，把卡片标记为选择入口。卡片会拦下 `pointerdown`，使已打开选择器的外点关闭无法与点击的重新打开竞态——先关后开会让 chip 的展开回显闪动。消息提交、命令、权限、模型及其他 Session 作用域控件会保持锁定，直到用户选择 Workspace 并创建或重新连接真实 Session。
 
 Workspace 选择继续使用现有 owner 和流程。`ConversationRoot` 打开选择器，`WorkspacePicker` 列出或创建 Workspace；Session 到达后，同一个 textarea DOM 节点变为可编辑状态。
 
@@ -26,4 +26,4 @@ Workspace 选择继续使用现有 owner 和流程。`ConversationRoot` 打开�
 
 用户首次点击编辑器即可继续必要的设置流程，键盘用户也能激活同一路径。textarea 会如实报告只读状态，直到 Session 存在；相邻控件仍处于禁用状态。界面没有引入新的 Workspace 状态、传输或目录选择流程。
 
-组件测试会固定鼠标和键盘激活、相邻控件锁定、选择器展开，以及同一节点变为可编辑 textarea 的过渡。组装后的 Web helper 会通过 textarea 开始全新 Workspace 设置，因此重放浏览器场景会覆盖实际交付路径。
+组件测试会固定鼠标和键盘激活、覆盖整卡的点击目标、被拦下的 `pointerdown`、相邻控件锁定、选择器展开，以及同一节点变为可编辑 textarea 的过渡。组装后的 Web helper 会通过 textarea 开始全新 Workspace 设置，因此重放浏览器场景会覆盖实际交付路径。
