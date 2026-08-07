@@ -10,9 +10,9 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 /**
  * Key-gated smoke for mid-session compaction. It verifies the compact event
  * pair, replacement of older surface nodes, and a final answer after compaction.
- * TODO(compaction-snapshot): Add a keyless assembled snapshot with an explicit
- * summarization replay override.
  */
+// The keyless headless snapshot pins deterministic overflow recovery; this test
+// remains the independent live-provider smoke for organic pressure and summary quality.
 
 let workdir: string | undefined
 let ctx: Context | undefined

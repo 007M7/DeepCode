@@ -5959,6 +5959,9 @@ importers:
 
   packages/support/llm-replay:
     devDependencies:
+      '@deepseek-ai/dsh-compact':
+        specifier: workspace:^
+        version: link:../../compact/compact
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../invariants
