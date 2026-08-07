@@ -13,7 +13,9 @@ import { Context } from '@deepseek-ai/cordis'
 import Hmr from '@deepseek-ai/cordis-plugin-hmr'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Timer from '@deepseek-ai/cordis-plugin-timer'
+import type { PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import {
+  applyRootPatches,
   boot,
   loadOptionalPatches,
   PROFILE_PATCH_FILENAME,
@@ -92,23 +94,81 @@ describe('loadOptionalPatches', () => {
   })
 })
 
-describe('boot with user patches', () => {
-  function writeTree(dir: string): string {
-    writeFileSync(join(dir, 'noop.mjs'), [
-      'export const name = "noop"',
-      'export function apply(_ctx, config = {}) {',
-      '  if (config.fail) throw new Error("candidate config failed")',
-      '}',
+function writeTree(dir: string): string {
+  writeFileSync(join(dir, 'noop.mjs'), [
+    'export const name = "noop"',
+    'export function apply(_ctx, config = {}) {',
+    '  if (config.fail) throw new Error("candidate config failed")',
+    '}',
+    '',
+  ].join('\n'))
+  writeFileSync(join(dir, 'cordis.yml'), '- id: noop\n  name: ./noop.mjs\n  config:\n    value: base\n')
+  return join(dir, 'cordis.yml')
+}
+
+function entryConfig(ctx: Context, id: string): unknown {
+  return [...ctx.loader.entries()].find(entry => entry.options.id === id)?.options.config
+}
+
+describe('applyRootPatches', () => {
+  it('mounts a later phase whose rows read what the first phase provided', async () => {
+    // The phased boot in one test: a row's `!!js` config is evaluated when the
+    // include applies it, so a value an earlier phase provided is what a later
+    // phase's rows read.
+    const dir = tmp()
+    writeFileSync(join(dir, 'provider.mjs'), [
+      'export const name = "provider"',
+      'export function apply(ctx) { ctx.provide("phaseOne", { value: "resolved" }) }',
       '',
     ].join('\n'))
-    writeFileSync(join(dir, 'cordis.yml'), '- id: noop\n  name: ./noop.mjs\n  config:\n    value: base\n')
-    return join(dir, 'cordis.yml')
-  }
+    writeFileSync(join(dir, 'reader.mjs'), [
+      'export const name = "reader"',
+      'export const inject = ["phaseOne"]',
+      'export function apply() {}',
+      '',
+    ].join('\n'))
+    writeFileSync(join(dir, 'cordis.yml'), '[]\n')
+    const composition: PatchOptions[] = [{
+      insert: [
+        { id: 'provider', name: './provider.mjs' },
+        {
+          id: 'reader',
+          name: './reader.mjs',
+          inject: ['phaseOne'],
+          config: { value: { __jsExpr: "ctx.get('phaseOne')?.value ?? 'fallback'" } },
+        },
+      ],
+    }]
+    const ctx = await boot(NAME, join(dir, 'cordis.yml'), [
+      ...structuredClone(composition),
+      { id: 'reader', disabled: true },
+    ])
+    try {
+      // Phase one leaves the reader disabled, so the plugin never ran.
+      const reader = [...ctx.loader.entries()].find(entry => entry.options.id === 'reader')
+      expect(reader?.fiber).toBeUndefined()
+      await applyRootPatches(ctx, structuredClone(composition))
+      // Phase two evaluates its config expression against the provided value.
+      expect(entryConfig(ctx, 'reader')).toEqual({ value: 'resolved' })
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
 
-  function entryConfig(ctx: Context, id: string): unknown {
-    return [...ctx.loader.entries()].find(entry => entry.options.id === id)?.options.config
-  }
+  it('does nothing on a tree that was already disposed', async () => {
+    const dir = tmp()
+    const ctx = await boot(NAME, writeTree(dir))
+    await ctx.fiber.dispose()
+    await expect(applyRootPatches(ctx, [])).resolves.toBeUndefined()
+  })
 
+  it('fails loud when the tree was booted without the root include', async () => {
+    const ctx = new Context()
+    await expect(applyRootPatches(ctx, [])).rejects.toThrow('requires the root Include entry')
+  })
+})
+
+describe('boot with user patches', () => {
   it('applies id-targeted overrides, inserts, and interpolates !!js from the environment', async () => {
     const dir = tmp()
     const userDir = tmp()

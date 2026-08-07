@@ -12,7 +12,7 @@ import { networkInterfaces } from 'node:os'
 import { Command } from 'commander'
 import type { Context } from 'cordis'
 import type { EntryOptions } from '@cordisjs/plugin-loader'
-import { overrideConfig, runStartup, type RowChange } from '@deepseek-ai/dsh-cmdline'
+import { runStartup } from '@deepseek-ai/dsh-cmdline'
 
 /** Stable Cordis plugin name. */
 export const name = 'web-startup'
@@ -21,11 +21,31 @@ export const name = 'web-startup'
 export const inject = ['cmdlineArgs']
 
 /**
- * The startup service every flag-configured web row injects. The rows are
- * listed in this bundle's `cordis.patch.yml`; a row this startup plans changes
- * for without injecting the service fails loud.
+ * The service this row provides and every flag-configured web row reads. The
+ * rows are listed in this bundle's `cordis.patch.yml`, where each names the key
+ * it takes from here and the value it falls back to.
  */
 export const WEB_STARTUP_SERVICE = 'webStartup'
+
+/** What the web rows read from {@link WEB_STARTUP_SERVICE}. */
+export interface WebStartupValues {
+  /** `--host`, absent when the invocation did not name one. */
+  host?: string
+  /** `--port`, absent when the invocation did not name one. */
+  port?: number
+  /** `--workspace-root`, absent when the invocation did not name one. */
+  workspaceRoot?: string
+  /** Web runtime mode; `--dev` selects development, which also mounts the client-plugin reload chain. */
+  mode: 'production' | 'development'
+  /**
+   * The `/api` fence authorities for this invocation: the LAN literals an
+   * all-interfaces bind derived, plus the `--trusted-host` extras, over what
+   * the composition already configured.
+   */
+  trustedHosts: string[]
+  /** The LAN literals the fence was configured with, for display. */
+  lanAddresses: string[]
+}
 
 /** The webserver schema's all-interfaces bind literal: only this bind derives LAN authorities. */
 const ALL_INTERFACES_HOST = '0.0.0.0'
@@ -95,58 +115,39 @@ Examples:
 }
 
 /**
- * Turn the parsed flags into the changes each waiting row needs.
+ * Turn the parsed flags into the values the web rows read.
  * @param program - the parsed web command.
  * @param rows - the waiting rows' composed options, in tree order.
- * @returns row id → changes; rows absent from the map start on their composed values.
+ * @returns the web rows' service value.
  */
-function planWebStartup(program: Command, rows: readonly EntryOptions[]): Map<string, RowChange> {
+function planWebStartup(program: Command, rows: readonly EntryOptions[]): WebStartupValues {
   const options = program.opts<WebOptions>()
   if (options.port !== undefined && !/^\d+$/.test(options.port)) {
     program.error(`error: --port must be a number, got ${JSON.stringify(options.port)}`)
   }
-  const row = (id: string): EntryOptions => {
-    const found = rows.find(candidate => candidate.id === id)
-    if (found === undefined) throw new Error(`web-startup: the web composition has no waiting "${id}" row to configure`)
-    return found
-  }
-  const plan = new Map<string, RowChange>()
-  const webserver = row('webserver')
-  const composedHost = (webserver.config as { host?: string } | undefined)?.host
-  plan.set('webserver', overrideConfig(webserver, {
+  const webserver = rows.find(row => row.id === 'webserver')
+  if (webserver === undefined) throw new Error('web-startup: the web composition has no waiting "webserver" row to configure')
+  // The bind this invocation ends on: the flag, else what the row falls back
+  // to, which is the same literal its config expression names.
+  const bindHost = options.host ?? (webserver.config as { host?: string } | undefined)?.host
+  const { lanAddresses, trustedHosts } = resolveLanTrust(bindHost, options.trustedHost ?? [])
+  return {
     ...options.host !== undefined && { host: options.host },
     ...options.port !== undefined && { port: Number(options.port) },
-  }))
-  if (options.workspaceRoot !== undefined) {
-    plan.set('api-gateway', overrideConfig(row('api-gateway'), { workspaceRoot: options.workspaceRoot }))
-  }
-  const { lanAddresses, trustedHosts } = resolveLanTrust(options.host ?? composedHost, options.trustedHost ?? [])
-  if (trustedHosts.length > 0) {
-    // Additive over the composed value: a cordis.patch.yml-configured fence
-    // authority must survive the derived LAN literals and the flag extras —
-    // dropping it silently would weaken security-relevant configuration.
-    const connection = row('connection')
-    const composedTrusted = (connection.config as { trustedHosts?: string[] } | undefined)?.trustedHosts ?? []
-    plan.set('connection', overrideConfig(connection, { trustedHosts: [...composedTrusted, ...trustedHosts] }))
-  }
-  // mode and lanAddresses are resolved on every boot, never pass-throughs of
-  // composed values: they describe this invocation, not the deployment.
-  plan.set('web-runtime', overrideConfig(row('web-runtime'), {
+    ...options.workspaceRoot !== undefined && { workspaceRoot: options.workspaceRoot },
+    // mode and lanAddresses describe this invocation, never the deployment, so
+    // they are resolved on every boot.
     mode: options.dev === true ? 'development' : 'production',
+    trustedHosts,
     lanAddresses,
-  }))
-  // The receiver ships disabled so `--dev` is a row toggle rather than a
-  // runtime insert (the Loader cannot resolve a row inserted from inside a
-  // mounting plugin).
-  if (options.dev === true) plan.set('client-hmr', { disabled: false })
-  return plan
+  }
 }
 
 /**
- * Resolve the web flag family and start the rows waiting for it.
+ * Resolve the web flag family and start the rows that read it.
  * @param ctx - plugin context carrying the command line and the Loader.
- * @returns nothing once the waiting rows are released, or once `--help` requested exit.
+ * @returns nothing once the web rows are started, or once `--help` requested exit.
  */
-export function apply(ctx: Context): Promise<void> {
-  return runStartup(ctx, WEB_STARTUP_SERVICE, webCommand(), planWebStartup)
+export function apply(ctx: Context): void {
+  runStartup(ctx, WEB_STARTUP_SERVICE, webCommand(), planWebStartup)
 }

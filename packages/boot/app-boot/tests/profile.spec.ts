@@ -17,6 +17,7 @@ import {
   PROFILE_TEMPLATES,
   readProfileManifest,
   resolveBundleDir,
+  resolveEntrypoints,
   resolveProfileDir,
   writeProfileManifest,
 } from '../src/index.ts'
@@ -194,6 +195,37 @@ describe('loadProfile', () => {
     const dir = resolveProfileDir('demo', home)
     initProfile(dir, ['not-a-bundle'])
     expect(() => loadProfile('t', 'demo', anchor, home)).toThrow('declares no dsh.bundle')
+  })
+})
+
+describe('resolveEntrypoints', () => {
+  const profile = (layers: { packageName: string; entrypoint?: string }[]): Parameters<typeof resolveEntrypoints>[1] => ({
+    name: 'p',
+    dir: '/p',
+    patchPath: '/p/cordis.patch.yml',
+    patches: [],
+    layers: layers.map(layer => ({ ...layer, packageDir: '/b', patchPath: '/b/cordis.patch.yml', patches: [] })),
+  })
+
+  it('names each bundle entrypoint in bundle order', () => {
+    expect(resolveEntrypoints(
+      'dsh',
+      profile([{ packageName: 'a' }, { packageName: 'b', entrypoint: 'b-startup' }, { packageName: 'c', entrypoint: 'c-startup' }]),
+      [{ id: 'b-startup' }, { id: 'c-startup' }, { id: 'other' }],
+    )).toEqual(['b-startup', 'c-startup'])
+  })
+
+  it('skips an entrypoint a later layer disabled, which is how one app takes over another', () => {
+    expect(resolveEntrypoints(
+      'dsh',
+      profile([{ packageName: 'web', entrypoint: 'web-startup' }, { packageName: 'one-shot', entrypoint: 'one-shot-startup' }]),
+      [{ id: 'web-startup', disabled: true }, { id: 'one-shot-startup' }],
+    )).toEqual(['one-shot-startup'])
+  })
+
+  it('fails loud when a bundle declares an entrypoint its patch never inserts', () => {
+    expect(() => resolveEntrypoints('dsh', profile([{ packageName: 'b', entrypoint: 'absent' }]), [{ id: 'other' }]))
+      .toThrow('declares entrypoint "absent", which the composed tree has no row for')
   })
 })
 

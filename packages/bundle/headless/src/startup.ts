@@ -15,7 +15,7 @@
 import { Command } from 'commander'
 import type { Context } from 'cordis'
 import type { EntryOptions } from '@cordisjs/plugin-loader'
-import { overrideConfig, runStartup, type RowChange } from '@deepseek-ai/dsh-cmdline'
+import { runStartup } from '@deepseek-ai/dsh-cmdline'
 import { WEB_STARTUP_SERVICE } from '@deepseek-ai/dsh-web-app/startup'
 
 /** Stable Cordis plugin name. */
@@ -24,11 +24,17 @@ export const name = 'headless-startup'
 /** Services required before the task can be resolved. */
 export const inject = ['cmdlineArgs']
 
-/** The startup service the one-shot runner row injects. */
+/** The service this row provides and the one-shot runner row reads. */
 export const HEADLESS_STARTUP_SERVICE = 'headlessStartup'
 
-/** The runner row this app configures. */
+/** The row that runs the task, and the only reason this app has a command line. */
 const RUNNER_ROW_ID = 'headless-runner'
+
+/** What the runner row reads from {@link HEADLESS_STARTUP_SERVICE}. */
+export interface HeadlessStartupValues {
+  /** The task text this invocation asked for. */
+  task: string
+}
 
 /**
  * This app's command: the task positional, its description, and its help text.
@@ -49,22 +55,25 @@ Examples:
 /**
  * Turn the parsed command line into the runner row's task.
  * @param program - the parsed headless command.
- * @param rows - the waiting rows' composed options, in tree order.
- * @returns row id → changes.
+ * @param rows - the rows waiting on this app's service, in tree order.
+ * @returns the runner row's service value.
+ * @throws when the composition has no runner row, which would otherwise accept
+ * a task and silently run nothing.
  */
-function planHeadlessStartup(program: Command, rows: readonly EntryOptions[]): Map<string, RowChange> {
+function planHeadlessStartup(program: Command, rows: readonly EntryOptions[]): HeadlessStartupValues {
   const task = program.args.join(' ')
   if (task === '') program.error('error: a task is required, for example: dsh --profile headless "run the tests"')
-  const runner = rows.find(row => row.id === RUNNER_ROW_ID)
-  if (runner === undefined) throw new Error(`headless-startup: the composition has no waiting "${RUNNER_ROW_ID}" row to run the task`)
-  return new Map([[RUNNER_ROW_ID, overrideConfig(runner, { task })]])
+  if (!rows.some(row => row.id === RUNNER_ROW_ID)) {
+    throw new Error(`headless-startup: the composition has no waiting "${RUNNER_ROW_ID}" row to run the task`)
+  }
+  return { task }
 }
 
 /**
- * Resolve the task and start the rows waiting for it.
+ * Resolve the task and start the runner that reads it.
  * @param ctx - plugin context carrying the command line and the Loader.
- * @returns nothing once the runner is released, or once `--help` or a missing task requested exit.
+ * @returns nothing once the runner is started, or once `--help` or a missing task requested exit.
  */
-export function apply(ctx: Context): Promise<void> {
-  return runStartup(ctx, [HEADLESS_STARTUP_SERVICE, WEB_STARTUP_SERVICE], headlessCommand(), planHeadlessStartup)
+export function apply(ctx: Context): void {
+  runStartup(ctx, [HEADLESS_STARTUP_SERVICE, WEB_STARTUP_SERVICE], headlessCommand(), planHeadlessStartup)
 }

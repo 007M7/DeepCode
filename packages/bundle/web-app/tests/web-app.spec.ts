@@ -131,6 +131,38 @@ describe('web-app runtime glue', () => {
     await ctx.fiber.dispose()
   })
 
+  it('waits for the launcher readiness the phased boot provides, and stays quiet when that boot failed', async () => {
+    stageDist()
+    // The launcher-provided readiness wins over Loader settlement: a phased
+    // boot settles the Loader between phases, long before the app is up.
+    const ready = new Context()
+    ready.provide('httpServer', fakeHttpServer().server)
+    ready.provide('loader', { await: () => Promise.resolve() } as never)
+    let announce: () => void
+    ready.provide('appReady', new Promise<void>((resolve) => { announce = resolve }))
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    apply(ready, new Config({ mode: 'production', printUrl: true, surfaceContext: true, lanAddresses: [] }))
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(log).not.toHaveBeenCalled()
+    announce!()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(log).toHaveBeenCalledWith('dsh web: http://127.0.0.1:4567')
+    await ready.fiber.dispose()
+
+    // A boot that failed announces nothing: the launcher reports it, and a URL
+    // for a process that is about to exit would only mislead.
+    log.mockClear()
+    const failed = new Context()
+    failed.provide('httpServer', fakeHttpServer().server)
+    const rejection = Promise.reject(new Error('boot failed'))
+    rejection.catch(() => {})
+    failed.provide('appReady', rejection)
+    apply(failed, new Config({ mode: 'production', printUrl: true, surfaceContext: true, lanAddresses: [] }))
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(log).not.toHaveBeenCalled()
+    await failed.fiber.dispose()
+  })
+
   it('defers the URL line until Loader settlement and drops it when the server is gone', async () => {
     stageDist()
     // Settlement path: the line waits for loader.await() so supervisors can

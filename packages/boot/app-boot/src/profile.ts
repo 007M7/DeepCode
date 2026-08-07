@@ -42,6 +42,16 @@ export const PROFILE_PATCH_FILENAME = 'cordis.patch.yml'
 export interface DshBundleManifest {
   /** The patch layer this bundle exports, relative to its package root. */
   patch: string
+  /**
+   * Id of the row in that patch which must run before every other row of the
+   * composition — the app's entrypoint.
+   *
+   * An entrypoint resolves what the rest of the tree needs in order to be
+   * configured at all (the command line an app was invoked with), and provides
+   * it as a service. The boot mounts entrypoints alone first, so by the time
+   * any other row's config is resolved, `ctx.get('<service>')` answers.
+   */
+  entrypoint?: string
 }
 
 /** The profile half of the `dsh` manifest section: what a profile directory composes. */
@@ -79,6 +89,37 @@ export interface ProfileLayer {
   patchPath: string
   /** The parsed patch list. */
   patches: PatchOptions[]
+  /** Row id this bundle declares as its entrypoint, when it has one. */
+  entrypoint?: string
+}
+
+/**
+ * The composition's entrypoint row ids, in bundle order.
+ * @param binName - the diagnostic prefix on the thrown error.
+ * @param profile - the loaded profile.
+ * @param rows - the composed rows, so an entrypoint a later layer removed or
+ *   disabled is not mounted (the one-shot bundle takes over the web one this way).
+ * @returns the row ids to mount before the rest of the tree.
+ * @throws when a bundle declares an entrypoint its own patch never inserts.
+ */
+export function resolveEntrypoints(
+  binName: string,
+  profile: Profile,
+  rows: readonly { id?: string; disabled?: boolean | null }[],
+): string[] {
+  const entrypoints: string[] = []
+  for (const layer of profile.layers) {
+    if (layer.entrypoint === undefined) continue
+    const row = rows.find(candidate => candidate.id === layer.entrypoint)
+    if (row === undefined) {
+      throw new Error(
+        `${binName}: bundle ${JSON.stringify(layer.packageName)} declares entrypoint ${JSON.stringify(layer.entrypoint)}, `
+        + 'which the composed tree has no row for',
+      )
+    }
+    if (row.disabled !== true) entrypoints.push(layer.entrypoint)
+  }
+  return entrypoints
 }
 
 /** A loaded profile: resolved bundle layers plus the user's own patch layer. */
@@ -391,7 +432,14 @@ export function loadProfile(
       throw new Error(`${binName}: profile bundle ${JSON.stringify(packageName)} declares no dsh.bundle in its package.json`)
     }
     const patchPath = join(packageDir, declared)
-    return { packageName, packageDir, patchPath, patches: loadOverlayPatches(binName, patchPath) }
+    const entrypoint = bundleManifest.dsh?.bundle?.entrypoint
+    return {
+      packageName,
+      packageDir,
+      patchPath,
+      patches: loadOverlayPatches(binName, patchPath),
+      ...entrypoint === undefined ? {} : { entrypoint },
+    }
   })
   const patchPath = join(dir, PROFILE_PATCH_FILENAME)
   const patches = options.userLayer !== false && existsSync(patchPath)

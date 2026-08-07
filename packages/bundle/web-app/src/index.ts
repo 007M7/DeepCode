@@ -13,6 +13,7 @@
 import { createRequire } from 'node:module'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
+import { enableRow } from '@deepseek-ai/dsh-cmdline'
 import * as FrontendStatic from '@deepseek-ai/dsh-frontend-static'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type {} from '@deepseek-ai/dsh-host-webserver'
@@ -21,6 +22,9 @@ import type {} from '@deepseek-ai/dsh-bash-env'
 
 /** Stable Cordis plugin name. */
 export const name = 'web-app'
+
+/** The client-plugin reload chain row this bundle ships disabled, for `--dev`. */
+const HMR_ROW_ID = 'client-hmr'
 
 /** Services required before the web runtime can mount. */
 export const inject = ['httpServer']
@@ -112,6 +116,11 @@ export const internals: { resolveDistIndex: () => string } = { resolveDistIndex 
  */
 export function apply(ctx: Context, config: Config): void {
   ctx.plugin(FrontendStatic, { distIndex: internals.resolveDistIndex() })
+  // The client-plugin reload chain is a row this bundle ships off, because it
+  // exists only in development. Turning it on belongs here rather than in the
+  // entrypoint: it needs the host rows this phase of the boot mounts, and the
+  // entrypoint runs before them.
+  if (config.mode === 'development') void enableRow(ctx, HMR_ROW_ID)
   if (config.surfaceContext) {
     ctx.inject(['systemPrompt'], (promptCtx) => {
       promptCtx.systemPrompt.section({
@@ -143,15 +152,20 @@ export function apply(ctx: Context, config: Config): void {
       const port = ctx.httpServer.port
       console.log(`dsh web: ${localWebUrl(ctx)}${lanCandidate === undefined ? '' : ` (LAN: http://${lanCandidate}:${String(port)})`}`)
     }
-    const loader = ctx.get('loader')
-    if (loader === undefined) printUrl()
+    // A launcher that mounts in phases tells this row when the whole
+    // composition is up; Loader settlement alone would let the line print
+    // between phases, announcing a server whose boot can still fail. A
+    // hand-built tree has neither and prints at once.
+    const settled = ctx.get('appReady') ?? ctx.get('loader')?.await()
+    if (settled === undefined) printUrl()
     else {
-      void loader.await().then(() => {
-        // The tree can be disposed while settlement was in flight (early
+      void settled.then(() => {
+        // The tree can be disposed while the boot was in flight (early
         // SIGTERM); a URL line for a dead server would only mislead, and
         // reading the torn-down port would turn a clean shutdown into a crash.
         if (ctx.get('httpServer') !== undefined) printUrl()
-      })
+      // A failed boot is reported by the launcher; this row only stays quiet.
+      }, () => {})
     }
   }
 }

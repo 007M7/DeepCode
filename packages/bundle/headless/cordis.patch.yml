@@ -26,9 +26,10 @@
     - id: headless-startup
       name: '@deepseek-ai/dsh-headless/startup'
 
-    # Shipped off, not merely waiting: the runner's schema requires the task.
-    # The startup row enables it with the task after parsing this app's argv.
+    # Reads its task from the headlessStartup service after the startup row
+    # resolves this app's command line.
     - id: headless-runner
       name: '@deepseek-ai/dsh-headless'
       inject: [headlessStartup]
-      disabled: true
+      config:
+        task: !!js ctx.get('headlessStartup')?.task

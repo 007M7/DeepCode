@@ -5,11 +5,13 @@
 # A patch replaces the targeted row's whole `config`, so each row below
 # restates every key it owns.
 #
-# Rows this app configures from flags declare `inject: [webStartup]`: they wait
-# until the web-startup row has parsed --host/--port/--dev/--workspace-root/
-# --trusted-host and provided that service with the resolved values.
-# `dsh --profile web --help` therefore prints this app's own help and exits
-# without ever binding a port.
+# Rows this app configures from flags read them from the `webStartup` service:
+# each names the key it takes and the value it falls back to, so a flag wins
+# over the value written beside it. The web-startup row is this bundle's
+# manifest-declared entrypoint, so it runs before any of them and has already
+# parsed --host/--port/--dev/--workspace-root/--trusted-host by the time their
+# config is resolved. `dsh --profile web --help` therefore prints this app's own
+# help and exits before the rest of the composition mounts at all.
 
 # ── surface-specific values the base deliberately omits ─────────────────────
 
@@ -79,9 +81,13 @@
     # shares. The base layer's agent-default-model service owns the default model.
     - id: api-gateway
       name: '@deepseek-ai/dsh-host-apiproxy'
+      inject: [webStartup]
+      config:
+        workspaceRoot: !!js ctx.get('webStartup')?.workspaceRoot
 
-    # Owns the web flag family and its --help; provides webStartup with the
-    # values this invocation resolved. Nothing waiting on it starts first.
+    # This bundle's entrypoint (declared in its package.json): it owns the web
+    # flag family and its --help, and provides webStartup with the values this
+    # invocation resolved. The boot runs it before every row above.
     - id: web-startup
       name: '@deepseek-ai/dsh-web-app/startup'
 
@@ -94,8 +100,8 @@
       name: '@deepseek-ai/dsh-host-webserver'
       inject: [webStartup]
       config:
-        host: 127.0.0.1
-        port: 3080
+        host: !!js ctx.get('webStartup')?.host ?? '127.0.0.1'
+        port: !!js ctx.get('webStartup')?.port ?? 3080
 
     # Web glue owned by this bundle: resolves the built frontend dist (an
     # assembly fact of dsh-web-app, never user config), mounts the
@@ -108,11 +114,15 @@
       name: '@deepseek-ai/dsh-web-app'
       inject: [webStartup]
       config:
-        mode: production
+        mode: !!js ctx.get('webStartup')?.mode ?? 'production'
         printUrl: true
         surfaceContext: true
+        lanAddresses: !!js ctx.get('webStartup')?.lanAddresses ?? []
 
-    # The client-plugin HMR receiver ships disabled; `--dev` enables it.
+    # The client-plugin reload chain: a dev-only row this bundle ships off,
+    # which the entrypoint turns on for `--dev`. It is a row rather than a
+    # child of web-runtime because its node half is a client-side package,
+    # which a host-side bundle cannot import.
     - id: client-hmr
       name: '@deepseek-ai/dsh-client-hmr'
       inject: [webStartup]
@@ -132,6 +142,11 @@
     - id: connection
       name: '@deepseek-ai/dsh-client-connection'
       inject: [webStartup]
+      config:
+        # The LAN literals an all-interfaces bind derived plus the
+        # --trusted-host extras. A deployment that configures its own fence
+        # authorities adds them to this list.
+        trustedHosts: !!js ctx.get('webStartup')?.trustedHosts ?? []
 
     - id: api-remotes
       name: '@deepseek-ai/dsh-api-remotes'
