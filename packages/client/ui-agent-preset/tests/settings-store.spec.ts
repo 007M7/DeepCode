@@ -169,6 +169,7 @@ describe('the agent-preset settings controller', () => {
         describe: () => Promise.resolve({
           rpcId: 'r', result: { ok: true as const, value: { writable: true, hasDocument: true, namespaces: [] } },
         }),
+        // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- the non-Error branch is what this covers
         update: () => Promise.reject(value),
       },
     } as unknown as IApiClient)
@@ -181,6 +182,7 @@ describe('the agent-preset settings controller', () => {
     expect(controller.store.getSnapshot().error).toBe('socket closed')
 
     const failing = new AgentPresetSettingsController({
+      // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- the non-Error branch is what this covers
       agentPresets: { list: () => Promise.reject('offline') },
       settings: {
         describe: () => Promise.resolve({
@@ -368,7 +370,9 @@ describe('the composer seat controller', () => {
   it('reads a rejection that is not an Error', async () => {
     const api = {
       agentPresets: {
+        // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- the non-Error branch is what this covers
         list: () => Promise.reject('offline'),
+        // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- the non-Error branch is what this covers
         select: () => Promise.reject('socket closed'),
       },
     } as unknown as IApiClient
