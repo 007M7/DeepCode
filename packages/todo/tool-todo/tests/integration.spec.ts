@@ -18,7 +18,7 @@ async function harness(adapter: MockAdapter): Promise<Context> {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
   await ctx.plugin(AgentLoop, { agents: [] })
-  await ctx.plugin(ToolTodo)
+  await ctx.plugin(ToolTodo, { allowParallelInProgress: true })
   ctx.llm.registerAdapter(['mock'], adapter)
   return ctx
 }
