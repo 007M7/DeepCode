@@ -6,11 +6,20 @@
  * (api-proxy.ts: createApiProxy + the ApiProxyService gateway plugin providing
  * `ctx.apiProxy`). Transport-agnostic by design: this package registers no
  * routes — physical carriers wrap `ctx.apiProxy` themselves.
+ *
+ * The gateway also owns the `api-gateway` settings section: the route a
+ * session starts from when its own log names none. The composition entry is
+ * the shipped default and the section layers the user's choice over it, so
+ * switching models in a conversation is what sets the default for the next
+ * one. Sessions that have already logged a route are never retargeted by it.
  */
 
 import { resolve } from 'node:path'
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
+import type { AgentLlmTarget } from '@deepseek-ai/dsh-agent'
+import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import type { ApiProxy } from './api/index.ts'
 import { createApiProxy } from './api-proxy.ts'
 
@@ -29,14 +38,60 @@ declare module 'cordis' {
   }
 }
 
-/** Gateway plugin config: host-level agent routing and Workspace creation root. */
-export interface Config {
-  /** Default provider route for created/resumed agents. */
+/**
+ * The settings namespace carrying the user's default route. Named for the
+ * gateway rather than for the package, because this key is what a person reads
+ * and writes in `settings.yaml`; the row id in a composition happens to match
+ * but does not determine it.
+ */
+export const API_GATEWAY_SETTINGS_NAMESPACE = settingsNamespace('api-gateway')
+
+/**
+ * The user-settable slice of the gateway config: the route a session starts
+ * from when its own log names none. `workspaceRoot` is deliberately not part
+ * of it — that is a launcher fact, not a preference.
+ */
+export interface DefaultRouteSettings {
+  /** Default provider route for created agents. */
   provider: string
   /** Default model id. */
   model: string
+  /** Default reasoning effort; absence preserves the adapter/provider default. */
+  reasoningEffort?: string
+}
+
+/** Gateway plugin config: host-level agent routing and Workspace creation root. */
+export interface Config extends DefaultRouteSettings {
   /** Parent directory for name-created Workspaces; defaults to the Host cwd. */
   workspaceRoot?: string
+}
+
+/**
+ * The default-route fields, as fresh schema instances. Both the plugin config
+ * and the settings section are built from this one call, so the section stays
+ * a subset of the config structurally rather than by a comment two people have
+ * to keep true.
+ */
+function defaultRouteFields(): { [K in keyof Required<DefaultRouteSettings>]: z<string> } {
+  return {
+    provider: z.string().required(),
+    model: z.string().required(),
+    reasoningEffort: z.string(),
+  }
+}
+
+/** Schema of the settings section. */
+const DefaultRouteSchema: z<DefaultRouteSettings> = z.object(defaultRouteFields())
+
+/** Project the stored/composed section onto the agent-facing target shape. */
+function routeTarget(settings: DefaultRouteSettings): AgentLlmTarget {
+  return {
+    provider: settings.provider,
+    model: settings.model,
+    ...settings.reasoningEffort === undefined
+      ? {}
+      : { reasoningEffort: ReasoningEffortId(settings.reasoningEffort) },
+  }
 }
 
 /**
@@ -51,8 +106,7 @@ export class ApiProxyService extends Service implements ApiProxy {
   ]
 
   static Config: z<Config> = z.object({
-    provider: z.string().required(),
-    model: z.string().required(),
+    ...defaultRouteFields(),
     workspaceRoot: z.string(),
   })
 
@@ -72,9 +126,32 @@ export class ApiProxyService extends Service implements ApiProxy {
   constructor(ctx: Context, config: Config) {
     super(ctx, 'apiProxy')
     const cwd = process.cwd()
-    const api = createApiProxy(ctx, {
+    // The composition entry is the shipped default; the settings section
+    // layers the user's own choice over it, and a deployment without a
+    // settings provider simply keeps the entry.
+    const entry: DefaultRouteSettings = {
       provider: config.provider,
       model: config.model,
+      ...config.reasoningEffort === undefined ? {} : { reasoningEffort: config.reasoningEffort },
+    }
+    let route: () => DefaultRouteSettings = () => entry
+    installSettingsSection(ctx, API_GATEWAY_SETTINGS_NAMESPACE, DefaultRouteSchema, entry, {
+      setSource: (current) => {
+        route = current
+      },
+      // Nothing registration-level derives from the default: every consumer
+      // reads it through the thunk at the moment it needs a route.
+      onChange: () => {},
+    })
+    const api = createApiProxy(ctx, {
+      defaultTarget: () => routeTarget(route()),
+      // Wholesale, never a merge: switching to a model with no reasoning
+      // effort must clear a stored one, and a merged patch would strand it
+      // for the next session to fail on. The section holds no secrets, so
+      // there is nothing a replace can collaterally drop.
+      persistDefaultTarget: async (target) => {
+        await ctx.get('settings')?.replace(API_GATEWAY_SETTINGS_NAMESPACE, target)
+      },
       cwd,
       workspaceRoot: resolve(config.workspaceRoot ?? cwd),
     })

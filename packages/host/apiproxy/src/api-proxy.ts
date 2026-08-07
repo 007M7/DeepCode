@@ -8,7 +8,7 @@ import { mkdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Context } from 'cordis'
 import { installAgentLlmTarget } from '@deepseek-ai/dsh-agent'
-import type { Agent, AgentLlmTarget, AgentLlmTargetRef, AgentStatus } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentLlmTarget, AgentLlmTargetRef, AgentOptions, AgentStatus } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, freezeMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { errorChain } from '@deepseek-ai/dsh-llm'
 import type { MessageSource } from '@deepseek-ai/dsh-llm'
@@ -329,8 +329,19 @@ function directoryError(error: unknown): RpcError {
 
 /** Resolved Host routing and project-directory defaults consumed by the API implementation. */
 export interface ApiProxyDefaults {
-  provider: string
-  model: string
+  /**
+   * The route a session starts from when its own log names none. Read on
+   * every access rather than captured, so a default saved during this process
+   * reaches the sessions that have not run a turn yet.
+   */
+  defaultTarget: () => AgentLlmTarget
+  /**
+   * Record a selection as the new default. Absent when the deployment stores
+   * no user settings, in which case a switch stays process-local. A rejection
+   * is reported and swallowed: the switch already applies to its own session,
+   * and undoing it because storage failed would be the worse outcome.
+   */
+  persistDefaultTarget?: (target: AgentLlmTarget) => Promise<void>
   /** Default project directory for new sessions whose create request carries no cwd. */
   cwd: string
   /** Parent directory for name-created workspaces. */
@@ -720,7 +731,11 @@ function changedWorkspaceView(workspaceId: string, value: unknown): WorkspaceVie
  * @returns the ApiProxy implementation.
  */
 export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiProxy {
-  const agentOptions = { provider: defaults.provider, model: defaults.model }
+  /** The seed route each create/resume declares; re-read so it never goes stale. */
+  const agentOptions = (): AgentOptions => {
+    const { provider, model } = defaults.defaultTarget()
+    return { provider, model }
+  }
   type WebLlmTargetRef = AgentLlmTargetRef & { current: AgentLlmTarget }
   const targets = new WeakMap<Agent, WebLlmTargetRef>()
   /** Implicit resume of cold sessions, deduplicating concurrent calls (follows the jsonrpc sessionCreations precedent). */
@@ -735,24 +750,39 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
   /**
    * Install or return the session-local target that prompt assembly snapshots.
-   * Seed order: latest logged request/header, else the host default routing.
-   * There is no create-time per-session override tier on this wire — if one
-   * returns (a create-options contribution), it must fold in between the two.
+   *
+   * Precedence, resolved on EVERY read rather than seeded once: a selection
+   * made in this process, else the session's own latest logged request/header,
+   * else the live host default. Re-reading is what keeps the two tiers honest
+   * in both directions — a session that has run a turn derives its route from
+   * its log forever after, so changing the default never retargets it; and a
+   * session still blank (New Session reuses one rather than minting another)
+   * starts from a default saved after it was created. There is no create-time
+   * per-session override tier on this wire — if one returns (a create-options
+   * contribution), it must fold in between the selection and the log.
    */
   function targetFor(agent: Agent): WebLlmTargetRef {
     const installed = targets.get(agent)
     if (installed !== undefined) return installed
-    const logged = agent.session.requestHeader()?.config
+    let picked: AgentLlmTarget | undefined
     const target: WebLlmTargetRef = {
-      current: logged === undefined
-        ? { provider: defaults.provider, model: defaults.model }
-        : {
+      get current(): AgentLlmTarget {
+        if (picked !== undefined) return picked
+        // Incrementally folded by the session, so a per-step read costs
+        // O(new events) rather than a rescan.
+        const logged = agent.session.requestHeader()?.config
+        if (logged === undefined) return defaults.defaultTarget()
+        return {
           provider: logged.provider,
           model: logged.model,
           ...logged.reasoningEffort === undefined
             ? {}
             : { reasoningEffort: logged.reasoningEffort },
-        },
+        }
+      },
+      set current(next: AgentLlmTarget) {
+        picked = next
+      },
       assembled: undefined,
     }
     installAgentLlmTarget(agent.ctx, target)
@@ -1023,7 +1053,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           }
           const handle = await ctx.agents.resume({
             resumeSessionId: sessionId,
-            agentOptions,
+            agentOptions: agentOptions(),
             setup: installTarget,
           })
           return handle.agent
@@ -1140,7 +1170,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           }
           return (await ctx.agents.resume({
             resumeSessionId: sessionId,
-            agentOptions,
+            agentOptions: agentOptions(),
             setup: installTarget,
           })).agent
         }
@@ -1152,7 +1182,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         }
         return (await ctx.agents.create({
           sessionId,
-          agentOptions,
+          agentOptions: agentOptions(),
           meta: { cwd },
           setup: installTarget,
         })).agent
@@ -1692,6 +1722,17 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               : { reasoningEffort: resolved.reasoningEffort },
           }
           targetFor(found.agent).current = selected
+          // A switch is also how this deployment's default is chosen: the next
+          // session created without one of its own starts here. Sessions that
+          // have already logged a route are unaffected — they derive from
+          // their own log (see targetFor).
+          try {
+            await defaults.persistDefaultTarget?.(selected)
+          } catch (error: unknown) {
+            ctx.logger.warn(
+              `api-proxy: the model switch applies to this session but was not saved as the default: ${String(error)}`,
+            )
+          }
           return ok(request, { selected: { ...selected } })
         } catch (error: unknown) {
           return err(request, {
@@ -1794,7 +1835,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               parentSession: source.id,
               seedLength: cut,
             },
-            agentOptions,
+            agentOptions: agentOptions(),
             setup: installTarget,
           })
         } catch (error: unknown) {
@@ -2179,13 +2220,16 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     host: {
       describe(request) {
         // TODO(step2): version should read apps/cli's package.json; placeholder for now.
+        const route = defaults.defaultTarget()
         return Promise.resolve(ok(request, {
           version: '0.0.1',
           // Same source as session.create's fallback: the UI's default project
           // must match where an unspecified-cwd session actually lands.
           cwd: defaults.cwd,
-          provider: defaults.provider,
-          model: defaults.model,
+          // Read live for the same reason: this is what the NEXT session will
+          // start from, so a saved default has to be what it reports.
+          provider: route.provider,
+          model: route.model,
           attachedSessions: ctx.agents.list().length,
         }))
       },
