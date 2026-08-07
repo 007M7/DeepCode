@@ -392,6 +392,40 @@ describe('replacing a composition', () => {
 
     await expect(local.agentPresets.recompose(handle.agent.ctx, 'broken'))
       .rejects.toThrow(/failed to mount/)
+  it('reports the switch failure when the restore fails too', async () => {
+    // A preset root this test owns, so removing the composition mid-flight
+    // cannot disturb the shipped fixtures.
+    const root = await mkdtemp(join(tmpdir(), 'dsh-preset-restore-'))
+    const seeded: [string, string][] = [['first', `- id: only\n  name: ${join(FIXTURES, 'plugins', 'contribute.js')}\n  config:\n    tool: only\n`], ['broken', '- id: nope\n  name: ./does-not-exist.js\n']]
+    for (const [id, body] of seeded) {
+      await mkdir(join(root, id))
+      await writeFile(join(root, id, COMPOSITION_FILE), body)
+    }
+    const scoped = new Context()
+    scoped.baseUrl = pathToFileURL(FIXTURES).href + '/'
+    await scoped.plugin(Loader)
+    scoped.loader.builtins.include = Include
+    await scoped.plugin(LlmService)
+    await scoped.plugin(SessionStore)
+    await scoped.plugin(SystemPrompt, { persona: '' })
+    await scoped.plugin(ToolRegistry)
+    await scoped.plugin(AgentRegistry)
+    await scoped.plugin(AgentLoop, { agents: [] })
+    await scoped.plugin(AgentPresets, { default: 'first', roots: [{ path: root, trust: 'user' as const }] })
+    const handle = await scoped.agents.create({
+      sessionId: SessionId('sess-restore-gone'),
+      setup: async (agentCtx: Context) => void await scoped.agentPresets.mount(agentCtx, 'first'),
+    })
+
+    // The roster is a live directory: the composition the agent came from can
+    // be gone by the time the restore reaches for it.
+    await rm(join(root, 'first'), { recursive: true })
+
+    await expect(scoped.agentPresets.recompose(handle.agent.ctx, 'broken'))
+      .rejects.toThrow(/failed to mount/)
+
+    // The switch failure is the actionable one; the restore's is swallowed.
+    expect(toolNames(scoped, handle.agent)).toEqual([])
   })
 
   it('refuses an unscoped context', async () => {

@@ -229,6 +229,18 @@ describe('unary round trip', () => {
     expect(appended.result.ok).toBe(true)
   })
 
+  it('routes the agent-preset roster and switch through the wire', async () => {
+    const c = client(scriptedApi())
+
+    const listed = await c.agentPresets.list({})
+    expect(listed.result).toEqual({ ok: true, value: { presets: [] } })
+
+    // The switch carries the session it is about: the host refuses one whose
+    // conversation has started, and it can only know which by id.
+    const selected = await c.agentPresets.select({ sessionId: sid('s1'), agentPreset: 'standard' })
+    expect(selected.result).toEqual({ ok: true, value: { agentPreset: 'standard' } })
+  })
+
   it('passes business errors through as 200 + err result, not a throw', async () => {
     const api = scriptedApi({
       sessions: {
