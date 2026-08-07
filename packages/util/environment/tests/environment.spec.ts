@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import {
-  createEnvironmentSnapshot, DSH_ENVIRONMENT_KEY, ENVIRONMENT_SOURCES, environmentOf, isBootstrapOnly,
+  createEnvironmentSnapshot, DSH_ENVIRONMENT_KEY, environmentOf, isBootstrapOnly,
 } from '../src/index.ts'
 
 const layered = createEnvironmentSnapshot([
@@ -18,13 +18,12 @@ describe('createEnvironmentSnapshot', () => {
     expect(layered.get('ABSENT')).toBeUndefined()
   })
 
-  it('treats an omitted layer as invisible, not merely lower', () => {
+  it('filters layers without changing their trust order', () => {
     // The point of getFrom: a routing field that must never come from a
     // project directory cannot be reached by reordering, only by listing it.
     expect(layered.getFrom('ONLY_PROJECT', ['process', 'user-env'])).toBeUndefined()
-    expect(layered.getFrom('SHARED', ['user-env', 'process'])).toEqual({
-      value: 'from-user', source: 'user-env', path: '/home/.dsh/.env',
-    })
+    expect(layered.getFrom('SHARED', ['user-env', 'process']))
+      .toEqual({ value: 'from-process', source: 'process' })
     expect(layered.getFrom('SHARED', [])).toBeUndefined()
   })
 
@@ -42,12 +41,11 @@ describe('createEnvironmentSnapshot', () => {
     expect(snapshot.get('EMPTY')).toEqual({ value: '', source: 'process' })
   })
 
-  it('orders lookups by ENVIRONMENT_SOURCES regardless of construction order', () => {
+  it('orders lookups canonically regardless of construction order', () => {
     const reversed = createEnvironmentSnapshot([
       { source: 'user-env', path: '/u', values: { K: 'u' } },
       { source: 'process', values: { K: 'p' } },
     ])
-    expect(ENVIRONMENT_SOURCES).toEqual(['process', 'project-env', 'user-env'])
     expect(reversed.get('K')).toEqual({ value: 'p', source: 'process' })
   })
 })
@@ -64,9 +62,6 @@ describe('environmentOf', () => {
     try {
       const snapshot = environmentOf(new Context())
       expect(snapshot.get('DSH_ENV_SPEC_FALLBACK')).toEqual({ value: 'ambient', source: 'process' })
-      // A host that discovered no files has exactly one layer, so the trusted
-      // lookups every consumer makes still find what it was launched with.
-      expect(snapshot.getFrom('DSH_ENV_SPEC_FALLBACK', ['process', 'user-env'])?.value).toBe('ambient')
     } finally {
       vi.unstubAllEnvs()
     }

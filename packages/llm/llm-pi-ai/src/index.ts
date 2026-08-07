@@ -143,7 +143,7 @@ export function apply(ctx: Context, config: Config): void {
     const hit = credentials !== undefined
       ? (await credentials.resolve(ref))?.value
       // Without the seam the environment is the whole credential plane.
-      : environmentOf(ctx).getFrom(ref, ['process', 'project-env', 'user-env'])?.value
+      : environmentOf(ctx).get(ref)?.value
     if (hit !== undefined && hit.length > 0) return assertUsableApiKey(hit, 'llm-pi-ai', ref)
     throw new LlmError(
       `llm-pi-ai: no credential for provider route "${provider}"; its profile resolves ${ref}, which is not`

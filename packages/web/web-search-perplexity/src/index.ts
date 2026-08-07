@@ -55,7 +55,7 @@ export function apply(ctx: Context, config: Config): void {
   ctx.web.registerSearchProvider(new PerplexitySearchProvider({
     // Every environment layer may name this key: the product trusts the
     // project it is launched in, and the managed store is not involved here.
-    apiKey: config.apiKey ?? environmentOf(ctx).getFrom('PERPLEXITY_API_KEY', ['process', 'project-env', 'user-env'])?.value ?? '',
+    apiKey: config.apiKey ?? environmentOf(ctx).get('PERPLEXITY_API_KEY')?.value ?? '',
     baseURL: config.baseURL ?? PERPLEXITY_DEFAULT_BASE_URL,
     model: config.model ?? PERPLEXITY_DEFAULT_MODEL,
     maxTokens: config.maxTokens ?? PERPLEXITY_DEFAULT_MAX_TOKENS,

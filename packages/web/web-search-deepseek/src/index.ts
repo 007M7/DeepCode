@@ -90,12 +90,12 @@ export function apply(ctx: Context, config: Config): void {
       const credentials = ctx.get('credentials')
       if (credentials !== undefined) return (await credentials.resolve(apiKeyEnv))?.value
       // Without the seam the environment is the whole credential plane.
-      const ambient = environmentOf(ctx).getFrom(apiKeyEnv, ['process', 'project-env', 'user-env'])
+      const ambient = environmentOf(ctx).get(apiKeyEnv)
       return ambient !== undefined && ambient.value.length > 0 ? ambient.value : undefined
     },
     apiKeyEnv,
     baseURL: config.baseURL
-      ?? environmentOf(ctx).getFrom(SEARCH_BASE_URL_ENV, ['process', 'project-env', 'user-env'])?.value
+      ?? environmentOf(ctx).get(SEARCH_BASE_URL_ENV)?.value
       ?? DEEPSEEK_DEFAULT_BASE_URL,
     model: config.model ?? DEEPSEEK_DEFAULT_MODEL,
     apiVersion: config.apiVersion ?? DEEPSEEK_DEFAULT_API_VERSION,

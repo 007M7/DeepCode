@@ -14,7 +14,7 @@
 
 ## 解析
 
-`get(name)` 按可信度从高到低搜索所有层。`getFrom(name, sources)` 只搜索调用方信任的层。
+`get(name)` 按可信度从高到低搜索所有层。`getFrom(name, sources)` 只搜索指定的层，不改变这一可信顺序。
 
 **省略某一层是拒绝，不是降级**——绝不能接受某一层的调用方直接不把它列进去，后续任何重新排序都无法让它回来。provider 适配器三层全列，因为产品信任它所运行的项目；该机制是为那些「并非如此」的决策准备的。
 
@@ -25,7 +25,7 @@ import type { Context } from 'cordis'
 import { environmentOf } from '@deepseek-ai/dsh-environment'
 
 declare const ctx: Context
-const endpoint = environmentOf(ctx).getFrom('DEEPSEEK_BASE_URL', ['process', 'project-env', 'user-env'])?.value
+const endpoint = environmentOf(ctx).get('DEEPSEEK_BASE_URL')?.value
 ```
 
 当产品 CLI（命令行界面）启动了这棵树时，`environmentOf(ctx)` 返回启动器的快照；否则返回只含继承环境的那一层。该回退并不削弱规则：SDK 宿主或裸 `cordis.yml` 从未发现过任何文件，因此它拥有的一切确实就是它被启动时的环境。

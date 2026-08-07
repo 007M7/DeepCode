@@ -14,7 +14,7 @@ Values do also reach `process.env` — a user's `--config` tree and third-party 
 
 ## Resolving
 
-`get(name)` searches every layer, most trusted first. `getFrom(name, sources)` searches only the layers the caller trusts.
+`get(name)` searches every layer, most trusted first. `getFrom(name, sources)` searches only the named layers without changing that trust order.
 
 **Omitting a layer is a refusal, not a demotion** — a caller that must never accept a layer leaves it out of the list, so no future reordering can let it back in. The provider adapters name all three, because the product trusts the project it runs in; the mechanism exists for the decisions where that is not true.
 
@@ -25,7 +25,7 @@ import type { Context } from 'cordis'
 import { environmentOf } from '@deepseek-ai/dsh-environment'
 
 declare const ctx: Context
-const endpoint = environmentOf(ctx).getFrom('DEEPSEEK_BASE_URL', ['process', 'project-env', 'user-env'])?.value
+const endpoint = environmentOf(ctx).get('DEEPSEEK_BASE_URL')?.value
 ```
 
 `environmentOf(ctx)` returns the launcher's snapshot when the product CLI booted the tree, and otherwise the inherited environment as the only layer. That fallback does not weaken the rules: an SDK host or a bare `cordis.yml` discovered no files, so everything it has really is the environment it was launched with.

@@ -22,8 +22,8 @@ import type { Context } from 'cordis'
  */
 export type EnvironmentSource = 'process' | 'project-env' | 'user-env'
 
-/** Layer order, most trusted first — the default search order of {@link EnvironmentSnapshot.get}. */
-export const ENVIRONMENT_SOURCES: readonly EnvironmentSource[] = ['process', 'project-env', 'user-env']
+/** Layer order, most trusted first. */
+const SOURCE_ORDER: readonly EnvironmentSource[] = ['process', 'project-env', 'user-env']
 
 /** One resolved variable and the layer it came from. */
 export interface EnvironmentEntry {
@@ -54,7 +54,7 @@ export interface EnvironmentSnapshot {
    * that must never come from a project directory omits `project-env` so no
    * ordering change can let it back in.
    * @param name - the variable name.
-   * @param sources - the layers to search, in the caller's own priority order.
+   * @param sources - the layers allowed in the canonical trust order.
    * @returns the first matching entry, or `undefined`.
    */
   getFrom(name: string, sources: readonly EnvironmentSource[]): EnvironmentEntry | undefined
@@ -81,7 +81,7 @@ export interface EnvironmentLayerInput {
 
 /**
  * Build the snapshot from each layer's contents.
- * @param layers - the layers in any order; the result searches them by {@link ENVIRONMENT_SOURCES}.
+ * @param layers - the layers in any order; the result searches them by canonical trust order.
  * @returns the immutable snapshot.
  */
 export function createEnvironmentSnapshot(layers: readonly EnvironmentLayerInput[]): EnvironmentSnapshot {
@@ -101,7 +101,8 @@ export function createEnvironmentSnapshot(layers: readonly EnvironmentLayerInput
   }
   const getFrom = (name: string, sources: readonly EnvironmentSource[]): EnvironmentEntry | undefined => {
     const key = lookupKey(name)
-    for (const source of sources) {
+    for (const source of SOURCE_ORDER) {
+      if (!sources.includes(source)) continue
       const layer = bySource.get(source)
       const value = layer?.values.get(key)
       if (value === undefined) continue
@@ -110,7 +111,7 @@ export function createEnvironmentSnapshot(layers: readonly EnvironmentLayerInput
     return undefined
   }
   return {
-    get: name => getFrom(name, ENVIRONMENT_SOURCES),
+    get: name => getFrom(name, SOURCE_ORDER),
     getFrom,
   }
 }

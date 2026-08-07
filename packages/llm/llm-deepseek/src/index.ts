@@ -182,7 +182,7 @@ export function resolveAdapterOptions(config: Config, environment?: EnvironmentS
   return {
     apiKeyEnv: credentialRef(config.apiKeyEnv ?? DEFAULT_API_KEY_ENV),
     baseURL: config.baseURL
-      ?? environment?.getFrom(BASE_URL_ENV, ['process', 'project-env', 'user-env'])?.value
+      ?? environment?.get(BASE_URL_ENV)?.value
       ?? PUBLIC_BASE_URL,
     defaults: {
       thinking: config.thinking,
@@ -232,7 +232,7 @@ export function apply(ctx: Context, config: Config): void {
     } else {
       // Without the seam there is no managed store to rank against, so the
       // environment is the whole credential plane.
-      const ambient = environmentOf(ctx).getFrom(ref, ['process', 'project-env', 'user-env'])
+      const ambient = environmentOf(ctx).get(ref)
       if (ambient !== undefined && ambient.value.length > 0) {
         return assertUsableApiKey(ambient.value, 'llm-deepseek', ref)
       }
