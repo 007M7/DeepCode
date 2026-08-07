@@ -4,4 +4,4 @@
  * @module @deepseek-ai/dsh-subagent/client
  */
 
-export type { SubagentTimingProjection } from './projection-types.ts'
+export type { SubagentIdentityProjection, SubagentTimingProjection } from './projection-types.ts'
