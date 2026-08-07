@@ -655,6 +655,16 @@ async function main(): Promise<void> {
       process.exit(0)
     }
     console.error(`gen-tool-catalog: ${OUT} is stale. Run \`pnpm run gen-tool-catalog\` and commit ${OUT}.`)
+    const committedLines = committed?.split('\n') ?? []
+    const generatedLines = content.split('\n')
+    const lineCount = Math.max(committedLines.length, generatedLines.length)
+    for (let index = 0; index < lineCount; index += 1) {
+      if (committedLines[index] === generatedLines[index]) continue
+      console.error(`gen-tool-catalog: first difference at line ${index + 1}`)
+      console.error(`  committed: ${JSON.stringify(committedLines[index])}`)
+      console.error(`  generated: ${JSON.stringify(generatedLines[index])}`)
+      break
+    }
     process.exit(1)
   }
 
