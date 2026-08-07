@@ -9,10 +9,10 @@
 import { useEffect, useState } from 'react'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import { IconChevronDownOutline14, Menu } from '@deepseek-ai/dsh-client-ui-primitives'
 // Type-only: pulls the ui-conversation SlotMap merge (the agentPreset seat).
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { AgentPresetSeatState } from './seat-store.ts'
+import { PresetMenu } from './PresetMenu.tsx'
 import css from './AgentPresetSeat.module.css'
 
 /** Registration-side business face for the composer seat. */
@@ -62,34 +62,18 @@ export function AgentPresetSeat({ load, select, useAgentPresetSeat, locked, t }:
   }
 
   return (
-    <Menu
-      open={open}
-      onClose={() => { setOpen(false) }}
-      items={state.options.map(option => ({
-        id: option.id,
-        label: option.trust === 'user' ? `${option.id} · ${t('userTrust')}` : option.id,
-      }))}
+    <PresetMenu
+      options={state.options}
       selectedId={state.current}
-      onSelect={(id) => {
-        setOpen(false)
-        void select(id)
-      }}
-      align="end"
-      portal
-      anchor={(
-        <button
-          type="button"
-          className={css.seat}
-          aria-haspopup="menu"
-          aria-expanded={open}
-          title={state.error ?? t('seatHint')}
-          disabled={locked || state.busy}
-          onClick={() => { setOpen(value => !value) }}
-        >
-          {state.current}
-          <IconChevronDownOutline14 className={css.chevron} />
-        </button>
-      )}
+      label={state.current}
+      userTrustLabel={t('userTrust')}
+      buttonClassName={css.seat}
+      chevronClassName={css.chevron}
+      disabled={locked || state.busy}
+      title={state.error ?? t('seatHint')}
+      open={open}
+      onOpenChange={setOpen}
+      onSelect={(id) => { void select(id) }}
     />
   )
 }

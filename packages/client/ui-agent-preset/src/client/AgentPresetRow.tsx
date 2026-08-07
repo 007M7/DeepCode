@@ -7,9 +7,9 @@
 import { useEffect, useState } from 'react'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import { IconChevronDownOutline14, Menu } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { AgentPresetSettingsState } from './settings-store.ts'
 import type { AgentPresetSettingsKey } from './locales.ts'
+import { PresetMenu } from './PresetMenu.tsx'
 import css from './AgentPresetRow.module.css'
 
 /** Registration-side business face for the host-backed preference. */
@@ -61,36 +61,17 @@ export function AgentPresetRow({ load, select, useAgentPreset, t }: AgentPresetR
         <div className={css.title}>{t('title')}</div>
         <div className={css.desc} role={state.error === null ? undefined : 'alert'}>{description}</div>
       </div>
-      <Menu
-        open={open}
-        onClose={() => { setOpen(false) }}
-        // A locally authored preset is exactly as privileged as the plugins it
-        // names, so the list says which rows are local rather than presenting
-        // every preset as shipped and vetted.
-        items={state.options.map(option => ({
-          id: option.id,
-          label: option.trust === 'user' ? `${option.id} · ${t('userTrust')}` : option.id,
-        }))}
+      <PresetMenu
+        options={state.options}
         selectedId={state.currentValue}
-        onSelect={(id) => {
-          setOpen(false)
-          void select(id)
-        }}
-        align="end"
-        portal
-        anchor={(
-          <button
-            type="button"
-            className={css.selector}
-            aria-haspopup="menu"
-            aria-expanded={open}
-            disabled={busy || !state.writable || state.options.length === 0}
-            onClick={() => { setOpen(value => !value) }}
-          >
-            {label}
-            <IconChevronDownOutline14 className={css.chevron} />
-          </button>
-        )}
+        label={label}
+        userTrustLabel={t('userTrust')}
+        buttonClassName={css.selector}
+        chevronClassName={css.chevron}
+        disabled={busy || !state.writable || state.options.length === 0}
+        open={open}
+        onOpenChange={setOpen}
+        onSelect={(id) => { void select(id) }}
       />
     </div>
   )
