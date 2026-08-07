@@ -147,6 +147,8 @@
 # `todo_write` replaces the logged whole list for later model requests.
 - id: tool-todo
   name: '@deepseek-ai/dsh-tool-todo'
+  config:
+    allowParallelInProgress: true
 
 # Identical repeat calls trigger advisory context, never a block, at the default
 # thresholds [3, 5, 8]. Only the repeat-tool-guard snapshot scenario reaches them.
