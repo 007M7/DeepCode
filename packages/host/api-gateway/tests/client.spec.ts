@@ -258,6 +258,13 @@ describe('Client TypeRT API', () => {
       package: '@fixture/service-method-conflict',
       descriptors: [{ ...context, id: '@fixture/goals#goals/remove', method: 'remove' }],
     })).toThrow('conflicts with its namespace service')
+    const scopedService = ctx.get('goals') as unknown as object
+    Object.defineProperty(scopedService, 'custom', { configurable: true, value: () => undefined })
+    expect(() => ctx.api.mount({
+      package: '@fixture/service-own-property-conflict',
+      descriptors: [{ ...direct, id: '@fixture/goals#goals/custom', method: 'custom' }],
+    })).toThrow('conflicts with its namespace service')
+    Reflect.deleteProperty(scopedService, 'custom')
     await disposeScoped()
 
     expect(() => ctx.api.mount({
@@ -281,20 +288,37 @@ describe('Client TypeRT API', () => {
 
   it('rolls back direct projection when scoped installation fails', async () => {
     const ctx = await bench(vi.fn<ConnectionHandle['rpc']['call']>())
-    const descriptor: InvocationDescriptor = {
-      ...directDescriptor(),
-      id: '@fixture/goals#fresh/remove',
-      namespace: 'fresh',
-      method: 'remove',
+    const disposeScoped = ctx.api.mount({
+      package: '@fixture/scoped-base',
+      descriptors: [contextDescriptor()],
+    })
+    const defineProperty = Object.defineProperty
+    let createDefinitions = 0
+    const definePropertySpy = vi.spyOn(Object, 'defineProperty').mockImplementation((target, key, attributes) => {
+      // The direct projection defines `create` first; fail the following scoped projection.
+      if (key === 'create' && ++createDefinitions === 2) throw new Error('simulated scoped installation failure')
+      return defineProperty(target, key, attributes)
+    })
+
+    try {
+      expect(() => ctx.api.mount({
+        package: '@fixture/failing-install',
+        descriptors: [directDescriptor()],
+      })).toThrow('simulated scoped installation failure')
+    } finally {
+      definePropertySpy.mockRestore()
     }
 
-    for (const packageName of ['@fixture/first-attempt', '@fixture/second-attempt']) {
-      expect(() => ctx.api.mount({ package: packageName, descriptors: [descriptor] }))
-        .toThrow('conflicts with its namespace service')
-      expect((ctx.api as unknown as Record<string, unknown>).fresh).toBeUndefined()
-      expect(ctx.get('fresh')).toBeUndefined()
-      expect(ctx.typert.remotes.list()).toEqual([])
-    }
+    expect((ctx.api as unknown as Record<string, unknown>).goals).toBeUndefined()
+    expect(ctx.get('goals') !== undefined).toBe(true)
+    expect(ctx.typert.remotes.list()).toHaveLength(1)
+
+    const disposeRetry = ctx.api.mount({
+      package: '@fixture/retry',
+      descriptors: [directDescriptor()],
+    })
+    await disposeRetry()
+    await disposeScoped()
   })
 
   it('rejects weak parameter and Context codecs plus malformed scope projections', async () => {
