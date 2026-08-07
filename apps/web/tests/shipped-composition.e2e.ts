@@ -98,18 +98,18 @@ it('assembles the shipped Web catalog with the confined access default', async (
   expect(scaffold.ctx.approval.config.policy).toBe('ask')
   expect(scaffold.ctx.permission.defaultPreset).toBe('workspace-write')
 
-  const handle = await scaffold.ctx.agents.create({
+  const commandHandle = await scaffold.ctx.agents.create({
     sessionId: SessionId('shipped-command-catalog'),
     meta: { cwd: scaffold.workspaceCwd },
     agentOptions: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
   })
   try {
-    expect(scaffold.ctx.commands.list(handle.agent)).toContainEqual({
+    expect(scaffold.ctx.commands.list(commandHandle.agent)).toContainEqual({
       name: 'feedback',
       description: 'record feedback about this session',
       input: { hint: '<text>' },
     })
   } finally {
-    await handle.dispose()
+    await commandHandle.dispose()
   }
 }, 120_000)
