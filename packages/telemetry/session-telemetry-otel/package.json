@@ -34,6 +34,7 @@
     "schemastery": "^3.18.0"
   },
   "peerDependencies": {
+    "@deepseek-ai/dsh-command-feedback": "^0.0.1",
     "@deepseek-ai/dsh-brand": "^0.0.1",
     "@deepseek-ai/dsh-invariants": "^0.0.1",
     "@deepseek-ai/dsh-llm": "^0.0.1",
@@ -44,6 +45,7 @@
   },
   "devDependencies": {
     "@cordisjs/plugin-loader": "workspace:^",
+    "@deepseek-ai/dsh-command-feedback": "workspace:^",
     "@deepseek-ai/dsh-brand": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",

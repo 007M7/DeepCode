@@ -246,6 +246,7 @@ export class PlanModeService extends Service {
         init: () => ({ active: false, wanted: null }),
         apply: (state, event) => {
           if (event.type === 'command/run' && event.data.name === 'plan') {
+            if (event.data.args === undefined) return state
             const wanted = event.data.args.trim() !== 'off'
             return wanted === state.wanted ? state : { active: state.active, wanted }
           }

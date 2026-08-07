@@ -524,7 +524,7 @@ async execute( agent: Agent, line: string, signal: AbortSignal, ): Promise<Comma
 
 Types: [Agent](../core-data-structures/core.md) · [CommandDefinition](../core-data-structures/commands.md) · [CommandDescriptor](../core-data-structures/commands.md)
 
-Source: [`packages/ui/commands/src/index.ts:278`](../../packages/ui/commands/src/index.ts)
+Source: [`packages/ui/commands/src/index.ts:286`](../../packages/ui/commands/src/index.ts)
 
 ## `ctx.compact` — `CompactService` (abstract seam)
 
@@ -2437,7 +2437,7 @@ flush?(): void
 abstract shutdown(): Promise<void>
 ```
 
-Source: [`packages/telemetry/session-telemetry/src/index.ts:135`](../../packages/telemetry/session-telemetry/src/index.ts)
+Source: [`packages/telemetry/session-telemetry/src/index.ts:140`](../../packages/telemetry/session-telemetry/src/index.ts)
 
 ## `ctx.tokenMeter` — `TokenMeterService`
 
