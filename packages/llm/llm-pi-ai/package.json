@@ -26,6 +26,7 @@
   "license": "BSD-3-Clause",
   "peerDependencies": {
     "@deepseek-ai/dsh-credentials": "^0.0.1",
+    "@deepseek-ai/dsh-environment": "^0.0.1",
     "@deepseek-ai/dsh-invariants": "^0.0.1",
     "@deepseek-ai/dsh-llm": "^0.0.1",
     "@deepseek-ai/dsh-settings": "^0.0.1",
@@ -38,6 +39,7 @@
   },
   "devDependencies": {
     "@deepseek-ai/dsh-credentials": "workspace:^",
+    "@deepseek-ai/dsh-environment": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-llm-deepseek": "workspace:^",
