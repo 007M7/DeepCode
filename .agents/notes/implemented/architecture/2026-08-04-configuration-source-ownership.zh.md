@@ -42,7 +42,7 @@ inherited process environment      (read-only, wins)
 
 继承环境优先，因为 `DEEPSEEK_API_KEY=… dsh`、CI 机密与容器 `-e` 是运维必须能按次施加、且无需改动机器状态的那一种覆盖；而它无法从进程内部修改，就必须*可见地*只读。配置本应只携带*引用*——解析哪个名字——该名字本身遵循上面的非密钥顺序。
 
-**harness 被启动于其中的项目默认可信，且不做询问。** 一个 checkout 可以携带自己的 endpoint、自己的普通变量和自己的密钥；密钥排在受管存储之下，因此通过 Web 页面或 TUI 存下的密钥绝不会被 checkout 中恰好带有的那一个顶掉。`EnvironmentSnapshot.getFrom(name, sources)` 仍然只搜索调用方点名的层，省略某层仍是拒绝而不是降级——该机制是为「某一层必须不可达」的那些决策准备的，而项目层今天不在其列。
+**harness 被启动于其中的项目默认可信，且不做询问。** 一个 checkout 可以携带自己的 endpoint、自己的普通变量和自己的密钥；密钥排在受管存储之下，因此通过 Models 页存下的密钥绝不会被 checkout 中恰好带有的那一个顶掉。`EnvironmentSnapshot.getFrom(name, sources)` 仍然只搜索调用方点名的层，省略某层仍是拒绝而不是降级——该机制是为「某一层必须不可达」的那些决策准备的，而项目层今天不在其列。
 
 **信任不延伸到改变 harness 本身。** `isBootstrapOnly` 会在加载时、且在物化任何内容之前，拒绝任何设置了下列变量的 `.env`：决定进程如何启动的（`PATH`、`SHELL`、`NODE_OPTIONS`、`LD_PRELOAD`）、决定运行时在执行被要求运行的程序之前先执行哪些代码的（`BASH_ENV`、`PERL5OPT`、`PYTHONSTARTUP`、`RUBYOPT`、`JAVA_TOOL_OPTIONS`、Git 的钩子命令）、决定模型可见指令从哪里加载的（整个 `DSH_*` 命名空间、`HOME`、`XDG_*`），以及决定网络如何抵达与信任的（proxy 与 CA 变量）。匹配不区分大小写，因此 `https_proxy` 不是绕过手段。
 
@@ -57,7 +57,7 @@ inherited process environment      (read-only, wins)
 - Web 凭据表单现在能压过用户 `.env` 里更旧的密钥；只有在启动 shell 里 export 的密钥才会让它变成只读，诊断信息也会这么说。
 - 含 `DSH_*`、`PATH` 或 proxy 变量的 `.env` 会导致启动失败而不是被应用。把开关放在仓库 `.env` 里的开发者需要改放到 shell——这是一次刻意且响亮的破坏。
 - composition 不再会被陈旧的 shell endpoint 覆盖。但它仍然会被用户已存的 `settings.yaml` 覆盖，这是 settings seam 的分层方式，本 Note 不改变它；产品 CLI 没有高于它的标志，因此需要压过已存 settings 的部署方要自带 bin 或 loader 配置树。
-- 未解决的：各层仍然会被物化进 `process.env`，因此普通项目变量继续按子进程清洗规则抵达子进程。bootstrap 变量完全不能来自文件，提权路径已封闭；项目 `.env` 为 agent 运行的工具设置诸如 `GIT_SSH_COMMAND` 之类的变量仍然可能，已作为限制记录在该包上。
+- 未解决的：各层仍然会被物化进 `process.env`，因此普通项目变量继续按子进程清洗规则抵达子进程。bootstrap 变量完全不能来自文件；其余变量抵达子进程的限制记录在环境包中。
 - LLM 适配器不再接受字面 `apiKey`：配置只携带引用，因此 settings 文档无法成为第二个凭据存储。由于没有任何适配器 namespace 是 strict 的，写入该键会被 schema 丢弃而不是报错。web-search 提供方仍声明 `role('secret')` 的字面密钥字段；它们不注册 settings namespace，因此无法借此遮蔽已存凭据，但这条声明的范围是适配器，而不是整个仓库。
 - Exa 与 Perplexity 仍在加载时捕获密钥，而不是经凭据 seam。它们不再读裸 `process.env`——改为经受信层解析——但把它们改造成按请求经 seam 解析是另一件事。
 

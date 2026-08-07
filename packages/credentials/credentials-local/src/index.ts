@@ -13,13 +13,12 @@
  * secret, or a container `-e` is this run's explicit intent; it cannot be
  * edited from inside, so it must be *visibly* read-only rather than silently
  * shadow writes. Everything below it loses to the managed store, so a key the
- * web page or TUI writes takes effect immediately even when an older key sits
- * in the user's `.env`.
+ * Models page writes takes effect immediately even when an older key sits in
+ * the user's `.env`.
  *
  * The invoking project may supply a key, because the product trusts the
  * project it is launched in. It ranks below the managed store, so a key stored
- * through the web page or TUI is never displaced by one a checkout happens to
- * carry.
+ * through the Models page is never displaced by one a checkout happens to carry.
  *
  * The file is the provider-managed writable source: every write re-reads the
  * document under a cross-process writer lock before patching only its own key

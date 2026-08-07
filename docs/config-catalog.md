@@ -437,7 +437,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/credentials/credentials-local/src/index.ts:55`](../packages/credentials/credentials-local/src/index.ts)
+Source: [`packages/credentials/credentials-local/src/index.ts:54`](../packages/credentials/credentials-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-frontend-static`
 

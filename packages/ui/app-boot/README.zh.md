@@ -8,6 +8,7 @@
 |---|---|
 | `resolveConfigPath(path, snapshotMode, cwd?)` | 生成绝对配置路径；当 `snapshotMode === 'replay'` 时，把 basename 为 `cordis.yml`/`.yaml` 的文件替换为同级 `cordis.snapshot.yml` |
 | `loadEnv(binName, dir?, warn?)` | 加载已被 git 忽略的 `.env`（Node `process.loadEnvFile`）；文件不存在不影响启动，文件无法加载时输出一行带标签的警告（默认写入 stderr） |
+| `loadLayeredEnv(binName, cwd?, warn?)` | 构建产品 CLI（命令行界面）冻结的「继承环境 > 项目 `.env` > 用户 `.env`」快照，拒绝文件中的 bootstrap-only 变量，并在不替换继承值的前提下物化其余文件值 |
 | `installFailLoud(binName, proc?, release?)` | 将启动期或后续未处理的 Loader rejection 转换为一行带标签的 stderr 消息并执行 `exit(1)`；两者之间会等待可选的 `release` 拆卸回调（以 `FAIL_LOUD_RELEASE_TIMEOUT_MS` 为上限），使持有终端的界面能在退出前恢复终端；返回卸载函数 |
 | `FAIL_LOUD_RELEASE_TIMEOUT_MS` | `installFailLoud` 等待其 `release` 回调的时长；卡住的 disposer 只会延迟致命退出，而不会取消它 |
 | `assertEntriesLoaded(ctx, binName)` | 树结算后，如果其中存在已启用但没有 fiber 的条目，则抛出异常，并以 Cordis 启动故障的形式报告每个未解析插件的名称 |
@@ -36,7 +37,7 @@ profile 是位于 `$DSH_HOME/profiles/<name>` 下的目录（Harness home 由 [`
 
 用户级的机器本地偏好同样位于 Harness home 中：
 
-- **`.env`**：[`dsh-credentials-local`](../../credentials/credentials-local/README.md) 的凭据存储，只由该 provider 读取。没有任何表层会把它提升进 `process.env`：那样做会让每个已存密钥在下次运行时看起来都像只读的启动时覆盖，从而阻断从 Web 设置页面轮换密钥。环境层次由环境中的值与调用目录的 `.env` 构成（由 bin 加载；`process.loadEnvFile` 从不覆盖已有值），没有凭据 provider 的组合仍然只从这两者解析密钥。
+- **`.env`**：产品 CLI 的普通环境层；调用目录的文件优先于 Harness home 的文件，两者都低于继承环境。`loadLayeredEnv` 记录每个值的来源，拒绝文件中的 bootstrap-only 变量，并把其余值物化进 `process.env`，供 Loader 表达式和第三方库使用。受管凭据另存于 [`.credentials.yaml`](../../credentials/credentials-local/README.md)；留在任一 `.env` 中的凭据仍是低优先级后备值。
 - **`cordis.patch.yml`**（home 级）与 **`profiles/<name>/cordis.patch.yml`**：用户 patch 层，应用在所有组合包层之后（先应用逐 profile 的文件，再应用 home 级文件，因此后者优先级更高）：按 id 定位的 patch 会替换对应条目的整个 `config`（未改字段也要重述），`insert` 会添加条目，`!!js` 表达式则在挂载时插值。如果 patch 指定的条目 id 不在组合后的树中，则输出一条 stderr 警告。空文件或仅含注释的文件会抛出异常（其解析结果为空，而不是列表）；如需禁用该层，请使用 `[]`。
 
 长期运行的 surface 会持续应用 `cordis.patch.yml` 的变更，具体由 `watchUserPatches` 负责；一次性运行只读取启动时的值。即使该文件或其直接父目录不存在，watcher 仍会监视确切路径；它会串行处理突发变更，并按调用方的层次顺序重新组合用户 patch（组合包层在下、overlay／标志 patch 在上）。读取失败、解析失败或 Loader 候选被拒时，最后一个可用树会继续运行；HMR 服务记录错误后广播 `hmr/config-update-failed(filename, Error)`，并隔离 observer 失败。上下文 dispose 时会关闭 watcher，并等待进行中的刷新结束。
@@ -53,5 +54,5 @@ profile 是位于 `$DSH_HOME/profiles/<name>` 下的目录（Harness home 由 [`
 
 - **裸包 specifier 依赖 Loader 内部机制**：生产 bin 需要 Loader 的可选原生 helper；没有该 helper 的进程内调用方必须使用可解析的相对／file specifier，或提供自己的模块解析钩子。
 - **快照回放替换仅识别特定 basename**：只有以 `cordis.yml` 或 `cordis.yaml` 结尾的配置会映射到同级 `cordis.snapshot.yml`；自定义配置名称需要调用方自行选择。
-- **环境加载局限于 cwd 且为可选操作**：helper 只加载一个 `.env` 文件，并在失败时发出警告；它不会搜索父目录、合并 profile 或验证必需变量。
+- **环境发现以启动为界**：`loadLayeredEnv` 只读取一次调用目录与 Harness home 中的 `.env`；它不搜索父目录，也不跟随之后选择的 workspace。`loadEnv` 仍是非产品 bin 使用的单目录 helper。
 - **用户 patch 层采用 patch 形式**：按 id 定位的 patch 会替换条目的整个 `config`，而不是深度合并，因此 profile 覆盖必须重述需要保留的组合包字段。
