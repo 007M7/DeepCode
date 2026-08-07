@@ -21,7 +21,7 @@
       "path": "../connection"
     },
     {
-      "path": "../remotes"
+      "path": "../../api/remotes"
     },
     {
       "path": "../../host/apiproxy"

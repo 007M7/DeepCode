@@ -24,6 +24,9 @@
       "path": "../../../vendor/schemastery"
     },
     {
+      "path": "../../api/remotes"
+    },
+    {
       "path": "../../util/brand"
     },
     {
@@ -37,12 +40,6 @@
     },
     {
       "path": "../../core/tools"
-    },
-    {
-      "path": "../../typert/type-meta"
-    },
-    {
-      "path": "../../typert/registry"
     },
     {
       "path": "../../session-persistence/session-persistence"

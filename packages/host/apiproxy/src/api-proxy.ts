@@ -19,9 +19,6 @@ import { SessionQueryError, type SessionSearchCursor } from '@deepseek-ai/dsh-se
 import { SubagentError } from '@deepseek-ai/dsh-subagent'
 import type { SubagentListEntry as CatalogSubagentListEntry } from '@deepseek-ai/dsh-subagent'
 import type { Workspace, WorkspaceRecord } from '@deepseek-ai/dsh-workspace'
-import { TypeRTLookupFailure } from '@deepseek-ai/dsh-type-meta'
-// Type-only: resolves the optional `ctx.typert` lookup-policy composition.
-import type {} from '@deepseek-ai/dsh-typert-registry'
 import {
   workspaceDomainState, workspaceRecord, WorkspaceId as brandWorkspaceId,
   WorkspaceMoveInvalidError, WorkspaceUnknownSessionError,
@@ -72,6 +69,14 @@ import type {
 } from '@deepseek-ai/dsh-user-interaction'
 import { UserInteractionError } from '@deepseek-ai/dsh-user-interaction'
 import { DirectoryPickerError } from '@deepseek-ai/dsh-host-directory-picker'
+import {
+  ApiRemoteSessionNotFound as SessionNotFound,
+  ApiRemoteSubagentSessionOwnership as SubagentSessionOwnership,
+  apiRemoteSubagentOwnershipError,
+  createApiRemoteAgentResolver,
+  hasApiRemoteSubagentOwner,
+  inspectApiRemoteSession,
+} from '@deepseek-ai/dsh-api-remotes'
 import { openNativePath, openNativeTextFile } from './native-path-opener.ts'
 
 /** Page size when history is called without maxMessages. */
@@ -666,19 +671,6 @@ async function catalogChild(
   }
 }
 
-/**
- * Thrown by the cold-resume path when the id names no servable session
- * (absent from the store, or a pre-project legacy log without a cwd).
- */
-class SessionNotFound extends Error {}
-
-/** Session identity whose lifecycle belongs to subagent routing, not generic Host resume. */
-class SubagentSessionOwnership extends Error {
-  constructor(readonly sessionId: SessionId) {
-    super(`session "${sessionId}" is a subagent session; use subagent delivery`)
-  }
-}
-
 /** Requested identity already belongs to a session with another project cwd. */
 class SessionCwdConflict extends Error {
   constructor(
@@ -752,8 +744,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   }
   type WebLlmTargetRef = AgentLlmTargetRef & { current: AgentLlmTarget }
   const targets = new WeakMap<Agent, WebLlmTargetRef>()
-  /** Implicit resume of cold sessions, deduplicating concurrent calls (follows the jsonrpc sessionCreations precedent). */
-  const resumes = new Map<SessionId, Promise<Agent>>()
   /** Client-chosen identity creation/resume, deduplicated across concurrent retries. */
   const sessionCreations = new Map<SessionId, Promise<Agent>>()
   /** Serializes path ownership and explicit title checks with Workspace mutations. */
@@ -810,6 +800,16 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     if (agent === undefined) throw new Error('api-proxy: agent setup has no scoped agent')
     targetFor(agent)
   }
+
+  const hasSubagentOwner = (
+    session: Pick<Session, 'header'>,
+    agent: Agent | undefined,
+  ): boolean => hasApiRemoteSubagentOwner(ctx, session, agent)
+  const subagentOwnershipError = (sessionId: SessionId): RpcError =>
+    apiRemoteSubagentOwnershipError(sessionId)
+  const inspectServable = (sessionId: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> =>
+    inspectApiRemoteSession(ctx, sessionId)
+  const agentFor = createApiRemoteAgentResolver(ctx, { agentOptions, setup: installTarget })
 
   /** Send one transient frame to every connected mux consumer. */
   function broadcast(payload: MuxFrame): void {
@@ -991,131 +991,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       })
     })
   }
-
-  /**
-   * Generic Host interaction cannot claim a durably classified subagent
-   * (`origin: 'subagent'` in the header) or an Agent runtime-owned by its
-   * live parent.
-   */
-  function hasSubagentOwner(
-    session: Pick<Session, 'header'>,
-    agent: Agent | undefined,
-  ): boolean {
-    if (session.header.origin === 'subagent') return true
-    const parentId = session.header.parentSession
-    if (parentId === undefined || agent === undefined) return false
-    const parent = ctx.agents.get(parentId)
-    return parent !== undefined && ctx.agents.isOwnedBy(agent.id, parent)
-  }
-
-  /** Stable generic-Host error for an identity reserved to subagent routing. */
-  function subagentOwnershipError(sessionId: SessionId): RpcError {
-    return {
-      code: 'agent-busy',
-      message: `session "${sessionId}" is owned by subagent routing`,
-      details: { reason: 'use subagent delivery for this child session' },
-    }
-  }
-
-  /** Inspect one cold served session without repairing, resuming, or publishing it. */
-  async function inspectServable(sessionId: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
-    const persistence = ctx.get('sessionPersistence')
-    if (persistence === undefined) {
-      throw new Error('session persistence is not configured (load a dsh-session-persistence backend)')
-    }
-    const meta = (await persistence.list()).find(m => m.id === sessionId)
-    if (meta === undefined || meta.cwd === undefined) throw new SessionNotFound(`session "${sessionId}" not found`)
-    const inspected = await persistence.inspect(sessionId)
-    if (inspected.meta.cwd === undefined) throw new SessionNotFound(`session "${sessionId}" not found`)
-    return { meta: inspected.meta, events: [...inspected.events] }
-  }
-
-  /**
-   * Resolve one live registered identity through the subagent-ownership
-   * fence: subagent-owned agents answer `agent-busy`, plain agents pass.
-   * Fences the live agent's own session rather than trusting a
-   * "registered ⇒ attached-store" invariant — a registered subagent whose
-   * session is ever absent from the attached store must still not be handed
-   * out through generic Host routing. `undefined` means no live agent.
-   */
-  function fencedLiveAgent(sessionId: SessionId): { agent: Agent } | { error: RpcError } | undefined {
-    const live = ctx.agents.get(sessionId)
-    if (live === undefined) return undefined
-    if (hasSubagentOwner(live.session, live)) return { error: subagentOwnershipError(sessionId) }
-    return { agent: live }
-  }
-
-  async function agentFor(sessionId: SessionId): Promise<{ agent: Agent } | { error: RpcError }> {
-    const fenced = fencedLiveAgent(sessionId)
-    if (fenced !== undefined) return fenced
-    const attached = ctx.sessions.get(sessionId)
-    if (attached !== undefined && hasSubagentOwner(attached, undefined)) {
-      return { error: subagentOwnershipError(sessionId) }
-    }
-    let resume = resumes.get(sessionId)
-    if (resume === undefined) {
-      resume = (async () => {
-        try {
-          const inspected = await inspectServable(sessionId)
-          if (hasSubagentOwner({ header: inspected.meta }, undefined)) {
-            throw new SubagentSessionOwnership(sessionId)
-          }
-          const publishedSession = ctx.sessions.get(sessionId)
-          const publishedAgent = ctx.agents.get(sessionId)
-          if (publishedSession !== undefined && hasSubagentOwner(publishedSession, publishedAgent)) {
-            throw new SubagentSessionOwnership(sessionId)
-          }
-          const handle = await ctx.agents.resume({
-            resumeSessionId: sessionId,
-            agentOptions: agentOptions(),
-            setup: installTarget,
-          })
-          return handle.agent
-        } finally {
-          resumes.delete(sessionId)
-        }
-      })()
-      resumes.set(sessionId, resume)
-    }
-    try {
-      return { agent: await resume }
-    } catch (error: unknown) {
-      if (error instanceof SessionNotFound) {
-        return { error: { code: 'session-not-found', message: error.message, details: { sessionId } } }
-      }
-      if (error instanceof SubagentSessionOwnership) {
-        return { error: subagentOwnershipError(error.sessionId) }
-      }
-      // A concurrent publish can win the identity between the pre-resume
-      // re-check and `ctx.agents.resume` publication; the ID-collision
-      // rejection falls through here. Mirror ensureSession's `.catch` in
-      // full: classify a subagent-owned winner into the stable ownership
-      // error, and hand a clean plain-agent winner straight back.
-      const fenced = fencedLiveAgent(sessionId)
-      if (fenced !== undefined) return fenced
-      const attached = ctx.sessions.get(sessionId)
-      if (attached !== undefined && hasSubagentOwner(attached, undefined)) {
-        return { error: subagentOwnershipError(sessionId) }
-      }
-      // The internal details slot is contractually {}; the reason rides the message.
-      return { error: { code: 'internal', message: `resume failed for session "${sessionId}": ${String(error)}`, details: {} } }
-    }
-  }
-
-  // Remote object parameters use the same identity policy as API Proxy methods:
-  // ordinary cold sessions resume once, while subagent-owned identities retain
-  // their stable caller-facing rejection. The provider packages continue to
-  // own wire declarations and live-only defaults; this Host composition owns
-  // the broader lookup policy.
-  ctx.inject(['typert'], (typeCtx) => {
-    const resolveAgent = async (sessionId: SessionId): Promise<Agent> => {
-      const found = await agentFor(sessionId)
-      if ('error' in found) throw new TypeRTLookupFailure(found.error)
-      return found.agent
-    }
-    typeCtx.typert.lookups.configure('agent', resolveAgent)
-    typeCtx.typert.lookups.configure('session', async sessionId => (await resolveAgent(sessionId)).session)
-  })
 
   type SessionReadState = {
     id: SessionId

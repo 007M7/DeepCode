@@ -2,7 +2,7 @@
 
 English | [中文](typert.zh.md)
 
-Types shared by generated Remote artifacts, the Host Gateway, and consumer API assemblies. The [TypeRT Gateway Agent Note](../../.agents/notes/implemented/architecture/2026-08-02-typert-remote-method-calls.md) owns the architecture and transport decisions; this page records the literal public contracts from [`dsh-type-meta`](../../packages/typert/type-meta/src/types.ts) and [`dsh-host-api-gateway`](../../packages/host/api-gateway/src/types.ts).
+Types shared by generated Remote artifacts, the Host Gateway, and consumer API assemblies. The [TypeRT Gateway Agent Note](../../.agents/notes/implemented/architecture/2026-08-02-typert-remote-method-calls.md) owns the architecture and transport decisions; this page records the literal public contracts from [`dsh-type-meta`](../../packages/typert/type-meta/src/types.ts) and [`dsh-api-gateway`](../../packages/api/gateway/src/types.ts).
 
 ## Lookup and Context declarations
 
@@ -126,7 +126,7 @@ interface TypeRTService {
 }
 ```
 
-Generated consumer declarations merge direct namespaces into the map inherited by `ClientApi`.
+Generated consumer declarations merge direct namespaces into the map inherited by `TypeRTClientApi`.
 
 ```ts type-equiv
 /** Merge-extensible direct namespace surface generated for Client API services. */
@@ -191,8 +191,8 @@ interface TypertGateway {
 `ctx.api` exposes only namespaces contributed by imported `/remote` artifacts. Mounting installs the generated descriptors and concrete root/scoped methods as one fiber-owned operation; no JavaScript Proxy or Host Service type enters the consumer.
 
 ```ts type-equiv
-/** Typed API service augmented by generated direct Remote namespaces. */
-interface ClientApi extends TypeRTRemoteNamespaceMap {
+/** Client API capability implemented by the Gateway and consumed by Remote assemblies. */
+interface TypeRTClientApi extends TypeRTRemoteNamespaceMap {
   /**
    * Mount one generated Host-for-Client contribution in the caller's fiber.
    * @param contribution - explicitly selected Remote package artifact.

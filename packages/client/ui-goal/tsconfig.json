@@ -15,7 +15,7 @@
       "path": "../locale"
     },
     {
-      "path": "../remotes"
+      "path": "../../api/remotes"
     },
     {
       "path": "../runtime"

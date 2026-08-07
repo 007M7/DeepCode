@@ -1,7 +1,7 @@
 /**
  * Live TypeRT Remote dispatch over Cordis Services and registered providers.
  * Transport, request correlation, and response envelopes belong to Connection.
- * @module @deepseek-ai/dsh-host-api-gateway
+ * @module @deepseek-ai/dsh-api-gateway
  */
 
 import { Context, Service, symbols } from 'cordis'

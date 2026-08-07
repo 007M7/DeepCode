@@ -1,11 +1,18 @@
 /** Platform-neutral assembly of generated Host Remote contributions. */
 
 import type { Context } from 'cordis'
-import type {} from '@deepseek-ai/dsh-host-api-gateway/client'
 import goalsRemote from '@deepseek-ai/dsh-goal/remote'
+import type { TypeRTClientApi } from '@deepseek-ai/dsh-type-meta'
 
-export type { ClientApi } from '@deepseek-ai/dsh-host-api-gateway/client'
+export type { TypeRTClientApi as ClientApi } from '@deepseek-ai/dsh-type-meta'
 export type {} from '@deepseek-ai/dsh-goal/remote'
+
+declare module 'cordis' {
+  interface Context {
+    /** Generated direct Remote namespaces selected by this Client assembly. */
+    api: TypeRTClientApi
+  }
+}
 
 /** Required service: the typed Client API contribution mount. */
 export const inject = ['api']

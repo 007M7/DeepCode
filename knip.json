@@ -115,7 +115,7 @@
         "tests/**/*.ts"
       ]
     },
-    "packages/client/remotes": {
+    "packages/api/remotes": {
       "entry": [
         "tests/**/*.e2e.ts"
       ],

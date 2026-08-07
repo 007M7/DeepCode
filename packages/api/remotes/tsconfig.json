@@ -12,7 +12,19 @@
       "path": "../../../vendor/cordis"
     },
     {
-      "path": "../../host/api-gateway"
+      "path": "../../core/agent"
+    },
+    {
+      "path": "../../core/session"
+    },
+    {
+      "path": "../../session-persistence/session-persistence"
+    },
+    {
+      "path": "../../typert/type-meta"
+    },
+    {
+      "path": "../../typert/registry"
     },
     {
       "path": "../../ui/commands"

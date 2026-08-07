@@ -41,7 +41,7 @@
       name: '@deepseek-ai/dsh-typert-loader'
 
     - id: typert-gateway
-      name: '@deepseek-ai/dsh-host-api-gateway'
+      name: '@deepseek-ai/dsh-api-gateway'
 
     - id: session-title
       name: '@deepseek-ai/dsh-session-title'

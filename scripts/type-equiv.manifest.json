@@ -1538,22 +1538,22 @@
     {
       "doc": "docs/core-data-structures/typert.md",
       "symbol": "InvokeRemoteRequest",
-      "source": "packages/host/api-gateway/src/types.ts"
+      "source": "packages/api/gateway/src/types.ts"
     },
     {
       "doc": "docs/core-data-structures/typert.md",
       "symbol": "TypertGatewayErrorCode",
-      "source": "packages/host/api-gateway/src/types.ts"
+      "source": "packages/api/gateway/src/types.ts"
     },
     {
       "doc": "docs/core-data-structures/typert.md",
       "symbol": "TypertGateway",
-      "source": "packages/host/api-gateway/src/types.ts"
+      "source": "packages/api/gateway/src/types.ts"
     },
     {
       "doc": "docs/core-data-structures/typert.md",
-      "symbol": "ClientApi",
-      "source": "packages/host/api-gateway/src/client/index.ts"
+      "symbol": "TypeRTClientApi",
+      "source": "packages/typert/type-meta/src/types.ts"
     }
   ]
 }

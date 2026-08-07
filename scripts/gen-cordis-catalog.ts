@@ -289,7 +289,7 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   ThemeTokens: 'service-local token dictionary is owned by packages/client/ui-theme/src/index.ts',
   Translate: 'service-local bound translator is owned by packages/client/i18n/src/index.ts',
   InvariantRegistration: 'service-local lifecycle handle is owned by packages/support/invariants/README.md',
-  InvokeRemoteRequest: 'gateway invocation contract is owned by packages/host/api-gateway/README.md',
+  InvokeRemoteRequest: 'gateway invocation contract is owned by packages/api/gateway/README.md',
   PresetOption: 'deployment menu metadata is owned by packages/ui/permission/README.md',
   PresetSpec: 'deployment preset composition is owned by packages/ui/permission/README.md',
   KnobState: 'projection unit state shape is owned by packages/ui/permission/README.md',

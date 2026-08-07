@@ -17,13 +17,13 @@ const artifactUrl = (path: string): string => pathToFileURL(artifact(path)).href
 const requiredArtifacts = [
   'packages/client/connection/lib/client.js',
   'packages/client/connection/lib/index.js',
-  'packages/client/remotes/lib/client.js',
+  'packages/api/remotes/lib/client.js',
   'packages/core/agent/lib/index.js',
   'packages/core/session/lib/index.js',
   'packages/goal/goal/lib/index.js',
   'packages/goal/goal/lib/typert.host.js',
-  'packages/host/api-gateway/lib/client.js',
-  'packages/host/api-gateway/lib/index.js',
+  'packages/api/gateway/lib/client.js',
+  'packages/api/gateway/lib/index.js',
   'packages/typert/registry/lib/client.js',
   'packages/typert/registry/lib/index.js',
 ].every(path => existsSync(artifact(path)))
@@ -32,15 +32,15 @@ describe.skipIf(!requiredArtifacts)('Goal Remote built LIB chain', () => {
   it('runs root and Agent-scoped calls through generated bundles and real HTTP', async () => {
     const urls = Object.fromEntries(Object.entries({
       agent: 'packages/core/agent/lib/index.js',
-      apiGatewayClient: 'packages/host/api-gateway/lib/client.js',
-      apiGatewayHost: 'packages/host/api-gateway/lib/index.js',
+      apiGatewayClient: 'packages/api/gateway/lib/client.js',
+      apiGatewayHost: 'packages/api/gateway/lib/index.js',
       connectionClient: 'packages/client/connection/lib/client.js',
       connectionHost: 'packages/client/connection/lib/index.js',
       goal: 'packages/goal/goal/lib/index.js',
       goalTypert: 'packages/goal/goal/lib/typert.host.js',
       registryClient: 'packages/typert/registry/lib/client.js',
       registryHost: 'packages/typert/registry/lib/index.js',
-      remotesClient: 'packages/client/remotes/lib/client.js',
+      remotesClient: 'packages/api/remotes/lib/client.js',
       session: 'packages/core/session/lib/index.js',
     }).map(([key, path]) => [key, artifactUrl(path)]))
     const script = `
@@ -131,8 +131,8 @@ describe.skipIf(!requiredArtifacts)('Goal Remote built LIB chain', () => {
       for (const id of [
         '@deepseek-ai/dsh-typert-registry',
         '@deepseek-ai/dsh-client-connection',
-        '@deepseek-ai/dsh-host-api-gateway',
-        '@deepseek-ai/dsh-client-remotes',
+        '@deepseek-ai/dsh-api-gateway',
+        '@deepseek-ai/dsh-api-remotes',
       ]) {
         const plugin = instantiate(id)
         await client.plugin({ inject: plugin.inject, apply: plugin.apply })

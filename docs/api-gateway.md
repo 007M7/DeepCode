@@ -61,7 +61,7 @@ The Client uses concrete functions on ordinary objects, not a JavaScript Proxy. 
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { AgentContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type { Context } from 'cordis'
-import type {} from '@deepseek-ai/dsh-client-remotes/client'
+import type {} from '@deepseek-ai/dsh-api-remotes/client'
 
 declare const ctx: Context
 declare const agentCtx: AgentContext
@@ -71,9 +71,9 @@ await ctx.api.goals.create(agentId, { objective: 'ship it' })
 await agentCtx.goals.create({ objective: 'ship it' })
 ```
 
-Client applications assemble only `@deepseek-ai/dsh-client-remotes`. That package imports the `/remote` subpaths of selected business packages as runtime values, mounts their contributions on `ctx.api`, and re-exports the declaration merges from the same files. Adding a Host Remote package is an explicit choice by the Client composition owner; business components do not need to load the Host API Gateway or the business package's Remote JS separately.
+Client applications assemble only `@deepseek-ai/dsh-api-remotes`. That package imports the `/remote` subpaths of selected business packages as runtime values, mounts their contributions on `ctx.api`, and re-exports the declaration merges from the same files. Adding a Host Remote package is an explicit choice by the Client composition owner; business components do not need to load the TypeRT Gateway or the business package's Remote JS separately.
 
-A future TUI can assemble the same React-independent `client-remotes` and `ctx.api` contract, so the Host methods visible to it are likewise limited to the Remote methods selected at generation time. This document does not define or implement the TUI composition.
+A future TUI can assemble the same React-independent `api-remotes` and `ctx.api` contract, so the Host methods visible to it are likewise limited to the Remote methods selected at generation time. This document does not define or implement the TUI composition.
 
 ## Component responsibilities
 
@@ -82,12 +82,13 @@ A future TUI can assemble the same React-independent `client-remotes` and `ctx.a
 | Shared | `@deepseek-ai/dsh-type-meta` | Declares decorators, Gateway bindings, merge-extensible protocol maps, invocation descriptors, and provider types; starts no TypeScript analysis and registers no Cordis services |
 | Build | `@deepseek-ai/dsh-typert-generator` | Strictly analyzes Remote signatures, the type graph, lookups, Contexts, and source locations from the Host `ts.Program`, then generates Host and Host-for-Client artifacts |
 | Host | `@deepseek-ai/dsh-typert-registry` and Loader | Places generated Host descriptors, schemas, and business-package registrations in `ctx.typert`, and holds lookup and Context providers |
-| Host | `@deepseek-ai/dsh-host-api-gateway` | Provides `ctx.typertGateway`, claims Remote endpoints, resolves objects or Contexts, invokes live Cordis services, and validates boundaries |
-| Client | `@deepseek-ai/dsh-host-api-gateway/client` | Provides `ctx.api`, mounts generated descriptors as concrete methods, and initiates, validates, and cancels calls through the Connection |
-| Client | `@deepseek-ai/dsh-client-remotes/client` | Explicitly selects and mounts the `/remote` contributions allowed by the application and brings the corresponding declaration merges into business code |
+| Host | `@deepseek-ai/dsh-api-remotes` | Owns the application Agent/Session identity policy and configures the corresponding TypeRT lookups |
+| Host | `@deepseek-ai/dsh-api-gateway` | Provides `ctx.typertGateway`, claims Remote endpoints, resolves objects or Contexts, invokes live Cordis services, and validates boundaries |
+| Client | `@deepseek-ai/dsh-api-gateway/client` | Provides `ctx.api`, mounts generated descriptors as concrete methods, and initiates, validates, and cancels calls through the Connection |
+| Client | `@deepseek-ai/dsh-api-remotes/client` | Explicitly selects and mounts the `/remote` contributions allowed by the application and brings the corresponding declaration merges into business code |
 | Both | `@deepseek-ai/dsh-client-connection` | Provides the RPC carrier, request correlation, trust boundary, cancellation, response envelope, and current `/api` HTTP bridge |
 
-The Host API Gateway package owns the Host dispatcher and Client API as peer entries, but the two builds never enter the same `ts.Program`. The Host entry does not import the Client Cordis `Context` merge, and the Client entry does not import the Host Gateway service.
+The API Gateway package owns the Host dispatcher and Client API as peer entries, but the two builds never enter the same `ts.Program`. The Host entry does not import the Client Cordis `Context` merge, and the Client entry does not import the Host Gateway service.
 
 ## Strict generation pipeline
 
@@ -99,7 +100,7 @@ Each contributing business package writes generated files to its own `lib/` dire
 |---|---|---|
 | `typert.host.js` | Host Loader | Runtime reflection for the Host face, strict invocation descriptors, and schema registration values |
 | `typert.host.d.ts` | Host type system | Generated declarations for the Host face |
-| `typert.remote-client.js` | `client-remotes` | A mountable `TypeRTRemoteContribution` containing strict descriptors and runtime codecs |
+| `typert.remote-client.js` | `api-remotes` | A mountable `TypeRTRemoteContribution` containing strict descriptors and runtime codecs |
 | `typert.remote-client.d.ts` | Client type system | Declaration merges for `TypeRTRemoteNamespaceMap` and `TypeRTRemoteContextMap`, plus Client-safe type references |
 | `typert.remote-client.d.ts.map` | Editor | Maps generated method properties back to Remote method declarations in the Host package |
 
@@ -117,7 +118,7 @@ The Connection performs the unified trust check for `/api` before the HTTP bridg
 
 For every call, the Gateway resolves the descriptor and live service from the current registries instead of caching business objects. It requires the fields in `args` to match the descriptor exactly, validates wire values with codecs, resolves objects or receivers through registered lookup or Context providers, invokes the service method targeted by the binding, and validates the return value. A missing provider, unknown identity, binding mismatch, missing or extra argument, schema failure, or missing method fails at the boundary before entering or after leaving business code.
 
-The lookup provider's `register()` supplies both the stable declaration and the default resolver; `configure()` supplies a resolver owned by Host composition that may execute asynchronously and is scoped to an effect lifetime. Configuration may precede provider mounting; without a provider, invocation still fails with `lookup-unavailable`, and unloading the configuration restores the provider's default policy. The standard Web Host's API Proxy configures the same `agentFor()` semantics for `agent` and `session`: it reuses a live Agent, automatically resumes ordinary cold sessions, deduplicates concurrent resumes, and rejects identities owned by subagent routing; the `session` lookup returns that Agent's Session. Resume failures and ownership fences pass through unchanged as existing RPC errors rather than being collapsed into the Gateway's `internal` error.
+The lookup provider's `register()` supplies both the stable declaration and the default resolver; `configure()` supplies a resolver owned by Host composition that may execute asynchronously and is scoped to an effect lifetime. Configuration may precede provider mounting; without a provider, invocation still fails with `lookup-unavailable`, and unloading the configuration restores the provider's default policy. API Remotes owns the standard `agentFor()` semantics for `agent` and `session`: it reuses a live Agent, automatically resumes ordinary cold sessions, deduplicates concurrent resumes, and rejects identities owned by subagent routing; the `session` lookup returns that Agent's Session. The Web API Proxy supplies its Agent defaults and scope setup, then consumes the same resolver for legacy methods. Resume failures and ownership fences pass through unchanged as existing RPC errors rather than being collapsed into the Gateway's `internal` error.
 
 Unloading a Client contribution removes its descriptors and concrete methods together, aborts its in-flight calls, and makes stale method handles retained by external code reject further calls. A strict endpoint withdrawn on the Host also does not degrade to SRC inference, preventing a hot unload from silently weakening validation.
 
@@ -157,5 +158,7 @@ The running Client watcher consumes these generated files when it rebundles; wit
 ## Boundaries
 
 Remote handles only unary method calls with one request and one result. Session event streams, pagination, incremental reduce, projection, and entity substreams require a separate data protocol and registration model; even when they reuse the Connection, they must not masquerade as Remote methods or enter invocation descriptors.
+
+The API layers are organized as `remotes → gateway → connection → webserver`. The BFF and TypeRT RPC layers live under `packages/api`; Connection and WebServer remain at `packages/client/connection` and `packages/host/webserver`, with service contracts that permit a later package-only move to `packages/api`. The legacy API Proxy remains at `packages/host/apiproxy` as the fallback for endpoints not yet migrated to Remote.
 
 Lookup policy is currently configured per key, so all `agent` or `session` parameters share the cold-resume behavior. If a Remote endpoint must accept live objects only, an explicit per-parameter or per-endpoint policy must be added later; the business method must not guess whether the object came from restoration.

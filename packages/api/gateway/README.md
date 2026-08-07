@@ -1,8 +1,8 @@
-# @deepseek-ai/dsh-host-api-gateway
+# @deepseek-ai/dsh-api-gateway
 
 English | [中文](README.zh.md)
 
-Two-sided Remote control for Host and Client Cordis environments. The Host entry provides `ctx.typertGateway`, while `@deepseek-ai/dsh-host-api-gateway/client` provides `ctx.api`; both consume the same generated `InvocationDescriptor` contract and leave transport, request correlation, trust, and response envelopes to Connection.
+Two-sided TypeRT RPC endpoint for Host and Client Cordis environments. The Host entry provides `ctx.typertGateway`, while `@deepseek-ai/dsh-api-gateway/client` provides `ctx.api`; both consume the same generated `InvocationDescriptor` contract and leave business selection to API Remotes and transport, request correlation, trust, and response envelopes to Connection.
 
 ## Host service: `TypertGatewayService` (ctx key: `typertGateway`)
 
@@ -20,7 +20,7 @@ A cancellation-aware Remote method declares `signal: AbortSignal` as its final H
 
 Each call validates positional inputs, constructs the descriptor's exact named `args`, and sends it through `ctx.connection.rpc.call('/api', endpoint, ...)`. Generated cancellation-aware methods accept a final optional `AbortSignal`; the Client combines it with the contribution mount lifetime before calling Connection. The returned value is validated before reaching application code. Withdrawing a contribution removes its descriptors and methods together, aborts in-flight calls, and makes retained method handles reject.
 
-Generated declaration merges provide the TypeScript API. The Client entry contains no Host Service or Host Cordis interface merge, and method lookup and invocation use ordinary objects and functions rather than a JavaScript Proxy.
+Generated declaration merges provide the TypeScript API through the shared `TypeRTClientApi` contract. The Client entry contains no Host Service or Host Cordis interface merge, and method lookup and invocation use ordinary objects and functions rather than a JavaScript Proxy.
 
 ## Model Experience
 

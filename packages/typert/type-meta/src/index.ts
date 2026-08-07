@@ -41,6 +41,7 @@ export type {
   InvocationDescriptor,
   InvocationParameterDescriptor,
   InvocationSourceLocation,
+  TypeRTClientApi,
   TypeRTClientContextBinder,
   TypeRTCodec,
   TypeRTContext,

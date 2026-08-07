@@ -61,7 +61,7 @@ Client 使用普通对象上的具体函数，不使用 JavaScript Proxy。直�
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { AgentContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type { Context } from 'cordis'
-import type {} from '@deepseek-ai/dsh-client-remotes/client'
+import type {} from '@deepseek-ai/dsh-api-remotes/client'
 
 declare const ctx: Context
 declare const agentCtx: AgentContext
@@ -71,9 +71,9 @@ await ctx.api.goals.create(agentId, { objective: 'ship it' })
 await agentCtx.goals.create({ objective: 'ship it' })
 ```
 
-Client 应用只装配 `@deepseek-ai/dsh-client-remotes`。该包以运行时值导入被选业务包的 `/remote` 子路径，并向 `ctx.api` 挂载贡献，同时重新导出相同文件中的声明合并。增加一个 Host Remote 包是 Client 组合所有者的显式选择；业务组件不需要分别加载 Host API Gateway 或业务包的 Remote JS。
+Client 应用只装配 `@deepseek-ai/dsh-api-remotes`。该包以运行时值导入被选业务包的 `/remote` 子路径，并向 `ctx.api` 挂载贡献，同时重新导出相同文件中的声明合并。增加一个 Host Remote 包是 Client 组合所有者的显式选择；业务组件不需要分别加载 TypeRT Gateway 或业务包的 Remote JS。
 
-未来的 TUI 可以装配同一个不依赖 React 的 `client-remotes` 与 `ctx.api` 契约，因此它能看到的 Host 方法同样只限于生成时选择的 Remote 方法。本文不定义或实现 TUI 组合。
+未来的 TUI 可以装配同一个不依赖 React 的 `api-remotes` 与 `ctx.api` 契约，因此它能看到的 Host 方法同样只限于生成时选择的 Remote 方法。本文不定义或实现 TUI 组合。
 
 ## 组件职责
 
@@ -82,12 +82,13 @@ Client 应用只装配 `@deepseek-ai/dsh-client-remotes`。该包以运行时值
 | 共享 | `@deepseek-ai/dsh-type-meta` | 声明 decorator、Gateway binding、可合并协议映射、调用描述符及提供方类型；不启动 TypeScript 分析，也不注册 Cordis 服务 |
 | 构建 | `@deepseek-ai/dsh-typert-generator` | 从 Host `ts.Program` 严格分析 Remote 签名、类型图、lookup、Context 与源码位置，并生成 Host 和 Host-for-Client 产物 |
 | Host | `@deepseek-ai/dsh-typert-registry` 与 Loader | 把生成的 Host 描述符、schema 及业务包注册项放入 `ctx.typert`，并持有 lookup 与 Context 提供方 |
-| Host | `@deepseek-ai/dsh-host-api-gateway` | 提供 `ctx.typertGateway`，认领 Remote endpoint，解析对象或 Context，调用实时 Cordis Service 并校验边界 |
-| Client | `@deepseek-ai/dsh-host-api-gateway/client` | 提供 `ctx.api`，把生成的描述符挂成具体方法，并通过 Connection 发起、校验和取消调用 |
-| Client | `@deepseek-ai/dsh-client-remotes/client` | 显式选择并挂载本应用允许使用的 `/remote` 贡献，向业务代码带入对应的声明合并 |
+| Host | `@deepseek-ai/dsh-api-remotes` | 负责应用的 Agent/Session 身份策略，并配置对应的 TypeRT lookup |
+| Host | `@deepseek-ai/dsh-api-gateway` | 提供 `ctx.typertGateway`，认领 Remote endpoint，解析对象或 Context，调用实时 Cordis Service 并校验边界 |
+| Client | `@deepseek-ai/dsh-api-gateway/client` | 提供 `ctx.api`，把生成的描述符挂成具体方法，并通过 Connection 发起、校验和取消调用 |
+| Client | `@deepseek-ai/dsh-api-remotes/client` | 显式选择并挂载本应用允许使用的 `/remote` 贡献，向业务代码带入对应的声明合并 |
 | 双侧 | `@deepseek-ai/dsh-client-connection` | 提供 RPC carrier、请求关联、信任边界、取消、响应 envelope 与当前 `/api` HTTP bridge |
 
-Host API Gateway 包同时拥有 Host dispatcher 与 Client API 两个对等入口，但两侧构建不会进入同一个 `ts.Program`。Host 入口不导入 Client 的 Cordis `Context` 合并，Client 入口也不导入 Host Gateway 服务。
+API Gateway 包同时拥有 Host dispatcher 与 Client API 两个对等入口，但两侧构建不会进入同一个 `ts.Program`。Host 入口不导入 Client 的 Cordis `Context` 合并，Client 入口也不导入 Host Gateway 服务。
 
 ## 严格生成链路
 
@@ -99,7 +100,7 @@ Host API Gateway 包同时拥有 Host dispatcher 与 Client API 两个对等入�
 |---|---|---|
 | `typert.host.js` | Host Loader | Host face 的运行时反射、严格调用描述符和 schema 注册值 |
 | `typert.host.d.ts` | Host 类型系统 | Host face 的生成声明 |
-| `typert.remote-client.js` | `client-remotes` | 可挂载的 `TypeRTRemoteContribution`，包含严格描述符与运行时 codec |
+| `typert.remote-client.js` | `api-remotes` | 可挂载的 `TypeRTRemoteContribution`，包含严格描述符与运行时 codec |
 | `typert.remote-client.d.ts` | Client 类型系统 | `TypeRTRemoteNamespaceMap` 与 `TypeRTRemoteContextMap` 的声明合并及 Client-safe 类型引用 |
 | `typert.remote-client.d.ts.map` | 编辑器 | 将生成的方法属性映射回 Host 包中的 Remote 方法声明 |
 
@@ -117,7 +118,7 @@ Connection 在 HTTP bridge 之前执行 `/api` 的统一信任检查，再在共
 
 Gateway 每次调用都从当前注册表解析描述符和实时 Service，不缓存业务对象。它要求 `args` 的字段集合与描述符完全一致，先用 codec 校验 wire 值，再通过注册的 lookup 或 Context provider 解析对象或接收者，最后调用 binding 指向的 Service 方法并校验返回值。缺少 provider、identity 未命中、binding 不一致、参数多缺、schema 失败和方法不存在都在进入或离开业务边界时失败。
 
-lookup provider 的 `register()` 同时提供稳定声明和默认 resolver；`configure()` 提供由 Host 组合拥有、可异步执行且受 effect 生命周期约束的 resolver。配置可以先于 provider 挂载；没有 provider 时调用仍以 `lookup-unavailable` 失败，配置卸载后则恢复 provider 默认策略。标准 Web Host 的 API Proxy 为 `agent` 与 `session` 配置同一套 `agentFor()` 语义：复用 live Agent，自动恢复普通冷会话，对并发恢复去重，并拒绝由 subagent routing 拥有的 identity；`session` lookup 返回该 Agent 的 Session。恢复失败和 ownership fence 通过既有 RPC error 原样返回，不折叠为 Gateway 的 `internal` 错误。
+lookup provider 的 `register()` 同时提供稳定声明和默认 resolver；`configure()` 提供由 Host 组合拥有、可异步执行且受 effect 生命周期约束的 resolver。配置可以先于 provider 挂载；没有 provider 时调用仍以 `lookup-unavailable` 失败，配置卸载后则恢复 provider 默认策略。API Remotes 负责 `agent` 与 `session` 的标准 `agentFor()` 语义：复用 live Agent，自动恢复普通冷会话，对并发恢复去重，并拒绝由 subagent routing 拥有的 identity；`session` lookup 返回该 Agent 的 Session。Web API Proxy 提供 Agent 默认值与 scope 设置，再让旧方法使用同一个 resolver。恢复失败和 ownership fence 通过既有 RPC error 原样返回，不折叠为 Gateway 的 `internal` 错误。
 
 Client 卸载一个贡献时会一起移除描述符和具体方法，中止其进行中的调用，并使外部仍持有的旧方法句柄拒绝继续调用。Host 上已经注册过的严格 endpoint 被撤回后也不会降级到 SRC 推断，以免热卸载悄然降低校验强度。
 
@@ -157,5 +158,7 @@ pnpm run build:lib:contracts
 ## 边界
 
 Remote 只处理有单个请求与单个结果的一元方法调用。Session event stream、分页、增量 reduce、projection 和实体子流需要独立的数据协议与注册模型；即使它们复用 Connection，也不应伪装成 Remote 方法或放入调用描述符。
+
+API 各层按 `remotes → gateway → connection → webserver` 组织。BFF 与 TypeRT RPC 层位于 `packages/api`；Connection 与 WebServer 仍位于 `packages/client/connection` 和 `packages/host/webserver`，其服务契约允许未来只移动包，将它们放到 `packages/api`。旧 API Proxy 仍位于 `packages/host/apiproxy`，作为尚未迁移到 Remote 的 endpoint 的回退路径。
 
 当前 lookup 策略按 key 配置，因此所有 `agent` 或 `session` 参数共享冷恢复行为。某个 Remote endpoint 若必须只接受 live 对象，需要后续增加显式的逐参数或逐 endpoint 策略，不能通过业务方法内部猜测恢复来源。

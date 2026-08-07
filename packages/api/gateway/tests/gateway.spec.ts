@@ -16,7 +16,7 @@ import {
   type TypeRTLookupProvider,
 } from '@deepseek-ai/dsh-type-meta'
 import TypertRegistry, { type TypertContribution } from '@deepseek-ai/dsh-typert-registry'
-import TypertGatewayService, { TypertGatewayError } from '@deepseek-ai/dsh-host-api-gateway'
+import TypertGatewayService, { TypertGatewayError } from '@deepseek-ai/dsh-api-gateway'
 
 interface FixtureAgent {
   readonly id: string

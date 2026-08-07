@@ -25,7 +25,7 @@
   "dshClient": {
     "inject": [
       "@deepseek-ai/dsh-client-runtime",
-      "@deepseek-ai/dsh-client-remotes",
+      "@deepseek-ai/dsh-api-remotes",
       "@deepseek-ai/dsh-client-locale",
       "@deepseek-ai/dsh-client-ui-conversation"
     ],
@@ -38,7 +38,7 @@
   "license": "BSD-3-Clause",
   "peerDependencies": {
     "@deepseek-ai/dsh-client-locale": "^0.0.1",
-    "@deepseek-ai/dsh-client-remotes": "^0.0.1",
+    "@deepseek-ai/dsh-api-remotes": "^0.0.1",
     "@deepseek-ai/dsh-client-runtime": "^0.0.1",
     "@deepseek-ai/dsh-client-ui-conversation": "^0.0.1",
     "@deepseek-ai/dsh-client-ui-primitives": "^0.0.1",
@@ -50,7 +50,7 @@
   },
   "devDependencies": {
     "@deepseek-ai/dsh-client-locale": "workspace:^",
-    "@deepseek-ai/dsh-client-remotes": "workspace:^",
+    "@deepseek-ai/dsh-api-remotes": "workspace:^",
     "@deepseek-ai/dsh-client-runtime": "workspace:^",
     "@deepseek-ai/dsh-client-test-runtime": "workspace:^",
     "@deepseek-ai/dsh-client-ui-conversation": "workspace:^",

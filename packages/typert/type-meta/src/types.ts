@@ -176,6 +176,16 @@ export interface TypeRTRemoteContribution {
   readonly descriptors: readonly InvocationDescriptor[]
 }
 
+/** Client API capability implemented by the Gateway and consumed by Remote assemblies. */
+export interface TypeRTClientApi extends TypeRTRemoteNamespaceMap {
+  /**
+   * Mount one generated Host-for-Client contribution in the caller's fiber.
+   * @param contribution - explicitly selected Remote package artifact.
+   * @returns disposer withdrawing descriptors and concrete methods together.
+   */
+  mount(contribution: TypeRTRemoteContribution): TypeRTDisposer
+}
+
 /**
  * Resolve one validated wire identity, synchronously or asynchronously.
  * @param id - validated wire identity.

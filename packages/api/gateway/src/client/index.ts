@@ -9,10 +9,9 @@ import type { Context } from 'cordis'
 import type { ConnectionHandle, RpcError } from '@deepseek-ai/dsh-client-connection/client'
 import type {
   InvocationDescriptor,
+  TypeRTClientApi,
   TypeRTCodec,
-  TypeRTDisposer,
   TypeRTRemoteContribution,
-  TypeRTRemoteNamespaceMap,
 } from '@deepseek-ai/dsh-type-meta'
 
 type RemoteMethod = (...args: unknown[]) => Promise<unknown>
@@ -40,14 +39,7 @@ interface ScopedProjection {
 }
 
 /** Typed API service augmented by generated direct Remote namespaces. */
-export interface ClientApi extends TypeRTRemoteNamespaceMap {
-  /**
-   * Mount one generated Host-for-Client contribution in the caller's fiber.
-   * @param contribution - explicitly selected Remote package artifact.
-   * @returns disposer withdrawing descriptors and concrete methods together.
-   */
-  mount(contribution: TypeRTRemoteContribution): TypeRTDisposer
-}
+export type ClientApi = TypeRTClientApi
 
 declare module 'cordis' {
   interface Context {
@@ -67,7 +59,7 @@ export function apply(ctx: Context): void {
   new ClientApiService(ctx)
 }
 
-class ClientApiService extends Service implements ClientApi {
+class ClientApiService extends Service implements TypeRTClientApi {
   private readonly ownerCtx: Context
   private readonly direct = new Map<string, DirectNamespaceRecord>()
   private readonly scoped = new Map<string, ScopedNamespaceRecord>()
@@ -77,7 +69,7 @@ class ClientApiService extends Service implements ClientApi {
     this.ownerCtx = ctx
   }
 
-  mount(contribution: TypeRTRemoteContribution): TypeRTDisposer {
+  mount(contribution: TypeRTRemoteContribution): ReturnType<TypeRTClientApi['mount']> {
     this.validateContribution(contribution)
     const callerCtx = this.ctx
     const disposeRemote = callerCtx.typert.remotes.register(contribution)

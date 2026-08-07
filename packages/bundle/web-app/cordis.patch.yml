@@ -124,8 +124,8 @@
     - id: connection
       name: '@deepseek-ai/dsh-client-connection'
 
-    - id: client-remotes
-      name: '@deepseek-ai/dsh-client-remotes'
+    - id: api-remotes
+      name: '@deepseek-ai/dsh-api-remotes'
 
     - id: client-runtime
       name: '@deepseek-ai/dsh-client-runtime'

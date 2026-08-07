@@ -2,7 +2,7 @@
 
 [English](typert.md) | 中文
 
-以下类型由生成的 Remote 产物、Host Gateway 与消费方 API assembly 共用。[TypeRT Gateway Agent Note](../../.agents/notes/implemented/architecture/2026-08-02-typert-remote-method-calls.md) 负责架构与传输决策；本页记录 [`dsh-type-meta`](../../packages/typert/type-meta/src/types.ts) 和 [`dsh-host-api-gateway`](../../packages/host/api-gateway/src/types.ts) 中公共契约的字面定义。
+以下类型由生成的 Remote 产物、Host Gateway 与消费方 API assembly 共用。[TypeRT Gateway Agent Note](../../.agents/notes/implemented/architecture/2026-08-02-typert-remote-method-calls.md) 负责架构与传输决策；本页记录 [`dsh-type-meta`](../../packages/typert/type-meta/src/types.ts) 和 [`dsh-api-gateway`](../../packages/api/gateway/src/types.ts) 中公共契约的字面定义。
 
 ## Lookup 与 Context 声明
 
@@ -126,7 +126,7 @@ interface TypeRTService {
 }
 ```
 
-生成的消费方声明会把 direct namespace 合并到 `ClientApi` 继承的 map 中。
+生成的消费方声明会把 direct namespace 合并到 `TypeRTClientApi` 继承的 map 中。
 
 ```ts type-equiv
 /** Merge-extensible direct namespace surface generated for Client API services. */
@@ -191,8 +191,8 @@ interface TypertGateway {
 `ctx.api` 只暴露由已导入 `/remote` 产物贡献的 namespace。挂载会把生成的 descriptor 与具体的 root/scoped 方法作为一项由 fiber 持有的操作统一注册；JavaScript Proxy 与 Host 服务类型都不会进入消费方。
 
 ```ts type-equiv
-/** Typed API service augmented by generated direct Remote namespaces. */
-interface ClientApi extends TypeRTRemoteNamespaceMap {
+/** Client API capability implemented by the Gateway and consumed by Remote assemblies. */
+interface TypeRTClientApi extends TypeRTRemoteNamespaceMap {
   /**
    * Mount one generated Host-for-Client contribution in the caller's fiber.
    * @param contribution - explicitly selected Remote package artifact.

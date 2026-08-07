@@ -181,8 +181,8 @@ export default defineConfig({
         'packages/client/connection/src/http-bridge.ts',
         // This assembly imports generated Host-for-Client code that exists
         // only in lib; the post-build built-bin smoke executes both entries.
-        'packages/client/remotes/src/index.ts',
-        'packages/client/remotes/src/client/index.ts',
+        'packages/api/remotes/src/index.ts',
+        'packages/api/remotes/src/client/index.ts',
         // Slash/command/input round: per-file gaps deferred with the same
         // client-lane debt. TODO(gui): cover and remove with the lane above.
         'packages/client/connection/src/client/fixture.ts',
