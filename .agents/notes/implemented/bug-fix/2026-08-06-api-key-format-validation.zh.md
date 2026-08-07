@@ -60,7 +60,7 @@ Status: implemented
 | `llm-pi-ai` `resolveProfiles` | 施加这条共享规则，保留其「omit it to use ambient authentication」的措辞，并把 trim 后的值写进解析后的 profile。 |
 | `llm-pi-ai` `resolveApiKey` | 归一化凭据与环境路径。不指定任何凭据的 profile 仍返回 `undefined`，ambient 与 OAuth 路由不受影响。 |
 | `llm-pi-ai` `discoverModels` | 在构造 header 之前归一化，使非法 Key 成为凭据故障而非端点不可达。不带 Key 的探测保持未鉴权。 |
-| `ui-models` | 镜像字符集规则，加入形状启发式，在探测与 `credentials.set` 之前 trim `keyDraft`，并修正 `stringAt` 的空值判断。留空的输入框仍是可以提交的空操作；只含空白的输入框则是字段级失败。提交受拦截，失败呈现在字段上，与既有的 `modelFailure` 模式一致。 |
+| `ui-models` | 镜像字符集规则，加入形状启发式，在探测与 `credentials.set` 之前 trim `keyDraft`，并修正 `stringAt` 的空值判断。留空的输入框仍是可以提交的空操作；只含空白的输入框则是字段级失败。提交**与端点探测**同时受拦截，因此被拒绝的密钥不会白花一次往返去换取字段上已经写明的答案；失败呈现在字段上，与既有的 `modelFailure` 模式一致。 |
 
 `ProviderEditor` 同时服务 DeepSeek 与 pi-ai 两种布局，因此一处客户端改动覆盖两个 provider。`CustomProviderCard` 为手工声明的路由承载同一套判定。
 
@@ -102,4 +102,6 @@ Status: implemented
 
 `packages/llm/llm-deepseek/tests/` 在 `adapter.spec.ts` 中覆盖字面量配置路径，在 `dynamic-config.spec.ts` 中经真实凭据 seam（而非 stub）端到端覆盖已存储凭据路径。`packages/llm/llm-pi-ai/tests/` 覆盖 `resolveProfiles`——包括 trim 后的值确实到达解析后的 profile，否则会被 `...rest` 展开丢弃——以及探测路径，包括不带 Key 的探测不会发出 `authorization` 标头。
 
-`packages/client/ui-models/tests/` 以同一张表加上形状用例钉住 `apiKeyFailure`，并驱动两张卡片：留空的输入框可提交且不写入凭据、只含空白的输入框在字段上失败、非法或被包裹的 Key 拦截提交、带首尾空白的 Key 在 `credentials.set` 与探测之前被 trim，以及手工声明的路由可以完全不带 Key 创建。
+`packages/client/ui-models/tests/` 以同一张表加上形状用例钉住 `apiKeyFailure`，并驱动两张卡片：留空的输入框可提交且不写入凭据、只含空白的输入框在字段上失败、非法或被包裹的 Key 同时拦截提交与探测、带首尾空白的 Key 在 `credentials.set` 与探测之前被 trim，以及手工声明的路由可以完全不带 Key 创建。
+
+用户可见的终态则钉在它真正被组装的位置：`examples/headless-agent/tests/headless.snapshot.ts` 让 one-shot 应用在一个 HTTP 标头无法承载的已存密钥下运行，复用其 missing-credential 兄弟场景的同一套无密钥 composition，并记录该轮以 `INVALID_CREDENTIAL` 结束、消息可操作且既不含密钥也不含 `ByteString` 字样。包级测试无法证明这一点，而 web e2e 只覆盖了浏览器那一半。
