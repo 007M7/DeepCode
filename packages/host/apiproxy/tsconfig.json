@@ -39,6 +39,12 @@
       "path": "../../core/tools"
     },
     {
+      "path": "../../typert/type-meta"
+    },
+    {
+      "path": "../../typert/registry"
+    },
+    {
       "path": "../../session-persistence/session-persistence"
     },
     {

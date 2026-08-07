@@ -56,6 +56,8 @@
     "@deepseek-ai/dsh-skill": "workspace:^",
     "@deepseek-ai/dsh-subagent": "workspace:^",
     "@deepseek-ai/dsh-tools": "workspace:^",
+    "@deepseek-ai/dsh-type-meta": "workspace:^",
+    "@deepseek-ai/dsh-typert-registry": "workspace:^",
     "@deepseek-ai/dsh-user-approval": "workspace:^",
     "@deepseek-ai/dsh-user-interaction": "workspace:^",
     "@deepseek-ai/dsh-workspace": "workspace:^",

@@ -355,6 +355,40 @@ describe('TypertRegistry', () => {
     expect(ctx.typert.contexts.getClient('registryFixture')).toBeUndefined()
   })
 
+  it('configures an asynchronous lookup resolver independently of provider load order', async () => {
+    const ctx = await makeCtx()
+    const fallback = { id: 'fallback' }
+    const configured = { id: 'configured' }
+    const disposeResolver = ctx.typert.lookups.configure('fixture', async id =>
+      id === configured.id ? configured : undefined)
+
+    expect(ctx.typert.lookups.get('fixture')).toBeUndefined()
+    const disposeProvider = ctx.typert.lookups.register('fixture', {
+      parameter: 'agent',
+      wire: 'agentId',
+      hostTypeSymbol: '@fixture/agent#Agent',
+      wireTypeSymbol: '@fixture/session#SessionId',
+      resolve: id => id === fallback.id ? fallback : undefined,
+    })
+    await expect(ctx.typert.lookups.get('fixture')?.resolve('configured')).resolves.toBe(configured)
+    expect(() => ctx.typert.lookups.configure('fixture', () => undefined)).toThrow('already configured')
+
+    await disposeProvider()
+    expect(ctx.typert.lookups.get('fixture')).toBeUndefined()
+    const disposeReloadedProvider = ctx.typert.lookups.register('fixture', {
+      parameter: 'agent',
+      wire: 'agentId',
+      hostTypeSymbol: '@fixture/agent#Agent',
+      wireTypeSymbol: '@fixture/session#SessionId',
+      resolve: id => id === fallback.id ? fallback : undefined,
+    })
+    await expect(ctx.typert.lookups.get('fixture')?.resolve('configured')).resolves.toBe(configured)
+
+    await disposeResolver()
+    expect(ctx.typert.lookups.get('fixture')?.resolve('fallback')).toBe(fallback)
+    await disposeReloadedProvider()
+  })
+
   it('publishes provider changes, rejects duplicate providers, and disposes subscriptions', async () => {
     const ctx = await makeCtx()
     const changes: string[] = []

@@ -8,7 +8,7 @@
 
 业务 Service 通过 `@Remote` 或 `@RemoteContext` 选择对 Client 开放的方法。未标记的方法不会进入生成的 Client 类型或运行时贡献，也不能通过 `ctx.api` 调用。
 
-`@Remote` 表示调用根 Host Context 中注册的 Cordis Service。复杂的 Host 对象不能直接跨 wire 传输；业务包必须通过 `TypeRTLookupMap` 声明它与 wire identity 的关联，并在运行时向 `ctx.typert.lookups` 注册解析提供方。例如 `Agent` 参数在 Host 签名中名为 `agent`，生成的 wire 字段为 `agentId`，Gateway 在调用业务方法前将 id 解析为当前的实时对象。
+`@Remote` 表示调用根 Host Context 中注册的 Cordis Service。复杂的 Host 对象不能直接跨 wire 传输；业务包必须通过 `TypeRTLookupMap` 声明它与 wire identity 的关联，并在运行时向 `ctx.typert.lookups` 注册默认解析提供方。例如 `Agent` 参数在 Host 签名中名为 `agent`，生成的 wire 字段为 `agentId`，Gateway 在调用业务方法前将 id 解析为 Host 对象。Host 组合可以用 `ctx.typert.lookups.configure()` 覆盖某个 lookup key 的解析策略，而不改变业务包拥有的参数名、wire 字段或规范类型 symbol。
 
 `@RemoteContext(key)` 表示先通过 `ctx.typert.contexts` 把 identity 解析为一个作用域 Context，再从该 Context 取得 Service 并调用方法。它适用于方法本身依赖作用域组合、而不需要显式接收 `Agent` 等对象的情形。
 
@@ -117,6 +117,8 @@ Connection 在 HTTP bridge 之前执行 `/api` 的统一信任检查，再在共
 
 Gateway 每次调用都从当前注册表解析描述符和实时 Service，不缓存业务对象。它要求 `args` 的字段集合与描述符完全一致，先用 codec 校验 wire 值，再通过注册的 lookup 或 Context provider 解析对象或接收者，最后调用 binding 指向的 Service 方法并校验返回值。缺少 provider、identity 未命中、binding 不一致、参数多缺、schema 失败和方法不存在都在进入或离开业务边界时失败。
 
+lookup provider 的 `register()` 同时提供稳定声明和默认 resolver；`configure()` 提供由 Host 组合拥有、可异步执行且受 effect 生命周期约束的 resolver。配置可以先于 provider 挂载；没有 provider 时调用仍以 `lookup-unavailable` 失败，配置卸载后则恢复 provider 默认策略。标准 Web Host 的 API Proxy 为 `agent` 与 `session` 配置同一套 `agentFor()` 语义：复用 live Agent，自动恢复普通冷会话，对并发恢复去重，并拒绝由 subagent routing 拥有的 identity；`session` lookup 返回该 Agent 的 Session。恢复失败和 ownership fence 通过既有 RPC error 原样返回，不折叠为 Gateway 的 `internal` 错误。
+
 Client 卸载一个贡献时会一起移除描述符和具体方法，中止其进行中的调用，并使外部仍持有的旧方法句柄拒绝继续调用。Host 上已经注册过的严格 endpoint 被撤回后也不会降级到 SRC 推断，以免热卸载悄然降低校验强度。
 
 ## SRC 开发回退
@@ -155,3 +157,5 @@ pnpm run build:lib:contracts
 ## 边界
 
 Remote 只处理有单个请求与单个结果的一元方法调用。Session event stream、分页、增量 reduce、projection 和实体子流需要独立的数据协议与注册模型；即使它们复用 Connection，也不应伪装成 Remote 方法或放入调用描述符。
+
+当前 lookup 策略按 key 配置，因此所有 `agent` 或 `session` 参数共享冷恢复行为。某个 Remote endpoint 若必须只接受 live 对象，需要后续增加显式的逐参数或逐 endpoint 策略，不能通过业务方法内部猜测恢复来源。

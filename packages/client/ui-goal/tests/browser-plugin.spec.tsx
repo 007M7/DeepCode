@@ -64,12 +64,16 @@ async function bench(options: {
     }
   }
   const ref = { id: 'g-1', revision: 3 }
-  ctx.provide('api', { goals: {
-    edit: answer('goals/edit', { ref }),
-    pause: answer('goals/pause', { ref }),
-    resume: answer('goals/resume', { ref }),
-    clear: answer('goals/clear', ref),
-  } })
+  const goals = (prefix: string) => ({
+    edit: answer(`${prefix}/edit`, { ref }),
+    pause: answer(`${prefix}/pause`, { ref }),
+    resume: answer(`${prefix}/resume`, { ref }),
+    clear: answer(`${prefix}/clear`, ref),
+  })
+  let activeGoals = goals('goals')
+  ctx.provide('api', {
+    get goals() { return activeGoals },
+  })
   await ctx.plugin(SlotsService).await()
   ctx.slots.register({
     name: 'root', children: { 'conversation.input.dock': { kind: 'list', scope: 'session' } },
@@ -90,6 +94,7 @@ async function bench(options: {
     ctx,
     fiber,
     calls,
+    remountGoals: () => { activeGoals = goals('remounted-goals') },
     entry: () => {
       const entry = ctx.slots.entries('conversation.input.dock')[0]
       if (entry === undefined) return undefined
@@ -124,6 +129,16 @@ describe('ui-goal browser plugin', () => {
     expect(b.calls[1]?.args).toEqual(['s1', ref])
     expect(b.calls[2]?.args).toEqual(['s1', ref])
     expect(b.calls[3]?.args).toEqual(['s1', ref])
+  })
+
+  it('verbs read a remounted Remote namespace at action time', async () => {
+    const b = await bench({ projection: makeProjection() })
+    await b.fiber.await()
+    const verbs = b.entry()!.inject!(sid('s1'))
+    b.remountGoals()
+
+    expect(await verbs.onPause()).toEqual({ ok: true })
+    expect(b.calls).toMatchObject([{ method: 'remounted-goals/pause' }])
   })
 
   it('a null or absent projection short-circuits every verb without touching the wire', async () => {

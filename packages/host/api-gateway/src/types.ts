@@ -41,7 +41,7 @@ export interface TypertGateway {
    * Invoke one live Remote method without assuming a carrier or response envelope.
    * @param request - decoded endpoint and named wire arguments.
    * @returns the validated business result.
-   * @throws {@link TypertGatewayError} for dispatch, provider, or boundary failures; business errors retain their identity.
+   * @throws {@link TypertGatewayError} for dispatch, provider, or boundary failures; lookup-policy and business errors retain identity.
    */
   invoke(request: InvokeRemoteRequest): Promise<unknown>
 }

@@ -8,9 +8,9 @@
 
 每次调用时，`ctx.typertGateway.invoke()` 都会解析当前的描述符和 Cordis 服务，校验具名参数是否完全匹配，解析已注册的对象或 Context 身份标识，调用公开的业务方法，并校验其结果。业务服务继承 [`dsh-type-meta`](../../typert/type-meta/README.md) 的 `GatewayService`，并用 `@Remote` 或 `@RemoteContext` 标记方法；已有其他基类时仍可改用 `bindTypeRTGateway()`。
 
-严格模式从 `ctx.typert.local` 读取生成的调用描述符。查找参数使用已向 `ctx.typert.lookups` 注册的提供方，`@RemoteContext` 则通过已注册的 Host Context 提供方解析其接收者。SRC 模式是开发阶段的回退路径，适用于从未具备严格定义的端点；它解析简单参数名，并且只允许非查找参数使用可安全表示为 JSON 的值。已观测到的严格定义一旦撤回，系统会直接报错，而不会降低校验强度。
+严格模式从 `ctx.typert.local` 读取生成的调用描述符。查找参数使用 `ctx.typert.lookups` 中当前有效的 resolver：业务包注册稳定声明与默认策略，Host 组合可用 effect-scoped `configure()` 覆盖解析行为；`@RemoteContext` 则通过已注册的 Host Context 提供方解析其接收者。SRC 模式是开发阶段的回退路径，适用于从未具备严格定义的端点；它解析简单参数名，并且只允许非查找参数使用可安全表示为 JSON 的值。已观测到的严格定义一旦撤回，系统会直接报错，而不会降低校验强度。
 
-Connection 可用时，Host 入口会在 Connection 共享的 `/api` FetchHandler 上注册 trusted-host interceptor。Connection 把这个复合 handler 交给 HTTP bridge；handler 将已认领 endpoint 分发给 Gateway，未认领 endpoint 则交给 API Proxy。直接调用 `invoke()` 会保留业务错误；`TypertGatewayError` 可区分分发、绑定、提供方、查找、Context、参数和编解码器各自负责的故障。
+Connection 可用时，Host 入口会在 Connection 共享的 `/api` FetchHandler 上注册 trusted-host interceptor。Connection 把这个复合 handler 交给 HTTP bridge；handler 将已认领 endpoint 分发给 Gateway，未认领 endpoint 则交给 API Proxy。直接调用 `invoke()` 会保留业务错误；`TypertGatewayError` 可区分分发、绑定、提供方、查找、Context、参数和编解码器各自负责的故障。resolver 可以用 `TypeRTLookupFailure` 携带既有 RPC error，使冷恢复失败或 ownership fence 等策略拒绝保持原错误码。
 
 支持取消的 Remote 方法会把 `signal: AbortSignal` 声明为最后一个 Host 参数。signal 是 descriptor 元数据，而不是 wire 参数：Connection 将它提供给 Gateway，Gateway 则在已解码的业务参数之后注入它。SRC 识别这个保留的末位参数名，严格生成还要求它具有全局 `AbortSignal` 类型。
 
@@ -32,7 +32,8 @@ Connection 可用时，Host 入口会在 Connection 共享的 `/api` FetchHandle
 
 ## 已知限制与延期工作
 
-- Connection 适配器目前将分发故障和业务故障映射为 RPC 的 `internal` 代码，且不附带详细信息。结构化的 `TypertGatewayError` 类别仅供同进程调用方使用。
+- Connection 适配器将普通分发故障和业务异常映射为 RPC 的 `internal` 代码，且不附带详细信息；`TypeRTLookupFailure` 携带的 lookup 策略错误会原样返回。结构化的 `TypertGatewayError` 类别仅供同进程调用方使用。
 - SRC 模式仅支持名称唯一的标识符参数，不支持解构、默认值或剩余参数。它只校验值能否安全表示为 JSON，不校验生成的业务类型，也绝不会推断可选字段。
 - Client 侧只能挂载严格模式生成的贡献项。SRC 标记不具备 Client 编解码器或类型投影。
 - 该包只分发一元方法。增量会话数据通过同一个 Connection 上独立的具名流协议传输。
+- lookup resolver 按 key 配置；当前无法让单个 Remote 参数或 endpoint 在同一 `agent`/`session` key 下选择 live-only 策略。

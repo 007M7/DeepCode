@@ -8,6 +8,7 @@ import { Context, Service, symbols } from 'cordis'
 import type { ConnectionRpcHandler } from '@deepseek-ai/dsh-client-connection'
 import {
   remoteMethods,
+  TypeRTLookupFailure,
   type InvocationDescriptor,
   type InvocationParameterDescriptor,
   type TypeRTCodec,
@@ -36,6 +37,7 @@ interface ResolvedBinding {
 }
 
 type ConnectionRpcResult = Awaited<ReturnType<ConnectionRpcHandler>>
+type ConnectionRpcError = Extract<ConnectionRpcResult, { readonly ok: false }>['error']
 const NEVER_ABORTED_SIGNAL = new AbortController().signal
 
 /** Dispatch failure produced outside the invoked business method. */
@@ -126,7 +128,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
    * Invoke one live Remote method through strict generated reflection or SRC markers.
    * @param request - decoded endpoint and exact named wire arguments.
    * @returns the validated business result.
-   * @throws {@link TypertGatewayError} for dispatch, provider, or boundary failures; business errors retain their identity.
+   * @throws {@link TypertGatewayError} for dispatch, provider, or boundary failures; lookup-policy and business errors retain identity.
    */
   async invoke(request: InvokeRemoteRequest): Promise<unknown> {
     const endpoint = endpointOf(request.namespace, request.method)
@@ -142,7 +144,8 @@ export class TypertGatewayService extends Service implements TypertGateway {
       )
     }
     validateBinding(receiver, descriptor.service, descriptor.namespace, endpoint)
-    const args = descriptor.parameters.map(parameter => this.resolveParameter(parameter, request.args, endpoint))
+    const args = await Promise.all(descriptor.parameters.map(parameter =>
+      this.resolveParameter(parameter, request.args, endpoint)))
     if (descriptor.cancellation !== undefined) args.push(request.signal ?? NEVER_ABORTED_SIGNAL)
     const implementation = descriptor.implementation ?? descriptor.method
     const method = Reflect.get(receiver, implementation) as unknown
@@ -375,11 +378,11 @@ export class TypertGatewayService extends Service implements TypertGateway {
     return context
   }
 
-  private resolveParameter(
+  private async resolveParameter(
     parameter: InvocationParameterDescriptor,
     args: Readonly<Record<string, unknown>>,
     endpoint: string,
-  ): unknown {
+  ): Promise<unknown> {
     const value = decode(parameter.codec, args[parameter.wire], 'input-invalid', endpoint, parameter.wire)
     if (parameter.source === 'json') return value
     const key = parameter.lookup
@@ -412,8 +415,9 @@ export class TypertGatewayService extends Service implements TypertGateway {
     }
     let resolved: unknown
     try {
-      resolved = provider.resolve(value)
+      resolved = await provider.resolve(value)
     } catch (cause) {
+      if (cause instanceof TypeRTLookupFailure) throw cause
       throw new TypertGatewayError(
         'lookup-failed',
         endpoint,
@@ -434,6 +438,9 @@ export class TypertGatewayService extends Service implements TypertGateway {
 }
 
 function rpcFailure(error: unknown): ConnectionRpcResult {
+  if (error instanceof TypeRTLookupFailure) {
+    return { ok: false, error: error.failure as ConnectionRpcError }
+  }
   return {
     ok: false,
     error: {

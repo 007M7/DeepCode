@@ -1160,7 +1160,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       {
         signature: 'async invoke(request: InvokeRemoteRequest): Promise<unknown>',
-        jsDoc: '/**\n * Invoke one live Remote method through strict generated reflection or SRC markers.\n * @param request - decoded endpoint and exact named wire arguments.\n * @returns the validated business result.\n * @throws {@link TypertGatewayError} for dispatch, provider, or boundary failures; business errors retain their identity.\n */',
+        jsDoc: '/**\n * Invoke one live Remote method through strict generated reflection or SRC markers.\n * @param request - decoded endpoint and exact named wire arguments.\n * @returns the validated business result.\n * @throws {@link TypertGatewayError} for dispatch, provider, or boundary failures; lookup-policy and business errors retain identity.\n */',
       },
     ],
   },

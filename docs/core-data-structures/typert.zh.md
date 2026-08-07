@@ -114,7 +114,7 @@ interface InvocationDescriptor {
 
 ## TypeRT 注册表
 
-`ctx.typert` 分开保存当前环境的 descriptor、显式选择的 Remote contribution、活 lookup 提供方与 scoped Context 提供方。各项注册都是由 Cordis 持有的 effect，并返回可等待的 disposer。
+`ctx.typert` 分开保存当前环境的 descriptor、显式选择的 Remote contribution、lookup 提供方与 scoped Context 提供方。lookup 提供方拥有稳定 wire 声明和默认 resolver；Host 组合可以为同一个 key 配置 effect-scoped 同步或异步 resolver，配置卸载后恢复默认策略。各项注册都是由 Cordis 持有的 effect，并返回可等待的 disposer。
 
 ```ts type-equiv
 /** Minimal TypeRT runtime consumed through dependency inversion. */
@@ -135,7 +135,7 @@ interface TypeRTRemoteNamespaceMap {}
 
 ## Host Gateway
 
-Connection 会先解码 carrier envelope，再调用 `ctx.typertGateway`。请求将精确的具名 wire 字段与 carrier 的取消 signal 分开携带；基础设施与边界失败使用 Gateway 的进程内错误分类体系，但当前 RPC 适配器会把这些错误折叠为传输层的 `internal` 错误码。
+Connection 会先解码 carrier envelope，再调用 `ctx.typertGateway`。请求将精确的具名 wire 字段与 carrier 的取消 signal 分开携带；基础设施与边界失败使用 Gateway 的进程内错误分类体系，普通异常由 RPC 适配器折叠为传输层的 `internal` 错误码，lookup 策略通过 `TypeRTLookupFailure` 携带的既有 RPC error 则原样返回。
 
 ```ts type-equiv
 /** One Remote method request after a carrier has decoded its envelope. */
@@ -180,7 +180,7 @@ interface TypertGateway {
    * Invoke one live Remote method without assuming a carrier or response envelope.
    * @param request - decoded endpoint and named wire arguments.
    * @returns the validated business result.
-   * @throws {@link TypertGatewayError} for dispatch, provider, or boundary failures; business errors retain their identity.
+   * @throws {@link TypertGatewayError} for dispatch, provider, or boundary failures; lookup-policy and business errors retain identity.
    */
   invoke(request: InvokeRemoteRequest): Promise<unknown>
 }

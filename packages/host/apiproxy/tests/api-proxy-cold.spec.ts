@@ -11,6 +11,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import SessionStore from '@deepseek-ai/dsh-session'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
+import { TypeRTLookupFailure } from '@deepseek-ai/dsh-type-meta'
+import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 import { MessageId } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
@@ -177,6 +179,100 @@ describe('cold history recovery view', () => {
     `)
     expect(ctx.sessions.get(sessionId)).toBeUndefined()
     await ctx.fiber.dispose()
+  })
+})
+
+describe('Remote Agent and Session lookup policy', () => {
+  it('deduplicates a cold resume across Agent and Session parameters', async () => {
+    const ctx = new Context()
+    await ctx.plugin(TypertRegistry)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(UserInteractionService)
+    const sessionId = sid('session-remote-cold')
+    const meta = header(sessionId, 1000)
+    const inspect = vi.fn(() => Promise.resolve({ meta, events: [] as SessionEvent[] }))
+    ctx.provide('sessionPersistence', {
+      list: () => Promise.resolve([meta]),
+      inspect,
+      locate: () => undefined,
+    } as never)
+    const resumedSession = { id: sessionId, header: meta, events: [] } as unknown as import('@deepseek-ai/dsh-session').Session
+    const resumedAgent = { id: sessionId, session: resumedSession, status: 'idle', ctx } as Agent
+    const release = Promise.withResolvers<undefined>()
+    const resume = vi.spyOn(ctx.agents, 'resume').mockImplementation(async () => {
+      await release.promise
+      return { agent: resumedAgent, dispose: () => Promise.resolve() }
+    })
+    const defaultAgentLookup = ctx.typert.lookups.get('agent')
+    const defaultSessionLookup = ctx.typert.lookups.get('session')
+    createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
+    await vi.waitFor(() => {
+      expect(ctx.typert.lookups.get('agent')).not.toBe(defaultAgentLookup)
+      expect(ctx.typert.lookups.get('session')).not.toBe(defaultSessionLookup)
+    })
+    const agentLookup = ctx.typert.lookups.get('agent')
+    const sessionLookup = ctx.typert.lookups.get('session')
+    if (agentLookup === undefined || sessionLookup === undefined) throw new Error('core lookup providers were not mounted')
+
+    const resolvedAgent = Promise.resolve(agentLookup.resolve(sessionId))
+    const resolvedSession = Promise.resolve(sessionLookup.resolve(sessionId))
+    await vi.waitFor(() => { expect(resume).toHaveBeenCalledOnce() })
+    release.resolve(undefined)
+
+    await expect(resolvedAgent).resolves.toBe(resumedAgent)
+    await expect(resolvedSession).resolves.toBe(resumedSession)
+    expect(inspect).toHaveBeenCalledOnce()
+  })
+
+  it('preserves the subagent ownership fence for cold and live Remote lookups', async () => {
+    const ctx = new Context()
+    await ctx.plugin(TypertRegistry)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(UserInteractionService)
+    const coldId = sid('session-remote-cold-child')
+    const coldMeta = header(coldId, 1000, {
+      parentSession: sid('session-parent'),
+      origin: 'subagent',
+    })
+    const inspect = vi.fn(() => Promise.resolve({ meta: coldMeta, events: [] as SessionEvent[] }))
+    ctx.provide('sessionPersistence', {
+      list: () => Promise.resolve([coldMeta]),
+      inspect,
+      locate: () => undefined,
+    } as never)
+    const liveSession = ctx.sessions.create(sid('session-remote-live-child'), {
+      meta: { cwd: '/proj', parentSession: sid('session-parent'), origin: 'subagent' },
+    })
+    const liveAgent = { id: liveSession.id, session: liveSession, status: 'idle', ctx } as Agent
+    ctx.agents.register(liveAgent)
+    const resume = vi.spyOn(ctx.agents, 'resume')
+    const defaultAgentLookup = ctx.typert.lookups.get('agent')
+    const defaultSessionLookup = ctx.typert.lookups.get('session')
+    createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
+    await vi.waitFor(() => {
+      expect(ctx.typert.lookups.get('agent')).not.toBe(defaultAgentLookup)
+      expect(ctx.typert.lookups.get('session')).not.toBe(defaultSessionLookup)
+    })
+    const agentLookup = ctx.typert.lookups.get('agent')
+    const sessionLookup = ctx.typert.lookups.get('session')
+    if (agentLookup === undefined || sessionLookup === undefined) throw new Error('core lookup providers were not mounted')
+    const ownershipFailure = {
+      failure: {
+        code: 'agent-busy',
+        details: { reason: 'use subagent delivery for this child session' },
+      },
+    }
+
+    const coldFailure = Promise.resolve(agentLookup.resolve(coldId))
+    const liveFailure = Promise.resolve(sessionLookup.resolve(liveSession.id))
+    await expect(coldFailure).rejects.toBeInstanceOf(TypeRTLookupFailure)
+    await expect(coldFailure).rejects.toMatchObject(ownershipFailure)
+    await expect(liveFailure).rejects.toBeInstanceOf(TypeRTLookupFailure)
+    await expect(liveFailure).rejects.toMatchObject(ownershipFailure)
+    expect(resume).not.toHaveBeenCalled()
+    expect(inspect).toHaveBeenCalledOnce()
   })
 })
 

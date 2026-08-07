@@ -154,13 +154,15 @@ Descriptors exist only in the local registry on each side. The wire carries only
 ```text
 ctx.typert.local     当前进程自己的 Host 或 Client reflection
 ctx.typert.remotes   消费端显式 mount 的对端 Remote contribution
-ctx.typert.lookups   wire ID 到 Host 活对象的 provider
+ctx.typert.lookups   wire ID 到 Host 对象的 provider 与组合策略
 ctx.typert.contexts  Host Context resolver 与 Client Context binder
 ```
 
 Every registration returns a disposer owned by the caller's Cordis fiber. Client contribution mounting registers the descriptor set and concrete methods as one owned operation. The Host Gateway caches only the set of SRC-owned endpoint names and discards it whenever the Cordis Service set changes; it retains no descriptor, Service, or provider. Invocation resolves all live objects from current state, so removing a strict definition, Service, or provider makes the corresponding call unavailable without leaving a stale live object.
 
 The lookup registry retains the stable wire declaration after its live resolver unloads. SRC parsing continues to classify the parameter as a lookup, while invocation fails with `lookup-unavailable`; it never reclassifies the incoming ID as an ordinary JSON business object. Re-registering the same key with different parameter, wire, or canonical type symbols fails for the lifetime of that TypeRT Service.
+
+Business-object packages own stable declarations and default resolvers through `register()`; Host composition supplies an effect-scoped asynchronous policy for the same key through `configure()`. Configuration may precede provider registration, but does not by itself make a lookup available without a live provider; unloading the configuration restores the provider's default resolver. The standard Web Host's API Proxy configures the same `agentFor()` for `agent` and `session`: live Agents are reused, ordinary cold sessions are resumed automatically, concurrent resumes are deduplicated by Session ID, and the subagent ownership fence returns the existing `agent-busy`. The `session` resolver returns the resolved Agent's Session, so the two parameter kinds do not create separate resume lifecycles.
 
 The registry's Host root entry has the complete `TypeRTService` interface merge. The registry implementation shared by Host and Client lives in a separate module without environment declarations. The registry's `/client` entry imports only that shared implementation and does not pass through the Host root entry, so it cannot bring Host Cordis declarations into the Client Program.
 
@@ -432,7 +434,7 @@ ctx.api.goals.create(sessionId, request, signal?)
 → Client result codec 验证并返回 CreateGoalResult
 ```
 
-Remote does not define a second-layer `{ ok, value/error }` response. Successful values and Gateway errors use the existing RPC response's `result` directly. The current adapter converts every Gateway and business-invocation failure to the existing `RpcError` envelope with `code: 'internal'`; the Gateway's structured error category remains available only in-process, while the message carries the diagnostic across Connection.
+Remote does not define a second-layer `{ ok, value/error }` response. Successful values and Gateway errors use the existing RPC response's `result` directly. The adapter converts ordinary Gateway and business-invocation failures to the existing `RpcError` envelope with `code: 'internal'`; an existing RPC error carried by a resolver in `TypeRTLookupFailure` is returned unchanged, preserving stable error codes for cold-resume failures and ownership fences. The Gateway's structured error category remains available only in-process, while the message carries the diagnostic across Connection.
 
 The Gateway does not handle per-method permissions, caller identity, idempotency, or long-lived connection state. It only propagates cooperative cancellation from Connection into explicitly cancellation-aware business methods. TypeRT endpoints use Connection's trusted-host policy; unclaimed endpoints retain the legacy API Proxy's trust and privileged-method policies. Connection's WebSocket migration remains separate follow-up work.
 
@@ -451,11 +453,12 @@ The Gateway registers only its ownership matcher and RPC handler with Connection
 - `@deepseek-ai/dsh-client-remotes`: the only Remote facade depended on by Client business code; directly depends on the Gateway Client face, selects `/remote` contributions, and exposes the merged API types to business packages.
 - Connection: owns the single HTTP Server/future WebSocket carrier, shared `/api` route and composite FetchHandler, API Proxy fallback, RPC envelope, rpcId, serialization, trust, and error transport.
 - Business-object packages such as Agent/Session: own lookup, Context providers, canonical ID types, and public type-only entries.
+- API Proxy Host composition: configures cold resume, concurrent deduplication, and subagent ownership policy for `agent`/`session` lookups through the existing `agentFor()`.
 - Business Service packages: declare bindings, Remote methods, and their request/result types, and export the generated `/remote` subpath.
 
 ## Shipped scope and deferred work
 
-The shipped vertical path is `@deepseek-ai/dsh-goal/remote → Browser Client API → Connection RPC /api → Host Gateway → GoalService.remoteExportCreate()`. The same direct descriptor with an Agent lookup supports both `ctx.api.goals.create(agentId, request)` and `agentCtx.goals.create(request)`. `@RemoteContext('agent')` remains the distinct scoped-receiver mode.
+The shipped vertical path is `@deepseek-ai/dsh-goal/remote → Browser Client API → Connection RPC /api → Host Gateway → GoalService.remoteExportCreate()`. The same direct descriptor with an Agent lookup supports both `ctx.api.goals.create(agentId, request)` and `agentCtx.goals.create(request)`. Ordinary cold sessions are resumed through `agentFor()` during lookup, while subagent-owned identities retain the existing `agent-busy` fence; `@RemoteContext('agent')` remains the distinct scoped-receiver mode.
 
 Connection supplies the shared-channel interceptor and current HTTP carrier mapping. WebSocket migration, the TUI runtime and carrier, TUI Agent Scope wiring, Permission/Approval state machines, Session event streams, call authorization, retries, idempotency, and cross-version protocol compatibility remain outside this decision.
 
@@ -486,6 +489,7 @@ Connection supplies the shared-channel interceptor and current HTTP carrier mapp
 - Importing `@deepseek-ai/dsh-goal/remote` adds the strict `api.goals.create(...)` type and declaration navigation to `remoteExportCreate`; omitting that import omits the namespace.
 - Mounting the same import's JS contribution supplies endpoint, parameter, result, lookup, Context, and Zod reflection and materializes the call without a handwritten stub.
 - Root and Agent-scoped calls cross the real shared `/api` carrier, resolve `agentId` to the live Agent, invoke the original Goal receiver, and return through the existing RPC envelope.
+- Agent and Session lookups share a single in-flight cold-session resume; ordinary cold sessions receive restored objects, while both cold and live subagent identities return `agent-busy` before business invocation.
 - The Remote artifacts and maps contain only marked methods and no Browser dependency, preserving the same consumer boundary for a future TUI.
 - Lifecycle tests withdraw and remount descriptors, Services, lookups, Context providers, and Client namespaces; unavailable dependencies fail without stale calls or raw-ID fallback.
 - Cancellation tests cover strict generation, SRC final-name recognition, Client signal fusion, Connection-to-Gateway propagation, and Host injection outside wire `args`.
@@ -514,3 +518,5 @@ Remote endpoints use Connection's `trusted-host` authority. Loopback is accepted
 `hasSeen()` favors strict-definition safety over SRC availability. While a strict descriptor is withdrawn, such as during HMR, the Gateway continues to claim the endpoint and reports it unavailable instead of falling back to a weak SRC descriptor. Re-registration restores it; only a TypeRT registry restart forgets the historical strict definition.
 
 Cancellation-aware Remote signatures receive Connection's request `AbortSignal`, so an HTTP disconnect or Client-side abort reaches ongoing business work without entering the JSON protocol. Cancellation remains cooperative: methods without the reserved final parameter continue running, and a method that receives the signal must pass it to its own cancellable operations or observe it directly.
+
+Lookup configuration currently operates at key granularity, so every `agent` or `session` parameter uses the same cold-resume policy. A specific Remote that requires live-only semantics must wait for an explicit per-parameter or per-endpoint policy; the business implementation cannot be left to guess whether the object was just resumed.

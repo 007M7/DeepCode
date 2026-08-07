@@ -9,6 +9,7 @@ import {
   bindTypeRTGateway,
   Remote,
   RemoteContext,
+  TypeRTLookupFailure,
   type InvocationDescriptor,
   type TypeRTContext,
   type TypeRTLookup,
@@ -91,7 +92,7 @@ class GoalService extends Service {
 
 type FakeRpcResult =
   | { readonly ok: true; readonly value: unknown }
-  | { readonly ok: false; readonly error: { readonly code: 'internal'; readonly message: string; readonly details: object } }
+  | { readonly ok: false; readonly error: { readonly code: string; readonly message: string; readonly details: object } }
 
 type FakeRpcHandler = (endpoint: string, payload: unknown, signal: AbortSignal) => Promise<FakeRpcResult>
 
@@ -568,7 +569,7 @@ describe('TypertGatewayService', () => {
     registerStrict(ctx, [createDescriptor()])
     const throwing = ctx.typert.lookups.register('gatewayFixture', {
       ...agentLookup({ id: 'agent-1' }),
-      resolve: () => { throw new Error('lookup failed') },
+      resolve: async () => { throw new Error('lookup failed') },
     })
     const failure = await expectCode(ctx.typertGateway.invoke({
       namespace: 'goals',
@@ -578,15 +579,26 @@ describe('TypertGatewayService', () => {
     expect(failure.cause).toEqual(new Error('lookup failed'))
     await throwing()
 
-    ctx.typert.lookups.register('gatewayFixture', {
+    const missing = ctx.typert.lookups.register('gatewayFixture', {
       ...agentLookup({ id: 'agent-1' }),
-      resolve: () => undefined,
+      resolve: () => Promise.resolve(undefined),
     })
     await expectCode(ctx.typertGateway.invoke({
       namespace: 'goals',
       method: 'create',
       args: { agentId: 'agent-1', request: { title: 'ship' } },
     }), 'lookup-not-found')
+    await missing()
+
+    ctx.typert.lookups.register('gatewayFixture', {
+      ...agentLookup({ id: 'agent-1' }),
+      resolve: async id => ({ id }),
+    })
+    await expect(ctx.typertGateway.invoke({
+      namespace: 'goals',
+      method: 'create',
+      args: { agentId: 'agent-1', request: { title: 'ship' } },
+    })).resolves.toMatchObject({ agentId: 'agent-1', title: 'ship' })
   })
 
   it('never downgrades an observed strict endpoint after definition disposal', async () => {
@@ -966,6 +978,30 @@ describe('TypertGatewayService', () => {
 
     await gatewayFiber.dispose()
     expect(connection.handler).toBeUndefined()
+  })
+
+  it('preserves a lookup policy rejection through the Connection RPC result', async () => {
+    const ctx = new Context()
+    await ctx.plugin(TypertRegistry)
+    await ctx.plugin(FakeConnectionService)
+    await ctx.plugin(TypertGatewayService)
+    await ctx.plugin(GoalService)
+    registerStrict(ctx, [createDescriptor()])
+    const failure = {
+      code: 'agent-busy',
+      message: 'session is owned by subagent routing',
+      details: { reason: 'use subagent delivery for this child session' },
+    }
+    ctx.typert.lookups.register('gatewayFixture', {
+      ...agentLookup({ id: 'agent-1' }),
+      resolve: () => { throw new TypeRTLookupFailure(failure) },
+    })
+    const handler = rawConnection(ctx).handler
+    if (handler === undefined) throw new Error('fixture Connection did not retain the /api interceptor')
+
+    await expect(handler('goals/create', {
+      args: { agentId: 'agent-1', request: { title: 'ship' } },
+    }, new AbortController().signal)).resolves.toEqual({ ok: false, error: failure })
   })
 
   it('caches SRC ownership until the Cordis Service set changes', async () => {

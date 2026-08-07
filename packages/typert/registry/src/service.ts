@@ -20,6 +20,7 @@ import type {
   TypeRTLookupDefinition,
   TypeRTLookupMap,
   TypeRTLookupProvider,
+  TypeRTLookupResolver,
   TypeRTLookupRegistry,
   TypeRTLookupWire,
   TypeRTRemoteContribution,
@@ -213,6 +214,7 @@ class RemoteStore {
 
 class LookupStore {
   private readonly providers = new Map<string, ProviderEntry<TypeRTLookupProvider>>()
+  private readonly resolvers = new Map<string, ProviderEntry<LookupResolverEntry>>()
   private readonly definitions = new Map<string, TypeRTLookupDefinition>()
   private readonly changes: ChangeSource
 
@@ -229,11 +231,59 @@ class LookupStore {
           TypeRTLookupWire<TypeRTLookupMap[K]>
         >,
       ) => this.register(ctx, key, provider),
-      get: key => this.providers.get(key)?.provider,
+      configure: <K extends Extract<keyof TypeRTLookupMap, string>>(
+        key: K,
+        resolver: TypeRTLookupResolver<
+          TypeRTLookupHost<TypeRTLookupMap[K]>,
+          TypeRTLookupWire<TypeRTLookupMap[K]>
+        >,
+      ) => this.configure(ctx, key, resolver),
+      get: key => this.get(key),
       definitions: () => [...this.definitions.values()],
       keys: () => [...this.providers.keys()],
       subscribe: listener => this.changes.subscribe(ctx, listener),
     }
+  }
+
+  private get(key: string): TypeRTLookupProvider | undefined {
+    const provider = this.providers.get(key)?.provider
+    if (provider === undefined) return undefined
+    const resolver = this.resolvers.get(key)?.provider
+    if (resolver === undefined) return provider
+    return {
+      parameter: provider.parameter,
+      wire: provider.wire,
+      hostTypeSymbol: provider.hostTypeSymbol,
+      wireTypeSymbol: provider.wireTypeSymbol,
+      resolve: id => resolver.resolve(id),
+    }
+  }
+
+  private configure<Host, Wire>(
+    ctx: Context,
+    key: string,
+    resolver: TypeRTLookupResolver<Host, Wire>,
+  ): TypeRTDisposer {
+    validateSegment('lookup key', key)
+    if (this.resolvers.has(key)) throw new Error(`typert: lookup "${key}" resolver is already configured`)
+    const owner = {}
+    // The map erases each merge-declared Wire type; restore it only at the
+    // typed configure() boundary so strict function variance remains sound.
+    const entry: ProviderEntry<LookupResolverEntry> = {
+      provider: { resolve: async id => resolver(id as Wire) },
+      owner,
+    }
+    const { resolvers, changes } = this
+    return ctx.effect(function* () {
+      resolvers.set(key, entry)
+      changes.emit({ kind: 'lookup', key })
+      yield () => {
+        /* v8 ignore next -- duplicate configuration is rejected, so this effect remains the key's unique owner. */
+        if (resolvers.get(key) !== entry) return
+        resolvers.delete(key)
+        changes.emit({ kind: 'lookup', key })
+      }
+    }, `typert.lookups.configure(${JSON.stringify(key)})`)
   }
 
   private register<Host, Wire>(ctx: Context, key: string, provider: TypeRTLookupProvider<Host, Wire>): TypeRTDisposer {
@@ -269,6 +319,10 @@ class LookupStore {
       }
     }, `typert.lookups.register(${JSON.stringify(key)})`)
   }
+}
+
+interface LookupResolverEntry {
+  resolve(id: unknown): Promise<unknown>
 }
 
 function lookupDefinitionEquals(left: TypeRTLookupDefinition, right: TypeRTLookupDefinition): boolean {

@@ -114,7 +114,7 @@ interface InvocationDescriptor {
 
 ## TypeRT registry
 
-`ctx.typert` separates current-environment descriptors, explicitly selected Remote contributions, live lookup providers, and scoped Context providers. Registrations are Cordis-owned effects and return awaitable disposers.
+`ctx.typert` separates current-environment descriptors, explicitly selected Remote contributions, lookup providers, and scoped Context providers. A lookup provider owns the stable wire declaration and default resolver; Host composition can configure an effect-scoped synchronous or asynchronous resolver for the same key, and unloading that configuration restores the default policy. Registrations are Cordis-owned effects and return awaitable disposers.
 
 ```ts type-equiv
 /** Minimal TypeRT runtime consumed through dependency inversion. */
@@ -135,7 +135,7 @@ interface TypeRTRemoteNamespaceMap {}
 
 ## Host Gateway
 
-Connection decodes its carrier envelope before calling `ctx.typertGateway`. The request carries exact named wire fields and the carrier's cancellation signal separately; infrastructure and boundary failures use the Gateway's in-process error taxonomy, although the current RPC adapter folds them into the transport's `internal` error code.
+Connection decodes its carrier envelope before calling `ctx.typertGateway`. The request carries exact named wire fields and the carrier's cancellation signal separately; infrastructure and boundary failures use the Gateway's in-process error taxonomy, ordinary exceptions are folded by the RPC adapter into the transport's `internal` error code, and existing RPC errors carried by lookup policy through `TypeRTLookupFailure` are returned unchanged.
 
 ```ts type-equiv
 /** One Remote method request after a carrier has decoded its envelope. */
@@ -180,7 +180,7 @@ interface TypertGateway {
    * Invoke one live Remote method without assuming a carrier or response envelope.
    * @param request - decoded endpoint and named wire arguments.
    * @returns the validated business result.
-   * @throws {@link TypertGatewayError} for dispatch, provider, or boundary failures; business errors retain their identity.
+   * @throws {@link TypertGatewayError} for dispatch, provider, or boundary failures; lookup-policy and business errors retain identity.
    */
   invoke(request: InvokeRemoteRequest): Promise<unknown>
 }

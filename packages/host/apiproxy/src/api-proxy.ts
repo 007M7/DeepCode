@@ -19,6 +19,9 @@ import { SessionQueryError, type SessionSearchCursor } from '@deepseek-ai/dsh-se
 import { SubagentError } from '@deepseek-ai/dsh-subagent'
 import type { SubagentListEntry as CatalogSubagentListEntry } from '@deepseek-ai/dsh-subagent'
 import type { Workspace, WorkspaceRecord } from '@deepseek-ai/dsh-workspace'
+import { TypeRTLookupFailure } from '@deepseek-ai/dsh-type-meta'
+// Type-only: resolves the optional `ctx.typert` lookup-policy composition.
+import type {} from '@deepseek-ai/dsh-typert-registry'
 import {
   workspaceDomainState, workspaceRecord, WorkspaceId as brandWorkspaceId,
   WorkspaceMoveInvalidError, WorkspaceUnknownSessionError,
@@ -1098,6 +1101,21 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       return { error: { code: 'internal', message: `resume failed for session "${sessionId}": ${String(error)}`, details: {} } }
     }
   }
+
+  // Remote object parameters use the same identity policy as API Proxy methods:
+  // ordinary cold sessions resume once, while subagent-owned identities retain
+  // their stable caller-facing rejection. The provider packages continue to
+  // own wire declarations and live-only defaults; this Host composition owns
+  // the broader lookup policy.
+  ctx.inject(['typert'], (typeCtx) => {
+    const resolveAgent = async (sessionId: SessionId): Promise<Agent> => {
+      const found = await agentFor(sessionId)
+      if ('error' in found) throw new TypeRTLookupFailure(found.error)
+      return found.agent
+    }
+    typeCtx.typert.lookups.configure('agent', resolveAgent)
+    typeCtx.typert.lookups.configure('session', async sessionId => (await resolveAgent(sessionId)).session)
+  })
 
   type SessionReadState = {
     id: SessionId

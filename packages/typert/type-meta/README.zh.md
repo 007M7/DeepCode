@@ -20,7 +20,7 @@ Host 方法通过将 `signal: AbortSignal` 声明为最后一个参数来启用�
 
 业务包扩展 `TypeRTLookupMap` 和 `TypeRTContextMap`，以关联 Host 对象或作用域 Context 与其协议身份。生成的产物扩展 `TypeRTRemoteMap`、`TypeRTRemoteContextMap` 和 `TypeRTRemoteNamespaceMap`，使 Client 导入后仅暴露选定的 Remote 方法。`InvocationDescriptor` 是供注册表、Gateway 和 Client API 使用的共享运行时形式。
 
-查找包与 Context 包同时负责其契约的两侧：声明合并提供静态关联，运行时提供方则向 `ctx.typert` 注册身份解析。严格编解码器携带生成的 schema；`src-json` 编解码器标识约束更弱的源码启动路径。
+查找包与 Context 包同时负责其契约的两侧：声明合并提供静态关联，运行时提供方则向 `ctx.typert` 注册身份解析。lookup provider 提供稳定声明与默认 resolver，Host 组合可以另行配置同步或异步 resolver；策略拒绝可用 `TypeRTLookupFailure` 携带由边界适配器拥有的失败值。严格编解码器携带生成的 schema；`src-json` 编解码器标识约束更弱的源码启动路径。
 
 ## 模型体验
 

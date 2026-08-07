@@ -8,7 +8,7 @@ This is the current-state reference for the TypeRT API Gateway. It describes how
 
 Business services use `@Remote` or `@RemoteContext` to select the methods exposed to the Client. Unmarked methods do not enter the generated Client types or runtime contributions and cannot be called through `ctx.api`.
 
-`@Remote` denotes calling a Cordis service registered on the root Host Context. Complex Host objects cannot cross the wire directly; the business package must declare their association with a wire identity through `TypeRTLookupMap` and register a resolution provider with `ctx.typert.lookups` at runtime. For example, an `Agent` parameter named `agent` in the Host signature produces an `agentId` wire field, and the Gateway resolves that id to the current live object before invoking the business method.
+`@Remote` denotes calling a Cordis service registered on the root Host Context. Complex Host objects cannot cross the wire directly; the business package must declare their association with a wire identity through `TypeRTLookupMap` and register a default resolution provider with `ctx.typert.lookups` at runtime. For example, an `Agent` parameter named `agent` in the Host signature produces an `agentId` wire field, and the Gateway resolves that id to a Host object before invoking the business method. Host composition can use `ctx.typert.lookups.configure()` to override the resolution policy for a lookup key without changing the parameter name, wire field, or canonical type symbol owned by the business package.
 
 `@RemoteContext(key)` first resolves an identity to a scoped Context through `ctx.typert.contexts`, then obtains the service from that Context and invokes the method. It applies when the method itself depends on scoped composition and does not need to receive objects such as `Agent` explicitly.
 
@@ -117,6 +117,8 @@ The Connection performs the unified trust check for `/api` before the HTTP bridg
 
 For every call, the Gateway resolves the descriptor and live service from the current registries instead of caching business objects. It requires the fields in `args` to match the descriptor exactly, validates wire values with codecs, resolves objects or receivers through registered lookup or Context providers, invokes the service method targeted by the binding, and validates the return value. A missing provider, unknown identity, binding mismatch, missing or extra argument, schema failure, or missing method fails at the boundary before entering or after leaving business code.
 
+The lookup provider's `register()` supplies both the stable declaration and the default resolver; `configure()` supplies a resolver owned by Host composition that may execute asynchronously and is scoped to an effect lifetime. Configuration may precede provider mounting; without a provider, invocation still fails with `lookup-unavailable`, and unloading the configuration restores the provider's default policy. The standard Web Host's API Proxy configures the same `agentFor()` semantics for `agent` and `session`: it reuses a live Agent, automatically resumes ordinary cold sessions, deduplicates concurrent resumes, and rejects identities owned by subagent routing; the `session` lookup returns that Agent's Session. Resume failures and ownership fences pass through unchanged as existing RPC errors rather than being collapsed into the Gateway's `internal` error.
+
 Unloading a Client contribution removes its descriptors and concrete methods together, aborts its in-flight calls, and makes stale method handles retained by external code reject further calls. A strict endpoint withdrawn on the Host also does not degrade to SRC inference, preventing a hot unload from silently weakening validation.
 
 ## SRC development fallback
@@ -155,3 +157,5 @@ The running Client watcher consumes these generated files when it rebundles; wit
 ## Boundaries
 
 Remote handles only unary method calls with one request and one result. Session event streams, pagination, incremental reduce, projection, and entity substreams require a separate data protocol and registration model; even when they reuse the Connection, they must not masquerade as Remote methods or enter invocation descriptors.
+
+Lookup policy is currently configured per key, so all `agent` or `session` parameters share the cold-resume behavior. If a Remote endpoint must accept live objects only, an explicit per-parameter or per-endpoint policy must be added later; the business method must not guess whether the object came from restoration.

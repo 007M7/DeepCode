@@ -154,13 +154,15 @@ descriptor 只存在于两端本地 registry。wire 上只有 `/api` channel、e
 ```text
 ctx.typert.local     当前进程自己的 Host 或 Client reflection
 ctx.typert.remotes   消费端显式 mount 的对端 Remote contribution
-ctx.typert.lookups   wire ID 到 Host 活对象的 provider
+ctx.typert.lookups   wire ID 到 Host 对象的 provider 与组合策略
 ctx.typert.contexts  Host Context resolver 与 Client Context binder
 ```
 
 每次注册都返回由调用方 Cordis fiber 持有的 disposer。挂载 Client contribution 时，descriptor 集与具体方法会作为一项有明确所有者的操作统一注册。Host Gateway 只缓存 SRC 所认领的 endpoint 名称集合，并在 Cordis Service 集合发生变化时整体丢弃该集合；它不保留 descriptor、Service 或提供方。调用时会从当前状态解析所有活对象，因此移除 strict definition、Service 或提供方会使相应调用不可用，且不会留下陈旧的活对象。
 
 lookup 注册表会在活 resolver 卸载后保留稳定的 wire 声明。SRC 解析仍会把该参数归类为 lookup，而调用会以 `lookup-unavailable` 失败；系统绝不会把传入的 ID 重新归类为普通 JSON 业务对象。在同一个 TypeRT Service 的生命周期内，以不同参数、wire 或规范类型 symbol 重新注册同一 key 会直接失败。
+
+业务对象包通过 `register()` 拥有稳定声明和默认 resolver；Host 组合通过 `configure()` 为同一个 key 提供 effect-scoped 异步策略。配置可以先于 provider 注册，但没有活 provider 时不会单独形成可用 lookup；配置卸载后恢复 provider 默认 resolver。标准 Web Host 的 API Proxy 为 `agent` 和 `session` 配置同一套 `agentFor()`：live Agent 直接复用，普通冷会话自动恢复，并发恢复按 Session ID 去重，subagent ownership fence 则返回既有 `agent-busy`。`session` resolver 返回解析所得 Agent 的 Session，因而两种参数不会产生两套恢复生命周期。
 
 Registry 的 Host 根入口拥有完整 `TypeRTService` interface merge；Host 与 Client 共用的 registry 实现位于无环境声明的独立模块。Registry `/client` 入口只引用该共享实现，不经过 Host 根入口，因此不会把 Host Cordis 声明带入 Client Program。
 
@@ -432,7 +434,7 @@ ctx.api.goals.create(sessionId, request, signal?)
 → Client result codec 验证并返回 CreateGoalResult
 ```
 
-Remote 不定义第二层 `{ ok, value/error }` response。成功值和 Gateway 错误直接使用既有 RPC response 的 `result`。当前 adapter 把所有 Gateway 与业务调用失败转换为既有 `RpcError` envelope，并统一使用 `code: 'internal'`；Gateway 的结构化错误分类仅在进程内保留，诊断信息则通过 message 跨 Connection 传递。
+Remote 不定义第二层 `{ ok, value/error }` response。成功值和 Gateway 错误直接使用既有 RPC response 的 `result`。adapter 把普通 Gateway 与业务调用失败转换为既有 `RpcError` envelope，并统一使用 `code: 'internal'`；resolver 通过 `TypeRTLookupFailure` 携带的既有 RPC error 则原样返回，使冷恢复失败和 ownership fence 保持稳定错误码。Gateway 的结构化错误分类仅在进程内保留，诊断信息则通过 message 跨 Connection 传递。
 
 Gateway 不处理逐方法权限、调用者身份、幂等或长连接状态。它只把 Connection 的协作式取消传播给显式支持取消的业务方法。TypeRT endpoint 使用 Connection 的 trusted-host 策略；未认领 endpoint 保留旧 API Proxy 的 trust 和 privileged-method 策略。Connection/WebSocket 迁移后续独立完成。
 
@@ -451,11 +453,12 @@ Gateway 只向 Connection 注册 ownership matcher 和 RPC handler，不注册 H
 - `@deepseek-ai/dsh-client-remotes`：Client 业务唯一依赖的 Remote facade；直接依赖 Gateway Client face，选择 `/remote` contributions，并向业务包传递合并后的 API 类型。
 - Connection：拥有唯一 HTTP Server/未来 WebSocket carrier、共享 `/api` route 与复合 FetchHandler、API Proxy 回退、RPC envelope、rpcId、序列化、trust 和错误传输。
 - Agent/Session 等业务对象包：拥有 lookup、Context provider、唯一 ID 类型和纯类型公共出口。
+- API Proxy Host 组合：用既有 `agentFor()` 配置 `agent`/`session` lookup 的冷恢复、并发去重和 subagent ownership 策略。
 - 业务 Service 包：声明 binding、Remote 方法及其 request/result 类型，并导出生成的 `/remote` 子路径。
 
 ## 已交付范围与后续工作
 
-已交付的纵向链路是 `@deepseek-ai/dsh-goal/remote → Browser Client API → Connection RPC /api → Host Gateway → GoalService.remoteExportCreate()`。同一个带 Agent lookup 的 direct descriptor 同时支持 `ctx.api.goals.create(agentId, request)` 与 `agentCtx.goals.create(request)`。`@RemoteContext('agent')` 仍是独立的 scoped receiver 模式。
+已交付的纵向链路是 `@deepseek-ai/dsh-goal/remote → Browser Client API → Connection RPC /api → Host Gateway → GoalService.remoteExportCreate()`。同一个带 Agent lookup 的 direct descriptor 同时支持 `ctx.api.goals.create(agentId, request)` 与 `agentCtx.goals.create(request)`。普通冷会话在 lookup 时通过 `agentFor()` 恢复，subagent-owned identity 保持既有 `agent-busy` fence；`@RemoteContext('agent')` 仍是独立的 scoped receiver 模式。
 
 Connection 提供共享 channel interceptor 与当前 HTTP carrier 映射。WebSocket 迁移、TUI runtime 与 carrier、TUI Agent Scope 接线、Permission/Approval 状态机、Session 事件流、调用授权、重试、幂等及跨版本协议兼容均不属于本决策。
 
@@ -486,6 +489,7 @@ Connection 提供共享 channel interceptor 与当前 HTTP carrier 映射。WebS
 - 导入 `@deepseek-ai/dsh-goal/remote` 会加入严格的 `api.goals.create(...)` 类型，并可通过 declaration 导航到 `remoteExportCreate`；不导入时不会出现该 namespace。
 - 挂载同一次 import 得到的 JS contribution 会提供 endpoint、参数、结果、lookup、Context 和 Zod 反射，并在无需手写 stub 的情况下实体化调用。
 - Root 与 Agent-scoped 调用会经过真实的共享 `/api` carrier，将 `agentId` 解析为活 Agent，调用原始 Goal receiver，并通过既有 RPC envelope 返回。
+- Agent 与 Session lookup 会共享同一次并发冷恢复；普通冷会话得到恢复后的对象，冷态或 live subagent identity 均在业务调用前返回 `agent-busy`。
 - Remote 产物与 map 仅包含已标记的方法，不依赖 Browser，从而为未来 TUI 保留相同的消费方边界。
 - 生命周期测试会撤回并重新挂载 descriptor、Service、lookup、Context 提供方和 Client namespace；依赖不可用时，调用会失败，且不会使用陈旧调用或回退原始 ID。
 - 取消测试覆盖严格生成、SRC 末位参数名识别、Client signal 合并、Connection 到 Gateway 的传播，以及 Host 在 wire `args` 之外的注入。
@@ -514,3 +518,5 @@ Remote endpoint 使用 Connection 的 `trusted-host` authority。系统默认接
 `hasSeen()` 优先保障 strict definition 的安全性，而非 SRC 可用性。strict descriptor 撤回时（例如 HMR 期间），Gateway 会继续认领 endpoint 并报告不可用，而不会回退到弱 SRC descriptor。重新注册即可恢复；只有重启 TypeRT 注册表才会忘记历史 strict definition。
 
 支持取消的 Remote 签名会接收 Connection 请求的 `AbortSignal`，因此 HTTP 断连或 Client 侧 abort 能在不进入 JSON 协议的情况下传递到正在进行的业务工作。取消仍是协作式的：没有保留末位参数的方法会继续运行；收到 signal 的方法必须将它传给自身支持取消的操作，或自行观测它。
+
+lookup 配置当前以 key 为粒度，因此每个 `agent` 或 `session` 参数都采用同一套冷恢复策略。需要 live-only 语义的特定 Remote 必须等待显式的逐参数或逐 endpoint 策略，不能靠业务实现猜测对象是否刚被恢复。

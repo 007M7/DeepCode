@@ -18,6 +18,25 @@ export function isTypeRTRemoteSegment(value: string): boolean {
   return value !== '.' && value !== '..' && TYPERT_REMOTE_SEGMENT_PATTERN.test(value)
 }
 
+/**
+ * A lookup policy rejection whose typed payload belongs to the active boundary adapter.
+ * Gateway adapters preserve this payload instead of collapsing it into an infrastructure failure.
+ */
+export class TypeRTLookupFailure<Failure = unknown> extends Error {
+  /** Adapter-owned failure returned to the caller. */
+  readonly failure: Failure
+
+  /**
+   * Wrap one adapter failure without exposing the rejected identity.
+   * @param failure - typed failure owned by the active boundary adapter.
+   */
+  constructor(failure: Failure) {
+    super('TypeRT lookup policy rejected the requested identity')
+    this.name = 'TypeRTLookupFailure'
+    this.failure = failure
+  }
+}
+
 export type {
   InvocationDescriptor,
   InvocationParameterDescriptor,
@@ -36,6 +55,7 @@ export type {
   TypeRTLookupHost,
   TypeRTLookupMap,
   TypeRTLookupProvider,
+  TypeRTLookupResolver,
   TypeRTLookupRegistry,
   TypeRTLookupWire,
   TypeRTRemoteContextApi,

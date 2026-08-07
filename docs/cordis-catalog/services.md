@@ -2593,7 +2593,7 @@ listPackages(filter: TypertPackageFilter = {}): TypertPackageRecord[]
 toJSONSchema(key: string, params?: z.core.ToJSONSchemaParams): z.core.JSONSchema.BaseSchema
 ```
 
-Source: [`packages/typert/registry/src/service.ts:346`](../../packages/typert/registry/src/service.ts)
+Source: [`packages/typert/registry/src/service.ts:400`](../../packages/typert/registry/src/service.ts)
 
 ## `ctx.typertGateway` — `TypertGatewayService`
 
@@ -2604,12 +2604,12 @@ Resolve strict generated definitions or conservative SRC markers against current
  * Invoke one live Remote method through strict generated reflection or SRC markers.
  * @param request - decoded endpoint and exact named wire arguments.
  * @returns the validated business result.
- * @throws {@link TypertGatewayError} for dispatch, provider, or boundary failures; business errors retain their identity.
+ * @throws {@link TypertGatewayError} for dispatch, provider, or boundary failures; lookup-policy and business errors retain identity.
  */
 async invoke(request: InvokeRemoteRequest): Promise<unknown>
 ```
 
-Source: [`packages/host/api-gateway/src/index.ts:76`](../../packages/host/api-gateway/src/index.ts)
+Source: [`packages/host/api-gateway/src/index.ts:78`](../../packages/host/api-gateway/src/index.ts)
 
 ## `ctx.userInteraction` — `UserInteractionService`
 

@@ -70,8 +70,6 @@ function isRemoteError(value: unknown): value is { readonly code: string; readon
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-goal: dictionaries')
 
-  const { goals } = ctx.api
-
   const sessions = ctx.sessions
 
   /** The session's current projected CAS ref, read at verb call time (no staleness fence: the RPC's CAS is the guard). */
@@ -96,22 +94,22 @@ export function apply(ctx: ClientContext): void {
       onEdit: async (objective) => {
         const ref = refOf(sessionId)
         if (ref === undefined) return noCurrentGoal
-        return settle(goals.edit(sessionId, ref, { objective }))
+        return settle(ctx.api.goals.edit(sessionId, ref, { objective }))
       },
       onPause: async () => {
         const ref = refOf(sessionId)
         if (ref === undefined) return noCurrentGoal
-        return settle(goals.pause(sessionId, ref))
+        return settle(ctx.api.goals.pause(sessionId, ref))
       },
       onResume: async () => {
         const ref = refOf(sessionId)
         if (ref === undefined) return noCurrentGoal
-        return settle(goals.resume(sessionId, ref))
+        return settle(ctx.api.goals.resume(sessionId, ref))
       },
       onClear: async () => {
         const ref = refOf(sessionId)
         if (ref === undefined) return noCurrentGoal
-        return settle(goals.clear(sessionId, ref))
+        return settle(ctx.api.goals.clear(sessionId, ref))
       },
     }),
   }, GoalDock))

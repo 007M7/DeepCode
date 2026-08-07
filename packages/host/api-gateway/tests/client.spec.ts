@@ -484,6 +484,27 @@ describe('Client TypeRT API', () => {
     await retry()
   })
 
+  it('withdraws a fresh direct namespace when its first method fails to install', async () => {
+    const ctx = await bench(vi.fn<ConnectionHandle['rpc']['call']>())
+    const defineProperty = Object.defineProperty
+    const spy = vi.spyOn(Object, 'defineProperty').mockImplementation((target, key, attributes) => {
+      if (key === 'create') throw new Error('fixture direct method installation failure')
+      return defineProperty(target, key, attributes)
+    })
+    try {
+      expect(() => ctx.api.mount({ package: '@fixture/direct-method-failure', descriptors: [directDescriptor()] }))
+        .toThrow('fixture direct method installation failure')
+    } finally {
+      spy.mockRestore()
+    }
+
+    expect((ctx.api as unknown as Record<string, unknown>).goals).toBeUndefined()
+    await vi.waitFor(() => { expect(ctx.typert.remotes.list()).toEqual([]) })
+    const retry = ctx.api.mount({ package: '@fixture/direct-method-retry', descriptors: [directDescriptor()] })
+    expect(ctx.api.goals.create).toBeTypeOf('function')
+    await retry()
+  })
+
   it('withdraws a fresh scoped Service when its first method fails to install', async () => {
     const ctx = await bench(vi.fn<ConnectionHandle['rpc']['call']>())
     const defineProperty = Object.defineProperty

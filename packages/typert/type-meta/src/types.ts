@@ -176,7 +176,16 @@ export interface TypeRTRemoteContribution {
   readonly descriptors: readonly InvocationDescriptor[]
 }
 
-/** Runtime resolver for one declared Host object lookup. */
+/**
+ * Resolve one validated wire identity, synchronously or asynchronously.
+ * @param id - validated wire identity.
+ * @returns the Host object, or `undefined` when unavailable.
+ */
+export type TypeRTLookupResolver<Host = unknown, Wire = unknown> = (
+  id: Wire,
+) => Host | undefined | Promise<Host | undefined>
+
+/** Runtime provider for one declared Host object lookup. */
 export interface TypeRTLookupProvider<Host = unknown, Wire = unknown> {
   /** Source parameter name recognized by the SRC weak parser. */
   readonly parameter: string
@@ -187,11 +196,11 @@ export interface TypeRTLookupProvider<Host = unknown, Wire = unknown> {
   /** Canonical wire type symbol used by strict generation. */
   readonly wireTypeSymbol: string
   /**
-   * Resolve a wire identity to the current live Host object.
+   * Resolve a wire identity through the provider's default policy.
    * @param id - validated wire identity.
-   * @returns the live object, or `undefined` when it is unavailable.
+   * @returns the object, `undefined` when unavailable, or either asynchronously.
    */
-  resolve(id: Wire): Host | undefined
+  resolve(id: Wire): Host | undefined | Promise<Host | undefined>
 }
 
 /** Stable wire declaration retained after a lookup provider unloads. */
@@ -300,6 +309,20 @@ export interface TypeRTLookupRegistry {
   register<K extends StringKeyOf<TypeRTLookupMap>>(
     key: K,
     provider: TypeRTLookupProvider<
+      TypeRTLookupHost<TypeRTLookupMap[K]>,
+      TypeRTLookupWire<TypeRTLookupMap[K]>
+    >,
+  ): TypeRTDisposer
+  /**
+   * Replace one provider's default resolution policy while this contribution is active.
+   * Configuration may precede provider registration; without a live provider, `get()` remains unavailable.
+   * @param key - lookup key whose wire declaration remains provider-owned.
+   * @param resolver - composition-owned resolver used by every lookup of this key.
+   * @returns disposer restoring the provider's default resolver.
+   */
+  configure<K extends StringKeyOf<TypeRTLookupMap>>(
+    key: K,
+    resolver: TypeRTLookupResolver<
       TypeRTLookupHost<TypeRTLookupMap[K]>,
       TypeRTLookupWire<TypeRTLookupMap[K]>
     >,

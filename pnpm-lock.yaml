@@ -3838,6 +3838,12 @@ importers:
       '@deepseek-ai/dsh-tools':
         specifier: workspace:^
         version: link:../../core/tools
+      '@deepseek-ai/dsh-type-meta':
+        specifier: workspace:^
+        version: link:../../typert/type-meta
+      '@deepseek-ai/dsh-typert-registry':
+        specifier: workspace:^
+        version: link:../../typert/registry
       '@deepseek-ai/dsh-user-approval':
         specifier: workspace:^
         version: link:../../ui/user-approval
