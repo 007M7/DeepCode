@@ -2,7 +2,7 @@ import { readFile, readdir, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { delimiter, dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import {
   normalizeSessionLog,
   normalizeStdout,
@@ -14,6 +14,10 @@ import {
   type NormalizeContext,
 } from '@deepseek-ai/dsh-acp-snapshot'
 import { LOADER_SMOKE_TEST_TIMEOUT_MS, runLoaderSmoke } from '@deepseek-ai/dsh-loader-smoke'
+import {
+  decompressZstdFrame,
+  scanZstdFrames,
+} from '@deepseek-ai/dsh-session-persistence-jsonl/src/zstd.ts'
 import { describe, expect, it } from 'vitest'
 
 const snapshotsDir = join(dirname(fileURLToPath(import.meta.url)), 'snapshots')
@@ -44,9 +48,15 @@ const ralphConfigPath = fileURLToPath(new URL('../ralph.cordis.snapshot.yml', im
 const startupFailureConfigPath = fileURLToPath(new URL('./fixtures/startup-activation-error/cordis.yml', import.meta.url))
 const startupFailureExpected = join(snapshotsDir, 'startup-activation-error', 'stderr.expected.txt')
 const binScript = fileURLToPath(new URL('../../../packages/examples/cli-demo/src/bin.ts', import.meta.url))
+const dshBinScript = fileURLToPath(new URL('../../../apps/cli/src/bin.ts', import.meta.url))
 const tsconfigPath = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
 const reasoningConfigPath = fileURLToPath(new URL('./fixtures/cli.cordis.yml', import.meta.url))
 const deepseekDefaultsConfigPath = fileURLToPath(new URL('./fixtures/deepseek-defaults.cordis.yml', import.meta.url))
+const dshRunOverlayPath = fileURLToPath(new URL('./fixtures/dsh-run.cordis.yml', import.meta.url))
+const dshRunSessionExpected = join(snapshotsDir, 'dsh-run', 'session.expected.jsonl')
+const cliMockLlmPluginUrl = pathToFileURL(
+  fileURLToPath(new URL('./fixtures/cli-mock-llm.ts', import.meta.url)),
+).href
 const refreshing = process.env.DSH_SNAPSHOT === 'refresh'
 
 interface JsonObject {
@@ -167,16 +177,61 @@ async function scenarioPrompt(dir: string, label: string): Promise<string> {
   return prompt
 }
 
-async function persistedLogs(cwd: string): Promise<PersistedLog[]> {
-  const root = join(cwd, '.sessions')
-  const files = (await readdir(root, { recursive: true })).filter(file => file.endsWith('.jsonl'))
+async function readPersistedLog(file: string): Promise<string> {
+  const content = await readFile(file)
+  if (!file.endsWith('.zstd')) return content.toString('utf8')
+  const scan = scanZstdFrames(content)
+  if (scan.tornStart !== undefined) throw new Error(`persisted snapshot log has a torn Zstandard frame: ${file}`)
+  const decoded: Buffer[] = []
+  for (const frame of scan.frames) {
+    decoded.push(await decompressZstdFrame(content.subarray(frame.start, frame.end)))
+  }
+  return Buffer.concat(decoded).toString('utf8')
+}
+
+async function persistedLogs(cwd: string, root: string = join(cwd, '.sessions')): Promise<PersistedLog[]> {
+  const files = (await readdir(root, { recursive: true }))
+    .filter(file => file.endsWith('.jsonl') || file.endsWith('.jsonl.zstd'))
   return Promise.all(files.map(async (file) => {
-    const content = await readFile(join(root, file), 'utf8')
+    const content = await readPersistedLog(join(root, file))
     return { content, header: parseJsonl(content)[0] ?? {} }
   }))
 }
 
 describe('headless stream-json snapshots', () => {
+  it('runs one task through the product dsh run command', async () => {
+    const task = 'Prove the product dsh run path with one real tool round trip.'
+    const result = await runLoaderSmoke({
+      label: 'product dsh run snapshot',
+      tempDirPrefix: 'headless-snapshot-dsh-run-',
+      binScript: dshBinScript,
+      configPath: dshRunOverlayPath,
+      binArgs: ['run', '--patch', dshRunOverlayPath, task],
+      tsconfigPath,
+      env: {
+        DSH_RUN_MOCK_PLUGIN_URL: cliMockLlmPluginUrl,
+        DSH_PERMISSION_MODE: 'danger-full-access',
+        DSH_TELEMETRY_DISABLED: '1',
+        NODE_OPTIONS: [process.env.NODE_OPTIONS, '--disable-warning=ExperimentalWarning'].filter(Boolean).join(' '),
+      },
+      inspect: async (cwd) => {
+        const logs = await persistedLogs(cwd, join(cwd, '.dsh', 'sessions'))
+        expect(logs).toHaveLength(1)
+        const actual = logs[0]
+        if (actual === undefined) throw new Error('dsh run did not persist its session')
+        const context = contextFromLogs([actual.content])
+        const session = scrubRequestHeaders(normalizeSessionLog(actual.content, context))
+        if (refreshing) await writeFile(dshRunSessionExpected, session)
+        expect(session).toBe(await readFile(dshRunSessionExpected, 'utf8'))
+        expect(session).toContain(task)
+        expect(session).toContain('CLI tool round trip complete: CLI_TOOL_ROUND_TRIP')
+      },
+    })
+
+    expect(result.stdout).toBe('CLI tool round trip complete: CLI_TOOL_ROUND_TRIP\n')
+    expect(result.stderr).toMatch(/^dsh: observing at http:\/\/127\.0\.0\.1:\d+\n$/u)
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
   it('prints the original Loader activation error through the assembled one-shot app', async () => {
     const result = await runLoaderSmoke({
       label: 'headless startup activation error snapshot',

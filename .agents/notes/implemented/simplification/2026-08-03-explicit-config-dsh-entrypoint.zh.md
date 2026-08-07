@@ -1,4 +1,4 @@
-# Agent Note：显式配置的 dsh 入口
+# Agent Note: 显式配置的 dsh 入口
 
 Status: implemented
 

@@ -21,26 +21,45 @@ function stamped(event: ScriptedEvent): ScriptedEvent {
 
 interface RpcShapedRequest { rpcId: string }
 
+interface ScriptedApiOptions {
+  promptFails?: boolean
+  framesAfterPrompt?: boolean
+  onPrompt?: () => void
+}
+
 /** Build a fake apiProxy (echoing rpcIds like the real gateway) whose mux stream replays `events` for the created session. */
-function scriptedApi(events: ScriptedEvent[], options: { promptFails?: boolean } = {}): unknown {
+function scriptedApi(events: ScriptedEvent[], options: ScriptedApiOptions = {}): unknown {
+  let releaseFrames = (): void => {}
+  const framesReady = options.framesAfterPrompt === true
+    ? new Promise<void>((resolve) => { releaseFrames = resolve })
+    : Promise.resolve()
+  const prepared = events.map((event) => {
+    if (event.type === 'stream/error') return { streamError: true } as const
+    const { sessionId = 'S1', ...rest } = event
+    return { streamError: false, sessionId, event: stamped(rest) } as const
+  })
   return {
     sessions: {
       create: (request: RpcShapedRequest) =>
         Promise.resolve({ rpcId: request.rpcId, result: { ok: true, value: { sessionId: 'S1' } } }),
-      prompt: (request: RpcShapedRequest) => Promise.resolve(options.promptFails === true
-        // A code from the closed wire union: the carrier schema rejects invented codes.
-        ? { rpcId: request.rpcId, result: { ok: false, error: { code: 'agent-busy', message: 'agent is busy', details: { reason: 'test' } } } }
-        : { rpcId: request.rpcId, result: { ok: true, value: { accepted: true } } }),
+      prompt: (request: RpcShapedRequest) => {
+        releaseFrames()
+        options.onPrompt?.()
+        return Promise.resolve(options.promptFails === true
+          // A code from the closed wire union: the carrier schema rejects invented codes.
+          ? { rpcId: request.rpcId, result: { ok: false, error: { code: 'agent-busy', message: 'agent is busy', details: { reason: 'test' } } } }
+          : { rpcId: request.rpcId, result: { ok: true, value: { accepted: true } } })
+      },
     },
     events: {
       mux: async function* () {
-        for (const event of events) {
-          if (event.type === 'stream/error') {
+        await framesReady
+        for (const item of prepared) {
+          if (item.streamError) {
             yield { rpcId: 'e', payload: { type: 'stream/error', error: { code: 'cancelled', message: 'stream broke', details: {} } } }
             continue
           }
-          const { sessionId = 'S1', ...rest } = event
-          yield { rpcId: 'e', payload: { type: 'session/event', sessionId, event: stamped(rest) } }
+          yield { rpcId: 'e', payload: { type: 'session/event', sessionId: item.sessionId, event: item.event } }
         }
       },
     },
@@ -51,7 +70,10 @@ function scriptedApi(events: ScriptedEvent[], options: { promptFails?: boolean }
  * Mount the runner against a scripted API, emit the idle transition after the
  * scripted frames drain, and wait for its exit request.
  */
-async function run(events: ScriptedEvent[], options: { promptFails?: boolean } = {}): Promise<{ code: number; out: string; err: string }> {
+async function run(
+  events: ScriptedEvent[],
+  options: { promptFails?: boolean; framesAfterPrompt?: boolean; idleInPrompt?: boolean } = {},
+): Promise<{ code: number; out: string; err: string }> {
   const ctx = new Context()
   let out = ''
   let err = ''
@@ -63,16 +85,25 @@ async function run(events: ScriptedEvent[], options: { promptFails?: boolean } =
     }
     ctx.provide('headlessIo', io)
   })
-  ctx.provide('apiProxy', scriptedApi(events, options) as never)
+  const emitIdle = (): void => {
+    ctx.emit('agent/status', { agent: { id: 'S1', session: { seq: nextSeq + 1 } } as Agent, status: 'idle' })
+  }
+  ctx.provide('apiProxy', scriptedApi(events, {
+    ...options.promptFails === undefined ? {} : { promptFails: options.promptFails },
+    ...options.framesAfterPrompt === undefined ? {} : { framesAfterPrompt: options.framesAfterPrompt },
+    ...options.idleInPrompt === true ? { onPrompt: emitIdle } : {},
+  }) as never)
   ctx.provide('httpServer', { port: 12345 } as never)
   apply(ctx, { task: 'do the thing' })
   // Quiescence is out of band: give the scripted stream a beat to drain, then
   // flip the agent idle exactly as the loop would. Foreign agents and
   // non-idle transitions must not settle the run.
-  await new Promise(resolve => setTimeout(resolve, 10))
-  ctx.emit('agent/status', { agent: { id: 'OTHER' } as Agent, status: 'idle' })
-  ctx.emit('agent/status', { agent: { id: 'S1' } as Agent, status: 'running' })
-  ctx.emit('agent/status', { agent: { id: 'S1' } as Agent, status: 'idle' })
+  if (options.idleInPrompt !== true) {
+    await new Promise(resolve => setTimeout(resolve, 10))
+    ctx.emit('agent/status', { agent: { id: 'OTHER' } as Agent, status: 'idle' })
+    ctx.emit('agent/status', { agent: { id: 'S1' } as Agent, status: 'running' })
+    emitIdle()
+  }
   const code = await exited
   await ctx.fiber.dispose()
   return { code, out, err }
@@ -104,6 +135,15 @@ describe('headless runner', () => {
     expect(code).toBe(0)
     expect(out).toBe('final answer\n')
     expect(err).toContain('observing at http://127.0.0.1:12345')
+  })
+
+  it('consumes through the idle sequence when queued frames arrive after the status transition', async () => {
+    const { code, out } = await run(
+      [messageTurn, text(1, 'race-free answer'), end(1, 'completed')],
+      { framesAfterPrompt: true, idleInPrompt: true },
+    )
+    expect(code).toBe(0)
+    expect(out).toBe('race-free answer\n')
   })
 
   it('exits 1 when the final turn ends for any other reason', async () => {
@@ -168,7 +208,7 @@ describe('headless runner', () => {
     ctx.provide('httpServer', { port: 1 } as never)
     apply(ctx, { task: 't' })
     await new Promise(resolve => setTimeout(resolve, 10))
-    ctx.emit('agent/status', { agent: { id: 'S1' } as Agent, status: 'idle' })
+    ctx.emit('agent/status', { agent: { id: 'S1', session: { seq: nextSeq + 1 } } as Agent, status: 'idle' })
     expect(await exited).toBe(1)
     expect(err).toContain('event stream failed')
     await ctx.fiber.dispose()

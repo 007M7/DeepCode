@@ -509,7 +509,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/bundle/headless/src/index.ts:33`](../packages/bundle/headless/src/index.ts)
+Source: [`packages/bundle/headless/src/index.ts:32`](../packages/bundle/headless/src/index.ts)
 
 ## `@deepseek-ai/dsh-hooks-claude`
 
