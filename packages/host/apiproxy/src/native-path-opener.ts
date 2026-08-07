@@ -2,16 +2,13 @@
  * Cross-platform native path and text-document openers used by the local GUI
  * carrier.
  *
- * Under the default intent, a document a browser RENDERS is opened with the
- * user's default browser rather than the default application for its type,
- * when the platform can name one: a developer who binds `.html` to an editor
- * would otherwise click a produced page and get source code. The contract is
- * uniform — prefer the default browser, fall back to the default application —
- * while how completely a platform can answer "which browser" differs, and
- * every failure falls back rather than surfacing. The text-editor intent never
- * consults the browser: it exists to open the document's TEXT.
+ * The default intent prefers the default browser for documents it renders when
+ * the platform can name one, then falls back to the default application. WSL
+ * translates every path for the Windows desktop instead of assuming a Linux
+ * GUI. The text-editor intent never consults the browser.
  */
 
+import { release as osRelease } from 'node:os'
 import { extname } from 'node:path'
 import { runNativeCommand, type NativeCommandRunner } from '@deepseek-ai/dsh-native-command'
 
@@ -21,9 +18,11 @@ export type PathOpenerRunner = NativeCommandRunner
 /** Injectable platform facts for deterministic adapter tests. */
 export interface PathOpenerInternals {
   platform?: NodeJS.Platform
-  run?: PathOpenerRunner
-  /** Environment the linux browser convention reads; defaults to the process env. */
+  /** Kernel release override used to distinguish WSL from desktop Linux. */
+  osRelease?: string
+  /** Environment used for WSL markers and the desktop Linux browser convention. */
   env?: NodeJS.ProcessEnv
+  run?: PathOpenerRunner
 }
 
 /** Documents a browser renders, as opposed to ones an editor merely edits. */
@@ -86,6 +85,36 @@ function powershellLiteral(path: string): string {
   return `'${path.replace(/'/g, "''")}'`
 }
 
+/** Whether one environment marker is set to a non-empty value. */
+function present(value: string | undefined): boolean {
+  return value !== undefined && value !== ''
+}
+
+/** Distinguish WSL from desktop Linux using its process and kernel markers. */
+function isWsl(internals: PathOpenerInternals): boolean {
+  const env = internals.env ?? process.env
+  if (present(env.WSL_DISTRO_NAME) || present(env.WSL_INTEROP)) return true
+  return (internals.osRelease ?? osRelease()).toLowerCase().includes('microsoft')
+}
+
+/** Open one Windows-resolvable path through its registered desktop application. */
+async function openWindowsPath(path: string, signal: AbortSignal, run: PathOpenerRunner): Promise<void> {
+  await run('powershell.exe', [
+    '-NoProfile',
+    '-Command',
+    `Invoke-Item -LiteralPath ${powershellLiteral(path)}`,
+  ], signal)
+}
+
+/** Translate a WSL path before handing it to the Windows desktop. */
+async function openWslPath(path: string, signal: AbortSignal, run: PathOpenerRunner): Promise<void> {
+  const translated = await run('wslpath', ['-w', path], signal)
+  signal.throwIfAborted()
+  const windowsPath = translated.stdout.replace(/[\r\n]+$/, '')
+  if (windowsPath === '') throw new Error('wslpath returned no Windows path')
+  await openWindowsPath(windowsPath, signal, run)
+}
+
 /** Dispatch one shell-free platform command for the requested open intent. */
 async function openNativePathWithIntent(
   path: string,
@@ -96,8 +125,9 @@ async function openNativePathWithIntent(
   const platform = internals.platform ?? process.platform
   const run = internals.run ?? runNativeCommand
   const env = internals.env ?? process.env
+  const wsl = platform === 'linux' && isWsl(internals)
 
-  if (intent === 'default' && BROWSER_DOCUMENTS.has(extname(path).toLowerCase())
+  if (!wsl && intent === 'default' && BROWSER_DOCUMENTS.has(extname(path).toLowerCase())
     && await openInBrowser(path, signal, platform, run, env)) return
 
   if (platform === 'darwin') {
@@ -106,15 +136,15 @@ async function openNativePathWithIntent(
   }
 
   if (platform === 'win32') {
-    await run('powershell.exe', [
-      '-NoProfile',
-      '-Command',
-      `Invoke-Item -LiteralPath ${powershellLiteral(path)}`,
-    ], signal)
+    await openWindowsPath(path, signal, run)
     return
   }
 
   if (platform === 'linux') {
+    if (wsl) {
+      await openWslPath(path, signal, run)
+      return
+    }
     await run('xdg-open', [path], signal)
     return
   }

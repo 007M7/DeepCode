@@ -6,11 +6,13 @@
 import { tmpdir } from 'node:os'
 import { afterEach, expect, it } from 'vitest'
 import { canonicalPath, writableRoots } from '@deepseek-ai/dsh-sandbox'
+import { SessionId } from '@deepseek-ai/dsh-session'
 // Empty type imports carry the tools/sandboxPolicy/approval Context merges.
 import type {} from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import type {} from '@deepseek-ai/dsh-user-approval'
 import type {} from '@deepseek-ai/dsh-permission'
+import type {} from '@deepseek-ai/dsh-commands'
 import { launchWebScaffold, type WebScaffold } from './scaffold.ts'
 
 /**
@@ -79,4 +81,19 @@ it('assembles the shipped Web catalog with the confined access default', async (
   expect(scaffold.ctx.sandboxPolicy.defaultMode).toBe('workspace-write')
   expect(scaffold.ctx.approval.config.policy).toBe('ask')
   expect(scaffold.ctx.permission.defaultPreset).toBe('workspace-write')
+
+  const handle = await scaffold.ctx.agents.create({
+    sessionId: SessionId('shipped-command-catalog'),
+    meta: { cwd: scaffold.workspaceCwd },
+    agentOptions: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+  })
+  try {
+    expect(scaffold.ctx.commands.list(handle.agent)).toContainEqual({
+      name: 'feedback',
+      description: 'record feedback about this session',
+      input: { hint: '<text>' },
+    })
+  } finally {
+    await handle.dispose()
+  }
 }, 120_000)

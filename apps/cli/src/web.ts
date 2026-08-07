@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url'
 import type { Context } from 'cordis'
 import type { PatchOptions } from '@cordisjs/plugin-include'
 import { addHarnessSourceSection } from '@deepseek-ai/dsh-app-boot'
-import { runProfile } from './profile-boot.ts'
+import { runProfile, type ProfileRows } from './profile-boot.ts'
 
 const SOURCE_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 
@@ -71,7 +71,7 @@ export interface WebFlags {
  * @returns the flag patch list, in application order.
  */
 function deriveWebFlagPatches(
-  rows: Map<string, { name?: string; config?: unknown }>,
+  rows: ProfileRows,
   flags: WebFlags,
 ): PatchOptions[] {
   const overrides = new Map<string, Record<string, unknown>>()
@@ -106,6 +106,18 @@ function deriveWebFlagPatches(
 }
 
 /**
+ * Whether the composed Web runtime keeps its model- and shell-visible surface
+ * context. The bundle schema defaults the field to true, so only an explicit
+ * false suppresses both the bundle contributions and the launcher-owned
+ * source-checkout section.
+ * @param rows - the composed Web profile rows before launcher flag patches.
+ * @returns true unless the web-runtime row explicitly disables surface context.
+ */
+export function webSurfaceContextEnabled(rows: ProfileRows): boolean {
+  return (rows.get('web-runtime')?.config as { surfaceContext?: boolean } | undefined)?.surfaceContext !== false
+}
+
+/**
  * Serve the browser UI from the web profile. Host/port/workspace-root flags
  * are passed through only when given (absent, the composed profile values
  * stand); `web-runtime.mode` and `lanAddresses` are launcher-derived on
@@ -118,7 +130,8 @@ export async function runWeb(flags: WebFlags): Promise<void> {
     profile: 'web',
     patchFiles: flags.patches,
     deriveFlagPatches: rows => deriveWebFlagPatches(rows, flags),
-    prepare: (ctx: Context) => {
+    prepare: (ctx: Context, rows: ProfileRows) => {
+      if (!webSurfaceContextEnabled(rows)) return
       ctx.inject(['systemPrompt'], (promptCtx) => {
         addHarnessSourceSection(promptCtx, SOURCE_ROOT)
       })

@@ -57,6 +57,6 @@ ACP `StopReason` → harness `SubagentStopReason`：`end_turn`→`completed`、`
 
 每次运行都要付出一个全新子进程的代价（spawn + `initialize` + `newSession`）。父进程仅暴露子 agent 的最终回答：`session/update` 中的思考和工具调用卡片被消费后丢弃，权限提示从不到达人类——由配置的策略应答。子进程环境默认经过凭证清洗，因此其自身的模型密钥需通过 `config.env` 显式提供。
 
-## 后续提供方
+## 兄弟产品提供方
 
-同样的进程外启动/提示词/流式输出/取消形态可泛化到 seam Agent Note 中列出的其他传输方式——A2A、Codex app-server 和 Claude Code Agent SDK——每个都是按名称注册的兄弟提供方。ACP 后端证明了 seam 支持跨进程边界；其余在机制上类似。
+[Codex app-server 与 Claude Code Agent SDK 提供方](2026-08-04-claude-code-and-codex-subagent-backends.md)作为按名称注册的兄弟提供方，采用同样的进程外启动/提示词/结算/取消边界。A2A 仍是未来的兄弟传输方式；ACP 后端证明了通用 seam 能够支持这项边界，而无需负责产品私有协议。
