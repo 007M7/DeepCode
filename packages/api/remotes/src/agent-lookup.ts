@@ -20,8 +20,8 @@ export type ApiRemoteAgentResult =
 
 /** Resume configuration supplied by the owning Host composition. */
 export interface ApiRemoteAgentOptions {
-  /** Per-Agent defaults used when a cold identity must resume. */
-  readonly agentOptions?: AgentOptions
+  /** Read the per-Agent defaults when a cold identity must resume. */
+  readonly agentOptions?: () => AgentOptions
   /** Host-specific Agent-scope composition completed before publication. */
   readonly setup?: AgentSetup
 }
@@ -144,7 +144,7 @@ export function createApiRemoteAgentResolver(
           }
           const handle = await ctx.agents.resume({
             resumeSessionId: sessionId,
-            ...options.agentOptions === undefined ? {} : { agentOptions: options.agentOptions },
+            ...options.agentOptions === undefined ? {} : { agentOptions: options.agentOptions() },
             ...options.setup === undefined ? {} : { setup: options.setup },
           })
           return handle.agent

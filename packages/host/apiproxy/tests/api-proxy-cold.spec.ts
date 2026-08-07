@@ -206,7 +206,7 @@ describe('Remote Agent and Session lookup policy', () => {
     })
     const defaultAgentLookup = ctx.typert.lookups.get('agent')
     const defaultSessionLookup = ctx.typert.lookups.get('session')
-    createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
+    createApiProxy(ctx, { defaultTarget: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp', workspaceRoot: '/tmp' })
     await vi.waitFor(() => {
       expect(ctx.typert.lookups.get('agent')).not.toBe(defaultAgentLookup)
       expect(ctx.typert.lookups.get('session')).not.toBe(defaultSessionLookup)
@@ -250,7 +250,7 @@ describe('Remote Agent and Session lookup policy', () => {
     const resume = vi.spyOn(ctx.agents, 'resume')
     const defaultAgentLookup = ctx.typert.lookups.get('agent')
     const defaultSessionLookup = ctx.typert.lookups.get('session')
-    createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
+    createApiProxy(ctx, { defaultTarget: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp', workspaceRoot: '/tmp' })
     await vi.waitFor(() => {
       expect(ctx.typert.lookups.get('agent')).not.toBe(defaultAgentLookup)
       expect(ctx.typert.lookups.get('session')).not.toBe(defaultSessionLookup)
