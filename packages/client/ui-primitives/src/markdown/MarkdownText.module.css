@@ -242,22 +242,24 @@
   object-fit: contain;
 }
 
-/* Inline file mention: a real file named in prose is the same affordance as a
-   tool row's path link, so it reads the same — underlined at rest. */
+/* Inline file mention: the same link language this sheet gives anchors (and
+   thereby URL-promoted inline code) — link-blue at rest, underline only on
+   hover/focus. An underline at rest reads badly inside the code chip, where
+   it collides with monospace descenders and the pill background. */
 .fileMention {
   margin: 0;
   padding: 0;
   border: none;
   background: none;
   font: inherit;
-  color: var(--dsw-alias-label-secondary);
-  text-decoration: underline;
-  text-decoration-color: var(--dsw-alias-label-quaternary);
-  text-underline-offset: 3px;
+  color: var(--dsw-alias-state-business-primary);
+  text-decoration: none;
   cursor: pointer;
 }
 
-.fileMention:hover {
-  color: var(--dsw-alias-label-primary);
-  text-decoration-color: currentColor;
+.fileMention:hover,
+.fileMention:focus {
+  outline: none;
+  text-decoration: underline var(--dsw-alias-state-business-primary);
+  text-underline-offset: 3px;
 }
