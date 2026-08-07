@@ -1598,12 +1598,9 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       ))
     },
     clear(id: SessionId, ref: FxGoalRef): RpcResult<FxGoalRef> {
-      const missing = requireGoalSession(id)
-      if (missing !== undefined) return missing
-      const current = backscanGoal(logOf(id))
-      if (current === null || current.goal.id !== ref.id || current.goal.revision !== ref.revision) {
-        return goalFailure('stale or missing goal revision')
-      }
+      const resolved = resolveGoal(id, ref)
+      if (!resolved.ok) return resolved
+      const current = resolved.value
       const tombstone = { id: current.goal.id, revision: current.goal.revision + 1 }
       appendGoalChange(id, {
         kind: 'goal/change', version: 1, operation: 'clear', cleared: tombstone, clearedAt: Date.now(),
@@ -1612,18 +1609,26 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
     },
   }
 
-  /** Shared CAS mutation path behind the canonical Remote verbs. */
-  function mutateGoal(
-    id: SessionId,
-    ref: FxGoalRef,
-    next: (current: FxGoalProjection) => FxGoalProjection['goal'] | undefined,
-  ): RpcResult<FxGoalView> {
+  /** Resolve one current goal revision for a canonical Remote mutation. */
+  function resolveGoal(id: SessionId, ref: FxGoalRef): RpcResult<FxGoalProjection> {
     const missing = requireGoalSession(id)
     if (missing !== undefined) return missing
     const current = backscanGoal(logOf(id))
     if (current === null || current.goal.id !== ref.id || current.goal.revision !== ref.revision) {
       return goalFailure('stale or missing goal revision')
     }
+    return { ok: true, value: current }
+  }
+
+  /** Shared CAS mutation path behind the canonical Remote verbs. */
+  function mutateGoal(
+    id: SessionId,
+    ref: FxGoalRef,
+    next: (current: FxGoalProjection) => FxGoalProjection['goal'] | undefined,
+  ): RpcResult<FxGoalView> {
+    const resolved = resolveGoal(id, ref)
+    if (!resolved.ok) return resolved
+    const current = resolved.value
     const goal = next(current)
     if (goal === undefined) {
       return goalFailure(`invalid goal transition from "${current.goal.phase}"`)
