@@ -501,7 +501,7 @@ describe('running and lock semantics (queue cut 1)', () => {
     }
     // Pasted text lands below the fold: scroll down by exactly the overshoot.
     caretAt(500)
-    fireEvent.paste(textarea, { clipboardData: { getData: () => 'pasted' } })
+    fireEvent.paste(textarea, { clipboardData: { items: [], getData: () => 'pasted' } })
     await settle()
     expect(scroll.scrollTop).toBe(88) // 524 - 436
     // Measured on the mirror's own text, at the index the paste left the caret
@@ -510,12 +510,12 @@ describe('running and lock semantics (queue cut 1)', () => {
     expect(measured!.offset).toBe('pasted'.length)
     // A caret already inside the box does not move it.
     caretAt(200)
-    fireEvent.paste(textarea, { clipboardData: { getData: () => 'more' } })
+    fireEvent.paste(textarea, { clipboardData: { items: [], getData: () => 'more' } })
     await settle()
     expect(scroll.scrollTop).toBe(88)
     // Above the fold (a cut can leave it there): scroll back up.
     caretAt(60)
-    fireEvent.paste(textarea, { clipboardData: { getData: () => 'again' } })
+    fireEvent.paste(textarea, { clipboardData: { items: [], getData: () => 'again' } })
     await settle()
     expect(scroll.scrollTop).toBe(48) // 88 - (100 - 60)
     // A caret straight after a newline has nothing on its line to measure, so
@@ -523,7 +523,7 @@ describe('running and lock semantics (queue cut 1)', () => {
     // chromium reports no client rects at all for the collapsed position.
     mirror.style.lineHeight = '24px'
     caretAt(500)
-    fireEvent.paste(textarea, { clipboardData: { getData: () => 'block\n' } })
+    fireEvent.paste(textarea, { clipboardData: { items: [], getData: () => 'block\n' } })
     await settle()
     // The four pastes accumulate at the draft's head, so the caret is at the
     // end of what they inserted — and the measured index is the newline before it.
