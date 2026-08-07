@@ -131,4 +131,4 @@ compact/end      → log-only. Releases the lock (carries `error` on a recoverab
 - **循环测试：** 测试固定 pre-step 发生在前一个 `step/end` 之后、下一个 `step/start` 之前，使用实际 `agent/request` 路由，关闭失败步骤，分配新的重试编号，并覆盖完整的抛出/带内溢出 → 压缩 → 重建重试组合。
 - **手动测试：** 无需模型密钥即可固定 maintenance 串行化、标记顺序、注入保留、活动／陈旧未匹配标记分类、取消、闭合／flush 失败、命令映射以及排队 TUI 流程。
 - **带密钥 e2e：** 真实模型和 bash 会话在降低的限制下触发压缩，记录完整的 `compact/start…end` 对，缩小 surface，并完成任务。
-- **快照缺口：** 失控轮次压缩尚无法回放，因为摘要调用未记录 `assistant/chunk` 事件或 `sessionId`；交错摘要调用的回放仍是后续工作。
+- **快照缺口：** 摘要调用与会话关联并记录 `compact/summary`，但普通 transcript（文本记录）回放不会派生其辅助响应。[#1971](https://github.com/deepseek-harness/deepseek-harness/issues/1971) 跟踪一个带显式回放 override 的无密钥组装场景。

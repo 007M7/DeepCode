@@ -97,5 +97,5 @@
 - **`GenerateOptions` 采样只包含 `temperature`／`maxTokens`／`stop`**：没有 `tool_choice`、`top_p` 或 penalty 字段；有产生方落地时词汇才会增长（见 [已删除惰性旋钮](../../../.agents/notes/archived/simplification/2026-07-04-drop-inert-request-knobs.md)）。
 - **受产生方约束的变体在实际产生前不会加入**：`prefill`、每工具 `strict`、块 `cache` 提示与 `agent` 消息源变体因没有产生方而被剪除（见 [Agent Note](../../../.agents/notes/archived/simplification/2026-07-04-prune-producerless-vocabulary-variants.md)）。
 - **`BlockAssembler` 只处理核心块类型**：如果插件添加块类型的流从未由 `block-end` 关闭，`blocks()` 会抛出异常。
-- **`APP_IDENTITY.url` 指向一个尚不存在的仓库**：`FIXME`：创建公开 `deepseek-ai/deepseek-harness-sdk` 仓库是首次发布的前置条件。
+- **`APP_IDENTITY.url` 指向一个尚不存在的仓库**：[#1972](https://github.com/deepseek-harness/deepseek-harness/issues/1972) 跟踪在首次发布前让该公开主页可访问。
 - **`GenerateOptions.sessionId` 是本地声明的品牌类型**：导入 dsh-session 的 `SessionId` 会产生循环；未来拥有 id 的包可以消除该权宜之计。

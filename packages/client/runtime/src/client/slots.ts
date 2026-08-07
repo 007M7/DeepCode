@@ -19,7 +19,7 @@ import type { Context } from 'cordis'
 import { SlotCore } from '@deepseek-ai/dsh-client-ui-slots'
 import type {
   LocaleFace, OwnerOf, SlotEntryDef, SlotMap, SlotRenderer, SlotRendererHost,
-  SlotScope, SlotSpec, StoreDecl, StoredEntry, StoreInstanceLike,
+  SlotScope, SlotSpec, StoreDecl, StoreFactory, StoredEntry, StoreInstanceLike,
 } from '@deepseek-ai/dsh-client-ui-slots'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -35,16 +35,11 @@ export interface RootOwnerProps { children?: never }
 /** Instance key for root-scoped store records (session records key by session id, so the literal cannot collide). */
 const ROOT_INSTANCE_KEY = 'root'
 
-// FIXME(slot-parity): the engine's arbitrated persist extensions — create()
-// takes the scope key (per-session localStorage suffix) and instances expose
-// clearPersisted() — are not yet on ui-slots' StoreHandle/StoreInstanceLike;
-// these local structural faces bridge until fw-slots lifts them.
+/** Canonical type-erased store handle used by the runtime lifecycle map. */
+type EngineStoreHandle = Exclude<StoreDecl, StoreFactory>
 
-/** Store handle face as the engine actually ships it (scope-key-aware create). */
-interface EngineStoreHandle { create(scopeKey?: string): EngineStoreInstance }
-
-/** Engine instance face: the host-contract shape plus persisted-state cleanup. */
-interface EngineStoreInstance extends StoreInstanceLike { clearPersisted(): void }
+/** Canonical engine instance derived from the handle's create contract. */
+type EngineStoreInstance = ReturnType<EngineStoreHandle['create']>
 
 /** Store axis record: one per live handle, dropped when the last holding entry unloads. */
 interface StoreAxisRecord {
