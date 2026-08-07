@@ -246,15 +246,23 @@ describe('Croner calendar adapter', () => {
   })
 
   it('skips a sub-minute local-mean-time era before iterating dense safe-year matches', () => {
-    const record = createCronScheduleRecord(
+    const yearOne = createCronScheduleRecord(
+      ScheduleId('schedule-sub-minute-offset-year-one'),
+      'standard-time handoff',
+      '*/5 * * * *',
+      'Europe/Amsterdam',
+      Date.parse('0001-01-01T00:00:00.000Z'),
+    )
+    const yearOneHundred = createCronScheduleRecord(
       ScheduleId('schedule-sub-minute-offset'),
       'standard-time handoff',
       '*/5 * * * *',
       'Europe/Amsterdam',
       Date.parse('0100-01-01T00:00:00.000Z'),
     )
-    expect(new Date(record.scheduledAt).getUTCFullYear()).toBeGreaterThan(109)
-    expect(Math.abs(Date.parse(record.scheduledAt) % 60_000)).toBe(0)
+    expect(yearOne.scheduledAt).toBe(yearOneHundred.scheduledAt)
+    expect(new Date(yearOne.scheduledAt).getUTCFullYear()).toBeGreaterThan(109)
+    expect(Math.abs(Date.parse(yearOne.scheduledAt) % 60_000)).toBe(0)
   }, 1_000)
 
   it('selects the latest current match after a persisted baseline', () => {

@@ -815,12 +815,15 @@ function ownedLowYearCronInstant(
 function nextCronInstant(rule: ParsedCronRule, timeZone: string, after: number): number | undefined {
   if (!rule.hasMatchingDate) return undefined
   let cursor = after
+  const formatter = cronLocalFormatter(timeZone)
   if (new Date(after).getUTCFullYear() <= CRONER_LOW_YEAR_CUTOFF) {
     const lower = ownedLowYearCronInstant(rule, timeZone, after, 1)
     if (lower !== undefined) return lower
+    if (localProjection(formatter, after).offset % 60_000 !== 0) {
+      cursor = cursorBeforeNextOffsetTransition(formatter, after)
+    }
   }
   const evaluator = cronEvaluator(rule, timeZone)
-  const formatter = cronLocalFormatter(timeZone)
   let gapCorrections = 0
   while (cursor < MAX_FOUR_DIGIT_YEAR_MS) {
     const candidate = evaluator.nextRun(new Date(cursor))
@@ -840,6 +843,7 @@ function nextCronInstant(rule: ParsedCronRule, timeZone: string, after: number):
     }
     gapCorrections = 0
     if (epoch > MAX_FOUR_DIGIT_YEAR_MS) return undefined
+    /* v8 ignore next 3 -- current IANA data leaves sub-minute LMT at its first transition. */
     if (epoch % 60_000 !== 0) {
       cursor = cursorBeforeNextOffsetTransition(formatter, epoch)
       continue
