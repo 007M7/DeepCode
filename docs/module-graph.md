@@ -422,9 +422,6 @@ flowchart TD
   pkg_session_persistence --> pkg_brand
   pkg_session_persistence --> pkg_invariants
   pkg_session_persistence --> pkg_session
-  pkg_llm_replay --> pkg_invariants
-  pkg_llm_replay --> pkg_llm
-  pkg_llm_replay --> pkg_session
   pkg_app_boot --> pkg_environment
   pkg_app_boot --> pkg_invariants
   pkg_app_boot --> pkg_paths
@@ -500,6 +497,10 @@ flowchart TD
   pkg_session_title --> pkg_llm
   pkg_session_title --> pkg_session
   pkg_session_title --> pkg_session_projection
+  pkg_llm_replay --> pkg_compact
+  pkg_llm_replay --> pkg_invariants
+  pkg_llm_replay --> pkg_llm
+  pkg_llm_replay --> pkg_session
   pkg_commands --> pkg_agent
   pkg_commands --> pkg_brand
   pkg_commands --> pkg_invariants
@@ -1219,7 +1220,6 @@ flowchart TD
 | [`web-search-perplexity`](../packages/web/web-search-perplexity) | `web` | [`environment`](../packages/util/environment), [`invariants`](../packages/support/invariants), [`web`](../packages/web/web) |
 | [`spill`](../packages/spill/spill) | `spill` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`session-persistence`](../packages/session-persistence/session-persistence) | `session-persistence` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`session`](../packages/core/session) |
-| [`llm-replay`](../packages/support/llm-replay) | `support` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`app-boot`](../packages/ui/app-boot) | `ui` | [`environment`](../packages/util/environment), [`invariants`](../packages/support/invariants), [`paths`](../packages/util/paths), [`system-prompt`](../packages/core/system-prompt) |
 | [`code-runtime-worker`](../packages/code-runtime/code-runtime-worker) | `code-runtime` | [`code-runtime`](../packages/code-runtime/code-runtime), [`invariants`](../packages/support/invariants), [`session`](../packages/core/session), [`timeout`](../packages/util/timeout) |
 | [`lsp-local`](../packages/lsp/lsp-local) | `lsp` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`lsp`](../packages/lsp/lsp), [`subprocess`](../packages/subprocess/subprocess), [`timeout`](../packages/util/timeout) |
@@ -1239,6 +1239,7 @@ flowchart TD
 | [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl) | `session-persistence` | [`invariants`](../packages/support/invariants), [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence) |
 | [`session-persistence-sqlite`](../packages/session-persistence/session-persistence-sqlite) | `session-persistence` | [`invariants`](../packages/support/invariants), [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence) |
 | [`session-title`](../packages/session-title/session-title) | `session-title` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-projection`](../packages/session-projection/session-projection) |
+| [`llm-replay`](../packages/support/llm-replay) | `support` | [`compact`](../packages/compact/compact), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`commands`](../packages/ui/commands) | `ui` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`scope`](../packages/core/scope), [`session`](../packages/core/session) |
 | [`user-approval`](../packages/ui/user-approval) | `ui` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt) |
 | [`user-interaction`](../packages/ui/user-interaction) | `ui` | [`agent`](../packages/core/agent), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm) |
