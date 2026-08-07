@@ -119,6 +119,78 @@ export interface LlmProviderInfo {
   name: string
 }
 
+/**
+ * One provider route an adapter plugin can activate through configuration,
+ * whether or not the route is currently registered. Configuration surfaces
+ * merge this directory with `listProviders()` to offer every configurable
+ * provider alongside its live/dormant state.
+ */
+export interface LlmConfigurableProvider {
+  /** Provider route key this entry activates when configured. */
+  provider: string
+  /** Human-readable provider name for configuration surfaces. */
+  displayName: string
+  /** User-settings namespace whose section configures this provider. */
+  settingsNs: string
+  /**
+   * Path from that namespace's section root to this provider's profile
+   * object; empty when the whole section is the profile.
+   */
+  settingsPath: readonly string[]
+  /**
+   * Whether the owning adapter knows this route only because configuration
+   * declared it — a gateway or self-hosted server it ships nothing about.
+   * Absent means the adapter draws no such distinction; false means it does
+   * and this route is one of its own. Only the adapter can answer: a stored
+   * profile is how a user-added route AND a corrected shipped one both look
+   * from outside.
+   */
+  declared?: boolean
+}
+
+/**
+ * One interrogation of a provider endpoint that configuration has not stored
+ * yet. Configuration surfaces send the draft a user is still editing, so the
+ * request carries the endpoint and credential directly instead of naming a
+ * route: a provider being added has no route to name.
+ */
+export interface LlmModelDiscoveryRequest {
+  /**
+   * Route the draft is editing, when it edits an existing one. A route whose
+   * adapter already knows its models answers from that knowledge instead of
+   * asking the endpoint — the adapter's own registry is the better answer, and
+   * it costs no network call.
+   */
+  provider?: string
+  /**
+   * Endpoint to interrogate. Optional because a route the adapter already
+   * describes needs none; a route it does not must supply one.
+   */
+  baseURL?: string
+  /** Wire protocol the endpoint speaks, when the draft names one. */
+  api?: string
+  /** Credential for this interrogation alone; the harness never stores it. */
+  apiKey?: string
+  /** Caller cancellation; implementations must settle promptly after it aborts. */
+  signal?: AbortSignal
+}
+
+/**
+ * One model an endpoint reports about itself. Every field but the id is
+ * optional because most provider listings disclose an id and nothing else;
+ * a surface adopting one of these still owes the capacities its adapter needs.
+ */
+export interface LlmDiscoveredModel {
+  /** Model id the endpoint accepts. */
+  id: string
+  /** Human-readable name when the endpoint supplies one. */
+  name?: string
+  /** Maximum combined request and response context, when disclosed. */
+  contextWindow?: number
+  /** Maximum output tokens, when disclosed. */
+  maxTokens?: number
+}
+
 /** One adapter-discovered model; catalog membership is advisory, not request validation. */
 export interface LlmModelInfo {
   /** Provider route that owns this model entry. */
@@ -162,6 +234,8 @@ export interface LlmModelReasoningInfo {
 export interface LlmResolvedModelInfo extends LlmModelInfo {
   /** Provider-owned context capacity when known. */
   context?: LlmModelContext
+  /** Adapter-configured per-request output cap materialized when callers omit one. */
+  defaultMaxTokens?: number
   /** Adapter-owned selectable reasoning levels when exposed. */
   reasoning?: LlmModelReasoningInfo
 }
@@ -170,8 +244,9 @@ export interface LlmResolvedModelInfo extends LlmModelInfo {
  * Raw streaming protocol emitted by adapters.
  * Block indexes correlate interleaved deltas, and `block-end` carries the
  * assembled block. Adapters emit usage before the terminal finish and nothing
- * afterward; tool arguments remain raw JSON strings. Failures either throw or
- * end with `error`/`aborted`, and consumers must handle both paths.
+ * afterward; tool arguments remain raw JSON strings. An adapter implementation
+ * may throw, but `LlmService.stream()` normalizes that failure to a terminal
+ * `error` or `aborted` finish before exposing it to consumers.
  */
 export type StreamChunk =
   | { type: 'block-start'; index: number; blockType: ContentBlockType }

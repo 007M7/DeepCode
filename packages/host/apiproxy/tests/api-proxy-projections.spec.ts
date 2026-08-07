@@ -10,7 +10,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { z } from 'zod'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
@@ -53,9 +53,8 @@ async function harness(withRegistry: boolean): Promise<{ ctx: Context; session: 
   await ctx.plugin(AgentRegistry)
   if (withRegistry) await ctx.plugin(SessionProjectionRegistry)
   const session = ctx.sessions.create()
-  // history resolves the agent first; a live structural stub is enough (only
-  // .session is read on this path).
-  ctx.agents.register({ id: session.id, session, status: 'idle', ctx } as Agent)
+  // The gateway reads both the session and durable inbox baseline.
+  ctx.agents.register({ id: session.id, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }), status: 'idle', ctx } as Agent)
   return { ctx, session }
 }
 
@@ -69,7 +68,7 @@ function seedMessages(session: Session, count: number): void {
   }
 }
 
-const api = (ctx: Context) => createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
+const api = (ctx: Context) => createApiProxy(ctx, { defaultTarget: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp', workspaceRoot: '/tmp' })
 
 describe('session.history projections block', () => {
   it('serves the unit value on the tail page with asOfSeq = last event seq', async () => {
@@ -225,7 +224,7 @@ describe('session/projection push frame', () => {
 
     seedMessages(session, 1)
     // Same-reference apply: turn/start does not concern the unit — no frame.
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     seedMessages(session, 1)
 
     const frames = await collected

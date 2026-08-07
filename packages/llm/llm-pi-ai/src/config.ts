@@ -1,27 +1,73 @@
 /**
  * Configuration schema and provider-profile validation for the pi-ai adapter.
+ * Profiles are a dict keyed by provider route, so the composition base and a
+ * user-settings layer merge per provider and the route set is structural.
+ *
+ * A route key is not required to name an installed pi-ai provider. When it does,
+ * that provider's endpoint, protocol, display name, and model catalog are the
+ * profile's defaults and the profile overrides them field by field; when it does
+ * not, the profile is the whole provider declaration. Resolution therefore ends
+ * in a built pi-ai `Provider` per route: everything a request needs is decided
+ * once, while the configuration key that made a route unserviceable can still be
+ * named in the failure.
  *
  * @module dsh-llm-pi-ai/config
  */
 
-import { getBuiltinProviders } from '@earendil-works/pi-ai/providers/all'
-import type { CacheRetention, ModelThinkingLevel, ThinkingBudgets, Transport } from '@earendil-works/pi-ai'
+import type { CacheRetention, ModelThinkingLevel, Provider, ThinkingBudgets, Transport } from '@earendil-works/pi-ai'
 import z from 'schemastery'
+import { credentialRef } from '@deepseek-ai/dsh-credentials'
+import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { resolveRetryPolicy, RetryPolicySchema } from '@deepseek-ai/dsh-llm'
 import type { ResolvedRetryPolicy, RetryPolicyConfig } from '@deepseek-ai/dsh-llm'
+import { resolveRouteModels } from './catalog.ts'
+import type { PiAiModelProfile } from './catalog.ts'
+import { buildProvider, supportedProtocols } from './provider.ts'
 
 /** Default maximum idle interval while an adapter stream read is outstanding. */
 export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 300_000
 
-/** Configuration for one pi-ai provider route. */
+/** Context capacity assumed for a model neither configuration nor the catalog sizes. */
+export const DEFAULT_CONTEXT_WINDOW = 262_144
+
+/** Output capability assumed for a model neither configuration nor the catalog sizes. */
+export const DEFAULT_MAX_TOKENS = 32_768
+
+export type { PiAiModelProfile } from './catalog.ts'
+
+/** Configuration for one pi-ai provider route; the `providers` dict key IS the route. */
 export interface PiAiProviderProfile {
-  /** pi-ai provider catalog name and Harness route key. */
-  provider: string
-  /** Provider credential; when absent pi-ai uses its provider-native ambient discovery. */
-  apiKey?: string
-  /** Override the selected catalog model's endpoint without changing its protocol metadata. */
+  /** Credential reference (environment-variable name) resolved per request through `ctx.credentials`. */
+  apiKeyEnv?: string
+  /** Name shown by configuration surfaces; defaults to the route key. */
+  displayName?: string
+  /**
+   * Wire protocol every model on this route speaks. Omission keeps each
+   * installed catalog model's own protocol, which is why a catalog route needs
+   * no protocol at all; a route the catalog does not ship must name one.
+   */
+  api?: string
+  /** Endpoint for this route's models; defaults to the installed catalog's endpoint. */
   baseURL?: string
+  /**
+   * This route's model catalog. Omission serves the installed catalog for the
+   * route unchanged; an explicit list replaces it, each entry defaulting its
+   * unset fields from the installed model of the same id.
+   */
+  models?: PiAiModelProfile[]
+  /**
+   * Context capacity for a model this route lists that neither the entry nor
+   * the installed catalog sizes (default 262,144). A guess by construction, so
+   * a deployment whose gateway serves smaller models corrects it here.
+   */
+  defaultContextWindow?: number
+  /**
+   * Output capability for a model this route lists that neither the entry nor
+   * the installed catalog sizes (default 32,768). This sizes the model; it
+   * never becomes a per-request cap on its own.
+   */
+  defaultMaxTokens?: number
   /** Provider request headers; Harness attribution wins reserved names. */
   headers?: Record<string, string>
   /** Provider-neutral pi-ai reasoning level. */
@@ -42,18 +88,42 @@ export interface PiAiProviderProfile {
   retryPolicy?: RetryPolicyConfig
 }
 
-/** Validated profile with every adapter-owned default resolved. */
-export interface ResolvedPiAiProviderProfile extends Omit<PiAiProviderProfile, 'retryPolicy'> {
+/** Validated profile with its route stamped and every adapter-owned default resolved. */
+export interface ResolvedPiAiProviderProfile
+  extends Omit<PiAiProviderProfile, 'apiKeyEnv' | 'retryPolicy' | 'models' | 'displayName'> {
+  /** Harness route key and the `Models` collection key (the configuration dict key). */
+  provider: string
+  /** Resolved display name for selectors and configuration surfaces. */
+  displayName: string
+  /** Validated credential reference, when one is configured. */
+  apiKeyEnv?: CredentialRef
   /** Positive finite provider-idle interval after defaulting. */
   streamIdleTimeoutMs: number
   /** Immutable retry policy captured with this provider route. */
   retryPolicy: ResolvedRetryPolicy
+  /**
+   * The pi-ai provider this route registers, built from the resolved models.
+   * Construction happens here so an unserviceable protocol or an underspecified
+   * model fails with the rest of resolution, leaving the last good route set
+   * serving requests.
+   */
+  piProvider: Provider
+  /**
+   * Per-request output caps this profile explicitly configured, by model id.
+   * The seam materializes one only into a request that names no cap of its
+   * own, so a catalog capability must not appear here.
+   */
+  configuredMaxTokens: ReadonlyMap<string, number>
 }
 
-/** Plugin configuration: the non-empty provider profiles this instance owns. */
+/** Plugin configuration: the provider routes this instance owns. */
 export interface Config {
-  /** Non-empty set of pi-ai provider routes this adapter instance owns. */
-  providers: PiAiProviderProfile[]
+  /**
+   * pi-ai provider routes, keyed by provider. An empty (or omitted) dict is
+   * the dormant settings-driven posture: the adapter mounts with no routes
+   * and registers them the moment a settings section supplies profiles.
+   */
+  providers?: Record<string, PiAiProviderProfile>
 }
 
 const thinkingBudgets = z.object({
@@ -63,10 +133,21 @@ const thinkingBudgets = z.object({
   high: z.number(),
 })
 
+const modelProfile: z<PiAiModelProfile> = z.object({
+  id: z.string().required(),
+  name: z.string(),
+  contextWindow: z.number().step(1).min(1),
+  maxTokens: z.number().step(1).min(1),
+})
+
 const profile = z.object({
-  provider: z.string().required(),
-  apiKey: z.string(),
+  apiKeyEnv: z.string().role('credential-ref'),
+  displayName: z.string(),
+  api: z.union(supportedProtocols()),
   baseURL: z.string(),
+  models: z.array(modelProfile),
+  defaultContextWindow: z.number().step(1).min(1).default(DEFAULT_CONTEXT_WINDOW),
+  defaultMaxTokens: z.number().step(1).min(1).default(DEFAULT_MAX_TOKENS),
   headers: z.dict(z.string()),
   reasoning: z.union(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']),
   thinkingBudgets,
@@ -80,54 +161,108 @@ const profile = z.object({
 
 /** Runtime schema for {@link Config}. */
 export const Config: z<Config> = z.object({
-  providers: z.array(profile).required(),
+  providers: z.dict(profile).default({}),
 })
 
 /**
- * Validate profiles against the installed pi-ai catalog and return a detached
- * shallow copy suitable for adapter construction.
- * @param profiles - configured provider profiles.
+ * Reject a section this adapter could not serve. Registered as the settings
+ * namespace's validator, so an unserviceable profile is refused where it is
+ * *written* — `settings.mutate` answers `settings-rejected` with the offending
+ * route and model named — instead of being stored and then quietly disabling
+ * every route in the namespace. It stays a validator rather than a schema
+ * transform because the schema is also the shape a configuration surface
+ * renders and the value an absent section resolves to; wrapping it would break
+ * both.
+ * @param config - the resolved section to check.
+ * @throws Error naming the route and model that cannot be served.
+ */
+export function assertServiceable(config: Config): void {
+  resolveProfiles(config.providers)
+}
+
+/** Reject a pre-release profile shape, naming the replacement. */
+function rejectRemovedFields(provider: string, source: PiAiProviderProfile): void {
+  const legacy = source as PiAiProviderProfile & {
+    provider?: unknown
+    maxRetries?: unknown
+    maxRetryDelayMs?: unknown
+  }
+  if ('provider' in legacy) {
+    throw new Error(`llm-pi-ai: provider "${provider}" sets "provider", which moved to the providers dict key`)
+  }
+  if ('maxRetries' in legacy || 'maxRetryDelayMs' in legacy) {
+    throw new Error(
+      `llm-pi-ai: provider "${provider}" sets maxRetries or maxRetryDelayMs, which were removed;`
+      + ' compose agent recovery with dsh-llm-retry',
+    )
+  }
+}
+
+/**
+ * Validate profiles and return a detached route-keyed map suitable for
+ * per-request reads. This is the one explicit resolve step, so an omitted dict
+ * resolves to the empty (dormant) route set here rather than through a hidden
+ * fallback, and each route's models and pi-ai provider are materialized once.
+ * @param providers - configured provider profiles keyed by route.
  * @returns validated profiles in configuration order.
  */
-export function resolveProfiles(profiles: readonly PiAiProviderProfile[]): ResolvedPiAiProviderProfile[] {
-  if (profiles.length === 0) throw new Error('llm-pi-ai: providers must contain at least one profile')
-  const supported = new Set<string>(getBuiltinProviders())
-  const seen = new Set<string>()
-  return profiles.map((source) => {
-    const legacy = source as PiAiProviderProfile & {
-      maxRetries?: unknown
-      maxRetryDelayMs?: unknown
-    }
-    if ('maxRetries' in legacy || 'maxRetryDelayMs' in legacy) {
-      throw new Error('llm-pi-ai: maxRetries and maxRetryDelayMs were removed; compose agent recovery with dsh-llm-retry')
-    }
-    if (source.provider.length === 0) throw new Error('llm-pi-ai: provider names must be non-empty')
-    if (!supported.has(source.provider)) throw new Error(`llm-pi-ai: unknown pi-ai provider "${source.provider}"`)
-    if (seen.has(source.provider)) throw new Error(`llm-pi-ai: duplicate provider profile "${source.provider}"`)
-    if (source.apiKey !== undefined && source.apiKey.trim().length === 0) {
-      throw new Error(`llm-pi-ai: provider "${source.provider}" has an empty apiKey; omit it to use ambient authentication`)
-    }
+export function resolveProfiles(
+  providers: Readonly<Record<string, PiAiProviderProfile>> | undefined,
+): Map<string, ResolvedPiAiProviderProfile> {
+  if (Array.isArray(providers)) {
+    throw new Error('llm-pi-ai: providers is now a dict keyed by provider route, not an array of profiles')
+  }
+  const entries = Object.entries(providers ?? {})
+  const resolved = new Map<string, ResolvedPiAiProviderProfile>()
+  for (const [provider, source] of entries) {
+    rejectRemovedFields(provider, source)
+    if (provider.length === 0) throw new Error('llm-pi-ai: provider names must be non-empty')
     if (source.baseURL !== undefined && source.baseURL.length === 0) {
-      throw new Error(`llm-pi-ai: provider "${source.provider}" has an empty baseURL`)
+      throw new Error(`llm-pi-ai: provider "${provider}" has an empty baseURL`)
+    }
+    if (source.displayName !== undefined && source.displayName.length === 0) {
+      throw new Error(`llm-pi-ai: provider "${provider}" has an empty displayName`)
     }
     const streamIdleTimeoutMs = source.streamIdleTimeoutMs ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS
     if (!Number.isFinite(streamIdleTimeoutMs)
       || streamIdleTimeoutMs <= 0
       || streamIdleTimeoutMs > MAX_TIMER_DELAY_MS) {
       throw new Error(
-        `llm-pi-ai: provider "${source.provider}" streamIdleTimeoutMs must be a positive finite number no greater than ${MAX_TIMER_DELAY_MS}`,
+        `llm-pi-ai: provider "${provider}" streamIdleTimeoutMs must be a positive finite number no greater than ${MAX_TIMER_DELAY_MS}`,
       )
     }
-    seen.add(source.provider)
-    return {
-      ...source,
+    // The route key, not the installed provider's own name: the directory has
+    // always shown route keys, and a catalog route must not silently rename
+    // itself on every configuration surface just because it gained a profile.
+    const displayName = source.displayName ?? provider
+    const catalog = resolveRouteModels({
+      provider,
+      ...source.api === undefined ? {} : { api: source.api },
+      ...source.baseURL === undefined ? {} : { baseURL: source.baseURL },
+      ...source.models === undefined ? {} : { models: source.models },
+      defaultContextWindow: source.defaultContextWindow ?? DEFAULT_CONTEXT_WINDOW,
+      defaultMaxTokens: source.defaultMaxTokens ?? DEFAULT_MAX_TOKENS,
+    })
+    const { apiKeyEnv, retryPolicy, models: _models, displayName: _displayName, ...rest } = source
+    resolved.set(provider, {
+      ...rest,
+      provider,
+      displayName,
+      ...apiKeyEnv === undefined ? {} : { apiKeyEnv: credentialRef(apiKeyEnv) },
       streamIdleTimeoutMs,
-      retryPolicy: resolveRetryPolicy(
-        source.retryPolicy,
-        `llm-pi-ai: provider "${source.provider}" retryPolicy`,
-      ),
-      ...source.headers === undefined ? {} : { headers: { ...source.headers } },
-      ...source.thinkingBudgets === undefined ? {} : { thinkingBudgets: { ...source.thinkingBudgets } },
-    }
-  })
+      retryPolicy: resolveRetryPolicy(retryPolicy, `llm-pi-ai: provider "${provider}" retryPolicy`),
+      ...rest.headers === undefined ? {} : { headers: { ...rest.headers } },
+      ...rest.thinkingBudgets === undefined ? {} : { thinkingBudgets: { ...rest.thinkingBudgets } },
+      configuredMaxTokens: catalog.configuredMaxTokens,
+      piProvider: buildProvider({
+        provider,
+        displayName,
+        ...source.api === undefined ? {} : { api: source.api },
+        ...source.baseURL === undefined ? {} : { baseURL: source.baseURL },
+        models: catalog.models,
+        namesCredential: apiKeyEnv !== undefined,
+      }),
+    })
+  }
+  return resolved
 }

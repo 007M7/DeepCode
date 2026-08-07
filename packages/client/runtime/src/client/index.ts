@@ -1,6 +1,8 @@
 /** Browser runtime services for slots, sessions, workspaces, and connection-stream delivery. */
 import type { Context } from 'cordis'
 import type { ConnectionHandle, SessionId } from '@deepseek-ai/dsh-client-connection/client'
+import type {} from '@deepseek-ai/dsh-api-remotes/client'
+import type { TypeRTContext } from '@deepseek-ai/dsh-type-meta'
 import type { MaybeSnapshotSelectorHook, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import { SlotsService } from './slots.ts'
 import { SessionsService } from './sessions/service.ts'
@@ -26,12 +28,13 @@ export type { ISession, ProjectionsFace, SessionFace } from './contract/session.
 export type {
   ISessionHistory, SessionHistoryFace, SessionHistorySnapshot,
 } from './contract/session-history.ts'
-export type { ISessions } from './contract/sessions.ts'
+export type { AgentContext, ISessions } from './contract/sessions.ts'
 export type { IWorkspaces } from './contract/workspaces.ts'
 export type {
   SessionBinding, SessionListState, SessionProvideContribution, SessionProvideDescriptor, SessionSummary,
 } from './sessions/service.ts'
-export type { SessionListPhase } from './sessions/manager.ts'
+export type { SessionListPhase, SessionSearchResultItem, SubagentCatalogSnapshot } from './sessions/manager.ts'
+export type { SubagentAddress } from '@deepseek-ai/dsh-client-connection/client'
 export type { WorkspaceListPhase } from './workspaces/manager.ts'
 export type { WorkspaceListState } from './workspaces/service.ts'
 export type {
@@ -44,20 +47,26 @@ export type {
 } from './contract/store.ts'
 export type {
   AssistantBlock, AssistantMessageNode, AssistantProvenanceView, AssistantRequestConfig,
-  AssistantTiming, CodeSubCall, CommandNode, ComposerPhase, ContextMessageNode, ConversationNode,
-  ConversationSnapshot, QueuedMessage, RunningToolCall,
-  SteeringMessageNode, TodoItem, ToolResultNode, UnknownSurfaceNode, UserMessageNode,
+  AssistantTiming, CodeSubCall, CommandNode, CompactionSummaryNode, ComposerPhase,
+  ContextMessageNode, ConversationNode, ConversationSnapshot, ModelRetryNode, QueuedMessage,
+  RunningToolCall,
+  SteeringMessageNode, TodoItem, ToolResultNode, TurnErrorNode, UnknownSurfaceNode, UserMessageNode,
 } from './sessions/conversation.ts'
 export type {
   ConversationContext, ConversationContextOriginKind,
 } from './sessions/conversation-context.ts'
+export type {
+  ContextProvenanceView, ContextRole, KnownContextForm,
+} from './sessions/context-provenance.ts'
 export type {
   ConversationPromptSnapshot, RequestInspectionSnapshot, RequestPromptChange, RequestView,
 } from './sessions/request-inspection.ts'
 export type { ConversationHistoryProjection } from './session-history/history-fold.ts'
 export type { SessionHistoryInspection } from './sessions/history.ts'
 export { PendingWait } from './sessions/pending.ts'
-export type { PendingInteraction, PendingKind, PendingPayloads } from './sessions/pending.ts'
+export type {
+  PendingInteraction, PendingInteractionStatus, PendingKind, PendingPayloads,
+} from './sessions/pending.ts'
 // Projection value store (session-projection RFC, push model): host-computed
 // whole values per key; domains ship projection support with zero client code.
 export type {
@@ -67,6 +76,13 @@ export type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
 
 /** Client-side Cordis context after declaration merging. */
 export type ClientContext = Context
+
+declare module '@deepseek-ai/dsh-type-meta' {
+  interface TypeRTContextMap {
+    /** Client Agent scope identity; the agent and session share one wire id. */
+    agent: TypeRTContext<SessionId>
+  }
+}
 
 /** The conversation-snapshot selector hook (ConvViewProps/ToolRowProps take this). */
 export type UseConversationSession = SnapshotSelectorHook<ConversationSnapshot>
@@ -123,6 +139,28 @@ declare module 'cordis' {
      */
     'commands/changed'(): void
     /**
+     * One settings namespace's resolved value changed on the host
+     * (host/settings-changed passthrough). Subscribers refetch
+     * `settings.describe`; the frame carries no values.
+     * @mode emit
+     * @param ns - the namespace whose resolved value changed.
+     */
+    'settings/changed'(ns: string): void
+    /**
+     * One credential reference's state changed on the host
+     * (host/credentials-changed passthrough). The ref is an
+     * environment-variable NAME — never a value.
+     * @mode emit
+     * @param ref - the reference whose configured state changed.
+     */
+    'credentials/changed'(ref: string): void
+    /**
+     * The host provider topology changed (host/models-changed passthrough).
+     * Subscribers refetch `llm.providers`/`llm.models`/`session.models`.
+     * @mode emit
+     */
+    'models/changed'(): void
+    /**
      * A connection generation was (re-)established. Wire-derived caches must
      * treat their state as stale and repull (commands directory; the queue
      * mirrors reset themselves through the session resync path).
@@ -141,8 +179,8 @@ declare module 'cordis' {
   }
 }
 
-/** Required services: the wire handle mounted by the connection plugin. */
-export const inject = ['connection']
+/** Required services: the Remote root, wire handle, and Client TypeRT registry. */
+export const inject = ['remote', 'connection', 'typert']
 
 /** Mounts the browser runtime services and connection stream.
  * @param ctx - Client Cordis context.
@@ -151,6 +189,9 @@ export function apply(ctx: Context): void {
   ctx.plugin(SlotsService)
   const connection = ctx.get('connection') as ConnectionHandle
   const sessions = new SessionsService(ctx, connection.api)
+  ctx.typert.contexts.registerClient('agent', {
+    identity: candidate => sessions.scopeOf(candidate),
+  })
   const sessionHistory = new SessionHistoryService(ctx, connection.api)
   const workspaces = new WorkspacesService(ctx, connection.api, sessions)
   ctx.effect(
@@ -170,8 +211,13 @@ export function apply(ctx: Context): void {
       sessions.handleHostEnvelope(envelope)
       workspaces.handleHostEnvelope(envelope)
       // Typed-event bridge: the session layer ignores registry frames (no
-      // session routing); consumers (command directory caches) subscribe on ctx.
-      if (envelope.payload.type === 'host/commands-changed') ctx.emit('commands/changed')
+      // session routing); consumers (command directory caches, the settings
+      // and model surfaces) subscribe on ctx.
+      const frame = envelope.payload
+      if (frame.type === 'host/commands-changed') ctx.emit('commands/changed')
+      else if (frame.type === 'host/settings-changed') ctx.emit('settings/changed', frame.ns)
+      else if (frame.type === 'host/credentials-changed') ctx.emit('credentials/changed', frame.ref)
+      else if (frame.type === 'host/models-changed') ctx.emit('models/changed')
       try {
         sessionHistory.handleHostEnvelope(envelope)
       } catch (error) {

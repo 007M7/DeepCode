@@ -4,7 +4,6 @@
  * @module @deepseek-ai/dsh-helper/features/builtin/provider
  */
 
-import { JsExpression } from '../../documents/cordis-yaml-file.ts'
 import { featureId } from '../../ids.ts'
 import type { FeatureSelection, ProjectProfile } from '../../project/types.ts'
 import {
@@ -17,10 +16,10 @@ import { npmCordisConfigEntry, environment } from './helpers.ts'
 
 const ID = featureId('provider')
 const DEFAULT_MODEL = 'deepseek-v4-flash'
-const API_KEY_COMMENT = 'Required before start; an empty value makes provider startup fail.'
+const API_KEY_COMMENT = 'Required before the first model request.'
 
 class DeepSeekOption extends FeatureOption {
-  override readonly id = 'deepseek'
+  override readonly id = 'deepseek-official'
   override readonly label = 'DeepSeek'
   override readonly secrets = [{
     id: 'apiKey',
@@ -34,8 +33,7 @@ class DeepSeekOption extends FeatureOption {
       ...npmCordisConfigEntry(ID, {
         id: 'llm-deepseek',
         name: '@deepseek-ai/dsh-llm-deepseek',
-        config: { apiKey: new JsExpression('process.env.DEEPSEEK_API_KEY') },
-      }, ['apiKey', 'baseURL', 'models']),
+      }, ['baseURL', 'models']),
       environment(ID, 'DEEPSEEK_API_KEY', secrets.apiKey, API_KEY_COMMENT),
     ])
   }
@@ -60,8 +58,7 @@ class CustomOption extends FeatureOption {
       ...npmCordisConfigEntry(ID, {
         id: 'llm-pi-ai',
         name: '@deepseek-ai/dsh-llm-pi-ai',
-        config: { apiKey: new JsExpression('process.env.DEEPSEEK_API_KEY') },
-      }, ['apiKey', 'baseURL', 'models']),
+      }, ['baseURL', 'models']),
       environment(ID, 'DEEPSEEK_API_KEY', secrets.apiKey, API_KEY_COMMENT),
     ])
   }
@@ -76,7 +73,7 @@ export class ProviderFeature extends ExclusiveOptionFeature {
 
   /** Prefer the direct-fetch adapter and its public endpoint defaults. */
   override defaultOptions(): readonly string[] {
-    return ['deepseek']
+    return ['deepseek-official']
   }
 
   /** Recover literal endpoint overrides from either provider entry. */

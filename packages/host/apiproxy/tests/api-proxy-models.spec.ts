@@ -1,7 +1,8 @@
 /**
  * Web session model-directory and selection behavior: dynamic provider grouping,
- * provider-local catalog failures, logged-target restoration, advisory unlisted
- * models, and the prompt-assembly boundary for a running selection change.
+ * provider-local catalog failures, logged-target restoration without stale
+ * catalog injection, advisory pass-through models, and the prompt-assembly
+ * boundary for a running selection change.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -85,9 +86,9 @@ async function harness(logged?: {
   await ctx.plugin(LlmService)
   await ctx.plugin(UserInteractionService)
   await ctx.plugin(AgentRegistry)
-  ctx.llm.registerAdapter(['deepseek'], new CatalogAdapter('DeepSeek', [
-    { provider: 'deepseek', id: 'deepseek-chat', name: 'DeepSeek Chat' },
-    { provider: 'deepseek', id: 'deepseek-reasoner', name: 'DeepSeek Reasoner', description: 'Reasoning model' },
+  ctx.llm.registerAdapter(['deepseek-official'], new CatalogAdapter('DeepSeek', [
+    { provider: 'deepseek-official', id: 'deepseek-chat', name: 'DeepSeek Chat' },
+    { provider: 'deepseek-official', id: 'deepseek-reasoner', name: 'DeepSeek Reasoner', description: 'Reasoning model' },
   ], REASONING))
   ctx.llm.registerAdapter(['broken'], new CatalogAdapter('Broken Provider', new Error('catalog offline')))
   ctx.llm.registerAdapter(['metadata-broken'], new CatalogAdapter('Metadata Broken', [
@@ -118,22 +119,22 @@ function expectValue<T>(response: { result: { ok: true; value: T } | { ok: false
 }
 
 describe('Web session model selection', () => {
-  it('groups successful providers, isolates failures, and preserves an unlisted current model', async () => {
+  it('groups successful providers and leaves an unlisted current target out of the catalog', async () => {
     const { ctx, sessionId } = await harness({
-      provider: 'deepseek',
+      provider: 'deepseek-official',
       model: 'private-preview',
       reasoningEffort: ReasoningEffortId('max'),
     })
-    const api = createApiProxy(ctx, { provider: 'deepseek', model: 'deepseek-chat', cwd: '/tmp', workspaceRoot: '/tmp' })
+    const api = createApiProxy(ctx, { defaultTarget: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }), cwd: '/tmp', workspaceRoot: '/tmp' })
 
     const catalog = expectValue(await api.sessions.models(request({ sessionId })))
     expect(catalog.current).toEqual({
-      provider: 'deepseek',
+      provider: 'deepseek-official',
       model: 'private-preview',
       reasoningEffort: 'max',
     })
     expect(catalog.groups).toEqual([{
-      id: 'deepseek',
+      id: 'deepseek-official',
       name: 'DeepSeek',
       models: [
         { id: 'deepseek-chat', name: 'DeepSeek Chat', reasoning: REASONING },
@@ -141,12 +142,6 @@ describe('Web session model selection', () => {
           id: 'deepseek-reasoner',
           name: 'DeepSeek Reasoner',
           description: 'Reasoning model',
-          reasoning: REASONING,
-        },
-        {
-          id: 'private-preview',
-          name: 'private-preview',
-          unlisted: true,
           reasoning: REASONING,
         },
       ],
@@ -165,43 +160,43 @@ describe('Web session model selection', () => {
 
   it('accepts an advisory-unlisted model, rejects an unavailable provider, and switches only after the next assembly', async () => {
     const { ctx, agent, sessionId } = await harness()
-    const api = createApiProxy(ctx, { provider: 'deepseek', model: 'deepseek-chat', cwd: '/tmp', workspaceRoot: '/tmp' })
+    const api = createApiProxy(ctx, { defaultTarget: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }), cwd: '/tmp', workspaceRoot: '/tmp' })
     const seed: LlmCallConfig = { provider: 'seed', model: 'seed', temperature: 0.2 }
     const signal = new AbortController().signal
 
     expect(expectValue(await api.sessions.models(request({ sessionId }))).current)
-      .toEqual({ provider: 'deepseek', model: 'deepseek-chat' })
+      .toEqual({ provider: 'deepseek-official', model: 'deepseek-chat' })
     expect((await ctx.systemPrompt.assemble()).variables)
-      .toMatchObject({ provider: 'deepseek', model: 'deepseek-chat' })
+      .toMatchObject({ provider: 'deepseek-official', model: 'deepseek-chat' })
 
     const selected = expectValue(await api.sessions.selectModel(request({
       sessionId,
-      provider: 'deepseek',
+      provider: 'deepseek-official',
       model: 'private-preview',
       reasoningEffort: 'max',
     })))
     expect(selected.selected).toEqual({
-      provider: 'deepseek',
+      provider: 'deepseek-official',
       model: 'private-preview',
       reasoningEffort: 'max',
     })
     await expect(agentEvents(ctx, agent).waterfall(
-      'agent/request', 1, 0, signal, () => Promise.resolve(seed),
-    )).resolves.toMatchObject({ provider: 'deepseek', model: 'deepseek-chat' })
+      'agent/request', { turn: 1, step: 0, signal }, () => Promise.resolve(seed),
+    )).resolves.toMatchObject({ provider: 'deepseek-official', model: 'deepseek-chat' })
 
     expect((await ctx.systemPrompt.assemble()).variables)
-      .toMatchObject({ provider: 'deepseek', model: 'private-preview' })
+      .toMatchObject({ provider: 'deepseek-official', model: 'private-preview' })
     await expect(agentEvents(ctx, agent).waterfall(
-      'agent/request', 1, 1, signal, () => Promise.resolve(seed),
+      'agent/request', { turn: 1, step: 1, signal }, () => Promise.resolve(seed),
     )).resolves.toMatchObject({
-      provider: 'deepseek',
+      provider: 'deepseek-official',
       model: 'private-preview',
       reasoningEffort: 'max',
     })
 
     const unsupported = await api.sessions.selectModel(request({
       sessionId,
-      provider: 'deepseek',
+      provider: 'deepseek-official',
       model: 'private-preview',
       reasoningEffort: 'medium',
     }))
@@ -209,7 +204,7 @@ describe('Web session model selection', () => {
       ok: false,
       error: {
         code: 'model-unavailable',
-        message: 'provider "deepseek" model "private-preview" does not support reasoning effort "medium"',
+        message: 'provider "deepseek-official" model "private-preview" does not support reasoning effort "medium"',
       },
     })
 
@@ -227,7 +222,135 @@ describe('Web session model selection', () => {
       },
     })
     expect(expectValue(await api.sessions.models(request({ sessionId }))).current)
-      .toEqual({ provider: 'deepseek', model: 'private-preview', reasoningEffort: 'max' })
+      .toEqual({ provider: 'deepseek-official', model: 'private-preview', reasoningEffort: 'max' })
+    await ctx.fiber.dispose()
+  })
+
+  it('reads the host default live for a session whose log names no route', async () => {
+    const { ctx, sessionId } = await harness()
+    let stored = { provider: 'deepseek-official', model: 'deepseek-chat' }
+    const api = createApiProxy(ctx, {
+      defaultTarget: () => stored,
+      cwd: '/tmp',
+      workspaceRoot: '/tmp',
+    })
+
+    expect(expectValue(await api.sessions.models(request({ sessionId }))).current)
+      .toEqual({ provider: 'deepseek-official', model: 'deepseek-chat' })
+    // The default moving after the session exists still reaches it: New
+    // Session reuses a blank session rather than minting another, so a seed
+    // captured at creation would show the superseded model there.
+    stored = { provider: 'deepseek-official', model: 'deepseek-reasoner' }
+    expect(expectValue(await api.sessions.models(request({ sessionId }))).current)
+      .toEqual({ provider: 'deepseek-official', model: 'deepseek-reasoner' })
+    expect(expectValue(await api.host.describe(request({}))))
+      .toMatchObject({ provider: 'deepseek-official', model: 'deepseek-reasoner' })
+    await ctx.fiber.dispose()
+  })
+
+  it('keeps a session that logged a route on it when the host default moves', async () => {
+    const { ctx, sessionId } = await harness({
+      provider: 'deepseek-official',
+      model: 'deepseek-chat',
+    })
+    let stored = { provider: 'deepseek-official', model: 'deepseek-chat' }
+    const api = createApiProxy(ctx, {
+      defaultTarget: () => stored,
+      cwd: '/tmp',
+      workspaceRoot: '/tmp',
+    })
+
+    stored = { provider: 'duplicate', model: 'same' }
+    expect(expectValue(await api.sessions.models(request({ sessionId }))).current)
+      .toEqual({ provider: 'deepseek-official', model: 'deepseek-chat' })
+    await ctx.fiber.dispose()
+  })
+
+  it('saves an accepted selection as the default and survives a storage failure', async () => {
+    const { ctx, sessionId } = await harness()
+    const saved: unknown[] = []
+    let reject = false
+    const api = createApiProxy(ctx, {
+      defaultTarget: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      persistDefaultTarget: (target) => {
+        saved.push(target)
+        return reject ? Promise.reject(new Error('read-only document')) : Promise.resolve()
+      },
+      cwd: '/tmp',
+      workspaceRoot: '/tmp',
+    })
+
+    expectValue(await api.sessions.selectModel(request({
+      sessionId, provider: 'deepseek-official', model: 'deepseek-reasoner', reasoningEffort: 'max',
+    })))
+    expect(saved).toEqual([
+      { provider: 'deepseek-official', model: 'deepseek-reasoner', reasoningEffort: 'max' },
+    ])
+
+    // A refused selection never becomes anyone's default.
+    await api.sessions.selectModel(request({ sessionId, provider: 'missing', model: 'model' }))
+    expect(saved).toHaveLength(1)
+
+    // Storage failing is not the selection failing: the switch already applies
+    // to this session, so the call still succeeds.
+    reject = true
+    const stillAccepted = expectValue(await api.sessions.selectModel(request({
+      sessionId, provider: 'deepseek-official', model: 'deepseek-chat',
+    })))
+    expect(stillAccepted.selected).toEqual({ provider: 'deepseek-official', model: 'deepseek-chat', reasoningEffort: 'high' })
+    expect(expectValue(await api.sessions.models(request({ sessionId }))).current)
+      .toEqual({ provider: 'deepseek-official', model: 'deepseek-chat', reasoningEffort: 'high' })
+    await ctx.fiber.dispose()
+  })
+
+  it('refuses a prompt no adapter can route, and reports it on the directory', async () => {
+    const { ctx, sessionId } = await harness()
+    const api = createApiProxy(ctx, {
+      defaultTarget: () => ({ provider: 'deleted-gateway', model: 'deleted-model' }),
+      cwd: '/tmp',
+      workspaceRoot: '/tmp',
+    })
+
+    // The client disabling its input is an affordance; this method stays
+    // callable, so the refusal has to live here.
+    const refused = await api.sessions.prompt(request({
+      sessionId, mode: 'queue' as const, content: [{ type: 'text' as const, text: 'hi' }],
+    }))
+    expect(refused.result).toMatchObject({
+      ok: false,
+      error: { code: 'model-unavailable', details: { provider: 'deleted-gateway', model: 'deleted-model' } },
+    })
+    expect(expectValue(await api.sessions.models(request({ sessionId }))).routable).toBe(false)
+
+    // An advisory-unlisted model on a live route is NOT this: the route
+    // serves it, so the prompt goes through and nothing blocks.
+    expectValue(await api.sessions.selectModel(request({
+      sessionId, provider: 'deepseek-official', model: 'unlisted-but-served',
+    })))
+    const catalog = expectValue(await api.sessions.models(request({ sessionId })))
+    expect(catalog.routable).toBe(true)
+    expect(catalog.groups.flatMap(group => group.models.map(model => model.id)))
+      .not.toContain('unlisted-but-served')
+    await ctx.fiber.dispose()
+  })
+
+  it('serves a session and its catalog when the stored default names a route that is gone', async () => {
+    const { ctx, sessionId } = await harness()
+    const api = createApiProxy(ctx, {
+      // What a Models-page removal leaves behind: the settings document still
+      // names the route the user last picked, and nothing serves it.
+      defaultTarget: () => ({ provider: 'deleted-gateway', model: 'deleted-model' }),
+      cwd: '/tmp',
+      workspaceRoot: '/tmp',
+    })
+
+    const catalog = expectValue(await api.sessions.models(request({ sessionId })))
+    // Passed through rather than repaired: matching no group is precisely what
+    // makes the composer seat prompt for a selection instead of naming a model
+    // the deployment cannot reach.
+    expect(catalog.current).toEqual({ provider: 'deleted-gateway', model: 'deleted-model' })
+    expect(catalog.groups.flatMap(group => group.models.map(model => `${group.id}/${model.id}`)))
+      .not.toContain('deleted-gateway/deleted-model')
     await ctx.fiber.dispose()
   })
 })

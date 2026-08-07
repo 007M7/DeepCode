@@ -85,7 +85,7 @@ function commandContext(cwd: string): DshSdkCommandContext & { readStdout: () =>
 function creation(
   extra: ProjectCreationRequest['features'] = [],
   localPlugins: readonly LocalPluginBlueprint[] = [],
-  app: 'acp' | 'tui' | 'embed' = 'embed',
+  app: 'acp' | 'embed' = 'embed',
 ): ProjectCreationRequest {
   return {
     name: 'config-agent',
@@ -94,7 +94,7 @@ function creation(
     packageManager: new NpmPackageManager('10.0.0'),
     releaseVersion: '0.0.1',
     features: [
-      { id: featureId('provider'), options: ['deepseek'], secrets: { apiKey: 'key' } },
+      { id: featureId('provider'), options: ['deepseek-official'], secrets: { apiKey: 'key' } },
       { id: featureId('bash'), options: ['local'] },
       { id: featureId('app'), options: [app] },
       { id: featureId('persistence'), options: ['jsonl'] },
@@ -107,7 +107,7 @@ function creation(
 async function committedProject(
   extra: ProjectCreationRequest['features'] = [],
   localPlugins: readonly LocalPluginBlueprint[] = [],
-  app: 'acp' | 'tui' | 'embed' = 'embed',
+  app: 'acp' | 'embed' = 'embed',
 ): Promise<SdkProject> {
   const root = await mkdtemp(join(tmpdir(), 'dsh-config-workflow-'))
   temporary.push(root)
@@ -526,7 +526,7 @@ describe('ConfigWorkflow', () => {
     const workflow = new ConfigWorkflow(new QueuePort([
       [
         { value: 'feature:provider', choices: ['custom'] },
-        { value: 'feature:app', choices: ['tui'] },
+        { value: 'feature:app', choices: ['acp'] },
         { value: 'feature:persistence', choices: ['jsonl'] },
       ],
       'https://provider.example/v1',
@@ -535,33 +535,13 @@ describe('ConfigWorkflow', () => {
     ]), outputBuffer().stream, async () => {})
     const result = await workflow.run(project, registry)
     const provider = result.commit?.project.cordis.entry('llm-pi-ai')
-    expect(provider?.config?.apiKey).toBeDefined()
+    expect(provider?.config).not.toHaveProperty('apiKey')
     expect(provider?.config?.baseURL).toBe('https://provider.example/v1')
-    expect(result.commit?.project.cordis.entry('tui')).toBeDefined()
+    expect(result.commit?.project.cordis.entry('acp')).toBeDefined()
     expect(result.commit?.project.cordis.entry('agent-loop')).toBeDefined()
     expect(result.commit?.project.cordis.entry('agent-core')).toBeUndefined()
   })
 
-  it('disables ask-user when switching its app interface to ACP', async () => {
-    const project = await committedProject([
-      { id: featureId('ask-user'), options: ['default'] },
-    ], [], 'tui')
-    const registry = createBuiltinRegistry(project.profile)
-    const output = outputBuffer()
-    const workflow = new ConfigWorkflow(new QueuePort([
-      [
-        { value: 'feature:provider', choices: ['deepseek'] },
-        { value: 'feature:app', choices: ['acp'] },
-        { value: 'feature:persistence', choices: ['jsonl'] },
-        { value: 'feature:ask-user', choices: ['default'] },
-      ],
-      true,
-    ]), output.stream, async () => {})
-    const result = await workflow.run(project, registry)
-    expect(result.commit?.project.profile.runInterface).toBe('acp')
-    expect(result.commit?.project.cordis.entry('tool-ask-user')?.disabled).toBe(true)
-    expect(output.read()).toContain('Disable feature: ask-user')
-  })
 })
 
 describe('dsh-sdk create', () => {

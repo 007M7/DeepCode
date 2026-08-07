@@ -1,14 +1,19 @@
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   DEFAULT_DSH_HOME_DISPLAY,
   DSH_HOME_DIR_NAME,
   defaultDshHome,
   dshHomeDisplay,
+  dshHomePath,
   expandHomePath,
   resolveDshHome,
 } from '@deepseek-ai/dsh-paths'
+
+afterEach(() => {
+  vi.unstubAllEnvs()
+})
 
 describe('dsh path helpers', () => {
   it('owns the shared default DSH home directory name', () => {
@@ -36,6 +41,12 @@ describe('dsh path helpers', () => {
   it('treats an empty or whitespace-only DSH_HOME as unset', () => {
     expect(resolveDshHome(undefined, { DSH_HOME: '' })).toBe(defaultDshHome())
     expect(resolveDshHome(undefined, { DSH_HOME: '   ' })).toBe(defaultDshHome())
+  })
+
+  it('joins child segments onto the resolved DSH_HOME', () => {
+    vi.stubEnv('DSH_HOME', '~/env-dsh')
+    expect(dshHomePath()).toBe(join(homedir(), 'env-dsh'))
+    expect(dshHomePath('storages', 'cache')).toBe(join(homedir(), 'env-dsh', 'storages', 'cache'))
   })
 
   it('labels a resolved home by whether it is the default root', () => {

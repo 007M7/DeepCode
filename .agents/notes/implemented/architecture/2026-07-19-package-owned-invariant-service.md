@@ -8,7 +8,7 @@ English | [中文](2026-07-19-package-owned-invariant-service.zh.md)
 
 Runtime invariant checks span session traces, agent state, scoped dispatch, and request reconstruction. Putting all checks in one diagnostics package makes that package import product vocabularies from unrelated domains, centralizes tests away from their owners, and requires the central package to change whenever a product package adds or removes a check.
 
-Deployments also need more than presence or absence of one plugin. A standard composition should carry the known invariant contributions while permitting a global off switch and package-selective diagnostics. Selection must remain stable when a package loads later or reloads under HMR, and disabled contributions must not allow two plugins to claim the same package name silently.
+Deployments that opt into diagnostics need more than presence or absence of one plugin. Such a composition carries the known invariant contributions while permitting a global off switch and package-selective diagnostics. Selection must remain stable when a package loads later or reloads under HMR, and disabled contributions must not allow two plugins to claim the same package name silently.
 
 Package ownership must also be exhaustive. Without a mechanical repository rule, a new package can omit the companion, dependency, or publication wiring and remain invisible to diagnostics until a maintainer notices the gap.
 
@@ -72,9 +72,9 @@ These four owners supplied the initial stateful checks. The follow-up runtime-co
 
 The generated scoped-event subject resolver lives in `dsh-scope`, beside the contract and invariant that consume it. `gen-scoped-events` uses the root TypeScript Program to enumerate `this: Scoped<Base>` declarations, infer routing-key types from real `scopeTarget(base, key)` calls, and require one unambiguous payload subject or an explicit unsupported marker. The committed runtime map imports no event-owner package, so semantic completeness does not expand either the service or scope package's runtime closure.
 
-### Standard composition and SDK output
+### Example composition and SDK output
 
-The standard agent spine mounts the service and all four stateful companion subpaths, forwarding `enabled`, `package_allowlist`, and `package_blocklist` to the service. Generated SDK Cordis composition emits the same entries. A subpath entry adds its installable root npm package rather than treating the subpath as a package name.
+The example agent spine mounts the service and all four stateful companion subpaths, forwarding `enabled`, `package_allowlist`, and `package_blocklist` to the service. Generated SDK Cordis composition emits the same entries. A subpath entry adds its installable root npm package rather than treating the subpath as a package name. The shipped `dsh` TUI and Web config trees omit the service and companions under the [shipped-config decision](../simplification/2026-08-03-omit-invariants-from-shipped-config.md).
 
 Workspace constraints recognize the separate invariant bundle, and package exports, project references, build configuration, dependency declarations, and the lockfile describe the same publication surface. Generated config catalogs, module graphs, and API documentation derive from those sources.
 
@@ -97,7 +97,7 @@ Every Vitest configuration loads a test host that mounts an explicitly enabled s
 
 - Product packages own and test their relational assertions while the service stays product-independent.
 - Every package pays the publication and dependency cost of a companion; only owners with a meaningful runtime relationship add listener or trace-state cost.
-- Standard compositions can disable all checks or select package names without changing their plugin tree.
+- Compositions that mount the diagnostics can disable all checks or select package names without changing their plugin tree.
 - Explicit companion entries make diagnostic cost and ownership visible in Cordis config and package exports.
 - One selected executable contribution adds one child fiber and its listener/state cost; a selected empty contribution has no listener or trace-state cost, while filtered registrations retain only name ownership.
 - Regex sources are deployment configuration and remain fixed until the service reloads.

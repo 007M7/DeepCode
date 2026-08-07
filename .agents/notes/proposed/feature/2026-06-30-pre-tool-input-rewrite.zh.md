@@ -6,7 +6,7 @@ Status: proposed
 
 ## 问题
 
-[拦截 seam Agent Note（agent 决策记录）](../../implemented/feature/2026-06-30-interception-seams.md) 将 `tools/pre-execute` 定义为一道针对执行的允许/拒绝/询问门禁，此时执行的身份标识已受保护、参数已被深度冻结。Claude Code 的 `PreToolUse` 钩子还提供了 `updatedInput`，因此忠实的桥接需要一个显式的重写机制。重写不能是对现有执行对象的可变逃逸口：它必须保持持久化历史、审计记录、展示层与实际执行值之间的一致性。
+[拦截 seam Agent Note](../../implemented/feature/2026-06-30-interception-seams.md) 将 `tools/pre-execute` 定义为一道针对执行的允许/拒绝/询问门禁，此时执行的身份标识已受保护、参数已被深度冻结。Claude Code 的 `PreToolUse` 钩子还提供了 `updatedInput`，因此忠实的桥接需要一个显式的重写机制。重写不能是对现有执行对象的可变逃逸口：它必须保持持久化历史、审计记录、展示层与实际执行值之间的一致性。
 
 ## 问题本质：执行前参数的三个读取方
 
@@ -42,7 +42,7 @@ Status: proposed
 
 ## 风险
 
-- 重写 `assistant/message` 中的工具调用块会改变模型「看到自己说了什么」；是否有提供方在回放时拒绝这种改动，是一个需要通过实验确定的开放问题，必须在决策形状冻结之前解决。
+- 重写 `assistant/message` 中的工具调用块会改变模型「看到自己说了什么」；是否有提供方在回放时拒绝这种改动，是一个需要通过实验确定的开放问题，必须在决策结构定型之前解决。
 - 更早的重写阶段改变了 `assistant/message`、`tool/call`、钩子审计事件与执行之间的顺序关系；设计必须固定这一顺序，同时不削弱轮次封闭性或调用/结果邻接性。
 
 ## 开放问题

@@ -103,7 +103,7 @@ describe('hooks-codex bridge', () => {
 
     expect(adapter.requests).toHaveLength(2)
     expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('keep going: address the goal')
-  })
+  }, 15_000) // Two real hook subprocesses and agent steps need startup and teardown headroom under load.
 
   it('turn cancellation aborts and reaps a running UserPromptSubmit hook before idle', async () => {
     const dir = configDir()
@@ -125,8 +125,9 @@ describe('hooks-codex bridge', () => {
 
     expect(() => process.kill(pid, 0)).toThrow()
     expect(adapter.requests).toHaveLength(0)
-    expect(events(agent).some(event => event.type === 'turn/start')).toBe(false)
-    expect(events(agent).some(event => event.type === 'hook/invoked' || event.type === 'hook/result')).toBe(false)
+    expect(events(agent).filter(event => event.type === 'turn/start' || event.type === 'hook/invoked'
+      || event.type === 'hook/result' || event.type === 'turn/end').map(event => event.type))
+      .toEqual(['turn/start', 'hook/invoked', 'hook/result', 'turn/end'])
   })
 
   it('only the five bridge-supported Codex events are honored — a SubagentStop entry is ignored', async () => {

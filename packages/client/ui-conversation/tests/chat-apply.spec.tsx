@@ -3,16 +3,21 @@
 // as the first 'conversation.view' ring entry declaring the keyed toolview
 // hole, the slot registrations land against a root entry's children
 // declarations (the AppFrame role), the shared store handle rides all strict
-// session entries, and the bash sample + todo row mount through the
-// load-order seam as keyed entries. Full-chain rendering belongs to the
+// session entries, and the bash sample + todo row mount through declaration
+// injection as keyed entries. Full-chain rendering belongs to the
 // machinery spec (chat-toolview-slot.spec.tsx) and the shell e2e; this spec
 // stops at the assembly surface.
 
 import { describe, expect, it, vi } from 'vitest'
-import { SlotTestRuntime } from '@deepseek-ai/dsh-client-test-runtime'
+import { SlotTestRuntime, usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
+import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-conversation/client'
+
+// The service reads its initial locale from the browser; these specs assert
+// the shipped Chinese copy, so they state the browser they assume.
+usePinnedBrowserLanguages('zh-CN')
 
 const ROOT = 'root-1' as SessionId
 const CHILD = 'child-1' as SessionId
@@ -23,13 +28,16 @@ async function bench() {
   await runtime.sessions.add(
     { id: CHILD, summary: { title: 'C', displayTitle: 'C', parentId: ROOT } }, { current: false })
   runtime.provide('layout', { openDetails: vi.fn(), closeDetails: vi.fn() })
-  runtime.provide('locale', new LocaleService(runtime.ctx))
+  const locale = new LocaleService(runtime.ctx)
+  runtime.provide('locale', locale)
+  runtime.slots.installLocale(locale)
 
   // Declared by ui-layout's root entry in production; the test root declares
   // them here so the contributions land.
   await runtime.root.declare({
     'conversation': { kind: 'single', scope: 'session-maybe' },
     'details': { kind: 'single', scope: 'session' },
+    'settings.general.item': { kind: 'list', scope: 'root' },
   }, (_p: { renderSlot?: unknown }) => null)
 
   const feature = await runtime.mount({ inject: [...inject], apply })
@@ -37,7 +45,7 @@ async function bench() {
 }
 
 /** First stored entry for a key (inject/store live directly on StoredEntry). */
-function renderEntryOf(slots: Awaited<ReturnType<typeof bench>>['slots'], key: 'conversation' | 'conversation.session' | 'conversation.view' | 'details') {
+function renderEntryOf(slots: Awaited<ReturnType<typeof bench>>['slots'], key: 'conversation' | 'conversation.session' | 'conversation.session.header' | 'conversation.view' | 'details') {
   return slots.entries(key)[0] as undefined | { inject?: unknown; store?: unknown }
 }
 
@@ -52,7 +60,8 @@ describe('apply wiring', () => {
     const b = await bench()
     const entries = b.slots.entries('conversation.view')
     expect(entries.map(e => e.options.id)).toEqual(['chat'])
-    expect(entries[0]?.options.label).toBe('Chat')
+    // Label is a locale thunk resolving through the zh dictionary.
+    expect(resolveSlotLabel(entries[0]?.options.label)).toBe('对话')
     expect(entries[0]?.options.order).toBe(0)
     // Declaring is claiming: the chat entry's registration put the hole on
     // the ledger with the contract's kind/scope.
@@ -64,6 +73,7 @@ describe('apply wiring', () => {
     const b = await bench()
     const conversation = renderEntryOf(b.slots, 'conversation')
     const conversationSession = renderEntryOf(b.slots, 'conversation.session')
+    const conversationHeader = renderEntryOf(b.slots, 'conversation.session.header')
     const chatView = renderEntryOf(b.slots, 'conversation.view')
     const details = renderEntryOf(b.slots, 'details')
     expect(conversation?.inject).toBeTypeOf('function')
@@ -72,20 +82,24 @@ describe('apply wiring', () => {
     // The shared handle: one apply-built store value on ALL session entries
     // (the session-maybe 'conversation' shell carries no store by design).
     expect(conversationSession?.store).toBeDefined()
+    expect(conversationHeader?.store).toBe(conversationSession?.store)
     expect(details?.store).toBe(conversationSession?.store)
     expect(chatView?.store).toBe(conversationSession?.store)
     // The hero workspace picker hole rides the conversation entry's children
     // declaration (the empty-state occupant is gone).
     expect(b.slots.spec('conversation.hero.workspace')).toEqual({ kind: 'single', scope: 'root' })
+    expect(b.slots.entries('settings.general.item').map(entry => entry.options.id)).toEqual(['composer-enter'])
     await b.runtime.dispose()
   })
 
-  it('mounts the bash sample and the product rows as keyed entries through the load-order seam', async () => {
+  it('mounts the tool rows as keyed entries through declaration injection', async () => {
     const b = await bench()
-    // Every registrant plugin's inject: ['slots', 'conversation'] resolved — the
-    // service being present implies the chat entry declared the hole first.
+    // The actual toolview declaration activates every registrant. The
+    // file-mutation registrant claims both write and edit for the diff card; the
+    // one search row registers under both grep and glob; the web rows register
+    // one component under both web tool names.
     const entries = b.slots.entries('conversation.chat.toolview')
-    expect(entries.map(e => e.options.key)).toEqual(['bash', 'todo_write', 'ask_user_question'])
+    expect(entries.map(e => e.options.key)).toEqual(['bash', 'read', 'edit', 'write', 'grep', 'glob', 'web_search', 'web_fetch', 'todo_write', 'ask_user_question'])
     // Stats stick with the composer (not inside ChatView).
     expect(b.slots.entries('conversation.composer.dock').map(e => e.options.id)).toEqual(['stats'])
     await b.runtime.dispose()
@@ -101,6 +115,7 @@ describe('apply wiring', () => {
     expect(b.slots.entries('conversation.chat.toolview')).toHaveLength(0)
     expect(b.slots.spec('conversation.chat.toolview')).toBeUndefined()
     expect(b.slots.entries('details')).toHaveLength(0)
+    expect(b.slots.entries('settings.general.item')).toHaveLength(0)
     expect(b.runtime.ctx.get('conversation')).toBeUndefined()
     await b.runtime.dispose()
   })

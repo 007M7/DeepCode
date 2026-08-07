@@ -1,15 +1,17 @@
-# host/ — web GUI 宿主半侧
+# host/ — Web GUI 宿主侧
 
 [English](README.md) | 中文
 
-dsh web GUI 的宿主侧：所有客户端形态共用的 API 网关，以及承载它的纯 HTTP 服务器。浏览器侧位于 [`client/`](../client/README.md)；组合后的应用是 [`apps/cli`](../../apps/cli/cordis.yml)，它负责服务 [`apps/web`](../../apps/web/)。全部为**产品**包。
+dsh Web GUI 的宿主侧：所有客户端形态共享的 API 网关，以及承载它的普通 HTTP 服务器。浏览器侧位于 [`client/`](../client/README.md)；组合应用是 [`apps/cli`](../../apps/cli/README.md)，它启动 [`dsh-base` 组合包](../bundle/base/cordis.patch.yml) 来提供 [`apps/web`](../../apps/web/)。这些全是**产品**包。
 
-| 包 | 角色 | ctx 键 |
+| 包 | 职责 | ctx key |
 |---|---|---|
-| `apiproxy/` | 共享 API 网关：零 Node 依赖的 TS 协议契约（`src/api/`）、fetch 载体对（宿主侧 `toFetchHandler`、客户端侧 `AbstractApiClient`），以及基于 `ctx.agents`／`ctx.workspace` 的宿主实现 | `ctx.apiProxy` |
-| `webserver/` | 纯 HTTP 路由注册载体：激活即监听的 `node:http` 服务器；路由以命名的 `exact`／`prefix` 处理器注册 | `ctx.httpServer` |
-| `directory-picker/` | 工作区目录选择 seam：网关的 picker RPC 委托的可辨识 `native`／`browse` 能力 | `ctx.directoryPicker` |
-| `directory-picker-native/` | 双面原生交互：OS 选择器后端（osascript／PowerShell／Zenity+KDialog，仅宿主屏幕可用）+ 填入 ui-workspace 目录流 slot 的 browser half | （注册 `ctx.directoryPicker`） |
-| `directory-picker-browse/` | 双面浏览交互：基于 Node 标准库的列举／创建原语（可远程）+ 渲染应用内选择工作区目录对话框的 browser half | （注册 `ctx.directoryPicker`） |
+| [`apiproxy/`](apiproxy/README.md) | 共享宿主 API 网关和协议契约 | `ctx.apiProxy` |
+| [`webserver/`](webserver/README.md) | HTTP 路由载体 | `ctx.httpServer` |
+| [`frontend-static/`](frontend-static/README.md) | 占据 webserver 回退席位的 SPA dist 服务器 | 消费 `ctx.httpServer` |
+| [`directory-picker/`](directory-picker/README.md) | workspace 目录选择 seam | `ctx.directoryPicker` |
+| [`directory-picker-native/`](directory-picker-native/README.md) | 原生目录选择器后端和浏览器交互 | 注册 `ctx.directoryPicker` |
+| [`directory-picker-browse/`](directory-picker-browse/README.md) | 应用内目录浏览器后端和交互 | 注册 `ctx.directoryPicker` |
+| [`directory-picker-auto/`](directory-picker-auto/README.md) | 宿主自适应选择器组合 | 挂载一个后端 |
 
-`apiproxy` 在设计上与传输方式无关——它不注册任何路由；载体自行包装 `ctx.apiProxy`。HTTP 载体路由（连同其 `/api` 浏览器信任栅栏）由 [`client/connection`](../client/connection/README.md) 的 node 半侧挂载，这正是该包住在 client 组的原因：它拥有这条线的两端。
+`apiproxy` 保持传输无关；[`client/connection`](../client/connection/README.md) 提供浏览器／HTTP 载体。选择器实现可在共享 seam 后互相替换。

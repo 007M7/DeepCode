@@ -2,13 +2,13 @@
 
 English | [中文](README.zh.md)
 
-The storage family persists everything that is not a session event log: a hub where named backends and typed data forms meet. Design record: [domain KV storage Agent Note](../../.agents/notes/proposed/architecture/2026-07-24-domain-kv-storage-and-workspace.zh.md).
+This family persists application data other than session event logs through named backends and typed data forms.
 
 | Package | Role | ctx key |
 |---|---|---|
-| `storage/` | The hub: named backend registry + merge-extensible data-form mounts, backend facet vocabulary, shared conformance suite | `ctx.storage` |
-| `storage-json/` | JSON backend: one human-readable file per unit, atomic whole-file rewrite | registers backend `json` |
-| `storage-sqlite/` | SQLite backend: one database hosting all routed units, document-per-row | registers backend `sqlite` |
-| `domain/` | Domain data form: zod-validated records, per-domain write chain, `domain/changed` events, backend routing by configuration | `ctx.storageDomain` + `ctx.storage.domain` |
+| [`storage/`](storage/README.md) | Connects registered backends with typed data forms | `ctx.storage` |
+| [`storage-json/`](storage-json/README.md) | Stores data in JSON files | registers backend `json` |
+| [`storage-sqlite/`](storage-sqlite/README.md) | Stores data in SQLite | registers backend `sqlite` |
+| [`storage-domain/`](storage-domain/README.md) | Provides validated domain-record storage | `ctx.storageDomain` |
 
-Backends own one medium each and expose data-shape **facets** (`kv` today; an append-log facet is reserved for the future session-backend migration). Each backend plugin publishes an internal lifecycle service after registration; the domain plugin injects every configured backend key before exposing its own service, so config-tree row order carries no startup semantics. Consumers never touch backends directly — they inject `storageDomain` and open declared domains through it.
+Consumers use a data form rather than accessing a backend directly. The [domain storage decision](../../.agents/notes/proposed/architecture/2026-07-24-domain-kv-storage-and-workspace.md) records the family design.

@@ -12,13 +12,13 @@ ACP（Agent Client Protocol）示例试图通过 `disabled: !!js ...` 有条件�
 
 默认的 ACP 组合有意只启用 bash，因为其沙箱无法约束进程内的文件系统提供方。文件系统快照场景仍然需要 `read`、`write` 和 `edit`，因此这些插件被放在默认的 `cordis.yml` 中，并附带一个 `disabled` 表达式，意图仅在全权限启动和快照模式下启用它们。
 
-Cordis Include 将每个 `!!js` 标量解析为一个表达式对象。Loader 递归地对插件的 `config` 进行插值，但直接消费 `disabled` 等入口元数据。因此每个文件系统入口看到的都是一个 truthy 对象，在所有模式下均保持禁用。
+Cordis Include 将每个 `!!js` 标量解析为一个表达式对象。Loader 递归地对插件的 `config` 进行插值，但直接读取 `disabled` 等配置项元数据。因此每个文件系统配置项看到的都是一个 truthy 对象，在所有模式下均保持禁用。
 
 ## 影响
 
 七个文件系统场景和一个混合工作区编辑场景调用了注册表中不存在的工具。其结构化会话日志携带 `ToolNotFoundError`（code 为 `UNKNOWN_TOOL`），stdout 渲染出通用的失败工具卡片。快照套件通过了，因为结构化会话日志和 stdout 渲染出的通用失败工具卡片均与刷新后的 fixture（测试前置数据）匹配；它证明的是回归的确定性回放，而非文件系统行为的正确性。
 
-实际运行的受限默认模式并未获得意外的文件系统访问权限。一个简单的插值修复反而会制造该风险：权限预设在运行时更新 bash 沙箱和审批状态，但无法挂载、卸载或约束文件系统栈。
+实际运行的受限默认模式并未获得意外的文件系统访问权限。草率地直接修复插值反而会带来这一风险：权限预设在运行时更新 bash 沙箱和审批状态，但无法挂载、卸载或约束文件系统栈。
 
 ## 时间线
 
@@ -29,7 +29,7 @@ Cordis Include 将每个 `!!js` 标量解析为一个表达式对象。Loader �
 
 ## 根因
 
-实现时假设 `!!js` 适用于整个 Loader 入口。其实际边界更窄：`Entry._resolveConfig()` 仅对 `entry.options.config` 进行插值；`Entry.disabled` 直接测试 `entry.options.disabled`，不经过插值。YAML 标签在语法上合法，因此加载过程不产生任何诊断信息。
+实现时假设 `!!js` 适用于整个 Loader 配置项。其实际边界更窄：`Entry._resolveConfig()` 仅对 `entry.options.config` 进行插值；`Entry.disabled` 直接测试 `entry.options.disabled`，不经过插值。YAML 标签在语法上合法，因此加载过程不产生任何诊断信息。
 
 快照框架将任何确定性的 transcript（文本记录）视为有效行为。Header pin 验证了组合后的工具 schema，但文件系统场景共享来自默认组合的 pin，因此未独立证明其所需工具已注册。刷新在任何语义断言拒绝缺失工具之前，就已重写了预期的 stdout 和会话日志。
 
@@ -37,8 +37,8 @@ Cordis Include 将每个 `!!js` 标量解析为一个表达式对象。Loader �
 
 - 文件系统场景启动 `fs.cordis.yml`：一个显式的固定全权限 overlay，配有对应的回放配置和独立的 request-header 类。
 - [`AGENTS.md`](../../AGENTS.md) 与 [Cordis 入门](../cordis-primer.md#loader-configuration)明确说明 `!!js` 仅在插件 `config` 内有效，条件式组合应使用 overlay。
-- `verify-cordis-config` 解析仓库中的 Cordis YAML，拒绝 Loader 入口元数据中的表达式节点（包括 include patch 和插入的入口）。
-- `dsh-acp-snapshot` 在新鲜运行和已提交的会话 fixture 中拒绝结构化的 `UNKNOWN_TOOL` 结果，防止其被提交为预期输出。
+- `verify-cordis-config` 解析仓库中的 Cordis YAML，拒绝 Loader 配置项元数据中的表达式节点（包括 include patch 和插入的配置项）。
+- `dsh-acp-snapshot` 在全新运行和已提交的会话 fixture 中拒绝结构化的 `UNKNOWN_TOOL` 结果，防止其被提交为预期输出。
 
 ## 教训
 

@@ -18,7 +18,13 @@
       "path": "../connection"
     },
     {
+      "path": "../locale"
+    },
+    {
       "path": "../ui-conversation"
+    },
+    {
+      "path": "../ui-primitives"
     },
     {
       "path": "../ui-slots"

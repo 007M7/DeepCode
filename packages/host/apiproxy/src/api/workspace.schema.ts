@@ -28,6 +28,7 @@ export const workspaceListRequestSchema = z.object({}) satisfies z.ZodType<Wire<
 /** workspace.list response value. */
 export const workspaceListValueSchema = z.object({
   items: z.array(workspaceViewSchema),
+  archivedSessionIds: z.array(sessionIdSchema),
 }) satisfies z.ZodType<Wire<ResponseValue<'workspace.list'>>>
 
 /** workspace.create request payload: exactly one of path/name (the contract's create spellings). */
@@ -80,3 +81,13 @@ export const workspaceInsertSessionBeforeRequestSchema = z.object({
 export const workspaceInsertSessionBeforeValueSchema = z.object({
   workspace: workspaceViewSchema,
 }) satisfies z.ZodType<Wire<ResponseValue<'workspace.insertSessionBefore'>>>
+
+/** workspace.archiveSession request payload. */
+export const workspaceArchiveSessionRequestSchema = z.object({
+  sessionId: sessionIdSchema,
+}) satisfies z.ZodType<Wire<RequestPayload<'workspace.archiveSession'>>>
+
+/** workspace.archiveSession response value: the full updated archive set. */
+export const workspaceArchiveSessionValueSchema = z.object({
+  archivedSessionIds: z.array(sessionIdSchema),
+}) satisfies z.ZodType<Wire<ResponseValue<'workspace.archiveSession'>>>

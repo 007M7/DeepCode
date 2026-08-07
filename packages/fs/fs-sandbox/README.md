@@ -22,14 +22,22 @@ A denial is a structured `FsError` (`FS_SANDBOX_DENIED`, carrying the effective 
 
 ## Model Experience
 
-Indirectly, through `dsh-tool-fs`, which renders this backend's `FS_SANDBOX_DENIED` refusals as the `[sandbox: file access denied under <mode> mode]` marker plus the same-turn escalation hint.
+### Filesystem policy and refusals
+
+#### What the model sees
+
+The policy owner contributes capability-neutral `sandbox:policy` context. Indirectly, `dsh-tool-fs` renders this backend's `FS_SANDBOX_DENIED` refusals as the `[sandbox: file access denied under <mode> mode]` marker plus the same-turn escalation hint.
+
+#### Token effect
+
+The current-policy clause adds a small runtime-context message while this backend is mounted; a denial adds the bounded marker and escalation hint to conversation history.
 
 #### KV Cache effect
 
-No direct invalidation; the named consumer owns any request-prefix changes.
+A standing-policy change appends an owner-rendered superseding runtime-context snapshot after retained history; operation results remain append-only.
 
 ## Known Limitations and Deferred Work
 
 - **A policy fence, not a kernel boundary** — the check is trusted code over a model-controlled path, so the residual resolve-to-syscall TOCTOU is narrowed (by the in-place re-canonicalization) but not eliminated; adversarial host processes are out of scope. Kernel-grade isolation of untrusted code stays `ctx.bash`'s.
-- **Fence-vs-runner parity is derived, not asserted** — the writable set comes from `writableRoots`, shared with the Seatbelt profile and pinned by a parity test; a runner profile that changed its writable set without that function would drift.
+- **Fence-vs-runner parity is derived from one owner** — the writable set comes from `writableRoots`, shared with the Seatbelt profile; a runner profile that defines its writable set elsewhere would drift.
 - **Requires `ctx.sandboxPolicy`** — tools use it to resolve each session policy and the backend uses it for agentless-call fallbacks; the backend does not confine without it composed.

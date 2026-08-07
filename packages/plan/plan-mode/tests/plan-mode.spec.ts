@@ -3,10 +3,12 @@ import { Context } from 'cordis'
 import { createUserMessage, CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { RUN_CODE_NAME, defineContentToolFixture } from '@deepseek-ai/dsh-tools'
-import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import { Session, SessionId, type UserMessage } from '@deepseek-ai/dsh-session'
 import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import { createScope } from '@deepseek-ai/dsh-scope'
-import UserInteractionService, { type AskUserQuestionRequest } from '@deepseek-ai/dsh-user-interaction'
+import UserInteractionService, {
+  UserInteractionError, type AskUserQuestionRequest,
+} from '@deepseek-ai/dsh-user-interaction'
 import CommandService from '@deepseek-ai/dsh-commands'
 import { CodeRuntime, type CodeRunRequest, type CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
 import PlanModeService, { EXIT_PLAN_MODE, foldPlanMode, resolveConfig } from '../src/index.ts'
@@ -19,15 +21,22 @@ const PLAN_CONFIG = { section: TEST_PLAN_SECTION } satisfies PlanModeConfig
  * Drives the REAL plugin: mounts `dsh-plan-mode` beside real `SystemPrompt` and
  * `ToolRegistry` services, with fake Agents carrying real `Session`s and a
  * real scoped `agent.ctx` minted through `createScope`.
- * Request boundaries are simulated by dispatching the real prompt-admission
- * and between-step seams used by the loop.
+ * Request boundaries are simulated by dispatching the real pre-step waterfall
+ * and the following `step/start` session event used by the loop.
  */
 
 async function agentWithSession(ctx: Context, id = 'agent-1', { active }: { active?: boolean } = {}): Promise<Agent & { session: Session }> {
   // A live store session when a store is mounted (the command executor logs
   // lifecycle events through it); bare otherwise (fold/tool-only benches).
-  const session = new Session(SessionId(id))
-  const agent = { id: SessionId(id), session, options: {} } as unknown as Agent & { session: Session }
+  const session = Session.create(SessionId(id))
+  const agent = {
+    id: SessionId(id),
+    session,
+    options: {},
+    inject(message: UserMessage) {
+      session.append('user/message', message, { surfaceOp: 'append' })
+    },
+  } as unknown as Agent & { session: Session }
   let scoped!: Context
   await ctx.plugin(Object.assign((inner: Context) => { scoped = createScope(inner, agent).ctx }, {
     inject: ['tools'],
@@ -36,7 +45,7 @@ async function agentWithSession(ctx: Context, id = 'agent-1', { active }: { acti
   // Seeded plan state lands before the creation announcement, matching resume.
   if (active !== undefined) session.append('plan/mode', { active })
   // The loop announces creation after publication.
-  ctx.emit('agent/created', agent)
+  ctx.emit('agent/created', { agent })
   return agent
 }
 
@@ -54,28 +63,34 @@ async function setup(config: PlanModeConfig = PLAN_CONFIG): Promise<Context> {
 }
 
 /**
- * Dispatch either prompt admission or the between-step checkpoint.
+ * Dispatch pre-step processing and optionally its following step-start commit.
  */
-async function boundary(ctx: Context, agent: Agent & { session: Session }, type: 'turn/start' | 'step/end'): Promise<void> {
+async function boundary(ctx: Context, agent: Agent & { session: Session }, type: 'pre-step' | 'step-start'): Promise<void> {
   const events = agentEvents(ctx, agent)
-  if (type === 'turn/start') {
-    await events.waterfall(
-      'agent/prompt-submit',
-      createUserMessage({
-        content: [{ type: 'text', text: 'boundary probe' }],
-        source: { kind: 'user' },
-      }),
-      new AbortController().signal,
-      () => Promise.resolve({ kind: 'allow' }),
-    )
-    return
+  const message = createUserMessage({
+    content: [{ type: 'text', text: 'boundary probe' }],
+    source: { kind: 'user' },
+  })
+  const signal = new AbortController().signal
+  const decision = await events.waterfall(
+    'agent/pre-step',
+    { messages: [message], turn: 1, step: 1, signal },
+    () => Promise.resolve({ kind: 'enter' as const, messages: [message] }),
+  )
+  if (decision.kind === 'enter') {
+    for (const message of decision.messages.slice(1)) {
+      agent.session.append('user/message', message, { surfaceOp: 'append' })
+    }
   }
-  await events.serial('agent/step', 1, 2, new AbortController().signal)
+  if (type === 'step-start') {
+    const event = agent.session.append('step/start', { turn: 1, step: 1 })
+    ctx.emit('session/event', agent.session, event)
+  }
 }
 
 /** Open a turn so a selection queues for the boundary flush (the mid-turn shape). */
 function openTurn(session: Session, turn = 0): void {
-  session.append('turn/start', { turn, trigger: { kind: 'message', source: { kind: 'user' } } })
+  session.append('turn/start', { turn })
 }
 
 /** Close the open turn (the between-turns shape: selections commit immediately). */
@@ -151,7 +166,7 @@ describe('resolveConfig', () => {
 
 describe('foldPlanMode', () => {
   it('folds an empty log to inactive and takes the last plan/mode otherwise', () => {
-    const session = new Session(SessionId('fold'))
+    const session = Session.create(SessionId('fold'))
     expect(foldPlanMode(session.events)).toBe(false)
     session.append('plan/mode', { active: true })
     session.append('plan/mode', { active: false })
@@ -160,7 +175,7 @@ describe('foldPlanMode', () => {
   })
 
   it('folds a prefix when `end` is given', () => {
-    const session = new Session(SessionId('fold-prefix'))
+    const session = Session.create(SessionId('fold-prefix'))
     session.append('plan/mode', { active: true })
     session.append('plan/mode', { active: false })
     expect(foldPlanMode(session.events, 1)).toBe(true)
@@ -207,7 +222,7 @@ describe('ctx.planMode: get/set', () => {
     expect(ctx.planMode.set(agent, false)).toBe('committed')
     expect(foldPlanMode(agent.session.events)).toBe(false)
     // A later boundary finds nothing pending — no double append.
-    await boundary(ctx, agent, 'step/end')
+    await boundary(ctx, agent, 'step-start')
     expect(agent.session.events.filter(event => event.type === 'plan/mode')).toHaveLength(2)
   })
 
@@ -233,23 +248,26 @@ describe('ctx.planMode: get/set', () => {
 })
 
 describe('the boundary flush', () => {
-  it('does not flush at prompt admission — the seam is pre-turn, so the first step boundary lands it', async () => {
+  it('is inert when no selection is pending', async () => {
+    const ctx = await setup()
+    const agent = await agentWithSession(ctx)
+    const service = ctx.planMode as unknown as { onBoundary(session: Session): void }
+
+    expect(() => { service.onBoundary(agent.session) }).not.toThrow()
+    expect(agent.session.events.some(event => event.type === 'plan/mode')).toBe(false)
+  })
+
+  it('flushes from pre-step before the following step/start', async () => {
     const ctx = await setup()
     const agent = await agentWithSession(ctx)
     openTurn(agent.session)
     ctx.planMode.set(agent, true)
-    // Prompt admission runs before any turn opens; a plan/mode appended there
-    // would sit outside the turn. The pending intent survives admission and
-    // the in-turn agent/step boundary flushes it before the request derives.
-    await boundary(ctx, agent, 'turn/start')
-    expect(agent.session.events.some(event => event.type === 'plan/mode')).toBe(false)
-    expect(ctx.planMode.get(agent)).toEqual({ active: false, pending: true })
-    await boundary(ctx, agent, 'step/end')
+    await boundary(ctx, agent, 'pre-step')
     expect(foldPlanMode(agent.session.events)).toBe(true)
     expect(ctx.planMode.get(agent)).toEqual({ active: true })
   })
 
-  it('skips the flush after the plugin fiber is disposed (a captured wrapper must not write into a dead service)', async () => {
+  it('removes the pre-step flush when the plugin fiber is disposed', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
@@ -257,32 +275,8 @@ describe('the boundary flush', () => {
     const agent = await agentWithSession(ctx)
     openTurn(agent.session)
     ctx.planMode.set(agent, true)
-    // A listener captured in the same dispatch snapshot keeps the plan-mode
-    // callback alive across the unload; the resumed wrapper must not append
-    // through the disposed service. Registered prepended AFTER the plugin so
-    // it runs before plan-mode's own prepended flush.
-    ctx.on('agent/step', async () => {
-      await fiber.dispose()
-    }, { prepend: true })
-    await agentEvents(ctx, agent).serial('agent/step', 1, 1, new AbortController().signal)
-    expect(agent.session.events.some(event => event.type === 'plan/mode')).toBe(false)
-  })
-
-  it('skips the step-seam flush after the plugin fiber is disposed (a captured listener must not write into a dead service)', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRegistry)
-    const fiber = await ctx.plugin(PlanModeService, PLAN_CONFIG)
-    const agent = await agentWithSession(ctx)
-    openTurn(agent.session)
-    ctx.planMode.set(agent, true)
-    // Serial dispatch captures its listener list up front; prepending after
-    // the plugin puts this listener ahead of the plugin's own prepended one,
-    // so the plugin's captured callback still runs after the disposal below.
-    ctx.on('agent/step', async () => {
-      await fiber.dispose()
-    }, { prepend: true })
-    await agentEvents(ctx, agent).serial('agent/step', 1, 1, new AbortController().signal)
+    await fiber.dispose()
+    await boundary(ctx, agent, 'pre-step')
     expect(agent.session.events.some(event => event.type === 'plan/mode')).toBe(false)
   })
 
@@ -290,7 +284,7 @@ describe('the boundary flush', () => {
     const ctx = await setup()
     const agent = await agentWithSession(ctx)
     ctx.planMode.set(agent, true)
-    await boundary(ctx, agent, 'step/end')
+    await boundary(ctx, agent, 'step-start')
     expect(foldPlanMode(agent.session.events)).toBe(true)
   })
 
@@ -301,7 +295,7 @@ describe('the boundary flush', () => {
     openTurn(agent.session)
     ctx.planMode.set(agent, true)
     ctx.planMode.set(agent, false)
-    await boundary(ctx, agent, 'turn/start')
+    await boundary(ctx, agent, 'pre-step')
     expect(agent.session.events.some(event => event.type === 'plan/mode')).toBe(false)
     expect(noticeTexts(agent.session)).toEqual([])
   })
@@ -310,7 +304,7 @@ describe('the boundary flush', () => {
     const ctx = await setup()
     const agent = await agentWithSession(ctx)
     ctx.planMode.set(agent, true)
-    await boundary(ctx, agent, 'turn/start')
+    await boundary(ctx, agent, 'pre-step')
     expect(noticeTexts(agent.session)).toEqual([])
   })
 
@@ -319,9 +313,9 @@ describe('the boundary flush', () => {
     const agent = await agentWithSession(ctx)
     header(agent.session)
     ctx.planMode.set(agent, true)
-    await boundary(ctx, agent, 'step/end')
+    await boundary(ctx, agent, 'step-start')
     expect(noticeTexts(agent.session)).toEqual(['The user switched this session to plan mode.'])
-    await boundary(ctx, agent, 'step/end')
+    await boundary(ctx, agent, 'step-start')
     expect(noticeTexts(agent.session)).toEqual(['The user switched this session to plan mode.'])
   })
 
@@ -331,7 +325,7 @@ describe('the boundary flush', () => {
     agent.session.append('plan/mode', { active: true })
     header(agent.session)
     ctx.planMode.set(agent, false)
-    await boundary(ctx, agent, 'step/end')
+    await boundary(ctx, agent, 'step-start')
     expect(noticeTexts(agent.session)).toEqual(['The user switched this session back to the default mode.'])
   })
 
@@ -342,7 +336,7 @@ describe('the boundary flush', () => {
     header(agent.session)
     agent.session.append('plan/mode', { active: false })
     ctx.planMode.set(agent, true)
-    await boundary(ctx, agent, 'step/end')
+    await boundary(ctx, agent, 'step-start')
     expect(foldPlanMode(agent.session.events)).toBe(true)
     expect(noticeTexts(agent.session)).toEqual([])
   })
@@ -362,19 +356,19 @@ describe('the boundary flush', () => {
       if (type === 'plan/mode') throw new Error('backend gone')
       return (original as (...args: unknown[]) => unknown)(type, ...rest)
     }) as unknown) as typeof agent.session.append
-    await boundary(ctx, agent, 'step/end')
+    await boundary(ctx, agent, 'step-start')
     expect(warn).toHaveBeenCalledOnce()
     // The failed flush re-parks the intent (cleared only after a landed
     // append), so the next healthy boundary converges the log with the
     // picker's optimistic state instead of dropping the switch forever.
     expect(ctx.planMode.get(agent)).toEqual({ active: false, pending: true })
     agent.session.append = original
-    await boundary(ctx, agent, 'step/end')
+    await boundary(ctx, agent, 'step-start')
     expect(foldPlanMode(agent.session.events)).toBe(true)
     expect(ctx.planMode.get(agent).pending).toBeUndefined()
   })
 
-  it('prompt admission never appends, so a broken backend surfaces only at the step boundary', async () => {
+  it('contains a pre-step append failure and keeps the intent pending', async () => {
     const ctx = await setup()
     const warn = vi.fn()
     ctx.logger.warn = warn as never
@@ -386,9 +380,7 @@ describe('the boundary flush', () => {
       if (type === 'plan/mode') throw new Error('backend gone')
       return (original as (...args: unknown[]) => unknown)(type, ...rest)
     }) as unknown) as typeof agent.session.append
-    await boundary(ctx, agent, 'turn/start')
-    expect(warn).not.toHaveBeenCalled()
-    await boundary(ctx, agent, 'step/end')
+    await boundary(ctx, agent, 'pre-step')
     expect(warn).toHaveBeenCalledOnce()
     expect(ctx.planMode.get(agent)).toEqual({ active: false, pending: true })
   })
@@ -610,7 +602,7 @@ describe('/plan', () => {
       .toEqual({ kind: 'success', text: 'Plan mode entry cancelled.' })
     expect(ctx.planMode.get(entering)).toEqual({ active: false, pending: false })
     expect(enteringSteer).not.toHaveBeenCalled()
-    await boundary(ctx, entering, 'step/end')
+    await boundary(ctx, entering, 'step-start')
     expect(ctx.planMode.get(entering)).toEqual({ active: false })
     expect(entering.session.events.some(event => event.type === 'plan/mode')).toBe(false)
 
@@ -624,7 +616,7 @@ describe('/plan', () => {
     expect((await ctx.commands.execute(active, '/plan off', signal))?.result)
       .toEqual({ kind: 'success', text: 'Leaving plan mode (applies from the next step).' })
     expect(activeSteer).not.toHaveBeenCalled()
-    await boundary(ctx, active, 'step/end')
+    await boundary(ctx, active, 'step-start')
     expect(ctx.planMode.get(active)).toEqual({ active: false })
   })
 
@@ -749,7 +741,7 @@ describe('exit_plan_mode', () => {
     // step's end, so the plan policy covers any remaining call of the SAME batch.
     expect(foldPlanMode(agent.session.events)).toBe(true)
     expect(ctx.planMode.get(agent)).toEqual({ active: true, pending: false })
-    await boundary(ctx, agent, 'step/end')
+    await boundary(ctx, agent, 'step-start')
     expect(foldPlanMode(agent.session.events)).toBe(false)
     expect(asked).toHaveLength(1)
     expect(asked[0]?.agent).toBe(agent)
@@ -806,18 +798,18 @@ describe('exit_plan_mode', () => {
     expect(ctx.planMode.get(agent)).toEqual({ active: true, pending: false })
   })
 
-  it('an approved exit keeps plan guidance until the boundary and never removes the tool', async () => {
+  it('an approved exit projects the next assembly before the boundary and never removes the tool', async () => {
     const { ctx, agent } = await setupWithReview({ selected: ['Approve'] })
     const approved = await callExit(ctx, agent)
     expect(approved.isError).toBe(false)
-    // Calls of the SAME assistant response (no boundary between) were
-    // requested under the plan-shaped header — the fold stays plan for that
-    // whole batch; the boundary flush is what flips the next step.
+    // Calls of the SAME assistant response were requested under the existing
+    // plan-shaped header. Pending state shapes only the proposed next
+    // assembly; the accepted boundary then commits the matching durable fold.
     expect(foldPlanMode(agent.session.events)).toBe(true)
     const assembly = await ctx.systemPrompt.assemble({ agent })
     expect(assembly.tools.some(tool => tool.name === EXIT_PLAN_MODE)).toBe(true)
-    expect(assembly.sections.find(section => section.name === 'plan:policy')?.text).toBe(TEST_PLAN_SECTION)
-    await boundary(ctx, agent, 'step/end')
+    expect(assembly.sections.find(section => section.name === 'plan:policy')?.text).toBe('')
+    await boundary(ctx, agent, 'step-start')
     expect(foldPlanMode(agent.session.events)).toBe(false)
     const afterExit = await ctx.systemPrompt.assemble({ agent })
     expect(afterExit.tools).toEqual(assembly.tools)
@@ -828,7 +820,7 @@ describe('exit_plan_mode', () => {
     const { ctx, agent } = await setupWithReview({ selected: ['Approve'] })
     header(agent.session)
     await callExit(ctx, agent)
-    await boundary(ctx, agent, 'step/end')
+    await boundary(ctx, agent, 'step-start')
     expect(foldPlanMode(agent.session.events)).toBe(false)
     expect(noticeTexts(agent.session)).toEqual([])
   })
@@ -892,6 +884,40 @@ describe('exit_plan_mode', () => {
     const result = await callExit(ctx, agent)
     expect(result.isError).toBe(true)
     expect(result.content).toEqual([{ type: 'text', text: 'Error: The user chose to keep planning; revise the plan and present it again.' }])
+  })
+
+  it('declares the plan-review presentation intent naming its approve option', async () => {
+    const { ctx, agent, asked } = await setupWithReview({ selected: ['Approve'] })
+    await callExit(ctx, agent)
+    const question = asked[0]?.questions[0]
+    expect(question?.intent).toEqual({ kind: 'plan-review', approve: 'Approve' })
+    // The named label is one this same question offers, so a UI honouring the
+    // intent answers a choice this tool accepts.
+    expect(question?.options?.map(option => option.label)).toContain(question?.intent?.approve)
+  })
+
+  it('reads a dismissed review as the user taking the turn back, not as a failure', async () => {
+    const { ctx, agent } = await setupWithReview()
+    ctx.userInteraction.registerProvider({
+      ask: () => Promise.reject(new UserInteractionError(
+        'the user cancelled ask_user_question', 'ASK_CANCELLED')),
+    })
+    const result = await callExit(ctx, agent)
+    expect(result.isError).toBe(true)
+    expect(result.content).toEqual([{ type: 'text', text: 'Error: The user dismissed the plan review to speak instead; stay in plan mode, stop here, and wait for their message.' }])
+    expect(foldPlanMode(agent.session.events)).toBe(true)
+  })
+
+  it('leaves every other review failure its own message', async () => {
+    const { ctx, agent } = await setupWithReview()
+    ctx.userInteraction.registerProvider({
+      ask: () => Promise.reject(new UserInteractionError(
+        'ask_user_question was aborted before the user answered', 'ASK_ABORTED')),
+    })
+    const result = await callExit(ctx, agent)
+    expect(result.isError).toBe(true)
+    expect(result.content).toEqual([{ type: 'text', text: 'Error: ask_user_question was aborted before the user answered' }])
+    expect(foldPlanMode(agent.session.events)).toBe(true)
   })
 
   it('forwards the execution abort signal to the review question', async () => {
@@ -987,7 +1013,7 @@ describe('HMR disposal', () => {
     expect(ctx.get('planMode')).toBeUndefined()
     expect(ctx.tools.get(EXIT_PLAN_MODE)).toBeUndefined()
     expect((await ctx.systemPrompt.assemble()).sections.map(section => section.name)).not.toContain('plan:policy')
-    await boundary(ctx, agent, 'step/end')
+    await boundary(ctx, agent, 'step-start')
     expect(agent.session.events.some(event => event.type === 'plan/mode')).toBe(false)
   })
 })

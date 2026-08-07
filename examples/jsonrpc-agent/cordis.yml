@@ -7,13 +7,11 @@
     maxTokensAsSuccess: !!js "process.env.DSH_MAX_TOKENS_AS_SUCCESS === undefined ? true : JSON.parse(process.env.DSH_MAX_TOKENS_AS_SUCCESS)"
 
 # The DeepSeek adapter. Shipped default: full thinking at max effort on every
-# request (wire-only defaults; they never enter the request header). The model
-# arrives per session over JSON-RPC, so it is not pinned here.
+# request; exact-model resolution materializes request defaults before logging.
+# The model arrives per session over JSON-RPC, so it is not pinned here.
 - id: llm-deepseek
   name: '@deepseek-ai/dsh-llm-deepseek'
   config:
-    apiKey: !!js process.env.DEEPSEEK_API_KEY
-    baseURL: !!js process.env.DEEPSEEK_BASE_URL
     thinking: enabled
     reasoningEffort: max
 
@@ -65,6 +63,8 @@
 
 - id: tool-todo
   name: '@deepseek-ai/dsh-tool-todo'
+  config:
+    allowParallelInProgress: true
 
 - id: fs-local
   name: '@deepseek-ai/dsh-fs-local'

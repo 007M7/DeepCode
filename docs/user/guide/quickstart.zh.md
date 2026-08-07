@@ -40,21 +40,23 @@ pnpm run demo:headless "summarize the architecture of this workspace"
 
 Headless 运行一个完整的模型/工具轮次，持久化会话，打印结果后退出。需要规范事件流时可使用 `--output-format stream-json`。
 
-## 第三步：使用 TUI
+## 第三步：使用 Web UI
 
-启动交互式 coding agent：
+构建并启动浏览器界面：
 
 ```sh
-pnpm run demo:tui
+pnpm run build
+pnpm run dsh web
 ```
 
-这个全屏 Agent 可以读写文件、运行命令、分配子任务和跟踪计划。可以尝试：`Create hello.js in the current directory, print "Hello from Harness!", and run it`。
+打开 `http://127.0.0.1:3080`。agent 可以读写文件、运行命令、分配子任务和跟踪计划。可以尝试：`Create hello.js in the current directory, print "Hello from Harness!", and run it`。
 
 ## 回头看
 
-headless-agent 使用 `@deepseek-ai/dsh-cli-demo` app，tui-agent 使用交互式 `@deepseek-ai/dsh-tui-demo` app。二者加载同一个 providerless agent spine，并通过各自的 `cordis.yml` 为对应 surface 选择 DeepSeek 模型和能力插件。
+headless-agent 使用 `@deepseek-ai/dsh-cli-demo` app。`dsh web` 则启动 `web` profile：由 [`dsh-base`](../../../packages/bundle/base/cordis.patch.yml) 与 [`dsh-web-app`](../../../packages/bundle/web-app/cordis.patch.yml) 两个组合包的 patch 层在空根之上组合而成。二者都会根据各自入口模式选择 DeepSeek 模型和能力插件。
 
 ## 下一步
 
+- [配置模型](./providers.md) — 接入 DeepSeek 之外的提供方与自定义网关
 - [配置文件](./config.md) — 了解 `cordis.yml` 的格式
 - [开发插件](../develop/basic/) — 编写自己的 tool 或后端

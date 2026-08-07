@@ -5,9 +5,10 @@ import {
   IconCloseOutline16, IconEditOutline16, MarkdownText,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
-  PendingQuestion,
+  PendingQuestion, planReviewOf,
   type QuestionAnswer, type QuestionComposerProps,
 } from './contract/slots.ts'
+import { PlanReviewPanel } from './PlanReviewPanel.tsx'
 import css from './QuestionComposer.module.css'
 
 interface DraftAnswer {
@@ -46,14 +47,24 @@ function isComposing(event: KeyboardEvent<HTMLTextAreaElement | HTMLInputElement
 /**
  * Composer takeover boundary; the carrier key keys local drafts, so a
  * same-request replay (same key, new carrier object) preserves them.
+ *
+ * One takeover, two shapes: a request that declares a presentation intent this
+ * package renders takes that shape (a plan review is one decision over one
+ * plan, not a question set), and every other request takes the generic flow.
+ * The routing lives here, at the one entry that owns the composer seat, so
+ * neither shape can claim a request the other is already rendering.
+ *
  * @param props - the selector-matched pending question carrier plus the framework standard kit.
- * @returns The question flow for this request.
+ * @returns The question flow, or the intent's own surface, for this request.
  */
 export function QuestionComposer(props: QuestionComposerProps) {
   // Domain-face mint rides the carrier's stable identity (never minted in a
   // select/render dispatch — per-dispatch minting would churn memo identity).
   const question = useMemo(() => new PendingQuestion(props.matched), [props.matched])
-  return <QuestionFlow key={question.key} pending={question} t={props.t} />
+  const review = useMemo(() => planReviewOf(question.questions), [question])
+  return review === undefined
+    ? <QuestionFlow key={question.key} pending={question} t={props.t} />
+    : <PlanReviewPanel key={question.key} pending={question} review={review} t={props.t} />
 }
 
 function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<QuestionComposerProps, 't'>) {
@@ -87,12 +98,13 @@ function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<Questi
 
   const choose = (label: string): void => {
     updateDraft((current) => {
-      const selected = question.multiSelect === true
-        ? current.selected.includes(label)
+      if (question.multiSelect === true) {
+        const selected = current.selected.includes(label)
           ? current.selected.filter(item => item !== label)
           : [...current.selected, label]
-        : [label]
-      return { selected, custom: '', skipped: false }
+        return { ...current, selected, skipped: false }
+      }
+      return { selected: [label], custom: '', skipped: false }
     })
     if (question.multiSelect !== true && index < questions.length - 1) {
       setIndex(current => current + 1)
@@ -118,7 +130,7 @@ function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<Questi
         const custom = value.custom.trim()
         return {
           id: item.id,
-          selected: custom === '' ? value.selected : [],
+          selected: custom === '' || item.multiSelect === true ? value.selected : [],
           ...(custom === '' ? {} : { custom }),
         }
       }),
@@ -144,14 +156,17 @@ function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<Questi
     submitDrafts(drafts)
   }
 
-  // Shared by the inline custom input and the optionless textarea: typing a
-  // custom draft clears any selection, and Enter continues the flow
-  // (Shift+Enter stays a newline in the textarea; on the single-line input it
-  // is inert either way).
+  // Shared by the inline custom input and the optionless textarea: a
+  // multi-select draft retains checked labels, while a single-select custom
+  // answer replaces its selection. Enter continues the flow (Shift+Enter
+  // stays a newline in the textarea; on the single-line input it is inert).
   const draftCustom = (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>): void => {
     const value = event.target.value
     updateDraft(current => ({
-      ...current, selected: [], custom: value, skipped: false,
+      ...current,
+      selected: question.multiSelect === true ? current.selected : [],
+      custom: value,
+      skipped: false,
     }))
   }
 

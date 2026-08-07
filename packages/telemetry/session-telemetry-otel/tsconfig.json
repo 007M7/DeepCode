@@ -21,10 +21,19 @@
       "path": "../../core/session"
     },
     {
+      "path": "../../feedback/command-feedback"
+    },
+    {
       "path": "../../llm/llm"
     },
     {
       "path": "../session-telemetry"
+    },
+    {
+      "path": "../../util/brand"
+    },
+    {
+      "path": "../../util/paths"
     },
     {
       "path": "../../support/invariants"

@@ -21,10 +21,16 @@
       "path": "../connection"
     },
     {
+      "path": "../../api/remotes"
+    },
+    {
       "path": "../../host/apiproxy"
     },
     {
       "path": "../../ui/commands"
+    },
+    {
+      "path": "../../compact/compact"
     },
     {
       "path": "../../session-projection/session-projection"
@@ -36,7 +42,16 @@
       "path": "../../llm/llm"
     },
     {
+      "path": "../../llm/llm-retry"
+    },
+    {
       "path": "../../support/invariants"
+    },
+    {
+      "path": "../../typert/type-meta"
+    },
+    {
+      "path": "../../typert/registry"
     }
   ],
   "exclude": [

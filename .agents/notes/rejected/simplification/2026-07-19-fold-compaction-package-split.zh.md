@@ -8,7 +8,7 @@ Status: rejected — 计划增加更多压缩后端，因此接口包与 basic �
 
 压缩（compaction）目前拆分在两个包中：`@deepseek-ai/dsh-compact` 拥有一个含两个方法的抽象服务和共享类型，`@deepseek-ai/dsh-compact-basic` 拥有唯一的完整实现。交付配置只加载 basic 包，除了该实现外，没有生产包独立消费接口包。
 
-该拆分增加了一份包（package）manifest（元数据清单）、README、项目边界、依赖边、抽象转发类、生成目录项和组合接线，却没有体现后端替换需求。[能力服务边界决策](../../implemented/architecture/2026-06-13-capability-seams.md)要求接口、实现和消费方都必须真实存在，而不能预先拆分；[压缩决策](../../implemented/feature/2026-06-18-compaction-capability-seam.md)也记录了独立消费方仍被推迟。
+该拆分增加了一份包 manifest（元数据清单）、README、项目边界、依赖边、抽象转发类、生成目录项和组合接线，却没有实际的后端替换用例。[能力 seam 决策](../../implemented/architecture/2026-06-13-capability-seams.md)要求接口、实现和消费方都必须真实存在，而不能预先拆分；[压缩决策](../../implemented/feature/2026-06-18-compaction-capability-seam.md)也记录了独立消费方仍被推迟。
 
 ## 提案
 
@@ -22,15 +22,15 @@ Status: rejected — 计划增加更多压缩后端，因此接口包与 basic �
 
 **为可能出现的远程或回忆后端保留拆分。** 一种可能的未来实现不足以支撑当前包边界。回忆功能会增加压缩结果的消费方，但不一定增加另一种实现；远程摘要器也可以使用受保护钩子。
 
-**让接口包并入实现包名。** 如果保留 `compact-basic` 作为最终名称，产品服务会看起来像一个可选后端。`compact` 已经是 `ctx.compact` 使用的稳定服务标识，更适合作为单包所有者。
+**将实现包名用于接口包。** 如果保留 `compact-basic` 作为最终名称，产品服务会看起来像一个可选后端。`compact` 已经是 `ctx.compact` 使用的稳定服务标识，更适合作为单包所有者。
 
 ## 验收标准
 
 - 删除 `@deepseek-ai/dsh-compact-basic` 及其工作区和包元数据。
 - `@deepseek-ai/dsh-compact` 拥有当前配置、插件类、算法、类型、事件和共享辅助方法。
-- 现有部署可以使用等效配置加载保留的包，模型可见行为不变。
+- 现有部署可以使用等效配置加载保留的包，模型可见行为等效。
 - 自动压缩和手动压缩保留取消、锁、token 用量、工具配对、持久事件、来源、重试收敛和 transcript 渲染行为。
-- Loader 组合、单元、失控轮次、取消、快照和真实模型压缩测试全部通过；生成目录与模块图保持最新。
+- loader 组合、单元、失控轮次、取消、快照和真实模型压缩测试全部通过；生成目录与模块图保持最新。
 
 ## 风险
 

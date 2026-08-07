@@ -5,54 +5,57 @@
     - tab "Chat" [selected]
     - tab "Trajectory"
 - text: "Use only Cordis tools. First call cordis_inspect with what \"temporary\". Then call cordis_mount with this exact code: \"return { name: \\\"snapshot-noop\\\", apply(ctx) {} }\". Read its returned id and call cordis_unmount with that exact id. After all three calls succeed, reply exactly CORDIS_UI_DONE and stop. {{clock}}"
-- button "复制":
+- button "Copy":
   - img
-- button "在新对话中分支":
+- button "Context injection @deepseek-ai/dsh-system-prompt":
   - img
-- button "编辑":
   - img
+  - text: Context injection @deepseek-ai/dsh-system-prompt
 - button "Think The user wants me to:":
   - img
   - img
   - text: "Think The user wants me to:"
-- button:
+- button "Inspect temporary":
   - img
   - img
-- text: Inspect temporary
+  - text: Inspect temporary
 - 'button "Think Good, no temporary plugins running. Now step 2: call cordis_mount with the exact code."':
   - img
   - img
   - text: "Think Good, no temporary plugins running. Now step 2: call cordis_mount with the exact code."
-- button [expanded]:
+- 'button "Mount temporary Plugin return { name: \"snapshot-noop\", apply(ctx) {} }" [expanded]':
   - img
-- text: Mount temporary Plugin typescript
-- button "复制"
+  - text: "Mount temporary Plugin return { name: \"snapshot-noop\", apply(ctx) {} }"
+- text: typescript
+- button "Copy"
 - code: "return { name: \"snapshot-noop\", apply(ctx) {} }"
+- text: OUT Temporary Plugin dyn-1 is running (plugin "snapshot-noop"; available until unmounted or DSH restarts).
+- button "Inspect"
 - 'button "Think The id is \"dyn-1\". Now step 3: call cordis_unmount with that id."':
   - img
   - img
   - text: "Think The id is \"dyn-1\". Now step 3: call cordis_unmount with that id."
-- button:
+- button "Unmount temporary Plugin dyn-1":
   - img
   - img
-- text: Unmount temporary Plugin dyn-1
+  - text: Unmount temporary Plugin dyn-1
 - button "Think All three calls succeeded. I should now reply exactly \"CORDIS_UI_DONE\" and stop.":
   - img
   - img
   - text: Think All three calls succeeded. I should now reply exactly "CORDIS_UI_DONE" and stop.
 - paragraph: CORDIS_UI_DONE
-- button "复制":
+- button "Copy":
   - img
-- button "在新对话中分支":
+- button "Branch into a new conversation":
   - img
-- text: {{clock}}
+- text: {{clock}} Ran for {{duration}} TTFT {{duration}} {{throughput}} tok/s
 - textbox "Message the agent"
-- button "Add attachment":
+- button "Commands":
   - img
-- 'button "Access mode, current: Danger Full Access"': Danger Full Access
-- button "Plan mode off, press to turn on": Plan off
+- 'button "Access mode, current: Workspace Write"': Workspace Write
 - button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img
+- button "13% of context used"
 - button "Send message" [disabled]
-- text: 1 turns · 4 steps Tool call {{duration}} Cache hit 77% Input 66.5K tok · Output 312 tok
+- text: 1 turns · 4 steps LLM {{duration}} · Tool call {{duration}} TTFT avg {{duration}} · {{throughput}} tok/s Cache hit 77% Input 66.5K tok · Output 312 tok

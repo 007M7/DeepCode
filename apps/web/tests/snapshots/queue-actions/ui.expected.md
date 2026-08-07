@@ -5,25 +5,28 @@
     - tab "Chat" [selected]
     - tab "Trajectory"
 - text: Reply with a one-sentence description of event sourcing, then stop. {{clock}}
-- button "复制":
+- button "Copy":
   - img
-- button "在新对话中分支":
+- button "Context injection @deepseek-ai/dsh-system-prompt":
   - img
-- button "编辑":
   - img
+  - text: Context injection @deepseek-ai/dsh-system-prompt
 - paragraph: partial
+- status: Deep diving...
 - list:
   - listitem:
     - text: Edited queue item
-    - button "编辑排队消息":
+    - button "Edit queued message":
       - img
-    - button "删除排队消息":
+    - tooltip "Edit queued message"
+    - button "Remove queued message":
+      - img
+    - button "Steer queued message":
       - img
 - textbox "Message the agent"
-- button "Add attachment":
+- button "Commands":
   - img
-- 'button "Access mode, current: Danger Full Access"': Danger Full Access
-- button "Plan mode off, press to turn on": Plan off
+- 'button "Access mode, current: Workspace Write"': Workspace Write
 - button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img

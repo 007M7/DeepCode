@@ -14,7 +14,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import SessionStore from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
-import { CallId, createToolResultMessage } from '@deepseek-ai/dsh-llm'
+import { CallId, createMessage, createToolResultMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
@@ -33,6 +33,35 @@ function tool(name: string, presenters: Pick<ToolDefinition, 'presentCall' | 'pr
     execute: () => reply(`ran:${name}`),
     ...presenters,
   })
+}
+
+/** Append a production-shaped human prompt to the session surface. */
+function appendUserText(session: Session, text: string): SessionEvent {
+  return session.append('user/message', createUserMessage({
+    content: [{ type: 'text', text }], source: { kind: 'user' },
+  }), { surfaceOp: 'append' })
+}
+
+/** Append a production-shaped assistant message to the session surface. */
+function appendAssistantText(session: Session, text: string, step: number): SessionEvent {
+  return session.append('assistant/message', {
+    turn: 1,
+    step,
+    message: createMessage({
+      role: 'assistant',
+      content: [{ type: 'text', text }],
+      source: { kind: 'model', provider: 'p', model: 'm' },
+    }),
+  }, { surfaceOp: 'append' })
+}
+
+/**
+ * Append a plugin-owned log-only event. The host proxy is projection-only, so it
+ * declares no compaction vocabulary; the cast writes the real event shape without
+ * depending on the owning package.
+ */
+function appendExtension(session: Session, type: string, data: unknown): SessionEvent {
+  return (session.append as unknown as (type: string, data: unknown) => SessionEvent)(type, data)
 }
 
 async function harness(): Promise<{ ctx: Context }> {
@@ -76,14 +105,14 @@ async function collect(iterable: AsyncIterable<RpcRequest<MuxFrame>>, count: num
 describe('mux live view computation', () => {
   it('attaches the three standard card views, omits view without a presenter, soft-falls on throw', async () => {
     const { ctx } = await harness()
-    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
+    const api = createApiProxy(ctx, { defaultTarget: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp', workspaceRoot: '/tmp' })
     const abort = new AbortController()
     const stream = api.events.mux({ rpcId: RpcId('t-mux'), payload: {} }, abort.signal)
     const collected = collect(stream, 9, abort)
     const rawResult = `RAW_RESULT:${'x'.repeat(64 * 1024)}`
 
     const session = ctx.sessions.create()
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     session.append('tool/call', { turn: 1, step: 1, callId: CallId('c-gen'), name: 'gen', arguments: '{}' })
     session.append('tool/call', { turn: 1, step: 1, callId: CallId('c-term'), name: 'term', arguments: '{"cmd":"echo hi"}' })
     session.append('tool/call', { turn: 1, step: 1, callId: CallId('c-diff'), name: 'diffy', arguments: '{}' })
@@ -141,12 +170,12 @@ describe('mux live view computation', () => {
 
   it('serves history entries with call/result views, backscan pairing, and soft-falls', async () => {
     const { ctx } = await harness()
-    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
+    const api = createApiProxy(ctx, { defaultTarget: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp', workspaceRoot: '/tmp' })
     const session = ctx.sessions.create()
     // history resolves the agent first; a live structural stub is enough (only
     // .session is read on this path).
     ctx.agents.register({ id: session.id, session, status: 'idle', ctx } as Agent)
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     session.append('tool/call', { turn: 1, step: 1, callId: CallId('h-term'), name: 'term', arguments: '{"cmd":"ls"}' })
     // meta rides through to presentResult's ToolResult (the spread arm).
     session.append('tool/result', {
@@ -207,9 +236,58 @@ describe('mux live view computation', () => {
     expect('view' in (byKey.get('tool/result:h-plain') ?? {})).toBe(false)
   })
 
+  it('counts only append-origin messages toward maxMessages and keeps compaction provenance whole', async () => {
+    const { ctx } = await harness()
+    const api = createApiProxy(ctx, { defaultTarget: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp', workspaceRoot: '/tmp' })
+    const session = ctx.sessions.create()
+    ctx.agents.register({ id: session.id, session, status: 'idle', ctx } as Agent)
+    session.append('turn/start', { turn: 1 })
+    const first = appendUserText(session, 'first prompt')
+    appendAssistantText(session, 'first reply', 1)
+    const third = appendUserText(session, 'second prompt')
+    appendAssistantText(session, 'second reply', 2)
+    const shadowed = [...session.surface.nodes]
+    // A compaction transaction: log-only provenance immediately followed by the
+    // replacement that shadows the range.
+    const summary = appendExtension(session, 'compact/summary', {
+      summary: [{ type: 'text', text: 'summary' }],
+      shadowedRange: { start: shadowed[0], end: shadowed.at(-1) },
+      shadowedSeqs: shadowed,
+      shadowedTokenCount: 0,
+      provider: 'p',
+      model: 'm',
+    })
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: '<context_checkpoint>summary</context_checkpoint>' }],
+      source: { kind: 'plugin', plugin: 'compact' },
+    }), {
+      surfaceOp: { op: 'replace', start: shadowed[0] as number, end: shadowed.at(-1) as number },
+      sourceEventSeqs: [...shadowed, summary.seq],
+    })
+
+    const response = await api.sessions.history({
+      rpcId: RpcId('t-hist-compact'),
+      payload: { sessionId: session.id, maxMessages: 2 },
+    })
+    if (!response.result.ok) throw new Error('unreachable')
+    const page = response.result.value.events.map(entry => entry.event)
+    // Two append-origin messages fill the page even though a replacement copy of
+    // the same event type sits in the window: the copy is model-only.
+    const messages = page.filter(event => event.type === 'user/message' || event.type === 'assistant/message')
+    expect(messages.map(event => event.seq)).toEqual([third.seq, third.seq + 1, third.seq + 3])
+    expect(page.some(event => event.seq === first.seq)).toBe(false)
+    expect(response.result.value.hasMore).toBe(true)
+    // The range stays contiguous, so the checkpoint's provenance is readable on
+    // the same page as the checkpoint itself.
+    const summaryIndex = page.findIndex(event => event.seq === summary.seq)
+    expect(summaryIndex).toBeGreaterThan(-1)
+    expect(page[summaryIndex + 1]?.seq).toBe(summary.seq + 1)
+    expect(page.map(event => event.seq)).toEqual(page.map((_event, index) => third.seq + index))
+  })
+
   it('drops a disposed session from the live open-call table (result after dispose gets no view)', async () => {
     const { ctx } = await harness()
-    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
+    const api = createApiProxy(ctx, { defaultTarget: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp', workspaceRoot: '/tmp' })
     const abort = new AbortController()
     const stream = api.events.mux({ rpcId: RpcId('t-mux3'), payload: {} }, abort.signal)
 
@@ -217,7 +295,7 @@ describe('mux live view computation', () => {
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
       session = inner.sessions.create('session-doomed' as SessionId)
     }, { inject: ['sessions'] }))
-    session?.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session?.append('turn/start', { turn: 1 })
     session?.append('tool/call', { turn: 1, step: 1, callId: CallId('c-doomed'), name: 'term', arguments: '{"cmd":"x"}' })
     // Disposing the owning fiber detaches the session mid-stream; the
     // session/disposed listener must clear its open-call table entry.
@@ -230,13 +308,13 @@ describe('mux live view computation', () => {
 
   it('pairs a result after turn/end via the in-memory backscan fallback', async () => {
     const { ctx } = await harness()
-    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
+    const api = createApiProxy(ctx, { defaultTarget: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp', workspaceRoot: '/tmp' })
     const abort = new AbortController()
     const stream = api.events.mux({ rpcId: RpcId('t-mux2'), payload: {} }, abort.signal)
     const collected = collect(stream, 4, abort)
 
     const session = ctx.sessions.create()
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     session.append('tool/call', { turn: 1, step: 1, callId: CallId('c-late'), name: 'term', arguments: '{"cmd":"tail"}' })
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     // The turn/end above cleared the live table; pairing must fall back to

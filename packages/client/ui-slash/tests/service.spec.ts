@@ -351,6 +351,57 @@ describe('track', () => {
   })
 })
 
+describe('programmatic source launcher', () => {
+  it('opens only the requested source and reuses its ordinary pick span', async () => {
+    const command = readySource('/', 'command', [{ name: 'goal' }])
+    const skill = readySource('/', 'skill', [{ name: 'review' }])
+    const { controller } = controllerBench([command.source, skill.source])
+    const hit = {
+      trigger: '/' as const,
+      query: '',
+      position: 'leading' as const,
+      span: { start: 2, end: 5, draftRev: 7 },
+    }
+
+    controller.toggleSource('command', hit)
+    await tick()
+
+    expect(controller.launcher.getSnapshot()).toBe('command')
+    expect(controller.menu.getSnapshot()).toMatchObject({
+      open: true,
+      hit,
+      groups: [{ source: 'command', status: 'ready', items: [{ name: 'goal' }] }],
+    })
+    controller.pick('command', 0)
+    expect(command.picks[0]).toMatchObject({ via: 'menu', span: hit.span })
+    expect(skill.picks).toHaveLength(0)
+    expect(controller.launcher.getSnapshot()).toBeNull()
+  })
+
+  it('toggles closed, and typed tracking returns to the full trigger roster', async () => {
+    const command = readySource('/', 'command', [{ name: 'goal' }])
+    const skill = readySource('/', 'skill', [{ name: 'review' }])
+    const { controller } = controllerBench([command.source, skill.source])
+    const hit = {
+      trigger: '/' as const,
+      query: '',
+      position: 'leading' as const,
+      span: { start: 0, end: 0, draftRev: 1 },
+    }
+
+    controller.toggleSource('command', hit)
+    controller.toggleSource('command', hit)
+    expect(controller.menu.getSnapshot().open).toBe(false)
+    expect(controller.launcher.getSnapshot()).toBeNull()
+
+    controller.toggleSource('command', hit)
+    controller.track('/g', 2, { tier: 'plain' }, 2)
+    await tick()
+    expect(controller.launcher.getSnapshot()).toBeNull()
+    expect(controller.menu.getSnapshot().groups.map(group => group.source)).toEqual(['command', 'skill'])
+  })
+})
+
 describe('scope-birth warm', () => {
   it('construction warms every source once with the session projection', () => {
     const cmd = deferredSource('/', 'command')

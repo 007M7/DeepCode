@@ -4,7 +4,7 @@
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import type {
   CommandDescriptor, HostFrame, IApiClient, ModelTarget, MuxFrame,
-  RpcRequest, RpcResponse, SessionId, SessionModels, SkillEntry,
+  RpcRequest, RpcResponse, SessionId, SessionModels, SessionSearchItem, SkillEntry,
 } from '../src/client/api.ts'
 import { RpcId } from '../src/client/api.ts'
 
@@ -44,18 +44,22 @@ export class FakeApiClient implements IApiClient {
 
   // Programmable slots (defaults answer OK-empty); reassign per case.
   onList: (payload: unknown) => Promise<RpcResponse<{ items: never[] }>> = () => Promise.resolve(ok({ items: [] }))
+  onSearch: (payload: unknown) => Promise<RpcResponse<{ items: SessionSearchItem[]; hasMore: boolean }>> =
+    () => Promise.resolve(ok({ items: [], hasMore: false }))
   onCreate: (payload: unknown) => Promise<RpcResponse<{ sessionId: SessionId }>> = () => Promise.resolve(ok({ sessionId: 'fk-new' as SessionId }))
   onRename: (payload: unknown) => Promise<RpcResponse<{ title: string; seq: number }>> = () => Promise.resolve(ok({ title: 'fk-renamed', seq: 0 }))
+  onFork: (payload: unknown) => Promise<RpcResponse<{ sessionId: SessionId }>> = () => Promise.resolve(ok({ sessionId: 'fk-fork' as SessionId }))
   onHistory: (payload: { sessionId: SessionId; beforeSeq?: number; maxMessages?: number })
   => Promise<RpcResponse<{ events: never[]; hasMore: boolean; modelTarget: ModelTarget }>> =
     () => Promise.resolve(ok({
       events: [],
       hasMore: false,
-      modelTarget: { provider: 'deepseek', model: 'deepseek-chat' },
+      modelTarget: { provider: 'deepseek-official', model: 'deepseek-chat' },
     }))
 
   onModels: (payload: unknown) => Promise<RpcResponse<SessionModels>> = () => Promise.resolve(ok({
-    current: { provider: 'deepseek', model: 'deepseek-chat' },
+    current: { provider: 'deepseek-official', model: 'deepseek-chat' },
+    routable: true,
     groups: [],
     failures: [],
   }))
@@ -86,12 +90,17 @@ export class FakeApiClient implements IApiClient {
 
   private readonly muxConns: StreamConn<MuxFrame>[] = []
   private readonly hostConns: StreamConn<HostFrame>[] = []
+  lastSearchSignal: AbortSignal | undefined
 
   // Parameter annotations below are local structural types on purpose: the CI
   // lint lane runs without built artifacts, where IApiClient's wire types
   // (apiproxy subpath) resolve to any and inferred params trip no-unsafe-argument.
   readonly sessions: IApiClient['sessions'] = {
     list: (payload: unknown) => this.record('session.list', payload, this.onList(payload)),
+    search: (payload: unknown, signal?: AbortSignal) => {
+      this.lastSearchSignal = signal
+      return this.record('session.search', payload, this.onSearch(payload))
+    },
     create: (payload: unknown) => this.record('session.create', payload, this.onCreate(payload)),
     history: (payload: { sessionId: SessionId; beforeSeq?: number; maxMessages?: number }) =>
       this.record('session.history', payload, this.onHistory(payload)),
@@ -99,9 +108,24 @@ export class FakeApiClient implements IApiClient {
     selectModel: (payload: ModelTarget & { sessionId: SessionId }) =>
       this.record('session.selectModel', payload, this.onSelectModel(payload)),
     rename: (payload: unknown) => this.record('session.rename', payload, this.onRename(payload)),
+    fork: (payload: unknown) => this.record('session.fork', payload, this.onFork(payload)),
     prompt: (payload: unknown) => this.record('session.prompt', payload, this.onPrompt(payload)),
     updateQueue: (payload: unknown) => this.record('session.updateQueue', payload, this.onUpdateQueue(payload)),
     cancel: (payload: unknown) => this.record('session.cancel', payload, this.onCancel(payload)),
+  }
+
+  readonly subagents: IApiClient['subagents'] = {
+    list: (payload: unknown) => this.record('subagent.list', payload, Promise.resolve(ok({
+      entries: [],
+      parentAvailable: true,
+    }))),
+    history: (payload: unknown) => this.record('subagent.history', payload, Promise.resolve(ok({
+      events: [],
+      hasMore: false,
+    }))),
+    prompt: (payload: unknown) => this.record('subagent.prompt', payload, Promise.resolve(ok({
+      messageId: 'fake-message' as never,
+    }))),
   }
 
   readonly host: IApiClient['host'] = {
@@ -113,7 +137,7 @@ export class FakeApiClient implements IApiClient {
   }
 
   readonly workspace: IApiClient['workspace'] = {
-    list: (payload: unknown) => this.record('workspace.list', payload, Promise.resolve(ok({ items: [] }))),
+    list: (payload: unknown) => this.record('workspace.list', payload, Promise.resolve(ok({ items: [], archivedSessionIds: [] }))),
     create: (payload: unknown) => this.record('workspace.create', payload, Promise.resolve(ok({
       workspace: { workspaceId: 'fk-ws' as never, path: '/f/ws', title: 'ws', sessionIds: [], createdAt: '0', updatedAt: '0' },
       created: true,
@@ -124,6 +148,9 @@ export class FakeApiClient implements IApiClient {
     delete: (payload: unknown) => this.record('workspace.delete', payload, Promise.resolve(ok({ deleted: true as const }))),
     insertSessionBefore: (payload: unknown) => this.record('workspace.insertSessionBefore', payload, Promise.resolve(ok({
       workspace: { workspaceId: 'fk-ws' as never, path: '/f/ws', title: 'ws', sessionIds: [], createdAt: '0', updatedAt: '0' },
+    }))),
+    archiveSession: (payload: unknown) => this.record('workspace.archiveSession', payload, Promise.resolve(ok({
+      archivedSessionIds: [(payload as { sessionId: SessionId }).sessionId],
     }))),
   }
 
@@ -152,6 +179,26 @@ export class FakeApiClient implements IApiClient {
     resume: payload => this.record('goal.resume', payload, Promise.resolve(ok({ ref: { id: 'fake-goal' as never, revision: 1 } }))),
     complete: payload => this.record('goal.complete', payload, Promise.resolve(ok({ ref: { id: 'fake-goal' as never, revision: 1 } }))),
     clear: payload => this.record('goal.clear', payload, Promise.resolve(ok({ cleared: true as const }))),
+  }
+
+  readonly settings: IApiClient['settings'] = {
+    describe: payload => this.record('settings.describe', payload, Promise.resolve(ok({ writable: true, hasDocument: false, namespaces: [] }))),
+    openDocument: payload => this.record('settings.openDocument', payload, Promise.resolve(ok({ opened: true as const }))),
+    update: payload => this.record('settings.update', payload, Promise.resolve(ok({ ns: 'fake', schema: {}, value: {}, applies: 'live' as const, secrets: [], revision: 0 }))),
+    replace: payload => this.record('settings.replace', payload, Promise.resolve(ok({ ns: 'fake', schema: {}, value: {}, applies: 'live' as const, secrets: [], revision: 0 }))),
+    mutate: payload => this.record('settings.mutate', payload, Promise.resolve(ok({ ns: 'fake', schema: {}, value: {}, applies: 'live' as const, secrets: [], revision: 0 }))),
+  }
+
+  readonly credentials: IApiClient['credentials'] = {
+    describe: payload => this.record('credentials.describe', payload, Promise.resolve(ok({ credentials: {} }))),
+    set: payload => this.record('credentials.set', payload, Promise.resolve(ok({}))),
+    unset: payload => this.record('credentials.unset', payload, Promise.resolve(ok({}))),
+  }
+
+  readonly llm: IApiClient['llm'] = {
+    providers: payload => this.record('llm.providers', payload, Promise.resolve(ok({ providers: [] }))),
+    models: payload => this.record('llm.models', payload, Promise.resolve(ok({ groups: [], failures: [] }))),
+    discoverModels: payload => this.record('llm.discoverModels', payload, Promise.resolve(ok({ models: [] }))),
   }
 
   /** When true, streams never fire onOpen (misbehaving-carrier material for the handshake timeout guard). */

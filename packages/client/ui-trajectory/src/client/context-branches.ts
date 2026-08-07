@@ -7,6 +7,8 @@ import type {
 /** One continuous context branch; compactions stay inline while rewinds start a successor branch. */
 export interface TrajectoryContextBranch {
   id: number
+  /** Identity stable when older context generations are prepended. */
+  key: string
   contexts: readonly ConversationContext[]
   latest: ConversationContext
   nodes: readonly ConversationNode[]
@@ -18,6 +20,7 @@ export interface TrajectoryContextBranch {
 
 interface MutableBranch {
   id: number
+  key: string
   contexts: ConversationContext[]
   latest: ConversationContext
   nodes: Map<number, ConversationNode>
@@ -63,6 +66,9 @@ export function deriveTrajectoryContextBranches(
         )
       mutable.push({
         id: context.id,
+        key: context.origin === 'rewind' && context.originSeq !== undefined
+          ? `rewind:${context.originSeq}`
+          : 'root',
         contexts: [context],
         latest: context,
         nodes: new Map(
@@ -84,6 +90,7 @@ export function deriveTrajectoryContextBranches(
   }
   return mutable.map(branch => ({
     id: branch.id,
+    key: branch.key,
     contexts: branch.contexts,
     latest: branch.latest,
     nodes: [...branch.nodes.values()].sort((left, right) => left.seq - right.seq),
@@ -107,6 +114,8 @@ export function trajectoryBranchContainsRequest(
     request.resultSeq !== undefined
     && branch.retainedSurfaceSeqs.has(request.resultSeq)
   ) || (
+    request.purpose === 'compaction'
+    &&
     request.replacementSeq !== undefined
     && branch.retainedSurfaceSeqs.has(request.replacementSeq)
   )

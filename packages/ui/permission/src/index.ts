@@ -21,6 +21,7 @@ import { SANDBOX_MODES, effectiveSandboxMode, setSandboxMode } from '@deepseek-a
 import type {} from '@deepseek-ai/dsh-bash'
 import type { ApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
 import { APPROVAL_POLICIES, effectiveApprovalPolicy, setApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
+import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 // Type-only: resolves ctx.sessionProjections / ctx.commands for the optional children.
 import type {} from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-commands'
@@ -67,6 +68,9 @@ export interface PresetSpec {
  * it as the current value, but it is never a switch target or event payload.
  */
 export const CUSTOM_PRESET = 'custom'
+
+/** Settings namespace carrying the default for future sessions. */
+export const PERMISSION_SETTINGS_NAMESPACE = settingsNamespace('permission')
 
 /**
  * Fold the last selected preset from the durable log; replay needs no catch-up
@@ -126,7 +130,13 @@ function foldKnobs(events: readonly SessionEvent[]): KnobState {
   return state
 }
 
-/** The {@link PermissionService} config: the deployment's preset table. */
+/** User setting resolved when a new session receives its initial permission. */
+export interface PermissionSettings {
+  /** Preset pinned into a newly created session. */
+  defaultPreset: string
+}
+
+/** The {@link PermissionService} config: preset table and composition default. */
 export interface Config {
   /**
    * The preset table: name → knob bundle. Defaults to `workspace-write`
@@ -134,6 +144,11 @@ export interface Config {
    * never). The name `custom` is reserved for the derived not-a-preset state.
    */
   presets?: Record<string, PresetSpec>
+  /**
+   * Default for new sessions. When omitted, the preset matching the composed
+   * sandbox and approval defaults is used.
+   */
+  defaultPreset?: string
 }
 
 /**
@@ -159,11 +174,13 @@ export class PermissionService extends Service {
         name: 'danger-full-access', description: 'Full file access without approval prompts.',
       },
     }),
+    defaultPreset: z.string(),
   })
 
-  static inject = ['bash', 'approval']
+  static inject = ['bash', 'approval', 'sessions']
 
   private readonly presets: Record<string, PresetSpec>
+  private defaultSettings: () => PermissionSettings
 
   constructor(ctx: Context, config: Config) {
     super(ctx, 'permission')
@@ -174,6 +191,37 @@ export class PermissionService extends Service {
     }
     if (ctx.bash.sandboxMode === undefined) {
       throw new Error('permission: the mounted bash executor does not confine (no sandboxMode) — presets bundle a sandbox mode, so composing this plugin over an unconfined executor is a misconfiguration')
+    }
+    const inferredDefault = this.derive(EMPTY_KNOBS)
+    const defaultPreset = config.defaultPreset ?? inferredDefault
+    if (defaultPreset === CUSTOM_PRESET) {
+      throw new Error('permission: composed sandbox and approval defaults match no preset; configure defaultPreset explicitly')
+    }
+    this.resolve(defaultPreset)
+    const baseSettings: PermissionSettings = { defaultPreset }
+    this.defaultSettings = () => baseSettings
+    const presetChoices = this.names.map((name) => {
+      const choice = z.const(name)
+      const label = this.presets[name]?.name
+      return label === undefined ? choice : choice.description(label)
+    })
+    const settingsSchema: z<PermissionSettings> = z.object({
+      defaultPreset: z.union(presetChoices).required(),
+    })
+    installSettingsSection(ctx, PERMISSION_SETTINGS_NAMESPACE, settingsSchema, baseSettings, {
+      setSource: (current) => {
+        this.defaultSettings = current
+      },
+      // The source thunk reads the latest scope snapshot at session creation;
+      // no process-level registration needs replacement on change.
+      onChange: () => {},
+    })
+
+    ctx.on('session/created', (session) => {
+      this.pinInitialPermission(session)
+    })
+    for (const session of ctx.sessions.list()) {
+      this.pinInitialPermission(session)
     }
 
     // The permissions projection unit: fold the three whole-value knob
@@ -211,16 +259,19 @@ export class PermissionService extends Service {
         name: 'permission',
         description: 'Switch the permission preset (sandbox mode + approval policy)',
         input: { hint: '<preset>' },
+        // No settlement text labels its value with this command's own name: a
+        // surface that renders `name · text` (the web command row) would
+        // otherwise read `permission · Permission preset: workspace-write.`
         handler: ({ agent, rawInput }) => {
           const name = rawInput.trim()
           if (name === '') {
-            return { kind: 'success', text: `Current permission preset: ${this.current(agent.session.events)}. Available: ${this.names.join(', ')}.` }
+            return { kind: 'success', text: `current preset ${this.current(agent.session.events)} (available: ${this.names.join(', ')})` }
           }
           if (!this.names.includes(name)) {
-            return { kind: 'error', text: `unknown permission preset "${name}" (available: ${this.names.join(', ')})` }
+            return { kind: 'error', text: `unknown preset "${name}" (available: ${this.names.join(', ')})` }
           }
-          this.set(agent.session, name)
-          return { kind: 'success', text: `Permission preset: ${name}.` }
+          this.apply(agent.session, name, (policy) =>{  this.ctx.approval.setPolicy(agent, policy) })
+          return { kind: 'success', text: `preset ${name}` }
         },
       })
     })
@@ -232,6 +283,15 @@ export class PermissionService extends Service {
    */
   get names(): readonly string[] {
     return Object.keys(this.presets)
+  }
+
+  /**
+   * The preset currently selected as the default for future sessions.
+   * @returns the resolved settings value, or the composition default without
+   * a mounted settings provider.
+   */
+  get defaultPreset(): string {
+    return this.defaultSettings().defaultPreset
   }
 
   /**
@@ -313,6 +373,11 @@ export class PermissionService extends Service {
    * @param name - the preset to switch to; unknown names throw.
    */
   set(session: Session, name: string): void {
+    this.apply(session, name, (policy) =>{  setApprovalPolicy(session, policy) })
+  }
+
+  /** Apply one preset with the caller-selected live or initialization policy writer. */
+  private apply(session: Session, name: string, setApproval: (policy: ApprovalPolicy) => void): void {
     const spec = this.resolve(name)
     if (this.current(session.events) !== name) {
       session.append('permission/preset', { preset: name })
@@ -322,7 +387,45 @@ export class PermissionService extends Service {
       setSandboxMode(session, spec.sandbox)
     }
     if (spec.approval !== (effectiveApprovalPolicy(events) ?? this.ctx.approval.config.policy ?? 'ask')) {
+      setApproval(spec.approval)
+    }
+  }
+
+  /**
+   * Fill every missing permission fact before a session is published. A
+   * genuinely fresh session uses the current user default; seeded or partially
+   * initialized sessions preserve their effective knob values and only gain
+   * the missing durable facts.
+   */
+  private pinInitialPermission(session: Session): void {
+    const events = session.events
+    const selected = effectivePermissionPreset(events)
+    const sandbox = effectiveSandboxMode(events)
+    const approval = effectiveApprovalPolicy(events)
+    const seeded = events.some(event => event.type === 'session/end-seed')
+    if (selected === undefined && sandbox === undefined && approval === undefined && !seeded) {
+      const name = this.defaultPreset
+      const spec = this.resolve(name)
+      session.append('permission/preset', { preset: name })
+      setSandboxMode(session, spec.sandbox)
       setApprovalPolicy(session, spec.approval)
+      return
+    }
+
+    const state: KnobState = {
+      preset: selected ?? null,
+      sandbox: sandbox ?? null,
+      approval: approval ?? null,
+    }
+    const effective = this.derive(state)
+    if (selected === undefined && effective !== CUSTOM_PRESET) {
+      session.append('permission/preset', { preset: effective })
+    }
+    if (sandbox === undefined) {
+      setSandboxMode(session, this.ctx.bash.sandboxMode as SandboxMode)
+    }
+    if (approval === undefined) {
+      setApprovalPolicy(session, this.ctx.approval.config.policy ?? 'ask')
     }
   }
 }

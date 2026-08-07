@@ -6,9 +6,7 @@
 
 ## 概览
 
-每个 harness 都是 [Cordis](cordis-primer.md) 上下文；各包（package）贡献服务、类型化事件和可释放的注册项。
-
-`packages/core/` 汇集默认的 agent（智能体）流程；各项功能仍以插件形式存在。
+每个 harness 都是 [Cordis](cordis-primer.md) 上下文；各包（package）贡献服务、类型化事件和可释放的注册项。`packages/core/` 汇集默认流程；各项功能仍以插件形式存在。
 
 ### 默认服务
 
@@ -16,9 +14,9 @@
 |---|---|---|
 | — | [`dsh-scope`](../packages/core/scope/README.md) | 作用域上下文注册项与共享层存储（库） |
 | `ctx.sessions` | `dsh-session` | 内存中的事件溯源会话 |
-| `ctx.systemPrompt` | `dsh-system-prompt` | 有序提示词片段、工具 schema 和变量 |
+| `ctx.systemPrompt` | `dsh-system-prompt` | 有序的提示词片段、工具 schema 和变量 |
 | `ctx.tools` | `dsh-tools` | 工具注册表和[执行流水线](tool-execution-pipeline.md) |
-| `ctx.agents` | `dsh-agent` | 活跃 agent、委托创建、`agent/*` 事件、进程内发起方作用域 |
+| `ctx.agents` | `dsh-agent` | 活跃 agent（智能体）、委托创建、`agent/*` 事件、进程内发起方作用域 |
 | `ctx.agentLoop` | `dsh-agent-loop` | 实体 `Agent` 驱动器 |
 
 ### 功能服务
@@ -46,8 +44,11 @@
 | `ctx.sessionPersistence` | [`session-persistence/`](../packages/session-persistence/README.md) | 会话日志的持久化存储 |
 | `ctx.sessionQuery` | [`session-query/`](../packages/session-query/README.md) | 基于 SQLite 全文搜索的实时优先精确检索／过滤／追踪、经工作区授权的模型工具 |
 | `ctx.sessionTitle` | [`session-title/`](../packages/session-title/README.md) | 基于日志的回退标题和单个可选异步提供方 |
+| `ctx.settings` | [`settings/`](../packages/settings/README.md) | 按插件划分的用户设置命名空间，分层叠加在装配条目之上 |
+| `ctx.credentials` | [`credentials/`](../packages/credentials/README.md) | 具名密钥引用，按操作解析，绝不内联进配置 |
 | `ctx.directoryPicker` | [`host/directory-picker`](../packages/host/directory-picker/README.md) | GUI 宿主目录选取（`native`／`browse` 交互） |
 | `ctx.typert` | [`typert/registry`](../packages/typert/registry/README.md) | 生成的包反射和实时 Zod schema 的运行时注册表 |
+| `ctx.typertGateway` | [`api/gateway`](../packages/api/gateway/README.md) | 通过 [API Gateway](api-gateway.md) 分发 TypeRT Remote 一元调用 |
 | `ctx.invariants` | [`support/invariants`](../packages/support/invariants/README.md) | 按包名筛选包自有运行时检查的注册表 |
 
 ## 事件
@@ -57,8 +58,8 @@
 ### 事件域
 
 - **会话事件**是通过 `session/event` 发出的持久日志事实。
-- **Agent 事件**携带活跃 `Agent`，用于状态、提示词准入、请求塑形、验证和续跑。
-- **功能事件**让所属服务边界无需导入循环即可附加策略和适配器。
+- **Agent 事件**携带活跃 `Agent`，用于 inbox、步骤、状态、请求、验证和续跑。
+- **功能事件**无需导入循环即可附加策略和适配器。
 
 ### 拦截语义
 
@@ -66,72 +67,67 @@ waterfall（瀑布式事件）是环绕中间件：监听器通过 `next()` 委�
 
 ## 默认循环生命周期
 
-**会话**采用仅追加方式。普通**轮次**领取一项已排队的 `send()` 输入；注入不领取输入。后续轮次会等待前一轮次的检查点，但可以与其共用同一个 `running` 区间（[决策](../.agents/notes/implemented/simplification/2026-07-17-one-send-one-turn.md)）。模型或插件停止轮次时，该轮次结束；一个**步骤**包含一次模型请求及其工具。[下文时序](agent-lifecycle.md)中的引号标记持久事件。
+**会话**采用仅追加方式。一个**轮次**领取一条已排队的后续消息，等待前一轮次的检查点，并可与其共用 `running` 区间（[决策](../.agents/notes/implemented/simplification/2026-07-17-one-send-one-turn.md)）；注入不领取输入。一个**步骤**包含一次模型请求及其工具。新建与持久化恢复会先取得精确的未发布 `SessionPreparation`；只有基于该 Session 的私有设置准备完毕后，系统才会发布 agent 与会话（[决策](../.agents/notes/implemented/architecture/2026-08-05-session-preparation.md)）。[时序](agent-lifecycle.md)中的引号标记持久事件。
 
-创建时若未提供 id，流程会生成 `<config-id>-session-<uuid>`；`sessionId` 用于恢复或创建会话，而 `resumeSessionId` 要求已有历史。恢复流程在发布前还原沿袭关系和委托深度。初始化失败会发出 `agent-loop/config-start-failed`；拆卸过程保持静默。
+创建时若未提供 id，流程会生成 `<config-id>-session-<uuid>`；`sessionId` 用于恢复或创建会话，而 `resumeSessionId` 要求已有历史。恢复流程在发布前还原沿袭关系和委托深度；初始化失败会发出 `agent-loop/config-start-failed`。
 
 ### 轮次流程
 
 ```text
-choose declarative identity and fresh/resume path
-  -> prepare private session + agent.ctx -> await unpublished setup
+choose declarative identity and acquire fresh/restored SessionPreparation
+  -> prepare private agent.ctx around exact Session -> await unpublished setup -> invoke optional synchronous setup commit
   -> enter session + agent -> session/created -> agent/created
   -> enable driving -> agent/session-start(source) -> start driver
 forever:
-  wait for queued occurrence
-  claim (edit/remove end) -> emit agent/status(running) if starting an interval
-  open the next-step acceptance window
-  -> agent/prompt-submit
-    blocked or failed prompt -> close the window without opening a turn
-      append a context-only caller batch immediately
-      keep steering and context staged beside it pending for a later admitted turn
-    allowed prompt:
-      'turn/start'
-      append prompt + additional contexts as separate 'user/message' events
-    STEP loop:
-      agent/step
-      drain injected context and steering (steering bypasses prompt-submit)
-      assemble system prompt and tool schemas
-      snapshot the derived messages (the reconstruction boundary)
+  waking inbox insertion starts the driver before send returns
+  -> emit agent/status(running) if starting an interval
+  -> 'turn/start'
+  claim next-step input plus one next-turn message
+  -> emit agent/inbox/claimed({ message, turn }) for each claimed message
+  -> agent/pre-step({ agent, messages, turn, step, signal })
+    reject, empty input, cancellation, or listener failure
+      -> the claimed batch stays removed; close the no-step turn; stop the driver
+    enter -> step loop:
       'step/start'
-      agent/request (config only) -> prepare reasoning/default under turn signal -> log request/header -> llm/stream (frozen, registration-bound)
+      append the returned batch as separate 'user/message' events
+      assemble ordered prompt and tool schemas -> snapshot derived messages
+      agent/request (config only) -> prepare adapter defaults/provenance + context capacity under turn signal -> log request/header (+ request/context on route change) -> llm/stream (frozen, registration-bound)
       'assistant/chunk'
       'assistant/message'
       schedule tool calls by ctx.tools.executionMode:
         exclusive -> barrier
-        parallel -> rolling pool, <= maxParallelToolCalls; reclassify-at-start; scheduler failure -> stop starts, drain dispatches
-        start -> 'tool/call' -> ordered tools/pre-execute -> concurrent tools/execute
+        parallel -> rolling pool, <= maxParallelToolCalls; reclassify at start
+        start -> 'tool/call' -> tools/pre-execute -> concurrent tools/execute
         model-order result -> ordered tools/post-execute -> 'tool/result'
-      drain accepted tool context and steering
       'step/end'
-      continue for tools or steering unless a result concluded the turn
-      otherwise agent/turn-stopping -> drain -> continue only for steering
-    close the next-step acceptance window
-    'turn/end' -> agent/settled
+      tools owe another request or next-step inbox is nonempty
+        -> claim -> agent/pre-step -> append entered batch -> continue
+      otherwise agent/turn-stopping -> re-check the next-step inbox
+    'turn/end'
   start the next waking queued message, or emit agent/status(idle)
 
 idle inject:
-  append 'user/message'
-  do not open a turn or run the model
+  queue non-waking next-step context
+  leave it pending until followup or steer wakes the driver
 ```
 
-每个步骤都会组装有序提示词片段、工具 schema 和变量；未知引用会使该轮次失败。`dsh-system-prompt` 负责身份和角色设定；循环提供 `provider`、`model` 和 `cwd`（[提示词归属](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)）。
+每个步骤都会组装有序的提示词片段、工具 schema 和变量；未知引用会使该轮次失败。`dsh-system-prompt` 负责身份和角色设定；循环提供 `provider`、`model` 和 `cwd`（[提示词归属](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)）。
 
-接纳期间和活跃轮次内的 `inject()` 会为下一步骤暂存；工具执行后的 `additionalContexts` 会在结果记录完毕后落定。steering 与其共用这一暂存边界，并请求再执行一个步骤。空闲状态下的 `inject()` 会立即追加，且不改变轮次编号；持久化层会尽快排空。
+`inject()` 将不会唤醒驱动器的上下文排入 `next-step`；空闲驱动器会让它保持待处理，直至 `followup()` 或 `steer()` 唤醒。工具执行后的 `additionalContexts` 使用同一个 inbox。`agent/pre-step` 的 payload 携带独占的已领取批次，以及即将使用的轮次、步骤和信号。拒绝则不进入步骤；进入则提供在 `step/start` 后追加的完整批次。空的工具续跑仍会经过 waterfall，其最终值一次性结算所有改写。
 
-裁剪先于摘要；溢出重试必须取得持久进展。`agent/request-error` 可以在失败步骤与轮次关闭之间授权一个重试轮次；取消优先。适配器拥有的 `retryPolicy` 使 normal mode 保持有界；always mode 先委托专门恢复，再持续重试直至成功或取消（[压缩](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md)、[重试基础](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)、[提供方策略](../.agents/notes/implemented/feature/2026-07-24-provider-retry-policies.md)）。
+裁剪先于摘要；溢出重试必须取得持久进展。`agent/request-error` 可以授权使用冻结提示词进行同步骤重试；取消优先。适配器的 `retryPolicy` 使 normal mode 保持有界，always mode 则在专门恢复后重试（[压缩](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md)、[重试基础](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)、[提供方策略](../.agents/notes/implemented/feature/2026-07-24-provider-retry-policies.md)）。精确事件顺序由生成的 [agent 生命周期](agent-lifecycle.md)定义；队列、steering、重试与取消机制由 [agent-loop README](../packages/core/agent-loop/README.md)定义。
 
 ### 失败边界
 
-适配器故障会先关闭自身步骤，再由 `agent/request-error` 接收准确的 `Error`、标准化的 `LlmFailure` 和信号。已处理的失败会关闭所在轮次，并从持久历史开启重试轮次，不发出空闲通知；重试耗尽则留下终态 `turn/end`。失败分片既不提交消息，也不提交工具调用。
+适配器选择、分发与迭代失败会成为 error 或 aborted 类型的终止 `finish` 分片。`agent/request-error` 接收请求坐标、标准化 `LlmFailure`、可用的重试策略和信号；middleware 与消费方错误仍在恢复之外。失败分片既不提交消息，也不提交工具调用。
 
-其他故障使用 `agent/error`。取消和资源释放优先于恢复。在提交请求头之前，轮次信号会取消异步模型能力准备；尚未分派的工具会得到合成的 `tool/call`/`ABORTED_BEFORE_DISPATCH` 对。实际生效的 `cancel(cause)` 在清空队列和中止前发出原因；观察方不能否决；空闲调用不发事件。持久化层将用户或父级取消记录为 `aborted`，拆卸记录为 `disposed`；拆卸会等待完全停稳。原因只影响报告方式，不影响延迟完成的结果上下文处理（[决策](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)）。
+其他故障使用 `agent/error`；取消和资源释放优先于恢复。在提交请求头之前，轮次信号会取消功能准备；尚未分派的工具会得到合成的 `tool/call`/`ABORTED_BEFORE_DISPATCH` 对。实际生效的 `cancel(cause)` 会在清空队列和中止前报告原因；空闲调用不发事件。持久化层以 `aborted` 区分取消，以 `disposed` 区分会等待完全停稳的拆卸（[决策](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)）。
 
-轮次和步骤事件均位于轮次边界内；空闲时注入的 `user/message` 可以位于两个轮次之间。重新加载会用合成的轮次结束事件闭合中断尾部。关闭后仅由 `agent/error` 报告故障。每个轮次有一个 [TurnEndReason](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap)。
+轮次和步骤事件均位于轮次边界内；loop 只会在轮次内从进入步骤的批次追加 `user/message`。轮次会在首次领取与 pre-step 之前打开，因此拒绝、空输入、取消或失败会关闭一个不包含任何步骤事件的持久轮次。独立的 `compact/* { turn: null }` 事件不占用轮次，其锁定时刻标记可以与 inbox splice 交错。重新加载会为中断的轮次合成结束事件；`session/end-seed` 区分陈旧的压缩遗留项与活跃锁。关闭后仅由 `agent/error` 报告故障。每个轮次有一个 [TurnEndReason](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap)。
 
 ### Agent 句柄
 
-`ctx.agents` 拥有活跃 agent，并返回 `AgentHandle { agent, dispose() }`。插件使用全部 `send()` 选项，或 `followup()`、`steer()` 和 `inject()` 预设；`cancel()` 与 `whenIdle()` 控制生命周期。一个需等待完成的 disposer 协调拆卸归属。
+`ctx.agents` 拥有 agent 并返回 `AgentHandle { agent, dispose() }`。插件使用 `send()`，或使用其 `followup()`、`steer()` 和 `inject()` 预设。`cancel()` 与 `whenIdle()` 控制生命周期，需等待完成的资源释放则负责拆卸。后续消息的 `MessageId` 跟踪持久 inbox 的插入、领取与丢弃通知，而不标识提示词输出或轮次结束；只有完整活动区间的所有方才能将其概括为一次运行结果（[决策](../.agents/notes/implemented/architecture/2026-07-30-followup-enqueue-and-owned-runs.md)）。
 
 ### Agent 作用域
 
@@ -143,11 +139,11 @@ idle inject:
 
 会话日志是权威依据。`deriveMessages()` 投影出模型历史；原始 `assistant/chunk` 事件保证回放和 UI 保真。fork、恢复、transcript（文本记录）渲染、遥测和持久化均派生自该事件流。
 
-**模型可见 ⟺ 已记录**：`step/start` 时的消息与折叠后的 `request/header` 可以重建每个请求；该包的 `dsh-agent-loop/invariant` 可通过 `ctx.invariants` 断言这一点（[可重建性](../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)）。
+**模型可见 ⟺ 已记录**：在 `step/start` 进入的消息加上折叠后的 `request/header` 可以重建每个请求。该 header 会标记适配器默认值，使后续提议丢弃这些值并重新解析路由，同时不丢失显式设置。`request/context` 会在路由变化时另行记录与注册项绑定的提供方、模型及容量元数据；它不参与请求重建或 header 相等性判断。`dsh-agent-loop/invariant` 通过 `ctx.invariants` 断言可重建性（[可重建性](../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)）。
 
-持久性由插件负责。后端会尽快排空同步的 `session/event` 通知。`session/flush` 屏障位于每次请求与顶层工具分发之前，并在 `turn/end` 之后、处理另一个已排队轮次或观察到空闲状态之前执行。`SessionPersistence` 直接存储 `SessionEvent`，并将元数据存入 `SessionHeader`；JSONL 默认采用带校验和的 Zstandard，SQLite 遵循同一契约（[决策](../.agents/notes/implemented/bug-fix/2026-07-21-semantic-session-checkpoints.md)）。
+持久性由插件负责。后端会尽快排空同步的 `session/event` 通知。`session/flush` 位于请求与顶层工具分发之前，并在 `turn/end` 之后、另一个轮次或空闲状态之前执行。`SessionPersistence` 存储事件和 header 元数据；JSONL 默认采用带校验和的 Zstandard，SQLite 遵循同一契约（[决策](../.agents/notes/implemented/bug-fix/2026-07-21-semantic-session-checkpoints.md)）。
 
-纯日志事件可以位于轮次之间。事件所有方通过 `Session` 追加，仅为持久性而刷写。`session/title` 依赖尽快持久化与生命周期排空。最新标题按后写覆盖并携带来源信息；回退与提供方工作绝不会延迟响应。这类记录可作为 fork 边界，因此 fork 会继承标题（[决策](../.agents/notes/implemented/feature/2026-07-21-log-backed-session-titles.md)）。
+在轮次之间，事件所有方通过 `Session` 追加纯日志事件，仅为持久性而刷写。`session/title` 需要尽快持久化与生命周期排空；手动压缩会在操作完成前 flush 其标记对。标题工作绝不延迟响应；最新标题按后写覆盖并携带来源信息。标题记录是可继承的 fork 边界（[决策](../.agents/notes/implemented/feature/2026-07-21-log-backed-session-titles.md)）。
 
 ### 模型内容
 
@@ -161,13 +157,13 @@ idle inject:
 
 可替换功能通常具有**接口／实现／消费方**三层：服务和事件、后端、面向模型的工具和提示词。Bash 是参考实现；[功能图](capability-seams.md)映射了每个包族。
 
-例外情况包括 LLM（大语言模型）合并接口和消费方、文件系统整合策略、web 使用注册表、skill 和 subagent 使用具名提供方。subagent 可以通过 spawn 创建全新实例、fork 一个已完成轮次的前缀，或使用 ACP（Agent Client Protocol）子 agent（[subagent.md](core-data-structures/subagent.md)）。
+例外情况包括 LLM（大语言模型）合并接口和消费方、文件系统整合策略、web 使用注册表、skill 和 subagent 使用具名提供方。subagent 可以通过 spawn 创建全新实例、fork 一个已完成轮次的前缀、使用 ACP（Agent Client Protocol）子 agent，或将一个独立完整的轮次委派给 Codex 等真实产品提供方（[subagent.md](core-data-structures/subagent.md)）。
 
-`dsh-workspace-context` 在第一次 `agent/step` 注入基线，并通过 `tools/post-execute` 追加 `ctx.fs` 发现的变更；其[决策](../.agents/notes/implemented/feature/2026-06-24-workspace-context.md)记录隔离方式。`dsh-paths` 负责共享路径。
+`dsh-workspace-context` 在第一次 `agent/pre-step` 组合基线并将它折入最终进入的批次、紧随已领取的直接提示词之后，使其与直接提示词一同抵达第一次请求；reject 则将它留在 next-step inbox。当压缩从可见表层移除该基线时，下一次进入步骤的 pre-step 会组合当前基线，并在同一请求中携带它。工具执行后投影的文件系统变更也会折入下一次进入步骤的 pre-step，而不会另外创建稍后的纯上下文步骤（[决策](../.agents/notes/implemented/feature/2026-06-24-workspace-context.md)）。`dsh-paths` 负责共享路径。
 
 ### 组合包与应用
 
-`dsh-agent-spine-demo` 组合一套主干和可选目标。应用包负责 TUI、CLI（命令行界面）、ACP 自动化入口和 JSON-RPC 入口（[README](../packages/examples/agent-spine-demo/README.md)、[acp/](../packages/acp/README.md)、[ui/](../packages/ui/README.md)）。`dsh-jsonrpc-agent` 启动外部 `cordis.yml`；Python SDK 在配置缺失时提供默认项（[Python SDK](../python/README.md)）。轻量部署使用可替换后端和可选工具（[examples/](../examples/AGENTS.md)、[可运行接线](cookbook/extension-cookbook.md#runnable-wirings)、[图谱](graph-atlas.md)）。
+`dsh-agent-spine-demo` 组合一套主干和可选目标。应用包负责 CLI（命令行界面）、ACP 自动化入口和 JSON-RPC 入口（[README](../packages/examples/agent-spine-demo/README.md)、[acp/](../packages/acp/README.md)、[ui/](../packages/ui/README.md)）。`dsh-jsonrpc-agent` 启动外部 `cordis.yml`；Python SDK 在配置缺失时提供默认项（[Python SDK](../python/README.md)）。轻量部署使用可替换后端和可选工具（[examples/](../examples/AGENTS.md)、[可运行接线](cookbook/extension-cookbook.md#runnable-wirings)、[图谱](graph-atlas.md)）。
 
 ### 新行为的归属位置
 
@@ -184,8 +180,8 @@ idle inject:
 | 添加文件系统访问或策略 | 实现 `ctx.fs` 提供方，或监听 `fs/*` 策略事件 |
 | 限制生成的进程 | 使用 `ctx.sandbox` 后端；消费方在生成前包装 argv |
 | 拦截请求、工具或轮次 | 使用相应的 `agent/*` 或 `tools/*` 事件；`agent/turn-stopping` 是停止边界 |
-| 添加模型可见上下文 | 调用 `agent.inject()`，追加带来源的 `user/message`，但不创建轮次 |
-| 添加 UI 或编辑器集成 | 驱动 `ctx.agents`，从 `session/event` 渲染；仅终端浮层使用 `ctx.tui` |
+| 添加模型可见上下文 | 调用 `agent.inject()`，将带来源的上下文排入下一次获准请求 |
+| 添加 UI 或编辑器集成 | 驱动 `ctx.agents` 并从 `session/event` 渲染 |
 | 添加持久会话状态 | 扩展 `SessionEventMap`；从日志渲染和回放 |
 | 添加异步会话标题生成 | 注册唯一的 `ctx.sessionTitle` 提供方 |
 | 管理同会话目标 | 使用 `ctx.goals`；通过 `Agent` 和 `agent/*` 续跑 |

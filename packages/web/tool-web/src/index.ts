@@ -12,8 +12,10 @@ import type {} from '@deepseek-ai/dsh-web'
 import { applyWebSearchTool, WEB_SEARCH_MAX_RESULTS } from './search.ts'
 import { applyWebFetchTool } from './fetch.ts'
 
-export { WEB_SEARCH_MAX_RESULTS, applyWebSearchTool, formatSearchOutput, parseSearchArgs, presentSearchCall } from './search.ts'
-export { applyWebFetchTool, formatFetchOutput, parseFetchArgs, presentFetchCall } from './fetch.ts'
+export { WEB_SEARCH_MAX_RESULTS, applyWebSearchTool, formatSearchOutput, parseSearchArgs, presentSearchCall, presentSearchResult, searchMetaFromValue, searchMetaFromResult } from './search.ts'
+export type { WebSearchMeta } from './search.ts'
+export { applyWebFetchTool, formatFetchOutput, parseFetchArgs, presentFetchCall, presentFetchResult, fetchMetaFromValue, fetchMetaFromResult } from './fetch.ts'
+export type { WebFetchMeta } from './fetch.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'tool-web'
@@ -82,6 +84,8 @@ export function apply(ctx: Context, config: Config): void {
   assertPositiveInteger('fetchTimeoutMs', resolved.fetchTimeoutMs)
   assertPositiveInteger('searchTimeoutMs', resolved.searchTimeoutMs)
   assertPositiveInteger('fetchMaxOutputChars', resolved.fetchMaxOutputChars)
-  if (resolved.search) applyWebSearchTool(ctx, resolved.searchMaxResults, resolved.searchTimeoutMs)
+  if (resolved.search) {
+    applyWebSearchTool(ctx, resolved.searchMaxResults, resolved.searchTimeoutMs, resolved.fetch)
+  }
   if (resolved.fetch) applyWebFetchTool(ctx, resolved.fetchTimeoutMs, resolved.fetchMaxOutputChars)
 }

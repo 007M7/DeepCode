@@ -28,6 +28,15 @@ export interface LlmCallConfig {
 }
 
 /**
+ * Effective config fields supplied by exact-model adapter resolution rather
+ * than by the caller's request proposal.
+ */
+export interface LlmCallConfigAdapterDefaults {
+  reasoningEffort?: true
+  maxTokens?: true
+}
+
+/**
  * Field-wise equality over {@link LlmCallConfig} — the comparison a caller
  * runs to decide whether a proposed configuration is a real change (worth a
  * logged header snapshot) or the held one restated.

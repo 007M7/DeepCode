@@ -37,17 +37,29 @@
     // client-side Context merges keep it out of the host program.
     { "path": "./packages/host/directory-picker-native" },
     { "path": "./packages/host/directory-picker-browse" },
+    // Compaction seam: the client-runtime pin test value-imports the canonical
+    // checkpoint const from the cordis-free dsh-compact/checkpoint leaf and
+    // deliberately never loads the dsh-compact package root or the host-side
+    // Context merges reachable through it. The client package pins the same
+    // leaf through a type-only import in transcript-adapter.ts; composite
+    // rootDir rules make both paths depend on this runtime project reference.
+    { "path": "./packages/compact/compact" },
     { "path": "./packages/client/ui-slots" },
+    { "path": "./packages/client/schema-form" },
     { "path": "./packages/client/ui-primitives" },
     { "path": "./packages/client/web-react" },
     { "path": "./packages/client/modules" },
     { "path": "./packages/client/hmr" },
     { "path": "./packages/client/connection" },
+    { "path": "./packages/typert/registry" },
+    { "path": "./packages/api/gateway" },
+    { "path": "./packages/api/remotes" },
     { "path": "./packages/client/runtime" },
     { "path": "./packages/client/test-runtime" },
     { "path": "./packages/client/ui-layout" },
     { "path": "./packages/client/ui-sidebar" },
     { "path": "./packages/client/ui-conversation" },
+    { "path": "./packages/client/ui-deliverables" },
     { "path": "./packages/client/ui-workspace" },
     { "path": "./packages/client/ui-slash" },
     { "path": "./packages/client/ui-command" },

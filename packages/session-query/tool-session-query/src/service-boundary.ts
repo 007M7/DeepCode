@@ -23,6 +23,10 @@ const SAFE_SESSION_QUERY_FAILURES = {
     code: 'SESSION_QUERY_ABORTED',
     message: 'session query was cancelled',
   },
+  SESSION_QUERY_CORRUPT_SESSION: {
+    code: 'SESSION_QUERY_CORRUPT_SESSION',
+    message: 'session event history is corrupt',
+  },
   SESSION_QUERY_EVENT_NOT_FOUND: {
     code: 'SESSION_QUERY_EVENT_NOT_FOUND',
     message: 'session event was not found',

@@ -9,15 +9,9 @@ Built with the DeepSeek Harness SDK using the {{model}} model.
 
 Run `{{packageManager}} start` and configure a programmatic ACP client to launch this project. Standard output is reserved for ACP JSON-RPC.
 {{else}}
-{{#if isTui}}
-## Run in a terminal
-
-Run `{{packageManager}} start` to start the interactive agent.
-{{else}}
 ## Embed the harness
 
 Import and call the exported `main()` from `index.ts` in your host application.
-{{/if}}
 {{/if}}
 
 ## Development

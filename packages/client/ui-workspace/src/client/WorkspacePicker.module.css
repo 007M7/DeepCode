@@ -1,35 +1,10 @@
-/* Modal form styles mirror the empty state's path/create modals (same figma
- * dialog family: field h44, r22, hairline border, pad 14/7) so the two
- * entries stay visually identical. */
-.modalInput {
-  box-sizing: border-box;
-  width: 100%;
-  height: 44px;
-  padding: 7px 14px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 22px;
-  outline: none;
-  background: transparent;
-  font-size: 14px;
-  font-weight: 400;
-  line-height: 22px;
-  color: var(--dsw-alias-label-primary);
-}
-
-.modalInput::placeholder {
-  color: var(--dsw-alias-label-caption);
-}
-
-.modalInput:disabled {
-  color: var(--dsw-alias-label-dimmed);
-}
-
+/* The adoption error dialog's footer and message styles; the dialog itself is
+ * the shared Modal (same figma dialog family as the browser's own dialogs). */
 .modalAction {
   min-width: 72px;
 }
 
 .modalError,
-.modalStatus,
 .menuStatus {
   margin-top: 8px;
   font-size: 12px;
@@ -40,7 +15,6 @@
   color: var(--dsw-alias-state-error-primary);
 }
 
-.modalStatus,
 .menuStatus {
   color: var(--dsw-alias-label-secondary);
 }

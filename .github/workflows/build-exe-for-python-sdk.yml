@@ -28,6 +28,11 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # CI runs must never report to the production telemetry endpoint baked
+  # into apps/cli/cordis.yml (AppCLIEntry disables the row when set).
+  DSH_TELEMETRY_DISABLED: '1'
+
 jobs:
   # Job-level conditions cannot inspect `matrix`, so validate target names and
   # construct the matrix before the dependent jobs.

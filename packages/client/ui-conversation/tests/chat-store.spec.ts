@@ -12,7 +12,7 @@ beforeEach(() => {
 describe('createChatStore', () => {
   it('init shape: empty selection/draft/view', () => {
     const store = createChatStore().create()
-    expect(store.store.getSnapshot()).toEqual({ selection: null, draft: '', view: null })
+    expect(store.store.getSnapshot()).toEqual({ selection: null, draft: '', view: null, inspect: null })
   })
 
   it('actions cover the declared write set', () => {
@@ -30,6 +30,11 @@ describe('createChatStore', () => {
 
     store.actions.setView('chat')
     expect(store.store.getSnapshot().view).toBe('chat')
+
+    store.actions.setInspect({ callId: 'c1' })
+    expect(store.store.getSnapshot().inspect).toEqual({ callId: 'c1' })
+    store.actions.setInspect(null)
+    expect(store.store.getSnapshot().inspect).toBeNull()
   })
 
   it('restoreDraft only fills an empty draft (optimistic-send rollback contract)', () => {

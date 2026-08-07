@@ -2,7 +2,7 @@
 
 [English](goal.md) | 中文
 
-事件溯源目标领域及其策略消费方共享的类型。[目标领域 Agent Note（agent 决策记录）](../../.agents/notes/implemented/feature/2026-07-19-persisted-same-session-goal-domain.md)负责记录持久化与激活决策；本页记录 [`packages/goal/goal/src/types.ts`](../../packages/goal/goal/src/types.ts) 中的字面形态。
+事件溯源目标领域及其策略消费方共享的类型。[目标领域 Agent Note](../../.agents/notes/implemented/feature/2026-07-19-persisted-same-session-goal-domain.md)负责记录持久化与激活决策；本页记录 [`packages/goal/goal/src/types.ts`](../../packages/goal/goal/src/types.ts) 中的字面形态。
 
 ## 标识与生命周期
 
@@ -71,10 +71,10 @@ interface GoalView extends GoalSnapshot {
 
 ## 持久变更
 
-每次变更都是 Round 编号为 0、来源为目标的 `user/message`，其元数据要么是完整快照，要么是清除墓碑。版本、元数据、目标来源和逐字渲染内容共同构成一项回放不变量。
+每次变更都是持久的 `goal/change` 会话事件，其载荷要么是变更后的完整快照，要么是清除墓碑。严格折叠与持久投影只从这些事件派生生命周期状态；inbox 变更不会影响 goal 状态。
 
 ```ts type-equiv
-/** Full-snapshot goal mutation retained in a model-visible context event. */
+/** Full-snapshot goal mutation committed by a durable `goal/change` event. */
 interface GoalSnapshotChangeMeta {
   readonly kind: 'goal/change'
   readonly version: 1
@@ -97,24 +97,22 @@ interface GoalClearChangeMeta {
 }
 ```
 
-目标状态变更使用 Round `0`。续跑消费方会为每个获准的用户消息轮次标注正数且连续的 Round 编号和当前修订号；回放会拒绝编号缺口、陈旧修订号、已停止阶段和超出上限。
+续跑消费方会为每个获准的用户消息轮次标注正数且连续的 Round 编号和当前修订号；只有这些获准的 `user/message` 事件会推进 `roundsStarted`。回放会拒绝非正数 Round、编号缺口、陈旧修订号、已停止阶段和超出上限。
 
 ```ts type-equiv
-/** Message attribution for durable goal state and continuation rounds. */
+/** Message attribution for admitted continuation rounds. */
 interface GoalMessageSource {
   readonly kind: 'goal'
   readonly goalId: GoalId
   readonly revision: number
-  /** Zero for state changes; positive for admitted continuation rounds. */
+  /** Positive admitted continuation round. */
   readonly round: number
-  /** Complete durable mutation carried only by round-zero state-change messages. */
-  readonly change?: GoalChangeMeta
 }
 ```
 
 ## 请求与通知
 
-创建操作会区分调用方省略的值与部署选择，`create()` 会在内部解析后者。编辑是局部替换，其运行时校验器要求至少提供一个字段。每条变更通知都会携带获准的操作和确切修订号；清除操作不带 `goal`。
+创建操作会区分调用方省略字段与采用部署配置值这两种情况，`create()` 会在内部解析后者。编辑是局部替换，其运行时校验器要求至少提供一个字段。每条变更通知都会携带获准的操作和确切修订号；清除操作不带 `goal`。
 
 ```ts type-equiv
 /** Input whose omitted round cap is resolved by the service configuration. */
@@ -133,7 +131,7 @@ interface EditGoalRequest {
 ```
 
 ```ts type-equiv
-/** Live notification after one goal mutation has been accepted for logging. */
+/** Live notification after one durable goal mutation commits. */
 interface GoalChanged {
   readonly operation: GoalOperation
   readonly ref: GoalRef
@@ -144,4 +142,4 @@ interface GoalChanged {
 
 ## 服务行为
 
-[`GoalService`](../../packages/goal/goal/src/index.ts) 解析创建默认值、执行严格回放折叠、校验确切的活跃 agent 身份、以比较并设置方式执行变更、叠加延迟注入，并发出 `goal/changed` 通知；监听器故障会被隔离。包 [README](../../packages/goal/goal/README.md) 负责记录可调用契约和面向模型的契约。
+[`GoalService`](../../packages/goal/goal/src/index.ts) 解析创建默认值、从持久 `goal/change` 事件执行严格回放折叠、校验确切的活跃 agent 身份、以比较并设置方式执行变更，并发出 `goal/changed` 通知；监听器故障会被隔离。包 [README](../../packages/goal/goal/README.md) 负责记录可调用契约和面向模型的契约。

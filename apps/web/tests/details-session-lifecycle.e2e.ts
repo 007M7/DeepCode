@@ -3,15 +3,19 @@
 // unselected states, and closes it only when a different Session takes ownership.
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import {
-  acknowledgeReloadConnectionLoss, fixtureUserPrompts, launchWebScaffold, seedSession, watchConsole,
-  webSnapshotMode, type WebScaffold,
+  acknowledgeReloadConnectionLoss, assertFixtureInventory, compareOrRefreshGolden,
+  fixtureUserPrompts, launchWebScaffold, seedSession, watchConsole, webSnapshotMode,
+  type WebScaffold,
 } from './scaffold.ts'
 import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
 
+const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/details-session-lifecycle', import.meta.url))
+const HANDLES_EXPECTED = join(SNAPSHOT_DIR, 'handles.expected.md')
 const FIXTURE = fileURLToPath(new URL('./snapshots/lifecycle-chrome/session.jsonl', import.meta.url))
 const SEED_FIXTURE = fileURLToPath(new URL('./snapshots/seeded-history/seed.jsonl', import.meta.url))
 const PROMPT = 'Reply with the single word LIGHTHOUSE and stop.'
@@ -25,9 +29,39 @@ async function detailsTrack(page: Page): Promise<number> {
   })
 }
 
+/** First AppFrame grid track in CSS pixels. */
+async function sidebarTrack(page: Page): Promise<number> {
+  return await appFrame(page).evaluate((element) => {
+    const tracks = getComputedStyle(element).gridTemplateColumns.split(' ')
+    return Number.parseFloat(tracks[0] ?? 'NaN')
+  })
+}
+
 /** AppFrame is the only product element with an inline grid track template. */
 function appFrame(page: Page) {
   return page.locator('[style*="grid-template-columns"]').first()
+}
+
+/** Render the two boundary affordances without platform-dependent coordinates. */
+async function handleSnapshot(page: Page): Promise<string> {
+  const handles = await page.locator('[class*="handle"]').evaluateAll(elements =>
+    elements.map(element => ({
+      side: element.getAttribute('data-side'),
+      cursor: getComputedStyle(element).cursor,
+      pillGenerated: getComputedStyle(element, '::after').content !== 'none',
+    })))
+  return [
+    '# AppFrame drag handles',
+    '',
+    ...handles.flatMap(handle => [
+      `## ${handle.side}`,
+      '',
+      '- hit strip present: true',
+      `- cursor: ${handle.cursor}`,
+      `- pill generated: ${String(handle.pillGenerated)}`,
+      '',
+    ]),
+  ].join('\n').trimEnd()
 }
 
 describe.skipIf(MODE === 'record')('web e2e: details panel follows the current Session lifecycle', () => {
@@ -46,7 +80,7 @@ describe.skipIf(MODE === 'record')('web e2e: details panel follows the current S
     tripwire = watchConsole(page)
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
     await appFrame(page).waitFor({ timeout: 30_000 })
-    await connectFreshWorkspace(page)
+    await connectFreshWorkspace(page, scaffold.workspaceCwd)
   }, 120_000)
 
   afterAll(async () => {
@@ -64,7 +98,19 @@ describe.skipIf(MODE === 'record')('web e2e: details panel follows the current S
     await page.getByText('LIGHTHOUSE', { exact: true }).waitFor({ timeout: 15_000 })
 
     await expect.poll(() => detailsTrack(page), { timeout: 5_000 }).toBe(0)
-    expect(await page.getByText('详情', { exact: true }).isVisible()).toBe(false)
+    expect(await page.getByText('Details', { exact: true }).isVisible()).toBe(false)
+    await compareOrRefreshGolden(HANDLES_EXPECTED, await handleSnapshot(page), MODE)
+
+    const sidebarBefore = await sidebarTrack(page)
+    const sidebarHandle = page.locator('[data-side="sidebar"]')
+    const sidebarBox = await sidebarHandle.boundingBox()
+    expect(sidebarBox).not.toBeNull()
+    const dragStartX = sidebarBox!.x + sidebarBox!.width / 2
+    await page.mouse.move(dragStartX, sidebarBox!.y + 200)
+    await page.mouse.down()
+    await page.mouse.move(dragStartX + 70, sidebarBox!.y + 200, { steps: 6 })
+    await page.mouse.up()
+    await expect.poll(() => sidebarTrack(page), { timeout: 5_000 }).toBe(sidebarBefore + 70)
 
     const warningStart = tripwire.warnings.length
     await page.reload({ waitUntil: 'load' })
@@ -72,18 +118,18 @@ describe.skipIf(MODE === 'record')('web e2e: details panel follows the current S
     await appFrame(page).waitFor({ timeout: 30_000 })
     await page.getByText('LIGHTHOUSE', { exact: true }).waitFor({ timeout: 15_000 })
     await expect.poll(() => detailsTrack(page), { timeout: 5_000 }).toBe(0)
-    expect(await page.getByText('详情', { exact: true }).isVisible()).toBe(false)
+    expect(await page.getByText('Details', { exact: true }).isVisible()).toBe(false)
 
     await page.getByRole('button', { name: /^(?:New session|新.*会话)$/ }).last().click()
-    await page.getByText("Let's start building", { exact: false }).waitFor({ timeout: 15_000 })
+    await page.getByText('Into the Unknown', { exact: false }).waitFor({ timeout: 15_000 })
     await expect.poll(() => detailsTrack(page), { timeout: 5_000 }).toBe(0)
-    expect(await page.getByText('详情', { exact: true }).isVisible()).toBe(false)
+    expect(await page.getByText('Details', { exact: true }).isVisible()).toBe(false)
 
     const original = page.locator('[role=treeitem]').filter({ hasText: 'Reply with the single word' }).first()
     await original.click()
     await page.getByText('LIGHTHOUSE', { exact: true }).waitFor({ timeout: 15_000 })
     await expect.poll(() => detailsTrack(page), { timeout: 5_000 }).toBe(0)
-    expect(await page.getByText('详情', { exact: true }).isVisible()).toBe(false)
+    expect(await page.getByText('Details', { exact: true }).isVisible()).toBe(false)
 
     const ungrouped = page.getByText('Ungrouped', { exact: true })
     const ungroupedRow = ungrouped.locator('..').locator('..')
@@ -101,5 +147,6 @@ describe.skipIf(MODE === 'record')('web e2e: details panel follows the current S
     await expect.poll(() => detailsTrack(page), { timeout: 5_000 }).toBe(0)
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
+    await assertFixtureInventory(SNAPSHOT_DIR, ['handles.expected.md'])
   }, 90_000)
 })

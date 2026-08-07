@@ -320,6 +320,25 @@ describe('CommandService', () => {
     ])
   })
 
+  it('omits raw input from command/run when an authoritative domain event owns it', async () => {
+    const ctx = await mount()
+    const { agent } = await mintAgentScope(ctx, 'a')
+    const seen = vi.fn(() => ({ kind: 'success' as const }))
+    ctx.commands.register({
+      name: 'private',
+      description: 'Record privately',
+      recordInput: false,
+      handler: seen,
+    })
+
+    await ctx.commands.execute(agent, '/private keep this once', new AbortController().signal)
+
+    expect(seen).toHaveBeenCalledWith(expect.objectContaining({ rawInput: ' keep this once' }))
+    const run = agent.session.events.find(event => event.type === 'command/run')
+    expect(run?.type).toBe('command/run')
+    expect(run?.type === 'command/run' && Object.hasOwn(run.data, 'args')).toBe(false)
+  })
+
   it('mints distinct monotonic commandIds across executions', async () => {
     const ctx = await mount()
     const { agent } = await mintAgentScope(ctx, 'a')
@@ -396,7 +415,7 @@ describe('CommandService', () => {
     const ctx = await mount()
     const { agent } = await mintAgentScope(ctx, 'a')
     ctx.commands.register(command('mid'))
-    agent.session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    agent.session.append('turn/start', { turn: 1 })
     await ctx.commands.execute(agent, '/mid', new AbortController().signal)
     expect(agent.session.events.map(event => event.type)).toEqual([
       'turn/start', 'command/run', 'command/done',

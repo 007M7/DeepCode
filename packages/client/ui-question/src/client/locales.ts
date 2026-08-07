@@ -11,6 +11,10 @@ export const zh = {
   'custom.placeholder': '输入你的答案',
   'action.skip': '跳过本题',
   'action.next': '下一题',
+  'plan.header': '计划待审',
+  'plan.approve': '确认执行',
+  'plan.decline': '拒绝',
+  'plan.discuss': '去聊天里说',
 } satisfies Record<string, string>
 
 /** The question namespace key union. */
@@ -27,4 +31,8 @@ export const en = {
   'custom.placeholder': 'Type your answer',
   'action.skip': 'Skip this question',
   'action.next': 'Next',
+  'plan.header': 'Plan review',
+  'plan.approve': 'Approve',
+  'plan.decline': 'Refuse',
+  'plan.discuss': 'Chat about it',
 } satisfies Record<QuestionKey, string>

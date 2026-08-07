@@ -47,7 +47,7 @@ describe('title projection unit', () => {
     const firstSeq = appendTitle(session, 'First title')
     const secondSeq = appendTitle(session, 'Second title')
     // Unrelated event: same-reference apply, no notification.
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     expect(changes).toEqual([
       { key: 'title', value: 'First title', seq: firstSeq },
       { key: 'title', value: 'Second title', seq: secondSeq },

@@ -12,10 +12,19 @@
       "path": "../../goal/goal"
     },
     {
+      "path": "../../settings/settings"
+    },
+    {
+      "path": "../../credentials/credentials"
+    },
+    {
       "path": "../../../vendor/cordis"
     },
     {
       "path": "../../../vendor/schemastery"
+    },
+    {
+      "path": "../../api/remotes"
     },
     {
       "path": "../../util/brand"
@@ -42,7 +51,16 @@
       "path": "../../session-projection/session-projection-cache"
     },
     {
+      "path": "../../session-query/session-query"
+    },
+    {
       "path": "../../session-title/session-title"
+    },
+    {
+      "path": "../../session-query/session-query"
+    },
+    {
+      "path": "../../subagent/subagent"
     },
     {
       "path": "../../skill/skill"

@@ -8,6 +8,9 @@
  * deficit as the last resort. Inputs are the layout store's plain width
  * preferences (0 = closed); a closed sidebar resolves to the fixed
  * SIDEBAR_COLLAPSED control rail while closed details resolve to zero width.
+ * The SIDEBAR_AUTO_COLLAPSE breakpoint is consumed by AppFrame, which decides
+ * the effective sidebar preference before solving; the solver itself stays
+ * breakpoint-free.
  */
 
 /** Resolved widths for one frame; center may drop below CENTER_MIN only at the final fallback. */
@@ -24,6 +27,10 @@ export const SIDEBAR_MAX = 420
 export const SIDEBAR_DEFAULT = 280
 /** Closed-sidebar rail: a 24px icon column between 16px horizontal paddings. */
 export const SIDEBAR_COLLAPSED = 56
+/** Viewport width below which the sidebar auto-collapses to the rail (deepsuite
+ * LG breakpoint); a manual toggle below it re-expands over the squeezed center
+ * (stores.ts narrowExpanded). */
+export const SIDEBAR_AUTO_COLLAPSE = 1024
 /** Details drag clamp floor. */
 export const DETAILS_MIN = 300
 /** Details drag clamp ceiling. */

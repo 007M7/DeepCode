@@ -221,7 +221,7 @@ describe('SessionProjectionCache write policy', () => {
 describe('SessionProjectionCache cold read', () => {
   const storedLog = (marks: string[][]): SessionEvent[] => {
     const events: SessionEvent[] = [
-      { type: 'turn/start', seq: 0, time: 0, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      { type: 'turn/start', seq: 0, time: 0, data: { turn: 1 } },
     ]
     for (const m of marks) {
       events.push({ type: 'cache-test/mark', seq: events.length, time: events.length, data: { marks: m } })

@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-用于 dsh-sdk 工具链的启动器侧 telemetry 原语。这是启动器在执行每个命令时导入的普通库；它**不是** Cordis 插件，因为 `build` 与首次初始化的 `create` 从不启动 Cordis。将 reporter 接入启动器命令分发，并把 telemetry consent 功能加入 `dsh-helper` 目录，属于各自所属包（package）的职责，而不是此包的职责。
+用于 dsh-sdk 工具链的启动器侧 telemetry 原语。这是启动器在执行每个命令时导入的普通库；它**不是** Cordis 插件，因为 `build` 与首次初始化的 `create` 从不启动 Cordis。将 reporter 接入启动器命令分发，并把 telemetry consent 功能加入 `dsh-helper` 目录，属于各自所属包的职责，而不是此包的职责。
 
 | 导出 | 职责 |
 |---|---|

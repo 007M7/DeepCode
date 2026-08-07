@@ -20,7 +20,7 @@ The Host provides the following GUI wiring on the Workspace entity:
 | --- | --- |
 | `workspace.list` | Returns persistent Workspaces in order and filters out Session ids that fail header validation |
 | `workspace.create({ name })` | Creates a directory and Workspace at `workspaceRoot/name`; fails on a display-name conflict |
-| `workspace.create({ path })` | Adopts an existing directory and does not create an arbitrary path |
+| `workspace.create({ path })` | Adopts an existing directory by canonical path; basename-derived display titles may repeat |
 | `workspace.delete({ workspaceId })` | Removes the Workspace registration while retaining its directory and session logs; its Sessions become Ungrouped |
 | `session.create({ workspaceId, sessionId? })` | Resolves cwd from the Workspace, idempotently creates a Session with an optional preallocated id, and attaches it |
 | `session.create({ cwd })` | Remains available to non-Workspace callers and creates an Ungrouped Session |
@@ -50,9 +50,9 @@ On initial entry, the application waits until both the Workspace and Session bas
 
 When no Workspace exists, the page creates a frontend Workspace object named `workspace` and a frontend Session that targets it. Neither writes to the Host, and the composer always accepts input; the first send materializes the Workspace, attaches the Session, and sends the message in that order.
 
-Top-level New Session, the plus button on a Workspace row, and the Workspace picker all invoke the same New Session action. An explicit Workspace id becomes the target directly; when none is specified, the action uses the most recent Workspace, or the Workspace Intent if no real Workspace exists. The Workspace picker's Use an existing folder and Create a new workspace actions immediately create a real Workspace when the user confirms, then retarget the frontend Session to it; an explicitly created empty Workspace remains even if the user sends no message.
+Top-level New Session, the plus button on a Workspace row, and the Workspace picker all invoke the same New Session action. An explicit Workspace id becomes the target directly; when none is specified, the action uses the most recent Workspace, or the Workspace Intent if no real Workspace exists. The Workspace picker's one Add workspace action ([one-route Note](../simplification/2026-07-31-one-route-to-add-a-workspace.md); it was a pair of Use-an-existing-folder and create-by-name actions when this was decided) immediately creates a real Workspace when the user confirms a directory, then retargets the frontend Session to it; an explicitly created empty Workspace remains even if the user sends no message.
 
-Create a new workspace temporarily uses the same input as both the directory name and display name. The UI prevents duplicate confirmation based on current Workspace titles, while the Host continues to reject same-name requests that bypass the UI or race concurrently. Moving Sessions across Workspaces, manual adoption from Ungrouped, and separate display-name and directory-name inputs remain outside this flow.
+A new Workspace takes its display name from the directory it was created in. Distinct canonical paths may share the same basename-derived title ([identity decision](../bug-fix/2026-07-31-same-basename-workspace-adoption.md)); explicit create-by-name and rename operations retain their duplicate-title checks. Moving Sessions across Workspaces, manual adoption from Ungrouped, and separate display-name and directory-name inputs remain outside this flow.
 
 ### First send and recovery
 
@@ -108,7 +108,7 @@ The Sidebar and conversation empty hero receive standardized actions through slo
 - Workspace list performs one reentrant bootstrap using only headers; an initialized empty registry does not initialize again after restart, and membership reads validate both the index and canonical cwd.
 - The initial default target is determined exactly once after both baselines are ready; Workspace groups are not reordered as a whole by hydration or Session activity, and an active Session moves only itself to the front.
 - A frontend Session under a real Workspace temporarily counts toward the sidebar total, while a Workspace Intent remains hidden; neither publication nor refresh leaves duplicate rows or counts.
-- Both the UI and Host reject duplicate Workspace names; cwd-only Sessions, Sessions with invalid historical cwd values, and unattached Sessions remain Ungrouped.
+- The UI and Host admit distinct same-basename directories as separate Workspaces, while explicit create-by-name and rename operations reject duplicate titles; cwd-only Sessions, Sessions with invalid historical cwd values, and unattached Sessions remain Ungrouped.
 - Confirmed Workspace deletion removes only the registration, retains the current Session, directory, files, and session log, and survives reload; package tests pin unary/frame/baseline races and failure rollback.
 - Keyless runnable snapshots cover the zero state, explicit creation, and the first send; package-level tests cover bootstrap, membership validation, ordering, idempotency, failure recovery, and arbitrary frame order.
 

@@ -12,7 +12,7 @@
       - id: acp-agent
         name: '@deepseek-ai/dsh-acp-demo'
         config:
-          provider: deepseek
+          provider: deepseek-official
           model: deepseek-v4-flash
           persistenceRoot: !!js process.env.DSH_SNAPSHOT_SESSIONS_ROOT ?? './.sessions'
           persistenceCompression: none
@@ -28,7 +28,7 @@
             config:
               overrideFile: ./.missing-main-replay-override.json
               providers:
-                - id: deepseek
+                - id: deepseek-official
                   name: DeepSeek
                   models:
                     - id: deepseek-v4-flash

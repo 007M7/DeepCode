@@ -1,26 +1,43 @@
 // @vitest-environment jsdom
 
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render } from '@testing-library/react'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { UseSession } from '@deepseek-ai/dsh-client-web-react'
 import type { ConversationSnapshot, SessionId, SessionListState, WorkspaceListState } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SelectionTarget } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { createChatStore } from '../src/client/stores.ts'
-import { AssistantMarkdown } from '../src/client/chat/AssistantMarkdown.tsx'
+import { AssistantMarkdown, type AssistantMarkdownProps } from '../src/client/chat/AssistantMarkdown.tsx'
 import { StatsLine } from '../src/client/chat/StatsLine.tsx'
 import { DetailsPanel } from '../src/client/skeleton/DetailsPanel.tsx'
+import { zh } from '../src/client/locales.ts'
 
-afterEach(cleanup)
+// Mirrors the real lookup chain (conversation namespace, then common).
+const t: AssistantMarkdownProps['t'] = makeTranslate(zh, commonZh)
+
+/** jsdom has no ResizeObserver; StatsLine watches its row for ellipsis truncation through one. */
+class ResizeObserverStub {
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+}
+
+beforeEach(() => { vi.stubGlobal('ResizeObserver', ResizeObserverStub) })
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+})
 
 const SID = 's1' as SessionId
 
 function snapshotBase(): ConversationSnapshot {
   return {
-    sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
+    sessionId: SID, nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [], codeDispatches: new Map(),
     pending: [], queue: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
-    hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null,
+    hasMore: false, loadingOlder: false, promptError: null, blank: false, subagent: null, lastAgentError: null,
   }
 }
 
@@ -28,6 +45,7 @@ describe('render branch tails', () => {
   it('AssistantMarkdown reasoning row is ok-state when not the streaming tail', () => {
     const view = render(
       <AssistantMarkdown
+        t={t}
         blocks={[{ kind: 'reasoning', text: 'done thinking' }, { kind: 'text', text: 'answer' }]}
         streaming
       />,
@@ -36,25 +54,30 @@ describe('render branch tails', () => {
     expect(view.container.querySelector('[data-state="ok"]')).not.toBeNull()
   })
 
-  it('StatsLine skips usage-less nodes and defaults each absent counter to zero', () => {
+  it('StatsLine counts window nodes but drops every token group without a projection', () => {
+    // Node `usage` is deliberately ignored: billing rides the durable
+    // tokenUsage projection, so an absent projection leaves counts only.
     const snap = {
       nodes: [
         { kind: 'assistant', seq: 1, turn: 1, step: 1, blocks: [] },
         { kind: 'assistant', seq: 2, turn: 1, step: 2, blocks: [], usage: { inputTokens: 4, outputTokens: 6 } },
-        // outputTokens absent: the tokens sum's ?? 0 arm for output.
         { kind: 'assistant', seq: 3, turn: 2, step: 1, blocks: [], usage: { inputTokens: 5 } },
       ],
     }
     const source = { getSnapshot: () => snap, subscribe: () => () => {} }
     const view = render(
-      <StatsLine useSession={bindSnapshotSelector(source) as unknown as UseSession<ConversationSnapshot>} />,
+      <StatsLine
+        t={t}
+        useSession={bindSnapshotSelector(source) as unknown as UseSession<ConversationSnapshot>}
+        useProjection={() => undefined}
+      />,
     )
-    expect(view.container.textContent).toBe('2 turns · 3 steps|Cache hit 0%|Input 9 tok · Output 6 tok')
+    expect(view.container.textContent).toBe('2 轮 · 3 步')
   })
 
   it('AssistantMarkdown reasoning as the streaming tail renders the running ring', () => {
     const view = render(
-      <AssistantMarkdown blocks={[{ kind: 'reasoning', text: 'still thinking' }]} streaming />,
+      <AssistantMarkdown t={t} blocks={[{ kind: 'reasoning', text: 'still thinking' }]} streaming />,
     )
     expect(view.container.querySelector('[data-state="running"]')).not.toBeNull()
   })
@@ -65,9 +88,9 @@ describe('render branch tails', () => {
     const chat = createChatStore().create()
     chat.actions.select({ turnSeq: 1, callId: 'ghost' } satisfies SelectionTarget)
     const emptyList = createSnapshotStore<SessionListState>(
-      { ids: [], byId: {}, current: undefined, phase: 'ready' })
+      { ids: [], byId: {}, current: undefined, phase: 'ready', subagentsByParent: {}, currentAddress: undefined })
     const emptyWorkspaces = createSnapshotStore<WorkspaceListState>({
-      items: [], state: 'idle', phase: 'ready', error: null,
+      items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
     })
     const view = render(
@@ -82,6 +105,7 @@ describe('render branch tails', () => {
         useStore={bindSnapshotSelector(chat)}
         actions={chat.actions}
         closeDetails={vi.fn()}
+        t={t}
       />,
     )
     expect(view.getByText('详情')).toBeTruthy()
@@ -101,9 +125,9 @@ describe('render branch tails', () => {
     const chat = createChatStore().create()
     chat.actions.select({ turnSeq: 8, callId: 'p1:code:1', toolName: 'read' } satisfies SelectionTarget)
     const emptyList = createSnapshotStore<SessionListState>(
-      { ids: [], byId: {}, current: undefined, phase: 'ready' })
+      { ids: [], byId: {}, current: undefined, phase: 'ready', subagentsByParent: {}, currentAddress: undefined })
     const emptyWorkspaces = createSnapshotStore<WorkspaceListState>({
-      items: [], state: 'idle', phase: 'ready', error: null,
+      items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
     })
     const view = render(
@@ -118,6 +142,7 @@ describe('render branch tails', () => {
         useStore={bindSnapshotSelector(chat)}
         actions={chat.actions}
         closeDetails={vi.fn()}
+        t={t}
       />,
     )
     // Sub-call material: the sub-tool name titles the panel, args pretty-print,

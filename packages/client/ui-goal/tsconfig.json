@@ -12,7 +12,10 @@
       "path": "../../../vendor/cordis"
     },
     {
-      "path": "../connection"
+      "path": "../locale"
+    },
+    {
+      "path": "../../api/remotes"
     },
     {
       "path": "../runtime"

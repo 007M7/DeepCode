@@ -60,3 +60,19 @@ interface PromptSection {
   readonly text: string | ((context: AssembleContext) => string)
 }
 ```
+
+## Dynamic prompt context
+
+`PromptContext` is the cache-safe counterpart to `PromptSection`. The assembly resolves and orders these contributions, while agent-loop logs their complete current snapshot after retained model history only when it changed or compaction removed it.
+
+```ts type-equiv
+/** Dynamic model context materialized as a durable user-role snapshot. */
+interface PromptContext {
+  /** Unique name — a duplicate registration throws (see {@link SystemPrompt.context}). */
+  readonly name: string
+  /** Contexts are joined in ascending order. */
+  readonly order: number
+  /** Static text or a provider evaluated for each assembly. Empty text contributes nothing. */
+  readonly text: string | ((context: AssembleContext) => string)
+}
+```

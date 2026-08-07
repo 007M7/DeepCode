@@ -12,7 +12,7 @@ Status: implemented
 
 Linux PR 的 `node 24 / snapshots and artifacts` 必须运行完整 Web 浏览器 replay/compare。`scripts/run-gates.ts` 把 `test:web:built` 作为 `ci-consumers` 的一个 gate，并显式注入 `DSH_SNAPSHOT=replay`；CI 永不以 `record` 或 `refresh` 模式运行，因此提交的 golden 与当前组装应用不一致时测试直接失败，不会在 runner 内静默改写后通过。
 
-静态 CI job 已经构建全部发布产物；它把 `apps/web/dist` 和包的 `lib/` 目录放进 built-tree 产物，消费方 job 复用该产物而不重复全仓构建。在托管运行器上，CI 按锁文件中的 Playwright 版本安装 Chromium 及其系统依赖。在持久化故障切换 VM 上，镜像负责预装 Linux 系统软件包，CI 只安装 Chromium，避免每次运行都通过 `apt` 改动系统。托管的默认分支 Linux 串行 job 运行该套件，并生成以操作系统和锁文件为键的浏览器缓存；PR 恢复该缓存，使必需路径无需承担压缩和上传开销，并可在锁文件变化时按操作系统前缀回退。自托管热备运行相同的比较，但不执行托管缓存操作。
+消费方 job 在[消费方独立构建](../process/2026-07-30-independent-ci-consumer-build.md)中负责唯一一次 Linux 构建，因此 `apps/web/dist` 和包的 `lib/` 目录会保留在其工作区中，供浏览器套件使用。在托管运行器上，CI 按锁文件中的 Playwright 版本安装 Chromium 及其系统依赖。在持久化故障切换 VM 上，镜像负责预装 Linux 系统软件包，CI 只安装 Chromium，避免每次运行都通过 `apt` 改动系统。托管的默认分支 Linux 串行 job 运行该套件，并生成以操作系统和锁文件为键的浏览器缓存；PR 恢复该缓存，使必需路径无需承担压缩和上传开销，并可在锁文件变化时按操作系统前缀回退。自托管热备运行相同的比较，但不执行托管缓存操作。
 
 本地 `pnpm run test:web` 仍先构建再运行浏览器全集；`test:web:built` 是已有构建产物的执行入口。开发者只在确认用户可见输出有意变化后显式运行 `DSH_SNAPSHOT=refresh pnpm run test:web`，评审每一处 expected diff，再以 replay 模式复验不再写文件。
 
@@ -26,10 +26,10 @@ Linux PR 的 `node 24 / snapshots and artifacts` 必须运行完整 Web 浏览�
 
 **让 CI 以 `refresh` 模式运行后检查工作树。** 已否决：写后比较把断言机制变成生成器，若工作树检查接线失效就会把回归更新成绿色；replay 直接比较已有 golden，失败面更小。
 
-**新建独立 browser job 并重新构建全仓。** 已否决：它会重复依赖安装和发布构建。现有 Linux consumer job 已消费同一 built-tree artifact，并已被统一的 required verdict 聚合。
+**新建独立 browser job 并重新构建全仓。** 已否决：它会重复依赖安装和发布构建。现有 Linux 消费方 job 已负责该构建，并已被统一的 required verdict 聚合。
 
 **用 jsdom 快照代替真实 Chromium。** 已否决：jsdom 不覆盖浏览器、HTTP/SSE 承载及真实 client plugin bundle 组合；它保留为快速的下层反馈，不能替代 assembled browser chain。
 
 ## 后果
 
-每个 PR 都在合并前证明当前 Web 组装与所有已提交的浏览器 expected 一致，漏刷从“后续 PR 的无关变化”变成引入 PR 自己的失败。成本是消费方 job 需要供给 Chromium，并串行运行一轮浏览器场景；built artifact 复用与浏览器缓存避免重跑时重复构建和下载。门禁仍不声称跨平台浏览器一致性，Playwright/Chromium 升级若改变 aria 格式，升级 PR 必须显式 refresh 并评审 churn。
+每个 PR 都在合并前证明当前 Web 组装与所有已提交的浏览器 expected 一致，漏刷从“后续 PR 的无关变化”变成引入 PR 自己的失败。成本是消费方 job 需要供给 Chromium，并串行运行一轮浏览器场景；消费方独立构建与浏览器缓存避免重跑时重复构建和下载。门禁仍不声称跨平台浏览器一致性，Playwright/Chromium 升级若改变 aria 格式，升级 PR 必须显式 refresh 并评审 churn。

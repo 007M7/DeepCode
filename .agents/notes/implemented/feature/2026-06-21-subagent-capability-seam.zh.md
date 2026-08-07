@@ -4,7 +4,7 @@ Status: implemented
 
 [English](2026-06-21-subagent-capability-seam.md) | 中文
 
-> 完整 seam 已交付：`dsh-subagent` 接口与 `dsh-tool-subagent` 消费方；两个进程内后端（`dsh-subagent-spawn`、`dsh-subagent-fork`）；嵌套 agent 快照基础设施（[逐会话快照回放](../testing/2026-06-22-subagent-snapshot-replay.md)）；以及进程外后端 `dsh-subagent-acp`（[其 Agent Note](2026-06-22-acp-subagent-backend.md)）。
+> 完整 seam 已交付：`dsh-subagent` 接口与 `dsh-tool-subagent` 消费方；两个进程内后端（`dsh-subagent-spawn`、`dsh-subagent-fork`）；嵌套 agent 快照基础设施（[逐会话快照回放](../testing/2026-06-22-subagent-snapshot-replay.md)）；以及进程外的 ACP、Codex 与 Claude Code 后端（[ACP Agent Note](2026-06-22-acp-subagent-backend.md)、[产品提供方 Agent Note](2026-08-04-claude-code-and-codex-subagent-backends.md)）。
 
 ## 问题
 
@@ -14,7 +14,8 @@ harness 有一个长期搁置的 seam 用于 **subagent**：一个 agent（智�
 
 - **进程内**：在同一个 `Context` 上创建一个具体的子 `Agent`（最廉价，且鉴于现有 agent 工厂几乎零成本）；
 - **ACP**：作为 ACP *客户端*驱动另一个 agent 进程（可以是自身的另一个实例）；
-- 后续：**A2A**、**Codex app-server** 与 **Claude Code Agent SDK**——每种都与 ACP 后端相同的进程外形状：「启动子 agent、发送提示词、流式接收更新、取消」。
+- **Codex app-server 与 Claude Code Agent SDK**：当前的一次性兄弟提供方，将同一个命名提供方 seam 应用于官方产品进程（[产品提供方 Agent Note](2026-08-04-claude-code-and-codex-subagent-backends.md)）；
+- 后续：**A2A**，采用同样的进程外形态：「启动子 agent、发送提示词、结算、取消」。
 
 ## 曾考虑的替代方案
 
@@ -34,16 +35,18 @@ bash seam（[能力 seam](../architecture/2026-06-13-capability-seams.md)）在�
 | `@deepseek-ai/dsh-subagent-spawn` | 实现：通过 `ctx.agents.create` 创建全新的进程内子 agent |
 | `@deepseek-ai/dsh-subagent-fork` | 实现：用父 agent 日志快照初始化的进程内子 agent |
 | `@deepseek-ai/dsh-subagent-acp` | 实现：作为 ACP 客户端驱动已配置的子进程 |
+| `@deepseek-ai/dsh-subagent-codex` | 实现：一次性官方 Codex app-server 进程 |
+| `@deepseek-ai/dsh-subagent-claude-code` | 实现：通过 Agent SDK 运行的一次性官方 Claude Code 进程 |
 | `@deepseek-ai/dsh-tool-subagent` | 消费方：基于 `ctx.subagents` 的面向模型的 `subagent` 工具 |
 
 ### 原语：异步 `start → SubagentRun`
 
-提供方暴露 `start(request) → Promise<SubagentRun>`。完成时发布一个就绪的子 agent 并将其运行句柄转交给调用方。一个信号覆盖就绪前后的取消；`dispose()`（资源释放）取消剩余工作并等待完全停稳。启动失败时清理部分资源，不发出生命周期事件。`start` 与传输方式无关；`spawn` 仅指代全新的进程内后端。
+提供方暴露 `start(request) → Promise<SubagentRun>`。完成时发布一个子 agent，并将其运行句柄转交给调用方。发布前失败的工作会拒绝 `start()`，而发布后的提示词、轮次、取消与基础设施结果会通过 `run.result` 结算，且不会隐藏 child id。同一个信号覆盖发布前后的取消；`dispose()`（资源释放）取消剩余工作并等待完全停稳。启动被拒绝时会清理未发布资源，且不发出生命周期事件；发布后的结果失败则会结束已经发布的生命周期事件对。`start` 与传输方式无关；`spawn` 仅指代全新的进程内后端。
 
 ### 两类可选能力，两种发现方式
 
 - **启动时功能**（`outputSchema`、`depthLimit`、`toolFilter`、`persona`）挂在静态的 `provider.capabilities` 描述符上。服务在委派之前检查每个被请求的功能，如果提供方不支持则**大声拒绝**（`SubagentError('UNSUPPORTED_CAPABILITY')`），绝不接受后静默忽略。这些功能必须在 run 存在之前检查，因此不能是运行时方法。
-- **运行时功能**（通过 `sendMessage` 进行 steering、通过 `resume` 进行后续对话）是 `SubagentRun` 上的**可选方法**。方法的存在本身即为能力，TypeScript 类型收窄即为发现机制：消费方不经收窄就无法调用不存在的方法，因此不存在静默降级路径，也不需要额外的 flags 对象来保持同步。
+- **可继续创建**使用可选的 `SubagentProvider.prepareContinuable` 方法；方法是否存在本身即为能力，TypeScript 类型收窄即为发现机制，因此不需要可能与实现失同步的独立 flag。继续执行管理器直接通过 `AgentHandle` 负责后续投递与从持久化存储恢复，而一次性 `SubagentRun` 没有 steering 或 resume 操作，具体由[可继续 subagent](2026-07-28-continuable-subagent-conversations.md)细化。
 
 ### Fork 与 fresh 是独立后端，而非一个 flag
 
@@ -51,11 +54,11 @@ bash seam（[能力 seam](../architecture/2026-06-13-capability-seams.md)）在�
 
 ### 子 agent 隔离与父日志
 
-每个 subagent 运行在**自己的 `Session`** 中（独立 id、`parentSession` 谱系），独立持久化。父日志仅记录 spawn `tool/call` 及其 `tool/result`（子 agent 的最终输出）——子 agent 的内部步骤和工具调用留在子 agent 自己的会话中，绝不注入父日志。这是唯一在所有传输方式下行为一致的设计：ACP 子 agent 的内部事件在物理上无法注入我们的父日志，因此让进程内行为保持一致，使 seam 真正与传输方式无关。
+每个进程内 subagent 运行在**自己的 `Session`** 中（独立 id、`parentSession` 谱系），独立持久化。远端 ACP 和一次性产品提供方则会生成一个父级作用域的生命周期 id，且不暴露本地 `Agent` 或子 `Session`；其内部状态留在远端进程中。两种形式下，父日志都仅记录 spawn `tool/call` 及其 `tool/result`（子 agent 的最终输出），而子 agent 的步骤和工具调用均留在父日志之外。
 
 ### 同步收集（首版）
 
-`dsh-tool-subagent` 将其执行信号传给 `start()`，等待子 agent 结果，并在 `finally` 中 dispose 该 run。非完成态的结果变为错误结果，而非成功的部分输出。这个前台消费方不使用 run 的可选 steering 方法。
+`dsh-tool-subagent` 将其执行信号传给 `start()`，等待子 agent 结果，并在报告前 dispose 该 run。非完成态的结果变为错误结果，而非成功的部分输出；相互独立的结果与 dispose rejection 会保留两项 diagnostic。
 
 ### 提供方选择是配置，不面向模型
 

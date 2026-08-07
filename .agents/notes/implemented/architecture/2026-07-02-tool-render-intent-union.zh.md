@@ -4,7 +4,7 @@ Status: implemented
 
 [English](2026-07-02-tool-render-intent-union.md) | 中文
 
-> render-intent 联合类型对 UI 传输层仍然有效；其 ACP 映射已被 [ACP 作为仅面向自动化的协议](../simplification/2026-07-23-acp-automation-only-protocol.md)取代。
+> render-intent 联合类型对 UI 传输层仍然有效；其 ACP（Agent Client Protocol）映射已被 [ACP 作为仅面向自动化的协议](../simplification/2026-07-23-acp-automation-only-protocol.md)取代。
 
 ## 问题
 
@@ -36,7 +36,7 @@ interface GenericResultView { card: 'generic'; title?: string; content?: Content
 interface TerminalResultView { card: 'terminal'; title?: string; output?: string; exitCode?: number; signal?: string }
 ```
 
-`card` 在每个变体上都是**必填**的——真正的判别式，而非可选默认值。bridge 执行 `switch (view.card) { case 'generic': … case 'terminal': … case 'diff': … default: assertNever(view) }`。该联合类型是**封闭的**（遵循 [switch 穷举约定](../../../../AGENTS.md)）：第四种渲染意图（表格、图表）无论如何需要新的 bridge 代码来渲染，因此一个由插件添加但被 bridge 静默丢弃的变体，比编译错误更糟糕。新增变体会在 bridge 的 switch 处中断编译——这正是我们想要的信号。
+`card` 在每个变体上都是**必填**的——真正的判别字段，而非可选默认值。bridge 执行 `switch (view.card) { case 'generic': … case 'terminal': … case 'diff': … default: assertNever(view) }`。该联合类型是**封闭的**（遵循 [switch 穷举约定](../../../../AGENTS.md)）：第四种渲染意图（表格、图表）无论如何需要新的 bridge 代码来渲染，因此一个由插件添加但被 bridge 静默丢弃的变体，比编译错误更糟糕。新增变体会在 bridge 的 switch 处中断编译——这正是我们想要的信号。
 
 ### 为什么带标签联合类型优于字段集合
 
@@ -47,7 +47,7 @@ interface TerminalResultView { card: 'terminal'; title?: string; output?: string
 ### 生产者映射
 
 - `dsh-tool-fs` read → `generic`（`kind:'read'`，附带一个 follow-along `location`）；write → `diff`（`oldText:null`）；edit → `diff`（`oldText:old_string || null`，`newText:new_string ?? ''`）。这与 `claude-agent-acp` 的 `toolInfoFromToolUse` 中 Read/Write/Edit 各分支逐字段对应。
-- `dsh-tool-bash` foreground → `terminal` 调用 + `terminal` 结果；`run_in_background` → `generic`。通用 `task_*` 控制工具拥有各自的 generic 卡片。
+- `dsh-tool-bash` 前台运行 → `terminal` 调用 + `terminal` 结果；`run_in_background` → `generic`。通用 `task_*` 控制工具拥有各自的 generic 卡片。
 - `dsh-tool-todo` → `generic`。
 
 ### 终端回退的归属

@@ -9,7 +9,7 @@ import type { Context } from 'cordis'
 import TurndownService from 'turndown'
 import { gfm } from '@joplin/turndown-plugin-gfm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { GenericCallView } from '@deepseek-ai/dsh-tools'
+import type { GenericCallView, JsonValue, ToolResult, WebFetchResultView } from '@deepseek-ai/dsh-tools'
 import type { WebFetchBody, WebFetchResult } from '@deepseek-ai/dsh-web'
 import { assertNever } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -246,26 +246,87 @@ function renderBody(body: WebFetchBody, maxInputChars: number): RenderedBody {
 /** The truncation notice appended when the provider or the output cap cut content. */
 const TRUNCATION_FOOTER = '\n\n(Content truncated. Fetch a more specific URL or section for the full text.)'
 
+/** A rendered fetch output: the model-facing text and its effective truncation. */
+interface RenderedFetch {
+  /** The complete bounded output — header, rendered body, and truncation footer. */
+  text: string
+  /**
+   * True when the provider capped the body, a pre-conversion source cut applied,
+   * or the complete output exceeded `maxOutputChars`. This is the effective
+   * truncation the returned text reflects (its footer), wider than the
+   * provider-only `WebFetchResult.truncated`.
+   */
+  truncated: boolean
+}
+
 /**
- * Format a fetch result as one model-facing text block, bounded as a whole.
- * The same cap limits the source prefix processed synchronously, then applies
- * again where the complete output — header, rendered body, and footer — is known.
+ * Render a fetch result to its bounded model-facing text and effective
+ * truncation. The single source of both the `render` text and the fetch card's
+ * `truncated`, so the card never disagrees with the text the model saw. The cap
+ * limits the source prefix processed synchronously, then applies again where the
+ * complete output — header, rendered body, and footer — is known.
+ *
+ * Package-internal: the only callers are {@link formatFetchOutput} and
+ * {@link fetchMetaFromValue}, both reached through the tool registry, which
+ * deep-freezes the result value before calling `output.render` and
+ * `output.presentationMeta`. The conversion is memoized per
+ * `(result, maxOutputChars)` so the synchronous DOM parse and turndown walk run
+ * once, not twice, on that same frozen value. Keeping it unexported means no
+ * caller can mutate a cached input or the returned {@link RenderedFetch}, so the
+ * memo needs no defensive copy.
  *
  * @param result - the seam's fetch outcome.
  * @param maxOutputChars - cap on the complete returned string; a cut body gets
  *   the same fetch-something-narrower notice as provider-side truncation.
- * @returns a `Fetched <url> (HTTP <status>)` header, the rendered body, and a
- *   truncation notice when the provider or the cap cut the content.
+ * @returns the complete `Fetched <url> (HTTP <status>)`-headed text and whether
+ *   the provider, a source cut, or the cap trimmed the content.
  */
-export function formatFetchOutput(result: WebFetchResult, maxOutputChars: number): string {
+function renderFetchOutput(result: WebFetchResult, maxOutputChars: number): RenderedFetch {
+  const byCap = renderCache.get(result) ?? new Map<number, RenderedFetch>()
+  const cached = byCap.get(maxOutputChars)
+  if (cached !== undefined) return cached
+  const computed = computeFetchOutput(result, maxOutputChars)
+  byCap.set(maxOutputChars, computed)
+  renderCache.set(result, byCap)
+  return computed
+}
+
+/**
+ * Per-result memo for {@link renderFetchOutput}, keyed first on the frozen
+ * result value so a garbage-collected result drops its entry, then on the output
+ * cap (a deployment constant per registration). Collapses the registry's twin
+ * `render`/`presentationMeta` calls into one HTML→markdown conversion.
+ */
+const renderCache = new WeakMap<WebFetchResult, Map<number, RenderedFetch>>()
+
+/**
+ * The uncached conversion behind {@link renderFetchOutput}. Separated so the
+ * memo wraps exactly one call site and the conversion logic stays pure.
+ *
+ * @param result - the seam's fetch outcome.
+ * @param maxOutputChars - cap on the complete returned string.
+ * @returns the bounded text and effective truncation.
+ */
+function computeFetchOutput(result: WebFetchResult, maxOutputChars: number): RenderedFetch {
   const header = `Fetched ${result.url} (HTTP ${result.statusCode})\n\n`
   const rendered = renderBody(result.body, maxOutputChars)
   const prefix = `${header}${rendered.text}`
   const truncated = result.truncated || rendered.sourceTruncated || prefix.length > maxOutputChars
   const full = `${prefix}${truncated ? TRUNCATION_FOOTER : ''}`
-  if (full.length <= maxOutputChars) return full
-  if (maxOutputChars < TRUNCATION_FOOTER.length) return full.slice(0, maxOutputChars)
-  return `${prefix.slice(0, maxOutputChars - TRUNCATION_FOOTER.length)}${TRUNCATION_FOOTER}`
+  if (full.length <= maxOutputChars) return { text: full, truncated }
+  if (maxOutputChars < TRUNCATION_FOOTER.length) return { text: full.slice(0, maxOutputChars), truncated }
+  return { text: `${prefix.slice(0, maxOutputChars - TRUNCATION_FOOTER.length)}${TRUNCATION_FOOTER}`, truncated }
+}
+
+/**
+ * Format a fetch result as one model-facing text block, bounded as a whole.
+ *
+ * @param result - the seam's fetch outcome.
+ * @param maxOutputChars - cap on the complete returned string.
+ * @returns the complete text from {@link renderFetchOutput}.
+ */
+export function formatFetchOutput(result: WebFetchResult, maxOutputChars: number): string {
+  return renderFetchOutput(result, maxOutputChars).text
 }
 
 /**
@@ -276,6 +337,83 @@ export function formatFetchOutput(result: WebFetchResult, maxOutputChars: number
  */
 export function presentFetchCall(args: { url: string }): GenericCallView {
   return { card: 'generic', title: args.url, kind: 'fetch', rawInput: args.url }
+}
+
+/**
+ * The `web_fetch` tool's private `tool/result` `meta` payload: the fetch summary
+ * a UI cannot recover from the model-facing render text without reparsing its
+ * header line. Attached opaquely (as `JsonValue`) on the tool result and
+ * persisted with the session log, so `presentResult` reproduces the fetch card
+ * on replay. The body itself is already markdown in the result content, so it is
+ * not duplicated here. `truncated` is the effective truncation the render text
+ * reflects, which a client cannot recompute (it does not know the deployment's
+ * `fetchMaxOutputChars`); this is why fetch meta is carried, not derived from the
+ * header line (see the web-result-card Agent Note).
+ */
+export interface WebFetchMeta {
+  /** The final URL after allowed redirects. */
+  url: string
+  /** HTTP status code of the fetched response. */
+  statusCode: number
+  /** True when the provider, a source cut, or the output cap trimmed the content. */
+  truncated: boolean
+}
+
+/**
+ * Project a validated `web_fetch` output value into its replayable presentation
+ * meta ({@link WebFetchMeta} as opaque JSON). `truncated` is the effective
+ * truncation the model-facing text reflects (via {@link renderFetchOutput}), not
+ * the provider-only `WebFetchResult.truncated`, so the fetch card never disagrees
+ * with the returned text.
+ *
+ * @param value - the canonical `web_fetch` output value (the seam's result shape).
+ * @param maxOutputChars - the deployment's output cap, the same one
+ *   {@link formatFetchOutput} applies to the render text.
+ * @returns the URL, status code, and effective truncation flag.
+ */
+export function fetchMetaFromValue(value: WebFetchResult, maxOutputChars: number): JsonValue {
+  return { url: value.url, statusCode: value.statusCode, truncated: renderFetchOutput(value, maxOutputChars).truncated }
+}
+
+/**
+ * Narrow opaque live or replayed result metadata to a {@link WebFetchMeta}.
+ * Malformed metadata returns `undefined` so presentation can fall back to the
+ * generic card instead of throwing during replay.
+ *
+ * @param meta - result metadata.
+ * @returns the validated fetch meta, or `undefined` for absent or malformed data.
+ */
+export function fetchMetaFromResult(meta: unknown): WebFetchMeta | undefined {
+  if (typeof meta !== 'object' || meta === null || Array.isArray(meta)) return undefined
+  const { url, statusCode, truncated } = meta as Record<string, unknown>
+  if (typeof url !== 'string' || typeof statusCode !== 'number' || typeof truncated !== 'boolean') return undefined
+  return { url, statusCode, truncated }
+}
+
+/**
+ * Completed-call presentation: a `web` fetch card carrying the retrieval summary
+ * from `meta`. It sets no `content` copy — a UI without the `web` capability
+ * falls back to the raw `tool/result` content, the already-markdown body (see the
+ * web-result-card Agent Note).
+ *
+ * @param args - the raw tool arguments; `url` becomes the result-state title so a
+ *   window-truncated replay that dropped the call head still has one.
+ * @param result - the final model-facing tool result; `meta` carries the summary.
+ * @returns the fetch result view, or `undefined` (generic card) on failure or
+ *   malformed meta.
+ */
+export function presentFetchResult(args: { url: string }, result: ToolResult): WebFetchResultView | undefined {
+  if (result.isError) return undefined
+  const meta = fetchMetaFromResult(result.meta)
+  if (meta === undefined) return undefined
+  return {
+    card: 'web',
+    kind: 'fetch',
+    title: args.url,
+    url: meta.url,
+    statusCode: meta.statusCode,
+    truncated: meta.truncated,
+  }
 }
 
 /**
@@ -333,6 +471,7 @@ export function applyWebFetchTool(ctx: Context, timeoutMs: number, maxOutputChar
         },
       },
       render: (_args, value) => [{ type: 'text', text: formatFetchOutput(value, maxOutputChars) }],
+      presentationMeta: (_args, value) => fetchMetaFromValue(value, maxOutputChars),
     },
     timeoutMs,
     // Provider reads do not mutate parent-agent state.
@@ -351,5 +490,6 @@ export function applyWebFetchTool(ctx: Context, timeoutMs: number, maxOutputChar
       }
     },
     presentCall: presentFetchCall,
+    presentResult: (args, result) => presentFetchResult(args, result),
   }))
 }

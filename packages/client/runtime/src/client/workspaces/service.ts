@@ -14,6 +14,14 @@ import { WorkspaceManager, type WorkspaceListPhase } from './manager.ts'
 /** Workspace list plus the two-baseline readiness and default-target projection. */
 export interface WorkspaceListState {
   items: readonly WorkspaceView[]
+  /**
+   * Registry-global archive set in Host order: grouping surfaces hide these
+   * sessions everywhere (workspace groups and the ungrouped bucket) while
+   * their session logs and workspace accounting slots remain. A plain array
+   * (store-engine vocabulary; immer drafts reject Sets) — membership lookups
+   * build their own transient Set.
+   */
+  archivedSessionIds: readonly SessionId[]
   state: 'idle' | 'loading' | 'error'
   phase: WorkspaceListPhase
   error: RpcError | null
@@ -58,7 +66,7 @@ export class WorkspacesService implements IWorkspaces {
   constructor(ctx: Context, private readonly api: IApiClient, private readonly sessions: SessionsPort) {
     this.manager = new WorkspaceManager(api)
     this.list = createSnapshotStore<WorkspaceListState>({
-      items: [], state: 'idle', phase: 'pending', error: null,
+      items: [], archivedSessionIds: [], state: 'idle', phase: 'pending', error: null,
       baselinesReady: false, recentWorkspaceId: undefined,
     })
     this.manager.subscribe(() => { this.project() })
@@ -86,12 +94,20 @@ export class WorkspacesService implements IWorkspaces {
     // would miss the reuse scan and mint another hidden blank session.
     const inflight = this.connecting.get(workspaceId)
     if (inflight !== undefined) return inflight
-    // Reuse: blank && same canonical cwd (workspace.path is the host realpath
-    // canon; summary cwd is the session header passthrough of the same canon).
+    // Reuse requires workspace membership (id in sessionIds AND same
+    // canonical cwd — the host's own membership rule), never cwd alone:
+    // a cwd match can belong to no account (sessions the CLI/TUI birthed at
+    // the host cwd, or a deleted/recreated registration) and reusing it
+    // would open a session no grouping surface shows under this workspace.
+    // An archived blank is never reused either: reuse would open a session
+    // no grouping surface can show, so New Session mints a fresh one instead.
+    const archived = this.list.getSnapshot().archivedSessionIds
     const sessions = this.sessions.list.getSnapshot()
     for (const id of sessions.ids) {
       const summary = sessions.byId[id]
-      if (summary !== undefined && summary.blank && summary.cwd === workspace.path) return summary.id
+      if (summary !== undefined && summary.blank && summary.cwd === workspace.path
+        && workspace.sessionIds.includes(summary.id)
+        && !archived.includes(summary.id)) return summary.id
     }
     const attempt = this.sessions.create({ workspaceId })
       .finally(() => { this.connecting.delete(workspaceId) })
@@ -250,6 +266,17 @@ export class WorkspacesService implements IWorkspaces {
   }
 
   /**
+   * Archive a session into the registry-global set. Clearing an archived
+   * current selection is the projection sweep's job (one rule for the local
+   * echo and a remote tab's frame alike).
+   * @param sessionId - session to archive.
+   */
+  async archiveSession(sessionId: SessionId): Promise<void> {
+    const result = await this.manager.archiveSession(sessionId)
+    if (!result.ok) throw new Error(`session archive failed: ${result.error.code}: ${result.error.message}`)
+  }
+
+  /**
    * Move a session within its Workspace's manual order (DOM-insertBefore-like).
    * @param workspaceId - owning workspace.
    * @param sessionId - accounted session to move.
@@ -291,8 +318,17 @@ export class WorkspacesService implements IWorkspaces {
     const workspace = this.manager.getSnapshot()
     const sessions = this.sessions.list.getSnapshot()
     const baselinesReady = workspace.phase === 'ready' && sessions.phase === 'ready'
+    // An archived current selection clears into the New Session view state —
+    // a hidden row must not stay open behind the list. Sweeping here covers
+    // every install path with one rule: the local unary echo, another tab's
+    // changed frame, and a reconnect baseline restoring a persisted
+    // selection that was archived while this client was away.
+    if (sessions.current !== undefined && workspace.archivedSessionIds.includes(sessions.current)) {
+      this.sessions.clear()
+    }
     this.list.set({
       items: workspace.items,
+      archivedSessionIds: workspace.archivedSessionIds,
       state: workspace.state,
       phase: workspace.phase,
       error: workspace.error,

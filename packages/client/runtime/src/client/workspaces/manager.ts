@@ -14,6 +14,14 @@ export type WorkspaceListPhase = 'pending' | 'ready'
 /** Immutable workspace-list snapshot. */
 export interface WorkspaceListSnapshot {
   items: readonly WorkspaceView[]
+  /**
+   * Registry-global archive set in Host order (hidden from grouping
+   * surfaces; accounting slots retained). A plain array, not a Set: public
+   * snapshot state stays in the store engine's plain-data vocabulary
+   * (immer drafts reject Sets without the MapSet plugin); membership
+   * lookups build their own transient Set where they need one.
+   */
+  archivedSessionIds: readonly SessionId[]
   state: 'idle' | 'loading' | 'error'
   phase: WorkspaceListPhase
   error: RpcError | null
@@ -28,11 +36,21 @@ export class WorkspaceManager {
   private items: Workspace[] = []
   private itemViewsSource: readonly Workspace[] | null = null
   private itemViewsCache: readonly WorkspaceView[] = []
+  // Full-snapshot state (list response / unary response / changed frame all
+  // carry the complete set), so deltas never merge — installs replace.
+  private archivedSessionIds: readonly SessionId[] = []
   private state: WorkspaceListSnapshot['state'] = 'idle'
   private phase: WorkspaceListPhase = 'pending'
   private error: RpcError | null = null
   private inflight: Promise<void> | null = null
   private refreshFrames: WorkspaceDelta[] | null = null
+  /**
+   * True once a frame or unary echo installed the archive set while a list
+   * request was in flight: that install is newer than the pending baseline,
+   * so the baseline's (older) set must not roll it back — the archive
+   * mirror of replaying refreshFrames over the item baseline.
+   */
+  private archivedSupersedesRefresh = false
   /**
    * Ids this process has seen removed, kept for the connection's lifetime so
    * a late changed frame or a stale baseline row cannot resurrect a deleted
@@ -77,6 +95,7 @@ export class WorkspaceManager {
           items = items.filter(workspace => !this.removedIds.has(workspace.workspaceId))
           for (const delta of frames) items = applyWorkspaceDelta(items, delta)
           this.installViews(items)
+          if (!this.archivedSupersedesRefresh) this.installArchived(result.value.archivedSessionIds)
           this.state = 'idle'
           this.phase = 'ready'
         } else {
@@ -90,6 +109,7 @@ export class WorkspaceManager {
         this.error = folded.ok ? null : folded.error
       } finally {
         this.refreshFrames = null
+        this.archivedSupersedesRefresh = false
         this.inflight = null
         this.notifier.markDirty()
       }
@@ -159,6 +179,18 @@ export class WorkspaceManager {
   }
 
   /**
+   * Archive one session in the registry-global set, then install the
+   * returned full set without waiting for the changed frame.
+   * @param sessionId - session to archive.
+   * @returns the wire result.
+   */
+  async archiveSession(sessionId: SessionId): Promise<RpcResult<{ archivedSessionIds: SessionId[] }>> {
+    const { result } = await this.api.workspace.archiveSession({ sessionId })
+    if (result.ok) this.installArchived(result.value.archivedSessionIds)
+    return result
+  }
+
+  /**
    * Host-frame entry. Non-workspace frames are ignored so the runtime can
    * fan one host stream out to both object managers.
    * @param envelope - host stream envelope.
@@ -166,6 +198,9 @@ export class WorkspaceManager {
   handleHostEnvelope(envelope: RpcRequest<HostFrame>): void {
     if (envelope.payload.type === 'host/workspace-changed') this.upsert(envelope.payload.workspace)
     else if (envelope.payload.type === 'host/workspace-removed') this.remove(envelope.payload.workspaceId)
+    else if (envelope.payload.type === 'host/archived-sessions-changed') {
+      this.installArchived(envelope.payload.archivedSessionIds)
+    }
   }
 
   /** Re-pull the baseline after each connection generation. */
@@ -194,10 +229,24 @@ export class WorkspaceManager {
   private buildSnapshot(): WorkspaceListSnapshot {
     return {
       items: this.itemViews(),
+      archivedSessionIds: this.archivedSessionIds,
       state: this.state,
       phase: this.phase,
       error: this.error,
     }
+  }
+
+  /**
+   * Replace the archive set when membership actually changed (array identity
+   * backs Object.is short-circuits). Host snapshots are append-ordered, so
+   * positional comparison is exact, not merely heuristic.
+   */
+  private installArchived(archivedSessionIds: readonly SessionId[]): void {
+    if (this.refreshFrames !== null) this.archivedSupersedesRefresh = true
+    if (archivedSessionIds.length === this.archivedSessionIds.length
+      && archivedSessionIds.every((id, index) => id === this.archivedSessionIds[index])) return
+    this.archivedSessionIds = [...archivedSessionIds]
+    this.notifier.markDirty()
   }
 
   /** Upsert one Host view, optionally retaining the local object that materialized it. */

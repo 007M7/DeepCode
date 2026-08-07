@@ -2,7 +2,7 @@
 
 [English](user-interaction.md) | 中文
 
-[dsh-user-interaction](../../packages/ui/user-interaction) 的用户交互 seam。它是工具或权限插件需要人类回答后 agent（智能体）才能继续时所使用的、提供方无关的词汇。UI surface 提供活跃的 `UserInteractionProvider`；`dsh-tui` 使用键盘驱动的 overlay，host 运行时把请求转发给它连接的客户端。
+[dsh-user-interaction](../../packages/ui/user-interaction) 的用户交互 seam。它是工具或权限插件需要人类回答后 agent（智能体）才能继续时所使用的、提供方无关的词汇。UI surface 提供活跃的 `UserInteractionProvider`；host 运行时把请求转发给它连接的客户端。
 
 源码：[`packages/ui/user-interaction/src/index.ts`](../../packages/ui/user-interaction/src/index.ts)
 
@@ -17,6 +17,30 @@ interface AskUserQuestionOption {
   label: string
   /** Optional extra context rendered by capable UIs. */
   description?: string
+}
+```
+
+## 呈现意图
+
+`AskUserQuestionIntent` 是一项可选声明：某个问题本身就是一次已知形状的决定。它按 `kind` 打标签，因此意图可以扩充；不认识某个标签的 UI 渲染通用选项列表。意图只塑造呈现 —— 遵循它的 UI 回答的仍是通用 UI 会发送的那些 option label，因此调用方两种情况下读到的都是同一种回答形态。`approve` 指名肯定选项，而不依赖选项顺序。有两项断言是任何类型都承载不了的，`ask()` 会拒绝它们：`approve` 未命中该问题自身的任一选项，以及意图落在没有 `detail` 的问题上。
+
+```ts type-equiv
+/**
+ * A caller-declared presentation intent: the question IS a decision of this
+ * shape, so a UI that recognises the tag may present it as such instead of as a
+ * generic option list. Tagged so further intents can be added; a UI that does
+ * not know a tag renders the generic flow, and the answer encoding is identical
+ * either way — an intent shapes presentation only, never the protocol.
+ */
+type AskUserQuestionIntent = {
+  /** A plan submitted for review: `detail` is the plan markdown `ask()` requires, and the decision approves or declines it. */
+  kind: 'plan-review'
+  /**
+   * The option label that approves the plan; every other option declines it.
+   * Named rather than positional so no UI infers the verdict from option order.
+   * An `approve` naming no option of its own question is rejected at `ask()`.
+   */
+  approve: string
 }
 ```
 
@@ -39,6 +63,8 @@ interface AskUserQuestionItem {
   options?: AskUserQuestionOption[]
   /** Whether more than one option may be selected. Defaults to single-select. */
   multiSelect?: boolean
+  /** Optional presentation intent for capable UIs; absent asks for the generic option list. */
+  intent?: AskUserQuestionIntent
 }
 ```
 
@@ -60,14 +86,14 @@ interface AskUserQuestionRequest {
 
 ## 回答
 
-提供方为每个问题 id 返回一个回答项。`selected` 包含选中的选项标签，`custom` 在用户输入自由文本时携带「其他」回答。当 `custom` 存在时，`selected` 为空；自定义文本是对选中项的覆盖，而非补充。UI 也可以使用 `selected` 为空且不含 `custom` 的回答项，在其余问题均已完成的批次中保留被跳过的问题。
+提供方为每个问题 id 返回一个回答项。`selected` 包含选中的选项标签，`custom` 在用户输入自由文本时携带「其他」回答。对于单选题，`custom` 会覆盖选中的选项，且 `selected` 为空。对于多选题，`custom` 可以补充 `selected` 中的标签。UI 也可以使用 `selected` 为空且不含 `custom` 的回答项，在其余问题均已完成的批次中保留被跳过的问题。
 
 ```ts type-equiv
 /** Answer to one question. */
 interface AskUserQuestionAnswerItem {
   /** The answered question id. */
   id: string
-  /** Selected option labels. Empty for custom or unanswered choices. */
+  /** Selected option labels. May accompany custom text for a multi-select question. */
   selected: string[]
   /** Optional free-text "Other" answer. */
   custom?: string

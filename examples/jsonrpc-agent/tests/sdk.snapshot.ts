@@ -2,7 +2,7 @@
  * Keyless snapshot coverage for the TypeScript SDK path: each scenario spawns
  * the REAL `dsh-jsonrpc-agent` runtime (per `DSH_EXAMPLE_MODE`) through the
  * REAL `@deepseek-ai/dsh-sdk-client`, drives one turn over stdio JSON-RPC,
- * and pins three surfaces — the SDK `TurnResult`, the complete notification
+ * and pins three surfaces — the SDK `RunResult`, the complete notification
  * stream, and the persisted session logs. Replay serves recorded model
  * responses via `llm-replay` (`cordis.snapshot.yml`); `DSH_SNAPSHOT=record`
  * re-records against the live API; `DSH_SNAPSHOT=refresh` replays committed
@@ -27,7 +27,7 @@ import {
   type NormalizeContext,
 } from '@deepseek-ai/dsh-acp-snapshot'
 import { resolveExampleLaunch } from '@deepseek-ai/dsh-loader-smoke'
-import { DeepSeekHarness, type HarnessNotification, type TurnResult } from '@deepseek-ai/dsh-sdk-client'
+import { DeepSeekHarness, type HarnessNotification, type RunResult } from '@deepseek-ai/dsh-sdk-client'
 
 const testsDir = dirOf(import.meta.url)
 const snapshotsDir = join(testsDir, 'snapshots')
@@ -61,6 +61,8 @@ interface SdkScenario {
   expectedFiles?: Readonly<Record<string, string>>
   /** Assembled model-facing tool names and required argument keys. */
   expectedTools?: Readonly<Record<string, readonly string[]>>
+  /** Stable policy-context clauses the real assembled request must include or omit. */
+  policyContext?: { includes: readonly string[]; excludes: readonly string[] }
 }
 
 const SCENARIOS: SdkScenario[] = [
@@ -90,6 +92,10 @@ const SCENARIOS: SdkScenario[] = [
     configs: { live: persistentToolsLiveConfig, replay: persistentToolsReplayConfig },
     expectedFiles: { 'note.txt': 'target:\n\tnew\n' },
     expectedTools: { bash: ['command'], str_replace_editor: ['command', 'path'] },
+    policyContext: {
+      includes: ['Current DSH file policy: danger-full-access.', 'file modifications by available operations'],
+      excludes: ['write and edit tools', 'terminal sessions', 'one-shot bash commands'],
+    },
   },
 ]
 
@@ -119,7 +125,7 @@ async function persistedLogs(sessionsRoot: string): Promise<PersistedLog[]> {
 
 interface LoggedRequestHeader {
   type?: string
-  data?: { header?: { tools?: Array<{ name: string; parameters: { required?: string[] } }> } }
+  data?: { header?: { system?: unknown; tools?: Array<{ name: string; parameters: { required?: string[] } }> } }
 }
 
 function assembledToolRequirements(log: PersistedLog): Record<string, string[]> {
@@ -129,6 +135,30 @@ function assembledToolRequirements(log: PersistedLog): Record<string, string[]> 
   const tools = event?.data?.header?.tools
   if (tools === undefined) throw new Error('session log has no request/header tools')
   return Object.fromEntries(tools.map(tool => [tool.name, tool.parameters.required ?? []]))
+}
+
+function assembledSystem(log: PersistedLog): string {
+  const event = log.content.trimEnd().split('\n')
+    .map(line => JSON.parse(line) as LoggedRequestHeader)
+    .find(candidate => candidate.type === 'request/header')
+  const system = event?.data?.header?.system
+  if (typeof system !== 'string') throw new Error('session log has no request/header system')
+  return system
+}
+
+function assembledPolicyContext(log: PersistedLog): string {
+  const contexts = log.content.trimEnd().split('\n').flatMap((line) => {
+    const event = JSON.parse(line) as {
+      type?: string
+      data?: { source?: { kind?: string; plugin?: string }; content?: Array<{ type?: string; text?: unknown }> }
+    }
+    if (event.type !== 'user/message'
+      || event.data?.source?.kind !== 'plugin'
+      || event.data.source.plugin !== '@deepseek-ai/dsh-system-prompt') return []
+    return event.data.content?.flatMap(block => block.type === 'text' && typeof block.text === 'string' ? [block.text] : []) ?? []
+  })
+  if (contexts.length !== 1) throw new Error(`session log has ${String(contexts.length)} runtime-context snapshots; expected one`)
+  return contexts[0] as string
 }
 
 function contextOf(logs: readonly { content: string; header: Record<string, unknown> }[], cwd: string): NormalizeContext {
@@ -189,18 +219,17 @@ function normalizeNotifications(notifications: readonly HarnessNotification[], c
   return normalizeStdout(`${records.map(record => JSON.stringify(record)).join('\n')}\n`, ctx)
 }
 
-/** Normalize the turn-result projection (status, reason kind, final text). */
-function normalizeResult(result: TurnResult, ctx: NormalizeContext): string {
+/** Normalize the owned-run projection. */
+function normalizeResult(result: RunResult, ctx: NormalizeContext): string {
   return normalizeStdout(`${JSON.stringify({
-    status: result.status,
-    reason: result.reason,
+    sessionId: result.sessionId,
     finalResponse: result.finalResponse,
   })}\n`, ctx)
 }
 
 /** One SDK turn against a fresh runtime subprocess in an isolated cwd. */
 async function runScenario(scenario: SdkScenario): Promise<{
-  result: TurnResult
+  result: RunResult
   notifications: HarnessNotification[]
   logs: PersistedLog[]
   observedFiles: Record<string, string | MissingFile>
@@ -240,7 +269,7 @@ async function runScenario(scenario: SdkScenario): Promise<{
       requestTimeoutMs: 110_000,
     },
     cwd,
-    provider: 'deepseek',
+    provider: 'deepseek-official',
     model: 'deepseek-v4-flash',
   })
   try {
@@ -358,13 +387,24 @@ describe('TypeScript SDK snapshots over the jsonrpc runtime', () => {
       expect(normalizedResult).toBe(await readFile(resultExpectedPath, 'utf8'))
 
       // Wire-shape invariants that must hold in every mode.
-      expect(result.status).toBe('ok')
-      expect(notifications.at(-1)?.method).toBe('session.finished')
+      expect(notifications.at(-1)).toMatchObject({
+        method: 'session.status',
+        params: { status: 'idle' },
+      })
       expect(observedFiles).toEqual(scenario.expectedFiles ?? {})
       if (scenario.expectedTools !== undefined) {
         const parent = ordered[0]
         if (parent === undefined) throw new Error(`${scenario.name} has no parent session log`)
         expect(assembledToolRequirements(parent)).toEqual(scenario.expectedTools)
+      }
+      if (scenario.policyContext !== undefined) {
+        const parent = ordered[0]
+        if (parent === undefined) throw new Error(`${scenario.name} has no parent session log`)
+        const context = assembledPolicyContext(parent)
+        for (const clause of scenario.policyContext.includes) expect(context).toContain(clause)
+        for (const clause of scenario.policyContext.excludes) expect(context).not.toContain(clause)
+        const system = assembledSystem(parent)
+        for (const clause of scenario.policyContext.includes) expect(system).not.toContain(clause)
       }
       if (scenario.children > 0) {
         expect(notifications.some(n => n.method === 'subagent.started')).toBe(true)

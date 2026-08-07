@@ -1,25 +1,39 @@
 // todo_write toolview: plan-flavored summary row replacing the generic
 // "Tool call" card, registered into the keyed 'conversation.chat.toolview'
 // hole like the bash sample (a product registration, not a sample). The row
-// composes ToolRow (chrome, running sweep, leading expansion) and swaps in a
-// summary of the written list (counts + active item) from the call args; the
-// durable list itself renders in the TodoPanel above the composer, so the
-// row stays one line.
+// composes ToolRow (chrome, running sweep, whole-row expand) and swaps in a
+// summary of the written list (counts + active items) from the call args, with
+// the parallel-active count riding ToolRow's non-shrinking summary suffix so a
+// narrow row never clips it; the durable list itself renders in the TodoPanel
+// above the composer, so the row stays one line until expanded.
 
 import { IconChecklistOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { Context } from 'cordis'
+import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ToolRowProps } from '../contract/slots.ts'
 import { toolRowModel } from '../contract/tool-call-model.ts'
 import { ToolRow } from '../chat/ToolRow.tsx'
+import { NS } from '../locales.ts'
+import { planSummary, type PlanItemLike } from './plan-summary.ts'
 
-/** One parsed args item, shape-checked (model JSON: any field may be missing or mistyped). */
-interface TodoWriteItem { content?: unknown; status?: unknown }
+/** Todo row props: the toolview runtime share plus the standard locale seat. */
+type TodoRowProps = ToolRowProps & PropsLocale<'conversation'>
 
-function isItem(value: unknown): value is TodoWriteItem {
+function isItem(value: unknown): value is PlanItemLike {
   return typeof value === 'object' && value !== null
 }
 
-function summarize(argsRaw: string): string | null {
+/**
+ * The row's summary split at the ellipsis boundary: `text` truncates, `extra`
+ * is the parallel-active count that must not, so a narrow row never clips the
+ * one part that says several tasks are running.
+ */
+interface RowSummary {
+  text: string
+  extra: number
+}
+
+function summarize(argsRaw: string, t: TodoRowProps['t']): RowSummary | null {
   let parsed: unknown
   try {
     parsed = JSON.parse(argsRaw)
@@ -32,47 +46,53 @@ function summarize(argsRaw: string): string | null {
   if (typeof parsed !== 'object' || parsed === null) return null
   const todos = (parsed as { todos?: unknown }).todos
   if (!Array.isArray(todos) || !todos.every(isItem)) return null
-  const done = todos.filter(t => t.status === 'completed').length
-  const active = todos.find(t => t.status === 'in_progress')
-  const head = `${done}/${todos.length} 已完成`
-  return typeof active?.content === 'string' && active.content !== ''
-    ? `${head} · ${active.content}`
-    : head
+  const { done, total, activeContent, activeExtra } = planSummary(todos)
+  const head = t('todo.completed', { done, total })
+  return {
+    text: activeContent === null ? head : `${head} · ${activeContent}`,
+    extra: activeExtra,
+  }
 }
 
-/** One-line plan update row (leading toggle expands the raw args). Non-ok
- *  execution states keep the shared row's dot semantics — a cancelled call
- *  wrote no todo/write, so it must not read as a completed update. */
-export function TodoRow({ toolName, block }: ToolRowProps) {
+/** One-line plan update row (the whole row toggles the call's Input/Output
+ *  sections, ToolRow's unified expand). Non-ok execution states keep the
+ *  shared row's dot semantics — a cancelled call wrote no todo/write, so it
+ *  must not read as a completed update. */
+export function TodoRow({ toolName, block, inspect, t }: TodoRowProps) {
   const model = toolRowModel(toolName, block)
   const argsRaw = ('kind' in block ? block.call?.argsRaw : block.argsRaw) ?? ''
-  const summary = summarize(argsRaw) ?? model.summary
+  const summary = summarize(argsRaw, t) ?? { text: model.summary, extra: 0 }
   return (
     <ToolRow
+      t={t}
       variant={model.variant}
       toolName={toolName}
       icon={<IconChecklistOutline14 />}
-      title="更新任务清单"
-      summary={summary}
+      title={t('todo.rowTitle')}
+      summary={summary.text}
+      summarySuffix={summary.extra > 0 ? `+${summary.extra}` : null}
       body={model.body}
+      output={model.output}
+      errorSummary={model.errorSummary}
       state={model.state}
+      inspect={inspect}
     />
   )
 }
 
 /**
- * The todo row as a plain registrant plugin, riding the same load-order seam
- * as the bash sample: `inject: ['conversation']` guarantees the chat entry
- * (and with it the 'conversation.chat.toolview' declaration) is on the ledger.
+ * The todo row as a plain registrant plugin following the chat toolview
+ * declaration across independent activation and reload lifetimes.
  */
 export const todoToolview = {
   name: 'todo-toolview',
-  inject: ['slots', 'conversation'],
+  inject: ['slots'],
   /**
    * Register the todo row into the chat view's keyed toolview hole.
    * @param ctx - registrant context (disposal rides ctx.effect inside slots.register).
    */
   apply(ctx: Context): void {
-    ctx.slots.register({ name: 'conversation.chat.toolview', key: 'todo_write' }, TodoRow)
+    ctx.slots.inject('conversation.chat.toolview', () =>
+      ctx.slots.register({ name: 'conversation.chat.toolview', key: 'todo_write', locale: NS }, TodoRow))
   },
 }

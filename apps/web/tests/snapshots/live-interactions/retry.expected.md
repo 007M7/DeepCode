@@ -5,29 +5,31 @@
     - tab "Chat" [selected]
     - tab "Trajectory"
 - text: Reply with a one-sentence description of event sourcing, then stop. {{clock}}
-- button "复制":
+- button "Copy":
   - img
-- button "在新对话中分支":
+- button "Context injection @deepseek-ai/dsh-system-prompt":
   - img
-- button "编辑":
   - img
+  - text: Context injection @deepseek-ai/dsh-system-prompt
+- group:
+  - status: Retried model request (1/2) · {{duration}}
 - button "Think The user is asking for a one-sentence description of event sourcing. This is a straightforward knowledge question that doesn't require any skill loading or tool calls.":
   - img
   - img
   - text: Think The user is asking for a one-sentence description of event sourcing. This is a straightforward knowledge question that doesn't require any skill loading or tool calls.
 - paragraph: Event sourcing is a pattern where all changes to an application's state are stored as an immutable, append-only sequence of events, rather than persisting only the current state, enabling full auditability, temporal queries, and event-driven architectures.
-- button "复制":
+- button "Copy":
   - img
-- button "在新对话中分支":
+- button "Branch into a new conversation":
   - img
-- text: {{clock}}
+- text: {{clock}} Ran for {{duration}} TTFT {{duration}} {{throughput}} tok/s
 - textbox "Message the agent"
-- button "Add attachment":
+- button "Commands":
   - img
-- 'button "Access mode, current: Danger Full Access"': Danger Full Access
-- button "Plan mode off, press to turn on": Plan off
+- 'button "Access mode, current: Workspace Write"': Workspace Write
 - button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img
+- button "6% of context used"
 - button "Send message" [disabled]
-- text: 1 turns · 1 steps Cache hit 99% Input 7.8K tok · Output 79 tok
+- text: 1 turns · 1 steps LLM {{duration}} TTFT avg {{duration}} · {{throughput}} tok/s Cache hit 99% Input 7.8K tok · Output 79 tok

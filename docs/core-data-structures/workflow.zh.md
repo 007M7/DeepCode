@@ -2,15 +2,15 @@
 
 [English](workflow.md) | 中文
 
-工作流 seam：一个 agent（智能体）运行由模型编写的编排脚本（SCRIPT），扇出 subagent。与 [subagent](subagent.md) 一样，它是**一项可选能力**，不属于 agent loop（智能体循环）主干，因此其词汇定义在此处而非 [core.md](core.md)。与 subagent 注册表不同，它采用 bash 形态：每个上下文只有一个引擎实现提供 `ctx.workflows`；没有命名提供方注册表（第二个引擎是插件替换，而非共存）。
+工作流 seam 允许 agent（智能体）运行由模型编写的编排脚本，并由该脚本扇出 subagent。与 [subagent](subagent.md) 一样，它是**一项可选能力**，不属于 agent loop（智能体循环）主干，因此其词汇定义在此处而非 [core.md](core.md)。与 subagent 注册表不同，它采用 bash 形态：每个上下文只有一个引擎实现提供 `ctx.workflows`；没有命名提供方注册表（第二个引擎是插件替换，而非共存）。
 
-接口：[dsh-workflow](../../packages/workflow/workflow)（`ctx.workflows` + 下文词汇）。实现是 [dsh-workflow-workerthread](../../packages/workflow/workflow-workerthread)（一个 `node:worker_threads` 引擎——每个 run 一个 worker，脚本的 vm 上下文位于其中）；面向模型的消费方是 [dsh-tool-workflow](../../packages/workflow/tool-workflow)。提案与设计理由见 [dynamic-workflows Agent Note（agent 决策记录）](../../.agents/notes/implemented/feature/2026-07-05-dynamic-workflows.md)。
+接口：[dsh-workflow](../../packages/workflow/workflow)（`ctx.workflows` + 下文词汇）。实现是 [dsh-workflow-workerthread](../../packages/workflow/workflow-workerthread)（一个 `node:worker_threads` 引擎——每个 run 一个 worker，脚本的 vm 上下文位于其中）；面向模型的消费方是 [dsh-tool-workflow](../../packages/workflow/tool-workflow)。提案与设计理由见 [dynamic-workflows Agent Note](../../.agents/notes/implemented/feature/2026-07-05-dynamic-workflows.md)。
 
 源码：[`packages/workflow/workflow/src/types.ts`](../../packages/workflow/workflow/src/types.ts)
 
 ## 启动请求
 
-调用方启动 run 时提出的请求。普通工作流工具根据模型的 `{ script, meta, args }` 调用与发起调用的 agent 构建它；专用消费方还可以为该 run 选择一个引擎级 `subagentProvider` 并调低 `maxTotalAgents`，但脚本无法观察或替换这两项策略。`meta` 与 `args` 是普通 JSON 数据（引擎会对 `meta` 做形状校验，并在任何内容运行前大声拒绝——绝不会通过求值脚本文本来获取它）。`parent` 是必填字段——脚本生成的每个子 agent 都归属于它（cwd、谱系与深度通过 [subagent seam](subagent.md) 流转）。
+本节定义调用方启动一次运行时提交的请求。普通工作流工具会根据模型的 `{ script, meta, args }` 调用和发起调用的 agent 构建该请求；专用消费方还可以为本次运行选择引擎级 `subagentProvider`，并将 `maxTotalAgents` 调低，但脚本无法观察或替换这两项策略。`meta` 与 `args` 是普通 JSON 数据；引擎会校验 `meta` 的形状，并在任何工作开始前大声拒绝无效数据。引擎绝不会通过对脚本文本求值来获取它们。`parent` 是必填字段——脚本生成的每个子 agent 都归属于它（cwd、谱系与深度通过 [subagent seam](subagent.md) 流转）。
 
 ```ts type-equiv
 /**
@@ -72,7 +72,7 @@ interface WorkflowMeta {
 
 ## 终态结果：`WorkflowResult`
 
-一次运行的结果，由 `WorkflowRun.result` resolve。`value` 是脚本的物化返回值——纯宿主域 JSON 数据（脚本无返回值时为 `null`）——仅在 `completed` 时有意义。`stopReason` 是封闭联合类型（引擎所有；消费方可穷举）：`completed` | `cancelled` | `error`。非 `completed` 的原因在 `error` 中携带失败信息，消费方将其映射为 `isError` 工具结果，而非把部分输出当作成功上报。
+`WorkflowRun.result` 会兑现为一次运行的结果。`value` 是脚本的物化返回值——纯宿主域 JSON 数据（脚本无返回值时为 `null`）——仅在 `completed` 时有意义。`stopReason` 是封闭联合类型（引擎所有；消费方可穷举）：`completed` | `cancelled` | `error`。非 `completed` 的原因在 `error` 中携带失败信息，消费方将其映射为 `isError` 工具结果，而非把部分输出当作成功上报。
 
 ```ts type-equiv
 /**
@@ -102,7 +102,7 @@ interface WorkflowResult {
 
 ## 活跃运行：`WorkflowRun`
 
-脚本执行期间消费方持有的句柄。消费方 await `result`，可中途 `cancel`，且必须在每条路径上 `dispose`（资源释放）。`result` 不会 reject：脚本失败以 `stopReason: 'error'` resolve；一旦运行被取消，即使脚本本身永不 settle，它也会在引擎的有界宽限期内 settle（引擎强制以 `cancelled` settle；worker-thread 引擎随后终止脚本的 worker），因此消费方 await `result` 不会在取消后卡死。`dispose()` = cancel + 有界 settle + 等待子 agent 停稳；它不会因脚本卡死而挂起。
+脚本执行期间消费方持有的句柄。消费方会等待 `result`，可以在运行期间调用 `cancel`，并且必须在每条路径上调用 `dispose`（资源释放）。`result` 不会被拒绝：脚本失败会兑现为 `stopReason: 'error'`。运行被取消后，即使脚本本身永不结算，结果也会在引擎规定的有界宽限期内结算；引擎会强制将其结算为 `cancelled`，随后 worker-thread 引擎会终止脚本所在的 worker。因此，等待 `result` 的消费方不会在取消后无限期挂起。`dispose()` 会执行取消、等待有界结算并等待子 agent 完全停稳，不会因脚本卡死而挂起。
 
 ```ts type-equiv
 /**

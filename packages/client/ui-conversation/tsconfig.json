@@ -27,6 +27,9 @@
       "path": "../../session-projection/session-projection"
     },
     {
+      "path": "../../llm/token-meter"
+    },
+    {
       "path": "../../plan/plan-mode"
     },
     {

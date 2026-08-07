@@ -12,7 +12,7 @@ const at = (seq: number, e: Record<string, unknown>): SessionEvent =>
 
 export const ev = {
   turnStart: (seq: number, turn: number): SessionEvent =>
-    at(seq, { type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } }),
+    at(seq, { type: 'turn/start', data: { turn } }),
   user: (seq: number, body: string): SessionEvent =>
     at(seq, { type: 'user/message', surfaceOp: 'append', data: createUserMessage({
       content: text(body), source: { kind: 'user' },
@@ -63,12 +63,58 @@ export const ev = {
     }),
   stepEnd: (seq: number, turn: number, step = 0): SessionEvent =>
     at(seq, { type: 'step/end', data: { turn, step } }),
-  turnEnd: (seq: number, turn: number, reason: 'completed' | 'cancelled' = 'completed'): SessionEvent =>
-    at(seq, { type: 'turn/end', data: { turn, reason: { kind: reason } } }),
+  retry: (
+    seq: number,
+    turn: number,
+    step = 0,
+    retry = 1,
+    maxRetries = 2,
+    delayMs = 500,
+    message = 'temporary transport failure',
+  ): SessionEvent =>
+    at(seq, {
+      type: 'llm/retry',
+      data: {
+        turn, step,
+        provider: 'fake', mode: 'normal', policyKey: 'fake-normal',
+        retry, maxRetries, delayMs,
+        failure: { code: 'TRANSPORT', message },
+      },
+    }),
+  turnEnd: (seq: number, turn: number, reason: 'completed' | 'aborted' | 'disposed' = 'completed'): SessionEvent =>
+    at(seq, { type: 'turn/end', data: {
+      turn,
+      reason: reason === 'completed'
+        ? { kind: 'completed' }
+        : { kind: 'aborted', reason: { kind: reason === 'disposed' ? 'disposed' : 'user' } },
+    } }),
   commandRun: (seq: number, commandId: string, name: string, args = ''): SessionEvent =>
     at(seq, { type: 'command/run', data: { commandId, name, args, source: { kind: 'user' } } }),
+  commandRunWithoutInput: (seq: number, commandId: string, name: string): SessionEvent =>
+    at(seq, { type: 'command/run', data: { commandId, name, source: { kind: 'user' } } }),
   commandDone: (seq: number, commandId: string, kind: 'success' | 'error' = 'success', text?: string): SessionEvent =>
     at(seq, { type: 'command/done', data: { commandId, kind, ...text === undefined ? {} : { text } } }),
+  /** A compaction's log-only `compact/summary` provenance record. */
+  compactSummary: (seq: number, summary: string, start: number, end: number): SessionEvent =>
+    at(seq, { type: 'compact/summary', data: {
+      summary: text(summary),
+      shadowedRange: { start, end },
+      shadowedSeqs: [start, end],
+      shadowedTokenCount: 100,
+      provider: 'fake',
+      model: 'compact-1',
+    } }),
+  /** The replacement user message a compaction backend lands (the checkpoint). */
+  compactCheckpoint: (seq: number, summarySeq: number, start: number, end: number): SessionEvent =>
+    at(seq, {
+      type: 'user/message',
+      surfaceOp: { op: 'replace', start, end },
+      sourceEventSeqs: [summarySeq, start, end],
+      data: createUserMessage({
+        content: text('<context_checkpoint>model only</context_checkpoint>'),
+        source: { kind: 'plugin', plugin: 'compact' },
+      }),
+    }),
 }
 
 /** One complete plain turn (turn/start → user → step → assistant → turn/end), 6 events from startSeq. */

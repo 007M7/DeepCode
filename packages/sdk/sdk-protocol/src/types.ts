@@ -9,7 +9,7 @@
  */
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import type { SessionEvent, TurnEndReason } from '@deepseek-ai/dsh-session'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { SubagentStopReason } from '@deepseek-ai/dsh-subagent'
 
 /** Parameters for the process-wide SDK handshake. */
@@ -38,10 +38,10 @@ export interface SessionPromptParams {
   contentBlocks: ContentBlock[]
 }
 
-/** Prompt acceptance after turn settlement; outcome rides on `session.finished`. */
+/** Durable enqueue receipt for one prompt. */
 export interface SessionPromptResult {
-  /** Always `true`; the turn outcome is the paired `session.finished` notification. */
-  accepted: true
+  /** Identity of the queued user message. */
+  messageId: string
 }
 
 /** Deployment-mapped SDK outcome: `ok` for an accepted result, `error` otherwise. */
@@ -55,14 +55,12 @@ export interface SessionEventNotification {
   event: SessionEvent
 }
 
-/** `session.finished` payload: one per accepted prompt, after turn settlement. */
-export interface SessionFinishedNotification {
-  /** The settled session. */
+/** Whole-agent lifecycle state for one session. */
+export interface SessionStatusNotification {
+  /** Session whose live agent changed status. */
   sessionId: string
-  /** Deployment-mapped turn outcome (see `maxTokensAsSuccess` on the server). */
-  status: SdkRunStatus
-  /** Why the last message-triggered turn ended; absent when no turn ran. */
-  reason: TurnEndReason | undefined
+  /** The whole-agent state after the transition. */
+  status: 'idle' | 'running'
 }
 
 /** `subagent.started` payload: an in-runtime child session was created. */
@@ -94,7 +92,7 @@ export interface SubagentFinishedNotification {
 /** Server-to-client notifications by JSON-RPC method name. */
 export interface HarnessSdkNotificationMap {
   'session.event': SessionEventNotification
-  'session.finished': SessionFinishedNotification
+  'session.status': SessionStatusNotification
   'subagent.started': SubagentStartedNotification
   'subagent.finished': SubagentFinishedNotification
 }

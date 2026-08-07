@@ -30,7 +30,7 @@ const fakeRuntime = fileURLToPath(new URL('../../../sdk/sdk-client/tests/fake-ru
 const fakeParent = { id: 'parent', session: { header: { cwd: process.cwd() } } } as unknown as Agent
 
 function request(text = 'p', signal = new AbortController().signal) {
-  return { prompt: [{ type: 'text' as const, text }], parent: fakeParent, signal }
+  return { label: text, prompt: [{ type: 'text' as const, text }], parent: fakeParent, signal }
 }
 
 /** Mount the SDK backend pointed at the fake runtime, scripted by `fakeEnv`. */
@@ -73,10 +73,10 @@ describe('sdkStopReason', () => {
   it('maps each child turn-end reason to the harness vocabulary', () => {
     expect(sdkStopReason({ kind: 'completed' })).toBe('completed')
     expect(sdkStopReason({ kind: 'max-tokens' })).toBe('max-tokens')
-    expect(sdkStopReason({ kind: 'aborted' })).toBe('aborted')
-    expect(sdkStopReason({ kind: 'error', step: 0, message: 'x' })).toBe('error')
+    expect(sdkStopReason({ kind: 'aborted', reason: { kind: 'user' } })).toBe('aborted')
+    expect(sdkStopReason({ kind: 'error', error: { message: 'x', code: 'UNKNOWN' } })).toBe('error')
     expect(sdkStopReason({ kind: 'interrupted' })).toBe('error')
-    expect(sdkStopReason({ kind: 'disposed' })).toBe('error')
+    expect(sdkStopReason({ kind: 'aborted', reason: { kind: 'disposed' } })).toBe('aborted')
   })
 
   it('treats an absent or unknown reason as an error', () => {
@@ -165,6 +165,17 @@ describe('dsh-subagent-dsh-sdk provider', () => {
     await ctx.fiber.dispose()
   })
 
+  it('keeps streamed text when a malformed final message prevents completion', async () => {
+    const ctx = await setup({ FAKE_MALFORMED_MESSAGE: '1', FAKE_TEXT: 'stream-only answer' })
+    const run = await ctx.subagents.start('dsh-sdk', request())
+    const result = await run.result
+
+    expect(result.stopReason).toBe('error')
+    expect(text(result.output)).toBe('stream-only answer')
+    await run.dispose()
+    await ctx.fiber.dispose()
+  })
+
   it('reports a settled-without-turn child as an error', async () => {
     const ctx = await setup({ FAKE_REASON_KIND: 'none', FAKE_STATUS: 'error' })
     const run = await ctx.subagents.start('dsh-sdk', request())
@@ -218,16 +229,15 @@ describe('dsh-subagent-dsh-sdk provider', () => {
     }
   })
 
-  it('keeps accumulated streamed text when the turn is cut short before a full message', async () => {
-    // The fake streams one text-delta chunk and then violates the protocol on
-    // the same pipe; frame order guarantees the chunk was dispatched before
-    // the failure settles, so the accumulated partial text (no complete
-    // assistant/message ever arrived) must survive into the error result.
+  it('does not attribute streamed text when prompt acceptance is malformed', async () => {
+    // The fake streams one text-delta chunk but never returns the MessageId
+    // needed to establish this run's durable inbox receipt. The text therefore
+    // lies outside an owned activity interval and cannot become its output.
     const ctx = await setup({ FAKE_STREAM_THEN_MALFORMED: '1' }, { shutdownTimeoutMs: 100, disposeEofGraceMs: 200, disposeGraceMs: 200 })
     const run = await ctx.subagents.start('dsh-sdk', request())
     const result = await run.result
     expect(result.stopReason).toBe('error')
-    expect(text(result.output)).toBe('streamed then cut short')
+    expect(result.output).toEqual([])
     await run.dispose()
     await ctx.fiber.dispose()
   })
@@ -441,7 +451,9 @@ describe('dsh-subagent-dsh-sdk provider', () => {
   it('fails loud when neither config cwd nor parent session cwd exists', async () => {
     const ctx = await setup()
     const parent = { id: 'parent', session: { header: {} } } as unknown as Agent
-    await expect(ctx.subagents.start('dsh-sdk', { prompt: [{ type: 'text' as const, text: 'p' }], parent, signal: new AbortController().signal }))
+    await expect(ctx.subagents.start('dsh-sdk', {
+      label: 'p', prompt: [{ type: 'text' as const, text: 'p' }], parent, signal: new AbortController().signal,
+    }))
       .rejects.toThrow('no working directory for the child')
     await ctx.fiber.dispose()
   })

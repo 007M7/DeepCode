@@ -7,7 +7,9 @@
 
 /* Preview card (figma session hover card): 244 wide, r12, pad 12/16, the
  * menu card's elevation. Surface is #2C2C2E in both themes (figma value,
- * light/dark identical), so a component-level variable, not a theme token. */
+ * light/dark identical), so a component-level variable, not a theme token.
+ * Hit-testable on purpose: resting the pointer on the card holds it open
+ * (HoverCard's grace close), which a `pointer-events: none` card cannot do. */
 .card {
   --dsw-hovercard-bg: #2C2C2E;
   position: fixed;
@@ -18,5 +20,35 @@
   border-radius: 12px;
   background: var(--dsw-hovercard-bg);
   box-shadow: var(--dsw-shadow-lv3);
-  pointer-events: none;
+}
+
+.copyable {
+  cursor: pointer;
+}
+
+.copyable:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: 2px;
+}
+
+.feedback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.copied {
+  color: #FFFFFF;
+  font-size: 14px;
+  line-height: 20px;
+  text-align: center;
+}
+
+.status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }

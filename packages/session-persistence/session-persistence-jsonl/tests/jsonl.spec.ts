@@ -8,10 +8,29 @@ import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import {
-  encodeSegment, eventLines, logPath, projectDir, projectKey, scanLog, sessionDir, toHeaderLine,
+  encodeSegment, eventLines, logPath, projectDir, projectKey, scanLog, sessionDir, SessionLogScanner, toHeaderLine,
 } from '../src/format.ts'
 import { runPersistenceContract, meta, oneTurnLog, appendLog } from '../../session-persistence/tests/contract.ts'
 import { runCoordinatorContract, type CoordinatorFixture } from '../../session-persistence/tests/coordinator-contract.ts'
+
+const statRace = vi.hoisted(() => ({
+  path: undefined as string | undefined,
+  reads: 0,
+}))
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return {
+    ...actual,
+    stat: (async (...args: Parameters<typeof actual.stat>) => {
+      const identity = await actual.stat(...args)
+      if (String(args[0]) !== statRace.path || !('mtimeNs' in identity)) return identity
+      statRace.reads += 1
+      if (statRace.reads !== 2) return identity
+      return { ...identity, mtimeNs: identity.mtimeNs + 1n }
+    }) as typeof actual.stat,
+  }
+})
 
 let root: string
 const dirs: string[] = []
@@ -54,12 +73,14 @@ function rawLogPath(root: string, cwd: string | undefined, id: SessionId): strin
 }
 
 afterEach(async () => {
+  statRace.path = undefined
+  statRace.reads = 0
   vi.restoreAllMocks()
   for (const d of dirs.splice(0)) await rm(d, { recursive: true, force: true })
 })
 
 function appendClosedTurn(session: Session): void {
-  session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+  session.append('turn/start', { turn: 1 })
   session.append('user/message', createUserMessage({
     content: [{ type: 'text', text: 'hello' }],
     source: { kind: 'user' },
@@ -208,7 +229,7 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
   it('round-trip is byte-identical (incl. assistant/chunk verbatim)', async () => {
     const m = meta('chunks')
     const log: SessionEvent[] = [
-      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
       { type: 'step/start', seq: 1, time: 2, data: { turn: 1, step: 1 } },
       { type: 'assistant/chunk', seq: 2, time: 3, data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'he' } } },
       { type: 'assistant/chunk', seq: 3, time: 4, data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'llo' } } },
@@ -253,6 +274,57 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
 
     await reopenedCtx.fiber.dispose()
     await otherCtx.fiber.dispose()
+  })
+
+  it('binds a full stored prefix to the same revision as a lightweight read', async () => {
+    const m = meta('stored-prefix-revision')
+    await ctx.sessionPersistence.create(m)
+    await ctx.sessionPersistence.append(m.id, oneTurnLog())
+    const persistence = ctx.sessionPersistence as SessionPersistenceJsonl
+
+    const stored = await persistence.loadStored(m.id)
+    expect(stored?.revision).toBe(await persistence.readStoredRevision(m.id))
+    expect(await persistence.readStoredRevision(SessionId('missing-revision'))).toBeUndefined()
+  })
+
+  it('retries a full-prefix read when the file revision changes during the read', async () => {
+    const m = meta('stored-prefix-revision-race')
+    await ctx.sessionPersistence.create(m)
+    await ctx.sessionPersistence.append(m.id, oneTurnLog())
+    const persistence = ctx.sessionPersistence as SessionPersistenceJsonl
+    statRace.path = rawLogPath(root, m.cwd, m.id)
+
+    await expect(persistence.loadStored(m.id)).resolves.toMatchObject({ events: oneTurnLog() })
+    expect(statRace.reads).toBe(4)
+  })
+
+  it('handles revision-stat races and errors after log discovery', async () => {
+    const m = meta('stored-revision-race')
+    await ctx.sessionPersistence.create(m)
+    await ctx.sessionPersistence.append(m.id, oneTurnLog())
+    const persistence = ctx.sessionPersistence as SessionPersistenceJsonl
+    const internals = persistence as unknown as {
+      findLog(id: SessionId, signal?: AbortSignal): Promise<string | undefined>
+    }
+    const path = rawLogPath(root, m.cwd, m.id)
+    const findLog = vi.spyOn(internals, 'findLog').mockResolvedValue(path)
+
+    await rm(path)
+    expect(await persistence.readStoredRevision(m.id)).toBeUndefined()
+
+    const invalidPath = `${path}\0`
+    findLog.mockResolvedValue(invalidPath)
+    await expect(persistence.readStoredRevision(m.id)).rejects.toMatchObject({
+      code: 'ERR_INVALID_ARG_VALUE',
+    })
+
+    const reason = new Error('revision read cancelled after discovery')
+    const controller = new AbortController()
+    findLog.mockImplementation(async () => {
+      controller.abort(reason)
+      return invalidPath
+    })
+    await expect(persistence.readStoredRevision(m.id, controller.signal)).rejects.toBe(reason)
   })
 
   it('omits a snapshot artifact removed after discovery', async () => {
@@ -342,7 +414,7 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     await mkdir(sessionDir(root, m.cwd, m.id), { recursive: true })
     await writeFile(path, [
       JSON.stringify(toHeaderLine(m)),
-      JSON.stringify({ type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } }),
+      JSON.stringify({ type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } }),
       JSON.stringify({ type: 'request/header-delta', seq: 1, time: 2, data: { config: { model: 'legacy' } } }),
       JSON.stringify({ type: 'turn/end', seq: 2, time: 3, data: { turn: 1, reason: { kind: 'completed' } } }),
       '',
@@ -399,7 +471,7 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     // partial line with no newline (a torn fragment never fully flushed).
     const path = rawLogPath(root, '/proj', m.id)
     await writeFile(path, [
-      JSON.stringify({ type: 'turn/start', seq: 6, time: 8, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } }),
+      JSON.stringify({ type: 'turn/start', seq: 6, time: 8, data: { turn: 2 } }),
       JSON.stringify({ type: 'step/start', seq: 7, time: 9, data: { turn: 2, step: 1 } }),
       '{"type":"assistant/chunk","seq":8,"ti', // truncated partial line (no newline)
     ].join('\n'), { flag: 'a' })
@@ -418,7 +490,7 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
 
     // The next append continues at seq 10 (the balanced length).
     const turn3 = [
-      { type: 'turn/start', seq: 10, time: 11, data: { turn: 3, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      { type: 'turn/start', seq: 10, time: 11, data: { turn: 3 } },
       { type: 'turn/end', seq: 11, time: 12, data: { turn: 3, reason: { kind: 'completed' } } },
     ] as SessionEvent[]
     await ctx.sessionPersistence.append(m.id, turn3)
@@ -437,7 +509,7 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     await writeFile(rawLogPath(root, undefined, m.id), '\n{"partial', { flag: 'a' })
     await ctx.sessionPersistence.load(m.id)
     await ctx.sessionPersistence.append(m.id, [
-      { type: 'turn/start', seq: 6, time: 9, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      { type: 'turn/start', seq: 6, time: 9, data: { turn: 2 } },
       { type: 'turn/end', seq: 7, time: 10, data: { turn: 2, reason: { kind: 'completed' } } },
     ] as SessionEvent[])
     const after = await readFile(rawLogPath(root, undefined, m.id), 'utf8')
@@ -465,7 +537,7 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     })
 
     const turn2 = [
-      { type: 'turn/start', seq: 6, time: 9, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      { type: 'turn/start', seq: 6, time: 9, data: { turn: 2 } },
       { type: 'turn/end', seq: 7, time: 10, data: { turn: 2, reason: { kind: 'completed' } } },
     ] as SessionEvent[]
     // The append rejects, but the partial bytes are truncated back: the file is
@@ -503,7 +575,7 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
 
     try {
       await ctx.sessionPersistence.append(m.id, [
-        { type: 'turn/start', seq: 6, time: 9, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
+        { type: 'turn/start', seq: 6, time: 9, data: { turn: 2 } },
       ] as SessionEvent[])
       throw new Error('expected append to reject')
     } catch (error) {
@@ -519,16 +591,14 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     }
   })
 
-  it('load returns a meta copy: mutating it does not corrupt backend pathing', async () => {
+  it('load returns immutable meta without exposing backend pathing', async () => {
     const m = meta('meta-copy', '/proj')
     await ctx.sessionPersistence.create(m)
     await ctx.sessionPersistence.append(m.id, oneTurnLog())
     const loaded = await ctx.sessionPersistence.load(m.id)
-    // A consumer mutates the returned meta's cwd. The backend's stored pathing
-    // metadata must be unaffected, so a later append still finds the right log.
-    mutableHeader(loaded.meta).cwd = '/evil'
+    expect(() => { mutableHeader(loaded.meta).cwd = '/evil' }).toThrow()
     await ctx.sessionPersistence.append(m.id, [
-      { type: 'turn/start', seq: 6, time: 9, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      { type: 'turn/start', seq: 6, time: 9, data: { turn: 2 } },
       { type: 'turn/end', seq: 7, time: 10, data: { turn: 2, reason: { kind: 'completed' } } },
     ] as SessionEvent[])
     // The append landed in the ORIGINAL /proj log, not beside an /evil path.
@@ -545,7 +615,7 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
       type: 'turn/start',
       seq: 0,
       time: 1,
-      data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+      data: { turn: 1 },
     }])
     await ctx.sessionPersistence.create(b)
     await ctx.sessionPersistence.append(b.id, oneTurnLog())
@@ -598,8 +668,8 @@ describe('SessionPersistenceJsonl: write path (session/event → flush)', () => 
 
     const a = ctx.sessions.create(SessionId('sa'))
     const b = ctx.sessions.create(SessionId('sb'))
-    a.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    b.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    a.append('turn/start', { turn: 1 })
+    b.append('turn/start', { turn: 1 })
     a.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'A' }], source: { kind: 'user' },
     }), { surfaceOp: 'append' })
@@ -624,6 +694,65 @@ describe('SessionPersistenceJsonl: write path (session/event → flush)', () => 
 
 
 describe('SessionPersistenceJsonl: scanLog unit', () => {
+  it('requires exactly one newline-terminated header record', () => {
+    const header = JSON.stringify(toHeaderLine(meta('scanner-header')))
+    expect(() => new SessionLogScanner(Buffer.alloc(0))).toThrow(/header-less/)
+    expect(() => new SessionLogScanner(Buffer.from(header))).toThrow(/header-less/)
+    expect(() => new SessionLogScanner(Buffer.from(`${header}\n${header}\n`))).toThrow(/header-less/)
+  })
+
+  it('handles empty writes, boundary newlines, torn fragments, and scanner completion', () => {
+    const header = Buffer.from(`${JSON.stringify(toHeaderLine(meta('scanner-lifecycle')))}\n`)
+    const event = Buffer.from(JSON.stringify(oneTurnLog()[0]))
+    const scanner = new SessionLogScanner(header)
+
+    scanner.write(Buffer.alloc(0))
+    scanner.write(event)
+    scanner.write(Buffer.from('\nignored torn tail'))
+    const result = scanner.finish()
+
+    expect(result.events).toEqual([oneTurnLog()[0]])
+    expect(result.committedBytes).toBe(header.length + event.length + 1)
+    expect(() => { scanner.write(Buffer.from('\n')) }).toThrow(/finished/)
+  })
+
+  it('keeps scanning after a tolerable corrupt suffix until a committed turn end appears', () => {
+    const header = Buffer.from(`${JSON.stringify(toHeaderLine(meta('scanner-corrupt-suffix')))}\n`)
+    const scanner = new SessionLogScanner(header)
+    scanner.write(Buffer.from([
+      JSON.stringify(oneTurnLog()[0]),
+      '{not json',
+      JSON.stringify({ type: 'step/start', seq: 1, time: 2, data: { turn: 1, step: 1 } }),
+      '',
+    ].join('\n')))
+    expect(scanner.finish().events).toEqual([oneTurnLog()[0]])
+
+    const committed = new SessionLogScanner(header)
+    expect(() => { committed.write(Buffer.from([
+      JSON.stringify({ type: 'turn/end', seq: 1, time: 2, data: { turn: 1, reason: { kind: 'completed' } } }),
+      '',
+    ].join('\n'))) }).toThrow(/seq gap in committed region/)
+  })
+
+  it('incrementally scans records split across reusable decoder chunks', () => {
+    const header = Buffer.from(`${JSON.stringify(toHeaderLine(meta('incremental')))}\n`)
+    const body = Buffer.from(`${oneTurnLog().map(event => JSON.stringify(event)).join('\n').replace('"hi"', '"你好"')}\n`)
+    const split = body.indexOf(Buffer.from('你')) + 1
+    const firstChunk = Buffer.from(body.subarray(0, split))
+    const scanner = new SessionLogScanner(header)
+
+    scanner.write(firstChunk)
+    const checkpoint = scanner.checkpoint()
+    firstChunk.fill(0)
+    scanner.write(body.subarray(split))
+
+    expect(checkpoint).toMatchObject({
+      inputBytes: header.length + split,
+      eventCount: 1,
+    })
+    expect(scanner.finish()).toEqual(scanLog(Buffer.concat([header, body])))
+  })
+
   it('rejects a header-less / empty log', () => {
     expect(() => scanLog(Buffer.from(''))).toThrow()
   })
@@ -680,7 +809,7 @@ describe('SessionPersistenceJsonl: scanLog unit', () => {
   it('a seq gap after the last turn/end bounds the preserved tail (torn fragment tolerated)', () => {
     const log = [
       JSON.stringify({ type: 'session', version: 0, id: 'g', createdAt: 1, delegationDepth: 0 }),
-      JSON.stringify({ type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } }),
+      JSON.stringify({ type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } }),
       JSON.stringify({ type: 'step/start', seq: 2, time: 2, data: { turn: 1, step: 1 } }), // gap: missing seq 1
     ].join('\n') + '\n'
     // No committed turn/end, so the gap is a tolerated crash boundary: scanLog PRESERVES the
@@ -692,7 +821,7 @@ describe('SessionPersistenceJsonl: scanLog unit', () => {
   it('rejects a seq gap BEFORE a later committed turn/end (committed data damaged)', () => {
     const log = [
       JSON.stringify({ type: 'session', version: 0, id: 'g2', createdAt: 1, delegationDepth: 0 }),
-      JSON.stringify({ type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } }),
+      JSON.stringify({ type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } }),
       JSON.stringify({ type: 'step/start', seq: 2, time: 2, data: { turn: 1, step: 1 } }), // gap: missing seq 1
       JSON.stringify({ type: 'turn/end', seq: 3, time: 3, data: { turn: 1, reason: { kind: 'completed' } } }),
     ].join('\n') + '\n'
@@ -721,7 +850,7 @@ describe('SessionPersistenceJsonl: scanLog unit', () => {
   it('a corrupt line after the last turn/end bounds the preserved tail', () => {
     const log = [
       JSON.stringify({ type: 'session', version: 0, id: 'c2', createdAt: 1, delegationDepth: 0 }),
-      JSON.stringify({ type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } }),
+      JSON.stringify({ type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } }),
       '{not json', // corrupt crash fragment, no turn/end committed
     ].join('\n') + '\n'
     // The contiguous prefix (turn/start seq 0) is preserved; the corrupt
@@ -732,7 +861,7 @@ describe('SessionPersistenceJsonl: scanLog unit', () => {
   it('tolerates a seq gap AFTER a turn/end (uncommitted tail)', () => {
     const log = [
       JSON.stringify({ type: 'session', version: 0, id: 't', createdAt: 1, delegationDepth: 0 }),
-      JSON.stringify({ type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } }),
+      JSON.stringify({ type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } }),
       JSON.stringify({ type: 'turn/end', seq: 1, time: 2, data: { turn: 1, reason: { kind: 'completed' } } }),
       JSON.stringify({ type: 'step/start', seq: 9, time: 3, data: { turn: 2, step: 1 } }), // gap in uncommitted tail
     ].join('\n') + '\n'
@@ -762,7 +891,7 @@ describe('SessionPersistenceJsonl: default packed chunk rows', () => {
       data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: `t${k}` } },
     }))
     return [
-      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
       { type: 'step/start', seq: 1, time: 2, data: { turn: 1, step: 1 } },
       ...deltas,
       { type: 'assistant/message', seq: 7, time: 8, data: {
@@ -853,7 +982,7 @@ describe('SessionPersistenceJsonl: default packed chunk rows', () => {
   it('scanLog: a packed row advances the seq cursor by its whole run', () => {
     const logText = [
       JSON.stringify({ type: 'session', version: 0, id: 'rows', createdAt: 1, delegationDepth: 0 }),
-      JSON.stringify({ type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } }),
+      JSON.stringify({ type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } }),
       JSON.stringify({ type: 'text-chunks', seq0: 1, time0: 2, data: { turn: 1, step: 1, index: 0, dt: [1, 1], texts: ['a', 'b', 'c'] } }),
       JSON.stringify({ type: 'turn/end', seq: 4, time: 5, data: { turn: 1, reason: { kind: 'completed' } } }),
     ].join('\n') + '\n'
@@ -875,7 +1004,7 @@ describe('SessionPersistenceJsonl: default packed chunk rows', () => {
   it('scanLog: a packed row with a mid-run seq gap after the last turn/end drops the whole row', () => {
     const logText = [
       JSON.stringify({ type: 'session', version: 0, id: 'row-gap', createdAt: 1, delegationDepth: 0 }),
-      JSON.stringify({ type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } }),
+      JSON.stringify({ type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } }),
       // seq0 skips 1 — the run's first member is already a gap; no turn/end follows.
       JSON.stringify({ type: 'text-chunks', seq0: 2, time0: 2, data: { turn: 1, step: 1, index: 0, dt: [1, 1], texts: ['a', 'b', 'c'] } }),
     ].join('\n') + '\n'
@@ -1153,7 +1282,7 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     // A live session materializes and owns the id.
     const firstFiber = await ctx.plugin(Object.assign((inner: Context) => {
       const a = inner.sessions.create(SessionId('bound'), { meta: { cwd: '/a' } })
-      a.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+      a.append('turn/start', { turn: 1 })
       a.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     }, { inject: ['sessions'] }))
     for (const s of ctx.sessions.list()) await ctx.sessions.flush(s)
@@ -1231,7 +1360,7 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     await ctx2.plugin(SessionStore)
     await ctx2.plugin(SessionPersistenceJsonl, { root, compression: 'none' })
     await ctx2.sessionPersistence.append(m.id, [
-      { type: 'turn/start', seq: 6, time: 9, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      { type: 'turn/start', seq: 6, time: 9, data: { turn: 2 } },
       { type: 'turn/end', seq: 7, time: 10, data: { turn: 2, reason: { kind: 'completed' } } },
     ] as SessionEvent[])
     const loaded = await ctx2.sessionPersistence.load(m.id)
@@ -1246,7 +1375,7 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     const m = meta('open-turn', '/h')
     await ctx.sessionPersistence.create(m)
     await ctx.sessionPersistence.append(m.id, [
-      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
     ] as SessionEvent[])
     const { events } = await ctx.sessionPersistence.load(m.id)
     expect(events.map(e => e.type)).toEqual(['turn/start', 'turn/end'])
@@ -1278,7 +1407,7 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     await ctx2.plugin(SessionPersistenceJsonl, { root, compression: 'none' })
     const session = ctx2.sessions.create(SessionId('flush-fail'))
     // A full turn lands in the write-behind buffer.
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' },
     }), { surfaceOp: 'append' })

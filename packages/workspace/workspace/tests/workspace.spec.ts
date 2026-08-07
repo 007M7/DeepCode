@@ -10,7 +10,7 @@ import type { DomainChanged } from '@deepseek-ai/dsh-storage-domain'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionHeader } from '@deepseek-ai/dsh-session'
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
-import WorkspaceRegistry, { WorkspaceId, WorkspaceMoveInvalidError, WorkspaceNameConflictError } from '../src/index.ts'
+import WorkspaceRegistry, { WorkspaceId, WorkspaceMoveInvalidError } from '../src/index.ts'
 import type { WorkspaceDomainState, WorkspaceRecord } from '../src/index.ts'
 
 const DOMAIN_VERSION = 2
@@ -135,9 +135,16 @@ function record(path: string, sessionIds: string[], createdAt = '2026-07-24T00:0
   }
 }
 
+/**
+ * Media written before archivedSessionIds existed omit the field; keeping the
+ * fixtures in that shape continuously proves the schema default upgrades them.
+ */
+type StoredDomainState = Omit<WorkspaceDomainState, 'archivedSessionIds'>
+  & Partial<Pick<WorkspaceDomainState, 'archivedSessionIds'>>
+
 function storedPool(
   entries: Array<[string, WorkspaceRecord]>,
-  state: WorkspaceDomainState,
+  state: StoredDomainState,
 ): MemoryMediaPool {
   const pool = new MemoryMediaPool()
   pool.versions.set('workspace', DOMAIN_VERSION)
@@ -185,7 +192,7 @@ describe('WorkspaceRegistry lifecycle and bootstrap', () => {
     await fiber.await()
     expect(ctx.workspace.list()).toEqual([])
     expect(list).toHaveBeenCalledTimes(1)
-    expect(storedState(pool)).toEqual({ initialized: true, workspaceIds: [] })
+    expect(storedState(pool)).toEqual({ initialized: true, workspaceIds: [], archivedSessionIds: [] })
   })
 
   it('bootstraps once from list headers only, in workspace/session createdAt order', async () => {
@@ -218,6 +225,7 @@ describe('WorkspaceRegistry lifecycle and bootstrap', () => {
     expect(storedState(result.pool)).toEqual({
       initialized: true,
       workspaceIds: result.registry.list().map(workspace => workspace.id),
+      archivedSessionIds: [],
     })
   })
 
@@ -246,7 +254,7 @@ describe('WorkspaceRegistry lifecycle and bootstrap', () => {
     const second = await harness({ pool, sessions: [header('late', late, 100)] })
     expect(second.list).not.toHaveBeenCalled()
     expect(second.registry.list()).toEqual([])
-    expect(storedState(pool)).toEqual({ initialized: true, workspaceIds: [] })
+    expect(storedState(pool)).toEqual({ initialized: true, workspaceIds: [], archivedSessionIds: [] })
   })
 
   it('reuses partial records after a bootstrap record write fails', async () => {
@@ -369,17 +377,15 @@ describe('WorkspaceRegistry create and lookup', () => {
     expect(pool.media.get('workspace')!.tables.get('workspaces')!.size).toBe(1)
   })
 
-  it('rejects a duplicate display name on a different canonical path', async () => {
+  it('allows a duplicate display name on a different canonical path', async () => {
     const firstDir = await makeDir('named-first')
     const secondDir = await makeDir('named-second')
     const { registry } = await harness()
-    await registry.create(firstDir, 'Shared')
-    await expect(registry.create(secondDir, 'Shared')).rejects.toEqual(
-      expect.objectContaining<Partial<WorkspaceNameConflictError>>({
-        workspaceName: 'Shared',
-      }),
-    )
-    expect(registry.list()).toHaveLength(1)
+    const first = await registry.create(firstDir, 'Shared')
+    const second = await registry.create(secondDir, 'Shared')
+    expect(first.title).toBe('Shared')
+    expect(second.title).toBe('Shared')
+    expect(registry.list()).toEqual([second, first])
   })
 
   it('rejects nonexistent and non-directory paths without changing order', async () => {
@@ -476,7 +482,7 @@ describe('WorkspaceRegistry create and lookup', () => {
     await expect(result.registry.delete(workspace.id)).resolves.toBe(false)
     expect(result.registry.get(workspace.id)).toBeUndefined()
     expect(result.registry.list()).toEqual([])
-    expect(storedState(result.pool)).toEqual({ initialized: true, workspaceIds: [] })
+    expect(storedState(result.pool)).toEqual({ initialized: true, workspaceIds: [], archivedSessionIds: [] })
     expect(result.pool.media.get('workspace')!.tables.get('workspaces')!.has(workspace.id)).toBe(false)
     await expect(realpath(dir)).resolves.toBe(dir)
     expect(result.list).toHaveBeenCalledTimes(1)
@@ -519,6 +525,7 @@ describe('WorkspaceRegistry create and lookup', () => {
     expect(storedState(pool)).toEqual({
       initialized: true,
       workspaceIds: [],
+      archivedSessionIds: [],
       pendingMutation: { operation: 'delete', workspaceId: workspace.id },
     })
     const reregistered = await first.registry.create(dir)
@@ -526,6 +533,7 @@ describe('WorkspaceRegistry create and lookup', () => {
     expect(storedState(pool)).toEqual({
       initialized: true,
       workspaceIds: [reregistered.id],
+      archivedSessionIds: [],
     })
     await first.fiber.dispose()
 
@@ -762,7 +770,7 @@ describe('header-validated membership projection', () => {
     const createRecovery = await harness({ pool: interruptedCreate })
     expect(createRecovery.registry.list()).toEqual([])
     expect(interruptedCreate.media.get('workspace')!.tables.get('workspaces')!.has(createId)).toBe(false)
-    expect(storedState(interruptedCreate)).toEqual({ initialized: true, workspaceIds: [] })
+    expect(storedState(interruptedCreate)).toEqual({ initialized: true, workspaceIds: [], archivedSessionIds: [] })
 
     const interruptedDelete = storedPool(
       [[deleteId, record(deleteDir, [])]],
@@ -775,7 +783,7 @@ describe('header-validated membership projection', () => {
     const deleteRecovery = await harness({ pool: interruptedDelete })
     expect(deleteRecovery.registry.list()).toEqual([])
     expect(interruptedDelete.media.get('workspace')!.tables.get('workspaces')!.has(deleteId)).toBe(false)
-    expect(storedState(interruptedDelete)).toEqual({ initialized: true, workspaceIds: [] })
+    expect(storedState(interruptedDelete)).toEqual({ initialized: true, workspaceIds: [], archivedSessionIds: [] })
 
     const corruptPending = storedPool(
       [[deleteId, record(deleteDir, [])]],
@@ -814,5 +822,76 @@ describe('workspace mutation and status', () => {
     await writeFile(dir, 'now a file')
     expect(await workspace.status()).toBe('missing-dir')
     expect(registry.get(workspace.id)).toBe(workspace)
+  })
+})
+
+describe('registry-global session archive', () => {
+  it('archives durably in order, idempotently skips repeats, and leaves accounting untouched', async () => {
+    const dir = await makeDir('archive-home')
+    const result = await harness({ sessions: [header('kept', dir, 100), header('gone', dir, 200)] })
+    const workspace = result.registry.list()[0]!
+    expect(result.registry.archivedSessionIds).toEqual([])
+
+    await result.registry.archiveSession(SessionId('gone'))
+    expect(result.registry.archivedSessionIds).toEqual(['gone'])
+    // Archiving is a display-set write: the workspace account keeps the id.
+    expect(workspace.sessionIds).toContain('gone')
+    expect(storedState(result.pool).archivedSessionIds).toEqual(['gone'])
+    const changesAfterFirst = result.changes.filter(change => change.table === '').length
+
+    await result.registry.archiveSession(SessionId('gone'))
+    expect(result.registry.archivedSessionIds).toEqual(['gone'])
+    // The idempotent repeat neither rewrites the medium nor emits a change.
+    expect(result.changes.filter(change => change.table === '').length).toBe(changesAfterFirst)
+
+    await result.registry.archiveSession(SessionId('kept'))
+    expect(result.registry.archivedSessionIds).toEqual(['gone', 'kept'])
+  })
+
+  it('accepts unaccounted and live sessions but rejects unknown ids without writing', async () => {
+    const dir = await makeDir('archive-strays')
+    const live = await makeDir('archive-live')
+    const result = await harness({
+      sessions: [header('stray', dir, 100)],
+      liveSessions: [header('live-only', live, 200)],
+    })
+    await result.registry.archiveSession(SessionId('stray'))
+    await result.registry.archiveSession(SessionId('live-only'))
+    expect(result.registry.archivedSessionIds).toEqual(['stray', 'live-only'])
+
+    await expect(result.registry.archiveSession(SessionId('ghost')))
+      .rejects.toThrow(/cannot archive session 'ghost'/)
+    expect(storedState(result.pool).archivedSessionIds).toEqual(['stray', 'live-only'])
+  })
+
+  it('propagates a persistence-listing failure instead of reporting an unknown session', async () => {
+    const result = await harness({ sessions: [] })
+    result.list.mockRejectedValueOnce(new Error('persistence backend down'))
+    // The storage fault is the error — never WorkspaceUnknownSessionError,
+    // which the API layer would misreport as session-not-found.
+    await expect(result.registry.archiveSession(SessionId('unlisted')))
+      .rejects.toThrow(/persistence backend down/)
+    expect(storedState(result.pool).archivedSessionIds).toEqual([])
+  })
+
+  it('restores the archive set across restarts and defaults it for pre-field media', async () => {
+    const dir = await makeDir('archive-restart')
+    const pool = new MemoryMediaPool()
+    const first = await harness({ pool, sessions: [header('s1', dir, 100)] })
+    await first.registry.archiveSession(SessionId('s1'))
+    await first.fiber.dispose()
+
+    const second = await harness({ pool, sessions: [header('s1', dir, 100)] })
+    expect(second.registry.archivedSessionIds).toEqual(['s1'])
+    await second.fiber.dispose()
+
+    // A medium written before the field existed parses through the schema default.
+    const legacyId = WorkspaceId('00000000-0000-4000-8000-00000000000a')
+    const legacy = storedPool(
+      [[legacyId, record(dir, [])]],
+      { initialized: true, workspaceIds: [legacyId] },
+    )
+    const upgraded = await harness({ pool: legacy })
+    expect(upgraded.registry.archivedSessionIds).toEqual([])
   })
 })

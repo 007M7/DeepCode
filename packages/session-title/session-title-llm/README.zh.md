@@ -4,7 +4,7 @@
 
 由模型支持的会话标题提供方的共享实现策略。它解析辅助路由，将精确选中的用户消息封装为 JSON，记录可分发的确切请求，应用语言感知的标题指令，强制执行输入和输出预算，组合超时与调用方取消，组装流，并返回带有确切来源 seq 和模型来源信息的规范化文本。
 
-此包（package）是普通库，不是 Cordis 插件。提供方插件调用 `registerSessionTitleLlmProvider()`，传入各自节奏与消息选择器；该函数验证共享配置，并将每次修订委派给 `generateSessionTitleWithLlm()`，使各插件的注册、路由、提示词、取消与验证行为不会漂移。
+此包是普通库，不是 Cordis 插件。提供方插件调用 `registerSessionTitleLlmProvider()`，传入各自节奏与消息选择器；该函数验证共享配置，并将每次修订委派给 `generateSessionTitleWithLlm()`，使各插件的注册、路由、提示词、取消与验证行为不会漂移。
 
 ## 路由与失败契约
 

@@ -2,7 +2,7 @@
  * client-hmr, browser half: hot-reload driver for client plugin entries.
  *
  * Listens on the host's system SSE channel (`GET /plugins/events`); on a
- * `rebuilt` frame it re-fetches the entry's bundle and swaps the cordis
+ * `rebuilt` frame it reloads the entry's bundle and swaps the cordis
  * fiber in place. Every graph entry is a plugin bundle under the web2 model
  * — `immediately` rows differ only in stage-one prefetch (a boot
  * optimization), so all rostered plugin packages share these reload semantics;
@@ -14,7 +14,7 @@
  * cascades into its UI dependents with no HMR-side bookkeeping.
  *
  * Reload order (lazy CJS table): invalidate (drop the stale factory and
- * materialized record) → prefetch (fetch + execute + register the fresh
+ * materialized record) → prefetch (load and register the fresh
  * factory) → registry-first teardown → drain old fiber unload → remove
  * owned `<style data-plugin>` tags → `entry.refresh()` materializes the new
  * factory. Invalidate MUST precede prefetch: a live factory makes prefetch
@@ -110,7 +110,7 @@ export function apply(ctx: Context): void {
     }
     // Invalidate first (drop stale factory + record — a live factory makes
     // prefetch a no-op and re-registration a loud duplicate), then run the
-    // async half while the old fiber still serves: fetch + execute registers
+    // async half while the old fiber still serves: script loading registers
     // the fresh factory with zero side effects (lazy CJS — module bodies run
     // at materialization, not execution).
     modLoader.invalidate(id)

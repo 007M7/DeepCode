@@ -62,7 +62,7 @@ describe('model-driven dsh-tools generation', () => {
       TYPE_API.find(type => type.name === 'ToolDefinition'),
     )
 
-    dispose()
+    await dispose()
     expect(ctx.typert.getPackage('@deepseek-ai/dsh-tools', 'host')).toBeUndefined()
   })
 })

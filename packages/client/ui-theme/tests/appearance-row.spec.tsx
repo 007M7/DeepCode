@@ -22,12 +22,12 @@ const COPY: Record<string, string> = {
 /** Empty global standard-kit hooks (the row reads neither). */
 function emptySessions() {
   const store = createSnapshotStore<SessionListState>(
-    { ids: [], byId: {}, current: undefined, phase: 'ready' })
+    { ids: [], byId: {}, current: undefined, phase: 'ready', subagentsByParent: {}, currentAddress: undefined })
   return bindSnapshotSelector(store)
 }
 function emptyWorkspaces() {
   const store = createSnapshotStore<WorkspaceListState>({
-    items: [], state: 'idle', phase: 'ready', error: null,
+    items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
     baselinesReady: true, recentWorkspaceId: undefined,
   })
   return bindSnapshotSelector(store)

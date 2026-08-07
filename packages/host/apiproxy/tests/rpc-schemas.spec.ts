@@ -10,7 +10,8 @@ import {
   sessionCreateValueSchema, sessionEventSchema, sessionHistoryRequestSchema, sessionHistoryValueSchema,
   sessionIdSchema, sessionListRequestSchema, sessionListValueSchema, sessionModelsRequestSchema,
   sessionModelsValueSchema, sessionPromptRequestSchema, sessionPromptValueSchema,
-  sessionSelectModelRequestSchema, sessionSelectModelValueSchema, sessionSummarySchema,
+  sessionSearchRequestSchema, sessionSearchValueSchema, sessionSelectModelRequestSchema,
+  sessionSelectModelValueSchema, sessionSummarySchema,
   sessionUpdateQueueRequestSchema, sessionUpdateQueueValueSchema,
 } from '../src/api/sessions.schema.ts'
 import {
@@ -19,6 +20,7 @@ import {
   hostListDirectoryRequestSchema, hostListDirectoryValueSchema,
 } from '../src/api/host.schema.ts'
 import {
+  workspaceArchiveSessionRequestSchema, workspaceArchiveSessionValueSchema,
   workspaceCreateRequestSchema, workspaceCreateValueSchema, workspaceIdSchema,
   workspaceDeleteRequestSchema, workspaceDeleteValueSchema,
   workspaceInsertSessionBeforeRequestSchema, workspaceInsertSessionBeforeValueSchema,
@@ -150,6 +152,36 @@ describe('sessions domain schemas', () => {
     expect(sessionListRequestSchema.parse({})).toEqual({})
     expect(sessionListRequestSchema.parse({ cursor: 'c' }).cursor).toBe('c')
     expect(sessionListValueSchema.parse({ items: [] }).items).toEqual([])
+    expect(sessionSearchRequestSchema.parse({ query: '  exact phrase  ' })).toEqual({ query: 'exact phrase' })
+    expect(() => sessionSearchRequestSchema.parse({ query: '   ' })).toThrow()
+    expect(() => sessionSearchRequestSchema.parse({ query: 'bad\0query' })).toThrow(/NUL/)
+    expect(() => sessionSearchRequestSchema.parse({ query: 'x'.repeat(501) })).toThrow()
+    expect(sessionSearchValueSchema.parse({
+      items: [{ sessionId: 's1', snippet: 'matching text' }],
+      hasMore: true,
+    })).toEqual({
+      items: [{ sessionId: 's1', snippet: 'matching text' }],
+      hasMore: true,
+    })
+    expect(sessionSearchValueSchema.parse({
+      items: [{ sessionId: 's1', snippet: '😀'.repeat(240) }],
+      hasMore: false,
+    }).items[0]?.snippet).toBe('😀'.repeat(240))
+    expect(() => sessionSearchValueSchema.parse({
+      items: [{ sessionId: 's1', snippet: '😀'.repeat(241) }],
+      hasMore: false,
+    })).toThrow(/240 Unicode code points/)
+    expect(() => sessionSearchValueSchema.parse({
+      items: [{ sessionId: '', snippet: 'matching text' }],
+      hasMore: false,
+    })).toThrow()
+    expect(() => sessionSearchValueSchema.parse({
+      items: Array.from(
+        { length: 21 },
+        (_, index) => ({ sessionId: `s${index}`, snippet: 'matching text' }),
+      ),
+      hasMore: true,
+    })).toThrow()
     expect(sessionCreateRequestSchema.parse({ cwd: '/w' }).cwd).toBe('/w')
     // The refine's both-sides branch: workspaceId alone passes, workspaceId+cwd rejects.
     expect(sessionCreateRequestSchema.parse({ workspaceId: 'w1', sessionId: 's1' }).sessionId).toBe('s1')
@@ -160,19 +192,19 @@ describe('sessions domain schemas', () => {
     expect(sessionHistoryValueSchema.parse({
       events: [],
       hasMore: false,
-      modelTarget: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+      modelTarget: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
     }).hasMore).toBe(false)
     expect(sessionModelsRequestSchema.parse({ sessionId: 's1' }).sessionId).toBe('s1')
     expect(sessionModelsValueSchema.parse({
-      current: { provider: 'deepseek', model: 'deepseek-v4-flash', reasoningEffort: 'max' },
+      current: { provider: 'deepseek-official', model: 'deepseek-v4-flash', reasoningEffort: 'max' },
+      routable: true,
       groups: [{
-        id: 'deepseek',
+        id: 'deepseek-official',
         name: 'DeepSeek',
         models: [{
           id: 'deepseek-v4-flash',
           name: 'DeepSeek V4 Flash',
           description: 'fast',
-          unlisted: true,
           reasoning: {
             efforts: [
               { id: 'off', name: 'Off' },
@@ -186,12 +218,12 @@ describe('sessions domain schemas', () => {
     }).groups[0]?.models[0]?.id).toBe('deepseek-v4-flash')
     expect(sessionSelectModelRequestSchema.parse({
       sessionId: 's1',
-      provider: 'deepseek',
+      provider: 'deepseek-official',
       model: 'deepseek-v4-pro',
       reasoningEffort: 'max',
     }).reasoningEffort).toBe('max')
     expect(sessionSelectModelValueSchema.parse({
-      selected: { provider: 'deepseek', model: 'deepseek-v4-pro', reasoningEffort: 'max' },
+      selected: { provider: 'deepseek-official', model: 'deepseek-v4-pro', reasoningEffort: 'max' },
     }).selected.reasoningEffort).toBe('max')
     expect(() => sessionSelectModelRequestSchema.parse({
       sessionId: 's1',
@@ -200,14 +232,14 @@ describe('sessions domain schemas', () => {
     })).toThrow()
     expect(() => sessionSelectModelRequestSchema.parse({
       sessionId: 's1',
-      provider: 'deepseek',
+      provider: 'deepseek-official',
       model: 'm',
       reasoningEffort: '',
     })).toThrow()
     expect(() => sessionModelsValueSchema.parse({
-      current: { provider: 'deepseek', model: 'm' },
+      current: { provider: 'deepseek-official', model: 'm' },
       groups: [{
-        id: 'deepseek',
+        id: 'deepseek-official',
         name: 'DeepSeek',
         models: [{ id: 'm', name: 'M', reasoning: { efforts: [] } }],
       }],
@@ -243,8 +275,10 @@ describe('sessions domain schemas', () => {
 describe('host domain schemas', () => {
   it('validates describe request/value', () => {
     expect(hostDescribeRequestSchema.parse({})).toEqual({})
-    const value = hostDescribeValueSchema.parse({ version: '1', cwd: '/x', provider: 'p', model: 'm', attachedSessions: 2 })
-    expect(value.attachedSessions).toBe(2)
+    const value = hostDescribeValueSchema.parse({
+      version: '1', cwd: '/x', provider: 'p', model: 'm', attachedSessions: 2,
+    })
+    expect(value).toMatchObject({ provider: 'p', model: 'm', attachedSessions: 2 })
     expect(hostDescribeValueSchema.parse({ version: '1', cwd: '/x', attachedSessions: 0 }).provider).toBeUndefined()
   })
 
@@ -281,7 +315,16 @@ describe('workspace domain schemas', () => {
     expect(workspaceViewSchema.parse(view).sessionIds).toEqual(['s1'])
     expect(() => workspaceViewSchema.parse({ ...view, sessionIds: 's1' })).toThrow()
     expect(workspaceListRequestSchema.parse({})).toEqual({})
-    expect(workspaceListValueSchema.parse({ items: [view] }).items).toHaveLength(1)
+    expect(workspaceListValueSchema.parse({ items: [view], archivedSessionIds: ['s1'] }).items).toHaveLength(1)
+    expect(() => workspaceListValueSchema.parse({ items: [view] })).toThrow()
+  })
+
+  it('archiveSession request/value carry the id and the full updated set', () => {
+    expect(workspaceArchiveSessionRequestSchema.parse({ sessionId: 's1' }).sessionId).toBe('s1')
+    expect(() => workspaceArchiveSessionRequestSchema.parse({})).toThrow()
+    expect(workspaceArchiveSessionValueSchema.parse({ archivedSessionIds: ['s1', 's2'] }).archivedSessionIds)
+      .toEqual(['s1', 's2'])
+    expect(() => workspaceArchiveSessionValueSchema.parse({ archivedSessionIds: 's1' })).toThrow()
   })
 
   it('create requires exactly one of path/name (both refine arms)', () => {
@@ -380,7 +423,11 @@ describe('events frame schemas', () => {
       { type: 'question/requested', sessionId: 's', questions: [{ id: 'q', question: 'Q?', options: [{ label: 'L' }], multiSelect: true }] },
       { type: 'question/resolved', sessionId: 's', questionRpcId: 'r', outcome: 'answered' },
       { type: 'session/queue', sessionId: 's', items: [
-        { id: 'i1', message: { id: 'm1', role: 'user', content: [{ type: 'text', text: 'queued prompt' }], source: { kind: 'user', rpcId: 'r9' } } },
+        {
+          id: 'm1',
+          placement: 'queued',
+          message: { id: 'm1', role: 'user', content: [{ type: 'text', text: 'queued prompt' }], source: { kind: 'user', rpcId: 'r9' } },
+        },
       ] },
       { type: 'session/projection', sessionId: 's', key: 'todos', value: [{ content: 'x', status: 'pending' }], seq: 7 },
       { type: 'stream/error', error: { code: 'internal', message: 'm', details: {} } },
@@ -399,10 +446,32 @@ describe('events frame schemas', () => {
     expect(() => muxFrameSchema.parse({ type: 'question/requested', sessionId: 's', questions: [] })).toThrow()
   })
 
+  it('carries a question presentation intent through, and rejects an unknown one', () => {
+    const intent = { kind: 'plan-review', approve: 'Approve' }
+    expect(askUserQuestionItemSchema.parse({
+      id: 'plan-review', question: 'Approve?', detail: '# Plan', options: [{ label: 'Approve' }], intent,
+    }).intent).toEqual(intent)
+    // An unrecognised tag is a rejected frame, not a silently generic render.
+    for (const invalid of [{ kind: 'plan-review' }, { kind: 'poll', approve: 'Approve' }, { approve: 'Approve' }]) {
+      expect(() => askUserQuestionItemSchema.parse({ id: 'q', question: 'Q?', intent: invalid })).toThrow()
+    }
+  })
+
+  it('accepts every queue placement and rejects unknown placements', () => {
+    const item = (placement: string) => ({ type: 'session/queue', sessionId: 's', items: [{
+      id: 'm', placement,
+      message: { id: 'm', role: 'user', content: [], source: { kind: 'user' } },
+    }] })
+    for (const placement of ['queued', 'steering', 'context']) {
+      expect(() => muxFrameSchema.parse(item(placement))).not.toThrow()
+    }
+    expect(() => muxFrameSchema.parse(item('bogus'))).toThrow()
+  })
+
   it('rejects a queue snapshot with malformed items', () => {
     expect(() => muxFrameSchema.parse({ type: 'session/queue', sessionId: 's', items: 'x' })).toThrow()
-    expect(() => muxFrameSchema.parse({ type: 'session/queue', sessionId: 's', items: [{ id: '', message: {} }] })).toThrow()
-    expect(() => muxFrameSchema.parse({ type: 'session/queue', sessionId: 's', items: [{ id: 'i', message: { id: 'm', role: 'user', content: [], source: {} } }] })).toThrow()
+    expect(() => muxFrameSchema.parse({ type: 'session/queue', sessionId: 's', items: [{ id: '', role: 'user', content: [], source: { kind: 'user' } }] })).toThrow()
+    expect(() => muxFrameSchema.parse({ type: 'session/queue', sessionId: 's', items: [{ id: 'm', role: 'assistant', content: [], source: { kind: 'user' } }] })).toThrow()
   })
 
   it('accepts every host frame branch', () => {

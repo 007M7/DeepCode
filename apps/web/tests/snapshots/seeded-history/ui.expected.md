@@ -4,40 +4,46 @@
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
-- text: "Use the read tool twice in one assistant message: read a.txt and b.txt. Then reply with the single word DONE and stop. {{clock}}"
-- button "复制":
-  - img
-- button "在新对话中分支":
-  - img
-- button "编辑":
+- text: "Use the read tool twice in one assistant message: read a.txt and b.txt. Then reply with the single word DONE and stop. 7/25 {{clock}}"
+- button "Copy":
   - img
 - button "Think The user wants me to read a.txt and b.txt, then reply with \"DONE\". Let me do both reads in parallel.":
   - img
   - img
   - text: Think The user wants me to read a.txt and b.txt, then reply with "DONE". Let me do both reads in parallel.
-- img
-- text: Read
-- button "a.txt"
-- img
-- text: Read
-- button "b.txt"
+- button "Read a.txt":
+  - img
+  - img
+  - text: Read
+  - button "a.txt"
+- button "Read b.txt":
+  - img
+  - img
+  - text: Read
+  - button "b.txt"
 - button "Think Both files have been read. a.txt contains \"alpha\" and b.txt contains \"beta\". I'll now reply with DONE as instructed.":
   - img
   - img
   - text: Think Both files have been read. a.txt contains "alpha" and b.txt contains "beta". I'll now reply with DONE as instructed.
 - paragraph: DONE
-- button "复制":
+- button "Copy":
   - img
-- button "在新对话中分支":
+- button "Branch into a new conversation":
   - img
-- text: {{clock}}
+- text: 7/25 {{clock}} Ran for {{duration}} TTFT {{duration}} {{throughput}} tok/s
+- button "Context compacted View compaction summary":
+  - img
+  - text: Context compacted View compaction summary
+- button "Context injection AGENTS.md":
+  - img
+  - img
+  - text: Context injection AGENTS.md
 - textbox "Message the agent"
-- button "Add attachment":
+- button "Commands":
   - img
-- 'button "Access mode, current: Danger Full Access"': Danger Full Access
-- button "Plan mode off, press to turn on": Plan off
-- button "Select model, current deepseek-v4-flash":
-  - text: deepseek-v4-flash
+- 'button "Access mode, current: Workspace Write"': Workspace Write
+- button "Select model, current DeepSeek-V4-Flash":
+  - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
-- text: 1 turns · 2 steps Tool call {{duration}} Cache hit 98% Input 15.8K tok · Output 135 tok
+- text: 1 turns · 2 steps LLM {{duration}} · Tool call {{duration}} TTFT avg {{duration}} · {{throughput}} tok/s Cache hit 98% Input 15.8K tok · Output 135 tok

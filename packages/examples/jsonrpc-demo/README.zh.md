@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-只包含 bin 的应用，启动外部 `cordis.yml`；其 [`jsonrpc`](../../ui/jsonrpc/README.md) 入口通过按换行分隔的 stdio 为 SDK 客户端提供服务。配置负责组合主干、后端和服务插件。`lib/bin.js` 也是[单文件可执行运行时](../../../.agents/notes/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md) 的入口。
+只包含 bin 的应用，启动外部 `cordis.yml`；其 [`jsonrpc`](../../ui/jsonrpc/README.md) 入口通过按换行分隔的 stdio 为 SDK 客户端提供服务。配置负责组合主干、后端和服务插件。发布的 bin 名为 `dsh-jsonrpc-agent`，`lib/bin.js` 还会作为 Python SDK 使用的 `dsh-jsonrpc-agent-pkg` [单文件可执行运行时](../../../.agents/notes/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md)交付。
 
 ## 配置发现
 
@@ -12,7 +12,7 @@
 
 ## 退出生命周期
 
-stdin EOF 和 `SIGTERM` 会 dispose（释放资源）根上下文，等待完全停稳后以 0 退出；`SIGINT` 完成同样的 dispose 后以 130 退出。EOF 可能按[分发 Agent Note（agent 决策记录）](../../../.agents/notes/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md) 所述截断正在处理的轮次。`jsonrpc` 插件拥有先响应再退出的协议关闭流程；两条路径均幂等，即使发生竞态也安全。
+stdin EOF 和 `SIGTERM` 会 dispose（释放资源）根上下文，等待完全停稳后以 0 退出；`SIGINT` 完成同样的 dispose 后以 130 退出。EOF 可能按[分发 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md) 所述截断正在处理的轮次。`jsonrpc` 插件拥有先响应再退出的协议关闭流程；两条路径均幂等，即使发生竞态也安全。
 
 ## stdout 是协议
 

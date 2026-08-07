@@ -2,11 +2,11 @@
 
 [English](llm-adapter.md) | 中文
 
-本文介绍如何为 Harness 接入一个新的 LLM 提供方。
+本文介绍如何为 Harness 接入新的模型提供方。
 
 ## 概述
 
-LLM 适配器是一个继承 `LlmAdapter` 的类，实现 `stream()` 方法，将 Harness 的统一请求格式转换为具体 API 的调用。
+LLM 适配器是一个继承 `LlmAdapter` 并实现 `stream()` 方法的类，它会将 Harness 的提供方无关请求转换为具体提供方的 API 调用，并将响应转换回 Harness 分片。
 
 ## 最小实现
 
@@ -51,7 +51,7 @@ export function apply(ctx: Context, config: Config) {
 
 ## StreamChunk 协议
 
-`stream()` 必须按以下协议 yield chunk：
+`stream()` 必须按以下协议生成分片：
 
 ```ts
 import { CallId, type StreamChunk } from '@deepseek-ai/dsh-llm'
@@ -102,17 +102,17 @@ async function* exampleChunks(): AsyncIterable<StreamChunk> {
 
 ### 关键规则
 
-- 每个 `block-start` 必须有对应的 `block-end`
-- `index` 从 0 递增，标识内容块顺序
-- `tool-call-delta` 的 `argumentsDelta` 是 JSON 字符串的增量（可以一次 yield 全部，也可以分多次）
-- `finish` 必须是最后一个 chunk
-- `usage` 在 `finish` 之前 yield
+- 每个 `block-start` 都必须有与之对应的 `block-end`。
+- `index` 从 0 开始递增，用于标识内容块的顺序。
+- `tool-call-delta` 的 `argumentsDelta` 是原始 JSON 文本的增量，可以在一个分片中完整生成，也可以分多个分片生成。
+- `finish` 必须是最后一个分片。
+- `usage` 必须在 `finish` 之前生成。
 
 ## GenerateOptions
 
-`stream()` 接收仓库导出的 `GenerateOptions`。它包含模型名、由适配器持有的推理强度 ID、对话历史、系统提示词、tool schema、生成参数、停止序列和中止信号；完整字段以 `@deepseek-ai/dsh-llm` 导出的 TypeScript 类型为准。适配器必须将支持的字段映射到具体 API；无法支持的字段应抛出带稳定 code 的 `LlmError`，不能静默丢弃。
+`stream()` 接收仓库导出的 `GenerateOptions`。它包含模型、适配器拥有的推理强度 ID、对话历史、系统提示词、工具 schema、生成参数、停止序列和中止信号；完整字段以 `@deepseek-ai/dsh-llm` 导出的 TypeScript 类型为准。适配器必须将支持的字段映射到具体 API；如果无法支持某个字段，应抛出带稳定 code 的 `LlmError`，不得静默丢弃。
 
-请覆写 `resolveModel(provider, model, signal?)`，在一次查询中返回确切的提供方/模型身份以及可选的 `context` 和 `reasoning` 元数据。推理元数据包含有序的不透明 ID、展示名称，以及可选的配置默认值；请保留适配器给出的权威可选列表，包括其上游能力 API 返回的 `off`，而不要将这些值提升为核心枚举。异步查询必须响应这个可选信号，让取消和资源释放都能达到完全停稳。服务会校验聚合结果，并在调用 `stream()` 前拒绝显式指定但不受支持的推理强度；省略 `reasoning` 表示该模型没有可选的推理强度能力。
+请覆写 `resolveModel(provider, model, signal?)`，在一次查询中返回确切的提供方／模型身份以及可选的 `context` 和 `reasoning` 元数据。推理元数据包含有序的不透明 ID、展示名称，以及可选的配置默认值；请保留适配器给出的权威可选列表，包括其上游能力 API 返回的 `off`，不要将这些值提升为核心枚举。异步查询必须响应该可选信号，使取消和资源释放过程完全停稳。服务会校验聚合结果，并在调用 `stream()` 前拒绝显式指定但不受支持的推理强度；省略 `reasoning` 表示该模型没有可选的推理强度能力。
 
 ## 注册适配器
 
@@ -120,7 +120,7 @@ async function* exampleChunks(): AsyncIterable<StreamChunk> {
 ctx.llm.registerAdapter(['model-name-1', 'model-name-2'], adapter)
 ```
 
-第一个参数是该适配器支持的模型名列表。当用户在 `cordis.yml` 中配置 `model: model-name-1` 时，框架会路由到这个适配器。
+第一个参数是该适配器支持的模型名列表。当用户在 `cordis.yml` 中配置 `model: model-name-1` 时，框架会将请求路由到该适配器。
 
 ## 在 cordis.yml 中使用
 
@@ -133,17 +133,19 @@ ctx.llm.registerAdapter(['model-name-1', 'model-name-2'], adapter)
       - my-model-v1
       - my-model-v2
 
-- id: tui-agent
-  name: '@deepseek-ai/dsh-tui-demo'
+- id: agent-loop
+  name: '@deepseek-ai/dsh-agent-loop'
   config:
-    provider: my-llm
+    agents:
+      - id: main
+        provider: my-llm
     model: my-model-v1  # References the model registered above.
     workspaceContext: false
 ```
 
 ## 实战参考
 
-仓库中有两个完整实现可供参考：
+仓库中包含以下两个完整实现：
 
 - `packages/llm/llm-deepseek/` — DeepSeek API 适配器（OpenAI 兼容格式）
 - `packages/llm/llm-pi-ai/` — Pi AI 适配器（不同的 API 格式）
@@ -152,7 +154,7 @@ ctx.llm.registerAdapter(['model-name-1', 'model-name-2'], adapter)
 
 ## 错误处理
 
-适配器应将传输和协议故障作为带稳定 code 的 `LlmError` 抛出；agent loop 会保留该错误及其 code，供诊断和策略使用。不要依赖普通 `Error` 被自动转换。每个提供方 HTTP 请求还必须合并 `attributionHeaders()`，并传递 `options.signal`。
+适配器应通过带稳定 code 的 `LlmError` 抛出传输和协议故障；agent loop（智能体循环）会保留该错误及其 code，用于诊断和策略处理。不要依赖普通 `Error` 被自动转换。每个提供方 HTTP 请求还必须合并 `attributionHeaders()`，并传递 `options.signal`。
 
 ```ts
 import {

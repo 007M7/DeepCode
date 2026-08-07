@@ -42,13 +42,12 @@ type ApprovalOutcome = 'allowed-once' | 'rejected' | 'cancelled' | 'unavailable'
  *   (exactly today's behavior).
  * - `'never'` — never prompt anyone: every ask resolves `'rejected'`
  *   deterministically. The strict headless stance (CI, unattended runs) and
- *   the only policy value stated in the system prompt — unlike `'ask'`, its
- *   outcome is knowable without asking, so stating it cannot overclaim.
+ *   the policy whose outcome is knowable without asking.
  */
 type ApprovalPolicy = 'ask' | 'never'
 ```
 
-The prompt section states the deterministic `never` behavior and records either policy with a source-owned marker. The pre-step narrator reads that marker from the logged request header after restart; it does not infer state from deployment persona prose.
+Both policies contribute their complete current meaning to the cache-safe runtime-context snapshot. The sourced `user/message` is the durable model-visible input; changing approval state appends a new full snapshot after retained history without rewriting the request header's system prompt.
 
 ## Approval request
 
@@ -87,4 +86,4 @@ interface ApprovalRequest {
 
 `ctx.approval.request(req)` requires the requesting session to be inside an open turn. It appends `approval/asked`, obtains one outcome, appends the matching `approval/decided`, and resolves with that outcome. The `never` policy is enforced inside the service before waterfall dispatch, so even an answerer registered later with `prepend` cannot bypass it. Answerers return an outcome when they own the request or call `next()` to delegate; the first answer occupies the single decision slot.
 
-The audit events are log-only and do not enter the model transcript. Model-visible behavior is the caller's derived tool result, while the request header records the prompt policy that the model actually saw. Service disposal removes its prompt section and pre-step narrator together; answerer listeners are independently effect-bound to their owning plugins.
+The audit events are log-only and do not enter the model transcript. Model-visible behavior is the caller's derived tool result plus the current runtime-context snapshot. Service disposal removes its context contribution; answerer listeners are independently effect-bound to their owning plugins.

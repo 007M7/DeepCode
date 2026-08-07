@@ -5,40 +5,42 @@
     - tab "Chat" [selected]
     - tab "Trajectory"
 - text: "Using ONE run_code program: run bash `echo CODE_ROUND_OK`, then read the file missing.txt catching its error in the program. Return an object with both outcomes. Then reply DONE and stop. {{clock}}"
-- button "复制":
+- button "Copy":
   - img
-- button "在新对话中分支":
+- button "Context injection @deepseek-ai/dsh-system-prompt":
   - img
-- button "编辑":
   - img
+  - text: Context injection @deepseek-ai/dsh-system-prompt
 - 'button "Think The user wants me to write a single `run_code` program that:"':
   - img
   - img
   - text: "Think The user wants me to write a single `run_code` program that:"
-- button:
+- button "Code Run bash echo and catch missing file read":
   - img
   - img
-- text: Code Run bash echo and catch missing file read
+  - text: Code Run bash echo and catch missing file read
 - img
-- text: Bash Echo CODE_ROUND_OK Read
-- button "missing.txt"
+- text: Bash Echo CODE_ROUND_OK Failed
+- 'button "Read Error: cannot read \"{{cwd}}/workspace/missing.txt\": not found"':
+  - img
+  - text: "Read Error: cannot read \"{{cwd}}/workspace/missing.txt\": not found"
 - button "Think The program ran successfully. Let me now reply DONE as instructed.":
   - img
   - img
   - text: Think The program ran successfully. Let me now reply DONE as instructed.
 - paragraph: DONE
-- button "复制":
+- button "Copy":
   - img
-- button "在新对话中分支":
+- button "Branch into a new conversation":
   - img
-- text: {{clock}}
+- text: {{clock}} Ran for {{duration}} TTFT {{duration}} {{throughput}} tok/s
 - textbox "Message the agent"
-- button "Add attachment":
+- button "Commands":
   - img
-- 'button "Access mode, current: Danger Full Access"': Danger Full Access
-- button "Plan mode off, press to turn on": Plan off
+- 'button "Access mode, current: Workspace Write"': Workspace Write
 - button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img
+- button "7% of context used"
 - button "Send message" [disabled]
-- text: 1 turns · 2 steps Tool call {{duration}} Cache hit 52% Input 17.2K tok · Output 252 tok
+- text: 1 turns · 2 steps LLM {{duration}} · Tool call {{duration}} TTFT avg {{duration}} · {{throughput}} tok/s Cache hit 52% Input 17.2K tok · Output 252 tok

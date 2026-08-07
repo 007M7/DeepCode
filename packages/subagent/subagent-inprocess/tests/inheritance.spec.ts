@@ -14,6 +14,7 @@ import SandboxPolicyService, { setSandboxMode } from '@deepseek-ai/dsh-sandbox-p
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import ApprovalService, { setApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
+import { snapshotSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import { startInProcessRun } from '../src/index.ts'
 
@@ -52,9 +53,15 @@ async function setupWalled(script: Script): Promise<{ ctx: Context; parent: Agen
 
 function spawnRequest(parent: Agent) {
   return {
+    label: 'child task',
     prompt: [{ type: 'text' as const, text: 'child task' }],
     parent,
     signal: new AbortController().signal,
+    descriptor: snapshotSubagentDescriptor({
+      mode: 'one-shot',
+      provider: 'spawn',
+      label: 'child task',
+    }),
   }
 }
 
@@ -100,7 +107,20 @@ describe('in-process policy inheritance', () => {
       const request = child.session.events.find(
         (event): event is SessionEvent<'request/header'> => event.type === 'request/header',
       )
-      expect(request?.data.header.system).toContain('Approval prompts are disabled')
+      const runtimeContext = child.session.events.find(
+        (event): event is SessionEvent<'user/message'> => event.type === 'user/message'
+          && event.data.source.kind === 'plugin'
+          && event.data.source.plugin === '@deepseek-ai/dsh-system-prompt',
+      )
+      if (request === undefined || runtimeContext === undefined) throw new Error('child request lacks its runtime policy context')
+      expect(runtimeContext.seq).toBeLessThan(request.seq)
+      const contextText = runtimeContext.data.content
+        .filter((block): block is Extract<ContentBlock, { type: 'text' }> => block.type === 'text')
+        .map(block => block.text)
+        .join('\n')
+      expect(contextText).toContain('Current DSH file policy: read-only')
+      expect(contextText).toContain('Approval prompts are disabled')
+      expect(request.data.header.system).not.toContain('Approval prompts are disabled')
       expect(parent.session.events).toHaveLength(parentLogLength)
     } finally {
       await run.dispose()

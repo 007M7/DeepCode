@@ -14,8 +14,16 @@ import {
   parseFetchArgs,
   presentSearchCall,
   presentFetchCall,
+  presentSearchResult,
+  presentFetchResult,
+  searchMetaFromValue,
+  searchMetaFromResult,
+  fetchMetaFromValue,
+  fetchMetaFromResult,
   WEB_SEARCH_MAX_RESULTS,
 } from '@deepseek-ai/dsh-tool-web'
+import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { ToolResult } from '@deepseek-ai/dsh-tools'
 
 const testToolSignal = new AbortController().signal
 
@@ -88,6 +96,97 @@ describe('search formatting', () => {
 
   it('presents a search call as a search-kind card titled by the query', () => {
     expect(presentSearchCall({ query: 'find me' })).toEqual({ card: 'generic', title: 'find me', kind: 'search', rawInput: 'find me' })
+  })
+})
+
+/** Build a completed non-error tool result with the given meta and text content. */
+function toolResult(meta: unknown, text = 'body', isError = false): ToolResult {
+  const content: ContentBlock[] = [{ type: 'text', text }]
+  return { content, isError, ...meta !== undefined ? { meta: meta as never } : {} }
+}
+
+describe('web_search presentation meta and result view', () => {
+  it('projects sources, answer, and truncation into meta, omitting absent optional fields', () => {
+    const meta = searchMetaFromValue({
+      content: 'an answer', truncated: true,
+      sources: [
+        { url: 'https://a.test/x', title: 'A', snippet: 'about a', publishedAt: '2026-01-01' },
+        { url: 'https://b.test/y' },
+      ],
+    })
+    expect(meta).toEqual({
+      answer: 'an answer',
+      truncated: true,
+      sources: [
+        { url: 'https://a.test/x', title: 'A', snippet: 'about a', publishedAt: '2026-01-01' },
+        { url: 'https://b.test/y' },
+      ],
+    })
+  })
+
+  it('omits answer from meta when the provider returned none', () => {
+    const meta = searchMetaFromValue({ truncated: false, sources: [{ url: 'https://a.test' }] })
+    expect(meta).toEqual({ truncated: false, sources: [{ url: 'https://a.test' }] })
+  })
+
+  it('round-trips projected meta back to a typed search meta', () => {
+    const value = {
+      content: 'ans', truncated: false,
+      sources: [{ url: 'https://a.test', title: 'A', snippet: 's', publishedAt: '2026-01-01' }],
+    }
+    expect(searchMetaFromResult(searchMetaFromValue(value))).toEqual({
+      answer: 'ans', truncated: false,
+      sources: [{ url: 'https://a.test', title: 'A', snippet: 's', publishedAt: '2026-01-01' }],
+    })
+  })
+
+  it('presents a completed search as a web/search card carrying the structured sources, titled by the query', () => {
+    const meta = searchMetaFromValue({
+      content: 'an answer', truncated: true,
+      sources: [{ url: 'https://a.test', title: 'A', snippet: 'snip', publishedAt: '2026-07-20' }],
+    })
+    expect(presentSearchResult({ query: 'q' }, toolResult(meta, 'rendered'))).toEqual({
+      card: 'web',
+      kind: 'search',
+      title: 'q',
+      answer: 'an answer',
+      truncated: true,
+      sources: [{ url: 'https://a.test', title: 'A', snippet: 'snip', publishedAt: '2026-07-20' }],
+    })
+  })
+
+  it('omits the answer from the view when meta carries none', () => {
+    const meta = searchMetaFromValue({ truncated: false, sources: [{ url: 'https://a.test' }] })
+    const view = presentSearchResult({ query: 'q' }, toolResult(meta))
+    expect(view).toBeDefined()
+    expect(view && 'answer' in view).toBe(false)
+    expect(view && 'content' in view).toBe(false)
+  })
+
+  it('falls back to the generic card on an error result', () => {
+    const meta = searchMetaFromValue({ truncated: false, sources: [{ url: 'https://a.test' }] })
+    expect(presentSearchResult({ query: 'q' }, toolResult(meta, 'body', true))).toBeUndefined()
+  })
+
+  it('falls back to the generic card on absent or malformed meta', () => {
+    expect(presentSearchResult({ query: 'q' }, toolResult(undefined))).toBeUndefined()
+    expect(searchMetaFromResult(undefined)).toBeUndefined()
+    expect(searchMetaFromResult(null)).toBeUndefined()
+    expect(searchMetaFromResult('nope')).toBeUndefined()
+    expect(searchMetaFromResult([])).toBeUndefined()
+    expect(searchMetaFromResult({})).toBeUndefined()
+    expect(searchMetaFromResult({ sources: 'x', truncated: false })).toBeUndefined()
+    expect(searchMetaFromResult({ sources: [], truncated: 'no' })).toBeUndefined()
+    expect(searchMetaFromResult({ sources: [], truncated: false, answer: 1 })).toBeUndefined()
+    expect(searchMetaFromResult({ sources: [null], truncated: false })).toBeUndefined()
+    expect(searchMetaFromResult({ sources: [{ url: 1 }], truncated: false })).toBeUndefined()
+    expect(searchMetaFromResult({ sources: [{ url: 'u', title: 2 }], truncated: false })).toBeUndefined()
+    expect(searchMetaFromResult({ sources: [{ url: 'u', snippet: 2 }], truncated: false })).toBeUndefined()
+    expect(searchMetaFromResult({ sources: [{ url: 'u', publishedAt: 2 }], truncated: false })).toBeUndefined()
+  })
+
+  it('accepts an empty source list as valid meta', () => {
+    expect(searchMetaFromResult({ sources: [], truncated: false })).toEqual({ sources: [], truncated: false })
   })
 })
 
@@ -259,6 +358,87 @@ describe('fetch formatting', () => {
   })
 })
 
+describe('web_fetch presentation meta and result view', () => {
+  const NO_CAP = 1_000_000
+
+  it('projects url, status, and the provider truncation into meta', () => {
+    expect(fetchMetaFromValue({ url: 'https://a.test', statusCode: 404, truncated: true, body: { kind: 'text', content: 'x' } }, NO_CAP))
+      .toEqual({ url: 'https://a.test', statusCode: 404, truncated: true })
+  })
+
+  it('projects truncated: true when the output cap cut a body the provider did not, matching the render footer', () => {
+    // The provider reports truncated: false, but conversion outgrows the cap, so
+    // the render text carries the truncation footer. The meta must agree.
+    const value = {
+      url: 'https://a.test', statusCode: 200, truncated: false,
+      body: { kind: 'html' as const, content: `<p>${'_'.repeat(1000)}</p>` },
+    }
+    const meta = fetchMetaFromValue(value, 500) as { truncated: boolean }
+    expect(meta.truncated).toBe(true)
+    expect(formatFetchOutput(value, 500)).toContain('Content truncated')
+  })
+
+  it('projects truncated: false when neither the provider nor the cap cut the body', () => {
+    const value = {
+      url: 'https://a.test', statusCode: 200, truncated: false,
+      body: { kind: 'text' as const, content: 'short' },
+    }
+    const meta = fetchMetaFromValue(value, NO_CAP) as { truncated: boolean }
+    expect(meta.truncated).toBe(false)
+    expect(formatFetchOutput(value, NO_CAP)).not.toContain('Content truncated')
+  })
+
+  it('converts one HTML body once across the render and meta projections of the same result', () => {
+    // The registry calls output.render and output.presentationMeta with the same
+    // frozen result value; the memo must collapse them into one turndown walk so
+    // a large or deeply nested page is not parsed and converted twice. A second
+    // cap on the same result is a distinct entry, so it converts again.
+    const spy = vi.spyOn(TurndownService.prototype, 'turndown')
+    const value = {
+      url: 'https://a.test', statusCode: 200, truncated: false,
+      body: { kind: 'html' as const, content: '<p>hello</p>' },
+    }
+    try {
+      formatFetchOutput(value, NO_CAP)
+      fetchMetaFromValue(value, NO_CAP)
+      expect(spy).toHaveBeenCalledTimes(1)
+      formatFetchOutput(value, NO_CAP - 1)
+      expect(spy).toHaveBeenCalledTimes(2)
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('presents a completed fetch as a web/fetch card carrying the summary, titled by the url, without content', () => {
+    const meta = fetchMetaFromValue({ url: 'https://a.test', statusCode: 200, truncated: false, body: { kind: 'text', content: '# Title' } }, NO_CAP)
+    expect(presentFetchResult({ url: 'https://a.test' }, toolResult(meta, '# Title'))).toEqual({
+      card: 'web',
+      kind: 'fetch',
+      title: 'https://a.test',
+      url: 'https://a.test',
+      statusCode: 200,
+      truncated: false,
+    })
+  })
+
+  it('falls back to the generic card on an error result', () => {
+    const meta = fetchMetaFromValue({ url: 'https://a.test', statusCode: 200, truncated: false, body: { kind: 'text', content: 'ok' } }, NO_CAP)
+    expect(presentFetchResult({ url: 'https://a.test' }, toolResult(meta, 'body', true))).toBeUndefined()
+  })
+
+  it('falls back to the generic card on absent or malformed meta', () => {
+    expect(presentFetchResult({ url: 'https://a.test' }, toolResult(undefined))).toBeUndefined()
+    expect(fetchMetaFromResult(undefined)).toBeUndefined()
+    expect(fetchMetaFromResult(null)).toBeUndefined()
+    expect(fetchMetaFromResult('nope')).toBeUndefined()
+    expect(fetchMetaFromResult([])).toBeUndefined()
+    expect(fetchMetaFromResult({})).toBeUndefined()
+    expect(fetchMetaFromResult({ url: 1, statusCode: 200, truncated: false })).toBeUndefined()
+    expect(fetchMetaFromResult({ url: 'u', statusCode: 'x', truncated: false })).toBeUndefined()
+    expect(fetchMetaFromResult({ url: 'u', statusCode: 200, truncated: 'no' })).toBeUndefined()
+  })
+})
+
 describe('tool-web registration', () => {
   it('registers both tools by default', async () => {
     const { fiber, ctx } = await mountTools()
@@ -303,8 +483,17 @@ describe('tool-web registration', () => {
     const { fiber, ctx } = await mountTools()
     const prompt = await ctx.systemPrompt.assemble()
     const text = prompt.sections.map(s => s.text).join('\n')
-    expect(text).toContain('web_search')
-    expect(text).toContain('web_fetch')
+    expect(text).toContain('Use the web_search tool to discover current information on the web. It returns an optional answer plus a list of source URLs. Follow up with web_fetch when you need the full content of a specific result, and cite the relevant URLs as markdown links.')
+    expect(text).toContain('Use the web_fetch tool to retrieve the content of a specific HTTP(S) URL')
+    await fiber.dispose()
+  })
+
+  it('does not advertise web_fetch in search-only prompt guidance', async () => {
+    const { fiber, ctx } = await mountTools({ config: { search: true, fetch: false } })
+    const prompt = await ctx.systemPrompt.assemble()
+    const text = prompt.sections.map(s => s.text).join('\n')
+    expect(text).toContain('Use the returned source snippets when available')
+    expect(text).not.toContain('web_fetch')
     await fiber.dispose()
   })
 })
@@ -320,6 +509,38 @@ describe('tool-web execution through the real registry', () => {
     expect(out.isError).toBe(false)
     expect(out.value).toEqual(result)
     expect(out.content.map(b => b.type === 'text' ? b.text : '').join('')).toContain('[A](https://a.test)')
+    await fiber.dispose()
+  })
+
+  it('projects the search sources into the tool result meta and derives its web/search view', async () => {
+    const result: WebSearchResult = {
+      content: 'answer', truncated: true,
+      sources: [{ url: 'https://a.test', title: 'A', snippet: 'snip', publishedAt: '2026-07-20' }],
+    }
+    const { ctx, fiber, call } = await mountTools({ webConfig: { searchProvider: 'stub-search' }, search: searchProvider(result) })
+    const out = await call('web_search', { query: 'q' })
+    expect(out.meta).toEqual({
+      answer: 'answer', truncated: true,
+      sources: [{ url: 'https://a.test', title: 'A', snippet: 'snip', publishedAt: '2026-07-20' }],
+    })
+    const view = ctx.tools.get('web_search')?.presentResult?.({ query: 'q' }, { content: out.content, isError: out.isError, ...out.meta !== undefined ? { meta: out.meta } : {} })
+    expect(view).toMatchObject({ card: 'web', kind: 'search', truncated: true, answer: 'answer' })
+    await fiber.dispose()
+  })
+
+  it('projects the fetch summary into the tool result meta and derives its web/fetch view', async () => {
+    const fetchProvider = {
+      id: 'stub-fetch',
+      available: () => available,
+      fetch: (request: { url: string }) => Promise.resolve({
+        url: request.url, statusCode: 200, body: { kind: 'text' as const, content: 'ok' }, truncated: true,
+      }),
+    }
+    const { ctx, fiber, call } = await mountTools({ webConfig: { fetchProvider: 'stub-fetch' }, fetchProvider })
+    const out = await call('web_fetch', { url: 'https://a.test' })
+    expect(out.meta).toEqual({ url: 'https://a.test', statusCode: 200, truncated: true })
+    const view = ctx.tools.get('web_fetch')?.presentResult?.({ url: 'https://a.test' }, { content: out.content, isError: out.isError, ...out.meta !== undefined ? { meta: out.meta } : {} })
+    expect(view).toMatchObject({ card: 'web', kind: 'fetch', url: 'https://a.test', statusCode: 200, truncated: true })
     await fiber.dispose()
   })
 

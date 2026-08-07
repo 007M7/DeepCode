@@ -27,13 +27,14 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('todo_write: real model records a
   it('appends a todo/write event with the model-produced task list', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'dsh-todo-write-e2e-'))
     ctx = await codingHarness(workdir, { persona: TODO_SYSTEM_PROMPT })
-    const agent = ctx.agentLoop.create(SessionId('e2e-todo'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
+    const agent = ctx.agentLoop.create(SessionId('e2e-todo'), { provider: 'deepseek-official', model: 'deepseek-v4-flash' })
 
     agent.followup(createUserMessage({
       content: [{ type: 'text', text:
-      'Use the todo_write tool to record a plan of exactly two steps: first '
-      + '"inspect the failing test" (in_progress), then "apply the fix" (pending). '
-      + 'Send both in one todo_write call, then reply with the single word DONE.' }], source: { kind: 'user' } }))
+      'Use the todo_write tool to record a plan of exactly three steps for work '
+      + 'running in parallel: "inspect the failing test" (in_progress), '
+      + '"watch the background build" (in_progress), then "apply the fix" (pending). '
+      + 'Send all three in one todo_write call, then reply with the single word DONE.' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
 
     const events = [...agent.session.events]
@@ -42,13 +43,15 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('todo_write: real model records a
     const calls = events.filter(event => event.type === 'tool/call')
     expect(calls.some(event => event.data.name === 'todo_write')).toBe(true)
 
-    // And the tool wrote a todo/write event to the log — verify the WORLD.
+    // And the tool wrote a todo/write event to the log — verify the WORLD,
+    // including two simultaneously in_progress tasks (the parallel contract).
     const todoEvents = events.filter(event => event.type === 'todo/write')
     expect(todoEvents.length).toBeGreaterThan(0)
 
     const todos = (todoEvents.at(-1)!).data.todos
     expect(todos).toEqual([
       { content: 'inspect the failing test', status: 'in_progress' },
+      { content: 'watch the background build', status: 'in_progress' },
       { content: 'apply the fix', status: 'pending' },
     ])
   }, 120_000)

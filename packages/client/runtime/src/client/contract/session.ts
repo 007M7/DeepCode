@@ -9,7 +9,7 @@
  */
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type {
-  InboxItemId, QueueAction, RpcResult, SessionId,
+  MessageId, QueueAction, RpcResult, SessionId,
 } from '@deepseek-ai/dsh-client-connection/client'
 import type { ConversationSnapshot } from '../sessions/conversation.ts'
 import type { ObservableSnapshot } from './store.ts'
@@ -39,14 +39,15 @@ export interface ISession {
    */
   prompt(content: ContentBlock[], mode: 'queue' | 'steer'): Promise<RpcResult<{ accepted: true }>>
   /**
-   * Apply one mutation to a still-pending queue occurrence.
+   * Apply one edit, remove, or strict steer action to a still-pending queue occurrence.
    * @param itemId - agent-owned inbox occurrence identity.
-   * @param action - edit or remove operation.
+   * @param action - requested queue operation.
    * @returns acceptance, or a business/transport error.
    */
-  updateQueue(itemId: InboxItemId, action: QueueAction): Promise<RpcResult<{ accepted: true }>>
+  updateQueue(itemId: MessageId, action: QueueAction): Promise<RpcResult<{ accepted: true }>>
   /**
-   * Cancel the running turn.
+   * Cancel the running turn. Pending queued work remains and resumes in FIFO
+   * order after the Host reaches cancellation quiescence.
    * @returns acceptance, or the business error.
    */
   cancel(): Promise<RpcResult<{ accepted: true }>>

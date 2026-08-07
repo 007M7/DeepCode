@@ -64,7 +64,7 @@ describe.skipIf(!existsSync(builtScripts))('live-linked generated projects', () 
         releaseVersion: '0.0.1',
         linkWorkspaceRoot: repoRoot,
         features: [
-          { id: featureId('provider'), options: ['deepseek'], secrets: { apiKey: 'test-key' } },
+          { id: featureId('provider'), options: ['deepseek-official'], secrets: { apiKey: 'test-key' } },
           { id: featureId('bash'), options: ['local'] },
           { id: featureId('app'), options: ['embed'] },
           { id: featureId('persistence'), options: ['jsonl'] },

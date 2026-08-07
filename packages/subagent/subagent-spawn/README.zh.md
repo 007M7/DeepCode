@@ -26,7 +26,7 @@ spawn 声明 `{ outputSchema: true, depthLimit: true, toolFilter: true, persona:
 
 #### 模型看到的内容
 
-全新的子 agent 逐字接收独立任务内容，默认继承父 agent 的模型和工作区，并看到带有已配置子 agent 作用域 persona 遮蔽的全局提示词。工具过滤器会为该子 agent 移除全局协议 schema、可执行工具查找和 Code Mode SDK 绑定，但保留独立注册的指导内容。它不接收任何父 agent 对话消息；过滤控制的是可见性与组合，并非从父 agent 继承的权限授权。
+全新的子 agent 逐字接收独立任务内容，默认继承父 agent 的模型和工作区，并看到带有已配置子 agent 作用域 persona 遮蔽的全局提示词。工具过滤器会为该子 agent 移除全局协议 schema、可执行工具查找和 Code Mode SDK 绑定，但保留独立注册的指导内容。它不接收任何父 agent 对话消息；过滤控制的是可见性与组合，并非从父 agent 继承的权限授予。
 
 #### Token 影响
 
@@ -44,13 +44,12 @@ spawn 声明 `{ outputSchema: true, depthLimit: true, toolFilter: true, persona:
 
 #### Token 影响
 
-父 agent 输入增加一个依赖数据的结果，并保留到上下文压缩（compaction）为止。
+父 agent 输入会增加一个取决于数据的结果，并保留到压缩（compaction）为止。
 
 #### KV Cache 影响
 
-仅追加；新增可见内容位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
+仅追加；新增可见内容位于可复用请求前缀之后，不会使现有 KV Cache 条目失效。
 
 ## 已知限制与暂缓事项
 
-- **运行不公开 `sendMessage`/`resume`**：进程内运行不具备这些可选运行时能力。
 - **全新表示不含父 agent transcript（文本记录）**：子 agent 会继承 cwd、谱系、模型及显式配置的 persona/工具限制，但不继承父 agent 的任何对话；需要已完成轮次上下文时，请使用 fork 提供方。

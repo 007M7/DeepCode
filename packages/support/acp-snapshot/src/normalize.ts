@@ -197,7 +197,7 @@ function tokenizeFixtureString(value: string, ctx: NormalizeContext, basename: s
     + String.raw`(?=$|[\\/\s<>'"()\[\]{},;:!?=])`,
     'g',
   )
-  return exact.replace(absoluteCwd, CWD)
+  return exact.replace(absoluteCwd, CWD).split(`/private${CWD}`).join(CWD)
 }
 
 /** Recursively replace generated-cwd spellings while preserving every other JSON value. */

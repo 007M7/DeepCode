@@ -101,8 +101,27 @@
   font: var(--dsw-font-xs-13);
 }
 
-/* The terminal card sits directly under its section label, so it drops the
-   primitive's standalone vertical margin; the section owns the spacing. */
-.terminal {
+/* A card body (terminal, diff, or search) sits directly under its section
+   label, so it drops the primitive's standalone vertical margin; the section
+   owns the spacing. Card-neutral: no card-kind-specific value. */
+.cardBody {
+  margin: 0;
+}
+
+/* The recovery footer for a capped search: the result text (its `Full … stored
+   at …` locator) below the card in the muted tone, since the card holds only the
+   retained rows. */
+.searchRecovery {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--dsw-alias-label-tertiary);
+  font: var(--dsw-font-xs-13);
+}
+
+/* The read and web cards sit directly under their section label, same as the
+   terminal card: drop the primitive's standalone vertical margin. */
+.read,
+.web {
   margin: 0;
 }

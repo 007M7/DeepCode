@@ -18,9 +18,10 @@
  * keys under each package's file config, and no package config defines it).
  */
 import { globSync, readFileSync } from 'node:fs'
-import { dirname, join, sep } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { dirname, join, resolve, sep } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { build } from 'tsdown'
+import type { TsdownBundle } from 'tsdown'
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url))
 
@@ -29,46 +30,83 @@ const repoRoot = fileURLToPath(new URL('..', import.meta.url))
  * whose package.json carries `dshClient` with platform "web" is a client
  * plugin bundle emitter. Scanned once at startup — a package added while
  * watching means restarting this script.
+ * @param root - repository root containing the grouped package directories.
  * @returns workspace-relative plugin package directories.
  */
-function discoverPluginDirs(): string[] {
+export function discoverPluginDirs(root = repoRoot): string[] {
   const dirs: string[] = []
-  for (const manifestPath of globSync('packages/*/*/package.json', { cwd: repoRoot }).sort()) {
-    const manifest = JSON.parse(readFileSync(join(repoRoot, manifestPath), 'utf8')) as { dshClient?: { platform?: unknown } }
+  for (const manifestPath of globSync('packages/*/*/package.json', { cwd: root }).sort()) {
+    const manifest = JSON.parse(readFileSync(join(root, manifestPath), 'utf8')) as { dshClient?: { platform?: unknown } }
     if (manifest.dshClient?.platform === 'web') dirs.push(dirname(manifestPath).split(sep).join('/'))
   }
   return dirs
 }
 
-const PLUGIN_DIRS = discoverPluginDirs()
-if (PLUGIN_DIRS.length === 0) {
-  console.error('dev-web: no dshClient (platform "web") packages found under packages/')
-  process.exit(1)
+/**
+ * Start the tsdown watch build used by `pnpm run dev:web`.
+ * @param root - repository or fixture root passed to tsdown.
+ * @param pluginDirs - workspace-relative package directories to watch.
+ * @param pollInterval - optional source-watcher polling interval in milliseconds.
+ * @returns live bundles after every watcher has completed its initial build.
+ */
+export async function watchClientPlugins(
+  root: string,
+  pluginDirs: readonly string[],
+  pollInterval?: number,
+): Promise<TsdownBundle[]> {
+  let resolveInitialBuilds: (() => void) | undefined
+  const initialBuilds = new Promise<void>((resolve) => { resolveInitialBuilds = resolve })
+  const initialized = new WeakSet<object>()
+  const readiness: { expectedBuilds?: number; initializedBuilds: number } = { initializedBuilds: 0 }
+  const bundles = await build({
+    cwd: root,
+    workspace: [...pluginDirs],
+    watch: true,
+    hooks: {
+      'build:done': ({ options }) => {
+        if (initialized.has(options)) return
+        initialized.add(options)
+        readiness.initializedBuilds += 1
+        if (
+          readiness.expectedBuilds !== undefined
+          && readiness.initializedBuilds >= readiness.expectedBuilds
+        ) resolveInitialBuilds?.()
+      },
+    },
+    ...pollInterval !== undefined
+      ? { inputOptions: { watch: { watcher: { usePolling: true, pollInterval } } } }
+      : {},
+  })
+  readiness.expectedBuilds = bundles.length
+  if (readiness.initializedBuilds >= readiness.expectedBuilds) resolveInitialBuilds?.()
+  await initialBuilds
+  return bundles
 }
 
-const args = process.argv.slice(2)
-const pollArg = args.find(a => a === '--poll' || a.startsWith('--poll='))
-if (args.some(a => a !== pollArg)) {
-  console.error('dev-web: usage: tsx scripts/dev-web.ts [--poll[=ms]]')
-  process.exit(1)
-}
-const pollInterval = pollArg === undefined ? undefined : Number(pollArg.split('=')[1] ?? '500')
-if (pollInterval !== undefined && (!Number.isInteger(pollInterval) || pollInterval <= 0)) {
-  console.error(`dev-web: invalid --poll interval "${pollArg ?? ''}"`)
-  process.exit(1)
-}
+const invokedPath = process.argv[1]
+const isMain = invokedPath !== undefined && import.meta.url === pathToFileURL(resolve(invokedPath)).href
+if (isMain) {
+  const pluginDirs = discoverPluginDirs()
+  if (pluginDirs.length === 0) {
+    console.error('dev-web: no dshClient (platform "web") packages found under packages/')
+    process.exit(1)
+  }
 
-await build({
-  cwd: repoRoot,
-  workspace: PLUGIN_DIRS,
-  watch: true,
-  // Rolldown watch options ride through inputOptions (tsdown has no watcher
-  // tuning of its own); polling is opt-in for network mounts without inotify.
-  ...pollInterval !== undefined
-    ? { inputOptions: { watch: { watcher: { usePolling: true, pollInterval } } } }
-    : {},
-})
-console.log(
-  `dev-web: watching ${String(PLUGIN_DIRS.length)} dshClient plugin packages`
-  + `${pollInterval !== undefined ? ` (polling ${String(pollInterval)}ms)` : ''}:\n  ${PLUGIN_DIRS.join('\n  ')}`,
-)
+  const args = process.argv.slice(2)
+  const pollArg = args.find(a => a === '--poll' || a.startsWith('--poll='))
+  if (args.some(a => a !== pollArg)) {
+    console.error('dev-web: usage: tsx scripts/dev-web.ts [--poll[=ms]]')
+    process.exit(1)
+  }
+  const pollInterval = pollArg === undefined ? undefined : Number(pollArg.split('=')[1] ?? '500')
+  if (pollInterval !== undefined && (!Number.isInteger(pollInterval) || pollInterval <= 0)) {
+    console.error(`dev-web: invalid --poll interval "${pollArg ?? ''}"`)
+    process.exit(1)
+  }
+
+  await watchClientPlugins(repoRoot, pluginDirs, pollInterval)
+  console.log(
+    `dev-web: watching ${String(pluginDirs.length)} dshClient plugin packages`
+    + `${pollInterval !== undefined ? ` (polling ${String(pollInterval)}ms)` : ''}:\n  ${pluginDirs.join('\n  ')}`,
+  )
+}

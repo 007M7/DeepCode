@@ -14,7 +14,6 @@ packages/<group>/<pkg>/
                    # ../../../vendor/cordis (+ ../../../vendor/schemastery if
                    # you use Config, + ../../<group>/<dep> for each dsh dep)
   src/index.ts     # service default export or plugin (name/inject/apply/Config)
-  tests/<x>.spec.ts
   README.md        # service API, events, extension points, design notes,
                    # + gated Model Experience context blocks or short form
                    # + the gated "Known Limitations and Deferred Work" section
@@ -23,7 +22,7 @@ packages/<group>/<pkg>/
 
 当已有分组与包的角色匹配时，选择该分组（`core`、`llm`、`bash`、`compact`、`subagent`、`todo`、`session-persistence`、`ui`、`util` 或 `support`）。允许新建分组，但分组只是纯容器：没有 `package.json`，没有源文件，包仍然恰好位于其下一层。
 
-package.json 不变式（由 `pnpm run constraints` / `scripts/check-workspace-constraints.ts` 强制执行）：`private: true`，`version` 与根 `package.json` 一致，`type: module`，`main: "lib/index.js"`，`types: "lib/types/index.d.ts"`，`exports["."].types: "./lib/types/index.d.ts"`，`exports["."].default: "./lib/index.js"`，`cordis` 同时出现在 peerDependencies 和 devDependencies 中（相同范围）。每个 dsh 对等依赖（peer dependency）都要在 devDependencies 中镜像。`schemastery` 放在 `dependencies` 中（它是运行时校验器），与 agent-loop 保持一致。`files` 列表要精确：`lib/index.js`、`lib/types/**/*.d.ts`、`lib/types/**/*.d.ts.map` 和 `src`；不要发布 `lib/types` 下的 JS 或 JS-map 中间产物，也不要发布陈旧的根声明文件。带有 `bin` 的 CLI 应用包在 `files` 中将 `lib/bin.js` 紧跟在 `lib/index.js` 之后。
+package.json 不变式（由 `pnpm run constraints` / `scripts/check-workspace-constraints.ts` 强制执行）：`private: true`，`version` 与根 `package.json` 一致，`type: module`，`main: "lib/index.js"`，`types: "lib/types/index.d.ts"`，`exports["."].types: "./lib/types/index.d.ts"`，`exports["."].default: "./lib/index.js"`，`cordis` 同时出现在 peerDependencies 和 devDependencies 中（相同范围）。每个 dsh 对等依赖（peer dependency）都要在 devDependencies 中镜像。`schemastery` 放在 `dependencies` 中（它是运行时校验器），与 agent-loop 保持一致。`files` 列表精确包含 `lib/index.js`、`lib/invariant.js`、`lib/types/**/*.d.ts` 以及门禁认可的包专用运行时产物；如果包的运行时 export 指向输出树，还要包含 `lib/types/**/*.js`。不要发布 `src`、声明映射、JS map 或陈旧的根声明文件。带有 `bin` 的 CLI 应用包在 `files` 中将 `lib/bin.js` 紧跟在 `lib/index.js` 之后。
 
 包内的相对导入在源码中使用显式 `.ts` 后缀（例如 `export * from './types.ts'`）。编译器在输出的 JS 中将其重写为 `.js`，在声明文件中保留显式 `.ts` 后缀；标准的 NodeNext/Node16 TypeScript 消费方会将其解析到同目录的 `.d.ts` 文件。
 
@@ -33,11 +32,11 @@ package.json 不变式（由 `pnpm run constraints` / `scripts/check-workspace-c
 |---|---|
 | `tsconfig.base.json` | 已有分组无需编辑；新分组需为 `@deepseek-ai/dsh-*` 通配符添加 `./packages/<group>/*/src` 候选路径 |
 | `tsconfig.host.json`（host 侧包）或 `tsconfig.client.json`（client 侧包） | 在 `references` 中添加 `{ "path": "./packages/<group>/<pkg>" }`——恰好一个聚合，绝不两个都加（[布局](../development.md#typescript-project-layout)） |
-| `knip.json` | 仅当包有非 `*.spec.ts` 入口时需要（如 `*.e2e.ts` → 添加 per-workspace override，参照 `packages/llm/llm-deepseek`） |
+| `knip.json` | 仅当包有仓库发现机制尚未覆盖的入口时需要 |
 
 `packages/client/*` 包改为 extends `tsconfig.base.client.json`（而非 `tsconfig.base.json`）；client 插件包还需在 package.json 声明 `dshClient`、导出 `./client`、调用共享 tsdown preset（`packages/client/tsdown.client.ts`）——client 侧见 [packages/client/AGENTS.md](../../packages/client/AGENTS.md)。
 
-以下内容由 glob 或包 manifest 发现机制自动覆盖，无需手动编辑：根 `package.json` workspaces、`scripts/publint-all.ts`、`tsdown.config.ts`、`vitest.config.ts`、`.oxlintrc.json`、`scripts/check-workspace-constraints.ts`。
+以下内容由 glob 或包 manifest 发现机制自动覆盖，无需手动编辑：根 `package.json` workspaces、`scripts/publint-all.ts`、`tsdown.config.ts`、`.oxlintrc.json`、`scripts/check-workspace-constraints.ts`。
 
 ## 3. 确定包拓扑
 
@@ -85,8 +84,7 @@ Append-only, prefix-stable, replacing, or independent behavior, including the ex
 pnpm install        # registers the workspace
 pnpm run doc-sync
 pnpm run constraints && pnpm run typecheck && pnpm run lint
-pnpm run test:coverage  # 100% per-file over src (types.ts exempt)
 pnpm run build && pnpm run hygiene
 ```
 
-测试要求：每个注册表/注册操作都需要一个 HMR（热模块替换）安全测试（从子 fiber 注册，dispose（资源释放）它，断言清理完成）。鼓励编写充分的测试——见 [docs/testing.md](../testing.md)。
+请遵循[仓库测试政策](../testing.md)，为新包运行行为所需的专项检查并达到相应覆盖率。

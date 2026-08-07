@@ -37,7 +37,6 @@ function startSession(ctx: Context, id: string): ReturnType<Context['sessions'][
   const session = ctx.sessions.create(SessionId(id))
   session.append('turn/start', {
     turn: 1,
-    trigger: { kind: 'message', source: { kind: 'user' } },
   })
   return session
 }
@@ -82,7 +81,7 @@ describe('SessionTitleService configuration and refresh boundaries', () => {
     await expect(withProvider.sessionTitle.refresh(providerEmpty)).resolves.toBeUndefined()
     expect(generate).not.toHaveBeenCalled()
 
-    await expect(withProvider.sessionTitle.refresh(new Session(SessionId('detached'))))
+    await expect(withProvider.sessionTitle.refresh(Session.create(SessionId('detached'))))
       .rejects.toThrow(/not live in this store/)
     const controller = new AbortController()
     controller.abort(new Error('already cancelled'))
@@ -151,7 +150,6 @@ describe('SessionTitleService configuration and refresh boundaries', () => {
     disposeCtx.sessions.announce(disposed)
     disposed.append('turn/start', {
       turn: 1,
-      trigger: { kind: 'message', source: { kind: 'user' } },
     })
     const disposedMessage = appendPrompt(disposed, 'Dispose this session')
     await settle()
@@ -165,10 +163,9 @@ describe('SessionTitleService configuration and refresh boundaries', () => {
 
   it('shares one fallback across concurrent refreshes', async () => {
     const ctx = await setup()
-    const seed = new Session(SessionId('fallback-concurrency-seed'))
+    const seed = Session.create(SessionId('fallback-concurrency-seed'))
     seed.append('turn/start', {
       turn: 1,
-      trigger: { kind: 'message', source: { kind: 'user' } },
     })
     const source = appendPrompt(seed, 'Create exactly one fallback title')
     seed.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
@@ -339,7 +336,6 @@ describe('SessionTitleService configuration and refresh boundaries', () => {
     })
     session.append('turn/start', {
       turn: 1,
-      trigger: { kind: 'message', source: { kind: 'user' } },
     })
     appendPrompt(session, 'Detach before the fallback microtask')
     await settle()

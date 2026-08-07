@@ -17,9 +17,6 @@ Track every background task id you start. You are notified in-session when a tas
 
 Use goal tools for one long-running completion objective in the current session. create_goal may infer goal intent from a direct human request in any language; do not create a goal for routine single-turn work. Call get_goal before update_goal and copy its exact goal_id and revision. After session resume or fork, an active goal is disarmed: when a human asks to continue or resume in any wording or language, use update_goal action resume to rearm it. Mark complete only when the objective is actually achieved. Mark blocked only after the same blocking condition persists for at least 3 consecutive goal rounds, and report that concrete condition in blocked_reason; difficulty, uncertainty, or useful remaining work is not blocked.
 
-Approval prompts are disabled in this session: actions that require approval are rejected automatically — do not request sandbox escalation (do not set `sandbox_permissions`).
-<!-- dsh-user-approval-policy:never -->
-
 Use the workflow tool ONLY when the user explicitly asks for a workflow or for large multi-agent orchestration: you write a JavaScript script (the tool description documents the exact format) that fans work out across many subagents with phases and structured results. For one or two delegations, prefer plain subagent calls.
 
 Use the ralph tool ONLY when the direct human explicitly asks for a Ralph loop or fresh-agent iterative execution. Each Ralph round starts a fresh child with no conversation seed and uses the shared workspace as durable memory. Completion and blockers are worker reports, not independent evaluation. Use same-session goal tools for ordinary long-running objectives, and plain subagents or workflows for bounded delegation and fan-out.
@@ -97,6 +94,8 @@ interface ToolArgsMap {
   } & Record<string, JsonValue>;
   /** Read the current same-session goal, including its exact id/revision, objective, phase, completed continuation rounds, round limit, blocker reason when present, and whether another continuation is armed. Call this before updating a goal. */
   get_goal: Record<string, JsonValue>;
+  /** List your continuable background subagents by durable id and label. Status is a snapshot of the stored record: running means the subagent session is currently live in this process, complete means it exists only in storage and a `send_message` starts a new turn on the same conversation. The snapshot is not a delivery promise — `send_message` performs the authoritative check and may still fail. Children that could not be read are reported as diagnostics instead of being silently dropped. */
+  list_agents: Record<string, JsonValue>;
   /** Run a foreground fresh-agent Ralph loop toward one immutable objective. Use only when the direct human explicitly asks for Ralph or fresh-agent iteration. Each round opens a new child with no parent conversation or prior child session; the shared workspace is long-term memory, and only a bounded structured report crosses rounds. The call returns when a worker reports completion or a concrete blocker, or at the round limit. Ordinary long-running same-session work belongs to goal tools. */
   ralph: {
     /** The immutable completion objective for every fresh Ralph round. */
@@ -113,27 +112,34 @@ interface ToolArgsMap {
     /** Maximum number of lines to return. Defaults to 2000. */
     limit?: number;
   } & Record<string, JsonValue>;
+  /** Send a message to a background subagent by its subagent id, continuing the same conversation. It becomes the subagent's next turn: if it is still working, the message waits until its current turn finishes, so it cannot redirect work already underway. This call returns no answer from the subagent — only confirmation that the message was delivered — so use it to give it more work. A failure means the message was NOT delivered. */
+  send_message: {
+    /** The subagent id returned when the background subagent was started. */
+    subagent_id: string;
+    /** The message to deliver to the subagent. */
+    message: string;
+  } & Record<string, JsonValue>;
   /** Load the full instructions for an available skill. Call this with the exact skill name from the session skill catalog before acting on a task that names or clearly matches that skill. */
   skill: {
     /** The exact skill name from the available skills list. */
     name: string;
   } & Record<string, JsonValue>;
-  /** Delegate a self-contained task to a subagent (a separate agent that works in its own context) and return its final result. Use this to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent runs to completion and you receive only its final answer, not its intermediate steps. Give it a complete, standalone prompt: it does not see this conversation. Set `run_in_background: true` to return a task id; collect with `task_output` and stop with `task_kill`. */
+  /** Delegate a self-contained task to a subagent (a separate agent that works in its own context) and return its final result. Use this to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent runs to completion and you receive only its final answer, not its intermediate steps. Give it a complete, standalone prompt: it does not see this conversation. Set `run_in_background: true` to start a background subagent that keeps its conversation: you receive only its subagent id, never its result, and it works on its own. Use this for work whose result you do not need returned by this call; `send_message` sends it more work. */
   subagent: {
     /** A short (3-5 word) description of the delegated task, for display. */
     description: string;
     /** The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs. */
     prompt: string;
-    /** Run as a background task and return its id; collect with task_output or stop with task_kill. */
+    /** Run as a background subagent that keeps its conversation and return only its subagent id. This call never returns its result; send it more work with send_message. */
     run_in_background?: boolean;
   } & Record<string, JsonValue>;
-  /** Delegate a task to a subagent that inherits this conversation: a child agent seeded with all completed turns so far (it does not see the current in-flight turn), returning only its final result. Use this when the subtask builds on this conversation's context — a follow-up analysis, a review, a continuation — without consuming this conversation's context for the work itself. You receive only its final answer, not its intermediate steps. Set `run_in_background: true` to return a task id; collect with `task_output` and stop with `task_kill`. */
+  /** Delegate a task to a subagent that inherits this conversation: a child agent seeded with all completed turns so far (it does not see the current in-flight turn), returning only its final result. Use this when the subtask builds on this conversation's context — a follow-up analysis, a review, a continuation — without consuming this conversation's context for the work itself. You receive only its final answer, not its intermediate steps. Set `run_in_background: true` to start a background subagent that keeps its conversation: you receive only its subagent id, never its result, and it works on its own. Use this for work whose result you do not need returned by this call; `send_message` sends it more work. */
   subagent_fork: {
     /** A short (3-5 word) description of the delegated task, for display. */
     description: string;
     /** The task for the subagent. It already sees this conversation's completed turns, so build on them freely and state only what is new. */
     prompt: string;
-    /** Run as a background task and return its id; collect with task_output or stop with task_kill. */
+    /** Run as a background subagent that keeps its conversation and return only its subagent id. This call never returns its result; send it more work with send_message. */
     run_in_background?: boolean;
   } & Record<string, JsonValue>;
   /** Request cancellation of a running background task by task id. Returns immediately; the task settles as killed once its work actually stops. */
@@ -154,7 +160,7 @@ interface ToolArgsMap {
     /** Max wait in milliseconds (only meaningful with wait: true). Defaults to the configured wait timeout; capped by the configured maximum. */
     timeout_ms?: number;
   } & Record<string, JsonValue>;
-  /** Record and update a structured task list for the current work. Send the ENTIRE list every call — it REPLACES the previous list (there are no partial updates, no per-item edits). Use it to plan multi-step work and show progress: add one todo per concrete step before you start. Keep AT MOST ONE todo `in_progress` at a time; while work remains, exactly one active task should be `in_progress`. Mark a todo `completed` the moment it is done (do not batch completions), and allow no `in_progress` item only once all work is complete. Skip the list for trivial single-step tasks. Statuses: `pending` (not started), `in_progress` (being worked on now), `completed` (finished). */
+  /** Record and update a structured task list for the current work. Send the ENTIRE list every call — it REPLACES the previous list (there are no partial updates, no per-item edits). Use it to plan multi-step work and show progress: add one todo per concrete step before you start. Mark every todo being actively worked on `in_progress` — several at once when work genuinely runs in parallel (e.g. concurrent subagents or background commands), one for sequential work; while work remains, at least one task should be `in_progress`. Mark a todo `completed` the moment it is done (do not batch completions), and allow no `in_progress` item only once all work is complete. Skip the list for trivial single-step tasks. Statuses: `pending` (not started), `in_progress` (being worked on now), `completed` (finished). */
   todo_write: {
     /** The COMPLETE task list, replacing any previous list. */
     todos: ({
@@ -298,6 +304,16 @@ interface ToolOutputMap {
     };
     activation: "armed" | "disarmed";
   };
+  list_agents: ({
+    kind: "child";
+    id: string;
+    label: string;
+    status: "running" | "complete";
+  } | {
+    kind: "diagnostic";
+    id: string;
+    reason: "corrupt" | "unsupported" | "unavailable";
+  })[];
   ralph: {
     runId: string;
     agentsStarted: number;
@@ -311,6 +327,9 @@ interface ToolOutputMap {
       text: string;
     }[];
     totalLines: number;
+  };
+  send_message: {
+    messageId: string;
   };
   skill: {
     name: string;
@@ -331,6 +350,9 @@ interface ToolOutputMap {
     kind: "background";
     taskId: string;
   } | {
+    kind: "continuable";
+    subagentId: string;
+  } | {
     kind: "foreground";
     runId: string;
     output: JsonValue[];
@@ -338,6 +360,9 @@ interface ToolOutputMap {
   subagent_fork: {
     kind: "background";
     taskId: string;
+  } | {
+    kind: "continuable";
+    subagentId: string;
   } | {
     kind: "foreground";
     runId: string;

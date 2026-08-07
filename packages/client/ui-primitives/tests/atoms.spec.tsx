@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Button, ConnectionBanner, Input, Menu, Modal, Pill } from '@deepseek-ai/dsh-client-ui-primitives'
+import { POINTER_GRACE_MS } from '../src/pointer-grace.ts'
 
 afterEach(cleanup)
 
@@ -160,16 +161,77 @@ describe('Menu', () => {
     expect(onSelect).toHaveBeenCalledWith('del')
   })
 
-  it('closeOnPointerLeave closes when the pointer leaves the list; default stays open', () => {
-    const onClose = vi.fn()
-    const { rerender } = render(
-      <Menu open closeOnPointerLeave anchor={<span>trigger</span>} items={items} onSelect={() => {}} onClose={onClose} />)
-    fireEvent.pointerLeave(screen.getByRole('menu'))
-    expect(onClose).toHaveBeenCalledTimes(1)
-    rerender(
-      <Menu open anchor={<span>trigger</span>} items={items} onSelect={() => {}} onClose={onClose} />)
-    fireEvent.pointerLeave(screen.getByRole('menu'))
-    expect(onClose).toHaveBeenCalledTimes(1)
+  it('closeOnPointerLeave closes a grace after the pointer leaves trigger and list; default never does', () => {
+    vi.useFakeTimers()
+    try {
+      const onClose = vi.fn()
+      const { rerender } = render(
+        <Menu open closeOnPointerLeave anchor={<span>trigger</span>} items={items} onSelect={() => {}} onClose={onClose} />)
+      const wrapper = screen.getByText('trigger').parentElement as HTMLElement
+      fireEvent.pointerLeave(wrapper)
+      // Still open through the grace: the pointer may be crossing the gap.
+      act(() => { vi.advanceTimersByTime(POINTER_GRACE_MS - 1) })
+      expect(onClose).not.toHaveBeenCalled()
+      act(() => { vi.advanceTimersByTime(1) })
+      expect(onClose).toHaveBeenCalledTimes(1)
+      rerender(
+        <Menu open anchor={<span>trigger</span>} items={items} onSelect={() => {}} onClose={onClose} />)
+      fireEvent.pointerLeave(wrapper)
+      act(() => { vi.advanceTimersByTime(POINTER_GRACE_MS * 10) })
+      expect(onClose).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('coming back inside the grace keeps the list open (trigger and list are one region)', () => {
+    vi.useFakeTimers()
+    try {
+      const onClose = vi.fn()
+      render(
+        <Menu open closeOnPointerLeave anchor={<span>trigger</span>} items={items} onSelect={() => {}} onClose={onClose} />)
+      const wrapper = screen.getByText('trigger').parentElement as HTMLElement
+      fireEvent.pointerLeave(wrapper)
+      act(() => { vi.advanceTimersByTime(POINTER_GRACE_MS - 50) })
+      fireEvent.pointerEnter(wrapper)
+      act(() => { vi.advanceTimersByTime(POINTER_GRACE_MS * 10) })
+      expect(onClose).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a close from selection disarms the pending grace close', () => {
+    vi.useFakeTimers()
+    try {
+      const onClose = vi.fn()
+      const { rerender } = render(
+        <Menu open closeOnPointerLeave anchor={<span>trigger</span>} items={items} onSelect={() => {}} onClose={onClose} />)
+      const wrapper = screen.getByText('trigger').parentElement as HTMLElement
+      fireEvent.pointerLeave(wrapper)
+      // The owner closes for its own reason (selection/Escape) mid-grace; the
+      // armed timer must not survive to shut a list reopened right after.
+      rerender(
+        <Menu open={false} closeOnPointerLeave anchor={<span>trigger</span>} items={items} onSelect={() => {}} onClose={onClose} />)
+      act(() => { vi.advanceTimersByTime(POINTER_GRACE_MS * 10) })
+      expect(onClose).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('leaving a closed list arms nothing', () => {
+    vi.useFakeTimers()
+    try {
+      const onClose = vi.fn()
+      render(
+        <Menu open={false} closeOnPointerLeave anchor={<span>trigger</span>} items={items} onSelect={() => {}} onClose={onClose} />)
+      fireEvent.pointerLeave(screen.getByText('trigger').parentElement as HTMLElement)
+      act(() => { vi.advanceTimersByTime(POINTER_GRACE_MS * 10) })
+      expect(onClose).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('a list click does not bubble to the anchor row (portal synthetic-event path)', () => {
@@ -324,11 +386,17 @@ describe('Modal', () => {
       <Modal open={false} onClose={onClose} title="Create new workspace">body</Modal>)
     expect(screen.queryByRole('dialog')).toBeNull()
     rerender(
-      <Modal open onClose={onClose} title="Create new workspace" description="Name it." footer={<button type="button">Create</button>}>
+      <Modal open onClose={onClose} title="Create new workspace" closeLabel="Configure later" description="Name it." contentClassName="scrolling-content" footer={<button type="button">Create</button>}>
         <input aria-label="name" />
       </Modal>)
-    expect(screen.getByRole('dialog', { name: 'Create new workspace' })).toBeDefined()
+    const dialog = screen.getByRole('dialog', { name: 'Create new workspace' })
+    expect(dialog).toBeDefined()
+    // The full-page layer escapes caller stacking contexts but remains in
+    // this document/current WebUI window.
+    expect(dialog.parentElement?.parentElement).toBe(document.body)
+    expect(screen.getByRole('button', { name: 'Configure later' })).toBeDefined()
     expect(screen.getByText('Name it.')).toBeDefined()
+    expect(screen.getByText('Name it.').parentElement?.className).toContain('scrolling-content')
     fireEvent.keyDown(document, { key: 'a' })
     expect(onClose).not.toHaveBeenCalled()
     fireEvent.keyDown(document, { key: 'Escape' })

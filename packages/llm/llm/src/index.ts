@@ -9,7 +9,11 @@
 import { Context, Service } from 'cordis'
 import type {
   GenerateOptions,
+  LlmConfigurableProvider,
+  LlmDiscoveredModel,
   LlmFailure,
+  LlmModelContext,
+  LlmModelDiscoveryRequest,
   LlmModelInfo,
   LlmResolvedModelInfo,
   LlmProviderInfo,
@@ -20,22 +24,22 @@ import { resolveRetryPolicy } from './retry-policy.ts'
 import type { ResolvedRetryPolicy } from './retry-policy.ts'
 import type { ProviderRequestId } from './brand.ts'
 import { callConfigEquals, deepFreeze } from './call-config.ts'
-import type { LlmCallConfig } from './call-config.ts'
-import { HarnessError } from './error.ts'
-import { bindAdapterFailureScope, markLlmAdapterFailure } from './adapter-failure.ts'
-import type { AdapterFailureScope } from './adapter-failure.ts'
+import type { LlmCallConfig, LlmCallConfigAdapterDefaults } from './call-config.ts'
+import { HarnessError, INVALID_CREDENTIAL_CODE } from './error.ts'
+import { normalizeLlmFailure } from './adapter-failure.ts'
+import { normalizeApiKey } from './api-key.ts'
 
 export * from './attribution.ts'
 export * from './brand.ts'
 export * from './never.ts'
 export * from './error.ts'
+export * from './api-key.ts'
 export * from './types.ts'
 export * from './message.ts'
 export * from './retry-policy.ts'
 export { BlockAssembler } from './assembler.ts'
 export { callConfigEquals, deepFreeze, isAgentLoopRequest, markAgentLoopRequest } from './call-config.ts'
-export type { LlmCallConfig } from './call-config.ts'
-export { isLlmAdapterFailure, llmFailureOf, llmRetryPolicyOf } from './adapter-failure.ts'
+export type { LlmCallConfig, LlmCallConfigAdapterDefaults } from './call-config.ts'
 
 declare module 'cordis' {
   interface Context {
@@ -56,6 +60,17 @@ declare module 'cordis' {
      * @mode waterfall
      */
     'llm/stream'(this: LlmService, options: GenerateOptions, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk>
+
+    /**
+     * The provider topology changed: an adapter registered or unregistered
+     * routes, or the configurable-provider directory gained or lost entries.
+     * This is a payload-free registry notification fired at each commit point
+     * (including registration disposal); consumers re-read `listProviders()`,
+     * `listModels()`, or `listConfigurableProviders()` for the new state.
+     * Observer failures are contained and cannot veto the registry mutation.
+     * @mode emit
+     */
+    'llm/adapters-updated'(): void
   }
 }
 
@@ -109,10 +124,51 @@ export class LlmError extends HarnessError {
   }
 }
 
+/**
+ * Accept one supplied credential, or refuse it as unusable.
+ *
+ * A stored key arrives from the credentials seam, a `.env` line, or a shell
+ * export, all of which pick up surrounding whitespace, so trimming is silent.
+ * Anything else fails here rather than inside `fetch`, whose ByteString
+ * refusal names a UTF-16 code point instead of the setting to change. The key
+ * never enters the message: `ref` names where to fix it, and echoing any part
+ * of a secret into a log or a UI is the failure this diagnosis avoids.
+ *
+ * Lives beside {@link LlmError} rather than in `./api-key.ts` so the predicate
+ * module stays dependency-free; both adapters share this one diagnosis instead
+ * of keeping near-identical local copies.
+ * @param raw - the credential exactly as supplied.
+ * @param pkg - the refusing package name, prefixed to the diagnostic.
+ * @param ref - the credential reference the value resolved through.
+ * @returns the trimmed, usable key.
+ */
+export function assertUsableApiKey(raw: string, pkg: string, ref: string): string {
+  const checked = normalizeApiKey(raw)
+  if (checked.ok) return checked.value
+  // The Models page is named as the writer it usually is, not as the only one:
+  // the same value can arrive from a hand-edited .env or a shell export in a
+  // composition that mounts no credentials seam at all, where directing the
+  // user to a page that deployment does not serve would be a dead end.
+  throw new LlmError(
+    checked.reason === 'empty'
+      ? `${pkg}: the API key resolved from ${ref} is blank; set ${ref} to the raw key`
+        + ' (the web Models page writes it) or export it in the launching environment'
+      : `${pkg}: the API key resolved from ${ref} contains characters no HTTP header can carry;`
+        + ` set ${ref} to the raw key alone (the web Models page writes it)`,
+    INVALID_CREDENTIAL_CODE,
+  )
+}
+
 /** One model call whose config and adapter registration were resolved together. */
 export interface PreparedLlmCall {
   /** Detached, deep-frozen config with any adapter-owned default materialized. */
   readonly config: LlmCallConfig
+  /** Immutable retry policy captured with the adapter registration. */
+  readonly retryPolicy: ResolvedRetryPolicy
+  /** Detached context metadata resolved with the registration-bound call. */
+  readonly context?: LlmModelContext
+  /** Config fields materialized by the captured adapter rather than proposed by the caller. */
+  readonly adapterDefaults: LlmCallConfigAdapterDefaults
   /**
    * Dispatch this call once through the registration captured during
    * preparation. The request's call-config fields must match {@link config};
@@ -166,7 +222,7 @@ export abstract class LlmAdapter {
    * @param model - exact model id passed to {@link GenerateOptions.model}.
    * @param _signal - cancellation for this exact-model lookup; asynchronous
    *   implementations must settle promptly after it aborts.
-   * @returns provider/model identity plus any context and reasoning metadata.
+   * @returns provider/model identity plus any context, call-default, and reasoning metadata.
    */
   resolveModel(
     provider: string,
@@ -185,14 +241,98 @@ export abstract class LlmAdapter {
 }
 
 /**
+ * What {@link LlmService.registerAdapter} returns: the disposer, plus an
+ * atomic route replacement for the same adapter instance.
+ */
+export interface AdapterRegistrationHandle {
+  /** Release every route this registration currently holds. */
+  (): void
+  /**
+   * Replace this registration's routes with `providers`, keeping the same
+   * adapter instance. The candidate set is validated in full first — a
+   * conflict with another adapter, an invalid name, or bad provider metadata
+   * throws and leaves the current routes untouched — and the swap itself is
+   * one synchronous section, so no request can observe a gap. An empty array
+   * is legal here (a settings section that emptied holds zero routes while
+   * staying registered), unlike an empty initial registration.
+   *
+   * Throws `LlmError` with code `REGISTRATION_DISPOSED` once the registration
+   * has been released: its routes are gone and its disposer has already run,
+   * so anything registered afterwards would have no owner left to release it.
+   * @param providers - the complete next route set for this registration.
+   */
+  replace(providers: string[]): void
+}
+
+/**
+ * A live configurable-provider registration, disposable and atomically
+ * replaceable — the directory counterpart of {@link AdapterRegistrationHandle}.
+ */
+export interface DirectoryRegistrationHandle {
+  /** Withdraw every entry this registration currently holds. */
+  (): void
+  /**
+   * Replace this registration's entries with `entries`. The candidate set is
+   * validated in full first — an entry another registration already declares,
+   * a duplicate within the set, or invalid metadata throws and leaves the
+   * current entries untouched — and the swap is one synchronous section, so no
+   * reader observes a gap. An empty array is legal here, unlike an empty
+   * initial registration.
+   *
+   * Throws `LlmError` with code `REGISTRATION_DISPOSED` once the registration
+   * has been disposed.
+   */
+  replace(entries: readonly LlmConfigurableProvider[]): void
+}
+
+/**
  * The abstract `llm` service: an adapter registry plus a streaming model-call
  * surface, interceptable via the `llm/stream` waterfall.
  */
 export class LlmService extends Service {
   private adapters = new Map<string, AdapterRegistration>()
+  private directory = new Map<string, LlmConfigurableProvider>()
+  private discoveries = new Map<
+    string,
+    (request: LlmModelDiscoveryRequest) => Promise<readonly LlmDiscoveredModel[]>
+  >()
 
   constructor(ctx: Context) {
     super(ctx, 'llm')
+  }
+
+  /** Notify topology observers without letting one broken listener veto the commit. */
+  private emitAdaptersUpdated(): void {
+    // Cordis emit uses Array.map: one synchronous throw starves later
+    // listeners. Registry notifications are non-vetoing, so contain each
+    // callback independently; INVARIANT-coded failures still surface.
+    let invariantFailure: unknown
+    for (const listener of this.ctx.events.dispatch('emit', ['llm/adapters-updated']) as Array<() => unknown>) {
+      try {
+        const returned = listener()
+        if (returned != null && typeof (returned as PromiseLike<unknown>).then === 'function') {
+          // An emit listener may still be an async function; its rejection
+          // cannot reach the synchronous INVARIANT rethrow below, so it is
+          // contained here instead of becoming an unhandled rejection.
+          void Promise.resolve(returned as PromiseLike<unknown>).then(undefined, (error: unknown) => {
+            this.warnAdaptersListenerFailure(error)
+          })
+        }
+      } catch (error) {
+        if ((error as { code?: unknown } | null)?.code === 'INVARIANT') {
+          invariantFailure ??= error
+          continue
+        }
+        this.warnAdaptersListenerFailure(error)
+      }
+    }
+    if (invariantFailure !== undefined) throw invariantFailure as Error
+  }
+
+  /** Contained-listener diagnostic shared by the sync and async failure paths. */
+  private warnAdaptersListenerFailure(error: unknown): void {
+    this.ctx.logger.warn('llm: an llm/adapters-updated listener failed')
+    this.ctx.logger.warn(error)
   }
 
   /**
@@ -201,39 +341,83 @@ export class LlmService extends Service {
    * Disposed with the fiber.
    * @param providers - every provider route this adapter should serve.
    * @param adapter - the adapter that streams calls for those providers.
-   * @returns the disposer that unregisters all of them.
+   * @returns the disposer, carrying {@link AdapterRegistrationHandle.replace}.
    */
-  registerAdapter(providers: string[], adapter: LlmAdapter): () => void {
+  registerAdapter(providers: string[], adapter: LlmAdapter): AdapterRegistrationHandle {
+    // The routes this registration currently holds; `replace` rewrites it, and
+    // the disposer releases whatever it holds at disposal time.
+    const owned = new Set<string>()
+    // The disposer has run: `owned` being empty cannot say so on its own,
+    // because `replace([])` legally leaves a live registration holding none.
+    let released = false
     const dispose = this.ctx.effect(function* (this: LlmService) {
       if (providers.length === 0) throw new LlmError('an adapter must register at least one provider', 'INVALID_ADAPTER')
-      const unique = new Set<string>()
-      const registrations: AdapterRegistration[] = []
-      for (const provider of providers) {
-        if (provider.length === 0) throw new LlmError('adapter provider names must be non-empty', 'INVALID_ADAPTER')
-        if (unique.has(provider) || this.adapters.has(provider)) {
-          throw new LlmError(`an adapter for provider "${provider}" is already registered`, 'DUPLICATE_ADAPTER')
-        }
-        const info = adapter.providerInfo(provider)
-        if (typeof info.id !== 'string' || info.id !== provider || typeof info.name !== 'string' || info.name.length === 0) {
-          throw new LlmError(`adapter metadata for provider "${provider}" must preserve its id and have a non-empty name`, 'INVALID_ADAPTER')
-        }
-        unique.add(provider)
-        const retryPolicy = adapter.providerRetryPolicy(provider)
-          ?? resolveRetryPolicy(undefined, `llm: provider "${provider}" retryPolicy`)
-        registrations.push({
-          adapter,
-          provider: { id: info.id, name: info.name },
-          retryPolicy,
-        })
-      }
-      for (const registration of registrations) this.adapters.set(registration.provider.id, registration)
+      this.commitRoutes(owned, this.prepareRoutes(providers, adapter, owned))
       yield () => {
-        for (const provider of providers) this.adapters.delete(provider)
+        released = true
+        for (const provider of owned) this.adapters.delete(provider)
+        owned.clear()
+        this.emitAdaptersUpdated()
       }
     }.bind(this), 'llm.registerAdapter()')
     // ctx.effect's disposer returns Promise<void>; our disposer API is
     // synchronous fire-and-forget — discard the (always-resolved) promise.
-    return () => void dispose()
+    const handle = (() => void dispose()) as AdapterRegistrationHandle
+    handle.replace = (next: string[]): void => {
+      // Registering here would leak: the effect's disposer already ran, so
+      // nothing remains to release whatever this call would put in the map.
+      if (released) {
+        throw new LlmError('a disposed adapter registration cannot replace its routes', 'REGISTRATION_DISPOSED')
+      }
+      this.commitRoutes(owned, this.prepareRoutes(next, adapter, owned))
+    }
+    return handle
+  }
+
+  /**
+   * Validate one candidate route set for `adapter`, treating routes this
+   * registration already holds as available. Nothing is mutated: a rejected
+   * candidate leaves the registry exactly as it was.
+   */
+  private prepareRoutes(providers: string[], adapter: LlmAdapter, owned: ReadonlySet<string>): AdapterRegistration[] {
+    const unique = new Set<string>()
+    const registrations: AdapterRegistration[] = []
+    for (const provider of providers) {
+      if (provider.length === 0) throw new LlmError('adapter provider names must be non-empty', 'INVALID_ADAPTER')
+      if (unique.has(provider) || (this.adapters.has(provider) && !owned.has(provider))) {
+        throw new LlmError(`an adapter for provider "${provider}" is already registered`, 'DUPLICATE_ADAPTER')
+      }
+      const info = adapter.providerInfo(provider)
+      if (typeof info.id !== 'string' || info.id !== provider || typeof info.name !== 'string' || info.name.length === 0) {
+        throw new LlmError(`adapter metadata for provider "${provider}" must preserve its id and have a non-empty name`, 'INVALID_ADAPTER')
+      }
+      unique.add(provider)
+      const retryPolicy = adapter.providerRetryPolicy(provider)
+        ?? resolveRetryPolicy(undefined, `llm: provider "${provider}" retryPolicy`)
+      registrations.push({
+        adapter,
+        provider: { id: info.id, name: info.name },
+        retryPolicy,
+      })
+    }
+    return registrations
+  }
+
+  /**
+   * Swap this registration's routes for the prepared ones in one synchronous
+   * section, so no observer can see the registry between the release and the
+   * re-registration. The route set's one mutation point is also where
+   * `llm/adapters-updated` is published, so a `replace` announces itself
+   * exactly like a first registration.
+   */
+  private commitRoutes(owned: Set<string>, registrations: readonly AdapterRegistration[]): void {
+    for (const provider of owned) this.adapters.delete(provider)
+    owned.clear()
+    for (const registration of registrations) {
+      this.adapters.set(registration.provider.id, registration)
+      owned.add(registration.provider.id)
+    }
+    this.emitAdaptersUpdated()
   }
 
   /**
@@ -242,6 +426,144 @@ export class LlmService extends Service {
    */
   listProviders(): LlmProviderInfo[] {
     return [...this.adapters.values()].map(({ provider }) => ({ ...provider }))
+  }
+
+  /**
+   * Declare provider routes an adapter plugin can activate through
+   * configuration. Registration is all-or-nothing: an empty list, invalid
+   * entry, or a provider already declared by any registration throws
+   * `LlmError` without registering the rest. Disposed with the fiber.
+   * @param entries - every configurable provider this plugin owns.
+   * @returns a handle that withdraws all of them, and can atomically replace them.
+   */
+  registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): DirectoryRegistrationHandle {
+    let held: LlmConfigurableProvider[] = []
+    let disposed = false
+    /**
+     * Validate a candidate set in full against everything this registration
+     * does not already hold, then publish it. Nothing is written until the
+     * whole set passes, so a refused candidate leaves the current entries in
+     * place — the property that makes `replace` a swap rather than a
+     * delete-then-add that can strand the directory empty.
+     */
+    const commit = (candidates: readonly LlmConfigurableProvider[]): void => {
+      const detached: LlmConfigurableProvider[] = []
+      const own = new Set(held.map(entry => entry.provider))
+      for (const entry of candidates) {
+        if (entry.provider.length === 0 || entry.displayName.length === 0 || entry.settingsNs.length === 0) {
+          throw new LlmError('configurable providers need a non-empty provider, displayName, and settingsNs', 'INVALID_DIRECTORY')
+        }
+        if (entry.settingsPath.some(segment => segment.length === 0)) {
+          throw new LlmError(`configurable provider "${entry.provider}" has an empty settingsPath segment`, 'INVALID_DIRECTORY')
+        }
+        if ((this.directory.has(entry.provider) && !own.has(entry.provider))
+          || detached.some(seen => seen.provider === entry.provider)) {
+          throw new LlmError(`configurable provider "${entry.provider}" is already declared`, 'DUPLICATE_DIRECTORY')
+        }
+        detached.push({ ...entry, settingsPath: [...entry.settingsPath] })
+      }
+      for (const entry of held) this.directory.delete(entry.provider)
+      for (const entry of detached) this.directory.set(entry.provider, entry)
+      held = detached
+      this.emitAdaptersUpdated()
+    }
+
+    const dispose = this.ctx.effect(function* (this: LlmService) {
+      if (entries.length === 0) {
+        throw new LlmError('a configurable-provider registration must declare at least one provider', 'INVALID_DIRECTORY')
+      }
+      commit(entries)
+      yield () => {
+        disposed = true
+        for (const entry of held) this.directory.delete(entry.provider)
+        held = []
+        this.emitAdaptersUpdated()
+      }
+    }.bind(this), 'llm.registerConfigurableProviders()')
+
+    const handle = ((): void => void dispose()) as DirectoryRegistrationHandle
+    handle.replace = (next: readonly LlmConfigurableProvider[]): void => {
+      if (disposed) {
+        throw new LlmError('this configurable-provider registration was disposed', 'REGISTRATION_DISPOSED')
+      }
+      commit(next)
+    }
+    return handle
+  }
+
+  /**
+   * List every declared configurable provider, registered or dormant.
+   * @returns detached directory entries in declaration order.
+   */
+  listConfigurableProviders(): LlmConfigurableProvider[] {
+    return [...this.directory.values()].map(entry => ({ ...entry, settingsPath: [...entry.settingsPath] }))
+  }
+
+  /**
+   * Offer to interrogate provider endpoints on behalf of the settings
+   * namespace this plugin owns. The namespace is the key because that is what
+   * a configuration surface already holds from the configurable-provider
+   * directory, and because a provider being *added* has no route to name yet.
+   * Disposed with the fiber.
+   * @param settingsNs - the namespace whose profiles this discovery serves.
+   * @param discover - interrogates one endpoint; must honor `request.signal`.
+   * @returns the disposer that withdraws the offer.
+   */
+  registerModelDiscovery(
+    settingsNs: string,
+    discover: (request: LlmModelDiscoveryRequest) => Promise<readonly LlmDiscoveredModel[]>,
+  ): () => void {
+    const dispose = this.ctx.effect(function* (this: LlmService) {
+      if (settingsNs.length === 0) {
+        throw new LlmError('model discovery needs a non-empty settings namespace', 'INVALID_DISCOVERY')
+      }
+      if (this.discoveries.has(settingsNs)) {
+        throw new LlmError(`model discovery for "${settingsNs}" is already registered`, 'DUPLICATE_DISCOVERY')
+      }
+      this.discoveries.set(settingsNs, discover)
+      yield () => {
+        this.discoveries.delete(settingsNs)
+      }
+    }.bind(this), 'llm.registerModelDiscovery()')
+    return () => void dispose()
+  }
+
+  /**
+   * Interrogate one provider endpoint for the models it advertises. The
+   * request describes a draft, not a stored route, so nothing here reads or
+   * writes settings or credentials — the caller owns both, and the reply is
+   * candidate metadata a surface may offer for adoption.
+   * @param settingsNs - namespace whose registered discovery serves this draft.
+   * @param request - the endpoint, protocol, and one-shot credential to use.
+   * @returns the advertised models, deduplicated in endpoint order.
+   */
+  async discoverModels(
+    settingsNs: string,
+    request: LlmModelDiscoveryRequest,
+  ): Promise<LlmDiscoveredModel[]> {
+    const discover = this.discoveries.get(settingsNs)
+    if (discover === undefined) {
+      throw new LlmError(`no model discovery is registered for "${settingsNs}"`, 'NO_DISCOVERY')
+    }
+    // One of the two identifies what to describe: a route the adapter knows, or
+    // an endpoint to ask. Neither leaves nothing to answer about.
+    if ((request.provider ?? '').length === 0 && (request.baseURL ?? '').length === 0) {
+      throw new LlmError('model discovery needs a provider route or a baseURL', 'INVALID_DISCOVERY')
+    }
+    const discovered = await discover(request)
+    const seen = new Set<string>()
+    const models: LlmDiscoveredModel[] = []
+    for (const model of discovered) {
+      if (typeof model.id !== 'string' || model.id.length === 0 || seen.has(model.id)) continue
+      seen.add(model.id)
+      models.push({
+        id: model.id,
+        ...model.name === undefined ? {} : { name: model.name },
+        ...model.contextWindow === undefined ? {} : { contextWindow: model.contextWindow },
+        ...model.maxTokens === undefined ? {} : { maxTokens: model.maxTokens },
+      })
+    }
+    return models
   }
 
   /**
@@ -331,12 +653,21 @@ export class LlmService extends Service {
         'INVALID_MODEL_CONTEXT',
       )
     }
+    const defaultMaxTokens = resolved.defaultMaxTokens
+    if (defaultMaxTokens !== undefined
+      && (!Number.isSafeInteger(defaultMaxTokens) || defaultMaxTokens <= 0)) {
+      throw new LlmError(
+        `adapter returned invalid default maxTokens for provider "${provider}" model "${model}"`,
+        'INVALID_MODEL_MAX_TOKENS',
+      )
+    }
     const info: LlmResolvedModelInfo = {
       provider,
       id: model,
       name: resolved.name,
       ...resolved.description === undefined ? {} : { description: resolved.description },
       ...context === undefined ? {} : { context: { contextWindow: context.contextWindow } },
+      ...defaultMaxTokens === undefined ? {} : { defaultMaxTokens },
     }
     const reasoning = resolved.reasoning
     if (reasoning === undefined) return info
@@ -385,7 +716,7 @@ export class LlmService extends Service {
 
   /**
    * Validate a conversation call config against its exact model capability and
-   * materialize an adapter-configured default. Unsupported explicit efforts
+   * materialize adapter-configured defaults. Unsupported explicit efforts
    * reject before provider I/O; no clamping or aliasing is performed. This
    * standalone query does not bind a later dispatch; use {@link prepareCall}
    * when logging and streaming must share one adapter registration.
@@ -394,16 +725,21 @@ export class LlmService extends Service {
    * @returns a detached config only when a default must be materialized.
    */
   async resolveCallConfig(config: LlmCallConfig, signal?: AbortSignal): Promise<LlmCallConfig> {
-    return this.resolveCallConfigFor(this.registration(config.provider), config, signal)
+    return (await this.resolveCallFor(this.registration(config.provider), config, signal)).config
   }
 
-  private async resolveCallConfigFor(
+  private async resolveCallFor(
     registration: AdapterRegistration,
     config: LlmCallConfig,
     signal?: AbortSignal,
-  ): Promise<LlmCallConfig> {
-    const reasoning = (await this.resolveModelInfoFor(registration, config.model, signal)).reasoning
-    const requested = config.reasoningEffort
+  ): Promise<{ config: LlmCallConfig; context?: LlmModelContext }> {
+    const info = await this.resolveModelInfoFor(registration, config.model, signal)
+    const defaulted = config.maxTokens === undefined && info.defaultMaxTokens !== undefined
+      ? { ...config, maxTokens: info.defaultMaxTokens }
+      : config
+    const reasoning = info.reasoning
+    const requested = defaulted.reasoningEffort
+    let resolvedConfig = defaulted
     if (reasoning === undefined) {
       if (requested !== undefined) {
         throw new LlmError(
@@ -411,17 +747,22 @@ export class LlmService extends Service {
           'UNSUPPORTED_REASONING_EFFORT',
         )
       }
-      return config
+    } else {
+      const effective = requested ?? reasoning.defaultEffort
+      if (effective !== undefined) {
+        if (!reasoning.efforts.some(effort => effort.id === effective)) {
+          throw new LlmError(
+            `provider "${config.provider}" model "${config.model}" does not support reasoning effort "${effective}"`,
+            'UNSUPPORTED_REASONING_EFFORT',
+          )
+        }
+        if (requested !== effective) resolvedConfig = { ...defaulted, reasoningEffort: effective }
+      }
     }
-    const effective = requested ?? reasoning.defaultEffort
-    if (effective === undefined) return config
-    if (!reasoning.efforts.some(effort => effort.id === effective)) {
-      throw new LlmError(
-        `provider "${config.provider}" model "${config.model}" does not support reasoning effort "${effective}"`,
-        'UNSUPPORTED_REASONING_EFFORT',
-      )
+    return {
+      config: resolvedConfig,
+      ...info.context === undefined ? {} : { context: info.context },
     }
-    return requested === effective ? config : { ...config, reasoningEffort: effective }
   }
 
   /**
@@ -434,15 +775,34 @@ export class LlmService extends Service {
    */
   async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<PreparedLlmCall> {
     const registration = this.registration(config.provider)
-    const resolvedConfig = deepFreeze(structuredClone(
-      await this.resolveCallConfigFor(registration, config, signal),
-    ))
+    const resolved = await this.resolveCallFor(registration, config, signal)
+    const resolvedConfig = deepFreeze(structuredClone(resolved.config))
+    const context = resolved.context === undefined
+      ? undefined
+      : deepFreeze(structuredClone(resolved.context))
+    const adapterDefaults = deepFreeze<LlmCallConfigAdapterDefaults>({
+      ...config.reasoningEffort === undefined && resolvedConfig.reasoningEffort !== undefined
+        ? { reasoningEffort: true }
+        : {},
+      ...config.maxTokens === undefined && resolvedConfig.maxTokens !== undefined
+        ? { maxTokens: true }
+        : {},
+    })
     let dispatched = false
     return Object.freeze({
       config: resolvedConfig,
+      retryPolicy: registration.retryPolicy,
+      adapterDefaults,
+      ...context === undefined ? {} : { context },
       stream: (options: GenerateOptions): AsyncIterable<StreamChunk> => {
         if (dispatched) {
           throw new LlmError('a prepared LLM call can only be dispatched once', 'INVALID_PREPARED_CALL')
+        }
+        if (!callConfigEquals(options, resolvedConfig)) {
+          throw new LlmError(
+            'prepared LLM call config changed before adapter dispatch',
+            'INVALID_PREPARED_CALL',
+          )
         }
         dispatched = true
         return this.streamWithRegistration(options, { registration, config: resolvedConfig })
@@ -473,24 +833,19 @@ export class LlmService extends Service {
   }
 
   /**
-   * Final adapter boundary. It tags only failures from adapter selection,
-   * synchronous dispatch, iterator construction, or iteration while preserving
-   * the original Error object. Middleware outside this generator remains
-   * distinguishable as plugin work. An iteration failure skips adapter cleanup
-   * so it cannot suppress the primary provider error. A downstream close awaits
-   * adapter cleanup, whose failures remain ordinary untagged work.
+   * Final adapter boundary. Adapter selection, dispatch, iterator construction,
+   * and iteration failures become one terminal failure chunk. Middleware and
+   * downstream consumer failures remain thrown plugin or consumer errors.
    */
   private async * adapterStream(
     options: GenerateOptions,
-    failures: AdapterFailureScope,
     prepared?: { registration: AdapterRegistration; config: LlmCallConfig },
   ): AsyncGenerator<StreamChunk> {
     let iterator: AsyncIterator<StreamChunk>
     try {
       const registration = prepared?.registration ?? this.registration(options.provider)
-      failures.retryPolicy = registration.retryPolicy
       const resolvedConfig = prepared === undefined
-        ? await this.resolveCallConfigFor(registration, options, options.signal)
+        ? (await this.resolveCallFor(registration, options, options.signal)).config
         : prepared.config
       if (prepared !== undefined && !callConfigEquals(options, resolvedConfig)) {
         throw new LlmError(
@@ -498,7 +853,7 @@ export class LlmService extends Service {
           'INVALID_PREPARED_CALL',
         )
       }
-      const resolvedOptions = prepared !== undefined || callConfigEquals(options, resolvedConfig)
+      const resolvedOptions = callConfigEquals(options, resolvedConfig)
         ? options
         : Object.isFrozen(options)
           ? deepFreeze({ ...options, ...resolvedConfig })
@@ -507,32 +862,34 @@ export class LlmService extends Service {
       const stream = adapter.stream(this.forAdapter(resolvedOptions, adapter))
       iterator = stream[Symbol.asyncIterator]()
     } catch (error: unknown) {
-      throw markLlmAdapterFailure(failures, error)
+      yield adapterFailureChunk(error, options.signal)
+      return
     }
 
     let completed = false
-    let iterationFailed = false
     try {
       while (true) {
-        let value: StreamChunk
+        let item: { done: true } | { done: false; value: StreamChunk }
         try {
-          const item = await iterator.next()
-          if (item.done) {
-            completed = true
-            return
-          }
-          value = item.value
+          const next = await iterator.next()
+          item = next.done
+            ? { done: true }
+            : { done: false, value: next.value }
         } catch (error: unknown) {
-          iterationFailed = true
-          throw markLlmAdapterFailure(failures, error)
+          completed = true
+          yield adapterFailureChunk(error, options.signal)
+          return
+        }
+        if (item.done) {
+          completed = true
+          return
         }
         // End the adapter-owned try before yielding: consumer/middleware
-        // failures resumed into this generator must remain untagged.
-        yield value
+        // failures resumed into this generator must remain thrown.
+        yield item.value
       }
     } finally {
-      // oxlint-disable-next-line typescript/no-unnecessary-condition -- the iteration catch sets its latch before entering finally.
-      if (!completed && !iterationFailed) {
+      if (!completed) {
         const close = iterator.return?.bind(iterator)
         if (close) await close()
       }
@@ -540,15 +897,13 @@ export class LlmService extends Service {
   }
 
   /**
-   * Stream one model call as raw chunks (token-level deltas). Throws
-   * `LlmError` with code `NO_ADAPTER` if no adapter is registered for
-   * `options.provider`. Replay state is retained only when the same adapter
-   * instance owns its historical provider and the target provider. Final
-   * adapter selection remains fixed through asynchronous exact-model resolution
-   * and dispatch. Selection, dispatch, and iteration failures retain their
-   * original Error identity and are tagged in a call-local scope for narrow
-   * agent-loop request recovery; middleware and nested-call failures remain
-   * untagged for the outer call.
+   * Stream one model call as raw chunks (token-level deltas). Replay state is
+   * retained only when the same adapter instance owns its historical provider
+   * and the target provider. Final adapter selection remains fixed through
+   * asynchronous exact-model resolution and dispatch. Adapter selection,
+   * dispatch, and iteration failures become terminal `error` or `aborted`
+   * finish chunks; middleware, nested-call, cleanup, and consumer failures
+   * remain thrown.
    * @param options - the full request; `options.provider` selects the adapter.
    * @returns the chunk stream, possibly wrapped by `llm/stream` listeners.
    */
@@ -560,14 +915,23 @@ export class LlmService extends Service {
     options: GenerateOptions,
     prepared?: { registration: AdapterRegistration; config: LlmCallConfig },
   ): AsyncIterable<StreamChunk> {
-    const failures: AdapterFailureScope = { failures: new WeakMap<Error, LlmFailure>() }
-    const stream = this.ctx.waterfall(
+    return this.ctx.waterfall(
       this,
       'llm/stream',
       options,
-      () => this.adapterStream(options, failures, prepared),
+      () => this.adapterStream(options, prepared),
     )
-    return bindAdapterFailureScope(stream, failures)
+  }
+}
+
+/** Convert one adapter throw into the stream protocol's terminal outcome. */
+function adapterFailureChunk(error: unknown, signal?: AbortSignal): StreamChunk {
+  const failure = normalizeLlmFailure(error)
+  return {
+    type: 'finish',
+    reason: signal?.aborted || failure.code === 'ABORTED'
+      ? { kind: 'aborted', failure }
+      : { kind: 'error', failure },
   }
 }
 

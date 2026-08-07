@@ -201,19 +201,64 @@ describe('sessions', () => {
     await runtime.dispose()
   })
 
-  it('records service-face calls; open() moves the selection and clear() empties it', async () => {
+  it('records service-face calls and retains catalog addresses only for addressed selection', async () => {
     const runtime = await runtimeWithFrame()
     await runtime.sessions.add({ id: 's1' })
     await runtime.sessions.add({ id: 's2' })
+    const address = {
+      parentSessionId: 's2' as SessionId,
+      childSessionId: 's1' as SessionId,
+      mode: 'continuable' as const,
+    }
+    runtime.sessions.openSubagent(address)
+    await runtime.flush()
+    expect(runtime.sessions.list.getSnapshot()).toMatchObject({ current: 's1', currentAddress: address })
+    expect(runtime.sessions.subagentAddress('s1' as SessionId)).toEqual(address)
+    expect(runtime.sessions.subagentAddress('s2' as SessionId)).toBeUndefined()
+    await runtime.sessions.updateSummary('s1', { displayTitle: 'renamed', running: true })
+    expect(runtime.sessions.list.getSnapshot().byId['s1' as SessionId])
+      .toMatchObject({ displayTitle: 'renamed', running: true })
+    runtime.sessions.setSubagentCatalogOpen('s2' as SessionId, true)
+    await runtime.sessions.refreshSubagents('s2' as SessionId)
     runtime.sessions.open('s1' as SessionId)
     await runtime.flush()
     expect(runtime.sessions.list.getSnapshot().current).toBe('s1')
+    expect(runtime.sessions.list.getSnapshot().currentAddress).toBeUndefined()
     runtime.sessions.clear()
     await runtime.flush()
     expect(runtime.sessions.list.getSnapshot().current).toBeUndefined()
+    await expect(runtime.sessions.fork({
+      sessionId: 's1' as SessionId, atSeq: 7, increaseTitle: true,
+    })).resolves.toBe('s1')
     expect(runtime.sessions.calls).toEqual([
+      { method: 'openSubagent', args: [address] },
+      { method: 'setSubagentCatalogOpen', args: ['s2', true] },
+      { method: 'refreshSubagents', args: ['s2'] },
       { method: 'open', args: ['s1'] },
       { method: 'clear', args: [] },
+      { method: 'fork', args: [{ sessionId: 's1', atSeq: 7, increaseTitle: true }] },
+    ])
+    await runtime.dispose()
+  })
+
+  it('answers search with an empty page until a scenario declares hits, recording every call', async () => {
+    const runtime = await runtimeWithFrame()
+    await runtime.sessions.add({ id: 's1' })
+    const signal = new AbortController().signal
+    expect(runtime.sessions.searchResultLimit).toBeGreaterThan(0)
+    await expect(runtime.sessions.search('marker', signal))
+      .resolves.toEqual({ ok: true, value: { items: [], hasMore: false } })
+    runtime.sessions.stubSearch(query => ({
+      items: [{ sessionId: 's1' as SessionId, snippet: `hit: ${query}` }],
+      hasMore: true,
+    }))
+    await expect(runtime.sessions.search('marker', signal)).resolves.toEqual({
+      ok: true,
+      value: { items: [{ sessionId: 's1', snippet: 'hit: marker' }], hasMore: true },
+    })
+    expect(runtime.sessions.calls).toEqual([
+      { method: 'search', args: ['marker', signal] },
+      { method: 'search', args: ['marker', signal] },
     ])
     await runtime.dispose()
   })
@@ -525,8 +570,12 @@ describe('workspaces action face', () => {
     await ws.openPath('/proj/file.ts')
     const moved = await ws.insertSessionBefore('w1' as WorkspaceId, 's1' as SessionId, 's2' as SessionId)
     expect(moved.sessionIds).toEqual(['s1'])
+    // Default archive mirrors the production effect: the id joins the list
+    // state's archive set (features render against the same snapshot).
+    await ws.archiveSession('s1' as SessionId)
+    expect(ws.list.getSnapshot().archivedSessionIds).toEqual(['s1'])
     expect(ws.calls.map(c => c.method)).toEqual(
-      ['create', 'create', 'pickDirectory', 'rename', 'delete', 'openPath', 'insertSessionBefore'])
+      ['create', 'create', 'pickDirectory', 'rename', 'delete', 'openPath', 'insertSessionBefore', 'archiveSession'])
 
     ws.stub('create', () => Promise.resolve({ workspaceId: 'ws-x', title: 'X', path: '/x', sessionIds: [] } as never))
     ws.stub('pickDirectory', () => Promise.resolve('/picked'))
@@ -534,12 +583,16 @@ describe('workspaces action face', () => {
     ws.stub('delete', () => Promise.resolve())
     ws.stub('openPath', () => Promise.resolve())
     ws.stub('insertSessionBefore', () => Promise.resolve({ workspaceId: 'w1', title: '', path: '', sessionIds: [] } as never))
+    ws.stub('archiveSession', () => Promise.resolve())
     expect((await ws.create({ name: 'y' })).title).toBe('X')
     await expect(ws.pickDirectory()).resolves.toBe('/picked')
     expect((await ws.rename('w1' as WorkspaceId, 'z')).title).toBe('S')
     await ws.delete('w1' as WorkspaceId)
     await ws.openPath('/other')
     expect((await ws.insertSessionBefore('w1' as WorkspaceId, 's1' as SessionId)).sessionIds).toEqual([])
+    // The stub replaces the default set mutation: the set stays as-is.
+    await ws.archiveSession('s2' as SessionId)
+    expect(ws.list.getSnapshot().archivedSessionIds).toEqual(['s1'])
     await runtime.dispose()
   })
 })

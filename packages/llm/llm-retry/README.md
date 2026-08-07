@@ -8,14 +8,14 @@ Each provider adapter owns an optional nested `retryPolicy`, captured when its r
 
 Both modes use bounded exponential backoff with symmetric jitter. A valid `providerRetryAfterMs` at or below `maxDelayMs` replaces local backoff without jitter. An over-cap provider delay makes normal mode delegate, while always mode uses its configured local backoff so it cannot terminate on that instruction.
 
-Before waiting, the plugin appends a non-surface `llm/retry` event with the provider, mode, canonical resolved-policy key, failure, and scheduled delay. The key includes every behavior-affecting field and sorts normal-mode codes because eligibility uses set membership. Retry numbers continue only across events with the same provider and complete policy key, so a route replacement with different limits, code membership, or backoff starts its own history. Normal events include the finite maximum; always events omit it, and UIs render `∞`. After the wait, the listener returns `{ kind: 'retry' }`, and the loop closes the failed turn and opens a retry turn over the same durable history. Cancellation and plugin disposal abort active backoff, drain active delegated recovery before applying the abort, and make a callback captured before disposal fail closed.
+Before waiting, the plugin appends a non-surface `llm/retry` event with the provider, mode, canonical resolved-policy key, failure, and scheduled delay. Its payload is available from the browser-safe `@deepseek-ai/dsh-llm-retry/types` subpath, so remote renderers can consume the durable status without loading the policy runtime. The key includes every behavior-affecting field and sorts normal-mode codes because eligibility uses set membership. Retry numbers continue only across events with the same provider and complete policy key, so a route replacement with different limits, code membership, or backoff starts its own history. Normal events include the finite maximum; always events omit it, and UIs render `∞`. After the wait, the listener returns `{ kind: 'retry' }`, and the loop closes the failed turn and opens a retry turn over the same durable history. Cancellation and plugin disposal abort active backoff, drain active delegated recovery before applying the abort, and make a callback captured before disposal fail closed.
 
 The separately published `./invariant` companion checks that every retry record names the current open turn and latest closed step, matches the failed request's durable provider, carries non-empty provider and policy identities, has mode-specific bounds, a unique step record, the correct provider-policy retry number, and a bounded timer delay. Full jitter may schedule zero milliseconds at its lower boundary.
 
 ```yaml
 - name: '@deepseek-ai/dsh-llm-deepseek'
   config:
-    apiKey: !!js process.env.DEEPSEEK_API_KEY
+    apiKeyEnv: DEEPSEEK_API_KEY
     retryPolicy:
       mode: always
       backoff:
@@ -48,6 +48,6 @@ The reconstructed request preserves the prior prefix and is eligible for provide
 
 - **Agent turns are the only retry boundary** — direct `ctx.llm.stream()` consumers remain single-attempt because a raw stream cannot separate already-emitted chunks durably.
 - **Always mode retries permanent failures** — authentication, quota, invalid-request, protocol, and unrecoverable context errors continue until success, cancellation, or disposal; deployments own provider-specific cost and latency controls.
-- **Finite plugin budgets add** — normal mode counts only its configured codes and exact provider policy, while context-overflow compaction owns a separate budget. A future overlapping policy must document and test registration-order behavior.
+- **Finite plugin budgets add** — normal mode counts only its configured codes and exact provider policy, while context-overflow compaction owns a separate budget. Any overlapping policy must define registration-order behavior.
 - **Recovery policies compose by waterfall order** — always mode accepts a downstream retry before applying its fallback. A later policy that ignores cancellation and never settles also prevents fallback, turn quiescence, and plugin disposal from completing.
 - **`llm/retry` records scheduling, not completion** — later step and turn events establish success, exhaustion, or cancellation.

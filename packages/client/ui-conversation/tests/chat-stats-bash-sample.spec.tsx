@@ -1,21 +1,42 @@
 // @vitest-environment jsdom
 // StatsLine (composer.dock entry): totals derivation + the RFC
-// hard acceptance — zero renders during streaming. Bash sample row: the
-// canonical sub-agent differential decided INSIDE the component off the
-// standard useSessions kit (no registry predicates — tool ring dissolved).
+// hard acceptance — zero renders during streaming. Bash sample row: ToolRow
+// chrome (Bash · description) without a row click target.
 
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, render } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import type {
   AssistantMessageNode, ConversationSnapshot, SessionId, SessionListState, ToolResultNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
-import type { ToolRowProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { StatsLine, deriveStats, formatDuration, formatTokens, type StatsLineProps } from '../src/client/chat/StatsLine.tsx'
+import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { en as commonEn } from '@deepseek-ai/dsh-client-locale/src/locales/en.ts'
+import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
+import { StatsLine, contextOccupancy, deriveStats, formatDuration, formatTokens, type StatsLineProps } from '../src/client/chat/StatsLine.tsx'
 import { BashRow } from '../src/client/toolviews/bash-sample.tsx'
+import { en, zh } from '../src/client/locales.ts'
 
-afterEach(cleanup)
+type BashRowProps = Parameters<typeof BashRow>[0]
+
+// Mirrors the real lookup chain (conversation namespace, then common).
+const t: BashRowProps['t'] = makeTranslate(zh, commonZh)
+const tEn: StatsLineProps['t'] = makeTranslate(en, commonEn)
+
+/** jsdom has no ResizeObserver; StatsLine watches its row for ellipsis truncation through one. */
+class ResizeObserverStub {
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+}
+
+beforeEach(() => { vi.stubGlobal('ResizeObserver', ResizeObserverStub) })
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+  vi.restoreAllMocks()
+  vi.useRealTimers()
+})
 
 const SID = 's1' as SessionId
 
@@ -26,9 +47,9 @@ const assistant = (seq: number, turn: number, usage?: unknown): AssistantMessage
 
 function snapshotBase(): ConversationSnapshot {
   return {
-    sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
+    sessionId: SID, nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [], codeDispatches: new Map(),
     pending: [], queue: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
-    hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null,
+    hasMore: false, loadingOlder: false, promptError: null, blank: false, subagent: null, lastAgentError: null,
   }
 }
 
@@ -51,7 +72,7 @@ function makeSource(init?: Partial<ConversationSnapshot>) {
 }
 
 describe('deriveStats', () => {
-  it('folds turns/steps/token split and cache hit percentage', () => {
+  it('counts turns and steps and never folds node usage into accounting', () => {
     const stats = deriveStats([
       assistant(1, 1, { inputTokens: 100, outputTokens: 50, cacheReadTokens: 900 }),
       assistant(2, 1, { inputTokens: 100, outputTokens: 50 }),
@@ -59,12 +80,15 @@ describe('deriveStats', () => {
     ])
     expect(stats.turns).toBe(2)
     expect(stats.steps).toBe(3)
-    expect(stats.inputTokens).toBe(1100)
-    expect(stats.outputTokens).toBe(100)
-    expect(stats.cacheHitPct).toBe(82)
+    // Window-scoped by design: the paged window is not an accounting source, so
+    // the fold exposes no billing fields (billing rides the projection);
+    // decodeTokens is a throughput input, not a billed total.
+    expect(Object.keys(stats).sort()).toEqual(
+      ['decodeMs', 'decodeTokens', 'llmMs', 'steps', 'toolMs', 'ttftMs', 'ttftSteps', 'turns'],
+    )
   })
 
-  it('cache hit stays null with no cache accounting; out-of-window tool results ignored', () => {
+  it('ignores tool results with no call time', () => {
     const tool: ToolResultNode = {
       kind: 'tool-result', seq: 5, time: 5_000, callId: 'c', call: null, callTime: null, content: [],
       isError: false, callView: null, resultView: null,
@@ -72,7 +96,6 @@ describe('deriveStats', () => {
     const stats = deriveStats([tool, assistant(1, 1)])
     expect(stats.steps).toBe(1)
     expect(stats.toolMs).toBe(0)
-    expect(stats.cacheHitPct).toBeNull()
   })
 
   it('sums LLM wall time from assistant timing and tool wall time from call/result pairs', () => {
@@ -92,6 +115,23 @@ describe('deriveStats', () => {
     expect(stats.llmMs).toBe(2_500)
     expect(stats.toolMs).toBe(3_000)
   })
+
+  it('sums ttft per recorded step and decode throughput inputs per usage-carrying step', () => {
+    const sampled: AssistantMessageNode = {
+      ...assistant(1, 1, { outputTokens: 40 }),
+      timing: { stepStartTime: 1_000, firstTokenTime: 1_800, completedTime: 4_800 },
+    }
+    const ttftOnly: AssistantMessageNode = {
+      ...assistant(2, 1),
+      timing: { stepStartTime: 5_000, firstTokenTime: 5_400, completedTime: 7_400 },
+    }
+    const stats = deriveStats([sampled, ttftOnly, assistant(3, 2)])
+    expect(stats.ttftMs).toBe(1_200)
+    expect(stats.ttftSteps).toBe(2)
+    // The usage-less step contributes no decode share, keeping the ratio honest.
+    expect(stats.decodeMs).toBe(3_000)
+    expect(stats.decodeTokens).toBe(40)
+  })
 })
 
 describe('formatters', () => {
@@ -109,20 +149,140 @@ describe('formatters', () => {
 })
 
 describe('StatsLine', () => {
-  function props(source: { getSnapshot(): ConversationSnapshot; subscribe(fn: () => void): () => void }): StatsLineProps {
-    return { useSession: bindSnapshotSelector(source) }
+  const USAGE = { uncachedInputTokens: 10, outputTokens: 5, cacheReadTokens: 90, cacheWriteTokens: 0 }
+
+  /** Stub the projection seat: a key-addressed table of whole values. */
+  function projections(values: Record<string, unknown>): StatsLineProps['useProjection'] {
+    return (key: string) => values[key]
   }
 
-  it('renders the grouped stats row and hides with zero steps', () => {
-    const { source } = makeSource({
-      nodes: [assistant(1, 1, { inputTokens: 10, outputTokens: 5, cacheReadTokens: 90 })],
-    })
+  function props(
+    source: { getSnapshot(): ConversationSnapshot; subscribe(fn: () => void): () => void },
+    values: Record<string, unknown> = { tokenUsage: USAGE },
+  ): StatsLineProps {
+    return { useSession: bindSnapshotSelector(source), useProjection: projections(values), t: tEn }
+  }
+
+  it('renders the grouped stats row and hides a brand-new empty session', () => {
+    const { source } = makeSource({ nodes: [assistant(1, 1)] })
     const view = render(<StatsLine {...props(source)} />)
-    // No timing on the fixture: the duration group drops out whole.
-    expect(view.container.textContent).toBe('1 turns · 1 steps|Cache hit 90%|Input 100 tok · Output 5 tok')
+    // No timing on the fixture: the duration group drops out whole. Tokens come
+    // from the projection, so paging the window cannot change them.
+    expect(view.container.textContent).toBe('1 turns · 1 steps| Cache hit 90%| Input 100 tok · Output 5 tok')
     const empty = makeSource()
-    const emptyView = render(<StatsLine {...props(empty.source)} />)
+    const emptyView = render(<StatsLine {...props(empty.source, {
+      tokenUsage: { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      contextPressure: {},
+    })} />)
     expect(emptyView.container.textContent).toBe('')
+  })
+
+  it('reveals the full line in a delayed hover tooltip only while the row is clipped', () => {
+    vi.useFakeTimers()
+    // jsdom lays nothing out; fake a row narrower than its content.
+    vi.spyOn(Element.prototype, 'scrollWidth', 'get').mockReturnValue(800)
+    vi.spyOn(Element.prototype, 'clientWidth', 'get').mockReturnValue(400)
+    const { source } = makeSource({ nodes: [assistant(1, 1)] })
+    const view = render(<StatsLine {...props(source)} />)
+    fireEvent.mouseEnter(view.container.firstElementChild!)
+    act(() => { vi.advanceTimersByTime(499) })
+    expect(view.container.querySelector('[role="tooltip"]')).toBeNull()
+    act(() => { vi.advanceTimersByTime(1) })
+    expect(view.container.querySelector('[role="tooltip"]')?.textContent)
+      .toBe('1 turns · 1 steps | Cache hit 90% | Input 100 tok · Output 5 tok')
+  })
+
+  it('suppresses the tooltip while the row fits without truncation', () => {
+    vi.useFakeTimers()
+    const { source } = makeSource({ nodes: [assistant(1, 1)] })
+    const view = render(<StatsLine {...props(source)} />)
+    fireEvent.mouseEnter(view.container.firstElementChild!)
+    act(() => { vi.advanceTimersByTime(500) })
+    expect(view.container.querySelector('[role="tooltip"]')).toBeNull()
+  })
+
+  it('renders window latency and throughput beside the wall-time group', () => {
+    const timed: AssistantMessageNode = {
+      ...assistant(1, 1, { outputTokens: 60 }),
+      timing: { stepStartTime: 1_000, firstTokenTime: 1_800, completedTime: 4_800 },
+    }
+    const { source } = makeSource({ nodes: [timed] })
+    const view = render(<StatsLine {...props(source)} />)
+    expect(view.container.textContent).toContain('LLM 3.8s| TTFT avg 0.8s · 20 tok/s')
+  })
+
+  it('takes every stats label from the active locale', () => {
+    const timed: AssistantMessageNode = {
+      ...assistant(1, 1, { outputTokens: 60 }),
+      timing: { stepStartTime: 1_000, firstTokenTime: 1_800, completedTime: 4_800 },
+    }
+    const { source } = makeSource({ nodes: [timed] })
+    const view = render(<StatsLine {...props(source)} t={t} />)
+    expect(view.container.textContent)
+      .toBe('1 轮 · 1 步| LLM 3.8s| 首 token 平均 0.8s · 20 tok/s| 缓存命中 90%| 输入 100 tok · 输出 5 tok')
+  })
+
+  it('renders without ResizeObserver support', () => {
+    vi.unstubAllGlobals()
+    const { source } = makeSource({ nodes: [assistant(1, 1)] })
+    expect(() => render(<StatsLine {...props(source)} />)).not.toThrow()
+  })
+
+  it('keeps durable token groups after the visible step window is empty', () => {
+    const { source } = makeSource()
+    const view = render(<StatsLine {...props(source, {
+      tokenUsage: USAGE,
+      contextPressure: { pressureTokens: 32_000, contextWindow: 128_000 },
+    })} />)
+    // Context occupancy lives on the composer's ContextMeter ring, not here.
+    expect(view.container.textContent)
+      .toBe('Cache hit 90%| Input 100 tok · Output 5 tok')
+  })
+
+  it('computes context occupancy only when both a numerator and capacity are known', () => {
+    // The projected figure wins: it is the provider sample carried forward over
+    // the surface's movement, so a compaction shows without waiting a request.
+    expect(contextOccupancy({ pressureTokens: 32_000, projectedTokens: 6_000, contextWindow: 128_000 }))
+      .toEqual({ percent: 5, usedTokens: 6_000, contextWindow: 128_000 })
+    // A log whose projection predates the field still reads its bare sample.
+    expect(contextOccupancy({ pressureTokens: 32_000, contextWindow: 128_000 }))
+      .toEqual({ percent: 25, usedTokens: 32_000, contextWindow: 128_000 })
+    // A numerator without capacity has no denominator; capacity without a
+    // provider sample has no numerator yet, rather than a synthetic 0%.
+    expect(contextOccupancy({ pressureTokens: 32_000 })).toBeNull()
+    expect(contextOccupancy({ contextWindow: 128_000 })).toBeNull()
+    expect(contextOccupancy(undefined)).toBeNull()
+    // Capacity and the sample are independent last-wins fields, so a model
+    // switch can pair a smaller new window with the previous route's prompt.
+    expect(contextOccupancy({ pressureTokens: 300_000, contextWindow: 128_000 })?.percent).toBe(100)
+  })
+
+  it('drops every token group when no projection is composed', () => {
+    const { source } = makeSource({ nodes: [assistant(1, 1)] })
+    const view = render(<StatsLine {...props(source, {})} />)
+    expect(view.container.textContent).toBe('1 turns · 1 steps')
+  })
+
+  it('omits cache hit when nothing was billed on the input side', () => {
+    const { source } = makeSource({ nodes: [assistant(1, 1)] })
+    const view = render(<StatsLine {...props(source, {
+      tokenUsage: { uncachedInputTokens: 0, outputTokens: 7, cacheReadTokens: 0, cacheWriteTokens: 0 },
+    })} />)
+    expect(view.container.textContent).toBe('1 turns · 1 steps| Input 0 tok · Output 7 tok')
+  })
+
+  it('includes cache writes in billed input and the cache-hit denominator', () => {
+    const { source } = makeSource({ nodes: [assistant(1, 1)] })
+    const view = render(<StatsLine {...props(source, {
+      tokenUsage: {
+        uncachedInputTokens: 10,
+        outputTokens: 7,
+        cacheReadTokens: 90,
+        cacheWriteTokens: 100,
+      },
+    })} />)
+    expect(view.container.textContent)
+      .toBe('1 turns · 1 steps| Cache hit 45%| Input 200 tok · Output 7 tok')
   })
 
   it('renders ZERO times during streaming chunk frames (RFC hard acceptance)', () => {
@@ -143,8 +303,7 @@ describe('StatsLine', () => {
 })
 
 describe('bash sample row', () => {
-  const ROOT = 'root-1' as SessionId
-  const CHILD = 'child-1' as SessionId
+  const SID = 'root-1' as SessionId
 
   const result = (callId: string): ToolResultNode => ({
     kind: 'tool-result', seq: 3, time: 3_000, callId,
@@ -153,67 +312,32 @@ describe('bash sample row', () => {
     content: [], isError: false, callView: null, resultView: null,
   })
 
-  /** Real list-store engine: the family fixture the in-component parentId branch reads. */
   function listStore() {
     return createSnapshotStore<SessionListState>({
-      ids: [ROOT, CHILD],
+      ids: [SID],
       byId: {
-        [ROOT]: { id: ROOT, title: 'r', displayTitle: 'r', running: false, waitingApproval: false, blank: false, updatedAt: 0 },
-        [CHILD]: { id: CHILD, title: 'c', displayTitle: 'c', parentId: ROOT, running: false, waitingApproval: false, blank: false, updatedAt: 0 },
+        [SID]: { id: SID, title: 'r', displayTitle: 'r', running: false, blank: false, updatedAt: 0 },
       },
       current: undefined,
       phase: 'ready',
+      subagentsByParent: {},
+      currentAddress: undefined,
     })
   }
 
-  const rowProps = (sessionId: SessionId, over?: {
-    store?: ReturnType<typeof listStore>
-  }): ToolRowProps => ({
+  const rowProps = (): BashRowProps => ({
     callId: 'c1', toolName: 'bash', block: result('c1'),
     openFile: vi.fn(),
-    sessionId,
-    useSessions: bindSnapshotSelector(over?.store ?? listStore()),
-  } as unknown as ToolRowProps)
+    sessionId: SID,
+    useSessions: bindSnapshotSelector(listStore()),
+    t,
+  } as unknown as BashRowProps)
 
-  it('differential rendering: the scoped variant in sub-sessions, global at roots', () => {
-    const scoped = render(<BashRow {...rowProps(CHILD)} />)
-    expect(scoped.container.querySelector('[data-sample="bash-scoped"]')).not.toBeNull()
-    expect(scoped.getByText('scoped')).toBeTruthy()
-    const plain = render(<BashRow {...rowProps(ROOT)} />)
-    expect(plain.container.querySelector('[data-sample="bash-global"]')).not.toBeNull()
-  })
-
-  it('a session outside the list renders the global arm (no parent known)', () => {
-    const view = render(<BashRow {...rowProps('gone' as SessionId)} />)
-    expect(view.container.querySelector('[data-sample="bash-global"]')).not.toBeNull()
-  })
-
-  it('a live parentId write flips the row to the scoped variant (store subscription)', () => {
-    const store = listStore()
-    const orphan = 'late-child' as SessionId
-    store.update((d) => {
-      d.ids.push(orphan)
-      d.byId[orphan] = { id: orphan, title: 'l', displayTitle: 'l', running: false, waitingApproval: false, blank: false, updatedAt: 0 }
-    })
-    const view = render(<BashRow {...rowProps(orphan, { store })} />)
-    expect(view.container.querySelector('[data-sample="bash-global"]')).not.toBeNull()
-    act(() => {
-      store.update((d) => { d.byId[orphan]!.parentId = ROOT })
-    })
-    expect(view.container.querySelector('[data-sample="bash-scoped"]')).not.toBeNull()
-  })
-
-  it('summarizes as Bash · description on both arms without row click targets', () => {
-    const global = render(<BashRow {...rowProps(ROOT)} />)
-    // Two renders share document.body: query inside each container.
-    const globalRow = global.container.querySelector('[data-sample="bash-global"]')!
-    expect(globalRow.textContent).toContain('Bash')
-    expect(globalRow.textContent).toContain('Build')
-    expect(globalRow.getAttribute('data-clickable')).toBeNull()
-    const scoped = render(<BashRow {...rowProps(CHILD)} />)
-    const scopedRow = scoped.container.querySelector('[data-sample="bash-scoped"]')!
-    expect(scopedRow.textContent).toContain('Bash')
-    expect(scopedRow.textContent).toContain('Build')
-    expect(scopedRow.getAttribute('data-clickable')).toBeNull()
+  it('summarizes as Bash · description without a row click target', () => {
+    const view = render(<BashRow {...rowProps()} />)
+    const row = view.container.querySelector('[data-sample="bash"]')!
+    expect(row.textContent).toContain('Bash')
+    expect(row.textContent).toContain('Build')
+    expect(row.getAttribute('data-clickable')).toBeNull()
   })
 })

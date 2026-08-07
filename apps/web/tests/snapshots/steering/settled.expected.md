@@ -5,37 +5,40 @@
     - tab "Chat" [selected]
     - tab "Trajectory"
 - text: Use the ask_user_question tool to ask me exactly one question with id "checkpoint", question "Ready to continue?", header "Checkpoint", and options labeled "Yes" and "No". After I answer, reply with one short sentence acknowledging my answer and stop. {{clock}}
-- button "复制":
+- button "Copy":
   - img
-- button "在新对话中分支":
+- button "Context injection @deepseek-ai/dsh-system-prompt":
   - img
-- button "编辑":
   - img
+  - text: Context injection @deepseek-ai/dsh-system-prompt
 - button "Think The user wants me to use the ask_user_question tool to ask them a specific question with the given parameters. Let me do exactly that.":
   - img
   - img
   - text: Think The user wants me to use the ask_user_question tool to ask them a specific question with the given parameters. Let me do exactly that.
-- button:
+- button "Ask question 1/1 answered":
   - img
   - img
-- text: "Ask question 1/1 answered 插话 Interjection: include the word BANANA in your final reply."
+  - text: Ask question 1/1 answered
+- text: "Interjection Interjection: include the word BANANA in your final reply. {{clock}}"
+- button "Copy":
+  - img
 - button "Think The user selected \"Yes\" and wants me to include the word \"BANANA\" in my final reply. Let me acknowledge their answer.":
   - img
   - img
   - text: Think The user selected "Yes" and wants me to include the word "BANANA" in my final reply. Let me acknowledge their answer.
 - paragraph: Great, let's move forward. BANANA!
-- button "复制":
+- button "Copy":
   - img
-- button "在新对话中分支":
+- button "Branch into a new conversation":
   - img
-- text: {{clock}}
+- text: {{clock}} Ran for {{duration}} TTFT {{duration}} {{throughput}} tok/s
 - textbox "Message the agent"
-- button "Add attachment":
+- button "Commands":
   - img
-- 'button "Access mode, current: Danger Full Access"': Danger Full Access
-- button "Plan mode off, press to turn on": Plan off
+- 'button "Access mode, current: Workspace Write"': Workspace Write
 - button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img
+- button "6% of context used"
 - button "Send message" [disabled]
-- text: 1 turns · 2 steps Tool call {{duration}} Cache hit 98% Input 15.8K tok · Output 156 tok
+- text: 1 turns · 2 steps LLM {{duration}} · Tool call {{duration}} TTFT avg {{duration}} · {{throughput}} tok/s Cache hit 98% Input 15.8K tok · Output 156 tok

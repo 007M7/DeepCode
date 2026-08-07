@@ -175,7 +175,7 @@ async function harness(toolSteps: number): Promise<{ ctx: Context; compact: Repr
 
 function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
-    const dispose = ctx.on('agent/status', (subject, status) => {
+    const dispose = ctx.on('agent/status', ({ agent: subject, status }) => {
       if (subject === agent && status === 'idle') {
         dispose()
         resolve()
@@ -185,12 +185,11 @@ function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
 }
 
 function overflowHistorySeed(): SessionEvent[] {
-  const session = new Session(SessionId('overflow-history-seed'))
+  const session = Session.create(SessionId('overflow-history-seed'))
   for (let turn = 1; turn <= 2; turn += 1) {
     const sentinel = turn === 1 ? 'OLD HISTORY SENTINEL' : 'RECENT HISTORY'
     session.append('turn/start', {
       turn,
-      trigger: { kind: 'message', source: { kind: 'user' } },
     })
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: `${sentinel} ${'old context '.repeat(200)}` }],
@@ -218,7 +217,7 @@ function overflowHistorySeed(): SessionEvent[] {
 describe('CBR-001: a real-loop checkpoint is a valid boundary on both sides', () => {
   it('uses the model actually routed by agent/request for post-step pressure', async () => {
     const { ctx } = await harness(8)
-    ctx.on('agent/request', async (_agent, _turn, _step, _signal, next) => ({
+    ctx.on('agent/request', async (_payload, next) => ({
       ...await next(), provider: 'mock', model: 'mock',
     }))
     try {
@@ -307,7 +306,7 @@ describe('CBR-001: a real-loop checkpoint is a valid boundary on both sides', ()
 
 describe('context-overflow recovery across the real loop and compact-basic', () => {
   it.each(['thrown', 'in-band'] as const)(
-    'force-compacts a %s overflow between failed and retry steps',
+    'force-compacts a %s overflow within the retried step',
     async (delivery) => {
       const ctx = new Context()
       const adapter = new OverflowRecoveryAdapter(delivery)
@@ -316,7 +315,7 @@ describe('context-overflow recovery across the real loop and compact-basic', () 
       await ctx.plugin(AgentLoop, { agents: [] })
       await ctx.plugin(TokenMeterService)
       ctx.llm.registerAdapter(['mock'], adapter)
-      ctx.on('agent/request', async (_agent, _turn, _step, _signal, next) => ({
+      ctx.on('agent/request', async (_payload, next) => ({
         ...await next(), provider: 'mock', model: 'mock',
       }))
       await ctx.plugin(BasicCompactService, {
@@ -342,23 +341,22 @@ describe('context-overflow recovery across the real loop and compact-basic', () 
 
         expect(adapter.conversationRequests).toHaveLength(2)
         expect(adapter.summaryRequests).toHaveLength(1)
+        const instruction = adapter.summaryRequests[0]!.messages.at(-1)?.content
+          .map(block => (block.type === 'text' ? block.text : ''))
+          .join('') ?? ''
+        expect(instruction).toContain('Write concise English engineering prose.')
+        expect(instruction).toContain('numeric values, function signatures, and syntax fragments.')
         expect(JSON.stringify(adapter.conversationRequests[0]!.messages)).toContain('OLD HISTORY SENTINEL')
         const retry = JSON.stringify(adapter.conversationRequests[1]!.messages)
         expect(retry).toContain('RECOVERY CHECKPOINT')
         expect(retry).not.toContain('OLD HISTORY SENTINEL')
 
         const events = [...agent.session.events]
-        const failedStepEnd = events.find(event =>
+        const stepStart = events.find(event =>
+          event.type === 'step/start' && event.data.turn === 3 && event.data.step === 1,
+        )!
+        const stepEnd = events.find(event =>
           event.type === 'step/end' && event.data.turn === 3 && event.data.step === 1,
-        )!
-        const failedEnd = events.find(event =>
-          event.type === 'turn/end' && event.data.turn === 3,
-        )!
-        const retryStart = events.find(event =>
-          event.type === 'turn/start' && event.data.turn === 4,
-        )!
-        const retryStep = events.find(event =>
-          event.type === 'step/start' && event.data.turn === 4 && event.data.step === 1,
         )!
         const compaction = events.filter(event =>
           event.type === 'compact/start'
@@ -370,11 +368,13 @@ describe('context-overflow recovery across the real loop and compact-basic', () 
           'compact/summary',
           'compact/end',
         ])
-        expect(retryStart.seq).toBeGreaterThan(failedEnd.seq)
         expect(compaction.every(event =>
-          event.seq > failedStepEnd.seq && event.seq < failedEnd.seq,
+          event.seq > stepStart.seq && event.seq < stepEnd.seq,
         )).toBe(true)
-        expect(retryStep.seq).toBeGreaterThan(retryStart.seq)
+        expect(events.filter(event => event.type === 'turn/start').slice(-1).map(event => event.data.turn))
+          .toEqual([3])
+        expect(events.filter(event => event.type === 'step/start' && event.data.turn === 3))
+          .toHaveLength(1)
         expect(events.at(-1)).toMatchObject({
           type: 'turn/end',
           data: { reason: { kind: 'completed' } },
@@ -414,9 +414,9 @@ describe('context-overflow recovery across the real loop and compact-basic', () 
       expect(adapter.conversationRequests).toHaveLength(3)
       expect(adapter.summaryRequests).toHaveLength(1)
       expect(agent.session.events.filter(event => event.type === 'llm/retry').map(event => event.data))
-        .toEqual([expect.objectContaining({ turn: 4, step: 1, retry: 1, failure: { message: 'temporary provider outage', code: 'SERVER' } })])
-      expect(agent.session.events.filter(event => event.type === 'turn/start').slice(-3).map(event => event.data.turn))
-        .toEqual([3, 4, 5])
+        .toEqual([expect.objectContaining({ turn: 3, step: 1, retry: 1, failure: { message: 'temporary provider outage', code: 'SERVER' } })])
+      expect(agent.session.events.filter(event => event.type === 'turn/start').slice(-1).map(event => event.data.turn))
+        .toEqual([3])
       expect(agent.session.events.at(-1)).toMatchObject({
         type: 'turn/end',
         data: { reason: { kind: 'completed' } },

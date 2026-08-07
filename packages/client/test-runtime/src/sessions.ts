@@ -3,9 +3,13 @@ import type { Context } from 'cordis'
 import { createScope, scopeOf, SessionProvideChannel } from '@deepseek-ai/dsh-client-runtime/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
-  ConversationSnapshot, ISessions, ObservableSnapshot, ProjectionsFace, SessionFace, SessionId,
-  SessionListState, SessionProvideDescriptor, SessionSummary, SnapshotStore,
+  AgentContext, ConversationSnapshot, ISessions, ObservableSnapshot, ProjectionsFace, SessionFace, SessionId,
+  SessionListState, SessionProvideDescriptor, SessionSearchResultItem, SessionSummary, SnapshotStore,
+  SubagentAddress,
 } from '@deepseek-ai/dsh-client-runtime/client'
+// The double reports the wire schema's own search bound, like the production
+// service — a transport-varying limit would be a fiction no client can see.
+import { SESSION_SEARCH_RESULT_LIMIT } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { HostObservable, SessionMaybeProvideInfo, SessionProvideInfo } from '@deepseek-ai/dsh-client-ui-slots'
 import { conversationSnapshot } from './fixtures.ts'
 import type { SessionFixture, Stabilizer } from './fixtures.ts'
@@ -130,7 +134,7 @@ interface SessionRecord {
   summary: SessionSummary
   snapshot: SnapshotStore<ConversationSnapshot>
   session: FixtureSession
-  scope: Context | undefined
+  scope: AgentContext | undefined
   scopeFiber: { dispose(): Promise<void> } | undefined
   /** Materialized standard-props bundle (identity-stable per session; invalidated on roster change). */
   provideInfo: SessionProvideInfo | undefined
@@ -140,7 +144,7 @@ interface SessionRecord {
 export interface TestSessionBinding {
   readonly sessionId: SessionId
   readonly session: FixtureSession
-  readonly ctx: Context
+  readonly ctx: AgentContext
 }
 
 /**
@@ -151,8 +155,8 @@ export interface TestSessionBinding {
  *
  * Implements the same ISessions face features receive as `ctx.sessions`, so
  * a production face change breaks this double at compile time; the extra
- * members (add/updateSnapshot/setCurrent/remove/behavior/calls and the
- * legacy provideInfo/maybeProvideInfo lookups) are bench-only surface.
+ * members (add/updateSnapshot/setCurrent/remove/behavior/calls/stubSearch and
+ * the legacy provideInfo/maybeProvideInfo lookups) are bench-only surface.
  */
 export class TestSessions implements ISessions {
   /** The useSessions standard feed (list rows + current selection). */
@@ -168,8 +172,18 @@ export class TestSessions implements ISessions {
   /** The production provide channel (roster, materialization rules, current projection) — no test-side mirror. */
   private readonly channel: SessionProvideChannel
 
-  /** Calls observed on the service-level face (open/clear), newest last. */
-  readonly calls: { method: 'open' | 'clear'; args: unknown[] }[] = []
+  /** Calls observed on the service-level face, newest last. */
+  readonly calls: {
+    method: 'open' | 'openSubagent' | 'setSubagentCatalogOpen' | 'refreshSubagents'
+      | 'clear' | 'search' | 'fork'
+    args: unknown[]
+  }[] = []
+
+  /** The wire schema's `session.search` result bound (production parity). */
+  readonly searchResultLimit = SESSION_SEARCH_RESULT_LIMIT
+
+  /** Replaceable search behavior (see {@link TestSessions.stubSearch}). */
+  private searchStub: ((query: string, signal: AbortSignal) => { items: SessionSearchResultItem[]; hasMore: boolean }) | undefined
 
   /**
    * @param stabilize - the owning runtime's act wrapper.
@@ -178,6 +192,7 @@ export class TestSessions implements ISessions {
   constructor(private readonly stabilize: Stabilizer, private readonly rootCtx: Context) {
     this.list = createSnapshotStore<SessionListState>({
       ids: [], byId: {}, current: undefined, phase: 'ready',
+      subagentsByParent: {}, currentAddress: undefined,
     })
     this.channel = new SessionProvideChannel({
       rebuildBundles: () => {
@@ -207,7 +222,6 @@ export class TestSessions implements ISessions {
       id,
       displayTitle: fixture.id,
       running: false,
-      waitingApproval: false,
       blank: false,
       updatedAt: this.records.size + 1,
       ...fixture.summary,
@@ -331,7 +345,7 @@ export class TestSessions implements ISessions {
    * @param id - session id.
    * @returns the scoped context, or undefined for unknown sessions.
    */
-  scope(id: string): Context | undefined {
+  scope(id: string): AgentContext | undefined {
     const record = this.records.get(id as SessionId)
     if (record === undefined) return undefined
     if (record.scope === undefined) {
@@ -383,13 +397,78 @@ export class TestSessions implements ISessions {
   open(id: SessionId): void {
     this.calls.push({ method: 'open', args: [id] })
     this.require(id)
-    this.list.update((draft) => { draft.current = id })
+    this.list.update((draft) => {
+      draft.current = id
+      draft.currentAddress = undefined
+    })
+  }
+
+  /** Open an existing fixture through its catalog address. */
+  openSubagent(address: SubagentAddress): void {
+    this.calls.push({ method: 'openSubagent', args: [address] })
+    this.require(address.childSessionId)
+    this.list.update((draft) => {
+      draft.current = address.childSessionId
+      draft.currentAddress = address
+    })
+  }
+
+  /** Resolve the current fixture's retained catalog address. */
+  subagentAddress(id: SessionId): SubagentAddress | undefined {
+    const address = this.list.getSnapshot().currentAddress
+    return address?.childSessionId === id ? address : undefined
+  }
+
+  /** Record catalog consumption; fixture callers drive snapshots explicitly. */
+  setSubagentCatalogOpen(parentSessionId: SessionId, open: boolean): void {
+    this.calls.push({ method: 'setSubagentCatalogOpen', args: [parentSessionId, open] })
+  }
+
+  /** Record a catalog refresh; fixture callers drive snapshots explicitly. */
+  refreshSubagents(parentSessionId: SessionId): Promise<void> {
+    this.calls.push({ method: 'refreshSubagents', args: [parentSessionId] })
+    return Promise.resolve()
   }
 
   /** Clear the current selection (recorded; the production no-session flow). */
   clear(): void {
     this.calls.push({ method: 'clear', args: [] })
-    this.list.update((draft) => { draft.current = undefined })
+    this.list.update((draft) => {
+      draft.current = undefined
+      draft.currentAddress = undefined
+    })
+  }
+
+  /**
+   * Replace the sidebar-search result page (the call is still recorded).
+   * @param impl - hits for a query, as the Host would rank them.
+   */
+  stubSearch(impl: (query: string, signal: AbortSignal) => { items: SessionSearchResultItem[]; hasMore: boolean }): void {
+    this.searchStub = impl
+  }
+
+  /**
+   * Content search over the fixture corpus (recorded). The default answers an
+   * empty page: content ranking is Host behavior, so a scenario that asserts
+   * hits declares them through {@link TestSessions.stubSearch}.
+   * @param query - non-blank literal phrase.
+   * @param signal - cancellation for a superseded search (recorded and forwarded).
+   * @returns the stubbed or empty result page.
+   */
+  search(query: string, signal: AbortSignal): ReturnType<ISessions['search']> {
+    this.calls.push({ method: 'search', args: [query, signal] })
+    return Promise.resolve({ ok: true, value: this.searchStub?.(query, signal) ?? { items: [], hasMore: false } })
+  }
+
+  /**
+   * Recorded fork stub: no child materializes (benches asserting the full
+   * fork flow drive the production service; this face only proves the call).
+   * @param opts - source session id, optional cut anchor, and client title policy.
+   * @returns the source id (no child record is created).
+   */
+  fork(opts: { sessionId: SessionId; atSeq?: number; increaseTitle?: boolean }): Promise<SessionId> {
+    this.calls.push({ method: 'fork', args: [opts] })
+    return Promise.resolve(opts.sessionId)
   }
 
   /**

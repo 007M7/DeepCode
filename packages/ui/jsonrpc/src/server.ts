@@ -10,7 +10,7 @@ import { resolve } from 'node:path'
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { carrierKeyOf, type Scoped } from '@deepseek-ai/dsh-scope'
-import { findLastMessageTurnEnd, SessionId, type TurnEndReason } from '@deepseek-ai/dsh-session'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import type SubagentService from '@deepseek-ai/dsh-subagent'
 import type { SubagentRunEndInfo } from '@deepseek-ai/dsh-subagent'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
@@ -19,7 +19,6 @@ import type {
   InitializeResult,
   JsonRpcTransportPeer,
   SessionEventNotification,
-  SessionFinishedNotification,
   SessionPromptParams,
   SessionPromptResult,
   SubagentFinishedNotification,
@@ -28,8 +27,6 @@ import type {
 
 interface SessionRecord {
   handle: AgentHandle
-  lastTurnEnd: TurnEndReason | undefined
-  activePrompt: boolean
 }
 
 /** Recover the delegating parent from the service-owned scoped carrier. */
@@ -55,8 +52,8 @@ function successStatus(reason: string, options: HarnessSdkServerOptions): 'ok' |
  */
 export class HarnessSdkServer {
   private cwd = process.cwd()
-  private provider = 'deepseek'
-  private model = 'deepseek'
+  private provider = 'deepseek-official'
+  private model = 'deepseek-official'
   private maxTokens: number | undefined
   private llmFiber: { dispose(): Promise<void> } | undefined
   private readonly sessions = new Map<string, SessionRecord>()
@@ -72,14 +69,11 @@ export class HarnessSdkServer {
   ) {
     const serverOptions = this.options
     this.disposers.push(ctx.on('session/event', (session, event) => {
-      if (event.type === 'turn/end') {
-        const rec = this.sessions.get(String(session.id))
-        if (rec && findLastMessageTurnEnd(session.events)?.seq === event.seq) {
-          rec.lastTurnEnd = event.data.reason
-        }
-      }
       const payload: SessionEventNotification = { sessionId: String(session.id), event }
       this.transport.notify('session.event', payload)
+    }))
+    this.disposers.push(ctx.on('agent/status', ({ agent, status }) => {
+      this.transport.notify('session.status', { sessionId: String(agent.session.id), status })
     }))
     this.disposers.push(ctx.on('session/created', (session) => {
       const parentSession = session.header.parentSession
@@ -124,41 +118,28 @@ export class HarnessSdkServer {
     this.model = params.model
     this.maxTokens = params.maxTokens
     if (!this.hasAdapterFor(this.provider)) {
-      if (this.provider !== 'deepseek') throw new Error(`no adapter registered for provider "${this.provider}"`)
+      if (this.provider !== 'deepseek-official') throw new Error(`no adapter registered for provider "${this.provider}"`)
       this.llmFiber = await this.ctx.plugin(LlmDeepSeek, {})
     }
     return { serverInfo: { name: 'deepseek-harness-sdk-runtime', version: '0.0.1' } }
   }
 
   /**
-   * Run one prompt to settlement; overlap on the same session fails.
+   * Queue one identified prompt without assigning later activity to it.
    * @param params - target session and user content.
-   * @returns acceptance after the turn settled.
+   * @returns the durable message identity.
    */
   async prompt(params: SessionPromptParams): Promise<SessionPromptResult> {
     const rec = await this.getOrCreateSession(params.sessionId)
-    if (rec.activePrompt) throw new Error(`session already has an active prompt: ${params.sessionId}`)
     // An agent-loop-only reload disposes the loop's agents while this record
     // survives; a retained agent accepts followup() silently, so validate the
     // record against the live registry before delivery (as the ACP bridge does).
     if (this.ctx.agents.get(rec.handle.agent.id) !== rec.handle.agent) {
       throw new Error(`session agent was disposed outside the server: ${params.sessionId}`)
     }
-    rec.activePrompt = true
-    try {
-      rec.lastTurnEnd = undefined
-      rec.handle.agent.followup(createUserMessage({ content: params.contentBlocks, source: { kind: 'user' } }))
-      await rec.handle.agent.whenIdle()
-      const payload: SessionFinishedNotification = {
-        sessionId: params.sessionId,
-        status: this.finishedStatus(rec.lastTurnEnd),
-        reason: rec.lastTurnEnd,
-      }
-      this.transport.notify('session.finished', payload)
-      return { accepted: true }
-    } finally {
-      rec.activePrompt = false
-    }
+    const message = createUserMessage({ content: params.contentBlocks, source: { kind: 'user' } })
+    rec.handle.agent.followup(message)
+    return { messageId: message.id }
   }
 
   /**
@@ -244,14 +225,9 @@ export class HarnessSdkServer {
         ...this.maxTokens === undefined ? {} : { maxTokens: this.maxTokens },
       },
     })
-    const rec: SessionRecord = { handle, lastTurnEnd: undefined, activePrompt: false }
+    const rec: SessionRecord = { handle }
     this.sessions.set(sessionId, rec)
     return rec
-  }
-
-  private finishedStatus(reason: TurnEndReason | undefined): 'ok' | 'error' {
-    if (!reason) return 'error'
-    return successStatus(reason.kind, this.options)
   }
 
   private hasAdapterFor(provider: string): boolean {

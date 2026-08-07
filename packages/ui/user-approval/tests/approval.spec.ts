@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import { carrierKeyOf, createScope } from '@deepseek-ai/dsh-scope'
 import type { Scope } from '@deepseek-ai/dsh-scope'
@@ -118,7 +118,7 @@ describe('ApprovalService.request', () => {
     await ctx.plugin(SessionStore)
     await ctx.plugin(ApprovalService)
     const session = ctx.sessions.create(SessionId('asked-observer-throw'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     const agent = { session } as unknown as Agent
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
     ctx.on('session/event', (_session, event) => {
@@ -141,7 +141,7 @@ describe('ApprovalService.request', () => {
     await ctx.plugin(SessionStore)
     await ctx.plugin(ApprovalService)
     const session = ctx.sessions.create(SessionId('decided-observer-throw'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     const agent = { session } as unknown as Agent
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
     ctx.on('session/event', (_session, event) => {
@@ -351,33 +351,17 @@ describe('ApprovalService.request', () => {
 
 describe('approval policy (the approval/policy fold)', () => {
   const NEVER_SENTENCE = 'Approval prompts are disabled in this session: actions that require approval are rejected automatically — do not request sandbox escalation (do not set `sandbox_permissions`).'
-  const ASK_MARKER = '<!-- dsh-user-approval-policy:ask -->'
-  const NEVER_MARKER = '<!-- dsh-user-approval-policy:never -->'
+  const ASK_SENTENCE = 'Approval policy: ask. Operations that require approval may ask through the configured answerers; without an available answerer, the request fails closed.'
 
   /**
-   * An agent stand-in over a REAL Session — gate, section, and narrator fold
-   * real events; the opened turn satisfies request()'s enclosure precondition.
+   * An agent stand-in over a REAL Session — gate and context fold real events;
+   * the opened turn satisfies request()'s enclosure precondition.
    */
-  function sessionAgent(id: string): { agent: Agent; session: Session; injected: string[] } {
-    const session = new Session(SessionId(id))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    const injected: string[] = []
-    const agent = {
-      id,
-      session,
-      inject: (input: { content: Array<{ type: string; text: string }> }) => {
-        injected.push(input.content[0]?.text ?? '')
-      },
-    } as unknown as Agent
-    return { agent, session, injected }
-  }
-
-  const preStep = (ctx: Context, agent: Agent): Promise<void> =>
-    agentEvents(ctx, agent).serial('agent/step', 1, 1, new AbortController().signal)
-
-  /** Append a `request/header` snapshot whose system text is exactly `system`. */
-  function appendHeader(session: Session, system: string): void {
-    session.append('request/header', { header: { config: { provider: 'mock', model: 'mock' }, system }, reason: 'initial' })
+  function sessionAgent(id: string): { agent: Agent; session: Session } {
+    const session = Session.create(SessionId(id))
+    session.append('turn/start', { turn: 1 })
+    const agent = { id, session } as unknown as Agent
+    return { agent, session }
   }
 
   it('folds to the last event, or undefined without one', () => {
@@ -464,131 +448,67 @@ describe('approval policy (the approval/policy fold)', () => {
     await expect(ctx.approval.request({ agent, toolName: 'bash' })).resolves.toBe('rejected')
   })
 
-  it('states never (and only never) in prose while recording either policy with a source-owned marker', async () => {
+  it('queues a live policy switch for the next model step', async () => {
+    const ctx = new Context()
+    await ctx.plugin(ApprovalService)
+    const { agent, session } = sessionAgent('sess-policy-notice')
+    const inject = vi.fn<Agent['inject']>()
+    const liveAgent = { ...agent, inject } as Agent
+
+    ctx.approval.setPolicy(liveAgent, 'never')
+    ctx.approval.setPolicy(liveAgent, 'never')
+
+    expect(effectiveApprovalPolicy(session.events)).toBe('never')
+    expect(inject).toHaveBeenCalledOnce()
+    expect(inject.mock.calls[0]?.[0]).toMatchObject({
+      content: [{
+        type: 'text',
+        text: 'The approval policy changed from "ask" to "never" (changed by the user).',
+      }],
+      source: { kind: 'plugin', plugin: 'user-approval' },
+    })
+  })
+
+  it('contributes the complete current ask or never policy as cache-safe context', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ApprovalService)
     const askAgent = sessionAgent('sess-sect-ask').agent
     const { agent: neverAgent, session } = sessionAgent('sess-sect-never')
     setApprovalPolicy(session, 'never')
-    const sectionFor = async (context: object) =>
-      (await ctx.systemPrompt.assemble(context)).sections.find(s => s.name === 'approval:policy')?.text
-    expect(await sectionFor({ agent: askAgent })).toBe(ASK_MARKER)
-    expect(await sectionFor({ agent: neverAgent })).toBe(`${NEVER_SENTENCE}\n${NEVER_MARKER}`)
+    const contextFor = async (context: object) =>
+      (await ctx.systemPrompt.assemble(context)).contexts.find(entry => entry.name === 'approval:policy')?.text
+    expect(await contextFor({ agent: askAgent })).toBe(ASK_SENTENCE)
+    expect(await contextFor({ agent: neverAgent })).toBe(NEVER_SENTENCE)
     // A bare assemble (no agent) has no session to state.
-    expect(await sectionFor({})).toBe('')
+    expect(await contextFor({})).toBe('')
   })
 
-  it('narrates nothing cold, once per coalesced switch (user wording), and idempotently', async () => {
+  it('reflects the latest durable switch in cache-safe context and stays byte-stable while unchanged', async () => {
     const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
     await ctx.plugin(ApprovalService)
-    const { agent, session, injected } = sessionAgent('sess-narr-1')
-    await preStep(ctx, agent)
-    expect(injected).toEqual([])
+    const { agent, session } = sessionAgent('sess-context-switch')
+    const contextFor = async () =>
+      (await ctx.systemPrompt.assemble({ agent })).contexts.find(entry => entry.name === 'approval:policy')?.text
+    expect(await contextFor()).toBe(ASK_SENTENCE)
+    expect(await contextFor()).toBe(ASK_SENTENCE)
     setApprovalPolicy(session, 'never')
     setApprovalPolicy(session, 'ask')
     setApprovalPolicy(session, 'never')
-    await preStep(ctx, agent)
-    expect(injected).toEqual(['The approval policy changed from "ask" to "never" (changed by the user).'])
-    await preStep(ctx, agent)
-    expect(injected).toHaveLength(1)
-    setApprovalPolicy(session, 'ask')
-    setApprovalPolicy(session, 'never')
-    await preStep(ctx, agent)
-    expect(injected).toHaveLength(1)
+    expect(await contextFor()).toBe(NEVER_SENTENCE)
+    expect(await contextFor()).toBe(NEVER_SENTENCE)
   })
 
-  it('reads what the model was told back from the folded header text after a restart', async () => {
-    // A session whose last request carried the never sentence resumes under
-    // an ask default: the narrator attributes the change to the operator.
-    const ctx = new Context()
-    await ctx.plugin(ApprovalService)
-    const { agent, session, injected } = sessionAgent('sess-narr-2')
-    appendHeader(session, `persona\n\n${NEVER_SENTENCE}\n${NEVER_MARKER}`)
-    await preStep(ctx, agent)
-    expect(injected).toEqual(['The approval policy changed from "never" to "ask" (changed by the operator/config).'])
-  })
-
-  it('attributes a constructor-seeded policy event to delegation', async () => {
-    const ctx = new Context()
-    await ctx.plugin(ApprovalService)
-    const { agent, session, injected } = sessionAgent('sess-narr-inherited')
-    appendHeader(session, ASK_MARKER)
-    session.append('approval/policy', { policy: 'never', source: 'delegation' })
-
-    await preStep(ctx, agent)
-
-    expect(injected).toEqual(['The approval policy changed from "ask" to "never" (inherited from the delegating session).'])
-  })
-
-  it('narrates a config default drift from the logged ask marker', async () => {
-    const ctx = new Context()
-    await ctx.plugin(ApprovalService, { policy: 'never' })
-    const { agent, session, injected } = sessionAgent('sess-narr-3')
-    appendHeader(session, `persona only\n${ASK_MARKER}`)
-    await preStep(ctx, agent)
-    expect(injected).toEqual(['The approval policy changed from "ask" to "never" (changed by the operator/config).'])
-  })
-
-  it('a pinned override survives a default change silently', async () => {
-    const ctx = new Context()
-    await ctx.plugin(ApprovalService, { policy: 'never' })
-    const { agent, session, injected } = sessionAgent('sess-narr-4')
-    appendHeader(session, `persona only\n${ASK_MARKER}`)
-    setApprovalPolicy(session, 'ask')
-    appendHeader(session, `persona only\n${ASK_MARKER}`)
-    await preStep(ctx, agent)
-    expect(injected).toEqual([])
-  })
-
-  it('does not infer never from deployment prose that quotes the never sentence', async () => {
-    const ctx = new Context()
-    await ctx.plugin(ApprovalService)
-    const { agent, session, injected } = sessionAgent('sess-narr-spoof-prose')
-    appendHeader(session, `persona quotes this warning: ${NEVER_SENTENCE}\n${ASK_MARKER}`)
-    await preStep(ctx, agent)
-    expect(injected).toEqual([])
-  })
-
-  it('treats a legacy header with no source-owned marker as untold', async () => {
-    const ctx = new Context()
-    await ctx.plugin(ApprovalService, { policy: 'never' })
-    const { agent, session, injected } = sessionAgent('sess-narr-unmarked-header')
-    appendHeader(session, 'legacy persona-only header')
-    await preStep(ctx, agent)
-    expect(injected).toEqual([])
-  })
-
-  it('uses the service marker after an earlier persona marker', async () => {
-    const ctx = new Context()
-    await ctx.plugin(ApprovalService)
-    const { agent, session, injected } = sessionAgent('sess-narr-spoof-marker')
-    appendHeader(session, `persona quotes ${NEVER_MARKER}\n${ASK_MARKER}`)
-    await preStep(ctx, agent)
-    expect(injected).toEqual([])
-  })
-
-  it('disposes the service prompt section and pre-step narrator together (HMR safety)', async () => {
+  it('disposes the runtime-context contribution with the service', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     const fiber = await ctx.plugin(ApprovalService)
-    const live = sessionAgent('sess-hmr-service-live')
-    const afterDispose = sessionAgent('sess-hmr-service-disposed')
-    const sectionFor = async () =>
-      (await ctx.systemPrompt.assemble({ agent: live.agent })).sections.find(section => section.name === 'approval:policy')
-    expect(await sectionFor()).toBeDefined()
-
-    appendHeader(live.session, `persona\n${ASK_MARKER}`)
-    setApprovalPolicy(live.session, 'never')
-    await preStep(ctx, live.agent)
-    expect(live.injected).toEqual(['The approval policy changed from "ask" to "never" (changed by the user).'])
-
-    appendHeader(afterDispose.session, `persona\n${ASK_MARKER}`)
-    setApprovalPolicy(afterDispose.session, 'never')
+    const { agent } = sessionAgent('sess-hmr-service-live')
+    const contextFor = async () =>
+      (await ctx.systemPrompt.assemble({ agent })).contexts.find(context => context.name === 'approval:policy')
+    expect(await contextFor()).toBeDefined()
     await fiber.dispose()
-
-    expect(await sectionFor()).toBeUndefined()
-    await preStep(ctx, afterDispose.agent)
-    expect(afterDispose.injected).toEqual([])
+    expect(await contextFor()).toBeUndefined()
   })
 })

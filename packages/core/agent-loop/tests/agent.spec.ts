@@ -26,50 +26,17 @@ function send(agent: Agent, text: string): void {
 }
 
 describe('Agent', () => {
-  it('does not echo caller-owned message identities from delivery methods', async () => {
-    const adapter = new MockAdapter([
-      textResponse('one'),
-      textResponse('two'),
-      textResponse('three'),
-    ])
-    const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    const message = (text: string) => createUserMessage({
-      content: [{ type: 'text' as const, text }],
-      source: { kind: 'user' as const },
-    })
-    const call = (method: 'send' | 'inject' | 'followup' | 'steer', args: unknown[]): unknown => {
-      const implementation: unknown = Reflect.get(agent, method)
-      if (typeof implementation !== 'function') throw new Error(`missing Agent.${method}`)
-      return Reflect.apply(implementation, agent, args)
-    }
-
-    expect(call('send', [message('quiet'), {
-      target: 'next-turn',
-      wakeup: false,
-    }])).toBeUndefined()
-    expect(call('inject', [message('context')])).toBeUndefined()
-    expect(call('followup', [message('followup')])).toBeUndefined()
-    expect(call('steer', [message('steering')])).toBeUndefined()
-    await agent.whenIdle()
-
-    expect(adapter.requests).toHaveLength(3)
-  })
-
-  it('idle inject() appends context without opening a turn or requesting a flush', async () => {
+  it('idle inject() durably stages context without opening a turn', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    let flushes = 0
-    ctx.on('session/flush', () => { flushes += 1 })
 
     agent.inject(createUserMessage({ content: [{ type: 'text', text: 'context' }], source: { kind: 'plugin', plugin: 'p' } }))
 
-    expect(agent.session.events.map(event => event.type)).toEqual(['user/message'])
+    expect(agent.session.events.map(event => event.type)).toEqual(['agent/inbox/spliced'])
     expect(agent.status).toBe('idle')
     expect(adapter.requests).toHaveLength(0)
     await agent.whenIdle()
-    expect(flushes).toBe(0)
   })
 
   it('inject() preserves an explicitly empty plugin source', async () => {
@@ -79,11 +46,49 @@ describe('Agent', () => {
     agent.inject(createUserMessage({ content: [{ type: 'text', text: 'empty plugin source' }], source: { kind: 'plugin', plugin: '' } }))
 
     const injected = agent.session.events.at(-1)
-    expect(injected?.type === 'user/message' && injected.data.source)
+    expect(injected?.type === 'agent/inbox/spliced' && injected.data.inserted[0]?.source)
       .toEqual({ kind: 'plugin', plugin: '' })
   })
 
-  it('idle inject() rejects invalid input before append', async () => {
+  it('emits exact inserted, claimed, and discarded inbox messages', async () => {
+    const ctx = await harness(new MockAdapter([textResponse('ok')]))
+    const agent = ctx.agentLoop.create(SessionId('inbox-events'), { provider: 'mock', model: 'mock' })
+    const inserted: unknown[] = []
+    const claimed: unknown[] = []
+    const discarded: unknown[] = []
+    const lifecycle: string[] = []
+    ctx.on('session/event', (session, event) => {
+      if (session === agent.session && event.type === 'turn/start') lifecycle.push('turn/start')
+    })
+    ctx.on('agent/inbox/inserted', ({ agent: subject, message }) => {
+      if (subject === agent) inserted.push({ message })
+    })
+    ctx.on('agent/inbox/claimed', ({ agent: subject, message, turn }) => {
+      if (subject === agent) {
+        lifecycle.push('agent/inbox/claimed')
+        claimed.push({ message, turn })
+      }
+    })
+    ctx.on('agent/inbox/discarded', ({ agent: subject, message }) => {
+      if (subject === agent) discarded.push({ message })
+    })
+    const context = createUserMessage({
+      content: [{ type: 'text', text: 'discard me' }],
+      source: { kind: 'plugin', plugin: 'test' },
+    })
+    agent.inject(context)
+    agent.inbox.remove(context.id)
+    const prompt = createUserMessage({ content: [{ type: 'text', text: 'run' }], source: { kind: 'user' } })
+    agent.followup(prompt)
+    await agent.whenIdle()
+
+    expect(inserted).toEqual([{ message: context }, { message: prompt }])
+    expect(discarded).toEqual([{ message: context }])
+    expect(claimed).toEqual([{ message: prompt, turn: 1 }])
+    expect(lifecycle).toEqual(['turn/start', 'agent/inbox/claimed'])
+  })
+
+  it('idle inject() rejects invalid input before enqueue', async () => {
     const ctx = await harness(new MockAdapter([textResponse('ok')]))
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
@@ -109,7 +114,7 @@ describe('Agent', () => {
     const ctx = await harness(new MockAdapter([textResponse('ok')]))
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     const statuses: string[] = []
-    ctx.on('agent/status', (subject, status) => {
+    ctx.on('agent/status', ({ agent: subject, status }) => {
       if (subject === agent) statuses.push(status)
     })
 
@@ -117,79 +122,6 @@ describe('Agent', () => {
     await agent.whenIdle()
 
     expect(statuses).toEqual(['running', 'idle'])
-  })
-
-  it('awaits the turn-end checkpoint before claiming the next queued turn', async () => {
-    const adapter = new MockAdapter([textResponse('one'), textResponse('two')])
-    const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    const firstFlush = Promise.withResolvers<undefined>()
-    const flushedTurns: number[] = []
-    ctx.on('session/flush', async (session) => {
-      const turnEnd = session.events.findLast(event => event.type === 'turn/end')
-      flushedTurns.push(turnEnd?.data.turn ?? 0)
-      if (turnEnd?.data.turn === 1) await firstFlush.promise
-    })
-
-    send(agent, 'first')
-    send(agent, 'second')
-
-    await vi.waitFor(() => { expect(flushedTurns).toEqual([1]) })
-    expect(adapter.requests).toHaveLength(1)
-    firstFlush.resolve(undefined)
-    await agent.whenIdle()
-
-    expect(adapter.requests).toHaveLength(2)
-    expect(flushedTurns).toEqual([1, 2])
-  })
-
-  it('keeps whenIdle pending through the final turn checkpoint', async () => {
-    const ctx = await harness(new MockAdapter([textResponse('done')]))
-    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    const flush = Promise.withResolvers<undefined>()
-    let flushStarted = false
-    ctx.on('session/flush', () => {
-      flushStarted = true
-      return flush.promise
-    })
-
-    send(agent, 'go')
-    await vi.waitFor(() => { expect(flushStarted).toBe(true) })
-    let idleSettled = false
-    const idle = agent.whenIdle().then(() => { idleSettled = true })
-    await Promise.resolve()
-    expect(idleSettled).toBe(false)
-
-    flush.resolve(undefined)
-    await idle
-    expect(agent.status).toBe('idle')
-  })
-
-  it('reports a rejected turn-end checkpoint and continues queued work', async () => {
-    const adapter = new MockAdapter([textResponse('one'), textResponse('two')])
-    const ctx = await harness(adapter)
-    const warning = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
-    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    const failure = new Error('disk unavailable')
-    const errors: { turn: number; step: number; error: unknown }[] = []
-    let flushes = 0
-    ctx.on('session/flush', () => {
-      flushes += 1
-      if (flushes === 1) throw failure
-    })
-    ctx.on('agent/error', (subject, turn, step, error) => {
-      if (subject === agent) errors.push({ turn, step, error })
-    })
-
-    send(agent, 'first')
-    send(agent, 'second')
-    await agent.whenIdle()
-
-    expect(adapter.requests).toHaveLength(2)
-    expect(flushes).toBe(2)
-    expect(errors).toEqual([{ turn: 1, step: 1, error: failure }])
-    expect(warning).toHaveBeenCalledWith(expect.stringContaining('session/flush failed at turn 1: disk unavailable'))
-    warning.mockRestore()
   })
 
   it('whenIdle() resolves immediately without active work', async () => {
@@ -220,7 +152,7 @@ describe('Agent', () => {
     const ctx = await harness(new MockAdapter([textResponse('ok')]))
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    ctx.on('agent/status', (_subject, status) => {
+    ctx.on('agent/status', ({ status }) => {
       throw new Error(`bad ${status} listener`)
     })
 

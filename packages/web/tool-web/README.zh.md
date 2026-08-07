@@ -2,9 +2,9 @@
 
 [English](README.md) | 中文
 
-面向模型的 web 工具套件 `web_search` 与 `web_fetch`，构建于 [web 能力 seam](../web/README.md)（`ctx.web`）之上。它只负责面向模型的事项：工具名称、JSON Schema、snake_case 参数名称、提示词区段、结果数量上限、结果格式、HTML→markdown 呈现，以及 `presentCall`。所有 web 访问都通过 `ctx.web`；该包（package）绝不导入具体提供方。两个工具都不公开面向模型的超时：每个工具的协作式工具调用超时预算通过配置在此声明（`fetchTimeoutMs`／`searchTimeoutMs`，附加为 `ToolDefinition.timeoutMs`），由 [`@deepseek-ai/dsh-timeout-policy`](../../timeout/timeout-policy/README.md)（`tools/execute` 包装层）强制执行；每个工具只把 `exec.signal` 转发给 seam。
+面向模型的 web 工具套件 `web_search` 与 `web_fetch`，构建于 [web 能力 seam](../web/README.md)（`ctx.web`）之上。它只负责面向模型的事项：工具名称、JSON Schema、snake_case 参数名称、提示词区段、结果数量上限、结果格式、HTML→markdown 呈现，以及 UI 呈现投影——`presentCall`、`presentResult`（以 `kind: 'search' | 'fetch'` 区分的 `card: 'web'` 结果卡片），以及承载有损渲染文本无法携带的结构化搜索来源或抓取摘要的 `output.presentationMeta`（见 [web-result-card Agent Note](../../../.agents/notes/implemented/feature/2026-07-30-web-result-card.md)）。所有 web 访问都通过 `ctx.web`；该包绝不导入具体提供方。两个工具都不公开面向模型的超时：每个工具的协作式工具调用超时预算通过配置在此声明（`fetchTimeoutMs`／`searchTimeoutMs`，附加为 `ToolDefinition.timeoutMs`），由 [`@deepseek-ai/dsh-timeout-policy`](../../timeout/timeout-policy/README.md)（`tools/execute` 包装层）强制执行；每个工具只把 `exec.signal` 转发给 seam。
 
-每个工具独立注册；只需要其中一个工具的产品可以通过配置禁用另一个（`{ search: false }`／`{ fetch: false }`）。
+每个工具独立注册；只需要其中一个工具的产品可以通过配置禁用另一个（`{ search: false }`／`{ fetch: false }`）。仅当抓取也通过配置启用时，搜索指引才会提及 `web_fetch`；仅启用搜索的组合则会要求模型使用返回的 snippet 并引用其 URL。
 
 ## 工具
 
@@ -47,12 +47,18 @@
 
 #### 模型看到的内容
 
-搜索与抓取分别贡献以下 web-search 和 web-fetch 指引。scope 工具限制不会移除这些独立注册的区段。
+搜索与抓取分别贡献以下 web-search 和 web-fetch 指引。搜索会在注册时根据配置选用启用抓取或仅搜索的文本。scope 工具限制不会移除这些独立注册的区段。
 
-##### Web 搜索指引
+##### 启用抓取时的 Web 搜索指引
 
 ```markdown
 Use the web_search tool to discover current information on the web. It returns an optional answer plus a list of source URLs. Follow up with web_fetch when you need the full content of a specific result, and cite the relevant URLs as markdown links.
+```
+
+##### 仅搜索时的 Web 搜索指引
+
+```markdown
+Use the web_search tool to discover current information on the web. It returns an optional answer plus a list of source URLs. Use the returned source snippets when available, and cite the relevant URLs as markdown links.
 ```
 
 ##### Web 抓取指引
@@ -63,11 +69,11 @@ Use the web_fetch tool to retrieve the content of a specific HTTP(S) URL (for ex
 
 #### Token 影响
 
-每个通过配置启用的工具都会为每次请求增加固定的指引 token 开销，即使限制隐藏了其 schema。
+每个通过配置启用的工具都会为每次请求增加固定的指引 token 开销，即使限制隐藏了其 schema。切换抓取状态不仅会注册或移除抓取区段，也会更改搜索指引。
 
 #### KV Cache 影响
 
-只要启用工具、scope 与指引文本不变，前缀就保持稳定。配置启用状态或插件生命周期可能使从第一个变化的提示词区段起的复用失效；scope schema 限制不会移除该区段。
+只要启用工具、scope 与指引文本不变，前缀就保持稳定。配置启用状态（包括因切换抓取状态而改变搜索指引分支）或插件生命周期可能使从第一个变化的提示词区段起的复用失效；scope schema 限制不会移除该区段。
 
 ### 工具 schema
 
@@ -95,7 +101,7 @@ Use the web_fetch tool to retrieve the content of a specific HTTP(S) URL (for ex
 
 #### KV Cache 影响
 
-仅追加；新可见内容位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
+仅追加；新可见内容位于可复用请求前缀之后，不会使现有 KV Cache 条目失效。
 
 ### 抓取结果
 
@@ -109,7 +115,7 @@ Use the web_fetch tool to retrieve the content of a specific HTTP(S) URL (for ex
 
 #### KV Cache 影响
 
-仅追加；新可见内容位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
+仅追加；新可见内容位于可复用请求前缀之后，不会使现有 KV Cache 条目失效。
 
 ### 参数错误
 
@@ -123,10 +129,10 @@ Use the web_fetch tool to retrieve the content of a specific HTTP(S) URL (for ex
 
 #### KV Cache 影响
 
-仅追加；新可见内容位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
+仅追加；新可见内容位于可复用请求前缀之后，不会使现有 KV Cache 条目失效。
 
 ## 已知限制与暂缓事项
 
-- **HTML→markdown 转换会在 GFM 无法安全表示的输入上降级**：[turndown](https://github.com/mixmark-io/turndown)（带 GFM 表格／删除线）通过真实 DOM 转换至多 `fetchMaxOutputChars` 个源字符。保守的 512 层词法守卫会将深层或嵌套有歧义的主体作为原始 HTML 直接透传，转换异常也会如此处理；表格的 `colspan` 会被忽略，因为 GFM 无法表示跨列单元格。这些限制可避免阻塞事件循环，也避免不受信任的数值属性使输出膨胀（[Agent Note（agent 决策记录）](../../../.agents/notes/implemented/simplification/2026-07-26-turndown-for-tool-web-html-markdown.md)）。
+- **HTML→markdown 转换会在 GFM 无法安全表示的输入上降级**：[turndown](https://github.com/mixmark-io/turndown)（带 GFM 表格／删除线）通过真实 DOM 转换至多 `fetchMaxOutputChars` 个源字符。保守的 512 层词法守卫会将深层或嵌套有歧义的主体作为原始 HTML 直接透传，转换异常也会如此处理；表格的 `colspan` 会被忽略，因为 GFM 无法表示跨列单元格。这些限制可避免阻塞事件循环，也避免不受信任的数值属性使输出膨胀（[已归档的依赖决策](../../../.agents/notes/archived/simplification/2026-07-26-turndown-for-tool-web-html-markdown.md)）。
 - **面向模型的接口有意保持精简，后续扩展暂缓**：`max_results` 保持为配置上限（不是模型参数），`web_fetch` 只接受 `url`（没有 `format`／`prompt`／LLM（大语言模型）摘要模式）；两项都列为 [seam Agent Note](../../../.agents/notes/implemented/architecture/2026-06-24-web-capability-seam.md) 中的后续步骤。
 - **没有 web 专用权限策略**：两个工具都不会请求 `ctx.approval` 就直接执行；需要确认的部署必须添加 `tools/pre-execute` 策略，该包不定义持久化的 URL／域名授权。

@@ -12,6 +12,9 @@
       "path": "../../../vendor/cordis"
     },
     {
+      "path": "../locale"
+    },
+    {
       "path": "../ui-slots"
     },
     {

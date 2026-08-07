@@ -320,6 +320,39 @@ describe('read tool', () => {
     expect(text(result)).toContain('Output capped.')
   })
 
+  it('attaches the structured window as presentation meta, and presentResult narrows it into a read card', async () => {
+    const { ctx, fs } = await setup()
+    fs.files.set('key:a.ts', 'const x = 1\nconst y = 2')
+    const result = await call(ctx, 'read', { file_path: 'a.ts' })
+    expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected read success')
+    // The extension drives the lang hint; the window rides on persisted meta.
+    expect(result.meta).toEqual({
+      path: '/abs/a.ts',
+      offset: 1,
+      lines: [{ number: 1, text: 'const x = 1' }, { number: 2, text: 'const y = 2' }],
+      totalLines: 2,
+      lang: 'ts',
+    })
+    const view = ctx.tools.get('read')?.presentResult?.({ file_path: 'a.ts' }, result)
+    expect(view).toEqual({
+      card: 'read',
+      path: '/abs/a.ts',
+      offset: 1,
+      lines: [{ number: 1, text: 'const x = 1' }, { number: 2, text: 'const y = 2' }],
+      totalLines: 2,
+      lang: 'ts',
+      content: [{ type: 'text', text: '1: const x = 1\n2: const y = 2\n\n(End of file - total 2 lines)' }],
+    })
+  })
+
+  it('omits the lang hint in meta for an extension that maps to no language', async () => {
+    const { ctx, fs } = await setup()
+    fs.files.set('key:notes', 'plain')
+    const result = await call(ctx, 'read', { file_path: 'notes' })
+    if (result.isError) throw new Error('expected read success')
+    expect(result.meta).toEqual({ path: '/abs/notes', offset: 1, lines: [{ number: 1, text: 'plain' }], totalLines: 1 })
+  })
 })
 
 describe('formatReadOutput footer variants', () => {
@@ -364,12 +397,13 @@ describe('write tool', () => {
     expect(text(result)).toContain('file_path must be a non-empty string')
   })
 
-  it('propagates a backend FsError as an isError result carrying its code', async () => {
+  it('propagates a backend FsError as an isError result carrying its code and remedy', async () => {
     const { ctx, fs } = await setup()
     fs.rejectWith = new FsError('blocked', 'FS_STALE_VERSION')
     const result = await call(ctx, 'write', { file_path: 'a.txt', content: 'hi' })
     expect(result.isError).toBe(true)
     expect(result.error).toMatchObject({ info: { name: 'FsError', code: 'FS_STALE_VERSION' } })
+    expect(text(result)).toContain('re-read the file, then retry')
   })
 })
 
@@ -450,33 +484,72 @@ describe('tool-owned presentation (pure presentCall)', () => {
     })
   })
 
-  it('read: completed presentation removes the model-facing XML envelope', async () => {
-    expect(await presentResult('read', { file_path: 'a.txt' }, {
-      content: [{ type: 'text', text: '<path>/tmp/a.txt</path>\n<type>file</type>\n<content>\n1: hello\n\n(End of file - total 1 lines)\n</content>' }],
+  it('read: completed presentation is a read card carrying the structured window with the envelope stripped', async () => {
+    // The structured line data rides on persisted meta (the raw output object is
+    // not on the wire); presentResult narrows it and appends the stripped text as
+    // the no-capability `content` fallback.
+    const meta = { path: '/tmp/a.ts', offset: 1, lines: [{ number: 1, text: 'hello' }], totalLines: 1, lang: 'ts' }
+    expect(await presentResult('read', { file_path: 'a.ts' }, {
+      content: [{ type: 'text', text: '<path>/tmp/a.ts</path>\n<type>file</type>\n<content>\n1: hello\n\n(End of file - total 1 lines)\n</content>' }],
       isError: false,
+      meta,
     })).toEqual({
-      card: 'generic',
+      card: 'read',
+      path: '/tmp/a.ts',
+      offset: 1,
+      lines: [{ number: 1, text: 'hello' }],
+      totalLines: 1,
+      lang: 'ts',
       content: [{ type: 'text', text: '1: hello\n\n(End of file - total 1 lines)' }],
     })
-    expect(await presentResult('read', { file_path: 'a.txt' }, {
+    // A window whose extension maps to no language omits `lang` from the card.
+    expect(await presentResult('read', { file_path: 'notes' }, {
+      content: [{ type: 'text', text: '<path>/tmp/notes</path>\n<type>file</type>\n<content>\nbody\n</content>' }],
+      isError: false,
+      meta: { path: '/tmp/notes', offset: 1, lines: [{ number: 1, text: 'body' }], totalLines: 1 },
+    })).toEqual({
+      card: 'read',
+      path: '/tmp/notes',
+      offset: 1,
+      lines: [{ number: 1, text: 'body' }],
+      totalLines: 1,
+      content: [{ type: 'text', text: 'body' }],
+    })
+    // Malformed envelope text with valid meta still declines (the fallback text is unavailable).
+    expect(await presentResult('read', { file_path: 'a.ts' }, {
       content: [{ type: 'text', text: 'malformed replay' }],
       isError: false,
+      meta,
+    })).toBeUndefined()
+    // Valid envelope but absent/malformed meta declines to the generic fallback.
+    expect(await presentResult('read', { file_path: 'a.ts' }, {
+      content: [{ type: 'text', text: '<path>/tmp/a.ts</path>\n<type>file</type>\n<content>\n1: hello\n</content>' }],
+      isError: false,
+    })).toBeUndefined()
+    expect(await presentResult('read', { file_path: 'a.ts' }, {
+      content: [{ type: 'text', text: '<path>/tmp/a.ts</path>\n<type>file</type>\n<content>\n1: hello\n</content>' }],
+      isError: false,
+      meta: { path: '/tmp/a.ts', lines: 'nope', totalLines: 1 },
     })).toBeUndefined()
   })
 
   it('read: completed presentation declines errors and non-single-text content', async () => {
     const envelope = '<path>/tmp/a.txt</path>\n<type>file</type>\n<content>\nbody\n</content>'
+    const meta = { path: '/tmp/a.txt', offset: 1, lines: [{ number: 1, text: 'body' }], totalLines: 1 }
     expect(await presentResult('read', { file_path: 'a.txt' }, {
       content: [{ type: 'text', text: envelope }],
       isError: true,
+      meta,
     })).toBeUndefined()
     expect(await presentResult('read', { file_path: 'a.txt' }, {
       content: [{ type: 'text', text: envelope }, { type: 'text', text: 'second' }],
       isError: false,
+      meta,
     })).toBeUndefined()
     expect(await presentResult('read', { file_path: 'a.txt' }, {
       content: [{ type: 'reasoning', text: envelope }],
       isError: false,
+      meta,
     })).toBeUndefined()
   })
 

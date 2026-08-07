@@ -10,9 +10,11 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
-import type { ToolRowProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 // Export discipline: packages/client/AGENTS.md.
 import { AskQuestionRow, askQuestionToolview } from '../src/client/toolviews/ask-question-row.tsx'
+import { zh } from '../src/client/locales.ts'
 
 afterEach(cleanup)
 
@@ -28,13 +30,16 @@ const resultNode = (argsRaw: string, resultText: string | null, over?: Partial<T
 const runningCall = (argsRaw: string) =>
   ({ callId: 'c1', name: 'ask_user_question', argsRaw, turn: 1, step: 1, time: 1_000, callView: null })
 
-function rowProps(block: unknown): ToolRowProps {
+// Standard locale seat stub mirroring the real ns → common → key chain.
+const t = makeTranslate(zh, commonZh)
+
+function rowProps(block: unknown): Parameters<typeof AskQuestionRow>[0] {
   return {
-    callId: 'c1', toolName: 'ask_user_question', block,
+    callId: 'c1', toolName: 'ask_user_question', block, t,
     openFile: vi.fn(),
     sessionId: 's1',
     useSessions: () => undefined,
-  } as unknown as ToolRowProps
+  } as unknown as Parameters<typeof AskQuestionRow>[0]
 }
 
 const answers = (entries: unknown[]): string => JSON.stringify({ answers: entries })
@@ -42,8 +47,8 @@ const answers = (entries: unknown[]): string => JSON.stringify({ answers: entrie
 describe('AskQuestionRow', () => {
   it('running call reads waiting (args-independent: the composer takeover shows the questions)', () => {
     const view = render(<AskQuestionRow {...rowProps(runningCall(ARGS))} />)
-    expect(screen.getByText('Ask question')).toBeTruthy()
-    expect(screen.getByText('waiting')).toBeTruthy()
+    expect(screen.getByText('提问')).toBeTruthy()
+    expect(screen.getByText('等待回答')).toBeTruthy()
     expect(view.container.querySelector('[data-state="running"]')).not.toBeNull()
   })
 
@@ -53,7 +58,7 @@ describe('AskQuestionRow', () => {
       { id: 'b', selected: [], custom: 'freeform' },
       { id: 'c', selected: ['y', 'z'], custom: '' },
     ])))} />)
-    expect(screen.getByText('3/3 answered')).toBeTruthy()
+    expect(screen.getByText('3/3 已回答')).toBeTruthy()
   })
 
   it('skipped questions (no selection, no custom) stay out of the answered count', () => {
@@ -62,7 +67,7 @@ describe('AskQuestionRow', () => {
       { id: 'b', selected: [], custom: '' },
       { id: 'c' },
     ])))} />)
-    expect(screen.getByText('1/3 answered')).toBeTruthy()
+    expect(screen.getByText('1/3 已回答')).toBeTruthy()
     expect(view.container.querySelector('[data-state="ok"]')).not.toBeNull()
   })
 
@@ -82,7 +87,7 @@ describe('AskQuestionRow', () => {
     // ASK_CANCELLED: the apiproxy ask_user_question handler's cancel error.
     const view = render(<AskQuestionRow {...rowProps(resultNode(ARGS, null,
       { isError: true, error: { name: 'UserInteractionError', code: 'ASK_CANCELLED' } }))} />)
-    expect(screen.getByText('cancelled')).toBeTruthy()
+    expect(screen.getByText('已取消')).toBeTruthy()
     expect(view.container.querySelector('[data-state="error"]')).not.toBeNull()
   })
 
@@ -90,7 +95,7 @@ describe('AskQuestionRow', () => {
     // ASK_ABORTED: the apiproxy ask handler's turn-abort settlement.
     const view = render(<AskQuestionRow {...rowProps(resultNode(ARGS, null,
       { isError: true, error: { name: 'UserInteractionError', code: 'ASK_ABORTED' } }))} />)
-    expect(screen.getByText('interrupted')).toBeTruthy()
+    expect(screen.getByText('已中断')).toBeTruthy()
     expect(view.container.querySelector('[data-state="stopped"]')).not.toBeNull()
   })
 
@@ -98,7 +103,7 @@ describe('AskQuestionRow', () => {
     const view = render(<AskQuestionRow {...rowProps(resultNode(ARGS, null,
       { isError: true, error: { name: 'Interrupted', code: 'interrupted' } }))} />)
     expect(view.container.querySelector('[data-state="stopped"]')).not.toBeNull()
-    expect(screen.queryByText('cancelled')).toBeNull()
+    expect(screen.queryByText('已取消')).toBeNull()
     expect(screen.getByText(`ask_user_question · ${ARGS}`)).toBeTruthy()
   })
 
@@ -119,11 +124,16 @@ describe('AskQuestionRow', () => {
     expect(screen.getByRole('button', { expanded: true })).toBeTruthy()
   })
 
-  it('askQuestionToolview is a plain registrant riding the conversation load-order seam', () => {
+  it('askQuestionToolview injects the toolview declaration directly', () => {
     expect(askQuestionToolview.name).toBe('ask-question-toolview')
-    expect(askQuestionToolview.inject).toEqual(['slots', 'conversation'])
-    const register = vi.fn()
-    askQuestionToolview.apply({ slots: { register } } as never)
-    expect(register).toHaveBeenCalledWith({ name: 'conversation.chat.toolview', key: 'ask_user_question' }, AskQuestionRow)
+    expect(askQuestionToolview.inject).toEqual(['slots'])
+    const register = vi.fn(() => () => undefined)
+    const inject = vi.fn((_name: string, callback: () => () => void) => callback())
+    askQuestionToolview.apply({ slots: { inject, register } } as never)
+    expect(inject).toHaveBeenCalledWith('conversation.chat.toolview', expect.any(Function))
+    expect(register).toHaveBeenCalledWith(
+      { name: 'conversation.chat.toolview', key: 'ask_user_question', locale: 'conversation' },
+      AskQuestionRow,
+    )
   })
 })

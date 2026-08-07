@@ -64,7 +64,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('worker workflow engine with-key 
     ctx = await harness()
     const parentHandle = await ctx.agents.create({
       sessionId: 'wf-worker-e2e-session' as never,
-      agentOptions: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+      agentOptions: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
     })
 
     const events: string[] = []

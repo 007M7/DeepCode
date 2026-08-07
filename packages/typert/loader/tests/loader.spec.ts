@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -8,6 +9,7 @@ import Loader from '@cordisjs/plugin-loader'
 import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 import * as typertLoader from '@deepseek-ai/dsh-typert-loader'
 import { validateTypertManifest } from '@deepseek-ai/dsh-typert-loader'
+import { z } from 'zod'
 
 let root: string | undefined
 let context: Context | undefined
@@ -58,6 +60,33 @@ function typertSource(pkgName: string, entryName: string): string {
     '  face: \'host\',',
     `  schemas: [{ name: '${entryName}', schema: ${entryName} }],`,
     '  model: { services: [], events: [], objects: [] },',
+    '  invocations: [],',
+    '}',
+    '',
+  ].join('\n')
+}
+
+function invocationTypertSource(pkgName: string): string {
+  return [
+    'import { z } from \'zod\'',
+    'const Text = z.string()',
+    'export const TYPERT = {',
+    `  package: '${pkgName}',`,
+    '  face: \'host\',',
+    '  schemas: [],',
+    '  model: { services: [], events: [], objects: [] },',
+    '  invocations: [{',
+    `    id: '${pkgName}#goals/create',`,
+    '    service: \'goals\', namespace: \'goals\', method: \'create\',',
+    '    invocation: { kind: \'direct\' },',
+    '    parameters: [{',
+    '      name: \'request\', wire: \'request\', source: \'json\',',
+    `      codec: { mode: 'strict', typeSymbol: '${pkgName}/types#Request', schema: Text },`,
+    '    }],',
+    "    cancellation: { parameter: 'signal' },",
+    `    result: { mode: 'strict', typeSymbol: '${pkgName}/types#Result', schema: Text },`,
+    '    sourceLocation: { file: \'src/index.ts\', line: 8, column: 3 },',
+    '  }],',
     '}',
     '',
   ].join('\n')
@@ -69,6 +98,14 @@ async function boot(): Promise<Context> {
   context.baseUrl = pathToFileURL(join(root as string, 'cordis.yml')).href
   await context.plugin(TypertRegistry)
   await context.plugin(Loader)
+  const fixtureRequire = createRequire(context.baseUrl)
+  context.loader.internal = {
+    version: 'v2',
+    async import(specifier: string) {
+      const module: unknown = await import(pathToFileURL(fixtureRequire.resolve(specifier)).href)
+      return module
+    },
+  } as unknown as NonNullable<typeof context.loader.internal>
   // zod must be resolvable from the fixture packages; link the workspace copy.
   await mkdir(join(root as string, 'node_modules'), { recursive: true })
   return context
@@ -103,6 +140,34 @@ describe('typert loader', () => {
 
     await fiber.dispose()
     expect(ctx.typert.getPackage('@fixture/nested')).toBeUndefined()
+  })
+
+  it('registers a strict invocation into the local registry and withdraws it with the loader', LOADER_TEST_TIMEOUT, async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-typert-loader-'))
+    await linkZod(root)
+    await writePackage(root, '@fixture/invocation', {
+      typertSource: invocationTypertSource('@fixture/invocation'),
+    })
+    const ctx = await boot()
+
+    const fiber = mountTypertLoader(ctx, { packages: ['@fixture/invocation'] })
+    await fiber
+
+    const descriptor = ctx.typert.local.get('goals/create')
+    expect(descriptor).toMatchObject({
+      id: '@fixture/invocation#goals/create',
+      invocation: { kind: 'direct' },
+      parameters: [{ wire: 'request', source: 'json' }],
+      cancellation: { parameter: 'signal' },
+      sourceLocation: { file: 'src/index.ts', line: 8, column: 3 },
+    })
+    expect(descriptor?.parameters[0]?.codec.mode).toBe('strict')
+    if (descriptor?.parameters[0]?.codec.mode === 'strict') {
+      expect(descriptor.parameters[0].codec.schema.parse('request')).toBe('request')
+    }
+
+    await fiber.dispose()
+    expect(ctx.typert.local.get('goals/create')).toBeUndefined()
   })
 
   it('fails loud when an explicit package is absent or has no Typert export', LOADER_TEST_TIMEOUT, async () => {
@@ -147,12 +212,12 @@ describe('typert loader', () => {
     await new Promise(resolve => setTimeout(resolve, 20))
     expect(ctx.typert.list()).toHaveLength(1)
 
-    ctx.loader.remove(id)
+    await ctx.loader.remove(id)
     await ctx.loader.await()
     // The unmount reconciliation rides a queued microtask flush.
     await new Promise(resolve => setTimeout(resolve, 20))
     expect(ctx.typert.get('@fixture/with-typert#Thing')).toBeUndefined()
-    ctx.loader.remove(plainId)
+    await ctx.loader.remove(plainId)
     await ctx.loader.await()
     await new Promise(resolve => setTimeout(resolve, 20))
 
@@ -172,9 +237,10 @@ describe('typert loader', () => {
     expect(ctx.typert.get('@fixture/late#Late')).toBeUndefined()
     await ctx.loader.create({ name: '@fixture/late' })
     await ctx.loader.await()
-    // The microtask flush and the dynamic import need a turn to settle.
-    await new Promise(resolve => setTimeout(resolve, 20))
-    expect(ctx.typert.get('@fixture/late#Late')).toBeDefined()
+    // Contributor import settles after Loader's own await boundary.
+    await vi.waitFor(() => {
+      expect(ctx.typert.get('@fixture/late#Late')).toBeDefined()
+    }, { timeout: 10_000 })
   })
 
   it('drops an in-flight manifest when the loader is disposed before import settles', LOADER_TEST_TIMEOUT, async () => {
@@ -199,6 +265,7 @@ describe('typert loader', () => {
         '  face: \'host\',',
         '  schemas: [{ name: \'Pending\', schema: Pending }],',
         '  model: { services: [], events: [], objects: [] },',
+        '  invocations: [],',
         '}',
         '',
       ].join('\n'),
@@ -232,7 +299,7 @@ describe('typert loader', () => {
     root = await mkdtemp(join(tmpdir(), 'dsh-typert-loader-'))
     await linkZod(root)
     await writePackage(root, '@fixture/broken', {
-      typertSource: 'export const TYPERT = { package: \'@fixture/broken\', face: \'host\', schemas: [{ name: \'\', schema: {} }], model: { services: [], events: [], objects: [] } }\n',
+      typertSource: 'export const TYPERT = { package: \'@fixture/broken\', face: \'host\', schemas: [{ name: \'\', schema: {} }], model: { services: [], events: [], objects: [] }, invocations: [] }\n',
     })
     const ctx = await boot()
     await ctx.loader.create({ name: '@fixture/broken' })
@@ -347,6 +414,7 @@ describe('validateTypertManifest', () => {
       face: 'host',
       schemas: [{ name: 'A', schema: zodish }],
       model: { services: [], events: [], objects: [] },
+      invocations: [],
     }).schemas).toHaveLength(1)
 
     expect(() => validateTypertManifest('pkg', undefined)).toThrow('no TYPERT manifest object')
@@ -426,7 +494,168 @@ describe('validateTypertManifest', () => {
       model: { ...complete.model, objects: [{ ...complete.model.objects[0], exportName: '' }] },
     })).toThrow('object has a missing or empty exportName')
   })
+
+  it('requires and validates strict invocation descriptors', () => {
+    const base = completeManifest(zodish)
+    const { invocations: _invocations, ...missingInvocations } = base
+    expect(() => validateTypertManifest('pkg', missingInvocations))
+      .toThrow('TYPERT.invocations must be an array')
+
+    const descriptor = strictInvocation()
+    const manifest = { ...base, invocations: [descriptor] }
+    expect(validateTypertManifest('pkg', manifest)).toBe(manifest)
+    const cancellable = { ...descriptor, cancellation: { parameter: 'signal' } }
+    expect(validateTypertManifest('pkg', { ...base, invocations: [cancellable] }).invocations)
+      .toEqual([cancellable])
+    const scoped = {
+      ...descriptor,
+      scope: { context: 'agent', wire: 'agentId' },
+      parameters: [{
+        name: 'agent',
+        wire: 'agentId',
+        source: 'lookup',
+        lookup: 'agent',
+        codec: strictCodec('pkg#AgentId'),
+      }, ...descriptor.parameters],
+    }
+    expect(validateTypertManifest('pkg', { ...base, invocations: [scoped] }).invocations)
+      .toEqual([scoped])
+
+    expect(() => validateTypertManifest('pkg', { ...base, invocations: {} }))
+      .toThrow('TYPERT.invocations must be an array')
+    expect(() => validateTypertManifest('pkg', {
+      ...base,
+      invocations: [{ ...descriptor, invocation: { kind: 'future' } }],
+    })).toThrow('receiver kind must be "direct" or "context"')
+    expect(() => validateTypertManifest('pkg', {
+      ...base,
+      invocations: [{ ...descriptor, result: { mode: 'src-json' } }],
+    })).toThrow('result codec must use a strict codec')
+    expect(() => validateTypertManifest('pkg', {
+      ...base,
+      invocations: [{ ...descriptor, cancellation: null }],
+    })).toThrow('cancellation must be an object')
+    expect(() => validateTypertManifest('pkg', {
+      ...base,
+      invocations: [{ ...descriptor, cancellation: { parameter: 'abort' } }],
+    })).toThrow('cancellation parameter must be "signal"')
+    expect(() => validateTypertManifest('pkg', {
+      ...base,
+      invocations: [{ ...descriptor, result: { mode: 'strict', typeSymbol: 'pkg#Result', schema: zodish } }],
+    })).toThrow('result codec is not backed by a zod v4 schema')
+    expect(() => validateTypertManifest('pkg', {
+      ...base,
+      invocations: [{
+        ...descriptor,
+        parameters: [{ ...descriptor.parameters[0], source: 'future' }],
+      }],
+    })).toThrow('parameter source must be "json" or "lookup"')
+    expect(() => validateTypertManifest('pkg', {
+      ...base,
+      invocations: [{
+        ...descriptor,
+        parameters: [{ ...descriptor.parameters[0], source: 'lookup' }],
+      }],
+    })).toThrow('lookup parameter has a missing or empty lookup')
+    expect(() => validateTypertManifest('pkg', {
+      ...base,
+      invocations: [{
+        ...descriptor,
+        parameters: [{ ...descriptor.parameters[0], lookup: 'agent' }],
+      }],
+    })).toThrow('JSON parameter declares a lookup')
+    expect(() => validateTypertManifest('pkg', {
+      ...base,
+      invocations: [{
+        ...descriptor,
+        parameters: [descriptor.parameters[0], { ...descriptor.parameters[0], name: 'again' }],
+      }],
+    })).toThrow('repeats wire field "request"')
+    expect(() => validateTypertManifest('pkg', {
+      ...base,
+      invocations: [{
+        ...descriptor,
+        invocation: {
+          kind: 'context',
+          context: 'agent',
+          wire: 'request',
+          codec: strictCodec('pkg#AgentId'),
+        },
+      }],
+    })).toThrow('repeats Context wire field "request"')
+    expect(() => validateTypertManifest('pkg', {
+      ...base,
+      invocations: [{ ...scoped, scope: null }],
+    })).toThrow('scope must be an object')
+    expect(() => validateTypertManifest('pkg', {
+      ...base,
+      invocations: [{ ...scoped, scope: { wire: 'agentId' } }],
+    })).toThrow('scope has a missing or empty context')
+    expect(() => validateTypertManifest('pkg', {
+      ...base,
+      invocations: [{ ...scoped, scope: { context: 'agent' } }],
+    })).toThrow('scope has a missing or empty wire')
+    expect(() => validateTypertManifest('pkg', {
+      ...base,
+      invocations: [{
+        ...scoped,
+        invocation: {
+          kind: 'context',
+          context: 'agent',
+          wire: 'scopeId',
+          codec: strictCodec('pkg#AgentId'),
+        },
+      }],
+    })).toThrow('Context receiver cannot declare a direct scope projection')
+    expect(() => validateTypertManifest('pkg', {
+      ...base,
+      invocations: [{ ...scoped, scope: { context: 'agent', wire: 'missingId' } }],
+    })).toThrow('must select its only lookup parameter')
+    expect(() => validateTypertManifest('pkg', {
+      ...base,
+      invocations: [{
+        ...scoped,
+        parameters: [...scoped.parameters, {
+          name: 'other',
+          wire: 'otherId',
+          source: 'lookup',
+          lookup: 'agent',
+          codec: strictCodec('pkg#AgentId'),
+        }],
+      }],
+    })).toThrow('must select its only lookup parameter')
+    expect(() => validateTypertManifest('pkg', {
+      ...base,
+      invocations: [{ ...scoped, scope: { context: 'other', wire: 'agentId' } }],
+    })).toThrow('must select its only lookup parameter')
+    expect(() => validateTypertManifest('pkg', {
+      ...base,
+      invocations: [{ ...descriptor, sourceLocation: { file: 'src/index.ts', line: 0, column: 1 } }],
+    })).toThrow('sourceLocation.line must be a positive integer')
+  })
 })
+
+function strictCodec(typeSymbol: string) {
+  return { mode: 'strict', typeSymbol, schema: z.string() }
+}
+
+function strictInvocation() {
+  return {
+    id: 'pkg#goals/create',
+    service: 'goals',
+    namespace: 'goals',
+    method: 'create',
+    invocation: { kind: 'direct' },
+    parameters: [{
+      name: 'request',
+      wire: 'request',
+      source: 'json',
+      codec: strictCodec('pkg#Request'),
+    }],
+    result: strictCodec('pkg#Result'),
+    sourceLocation: { file: 'src/index.ts', line: 1, column: 1 },
+  }
+}
 
 function completeManifest(zodish: object) {
   const member = { name: 'member', signature: 'member(): void', kind: 'method' }
@@ -435,6 +664,7 @@ function completeManifest(zodish: object) {
     package: 'pkg',
     face: 'host',
     schemas: [{ name: 'Schema', schema: zodish }],
+    invocations: [],
     model: {
       services: [{
         key: 'service',

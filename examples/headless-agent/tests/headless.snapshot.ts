@@ -1,4 +1,6 @@
 import { readFile, readdir, writeFile } from 'node:fs/promises'
+import { createServer } from 'node:http'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import { delimiter, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -27,11 +29,20 @@ const goalScenarioDir = join(snapshotsDir, 'goal-tools')
 const goalConfigPath = fileURLToPath(new URL('../goal.cordis.snapshot.yml', import.meta.url))
 const retryScenarioDir = join(snapshotsDir, 'provider-retry')
 const retryConfigPath = fileURLToPath(new URL('../retry.cordis.snapshot.yml', import.meta.url))
+const credentialsScenarioDir = join(snapshotsDir, 'missing-credential')
+const credentialsConfigPath = fileURLToPath(new URL('../credentials.cordis.snapshot.yml', import.meta.url))
+// Same keyless composition as the missing-credential scenario: the endpoint is
+// never dialed either way, because a supplied-but-unusable key fails credential
+// resolution exactly where an absent one does.
+const invalidCredentialScenarioDir = join(snapshotsDir, 'invalid-credential')
 const ralphScenarioDir = join(snapshotsDir, 'ralph-loop')
 const ralphConfigPath = fileURLToPath(new URL('../ralph.cordis.snapshot.yml', import.meta.url))
+const startupFailureConfigPath = fileURLToPath(new URL('./fixtures/startup-activation-error/cordis.yml', import.meta.url))
+const startupFailureExpected = join(snapshotsDir, 'startup-activation-error', 'stderr.expected.txt')
 const binScript = fileURLToPath(new URL('../../../packages/examples/cli-demo/src/bin.ts', import.meta.url))
 const tsconfigPath = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
 const reasoningConfigPath = fileURLToPath(new URL('./fixtures/cli.cordis.yml', import.meta.url))
+const deepseekDefaultsConfigPath = fileURLToPath(new URL('./fixtures/deepseek-defaults.cordis.yml', import.meta.url))
 const refreshing = process.env.DSH_SNAPSHOT === 'refresh'
 
 interface JsonObject {
@@ -41,6 +52,40 @@ interface JsonObject {
 interface PersistedLog {
   readonly content: string
   readonly header: JsonObject
+}
+
+interface DeepSeekDefaultsServer {
+  readonly url: string
+  readonly requests: JsonObject[]
+  close(): Promise<void>
+}
+
+/** Serve one deterministic DeepSeek-compatible response while retaining its request body. */
+async function deepseekDefaultsServer(): Promise<DeepSeekDefaultsServer> {
+  const requests: JsonObject[] = []
+  const server = createServer((request: IncomingMessage, response: ServerResponse) => {
+    let body = ''
+    request.setEncoding('utf8')
+    request.on('data', (chunk: string) => { body += chunk })
+    request.on('end', () => {
+      requests.push(JSON.parse(body) as JsonObject)
+      response.writeHead(200, { 'content-type': 'text/event-stream' })
+      response.end([
+        'data: {"choices":[{"delta":{"content":"DEFAULTS_OK"}}]}',
+        'data: {"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1}}',
+        'data: [DONE]',
+        '',
+      ].join('\n\n'))
+    })
+  })
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address()
+  if (address === null || typeof address === 'string') throw new Error('DeepSeek defaults snapshot server has no port')
+  return {
+    url: `http://127.0.0.1:${address.port}`,
+    requests,
+    close: () => new Promise(resolve => server.close(() => { resolve() })),
+  }
 }
 
 function parseJsonl(content: string): JsonObject[] {
@@ -128,6 +173,20 @@ async function persistedLogs(cwd: string): Promise<PersistedLog[]> {
 }
 
 describe('headless stream-json snapshots', () => {
+  it('prints the original Loader activation error through the assembled one-shot app', async () => {
+    const result = await runLoaderSmoke({
+      label: 'headless startup activation error snapshot',
+      tempDirPrefix: 'headless-snapshot-startup-error-',
+      binScript,
+      configPath: startupFailureConfigPath,
+      binArgs: ['--config', startupFailureConfigPath, '--output-format', 'stream-json', 'unreachable task'],
+      tsconfigPath,
+      expectedExitCode: 1,
+    })
+    expect(result.stdout).toBe('')
+    await expect(result.stderr).toMatchFileSnapshot(startupFailureExpected)
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
   it('retries a transient provider failure through the one-shot app', async () => {
     const prompt = await scenarioPrompt(retryScenarioDir, 'provider-retry')
     const streamExpected = join(retryScenarioDir, 'stream-json.expected.jsonl')
@@ -151,7 +210,7 @@ describe('headless stream-json snapshots', () => {
         const retries = records.filter(record => record.type === 'llm/retry')
         expect(retries).toHaveLength(1)
         expect(retries[0]?.data).toMatchObject({
-          provider: 'deepseek',
+          provider: 'deepseek-official',
           mode: 'normal',
           policyKey: '["normal",1,["RATE_LIMIT"],1,1,0]',
           retry: 1,
@@ -166,6 +225,79 @@ describe('headless stream-json snapshots', () => {
     const normalized = normalizeHeadlessStream(result.stdout, runCwd)
     if (refreshing) await writeFile(streamExpected, normalized)
     expect(normalized).toBe(await readFile(streamExpected, 'utf8'))
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
+  it('logs actionable missing-credential guidance through the one-shot app', async () => {
+    const streamExpected = join(credentialsScenarioDir, 'stream-json.expected.jsonl')
+    let runCwd = ''
+    const result = await runLoaderSmoke({
+      label: 'missing-credential headless stream-json snapshot',
+      tempDirPrefix: 'headless-snapshot-missing-credential-',
+      binScript,
+      configPath: credentialsConfigPath,
+      binArgs: ['--config', credentialsConfigPath, '--output-format', 'stream-json', 'say pong'],
+      tsconfigPath,
+      env: {
+        // First-run posture: no key in the environment, none under ./.dsh.
+        DEEPSEEK_API_KEY: '',
+        DEEPSEEK_BASE_URL: '',
+        NODE_OPTIONS: [process.env.NODE_OPTIONS, '--disable-warning=ExperimentalWarning'].filter(Boolean).join(' '),
+      },
+      prepare: (cwd) => { runCwd = cwd },
+    })
+
+    // The failure reaches the caller through the stream, not stderr; the
+    // recorded transcript below pins the guidance text itself, which names
+    // both places a credential can come from and nothing else.
+    expect(result.stderr).toBe('')
+    const normalized = normalizeHeadlessStream(result.stdout, runCwd)
+    if (refreshing) await writeFile(streamExpected, normalized)
+    expect(normalized).toBe(await readFile(streamExpected, 'utf8'))
+    // The durable failure leads with the credential store — the path that
+    // keeps the secret out of configuration files — then names the launching
+    // environment, and stops there: configuration carries the reference, so
+    // there is no literal-key escape hatch left to offer.
+    expect(normalized).toContain(
+      'store DEEPSEEK_API_KEY through the credentials service (the web Models page writes it),',
+    )
+    expect(normalized).toContain('or export DEEPSEEK_API_KEY in the launching environment')
+    expect(normalized).not.toContain('as a last resort')
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
+  it('logs actionable invalid-credential guidance through the one-shot app', async () => {
+    const streamExpected = join(invalidCredentialScenarioDir, 'stream-json.expected.jsonl')
+    let runCwd = ''
+    const result = await runLoaderSmoke({
+      label: 'invalid-credential headless stream-json snapshot',
+      tempDirPrefix: 'headless-snapshot-invalid-credential-',
+      binScript,
+      configPath: credentialsConfigPath,
+      binArgs: ['--config', credentialsConfigPath, '--output-format', 'stream-json', 'say pong'],
+      tsconfigPath,
+      env: {
+        // A key that exists but no HTTP header can carry — the paste this
+        // change exists for. Before it, `fetch` refused to build the header
+        // and the turn ended on a retried ByteString TypeError.
+        DEEPSEEK_API_KEY: 'sk-\u{1F600}pasted-from-a-chat-window',
+        DEEPSEEK_BASE_URL: '',
+        NODE_OPTIONS: [process.env.NODE_OPTIONS, '--disable-warning=ExperimentalWarning'].filter(Boolean).join(' '),
+      },
+      prepare: (cwd) => { runCwd = cwd },
+    })
+
+    expect(result.stderr).toBe('')
+    const normalized = normalizeHeadlessStream(result.stdout, runCwd)
+    if (refreshing) await writeFile(streamExpected, normalized)
+    expect(normalized).toBe(await readFile(streamExpected, 'utf8'))
+    // The durable failure names the reference to correct and the writer that
+    // usually owns it, and stays true in a composition that mounts no Models
+    // page at all.
+    expect(normalized).toContain('the API key resolved from DEEPSEEK_API_KEY contains characters')
+    expect(normalized).toContain('the web Models page writes it')
+    // Neither the key nor the transport-level symptom it used to produce may
+    // reach the user: the code point of one character is still the key.
+    expect(normalized).not.toContain('pasted-from-a-chat-window')
+    expect(normalized).not.toContain('ByteString')
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
   it('logs the model default and a dynamic next-step reasoning effort', async () => {
@@ -206,6 +338,60 @@ describe('headless stream-json snapshots', () => {
         },
       ]
     `)
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
+  it('logs and sends the DeepSeek adapter maxTokens default through the one-shot app', async () => {
+    const server = await deepseekDefaultsServer()
+    try {
+      const result = await runLoaderSmoke({
+        label: 'DeepSeek adapter defaults headless stream-json snapshot',
+        tempDirPrefix: 'headless-snapshot-deepseek-defaults-',
+        binScript,
+        configPath: deepseekDefaultsConfigPath,
+        binArgs: [
+          '--config',
+          deepseekDefaultsConfigPath,
+          '--output-format',
+          'stream-json',
+          'return the deterministic response',
+        ],
+        tsconfigPath,
+        env: {
+          // Configuration carries only the reference; the key rides the
+          // launching environment, which is the whole credential plane here.
+          DEEPSEEK_API_KEY: 'snapshot-key',
+          DSH_SNAPSHOT_BASE_URL: server.url,
+          NODE_OPTIONS: [process.env.NODE_OPTIONS, '--disable-warning=ExperimentalWarning'].filter(Boolean).join(' '),
+        },
+      })
+
+      expect(result.stderr).toBe('')
+      expect(server.requests).toHaveLength(1)
+      expect(server.requests[0]?.max_tokens).toBe(256_000)
+      const header = (parseJsonl(result.stdout)
+        .map(record => record.event)
+        .find((event): event is JsonObject => (
+          event !== null
+          && typeof event === 'object'
+          && !Array.isArray(event)
+          && 'type' in event
+          && event.type === 'request/header'
+        ))?.data as JsonObject | undefined)?.header as JsonObject | undefined
+      expect(header?.config).toMatchInlineSnapshot(`
+        {
+          "maxTokens": 256000,
+          "model": "deepseek-v4-flash",
+          "provider": "deepseek-official",
+          "reasoningEffort": "off",
+        }
+      `)
+      expect(header?.adapterDefaults).toEqual({
+        maxTokens: true,
+        reasoningEffort: true,
+      })
+    } finally {
+      await server.close()
+    }
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
   it('replays the advanced toolchain through the one-shot app', async () => {
@@ -321,19 +507,11 @@ describe('headless stream-json snapshots', () => {
         const probeContent = probeMessage?.content as JsonObject[] | undefined
         expect(probeContent?.[0]?.isError).toBe(true)
         expect((probeData?.error as JsonObject | undefined)?.code).toBe('GOAL_NOT_FOUND')
-        const goalChanges = records.filter((record) => {
-          if (record.type !== 'user/message') return false
-          const data = record.data as JsonObject | undefined
-          const source = data?.source as JsonObject | undefined
-          const change = source?.change as JsonObject | undefined
-          return source?.kind === 'goal' && change?.kind === 'goal/change'
-        })
+        const goalChanges = records.filter(record => record.type === 'goal/change')
         expect(goalChanges).toHaveLength(1)
         const data = goalChanges[0]?.data as JsonObject | undefined
-        const source = data?.source as JsonObject | undefined
-        const change = source?.change as JsonObject | undefined
-        const goal = change?.goal as JsonObject | undefined
-        expect(change?.operation).toBe('create')
+        const goal = data?.goal as JsonObject | undefined
+        expect(data?.operation).toBe('create')
         expect(goal).toMatchObject({
           objective: 'Finish the headless goal-tool snapshot proof',
           phase: 'active',

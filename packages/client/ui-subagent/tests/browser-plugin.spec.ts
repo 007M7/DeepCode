@@ -11,9 +11,20 @@
  */
 import { Context } from 'cordis'
 import { describe, expect, it } from 'vitest'
-import type { SessionId, SessionListState, SessionSummary } from '@deepseek-ai/dsh-client-runtime/client'
+import {
+  SlotsService, type ConversationSnapshot, type SessionId, type SessionListState,
+  type SessionSummary, type SubagentAddress,
+} from '@deepseek-ai/dsh-client-runtime/client'
+import type { ComposerChainProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { SlashService } from '@deepseek-ai/dsh-client-ui-slash/client'
 import type { ClientSessionContext, SlashSource } from '@deepseek-ai/dsh-client-ui-slash/client'
+import { apply as applyLocale } from '@deepseek-ai/dsh-client-locale/client'
+import {
+  SubagentCatalogAction, type SubagentCatalogInjected,
+} from '../src/client/SubagentCatalogAction.tsx'
+import {
+  SubagentReadOnlyComposer, type SubagentReadOnlyMatch,
+} from '../src/client/SubagentReadOnlyComposer.tsx'
 import { apply, inject } from '../src/client/index.ts'
 
 function summary(partial: Partial<SessionSummary> & { id: SessionId }): SessionSummary {
@@ -33,6 +44,7 @@ function sessionsWith(sessions: SessionSummary[]) {
   for (const s of sessions) byId[s.id] = s
   const snapshot = { ids: sessions.map(s => s.id), byId, current: undefined } as unknown as SessionListState
   const subs = new Set<() => void>()
+  const actionCalls: { method: string; args: unknown[] }[] = []
   return {
     list: {
       getSnapshot: () => snapshot,
@@ -40,7 +52,29 @@ function sessionsWith(sessions: SessionSummary[]) {
     },
     notify: () => { for (const fn of [...subs]) fn() },
     listenerCount: () => subs.size,
+    actionCalls,
+    openSubagent: (address: SubagentAddress) => {
+      actionCalls.push({ method: 'openSubagent', args: [address] })
+    },
+    refreshSubagents: (parentSessionId: SessionId) => {
+      actionCalls.push({ method: 'refreshSubagents', args: [parentSessionId] })
+      return Promise.resolve()
+    },
+    setSubagentCatalogOpen: (parentSessionId: SessionId, open: boolean) => {
+      actionCalls.push({ method: 'setSubagentCatalogOpen', args: [parentSessionId, open] })
+    },
   }
+}
+
+async function provideSlotFaces(ctx: Context): Promise<void> {
+  await ctx.plugin(SlotsService).await()
+  ctx.slots.register({
+    name: 'root',
+    children: {
+      'conversation.session.header.actions': { kind: 'list', scope: 'session' },
+      'conversation.composer': { kind: 'chain', scope: 'session' },
+    },
+  } as never, () => null)
 }
 
 /** Boot the plugin over fake slash/sessions faces; returns the captured source and the list face. */
@@ -50,8 +84,10 @@ async function fullBench(sessions: SessionSummary[]) {
   const face = sessionsWith(sessions)
   ctx.provide('slash', { registerSource: (src: SlashSource) => { captured = src; return () => {} } })
   ctx.provide('sessions', face)
+  await provideSlotFaces(ctx)
+  await ctx.plugin({ inject: ['slots'], apply: applyLocale }).await()
   await ctx.plugin({ inject: [...inject], apply }).await()
-  return { source: captured!, face }
+  return { source: captured!, face, ctx }
 }
 
 /** Source-only bench for the behavior-contract suites. */
@@ -76,13 +112,15 @@ const req = (query: string) =>
 
 describe('apply', () => {
   it('declares the services it binds', () => {
-    expect(inject).toEqual(['slash', 'sessions'])
+    expect(inject).toEqual(['slash', 'sessions', 'slots', 'locale'])
   })
 
   it('registers the "@" subagent source; disposal frees the name (HMR safety)', async () => {
     const ctx = new Context()
     await ctx.plugin(SlashService).await()
     ctx.provide('sessions', sessionsWith(FAMILY))
+    await provideSlotFaces(ctx)
+    await ctx.plugin({ inject: ['slots'], apply: applyLocale }).await()
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
     const slash = ctx.get('slash') as SlashService
@@ -97,6 +135,45 @@ describe('apply', () => {
     // …and fiber teardown releases it.
     await fiber.dispose()
     expect(() => slash.registerSource(rival)).not.toThrow()
+  })
+
+  it('registers catalog actions and selects read-only subagent composers from session facts', async () => {
+    const { ctx, face } = await fullBench(FAMILY)
+    const catalogEntry = ctx.slots.entries('conversation.session.header.actions')
+      .find(entry => entry.component === SubagentCatalogAction)!
+    const actions = (catalogEntry.inject as unknown as (id: SessionId) => SubagentCatalogInjected)(sid('parent'))
+    const address: SubagentAddress = {
+      parentSessionId: sid('parent'),
+      childSessionId: sid('c1'),
+      mode: 'continuable',
+    }
+    actions.openChild(address)
+    actions.refresh(sid('parent'))
+    actions.setCatalogOpen(sid('parent'), true)
+    expect(face.actionCalls).toEqual([
+      { method: 'openSubagent', args: [address] },
+      { method: 'refreshSubagents', args: [sid('parent')] },
+      { method: 'setSubagentCatalogOpen', args: [sid('parent'), true] },
+    ])
+
+    const composerEntry = ctx.slots.entries('conversation.composer')
+      .find(entry => entry.component === SubagentReadOnlyComposer)!
+    const select = composerEntry.select as (owner: ComposerChainProps) => SubagentReadOnlyMatch | null
+    const owner = (
+      subagent: ConversationSnapshot['subagent'] | undefined,
+    ): ComposerChainProps => ({
+      interactions: [],
+      session: subagent === undefined
+        ? undefined
+        : ({ subagent } as unknown as ConversationSnapshot),
+    })
+    expect(select(owner(undefined))).toBeNull()
+    expect(select(owner(null))).toBeNull()
+    expect(select(owner({ address: { ...address, mode: 'one-shot' }, parentAvailable: true })))
+      .toEqual({ reason: 'one-shot' })
+    expect(select(owner({ address, parentAvailable: true }))).toBeNull()
+    expect(select(owner({ address, parentAvailable: false })))
+      .toEqual({ reason: 'parent-unavailable' })
   })
 })
 

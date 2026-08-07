@@ -2,7 +2,7 @@
 
 English | [中文](user-interaction.zh.md)
 
-The user-interaction seam of [dsh-user-interaction](../../packages/ui/user-interaction). It is the provider-neutral vocabulary a tool or permission plugin uses when it needs the human to answer before the agent can continue. UI surfaces provide the active `UserInteractionProvider`; `dsh-tui` uses keyboard-driven overlays and the host runtime relays requests to its connected client.
+The user-interaction seam of [dsh-user-interaction](../../packages/ui/user-interaction). It is the provider-neutral vocabulary a tool or permission plugin uses when it needs the human to answer before the agent can continue. UI surfaces provide the active `UserInteractionProvider`; the host runtime relays requests to its connected client.
 
 Source: [`packages/ui/user-interaction/src/index.ts`](../../packages/ui/user-interaction/src/index.ts)
 
@@ -17,6 +17,30 @@ interface AskUserQuestionOption {
   label: string
   /** Optional extra context rendered by capable UIs. */
   description?: string
+}
+```
+
+## Presentation intent
+
+`AskUserQuestionIntent` is the optional declaration that a question IS a decision of a known shape. It is tagged on `kind` so intents can be added; a UI that does not recognise a tag renders the generic option list. An intent shapes presentation only — a UI honouring it answers with the same option labels a generic UI would send, so the caller reads one answer shape either way. `approve` names the affirmative option instead of relying on option order. `ask()` rejects the two assertions no type can carry: an `approve` naming none of its own question's options, and an intent on a question with no `detail`.
+
+```ts type-equiv
+/**
+ * A caller-declared presentation intent: the question IS a decision of this
+ * shape, so a UI that recognises the tag may present it as such instead of as a
+ * generic option list. Tagged so further intents can be added; a UI that does
+ * not know a tag renders the generic flow, and the answer encoding is identical
+ * either way — an intent shapes presentation only, never the protocol.
+ */
+type AskUserQuestionIntent = {
+  /** A plan submitted for review: `detail` is the plan markdown `ask()` requires, and the decision approves or declines it. */
+  kind: 'plan-review'
+  /**
+   * The option label that approves the plan; every other option declines it.
+   * Named rather than positional so no UI infers the verdict from option order.
+   * An `approve` naming no option of its own question is rejected at `ask()`.
+   */
+  approve: string
 }
 ```
 
@@ -39,6 +63,8 @@ interface AskUserQuestionItem {
   options?: AskUserQuestionOption[]
   /** Whether more than one option may be selected. Defaults to single-select. */
   multiSelect?: boolean
+  /** Optional presentation intent for capable UIs; absent asks for the generic option list. */
+  intent?: AskUserQuestionIntent
 }
 ```
 
@@ -60,14 +86,14 @@ interface AskUserQuestionRequest {
 
 ## Answer
 
-Providers return one answer item per question id. `selected` contains selected option labels, and `custom` carries a free-form "Other" answer when the user typed one. When `custom` is present, `selected` is empty; custom text is an answer override, not a supplement to selected choices. A UI may also use an item with empty `selected` and no `custom` to preserve a skipped question in an otherwise completed batch.
+Providers return one answer item per question id. `selected` contains selected option labels, and `custom` carries a free-form "Other" answer when the user typed one. For a single-select question, `custom` overrides the selected choice and `selected` is empty. For a multi-select question, `custom` may supplement the labels in `selected`. A UI may also use an item with empty `selected` and no `custom` to preserve a skipped question in an otherwise completed batch.
 
 ```ts type-equiv
 /** Answer to one question. */
 interface AskUserQuestionAnswerItem {
   /** The answered question id. */
   id: string
-  /** Selected option labels. Empty for custom or unanswered choices. */
+  /** Selected option labels. May accompany custom text for a multi-select question. */
   selected: string[]
   /** Optional free-text "Other" answer. */
   custom?: string

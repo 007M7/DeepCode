@@ -50,14 +50,14 @@ async function harness(): Promise<{ ctx: Context; agent: Agent }> {
   const handle = await ctx.agents.create({
     sessionId: SessionId('workspace-context-e2e-session'),
     meta: { cwd: workdir },
-    agentOptions: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+    agentOptions: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
   })
   return { ctx, agent: handle.agent }
 }
 
 function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
-    const dispose = ctx.on('agent/status', (subject, status) => {
+    const dispose = ctx.on('agent/status', ({ agent: subject, status }) => {
       if (subject === agent && status === 'idle') {
         dispose()
         resolve()

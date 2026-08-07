@@ -15,7 +15,6 @@ export function extractSessionEventText(event: SessionEvent): string {
     case 'user/message':
       return contentText(event.data.content)
     case 'assistant/message':
-    case 'steering/message':
       return contentText(event.data.message.content)
     case 'tool/call':
       return joinText([event.data.name, event.data.arguments])
@@ -45,12 +44,9 @@ export function extractSessionEventText(event: SessionEvent): string {
 function turnEndText(reason: SessionEvent<'turn/end'>['data']['reason']): string {
   switch (reason.kind) {
     case 'error':
-      return 'failure' in reason
-        ? joinText(['error', reason.failure.message, reason.failure.code])
-        : joinText(['error', reason.message, reason.code ?? ''])
+      return joinText(['error', reason.error.message])
     case 'aborted':
       return 'aborted'
-    case 'disposed':
     case 'max-tokens':
     case 'interrupted':
       return reason.kind
@@ -72,8 +68,9 @@ function contentText(content: readonly SessionContentBlock[]): string {
 function blockText(block: SessionContentBlock): string[] {
   switch (block.type) {
     case 'text':
-    case 'reasoning':
       return [block.text]
+    case 'reasoning':
+      return []
     case 'tool-call':
       return [block.name, block.arguments]
     case 'tool-result':

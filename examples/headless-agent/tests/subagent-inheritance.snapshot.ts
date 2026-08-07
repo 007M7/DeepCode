@@ -39,7 +39,7 @@ async function seedReadOnlyParent(root: string, cwd: string): Promise<void> {
     delegationDepth: 0,
   }
   const events: SessionEvent[] = [
-    { type: 'turn/start', seq: 0, time: 10, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+    { type: 'turn/start', seq: 0, time: 10, data: { turn: 1 } },
     { type: 'user/message', seq: 1, time: 11, data: createUserMessage({ content: [{ type: 'text', text: 'Tighten this session to read-only.' }], source: { kind: 'user' } }), surfaceOp: 'append' },
     { type: 'sandbox/mode', seq: 2, time: 12, data: { mode: 'read-only' } },
     { type: 'turn/end', seq: 3, time: 13, data: { turn: 1, reason: { kind: 'completed' } } },
@@ -97,6 +97,26 @@ describe('parent-only override inheritance snapshot', () => {
           data: { mode: 'read-only', source: 'delegation' },
         })
 
+        const runtimeContexts = (content: string): string[] => content.trimEnd().split('\n').flatMap((line) => {
+          const record = JSON.parse(line) as {
+            type?: string
+            data?: { source?: { kind?: string; plugin?: string }; content?: Array<{ type?: string; text?: unknown }> }
+          }
+          if (record.type !== 'user/message'
+            || record.data?.source?.kind !== 'plugin'
+            || record.data.source.plugin !== '@deepseek-ai/dsh-system-prompt') return []
+          return record.data.content?.flatMap(block => block.type === 'text' && typeof block.text === 'string' ? [block.text] : []) ?? []
+        })
+        const policyContexts = [...runtimeContexts(parent), ...runtimeContexts(child)]
+        expect(policyContexts).toHaveLength(2)
+        for (const context of policyContexts) {
+          expect(context).toContain('Any available operation enforced by the DSH file sandbox cannot modify files in the standing mode.')
+          expect(context).toContain('Do not refuse a required modification from this policy alone')
+          expect(context).not.toContain('write and edit tools')
+          expect(context).not.toContain('one-shot bash commands')
+          expect(context).not.toContain('terminal sessions')
+        }
+
         const context: NormalizeContext = { sessionIds: [sessionId, String(headerOf(child).id)], cwd }
         const normalizedParent = scrubRequestHeaders(normalizeSessionLog(parent, context))
         const normalizedChild = scrubRequestHeaders(normalizeSessionLog(child, context))
@@ -115,10 +135,8 @@ describe('parent-only override inheritance snapshot', () => {
     const records = result.stdout.trimEnd().split('\n').map(line => JSON.parse(line) as Record<string, unknown>)
     expect(records.at(-1)).toMatchObject({
       type: 'result',
-      success: true,
       sessionId,
-      result: 'The delegated child was denied by the sandbox. PARENT_DONE',
-      reason: { kind: 'completed' },
+      output: 'The delegated child was denied by the sandbox. PARENT_DONE',
     })
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 })

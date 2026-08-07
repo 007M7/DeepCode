@@ -97,7 +97,7 @@ describe('web_search integration over the real Exa provider', () => {
       JSON.stringify({ results: [{ url: 'https://result.test', title: 'Result', highlights: ['a highlight'] }] }),
       { status: 200, headers: { 'content-type': 'application/json' } },
     )))
-    const out = await call('web_search', { query: 'deepseek' })
+    const out = await call('web_search', { query: 'deepseek-official' })
     expect(out.isError).toBe(false)
     expect(out.content.map(b => b.type === 'text' ? b.text : '').join('')).toContain('[Result](https://result.test)')
   })

@@ -8,7 +8,7 @@ import type { Context } from 'cordis'
 import z from 'schemastery'
 import { GoalId } from '@deepseek-ai/dsh-goal'
 import type { GoalRef, GoalView } from '@deepseek-ai/dsh-goal'
-import { HarnessError } from '@deepseek-ai/dsh-llm'
+import { boundContextSummary, createUserMessage, HarnessError } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -17,6 +17,7 @@ import {
   goalToolExecution,
   requireDirectHuman,
 } from './authority.ts'
+import { renderWrapupContext } from './wrapup.ts'
 
 export const name = 'tool-goal'
 export const inject = ['agents', 'goals', 'tools', 'systemPrompt']
@@ -309,7 +310,19 @@ export function apply(ctx: Context, config: Config): void {
           code: 'model-reported',
           message: args.blocked_reason as string,
         })
-      if (authority.kind === 'goal-round') exec.concludeTurn()
+      if (authority.kind === 'goal-round') {
+        exec.deferContext(createUserMessage({
+          content: args.action === 'complete'
+            ? renderWrapupContext(goal.objective)
+            : renderWrapupContext(goal.objective, args.blocked_reason as string),
+          source: {
+            kind: 'plugin',
+            plugin: 'tool-goal',
+            form: 'notice',
+            summary: boundContextSummary(`${args.action as string}: ${goal.objective}`),
+          },
+        }))
+      }
       return Promise.resolve(goalValue(goal))
     },
     presentCall: args => present(

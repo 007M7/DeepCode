@@ -1,20 +1,19 @@
 /**
- * Provider-routed model-request retry policy on the agent loop's closed-step
+ * Provider-routed model-request retry policy on the agent loop's request
  * recovery seam. Each scheduled retry is durable before its cancellable wait.
  *
  * @module @deepseek-ai/dsh-llm-retry
  */
 
-import type { Context } from 'cordis'
+import type { Context, Events } from 'cordis'
 import z from 'schemastery'
-import type { Agent, RequestError, RequestErrorAction } from '@deepseek-ai/dsh-agent'
+import type { Agent, RequestErrorAction } from '@deepseek-ai/dsh-agent'
 import type { LlmFailure, ResolvedRetryPolicy } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import { providerForClosedStep } from './history.ts'
 
 declare module '@deepseek-ai/dsh-session' {
   interface SessionEventMap {
-    /** Durable, non-surface record of one provider-routed retry scheduled after a closed failed step. */
+    /** Durable, non-surface record of one provider-routed retry scheduled after a failed request attempt. */
     'llm/retry': {
       turn: number
       step: number
@@ -37,6 +36,8 @@ declare module '@deepseek-ai/dsh-session' {
     }
   }
 }
+
+export type { LlmRetryEventData } from './types.ts'
 
 export const name = 'llm-retry'
 export const inject = ['agents']
@@ -171,25 +172,10 @@ export function apply(ctx: Context, config: Config = {}, internals: RetryInterna
   }
 
   async function recover(
-    agent: Agent,
-    turn: number,
-    step: number,
-    _error: RequestError,
-    failure: LlmFailure,
-    priorFailures: readonly LlmFailure[],
-    policy: ResolvedRetryPolicy | undefined,
-    signal: AbortSignal,
+    { agent, turn, step, provider, failure, retryPolicy: policy, signal }: Parameters<Events['agent/request-error']>[0],
     next: () => Promise<RequestErrorAction>,
   ): Promise<RequestErrorAction> {
     if (policy === undefined) return next()
-    // The call-local policy belongs to the registration that served this
-    // failure. Recover only the durable provider identity from the header;
-    // downstream recovery may append later state before an always fallback.
-    const provider = providerForClosedStep(agent.session.events, turn, step)
-    /* v8 ignore next 3 -- agent-loop closes only steps whose request header was recorded */
-    if (provider === undefined) {
-      throw new Error(`llm-retry: no request provider for closed turn ${turn}/step ${step}`)
-    }
     if (policy.mode === 'always') {
       if (signal.aborted || lifetime.signal.aborted) return
       const fusedSignal = AbortSignal.any([signal, lifetime.signal])
@@ -211,11 +197,10 @@ export function apply(ctx: Context, config: Config = {}, internals: RetryInterna
     }
 
     const policyKey = retryPolicyKey(policy)
-    const firstPriorTurn = turn - priorFailures.length
     const priorPolicyRetry = agent.session.events.findLast((event): event is SessionEvent<'llm/retry'> =>
       event.type === 'llm/retry'
-      && event.data.turn >= firstPriorTurn
-      && event.data.turn < turn
+      && event.data.turn === turn
+      && event.data.step === step
       && event.data.provider === provider
       && event.data.policyKey === policyKey,
     )
@@ -240,21 +225,14 @@ export function apply(ctx: Context, config: Config = {}, internals: RetryInterna
   }
 
   const disposeListener = ctx.on('agent/request-error', (
-    agent: Agent,
-    turn: number,
-    step: number,
-    error: RequestError,
-    failure: LlmFailure,
-    priorFailures: readonly LlmFailure[],
-    policy: ResolvedRetryPolicy | undefined,
-    signal: AbortSignal,
+    payload,
     next: () => Promise<RequestErrorAction>,
   ) => {
     // A waterfall may have captured this callback before its registration was
     // removed. Lifetime cancellation must prevent that stale callback from
     // entering a downstream policy after disposal.
     if (lifetime.signal.aborted) return Promise.resolve<RequestErrorAction>(undefined)
-    return track(recover(agent, turn, step, error, failure, priorFailures, policy, signal, next))
+    return track(recover(payload, next))
   })
 
   ctx.effect(() => async () => {

@@ -5,7 +5,7 @@
  * @module @deepseek-ai/dsh-typert-generator
  */
 
-export { WorkspaceAnalyzer, TypertAnalysisError } from './analyzer.ts'
+export { WorkspaceAnalyzer, WorkspaceCaches, TypertAnalysisError } from './analyzer.ts'
 export type { AnalysisMode, DiscoveredTypertPackage, WorkspaceAnalyzerOptions } from './analyzer.ts'
 export { FaceModelEmitter, TypertEmitError } from './emitter.ts'
 export type { ModelEmitResult } from './emitter.ts'

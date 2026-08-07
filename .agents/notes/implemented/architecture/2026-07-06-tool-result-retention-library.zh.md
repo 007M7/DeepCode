@@ -12,7 +12,7 @@ Status: implemented
 
 ## 决策
 
-`@deepseek-ai/dsh-retention` 位于 `packages/util/` 下，与 `dsh-brand` 和 `dsh-timeout` 同级，负责有界的模型可见输出。它是一组纯类与函数构成的库，**不是** Cordis 服务或插件：不接收 `ctx`、不注册任何内容、不持有跨调用状态，也不发出事件。各工具包（package）需要限制输出时直接导入它。
+`@deepseek-ai/dsh-retention` 位于 `packages/util/` 下，与 `dsh-brand` 和 `dsh-timeout` 同级，负责有界的模型可见输出。它是一组纯类与函数构成的库，**不是** Cordis 服务或插件：不接收 `ctx`、不注册任何内容、不持有跨调用状态，也不发出事件。各工具包需要限制输出时直接导入它。
 
 该库包含两个相互独立的 retainer：
 
@@ -152,6 +152,6 @@ const formatGrepNotice = (notice: RetentionNotice): string =>
 
 **把 `read` 窗口交给 `ItemRetainer`。** v1 不予采纳：`read` 是当前唯一的窗口消费方，其语义属于文件分页，而不是通用保留。一个 `Omitted` 计数无法表示行窗口两侧，而且 `read` 还携带 `totalLines`、offset 范围错误、逐行预览截断和针对所选输出的字节上限。让 `read-render` 由工具所有，可以避免共享库围绕一项特例膨胀。
 
-**让截断成为 `ToolExecutionResult` 的一部分。** 不予采纳：工具注册表将不得不理解工具专用的恢复指引、分组、行号、退出状态和提供方语义。保留是由工具的 Native renderer 使用的库；模型可见投影继续由工具所有，而[规范值](2026-07-20-canonical-tool-output-contract.md)可以保留完整的已采集结果。
+**让截断成为 `ToolExecutionResult` 的一部分。** 不予采纳：工具注册表将不得不理解工具专用的恢复指引、分组、行号、退出状态和提供方语义。保留是由工具的 Native renderer（原生渲染器）使用的库；模型可见投影继续由工具所有，而[规范值](2026-07-20-canonical-tool-output-contract.md)可以保留完整的已采集结果。
 
 **在每个面向模型的工具 schema 中公开上限。** 不作为默认方案：Claude Code 的 grep 公开 `head_limit`／`offset`，但本 harness 会把常规预算保留为部署配置，除非模型确实需要控制分页。未来可以为具体工具增加类似 read 的续传字段；它不属于共享保留原语。

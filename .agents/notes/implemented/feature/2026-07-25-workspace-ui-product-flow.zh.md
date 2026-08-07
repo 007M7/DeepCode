@@ -20,7 +20,7 @@ Host 在 Workspace entity 上提供以下 GUI 接线：
 | --- | --- |
 | `workspace.list` | 返回持久有序的 Workspace，并过滤未通过 header 校验的 Session id |
 | `workspace.create({ name })` | 在 `workspaceRoot/name` 创建目录和 Workspace；显示名冲突时失败 |
-| `workspace.create({ path })` | 收编已经存在的目录，不为任意路径创建目录 |
+| `workspace.create({ path })` | 按 canonical path 收编已有目录；由 basename 派生的显示名可以重复 |
 | `workspace.delete({ workspaceId })` | 移除 Workspace 注册记录，同时保留目录和会话日志；相关 Session 进入 Ungrouped |
 | `session.create({ workspaceId, sessionId? })` | 从 Workspace 解析 cwd，以可选预分配 id 幂等创建 Session 并 attach |
 | `session.create({ cwd })` | 保留给非 Workspace 调用方，创建 Ungrouped Session |
@@ -50,9 +50,9 @@ Session 自己持有首条输入并驱动一条内部流水线：必要时以预
 
 完全没有 Workspace 时，页面创建默认名为 `workspace` 的前端 Workspace 对象和指向它的前端 Session。两者不写 Host，composer 始终可输入；首次发送才依次 materialize Workspace、attach Session、发送消息。
 
-顶部 New Session、Workspace 行内加号和 Workspace picker 最终都调用同一 New Session 动作：显式 Workspace id 直接成为目标，未指定时使用最近 Workspace，没有真实 Workspace 时使用 Workspace Intent。Workspace picker 的 Use an existing folder 与 Create a new workspace 会在用户确认时立即创建真实 Workspace，再把前端 Session 定位到该 Workspace；即使用户不发送消息，显式创建的空 Workspace 也保留。
+顶部 New Session、Workspace 行内加号和 Workspace picker 最终都调用同一 New Session 动作：显式 Workspace id 直接成为目标，未指定时使用最近 Workspace，没有真实 Workspace 时使用 Workspace Intent。Workspace picker 的单一 Add workspace 动作（见[单一路径 Note](../simplification/2026-07-31-one-route-to-add-a-workspace.md)；本决策做出时是 Use an existing folder 与按名称创建两个动作）会在用户确认目录时立即创建真实 Workspace，再把前端 Session 定位到该 Workspace；即使用户不发送消息，显式创建的空 Workspace 也保留。
 
-Create a new workspace 暂时用同一个输入作为目录名和显示名。UI 根据当前 Workspace title 禁止重复确认，Host 继续拒绝绕过 UI 或并发产生的同名请求。跨 Workspace 移动 Session、从 Ungrouped 手动收编以及分别输入显示名和目录名仍不在此动线范围内。
+新建 Workspace 的显示名取自其所在目录。不同 canonical path 可以拥有相同的 basename 派生显示名（见[身份决策](../bug-fix/2026-07-31-same-basename-workspace-adoption.md)）；显式的按名称创建和重命名操作仍保留显示名重名检查。跨 Workspace 移动 Session、从 Ungrouped 手动收编以及分别输入显示名和目录名仍不在此动线范围内。
 
 ### 首次发送与恢复
 
@@ -108,7 +108,7 @@ Sidebar 与 conversation empty hero 通过 slot 获得标准化动作：`startSe
 - Workspace list 只读取 header 完成一次可重入 bootstrap；initialized 的空 registry 重启不重复初始化，成员读取同时校验索引与 canonical cwd。
 - 初始默认目标只在两份基线 ready 后确定一次；Workspace 组不因 hydration 或 Session 活跃整体重排，单个活跃 Session 只前移自身。
 - 真实 Workspace 下的前端 Session 临时计入 sidebar 数量，Workspace Intent 保持隐藏，发布与刷新都不会留下重复行或重复计数。
-- UI 与 Host 两层拒绝同名 Workspace；cwd-only Session、无效历史 cwd 和未 attach Session 保持 Ungrouped。
+- UI 与 Host 会将 canonical path 不同但 basename 相同的目录接纳为独立 Workspace，而显式的按名称创建和重命名操作会拒绝重复显示名；cwd-only Session、无效历史 cwd 和未 attach Session 保持 Ungrouped。
 - 经确认的 Workspace 删除只移除注册记录，保留当前 Session、目录、文件和会话日志，并在刷新后保持该状态；包级测试固定一元响应／帧／基线竞态和失败回滚行为。
 - keyless runnable snapshot 覆盖零态、显式创建和首次发送；包级测试覆盖 bootstrap、成员校验、排序、幂等、失败恢复及任意 frame 顺序。
 

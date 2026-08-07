@@ -1,14 +1,14 @@
-# Agent Note: LLM（大语言模型）暂时性请求失败的有界恢复
+# Agent Note: LLM 暂时性请求失败的有界恢复
 
 Status: implemented
 
 [English](2026-06-21-bounded-llm-request-recovery.md) | 中文
 
-[按提供方配置的请求重试策略](../feature/2026-07-24-provider-retry-policies.md)在此基础上增加了确切提供方配置与显式无界 mode。本说明继续负责结构化失败事实、已关闭步骤的恢复边界、normal mode 的暂时性默认值、可见的单次尝试和持久重试状态。
+[按提供方配置的请求重试策略](../feature/2026-07-24-provider-retry-policies.md)在此基础上增加了确切提供方配置与显式无界 mode。本说明继续负责结构化失败事实、已关闭步骤的恢复边界、normal mode 的暂时性默认值、可见的单次尝试和持久重试状态。[LLM 流的终止失败](2026-07-29-terminal-llm-stream-failures.md)取代了其中关于抛出错误身份和 stream sidecar 的机制。
 
 ## 问题
 
-`dsh-llm` 可能在适配器分发或迭代时抛出异常，也可能以 `finish { kind: 'error' | 'aborted' }` 结束，以这两种形式报告提供方失败。最终适配器边界会标记抛出的失败，使 `dsh-agent-loop` 能将其与中间件和结果处理缺陷区分开。循环关闭失败步骤后，会把两种交付形式统一规范化为 `agent/request-error`。未被处理的失败是终态；处理失败的监听器修复策略自有状态，返回 `{ kind: 'retry' }`，并停止 waterfall 委托。[重试动作决策](../simplification/2026-07-27-request-error-retry-action.md)规定这一返回契约。
+提供方适配器可能在分发或迭代时抛出异常，也可能以 `finish { kind: 'error' | 'aborted' }` 结束。最终适配器边界会在 `dsh-agent-loop` 接收前把抛出值规范化为该终止 finish 协议；middleware 与结果处理缺陷仍会抛出。loop 会将终止模型请求失败交给 `agent/request-error`。未被处理的失败是终态；处理失败的监听器修复策略自有状态，返回 `{ kind: 'retry' }`，并停止 waterfall 委托。[重试动作决策](../simplification/2026-07-27-request-error-retry-action.md)规定这一返回契约。
 
 该边界已能安全地再次发起请求。原始 `assistant/chunk` 事件携带失败的 `turn` 和 `step`；除非某条成功的 `assistant/message` 引用这些事件，否则消息派生会忽略它们。只有终止性 finish 成功且组装完成后，系统才会分发工具调用；重试则会从持久日志开启新的编号轮次。因此，harness 无需引入第二套响应生命周期或暂定输出协议，即可分隔两次尝试。
 
@@ -40,9 +40,9 @@ interface LlmFailure {
 
 `code` 仍是 `HarnessError` 建立的提供方无关机器路由分类体系；新字段是在提供方边界观测到的事实。`ProviderRequestId` 由 `dsh-llm` 拥有并构造，序列化后为提供方发放的字符串。该载荷有意不包含 `retryable`、`failover`、`partialOutput`、提供方、模型、阶段或路由 id 字段。是否可重试属于策略，提供方／模型已位于持久请求头中，部分输出则从失败步骤的 `assistant/chunk` 事件派生。
 
-`LlmError` 携带 `failure: LlmFailure`，并保持 `failure.code === error.code`。`FinishReasonMap.error` 和 `FinishReasonMap.aborted` 携带同一载荷，而不是并行的失败形状。适配器抛出的 `Error` 保留其精确的对象标识：最终适配器 scope 在调用局部的伴随状态中把规范化事实与该对象关联，然后原样重新抛出；非 `Error` 抛出值则依旧被包装。`llmFailureOf(stream, error)` 会在现有来源检查旁取回这些事实，而没有错误对象的带内 finish 则会成为新的 `LlmError`。这既保留了按错误类型或标识分流的监听器，又使所有最终适配器失败（包括未知 SDK 异常）都获得 `UNKNOWN` 终止载荷。
+`LlmError` 携带 `failure: LlmFailure`，并保持 `failure.code === error.code`。`FinishReasonMap.error` 和 `FinishReasonMap.aborted` 携带同一载荷，而不是并行的失败形状。最终适配器边界会从适配器抛出值中分离这些事实，并发出相应的终止 finish；未知 SDK 异常会获得 `UNKNOWN` 载荷。精确的抛出对象身份不会跨越 LLM stream seam。
 
-agent loop（智能体循环）会保留 `RequestError` 作为该精确的错误对象，并将 `LlmFailure` 作为独立参数传给 `agent/request-error`；它不会改动可能已冻结的第三方错误。在转换带内 finish 以及记录未恢复的 `turn/end.reason` 时，循环也会使用该载荷。
+agent loop（智能体循环）会将终止 finish 的 `LlmFailure` 传给 `agent/request-error`，并在记录未恢复的 `turn/end.reason` 时使用同一载荷。
 
 适配器会先提取结构化事实，再回退到消息检查。它们会验证 HTTP 状态，将 `Retry-After` 的秒数或日期解析为正的有限毫秒延迟，在提供方公开请求 id 时将其品牌化，并区分自身超时与调用方中止。提供方专用 code 和消息可以细化映射，但恢复监听器不会解析它们。
 
@@ -58,19 +58,19 @@ agent loop（智能体循环）会保留 `RequestError` 作为该精确的错误
 
 对于预算未耗尽的合格失败，从 1 开始的暂时性重试计数使用有界指数退避。有效的 `providerRetryAfterMs` 只有在不超过 `maxDelayMs` 时才会取代指数退避；提供方延迟更长时，系统会委托给下一监听器，而不会违反提供方指令提前重试。本地退避乘以 `[1 - jitterRatio, 1 + jitterRatio]` 内的注入随机因子，并将最终值限制到 `maxDelayMs`；提供方延迟不加抖动。
 
-插件拥有一个全生命期 `AbortController`，并跟踪每个活跃的恢复回调，包括委托的 waterfall（瀑布式事件）工作与退避。effect 清理会先注销监听器，再中止并等待活跃回调；中止会胜过较晚到达的委托重试决策，被捕获的回调在插件释放后既不能重试，也不能进入其 waterfall 的剩余部分。尽管 Cordis 已捕获该监听器，此设计仍能使 HMR（热模块替换）释放达到完全停稳。
+插件拥有一个全生命期 `AbortController`，并跟踪每个活跃的恢复回调，包括委托的 waterfall 工作与退避。effect 的 dispose（资源释放）会先注销监听器，再中止并等待活跃回调；中止会胜过较晚到达的委托重试决策，被捕获的回调在插件 dispose 后既不能重试，也不能进入其 waterfall 的剩余部分。尽管 Cordis 已捕获该监听器，此设计仍能使 HMR（热模块替换）的 dispose 达到完全停稳。
 
-休眠前，`dsh-llm-retry` 会追加一条不进入表层的 `llm/retry` 会话事件，其中包含轮次、失败步骤、提供方、策略 mode、完整的解析策略 key、提供方策略重试编号、该 mode 存在时的有限上限、计划延迟和 `LlmFailure`。该 key 会对 code 集排序，并在提供方路由被行为不同但 mode 相同的策略替换时分隔重试历史。该插件拥有 `SessionEventMap` 声明合并；`dsh-session` 继续负责通用持久化，不会吸收可选策略的词汇。事件记录已安排的内容，而不是下一个请求已完成；延迟期间取消随后会在 `turn/end` 中可见。因为该事件的目的是表示运行状态，而不是收集跟踪数据，所以它仅与生产渲染器及回放／快照覆盖一起交付。
+休眠前，`dsh-llm-retry` 会追加一条不进入表层的 `llm/retry` 会话事件，其中包含轮次、失败步骤、提供方、策略 mode、完整的解析后策略 key、提供方策略重试编号、特定于 mode 的有限上限（如有）、计划延迟和 `LlmFailure`。该 key 会对 code 集排序，并在提供方路由被行为不同但 mode 相同的策略替换时分隔重试历史。该插件拥有 `SessionEventMap` 声明合并，并通过其浏览器安全的 `./types` 子路径导出载荷；`dsh-session` 继续负责通用持久化，不会吸收可选策略的词汇。事件记录已安排的内容，而不是下一个请求已完成；延迟期间取消随后会在 `turn/end` 中可见。因为该事件的目的是表示运行状态，而不是收集跟踪数据，所以它会与生产渲染器及回放／快照覆盖一起交付。
 
-对非暂时性 code、耗尽的策略预算或超出上限的提供方延迟，监听器会调用 `next()`。这保留了与上下文溢出恢复及后续策略插件的组合能力。对自身处理的失败，它会记录并等待延迟，然后在不委托的情况下返回 `{ kind: 'retry' }`。轮次取消和插件释放会结束等待且不返回重试动作，此后仍以循环的取消／释放检查为准。
+对非暂时性 code、耗尽的策略预算或超出上限的提供方延迟，监听器会调用 `next()`。这保留了与上下文溢出恢复及后续策略插件的组合能力。对自身处理的失败，它会记录并等待延迟，然后在不委托的情况下返回 `{ kind: 'retry' }`。轮次取消和插件 dispose 会结束等待且不返回重试动作，此后仍以循环的取消／dispose 检查为准。
 
-agent-spine 演示组合包加载该插件，因此共享的 stdio/TUI、一次性 CLI（命令行界面）和 ACP（Agent Client Protocol）示例组合使用同一套按提供方路由的策略。库消费方仍需显式组合插件：省略该插件时，请求失败保持终态。
+agent-spine 演示组合包加载该插件，因此共享的 stdio/TUI、一次性 CLI（命令行界面）、ACP（Agent Client Protocol）和 headless 示例组合使用同一套按提供方路由的策略。随产品交付的 Web 组合也会加载该插件，因此浏览器请求与命令行请求使用相同的提供方默认值。库消费方仍需显式组合插件：省略该插件时，请求失败保持终态。
 
 ### 由单一层负责可见的尝试
 
 适配器每次调用 `stream()` 只执行一次提供方请求。pi-ai 适配器移除公开的 `maxRetries` 和 `maxRetryDelayMs` profile 字段，并禁用库内部重试；手写适配器保持现有的单次尝试行为。这样既避免 SDK 预算成倍放大 agent 预算，又能确保每次暂时性重试都由一个已关闭的失败步骤加 `llm/retry` 表示。
 
-`ctx.llm.stream()` 仍是原始的单次尝试 waterfall。压缩摘要等直接调用方会收到结构化失败，但不会自动获得重试，因为它们没有 agent 步骤边界，也没有可供分隔尝试的通用持久位置。未来的直接调用消费方可能会需要一个缓冲辅助函数，仅在尚未发出任何分片时重试；本决策不增加此类辅助函数。
+`ctx.llm.stream()` 仍是原始的单次尝试 waterfall。压缩（compaction）摘要等直接调用方会收到结构化失败，但不会自动获得重试，因为它们没有 agent 步骤边界，也没有可供分隔尝试的通用持久位置。未来的直接调用消费方可能会需要一个缓冲辅助函数，仅在尚未发出任何分片时重试；本决策不增加此类辅助函数。
 
 ### 在能够终止停滞流的位置施加边界
 
@@ -82,9 +82,9 @@ agent-spine 演示组合包加载该插件，因此共享的 stdio/TUI、一次�
 
 ### 在现有日志中分隔尝试
 
-一次失败尝试可以在已关闭的步骤中留下 `assistant/chunk` 事件，但绝不会追加 `assistant/message`，也不会分发工具。重试会关闭失败轮次，开启下一个编号轮次，从持久表层重建请求，并生成自己的分片。步骤仍处于打开状态时，UI 可以渲染实时分片；当 `llm/retry` 标识失败步骤，或 `turn/end` 记录失败时，UI 再标记或清除这份暂时视图。消息派生仍会忽略失败分片。
+一次失败尝试可以在已关闭的步骤中留下 `assistant/chunk` 事件，但绝不会追加 `assistant/message`，也不会分发工具。重试会关闭失败轮次，开启下一个编号轮次，从持久表层重建请求，并生成自己的分片。步骤仍处于打开状态时，UI 可以渲染实时分片；当 `llm/retry` 标识失败步骤，或 `turn/end` 记录失败时，UI 再标记或清除这份暂时视图。Web 会验证完整的重试载荷契约，在 `llm/retry` 到达时清除失败的部分输出，将连续重试轮次的事件投影为稳定的一行，并用最新一次尝试更新该行，再从后续轮次事实派生 scheduled、started 或 cancelled 状态。倒计时以浏览器收到事件的时刻为计划延迟的起点，而不是使用 Host 事件时钟；它按向上取整且不低于 1 秒的秒数显示，仅在重试尚未结束时显示动画，并把最近一次失败的准确详情折叠在该行之后。即使失败尝试没有 assistant 节点，重试节点也会锚定自身的轨迹轮次。消息派生仍会忽略失败分片；Web 在重建历史时也会应用同一投影，因此刷新页面不会让已丢弃的部分输出重新出现，也不会生成重复的重试行。
 
-如果恢复预算耗尽，最终失败会连同结构化事实在 `turn/end.reason` 中存储一次。如果暂时性恢复继续，`llm/retry` 就是该次尝试的失败与延迟的持久归属位置。本决策不增加独立的最终错误事件或响应 id 词汇。
+如果恢复预算耗尽，最终失败会连同结构化事实在 `turn/end.reason` 中存储一次。Web 会在该序列位置派生一个 `turn-error` 节点，并内联渲染适合展示的消息与可选错误码；AUTH 投影会把可能回显凭据片段的提供方文案替换为 `API key is invalid`，原始诊断仍保留在会话日志中。实时事件和历史回放使用同一套折叠逻辑。如果暂时性恢复继续，`llm/retry` 就是该次尝试的失败与延迟的持久归属位置，因此该失败轮次不会再获得终态错误行。本决策不增加独立的最终错误事件或响应 id 词汇。
 
 ## 不在范围内
 
@@ -106,17 +106,17 @@ agent-spine 演示组合包加载该插件，因此共享的 stdio/TUI、一次�
 
 ## 验证
 
-- `LlmFailure` 是最终适配器抛出失败、错误 finish 和中止 finish 使用的唯一可序列化载荷；在可用时，规范化保留稳定 code、状态、重试延迟、品牌化的提供方请求 id、错误原因，以及调用方中止与适配器超时之间的分类。
-- 适配器抛出的 `Error` 会以完全相同的对象抵达 `agent/request-error`，其伴随的 `LlmFailure` 则抵达相邻参数；测试保留针对可扩展及冻结第三方错误的现有对象标识断言。
+- `LlmFailure` 是适配器抛出、错误 finish 和中止 finish 使用的唯一可序列化载荷；在可用时，规范化保留稳定 code、状态、重试延迟、品牌化的提供方请求 id，以及调用方中止与适配器超时之间的分类。
+- 适配器抛出值会在抵达消费方前成为终止失败 chunk；middleware 与消费方异常仍在模型请求恢复之外抛出。
 - DeepSeek 和 pi-ai 适配器测试覆盖具有代表性的 400、401/403、429、5xx、连接、格式错误／截断流、超时、中止、Retry-After 秒数／日期、请求 id 和未知 SDK 错误路径，恢复策略无需解析消息文本。
-- Pi 将 SDK 选项固定为零次重试，并针对可重试的提供方响应执行一次可观测的实际网络请求；独立测试确保移除任一边界都会失败。
+- pi-ai 将 SDK 选项固定为零次重试，并针对可重试的提供方响应执行一次可观测的线路请求尝试；独立测试确保移除任一边界都会失败。
 - `agent/request-error` 携带当前失败事实、不可变的先前已重试失败事实，以及实际服务注册所对应的不可变重试策略；成功会清除历史，暂时性失败／上下文溢出交替发生的集成测试证明两种策略只消耗各自的有限预算。
 - 每个提供方适配器都在 Loader 启动时验证其嵌套重试策略，`ctx.llm` 则将该策略与路由一同捕获；normal mode 会委托不合格路径，而且在没有其他策略时最多发起 `maxRetries + 1` 次提供方请求。
-- 退避期间执行 HMR 的测试证明：释放过程会注销监听器、中止并等待其捕获的回调，释放后不发出重试决策，也不留下存活的定时器或 promise。
+- 退避期间执行 HMR 的测试证明：dispose 过程会注销监听器、中止并等待其捕获的回调，dispose 后不发出重试决策，也不留下存活的定时器或 promise。
 - 纯单元测试覆盖暂时性 code 选择、指数退避和抖动边界、有效及超出上限的 `Retry-After`、耗尽的预算、确定性定时器／随机数 seam，以及退避期间中止。
 - 真实 agent-loop 测试覆盖分片前失败、部分分片后失败、抛出及带内失败、在新轮次中重试至成功、耗尽后写入结构化 `turn/end.reason`，以及与 `dsh-compact-basic` 上下文溢出恢复的组合。
 - 部分分片集成测试证明：失败分片仍归属于失败步骤，该步骤不会提交 assistant 消息或工具副作用，成功的重试具有不同的来源信息。
-- 插件拥有的不进入表层的 `llm/retry` 事件可在 JSONL 和 SQLite 往返后保留，被消息派生忽略，并驱动 TUI 撤回和计划重试渲染。无密钥快照覆盖调度、取消、成功和耗尽；ACP 自动化快照确认，被丢弃的尝试不会通过协议发出，而恢复后的回复会正常发出。
+- 插件拥有的不进入表层的 `llm/retry` 事件可在 JSONL 和 SQLite 往返后保留，被消息派生忽略，并驱动 TUI 和 Web 撤回及计划重试渲染。客户端测试覆盖完整的 wire 验证、独立于时钟的倒计时、已取消与已完成重试标签的区别以及轨迹归属；无密钥 UI 快照覆盖 Web 的调度与成功，真实 Web 组合测试覆盖部分传输失败直至恢复，ACP 自动化快照确认，被丢弃的尝试不会通过协议发出，而恢复后的回复会正常发出。
 - 空闲看门狗测试证明：只有 `next()` 尚未完成时才会重新布防稳定信号；在消费方思考期间及 `finally` 中会解除布防；它与总调用 deadline 以及更早发生的调用方中止分开分类。适配器测试证明该信号会终止底层请求，而不只是与其脱离。
 - `ctx.llm.stream()` 的直接调用方仍只尝试一次，并收到相同的结构化失败事实。
 
@@ -135,4 +135,4 @@ agent-spine 演示组合包加载该插件，因此共享的 stdio/TUI、一次�
 - [可重建请求](../../implemented/architecture/2026-07-05-reconstructable-requests.md)使提供方／模型和完整请求输入在分发前持久化。
 - [超时 deadline 库](../../implemented/architecture/2026-07-06-timeout-deadline-library.md)将共享的 deadline 分类与能力自身拥有的终止操作分开。
 - [调用后压缩压力与上下文溢出恢复](../../implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md)负责当前已关闭步骤的请求恢复 seam 与有界溢出重试。
-- [提供方路由的 LLM 适配器](../../implemented/architecture/2026-07-14-provider-routed-llm-adapters.md)负责显式提供方／模型路由与每个提供方仅有一个适配器的不变量。
+- [提供方路由的 LLM（大语言模型）适配器](../../implemented/architecture/2026-07-14-provider-routed-llm-adapters.md)负责显式提供方／模型路由与每个提供方仅有一个适配器的不变量。

@@ -1,14 +1,48 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render } from '@testing-library/react'
 
-afterEach(cleanup)
 import type { RunningToolCall, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
-import { classifyTool, resolveToolPath, toolRowModel } from '../src/client/contract/tool-call-model.ts'
+import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
+import { classifyTool, resolveToolPath, resultText, toolRowModel } from '../src/client/contract/tool-call-model.ts'
 import { AssistantMarkdown } from '../src/client/chat/AssistantMarkdown.tsx'
 import { ToolRow } from '../src/client/chat/ToolRow.tsx'
-import { GenericToolCard } from '../src/client/chat/GenericToolCard.tsx'
-import type { ToolRowOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { GenericToolCard, type GenericToolCardProps } from '../src/client/chat/GenericToolCard.tsx'
+import { zh } from '../src/client/locales.ts'
+
+let nextAnimationFrameId = 1
+let animationFrames = new Map<number, FrameRequestCallback>()
+
+function flushAnimationFrames(count: number): void {
+  for (let index = 0; index < count; index += 1) {
+    const callbacks = [...animationFrames.values()]
+    animationFrames.clear()
+    for (const callback of callbacks) callback(index)
+  }
+}
+
+beforeEach(() => {
+  nextAnimationFrameId = 1
+  animationFrames = new Map()
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    const id = nextAnimationFrameId
+    nextAnimationFrameId += 1
+    animationFrames.set(id, callback)
+    return id
+  })
+  vi.stubGlobal('cancelAnimationFrame', (id: number) => {
+    animationFrames.delete(id)
+  })
+})
+
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+})
+
+// Mirrors the real lookup chain (conversation namespace, then common).
+const t: GenericToolCardProps['t'] = makeTranslate(zh, commonZh)
 
 const running = (over?: Partial<RunningToolCall>): RunningToolCall => ({
   callId: 'c1', name: 'bash', argsRaw: '{"command":"ls -la","description":"List files"}',
@@ -25,6 +59,7 @@ const result = (over?: Partial<ToolResultNode>): ToolResultNode => ({
 describe('tool-call-model', () => {
   it('classifies known tools and falls back to others', () => {
     expect(classifyTool('bash')).toBe('bash')
+    expect(classifyTool('pwsh')).toBe('bash')
     expect(classifyTool('read')).toBe('read')
     expect(classifyTool('web_fetch')).toBe('read')
     expect(classifyTool('web_search')).toBe('search')
@@ -35,6 +70,12 @@ describe('tool-call-model', () => {
     expect(classifyTool('cordis_mount')).toBe('code')
     expect(classifyTool('cordis_unmount')).toBe('others')
     expect(classifyTool('todo_write')).toBe('others')
+  })
+
+  it('gives the pwsh shell row the bash family treatment with its own title', () => {
+    const m = toolRowModel('pwsh', running())
+    expect(m.variant).toBe('bash')
+    expect(m.title).toBe('Pwsh')
   })
 
   it('derives state across running/ok/error/interrupted', () => {
@@ -102,6 +143,29 @@ describe('tool-call-model', () => {
       .toBe('{\n  "code": ""\n}')
   })
 
+  it('resultText flattens text blocks verbatim, other shapes as JSON, empty error content to name: code', () => {
+    expect(resultText(result({ content: [{ type: 'text', text: 'a\nb' }] }))).toBe('a\nb')
+    expect(resultText(result({ content: [{ type: 'text', text: 'a' }, { type: 'image', data: 'x' } as never] })))
+      .toBe(`a\n${JSON.stringify({ type: 'image', data: 'x' }, null, 2)}`)
+    expect(resultText(result({ content: [], isError: true, error: { name: 'ToolError', code: 'denied' } })))
+      .toBe('ToolError: denied')
+    expect(resultText(result({ content: [] }))).toBe('')
+  })
+
+  it('derives output from the settled result and null while running or blank', () => {
+    expect(toolRowModel('bash', result({ content: [{ type: 'text', text: 'out' }] })).output).toBe('out')
+    expect(toolRowModel('bash', running()).output).toBeNull()
+    expect(toolRowModel('bash', result({ content: [] })).output).toBeNull()
+  })
+
+  it('derives errorSummary as the first output line on error rows only', () => {
+    const failed = result({ content: [{ type: 'text', text: 'boom\ndetail' }], isError: true })
+    expect(toolRowModel('bash', failed).errorSummary).toBe('boom')
+    expect(toolRowModel('bash', result({ content: [{ type: 'text', text: 'boom' }] })).errorSummary).toBeNull()
+    expect(toolRowModel('bash', result({ content: [], isError: true })).errorSummary).toBeNull()
+    expect(toolRowModel('bash', running()).errorSummary).toBeNull()
+  })
+
   it('gives Cordis lifecycle tools action titles over their generic variants', () => {
     expect(toolRowModel('cordis_inspect', running({
       name: 'cordis_inspect',
@@ -132,6 +196,7 @@ describe('tool-call-model', () => {
 
 describe('ToolRow', () => {
   const rowProps = {
+    t,
     variant: 'bash' as const, icon: <i data-testid="tool-icon" />, title: 'Bash',
     summary: 'List files', body: '{\n  "a": 1\n}', state: 'ok' as const,
   }
@@ -144,14 +209,15 @@ describe('ToolRow', () => {
     expect(view.container.querySelector('[aria-expanded]')?.getAttribute('aria-expanded')).toBe('false')
   })
 
-  it('expanding swaps the leading slot to a chevron, hides summary, shows body', () => {
+  it('row click expands: chevron leading, summary kept inline, body in the scrolling card', () => {
     const view = render(<ToolRow {...rowProps} />)
-    fireEvent.click(view.container.querySelector('button')!)
+    fireEvent.click(view.getByRole('button'))
     expect(view.queryByTestId('tool-icon')).toBeNull()
     expect(view.container.querySelector('svg')).not.toBeNull()
-    expect(view.queryByText('List files')).toBeNull()
+    expect(view.getByText('List files')).toBeTruthy()
     expect(view.getByText(/"a": 1/)).toBeTruthy()
-    fireEvent.click(view.container.querySelector('button')!)
+    expect(view.container.querySelector('[class*="ioCard"]')).not.toBeNull()
+    fireEvent.click(view.getByRole('button'))
     expect(view.queryByTestId('tool-icon')).not.toBeNull()
     expect(view.getByText('List files')).toBeTruthy()
   })
@@ -162,16 +228,20 @@ describe('ToolRow', () => {
     expect(runningView.container.querySelector('[data-state="running"]')).not.toBeNull()
     const errorView = render(<ToolRow {...rowProps} state="error" />)
     expect(errorView.container.querySelector('[data-testid="tool-icon"]')).toBeNull()
+    // The dot rides the idle slot, so an expandable error row keeps the
+    // icon→chevron hover preview instead of losing it with the icon.
+    expect(errorView.container.querySelector('[class*="chevronHover"]')).not.toBeNull()
   })
 
-  it('non-expandable rows render a passive leading slot', () => {
+  it('non-expandable rows render a passive leading slot and no row button', () => {
     const view = render(<ToolRow {...rowProps} body={null} />)
-    expect(view.container.querySelector('button')).toBeNull()
+    expect(view.queryByRole('button')).toBeNull()
+    expect(view.container.querySelector('[aria-expanded]')).toBeNull()
     expect(view.queryByTestId('tool-icon')).not.toBeNull()
   })
 
-  it('an expandOnRowClick row toggles from Enter and Space, ignoring other keys', () => {
-    const view = render(<ToolRow {...rowProps} expandOnRowClick />)
+  it('the row toggles from Enter and Space, ignoring other keys', () => {
+    const view = render(<ToolRow {...rowProps} />)
     const row = view.getByRole('button')
     fireEvent.keyDown(row, { key: 'Tab' })
     expect(row.getAttribute('aria-expanded')).toBe('false')
@@ -181,32 +251,31 @@ describe('ToolRow', () => {
     expect(row.getAttribute('aria-expanded')).toBe('false')
   })
 
-  it('a non-expandable expandOnRowClick row exposes no row button', () => {
-    const view = render(<ToolRow {...rowProps} body={null} expandOnRowClick />)
-    expect(view.queryByRole('button')).toBeNull()
-  })
-
-  it('file-path summary opens through onOpenFile; the leading slot is not an expand control', () => {
+  it('file rows expand from the row while the path link opens without toggling', () => {
     const open = vi.fn()
     const view = render(
       <ToolRow {...rowProps} variant="read" title="Read" summary="src/a.ts" filePath="src/a.ts" onOpenFile={open} />,
     )
+    const row = view.getByRole('button', { name: /Read/ })
+    // Path click opens the file and leaves the row collapsed.
     fireEvent.click(view.getByText('src/a.ts'))
     expect(open).toHaveBeenCalledWith('src/a.ts')
-    // Only the path link is a button — no args-expand affordance on file rows.
-    expect(view.container.querySelectorAll('button')).toHaveLength(1)
-    expect(view.container.querySelector('[aria-expanded]')).toBeNull()
-    expect(view.queryByText(/"a": 1/)).toBeNull()
+    expect(row.getAttribute('aria-expanded')).toBe('false')
+    // Row click (outside the link) expands the args body.
+    fireEvent.click(row)
+    expect(row.getAttribute('aria-expanded')).toBe('true')
+    expect(view.getByText(/"a": 1/)).toBeTruthy()
   })
 
-  it('a single-file path disables expand even when onOpenFile is absent', () => {
+  it('a file path without onOpenFile renders a plain summary on an expandable row', () => {
     const view = render(
       <ToolRow {...rowProps} variant="write" title="Write" summary="作文.md" filePath="作文.md" />,
     )
     expect(view.container.querySelector('button')).toBeNull()
-    expect(view.container.querySelector('[aria-expanded]')).toBeNull()
-    fireEvent.click(view.getByText('作文.md'))
-    expect(view.queryByText(/"a": 1/)).toBeNull()
+    const row = view.getByRole('button')
+    fireEvent.click(row)
+    expect(row.getAttribute('aria-expanded')).toBe('true')
+    expect(view.getByText(/"a": 1/)).toBeTruthy()
   })
 
   it('non-file rows do not open anything when the summary is clicked', () => {
@@ -215,12 +284,137 @@ describe('ToolRow', () => {
     fireEvent.click(view.getByText('List files'))
     expect(open).not.toHaveBeenCalled()
   })
+
+  it('an error row shows the failure first line in the collapsed summary and the full text expanded', () => {
+    const view = render(
+      <ToolRow {...rowProps} state="error" errorSummary="boom" output={'boom\ndetail'} />,
+    )
+    expect(view.getByText('boom')).toBeTruthy()
+    expect(view.queryByText('List files')).toBeNull()
+    fireEvent.click(view.getByRole('button'))
+    expect(view.getByText(/detail/)).toBeTruthy()
+    expect(view.container.querySelector('[data-error]')).not.toBeNull()
+  })
+
+  it('an error row without an error summary keeps the args summary', () => {
+    const view = render(<ToolRow {...rowProps} state="error" errorSummary={null} />)
+    expect(view.getByText('List files')).toBeTruthy()
+  })
+
+  it('renders summarySuffix outside the ellipsized summary span, and drops it on a failure line', () => {
+    const view = render(<ToolRow {...rowProps} summarySuffix="+2" />)
+    const summary = view.getByText('List files')
+    const suffix = view.getByText('+2')
+    // Separate spans: .summary truncates, the suffix must not travel inside it.
+    expect(summary.contains(suffix)).toBe(false)
+    view.unmount()
+    // The failure line replaces the summary wholesale, so the suffix goes with it.
+    const failed = render(
+      <ToolRow {...rowProps} state="error" errorSummary="boom" summarySuffix="+2" />,
+    )
+    expect(failed.queryByText('+2')).toBeNull()
+  })
+
+  it('an error file row drops the open-file link (the summary is failure prose, not the path)', () => {
+    const open = vi.fn()
+    const view = render(
+      <ToolRow
+        {...rowProps}
+        variant="write" title="Write" state="error" errorSummary="cannot overwrite"
+        filePath="src/a.ts" onOpenFile={open}
+      />,
+    )
+    fireEvent.click(view.getByText('cannot overwrite'))
+    expect(open).not.toHaveBeenCalled()
+    // The failure line renders as plain text, not the underlined link button.
+    expect(view.container.querySelector('[class*="fileLink"]')).toBeNull()
+  })
+
+  it('the expanded body carries a hover Inspect pill that fires the callback', () => {
+    const inspect = vi.fn()
+    const view = render(<ToolRow {...rowProps} inspect={inspect} />)
+    // Collapsed: no pill.
+    expect(view.queryByText('Inspect')).toBeNull()
+    fireEvent.click(view.getByRole('button', { name: /Bash/ }))
+    const pill = view.getByText('Inspect')
+    fireEvent.click(pill)
+    expect(inspect).toHaveBeenCalledTimes(1)
+    // The pill click must not collapse the row (body is a .row sibling).
+    expect(view.getByRole('button', { name: /Bash/ }).getAttribute('aria-expanded')).toBe('true')
+  })
+
+  it('no inspect callback, no pill', () => {
+    const view = render(<ToolRow {...rowProps} />)
+    fireEvent.click(view.getByRole('button'))
+    expect(view.queryByText('Inspect')).toBeNull()
+  })
+
+  it('the expanded card gutter-labels each section it carries (IN / OUT)', () => {
+    const both = render(<ToolRow {...rowProps} output="result text" />)
+    fireEvent.click(both.getByRole('button'))
+    expect(both.getByText('IN')).toBeTruthy()
+    expect(both.getByText('OUT')).toBeTruthy()
+    expect(both.getByText('result text')).toBeTruthy()
+    cleanup()
+    const inputOnly = render(<ToolRow {...rowProps} />)
+    fireEvent.click(inputOnly.getByRole('button'))
+    expect(inputOnly.getByText('IN')).toBeTruthy()
+    expect(inputOnly.queryByText('OUT')).toBeNull()
+    cleanup()
+    const outputOnly = render(<ToolRow {...rowProps} body={null} output="only out" />)
+    fireEvent.click(outputOnly.getByRole('button'))
+    expect(outputOnly.queryByText('IN')).toBeNull()
+    expect(outputOnly.getByText('OUT')).toBeTruthy()
+    expect(outputOnly.getByText('only out')).toBeTruthy()
+  })
 })
 
 describe('ThinkRow', () => {
+  it('follows the latest streaming line, scrolls to its end, then restores the settled first line', () => {
+    const view = render(
+      <AssistantMarkdown
+        t={t}
+        blocks={[{ kind: 'reasoning', text: 'Inspect the session\nNewest reasoning tokens' }]}
+        streaming
+      />,
+    )
+    const summary = view.getByText('Newest reasoning tokens')
+    Object.defineProperties(summary, {
+      scrollWidth: { configurable: true, value: 300 },
+      clientWidth: { configurable: true, value: 100 },
+    })
+
+    view.rerender(
+      <AssistantMarkdown
+        t={t}
+        blocks={[{ kind: 'reasoning', text: 'Inspect the session\nNewest reasoning tokens keep arriving' }]}
+        streaming
+      />,
+    )
+    expect(summary.scrollLeft).toBe(0)
+    flushAnimationFrames(2)
+    expect(summary.scrollLeft).toBe(0)
+    flushAnimationFrames(1)
+    expect(summary.scrollLeft).toBe(200)
+    expect(summary.getAttribute('data-follow-end')).toBe('true')
+
+    view.rerender(
+      <AssistantMarkdown
+        t={t}
+        blocks={[{ kind: 'reasoning', text: 'Inspect the session\nNewest reasoning tokens keep arriving\n' }]}
+        streaming={false}
+      />,
+    )
+    flushAnimationFrames(3)
+    expect(view.getByText('Inspect the session')).toBeTruthy()
+    expect(summary.scrollLeft).toBe(0)
+    expect(summary.hasAttribute('data-follow-end')).toBe(false)
+  })
+
   it('expands from either Think or the reasoning summary', () => {
     const view = render(
       <AssistantMarkdown
+        t={t}
         blocks={[{ kind: 'reasoning', text: 'Inspect the session\nCheck persistence' }]}
         streaming={false}
       />,
@@ -234,11 +428,27 @@ describe('ThinkRow', () => {
     fireEvent.click(view.getByText('Think'))
     expect(row.getAttribute('aria-expanded')).toBe('false')
   })
+
+  it('expanded Think drops the inline summary and renders plain prose, no IN card', () => {
+    const view = render(
+      <AssistantMarkdown
+        t={t}
+        blocks={[{ kind: 'reasoning', text: 'Inspect the session\nCheck persistence' }]}
+        streaming={false}
+      />,
+    )
+    fireEvent.click(view.getByText('Think'))
+    // The summary (first line) is gone from the row; only the body carries it.
+    expect(view.getAllByText(/Inspect the session/)).toHaveLength(1)
+    expect(view.queryByText('IN')).toBeNull()
+    expect(view.container.querySelector('[class*="ioCard"]')).toBeNull()
+    expect(view.container.querySelector('[class*="thinkBody"]')).not.toBeNull()
+  })
 })
 
 describe('GenericToolCard', () => {
-  const props = (toolName: string, block: RunningToolCall | ToolResultNode): ToolRowOwnerProps => ({
-    callId: 'c1', toolName, block, openFile: vi.fn(),
+  const props = (toolName: string, block: RunningToolCall | ToolResultNode): GenericToolCardProps => ({
+    callId: 'c1', toolName, block, openFile: vi.fn(), t,
   })
 
   it('renders the classified variant row from the frozen slice', () => {
@@ -281,6 +491,14 @@ describe('GenericToolCard', () => {
     expect(view.getByText('src/x.ts')).toBeTruthy()
     expect(view.container.querySelector('[data-variant="write"]')).not.toBeNull()
     expect(view.container.querySelector('svg')).not.toBeNull()
+  })
+
+  it('passes the owner inspect callback through to the expanded row pill', () => {
+    const inspect = vi.fn()
+    const view = render(<GenericToolCard {...props('bash', result())} inspect={inspect} />)
+    fireEvent.click(view.getByRole('button', { name: /Bash/ }))
+    fireEvent.click(view.getByText('Inspect'))
+    expect(inspect).toHaveBeenCalledTimes(1)
   })
 
   it('file-path summary click reaches openFile; bash summary does not', () => {

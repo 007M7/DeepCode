@@ -41,6 +41,12 @@ describe('PartialAccumulator', () => {
     expect(acc.toPartial().blocks).toEqual([{ kind: 'reasoning', text: '思考' }])
   })
 
+  it('continues from a materialized history prefix', () => {
+    const acc = new PartialAccumulator(1, 0, [{ kind: 'text', text: '已有' }])
+    acc.push(chunk({ type: 'text-delta', index: 0, text: '增量' }))
+    expect(acc.toPartial().blocks).toEqual([{ kind: 'text', text: '已有增量' }])
+  })
+
   it('folds tool-call deltas: first id pins callId, late name overrides, argsRaw concatenates', () => {
     const acc = new PartialAccumulator(1, 0)
     acc.push(chunk({ type: 'tool-call-delta', index: 0, id: 'c1', argumentsDelta: '{"a"' }))

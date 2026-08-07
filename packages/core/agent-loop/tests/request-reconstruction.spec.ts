@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import LlmService, { createUserMessage, LlmError, ReasoningEffortId  } from '@deepseek-ai/dsh-llm'
-import type { GenerateOptions, LlmModelReasoningInfo, LlmResolvedModelInfo } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, LlmModelReasoningInfo, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId, foldRequestHeader } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
@@ -18,6 +18,13 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
 
 async function harness(adapter: MockAdapter, persona = 'stable base') {
+  return harnessRoutes([['mock', adapter]], persona)
+}
+
+async function harnessRoutes(
+  adapters: readonly (readonly [provider: string, adapter: MockAdapter])[],
+  persona = 'stable base',
+) {
   const ctx = new Context()
   await ctx.plugin(LlmService)
   await ctx.plugin(SessionStore)
@@ -25,13 +32,13 @@ async function harness(adapter: MockAdapter, persona = 'stable base') {
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(AgentLoop, { agents: [] })
-  ctx.llm.registerAdapter(['mock'], adapter)
+  for (const [provider, adapter] of adapters) ctx.llm.registerAdapter([provider], adapter)
   return ctx
 }
 
 function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
-    const dispose = ctx.on('agent/status', (subject, status) => {
+    const dispose = ctx.on('agent/status', ({ agent: subject, status }) => {
       if (subject === agent && status === 'idle') {
         dispose()
         resolve()
@@ -115,7 +122,7 @@ describe('request stability across the loop', () => {
     const adapter = new MockAdapter([textResponse('one'), textResponse('two')], reasoning)
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('effort'), { provider: 'mock', model: 'mock' })
-    ctx.on('agent/request', async (_agent, turn, _step, _signal, next) => {
+    ctx.on('agent/request', async ({ turn }, next) => {
       const config = await next()
       return turn === 2 ? { ...config, reasoningEffort: ReasoningEffortId('max') } : config
     })
@@ -133,6 +140,10 @@ describe('request stability across the loop', () => {
     expect(headers.map(event => event.data.header.config.reasoningEffort)).toEqual([
       ReasoningEffortId('high'),
       ReasoningEffortId('max'),
+    ])
+    expect(headers.map(event => event.data.header.adapterDefaults)).toEqual([
+      { reasoningEffort: true },
+      undefined,
     ])
     expect(headers.map(event => event.data.reason)).toEqual(['initial', 'change'])
 
@@ -156,6 +167,88 @@ describe('request stability across the loop', () => {
       expect(resumedHeaders.at(-1)?.data.header.config.reasoningEffort).toBe(effort)
       expect(resumedHeaders.at(-1)?.data.reason).toBe('resume')
     }
+  })
+
+  it('logs an adapter-owned maxTokens default before dispatch', async () => {
+    const adapter = new MockAdapter([textResponse('bounded')], undefined, 256_000)
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('adapter-max-tokens'), {
+      provider: 'mock',
+      model: 'mock',
+    })
+
+    send(agent, 'use the adapter output limit')
+    await waitForIdle(ctx, agent)
+
+    expect(adapter.requests[0]?.maxTokens).toBe(256_000)
+    const header = agent.session.events.find(event => event.type === 'request/header')
+    expect(header?.type === 'request/header' && header.data.header.config.maxTokens).toBe(256_000)
+    expect(header?.type === 'request/header' && header.data.header.adapterDefaults)
+      .toEqual({ maxTokens: true })
+  })
+
+  it('rematerializes the selected adapter maxTokens default after a provider switch', async () => {
+    const deepseek = new MockAdapter([textResponse('deepseek')], undefined, 256_000)
+    const other = new MockAdapter([textResponse('other')], undefined, 8_192)
+    const ctx = await harnessRoutes([
+      ['deepseek', deepseek],
+      ['other', other],
+    ])
+    const agent = ctx.agentLoop.create(SessionId('adapter-max-tokens-switch'), {
+      provider: 'deepseek',
+      model: 'deepseek-model',
+    })
+    ctx.on('agent/request', async ({ turn }, next) => {
+      const config = await next()
+      return turn === 2
+        ? { ...config, provider: 'other', model: 'other-model' }
+        : config
+    })
+
+    send(agent, 'first')
+    await waitForIdle(ctx, agent)
+    send(agent, 'second')
+    await waitForIdle(ctx, agent)
+
+    expect(deepseek.requests[0]?.maxTokens).toBe(256_000)
+    expect(other.requests[0]?.maxTokens).toBe(8_192)
+    const headers = agent.session.events.filter(event => event.type === 'request/header')
+    expect(headers.map(event => event.data.header.config.maxTokens)).toEqual([256_000, 8_192])
+    expect(headers.map(event => event.data.header.adapterDefaults)).toEqual([
+      { maxTokens: true },
+      { maxTokens: true },
+    ])
+  })
+
+  it('preserves an explicit agent maxTokens cap across a provider switch', async () => {
+    const deepseek = new MockAdapter([textResponse('deepseek')], undefined, 256_000)
+    const other = new MockAdapter([textResponse('other')], undefined, 8_192)
+    const ctx = await harnessRoutes([
+      ['deepseek', deepseek],
+      ['other', other],
+    ])
+    const agent = ctx.agentLoop.create(SessionId('explicit-max-tokens-switch'), {
+      provider: 'deepseek',
+      model: 'deepseek-model',
+      maxTokens: 4_096,
+    })
+    ctx.on('agent/request', async ({ turn }, next) => {
+      const config = await next()
+      return turn === 2
+        ? { ...config, provider: 'other', model: 'other-model' }
+        : config
+    })
+
+    send(agent, 'first')
+    await waitForIdle(ctx, agent)
+    send(agent, 'second')
+    await waitForIdle(ctx, agent)
+
+    expect(deepseek.requests[0]?.maxTokens).toBe(4_096)
+    expect(other.requests[0]?.maxTokens).toBe(4_096)
+    const headers = agent.session.events.filter(event => event.type === 'request/header')
+    expect(headers.map(event => event.data.header.config.maxTokens)).toEqual([4_096, 4_096])
+    expect(headers.map(event => event.data.header.adapterDefaults)).toEqual([undefined, undefined])
   })
 
   it('keeps exact-model resolution, request logging, and dispatch on one adapter registration', async () => {
@@ -257,10 +350,6 @@ describe('request stability across the loop', () => {
         }
       }([])
       const ctx = await harness(adapter)
-      const errors: Error[] = []
-      ctx.on('agent/error', (_agent, _turn, _step, error) => {
-        if (error instanceof Error) errors.push(error)
-      })
       const agent = ctx.agentLoop.create(SessionId(`reasoning-${kind}`), {
         provider: 'mock',
         model: 'mock',
@@ -269,7 +358,13 @@ describe('request stability across the loop', () => {
       send(agent, 'go')
       await waitForIdle(ctx, agent)
 
-      expect(errors).toContain(failure)
+      expect(agent.session.events.findLast(event => event.type === 'turn/end')).toMatchObject({
+        data: {
+          reason: failure instanceof LlmError
+            ? { kind: 'error', error: failure.failure }
+            : { kind: 'error', error: { message: failure.message, code: 'UNKNOWN' } },
+        },
+      })
       expect(adapter.requests).toHaveLength(0)
     },
   )
@@ -316,19 +411,13 @@ describe('request stability across the loop', () => {
     send(agent, 'first')
     await waitForIdle(ctx, agent)
 
-    // A pre-step listener compacts turn 1's history before turn 2's step —
-    // the sanctioned surface rewrite, landing OUTSIDE the step.
-    const preStep = ctx.on('agent/step', () => {
-      preStep()
-      const session = agent.session
-      const nodes = session.surface.nodes
-      session.append('user/message', createUserMessage({
-        content: [{ type: 'text', text: '[summary of turn 1]' }],
-        source: { kind: 'plugin', plugin: 'test-compact' },
-      }), {
-        surfaceOp: { op: 'replace', start: nodes[0]!, end: nodes[1]! },
-        sourceEventSeqs: [nodes[0]!, nodes[1]!],
-      })
+    const nodes = agent.session.surface.nodes
+    agent.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: '[summary of turn 1]' }],
+      source: { kind: 'plugin', plugin: 'test-compact' },
+    }), {
+      surfaceOp: { op: 'replace', start: nodes[0]!, end: nodes[1]! },
+      sourceEventSeqs: [nodes[0]!, nodes[1]!],
     })
 
     send(agent, 'second')
@@ -371,7 +460,7 @@ describe('request stability across the loop', () => {
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     let injected = false
-    ctx.on('agent/request', async (_agent, _turn, _step, _signal, next) => {
+    ctx.on('agent/request', async (_payload, next) => {
       if (!injected) {
         injected = true
         agent.inject(createUserMessage({ content: [{ type: 'text', text: '[late context]' }], source: { kind: 'plugin', plugin: 'test' } }))
@@ -398,10 +487,6 @@ describe('request stability across the loop', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    const errors: Error[] = []
-    ctx.on('agent/error', (_agent, _turn, _step, error) => {
-      if (error instanceof Error) errors.push(error)
-    })
     ctx.on('llm/stream', (options, next) => {
       // The historical failure mode this design kills: a listener rewriting
       // request content in place. The freeze turns it into a loud error.
@@ -415,8 +500,10 @@ describe('request stability across the loop', () => {
     send(agent, 'go')
     await waitForIdle(ctx, agent)
 
-    expect(errors).toHaveLength(1)
-    expect(errors[0]!.message).toMatch(/not extensible|frozen|read only|readonly/i)
+    const turnEnd = agent.session.events.findLast(event => event.type === 'turn/end')
+    expect(turnEnd).toMatchObject({ data: { reason: { kind: 'error' } } })
+    if (turnEnd?.type !== 'turn/end' || turnEnd.data.reason.kind !== 'error') throw new Error()
+    expect(turnEnd.data.reason.error.message).toMatch(/not extensible|frozen|read only|readonly/i)
   })
 
   it('a fresh loop instance over a seeded log anchors with a resume snapshot and stays cache-aligned', async () => {
@@ -452,7 +539,7 @@ describe('request stability across the loop', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    ctx.on('agent/request', async (_agent, _turn, _step, _signal, next) => {
+    ctx.on('agent/request', async (_payload, next) => {
       const config = await next()
       // next() resolves the SAME frozen seed — in-place shaping after
       // delegation is unrepresentable, so a "mutate what next() returned"
@@ -489,7 +576,7 @@ describe('request stability across the loop', () => {
     send(agent, 'go')
     await waitForIdle(ctx, agent)
     ctx.systemPrompt.section({ name: 'extra', order: 2, text: 'now with guidance' })
-    ctx.on('agent/request', async (_agent, _turn, _step, _signal, next) => ({
+    ctx.on('agent/request', async (_payload, next) => ({
       ...await next(), temperature: 0.5, maxTokens: 99, stop: ['<END>'],
     }))
     send(agent, 'again')
@@ -502,14 +589,18 @@ describe('request stability across the loop', () => {
 
     adapter.requests.forEach((request, index) => {
       const stepStart = stepStarts[index]!
-      // Messages: the derivation over the log prefix strictly before this
-      // step's step/start — rebuilt here through a completely fresh Session.
-      const rebuilt = new Session(SessionId(`rebuild-${index}`), structuredClone(events.slice(0, stepStart.seq)))
+      const firstChunk = events.find(e =>
+        e.type === 'assistant/chunk'
+        && e.data.turn === stepStart.data.turn
+        && e.data.step === stepStart.data.step,
+      )!
+      // Messages: the entered batch is logged after step/start, so rebuild the
+      // complete dispatch prefix through a completely fresh Session.
+      const rebuilt = Session.create(SessionId(`rebuild-${index}`), structuredClone(events.slice(0, firstChunk.seq)))
       expect(structuredClone(request.messages)).toEqual(rebuilt.deriveMessages())
 
       // Header: the latest request/header snapshot up to this step's dispatch
       // (its header event sits between step/start and the first chunk).
-      const firstChunk = events.find(e => e.type === 'assistant/chunk' && e.seq > stepStart.seq)!
       const header = foldRequestHeader(events.slice(0, firstChunk.seq))!
       expect(request.model).toBe(header.config.model)
       expect(request.reasoningEffort).toBe(header.config.reasoningEffort)
@@ -519,5 +610,97 @@ describe('request stability across the loop', () => {
       expect(request.maxTokens).toBe(header.config.maxTokens)
       expect(request.stop).toEqual(header.config.stop)
     })
+  })
+})
+
+describe('request/context capacity records', () => {
+  /** Adapter advertising a per-model capacity, keyed by model id. */
+  function capacityAdapter(windows: Record<string, number>, script: StreamChunk[][]): MockAdapter {
+    return new class extends MockAdapter {
+      override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+        const contextWindow = windows[model]
+        return Promise.resolve({
+          provider,
+          id: model,
+          name: model,
+          ...contextWindow === undefined ? {} : { context: { contextWindow } },
+        })
+      }
+    }(script)
+  }
+
+  it('records capacity once and skips it while the route is unchanged', async () => {
+    const adapter = capacityAdapter({ mock: 128_000 }, [textResponse('a'), textResponse('b')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('capacity-dedup'), { provider: 'mock', model: 'mock' })
+
+    send(agent, 'first')
+    await waitForIdle(ctx, agent)
+    send(agent, 'second')
+    await waitForIdle(ctx, agent)
+
+    const records = agent.session.events.filter(event => event.type === 'request/context')
+    expect(records).toHaveLength(1)
+    expect(records[0]?.data).toEqual({ provider: 'mock', model: 'mock', contextWindow: 128_000 })
+    // Log-only: not a SurfaceEventType, so it can never reach a model request
+    // (the type system rejects a surfaceOp here; the session invariant also
+    // requires the record to sit inside its open turn).
+    expect(agent.session.surface.nodes).not.toContain(records[0]?.seq)
+  })
+
+  it('records a second capacity when the route changes mid-session', async () => {
+    const adapter = capacityAdapter(
+      { small: 64_000, large: 256_000 },
+      [textResponse('a'), textResponse('b')],
+    )
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('capacity-switch'), { provider: 'mock', model: 'small' })
+
+    send(agent, 'first')
+    await waitForIdle(ctx, agent)
+    ctx.on('agent/request', ({ agent: subject }, next) => subject === agent
+      ? Promise.resolve({ provider: 'mock', model: 'large' })
+      : next())
+    send(agent, 'second')
+    await waitForIdle(ctx, agent)
+
+    expect(agent.session.events
+      .filter(event => event.type === 'request/context')
+      .map(event => event.data.contextWindow)).toEqual([64_000, 256_000])
+  })
+
+  it('records and deduplicates a route whose adapter advertises no capacity', async () => {
+    const ctx = await harness(new MockAdapter([textResponse('a'), textResponse('b')]))
+    const agent = ctx.agentLoop.create(SessionId('capacity-absent'), { provider: 'mock', model: 'mock' })
+    send(agent, 'first')
+    await waitForIdle(ctx, agent)
+    send(agent, 'second')
+    await waitForIdle(ctx, agent)
+    expect(agent.session.events
+      .filter(event => event.type === 'request/context')
+      .map(event => event.data)).toEqual([{ provider: 'mock', model: 'mock' }])
+  })
+
+  it('clears a previous capacity when the next route advertises none', async () => {
+    const adapter = capacityAdapter({ known: 64_000 }, [textResponse('a'), textResponse('b')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('capacity-clear'), { provider: 'mock', model: 'known' })
+    let model = 'known'
+    ctx.on('agent/request', ({ agent: subject }, next) => subject === agent
+      ? Promise.resolve({ provider: 'mock', model })
+      : next())
+
+    send(agent, 'first')
+    await waitForIdle(ctx, agent)
+    model = 'unknown'
+    send(agent, 'second')
+    await waitForIdle(ctx, agent)
+
+    expect(agent.session.events
+      .filter(event => event.type === 'request/context')
+      .map(event => event.data)).toEqual([
+      { provider: 'mock', model: 'known', contextWindow: 64_000 },
+      { provider: 'mock', model: 'unknown' },
+    ])
   })
 })

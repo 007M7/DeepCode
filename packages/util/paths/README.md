@@ -8,6 +8,8 @@ Shared filesystem path helpers for DeepSeek Harness user data.
 
 `resolveDshHome()` resolves the single-root DeepSeek Harness home. Precedence, highest first: an explicit configured path, `$DSH_HOME`, then `~/.dsh`. The harness keeps all user data under one root.
 
+`dshHomePath(...segments)` joins child segments onto that resolved home with Node's platform path rules. With no segments it returns the home itself.
+
 `dshHomeDisplay()` names an active root symbolically for user-facing paths: `~/.dsh` for the default home, `$DSH_HOME` for any configured home. It never leaks an absolute machine path.
 
 `DSH_HOME_DIR_NAME` owns the default user-data directory name: `.dsh`.

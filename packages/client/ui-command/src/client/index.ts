@@ -10,19 +10,23 @@ import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 // key's owner) into this program so the overlay registration below typechecks
 // against the real declaration — no runtime edge to ui-conversation.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+// Type-only: pulls the locale plugin's Context merge (ctx.locale).
+import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { CommandService } from './service.ts'
 import type { PopupSelectInjected } from './PopupSelectView.tsx'
 import { PopupSelectView } from './PopupSelectView.tsx'
+import { en, zh, type CommandKey } from './locales.ts'
 
 export { CommandService } from './service.ts'
 export { CommandDirectory } from './directory.ts'
 export type { CommandDescriptor, DirectoryStatus } from './directory.ts'
 export { filterOptions, PopupSelectController } from './popup.ts'
 export type { PopupSelectDeps, PopupSpec, PopupState, TokenSegment } from './popup.ts'
-export type { PopupSelectInjected } from './PopupSelectView.tsx'
+export type { PopupSelectInjected, PopupSelectViewProps } from './PopupSelectView.tsx'
 export type {
-  CommandContribution, CommandDecoration, CommandServiceContract, CommandUiSpec, SelectOption,
+  CommandContribution, CommandDecoration, CommandServiceContract, CommandUiSpec, SelectConfirmation, SelectOption,
 } from './contract.ts'
+export type { CommandKey } from './locales.ts'
 
 declare module 'cordis' {
   interface Context {
@@ -30,8 +34,18 @@ declare module 'cordis' {
   }
 }
 
-/** Required services: the '/' source registry plus the scope + wire faces the service reads. */
-export const inject = ['slash', 'sessions', 'connection']
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface LocaleNamespaceMap {
+    /** The popupSelect shell's copy. */
+    command: CommandKey
+  }
+}
+
+/** Dictionary namespace owned by this plugin. */
+const NS = 'command'
+
+/** Required services: the '/' source registry plus the scope + wire faces the service reads, and the copy's locale registry. */
+export const inject = ['slash', 'sessions', 'connection', 'locale']
 
 /**
  * Client plugin body: mount the service, then register the popupSelect shell
@@ -39,23 +53,21 @@ export const inject = ['slash', 'sessions', 'connection']
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
+  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-command: dictionaries')
   ctx.plugin(CommandService)
-  // Conditional mount, same seam as ui-slash's MenuView registration:
-  // 'conversation.input.overlay' is declared by the conversation composer
-  // entry, and the conversation service's presence is the registration-safe
-  // signal that the declaration is on the ledger.
-  ctx.inject(['slots', 'conversation', 'command', 'sessions'], (scope: ClientContext) => {
+  ctx.inject(['slots', 'command', 'sessions'], (scope: ClientContext) => {
     const command = scope.command
     const sessions = scope.sessions
-    scope.effect(() => scope.slots.register({
+    scope.slots.inject('conversation.input.overlay', () => scope.slots.register({
       name: 'conversation.input.overlay',
       id: 'command-popup',
       order: 1,
+      locale: NS,
       inject: (sessionId): PopupSelectInjected => {
         const actx = sessions.scope(sessionId)
         if (actx === undefined) throw new Error(`ui-command: session "${String(sessionId)}" resolved no scope`)
         return { popup: command.popupFor(actx) }
       },
-    }, PopupSelectView), 'ui-command: popupSelect overlay registration')
+    }, PopupSelectView))
   })
 }

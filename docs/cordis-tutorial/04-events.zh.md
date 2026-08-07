@@ -91,7 +91,7 @@ export function apply(ctx: Context) {
 
 每个 harness 事件都会在生成的[事件目录](../cordis-catalog/events.md)中记录其模式。
 
-## Waterfall：转换或短路
+## waterfall：转换或短路
 
 waterfall 是实现拦截的模式。每个监听器都会收到参数和一个 `next()` continuation；它可以转换 `next()` 的返回值，也可以不调用 `next()` 就直接返回，从而短路链条的其余部分。Cordis 文档把后一种行为称为否决。创建 `waterfall-demo.ts`：
 

@@ -23,12 +23,13 @@ async function harness(_model: string, config: Partial<PiAiProviderProfile> = {}
   contexts.push(ctx)
   await ctx.plugin(LlmService)
   await ctx.plugin(LlmPiAi, {
-    providers: [{
-      provider: 'deepseek',
-      ...process.env.DEEPSEEK_API_KEY === undefined ? {} : { apiKey: process.env.DEEPSEEK_API_KEY },
-      ...process.env.DEEPSEEK_BASE_URL === undefined ? {} : { baseURL: process.env.DEEPSEEK_BASE_URL },
-      ...config,
-    }],
+    providers: {
+      deepseek: {
+        ...process.env.DEEPSEEK_API_KEY === undefined ? {} : { apiKey: process.env.DEEPSEEK_API_KEY },
+        ...process.env.DEEPSEEK_BASE_URL === undefined ? {} : { baseURL: process.env.DEEPSEEK_BASE_URL },
+        ...config,
+      },
+    },
   })
   return ctx
 }
@@ -154,7 +155,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('llm-pi-ai e2e (real API)', () =>
 
     const prompt = ask('Reply with exactly the word: pong')
     const [fromDeepSeek, fromPiAi] = await Promise.all([
-      assemble(deepseekCtx, { model: FLASH, messages: prompt, maxTokens: 50 }),
+      assemble(deepseekCtx, { provider: 'deepseek-official', model: FLASH, messages: prompt, maxTokens: 50 }),
       assemble(piCtx, { model: FLASH, messages: prompt, maxTokens: 50 }),
     ])
     expect(blockKinds(fromPiAi)).toEqual(blockKinds(fromDeepSeek))

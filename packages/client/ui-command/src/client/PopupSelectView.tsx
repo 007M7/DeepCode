@@ -12,7 +12,8 @@
 import { useEffect, useRef } from 'react'
 import { useSyncExternalStore } from 'react'
 import clsx from 'clsx'
-import { IconCheckOutline16, useAnchoredMaxHeight } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconCheckOutline16, RiskConfirmation, useAnchoredMaxHeight } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import { filterOptions } from './popup.ts'
 import type { PopupSelectController } from './popup.ts'
 import css from './PopupSelectView.module.css'
@@ -26,12 +27,15 @@ export interface PopupSelectInjected {
   popup: PopupSelectController
 }
 
+/** Full shell props: injected face + the locale seat. */
+export type PopupSelectViewProps = PopupSelectInjected & PropsLocale<'command'>
+
 /**
  * Render the popupSelect shell overlay entry.
- * @param props - injected face: the session's shell controller.
+ * @param props - injected face: the session's shell controller; `t` rides the standard locale seat.
  * @returns the select card while open; null while closed.
  */
-export function PopupSelectView({ popup }: PopupSelectInjected) {
+export function PopupSelectView({ popup, t }: PopupSelectViewProps) {
   const state = useSyncExternalStore(
     fn => popup.state.subscribe(fn),
     () => popup.state.getSnapshot(),
@@ -56,23 +60,24 @@ export function PopupSelectView({ popup }: PopupSelectInjected) {
   // closes the shell before its own handlers run; that click's target then
   // takes focus naturally, so no focusComposer here.
   useEffect(() => {
-    if (!state.open) return
+    if (!state.open || state.confirming !== null) return
     const onPointerDown = (ev: PointerEvent): void => {
       if (cardRef.current !== null && ev.target instanceof Node && cardRef.current.contains(ev.target)) return
       popup.dismiss()
     }
     document.addEventListener('pointerdown', onPointerDown, true)
     return () => { document.removeEventListener('pointerdown', onPointerDown, true) }
-  }, [state.open, popup])
+  }, [state.open, state.confirming, popup])
 
   // Focus the search input after it mounts (separate effect so the ref is populated).
   useEffect(() => {
-    if (state.open) searchRef.current?.focus()
-  }, [state.open])
+    if (state.open && state.confirming === null) searchRef.current?.focus()
+  }, [state.open, state.confirming])
 
   if (!state.open) return null
 
   const rows = filterOptions(state.options, state.search)
+  const confirmation = state.confirming?.confirmation
 
   const onKeyDown = (ev: React.KeyboardEvent<HTMLDivElement>): void => {
     // ArrowLeft/ArrowRight fall through on purpose: the search input keeps
@@ -99,55 +104,73 @@ export function PopupSelectView({ popup }: PopupSelectInjected) {
   }
 
   return (
-    <div
-      ref={cardRef}
-      className={css.card}
-      style={{ maxHeight }}
-      aria-label={`/${String(state.command)} options`}
-      onKeyDown={onKeyDown}
-    >
-      <input
-        ref={searchRef}
-        className={css.search}
-        type="text"
-        placeholder="Search…"
-        aria-label="Filter options"
-        value={state.search}
-        readOnly={state.submitting}
-        onChange={(ev) => { popup.setSearch(ev.currentTarget.value) }}
-      />
-      {state.error !== null && (
-        <div className={css.error} role="alert">
-          <span className={css.errorText}>{state.error}</span>
-          {state.status === 'failed' && (
-            <button type="button" className={css.retry} onClick={() => { popup.retry() }}>Retry</button>
+    <>
+      {state.confirming === null && (
+        <div
+          ref={cardRef}
+          className={css.card}
+          style={{ maxHeight }}
+          aria-label={t('overlay.aria', { command: String(state.command) })}
+          onKeyDown={onKeyDown}
+        >
+          <input
+            ref={searchRef}
+            className={css.search}
+            type="text"
+            placeholder={t('search.placeholder')}
+            aria-label={t('search.aria')}
+            value={state.search}
+            readOnly={state.submitting}
+            onChange={(ev) => { popup.setSearch(ev.currentTarget.value) }}
+          />
+          {state.error !== null && (
+            <div className={css.error} role="alert">
+              <span className={css.errorText}>{state.error}</span>
+              {state.status === 'failed' && (
+                <button type="button" className={css.retry} onClick={() => { popup.retry() }}>{t('retry')}</button>
+              )}
+            </div>
+          )}
+          {state.status === 'pending' && <div className={css.status}>{t('status.loading')}</div>}
+          {state.submitting && <div className={css.status}>{t('status.applying')}</div>}
+          {state.status === 'ready' && rows.length === 0 && <div className={css.status}>{t('status.empty')}</div>}
+          {state.status === 'ready' && (
+            <div role="listbox" aria-label={t('listbox.aria', { command: String(state.command) })} className={css.viewport}>
+              {rows.map((option, index) => (
+                <div
+                  key={option.id}
+                  role="option"
+                  aria-selected={index === state.active}
+                  className={clsx(css.row, index === state.active && css.rowActive)}
+                  // mousedown would race the document capture listener; the shell
+                  // owns focus anyway, so a plain click (inside the card → no
+                  // dismiss) works.
+                  onClick={() => { void popup.select(index) }}
+                  onMouseEnter={() => { popup.highlight(index) }}
+                >
+                  <span className={css.label}>{option.label}</span>
+                  {option.detail !== undefined && <span className={css.detail}>{option.detail}</span>}
+                  {option.active === true && <span className={css.check}><IconCheckOutline16 /></span>}
+                </div>
+              ))}
+            </div>
           )}
         </div>
       )}
-      {state.status === 'pending' && <div className={css.status}>Loading options…</div>}
-      {state.submitting && <div className={css.status}>Applying…</div>}
-      {state.status === 'ready' && rows.length === 0 && <div className={css.status}>No options</div>}
-      {state.status === 'ready' && (
-        <div role="listbox" aria-label={`/${String(state.command)} matches`} className={css.viewport}>
-          {rows.map((option, index) => (
-            <div
-              key={option.id}
-              role="option"
-              aria-selected={index === state.active}
-              className={clsx(css.row, index === state.active && css.rowActive)}
-              // mousedown would race the document capture listener; the shell
-              // owns focus anyway, so a plain click (inside the card → no
-              // dismiss) works.
-              onClick={() => { void popup.select(index) }}
-              onMouseEnter={() => { popup.highlight(index) }}
-            >
-              <span className={css.label}>{option.label}</span>
-              {option.detail !== undefined && <span className={css.detail}>{option.detail}</span>}
-              {option.active === true && <span className={css.check}><IconCheckOutline16 /></span>}
-            </div>
-          ))}
-        </div>
+      {confirmation !== undefined && (
+        <RiskConfirmation
+          open
+          title={confirmation.title}
+          description={confirmation.description}
+          acknowledgeLabel={confirmation.acknowledgeLabel}
+          cancelLabel={confirmation.cancelLabel}
+          confirmLabel={confirmation.confirmLabel}
+          acknowledged={state.acknowledged}
+          onAcknowledgedChange={(value) => { popup.acknowledge(value) }}
+          onCancel={() => { popup.cancelConfirmation() }}
+          onConfirm={() => { void popup.confirm() }}
+        />
       )}
-    </div>
+    </>
   )
 }

@@ -20,7 +20,7 @@ await ctx.plugin(FsPolicy)
 
 ## 四层拆分
 
-| 层 | 包（package） | 角色 |
+| 层 | 包 | 角色 |
 |---|---|---|
 | 工具/执行器 | `@deepseek-ai/dsh-tool-fs` | 面向模型的 schema、读取窗口和文本渲染；通过 `ctx.fs` 读取/写入/编辑，并分派 `fs/*` 事件 |
 | 策略 | `@deepseek-ai/dsh-fs-policy`（本包） | 通过 `fs/*` 事件门禁提供已观察状态、编辑前读取和版本防护的写入/编辑（无服务） |
@@ -55,7 +55,7 @@ await ctx.plugin(FsPolicy)
 
 #### 模型看到的内容
 
-该插件不添加提示词或 schema。编辑前未读取时，它会以代码 `FS_NOT_OBSERVED` 和精确消息 `edit requires reading "<path>" first` 拒绝。观察版本陈旧的防护变更会传播由提供方拥有的 `FS_STALE_VERSION` 错误。[`dsh-tool-fs`](../tool-fs/README.md)拥有面向模型的错误包装；观察状态绝不会显示。
+该插件不添加提示词或 schema。编辑前未读取时，它会以代码 `FS_NOT_OBSERVED` 和精确消息 `edit requires reading "<path>" first` 拒绝。观察版本陈旧的防护变更会传播由提供方拥有的 `FS_STALE_VERSION` 错误。[`dsh-tool-fs`](../tool-fs/README.md)拥有面向模型的错误包装，会为 `FS_STALE_VERSION` 消息追加恢复指令（`— re-read the file, then retry`）、为 `FS_NOT_OBSERVED` 消息追加恢复指令（`— read the file, then retry`），同时保留错误码；观察状态绝不会显示。
 
 #### Token 影响
 
@@ -63,11 +63,11 @@ await ctx.plugin(FsPolicy)
 
 #### KV Cache 影响
 
-仅追加；新增可见内容位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
+仅追加；新增可见内容位于可复用请求前缀之后，不会使现有 KV Cache 条目失效。
 
 ## 已知限制与暂缓事项
 
 - **已观察状态无法在会话恢复后保留**：`WeakMap` 记录的持久化工作延期处理，因此恢复的会话必须重新读取文件，才能执行防护写入/编辑。
 - **没有 agent（智能体）会话的参与者绝无法满足策略**：它们的编辑会抛出 `FS_NOT_OBSERVED`，写入总会解析为 `createIfAbsent`，因此非 agent 调用方无法通过门禁覆盖现有文件。
 - **直接 `ctx.fs` 读取不会发出 `fs/observed`**：在 `read` 工具之外读取的文件仍未观察；后续防护编辑会以 `FS_NOT_OBSERVED` 拒绝，直到工具读取该文件。
-- **授权依据是版本新鲜度，而非视图完整性**：任何窗口读取都会授权对未变文件执行全文件覆盖，这有意弱于完整视图规则（见 [seam 拆分 Agent Note（agent 决策记录）](../../../.agents/notes/implemented/simplification/2026-06-26-fsspec-style-fs-seam.md)）。
+- **授权依据是版本新鲜度，而非视图完整性**：任何窗口读取都会授权对未变文件执行全文件覆盖，这有意弱于完整视图规则（见 [seam 拆分 Agent Note](../../../.agents/notes/implemented/simplification/2026-06-26-fsspec-style-fs-seam.md)）。

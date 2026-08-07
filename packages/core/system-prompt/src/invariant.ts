@@ -22,6 +22,14 @@ function validateAssembly(assembly: PromptAssembly, fail: InvariantFailure): voi
     if (typeof section.text !== 'string') fail(`assembled section ${JSON.stringify(section.name)} text must be a string`)
   }
 
+  const contextNames = new Set<string>()
+  for (const context of assembly.contexts) {
+    if (context.name.length === 0) fail('assembled context names must be non-empty')
+    if (contextNames.has(context.name)) fail(`assembled context name ${JSON.stringify(context.name)} is duplicated`)
+    contextNames.add(context.name)
+    if (typeof context.text !== 'string') fail(`assembled context ${JSON.stringify(context.name)} text must be a string`)
+  }
+
   for (const tool of assembly.tools) {
     if (tool.name.length === 0) fail('assembled tool names must be non-empty')
   }

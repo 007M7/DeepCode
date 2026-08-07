@@ -3,7 +3,7 @@
  * The plugin creates its handle at apply time so identity follows the fiber.
  */
 import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-runtime/client'
-import type { ChatStoreState, SelectionTarget } from './contract/views.ts'
+import type { CallId, ChatStoreState, SelectionTarget } from './contract/views.ts'
 
 /** Declared action shape used to give the exported factory a stable return type. */
 type ChatActions = {
@@ -12,6 +12,7 @@ type ChatActions = {
   clearDraft: (draft: ChatStoreState) => void
   restoreDraft: (draft: ChatStoreState, text: string) => void
   setView: (draft: ChatStoreState, view: string) => void
+  setInspect: (draft: ChatStoreState, target: { callId: CallId } | null) => void
 }
 
 /**
@@ -20,7 +21,7 @@ type ChatActions = {
  */
 export function createChatStore(): EngineStoreHandle<ChatStoreState, ChatActions> {
   return defineStore({
-    init: (): ChatStoreState => ({ selection: null, draft: '', view: null }),
+    init: (): ChatStoreState => ({ selection: null, draft: '', view: null, inspect: null }),
     persist: 'dsh.conversation.chat',
     actions: {
       select: (d, target: SelectionTarget | null) => { d.selection = target },
@@ -30,6 +31,7 @@ export function createChatStore(): EngineStoreHandle<ChatStoreState, ChatActions
       // since the clear (send choreography lives in the inject factory).
       restoreDraft: (d, text: string) => { if (d.draft === '') d.draft = text },
       setView: (d, view: string) => { d.view = view },
+      setInspect: (d, target: { callId: CallId } | null) => { d.inspect = target },
     },
   })
 }

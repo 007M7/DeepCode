@@ -16,7 +16,9 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding: 16px 24px;
+  /* Sides = composer clearance + 16px: on narrow viewports the transcript
+     stays exactly 32px narrower than the input card (the shared width rule). */
+  padding: 16px calc(var(--dsh-composer-side-clearance) + 16px);
 }
 
 :global([data-conversation-scroll]) .root {
@@ -31,15 +33,22 @@
   min-height: auto;
 }
 
-/* Message column: 736px fixed width, centered on the same axis as the
-   input box; the scroller itself stays full-bleed. */
+/* Message column: shared chat width (ConversationRoot --dsh-chat-content-width),
+   centered on the same axis as the input box (which caps at chat + 16px); the
+   scroller itself stays full-bleed. */
 .column {
-  max-width: 736px;
+  max-width: var(--dsh-chat-content-width);
   width: 100%;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+/* Settled-flow identity boundary. It is neutral today and becomes the natural
+   measurement/mount unit for a virtualizer without changing the column gap. */
+.flowItem {
+  min-width: 0;
 }
 
 .toolGroup {
@@ -66,33 +75,54 @@
   border-left: 1px solid var(--dsw-alias-border-l2);
 }
 
-/* Turn loader: one row of four 2.5px pixels (StateDot blue) chasing left to
-   right with a stepped trail — flat keyframe holds, no tweening. Phase
-   offsets come from per-rect animation-delay (index * -250ms) set inline
-   by the component. */
-.turnDots {
+/* Turn activity keeps the former loader's one-line footprint. A pale
+   brand-blue band sweeps from left to right; reduced-motion keeps it static. */
+.turnStatus {
   align-self: flex-start;
   flex: none;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  /* One message line box: the dots center inside the text line height. */
   height: 26px;
-  /* Same pin as StateDot: ongoing blue has no alias token (business-primary
-     is the 500 step, not this 450). */
-  color: var(--dsw-static-deepseek-450);
+  font: var(--dsw-font-s-strong-14);
+  white-space: nowrap;
+  background: linear-gradient(
+    90deg,
+    var(--dsw-static-deepseek-500) 0%,
+    var(--dsw-static-deepseek-500) 40%,
+    var(--dsw-static-deepseek-200) 50%,
+    var(--dsw-static-deepseek-500) 60%,
+    var(--dsw-static-deepseek-500) 100%
+  );
+  background-position: 100% 0;
+  background-size: 250% 100%;
+  background-clip: text;
+  color: transparent;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: dsh-turn-status-shimmer 1.8s linear infinite;
 }
 
-.turnDotCell {
-  fill: currentColor;
-  opacity: 0.15;
-  animation: dsh-turn-dots-chase 1s infinite;
+.turnStatusClock {
+  margin-left: 8px;
+  font: var(--dsw-font-xs-13);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  color: var(--dsw-alias-label-caption);
+  -webkit-text-fill-color: var(--dsw-alias-label-caption);
 }
 
-@keyframes dsh-turn-dots-chase {
-  0%, 24.9% { opacity: 1; }
-  25%, 49.9% { opacity: 0.6; }
-  50%, 74.9% { opacity: 0.35; }
-  75%, 100% { opacity: 0.15; }
+@keyframes dsh-turn-status-shimmer {
+  to {
+    background-position: 0 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .turnStatus {
+    background-position: 0 0;
+    background-size: 100% 100%;
+    animation: none;
+  }
 }
 
 .hint {
@@ -139,7 +169,7 @@
   height: 0;
   display: flex;
   justify-content: flex-end;
-  padding-right: max(0px, calc((100% - 736px) / 2));
+  padding-right: max(0px, calc((100% - var(--dsh-chat-content-width)) / 2));
   pointer-events: none;
 }
 

@@ -4,7 +4,7 @@ Status: implemented
 
 English | [中文](2026-06-21-subagent-capability-seam.zh.md)
 
-> The full seam is shipped: the `dsh-subagent` interface and `dsh-tool-subagent` consumer; the two in-process backends (`dsh-subagent-spawn`, `dsh-subagent-fork`); the nested-agent snapshot infrastructure ([per-session snapshot replay](../testing/2026-06-22-subagent-snapshot-replay.md)); and the out-of-process `dsh-subagent-acp` backend ([its Agent Note](2026-06-22-acp-subagent-backend.md)).
+> The full seam is shipped: the `dsh-subagent` interface and `dsh-tool-subagent` consumer; the two in-process backends (`dsh-subagent-spawn`, `dsh-subagent-fork`); the nested-agent snapshot infrastructure ([per-session snapshot replay](../testing/2026-06-22-subagent-snapshot-replay.md)); and the out-of-process ACP, Codex, and Claude Code backends ([ACP Agent Note](2026-06-22-acp-subagent-backend.md), [product-provider Agent Note](2026-08-04-claude-code-and-codex-subagent-backends.md)).
 
 ## Problem
 
@@ -14,7 +14,8 @@ The distinctive requirement — the one that shapes the whole design — is that
 
 - **in-process** — a child concrete `Agent` on the same `Context` (the cheapest, and nearly free given the existing agent factory);
 - **ACP** — act as an ACP *client* driving another agent process (which can be another instance of ourselves);
-- later: **A2A**, the **Codex app-server**, and the **Claude Code Agent SDK** — each the same out-of-process "start a child, prompt it, stream updates, cancel" shape as the ACP backend.
+- **Codex app-server and Claude Code Agent SDK** — current one-shot siblings that apply the same named-provider seam to official product processes ([product-provider Agent Note](2026-08-04-claude-code-and-codex-subagent-backends.md));
+- later: **A2A** using the same out-of-process "start a child, prompt it, settle, cancel" shape.
 
 ## Alternatives considered
 
@@ -34,16 +35,18 @@ A new package group `packages/subagent/`:
 | `@deepseek-ai/dsh-subagent-spawn` | implementation: a fresh in-process child via `ctx.agents.create` |
 | `@deepseek-ai/dsh-subagent-fork` | implementation: an in-process child seeded with a snapshot of the parent's log |
 | `@deepseek-ai/dsh-subagent-acp` | implementation: an ACP client driving a configured child process |
+| `@deepseek-ai/dsh-subagent-codex` | implementation: a one-shot official Codex app-server process |
+| `@deepseek-ai/dsh-subagent-claude-code` | implementation: a one-shot official Claude Code process through the Agent SDK |
 | `@deepseek-ai/dsh-tool-subagent` | consumer: the model-facing `subagent` tool over `ctx.subagents` |
 
 ### The primitive: async `start → SubagentRun`
 
-A provider exposes `start(request) → Promise<SubagentRun>`. Fulfillment publishes a ready child and transfers its run handle to the caller. One signal covers cancellation before and after readiness; `dispose()` cancels remaining work and awaits quiescence. A rejected start cleans partial resources and emits no lifecycle event. `start` is transport-neutral; `spawn` names only the fresh in-process backend.
+A provider exposes `start(request) → Promise<SubagentRun>`. Fulfillment publishes a child and transfers its run handle to the caller. Work that fails before publication rejects `start()`, while prompt, turn, cancellation, and infrastructure outcomes after publication settle through `run.result` without hiding the child id. One signal covers cancellation before and after publication; `dispose()` cancels remaining work and awaits quiescence. A rejected start cleans unpublished resources and emits no lifecycle event, while a post-publication result failure closes the published lifecycle pair. `start` is transport-neutral; `spawn` names only the fresh in-process backend.
 
 ### Two kinds of optional capability, discovered two ways
 
 - **Start-time features** (`outputSchema`, `depthLimit`, `toolFilter`, `persona`) ride on a static `provider.capabilities` descriptor. The service checks every requested one BEFORE delegating and **rejects loud** (`SubagentError('UNSUPPORTED_CAPABILITY')`) if the provider lacks it — never accepted-then-ignored. They must be checked before a run exists, which is why they cannot be runtime methods.
-- **Runtime features** (steering via `sendMessage`, follow-up via `resume`) are **optional methods** on `SubagentRun`. The method's presence IS the capability, and TypeScript narrowing is the discovery mechanism: a consumer cannot call an absent method without narrowing first, so there is no silent-degradation path and no separate flags object to keep in sync.
+- **Continuable creation** is the optional `SubagentProvider.prepareContinuable` method; presence is the capability and TypeScript narrowing is the discovery mechanism, so no separate flag can drift from the implementation. The continuation manager owns later delivery and cold resume directly through `AgentHandle`, while one-shot `SubagentRun` has no steering or resume operation, as refined by [continuable subagents](2026-07-28-continuable-subagent-conversations.md).
 
 ### Fork vs. fresh are separate backends, not a flag
 
@@ -51,11 +54,11 @@ Fresh and forked children are separate providers, not a request flag. `dsh-subag
 
 ### Child isolation and the parent log
 
-Each subagent runs in its **own `Session`** (own id, `parentSession` lineage), persisted independently. The parent's log records only the spawn `tool/call` and its `tool/result` (the child's final output) — the child's internal steps and tool calls stay in the child's own session, never injected into the parent log. This is the only design that is identical across transports: an ACP child's internal events physically cannot be injected into our parent log, so making in-process behave the same keeps the seam transport-agnostic.
+Each in-process subagent runs in its **own `Session`** (own id, `parentSession` lineage), persisted independently. Remote ACP and one-shot product providers instead mint a parent-scoped lifecycle id and expose no local `Agent` or child `Session`; their internal state remains in the remote process. Across both forms, the parent's log records only the spawn `tool/call` and its `tool/result` (the child's final output), while child steps and tool calls remain outside the parent log.
 
 ### Synchronous collect (first cut)
 
-`dsh-tool-subagent` passes its execution signal to `start()`, awaits the child result, and disposes the run in `finally`. Non-completed outcomes become error results rather than successful partial output. This foreground consumer does not use the run's optional steering method.
+`dsh-tool-subagent` passes its execution signal to `start()`, awaits the child result, and disposes the run before reporting. Non-completed outcomes become error results rather than successful partial output, and independent result and disposal rejections retain both diagnostics.
 
 ### Provider selection is config, not model-facing
 

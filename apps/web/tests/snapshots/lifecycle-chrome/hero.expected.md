@@ -7,7 +7,7 @@
 - text: Workspaces
 - button "Group by":
   - img
-- button "Create workspace":
+- button "Add workspace":
   - img
 - button "Search sessions":
   - img
@@ -16,24 +16,24 @@
   - treeitem "workspace 1 session" [expanded]:
     - img
     - text: workspace 1 session
-  - treeitem "New Session now" [selected]
+  - treeitem "New Session" [selected]
 - button "Settings":
   - img
   - text: Settings
-- text: Let's start building
+- text: Into the Unknown Preview
 - button "Choose workspace":
   - img
   - text: workspace
   - img
 - textbox "Describe what you want to build"
-- button "Add attachment":
+- button "Commands":
   - img
-- 'button "Access mode, current: Danger Full Access"': Danger Full Access
-- button "Plan mode off, press to turn on": Plan off
+- tooltip "Commands"
+- 'button "Access mode, current: Workspace Write"': Workspace Write
 - button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
-- text: 详情
-- button "关闭详情"
-- text: 点击消息流中的工具行查看详情
+- text: Details
+- button "Close details"
+- text: Click a tool row in the message flow to view its details

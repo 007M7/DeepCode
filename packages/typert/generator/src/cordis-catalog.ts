@@ -5,7 +5,7 @@
  * @module @deepseek-ai/dsh-typert-generator
  */
 
-import { WorkspaceAnalyzer } from './analyzer.ts'
+import { WorkspaceAnalyzer, WorkspaceCaches } from './analyzer.ts'
 import { childTypeNodeIds } from './model.ts'
 import { TypeGraphRenderer } from './renderer.ts'
 import type {
@@ -231,7 +231,7 @@ export class CordisCatalogProjector {
       for (const service of packageModel.services) {
         const declaration = this.renderer.declaration(service.symbol)
         if (declaration.kind !== 'class'
-          || !/^packages\/[^/]+\/[^/]+\/src\/index\.ts$/.test(service.location.file)
+          || !/^packages\/[^/]+\/[^/]+\/src\/[^/]+\.ts$/.test(service.location.file)
           || declaration.location.file !== service.location.file) continue
         const doc = parseJsDoc(declaration.jsDoc ?? '').doc
         const source = pointer(declaration.location)
@@ -302,10 +302,12 @@ export function projectCordisCatalog(scanRoot: string, policy: CordisCatalogPoli
   readonly projector: CordisCatalogProjector
   readonly model: CordisCatalogModel
 } {
+  const caches = new WorkspaceCaches()
   const discovery = new WorkspaceAnalyzer({
     root: scanRoot,
     faces: ['host'],
     checkDiagnostics: false,
+    caches,
   }).discoverPackages()
   const packages = discovery.filter(candidate => candidate.faces.includes('host'))
     .map(candidate => candidate.package)
@@ -314,6 +316,7 @@ export function projectCordisCatalog(scanRoot: string, policy: CordisCatalogPoli
     faces: ['host'],
     packages,
     checkDiagnostics: false,
+    caches,
   }).analyzeInBatches()
   const face = workspace.faces.find(candidate => candidate.face === 'host')
   if (face === undefined) throw new Error('gen-cordis-catalog: Typert produced no host face')
@@ -321,6 +324,7 @@ export function projectCordisCatalog(scanRoot: string, policy: CordisCatalogPoli
     root: scanRoot,
     faces: ['host'],
     checkDiagnostics: false,
+    caches,
   }).indexSourceDeclarations()
   const projector = new CordisCatalogProjector(face, sourceDeclarations, policy)
   return { projector, model: projector.project() }

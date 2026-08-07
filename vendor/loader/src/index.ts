@@ -24,7 +24,7 @@ declare module 'cordis' {
     'loader/config-update'(): void
     'loader/entry-init'(entry: Entry): void
     'loader/partial-dispose'(entry: Entry, legacy: Partial<EntryOptions>, active: boolean): void
-    'loader/patch-context'(entry: Entry, next: () => void): void
+    'loader/patch-context'(entry: Entry, next: () => void | Promise<void>): void | Promise<void>
   }
 
   interface Context {
@@ -87,12 +87,12 @@ export class Loader extends EntryTree {
 
     ctx.reflect.provide('loader', this, this[Service.check])
 
-    ctx.on('internal/update', function (config, noSave, next) {
+    ctx.on('internal/update', async function (config, noSave, next) {
       if (!this.entry || noSave || this.parent.fiber?.entry === this.entry) return next()
+      await next()
       const unparse = this.runtime?.Config?.['simplify']
       this.entry.options.config = unparse ? unparse(config) : config
       this.entry.parent.tree.write()
-      return next()
     }, { global: true, prepend: true })
 
     ctx.on('internal/update', function (config, _, next) {
@@ -129,9 +129,12 @@ export class Loader extends EntryTree {
       // case 5: the entry's tree is being disposed
       if (!fiber.entry.parent.tree.ctx.fiber.uid) return
 
+      // case 6: Loader is replacing or removing this exact fiber
+      if (fiber.entry._disposing) return
+
       this.showLog(fiber.entry, 'unload')
 
-      // case 6: fiber is disposed by loader behavior
+      // case 7: fiber is disposed by loader behavior
       // such as inject checker, config file update, ancestor group disable
       if (fiber.entry.disabled) return
 

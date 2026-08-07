@@ -1,33 +1,50 @@
 /** Registers the conversation components, shared store, and service callbacks. */
 import type { Context } from 'cordis'
-import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
+import { resolveSlotLabel, type BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ISessions, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type { ViewTab } from './contract/views.ts'
 import type {
-  ApprovalWait, ChatViewInjected, ComposerBarInjected, ComposerChainProps, ConversationInjected,
-  ConversationSessionInjected, DetailsInjected,
+  ApprovalWait, ChatScrollPosition, ChatViewInjected, ComposerBarInjected, ComposerChainProps, ConversationInjected,
+  ConversationSessionHeaderInjected, ConversationSessionInjected, DetailsInjected,
 } from './contract/slots.ts'
 import type { InputNotice } from './input/contract.ts'
 import { resolveToolPath } from './contract/tool-call-model.ts'
 import { createChatStore } from './stores.ts'
 import { ConversationService } from './service.ts'
 import type { IConversation } from './service.ts'
+import { ComposerBlockRegistry } from './input/blocks.ts'
+import type { ComposerBlock } from './input/blocks.ts'
 import { InputHub } from './input/hub.ts'
+import { ComposerSubmissionPolicy } from './input/submission-policy.ts'
 import { InputBar } from './skeleton/InputBar.tsx'
+import { EnterBehaviorRow } from './settings/EnterBehaviorRow.tsx'
+import type { EnterBehaviorRowInjected } from './settings/EnterBehaviorRow.tsx'
 import { ChatView } from './chat/ChatView.tsx'
 import { StatsLine } from './chat/StatsLine.tsx'
 import { bashToolviewSample } from './toolviews/bash-sample.tsx'
+import { readToolview } from './toolviews/read-row.tsx'
+import { fileMutationToolview } from './toolviews/file-mutation-row.tsx'
+import { searchToolview } from './toolviews/search-row.tsx'
+import { webToolview } from './toolviews/web-row.tsx'
 import { ApprovalPanel } from './skeleton/ApprovalPanel.tsx'
 import { todoToolview } from './toolviews/todo-row.tsx'
 import { askQuestionToolview } from './toolviews/ask-question-row.tsx'
 import { todoDockEntry } from './skeleton/TodoPanel.tsx'
 import { queueDockEntry } from './queue/QueueDock.tsx'
 import { ConversationRoot } from './skeleton/ConversationRoot.tsx'
-import { ConversationSession } from './skeleton/ConversationSession.tsx'
+import { ConversationSession, ConversationSessionHeader } from './skeleton/ConversationSession.tsx'
 import { DetailsPanel } from './skeleton/DetailsPanel.tsx'
+import { en, NS, zh, type ConversationKey } from './locales.ts'
+
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface LocaleNamespaceMap {
+    /** The conversation surfaces' copy (skeleton, chat view, toolviews, docks). */
+    conversation: ConversationKey
+  }
+}
 
 /** Services required by the conversation plugin. */
 export const inject = ['slots', 'layout', 'sessions', 'workspaces', 'locale']
@@ -39,9 +56,18 @@ const ABSENT_NOTICES = {
   getSnapshot: (): InputNotice | null => null,
   subscribe: () => () => {},
 }
+/** No session, therefore nothing to block; same one-identity rule as above. */
+const ABSENT_BLOCK = {
+  getSnapshot: (): ComposerBlock | undefined => undefined,
+  subscribe: () => () => {},
+}
 const EMPTY_LEXICON: ReadonlyMap<'/' | '@', readonly string[]> = new Map()
 const ABSENT_LEXICON = {
   getSnapshot: () => EMPTY_LEXICON,
+  subscribe: () => () => {},
+}
+const ABSENT_MENU_LAUNCHER = {
+  getSnapshot: (): string | null => null,
   subscribe: () => () => {},
 }
 
@@ -68,49 +94,57 @@ export function apply(ctx: Context): void {
   const layout = ctx.layout
   const slots = ctx.slots
 
-  // Command hint locale: friendly placeholder text for claimed commands. The
-  // claimed /plan hint and the plan-mode textarea placeholder share one
-  // string: both describe the same next action.
-  const HINT_NS = 'command.hint'
-  const PLAN_HINT_ZH = '描述你的任务以生成计划'
-  const PLAN_HINT_EN = 'describe your task to generate plan'
-  ctx.effect(() => {
-    const disposers = [
-      ctx.locale.register(HINT_NS, 'zh', {
-        plan: PLAN_HINT_ZH,
-        goal: '输入目标，智能体将持续执行',
-        'goal.active': '当前目标进行中。可输入 edit 修改 / pause 暂停 / resume 继续 / clear 清除',
-        'placeholder.plan': PLAN_HINT_ZH,
-        'placeholder.default': '给智能体发消息',
-      }),
-      ctx.locale.register(HINT_NS, 'en', {
-        plan: PLAN_HINT_EN,
-        goal: 'describe the objective for a long-running task',
-        'goal.active': 'goal active — edit / pause / resume / clear',
-        'placeholder.plan': PLAN_HINT_EN,
-        'placeholder.default': 'Message the agent',
-      }),
-    ]
-    return () => { for (const dispose of disposers) dispose() }
-  }, 'ui-conversation: command hint dictionaries')
-  const translateHint = ctx.locale.bind(HINT_NS)
+  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-conversation: dictionaries')
+
+  // Registration-time text (the view tab label) reads through the bound
+  // translate as a thunk, so it follows the active locale without
+  // re-registration; components read the standard `t` seat instead.
+  const t = ctx.locale.bind(NS)
 
   // Apply-time construction keeps store identity bound to this fiber.
   const chatStore = createChatStore()
+  const submissionPolicy = new ComposerSubmissionPolicy()
+
+  ctx.slots.inject('settings.general.item', () => ctx.slots.register({
+    name: 'settings.general.item',
+    id: 'composer-enter',
+    order: 20,
+    locale: NS,
+    inject: (): EnterBehaviorRowInjected => ({
+      hooks: { busyEnter: submissionPolicy.busyEnter },
+      setBusyEnter: (behavior) => { submissionPolicy.setBusyEnter(behavior) },
+    }),
+  }, EnterBehaviorRow))
+
+  // Chat semantic reader positions by session, surviving view switches and
+  // width reflow when the tab ring remounts the view. Deliberately not
+  // persisted: a fresh page load keeps the open-jump-to-bottom default.
+  const chatScrollPositions = new Map<SessionId, ChatScrollPosition>()
 
   const viewTabs = (): ViewTab[] => {
     const tabs: ViewTab[] = []
     for (const entry of slots.entries('conversation.view')) {
       /* v8 ignore next -- unreachable: list registration validates id at load. */
       if (entry.options.id === undefined) continue
-      tabs.push({ id: entry.options.id, label: entry.options.label ?? entry.options.id })
+      tabs.push({ id: entry.options.id, label: resolveSlotLabel(entry.options.label) ?? entry.options.id })
     }
     return tabs
+  }
+  const views = {
+    list: viewTabs,
+    subscribe: (fn: () => void) => slots.subscribe('conversation.view', fn),
+    version: () => slots.getVersion('conversation.view'),
   }
 
   // The per-session input machine registry (InputService face; published as
   // ctx.conversation.input by the service below sharing this one instance).
   const inputHub = new InputHub(ctx)
+
+  // The composer-block registry: a plugin that knows a session cannot send —
+  // ui-model, when no adapter serves the session's route — raises a block
+  // here, and the bar reads its own session's store. It cannot flow the other
+  // way: this package must not import the plugins that would know.
+  const composerBlocks = new ComposerBlockRegistry()
 
   // Decision 19/20: the input machine feeds every session-scope slot
   // component through the standard provide channel — the 'input' hook plus
@@ -132,8 +166,10 @@ export function apply(ctx: Context): void {
   // frame while strict session slots fill only their session-bound regions.
   slots.register({
     name: 'conversation',
+    locale: NS,
     children: {
       'conversation.session': { kind: 'single', scope: 'session' },
+      'conversation.session.header': { kind: 'single', scope: 'session' },
       'conversation.composer': { kind: 'chain', scope: 'session' },
       'conversation.composer.bar': { kind: 'single', scope: 'session-maybe' },
       'conversation.input.overlay': { kind: 'list', scope: 'session' },
@@ -144,6 +180,7 @@ export function apply(ctx: Context): void {
       'conversation.hero.workspace': { kind: 'single', scope: 'root' },
     },
     inject: (sessionId: SessionId | undefined): ConversationInjected => ({
+      hooks: { composerBlock: sessionId === undefined ? ABSENT_BLOCK : composerBlocks.storeFor(sessionId) },
       selectWorkspace: async (workspaceId) => {
         const nextId = await workspaces.connectWorkspace(workspaceId)
         if (sessionId !== undefined && nextId !== sessionId) {
@@ -159,22 +196,35 @@ export function apply(ctx: Context): void {
     }),
   }, ConversationRoot)
 
-  // The strict session subtree owns only per-session store and view content;
-  // the resident parent keeps Hero and composer layout identity stable.
+  // The strict session body fills the resident scrollport without owning it;
+  // the Hero/composer path therefore stays fixed while the first blank
+  // session appears after a Workspace pick.
   slots.register({
     name: 'conversation.session',
-    children: { 'conversation.view': { kind: 'list', scope: 'session' } },
+    children: {
+      'conversation.view': { kind: 'list', scope: 'session' },
+    },
     store: chatStore,
     inject: (sessionId: SessionId, _actions: BoundActions<typeof chatStore>): ConversationSessionInjected => ({
-      views: {
-        list: viewTabs,
-        subscribe: fn => slots.subscribe('conversation.view', fn),
-        version: () => slots.getVersion('conversation.view'),
-      },
+      views,
       bindDraftMirror: write => inputHub.shell(sessionId).bindMirror(write),
-      open: (id) => { sessions.open(id) },
     }),
   }, ConversationSession)
+
+  // Header chrome sits above the resident scrollport but shares the same
+  // per-session chat store (active view) as its body and view entries.
+  slots.register({
+    name: 'conversation.session.header',
+    locale: NS,
+    children: {
+      'conversation.session.header.actions': { kind: 'list', scope: 'session' },
+    },
+    store: chatStore,
+    inject: (): ConversationSessionHeaderInjected => ({
+      views,
+      open: (id) => { sessions.open(id) },
+    }),
+  }, ConversationSessionHeader)
 
   // The default composer body: its own single slot inside the composer
   // chain's fallback (decision 20). Public machine surface arrives via the
@@ -185,6 +235,7 @@ export function apply(ctx: Context): void {
   // observableHook caching and hook order stay stable across transitions).
   slots.register({
     name: 'conversation.composer.bar',
+    locale: NS,
     // The two named control seats in the bar's tool row (plan beside the
     // access control, model right); empty until their owning plugins
     // register (B ruling).
@@ -196,15 +247,32 @@ export function apply(ctx: Context): void {
       if (sessionId === undefined) {
         return {
           keyboard: undefined,
+          resolveSubmitMode: (running, gesture, steeringAvailable) =>
+            submissionPolicy.resolve(running, gesture, steeringAvailable),
+          toggleCommandMenu: undefined,
           stop: undefined,
           command: undefined,
-          translateHint,
-          hooks: { notices: ABSENT_NOTICES, lexicon: ABSENT_LEXICON },
+          hooks: { notices: ABSENT_NOTICES, lexicon: ABSENT_LEXICON, menuLauncher: ABSENT_MENU_LAUNCHER },
         }
       }
       const shell = inputHub.shell(sessionId)
+      const slash = inputHub.slash(sessionId)
       return {
         keyboard: shell,
+        resolveSubmitMode: (running, gesture, steeringAvailable) =>
+          submissionPolicy.resolve(running, gesture, steeringAvailable),
+        toggleCommandMenu: slash === undefined
+          ? undefined
+          : (selection) => {
+            shell.dismissPopup()
+            const snapshot = shell.snapshot
+            slash.toggleSource('command', {
+              trigger: '/',
+              query: '',
+              position: snapshot.draft.slice(0, selection.start).trim() === '' ? 'leading' : 'inline',
+              span: { ...selection, draftRev: snapshot.draftRev },
+            })
+          },
         stop: () => {
           scopedConversation(sessions, sessionId).cancel().catch(() => {
             // Stop failure surfaces via snapshot.promptError; nothing to restore.
@@ -216,8 +284,11 @@ export function apply(ctx: Context): void {
           const result = await session.command(line)
           return result.ok && result.value.matched
         },
-        translateHint,
-        hooks: { notices: shell.notices, lexicon: shell.lexicon },
+        hooks: {
+          notices: shell.notices,
+          lexicon: shell.lexicon,
+          menuLauncher: slash?.launcher ?? ABSENT_MENU_LAUNCHER,
+        },
       }
     },
   }, InputBar)
@@ -230,7 +301,7 @@ export function apply(ctx: Context): void {
   // pending — a question is a conversation the model is waiting on, while an
   // approval only blocks one tool call; answering the question first cannot
   // strand the approval (it re-elects the moment the question resolves).
-  slots.register({ name: 'conversation.composer', select: selectApproval, priority: 1 }, ApprovalPanel)
+  slots.register({ name: 'conversation.composer', select: selectApproval, priority: 1, locale: NS }, ApprovalPanel)
 
   // The chat view: first entry of the ring this package just declared.
   // Declaring the keyed toolview hole here is claiming it: ChatView is the
@@ -241,10 +312,12 @@ export function apply(ctx: Context): void {
     name: 'conversation.view',
     id: 'chat',
     order: 0,
-    label: 'Chat',
+    label: () => t('view.chat'),
+    locale: NS,
     children: {
       'conversation.chat.toolview': { kind: 'keyed', scope: 'session' },
       'conversation.chat.commandview': { kind: 'keyed', scope: 'session' },
+      'conversation.chat.turnTail': { kind: 'chain', scope: 'session' },
     },
     store: chatStore,
     inject: (sessionId: SessionId, actions: BoundActions<typeof chatStore>): ChatViewInjected => {
@@ -262,24 +335,60 @@ export function apply(ctx: Context): void {
           })
         },
         loadOlder: () => { void scoped.loadOlder() },
+        // Unregistered 'trajectory' id is safe: the tab ring falls back to
+        // the first view, and the untouched inspect target stays inert.
+        inspectCall: (callId) => {
+          actions.setInspect({ callId })
+          actions.setView('trajectory')
+        },
+        chatScroll: {
+          save: (position) => {
+            if (position === null) chatScrollPositions.delete(sessionId)
+            else chatScrollPositions.set(sessionId, position)
+          },
+          read: () => chatScrollPositions.get(sessionId) ?? null,
+        },
+        forkAt: (seq) => {
+          sessions.fork({ sessionId, atSeq: seq, increaseTitle: true })
+            .then((childId) => { sessions.open(childId) })
+            .catch(() => {
+              // Fork or child-rename failure keeps the source view untouched.
+            })
+        },
       }
     },
   }, ChatView)
 
   // Session stats stick with the composer (composer.dock = stats-line family).
-  slots.register({ name: 'conversation.composer.dock', id: 'stats', order: 0 }, StatsLine)
+  slots.register({ name: 'conversation.composer.dock', id: 'stats', order: 0, locale: NS }, StatsLine)
 
   // Class-plugin mount (packages/AGENTS.md service form): the service
   // registers itself as `conversation` and lives on its own child fiber.
-  // Mounted AFTER the chat entry register above — construction guarantee for
-  // toolview registrants using `inject: ['conversation']` as their load-order
-  // seam: the service being present implies the chat entry (and with it the
-  // 'conversation.chat.toolview' declaration) is on the ledger.
-  ctx.plugin(ConversationService, { input: inputHub })
+  // Presentation registrants depend directly on their slot declarations;
+  // this service remains only where conversation actions are required.
+  ctx.plugin(ConversationService, { input: inputHub, blocks: composerBlocks })
 
-  // The bash sample rides that exact seam, in third-party posture
-  // (ToolRow-matching Bash · {description} chrome; scoped badge in child sessions).
+  // The bash sample rides the same declaration seam, in third-party posture
+  // (ToolRow-matching Bash · {description} chrome).
   ctx.plugin(bashToolviewSample)
+
+  // The read row rides the same seam (a product registration, not a sample):
+  // Read · {path} chrome with the file's read card resident below it.
+  ctx.plugin(readToolview)
+
+  // The write/edit rows ride the same seam: a file-mutation call declares the
+  // diff render intent, so these rows stack the applied diff card under their
+  // path-link summary (the terminal card's posture, applied to diffs).
+  ctx.plugin(fileMutationToolview)
+
+  // The grep/glob search row rides the same seam: one component registered
+  // under both tool names, since both declare the same search render intent.
+  ctx.plugin(searchToolview)
+
+  // The web rows ride the same seam: one WebRow registered under both
+  // web_search and web_fetch, rendering the completed retrieval's web card
+  // resident under the summary (a product registration, not a sample).
+  ctx.plugin(webToolview)
 
   // The todo_write row rides the same seam (a product registration, not a sample).
   ctx.plugin(todoToolview)
@@ -296,6 +405,7 @@ export function apply(ctx: Context): void {
 
   slots.register({
     name: 'details',
+    locale: NS,
     store: chatStore,
     inject: (): DetailsInjected => ({
       closeDetails: () => { layout.closeDetails() },

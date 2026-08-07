@@ -8,7 +8,8 @@ Harness uses `cordis.yml` to describe which plugins an agent loads and the confi
 
 The repository examples are runnable configurations and the most reliable starting points for a new project:
 
-- [tui-agent](../../../examples/tui-agent/cordis.yml) combines the DeepSeek model, Bash, filesystem, compaction, subagents, workflows, and the interactive TUI.
+- [the `dsh-base` bundle patch](../../../packages/bundle/base/cordis.patch.yml) provides the common model, tools, persistence, policy, and telemetry rows every profile starts from.
+- [the `dsh-web-app` bundle patch](../../../packages/bundle/web-app/cordis.patch.yml) adds the browser host, Workspace management, browser interaction, and client plugins.
 - [headless-agent](../../../examples/headless-agent/cordis.yml) exposes the coding composition as a one-shot task.
 - [acp-agent](../../../examples/acp-agent/cordis.yml) exposes fresh sessions to programmatic ACP clients.
 
@@ -17,20 +18,17 @@ A minimal configuration is a list of plugin entries:
 ```yaml
 - id: llm-deepseek
   name: '@deepseek-ai/dsh-llm-deepseek'
-  config:
-    apiKey: !!js process.env.DEEPSEEK_API_KEY
-    models:
-      - deepseek-v4-flash
 
 - id: bash
   name: '@deepseek-ai/dsh-bash-local'
 
-- id: tui-agent
-  name: '@deepseek-ai/dsh-tui-demo'
+- id: agent-loop
+  name: '@deepseek-ai/dsh-agent-loop'
   config:
-    provider: deepseek
-    model: deepseek-v4-flash
-    workspaceContext: false
+    agents:
+      - id: main
+        provider: deepseek-official
+        model: deepseek-v4-flash
 ```
 
 ## Plugin entries
@@ -45,15 +43,20 @@ A minimal configuration is a list of plugin entries:
     toolName: my_tool
 ```
 
-Plugins load in file order. Place plugins that depend on services after the applications or capability plugins that provide them. Missing models, tools, and plugins fail as early as possible instead of being silently ignored.
+Cordis starts sibling entries concurrently. A plugin declares required services through `inject`; Cordis waits for those services before applying the plugin, so file order does not establish dependency readiness. Missing models, tools, and plugins fail as early as possible instead of being silently ignored.
+
+## CLI patch layers
+
+`dsh --profile <name>` composes the profile's bundle patch layers (its manifest's `dsh.profile.bundles` list, in order) over an empty root, then the profile's own `~/.dsh/profiles/<name>/cordis.patch.yml`, then each `--patch <path>` overlay, then CLI-flag patches. Later layers win per row.
+
+A patch replaces a row's entire `config` value; it does not deep-merge keys. For example, patching `llm-deepseek` with only `config: { thinking: disabled }` also removes that row's configured `apiKeyEnv` and `baseURL`, so restate every key the row must retain.
 
 ## JavaScript values and environment variables
 
-The Cordis loader evaluates runtime expressions tagged with `!!js`. Keep API keys and other secrets in the gitignored `.env` file at the repository root, never in committed configuration.
+The Cordis loader evaluates runtime expressions tagged with `!!js` for non-secret runtime values. Bundled LLM adapters carry credential references such as `apiKeyEnv`; the value belongs in an environment layer or `$DSH_HOME/.credentials.yaml`, not Cordis configuration.
 
 ```yaml
 config:
-  apiKey: !!js process.env.DEEPSEEK_API_KEY
   cwd: !!js process.cwd()
 ```
 

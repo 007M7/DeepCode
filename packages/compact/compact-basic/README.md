@@ -17,11 +17,11 @@ This backend owns the compaction policy:
 - **Convergence** — retry head-checkpoint compaction up to `compactionRetries`; reject a summary that does not shrink its source, and throw if retries cannot return below threshold.
 - **Summarization** — a direct `llm/stream` call uses the configured provider/model pair and cap, falling back to the latest logged request target and then the agent target, without running the loop-only `agent/request` seam. The call replays the conversation's own system prompt, tools, and shadowed-region messages verbatim and appends the compaction instruction as the final user message, so it reuses the provider's warm prefix cache instead of invalidating it. It sets `GenerateOptions.purpose` to `compaction`, which adapters may forward as request attribution (the DeepSeek adapter sends `x-deepseek-harness-compact: 1`) without touching the model-visible body. Only returned text enters the checkpoint, excluding reasoning and tool calls that would leak private reasoning or create an orphaned call.
 - **Framing** — the replacement user message marks established checkpoint context with `<compacted-summary>` tags. The raw summary remains on the provenance event, and later automatic cycles merge the prior checkpoint.
-- **Lifecycle** — `compactRegion()` mutates `agent.session` and records its start, summary, replacement, and end. After asynchronous summarization it rejects a changed surface-node snapshot, while unrelated log-only events may append without invalidating the selected span. The serial `agent/step` listener checks pressure before request derivation. A canonical provider overflow is offered through `agent/request-error` after the failed step; the plugin compacts there and returns a retry action only after durable surface progress.
+- **Lifecycle** — all entry points share one bracket-first region transaction. It validates the range and live lock, appends `compact/start` synchronously, prepares and awaits the summary, revalidates, appends provenance plus the replacement, and makes exactly one closing attempt. Automatic and explicit-region calls require a numeric open-turn owner and whole-surface stability; the serial `agent/pre-step` listener checks pressure before request derivation, while canonical provider overflow enters through `agent/request-error` and authorizes retry only after durable surface progress. `compactNow()` reserves idle admission, uses `turn: null`, accepts append-only context outside its selected span, flushes every closed attempt, and releases admission in `finally`.
 - **Overflow recovery** — provider-confirmed overflow needs no capacity metadata: it bypasses normal pressure and retention, prunes, then attempts one maximal balanced head reduction while leaving the newest indivisible unit. Retry is authorized whenever `surface.replaceGeneration` advances, including when pruning lands before later summary work throws. No replacement, an exhausted target-specific cap, cancellation, or an unknown/noncanonical error preserves the original provider failure.
-- **Failure handling** — an unmatched `compact/start` is an inert crash marker because no summary replacement landed. A region failure records an error end; the surface remains unchanged unless pruning already landed. Operational pressure failures warn and continue, while overflow-recovery failure preserves the original provider error only when no earlier replacement advanced the surface. Cancellation remains authoritative after any progress.
+- **Failure handling** — a live unmatched `compact/start` is the durable lock. An unmatched marker before a newer `session/end-seed` is stale evidence from a prior lifecycle and does not block; one after that boundary reports `busy`. Summary and changed-span failures close with an error and leave the conversation surface untouched, though the attempt remains in the log. A failed close deliberately leaves a blocking orphan. Operational pressure failures warn and continue, while overflow-recovery failure preserves the original provider error only when no earlier replacement advanced the surface. Cancellation remains authoritative after cleanup and durability.
 
-The protected `summarize()` method is the sole subclass hook. A template- or remote-summarizer subclass can override it while pressure, retention, provenance, shrink validation, and shadowed-token accounting stay on `ctx.tokenMeter`. The hook returns the summary blocks together with the call envelope it used (`{ summary, provider, model, maxTokens? }`), which is logged on `compact/summary`.
+The protected `summarize()` method is the sole subclass hook. A template- or remote-summarizer subclass can override it while pressure, retention, provenance, shrink validation, and shadowed-token accounting stay on `ctx.tokenMeter`. The hook returns the safe summary plus the complete provider output, call envelope, and usage when available (`{ summary, rawOutput?, provider, model, maxTokens?, usage? }`); the transaction preserves those fields on `compact/summary`.
 
 ## Config (`BasicCompactConfig`)
 
@@ -46,21 +46,25 @@ An adapter may return no capacity for a valid dynamic route, and resolved capaci
 
 ## Usage
 
+`BasicCompactService` requires `ctx.llm`, `ctx.tokenMeter`, and `ctx.sessions`. The composition below receives `ctx.llm` from its host and installs the other two services:
+
 ```ts
 import type { Context } from 'cordis'
 import { BasicCompactService } from '@deepseek-ai/dsh-compact-basic'
+import SessionStore from '@deepseek-ai/dsh-session'
 import TokenMeterService from '@deepseek-ai/dsh-token-meter'
 
 export const name = 'compact-basic'
-export const inject = ['llm', 'tokenMeter']
+export const inject = ['llm']
 
 export function apply(ctx: Context): void {
+  ctx.plugin(SessionStore)
   ctx.plugin(TokenMeterService)
   ctx.plugin(BasicCompactService)
 }
 ```
 
-Loading the plugin registers `ctx.compact`. Add [`dsh-compact-tool-result-prune`](../compact-tool-result-prune/README.md) as a sibling before this plugin to enable the optional model-free pass. With `auto: true` (the default) it compacts automatically under token pressure; a consumer (a future `/compact` tool) can also call `ctx.compact.compactIfNeeded(...)` or `ctx.compact.compactRegion(...)` directly.
+Loading the plugin registers `ctx.compact`. Add [`dsh-compact-tool-result-prune`](../compact-tool-result-prune/README.md) as a sibling before this plugin to enable the optional model-free pass. With `auto: true` (the default) it compacts automatically under token pressure. The sibling [`dsh-command-compact`](../command-compact/README.md) calls `ctx.compact.compactNow(...)`; programmatic callers may also use any seam operation directly.
 
 For example, the same compact plugin can safely serve models with different capacities and one target-specific policy:
 
@@ -136,7 +140,7 @@ Output EXACTLY the Markdown structure below: keep every section, in order. Use t
 - [decisions and their rationale, constraints, user preferences, open questions, data needed to continue]
 
 Rules:
-- Preserve exact file paths, commands, error strings, identifiers, and function signatures.
+- Write concise English engineering prose. Preserve exact file paths, commands, error strings, identifiers, numeric values, function signatures, and syntax fragments.
 - Capture user feedback and explicit instructions faithfully, especially corrections.
 - Do NOT mention this summarization request or that the context was compacted.
 - Output only the checkpoint text: do not call any tool or take any other action.
@@ -158,4 +162,3 @@ The replayed system prompt, tools, and shadowed-region messages match the conver
 - **Some indivisible-unit and envelope-only overflow remains outside surface compaction** — recovery cannot shrink system/tools/prefix, split an indivisible non-tool node, or repair a tool unit whose non-prunable remainder still exceeds the window. The optional pruner can shrink text-bearing tool-result bulk inside an otherwise indivisible pair.
 - **`compactRegion` requires an open turn** — a manual call on a fully-closed session throws ("no open turn") rather than compacting.
 - **Summarization failure preserves the latest durable surface** — before any replacement, the auto path logs a warning and proceeds with full over-budget history. If pruning already landed, a later summarization failure proceeds from that durable pruned surface. Summarization truncation at `maxTokens`, which hidden reasoning tokens can consume, follows the same rule.
-- **The summarization call has no transcript-snapshot coverage** — `dsh-llm-replay` derives calls from `assistant/chunk` events, so this chunk-less direct `ctx.llm.stream()` call cannot replay (named deferred replay infrastructure in [the seam Agent Note](../../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md)).

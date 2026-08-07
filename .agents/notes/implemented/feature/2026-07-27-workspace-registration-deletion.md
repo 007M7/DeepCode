@@ -28,7 +28,7 @@ Create and delete write a durable `pendingMutation` before their record/order pa
 
 `WorkspaceManager` treats both `host/workspace-changed` and `host/workspace-removed` as ordered deltas replayed over an in-flight `workspace.list` response. A successful unary delete removes the row immediately instead of waiting for its own stream echo. Removal is idempotent, and a process-local tombstone rejects late changed frames or stale baseline rows for the never-reused Workspace id. A reconnect still refreshes from `workspace.list`; Session state is never pruned by a Workspace delta.
 
-The delete confirmation remains pending until the React Workspace projection has committed the removed id, so the next create gesture cannot observe one stale list frame. During create, duplicate-name validation is suppressed while the request is pending because the committed `host/workspace-changed` frame may publish the newly created Workspace before its unary response; after failure returns the form to editing, validation uses the latest list again.
+The delete confirmation remains pending until the React Workspace projection has committed the removed id, so the next Workspace gesture cannot observe or target one stale list frame.
 
 ## Confirmation interaction
 
@@ -50,7 +50,7 @@ The menu, Modal, and buttons retain their existing structure and design tokens. 
 
 ## Verification
 
-Workspace package tests pin successful metadata-only deletion, same-path re-registration, unknown-id idempotence, table-failure rollback, explicit-marker restart recovery, unexplained-corruption rejection, and cache/table invariant behavior. Apiproxy and carrier tests pin the schema, handler, `workspace-not-found`, retained Session/folder, fresh-id re-registration, and committed `host/workspace-removed` frame. Client tests pin unary direct echo, duplicate removal, late changed frames, and deletion racing an in-flight baseline. Component tests pin confirmation, projection-settled closing, pending-state duplicate suppression, success-frame-before-unary ordering, failure, Cancel, Escape, and Close. The browser scenario observes every transient alert, slot error, console error, and page error while reusing a deleted title for a different directory.
+Workspace package tests pin successful metadata-only deletion, same-path re-registration, unknown-id idempotence, table-failure rollback, explicit-marker restart recovery, unexplained-corruption rejection, and cache/table invariant behavior. Apiproxy and carrier tests pin the schema, handler, `workspace-not-found`, retained Session/folder, fresh-id re-registration, and committed `host/workspace-removed` frame. Client tests pin unary direct echo, duplicate removal, late changed frames, and deletion racing an in-flight baseline. Component tests pin confirmation, projection-settled closing, success-frame-before-unary ordering, failure, Cancel, Escape, and Close. The browser scenario observes every transient alert, slot error, console error, and page error while reusing a deleted title for a different directory.
 
 The assembled keyless Web scenario registers an existing temporary project directory, accounts a persisted Session, makes that Session current, confirms deletion in Chromium, and verifies the Workspace group disappears while Ungrouped retains the current Session. It checks the user file and JSONL log before and after deletion and repeats the UI, directory, and log assertions after reload.
 

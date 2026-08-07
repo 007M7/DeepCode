@@ -17,11 +17,13 @@ import { clientRequestSchema, clientResponseSchema } from '../api/rpc.schema.ts'
 import {
   sessionCancelRequestSchema,
   sessionCreateRequestSchema,
+  sessionForkRequestSchema,
   sessionHistoryRequestSchema,
   sessionListRequestSchema,
   sessionModelsRequestSchema,
   sessionPromptRequestSchema,
   sessionRenameRequestSchema,
+  sessionSearchRequestSchema,
   sessionSelectModelRequestSchema,
   sessionUpdateQueueRequestSchema,
 } from '../api/sessions.schema.ts'
@@ -31,6 +33,7 @@ import {
   hostPickDirectoryRequestSchema,
 } from '../api/host.schema.ts'
 import {
+  workspaceArchiveSessionRequestSchema,
   workspaceCreateRequestSchema,
   workspaceDeleteRequestSchema,
   workspaceInsertSessionBeforeRequestSchema,
@@ -47,6 +50,19 @@ import {
   goalCompleteRequestSchema,
   goalClearRequestSchema,
 } from '../api/goals.schema.ts'
+import {
+  settingsDescribeRequestSchema, settingsMutateRequestSchema, settingsOpenDocumentRequestSchema,
+  settingsReplaceRequestSchema, settingsUpdateRequestSchema,
+} from '../api/settings.schema.ts'
+import {
+  credentialsDescribeRequestSchema, credentialsSetRequestSchema, credentialsUnsetRequestSchema,
+} from '../api/credentials.schema.ts'
+import { llmDiscoverModelsRequestSchema, llmModelsRequestSchema, llmProvidersRequestSchema } from '../api/llm.schema.ts'
+import {
+  subagentHistoryRequestSchema,
+  subagentListRequestSchema,
+  subagentPromptRequestSchema,
+} from '../api/subagents.schema.ts'
 
 /**
  * Unary dispatch table, keyed by (and compiler-locked to) RpcMethodMap: a map row without a
@@ -54,8 +70,8 @@ import {
  * payload type — a schema pasted onto the wrong row is a type error, not a runtime surprise.
  * Schemas anchor to the Wire<> widening (the repo-wide exactOptionalPropertyTypes accommodation
  * documented on Wire); the dispatch point carries the one Wire→exact cast.
- * Every invoke receives the carrier Request's signal; methods whose contract
- * declares a signal parameter (command.execute) forward it, the rest ignore it.
+ * Every invoke receives the carrier Request's signal; routes whose contract
+ * declares a signal parameter forward it, and the rest ignore it.
  */
 type UnaryRoutes = {
   [K in keyof RpcMethodMap]: {
@@ -66,14 +82,19 @@ type UnaryRoutes = {
 
 const UNARY_ROUTES: UnaryRoutes = {
   'session.list': { schema: sessionListRequestSchema, invoke: (api, r) => api.sessions.list(r) },
+  'session.search': { schema: sessionSearchRequestSchema, invoke: (api, r, signal) => api.sessions.search(r, signal) },
   'session.create': { schema: sessionCreateRequestSchema, invoke: (api, r) => api.sessions.create(r) },
   'session.history': { schema: sessionHistoryRequestSchema, invoke: (api, r) => api.sessions.history(r) },
   'session.models': { schema: sessionModelsRequestSchema, invoke: (api, r) => api.sessions.models(r) },
   'session.selectModel': { schema: sessionSelectModelRequestSchema, invoke: (api, r) => api.sessions.selectModel(r) },
   'session.rename': { schema: sessionRenameRequestSchema, invoke: (api, r) => api.sessions.rename(r) },
+  'session.fork': { schema: sessionForkRequestSchema, invoke: (api, r) => api.sessions.fork(r) },
   'session.prompt': { schema: sessionPromptRequestSchema, invoke: (api, r) => api.sessions.prompt(r) },
   'session.updateQueue': { schema: sessionUpdateQueueRequestSchema, invoke: (api, r) => api.sessions.updateQueue(r) },
   'session.cancel': { schema: sessionCancelRequestSchema, invoke: (api, r) => api.sessions.cancel(r) },
+  'subagent.list': { schema: subagentListRequestSchema, invoke: (api, r, signal) => api.subagents.list(r, signal) },
+  'subagent.history': { schema: subagentHistoryRequestSchema, invoke: (api, r, signal) => api.subagents.history(r, signal) },
+  'subagent.prompt': { schema: subagentPromptRequestSchema, invoke: (api, r, signal) => api.subagents.prompt(r, signal) },
   'host.describe': { schema: hostDescribeRequestSchema, invoke: (api, r) => api.host.describe(r) },
   'host.pickDirectory': { schema: hostPickDirectoryRequestSchema, invoke: (api, r, signal) => api.host.pickDirectory(r, signal) },
   'host.listDirectory': { schema: hostListDirectoryRequestSchema, invoke: (api, r, signal) => api.host.listDirectory(r, signal) },
@@ -84,6 +105,7 @@ const UNARY_ROUTES: UnaryRoutes = {
   'workspace.rename': { schema: workspaceRenameRequestSchema, invoke: (api, r) => api.workspace.rename(r) },
   'workspace.delete': { schema: workspaceDeleteRequestSchema, invoke: (api, r) => api.workspace.delete(r) },
   'workspace.insertSessionBefore': { schema: workspaceInsertSessionBeforeRequestSchema, invoke: (api, r) => api.workspace.insertSessionBefore(r) },
+  'workspace.archiveSession': { schema: workspaceArchiveSessionRequestSchema, invoke: (api, r) => api.workspace.archiveSession(r) },
   'command.list': { schema: commandListRequestSchema, invoke: (api, r) => api.commands.list(r) },
   'command.execute': { schema: commandExecuteRequestSchema, invoke: (api, r, signal) => api.commands.execute(r, signal) },
   'skill.list': { schema: skillListRequestSchema, invoke: (api, r) => api.skills.list(r) },
@@ -93,6 +115,17 @@ const UNARY_ROUTES: UnaryRoutes = {
   'goal.resume': { schema: goalResumeRequestSchema, invoke: (api, r) => api.goals.resume(r) },
   'goal.complete': { schema: goalCompleteRequestSchema, invoke: (api, r) => api.goals.complete(r) },
   'goal.clear': { schema: goalClearRequestSchema, invoke: (api, r) => api.goals.clear(r) },
+  'settings.describe': { schema: settingsDescribeRequestSchema, invoke: (api, r) => api.settings.describe(r) },
+  'settings.openDocument': { schema: settingsOpenDocumentRequestSchema, invoke: (api, r, signal) => api.settings.openDocument(r, signal) },
+  'settings.update': { schema: settingsUpdateRequestSchema, invoke: (api, r) => api.settings.update(r) },
+  'settings.replace': { schema: settingsReplaceRequestSchema, invoke: (api, r) => api.settings.replace(r) },
+  'settings.mutate': { schema: settingsMutateRequestSchema, invoke: (api, r) => api.settings.mutate(r) },
+  'credentials.describe': { schema: credentialsDescribeRequestSchema, invoke: (api, r) => api.credentials.describe(r) },
+  'credentials.set': { schema: credentialsSetRequestSchema, invoke: (api, r) => api.credentials.set(r) },
+  'credentials.unset': { schema: credentialsUnsetRequestSchema, invoke: (api, r) => api.credentials.unset(r) },
+  'llm.providers': { schema: llmProvidersRequestSchema, invoke: (api, r) => api.llm.providers(r) },
+  'llm.models': { schema: llmModelsRequestSchema, invoke: (api, r) => api.llm.models(r) },
+  'llm.discoverModels': { schema: llmDiscoverModelsRequestSchema, invoke: (api, r, signal) => api.llm.discoverModels(r, signal) },
 }
 
 /** Route lookup that narrows an arbitrary path segment to a map key (single cast point for the string→key refinement). */

@@ -133,10 +133,12 @@ The first argument lists the model names handled by the adapter. If `cordis.yml`
       - my-model-v1
       - my-model-v2
 
-- id: tui-agent
-  name: '@deepseek-ai/dsh-tui-demo'
+- id: agent-loop
+  name: '@deepseek-ai/dsh-agent-loop'
   config:
-    provider: my-llm
+    agents:
+      - id: main
+        provider: my-llm
     model: my-model-v1  # References the model registered above.
     workspaceContext: false
 ```

@@ -13,17 +13,22 @@ Abstract user-interaction seam. It owns `ctx.userInteraction`, the service a mod
 
 ### Key Types
 
-- `AskUserQuestionRequest` — `{ questions: [{ id, question, detail?, header?, options?, multiSelect? }], agent?, signal? }`; `detail` supplies supporting text that providers render with the question without turning it into an option label.
+- `AskUserQuestionRequest` — `{ questions: [{ id, question, detail?, header?, options?, multiSelect?, intent? }], agent?, signal? }`; `detail` supplies supporting text that providers render with the question without turning it into an option label.
 - `AskUserQuestionOption` — `{ label, description? }`.
+- `AskUserQuestionIntent` — `{ kind: 'plan-review', approve }`; the tagged presentation intent below.
 - `AskUserQuestionAnswer` — `{ answers: [{ id, selected, custom? }] }`.
 - `UserInteractionProvider` — UI implementation with `ask(request)`.
-- `UserInteractionError` — `HarnessError` subclass with codes such as `EMPTY_QUESTIONS`, `NO_PROVIDER`, `DUPLICATE_PROVIDER`, and `ASK_ABORTED`.
+- `UserInteractionError` — `HarnessError` subclass with codes such as `EMPTY_QUESTIONS`, `BAD_INTENT`, `NO_PROVIDER`, `DUPLICATE_PROVIDER`, and `ASK_ABORTED`.
 
-When an answer includes `custom`, `selected` is empty; custom text is an override rather than a supplement to selected choices. A UI may preserve a skipped item as `{ id, selected: [] }`, keeping the existing answer shape while retaining other answers in the batch.
+For a single-select question, `custom` overrides the selected choice and `selected` is empty. For a multi-select question, `custom` may supplement the labels in `selected`. A UI may preserve a skipped item as `{ id, selected: [] }`, keeping the existing answer shape while retaining other answers in the batch.
+
+### Presentation intent
+
+`intent` declares that a question IS a decision of a known shape, so a UI that recognises the tag may present it as such — `plan-review` says `detail` is a plan under review, and `dsh-plan-mode` sets it on the `exit_plan_mode` question. An intent shapes presentation only: a UI honouring it answers with the same option labels a generic UI would send, and a UI that does not know the tag renders the generic option list, so callers read one answer shape either way. `approve` names the label that approves rather than relying on option order. `ask()` rejects with `BAD_INTENT` the two assertions no type can carry: an `approve` naming none of that question's own options, and an intent on a question with no `detail` — the thing it declares itself a review of.
 
 ## Role
 
-This is the interface package. Model-facing consumers such as `@deepseek-ai/dsh-tool-ask-user` depend on this seam; `dsh-tui` and the host runtime provide interactive implementations. The loop stays unchanged: a tool call awaits a promise, and the tool result resumes the normal agent loop.
+This is the interface package. Model-facing consumers such as `@deepseek-ai/dsh-tool-ask-user` depend on this seam; the Web host runtime provides the shipped interactive implementation. The loop stays unchanged: a tool call awaits a promise, and the tool result resumes the normal agent loop.
 
 ## Model Experience
 

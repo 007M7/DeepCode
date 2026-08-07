@@ -25,7 +25,7 @@ function after(session: Session, type: SessionEvent['type'], nth = 0): boolean {
 }
 
 function closedToolStep(): Session {
-  const session = new Session(SessionId('closed-tool-step'))
+  const session = Session.create(SessionId('closed-tool-step'))
   session.append('user/message', createUserMessage({
     content: [{ type: 'text', text: 'go' }],
     source: { kind: 'user' },
@@ -64,7 +64,7 @@ describe('tool-pairing boundaries', () => {
     expect(before(closed, 'tool/result')).toBe(false)
     expect(after(closed, 'tool/result')).toBe(true)
 
-    const open = new Session(SessionId('open-tool-step'))
+    const open = Session.create(SessionId('open-tool-step'))
     open.append('assistant/message', {
       turn: 1,
       step: 1,
@@ -81,7 +81,7 @@ describe('tool-pairing boundaries', () => {
   })
 
   it('requires every result from a multiple-call assistant message', () => {
-    const session = new Session(SessionId('multiple-calls'))
+    const session = Session.create(SessionId('multiple-calls'))
     session.append('assistant/message', {
       turn: 1,
       step: 1,
@@ -119,7 +119,7 @@ describe('tool-pairing boundaries', () => {
   })
 
   it('keeps neutral nodes inside an open pair unbalanced and free nodes balanced', () => {
-    const midStep = new Session(SessionId('neutral-mid-step'))
+    const midStep = Session.create(SessionId('neutral-mid-step'))
     midStep.append('assistant/message', {
       turn: 1,
       step: 1,
@@ -147,7 +147,7 @@ describe('tool-pairing boundaries', () => {
     expect(before(midStep, 'user/message')).toBe(false)
     expect(after(midStep, 'user/message')).toBe(false)
 
-    const free = new Session(SessionId('neutral-free'))
+    const free = Session.create(SessionId('neutral-free'))
     free.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'idle injection' }],
       source: { kind: 'user' },
@@ -187,7 +187,7 @@ describe('tool-pairing surface identity', () => {
   })
 
   it('rejects missing seqs before and after, including an empty surface', () => {
-    const session = new Session(SessionId('missing-membership'))
+    const session = Session.create(SessionId('missing-membership'))
     const missing = 999
     expect(() => toolPairingBalancedBefore(session, missing)).toThrow(/surface seq 999 not found/)
     expect(() => toolPairingBalancedAfter(session, missing)).toThrow(/surface seq 999 not found/)
@@ -271,8 +271,7 @@ describe('tool-pairing cache refresh', () => {
     expect(eventIndexReads).toBe(3)
 
     events.push({
-      type: 'turn/end', seq: 3, time: 3,
-      data: { turn: 1, reason: { kind: 'completed' } },
+      type: 'turn/end', seq: 3, time: 3, data: { turn: 1, reason: { kind: 'completed' } },
     })
     expect(toolPairingBalancedAfter(session, nodes[2]!)).toBe(true)
     expect(eventCollectionReads).toBe(1)
@@ -367,7 +366,7 @@ describe('tool-pairing cache refresh', () => {
 
 describe('tool-pairing corrupt surfaces', () => {
   it('throws for an orphan result during a rebuild', () => {
-    const session = new Session(SessionId('orphan-rebuild'))
+    const session = Session.create(SessionId('orphan-rebuild'))
     session.append('tool/result', {
       turn: 1, step: 1,
       message: createToolResultMessage({
@@ -380,7 +379,7 @@ describe('tool-pairing corrupt surfaces', () => {
   })
 
   it('retries an orphan result in an appended tail without committing partial cache state', () => {
-    const session = new Session(SessionId('orphan-tail'))
+    const session = Session.create(SessionId('orphan-tail'))
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'safe head' }], source: { kind: 'user' },
     }), SURFACE)

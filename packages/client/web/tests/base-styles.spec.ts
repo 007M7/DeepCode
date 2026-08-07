@@ -10,6 +10,9 @@ import { describe, expect, it } from 'vitest'
 
 const THEME_PACKAGE = '@deepseek-ai/dsh-client-ui-theme'
 const baseCss = readFileSync(fileURLToPath(new URL('../src/base.css', import.meta.url)), 'utf8')
+const themeManifest = JSON.parse(
+  readFileSync(fileURLToPath(new URL('../../ui-theme/package.json', import.meta.url)), 'utf8'),
+) as { exports: Record<string, string>; files: string[] }
 
 /**
  * Import specifiers of the sheet, in source order. Quote style and surrounding
@@ -24,9 +27,9 @@ function importOrder(css: string): string[] {
 }
 
 /**
- * Resolve a `<package>/styles/<file>` specifier to its path in the workspace.
- * The theme package maps `./styles/*` to `./src/styles/*`, so the sheets stay
- * on the source plane rather than needing a build.
+ * Resolve a `<package>/styles/<file>` specifier to its source path for a
+ * clean-tree test. The package build copies these sheets to their public
+ * `lib/styles` export.
  * @param specifier - import specifier from base.css.
  * @returns absolute path of the file the specifier names.
  */
@@ -38,6 +41,11 @@ function resolveThemeSheet(specifier: string): string {
 const imports = importOrder(baseCss)
 
 describe('web shell base.css', () => {
+  it('publishes theme sheets from the built artifact plane', () => {
+    expect(themeManifest.exports['./styles/*']).toBe('./lib/styles/*')
+    expect(themeManifest.files).toContain('lib/styles')
+  })
+
   it('imports every sheet from the theme package and each one exists', () => {
     expect(imports.length).toBeGreaterThan(0)
     for (const specifier of imports) {

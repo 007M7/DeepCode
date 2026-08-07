@@ -47,6 +47,8 @@ Create 和 config 使用相同的功能计划形状。create 通过上述命令�
 
 包管理器负责来源解析、版本或 commit 解析、`integrity` 数据、lockfile 更新和构建策略。SDK 不再通过 giget 或 pacote 下载、解压第二份副本。外部插件是 `node_modules` 下的依赖；本地插件脚手架仍属于独立的工程创建问题。
 
+本提案只涉及开发者自有 SDK 工程的依赖。独立应用的仓库缓存、随应用捆绑 pnpm 的政策和显式的准备流程信任边界，均由[包管理器原生仓库缓存](../../implemented/architecture/2026-07-30-package-manager-native-repository-cache.md)负责。
+
 ## Launcher 遥测
 
 ### Consent 与采集

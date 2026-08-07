@@ -20,6 +20,7 @@ root=$(CDPATH='' cd -- "$(dirname -- "$script")/.." && pwd)
 # ESM-only and the CJS resolver costs ~0.4s of startup). Absolute paths keep
 # both the hook and the tsconfig anchored to this checkout when the launcher
 # runs from any cwd, where bare `tsx/esm` would not resolve.
-TSX_TSCONFIG_PATH="$root/tsconfig.json" \
+NODE_USE_ENV_PROXY=1 \
+  TSX_TSCONFIG_PATH="$root/tsconfig.json" \
   exec node --import "$root/node_modules/tsx/dist/esm/index.mjs" \
   "$root/apps/cli/src/bin.ts" "$@"

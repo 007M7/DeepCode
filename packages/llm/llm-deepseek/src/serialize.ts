@@ -139,7 +139,10 @@ export function serializeMessages(messages: Message[]): WireMessage[] {
  * @param defaults - adapter-level thinking defaults; undefined fields put nothing on the wire.
  * @returns the chat-completions request body.
  */
-export function serializeRequest(options: GenerateOptions, defaults: RequestDefaults = {}): WireRequest {
+export function serializeRequest(
+  options: GenerateOptions,
+  defaults: RequestDefaults = {},
+): WireRequest {
   const messages: WireMessage[] = []
   if (options.system !== undefined) {
     messages.push({ role: 'system', content: options.system })
@@ -169,7 +172,7 @@ export function serializeRequest(options: GenerateOptions, defaults: RequestDefa
       : {},
     ...tools !== undefined && tools.length > 0 ? { tools } : {},
     ...options.temperature !== undefined ? { temperature: options.temperature } : {},
-    ...options.maxTokens !== undefined ? { max_tokens: options.maxTokens } : {},
+    ...options.maxTokens === undefined ? {} : { max_tokens: options.maxTokens },
     ...options.stop !== undefined ? { stop: options.stop } : {},
   }
 }

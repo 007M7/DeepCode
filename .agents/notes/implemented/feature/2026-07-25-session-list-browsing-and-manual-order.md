@@ -12,29 +12,29 @@ Two existing mechanisms stood in the way. First, the host durably promoted the a
 
 ## Decision
 
-### Flat view and viewing state
+### Flat rows and viewing state
 
-The group-by menu offers two modes, WorkSpace / In one list. Flat mode renders every session (fork children included) as a top-level row, strictly newest-first by `updatedAt`, with no parent/child adjacency; the Intent placeholder renders as the first row. The mode choice persists in the browser (`dsh.workspace.view`) across reloads.
+The group-by menu offers two modes, WorkSpace / In one list. WorkSpace mode renders peer session rows within each group in the manual order from `WorkspaceView.sessionIds`; In one list combines every session and sorts them strictly newest-first by `updatedAt`. Neither mode projects `parentId` into a list hierarchy; fork lineage remains session data only. [Web session fork actions](2026-07-27-web-session-fork-actions.md) define the complete fork behavior. The mode choice persists in the browser (`dsh.workspace.view`) across reloads.
 
 ### Row interactions
 
 - Session rows show a detail card after a 500ms hover dwell (full title / relative time / status line; the status line has only running/idle until the wire grows a status field). The card and the row menu are mutually exclusive: no card while a menu is open or a drag is in flight.
-- Session-row … menu: Rename / Fork session / Delete session, visual-only this iteration; workspace-header … menu: Rename (wired) / Delete workspace (visual-only). Menus close when the pointer leaves them.
+- Session-row … menu: Rename / Fork session / Delete session; Rename and Fork are wired, while Delete remains visual-only. The workspace-header … menu's Rename / Delete workspace actions are both wired. Menus close when the pointer leaves them.
 - Supporting primitives: `Menu` gains label entries, danger rows, and `closeOnPointerLeave`; a new `HoverCard` (portaled placement, open delay, disabled guard).
 
 ### workspace.rename
 
-`workspace.rename({ workspaceId, title })`: the title is trimmed and must be non-blank; both the same-title no-op and the duplicate check evaluate inside the host's serialized workspace-creation chain (shared with create, so concurrent create/rename cannot interleave a duplicate or an out-of-order fake success), and a conflict returns `workspace-name-conflict`. Durability goes through `setTitle`'s mutate path, and the `domain/changed` listener broadcasts the `host/workspace-changed` frame automatically. The UI is a standard modal with a client-side duplicate pre-check.
+`workspace.rename({ workspaceId, title })`: the title is trimmed and must be non-blank; both the same-title no-op and the duplicate check evaluate inside the Host's serialized workspace-operation chain (shared with create-by-name, so concurrent explicit naming operations cannot interleave a duplicate or an out-of-order fake success), and a conflict returns `workspace-name-conflict`. Path adoption may derive a title already present because canonical path, not title, owns identity ([decision](../bug-fix/2026-07-31-same-basename-workspace-adoption.md)). Durability goes through `setTitle`'s mutate path, and the `domain/changed` listener broadcasts the `host/workspace-changed` frame automatically. The UI is a standard modal with a client-side duplicate pre-check.
 
 ### Manual order: insertSessionBefore replaces activity pinning
 
 The `session/event` → `touchSession` activity-pinning chain is deleted wholesale; the workspace account order is now manually owned — new sessions prepend at attach, and explicit reordering goes through `workspace.insertSessionBefore({ workspaceId, sessionId, beforeSessionId? })` (DOM insertBefore semantics: with an anchor it inserts before it, omitted appends to the end). The entity throws a typed `WorkspaceMoveInvalidError` only for unaccounted session/anchor ids; the handler maps exactly that to the business code `workspace-move-invalid`, while storage failures stay internal.
 
-The UI is HTML5 drag on root rows inside a group (workspace grouping only, outside search; fork children ride with their parent and are not draggable). Order authority stays entirely host-side: drop only sends the RPC, the client performs zero local reordering, and the view refreshes from the response upsert and the changed frame; a failed move changes nothing. The client's upsert rejects snapshots older (`updatedAt`) than the installed projection so a late unary response cannot roll back a newer frame.
+The UI is HTML5 drag on session rows inside a group (workspace grouping only, outside search; fork children and their source sessions are ordered independently). Order authority stays entirely host-side: drop only sends the RPC, the client performs zero local reordering, and the view refreshes from the response upsert and the changed frame; a failed move changes nothing. The client's upsert rejects snapshots older (`updatedAt`) than the installed projection so a late unary response cannot roll back a newer frame.
 
 ### Shell/region split
 
-ui-sidebar shrinks to the column-geometry shell: brand row, fold state machine, New Session, Settings, and one `sidebar.workspaces` hole; the shell↔region contract is two facts, `{ wide, expandSidebar }`. ui-workspace fully owns the browsing region (section header, search, grouped tree and flat list, every workspace dialog, drag) plus its groupBy store; the rail-state search/new-workspace icons belong to the region too and request shell expansion via `expandSidebar()`. The picker splits into the core `WorkspaceCreateFlow` (composed directly inside the region) and the thin `WorkspacePicker` wrapper (still filling ui-conversation's hero slot); the old `sidebar.workspace` picker slot and its declaration-aware deferral are deleted with it.
+ui-sidebar shrinks to the column-geometry shell: brand row, fold state machine, New Session, Settings, and one `sidebar.workspaces` hole; the shell↔region contract is two facts, `{ wide, expandSidebar }`. ui-workspace fully owns the browsing region (section header, search, grouped tree and flat list, every workspace dialog, drag) plus its groupBy store; the rail-state search/add-workspace icons belong to the region too and request shell expansion via `expandSidebar()`. The picker splits into the core `WorkspacePickFlow` (composed directly inside the region; named `WorkspaceCreateFlow` until the [one-route Note](../simplification/2026-07-31-one-route-to-add-a-workspace.md)) and the thin `WorkspacePicker` wrapper (still filling ui-conversation's hero slot); the old `sidebar.workspace` picker slot and its declaration-aware deferral are deleted with it.
 
 ## Alternatives considered
 
@@ -46,15 +46,15 @@ ui-sidebar shrinks to the column-geometry shell: brand row, fold state machine, 
 
 **Keep the rename dialog in ui-sidebar (smallest change)** — that is the problem itself: workspace-domain dialogs scattered in a borrowed slot, with each addition (the Delete confirmation is coming) repeating the cross-package wiring. Review first considered moving only the rename modal; the ruling was to give the whole browsing region to ui-workspace and leave the shell geometry-only.
 
-**Keep parent/child adjacency in flat mode** — contradicts strict recency (a child newer than its parent's sibling cannot slot adjacently), and the flat view's purpose is dropping the hierarchy; flattening fully and disabling drag in flat mode (no persistence carrier) is more consistent.
+**Nest sessions by fork lineage in WorkSpace mode** — nesting makes the current child visible only while its ancestors are expanded and limits in-group manual ordering to root nodes; `parentId` is lineage data, not a list-navigation structure. Flattening all sessions into peer rows lets each row be opened, searched, and ordered independently; In one list still disables drag because it has no workspace persistence carrier.
 
 ## Consequences
 
 - Manual order is the sole authority over the workspace account: an order the user arranges is never scrambled by activity; the cost is losing float-to-top-on-activity, whose signal now rides the row status dot and time label. The `WorkspaceView.sessionIds` wire contract is reworded to the manual-order semantics.
 - The two-fact shell/region contract funnels every future workspace-domain feature (Delete confirmation, cross-group moves, Ungrouped adoption) into the single ui-workspace package; ui-sidebar no longer evolves with session-list features.
 - Flat mode supports neither reordering nor a create-in-workspace entry point (switching back to grouped view is required) — an accepted scope reduction.
-- Wiring the three session-menu items and workspace Delete, and growing the wire status enum, remain future iterations.
+- Wiring session Delete and growing the wire status enum remain future iterations.
 
 ## Testing
 
-Package-level suites cover the derivations (deriveGroups/deriveFlat), row components, both apply registrations and passthroughs, host entity move semantics, and the rename/insertSessionBefore RPC implementations with their fixture stubs; the `apps/web` keyless snapshots regress the assembled application; delivery acceptance additionally runs a 12-item playwright (chromium headless) checklist (grouped default, flat switch and persistence, hover-card appearance and suppression, both menus, the full rename chain, drag persistence) and drives the real host over the wire for rename success / duplicate rejection / `workspace-move-invalid`.
+Package-level suites cover the derivations (deriveGroups/deriveFlat), peer session rows, both apply registrations and passthroughs, host entity move semantics, and the rename/insertSessionBefore RPC implementations with their fixture stubs; the `apps/web` keyless snapshots regress the assembled application and pin that a fork does not introduce session expansion controls.

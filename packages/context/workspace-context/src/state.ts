@@ -7,9 +7,8 @@
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { Message } from '@deepseek-ai/dsh-llm'
-import type { Session, SessionEvent, UserMessage } from '@deepseek-ai/dsh-session'
+import type { Session, UserMessage } from '@deepseek-ai/dsh-session'
 import type { FileSystem, FsVersion } from '@deepseek-ai/dsh-fs'
-import type { ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import type { ResolvedConfig } from './config.ts'
 import { instructionContentSha1, trimmedInstructionDigest } from './digest.ts'
 import {
@@ -34,13 +33,15 @@ import {
 
 export const name = 'workspace-context'
 
-const FILE_TOUCH_TOOL_NAMES = new Set(['read', 'write', 'edit'])
-
 /** Durable provenance and reconciliation facts for one workspace context. */
 export interface WorkspaceInstructionSource {
   kind: 'workspace-instructions'
+  /** Every workspace context carries instructions read out of a file (the `instructions` context form). */
+  form: 'instructions'
   /** Marks the complete startup/resume baseline rather than a later delta. */
   baseline?: true
+  /** Discovery, precedence, and budget identity used to validate a resumed baseline. */
+  baselineIdentity?: string
   changes: WorkspaceInstructionChange[]
 }
 
@@ -48,13 +49,6 @@ declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
     'workspace-instructions': WorkspaceInstructionSource
   }
-}
-
-/** Dynamic state waiting for the loop to append its returned context event. */
-export interface PendingInstructionChange {
-  change: WorkspaceInstructionChange
-  afterSeq: number
-  step?: { turn: number; step: number }
 }
 
 /** Per-scope metadata cache; instruction prose is deliberately not retained. */
@@ -72,13 +66,13 @@ export interface InstructionVersionState {
 /** Session-isolated fast-path state keyed by logical instruction scope. */
 export type InstructionVersionCache = WeakMap<Session, Map<string, InstructionVersionState>>
 
-/** A cache transition coupled to the model-visible change that authorizes it. */
+/** A metadata-cache transition associated with one rendered instruction change. */
 export interface InstructionVersionUpdate {
   change: WorkspaceInstructionChange
   state?: InstructionVersionState
 }
 
-/** Rendered reconciliation plus cache transitions awaiting final policy. */
+/** Rendered reconciliation plus its metadata-cache transitions. */
 export interface ReconciledInstructionContext {
   context: UserMessage
   versionUpdates: InstructionVersionUpdate[]
@@ -87,7 +81,7 @@ export interface ReconciledInstructionContext {
 function workspaceContextHook(text: string, changes: WorkspaceInstructionChange[]): UserMessage {
   return createUserMessage({
     content: [{ type: 'text', text }],
-    source: { kind: 'workspace-instructions', changes },
+    source: { kind: 'workspace-instructions', form: 'instructions', changes },
   })
 }
 
@@ -101,14 +95,6 @@ export function workspaceContextMessage(text: string): Message {
     content: [{ type: 'text', text }],
     source: { kind: 'plugin', plugin: name },
   })
-}
-
-function filePathFromExecution(exec: ToolExecution): string | undefined {
-  if (!FILE_TOUCH_TOOL_NAMES.has(exec.name)) return undefined
-  if (typeof exec.arguments !== 'object' || exec.arguments === null) return undefined
-  if (!('file_path' in exec.arguments) || typeof exec.arguments.file_path !== 'string') return undefined
-  const filePath = exec.arguments.file_path.trim()
-  return filePath.length > 0 ? filePath : undefined
 }
 
 function isWorkspaceContextSource(
@@ -149,7 +135,7 @@ function sameInstructionChange(a: WorkspaceInstructionChange, b: WorkspaceInstru
 
 function visibleInstructionChanges(
   agent: Agent,
-  pending: Map<string, PendingInstructionChange>,
+  authorityMessages: readonly UserMessage[],
 ): Map<string, WorkspaceInstructionChange> {
   const visibleSeqs = new Set(agent.session.surface.nodes)
   const visible = new Map<string, WorkspaceInstructionChange>()
@@ -157,14 +143,15 @@ function visibleInstructionChanges(
     if (event.type !== 'user/message' || !isWorkspaceContextSource(event.data.source)) continue
     const changes = workspaceInstructionChanges(event.data.source)
     for (const change of changes) {
-      const waiting = pending.get(change.scope)
-      if (waiting !== undefined && seq >= waiting.afterSeq && sameInstructionChange(waiting.change, change)) {
-        pending.delete(change.scope)
-      }
       if (visibleSeqs.has(seq)) visible.set(change.scope, change)
     }
   }
-  for (const { change } of pending.values()) visible.set(change.scope, change)
+  for (const message of authorityMessages) {
+    if (!isWorkspaceContextSource(message.source)) continue
+    for (const change of workspaceInstructionChanges(message.source)) {
+      visible.set(change.scope, change)
+    }
+  }
   return visible
 }
 
@@ -210,20 +197,20 @@ function versionStatesFor(session: Session, cache: InstructionVersionCache): Map
 }
 
 /**
- * Keep only cache updates whose model-visible changes survived final policy.
+ * Keep only cache updates represented by rendered changes.
  * @param updates - proposed updates from one or more reconciliations.
- * @param committedChanges - transitions retained on the authoritative result.
- * @returns updates authorized by an exact retained transition.
+ * @param renderedChanges - transitions retained by the renderer.
+ * @returns updates represented by an exact retained transition.
  */
 export function retainedInstructionVersionUpdates(
   updates: readonly InstructionVersionUpdate[],
-  committedChanges: readonly WorkspaceInstructionChange[],
+  renderedChanges: readonly WorkspaceInstructionChange[],
 ): InstructionVersionUpdate[] {
-  return updates.filter(update => committedChanges.some(change => sameInstructionChange(update.change, change)))
+  return updates.filter(update => renderedChanges.some(change => sameInstructionChange(update.change, change)))
 }
 
 /**
- * Apply authorized metadata-cache transitions without retaining instruction prose.
+ * Apply metadata-cache transitions without retaining instruction prose.
  * @param session - owning session.
  * @param updates - ordered set/delete transitions.
  * @param cache - session-isolated metadata cache.
@@ -242,169 +229,43 @@ export function applyInstructionVersionUpdates(
   if (states.size === 0) cache.delete(session)
 }
 
-function pendingChangesFor(
-  session: object,
-  pendingBySession: WeakMap<object, Map<string, PendingInstructionChange>>,
-): Map<string, PendingInstructionChange> {
-  let pending = pendingBySession.get(session)
-  if (pending === undefined) {
-    pending = new Map()
-    pendingBySession.set(session, pending)
-  }
-  return pending
-}
-
-function openStep(session: Session): { turn: number; step: number } | undefined {
-  const boundary = session.events.findLast(event => event.type === 'step/start' || event.type === 'step/end')
-  return boundary?.type === 'step/start' ? boundary.data : undefined
-}
-
-function invalidateInstructionVersions(
-  session: Session,
-  scopes: readonly string[],
-  cache: InstructionVersionCache,
-): void {
-  const states = cache.get(session)
-  if (states === undefined) return
-  for (const scope of scopes) states.delete(scope)
-  if (states.size === 0) cache.delete(session)
-}
-
-/**
- * Settle provisional tool-result state against durable session events.
- * A matching context event confirms the transition. If its owning step closes
- * first, both duplicate suppression and the metadata fast path are re-armed for
- * the next successful touch.
- * @param session - session whose append-only log emitted `event`.
- * @param event - newly committed session event.
- * @param pendingBySession - provisional transitions awaiting log confirmation.
- * @param versionCache - metadata fast path coupled to those transitions.
- */
-export function observeInstructionSessionEvent(
-  session: Session,
-  event: SessionEvent,
-  pendingBySession: WeakMap<object, Map<string, PendingInstructionChange>>,
-  versionCache: InstructionVersionCache,
-): void {
-  const pending = pendingBySession.get(session)
-  if (pending === undefined) return
-
-  switch (event.type) {
-    case 'user/message': {
-      if (!isWorkspaceContextSource(event.data.source)) return
-      for (const change of workspaceInstructionChanges(event.data.source)) {
-        const waiting = pending.get(change.scope)
-        if (waiting !== undefined && event.seq >= waiting.afterSeq && sameInstructionChange(waiting.change, change)) {
-          pending.delete(change.scope)
-        }
-      }
-      if (pending.size === 0) pendingBySession.delete(session)
-      return
-    }
-    case 'step/end': {
-      const discardedScopes: string[] = []
-      for (const [scope, waiting] of pending) {
-        const step = waiting.step
-        if (step === undefined || step.turn !== event.data.turn || step.step !== event.data.step) continue
-        pending.delete(scope)
-        discardedScopes.push(scope)
-      }
-      if (pending.size === 0) pendingBySession.delete(session)
-      invalidateInstructionVersions(session, discardedScopes, versionCache)
-      return
-    }
-    default:
-      // SessionEventMap is merge-extensible; unrelated events do not settle workspace state.
-      return
-  }
-}
-
-/**
- * Commit only workspace contexts that survived the complete tool pipeline.
- * The observe-only `tools/result` notification calls this before the loop can
- * append the returned contexts, closing that short pending window without
- * trusting an intermediate post-execute decision.
- * @param agent - session that will receive the final result contexts.
- * @param contexts - immutable contexts on the authoritative top-level result.
- * @param pendingBySession - per-session pending transition maps.
- * @returns transitions committed into the short pending window.
- */
-export function commitPendingInstructionContexts(
-  agent: Agent,
-  contexts: readonly UserMessage[] | undefined,
-  pendingBySession: WeakMap<object, Map<string, PendingInstructionChange>>,
-): WorkspaceInstructionChange[] {
-  const committed: WorkspaceInstructionChange[] = []
-  const step = openStep(agent.session)
-  for (const context of contexts ?? []) {
-    if (!isWorkspaceContextSource(context.source)) continue
-    const changes = workspaceInstructionChanges(context.source)
-    if (changes.length === 0) continue
-    const pending = pendingChangesFor(agent.session, pendingBySession)
-    for (const change of changes) {
-      pending.set(change.scope, {
-        change,
-        afterSeq: agent.session.seq,
-        ...step === undefined ? {} : { step },
-      })
-      committed.push(change)
-    }
-  }
-  return committed
-}
-
-/**
- * Roll back parent-token state when an enclosing tool result discards deferred
- * contexts. A newer transition for the same scope is left intact.
- * @param agent - session whose pending state was staged.
- * @param changes - exact staged transitions to remove when still current.
- * @param pendingBySession - per-session pending transition maps.
- */
-export function rollbackPendingInstructionChanges(
-  agent: Agent,
-  changes: readonly WorkspaceInstructionChange[],
-  pendingBySession: WeakMap<object, Map<string, PendingInstructionChange>>,
-): void {
-  const pending = pendingBySession.get(agent.session)
-  if (pending === undefined) return
-  for (const change of changes) {
-    const current = pending.get(change.scope)
-    if (current !== undefined && sameInstructionChange(current.change, change)) pending.delete(change.scope)
-  }
-  if (pending.size === 0) pendingBySession.delete(agent.session)
-}
-
 function relativeScope(projectRoot: string, dir: string): string {
   const scope = relativeDisplay(projectRoot, dir)
   return scope.length === 0 ? '.' : scope
 }
 
 /**
- * Compare visible/pending state with provider-visible files and render transitions.
+ * Compare visible state with provider-visible files and render transitions.
  * @param agent - session owner whose visible surface supplies durable state.
  * @param resolved - normalized plugin configuration.
- * @param pendingBySession - short pending window before returned context is logged.
  * @param versionCache - per-session scope metadata used to skip unchanged reads.
  * @param fileSystem - provider used for current file probes.
- * @param options - touched path and whether baseline scopes should participate.
+ * @param options - authoritative claimed context, pending scope hints, touched paths, and baseline participation.
  * @returns rendered context plus deferred cache updates, or undefined when unchanged/unavailable.
  */
 export async function reconcileInstructionContext(
   agent: Agent,
   resolved: ResolvedConfig,
-  pendingBySession: WeakMap<object, Map<string, PendingInstructionChange>>,
   versionCache: InstructionVersionCache,
   fileSystem: FileSystem,
-  options: { touchedPath?: string; includeBaselineScopes: boolean; signal?: AbortSignal },
+  options: {
+    authorityMessages: readonly UserMessage[]
+    scopeMessages: readonly UserMessage[]
+    touchedPaths: readonly string[]
+    includeBaselineScopes: boolean
+    excludedBaselineScopes?: ReadonlySet<string>
+    projectRoot?: string
+    signal?: AbortSignal
+  },
 ): Promise<ReconciledInstructionContext | undefined> {
   const session = agent.session
-  const pending = pendingChangesFor(session, pendingBySession)
-  const effective = visibleInstructionChanges(agent, pending)
+  const effective = visibleInstructionChanges(agent, options.authorityMessages)
   /* v8 ignore next -- normal agents carry an absolute session cwd. */
   const cwd = session.header.cwd ?? process.cwd()
   // TODO(frozen-project-root): retain the baseline root for the loop instance;
   // recomputing it after marker edits reinterprets the existing relative scope keys.
-  const projectRoot = await findProjectRoot(cwd, resolved.projectRootMarkers, fileSystem, options.signal)
+  const projectRoot = options.projectRoot
+    ?? await findProjectRoot(cwd, resolved.projectRootMarkers, fileSystem, options.signal)
   const scopes = new Set<string>()
   const baselineScopes = new Set<string>()
   const addDirScopes = (target: Set<string>, directory: string): void => {
@@ -419,14 +280,22 @@ export async function reconcileInstructionContext(
   if (options.includeBaselineScopes) {
     for (const scope of baselineScopes) scopes.add(scope)
   }
+  for (const message of options.scopeMessages) {
+    /* v8 ignore next -- the plugin passes its workspace-only pending projection. */
+    if (!isWorkspaceContextSource(message.source)) continue
+    for (const change of workspaceInstructionChanges(message.source)) {
+      if (!options.includeBaselineScopes && baselineScopes.has(change.scope)) continue
+      scopes.add(change.scope)
+    }
+  }
   for (const scope of effective.keys()) {
     if (!options.includeBaselineScopes && baselineScopes.has(scope)) continue
     const { directory } = decodeScopeKey(scope)
     if (directory === USER_GLOBAL_DIRECTORY) scopes.add(candidateScopeKey(USER_GLOBAL_DIRECTORY, USER_GLOBAL_FILE))
     else addDirScopes(scopes, directory)
   }
-  if (options.touchedPath !== undefined) {
-    for (const dir of descendantDirsBetween(cwd, options.touchedPath)) addProjectScopes(scopes, dir)
+  for (const touchedPath of options.touchedPaths) {
+    for (const dir of descendantDirsBetween(cwd, touchedPath)) addProjectScopes(scopes, dir)
   }
 
   const versions = versionStatesFor(session, versionCache)
@@ -452,116 +321,109 @@ export async function reconcileInstructionContext(
     items.push({ change, file: { absolutePath: `removed:${scope}`, displayPath: path, content: '' } })
     versionUpdates.push({ change })
   }
+  const scopesByDirectory = new Map<string, string[]>()
   for (const scope of scopes) {
     const { directory } = decodeScopeKey(scope)
-    const previous = effective.get(scope)
-    const probe = await probeScopeInstruction(scope, projectRoot, resolved, fileSystem, options.signal)
-    if (probe.kind === 'unavailable') {
-      // Last-good-state: the candidate stays effective, so its cached trimmed
-      // digest must keep occupying the directory's dedup slot — otherwise an
-      // identical later sibling would be emitted as a duplicate `set` until the
-      // next successful reconciliation removed it again.
-      const cached = versions.get(scope)
-      if (cached !== undefined && previous !== undefined && previous.action !== 'remove') {
-        registerKeptTrimmed(directory, cached.trimmedDigest)
+    const directoryScopes = scopesByDirectory.get(directory)
+    if (directoryScopes === undefined) scopesByDirectory.set(directory, [scope])
+    else directoryScopes.push(scope)
+  }
+  for (const [directory, directoryScopes] of scopesByDirectory) {
+    const probedScopes: string[] = []
+    for (const scope of directoryScopes) {
+      if (options.excludedBaselineScopes !== undefined
+        && baselineScopes.has(scope)
+        && options.excludedBaselineScopes.has(scope)) {
+        const previous = effective.get(scope)
+        if (previous === undefined || previous.action === 'remove') versions.delete(scope)
+        else pushRemoval(scope, previous.path)
+      } else {
+        probedScopes.push(scope)
       }
-      continue
     }
-    if (probe.kind === 'absent') {
-      if (previous === undefined || previous.action === 'remove') versions.delete(scope)
-      else pushRemoval(scope, previous.path)
-      continue
-    }
-    const { file: probedFile } = probe
-    if (seenAbsolutePaths.has(probedFile.absolutePath)) continue
-    seenAbsolutePaths.add(probedFile.absolutePath)
-    const cached = versions.get(scope)
-    if (
-      cached !== undefined
-      && cached.path === probedFile.displayPath
-      && cached.version === probedFile.version
-      && previous !== undefined
-      && previous.action !== 'remove'
-      && previous.path === cached.path
-      && previous.digest === cached.digest
-    ) {
-      // Unchanged and previously rendered: keep it, but an earlier sibling that
-      // now matches its trimmed content makes this the duplicate to remove.
-      if (registerKeptTrimmed(directory, cached.trimmedDigest)) pushRemoval(scope, previous.path)
-      continue
-    }
+    const itemStart = items.length
+    const versionUpdateStart = versionUpdates.length
+    const addedAbsolutePaths: string[] = []
+    const priorVersions = new Map(probedScopes.map(scope => [scope, versions.get(scope)]))
+    for (const scope of probedScopes) {
+      const previous = effective.get(scope)
+      const probe = await probeScopeInstruction(scope, projectRoot, resolved, fileSystem, options.signal)
+      if (probe.kind === 'unavailable') {
+        if (previous === undefined || previous.action === 'remove') continue
+        // Same-directory candidates form one deduplicated authority group. If an
+        // active member cannot be observed, preserve the entire last-good group;
+        // cache warmth must never decide whether a sibling transition is emitted.
+        items.splice(itemStart)
+        versionUpdates.splice(versionUpdateStart)
+        for (const [candidateScope, prior] of priorVersions) {
+          if (prior === undefined) versions.delete(candidateScope)
+          else versions.set(candidateScope, prior)
+        }
+        for (const absolutePath of addedAbsolutePaths) seenAbsolutePaths.delete(absolutePath)
+        keptTrimmedByDir.delete(directory)
+        break
+      }
+      if (probe.kind === 'absent') {
+        if (previous === undefined || previous.action === 'remove') versions.delete(scope)
+        else pushRemoval(scope, previous.path)
+        continue
+      }
+      const { file: probedFile } = probe
+      if (seenAbsolutePaths.has(probedFile.absolutePath)) continue
+      seenAbsolutePaths.add(probedFile.absolutePath)
+      addedAbsolutePaths.push(probedFile.absolutePath)
+      const cached = versions.get(scope)
+      if (
+        cached !== undefined
+        && cached.path === probedFile.displayPath
+        && cached.version === probedFile.version
+        && previous !== undefined
+        && previous.action !== 'remove'
+        && previous.path === cached.path
+        && previous.digest === cached.digest
+      ) {
+        // Unchanged and previously rendered: keep it, but an earlier sibling that
+        // now matches its trimmed content makes this the duplicate to remove.
+        if (registerKeptTrimmed(directory, cached.trimmedDigest)) pushRemoval(scope, previous.path)
+        continue
+      }
 
-    const file = await readScopeInstruction(probedFile, resolved.maxSourceBytes, fileSystem, options.signal)
-    if (file === undefined) continue
-    const currentDigest = instructionContentSha1(file.content)
-    const trimmedDigest = trimmedInstructionDigest(file.content)
-    if (registerKeptTrimmed(directory, trimmedDigest)) {
-      // A distinct file whose trimmed content already appeared earlier in this
-      // directory: drop it, removing any copy that was previously rendered.
-      if (previous !== undefined && previous.action !== 'remove') pushRemoval(scope, previous.path)
-      else versions.delete(scope)
-      continue
+      const file = await readScopeInstruction(probedFile, resolved.maxSourceBytes, fileSystem, options.signal)
+      if (file === undefined) continue
+      const currentDigest = instructionContentSha1(file.content)
+      const trimmedDigest = trimmedInstructionDigest(file.content)
+      if (registerKeptTrimmed(directory, trimmedDigest)) {
+        // A distinct file whose trimmed content already appeared earlier in this
+        // directory: drop it, removing any copy that was previously rendered.
+        if (previous !== undefined && previous.action !== 'remove') pushRemoval(scope, previous.path)
+        else versions.delete(scope)
+        continue
+      }
+      const nextVersion: InstructionVersionState = {
+        path: file.displayPath,
+        version: probedFile.version,
+        digest: currentDigest,
+        trimmedDigest,
+      }
+      if (previous !== undefined && previous.action !== 'remove' && previous.path === file.displayPath && previous.digest === currentDigest) {
+        versions.set(scope, nextVersion)
+        continue
+      }
+      const action = previous === undefined || previous.action === 'remove' ? 'set' : 'replace'
+      const change: WorkspaceInstructionChange = {
+        action,
+        scope,
+        path: file.displayPath,
+        digest: currentDigest,
+      }
+      items.push({ change, file })
+      versionUpdates.push({ change, state: nextVersion })
     }
-    const nextVersion: InstructionVersionState = {
-      path: file.displayPath,
-      version: probedFile.version,
-      digest: currentDigest,
-      trimmedDigest,
-    }
-    if (previous !== undefined && previous.action !== 'remove' && previous.path === file.displayPath && previous.digest === currentDigest) {
-      versions.set(scope, nextVersion)
-      continue
-    }
-    const action = previous === undefined || previous.action === 'remove' ? 'set' : 'replace'
-    const change: WorkspaceInstructionChange = {
-      action,
-      scope,
-      path: file.displayPath,
-      digest: currentDigest,
-    }
-    items.push({ change, file })
-    versionUpdates.push({ change, state: nextVersion })
   }
   if (items.length === 0) return undefined
   const rendered = renderInstructionChanges(items, resolved.maxBytes)
-  if (rendered.text.length === 0 || rendered.changes.length === 0) return undefined
   return {
     context: workspaceContextHook(rendered.text, rendered.changes),
     versionUpdates: retainedInstructionVersionUpdates(versionUpdates, rendered.changes),
   }
-}
-
-/**
- * Validate a successful structured file touch and reconcile its applicable scopes.
- * @param agent - optional agent attached to the tool execution.
- * @param exec - completed tool execution descriptor.
- * @param result - original tool result before post-execute decisions.
- * @param resolved - normalized plugin configuration.
- * @param pendingNestedChanges - per-session pending transition maps.
- * @param baselineSessions - sessions whose configured baseline scopes should be probed.
- * @param versionCache - per-session scope metadata used to skip unchanged reads.
- * @param fileSystem - provider used for current file probes.
- * @returns rendered context plus deferred cache updates, or undefined for irrelevant/failed/unchanged calls.
- */
-export async function dynamicInstructionContext(
-  agent: Agent | undefined,
-  exec: ToolExecution,
-  result: ToolExecutionResult,
-  resolved: ResolvedConfig,
-  pendingNestedChanges: WeakMap<object, Map<string, PendingInstructionChange>>,
-  baselineSessions: WeakSet<object>,
-  versionCache: InstructionVersionCache,
-  fileSystem: FileSystem,
-): Promise<ReconciledInstructionContext | undefined> {
-  if (agent === undefined || result.isError) return undefined
-  const touchedPath = filePathFromExecution(exec)
-  if (touchedPath === undefined) return undefined
-  return reconcileInstructionContext(
-    agent, resolved, pendingNestedChanges, versionCache, fileSystem,
-    {
-      touchedPath,
-      includeBaselineScopes: baselineSessions.has(agent.session),
-      signal: exec.signal,
-    },
-  )
 }

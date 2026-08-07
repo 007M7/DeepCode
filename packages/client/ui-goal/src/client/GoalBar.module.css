@@ -1,43 +1,49 @@
-/* GoalBar: the goal strip docked above the composer card. The dock's 44px
-   side padding and the bar's 752px cap match the todo strip's column
-   (TodoPanel.module.css), 24px inside the composer card's edges. The
-   negative bottom margin cancels the composer stack's 8px gap and tucks the
-   bar's square bottom edge 2px under the composer card's top edge (the
-   card, later in DOM order, paints over it). Surface matches the todo
-   strip: tip fill, l1 border — no bottom edge where it disappears under the
-   card. All states share one fixed 38px height so switching between them
-   never resizes the strip. */
+/* GoalBar: the second standalone card in the composer context stack (Figma
+   1236:32276). Its dock column (card cap minus four insets) matches Todo and
+   the Queue panel. */
 
 .dock {
-  padding: 0 44px;
+  box-sizing: border-box;
+  width: calc(
+    100% -
+    var(--dsh-composer-side-clearance) -
+    var(--dsh-composer-side-clearance) -
+    var(--dsh-composer-dock-inset) -
+    var(--dsh-composer-dock-inset) -
+    var(--dsh-composer-dock-inset) -
+    var(--dsh-composer-dock-inset)
+  );
+  margin: 0 auto;
 }
 
 .bar {
+  box-sizing: border-box;
   display: flex;
   align-items: center;
-  gap: 6px;
-  box-sizing: border-box;
-  max-width: 752px;
-  height: 38px;
-  margin: 0 auto -10px;
-  padding: 0 14px;
+  gap: 10px;
+  width: 100%;
+  max-width: calc(var(--dsh-composer-card-max-width) - 4 * var(--dsh-composer-dock-inset));
+  height: 36px;
+  margin: 0 auto;
+  padding: 4px 5px 4px 12px;
   border: 1px solid var(--dsw-alias-border-l1);
-  border-bottom: none;
-  border-radius: 14px 14px 0 0;
+  border-radius: 12px;
   background: var(--dsw-specific-tip);
 }
 
-.sparkle {
+.goalGlyph {
   display: inline-flex;
   flex: none;
   color: var(--dsw-alias-label-tertiary);
 }
 
+/* Matches the Todo/Queue panel titles (13/24 medium, primary) so the three
+   composer-stack cards read as one family. */
 .label {
   flex: none;
   font-size: 13px;
-  line-height: 20px;
-  font-weight: 600;
+  line-height: 24px;
+  font-weight: 500;
   color: var(--dsw-alias-label-primary);
 }
 
@@ -47,7 +53,7 @@
   overflow: hidden;
   font-size: 13px;
   line-height: 20px;
-  color: var(--dsw-alias-label-secondary);
+  color: var(--dsw-alias-label-primary-dimmed);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -92,7 +98,7 @@
 .actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   flex: none;
 }
 
@@ -100,11 +106,11 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   padding: 0;
   border: none;
-  border-radius: 6px;
+  border-radius: 999px;
   background: transparent;
   color: var(--dsw-alias-label-tertiary);
   cursor: pointer;

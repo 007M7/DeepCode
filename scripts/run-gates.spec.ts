@@ -135,31 +135,66 @@ describe('Oxlint gate', () => {
   })
 })
 
-describe('Node 24 consumer graph', () => {
-  it('owns the eight-command pool and orders restored-artifact consumers', () => {
+describe('Node compatibility graph', () => {
+  it('runs the jsdom environment smoke on every advertised Node line', () => {
+    const subject = withPnpmEntrypoint(() => gatesForMode('node-compat'))
+
+    expect(subject.find(item => item.id === 'vitest-jsdom-smoke')).toMatchObject({
+      label: 'Vitest jsdom smoke',
+      args: [
+        '/private/pnpm.cjs',
+        'exec',
+        'vitest',
+        'run',
+        'scripts/vitest-environment.compat.spec.ts',
+      ],
+    })
+  })
+})
+
+describe('Node 24 lane ownership', () => {
+  it('keeps the static lane source-only', () => {
+    const subject = withPnpmEntrypoint(() => gatesForMode('ci-static'))
+
+    expect(subject.map(item => item.id)).not.toContain('build')
+    expect(subject.map(item => item.id)).not.toContain('doc-typecheck')
+  })
+
+  it('owns the build and orders its artifact consumers', () => {
     const subject = withPnpmEntrypoint(() => gatesForMode('ci-consumers'))
 
     expect(defaultConcurrency('ci-consumers', subject.length, 4)).toEqual({
-      workers: 8,
+      workers: 10,
       source: 'ci-consumers gate count',
     })
     expect(subject.map(item => item.id)).toEqual([
-      'lint-and-duplication',
+      'build',
       'node-compat',
+      'publint',
+      'built-package-invariants',
+      'lint-and-duplication',
       'snapshot',
       'web-snapshot',
-      'publint',
+      'doc-typecheck',
       'node-next-types',
-      'built-package-invariants',
       'built-bin-smoke',
     ])
-    expect(subject.find(item => item.id === 'publint')?.needs).toBeUndefined()
+    expect(subject.find(item => item.id === 'publint')?.needs).toEqual(['build'])
     expect(subject.find(item => item.id === 'built-package-invariants')?.needs).toEqual(['publint'])
     expect(subject.find(item => item.id === 'lint-and-duplication')?.needs).toEqual(['built-package-invariants'])
-    for (const id of ['snapshot', 'web-snapshot', 'node-next-types', 'built-bin-smoke']) {
+    for (const id of ['snapshot', 'web-snapshot', 'doc-typecheck', 'node-next-types', 'built-bin-smoke']) {
       expect(subject.find(item => item.id === id)?.needs).toEqual(['built-package-invariants'])
     }
     expect(subject.find(item => item.id === 'snapshot')?.env).toEqual({ DSH_EXAMPLE_MODE: 'lib' })
+    expect(subject.find(item => item.id === 'doc-typecheck')?.env).toEqual({
+      DSH_DOC_TYPECHECK_USE_BUILD_OUTPUT: '1',
+    })
+    expect(subject.find(item => item.id === 'built-bin-smoke')?.args).toEqual(
+      expect.arrayContaining([
+        'packages/subagent/subagent-codex/tests/loader-composition.e2e.ts',
+        'packages/subagent/subagent-claude-code/tests/loader-composition.e2e.ts',
+      ]),
+    )
     expect(subject.find(item => item.id === 'web-snapshot')).toMatchObject({
       displayCommand: 'DSH_SNAPSHOT=replay pnpm run test:web:built',
       env: { DSH_SNAPSHOT: 'replay' },

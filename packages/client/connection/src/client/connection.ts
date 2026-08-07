@@ -126,7 +126,7 @@ export class ConnectionController {
 
       try {
         // Strict readiness handshake (audit C2): describe proves unary reachability, onOpen
-        // proves each SSE transport is established (response headers in, before any frame) —
+        // proves each physical stream is established before any frame —
         // only then may onConnected fire, so the resync it triggers cannot outrun the
         // subscribed baseline. The timeout guards against a carrier that never fires onOpen
         // (see ConnectionConfig.streamOpenTimeoutMs).

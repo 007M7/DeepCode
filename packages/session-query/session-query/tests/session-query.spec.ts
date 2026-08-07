@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context, type Fiber } from 'cordis'
 import SessionStore, { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionHeader, SessionId as SessionIdType } from '@deepseek-ai/dsh-session'
-import SessionPersistence, { SessionPersistenceRevision } from '@deepseek-ai/dsh-session-persistence'
+import SessionPersistence, { SessionPersistenceCorruptionError, SessionPersistenceRevision } from '@deepseek-ai/dsh-session-persistence'
 import SessionQueryService, {
   SESSION_QUERY_DEFAULT_PERSISTED_INSPECT_CONCURRENCY,
   type SessionEventSurface,
@@ -893,7 +893,7 @@ describe('session-query exact reads', () => {
   it('classifies current, shadowed, and raw-log-only events through foldSurface', async () => {
     const ctx = await liveContext()
     const session = ctx.sessions.create(SessionId('surface'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     session.append('step/start', { turn: 1, step: 1 })
     const first = session.append(
       'user/message',
@@ -1008,7 +1008,7 @@ describe('session-query exact reads', () => {
   it('returns a bounded detached raw-event window and validates the request', async () => {
     const ctx = await liveContext({ readWindowMax: 1 })
     const session = ctx.sessions.create(SessionId('window'), { meta: { cwd: '/work' } })
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     for (const text of ['one', 'two', 'three']) {
       session.append(
         'user/message',
@@ -1050,7 +1050,7 @@ describe('session-query exact reads', () => {
     ])
     const ctx = await liveContext()
     const live = ctx.sessions.create(shared.id, { meta: { createdAt: 3, cwd: '/same' } })
-    live.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    live.append('turn/start', { turn: 1 })
     live.append(
       'user/message',
       createUserMessage({
@@ -1090,7 +1090,7 @@ describe('session-query exact reads', () => {
     TestPersistence.reset()
     const ctx = await liveContext()
     const live = ctx.sessions.create(SessionId('live'))
-    live.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    live.append('turn/start', { turn: 1 })
     live.append(
       'user/message',
       createUserMessage({
@@ -1112,6 +1112,24 @@ describe('session-query exact reads', () => {
     expect(TestPersistence.inspectSignals).toEqual([])
     await expect(ctx.sessionQuery.listSessions()).rejects.toThrow(expectCode('SESSION_QUERY_PERSISTENCE_FAILED'))
     await expect(ctx.sessionQuery.listEvents(SessionId('durable'))).rejects.toThrow(expectCode('SESSION_QUERY_PERSISTENCE_FAILED'))
+  })
+
+  it('wraps persisted corruption as SESSION_QUERY_CORRUPT_SESSION with its cause preserved', async () => {
+    const durable = header('durable-corrupt')
+    TestPersistence.reset([{ meta: durable, events: eventLog() }])
+    const ctx = await liveContext()
+    await ctx.plugin(TestPersistence)
+    const corruption = new SessionPersistenceCorruptionError(
+      'stored prefix failed validation',
+      { cause: new Error('torn final record') },
+    )
+    TestPersistence.inspectFailure = corruption
+
+    await expect(ctx.sessionQuery.readSession(durable.id)).rejects.toMatchObject({
+      code: 'SESSION_QUERY_CORRUPT_SESSION',
+      message: `stored session "${durable.id}" is corrupt: stored prefix failed validation`,
+      cause: corruption,
+    })
   })
 
   it('reports absent sessions, persisted load failures, and persisted header conflicts', async () => {

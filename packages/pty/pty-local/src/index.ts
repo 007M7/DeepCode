@@ -12,7 +12,7 @@ import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { PtyBackendCleanupError } from '@deepseek-ai/dsh-pty'
 import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
 import type { PtyBackend, PtyBackendSpawnSpec } from '@deepseek-ai/dsh-pty'
-import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
+import type { SandboxExecutionPolicy } from '@deepseek-ai/dsh-sandbox'
 import { effectiveSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
 import { type Config, type ResolvedConfig, validateConfig } from './config.ts'
 import { createProcessInspector } from './process-inspector.ts'
@@ -71,14 +71,11 @@ function childEnvironment(spec: PtyBackendSpawnSpec): NodeJS.ProcessEnv {
   }
 }
 
-function spawnArgv(ctx: Context, config: ResolvedConfig, spec: PtyBackendSpawnSpec): string[] {
+function spawnArgv(ctx: Context, config: ResolvedConfig, policy: SandboxExecutionPolicy): string[] {
   const argv = [config.shellPath, ...config.shellArgs]
-  const mode: SandboxMode = effectiveSandboxMode(spec.owner.session.events) ?? ctx.sandboxPolicy.defaultMode
-  if (mode === 'danger-full-access') return argv
-  return ctx.sandbox.confine(argv, {
-    mode: mode,
-    workspaceRoot: ctx.sandboxPolicy.workspaceRoot,
-  }).argv
+  if (policy.mode === 'danger-full-access') return argv
+  // Re-state the discriminant because object spread does not preserve its narrowed type.
+  return ctx.sandbox.confine(argv, { ...policy, mode: policy.mode }).argv
 }
 
 /** Local shell backend registered under the configured type. */
@@ -102,14 +99,15 @@ export class LocalPtyBackend implements PtyBackend {
   async spawn(spec: PtyBackendSpawnSpec): Promise<LocalPtySession> {
     spec.signal?.throwIfAborted()
     ensureSandboxModeFence(this.ctx, spec.owner)
-    const argv = spawnArgv(this.ctx, this.config, spec)
+    const policy = this.ctx.sandboxPolicy.resolve({ session: spec.owner.session })
+    const argv = spawnArgv(this.ctx, this.config, policy)
     const file = argv[0]
     if (file === undefined) throw new Error('pty-local: sandbox returned empty argv')
     const options: IPtyForkOptions = {
       name: 'dumb',
       cols: this.config.cols,
       rows: this.config.rows,
-      cwd: spec.cwd ?? this.ctx.sandboxPolicy.workspaceRoot,
+      cwd: spec.cwd ?? policy.workspaceRoot,
       env: childEnvironment(spec),
     }
     const terminal = this.spawnTerminal(file, argv.slice(1), options)

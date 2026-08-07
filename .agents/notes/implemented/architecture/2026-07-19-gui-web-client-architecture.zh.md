@@ -44,7 +44,7 @@ slot 体系有自己的 RFC——[slot 体系标准](2026-07-22-slot-type-chain-
 
 服务是插件对其他插件的唯一 API 面（UI 组件与注入面都不是 API；无人调用的插件不挂服务——ui-trajectory 即最小插件样板：无 ctx 服务，只做视图坑注册）。名册：`ctx.connection`（api client + 流句柄）、`ctx.slots`（注册表包装层，发 `slots/changed`，渲染入口，渲染器安装缝）、`ctx.sessions`（列表 store、当前会话状态、scope 树）、`ctx.loader`、`ctx.theme`、`ctx.i18n`、`ctx.layout`（跨插件视图导航）、`ctx.conversation`（send/cancel/startSession）。过去住在服务 store 里的观看态（面板宽、选中、草稿）现按 [slot 体系标准](2026-07-22-slot-type-chain-implementation.md) 住 entry 声明的 store。
 
-slot 之外不存在第二种注册模型——原视图环与工具环都已溶解进来。会话视图即 ui-conversation 声明的 `'conversation.view'` list 坑的 entry，tab 元数据随注册 options（`id`/`order`/`label`）走，per-view chrome 住视图组件自身。工具行是各视图自己声明的 keyed 子槽——今天是 `'conversation.chat.toolview'`（keyed/session），由 chat 条目的 `children` 表声明；key 空间运行时开放（SlotMap 声明槽、从不声明 key），这正是工具环「tool 名开放集」的原需求。渲染点逐行以 `entryKey: toolName` 分发、以 `GenericToolCard` 作调用点 `fallback`；owner 载荷是统一的 `ToolRowOwnerProps`（`callId`/`toolName`/`block`/`openDetails`），`ToolRowProps` 把它与 session 标配 kit 预组合供注册方组件取用。注册方就是普通插件、零专用设施：`ctx.slots.register({ name: 'conversation.chat.toolview', key: '<tool>', inject? }, Row)`，以 `inject: ['slots', 'conversation']` 作加载序缝（conversation 服务在场即保证槽已声明）。会话维差异化在组件内完成——`useSessions` 读 `parentId`——不走注册表谓词；交互草稿等行内状态走普通 store 席位。trajectory/waterfall 得同形槽（槽名按槽名纪律 `<域>.<条目>.<孔位>` 已定死，共用一张 owner 类型），随各自的行渲染点落地——RendersCheck 拒绝无人渲染的声明，两槽无法提前声明。
+slot 之外不存在第二种注册模型——原视图环与工具环都已溶解进来。会话视图即 ui-conversation 声明的 `'conversation.view'` list 坑的 entry，tab 元数据随注册 options（`id`/`order`/`label`）走，per-view chrome 住视图组件自身。工具行是各视图自己声明的 keyed 子槽——今天是 `'conversation.chat.toolview'`（keyed/session），由 chat 条目的 `children` 表声明；key 空间运行时开放（SlotMap 声明槽、从不声明 key），这正是工具环「tool 名开放集」的原需求。渲染点逐行以 `entryKey: toolName` 分发、以 `GenericToolCard` 作调用点 `fallback`；owner 载荷是统一的 `ToolRowOwnerProps`（`callId`/`toolName`/`block`/`openDetails`），`ToolRowProps` 把它与 session 标配 kit 预组合供注册方组件取用。注册方就是普通插件、零专用设施：`ctx.slots.inject('conversation.chat.toolview', () => ctx.slots.register({ name: 'conversation.chat.toolview', key: '<tool>', inject? }, Row))`；声明本身就是加载与重载依赖，不依赖 `ConversationService`（[决策](2026-08-05-slot-declaration-injection.md)）。交互草稿等行内状态走普通 store 席位。trajectory/waterfall 得同形槽（槽名按槽名纪律 `<域>.<条目>.<孔位>` 已定死，共用一张 owner 类型），随各自的行渲染点落地——RendersCheck 拒绝无人渲染的声明，两槽无法提前声明。
 
 **scope 寻址**与 host 侧 agent scope 惯例同构：服务是 root 单例，方法不收 sessionId——它们读调用方 ctx 上的 scope 标（`scopeOf(ctx)`）。在会话 scope 内，`ctx.conversation.send('hi', 'queue')` 自动打到该会话；跨会话调用换 ctx 定向（`ctx.sessions.scope(id)!.conversation.send(...)`）；从 root ctx 直接调 scoped 方法即 throw。client 会话 scope 的铸造方式与 host agent scope 相同（no-op 插件 fiber + scope 键 extend），首次观看时惰性建，只有会话被移除且无人观看才拆——仅 host 会话死亡不拆 scope（冻结为只读视窗）。
 
@@ -62,18 +62,18 @@ SessionManager.handleMuxEnvelope / handleHostEnvelope
 Session.handleMuxEnvelope ──► events 窗口（seq 连续升序）
         │                        │ 定稿事件            │ chunk
         │                        ▼                    ▼
-        │                   FoldAdapter        PartialAccumulator
+        │                TranscriptAdapter     PartialAccumulator
         │                  （→ nodes）          （→ partial）
         ▼
 Notifier 微任务合批 ──► ConversationSnapshot 缓存 ──uSES──► 组件
 ```
 
-- **Session**（session.ts）：懒建、常驻——建成后在后台持续吃帧，切走切回秒显。操作面：`prompt`/`cancel`（RPC 透传；失败落进快照的 `promptError`）、`open`（拉尾页 history，幂等）、`loadOlder`（向上翻页，防重入）、`resync`（重连 = 清窗口重跑 open）。订阅面：`subscribe`/`getSnapshot`（恒返缓存引用）——`implements ObservableSnapshot<ConversationSnapshot>`，构造时挂 `useSelector = bindSnapshotSelector(this)`，Session 本身就是 uSES 源。帧分发是一个 switch：`session/event` 帧按 seq 去重（唯一去重键），open 在途时缓冲，否则追加 + 增量 fold；open/缝合按 seq 合并 live 缓冲并去重，`subscribed.lastSeq` 超出窗口尾则回补一次。
-- **ConversationSnapshot**（conversation.ts）：不可变快照契约——`nodes`（fold 产物，surface 序）、`partial`、`runningCalls`、`pending`、`running`、`removed`、`openState`、`hasMore`、`promptError` 等。**引用纪律**（memo 与 uSES 的前提）：顶层对象每变必新；nodes 数组重建但元素引用来自缓存；未变的子结构复用上一快照的引用。
+- **Session**（session.ts）：懒建、常驻——建成后在后台持续吃帧，切走切回秒显。操作面：`prompt`/`cancel`（RPC 透传；失败落进快照的 `promptError`）、`open`（拉尾页 history，幂等）、`loadOlder`（向上翻页，防重入）、`resync`（重连 = 清窗口重跑 open）。订阅面：`subscribe`/`getSnapshot`（恒返缓存引用）——`implements ObservableSnapshot<ConversationSnapshot>`，构造时挂 `useSelector = bindSnapshotSelector(this)`，Session 本身就是 uSES 源。帧分发是一个 switch：`session/event` 帧按 seq 去重（唯一去重键），open 在途时缓冲，否则追加 + 增量投影；open/缝合按 seq 合并 live 缓冲并去重，`subscribed.lastSeq` 超出窗口尾则回补一次。
+- **ConversationSnapshot**（conversation.ts）：不可变快照契约——`nodes`（人类对话记录，日志序）、`partial`、`runningCalls`、`pending`、`running`、`removed`、`openState`、`hasMore`、`promptError` 等。**引用纪律**（memo 与 uSES 的前提）：顶层对象每变必新；未变化的 nodes 投影保持同一数组引用，消息流变化时返回新数组并复用未变化的元素引用；未变的子结构复用上一快照的引用。
 - **SessionManager**（manager.ts）：实例簇 + 帧总入口 + 会话列表。带 sessionId 的帧只投已存在实例（mux 广播不得把每个会话都实例化）；例外是审批/问答 `requested` 帧——它们不落 history、open 无法回补，故缓冲进 `pendingBuffers`，实例化时回放。
 - **Notifier**（notifier.ts）：两条通知通道，按变更来源取用。`markDirty()`（默认；帧驱动一律用它）按微任务合批——N 次变更、一次通知、一次重渲染；flush 先重建快照缓存再通知。`notifyNow()`（仅用户手势的直接回响）同 tick 重建并通知——受控输入的回响若延到微任务，DOM 会回滚、光标跳尾。帧驱动代码用 notifyNow 会让合批塌回逐帧渲染；禁。
-- **FoldAdapter / PartialAccumulator**：fold 复用核心 SurfaceManager（`@deepseek-ai/dsh-session/surface`），垫哨兵事件使 seq > 0 起头的分页窗口满足核心的 `seq === index` 断言；跨窗口 replace 时降级为容错线性扫描并置 `foldDegraded`。分片完全不进 fold（O(1) 跳过）：累积器把 StreamChunk 折叠成 `AssistantBlock[]`，一次增量只换该块引用；定稿消息到达即在同一批内弃掉累积器（提升无闪烁）。成本模型：一个分片 = 一次字符串拼接 + 一个脏标记；帧风暴下未订阅的 Session 只花那个标记。
-- **ConnectionController**（在 `packages/client/connection`）：开 mux/host 双流、for-await 泵入，代际围栏之内指数退避重连（500ms 翻倍至 10s 封顶、抖动、无限重试）；sinks 单向注入（Controller 不认识 Session）。重连 = 重建：`onConnected` → 列表刷新 + 各已打开会话 resync。对象层只面向 `IApiClient`；Web 承载（HTTP POST 载两个 client→server 象限、SSE 载两个 server→client 象限）与客户端类族归分层 RFC 属地。
+- **TranscriptAdapter / PartialAccumulator**：对话记录是按日志顺序投影的 append 来源 surface（`@deepseek-ai/dsh-session/surface` 的 `isAppendSurfaceEvent`），外加每次落地的压缩检查点一个标记——绝不用模型 surface，后者遮蔽被替换的范围，会抹掉读者已经看过的对话。节点顺序天然按 seq 单调，因此既无核心 `seq === index` 断言需要满足，也没有降级分支。分片不贡献任何节点（O(1) 跳过）：累积器把 StreamChunk 折叠成 `AssistantBlock[]`，一次增量只换该块引用；定稿消息到达即在同一批内弃掉累积器（提升无闪烁）。成本模型：一个分片 = 一次字符串拼接 + 一个脏标记；帧风暴下未订阅的 Session 只花那个标记。
+- **ConnectionController**（在 `packages/client/connection`）：开 mux/host 双流、for-await 泵入，代际围栏之内指数退避重连（500ms 翻倍至 10s 封顶、抖动、无限重试）；sinks 单向注入（Controller 不认识 Session）。重连 = 重建：`onConnected` → 列表刷新 + 各已打开会话 resync。对象层只面向 `IApiClient`；Web 承载以 HTTP POST 载两个 client→server 象限、以[每逻辑流一条 WebSocket](2026-08-04-websocket-downlink-carrier.md)载两个 server→client 象限，客户端类族归分层 RFC 属地。
 
 ## React 面（`packages/client/web-react`）
 

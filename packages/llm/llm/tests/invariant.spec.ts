@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import LlmService, { CallId, LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import * as LlmInvariant from '@deepseek-ai/dsh-llm/invariant'
 import InvariantService from '@deepseek-ai/dsh-invariants'
@@ -82,5 +82,42 @@ describe('LLM stream invariants', () => {
     await expect((async () => {
       for await (const _chunk of stream) { /* consume */ }
     })()).rejects.toThrow('provider failed')
+  })
+})
+
+describe('adapters-updated invariants', () => {
+  class NoopAdapter extends LlmAdapter {
+
+    async * stream(_options: GenerateOptions): AsyncIterable<StreamChunk> {
+      throw new Error('not exercised')
+    }
+  }
+
+  it('accepts a coherent registry at every topology notification', async () => {
+    const ctx = await setup()
+    await ctx.plugin(LlmService)
+    const dispose = ctx.llm.registerAdapter(['coherent'], new NoopAdapter())
+    ctx.llm.registerConfigurableProviders([
+      { provider: 'dormant', displayName: 'Dormant', settingsNs: 'ns', settingsPath: [] },
+    ])
+    dispose()
+    expect(ctx.llm.listProviders()).toEqual([])
+  })
+
+  it('skips the check when the service store has no llm entry', async () => {
+    const ctx = await setup()
+    expect(() => { ctx.emit('llm/adapters-updated') }).not.toThrow()
+  })
+
+  it('reports a notification whose registry cannot be re-read', async () => {
+    class BrokenLlm extends LlmService {
+      override providerRetryPolicy(_provider: string): never {
+        throw new Error('registration vanished')
+      }
+    }
+    const ctx = await setup()
+    await ctx.plugin(BrokenLlm)
+    expect(() => ctx.llm.registerAdapter(['ghost'], new NoopAdapter()))
+      .toThrow(/no readable registration/)
   })
 })

@@ -7,6 +7,7 @@ import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import Include from '@cordisjs/plugin-include'
 import LlmService from '@deepseek-ai/dsh-llm'
+import SessionStore from '@deepseek-ai/dsh-session'
 import TokenMeterService from '@deepseek-ai/dsh-token-meter'
 import BasicCompactService from '@deepseek-ai/dsh-compact-basic'
 import ToolResultPruneService from '@deepseek-ai/dsh-compact-tool-result-prune'
@@ -32,6 +33,7 @@ async function loadYaml(lines: readonly string[]): Promise<Context> {
   context.loader.builtins.include = Include
   const modules = new Map<string, unknown>([
     ['@deepseek-ai/dsh-llm', LlmService],
+    ['@deepseek-ai/dsh-session', SessionStore],
     ['@deepseek-ai/dsh-token-meter', TokenMeterService],
     ['@deepseek-ai/dsh-compact-tool-result-prune', ToolResultPruneService],
     ['@deepseek-ai/dsh-compact-basic', BasicCompactService],
@@ -55,6 +57,7 @@ describe('real Loader composition', () => {
   it('loads the shipped token-meter, pruning, and compact-basic YAML order', async () => {
     const loaded = await loadYaml([
       "- name: '@deepseek-ai/dsh-llm'",
+      "- name: '@deepseek-ai/dsh-session'",
       "- name: '@deepseek-ai/dsh-token-meter'",
       "- name: '@deepseek-ai/dsh-compact-tool-result-prune'",
       '  config:',
@@ -74,7 +77,7 @@ describe('real Loader composition', () => {
     expect(unloaded).toEqual([])
     expect(loaded.get('toolResultPrune')).toBeInstanceOf(ToolResultPruneService)
     expect(loaded.get('compact')).toBeInstanceOf(BasicCompactService)
-    expect((loaded.compact as BasicCompactService).config).toMatchObject({
+    expect((loaded.compact as unknown as BasicCompactService).config).toMatchObject({
       thresholdRatio: 0.5,
       retainRatio: 0.125,
       auto: false,
@@ -91,6 +94,7 @@ describe('real Loader composition', () => {
   it('rejects stale compact-basic config after Schemastery normalization', async () => {
     context = new Context()
     await context.plugin(LlmService)
+    await context.plugin(SessionStore)
     await context.plugin(TokenMeterService)
     await expect(context.plugin(BasicCompactService, {
       models: { legacy: { thresholdRatio: 0.5 } },
@@ -100,6 +104,7 @@ describe('real Loader composition', () => {
   it('rejects a capacity-independent merged ratio conflict during plugin load', async () => {
     context = new Context()
     await context.plugin(LlmService)
+    await context.plugin(SessionStore)
     await context.plugin(TokenMeterService)
     await expect(context.plugin(BasicCompactService, {
       retainRatio: 0.2,
@@ -114,6 +119,7 @@ describe('real Loader composition', () => {
   it('rejects an incomplete model-policy summarization pair during plugin load', async () => {
     context = new Context()
     await context.plugin(LlmService)
+    await context.plugin(SessionStore)
     await context.plugin(TokenMeterService)
     await expect(context.plugin(BasicCompactService, {
       summarizationProvider: 'default-provider',

@@ -18,7 +18,7 @@ import type { CreateArgs } from './args.ts'
 interface HeadlessCreateSpec {
   directory?: string
   description?: string
-  provider?: 'deepseek' | 'custom'
+  provider?: 'deepseek-official' | 'custom'
   baseURL?: string
   apiKey?: string
   model?: string

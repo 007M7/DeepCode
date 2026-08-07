@@ -1,45 +1,12 @@
-// Shared chrome helpers for user/assistant IconActions rows: clipboard write
-// and the compact date+clock label from a session-event epoch.
+// Shared time-label helpers for user/assistant IconActions rows.
 
-/**
- * Best-effort clipboard write; rejections stay swallowed (no success chrome).
- * @param text - Plain text to place on the clipboard.
- */
-export async function writeClipboard(text: string): Promise<void> {
-  // lib.dom types clipboard non-optional, but insecure contexts omit it —
-  // that runtime gap is exactly what this guard detects.
-  /* oxlint-disable-next-line typescript/no-unnecessary-condition */
-  if (navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(text)
-    } catch {
-      // Denied permissions / iframe policy.
-    }
-    return
-  }
-  // execCommand('copy') is the only clipboard fallback where the async API
-  // is missing (insecure contexts); deprecated but deliberately retained.
-  /* oxlint-disable typescript/no-deprecated */
-  const exec = typeof document.execCommand === 'function'
-    ? document.execCommand.bind(document)
-    : undefined
-  if (exec === undefined) return
-  const el = document.createElement('textarea')
-  el.value = text
-  el.setAttribute('readonly', '')
-  el.style.position = 'fixed'
-  el.style.left = '-9999px'
-  document.body.appendChild(el)
-  el.select()
-  try {
-    exec('copy')
-  } catch {
-    // Clipboard unavailable; the button stays idle.
-  }
-  /* oxlint-enable typescript/no-deprecated */
-  el.remove()
-}
+import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
 
+/** The date-template share of the conversation dictionary the clock consumes. */
+export type ClockTranslate = Translate<'clock.md' | 'clock.ymd'>
+
+/** The elapsed-duration share of the conversation dictionary. */
+export type RunDurationTranslate = Translate<'duration.seconds' | 'duration.minutes'>
 function pad2(n: number): string {
   return String(n).padStart(2, '0')
 }
@@ -67,14 +34,52 @@ export function msUntilNextLocalMidnight(ms: number): number {
 }
 
 /**
- * Compact local timestamp for message IconActions.
- * Same calendar day → `HH:mm`; earlier this year → `M月D日 HH:mm`;
- * other years → `YYYY年M月D日 HH:mm`.
+ * Localized elapsed-time label shared by running and settled turn chrome.
+ * @param ms - Elapsed duration in milliseconds (negatives clamp to zero).
+ * @param t - Translate seat supplying the duration templates.
+ * @returns Display string in whole seconds.
+ */
+export function formatRunDuration(ms: number, t: RunDurationTranslate): string {
+  const total = Math.max(0, Math.floor(ms / 1000))
+  const minutes = Math.floor(total / 60)
+  const seconds = total % 60
+  return minutes > 0
+    ? t('duration.minutes', { minutes, seconds: String(seconds).padStart(2, '0') })
+    : t('duration.seconds', { seconds })
+}
+
+/**
+ * Sub-turn latency figure: one decimal under ten seconds, whole seconds
+ * beyond. Unit-less so the locale template owns the second suffix.
+ * @param ms - Latency in milliseconds (negatives clamp to zero).
+ * @returns Display number in seconds without unit.
+ */
+export function formatLatencySeconds(ms: number): string {
+  const s = Math.max(0, ms) / 1000
+  return s < 10 ? String(Math.round(s * 10) / 10) : String(Math.round(s))
+}
+
+/**
+ * Decode-throughput figure: whole tokens from ten up, one decimal below.
+ * @param tps - Tokens per second.
+ * @returns Display number without unit.
+ */
+export function formatTokensPerSecond(tps: number): string {
+  const clamped = Math.max(0, tps)
+  return clamped >= 10 ? String(Math.round(clamped)) : String(Math.round(clamped * 10) / 10)
+}
+
+/**
+ * Compact local timestamp for message IconActions. Same calendar day →
+ * `HH:mm`; earlier this year → the `clock.md` date template + clock; other
+ * years → the `clock.ymd` template + clock. Pure: the date templates arrive
+ * through the caller's locale seat.
  * @param time - Unix epoch ms from the source session event.
+ * @param t - translate seat supplying the `clock.md` / `clock.ymd` templates.
  * @param now - Reference instant for the day/year cut (defaults to wall clock).
  * @returns Date-aware clock string (24-hour, zero-padded time).
  */
-export function formatMessageClock(time: number, now: number = Date.now()): string {
+export function formatMessageClock(time: number, t: ClockTranslate, now: number = Date.now()): string {
   const d = new Date(time)
   const n = new Date(now)
   const clock = `${pad2(d.getHours())}:${pad2(d.getMinutes())}`
@@ -85,7 +90,7 @@ export function formatMessageClock(time: number, now: number = Date.now()): stri
   ) {
     return clock
   }
-  const md = `${d.getMonth() + 1}月${d.getDate()}日`
-  if (d.getFullYear() === n.getFullYear()) return `${md} ${clock}`
-  return `${d.getFullYear()}年${md} ${clock}`
+  const params = { y: d.getFullYear(), m: d.getMonth() + 1, d: d.getDate() }
+  const md = d.getFullYear() === n.getFullYear() ? t('clock.md', params) : t('clock.ymd', params)
+  return `${md} ${clock}`
 }

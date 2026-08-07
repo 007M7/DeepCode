@@ -38,14 +38,17 @@ export function WorkspaceId(id: string): WorkspaceId {
   return id as WorkspaceId
 }
 
-/** A create request would give two Workspaces the same display name. */
-export class WorkspaceNameConflictError extends Error {
+/**
+ * An archiveSession request named a session neither live nor in session
+ * persistence — a definite miss only; storage faults propagate as themselves.
+ */
+export class WorkspaceUnknownSessionError extends Error {
   /**
-   * @param workspaceName - Conflicting display name.
+   * @param sessionId - The unknown session id.
    */
-  constructor(readonly workspaceName: string) {
-    super(`workspace name '${workspaceName}' is already in use`)
-    this.name = 'WorkspaceNameConflictError'
+  constructor(readonly sessionId: SessionId) {
+    super(`cannot archive session '${sessionId}': live sessions and session persistence hold no such session`)
+    this.name = 'WorkspaceUnknownSessionError'
   }
 }
 
@@ -131,7 +134,7 @@ export class WorkspaceRegistry extends Service {
    * original error and a non-directory rejects. Repeated calls for the same
    * canonical path return the existing entity without changing its title.
    * A newly created workspace is prepended to the durable registry order.
-   * A different canonical path cannot create a duplicate display title.
+   * Different canonical paths may share a display title.
    * @param path - Existing directory to own, in any path spelling.
    * @param title - Display title used only when a new record is created.
    * @returns the existing or newly durable workspace.
@@ -182,6 +185,49 @@ export class WorkspaceRegistry extends Service {
   }
 
   /**
+   * The registry-global archive set: sessions hidden from every grouping
+   * surface. Archiving never touches workspace accounting — an archived
+   * session keeps its `sessionIds` slot so unarchiving restores its position.
+   * @returns the archived session ids in archive order.
+   */
+  get archivedSessionIds(): readonly SessionId[] {
+    return this.requireState().archivedSessionIds
+  }
+
+  /**
+   * Archive one session durably. The session must exist (live or in session
+   * persistence); its workspace accounting — or lack of one — is irrelevant.
+   * An already archived id resolves without writing.
+   * @param sessionId - The session to archive.
+   * @returns resolution after durability.
+   */
+  archiveSession(sessionId: SessionId): Promise<void> {
+    return this.enqueueOperation(async () => {
+      // The chain slot serializes against every other registry write, so this
+      // check-then-write pair cannot interleave with another archive.
+      if (this.requireState().archivedSessionIds.includes(sessionId)) return
+      if (!(await this.sessionKnown(sessionId))) {
+        throw new WorkspaceUnknownSessionError(sessionId)
+      }
+      const state = this.requireState()
+      await this.setState({ ...state, archivedSessionIds: [...state.archivedSessionIds, sessionId] })
+    })
+  }
+
+  /**
+   * Whether a session is live, header-indexed, or present in a fresh
+   * persistence listing. Only a definite miss returns false — a failing
+   * `sessionPersistence.list()` propagates so storage faults never
+   * masquerade as an unknown session.
+   */
+  private async sessionKnown(id: SessionId): Promise<boolean> {
+    if (this.ctx.get('sessions')?.get(id) !== undefined) return true
+    if (this.headers.has(id)) return true
+    await this.indexHeaders(await this.ctx.sessionPersistence.list())
+    return this.headers.has(id)
+  }
+
+  /**
    * Resolve by canonical directory path without creating or mutating a
    * workspace. A missing path rejects during `realpath`; an existing unowned
    * directory returns `undefined`.
@@ -202,10 +248,6 @@ export class WorkspaceRegistry extends Service {
     }
 
     const workspaceName = title ?? basename(canonical)
-    if ([...this.entities.values()].some(entity => entity.title === workspaceName)) {
-      throw new WorkspaceNameConflictError(workspaceName)
-    }
-
     const table = this.requireTable()
     const state = this.requireState()
     const id = WorkspaceId(randomUUID())
@@ -245,7 +287,11 @@ export class WorkspaceRegistry extends Service {
     }
 
     try {
-      await this.setState({ initialized: true, workspaceIds: [id, ...state.workspaceIds] })
+      await this.setState({
+        initialized: true,
+        workspaceIds: [id, ...state.workspaceIds],
+        archivedSessionIds: state.archivedSessionIds,
+      })
     } catch (error) {
       this.entities.delete(id)
       try {
@@ -276,6 +322,7 @@ export class WorkspaceRegistry extends Service {
     const nextState = {
       initialized: true,
       workspaceIds: state.workspaceIds.filter(workspaceId => workspaceId !== id),
+      archivedSessionIds: state.archivedSessionIds,
     }
     await this.setState({
       ...nextState,
@@ -329,7 +376,11 @@ export class WorkspaceRegistry extends Service {
       )
     }
     await this.requireTable().delete(pending.workspaceId)
-    await this.setState({ initialized: state.initialized, workspaceIds: state.workspaceIds })
+    await this.setState({
+      initialized: state.initialized,
+      workspaceIds: state.workspaceIds,
+      archivedSessionIds: state.archivedSessionIds,
+    })
   }
 
   private async bootstrap(headers: readonly SessionHeader[]): Promise<void> {
@@ -411,9 +462,9 @@ export class WorkspaceRegistry extends Service {
       .map(([id]) => id)
 
     if (!sameIds(state.workspaceIds, workspaceIds)) {
-      await this.setState({ initialized: false, workspaceIds })
+      await this.setState({ initialized: false, workspaceIds, archivedSessionIds: state.archivedSessionIds })
     }
-    await this.setState({ initialized: true, workspaceIds })
+    await this.setState({ initialized: true, workspaceIds, archivedSessionIds: state.archivedSessionIds })
   }
 
   private validateStoredState(state: WorkspaceDomainState): void {

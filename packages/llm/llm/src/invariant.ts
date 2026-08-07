@@ -72,7 +72,9 @@ async function* validateStream(
         usageSeen = true
         break
       case 'finish':
-        if (open.size > 0) fail(`LLM stream finished with ${open.size} open block(s)`)
+        if (open.size > 0 && chunk.reason.kind !== 'error' && chunk.reason.kind !== 'aborted') {
+          fail(`LLM stream finished with ${open.size} open block(s)`)
+        }
         finished = true
         break
     }
@@ -84,6 +86,21 @@ async function* validateStream(
 /** Install validation around every provider stream. */
 const install: InvariantInstaller = (ctx, fail) => {
   ctx.on('llm/stream', (_options, next) => validateStream(next(), fail), { global: true, prepend: true })
+  ctx.on('llm/adapters-updated', () => {
+    // A disposer-time emit can outlive the service-store entry during whole-
+    // context teardown; only a live service promises a readable registry.
+    const llm = ctx.get('llm')
+    if (llm === undefined) return
+    for (const provider of llm.listProviders()) {
+      try {
+        llm.providerRetryPolicy(provider.id)
+      } catch {
+        // Reaching here IS the violation: the notification promised a readable
+        // registry, and only that broken promise can make the lookup throw.
+        fail(`llm/adapters-updated fired while provider "${provider.id}" has no readable registration`)
+      }
+    }
+  }, { global: true })
 }
 
 /**

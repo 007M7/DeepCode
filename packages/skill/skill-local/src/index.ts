@@ -47,6 +47,10 @@ export const inject = ['skills']
 
 /** Local filesystem skill provider configuration. */
 export interface Config {
+  /** Unique provider name. Defaults to `local`. */
+  providerName?: string
+  /** Whether project and user roots are included around custom roots. */
+  includeDefaultRoots?: boolean
   /** DeepSeek Harness config root. Defaults to `$DSH_HOME` or `~/.dsh`. */
   dshHome?: string
   /** Shared agent config root. Defaults to `$DSH_AGENTS_HOME` or `~/.agents`. */
@@ -65,11 +69,13 @@ export interface Config {
   watchMaxProjects?: number
   /** Whether watched symbolic links follow their target files. */
   watchFollowSymlinks?: boolean
-  /** Bundled skill root; defaults to `$DSH_BUNDLED_SKILL_DIR`, otherwise mounts none. */
+  /** Bundled skill root; defaults to `$DSH_BUNDLED_SKILL_DIR` when default roots are included, otherwise mounts none. */
   bundledSkillDir?: string
 }
 
 export const Config: Schema<Config> = z.object({
+  providerName: z.string().min(1).default('local'),
+  includeDefaultRoots: z.boolean().default(true),
   dshHome: z.string(),
   agentsHome: z.string(),
   customSkillDirs: z.array(z.string()).default([]),
@@ -138,7 +144,8 @@ export function apply(ctx: Context, config: Config = {}): void {
 
 /** Provider that maps local project/user skill roots into `ctx.skills`. */
 export class LocalSkillProvider implements SkillProvider {
-  readonly name = 'local'
+  readonly name: string
+  private readonly includeDefaultRoots: boolean
   private readonly dshHome: string
   private readonly agentsHome: string
   private readonly customSkillDirs: string[]
@@ -151,12 +158,19 @@ export class LocalSkillProvider implements SkillProvider {
     control: SkillProviderControl,
     config: Config = {},
   ) {
+    this.name = config.providerName ?? 'local'
+    this.includeDefaultRoots = config.includeDefaultRoots ?? true
     this.dshHome = resolveDshHome(config.dshHome)
     this.agentsHome = resolve(config.agentsHome ?? process.env.DSH_AGENTS_HOME ?? join(homedir(), '.agents'))
     this.customSkillDirs = (config.customSkillDirs ?? []).map(root => resolve(root))
     this.watchManager = new SkillWatchManager(ctx, control.invalidate, resolveWatchConfig(config))
     control.signal.addEventListener('abort', () => { void this.dispose() }, { once: true })
-    const bundledSkillDir = config.bundledSkillDir ?? process.env.DSH_BUNDLED_SKILL_DIR
+    // The environment bundled root is a default root: an isolated provider
+    // (includeDefaultRoots: false — repository plugins) must see only its
+    // explicit custom roots, or every such provider would re-discover the
+    // app's bundled skills and claim them under its own provider name.
+    const bundledSkillDir = config.bundledSkillDir
+      ?? (this.includeDefaultRoots ? process.env.DSH_BUNDLED_SKILL_DIR : undefined)
     this.bundledSkillDir = bundledSkillDir === undefined ? undefined : resolve(bundledSkillDir)
   }
 
@@ -177,7 +191,7 @@ export class LocalSkillProvider implements SkillProvider {
     }
     const candidates: SkillCandidate[] = []
     for (const root of roots) {
-      for (const skill of await discoverRoot(root, this.ctx)) {
+      for (const skill of await discoverRoot(root, this.ctx, this.name)) {
         candidates.push(skill)
       }
     }
@@ -227,21 +241,23 @@ export class LocalSkillProvider implements SkillProvider {
 
   private async roots(cwd: string | undefined): Promise<SkillRoot[]> {
     const roots: SkillRoot[] = []
-    if (cwd !== undefined) {
+    if (this.includeDefaultRoots && cwd !== undefined) {
       const projectRoot = await findProjectRoot(resolve(cwd), optionalFileSystem(this.ctx))
       roots.push(
         { path: join(projectRoot, '.dsh/skills'), source: 'project-dsh', rank: PROJECT_DSH_RANK, projectRoot },
         { path: join(projectRoot, '.agents/skills'), source: 'project-agents', rank: PROJECT_AGENTS_RANK, projectRoot },
       )
     }
-    roots.push(
-      ...this.customSkillDirs.map(path => ({ path, source: 'custom' as const, rank: CUSTOM_RANK })),
-      { path: join(this.dshHome, 'skills'), source: 'user-dsh', rank: USER_DSH_RANK, skipSystem: true },
-      { path: join(this.agentsHome, 'skills'), source: 'user-agents', rank: USER_AGENTS_RANK },
-      ...this.bundledSkillDir === undefined
-        ? []
-        : [{ path: this.bundledSkillDir, source: 'bundled' as const, rank: BUNDLED_RANK, trustedHost: true }],
-    )
+    roots.push(...this.customSkillDirs.map(path => ({ path, source: 'custom' as const, rank: CUSTOM_RANK })))
+    if (this.includeDefaultRoots) {
+      roots.push(
+        { path: join(this.dshHome, 'skills'), source: 'user-dsh', rank: USER_DSH_RANK, skipSystem: true },
+        { path: join(this.agentsHome, 'skills'), source: 'user-agents', rank: USER_AGENTS_RANK },
+      )
+    }
+    if (this.bundledSkillDir !== undefined) {
+      roots.push({ path: this.bundledSkillDir, source: 'bundled', rank: BUNDLED_RANK, trustedHost: true })
+    }
     return roots
   }
 }
@@ -693,7 +709,7 @@ function hasErrorCode(error: unknown, code: string): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === code
 }
 
-async function discoverRoot(root: SkillRoot, ctx: Context): Promise<SkillCandidate[]> {
+async function discoverRoot(root: SkillRoot, ctx: Context, provider: string): Promise<SkillCandidate[]> {
   const skills: SkillCandidate[] = []
   const entries = await listSkillRootEntries(root, ctx)
   for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
@@ -711,7 +727,7 @@ async function discoverRoot(root: SkillRoot, ctx: Context): Promise<SkillCandida
       description: parsed.description,
       ...parsed.whenToUse !== undefined ? { whenToUse: parsed.whenToUse } : {},
       invocation: parsed.invocation,
-      provider: 'local',
+      provider,
       source: root.source,
       rank: root.rank,
       locator,

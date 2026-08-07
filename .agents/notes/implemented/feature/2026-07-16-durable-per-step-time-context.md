@@ -12,9 +12,9 @@ A process-local refresh cache makes displayed time depend on state that cannot s
 
 ## Decision
 
-`@deepseek-ai/dsh-time-context` is an opt-in function plugin in `packages/context/time-context/`. The `context/` group holds bounded request-context enrichments that define neither a tool nor a service, and shipped examples do not mount this plugin because its time-zone disclosure and token cost are deployment policy. It registers a prepended `agent/pre-step` listener and, when an injection is due, calls `agent.inject()` for a pre-step attempt whose signal is not already aborted. The injected `user/message` carries source `{ kind: 'plugin', plugin: 'time-context' }` and append surface metadata; a suppressed attempt appends nothing.
+`@deepseek-ai/dsh-time-context` is an opt-in function plugin in `packages/context/time-context/`. The `context/` group holds bounded request-context enrichments that define neither a tool nor a service, and shipped examples do not mount this plugin because its time-zone disclosure and token cost are deployment policy. It registers a prepended `agent/pre-step` listener and, when a reading is due and the downstream decision enters, returns one additional `UserMessage`. The message carries source `{ kind: 'plugin', plugin: 'time-context' }`; a suppressed, rejected, or failed attempt appends nothing.
 
-The listener records preparation context before a possible `step/start`. Its prepended registration runs before ordinary automatic compaction listeners, so pressure estimation and any resulting surface rewrite observe a newly appended reading. A later pre-step listener can cancel or fail the attempt before the step opens; the reading remains because the durable log is append-only and this plugin performs no rollback.
+The listener samples before `step/start`, then settles its reading only in the final enter decision. AgentLoop records it after `step/start` and before request derivation. A downstream rejection or failure therefore prevents the reading from entering durable history.
 
 The optional `timeZone` config resolves the Node process's IANA zone once at plugin load when omitted; an explicit value is validated by `Intl.DateTimeFormat`. The timestamp includes the numeric UTC offset and resolved IANA zone.
 
@@ -44,7 +44,7 @@ Their baseline is the durable event timestamp of the preceding time-context mess
 
 Each reading remains a normal surface node until compaction shadows it; positive interval scheduling never removes existing readings. A later request therefore sees the cumulative unshadowed readings that affected earlier preparation and steps, rather than a system-prompt value rewritten in place.
 
-The plugin contributes nothing to system-prompt assembly. `request/header` contains no time-context text; request reconstruction obtains the complete durable surface prefix at each `step/start`. Readings and requests need not map one-to-one because a failed preparation can leave a reading while interval suppression can prepare a request without appending one. The plugin depends on the agent registry for its lifecycle listener and does not require the system-prompt service at runtime.
+The plugin contributes nothing to system-prompt assembly. `request/header` contains no time-context text; request reconstruction obtains the complete durable surface prefix at each `step/start`. Readings and requests need not map one-to-one because interval suppression can enter a request without appending a reading, while rejection or failure appends neither. The plugin depends on the agent registry for its lifecycle listener and does not require the system-prompt service at runtime.
 
 ## Testing
 

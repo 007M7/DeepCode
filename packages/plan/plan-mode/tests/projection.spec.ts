@@ -1,9 +1,9 @@
 /**
  * The `plan` projection unit (session-projection RFC's complete example): a
  * double-event fold over the session log. `command/run` records named `plan`
- * set the wanted target (`off` → false, anything else → true); `plan/mode`
- * commits and clears it; `view` derives `{ active, pending }` where pending
- * is true only while an outstanding selection differs from the logged state.
+ * with recorded input set the wanted target (`off` → false, anything else
+ * → true); `plan/mode` commits and clears it. `view` reports pending only
+ * while an outstanding selection differs from the logged state.
  * Pending is thereby a pure replay quantity — a cold fold answers it without
  * the service's in-memory intent. Composition without plan-mode has no `plan`
  * key; unloading the fiber removes it (HMR safety).
@@ -58,7 +58,7 @@ function runPlanCommand(session: Session, args: string, index: number): void {
 
 /** Commit one plan/mode flip inside an open turn (the invariant's turn-enclosure rule). */
 function commitPlanMode(session: Session, active: boolean, turn: number): void {
-  session.append('turn/start', { turn, trigger: { kind: 'message', source: { kind: 'user' } } })
+  session.append('turn/start', { turn })
   session.append('plan/mode', { active })
   session.append('turn/end', { turn, reason: { kind: 'completed' } })
 }
@@ -86,6 +86,11 @@ describe('plan projection unit', () => {
     // Another command's record never touches plan state.
     bench.session.append('command/run', {
       commandId: CommandId('other-1'), name: 'compact', args: '', source: { kind: 'user' },
+    })
+    expect(bench.values().plan).toEqual({ active: true, pending: false })
+    // A command lifecycle with omitted input carries no plan selection.
+    bench.session.append('command/run', {
+      commandId: CommandId('plan-no-input'), name: 'plan', source: { kind: 'user' },
     })
     expect(bench.values().plan).toEqual({ active: true, pending: false })
     runPlanCommand(bench.session, ' off', 1)

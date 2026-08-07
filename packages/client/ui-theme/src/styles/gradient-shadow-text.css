@@ -131,6 +131,14 @@ body {
   --dsw-font-markdown-code-block-font-size: 13px;
   --dsw-font-markdown-code-block-font-style: normal;
 
+  /* 手工补充（非插件导出）：tool row 展开卡片内的小号 code 字体。 */
+  --dsw-font-markdown-code-block-small: 12px/18px var(--ds-font-family-code);
+  --dsw-font-markdown-code-block-small-font-family: var(--ds-font-family-code);
+  --dsw-font-markdown-code-block-small-font-weight: 400;
+  --dsw-font-markdown-code-block-small-line-height: 18px;
+  --dsw-font-markdown-code-block-small-font-size: 12px;
+  --dsw-font-markdown-code-block-small-font-style: normal;
+
   --dsw-font-xl-24: 600 24px/32px var(--dsw-font-family);
   --dsw-font-xl-24-font-family: var(--dsw-font-family);
   --dsw-font-xl-24-font-weight: 600;

@@ -15,10 +15,10 @@ export const name = 'client-ui-workspace-invariant'
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: a pure-consumer plugin registering one presentational
- * component into two host-declared slots — its inject face is two stateless
- * RPC wrappers plus a create-and-open call; it emits no cordis events and
- * owns no cross-plugin mutable state.
+ * No runtime invariant: a pure-consumer plugin registering presentational
+ * components into two host-declared slots plus its locale dictionaries — its
+ * inject face is stateless RPC wrappers plus a create-and-open call; it
+ * emits no cordis events and owns no cross-plugin mutable state.
  */
 const install: InvariantInstaller = () => {}
 

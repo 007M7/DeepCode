@@ -4,21 +4,15 @@
  * The shell renders the surrounding chrome (button, nav heading row) and
  * reads each entry's `label` option for aria text.
  */
-import { IconSettingsOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import { IconSettingsOutline14, IconSettingsOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import css from './chrome.module.css'
 
-/** Injected face of both chrome seats: the settings-namespace translate. */
-export interface ChromeInjected {
-  /** Translate a `settings` dictionary key to the active-locale text. */
-  t: (key: string) => string
-}
+/** Trigger content props: the sidebar column state + the standard locale seat. */
+export type TriggerContentProps = PropsRuntime<'settings.trigger'> & PropsLocale<'settings'>
 
-/** Trigger content props: the sidebar column state + translate. */
-export type TriggerContentProps = PropsRuntime<'settings.trigger'> & ChromeInjected
-
-/** Header content props: translate only. */
-export type HeaderContentProps = PropsRuntime<'settings.header'> & ChromeInjected
+/** Header content props: the standard locale seat only. */
+export type HeaderContentProps = PropsRuntime<'settings.header'> & PropsLocale<'settings'>
 
 /**
  * Render the trigger row content (icon; label only in the wide column).
@@ -28,7 +22,7 @@ export type HeaderContentProps = PropsRuntime<'settings.header'> & ChromeInjecte
 export function TriggerContent({ wide, t }: TriggerContentProps) {
   return (
     <>
-      <IconSettingsOutline14 size={wide ? 14 : 18} />
+      {wide ? <IconSettingsOutline16 size={16} /> : <IconSettingsOutline14 size={18} />}
       {wide && <span className={css.triggerLabel}>{t('trigger')}</span>}
     </>
   )
@@ -43,8 +37,8 @@ export function HeaderContent({ t }: HeaderContentProps) {
   return <>{t('title')}</>
 }
 
-/** Close-button label text props: translate only. */
-export type CloseLabelProps = PropsRuntime<'settings.close'> & ChromeInjected
+/** Close-button label text props: the standard locale seat only. */
+export type CloseLabelProps = PropsRuntime<'settings.close'> & PropsLocale<'settings'>
 
 /**
  * Render the close button's visually-hidden label text.

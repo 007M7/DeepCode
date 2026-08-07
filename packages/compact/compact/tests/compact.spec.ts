@@ -9,6 +9,7 @@ import {
 import type { CompactionResult, CompactionTrigger } from '@deepseek-ai/dsh-compact'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { CompactAgentContext } from '@deepseek-ai/dsh-compact'
+import type { ManualCompactAgentContext } from '@deepseek-ai/dsh-compact'
 
 /**
  * A trivial concrete CompactService implementing the abstract contract. The
@@ -23,6 +24,14 @@ class StubCompactService extends CompactService {
   override async compactIfNeeded(
     _agent: CompactAgentContext,
     _trigger: CompactionTrigger,
+    signal: AbortSignal,
+  ): Promise<CompactionResult | null> {
+    this.lastSignal = signal
+    return null
+  }
+
+  override async compactNow(
+    _agent: ManualCompactAgentContext,
     signal: AbortSignal,
   ): Promise<CompactionResult | null> {
     this.lastSignal = signal
@@ -96,14 +105,20 @@ describe('CompactService seam', () => {
   it('exposes the abstract contract methods', async () => {
     const ctx = new Context()
     const svc = new StubCompactService(ctx)
-    const session = new Session(SessionId('s'))
+    const session = Session.create(SessionId('s'))
     expect(await svc.compactIfNeeded(stubAgent(session), 'pressure', new AbortController().signal)).toBeNull()
+    const signal = new AbortController().signal
+    expect(await svc.compactNow({
+      ...stubAgent(session),
+      runMaintenance: task => task(new AbortController().signal),
+    }, signal)).toBeNull()
+    expect(svc.lastSignal).toBe(signal)
   })
 
   it('compact/* events merge into SessionEventMap and are log-only', async () => {
     const ctx = new Context()
     const svc = new StubCompactService(ctx)
-    const session = new Session(SessionId('s'))
+    const session = Session.create(SessionId('s'))
     const original = session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'original' }],
       source: { kind: 'user' },
@@ -134,7 +149,7 @@ describe('CompactService seam', () => {
   it('threads the cancellation signal through to the backend', async () => {
     const ctx = new Context()
     const svc = new StubCompactService(ctx)
-    const session = new Session(SessionId('s'))
+    const session = Session.create(SessionId('s'))
     const controller = new AbortController()
     const original = session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'original' }],

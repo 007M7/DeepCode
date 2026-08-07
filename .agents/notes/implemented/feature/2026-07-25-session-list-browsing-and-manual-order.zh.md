@@ -12,29 +12,29 @@ Status: implemented
 
 ## Decision
 
-### 平铺视图与浏览态
+### 平铺行与浏览态
 
-group-by 菜单提供 WorkSpace / In one list 两种模式。平铺模式把所有 session(含 fork 子)一律作为顶层行,严格按 `updatedAt` 新→旧排序,不保持父子相邻;Intent 占位行渲染在列表首行。模式选择持久化在浏览器(`dsh.workspace.view`),刷新保持。
+group-by 菜单提供 WorkSpace / In one list 两种模式。WorkSpace 模式按 `WorkspaceView.sessionIds` 的手动序在各组内展示同级 session 行；In one list 把所有 session 合并后严格按 `updatedAt` 新→旧排序。两种模式都不把 `parentId` 投影成列表层级，fork 谱系只保留为 session 数据；完整 fork 行为由 [Web session fork 操作](2026-07-27-web-session-fork-actions.md)定义。模式选择持久化在浏览器(`dsh.workspace.view`),刷新保持。
 
 ### 行交互
 
 - session 行悬停 500ms 出详情卡(全名/相对时间/状态行;状态本期只有 running/idle 两态,枚举扩展待 wire 增补 status 字段)。卡片与行菜单互斥:菜单开启或拖拽进行中不出卡。
-- session 行 … 菜单:Rename / Fork session / Delete session,本期纯视觉;workspace 组头 … 菜单:Rename(已接线)/ Delete workspace(纯视觉)。菜单鼠标移出即关。
+- session 行 … 菜单:Rename / Fork session / Delete session，其中 Rename 与 Fork 已接线，Delete 仍为纯视觉；workspace 组头 … 菜单的 Rename / Delete workspace 均已接线。菜单鼠标移出即关。
 - 支撑件:`Menu` 新增 label 条目、danger 行、`closeOnPointerLeave`;新增 `HoverCard`(portal 定位、开启延时、disabled 守卫)。
 
 ### workspace.rename
 
-`workspace.rename({ workspaceId, title })`:title trim 后非空;同名 no-op 与重名查重都在 host 的 workspace 创建串行链内求值(与 create 共链,并发 create/rename 不能穿插出重名或乱序假成功),冲突回 `workspace-name-conflict`。落盘经 `setTitle` 的 mutate 通道,`domain/changed` 监听自动广播 `host/workspace-changed` 帧。UI 为标准 Modal,client 侧另做重名预检。
+`workspace.rename({ workspaceId, title })`：title trim 后非空；同名 no-op 与重名查重都在 Host 的 Workspace 操作串行链内求值（与按名称创建共链，并发的显式命名操作不能穿插出重名或乱序假成功），冲突返回 `workspace-name-conflict`。按路径收编可以派生出已有 title，因为拥有身份的是 canonical path，而不是 title（见[身份决策](../bug-fix/2026-07-31-same-basename-workspace-adoption.md)）。落盘经 `setTitle` 的 mutate 通道，`domain/changed` 监听自动广播 `host/workspace-changed` 帧。UI 为标准 Modal，client 侧另做重名预检。
 
 ### 手动排序:insertSessionBefore 取代活动置顶
 
 `session/event` → `touchSession` 活动置顶链整体删除;workspace 账本序改为纯手动拥有——新 session attach 时前插,显式重排走 `workspace.insertSessionBefore({ workspaceId, sessionId, beforeSessionId? })`(DOM insertBefore 语义:锚给了插锚前,缺省 append 到末尾)。实体只对不在账的 session/锚抛类型化的 `WorkspaceMoveInvalidError`,handler 仅把它映射为业务码 `workspace-move-invalid`,存储故障保持 internal。
 
-UI 为组内 root 行的 HTML5 拖拽(仅 workspace 分组、非搜索态;fork 子随父不单独拖)。顺序权威完全在 host:drop 只发 RPC,client 零本地重排,视图靠响应体 upsert 与 changed 帧刷新;失败即无事发生。client 的 upsert 拒绝比已装载投影更旧(`updatedAt`)的快照,防迟到的一元响应回滚更新的帧。
+UI 为组内 session 行的 HTML5 拖拽(仅 workspace 分组、非搜索态；fork 子与源会话一样独立排序)。顺序权威完全在 host:drop 只发 RPC,client 零本地重排,视图靠响应体 upsert 与 changed 帧刷新;失败即无事发生。client 的 upsert 拒绝比已装载投影更旧(`updatedAt`)的快照,防迟到的一元响应回滚更新的帧。
 
 ### 壳/区域切分
 
-ui-sidebar 缩为列几何壳:品牌行、折叠状态机、New Session、Settings,以及一个 `sidebar.workspaces` 洞;壳与区域的契约只有两个事实 `{ wide, expandSidebar }`。ui-workspace 全权拥有浏览区域(section header、搜索、分组树与平铺、全部 workspace 对话框、拖拽)及其 groupBy store;rail 态的搜索/新建图标也归区域,经 `expandSidebar()` 请求壳展开。picker 拆为核心件 `WorkspaceCreateFlow`(区域内直接组件组合)与薄包装 `WorkspacePicker`(继续填 ui-conversation 的 hero 坑);原 `sidebar.workspace` picker 坑与声明感知延迟注册随之删除。
+ui-sidebar 缩为列几何壳:品牌行、折叠状态机、New Session、Settings,以及一个 `sidebar.workspaces` 洞;壳与区域的契约只有两个事实 `{ wide, expandSidebar }`。ui-workspace 全权拥有浏览区域(section header、搜索、分组树与平铺、全部 workspace 对话框、拖拽)及其 groupBy store;rail 态的搜索/添加工作区图标也归区域,经 `expandSidebar()` 请求壳展开。picker 拆为核心件 `WorkspacePickFlow`(区域内直接组件组合;在[单一路径 Note](../simplification/2026-07-31-one-route-to-add-a-workspace.md)之前名为 `WorkspaceCreateFlow`)与薄包装 `WorkspacePicker`(继续填 ui-conversation 的 hero 坑);原 `sidebar.workspace` picker 坑与声明感知延迟注册随之删除。
 
 ## Alternatives considered
 
@@ -46,15 +46,15 @@ ui-sidebar 缩为列几何壳:品牌行、折叠状态机、New Session、Settin
 
 **rename 对话框留在 ui-sidebar(最小改动)** —— 正是问题本身:workspace 域的对话框散落在借来的坑里,每加一个(Delete 确认框将至)都重演跨包接线。评审中先议了「只挪 rename Modal」的中间态,最终裁定整个浏览区域归 ui-workspace,壳只留几何。
 
-**平铺模式保持父子相邻成组** —— 与「严格按时间」矛盾(子新于兄则插不进相邻位),且平铺本意就是取消层级;拉平并禁用平铺下的拖拽(无持久化载体)更一致。
+**WorkSpace 模式按 fork 谱系嵌套 session** —— 嵌套会让当前子会话依赖祖先展开态才能可见，也让组内手动序只能移动根节点；`parentId` 是 lineage 数据，不是列表导航结构。所有 session 拍平成同级行后，每行都可独立打开、搜索与排序；In one list 仍因没有 workspace 持久化载体而禁用拖拽。
 
 ## Consequences
 
 - 手动序是唯一的 workspace 账本序权威:用户排好的顺序不再被活动打乱;代价是「最近活跃浮到最上」的行为消失,活跃感知转由行内状态点与时间标签承担。`WorkspaceView.sessionIds` 的 wire 契约随之改为手动序措辞。
 - 壳/区域两事实契约把 workspace 域的后续功能(Delete 确认、跨组移动、Ungrouped 收编)全部收进 ui-workspace 单包;ui-sidebar 不再随 session 列表功能演进。
 - 平铺模式不支持排序与分组入口(建到指定 workspace 需切回分组视图),是拍板接受的范围收窄。
-- session 菜单三项与 workspace Delete 的功能接线、状态枚举扩 wire,留待后续迭代。
+- session Delete 的功能接线与状态枚举扩 wire,留待后续迭代。
 
 ## Testing
 
-包级用例覆盖派生(deriveGroups/deriveFlat)、行组件、两处 apply 注册与透传、host 实体移位语义、rename/insertSessionBefore 的 RPC 实现与 fixture 桩;`apps/web` keyless snapshot 回归覆盖装配后的应用;交付验收另以 playwright(chromium headless)过 12 项清单(分组默认、平铺切换与持久化、hover 卡出现与抑制、双菜单、rename 全链、拖拽落盘),并对真 host 直打 wire 验证 rename 成功/重名拒绝/`workspace-move-invalid` 三径。
+包级用例覆盖派生(deriveGroups/deriveFlat)、同级 session 行、两处 apply 注册与透传、host 实体移位语义、rename/insertSessionBefore 的 RPC 实现与 fixture 桩；`apps/web` keyless snapshot 回归覆盖装配后的应用，并钉住 fork 后没有 session 展开控件。

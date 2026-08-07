@@ -18,14 +18,14 @@ async function harness(adapter: MockAdapter): Promise<Context> {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
   await ctx.plugin(AgentLoop, { agents: [] })
-  await ctx.plugin(ToolTodo)
+  await ctx.plugin(ToolTodo, { allowParallelInProgress: true })
   ctx.llm.registerAdapter(['mock'], adapter)
   return ctx
 }
 
 function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
-    const dispose = ctx.on('agent/status', (subject, status) => {
+    const dispose = ctx.on('agent/status', ({ agent: subject, status }) => {
       if (subject === agent && status === 'idle') {
         dispose()
         resolve()

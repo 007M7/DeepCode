@@ -1,14 +1,14 @@
 # Agent Note: 将持久化接口合并进 dsh-session
 
-Status: rejected — 独立的持久化接口包是为持久后端设计的模块化能力 seam。将其折叠进 `dsh-session` 虽能减少包数量，却会牺牲更清晰的后端边界。
+Status: rejected — 独立的持久化接口包是为持久化后端设计的模块化能力 seam。将其折叠进 `dsh-session` 虽能减少包数量，却会牺牲更清晰的后端边界。
 
 [English](2026-06-20-fold-session-persistence-interface.md) | 中文
 
 ## 问题
 
-`dsh-session-persistence` 是一个接口包（package），其核心概念已经由 `dsh-session` 拥有：`SessionHeader`、`SessionEvent`、`SessionId`、`session/event` 与 `session/flush`。该包额外添加了抽象的 `SessionPersistence` 服务、共享写入协调器和契约辅助工具。后端包依赖它，`agent-loop`（智能体循环）也需要可选地查找一个同级服务来实现恢复。
+`dsh-session-persistence` 是一个接口包，其核心概念已经由 `dsh-session` 拥有：`SessionHeader`、`SessionEvent`、`SessionId`、`session/event` 与 `session/flush`。该包额外添加了抽象的 `SessionPersistence` 服务、共享写入协调器和契约辅助工具。后端包依赖它，为实现恢复，`agent-loop`（智能体循环）还需要按需查找这个同级服务。
 
-当持久化还是一个全新的可替换后端设计时，能力 seam 的拆分是合理的。但在可变摘要被移除之后，这个接口包基本上只是包装了会话日志自身的存储关切。继续保持独立可能带来的仪式感多于清晰度。
+当持久化还是一个全新的可替换后端设计时，能力 seam 的拆分是合理的。但在可变摘要被移除之后，这个接口包基本上只是包装了会话日志自身的存储职责。继续保持独立可能带来的仪式感多于清晰度。
 
 ## 提案
 
@@ -26,6 +26,6 @@ Status: rejected — 独立的持久化接口包是为持久后端设计的模�
 
 ## 放弃了什么
 
-`dsh-session` 变得更重：它同时拥有内存日志和持久化接口。这就是代价。如果第三方持久化后端已经形成公开生态，独立的接口包会是更清晰的 SDK 边界；但在预发布阶段，在尚无外部消费方时，多出的包看起来更像是过早的抽象。
+`dsh-session` 变得更重：它同时拥有内存日志和持久化接口。这就是代价。如果第三方持久化后端已经形成公开生态，独立的接口包会是更清晰的 SDK 边界；但在预发布阶段尚无外部消费方时，这个额外的包更像是过早引入的抽象。
 
 <!-- agent-note-format: alternatives-not-recorded (pre-format Agent Note) -->

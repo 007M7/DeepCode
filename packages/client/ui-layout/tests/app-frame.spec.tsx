@@ -77,7 +77,7 @@ function mountFrame() {
     return sel(sessionState)
   }) as never
   const workspaceState: WorkspaceListState = {
-    items: [], state: 'idle', phase: 'ready', error: null,
+    items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
     baselinesReady: baselinesReady.current, recentWorkspaceId: undefined,
   }
   const element = () => (
@@ -281,6 +281,50 @@ describe('AppFrame', () => {
     expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(1)
     act(() => { instance.actions.toggleSidebar() })
     expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(0)
+  })
+})
+
+describe('AppFrame — narrow-viewport auto-collapse', () => {
+  it('mounts collapsed below the breakpoint with no sidebar handle', () => {
+    frameWidth = 980
+    const { frame, slotCalls } = mountFrame()
+    expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 0])
+    expect(frame.hasAttribute('data-sidebar-collapsed')).toBe(true)
+    expect(slotCalls.filter(c => c.key === 'sidebar').at(-1)!.props).toEqual({ collapsed: true, width: SIDEBAR_COLLAPSED })
+    expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(0)
+  })
+
+  it('narrow toggle re-expands over the squeezed center and back', () => {
+    frameWidth = 980
+    const { frame, instance } = mountFrame()
+    act(() => { instance.actions.toggleSidebar() })
+    expect(tracks(frame)).toEqual([280, 0])
+    expect(frame.hasAttribute('data-sidebar-collapsed')).toBe(false)
+    expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(1)
+    act(() => { instance.actions.toggleSidebar() })
+    expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 0])
+  })
+
+  it('a wide-closed preference re-expands at the contract default while narrow', () => {
+    frameWidth = 1920
+    const { frame, instance } = mountFrame()
+    act(() => { instance.actions.toggleSidebar() }) // close while wide: preference 0
+    frameWidth = 980
+    act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
+    act(() => { instance.actions.toggleSidebar() })
+    expect(tracks(frame)).toEqual([280, 0])
+    expect(instance.getSnapshot().sidebar).toBe(0) // preference untouched
+  })
+
+  it('shrinking across the breakpoint auto-collapses; re-widening restores the drag width', () => {
+    const { frame, instance } = mountFrame()
+    act(() => { instance.actions.setSidebar(400) })
+    frameWidth = 980
+    act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
+    expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 0])
+    frameWidth = 1920
+    act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
+    expect(tracks(frame)).toEqual([400, 0])
   })
 })
 

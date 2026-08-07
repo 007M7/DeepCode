@@ -1,11 +1,11 @@
 ---
 name: dsh-pre-push-checks
-description: Use before pushing, force-pushing, marking ready for review, or claiming checks pass on a deepseek-harness branch to select the smallest tests and checks that cover the outgoing diff without reflexively running the full repository suite.
+description: Use before pushing, force-pushing, marking ready for review, or claiming checks pass on a deepseek-harness branch, and immediately after gh stack sync publishes rewritten branches, to select the smallest tests and checks that cover the outgoing or just-published diff without reflexively running the full repository suite.
 ---
 
 # DSH Pre-Push Checks
 
-Use this skill to run relevant local evidence once before a `deepseek-harness` push. Git hooks are intentionally narrow: pre-commit fixes staged lint, checks staged whitespace, and guards vendored-source metadata; pre-push runs only the incremental repository typecheck. CI owns exhaustive coverage and the platform matrix.
+Use this skill to run relevant local evidence once before a `deepseek-harness` push. The sole ordering exception is `gh stack sync`, which may publish a cascading rebase before the rewritten layers can be validated; validate them immediately afterward and do not merge until the evidence passes. Git hooks are intentionally narrow: pre-commit fixes staged lint, checks staged whitespace, and guards vendored-source metadata; pre-push runs only the incremental repository typecheck. CI owns exhaustive coverage and the platform matrix.
 
 ## Inspect the outgoing change
 
@@ -63,9 +63,26 @@ pnpm exec vitest related packages/<group>/<package>/src/<changed>.ts \
 
 Run the complete local approximation only when the user explicitly requests it, while diagnosing a CI failure, or when the change spans the repository so broadly that no narrower set is credible. Use the current workflow and package scripts as the inventory; do not recreate the removed `check:pre-push` aggregate.
 
+## Protect history-rewriting pushes
+
+Rebase is allowed for standalone and stacked PR branches, including after review. Before a standalone history rewrite, fetch the current remote branch and record its exact OID; publish with `--force-with-lease=<branch>:<observed-oid>` so a concurrent update aborts the push. `gh stack push` and `gh stack sync` supply lease protection for their managed branches. Raw `--force` is never allowed.
+
+After any rewritten push, fetch the live heads again and re-audit unresolved review threads, approvals, mergeability, and checks. Commit hashes and inline-comment anchors from before the rewrite are not current evidence.
+
+### Post-sync validation
+
+`gh stack sync` fetches, cascade-rebases, and pushes as one operation, so it cannot place local validation between rewrite and publication. Before running it, require a clean worktree and record the official stack order and exact remote heads. After it returns:
+
+1. Re-query every branch head and the official GitHub stack order.
+2. Inspect the changed scope of every rewritten layer against its live PR base.
+3. Run the relevant evidence selected by this skill for each affected layer.
+4. Keep every PR unmerged and report validation as pending until all selected checks pass.
+
+If post-sync evidence fails, leave the lease-protected published heads in place, repair the failure, validate the repair, and publish the correction. Do not claim the sync made the stack ready merely because the command succeeded.
+
 ## Handle failures
 
-If a relevant check fails, stop and fix or explain the blocker. Do not push and hope CI differs.
+If a relevant check fails before an ordinary push, stop and fix or explain the blocker. Do not push and hope CI differs. For the post-sync exception, block the merge and follow the repair procedure above.
 
 If a failure looks environment-specific, prove it:
 
@@ -76,9 +93,11 @@ If a failure looks environment-specific, prove it:
 
 ## Push procedure
 
+For ordinary and standalone rebase pushes:
+
 1. Run the selected relevant checks once.
 2. Commit normally and inspect any files changed by the pre-commit fixer before continuing.
-3. Push normally so the incremental typecheck hook runs.
+3. Push normally, or use the exact lease for an authorized rewritten branch, so the incremental typecheck hook runs.
 4. Verify the remote ref matches local `HEAD`.
 
 ```sh
@@ -92,3 +111,5 @@ gh pr checks
 ```
 
 Report pending checks as pending. Inspect failures before attributing them to the branch or the environment.
+
+For `gh stack sync`, use the post-sync validation sequence instead of pretending the ordinary order was possible.

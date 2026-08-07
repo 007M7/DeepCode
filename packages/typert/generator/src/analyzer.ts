@@ -15,6 +15,8 @@ import type {
   EnumMemberModel,
   ExportModel,
   FaceModel,
+  InvocationModel,
+  InvocationParameterModel,
   JsDocTagModel,
   KeywordTypeName,
   MemberBase,
@@ -23,6 +25,8 @@ import type {
   ObjectModel,
   PackageModel,
   ParameterModel,
+  RemoteBoundaryModel,
+  RemoteTypeImportModel,
   SchemaModel,
   ServiceModel,
   SignatureModel,
@@ -69,6 +73,8 @@ export interface WorkspaceAnalyzerOptions {
   readonly checkDiagnostics?: boolean
   /** Whether missing annotations fail or are written before a clean re-analysis. */
   readonly mode?: AnalysisMode
+  /** Shared workspace memo; supply one instance to reuse parses across analyzers. */
+  readonly caches?: WorkspaceCaches
 }
 
 /** One package face whose public export graph contains Typert business declarations. */
@@ -78,17 +84,27 @@ export interface DiscoveredTypertPackage {
   readonly faces: readonly TypertFace[]
 }
 
-interface ParsedConfig {
+/** One parsed tsconfig, memoizable per workspace snapshot. */
+export interface ParsedConfig {
+  /** Absolute config path. */
   readonly path: string
+  /** The TypeScript parse result. */
   readonly parsed: ts.ParsedCommandLine
 }
 
-interface PackageRegistration {
+/** One package face registration discovered from an aggregate tsconfig. */
+export interface PackageRegistration {
+  /** The face whose aggregate references this package project. */
   readonly face: TypertFace
+  /** The package manifest name. */
   readonly name: string
+  /** Real package root directory. */
   readonly root: string
+  /** The package's own parsed tsconfig. */
   readonly config: ParsedConfig
+  /** The parsed package.json content. */
   readonly manifest: Record<string, unknown>
+  /** Export subpaths owned by this face for dual-face packages. */
   readonly exportSubpaths?: readonly string[]
 }
 
@@ -110,9 +126,139 @@ interface ModuleIdentity {
   readonly subpath: string
 }
 
+interface StaticLookupDeclaration {
+  readonly key: string
+  readonly hostSymbol: SymbolId
+  readonly wireType: ts.TypeNode
+  readonly site: ts.Node
+}
+
+interface StaticContextDeclaration {
+  readonly key: string
+  readonly wireType: ts.TypeNode
+  readonly site: ts.Node
+}
+
+interface GatewayBinding {
+  readonly service: string
+  readonly namespace: string
+  readonly site: ts.Node
+}
+
 type ReferenceSite = ts.TypeReferenceNode | ts.ExpressionWithTypeArguments | ts.ImportTypeNode
 
 const EMPTY_DOCUMENTATION: DocumentationModel = { tags: [] }
+
+interface FaceProgramHost {
+  readonly host: ts.CompilerHost
+  readonly files: Map<string, ts.SourceFile | undefined>
+}
+
+/**
+ * Process-wide parse cache for the bundled TypeScript default libraries.
+ * `typescript/lib/lib.*.d.ts` content is immutable for the process lifetime,
+ * so parses are shared across every {@link WorkspaceCaches} instance; the key
+ * carries the parse-affecting settings, keeping reuse exact.
+ */
+const defaultLibraryParses = new Map<string, ts.SourceFile | undefined>()
+
+function defaultLibraryKey(fileName: string, languageVersionOrOptions: ts.ScriptTarget | ts.CreateSourceFileOptions): string {
+  const options = typeof languageVersionOrOptions === 'object'
+    ? languageVersionOrOptions
+    : { languageVersion: languageVersionOrOptions }
+  return [
+    fileName,
+    String(options.languageVersion),
+    String(options.impliedNodeFormat ?? ''),
+    String(options.jsDocParsingMode ?? ''),
+  ].join('\0')
+}
+
+/**
+ * Shared memo over one immutable workspace snapshot. Passing one instance to
+ * several analyzers (the batched and write-mode children reuse their parent's
+ * automatically) reuses parsed tsconfigs, the registration inventory, and
+ * per-face compiler hosts whose parsed and bound source files and module
+ * resolutions carry across programs. Callers that mutate workspace files
+ * between analyses must start from a fresh instance; write-mode source edits
+ * invalidate themselves through {@link invalidate}.
+ */
+export class WorkspaceCaches {
+  /** Parsed tsconfig files by absolute config path. */
+  readonly configs = new Map<string, ParsedConfig>()
+  /** Registration inventories keyed by root and aggregate config paths. */
+  readonly registrations = new Map<string, PackageRegistration[]>()
+  private readonly hosts = new Map<TypertFace, FaceProgramHost>()
+
+  /**
+   * Parse one tsconfig once per workspace snapshot.
+   * @param path - absolute config path.
+   * @returns the memoized parse result.
+   */
+  config(path: string): ParsedConfig {
+    let parsed = this.configs.get(path)
+    if (parsed === undefined) {
+      parsed = parseConfig(path)
+      this.configs.set(path, parsed)
+    }
+    return parsed
+  }
+
+  /**
+   * Return the shared compiler host for one face. Every program of one face
+   * is built from the same aggregate compiler options (the first call wins),
+   * so parsed source files, binder state, and module resolutions are safe to
+   * reuse across the face's batched programs.
+   * @param face - the face whose programs share this host.
+   * @param options - the face's effective compiler options.
+   * @returns a compiler host with source-file and module-resolution caches.
+   */
+  programHost(face: TypertFace, options: ts.CompilerOptions): ts.CompilerHost {
+    let entry = this.hosts.get(face)
+    if (entry === undefined) {
+      const host = ts.createCompilerHost(options)
+      const files = new Map<string, ts.SourceFile | undefined>()
+      const resolutionCache = ts.createModuleResolutionCache(
+        host.getCurrentDirectory(),
+        fileName => host.getCanonicalFileName(fileName),
+        options,
+      )
+      const base = host.getSourceFile.bind(host)
+      // The snapshot contract makes shouldCreateNewSourceFile irrelevant: it
+      // only fires under oldProgram reuse, which these fresh programs never
+      // request, and invalidate() is the one supported re-read path.
+      host.getSourceFile = (fileName, languageVersionOrOptions, onError) => {
+        if (isStandardLibraryFile(fileName)) {
+          const key = defaultLibraryKey(fileName, languageVersionOrOptions)
+          if (!defaultLibraryParses.has(key)) {
+            defaultLibraryParses.set(key, base(fileName, languageVersionOrOptions, onError))
+          }
+          return defaultLibraryParses.get(key)
+        }
+        if (!files.has(fileName)) files.set(fileName, base(fileName, languageVersionOrOptions, onError))
+        return files.get(fileName)
+      }
+      host.getModuleResolutionCache = () => resolutionCache
+      entry = { host, files }
+      this.hosts.set(face, entry)
+    }
+    return entry.host
+  }
+
+  /**
+   * Drop cached parses of one edited source file so the next analysis reads
+   * the written content.
+   * @param file - path of the edited file.
+   */
+  invalidate(file: string): void {
+    const target = realPath(file)
+    for (const { files } of this.hosts.values()) {
+      for (const key of [...files.keys()]) {
+        if (realPath(key) === target) files.delete(key)
+      }
+    }
+  }
+}
 
 /** Analyze host and client as independent TypeScript programs. */
 export class WorkspaceAnalyzer {
@@ -124,6 +270,7 @@ export class WorkspaceAnalyzer {
   private readonly crossFaceLinks = new Map<string, CrossFaceLink>()
   private readonly checkedProjects = new Set<string>()
   private registrations: PackageRegistration[] = []
+  private readonly caches: WorkspaceCaches
 
   constructor(options: WorkspaceAnalyzerOptions) {
     this.options = {
@@ -135,6 +282,7 @@ export class WorkspaceAnalyzer {
       mode: options.mode ?? 'check',
       ...(options.packages === undefined ? {} : { packages: options.packages }),
     }
+    this.caches = options.caches ?? new WorkspaceCaches()
   }
 
   /**
@@ -157,16 +305,18 @@ export class WorkspaceAnalyzer {
           for (const registration of registrations) this.checkProject(registration)
         }
         const aggregatePath = resolve(this.options.root, face === 'host' ? this.options.hostConfig : this.options.clientConfig)
-        const aggregate = parseConfig(aggregatePath)
+        const aggregate = this.caches.config(aggregatePath)
         const rootNames = [...new Set(registrations.flatMap(registration => registration.config.parsed.fileNames))]
+        const options: ts.CompilerOptions = {
+          ...aggregate.parsed.options,
+          composite: false,
+          incremental: false,
+          noEmit: true,
+        }
         const program = ts.createProgram({
           rootNames,
-          options: {
-            ...aggregate.parsed.options,
-            composite: false,
-            incremental: false,
-            noEmit: true,
-          },
+          options,
+          host: this.caches.programHost(face, options),
         })
         faces.push(new FaceAnalyzer({
           root: this.options.root,
@@ -185,11 +335,11 @@ export class WorkspaceAnalyzer {
 
     if (this.queuedEdit !== undefined) {
       this.applyEdit(this.queuedEdit)
-      return new WorkspaceAnalyzer({ ...this.options, mode: 'write' }).analyze()
+      return new WorkspaceAnalyzer({ ...this.options, caches: this.caches, mode: 'write' }).analyze()
     }
 
     if (this.options.mode === 'write') {
-      return new WorkspaceAnalyzer({ ...this.options, mode: 'check' }).analyze()
+      return new WorkspaceAnalyzer({ ...this.options, caches: this.caches, mode: 'check' }).analyze()
     }
 
     return {
@@ -216,6 +366,7 @@ export class WorkspaceAnalyzer {
     for (let index = 0; index < this.options.packages.length; index += batchSize) {
       batches.push(new WorkspaceAnalyzer({
         ...this.options,
+        caches: this.caches,
         packages: this.options.packages.slice(index, index + batchSize),
       }).analyze())
     }
@@ -302,11 +453,14 @@ export class WorkspaceAnalyzer {
   }
 
   private loadRegistrations(): PackageRegistration[] {
+    const inventoryKey = `${this.options.root}\0${this.options.hostConfig}\0${this.options.clientConfig}`
+    const cached = this.caches.registrations.get(inventoryKey)
+    if (cached !== undefined) return cached
     const registrations: PackageRegistration[] = []
     for (const face of ['host', 'client'] as const) {
       const aggregatePath = resolve(this.options.root, face === 'host' ? this.options.hostConfig : this.options.clientConfig)
       if (!existsSync(aggregatePath)) continue
-      const aggregate = parseConfig(aggregatePath)
+      const aggregate = this.caches.config(aggregatePath)
       for (const reference of aggregate.parsed.projectReferences ?? []) {
         const configPath = projectConfigPath(reference.path)
         const packageRoot = dirname(configPath)
@@ -319,24 +473,22 @@ export class WorkspaceAnalyzer {
           face,
           name: manifest.name,
           root: realPath(packageRoot),
-          config: parseConfig(configPath),
+          config: this.caches.config(configPath),
           manifest,
         }
-        const packagePath = slash(relative(this.options.root, packageRoot))
-        const clientPackage = packagePath === 'packages/client' || packagePath.startsWith('packages/client/')
-        if (clientPackage && isDualFacePackage(manifest)) {
+        if (isDualFacePackage(manifest)) {
           registrations.push({ ...registration, face: 'host', exportSubpaths: hostExportSubpaths(manifest) })
           registrations.push({ ...registration, face: 'client', exportSubpaths: clientExportSubpaths(manifest) })
-        } else if (clientPackage) {
-          registrations.push({ ...registration, face: 'client' })
         } else {
-          registrations.push({ ...registration, face: 'host' })
+          registrations.push(registration)
         }
       }
     }
-    return uniqueBy(registrations, registration => `${registration.face}\0${registration.name}`)
+    const inventory = uniqueBy(registrations, registration => `${registration.face}\0${registration.name}`)
       .sort((left, right) =>
         left.face.localeCompare(right.face) || left.name.localeCompare(right.name))
+    this.caches.registrations.set(inventoryKey, inventory)
+    return inventory
   }
 
   private entrySourcePaths(registration: PackageRegistration): string[] {
@@ -347,6 +499,7 @@ export class WorkspaceAnalyzer {
         && subpath !== './package.json'
         && subpath !== './typert'
         && subpath !== './client/typert'
+        && subpath !== './remote'
         && !target.endsWith('.json'))
       .map(([, target]) => sourcePathForExport(registration.root, target))
       .filter(existsSync)
@@ -414,6 +567,7 @@ export class WorkspaceAnalyzer {
   private applyEdit(edit: SourceEdit): void {
     const source = readFileSync(edit.file, 'utf8')
     writeFileSync(edit.file, source.slice(0, edit.position) + edit.text + source.slice(edit.position))
+    this.caches.invalidate(edit.file)
   }
 }
 
@@ -444,6 +598,8 @@ class FaceAnalyzer {
   private readonly nodes = new Map<TypeNodeId, TypeNodeModel>()
   private readonly exportsByPackage = new Map<string, ExportRecord[]>()
   private readonly nodeOrdinals = new Map<string, number>()
+  private staticLookups: readonly StaticLookupDeclaration[] | undefined
+  private staticContexts: ReadonlyMap<string, StaticContextDeclaration> | undefined
 
   constructor(options: FaceAnalyzerOptions) {
     this.root = options.root
@@ -467,6 +623,7 @@ class FaceAnalyzer {
     const packages = this.registrations
       .map(registration => this.analyzePackage(registration))
       .filter(hasPackageSurface)
+    this.validateInvocationIdentity(packages)
     return {
       face: this.face,
       packages,
@@ -500,6 +657,7 @@ class FaceAnalyzer {
         }
       }
     }
+    const explicitServices = this.collectExplicitServices(records)
 
     const objects: ObjectModel[] = []
     const schemas: SchemaModel[] = []
@@ -538,10 +696,14 @@ class FaceAnalyzer {
       root: slash(relative(this.root, registration.root)),
       exports: records.map(record => record.model)
         .sort((left, right) => left.subpath.localeCompare(right.subpath) || left.name.localeCompare(right.name)),
-      services: uniqueBy(services, service => service.key).sort((left, right) => left.key.localeCompare(right.key)),
+      services: uniqueBy([...explicitServices, ...services], service => service.key)
+        .sort((left, right) => left.key.localeCompare(right.key)),
       events: uniqueBy(events, event => event.name).sort((left, right) => left.name.localeCompare(right.name)),
       objects: objects.sort((left, right) => left.export.name.localeCompare(right.export.name)),
       schemas: schemas.sort((left, right) => left.export.name.localeCompare(right.export.name)),
+      invocations: this.face === 'host'
+        ? this.collectInvocations(registration, reachable).sort((left, right) => left.id.localeCompare(right.id))
+        : [],
     }
   }
 
@@ -552,7 +714,9 @@ class FaceAnalyzer {
     const records: ExportRecord[] = []
     for (const [subpath, target] of targets) {
       if (target.includes('*') || subpath === './package.json'
-        || subpath === './typert' || subpath === './client/typert' || target.endsWith('.json')) continue
+        || subpath === './typert' || subpath === './client/typert' || subpath === './remote'
+        // Data exports (bundle patch lists, JSON manifests) carry no TypeScript API.
+        || target.endsWith('.json') || target.endsWith('.yml') || target.endsWith('.yaml')) continue
       const sourcePath = sourcePathForExport(registration.root, target)
       const sourceFile = this.sourceFiles.get(realPath(sourcePath))
       if (sourceFile === undefined) {
@@ -711,6 +875,903 @@ class FaceAnalyzer {
       })
     }
     return result
+  }
+
+  private collectExplicitServices(records: readonly ExportRecord[]): ServiceModel[] {
+    const result: ServiceModel[] = []
+    const seen = new Set<SymbolId>()
+    for (const record of records) {
+      const tag = typertServiceTag(record.declaration)
+      if (tag === undefined) continue
+      const words = (ts.getTextOfJSDocComment(tag.comment) ?? '').trim().split(/\s+/)
+      if (words.length !== 2 || !isRemoteSegment(words[1] ?? '')) {
+        this.fail(tag, '@typert service requires exactly one nonempty Cordis service key without "/"')
+      }
+      if (!ts.isClassDeclaration(record.declaration)) {
+        this.fail(record.declaration, '@typert service requires an exported class')
+      }
+      const symbol = this.resolveSymbol(record.symbol)
+      const symbolId = this.symbolId(symbol)
+      if (seen.has(symbolId)) continue
+      seen.add(symbolId)
+      const model = this.ensureDeclaration(symbol, record.declaration)
+      result.push({
+        ...documentationOf(record.declaration),
+        key: words[1] as string,
+        symbol: symbolId,
+        export: record.model,
+        members: model.members.filter(exposableMember).map(member => member.id),
+        location: this.location(record.declaration),
+      })
+    }
+    return result
+  }
+
+  private collectInvocations(
+    registration: PackageRegistration,
+    reachable: readonly ts.SourceFile[],
+  ): InvocationModel[] {
+    const result: InvocationModel[] = []
+    for (const sourceFile of reachable) {
+      for (const statement of sourceFile.statements) {
+        if (!ts.isClassDeclaration(statement)) continue
+        const marked = statement.members.flatMap((member) => {
+          const invocation = this.remoteMarker(member)
+          if (invocation === undefined) return []
+          if (!ts.isMethodDeclaration(member)) {
+            this.fail(member, 'Remote decorators require a public instance method')
+          }
+          return [{ method: member, invocation }]
+        })
+        const first = marked[0]
+        if (first === undefined) continue
+        const binding = this.gatewayBinding(statement)
+        if (binding === undefined) {
+          this.fail(
+            first.method,
+            'Remote methods require GatewayService or readonly typertGateway = bindTypeRTGateway(this, serviceKey)',
+          )
+        }
+        for (const { method, invocation } of marked) {
+          result.push(this.invocationModel(registration, binding, method, invocation))
+        }
+      }
+    }
+    return result
+  }
+
+  private invocationModel(
+    registration: PackageRegistration,
+    binding: GatewayBinding,
+    method: ts.MethodDeclaration,
+    invocation:
+      | { readonly kind: 'direct'; readonly exportName?: string }
+      | { readonly kind: 'context'; readonly context: string; readonly exportName?: string },
+  ): InvocationModel {
+    if (visibilityOf(method) !== 'public' || hasModifier(method, ts.SyntaxKind.StaticKeyword)) {
+      this.fail(method, 'Remote decorators require a public instance method')
+    }
+    if (hasModifier(method, ts.SyntaxKind.AbstractKeyword) || method.body === undefined) {
+      this.fail(method, 'Remote methods must have a concrete implementation')
+    }
+    if (!ts.isIdentifier(method.name)) {
+      this.fail(method, 'Remote method names must be identifiers')
+    }
+    if ((method.typeParameters?.length ?? 0) > 0) {
+      this.fail(method, 'generic Remote methods are not supported')
+    }
+    const methodName = method.name.text
+    const exportedMethod = invocation.exportName ?? methodName
+
+    const lookups = this.lookupDeclarations()
+    const lookupByHost = new Map(lookups.map(lookup => [lookup.hostSymbol, lookup]))
+    const parameters: InvocationParameterModel[] = []
+    let cancellation: InvocationModel['cancellation']
+    const wires = new Set<string>()
+    for (const [parameterIndex, parameter] of method.parameters.entries()) {
+      if (!ts.isIdentifier(parameter.name)) {
+        this.fail(parameter, 'Remote parameters must use identifier bindings')
+      }
+      if (parameter.dotDotDotToken !== undefined) this.fail(parameter, 'Remote parameters cannot be rest parameters')
+      if (parameter.initializer !== undefined) this.fail(parameter, 'Remote parameters cannot have default values')
+      if (parameter.questionToken !== undefined) this.fail(parameter, 'Remote parameters cannot be optional')
+      if (parameter.name.text === 'this') this.fail(parameter, 'Remote methods cannot declare an explicit this parameter')
+      const authoredType = this.requiredType(parameter, parameter.type, 'parameter')
+      const cancellationName = parameter.name.text === 'signal'
+      const cancellationType = this.isGlobalAbortSignal(authoredType)
+      if (cancellationName || cancellationType) {
+        if (!cancellationName || !cancellationType) {
+          this.fail(parameter, 'Remote cancellation must use a parameter named signal with the global AbortSignal type')
+        }
+        if (parameterIndex !== method.parameters.length - 1) {
+          this.fail(parameter, 'Remote cancellation signal must be the final parameter')
+        }
+        cancellation = { parameter: 'signal' }
+        continue
+      }
+      const hostSymbol = this.symbolAtType(authoredType)
+      const lookup = hostSymbol === undefined ? undefined : lookupByHost.get(this.symbolId(hostSymbol))
+      let modeled: InvocationParameterModel
+      if (lookup !== undefined) {
+        if (parameter.name.text !== lookup.key) {
+          this.fail(parameter, `lookup parameter for ${lookup.key} must also be named ${lookup.key}`)
+        }
+        const boundary = this.remoteBoundary(
+          lookup.wireType,
+          `${registration.name}#${binding.namespace}/${exportedMethod}:${lookup.key}Id`,
+          true,
+        )
+        modeled = {
+          name: parameter.name.text,
+          wire: `${lookup.key}Id`,
+          source: 'lookup',
+          lookup: lookup.key,
+          boundary,
+        }
+      } else {
+        if (hostSymbol !== undefined && this.isWorkspaceClass(hostSymbol)) {
+          this.fail(parameter, `non-JSON class parameter ${hostSymbol.name} requires a TypeRTLookupMap entry`)
+        }
+        modeled = {
+          name: parameter.name.text,
+          wire: parameter.name.text,
+          source: 'json',
+          boundary: this.remoteBoundary(
+            authoredType,
+            `${registration.name}#${binding.namespace}/${exportedMethod}:${parameter.name.text}`,
+            false,
+          ),
+        }
+      }
+      if (wires.has(modeled.wire)) this.fail(parameter, `duplicate Remote wire field ${modeled.wire}`)
+      wires.add(modeled.wire)
+      parameters.push(modeled)
+    }
+
+    let receiver: InvocationModel['invocation'] = { kind: 'direct' }
+    if (invocation.kind === 'context') {
+      const context = this.contextDeclarations().get(invocation.context)
+      if (context === undefined) {
+        this.fail(method, `Remote Scope ${invocation.context} has no TypeRTContextMap entry`)
+      }
+      const wire = `${invocation.context}Id`
+      if (wires.has(wire)) this.fail(method, `Remote Scope wire field ${wire} conflicts with a method parameter`)
+      receiver = {
+        kind: 'context',
+        context: invocation.context,
+        wire,
+        boundary: this.remoteBoundary(
+          context.wireType,
+          `${registration.name}#${binding.namespace}/${exportedMethod}:${wire}`,
+          true,
+        ),
+      }
+    }
+
+    let scope: InvocationModel['scope']
+    if (invocation.kind === 'direct') {
+      const lookupParameters = parameters.filter(parameter => parameter.source === 'lookup')
+      const parameter = lookupParameters.length === 1 ? lookupParameters[0] : undefined
+      const context = parameter?.lookup === undefined
+        ? undefined
+        : this.contextDeclarations().get(parameter.lookup)
+      if (parameter !== undefined && context !== undefined) {
+        const contextBoundary = this.remoteBoundary(
+          context.wireType,
+          `${registration.name}#${binding.namespace}/${exportedMethod}:scope:${context.key}`,
+          true,
+        )
+        if (contextBoundary.typeSymbol !== parameter.boundary.typeSymbol) {
+          this.fail(
+            method,
+            `Remote scope ${context.key} wire type ${contextBoundary.typeSymbol} does not match lookup wire type ${parameter.boundary.typeSymbol}`,
+          )
+        }
+        scope = { context: context.key, wire: parameter.wire }
+      }
+    }
+
+    const resultType = this.remoteResultType(method)
+    return {
+      id: `${registration.name}#${binding.namespace}/${exportedMethod}`,
+      service: binding.service,
+      namespace: binding.namespace,
+      method: exportedMethod,
+      ...(exportedMethod === methodName ? {} : { implementation: methodName }),
+      invocation: receiver,
+      ...(scope === undefined ? {} : { scope }),
+      parameters,
+      ...(cancellation === undefined ? {} : { cancellation }),
+      result: this.remoteBoundary(
+        resultType,
+        `${registration.name}#${binding.namespace}/${exportedMethod}:result`,
+        false,
+      ),
+      location: this.location(method.name),
+    }
+  }
+
+  private gatewayBinding(declaration: ts.ClassDeclaration): GatewayBinding | undefined {
+    const field = this.gatewayFieldBinding(declaration)
+    const base = this.gatewayServiceBinding(declaration)
+    if (field !== undefined && base !== undefined) {
+      this.fail(field.site, 'GatewayService subclasses must not declare a second typertGateway binding')
+    }
+    return field ?? base
+  }
+
+  private gatewayFieldBinding(declaration: ts.ClassDeclaration): GatewayBinding | undefined {
+    const candidates = declaration.members.filter((member): member is ts.PropertyDeclaration =>
+      ts.isPropertyDeclaration(member) && memberName(member.name) === 'typertGateway')
+    const [property, duplicate] = candidates
+    if (property === undefined) return undefined
+    if (duplicate !== undefined) this.fail(duplicate, 'Service has more than one typertGateway field')
+    if (visibilityOf(property) !== 'public'
+      || hasModifier(property, ts.SyntaxKind.StaticKeyword)
+      || !hasModifier(property, ts.SyntaxKind.ReadonlyKeyword)) {
+      this.fail(property, 'typertGateway must be a public readonly instance field')
+    }
+    if (property.initializer === undefined
+      || !ts.isCallExpression(property.initializer)
+      || !this.isTypeMetaSymbol(property.initializer.expression, 'bindTypeRTGateway')) {
+      this.fail(property, 'typertGateway must call bindTypeRTGateway()')
+    }
+    const call = property.initializer
+    if (call.arguments.length < 2 || call.arguments.length > 3) {
+      this.fail(call, 'bindTypeRTGateway() requires this, service key, and an optional options object')
+    }
+    if (call.arguments[0]?.kind !== ts.SyntaxKind.ThisKeyword) {
+      this.fail(call.arguments[0] ?? call, 'bindTypeRTGateway() first argument must be this')
+    }
+    return this.gatewayBindingArguments(call, property)
+  }
+
+  private gatewayServiceBinding(declaration: ts.ClassDeclaration): GatewayBinding | undefined {
+    const heritage = (declaration.heritageClauses ?? [])
+      .filter(clause => clause.token === ts.SyntaxKind.ExtendsKeyword)
+      .flatMap(clause => [...clause.types])
+      .find(type => this.isTypeMetaSymbol(type.expression, 'GatewayService'))
+    if (heritage === undefined) return undefined
+
+    const constructor = declaration.members.find(ts.isConstructorDeclaration)
+    if (constructor?.body === undefined) {
+      this.fail(heritage, 'GatewayService subclasses must declare a constructor with super(ctx, serviceKey)')
+    }
+    const call = constructor.body.statements.flatMap((statement) => {
+      if (!ts.isExpressionStatement(statement) || !ts.isCallExpression(statement.expression)) return []
+      return statement.expression.expression.kind === ts.SyntaxKind.SuperKeyword ? [statement.expression] : []
+    })[0]
+    if (call === undefined) {
+      this.fail(constructor, 'GatewayService constructor must call super(ctx, serviceKey) directly')
+    }
+    if (call.arguments.length < 2 || call.arguments.length > 3) {
+      this.fail(call, 'GatewayService super() requires context, service key, and an optional options object')
+    }
+    return this.gatewayBindingArguments(call, heritage)
+  }
+
+  private gatewayBindingArguments(call: ts.CallExpression, site: ts.Node): GatewayBinding {
+    const serviceArgument = call.arguments[1]
+    if (serviceArgument === undefined) this.fail(call, 'Gateway service key must be a string literal')
+    const service = stringLiteralValue(serviceArgument)
+    if (service === undefined) this.fail(serviceArgument, 'Gateway service key must be a string literal')
+    let namespace = service
+    const options = call.arguments[2]
+    if (options !== undefined) {
+      if (!ts.isObjectLiteralExpression(options)) {
+        this.fail(options, 'bindTypeRTGateway() options must be an object literal')
+      }
+      for (const propertyOption of options.properties) {
+        if (!ts.isPropertyAssignment(propertyOption)
+          || memberName(propertyOption.name) !== 'namespace') {
+          this.fail(propertyOption, 'bindTypeRTGateway() only supports a namespace option')
+        }
+        const value = stringLiteralValue(propertyOption.initializer)
+        if (value === undefined) this.fail(propertyOption.initializer, 'Gateway namespace must be a string literal')
+        namespace = value
+      }
+    }
+    if (!isRemoteSegment(service)) this.fail(serviceArgument, 'Gateway service key must contain only RPC endpoint segment characters')
+    if (!isRemoteSegment(namespace)) this.fail(options ?? call, 'Gateway namespace must contain only RPC endpoint segment characters')
+    return { service, namespace, site }
+  }
+
+  private remoteMarker(
+    member: ts.ClassElement,
+  ):
+    | { readonly kind: 'direct'; readonly exportName?: string }
+    | { readonly kind: 'context'; readonly context: string; readonly exportName?: string }
+    | undefined {
+    let found:
+      | { readonly kind: 'direct'; readonly exportName?: string }
+      | { readonly kind: 'context'; readonly context: string; readonly exportName?: string }
+      | undefined
+    for (const decorator of ts.canHaveDecorators(member) ? ts.getDecorators(member) ?? [] : []) {
+      const expression = decorator.expression
+      let marker: typeof found
+      if (this.isTypeMetaSymbol(expression, 'Remote')) {
+        marker = { kind: 'direct' }
+      } else if (ts.isCallExpression(expression)
+        && this.isTypeMetaSymbol(expression.expression, 'Remote')) {
+        if (expression.arguments.length !== 1) this.fail(expression, 'Remote() requires one exported method name')
+        const exportName = stringLiteralValue(expression.arguments[0])
+        if (exportName === undefined || !isRemoteSegment(exportName)) {
+          this.fail(expression.arguments[0] ?? expression, 'Remote() name must be a string literal containing only RPC endpoint segment characters')
+        }
+        marker = { kind: 'direct', exportName }
+      } else if (ts.isCallExpression(expression)
+        && this.isTypeMetaSymbol(expression.expression, 'RemoteScope')) {
+        if (expression.arguments.length < 1 || expression.arguments.length > 2) {
+          this.fail(expression, 'RemoteScope() requires a Context key and optional exported method name')
+        }
+        const context = stringLiteralValue(expression.arguments[0])
+        if (context === undefined || !isRemoteSegment(context)) {
+          this.fail(expression.arguments[0] ?? expression, 'RemoteScope() key must be a string literal containing only RPC endpoint segment characters')
+        }
+        const exportArgument = expression.arguments[1]
+        const exportName = exportArgument === undefined ? undefined : stringLiteralValue(exportArgument)
+        if (exportArgument !== undefined && (exportName === undefined || !isRemoteSegment(exportName))) {
+          this.fail(exportArgument, 'RemoteScope() name must be a string literal containing only RPC endpoint segment characters')
+        }
+        marker = { kind: 'context', context, ...exportName === undefined ? {} : { exportName } }
+      } else {
+        continue
+      }
+      if (found !== undefined) this.fail(decorator, 'a method can have only one Remote invocation decorator')
+      found = marker
+    }
+    return found
+  }
+
+  private remoteResultType(method: ts.MethodDeclaration): ts.TypeNode {
+    const authored = this.requiredType(method, method.type, 'return')
+    if (!ts.isTypeReferenceNode(authored)) return authored
+    const symbol = this.checker.getSymbolAtLocation(authored.typeName)
+    const resolved = symbol === undefined ? undefined : this.resolveSymbol(symbol)
+    const resultType = authored.typeArguments?.[0]
+    if (resolved?.name !== 'Promise' || resultType === undefined || authored.typeArguments?.length !== 1) return authored
+    const declaration = preferredDeclaration(resolved)
+    if (declaration === undefined || !isStandardLibraryFile(declaration.getSourceFile().fileName)) return authored
+    return resultType
+  }
+
+  private isGlobalAbortSignal(type: ts.TypeNode): boolean {
+    const symbol = this.symbolAtType(type)
+    if (symbol?.name !== 'AbortSignal') return false
+    return symbol.declarations?.some(declaration =>
+      isStandardLibraryFile(declaration.getSourceFile().fileName)) === true
+  }
+
+  private lookupDeclarations(): readonly StaticLookupDeclaration[] {
+    if (this.staticLookups !== undefined) return this.staticLookups
+    const byKey = new Map<string, StaticLookupDeclaration>()
+    const byHost = new Map<SymbolId, StaticLookupDeclaration>()
+    for (const declaration of this.typeMetaMapMembers('TypeRTLookupMap')) {
+      if (!ts.isPropertySignature(declaration) || declaration.type === undefined) {
+        this.fail(declaration, 'TypeRTLookupMap entries must be required properties')
+      }
+      const key = memberName(declaration.name)
+      if (!isRemoteSegment(key)) this.fail(declaration.name, 'TypeRTLookupMap key must contain only RPC endpoint segment characters')
+      if (!ts.isTypeReferenceNode(declaration.type)
+        || !this.isTypeMetaSymbol(declaration.type.typeName, 'TypeRTLookup')
+        || declaration.type.typeArguments?.length !== 2) {
+        this.fail(declaration.type, 'TypeRTLookupMap values must be TypeRTLookup<Host, Wire>')
+      }
+      const hostType = declaration.type.typeArguments[0]
+      const wireType = declaration.type.typeArguments[1]
+      if (hostType === undefined || wireType === undefined) {
+        this.fail(declaration.type, 'TypeRTLookupMap values must be TypeRTLookup<Host, Wire>')
+      }
+      const host = this.symbolAtType(hostType)
+      if (host === undefined) this.fail(hostType, 'TypeRTLookup Host must be a named type')
+      const entry: StaticLookupDeclaration = {
+        key,
+        hostSymbol: this.symbolId(host),
+        wireType,
+        site: declaration,
+      }
+      if (byKey.has(key)) this.fail(declaration, `duplicate TypeRTLookupMap key ${key}`)
+      if (byHost.has(entry.hostSymbol)) this.fail(declaration, `Host type ${host.name} has more than one TypeRT lookup`)
+      byKey.set(key, entry)
+      byHost.set(entry.hostSymbol, entry)
+    }
+    this.staticLookups = [...byKey.values()]
+    return this.staticLookups
+  }
+
+  private contextDeclarations(): ReadonlyMap<string, StaticContextDeclaration> {
+    if (this.staticContexts !== undefined) return this.staticContexts
+    const result = new Map<string, StaticContextDeclaration>()
+    for (const declaration of this.typeMetaMapMembers('TypeRTContextMap')) {
+      if (!ts.isPropertySignature(declaration) || declaration.type === undefined) {
+        this.fail(declaration, 'TypeRTContextMap entries must be required properties')
+      }
+      const key = memberName(declaration.name)
+      if (!isRemoteSegment(key)) this.fail(declaration.name, 'TypeRTContextMap key must contain only RPC endpoint segment characters')
+      if (!ts.isTypeReferenceNode(declaration.type)
+        || !this.isTypeMetaSymbol(declaration.type.typeName, 'TypeRTContext')
+        || declaration.type.typeArguments?.length !== 1) {
+        this.fail(declaration.type, 'TypeRTContextMap values must be TypeRTContext<Wire>')
+      }
+      if (result.has(key)) this.fail(declaration, `duplicate TypeRTContextMap key ${key}`)
+      const wireType = declaration.type.typeArguments[0]
+      if (wireType === undefined) this.fail(declaration.type, 'TypeRTContextMap values must be TypeRTContext<Wire>')
+      result.set(key, {
+        key,
+        wireType,
+        site: declaration,
+      })
+    }
+    this.staticContexts = result
+    return result
+  }
+
+  private typeMetaMapMembers(name: 'TypeRTLookupMap' | 'TypeRTContextMap'): ts.TypeElement[] {
+    const result: ts.TypeElement[] = []
+    for (const sourceFile of this.program.getSourceFiles()) {
+      for (const statement of sourceFile.statements) {
+        if (!ts.isModuleDeclaration(statement)
+          || !ts.isStringLiteral(statement.name)
+          || statement.name.text !== '@deepseek-ai/dsh-type-meta'
+          || statement.body === undefined
+          || !ts.isModuleBlock(statement.body)) continue
+        for (const nested of statement.body.statements) {
+          if (ts.isInterfaceDeclaration(nested) && nested.name.text === name) result.push(...nested.members)
+        }
+      }
+    }
+    return result
+  }
+
+  private remoteBoundary(
+    authoredType: ts.TypeNode,
+    fallbackTypeSymbol: string,
+    requireNamed: boolean,
+  ): RemoteBoundaryModel {
+    const type = this.convertType(authoredType)
+    const codecType = this.resolvedRemoteCodecType(authoredType)
+    const rootSymbol = this.namedWorkspaceType(authoredType)
+    const imports = new Map<SymbolId, RemoteTypeImportModel>()
+    const visit = (node: ts.Node): void => {
+      if ((ts.isTypeReferenceNode(node) || ts.isImportTypeNode(node))) {
+        const symbol = ts.isTypeReferenceNode(node)
+          ? this.checker.getSymbolAtLocation(node.typeName)
+          : node.qualifier === undefined ? undefined : this.checker.getSymbolAtLocation(node.qualifier)
+        if (symbol !== undefined) {
+          const resolved = this.resolveSymbol(symbol)
+          const declaration = preferredDeclaration(resolved)
+          if (declaration !== undefined
+            && !isStandardLibraryFile(declaration.getSourceFile().fileName)
+            && this.registrationForFile(declaration.getSourceFile().fileName) !== undefined) {
+            const imported = this.publicRemoteType(resolved, node)
+            imports.set(imported.symbol, imported)
+          }
+        }
+      }
+      ts.forEachChild(node, visit)
+    }
+    visit(authoredType)
+    if (rootSymbol !== undefined) {
+      const imported = this.publicRemoteType(rootSymbol, authoredType)
+      return {
+        type,
+        codecType,
+        typeSymbol: `${imported.specifier}#${imported.name}`,
+        imports: [...imports.values()].sort((left, right) =>
+          left.specifier.localeCompare(right.specifier) || left.name.localeCompare(right.name)),
+      }
+    }
+    if (requireNamed) this.fail(authoredType, 'lookup and Context wire types must be named public types')
+    return {
+      type,
+      codecType,
+      typeSymbol: fallbackTypeSymbol,
+      imports: [...imports.values()].sort((left, right) =>
+        left.specifier.localeCompare(right.specifier) || left.name.localeCompare(right.name)),
+    }
+  }
+
+  /**
+   * Project one authored Remote boundary through the complete face Program.
+   * Consumer declarations retain the authored alias, while codecs use this
+   * concrete graph so declaration-merged mapped and conditional types are
+   * validated without teaching the compiler-independent emitter TypeScript's
+   * type evaluator.
+   */
+  private resolvedRemoteCodecType(authoredType: ts.TypeNode): TypeNodeId {
+    const resolvedType = this.checker.getTypeFromTypeNode(authoredType)
+    this.assertRemoteJsonType(resolvedType, authoredType, new Set(), false)
+    const completed = new Map<ts.Type, TypeNodeId>()
+    const active = new Map<ts.Type, TypeNodeId>()
+    const recursiveDeclarations = new Map<ts.Type, SymbolId>()
+    const convert = (type: ts.Type): TypeNodeId => {
+      const cached = completed.get(type)
+      if (cached !== undefined) return cached
+      const activeId = active.get(type)
+      if (activeId !== undefined) {
+        if (this.checker.isArrayType(type) || this.checker.isArrayLikeType(type)) {
+          const element = this.checker.getIndexTypeOfType(type, ts.IndexKind.Number)
+          const elementId = element === undefined ? undefined : active.get(element)
+          if (element !== undefined && elementId !== undefined) {
+            return this.addNode(authoredType, {
+              kind: 'array',
+              element: this.resolvedCycleReference(
+                element,
+                authoredType,
+                elementId,
+                recursiveDeclarations,
+              ),
+            })
+          }
+        }
+        return this.resolvedCycleReference(type, authoredType, activeId, recursiveDeclarations)
+      }
+      const id = this.allocateNodeId(authoredType)
+      active.set(type, id)
+      try {
+        const add = (model: TypeNodeInput): TypeNodeId => {
+          this.nodes.set(id, { id, ...model })
+          completed.set(type, id)
+          return id
+        }
+        const flags = type.flags
+        if ((flags & ts.TypeFlags.Any) !== 0) return add({ kind: 'keyword', name: 'any' })
+        if ((flags & ts.TypeFlags.Unknown) !== 0) return add({ kind: 'keyword', name: 'unknown' })
+        if ((flags & ts.TypeFlags.Never) !== 0) return add({ kind: 'keyword', name: 'never' })
+        if ((flags & ts.TypeFlags.String) !== 0) return add({ kind: 'keyword', name: 'string' })
+        if ((flags & ts.TypeFlags.Number) !== 0) return add({ kind: 'keyword', name: 'number' })
+        if ((flags & ts.TypeFlags.BigInt) !== 0) return add({ kind: 'keyword', name: 'bigint' })
+        if ((flags & ts.TypeFlags.Boolean) !== 0) return add({ kind: 'keyword', name: 'boolean' })
+        if ((flags & ts.TypeFlags.ESSymbol) !== 0) return add({ kind: 'keyword', name: 'symbol' })
+        if ((flags & ts.TypeFlags.Undefined) !== 0) return add({ kind: 'keyword', name: 'undefined' })
+        if ((flags & ts.TypeFlags.Void) !== 0) return add({ kind: 'keyword', name: 'void' })
+        if ((flags & ts.TypeFlags.Null) !== 0) return add({ kind: 'literal', value: null, text: 'null' })
+        if ((flags & ts.TypeFlags.StringLiteral) !== 0) {
+          const value = (type as ts.StringLiteralType).value
+          return add({ kind: 'literal', value, text: JSON.stringify(value) })
+        }
+        if ((flags & ts.TypeFlags.NumberLiteral) !== 0) {
+          const value = (type as ts.NumberLiteralType).value
+          return add({ kind: 'literal', value, text: String(value) })
+        }
+        if ((flags & ts.TypeFlags.BigIntLiteral) !== 0) {
+          const value = (type as ts.BigIntLiteralType).value
+          const text = `${value.negative ? '-' : ''}${value.base10Value}n`
+          return add({ kind: 'literal', value: BigInt(`${value.negative ? '-' : ''}${value.base10Value}`), text })
+        }
+        if ((flags & ts.TypeFlags.BooleanLiteral) !== 0) {
+          const value = (type as ts.Type & { readonly intrinsicName?: string }).intrinsicName === 'true'
+          return add({ kind: 'literal', value, text: String(value) })
+        }
+        if (type.isUnionOrIntersection()) {
+          return add({
+            kind: (flags & ts.TypeFlags.Union) !== 0 ? 'union' : 'intersection',
+            types: type.types.map(convert),
+          })
+        }
+        if ((flags & ts.TypeFlags.TypeParameter) !== 0) {
+          this.fail(authoredType, 'Remote codec contains an unresolved type parameter')
+        }
+        if ((flags & ts.TypeFlags.Object) === 0) {
+          this.fail(
+            authoredType,
+            `Remote codec type ${this.checker.typeToString(type, authoredType, ts.TypeFormatFlags.NoTruncation)} has no concrete Zod projection`,
+          )
+        }
+        if (this.checker.isTupleType(type)) {
+          const reference = type as ts.TypeReference
+          const target = reference.target as ts.TupleType
+          const arguments_ = this.checker.getTypeArguments(reference)
+          return add({
+            kind: 'tuple',
+            elements: arguments_.map((argument, index) => {
+              const elementFlags = target.elementFlags[index] ?? ts.ElementFlags.Required
+              return {
+                type: convert(argument),
+                optional: (elementFlags & ts.ElementFlags.Optional) !== 0,
+                rest: (elementFlags & (ts.ElementFlags.Rest | ts.ElementFlags.Variadic)) !== 0,
+              }
+            }),
+          })
+        }
+        if (this.checker.isArrayType(type) || this.checker.isArrayLikeType(type)) {
+          const element = this.checker.getIndexTypeOfType(type, ts.IndexKind.Number)
+          if (element === undefined) this.fail(authoredType, 'Remote codec array has no element type')
+          return add({ kind: 'array', element: convert(element) })
+        }
+        if (type.getCallSignatures().length > 0 || type.getConstructSignatures().length > 0) {
+          this.fail(authoredType, 'Remote codec cannot contain callable or constructable values')
+        }
+        const members: MemberModel[] = []
+        for (const property of this.checker.getPropertiesOfType(type)) {
+          const declaration = property.valueDeclaration ?? property.declarations?.[0]
+          const propertyType = this.checker.getTypeOfSymbolAtLocation(property, declaration ?? authoredType)
+          const symbolKey = property.getName()
+          members.push({
+            ...EMPTY_DOCUMENTATION,
+            id: `${id}#${symbolKey}`,
+            name: symbolKey,
+            ...(symbolKey.startsWith('__@') ? { computed: 'symbol' as const } : {}),
+            optional: (property.flags & ts.SymbolFlags.Optional) !== 0,
+            readonly: declaration !== undefined && hasModifier(declaration, ts.SyntaxKind.ReadonlyKeyword),
+            async: false,
+            abstract: false,
+            static: false,
+            visibility: 'public',
+            location: this.location(authoredType),
+            text: '',
+            kind: 'property',
+            type: convert(propertyType),
+          })
+        }
+        for (const [index, info] of this.checker.getIndexInfosOfType(type).entries()) {
+          members.push({
+            ...EMPTY_DOCUMENTATION,
+            id: `${id}#index:${String(index)}`,
+            name: '(index)',
+            optional: false,
+            readonly: info.isReadonly,
+            async: false,
+            abstract: false,
+            static: false,
+            visibility: 'public',
+            location: this.location(authoredType),
+            text: '',
+            kind: 'index',
+            signature: {
+              typeParameters: [],
+              parameters: [{
+                name: 'key',
+                binding: 'identifier',
+                type: convert(info.keyType),
+                optional: false,
+                rest: false,
+                receiver: false,
+              }],
+              returns: convert(info.type),
+            },
+          })
+        }
+        return add({ kind: 'object', members })
+      } finally {
+        active.delete(type)
+      }
+    }
+    return convert(resolvedType)
+  }
+
+  private assertRemoteJsonType(
+    type: ts.Type,
+    site: ts.TypeNode,
+    active: Set<ts.Type>,
+    allowUndefined: boolean,
+  ): void {
+    const flags = type.flags
+    if ((flags & ts.TypeFlags.Undefined) !== 0 && allowUndefined) return
+    if ((flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) !== 0) {
+      this.fail(site, `Remote boundary contains unconstrained ${this.checker.typeToString(type)} data`)
+    }
+    if ((flags & (ts.TypeFlags.BigIntLike | ts.TypeFlags.ESSymbolLike | ts.TypeFlags.Undefined | ts.TypeFlags.Void)) !== 0) {
+      this.fail(site, `Remote boundary contains non-JSON type ${this.checker.typeToString(type)}`)
+    }
+    if ((flags & (ts.TypeFlags.StringLike
+      | ts.TypeFlags.NumberLike
+      | ts.TypeFlags.BooleanLike
+      | ts.TypeFlags.Null
+      | ts.TypeFlags.Never)) !== 0) return
+    if (type.isUnion()) {
+      for (const member of type.types) this.assertRemoteJsonType(member, site, active, allowUndefined)
+      return
+    }
+    if (type.isIntersection()) {
+      const material = type.types.filter(member => !this.isRemotePhantomConstraint(member))
+      if (material.length === 0) this.fail(site, 'Remote boundary contains a symbol-only object')
+      for (const member of material) this.assertRemoteJsonType(member, site, active, false)
+      return
+    }
+    if ((flags & ts.TypeFlags.TypeParameter) !== 0) {
+      this.fail(site, 'Remote boundary contains an unresolved type parameter')
+    }
+    if ((flags & ts.TypeFlags.Object) === 0) {
+      this.fail(site, `Remote boundary contains non-JSON type ${this.checker.typeToString(type)}`)
+    }
+    const symbol = type.getSymbol()
+    const declaration = symbol?.valueDeclaration ?? symbol?.declarations?.[0]
+    if (declaration !== undefined && (ts.isClassDeclaration(declaration) || ts.isClassExpression(declaration))) {
+      this.fail(site, `Remote boundary contains class instance ${symbol?.name ?? this.checker.typeToString(type)}`)
+    }
+    if (type.getCallSignatures().length > 0 || type.getConstructSignatures().length > 0) {
+      this.fail(site, 'Remote boundary contains callable or constructable data')
+    }
+    if (active.has(type)) return
+    active.add(type)
+    try {
+      if (this.checker.isTupleType(type)) {
+        const reference = type as ts.TypeReference
+        const target = reference.target as ts.TupleType
+        const arguments_ = this.checker.getTypeArguments(reference)
+        arguments_.forEach((argument, index) => {
+          const elementFlags = target.elementFlags[index] ?? ts.ElementFlags.Required
+          this.assertRemoteJsonType(
+            argument,
+            site,
+            active,
+            (elementFlags & ts.ElementFlags.Optional) !== 0,
+          )
+        })
+        return
+      }
+      if (this.checker.isArrayType(type) || this.checker.isArrayLikeType(type)) {
+        const element = this.checker.getIndexTypeOfType(type, ts.IndexKind.Number)
+        if (element === undefined) this.fail(site, 'Remote boundary array has no element type')
+        this.assertRemoteJsonType(element, site, active, false)
+        return
+      }
+      const properties = this.checker.getPropertiesOfType(type)
+      if (properties.some(property => property.getName().startsWith('__@'))) {
+        this.fail(site, 'Remote boundary contains a symbol-keyed property')
+      }
+      for (const property of properties) {
+        const propertyDeclaration = property.valueDeclaration ?? property.declarations?.[0]
+        const propertyType = this.checker.getTypeOfSymbolAtLocation(property, propertyDeclaration ?? site)
+        this.assertRemoteJsonType(
+          propertyType,
+          site,
+          active,
+          (property.flags & ts.SymbolFlags.Optional) !== 0,
+        )
+      }
+      for (const info of this.checker.getIndexInfosOfType(type)) {
+        if ((info.keyType.flags & ts.TypeFlags.ESSymbolLike) !== 0) {
+          this.fail(site, 'Remote boundary contains a symbol index signature')
+        }
+        this.assertRemoteJsonType(info.type, site, active, false)
+      }
+    } finally {
+      active.delete(type)
+    }
+  }
+
+  private isRemotePhantomConstraint(type: ts.Type): boolean {
+    if ((type.flags & ts.TypeFlags.Unknown) !== 0) return true
+    if ((type.flags & ts.TypeFlags.Any) !== 0 || (type.flags & ts.TypeFlags.Object) === 0) return false
+    if (type.getCallSignatures().length > 0 || type.getConstructSignatures().length > 0) return false
+    if (this.checker.getIndexInfosOfType(type).length > 0) return false
+    return this.checker.getPropertiesOfType(type).every(property => property.getName().startsWith('__@'))
+  }
+
+  private resolvedCycleReference(
+    type: ts.Type,
+    site: ts.TypeNode,
+    resolvedType: TypeNodeId,
+    recursiveDeclarations: Map<ts.Type, SymbolId>,
+  ): TypeNodeId {
+    const symbol = type.aliasSymbol ?? type.getSymbol()
+    if (symbol === undefined) this.fail(site, 'Remote codec contains an unnamed recursive type')
+    const resolved = this.resolveSymbol(symbol)
+    const declaration = preferredDeclaration(resolved)
+    if (declaration === undefined || isStandardLibraryFile(declaration.getSourceFile().fileName)) {
+      this.fail(site, `Remote codec recursive type ${resolved.name} has no workspace declaration`)
+    }
+    const owner = this.registrationForFile(declaration.getSourceFile().fileName)
+    if (owner === undefined) this.fail(site, `Remote codec recursive type ${resolved.name} is not owned by this face`)
+    let id = recursiveDeclarations.get(type)
+    if (id === undefined) {
+      id = `${this.symbolId(resolved)}#remote-codec:${resolvedType}`
+      recursiveDeclarations.set(type, id)
+      this.declarations.set(id, {
+        ...EMPTY_DOCUMENTATION,
+        id,
+        package: owner.name,
+        name: `${resolved.name}RemoteCodec`,
+        kind: 'alias',
+        abstract: false,
+        exported: false,
+        location: this.location(declaration),
+        text: '',
+        typeParameters: [],
+        extends: [],
+        implements: [],
+        members: [],
+        type: resolvedType,
+      })
+    }
+    return this.addNode(site, {
+      kind: 'reference',
+      name: `${resolved.name}RemoteCodec`,
+      target: { kind: 'declaration', symbol: id },
+      arguments: [],
+    })
+  }
+
+  private namedWorkspaceType(node: ts.TypeNode): ts.Symbol | undefined {
+    if (!ts.isTypeReferenceNode(node) && !ts.isImportTypeNode(node)) return undefined
+    const symbol = ts.isTypeReferenceNode(node)
+      ? this.checker.getSymbolAtLocation(node.typeName)
+      : node.qualifier === undefined ? undefined : this.checker.getSymbolAtLocation(node.qualifier)
+    if (symbol === undefined) return undefined
+    const resolved = this.resolveSymbol(symbol)
+    const declaration = preferredDeclaration(resolved)
+    if (declaration === undefined
+      || isStandardLibraryFile(declaration.getSourceFile().fileName)
+      || this.registrationForFile(declaration.getSourceFile().fileName) === undefined) return undefined
+    return resolved
+  }
+
+  private publicRemoteType(symbol: ts.Symbol, site: ts.Node): RemoteTypeImportModel {
+    const declaration = preferredDeclaration(symbol)
+    if (declaration === undefined) this.fail(site, `type ${symbol.name} has no declaration`)
+    const registration = this.registrationForFile(declaration.getSourceFile().fileName)
+    if (registration === undefined) this.fail(site, `type ${symbol.name} is not owned by a workspace package`)
+    const candidates: RemoteTypeImportModel[] = []
+    for (const [subpath, target] of packageExportTargets(registration.manifest)) {
+      if (subpath === '.' || subpath === './package.json' || subpath === './typert'
+        || subpath === './client/typert' || subpath === './remote' || target.includes('*')) continue
+      const sourceFile = this.sourceFiles.get(realPath(sourcePathForExport(registration.root, target)))
+      if (sourceFile === undefined) continue
+      const moduleSymbol = this.checker.getSymbolAtLocation(sourceFile)
+      if (moduleSymbol === undefined) continue
+      for (const exported of this.checker.getExportsOfModule(moduleSymbol)) {
+        if (this.resolveSymbol(exported) !== symbol) continue
+        candidates.push({
+          symbol: this.symbolId(symbol),
+          specifier: packageExportSpecifier(registration.name, subpath),
+          name: exported.name,
+        })
+      }
+    }
+    const selected = candidates.sort((left, right) =>
+      left.specifier.localeCompare(right.specifier) || left.name.localeCompare(right.name))[0]
+    if (selected === undefined) {
+      this.fail(site, `Remote boundary type ${symbol.name} must be exported from a public non-root type subpath`)
+    }
+    return selected
+  }
+
+  private isWorkspaceClass(symbol: ts.Symbol): boolean {
+    const declaration = preferredDeclaration(symbol)
+    return declaration !== undefined
+      && ts.isClassDeclaration(declaration)
+      && this.registrationForFile(declaration.getSourceFile().fileName) !== undefined
+  }
+
+  private isTypeMetaSymbol(node: ts.Node, name: string): boolean {
+    const symbol = this.checker.getSymbolAtLocation(node)
+    if (symbol === undefined) return false
+    const resolved = this.resolveSymbol(symbol)
+    if (resolved.name !== name) return false
+    const declaration = preferredDeclaration(resolved)
+    if (declaration === undefined) return false
+    const registration = this.registrationForFile(declaration.getSourceFile().fileName)
+    if (registration?.name === '@deepseek-ai/dsh-type-meta') return true
+    for (let current: ts.Node | undefined = declaration; current !== undefined; current = optionalParent(current)) {
+      if (ts.isModuleDeclaration(current)
+        && ts.isStringLiteral(current.name)
+        && current.name.text === '@deepseek-ai/dsh-type-meta') return true
+    }
+    return false
+  }
+
+  private validateInvocationIdentity(packages: readonly PackageModel[]): void {
+    const endpoints = new Map<string, InvocationModel>()
+    const ids = new Map<string, InvocationModel>()
+    for (const invocation of packages.flatMap(packageModel => packageModel.invocations)) {
+      const endpoint = `${invocation.namespace}/${invocation.method}`
+      const existingEndpoint = endpoints.get(endpoint)
+      if (existingEndpoint !== undefined) {
+        throw new TypertAnalysisError(
+          `typert(${this.face}): ${invocation.location.file}:${String(invocation.location.line)}:${String(invocation.location.column)}: Remote endpoint ${endpoint} conflicts with ${existingEndpoint.id}`,
+        )
+      }
+      const existingId = ids.get(invocation.id)
+      if (existingId !== undefined) {
+        throw new TypertAnalysisError(
+          `typert(${this.face}): ${invocation.location.file}:${String(invocation.location.line)}:${String(invocation.location.column)}: Remote invocation id ${invocation.id} conflicts with ${existingId.id}`,
+        )
+      }
+      endpoints.set(endpoint, invocation)
+      ids.set(invocation.id, invocation)
+    }
   }
 
   private collectEvents(events: ts.InterfaceDeclaration): EventModel[] {
@@ -879,6 +1940,11 @@ class FaceAnalyzer {
   ): MemberModel[] {
     const result: MemberModel[] = []
     for (const member of members) {
+      if (ts.isPropertyDeclaration(member)
+        && memberName(member.name) === 'typertGateway'
+        && member.initializer !== undefined
+        && ts.isCallExpression(member.initializer)
+        && this.isTypeMetaSymbol(member.initializer.expression, 'bindTypeRTGateway')) continue
       const visibility = visibilityOf(member)
       const isStatic = hasModifier(member, ts.SyntaxKind.StaticKeyword)
       if (visibility !== 'public' || isStatic || ts.isConstructorDeclaration(member)) continue
@@ -909,17 +1975,19 @@ class FaceAnalyzer {
     visibility: MemberVisibility,
     isStatic: boolean,
   ): MemberBase {
-    const name = member.name !== undefined
-      ? memberName(member.name)
-      : ts.isCallSignatureDeclaration(member)
-        ? '(call)'
-        : ts.isConstructSignatureDeclaration(member)
-          ? '(construct)'
-          : '(index)'
+    const identity = member.name !== undefined
+      ? this.memberIdentity(member.name)
+      : {
+        name: ts.isCallSignatureDeclaration(member)
+          ? '(call)'
+          : ts.isConstructSignatureDeclaration(member)
+            ? '(construct)'
+            : '(index)',
+      }
     return {
       ...documentationOf(member),
-      id: `${ownerId}#${name}@${String(member.getStart())}`,
-      name,
+      id: `${ownerId}#${identity.name}@${String(member.getStart())}`,
+      ...identity,
       optional: 'questionToken' in member && member.questionToken !== undefined,
       readonly: hasModifier(member, ts.SyntaxKind.ReadonlyKeyword),
       async: hasModifier(member, ts.SyntaxKind.AsyncKeyword),
@@ -928,6 +1996,20 @@ class FaceAnalyzer {
       visibility,
       location: this.location(member),
       text: memberText(member),
+    }
+  }
+
+  private memberIdentity(name: ts.PropertyName): Pick<MemberBase, 'name' | 'jsonName' | 'computed'> {
+    if (!ts.isComputedPropertyName(name)) return { name: memberName(name) }
+    const expression = name.expression
+    if (ts.isStringLiteral(expression) || ts.isNumericLiteral(expression)
+      || ts.isNoSubstitutionTemplateLiteral(expression)) {
+      return { name: memberName(name), jsonName: expression.text }
+    }
+    const type = this.checker.getTypeAtLocation(expression)
+    return {
+      name: memberName(name),
+      computed: (type.flags & ts.TypeFlags.UniqueESSymbol) !== 0 ? 'symbol' : 'dynamic',
     }
   }
 
@@ -1434,7 +2516,23 @@ function sourceFileHasSurface(sourceFile: ts.SourceFile): boolean {
       || ts.isInterfaceDeclaration(statement)
       || ts.isTypeAliasDeclaration(statement)
       || ts.isEnumDeclaration(statement))
-      && typertMode(statement) !== undefined) return true
+      && (typertMode(statement) !== undefined || typertServiceTag(statement) !== undefined)) return true
+    if (ts.isClassDeclaration(statement)) {
+      for (const member of statement.members) {
+        if (ts.isPropertyDeclaration(member)
+          && memberName(member.name) === 'typertGateway'
+          && member.initializer !== undefined
+          && ts.isCallExpression(member.initializer)
+          && expressionName(member.initializer.expression) === 'bindTypeRTGateway') return true
+        for (const decorator of ts.canHaveDecorators(member) ? ts.getDecorators(member) ?? [] : []) {
+          const expression = ts.isCallExpression(decorator.expression)
+            ? decorator.expression.expression
+            : decorator.expression
+          const name = expressionName(expression)
+          if (name === 'Remote' || name === 'RemoteScope') return true
+        }
+      }
+    }
     if (!ts.isModuleDeclaration(statement)
       || !ts.isStringLiteral(statement.name)
       || statement.name.text !== 'cordis'
@@ -1452,6 +2550,7 @@ function hasPackageSurface(model: PackageModel): boolean {
     || model.events.length > 0
     || model.objects.length > 0
     || model.schemas.length > 0
+    || model.invocations.length > 0
 }
 
 function isDualFacePackage(manifest: Record<string, unknown>): boolean {
@@ -1463,7 +2562,9 @@ function isDualFacePackage(manifest: Record<string, unknown>): boolean {
 function hostExportSubpaths(manifest: Record<string, unknown>): string[] {
   return packageExportTargets(manifest)
     .map(([subpath]) => subpath)
-    .filter(subpath => subpath !== './client' && !subpath.startsWith('./client/'))
+    .filter(subpath => subpath !== './client'
+      && !subpath.startsWith('./client/')
+      && subpath !== './remote')
 }
 
 function clientExportSubpaths(manifest: Record<string, unknown>): string[] {
@@ -1530,6 +2631,10 @@ function preferredDeclaration(symbol: ts.Symbol): ts.Declaration | undefined {
   return symbol.declarations?.find(isTypeDeclaration)
     ?? symbol.valueDeclaration
     ?? symbol.declarations?.[0]
+}
+
+function optionalParent(node: ts.Node): ts.Node | undefined {
+  return (node as ts.Node & { readonly parent?: ts.Node }).parent
 }
 
 function isTypeDeclaration(
@@ -1686,11 +2791,38 @@ function typertMode(node: ts.Node): 'object' | 'schema' | undefined {
   return undefined
 }
 
+function typertServiceTag(node: ts.Node): ts.JSDocTag | undefined {
+  return ts.getJSDocTags(node).find(tag => tag.tagName.text === 'typert'
+    && (ts.getTextOfJSDocComment(tag.comment) ?? '').trim().split(/\s+/, 1)[0] === 'service')
+}
+
 function memberName(name: ts.PropertyName | ts.BindingName): string {
   if (ts.isIdentifier(name) || ts.isPrivateIdentifier(name) || ts.isStringLiteral(name)
     || ts.isNumericLiteral(name) || ts.isNoSubstitutionTemplateLiteral(name)) return name.text
   if (ts.isComputedPropertyName(name)) return `[${name.expression.getText()}]`
   return name.getText()
+}
+
+function stringLiteralValue(node: ts.Node | undefined): string | undefined {
+  return node !== undefined && (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node))
+    ? node.text
+    : undefined
+}
+
+function isRemoteSegment(value: string): boolean {
+  // Generation bootstraps workspace artifacts before dsh-type-meta is built,
+  // so this extraction-only copy must mirror isTypeRTRemoteSegment().
+  return value !== '.' && value !== '..' && /^[A-Za-z0-9_$.-]+$/.test(value)
+}
+
+function expressionName(node: ts.Expression): string | undefined {
+  if (ts.isIdentifier(node)) return node.text
+  if (ts.isPropertyAccessExpression(node)) return node.name.text
+  return undefined
+}
+
+function packageExportSpecifier(packageName: string, subpath: string): string {
+  return subpath === '.' ? packageName : `${packageName}${subpath.slice(1)}`
 }
 
 function visibilityOf(node: ts.Node): MemberVisibility {
@@ -1863,9 +2995,19 @@ function formatProgramDiagnostic(root: string, face: TypertFace, diagnostic: ts.
   return `typert(${face}): ${file}:${String(position.line + 1)}:${String(position.character + 1)}: TypeScript TS${String(diagnostic.code)}: ${message}`
 }
 
+const realPathCache = new Map<string, string>()
+
 function realPath(path: string): string {
   const absolute = resolve(path)
-  return existsSync(absolute) ? realpathSync(absolute) : absolute
+  const cached = realPathCache.get(absolute)
+  if (cached !== undefined) return cached
+  // Only existing paths are memoized: a path can come into existence later,
+  // but an existing path's canonical form is stable for the process lifetime
+  // (analysis edits rewrite file contents, never the directory tree).
+  if (!existsSync(absolute)) return absolute
+  const resolved = realpathSync(absolute)
+  realPathCache.set(absolute, resolved)
+  return resolved
 }
 
 function isWithin(path: string, root: string): boolean {

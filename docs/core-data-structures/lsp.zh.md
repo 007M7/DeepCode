@@ -2,7 +2,7 @@
 
 [English](lsp.md) | 中文
 
-LSP seam 是一个[能力 seam](../../.agents/notes/implemented/architecture/2026-07-15-lsp-capability-seam.md)：它在单一 `ctx.lsp` 服务上公开语义代码导航，并拆分到多个包（package）：接口（[dsh-lsp](../../packages/lsp/lsp)，`ctx.lsp` + 提供方注册表）、通用实现（[dsh-lsp-local](../../packages/lsp/lsp-local)，经过配置的 stdio 语言服务器宿主）和消费方（[dsh-tool-lsp](../../packages/lsp/tool-lsp)，即 `lsp` 工具 schema）。LSP 是**一项可选能力**，不属于 agent loop（智能体循环）主干，因此其词汇定义在此而非 [core.md](core.md) 中。更换提供方不会改变模型请求导航的方式。
+LSP seam 是一个[能力 seam](../../.agents/notes/implemented/architecture/2026-07-15-lsp-capability-seam.md)：它在单一 `ctx.lsp` 服务上公开语义代码导航，并拆分到多个包：接口（[dsh-lsp](../../packages/lsp/lsp)，`ctx.lsp` + 提供方注册表）、通用实现（[dsh-lsp-local](../../packages/lsp/lsp-local)，经过配置的 stdio 语言服务器宿主）和消费方（[dsh-tool-lsp](../../packages/lsp/tool-lsp)，即 `lsp` 工具 schema）。LSP 是**一项可选能力**，不属于 agent loop（智能体循环）主干，因此其词汇定义在此而非 [core.md](core.md) 中。更换提供方不会改变模型请求导航的方式。
 
 源文件：[`packages/lsp/lsp/src/types.ts`](../../packages/lsp/lsp/src/types.ts)
 
@@ -113,7 +113,7 @@ type LspQueryResult =
 
 ## 提供方与服务
 
-每个提供方拥有一个稳定的品牌化 `id`，以及一份互斥的、小写且以点开头的扩展名映射。`registerProvider` 会原子保留 id 和每个扩展名：注册无效或冲突时不发布任何内容；其 disposer 会释放所有保留项。每次查询独立选择提供方，且选择与顺序无关；没有匹配项时抛出 `LspError` `LSP_UNAVAILABLE`。该 seam 不公开协议类型、进程或文档控制，也不提供通用 JSON-RPC 逃生口。
+每个提供方拥有一个稳定的品牌化 `id`，以及一份互斥的、小写且以点开头的扩展名映射。`registerProvider` 会原子预留 id 和每个扩展名：注册无效或冲突时不发布任何内容；其 disposer 会释放所有保留项。每次查询独立选择提供方，且选择与顺序无关；没有匹配项时抛出 `LspError` `LSP_UNAVAILABLE`。该 seam 不公开协议类型、进程或文档控制，也不提供通用 JSON-RPC 逃生口。
 
 ```ts type-equiv
 /**

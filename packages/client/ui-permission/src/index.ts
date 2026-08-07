@@ -1,8 +1,8 @@
 /**
- * Permission preset selection plugin, node half. Pure UI plugin: the empty
- * apply exists so the plugin appears in the host cordis.yml / Loader; the
- * browser half ships via exports["./client"], discovered through the
- * package.json dshClient declaration.
+ * Permission surfaces plugin, node half. The empty apply exists so the plugin
+ * appears in the host cordis.yml / Loader; the browser half ships the
+ * new-session Settings row and current-session command picker through
+ * exports["./client"], discovered from the package.json dshClient declaration.
  */
 
 /** Host plugin body — no host-side behavior for this surface plugin. */

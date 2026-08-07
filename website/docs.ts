@@ -37,6 +37,8 @@ export interface DocsPage {
   section: string
   /** Stable order within the section. */
   order: number
+  /** Heading levels included in this page's VitePress outline. */
+  outline?: number | readonly [number, number] | 'deep' | false
   /** Additional repository paths that resolve to this page. */
   sourceAliases?: string[]
 }
@@ -49,6 +51,7 @@ interface MirroredPage {
   sidebar: Record<DocsLocale, DocsSidebar | null>
   section: Record<DocsLocale, string>
   order: number
+  outline?: DocsPage['outline']
   sourceAliases?: string[] | Partial<Record<DocsLocale, string[]>>
 }
 
@@ -79,6 +82,7 @@ function mirroredPages(pages: MirroredPage[]): DocsPage[] {
       sidebar: page.sidebar[locale],
       section: page.section[locale],
       order: page.order,
+      ...(page.outline === undefined ? {} : { outline: page.outline }),
       ...(aliases === undefined ? {} : { sourceAliases: aliases }),
     }
   }))
@@ -127,12 +131,20 @@ const homeAndGuide = pairedPages([
     order: 2,
   },
   {
+    source: 'docs/user/guide/providers.md',
+    route: 'guide/providers.md',
+    label: { root: '配置模型', en: 'Configure models' },
+    sidebar: { root: 'zh-guide', en: 'en-guide' },
+    section: { root: '入门', en: 'Guide' },
+    order: 3,
+  },
+  {
     source: 'docs/user/guide/config.md',
     route: 'guide/config.md',
     label: { root: '配置文件', en: 'Configuration' },
     sidebar: { root: 'zh-guide', en: 'en-guide' },
     section: { root: '入门', en: 'Guide' },
-    order: 3,
+    order: 4,
   },
 ])
 
@@ -161,6 +173,14 @@ const develop = pairedPages([
     sidebar: { root: 'zh-develop', en: 'en-develop' },
     section: { root: '基础', en: 'Basics' },
     order: 3,
+  },
+  {
+    source: 'docs/user/develop/basic/publish.md',
+    route: 'develop/basic/publish.md',
+    label: { root: '打包与安装插件', en: 'Package and install' },
+    sidebar: { root: 'zh-develop', en: 'en-develop' },
+    section: { root: '基础', en: 'Basics' },
+    order: 4,
   },
   {
     source: 'docs/user/develop/framework/index.md',
@@ -256,6 +276,8 @@ const coreDataReference = pairedPages(([
   ['sandbox.md', '沙箱', 'Sandboxing', 18],
   ['web.md', 'Web 访问', 'Web access', 19],
   ['persistence.md', '会话持久化', 'Session persistence', 20],
+  ['settings.md', '用户设置', 'User settings', 21],
+  ['credentials.md', '用户凭据', 'User credentials', 22],
 ] as const).map(([file, rootLabel, enLabel, order]): PairedPage => ({
   source: `docs/core-data-structures/${file}`,
   route: `reference/core-data-structures/${file}`,
@@ -286,8 +308,8 @@ const reference = mirroredPages([
     ['docs/tool-catalog.md', 'reference/tool-catalog.md', 'Tool Schema', 'Tool schemas'],
     ['docs/cordis-catalog/services.md', 'reference/cordis-catalog/services.md', '服务', 'Services'],
     ['docs/cordis-catalog/events.md', 'reference/cordis-catalog/events.md', '事件', 'Events'],
-    ['docs/persistence-catalog.md', 'reference/persistence-catalog.md', '持久化事件', 'Persistence events'],
-  ] as const).map(([source, route, rootLabel, enLabel], order): MirroredPage => ({
+    ['docs/persistence-catalog.md', 'reference/persistence-catalog.md', '持久化事件', 'Persistence events', 'deep'],
+  ] as const).map(([source, route, rootLabel, enLabel, outline], order): MirroredPage => ({
     source,
     route,
     contentLocale: 'en-US',
@@ -295,6 +317,7 @@ const reference = mirroredPages([
     sidebar: { root: 'zh-reference', en: 'en-reference' },
     section: { root: '生成参考', en: 'Generated reference' },
     order,
+    ...(outline === undefined ? {} : { outline }),
   })),
   ...([
     ['context.md', 'Context', 'Context'],

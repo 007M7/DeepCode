@@ -20,5 +20,5 @@
 
 ## Known Limitations and Deferred Work
 
-- **仅可经仓内源码别名消费。** spec 通过 tsconfig `paths` 解析到 `src`；构建产物 `lib/` 再导出 `@deepseek-ai/dsh-client-runtime/client`，而该 bundle 是无 Node ESM 导出的浏览器 loader 脚本，故 `lib/index.js` 在纯 Node 下不可导入。当前所有消费方都是仓内 Vitest 套件，可接受；Node 兼容的运行时入口待出现仓外消费方再补。
-- **会话快照是 fixture 数据，不是重放历史。** `updateSnapshot` 直写快照 store；wire 到快照的运算仍由 runtime 包自身测试与 replay e2e 把守。因此 fixture 可以表达生产折叠永不产出的状态。
+- **仅可经仓内源码别名消费。** spec 通过 tsconfig `paths` 解析到 `src`；构建产物 `lib/` 再导出 `@deepseek-ai/dsh-client-runtime/client`，而该 bundle 是无 Node ESM 导出的浏览器 loader 脚本，故 `lib/index.js` 在纯 Node 下不可导入。所有消费方都是仓内 Vitest 套件；不存在 Node 兼容的运行时入口。
+- **会话快照是 fixture 数据，不是重放历史。** `updateSnapshot` 直写快照 store；wire 到快照的运算仍由 runtime 包自身测试与 replay e2e 把守。因此 fixture 可以表达生产投影永不产出的状态。

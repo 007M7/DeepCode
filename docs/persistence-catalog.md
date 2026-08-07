@@ -24,13 +24,12 @@ export type SurfaceEventType =
   | 'user/message'
   | 'assistant/message'
   | 'tool/result'
-  | 'steering/message'
 
 /**
  * How a session event entered the ordered surface. Only valid on
  * {@link SurfaceEventType} events.
  *
- * - `'append'`: added to the tail — normal path for user/assistant/tool/steering
+ * - `'append'`: added to the tail — normal path for user/assistant/tool
  *   messages.
  * - `{ op: 'replace', start, end }`: replaces surface nodes from `start`
  *   (inclusive) through `end` (inclusive) with this node. Both must exist as
@@ -50,7 +49,7 @@ export type SurfaceOp =
  *
  * The {@link sourceEventSeqs} and {@link surfaceOp} fields are conditional:
  * they only exist on {@link SurfaceEventType} variants (`user/message`,
- * `assistant/message`, `tool/result`, `steering/message`).
+ * `assistant/message`, `tool/result`).
  * Non-surface events (boundary markers, chunks, usage, errors) never carry
  * surface metadata — the compiler enforces this at `Session.append()`
  * call sites.
@@ -78,9 +77,30 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }[T]
 ```
 
-Sources: [`packages/core/session/src/types.ts:279`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:286`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:315`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:347`](../packages/core/session/src/types.ts)
+Sources: [`packages/core/session/src/types.ts:308`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:315`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:343`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:375`](../packages/core/session/src/types.ts)
 
 ## Events
+
+### `agent/*`
+
+#### `agent/inbox/spliced` — log-only
+
+```ts persistence-catalog
+/**
+ * One normalized mutation of an agent's durable pending-message lists.
+ * Live dispatch precedes projection mutation, so synchronous observers may
+ * read the pre-splice inbox to recover the removed messages.
+ */
+'agent/inbox/spliced': {
+  target: InboxTarget
+  start: number
+  removedCount?: number
+  inserted: UserMessage[]
+  outcome?: 'canceled'
+}
+```
+
+Source: [`packages/core/agent/src/types.ts:296`](../packages/core/agent/src/types.ts)
 
 ### `approval/*`
 
@@ -129,8 +149,8 @@ Source: [`packages/ui/user-approval/src/index.ts:55`](../packages/ui/user-approv
 /**
  * The session's approval policy was switched — log-only, durable,
  * replayable, never in the model transcript (the model learns the policy
- * from the prompt section and the narrator's notices). The LAST such
- * event is the session's override ({@link effectiveApprovalPolicy}).
+ * from the runtime-context snapshot and live switch notices). The LAST
+ * such event is the session's override ({@link effectiveApprovalPolicy}).
  * `source: 'delegation'` marks an override seeded into a child; an absent
  * source is a runtime switch.
  */
@@ -154,7 +174,7 @@ Source: [`packages/ui/user-approval/src/index.ts:67`](../packages/ui/user-approv
 
 Types: [StreamChunk](core-data-structures/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:212`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:238`](../packages/core/session/src/types.ts)
 
 #### `assistant/message` — surface
 
@@ -170,7 +190,7 @@ Source: [`packages/core/session/src/types.ts:212`](../packages/core/session/src/
 
 Types: [TokenUsage](core-data-structures/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:219`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:245`](../packages/core/session/src/types.ts)
 
 ### `command/*`
 
@@ -185,7 +205,7 @@ Source: [`packages/core/session/src/types.ts:219`](../packages/core/session/src/
 'command/done': { commandId: CommandId; kind: 'success' | 'error'; text?: string }
 ```
 
-Source: [`packages/ui/commands/src/index.ts:138`](../packages/ui/commands/src/index.ts)
+Source: [`packages/ui/commands/src/index.ts:145`](../packages/ui/commands/src/index.ts)
 
 #### `command/run` — log-only
 
@@ -197,32 +217,64 @@ Source: [`packages/ui/commands/src/index.ts:138`](../packages/ui/commands/src/in
  * and `args` are `parseCommand`'s own split (name and verbatim rawInput,
  * separator whitespace included), so a consumer (a projection unit
  * folding its own command records, a rich command card) never re-parses
- * a line.
+ * a line. `args` is absent when the definition sets `recordInput: false`
+ * because an authoritative domain event owns the input payload.
  */
-'command/run': { commandId: CommandId; name: string; args: string; source: CommandSource }
+'command/run': { commandId: CommandId; name: string; args?: string; source: CommandSource }
 ```
 
-Source: [`packages/ui/commands/src/index.ts:132`](../packages/ui/commands/src/index.ts)
+Source: [`packages/ui/commands/src/index.ts:139`](../packages/ui/commands/src/index.ts)
 
 ### `compact/*`
 
 #### `compact/end` — log-only
 
 ```ts persistence-catalog
-/** Marks the end of a compaction — log-only, releases the lock. `error` set if summarization failed. */
-'compact/end': { turn: number; error?: string }
+/**
+ * Marks the end of a compaction — log-only, releases the lock. Its owner
+ * matches `compact/start`; `error` records an unsuccessful attempt.
+ */
+'compact/end': { turn: number | null; error?: string }
 ```
 
-Source: [`packages/compact/compact/src/types.ts:44`](../packages/compact/compact/src/types.ts)
+Source: [`packages/compact/compact/src/types.ts:54`](../packages/compact/compact/src/types.ts)
+
+#### `compact/prune` — log-only
+
+```ts persistence-catalog
+/**
+ * Shadow price of one model-free prune replacement — log-only, no
+ * surfaceOp. The shared shadow-price protocol: a surface `replace` event
+ * is priced by the metering event immediately before it (`compact/summary`
+ * for a summarizing compaction, this event for a prune), which states the
+ * heuristic token price of the exact replaced range so a pure consumer
+ * can subtract it without retaining per-node prices. The replacement MUST
+ * be appended synchronously right after this event.
+ */
+'compact/prune': {
+  /** The replaced range's first and last surface-node seqs (a surface-position span, like {@link CompactionResult.shadowedRange}). */
+  shadowedRange: { start: number; end: number }
+  /** The seqs of all shadowed surface nodes, in surface order. */
+  shadowedSeqs: number[]
+  /** Heuristic price of the shadowed content under the token-meter's fixed estimator. */
+  shadowedTokenCount: number
+}
+```
+
+Source: [`packages/compact/compact/src/types.ts:64`](../packages/compact/compact/src/types.ts)
 
 #### `compact/start` — log-only
 
 ```ts persistence-catalog
-/** Marks the start of a compaction — log-only, holds the lock until `compact/end`. */
-'compact/start': { turn: number }
+/**
+ * Marks the start of a compaction — log-only, holds the lock until
+ * `compact/end`. A numbered owner is strictly enclosed by that open turn;
+ * `null` identifies a standalone manual transaction between turns.
+ */
+'compact/start': { turn: number | null }
 ```
 
-Source: [`packages/compact/compact/src/types.ts:15`](../packages/compact/compact/src/types.ts)
+Source: [`packages/compact/compact/src/types.ts:19`](../packages/compact/compact/src/types.ts)
 
 #### `compact/summary` — log-only
 
@@ -230,8 +282,11 @@ Source: [`packages/compact/compact/src/types.ts:15`](../packages/compact/compact
 /**
  * Provenance record of a completed summarization — log-only, no surfaceOp.
  * The summary content is in `data.summary`; the actual surface replacement
- * is performed by a subsequent `user/message` event that shadows the
- * compacted range.
+ * is performed by the immediately following `user/message` event that
+ * shadows the compacted range. That adjacency is contractual — the
+ * shadowed pricing fields are the replacement's shadow price, so a
+ * consumer may pair a replacement with the metering event directly
+ * before it (`compact/prune` documents the shared protocol).
  */
 'compact/summary': {
   summary: ContentBlock[]
@@ -258,7 +313,34 @@ Source: [`packages/compact/compact/src/types.ts:15`](../packages/compact/compact
 
 Types: [ContentBlock](core-data-structures/core.md) · [TokenUsage](core-data-structures/llm-streaming.md)
 
-Source: [`packages/compact/compact/src/types.ts:22`](../packages/compact/compact/src/types.ts)
+Source: [`packages/compact/compact/src/types.ts:29`](../packages/compact/compact/src/types.ts)
+
+### `feedback/*`
+
+#### `feedback/record` — log-only
+
+```ts persistence-catalog
+/**
+ * One recorded human remark about this session. Log-only and independent
+ * of its trigger; it never enters the model surface or derived history.
+ */
+'feedback/record': { text: string }
+```
+
+Source: [`packages/feedback/command-feedback/src/index.ts:24`](../packages/feedback/command-feedback/src/index.ts)
+
+### `goal/*`
+
+#### `goal/change` — log-only
+
+```ts persistence-catalog
+/**
+ * Complete post-mutation goal state or clear tombstone.
+ */
+'goal/change': GoalChangeMeta
+```
+
+Source: [`packages/goal/goal/src/domain.ts:66`](../packages/goal/goal/src/domain.ts)
 
 ### `hook/*`
 
@@ -311,7 +393,7 @@ Source: [`packages/hooks/hook-protocol/src/types.ts:31`](../packages/hooks/hook-
 #### `llm/retry` — log-only
 
 ```ts persistence-catalog
-/** Durable, non-surface record of one provider-routed retry scheduled after a closed failed step. */
+/** Durable, non-surface record of one provider-routed retry scheduled after a failed request attempt. */
 'llm/retry': {
   turn: number
   step: number
@@ -334,7 +416,7 @@ Source: [`packages/hooks/hook-protocol/src/types.ts:31`](../packages/hooks/hook-
 }
 ```
 
-Source: [`packages/llm/llm-retry/src/index.ts:18`](../packages/llm/llm-retry/src/index.ts)
+Source: [`packages/llm/llm-retry/src/index.ts:17`](../packages/llm/llm-retry/src/index.ts)
 
 ### `permission/*`
 
@@ -350,7 +432,7 @@ Source: [`packages/llm/llm-retry/src/index.ts:18`](../packages/llm/llm-retry/src
 'permission/preset': { preset: string }
 ```
 
-Source: [`packages/ui/permission/src/index.ts:49`](../packages/ui/permission/src/index.ts)
+Source: [`packages/ui/permission/src/index.ts:50`](../packages/ui/permission/src/index.ts)
 
 ### `plan/*`
 
@@ -365,9 +447,21 @@ Source: [`packages/ui/permission/src/index.ts:49`](../packages/ui/permission/src
 'plan/mode': { active: boolean }
 ```
 
-Source: [`packages/plan/plan-mode/src/index.ts:51`](../packages/plan/plan-mode/src/index.ts)
+Source: [`packages/plan/plan-mode/src/index.ts:52`](../packages/plan/plan-mode/src/index.ts)
 
 ### `request/*`
+
+#### `request/context` — log-only
+
+```ts persistence-catalog
+/**
+ * Route metadata for the next request, logged only when the route or capacity
+ * changes. It does not participate in request reconstruction or header equality.
+ */
+'request/context': RequestContext
+```
+
+Source: [`packages/core/session/src/types.ts:281`](../packages/core/session/src/types.ts)
 
 #### `request/header` — log-only
 
@@ -379,7 +473,7 @@ Source: [`packages/plan/plan-mode/src/index.ts:51`](../packages/plan/plan-mode/s
 'request/header': { header: EpochHeader; reason: RequestHeaderReason }
 ```
 
-Source: [`packages/core/session/src/types.ts:252`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:276`](../packages/core/session/src/types.ts)
 
 ### `sandbox/*`
 
@@ -432,7 +526,7 @@ Source: [`packages/sandbox/sandbox-policy/src/session-mode.ts:33`](../packages/s
 'session/end-seed': Record<string, never>
 ```
 
-Source: [`packages/core/session/src/types.ts:275`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:304`](../packages/core/session/src/types.ts)
 
 #### `session/title` — log-only
 
@@ -459,17 +553,6 @@ Types: [SessionTitleLlmRequestEventData](core-data-structures/session-title.md)
 
 Source: [`packages/session-title/session-title-llm/src/index.ts:43`](../packages/session-title/session-title-llm/src/index.ts)
 
-### `steering/*`
-
-#### `steering/message` — surface
-
-```ts persistence-catalog
-/** Steering content injected between steps of a running turn. */
-'steering/message': { turn: number; message: UserMessage }
-```
-
-Source: [`packages/core/session/src/types.ts:245`](../packages/core/session/src/types.ts)
-
 ### `step/*`
 
 #### `step/end` — log-only
@@ -479,7 +562,7 @@ Source: [`packages/core/session/src/types.ts:245`](../packages/core/session/src/
 'step/end': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:201`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:228`](../packages/core/session/src/types.ts)
 
 #### `step/start` — log-only
 
@@ -488,7 +571,24 @@ Source: [`packages/core/session/src/types.ts:201`](../packages/core/session/src/
 'step/start': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:199`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:226`](../packages/core/session/src/types.ts)
+
+### `subagent/*`
+
+#### `subagent/descriptor` — log-only
+
+```ts persistence-catalog
+/**
+ * Durable identity and lifecycle mode of a session-backed subagent child,
+ * appended once by the establishing provider inside the child's initial
+ * turn, before its first request. Continuable records also carry their
+ * resumable composition. Log-only: it carries no `surfaceOp`, never enters
+ * model history, and survives compaction.
+ */
+'subagent/descriptor': SubagentDescriptorData
+```
+
+Source: [`packages/subagent/subagent/src/descriptor.ts:37`](../packages/subagent/subagent/src/descriptor.ts)
 
 ### `todo/*`
 
@@ -501,7 +601,7 @@ Source: [`packages/core/session/src/types.ts:199`](../packages/core/session/src/
 
 Types: [TodoItem](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:247`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:271`](../packages/core/session/src/types.ts)
 
 ### `tool/*`
 
@@ -518,7 +618,7 @@ Source: [`packages/core/session/src/types.ts:247`](../packages/core/session/src/
 
 Types: [CallId](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:225`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:251`](../packages/core/session/src/types.ts)
 
 #### `tool/code-dispatch` — log-only
 
@@ -591,7 +691,7 @@ Source: [`packages/core/tools/src/code-mode.ts:33`](../packages/core/tools/src/c
 }
 ```
 
-Source: [`packages/core/session/src/types.ts:237`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:263`](../packages/core/session/src/types.ts)
 
 ### `turn/*`
 
@@ -599,30 +699,33 @@ Source: [`packages/core/session/src/types.ts:237`](../packages/core/session/src/
 
 ```ts persistence-catalog
 /**
- * Closes turn `turn` with the {@link TurnEndReason} that ended it. The loop
- * awaits `session/flush` after an ordinary turn ends before claiming the next
- * queued item. Success commits the turn; rejection is reported live and does
- * not prevent later work.
+ * Closes turn `turn` with the {@link TurnEndReason} that ended it. A turn
+ * with no entered step has no `step/start` or `step/end`. The loop does not await a
+ * flush at turn boundaries: `dsh-session-checkpoint-policy` owns the
+ * per-request durability checkpoint, and consumers that read storage after
+ * `whenIdle()` flush themselves. Success commits the turn; rejection is
+ * reported live and does not prevent later work.
  */
 'turn/end': { turn: number; reason: TurnEndReason }
 ```
 
 Types: [TurnEndReason](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:197`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:224`](../packages/core/session/src/types.ts)
 
 #### `turn/start` — log-only
 
 ```ts persistence-catalog
 /**
- * Opens turn `turn`. `trigger` records what started the model loop.
+ * Opens turn `turn` before the loop claims queued input or runs pre-step.
+ * Rejection, empty input, cancellation, or failure may close it with no
+ * step; otherwise the following identified `user/message` event or batch
+ * records the messages entering the step.
  */
-'turn/start': { turn: number; trigger: TurnTrigger }
+'turn/start': { turn: number }
 ```
 
-Types: [TurnTrigger](core-data-structures/session.md)
-
-Source: [`packages/core/session/src/types.ts:190`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:215`](../packages/core/session/src/types.ts)
 
 ### `user/*`
 
@@ -633,11 +736,21 @@ Source: [`packages/core/session/src/types.ts:190`](../packages/core/session/src/
  * A user-role message on the model-visible surface: a direct human prompt
  * (the queued message claimed for this turn), a synthetic `agent.inject()`
  * context (file-change notices, subdir AGENTS.md, skill content, cron
- * notifications, …), or an admitted goal continuation round. All three
- * project their `content` verbatim; `source` tells them apart. An idle
- * injection may append this event between turns without running the model.
+ * notifications, …), or an entered goal continuation round. All three
+ * project their `content` verbatim; `source` tells them apart.
  */
 'user/message': UserMessage
 ```
 
-Source: [`packages/core/session/src/types.ts:210`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:236`](../packages/core/session/src/types.ts)
+
+### `web/*`
+
+#### `web/deepseek-search-llm-request` — log-only
+
+```ts persistence-catalog
+/** Secret-free auxiliary DeepSeek search request recorded before dispatch. */
+'web/deepseek-search-llm-request': DeepSeekSearchLlmRequest
+```
+
+Source: [`packages/web/web-search-deepseek/src/provider.ts:83`](../packages/web/web-search-deepseek/src/provider.ts)

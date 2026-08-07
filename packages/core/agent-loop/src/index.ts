@@ -14,12 +14,13 @@ import type {
   AgentFactory,
   AgentHandle,
   AgentOptions,
+  AgentSetup,
   CreateAgentOptions,
   ResumeAgentOptions,
   SessionStartSource,
 } from '@deepseek-ai/dsh-agent'
 import { errorChain } from '@deepseek-ai/dsh-llm'
-import { SessionId } from '@deepseek-ai/dsh-session'
+import { SessionId, SessionPreparation } from '@deepseek-ai/dsh-session'
 import type { Session, SessionHeader } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
@@ -103,6 +104,30 @@ async function raceAbort<T>(operation: PromiseLike<T> | T, signal: AbortSignal, 
   }
 }
 
+/** Start an abortable operation and release a value that arrives after cancellation. */
+async function raceAbortCall<T>(
+  operation: () => PromiseLike<T> | T,
+  signal: AbortSignal,
+  id: SessionId,
+  releaseAbandoned?: (value: T) => void,
+): Promise<T> {
+  if (signal.aborted) {
+    throw signal.reason instanceof Error
+      ? signal.reason
+      : new Error(`agent "${id}" creation aborted`, { cause: signal.reason })
+  }
+  const pending = Promise.resolve().then(operation)
+  try {
+    return await raceAbort(pending, signal, id)
+  } catch (error: unknown) {
+    // oxlint-disable-next-line typescript/no-unnecessary-condition -- the signal can abort while the operation is awaited.
+    if (signal.aborted && releaseAbandoned !== undefined) {
+      void pending.then(releaseAbandoned, () => undefined)
+    }
+    throw error
+  }
+}
+
 /** Resolve the deployment-wide scheduler cap at the owning config boundary. */
 function resolveMaxParallelToolCalls(value: number | undefined): number {
   const maxParallelToolCalls = value ?? DEFAULT_MAX_PARALLEL_TOOL_CALLS
@@ -134,6 +159,15 @@ interface PreparedAgent {
 declare module 'cordis' {
   interface Context {
     agentLoop: AgentLoop
+    /**
+     * Launcher-owned exact session identities for configured agents, keyed by
+     * the agent's config `id` and set with `ctx.provide()` before any Loader
+     * entry mounts (see {@link CONFIGURED_AGENT_IDENTITIES_KEY}). A launcher
+     * owns identity because only it knows whether the session already exists,
+     * while the `cordis.yml` row keeps the model route as ordinary patchable
+     * config. An entry with no matching key keeps its configured identity.
+     */
+    configuredAgentIdentities?: ConfiguredAgentIdentities
   }
   interface Events {
     /**
@@ -141,15 +175,62 @@ declare module 'cordis' {
      * Consumers that buffer work for the configured identity use this
      * transient signal to reject that work instead of waiting forever. Normal
      * factory teardown suppresses failures from the cancelled startup attempt.
-     * @param sessionId - exact shared agent/session identity that failed startup.
-     * @param error - persistence, setup, or publication failure.
+     * @param payload.sessionId - exact shared agent/session identity that failed startup.
+     * @param payload.error - persistence, setup, or publication failure.
      * @mode emit
      */
-    'agent-loop/config-start-failed'(sessionId: SessionId, error: unknown): void
+    'agent-loop/config-start-failed'(payload: { sessionId: SessionId; error: unknown }): void
   }
 }
 
 export { DEFAULT_MAX_PARALLEL_TOOL_CALLS }
+
+/**
+ * One launcher-selected session identity for a configured agent. `resume`
+ * distinguishes rehydrating existing persisted history from creating the
+ * session fresh under that exact id, which the two config keys express as
+ * `resumeSessionId` and `sessionId`.
+ */
+export interface LauncherAgentIdentity {
+  /** Exact session id to create fresh or resume. */
+  id: SessionId
+  /** Resume existing persisted history instead of creating the session fresh. */
+  resume: boolean
+}
+
+/** Launcher-selected identities keyed by the configured agent's `id`. */
+export interface ConfiguredAgentIdentities extends Readonly<Record<string, LauncherAgentIdentity>> {}
+
+/**
+ * Context key a launcher sets before any Loader entry mounts
+ * (`ctx.provide(CONFIGURED_AGENT_IDENTITIES_KEY, identities)`) to fix
+ * configured agents' session identities without a config key, so an overlay
+ * repointing the row's model route cannot drop them.
+ */
+export const CONFIGURED_AGENT_IDENTITIES_KEY = 'configuredAgentIdentities'
+
+/**
+ * Apply launcher-owned identities over the configured agents, replacing both
+ * identity keys for every entry the launcher named so a config-supplied
+ * identity can never survive alongside a launcher-supplied one.
+ * @param agents - the configured agent entries.
+ * @param identities - launcher identities keyed by configured agent `id`, or `undefined`.
+ * @returns the entries with launcher-owned identities applied.
+ */
+function applyLauncherIdentities(
+  agents: Config['agents'],
+  identities: ConfiguredAgentIdentities | undefined,
+): Config['agents'] {
+  if (identities === undefined) return agents
+  return agents.map((agent) => {
+    const identity = identities[agent.id]
+    if (identity === undefined) return agent
+    const { sessionId: _sessionId, resumeSessionId: _resumeSessionId, ...rest } = agent
+    return identity.resume
+      ? { ...rest, resumeSessionId: identity.id }
+      : { ...rest, sessionId: identity.id }
+  })
+}
 
 /** Agent-loop plugin configuration. */
 export interface Config {
@@ -220,6 +301,7 @@ export class AgentLoop extends Service implements AgentFactory {
     super(ctx, 'agentLoop')
     this.config = {
       ...config,
+      agents: applyLauncherIdentities(config.agents, ctx.get(CONFIGURED_AGENT_IDENTITIES_KEY)),
       maxParallelToolCalls: resolveMaxParallelToolCalls(config.maxParallelToolCalls),
     }
     validateConfiguredAgents(this.config.agents)
@@ -269,7 +351,7 @@ export class AgentLoop extends Service implements AgentFactory {
   ): void {
     if (!this.ownership.isActive()) return
     this.ctx.logger.warn(`agent "${configId}": config-driven ${action} of "${sessionId}" failed: ${errorChain(error)}`)
-    const args: unknown[] = ['agent-loop/config-start-failed', sessionId, error]
+    const args: unknown[] = ['agent-loop/config-start-failed', { sessionId, error }]
     for (const callback of this.ctx.events.dispatch('emit', args)) {
       try {
         const returned: unknown = callback(...args)
@@ -318,7 +400,7 @@ export class AgentLoop extends Service implements AgentFactory {
         released.resolve()
       }
     }
-    const disposeAgentListener = ownerCtx.on('agent/disposed', checkReleased)
+    const disposeAgentListener = ownerCtx.on('agent/disposed', () => { checkReleased() })
     const disposeSessionListener = ownerCtx.on('session/disposed', checkReleased)
     try {
       checkReleased()
@@ -384,18 +466,7 @@ export class AgentLoop extends Service implements AgentFactory {
         if (machine === undefined) await machineReady.promise
         if (machine !== undefined) {
           machine.cancel({ kind: 'disposed' })
-          // Drain to TRUE quiescence: cancel's own synchronous event chain
-          // (running→idle) can legitimately re-enter through an automation
-          // listener (goal-session's idle drive) and replace `done` with a
-          // fresh admission before this await captures it. The replacement
-          // work is cancelled and drained in turn until the slot stabilizes.
-          let done = machine.done
-          while (true) {
-            await Promise.allSettled([done])
-            if (machine.done === done) break
-            done = machine.done
-            machine.cancel({ kind: 'disposed' })
-          }
+          await machine.whenIdle()
           await machine.scope.dispose()
         }
       } finally {
@@ -452,9 +523,9 @@ export class AgentLoop extends Service implements AgentFactory {
           loopCtx.agents.announce(agent)
           assertLive()
           // A synchronous announce/session-start listener may have started
-          // teardown; the machine is already live (send() works from the
+          // teardown; the machine is already live (delivery works from the
           // session-start seam), so only the liveness recheck is owed.
-          emitAgentEvent(loopCtx, agent, 'agent/session-start', source)
+          emitAgentEvent(loopCtx, agent, 'agent/session-start', { source })
           assertLive()
           return { agent, dispose }
         },
@@ -477,8 +548,8 @@ export class AgentLoop extends Service implements AgentFactory {
    * @returns the published running agent.
    */
   create(id: SessionId, options: AgentOptions = {}, meta: Pick<SessionHeader, 'cwd'> = {}): Agent {
-    const session = this.runtime.ctx.sessions.prepare(id, { meta })
-    const prepared = this.prepare(this.ctx, id, options, session)
+    using preparation = SessionPreparation.create(this.runtime.ctx.sessions.prepare(id, { meta }))
+    const prepared = this.prepare(this.ctx, id, options, preparation.session)
     try {
       return prepared.publish('startup').agent
     } catch (error: unknown) {
@@ -494,22 +565,44 @@ export class AgentLoop extends Service implements AgentFactory {
    * @returns the published handle.
    */
   async createAgent(ownerCtx: Context, options: CreateAgentOptions): Promise<AgentHandle> {
-    const session = this.runtime.ctx.sessions.prepare(options.sessionId, {
+    const preparation = SessionPreparation.create(this.runtime.ctx.sessions.prepare(options.sessionId, {
       ...options.seed === undefined ? {} : { seed: options.seed },
       ...options.meta === undefined ? {} : { meta: options.meta },
-    })
-    const prepared = this.prepare(ownerCtx, options.sessionId, options.agentOptions ?? {}, session, options.signal)
-    const published = (async () => {
-      try {
-        await raceAbort(options.setup?.(prepared.agent.ctx), prepared.signal, options.sessionId)
-        return prepared.publish('startup')
-      } catch (error: unknown) {
-        await prepared.dispose()
-        throw error
-      }
-    })()
+    }))
+    const published = this.setupAndPublish(
+      ownerCtx,
+      options.sessionId,
+      preparation,
+      options.agentOptions ?? {},
+      options.setup,
+      options.signal,
+      'startup',
+    )
     this.ownership.trackWrapper(published)
     return published
+  }
+
+  /** Prepare one Agent around an acquired Session, run setup, and publish it. */
+  private async setupAndPublish(
+    ownerCtx: Context,
+    id: SessionId,
+    preparation: SessionPreparation,
+    agentOptions: AgentOptions,
+    setup: AgentSetup | undefined,
+    signal: AbortSignal | undefined,
+    source: SessionStartSource,
+  ): Promise<AgentHandle> {
+    using ownedPreparation = preparation
+    const session = ownedPreparation.session
+    const prepared = this.prepare(ownerCtx, id, agentOptions, session, signal)
+    try {
+      const setupCommit = await raceAbort(setup?.(prepared.agent.ctx), prepared.signal, id)
+      setupCommit?.commit()
+      return prepared.publish(source)
+    } catch (error: unknown) {
+      await prepared.dispose()
+      throw error
+    }
   }
 
   /**
@@ -546,25 +639,31 @@ export class AgentLoop extends Service implements AgentFactory {
         ownerAbort.signal,
         this.ownership.signal,
       ])
-      let loaded: Awaited<ReturnType<SessionPersistence['load']>>
+      let preparation: SessionPreparation | undefined
       try {
-        loaded = await raceAbort(persistence.load(id), fused, id)
+        try {
+          preparation = await raceAbortCall(
+            () => persistence.prepare(id, fused),
+            fused,
+            id,
+            (abandoned) => { abandoned[Symbol.dispose]() },
+          )
+        } finally {
+          await unfollowOwner()
+        }
+        ownerCtx.fiber.assertActive()
+        if (!this.ownership.isActive()) throw new Error('agent loop is not active')
+        return await this.setupAndPublish(
+          ownerCtx,
+          id,
+          preparation,
+          options.agentOptions ?? {},
+          options.setup,
+          options.signal,
+          'resume',
+        )
       } finally {
-        await unfollowOwner()
-      }
-      ownerCtx.fiber.assertActive()
-      if (!this.ownership.isActive()) throw new Error('agent loop is not active')
-      const session = this.runtime.ctx.sessions.prepare(id, {
-        seed: loaded.events,
-        meta: loaded.meta,
-      })
-      const prepared = this.prepare(ownerCtx, id, options.agentOptions ?? {}, session, options.signal)
-      try {
-        await raceAbort(options.setup?.(prepared.agent.ctx), prepared.signal, id)
-        return prepared.publish('resume')
-      } catch (error: unknown) {
-        await prepared.dispose()
-        throw error
+        preparation?.[Symbol.dispose]()
       }
     })()
     this.ownership.trackWrapper(published)

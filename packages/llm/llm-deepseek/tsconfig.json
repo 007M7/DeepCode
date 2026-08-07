@@ -21,6 +21,15 @@
       "path": "../../llm/llm"
     },
     {
+      "path": "../../credentials/credentials"
+    },
+    {
+      "path": "../../util/environment"
+    },
+    {
+      "path": "../../settings/settings"
+    },
+    {
       "path": "../../support/invariants"
     },
     {

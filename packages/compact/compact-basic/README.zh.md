@@ -2,9 +2,9 @@
 
 [English](README.md) | 中文
 
-**基础压缩（compaction）后端**：`BasicCompactService` 实现 `@deepseek-ai/dsh-compact` seam，使用可复用的 `ctx.tokenMeter` 压力、token 预算保留与摘要。摘要是直接的一次性 `ctx.llm.stream()` 调用，它会回放会话前缀以复用提供方的 KV cache（可在 `llm/stream` 处拦截）。
+**基础压缩（compaction）后端**：`BasicCompactService` 实现 `@deepseek-ai/dsh-compact` seam，使用可复用的 `ctx.tokenMeter` 压力、token 预算保留与摘要。摘要是直接的一次性 `ctx.llm.stream()` 调用，它会回放会话前缀以复用提供方的 KV Cache（可在 `llm/stream` 处拦截）。
 
-这是压缩能力的实现层。seam 见 [接口包（package）](../compact/README.md)，设计见 [能力 seam Agent Note（agent 决策记录）](../../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md)。
+这是压缩能力的实现层。seam 见 [接口包](../compact/README.md)，设计见 [能力 seam Agent Note](../../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md)。
 
 ## 拥有的职责
 
@@ -17,11 +17,11 @@
 - **收敛**：最多按 `compactionRetries` 重试头部检查点压缩；拒绝不能缩小源内容的摘要，如果重试仍无法回到阈值以下，则抛出异常。
 - **摘要**：直接 `llm/stream` 调用使用已配置的提供方／模型对与上限，回退到最新已记录请求目标，然后再回退到 agent 目标，而不运行仅用于 agent loop 的 `agent/request` seam。该调用会逐字回放会话自身的系统提示词、工具与已遮蔽区域消息，并将压缩指令作为最后一条 user 消息追加，从而复用提供方的热前缀 cache，而非使它失效。它将 `GenerateOptions.purpose` 设为 `compaction`，适配器可将其作为请求归因转发（DeepSeek 适配器发送 `x-deepseek-harness-compact: 1`），但不会触碰模型可见的请求体。只有返回的文本会进入检查点；推理（reasoning）和工具调用都会被排除，以免泄露私有推理或产生遗留调用。
 - **框定**：替换 user 消息使用 `<compacted-summary>` 标签标记已建立的检查点上下文。原始摘要保留在溯源事件上，后续自动周期会合并之前的检查点。
-- **生命周期**：`compactRegion()` 会更改 `agent.session`，并记录开始、摘要、替换与结束。异步摘要后，如果表层节点快照已改变，它会拒绝操作，而不相关的仅日志事件可以追加，不会使已选 span 失效。串行 `agent/step` listener 会在派生请求之前检查压力。规范提供方溢出会在失败步骤之后经由 `agent/request-error` 交给本插件；插件在此执行压缩，并且只在表层取得持久进展后才返回重试动作。
+- **生命周期**：所有入口点共享一个先记录标记的区域事务。它会验证范围与活动锁，同步追加 `compact/start`，准备并等待摘要，重新验证，再追加溯源信息和替换，最后恰好进行一次闭合尝试。自动调用和显式范围调用要求数字标识的开放轮次归属，并要求整个表层保持稳定；串行 `agent/pre-step` listener 会在派生请求之前检查压力，而规范提供方溢出则经由 `agent/request-error` 进入，并且只在表层取得持久进展后才允许重试。`compactNow()` 会预留空闲接纳，使用 `turn: null`，允许所选 span 之外追加仅追加上下文，flush 每次已闭合尝试，并在 `finally` 中释放接纳预留。
 - **溢出恢复**：提供方已确认的溢出不需容量元数据。它会绕过常规压力与保留，执行剪枝，再尝试一次最大平衡头部缩减，并留下最新不可分单元。只要 `surface.replaceGeneration` 前进，就允许重试，包括剪枝在后续摘要工作抛出异常前已落地的情况。如果没有替换、目标特定上限已耗尽、已取消，或遇到未知／非规范错误，则保留原始提供方失败。
-- **失败处理**：未配对的 `compact/start` 是不起作用的崩溃标记，因为没有摘要替换落地。区域失败会记录错误结束；除非剪枝已落地，否则表层保持不变。压力检查中的运行故障会发出警告并继续；只有此前没有替换推进表层时，溢出恢复失败才保留原始提供方错误。即使已经取得进展，取消仍具有最终决定权。
+- **失败处理**：活动的未匹配 `compact/start` 是持久锁。位于较新 `session/end-seed` 之前的未匹配标记，是先前生命周期留下的陈旧证据，不会阻塞；位于该边界之后的标记报告 `busy`。摘要和 span 变更失败会以错误闭合，并保持会话表层不变，但日志中仍保留该尝试。闭合失败会有意留下阻塞性的未匹配标记。压力检查中的运行故障会发出警告并继续；只有此前没有替换推进表层时，溢出恢复失败才保留原始提供方错误。完成清理与持久化后，取消仍具有最终决定权。
 
-受保护的 `summarize()` 方法是唯一的子类钩子。基于模板或远程摘要器的子类可以覆盖该方法，同时压力、保留、溯源、缩减验证与已遮蔽 token 计量仍由 `ctx.tokenMeter` 负责。钩子会将摘要块与它使用的调用 envelope 一并返回（`{ summary, provider, model, maxTokens? }`），并记录在 `compact/summary` 上。
+受保护的 `summarize()` 方法是唯一的子类钩子。基于模板或远程摘要器的子类可以覆盖该方法，同时压力、保留、溯源、缩减验证与已遮蔽 token 计量仍由 `ctx.tokenMeter` 负责。钩子返回安全摘要，以及完整提供方输出、调用 envelope 和可用时的 usage（`{ summary, rawOutput?, provider, model, maxTokens?, usage? }`）；事务会在 `compact/summary` 上保留这些字段。
 
 ## 配置（`BasicCompactConfig`）
 
@@ -46,21 +46,25 @@
 
 ## 用法
 
+`BasicCompactService` 需要 `ctx.llm`、`ctx.tokenMeter` 和 `ctx.sessions`。以下组合从其宿主接收 `ctx.llm`，并安装另外两项服务：
+
 ```ts
 import type { Context } from 'cordis'
 import { BasicCompactService } from '@deepseek-ai/dsh-compact-basic'
+import SessionStore from '@deepseek-ai/dsh-session'
 import TokenMeterService from '@deepseek-ai/dsh-token-meter'
 
 export const name = 'compact-basic'
-export const inject = ['llm', 'tokenMeter']
+export const inject = ['llm']
 
 export function apply(ctx: Context): void {
+  ctx.plugin(SessionStore)
   ctx.plugin(TokenMeterService)
   ctx.plugin(BasicCompactService)
 }
 ```
 
-加载插件会注册 `ctx.compact`。在该插件之前添加同级 [`dsh-compact-tool-result-prune`](../compact-tool-result-prune/README.md) 以启用可选的不依赖模型的处理阶段。当 `auto: true`（默认）时，它会在 token 压力下自动压缩；消费方（未来的 `/compact` 工具）也可直接调用 `ctx.compact.compactIfNeeded(...)` 或 `ctx.compact.compactRegion(...)`。
+加载插件会注册 `ctx.compact`。在该插件之前添加同级 [`dsh-compact-tool-result-prune`](../compact-tool-result-prune/README.md) 以启用可选的不依赖模型的处理阶段。当 `auto: true`（默认）时，它会在 token 压力下自动压缩。同级 [`dsh-command-compact`](../command-compact/README.md) 调用 `ctx.compact.compactNow(...)`；编程调用方也可以直接使用任一 seam 操作。
 
 例如，同一个压缩插件可以安全服务于容量不同的模型，并应用一项目标特定策略：
 
@@ -136,7 +140,7 @@ Output EXACTLY the Markdown structure below: keep every section, in order. Use t
 - [decisions and their rationale, constraints, user preferences, open questions, data needed to continue]
 
 Rules:
-- Preserve exact file paths, commands, error strings, identifiers, and function signatures.
+- Write concise English engineering prose. Preserve exact file paths, commands, error strings, identifiers, numeric values, function signatures, and syntax fragments.
 - Capture user feedback and explicit instructions faithfully, especially corrections.
 - Do NOT mention this summarization request or that the context was compacted.
 - Output only the checkpoint text: do not call any tool or take any other action.
@@ -158,4 +162,3 @@ Rules:
 - **部分不可分单元与仅 envelope 溢出仍不在表层压缩范围内**：恢复无法缩减系统／工具／前缀、拆分不可分的非工具节点，或修复不可剪枝剩余部分仍超出窗口的工具单元。可选 pruner 可以缩减原本不可分工具对内的文本型工具结果主体。
 - **`compactRegion` 要求存在未结束的轮次**：在完全关闭的会话上手动调用会抛出异常（「no open turn」），而不是执行压缩。
 - **摘要失败会保留最新持久表层**：任何替换前，自动路径会记录警告，并携带完整超预算历史继续。如果剪枝已落地，后续摘要失败会从该持久剪枝表层继续。因达到 `maxTokens` 而发生的摘要截断（隐藏推理 token 可能会耗尽该额度）遵循同一规则。
-- **摘要调用没有 transcript 快照覆盖**：`dsh-llm-replay` 从 `assistant/chunk` 事件派生调用，因此这次不含分片的直接 `ctx.llm.stream()` 调用无法回放（[seam Agent Note](../../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md) 中明确的暂缓回放基础设施）。

@@ -2,33 +2,29 @@
  * Workspace instruction loader for AGENTS.md-compatible files.
  *
  * Baseline instructions enter durable context before the first request; successful fs
- * tool touches reconcile nested, changed, and removed instructions through
- * `tools/post-execute` for the next model request. Plugin lifecycle reads use
- * the optional `ctx.fs` provider, so providerless products mount it as a no-op.
+ * tool touches project nested, changed, and removed instructions into the inbox.
+ * Plugin lifecycle reads use the optional `ctx.fs` provider, so providerless products
+ * mount it as a no-op.
  *
  * @module @deepseek-ai/dsh-workspace-context
  */
 
 import type { Context } from 'cordis'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import { isDeepStrictEqual } from 'node:util'
+import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import type { PostToolDecision, ToolExecution, ToolExecutionResult, ToolExecutionToken } from '@deepseek-ai/dsh-tools'
-import { Config, resolveConfig, type ResolvedConfig } from './config.ts'
-import { loadBaselineInstructionSet } from './files.ts'
+import type { Session, UserMessage } from '@deepseek-ai/dsh-session'
+import type { ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
+import { Config, resolveConfig, workspaceBaselineIdentity, type ResolvedConfig } from './config.ts'
+import { findProjectRoot, loadBaselineInstructionSet } from './files.ts'
 import {
   applyInstructionVersionUpdates,
   baselineInstructionState,
-  commitPendingInstructionContexts,
-  dynamicInstructionContext,
   name,
-  observeInstructionSessionEvent,
   reconcileInstructionContext,
-  retainedInstructionVersionUpdates,
-  rollbackPendingInstructionChanges,
   workspaceContextMessage,
   type InstructionVersionCache,
-  type InstructionVersionUpdate,
-  type PendingInstructionChange,
+  type WorkspaceInstructionSource,
 } from './state.ts'
 import type { WorkspaceInstructionChange } from './render.ts'
 
@@ -44,162 +40,270 @@ export type {
 export { renderWorkspaceContext } from './render.ts'
 export type { RenderedWorkspaceContext, TruncatedInstruction } from './render.ts'
 
-function hasVisibleBaseline(agent: Agent): boolean {
-  return agent.session.surface.nodes.some((seq) => {
+function visibleBaselineSource(
+  agent: Agent,
+  authorityMessages: readonly UserMessage[],
+): WorkspaceInstructionSource | undefined {
+  for (const message of authorityMessages.toReversed()) {
+    if (message.source.kind === 'workspace-instructions' && message.source.baseline === true) {
+      return message.source
+    }
+  }
+  for (const seq of agent.session.surface.nodes.toReversed()) {
     const event = agent.session.events[seq]
-    return event?.type === 'user/message'
+    if (event?.type === 'user/message'
       && event.data.source.kind === 'workspace-instructions'
-      && event.data.source.baseline === true
-  })
+      && event.data.source.baseline === true) return event.data.source
+  }
+  return undefined
+}
+
+function isWorkspaceContext(message: UserMessage): boolean {
+  return message.source.kind === 'workspace-instructions'
+}
+
+function sameContextPayload(left: UserMessage, right: UserMessage): boolean {
+  return isDeepStrictEqual(left.content, right.content)
+    && isDeepStrictEqual(left.source, right.source)
+}
+
+const FILE_TOUCH_TOOL_NAMES = new Set(['read', 'write', 'edit'])
+
+function filePathFromExecution(exec: ToolExecution): string | undefined {
+  if (!FILE_TOUCH_TOOL_NAMES.has(exec.name)) return undefined
+  if (typeof exec.arguments !== 'object' || exec.arguments === null) return undefined
+  if (!('file_path' in exec.arguments) || typeof exec.arguments.file_path !== 'string') return undefined
+  const filePath = exec.arguments.file_path.trim()
+  return filePath.length > 0 ? filePath : undefined
 }
 
 export function apply(ctx: Context, config: Config): void {
   const resolved: ResolvedConfig = resolveConfig(config)
-  const pendingNestedChanges = new WeakMap<object, Map<string, PendingInstructionChange>>()
-  const baselineSessions = new WeakSet<object>()
   const instructionVersions: InstructionVersionCache = new WeakMap()
-  const pendingVersionUpdates = new Map<ToolExecutionToken, InstructionVersionUpdate[]>()
-  const baselineLoaded = new WeakSet<object>()
-  // Sessions whose lifecycle start this mount witnessed. A startup or resume
-  // emits agent/session-start before the first step; a hot remount attaches to
-  // an already-live session and never sees it. Resumes always re-compose the
-  // baseline from current files. Hot remounts retain a baseline only while its
-  // typed event remains model-visible.
-  const lifecycleWitnessed = new WeakSet<object>()
-  const pendingByParent = new Map<ToolExecutionToken, {
-    agent: Agent
-    changes: WorkspaceInstructionChange[]
-    versionUpdates: InstructionVersionUpdate[]
+  const baselinePreparations = new WeakMap<Session, {
+    identity: string
+    excludedScopes: ReadonlySet<string>
   }>()
+  const projectionLifecycle = new AbortController()
+  ctx.effect(
+    () => () => {
+      projectionLifecycle.abort(new Error('workspace-context disposed'))
+    },
+    'workspace-context.projectionLifecycle',
+  )
+  // Emit listeners are not awaited, so each projection must compose against the
+  // inbox produced by earlier file results for the same agent.
+  const projectionTails = new WeakMap<Agent, Promise<void>>()
 
-  ctx.on('agent/session-start', (agent: Agent) => {
-    lifecycleWitnessed.add(agent.session)
-  })
-
-  ctx.on('session/event', (session, event) => {
-    observeInstructionSessionEvent(session, event, pendingNestedChanges, instructionVersions)
-  })
-
-  ctx.on('agent/step', async (agent: Agent, _turn, _step, signal): Promise<void> => {
-    if (baselineLoaded.has(agent.session)) return
+  const compose = async (
+    agent: Agent,
+    signal: AbortSignal,
+    claimed: readonly UserMessage[],
+    pending: readonly UserMessage[],
+    touchedPaths: readonly string[] = [],
+  ): Promise<UserMessage | undefined> => {
+    signal.throwIfAborted()
     if (resolved.maxBytes <= 0 || !Number.isFinite(resolved.maxBytes)) {
-      baselineLoaded.add(agent.session)
-      return
+      return undefined
     }
     const fileSystem = ctx.get('fs')
-    if (fileSystem === undefined) {
-      baselineLoaded.add(agent.session)
-      return
-    }
+    if (fileSystem === undefined) return undefined
+    if (touchedPaths.length === 0 && pending.length > 0) return pending[0]
+    const content: UserMessage['content'][number][] = []
+    const changes: WorkspaceInstructionChange[] = []
+    let desiredBaseline = false
+    const authorityMessages = [...claimed]
     /* v8 ignore next -- normal agents carry an absolute session cwd. */
     const cwd = agent.session.header.cwd ?? process.cwd()
-    const instructions = await loadBaselineInstructionSet({
-      cwd,
-      dshHome: resolved.dshHome,
-      projectRootMarkers: resolved.projectRootMarkers,
-      maxBytes: resolved.maxBytes,
-      maxSourceBytes: resolved.maxSourceBytes,
-      instructionFileCandidates: resolved.instructionFileCandidates,
-      localInstructionFileCandidates: resolved.localInstructionFileCandidates,
-      signal,
-    }, fileSystem)
-    const baseline = baselineInstructionState(instructions?.included ?? [])
-    baselineSessions.add(agent.session)
-    instructionVersions.set(agent.session, baseline.versions)
-
+    const projectRoot = await findProjectRoot(cwd, resolved.projectRootMarkers, fileSystem, signal)
+    const identity = workspaceBaselineIdentity(resolved, cwd, projectRoot)
+    const visibleBaseline = visibleBaselineSource(agent, authorityMessages)
+    const baselinePresent = visibleBaseline !== undefined
+    const keepVisibleBaseline = visibleBaseline?.baselineIdentity === identity
+    const prepared = baselinePreparations.get(agent.session)
+    let excludedBaselineScopes = keepVisibleBaseline && prepared?.identity === identity
+      ? prepared.excludedScopes
+      : undefined
+    let nextPreparation: { identity: string; excludedScopes: ReadonlySet<string> } | undefined
+    if (!baselinePresent || !keepVisibleBaseline || excludedBaselineScopes === undefined) {
+      const replacePreviousBaseline = baselinePresent && !keepVisibleBaseline
+      const instructions = await loadBaselineInstructionSet({
+        cwd,
+        dshHome: resolved.dshHome,
+        projectRootMarkers: resolved.projectRootMarkers,
+        maxBytes: resolved.maxBytes,
+        maxSourceBytes: resolved.maxSourceBytes,
+        instructionFileCandidates: resolved.instructionFileCandidates,
+        localInstructionFileCandidates: resolved.localInstructionFileCandidates,
+        projectRoot,
+        replacePreviousBaseline,
+        signal,
+      }, fileSystem)
+      const baseline = baselineInstructionState(instructions?.included ?? [])
+      const observedBaseline = baselineInstructionState(instructions?.observed ?? [])
+      const excludedScopes = new Set(observedBaseline.changes.keys())
+      for (const scope of baseline.changes.keys()) excludedScopes.delete(scope)
+      excludedBaselineScopes = excludedScopes
+      nextPreparation = { identity, excludedScopes }
+      let versionStates = instructionVersions.get(agent.session)
+      if (versionStates === undefined && baseline.versions.size > 0) {
+        versionStates = new Map()
+        instructionVersions.set(agent.session, versionStates)
+      }
+      for (const [scope, state] of baseline.versions) versionStates?.set(scope, state)
+      if (!keepVisibleBaseline && instructions !== undefined && instructions.rendered.text.length > 0) {
+        const baselineContent = workspaceContextMessage(instructions.rendered.text).content
+        content.push(...baselineContent)
+        const replacementScopes = new Set(baseline.changes.keys())
+        const replacementRemovals = replacePreviousBaseline
+          ? visibleBaseline.changes.flatMap(change => (
+            change.action === 'remove' || replacementScopes.has(change.scope)
+              ? []
+              : [{ action: 'remove' as const, scope: change.scope, path: change.path }]
+          ))
+          : []
+        const baselineChanges = [...replacementRemovals, ...baseline.changes.values()]
+        changes.push(...baselineChanges)
+        authorityMessages.push(createUserMessage({
+          content: baselineContent,
+          source: {
+            kind: 'workspace-instructions',
+            form: 'instructions',
+            baseline: true,
+            baselineIdentity: identity,
+            changes: baselineChanges,
+          },
+        }))
+        desiredBaseline = true
+      }
+    }
     const update = await reconcileInstructionContext(
       agent,
       resolved,
-      pendingNestedChanges,
       instructionVersions,
       fileSystem,
-      { includeBaselineScopes: false, signal },
+      {
+        authorityMessages,
+        scopeMessages: pending,
+        includeBaselineScopes: keepVisibleBaseline,
+        ...keepVisibleBaseline ? { excludedBaselineScopes } : {},
+        touchedPaths,
+        projectRoot,
+        signal,
+      },
     )
     if (update !== undefined) {
-      agent.inject(update.context)
+      content.push(...update.context.content)
+      /* v8 ignore next -- reconciliation constructs only workspace-instructions contexts. */
+      if (update.context.source.kind === 'workspace-instructions') {
+        changes.push(...update.context.source.changes)
+      }
       applyInstructionVersionUpdates(agent.session, update.versionUpdates, instructionVersions)
     }
-    const keepVisibleBaseline = !lifecycleWitnessed.has(agent.session) && hasVisibleBaseline(agent)
-    if (!keepVisibleBaseline && instructions !== undefined && instructions.rendered.text.length > 0) {
-      const baselineMessage = workspaceContextMessage(instructions.rendered.text)
-      agent.inject(createUserMessage({
-        content: baselineMessage.content,
-        source: {
-          kind: 'workspace-instructions',
-          baseline: true,
-          changes: [...baseline.changes.values()],
-        },
-      }))
-    }
-    baselineLoaded.add(agent.session)
-  })
+    if (nextPreparation !== undefined) baselinePreparations.set(agent.session, nextPreparation)
+    if (content.length === 0) return undefined
+    return createUserMessage({
+      content,
+      source: {
+        kind: 'workspace-instructions',
+        form: 'instructions',
+        ...desiredBaseline ? { baseline: true } : {},
+        ...desiredBaseline ? { baselineIdentity: identity } : {},
+        changes,
+      },
+    })
+  }
 
-  ctx.on('tools/post-execute', async (
-    exec: ToolExecution,
-    result: ToolExecutionResult,
-    next,
-  ): Promise<PostToolDecision> => {
-    const downstream = await next()
-    // A downstream listener/policy blocked this call: the registry turns it
-    // into a final `isError` result, so treat it like a failed fs touch and
-    // load nothing. Reconciling here would surface workspace instructions from
-    // a call the pipeline rejected, violating the "successful fs tool touches"
-    // contract, and would advance the nested/baseline tracking state off a
-    // touch that never really happened.
-    if (downstream.kind === 'block') return downstream
-    const fileSystem = ctx.get('fs')
-    if (fileSystem === undefined) return downstream
-    const update = await dynamicInstructionContext(
-      exec.agent,
-      exec,
-      result,
-      resolved,
-      pendingNestedChanges,
-      baselineSessions,
-      instructionVersions,
-      fileSystem,
+  const syncInbox = (agent: Agent, claimed: readonly UserMessage[], desired: UserMessage | undefined): void => {
+    const pending = agent.inbox.nextStep.filter(isWorkspaceContext)
+    const alreadySupplied = desired !== undefined && (
+      claimed.some(message => sameContextPayload(message, desired))
+      || agent.session.surface.nodes.some((seq) => {
+        const event = agent.session.events[seq]
+        return event?.type === 'user/message' && sameContextPayload(event.data, desired)
+      })
     )
-    if (update === undefined) return downstream
-    pendingVersionUpdates.set(exec.token, update.versionUpdates)
-    return {
-      ...downstream,
-      additionalContexts: [update.context, ...downstream.additionalContexts ?? []],
+    if (desired === undefined || alreadySupplied) {
+      for (const message of pending) agent.inbox.remove(message.id)
+      return
     }
-  })
-
-  ctx.on('tools/result', (exec: ToolExecution, result: ToolExecutionResult) => {
-    const ownVersionUpdates = pendingVersionUpdates.get(exec.token) ?? []
-    pendingVersionUpdates.delete(exec.token)
-    if (exec.parent !== undefined) {
-      if (exec.agent === undefined) return
-      // Child contexts participate in duplicate suppression within one composite
-      // run, but remain provisional until the parent reaches its final policy.
-      const changes = commitPendingInstructionContexts(exec.agent, result.additionalContexts, pendingNestedChanges)
-      if (changes.length === 0) return
-      const versionUpdates = retainedInstructionVersionUpdates(ownVersionUpdates, changes)
-      const staged = pendingByParent.get(exec.parent)
-      if (staged === undefined) pendingByParent.set(exec.parent, { agent: exec.agent, changes, versionUpdates })
-      else {
-        staged.changes.push(...changes)
-        staged.versionUpdates.push(...versionUpdates)
+    const reusable = pending.find(message => sameContextPayload(message, desired))
+    if (reusable !== undefined) {
+      for (const message of pending) {
+        if (message !== reusable) agent.inbox.remove(message.id)
       }
       return
     }
+    const replaced = pending[0]
+    if (replaced === undefined) agent.inbox.prepend('next-step', desired)
+    else agent.inbox.replace(replaced.id, desired)
+    for (const message of pending.slice(1)) agent.inbox.remove(message.id)
+  }
 
-    // The parent result is authoritative: remove every provisional child change,
-    // then commit only contexts that survived outer post-execute policy.
-    const staged = pendingByParent.get(exec.token)
-    if (staged !== undefined) {
-      pendingByParent.delete(exec.token)
-      rollbackPendingInstructionChanges(staged.agent, staged.changes, pendingNestedChanges)
+  const composeAndSync = async (
+    agent: Agent,
+    signal: AbortSignal,
+    claimed: readonly UserMessage[],
+    touchedPaths: readonly string[] = [],
+  ): Promise<void> => {
+    const pending = agent.inbox.nextStep.filter(isWorkspaceContext)
+    const desired = await compose(agent, signal, claimed, pending, touchedPaths)
+    signal.throwIfAborted()
+    syncInbox(agent, claimed, desired)
+  }
+
+  const queueProjection = (
+    agent: Agent,
+    touchedPath: string,
+  ): void => {
+    const previous = projectionTails.get(agent) ?? Promise.resolve()
+    const current = previous.then(() => composeAndSync(agent, projectionLifecycle.signal, [], [touchedPath]))
+      .catch((error: unknown) => {
+        if (!projectionLifecycle.signal.aborted) ctx.logger.warn('workspace instruction refresh failed: %o', error)
+      })
+    projectionTails.set(agent, current)
+    void current.then(() => {
+      if (projectionTails.get(agent) === current) projectionTails.delete(agent)
+    })
+  }
+
+  const waitForProjections = async (agent: Agent): Promise<void> => {
+    let projection: Promise<void> | undefined
+    while ((projection = projectionTails.get(agent)) !== undefined) await projection
+  }
+
+  ctx.on('agent/pre-step', async (
+    { agent, messages, step, signal },
+    next,
+  ): Promise<PreStepDecision> => {
+    const decision = await next()
+    await waitForProjections(agent)
+    const pending = agent.inbox.nextStep.filter(isWorkspaceContext)
+    const desired = await compose(agent, signal, messages, pending)
+    signal.throwIfAborted()
+    // An empty first entry owns a no-step turn; keep context pending instead
+    // of turning it into a standalone request. Later entries may be tool continuations.
+    if (decision.kind === 'reject' || (step === 1 && decision.messages.length === 0)) {
+      syncInbox(agent, messages, desired)
+      return decision
     }
-    if (exec.agent === undefined) return
-    const committed = commitPendingInstructionContexts(exec.agent, result.additionalContexts, pendingNestedChanges)
-    const stagedVersionUpdates = staged?.versionUpdates ?? []
-    const versionUpdates = retainedInstructionVersionUpdates(
-      [...stagedVersionUpdates, ...ownVersionUpdates],
-      committed,
-    )
-    applyInstructionVersionUpdates(exec.agent.session, versionUpdates, instructionVersions)
+    // A proceeding step settles the pending context: it either enters below as
+    // `desired`, or its payload is already covered by the batch, so nothing stays pending.
+    for (const message of pending) agent.inbox.remove(message.id)
+    if (desired === undefined || decision.messages.some(message => sameContextPayload(message, desired))) {
+      return decision
+    }
+    // Fold the context right after the claimed batch, so the direct prompt
+    // precedes it and the driver-appended runtime context follows it.
+    const lastClaimedIndex = decision.messages.findLastIndex(message => messages.includes(message))
+    const entered = decision.messages.toSpliced(lastClaimedIndex + 1, 0, desired)
+    return { kind: 'enter', messages: entered }
+  })
+
+  ctx.on('tools/result', (exec: ToolExecution, result: ToolExecutionResult) => {
+    if (result.isError || exec.agent === undefined || exec.signal.aborted) return
+    const ownPath = filePathFromExecution(exec)
+    if (ownPath === undefined) return
+    queueProjection(exec.agent, ownPath)
   })
 }

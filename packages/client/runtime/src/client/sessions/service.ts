@@ -4,7 +4,7 @@
  * session-scoped surface keys off — migrated here from ui-layout per the
  * slot-parity design), Agent scope tree (mintScope pattern: no-op plugin
  * Fiber + ctx.extend scope tag; one scope per session, agent id === session
- * id), stable SessionBinding cache, ancestry walk.
+ * id), stable SessionBinding cache, breadcrumb-route projection.
  *
  * Scope lifecycle is stage-driven: a scope is minted lazily on first
  * resolution (pure — resolution has no side effects and is render-safe);
@@ -16,17 +16,24 @@
  * survives frozen (read-only view) until the stage moves on.
  */
 import type { Context, Fiber } from 'cordis'
-import type { IApiClient, RpcError, SessionId, WorkspaceId } from '@deepseek-ai/dsh-client-connection/client'
+import type {
+  IApiClient, RpcError, RpcResult, SessionId, SubagentAddress, WorkspaceId,
+} from '@deepseek-ai/dsh-client-connection/client'
+// Value import from the inline-safe wire layer (not the connection plugin):
+// plugin-to-plugin value imports are a bundle purity error.
+import { SESSION_SEARCH_RESULT_LIMIT } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type {
   HostObservable, SessionMaybeProvideInfo, SessionProvideInfo,
 } from '@deepseek-ai/dsh-client-ui-slots'
+import type { SessionProjectionMap } from '@deepseek-ai/dsh-session-projection/types'
 import type { SnapshotStore } from '../contract/store.ts'
 import { createSnapshotStore } from '../contract/store.ts'
 import type { SessionFace } from '../contract/session.ts'
-import type { ISessions } from '../contract/sessions.ts'
+import type { AgentContext, ISessions } from '../contract/sessions.ts'
 import { createScope, scopeOf as scopeTagOf } from '../agents/scope.ts'
 import { SessionManager } from './manager.ts'
-import type { SessionListPhase } from './manager.ts'
+import type { SessionListPhase, SessionSearchResultItem, SubagentCatalogSnapshot } from './manager.ts'
+import type { PendingInteractionStatus } from './pending.ts'
 import { SessionProvideChannel } from './provide.ts'
 import type { Session } from './session.ts'
 
@@ -39,9 +46,13 @@ export interface SessionSummary {
   displayTitle: string
   cwd?: string
   parentId?: SessionId
+  /** Coarse durable origin for navigation filtering; not a continuation capability. */
+  origin?: 'subagent'
   running: boolean
-  /** An approval question is pending on this session (sidebar amber-dot state). */
-  waitingApproval: boolean
+  /** User interaction currently blocking this session (sidebar amber-dot state). */
+  pendingInteraction?: PendingInteractionStatus
+  /** Finished while not selected and not yet opened — the sidebar's green "done" reminder. Absent = false. */
+  completed?: boolean
   /**
    * Empty-log bit (host summary derivation mirror). New Session reuses a blank
    * one targeting the same workspace. Filtering stays with the consumer: the
@@ -50,6 +61,8 @@ export interface SessionSummary {
    */
   blank: boolean
   updatedAt: number
+  /** Current host-computed projection values retained by the object layer. */
+  projectionValues?: Readonly<Partial<SessionProjectionMap>>
 }
 
 /**
@@ -58,11 +71,23 @@ export interface SessionSummary {
  * sidebar highlighting and SessionProvider share one fact source).
  */
 export interface SessionListState {
+  /** Host-list order; addressed breadcrumb-only rows are excluded. */
   ids: SessionId[]
+  /** Host rows plus the current addressed subagent route used by navigation. */
   byId: Record<SessionId, SessionSummary>
   current: SessionId | undefined
   /** Arrival lifecycle projected 1:1 from the manager snapshot (see SessionListPhase): empty-with-ready means "truly no sessions". */
   phase: SessionListPhase
+  /** Direct durable catalogs keyed by their selected parent address. */
+  subagentsByParent: Readonly<Record<SessionId, SubagentCatalogSnapshot>>
+  /** Current session's catalog-derived address, absent on ordinary navigation. */
+  currentAddress: SubagentAddress | undefined
+}
+
+/** Persisted navigation cell: address survives refresh for correct history routing. */
+interface SessionSelection {
+  sessionId?: SessionId
+  subagentAddress?: SubagentAddress
 }
 
 /** Structured session-create failure. */
@@ -81,12 +106,28 @@ export class SessionCreateError extends Error {
   }
 }
 
+/** Structured session-fork failure. */
+export class SessionForkError extends Error {
+  override readonly name = 'SessionForkError'
+
+  /**
+   * @param rpcError - Host business or folded transport error.
+   * @param sourceSessionId - the session the fork was cut from.
+   */
+  constructor(
+    readonly rpcError: RpcError,
+    readonly sourceSessionId: SessionId,
+  ) {
+    super(`session fork failed: ${rpcError.code}: ${rpcError.message}`)
+  }
+}
+
 /** Session assembly handle for SessionProvider/inject factories (identity-stable per session). */
 export interface SessionBinding {
   readonly sessionId: SessionId
   /** The outward session face only — feature code never sees the concrete class. */
   readonly session: SessionFace
-  readonly ctx: Context
+  readonly ctx: AgentContext
 }
 
 // Scope primitives live in ../agents/scope.ts (the client mirror of host
@@ -121,9 +162,27 @@ function displayTitleOf(title: string | undefined, cwd: string | undefined, id: 
   return id
 }
 
+/**
+ * Increment a trailing fork number while preserving its half-width or
+ * full-width parentheses; an unnumbered title starts with ` (1)`.
+ * @param title - source session's durable title.
+ * @returns the title assigned to the fork child.
+ */
+function increasedForkTitle(title: string): string {
+  const ascii = /^(.*?)\((\d+)\)$/u.exec(title)
+  if (ascii?.[1] !== undefined && ascii[2] !== undefined) {
+    return `${ascii[1]}(${BigInt(ascii[2]) + 1n})`
+  }
+  const fullWidth = /^(.*?)（(\d+)）$/u.exec(title)
+  if (fullWidth?.[1] !== undefined && fullWidth[2] !== undefined) {
+    return `${fullWidth[1]}（${BigInt(fullWidth[2]) + 1n}）`
+  }
+  return `${title} (1)`
+}
+
 interface ScopeRecord {
   fiber: Fiber
-  ctx: Context
+  ctx: AgentContext
   binding: SessionBinding
   /** The concrete Session for runtime-internal entry points (staging open()); the binding carries only the outward face. */
   session: Session
@@ -153,8 +212,15 @@ export interface SessionProvideDescriptor {
   resolve(binding: SessionBinding): SessionProvideContribution
 }
 
-/** Root sessions service: list store, current selection, object-layer manager, scope tree, bindings, ancestry. */
+/** Root sessions service: list store, current selection, object-layer manager, scope tree, bindings, and breadcrumb routes. */
 export class SessionsService implements ISessions {
+  /**
+   * The wire schema's own result bound, re-exposed for presentation plugins as
+   * injected data. Not per-connection state: the `session.search` response
+   * schema caps `items` at this constant, so every transport (fixture included)
+   * reports the same number.
+   */
+  readonly searchResultLimit = SESSION_SEARCH_RESULT_LIMIT
   /** List snapshot store (list RPC + host stream increments; re-pulled on reconnect) — the useSessions standard feed, current included. */
   readonly list: SnapshotStore<SessionListState>
   /** The object-layer instance cluster and frame dispatch entry. */
@@ -175,7 +241,7 @@ export class SessionsService implements ISessions {
    * selection survives transient list states (reconnect re-pull) and
    * resurfaces when its session returns.
    */
-  private readonly selection: SnapshotStore<{ sessionId?: SessionId }>
+  private readonly selection: SnapshotStore<SessionSelection>
 
   private readonly scopes = new Map<SessionId, ScopeRecord>()
   /** The provide channel (roster, materialization rules, current projection) — shared with the test runtime's double. */
@@ -194,13 +260,18 @@ export class SessionsService implements ISessions {
    * @param ctx - client root context (scope fibers mount under it).
    * @param api - wire client shared with every Session.
    */
-  constructor(private readonly rootCtx: Context, api: IApiClient) {
-    this.selection = createSnapshotStore<{ sessionId?: SessionId }>(
+  constructor(
+    private readonly rootCtx: Context,
+    api: IApiClient,
+  ) {
+    this.selection = createSnapshotStore<SessionSelection>(
       {},
       { persist: { name: 'dsh.sessions.current' } })
-    this.manager = new SessionManager(api, this.selection.getSnapshot().sessionId)
+    const restored = this.selection.getSnapshot()
+    this.manager = new SessionManager(api, restored.sessionId, restored.subagentAddress)
     this.list = createSnapshotStore<SessionListState>({
       ids: [], byId: {}, current: undefined, phase: 'pending',
+      subagentsByParent: {}, currentAddress: undefined,
     })
     // The manager owns wire truth; the store is its projection. Manager
     // notifications are already microtask-batched.
@@ -246,12 +317,46 @@ export class SessionsService implements ISessions {
   }
 
   /**
-   * Select a session as current. Unknown ids fail loud instead of navigating
-   * nowhere.
-   * @param id - session id (must exist in the list store).
+   * Select a listed or retained catalog-addressed session as current.
+   * @param id - listed or addressed session id.
    */
   open(id: SessionId): void {
     this.manager.select(id)
+  }
+
+  /**
+   * Open a healthy catalog child through its direct-parent address.
+   * @param address - catalog-derived parent and child ids.
+   */
+  openSubagent(address: SubagentAddress): void {
+    this.manager.selectSubagent(address)
+  }
+
+  /**
+   * Resolve an already discovered direct-parent address without opening it.
+   * Feature plugins use this to avoid Agent-bound RPCs in persisted child views.
+   * @param id - possible addressed child id.
+   * @returns The retained address, when present.
+   */
+  subagentAddress(id: SessionId): SubagentAddress | undefined {
+    return this.manager.subagentAddress(id)
+  }
+
+  /**
+   * Inform the runtime whether a catalog menu is consuming membership updates.
+   * @param parentSessionId - selected parent.
+   * @param open - menu state.
+   */
+  setSubagentCatalogOpen(parentSessionId: SessionId, open: boolean): void {
+    this.manager.setSubagentCatalogOpen(parentSessionId, open)
+  }
+
+  /**
+   * Refresh one direct-child catalog.
+   * @param parentSessionId - catalog owner.
+   */
+  refreshSubagents(parentSessionId: SessionId): Promise<void> {
+    return this.manager.refreshSubagents(parentSessionId)
   }
 
   /**
@@ -271,6 +376,20 @@ export class SessionsService implements ISessions {
    */
   refresh(): Promise<void> {
     return this.manager.refreshList()
+  }
+
+  /**
+   * Search the Host's visible message-content index. Results stay
+   * request-local; the list snapshot remains the metadata authority.
+   * @param query - non-blank literal phrase.
+   * @param signal - cancellation for a superseded search.
+   * @returns bounded results or a business/transport error.
+   */
+  search(
+    query: string,
+    signal: AbortSignal,
+  ): Promise<RpcResult<{ items: SessionSearchResultItem[]; hasMore: boolean }>> {
+    return this.manager.search(query, signal)
   }
 
   /**
@@ -318,11 +437,53 @@ export class SessionsService implements ISessions {
   }
 
   /**
+   * Fork a session from a completed-turn prefix of the source (same
+   * synchronous-addressability guarantee as {@link SessionsService.create}:
+   * on resolution the child is in the list store and open() can target it).
+   * @param opts - source session id, the optional event seq anchoring the
+   *   cut (the boundary is the first turn/end at or after it; an in-log
+   *   anchor in an open turn is unavailable rather than clipped backward),
+   *   and whether to increment an inherited durable title before resolving.
+   *   A fractional anchor floors to a real event seq: the frozen nodes of an
+   *   interrupted turn carry flow-ordering seqs between two events, and the
+   *   wire takes integers only.
+   * @returns the child session id.
+   * @throws {SessionForkError} with the source id.
+   * @throws {Error} when a requested child-title rename fails after creation.
+   */
+  async fork(opts: {
+    sessionId: SessionId
+    atSeq?: number
+    increaseTitle?: boolean
+  }): Promise<SessionId> {
+    const sourceTitle = opts.increaseTitle
+      ? this.list.getSnapshot().byId[opts.sessionId]?.title
+      : undefined
+    const result = await this.manager.fork({
+      sessionId: opts.sessionId,
+      // Flooring lands inside the anchor's own turn (every turn opens with a
+      // turn/start), so the host's first-turn/end-at-or-after cut still ends
+      // on that turn — never clipped back to the previous one.
+      ...(opts.atSeq === undefined ? {} : { atSeq: Math.floor(opts.atSeq) }),
+    })
+    if (!result.ok) throw new SessionForkError(result.error, opts.sessionId)
+    this.projectList()
+    const childId = result.value.sessionId
+    if (sourceTitle !== undefined) {
+      const child = this.binding(childId)?.session
+      if (child === undefined) throw new Error(`fork child "${childId}" is not locally addressable`)
+      const renamed = await child.rename(increasedForkTitle(sourceTitle))
+      if (!renamed.ok) throw new Error(`fork child rename failed: ${renamed.error.code}: ${renamed.error.message}`)
+    }
+    return childId
+  }
+
+  /**
    * Resolve an Agent-scoped context view (use-and-discard).
    * @param id - session id (the agent identity — 1:1 same axis).
    * @returns scoped ctx, or undefined for a session neither listed nor already scoped.
    */
-  scope(id: SessionId): Context | undefined {
+  scope(id: SessionId): AgentContext | undefined {
     return this.resolve(id)?.ctx
   }
 
@@ -404,33 +565,15 @@ export class SessionsService implements ISessions {
      * cannot miss; kept so a future current writer cannot crash the notify. */
     if (record !== undefined) {
       void record.session.open()
+      void this.manager.refreshSubagents(current)
     }
-  }
-
-  /**
-   * Breadcrumb feed: walk parentId links inside the list store.
-   * @param id - session id.
-   * @returns summaries from root ancestor to the session itself (empty when unknown; a broken link stops the walk).
-   */
-  ancestry(id: SessionId): SessionSummary[] {
-    const { byId } = this.list.getSnapshot()
-    const chain: SessionSummary[] = []
-    let cursor: SessionId | undefined = id
-    while (cursor !== undefined) {
-      const summary: SessionSummary | undefined = byId[cursor]
-      if (summary === undefined || chain.includes(summary)) break
-      chain.unshift(summary)
-      cursor = summary.parentId
-    }
-    return chain
   }
 
   /**
    * Lazily mint the scope + binding for an eligible session. Eligibility and
-   * prune share one predicate (decision 12): listed on the host — a scope is
-   * born when its session enters the client's view (list mirror row from the
-   * baseline pull, a create() echo, or the session-added frame) and dies with
-   * the prune when the row leaves.
+   * prune share one predicate (decision 12): listed on the host or selected
+   * through a retained subagent address. Breadcrumb-only ancestors remain
+   * summary data and do not keep scopes alive.
    */
   private resolve(id: SessionId): ScopeRecord | undefined {
     const existing = this.scopes.get(id)
@@ -454,14 +597,17 @@ export class SessionsService implements ISessions {
     return record
   }
 
-  /** The one aliveness predicate shared by scope mint and prune: host-listed. */
+  /** The one aliveness predicate shared by scope mint and prune: host-listed or currently addressed. */
   private eligible(id: SessionId): boolean {
-    return this.list.getSnapshot().byId[id] !== undefined
+    const { ids, current } = this.list.getSnapshot()
+    return current === id || ids.includes(id)
   }
 
   /** Project the manager's list snapshot into the store (title derivation is display-only). */
   private projectList(): void {
-    const { items, current, phase } = this.manager.getListSnapshot()
+    const {
+      items, current, phase, subagentsByParent, currentAddress,
+    } = this.manager.getListSnapshot()
     const ids: SessionId[] = []
     const byId: Record<SessionId, SessionSummary> = {}
     for (const entry of items) {
@@ -470,12 +616,48 @@ export class SessionsService implements ISessions {
         id: entry.sessionId,
         displayTitle: displayTitleOf(entry.title, entry.cwd, entry.sessionId),
         running: entry.running,
-        waitingApproval: entry.waitingApproval,
+        ...(entry.completed ? { completed: true } : {}),
         blank: entry.blank,
         updatedAt: entry.updatedAt,
+        ...(entry.pendingInteraction === undefined
+          ? {}
+          : { pendingInteraction: entry.pendingInteraction }),
+        ...(entry.projectionValues === undefined
+          ? {}
+          : { projectionValues: entry.projectionValues }),
         ...(entry.title !== undefined ? { title: entry.title } : {}),
         ...(entry.cwd !== undefined ? { cwd: entry.cwd } : {}),
         ...(entry.parentSessionId !== undefined ? { parentId: entry.parentSessionId } : {}),
+        ...(entry.origin !== undefined ? { origin: entry.origin } : {}),
+      }
+    }
+    if (current !== undefined && currentAddress !== undefined) {
+      const seen = new Set<SessionId>()
+      let address: SubagentAddress | undefined = currentAddress
+      while (address !== undefined && !seen.has(address.childSessionId)) {
+        const childId = address.childSessionId
+        seen.add(childId)
+        const child = subagentsByParent[address.parentSessionId]?.entries
+          .find(entry => entry.kind === 'child' && entry.id === childId)
+        if (child?.kind !== 'child') break
+        const displayTitle = child.label ?? childId
+        const summary = byId[childId]
+        if (summary === undefined) {
+          byId[childId] = {
+            id: childId,
+            displayTitle,
+            parentId: address.parentSessionId,
+            origin: 'subagent',
+            running: child.activity === 'running',
+            blank: false,
+            updatedAt: 0,
+          }
+        } else if (summary.displayTitle !== displayTitle) {
+          byId[childId] = { ...summary, displayTitle }
+        }
+        const parent = byId[address.parentSessionId]
+        if (parent !== undefined && parent.origin !== 'subagent') break
+        address = this.manager.navigationAddress(address.parentSessionId)
       }
     }
     const persisted = this.selection.getSnapshot().sessionId
@@ -483,16 +665,22 @@ export class SessionsService implements ISessions {
     // stays on empty; the in-memory selection still resurfaces a masked id.
     if (current === undefined) {
       if (persisted !== undefined) this.selection.set({})
-    } else if (byId[current] !== undefined && persisted !== current) {
-      this.selection.set({ sessionId: current })
+    } else if (byId[current] !== undefined
+      && (persisted !== current
+        || this.selection.getSnapshot().subagentAddress?.childSessionId !== currentAddress?.childSessionId
+        || this.selection.getSnapshot().subagentAddress?.parentSessionId !== currentAddress?.parentSessionId
+        || this.selection.getSnapshot().subagentAddress?.mode !== currentAddress?.mode)) {
+      this.selection.set({
+        sessionId: current,
+        ...(currentAddress === undefined ? {} : { subagentAddress: currentAddress }),
+      })
     }
-    this.list.set({ ids, byId, current, phase })
-    this.pruneScopes(byId)
+    this.list.set({ ids, byId, current, phase, subagentsByParent, currentAddress })
+    this.pruneScopes()
   }
 
   /** Tear down scope + instance for no-longer-eligible sessions off stage; the staged one defers until the stage moves. */
-  private pruneScopes(byId: Record<SessionId, SessionSummary>): void {
-    void byId
+  private pruneScopes(): void {
     for (const [id, record] of this.scopes) {
       if (this.eligible(id)) continue
       if (id === this.watched) {

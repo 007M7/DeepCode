@@ -29,11 +29,11 @@ describe('JsonRpcLineTransport', () => {
     const response = await b.request('echo', { value: 42 })
     expect(response).toEqual({ echoed: { value: 42 } })
 
-    a.notify('session.finished', { sessionId: 'main', status: 'ok' })
+    a.notify('session.status', { sessionId: 'main', status: 'idle' })
     a.notify('heartbeat')
     await new Promise(resolve => setTimeout(resolve, 10))
     expect(notifications).toEqual([
-      { method: 'session.finished', params: { sessionId: 'main', status: 'ok' } },
+      { method: 'session.status', params: { sessionId: 'main', status: 'idle' } },
       { method: 'heartbeat', params: {} },
     ])
 

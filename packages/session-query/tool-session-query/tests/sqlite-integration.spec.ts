@@ -64,7 +64,7 @@ describe('tool-session-query with the real SQLite provider', () => {
     const caller = ctx.sessions.create(SessionId('caller'), {
       meta: { createdAt: 10, cwd: '/work' },
     })
-    caller.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    caller.append('turn/start', { turn: 1 })
     caller.append(
       'user/message',
       createUserMessage({

@@ -470,6 +470,24 @@ describe('tokenizeSessionFixtureCwd', () => {
     expect(tokenizeSessionFixtureCwd(out)).toBe(out)
   })
 
+  it('collapses a residual macOS realpath prefix around an existing cwd token', () => {
+    const raw = [
+      JSON.stringify({ type: 'session', id: 's', createdAt: 1, cwd: '{{cwd}}' }),
+      JSON.stringify({
+        type: 'tool/result',
+        seq: 1,
+        time: 2,
+        data: { content: [{ type: 'text', text: 'wrote /private{{cwd}}/proof.txt' }] },
+      }),
+      '',
+    ].join('\n')
+
+    const out = tokenizeSessionFixtureCwd(raw)
+    expect(out).toContain('wrote {{cwd}}/proof.txt')
+    expect(out).not.toContain('/private{{cwd}}')
+    expect(tokenizeSessionFixtureCwd(out)).toBe(out)
+  })
+
   it('rejects a log without a session cwd', () => {
     expect(() => tokenizeSessionFixtureCwd('')).toThrow(
       'acp-snapshot: cannot tokenize a cwd without a basename',

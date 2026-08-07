@@ -1,5 +1,4 @@
-/* Plan-mode toggle chip: quiet while off; the pressed state takes the
-   business accent pair (same token pairing as the trajectory user badge). */
+/* Active plan status follows Figma's warn-state pill. */
 
 .wrap {
   display: inline-flex;
@@ -10,36 +9,37 @@
 .chip {
   display: inline-flex;
   align-items: center;
-  padding: 4px 8px;
+  gap: 4px;
+  min-width: 34px;
+  padding: 2px 8px;
   border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--dsw-alias-label-secondary);
-  font-size: 14px;
+  border-radius: 999px;
+  background: var(--dsw-alias-state-warn-tertiary);
+  color: var(--dsw-alias-state-warn-label);
+  font-size: 13px;
+  font-weight: 500;
   line-height: 20px;
   cursor: pointer;
 }
 
 .chip:hover:not(:disabled) {
-  background: var(--dsw-alias-interactive-bg-hover);
-}
-
-/* Hovering keeps the pressed accent: the higher-specificity hover rule above
-   would otherwise swap it back to the neutral hover wash. */
-.chip[aria-pressed='true'],
-.chip[aria-pressed='true']:hover:not(:disabled) {
-  color: var(--dsw-alias-state-business-primary);
-  background: var(--dsw-alias-state-business-tertiary);
+  color: var(--dsw-alias-state-warn-primary);
 }
 
 .chip:focus-visible {
-  outline: 2px solid var(--dsw-alias-label-secondary);
+  outline: 2px solid var(--dsw-alias-state-warn-label);
   outline-offset: 2px;
 }
 
 .chip:disabled {
   opacity: 0.6;
   cursor: default;
+}
+
+.close {
+  display: inline-flex;
+  align-items: center;
+  color: currentColor;
 }
 
 .error {

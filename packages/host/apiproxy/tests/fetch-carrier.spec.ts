@@ -22,6 +22,26 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
         if (overrides.crashOn === 'session.list') throw new Error('impl crashed')
         return { rpcId: request.rpcId, result: { ok: true, value: { items: [] } } }
       },
+      async search(request, signal) {
+        if (request.payload.query === 'hang') {
+          if (!signal.aborted) {
+            await new Promise<void>((resolve) => {
+              signal.addEventListener('abort', () => { resolve() }, { once: true })
+            })
+          }
+          return {
+            rpcId: request.rpcId,
+            result: { ok: false, error: { code: 'cancelled', message: 'aborted', details: {} } },
+          }
+        }
+        return {
+          rpcId: request.rpcId,
+          result: {
+            ok: true,
+            value: { items: [{ sessionId: 's1' as never, snippet: 'fixture match' }], hasMore: false },
+          },
+        }
+      },
       async create(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { sessionId: 's-new' as never } } }
       },
@@ -43,7 +63,8 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
           result: {
             ok: true,
             value: {
-              current: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+              current: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+              routable: true,
               groups: [],
               failures: [],
             },
@@ -70,6 +91,9 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
       async rename(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { title: request.payload.title, seq: 0 } } }
       },
+      async fork(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { sessionId: 's-fork' as never } } }
+      },
       async prompt(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { accepted: true as const } } }
       },
@@ -78,6 +102,31 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
       },
       async cancel(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { accepted: true as const } } }
+      },
+    },
+    subagents: {
+      async list(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { entries: [], parentAvailable: false } } }
+      },
+      async history(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { events: [], hasMore: false } } }
+      },
+      async prompt(request, signal) {
+        if (request.payload.content.some(block => block.type === 'text' && block.text === 'hang')) {
+          if (!signal.aborted) {
+            await new Promise<void>((resolve) => {
+              signal.addEventListener('abort', () => { resolve() }, { once: true })
+            })
+          }
+          return {
+            rpcId: request.rpcId,
+            result: { ok: false, error: { code: 'cancelled' as const, message: 'aborted', details: {} } },
+          }
+        }
+        return {
+          rpcId: request.rpcId,
+          result: { ok: true, value: { messageId: 'message-1' as never } },
+        }
       },
     },
     host: {
@@ -99,7 +148,7 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
     },
     workspace: {
       async list(request) {
-        return { rpcId: request.rpcId, result: { ok: true, value: { items: [] } } }
+        return { rpcId: request.rpcId, result: { ok: true, value: { items: [], archivedSessionIds: [] } } }
       },
       async create(request) {
         return {
@@ -121,6 +170,9 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
           rpcId: request.rpcId,
           result: { ok: true, value: { workspace: { workspaceId: 'w1' as never, path: '/w', title: 'w', sessionIds: [], createdAt: 't', updatedAt: 't' } } },
         }
+      },
+      async archiveSession(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { archivedSessionIds: [request.payload.sessionId] } } }
       },
     },
     commands: {
@@ -165,6 +217,45 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
       },
       async clear(request) {
         return { rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message: 'stub', details: {} } } }
+      },
+    },
+    settings: {
+      async describe(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { writable: true, hasDocument: false, namespaces: [] } } }
+      },
+      async openDocument(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { opened: true as const } } }
+      },
+      async update(request) {
+        return { rpcId: request.rpcId, result: { ok: false, error: { code: 'settings-rejected', message: 'stub', details: { ns: request.payload.ns } } } }
+      },
+      async replace(request) {
+        return { rpcId: request.rpcId, result: { ok: false, error: { code: 'settings-rejected', message: 'stub', details: { ns: request.payload.ns } } } }
+      },
+      async mutate(request) {
+        return { rpcId: request.rpcId, result: { ok: false, error: { code: 'settings-rejected', message: 'stub', details: { ns: request.payload.ns } } } }
+      },
+    },
+    credentials: {
+      async describe(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { credentials: {} } } }
+      },
+      async set(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: {} } }
+      },
+      async unset(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: {} } }
+      },
+    },
+    llm: {
+      async providers(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { providers: [] } } }
+      },
+      async models(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { groups: [], failures: [] } } }
+      },
+      async discoverModels(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { models: [] } } }
       },
     },
     events: {
@@ -212,11 +303,15 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
 
   it('covers create/prompt/updateQueue/cancel/describe passthrough', async () => {
     const c = client()
+    expect((await c.sessions.search({ query: 'fixture' })).result).toEqual({
+      ok: true,
+      value: { items: [{ sessionId: 's1', snippet: 'fixture match' }], hasMore: false },
+    })
     expect((await c.sessions.create({})).result.ok).toBe(true)
     expect((await c.sessions.models({ sessionId: 's' as never })).result.ok).toBe(true)
     const selected = await c.sessions.selectModel({
       sessionId: 's' as never,
-      provider: 'deepseek',
+      provider: 'deepseek-official',
       model: 'deepseek-v4-flash',
       reasoningEffort: 'max',
     })
@@ -224,7 +319,7 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
       ok: true,
       value: {
         selected: {
-          provider: 'deepseek',
+          provider: 'deepseek-official',
           model: 'deepseek-v4-flash',
           reasoningEffort: 'max',
         },
@@ -289,6 +384,85 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     expect(skills.result).toEqual({ ok: true, value: { skills: [{ name: 'commit-helper', description: 'Git commits' }] } })
   })
 
+  it('lets command.execute finish after the 30-second default unary deadline', async () => {
+    vi.useFakeTimers()
+    const timeoutSpy = vi.spyOn(AbortSignal, 'timeout').mockImplementation((milliseconds) => {
+      const controller = new AbortController()
+      setTimeout(() => {
+        controller.abort(new DOMException('The operation was aborted due to timeout', 'TimeoutError'))
+      }, milliseconds)
+      return controller.signal
+    })
+    try {
+      const api = fakeApi()
+      api.commands.execute = async (request) => {
+        await new Promise(resolve => setTimeout(resolve, 30_001))
+        return {
+          rpcId: request.rpcId,
+          result: { ok: true, value: { matched: true, commandId: CommandId('cmd-slow') } },
+        }
+      }
+      const execution = client(api).commands.execute({ sessionId: 's' as never, line: '/slow' })
+      const assertion = expect(execution).resolves.toMatchObject({
+        result: { ok: true, value: { matched: true, commandId: 'cmd-slow' } },
+      })
+
+      await Promise.all([
+        vi.advanceTimersByTimeAsync(30_001),
+        assertion,
+      ])
+      expect(timeoutSpy).not.toHaveBeenCalled()
+    } finally {
+      timeoutSpy.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
+  it('round-trips the subagent domain through the wire form', async () => {
+    const c = client()
+    expect((await c.subagents.list({ parentSessionId: 'parent' as never })).result)
+      .toEqual({ ok: true, value: { entries: [], parentAvailable: false } })
+    expect((await c.subagents.history({
+      parentSessionId: 'parent' as never,
+      childSessionId: 'child' as never,
+      mode: 'one-shot',
+    })).result).toEqual({ ok: true, value: { events: [], hasMore: false } })
+    expect((await c.subagents.prompt({
+      parentSessionId: 'parent' as never,
+      childSessionId: 'child' as never,
+      mode: 'continuable',
+      content: [],
+    })).result).toEqual({ ok: true, value: { messageId: 'message-1' } })
+  })
+
+  it('keeps caller and connection aborts on command.execute', async () => {
+    const api = fakeApi()
+    const started = Promise.withResolvers<AbortSignal>()
+    api.commands.execute = async (request, signal) => {
+      started.resolve(signal)
+      if (!signal.aborted) {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener('abort', () => { resolve() }, { once: true })
+        })
+      }
+      return {
+        rpcId: request.rpcId,
+        result: { ok: false, error: { code: 'cancelled', message: 'aborted', details: {} } },
+      }
+    }
+    const controller = new AbortController()
+    const execution = client(api).commands.execute(
+      { sessionId: 's' as never, line: '/hang' },
+      controller.signal,
+    )
+    const handlerSignal = await started.promise
+
+    controller.abort(new Error('connection closed'))
+
+    await expect(execution).rejects.toThrow('connection closed')
+    expect(handlerSignal.aborted).toBe(true)
+  })
+
   it('propagates the carrier Request signal into command.execute', async () => {
     const handler = toFetchHandler(fakeApi())
     const controller = new AbortController()
@@ -300,6 +474,57 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     const response = await pending
     const parsed = await response.json() as { rpcId: string; result: { ok: boolean; error?: { code: string } } }
     expect(parsed.rpcId).toBe('r-sig')
+    expect(parsed.result.error?.code).toBe('cancelled')
+  })
+
+  it('propagates the carrier Request signal into session.search', async () => {
+    const handler = toFetchHandler(fakeApi())
+    const controller = new AbortController()
+    const body = JSON.stringify({
+      type: 'client-request',
+      rpcId: 'r-search-sig',
+      method: 'session.search',
+      payload: { query: 'hang' },
+    })
+    const pending = handler.fetch(new Request(
+      'http://x/api/session.search',
+      { method: 'POST', headers: { 'content-type': 'application/json' }, body, signal: controller.signal },
+    ))
+    controller.abort()
+    const response = await pending
+    const parsed = await response.json() as {
+      rpcId: string
+      result: { error?: { code: string } }
+    }
+    expect(parsed.rpcId).toBe('r-search-sig')
+    expect(parsed.result.error?.code).toBe('cancelled')
+  })
+
+  it('propagates the carrier Request signal into subagent.prompt', async () => {
+    const handler = toFetchHandler(fakeApi())
+    const controller = new AbortController()
+    const body = JSON.stringify({
+      type: 'client-request',
+      rpcId: 'r-subagent-sig',
+      method: 'subagent.prompt',
+      payload: {
+        parentSessionId: 'parent',
+        childSessionId: 'child',
+        mode: 'continuable',
+        content: [{ type: 'text', text: 'hang' }],
+      },
+    })
+    const pending = handler.fetch(new Request(
+      'http://x/api/subagent.prompt',
+      { method: 'POST', headers: { 'content-type': 'application/json' }, body, signal: controller.signal },
+    ))
+    controller.abort()
+    const response = await pending
+    const parsed = await response.json() as {
+      rpcId: string
+      result: { error?: { code: string } }
+    }
+    expect(parsed.rpcId).toBe('r-subagent-sig')
     expect(parsed.result.error?.code).toBe('cancelled')
   })
 

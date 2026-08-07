@@ -1,5 +1,5 @@
 /**
- * Registry for ordered prompt sections, tool schemas, and prompt variables.
+ * Registry for ordered system sections, dynamic context, tool schemas, and prompt variables.
  *
  * @module @deepseek-ai/dsh-system-prompt
  */
@@ -8,7 +8,7 @@ import { Context, Service } from 'cordis'
 import z from 'schemastery'
 import { AnonymousEntries, NamedEntries, ScopedLayers, scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { ScopeKey, ScopeLayer, Scoped } from '@deepseek-ai/dsh-scope'
-import type { ToolSchema } from '@deepseek-ai/dsh-llm'
+import type { ContextSnapshotSection, ToolSchema } from '@deepseek-ai/dsh-llm'
 
 declare module 'cordis' {
   interface Context {
@@ -17,7 +17,7 @@ declare module 'cordis' {
 
   interface Events {
     /**
-     * Expert waterfall over the assembled sections, tools, and variables.
+     * Expert waterfall over the assembled sections, contexts, tools, and variables.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): scoped listeners
      * receive only that scope's assemblies. The returned value is authoritative.
      * A supplied signal controls only this explicit assembly request and must not
@@ -65,11 +65,29 @@ export interface PromptSection {
   readonly text: string | ((context: AssembleContext) => string)
 }
 
+/** Dynamic model context materialized as a durable user-role snapshot. */
+export interface PromptContext {
+  /** Unique name — a duplicate registration throws (see {@link SystemPrompt.context}). */
+  readonly name: string
+  /** Contexts are joined in ascending order. */
+  readonly order: number
+  /** Static text or a provider evaluated for each assembly. Empty text contributes nothing. */
+  readonly text: string | ((context: AssembleContext) => string)
+}
+
 /** One section of an assembly: {@link PromptSection} with its text resolved. */
 export interface AssembledSection {
   /** The contributing section's unique name. */
   name: string
   /** The resolved (but not yet interpolated) section text. */
+  text: string
+}
+
+/** One resolved dynamic context contribution. */
+export interface AssembledContext {
+  /** The contributing context's unique name. */
+  name: string
+  /** The resolved text before variable interpolation. */
   text: string
 }
 
@@ -82,11 +100,12 @@ export interface ToolProviderResult {
 }
 
 /**
- * Merge-extensible assembled prompt. Sections remain uninterpolated until
- * {@link renderPrompt}; tools are already in canonical model-facing order.
+ * Merge-extensible assembled model input. Sections and contexts remain
+ * uninterpolated until rendered; tools are already in canonical order.
  */
 export interface PromptAssembly {
   sections: AssembledSection[]
+  contexts: AssembledContext[]
   tools: ToolSchema[]
   variables: Record<string, string | undefined>
 }
@@ -170,14 +189,56 @@ export interface Config {
  */
 export function renderPrompt(assembly: PromptAssembly): string {
   return assembly.sections
-    .map(section => interpolate(section, assembly.variables))
+    .map(section => interpolate(section, assembly.variables, 'section'))
     .filter(text => text.length > 0)
     .join('\n\n')
 }
 
-/** Interpolate one section's `{{variable}}` references (see {@link renderPrompt}). */
-function interpolate(section: AssembledSection, variables: Record<string, string | undefined>): string {
-  const text = section.text
+/**
+ * Render the complete dynamic context snapshot.
+ * @param assembly - the assembly whose contexts and variables to render.
+ * @returns the current full snapshot, or `''` when no context is active.
+ */
+export function renderContextSnapshot(assembly: PromptAssembly): string {
+  return joinContextSections(renderContextSections(assembly))
+}
+
+/**
+ * The model-facing snapshot text for an already-rendered section list.
+ *
+ * A caller that also needs the sections renders them once and joins here, so a
+ * request does not interpolate every context twice.
+ * @param sections - sections from {@link renderContextSections}.
+ * @returns the current full snapshot, or `''` when no context is active.
+ */
+export function joinContextSections(sections: readonly ContextSnapshotSection[]): string {
+  const body = sections.map(section => section.text).join('\n\n')
+  if (body.length === 0) return ''
+  return `Current runtime context. This snapshot supersedes earlier runtime-context snapshots.\n\n${body}`
+}
+
+/**
+ * The same snapshot, kept as the named contributions it was assembled from.
+ *
+ * {@link renderContextSnapshot} joins these for the model; a consumer that
+ * presents the snapshot uses them to attribute each part to the subsystem that
+ * contributed it, without re-splitting the joined prose.
+ * @param assembly - the assembly whose contexts and variables to render.
+ * @returns one entry per contributing context that rendered to non-empty text.
+ */
+export function renderContextSections(assembly: PromptAssembly): ContextSnapshotSection[] {
+  return assembly.contexts
+    .map(context => ({ name: context.name, text: interpolate(context, assembly.variables, 'context') }))
+    .filter(section => section.text.length > 0)
+}
+
+/** Interpolate one section or context and attribute diagnostics to its owning input. */
+function interpolate(
+  input: AssembledSection | AssembledContext,
+  variables: Record<string, string | undefined>,
+  kind: 'section' | 'context',
+): string {
+  const text = input.text
   let result = ''
   let last = 0
   for (let open = text.indexOf('{{'); open >= 0; open = text.indexOf('{{', last)) {
@@ -185,7 +246,7 @@ function interpolate(section: AssembledSection, variables: Record<string, string
     if (group === null) {
       // A later closing brace makes this malformed; otherwise it is literal prose.
       if (text.indexOf('}}', open + 2) >= 0) {
-        throw new Error(`malformed prompt variable reference at "${text.slice(open, open + 16)}…" in section "${section.name}" (references are complete simple {{name}} groups)`)
+        throw new Error(`malformed prompt variable reference at "${text.slice(open, open + 16)}…" in ${kind} "${input.name}" (references are complete simple {{name}} groups)`)
       }
       result += text.slice(last, open + 2)
       last = open + 2
@@ -194,16 +255,16 @@ function interpolate(section: AssembledSection, variables: Record<string, string
     // `{{}}` yields an empty name and follows the malformed-reference path.
     const name = group[0].slice(2, -2)
     if (!VARIABLE_NAME.test(name)) {
-      throw new Error(`malformed prompt variable reference "{{${name}}}" in section "${section.name}" (variable names match ${String(VARIABLE_NAME)})`)
+      throw new Error(`malformed prompt variable reference "{{${name}}}" in ${kind} "${input.name}" (variable names match ${String(VARIABLE_NAME)})`)
     }
     // Do not resolve unregistered names through Object.prototype.
     if (!Object.hasOwn(variables, name)) {
       const known = Object.keys(variables)
-      throw new Error(`unknown prompt variable "{{${name}}}" in section "${section.name}"; registered variables: ${known.length > 0 ? known.join(', ') : '(none)'}`)
+      throw new Error(`unknown prompt variable "{{${name}}}" in ${kind} "${input.name}"; registered variables: ${known.length > 0 ? known.join(', ') : '(none)'}`)
     }
     const value = variables[name]
     if (value === undefined) {
-      throw new Error(`prompt variable "{{${name}}}" has no value for this assembly (section "${section.name}")`)
+      throw new Error(`prompt variable "{{${name}}}" has no value for this assembly (${kind} "${input.name}")`)
     }
     result += text.slice(last, open) + value
     last = open + group[0].length
@@ -220,6 +281,7 @@ type VariableProvider = (context: AssembleContext) => string | undefined
 /** All prompt registrations owned by one global or scoped layer. */
 class PromptLayer implements ScopeLayer {
   readonly sections: NamedEntries<PromptSection>
+  readonly contexts: NamedEntries<PromptContext>
   readonly toolProviders = new AnonymousEntries<ToolProvider>()
   readonly variables: NamedEntries<VariableProvider>
 
@@ -231,6 +293,9 @@ class PromptLayer implements ScopeLayer {
     this.sections = new NamedEntries(name => new Error(scope === undefined
       ? `prompt section "${name}" is already registered (for a per-agent override, register through that agent's \`agent.ctx\` instead)`
       : `prompt section "${name}" is already registered in this scope`))
+    this.contexts = new NamedEntries(name => new Error(scope === undefined
+      ? `prompt context "${name}" is already registered (for a per-agent override, register through that agent's \`agent.ctx\` instead)`
+      : `prompt context "${name}" is already registered in this scope`))
     this.variables = new NamedEntries(name => new Error(scope === undefined
       ? `prompt variable "${name}" is already registered (for a per-agent value, register through that agent's \`agent.ctx\` instead)`
       : `prompt variable "${name}" is already registered in this scope`))
@@ -239,6 +304,7 @@ class PromptLayer implements ScopeLayer {
   /** @returns whether this layer owns no prompt registrations. */
   isEmpty(): boolean {
     return this.sections.isEmpty()
+      && this.contexts.isEmpty()
       && this.toolProviders.isEmpty()
       && this.variables.isEmpty()
   }
@@ -298,6 +364,23 @@ export class SystemPrompt extends Service {
   }
 
   /**
+   * Register ordered dynamic context in the calling context's scope. Scoped
+   * entries shadow global entries with the same name.
+   * @param context - the context contribution to register.
+   * @returns the exact Cordis effect disposer.
+   */
+  context(context: PromptContext): () => void {
+    if (!Number.isFinite(context.order)) {
+      throw new TypeError(`prompt context "${context.name}" order must be a finite number`)
+    }
+    return this.layers.effect(
+      this.ctx,
+      layer => layer.contexts.insert(context.name, context),
+      { label: 'systemPrompt.context()' },
+    )
+  }
+
+  /**
    * Register a tool-schema provider in the calling context's scope. Global and
    * matching scoped providers both contribute; returning the reserved
    * {@link TOOL_ORDER_REST} name makes assembly fail.
@@ -352,6 +435,7 @@ export class SystemPrompt extends Service {
     }
     // Scoped sections shadow globals before the stable order sort.
     const sectionByName = this.layers.merge(scope, layer => layer.sections)
+    const contextByName = this.layers.merge(scope, layer => layer.contexts)
     // Validate order against pre-restriction names while collecting visible schemas.
     const providers = [
       ...this.layers.global.toolProviders.values(),
@@ -376,6 +460,12 @@ export class SystemPrompt extends Service {
         .map(section => ({
           name: section.name,
           text: typeof section.text === 'function' ? section.text(context) : section.text,
+        })),
+      contexts: [...contextByName.values()]
+        .sort((a, b) => a.order - b.order)
+        .map(entry => ({
+          name: entry.name,
+          text: typeof entry.text === 'function' ? entry.text(context) : entry.text,
         })),
       tools: orderTools(collected, this.toolOrder, knownNames),
       variables,

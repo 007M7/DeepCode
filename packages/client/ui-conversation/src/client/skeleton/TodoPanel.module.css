@@ -1,16 +1,31 @@
-/* Todo strip above the composer (figma 772:51905 / 772:52972 / 772:53419):
-   tip surface, 14px radius, status icons + secondary item labels. Column is
-   calc(100% - 88px) / max 752 (GoalBar's column), centered; the composer
-   stack owns the gap. */
+/* Todo strip in the composer context stack (Figma 1236:32276): tip surface,
+   status icons + secondary item labels. Its visible card aligns with the
+   GoalBar and the Queue panel inside their shared dock column: 12px radius,
+   36px collapsed row, 12px side padding, 14px tertiary leading glyph. */
 
 .root {
+  box-sizing: border-box;
   flex: none;
   overflow: hidden;
   margin: 0 auto;
-  width: calc(100% - 88px);
-  max-width: 752px;
+  width: calc(
+    100% -
+    var(--dsh-composer-side-clearance) -
+    var(--dsh-composer-side-clearance) -
+    var(--dsh-composer-dock-inset) -
+    var(--dsh-composer-dock-inset) -
+    var(--dsh-composer-dock-inset) -
+    var(--dsh-composer-dock-inset)
+  );
+  max-width: calc(
+    var(--dsh-composer-card-max-width) -
+    var(--dsh-composer-dock-inset) -
+    var(--dsh-composer-dock-inset) -
+    var(--dsh-composer-dock-inset) -
+    var(--dsh-composer-dock-inset)
+  );
   border: 1px solid var(--dsw-alias-border-l1);
-  border-radius: 14px;
+  border-radius: 12px;
   background: var(--dsw-specific-tip);
   /* Elevated surface: `--dsw-specific-tip` is the same dark rung as the menu
      surface, and `.list` scrolls inside this card, so the thumb takes the l2
@@ -21,13 +36,11 @@
   --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
 }
 
-/* Compact scale (GoalBar reference): collapsed header totals the goal
-   strip's 38px (8+8 pad + 20 line + 2 border). */
 .body {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 8px 14px;
+  padding: 6px 12px;
 }
 
 .header {
@@ -42,10 +55,17 @@
   cursor: pointer;
 }
 
+.lead {
+  display: grid;
+  flex: none;
+  place-items: center;
+  color: var(--dsw-alias-label-tertiary);
+}
+
 .title {
   flex: none;
   font-size: 13px;
-  line-height: 20px;
+  line-height: 24px;
   font-weight: 500;
   color: var(--dsw-alias-label-primary);
 }

@@ -27,13 +27,13 @@ export type SurfaceOp =
   | { op: 'replace'; start: number; end: number }  // shadow [start, end] inclusive
 ```
 
-1. **Append**：在尾部追加新事件的 seq。`user/message`、`assistant/message`、`tool/result`、`context/message`、`steering/message` 使用此操作。agent loop（智能体循环）在所有此类追加上传入 `surfaceOp: 'append'`，并在适用时记录 `sourceEventSeqs`：每个成功的 `assistant/message` 都记录完整的 `assistant/chunk` 来源集合（包括 `[]`），而 `tool/result` 记录其 `tool/call` 来源。
+1. **Append**：在尾部追加新事件的 seq。`user/message`、`assistant/message`、`tool/result`、`context/message` 使用此操作。agent loop（智能体循环）在所有此类追加上传入 `surfaceOp: 'append'`，并在适用时记录 `sourceEventSeqs`：每个成功的 `assistant/message` 都记录完整的 `assistant/chunk` 来源集合（包括 `[]`），而 `tool/result` 记录其 `tool/call` 来源。
 
 2. **Replace**：移除从 `start` 到 `end`（两端包含）的条目，并在其位置插入新事件的 seq。`start` 和 `end` 都必须存在于当前 surface；`start === end` 表示替换单个条目。该事件的 `sourceEventSeqs` 必须包含所有被遮蔽的 surface seq。被遮蔽的事件仍留在日志中，但不再出现在 surface 上。
 
 ### SurfaceManager：基于增量，而非全量重建
 
-一个 `Session` 拥有一个 `SurfaceManager`，后者维护事件 seq 的有序 `number[]`。管理器会在提交前校验每个种子或追加候选项而不应用它，然后只处理上次同步之后已经提交的事件，而不重新扫描整个日志。`Session.surface` 通过只读的 `SessionSurface` 契约暴露同一个管理器，因此接纳、派生历史、压缩与工作区上下文共享同一份增量状态。Replace 按数组位置找到两端都包含的端点，并把替换 seq splice 到该范围；不会用第二个管理器、链接对象或 seq 到节点的 map 来重复表达顺序。
+一个 `Session` 拥有一个 `SurfaceManager`，后者维护事件 seq 的有序 `number[]`。管理器会在提交前校验每个种子或追加候选项而不应用它，然后只处理上次同步之后已经提交的事件，而不重新扫描整个日志。`Session.surface` 通过只读的 `SessionSurface` 契约暴露同一个管理器，因此接纳、派生历史、压缩与工作区上下文共享同一份增量状态。Replace 按数组位置定位两个端点（均包含在范围内），并把替换 seq splice 到该范围；不会用第二个管理器、链接对象或 seq 到节点的 map 来重复表达顺序。
 
 无新事件时增量处理为 O(1)，有新事件到达时为 O(新事件数)。
 
@@ -49,9 +49,9 @@ export type SurfaceOp =
 
 ### 不变式
 
-`Session` 在始终启用的 seed/append 边界校验 `sourceEventSeqs` 与 `surfaceOp`：只有 `assistant/message` 可以使用空的溯源列表；引用必须唯一、更早且已知；替换端点必须存在于 surface 顺序中；溯源必须覆盖每个被遮蔽的节点。这些是单记录接纳与存储投影规则，不是可选的不变式服务贡献。
+`Session` 在始终启用的 seed/append 边界校验 `sourceEventSeqs` 与 `surfaceOp`：只有 `assistant/message` 可以使用空的溯源列表；引用必须唯一、更早且已知；替换端点必须存在于 surface 顺序中；溯源必须覆盖每个被遮蔽的节点。这些是单记录接纳与存储投影规则，不是由可选的不变式服务提供的规则。
 
-每个 surface 可达事件都必须携带 `surfaceOp`，否则它将从派生历史中消失。类型化的 `append` 重载对字面事件类型强制执行此规则；`append` 和种子构造函数中的运行时检查覆盖宽化联合类型和加载的日志。按照预发布格式策略，无效的种子被拒绝而非升级。
+每个可进入 surface 的事件都必须携带 `surfaceOp`，否则它将从派生历史中消失。类型化的 `append` 重载对字面事件类型强制执行此规则；`append` 和种子构造函数中的运行时检查覆盖宽化联合类型和加载的日志。按照预发布格式策略，无效的种子被拒绝而非升级。
 
 ## 曾考虑的替代方案
 
@@ -62,8 +62,8 @@ export type SurfaceOp =
 
 ## 后果
 
-- **`packages/core/session`**：`surface.ts`（`SurfaceManager`）维护一个用于候选接纳和实时投影的有序 seq 数组；`SessionSurface` 是其只读公共视图。`SurfaceOp`/`SurfaceIntent` 与顶层会话事件字段记录条目如何加入它。`append()` 要求 surface 事件携带 `SurfaceIntent`，`deriveMessages()` 以遍历 surface 作为唯一派生路径，`repair.ts` 则发出 surface 感知的闭合事件。种子构造函数拒绝缺少 `surfaceOp` 标记的 surface 可达种子事件（见「不变式」一节）。
-- **`packages/core/agent-loop`**：所有 surface 可达的追加操作传入 surface 选项。收集分片 seq 用于 `assistant/message` 溯源；捕获 `tool/call` seq 用于 `tool/result` 溯源。
+- **`packages/core/session`**：`surface.ts`（`SurfaceManager`）维护一个用于候选接纳和实时投影的有序 seq 数组；`SessionSurface` 是其只读公共视图。`SurfaceOp`/`SurfaceIntent` 与顶层会话事件字段记录条目如何加入它。`append()` 要求 surface 事件携带 `SurfaceIntent`，`deriveMessages()` 以遍历 surface 作为唯一派生路径，`repair.ts` 则发出 surface 感知的闭合事件。种子构造函数拒绝缺少 `surfaceOp` 标记的可进入 surface 的种子事件（见「不变式」一节）。
+- **`packages/core/agent-loop`**：所有涉及 surface 事件的追加操作都传入 surface 选项。收集分片 seq 用于 `assistant/message` 溯源；捕获 `tool/call` seq 用于 `tool/result` 溯源。
 - **`packages/session-persistence/session-persistence-sqlite`**：`events` 表新增两个可空 TEXT 列（`source_event_seqs`、`surface_op`）；`SCHEMA_VERSION` 递增（bump-and-reject，无迁移）。
 - **`packages/session-persistence/session-persistence-jsonl`**：无需改动。
 - **`packages/session-persistence/session-persistence`**：抽象接口不变。

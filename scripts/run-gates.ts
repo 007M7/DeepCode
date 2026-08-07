@@ -9,6 +9,7 @@ import { spawn } from 'node:child_process'
 import { availableParallelism } from 'node:os'
 import { resolve } from 'node:path'
 import { performance } from 'node:perf_hooks'
+import { COVERAGE_EXEMPT_ENV, coverageExemptHeavySuites } from './coverage-exempt.ts'
 
 /** A named aggregate exposed by the gate runner. */
 export type Mode =
@@ -195,14 +196,14 @@ export function gatesForMode(selected: Mode): Gate[] {
     case 'ci-linux-primary':
       return [...ciPrimaryGates(), webSnapshotGate(['built-package-invariants'])]
     case 'ci-static':
-      return ciStaticGates()
+      return ciStaticGates({ ownsBuild: false })
     case 'ci-lint':
       return [
         lintGate(),
         pnpmScript('duplication', 'duplication'),
       ]
     case 'ci-coverage':
-      return [coverageGate()]
+      return coverageGates()
     case 'ci-snapshot':
       return [pnpmScript('build', 'build'), snapshotGate()]
     case 'ci-artifacts':
@@ -223,6 +224,7 @@ export function gatesForMode(selected: Mode): Gate[] {
         pnpmScript('cordis-config', 'verify-cordis-config', { label: 'Cordis config' }),
         pnpmScript('client-domain-graph', 'verify-client-domain-graph', { label: 'client domain graph' }),
         pnpmScript('test', 'test'),
+        pnpmScript('issue-management', 'test:issue-management', { label: 'Issue management policy' }),
         pnpmScript('duplication', 'duplication'),
         snapshotGate(),
         pnpmScript('build', 'build'),
@@ -239,16 +241,23 @@ export function gatesForMode(selected: Mode): Gate[] {
   }
 }
 
-function ciPrimaryGates(): Gate[] {
+function ciSharedStaticGates(): Gate[] {
   return [
     pnpmScript('runtime-closure', 'verify-runtime-closure', { label: 'runtime closure' }),
     pnpmScript('constraints', 'constraints'),
     pnpmScript('package-invariants', 'verify-package-invariants', { label: 'package invariants' }),
     pnpmScript('cordis-config', 'verify-cordis-config', { label: 'Cordis config' }),
+    pnpmScript('issue-management', 'test:issue-management', { label: 'Issue management policy' }),
+  ]
+}
+
+function ciPrimaryGates(): Gate[] {
+  return [
+    ...ciSharedStaticGates(),
     pnpmScript('typecheck', 'typecheck'),
     lintGate(),
     pnpmScript('duplication', 'duplication'),
-    coverageGate(),
+    ...coverageGates(),
     ...nodeCompatSmokeGates(),
     snapshotGate(),
     ...docSyncLeafGates(),
@@ -269,14 +278,27 @@ function ciPrimaryGates(): Gate[] {
 }
 
 function nodeCompatGates(): Gate[] {
+  const typecheck = flagEnabled('DSH_NODE_COMPAT_SKIP_TYPECHECK')
+    ? []
+    : [pnpmScript('typecheck', 'typecheck')]
+  if (runningNodeMajor() !== 22) {
+    return [...typecheck, ...nodeCompatSmokeGates()]
+  }
   return [
-    ...flagEnabled('DSH_NODE_COMPAT_SKIP_TYPECHECK') ? [] : [pnpmScript('typecheck', 'typecheck')],
-    ...nodeCompatSmokeGates(),
+    ...typecheck,
+    pnpmScript('build', 'build', {
+      ...typecheck.length === 0 ? {} : { needs: ['typecheck'] },
+    }),
+    pnpmScript('build:web', 'build:web', {
+      label: 'Web frontend build',
+      needs: ['build'],
+    }),
+    ...nodeCompatSmokeGates({ cliSmoke: true }),
   ]
 }
 
-function nodeCompatSmokeGates(): Gate[] {
-  return [
+function nodeCompatSmokeGates(options: { cliSmoke?: boolean } = {}): Gate[] {
+  const gates: Gate[] = [
     pnpmExec('source-worker-smoke', [
       'vitest',
       'run',
@@ -292,19 +314,49 @@ function nodeCompatSmokeGates(): Gate[] {
       'run',
       'apps/cli/tests/source-launch.compat.spec.ts',
     ], { label: 'dsh source-launch smoke' }),
+    pnpmExec('vitest-jsdom-smoke', [
+      'vitest',
+      'run',
+      'scripts/vitest-environment.compat.spec.ts',
+    ], { label: 'Vitest jsdom smoke' }),
   ]
+  if (options.cliSmoke) {
+    gates.push(
+      pnpmExec('cli-lazy-search-startup-smoke', [
+        'vitest',
+        'run',
+        'apps/cli/tests/lazy-search-startup.compat.spec.ts',
+      ], {
+        label: 'CLI lazy-search startup smoke',
+        env: { DSH_REQUIRE_BUILT_CLI_SMOKE: '1' },
+        needs: ['build:web'],
+      }),
+    )
+  }
+  return gates
 }
 
-function ciStaticGates(): Gate[] {
+/** Active Node major used to scope version-specific compatibility contracts. */
+function runningNodeMajor(): number {
+  const major = Number.parseInt(process.versions.node.split('.')[0] ?? '', 10)
+  if (!Number.isSafeInteger(major)) {
+    throw new Error(`run-gates: cannot parse Node version ${JSON.stringify(process.versions.node)}.`)
+  }
+  return major
+}
+
+function ciStaticGates(options: { ownsBuild: boolean }): Gate[] {
   return [
-    pnpmScript('runtime-closure', 'verify-runtime-closure', { label: 'runtime closure' }),
-    pnpmScript('constraints', 'constraints'),
-    pnpmScript('package-invariants', 'verify-package-invariants', { label: 'package invariants' }),
-    pnpmScript('cordis-config', 'verify-cordis-config', { label: 'Cordis config' }),
-    pnpmScript('build', 'build'),
+    ...ciSharedStaticGates(),
+    ...options.ownsBuild ? [pnpmScript('build', 'build')] : [],
     ...docSyncLeafGates({
-      docTypecheckNeeds: ['build'],
-      docTypecheckEnv: { DSH_DOC_TYPECHECK_USE_BUILD_OUTPUT: '1' },
+      includeDocTypecheck: options.ownsBuild,
+      ...options.ownsBuild
+        ? {
+          docTypecheckNeeds: ['build'],
+          docTypecheckEnv: { DSH_DOC_TYPECHECK_USE_BUILD_OUTPUT: '1' },
+        }
+        : {},
       docsBuildScript: 'docs:build:mpa',
     }),
     pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
@@ -326,23 +378,28 @@ function ciArtifactGates(): Gate[] {
 }
 
 function ciConsumerGates(): Gate[] {
-  const publicArtifacts = ['publint']
-  const restoredBuild = ['built-package-invariants']
+  const builtTree = ['build']
+  const validatedBuild = ['built-package-invariants']
   return [
+    pnpmScript('build', 'build'),
+    pnpmScript('node-compat', 'check:node-compat', { label: 'Node compatibility' }),
+    pnpmScript('publint', 'publint', { needs: builtTree }),
+    builtPackageInvariantsGate(['publint']),
     pnpmScript('lint-and-duplication', 'check:ci:lint', {
       label: 'lint and duplication',
-      needs: restoredBuild,
+      needs: validatedBuild,
     }),
-    pnpmScript('node-compat', 'check:node-compat', { label: 'Node compatibility' }),
-    snapshotGate(restoredBuild),
-    webSnapshotGate(restoredBuild),
-    pnpmScript('publint', 'publint'),
+    snapshotGate(validatedBuild),
+    webSnapshotGate(validatedBuild),
+    pnpmScript('doc-typecheck', 'doc-typecheck', {
+      needs: validatedBuild,
+      env: { DSH_DOC_TYPECHECK_USE_BUILD_OUTPUT: '1' },
+    }),
     pnpmScript('node-next-types', 'verify-node-next-types', {
       label: 'node-next types',
-      needs: restoredBuild,
+      needs: validatedBuild,
     }),
-    builtPackageInvariantsGate(publicArtifacts),
-    builtBinSmokeGate(restoredBuild),
+    builtBinSmokeGate(validatedBuild),
   ]
 }
 
@@ -377,7 +434,7 @@ function ciWindowsCompleteGates(): Gate[] {
 
 function ciWindowsObservationalGates(): Gate[] {
   return [
-    ...ciStaticGates(),
+    ...ciStaticGates({ ownsBuild: true }),
     // Linux owns required lint, coverage, and snapshots; Windows omits those duplicates.
     pnpmScript('duplication', 'duplication'),
     pnpmScript('publint', 'publint', { needs: ['build'] }),
@@ -397,20 +454,56 @@ function lintGate(): Gate {
     : { displayCommand: `DSH_OXLINT_THREADS=${raw} pnpm run lint` })
 }
 
-function coverageGate(): Gate {
-  return pnpmExec('coverage', [
-    'vitest',
-    'run',
-    '--coverage',
-    ...positiveIntArg('DSH_COVERAGE_MAX_WORKERS', '--maxWorkers'),
-  ], {
-    label: 'test:coverage',
-  })
+// The heavy suites run uninstrumented beside the thresholded gate: their
+// compiler- and subprocess-bound fixtures pay a multiple of their runtime
+// under v8 instrumentation while contributing nothing the thresholds need
+// (membership contract in scripts/coverage-exempt.ts).
+//
+// DSH_COVERAGE_MAX_WORKERS is the lane's worker budget, so the two parallel
+// gates split it instead of each claiming it whole (the failover pool's
+// 8 x 6-instance bound assumes one lane never exceeds its value). The exempt
+// gate's wall clock is dominated by its longest single file, so it takes the
+// small share. A budget of 1 gives each gate 1 worker; lanes that need a
+// strict total of one (the serial reference jobs) also set
+// DSH_GATE_CONCURRENCY=1, which keeps the gates from overlapping at all.
+function coverageWorkerArgs(): { instrumented: string[]; exempt: string[] } {
+  const [flag] = positiveIntArg('DSH_COVERAGE_MAX_WORKERS', '--maxWorkers')
+  if (flag === undefined) return { instrumented: [], exempt: [] }
+  const total = Number.parseInt(flag.split('=')[1] ?? '', 10)
+  const exempt = Math.max(1, Math.floor(total / 3))
+  const instrumented = Math.max(1, total - exempt)
+  return {
+    instrumented: [`--maxWorkers=${String(instrumented)}`],
+    exempt: [`--maxWorkers=${String(exempt)}`],
+  }
+}
+
+function coverageGates(): Gate[] {
+  const workers = coverageWorkerArgs()
+  return [
+    pnpmExec('coverage', [
+      'vitest',
+      'run',
+      '--coverage',
+      ...workers.instrumented,
+    ], {
+      label: 'test:coverage',
+      env: { [COVERAGE_EXEMPT_ENV]: '1' },
+    }),
+    pnpmExec('coverage-exempt-heavy', [
+      'vitest',
+      'run',
+      ...coverageExemptHeavySuites.map(suite => suite.filter),
+      ...workers.exempt,
+    ], {
+      label: 'test:coverage-exempt-heavy',
+    }),
+  ]
 }
 
 // Example and package snapshots boot their bins in `lib` mode (built artifacts under plain Node,
 // plugins via real exports); repository-script snapshots execute their real source entry path.
-// Build-owning modes wait on `build`; a restored-artifact mode passes its validation dependency.
+// Callers wait either on `build` or on a validation gate that transitively owns that build.
 function snapshotGate(needs: string[] = ['build']): Gate {
   return pnpmScript('snapshot', 'test:snapshot', {
     env: { DSH_EXAMPLE_MODE: 'lib' },
@@ -458,6 +551,7 @@ function hygieneLeafGates(options: { artifactNeeds?: string[] } = {}): Gate[] {
 }
 
 function docSyncLeafGates(options: {
+  includeDocTypecheck?: boolean
   docTypecheckNeeds?: string[]
   docTypecheckEnv?: Record<string, string | undefined>
   docsBuildScript?: 'docs:build' | 'docs:build:mpa'
@@ -466,7 +560,9 @@ function docSyncLeafGates(options: {
   if (options.docTypecheckNeeds !== undefined) docTypecheckOptions.needs = options.docTypecheckNeeds
   if (options.docTypecheckEnv !== undefined) docTypecheckOptions.env = options.docTypecheckEnv
   return [
-    pnpmScript('doc-typecheck', 'doc-typecheck', docTypecheckOptions),
+    ...options.includeDocTypecheck === false
+      ? []
+      : [pnpmScript('doc-typecheck', 'doc-typecheck', docTypecheckOptions)],
     pnpmScript('cordis-catalog', 'verify-cordis-catalog', { label: 'cordis catalog' }),
     pnpmScript('export-jsdoc', 'verify-export-jsdoc', { label: 'export jsdoc' }),
     pnpmScript('tool-catalog', 'verify-tool-catalog', { label: 'tool catalog' }),
@@ -478,6 +574,7 @@ function docSyncLeafGates(options: {
     pnpmScript('markdown-links', 'verify-md-links', { label: 'markdown links' }),
     pnpmScript('doc-refs', 'verify-doc-refs', { label: 'doc refs' }),
     pnpmScript('package-paths', 'verify-package-paths', { label: 'package paths' }),
+    pnpmScript('config-source-ownership', 'verify-config-source-ownership', { label: 'config source ownership' }),
     pnpmScript('package-readme-model-experience', 'verify-package-readme-model-experience', { label: 'package README model experience' }),
     pnpmScript('mermaid', 'verify-mermaid'),
     pnpmScript('agent-note-classification', 'verify-agent-note-classification', { label: 'agent note classification' }),
@@ -503,10 +600,14 @@ function builtBinSmokeGate(needs: string[] = ['build']): Gate {
     '--config',
     'vitest.e2e.config.ts',
     'examples/headless-agent/tests/keyless-smoke.e2e.ts',
-    'examples/tui-agent/tests/tui-keyless-smoke.e2e.ts',
+    'apps/cli/tests/built-bin.e2e.ts',
     'packages/examples/cli-demo/tests/built-bin.e2e.ts',
     'packages/examples/acp-demo/tests/built-bin.e2e.ts',
+    'packages/host/directory-picker-native/tests/built-worker.e2e.ts',
     'packages/ui/jsonrpc/tests/built-scope-carrier.e2e.ts',
+    'packages/subagent/subagent-codex/tests/loader-composition.e2e.ts',
+    'packages/subagent/subagent-claude-code/tests/loader-composition.e2e.ts',
+    'packages/api/remotes/tests/built-lib.e2e.ts',
     // The worker-entry packages' built bundles: the only automated proof
     // that lib/index.js resolves its sibling lib/worker.cjs under plain node
     // (the e2e lane runs unbuilt, so these files self-skip there).

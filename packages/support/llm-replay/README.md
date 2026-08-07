@@ -4,13 +4,15 @@ English | [中文](README.zh.md)
 
 A replay LLM plugin for keyless snapshot tests. It yields model streams reconstructed from a recorded **session JSONL** fixture, so a test can boot the real agent against a fixed model transcript with no API key. With `providers` configured it registers a replay-only adapter whose catalog is available to scenarios that exercise model discovery; without `providers` it installs the catch-all `llm/stream` waterfall used by tests that do not need discovery.
 
-Its consumers are the ACP, headless `stream-json`, and TUI snapshot suites plus the web browser e2e lane. Loader-driven suites mount this plugin in place of a real LLM adapter; the web lane installs it directly to retain the teardown consumption handle. Keeping derivation and replay here places that logic under the per-file 100% coverage gate on `packages/*/src`.
+Its consumers are the ACP and headless `stream-json` snapshot suites plus the Web browser e2e lane. Loader-driven suites mount this plugin in place of a real LLM adapter; the Web lane installs it directly to retain the teardown consumption handle.
 
 ## How the fixture works
 
 The fixture IS the persisted session log (`<scenario>/session.jsonl`). Its `assistant/chunk` events carry every `StreamChunk`, so grouping them by `(turn, step)` reconstructs each `stream()` call's chunk sequence (one model call per loop step). Recording is therefore "run the real agent once and harvest the `.jsonl`", done by the snapshot harness — this plugin does not record. A fixture may carry its `request/header` content tokenized to `{{system}}`/`{{tools}}` (the harness pins that content in one scenario and scrubs the rest); replay is indifferent — derivation reads only `assistant/chunk` events and the line-0 session header.
 
 Two failure modes are not reconstructable from `assistant/chunk` alone — a pure throw before any chunk (e.g. an HTTP 401, where the log holds only a `turn/end {error}` and no chunks) and a cancel/hang (timing, not chunk content). A scenario that needs those supplies an optional sidecar (`<scenario>/replay.override.json`) that either replaces the derived script (a bare `ReplayEntry[]`) or augments it (`{ patches: [{ at, entry }] }`: keep every JSONL-derived call and swap the named 0-based call indexes; `at` equal to the derived length appends the retry attempt after an injected transient throw). Patch indexes must be unique. The override document, each patch and entry, and every chunk discriminant are validated when the file loads. A `hang` entry may name `readyFile`; replay writes that empty marker after its prefix chunks reach the loop and before it waits for cancellation, so an external driver can cancel deterministically without observing a presentation update.
+
+A scripted string may embed `{{fromRequest:<regex>}}` to fill a value no static sidecar can know — for example a randomly minted goal id the model must echo back into `update_goal`. At stream time every placeholder resolves against the live request: the corpus is every string leaf of the request messages joined by newlines, the pattern's LAST corpus match wins, and its first capture group (or the whole match without one) substitutes in place. A pattern that matches nothing, an invalid pattern, and an unterminated placeholder each fail loud. The last two braces of a consecutive `}` run terminate the placeholder, so a pattern may end with a brace quantifier (`[0-9a-f]{4}`) but cannot contain `}}` followed by further pattern content. Resolution applies to every scripted entry, including ones derived from the recorded JSONL — a recorded fixture whose text legitimately contains the literal marker must be expressed through a sidecar without it.
 
 ## Nested agents: per-session keying
 
@@ -33,7 +35,7 @@ Replay keys every call by its calling session id (`GenerateOptions.sessionId`, s
   name: '@deepseek-ai/dsh-llm-replay'
   config:
     providers:
-      - id: deepseek
+      - id: deepseek-official
         name: DeepSeek
         retryPolicy:
           mode: normal
@@ -55,7 +57,7 @@ Replay keys every call by its calling session id (`GenerateOptions.sessionId`, s
 - `installLlmReplay(ctx, config)` — install the configured replay adapter or catch-all `llm/stream` listener; returns a `ReplayHandle` (`dispose()` for HMR safety plus `assertConsumed()`, the teardown check that every recorded script bound to a live session and every bound cursor drained — turning a scenario that silently drove fewer model calls than recorded into a crisp diagnostic). Use this in tests to drive replay without the Loader or env vars.
 - `loadSessionScripts(config)` — resolve the ordered `SessionScript[]` (primary + children) for a scenario, ready to bind to live sessions in first-call order.
 - `loadReplayScript(config)` — resolve the `ReplayEntry[]` for the primary session only (validated sidecar replacement/patches if present, else derived from the JSONL; fail-loud if the fixture is missing).
-- `deriveReplayScript(events)` / `parseSessionLog(text)` / `parseSessionHeader(text)` — the pure helpers that turn a recorded session log into a script and read its header `id`/`createdAt`. A derived group must end in a `finish` chunk; a group without one is the fingerprint of a thrown `stream()` and must instead be expressed via an override sidecar.
+- `deriveReplayScript(events)` / `parseSessionLog(text)` / `parseSessionHeader(text)` / `resolveScriptedEntry(entry, messages)` — the pure helpers that turn a recorded session log into a script, read its header `id`/`createdAt`, and resolve `{{fromRequest:...}}` placeholders against one live request. A derived group must end in a `finish` chunk; a group without one is the fingerprint of a thrown `stream()` and must instead be expressed via an override sidecar.
 - Types `ReplayEntry` / `ReplayOverrideDoc` / `ReplayOverridePatch` / `SessionScript` / `ReplayConfig` / `ReplayProviderConfig` / `ReplayModelConfig` / `ReplayHandle` / `Config`.
 
 ## Plugin export shape

@@ -10,18 +10,18 @@ Status: implemented
 
 [会话接口面](../architecture/2026-06-18-session-surface.md)正是为此而构建的基础设施：一份建立在事件日志之上的有序投影，带有专门设计的 `surfaceOp: { op: 'replace', start, end }` 操作，用于遮蔽一段条目并插入替换内容，`sourceEventSeqs` 记录溯源信息以便决策可确定性地回放。剩下的是那个*决定压缩什么、并产出摘要*的插件。
 
-两股力量塑造了设计。第一，压缩策略与可复用的 token 测量独立变化：测量归 LLM 系列的 [`ctx.tokenMeter` 服务](../architecture/2026-07-15-replay-token-meter-service.md)所有，摘要生成则可以使用模型调用、模板或远程服务。第二，`SurfaceEventType` 封闭为五种事件类型（`user/message`、`assistant/message`、`tool/result`、`context/message`、`steering/message`）；只有这些类型可以携带 `surfaceOp`。因此一个专用的 `compaction/*` 事件**不能**出现在 surface 上，编译器与 Session 始终启用的 append/seed 边界都会拒绝在其上附加 `surfaceOp`。
+两股力量塑造了设计。第一，压缩策略与可复用的 token 测量独立变化：测量归 LLM 系列的 [`ctx.tokenMeter` 服务](../architecture/2026-07-15-replay-token-meter-service.md)所有，摘要生成则可以使用模型调用、模板或远程服务。第二，`SurfaceEventType` 封闭为产生消息的事件类型（`user/message`、`assistant/message`、`tool/result`）；只有这些类型可以携带 `surfaceOp`。因此一个专用的 `compaction/*` 事件**不能**出现在 surface 上，编译器与 Session 始终启用的 append/seed 边界都会拒绝在其上附加 `surfaceOp`。
 
 ## 决策
 
 ### 压缩是一个能力 seam，接口与实现分离
 
-遵循[能力 seam Agent Note（agent 决策记录）](../architecture/2026-06-13-capability-seams.md)，压缩以独立包（package）发布，使契约、算法和（后续的）消费方 surface 各自独立演进：
+遵循[能力 seam Agent Note](../architecture/2026-06-13-capability-seams.md)，压缩以独立包发布，使契约、算法和（后续的）消费方 surface 各自独立演进：
 
-1. **接口** — `@deepseek-ai/dsh-compact`：抽象 `CompactService`，拥有 `ctx.compact` 键、`CompactionResult` 词汇、`compact/*` 会话事件以及规范的检查点消息来源。它将 `compactIfNeeded()` 和 `compactRegion()` 声明为**抽象方法**——契约说明压缩*做什么*，而非*怎么做*。
-2. **实现** — `@deepseek-ai/dsh-compact-basic`：具体的 `BasicCompactService`，消费 `ctx.tokenMeter`，并拥有尾→头保留遍历、通过 `ctx.llm.stream()` 生成摘要、surface 替换、锁、步骤后压力处理和规范的上下文溢出恢复。`summarize()` 是其唯一的子类钩子；计价与回放仍归 meter 所有。
+1. **接口** — `@deepseek-ai/dsh-compact`：抽象 `CompactService`，拥有 `ctx.compact` 键、`CompactionResult` 词汇、`compact/*` 会话事件、手动失败分类体系以及规范的检查点消息来源。它将 `compactIfNeeded()`、`compactNow()` 和 `compactRegion()` 声明为**抽象方法**——契约说明压缩*做什么*，而非*怎么做*。
+2. **实现** — `@deepseek-ai/dsh-compact-basic`：具体的 `BasicCompactService`，消费 `ctx.tokenMeter`，并拥有尾→头保留遍历、通过 `ctx.llm.stream()` 生成摘要、surface 替换、锁、步骤前压力处理和规范的上下文溢出恢复。`summarize()` 是其唯一的子类钩子；计价与回放仍归 meter 所有。
 3. **无模型配套服务** — `@deepseek-ai/dsh-compact-tool-result-prune`：一个具体的可选服务，在后端选择摘要范围之前，重写当前过大的 `tool/result` 节点。它不是第二种压缩实现，也不实现 `CompactService`。
-4. **消费方** — 推迟。一个 `/compact` 工具和斜杠命令将 `inject: ['compact']` 并调用契约；它们被有意排除在本 Agent Note 范围之外，以便 seam 先稳定下来。
+4. **面向用户的消费方** — `@deepseek-ai/dsh-command-compact` 通过 `ctx.commands` 注册无参数 `/compact`，并调用后端无关的 `compactNow()` 操作。它是供用户直接控制的命令，不是面向模型的工具。
 
 ### 契约依赖 `dsh-session` 和 `dsh-llm`——有意为之的偏离
 
@@ -29,22 +29,22 @@ Status: implemented
 
 这不是耦合异味，而是契约的领域所在。「仅 cordis」的指导原则一直是「接口仅依赖契约真正需要命名的东西，绝不依赖实现」的简写。`dsh-session` 和 `dsh-llm` 本身是接口/词汇包，不是实现；`dsh-compact` 仍然不导入任何后端。seam 的真正不变式——*消费方和实现在抽象服务背后独立演进*——完好无损。
 
-### 抽象 `compactIfNeeded` / `compactRegion`，算法在后端
+### 三个抽象操作，算法在后端
 
-早期草案将完整算法（保留遍历、token 求和、文本提取）作为接口上的具体方法。这会将契约重新耦合到一种策略：想要不同保留策略或事件排序的后端必须与继承来的具体代码对抗。将两个核心方法都设为抽象，把所有*怎么做*的决策放在后端，并让接口保持为*做什么*的声明。token 测量根本不是压缩钩子；单例服务使多个消费方能够共享逐会话的回放折叠。
+早期草案将完整算法（保留遍历、token 求和、文本提取）作为接口上的具体方法。这会将契约重新耦合到一种策略：想要不同保留策略或事件排序的后端必须与继承来的具体代码对抗。将三个操作都设为抽象，把所有*怎么做*的决策放在后端，并让接口保持为*做什么*的声明。token 测量根本不是压缩钩子；单例服务使多个消费方能够共享逐会话的回放折叠。
 
-`compactIfNeeded(agent, trigger, signal)` 接受显式的 `'pressure' | 'context-overflow'` 触发原因与取消信号。它只读取最新的持久化已路由请求；没有 header 就不执行工作，任何已路由的提供方/模型目标都使用单例估算器。`compactRegion(start, end, agent, signal?)` 将 `agent.session` 作为唯一会话身份，并为手动调用方保留可选 signal。默认摘要器依次从显式配置、最新记录的已路由目标和 agent 选项解析目标，并在任何 `llm/stream` 路由后记录提供方/模型对。它回放已路由请求的前缀，并将压缩指令追加为尾部 user 消息，从而复用提供方的热 KV cache；见[摘要前缀缓存 Agent Note](../bug-fix/2026-07-21-compaction-summary-prefix-cache-reuse.md)。该调用将提供方无关的 `GenerateOptions.purpose` 设为 `compaction`；适配器可以将此用途映射为对模型隐藏的传输元数据，DeepSeek 适配器会发送 `x-deepseek-harness-compact: 1`。
+`compactIfNeeded(agent, trigger, signal)` 接受显式的 `'pressure' | 'context-overflow'` 触发原因与取消信号。它只读取最新的持久化已路由请求；没有 header 就不执行工作，任何已路由的提供方/模型目标都使用单例估算器。`compactNow(agent, signal)` 要求 agent 处于 idle，即使未达到压力也进行一次有效的平衡缩减；不存在这种范围时返回 `null`，且不写入任何内容。`compactRegion(start, end, agent, signal?)` 将 `agent.session` 作为唯一会话身份，并为显式调用方保留可选 signal。默认摘要器依次从显式配置、最新记录的已路由目标和 agent 选项解析目标，并在任何 `llm/stream` 路由后记录提供方/模型对。它回放已路由请求的前缀，并将压缩指令追加为尾部 user 消息，从而复用提供方的热 KV cache；见[摘要前缀缓存 Agent Note](../bug-fix/2026-07-21-compaction-summary-prefix-cache-reuse.md)。该调用将提供方无关的 `GenerateOptions.purpose` 设为 `compaction`；适配器可以将此用途映射为对模型隐藏的传输元数据，DeepSeek 适配器会发送 `x-deepseek-harness-compact: 1`。
 
 ### 成功的持久步骤工作完成后运行自动压力检查
 
-成功调用的压力检查不能在步骤前运行，因为最终的 `agent/request` 路由、提供方输出、工具结果、缓冲上下文与 steering 当时尚不存在。串行的 `agent/post-step(agent, turn, step, signal)` 会在这些事实持久化后、`step/end` 之前触发。`dsh-compact-basic` 通过 `ctx.tokenMeter` 测量规范的已记录请求，因此下一个请求无需推测性覆盖信封即可看到任何替换。压力达到条件后，可选的 `ctx.toolResultPrune` 重写在摘要范围选择前运行；compact-basic 重新测量持久 surface，如果修剪恢复到安全压力便跳过摘要生成。
+成功调用的压力检查在下一个 `agent/pre-step` 运行；此时前一响应、工具结果、缓冲上下文与 steering 已经持久化，而下一个请求尚未派生。`dsh-compact-basic` 通过 `ctx.tokenMeter` 测量规范的已记录请求，因此下一个请求无需推测性覆盖信封即可看到任何替换。压力达到条件后，可选的 `ctx.toolResultPrune` 重写在摘要范围选择前运行；compact-basic 重新测量持久 surface，如果修剪恢复到安全压力便跳过摘要生成。
 
 规范的提供方上下文溢出走另一条路径。失败步骤先关闭，`agent/request-error` 接收原始请求错误。compact-basic 自行持有按 agent 计的溢出次数，在强制执行一次有效且平衡的缩减前先修剪，且仅当 `session.surface.replaceGeneration` 增加时才返回 `{ kind: 'retry' }`；这包括没有摘要范围时仅修剪取得的进展。随后循环关闭失败轮次，开启新的编号重试轮次，并从持久日志重建请求。没有替换、任何替换前的恢复失败、取消、耗尽的上限或无关错误都会保留原始提供方失败。如果修剪已经推进 generation，而后续摘要工作失败，恢复会从该持久的已修剪 surface 重试，除非取消或资源释放胜出。完整生命周期决策见[调用后恢复 Agent Note](../architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md)。
 
 ```
-assistant/message → tool/result/context/steering
-await serial agent/post-step          ⟵ pressure compaction inside the successful step
-step/end
+assistant/message → tool/result/context/steering → step/end
+claim the next batch → await waterfall agent/pre-step  ⟵ pressure compaction before the next request
+enter → next step/start
 
 provider overflow → step/end
 await waterfall agent/request-error  ⟵ forced compaction between attempts
@@ -53,7 +53,7 @@ retry → next numbered step/start      ⟵ derives from the replacement surface
 
 ### 保留是轮次无关的；工具配对平衡是唯一的结构守卫
 
-自动压缩在**每个成功的**步骤之后检查，而非每轮一次。这对失控轮次存活至关重要：工具密集型的 ReAct 轮次每步追加一个 `assistant/message` + 一个 `tool/result`，因此 surface 会在一轮之内增长。步骤后检查可以在后续步骤开启前压缩早期已关闭的工具对；如果请求率先越过限制，由提供方确认的溢出仍是兜底机制。
+自动压缩在**每个成功的**步骤之后检查，而非每轮一次。这对失控轮次存活至关重要：工具密集型的 ReAct 轮次每步追加一个 `assistant/message` + 一个 `tool/result`，因此 surface 会在一轮之内增长。下一个 pre-step 检查可以在继续执行打开另一步骤之前压缩早期已关闭的工具对；如果请求率先越过限制，由提供方确认的溢出仍是兜底机制。
 
 `compactIfNeeded` 保留估算大小达到解析后保留 token 预算的最小完整 surface 单元尾部，压缩更早的节点。一个单元是一个完整的已关闭步骤或一条无步骤消息。如果 token 截断点落在步骤内部，保留范围会扩展直到切割点满足工具配对平衡。平衡按 surface 顺序检查，而非日志序号，因为替换摘要在旧的 surface 位置拥有新的序号。`dsh-compact` 导出前后边缘辅助函数；只要 `replaceGeneration` 不变，其逐会话缓存就只折叠新增的 surface 尾部节点，面对仅日志增长时不读取事件，并在替换后重建当前成员关系与平衡。`compactRegion` 拒绝将工具调用与其结果拆分的边界。进行中的轮次不享受特殊保留。
 
@@ -91,42 +91,44 @@ compact/end      → log-only. Releases the lock (carries `error` on a recoverab
 
 ### 通过日志记录的锁实现阻塞，加上崩溃/可恢复失败的分类
 
-`compact/start … compact/end` 括号的存在理由，按当前实际承担的职责排序：
+`compact/start … compact/end` 标记对承担两项职责：
 
 1. **可检测的崩溃孤儿 + 来源追溯**（首要）。摘要生成是一次慢速模型调用，持久化在 `compact/start` *之后*。摘要生成中途崩溃会留下一个没有匹配 `compact/end` 的 `compact/start`——一个可检测的孤儿。最后释放锁（而非最先）将崩溃窗口从*静默损坏*转变为可检测的孤儿。
-2. **防止并发压缩。** 如果当前轮次持有未匹配的 `compact/start`，`compactRegion` 拒绝启动。（循环在任一 awaited 自动 seam 上都是单线程的，因此这也是重入绊线——抛出「already in progress」表示真正的 bug。）
+2. **防止并发压缩。** 每个自动、手动和显式范围入口点都会拒绝活动的未匹配 `compact/start`。该标记对就是唯一的锁；没有进程本地 mutex 重复承担同一职责。
 
-该锁只排除另一项压缩，不排除无关的仅日志事实。基础后端会在 `compact/start` 之后对 token meter 的 surface 节点取快照，并在异步摘要后再次比较；任何 surface 变更都会使替换前的检查失败，而标题或其他仅日志追加不会使已选范围失效。
+该锁只排除另一项压缩，不排除无关事实。其标记是时间点，而不是排他的容器，因此持久 inbox splice 可以出现在独立手动 start 与 end 之间。自动工作要求其轮次内的整个 surface 保持稳定。手动工作只重新验证所选位置 span，使其外部的仅追加上下文在替换后保持可见。
 
-两种失败路径，均有文档记录：
+生命周期边界使崩溃状态含义明确：
 
-- **崩溃**（循环在摘要生成中途死亡）：悬空的 `compact/start`，无关闭事件。由于 `compact/*` 是**仅日志**事件，孤儿是**惰性的**，不会落地摘要替换。派生 surface 保持为 `compact/start` 时已经持久化的 surface：如果修剪未产生替换，就是完整历史；如果已经修剪，就是已修剪历史。通用轮次修复（`interruptedTurnClosers`）用合成的 `turn/end` 关闭轮次；孤儿位于该 `turn/end` *之前*，因此轮次范围内的进行中检查永远看不到它，崩溃不会卡住未来的压缩。
-- **可恢复**（摘要生成抛出异常但循环存活）：后端追加设置了 **`error`** 字段的 `compact/end`，但不落地摘要替换。步骤后压力处理发出警告，并从最新的持久 surface 继续：如果尝试前没有替换，就是完整历史；如果修剪已经落地，就是已修剪 surface。溢出恢复只会在没有任何替换前委托；先前修剪带来的 generation 进展允许从该持久 surface 重试，除非取消或资源释放胜出。
+- **当前生命周期：** 最新 `session/end-seed` 之后悬空的 `compact/start` 是活动的持久锁，并报告 busy。
+- **后续生命周期：** 构造函数写入的较新 `session/end-seed` 证明更早的未匹配 start 已陈旧，因此恢复、fork 和接手不会被已死的写入方持续卡住。
+- **可恢复失败：** start 落地后，后端会恰好尝试一次 `compact/end { error }`。摘要或稳定性失败会保持会话 surface 不变，同时在日志中保留失败尝试。如果追加闭合事件失败，未匹配 start 会继续有意阻塞。
 
 `compact/end` 保留其 `error?` 字段（与 `tool/result` 的自包含错误一致——一个事件即可区分成功与失败，无需关联兄弟事件）。没有单独的 `compact/error` 事件。
 
-**核心会话修复保持对压缩无感知——这是有意为之。** `interruptedTurnClosers` 从不被教导 `compact/*`。如果教导它，每个未来的 `xxx/start … xxx/end` 插件对都必须修补核心模块——这恰好是能力 seam 架构存在的意义所要避免的耦合。由于仅日志的孤儿是惰性的，不需要特殊修复：通用轮次修复加上未落地 surface 变更的惰性就足够了。
+**核心会话修复保持对压缩无感知——这是有意为之。** `interruptedTurnClosers` 从不被教导 `compact/*`。通用 `session/end-seed` 生命周期边界提供压缩所有方所需的证据；压缩不变量与后端负责解释它，无需向核心添加插件专属修复。
 
 ## 曾考虑的替代方案
 
-- **完整算法作为接口的具体方法**——否决，因为它将契约重新耦合到一种保留策略。两个核心方法都是抽象的；可复用测量属于单独的 LLM 系列服务，`summarize()` 是 basic 唯一的钩子。
-- **在 `agent/request` 或临时 `agent/pre-step` 输入上执行压缩**——否决，因为两者都无法证明最终的持久请求，而且都会将通用生命周期耦合到压缩专属的信封数据。步骤后回放与规范溢出恢复同时覆盖成功和被拒绝的调用。
+- **完整算法作为接口的具体方法**——否决，因为它将契约重新耦合到一种保留策略。三个操作都是抽象的；可复用测量属于单独的 LLM 系列服务，`summarize()` 是 basic 唯一的钩子。
+- **在 `agent/request` 或压缩专属的 loop 回调上执行压缩**——否决，因为前者观察的是临时请求，后者会将通用生命周期耦合到压缩策略。对先前持久请求进行 pre-step 回放，再加上规范溢出恢复，即可覆盖成功和被拒绝的调用。
 - **`compact` 布尔值或无类型的请求元数据 map**——否决，因为多个辅助调用种类会变成互斥标志，而开放 map 会丢弃由编译器检查的词汇。一个类型化的 `purpose` 判别字段可以扩展其他调用种类，而无需再为 `GenerateOptions` 添加字段。
 - **单独的 `compact/error` 事件**——否决：`compact/end` 保留 `error?` 字段，与 `tool/result` 的自包含错误一致——一个事件即可区分成功与失败，无需关联兄弟事件。
-- **教导核心轮次修复识别 `compact/*`**——否决：仅日志的孤儿是惰性的，为每个未来的 `xxx/start … xxx/end` 插件对修补核心模块恰好是能力 seam 架构存在的意义所要避免的耦合。
+- **教导核心轮次修复识别 `compact/*`**——否决：通用 end-seed 边界已经能够区分先前生命周期的历史；为每个未来的 `xxx/start … xxx/end` 插件对修补核心模块，恰好是能力 seam 架构存在的意义所要避免的耦合。
 
 ## 后果
 
-- **包**：`packages/compact/compact` 提供接口，`compact-basic` 提供后端，`compact-tool-result-prune` 提供可选的确定性重写。`packages/llm/token-meter` 独立拥有回放感知的测量。消费方层推迟。
-- **自动 seam**：`agent/post-step`（`@mode serial`）处理成功调用的压力，`agent/request-error`（`@mode waterfall`）处理失败步骤关闭后的最终请求失败。通用 `agent/pre-step` 保持为四参数检查点，不携带压缩专属的提示词/前缀 payload。
+- **包**：`packages/compact/compact` 提供接口，`compact-basic` 提供后端，`compact-tool-result-prune` 提供可选的确定性重写，`command-compact` 提供面向用户的 `/compact`。`packages/llm/token-meter` 独立拥有回放感知的测量。
+- **自动 seam**：`agent/pre-step`（`@mode waterfall`）在请求派生前处理压力，`agent/request-error`（`@mode waterfall`）处理失败步骤关闭后的最终请求失败。pre-step 的 payload 携带已领取批次、轮次、步骤与 signal（参见 [payload-object 事件决策](../architecture/2026-08-06-agent-event-payload-objects.md)），不携带压缩专属的提示词/前缀 payload。
 - **`SessionEventMap`** 通过可合并扩展的声明合并获得 `compact/start` / `compact/summary` / `compact/end`；`SurfaceEventType` **未被**触及。这些是会话事件，不是 cordis `Events`，因此事件分类门禁无需新增条目。
 - **`dsh-compact`** 拥有 `COMPACT_CHECKPOINT_SOURCE`、`isCompactCheckpointSource(source)`、`toolPairingBalancedBefore(session, seq)` 与 `toolPairingBalancedAfter(session, seq)`。该标记用于跨后端实现识别替换摘要。带缓存的 surface 边缘检查会防止 `compactRegion` 和 `compactIfNeeded` 拆分工具调用/结果对，按 seq 校验当前成员关系，从每个切割点的一条平衡序列回答两侧边缘，并拒绝陈旧或缺失的 seq 与孤立结果。
-- **`dsh-session`** 通过唯一的 surface 管理器校验位置替换、完整溯源信息和仅内容的单节点 `tool/result` 重写。其不变式配套插件将新追加的工具结果视为执行，要求存在已打开的步骤与待处理调用；已校验的替换仍是位于轮次内的重写。
-- **接线**：`examples/tui-agent/cordis.yml` 依次加载零配置的 `dsh-token-meter`、`dsh-compact-tool-result-prune` 和 `dsh-compact-basic`；服务级默认值使组合无需重复数值策略即可使用。
+- **`dsh-session`** 通过唯一的 surface 管理器校验位置替换、完整溯源信息和仅内容的单节点 `tool/result` 重写。其不变式配套插件将新追加的工具结果视为执行，要求存在已打开的步骤与待处理调用，而压缩配套组件拥有数字轮次归属与独立 `null` 归属标记对之间的关系。
+- **接线**：`examples/tui-agent/cordis.yml` 依次加载零配置的 `dsh-token-meter`、`dsh-compact-tool-result-prune`、`dsh-compact-basic`，然后加载 `dsh-command-compact`；服务级默认值使组合无需重复数值策略即可使用。
 
 ## 测试
 
 - **单元测试：** 使用真实 Loader 和 invariant 插件覆盖完整单元保留、修剪配置与回放、富块顺序、元数据保留、收敛、`compact/end` 的两种结果、开放尾部拒绝、仅修剪与带摘要的溢出恢复、generation 证明、上限和原始错误保留。
-- **循环测试：** 测试固定步骤后处理发生在持久工具结果之后、`step/end` 之前，使用实际 `agent/request` 路由，关闭失败步骤，分配新的重试编号，并覆盖完整的抛出/带内溢出 → 压缩 → 重建重试组合。
+- **循环测试：** 测试固定 pre-step 发生在前一个 `step/end` 之后、下一个 `step/start` 之前，使用实际 `agent/request` 路由，关闭失败步骤，分配新的重试编号，并覆盖完整的抛出/带内溢出 → 压缩 → 重建重试组合。
+- **手动测试：** 无需模型密钥即可固定 maintenance 串行化、标记顺序、注入保留、活动／陈旧未匹配标记分类、取消、闭合／flush 失败、命令映射以及排队 TUI 流程。
 - **带密钥 e2e：** 真实模型和 bash 会话在降低的限制下触发压缩，记录完整的 `compact/start…end` 对，缩小 surface，并完成任务。
 - **快照缺口：** 失控轮次压缩尚无法回放，因为摘要调用未记录 `assistant/chunk` 事件或 `sessionId`；交错摘要调用的回放仍是后续工作。

@@ -32,7 +32,7 @@ async function seedInterruptedSession(root: string, cwd: string): Promise<string
     delegationDepth: 0,
   }
   const events: SessionEvent[] = [
-    { type: 'turn/start', seq: 0, time: 10, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+    { type: 'turn/start', seq: 0, time: 10, data: { turn: 1 } },
     { type: 'user/message', seq: 1, time: 11, data: createUserMessage({
       content: [{ type: 'text', text: 'Perform one side-effecting remote mutation.' }], source: { kind: 'user' },
     }), surfaceOp: 'append' },
@@ -49,7 +49,7 @@ async function seedInterruptedSession(root: string, cwd: string): Promise<string
           content: [{ type: 'tool-call', id: CallId('unknown-outcome-call'), name: 'write_remote', arguments: '{"value":1}' }],
           source: {
             kind: 'model',
-            ...{ provider: 'deepseek', model: 'deepseek-v4-flash' },
+            ...{ provider: 'deepseek-official', model: 'deepseek-v4-flash' },
           },
         }),
       },
@@ -112,10 +112,8 @@ describe('semantic checkpoint recovery snapshot', () => {
     const records = result.stdout.trimEnd().split('\n').map(line => JSON.parse(line) as Record<string, unknown>)
     expect(records.at(-1)).toMatchObject({
       type: 'result',
-      success: true,
       sessionId,
-      result: 'I will verify the external state before deciding whether to retry the side-effecting operation.',
-      reason: { kind: 'completed' },
+      output: 'I will verify the external state before deciding whether to retry the side-effecting operation.',
     })
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 })

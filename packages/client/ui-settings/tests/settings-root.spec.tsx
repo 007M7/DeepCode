@@ -8,21 +8,28 @@ import { SettingsRoot } from '../src/client/SettingsRoot.tsx'
 afterEach(cleanup)
 
 type Row = { id: string; order: number; label: string }
+type Step = { id: string; order: number }
 
 /** Slot-content stand-ins: the shell renders whatever the seats contribute. */
 const SEAT_CONTENT: Record<string, string> = {
   'settings.trigger': 'Settings',
   'settings.header': 'Settings Title',
+  'settings.action': 'Open configuration file',
   'settings.close': 'Close',
 }
 
 function mount({
   wide = true,
+  onboardingActive = true,
   rows = [
     { id: 'general', order: 0, label: 'General' },
     { id: 'models', order: 10, label: 'Models' },
   ],
-}: { wide?: boolean; rows?: Row[] } = {}) {
+  steps = [
+    { id: 'welcome', order: -100 },
+    { id: 'credential', order: 0 },
+  ],
+}: { wide?: boolean; onboardingActive?: boolean; rows?: Row[]; steps?: Step[] } = {}) {
   // Mutable row source standing in for the bound useSections hook; bump()
   // plays a ledger change through the same observable contract.
   let current = rows
@@ -33,12 +40,19 @@ function mount({
       return SEAT_CONTENT[key]
     }) as SettingsRootComponentProps['renderSlot'],
   )
-  // Global standard kit stubs: the shell consumes neither hook.
+  const useSessions = ((select: (state: unknown) => unknown) => select(onboardingActive
+    ? { phase: 'ready', current: undefined, byId: {} }
+    : {
+      phase: 'ready',
+      current: 'active-session',
+      byId: { 'active-session': { blank: false } },
+    })) as never
   const unusedHook = (() => { throw new Error('unused by SettingsRoot') }) as never
   const props: SettingsRootComponentProps = {
-    useSessions: unusedHook,
+    useSessions,
     useWorkspaces: unusedHook,
     wide,
+    useOnboardingSteps: select => select(steps),
     useSections: (select) => {
       const [, force] = useState(0)
       useEffect(() => {
@@ -101,6 +115,13 @@ describe('SettingsPanel chrome seats', () => {
     expect(close.hasAttribute('aria-label')).toBe(false)
     expect(close.textContent).toContain('Close')
   })
+
+  it('renders header actions before the shell-owned close control', () => {
+    const { renderSlot } = mount()
+    openPanel()
+    expect(screen.getByText('Open configuration file')).toBeTruthy()
+    expect(renderSlot).toHaveBeenCalledWith('settings.action', {})
+  })
 })
 
 describe('SettingsPanel close paths', () => {
@@ -155,6 +176,48 @@ describe('SettingsPanel navigation', () => {
     expect(screen.getByRole('button', { name: 'Models' }).getAttribute('aria-current')).toBe('true')
     expect(screen.getByTestId('section-models')).toBeTruthy()
     expect(screen.queryByTestId('section-general')).toBeNull()
+  })
+
+  it('mounts onboarding steps in order and transfers ownership only on completion', () => {
+    const { renderSlot } = mount()
+    const first = renderSlot.mock.calls.find(call => call[0] === 'settings.onboarding')
+    expect(first?.[1]).toMatchObject({ stepId: 'welcome' })
+    expect(first?.[2]).toEqual({ only: 'welcome' })
+    act(() => {
+      (first?.[1] as { complete: () => void }).complete()
+      ;(first?.[1] as { complete: () => void }).complete()
+    })
+    const onboardingCalls = renderSlot.mock.calls.filter(call => call[0] === 'settings.onboarding')
+    const second = onboardingCalls.at(-1)
+    expect(second?.[1]).toMatchObject({ stepId: 'credential' })
+    expect(second?.[2]).toEqual({ only: 'credential' })
+
+    act(() => {
+      (second?.[1] as { openSection: (id: string) => void }).openSection('models')
+    })
+    expect(screen.getByRole('dialog')).toBeTruthy()
+    expect(screen.getByTestId('section-models')).toBeTruthy()
+
+    cleanup()
+    const inactive = mount({ onboardingActive: false }).renderSlot.mock.calls
+      .filter(call => call[0] === 'settings.onboarding')
+    expect(inactive).toHaveLength(0)
+  })
+
+  it('paints no takeover chrome of its own around the mounted step', () => {
+    // The chrome (mask, opaque stage, #root inert) belongs to the step via
+    // the OnboardingSurface primitive — a mounted-but-deciding step that
+    // renders null must show and block nothing (the reload white-flash fix;
+    // onboarding-surface.spec.tsx pins the primitive's half).
+    const appRoot = document.createElement('div')
+    appRoot.id = 'root'
+    document.body.append(appRoot)
+    const { view } = mount()
+    expect(view.container.querySelector('[class*="onboarding"]')).toBeNull()
+    expect(document.body.querySelector('[class*="onboarding"]')).toBeNull()
+    expect(appRoot.inert).not.toBe(true)
+    view.unmount()
+    appRoot.remove()
   })
 
   it('falls back to the first row when the active entry unregisters', () => {

@@ -10,7 +10,11 @@ import {
   FishLogo, IconChevronDownOutline14, IconFolderClose16, IconFolderOpen16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { workspaceTitleOf } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ConversationSlotProps } from '../contract/slots.ts'
 import css from './HeroShell.module.css'
+
+/** The owner's locale seat type, passed to hero chrome as a plain prop. */
+type HeroTranslate = ConversationSlotProps['t']
 
 /**
  * Basename label for the workspace chip (the shared derivation);
@@ -34,18 +38,19 @@ export function workspaceLabel(cwd: string): string {
  * @param props.onClick - menu toggle.
  * @returns the chip button element.
  */
-export function WorkspaceChip({ buttonRef, label, menuOpen = false, onClick }: {
+export function WorkspaceChip({ buttonRef, label, menuOpen = false, onClick, t }: {
   buttonRef?: RefObject<HTMLButtonElement>
   label?: string | undefined
   menuOpen?: boolean
   onClick?: () => void
+  t: HeroTranslate
 }) {
   return (
     <button
       ref={buttonRef}
       type="button"
       className={css.workspace}
-      aria-label="Choose workspace"
+      aria-label={t('hero.chooseWorkspace')}
       aria-haspopup="menu"
       aria-expanded={menuOpen}
       onClick={onClick}
@@ -53,7 +58,7 @@ export function WorkspaceChip({ buttonRef, label, menuOpen = false, onClick }: {
       {label === undefined
         ? <IconFolderClose16 className={css.folder} size={16} />
         : <IconFolderOpen16 className={css.folder} size={16} />}
-      <span className={css.workspaceLabel}>{label ?? 'Choose workspace'}</span>
+      <span className={css.workspaceLabel}>{label ?? t('hero.chooseWorkspace')}</span>
       <IconChevronDownOutline14 className={css.chevron} size={12} />
     </button>
   )
@@ -95,6 +100,8 @@ export function HeroGlow({ className }: { className?: string | undefined }) {
 
 /** Hero chrome props. The workspace row rides the InputBar accessory hole, not here. */
 export interface HeroShellProps {
+  /** The owner's locale seat, passed down as a plain prop. */
+  t: HeroTranslate
   /** Overlay content after the stack (modals). */
   children?: ReactNode
 }
@@ -105,19 +112,20 @@ export interface HeroShellProps {
  * @param props - see {@link HeroShellProps}.
  * @returns the centered hero element tree.
  */
-export function HeroShell({ children }: HeroShellProps) {
+export function HeroShell({ t, children }: HeroShellProps) {
   return (
     <div className={css.root}>
       <div className={css.stack}>
         <div className={css.headline}>
           {/* figma 34:10412: fish 34×25 leading the headline, gap 10. */}
           <FishLogo size={34} className={css.fish} />
-          Let&apos;s start building
+          <span className={css.headlineText}>{t('hero.headline')}</span>
+          <span className={css.previewBadge}>{t('hero.preview')}</span>
         </div>
         <div className={css.body}>
-          {/* The resident composer (ConversationRoot wrapActiveBody seat; the
-              workspace row rides the stack above the card) is CSS-centered in
-              the session scroll body during hero — see
+          {/* The resident composer (ConversationRoot's root-owned scrollport;
+              the workspace row rides the stack above the card) is CSS-centered
+              in that scroll body during hero — see
               ConversationRoot.module.css [data-phase='hero']. */}
         </div>
       </div>

@@ -20,10 +20,13 @@ harness 是一个微内核：一个极小的核心加上众多插件。大多数
 | [llm-streaming.md](llm-streaming.md) | `StreamChunk` 协议格式（wire format）+ 适配器契约（adapter contract）、`BlockAssembler`、`LlmAdapter` seam |
 | [token-meter.md](token-meter.md) | 不可变的标量与位置回放度量，附带已消费日志修订号 |
 | [scope.md](scope.md) | 作用域注册标识、dispatch 载体，以及拥有的 `Scope` 上下文 |
+| [typert.md](typert.md) | Remote 调用 descriptor、lookup/Context 声明、TypeRT 注册表，以及 Host Gateway/Client API seam |
 | [goal.md](goal.md) | 持久 goal 标识、生命周期快照、激活、变更记录与 Round 归属 |
 | [commands.md](commands.md) | 人类命令 seam：定义、适配器发现、直接调用、结果与解析视图 |
 | [session.md](session.md) | 完整的 `SessionEventMap` 变体目录、`TurnTrigger`/`TurnEndReason`、`deriveMessages()`、执行封闭与独立事件 |
 | [persistence.md](persistence.md) | 持久性 seam：`SessionPersistence`、JSONL + SQLite 后端、`session/flush`、崩溃恢复、`SessionHeader` |
+| [settings.md](settings.md) | 用户设置 seam：`SettingsNamespace` 注册、分层解析（默认值 → 组合 `base` → 用户文档）、owner scope、热提交 |
+| [credentials.md](credentials.md) | 凭据 seam：配置中的 `CredentialRef` 引用（绝不含值）、按操作解析、对 UI 安全的 `CredentialInfo`、provider 来源层 |
 | [session-query.md](session-query.md) | 逻辑记录、有界精确事件读取、关系追踪、语义筛选器/文档与全文检索结果页 |
 | [session-title.md](session-title.md) | 持久标题快照、来源 provenance 与异步提供方契约 |
 | [system-prompt.md](system-prompt.md) | 逐次组装的上下文、工具提供方结果、提示词段落与协作式组装 |
@@ -69,14 +72,13 @@ declare module '@deepseek-ai/dsh-llm' {
 }
 ```
 
-六个规范 map 使用此模式；插件作者扩展它们：
+五个规范 map 使用此模式；插件作者扩展它们：
 
 | Map | 包 | 派生 | 目录 |
 |---|---|---|---|
 | `ContentBlockMap` | dsh-llm | `ContentBlock` | [下文](#content-blocks-and-messages) |
 | `MessageSourceMap` | dsh-llm | `MessageSource` | [下文](#content-blocks-and-messages) |
 | `FinishReasonMap` | dsh-llm | `FinishReason` | [下文](#the-model-request-and-result) |
-| `TurnTriggerMap` | dsh-session | `TurnTrigger` | [session.md](session.md) |
 | `TurnEndReasonMap` | dsh-session | `TurnEndReason` | [session.md](session.md) |
 | `SessionEventMap` | dsh-session | `SessionEvent` | [session.md](session.md) |
 
@@ -165,10 +167,82 @@ interface Message {
  */
 interface MessageSourceMap {
   user: { kind: 'user' }
-  plugin: { kind: 'plugin'; plugin: string }
+  plugin: { kind: 'plugin'; plugin: string } & ContextFormed
   model: ModelMessageSource
   tool: ToolMessageSource
 }
+```
+
+溯源与形态是相互独立的两根轴。`kind` 回答「由谁产生」；生产方可选混入的 `form` 回答「这是何种形态的信息」，因此多个生产方可以共用一种呈现，一个生产方在一次会话中也可以发出多种形态。该词汇表是语义的，逐个取值增长；未声明或无法识别的取值是有文档的默认，按不透明内容呈现：
+
+```ts type-equiv
+/**
+ * What SHAPE of information a producer-supplied context carries, declared by
+ * the producer beside its provenance.
+ *
+ * `MessageSource.kind` answers *who produced this*; `form` answers *what kind
+ * of thing it is*, and the two axes are deliberately independent — several
+ * producers share one form (three snapshot producers today), and one producer
+ * may emit more than one form over a session.
+ *
+ * The vocabulary is SEMANTIC, never visual: a value states that the content is
+ * a file's instructions or a catalog of available items, and a consumer decides
+ * what that looks like. Colors, icons, ordering, and collapse defaults are the
+ * consumer's business and must not enter this union. It grows one value at a
+ * time as producers gain the structured fields their form needs; an absent or
+ * unknown value is the documented default, presented as opaque content.
+ */
+type ContextForm =
+  /** Instructions read out of workspace files the model is expected to follow. */
+  | 'instructions'
+  /** A catalog of items available in this session, republished as it changes. */
+  | 'catalog'
+  /** Current state, where a later snapshot from the same producer supersedes an earlier one. */
+  | 'snapshot'
+  /** A one-off account of something that just happened; it supersedes nothing. */
+  | 'notice'
+  /** A message another agent addressed to this one. */
+  | 'relay'
+  /** Material lifted out of another session's log, possibly reduced on the way in. */
+  | 'recall'
+```
+
+```ts type-equiv
+/** One named contribution to a `snapshot`-form context, in assembly order. */
+interface ContextSnapshotSection {
+  /** The contributing subsystem's name. */
+  readonly name: string
+  /** That contribution's model-facing text, exactly as assembled. */
+  readonly text: string
+}
+```
+
+```ts type-equiv
+/**
+ * Producer-declared {@link ContextForm} and the fields that form requires,
+ * mixed into the source shapes that carry one.
+ *
+ * Discriminated by `form` so a producer cannot declare a shape without the
+ * facts that shape is presented from: a `notice` must record its one-line
+ * account, a `snapshot` its sections. Omitting `form` stays valid — an
+ * undeclared context is the documented default.
+ */
+type ContextFormed =
+  | { readonly form?: never }
+  | { readonly form: 'instructions' }
+  | { readonly form: 'catalog' }
+  | {
+    readonly form: 'snapshot'
+    /** The named contributions this snapshot assembled, in order. */
+    readonly sections: readonly ContextSnapshotSection[]
+  }
+  | {
+    readonly form: 'notice'
+    /** One-line account of what happened, shown without expanding the row. */
+    readonly summary: string
+  }
+  | { readonly form: 'relay' }
+  | { readonly form: 'recall' }
 ```
 
 ## 流式输出
@@ -187,6 +261,34 @@ interface MessageSourceMap {
 
 提供方与模型发现使用小型、提供方无关的描述符。模型目录仅供参考：路由仍以已注册提供方为键，适配器也可以接受未列出的模型 id。
 
+注册适配器会返回一个句柄：既是释放器，也带有原子的路由替换——路由集合由用户配置决定的插件正需要它。
+
+```ts type-equiv
+/**
+ * What {@link LlmService.registerAdapter} returns: the disposer, plus an
+ * atomic route replacement for the same adapter instance.
+ */
+interface AdapterRegistrationHandle {
+  /** Release every route this registration currently holds. */
+  (): void
+  /**
+   * Replace this registration's routes with `providers`, keeping the same
+   * adapter instance. The candidate set is validated in full first — a
+   * conflict with another adapter, an invalid name, or bad provider metadata
+   * throws and leaves the current routes untouched — and the swap itself is
+   * one synchronous section, so no request can observe a gap. An empty array
+   * is legal here (a settings section that emptied holds zero routes while
+   * staying registered), unlike an empty initial registration.
+   *
+   * Throws `LlmError` with code `REGISTRATION_DISPOSED` once the registration
+   * has been released: its routes are gone and its disposer has already run,
+   * so anything registered afterwards would have no owner left to release it.
+   * @param providers - the complete next route set for this registration.
+   */
+  replace(providers: string[]): void
+}
+```
+
 ```ts type-equiv
 /** Display metadata for one registered provider route. */
 interface LlmProviderInfo {
@@ -194,6 +296,39 @@ interface LlmProviderInfo {
   id: string
   /** Human-readable provider name for selectors and diagnostics. */
   name: string
+}
+```
+
+适配器插件还会通过 `registerConfigurableProviders()` 声明哪些路由*可以*运行，并指明每条路由的用户设置分节，使配置界面能在任何路由注册之前就呈现休眠的提供方。
+
+```ts type-equiv
+/**
+ * One provider route an adapter plugin can activate through configuration,
+ * whether or not the route is currently registered. Configuration surfaces
+ * merge this directory with `listProviders()` to offer every configurable
+ * provider alongside its live/dormant state.
+ */
+interface LlmConfigurableProvider {
+  /** Provider route key this entry activates when configured. */
+  provider: string
+  /** Human-readable provider name for configuration surfaces. */
+  displayName: string
+  /** User-settings namespace whose section configures this provider. */
+  settingsNs: string
+  /**
+   * Path from that namespace's section root to this provider's profile
+   * object; empty when the whole section is the profile.
+   */
+  settingsPath: readonly string[]
+  /**
+   * Whether the owning adapter knows this route only because configuration
+   * declared it — a gateway or self-hosted server it ships nothing about.
+   * Absent means the adapter draws no such distinction; false means it does
+   * and this route is one of its own. Only the adapter can answer: a stored
+   * profile is how a user-added route AND a corrected shipped one both look
+   * from outside.
+   */
+  declared?: boolean
 }
 ```
 
@@ -211,7 +346,56 @@ interface LlmModelInfo {
 }
 ```
 
-对正确性敏感的元数据与参考目录分开解析，并归服务该确切路由的适配器所有。上下文容量和推理选项共用同一个确切模型结果，消费方因而无需重复执行权威模型解析。
+界面正在起草的提供方既没有路由也没有 catalog，因此询问被单独描述：请求携带用户正在编辑的草稿，回复是界面可以采纳的候选，而不是它必须服务的 catalog。
+
+```ts type-equiv
+/**
+ * One interrogation of a provider endpoint that configuration has not stored
+ * yet. Configuration surfaces send the draft a user is still editing, so the
+ * request carries the endpoint and credential directly instead of naming a
+ * route: a provider being added has no route to name.
+ */
+interface LlmModelDiscoveryRequest {
+  /**
+   * Route the draft is editing, when it edits an existing one. A route whose
+   * adapter already knows its models answers from that knowledge instead of
+   * asking the endpoint — the adapter's own registry is the better answer, and
+   * it costs no network call.
+   */
+  provider?: string
+  /**
+   * Endpoint to interrogate. Optional because a route the adapter already
+   * describes needs none; a route it does not must supply one.
+   */
+  baseURL?: string
+  /** Wire protocol the endpoint speaks, when the draft names one. */
+  api?: string
+  /** Credential for this interrogation alone; the harness never stores it. */
+  apiKey?: string
+  /** Caller cancellation; implementations must settle promptly after it aborts. */
+  signal?: AbortSignal
+}
+```
+
+```ts type-equiv
+/**
+ * One model an endpoint reports about itself. Every field but the id is
+ * optional because most provider listings disclose an id and nothing else;
+ * a surface adopting one of these still owes the capacities its adapter needs.
+ */
+interface LlmDiscoveredModel {
+  /** Model id the endpoint accepts. */
+  id: string
+  /** Human-readable name when the endpoint supplies one. */
+  name?: string
+  /** Maximum combined request and response context, when disclosed. */
+  contextWindow?: number
+  /** Maximum output tokens, when disclosed. */
+  maxTokens?: number
+}
+```
+
+对正确性敏感的元数据与参考目录分开解析，并归服务该确切路由的适配器所有。上下文容量、适配器调用默认值和推理选项共用同一个确切模型结果，消费方因而无需重复执行权威模型解析。
 
 ```ts type-equiv
 /** Provider-owned context capacity for one exact provider/model route. */
@@ -258,6 +442,8 @@ interface LlmModelReasoningInfo {
 interface LlmResolvedModelInfo extends LlmModelInfo {
   /** Provider-owned context capacity when known. */
   context?: LlmModelContext
+  /** Adapter-configured per-request output cap materialized when callers omit one. */
+  defaultMaxTokens?: number
   /** Adapter-owned selectable reasoning levels when exposed. */
   reasoning?: LlmModelReasoningInfo
 }
@@ -344,9 +530,9 @@ interface ToolSchema {
 
 ### 请求信封：`LlmCallConfig` 与记录的 header
 
-循环从已记录状态构建每个请求。`EpochHeader` 通过完整的 `request/header` 快照记录调用配置、渲染后的提示词以及权威返回工具顺序（由 `toolOrder` 配置；未配置时按字典序）。结合派生历史，请求便可由会话日志重建。见 [session.md](session.md#the-request-header-event-requestheader) 与[可重建性 Agent Note（agent 决策记录）](../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)。
+循环从已记录状态构建每个请求。`EpochHeader` 通过完整的 `request/header` 快照记录调用配置、适配器默认值来源、渲染后的提示词以及权威返回工具顺序（由 `toolOrder` 配置；未配置时按字典序）。结合派生历史，请求便可由会话日志重建。见 [session.md](session.md#the-request-header-event-requestheader) 与[可重建性 Agent Note（agent 决策记录）](../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)。
 
-`agent/request` 接收冻结的调用配置种子，并可返回替代值以切换提供方、模型、推理强度或采样参数。waterfall 结束后，循环会在轮次信号控制下完成确切模型的能力准备，拒绝显式指定但不受支持的推理强度 ID（不自动调整），填入适配器配置的默认值，并记录最终生效值。准备完成的调用直至分派完成始终持有同一项适配器注册。到达 `llm/stream` 的请求会被深度冻结，因此变更会抛异常；请求还携带进程本地循环标识，使观察者不会把单独记录的冻结辅助调用误认成对话请求。
+`agent/request` 接收冻结的调用配置种子，并可返回替代值以切换提供方、模型、推理强度或采样参数。waterfall 开始前，循环会移除标记为适配器默认值的值，使确切模型准备过程填入所选路由的当前值；未带标记的显式设置仍保留在提议中。waterfall 结束后，准备过程会在轮次信号控制下拒绝显式指定但不受支持的推理强度 ID（不自动调整），并记录生效配置及其来源。准备完成的调用直至分派完成始终持有同一项适配器注册。到达 `llm/stream` 的请求会被深度冻结，因此变更会抛异常；请求还携带进程本地循环标识，使观察者不会把单独记录的冻结辅助调用误认成对话请求。
 
 在协议格式上，循环构建的请求先读取 `system` 槽位（渲染后的提示词组装），再读取派生历史——边界快照，其尾部在轮次首步是最新的 `user/message`，在后续步骤是上一步的工具结果。开发不变式针对每个循环构建的请求精确重算此等式。
 
@@ -369,6 +555,17 @@ interface LlmCallConfig {
 }
 ```
 
+```ts type-equiv
+/**
+ * Effective config fields supplied by exact-model adapter resolution rather
+ * than by the caller's request proposal.
+ */
+interface LlmCallConfigAdapterDefaults {
+  reasoningEffort?: true
+  maxTokens?: true
+}
+```
+
 ## 会话
 
 `Session` 是一份类型化 `SessionEvent` 的**仅追加日志**——唯一的真源。LLM（大语言模型）消息历史从日志*派生*（`deriveMessages()`），而非单独存储。事件词汇从 `SessionEventMap` 派生：
@@ -384,7 +581,7 @@ interface LlmCallConfig {
  *
  * The {@link sourceEventSeqs} and {@link surfaceOp} fields are conditional:
  * they only exist on {@link SurfaceEventType} variants (`user/message`,
- * `assistant/message`, `tool/result`, `steering/message`).
+ * `assistant/message`, `tool/result`).
  * Non-surface events (boundary markers, chunks, usage, errors) never carry
  * surface metadata — the compiler enforces this at `Session.append()`
  * call sites.
@@ -412,7 +609,7 @@ type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }[T]
 ```
 
-十二种事件变体（`turn/start`、`turn/end`、`step/start`、`step/end`、`user/message`、`assistant/chunk`、`assistant/message`、`tool/call`、`tool/result`、`steering/message`、`todo/write`、`request/header`）、`deriveMessages()` 投影规则、`TurnTrigger`/`TurnEndReason` 原因以及执行封闭和独立事件规则都在 **[session.md](session.md)** 中。日志如何持久化——`SessionPersistence` seam、JSONL/SQLite 后端、`session/flush` 检查点、崩溃恢复与 `SessionHeader`——则在 **[persistence.md](persistence.md)** 中。
+会话事件变体、`deriveMessages()` 投影规则、`TurnEndReason` 词汇以及执行封闭和独立事件规则都在 **[session.md](session.md)** 中。日志如何持久化——`SessionPersistence` seam、JSONL/SQLite 后端、`session/flush` 检查点、崩溃恢复与 `SessionHeader`——则在 **[persistence.md](persistence.md)** 中。
 
 <a id="the-agent-handle"></a>
 
@@ -423,71 +620,11 @@ type SessionEvent<T extends SessionEventType = SessionEventType> = {
 源码：[`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
 ```ts type-equiv
-/**
- * Which inbox queue a {@link Agent.send} item joins:
- * - `next-turn` — the item becomes its own turn, claimed at a turn boundary.
- * - `next-step` — during prompt admission or an open turn, the item stages for
- *   the next safe step boundary; otherwise it is promoted per its `wakeup`
- *   flag.
- */
-type SendTarget = 'next-turn' | 'next-step'
+/** One of the two ordered pending-message lists owned by an agent. */
+type InboxTarget = 'next-turn' | 'next-step'
 ```
 
-```ts type-equiv
-/** Resolved inbox placement reported when an accepted message is enqueued. */
-type InboxPlacement = 'queued' | 'steering'
-```
-
-`InboxItemId` 是为每次获准进入 FIFO 的项铸造的进程本地品牌字符串。它有意区别于 `MessageId`：同一条不可变消息发送两次，会创建两个可独立寻址的待处理项。
-
-```ts type-equiv
-/** One independently addressable accepted occurrence in an agent inbox. */
-interface InboxItem {
-  /** Agent-loop-minted occurrence identity. */
-  readonly id: InboxItemId
-  /** Identified message delivered by the caller. */
-  readonly message: UserMessage
-  /** Acceptance-time FIFO classification. */
-  readonly placement: InboxPlacement
-}
-```
-
-```ts type-equiv
-/** A user-requested mutation of one still-pending queued occurrence. */
-type InboxAction =
-  | { readonly kind: 'edit'; readonly content: ContentBlock[] }
-  | { readonly kind: 'remove' }
-```
-
-```ts type-equiv
-/** Result of applying an inbox action at the synchronous ownership boundary. */
-type InboxActionResult = 'applied' | 'not-found'
-```
-
-```ts type-equiv
-/**
- * Options for the unified {@link Agent.send} primitive over the
- * (`target` × `wakeup`) matrix. Named presets: {@link Agent.followup}
- * (`next-turn`/wakeup), {@link Agent.steer} (`next-step`/wakeup), and
- * {@link Agent.inject} (`next-step`/no-wakeup).
- *
- * The object is complete so routing policy is explicit.
- */
-interface SendOptions {
-  /** Queue the item joins. */
-  target: SendTarget
-  /**
-   * Whether this item makes the model run: wake a parked driver (`next-turn`)
-   * or force a continuation step (`next-step` while running). A `false`
-   * `next-turn` item queues without waking; a `false`
-   * `next-step` item attaches durable context without forcing another step
-   * (the injection preset).
-   */
-  wakeup: boolean
-}
-```
-
-固定预设的别名方法自带 `target` 与 `wakeup`；其已有标识的 `UserMessage` 会携带角色、内容与 provenance。编辑替换消息内容时，其 `MessageId` 保持稳定；外层 `InboxItemId` 则在 `agent/inbox/enqueue`、`agent/inbox/update` 及终态 dequeue 或 discard 之间标识同一次入队。注入绕过两个 FIFO，从不出现在这些事件中。
+每个待处理入队项就是其 `UserMessage`；`MessageId` 是唯一标识。`Inbox.append`、`prepend`、`replace`、`remove`、`clear`、`splice` 与 `claim` 会记录规范化的持久 `agent/inbox/spliced` 变更，并拒绝重复的待处理 id。`replace(messageId, newMessage)` 与 `remove(messageId)` 通过 `MessageId` 跨两份列表定位待处理消息；替换可以改变标识，并先将旧消息作为 discarded 发布，再将新消息作为 inserted 发布。普通删除和 `clear()` 都表示取消。`claim(target)` 通过无 outcome 的纯删除 splice 移除拟进入步骤的批次——全部 `next-step` 输入，外加轮次边界上的一条 `next-turn` 消息——且不发出 discarded 通知；循环另行逐条发出 claimed 通知。UI 投影等整体队列消费方通过持久 splice 重建 `nextTurn` 与 `nextStep`，而跟踪单条消息的消费方使用精确的 `agent/inbox/inserted`、`claimed` 与 `discarded` 通知。
 
 ```ts type-equiv
 /** Options for {@link Agent.cancel}. */
@@ -495,26 +632,25 @@ interface CancelOptions {
   /**
    * Preserve queued and steering inbox items instead of discarding them. The
    * active turn is still aborted, but un-started and pending work survives for a
-   * later turn and no `agent/inbox/discard` fires.
+   * later turn and no canceled inbox splice is logged.
    */
-  keepInbox?: boolean
+  keepInbox?: boolean | undefined
 }
 ```
 
 ```ts type-equiv
-/** Stable runtime cause accepted by {@link Agent.cancel}. */
+/** Why an active agent driver was cancelled. */
 type AgentCancelCause =
   | { readonly kind: 'user' }
   | { readonly kind: 'parent' }
+  | { readonly kind: 'hook'; readonly reason: string }
+  | { readonly kind: 'disposed' }
 ```
 
-`Agent` 是覆盖公开活跃 agent 契约的接口。具体驱动器拥有 `followup`/`steer`/`inject` 别名方法，并将它们经由 `send` 的（`target` × `wakeup`）矩阵路由。
+`Agent` 是覆盖公开活跃 agent 契约的接口。它的统一 `send` 方法直接公开目标与唤醒路由；`followup`、`steer` 和 `inject` 是固定预设别名。
 
 ```ts type-equiv
-/**
- * Public live-agent handle with aliases over the unified delivery primitive.
- * @typert object
- */
+/** Public live-agent handle. */
 interface Agent {
   /** The single identity shared with {@link session}. */
   readonly id: SessionId
@@ -522,99 +658,81 @@ interface Agent {
   readonly options: AgentOptions
   /** The live session this agent drives; its log is the durable source of truth. */
   readonly session: Session
+  /** The agent-owned projection of durable pending work. */
+  readonly inbox: Inbox
   /** The current lifecycle state, mirrored on every `agent/status` transition. */
   readonly status: AgentStatus
-  /**
-   * Whether a `next-step` send currently stages for prompt admission or the
-   * open turn. Unlike {@link status}, this excludes admission exit and turn
-   * settlement, when a waking `next-step` send becomes a queued follow-up.
-   */
-  readonly acceptsNextStep: boolean
   /** Agent-scoped context; its contributions are agent-local, unwind on disposal, and reject registration afterward. */
   readonly ctx: Context
 
   /**
-   * The unified delivery primitive over the (`target` × `wakeup`) matrix.
-   * It routes the caller's typed content and source as follows:
-   *
-   * - `next-turn` queues an item that becomes the sole ordinary message of its
-   *   own FIFO-ordered turn; `wakeup:true` wakes a
-   *   parked driver, while `wakeup:false` queues without waking.
-   * - `next-step` with `wakeup:true` stages steering during prompt admission
-   *   or an open turn; outside that window it falls back to a woken
-   *   `next-turn`.
-   * - `next-step` with `wakeup:false` injects durable model-facing context
-   *   without running the model: admission or an open turn stages it for the
-   *   next safe log position, while an injection outside that window appends
-   *   immediately without opening a turn. If admission closes without a turn,
-   *   a context-only boundary appends immediately; context staged beside
-   *   steering remains pending with it.
-   * The agent publishes or queues the identified frozen message as-is.
-   * @param message - identified model-facing content and its producer provenance.
-   * @param options - target queue and wakeup decision.
-   */
-  send(message: UserMessage, options: SendOptions): void
-
-  /**
-   * Mutate one still-pending queued occurrence synchronously. Editing preserves
-   * the message identity and queue position; removal publishes its terminal
-   * discard. Steering occurrences and driver-claimed items return `not-found`.
-   * @param id - independently addressable queued occurrence.
-   * @param action - edit or remove operation.
-   * @returns whether the pending occurrence was found and updated.
-   */
-  updateInbox(id: InboxItemId, action: InboxAction): InboxActionResult
-
-  /**
    * Clear queued and steering work — unless `keepInbox` — and abort the active
-   * turn. An effective call first emits `agent/cancel-requested` with the
-   * resolved typed cause. The first cause wins for the active turn, and
-   * `whenIdle()` resolves after cancellation reaches quiescence. Idle
-   * cancellation is a no-op and does not arm later work.
-   * @param cause - the stable caller intent carried by the current turn signal.
+   * turn or between-turn task. The first cause wins for that activity. With no
+   * active activity, cancellation is a no-op and does not arm later work.
+   * @param cause - the stable caller intent carried by the active operation signal.
    * @param options - cancellation options; `keepInbox` preserves pending work.
    */
   cancel(cause: AgentCancelCause, options?: CancelOptions): void
 
-  /** Resolve at idle quiescence; disposal waits for driver exit rather than only the status transition. */
+  /**
+   * Resolve after the current whole-agent activity reaches quiescence. This
+   * follows replacement work started before the observed driver retires,
+   * but does not identify the settlement of any particular message.
+   * @returns fulfillment after no active driver or maintenance task remains.
+   */
   whenIdle(): Promise<void>
 
   /**
-   * Queue an ordinary follow-up turn and wake the driver — the
-   * `next-turn`/wakeup preset of {@link send}. The item becomes the sole
-   * ordinary message of its own turn.
+   * Run one non-turn maintenance task from the true idle phase. The task starts
+   * synchronously after claiming that phase; later waking input remains in the
+   * inbox until the task settles, while public status stays `idle`.
+   * `whenIdle()` follows both the task and any waking work released behind it.
+   * @param task - operation whose fulfillment or rejection is preserved, with a signal aborted by {@link cancel}.
+   * @throws synchronously when turn-driving or another maintenance task already owns the agent.
+   * @returns the task promise.
+   */
+  runMaintenance<T>(task: (signal: AbortSignal) => Promise<T>): Promise<T>
+
+  /**
+   * Route identified input to an inbox boundary and optionally wake the driver.
+   * Waking input submitted after active cancellation is queued for the next turn.
+   * @param message - identified content and its producer provenance.
+   * @param target - the preferred next-turn or next-step inbox boundary.
+   * @param wakeup - whether delivery may wake the driver.
+   */
+  send(message: UserMessage, target: InboxTarget, wakeup: boolean): void
+
+  /**
+   * Queue an ordinary follow-up turn and wake the driver. The item becomes the
+   * sole ordinary message of its own turn.
    * @param message - identified prompt content and its producer provenance.
    */
   followup(message: UserMessage): void
 
   /**
-   * Submit steering during prompt admission or an open turn — the
-   * `next-step`/wakeup preset of {@link send}. It stages for the next steering
-   * checkpoint before a request or stop decision. If the activity fails before
-   * that boundary, the remainder stays staged without waking the agent; retry
-   * or a later prompt takes it. Outside that window steering falls back to a
-   * woken follow-up turn, while cancellation or disposal may discard pending
-   * steering.
+   * Submit steering for the nearest step. An idle driver starts a turn;
+   * a running driver consumes it at its next step boundary.
+   * A rejected step leaves steering parked in the inbox until the next
+   * wake; cancellation or disposal may discard pending steering.
    * @param message - identified steering content and its producer provenance.
    */
   steer(message: UserMessage): void
 
   /**
-   * Append model-facing context without running the model — the
-   * `next-step`/no-wakeup preset of {@link send}. Admission or an open turn
-   * stages it at the next safe log position; outside that window it appends
-   * immediately without opening a turn. If admission closes without a turn,
-   * a context-only boundary appends immediately; context staged beside
-   * steering remains pending with it.
+   * Queue model-facing context for the next pre-step without waking the
+   * driver. A running driver claims it at the nearest later step boundary;
+   * idle drivers leave it pending until follow-up or steering
+   * wakes them. It may miss a request whose pre-step already claimed its
+   * batch. Cancellation or disposal may discard pending context.
    * @param message - identified injected context and its producer provenance.
    */
   inject(message: UserMessage): void
 }
 ```
 
-`AgentStatus` 为 `'idle' | 'running'`，`SessionId` 是品牌类型。dispose（资源释放）会把 agent 从注册表移除并发出 `agent/disposed`；它不是一个终态 status 值。`running` 描述整个驱动器的排空区间，可能跨越连续的排队轮次；它不能证明某个轮次仍然打开。对于需要在把输入作为 steering 加入当前提示词准入／轮次，还是提交为一个新的待准入提示词之间做选择的调用方，`acceptsNextStep` 才是更窄且准确的路由判断条件。`AgentOptions` 可合并扩展：core 声明 `provider?`、`model?` 与 `maxTokens?`（在 `agent/request` 后，分发要求 provider 与 model 都存在）。提供 `maxTokens` 时，它必须是正安全整数，并限制每次对话模型请求的输出；省略时由提供方默认值控制。Persona 归 `dsh-system-prompt` 所有：agent 作用域的 `deployment:persona` 可以遮蔽全局默认值。
+`AgentStatus` 为 `'idle' | 'running'`，`SessionId` 是品牌类型。dispose（资源释放）会把 agent 从注册表移除并发出 `agent/disposed`；它不是一个终态 status 值。`running` 描述整个驱动器的排空区间，可能跨越连续的排队轮次；它不能证明某个轮次仍然打开。`followup()` 不返回 handle：其 `MessageId` 标识持久 inbox 的插入、领取与丢弃事实，而不标识之后的助手输出或轮次结束。`whenIdle()` 观察整个 agent，因此只有显式拥有从回执到 idle 这一完整区间的调用方才能将其称为一次运行（[决策](../../.agents/notes/implemented/architecture/2026-07-30-followup-enqueue-and-owned-runs.md)）。`AgentOptions` 可合并扩展：core 声明 `provider?`、`model?` 与 `maxTokens?`（在 `agent/request` 后，分发要求 provider 与 model 都存在）。提供 `maxTokens` 时，它必须是正安全整数，并限制每次对话模型请求的输出；省略时，系统会在写入请求 header 前填入确切模型的适配器默认值，否则提供方行为保持不变。Persona 归 `dsh-system-prompt` 所有：agent 作用域的 `deployment:persona` 可以遮蔽全局默认值。
 
-cause 是由 TypeScript 强制约束的同进程输入。活跃的 `TurnCancellation` 持有者会把其判别字段复制到仅运行时的 `AbortSignal.reason`，并在发布 `turn/end` 前退役；冻结后的 `AbortSignal.reason` 仍可读取。只有 loop 会在结算时从自己机器私有的 signal 上读回 cause（`user`、`parent` 或仅用于生命周期的 `disposed`）——不存在公开的读取器，signal 也不授予协作监听器任何分类权限。持久 `turn/end` 保留粗粒度 `{ kind: 'aborted' }` 结果；若需记录请求 provenance，应使用单独的持久事件，而不是让终态结果承担额外含义。
+cause 是由 TypeScript 强制约束的同进程输入。活跃的取消持有者会将它复制到仅运行时的 `AbortSignal.reason`；signal 不授予协作监听器任何分类权限。持久 `turn/end` 保留粗粒度 `{ kind: 'aborted' }` 结果；若需记录请求 provenance，应使用单独的持久事件，而不是让终态结果承担额外含义。
 
 [事件分类](../architecture.md#event)拥有 `agent/*` 生命周期、检查点与 waterfall（瀑布式事件）契约。轮次和步骤边界是持久会话事件，而不是 agent emit。
 
@@ -624,22 +742,19 @@ cause 是由 TypeScript 强制约束的同进程输入。活跃的 `TurnCancella
 
 ## 拦截决策
 
-提示词决策与工具后决策使用与持久 user-role 输入相同、带标识的 `UserMessage` 形状。每个 `additionalContexts` 条目都会成为一条独立的 `user/message`，保留各自的标识与 provenance。钩子桥接层把其原生决策字段映射到这些类型化结果上。
+pre-step 决策使用与持久 user-role 输入相同、带标识的 `UserMessage` 形状。进入步骤的批次具有权威性，并保留每条消息的标识与 provenance。钩子桥接层把其原生决策字段映射到这一类型化结果上。
 
 源码：[`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
-`agent/prompt-submit` 在轮次打开前返回 `PromptDecision`。allow 可以改写已领取的提示词或附加 `additionalContexts`；block 拒绝准入且不产生任何轮次事件：
+`agent/pre-step` 接收一个 payload，携带独占的已领取批次（`messages`）、拟进入步骤的坐标（`turn`、`step`）与当前轮次的取消 `signal`。首次提案在已打开的轮次内、任何步骤开始前运行；工具 continuation 可以在步骤之间提交空的已领取批次：
+
+它返回 `PreStepDecision`。reject 不会打开步骤。enter 提供在 `step/start` 后追加的完整消息批次；最终决策省略的已领取消息保持已删除，而领取后插入的输入仍留待后续处理：
 
 ```ts type-equiv
-/**
- * Prompt interception result. `allow.content` replaces the prompt, while
- * `additionalContexts` appends model-facing context before the turn starts.
- * An `allow` returned by a listener is authoritative: a listener wrapping
- * `next()` preserves both fields unless it intentionally replaces them.
- */
-type PromptDecision =
-  | { kind: 'allow'; content?: ContentBlock[]; additionalContexts?: UserMessage[] }
-  | { kind: 'block'; reason: string }
+/** Whether and with which messages the loop enters a proposed step. */
+type PreStepDecision =
+  | { kind: 'reject' }
+  | { kind: 'enter'; messages: UserMessage[] }
 ```
 
 `agent/request-error` 在失败的模型步骤关闭之后、其轮次关闭之前运行。listener 可以在失败轮次的 signal 仍然存活时修复持久状态或 await 策略工作。处理该错误的 listener 返回 `{ kind: 'retry' }` 且不调用 `next()`；默认的 `undefined` 会让失败保持终态。
@@ -649,12 +764,7 @@ type PromptDecision =
 type RequestErrorAction = { kind: 'retry' } | undefined
 ```
 
-```ts type-equiv
-/** Model-request failure with an optional machine-routable provider code. */
-type RequestError = Error & { code?: string }
-```
-
-`agent/step` 是请求推导前唯一的串行边界。`agent/turn-stopping` 在轮次没有工具或 steering（中途引导）后续时运行，先于最后一次 steering 排空。
+`agent/pre-step` 是请求推导前唯一的串行边界。`agent/turn-stopping` 在轮次没有工具或 steering（中途引导）后续时运行，先于最后一次 steering 排空。
 
 `agent/session-start` 携带 `SessionStartSource`（会话生命周期为何开始；桥接层据此匹配其 SessionStart）：
 

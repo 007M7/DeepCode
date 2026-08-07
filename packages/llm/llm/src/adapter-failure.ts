@@ -1,67 +1,40 @@
 /**
- * Private provider-failure tagging shared by `LlmService` and its consumers.
+ * Normalization for values thrown by a final LLM adapter boundary.
  *
  * @module @deepseek-ai/dsh-llm/adapter-failure
  */
 
 import { HarnessError } from './error.ts'
-import type { LlmFailure, StreamChunk } from './types.ts'
-import type { ResolvedRetryPolicy } from './retry-policy.ts'
-
-/** Call-local facts captured when one model call enters its final adapter boundary. */
-export interface AdapterFailureScope {
-  /** Errors and normalized facts proven to originate in this call's final adapter boundary. */
-  readonly failures: WeakMap<Error, LlmFailure>
-  /** Immutable policy of the exact adapter registration selected for this call. */
-  retryPolicy?: ResolvedRetryPolicy
-}
-
-/** Call-local failure scopes keyed by the exact stream handle returned to a consumer. */
-const adapterFailureScopes = new WeakMap<AsyncIterable<StreamChunk>, AdapterFailureScope>()
+import type { LlmFailure } from './types.ts'
 
 /**
- * Bind one call's adapter-failure scope to a unique returned stream handle.
- * @param stream - the waterfall-selected stream for this call.
- * @param failures - errors tagged by this call's final adapter boundary.
- * @returns a unique stream handle that delegates iteration to `stream`.
+ * Detach serializable provider facts from a value thrown by an adapter.
+ * @param value - arbitrary value thrown during adapter dispatch or iteration.
+ * @returns immutable provider-neutral facts suitable for a terminal finish chunk.
  * @internal
  */
-export function bindAdapterFailureScope(
-  stream: AsyncIterable<StreamChunk>,
-  failures: AdapterFailureScope,
-): AsyncIterable<StreamChunk> {
-  const call = {
-    [Symbol.asyncIterator](): AsyncIterator<StreamChunk> {
-      return stream[Symbol.asyncIterator]()
-    },
-  }
-  adapterFailureScopes.set(call, failures)
-  return call
-}
-
-/**
- * Preserve an adapter's Error identity while tagging its provider origin.
- * @param failures - the call-local final-adapter failure scope.
- * @param value - arbitrary value thrown by adapter dispatch or iteration.
- * @returns the original Error, or a coded Error wrapping a non-Error throw.
- * @internal
- */
-export function markLlmAdapterFailure(
-  failures: AdapterFailureScope,
-  value: unknown,
-): Error & { code?: string } {
+export function normalizeLlmFailure(value: unknown): LlmFailure {
   const error = value instanceof Error
-    ? value as Error & { code?: string }
-    : new HarnessError(String(value), 'UNKNOWN', { cause: value })
+    ? value
+    : new HarnessError(thrownMessage(value), 'UNKNOWN', { cause: value })
   // Cross-package copies preserve own data but not class identity. Trust the
   // carried facts only when both own properties agree after validation.
   const carried = ownFailureSnapshot(error)
-  const failure = carried !== undefined && carried.code === ownErrorCode(error) ? carried : Object.freeze({
+  if (carried !== undefined && carried.code === ownErrorCode(error)) return carried
+  return Object.freeze({
     message: errorMessage(error),
     code: harnessErrorCode(error),
   })
-  failures.failures.set(error, failure)
-  return error
+}
+
+/** Render a non-Error throw without letting hostile coercion escape normalization. */
+function thrownMessage(value: unknown): string {
+  try {
+    const message = String(value)
+    return message.length > 0 ? message : 'LLM adapter failed'
+  } catch (_hostileThrownValue) {
+    return 'LLM adapter failed'
+  }
 }
 
 /** Read a foreign error's own data-backed `code` without invoking accessors. */
@@ -128,47 +101,4 @@ function errorMessage(error: Error): string {
 /** Trust only Harness-owned codes; third-party SDK codes are not our taxonomy. */
 function harnessErrorCode(error: Error): string {
   return error instanceof HarnessError ? error.code : 'UNKNOWN'
-}
-
-/**
- * Whether a failure came from final adapter dispatch, iterator construction,
- * or iteration for the call represented by the exact returned stream handle.
- * @param stream - the exact stream returned by the model call being classified.
- * @param value - arbitrary failure caught by a model-call consumer.
- * @returns true only for errors tagged at that call's final adapter boundary.
- */
-export function isLlmAdapterFailure(
-  stream: AsyncIterable<StreamChunk>,
-  value: unknown,
-): value is Error & { code?: string } {
-  const failures = adapterFailureScopes.get(stream)
-  return value instanceof Error && failures !== undefined && failures.failures.has(value)
-}
-
-/**
- * Retrieve normalized provider facts only for an Error tagged by this exact
- * model call's final adapter boundary.
- * @param stream - the exact stream returned to the consumer.
- * @param value - the caught failure.
- * @returns the immutable facts for that call, or `undefined` for middleware, nested, or consumer failures.
- */
-export function llmFailureOf(
-  stream: AsyncIterable<StreamChunk>,
-  value: unknown,
-): LlmFailure | undefined {
-  const failures = adapterFailureScopes.get(stream)
-  return value instanceof Error ? failures?.failures.get(value) : undefined
-}
-
-/**
- * Read the retry policy of the exact registration selected at this call's
- * final adapter boundary. The policy remains available after that registration
- * is disposed or replaced; absence means no final adapter served the call.
- * @param stream - the exact stream returned by the model call.
- * @returns the immutable serving-registration policy, or `undefined`.
- */
-export function llmRetryPolicyOf(
-  stream: AsyncIterable<StreamChunk>,
-): ResolvedRetryPolicy | undefined {
-  return adapterFailureScopes.get(stream)?.retryPolicy
 }

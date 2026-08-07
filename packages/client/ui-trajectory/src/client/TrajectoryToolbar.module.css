@@ -149,7 +149,7 @@
   font: var(--dsw-font-xxs-12);
 }
 
-.action:hover:not(:disabled) {
+.action:hover {
   color: var(--dsw-alias-label-primary);
   background: var(--dsw-alias-interactive-bg-hover);
 }
@@ -157,11 +157,6 @@
 .action:focus-visible {
   outline: 1px solid var(--dsw-alias-state-business-primary);
   outline-offset: 1px;
-}
-
-.action:disabled {
-  color: var(--dsw-alias-label-dimmed);
-  cursor: not-allowed;
 }
 
 .actionIcon {

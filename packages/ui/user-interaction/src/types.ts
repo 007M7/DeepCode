@@ -13,6 +13,24 @@ export interface AskUserQuestionOption {
   description?: string
 }
 
+/**
+ * A caller-declared presentation intent: the question IS a decision of this
+ * shape, so a UI that recognises the tag may present it as such instead of as a
+ * generic option list. Tagged so further intents can be added; a UI that does
+ * not know a tag renders the generic flow, and the answer encoding is identical
+ * either way — an intent shapes presentation only, never the protocol.
+ */
+export type AskUserQuestionIntent = {
+  /** A plan submitted for review: `detail` is the plan markdown `ask()` requires, and the decision approves or declines it. */
+  kind: 'plan-review'
+  /**
+   * The option label that approves the plan; every other option declines it.
+   * Named rather than positional so no UI infers the verdict from option order.
+   * An `approve` naming no option of its own question is rejected at `ask()`.
+   */
+  approve: string
+}
+
 /** One question in a user-interaction request. */
 export interface AskUserQuestionItem {
   /** Stable caller-provided question id, echoed in the answer. */
@@ -27,13 +45,15 @@ export interface AskUserQuestionItem {
   options?: AskUserQuestionOption[]
   /** Whether more than one option may be selected. Defaults to single-select. */
   multiSelect?: boolean
+  /** Optional presentation intent for capable UIs; absent asks for the generic option list. */
+  intent?: AskUserQuestionIntent
 }
 
 /** Answer to one question. */
 export interface AskUserQuestionAnswerItem {
   /** The answered question id. */
   id: string
-  /** Selected option labels. Empty for custom or unanswered choices. */
+  /** Selected option labels. May accompany custom text for a multi-select question. */
   selected: string[]
   /** Optional free-text "Other" answer. */
   custom?: string

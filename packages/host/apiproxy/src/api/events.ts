@@ -1,5 +1,5 @@
 /**
- * events domain contract: signatures and frame unions for the two SSE
+ * events domain contract: signatures and frame unions for the two logical
  * streams. Four-quadrant: streams yield the narrow form `RpcRequest<Frame>` (server-request
  * view) — rpcId must be exposed to the business layer, because responses to answerable frames
  * (approval/question requested) echo it; for pure pushes it identifies that one push.
@@ -9,7 +9,7 @@
 import type { AskUserQuestionItem } from '@deepseek-ai/dsh-user-interaction/types'
 import type { ApprovalOutcome, ApprovalRequestId } from '@deepseek-ai/dsh-user-approval/types'
 import type { Message } from '@deepseek-ai/dsh-llm/types'
-import type { InboxItemId } from '@deepseek-ai/dsh-agent/brand'
+import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { CallId } from '@deepseek-ai/dsh-llm/brand'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools/presentation'
@@ -32,15 +32,17 @@ export type ToolEventView =
   | { for: 'call'; view: ToolCallView }
   | { for: 'result'; view: ToolResultView }
 
-/** One pending queued occurrence in an authoritative queue snapshot. */
+/** One pending inbox occurrence in the authoritative `session/queue` snapshot. */
 export interface QueuedInboxItem {
-  /** Agent-owned occurrence identity used by queue mutations. */
-  id: InboxItemId
+  /** Message identity used by inbox mutations. */
+  id: MessageId
+  /** Agent-resolved FIFO placement; queued and steering items render on different surfaces, context items stay invisible until claimed. */
+  placement: 'queued' | 'steering' | 'context'
   /** Complete pending message; it is not durable until the Agent claims it. */
   message: Message
 }
 
-/** Streaming face of the contract: the two SSE stream openers (mux + host). */
+/** Streaming face of the contract: the two logical stream openers (mux + host). */
 export interface EventsApi {
   /**
    * All-session aggregated mux stream. On open, emits a subscribed control frame for every
@@ -71,11 +73,12 @@ export type MuxFrame =
   | { type: 'question/requested'; sessionId: SessionId; questions: AskUserQuestionItem[] }
   | { type: 'question/resolved'; sessionId: SessionId; questionRpcId: RpcId; outcome: 'answered' | 'cancelled' }
   /**
-   * Complete transient queue state after every enqueue, mutation, claim, or
+   * Complete transient inbox state after every enqueue, mutation, claim, or
    * discard. Pending work is not model-visible and therefore has no durable
    * session event; the whole snapshot makes edit, deletion, cancel, and
-   * reconnect converge through one authoritative signal. Pending steering is
-   * outside this Web queue projection.
+   * reconnect converge through one authoritative signal. `session/queue`
+   * covers both resolved placements: queued items render
+   * in QueueDock, while pending steering renders at the conversation tail.
    */
   | { type: 'session/queue'; sessionId: SessionId; items: QueuedInboxItem[] }
   /**
@@ -90,9 +93,9 @@ export type MuxFrame =
   | { type: 'stream/error'; error: RpcError }
 
 /**
- * Host stream frames. session-added carries the lineage anchor, the project
- * cwd, and the blank bit (the list-summary fields a client cannot wait for a
- * refresh to learn); the frame fires at session/created, so blank is
+ * Host stream frames. session-added carries the lineage anchor, product
+ * origin, project cwd, and blank bit (the list-summary fields a client cannot
+ * wait for a refresh to learn); the frame fires at session/created, so blank is
  * constantly true — clients flip it on the session's first
  * `host/session-status(running:true)` (a blank session never runs), and a
  * reconnecting client takes `session.list`'s summary.blank as authoritative.
@@ -101,19 +104,48 @@ export type MuxFrame =
  * workspace mutation (create/attach/order change — the client upserts, while
  * `workspace.list` provides the reconnect baseline); workspace-removed is the
  * committed registration-deletion increment and never implies directory or
- * session-log deletion.
+ * session-log deletion; archived-sessions-changed pushes the full registry
+ * archive set after every durable change (same full-snapshot posture as
+ * workspace-changed — `workspace.list` re-baselines it on reconnect).
  */
 export type HostFrame =
-  | { type: 'host/session-added'; sessionId: SessionId; blank: boolean; parentSessionId?: SessionId; cwd?: string }
+  | {
+    type: 'host/session-added'
+    sessionId: SessionId
+    blank: boolean
+    parentSessionId?: SessionId
+    origin?: 'subagent'
+    cwd?: string
+  }
   | { type: 'host/session-removed'; sessionId: SessionId }
   | { type: 'host/session-status'; sessionId: SessionId; running: boolean }
   | { type: 'host/agent-error'; sessionId: SessionId; message: string }
   | { type: 'host/workspace-changed'; workspace: WorkspaceView }
   | { type: 'host/workspace-removed'; workspaceId: WorkspaceView['workspaceId'] }
+  | { type: 'host/archived-sessions-changed'; archivedSessionIds: SessionId[] }
   /**
    * The command registry changed (`commands/change` passthrough). Pure
    * invalidation signal, no payload: clients refetch `command.list` in the
    * background rather than diffing.
    */
   | { type: 'host/commands-changed' }
+  /**
+   * One settings namespace's resolved value changed (`settings/updated`
+   * passthrough) — an RPC write, an external `settings.yaml` edit, or a
+   * provider reload all converge here. Clients refetch `settings.describe`;
+   * values never ride the frame (they would need redaction and can go stale).
+   */
+  | { type: 'host/settings-changed'; ns: string }
+  /**
+   * One credential reference's state changed (`credentials/updated`
+   * passthrough): a set/unset over this wire or an external `.env` edit.
+   * The ref is an environment-variable NAME — never a value.
+   */
+  | { type: 'host/credentials-changed'; ref: string }
+  /**
+   * The provider topology changed (`llm/adapters-updated` passthrough):
+   * routes registered or dropped, or the configurable directory moved. Pure
+   * invalidation: clients refetch `llm.providers`/`llm.models`/`session.models`.
+   */
+  | { type: 'host/models-changed' }
   | { type: 'stream/error'; error: RpcError }
