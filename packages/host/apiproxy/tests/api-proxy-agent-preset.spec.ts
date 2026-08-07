@@ -14,7 +14,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import SessionStore, { SessionId, type Session } from '@deepseek-ai/dsh-session'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import { RpcId, type RpcRequest } from '../src/api/rpc.ts'
-import { UnknownPresetError } from '@deepseek-ai/dsh-agent-presets'
+import { resolveSessionPreset, UnknownPresetError } from '@deepseek-ai/dsh-agent-presets'
 import { GoalId } from '@deepseek-ai/dsh-goal'
 import { createApiProxy } from '../src/api-proxy.ts'
 import { describe, expect, it } from 'vitest'
@@ -278,6 +278,46 @@ describe('agentPreset.select', () => {
     expect(response.result.ok).toBe(true)
     if (!response.result.ok) throw new Error('unreachable')
     expect(response.result.value.agentPreset).toBe('core-web')
+  })
+
+  it('records the switch in the log, and the list reads it back', async () => {
+    const { api, ctx } = await harness(['standard', 'core-web'])
+    await api.sessions.create(request({ sessionId: SessionId('sel-log'), agentPreset: 'standard' }))
+
+    await api.agentPresets.select(
+      request({ sessionId: SessionId('sel-log'), agentPreset: 'core-web' }))
+
+    // The header is written once at creation, so the switch lives in the log —
+    // this is what a restart replays and what every projection resolves from.
+    // Asserting only the RPC's echo would miss a switch that never persisted.
+    const session = ctx.sessions.get(SessionId('sel-log'))
+    if (session === undefined) throw new Error('unreachable')
+    expect(session.header.agentPreset).toBe('standard')
+    expect(resolveSessionPreset(session)).toBe('core-web')
+    const listed = await api.sessions.list(request({}))
+    if (!listed.result.ok) throw new Error('unreachable')
+    expect(listed.result.value.items.find(item => item.sessionId === 'sel-log')?.agentPreset)
+      .toBe('core-web')
+  })
+
+  it('serializes two concurrent selects on one session', async () => {
+    const { api, ctx } = await harness(['standard', 'core-web'])
+    await api.sessions.create(request({ sessionId: SessionId('sel-race'), agentPreset: 'standard' }))
+
+    // Both pass the blank check; unserialized, the second unmount finds no
+    // record because the first already removed it, and two compositions end up
+    // in one agent layer. The client's busy flag is not enforcement.
+    const [first, second] = await Promise.all([
+      api.agentPresets.select(request({ sessionId: SessionId('sel-race'), agentPreset: 'core-web' })),
+      api.agentPresets.select(request({ sessionId: SessionId('sel-race'), agentPreset: 'standard' })),
+    ])
+
+    expect(first.result.ok).toBe(true)
+    expect(second.result.ok).toBe(true)
+    const session = ctx.sessions.get(SessionId('sel-race'))
+    if (session === undefined) throw new Error('unreachable')
+    // One winner, and the log agrees with it: the last committed switch.
+    expect(resolveSessionPreset(session)).toBe('standard')
   })
 
   it('refuses once the conversation has started', async () => {

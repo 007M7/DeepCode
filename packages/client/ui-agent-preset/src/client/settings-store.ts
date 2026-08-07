@@ -25,6 +25,12 @@ export interface AgentPresetOption {
 export interface AgentPresetSettingsState {
   status: 'idle' | 'loading' | 'ready' | 'saving' | 'unavailable' | 'error'
   error: string | null
+  /**
+   * Whether this browser may persist the choice at all. `settings.describe` is
+   * loopback-only and reports a read-only provider as `writable: false`; the
+   * row then shows the current default and disables the control rather than
+   * offering a write the gateway will refuse.
+   */
   writable: boolean
   currentValue: string
   options: readonly AgentPresetOption[]
@@ -33,6 +39,8 @@ export interface AgentPresetSettingsState {
 const INITIAL: AgentPresetSettingsState = {
   status: 'idle',
   error: null,
+  // Assumed until `load()` asks; a row that has not read yet renders nothing
+  // interactive anyway (status 'idle').
   writable: true,
   currentValue: '',
   options: [],
@@ -69,9 +77,15 @@ export class AgentPresetSettingsController {
         this.set({ status: 'unavailable', options: [], currentValue: '' })
         return
       }
+      // The roster says what may be chosen; `settings.describe` says whether
+      // this browser may write the choice down. A non-loopback browser reaches
+      // neither method, so a refused describe leaves the row read-only rather
+      // than offering a control whose write answers `settings-not-exposed`.
+      const described = await this.api.settings.describe({})
       this.set({
         status: 'ready',
         error: null,
+        writable: described.result.ok && described.result.value.writable,
         options: presets.map(preset => ({ id: preset.id, trust: preset.trust })),
         currentValue: presets.find(preset => preset.isDefault)?.id ?? presets[0]?.id ?? '',
       })
