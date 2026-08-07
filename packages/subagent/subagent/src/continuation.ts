@@ -426,9 +426,10 @@ export class SubagentContinuationManager {
    * synchronous and the effect is asynchronous: this authorizes the caller,
    * requests `Agent.cancel(cause, { keepInbox: true })` on the target, and
    * returns without waiting for the target to observe the signal or reach
-   * quiescence. The Activation, its handle, accepted pending inbox work, and
-   * already-published descendants are untouched; the parked queue resumes only
-   * on a later waking send.
+   * quiescence. The Activation, its handle, accepted unclaimed inbox work, and
+   * already-published descendants are untouched; work already claimed into the
+   * interrupted turn is not requeued. Once the interrupted driver is idle, a
+   * waking send resumes the parked queue.
    *
    * An absent target is an accepted no-op, which uniformly covers natural
    * completion races, repeated requests, one-shot ids, and unknown ids without

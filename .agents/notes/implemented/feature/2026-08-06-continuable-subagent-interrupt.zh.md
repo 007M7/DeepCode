@@ -10,7 +10,7 @@ Status: implemented
 
 ## Decision
 
-`ctx.subagents.interrupt(targetSessionId, authority)` 只停止在线目标的当前轮次。管理器原语同步完成鉴权，调用现有的 `Agent.cancel(cause, { keepInbox: true })`，然后返回 `void`——fire-and-return：保证取消信号已发出，但不等待目标静止。其余一切不变：不 dispose Activation、不释放 handle、不级联后代、不清空 inbox，也不改动 `AgentLoop` 或 `CancelOptions`。由于 `keepInbox` 让待处理队列停在 idle，中断绝不会自动启动下一个排队的 follow-up；只有之后一次显式唤醒发送才按保留的 FIFO 顺序恢复。
+`ctx.subagents.interrupt(targetSessionId, authority)` 只停止在线目标的当前轮次。管理器原语同步完成鉴权，调用现有的 `Agent.cancel(cause, { keepInbox: true })`，然后返回 `void`——fire-and-return：保证取消信号已发出，但不等待目标静止。其余一切不变：不 dispose Activation、不释放 handle、不级联后代、不清空 inbox，也不改动 `AgentLoop` 或 `CancelOptions`。由于 `keepInbox` 让尚未领取的待处理队列停在 idle，中断绝不会自动启动下一个排队的 follow-up；已被领取进入中断轮次的工作属于该轮次，不会重新入队。被中断的 driver 进入 idle 后，一次显式唤醒发送会按保留的 FIFO 顺序恢复。
 
 授权是一个封闭的双变体 union，刻意比投递权限更宽，因为停止一个轮次是幂等的且不投递任何内容：
 
@@ -35,7 +35,11 @@ Host RPC `subagent.interrupt` 接收 continuable 的 `SubagentAddress` 并返回
 
 ## Consequences
 
-人类或 ancestor 现在可以停止一个失控的 continuable 轮次，而不丢失 child、其排队工作或正在运行的后代；代价是一个刻意保持弱的后置条件（`accepted` 表示"信号已发出"，目标在观察到信号前可能仍显示 `running`），客户端必须如实呈现。暂停队列规则意味着被中断的 child 会带着保留的工作停在 idle，直到有人发送唤醒消息——这是有意的 human-in-the-loop 暂停，不是调度器缺陷。Web 的 Stop 操作和面向模型的 `interrupt_agent` 工具在 issue #1535 的后续 stacked PR 中基于此原语构建。
+人类或 ancestor 可以停止一个失控的 continuable 轮次，而不丢失 child、其尚未领取的排队工作或正在运行的后代；代价是一个刻意保持弱的后置条件（`accepted` 表示“信号已发出”，目标在观察到信号前可能仍显示 `running`），客户端必须如实呈现。暂停队列规则意味着被中断的 child 会带着保留的工作停在 idle，直到 driver 进入 idle 后收到唤醒消息——这是有意的 human-in-the-loop 暂停，不是调度器缺陷。在 abort 收敛期间被接受的唤醒发送目前会保持排队而不锁存 wake；Issue #1838 跟踪共享的 agent-loop 修正。
+
+仅凭地址的 RPC 会暴露一位在线驻留信息：不存在的目标会被接受，而 parent 不匹配的在线目标会返回 `subagent-unauthorized`。单用户本地 Host 的信任模型接受这种可观察性；未来的多主体 Host 必须重新审视权限和响应不可区分性。
+
+Web 的 Stop 操作和面向模型的 `interrupt_agent` 工具在 issue #1535 的后续 stacked PR 中基于此原语构建。
 
 ## Testing
 

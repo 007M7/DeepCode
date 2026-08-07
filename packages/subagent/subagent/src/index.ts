@@ -237,9 +237,10 @@ export class SubagentService extends Service {
    * Interrupt one live continuable child's current turn under a human parent
    * address or an exact live ancestor Agent. Fire-and-return: the cancel
    * signal is issued before this returns, but the target may keep running
-   * until it observes the signal. Pending inbox work, the Activation, and
-   * published descendants are preserved; only a later waking send resumes the
-   * parked FIFO queue. An absent target — including a one-shot or unknown id —
+   * until it observes the signal. Unclaimed pending inbox work, the Activation,
+   * and published descendants are preserved; claimed work is not requeued.
+   * Once the interrupted driver is idle, a waking send resumes the parked FIFO
+   * queue. An absent target — including a one-shot or unknown id —
    * is an accepted no-op, as is a manager-less composition, which cannot own a
    * live Activation.
    * @param targetSessionId - the durable child session id to interrupt.

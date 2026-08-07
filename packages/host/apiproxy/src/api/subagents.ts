@@ -105,8 +105,8 @@ export interface SubagentsApi {
    * durable direct-parent authority, without requiring a live parent Agent,
    * consulting the catalog, or resuming anything. Fire-and-return: `accepted`
    * acknowledges the admitted cancel signal, not target quiescence, so the
-   * child may remain visibly running briefly. Queued follow-ups are kept and
-   * parked; an absent, idle, or already-completed target is likewise
+   * child may remain visibly running briefly. Unclaimed queued follow-ups are
+   * kept and parked; an absent, idle, or already-completed target is likewise
    * `accepted`.
    */
   interrupt(

@@ -141,7 +141,7 @@ Agent 收件箱是唯一的队列。每条继续执行消息都会成为一个 `
 
 对于这两种操作，调用方 signal 仅在收件箱接受之前掌管查找、物化与准入。此后管理器独立掌管该 Activation：之后的调用方取消既不会取消已接受的轮次，也不会 dispose 子 agent，并且该 seam 不对外暴露任何 steering（中途引导）操作。
 
-`SubagentService.interrupt(targetSessionId, authority)` 是唯一的公开停止操作：它同步完成鉴权，对在线目标发出 `Agent.cancel(cause, { keepInbox: true })`，然后不等待静止即返回。Activation、其待处理的 inbox 工作与已发布的后代均不受影响；只有之后的一次唤醒发送才会恢复被暂停的 FIFO 队列。不存在的目标——未知、一次性或已结算——以及未绑定管理器的组合是被接受的 no-op；错误的 parent 地址，或过期、指向自身、非 ancestor 的调用方会以 `UNAUTHORIZED` 拒绝。
+`SubagentService.interrupt(targetSessionId, authority)` 是唯一的公开停止操作：它同步完成鉴权，对在线目标发出 `Agent.cancel(cause, { keepInbox: true })`，然后不等待静止即返回。Activation、其尚未领取的待处理 inbox 工作与已发布的后代均不受影响；已被领取进入中断轮次的工作不会重新入队。被中断的 driver 进入 idle 后，一次唤醒发送会恢复被暂停的 FIFO 队列。不存在的目标——未知、一次性或已结算——以及未绑定管理器的组合是被接受的 no-op。对在线目标，错误的 parent 地址或不在其在线祖先链中的调用方会以 `UNAUTHORIZED` 拒绝；过期的 ancestor 对象和指向自身的 ancestor 请求会在查找目标前拒绝。
 
 ```ts type-equiv
 /**

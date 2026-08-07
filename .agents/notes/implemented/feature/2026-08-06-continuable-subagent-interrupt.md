@@ -10,7 +10,7 @@ A running continuable subagent could not be stopped without destroying it. The c
 
 ## Decision
 
-`ctx.subagents.interrupt(targetSessionId, authority)` stops only the live target's current turn. The manager primitive authorizes synchronously, calls the existing `Agent.cancel(cause, { keepInbox: true })`, and returns `void` — fire-and-return: the cancel signal is guaranteed issued, target quiescence is not awaited. Nothing else changes: no Activation disposal, no handle release, no descendant cascade, no inbox clearing, and no `AgentLoop` or `CancelOptions` change. Because `keepInbox` parks the pending queue at idle, an interrupt never auto-starts the next queued follow-up; only a later explicit waking send resumes the preserved FIFO order.
+`ctx.subagents.interrupt(targetSessionId, authority)` stops only the live target's current turn. The manager primitive authorizes synchronously, calls the existing `Agent.cancel(cause, { keepInbox: true })`, and returns `void` — fire-and-return: the cancel signal is guaranteed issued, target quiescence is not awaited. Nothing else changes: no Activation disposal, no handle release, no descendant cascade, no inbox clearing, and no `AgentLoop` or `CancelOptions` change. Because `keepInbox` parks the unclaimed pending queue at idle, an interrupt never auto-starts the next queued follow-up; work already claimed into the interrupted turn belongs to that turn and is not requeued. Once the interrupted driver is idle, an explicit waking send resumes the preserved FIFO order.
 
 Authority is a closed two-variant union, deliberately wider than delivery authority because stopping a turn is idempotent and delivers no content:
 
@@ -35,7 +35,11 @@ The Host RPC `subagent.interrupt` takes the continuable `SubagentAddress` and re
 
 ## Consequences
 
-A human or ancestor can now stop a runaway continuable turn without losing the child, its queued work, or its running descendants; the cost is a deliberately weak postcondition (`accepted` means "signal issued", so a target may remain visibly `running` until it observes the signal) that clients must render honestly. The parked-queue rule means an interrupted child sits idle with retained work until someone sends a waking message — an intentional human-in-the-loop pause, not a scheduler defect. The Web Stop action and the model-facing `interrupt_agent` tool build on this primitive in the stacked follow-up PRs for issue #1535.
+A human or ancestor can stop a runaway continuable turn without losing the child, its unclaimed queued work, or its running descendants; the cost is a deliberately weak postcondition (`accepted` means "signal issued", so a target may remain visibly `running` until it observes the signal) that clients must render honestly. The parked-queue rule means an interrupted child sits idle with retained work until a waking message arrives after the driver is idle — an intentional human-in-the-loop pause, not a scheduler defect. A waking send accepted during abort convergence currently remains queued without latching wake; Issue #1838 tracks the shared agent-loop correction.
+
+The address-only RPC exposes one bit of live residency: an absent target is accepted while a live target under a mismatched parent returns `subagent-unauthorized`. The single-user local Host trust model accepts that observability; a future multi-principal Host must revisit both authority and response indistinguishability.
+
+The Web Stop action and the model-facing `interrupt_agent` tool build on this primitive in the stacked follow-up PRs for issue #1535.
 
 ## Testing
 
