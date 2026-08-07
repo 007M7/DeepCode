@@ -65,6 +65,7 @@
         "**/*.ts"
       ],
       "ignoreDependencies": [
+        "@cordisjs/plugin-logger-console",
         "@deepseek-ai/.+"
       ]
     },
