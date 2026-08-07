@@ -19,7 +19,7 @@ Status: implemented
 | 平面 | 实例数 | 内容 |
 |---|---|---|
 | 宿主 | 一份 | 注册表本身（`tools`、`systemPrompt`、`agents`、`agent-loop`、`sessions`）、跨会话设施（持久化、查询、投影、存储、设置、凭据、遥测），以及 web 宿主 |
-| agent | 每会话一份 | 单个 agent 对这些注册表的贡献：工具插件、人设与提示词段落、委派后端、压缩策略 |
+| agent | 每会话一份 | 单个 agent 对这些注册表的贡献：工具插件、人设与提示词段落、压缩策略 |
 
 模型路由不进 preset。`installAgentLlmTarget` 已经是 provider、model 与 reasoning effort 的按 agent 可替换点；而挂在 preset 内部的 LLM 适配器永远不会被 `agent-loop` 解析到，因为后者位于宿主平面。
 

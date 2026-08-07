@@ -19,7 +19,7 @@ Composition splits into two planes, decided by what must be shared rather than b
 | Plane | Instances | Contents |
 |---|---|---|
 | Host | one | The registries themselves (`tools`, `systemPrompt`, `agents`, `agent-loop`, `sessions`), cross-session facilities (persistence, query, projections, storage, settings, credentials, telemetry), and the web host |
-| Agent | one per session | What a single agent contributes to those registries: tool plugins, persona and prompt sections, delegation backends, compaction policy |
+| Agent | one per session | What a single agent contributes to those registries: tool plugins, persona and prompt sections, compaction policy |
 
 Model routing stays out of presets. `installAgentLlmTarget` is already the per-agent seam for provider, model, and reasoning effort, and an LLM adapter mounted inside a preset would never be resolved by `agent-loop`, which lives in the host plane.
 

@@ -22,7 +22,7 @@
 
       You can read and modify the harness you run on. Its composition is Cordis: every capability is a plugin row in a `cordis.yml`, and an agent preset is one such file mounted for a single session.
 
-      Two planes decide where an edit belongs. The HOST composition holds the registries and anything shared across sessions — persistence, the sandbox and approval stack, the model route. An AGENT PRESET holds what one session contributes to those registries: its tools, its persona, its delegation backends. A row that publishes a service belongs in the host composition, or inside an `isolate` realm if the preset genuinely owns that service.
+      Two planes decide where an edit belongs. The HOST composition holds the registries and anything shared across sessions — persistence, the sandbox and approval stack, the model route, the subagent registry and its backends. An AGENT PRESET holds what one session contributes to those registries: its tools, its persona, its prompt sections. A row that publishes a service belongs in the host composition, or inside an `isolate` realm if the preset genuinely owns that service and nothing outside one agent reads it.
 
       Load the `editing-cordis-compositions` skill before writing or changing a composition.
 
@@ -33,22 +33,15 @@
 
 # ── shell ───────────────────────────────────────────────────────────────────
 
-# `tool-bash` reads as a tool but provides the `bashEnv` service, so it needs a
-# realm like any other provider. The executor behind it (`bash-sandbox`) stays
-# in the host composition, where the sandbox policy owns it.
-- id: shell
-  name: cordis:group
-  group: true
-  isolate:
-    bashEnv: true
-  config:
-    # The registry and its consumer share the realm: a consumer left outside
-    # would resolve the host's `bashEnv`, which this plane no longer provides.
-    - id: bash-env
-      name: '@deepseek-ai/dsh-bash-env'
-
-    - id: tool-bash
-      name: '@deepseek-ai/dsh-tool-bash'
+# `bash-env` stays in the HOST composition: `apps/cli/src/web.ts` injects it to
+# publish `DSH_WEB_URL`/`DSH_WEB_MODE`, and a host row that injects a service is
+# the criterion for host-plane ownership — injection resolves before any session
+# exists, so there is no agent to key by. Behind a preset realm those variables
+# never reached the model's shell at all. `tool-bash` consumes the host registry
+# from here; the executor behind it (`bash-sandbox`) is host-plane too, where the
+# sandbox policy owns it.
+- id: tool-bash
+  name: '@deepseek-ai/dsh-tool-bash'
 
 # ── filesystem ──────────────────────────────────────────────────────────────
 
@@ -157,29 +150,27 @@
 
 # ── delegation and workflows ────────────────────────────────────────────────
 
-# Every backend and every tool that reaches `subagents` or `workflows` shares
-# one realm: a consumer left outside it would resolve the host's registry
-# instead, which this preset does not populate.
+# The `subagents` registry and its spawn/fork backends live in the HOST
+# composition: the registry is a process singleton whose cross-session queries
+# the api-proxy serves to the browser, and a provider name may only be
+# registered once. This preset contributes the delegation TOOLS, which resolve
+# that host registry.
+#
+# `workflows` is different — nothing outside an agent reads it — so every row
+# that reaches it shares one entry-local realm here, and a consumer left
+# outside would resolve a host registry this preset does not populate.
+#
+# `tool-subagent-report` is host-plane for the same reason as the registry,
+# not because a preset may not want it: it registers a CONTINUABLE SETUP on
+# that singleton rather than a tool this agent calls, and the setup list is
+# not scope-aware — one copy per mounted preset means every child gets
+# `report` registered once per live session, which throws on the second.
 - id: delegation
   name: cordis:group
   group: true
   isolate:
-    subagents: true
     workflows: true
   config:
-    - id: subagent
-      name: '@deepseek-ai/dsh-subagent'
-
-    - id: subagent-spawn
-      name: '@deepseek-ai/dsh-subagent-spawn'
-      config:
-        providerName: spawn
-
-    - id: subagent-fork
-      name: '@deepseek-ai/dsh-subagent-fork'
-      config:
-        providerName: fork
-
     - id: tool-subagent-control
       name: '@deepseek-ai/dsh-tool-subagent-control'
 
@@ -200,9 +191,6 @@
         toolName: subagent_fork
         backgroundMode: continuable
 
-    - id: tool-subagent-report
-      name: '@deepseek-ai/dsh-tool-subagent-report'
-
     - id: workflow-workerthread
       name: '@deepseek-ai/dsh-workflow-workerthread'
       config:
@@ -218,6 +206,9 @@
         maxRounds: 64
 
 # ── remaining model-facing rows ─────────────────────────────────────────────
+
+- id: tool-ask-user
+  name: '@deepseek-ai/dsh-tool-ask-user'
 
 - id: tool-todo
   name: '@deepseek-ai/dsh-tool-todo'
