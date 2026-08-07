@@ -2593,7 +2593,7 @@ listPackages(filter: TypertPackageFilter = {}): TypertPackageRecord[]
 toJSONSchema(key: string, params?: z.core.ToJSONSchemaParams): z.core.JSONSchema.BaseSchema
 ```
 
-Source: [`packages/typert/registry/src/service.ts:400`](../../packages/typert/registry/src/service.ts)
+Source: [`packages/typert/registry/src/service.ts:446`](../../packages/typert/registry/src/service.ts)
 
 ## `ctx.typertGateway` — `TypertGatewayService`
 
