@@ -472,7 +472,7 @@ Goal mutation accepted by one live agent. The matching `goal/change` session eve
 
 Types: [Agent](../core-data-structures/core.md) · [GoalChanged](../core-data-structures/goal.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/goal/goal/src/domain.ts:141`](../../packages/goal/goal/src/domain.ts)
+Source: [`packages/goal/goal/src/domain.ts:114`](../../packages/goal/goal/src/domain.ts)
 
 ## `llm/*`
 
@@ -542,7 +542,7 @@ Creation announcement during session publication. A synchronous throw vetoes and
 
 Types: [Scoped](../core-data-structures/scope.md) · [Session](../core-data-structures/session.md)
 
-Source: [`packages/core/session/src/index.ts:73`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:74`](../../packages/core/session/src/index.ts)
 
 ### `session/disposed` — emit
 
@@ -563,7 +563,7 @@ Emitted once when an announced session leaves the store, including publication r
 
 Types: [Scoped](../core-data-structures/scope.md) · [Session](../core-data-structures/session.md)
 
-Source: [`packages/core/session/src/index.ts:83`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:84`](../../packages/core/session/src/index.ts)
 
 ### `session/event` — emit
 
@@ -586,7 +586,7 @@ Post-commit, fire-and-forget append feed. The listener snapshot resolves before 
 
 Types: [Scoped](../core-data-structures/scope.md) · [Session](../core-data-structures/session.md) · [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:95`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:96`](../../packages/core/session/src/index.ts)
 
 ### `session/flush` — parallel
 
@@ -606,7 +606,7 @@ Awaited parallel durability checkpoint: every listener runs and the caller await
 
 Types: [Scoped](../core-data-structures/scope.md) · [Session](../core-data-structures/session.md)
 
-Source: [`packages/core/session/src/index.ts:104`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:105`](../../packages/core/session/src/index.ts)
 
 ## `settings/*`
 

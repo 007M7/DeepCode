@@ -12,12 +12,15 @@ import type {
   RpcResult, SessionId, SubagentAddress,
 } from '@deepseek-ai/dsh-client-connection/client'
 import type { HostObservable, SessionMaybeProvideInfo } from '@deepseek-ai/dsh-client-ui-slots'
+import type { AgentContext } from '../agents/scope.ts'
 import type { SessionSearchResultItem } from '../sessions/manager.ts'
 import type {
   SessionBinding, SessionListState, SessionProvideDescriptor,
 } from '../sessions/service.ts'
 import type { SessionFace } from './session.ts'
 import type { ObservableSnapshot } from './store.ts'
+
+export type { AgentContext } from '../agents/scope.ts'
 
 /** The sessions-service face injected as `ctx.sessions`. */
 export interface ISessions {
@@ -95,7 +98,7 @@ export interface ISessions {
    * @param id - session id.
    * @returns scoped ctx, or undefined for a session neither listed nor already scoped.
    */
-  scope(id: SessionId): Context | undefined
+  scope(id: SessionId): AgentContext | undefined
   /**
    * Read the Agent scope tag off a context (service-method seam: fetch
    * bundles must reach scope resolution through ctx.sessions).
