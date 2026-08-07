@@ -556,14 +556,7 @@ export class SessionQuerySqlite extends SessionQueryService {
         (id, version, created_at, cwd, parent_session, seed_length, delegation_depth, agent_preset, revision, generation)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
-      entry.header.id,
-      entry.header.version,
-      entry.header.createdAt,
-      entry.header.cwd ?? null,
-      entry.header.parentSession ?? null,
-      entry.header.seedLength ?? null,
-      entry.header.delegationDepth ?? null,
-      entry.header.agentPreset ?? null,
+      ...headerBindings(entry.header),
       revision,
       generation,
     )
@@ -593,14 +586,7 @@ export class SessionQuerySqlite extends SessionQueryService {
         (id, version, created_at, cwd, parent_session, seed_length, delegation_depth, agent_preset, fingerprint, persisted, generation)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
-      entry.header.id,
-      entry.header.version,
-      entry.header.createdAt,
-      entry.header.cwd ?? null,
-      entry.header.parentSession ?? null,
-      entry.header.seedLength ?? null,
-      entry.header.delegationDepth ?? null,
-      entry.header.agentPreset ?? null,
+      ...headerBindings(entry.header),
       entry.fingerprint,
       persisted ? 1 : 0,
       generation,
@@ -751,6 +737,25 @@ export class SessionQuerySqlite extends SessionQueryService {
   private _isClosed(): boolean {
     return this._closed
   }
+}
+
+/**
+ * The header columns both session upserts bind, in the order their INSERT
+ * lists them. The two statements differ only in what they append after these.
+ * @param header - the session header being written.
+ * @returns one bound value per header column.
+ */
+function headerBindings(header: SessionHeader): (string | number | null)[] {
+  return [
+    header.id,
+    header.version,
+    header.createdAt,
+    header.cwd ?? null,
+    header.parentSession ?? null,
+    header.seedLength ?? null,
+    header.delegationDepth ?? null,
+    header.agentPreset ?? null,
+  ]
 }
 
 function selectedDocumentsSql(): { sql: string } {
