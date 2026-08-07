@@ -7,6 +7,7 @@ import { Context } from 'cordis'
 import { describe, expect, it, vi } from 'vitest'
 import { SlotTestRuntime } from '@deepseek-ai/dsh-client-test-runtime'
 import { ConversationService } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { ComposerBlockRegistry } from '../src/client/input/blocks.ts'
 import { InputHub } from '../src/client/input/hub.ts'
 
 async function bench() {
@@ -23,6 +24,7 @@ async function bench() {
   // factories); the bench passes its own instance explicitly.
   const fiber = runtime.ctx.plugin(ConversationService, {
     input: new InputHub(runtime.ctx),
+    blocks: new ComposerBlockRegistry(),
   })
   await fiber.await()
   const root = runtime.ctx.get('conversation') as ConversationService
@@ -86,6 +88,7 @@ describe('ConversationService', () => {
     const bare = new Context()
     await bare.plugin(ConversationService, {
       input: new InputHub(bare),
+      blocks: new ComposerBlockRegistry(),
     }).await()
     const orphan = bare.get('conversation') as ConversationService
     await expect(orphan.send('x')).rejects.toThrow(/sessions service unavailable/)

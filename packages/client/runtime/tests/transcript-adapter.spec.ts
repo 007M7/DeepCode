@@ -432,6 +432,14 @@ describe('TranscriptAdapter', () => {
       expect(adapter.nodes()[0]).toMatchObject({ kind: 'command', name: 'goal', args: ' ship it', outcome: null })
     })
 
+    it('represents command input omitted by the host as null', () => {
+      const adapter = new TranscriptAdapter()
+      adapter.reset([ev.commandRunWithoutInput(0, 'cmd-private', 'feedback')])
+      expect(adapter.nodes()[0]).toMatchObject({
+        kind: 'command', name: 'feedback', args: null, outcome: null,
+      })
+    })
+
     it('soft-falls a done-only window into a node built from the done (cross-window cut)', () => {
       const adapter = new TranscriptAdapter()
       adapter.reset([ev.commandDone(80, 'cmd-3', 'error', '失败了')])

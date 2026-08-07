@@ -91,6 +91,8 @@ function mount(
     omitSummaryRow?: boolean
     /** Classify the selected child as a subagent instead of an ordinary fork. */
     summaryOrigin?: 'subagent'
+    /** A composer block another plugin raised for this session. */
+    composerBlock?: { reason: string }
   } = {},
 ) {
   const root = sid('root')
@@ -118,9 +120,14 @@ function mount(
   const stop = vi.fn()
   const open = vi.fn()
   const slotCalls: string[] = []
+  /** Owner share handed to the two composer tool-row seats, per render. */
+  const seatOwners: { key: string; owner: unknown }[] = []
   let pickerOwner: unknown
   const renderSlot = ((key: string, owner: object, opts?: { only?: string }) => {
     slotCalls.push(key)
+    if (key === 'conversation.input.model' || key === 'conversation.input.plan') {
+      seatOwners.push({ key, owner })
+    }
     if (key === 'conversation.hero.workspace') { pickerOwner = owner; return null }
     if (key === 'conversation.session.header') {
       return (
@@ -198,7 +205,12 @@ function mount(
           stop={stop}
           command={() => Promise.resolve(true)}
           t={t}
-          renderSlot={(() => null) as InputBarProps['renderSlot']}
+          renderSlot={((key: string, seatOwner: object) => {
+            // The bar's own seats: recorded so a case can assert what share
+            // each tool-row control received.
+            seatOwners.push({ key, owner: seatOwner })
+            return null
+          }) as InputBarProps['renderSlot']}
           {...bar}
         />
       )
@@ -224,6 +236,7 @@ function mount(
     useSessions: bindSnapshotSelector(sessions),
     useWorkspaces: bindSnapshotSelector(workspaces),
     useProjection: (() => undefined),
+    useComposerBlock: select => select(options.composerBlock),
     useInput,
     inputActions,
     renderSlot,
@@ -233,7 +246,7 @@ function mount(
   }
   const view = render(<ConversationRoot {...props} />)
   return {
-    view, chat, sink, retargetWorkspace, session, slotCalls, open,
+    view, chat, sink, retargetWorkspace, session, slotCalls, seatOwners, open,
     pickerOwner: () => pickerOwner,
     rerender: () => { view.rerender(<ConversationRoot {...props} />) },
   }
@@ -248,6 +261,38 @@ describe('Hero chrome', () => {
 })
 
 describe('ConversationRoot resident composer', () => {
+  it('renders the composer inert with the blocker\u2019s own reason', () => {
+    const b = mount(conversationSnapshot(), undefined, undefined, {
+      composerBlock: { reason: 'select a model first' },
+    })
+    const box = b.view.getByRole('textbox') as HTMLTextAreaElement
+    // One disabled textarea with the blocker's placeholder, never a second
+    // tree: the DOM survives the block being raised and cleared.
+    expect(box.disabled).toBe(true)
+    expect(box.placeholder).toBe('select a model first')
+    fireEvent.keyDown(box, { key: 'Enter' })
+    expect(b.sink).not.toHaveBeenCalled()
+
+    // The model seat stays live. Locking it too would leave the composer
+    // asking for the one thing it prevents — every block this contract has is
+    // cleared by choosing a model.
+    const seat = (key: string) => b.seatOwners.filter(call => call.key === key).at(-1)?.owner
+    expect(seat('conversation.input.model')).toEqual({ locked: false })
+    expect(seat('conversation.input.plan')).toEqual({ locked: true })
+  })
+
+  it('lets the no-workspace posture win over a block', () => {
+    // Picking a workspace is the earlier prerequisite; naming a model first
+    // would send the user somewhere they cannot act yet.
+    const b = mount(conversationSnapshot({ composerPhase: 'blank' }), [], undefined, {
+      summaryBlank: true,
+      composerBlock: { reason: 'select a model first' },
+    })
+    const box = b.view.getByRole('textbox') as HTMLTextAreaElement
+    expect(box.disabled).toBe(true)
+    expect(box.placeholder).not.toBe('select a model first')
+  })
+
   it('keeps composer text in the machine, mirrors to the chat store, and submits through the sink', () => {
     const b = mount(conversationSnapshot())
     const box = b.view.getByRole('textbox')

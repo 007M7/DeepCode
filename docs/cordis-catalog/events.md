@@ -343,7 +343,7 @@ A command was registered or unregistered. This is an unfiltered registry notific
 'commands/change'(): void
 ```
 
-Source: [`packages/ui/commands/src/index.ts:154`](../../packages/ui/commands/src/index.ts)
+Source: [`packages/ui/commands/src/index.ts:161`](../../packages/ui/commands/src/index.ts)
 
 ## `credentials/*`
 
@@ -493,7 +493,7 @@ The provider topology changed: an adapter registered or unregistered routes, or 
 'llm/adapters-updated'(): void
 ```
 
-Source: [`packages/llm/llm/src/index.ts:71`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:73`](../../packages/llm/llm/src/index.ts)
 
 ### `llm/stream` — waterfall
 
@@ -517,7 +517,7 @@ Waterfall around every streaming model call (retry, replay, routing). Bound to t
 
 Types: [GenerateOptions](../core-data-structures/core.md) · [LlmService](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:60`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:62`](../../packages/llm/llm/src/index.ts)
 
 ## `session/*`
 
@@ -798,7 +798,7 @@ Source: [`packages/core/system-prompt/src/index.ts:35`](../../packages/core/syst
 
 ### `telemetry/record` — waterfall
 
-Transform one outbound record before it reaches the backend. This waterfall is the seam's redaction extension point. It ships NO rules of its own: the innermost `next()` passes the record through unchanged, and with no listener mounted records reach the backend as captured, so exported data is exactly as clean as the rules a deployment mounts. Listeners stack by transforming `next()`'s return value; returning without `next()` replaces everything beneath. Dispatched synchronously on the capture hot path inside the coordinator's containment: a throwing listener withholds that one record (fail-closed) and never reaches the agent loop. Redaction applies to the exported copy only; the canonical session log is never rewritten.
+Transform one outbound record before it reaches the backend. This waterfall is the seam's redaction extension point. It ships NO rules of its own: the innermost `next()` passes the record through unchanged, and with no listener mounted records reach the backend as captured, so exported data is exactly as clean as the rules a deployment mounts. Listeners stack by transforming `next()`'s return value; returning without `next()` replaces everything beneath. Dispatched synchronously on the capture hot path inside the coordinator's containment: a throwing listener withholds that one record (fail-closed) and never reaches the agent loop. Live capture dispatches at append time; on-demand capture dispatches while reading the canonical log. Redaction applies to the exported copy only; the canonical session log is never rewritten.
 
 ```ts cordis-catalog
 /**
@@ -812,8 +812,9 @@ Transform one outbound record before it reaches the backend. This waterfall is t
  * `next()` replaces everything beneath. Dispatched synchronously on the
  * capture hot path inside the coordinator's containment: a throwing
  * listener withholds that one record (fail-closed) and never reaches the
- * agent loop. Redaction applies to the exported copy only; the canonical
- * session log is never rewritten.
+ * agent loop. Live capture dispatches at append time; on-demand capture
+ * dispatches while reading the canonical log. Redaction applies to the
+ * exported copy only; the canonical session log is never rewritten.
  * @param record - the candidate record, already the coordinator's own deep
  *   copy; listeners return a (possibly new) record and must not mutate it.
  * @mode waterfall
@@ -821,7 +822,7 @@ Transform one outbound record before it reaches the backend. This waterfall is t
 'telemetry/record'(record: TelemetryRecord, next: () => TelemetryRecord): TelemetryRecord
 ```
 
-Source: [`packages/telemetry/session-telemetry/src/index.ts:41`](../../packages/telemetry/session-telemetry/src/index.ts)
+Source: [`packages/telemetry/session-telemetry/src/index.ts:43`](../../packages/telemetry/session-telemetry/src/index.ts)
 
 ## `tools/*`
 

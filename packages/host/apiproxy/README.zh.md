@@ -2,7 +2,19 @@
 
 [English](README.md) | 中文
 
-所有客户端形态共用的 API 网关：TS 契约（`src/api/`，不依赖 Node，可从浏览器导入）、fetch 载体对（`src/fetch/`：宿主侧的 `toFetchHandler`，以及客户端侧的 `AbstractApiClient` 与平台子类）和宿主侧实现（`src/api-proxy.ts`：`createApiProxy` 加上默认导出的 `ApiProxyService` 网关插件，其配置为 `{provider, model, workspaceRoot?}`，提供 `ctx.apiProxy`）。该包在设计上与传输方式无关，不注册任何路由；HTTP 等载体自行包装 `ctx.apiProxy`。已发布的核心组合位于 [`packages/bundle/base/cordis.patch.yml`](../../bundle/base/cordis.patch.yml)。
+所有客户端形态共用的 API 网关：TS 契约（`src/api/`，不依赖 Node，可从浏览器导入）、fetch 载体对（`src/fetch/`：宿主侧的 `toFetchHandler`，以及客户端侧的 `AbstractApiClient` 与平台子类）和宿主侧实现（`src/api-proxy.ts`：`createApiProxy` 加上默认导出的 `ApiProxyService` 网关插件，其配置为 `{provider, model, reasoningEffort?, workspaceRoot?}`，提供 `ctx.apiProxy`）。该包在设计上与传输方式无关，不注册任何路由；HTTP 等载体自行包装 `ctx.apiProxy`。已发布的核心组合位于 [`packages/bundle/base/cordis.patch.yml`](../../bundle/base/cordis.patch.yml)。
+
+## 默认路由（`api-gateway` 设置段）
+
+`{provider, model, reasoningEffort?}` 同时是网关的用户设置段，注册在 `api-gateway` 之下：组合条目是 `base` 层，`settings.yaml` 把用户自己的选择叠加其上。`workspaceRoot` 刻意不在段内——它是启动器事实，不是偏好。
+
+会话按三级解析自己的路由，且每次读取都重新解析，而不是只在创建时种一次：本进程内的显式选择，其次是该会话自己最新记录的 `request/header`，最后才是这个默认值。重新解析正是让两个方向都成立的原因——已经跑过一轮的会话此后永远从自己的日志推导路由，改默认值不会重定向它；而仍然空白的会话（新建会话会复用一个，而不是再开一个）则会用上它创建之后才保存的默认值。
+
+`session.selectModel` 会把被接受的切换记录为新的默认值，实践中默认值就是这样选定的，没有另一个单独的手势。它存下来的是**解析后**的目标，因此适配器实体化出来的默认推理等级会按用户当时看到的样子钉住，日后适配器改了自己的默认值也不会悄悄移动已存的默认路由。写入是整段替换而非合并，因为切到一个不支持推理的模型必须清掉已存的等级；存储失败只记日志，不会撤销这次切换——它对自己所在的会话已经生效。没有设置提供方的部署保留组合条目，切换只停留在进程内。
+
+设置段里的 `reasoningEffort` 在插件配置中刻意没有对应字段：seam 是按字段把用户层合并到组合条目之上的，缺席的键覆盖不了存在的键，因此组合层设的推理等级会在此后每一次切到不支持推理的模型时继续存活。推理等级的部署级默认值属于适配器 profile，那里是按模型解析的。
+
+存下来的路由不做注册表校验，两个方向都不做。默认值指向一个已在模型页删除的路由时，它照样作为会话的 `current` 送到 `session.models`——匹配不到任何已公布的分组，而这恰恰是让选择器提示重新选择、而不是显示一个部署根本够不着的模型的原因。静默修复它还会破坏刻意保留的反面情形：适配器可以服务一个自己目录未公布的模型。
 
 ## 契约层（`/api`）
 
@@ -20,7 +32,7 @@
 
 `session.fork` 将可选事件锚点映射到该锚点处或其后的首个 `turn/end`，使消息操作可包含该消息所在的完整轮次。锚点省略或超过末尾时，选择最后一个已完成轮次；若锚点已在日志中，而其所在轮次仍开放，则返回 `fork-unavailable`，不会向较早位置裁剪。发布后的子会话会先继承源会话的种子历史、cwd、日志中最新的提供方／模型／推理（reasoning）目标及谱系，再加入源 Workspace。如果附加到 Workspace 失败，`workspace-attach-failed` 会携带已发布的子会话 id，供客户端对账。[SessionStore fork 决策](../../../.agents/notes/implemented/feature/2026-06-30-session-store-fork-api.md)给出边界设计的理由。
 
-会话模型路由属于会话领域契约。`session.models` 将选中的提供方／模型／推理目标，与按提供方分组的建议性模型、精确路由推理元数据和逐提供方查询失败记录分开返回。当前目标可能不在这些分组中，也绝不会作为合成行注入；客户端可以提示用户选择替代目标，而无需把目录变成路由白名单。`session.selectModel` 校验由适配器持有的可选推理强度，并替换将在下一提示词组装边界使用的完整目标。目录成员关系不构成校验：适配器可以解析未列出的模型，而不可用路由或不受支持的推理强度会返回 `model-unavailable`。
+会话模型路由属于会话领域契约。`session.models` 将选中的提供方／模型／推理目标，与按提供方分组的建议性模型、精确路由推理元数据和逐提供方查询失败记录分开返回。当前目标可能不在这些分组中，也绝不会作为合成行注入；客户端可以提示用户选择替代目标，而无需把目录变成路由白名单。`session.selectModel` 校验由适配器持有的可选推理强度，并替换将在下一提示词组装边界使用的完整目标。目录成员关系不构成校验：适配器可以解析未列出的模型，而不可用路由或不受支持的推理强度会返回 `model-unavailable`。`session.models` 还会报告 `routable`：当前目标的路由是否有适配器在服务。这一点刻意不由分组推导——一条仍在服务、只是不再公布该模型的路由不在分组里，却完全可用；而适配器已经消失的路由什么都服务不了。`session.prompt` 依据同一个事实以 `model-unavailable` 拒绝，而不是把整条 pre-step 路径走完再在适配器内部失败；客户端禁用输入框只是提示性设计，这个方法始终可被调用。
 
 待处理的 queued 输入属于实时控制平面契约，而非对话历史。网关根据持久 `agent/inbox/spliced` 变更派生完整的 `next-turn` 队列，并在每次变更后及重连时广播权威 `session/queue` 快照；待处理的 `next-step` steering（中途引导）不进入此 Web 投影。在 `next-step` 内，用户来源的消息携带 `steering` placement，而注入上下文（审批通知、任务完成、附加快照）携带 `context`，领取前不对外呈现。面向单条消息的 `agent/inbox/inserted`、`claimed` 与 `discarded` 通知仍供生命周期观察方使用，但不用于构建队列视图。`session.updateQueue` 通过 `MessageId` 寻址单个项；编辑和移除经已挂载 Agent 的 `Inbox.splice()` 修改队列。claim 的纯删除 splice 会在 pre-step 准入前赢得竞态，因此之后的操作返回 `queue-item-not-found`。`session.cancel` 仅中止活动轮次并保留待处理 inbox 工作；取消达到完全停稳且结束中的轮次完成 flush 后，AgentLoop 按 FIFO 顺序认领下一条可唤醒消息，浏览器绝不重发或提升它。队列操作绝不恢复冷会话，客户端也绝不根据轮次或状态事件推断某项已退出队列。
 
@@ -32,7 +44,7 @@ Workspace 列表与 Session 列表是相互独立的重连基线。`workspace.cr
 
 目录选择委托给组合的 `ctx.directoryPicker` 后端（[目录选择 seam](../directory-picker/README.md)）；调用组合能力 kind 之外的方法会以 `directory-picker-unavailable` 失败（客户端不需要广播——组合的选择器包自己的 client half 渲染匹配的交互）。在 `native` 下，`host.pickDirectory` 打开一个原生选择器并返回选中路径（取消为 `null`）；该方法需等待用户完成操作，不使用默认的 30 秒一元调用超时，而调用方与连接的中止仍会传播至原生进程。在 `browse` 下，`host.listDirectory` 返回一个按名称排序的目录层级，携带面包屑祖先链、`home` 锚点与宿主判定的 `hidden` 标志（不带路径即家目录），`host.createDirectory` 创建一个经校验的子段；后端的类型化失败 1:1 映射为 `directory-unreadable`／`directory-exists`／`directory-create-failed` 错误码。浏览器载体的前缀级信任栅栏（dsh-client-connection）像覆盖其他所有 `/api` 请求一样覆盖上述全部方法。
 
-`host.openPath` 会用操作系统的默认应用打开一个文件系统路径（macOS 为 `open`，Windows 为 `Invoke-Item`，Linux 为 `xdg-open`）。浏览器载体对其施加与 `host.pickDirectory` 相同的回环、同源限制。
+`host.openPath` 会用操作系统的默认应用打开一个文件系统路径（macOS 为 `open`，Windows 为 `Invoke-Item`，桌面 Linux 为 `xdg-open`）。对于 `.html`、`.htm`、`.xhtml` 与 `.svg`，macOS 和桌面 Linux 会优先使用能够确定的默认浏览器；无法确定时回退到上述应用交接。WSL 会通过 `wslpath -w` 转换每个 Linux 路径，并将所得 Windows/UNC 路径交给 Windows `Invoke-Item`，浏览器可渲染的文档也不例外，而非假定存在 Linux 桌面文件关联。浏览器载体对其施加与 `host.pickDirectory` 相同的回环、同源限制。
 
 `command.*` 与 `skill.*` 领域向客户端暴露宿主命令注册表和技能目录。每个方法都通过 `sessionId` 寻址一个会话的 Agent（被服务的会话必有 Agent；`command.*` 经由与 `session.*` 相同的路径恢复冷会话，而 `skill.list` 从会话头解析项目根目录，不触碰 Agent 注册表）。`skill.list` 服务于浏览器中由用户选择的模型引用路径，因此仅返回模型和用户均可调用的 skill；该领域没有直接加载 skill 的 RPC。`command.execute` 在宿主侧运行一条斜杠命令行，语义为纯准入：响应报告该行是否解析到处理器，并在解析到时回带铸造的生命周期 `commandId`（将本次确认与流节点关联）；结局经由持久落账并在 mux 流广播的 `command/run`/`command/done` 生命周期事件对承载。命令处理器运行超过 30 秒的传输健康时限仍属正常，因此 `command.execute` 仅携带调用方／连接取消信号；该信号可取消正在运行的处理器。`host/commands-changed` 是目录失效帧：客户端重新拉取 `command.list` 而不是做差分。
 

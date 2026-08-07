@@ -41,6 +41,7 @@
     "@deepseek-ai/dsh-bash-env": "workspace:^",
     "@deepseek-ai/dsh-bash-sandbox": "workspace:^",
     "@deepseek-ai/dsh-command-compact": "workspace:^",
+    "@deepseek-ai/dsh-command-feedback": "workspace:^",
     "@deepseek-ai/dsh-command-goal": "workspace:^",
     "@deepseek-ai/dsh-commands": "workspace:^",
     "@deepseek-ai/dsh-compact-basic": "workspace:^",

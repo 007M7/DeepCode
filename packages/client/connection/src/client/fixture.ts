@@ -689,9 +689,9 @@ function viewFor(event: SessionEvent, log: readonly SessionEvent[]): ToolEventVi
 
 /**
  * Fixture parallel of the plan unit's double-event fold: `command/run`
- * records named `plan` set the wanted target (`off` → false, else true);
- * `plan/mode` commits and clears it. `wanted` is exposed for the prompt
- * boundary (the fixture's step/start parallel).
+ * records named `plan` with recorded input set the wanted target (`off` →
+ * false, else true); `plan/mode` commits and clears it. `wanted` is exposed
+ * for the prompt boundary (the fixture's step/start parallel).
  */
 function foldPlan(log: readonly SessionEvent[]): { active: boolean; pending: boolean; wanted: boolean | null } {
   let active = false
@@ -700,7 +700,8 @@ function foldPlan(log: readonly SessionEvent[]): { active: boolean; pending: boo
     const item = event as unknown as { type: string; data?: Record<string, unknown> }
     if (item.type === 'command/run' && item.data?.['name'] === 'plan') {
       const args = item.data['args']
-      wanted = (typeof args === 'string' ? args : '').trim() !== 'off'
+      if (typeof args !== 'string') continue
+      wanted = args.trim() !== 'off'
     } else if (item.type === 'plan/mode') {
       active = item.data?.['active'] === true
       wanted = null
@@ -1007,9 +1008,11 @@ function projectionFramesOf(id: SessionId, log: readonly SessionEvent[], event: 
       seq: event.seq,
     }]
   }
-  // The plan unit advances on its two folded event kinds.
+  // The plan unit advances on its two folded event kinds when the command
+  // lifecycle contains the input that represents a plan selection.
+  const commandData = event as unknown as { data: { name?: string; args?: unknown } }
   if (type === 'plan/mode' || (type === 'command/run'
-    && (event as unknown as { data: { name?: string } }).data.name === 'plan')) {
+    && commandData.data.name === 'plan' && typeof commandData.data.args === 'string')) {
     return [{
       type: 'session/projection',
       sessionId: id,
@@ -1975,6 +1978,9 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
       models: request => ok(request, {
         current: modelTargets.get(request.payload.sessionId)
           ?? { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+        // The fixture's routes all serve; a surface exercising the blocked
+        // posture drives it through its own stub.
+        routable: true,
         groups: fixtureModelGroups(),
         failures: [],
       }),
@@ -2500,8 +2506,11 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
       providers: request => ok(request, {
         providers: [
           { provider: 'deepseek-official', displayName: 'DeepSeek', settingsNs: 'llm-deepseek', settingsPath: [], active: true },
-          { provider: 'openai', displayName: 'openai', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai'], active: true },
-          { provider: 'anthropic', displayName: 'anthropic', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'anthropic'], active: false },
+          { provider: 'openai', displayName: 'openai', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai'], active: true, declared: false },
+          { provider: 'anthropic', displayName: 'anthropic', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'anthropic'], active: false, declared: false },
+          // One hand-declared route, so a surface reading this fixture meets
+          // the tagged shape rather than only the shipped one.
+          { provider: 'acme-gateway', displayName: 'Acme Gateway', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'acme-gateway'], active: true, declared: true },
         ],
       }),
       models: request => ok(request, { groups: fixtureModelGroups(), failures: [] }),

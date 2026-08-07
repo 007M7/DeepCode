@@ -23,7 +23,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
 import clsx from 'clsx'
 import {
-  CodeBlock, DiffBlock, ReadBlock, SearchBlock, StateDot, TerminalBlock, WebBlock,
+  CodeBlock, DiffBlock, IconInspectOutline12, ReadBlock, SearchBlock, StateDot, TerminalBlock, WebBlock,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { WebBlockProps } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
@@ -105,15 +105,6 @@ export interface ToolRowProps {
    * identity, like Think).
    */
   inspect?: (() => void) | undefined
-}
-
-/** The Inspect pill's code glyph (user-supplied 16×16), fill follows text color. */
-function IconInspect() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
-      <path d="M16 8L10.8571 12V10.552L14.1383 8L10.8571 5.448V4L16 8ZM5.14286 10.552L1.86171 8L5.14286 5.448V4L0 8L5.14286 12V10.552ZM9.02514 4L5.59657 12H6.84057L10.2691 4H9.02514Z" fill="currentColor" />
-    </svg>
-  )
 }
 
 /** Leading-slot state substitution: the tool icon yields to the terminal state
@@ -332,7 +323,7 @@ export function ToolRow({
               className={css.inspectButton}
               onClick={inspect}
             >
-              <IconInspect />
+              <IconInspectOutline12 />
               Inspect
             </button>
           )}

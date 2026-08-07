@@ -313,6 +313,15 @@ interface LlmConfigurableProvider {
    * object; empty when the whole section is the profile.
    */
   settingsPath: readonly string[]
+  /**
+   * Whether the owning adapter knows this route only because configuration
+   * declared it — a gateway or self-hosted server it ships nothing about.
+   * Absent means the adapter draws no such distinction; false means it does
+   * and this route is one of its own. Only the adapter can answer: a stored
+   * profile is how a user-added route AND a corrected shipped one both look
+   * from outside.
+   */
+  declared?: boolean
 }
 ```
 

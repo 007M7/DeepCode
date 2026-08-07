@@ -43,7 +43,7 @@
  */
 
 import type { Context } from 'cordis'
-import { LlmError } from '@deepseek-ai/dsh-llm'
+import { assertUsableApiKey, LlmError } from '@deepseek-ai/dsh-llm'
 import type { AdapterRegistrationHandle, DirectoryRegistrationHandle, LlmConfigurableProvider } from '@deepseek-ai/dsh-llm'
 import { deepEqualJson, installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { PiAiAdapter } from './adapter.ts'
@@ -92,11 +92,21 @@ function registrationFacts(profiles: ReadonlyMap<string, ResolvedPiAiProviderPro
 function directoryEntries(
   profiles: ReadonlyMap<string, ResolvedPiAiProviderProfile>,
 ): LlmConfigurableProvider[] {
+  const catalog = new Set(catalogProviderIds())
   const entries = new Map<string, LlmConfigurableProvider>()
   const declare = (provider: string, displayName: string): void => {
-    entries.set(provider, { provider, displayName, settingsNs: NS, settingsPath: ['providers', provider] })
+    entries.set(provider, {
+      provider,
+      displayName,
+      settingsNs: NS,
+      settingsPath: ['providers', provider],
+      // Membership of the installed catalog, not of the settings document:
+      // narrowing a shipped provider's models stores a profile too, and that
+      // route is still one pi-ai knows.
+      declared: !catalog.has(provider),
+    })
   }
-  for (const provider of catalogProviderIds()) declare(provider, provider)
+  for (const provider of catalog) declare(provider, provider)
   for (const [provider, profile] of profiles) declare(provider, profile.displayName)
   return [...entries.values()]
 }
@@ -145,7 +155,7 @@ export function apply(ctx: Context, config: Config): void {
       // Without the seam, read exactly the named variable so a plain
       // cordis.yml composition works from the environment alone.
       : process.env[ref]
-    if (hit !== undefined && hit.length > 0) return hit
+    if (hit !== undefined && hit.length > 0) return assertUsableApiKey(hit, 'llm-pi-ai', ref)
     throw new LlmError(
       `llm-pi-ai: no credential for provider route "${provider}"; its profile resolves ${ref}, which is not`
       + ` set — store ${ref} through the credentials service (the web Models page writes it) or export it,`

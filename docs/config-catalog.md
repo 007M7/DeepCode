@@ -577,9 +577,20 @@ Source: [`packages/hooks/hooks-codex/src/index.ts:44`](../packages/hooks/hooks-c
 Requires: `agents` · `directoryPicker` · `llm` · `sessions` · `subagents` · `sessionQuery` · `tools` · `userInteraction` · `workspace`
 
 ```ts config-catalog
-/** Gateway plugin config: host-level agent routing and Workspace creation root. */
+/**
+ * Gateway plugin config: host-level agent routing and Workspace creation root.
+ *
+ * `reasoningEffort` is deliberately absent, so the section carries one field
+ * the composition cannot. The seam resolves a section by MERGING the user
+ * layer over the composition entry per field, and an absent key cannot
+ * override a present one — so a composition-set effort would survive every
+ * later switch to a model that has none, and strand it for the next session
+ * to fail on. Effort is a per-model fact anyway: a deployment default belongs
+ * on the adapter profile (`llm-pi-ai`'s `reasoning`, `llm-deepseek`'s own),
+ * which resolves per model rather than per gateway.
+ */
 export interface Config {
-  /** Default provider route for created/resumed agents. */
+  /** Default provider route for created agents. */
   provider: string
   /** Default model id. */
   model: string
@@ -588,7 +599,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/host/apiproxy/src/index.ts:33`](../packages/host/apiproxy/src/index.ts)
+Source: [`packages/host/apiproxy/src/index.ts:67`](../packages/host/apiproxy/src/index.ts)
 
 ## `@deepseek-ai/dsh-host-directory-picker-browse`
 
@@ -669,8 +680,11 @@ Requires: `llm`
  */
 export interface Config {
   /**
-   * Trimmed literal API key; whitespace-only is absent. Prefer
-   * {@link apiKeyEnv} to keep secrets out of configuration files.
+   * Trimmed literal API key; whitespace-only is absent, so it resolves through
+   * {@link apiKeyEnv} like an omitted one. Prefer {@link apiKeyEnv} to keep
+   * secrets out of configuration files. {@link resolveAdapterOptions} also
+   * format-checks what remains: a value no HTTP header can carry fails there
+   * rather than inside `fetch`.
    */
   apiKey?: string
   /** Credential reference (environment-variable name) resolved per request; defaults to `DEEPSEEK_API_KEY`. */
@@ -729,7 +743,11 @@ export interface Config {
 
 /** Configuration for one pi-ai provider route; the `providers` dict key IS the route. */
 export interface PiAiProviderProfile {
-  /** Literal provider credential; prefer {@link apiKeyEnv}. With both absent pi-ai uses its provider-native ambient discovery. */
+  /**
+   * Literal provider credential; prefer {@link apiKeyEnv}. With both absent pi-ai uses its
+   * provider-native ambient discovery. Trimmed and format-checked by {@link resolveProfiles}; a
+   * value no HTTP header can carry fails there rather than inside `fetch`.
+   */
   apiKey?: string
   /** Credential reference (environment-variable name) resolved per request through `ctx.credentials`. */
   apiKeyEnv?: string
@@ -801,7 +819,7 @@ export interface PiAiModelProfile {
 
 Depends on: `CacheRetention` (`@earendil-works/pi-ai`) · `ModelThinkingLevel` (`@earendil-works/pi-ai`) · [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts) · `ThinkingBudgets` (`@earendil-works/pi-ai`) · `Transport` (`@earendil-works/pi-ai`)
 
-Source: [`packages/llm/llm-pi-ai/src/config.ts:122`](../packages/llm/llm-pi-ai/src/config.ts)
+Source: [`packages/llm/llm-pi-ai/src/config.ts:126`](../packages/llm/llm-pi-ai/src/config.ts)
 
 ## `@deepseek-ai/dsh-llm-replay`
 
@@ -1343,11 +1361,13 @@ Requires: `sessions`
 
 ```ts config-catalog
 /**
- * Plugin configuration: two verbatim SDK option shapes plus one DSH-owned
- * shutdown bound. The package validates its endpoint and shutdown deadline
- * because both must fail at plugin load rather than at first export or exit.
+ * Plugin configuration: one sharing policy, two verbatim SDK option shapes,
+ * and one DSH-owned shutdown bound. Uploading modes validate their endpoint
+ * and shutdown deadline at plugin load; `DISABLED` reads neither.
  */
 export interface Config {
+  /** Sharing policy; defaults to immediate `FULL` delivery. */
+  mode?: TelemetryMode
   /**
    * Passed verbatim to the SDK's OTLP/HTTP log exporter — the complete
    * `OTLPExporterNodeConfigBase` shape (`headers`, `timeoutMillis`,
@@ -1355,7 +1375,7 @@ export interface Config {
    * is the one field this package requires and validates itself.
    */
   exporter?: OTLPExporterNodeConfigBase & {
-    /** Full logs endpoint (e.g. `https://collector.example.com/v1/logs`). Required; validated at plugin load. */
+    /** Full logs endpoint (e.g. `https://collector.example.com/v1/logs`). Required outside `DISABLED`; validated at load. */
     url?: string
   }
   /**
@@ -1366,11 +1386,18 @@ export interface Config {
   /** Maximum time spent awaiting the SDK provider's complete shutdown path. */
   shutdownTimeoutMillis?: number
 }
+
+/** Session-sharing policy selected by {@link Config.mode}. */
+export enum TelemetryMode {
+  FULL = 'FULL',
+  FEEDBACK_ONLY = 'FEEDBACK_ONLY',
+  DISABLED = 'DISABLED',
+}
 ```
 
 Depends on: `BatchLogRecordProcessorOptions` (`@opentelemetry/sdk-logs`) · `OTLPExporterNodeConfigBase` (`@opentelemetry/otlp-exporter-base`)
 
-Source: [`packages/telemetry/session-telemetry-otel/src/index.ts:41`](../packages/telemetry/session-telemetry-otel/src/index.ts)
+Source: [`packages/telemetry/session-telemetry-otel/src/index.ts:80`](../packages/telemetry/session-telemetry-otel/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-title`
 
@@ -2498,6 +2525,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-client-runtime` ([`packages/client/runtime/src/index.ts`](../packages/client/runtime/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-command` ([`packages/client/ui-command/src/index.ts`](../packages/client/ui-command/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-conversation` ([`packages/client/ui-conversation/src/index.ts`](../packages/client/ui-conversation/src/index.ts))
+- `@deepseek-ai/dsh-client-ui-deliverables` ([`packages/client/ui-deliverables/src/index.ts`](../packages/client/ui-deliverables/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-goal` ([`packages/client/ui-goal/src/index.ts`](../packages/client/ui-goal/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-layout` ([`packages/client/ui-layout/src/index.ts`](../packages/client/ui-layout/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-model` ([`packages/client/ui-model/src/index.ts`](../packages/client/ui-model/src/index.ts))
@@ -2515,6 +2543,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-client-ui-trajectory` ([`packages/client/ui-trajectory/src/index.ts`](../packages/client/ui-trajectory/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-workspace` ([`packages/client/ui-workspace/src/index.ts`](../packages/client/ui-workspace/src/index.ts))
 - `@deepseek-ai/dsh-command-compact` — requires `commands` · `compact` ([`packages/compact/command-compact/src/index.ts`](../packages/compact/command-compact/src/index.ts))
+- `@deepseek-ai/dsh-command-feedback` — requires `commands` ([`packages/feedback/command-feedback/src/index.ts`](../packages/feedback/command-feedback/src/index.ts))
 - `@deepseek-ai/dsh-command-goal` — requires `commands` · `goals` ([`packages/goal/command-goal/src/index.ts`](../packages/goal/command-goal/src/index.ts))
 - `@deepseek-ai/dsh-commands` ([`packages/ui/commands/src/index.ts`](../packages/ui/commands/src/index.ts))
 - `@deepseek-ai/dsh-fs-policy` ([`packages/fs/fs-policy/src/index.ts`](../packages/fs/fs-policy/src/index.ts))
