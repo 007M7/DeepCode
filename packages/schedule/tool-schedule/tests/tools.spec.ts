@@ -95,7 +95,7 @@ function appendRequestContext(agent: Agent, clientTimeZones: readonly string[]):
   for (const [index, clientTimeZone] of clientTimeZones.entries()) {
     agent.session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: `request ${index + 1}` }],
-      source: { kind: 'user', clientTimeZone } as never,
+      source: { kind: 'user', rpcId: `request-zone-${String(index + 1)}`, clientTimeZone } as never,
     }), { surfaceOp: 'append' })
   }
   const text = 'time context'
@@ -273,7 +273,7 @@ describe('Schedule tool protocol', () => {
     unmarked.agent.session.append('step/start', { turn: 1, step: 1 })
     unmarked.agent.session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'request without time reading' }],
-      source: { kind: 'user', clientTimeZone: 'Asia/Shanghai' } as never,
+      source: { kind: 'user', rpcId: 'unmarked-request', clientTimeZone: 'Asia/Shanghai' } as never,
     }), { surfaceOp: 'append' })
     expect(value(await execute(unmarked, 'schedule_create', {
       prompt: 'unmarked', at: { date: '2026-08-06', time: '09:00:00' },
@@ -365,7 +365,7 @@ describe('Schedule tool protocol', () => {
     test.agent.session.append('step/start', { turn: 1, step: 1 })
     test.agent.session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'request' }],
-      source: { kind: 'user', clientTimeZone: 'Asia/Shanghai' } as never,
+      source: { kind: 'user', rpcId: 'array-like-request', clientTimeZone: 'Asia/Shanghai' } as never,
     }), { surfaceOp: 'append' })
     const text = 'time context'
     test.agent.session.append('user/message', createUserMessage({
@@ -400,7 +400,7 @@ describe('Schedule tool protocol', () => {
       test.agent.session.append('step/start', { turn: 1, step: 1 })
       test.agent.session.append('user/message', createUserMessage({
         content: [{ type: 'text', text: 'request' }],
-        source: { kind: 'user', clientTimeZone: 'Asia/Shanghai' } as never,
+        source: { kind: 'user', rpcId: 'malformed-marker-request', clientTimeZone: 'Asia/Shanghai' } as never,
       }), { surfaceOp: 'append' })
       test.agent.session.append('user/message', createUserMessage({
         content: [block as never],

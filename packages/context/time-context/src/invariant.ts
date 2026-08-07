@@ -4,6 +4,7 @@ import type { Context } from 'cordis'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 import { deriveClientTimeZoneContext, renderTimeZoneContext } from './request-zone.ts'
+import { createTimestampFormatter, formatTimestamp } from './timestamp.ts'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-time-context'
 const SOURCE_NAME = 'time-context'
@@ -139,6 +140,22 @@ function validateReading(
   if (!Number.isFinite(renderedTime) || !Number.isSafeInteger(event.time)
     || event.time < renderedTime) {
     fail('time-context rendered timestamp must parse and not postdate its durable event')
+  }
+  const sessionTimeZone = session.header.timeZone
+  if (sessionTimeZone !== undefined) {
+    let expectedTimestamp: string
+    try {
+      expectedTimestamp = formatTimestamp(
+        renderedTime,
+        createTimestampFormatter(sessionTimeZone),
+        sessionTimeZone,
+      )
+    } catch (error: unknown) {
+      fail(`time-context Session time zone cannot format its durable timestamp: ${String(error)}`)
+    }
+    if (rendered !== expectedTimestamp) {
+      fail('time-context rendered timestamp does not match the Session time zone')
+    }
   }
 }
 

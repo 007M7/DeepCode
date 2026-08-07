@@ -11,7 +11,7 @@ function request(clientTimeZone?: unknown) {
     content: [{ type: 'text', text: 'request' }],
     source: clientTimeZone === undefined
       ? { kind: 'user' }
-      : { kind: 'user', clientTimeZone } as never,
+      : { kind: 'user', rpcId: 'request-zone', clientTimeZone } as never,
   })
 }
 
@@ -27,6 +27,10 @@ describe('request-zone derivation', () => {
       source: { kind: 'plugin', plugin: 'fixture' },
     })
     expect(deriveClientTimeZoneContext([plugin, request(), request(1)])).toEqual({ kind: 'missing' })
+    expect(deriveClientTimeZoneContext([createUserMessage({
+      content: [],
+      source: { kind: 'user', clientTimeZone: 'Asia/Shanghai' } as never,
+    })])).toEqual({ kind: 'missing' })
     expect(deriveClientTimeZoneContext([
       request('Asia/Shanghai'),
       request('Asia/Shanghai'),

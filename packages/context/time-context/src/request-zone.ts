@@ -12,6 +12,8 @@ export type ClientTimeZoneContext =
 function clientTimeZone(message: UserMessage): string | undefined {
   const source = message.source
   return source.kind === 'user'
+    && 'rpcId' in source
+    && typeof source.rpcId === 'string'
     && 'clientTimeZone' in source
     && typeof source.clientTimeZone === 'string'
     ? source.clientTimeZone

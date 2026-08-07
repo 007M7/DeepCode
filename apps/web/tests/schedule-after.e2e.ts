@@ -1,10 +1,9 @@
 // Keyless assembled-browser evidence for the opt-in Schedule overlay. A real
 // root Agent receives schedule_create through the complete tool pipeline; the
-// one-second owner path and a short explicit at target each queue a best-effort
-// followup, commit dispatch, and render the Host's durability-gated reminder
-// sidecar. No model fixture is installed: later prompt failure cannot retract
-// either receipt.
-import { mkdtemp, realpath, rm } from 'node:fs/promises'
+// one-second owner path queues a best-effort followup, commits dispatch, and
+// renders the Host's durability-gated reminder sidecar. A separate browser
+// scenario drives local at through the real zone wire and model tool call.
+import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -13,6 +12,7 @@ import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import type { AgentHandle } from '@deepseek-ai/dsh-agent'
 import { CallId, createUserMessage } from '@deepseek-ai/dsh-llm'
+import type { ReplayEntry } from '@deepseek-ai/dsh-llm-replay'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
 import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
@@ -20,7 +20,7 @@ import {
   assertFixtureInventory, captureStableAria, compareOrRefreshGolden,
   launchWebScaffold, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
-import { newEnglishPage, saveFailureShot } from './support.ts'
+import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
 import {
   ScheduleId,
   createAfterScheduleRecord,
@@ -177,58 +177,167 @@ describe.skipIf(MODE === 'record')('web e2e: durable after reminder receipt', ()
     expect(tripwire.warnings).toEqual([])
   }, 60_000)
 
-  it('renders a short explicit at reminder through the same durable Web path', async () => {
-    onTestFailed(() => saveFailureShot(page, 'web-e2e-schedule-at'))
-    await waitForFact(() => agentHandle.agent.status === 'idle', 10_000)
-    const scheduledAt = new Date(Date.now() + 3_000).toISOString()
-    const created = await scaffold.ctx.tools.execute({
-      signal: AbortSignal.timeout(10_000),
-      callId: CallId('schedule-at-create'),
-      name: 'schedule_create',
-      arguments: { prompt: AT_PROMPT, at: scheduledAt },
-      agent: agentHandle.agent,
-    })
-    expect(created.isError).toBe(false)
-    if (created.isError) throw new Error(created.error.message)
-    const value = created.value as unknown as CreatedScheduleView
-    expect(value).toMatchObject({
-      kind: 'at',
-      scheduledAt,
-      deliveryMode: 'session-local',
-    })
-    expect(value.id.length).toBeGreaterThan(0)
+  it('keeps the fixture inventory closed', async () => {
+    await assertFixtureInventory(SNAPSHOT_DIR, ['at-receipt.expected.md', 'receipt.expected.md'])
+  })
+})
 
-    await waitForFact(() => agentHandle.agent.session.events.some(event =>
+describe.skipIf(MODE === 'record')('web e2e: browser-zone local at reminder', () => {
+  let scaffold: WebScaffold
+  let browser: Browser
+  let page: Page
+  let tripwire: ReturnType<typeof watchConsole>
+  let replayDir: string
+  let scheduledAt: string
+
+  beforeAll(async () => {
+    replayDir = await mkdtemp(join(tmpdir(), 'dsh-schedule-at-wire-replay-'))
+    const replayOverride = join(replayDir, 'replay.override.json')
+    const target = Math.ceil((Date.now() + 30_000) / 1_000) * 1_000
+    scheduledAt = new Date(target).toISOString()
+    const args = JSON.stringify({
+      prompt: AT_PROMPT,
+      at: { date: scheduledAt.slice(0, 10), time: scheduledAt.slice(11, 19) },
+    })
+    const callId = CallId('schedule-at-wire-call')
+    const toolCall: ReplayEntry = {
+      kind: 'chunks',
+      chunks: [
+        { type: 'block-start', index: 0, blockType: 'tool-call' },
+        {
+          type: 'tool-call-delta',
+          index: 0,
+          id: callId,
+          name: 'schedule_create',
+          argumentsDelta: args,
+        },
+        {
+          type: 'block-end',
+          index: 0,
+          block: { type: 'tool-call', id: callId, name: 'schedule_create', arguments: args },
+        },
+        { type: 'usage', usage: { inputTokens: 256, outputTokens: 32 } },
+        { type: 'finish', reason: { kind: 'tool-calls' } },
+      ],
+    }
+    const textReply = (text: string): ReplayEntry => ({
+      kind: 'chunks',
+      chunks: [
+        { type: 'block-start', index: 0, blockType: 'text' },
+        { type: 'text-delta', index: 0, text },
+        { type: 'block-end', index: 0, block: { type: 'text', text } },
+        { type: 'usage', usage: { inputTokens: 128, outputTokens: 16 } },
+        { type: 'finish', reason: { kind: 'stop' } },
+      ],
+    })
+    await writeFile(replayOverride, JSON.stringify([
+      toolCall,
+      textReply('The zone-aware reminder is scheduled.'),
+      textReply('The zone-aware reminder is due.'),
+    ] satisfies ReplayEntry[]))
+    scaffold = await launchWebScaffold({
+      extraOverlayPath: OVERLAY,
+      replayFixture: join(replayDir, 'override-only.jsonl'),
+      replayOverride,
+      replayContextWindow: 128_000,
+    })
+    browser = await chromium.launch()
+    page = await browser.newPage({
+      viewport: { width: 1680, height: 1000 },
+      locale: 'en-US',
+      timezoneId: SESSION_TIME_ZONE,
+    })
+    await page.addInitScript(() => { localStorage.setItem('dsh.locale', 'en') })
+    tripwire = watchConsole(page)
+    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+    await connectFreshWorkspace(page, scaffold.workspaceCwd, 'schedule-at-wire-e2e')
+  }, 120_000)
+
+  afterAll(async () => {
+    const failures: unknown[] = []
+    await browser?.close().catch((error: unknown) => failures.push(error))
+    await scaffold?.close().catch((error: unknown) => failures.push(error))
+    await rm(replayDir, { recursive: true, force: true }).catch((error: unknown) => failures.push(error))
+    if (failures.length === 1) throw failures[0]
+    if (failures.length > 1) throw new AggregateError(failures, 'Schedule at wire evidence teardown failed')
+  })
+
+  it('carries the browser zone through prompt context, local at, and the durable receipt', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-schedule-at-wire'))
+    const composer = page.locator('textarea:enabled').last()
+    await composer.fill('Schedule the release-window reminder in my local time.')
+    const settled = scaffold.whenTurnSettled(60_000)
+    await page.getByRole('button', { name: 'Send message', exact: true }).click()
+    const sessionId = await settled
+    const agent = scaffold.ctx.agents.get(sessionId)
+    if (agent === undefined) throw new Error('browser-created Schedule Session has no live Agent')
+    expect(agent.session.header.timeZone).toBe(SESSION_TIME_ZONE)
+
+    const request = agent.session.events.find(event =>
+      event.type === 'user/message'
+      && event.data.source.kind === 'user'
+      && event.data.content.some(block => block.type === 'text'
+        && block.text === 'Schedule the release-window reminder in my local time.'))
+    if (request?.type !== 'user/message' || request.data.source.kind !== 'user') {
+      throw new Error('missing browser user-rpc message')
+    }
+    expect(request.data.source).toMatchObject({
+      kind: 'user',
+      clientTimeZone: SESSION_TIME_ZONE,
+    })
+    expect(typeof (request.data.source as { rpcId?: unknown }).rpcId).toBe('string')
+
+    const timeContextIndex = agent.session.events.findIndex(event =>
+      event.type === 'user/message'
+      && event.data.source.kind === 'plugin'
+      && event.data.source.plugin === 'time-context'
+      && event.data.content.some(block => block.type === 'text'
+        && block.text.includes('Session time zone: UTC.')
+        && block.text.includes('Client time zone for this request: UTC.')))
+    const toolCallIndex = agent.session.events.findIndex(event =>
+      event.type === 'tool/call' && event.data.name === 'schedule_create')
+    expect(timeContextIndex).toBeGreaterThanOrEqual(0)
+    expect(toolCallIndex).toBeGreaterThan(timeContextIndex)
+
+    const created = agent.session.events.find(event =>
       event.type === 'schedule/change'
-      && (event.data as { operation?: unknown; id?: unknown }).operation === 'dispatch'
-      && (event.data as { id?: unknown }).id === value.id), 15_000)
-    await expect(scaffold.ctx.sessions.flush(agentHandle.agent.session)).resolves.toBe(true)
+      && event.data.operation === 'create'
+      && event.data.schedule.kind === 'at'
+      && event.data.schedule.scheduledAt === scheduledAt)
+    if (created?.type !== 'schedule/change' || created.data.operation !== 'create') {
+      throw new Error('local at tool call did not create its durable record')
+    }
+    const scheduleId = created.data.schedule.id
+    await waitForFact(() => agent.session.events.some(event =>
+      event.type === 'schedule/change'
+      && event.data.operation === 'dispatch'
+      && event.data.id === scheduleId), 45_000)
+    await agent.whenIdle()
+    await expect(scaffold.ctx.sessions.flush(agent.session)).resolves.toBe(true)
+
     const history = await scaffold.ctx.apiProxy.sessions.history({
-      rpcId: RpcId('schedule-at-history'), payload: { sessionId: agentHandle.agent.id },
+      rpcId: RpcId('schedule-at-wire-history'),
+      payload: { sessionId },
     })
     if (!history.result.ok) throw new Error(history.result.error.message)
     expect(history.result.value.events?.find(entry =>
       entry.event.type === 'schedule/change'
-      && (entry.event.data as { operation?: unknown; id?: unknown }).operation === 'dispatch'
-      && (entry.event.data as { id?: unknown }).id === value.id)?.view).toMatchObject({
-      for: 'event', presentationKey: 'schedule/reminder',
+      && entry.event.data.operation === 'dispatch'
+      && entry.event.data.id === scheduleId)?.view).toMatchObject({
+      for: 'event',
+      view: { scheduleId, prompt: AT_PROMPT, occurrenceAt: scheduledAt },
     })
 
     const receipt = page.locator(AT_RECEIPT_SELECTOR)
-    await receipt.waitFor({ timeout: 15_000 })
-    expect(await receipt.getByText(AT_PROMPT, { exact: true }).count()).toBe(1)
-    expect(await receipt.getByText('Delivered in this session only', { exact: true }).count()).toBe(1)
+    await receipt.waitFor({ timeout: 20_000 })
     const snapshot = (await captureStableAria(page, AT_RECEIPT_SELECTOR, scaffold.workspaceCwd))
-      .split(value.id).join('{{scheduleId}}')
+      .split(scheduleId).join('{{scheduleId}}')
       .replace(/\d{4}-\d{2}-\d{2}T(?:\d{2}:\d{2}:\d{2}\.\d{3}|\{\{clock\}\})Z/gu, '{{occurrenceAt}}')
     await compareOrRefreshGolden(AT_RECEIPT_EXPECTED, snapshot, MODE)
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
   }, 60_000)
-
-  it('keeps the fixture inventory closed', async () => {
-    await assertFixtureInventory(SNAPSHOT_DIR, ['at-receipt.expected.md', 'receipt.expected.md'])
-  })
 })
 
 describe.skipIf(MODE === 'record')('web e2e: Schedule restart, fork, and cold history', () => {

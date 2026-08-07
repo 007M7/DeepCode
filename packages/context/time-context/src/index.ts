@@ -14,6 +14,7 @@ import {
   deriveClientTimeZoneContext,
   renderTimeZoneContext,
 } from './request-zone.ts'
+import { createTimestampFormatter, formatTimestamp } from './timestamp.ts'
 
 export type { ClientTimeZoneContext } from './request-zone.ts'
 export { deriveClientTimeZoneContext } from './request-zone.ts'
@@ -37,17 +38,6 @@ export const Config: z<Config> = z.object({
   timeZone: z.string(),
   refreshIntervalMs: z.number(),
 })
-
-type TimestampPart = 'day' | 'hour' | 'minute' | 'month' | 'second' | 'timeZoneName' | 'year'
-
-/** Format an epoch millisecond value as an ISO-shaped timestamp with offset and IANA zone. */
-function formatTimestamp(now: number, formatter: Intl.DateTimeFormat, timeZone: string): string {
-  const parts = Object.fromEntries(
-    formatter.formatToParts(now).map(part => [part.type, part.value]),
-  ) as Record<TimestampPart, string>
-  const offset = parts.timeZoneName.replace(/^GMT$/, 'GMT+00:00').slice(3)
-  return `${parts['year']}-${parts['month']}-${parts['day']}T${parts['hour']}:${parts['minute']}:${parts['second']}${offset}[${timeZone}]`
-}
 
 /** Format a non-negative elapsed millisecond count as compact whole-second units. */
 function formatDuration(elapsedMs: number): string {
@@ -160,20 +150,9 @@ export function apply(ctx: Context, config: Config): () => void {
   const timeZone = config.timeZone
   const refreshIntervalMs = config.refreshIntervalMs
   validateRefreshInterval(refreshIntervalMs)
-  const createFormatter = (selectedTimeZone?: string): Intl.DateTimeFormat => new Intl.DateTimeFormat('en-US', {
-    ...(selectedTimeZone === undefined ? {} : { timeZone: selectedTimeZone }),
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hourCycle: 'h23',
-    timeZoneName: 'longOffset',
-  })
   let fallbackFormatter: Intl.DateTimeFormat
   try {
-    fallbackFormatter = createFormatter(timeZone)
+    fallbackFormatter = createTimestampFormatter(timeZone)
   } catch (error: unknown) {
     const message = timeZone === undefined
       ? 'time-context: failed to resolve the system time zone'
@@ -190,7 +169,7 @@ export function apply(ctx: Context, config: Config): () => void {
     if (existing !== undefined) return existing
     let created: Intl.DateTimeFormat
     try {
-      created = createFormatter(selectedTimeZone)
+      created = createTimestampFormatter(selectedTimeZone)
     } catch (error: unknown) {
       throw new Error(`time-context: invalid Session time zone ${JSON.stringify(selectedTimeZone)}`, { cause: error })
     }

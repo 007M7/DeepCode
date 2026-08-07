@@ -126,7 +126,7 @@ describe('time-context invariants', () => {
     session.append('turn/start', { turn: 1 })
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'travel request' }],
-      source: { kind: 'user', clientTimeZone: 'America/New_York' } as never,
+      source: { kind: 'user', rpcId: 'travel-request', clientTimeZone: 'America/New_York' } as never,
     }), { surfaceOp: 'append' })
     session.append('step/start', { turn: 1, step: 1 })
 
@@ -135,7 +135,7 @@ describe('time-context invariants', () => {
         '1',
         '1',
         'model-visible message',
-        '2026-07-14T00:00:00+00:00[UTC]',
+        '2026-07-14T08:00:00+08:00[Asia/Shanghai]',
         'Asia/Shanghai',
         'America/New_York',
       )))
@@ -145,11 +145,48 @@ describe('time-context invariants', () => {
         '1',
         '1',
         'model-visible message',
-        '2026-07-14T00:00:00+00:00[UTC]',
+        '2026-07-14T08:00:00+08:00[Asia/Shanghai]',
         'Asia/Shanghai',
         'Asia/Shanghai',
       )))
     }).toThrow(/does not match the Session and current request zones/)
+    expect(() => {
+      ctx.emit('session/event', session, event(reading(
+        '1',
+        '1',
+        'model-visible message',
+        '2026-07-14T00:00:00+00:00[UTC]',
+        'Asia/Shanghai',
+        'America/New_York',
+      )))
+    }).toThrow(/rendered timestamp does not match the Session time zone/)
+  })
+
+  it('rejects a durable reading whose Session zone cannot format the timestamp', async () => {
+    const ctx = await setup()
+    const id = SessionId('time-invariant-invalid-zone')
+    const session = Session.create(id, [], {
+      version: 0,
+      id,
+      createdAt: SECOND,
+      timeZone: 'Invalid/Zone',
+    })
+    session.append('turn/start', { turn: 1 })
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'invalid zone request' }],
+      source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
+    session.append('step/start', { turn: 1, step: 1 })
+
+    expect(() => {
+      ctx.emit('session/event', session, event(reading(
+        '1',
+        '1',
+        'model-visible message',
+        '2026-07-14T00:00:00+00:00[UTC]',
+        'Invalid/Zone',
+      )))
+    }).toThrow(/Session time zone cannot format its durable timestamp/)
   })
 
   it('rejects a time-context source that duplicates request authority', async () => {

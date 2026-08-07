@@ -104,7 +104,7 @@ async function fire(
 function rpcMessage(text: string, clientTimeZone: string): UserMessage {
   return createUserMessage({
     content: [{ type: 'text', text }],
-    source: { kind: 'user', clientTimeZone } as never,
+    source: { kind: 'user', rpcId: `rpc-${text}`, clientTimeZone } as never,
   })
 }
 
