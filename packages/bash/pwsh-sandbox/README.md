@@ -17,8 +17,8 @@ The executor inherits [`@deepseek-ai/dsh-pwsh-local`](../pwsh-local/)'s process 
 
 The model sees the confined command's own stderr (e.g. `Access to the path '...' is denied.` under the Windows ACL runner); the tool layer converts classified denials into the standard permission-denied surface exactly as it does for the bash tool.
 
-## Known Limitations and Deferred Work
+## Known Limitations
 
 - **Reads are unrestricted** on Windows (the ACL runner restricts writes only); the read boundary is documented in `@deepseek-ai/dsh-sandbox-windows-acl`.
-- **The Windows workspace-write temp area is the real temp directory** (`GetTempPathW`), mirroring Landlock's `/tmp` grant — a per-run private temp would need an env-block rewrite in the runner and is deferred.
+- **The Windows workspace-write temp area is the real temp directory** (`GetTempPathW`). This is a deliberate backend-defined choice, the same decision Landlock makes (`readWrite: ['/tmp', ...]`): the seam's "backend-defined temp area" permits it, and the escape probe in `tests/acl.e2e.ts` lives outside the temp tree for exactly that reason. A per-run private temp (bwrap's `--tmpfs /tmp` semantics) would additionally need an environment-block rewrite in the runner; it is an optional future hardening, not a correctness gap.
 - **Windows read-only is strict zero-grant** — not even the NUL device is writable; `> $null` redirection still works (documented in the backend package).
