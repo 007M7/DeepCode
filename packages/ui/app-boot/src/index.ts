@@ -94,17 +94,12 @@ const BOOTSTRAP_NAMES = new Set([
   'PATH', 'HOME', 'USERPROFILE', 'SHELL',
   'NODE_OPTIONS', 'NODE_PATH', 'NODE_EXTRA_CA_CERTS',
   'LD_PRELOAD', 'LD_LIBRARY_PATH', 'LD_AUDIT',
-  // Interpreter start-up hooks: each of these makes a runtime execute a file
-  // of the setter's choosing on every invocation, before the program runs.
-  // `BASH_ENV` is the sharpest — the bash tool spawns `bash -c`, which sources
-  // it every time — but every runtime an agent shells out to has one.
+  // Interpreter startup hooks.
   'BASH_ENV', 'ENV', 'SHELLOPTS', 'BASHOPTS',
   'PERL5OPT', 'PERL5LIB', 'PYTHONSTARTUP', 'PYTHONPATH', 'RUBYOPT', 'RUBYLIB',
   'JAVA_TOOL_OPTIONS', '_JAVA_OPTIONS', 'JDK_JAVA_OPTIONS',
   'PYTHONHOME',
-  // Version-control hooks that run a command on the setter's behalf, and the
-  // config redirections that can define such a hook indirectly (a substituted
-  // git config file can set core.pager or a credential helper).
+  // Version-control command hooks and config redirects.
   'GIT_SSH', 'GIT_SSH_COMMAND', 'GIT_EXTERNAL_DIFF', 'GIT_PAGER', 'GIT_EDITOR',
   'GIT_ASKPASS', 'SSH_ASKPASS',
   'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_SYSTEM', 'GIT_CONFIG_COUNT',
@@ -113,8 +108,6 @@ const BOOTSTRAP_NAMES = new Set([
   'SSL_CERT_FILE', 'SSL_CERT_DIR',
   'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY',
   'REQUESTS_CA_BUNDLE', 'CURL_CA_BUNDLE',
-  // Turns off TLS verification outright, which is the sharpest form of
-  // "how the network is trusted".
   'NODE_TLS_REJECT_UNAUTHORIZED',
 ])
 
@@ -122,30 +115,8 @@ const BOOTSTRAP_NAMES = new Set([
 const BOOTSTRAP_PREFIXES = ['DSH_', 'XDG_', 'DYLD_', 'BASH_FUNC_']
 
 /**
- * Whether a variable may come only from the inherited process environment.
- *
- * The invoking project is trusted to *configure* the agent's work — its
- * endpoints, its ordinary variables, even a credential. It is not trusted to
- * change the harness itself, and that is what a bootstrap variable does: it
- * decides how a process launches (`PATH`, `NODE_OPTIONS`, `LD_PRELOAD`), what
- * code a runtime executes before the program it was asked to run (`BASH_ENV`
- * and its per-language siblings, the Git hook commands), where model-visible
- * instructions load from (`DSH_*` covers the Harness home, the agents home,
- * and the bundled skill root), or how the network is reached and trusted
- * (proxy and CA variables).
- *
- * The distinction is that these take effect with no user action, before any
- * turn, outside the permission policy and the sandbox — `DSH_PERMISSION_MODE`
- * would switch off the approvals that make trusting a project meaningful at
- * all, and `BASH_ENV` runs a file of the project's choosing on every single
- * `bash -c` the tool issues. Trusting a project's code to run under the
- * agent's policy is not the same as letting it rewrite that policy.
- *
- * They are therefore rejected at load rather than ranked below another layer:
- * a user who wrote one into a file believes it applies, and silently ignoring
- * it is its own failure. The whole `DSH_*` namespace is denied rather than an
- * audited subset, because a switch added later must not become settable by
- * being forgotten.
+ * Whether a variable may come only from the inherited process environment
+ * because it changes process, runtime, VCS, or network bootstrap.
  * @param name - the variable name.
  * @returns true when only the inherited environment may supply it.
  */
@@ -155,12 +126,8 @@ function isBootstrapOnly(name: string): boolean {
 }
 
 /**
- * Parse one directory's `.env` without applying it, rejecting any bootstrap
- * variable it declares. A discovered file must not decide how this process
- * launches, where its code and model-visible instructions come from, or how it
- * reaches the network, so a violation fails the launch BEFORE anything is
- * materialized — reporting it afterwards would leave the process already
- * running under the value it refused.
+ * Parse one directory's `.env` without applying it, rejecting bootstrap-only
+ * names before any value is materialized.
  * @param binName - the diagnostic prefix on the thrown error.
  * @param dir - the directory whose `.env` to read.
  * @param warn - sink for the one-line unreadable-file diagnostic.
@@ -181,12 +148,7 @@ function readEnvLayer(
     // ENOENT (no .env) is fine — rely on the ambient environment.
     return undefined
   }
-  // `node:util`'s parseEnv is the same parser `--env-file` and
-  // `process.loadEnvFile` use. Checking with a second dialect (npm dotenv)
-  // would leave the rejection rule and the thing it guards on independently
-  // maintained parsers: a name Node accepts but the checker does not would
-  // reach `process.env` unchecked, and `BASH_ENV` there runs a file of the
-  // project's choosing on every `bash -c` the bash tool issues.
+  // Parse once so validation and materialization use exactly the same entries.
   const values = parseEnv(content) as Record<string, string>
   for (const name of Object.keys(values)) {
     if (!isBootstrapOnly(name)) continue
@@ -200,30 +162,10 @@ function readEnvLayer(
 }
 
 /**
- * Load the dsh product CLI's user environment and return it as a snapshot that
- * remembers which layer supplied each value: the invoking directory's `.env`
- * over the Harness home's `.env`, both under the inherited process
- * environment.
- *
- * Each layer is parsed once, checked, and only then applied — never replacing
- * a name already set, which is what makes the layering `user < project <
- * inherited`. The single parse is deliberate: the rejection rule and the
- * values that reach `process.env` must come from the same parser, or a name
- * one dialect accepts and the other misses would slip past the check. Values do reach
- * `process.env`, because a user's own `--config` tree and third-party
- * libraries read it; the returned snapshot is the authority for everything the
- * harness itself resolves, since `process.env` alone cannot say whether a
- * value came from the launching shell or from a file inside the workspace.
- *
- * The Harness home is resolved from the inherited environment *before* either
- * file loads, so a project `.env` can never redirect which user document is
- * read. Only the product CLI layers these files: an SDK or example bin loads
- * its own directory through {@link loadEnv} and must not inherit a developer's
- * `$DSH_HOME`.
- *
- * These are ordinary environment values with ordinary environment reach. A
- * secret the Harness should own and isolate belongs in the credentials
- * document, which is never materialized here.
+ * Load the product CLI's inherited > invoking-directory `.env` > Harness-home
+ * `.env` snapshot. The Harness home resolves before either file; both files
+ * are checked before either is applied, and accepted values are materialized
+ * without replacing inherited ones. The snapshot preserves source provenance.
  * @param binName - the diagnostic prefix on the diagnostics.
  * @param cwd - the invoking directory whose `.env` is the project layer.
  * @param warn - sink for the one-line misconfiguration diagnostics.
@@ -239,12 +181,7 @@ export function loadLayeredEnv(
   // Parse both layers first: a rejection must not leave one file applied.
   const project = readEnvLayer(binName, cwd, warn)
   const user = home === resolve(cwd) ? undefined : readEnvLayer(binName, home, warn)
-  // Assign the entries this function already parsed and checked, rather than
-  // re-reading each file through `process.loadEnvFile`. One parse means the
-  // snapshot, the rejection rule, and `process.env` can never disagree about
-  // what a file contains. Skipping names already set reproduces the
-  // never-replace behavior that makes the layering `user < project <
-  // inherited`.
+  // Apply the checked values without replacing a higher-ranked name.
   for (const layer of [project, user]) {
     if (layer === undefined) continue
     for (const [name, value] of Object.entries(layer.values)) {

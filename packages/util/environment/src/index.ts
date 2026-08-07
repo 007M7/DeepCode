@@ -1,15 +1,8 @@
 /**
- * The launch-time environment as one immutable snapshot that remembers which
- * layer supplied each value. The harness resolves user-facing values against
- * this rather than against `process.env`, because the layers differ in how
- * much they are trusted: an inherited variable is this run's explicit intent,
- * a file discovered under the invoking directory is whatever the project
- * happens to contain, and a consumer that cannot tell them apart cannot make
- * that distinction.
- *
- * Values still reach `process.env` as well — a user's own `--config` tree and
- * third-party libraries read it — but that flattened view is not the
- * authority for anything the harness itself resolves.
+ * Immutable launch-time environment snapshot with per-value source
+ * provenance. Harness consumers resolve through it instead of a flattened
+ * `process.env`; launchers may still materialize accepted values for config
+ * expressions and third-party libraries.
  * @module @deepseek-ai/dsh-environment
  */
 
@@ -49,10 +42,8 @@ export interface EnvironmentSnapshot {
    */
   get(name: string): EnvironmentEntry | undefined
   /**
-   * Resolve one name across only the layers the caller trusts for this
-   * decision. Omitting a layer is a refusal, not a demotion: a routing field
-   * that must never come from a project directory omits `project-env` so no
-   * ordering change can let it back in.
+   * Resolve one name only from `sources`, retaining canonical trust order;
+   * omitted layers are unreachable.
    * @param name - the variable name.
    * @param sources - the layers allowed in the canonical trust order.
    * @returns the first matching entry, or `undefined`.
@@ -85,13 +76,8 @@ export interface EnvironmentLayerInput {
  * @returns the immutable snapshot.
  */
 export function createEnvironmentSnapshot(layers: readonly EnvironmentLayerInput[]): EnvironmentSnapshot {
-  // Copied per layer so a later mutation of `process.env` — or of a caller's
-  // own object — cannot change what this snapshot reports. Windows environment
-  // names are case-insensitive, so lookups there fold case: otherwise a shell
-  // that set `deepseek_api_key` would be invisible to a consumer asking for
-  // `DEEPSEEK_API_KEY`, and a lower-ranked layer spelling it in caps would win
-  // a decision the launch had already made. POSIX names are case-sensitive and
-  // must stay exact.
+  // Copy every layer so later mutations cannot change the snapshot. Fold names
+  // on Windows so case variants cannot split precedence; POSIX remains exact.
   const bySource = new Map<EnvironmentSource, { path?: string; values: Map<string, string> }>()
   for (const layer of layers) {
     bySource.set(layer.source, {
@@ -120,15 +106,8 @@ export function createEnvironmentSnapshot(layers: readonly EnvironmentLayerInput
 export const DSH_ENVIRONMENT_KEY = 'launcherEnvironment'
 
 /**
- * The snapshot to resolve against, whatever booted this tree: the launcher's
- * when the product CLI provided one, otherwise the inherited environment
- * alone.
- *
- * The fallback does not weaken the layer rules — it applies the same rules to
- * a host that has exactly one layer. An SDK embedder or a bare `cordis.yml`
- * never discovered a project or user file, so everything it has really is the
- * environment it was launched with, and `getFrom(..., ['process'])` is exactly
- * right for it.
+ * Return the launcher's snapshot, or the inherited environment as the sole
+ * layer when the host provided none.
  * @param ctx - the consuming plugin's context.
  * @returns the snapshot to resolve user-facing values against.
  */

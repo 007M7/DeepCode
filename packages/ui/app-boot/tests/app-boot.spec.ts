@@ -114,8 +114,6 @@ describe('loadLayeredEnv', () => {
     const warn = vi.fn()
     try {
       loadLayeredEnv(NAME, project, warn)
-      // Both files load; the project layer wins the name they share, and the
-      // inherited environment wins over both.
       expect(process.env[NAMES[0]]).toBe('project')
       expect(process.env[NAMES[1]]).toBe('user-only')
       expect(process.env[NAMES[2]]).toBe('project-only')
@@ -142,8 +140,6 @@ describe('loadLayeredEnv', () => {
     vi.stubEnv('DSH_HOME', home)
     try {
       expect(() => loadLayeredEnv(NAME, project, vi.fn())).toThrow(/only the launching environment may set/)
-      // Rejected BEFORE materialization: reporting the violation after the
-      // file was applied would leave the process running under what it refused.
       expect(process.env[NAMES[1]]).toBeUndefined()
     } finally {
       clear()
@@ -162,7 +158,6 @@ describe('loadLayeredEnv', () => {
       const snapshot = loadLayeredEnv(NAME, project, vi.fn())
       expect(snapshot.get(NAMES[1])).toEqual({ value: 'u', source: 'user-env', path: join(home, '.env') })
       expect(snapshot.get(NAMES[2])).toEqual({ value: 'p', source: 'project-env', path: join(project, '.env') })
-      // getFrom is a refusal, not a demotion: an omitted layer is invisible.
       expect(snapshot.getFrom(NAMES[2], ['process', 'user-env'])).toBeUndefined()
     } finally {
       clear()
@@ -190,9 +185,7 @@ describe('loadLayeredEnv', () => {
   it('warns and continues when a layer exists but cannot be read', () => {
     const home = tmp()
     const project = tmp()
-    // A directory named `.env` is present-but-unreadable (EISDIR): unlike an
-    // absent file, it is a real misconfiguration, so it is reported rather
-    // than passed over in silence — and the other layers still load.
+    // A directory named `.env` is a present-but-unreadable layer.
     mkdirSync(join(home, '.env'))
     writeFileSync(join(project, '.env'), `${NAMES[2]}=project-only\n`)
     clear()
@@ -238,8 +231,6 @@ describe('loadLayeredEnv', () => {
     vi.stubEnv('DSH_HOME', home)
     const warn = vi.fn()
     try {
-      // No user `.env` exists, which is ordinary rather than a fault: the
-      // layer is simply absent, and nothing is reported.
       const snapshot = loadLayeredEnv(NAME, project, warn)
       expect(warn).not.toHaveBeenCalled()
       expect(snapshot.get(NAMES[2])).toEqual({ value: 'project-only', source: 'project-env', path: join(project, '.env') })
@@ -270,9 +261,6 @@ describe('loadLayeredEnv', () => {
     clear()
     vi.stubEnv('DSH_HOME', both)
     try {
-      // One file cannot be two layers. It is the project layer, because that
-      // is the more trusted of the two — reading it twice would otherwise
-      // put the same path at two different ranks.
       const snapshot = loadLayeredEnv(NAME, both, vi.fn())
       expect(snapshot.get(NAMES[2])).toEqual({ value: 'one-file', source: 'project-env', path: join(both, '.env') })
     } finally {

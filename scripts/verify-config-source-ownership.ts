@@ -1,8 +1,6 @@
 /**
- * Gate: shipped Cordis configuration does not use the ordinary inline form
- * for a credential or endpoint from the environment. This narrow source-shape
- * lint prevents checked-in composition from bypassing the credential seam and
- * endpoint ladder; adapters remain responsible for actual value resolution.
+ * Gate for forbidden credential or endpoint environment inlines in shipped
+ * Cordis configuration.
  * @module scripts/verify-config-source-ownership
  */
 
@@ -21,13 +19,7 @@ const SHIPPED_CONFIG_GLOBS = [
   'python/*/src/**/cordis.yml',
 ]
 
-/**
- * Config keys that must never be inlined from the environment. Line-anchored
- * on purpose: this is a tripwire for the shape people actually write, not a
- * YAML analysis. A folded scalar or a block-literal spelling would slip past
- * it, which is acceptable because the rule it guards is also stated in the
- * owning Agent Note and enforced by the adapters' own resolution.
- */
+/** Ordinary single-line forms this narrow source-shape check rejects; not full YAML analysis. */
 const INLINE_DENY = /^\s*(apiKey|baseURL|apiKeyEnv|authToken|headers)\s*:\s*!!js\b/
 
 /** Return every forbidden inline environment form in shipped configuration. */
