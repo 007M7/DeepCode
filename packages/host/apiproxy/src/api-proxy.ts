@@ -26,7 +26,7 @@ import {
 // Type-only: brings the `ctx.tools` Context merge into this program (viewFor reads presenters).
 import type {} from '@deepseek-ai/dsh-tools'
 import type {
-  ApiProxy, CredentialView, GoalRef, HistoryEntry, HistoryToolCall, HostFrame, ModelCatalogFailure, ModelProviderGroup,
+  ApiProxy, CredentialView, GoalRef, HistoryEntry, HostFrame, ModelCatalogFailure, ModelProviderGroup,
   ModelReasoning, MuxFrame, QuestionResponsePayload, SessionProjectionsBlock, SessionSearchItem,
   QueuedInboxItem, SessionSummary, SettingsNamespaceView, SubagentAddress, ToolEventView,
   WorkspaceId, WorkspaceView,
@@ -408,9 +408,9 @@ function matchesQuestions(payload: QuestionResponsePayload, pending: PendingQues
  * Compute the render intent for a tool/call or tool/result event through the
  * presenters registered at this moment; every other event type gets none. A
  * result's presenter needs its call's parsed args — `argsFor` supplies them
- * (live: the per-session call table; history: the full-log pairing index),
- * returning undefined when the pairing is unavailable, which soft-falls to no
- * view. Presenter or JSON.parse throws also soft-fall:
+ * (live: the per-session call table; history: an in-page backscan), returning
+ * undefined when the pairing is unavailable (e.g. the call fell off the page),
+ * which soft-falls to no view. Presenter or JSON.parse throws also soft-fall:
  * the client's documented default (generic JSON card) covers every miss.
  */
 function viewFor(ctx: Context, event: SessionEvent, argsFor: (callId: string) => unknown): ToolEventView | undefined {
@@ -442,8 +442,10 @@ function viewFor(ctx: Context, event: SessionEvent, argsFor: (callId: string) =>
 }
 
 /**
- * Resolve a tool/result's call pairing by scanning a live session backwards
- * for the matching tool/call after the open-call table missed.
+ * Resolve a tool/result's call pairing by scanning a window of events backwards
+ * for the matching tool/call. Used by the history path (the page is the
+ * window — a cross-page pairing soft-falls to no view) and by live-path table
+ * misses after a reconnect-eviction.
  */
 function backscanArgs(events: readonly SessionEvent[], callId: string): { name: string; args: unknown } | undefined {
   for (let i = events.length - 1; i >= 0; i--) {
@@ -461,34 +463,6 @@ function backscanArgs(events: readonly SessionEvent[], callId: string): { name: 
   return undefined
 }
 
-/** Index durable call metadata once so every history result keeps its pair across page cuts. */
-function historyCallIndex(events: readonly SessionEvent[]): ReadonlyMap<string, HistoryToolCall> {
-  const calls = new Map<string, HistoryToolCall>()
-  for (const event of events) {
-    if (event.type !== 'tool/call') continue
-    calls.set(String(event.data.callId), {
-      name: event.data.name,
-      arguments: event.data.arguments,
-      time: event.time,
-    })
-  }
-  return calls
-}
-
-/** Parse one indexed history pair for a result presenter, soft-falling malformed arguments. */
-function historyArgs(
-  calls: ReadonlyMap<string, HistoryToolCall>,
-  callId: string,
-): { name: string; args: unknown } | undefined {
-  const call = calls.get(callId)
-  if (call === undefined) return undefined
-  try {
-    return { name: call.name, args: JSON.parse(call.arguments) }
-  } catch {
-    return undefined
-  }
-}
-
 /** Render one detached history page through the same presenter path as ordinary history. */
 function historyPage(
   ctx: Context,
@@ -497,18 +471,10 @@ function historyPage(
   maxMessages: number | undefined,
 ): { events: HistoryEntry[]; hasMore: boolean } {
   const page = paginate(events, beforeSeq, maxMessages ?? DEFAULT_MAX_MESSAGES)
-  const calls = historyCallIndex(events)
   return {
     events: page.events.map((event) => {
-      const view = viewFor(ctx, event, callId => historyArgs(calls, callId))
-      const call = event.type === 'tool/result'
-        ? calls.get(String(event.data.message.source.callId))
-        : undefined
-      return {
-        event,
-        ...view === undefined ? {} : { view },
-        ...call === undefined ? {} : { call },
-      }
+      const view = viewFor(ctx, event, callId => backscanArgs(page.events, callId))
+      return { event, ...view === undefined ? {} : { view } }
     }),
     hasMore: page.hasMore,
   }

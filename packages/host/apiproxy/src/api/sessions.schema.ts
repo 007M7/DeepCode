@@ -11,7 +11,7 @@ import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { RequestPayload, ResponseValue } from './rpc-map.ts'
 import type { Wire } from './rpc.schema.ts'
 import type {
-  HistoryEntry, HistoryToolCall, ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelReasoning,
+  HistoryEntry, ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelReasoning,
   ModelReasoningEffort, ModelTarget, SessionProjectionsBlock, SessionSearchItem, SessionSummary,
 } from './sessions.ts'
 import type { ToolEventView } from './events.ts'
@@ -193,18 +193,10 @@ export const toolEventViewSchema = z.discriminatedUnion('for', [
   z.object({ for: z.literal('result'), view: z.looseObject({ card: z.string() }) }),
 ]) as unknown as z.ZodType<ToolEventView>
 
-/** Paired tool/call metadata carried with a paged tool/result. */
-export const historyToolCallSchema: z.ZodType<Wire<HistoryToolCall>> = z.object({
-  name: z.string(),
-  arguments: z.string(),
-  time: z.number(),
-})
-
-/** One session.history item: raw event plus optional host-computed tool annotations. */
+/** One session.history item: the session event plus its optional host-computed tool view. */
 export const historyEntrySchema: z.ZodType<Wire<HistoryEntry>> = z.object({
   event: sessionEventSchema,
   view: toolEventViewSchema.optional(),
-  call: historyToolCallSchema.optional(),
 }) as unknown as z.ZodType<Wire<HistoryEntry>>
 
 /**

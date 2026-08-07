@@ -29,7 +29,7 @@ import type {
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import { deriveEventMessage, foldSurface } from '@deepseek-ai/dsh-session/surface'
 import type {
-  ApiProxy, ClientRequest, ClientResponse, HistoryEntry, HistoryToolCall, HostFrame, MuxFrame, RpcReceipt,
+  ApiProxy, ClientRequest, ClientResponse, HistoryEntry, HostFrame, MuxFrame, RpcReceipt,
   ModelProviderGroup, ModelTarget, RpcRequest, RpcResponse, RpcResult, ServerRequest, ServerResponse, SessionSummary,
   ToolCallView, ToolEventView, ToolResultView, WorkspaceId, WorkspaceView,
 } from './api.ts'
@@ -664,33 +664,25 @@ function presentResult(name: string, argsRaw: string, resultText: string): ToolR
   }
 }
 
-/** Full-log tool/result pair used by the fixture history envelope and presenter mirror. */
-function pairedHistoryCall(event: SessionEvent, log: readonly SessionEvent[]): HistoryToolCall | undefined {
-  if (event.type !== 'tool/result') return undefined
-  const callId = String(event.data.message.source.callId)
-  for (let i = log.length - 1; i >= 0; i--) {
-    const candidate = log[i]
-    /* v8 ignore next -- dense-array guard: i stays within [0, log.length),
-    so the undefined arm needs a sparse log no code path builds. */
-    if (candidate !== undefined && candidate.type === 'tool/call' && String(candidate.data.callId) === callId) {
-      return { name: candidate.data.name, arguments: candidate.data.arguments, time: candidate.time }
-    }
-  }
-  return undefined
-}
-
-/** Host-side viewFor mirror: tool/call presents from its own args; tool/result uses its full-log pair. */
+/** Host-side viewFor mirror: tool/call presents from its own args; tool/result back-scans the log for the paired call. */
 function viewFor(event: SessionEvent, log: readonly SessionEvent[]): ToolEventView | undefined {
   if (event.type === 'tool/call') {
     const view = presentCall(event.data.name, event.data.arguments)
     return view === undefined ? undefined : { for: 'call', view }
   }
   if (event.type === 'tool/result') {
-    const call = pairedHistoryCall(event, log)
-    if (call === undefined) return undefined
-    const resultText = event.data.message.content[0].content.map(b => (b.type === 'text' ? b.text : '')).join('')
-    const view = presentResult(call.name, call.arguments, resultText)
-    return view === undefined ? undefined : { for: 'result', view }
+    const callId = String(event.data.message.source.callId)
+    for (let i = log.length - 1; i >= 0; i--) {
+      const candidate = log[i]
+      /* v8 ignore next -- dense-array guard: i stays within [0, log.length),
+      so the undefined arm needs a sparse log no code path builds. */
+      if (candidate !== undefined && candidate.type === 'tool/call' && String(candidate.data.callId) === callId) {
+        const resultText = event.data.message.content[0].content.map(b => (b.type === 'text' ? b.text : '')).join('')
+        const view = presentResult(candidate.data.name, candidate.data.arguments, resultText)
+        return view === undefined ? undefined : { for: 'result', view }
+      }
+    }
+    return undefined // cross-page unpaired: documented default
   }
   return undefined
 }
@@ -1055,12 +1047,7 @@ function pageOf(
   }
   const events = log.slice(start, end).map((event): HistoryEntry => {
     const view = viewFor(event, log)
-    const call = pairedHistoryCall(event, log)
-    return {
-      event,
-      ...view === undefined ? {} : { view },
-      ...call === undefined ? {} : { call },
-    }
+    return view === undefined ? { event } : { event, view }
   })
   return { events, hasMore: start > 0 }
 }

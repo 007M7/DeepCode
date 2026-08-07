@@ -155,16 +155,16 @@ export interface TurnErrorNode {
   code?: string
 }
 
-/** A tool result paired with its durable call head when the Host can resolve it. */
+/** A tool result paired (when in-window) with its call head. */
 export interface ToolResultNode {
   kind: 'tool-result'
   seq: number
   /** Unix epoch ms from the tool/result session event. */
   time: number
   callId: string
-  /** Call head from the window or history envelope; null only when the durable log has no pair (card head shows callId). */
+  /** Call head backfilled from the in-window tool/call; null when window truncation left the call outside (card head shows callId). */
   call: { name: string; argsRaw: string } | null
-  /** Unix epoch ms of the paired tool/call; null when the durable log has no pair. */
+  /** Unix epoch ms of the paired tool/call when the call is still in-window; used for call-row duration. */
   callTime: number | null
   content: readonly ContentBlock[]
   isError: boolean

@@ -365,22 +365,6 @@ describe('TranscriptAdapter', () => {
     expect(adapter.nodes()[0]).toMatchObject({ kind: 'tool-result', callId: 'outside-call', call: null })
   })
 
-  it('materializes a paged tool-result from its host-carried call pair', () => {
-    const adapter = new TranscriptAdapter()
-    adapter.reset(
-      [ev.toolResult(50, 3, 'outside-call', '已加载 skill')],
-      [undefined],
-      [{ name: 'skill', arguments: '{"name":"dsh-code-review"}', time: 40 }],
-    )
-    expect(adapter.nodes()[0]).toMatchObject({
-      kind: 'tool-result',
-      callId: 'outside-call',
-      call: { name: 'skill', argsRaw: '{"name":"dsh-code-review"}' },
-      callTime: 40,
-      callView: null,
-    })
-  })
-
   it('materializes a tool-result error field when present', () => {
     const adapter = new TranscriptAdapter()
     adapter.reset([

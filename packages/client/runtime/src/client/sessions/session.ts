@@ -5,7 +5,7 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { LlmRetryEventData } from '@deepseek-ai/dsh-llm-retry/types'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type {
-  HistoryEntry, HistoryToolCall, IApiClient, MessageId, MuxFrame, QueueAction, RpcError,
+  HistoryEntry, IApiClient, MessageId, MuxFrame, QueueAction, RpcError,
   RpcId, RpcResponse, RpcResult, SessionId, SubagentAddress, ToolEventView,
 } from '@deepseek-ai/dsh-client-connection/client'
 // Value import from the inline-safe wire layer (not the connection plugin):
@@ -85,8 +85,6 @@ export class Session implements SessionFace {
   /** Wire views aligned with `events` by index (envelope-level annotations; undefined = no view).
    *  Kept parallel rather than merged so `events` stays the raw log slice (model-visible ⟺ logged). */
   private views: (ToolEventView | undefined)[] = []
-  /** Host-carried call metadata aligned with result entries when the call event is outside the page. */
-  private historyCalls: (HistoryToolCall | undefined)[] = []
   private baseSeq = 0
   private hasMore = false
   private openState: OpenState = 'cold'
@@ -383,11 +381,10 @@ export class Session implements SessionFace {
       }
       this.events = [...older.map(e => e.event), ...this.events]
       this.views = [...older.map(e => e.view), ...this.views]
-      this.historyCalls = [...older.map(e => e.call), ...this.historyCalls]
       /* v8 ignore next -- the ?? arm needs older[0] undefined, but the empty-page branch above already returned. */
       this.baseSeq = older[0]?.event.seq ?? this.baseSeq
       this.hasMore = result.value.hasMore
-      this.transcript.reset(this.events, this.views, this.historyCalls) // prepend forces a rebuild (the window grew at the head)
+      this.transcript.reset(this.events, this.views) // prepend forces a rebuild (the window grew at the head)
       this.rebuildDerivedFromWindow()
     } catch (error) {
       console.error('[web-runtime] loadOlder failed:', error)
@@ -414,7 +411,6 @@ export class Session implements SessionFace {
     this.openError = null
     this.events = []
     this.views = []
-    this.historyCalls = []
     this.baseSeq = 0
     // Superseded, not settled: the baseline replay re-sends still-pending requested frames verbatim
     // (same rpcId), re-minting fresh waits; a stale reference's respond() still reaches the host.
@@ -648,10 +644,9 @@ export class Session implements SessionFace {
   private installWindow(entries: HistoryEntry[], hasMore: boolean, projections?: ProjectionsBaseline): void {
     this.events = entries.map(e => e.event)
     this.views = entries.map(e => e.view)
-    this.historyCalls = entries.map(e => e.call)
     this.baseSeq = this.events[0]?.seq ?? 0
     this.hasMore = hasMore
-    this.transcript.reset(this.events, this.views, this.historyCalls)
+    this.transcript.reset(this.events, this.views)
     this.rebuildDerivedFromWindow()
     if (projections !== undefined) this.projections.seed(projections)
     const buffered = this.liveBuffer
@@ -666,7 +661,6 @@ export class Session implements SessionFace {
     if (tailSeq !== null && event.seq <= tailSeq) return // replay overlap, drop
     this.events.push(event)
     this.views.push(view)
-    this.historyCalls.push(undefined)
     this.transcript.append(event, view)
     this.handoffPendingSteering(event)
     this.applyEventSideEffects(event, view)

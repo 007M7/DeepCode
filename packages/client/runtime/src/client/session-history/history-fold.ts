@@ -362,8 +362,7 @@ export function projectConversationHistory(
   let contextGeneration = 0
 
   for (const [index, event] of events.entries()) {
-    const entry = entries[index]
-    const view = entry?.view
+    const view = entries[index]?.view
     if (event.type === 'tool/call') {
       callIndex.set(String(event.data.callId), {
         name: event.data.name,
@@ -371,17 +370,8 @@ export function projectConversationHistory(
         time: event.time,
         callView: view?.for === 'call' ? view.view : null,
       })
-    } else if (event.type === 'tool/result') {
-      const callId = String(event.data.message.source.callId)
-      if (!callIndex.has(callId) && entry?.call !== undefined) {
-        callIndex.set(callId, {
-          name: entry.call.name,
-          argsRaw: entry.call.arguments,
-          time: entry.call.time,
-          callView: null,
-        })
-      }
-      if (view?.for === 'result') resultViews.set(event.seq, view.view)
+    } else if (event.type === 'tool/result' && view?.for === 'result') {
+      resultViews.set(event.seq, view.view)
     }
     if (isSurfaceEvent(event) && event.surfaceOp !== 'append') {
       contextGeneration++

@@ -231,50 +231,9 @@ describe('mux live view computation', () => {
       ]))
     expect(byKey.get('tool/call:h-term')?.view).toEqual({ for: 'call', view: { card: 'terminal', title: 'ls' } })
     expect(byKey.get('tool/result:h-term')?.view).toEqual({ for: 'result', view: { card: 'terminal', output: 'done' } })
-    expect(byKey.get('tool/result:h-term')?.call).toEqual({
-      name: 'term', arguments: '{"cmd":"ls"}', time: byKey.get('tool/call:h-term')?.event.time,
-    })
     expect('view' in (byKey.get('tool/result:h-orphan') ?? {})).toBe(false)
-    expect('call' in (byKey.get('tool/result:h-orphan') ?? {})).toBe(false)
     expect('view' in (byKey.get('tool/result:h-bad') ?? {})).toBe(false)
-    expect(byKey.get('tool/result:h-bad')?.call?.arguments).toBe('{broken')
     expect('view' in (byKey.get('tool/result:h-plain') ?? {})).toBe(false)
-    expect(byKey.get('tool/result:h-plain')?.call?.name).toBe('plain')
-  })
-
-  it('carries a result pair and computes its view when the call is outside the history page', async () => {
-    const { ctx } = await harness()
-    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
-    const session = ctx.sessions.create()
-    ctx.agents.register({ id: session.id, session, status: 'idle', ctx } as Agent)
-    session.append('turn/start', { turn: 1 })
-    const call = session.append('tool/call', {
-      turn: 1, step: 1, callId: CallId('cross-page'), name: 'term', arguments: '{"cmd":"tail"}',
-    })
-    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-    session.append('turn/start', { turn: 2 })
-    appendUserText(session, 'newer message cuts the page')
-    const result = session.append('tool/result', {
-      turn: 1, step: 1,
-      message: createToolResultMessage({
-        callId: CallId('cross-page'),
-        content: [{ type: 'text', text: 'late result' }],
-        isError: false,
-      }),
-    }, { surfaceOp: 'append' })
-
-    const response = await api.sessions.history({
-      rpcId: RpcId('t-hist-cross-page'),
-      payload: { sessionId: session.id, maxMessages: 1 },
-    })
-    if (!response.result.ok) throw new Error('unreachable')
-    const entries = response.result.value.events
-    expect(entries.some(entry => entry.event.seq === call.seq)).toBe(false)
-    const entry = entries.find(candidate => candidate.event.seq === result.seq)
-    expect(entry).toMatchObject({
-      call: { name: 'term', arguments: '{"cmd":"tail"}', time: call.time },
-      view: { for: 'result', view: { card: 'terminal', output: 'done' } },
-    })
   })
 
   it('counts only append-origin messages toward maxMessages and keeps compaction provenance whole', async () => {

@@ -53,20 +53,6 @@ describe('projectConversationHistory', () => {
     }])
   })
 
-  it('projects a paged tool result from its host-carried call pair', () => {
-    const result = ev.toolResult(50, 3, 'outside-call', '已加载 skill')
-    const projection = projectConversationHistory([{
-      event: result,
-      call: { name: 'skill', arguments: '{"name":"dsh-code-review"}', time: 40 },
-    }])
-    expect(projection.eventNodes).toMatchObject([{
-      kind: 'tool-result',
-      call: { name: 'skill', argsRaw: '{"name":"dsh-code-review"}' },
-      callTime: 40,
-      callView: null,
-    }])
-  })
-
   it('projects a high-sequence history window without synthesizing its unloaded prefix', () => {
     const baseSeq = 400_000
     const events = [

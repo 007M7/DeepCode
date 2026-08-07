@@ -10,7 +10,7 @@ The `/client` export surface is the plugin body (`apply`/`inject`) only; the sou
 
 ## Skill tool row
 
-The browser plugin also registers a keyed `skill` toolview in `conversation.chat.toolview`. A collapsed row renders the 16-pixel skill document-and-sparkle glyph, `Skill` title, separator, and requested skill name with the same neutral hierarchy as the Bash row; running calls carry the transcript shimmer, failures replace the name with the first error line, and interrupted calls use the warning state. A settled row expands as one whole-row disclosure into a bounded `Instructions` card containing the exact durable tool output, with the standard trajectory `Inspect` affordance when available. The row derives its name, lifecycle, and body only from the logged call/result slice, using the history envelope's host-carried durable pair when pagination left the call event outside the window; it never reads the current catalog, so cold replay remains stable across page cuts and when installed skills or their descriptions change.
+The browser plugin also registers a keyed `skill` toolview in `conversation.chat.toolview`. A collapsed row renders the 16-pixel skill document-and-sparkle glyph, `Skill` title, separator, and requested skill name with the same neutral hierarchy as the Bash row; running calls carry the transcript shimmer, failures replace the name with the first error line, and interrupted calls use the warning state. A settled row expands as one whole-row disclosure into a bounded `Instructions` card containing the exact durable tool output, with the standard trajectory `Inspect` affordance when available. The row derives its name, lifecycle, and body only from a paired call/result slice in the current runtime window, never from the current catalog, so replay remains stable when installed skills or their descriptions change.
 
 ## Model Experience
 
@@ -30,6 +30,7 @@ Append-only: the reference is part of a new user message appended after the reus
 
 ## Known Limitations and Deferred Work
 
+- **Result-only history pages use the generic row** — keyed dispatch needs the paired call in the runtime window; pagination that leaves the call outside has no tool identity. This client presentation feature does not extend the history wire contract to recover it.
 - **Non-deterministic skill loading** — the reference is a collaboration cue, not a guarantee; the model may ignore it. The rework path when hit rate proves insufficient (a host-side `context/skill-reference` guidance package, or full-text injection) sits in the design ledger; the wire text shape would not change.
 - **First keystroke may race the prewarm** — the scope-birth warm launches the catalog fetch, but a menu opened before it settles shows no skill candidates for that keystroke. Accepted by design: skill references do not participate in enter adjudication, so nothing correctness-bearing waits on the catalog.
 - **Text is the truth** — the reference is plain draft text; a hand-typed identical token is the same reference. Chip visuals derive from the lexicon scan; no occurrence identity or position tracking (componentized chips are a ledger item).

@@ -53,23 +53,6 @@ describe('open', () => {
     expect(snapshot.turnEnds.get(3)).toBe(15)
   })
 
-  it('installs host-carried call metadata for a result-only tail page', async () => {
-    const { api, session } = makeSession()
-    api.onHistory = () => Promise.resolve(ok({
-      events: [{
-        event: ev.toolResult(50, 3, 'outside-call', '已加载 skill'),
-        call: { name: 'skill', arguments: '{"name":"dsh-code-review"}', time: 40 },
-      }],
-      hasMore: true,
-    }))
-    await session.open()
-    expect(session.getSnapshot().nodes).toMatchObject([{
-      kind: 'tool-result',
-      call: { name: 'skill', argsRaw: '{"name":"dsh-code-review"}' },
-      callTime: 40,
-    }])
-  })
-
   it('is idempotent: concurrent opens share one history call, reopening when open is a no-op', async () => {
     const { api, session } = makeSession()
     await Promise.all([session.open(), session.open()])

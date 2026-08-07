@@ -168,12 +168,11 @@ function collapse(body: string, rooted: boolean, separator = '/'): string {
  *   returns a generic fenced card for an execution error or a background
  *   start, whose text and error styling the generic path preserves.
  *
- * Window truncation can drop the call event and its call-side view from a
- * settled result (see `ToolResultNode.callView` in dsh-client-runtime), leaving
- * a terminal result with no presentation call side even though the history
- * envelope preserves its name and arguments. That still renders: the command
- * falls back to the result view's replacement title, then to an empty command
- * (the prompt line draws bare), and the prompt shows no cwd.
+ * Window truncation can drop the call head from a settled result (see
+ * `ToolResultNode.call`/`callView` in dsh-client-runtime), leaving a terminal
+ * result with no call side. That still renders: the command falls back to the
+ * result view's replacement title, then to an empty command (the prompt line
+ * draws bare), and the prompt shows no cwd.
  * @param block - RunningToolCall or ToolResultNode off the snapshot caches.
  * @param sessionCwd - the session workspace root, which resolves an omitted or
  *   relative view cwd (see {@link resolveTerminalCwd}); absent leaves both unresolved.

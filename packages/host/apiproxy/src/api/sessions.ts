@@ -26,26 +26,14 @@ declare module '@deepseek-ai/dsh-llm' {
   }
 }
 
-/** Paired tool/call metadata carried beside a paged result whose call may be outside the page. */
-export interface HistoryToolCall {
-  /** Registered tool name used for keyed presentation dispatch. */
-  name: string
-  /** Exact durable arguments JSON from the paired tool/call. */
-  arguments: string
-  /** Unix epoch ms of the paired tool/call event. */
-  time: number
-}
-
 /**
- * One history page entry: the raw event plus optional host-computed render
- * intent and result pairing. Both annotations are pagination-time derivations,
- * never persisted; `call` preserves a tool/result's identity when its call
- * event lies outside this page.
+ * One history page entry: the raw event plus the optional host-computed render
+ * intent (same semantics as the mux frame's `view` slot — a pagination-time
+ * derivation, never persisted).
  */
 export interface HistoryEntry {
   event: SessionEvent
   view?: ToolEventView
-  call?: HistoryToolCall
 }
 
 /**

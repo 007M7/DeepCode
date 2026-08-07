@@ -19,9 +19,7 @@ import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 // `sessions: ISessions` (TS2717, the one-program-per-side rule in
 // docs/development.md).
 import type { COMPACT_CHECKPOINT_SOURCE } from '@deepseek-ai/dsh-compact/checkpoint'
-import type {
-  HistoryToolCall, ToolCallView, ToolEventView, ToolResultView,
-} from '@deepseek-ai/dsh-client-connection/client'
+import type { ToolCallView, ToolEventView, ToolResultView } from '@deepseek-ai/dsh-client-connection/client'
 import type { CommandNode, CompactionSummaryNode, ConversationNode } from './conversation.ts'
 import { toAssistantBlocks } from './conversation.ts'
 import { contextForm, contextProvenance } from './context-provenance.ts'
@@ -215,13 +213,8 @@ export class TranscriptAdapter {
    * and re-project the transcript.
    * @param events - the new window contents (seq-ascending).
    * @param views - per-event wire views aligned with `events` by index (undefined slots for view-less events).
-   * @param calls - host-carried result pairs aligned with `events` by index.
    */
-  reset(
-    events: readonly SessionEvent[],
-    views?: readonly (ToolEventView | undefined)[],
-    calls?: readonly (HistoryToolCall | undefined)[],
-  ): void {
+  reset(events: readonly SessionEvent[], views?: readonly (ToolEventView | undefined)[]): void {
     this.rev++
     this.eventIndex = new Map()
     this.callIdx = new Map()
@@ -235,7 +228,7 @@ export class TranscriptAdapter {
       /* v8 ignore next -- dense-array guard: i stays within events.length, so the undefined arm needs a sparse array no caller builds. */
       if (event === undefined) continue
       this.eventIndex.set(event.seq, event)
-      this.indexCall(event, views?.[i], calls?.[i])
+      this.indexCall(event, views?.[i])
       this.indexCommand(event)
       if (this.steeringHistory.apply(event)) steeringSeqs.add(event.seq)
       indexAssistantStepTiming(this.stepTimings, event)
@@ -345,20 +338,9 @@ export class TranscriptAdapter {
     return true
   }
 
-  private indexCall(event: SessionEvent, view?: ToolEventView, pairedCall?: HistoryToolCall): void {
+  private indexCall(event: SessionEvent, view?: ToolEventView): void {
     if (event.type === 'tool/result') {
       if (view?.for === 'result') this.resultViews.set(event.seq, view.view)
-      const callId = String(event.data.message.source.callId)
-      if (!this.callIdx.has(callId) && pairedCall !== undefined) {
-        this.callIdx.set(callId, {
-          name: pairedCall.name,
-          argsRaw: pairedCall.arguments,
-          turn: event.data.turn,
-          step: event.data.step,
-          time: pairedCall.time,
-          callView: null,
-        })
-      }
       return
     }
     if (event.type !== 'tool/call') return
