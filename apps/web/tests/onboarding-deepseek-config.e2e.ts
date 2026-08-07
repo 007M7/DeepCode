@@ -113,8 +113,8 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
     await settings.getByRole('button', { name: '保存', exact: true }).click()
     await keyInput.waitFor({ state: 'detached', timeout: 15_000 })
 
-    const stored = await readFile(join(scaffold.harnessHome, '.env'), 'utf8')
-    expect(stored.includes(`DEEPSEEK_API_KEY=${secret}`)).toBe(true)
+    const stored = await readFile(join(scaffold.harnessHome, '.credentials.yaml'), 'utf8')
+    expect(stored.includes(`DEEPSEEK_API_KEY: ${secret}`)).toBe(true)
     expect((await page.content()).includes(secret)).toBe(false)
     expect((await page.locator('body').ariaSnapshot()).includes(secret)).toBe(false)
     expect(browserConsole.some(line => line.includes(secret))).toBe(false)

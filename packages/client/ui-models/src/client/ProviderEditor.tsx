@@ -14,9 +14,8 @@
  * model picker offers each model its own levels; `settings.yaml` keeps the
  * profile field for a deployment that knows its route. Everything else stays
  * owned by `settings.yaml`. Profile edits land as minimal `settings.mutate`
- * path ops against the stored section — the card reads the redacted
- * descriptor, so it names only the fields it can see and a stored literal
- * secret is never collaterally removed.
+ * path ops against the stored section — the card names only the fields it can
+ * see instead of rebuilding the whole subtree from a partial descriptor.
  */
 
 import { useEffect, useMemo, useState } from 'react'
@@ -72,10 +71,9 @@ function draftAt(namespace: SettingsNamespaceView, path: readonly string[]): Rec
 
 /**
  * The minimal path ops carrying `after` over `before`, both as the card sees
- * them (that is, redacted). Only keys the card observed are named: a stored
- * `role('secret')` field appears in neither side, so it produces no op and
- * survives the write — the whole reason edits are path-addressed rather than
- * a rebuilt section.
+ * them. Only keys the card observed are named; fields absent from both sides
+ * produce no op, which is why edits are path-addressed rather than a rebuilt
+ * section.
  * @param base - path of the edited subtree inside the user section.
  * @param before - the subtree as loaded, or undefined when it is new.
  * @param after - the subtree as edited.
@@ -197,9 +195,8 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
   /**
    * The write for this card, or a failure message. Every edit travels as
    * path ops against the STORED section: the draft comes from the redacted
-   * descriptor, so a wholesale replace rebuilt from it would delete the
-   * literal secrets the wire never returned. Ops name only the fields this
-   * card can see, so a stored secret is untouched by construction.
+   * descriptor, so a wholesale replace rebuilt from it could delete fields
+   * outside the card. Ops name only the fields this card can see.
    */
   const applyOnce = async (): Promise<string | undefined> => {
     const ns = namespace.ns

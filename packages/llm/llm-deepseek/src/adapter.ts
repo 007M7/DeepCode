@@ -49,12 +49,11 @@ export interface DeepSeekConnectionOptions {
   /** Endpoint base; `/chat/completions` is appended. */
   baseURL: string
   /**
-   * Literal API key of this same resolution, when the configuration carried
-   * one. Travelling with the endpoint is the point: a request can never pair
-   * one generation's URL with another generation's secret.
+   * Credential reference of this same resolution, resolved per request.
+   * Travelling with the endpoint is the point: a request can never pair one
+   * generation's URL with another generation's secret. Configuration carries
+   * only this name — a literal key is not a configuration value.
    */
-  apiKey?: string
-  /** Credential reference of this same resolution, resolved per request when no literal key exists. */
   apiKeyEnv: CredentialRef
   /** Request defaults applied to every call (thinking mode, effort). */
   defaults: RequestDefaults

@@ -134,7 +134,7 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
     await dialog.getByRole('textbox', { name: 'API 密钥', exact: true }).fill('sk-e2e-minimax')
     await dialog.getByRole('button', { name: '保存', exact: true }).click()
     // The profile lands in settings.yaml with only the derived reference, the
-    // key value lands in the harness home's .env, the dormant route
+    // key value lands in the harness home's .credentials.yaml, the dormant route
     // registers, and the topology frame invalidates the page into the row.
     await expect.poll(
       async () => dialog.getByRole('textbox', { name: 'API 密钥', exact: true }).count(),
@@ -146,11 +146,11 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
     expect(document).toContain('minimax-cn:')
     expect(document).toContain('apiKeyEnv: MINIMAX_CN_API_KEY')
     expect(document).not.toContain('sk-e2e-minimax')
-    const credentialFile = join(scaffold.harnessHome, '.env')
+    const credentialFile = join(scaffold.harnessHome, '.credentials.yaml')
     await expect.poll(
       async () => readFile(credentialFile, 'utf8').catch(() => ''),
       { timeout: 10_000 },
-    ).toContain('MINIMAX_CN_API_KEY=sk-e2e-minimax')
+    ).toContain('MINIMAX_CN_API_KEY: sk-e2e-minimax')
     expect(await page.content()).not.toContain('sk-e2e-minimax')
   }, 60_000)
 
@@ -230,7 +230,7 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
       async () => readFile(join(scaffold.harnessHome, 'settings.yaml'), 'utf8'),
       { timeout: 10_000 },
     ).not.toContain('minimax-cn:')
-    expect(await readFile(join(scaffold.harnessHome, '.env'), 'utf8'))
+    expect(await readFile(join(scaffold.harnessHome, '.credentials.yaml'), 'utf8'))
       .not.toContain('MINIMAX_CN_API_KEY')
     await expect.poll(
       async () => page.getByRole('dialog', { name: '删除 minimax-cn？' }).count(),

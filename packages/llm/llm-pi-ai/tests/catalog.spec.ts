@@ -1,7 +1,7 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import LlmService, { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
@@ -19,7 +19,17 @@ import { closeMockServers, mockServer, textEvents } from './mock-server.ts'
 
 const homes: string[] = []
 
+// Routes name their credential by reference; the value lives in the
+// environment, which is the layer the adapter falls back to without a
+// mounted credentials seam.
+const KEY_ENV = 'PI_TEST_KEY'
+
+beforeEach(() => {
+  vi.stubEnv(KEY_ENV, 'test-key')
+})
+
 afterEach(async () => {
+  vi.unstubAllEnvs()
   await closeMockServers()
   await Promise.all(homes.splice(0).map(dir => rm(dir, { recursive: true, force: true })))
 })
@@ -46,7 +56,7 @@ function gateway(baseURL: string, overrides: Record<string, unknown> = {}): LlmP
   return {
     providers: {
       'acme-gateway': {
-        apiKey: 'gw-key',
+        apiKeyEnv: KEY_ENV,
         displayName: 'Acme Gateway',
         api: 'openai-completions',
         baseURL,
@@ -81,7 +91,8 @@ describe('hand-declared providers', () => {
     expect(result.message.content).toEqual([{ type: 'text', text: 'hello' }])
     expect(result.finish).toEqual({ kind: 'stop' })
     expect(server.paths).toEqual(['/v1/chat/completions'])
-    expect(server.headers[0]?.authorization).toBe('Bearer gw-key')
+    // The reference resolved through the environment and reached the wire.
+    expect(server.headers[0]?.authorization).toBe('Bearer test-key')
   })
 
   it('lists and resolves the declared models rather than a catalog', async () => {
@@ -114,7 +125,7 @@ describe('hand-declared providers', () => {
 
     // A catalog route is unaffected: its models carry the metadata that makes
     // `off` actually disable thinking.
-    const withCatalog = await harness({ providers: { deepseek: { apiKey: 'k', baseURL: server.url } } })
+    const withCatalog = await harness({ providers: { deepseek: { baseURL: server.url } } })
     const [catalogModel] = getBuiltinModels('deepseek')
     if (catalogModel === undefined) throw new Error('the installed catalog ships no deepseek model')
     expect((await withCatalog.llm.resolveModelInfo('deepseek', catalogModel.id)).reasoning?.efforts.map(e => e.id))
@@ -288,7 +299,7 @@ describe('hand-declared providers', () => {
 describe('catalog routes with per-model configuration', () => {
   it('serves the installed catalog untouched when the profile lists no models', async () => {
     const server = await mockServer([])
-    const ctx = await harness({ providers: { deepseek: { apiKey: 'k', baseURL: server.url } } })
+    const ctx = await harness({ providers: { deepseek: { baseURL: server.url } } })
 
     const listed = await ctx.llm.listModels('deepseek')
     expect(listed.map(model => model.id).sort())
@@ -302,7 +313,6 @@ describe('catalog routes with per-model configuration', () => {
     const ctx = await harness({
       providers: {
         deepseek: {
-          apiKey: 'k',
           baseURL: server.url,
           models: [{ id: catalogModel.id, contextWindow: 4096 }],
         },
@@ -327,7 +337,6 @@ describe('catalog routes with per-model configuration', () => {
     const ctx = await harness({
       providers: {
         deepseek: {
-          apiKey: 'k',
           baseURL: server.url,
           models: [{ id: catalogModel.id, maxTokens: 4096 }],
         },
@@ -344,7 +353,7 @@ describe('catalog routes with per-model configuration', () => {
     const ctx = await harness({
       providers: {
         deepseek: {
-          apiKey: 'k',
+          apiKeyEnv: KEY_ENV,
           baseURL: `${server.url}/v1`,
           models: [{ id: 'deepseek-preview', contextWindow: 200_000, maxTokens: 8192 }],
         },
@@ -362,7 +371,7 @@ describe('catalog routes with per-model configuration', () => {
     const server = await mockServer([])
     const ctx = await harness({
       providers: {
-        deepseek: { apiKey: 'k', baseURL: server.url, models: [{ id: 'deepseek-preview', contextWindow: 1, maxTokens: 1 }] },
+        deepseek: { baseURL: server.url, models: [{ id: 'deepseek-preview', contextWindow: 1, maxTokens: 1 }] },
       },
     })
 
@@ -390,7 +399,7 @@ describe('catalog routes with per-model configuration', () => {
 
   it('delegates both stream methods back to the reused catalog provider', async () => {
     const server = await mockServer([{ events: textEvents }, { events: textEvents }])
-    const resolved = resolveProfiles({ deepseek: { apiKey: 'k', baseURL: `${server.url}/v1` } })
+    const resolved = resolveProfiles({ deepseek: { baseURL: `${server.url}/v1` } })
     const built = resolved.get('deepseek')?.piProvider
     if (built === undefined) throw new Error('the deepseek route built no provider')
     const [model] = built.getModels()
@@ -431,7 +440,7 @@ describe('catalog routes with per-model configuration', () => {
         // openai's catalog models speak the Responses API; naming the protocol
         // explicitly moves the whole route onto Chat Completions.
         openai: {
-          apiKey: 'k',
+          apiKeyEnv: KEY_ENV,
           api: 'openai-completions',
           baseURL: `${server.url}/v1`,
           models: [{ id: 'gpt-4.1', contextWindow: 100_000, maxTokens: 4096 }],
@@ -456,7 +465,7 @@ describe('catalog routes with per-model configuration', () => {
     // declares an api-key method. `openai-codex` ships OAuth alone, so without
     // the harness method beside it the route refuses its own configured key as
     // `Provider is not configured` before any request goes out.
-    const resolved = resolveProfiles({ 'openai-codex': { apiKey: 'codex-token' } })
+    const resolved = resolveProfiles({ 'openai-codex': { apiKeyEnv: 'CODEX_TOKEN' } })
     const provider = resolved.get('openai-codex')?.piProvider
     expect(provider?.auth.oauth).toBeDefined()
     const models = createModels()
@@ -478,7 +487,7 @@ describe('catalog routes with per-model configuration', () => {
 describe('resolution snapshots', () => {
   it('finishes an in-flight request under the configuration it started with', async () => {
     const server = await mockServer([{ events: textEvents }])
-    let current = resolveProfiles({ deepseek: { apiKey: 'k', baseURL: `${server.url}/v1` } })
+    let current = resolveProfiles({ deepseek: { baseURL: `${server.url}/v1` } })
     let release: () => void = () => {}
     const held = new Promise<void>((resolve) => { release = resolve })
     const adapter = new PiAiAdapter({
@@ -499,7 +508,7 @@ describe('resolution snapshots', () => {
 
     // The route set changes while the request waits, and something else reads
     // the adapter meanwhile, which is what would rebuild a shared collection.
-    current = resolveProfiles({ openai: { apiKey: 'k', baseURL: `${server.url}/v1` } })
+    current = resolveProfiles({ openai: { baseURL: `${server.url}/v1` } })
     await expect(adapter.listModels('openai')).resolves.not.toHaveLength(0)
     release()
     await inFlight
@@ -513,7 +522,7 @@ describe('resolution snapshots', () => {
   it('serves the next request from the new configuration', async () => {
     const first = await mockServer([{ events: textEvents }])
     const second = await mockServer([{ events: textEvents }])
-    let current = resolveProfiles({ deepseek: { apiKey: 'k', baseURL: `${first.url}/v1` } })
+    let current = resolveProfiles({ deepseek: { baseURL: `${first.url}/v1` } })
     const adapter = new PiAiAdapter({ profiles: () => current, resolveApiKey: () => Promise.resolve('k') })
     const drain = async (): Promise<void> => {
       for await (const _chunk of adapter.stream({
@@ -522,7 +531,7 @@ describe('resolution snapshots', () => {
     }
 
     await drain()
-    current = resolveProfiles({ deepseek: { apiKey: 'k', baseURL: `${second.url}/v1` } })
+    current = resolveProfiles({ deepseek: { baseURL: `${second.url}/v1` } })
     await drain()
 
     expect(first.paths).toHaveLength(1)
@@ -544,7 +553,6 @@ describe('configurable-provider directory', () => {
     await ctx.settings.update(settingsNamespace('llm-pi-ai'), {
       providers: {
         'deepseek-official': {
-          apiKey: 'k',
           api: 'openai-completions',
           baseURL: 'https://acme.test/v1',
           models: [{ id: 'm', contextWindow: 1, maxTokens: 1 }],
@@ -567,7 +575,6 @@ describe('configurable-provider directory', () => {
     await ctx.settings.update(settingsNamespace('llm-pi-ai'), {
       providers: {
         'acme-gateway': {
-          apiKey: 'k',
           displayName: 'Acme Gateway',
           api: 'openai-completions',
           baseURL: 'https://acme.test/v1',

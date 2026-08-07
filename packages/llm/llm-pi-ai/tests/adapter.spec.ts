@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { AttachmentId, AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import type {
@@ -30,21 +30,31 @@ const IMAGE_REF: ImageAttachmentRef = {
 }
 
 async function harness(baseURL: string, overrides: Record<string, unknown> = {}): Promise<Context> {
+  vi.stubEnv('PI_TEST_KEY', 'test-key')
   const ctx = new Context()
   await ctx.plugin(LlmService)
   await ctx.plugin(LlmPiAi, {
-    providers: { deepseek: { apiKey: 'test-key', baseURL, ...overrides } },
+    providers: { deepseek: { apiKeyEnv: 'PI_TEST_KEY', baseURL, ...overrides } },
   })
   return ctx
 }
 
-/** Direct adapter over the real profile resolver, with literal-key resolution. */
-function adapterOf(providers: Record<string, LlmPiAi.PiAiProviderProfile>): PiAiAdapter {
+/** Direct adapter over the real profile resolver, with a fixed key per call. */
+function adapterOf(
+  providers: Record<string, LlmPiAi.PiAiProviderProfile>,
+  apiKey: string | undefined = 'test-key',
+): PiAiAdapter {
   return new PiAiAdapter({
     profiles: () => resolveProfiles(providers),
-    resolveApiKey: (_provider, profile) => Promise.resolve(profile.apiKey),
+    resolveApiKey: () => Promise.resolve(apiKey),
   })
 }
+
+beforeEach(() => {
+  // Configuration carries only the reference; these mounts resolve it from
+  // the environment, which is the whole credential plane without a seam.
+  vi.stubEnv('PI_TEST_KEY', 'test-key')
+})
 
 describe('PiAiAdapter provider routing', () => {
   it('resolves a catalog model dynamically and uses a private endpoint', async () => {
@@ -136,7 +146,7 @@ describe('PiAiAdapter provider routing', () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     ctx.llm.registerAdapter(['deepseek'], adapterOf({
-      deepseek: { apiKey: 'test-key', baseURL: server.url },
+      deepseek: { apiKeyEnv: 'PI_TEST_KEY', baseURL: server.url },
     }))
 
     const result = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
@@ -146,7 +156,6 @@ describe('PiAiAdapter provider routing', () => {
 
   it('names a route by its displayName, and by its own key once the profiles drop it', () => {
     const adapter = adapterOf({ 'acme-gateway': {
-      apiKey: 'k',
       displayName: 'Acme Gateway',
       api: 'openai-completions',
       baseURL: 'https://acme.test/v1',
@@ -182,7 +191,7 @@ describe('PiAiAdapter provider routing', () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     await ctx.plugin(LlmPiAi, {
-      providers: { openai: { apiKey: 'test-key', baseURL: `${server.url}/v1` } },
+      providers: { openai: { apiKeyEnv: 'PI_TEST_KEY', baseURL: `${server.url}/v1` } },
     })
     const result = await assemble(ctx, { provider: 'openai', model: 'gpt-4.1', messages: [] })
     expect(result.finish.kind).toBe('error')
@@ -258,7 +267,7 @@ describe('PiAiAdapter provider routing', () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     await ctx.plugin(LlmPiAi, {
-      providers: { openai: { apiKey: 'test-key', baseURL: `${server.url}/v1` } },
+      providers: { openai: { apiKeyEnv: 'PI_TEST_KEY', baseURL: `${server.url}/v1` } },
     })
 
     const result = await assemble(ctx, { provider: 'openai', model: 'gpt-4.1', messages: [] })
@@ -274,7 +283,7 @@ describe('PiAiAdapter provider routing', () => {
     await ctx.plugin(LlmPiAi, {
       providers: {
         openai: {
-          apiKey: 'test-key',
+          apiKeyEnv: 'PI_TEST_KEY',
           baseURL: `${server.url}/api/projects/openai/openai/v1`,
           headers: { 'api-key': 'test-key', Authorization: '' },
         },
@@ -475,7 +484,9 @@ describe('provider profile lifecycle', () => {
   it('accepts absent credentials for pi-ai ambient authentication', async () => {
     vi.stubEnv('DEEPSEEK_API_KEY', 'ambient-key')
     const server = await mockServer([{ events: textEvents }])
-    const ctx = await harness(server.url, { apiKey: undefined })
+    // A profile that names no reference at all is the one case that defers to
+    // pi-ai's own provider-native discovery.
+    const ctx = await harness(server.url, { apiKeyEnv: undefined })
     await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
     expect(server.headers[0]?.authorization).toBe('Bearer ambient-key')
   })
@@ -517,8 +528,6 @@ describe('provider profile lifecycle', () => {
     // loud with migration directions instead of half-working.
     expect(() => resolveProfiles([{ provider: 'openai' }] as never)).toThrow(/dict keyed by provider/)
     expect(() => resolveProfiles({ openai: { provider: 'openai' } as never })).toThrow(/moved to the providers dict key/)
-    expect(() => resolveProfiles({ openai: { apiKey: '' } })).toThrow(/empty apiKey/)
-    expect(() => resolveProfiles({ openai: { apiKey: '  ' } })).toThrow(/empty apiKey/)
     expect(() => resolveProfiles({ openai: { baseURL: '' } })).toThrow(/empty baseURL/)
     expect(() => resolveProfiles({ openai: { apiKeyEnv: 'not-a-var!' } })).toThrow(/must match/)
   })
@@ -633,7 +642,7 @@ describe('abort wiring', () => {
     const message = Object.defineProperty({}, 'content', {
       get() { throw original },
     })
-    const adapter = adapterOf({ deepseek: { apiKey: 'test-key' } })
+    const adapter = adapterOf({ deepseek: {} })
     const drain = async (): Promise<void> => {
       for await (const _chunk of adapter.stream({
         provider: 'deepseek',
@@ -654,7 +663,7 @@ describe('abort wiring', () => {
         throw original
       },
     })
-    const adapter = adapterOf({ deepseek: { apiKey: 'test-key' } })
+    const adapter = adapterOf({ deepseek: {} })
     const drain = async (): Promise<void> => {
       for await (const _chunk of adapter.stream({
         provider: 'deepseek',
@@ -668,7 +677,7 @@ describe('abort wiring', () => {
   })
 
   it('resolves catalog endpoints without an override before honoring pre-abort', async () => {
-    const adapter = adapterOf({ deepseek: { apiKey: 'test-key' } })
+    const adapter = adapterOf({ deepseek: {} })
     const controller = new AbortController()
     controller.abort('already stopped')
     const chunks = []

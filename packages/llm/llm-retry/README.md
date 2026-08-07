@@ -15,7 +15,7 @@ The separately published `./invariant` companion checks that every retry record 
 ```yaml
 - name: '@deepseek-ai/dsh-llm-deepseek'
   config:
-    apiKey: !!js process.env.DEEPSEEK_API_KEY
+    apiKeyEnv: DEEPSEEK_API_KEY
     retryPolicy:
       mode: always
       backoff:
