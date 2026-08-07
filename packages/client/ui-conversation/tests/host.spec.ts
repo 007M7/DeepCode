@@ -4,7 +4,6 @@ import { Settings, settingsNamespace, type SettingsNamespace } from '@deepseek-a
 import {
   CONVERSATION_SETTINGS_NAMESPACE, DEFAULT_BUSY_ENTER_BEHAVIOR, apply,
 } from '@deepseek-ai/dsh-client-ui-conversation'
-import { isBusyEnterBehavior } from '../src/submission-settings.ts'
 
 class MemorySettings extends Settings {
   readonly writable = true
@@ -15,12 +14,6 @@ class MemorySettings extends Settings {
 }
 
 describe('ui-conversation host', () => {
-  it('narrows settings-wire values to the supported behavior pair', () => {
-    expect(isBusyEnterBehavior('queue')).toBe(true)
-    expect(isBusyEnterBehavior('steer')).toBe(true)
-    expect(isBusyEnterBehavior('later')).toBe(false)
-  })
-
   it('registers, validates, and disposes the durable busy-Enter preference', async () => {
     const ctx = new Context()
     await ctx.plugin(MemorySettings).await()

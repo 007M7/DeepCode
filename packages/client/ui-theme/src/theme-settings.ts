@@ -15,6 +15,12 @@ export type ThemePreference = typeof THEME_PREFERENCES[number]
 /** Default preference when the user-settings document has no override. */
 export const DEFAULT_PREFERENCE: ThemePreference = 'system'
 
+/** Durable theme section shared by the Host schema and the browser scope. */
+export interface ThemeSettings {
+  /** Selected built-in preference. */
+  preference: ThemePreference
+}
+
 /**
  * Narrow one wire or registry value to a persistable preference.
  * @param value - value crossing the settings or registry boundary.

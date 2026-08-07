@@ -4,18 +4,16 @@ import type { Context } from 'cordis'
 import z from 'schemastery'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import {
-  LOCALE_IDS, LOCALE_PREFERENCE_FIELD, LOCALE_SETTINGS_NAMESPACE, type LocaleId,
+  LOCALE_IDS, LOCALE_PREFERENCE_FIELD, LOCALE_SETTINGS_NAMESPACE, type LocaleSettings,
 } from './locale-settings.ts'
 
 export {
-  LOCALE_IDS, LOCALE_PREFERENCE_FIELD, LOCALE_SETTINGS_NAMESPACE, type LocaleId,
+  LOCALE_IDS, LOCALE_PREFERENCE_FIELD, LOCALE_SETTINGS_NAMESPACE,
+  type LocaleId, type LocaleSettings,
 } from './locale-settings.ts'
 
-interface LocaleSettings {
-  preference?: LocaleId
-}
-
-const LocaleSettingsSchema: z<LocaleSettings> = z.object({
+/** Durable locale schema; also the wire envelope the browser scope validates against. */
+export const LocaleSettingsSchema: z<LocaleSettings> = z.object({
   [LOCALE_PREFERENCE_FIELD]: z.union([...LOCALE_IDS]).required(false),
 })
 

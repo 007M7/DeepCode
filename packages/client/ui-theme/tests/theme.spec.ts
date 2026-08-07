@@ -1,19 +1,20 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import type { ThemeSnapshot } from '@deepseek-ai/dsh-client-ui-theme/client'
+import { stubSettingsScope, type StubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
+import type { ThemeSettings, ThemeSnapshot } from '@deepseek-ai/dsh-client-ui-theme/client'
 import { ThemeService } from '@deepseek-ai/dsh-client-ui-theme/client'
 
-const make = (persist = vi.fn()): {
+const make = (host = stubSettingsScope<ThemeSettings>()): {
   ctx: Context
   theme: ThemeService
   events: ThemeSnapshot[]
-  persist: typeof persist
+  host: StubSettingsScope<ThemeSettings>
 } => {
   const ctx = new Context()
   const events: ThemeSnapshot[] = []
   ctx.on('theme/change', (snapshot) => { events.push(snapshot) })
-  return { ctx, theme: new ThemeService(ctx, persist), events, persist }
+  return { ctx, theme: new ThemeService(ctx, host.scope), events, host }
 }
 
 describe('ThemeService', () => {
@@ -27,12 +28,12 @@ describe('ThemeService', () => {
     expect(snapshot.themes.map(t => t.id)).toEqual(['light', 'dark'])
   })
 
-  it('setTheme switches, requests persistence, republishes, and keeps DOM untouched', () => {
-    const { theme, events, persist } = make()
+  it('setTheme switches, writes through the scope, republishes, and keeps DOM untouched', () => {
+    const { theme, events, host } = make()
     theme.setTheme('dark')
     expect(theme.getTheme().preference).toBe('dark')
     expect(theme.getTheme().active.colorScheme).toBe('dark')
-    expect(persist).toHaveBeenCalledWith('dark')
+    expect(host.set).toHaveBeenCalledWith('preference', 'dark')
     expect(events).toHaveLength(1)
     expect(events[0]).toBe(theme.getTheme())
     // The service never touches presentation state.
@@ -40,17 +41,24 @@ describe('ThemeService', () => {
     // Same-value set is a no-op (no extra event).
     theme.setTheme('dark')
     expect(events).toHaveLength(1)
-    expect(persist).toHaveBeenCalledOnce()
+    expect(host.set).toHaveBeenCalledOnce()
   })
 
-  it('syncs a Host preference without writing it back', () => {
-    const { theme, events, persist } = make()
-    theme.syncPreference('dark')
+  it('adopts a published Host section without writing it back', () => {
+    const { theme, events, host } = make()
+    host.publish({ status: 'ready', value: { preference: 'dark' }, revision: 1, writable: true })
     expect(theme.getTheme().preference).toBe('dark')
     expect(events).toHaveLength(1)
-    expect(persist).not.toHaveBeenCalled()
-    theme.syncPreference('dark')
+    expect(host.set).not.toHaveBeenCalled()
+    host.publish({ value: { preference: 'dark' }, revision: 2 })
     expect(events).toHaveLength(1)
+  })
+
+  it('adopts a section already standing at construction', () => {
+    const host = stubSettingsScope<ThemeSettings>()
+    host.publish({ status: 'ready', value: { preference: 'dark' }, revision: 1, writable: true })
+    const { theme } = make(host)
+    expect(theme.getTheme().preference).toBe('dark')
   })
 
   it('throws on unknown setTheme ids, duplicate registration, and the system id', () => {
@@ -61,7 +69,7 @@ describe('ThemeService', () => {
   })
 
   it('registered themes join the snapshot; disposing the active one resets to default', () => {
-    const { theme, events, persist } = make()
+    const { theme, events, host } = make()
     const dispose = theme.register({ id: 'sepia', colorScheme: 'light', tokens: { '--dsw-alias-bg-base': 'red' } })
     expect(theme.getTheme().themes.map(t => t.id)).toEqual(['light', 'dark', 'sepia'])
     theme.setTheme('sepia')
@@ -71,7 +79,7 @@ describe('ThemeService', () => {
     expect(theme.getTheme().themes.map(t => t.id)).toEqual(['light', 'dark'])
     // Custom ids are in-process extension themes; only the built-in product
     // preferences cross the Host settings schema.
-    expect(persist).not.toHaveBeenCalled()
+    expect(host.set).not.toHaveBeenCalled()
     // register + set + dispose = three publishes; disposer is idempotent.
     expect(events.length).toBe(3)
     dispose()
@@ -95,11 +103,11 @@ describe('ThemeService', () => {
     expect(events.map(e => e.revision)).toEqual([1, 2, 3, 4])
   })
 
-  it('uses a no-op persistence callback when constructed directly', () => {
-    const ctx = new Context()
-    const theme = new ThemeService(ctx)
-    theme.setTheme('dark')
-    expect(theme.getTheme().preference).toBe('dark')
+  it('context dispose releases the scope subscription', async () => {
+    const { ctx, host } = make()
+    expect(host.listenerCount()).toBe(1)
+    await ctx.fiber.dispose()
+    expect(host.listenerCount()).toBe(0)
   })
 
   describe('prefers-color-scheme resolution (stubbed matchMedia)', () => {

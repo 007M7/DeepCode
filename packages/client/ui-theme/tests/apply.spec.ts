@@ -10,6 +10,7 @@ import {
   apply, inject, SETTINGS_NS, THEME_SETTINGS_NAMESPACE,
 } from '@deepseek-ai/dsh-client-ui-theme/client'
 import type { AppearanceRowInjected, ThemeService } from '@deepseek-ai/dsh-client-ui-theme/client'
+import { ThemeSettingsSchema } from '@deepseek-ai/dsh-client-ui-theme'
 import { AppearanceRow } from '../src/client/AppearanceRow.tsx'
 import type { createAppearanceRowStore } from '../src/client/settings-store.ts'
 
@@ -33,7 +34,7 @@ async function bench(isLoopback = true) {
   let preference = 'system'
   const namespace = () => ({
     ns: THEME_SETTINGS_NAMESPACE,
-    schema: {},
+    schema: ThemeSettingsSchema.toJSON(),
     value: { preference },
     applies: 'live' as const,
     secrets: [],

@@ -5,19 +5,16 @@ import z from 'schemastery'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import {
   DEFAULT_PREFERENCE, THEME_PREFERENCE_FIELD, THEME_PREFERENCES, THEME_SETTINGS_NAMESPACE,
-  type ThemePreference,
+  type ThemeSettings,
 } from './theme-settings.ts'
 
 export {
   DEFAULT_PREFERENCE, THEME_PREFERENCE_FIELD, THEME_PREFERENCES, THEME_SETTINGS_NAMESPACE,
-  type ThemePreference,
+  type ThemePreference, type ThemeSettings,
 } from './theme-settings.ts'
 
-interface ThemeSettings {
-  preference: ThemePreference
-}
-
-const ThemeSettingsSchema: z<ThemeSettings> = z.object({
+/** Durable theme schema; also the wire envelope the browser scope validates against. */
+export const ThemeSettingsSchema: z<ThemeSettings> = z.object({
   [THEME_PREFERENCE_FIELD]: z.union([...THEME_PREFERENCES]).default(DEFAULT_PREFERENCE),
 })
 

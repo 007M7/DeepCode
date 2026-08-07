@@ -1,7 +1,7 @@
 /** Registers the conversation components, shared store, and service callbacks. */
 import type { Context } from 'cordis'
 import { resolveSlotLabel, type BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
-import { bindSettingsPreference, type ISessions, type SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import { bindSettingsScope, type ISessions, type SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
@@ -38,9 +38,7 @@ import { ConversationRoot } from './skeleton/ConversationRoot.tsx'
 import { ConversationSession, ConversationSessionHeader } from './skeleton/ConversationSession.tsx'
 import { DetailsPanel } from './skeleton/DetailsPanel.tsx'
 import { en, NS, zh, type ConversationKey } from './locales.ts'
-import {
-  BUSY_ENTER_FIELD, CONVERSATION_SETTINGS_NAMESPACE, isBusyEnterBehavior,
-} from '../submission-settings.ts'
+import { CONVERSATION_SETTINGS_NAMESPACE, type ConversationSettings } from '../submission-settings.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -106,14 +104,9 @@ export function apply(ctx: Context): void {
 
   // Apply-time construction keeps store identity bound to this fiber.
   const chatStore = createChatStore()
-  const submissionPolicy = new ComposerSubmissionPolicy()
-  const preference = bindSettingsPreference(ctx, {
-    namespace: CONVERSATION_SETTINGS_NAMESPACE,
-    field: BUSY_ENTER_FIELD,
-    decode: value => isBusyEnterBehavior(value) ? value : undefined,
-    sync: (behavior) => { submissionPolicy.syncPreference(behavior) },
-  })
-  submissionPolicy.bindPersistence((behavior) => { void preference.persist(behavior) })
+  const submissionPolicy = new ComposerSubmissionPolicy(
+    bindSettingsScope<ConversationSettings>(ctx, { namespace: CONVERSATION_SETTINGS_NAMESPACE }),
+  )
 
   ctx.slots.inject('settings.general.item', () => ctx.slots.register({
     name: 'settings.general.item',

@@ -9,6 +9,7 @@ import {
 } from '@deepseek-ai/dsh-client-locale/client'
 import type { LanguageRowInjected, LocaleService } from '@deepseek-ai/dsh-client-locale/client'
 import { LOCALE_SETTINGS_NAMESPACE } from '../src/locale-settings.ts'
+import { LocaleSettingsSchema } from '../src/index.ts'
 import { LanguageRow } from '../src/client/LanguageRow.tsx'
 import type { createLanguageRowStore } from '../src/client/settings-store.ts'
 
@@ -21,7 +22,7 @@ async function bench() {
   let revision = 0
   const namespace = () => ({
     ns: LOCALE_SETTINGS_NAMESPACE,
-    schema: {},
+    schema: LocaleSettingsSchema.toJSON(),
     value: preference === undefined ? {} : { preference },
     applies: 'live' as const,
     secrets: [],

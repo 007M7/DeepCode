@@ -13,9 +13,11 @@ import type { Context } from 'cordis'
 import {
   type BoundActions, type LocaleDictOf, type LocaleNamespaceMap, type Translate, type TranslateNS,
 } from '@deepseek-ai/dsh-client-ui-slots'
-import { bindSettingsPreference, type ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import {
-  isLocaleId, LOCALE_PREFERENCE_FIELD, LOCALE_SETTINGS_NAMESPACE, type LocaleId,
+  bindSettingsScope, type ClientContext, type SettingsScope,
+} from '@deepseek-ai/dsh-client-runtime/client'
+import {
+  LOCALE_PREFERENCE_FIELD, LOCALE_SETTINGS_NAMESPACE, type LocaleId, type LocaleSettings,
 } from '../locale-settings.ts'
 import { en, zh, type CommonKey } from '../locales/index.ts'
 import {
@@ -29,7 +31,7 @@ export type { LanguageRowComponentProps, LanguageRowInjected } from './LanguageR
 export type { LanguageOptionRow, LanguageRowState } from './settings-store.ts'
 export type { SettingsGeneralItemOwnerProps } from './settings-contract.ts'
 export type { CommonKey } from '../locales/index.ts'
-export type { LocaleId } from '../locale-settings.ts'
+export type { LocaleId, LocaleSettings } from '../locale-settings.ts'
 
 // The translate currency lives in ui-slots (the render machinery synthesizes
 // the seat); re-exported here so dictionary owners import one package.
@@ -114,24 +116,25 @@ export class LocaleService {
   private snapshot: LocaleSnapshot
   private listeners = new Set<() => void>()
   private readonly ctx: Context
-  private persist: (id: LocaleId) => void
+  private readonly host: SettingsScope<LocaleSettings> | undefined
+  /** Browser-derived locale standing wherever no explicit Host selection does. */
+  private readonly provisional: LocaleId
 
   /**
-   * @param ctx - owning context (change events are emitted on it).
-   * @param persist - durable write callback for explicit locale selections.
+   * @param ctx - owning context (change events are emitted on it; the scope
+   * listener is released through ctx.effect on dispose).
+   * @param host - durable preference scope owned by the providing plugin;
+   * absent compositions (standalone dictionary registries) stay process-local.
    */
-  constructor(ctx: Context, persist: (id: LocaleId) => void = () => {}) {
+  constructor(ctx: Context, host?: SettingsScope<LocaleSettings>) {
     this.ctx = ctx
-    this.persist = persist
-    this.snapshot = Object.freeze({ active: resolveInitialLocale(), locales: LOCALES, revision: 0 })
-  }
-
-  /**
-   * Bind the owning plugin's durable writer before the service is provided.
-   * @param persist - callback accepting explicit locale changes.
-   */
-  bindPersistence(persist: (id: LocaleId) => void): void {
-    this.persist = persist
+    this.host = host
+    this.provisional = resolveInitialLocale()
+    this.snapshot = Object.freeze({ active: this.provisional, locales: LOCALES, revision: 0 })
+    if (host !== undefined) {
+      ctx.effect(() => host.subscribe(() => { this.adopt(host) }), 'locale: settings scope adoption')
+      this.adopt(host)
+    }
   }
 
   /**
@@ -172,16 +175,20 @@ export class LocaleService {
     if (match === undefined) throw new Error(`locale "${id}" is not registered`)
     if (this.snapshot.active === match.id) return
     this.publish(match.id, true)
-    this.persist(match.id)
+    void this.host?.set(LOCALE_PREFERENCE_FIELD, match.id)
   }
 
   /**
-   * Apply an explicit Host preference without writing it back.
-   * @param id - validated shipped locale.
+   * Adopt the scope's accepted durable selection without writing it back; an
+   * absent selection returns to the browser-derived locale.
+   * @param host - the constructor-narrowed scope driving this adoption.
    */
-  syncPreference(id: LocaleId): void {
-    if (this.snapshot.active === id) return
-    this.publish(id, true)
+  private adopt(host: SettingsScope<LocaleSettings>): void {
+    const section = host.getSnapshot().value
+    if (section === undefined) return
+    const target = section.preference ?? this.provisional
+    if (this.snapshot.active === target) return
+    this.publish(target, true)
   }
 
   /**
@@ -345,17 +352,10 @@ export const inject = ['slots', 'connection']
  * @param ctx - client cordis context.
  */
 export function apply(ctx: ClientContext): void {
-  const locale = new LocaleService(ctx)
-  const browserLocale = locale.getLocale().active
+  const host = bindSettingsScope<LocaleSettings>(ctx, { namespace: LOCALE_SETTINGS_NAMESPACE })
+  const locale = new LocaleService(ctx, host)
   locale.register(COMMON_NS, { zh, en })
   locale.register(SETTINGS_NS, { zh: settingsZh, en: settingsEn })
-  const controller = bindSettingsPreference(ctx, {
-    namespace: LOCALE_SETTINGS_NAMESPACE,
-    field: LOCALE_PREFERENCE_FIELD,
-    decode: value => isLocaleId(value) ? value : browserLocale,
-    sync: (id) => { locale.syncPreference(id) },
-  })
-  locale.bindPersistence((id) => { void controller.persist(id) })
   ctx.provide('locale', locale)
   // The service IS the LocaleFace (bind + getSnapshot/subscribe): install it
   // so the render machinery can synthesize the `t` standard seat.

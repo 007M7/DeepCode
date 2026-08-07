@@ -1,14 +1,19 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import type { LocaleSnapshot } from '@deepseek-ai/dsh-client-locale/client'
+import { stubSettingsScope, type StubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
+import type { LocaleSettings, LocaleSnapshot } from '@deepseek-ai/dsh-client-locale/client'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
 
-const make = (): { ctx: Context; svc: LocaleService; events: LocaleSnapshot[] } => {
+const make = (host?: StubSettingsScope<LocaleSettings>): {
+  ctx: Context
+  svc: LocaleService
+  events: LocaleSnapshot[]
+} => {
   const ctx = new Context()
   const events: LocaleSnapshot[] = []
   ctx.on('locale/change', (snapshot) => { events.push(snapshot) })
-  return { ctx, svc: new LocaleService(ctx), events }
+  return { ctx, svc: new LocaleService(ctx, host?.scope), events }
 }
 
 /**
@@ -131,19 +136,25 @@ describe('LocaleService', () => {
     expect(svc.getSnapshot().revision).toBe(before + 1)
   })
 
-  it('setLocale requests persistence, republishes an immutable snapshot, and no-ops on same value', () => {
-    const { svc, events } = make()
-    const persist = vi.fn()
-    svc.bindPersistence(persist)
+  it('setLocale writes through the scope, republishes an immutable snapshot, and no-ops on same value', () => {
+    const host = stubSettingsScope<LocaleSettings>()
+    const { svc, events } = make(host)
     svc.setLocale('en')
     expect(svc.getLocale().active).toBe('en')
-    expect(persist).toHaveBeenCalledWith('en')
+    expect(host.set).toHaveBeenCalledWith('preference', 'en')
     expect(events).toHaveLength(1)
     expect(events[0]).toBe(svc.getLocale())
     expect(events[0]!.revision).toBe(1)
     svc.setLocale('en')
     expect(events).toHaveLength(1)
-    expect(persist).toHaveBeenCalledOnce()
+    expect(host.set).toHaveBeenCalledOnce()
+  })
+
+  it('setLocale without a host scope stays process-local', () => {
+    const { svc, events } = make()
+    svc.setLocale('en')
+    expect(svc.getLocale().active).toBe('en')
+    expect(events).toHaveLength(1)
   })
 
   it('throws on unknown locale ids', () => {
@@ -151,16 +162,34 @@ describe('LocaleService', () => {
     expect(() => { svc.setLocale('fr') }).toThrow('not registered')
   })
 
-  it('syncs a Host preference over the browser language without writing it back', () => {
-    const { svc, events } = make()
-    const persist = vi.fn()
-    svc.bindPersistence(persist)
-    svc.syncPreference('en')
+  it('adopts a Host preference over the browser language without writing it back', () => {
+    const host = stubSettingsScope<LocaleSettings>()
+    const { svc, events } = make(host)
+    host.publish({ status: 'ready', value: { preference: 'en' }, revision: 1, writable: true })
     expect(svc.getLocale().active).toBe('en')
     expect(events).toHaveLength(1)
-    expect(persist).not.toHaveBeenCalled()
-    svc.syncPreference('en')
+    expect(host.set).not.toHaveBeenCalled()
+    host.publish({ value: { preference: 'en' }, revision: 2 })
     expect(events).toHaveLength(1)
+  })
+
+  it('an absent Host preference returns to the browser-derived locale', () => {
+    const host = stubSettingsScope<LocaleSettings>()
+    const { svc } = make(host)
+    host.publish({ status: 'ready', value: { preference: 'en' }, revision: 1, writable: true })
+    expect(svc.getLocale().active).toBe('en')
+    host.publish({ value: {}, revision: 2 })
+    expect(svc.getLocale().active).toBe('zh')
+  })
+
+  it('adopts a section already standing at construction and releases its subscription on dispose', async () => {
+    const host = stubSettingsScope<LocaleSettings>()
+    host.publish({ status: 'ready', value: { preference: 'en' }, revision: 1, writable: true })
+    const { ctx, svc } = make(host)
+    expect(svc.getLocale().active).toBe('en')
+    expect(host.listenerCount()).toBe(1)
+    await ctx.fiber.dispose()
+    expect(host.listenerCount()).toBe(0)
   })
 
   it('opens provisionally in the browser language, matching regional variants on their primary subtag', () => {

@@ -34,6 +34,8 @@ import type { Stabilizer } from './fixtures.ts'
 
 export { domSnapshotSerializer, registerDomSnapshotSerializer } from './snapshot.ts'
 export { FixtureSession, TestSessions } from './sessions.ts'
+export { stubSettingsScope } from './settings-scope.ts'
+export type { StubSettingsScope } from './settings-scope.ts'
 export { TestWorkspaces } from './workspaces.ts'
 export { conversationSnapshot, workspaceListState } from './fixtures.ts'
 export type { SessionBehaviorOverrides, SessionFixture, Stabilizer } from './fixtures.ts'

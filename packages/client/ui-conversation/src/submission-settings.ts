@@ -15,11 +15,8 @@ export type BusyEnterBehavior = typeof BUSY_ENTER_BEHAVIORS[number]
 /** Default preserves Enter-as-Queue for running conversations. */
 export const DEFAULT_BUSY_ENTER_BEHAVIOR: BusyEnterBehavior = 'queue'
 
-/**
- * Narrow one settings-wire value to a busy-Enter behavior.
- * @param value - value crossing the settings boundary.
- * @returns whether the value names a supported behavior.
- */
-export function isBusyEnterBehavior(value: unknown): value is BusyEnterBehavior {
-  return BUSY_ENTER_BEHAVIORS.some(behavior => behavior === value)
+/** Durable conversation section shared by the Host schema and the browser scope. */
+export interface ConversationSettings {
+  /** Delivery mode for plain Enter while the addressed agent is busy. */
+  busyEnter: BusyEnterBehavior
 }

@@ -5,19 +5,16 @@ import z from 'schemastery'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import {
   BUSY_ENTER_BEHAVIORS, BUSY_ENTER_FIELD, CONVERSATION_SETTINGS_NAMESPACE,
-  DEFAULT_BUSY_ENTER_BEHAVIOR, type BusyEnterBehavior,
+  DEFAULT_BUSY_ENTER_BEHAVIOR, type ConversationSettings,
 } from './submission-settings.ts'
 
 export {
   BUSY_ENTER_BEHAVIORS, BUSY_ENTER_FIELD, CONVERSATION_SETTINGS_NAMESPACE,
-  DEFAULT_BUSY_ENTER_BEHAVIOR, type BusyEnterBehavior,
+  DEFAULT_BUSY_ENTER_BEHAVIOR, type BusyEnterBehavior, type ConversationSettings,
 } from './submission-settings.ts'
 
-interface ConversationSettings {
-  busyEnter: BusyEnterBehavior
-}
-
-const ConversationSettingsSchema: z<ConversationSettings> = z.object({
+/** Durable conversation schema; also the wire envelope the browser scope validates against. */
+export const ConversationSettingsSchema: z<ConversationSettings> = z.object({
   [BUSY_ENTER_FIELD]: z.union([...BUSY_ENTER_BEHAVIORS]).default(DEFAULT_BUSY_ENTER_BEHAVIOR),
 })
 

@@ -160,9 +160,9 @@ export default defineConfig({
         'packages/client/ui-workspace/src/client/WorkspaceBrowser.tsx',
         'packages/client/ui-workspace/src/client/WorkspacePicker.tsx',
         'packages/client/web-react/src/*',
-        // This isolated scalar-settings lifecycle has complete unit coverage;
+        // This isolated settings-scope lifecycle has complete unit coverage;
         // keep it out of the broader client-runtime GUI debt exemption.
-        'packages/client/runtime/src/**/!(settings-preference).ts',
+        'packages/client/runtime/src/**/!(settings-scope).ts',
         // Keep the browser conversation tree under its existing GUI debt
         // exemption while gating the newly stateful Host half and vocabulary.
         'packages/client/ui-conversation/src/client/*',

@@ -15,10 +15,10 @@ export const name = 'client-ui-theme-invariant'
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: the settings seam validates and publishes the durable
+ * No runtime invariant: the settings scope validates and publishes the durable
  * theme section, while the registry emits `theme/change` synchronously with
  * its own mutations. Store/registry agreement is covered directly by this
- * package's Host, controller, and service behavior specs.
+ * package's Host, scope, and service behavior specs.
  */
 const install: InvariantInstaller = () => {}
 
