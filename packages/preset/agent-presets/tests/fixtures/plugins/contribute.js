@@ -17,9 +17,4 @@ export function apply(ctx, config) {
     order: 10,
     text: `section for ${config.tool}`,
   }))
-  // Reconfiguring a live row runs the Loader's `internal/update` waterfall,
-  // which persists the owning tree. That is the trigger reaching the preset
-  // tree's `write` while the subtree is still mounted; tearing the agent down
-  // instead stops earlier, in the loader's own "tree is being disposed" case.
-  globalThis.__RECONFIGURE__ = tool => ctx.fiber.update({ ...config, tool })
 }
