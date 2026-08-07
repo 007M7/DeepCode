@@ -63,6 +63,10 @@ Streaming is a raw chunk protocol (`block-start`, `text-delta`, `reasoning-delta
 
 Every product adapter sends application identity on provider HTTP requests. `attributionHeaders(identity?)` builds the standard `User-Agent`, defaulting to public `APP_IDENTITY`; white-label deployments may replace but not suppress it. Adapters verify the wire header directly or through their library hook. See [the attribution Agent Note](../../../.agents/notes/implemented/architecture/2026-06-21-mandatory-app-attribution-headers.md).
 
+### API key validation (`api-key.ts`)
+
+Every adapter that puts a credential in an HTTP header judges it the same way before use. `normalizeApiKey(raw)` trims surrounding whitespace, then accepts any non-empty printable-ASCII value (`/^[\x21-\x7E]+$/`, space excluded) or reports why not as an `ApiKeyRejection` (`'empty'` | `'illegalCharacters'`), both carried in the `ApiKeyCheck` result. Absence is never judged: a caller decides whether a value was supplied before asking, since a profile naming no credential authenticates through the provider's own ambient discovery or OAuth.
+
 ### Classes
 
 - `LlmAdapter` — abstract base class for provider adapters. The only required method is `stream()`.
@@ -73,6 +77,7 @@ Every product adapter sends application identity on provider HTTP requests. `att
 - `CONTEXT_WINDOW_EXCEEDED_CODE` — the provider-neutral code both DeepSeek adapters use when a request exceeds the model context window, regardless of thrown-HTTP versus in-band finish delivery. `isContextWindowExceededError(detail)` is their shared conservative classifier for OpenAI-compatible provider detail.
 - `QUOTA_EXCEEDED_CODE` — the non-transient provider-neutral code for exhausted account quota, balance, credits, budget, or usage limits. `isQuotaExceededError(detail)` keeps those failures distinct from request-rate limits.
 - `EMPTY_RESPONSE_CODE` — the provider-neutral code both adapters use for a degenerate provider completion: a terminal `stop` that carried no content blocks at all. Classified as an error finish (not a successful empty message) because the attempt produced nothing durable; `dsh-llm-retry` retries it by default.
+- `INVALID_CREDENTIAL_CODE` — the provider-neutral code for a credential that was supplied but cannot be used: malformed rather than absent, so the fix is to correct the stored value rather than supply one — the distinction from `MISSING_CREDENTIAL`. Deliberately excluded from the default retryable set, since a malformed credential fails identically on every attempt. `assertUsableApiKey(raw, pkg, ref)` throws `LlmError` with this code, the one shared diagnosis every adapter uses for an unusable stored credential.
 
 ### Real adapters
 

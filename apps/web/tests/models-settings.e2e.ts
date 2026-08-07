@@ -79,6 +79,25 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
     await compareOrRefreshGolden(EMPTY_EXPECTED, snapshot, MODE)
   }, 60_000)
 
+  it('refuses a key no HTTP header can carry before anything is written', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-models-illegal-key'))
+    const dialog = page.getByRole('dialog', { name: '设置' })
+    const key = dialog.getByLabel('API 密钥')
+    const save = dialog.getByRole('button', { name: '保存', exact: true })
+
+    // The paste that used to save cleanly and then fail the first turn with a
+    // ByteString TypeError now names the field that holds it.
+    await key.fill('sk-\u{1F600}minimax')
+    await dialog.getByText('该 API 密钥格式错误，请检查。').waitFor({ timeout: 10_000 })
+    await expect.poll(async () => save.isEnabled(), { timeout: 10_000 }).toBe(false)
+
+    // Clearing it restores submit: an empty field means "keep what is stored",
+    // never a refusal, or editing any other setting would demand the key.
+    await key.fill('')
+    await expect.poll(async () => save.isEnabled(), { timeout: 10_000 }).toBe(true)
+    expect(await dialog.getByText('该 API 密钥格式错误，请检查。').count()).toBe(0)
+  }, 60_000)
+
   it('saves a blank key as a reference-free provider-native profile', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-models-native-auth'))
     const dialog = page.getByRole('dialog', { name: '设置' })
