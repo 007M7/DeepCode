@@ -157,8 +157,9 @@ export function apply(ctx: ClientContext): void {
         .filter(skill => skill.name.startsWith(query))
         .map(skill => ({
           name: skill.name,
-          description: skill.description,
-          ...skill.modelInvocable ? {} : { hint: userOnlyHint() },
+          // The user-only marker rides the description (the menu's only
+          // secondary text); `hint` is the claim-state ghost text, not a badge.
+          description: skill.modelInvocable ? skill.description : `${userOnlyHint()} · ${skill.description}`,
         }))
     },
     warm(session) {

@@ -388,7 +388,7 @@ describe('adjudication', () => {
 })
 
 describe('user-only marking', () => {
-  it('carries the user-only hint on candidates the model cannot invoke', async () => {
+  it('prefixes the description of candidates the model cannot invoke', async () => {
     const rows: SkillRow[] = [
       { name: 'shared-skill', description: 'both surfaces', modelInvocable: true },
       { name: 'user-only-skill', description: 'user surface only', modelInvocable: false },
@@ -397,7 +397,7 @@ describe('user-only marking', () => {
     const candidates = await source.candidates(proj('s1'), req(''))
     expect(candidates).toEqual([
       { name: 'shared-skill', description: 'both surfaces' },
-      { name: 'user-only-skill', description: 'user surface only', hint: '仅用户' },
+      { name: 'user-only-skill', description: '仅用户 · user surface only' },
     ])
   })
 })
