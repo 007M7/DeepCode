@@ -7,10 +7,11 @@
  * aria-labelledby the title node; close: visually-hidden slot text). Modal
  * open state and the active section id are component-local viewing state;
  * the onboarding coordinator mounts exactly one ordered registrant while the
- * sessions-derived empty-Hero fact is active.
+ * sessions-derived empty-Hero fact is active — the takeover chrome
+ * (OnboardingSurface) belongs to the step, so a mounted-but-deciding step
+ * paints nothing here.
  */
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 import clsx from 'clsx'
 import { IconCloseOutline16, IconDataOutline16, IconSettingsOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SettingsRootComponentProps, SettingsSectionRow } from './contract/slots.ts'
@@ -134,14 +135,6 @@ export function SettingsRoot(props: SettingsRootComponentProps) {
     })
   }, [])
 
-  useEffect(() => {
-    if (onboardingStep === undefined) return
-    const appRoot = document.getElementById('root')
-    if (appRoot === null) return
-    appRoot.inert = true
-    return () => { appRoot.inert = false }
-  }, [onboardingStep])
-
   return (
     <>
       <button
@@ -162,18 +155,15 @@ export function SettingsRoot(props: SettingsRootComponentProps) {
           onClose={close}
         />
       )}
-      {onboardingStep !== undefined && createPortal((
-        <div className={css.onboardingOverlay} role="presentation">
-          <div className={css.onboardingMask} aria-hidden="true" />
-          <div className={css.onboardingStage}>
-            {renderSlot('settings.onboarding', {
-              stepId: onboardingStep.id,
-              complete: () => { completeOnboardingStep(onboardingStep.id) },
-              openSection,
-            }, { only: onboardingStep.id })}
-          </div>
-        </div>
-      ), document.body)}
+      {/* The takeover chrome (OnboardingSurface: mask, opaque stage, `#root`
+          inert) lives inside the step component, wrapped around its visible
+          content — a step still deciding (private facts loading) renders
+          null, so nothing paints or blocks while it decides. */}
+      {onboardingStep !== undefined && renderSlot('settings.onboarding', {
+        stepId: onboardingStep.id,
+        complete: () => { completeOnboardingStep(onboardingStep.id) },
+        openSection,
+      }, { only: onboardingStep.id })}
     </>
   )
 }

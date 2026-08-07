@@ -15,6 +15,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as sleepMs } from 'node:timers/promises'
 import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
+import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import type {
   CollectedOutput,
   SubprocessCollect,
@@ -26,12 +27,12 @@ import type {
 
 /**
  * Build a child environment: explicit caller entries merge after the scrubbed
- * parent base, so a deliberately supplied credential or current `DSH_*` fact
- * wins over the scrub that dropped its ambient namesake.
- * @param extra - explicit caller entries, merged verbatim after the scrub.
+ * parent base. A string deliberately restores or overrides an entry; an
+ * explicit `undefined` tombstone removes an ordinary ambient entry.
+ * @param extra - explicit caller entries and tombstones, merged after the scrub.
  * @returns the environment to hand to `spawn` for the child process.
  */
-export function childEnv(extra?: Readonly<Record<string, string>>): NodeJS.ProcessEnv {
+export function childEnv(extra?: Readonly<NodeJS.ProcessEnv>): NodeJS.ProcessEnv {
   return { ...scrubbedParentEnv(), ...extra }
 }
 
@@ -298,8 +299,12 @@ function signalTree(
  * @param spec - fully resolved argv, cwd, stdio, grace, cancellation, environment.
  * @param internals - test-only spill-directory, platform, and taskkill overrides.
  * @returns live subprocess handle.
+ * @throws when `graceMs` cannot be represented by one Node timer.
  */
 export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInternals = {}): SubprocessHandle {
+  if (!Number.isFinite(spec.graceMs) || spec.graceMs <= 0 || spec.graceMs > MAX_TIMER_DELAY_MS) {
+    throw new Error(`subprocess graceMs must be a positive finite number no greater than ${MAX_TIMER_DELAY_MS}`)
+  }
   const spillDir = internals.spillDir ?? privateSpillDir()
   const platform = internals.platform ?? process.platform
   const taskkill = internals.taskkill ?? taskkillProcessTree
@@ -341,7 +346,9 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
   const stdoutCollector = collectStream(outMode, child.stdout, 'stdout')
   const stderrCollector = collectStream(errMode, child.stderr, 'stderr')
 
-  let graceTimer: NodeJS.Timeout | undefined
+  let graceTimer: ReturnType<typeof setTimeout> | undefined
+  let treeExitObserved = false
+  let treeExitObservation: Promise<void> | undefined
   let settled = false
 
   // Failed spawns use pid -1 so signalling remains a no-op.
@@ -349,6 +356,9 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
 
   /** Whether the detached tree's root (or POSIX group) is still alive. */
   const treeAlive = (): boolean => {
+    /* v8 ignore next -- only a timer callback already queued when the observer settles can enter here;
+       the guard is the final defense against probing an id after its tree was confirmed absent. */
+    if (treeExitObserved) return false
     if (pid <= 0) return false
     if (platform === 'win32') {
       // Windows has no group-liveness probe; the direct child's exit is the
@@ -371,19 +381,40 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
     }
   }
 
+  /**
+   * Start or reuse the handle's single whole-tree exit observer. The first
+   * confirmed absence is a permanent no-more-signals boundary: it cancels a
+   * pending escalation before this process-group id can be reused.
+   */
+  const observeTreeExit = (): Promise<void> => {
+    treeExitObservation ??= (async () => {
+      while (treeAlive()) await sleepTick()
+      treeExitObserved = true
+      if (graceTimer !== undefined) clearTimeout(graceTimer)
+      graceTimer = undefined
+    })()
+    return treeExitObservation
+  }
+
   // The escalation's tier primitive (not on the handle — terminate() is the
   // only consumer-facing termination verb). Guards on TREE liveness, not
   // outcome settlement: a TERM-trapping helper can outlive the settled direct
   // child and must stay signalable, while a fully-dead tree (possible pid
   // reuse) must not be re-signalled by a later tier.
   const kill = (sig: NodeJS.Signals): void => {
+    /* v8 ignore next -- the shared exit observer cancels the ordinary dead-tree timer;
+       this remains the timer/death race guard and cannot be staged deterministically. */
     if (!treeAlive()) return
     signalTree(platform, pid, sig, child, taskkill)
   }
 
   const terminate = (): void => {
-    if (graceTimer !== undefined) return // escalation already in flight
-    if (!treeAlive()) return
+    if (treeExitObserved || graceTimer !== undefined) return
+    // Observe from the first termination tier onward, even when inherited
+    // pipes delay `done` and no consumer has begun its own teardown wait.
+    void observeTreeExit()
+    // oxlint-disable-next-line typescript/no-unnecessary-condition -- observer can record absence before its first await.
+    if (treeExitObserved) return
     kill('SIGTERM')
     // The escalation must survive direct-child settlement — the leader dying
     // does not mean the tree died — so settle does not clear this timer, and
@@ -405,7 +436,7 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
   }
 
   const done = new Promise<SubprocessOutcome>((resolve, reject) => {
-    let pipeDrainTimer: NodeJS.Timeout | undefined
+    let pipeDrainTimer: ReturnType<typeof setTimeout> | undefined
     const settle = (exitCode: number | null, signal: NodeJS.Signals | null): void => {
       if (settled) return
       settled = true
@@ -428,7 +459,9 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
       // A surviving descendant that inherited a pipe must not hold the
       // outcome open indefinitely: after exit, the same bounded grace that
       // governs kills also bounds the close wait.
-      pipeDrainTimer = setTimeout(() => { settle(exitCode, signal) }, spec.graceMs)
+      pipeDrainTimer = setTimeout(() => {
+        settle(exitCode, signal)
+      }, spec.graceMs)
     })
     child.on('close', settle)
     function cleanup(): void {
@@ -440,11 +473,23 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
   })
 
   const waitForExit = async (signal?: AbortSignal): Promise<boolean> => {
-    while (treeAlive()) {
-      if (signal?.aborted) return false
-      await sleepTick()
+    const observed = observeTreeExit()
+    if (treeExitObserved) return true
+    if (signal?.aborted) return false
+    if (signal === undefined) {
+      await observed
+      return true
     }
-    return true
+    const aborted = Promise.withResolvers<boolean>()
+    const onAbort = (): void => { aborted.resolve(false) }
+    signal.addEventListener('abort', onAbort, { once: true })
+    /* v8 ignore next -- closes the event-loop race between the preceding aborted check and listener registration. */
+    if (signal.aborted) onAbort()
+    try {
+      return await Promise.race([observed.then(() => true), aborted.promise])
+    } finally {
+      signal.removeEventListener('abort', onAbort)
+    }
   }
 
   return {

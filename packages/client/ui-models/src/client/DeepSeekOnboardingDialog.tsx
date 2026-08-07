@@ -7,7 +7,7 @@
 import { useEffect, useRef } from 'react'
 import type { ReactNode } from 'react'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import { BrandWordmark, Button } from '@deepseek-ai/dsh-client-ui-primitives'
+import { BrandWordmark, Button, OnboardingSurface } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-web-react'
 import type { ModelsSettingsState, ModelsSettingsStore } from './store.ts'
 import { deepSeekReadiness } from './store.ts'
@@ -66,6 +66,9 @@ export function DeepSeekOnboardingDialog(props: DeepSeekOnboardingDialogProps): 
     openSection('models')
   }
 
+  // Null covers the still-deciding and nothing-to-do states alike: the
+  // takeover chrome below is part of THIS render, so declining paints and
+  // blocks nothing while the shared join is in flight.
   switch (readiness.kind) {
     case 'loading':
     case 'adapter-absent':
@@ -80,25 +83,27 @@ export function DeepSeekOnboardingDialog(props: DeepSeekOnboardingDialogProps): 
   }
 
   return (
-    <section className={styles['page']} role="region" aria-labelledby="deepseek-onboarding-title">
-      <div className={styles['brand']} aria-hidden="true"><BrandWordmark size={24} /></div>
-      <h2
-        ref={titleRef}
-        id="deepseek-onboarding-title"
-        className={styles['title']}
-        tabIndex={-1}
-      >
-        {t('onboardingTitle')}
-      </h2>
-      <p className={styles['description']}>{t('onboardingDescription')}</p>
-      <div className={styles['actions']}>
-        <Button variant="ghost" className={styles['later']} onClick={complete}>
-          {t('onboardingLater')}
-        </Button>
-        <Button variant="primary" className={styles['primary']} onClick={openModels}>
-          {t('onboardingGoToSettings')}
-        </Button>
-      </div>
-    </section>
+    <OnboardingSurface>
+      <section className={styles['page']} role="region" aria-labelledby="deepseek-onboarding-title">
+        <div className={styles['brand']} aria-hidden="true"><BrandWordmark size={24} /></div>
+        <h2
+          ref={titleRef}
+          id="deepseek-onboarding-title"
+          className={styles['title']}
+          tabIndex={-1}
+        >
+          {t('onboardingTitle')}
+        </h2>
+        <p className={styles['description']}>{t('onboardingDescription')}</p>
+        <div className={styles['actions']}>
+          <Button variant="ghost" className={styles['later']} onClick={complete}>
+            {t('onboardingLater')}
+          </Button>
+          <Button variant="primary" className={styles['primary']} onClick={openModels}>
+            {t('onboardingGoToSettings')}
+          </Button>
+        </div>
+      </section>
+    </OnboardingSurface>
   )
 }
