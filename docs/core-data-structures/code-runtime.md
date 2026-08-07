@@ -72,9 +72,14 @@ Each `CodeBindingNamespace` becomes one global object of async callables inside 
  * of a particular consumer such as Code Mode.
  */
 interface CodeBindingErrorClass {
-  /** Constructor global and resulting `Error.name` (must be a usable JS identifier). */
+  /** Constructor global and resulting `Error.name`; same portable identifier rule as {@link CodeBindingNamespace.global}. */
   name: string
-  /** Non-empty own property for the member name; cannot replace `name`, `message`, or `stack`. */
+  /**
+   * Non-empty own property for the member name. The portable exclusion set is
+   * `RESERVED_ERROR_MEMBERS` plus dunder-form names (`__x__`, non-empty
+   * middle), enforced identically by every backend; any other name —
+   * identifiers or not — is accepted everywhere.
+   */
   memberNameProperty: string
 }
 ```
@@ -88,7 +93,16 @@ interface CodeBindingErrorClass {
  * collisions.
  */
 interface CodeBindingNamespace {
-  /** The global identifier the program sees (must be a valid JS identifier). */
+  /**
+   * The global identifier the program sees. Must match the LANGUAGE-PORTABLE
+   * identifier subset `[A-Za-z_][A-Za-z0-9_]*` and no language's reserved
+   * words, so the same namespace list works against every backend regardless
+   * of `language` — a JS-only spelling like `$tools` is rejected by design,
+   * not just by the Python backend. Names that satisfy the identifier rule but
+   * name a backend-owned slot (`RESERVED_BINDING_GLOBALS`, e.g. `console`,
+   * `__dsh_main__`) are also refused everywhere; see its declaration for the
+   * exact set and why each entry is reserved.
+   */
   global: string
   /** The callable members, keyed by the exact name the program calls. */
   functions: Record<string, CodeBindingFunction>
@@ -144,4 +158,4 @@ interface CodeRunFailure {
 
 ## The service
 
-`CodeRuntime` (`ctx.codeRuntime`, abstract — defined in [`packages/code-runtime/code-runtime/src/index.ts`](../../packages/code-runtime/code-runtime/src/index.ts)) is `run(request)` plus two readonly descriptors: `language` (what the program must be written in — `'typescript'` is the well-known value; a consumer generating language-specific presentation switches on it and fails loud on one it cannot present) and `isolation` (the execution substrate — `'worker-thread'`, `'process'`, `'container'`; a diagnostic label, **not a security claim**). Implementations must keep runs isolated from each other (no cross-run state) and dispose to quiescence: in-flight runs are terminated and awaited before teardown completes.
+`CodeRuntime` (`ctx.codeRuntime`, abstract — defined in [`packages/code-runtime/code-runtime/src/index.ts`](../../packages/code-runtime/code-runtime/src/index.ts)) is `run(request)` plus two readonly descriptors: `language` (what the program must be written in — `'typescript'` and `'python'` are the well-known values, those `dsh-tools` presents, and only `'typescript'` has a published backend; a consumer generating language-specific presentation switches on it and fails loud on one it cannot present) and `isolation` (the execution substrate — `'worker-thread'`, `'process'`, `'container'`; a diagnostic label, **not a security claim**). Implementations must keep runs isolated from each other (no cross-run state) and dispose to quiescence: in-flight runs are terminated and awaited before teardown completes.

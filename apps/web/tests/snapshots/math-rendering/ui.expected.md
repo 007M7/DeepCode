@@ -7,9 +7,6 @@
 - text: Render this mathematical proof. {{clock}}
 - button "Copy":
   - img
-- button "Branch into a new conversation" [disabled]:
-  - img
-- text: Available only on the last message of a completed turn
 - heading "Math rendering" [level=2]
 - paragraph:
   - text: Inline dollar

@@ -7,9 +7,6 @@
 - text: Render adjacent CJK strong emphasis. {{clock}}
 - button "Copy":
   - img
-- button "Branch into a new conversation" [disabled]:
-  - img
-- text: Available only on the last message of a completed turn
 - heading "CJK strong emphasis" [level=2]
 - paragraph:
   - strong: 注意：
