@@ -28,7 +28,7 @@ async function harness(adapter: MockAdapter, persona = '') {
 /** Wait for the agent's next transition to idle after a waking send. */
 function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
-    const dispose = ctx.on('agent/status', (subject, status) => {
+    const dispose = ctx.on('agent/status', ({ agent: subject, status }) => {
       if (subject === agent && status === 'idle') {
         dispose()
         resolve()
@@ -216,7 +216,7 @@ describe('agent loop', () => {
     const adapter = new MockAdapter([textResponse('ok after rescue')])
     const ctx = await harness(adapter, 'In {{cwd}}.')
     const errors: Error[] = []
-    ctx.on('agent/error', (_agent, _turn, _step, error) => {
+    ctx.on('agent/error', ({ error }) => {
       if (error instanceof Error) errors.push(error)
     })
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
@@ -263,7 +263,7 @@ describe('agent loop', () => {
       assembly.variables['model'] = 'mock'
       return next()
     })
-    ctx.on('agent/request', async (_agent, _turn, _step, _signal, next) => {
+    ctx.on('agent/request', async (_payload, next) => {
       const config = await next()
       return { ...config, provider: 'mock', model: 'mock' }
     })
@@ -553,7 +553,7 @@ describe('agent loop', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('failed-steering'), { provider: 'mock', model: 'mock' })
     let fail = true
-    ctx.on('agent/pre-step', (subject, _messages, _context, next) => {
+    ctx.on('agent/pre-step', ({ agent: subject }, next) => {
       if (subject !== agent || !fail) return next()
       fail = false
       subject.steer(createUserMessage({ content: [{ type: 'text', text: 'pending steering' }], source: { kind: 'user' } }))
@@ -713,7 +713,7 @@ describe('agent loop', () => {
 
     let steps = 0
     ctx.on('session/event', (_session, event) => { if (event.type === 'step/end') steps++ })
-    ctx.on('agent/turn-stopping', (subject) => {
+    ctx.on('agent/turn-stopping', ({ agent: subject }) => {
       if (steps < 3) {
         subject.steer(createUserMessage({ content: [{ type: 'text', text: 'continue' }], source: { kind: 'plugin', plugin: 'loop-test' } }))
       }
@@ -785,7 +785,7 @@ describe('agent loop', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    ctx.on('agent/request', async (_agent, _turn, _step, _signal, next) => {
+    ctx.on('agent/request', async (_payload, next) => {
       const config = await next()
       // The seed is frozen — config is not a mutable per-call knob; a switch
       // is proposed by returning a replacement, and the loop logs it.
@@ -816,7 +816,7 @@ describe('agent loop', () => {
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     const fires: { turn: number; step: number; signal: AbortSignal }[] = []
-    ctx.on('agent/pre-step', (subject, _messages, { turn, step, signal }, next) => {
+    ctx.on('agent/pre-step', ({ agent: subject, turn, step, signal }, next) => {
       if (subject === agent) fires.push({ turn, step, signal })
       return next()
     })
@@ -837,7 +837,7 @@ describe('agent loop', () => {
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     let boundaryOpen = true
-    ctx.on('agent/pre-step', (subject, _messages, _context, next) => {
+    ctx.on('agent/pre-step', ({ agent: subject }, next) => {
       if (subject === agent) boundaryOpen = subject.session.events.at(-1)?.type === 'step/start'
       return next()
     })
@@ -855,13 +855,13 @@ describe('agent loop', () => {
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     let throwOnce = true
-    ctx.on('agent/pre-step', (_agent, _messages, _context, next) => {
+    ctx.on('agent/pre-step', (_payload, next) => {
       if (throwOnce) { throwOnce = false; throw new Error('boom in pre-step') }
       return next()
     })
 
     const errors: Error[] = []
-    ctx.on('agent/error', (_a, _t, _s, error) => {
+    ctx.on('agent/error', ({ error }) => {
       if (error instanceof Error) errors.push(error)
     })
 
@@ -933,7 +933,7 @@ describe('agent loop', () => {
     ctx.on('session/event', (_session, event) => { if (event.type === 'step/end') steps++ })
     // Force exactly one continuation (step 1 → step 2), then defer to default
     // (step 2 is a plain stop with no tool calls → stops).
-    ctx.on('agent/turn-stopping', (subject) => {
+    ctx.on('agent/turn-stopping', ({ agent: subject }) => {
       if (steps < 2) {
         subject.steer(createUserMessage({ content: [{ type: 'text', text: 'continue after truncation' }], source: { kind: 'plugin', plugin: 'max-tokens-test' } }))
       }
@@ -1296,7 +1296,7 @@ describe('agent loop', () => {
 
     const errors: unknown[] = []
     const reasons: TurnEndReason[] = []
-    ctx.on('agent/error', (_agent, _turn, _step, error) => {
+    ctx.on('agent/error', ({ error }) => {
       errors.push(error)
     })
     ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })

@@ -202,9 +202,7 @@ export class PlanModeService extends Service {
     // the session. A failed append remains pending for a later boundary, and
     // policy cannot block the step.
     ctx.on('agent/pre-step', async (
-      agent,
-      _messages,
-      { signal },
+      { agent, signal },
       next,
     ): Promise<PreStepDecision> => {
       const decision = await next()

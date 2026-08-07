@@ -129,13 +129,15 @@ describe('connection node half', () => {
   it('pins privileged methods to loopback even for a declared trusted authority', async () => {
     const { routes, dispose } = await mounted({ trustedHosts: ['harness.example'] })
     // The privileged set: native dialogs plus the whole settings/credential
-    // configuration plane, reads included. The same declared authority reaches
+    // configuration plane, reads included, plus the one method that makes the
+    // host fetch a caller-chosen URL. The same declared authority reaches
     // ordinary reads (carrier-level 404 from the empty proxy proves the fence
     // passed), but each privileged method stays loopback-only and 403s.
     for (const method of [
       'host.pickDirectory', 'host.openPath',
       'settings.describe', 'settings.openDocument', 'settings.update', 'settings.replace', 'settings.mutate',
       'credentials.describe', 'credentials.set', 'credentials.unset',
+      'llm.discoverModels',
     ]) {
       const denied = fakeResponse()
       await routes[0]!.handler(
@@ -221,6 +223,9 @@ describe('connection node half over a real HTTP server', () => {
         'settings.describe', 'settings.openDocument', 'settings.update', 'settings.replace', 'settings.mutate',
         'credentials.describe', 'credentials.set', 'credentials.unset',
         'host.pickDirectory', 'host.openPath',
+        // Carries a draft credential and turns the host into a fetcher for a
+        // URL the caller picked: an anonymous LAN caller must not reach it.
+        'llm.discoverModels',
       ]) {
         expect([method, await call(port, method, 'harness.example')]).toEqual([method, 403])
       }

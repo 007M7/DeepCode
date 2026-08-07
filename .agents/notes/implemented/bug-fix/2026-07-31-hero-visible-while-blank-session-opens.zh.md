@@ -24,12 +24,10 @@ Status: implemented
 
 ## 推迟事项
 
-`ConversationRoot` 中"无会话→有会话"的树位置迁移（hero/composer 子树移入 `conversation.session` 出口）仍会在同一次转换中重建 composer 的 DOM；消除它意味着把 `conversation.session` 移到 `session-maybe` 作用域，这是一次插槽契约变更，需要单独立项。
-
 诊断期间发现的对象层引用抖动——空操作投影铸造出新的快照、创建路径重复投影一次、`select()` 在异步续体中使用 `notifyNow`——确实存在，但与这次可见闪烁相互独立。
 
 ## 影响
 
 启动自动选择会立即渲染 hero，并在整个历史往返期间保持 composer 座位与 header 可见，因此启动进入最近工作区不再像页面重载。摘要未证明为空白的会话保持原有的 settling 行为，这道防护仍覆盖它当初针对的场景。骨架测试固定了摘要的三种形态：报告 `blank: false` 的行进入 settling；根本没有该行同样进入 settling；摘要已证明为空白的会话在 `loading` 期间渲染 hero 外壳与可用的文本框。
 
-组装级覆盖是 `apps/web/tests/startup-auto-selection.e2e.ts`（无密钥的 Web 浏览器泳道）：它注册一个工作区，在浏览器网络边界上扣住 `session.history` 的响应，并在自动选择的打开仍在飞行途中断言可见画面——hero 阶段、hero 标题、已绘制的 composer——外加整次加载记录到的阶段时间线恰好为 `['hero']`。扣住这次往返正是它成为回归测试而非竞态的原因：对着回环主机，打开会快到无从采样；而一旦回退这条豁免，被扣住的这段窗口恰恰就是根节点报告 `settling` 的时刻。
+组装级覆盖是 `apps/web/tests/startup-auto-selection.e2e.ts`（无密钥的 Web 浏览器泳道）。首次连接 Workspace 时，它断言 blank Session 出现前后 Hero root、Workspace chip、滚动主体、composer seat 与 textarea 都是同一 DOM 节点。随后它在浏览器网络边界上扣住 `session.history` 的响应，并在自动选择的打开仍在飞行途中断言可见画面——hero 阶段、hero 标题、已绘制的 composer——外加整次加载记录到的阶段时间线恰好为 `['hero']`。扣住这次往返正是第二个用例成为回归测试而非竞态的原因：对着回环主机，打开会快到无从采样；而一旦回退这条豁免，被扣住的这段窗口恰恰就是根节点报告 `settling` 的时刻。

@@ -44,10 +44,15 @@ export const Config: z<ConnectionConfig> = z.object({
  * reconnaissance no anonymous caller should have. `trustedHosts` is a
  * DNS-rebinding fence, explicitly not authentication, so the whole
  * configuration plane stays loopback-same-origin until a real authentication
- * layer exists. The model catalog (`llm.providers`, `llm.models`) is
- * deliberately NOT here: it carries provider ids, display names, and model
- * lists — no endpoints, keys, or key state — and a LAN client's model picker
- * legitimately needs it.
+ * layer exists. `llm.discoverModels` belongs to that plane on both counts: it
+ * carries a draft credential, and it makes the HOST issue a GET to a URL the
+ * caller chose and reports back the status or the parsed body — an anonymous
+ * LAN caller would have a probe for whatever the host can reach and the
+ * browser cannot.
+ *
+ * The model catalog (`llm.providers`, `llm.models`) is deliberately NOT here:
+ * it carries provider ids, display names, and model lists — no endpoints,
+ * keys, or key state — and a LAN client's model picker legitimately needs it.
  */
 const PRIVILEGED_METHODS = new Set([
   'host.pickDirectory',
@@ -60,6 +65,7 @@ const PRIVILEGED_METHODS = new Set([
   'credentials.describe',
   'credentials.set',
   'credentials.unset',
+  'llm.discoverModels',
 ])
 
 /**

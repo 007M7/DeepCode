@@ -40,4 +40,4 @@
   - text: Select model
   - img
 - button "Send message" [disabled]
-- text: 1 turns · 1 steps Input 0 tok · Output 0 tok
+- text: 1 turns · 1 steps LLM {{duration}} Input 0 tok · Output 0 tok

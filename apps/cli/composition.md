@@ -3,11 +3,11 @@
 
 # DSH Base Composition
 
-The raw CLI applies one required caller-selected patch list over this shared base; Web and headless apply their own shipped overlays.
+The dsh-base bundle patch every profile applies first; mode bundles (dsh-web-app, dsh-headless) and the user's profile layer patch over it.
 
 ```mermaid
 flowchart LR
-  cfg["apps/cli/config/base.cordis.yml<br/>cordis.yml"]
+  cfg["packages/bundle/base/cordis.patch.yml<br/>cordis.yml"]
   plugin_dsh_base_timer["timer<br/>@cordisjs/plugin-timer"]
   cfg --> plugin_dsh_base_timer
   plugin_dsh_base_hmr["hmr<br/>@cordisjs/plugin-hmr"]
@@ -40,6 +40,8 @@ flowchart LR
   cfg --> plugin_dsh_base_session_persistence_jsonl
   plugin_dsh_base_session_query_sqlite["session-query-sqlite<br/>@deepseek-ai/dsh-session-query-sqlite"]
   cfg --> plugin_dsh_base_session_query_sqlite
+  plugin_dsh_base_session_projection["session-projection<br/>@deepseek-ai/dsh-session-projection"]
+  cfg --> plugin_dsh_base_session_projection
   plugin_dsh_base_telemetry_otel["telemetry-otel<br/>@deepseek-ai/dsh-session-telemetry-otel"]
   cfg --> plugin_dsh_base_telemetry_otel
   plugin_dsh_base_subprocess["subprocess<br/>@deepseek-ai/dsh-subprocess-local"]
@@ -166,6 +168,7 @@ flowchart LR
 | `llm-pi-ai` | `@deepseek-ai/dsh-llm-pi-ai` |
 | `session-persistence-jsonl` | `@deepseek-ai/dsh-session-persistence-jsonl` |
 | `session-query-sqlite` | `@deepseek-ai/dsh-session-query-sqlite` |
+| `session-projection` | `@deepseek-ai/dsh-session-projection` |
 | `telemetry-otel` | `@deepseek-ai/dsh-session-telemetry-otel` |
 | `subprocess` | `@deepseek-ai/dsh-subprocess-local` |
 | `sandbox` | `@deepseek-ai/dsh-sandbox-local` |
@@ -220,6 +223,6 @@ flowchart LR
 | `fs-sandbox` | `@deepseek-ai/dsh-fs-sandbox` |
 | `llm-deepseek` | `@deepseek-ai/dsh-llm-deepseek` |
 
-Source config: [`apps/cli/config/base.cordis.yml`](config/base.cordis.yml).
+Source config: [`packages/bundle/base/cordis.patch.yml`](../../packages/bundle/base/cordis.patch.yml).
 
 Maintenance mode: hybrid: the leaf plugin list is parsed from its `cordis.yml`; app package expansion is curated from package source.

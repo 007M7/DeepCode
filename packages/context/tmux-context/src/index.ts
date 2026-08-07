@@ -216,9 +216,7 @@ export function apply(ctx: Context, config: Config): void {
   validateRefreshInterval(refreshIntervalMs)
 
   ctx.on('agent/pre-step', async (
-    agent: Agent,
-    _messages,
-    { turn, step, signal },
+    { agent, turn, step, signal },
     next,
   ): Promise<PreStepDecision> => {
     const decision = await next()

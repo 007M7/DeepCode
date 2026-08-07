@@ -401,7 +401,7 @@ describe('runOneShot and executeCli', () => {
       if (session === agent.session && event.type === 'assistant/message'
         && event.data.turn === 1) startupStarted()
     })
-    ctx.on('agent/turn-stopping', async (subject, turn) => {
+    ctx.on('agent/turn-stopping', async ({ agent: subject, turn }) => {
       if (subject === agent && turn === 1) await releaseStartup.promise
     })
     agent.followup(createUserMessage({
@@ -432,7 +432,7 @@ describe('runOneShot and executeCli', () => {
     }
 
     let replacementQueued = false
-    ctx.on('agent/status', (subject, status) => {
+    ctx.on('agent/status', ({ agent: subject, status }) => {
       if (subject !== agent || status !== 'idle' || replacementQueued) return
       replacementQueued = true
       agent.followup(createUserMessage({

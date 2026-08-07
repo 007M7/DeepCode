@@ -48,7 +48,7 @@ hello from my first plugin
 2. Loader 读取 `cordis.yml`，解析 `./hello.ts`，然后将其作为子插件挂载。
 3. Cordis 调用你的 `apply(ctx)`。
 
-你的文件中没有框架启动代码：插件描述自己的贡献，`cordis.yml` 则组合应用。例如，[`dsh` base](../../apps/cli/config/base.cordis.yml) 就是一份更长的插件组合，由部署 overlay 对它进行修补。
+你的文件中没有框架启动代码：插件描述自己的贡献，`cordis.yml` 则组合应用。例如，[`dsh` base](../../packages/bundle/base/cordis.patch.yml) 就是一份更长的插件组合，由部署 overlay 对它进行修补。
 
 ## 其他两种插件形态
 

@@ -63,6 +63,16 @@
     },
     {
       "doc": "docs/core-data-structures/core.md",
+      "symbol": "LlmModelDiscoveryRequest",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "LlmDiscoveredModel",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
       "symbol": "LlmModelContext",
       "source": "packages/llm/llm/src/types.ts"
     },
@@ -129,11 +139,6 @@
     {
       "doc": "docs/core-data-structures/core.md",
       "symbol": "Agent",
-      "source": "packages/core/agent/src/types.ts"
-    },
-    {
-      "doc": "docs/core-data-structures/core.md",
-      "symbol": "PreStepContext",
       "source": "packages/core/agent/src/types.ts"
     },
     {

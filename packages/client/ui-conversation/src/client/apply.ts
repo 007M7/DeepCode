@@ -8,7 +8,7 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type { ViewTab } from './contract/views.ts'
 import type {
   ApprovalWait, ChatScrollPosition, ChatViewInjected, ComposerBarInjected, ComposerChainProps, ConversationInjected,
-  ConversationSessionInjected, DetailsInjected,
+  ConversationSessionHeaderInjected, ConversationSessionInjected, DetailsInjected,
 } from './contract/slots.ts'
 import type { InputNotice } from './input/contract.ts'
 import { resolveToolPath } from './contract/tool-call-model.ts'
@@ -33,7 +33,7 @@ import { askQuestionToolview } from './toolviews/ask-question-row.tsx'
 import { todoDockEntry } from './skeleton/TodoPanel.tsx'
 import { queueDockEntry } from './queue/QueueDock.tsx'
 import { ConversationRoot } from './skeleton/ConversationRoot.tsx'
-import { ConversationSession } from './skeleton/ConversationSession.tsx'
+import { ConversationSession, ConversationSessionHeader } from './skeleton/ConversationSession.tsx'
 import { DetailsPanel } from './skeleton/DetailsPanel.tsx'
 import { en, NS, zh, type ConversationKey } from './locales.ts'
 
@@ -123,6 +123,11 @@ export function apply(ctx: Context): void {
     }
     return tabs
   }
+  const views = {
+    list: viewTabs,
+    subscribe: (fn: () => void) => slots.subscribe('conversation.view', fn),
+    version: () => slots.getVersion('conversation.view'),
+  }
 
   // The per-session input machine registry (InputService face; published as
   // ctx.conversation.input by the service below sharing this one instance).
@@ -151,6 +156,7 @@ export function apply(ctx: Context): void {
     locale: NS,
     children: {
       'conversation.session': { kind: 'single', scope: 'session' },
+      'conversation.session.header': { kind: 'single', scope: 'session' },
       'conversation.composer': { kind: 'chain', scope: 'session' },
       'conversation.composer.bar': { kind: 'single', scope: 'session-maybe' },
       'conversation.input.overlay': { kind: 'list', scope: 'session' },
@@ -176,26 +182,35 @@ export function apply(ctx: Context): void {
     }),
   }, ConversationRoot)
 
-  // The strict session subtree owns only per-session store and view content;
-  // the resident parent keeps Hero and composer layout identity stable.
+  // The strict session body fills the resident scrollport without owning it;
+  // the Hero/composer path therefore stays fixed while the first blank
+  // session appears after a Workspace pick.
   slots.register({
     name: 'conversation.session',
-    locale: NS,
     children: {
       'conversation.view': { kind: 'list', scope: 'session' },
-      'conversation.session.header.actions': { kind: 'list', scope: 'session' },
     },
     store: chatStore,
     inject: (sessionId: SessionId, _actions: BoundActions<typeof chatStore>): ConversationSessionInjected => ({
-      views: {
-        list: viewTabs,
-        subscribe: fn => slots.subscribe('conversation.view', fn),
-        version: () => slots.getVersion('conversation.view'),
-      },
+      views,
       bindDraftMirror: write => inputHub.shell(sessionId).bindMirror(write),
-      open: (id) => { sessions.open(id) },
     }),
   }, ConversationSession)
+
+  // Header chrome sits above the resident scrollport but shares the same
+  // per-session chat store (active view) as its body and view entries.
+  slots.register({
+    name: 'conversation.session.header',
+    locale: NS,
+    children: {
+      'conversation.session.header.actions': { kind: 'list', scope: 'session' },
+    },
+    store: chatStore,
+    inject: (): ConversationSessionHeaderInjected => ({
+      views,
+      open: (id) => { sessions.open(id) },
+    }),
+  }, ConversationSessionHeader)
 
   // The default composer body: its own single slot inside the composer
   // chain's fallback (decision 20). Public machine surface arrives via the

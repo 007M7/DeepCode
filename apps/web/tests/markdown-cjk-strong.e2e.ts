@@ -36,6 +36,7 @@ const CASES = [
 /** Build one settled assistant reply covering CJK-adjacent strong punctuation boundaries. */
 function markdownFixture(): string {
   const session = Session.create(SessionId('markdown-cjk-strong-source'))
+  const eventTimeOrigin = new Date().setHours(12, 0, 0, 0)
   session.append('turn/start', { turn: 1 })
   const user = session.append('user/message', createUserMessage({
     content: [{ type: 'text', text: 'Render adjacent CJK strong emphasis.' }],
@@ -75,7 +76,10 @@ function markdownFixture(): string {
       createdAt: 0,
       cwd: '{{cwd}}',
     }),
-    ...session.events.map(event => JSON.stringify(event)),
+    ...session.events.map(event => JSON.stringify({
+      ...event,
+      time: eventTimeOrigin + event.seq * 1_000,
+    })),
     '',
   ].join('\n')
 }

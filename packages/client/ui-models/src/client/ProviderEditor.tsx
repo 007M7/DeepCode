@@ -22,6 +22,8 @@ import {
 import {
   DeepSeekModelsEditor, modelDrafts, validateDeepSeekModels,
 } from './DeepSeekModelsEditor.tsx'
+import { EditorFooter } from './EditorFooter.tsx'
+import { ModelListEditor } from './ModelListEditor.tsx'
 import { deriveKeyRef, messageOf } from './store.ts'
 import type { en } from './locales.ts'
 import styles from './ModelsSection.module.css'
@@ -56,8 +58,8 @@ export interface ProviderEditorProps {
   namespace: SettingsNamespaceView
   /** Path from the section root to this provider's profile. */
   settingsPath: readonly string[]
-  /** Wire faces for writes. */
-  api: Pick<IApiClient, 'settings' | 'credentials'>
+  /** Wire faces for writes and for interrogating a provider endpoint. */
+  api: Pick<IApiClient, 'settings' | 'credentials' | 'llm'>
   /** Section copy. */
   t: (key: keyof typeof en) => string
   /** Disable writes (read-only settings provider). */
@@ -167,6 +169,22 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
     setDraft(current => next === undefined ? deletePath(current, [key]) : setPath(current, [key], next))
   }
 
+  // The model list is validated by the same per-row checker for both families,
+  // so a bad row is named by its position rather than by a blanket message.
+  const modelFailure = validateDeepSeekModels(getPath(draft, ['models']))
+  // What the form currently shows, which is what an interrogation must ask:
+  // an edited-but-unsaved endpoint, and a key typed but not yet stored.
+  const probeApi = stringAt(draft, 'api') ?? stringAt(fallback, 'api')
+  const probeBaseURL = stringAt(draft, 'baseURL') ?? stringAt(fallback, 'baseURL')
+  const probe = {
+    settingsNs: namespace.ns,
+    // Naming the route lets an adapter that already describes it answer from
+    // its own registry — better metadata, no network call, no endpoint needed.
+    provider: props.provider,
+    ...probeBaseURL === undefined ? {} : { baseURL: probeBaseURL },
+    ...probeApi === undefined ? {} : { api: probeApi },
+    ...keyDraft.length === 0 ? {} : { apiKey: keyDraft },
+  }
   /**
    * The write for this card, or a failure message. Every edit travels as
    * path ops against the STORED section: the draft comes from the redacted
@@ -183,10 +201,15 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
       && stringAt(fallback, 'apiKeyEnv') === undefined
       ? setPath(draft, ['apiKeyEnv'], keyRef)
       : draft
-    if (layout === 'deepseek') {
-      const modelFailure = validateDeepSeekModels(getPath(next, ['models']))
-      if (modelFailure !== undefined) {
-        return `${t('model')} ${String(modelFailure.index + 1)}: ${t(modelFailure.key)}`
+    {
+      // The same checker gates the submit button, so a card cannot reach this
+      // with a bad row; it stays because the schema check below would refuse
+      // the write with a message naming a path instead of the row, and because
+      // nothing but this function decides what is written.
+      const failure = validateDeepSeekModels(getPath(next, ['models']))
+      /* v8 ignore next 3 -- unreachable from the card: the same failure disables submit */
+      if (failure !== undefined) {
+        return `${t('model')} ${String(failure.index + 1)}: ${t(failure.key)}`
       }
     }
     /* v8 ignore next -- apply is only reachable from the rendered card, which required a resolved node */
@@ -263,6 +286,17 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
     const models = modelDrafts(modelsOverridden ? customModels : inheritedModels())
     const defaultContextWindow = getPath(fallback, ['defaultContextWindow'])
     const defaultMaxTokens = getPath(fallback, ['maxTokens'])
+    /** What both family editors take: the rows, whose layer owns them, and the two writes. */
+    const catalogProps = {
+      models,
+      overridden: modelsOverridden,
+      t,
+      disabled,
+      onChange: (next: Record<string, unknown>[]) => {
+        setDraft(current => setPath(current, ['models'], next))
+      },
+      onReset: () => { setDraft(current => deletePath(current, ['models'])) },
+    }
     return (
       <>
         <div className={styles['field']}>
@@ -316,22 +350,20 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
                 ))}
               </select>
             </div>
+            {/* Both families edit the same rows through the same contract; only
+                the extras differ — DeepSeek's inherited capacities, pi-ai's
+                endpoint interrogation. */}
             {family === 'deepseek'
               ? (
                 <DeepSeekModelsEditor
-                  models={models}
-                  overridden={modelsOverridden}
+                  {...catalogProps}
                   defaultContextWindow={typeof defaultContextWindow === 'number'
                     ? defaultContextWindow
                     : undefined}
                   defaultMaxTokens={typeof defaultMaxTokens === 'number' ? defaultMaxTokens : undefined}
-                  t={t}
-                  disabled={disabled}
-                  onChange={(next) => { setDraft(current => setPath(current, ['models'], next)) }}
-                  onReset={() => { setDraft(current => deletePath(current, ['models'])) }}
                 />
               )
-              : null}
+              : <ModelListEditor {...catalogProps} probe={probe} api={api} />}
           </div>
         </details>
       </>
@@ -354,24 +386,22 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
         ? <p className={styles['advancedHint']}>{`${t('advancedHint')} (${namespace.ns})`}</p>
         : curatedFields(layout)}
       {failure !== undefined ? <p className={styles['error']}>{failure}</p> : null}
-      <div className={styles['editorActions']}>
-        <button
-          type="button"
-          className={styles['secondaryButton']}
-          disabled={busy}
-          onClick={() => { props.onClose(false) }}
-        >
-          {t('cancel')}
-        </button>
-        <button
-          type="button"
-          className={styles['primaryButton']}
-          disabled={disabled || layout === 'unknown'}
-          onClick={() => { void apply() }}
-        >
-          {busy ? t('applying') : t('apply')}
-        </button>
-      </div>
+      {modelFailure === undefined
+        ? null
+        : (
+          <p className={styles['advancedHint']}>
+            {`${t('model')} ${String(modelFailure.index + 1)}: ${t(modelFailure.key)}`}
+          </p>
+        )}
+      <EditorFooter
+        t={t}
+        busy={busy}
+        submitDisabled={disabled || layout === 'unknown' || modelFailure !== undefined}
+        submitLabel="apply"
+        submitBusyLabel="applying"
+        onCancel={() => { props.onClose(false) }}
+        onSubmit={() => { void apply() }}
+      />
     </div>
   )
 }

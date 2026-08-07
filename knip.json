@@ -36,7 +36,9 @@
       "entry": [
         "headless-agent/tests/fixtures/cli-mock-llm.ts",
         "headless-agent/tests/fixtures/semantic-checkpoint-agent.ts",
+        "headless-agent/tests/fixtures/subagent-diagnostic-agent.ts",
         "headless-agent/tests/fixtures/subagent-inheritance-agent.ts",
+        "headless-agent/tests/fixtures/workspace-context-resume-agent.ts",
         "headless-agent/tests/fixtures/goal-domain/seed-goal.ts",
         "headless-agent/tests/fixtures/time-context-driver.ts",
         "headless-agent/tests/fixtures/time-context-mock-llm.ts",
@@ -46,8 +48,13 @@
         "acp-agent/tests/fixtures/partial-landlock-sandbox.ts",
         "acp-agent/tests/fixtures/subagent-durability-failure.ts",
         "acp-agent/tests/fixtures/subagent-settlement-marker.ts",
+        "acp-agent/tests/fixtures/workspace-context-compaction.ts",
         "acp-agent/tests/fixtures/subagent/subagent-acp/mock-delegating-llm.ts",
         "acp-agent/tests/fixtures/subagent/subagent-acp/driver.ts",
+        "acp-agent/tests/fixtures/subagent/subagent-claude-code/fixture.ts",
+        "acp-agent/tests/fixtures/subagent/subagent-claude-code/driver.ts",
+        "acp-agent/tests/fixtures/subagent/subagent-codex/fixture.ts",
+        "acp-agent/tests/fixtures/subagent/subagent-codex/driver.ts",
         "jsonrpc-agent/tests/fixtures/subagent/subagent-dsh-sdk/driver.ts",
         "jsonrpc-agent/tests/fixtures/subagent/subagent-dsh-sdk/child-mock-llm.ts",
         "jsonrpc-agent/tests/fixtures/subagent/subagent-dsh-sdk/mock-delegating-llm.ts",
@@ -553,6 +560,29 @@
         "tests/**/*.ts"
       ]
     },
+    "packages/subagent/subagent-codex": {
+      "entry": [
+        "tests/**/*.spec.ts",
+        "tests/**/*.e2e.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ],
+      "ignoreDependencies": [
+        "@openai/codex"
+      ]
+    },
+    "packages/subagent/subagent-claude-code": {
+      "entry": [
+        "tests/**/*.spec.ts",
+        "tests/**/*.e2e.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ]
+    },
     "packages/fs/tool-fs": {
       "entry": [
         "tests/**/*.spec.ts",
@@ -595,6 +625,22 @@
       ],
       "ignoreDependencies": [
         "@deepseek-ai/dsh-client-ui-theme"
+      ]
+    },
+    "packages/client/ui-settings": {
+      "entry": [
+        "tests/**/*.spec.ts",
+        "tests/**/*.spec.tsx"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "src/**/*.tsx",
+        "tests/**/*.ts",
+        "tests/**/*.tsx"
+      ],
+      "ignoreDependencies": [
+        "@types/react-dom",
+        "react-dom"
       ]
     },
     "apps/web": {
@@ -658,6 +704,17 @@
       "project": [
         "src/**/*.ts",
         "tests/**/*.ts"
+      ]
+    },
+    "packages/bundle/base": {
+      "ignoreDependencies": [
+        "@deepseek-ai/.+",
+        "@cordisjs/.+"
+      ]
+    },
+    "packages/bundle/web-app": {
+      "ignoreDependencies": [
+        "@deepseek-ai/.+"
       ]
     }
   }

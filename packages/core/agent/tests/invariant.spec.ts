@@ -21,17 +21,17 @@ describe('agent status invariants', () => {
     const ctx = await setup()
     const agent = mockAgent('a1')
     expect(() => {
-      ctx.emit(scopeTarget(agent, agent), 'agent/status', agent, 'idle')
-      ctx.emit(scopeTarget(agent, agent), 'agent/status', agent, 'running')
-      ctx.emit(scopeTarget(agent, agent), 'agent/status', agent, 'idle')
+      ctx.emit(scopeTarget(agent, agent), 'agent/status', { agent, status: 'idle' })
+      ctx.emit(scopeTarget(agent, agent), 'agent/status', { agent, status: 'running' })
+      ctx.emit(scopeTarget(agent, agent), 'agent/status', { agent, status: 'idle' })
     }).not.toThrow()
   })
 
   it('rejects a no-op transition', async () => {
     const ctx = await setup()
     const agent = mockAgent('a3')
-    ctx.emit(scopeTarget(agent, agent), 'agent/status', agent, 'running')
-    expect(() => { ctx.emit(scopeTarget(agent, agent), 'agent/status', agent, 'running') })
+    ctx.emit(scopeTarget(agent, agent), 'agent/status', { agent, status: 'running' })
+    expect(() => { ctx.emit(scopeTarget(agent, agent), 'agent/status', { agent, status: 'running' }) })
       .toThrow(/no-op transition/)
   })
 
@@ -39,7 +39,7 @@ describe('agent status invariants', () => {
     const ctx = await setup()
     const a = mockAgent('a5')
     const b = mockAgent('b5')
-    ctx.emit(scopeTarget(a, a), 'agent/status', a, 'running')
-    expect(() => { ctx.emit(scopeTarget(b, b), 'agent/status', b, 'running') }).not.toThrow()
+    ctx.emit(scopeTarget(a, a), 'agent/status', { agent: a, status: 'running' })
+    expect(() => { ctx.emit(scopeTarget(b, b), 'agent/status', { agent: b, status: 'running' }) }).not.toThrow()
   })
 })

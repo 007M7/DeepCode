@@ -167,6 +167,14 @@ const develop = pairedPages([
     order: 3,
   },
   {
+    source: 'docs/user/develop/basic/publish.md',
+    route: 'develop/basic/publish.md',
+    label: { root: '打包与安装插件', en: 'Package and install' },
+    sidebar: { root: 'zh-develop', en: 'en-develop' },
+    section: { root: '基础', en: 'Basics' },
+    order: 4,
+  },
+  {
     source: 'docs/user/develop/framework/index.md',
     route: 'develop/framework/index.md',
     label: { root: '插件与生命周期', en: 'Plugin lifecycle' },

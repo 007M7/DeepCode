@@ -76,7 +76,7 @@ export function apply(ctx: Context): void {
 
   // Before each request, persist everything committed by the preceding step;
   // the first step's call is an intentional no-op beyond any prompt intake.
-  ctx.on('agent/pre-step', async (agent, _messages, _context, next): Promise<PreStepDecision> => {
+  ctx.on('agent/pre-step', async ({ agent }, next): Promise<PreStepDecision> => {
     await ctx.sessions.flush(agent.session)
     return next()
   })

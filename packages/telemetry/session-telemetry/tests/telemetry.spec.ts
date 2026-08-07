@@ -427,7 +427,7 @@ describe('TelemetryCoordinator lifecycle and containment', () => {
     const session = liveSession(ctx, 'erring')
     // Only the members the relay reads; the full Agent surface is irrelevant here.
     const agent = { id: 'agent-1', session } as Agent
-    ctx.emit('agent/error', agent, 3, 2, error)
+    ctx.emit('agent/error', { agent, turn: 3, step: 2, error })
     const record = backend.records.find(r => r.channel === 'ops')!
     expect(record.severity).toBe('error')
     expect(record.attributes).toMatchObject({

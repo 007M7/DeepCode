@@ -84,13 +84,13 @@ export function apply(ctx: Context): void {
   // runs, so the queued FIFO order is what the transcript records. The first
   // child enqueue is the initial delegation, which also pins the real child id.
   let accepted = 0
-  ctx.on('agent/inbox/inserted', (agent) => {
+  ctx.on('agent/inbox/inserted', ({ agent }) => {
     if (agent.session.header.parentSession === undefined) return
     if (realChildId === undefined) realChildId = agent.session.header.id
     accepted += 1
     if (accepted >= 3) followupsAccepted.resolve(undefined)
   })
-  ctx.on('agent/pre-step', async (agent, _messages, _context, next) => {
+  ctx.on('agent/pre-step', async ({ agent }, next) => {
     if (agent.session.header.parentSession !== undefined) await followupsAccepted.promise
     return next()
   })

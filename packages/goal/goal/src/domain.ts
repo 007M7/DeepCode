@@ -134,10 +134,10 @@ declare module 'cordis' {
      * Goal mutation accepted by one live agent. The matching `goal/change`
      * session event has already committed. Listener failures are contained.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
-     * @param agent - agent whose session owns the goal.
-     * @param change - fresh current projection or clear tombstone.
+     * @param payload.agent - agent whose session owns the goal.
+     * @param payload.change - fresh current projection or clear tombstone.
      * @mode emit
      */
-    'goal/changed'(this: import('@deepseek-ai/dsh-scope').Scoped<Agent>, agent: Agent, change: GoalChanged): void
+    'goal/changed'(this: import('@deepseek-ai/dsh-scope').Scoped<Agent>, payload: { agent: Agent; change: GoalChanged }): void
   }
 }
