@@ -35,9 +35,10 @@ export interface PresetDraft {
   id: string
   /**
    * The preset the text came from, shown while a new preset is unnamed so
-   * the editor can say what it is a copy of.
+   * the editor can say what it is a copy of. Absent on a preset started
+   * blank, which is a copy of nothing.
    */
-  source: string
+  source?: string
   /** Whether saving creates a preset rather than replacing one. */
   creating: boolean
   /** Composition text being edited. */
@@ -169,17 +170,32 @@ export class AgentPresetSectionController {
   }
 
   /**
-   * Open a copy of one preset as a new, unnamed preset. With no argument the
-   * copy is taken from the default preset, which is the composition a new
-   * session gets and therefore the one worth starting from.
-   * @param from - the preset to copy, or undefined for the default.
+   * Open a new, unnamed preset. With no argument it starts blank; copying is
+   * its own action, offered on the row being copied, so the two arrive at the
+   * same editor by the route the author actually chose. Starting from some
+   * preset nobody named would put text in the editor that the author has to
+   * recognise as unwanted before deleting it.
+   * @param from - the preset to copy, or undefined to start blank.
    * @returns once the composition loaded or the failure is on the page.
    */
   async createFrom(from?: string): Promise<void> {
-    const source = from ?? this.store.getSnapshot().rows.find(row => row.isDefault)?.id
-    /* v8 ignore next -- the section only renders with a roster, and every roster marks a default */
-    if (source === undefined) return
-    await this.openDraft(source, true)
+    if (from === undefined) {
+      this.set({
+        error: null,
+        draft: {
+          id: '',
+          creating: true,
+          content: '',
+          writable: true,
+          name: '',
+          description: '',
+          saving: false,
+          error: null,
+        },
+      })
+      return
+    }
+    await this.openDraft(from, true)
   }
 
   private async openDraft(source: string, creating: boolean): Promise<void> {

@@ -239,16 +239,18 @@ describe('opening a composition', () => {
 })
 
 describe('creating a preset', () => {
-  it('copies the default composition when no source is named', async () => {
-    const { controller } = harness()
+  it('starts blank when no source is named', async () => {
+    const { controller, calls } = harness()
     await controller.load()
+    const before = calls.length
 
     await controller.createFrom()
 
-    // The default is the composition a new session gets, so it is the one
-    // worth starting from — and a copy is writable wherever it came from.
-    expect(draftOf(controller)).toMatchObject({ id: '', source: 'standard', creating: true, writable: true })
-    expect(draftOf(controller).content).toBe('- id: tool-bash\n')
+    // Copying is its own action on the row being copied, so this one is a copy
+    // of nothing: no source to name, and no read to make.
+    expect(draftOf(controller)).toMatchObject({ id: '', creating: true, writable: true, content: '' })
+    expect(draftOf(controller).source).toBeUndefined()
+    expect(calls).toHaveLength(before)
   })
 
   it('copies a named preset', async () => {
@@ -260,12 +262,12 @@ describe('creating a preset', () => {
     expect(draftOf(controller)).toMatchObject({ source: 'mine', creating: true, content: '- id: tool-read\n' })
   })
 
-  it('does nothing before the roster loaded', async () => {
+  it('opens the blank editor without the roster, which it no longer reads', async () => {
     const { controller, calls } = harness()
 
     await controller.createFrom()
 
-    expect(controller.store.getSnapshot().draft).toBeNull()
+    expect(draftOf(controller)).toMatchObject({ id: '', creating: true, content: '' })
     expect(calls).toHaveLength(0)
   })
 })
