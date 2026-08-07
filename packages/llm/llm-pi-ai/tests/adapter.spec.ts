@@ -236,7 +236,7 @@ describe('PiAiAdapter provider routing', () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     await ctx.plugin(LlmPiAi, {
-      providers: { openai: { apiKey: 'test-key', baseURL: `${server.url}/v1` } },
+      providers: { openai: { apiKeyEnv: 'PI_TEST_KEY', baseURL: `${server.url}/v1` } },
     })
     await ctx.plugin(LateAttachmentStore)
 
