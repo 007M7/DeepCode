@@ -2,7 +2,7 @@
 
 [English](providers.md) | 中文
 
-Harness 出厂就带 DeepSeek，同时挂着一个通用的多提供方适配器，用来接入 Anthropic、OpenAI 这类内置目录里的提供方，或任何 OpenAI 兼容的网关与自建服务。你有两个入口：Web 界面的**模型**页，以及 `$DSH_HOME/settings.yaml`。两者写的是同一份文档，改完下一次请求即生效，不用重启。
+Harness 出厂自带 DeepSeek，同时预装了一个通用的多提供方适配器，用来接入 Anthropic、OpenAI 这类内置目录里的提供方，或任何 OpenAI 兼容的网关与自建服务。你有两个入口：Web 界面的**模型**页，以及 `$DSH_HOME/settings.yaml`。两者写的是同一份文档，改完下一次请求即生效，不用重启。
 
 ## 提供方从哪里来
 
@@ -97,16 +97,18 @@ settings 段落**逐个提供方**地盖在 `cordis.yml` 的同名配置之上�
 
 配好的路由会出现在 Web 的模型选择器里，随时可切，这也是最常用的方式。
 
-新会话的默认模型来自 `api-gateway` 那条（`@deepseek-ai/dsh-host-apiproxy`）的 `provider` 与 `model`，出厂值是 `deepseek-official` 与 `deepseek-v4-flash`。要改默认值，就在 `$DSH_HOME/config.yaml` 里覆盖该条：
+在那里切换同时也就选定了默认值：你选的模型会成为下一个新会话的起点，记录在 `settings.yaml` 的 `api-gateway` 段里。没有另一个单独的手势。
 
 ```yaml
-- id: api-gateway
-  config:
-    provider: acme-gateway
-    model: acme-large
+api-gateway:
+  provider: acme-gateway
+  model: acme-large
+  reasoningEffort: high   # optional
 ```
 
-补丁会整体替换该条的 `config`，所以要把这条需要保留的键一并写出。自行组装的 `cordis.yml`（例如 headless）改的则是 `agent-loop` 的 `agents`。
+已经跑过一轮的会话不会被它重定向——那个会话从自己的日志推导路由，因此改默认值只影响还没开始的会话。这个段落之下的出厂兜底是 `api-gateway` 组合条目（`deepseek-official` / `deepseek-v4-flash`），自行组装的 `cordis.yml` 可以覆盖它；自行组装的组合（例如 headless）改的则是 `agent-loop` 的 `agents`。
+
+如果某个已存默认值指向的提供方后来被删掉了，输入框会显示**选择模型**并拒绝输入，而不是把消息发给一个没人服务的路由。
 
 ## 排错
 

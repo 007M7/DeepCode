@@ -166,6 +166,7 @@ describe('plugin registration', () => {
       name: 'root',
       children: { 'conversation.chat.turnTail': { kind: 'chain', scope: 'session' } },
     } as never, () => null)
+    ctx.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
     await ctx.plugin({ inject: ['slots'], apply: applyLocale }).await()
 
     const fiber = ctx.plugin({ inject: [...inject], apply })

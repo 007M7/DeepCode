@@ -8,7 +8,7 @@ import { mkdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Context } from 'cordis'
 import { installAgentLlmTarget } from '@deepseek-ai/dsh-agent'
-import type { Agent, AgentLlmTarget, AgentLlmTargetRef, AgentStatus } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentLlmTarget, AgentLlmTargetRef, AgentOptions, AgentStatus } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, freezeMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { errorChain } from '@deepseek-ai/dsh-llm'
 import type { MessageSource } from '@deepseek-ai/dsh-llm'
@@ -26,7 +26,8 @@ import {
 // Type-only: brings the `ctx.tools` Context merge into this program (viewFor reads presenters).
 import type {} from '@deepseek-ai/dsh-tools'
 import type {
-  ApiProxy, CredentialView, GoalRef, HistoryEntry, HostFrame, ModelCatalogFailure, ModelProviderGroup,
+  ApiProxy, ConfigurableProviderView, CredentialView, GoalRef, HistoryEntry, HostFrame,
+  ModelCatalogFailure, ModelProviderGroup,
   ModelReasoning, MuxFrame, QuestionResponsePayload, SessionProjectionsBlock, SessionSearchItem,
   QueuedInboxItem, SessionSummary, SettingsNamespaceView, SubagentAddress, ToolEventView,
   WorkspaceId, WorkspaceView,
@@ -72,6 +73,14 @@ import { openNativePath, openNativeTextFile } from './native-path-opener.ts'
 
 /** Page size when history is called without maxMessages. */
 const DEFAULT_MAX_MESSAGES = 50
+
+/**
+ * The settings namespace carrying the user's default route. Named for the
+ * gateway rather than for the package, because this key is what a person reads
+ * and writes in `settings.yaml`; the row id in a composition happens to match
+ * but does not determine it.
+ */
+export const API_GATEWAY_SETTINGS_NAMESPACE = settingsNamespace('api-gateway')
 
 /** Non-model settings namespaces intentionally served to the Web client. */
 const WEB_SETTINGS_NAMESPACES = ['locale', 'permission', 'ui-conversation', 'ui-theme'] as const
@@ -329,8 +338,21 @@ function directoryError(error: unknown): RpcError {
 
 /** Resolved Host routing and project-directory defaults consumed by the API implementation. */
 export interface ApiProxyDefaults {
-  provider: string
-  model: string
+  /**
+   * The route a session starts from when its own log names none. Read on
+   * every access rather than captured, so a default saved during this process
+   * reaches the sessions that have not run a turn yet.
+   */
+  defaultTarget: () => AgentLlmTarget
+  /**
+   * Record a selection as the new default. Either absent, or a closure that
+   * may itself decline — the gateway plugin always passes one, and it no-ops
+   * when the deployment mounts no settings provider or when the write races
+   * service teardown. A switch then stays process-local. A rejection is
+   * reported and swallowed: the switch already applies to its own session,
+   * and undoing it because storage failed would be the worse outcome.
+   */
+  persistDefaultTarget?: (target: AgentLlmTarget) => Promise<void>
   /** Default project directory for new sessions whose create request carries no cwd. */
   cwd: string
   /** Parent directory for name-created workspaces. */
@@ -720,7 +742,11 @@ function changedWorkspaceView(workspaceId: string, value: unknown): WorkspaceVie
  * @returns the ApiProxy implementation.
  */
 export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiProxy {
-  const agentOptions = { provider: defaults.provider, model: defaults.model }
+  /** The seed route each create/resume declares; re-read so it never goes stale. */
+  const agentOptions = (): AgentOptions => {
+    const { provider, model } = defaults.defaultTarget()
+    return { provider, model }
+  }
   type WebLlmTargetRef = AgentLlmTargetRef & { current: AgentLlmTarget }
   const targets = new WeakMap<Agent, WebLlmTargetRef>()
   /** Implicit resume of cold sessions, deduplicating concurrent calls (follows the jsonrpc sessionCreations precedent). */
@@ -735,24 +761,39 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
   /**
    * Install or return the session-local target that prompt assembly snapshots.
-   * Seed order: latest logged request/header, else the host default routing.
-   * There is no create-time per-session override tier on this wire — if one
-   * returns (a create-options contribution), it must fold in between the two.
+   *
+   * Precedence, resolved on EVERY read rather than seeded once: a selection
+   * made in this process, else the session's own latest logged request/header,
+   * else the live host default. Re-reading is what keeps the two tiers honest
+   * in both directions — a session that has run a turn derives its route from
+   * its log forever after, so changing the default never retargets it; and a
+   * session still blank (New Session reuses one rather than minting another)
+   * starts from a default saved after it was created. There is no create-time
+   * per-session override tier on this wire — if one returns (a create-options
+   * contribution), it must fold in between the selection and the log.
    */
   function targetFor(agent: Agent): WebLlmTargetRef {
     const installed = targets.get(agent)
     if (installed !== undefined) return installed
-    const logged = agent.session.requestHeader()?.config
+    let picked: AgentLlmTarget | undefined
     const target: WebLlmTargetRef = {
-      current: logged === undefined
-        ? { provider: defaults.provider, model: defaults.model }
-        : {
+      get current(): AgentLlmTarget {
+        if (picked !== undefined) return picked
+        // Incrementally folded by the session, so a per-step read costs
+        // O(new events) rather than a rescan.
+        const logged = agent.session.requestHeader()?.config
+        if (logged === undefined) return defaults.defaultTarget()
+        return {
           provider: logged.provider,
           model: logged.model,
           ...logged.reasoningEffort === undefined
             ? {}
             : { reasoningEffort: logged.reasoningEffort },
-        },
+        }
+      },
+      set current(next: AgentLlmTarget) {
+        picked = next
+      },
       assembled: undefined,
     }
     installAgentLlmTarget(agent.ctx, target)
@@ -1023,7 +1064,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           }
           const handle = await ctx.agents.resume({
             resumeSessionId: sessionId,
-            agentOptions,
+            agentOptions: agentOptions(),
             setup: installTarget,
           })
           return handle.agent
@@ -1140,7 +1181,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           }
           return (await ctx.agents.resume({
             resumeSessionId: sessionId,
-            agentOptions,
+            agentOptions: agentOptions(),
             setup: installTarget,
           })).agent
         }
@@ -1152,7 +1193,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         }
         return (await ctx.agents.create({
           sessionId,
-          agentOptions,
+          agentOptions: agentOptions(),
           meta: { cwd },
           setup: installTarget,
         })).agent
@@ -1297,6 +1338,19 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     } catch (error: unknown) {
       return goalError(request, error)
     }
+  }
+
+  /**
+   * Whether an adapter currently serves this route, and therefore whether a
+   * session pointed at it can start a turn. Catalog membership cannot answer
+   * it: an adapter may serve a model its own catalog stopped advertising, so
+   * a route missing from the groups is not the same as one nothing serves.
+   * A composition with no llm registry at all cannot judge and says yes —
+   * the dispatch it would have refused fails on its own terms.
+   */
+  function routeServed(provider: string): boolean {
+    const llm = ctx.get('llm')
+    return llm === undefined || llm.listProviders().some(entry => entry.id === provider)
   }
 
   /** Missing-service report shared by the settings domain (skills-domain stance). */
@@ -1669,7 +1723,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         if ('error' in found) return err(request, found.error)
         const current = targetFor(found.agent).current
         const { groups, failures } = await buildModelCatalog(ctx)
-        return ok(request, { current: { ...current }, groups, failures })
+        const routable = routeServed(current.provider)
+        return ok(request, { current: { ...current }, routable, groups, failures })
       },
 
       async selectModel(request) {
@@ -1692,6 +1747,17 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               : { reasoningEffort: resolved.reasoningEffort },
           }
           targetFor(found.agent).current = selected
+          // A switch is also how this deployment's default is chosen: the next
+          // session created without one of its own starts here. Sessions that
+          // have already logged a route are unaffected — they derive from
+          // their own log (see targetFor).
+          try {
+            await defaults.persistDefaultTarget?.(selected)
+          } catch (error: unknown) {
+            ctx.logger.warn(
+              `api-proxy: the model switch applies to this session but was not saved as the default: ${String(error)}`,
+            )
+          }
           return ok(request, { selected: { ...selected } })
         } catch (error: unknown) {
           return err(request, {
@@ -1794,7 +1860,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               parentSession: source.id,
               seedLength: cut,
             },
-            agentOptions,
+            agentOptions: agentOptions(),
             setup: installTarget,
           })
         } catch (error: unknown) {
@@ -1826,6 +1892,20 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const found = await agentFor(sessionId)
         if ('error' in found) return err(request, found.error)
         const agent = found.agent
+        // A route no adapter serves cannot start a turn, and letting it try
+        // spends the whole pre-step path to fail inside the adapter with a
+        // message about registration. Refusing here names the model the
+        // session is pointed at while the draft is still in the composer.
+        // This is the enforcement boundary: a client that disables its input
+        // is an affordance, and this method stays callable regardless.
+        const target = targetFor(agent).current
+        if (!routeServed(target.provider)) {
+          return err(request, {
+            code: 'model-unavailable',
+            message: `no adapter serves provider "${target.provider}"; select a model for this session`,
+            details: { provider: target.provider, model: target.model },
+          })
+        }
         // The rpcId rides MessageSource into user/message (merge declaration in api/sessions.ts; provisional correlation).
         const source: MessageSource = { kind: 'user', rpcId: request.rpcId }
         try {
@@ -2179,13 +2259,16 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     host: {
       describe(request) {
         // TODO(step2): version should read apps/cli's package.json; placeholder for now.
+        const route = defaults.defaultTarget()
         return Promise.resolve(ok(request, {
           version: '0.0.1',
           // Same source as session.create's fallback: the UI's default project
           // must match where an unspecified-cwd session actually lands.
           cwd: defaults.cwd,
-          provider: defaults.provider,
-          model: defaults.model,
+          // Read live for the same reason: this is what the NEXT session will
+          // start from, so a saved default has to be what it reports.
+          provider: route.provider,
+          model: route.model,
           attachedSessions: ctx.agents.list().length,
         }))
       },
@@ -2514,15 +2597,17 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const active = new Set(registered.map(provider => provider.id))
         const directory = ctx.llm.listConfigurableProviders()
         const declared = new Set(directory.map(entry => entry.provider))
-        const views = directory.map(entry => ({
+        const views: ConfigurableProviderView[] = directory.map(entry => ({
           provider: entry.provider,
           displayName: entry.displayName,
           settingsNs: entry.settingsNs,
           settingsPath: [...entry.settingsPath],
           active: active.has(entry.provider),
+          ...entry.declared === undefined ? {} : { declared: entry.declared },
         }))
         // Routes registered without a directory declaration still appear —
-        // they exist and serve models — just with no settings address.
+        // they exist and serve models — just with no settings address. No
+        // adapter claimed them, so nothing can say whether they are shipped.
         for (const provider of registered) {
           if (declared.has(provider.id)) continue
           views.push({
@@ -2711,8 +2796,14 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             queue.push(frame({ type: 'host/settings-changed', ns: name }))
             // A provider's own settings carry its model catalog and endpoint,
             // so a change there invalidates the model list even when the route
-            // set is untouched — `llm/adapters-updated` alone misses it.
-            if (modelProviderNamespaces().has(name)) queue.push(frame({ type: 'host/models-changed' }))
+            // set is untouched — `llm/adapters-updated` alone misses it. The
+            // gateway's own section is the other such source: it names the
+            // route every session with no logged one resolves to, so an
+            // externally edited default (another tab, a hand-edited
+            // settings.yaml) has to reach an open selector too.
+            if (modelProviderNamespaces().has(name) || name === String(API_GATEWAY_SETTINGS_NAMESPACE)) {
+              queue.push(frame({ type: 'host/models-changed' }))
+            }
           }),
           ctx.on('credentials/updated', (ref) => {
             queue.push(frame({ type: 'host/credentials-changed', ref: String(ref) }))

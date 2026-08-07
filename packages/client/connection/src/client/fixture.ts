@@ -1978,6 +1978,9 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
       models: request => ok(request, {
         current: modelTargets.get(request.payload.sessionId)
           ?? { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+        // The fixture's routes all serve; a surface exercising the blocked
+        // posture drives it through its own stub.
+        routable: true,
         groups: fixtureModelGroups(),
         failures: [],
       }),
@@ -2503,8 +2506,11 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
       providers: request => ok(request, {
         providers: [
           { provider: 'deepseek-official', displayName: 'DeepSeek', settingsNs: 'llm-deepseek', settingsPath: [], active: true },
-          { provider: 'openai', displayName: 'openai', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai'], active: true },
-          { provider: 'anthropic', displayName: 'anthropic', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'anthropic'], active: false },
+          { provider: 'openai', displayName: 'openai', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai'], active: true, declared: false },
+          { provider: 'anthropic', displayName: 'anthropic', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'anthropic'], active: false, declared: false },
+          // One hand-declared route, so a surface reading this fixture meets
+          // the tagged shape rather than only the shipped one.
+          { provider: 'acme-gateway', displayName: 'Acme Gateway', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'acme-gateway'], active: true, declared: true },
         ],
       }),
       models: request => ok(request, { groups: fixtureModelGroups(), failures: [] }),
