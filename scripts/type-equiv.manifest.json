@@ -1552,7 +1552,7 @@
     },
     {
       "doc": "docs/core-data-structures/typert.md",
-      "symbol": "TypeRTClientApi",
+      "symbol": "TypeRTClientRemote",
       "source": "packages/typert/type-meta/src/types.ts"
     }
   ]
