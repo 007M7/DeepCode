@@ -16,12 +16,13 @@
   - list:
     - listitem:
       - text: minimax-cn
-      - button "编辑"
-      - button "删除"
+      - img "API 密钥已配置"
+      - button "编辑 minimax-cn": 编辑
+      - button "删除 minimax-cn": 删除
     - listitem:
       - text: Acme Gateway 自定义
-      - button "编辑"
-      - button "删除"
+      - button "编辑 Acme Gateway (acme-gateway)": 编辑
+      - button "删除 Acme Gateway (acme-gateway)": 删除
   - button "添加提供方":
     - img
     - text: 添加提供方

@@ -98,9 +98,14 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
   /** Perform the create, returning a failure message or undefined. */
   const createOnce = async (): Promise<string | undefined> => {
     const keyRef = deriveKeyRef(route)
+    const storesKey = keyDraft.trim().length > 0
     const profile = {
       ...displayName.length === 0 ? {} : { displayName },
-      apiKeyEnv: keyRef,
+      // The profile names the conventional reference only when this card is
+      // about to store a key, matching the editor: a route declared with the
+      // key left blank keeps its provider-native auth path (a credential
+      // chain, ADC) instead of resolving a reference nothing ever sets.
+      ...storesKey ? { apiKeyEnv: keyRef } : {},
       api: protocol,
       baseURL,
       // Inherit is the field being absent, not an empty string: the schema
@@ -117,7 +122,7 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
       expectedRevision: openedAt,
     })
     if (!response.result.ok) return response.result.error.message
-    if (keyDraft.length > 0) {
+    if (storesKey) {
       const stored = await api.credentials.set({ ref: keyRef, value: keyDraft })
       // The profile landed; saying the key did not is the only honest report,
       // and the row is now editable so the key can be entered again there.

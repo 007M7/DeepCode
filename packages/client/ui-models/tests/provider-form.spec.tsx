@@ -899,8 +899,10 @@ describe('hand-declared providers', () => {
 
     await waitFor(() => { expect(onClose).toHaveBeenCalledWith(true) })
     // No display name configured means none stored; the route id is the name.
+    // No key typed means no reference either, matching the editor: the route
+    // keeps its provider-native auth path instead of resolving a reference
+    // nothing ever sets. The with-key case is covered above.
     expect(firstMutate(mutate).ops[0]?.value).toEqual({
-      apiKeyEnv: 'ACME_API_KEY',
       api: 'anthropic-messages',
       baseURL: 'https://acme.test/v1',
       models: [{ id: 'm' }],
