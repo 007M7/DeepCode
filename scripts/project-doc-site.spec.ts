@@ -148,7 +148,7 @@ describe('rewriteMarkdown', () => {
       repoRoot: root,
       repositoryRef: 'abc123',
       placeImage: (absPath) => {
-        const name = absPath.split('/').pop() ?? ''
+        const name = absPath.split(/[\\/]/u).pop() ?? ''
         placed.push(name)
         return `./${name}`
       },
@@ -167,7 +167,7 @@ describe('rewriteMarkdown', () => {
       pages,
       repoRoot: root,
       repositoryRef: 'abc123',
-      placeImage: absPath => `./${absPath.split('/').pop() ?? ''}`,
+      placeImage: absPath => `./${absPath.split(/[\\/]/u).pop() ?? ''}`,
     })).toBe('![logo](./logo.svg#view)\n')
   })
 
