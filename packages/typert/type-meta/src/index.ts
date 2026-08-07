@@ -60,9 +60,9 @@ export type {
   TypeRTLookupResolver,
   TypeRTLookupRegistry,
   TypeRTLookupWire,
-  TypeRTRemoteContextApi,
-  TypeRTRemoteContextMap,
-  TypeRTRemoteContextNamespace,
+  TypeRTRemoteScopeApi,
+  TypeRTRemoteScopeMap,
+  TypeRTRemoteScopeNamespace,
   TypeRTRemoteContribution,
   TypeRTRemoteMap,
   TypeRTRemoteNamespace,
@@ -191,16 +191,16 @@ export function Remote<This extends object, Args extends unknown[], Result>(
 }
 
 /**
- * Create a decorator for a method resolved from one scoped Remote Context.
- * @param key - merge-declared Context key.
+ * Create a decorator for a method resolved from one Remote Scope.
+ * @param key - scope key declared through the Context map.
  * @param exportName - optional Remote export name; defaults to the method name.
  * @returns a standard method decorator that records only private module state.
  */
-export function RemoteContext(
+export function RemoteScope(
   key: Extract<keyof TypeRTContextMap, string>,
   exportName?: string,
 ): RemoteMethodDecorator {
-  validateName('Context key', key)
+  validateName('Scope key', key)
   if (exportName !== undefined) validateName('Remote export name', exportName)
   return function <This extends object, Args extends unknown[], Result>(
     _method: (this: This, ...args: Args) => Result,

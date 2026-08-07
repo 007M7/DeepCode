@@ -6,7 +6,7 @@ import {
   bindTypeRTGateway,
   GatewayService,
   Remote,
-  RemoteContext,
+  RemoteScope,
   remoteMethods,
   type TypeRTContext,
 } from '@deepseek-ai/dsh-type-meta'
@@ -29,7 +29,7 @@ describe('type-meta Remote declarations', () => {
         return value
       }
 
-      @RemoteContext('metaFixture')
+      @RemoteScope('metaFixture')
       scoped(value: string): string {
         return value
       }
@@ -84,7 +84,7 @@ describe('type-meta Remote declarations', () => {
       Reflect.get(Goals.prototype, 'create') as (this: Goals, ...args: unknown[]) => unknown,
       methodContext('create', initializers),
     )
-    RemoteContext('metaFixture')(
+    RemoteScope('metaFixture')(
       Reflect.get(Goals.prototype, 'scoped') as (this: Goals, ...args: unknown[]) => unknown,
       methodContext('scoped', initializers),
     )
@@ -141,7 +141,7 @@ describe('type-meta Remote declarations', () => {
       Reflect.get(Service.prototype, 'run') as (this: Service, ...args: unknown[]) => unknown,
       methodContext('run', initializers),
     )
-    RemoteContext('metaFixture', 'inspect')(
+    RemoteScope('metaFixture', 'inspect')(
       Reflect.get(Service.prototype, 'scoped') as (this: Service, ...args: unknown[]) => unknown,
       methodContext('scoped', initializers),
     )
@@ -166,8 +166,8 @@ describe('type-meta Remote declarations', () => {
     expect(() => Remote('bad name')).toThrow('export name')
     expect(() => Remote('.')).toThrow('export name')
     expect(() => Remote('..')).toThrow('export name')
-    expect(() => RemoteContext('' as 'metaFixture')).toThrow('Context key')
-    expect(() => RemoteContext('metaFixture', 'bad/name')).toThrow('export name')
+    expect(() => RemoteScope('' as 'metaFixture')).toThrow('Scope key')
+    expect(() => RemoteScope('metaFixture', 'bad/name')).toThrow('export name')
 
     for (const context of [
       { ...methodContext('run', []), private: true },
@@ -195,7 +195,7 @@ describe('type-meta Remote declarations', () => {
       Reflect.get(Service.prototype, 'run'),
       methodContext('run', conflicting),
     )
-    RemoteContext('metaFixture')(
+    RemoteScope('metaFixture')(
       Reflect.get(Service.prototype, 'run'),
       methodContext('run', conflicting),
     )

@@ -288,7 +288,7 @@ export interface BoxPayload {
     const root = copyFixture()
     editFile(root, 'packages/remote/src/index.ts', source => source
       .replace('  @Remote\n', '')
-      .replace("  @RemoteContext('agent')\n", ''))
+      .replace("  @RemoteScope('agent')\n", ''))
     editFile(root, 'packages/remote/src/types.ts', source => `${source}
 
 /** @typert schema */
@@ -377,8 +377,8 @@ export interface ClientMarker {
       name: 'duplicate GatewayService field binding',
       edit: (source: string) => source
         .replace(
-          'import { GatewayService, Remote, RemoteContext }',
-          'import { GatewayService, Remote, RemoteContext, bindTypeRTGateway }',
+          'import { GatewayService, Remote, RemoteScope }',
+          'import { GatewayService, Remote, RemoteScope, bindTypeRTGateway }',
         )
         .replace(
           'export class GoalService extends GatewayService {',
@@ -495,11 +495,11 @@ export interface ClientMarker {
     expect(() => analyzeRemote(root)).not.toThrow()
   })
 
-  it('rejects a Remote Context without a static Context declaration', () => {
+  it('rejects a Remote Scope without a static Context declaration', () => {
     const root = copyFixture()
-    editFile(root, 'packages/remote/src/index.ts', source => source.replace("@RemoteContext('agent')", "@RemoteContext('missing')"))
+    editFile(root, 'packages/remote/src/index.ts', source => source.replace("@RemoteScope('agent')", "@RemoteScope('missing')"))
 
-    expect(() => analyzeRemote(root, false)).toThrow(/Remote Context missing has no TypeRTContextMap entry/)
+    expect(() => analyzeRemote(root, false)).toThrow(/Remote Scope missing has no TypeRTContextMap entry/)
   })
 
   it('rejects a direct scoped projection whose Context and lookup wire symbols differ', () => {
@@ -579,7 +579,7 @@ function assertRemoteConsumerTypechecks(
 import remote from '@fixture/remote/remote'
 import type {
   TypeRTRemoteContribution,
-  TypeRTRemoteContextMap,
+  TypeRTRemoteScopeMap,
   TypeRTRemoteMap,
   TypeRTRemoteNamespaceMap,
 } from '@deepseek-ai/dsh-type-meta'
@@ -587,8 +587,8 @@ import type { CreateGoalResult, RenameGoalResult } from '@fixture/remote/types'
 
 const contribution: TypeRTRemoteContribution = remote
 declare const create: TypeRTRemoteMap['goals/create']
-declare const createScoped: TypeRTRemoteContextMap['agent:goals/create']
-declare const rename: TypeRTRemoteContextMap['agent:goals/rename']
+declare const createScoped: TypeRTRemoteScopeMap['agent:goals/create']
+declare const rename: TypeRTRemoteScopeMap['agent:goals/rename']
 const created: Promise<CreateGoalResult> = create('agent-1', { title: 'ship' })
 const cancellable: Promise<CreateGoalResult> = create('agent-1', { title: 'ship' }, new AbortController().signal)
 const createdScoped: Promise<CreateGoalResult> = createScoped({ title: 'ship' })

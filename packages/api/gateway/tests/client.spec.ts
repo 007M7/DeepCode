@@ -5,7 +5,7 @@ import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client
 import type {
   InvocationDescriptor,
   TypeRTContext,
-  TypeRTRemoteContextApi,
+  TypeRTRemoteScopeApi,
   TypeRTRemoteNamespace,
 } from '@deepseek-ai/dsh-type-meta'
 import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
@@ -24,7 +24,7 @@ declare module '@deepseek-ai/dsh-type-meta' {
     ) => Promise<{ readonly ref: string }>
   }
 
-  interface TypeRTRemoteContextMap {
+  interface TypeRTRemoteScopeMap {
     'fixture:goals/create': (
       request: { readonly objective: string },
       signal?: AbortSignal,
@@ -38,7 +38,7 @@ declare module '@deepseek-ai/dsh-type-meta' {
 
 }
 
-type FixtureContext = Omit<Context, 'remote'> & { readonly remote: TypeRTRemoteContextApi<'fixture'> }
+type FixtureContext = Omit<Context, 'remote'> & { readonly remote: TypeRTRemoteScopeApi<'fixture'> }
 
 const idSchema = z.string().min(1)
 const requestSchema = z.object({ objective: z.string().min(1) })

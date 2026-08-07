@@ -1,4 +1,4 @@
-import { GatewayService, Remote, RemoteContext } from '@deepseek-ai/dsh-type-meta'
+import { GatewayService, Remote, RemoteScope } from '@deepseek-ai/dsh-type-meta'
 import type { Agent } from '@fixture/domain'
 import type {
   CreateGoalRequest,
@@ -19,7 +19,7 @@ export class GoalService extends GatewayService {
     return { ref: `${agent.id}:${request.title}` }
   }
 
-  @RemoteContext('agent')
+  @RemoteScope('agent')
   rename(request: RenameGoalRequest): RenameGoalResult {
     return { renamed: request.title.length > 0 }
   }

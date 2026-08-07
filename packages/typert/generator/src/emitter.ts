@@ -376,7 +376,7 @@ export class FaceModelEmitter {
       lines.push('  }')
     }
     if (scoped.length > 0) {
-      lines.push('  interface TypeRTRemoteContextMap {')
+      lines.push('  interface TypeRTRemoteScopeMap {')
       for (const invocation of scoped) {
         this.pushRemoteSignature(lines, sourceMap, packageModel, invocation, referenceNames, true)
       }

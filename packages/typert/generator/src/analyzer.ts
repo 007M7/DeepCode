@@ -1032,10 +1032,10 @@ class FaceAnalyzer {
     if (invocation.kind === 'context') {
       const context = this.contextDeclarations().get(invocation.context)
       if (context === undefined) {
-        this.fail(method, `Remote Context ${invocation.context} has no TypeRTContextMap entry`)
+        this.fail(method, `Remote Scope ${invocation.context} has no TypeRTContextMap entry`)
       }
       const wire = `${invocation.context}Id`
-      if (wires.has(wire)) this.fail(method, `Remote Context wire field ${wire} conflicts with a method parameter`)
+      if (wires.has(wire)) this.fail(method, `Remote Scope wire field ${wire} conflicts with a method parameter`)
       receiver = {
         kind: 'context',
         context: invocation.context,
@@ -1200,18 +1200,18 @@ class FaceAnalyzer {
         }
         marker = { kind: 'direct', exportName }
       } else if (ts.isCallExpression(expression)
-        && this.isTypeMetaSymbol(expression.expression, 'RemoteContext')) {
+        && this.isTypeMetaSymbol(expression.expression, 'RemoteScope')) {
         if (expression.arguments.length < 1 || expression.arguments.length > 2) {
-          this.fail(expression, 'RemoteContext() requires a Context key and optional exported method name')
+          this.fail(expression, 'RemoteScope() requires a Context key and optional exported method name')
         }
         const context = stringLiteralValue(expression.arguments[0])
         if (context === undefined || !isRemoteSegment(context)) {
-          this.fail(expression.arguments[0] ?? expression, 'RemoteContext() key must be a string literal containing only RPC endpoint segment characters')
+          this.fail(expression.arguments[0] ?? expression, 'RemoteScope() key must be a string literal containing only RPC endpoint segment characters')
         }
         const exportArgument = expression.arguments[1]
         const exportName = exportArgument === undefined ? undefined : stringLiteralValue(exportArgument)
         if (exportArgument !== undefined && (exportName === undefined || !isRemoteSegment(exportName))) {
-          this.fail(exportArgument, 'RemoteContext() name must be a string literal containing only RPC endpoint segment characters')
+          this.fail(exportArgument, 'RemoteScope() name must be a string literal containing only RPC endpoint segment characters')
         }
         marker = { kind: 'context', context, ...exportName === undefined ? {} : { exportName } }
       } else {
@@ -2529,7 +2529,7 @@ function sourceFileHasSurface(sourceFile: ts.SourceFile): boolean {
             ? decorator.expression.expression
             : decorator.expression
           const name = expressionName(expression)
-          if (name === 'Remote' || name === 'RemoteContext') return true
+          if (name === 'Remote' || name === 'RemoteScope') return true
         }
       }
     }

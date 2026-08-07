@@ -6,17 +6,17 @@
 
 ## 编程模型
 
-业务 Service 通过 `@Remote` 或 `@RemoteContext` 选择对 Client 开放的方法。未标记的方法不会进入生成的 Client 类型或运行时贡献，也不能通过 `ctx.remote` 调用。
+业务 Service 通过 `@Remote` 或 `@RemoteScope` 选择对 Client 开放的方法。未标记的方法不会进入生成的 Client 类型或运行时贡献，也不能通过 `ctx.remote` 调用。
 
 `@Remote` 表示调用根 Host Context 中注册的 Cordis Service。复杂的 Host 对象不能直接跨 wire 传输；业务包必须通过 `TypeRTLookupMap` 声明它与 wire identity 的关联，并在运行时向 `ctx.typert.lookups` 注册默认解析提供方。例如 `Agent` 参数在 Host 签名中名为 `agent`，生成的 wire 字段为 `agentId`，Gateway 在调用业务方法前将 id 解析为 Host 对象。Host 组合可以用 `ctx.typert.lookups.configure()` 覆盖某个 lookup key 的解析策略，而不改变业务包拥有的参数名、wire 字段或规范类型 symbol。
 
-`@RemoteContext(key)` 表示先通过 `ctx.typert.contexts` 把 identity 解析为一个作用域 Context，再从该 Context 取得 Service 并调用方法。它适用于方法本身依赖作用域组合、而不需要显式接收 `Agent` 等对象的情形。
+`@RemoteScope(key)` 表示先通过 `ctx.typert.contexts` 把 identity 解析为一个作用域 Context，再从该 Context 取得 Service 并调用方法。它适用于方法本身依赖作用域组合、而不需要显式接收 `Agent` 等对象的情形。
 
 Service 通常继承 `GatewayService`，让 Cordis service key 与默认 Remote namespace 在构造器中显式绑定。已有其他基类的 Service 可以改为声明 `readonly typertGateway = bindTypeRTGateway(this, serviceKey)`；两种方式都会留下可检查的公开 binding，不依赖编译器向构造函数注入 symbol。
 
 ```ts
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { GatewayService, Remote, RemoteContext } from '@deepseek-ai/dsh-type-meta'
+import { GatewayService, Remote, RemoteScope } from '@deepseek-ai/dsh-type-meta'
 import type { Context } from 'cordis'
 
 export interface CreateGoalRequest {
@@ -42,7 +42,7 @@ export class GoalService extends GatewayService {
     return this.create(agent, request)
   }
 
-  @RemoteContext('agent', 'current')
+  @RemoteScope('agent', 'current')
   currentForClient(): CreateGoalResult {
     return { accepted: true }
   }
@@ -55,7 +55,7 @@ export class GoalService extends GatewayService {
 
 Remote 方法可以同步返回或返回 Promise。若需要协作式取消，Host 签名的最后一个参数必须是全局类型的 `signal: AbortSignal`；它记录在描述符中而不是进入 `args`，Client 生成的方法则接受最后一个可选的 `AbortSignal`。
 
-Client 使用普通对象上的具体函数，不使用 JavaScript Proxy。直接调用与作用域调用分别出现在 `ctx.remote.<namespace>` 和 `agentCtx.remote.<namespace>`。每个 namespace 都是注册为 `remote.<namespace>` 的可追踪 Cordis 子 Service；Client assembly 通过 `ctx.remote.$mount()` 挂载贡献，消费方同时注入 `remote` 与所调用的 namespace Service，最后一个方法撤回后该 namespace 随即卸载。当一个 `@Remote` 方法恰好有一个 lookup 参数、且同名 `TypeRTContextMap` 使用相同 wire identity 时，生成的作用域签名会省略该 identity 参数。`@RemoteContext` 只生成作用域调用界面。
+Client 使用普通对象上的具体函数，不使用 JavaScript Proxy。直接调用与作用域调用分别出现在 `ctx.remote.<namespace>` 和 `agentCtx.remote.<namespace>`。每个 namespace 都是注册为 `remote.<namespace>` 的可追踪 Cordis 子 Service；Client assembly 通过 `ctx.remote.$mount()` 挂载贡献，消费方同时注入 `remote` 与所调用的 namespace Service，最后一个方法撤回后该 namespace 随即卸载。当一个 `@Remote` 方法恰好有一个 lookup 参数、且同名 `TypeRTContextMap` 使用相同 wire identity 时，生成的作用域签名会省略该 identity 参数。`@RemoteScope` 只生成作用域调用界面。
 
 ```ts
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -101,7 +101,7 @@ API Gateway 包同时拥有 Host dispatcher 与 Client Remote endpoint 两个对
 | `typert.host.js` | Host Loader | Host face 的运行时反射、严格调用描述符和 schema 注册值 |
 | `typert.host.d.ts` | Host 类型系统 | Host face 的生成声明 |
 | `typert.remote-client.js` | `api-remotes` | 可挂载的 `TypeRTRemoteContribution`，包含严格描述符与运行时 codec |
-| `typert.remote-client.d.ts` | Client 类型系统 | `TypeRTRemoteNamespaceMap` 与 `TypeRTRemoteContextMap` 的声明合并及 Client-safe 类型引用 |
+| `typert.remote-client.d.ts` | Client 类型系统 | `TypeRTRemoteNamespaceMap` 与 `TypeRTRemoteScopeMap` 的声明合并及 Client-safe 类型引用 |
 | `typert.remote-client.d.ts.map` | 编辑器 | 将生成的方法属性映射回 Host 包中的 Remote 方法声明 |
 
 业务包通过 `./typert` 暴露 Host Loader 入口，通过 `./remote` 暴露 Host-for-Client 入口。生成器同时校验这些 package export 及发布文件清单；只有具备相应入口的显式贡献包才会生成产物。
@@ -126,7 +126,7 @@ Client 卸载一个贡献时会一起移除描述符和具体方法，中止其�
 
 Host 通过 `node --import tsx/esm` 从源码启动时不会执行 TypeRT 编译插件。标准 decorator 初始化器仍会把方法名和调用模式记录到模块私有 `WeakMap`，`GatewayService` 或 `bindTypeRTGateway()` 则提供显式 service binding；Gateway 因而可以在不启动 `ts.Program` 的情况下构造一个较弱的临时描述符。
 
-SRC 回退从运行中函数解析简单参数名。参数名与某个已注册 lookup 的 `parameter` 相同，例如 `agent` 或 `session`，就使用其 `agentId` 或 `sessionId` wire 字段并在 Host 解析对象；其他参数只检查值是否为无循环、无特殊 prototype 的 JSON-safe 数据。`@RemoteContext` 直接使用已注册 Host Context provider 的 wire 字段。SRC 不读取 TypeScript 类型，不生成 Zod schema，不推断可选参数，也不支持解构、默认值、rest 或重复参数名。
+SRC 回退从运行中函数解析简单参数名。参数名与某个已注册 lookup 的 `parameter` 相同，例如 `agent` 或 `session`，就使用其 `agentId` 或 `sessionId` wire 字段并在 Host 解析对象；其他参数只检查值是否为无循环、无特殊 prototype 的 JSON-safe 数据。`@RemoteScope` 直接使用已注册 Host Context provider 的 wire 字段。SRC 不读取 TypeScript 类型，不生成 Zod schema，不推断可选参数，也不支持解构、默认值、rest 或重复参数名。
 
 SRC 只解决 Host 源码进程的分发问题。Client 不会从运行中的 Host 发现 decorator，Client Remote 也拒绝挂载缺少严格 codec 的 SRC 描述符；其类型、codec 和 Remote 注册值始终来自最近一次生成的 `lib/typert.remote-client.*`。
 

@@ -40,7 +40,7 @@ export interface TypeRTContextMap {}
 export interface TypeRTRemoteMap {}
 
 /** Merge-extensible scoped Remote method signatures generated for consumers. */
-export interface TypeRTRemoteContextMap {}
+export interface TypeRTRemoteScopeMap {}
 
 /**
  * Resolve one direct Remote namespace from the generated flat endpoint map.
@@ -57,24 +57,24 @@ export type TypeRTRemoteNamespace<Namespace extends string> = {
  * The calling Cordis Context supplies the concrete identity at runtime.
  * @template Namespace - wire namespace between the Context prefix and method.
  */
-export type TypeRTRemoteContextNamespace<
+export type TypeRTRemoteScopeNamespace<
   Namespace extends string,
   ContextKey extends string = string,
 > = {
-  [Endpoint in keyof TypeRTRemoteContextMap as Endpoint extends `${ContextKey}:${Namespace}/${infer Method}`
+  [Endpoint in keyof TypeRTRemoteScopeMap as Endpoint extends `${ContextKey}:${Namespace}/${infer Method}`
     ? Method
-    : never]: TypeRTRemoteContextMap[Endpoint]
+    : never]: TypeRTRemoteScopeMap[Endpoint]
 }
 
-type TypeRTRemoteContextNamespaceKey<
+type TypeRTRemoteScopeNamespaceKey<
   ContextKey extends string,
-  Endpoint = keyof TypeRTRemoteContextMap,
+  Endpoint = keyof TypeRTRemoteScopeMap,
 > = Endpoint extends `${ContextKey}:${infer Namespace}/${string}` ? Namespace : never
 
 /** Generated scoped Remote namespaces available to one Context kind. */
-export type TypeRTRemoteContextApi<ContextKey extends string> = {
-  [Namespace in TypeRTRemoteContextNamespaceKey<ContextKey>]:
-  TypeRTRemoteContextNamespace<Namespace, ContextKey>
+export type TypeRTRemoteScopeApi<ContextKey extends string> = {
+  [Namespace in TypeRTRemoteScopeNamespaceKey<ContextKey>]:
+  TypeRTRemoteScopeNamespace<Namespace, ContextKey>
 }
 
 /** Merge-extensible direct namespace surface generated for Client Remote services. */
@@ -227,7 +227,7 @@ export interface TypeRTLookupDefinition {
   readonly wireTypeSymbol: string
 }
 
-/** Host resolver for one scoped Remote Context kind. */
+/** Host resolver for one scoped Remote kind. */
 export interface TypeRTHostContextProvider<Wire = unknown> {
   /** Wire field carrying the Context identity. */
   readonly wire: string

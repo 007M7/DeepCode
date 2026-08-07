@@ -2,7 +2,7 @@ import { Context } from 'cordis'
 import {
   GatewayService,
   Remote,
-  RemoteContext,
+  RemoteScope,
   remoteMethods,
 } from '@deepseek-ai/dsh-type-meta'
 
@@ -16,7 +16,7 @@ class Goals extends GatewayService {
     return value
   }
 
-  @RemoteContext('agent')
+  @RemoteScope('agent')
   scoped(value: string): string {
     return value
   }

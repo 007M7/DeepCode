@@ -8,7 +8,7 @@ import type { HttpServerService, WebRoute } from '@deepseek-ai/dsh-host-webserve
 import {
   bindTypeRTGateway,
   Remote,
-  RemoteContext,
+  RemoteScope,
   TypeRTLookupFailure,
   type InvocationDescriptor,
   type TypeRTContext,
@@ -65,7 +65,7 @@ class GoalService extends Service {
     }
   }
 
-  @RemoteContext('gatewayFixture')
+  @RemoteScope('gatewayFixture')
   rename(request: { readonly title: string }): unknown {
     this.calls.push('rename')
     return { title: request.title, scope: (this.ctx as MarkedContext).fixtureScope ?? 'root' }
@@ -299,7 +299,7 @@ class ContextWireService extends Service {
     super(ctx, 'contextWire')
   }
 
-  @RemoteContext('gatewayFixture')
+  @RemoteScope('gatewayFixture')
   run(agentId: string): string {
     return agentId
   }
@@ -389,7 +389,7 @@ describe('TypertGatewayService', () => {
     expect(service.lastSignal?.aborted).toBe(false)
   })
 
-  it('resolves strict Remote Context identity without adding a business argument', async () => {
+  it('resolves strict Remote Scope identity without adding a business argument', async () => {
     const { ctx, service } = await setup()
     const scoped = ctx.extend({ fixtureScope: 'agent-scope' })
     ctx.typert.contexts.registerHost('gatewayFixture', contextProvider(scoped))
@@ -432,7 +432,7 @@ describe('TypertGatewayService', () => {
     expect(service.calls).toEqual([])
   })
 
-  it('derives SRC Remote Context identity and preserves the scoped Proxy receiver', async () => {
+  it('derives SRC Remote Scope identity and preserves the scoped Proxy receiver', async () => {
     const { ctx } = await setup()
     const scoped = ctx.extend({ fixtureScope: 'agent-src' })
     ctx.typert.contexts.registerHost('gatewayFixture', contextProvider(scoped))

@@ -11,7 +11,7 @@ declare module '@deepseek-ai/dsh-type-meta' {
   export interface TypeRTLookupMap {}
   export interface TypeRTContextMap {}
   export interface TypeRTRemoteMap {}
-  export interface TypeRTRemoteContextMap {}
+  export interface TypeRTRemoteScopeMap {}
 
   export type TypeRTRemoteNamespace<Namespace extends string> = {
     [Endpoint in keyof TypeRTRemoteMap as Endpoint extends `${Namespace}/${infer Method}`
@@ -56,7 +56,7 @@ declare module '@deepseek-ai/dsh-type-meta' {
     context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Result>,
   ) => void
 
-  export function RemoteContext(key: Extract<keyof TypeRTContextMap, string>, exportName?: string):
+  export function RemoteScope(key: Extract<keyof TypeRTContextMap, string>, exportName?: string):
   <This extends object, Args extends unknown[], Result>(
     method: (this: This, ...args: Args) => Result,
     context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Result>,
