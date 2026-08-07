@@ -46,6 +46,7 @@ Write normal repository-relative Markdown links in canonical docs. The projector
 
 - A target present in the manifest becomes a site-relative route.
 - An existing target outside the manifest becomes a GitHub source link, including supported line suffixes.
+- An image is the exception: its file is copied into the generated tree and referenced from there, so the site serves it regardless of repository visibility. It must be a regular file inside the repository.
 - External URLs, site-absolute URLs, email links, and fragment-only links remain unchanged.
 - A missing repository-relative target fails projection instead of silently producing a broken link.
 
