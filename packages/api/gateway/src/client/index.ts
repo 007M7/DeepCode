@@ -11,6 +11,7 @@ import type {
   InvocationDescriptor,
   TypeRTClientApi,
   TypeRTCodec,
+  TypeRTDisposer,
   TypeRTRemoteContribution,
 } from '@deepseek-ai/dsh-type-meta'
 
@@ -291,7 +292,7 @@ class ScopedRemoteNamespace {
   private readonly ctx: Context
   private readonly ownerCtx: Context
   private readonly methods = new Set<string>()
-  private disposeService: (() => void) | undefined
+  private disposeService: TypeRTDisposer | undefined
   readonly name: string
 
   static assertMethodAvailable(namespace: string, method: string): void {
@@ -348,7 +349,7 @@ class ScopedRemoteNamespace {
     if (this.methods.size !== 0) return
     const disposeService = this.disposeService
     this.disposeService = undefined
-    disposeService?.()
+    void disposeService?.()
   }
 }
 
