@@ -1,7 +1,6 @@
 /** Browser runtime services for slots, sessions, workspaces, and connection-stream delivery. */
 import type { Context } from 'cordis'
 import type { ConnectionHandle, SessionId } from '@deepseek-ai/dsh-client-connection/client'
-import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type { TypeRTContext } from '@deepseek-ai/dsh-type-meta'
 import type { MaybeSnapshotSelectorHook, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import { SlotsService } from './slots.ts'
@@ -179,8 +178,8 @@ declare module 'cordis' {
   }
 }
 
-/** Required services: the Remote root, wire handle, and Client TypeRT registry. */
-export const inject = ['remote', 'connection', 'typert']
+/** Required services: the wire handle and Client TypeRT registry. */
+export const inject = ['connection', 'typert']
 
 /** Mounts the browser runtime services and connection stream.
  * @param ctx - Client Cordis context.

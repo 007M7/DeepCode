@@ -136,22 +136,25 @@ function formatDiagnostics(diagnostics: readonly ts.Diagnostic[], blocks: Block[
 }
 
 /**
- * Reuse the host-aggregate references from a temp project one directory below
- * root. Doc fragments speak the host vocabulary, so the standalone project
- * seeds tsconfig.host.json (never the root solution: flattening host+client
- * into one program collides the cordis Context merges).
+ * Reuse both aggregate reference sets from a temp project one directory below
+ * root. Each referenced package remains its own program, while documentation
+ * examples can import either the Host or Client API.
  */
 function workspaceReferences(): { path: string }[] {
-  const file = join(root, 'tsconfig.host.json')
-  // Parse with TypeScript's own JSONC reader: a regex comment stripper corrupts the `/*/` path
-  // candidate in the workspace wildcard.
-  const result = ts.readConfigFile(file, path => readFileSync(path, 'utf8'))
-  if (result.error) {
-    throw new Error(`doc-typecheck: cannot read ${file}: ${ts.flattenDiagnosticMessageText(result.error.messageText, '\n')}`)
+  const paths = new Set<string>()
+  for (const aggregate of ['tsconfig.host.json', 'tsconfig.client.json']) {
+    const file = join(root, aggregate)
+    // Parse with TypeScript's own JSONC reader: a regex comment stripper corrupts the `/*/` path
+    // candidate in the workspace wildcard.
+    const result = ts.readConfigFile(file, path => readFileSync(path, 'utf8'))
+    if (result.error) {
+      throw new Error(`doc-typecheck: cannot read ${file}: ${ts.flattenDiagnosticMessageText(result.error.messageText, '\n')}`)
+    }
+    // `config` is typed `any` by the TS API; narrow it to the one field read here.
+    const { references } = result.config as { references: { path: string }[] }
+    for (const { path } of references) paths.add(path)
   }
-  // `config` is typed `any` by the TS API; narrow it to the one field read here.
-  const { references } = result.config as { references: { path: string }[] }
-  return references.map(({ path }) => ({
+  return [...paths].map(path => ({
     path: path.startsWith('./') ? `../${path.slice(2)}` : `../${path}`,
   }))
 }
