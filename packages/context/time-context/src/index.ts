@@ -157,9 +157,7 @@ export function apply(ctx: Context, config: Config): void {
   const resolvedTimeZone = formatter.resolvedOptions().timeZone
 
   ctx.on('agent/pre-step', async (
-    agent: Agent,
-    _messages,
-    { turn, step, signal },
+    { agent, turn, step, signal },
     next,
   ): Promise<PreStepDecision> => {
     const decision = await next()
@@ -174,13 +172,14 @@ export function apply(ctx: Context, config: Config): void {
     const previous = step === 1
       ? precedingMessageTime(agent)
       : precedingStepContextTime(agent, turn)
+    const text = renderText(now, turn, step, previous, formatter, resolvedTimeZone)
     return {
       kind: 'enter',
       messages: [
         ...decision.messages,
         createUserMessage({
-          content: [{ type: 'text', text: renderText(now, turn, step, previous, formatter, resolvedTimeZone) }],
-          source: { kind: 'plugin', plugin: name },
+          content: [{ type: 'text', text }],
+          source: { kind: 'plugin', plugin: name, form: 'snapshot', sections: [{ name, text }] },
         }),
       ],
     }

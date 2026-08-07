@@ -62,12 +62,12 @@ describe('agent/request-error', () => {
       retryPolicy: ResolvedRetryPolicy | undefined
     }[] = []
     const statuses: string[] = []
-    ctx.on('agent/status', (subject, status) => {
+    ctx.on('agent/status', ({ agent: subject, status }) => {
       if (subject === agent) statuses.push(status)
     })
-    ctx.on('agent/request-error', async (subject, context) => {
+    ctx.on('agent/request-error', async ({ agent: subject, turn, step, failure, retryPolicy }) => {
       expect(subject).toBe(agent)
-      seen.push(context)
+      seen.push({ turn, step, failure, retryPolicy })
       return { kind: 'retry' }
     })
 
@@ -102,7 +102,7 @@ describe('agent/request-error', () => {
     const adapter = new MockAdapter([fail('busy', 'RATE_LIMIT'), textResponse('unused')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('request-error-cancel'), { provider: 'mock', model: 'mock' })
-    ctx.on('agent/request-error', async (subject) => {
+    ctx.on('agent/request-error', async ({ agent: subject }) => {
       subject.cancel({ kind: 'user' })
       return { kind: 'retry' }
     })

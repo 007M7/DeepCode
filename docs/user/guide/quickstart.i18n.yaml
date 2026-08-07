@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/user/guide/quickstart.md
-quickstart.md: 199b3f092159fa6fbaf3ae298151487c924ac6f1
-quickstart.zh.md: 9327ed646ba211bcce6426beb6bf76fca50acbf6
+quickstart.md: 4b43291342f80ff9c6dcb844fdc505ef797d1f6c
+quickstart.zh.md: 13294c50c2d7d4005c0fd090cc2eca3c4780d0a6

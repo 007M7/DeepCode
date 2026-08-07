@@ -159,6 +159,11 @@ describe('createFixtureApi', () => {
         },
         // No request ran, so neither pressure nor capacity is known yet.
         contextPressure: {},
+        contextBreakdown: {
+          systemTokens: 0,
+          toolsTokens: 0,
+          messageTokens: 0,
+        },
       } },
     })
   })
@@ -304,6 +309,10 @@ describe('createFixtureApi', () => {
       frame.type === 'session/projection'
       && frame.key === 'contextPressure'
       && (frame.value as { contextWindow?: number }).contextWindow === 128_000)).toBe(true)
+    expect(frames.some(frame =>
+      frame.type === 'session/projection'
+      && frame.key === 'contextBreakdown'
+      && (frame.value as { messageTokens?: number }).messageTokens! > 0)).toBe(true)
     const finalize = frames.find((f): f is Extract<MuxFrame, { type: 'session/event' }> => f.type === 'session/event' && f.event.type === 'assistant/message')
     expect(JSON.stringify(finalize?.event.data)).toContain('（已中断）')
     // Idle cancel: no replay in flight, must not explode; running flips false.
@@ -335,7 +344,7 @@ describe('createFixtureApi', () => {
       const envelopes: RpcRequest<MuxFrame>[] = []
       for await (const envelope of api.events.mux(req({}), abort.signal)) {
         envelopes.push(envelope)
-        if (envelopes.length >= 10) abort.abort()
+        if (envelopes.length >= 11) abort.abort()
       }
       return envelopes
     }
@@ -351,10 +360,15 @@ describe('createFixtureApi', () => {
     expect(first[5]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'goal', value: null })
     expect(first[6]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'tokenUsage' })
     expect(first[7]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'contextPressure' })
-    expect(first[8]?.payload).toMatchObject({ type: 'approval/requested', toolName: 'dangerous_tool' })
-    expect(second[8]?.rpcId).toBe(first[8]?.rpcId) // stable rpcId across replays (host replay semantics)
-    expect(first[9]?.payload).toMatchObject({ type: 'question/requested', sessionId: 'fx-alpha' })
-    expect(second[9]?.rpcId).toBe(first[9]?.rpcId)
+    expect(first[8]?.payload).toMatchObject({
+      type: 'session/projection', sessionId: 'fx-alpha', key: 'contextBreakdown',
+      value: { systemTokens: 0, toolsTokens: 0 },
+    })
+    expect((first[8]?.payload as { value: { messageTokens: number } }).value.messageTokens).toBeGreaterThan(0)
+    expect(first[9]?.payload).toMatchObject({ type: 'approval/requested', toolName: 'dangerous_tool' })
+    expect(second[9]?.rpcId).toBe(first[9]?.rpcId) // stable rpcId across replays (host replay semantics)
+    expect(first[10]?.payload).toMatchObject({ type: 'question/requested', sessionId: 'fx-alpha' })
+    expect(second[10]?.rpcId).toBe(first[10]?.rpcId)
   })
 
   it('steer with no replay in flight falls through to a fresh queued turn; non-text blocks stringify empty', async () => {

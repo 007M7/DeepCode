@@ -19,6 +19,7 @@ import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ComposerBarProps } from '../contract/slots.ts'
 import { deriveDecorations } from '../input/decorations.ts'
 import type { DraftDecorations } from '../input/decorations.ts'
+import { ContextMeter } from './ContextMeter.tsx'
 import { PermissionSelect } from './PermissionSelect.tsx'
 import css from './InputBar.module.css'
 
@@ -512,6 +513,7 @@ export function InputBar({
           <div className={css.trailing}>
             {rightItems}
             {renderSlot('conversation.input.model', { locked })}
+            <ContextMeter useProjection={useProjection} t={t} />
             {/* {machineBusy && <span className={css.pending} data-input-pending aria-label="处理中" />} */}
             <Tooltip label={primaryLabel} side="top" delayMs={500}>
               <button

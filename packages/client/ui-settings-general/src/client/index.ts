@@ -6,7 +6,6 @@
  * Export discipline: packages/client/AGENTS.md.
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
-import { deferRegistration } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 // Type-only: pulls the shell's SlotMap merges (trigger/header/section/item).
@@ -50,7 +49,7 @@ const NS = 'settings'
 /**
  * Required services (cordis fiber inject). The target slots are declared by
  * ui-settings' apply, whose activation order relative to this one is NOT
- * constrained; registration goes through declaration-aware deferral.
+ * constrained; registrations depend on their slots through `slots.inject()`.
  */
 export const inject = ['slots', 'locale', 'connection']
 
@@ -97,47 +96,34 @@ export function apply(ctx: ClientContext): void {
     ]
     return () => { for (const dispose of disposers) dispose() }
   }, 'ui-settings-general: metadata invalidations')
-  ctx.effect(() => {
-    const trigger = deferRegistration(ctx.slots, 'settings.trigger', TriggerContent, () =>
-      ctx.slots.register({ name: 'settings.trigger', locale: NS }, TriggerContent))
-    const header = deferRegistration(ctx.slots, 'settings.header', HeaderContent, () =>
-      ctx.slots.register({ name: 'settings.header', locale: NS }, HeaderContent))
-    const action = documentInjected === undefined
-      ? undefined
-      : deferRegistration(ctx.slots, 'settings.action', SettingsDocumentAction, () =>
-        ctx.slots.register({
-          name: 'settings.action',
-          id: 'open-document',
-          order: 0,
-          locale: NS,
-          inject: documentInjected,
-        }, SettingsDocumentAction))
-    const close = deferRegistration(ctx.slots, 'settings.close', CloseLabel, () =>
-      ctx.slots.register({ name: 'settings.close', locale: NS }, CloseLabel))
-    const general = deferRegistration(ctx.slots, 'settings.section', GeneralSection, () =>
-      ctx.slots.register({
-        name: 'settings.section',
-        id: 'general',
-        order: 0,
-        label: () => t('general.nav'),
-        locale: NS,
-        children: { 'settings.general.item': { kind: 'list', scope: 'root' } },
-      }, GeneralSection))
-    const welcome = deferRegistration(ctx.slots, 'settings.onboarding', WelcomeNotice, () =>
-      ctx.slots.register({
-        name: 'settings.onboarding',
-        id: 'welcome-notice',
-        order: -100,
-        locale: NS,
-        inject: welcomeInjected,
-      }, WelcomeNotice))
-    return () => {
-      trigger.dispose()
-      header.dispose()
-      action?.dispose()
-      close.dispose()
-      general.dispose()
-      welcome.dispose()
-    }
-  }, 'ui-settings-general: chrome, action, section, and onboarding registrations')
+  ctx.slots.inject('settings.trigger', () =>
+    ctx.slots.register({ name: 'settings.trigger', locale: NS }, TriggerContent))
+  ctx.slots.inject('settings.header', () =>
+    ctx.slots.register({ name: 'settings.header', locale: NS }, HeaderContent))
+  if (documentInjected !== undefined) {
+    ctx.slots.inject('settings.action', () => ctx.slots.register({
+      name: 'settings.action',
+      id: 'open-document',
+      order: 0,
+      locale: NS,
+      inject: documentInjected,
+    }, SettingsDocumentAction))
+  }
+  ctx.slots.inject('settings.close', () =>
+    ctx.slots.register({ name: 'settings.close', locale: NS }, CloseLabel))
+  ctx.slots.inject('settings.section', () => ctx.slots.register({
+    name: 'settings.section',
+    id: 'general',
+    order: 0,
+    label: () => t('general.nav'),
+    locale: NS,
+    children: { 'settings.general.item': { kind: 'list', scope: 'root' } },
+  }, GeneralSection))
+  ctx.slots.inject('settings.onboarding', () => ctx.slots.register({
+    name: 'settings.onboarding',
+    id: 'welcome-notice',
+    order: -100,
+    locale: NS,
+    inject: welcomeInjected,
+  }, WelcomeNotice))
 }

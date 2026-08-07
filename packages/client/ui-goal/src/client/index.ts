@@ -53,52 +53,47 @@ export function apply(ctx: ClientContext): void {
 
   const { goals } = (ctx.get('connection') as ConnectionHandle).api
 
-  // Conditional mount: 'conversation.input.dock' is declared by the
-  // conversation entry; the conversation service being up is the
-  // registration-safe signal (the TodoDock/QueueDock seam).
-  ctx.inject(['slots', 'conversation', 'sessions'], (scope: ClientContext) => {
-    const sessions = scope.sessions
+  const sessions = ctx.sessions
 
-    /** The session's current projected CAS ref, read at verb call time (no staleness fence: the RPC's CAS is the guard). */
-    const refOf = (sessionId: SessionId): GoalRef | undefined => {
-      const face = sessions.binding(sessionId)?.session.projections.faceOf('goal')
-      const projection = face?.getSnapshot() as GoalProjection | null | undefined
-      if (projection == null) return undefined
-      return { id: projection.goal.id, revision: projection.goal.revision }
-    }
+  /** The session's current projected CAS ref, read at verb call time (no staleness fence: the RPC's CAS is the guard). */
+  const refOf = (sessionId: SessionId): GoalRef | undefined => {
+    const face = sessions.binding(sessionId)?.session.projections.faceOf('goal')
+    const projection = face?.getSnapshot() as GoalProjection | null | undefined
+    if (projection == null) return undefined
+    return { id: projection.goal.id, revision: projection.goal.revision }
+  }
 
-    const noCurrentGoal: GoalActionResult = {
-      ok: false,
-      error: { code: 'no-current-goal', message: 'no current goal to mutate' },
-    }
+  const noCurrentGoal: GoalActionResult = {
+    ok: false,
+    error: { code: 'no-current-goal', message: 'no current goal to mutate' },
+  }
 
-    scope.effect(() => scope.slots.register({
-      name: 'conversation.input.dock',
-      id: 'goal',
-      order: 10,
-      locale: NS,
-      inject: (sessionId): GoalBarActions => ({
-        onEdit: async (objective) => {
-          const ref = refOf(sessionId)
-          if (ref === undefined) return noCurrentGoal
-          return settle((await goals.edit({ sessionId, ref, objective })).result)
-        },
-        onPause: async () => {
-          const ref = refOf(sessionId)
-          if (ref === undefined) return noCurrentGoal
-          return settle((await goals.pause({ sessionId, ref })).result)
-        },
-        onResume: async () => {
-          const ref = refOf(sessionId)
-          if (ref === undefined) return noCurrentGoal
-          return settle((await goals.resume({ sessionId, ref })).result)
-        },
-        onClear: async () => {
-          const ref = refOf(sessionId)
-          if (ref === undefined) return noCurrentGoal
-          return settle((await goals.clear({ sessionId, ref })).result)
-        },
-      }),
-    }, GoalDock), 'ui-goal: GoalBar dock registration')
-  })
+  ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
+    name: 'conversation.input.dock',
+    id: 'goal',
+    order: 10,
+    locale: NS,
+    inject: (sessionId): GoalBarActions => ({
+      onEdit: async (objective) => {
+        const ref = refOf(sessionId)
+        if (ref === undefined) return noCurrentGoal
+        return settle((await goals.edit({ sessionId, ref, objective })).result)
+      },
+      onPause: async () => {
+        const ref = refOf(sessionId)
+        if (ref === undefined) return noCurrentGoal
+        return settle((await goals.pause({ sessionId, ref })).result)
+      },
+      onResume: async () => {
+        const ref = refOf(sessionId)
+        if (ref === undefined) return noCurrentGoal
+        return settle((await goals.resume({ sessionId, ref })).result)
+      },
+      onClear: async () => {
+        const ref = refOf(sessionId)
+        if (ref === undefined) return noCurrentGoal
+        return settle((await goals.clear({ sessionId, ref })).result)
+      },
+    }),
+  }, GoalDock))
 }

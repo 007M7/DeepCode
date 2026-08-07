@@ -8,7 +8,7 @@ import { Context, Service } from 'cordis'
 import z from 'schemastery'
 import { AnonymousEntries, NamedEntries, ScopedLayers, scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { ScopeKey, ScopeLayer, Scoped } from '@deepseek-ai/dsh-scope'
-import type { ToolSchema } from '@deepseek-ai/dsh-llm'
+import type { ContextSnapshotSection, ToolSchema } from '@deepseek-ai/dsh-llm'
 
 declare module 'cordis' {
   interface Context {
@@ -200,15 +200,39 @@ export function renderPrompt(assembly: PromptAssembly): string {
  * @returns the current full snapshot, or `''` when no context is active.
  */
 export function renderContextSnapshot(assembly: PromptAssembly): string {
-  const body = assembly.contexts
-    .map(context => interpolate(context, assembly.variables, 'context'))
-    .filter(text => text.length > 0)
-    .join('\n\n')
+  return joinContextSections(renderContextSections(assembly))
+}
+
+/**
+ * The model-facing snapshot text for an already-rendered section list.
+ *
+ * A caller that also needs the sections renders them once and joins here, so a
+ * request does not interpolate every context twice.
+ * @param sections - sections from {@link renderContextSections}.
+ * @returns the current full snapshot, or `''` when no context is active.
+ */
+export function joinContextSections(sections: readonly ContextSnapshotSection[]): string {
+  const body = sections.map(section => section.text).join('\n\n')
   if (body.length === 0) return ''
   return `Current runtime context. This snapshot supersedes earlier runtime-context snapshots.\n\n${body}`
 }
 
-/** Interpolate one section or context and attribute diagnostics to its owner. */
+/**
+ * The same snapshot, kept as the named contributions it was assembled from.
+ *
+ * {@link renderContextSnapshot} joins these for the model; a consumer that
+ * presents the snapshot uses them to attribute each part to the subsystem that
+ * contributed it, without re-splitting the joined prose.
+ * @param assembly - the assembly whose contexts and variables to render.
+ * @returns one entry per contributing context that rendered to non-empty text.
+ */
+export function renderContextSections(assembly: PromptAssembly): ContextSnapshotSection[] {
+  return assembly.contexts
+    .map(context => ({ name: context.name, text: interpolate(context, assembly.variables, 'context') }))
+    .filter(section => section.text.length > 0)
+}
+
+/** Interpolate one section or context and attribute diagnostics to its owning input. */
 function interpolate(
   input: AssembledSection | AssembledContext,
   variables: Record<string, string | undefined>,

@@ -108,7 +108,7 @@ export interface Config {
 
 Depends on: [`AgentOptions`](core-data-structures/core.md) · [`SessionId`](core-data-structures/core.md)
 
-Source: [`packages/core/agent-loop/src/index.ts:212`](../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:236`](../packages/core/agent-loop/src/index.ts)
 
 ## `@deepseek-ai/dsh-agent-spine-demo`
 
@@ -223,7 +223,7 @@ export interface Config {
   maxOutputBytes?: number
   /** Per-stream spill-file cap; larger streams retain only their in-memory tail. */
   maxSpillBytes?: number
-  /** Grace period for kill escalation and for inherited pipes after shell exit. */
+  /** Grace period for kill escalation and inherited pipes; at most `MAX_TIMER_DELAY_MS`. */
   graceMs?: number
 }
 ```
@@ -405,6 +405,8 @@ Source: [`packages/compact/compact-basic/src/types.ts:38`](../packages/compact/c
 
 ## `@deepseek-ai/dsh-compact-tool-result-prune`
 
+Requires: `tokenMeter`
+
 ```ts config-catalog
 /** Character-budget policy for deterministic tool-result pruning. */
 export interface ToolResultPruneConfig {
@@ -436,6 +438,20 @@ export interface Config {
 ```
 
 Source: [`packages/credentials/credentials-local/src/index.ts:26`](../packages/credentials/credentials-local/src/index.ts)
+
+## `@deepseek-ai/dsh-frontend-static`
+
+Requires: `httpServer`
+
+```ts config-catalog
+/** Plugin config: the dist anchor. */
+export interface Config {
+  /** Absolute path of index.html inside the dist root. */
+  distIndex: string
+}
+```
+
+Source: [`packages/host/frontend-static/src/index.ts:28`](../packages/host/frontend-static/src/index.ts)
 
 ## `@deepseek-ai/dsh-fs-local`
 
@@ -480,6 +496,20 @@ export interface Config {
 ```
 
 Source: [`packages/goal/goal/src/index.ts:114`](../packages/goal/goal/src/index.ts)
+
+## `@deepseek-ai/dsh-headless`
+
+Requires: `apiProxy` · `httpServer`
+
+```ts config-catalog
+/** Plugin config: the task, patched in by the launcher. */
+export interface Config {
+  /** The prompt text for the single turn. */
+  task: string
+}
+```
+
+Source: [`packages/bundle/headless/src/index.ts:33`](../packages/bundle/headless/src/index.ts)
 
 ## `@deepseek-ai/dsh-hooks-claude`
 
@@ -575,18 +605,16 @@ Source: [`packages/host/directory-picker-browse/src/index.ts:181`](../packages/h
 ## `@deepseek-ai/dsh-host-webserver`
 
 ```ts config-catalog
-/** Gateway config: listen address plus the static dist anchor (injected by the composing app, never self-resolved). */
+/** Gateway config: the listen address. */
 export interface Config {
   /** Listen host; the two supported values are loopback and all-interfaces. */
   host: '127.0.0.1' | '0.0.0.0'
   /** Listen port; zero requests an OS-assigned port. */
   port: number
-  /** Absolute path of index.html inside the static root (dist location is workspace knowledge of the app). */
-  distIndex: string
 }
 ```
 
-Source: [`packages/host/webserver/src/index.ts:47`](../packages/host/webserver/src/index.ts)
+Source: [`packages/host/webserver/src/index.ts:45`](../packages/host/webserver/src/index.ts)
 
 ## `@deepseek-ai/dsh-invariants`
 
@@ -702,8 +730,34 @@ export interface PiAiProviderProfile {
   apiKey?: string
   /** Credential reference (environment-variable name) resolved per request through `ctx.credentials`. */
   apiKeyEnv?: string
-  /** Override the selected catalog model's endpoint without changing its protocol metadata. */
+  /** Name shown by configuration surfaces; defaults to the route key. */
+  displayName?: string
+  /**
+   * Wire protocol every model on this route speaks. Omission keeps each
+   * installed catalog model's own protocol, which is why a catalog route needs
+   * no protocol at all; a route the catalog does not ship must name one.
+   */
+  api?: string
+  /** Endpoint for this route's models; defaults to the installed catalog's endpoint. */
   baseURL?: string
+  /**
+   * This route's model catalog. Omission serves the installed catalog for the
+   * route unchanged; an explicit list replaces it, each entry defaulting its
+   * unset fields from the installed model of the same id.
+   */
+  models?: PiAiModelProfile[]
+  /**
+   * Context capacity for a model this route lists that neither the entry nor
+   * the installed catalog sizes (default 262,144). A guess by construction, so
+   * a deployment whose gateway serves smaller models corrects it here.
+   */
+  defaultContextWindow?: number
+  /**
+   * Output capability for a model this route lists that neither the entry nor
+   * the installed catalog sizes (default 32,768). This sizes the model; it
+   * never becomes a per-request cap on its own.
+   */
+  defaultMaxTokens?: number
   /** Provider request headers; Harness attribution wins reserved names. */
   headers?: Record<string, string>
   /** Provider-neutral pi-ai reasoning level. */
@@ -723,11 +777,28 @@ export interface PiAiProviderProfile {
   /** Provider-owned model-request retry policy; omission uses normal defaults. */
   retryPolicy?: RetryPolicyConfig
 }
+
+/** One configured model entry: an id plus the catalog fields it overrides. */
+export interface PiAiModelProfile {
+  /** Model id sent to the provider and accepted by {@link GenerateOptions.model}. */
+  id: string
+  /** Display name for selectors; defaults to the catalog name, then the id. */
+  name?: string
+  /** Maximum combined request and response context in tokens. */
+  contextWindow?: number
+  /**
+   * Maximum output tokens. Configuring one also makes it this model's
+   * per-request default; a value inherited from the installed catalog, or the
+   * route's fallback, is the model's capability and never becomes a request
+   * default on its own.
+   */
+  maxTokens?: number
+}
 ```
 
 Depends on: `CacheRetention` (`@earendil-works/pi-ai`) · `ModelThinkingLevel` (`@earendil-works/pi-ai`) · [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts) · `ThinkingBudgets` (`@earendil-works/pi-ai`) · `Transport` (`@earendil-works/pi-ai`)
 
-Source: [`packages/llm/llm-pi-ai/src/config.ts:62`](../packages/llm/llm-pi-ai/src/config.ts)
+Source: [`packages/llm/llm-pi-ai/src/config.ts:122`](../packages/llm/llm-pi-ai/src/config.ts)
 
 ## `@deepseek-ai/dsh-llm-replay`
 
@@ -994,7 +1065,7 @@ export interface Config {
   maxOutputBytes?: number
   /** Per-stream spill-file cap; larger streams retain only their in-memory tail. */
   maxSpillBytes?: number
-  /** Grace period for kill escalation and for inherited pipes after shell exit. */
+  /** Grace period for kill escalation and inherited pipes; at most `MAX_TIMER_DELAY_MS`. */
   graceMs?: number
   /**
    * Explicit pwsh executable. When omitted, well-known Windows install
@@ -1135,13 +1206,15 @@ export interface Config {
   packChunks?: boolean
   /** Physical encoding; defaults to checksummed Zstandard frames. */
   compression?: JsonlCompression
+  /** Maximum cold Session preparations retained for history-to-resume reuse. */
+  preparedSessionCacheSize?: number
 }
 
 /** Physical encoding selected for JSONL session artifacts. */
 export type JsonlCompression = 'zstd' | 'none'
 ```
 
-Source: [`packages/session-persistence/session-persistence-jsonl/src/index.ts:40`](../packages/session-persistence/session-persistence-jsonl/src/index.ts)
+Source: [`packages/session-persistence/session-persistence-jsonl/src/index.ts:58`](../packages/session-persistence/session-persistence-jsonl/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-persistence-sqlite`
 
@@ -1167,6 +1240,8 @@ export interface Config {
    * (network mounts). See {@link JournalMode}.
    */
   journalMode?: JournalMode
+  /** Maximum cold Session preparations retained for history-to-resume reuse. */
+  preparedSessionCacheSize?: number
 }
 
 /**
@@ -1180,7 +1255,7 @@ export interface Config {
 export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
 ```
 
-Source: [`packages/session-persistence/session-persistence-sqlite/src/index.ts:58`](../packages/session-persistence/session-persistence-sqlite/src/index.ts)
+Source: [`packages/session-persistence/session-persistence-sqlite/src/index.ts:66`](../packages/session-persistence/session-persistence-sqlite/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-projection-cache`
 
@@ -1553,10 +1628,11 @@ export interface Config {
   /**
    * Grace period (ms) for the child's EOF-driven quiesce on dispose — its
    * window to flush persistence and tear down its own nested subprocesses
-   * before the parent escalates to a signal.
+   * before the parent escalates to a signal. Must not exceed
+   * `MAX_TIMER_DELAY_MS`.
    */
   disposeEofGraceMs?: number
-  /** Termination confirmation window (ms), including forced exit on every platform. */
+  /** Termination-escalation grace (ms); must not exceed `MAX_TIMER_DELAY_MS`. */
   disposeGraceMs?: number
 }
 
@@ -1564,7 +1640,45 @@ export interface Config {
 export type PermissionPolicy = 'allow' | 'reject'
 ```
 
-Source: [`packages/subagent/subagent-acp/src/index.ts:26`](../packages/subagent/subagent-acp/src/index.ts)
+Source: [`packages/subagent/subagent-acp/src/index.ts:27`](../packages/subagent/subagent-acp/src/index.ts)
+
+## `@deepseek-ai/dsh-subagent-claude-code`
+
+Requires: `subagents` · `subprocess`
+
+```ts config-catalog
+/** Deployment-owned environment and process-release bound. */
+export interface Config {
+  /**
+   * Explicit environment entries layered over the subprocess seam's
+   * credential-scrubbed parent environment.
+   */
+  env?: Record<string, string>
+  /** Grace in milliseconds for Claude Code process-tree termination. */
+  disposeGraceMs?: number
+}
+```
+
+Source: [`packages/subagent/subagent-claude-code/src/index.ts:32`](../packages/subagent/subagent-claude-code/src/index.ts)
+
+## `@deepseek-ai/dsh-subagent-codex`
+
+Requires: `subagents` · `subprocess`
+
+```ts config-catalog
+/** Deployment-owned environment and process-release bound. */
+export interface Config {
+  /**
+   * Explicit environment entries layered over the subprocess seam's
+   * credential-scrubbed parent environment.
+   */
+  env?: Record<string, string>
+  /** Grace in milliseconds for app-server process-tree termination. */
+  disposeGraceMs?: number
+}
+```
+
+Source: [`packages/subagent/subagent-codex/src/index.ts:30`](../packages/subagent/subagent-codex/src/index.ts)
 
 ## `@deepseek-ai/dsh-subagent-dsh-sdk`
 
@@ -1798,7 +1912,7 @@ export interface Config {
   searchMetaMaxBytes?: number
   /** Max complete raw `rg` stdout bytes a search will parse; larger raw output fails with `SEARCH_RAW_OUTPUT_OVERFLOW`. */
   rawOutputMaxBytes?: number
-  /** Terminate-escalation grace period (ms) for one search process, handed to the subprocess seam. */
+  /** Terminate-escalation grace (ms), handed to the subprocess seam and bounded by `MAX_TIMER_DELAY_MS`. */
   graceMs?: number
   /** Max bytes retained for one search's stderr tail; the excerpt is embedded in `SEARCH_*` error messages, never shown on success. */
   stderrMaxBytes?: number
@@ -1807,7 +1921,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/fs/tool-fs-search/src/index.ts:72`](../packages/fs/tool-fs-search/src/index.ts)
+Source: [`packages/fs/tool-fs-search/src/index.ts:73`](../packages/fs/tool-fs-search/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-goal`
 
@@ -1919,7 +2033,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/skill/tool-skill/src/index.ts:30`](../packages/skill/tool-skill/src/index.ts)
+Source: [`packages/skill/tool-skill/src/index.ts:58`](../packages/skill/tool-skill/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-str-replace-editor`
 
@@ -1988,8 +2102,8 @@ export interface Config {
    * requires the provider's `depthLimit` capability (mount fails loud
    * otherwise). The provider checks the calling agent's current depth at every
    * start; the tool remains model-visible so runtime policy owns rejection.
-   * `'provider-managed'` is for an out-of-process provider (ACP) whose
-   * recursion budget belongs to the child harness's own deployment.
+   * `'provider-managed'` is for an out-of-process provider whose recursion
+   * budget belongs to the child runtime or its own deployment.
    */
   maxDepth?: number | 'provider-managed'
 }
@@ -2168,6 +2282,39 @@ export interface WebServiceConfig {
 
 Source: [`packages/web/web/src/index.ts:55`](../packages/web/web/src/index.ts)
 
+## `@deepseek-ai/dsh-web-app`
+
+Requires: `httpServer`
+
+```ts config-catalog
+/** Plugin config: the surface facts the launcher patches over this bundle's defaults. */
+export interface Config {
+  /** Whether this process mounted the client-plugin HMR receiver (`dsh web --dev`). */
+  mode: WebMode
+  /** Print the URL line on activation; a headless layer over this bundle turns it off. */
+  printUrl: boolean
+  /**
+   * Register the model-visible surface context (the `app:web-surface` prompt
+   * section and the `DSH_WEB_URL`/`DSH_WEB_MODE` bash variables). A one-shot
+   * layer turns it off: its user is not interacting through the GUI, so the
+   * orientation text would be false.
+   */
+  surfaceContext: boolean
+  /**
+   * LAN IPv4 addresses sampled once by the launcher when the effective bind
+   * is all-interfaces — the exact snapshot the /api trust fence was
+   * configured with, so the printed LAN URL can never name an address the
+   * fence rejects. Empty on a loopback bind.
+   */
+  lanAddresses: string[]
+}
+
+/** Web runtime mode: production, or development when the client-plugin HMR receiver is active. */
+export type WebMode = 'production' | 'development'
+```
+
+Source: [`packages/bundle/web-app/src/index.ts:32`](../packages/bundle/web-app/src/index.ts)
+
 ## `@deepseek-ai/dsh-web-fetch-local`
 
 Requires: `web`
@@ -2316,7 +2463,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/context/workspace-context/src/config.ts:17`](../packages/context/workspace-context/src/config.ts)
+Source: [`packages/context/workspace-context/src/config.ts:18`](../packages/context/workspace-context/src/config.ts)
 
 ## Loadable plugins with no config
 
@@ -2397,6 +2544,7 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-agent-loop-testkit` ([`packages/support/agent-loop-testkit/src/index.ts`](../packages/support/agent-loop-testkit/src/index.ts))
 - `@deepseek-ai/dsh-app-boot` ([`packages/ui/app-boot/src/index.ts`](../packages/ui/app-boot/src/index.ts))
 - `@deepseek-ai/dsh-atomic-write` ([`packages/util/atomic-write/src/index.ts`](../packages/util/atomic-write/src/index.ts))
+- `@deepseek-ai/dsh-base` ([`packages/bundle/base/src/index.ts`](../packages/bundle/base/src/index.ts))
 - `@deepseek-ai/dsh-brand` ([`packages/util/brand/src/index.ts`](../packages/util/brand/src/index.ts))
 - `@deepseek-ai/dsh-client-schema-form` ([`packages/client/schema-form/src/index.ts`](../packages/client/schema-form/src/index.ts))
 - `@deepseek-ai/dsh-client-test-runtime` ([`packages/client/test-runtime/src/index.ts`](../packages/client/test-runtime/src/index.ts))

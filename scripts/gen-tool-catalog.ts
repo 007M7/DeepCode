@@ -14,6 +14,7 @@ import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SessionQuerySqlite from '@deepseek-ai/dsh-session-query-sqlite'
 import GoalService from '@deepseek-ai/dsh-goal'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -392,7 +393,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(ToolSubagent, { provider: 'mock' })
     },
     note:
-      'The registered tool name is the load-time `toolName` config (default `subagent`); the schema above is that default. The shipped example agents load this package once per subagent backend, so the model additionally sees `subagent_fork` (bound to the fork backend) with an identical schema — see `apps/cli/config/base.cordis.yml` and `examples/acp-agent/cordis.yml`.',
+      'The registered tool name is the load-time `toolName` config (default `subagent`); the schema above is that default. The shipped example agents load this package once per subagent backend, so the model additionally sees `subagent_fork` (bound to the fork backend) with an identical schema — see `packages/bundle/base/cordis.patch.yml` and `examples/acp-agent/cordis.yml`.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-subagent-control',
@@ -401,19 +402,19 @@ const TOOL_PACKAGES: ToolPackage[] = [
       list_agents: 'packages/subagent/tool-subagent-control/src/list-agents.ts',
       send_message: 'packages/subagent/tool-subagent-control/src/index.ts',
     },
-    requires: ['ctx.tools', 'ctx.subagents', 'ctx.sessionQuery (list_agents only)'],
+    requires: ['ctx.tools', 'ctx.subagents', 'ctx.sessionProjections (list_agents catalog rows)'],
     writes: ['tool/call', 'tool/result', 'child session events through ctx.subagents'],
     async mount(ctx) {
       await ctx.plugin(SubagentService)
       await ctx.plugin(LocalTaskService)
       await ctx.plugin(AgentRegistry)
       await ctx.plugin(SessionStore)
-      await ctx.plugin(SessionQuerySqlite, { path: ':memory:' })
+      await ctx.plugin(SessionProjectionRegistry)
       await ctx.plugin(ToolSubagentControl)
       await ctx.plugin(ToolSubagentListAgents)
     },
     note:
-      'The globally named control tools over continuable background subagents: provider-bound `tool-subagent` instances register distinct delegation tools, while this package registers `send_message` once, plus `list_agents` from its separately loaded `/list-agents` plugin (which additionally requires session query).',
+      'The globally named control tools over continuable background subagents: provider-bound `tool-subagent` instances register distinct delegation tools, while this package registers `send_message` once, plus `list_agents` from its separately loaded `/list-agents` plugin (whose catalog rows are served through the sessionProjections registry).',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-subagent-report',

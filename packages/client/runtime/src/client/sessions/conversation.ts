@@ -12,6 +12,7 @@ import type {
   RpcError, SessionId, SubagentAddress, ToolCallView, ToolResultView,
 } from '@deepseek-ai/dsh-client-connection/client'
 import type { PendingInteraction } from './pending.ts'
+import type { ContextProvenanceView, KnownContextForm } from './context-provenance.ts'
 export type { TodoItem }
 
 /** Request configuration recorded for one provider call. */
@@ -102,6 +103,18 @@ export interface AssistantMessageNode {
   interrupted?: true
 }
 
+/** A human message admitted from the next-step inbox while a turn was running. */
+export interface SteeringMessageNode {
+  kind: 'steering'
+  /** Stable message identity shared with its pre-admission inbox occurrence. */
+  messageId: MessageId
+  seq: number
+  /** Unix epoch ms from the source session event. */
+  time: number
+  content: readonly ContentBlock[]
+  source: unknown
+}
+
 /** A context/system injection surfaced in the flow. */
 export interface ContextMessageNode {
   kind: 'context'
@@ -110,6 +123,10 @@ export interface ContextMessageNode {
   time: number
   content: readonly ContentBlock[]
   source: unknown
+  /** Role and producer name projected from `source` ({@link contextProvenance}). */
+  provenance: ContextProvenanceView
+  /** Producer-declared information form ({@link contextForm}); null presents as opaque. */
+  form: KnownContextForm | null
 }
 
 /** Durable notice that a closed failed step is waiting for a model-request retry. */
@@ -223,6 +240,7 @@ export interface CommandNode {
 export type ConversationNode =
   | UserMessageNode
   | AssistantMessageNode
+  | SteeringMessageNode
   | ContextMessageNode
   | ModelRetryNode
   | TurnErrorNode

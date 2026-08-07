@@ -15,6 +15,12 @@ import { MessageId } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import type { SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
+import {
+  PersistenceCoordinator,
+  SessionPersistenceRevision,
+  type PersistenceBackend,
+  type StoredPrefix,
+} from '@deepseek-ai/dsh-session-persistence'
 import type { RpcRequest } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
 import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
 import { createApiProxy } from '@deepseek-ai/dsh-host-apiproxy'
@@ -114,6 +120,66 @@ describe('attached updatedAt excludes end-seed', () => {
   })
 })
 
+describe('cold history recovery view', () => {
+  it('shows in-memory interruption repair without activating the session', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(UserInteractionService)
+    const sessionId = sid('session-interrupted')
+    const meta = header(sessionId, 1000)
+    const stored: StoredPrefix<never> = {
+      meta,
+      events: [{ type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } }],
+      revision: SessionPersistenceRevision('history-recovery-test:1'),
+    }
+    const backend: PersistenceBackend<never> = {
+      name: 'history-recovery-test',
+      loadStored: id => Promise.resolve(id === sessionId ? structuredClone(stored) : undefined),
+      readStoredRevision: id => Promise.resolve(
+        id === sessionId ? SessionPersistenceRevision('history-recovery-test:1') : undefined,
+      ),
+      appendBatch: () => Promise.resolve(),
+      commitRepair: () => Promise.resolve(),
+      list: () => Promise.resolve([structuredClone(meta)]),
+    }
+    const coordinator = new PersistenceCoordinator(ctx, backend)
+    ctx.provide('sessionPersistence', {
+      list: (signal?: AbortSignal) => backend.list(signal),
+      inspect: (id: SessionId, signal?: AbortSignal) => coordinator.inspect(id, signal),
+      locate: () => undefined,
+    } as never)
+    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
+
+    const history = await api.sessions.history(request({ sessionId, beforeSeq: 2, maxMessages: 10 }))
+    if (!history.result.ok) throw new Error('history failed')
+    expect(history.result.value.events.map(entry => entry.event)).toMatchInlineSnapshot(`
+      [
+        {
+          "data": {
+            "turn": 1,
+          },
+          "seq": 0,
+          "time": 1,
+          "type": "turn/start",
+        },
+        {
+          "data": {
+            "reason": {
+              "kind": "interrupted",
+            },
+            "turn": 1,
+          },
+          "seq": 1,
+          "time": 1,
+          "type": "turn/end",
+        },
+      ]
+    `)
+    expect(ctx.sessions.get(sessionId)).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+})
+
 describe('subagent ownership fence', () => {
   it('reads a cold child without an Agent and rejects generic resume or adoption', async () => {
     const ctx = new Context()
@@ -124,6 +190,7 @@ describe('subagent ownership fence', () => {
     const meta = header('session-child', 1000, {
       parentSession: sid('session-parent'),
       seedLength: 0,
+      origin: 'subagent',
     })
     const events = [
       { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
@@ -177,6 +244,47 @@ describe('subagent ownership fence', () => {
     expect(resume).not.toHaveBeenCalled()
     expect(ctx.agents.get(sessionId)).toBeUndefined()
     expect(inspect).toHaveBeenCalledTimes(3)
+  })
+
+  it('no longer treats a descriptor-only cold child without origin as subagent-owned', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(UserInteractionService)
+    const sessionId = sid('session-legacy-child')
+    const meta = header('session-legacy-child', 1000, {
+      parentSession: sid('session-parent'),
+      seedLength: 0,
+    })
+    const events = [
+      {
+        type: 'subagent/descriptor',
+        seq: 0,
+        time: 1,
+        data: { version: 2, mode: 'continuable', provider: 'spawn', label: 'child' },
+      },
+    ] as SessionEvent[]
+    ctx.provide('sessionPersistence', {
+      list: () => Promise.resolve([meta]),
+      inspect: () => Promise.resolve({ meta, events }),
+      locate: () => undefined,
+    } as never)
+    // Pre-#1569 stores classify a child only through the descriptor event and
+    // carry no header `origin`; the pre-release decision stops recognizing
+    // them, so the ownership fence lets generic resume reach the registry
+    // instead of answering `agent-busy`.
+    const resume = vi.spyOn(ctx.agents, 'resume')
+      .mockRejectedValue(new Error('registry unavailable in this bench'))
+    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
+
+    const prompt = await api.sessions.prompt(request({
+      sessionId,
+      mode: 'queue',
+      content: [{ type: 'text', text: 'follow up' }],
+    }))
+    expect(resume).toHaveBeenCalledTimes(1)
+    expect(prompt.result.ok).toBe(false)
+    if (!prompt.result.ok) expect(prompt.result.error.code).toBe('internal')
   })
 
   it('rejects origin-marked and runtime-owned live children from generic controls', async () => {

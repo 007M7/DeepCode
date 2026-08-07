@@ -26,6 +26,7 @@ const DONE = 'MATH_RENDERING_DONE'
 /** Build a settled assistant reply that exercises every supported math delimiter. */
 function mathFixture(): string {
   const session = Session.create(SessionId('math-rendering-source'))
+  const eventTimeOrigin = new Date().setHours(12, 0, 0, 0)
   session.append('turn/start', {
     turn: 1,
   })
@@ -76,7 +77,10 @@ function mathFixture(): string {
       createdAt: 0,
       cwd: '{{cwd}}',
     }),
-    ...session.events.map(event => JSON.stringify(event)),
+    ...session.events.map(event => JSON.stringify({
+      ...event,
+      time: eventTimeOrigin + event.seq * 1_000,
+    })),
     '',
   ].join('\n')
 }

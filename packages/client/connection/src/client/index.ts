@@ -25,7 +25,7 @@ export type {
   IApiClient, SessionId, SessionEvent, ContentBlock, StreamChunk,
   GoalsApi, GoalRef,
   SettingsApi, SettingsNamespaceView, SettingsPathOpView, SettingsSecretView,
-  CredentialsApi, CredentialView, ConfigurableProviderView, LlmApi,
+  CredentialsApi, CredentialView, ConfigurableProviderView, DiscoveredModelView, LlmApi,
 } from './api.ts'
 export {
   RpcId,

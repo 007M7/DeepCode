@@ -10,10 +10,10 @@
 - button "Branch into a new conversation" [disabled]:
   - img
 - text: Available only on the last message of a completed turn
-- button "Context injection":
+- button "Context injection @deepseek-ai/dsh-system-prompt":
   - img
   - img
-  - text: Context injection
+  - text: Context injection @deepseek-ai/dsh-system-prompt
 - button "Think The user wants me to use the ask_user_question tool to ask them a specific question with the given parameters. Let me do exactly that.":
   - img
   - img
@@ -24,7 +24,7 @@
   - img
   - text: Ask question waiting
 - status: Deep diving...
-- text: "Interjection: include the word BANANA in your final reply."
+- text: "Interjection Interjection: include the word BANANA in your final reply."
 - button "Copy":
   - img
 - region "Ready to continue?":

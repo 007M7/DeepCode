@@ -61,22 +61,22 @@ export function SearchRow({ toolName, block, inspect, t }: SearchRowProps) {
 }
 
 /**
- * The search toolview as a plain registrant plugin. `inject` carries the
- * load-order seam: requiring the conversation service guarantees the chat entry
- * (and with it the 'conversation.chat.toolview' declaration) is registered.
- * The one component registers under both keys, since `grep` and `glob` are the
- * same visual object discriminated only by the result view's `kind`.
+ * The search toolview follows the chat toolview declaration across activation
+ * and reload. One component registers under both keys because `grep` and
+ * `glob` are the same visual object discriminated by the result view's `kind`.
  */
 export const searchToolview = {
   name: 'search-toolview',
-  inject: ['slots', 'conversation'],
+  inject: ['slots'],
   /**
    * Register the search row into the chat view's keyed toolview hole under both
    * the `grep` and `glob` tool names.
    * @param ctx - registrant context (disposal rides ctx.effect inside slots.register).
    */
   apply(ctx: Context): void {
-    ctx.slots.register({ name: 'conversation.chat.toolview', key: 'grep', locale: NS }, SearchRow)
-    ctx.slots.register({ name: 'conversation.chat.toolview', key: 'glob', locale: NS }, SearchRow)
+    ctx.slots.inject('conversation.chat.toolview', function* () {
+      yield ctx.slots.register({ name: 'conversation.chat.toolview', key: 'grep', locale: NS }, SearchRow)
+      yield ctx.slots.register({ name: 'conversation.chat.toolview', key: 'glob', locale: NS }, SearchRow)
+    })
   },
 }

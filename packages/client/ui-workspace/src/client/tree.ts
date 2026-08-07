@@ -24,6 +24,8 @@ export interface SessionNode {
   /** The runtime Session list reports an interaction awaiting this user. */
   pendingInteraction?: PendingInteractionStatus
   running: boolean
+  /** Finished running while not selected and not yet opened (the green "done" reminder dot). */
+  completed: boolean
   updatedAt: number
 }
 
@@ -54,6 +56,8 @@ export interface SearchResultNode {
   /** The runtime Session list reports an interaction awaiting this user. */
   pendingInteraction?: PendingInteractionStatus
   running: boolean
+  /** Finished running while not selected and not yet opened (the green "done" reminder dot). */
+  completed: boolean
   snippet?: string
 }
 
@@ -175,6 +179,7 @@ function sessionNode(s: SessionSummary): SessionNode {
     title: sessionTitle(s),
     blank: s.blank,
     running: s.running,
+    completed: s.completed === true,
     updatedAt: s.updatedAt,
     ...(s.pendingInteraction === undefined ? {} : { pendingInteraction: s.pendingInteraction }),
   }
@@ -330,6 +335,7 @@ export function deriveSearchResults(
         ...(summary.pendingInteraction === undefined
           ? {}
           : { pendingInteraction: summary.pendingInteraction }),
+        completed: summary.completed === true,
         ...match === undefined ? {} : { snippet: match.snippet },
       }
     }),

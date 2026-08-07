@@ -7,7 +7,7 @@
  * section — the theme feature owns its own settings surface.
  */
 import type { Context } from 'cordis'
-import { deferRegistration, type BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
+import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
@@ -254,16 +254,12 @@ export function apply(ctx: ClientContext): void {
       setTheme: (id) => { theme.setTheme(id) },
     }
   }
-  ctx.effect(() => {
-    const deferred = deferRegistration(ctx.slots, 'settings.general.item', AppearanceRow, () =>
-      ctx.slots.register({
-        name: 'settings.general.item',
-        id: 'appearance',
-        order: 10,
-        store,
-        locale: SETTINGS_NS,
-        inject: injected,
-      }, AppearanceRow))
-    return () => { deferred.dispose() }
-  }, 'ui-theme: appearance settings row registration')
+  ctx.slots.inject('settings.general.item', () => ctx.slots.register({
+    name: 'settings.general.item',
+    id: 'appearance',
+    order: 10,
+    store,
+    locale: SETTINGS_NS,
+    inject: injected,
+  }, AppearanceRow))
 }

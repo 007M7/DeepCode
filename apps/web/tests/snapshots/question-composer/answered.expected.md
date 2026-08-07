@@ -10,10 +10,10 @@
 - button "Branch into a new conversation" [disabled]:
   - img
 - text: Available only on the last message of a completed turn
-- button "Context injection":
+- button "Context injection @deepseek-ai/dsh-system-prompt":
   - img
   - img
-  - text: Context injection
+  - text: Context injection @deepseek-ai/dsh-system-prompt
 - button "Think The user wants me to use the ask_user_question tool with specific parameters. Let me do exactly that.":
   - img
   - img
@@ -31,7 +31,7 @@
   - img
 - button "Branch into a new conversation":
   - img
-- text: {{clock}}Ran for {{duration}}
+- text: {{clock}} Ran for {{duration}} TTFT {{duration}} {{throughput}} tok/s
 - textbox "Message the agent"
 - button "Commands":
   - img
@@ -39,5 +39,6 @@
 - button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img
+- button "3% of context used"
 - button "Send message" [disabled]
-- text: 1 turns · 2 steps Tool call {{duration}} Context 3% of 128K Cache hit 95% Input 8.6K tok · Output 180 tok
+- text: 1 turns · 2 steps LLM {{duration}} · Tool call {{duration}} TTFT avg {{duration}} · {{throughput}} tok/s Cache hit 95% Input 8.6K tok · Output 180 tok

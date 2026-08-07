@@ -202,9 +202,7 @@ export class PlanModeService extends Service {
     // the session. A failed append remains pending for a later boundary, and
     // policy cannot block the step.
     ctx.on('agent/pre-step', async (
-      agent,
-      _messages,
-      { signal },
+      { agent, signal },
       next,
     ): Promise<PreStepDecision> => {
       const decision = await next()
@@ -464,7 +462,8 @@ export class PlanModeService extends Service {
       : 'The user switched this session back to the default mode.'
     return createUserMessage({
       content: [{ type: 'text', text }],
-      source: { kind: 'plugin', plugin: 'plan-mode' },
+      // The narration is already one sentence, so it is its own summary.
+      source: { kind: 'plugin', plugin: 'plan-mode', form: 'notice', summary: text },
     })
   }
 }

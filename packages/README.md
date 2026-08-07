@@ -31,9 +31,10 @@ Packages live at `packages/<group>/<pkg>/`; groups are containers, while names r
 | [`spill/`](spill/README.md) | Spill capability family: storage seam, local impl, tool-result spill policy | Product — stable surface |
 | [`todo/`](todo/README.md) | The model-facing `todo_write` tool | Product — stable surface |
 | [`plan/`](plan/README.md) | Plan collaboration state with a direct entry command and reviewed exit | Product — stable surface |
-| [`timeout/`](timeout/README.md) | Tool-call timeout policy: the `tools/execute` deadline enforcer | Product — stable surface |
-| [`guard/`](guard/README.md) | Loop-hygiene guards: advisory repeat-call reminders | Product — stable surface |
-| [`cordis/`](cordis/README.md) | Cordis runtime integration: self-inspection/model-written temporary Plugins and restricted repository Plugin loading | Product — stable surface |
+| [`timeout/`](timeout/README.md) | Tool-call `tools/execute` deadline enforcement | Product — stable surface |
+| [`guard/`](guard/README.md) | Loop-hygiene advisory repeat-call reminders | Product — stable surface |
+| [`bundle/`](bundle/README.md) | Installable `dsh --profile` patch layers | Product — stable surface |
+| [`cordis/`](cordis/README.md) | Cordis runtime integration: self-inspection, temporary Plugins, restricted repository Plugin loading | Product — stable surface |
 | [`hooks/`](hooks/README.md) | Hook bridges + the shared Claude Code / Codex wire-protocol library | Product — stable surface |
 | [`session-persistence/`](session-persistence/README.md) | Persistence seam + JSONL/SQLite backends | Product — stable surface |
 | [`session-projection/`](session-projection/README.md) | Projection seam: domain fold units serve whole values | Product — stable surface |

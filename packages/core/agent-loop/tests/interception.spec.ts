@@ -41,7 +41,7 @@ async function harness(adapter: MockAdapter) {
 
 function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
-    const dispose = ctx.on('agent/status', (subject, status) => {
+    const dispose = ctx.on('agent/status', ({ agent: subject, status }) => {
       if (subject === agent && status === 'idle') {
         dispose()
         resolve()
@@ -65,7 +65,7 @@ describe('agent/pre-step', () => {
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     const seen: string[] = []
-    ctx.on('agent/pre-step', async (_agent, messages, _signal, next) => {
+    ctx.on('agent/pre-step', async ({ messages }, next) => {
       seen.push(messages[0]!.content.map(b => (b.type === 'text' ? b.text : '')).join(''))
       return next()
     })
@@ -92,8 +92,8 @@ describe('agent/pre-step', () => {
     }))
     const agent = ctx.agentLoop.create(SessionId('prompt-coordinates'), { provider: 'mock', model: 'mock' })
     const seen: Array<{ turn: number; step: number; messages: number }> = []
-    ctx.on('agent/pre-step', async (_agent, messages, context, next) => {
-      seen.push({ turn: context.turn, step: context.step, messages: messages.length })
+    ctx.on('agent/pre-step', async ({ messages, turn, step }, next) => {
+      seen.push({ turn, step, messages: messages.length })
       return next()
     })
 
@@ -113,7 +113,7 @@ describe('agent/pre-step', () => {
     const entered = Promise.withResolvers<undefined>()
     const decision = Promise.withResolvers<PreStepDecision>()
     const observed: UserMessage[] = []
-    ctx.on('agent/pre-step', async (subject, messages) => {
+    ctx.on('agent/pre-step', async ({ agent: subject, messages }) => {
       if (subject !== agent) return { kind: 'enter', messages }
       const message = messages[0]!
       expect(Object.isFrozen(message)).toBe(true)
@@ -161,7 +161,7 @@ describe('agent/pre-step', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    ctx.on('agent/pre-step', async (_agent, messages): Promise<PreStepDecision> =>
+    ctx.on('agent/pre-step', async ({ messages }): Promise<PreStepDecision> =>
       ({
         kind: 'enter',
         messages: [{ ...messages[0]!, content: [{ type: 'text', text: 'REWRITTEN' }] }],
@@ -182,7 +182,7 @@ describe('agent/pre-step', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    ctx.on('agent/pre-step', async (_agent, messages): Promise<PreStepDecision> =>
+    ctx.on('agent/pre-step', async ({ messages }): Promise<PreStepDecision> =>
       ({
         kind: 'enter',
         messages: [...messages, createUserMessage({
@@ -211,15 +211,15 @@ describe('agent/pre-step', () => {
       provider: 'mock',
       model: 'mock',
     })
-    ctx.on('agent/turn-stopping', (subject) => {
+    ctx.on('agent/turn-stopping', ({ agent: subject }) => {
       subject.inject(createUserMessage({
         content: [{ type: 'text', text: 'pending context' }],
         source: { kind: 'plugin', plugin: 'test' },
       }))
     })
-    ctx.on('agent/pre-step', async (_subject, _messages, context, next) => {
+    ctx.on('agent/pre-step', async ({ step }, next) => {
       const decision = await next()
-      return context.step === 1 || decision.kind === 'reject'
+      return step === 1 || decision.kind === 'reject'
         ? decision
         : { kind: 'enter', messages: [] }
     })
@@ -262,7 +262,7 @@ describe('agent/pre-step', () => {
     const decision = Promise.withResolvers<PreStepDecision>()
     let claimed: UserMessage[] = []
     let firstProposal = true
-    ctx.on('agent/pre-step', async (_agent, messages) => {
+    ctx.on('agent/pre-step', async ({ messages }) => {
       if (!firstProposal) return { kind: 'enter', messages }
       firstProposal = false
       claimed = messages
@@ -372,14 +372,14 @@ describe('agent/pre-step', () => {
       provider: 'mock',
       model: 'mock',
     })
-    ctx.on('agent/pre-step', async (_agent, messages, _signal, next) => {
+    ctx.on('agent/pre-step', async ({ messages }, next) => {
       const decision = await next()
       return messages.some(message =>
         message.content.some(block => block.type === 'text' && block.text === 'blocked prompt'))
         ? { kind: 'reject' as const }
         : decision
     })
-    ctx.on('agent/pre-step', async (subject, messages, _signal, next) => {
+    ctx.on('agent/pre-step', async ({ agent: subject, messages }, next) => {
       if (messages.some(message =>
         message.content.some(block => block.type === 'text' && block.text === 'blocked prompt'))) {
         subject.inject(createUserMessage({
@@ -482,7 +482,7 @@ describe('agent/pre-step', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    ctx.on('agent/pre-step', async (_agent, messages, _signal, next): Promise<PreStepDecision> => {
+    ctx.on('agent/pre-step', async ({ messages }, next): Promise<PreStepDecision> => {
       const text = messages.flatMap(message => message.content)
         .map(b => (b.type === 'text' ? b.text : '')).join('')
       return text === 'secret'
@@ -519,17 +519,17 @@ describe('agent/pre-step', () => {
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     let threw = false
-    ctx.on('agent/pre-step', async (_agent, messages) => {
+    ctx.on('agent/pre-step', async ({ messages }) => {
       if (!threw) { threw = true; throw new Error('prompt hook broke') }
       return { kind: 'enter' as const, messages }
     })
     const errors: Error[] = []
     const reasons: TurnEndReason[] = []
     const statuses: string[] = []
-    ctx.on('agent/error', (_a, _t, _s, error) => {
+    ctx.on('agent/error', ({ error }) => {
       if (error instanceof Error) errors.push(error)
     })
-    ctx.on('agent/status', (subject, status) => { if (subject === agent) statuses.push(status) })
+    ctx.on('agent/status', ({ agent: subject, status }) => { if (subject === agent) statuses.push(status) })
     ctx.on('session/event', (session, event) => {
       if (session === agent.session && event.type === 'turn/end') reasons.push(event.data.reason)
     })
@@ -559,7 +559,7 @@ describe('agent/session-start', () => {
     const ctx = await harness(adapter)
 
     const sources: SessionStartSource[] = []
-    ctx.on('agent/session-start', (_agent, source) => void sources.push(source))
+    ctx.on('agent/session-start', ({ source }) => void sources.push(source))
 
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     // fires synchronously at create, before any turn
@@ -576,7 +576,7 @@ describe('agent/session-start', () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
 
-    ctx.on('agent/session-start', (agent) => {
+    ctx.on('agent/session-start', ({ agent }) => {
       agent.inject(createUserMessage({ content: [{ type: 'text', text: 'session preamble' }], source: { kind: 'plugin', plugin: 'test' } }))
     })
 
@@ -724,11 +724,11 @@ describe('worked example: a native hook plugin is just a cordis plugin on the se
     name: 'native-guard',
     apply(ctx: Context) {
       // 1. SessionStart: seed a standing instruction.
-      ctx.on('agent/session-start', (agent, source) => {
+      ctx.on('agent/session-start', ({ agent, source }) => {
         agent.inject(createUserMessage({ content: [{ type: 'text', text: `policy active (started: ${source})` }], source: { kind: 'plugin', plugin: 'native-guard' } }))
       })
       // 2. PreStep: reject a forbidden prompt, annotate the rest.
-      ctx.on('agent/pre-step', async (_agent, messages, _signal, next): Promise<PreStepDecision> => {
+      ctx.on('agent/pre-step', async ({ messages }, next): Promise<PreStepDecision> => {
         const text = messages.flatMap(message => message.content)
           .map(b => (b.type === 'text' ? b.text : '')).join('')
         if (text.includes('rm -rf')) {

@@ -111,9 +111,11 @@ describe('TodoDock', () => {
 
   it('registers before the goal and queue entries', () => {
     expect(todoDockEntry.name).toBe('conversation-todo-dock')
-    expect(todoDockEntry.inject).toEqual(['slots', 'conversation'])
-    const register = vi.fn()
-    todoDockEntry.apply({ slots: { register } } as never)
+    expect(todoDockEntry.inject).toEqual(['slots'])
+    const register = vi.fn(() => () => undefined)
+    const inject = vi.fn((_name: string, callback: () => () => void) => callback())
+    todoDockEntry.apply({ slots: { inject, register } } as never)
+    expect(inject).toHaveBeenCalledWith('conversation.input.dock', expect.any(Function))
     expect(register).toHaveBeenCalledWith({ name: 'conversation.input.dock', id: 'todo', order: 0, locale: NS }, TodoDock)
   })
 })
@@ -196,11 +198,13 @@ describe('TodoRow', () => {
     expect(screen.getByText('todo_write · c1')).toBeTruthy()
   })
 
-  it('todoToolview is a plain registrant riding the conversation load-order seam', () => {
+  it('todoToolview injects the toolview declaration directly', () => {
     expect(todoToolview.name).toBe('todo-toolview')
-    expect(todoToolview.inject).toEqual(['slots', 'conversation'])
-    const register = vi.fn()
-    todoToolview.apply({ slots: { register } } as never)
+    expect(todoToolview.inject).toEqual(['slots'])
+    const register = vi.fn(() => () => undefined)
+    const inject = vi.fn((_name: string, callback: () => () => void) => callback())
+    todoToolview.apply({ slots: { inject, register } } as never)
+    expect(inject).toHaveBeenCalledWith('conversation.chat.toolview', expect.any(Function))
     expect(register).toHaveBeenCalledWith({ name: 'conversation.chat.toolview', key: 'todo_write', locale: NS }, TodoRow)
   })
 })

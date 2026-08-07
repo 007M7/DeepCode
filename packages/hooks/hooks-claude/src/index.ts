@@ -203,7 +203,7 @@ export function apply(ctx: Context, config: Config): void {
   // SessionStart injects context when its detached hook resolves; a slow hook
   // may miss the first request.
   // TODO(session-start-gating): add a startup gate before promising first-turn delivery.
-  ctx.on('agent/session-start', (agent, source) => {
+  ctx.on('agent/session-start', ({ agent, source }) => {
     detached.track(runPoint('SessionStart', source, sessionStartPayload(ctx, agent, source), { agent, signal: detached.signal })
       .then((merged) => {
         const context = contextFrom(merged)
@@ -216,7 +216,7 @@ export function apply(ctx: Context, config: Config): void {
 
   // --- UserPromptSubmit → PreStepDecision. The prompt text is the payload; no
   // matcher subject (CC ignores matchers for this event). ---
-  ctx.on('agent/pre-step', async (agent, messages, { turn, signal }, next): Promise<PreStepDecision> => {
+  ctx.on('agent/pre-step', async ({ agent, messages, turn, signal }, next): Promise<PreStepDecision> => {
     if (messages.length === 0) return next()
     const content = messages.flatMap(message => message.content)
     const merged = await runPoint('UserPromptSubmit', '', promptPayload(ctx, agent, content), { agent, turn, signal })
@@ -267,7 +267,7 @@ export function apply(ctx: Context, config: Config): void {
   // A blocking Stop hook steers at the stopping boundary, which makes the
   // machine observe pending input and run another step.
   // TODO(stop-loop-guard): cap consecutive forced continuations; hooks must self-limit meanwhile.
-  ctx.on('agent/turn-stopping', async (agent, turn, signal): Promise<void> => {
+  ctx.on('agent/turn-stopping', async ({ agent, turn, signal }): Promise<void> => {
     const merged = await runPoint('Stop', '', stopPayload(ctx, agent), { agent, turn, signal })
     if (merged.decision === 'deny') {
       // A blocking Stop hook forces continuation.

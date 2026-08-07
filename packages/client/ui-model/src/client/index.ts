@@ -148,12 +148,10 @@ export function apply(ctx: ClientContext): void {
   })
 
   // Entry 2: the composer's named model seat over the SAME directory.
-  // Conditional mount: the seat is declared by the composer-bar entry; the
-  // conversation service's presence is the registration-safe signal.
-  ctx.inject(['slots', 'conversation', 'models'], (scope: ClientContext) => {
+  ctx.inject(['slots', 'models'], (scope: ClientContext) => {
     const models = scope.models
     const sessions = scope.sessions
-    scope.effect(() => scope.slots.register({
+    scope.slots.inject('conversation.input.model', () => scope.slots.register({
       name: 'conversation.input.model',
       locale: NS,
       inject: (sessionId): ModelSelectInjected => {
@@ -170,6 +168,6 @@ export function apply(ctx: ClientContext): void {
             : Promise.resolve(false),
         }
       },
-    }, ModelSelect), 'ui-model: composer model seat registration')
+    }, ModelSelect))
   })
 }

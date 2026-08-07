@@ -30,6 +30,10 @@ export interface AssistantMarkdownProps {
   /** Turn wall time in ms for the IconActions run-time label; omitted when the
    *  turn's triggering input is outside the loaded window. */
   runMs?: number | undefined
+  /** Turn first-step TTFT in ms for the IconActions label; omitted when unrecorded. */
+  ttftMs?: number | undefined
+  /** Turn decode throughput for the IconActions label; omitted when unrecorded. */
+  tokensPerSecond?: number | undefined
   /** Event sequence used as the fork boundary; omitted while streaming. */
   seq?: number | undefined
   /** Fork the session through this finalized message's completed turn when eligible. */
@@ -82,7 +86,7 @@ function ThinkRow({ text, running, t }: { text: string; running: boolean; t: Ass
 }
 
 export const AssistantMarkdown = memo(function AssistantMarkdown({
-  blocks, streaming, interrupted, time, runMs, seq, onFork, forkUnavailable, t,
+  blocks, streaming, interrupted, time, runMs, ttftMs, tokensPerSecond, seq, onFork, forkUnavailable, t,
 }: AssistantMarkdownProps) {
   // Stable per locale revision (t identity changes on switch): a fresh object
   // per render would rebuild MarkdownText's component table every chunk.
@@ -125,6 +129,8 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
           text={copyText(blocks)}
           time={time}
           runMs={runMs}
+          ttftMs={ttftMs}
+          tokensPerSecond={tokensPerSecond}
           clock="end"
           onBranch={onFork === undefined || seq === undefined ? undefined : () => { onFork(seq) }}
           branchUnavailable={forkUnavailable}

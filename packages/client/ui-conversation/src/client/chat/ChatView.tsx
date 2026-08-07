@@ -36,6 +36,7 @@ import { GenericCommandCard } from './GenericCommandCard.tsx'
 import { GenericToolCard } from './GenericToolCard.tsx'
 import { MessageItem, PendingSteeringBubble } from './MessageItem.tsx'
 import { formatRunDuration } from './message-chrome.ts'
+import { deriveTurnMetrics } from './turn-metrics.ts'
 import css from './ChatView.module.css'
 
 const FOLLOW_THRESHOLD = 24
@@ -362,6 +363,7 @@ export function ChatView({
   const actionSeqs = useMemo(() => assistantActionsSeqs(nodes), [nodes])
   const branchSeqs = useMemo(() => messageBranchSeqs(nodes, turnEnds), [nodes, turnEnds])
   const runningTurnStart = useMemo(() => runningTurnStartTime(turnTimings), [turnTimings])
+  const turnMetrics = useMemo(() => deriveTurnMetrics(nodes), [nodes])
 
   const listRef = useRef<HTMLDivElement | null>(null)
   const columnRef = useRef<HTMLDivElement | null>(null)
@@ -599,6 +601,9 @@ export function ChatView({
     const node: ConversationNode = item.node
     if (node.kind === 'assistant') {
       const timing = actionSeqs.has(node.seq) ? turnTimings.get(node.turn) : undefined
+      // Metrics gate on the settled in-window timing: turn/start loaded means
+      // every step of the turn is loaded, so first-step TTFT is genuine.
+      const metrics = timing?.endTime === undefined ? undefined : turnMetrics.get(node.turn)
       return (
         <AssistantMarkdown
           blocks={node.blocks}
@@ -608,6 +613,8 @@ export function ChatView({
           runMs={timing?.endTime === undefined
             ? undefined
             : Math.max(0, timing.endTime - timing.startTime)}
+          ttftMs={metrics?.ttftMs}
+          tokensPerSecond={metrics?.tokensPerSecond}
           seq={node.seq}
           onFork={forkAt}
           forkUnavailable={!branchSeqs.has(node.seq)}

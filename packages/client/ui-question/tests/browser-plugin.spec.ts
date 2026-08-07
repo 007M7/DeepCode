@@ -2,7 +2,7 @@
  * apply wiring on a real cordis Context + SlotsService: QuestionComposer
  * registered as the `question` entry of the conversation-declared composer
  * slot with ZERO business face (data and verbs ride the dispatched carrier),
- * load-order fail-loud, and fiber-teardown unregistration. Component and
+ * declaration-aware activation, and fiber-teardown unregistration. Component and
  * domain-face behavior is covered props-direct in question-composer.spec.tsx;
  * no renderer machinery here.
  */
@@ -22,27 +22,28 @@ async function bench() {
     { name: 'root', children: { 'conversation.composer': { kind: 'chain', scope: 'session' } } } as never,
     () => null,
   )
-  // 'conversation' inject is an ordering edge (the declaring plugin provides
-  // it after declaring the chain); the bench declares the chain itself.
-  ctx.provide('conversation', {})
   ctx.provide('locale', new LocaleService(ctx))
   return { ctx, slots }
 }
 
 describe('apply', () => {
   it('declares the services it binds', () => {
-    expect(inject).toEqual(['slots', 'conversation', 'locale'])
+    expect(inject).toEqual(['slots', 'locale'])
   })
 
-  it('fails loud when no live entry has declared the composer slot', async () => {
+  it('waits until a live entry declares the composer slot', async () => {
     const ctx = new Context()
     await ctx.plugin(SlotsService).await()
-    // Satisfy the ordering inject without declaring the chain: apply must
-    // then hit the undeclared-slot throw, not sit waiting on the service.
-    ctx.provide('conversation', {})
     ctx.provide('locale', new LocaleService(ctx))
-    await expect(ctx.plugin({ inject: [...inject], apply }))
-      .rejects.toThrow(/slot "conversation.composer" is not declared/)
+    const fiber = ctx.plugin({ inject: [...inject], apply })
+    await fiber.await()
+    expect(ctx.slots.entries('conversation.composer')).toHaveLength(0)
+    ctx.slots.register(
+      { name: 'root', children: { 'conversation.composer': { kind: 'chain', scope: 'session' } } } as never,
+      () => null,
+    )
+    await Promise.resolve()
+    expect(ctx.slots.entries('conversation.composer')).toHaveLength(1)
   })
 
   it('registers the question entry: routing selector, no inject face', async () => {

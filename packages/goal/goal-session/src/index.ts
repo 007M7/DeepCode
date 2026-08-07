@@ -243,20 +243,20 @@ export function apply(ctx: Context): void {
   // One composite effect keeps the step fence installed until this
   // plugin's own scheduling tasks settle.
   ctx.effect(function* () {
-    ctx.on('agent/error', (agent) => {
+    ctx.on('agent/error', ({ agent }) => {
       const state = stateFor(agent)
       disarm(state)
     })
 
-    ctx.on('agent/created', (agent) => { stateFor(agent) })
-    ctx.on('agent/disposed', (agent) => { states.delete(agent) })
-    ctx.on('agent/session-start', (agent) => {
+    ctx.on('agent/created', ({ agent }) => { stateFor(agent) })
+    ctx.on('agent/disposed', ({ agent }) => { states.delete(agent) })
+    ctx.on('agent/session-start', ({ agent }) => {
       const state = stateFor(agent)
       state.attempt = undefined
       state.competingQueued = false
       state.needsCheckpoint = false
     })
-    ctx.on('agent/status', (agent, status) => {
+    ctx.on('agent/status', ({ agent, status }) => {
       const state = stateFor(agent)
       if (status === 'idle') {
         state.competingQueued = false
@@ -275,13 +275,13 @@ export function apply(ctx: Context): void {
         requestDrive(state)
       }
     })
-    ctx.on('goal/changed', (agent) => {
+    ctx.on('goal/changed', ({ agent }) => {
       const state = stateFor(agent)
       state.needsCheckpoint = true
       requestDrive(state)
     })
 
-    ctx.on('agent/inbox/inserted', (agent, { message }) => {
+    ctx.on('agent/inbox/inserted', ({ agent, message }) => {
       if (!agent.inbox.nextTurn.some(candidate => candidate.id === message.id)) return
       const state = stateFor(agent)
       const attempt = state.attempt
@@ -289,14 +289,14 @@ export function apply(ctx: Context): void {
       state.competingQueued = true
       if (attempt?.phase === 'queued') attempt.stale = true
     })
-    ctx.on('agent/inbox/claimed', (agent, { message }) => {
+    ctx.on('agent/inbox/claimed', ({ agent, message }) => {
       const state = stateFor(agent)
       const attempt = state.attempt
       if (attempt !== undefined && sameQueued(message.content, message.source, attempt)) {
         attempt.phase = 'claimed'
       }
     })
-    ctx.on('agent/inbox/discarded', (agent, { message }) => {
+    ctx.on('agent/inbox/discarded', ({ agent, message }) => {
       const state = stateFor(agent)
       const attempt = state.attempt
       if (attempt !== undefined && sameQueued(message.content, message.source, attempt)) {
@@ -346,7 +346,7 @@ export function apply(ctx: Context): void {
       && source.round === goal.roundsStarted + 1
     }
 
-    ctx.on('agent/pre-step', async (agent, messages, { signal }, next): Promise<PreStepDecision> => {
+    ctx.on('agent/pre-step', async ({ agent, messages, signal }, next): Promise<PreStepDecision> => {
       const submitted = messages.find((message): message is UserMessage & { source: GoalMessageSource } =>
         isGoalRoundSource(message.source))
       if (submitted === undefined) return next()

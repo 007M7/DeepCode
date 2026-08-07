@@ -4,6 +4,7 @@
  */
 
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import type { ContextSnapshotSection } from '@deepseek-ai/dsh-llm'
 import type { Session, UserMessage } from '@deepseek-ai/dsh-session'
 import { isReplacementSurfaceEvent } from '@deepseek-ai/dsh-session'
 import type { Context } from 'cordis'
@@ -57,15 +58,19 @@ export class RuntimeContextProjection {
   /**
    * Create an uncommitted snapshot only when the retained value differs.
    * @param current - fully rendered dynamic context.
+   * @param sections - named contributions that formed the current snapshot.
    * @returns a candidate user message, or `undefined` when no update is needed.
    */
-  project(current: string): UserMessage | undefined {
+  project(current: string, sections: readonly ContextSnapshotSection[]): UserMessage | undefined {
     if (this.retained === undefined && current.length === 0) return
     const snapshot = current.length === 0 ? CLEARED : current
     if (this.retained?.text === snapshot) return
     return createUserMessage({
       content: [{ type: 'text', text: snapshot }],
-      source: { kind: 'plugin', plugin: SOURCE },
+      // The cleared marker has no contributions left to attribute.
+      source: sections.length === 0
+        ? { kind: 'plugin', plugin: SOURCE }
+        : { kind: 'plugin', plugin: SOURCE, form: 'snapshot', sections },
     })
   }
 }

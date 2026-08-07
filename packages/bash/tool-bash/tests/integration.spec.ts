@@ -48,7 +48,7 @@ afterEach(() => {
 
 function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
-    const dispose = ctx.on('agent/status', (subject, status) => {
+    const dispose = ctx.on('agent/status', ({ agent: subject, status }) => {
       if (subject === agent && status === 'idle') {
         dispose()
         resolve()
@@ -202,7 +202,12 @@ describe('bash tool through the agent loop', () => {
     expect(pendingNotice.content.some(
       block => block.type === 'text' && block.text.includes('background task bash-1 (bash: echo bg-ok) finished'),
     )).toBe(true)
-    expect(pendingNotice.source).toEqual({ kind: 'plugin', plugin: 'tool-tasks' })
+    expect(pendingNotice.source).toEqual({
+      kind: 'plugin',
+      plugin: 'tool-tasks',
+      form: 'notice',
+      summary: 'bash echo bg-ok [status: completed, exit code: 0]',
+    })
 
     // The next turn first admits that notice as user/message, then collects
     // the output through the generic task tool.

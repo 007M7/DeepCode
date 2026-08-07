@@ -8,6 +8,7 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn'
 import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
@@ -27,6 +28,7 @@ async function setup(script: ConstructorParameters<typeof MockAdapter>[0]) {
   roots.push(root)
   await ctx.plugin(JsonlSessionPersistence, { root })
   await ctx.plugin(AgentLoop, { agents: [] })
+  await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(SubagentService)
   await ctx.plugin(SubagentSpawn, { providerName: 'spawn' })
   await ctx.plugin(tool)
@@ -102,6 +104,7 @@ describe('dsh-tool-subagent-control', () => {
     // Durable provenance records the calling agent without granting authority.
     expect(followUp?.type === 'user/message' && followUp.data.source).toEqual({
       kind: 'coordinator',
+      form: 'relay',
       senderSessionId: parent.id,
     })
   })

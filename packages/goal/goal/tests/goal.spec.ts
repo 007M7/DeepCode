@@ -83,7 +83,7 @@ describe('GoalService creation and replay', () => {
     vi.setSystemTime(1_700_000_000_000)
     const { ctx, agent, session } = await harness({ defaultMaxGoalRounds: 17 })
     const seen: string[] = []
-    ctx.on('goal/changed', (_subject, change) => { seen.push(change.operation) })
+    ctx.on('goal/changed', ({ change }) => { seen.push(change.operation) })
 
     const goal = ctx.goals.create(agent, { objective: '  finish the feature  ' })
 
@@ -191,7 +191,7 @@ describe('GoalService creation and replay', () => {
     const { ctx, agent, session } = await harness()
     let goal = ctx.goals.create(agent, { objective: 'stay stopped after resume' })
     expect(goal.activation).toBe('armed')
-    agentEvents(ctx, agent).emit('agent/session-start', 'resume')
+    agentEvents(ctx, agent).emit('agent/session-start', { source: 'resume' })
     expect(ctx.goals.get(agent)?.activation).toBe('disarmed')
     goal = ctx.goals.resume(agent, goal)
     expect(goal).toMatchObject({ phase: 'active', activation: 'armed', revision: 2 })
@@ -223,7 +223,7 @@ describe('GoalService creation and replay', () => {
 
     await fiber.dispose()
     expect(ctx.get('goals')).toBeUndefined()
-    agentEvents(ctx, stub.agent).emit('agent/session-start', 'resume')
+    agentEvents(ctx, stub.agent).emit('agent/session-start', { source: 'resume' })
     expect(first.get(stub.agent)).toMatchObject({ id: goal.id, activation: 'armed' })
 
     await ctx.plugin(GoalService)
@@ -384,7 +384,7 @@ describe('GoalService mutations', () => {
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
     const seen: string[] = []
     ctx.on('goal/changed', () => { throw new Error('broken observer') })
-    ctx.on('goal/changed', (_subject, change) => { seen.push(change.operation) })
+    ctx.on('goal/changed', ({ change }) => { seen.push(change.operation) })
     expect(ctx.goals.create(agent, { objective: 'notify' }).phase).toBe('active')
     expect(seen).toEqual(['create'])
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('broken observer'))

@@ -170,6 +170,32 @@ describe('configurable-provider directory', () => {
     expect(ctx.llm.listConfigurableProviders()).toEqual([])
   })
 
+  it('replaces its entries atomically, keeping the old set when a candidate collides', async () => {
+    const ctx = await setup()
+    const handle = ctx.llm.registerConfigurableProviders([entry(), entry({ provider: 'second' })])
+    ctx.llm.registerConfigurableProviders([entry({ provider: 'owned-elsewhere' })])
+
+    // A candidate another registration already declares refuses the whole swap.
+    expect(() =>{  handle.replace([entry({ provider: 'owned-elsewhere' })]) }).toThrow(/already declared/)
+    expect(ctx.llm.listConfigurableProviders().map(view => view.provider).sort())
+      .toEqual(['owned-elsewhere', 'second', entry().provider].sort())
+
+    // Its own entries are not "already declared" against itself, so a swap that
+    // keeps one and drops another lands whole.
+    handle.replace([entry({ displayName: 'Renamed' })])
+    expect(ctx.llm.listConfigurableProviders().map(view => view.provider).sort())
+      .toEqual(['owned-elsewhere', entry().provider].sort())
+    expect(ctx.llm.listConfigurableProviders().find(view => view.provider === entry().provider)?.displayName)
+      .toBe('Renamed')
+
+    // An empty replace is legal, unlike an empty initial registration.
+    handle.replace([])
+    expect(ctx.llm.listConfigurableProviders().map(view => view.provider)).toEqual(['owned-elsewhere'])
+
+    handle()
+    expect(() =>{  handle.replace([entry()]) }).toThrow(/was disposed/)
+  })
+
   it('rejects duplicates within one registration and across registrations', async () => {
     const ctx = await setup()
     expect(() => ctx.llm.registerConfigurableProviders([entry(), entry()])).toThrow(/already declared/)
@@ -177,5 +203,66 @@ describe('configurable-provider directory', () => {
     expect(() => ctx.llm.registerConfigurableProviders([entry({ displayName: 'Other' }), entry({ provider: 'unseen' })]))
       .toThrow(/already declared/)
     expect(ctx.llm.listConfigurableProviders()).toHaveLength(1)
+  })
+})
+
+describe('model discovery registry', () => {
+  it('offers one interrogation per settings namespace and disposes with its fiber', async () => {
+    const ctx = await setup()
+    const discover = vi.fn(() => Promise.resolve([{ id: 'from-endpoint' }]))
+
+    const dispose = ctx.llm.registerModelDiscovery('llm-example', discover)
+    await expect(ctx.llm.discoverModels('llm-example', { baseURL: 'https://gateway.example/v1' }))
+      .resolves.toEqual([{ id: 'from-endpoint' }])
+    expect(discover).toHaveBeenCalledWith({ baseURL: 'https://gateway.example/v1' })
+
+    // Disposal is observed through the offer itself, which is the only thing
+    // the registration ever produced.
+    dispose()
+    await expect(ctx.llm.discoverModels('llm-example', { baseURL: 'https://gateway.example/v1' }))
+      .rejects.toThrow(/no model discovery is registered/)
+  })
+
+  it('rejects an unnamed namespace and a second registration of the same one', async () => {
+    const ctx = await setup()
+    const discover = (): Promise<never[]> => Promise.resolve([])
+
+    expect(() => ctx.llm.registerModelDiscovery('', discover)).toThrow(/non-empty settings namespace/)
+    ctx.llm.registerModelDiscovery('llm-example', discover)
+    expect(() => ctx.llm.registerModelDiscovery('llm-example', discover)).toThrow(/already registered/)
+    // The refused second registration left the first one serving.
+    await expect(ctx.llm.discoverModels('llm-example', { baseURL: 'https://gateway.example/v1' }))
+      .resolves.toEqual([])
+  })
+
+  it('normalizes what an interrogation returns without inventing capacities', async () => {
+    const ctx = await setup()
+    ctx.llm.registerModelDiscovery('llm-example', () => Promise.resolve([
+      { id: 'keep', name: 'Keep', contextWindow: 1024, maxTokens: 256 },
+      { id: '' },
+      { id: 'keep' },
+      { id: 'bare' },
+    ] as never))
+
+    expect(await ctx.llm.discoverModels('llm-example', { baseURL: 'https://gateway.example/v1' })).toEqual([
+      { id: 'keep', name: 'Keep', contextWindow: 1024, maxTokens: 256 },
+      { id: 'bare' },
+    ])
+  })
+
+  it('refuses a namespace nothing serves and a draft with no endpoint', async () => {
+    const ctx = await setup()
+    ctx.llm.registerModelDiscovery('llm-example', () => Promise.resolve([]))
+
+    await expect(ctx.llm.discoverModels('llm-absent', { baseURL: 'https://gateway.example/v1' }))
+      .rejects.toMatchObject({ code: 'NO_DISCOVERY' })
+    await expect(ctx.llm.discoverModels('llm-example', { baseURL: '' }))
+      .rejects.toMatchObject({ code: 'INVALID_DISCOVERY' })
+    await expect(ctx.llm.discoverModels('llm-example', { provider: '', baseURL: '' }))
+      .rejects.toMatchObject({ code: 'INVALID_DISCOVERY' })
+    await expect(ctx.llm.discoverModels('llm-example', {}))
+      .rejects.toMatchObject({ code: 'INVALID_DISCOVERY' })
+    // Naming a route alone is enough: the adapter may know it without an endpoint.
+    await expect(ctx.llm.discoverModels('llm-example', { provider: 'known-route' })).resolves.toEqual([])
   })
 })

@@ -460,7 +460,12 @@ describe('completion notices', () => {
       id: expect.any(String) as unknown,
       role: 'user',
       content: [{ type: 'text', text: 'background task bash-1 (bash: pnpm test) finished [status: completed, exit code: 0]. Read its output with task_output.' }],
-      source: { kind: 'plugin', plugin: 'tool-tasks' },
+      source: {
+        kind: 'plugin',
+        plugin: 'tool-tasks',
+        form: 'notice',
+        summary: 'bash pnpm test [status: completed, exit code: 0]',
+      },
     })
   })
 
@@ -484,7 +489,14 @@ describe('completion notices', () => {
         id: expect.any(String) as unknown,
         role: 'user',
         content: [{ type: 'text', text: 'background task subagent-1\n[notice truncated]\nDone; task_output.' }],
-        source: { kind: 'plugin', plugin: 'tool-tasks' },
+        // The label and status detail are unbounded caller text, so the durable
+        // one-line account caps itself rather than committing their full length.
+        source: {
+          kind: 'plugin',
+          plugin: 'tool-tasks',
+          form: 'notice',
+          summary: `subagent ${'x'.repeat(110)}…`,
+        },
       },
     )
 

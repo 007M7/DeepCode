@@ -166,19 +166,18 @@ export function BashRow({ toolName, block, sessionId, useSessions, inspect, t }:
 }
 
 /**
- * The sample as a plain registrant plugin. `inject` carries the load-order
- * seam: requiring the conversation service guarantees the chat entry (and
- * with it the 'conversation.chat.toolview' declaration) is registered —
- * ui-conversation's apply mounts the service after the chat entry.
+ * The sample as a plain registrant plugin. Slot injection follows the chat
+ * toolview declaration across independent activation and reload lifetimes.
  */
 export const bashToolviewSample = {
   name: 'bash-toolview-sample',
-  inject: ['slots', 'conversation'],
+  inject: ['slots'],
   /**
    * Register the bash row into the chat view's keyed toolview hole.
    * @param ctx - registrant context (disposal rides ctx.effect inside slots.register).
    */
   apply(ctx: Context): void {
-    ctx.slots.register({ name: 'conversation.chat.toolview', key: 'bash', locale: NS }, BashRow)
+    ctx.slots.inject('conversation.chat.toolview', () =>
+      ctx.slots.register({ name: 'conversation.chat.toolview', key: 'bash', locale: NS }, BashRow))
   },
 }

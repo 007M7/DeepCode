@@ -72,7 +72,7 @@ export class HarnessSdkServer {
       const payload: SessionEventNotification = { sessionId: String(session.id), event }
       this.transport.notify('session.event', payload)
     }))
-    this.disposers.push(ctx.on('agent/status', (agent, status) => {
+    this.disposers.push(ctx.on('agent/status', ({ agent, status }) => {
       this.transport.notify('session.status', { sessionId: String(agent.session.id), status })
     }))
     this.disposers.push(ctx.on('session/created', (session) => {

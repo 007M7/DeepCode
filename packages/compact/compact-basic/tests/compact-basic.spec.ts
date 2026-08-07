@@ -1372,7 +1372,7 @@ describe('default one-shot summarizer', () => {
 describe('automatic listener and loader composition', () => {
   function preStep(ctx: Context, owner: Agent, signal = SIGNAL) {
     return agentEvents(ctx, owner).waterfall(
-      'agent/pre-step', [], { turn: 1, step: 1, signal },
+      'agent/pre-step', { messages: [], turn: 1, step: 1, signal },
       () => Promise.resolve({ kind: 'enter' as const, messages: [] }),
     )
   }
@@ -1388,8 +1388,7 @@ describe('automatic listener and loader composition', () => {
     const turn = owner.session.events.findLast(event => event.type === 'turn/start')?.data.turn ?? 1
     return agentEvents(ctx, owner).waterfall(
       'agent/request-error',
-      { turn, step: 1, provider: 'test', failure, retryPolicy: undefined },
-      signal,
+      { turn, step: 1, provider: 'test', failure, retryPolicy: undefined, signal },
       next,
     ).then(action => action?.kind === 'retry')
   }
