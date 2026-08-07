@@ -43,13 +43,16 @@ async function bootWeb(settingsFile: string): Promise<Context> {
     { id: 'telemetry-otel', disabled: true },
     { id: 'modules', disabled: true },
     { id: 'connection', disabled: true },
-    // NOT a side-effect row: the api-proxy cannot mount in THIS layer at all,
-    // because it injects `subagents` and the subagent registry moved into the
-    // presets here. That is the breakage a later layer returns to the host
-    // plane; when it does, this line comes out and the boot audit covers the
-    // whole host-plane injection graph again.
-    { id: 'api-gateway', disabled: true },
+    // `api-gateway` stays ENABLED on purpose — the api-proxy is the host row
+    // that injects `subagents`, `workspace`, and the rest of the agent plane,
+    // so disabling it would hide exactly the breakage this file exists to
+    // catch: a service moved into the presets that a host row still waits for.
+    // The boot audit is that assertion.
+    // The shipped `-auto` chooser resolves its interaction from a running
+    // host and so waits for the webserver disabled above; the browse variant
+    // supplies `directoryPicker` without one.
     { id: 'directory-picker', disabled: true },
+    { insert: [{ id: 'directory-picker-browse', name: '@deepseek-ai/dsh-host-directory-picker-browse' }] },
     // The roster AppCLIEntry would patch in; only the shipped root, so a
     // developer's own `~/.dsh/.preset` cannot change this test's outcome.
     // `default` here is the COMPOSITION default — the base layer the settings
