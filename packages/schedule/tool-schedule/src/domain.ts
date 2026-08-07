@@ -689,9 +689,17 @@ function cronLocalFormatter(timeZone: string): Intl.DateTimeFormat {
   })
 }
 
+/** Whether local calendar fields satisfy one parsed rule. */
+function cronMatchesLocal(rule: ParsedCronRule, local: CalendarParts): boolean {
+  const dayOfWeek = new Date(calendarEpoch(local)).getUTCDay()
+  return rule.minute.values.includes(local.minute)
+    && rule.hour.values.includes(local.hour)
+    && cronMatchesDate(rule, local.month, local.day, dayOfWeek)
+}
+
 /** Whether a Croner candidate is a real whole-minute match and the first overlap instant. */
 function isCanonicalCronCandidate(
-  evaluator: Cron,
+  rule: ParsedCronRule,
   formatter: Intl.DateTimeFormat,
   timeZone: string,
   epoch: number,
@@ -699,25 +707,25 @@ function isCanonicalCronCandidate(
   if (!Number.isSafeInteger(epoch)
     || epoch < MIN_FOUR_DIGIT_YEAR_MS
     || epoch > MAX_FOUR_DIGIT_YEAR_MS
-    || epoch % 60_000 !== 0
-    || !evaluator.match(new Date(epoch))) return false
-  return resolveLocalInstant(localProjection(formatter, epoch), timeZone) === epoch
+    || epoch % 60_000 !== 0) return false
+  const local = localProjection(formatter, epoch)
+  return cronMatchesLocal(rule, local) && resolveLocalInstant(local, timeZone) === epoch
 }
 
 const CRONER_LOW_YEAR_CUTOFF = 108
 const CRONER_LOW_YEAR_SEARCH_END = 109
-const MAX_CRON_CURSOR_CORRECTIONS = 1_440
+const MAX_TIME_ZONE_GAP_MINUTES = 1_440
 
-/** Search owned local-calendar candidates without JavaScript's legacy 0..99 year remapping. */
-function ownedCronInstant(
+/** Bridge low years without JavaScript's legacy 0..99 year remapping. */
+function ownedLowYearCronInstant(
   rule: ParsedCronRule,
   timeZone: string,
   boundary: number,
   direction: 1 | -1,
-  minYear: number,
-  maxYear: number,
   lowerExclusive = MIN_FOUR_DIGIT_YEAR_MS - 1,
 ): number | undefined {
+  const minYear = 1
+  const maxYear = CRONER_LOW_YEAR_SEARCH_END
   const utcYear = new Date(boundary).getUTCFullYear()
   const startYear = direction === 1
     ? Math.max(minYear, utcYear - 1)
@@ -755,8 +763,9 @@ function ownedCronInstant(
               millisecond: 0,
             }, timeZone)
           } catch (error: unknown) {
-            /* v8 ignore next -- canonical zones make non-Schedule failures unreachable here. */
+            /* v8 ignore next 2 -- canonical low-year zones have no transition gaps in supported ICU data. */
             if (!(error instanceof ScheduleInputError)) throw error
+            /* v8 ignore next -- supported ICU data has no low-year transition gap to skip. */
             continue
           }
           if (candidate % 60_000 !== 0) continue
@@ -778,13 +787,13 @@ function nextCronInstant(rule: ParsedCronRule, timeZone: string, after: number):
   if (!rule.hasMatchingDate) return undefined
   let cursor = after
   if (new Date(after).getUTCFullYear() <= CRONER_LOW_YEAR_CUTOFF) {
-    const lower = ownedCronInstant(rule, timeZone, after, 1, 1, CRONER_LOW_YEAR_SEARCH_END)
+    const lower = ownedLowYearCronInstant(rule, timeZone, after, 1)
     if (lower !== undefined) return lower
     cursor = Math.max(cursor, Date.parse('0109-12-31T23:59:59.999Z'))
   }
   const evaluator = cronEvaluator(rule, timeZone)
   const formatter = cronLocalFormatter(timeZone)
-  let corrections = 0
+  let gapCorrections = 0
   while (cursor < MAX_FOUR_DIGIT_YEAR_MS) {
     const candidate = evaluator.nextRun(new Date(cursor))
     if (candidate === null) return undefined
@@ -793,19 +802,32 @@ function nextCronInstant(rule: ParsedCronRule, timeZone: string, after: number):
       throw new ScheduleInputError('invalid_rule', 'The cron evaluator did not advance its cursor.')
     }
     if (epoch <= cursor) {
-      corrections += 1
-      if (corrections > MAX_CRON_CURSOR_CORRECTIONS) {
-        return ownedCronInstant(rule, timeZone, after, 1, 1, 9_999)
+      gapCorrections += 1
+      /* v8 ignore next 3 -- pinned Croner/ICU overlaps cannot normalize beyond one local date. */
+      if (gapCorrections > MAX_TIME_ZONE_GAP_MINUTES) {
+        throw new ScheduleInputError('invalid_rule', 'The cron evaluator did not advance its cursor.')
       }
       cursor += 60_000
       continue
     }
+    gapCorrections = 0
     if (epoch > MAX_FOUR_DIGIT_YEAR_MS) return undefined
-    if (isCanonicalCronCandidate(evaluator, formatter, timeZone, epoch)) return epoch
-    return ownedCronInstant(rule, timeZone, after, 1, 1, 9_999)
+    if (isCanonicalCronCandidate(rule, formatter, timeZone, epoch)) return epoch
+    cursor = epoch
   }
   /* v8 ignore next -- only repeated stale dependency candidates can exhaust the bounded cursor. */
   return undefined
+}
+
+/** Use Croner's forward search to recover matches its reverse search can skip at an overlap. */
+function latestCronInstantThrough(
+  rule: ParsedCronRule,
+  timeZone: string,
+  initial: number,
+  acceptedAt: number,
+): number {
+  const next = nextCronInstant(rule, timeZone, initial)
+  return next !== undefined && next <= acceptedAt ? next : initial
 }
 
 /** Find the latest valid calendar occurrence at or before one instant. */
@@ -816,45 +838,38 @@ function previousCronInstant(
   baseline: number,
 ): number | undefined {
   if (new Date(acceptedAt).getUTCFullYear() <= CRONER_LOW_YEAR_CUTOFF) {
-    return ownedCronInstant(
-      rule, timeZone, acceptedAt, -1, 1, CRONER_LOW_YEAR_SEARCH_END, baseline,
-    )
+    return ownedLowYearCronInstant(rule, timeZone, acceptedAt, -1, baseline)
   }
   const evaluator = cronEvaluator(rule, timeZone)
   const formatter = cronLocalFormatter(timeZone)
   const nextMinute = Math.floor(acceptedAt / 60_000) * 60_000 + 60_000
   let reference = Math.min(MAX_FOUR_DIGIT_YEAR_MS, nextMinute)
-  let corrections = 0
+  let gapCorrections = 0
   while (reference > baseline) {
     const candidate = evaluator.previousRuns(1, new Date(reference))[0]
-    if (candidate === undefined) {
-      return ownedCronInstant(rule, timeZone, acceptedAt, -1, 1, 9_999, baseline)
-    }
+    if (candidate === undefined) return latestCronInstantThrough(rule, timeZone, baseline, acceptedAt)
     const epoch = candidate.getTime()
     if (!Number.isSafeInteger(epoch)) {
       throw new ScheduleInputError('invalid_rule', 'The cron evaluator did not retreat its cursor.')
     }
     if (epoch >= reference) {
-      corrections += 1
-      if (corrections > MAX_CRON_CURSOR_CORRECTIONS) {
-        return ownedCronInstant(rule, timeZone, acceptedAt, -1, 1, 9_999, baseline)
+      gapCorrections += 1
+      /* v8 ignore next 3 -- pinned Croner/ICU gaps cannot normalize beyond one local date. */
+      if (gapCorrections > MAX_TIME_ZONE_GAP_MINUTES) {
+        throw new ScheduleInputError('invalid_rule', 'The cron evaluator did not retreat its cursor.')
       }
       reference -= 60_000
       continue
     }
-    if (epoch <= baseline) {
-      return ownedCronInstant(rule, timeZone, acceptedAt, -1, 1, 9_999, baseline)
+    gapCorrections = 0
+    if (epoch <= baseline) return latestCronInstantThrough(rule, timeZone, baseline, acceptedAt)
+    if (epoch <= acceptedAt && isCanonicalCronCandidate(rule, formatter, timeZone, epoch)) {
+      return latestCronInstantThrough(rule, timeZone, epoch, acceptedAt)
     }
-    if (isCanonicalCronCandidate(evaluator, formatter, timeZone, epoch)) return epoch
-    if (epoch >= MIN_FOUR_DIGIT_YEAR_MS && epoch <= MAX_FOUR_DIGIT_YEAR_MS
-      && epoch % 60_000 === 0 && evaluator.match(candidate)) {
-      return resolveLocalInstant(localProjection(formatter, epoch), timeZone)
-    }
-    const owned = ownedCronInstant(rule, timeZone, acceptedAt, -1, 1, 9_999, baseline)
-    if (owned !== undefined) return owned
     reference = Math.min(reference - 60_000, epoch - 1)
   }
-  return undefined
+  /* v8 ignore next -- a real Croner candidate either retreats or reaches the persisted baseline. */
+  return latestCronInstantThrough(rule, timeZone, baseline, acceptedAt)
 }
 
 /** Decode the exact v1 after record shape. */

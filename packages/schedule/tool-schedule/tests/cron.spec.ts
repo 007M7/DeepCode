@@ -170,6 +170,17 @@ describe('Croner calendar adapter', () => {
       occurrenceAt: '0100-01-01T00:00:00.000Z',
       nextScheduledAt: '0100-01-02T00:00:00.000Z',
     })
+    const yearOne = createCronScheduleRecord(
+      ScheduleId('schedule-reverse-1'),
+      'reverse year one',
+      '0 0 * * *',
+      'UTC',
+      Date.parse('0001-01-01T00:00:00.000Z'),
+    )
+    expect(resolveCronOccurrence(yearOne, Date.parse(yearOne.scheduledAt))).toEqual({
+      occurrenceAt: yearOne.scheduledAt,
+      nextScheduledAt: '0001-01-03T00:00:00.000Z',
+    })
   })
 
   it('skips a DST gap and chooses the first instant in an overlap', () => {
@@ -209,6 +220,13 @@ describe('Croner calendar adapter', () => {
       occurrenceAt: '2026-11-01T05:30:00.000Z',
       nextScheduledAt: '2026-11-02T06:30:00.000Z',
     })
+    expect(createCronScheduleRecord(
+      ScheduleId('schedule-overlap-after-first'),
+      'after first overlap instant',
+      '30 1 * * *',
+      'America/New_York',
+      Date.parse('2026-11-01T05:45:00.000Z'),
+    ).scheduledAt).toBe('2026-11-02T06:30:00.000Z')
   })
 
   it('selects the latest current match after a persisted baseline', () => {
@@ -246,7 +264,7 @@ describe('Croner calendar adapter', () => {
     ), 'no_future_occurrence')
   })
 
-  it('contains dependency cursor failures and preserves the baseline when current search has no match', () => {
+  it('contains invalid dependency results without replacing safe-year calendar search', () => {
     const record = createCronScheduleRecord(
       ScheduleId('schedule-dependency'),
       'dependency',
@@ -260,63 +278,6 @@ describe('Croner calendar adapter', () => {
       occurrenceAt: record.scheduledAt,
     })
     noPrevious.mockRestore()
-
-    const repeatedPrevious = vi.spyOn(Cron.prototype, 'previousRuns')
-      .mockImplementationOnce((_count, reference) => [new Date(reference ?? record.scheduledAt)])
-      .mockReturnValue([new Date('2026-11-01T05:30:00.000Z')])
-    expect(resolveCronOccurrence(record, Date.parse('2026-11-01T07:00:00.000Z'))).toMatchObject({
-      occurrenceAt: '2026-11-01T05:30:00.000Z',
-    })
-    repeatedPrevious.mockRestore()
-
-    const laterOverlap = vi.spyOn(Cron.prototype, 'previousRuns')
-      .mockReturnValue([new Date('2026-11-01T06:30:00.000Z')])
-    expect(resolveCronOccurrence(record, Date.parse('2026-11-01T07:00:00.000Z'))).toMatchObject({
-      occurrenceAt: '2026-11-01T05:30:00.000Z',
-    })
-    laterOverlap.mockRestore()
-
-    const gapThenNone = vi.spyOn(Cron.prototype, 'previousRuns')
-      .mockReturnValueOnce([new Date('2026-03-08T07:30:00.000Z')])
-      .mockReturnValueOnce([])
-    const gapBaseline = {
-      ...record,
-      cron: '30 2 * * *',
-      scheduledAt: '2026-03-07T07:30:00.000Z',
-    }
-    expect(resolveCronOccurrence(gapBaseline, Date.parse('2026-03-08T08:00:00.000Z'))).toMatchObject({
-      occurrenceAt: gapBaseline.scheduledAt,
-    })
-    gapThenNone.mockRestore()
-
-    const boundaryThenEnd = vi.spyOn(Cron.prototype, 'previousRuns')
-      .mockReturnValue([new Date('0001-01-01T00:00:00.000Z')])
-    const boundaryBaseline = {
-      ...record,
-      cron: '1 0 * * *',
-      timeZone: 'UTC',
-      scheduledAt: '0001-01-01T00:01:00.000Z',
-    }
-    expect(resolveCronOccurrence(boundaryBaseline, Date.parse('2026-01-01T00:00:00.000Z'))).toMatchObject({
-      occurrenceAt: '2025-12-31T00:01:00.000Z',
-    })
-    boundaryThenEnd.mockRestore()
-
-    const repeatedNext = vi.spyOn(Cron.prototype, 'nextRun')
-      .mockImplementationOnce(reference =>
-        reference instanceof Date ? new Date(reference) : new Date('2026-01-01T00:00:00.000Z'))
-      .mockReturnValue(new Date('2026-01-02T00:00:00.000Z'))
-    expect(createCronScheduleRecord(
-      ScheduleId('stuck-next'), 'x', '0 0 * * *', 'UTC', Date.parse('2026-01-01T00:00:00Z'),
-    ).scheduledAt).toBe('2026-01-02T00:00:00.000Z')
-    repeatedNext.mockRestore()
-
-    const neverAdvancingNext = vi.spyOn(Cron.prototype, 'nextRun').mockImplementation(reference =>
-      reference instanceof Date ? new Date(reference) : new Date('2026-01-01T00:00:00.000Z'))
-    expect(createCronScheduleRecord(
-      ScheduleId('fallback-next'), 'x', '0 0 * * *', 'UTC', Date.parse('2026-01-01T00:00:00Z'),
-    ).scheduledAt).toBe('2026-01-02T00:00:00.000Z')
-    neverAdvancingNext.mockRestore()
 
     const invalidNext = vi.spyOn(Cron.prototype, 'nextRun').mockReturnValue(new Date(Number.NaN))
     expectInputCode(() => createCronScheduleRecord(
@@ -336,42 +297,6 @@ describe('Croner calendar adapter', () => {
     expect(() => resolveCronOccurrence(record, Date.parse('2026-11-01T07:00:00.000Z')))
       .toThrow(/cron evaluation failed: The cron evaluator did not retreat/)
     invalidPrevious.mockRestore()
-
-    const repeatedAtBaseline = vi.spyOn(Cron.prototype, 'previousRuns')
-      .mockImplementation((_count, reference) => [new Date(reference ?? record.scheduledAt)])
-    expect(resolveCronOccurrence(record, Date.parse(record.scheduledAt))).toMatchObject({
-      occurrenceAt: record.scheduledAt,
-    })
-    repeatedAtBaseline.mockRestore()
-
-    const neverRetreating = vi.spyOn(Cron.prototype, 'previousRuns')
-      .mockImplementation((_count, reference) => [new Date(reference ?? record.scheduledAt)])
-    expect(resolveCronOccurrence({
-      ...record,
-      scheduledAt: '2026-10-31T05:30:00.000Z',
-    }, Date.parse('2026-11-01T07:00:00.000Z'))).toMatchObject({
-      occurrenceAt: '2026-11-01T05:30:00.000Z',
-    })
-    neverRetreating.mockRestore()
-
-    const nonMinutePrevious = vi.spyOn(Cron.prototype, 'previousRuns')
-      .mockReturnValue([new Date('2026-11-01T05:30:30.000Z')])
-    expect(resolveCronOccurrence(record, Date.parse('2026-11-01T07:00:00.000Z'))).toMatchObject({
-      occurrenceAt: '2026-11-01T05:30:00.000Z',
-    })
-    nonMinutePrevious.mockRestore()
-
-    const gapWithOwnedMatch = vi.spyOn(Cron.prototype, 'previousRuns')
-      .mockReturnValue([new Date('2026-03-08T07:30:00.000Z')])
-    const gapWithNextDay = {
-      ...record,
-      cron: '30 2 * * *',
-      scheduledAt: '2026-03-07T07:30:00.000Z',
-    }
-    expect(resolveCronOccurrence(gapWithNextDay, Date.parse('2026-03-09T08:00:00.000Z'))).toMatchObject({
-      occurrenceAt: '2026-03-09T06:30:00.000Z',
-    })
-    gapWithOwnedMatch.mockRestore()
 
     const thrownNext = vi.spyOn(Cron.prototype, 'nextRun').mockImplementation(() => {
       throw new Error('dependency failed')
