@@ -151,6 +151,11 @@
     - id: ui-conversation
       name: '@deepseek-ai/dsh-client-ui-conversation'
 
+    # Turn tail: the produced-files row under each closing assistant message.
+    # Remove this entry to turn the surface off; the tail hole renders empty.
+    - id: ui-deliverables
+      name: '@deepseek-ai/dsh-client-ui-deliverables'
+
 
     - id: ui-workspace
       name: '@deepseek-ai/dsh-client-ui-workspace'
