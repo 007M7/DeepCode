@@ -125,11 +125,24 @@ describe('InputHub queue steering (empty-draft accelerated Enter)', () => {
     await b.runtime.sessions.updateSnapshot('s1', (draft) => {
       draft.queue = [row('q-1'), row('q-2')]
     })
+    // The turn closes before the second row: the flush stops, silently.
     b.updateQueue.mockResolvedValueOnce({
       ok: false, error: { code: 'steer-unavailable', message: 'closed', details: {} },
     } as never)
     b.shell.steerQueue()
     await vi.waitFor(() => { expect(b.updateQueue).toHaveBeenCalledTimes(1) })
+    expect(b.shell.notices.getSnapshot()).toBeNull()
+
+    // A row the host already claimed (e.g. a repeated empty-draft chord):
+    // the duplicate strict steer is a silent no-op.
+    await b.runtime.sessions.updateSnapshot('s1', (draft) => {
+      draft.queue = [row('q-3')]
+    })
+    b.updateQueue.mockResolvedValueOnce({
+      ok: false, error: { code: 'queue-item-not-found', message: 'claimed', details: {} },
+    } as never)
+    b.shell.steerQueue()
+    await vi.waitFor(() => { expect(b.updateQueue).toHaveBeenCalledTimes(2) })
     expect(b.shell.notices.getSnapshot()).toBeNull()
     await b.runtime.dispose()
   })

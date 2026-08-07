@@ -152,7 +152,10 @@ export class InputHub implements InputService {
    * order — the same strict-steer operation as the queue dock's per-row
    * button. A turn closing mid-way (`steer-unavailable`) or a row already
    * claimed by the agent (`queue-item-not-found`) converges silently, while a
-   * genuine failure surfaces as one composer notice.
+   * genuine failure surfaces as one composer notice. Repeated triggers
+   * (e.g. two rapid empty-draft chords) rely on that `queue-item-not-found`
+   * convergence: the snapshot may still list a row the host already steered,
+   * and the duplicate strict steer is a silent no-op.
    * @param session - the addressed host session.
    * @param shell - the resident shell (notice outlet).
    */
