@@ -138,7 +138,7 @@ export class AgentPresetSectionController {
    */
   async load(): Promise<void> {
     const roster = await beginRosterRead(
-      this.api, () => this.store.getSnapshot().status, patch => { this.set(patch) },
+      this.api, () => this.store.getSnapshot().status, (patch) => { this.set(patch) },
     )
     if (roster === undefined) return
     const { presets, authorable } = roster

@@ -84,7 +84,7 @@ export interface RosterValue {
 }
 
 /** The roster, or the message to show in its place. */
-export type RosterRead = { ok: true, value: RosterValue } | { ok: false, error: string }
+export type RosterRead = { ok: true; value: RosterValue } | { ok: false; error: string }
 
 /**
  * Read the roster, folding both refusal shapes into one message.
@@ -122,7 +122,7 @@ export async function readRoster(api: Pick<IApiClient, 'agentPresets'>): Promise
 export async function beginRosterRead(
   api: Pick<IApiClient, 'agentPresets'>,
   status: () => string,
-  set: (patch: { status?: 'loading' | 'error', error?: string | null }) => void,
+  set: (patch: { status?: 'loading' | 'error'; error?: string | null }) => void,
 ): Promise<RosterValue | undefined> {
   if (status() === 'loading') return undefined
   set({ status: 'loading', error: null })
@@ -143,7 +143,7 @@ export async function beginRosterRead(
  * @returns one option per preset, in roster order.
  */
 export function presetOptions(
-  presets: readonly { id: string, trust: 'system' | 'user', name?: string, description?: string }[],
+  presets: readonly { id: string; trust: 'system' | 'user'; name?: string; description?: string }[],
 ): AgentPresetOption[] {
   return presets.map(preset => ({
     id: preset.id,
@@ -197,7 +197,7 @@ export class AgentPresetSettingsController {
    */
   async load(): Promise<void> {
     const roster = await beginRosterRead(
-      this.api, () => this.store.getSnapshot().status, patch => { this.set(patch) },
+      this.api, () => this.store.getSnapshot().status, (patch) => { this.set(patch) },
     )
     if (roster === undefined) return
     const { presets } = roster
