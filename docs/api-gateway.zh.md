@@ -55,13 +55,15 @@ export class GoalService extends GatewayService {
 
 Remote 方法可以同步返回或返回 Promise。若需要协作式取消，Host 签名的最后一个参数必须是全局类型的 `signal: AbortSignal`；它记录在描述符中而不是进入 `args`，Client 生成的方法则接受最后一个可选的 `AbortSignal`。
 
-Client 使用普通对象上的具体函数，不使用 JavaScript Proxy。直接调用与作用域调用分别出现在 `ctx.remote.<namespace>` 和 `agentCtx.remote.<namespace>`。每个 namespace 都是注册为 `remote.<namespace>` 的可追踪 Cordis 子 Service；Client assembly 通过 `ctx.remote.$mount()` 挂载贡献，消费方同时注入 `remote` 与所调用的 namespace Service，最后一个方法撤回后该 namespace 随即卸载。当一个 `@Remote` 方法恰好有一个 lookup 参数、且同名 `TypeRTContextMap` 使用相同 wire identity 时，生成的作用域签名会省略该 identity 参数。`@RemoteScope` 只生成作用域调用界面。
+Client 使用普通对象上的具体函数，不使用 JavaScript Proxy。直接调用与作用域调用分别出现在 `ctx.remote.<namespace>` 和 `agentCtx.remote.<namespace>`。每个 namespace 都是注册为 `remote.<namespace>` 的可追踪 Cordis 子 Service；Client assembly 通过 `ctx.remote.$mount()` 挂载贡献，最后一个方法撤回后该 namespace 随即卸载。依赖声明归实际调用方所有：只有读取 `ctx.remote.<namespace>` 或 `agentCtx.remote.<namespace>` 的业务包才在自己的 `inject` 中同时声明 `remote` 与 `remote.<namespace>`；只负责挂载 contribution 的 assembly，以及不调用该 namespace 的上层 runtime，不代业务包声明 namespace 依赖。当一个 `@Remote` 方法恰好有一个 lookup 参数、且同名 `TypeRTContextMap` 使用相同 wire identity 时，生成的作用域签名会省略该 identity 参数。`@RemoteScope` 只生成作用域调用界面。
 
 ```ts
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { AgentContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type { Context } from 'cordis'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
+
+export const inject = ['remote', 'remote.goals']
 
 declare const ctx: Context
 declare const agentCtx: AgentContext

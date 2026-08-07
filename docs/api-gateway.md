@@ -55,13 +55,15 @@ export class GoalService extends GatewayService {
 
 Remote methods may return a value synchronously or return a Promise. For cooperative cancellation, the final parameter in the Host signature must be `signal: AbortSignal` using the global type; it is recorded in the descriptor instead of entering `args`, while the generated Client method accepts an optional final `AbortSignal`.
 
-The Client uses concrete functions on ordinary objects, not a JavaScript Proxy. Direct and scoped calls appear under `ctx.remote.<namespace>` and `agentCtx.remote.<namespace>`. Each namespace is a traced Cordis child Service registered as `remote.<namespace>`; the Client assembly mounts contributions through `ctx.remote.$mount()`, consumers inject both `remote` and the namespace Service they call, and the namespace unloads after its last method is withdrawn. When an `@Remote` method has exactly one lookup parameter and a same-named `TypeRTContextMap` uses the same wire identity, the generated scoped signature omits that identity parameter. `@RemoteScope` generates only the scoped invocation interface.
+The Client uses concrete functions on ordinary objects, not a JavaScript Proxy. Direct and scoped calls appear under `ctx.remote.<namespace>` and `agentCtx.remote.<namespace>`. Each namespace is a traced Cordis child Service registered as `remote.<namespace>`; the Client assembly mounts contributions through `ctx.remote.$mount()`, and the namespace unloads after its last method is withdrawn. Dependency declarations belong to the actual caller: only a business package that reads `ctx.remote.<namespace>` or `agentCtx.remote.<namespace>` declares both `remote` and `remote.<namespace>` in its own `inject`; assemblies that only mount contributions and higher-level runtimes that do not call that namespace do not declare the namespace dependency on the business package's behalf. When an `@Remote` method has exactly one lookup parameter and a same-named `TypeRTContextMap` uses the same wire identity, the generated scoped signature omits that identity parameter. `@RemoteScope` generates only the scoped invocation interface.
 
 ```ts
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { AgentContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type { Context } from 'cordis'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
+
+export const inject = ['remote', 'remote.goals']
 
 declare const ctx: Context
 declare const agentCtx: AgentContext
