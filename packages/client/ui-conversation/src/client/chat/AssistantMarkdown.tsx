@@ -4,10 +4,10 @@
 // view groups them into tool rows through its keyed toolview slot (figma
 // step-summary flow). Shared by finalized nodes and the streaming partial;
 // the turn-level loading dots live in the chat view's tail, not here.
-// Finalized content (text) nodes append IconActions once streaming ends
-// (`time` is omitted for mid-turn narration); their branch action is enabled
-// only when the node is also the completed turn's transcript tail. Think /
-// tool-head-only nodes stay chrome-free.
+// Finalized content (text) nodes append IconActions once their turn ends
+// (`time` is omitted for mid-turn narration and while the turn still runs);
+// their branch action is enabled only when the node is also the completed
+// turn's transcript tail. Think / tool-head-only nodes stay chrome-free.
 
 import { memo, useMemo } from 'react'
 import type { AssistantBlock } from '@deepseek-ai/dsh-client-runtime/client'
@@ -15,6 +15,7 @@ import {
   IconThinkOutline14, JsonBlock, MarkdownText,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatViewSlotProps } from '../contract/slots.ts'
+import { hasContentText } from './chat-flow.ts'
 import { MessageIconActions } from './MessageIconActions.tsx'
 import { ToolRow } from './ToolRow.tsx'
 import css from './AssistantMarkdown.module.css'
@@ -25,7 +26,8 @@ export interface AssistantMarkdownProps {
   /** Frozen partial of an aborted turn: rendered with a stopped marker. */
   interrupted?: boolean | undefined
   /** Unix epoch ms for the IconActions clock; omitted while streaming or when
-   *  the parent withholds chrome (mid-turn content assistants). */
+   *  the parent withholds chrome (mid-turn content assistants and every node
+   *  of a turn that has not ended). */
   time?: number | undefined
   /** Turn wall time in ms for the IconActions run-time label; omitted when the
    *  turn's triggering input is outside the loaded window. */
@@ -63,11 +65,6 @@ function copyText(blocks: readonly AssistantBlock[]): string {
     if (block.kind === 'text') parts.push(block.text)
   }
   return parts.join('')
-}
-
-/** True when the node has model-visible text content worth chrome under. */
-function hasContentText(blocks: readonly AssistantBlock[]): boolean {
-  return blocks.some(block => block.kind === 'text' && block.text.trim() !== '')
 }
 
 /** Reasoning block as the Think variant summary row (figma 39:28304). */

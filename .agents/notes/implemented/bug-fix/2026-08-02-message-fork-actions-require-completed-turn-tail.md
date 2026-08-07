@@ -12,6 +12,8 @@ The Web conversation attached branch to the last assistant node with nonempty te
 
 `ConversationSnapshot.turnEnds` retains the completed turn boundaries present in the raw event window. The conversation view walks transcript nodes through each boundary and enables branch only when the boundary's last node is a user message, a durable steering message, or a content-bearing assistant message. Open turns have no eligible message, and a later tool result, reasoning-only interruption, turn error, or other transcript node leaves branch unavailable on earlier messages. The unavailable control stays visible, focusable, and hoverable; `aria-disabled`, a tooltip, and `aria-describedby` explain the completed-tail requirement without sending a Host request. Copy and clock remain available under their existing message chrome, and the Host's completed-turn fork semantics remain unchanged.
 
+The message-bubble half of this eligibility is superseded by the [user-bubble branch removal](../simplification/2026-08-06-user-bubbles-drop-the-branch-action.md): user and steering bubbles no longer render the control at all, so only content-assistant tails may fork; the assistant-side gate and its visible-but-unavailable presentation stand.
+
 This narrows the message eligibility established by the earlier [Web session fork action decision](../feature/2026-07-27-web-session-fork-actions.md). Session-row forking still selects the latest completed turn, and eligible message actions still pass their event seq through the shared client runtime operation.
 
 ## Alternatives considered

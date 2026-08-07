@@ -17,8 +17,14 @@ export type ChatFlowItem =
   | { kind: 'node'; key: string; node: ConversationNode }
   | { kind: 'tool-group'; key: string; results: readonly ToolResultNode[] }
 
-/** True when the node has model-visible text content worth IconActions chrome. */
-function hasContentText(blocks: readonly AssistantBlock[]): boolean {
+/**
+ * True when the node has model-visible text content worth IconActions chrome.
+ * Shared with {@link AssistantMarkdown}'s mount gate so ownership and mounting
+ * cannot diverge.
+ * @param blocks - assistant blocks of one finalized node.
+ * @returns Whether any text block carries non-blank content.
+ */
+export function hasContentText(blocks: readonly AssistantBlock[]): boolean {
   return blocks.some(block => block.kind === 'text' && block.text.trim() !== '')
 }
 
@@ -34,14 +40,20 @@ function rendersNothing(node: ConversationNode): boolean {
 
 /**
  * Seq set of assistants that own IconActions: the last content-text assistant
- * in each turn. Mid-turn narration (text before tools) stays chrome-free.
+ * of each *completed* turn. A turn without a `turn/end` in the window is still
+ * producing steps, so its latest narration is not the settled answer and owns
+ * nothing; mid-turn narration of a completed turn stays chrome-free too.
  * @param nodes - snapshot nodes (surface order).
+ * @param turnEnds - completed turn boundaries retained from the event window.
  * @returns Seq values ChatView may pass as `time` into AssistantMarkdown.
  */
-export function assistantActionsSeqs(nodes: readonly ConversationNode[]): ReadonlySet<number> {
+export function assistantActionsSeqs(
+  nodes: readonly ConversationNode[],
+  turnEnds: ReadonlyMap<number, number>,
+): ReadonlySet<number> {
   const lastByTurn = new Map<number, number>()
   for (const node of nodes) {
-    if (node.kind !== 'assistant' || !hasContentText(node.blocks)) continue
+    if (node.kind !== 'assistant' || !turnEnds.has(node.turn) || !hasContentText(node.blocks)) continue
     lastByTurn.set(node.turn, node.seq)
   }
   return new Set(lastByTurn.values())
@@ -63,15 +75,18 @@ export function runningTurnStartTime(
 }
 
 /**
- * Seq set of message rows that may fork: the last transcript node of a
- * completed turn, when that node owns message chrome. A later tool, reasoning,
- * error, or other transcript node leaves the earlier message's branch action
- * unavailable because the Host would include the whole turn.
+ * Seq set of assistant answers that may fork: the completed turn's transcript
+ * tail, when that tail is the turn's own content-text assistant. A later tool,
+ * reasoning, error, or other transcript node leaves the answer's branch action
+ * unavailable because the Host would include the whole turn. User and steering
+ * bubbles carry no branch action at all: a fork at their seq cuts at the same
+ * `turn/end` as the answer's, so the affordance lives only under the settled
+ * answer.
  * @param nodes - snapshot nodes in event order.
  * @param turnEnds - completed turn boundaries retained from the event window.
- * @returns Message seq values whose visible position matches the fork boundary.
+ * @returns Assistant seq values whose visible position matches the fork boundary.
  */
-export function messageBranchSeqs(
+export function assistantBranchSeqs(
   nodes: readonly ConversationNode[],
   turnEnds: ReadonlyMap<number, number>,
 ): ReadonlySet<number> {
@@ -86,8 +101,7 @@ export function messageBranchSeqs(
       tail = candidate
       nodeIndex++
     }
-    if (tail?.kind === 'user' || tail?.kind === 'steering'
-      || (tail?.kind === 'assistant' && tail.turn === turn && hasContentText(tail.blocks))) {
+    if (tail?.kind === 'assistant' && tail.turn === turn && hasContentText(tail.blocks)) {
       result.add(tail.seq)
     }
   }
