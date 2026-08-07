@@ -201,6 +201,9 @@ importers:
       '@deepseek-ai/dsh-host-webserver':
         specifier: workspace:^
         version: link:../../packages/host/webserver
+      '@deepseek-ai/dsh-llm-mock-server':
+        specifier: workspace:^
+        version: link:../../packages/support/llm-mock-server
       '@deepseek-ai/dsh-loader-smoke':
         specifier: workspace:^
         version: link:../../packages/support/loader-smoke
