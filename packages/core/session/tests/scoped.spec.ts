@@ -228,7 +228,7 @@ describe('sessions.flush()', () => {
     const checkpoints: number[] = []
     ctx.on('session/flush', () => true)
     ctx.on('internal/dispatch', (_mode, name) => {
-      if (name === 'session/flushed') throw new Error('flushed dispatch instrumentation')
+      if (name === 'session/flushed') throw Object.create(null)
     })
     ctx.on('session/flushed', (_session, throughSeq) => { checkpoints.push(throughSeq) })
     const session = ctx.sessions.create(SessionId('flushed-dispatch'))
@@ -236,7 +236,7 @@ describe('sessions.flush()', () => {
     await expect(ctx.sessions.flush(session)).resolves.toBe(true)
     expect(checkpoints).toEqual([])
     expect(warnings).toEqual([
-      'session "flushed-dispatch": session/flushed dispatch threw: Error: flushed dispatch instrumentation',
+      'session "flushed-dispatch": session/flushed dispatch threw: [unrenderable thrown value]',
     ])
   })
 

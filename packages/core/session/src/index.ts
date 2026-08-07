@@ -406,6 +406,16 @@ function assertSupportedRequestHeader(type: string, data: unknown, location: str
 
 type SessionCallback = (...args: unknown[]) => unknown
 
+/** Render any thrown observer value without violating callback containment. */
+function renderSessionObserverError(error: unknown): string {
+  try {
+    return String(error)
+  } catch {
+    // String coercion itself may throw.
+    return '[unrenderable thrown value]'
+  }
+}
+
 /** Resolve one listener snapshot, including Cordis's internal dispatch checks. */
 function collectSessionCallbacks(ctx: Context, args: unknown[]): SessionCallback[] {
   return [...ctx.events.dispatch('emit', args)] as SessionCallback[]
@@ -423,10 +433,10 @@ function invokeContainedSessionObservers(
     try {
       const returned: unknown = callback(...args)
       void Promise.resolve(returned).catch((error: unknown) => {
-        ctx.logger.warn(`session "${id}": ${name} listener rejected: ${String(error)}`)
+        ctx.logger.warn(`session "${id}": ${name} listener rejected: ${renderSessionObserverError(error)}`)
       })
     } catch (error: unknown) {
-      ctx.logger.warn(`session "${id}": ${name} listener threw: ${String(error)}`)
+      ctx.logger.warn(`session "${id}": ${name} listener threw: ${renderSessionObserverError(error)}`)
     }
   }
 }
@@ -1018,7 +1028,7 @@ export class SessionStore extends Service {
         // of becoming unhandled.
         const returned: unknown = callback(...callbackArgs)
         void Promise.resolve(returned).catch((error: unknown) => {
-          this.ctx.logger.warn(`session "${entry.id}": session/created listener rejected: ${String(error)}`)
+          this.ctx.logger.warn(`session "${entry.id}": session/created listener rejected: ${renderSessionObserverError(error)}`)
         })
       }
     } finally {
@@ -1034,7 +1044,7 @@ export class SessionStore extends Service {
       const callbacks = collectSessionCallbacks(this.ctx, [entry.carrier, 'session/disposed', entry.session])
       invokeContainedSessionObservers(this.ctx, 'session/disposed', entry.id, callbackArgs, callbacks)
     } catch (error: unknown) {
-      this.ctx.logger.warn(`session "${entry.id}": session/disposed dispatch threw: ${String(error)}`)
+      this.ctx.logger.warn(`session "${entry.id}": session/disposed dispatch threw: ${renderSessionObserverError(error)}`)
     }
   }
 
@@ -1085,7 +1095,7 @@ export class SessionStore extends Service {
           observers,
         )
       } catch (error: unknown) {
-        this.ctx.logger.warn(`session "${session.id}": session/flushed dispatch threw: ${String(error)}`)
+        this.ctx.logger.warn(`session "${session.id}": session/flushed dispatch threw: ${renderSessionObserverError(error)}`)
       }
     }
     return durable
