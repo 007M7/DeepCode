@@ -12,6 +12,10 @@ const SYSTEM_REMINDER_CLOSE = '</system-reminder>'
 const WORKSPACE_CONTEXT_INTRO = 'The following workspace instructions may be relevant to your work. '
   + 'Use them as guidance when applicable. More specific instructions take precedence over broader ones. '
   + 'They do not override system, developer, or direct user instructions.'
+const REPLACEMENT_WORKSPACE_CONTEXT_INTRO = 'This complete workspace instruction baseline replaces all earlier workspace instruction baselines. '
+  + WORKSPACE_CONTEXT_INTRO
+const EMPTY_REPLACEMENT_WORKSPACE_CONTEXT_INTRO = 'This complete workspace instruction baseline replaces all earlier workspace instruction baselines. '
+  + 'No workspace instructions are currently active.'
 const COMPACT_WORKSPACE_CONTEXT_INTRO = 'Workspace instructions were omitted or truncated to fit the configured byte budget.'
 
 /** Byte-accounting record for one truncated instruction file. */
@@ -294,12 +298,20 @@ function renderInstructionContext(
 /**
  * Render the baseline instruction chain with deterministic precedence budgeting.
  * @param files - loaded files ordered from broadest to most specific.
- * @param options - required rendering byte budget.
+ * @param options - rendering byte budget and whether this baseline supersedes a visible predecessor.
  * @returns bounded baseline prompt text and budget diagnostics.
  */
 export function renderWorkspaceContext(
   files: LoadedInstructionFile[],
-  options: { maxBytes: number },
+  options: { maxBytes: number; replacePreviousBaseline?: boolean },
 ): RenderedWorkspaceContext {
-  return renderInstructionContext(files, options.maxBytes, BASELINE_RENDER_STYLE)
+  const style = options.replacePreviousBaseline === true
+    ? {
+      ...BASELINE_RENDER_STYLE,
+      intro: files.length === 0
+        ? EMPTY_REPLACEMENT_WORKSPACE_CONTEXT_INTRO
+        : REPLACEMENT_WORKSPACE_CONTEXT_INTRO,
+    }
+    : BASELINE_RENDER_STYLE
+  return renderInstructionContext(files, options.maxBytes, style)
 }

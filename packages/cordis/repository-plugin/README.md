@@ -30,7 +30,7 @@ Place an ordinary package in the repository's `.dsh-plugin` directory:
 
 ## Standalone app configuration
 
-The shipped `dsh` base used by raw-config, Web, and headless modes contains an empty `repository-plugins` row. A Web or headless user enables exact GitHub generations by replacing that row's config in `$DSH_HOME/config.yaml` (default `~/.dsh/config.yaml`); a raw-config deployment patches the same row in its explicit overlay:
+The shipped `dsh-base` bundle every profile starts from contains an empty `repository-plugins` row. A user enables exact GitHub generations by replacing that row's config in a user patch layer — `$DSH_HOME/profiles/<name>/cordis.patch.yml`, or the home-level `$DSH_HOME/cordis.patch.yml` shared by every profile; a `--patch` overlay patches the same row for one run:
 
 ```yaml
 - id: repository-plugins
@@ -43,7 +43,7 @@ The shipped `dsh` base used by raw-config, Web, and headless modes contains an e
 
 Each source must use `github:owner/repository#<ref>`. Omitting `&path:` selects `/.dsh-plugin`; an explicit path is absolute within the repository and must end in `.dsh-plugin`. A commit ref gives the clearest immutable identity, while tags and branches remain accepted exact config values. `cacheDir` may override the default `$DSH_HOME/cache/repository-plugins` cache root.
 
-Web watches `config.yaml` through Cordis HMR. A valid source-list change installs and swaps the complete repository Plugin generation; a failed fetch, prepare, import, or Plugin application keeps the last good tree and broadcasts `hmr/config-update-failed(filename, error)`. Headless reads the file only at startup, and raw-config mode reads only its explicit overlay. An identical source string permanently reuses its prepared cache entry, so selecting changed code requires a ref, path, or other source-config change. App integration rationale: [config-only repository Plugins Agent Note](../../../.agents/notes/implemented/feature/2026-07-30-config-only-repository-plugins.md).
+Long-lived surfaces watch both `cordis.patch.yml` layers through Cordis HMR. A valid source-list change installs and swaps the complete repository Plugin generation; a failed fetch, prepare, import, or Plugin application keeps the last good tree and broadcasts `hmr/config-update-failed(filename, error)`. One-shot runs read the layers only at startup, and a `--patch` overlay is never watched. An identical source string permanently reuses its prepared cache entry, so selecting changed code requires a ref, path, or other source-config change. App integration rationale: [config-only repository Plugins Agent Note](../../../.agents/notes/implemented/feature/2026-07-30-config-only-repository-plugins.md).
 
 ## Preparation
 

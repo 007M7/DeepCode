@@ -126,18 +126,6 @@ export class ModelsSettingsStore {
   constructor(private readonly api: Pick<IApiClient, 'settings' | 'credentials' | 'llm'>) {}
 
   /**
-   * Surface a failure from an operation the page ran outside {@link load} —
-   * a row removal — on the same banner a load failure uses.
-   * @param message - the failure text to show.
-   */
-  fail(message: string): void {
-    this.store.update((s) => {
-      s.status = 'error'
-      s.error = message
-    })
-  }
-
-  /**
    * Refresh the whole page snapshot: directory and namespaces in parallel,
    * then one batched credential describe over every referenced ref. A
    * failure keeps the last good rows and surfaces the error.

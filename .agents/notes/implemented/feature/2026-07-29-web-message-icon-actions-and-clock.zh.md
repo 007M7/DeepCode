@@ -12,6 +12,8 @@ Web 聊天的用户气泡已有复制、分支、编辑 IconActions，但没有�
 
 **用户气泡在既有 IconActions 行的开头添加感知日期的本地时钟；每个轮次中最后一条带 text 内容的 assistant 在正文下追加带 `margin-top: 16px` 的复制、分支、时钟；两边只要挂载就保持可见，并在下一个本地午夜重新格式化。**
 
+assistant 一侧的座位由[已完成轮次决策](../bug-fix/2026-08-05-turn-tail-actions-require-a-completed-turn.md)收紧：只有存在 `turn/end` 的轮次才授予该行，仍在产出步骤的轮次不把该行交给任何节点。user 一侧的分支控件被 [user 气泡分支移除决策](../simplification/2026-08-06-user-bubbles-drop-the-branch-action.md)直接移除；user 行的 IconActions 只有时钟与复制。
+
 两边都通过 `formatMessageClock` 格式化 `node.time`：同一日历日 → `HH:mm`，同年更早 → `M月D日 HH:mm`，跨年 → `YYYY年M月D日 HH:mm`。`useCalendarDay` 是组件本地的日刻度（定时到下一个本地午夜），因此 memo 行在日历日变化时会重渲染，且不新增框架钩子。`MessageItem` 把标签放在复制之前（figma `388:20051`）。`ChatView` 通过 `assistantActionsSeqs` 推导轮次尾部的 seq，并不为轮次中间的内容传入 `time`；`AssistantMarkdown` 把该行放在分支之后（figma `43:32997`），且仅在 `streaming` 为 false、已知事件时间、且节点含非空 text 内容时渲染。纯 Think 节点、轮次中间的叙述与流式尾部省略该行。复制写入拼接后的 text 块。两种消息行都把自己的事件 `seq` 交给同一个 fork 回调；真实 mutation 契约由 [Web session fork 操作](2026-07-27-web-session-fork-actions.md)定义。剪贴板写入与时钟辅助函数放在 `message-chrome.ts`。组装后的界面由 `apps/web/tests/message-actions.e2e.ts`（冷 seed 历史 + aria golden）钉住；aria 归一化把每种时钟形态折叠为 `{{clock}}`。
 
 ## 曾考虑的方案

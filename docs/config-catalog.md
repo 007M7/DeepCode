@@ -223,7 +223,7 @@ export interface Config {
   maxOutputBytes?: number
   /** Per-stream spill-file cap; larger streams retain only their in-memory tail. */
   maxSpillBytes?: number
-  /** Grace period for kill escalation and for inherited pipes after shell exit. */
+  /** Grace period for kill escalation and inherited pipes; at most `MAX_TIMER_DELAY_MS`. */
   graceMs?: number
 }
 ```
@@ -439,6 +439,20 @@ export interface Config {
 
 Source: [`packages/credentials/credentials-local/src/index.ts:26`](../packages/credentials/credentials-local/src/index.ts)
 
+## `@deepseek-ai/dsh-frontend-static`
+
+Requires: `httpServer`
+
+```ts config-catalog
+/** Plugin config: the dist anchor. */
+export interface Config {
+  /** Absolute path of index.html inside the dist root. */
+  distIndex: string
+}
+```
+
+Source: [`packages/host/frontend-static/src/index.ts:28`](../packages/host/frontend-static/src/index.ts)
+
 ## `@deepseek-ai/dsh-fs-local`
 
 ```ts config-catalog
@@ -482,6 +496,20 @@ export interface Config {
 ```
 
 Source: [`packages/goal/goal/src/index.ts:114`](../packages/goal/goal/src/index.ts)
+
+## `@deepseek-ai/dsh-headless`
+
+Requires: `apiProxy` · `httpServer`
+
+```ts config-catalog
+/** Plugin config: the task, patched in by the launcher. */
+export interface Config {
+  /** The prompt text for the single turn. */
+  task: string
+}
+```
+
+Source: [`packages/bundle/headless/src/index.ts:33`](../packages/bundle/headless/src/index.ts)
 
 ## `@deepseek-ai/dsh-hooks-claude`
 
@@ -577,18 +605,16 @@ Source: [`packages/host/directory-picker-browse/src/index.ts:181`](../packages/h
 ## `@deepseek-ai/dsh-host-webserver`
 
 ```ts config-catalog
-/** Gateway config: listen address plus the static dist anchor (injected by the composing app, never self-resolved). */
+/** Gateway config: the listen address. */
 export interface Config {
   /** Listen host; the two supported values are loopback and all-interfaces. */
   host: '127.0.0.1' | '0.0.0.0'
   /** Listen port; zero requests an OS-assigned port. */
   port: number
-  /** Absolute path of index.html inside the static root (dist location is workspace knowledge of the app). */
-  distIndex: string
 }
 ```
 
-Source: [`packages/host/webserver/src/index.ts:47`](../packages/host/webserver/src/index.ts)
+Source: [`packages/host/webserver/src/index.ts:45`](../packages/host/webserver/src/index.ts)
 
 ## `@deepseek-ai/dsh-invariants`
 
@@ -642,7 +668,10 @@ Requires: `llm`
  * reasoning effort resolves to `high`.
  */
 export interface Config {
-  /** Literal API key; prefer {@link apiKeyEnv} so no secret enters configuration files. */
+  /**
+   * Trimmed literal API key; whitespace-only is absent. Prefer
+   * {@link apiKeyEnv} to keep secrets out of configuration files.
+   */
   apiKey?: string
   /** Credential reference (environment-variable name) resolved per request; defaults to `DEEPSEEK_API_KEY`. */
   apiKeyEnv?: string
@@ -1039,7 +1068,7 @@ export interface Config {
   maxOutputBytes?: number
   /** Per-stream spill-file cap; larger streams retain only their in-memory tail. */
   maxSpillBytes?: number
-  /** Grace period for kill escalation and for inherited pipes after shell exit. */
+  /** Grace period for kill escalation and inherited pipes; at most `MAX_TIMER_DELAY_MS`. */
   graceMs?: number
   /**
    * Explicit pwsh executable. When omitted, well-known Windows install
@@ -1602,10 +1631,11 @@ export interface Config {
   /**
    * Grace period (ms) for the child's EOF-driven quiesce on dispose — its
    * window to flush persistence and tear down its own nested subprocesses
-   * before the parent escalates to a signal.
+   * before the parent escalates to a signal. Must not exceed
+   * `MAX_TIMER_DELAY_MS`.
    */
   disposeEofGraceMs?: number
-  /** Termination confirmation window (ms), including forced exit on every platform. */
+  /** Termination-escalation grace (ms); must not exceed `MAX_TIMER_DELAY_MS`. */
   disposeGraceMs?: number
 }
 
@@ -1613,7 +1643,45 @@ export interface Config {
 export type PermissionPolicy = 'allow' | 'reject'
 ```
 
-Source: [`packages/subagent/subagent-acp/src/index.ts:26`](../packages/subagent/subagent-acp/src/index.ts)
+Source: [`packages/subagent/subagent-acp/src/index.ts:27`](../packages/subagent/subagent-acp/src/index.ts)
+
+## `@deepseek-ai/dsh-subagent-claude-code`
+
+Requires: `subagents` · `subprocess`
+
+```ts config-catalog
+/** Deployment-owned environment and process-release bound. */
+export interface Config {
+  /**
+   * Explicit environment entries layered over the subprocess seam's
+   * credential-scrubbed parent environment.
+   */
+  env?: Record<string, string>
+  /** Grace in milliseconds for Claude Code process-tree termination. */
+  disposeGraceMs?: number
+}
+```
+
+Source: [`packages/subagent/subagent-claude-code/src/index.ts:32`](../packages/subagent/subagent-claude-code/src/index.ts)
+
+## `@deepseek-ai/dsh-subagent-codex`
+
+Requires: `subagents` · `subprocess`
+
+```ts config-catalog
+/** Deployment-owned environment and process-release bound. */
+export interface Config {
+  /**
+   * Explicit environment entries layered over the subprocess seam's
+   * credential-scrubbed parent environment.
+   */
+  env?: Record<string, string>
+  /** Grace in milliseconds for app-server process-tree termination. */
+  disposeGraceMs?: number
+}
+```
+
+Source: [`packages/subagent/subagent-codex/src/index.ts:30`](../packages/subagent/subagent-codex/src/index.ts)
 
 ## `@deepseek-ai/dsh-subagent-dsh-sdk`
 
@@ -1847,7 +1915,7 @@ export interface Config {
   searchMetaMaxBytes?: number
   /** Max complete raw `rg` stdout bytes a search will parse; larger raw output fails with `SEARCH_RAW_OUTPUT_OVERFLOW`. */
   rawOutputMaxBytes?: number
-  /** Terminate-escalation grace period (ms) for one search process, handed to the subprocess seam. */
+  /** Terminate-escalation grace (ms), handed to the subprocess seam and bounded by `MAX_TIMER_DELAY_MS`. */
   graceMs?: number
   /** Max bytes retained for one search's stderr tail; the excerpt is embedded in `SEARCH_*` error messages, never shown on success. */
   stderrMaxBytes?: number
@@ -1856,7 +1924,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/fs/tool-fs-search/src/index.ts:72`](../packages/fs/tool-fs-search/src/index.ts)
+Source: [`packages/fs/tool-fs-search/src/index.ts:73`](../packages/fs/tool-fs-search/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-goal`
 
@@ -2037,8 +2105,8 @@ export interface Config {
    * requires the provider's `depthLimit` capability (mount fails loud
    * otherwise). The provider checks the calling agent's current depth at every
    * start; the tool remains model-visible so runtime policy owns rejection.
-   * `'provider-managed'` is for an out-of-process provider (ACP) whose
-   * recursion budget belongs to the child harness's own deployment.
+   * `'provider-managed'` is for an out-of-process provider whose recursion
+   * budget belongs to the child runtime or its own deployment.
    */
   maxDepth?: number | 'provider-managed'
 }
@@ -2082,6 +2150,26 @@ export interface Config {
 ```
 
 Source: [`packages/tasks/tool-tasks/src/index.ts:23`](../packages/tasks/tool-tasks/src/index.ts)
+
+## `@deepseek-ai/dsh-tool-todo`
+
+Requires: `tools`
+
+```ts config-catalog
+/** Model-facing todo tool configuration. */
+export interface Config {
+  /**
+   * Required deployment choice for whether several todos may be `in_progress` at once. True suits
+   * agents that run work concurrently — subagents, background commands, workflow fan-out — and the
+   * description then instructs the model to mark every actively worked task. False restores the
+   * single-active discipline: the description asks for exactly one, and a call marking more is
+   * rejected.
+   */
+  allowParallelInProgress: boolean
+}
+```
+
+Source: [`packages/todo/tool-todo/src/index.ts:29`](../packages/todo/tool-todo/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-web`
 
@@ -2133,8 +2221,9 @@ export interface Config {
   /**
    * Model presentation. `native` (default) sends every visible schema; `code`
    * sends only `run_code` plus a generated SDK prompt; `both` sends both forms.
-   * Code modes require a TypeScript runtime and fail prompt assembly when it is
-   * absent or mismatched. Under `code`, native names in `toolOrder` are invalid.
+   * Code modes require a `ctx.codeRuntime` whose `language` has a registered
+   * SDK renderer (TypeScript or Python) and fail prompt assembly when it is
+   * absent or has no renderer. Under `code`, native names in `toolOrder` are invalid.
    */
   mode?: ToolPresentationMode
   /**
@@ -2151,7 +2240,7 @@ export interface Config {
 export type ToolPresentationMode = 'native' | 'code' | 'both'
 ```
 
-Source: [`packages/core/tools/src/index.ts:592`](../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:616`](../packages/core/tools/src/index.ts)
 
 ## `@deepseek-ai/dsh-typert-loader`
 
@@ -2215,6 +2304,39 @@ export interface WebServiceConfig {
 ```
 
 Source: [`packages/web/web/src/index.ts:55`](../packages/web/web/src/index.ts)
+
+## `@deepseek-ai/dsh-web-app`
+
+Requires: `httpServer`
+
+```ts config-catalog
+/** Plugin config: the surface facts the launcher patches over this bundle's defaults. */
+export interface Config {
+  /** Whether this process mounted the client-plugin HMR receiver (`dsh web --dev`). */
+  mode: WebMode
+  /** Print the URL line on activation; a headless layer over this bundle turns it off. */
+  printUrl: boolean
+  /**
+   * Register the model-visible surface context (the `app:web-surface` prompt
+   * section and the `DSH_WEB_URL`/`DSH_WEB_MODE` bash variables). A one-shot
+   * layer turns it off: its user is not interacting through the GUI, so the
+   * orientation text would be false.
+   */
+  surfaceContext: boolean
+  /**
+   * LAN IPv4 addresses sampled once by the launcher when the effective bind
+   * is all-interfaces — the exact snapshot the /api trust fence was
+   * configured with, so the printed LAN URL can never name an address the
+   * fence rejects. Empty on a loopback bind.
+   */
+  lanAddresses: string[]
+}
+
+/** Web runtime mode: production, or development when the client-plugin HMR receiver is active. */
+export type WebMode = 'production' | 'development'
+```
+
+Source: [`packages/bundle/web-app/src/index.ts:32`](../packages/bundle/web-app/src/index.ts)
 
 ## `@deepseek-ai/dsh-web-fetch-local`
 
@@ -2364,7 +2486,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/context/workspace-context/src/config.ts:17`](../packages/context/workspace-context/src/config.ts)
+Source: [`packages/context/workspace-context/src/config.ts:18`](../packages/context/workspace-context/src/config.ts)
 
 ## Loadable plugins with no config
 
@@ -2413,7 +2535,6 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-timeout-policy` — requires `tools` ([`packages/timeout/timeout-policy/src/index.ts`](../packages/timeout/timeout-policy/src/index.ts))
 - `@deepseek-ai/dsh-tool-ask-user` — requires `tools` · `userInteraction` ([`packages/ui/tool-ask-user/src/index.ts`](../packages/ui/tool-ask-user/src/index.ts))
 - `@deepseek-ai/dsh-tool-subagent-control` — requires `tools` · `subagents` ([`packages/subagent/tool-subagent-control/src/index.ts`](../packages/subagent/tool-subagent-control/src/index.ts))
-- `@deepseek-ai/dsh-tool-todo` — requires `tools` ([`packages/todo/tool-todo/src/index.ts`](../packages/todo/tool-todo/src/index.ts))
 - `@deepseek-ai/dsh-typert-registry` ([`packages/typert/registry/src/index.ts`](../packages/typert/registry/src/index.ts))
 - `@deepseek-ai/dsh-user-interaction` ([`packages/ui/user-interaction/src/index.ts`](../packages/ui/user-interaction/src/index.ts))
 - `@deepseek-ai/dsh-workspace` — requires `storageDomain` · `sessionPersistence` ([`packages/workspace/workspace/src/index.ts`](../packages/workspace/workspace/src/index.ts))
@@ -2446,6 +2567,7 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-agent-loop-testkit` ([`packages/support/agent-loop-testkit/src/index.ts`](../packages/support/agent-loop-testkit/src/index.ts))
 - `@deepseek-ai/dsh-app-boot` ([`packages/ui/app-boot/src/index.ts`](../packages/ui/app-boot/src/index.ts))
 - `@deepseek-ai/dsh-atomic-write` ([`packages/util/atomic-write/src/index.ts`](../packages/util/atomic-write/src/index.ts))
+- `@deepseek-ai/dsh-base` ([`packages/bundle/base/src/index.ts`](../packages/bundle/base/src/index.ts))
 - `@deepseek-ai/dsh-brand` ([`packages/util/brand/src/index.ts`](../packages/util/brand/src/index.ts))
 - `@deepseek-ai/dsh-client-schema-form` ([`packages/client/schema-form/src/index.ts`](../packages/client/schema-form/src/index.ts))
 - `@deepseek-ai/dsh-client-test-runtime` ([`packages/client/test-runtime/src/index.ts`](../packages/client/test-runtime/src/index.ts))

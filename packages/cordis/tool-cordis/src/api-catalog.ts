@@ -397,8 +397,16 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Register an exact-path HTTP upgrade route. Duplicate paths throw because\n * one socket can have only one protocol owner.\n * @param route - pathname and handler owning negotiation plus socket use.\n * @returns the disposer removing the route.\n */',
       },
       {
+        signature: 'registerFallback(handler: WebRoute[\'handler\']): () => void',
+        jsDoc: '/**\n * Claim the fallback seat: the handler answering every request no named\n * route matches (the SPA dist server in the shipped Web composition). One\n * owner only — a second registration throws, because two fallbacks cannot\n * compose.\n * @param handler - owns the full response lifecycle of unmatched requests.\n * @returns the disposer releasing the seat.\n */',
+      },
+      {
         signature: 'tapIndex(transform: (html: string) => string): () => void',
-        jsDoc: '/**\n * Register an index.html transform, applied to every index response in\n * registration order.\n * @param transform - pure html-to-html function.\n * @returns the disposer removing the transform.\n */',
+        jsDoc: '/**\n * Register an index.html transform, applied by the fallback owner to every\n * index response ({@link applyIndexTaps}) in registration order.\n * @param transform - pure html-to-html function.\n * @returns the disposer removing the transform.\n */',
+      },
+      {
+        signature: 'applyIndexTaps(html: string): string',
+        jsDoc: '/**\n * Run an index.html body through the registered taps in registration order\n * — called by the fallback owner on every index response it renders.\n * @param html - the raw index.html body.\n * @returns the transformed body.\n */',
       },
     ],
   },
@@ -930,7 +938,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'listChildren(parentSessionId: SessionId, signal?: AbortSignal): Promise<SubagentListEntry[]>',
-        jsDoc: '/**\n * Enumerate the parent\'s direct session-backed subagents from the\n * live-preferred session corpus without loading or resuming an Agent. Session\n * query supplies lineage, candidate order, event reads, and live state; this\n * service interprets descriptor mode, activity, and per-child diagnostics\n * without consulting Agent registrations, Activations, or providers.\n *\n * The trace and exact descriptor read receive `signal`; the full event-list\n * read has no signal parameter, so the scan rechecks cancellation around\n * every await and between candidates. Query rejections that settle after an\n * abort become a stable `SubagentError` with code `CANCELLED`.\n * @param parentSessionId - parent session whose direct children are listed.\n * @param signal - caller-owned cancellation forwarded where supported and\n *   observed around every query await.\n * @returns children and per-child diagnostics in stable trace order.\n * @throws {@link SubagentError} when session query is unavailable or the\n *   caller cancels the scan.\n */',
+        jsDoc: '/**\n * Enumerate the parent\'s direct session-backed subagents without loading or\n * resuming an Agent and without any query seam: the listing merges the live\n * session store with optional session persistence (live-preferred) and\n * serves each child\'s durable mode/label from the registered `subagent`\n * projection unit down a three-rung ladder — the registry\'s watermark\n * snapshot for a live child; for a cold one, a durable projection-cache\n * row when the optional cache serves an own-suffix identity (its `seq`\n * gate proves the value postdates the fork seed, where a child\'s own\n * descriptor is immutable once appended), else one persistence inspection\n * folded through the registry. The\n * projection fold is the single classification authority; per-child\n * diagnostics relay a fold that served no identity or a failed inspection,\n * never a list-time descriptor parse. Absent persistence, enumeration is\n * live-only (a cold child cannot be resumed then either, so its absence is\n * capability absence, not an error). This service consults no Agent\n * registrations, Activations, or providers.\n *\n * Every persistence read receives `signal`, and the listing rechecks\n * cancellation around each of those awaits. Read rejections that settle\n * after an abort become a stable `SubagentError` with code `CANCELLED`.\n * @param parentSessionId - parent session whose direct children are listed.\n * @param signal - caller-owned cancellation forwarded to persistence reads\n *   and observed around every read await.\n * @returns children and per-child diagnostics ordered by `createdAt`, then id.\n * @throws {@link SubagentError} when the projection registry or the session\n *   store is not mounted, or the caller cancels the listing.\n */',
       },
       {
         signature: 'registerProvider(provider: SubagentProvider): () => void',
@@ -2811,7 +2819,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SubprocessSpawnSpec',
-    declaration: 'export interface SubprocessSpawnSpec {\n    argv: readonly string[];\n    cwd: string;\n    stdio: SubprocessStdio;\n    graceMs: number;\n    signal?: AbortSignal | undefined;\n    env?: Record<string, string> | undefined;\n}',
+    declaration: 'export interface SubprocessSpawnSpec {\n    argv: readonly string[];\n    cwd: string;\n    stdio: SubprocessStdio;\n    graceMs: number;\n    signal?: AbortSignal | undefined;\n    env?: NodeJS.ProcessEnv | undefined;\n}',
   },
   {
     name: 'SubprocessStdinMode',

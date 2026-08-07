@@ -156,9 +156,9 @@ Streaming uses raw chunks and `BlockAssembler`. Each `LlmAdapter.stream()` is on
 
 A swappable capability usually has **interface / implementation / consumer** layers: service/events, backend, and model-facing tools/prompts. Bash is the reference; the [capability graph](capability-seams.md) maps each family.
 
-Exceptions combine LLM interface/consumer, filesystem policy, web registries, and named skill/subagent providers. Subagents spawn fresh, fork a completed-turn prefix, or use ACP children ([subagent.md](core-data-structures/subagent.md)).
+Exceptions combine LLM interface/consumer, filesystem policy, web registries, and named skill/subagent providers. Subagents spawn fresh, fork a completed-turn prefix, use ACP children, or delegate one self-contained turn to a real product provider such as Codex ([subagent.md](core-data-structures/subagent.md)).
 
-`dsh-workspace-context` composes its baseline on the first `agent/pre-step` and folds it into the final entering batch right after the claimed prompt, so it reaches the first request with the direct prompt; rejection keeps it in the next-step inbox. Filesystem changes projected after tools are likewise folded into the next entering pre-step instead of creating a later context-only step ([decision](../.agents/notes/implemented/feature/2026-06-24-workspace-context.md)). `dsh-paths` owns shared paths.
+`dsh-workspace-context` composes its baseline on the first `agent/pre-step` and folds it into the final entering batch right after the claimed prompt, so it reaches the first request with the direct prompt; rejection keeps it in the next-step inbox. When compaction removes that baseline from the visible surface, the next entering pre-step composes the current baseline and carries it in the same request. Filesystem changes projected after tools are likewise folded into the next entering pre-step instead of creating a later context-only step ([decision](../.agents/notes/implemented/feature/2026-06-24-workspace-context.md)). `dsh-paths` owns shared paths.
 
 ### Bundles And Apps
 
