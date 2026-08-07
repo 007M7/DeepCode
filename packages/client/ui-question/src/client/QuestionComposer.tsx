@@ -98,12 +98,13 @@ function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<Questi
 
   const choose = (label: string): void => {
     updateDraft((current) => {
-      const selected = question.multiSelect === true
-        ? current.selected.includes(label)
+      if (question.multiSelect === true) {
+        const selected = current.selected.includes(label)
           ? current.selected.filter(item => item !== label)
           : [...current.selected, label]
-        : [label]
-      return { selected, custom: '', skipped: false }
+        return { ...current, selected, skipped: false }
+      }
+      return { selected: [label], custom: '', skipped: false }
     })
     if (question.multiSelect !== true && index < questions.length - 1) {
       setIndex(current => current + 1)
@@ -129,7 +130,7 @@ function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<Questi
         const custom = value.custom.trim()
         return {
           id: item.id,
-          selected: custom === '' ? value.selected : [],
+          selected: custom === '' || item.multiSelect === true ? value.selected : [],
           ...(custom === '' ? {} : { custom }),
         }
       }),
@@ -155,14 +156,17 @@ function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<Questi
     submitDrafts(drafts)
   }
 
-  // Shared by the inline custom input and the optionless textarea: typing a
-  // custom draft clears any selection, and Enter continues the flow
-  // (Shift+Enter stays a newline in the textarea; on the single-line input it
-  // is inert either way).
+  // Shared by the inline custom input and the optionless textarea: a
+  // multi-select draft retains checked labels, while a single-select custom
+  // answer replaces its selection. Enter continues the flow (Shift+Enter
+  // stays a newline in the textarea; on the single-line input it is inert).
   const draftCustom = (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>): void => {
     const value = event.target.value
     updateDraft(current => ({
-      ...current, selected: [], custom: value, skipped: false,
+      ...current,
+      selected: question.multiSelect === true ? current.selected : [],
+      custom: value,
+      skipped: false,
     }))
   }
 

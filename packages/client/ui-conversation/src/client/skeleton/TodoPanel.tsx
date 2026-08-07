@@ -13,7 +13,7 @@ import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots
 // declare) and the payload type. Type-only by construction — the outlet is
 // free of host value imports, so no host Context merge enters this program.
 import type { TodoItem } from '@deepseek-ai/dsh-tool-todo/client'
-import { IconChevronDownOutline14, IconChevronUpOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconChecklistOutline14, IconChevronDownOutline14, IconChevronUpOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { NS } from '../locales.ts'
 import css from './TodoPanel.module.css'
 
@@ -78,11 +78,18 @@ function StatusGlyph({ status }: { status: TodoItem['status'] }) {
   }
 }
 
-/** Header summary: "<done>/<total> tasks · <n> in progress". */
+/** Header summary: "·"-joined per-status counts; zero-count segments are omitted as noise (a non-empty list keeps at least one). */
 function progressLabel(todos: readonly TodoItem[], t: TodoPanelProps['t']): string {
   const done = todos.filter(item => item.status === 'completed').length
   const active = todos.filter(item => item.status === 'in_progress').length
-  return t('todo.progress', { done, total: todos.length, active })
+  const pending = todos.length - done - active
+  // En spaces (U+2002): HTML collapses runs of ASCII spaces, so widening the
+  // separator breathing room needs a literal wide space.
+  return [
+    ...done > 0 ? [t('todo.progress.done', { done })] : [],
+    ...active > 0 ? [t('todo.progress.active', { active })] : [],
+    ...pending > 0 ? [t('todo.progress.pending', { pending })] : [],
+  ].join('\u2002·\u2002')
 }
 
 export function TodoPanel({ todos, t }: TodoPanelProps) {
@@ -98,6 +105,7 @@ export function TodoPanel({ todos, t }: TodoPanelProps) {
           aria-expanded={!collapsed}
           onClick={() => { setCollapsed(v => !v) }}
         >
+          <span className={css.lead} aria-hidden><IconChecklistOutline14 /></span>
           <span className={css.title}>{t('todo.title')}</span>
           <span className={css.progress}>{progressLabel(todos, t)}</span>
           <span className={css.chevron} aria-hidden>
@@ -129,19 +137,18 @@ export function TodoDock({ useProjection, t }: TodoDockProps) {
 }
 
 /**
- * The plan strip as a plain registrant plugin (QueueDock posture).
- * `inject: ['conversation']` is the ordering seam: the conversation service
- * mounts after ui-conversation's slot registrations, so the
- * 'conversation.input.dock' declaration is on the ledger by then.
+ * The plan strip as a plain registrant plugin (QueueDock posture), following
+ * the input-dock declaration across independent activation and reload.
  */
 export const todoDockEntry = {
   name: 'conversation-todo-dock',
-  inject: ['slots', 'conversation'],
+  inject: ['slots'],
   /**
-   * Register the plan strip between the goal and queue entries (order 10).
+   * Register the plan strip before the goal and queue entries (order 0).
    * @param ctx - registrant context (disposal rides ctx.effect inside slots.register).
    */
   apply(ctx: Context): void {
-    ctx.slots.register({ name: 'conversation.input.dock', id: 'todo', order: 10, locale: NS }, TodoDock)
+    ctx.slots.inject('conversation.input.dock', () =>
+      ctx.slots.register({ name: 'conversation.input.dock', id: 'todo', order: 0, locale: NS }, TodoDock))
   },
 }

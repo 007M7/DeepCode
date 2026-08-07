@@ -30,6 +30,21 @@ function deferred<T>() {
 }
 
 describe('WelcomeNoticeStore', () => {
+  it('acknowledges in memory without calling loopback-only settings APIs', async () => {
+    const describe = vi.fn()
+    const mutate = vi.fn()
+    const controller = new WelcomeNoticeStore({ settings: { describe, mutate } } as never, 'memory')
+
+    await controller.load()
+    expect(controller.store.getSnapshot()).toEqual({ status: 'ready', acknowledged: false, error: null })
+    await expect(controller.acknowledge()).resolves.toBe(true)
+    expect(controller.store.getSnapshot()).toEqual({ status: 'ready', acknowledged: true, error: null })
+    await controller.load()
+    expect(controller.store.getSnapshot()).toEqual({ status: 'ready', acknowledged: true, error: null })
+    expect(describe).not.toHaveBeenCalled()
+    expect(mutate).not.toHaveBeenCalled()
+  })
+
   it('acknowledges only the exact current copy version', async () => {
     for (const [version, acknowledged] of [
       [undefined, false],
@@ -38,7 +53,7 @@ describe('WelcomeNoticeStore', () => {
     ] as const) {
       const api = {
         settings: {
-          describe: vi.fn(() => Promise.resolve(ok({ writable: true, namespaces: [namespace(version)] }))),
+          describe: vi.fn(() => Promise.resolve(ok({ writable: true, hasDocument: false, namespaces: [namespace(version)] }))),
         },
       }
       const controller = new WelcomeNoticeStore(api as never)
@@ -86,7 +101,7 @@ describe('WelcomeNoticeStore', () => {
         rpcId: 'failed' as never,
         result: { ok: false as const, error: { code: 'internal' as const, message: 'denied', details: {} } },
       }),
-      () => Promise.resolve(ok({ writable: true, namespaces: [] })),
+      () => Promise.resolve(ok({ writable: true, hasDocument: false, namespaces: [] })),
     ]) {
       const controller = new WelcomeNoticeStore({ settings: { describe } } as never)
       await controller.load()
@@ -97,6 +112,7 @@ describe('WelcomeNoticeStore', () => {
       const controller = new WelcomeNoticeStore({
         settings: { describe: () => Promise.resolve(ok({
           writable: true,
+          hasDocument: false,
           namespaces: [{ ...namespace(), value }],
         })) },
       } as never)
@@ -118,18 +134,20 @@ describe('WelcomeNoticeStore', () => {
     const first = deferred<ReturnType<typeof ok>>()
     const describe = vi.fn()
       .mockImplementationOnce(() => first.promise)
-      .mockImplementationOnce(() => Promise.resolve(ok({ writable: true, namespaces: [namespace()] })))
+      .mockImplementationOnce(() => Promise.resolve(ok({ writable: true, hasDocument: false, namespaces: [namespace()] })))
     const controller = new WelcomeNoticeStore({ settings: { describe } } as never)
     const stale = controller.load()
     await controller.load()
-    first.resolve(ok({ writable: true, namespaces: [namespace(WELCOME_NOTICE_VERSION)] }))
+    first.resolve(ok({ writable: true, hasDocument: false, namespaces: [namespace(WELCOME_NOTICE_VERSION)] }))
     await stale
     expect(controller.store.getSnapshot().acknowledged).toBe(false)
 
     const failed = deferred<ReturnType<typeof ok>>()
     describe
       .mockImplementationOnce(() => failed.promise)
-      .mockImplementationOnce(() => Promise.resolve(ok({ writable: true, namespaces: [namespace(WELCOME_NOTICE_VERSION)] })))
+      .mockImplementationOnce(() => Promise.resolve(ok({
+        writable: true, hasDocument: false, namespaces: [namespace(WELCOME_NOTICE_VERSION)],
+      })))
     const staleFailure = controller.load()
     await controller.load()
     failed.reject('stale failure')
@@ -139,7 +157,7 @@ describe('WelcomeNoticeStore', () => {
 
   it('contains stale acknowledgement settlements and refreshes only a loaded store', async () => {
     const write = deferred<ReturnType<typeof ok>>()
-    const describe = vi.fn(() => Promise.resolve(ok({ writable: true, namespaces: [namespace()] })))
+    const describe = vi.fn(() => Promise.resolve(ok({ writable: true, hasDocument: false, namespaces: [namespace()] })))
     const controller = new WelcomeNoticeStore({
       settings: { mutate: () => write.promise, describe },
     } as never)

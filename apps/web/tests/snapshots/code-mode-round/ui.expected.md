@@ -7,12 +7,10 @@
 - text: "Using ONE run_code program: run bash `echo CODE_ROUND_OK`, then read the file missing.txt catching its error in the program. Return an object with both outcomes. Then reply DONE and stop. {{clock}}"
 - button "Copy":
   - img
-- button "Branch into a new conversation":
-  - img
-- button "Context injection":
+- button "Context injection @deepseek-ai/dsh-system-prompt":
   - img
   - img
-  - text: Context injection
+  - text: Context injection @deepseek-ai/dsh-system-prompt
 - 'button "Think The user wants me to write a single `run_code` program that:"':
   - img
   - img
@@ -35,13 +33,14 @@
   - img
 - button "Branch into a new conversation":
   - img
-- text: {{clock}}
+- text: {{clock}} Ran for {{duration}} TTFT {{duration}} {{throughput}} tok/s
 - textbox "Message the agent"
 - button "Commands":
   - img
-- 'button "Access mode, current: Full access"': Full access
+- 'button "Access mode, current: Workspace Write"': Workspace Write
 - button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img
+- button "7% of context used"
 - button "Send message" [disabled]
-- text: 1 turns · 2 steps Tool call {{duration}} Context 7% of 128K Cache hit 52% Input 17.2K tok · Output 252 tok
+- text: 1 turns · 2 steps LLM {{duration}} · Tool call {{duration}} TTFT avg {{duration}} · {{throughput}} tok/s Cache hit 52% Input 17.2K tok · Output 252 tok

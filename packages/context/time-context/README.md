@@ -16,21 +16,21 @@ Opt-in durable context with the current zoned time and elapsed time sampled duri
 
 When `timeZone` is omitted, the plugin resolves the Node process's system zone once at plugin load. Node honors `TZ`; without that override, the host or container supplies the zone. An explicit `timeZone` must be an IANA identifier and is validated at plugin load.
 
-`refreshIntervalMs` must be a non-negative safe integer. Omission or `0` appends on every pre-step attempt whose signal is not already aborted. A positive value appends only when the session has no earlier time-context injection, wall time moved backward, or at least that many milliseconds have elapsed since the latest injection.
+`refreshIntervalMs` must be a non-negative safe integer. Omission or `0` adds context to every eligible entering pre-step whose signal is not already aborted. A positive value adds it only when the session has no earlier time-context injection, wall time moved backward, or at least that many milliseconds have elapsed since the latest injection.
 
 ## Timing semantics
 
-The plugin prepends an `agent/step` listener. When an injection is due, it appends one injected `user/message` through `agent.inject()` before `step/start` and ordinary automatic compaction, with source `{ kind: 'plugin', plugin: 'time-context' }`. A suppressed attempt appends nothing.
+The plugin prepends an `agent/pre-step` listener. When an injection is due and the downstream decision enters the proposed step, it adds one sourced `UserMessage` to the returned batch. AgentLoop records that context after `step/start` and before ordinary automatic compaction with source `{ kind: 'plugin', plugin: 'time-context' }`. A suppressed, rejected, or failed pre-step records nothing.
 
 Positive-interval scheduling scans the raw durable session events for the latest `user/message` with that source, including a reading shadowed by compaction. The schedule therefore applies across turns and resumed processes without process-local cache state. It reduces append frequency and history growth but never removes an existing reading, and sessions schedule independently.
 
 Step 1 measures from the latest preceding model-visible message, including the prompt that opened the turn. Later steps measure from the preceding time-context event in the same turn. Both baselines use durable session-event timestamps; backward wall-clock movement clamps elapsed time to zero. A missing first-step baseline, or a later step with no earlier same-turn reading because interval suppression skipped it, reports `unavailable`.
 
-A time reading records a request-preparation attempt, not a committed step or transmitted request. Because the listener runs first, its append may remain when a later pre-step listener cancels or fails the attempt; the log is append-only and the plugin performs no rollback.
+A time reading records an entered pre-step batch, not a completed step or transmitted request. A later request-preparation failure can therefore leave the reading in history, but a downstream pre-step listener that rejects or fails prevents it from being recorded.
 
 The separately published `./invariant` companion checks each plugin-attributed reading against the open turn, next pre-step position, elapsed baseline, and durable event time. Its rendered timestamp must parse and cannot postdate the event; process suspension between sampling and append does not invalidate the reading.
 
-The time reading stays in derived conversation history until a later compaction shadows it. Request headers contain no time-context state. Request reconstruction uses the complete durable surface prefix at each `step/start`, so transmitted requests need not map one-to-one to readings: a failed preparation can leave an extra reading, while interval suppression can let a request reuse existing history without adding one.
+The time reading stays in derived conversation history until a later compaction shadows it. Request headers contain no time-context state. Request reconstruction uses the complete durable surface prefix after each `step/start`, so transmitted requests need not map one-to-one to readings: request preparation can fail after step entry, while interval suppression can let a request reuse existing history without adding one.
 
 ## Model Experience
 

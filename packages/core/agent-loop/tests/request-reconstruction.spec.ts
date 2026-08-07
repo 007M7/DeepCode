@@ -38,7 +38,7 @@ async function harnessRoutes(
 
 function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
-    const dispose = ctx.on('agent/status', (subject, status) => {
+    const dispose = ctx.on('agent/status', ({ agent: subject, status }) => {
       if (subject === agent && status === 'idle') {
         dispose()
         resolve()
@@ -122,7 +122,7 @@ describe('request stability across the loop', () => {
     const adapter = new MockAdapter([textResponse('one'), textResponse('two')], reasoning)
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('effort'), { provider: 'mock', model: 'mock' })
-    ctx.on('agent/request', async (_agent, turn, _step, _signal, next) => {
+    ctx.on('agent/request', async ({ turn }, next) => {
       const config = await next()
       return turn === 2 ? { ...config, reasoningEffort: ReasoningEffortId('max') } : config
     })
@@ -198,7 +198,7 @@ describe('request stability across the loop', () => {
       provider: 'deepseek',
       model: 'deepseek-model',
     })
-    ctx.on('agent/request', async (_agent, turn, _step, _signal, next) => {
+    ctx.on('agent/request', async ({ turn }, next) => {
       const config = await next()
       return turn === 2
         ? { ...config, provider: 'other', model: 'other-model' }
@@ -232,7 +232,7 @@ describe('request stability across the loop', () => {
       model: 'deepseek-model',
       maxTokens: 4_096,
     })
-    ctx.on('agent/request', async (_agent, turn, _step, _signal, next) => {
+    ctx.on('agent/request', async ({ turn }, next) => {
       const config = await next()
       return turn === 2
         ? { ...config, provider: 'other', model: 'other-model' }
@@ -350,10 +350,6 @@ describe('request stability across the loop', () => {
         }
       }([])
       const ctx = await harness(adapter)
-      const errors: Error[] = []
-      ctx.on('agent/error', (_agent, _turn, _step, error) => {
-        if (error instanceof Error) errors.push(error)
-      })
       const agent = ctx.agentLoop.create(SessionId(`reasoning-${kind}`), {
         provider: 'mock',
         model: 'mock',
@@ -362,7 +358,13 @@ describe('request stability across the loop', () => {
       send(agent, 'go')
       await waitForIdle(ctx, agent)
 
-      expect(errors).toContain(failure)
+      expect(agent.session.events.findLast(event => event.type === 'turn/end')).toMatchObject({
+        data: {
+          reason: failure instanceof LlmError
+            ? { kind: 'error', error: failure.failure }
+            : { kind: 'error', error: { message: failure.message, code: 'UNKNOWN' } },
+        },
+      })
       expect(adapter.requests).toHaveLength(0)
     },
   )
@@ -409,19 +411,13 @@ describe('request stability across the loop', () => {
     send(agent, 'first')
     await waitForIdle(ctx, agent)
 
-    // A pre-step listener compacts turn 1's history before turn 2's step —
-    // the sanctioned surface rewrite, landing OUTSIDE the step.
-    const preStep = ctx.on('agent/step', () => {
-      preStep()
-      const session = agent.session
-      const nodes = session.surface.nodes
-      session.append('user/message', createUserMessage({
-        content: [{ type: 'text', text: '[summary of turn 1]' }],
-        source: { kind: 'plugin', plugin: 'test-compact' },
-      }), {
-        surfaceOp: { op: 'replace', start: nodes[0]!, end: nodes[1]! },
-        sourceEventSeqs: [nodes[0]!, nodes[1]!],
-      })
+    const nodes = agent.session.surface.nodes
+    agent.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: '[summary of turn 1]' }],
+      source: { kind: 'plugin', plugin: 'test-compact' },
+    }), {
+      surfaceOp: { op: 'replace', start: nodes[0]!, end: nodes[1]! },
+      sourceEventSeqs: [nodes[0]!, nodes[1]!],
     })
 
     send(agent, 'second')
@@ -464,7 +460,7 @@ describe('request stability across the loop', () => {
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     let injected = false
-    ctx.on('agent/request', async (_agent, _turn, _step, _signal, next) => {
+    ctx.on('agent/request', async (_payload, next) => {
       if (!injected) {
         injected = true
         agent.inject(createUserMessage({ content: [{ type: 'text', text: '[late context]' }], source: { kind: 'plugin', plugin: 'test' } }))
@@ -491,10 +487,6 @@ describe('request stability across the loop', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    const errors: Error[] = []
-    ctx.on('agent/error', (_agent, _turn, _step, error) => {
-      if (error instanceof Error) errors.push(error)
-    })
     ctx.on('llm/stream', (options, next) => {
       // The historical failure mode this design kills: a listener rewriting
       // request content in place. The freeze turns it into a loud error.
@@ -508,8 +500,10 @@ describe('request stability across the loop', () => {
     send(agent, 'go')
     await waitForIdle(ctx, agent)
 
-    expect(errors).toHaveLength(1)
-    expect(errors[0]!.message).toMatch(/not extensible|frozen|read only|readonly/i)
+    const turnEnd = agent.session.events.findLast(event => event.type === 'turn/end')
+    expect(turnEnd).toMatchObject({ data: { reason: { kind: 'error' } } })
+    if (turnEnd?.type !== 'turn/end' || turnEnd.data.reason.kind !== 'error') throw new Error()
+    expect(turnEnd.data.reason.error.message).toMatch(/not extensible|frozen|read only|readonly/i)
   })
 
   it('a fresh loop instance over a seeded log anchors with a resume snapshot and stays cache-aligned', async () => {
@@ -545,7 +539,7 @@ describe('request stability across the loop', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    ctx.on('agent/request', async (_agent, _turn, _step, _signal, next) => {
+    ctx.on('agent/request', async (_payload, next) => {
       const config = await next()
       // next() resolves the SAME frozen seed — in-place shaping after
       // delegation is unrepresentable, so a "mutate what next() returned"
@@ -582,7 +576,7 @@ describe('request stability across the loop', () => {
     send(agent, 'go')
     await waitForIdle(ctx, agent)
     ctx.systemPrompt.section({ name: 'extra', order: 2, text: 'now with guidance' })
-    ctx.on('agent/request', async (_agent, _turn, _step, _signal, next) => ({
+    ctx.on('agent/request', async (_payload, next) => ({
       ...await next(), temperature: 0.5, maxTokens: 99, stop: ['<END>'],
     }))
     send(agent, 'again')
@@ -595,14 +589,18 @@ describe('request stability across the loop', () => {
 
     adapter.requests.forEach((request, index) => {
       const stepStart = stepStarts[index]!
-      // Messages: the derivation over the log prefix strictly before this
-      // step's step/start — rebuilt here through a completely fresh Session.
-      const rebuilt = new Session(SessionId(`rebuild-${index}`), structuredClone(events.slice(0, stepStart.seq)))
+      const firstChunk = events.find(e =>
+        e.type === 'assistant/chunk'
+        && e.data.turn === stepStart.data.turn
+        && e.data.step === stepStart.data.step,
+      )!
+      // Messages: the entered batch is logged after step/start, so rebuild the
+      // complete dispatch prefix through a completely fresh Session.
+      const rebuilt = Session.create(SessionId(`rebuild-${index}`), structuredClone(events.slice(0, firstChunk.seq)))
       expect(structuredClone(request.messages)).toEqual(rebuilt.deriveMessages())
 
       // Header: the latest request/header snapshot up to this step's dispatch
       // (its header event sits between step/start and the first chunk).
-      const firstChunk = events.find(e => e.type === 'assistant/chunk' && e.seq > stepStart.seq)!
       const header = foldRequestHeader(events.slice(0, firstChunk.seq))!
       expect(request.model).toBe(header.config.model)
       expect(request.reasoningEffort).toBe(header.config.reasoningEffort)
@@ -660,7 +658,7 @@ describe('request/context capacity records', () => {
 
     send(agent, 'first')
     await waitForIdle(ctx, agent)
-    ctx.on('agent/request', (subject, _turn, _step, _signal, next) => subject === agent
+    ctx.on('agent/request', ({ agent: subject }, next) => subject === agent
       ? Promise.resolve({ provider: 'mock', model: 'large' })
       : next())
     send(agent, 'second')
@@ -688,7 +686,7 @@ describe('request/context capacity records', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('capacity-clear'), { provider: 'mock', model: 'known' })
     let model = 'known'
-    ctx.on('agent/request', (subject, _turn, _step, _signal, next) => subject === agent
+    ctx.on('agent/request', ({ agent: subject }, next) => subject === agent
       ? Promise.resolve({ provider: 'mock', model })
       : next())
 

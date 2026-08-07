@@ -30,9 +30,7 @@
     "lib/index.js",
     "lib/invariant.js",
     "lib/types/**/*.js",
-    "lib/types/**/*.d.ts",
-    "lib/types/**/*.d.ts.map",
-    "src"
+    "lib/types/**/*.d.ts"
   ],
   "license": "BSD-3-Clause",
   "peerDependencies": {
@@ -40,6 +38,7 @@
     "@deepseek-ai/dsh-invariants": "^0.0.1",
     "@deepseek-ai/dsh-llm": "^0.0.1",
     "@deepseek-ai/dsh-scope": "^0.0.1",
+    "@deepseek-ai/dsh-type-meta": "^0.0.1",
     "cordis": "^4.0.0-rc.7"
   },
   "devDependencies": {
@@ -47,6 +46,8 @@
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-scope": "workspace:^",
+    "@deepseek-ai/dsh-type-meta": "workspace:^",
+    "@deepseek-ai/dsh-typert-registry": "workspace:^",
     "cordis": "^4.0.0-rc.7"
   }
 }

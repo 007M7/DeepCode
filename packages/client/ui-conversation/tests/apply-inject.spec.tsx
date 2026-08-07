@@ -21,9 +21,9 @@ import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
 import type { ISession, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {
-  ChatViewInjected, ComposerBarInjected, ConversationInjected, ConversationSessionInjected, DetailsInjected,
+  ChatViewInjected, ComposerBarInjected, ConversationInjected, ConversationSessionHeaderInjected,
+  ConversationSessionInjected, DetailsInjected,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import type { DraftAttachmentId } from '../src/client/input/contract.ts'
 import type { createChatStore } from '../src/client/stores.ts'
 
 // The service reads its initial locale from the browser; these specs assert
@@ -71,13 +71,20 @@ async function bench() {
   // The host face (store resolution) exists only inside the installed
   // renderer, so materialize it the way the shell does.
   runtime.renderRoot()
-  const entryOf = (key: 'conversation' | 'conversation.session' | 'conversation.composer.bar' | 'conversation.view' | 'details') =>
+  const entryOf = (key: 'conversation' | 'conversation.session' | 'conversation.session.header' | 'conversation.composer.bar' | 'conversation.view' | 'details') =>
     runtime.slots.entries(key)[0]!
   /** Resolve store instance + call the inject the way the outlet would. */
   const conversationSurface = (id: SessionId) => {
     const entry = entryOf('conversation.session')
     const instance = runtime.storeOf('conversation.session', id) as ChatInstance
     const injected = (entry.inject as unknown as (sessionId: SessionId, actions: ChatActions) => ConversationSessionInjected)(
+      id, instance.actions)
+    return { instance, injected }
+  }
+  const conversationHeaderSurface = (id: SessionId) => {
+    const entry = entryOf('conversation.session.header')
+    const instance = runtime.storeOf('conversation.session.header', id) as ChatInstance
+    const injected = (entry.inject as unknown as (sessionId: SessionId, actions: ChatActions) => ConversationSessionHeaderInjected)(
       id, instance.actions)
     return { instance, injected }
   }
@@ -101,20 +108,19 @@ async function bench() {
   const inputSurface = (id: SessionId) => {
     const info = runtime.sessions.provideInfo(id)!
     const state = info.hooks['input'] as {
-      getSnapshot: () => { draft: string; imageIds: readonly DraftAttachmentId[] }
+      getSnapshot: () => { draft: string }
       subscribe: (fn: () => void) => () => void
     }
     const actions = info.props['inputActions'] as {
       setDraft: (text: string) => void
-      addImages: (ids: readonly DraftAttachmentId[]) => boolean
       submit: () => void
     }
     return { state, actions }
   }
   return {
     runtime, feature, slots: runtime.slots, entryOf,
-    conversationSurface, residentSurface, composerSurface, chatViewSurface, inputSurface,
-    sessionFake, layoutFake, locale,
+    conversationSurface, conversationHeaderSurface, residentSurface, composerSurface, chatViewSurface, inputSurface,
+    sessionFake, layoutFake,
   }
 }
 
@@ -230,12 +236,9 @@ describe('conversation slot inject surface', () => {
     await b.runtime.dispose()
   })
 
-  it('routes navigation and workspace switching through the runtime owners, carrying the draft', async () => {
+  it('routes workspace switching through the runtime owner, carrying the draft', async () => {
     const b = await bench()
-    const { injected } = b.conversationSurface(ROOT)
     const resident = b.residentSurface(ROOT)
-    injected.open(ROOT)
-    expect(b.runtime.sessions.calls).toContainEqual({ method: 'open', args: [ROOT] })
     // Same-session connect (the picked workspace resolves to this session):
     // no draft movement, plain re-open.
     b.runtime.workspaces.stub('connectWorkspace', () => Promise.resolve(ROOT))
@@ -243,7 +246,7 @@ describe('conversation slot inject surface', () => {
     actions.setDraft('carry me')
     void resident.selectWorkspace('workspace-1' as never)
     await vi.waitFor(() => {
-      expect(b.runtime.sessions.calls.filter(c => c.method === 'open')).toHaveLength(2)
+      expect(b.runtime.sessions.calls.filter(c => c.method === 'open')).toHaveLength(1)
     })
     expect(b.runtime.workspaces.calls).toContainEqual({ method: 'connectWorkspace', args: ['workspace-1'] })
     expect(state.getSnapshot().draft).toBe('carry me')
@@ -291,41 +294,6 @@ describe('conversation slot inject surface', () => {
     b.runtime.workspaces.stub('connectWorkspace', () => Promise.reject(new Error('offline')))
     await expect(resident.selectWorkspace('workspace-4' as never)).rejects.toThrow('offline')
     expect(b.runtime.sessions.calls.filter(c => c.method === 'open')).toHaveLength(opens)
-    await b.runtime.dispose()
-  })
-
-  it('keeps a mixed draft together when the destination refuses its images', async () => {
-    const b = await bench()
-    const OTHER = 'mixed-target' as SessionId
-    await b.runtime.sessions.add({ id: OTHER }, { current: false })
-    const source = b.inputSurface(ROOT)
-    const destination = b.inputSurface(OTHER)
-    const imageId = 'draft-mixed' as DraftAttachmentId
-    source.actions.setDraft('carry together')
-    source.actions.addImages([imageId])
-    const destinationShell = b.composerSurface(OTHER).keyboard as unknown as {
-      addImages: (ids: readonly DraftAttachmentId[]) => boolean
-    }
-    vi.spyOn(destinationShell, 'addImages').mockReturnValue(false)
-    b.runtime.workspaces.stub('connectWorkspace', () => Promise.resolve(OTHER))
-
-    await b.residentSurface(ROOT).selectWorkspace('workspace-mixed' as never)
-
-    expect(source.state.getSnapshot()).toMatchObject({
-      draft: 'carry together',
-      imageIds: [imageId],
-    })
-    expect(destination.state.getSnapshot()).toMatchObject({ draft: '', imageIds: [] })
-    await b.runtime.dispose()
-  })
-
-  it('localizes browser image-type rejection through the active conversation locale', async () => {
-    const b = await bench()
-    b.locale.setLocale('en')
-    const error = b.composerSurface(ROOT).addImages?.([
-      new File([Uint8Array.of(1)], 'vector.svg', { type: 'image/svg+xml' }),
-    ])
-    expect(error).toBe('Unsupported image format: image/svg+xml')
     await b.runtime.dispose()
   })
 

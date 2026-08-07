@@ -41,8 +41,11 @@ const OPTIONAL_DOCUMENTS = [
 ] as const
 
 function runInterface(entries: readonly CordisConfigEntry[]): RunInterface {
+  if (entries.some(entry => entry.name === '@deepseek-ai/dsh-tui'
+    || entry.name.startsWith('@deepseek-ai/dsh-tui/'))) {
+    throw new Error('unsupported run interface: @deepseek-ai/dsh-tui has been removed')
+  }
   if (entries.some(entry => entry.name === '@deepseek-ai/dsh-acp')) return 'acp'
-  if (entries.some(entry => entry.name === '@deepseek-ai/dsh-tui')) return 'tui'
   return 'embed'
 }
 
@@ -146,7 +149,7 @@ export class SdkProject {
   static create(root: string, request: ProjectCreationRequest): SdkProject {
     const app = request.features.find(selection => selection.id === 'app')
     const selectedInterface = app?.options[0]
-    if (selectedInterface !== 'acp' && selectedInterface !== 'tui' && selectedInterface !== 'embed') {
+    if (selectedInterface !== 'acp' && selectedInterface !== 'embed') {
       throw new Error('project creation requires one app feature option')
     }
     const profile: ProjectProfile = {
@@ -178,6 +181,7 @@ export class SdkProject {
    * Load an existing project from required and SDK-managed optional files.
    * @param root - existing project directory.
    * @returns disk-backed project snapshot.
+   * @throws When the config references the removed `@deepseek-ai/dsh-tui` root or a subpath.
    */
   static async open(root: string): Promise<SdkProject> {
     const absolute = resolve(root)

@@ -1,11 +1,11 @@
 // Bash toolview registrant: third-party posture over the keyed toolview hole
 // (ctx.slots.register + ToolRowProps only — never imports the chat domain).
 // Product chrome matches ToolRow / Think (figma: Bash · {description}).
-// Child sessions keep a scoped badge so session-dimension differentiation stays
-// observable inside the component (no parallel registry).
 //
-// A bash call declares the terminal render intent, so this row renders the
-// command's own output through TerminalBlock — expand-gated exactly like
+// A bash call normally declares the terminal render intent, so this row renders
+// the command's own output through TerminalBlock. Execution failures that
+// settle without terminal material use the bounded generic IN/OUT fallback —
+// both are expand-gated exactly like
 // ToolRow's unified interaction: collapsed by default, the whole summary row
 // is the toggle (click / Enter / Space, icon→chevron hover preview; the
 // summary stays inline while open),
@@ -17,7 +17,7 @@ import { useState, type KeyboardEvent } from 'react'
 import type { Context } from 'cordis'
 import clsx from 'clsx'
 import {
-  IconApiOutline14, IconChevronDownOutline14, StateDot, TerminalBlock,
+  IconApiOutline14, IconChevronDownOutline14, IconInspectOutline12, StateDot, TerminalBlock,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ToolRowProps } from '../contract/slots.ts'
@@ -50,7 +50,7 @@ function stateStatus(state: ToolRowState, t: BashRowProps['t']): string | null {
 
 /**
  * Bash row: icon + Bash · {description} in the shared ToolRow chrome, the
- * whole row toggling the command's terminal card (ToolRow's unified
+ * whole row toggling the command's terminal or generic error card (ToolRow's unified
  * expand interaction, replicated locally per the registrant posture).
  */
 export function BashRow({ toolName, block, sessionId, useSessions, inspect, t }: BashRowProps) {
@@ -64,10 +64,15 @@ export function BashRow({ toolName, block, sessionId, useSessions, inspect, t }:
   const state = model.state === 'ok' && terminal !== null && terminalFailed(terminal)
     ? 'error'
     : model.state
-  const isChild = useSessions(list => list.byId[sessionId]?.parentId !== undefined)
   const status = stateStatus(state, t)
   const [expanded, setExpanded] = useState(false)
-  const expandable = terminal !== null
+  // Execution failures (for example cancellation before the process reports a
+  // terminal result) use the generic presenter. Keep their recorded args and
+  // full error reachable instead of collapsing the row to the first line.
+  const genericError = terminal === null
+    && model.state === 'error'
+    && (model.body !== null || model.output !== null)
+  const expandable = terminal !== null || genericError
   const open = expanded && expandable
   const failureLine = model.state === 'error' ? model.errorSummary : null
   const toggleExpand = () => {
@@ -92,7 +97,7 @@ export function BashRow({ toolName, block, sessionId, useSessions, inspect, t }:
     <div className={css.card}>
       <div
         className={css.root}
-        data-sample={isChild ? 'bash-scoped' : 'bash-global'}
+        data-sample="bash"
         data-variant="bash"
         data-state={state}
         data-expandable={expandable || undefined}
@@ -104,7 +109,6 @@ export function BashRow({ toolName, block, sessionId, useSessions, inspect, t }:
       >
         <span className={css.leading}>{leading}</span>
         {status !== null && <span className={css.visuallyHidden}>{status}</span>}
-        {isChild && <span className={css.scopeBadge}>scoped</span>}
         <span className={css.title}>{model.title}</span>
         <span className={css.sep} aria-hidden />
         {/* The terminal presenter's description is the contractual
@@ -113,21 +117,43 @@ export function BashRow({ toolName, block, sessionId, useSessions, inspect, t }:
           {failureLine ?? terminal?.description ?? model.summary}
         </span>
       </div>
-      {terminal !== null && open && (
+      {open && (
         /* Same hover-Inspect posture as ToolRow's expanded body, replicated
            locally per the registrant posture. */
         <div className={css.bodyWrap}>
-          <TerminalBlock
-            {...terminal.card}
-            maxLines={Infinity}
-            labels={terminalBlockLabels(t)}
-            className={css.terminal}
-          />
+          {terminal !== null
+            ? (
+              <TerminalBlock
+                {...terminal.card}
+                maxLines={Infinity}
+                labels={terminalBlockLabels(t)}
+                className={css.terminal}
+              />
+            )
+            : (
+              <div className={css.ioCard}>
+                {model.body !== null && (
+                  <div className={css.ioSection}>
+                    <span className={css.ioLabel}>IN</span>
+                    <span className={css.ioText}>{model.body}</span>
+                  </div>
+                )}
+                {model.body !== null && model.output !== null && (
+                  <span className={css.ioDivider} aria-hidden />
+                )}
+                {model.output !== null && (
+                  <div className={css.ioSection}>
+                    <span className={css.ioLabel}>OUT</span>
+                    <span className={css.ioText} data-error>
+                      {model.output}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
           {inspect !== undefined && (
             <button type="button" className={css.inspectButton} onClick={inspect}>
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
-                <path d="M16 8L10.8571 12V10.552L14.1383 8L10.8571 5.448V4L16 8ZM5.14286 10.552L1.86171 8L5.14286 5.448V4L0 8L5.14286 12V10.552ZM9.02514 4L5.59657 12H6.84057L10.2691 4H9.02514Z" fill="currentColor" />
-              </svg>
+              <IconInspectOutline12 />
               Inspect
             </button>
           )}
@@ -138,19 +164,18 @@ export function BashRow({ toolName, block, sessionId, useSessions, inspect, t }:
 }
 
 /**
- * The sample as a plain registrant plugin. `inject` carries the load-order
- * seam: requiring the conversation service guarantees the chat entry (and
- * with it the 'conversation.chat.toolview' declaration) is registered —
- * ui-conversation's apply mounts the service after the chat entry.
+ * The sample as a plain registrant plugin. Slot injection follows the chat
+ * toolview declaration across independent activation and reload lifetimes.
  */
 export const bashToolviewSample = {
   name: 'bash-toolview-sample',
-  inject: ['slots', 'conversation'],
+  inject: ['slots'],
   /**
    * Register the bash row into the chat view's keyed toolview hole.
    * @param ctx - registrant context (disposal rides ctx.effect inside slots.register).
    */
   apply(ctx: Context): void {
-    ctx.slots.register({ name: 'conversation.chat.toolview', key: 'bash', locale: NS }, BashRow)
+    ctx.slots.inject('conversation.chat.toolview', () =>
+      ctx.slots.register({ name: 'conversation.chat.toolview', key: 'bash', locale: NS }, BashRow))
   },
 }

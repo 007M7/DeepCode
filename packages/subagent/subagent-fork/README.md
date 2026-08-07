@@ -57,5 +57,4 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 ## Known Limitations and Deferred Work
 
-- **Runs expose no `sendMessage`/`resume`** — the optional runtime capabilities are absent on in-process runs.
 - **The seed is a one-time snapshot** — the child sees the parent's completed turns as of the fork and nothing the parent logs afterwards; there is no live context sharing.

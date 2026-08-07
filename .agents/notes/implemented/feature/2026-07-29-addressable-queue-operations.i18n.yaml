@@ -1,6 +1,0 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
-#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-07-29-addressable-queue-operations.md
-2026-07-29-addressable-queue-operations.md: 7a08b889c958e583dc430d33a1855fe3725f3d48
-2026-07-29-addressable-queue-operations.zh.md: 701b028c7494fd7cb608d05a5d170c9075b155d7

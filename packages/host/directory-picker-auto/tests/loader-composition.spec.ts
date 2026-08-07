@@ -7,7 +7,7 @@
  * joining the backend's own teardown before the disposer settles.
  */
 
-import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -43,21 +43,15 @@ afterEach(async () => {
   fakeBin = undefined
 })
 
-/** Write a dist fixture and a two-row cordis.yml (webserver + chooser), then boot it through the real Loader. */
+/** Write a two-row cordis.yml (webserver + chooser), then boot it through the real Loader. */
 async function loadComposition(bindHost: '127.0.0.1' | '0.0.0.0'): Promise<{ ctx: Context; configPath: string }> {
   root = await mkdtemp(join(tmpdir(), 'dsh-directory-picker-auto-'))
-  const dist = join(root, 'dist')
-  mkdirSync(dist)
-  const distIndex = join(dist, 'index.html')
-  await writeFile(distIndex, '<head></head><body>shell</body>')
   const configPath = join(root, 'cordis.yml')
   await writeFile(configPath, [
     "- name: '@deepseek-ai/dsh-host-webserver'",
     '  config:',
     `    host: '${bindHost}'`,
     '    port: 0',
-    '    portConflict: increment',
-    `    distIndex: '${distIndex}'`,
     `- name: '${AUTO}'`,
     '',
   ].join('\n'))
@@ -167,7 +161,7 @@ describe('real Loader composition', () => {
     const { ctx, configPath } = await loadComposition('127.0.0.1')
 
     const backendEntry = [...ctx.loader.entries()].find(entry => entry.options.name === NATIVE)!
-    ctx.loader.remove(backendEntry.id)
+    await ctx.loader.remove(backendEntry.id)
     const autoEntry = [...ctx.loader.entries()].find(entry => entry.options.name === AUTO)!
     await expect(autoEntry.fiber!.dispose()).resolves.not.toThrow()
     expect(entryNames(ctx)).not.toContain(NATIVE)

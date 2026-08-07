@@ -19,8 +19,8 @@ pnpm run demo:headless --output-format stream-json -- "run the focused tests"
 
 每次调用都会创建并持久化新会话，在一个轮次中运行所有模型和工具步骤，然后刷写持久化数据、执行 dispose（资源释放），再退出。这是非交互式自动化：没有提示符、批准、恢复、第二轮次或 stdin 上下文。已配置工具可以修改启动时所在的工作区、运行命令、spawn 子 agent，并消耗提供方 token。
 
-## 高级与快照接线
+## 高级配置
 
-[`advanced.cordis.yml`](advanced.cordis.yml) 在已交付叶节点上添加 Code Mode 和 Cordis 工具。[`advanced.cordis.snapshot.yml`](advanced.cordis.snapshot.yml) 只将实时 LLM（大语言模型）替换为回放。[`tests/`](tests/) 下涵盖无密钥真实 Loader 冒烟测试、密钥门控的外部状态验证冒烟测试，以及带父子会话 fixture（测试前置数据）的 `stream-json` 回放快照。
+[`advanced.cordis.yml`](advanced.cordis.yml) 在已交付叶节点上添加 Code Mode 和 Cordis 工具。
 
-这份包（package）级 [CLI（命令行界面）契约](../../packages/examples/cli-demo/README.md) 说明输出记录、退出状态、取消、持久化以及模型／token 影响。
+这份包级 [CLI（命令行界面）契约](../../packages/examples/cli-demo/README.md) 说明输出记录、退出状态、取消、持久化以及模型／token 影响。

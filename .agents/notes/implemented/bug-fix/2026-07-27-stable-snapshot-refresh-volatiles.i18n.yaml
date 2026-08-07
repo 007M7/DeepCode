@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-07-27-stable-snapshot-refresh-volatiles.md
 2026-07-27-stable-snapshot-refresh-volatiles.md: e2e951cd9f78b319a701a3e60afba48786633f03
-2026-07-27-stable-snapshot-refresh-volatiles.zh.md: 55302b509e28520f90f6cd820e4962be014318cc
+2026-07-27-stable-snapshot-refresh-volatiles.zh.md: 8ba35f4bbc2a4b408a01e11f09bd767860964875

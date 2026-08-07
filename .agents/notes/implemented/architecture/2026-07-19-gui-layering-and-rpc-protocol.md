@@ -4,7 +4,7 @@ Status: implemented
 
 English | [中文](2026-07-19-gui-layering-and-rpc-protocol.zh.md)
 
-> Division of labor: this document = the layering model + the channel-independent RPC protocol; the protocol's Web implementation (HTTP+SSE) is in the [web client architecture RFC](2026-07-19-gui-web-client-architecture.md).
+> Division of labor: this document = the layering model + the channel-independent RPC protocol; the protocol's Web implementation combines HTTP uplink with the [WebSocket downlink carrier](2026-08-04-websocket-downlink-carrier.md), while the browser object layer is in the [web client architecture RFC](2026-07-19-gui-web-client-architecture.md).
 
 ## Problem
 
@@ -15,7 +15,7 @@ We need a UI integration layer. Beyond the existing ACP/stdio baseline, more pro
 
 That demands a stable layered responsibility model in the engineering codebase, so future client shapes plug in cleanly.
 
-At the same time the physical channels differ per consumer (HTTP/SSE, in-process direct calls, IPC later), so we also need a channel-independent message model and a single contract source of truth — "adding a method" and "swapping a carrier" must not entangle each other, and every message on the wire must be type-validatable, observable, and reconcilable.
+At the same time the physical channels differ per consumer (browser HTTP/WebSocket, in-process fetch/SSE, IPC later), so we also need a channel-independent message model and a single contract source of truth — "adding a method" and "swapping a carrier" must not entangle each other, and every message on the wire must be type-validatable, observable, and reconcilable.
 
 ## Decision
 
@@ -64,7 +64,7 @@ On the protocol side: TS interfaces (`packages/host/apiproxy/src/api/`, zero Nod
 |---|---|---|---|
 | Front layer | `dsh-host-apiproxy` | TS/zod definitions (api/) + the fetch abstraction (fetch/: handler + client base class) | Keep it simple — every consumer needs it; importable from Node and browser alike; protocol content in the "Message protocol" sections below; clients must not bypass api through ctx |
 | Assembly layer | `dsh-host-runtime` | Plugin composition + ApiProxy integration + the web UI plugin mount (in-memory Loader tree over the eight dshClient packages); home of host-level configuration (defaults/persistenceRoot, future user profile) | Which plugins mount and with what defaults is decided only here; shells must not alter the assembly |
-| Carrier layer | `dsh-host-webserver` | Web-shape HTTP: static serving + `/api/*`→handler forwarding + SSE write-out + close semantics; plugin bundle endpoint + `__DSH_BOOT__` manifest injection (fed by the web plugin registry) | Web (browser access) only; zero workspace dependencies (the registry arrives by structural injection); Electron does not reuse it |
+| Carrier layer | `dsh-host-webserver` | Web-shape HTTP and upgrade: static serving + `/api/*`→handler forwarding + WebSocket upgrade route + close semantics; plugin bundle endpoint + `__DSH_BOOT__` manifest injection (fed by the web plugin registry) | Web (browser access) only; zero workspace dependencies (the registry arrives by structural injection); Electron does not reuse it |
 | Client libraries | `dsh-client-ui-slots` / `dsh-client-web-react` / `dsh-client-ui-primitives` | Slot registry core / ctx↔React glue / pure React atoms | Zero cordis runtime dependency in components; seeded into the loader module table by the shell |
 | Client plugins | `dsh-client-connection` / `dsh-client-runtime` / `dsh-client-ui-theme` / `dsh-client-i18n` / `dsh-client-ui-layout` / `dsh-client-ui-sidebar` / `dsh-client-ui-conversation` / `dsh-client-ui-trajectory` | Browser-side cordis plugin tree (wire consumer, core services, theme, i18n, layout, sidebar, conversation, trajectory) — see the web client architecture RFC | Dual entry (node half = empty apply; implementation in `src/client/`); the consumption face goes exclusively through ApiProxy |
 | Application shape | `@deepseek-ai/dsh` (apps/cli) + `dsh-frontend` (apps/web, the vite application) | Coarse bin dispatch + one assembly module per shape (web.ts / headless.ts); the vite app is a thin main over the `dsh-client-web` shell surface | Shapes dynamic-import so they never load each other; workspace knowledge like dist location stays in the app |
@@ -88,7 +88,7 @@ The sections from here down are the protocol body carried by the front layer (`d
 ```
                  client 发起                      server 发起
   request   ① ClientRequest                 ③ ServerRequest
-            （POST /api/<method> body）      （SSE 帧：session 事件、审批/问答 requested）
+            （POST /api/<method> body）      （WebSocket message：session 事件、审批/问答 requested）
   response  ② ServerResponse                ④ ClientResponse
             （该 POST 的 HTTP 应答体）        （POST /api/respond body，回填 ③ 的 rpcId）
 ```
@@ -99,7 +99,7 @@ The sections from here down are the protocol body carried by the front layer (`d
 |---|---|---|---|---|
 | `ClientRequest` | `'client-request'` | `rpcId` `method` `payload` | client mints | `POST /api/<method>` body |
 | `ServerResponse` | `'server-response'` | `rpcId` `result` | echoes ① | that POST's response body (always HTTP 200) |
-| `ServerRequest` | `'server-request'` | `rpcId` `method` `payload` | server mints | SSE `data:` line |
+| `ServerRequest` | `'server-request'` | `rpcId` `method` `payload` | server mints | WebSocket text message |
 | `ClientResponse` | `'client-response'` | `rpcId` `result` | echoes ③ | `POST /api/respond` body |
 
 `RpcMessage = ClientRequest | ServerResponse | ServerRequest | ClientResponse`, narrowed via `switch (message.type)`.
@@ -169,7 +169,7 @@ The remaining methods (`session.create`/`session.history`/`session.rename`/`sess
 
 ### Frames (server→client, named unions)
 
-Two SSE streams: the mux stream (`GET /api/events.mux`, all-session aggregate) and the host stream (`GET /api/events.host`, host-level events). One example frame row:
+Two logical streams: the mux stream (`/api/events.mux`, all-session aggregate) and the host stream (`/api/events.host`, host-level events). The browser consumes one downlink WebSocket per stream, while the in-process fetch carrier retains SSE to preserve the same shape; see the [WebSocket downlink carrier](2026-08-04-websocket-downlink-carrier.md) for the physical boundary. One example frame row:
 
 | frame type | payload | when |
 |---|---|---|
@@ -184,7 +184,7 @@ The remaining frame types are not re-copied here; the full unions are `MuxFrame`
 - **History = event replay**: one fold (client side); history pagination and live increments share one code path; the server maintains no second materialized-snapshot system. History **page boundaries align to message boundaries** (never cut mid-message; chunks group with their finalized message), and the tail page includes the in-flight partial's chunks.
 - **Prompt correlation**: the prompt's rpcId rides MessageSource (`'user-rpc'`) into the `user/message` event; the client uses it to promote the optimistic echo.
 - **Reconnect = rebuild**: no resume cursor (`mux`'s `since` signature is a reserved seat, ignored if passed); on disconnect reopen the stream + refetch history; compare `subscribed.lastSeq` with the history tail seq and backfill once if there is a seam.
-- **Cold sessions resume implicitly**: when `history`/`prompt` hits an unattached session the impl auto-resumes, deduplicating concurrent triggers with an in-flight table; attachment status is not exposed to clients (`running` already covers it).
+- **Cold session handling follows ownership**: `session.history` and the source read for `session.fork` inspect persistence without an Agent, while Agent-bound ordinary-session methods such as `prompt` resume through a deduplicated in-flight table. Session-backed subagents reject that generic resume path, and attachment status is not exposed to clients (`running` already covers it).
 - **Approvals/questions**: the requested frame mints a stable rpcId on acceptance; first answer wins, and the host's in-memory pending table (keyed by rpcId) is the only referee; after a mux reopen, still-pending requested frames replay after the subscribed frame (rpcId reused verbatim — refresh recovery). The audit events `approval/asked`/`decided` continue through the durable log — frames = the live control plane, events = the durable audit. **Status**: the contract and frame types are shipped; the host-side pending table/wire answerer is unimplemented (`respond` in `api-proxy.ts` is a stub, always `not-pending`); PendingCard v1 is display-only.
 - **No protocol version**: client and host release bound together; `host.describe` has no protocolVersion field; introduce one when an independently released client appears.
 - **Reserved-seam discipline**: the map holds only implemented methods; an unknown method fails loud at envelope parse (`bad-request`) — no not-implemented fallback code. The reservation list (implementing = copy the signature into the domain interface + add the map row + add the schema pair): `session.fork`, `prompt.mode` gaining `'inject'`, `task.list`, `host.listModels`, describe gaining `hostInstanceId`. (`session.rename` graduated from this list: it appends a user-source `session/title` event.)
@@ -216,7 +216,7 @@ All four quadrant full forms pass through `onEnvelope`; the base implementation 
 | Subclass | Package | doFetch | Purpose |
 |---|---|---|---|
 | `InProcessApiClient` | apiproxy itself | the injected `{ fetch }` handler | **The isomorphic point**: `new InProcessApiClient(toFetchHandler(api))` never touches the network yet runs the real wire serialization/zod/SSE framing — `dsh -p` headless is the protocol's second real consumer |
-| `WebApiClient` | dsh-client-connection | `globalThis.fetch` (same-origin `/api/*`) | the browser shape; HTTP+SSE carriage details in the web client architecture RFC |
+| `WebApiClient` | dsh-client-connection | `globalThis.fetch` uplink + one same-origin WebSocket downlink per logical stream | the browser shape; physical boundary in the [WebSocket downlink carrier](2026-08-04-websocket-downlink-carrier.md) |
 | `FixtureApiClient` | dsh-client-connection | unused (protocol-layer override) | serverless UI development (`?fixture`): overrides the `callUnary`/`openMux`/`openHost`/`respond` virtuals and is itself the fake server (frame rpcIds minted by it, semantics self-consistent) |
 | (future) IPC bridge subclass | apps/electron | IPC serialization round trip | swaps only doFetch; contract and base class unchanged |
 

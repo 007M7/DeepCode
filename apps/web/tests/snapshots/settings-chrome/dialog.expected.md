@@ -7,12 +7,13 @@
     - button "模型":
       - img
       - text: 模型
+  - button "打开配置文件"
   - button "关闭":
     - img
     - text: 关闭
   - text: 权限 选择新会话的默认权限模式
-  - button "Full access":
-    - text: Full access
+  - button "Workspace Write":
+    - text: Workspace Write
     - img
   - text: 语言
   - button "中文":
@@ -28,3 +29,7 @@
   - button "跟随系统" [pressed]:
     - img
     - text: 跟随系统
+  - text: 繁忙时 Enter 键行为 仅在智能体运行时生效；Cmd/Ctrl+Enter 使用另一行为
+  - button "排队发送":
+    - text: 排队发送
+    - img

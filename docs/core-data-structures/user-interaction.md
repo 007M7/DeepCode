@@ -2,7 +2,7 @@
 
 English | [中文](user-interaction.zh.md)
 
-The user-interaction seam of [dsh-user-interaction](../../packages/ui/user-interaction). It is the provider-neutral vocabulary a tool or permission plugin uses when it needs the human to answer before the agent can continue. UI surfaces provide the active `UserInteractionProvider`; `dsh-tui` uses keyboard-driven overlays and the host runtime relays requests to its connected client.
+The user-interaction seam of [dsh-user-interaction](../../packages/ui/user-interaction). It is the provider-neutral vocabulary a tool or permission plugin uses when it needs the human to answer before the agent can continue. UI surfaces provide the active `UserInteractionProvider`; the host runtime relays requests to its connected client.
 
 Source: [`packages/ui/user-interaction/src/index.ts`](../../packages/ui/user-interaction/src/index.ts)
 
@@ -86,14 +86,14 @@ interface AskUserQuestionRequest {
 
 ## Answer
 
-Providers return one answer item per question id. `selected` contains selected option labels, and `custom` carries a free-form "Other" answer when the user typed one. When `custom` is present, `selected` is empty; custom text is an answer override, not a supplement to selected choices. A UI may also use an item with empty `selected` and no `custom` to preserve a skipped question in an otherwise completed batch.
+Providers return one answer item per question id. `selected` contains selected option labels, and `custom` carries a free-form "Other" answer when the user typed one. For a single-select question, `custom` overrides the selected choice and `selected` is empty. For a multi-select question, `custom` may supplement the labels in `selected`. A UI may also use an item with empty `selected` and no `custom` to preserve a skipped question in an otherwise completed batch.
 
 ```ts type-equiv
 /** Answer to one question. */
 interface AskUserQuestionAnswerItem {
   /** The answered question id. */
   id: string
-  /** Selected option labels. Empty for custom or unanswered choices. */
+  /** Selected option labels. May accompany custom text for a multi-select question. */
   selected: string[]
   /** Optional free-text "Other" answer. */
   custom?: string

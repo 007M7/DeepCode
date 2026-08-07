@@ -11,7 +11,13 @@ import type {
 } from '@deepseek-ai/dsh-client-connection/client'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
-import { getPath, hasPath } from '@deepseek-ai/dsh-client-schema-form'
+import { getPath, hasPath, nodeAtPath, rehydrateSchema } from '@deepseek-ai/dsh-client-schema-form'
+
+/**
+ * Any route key walks a dict schema to the same profile node, so the lookup
+ * names one that cannot collide with a configured route.
+ */
+const PROBE_ROUTE = '\u0000probe'
 
 /** One provider row the page renders. */
 export interface ProviderRow {
@@ -66,6 +72,22 @@ export function deriveKeyRef(provider: string): string {
   return `${provider.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_API_KEY`
 }
 
+/**
+ * The wire protocols a hand-declared route may name, read out of the owning
+ * namespace's own schema. This stays a schema read rather than a wire field so
+ * the choices the page offers cannot drift from the ones the adapter accepts:
+ * both come from the same `Config`.
+ * @param namespace - the namespace view whose schema declares the profile shape.
+ * @returns the protocol identifiers, or an empty list when the schema has none.
+ */
+export function protocolChoices(namespace: SettingsNamespaceView | undefined): string[] {
+  if (namespace === undefined) return []
+  const node = nodeAtPath(rehydrateSchema(namespace.schema), ['providers', PROBE_ROUTE, 'api'])
+  const list = (node as { type?: string; list?: readonly { value?: unknown }[] } | undefined)
+  if (list?.type !== 'union' || list.list === undefined) return []
+  return list.list.map(entry => entry.value).filter((value): value is string => typeof value === 'string')
+}
+
 /** The credential reference a resolved profile names (its `apiKeyEnv` field). */
 function apiKeyEnvOf(namespace: SettingsNamespaceView | undefined, path: readonly string[]): string | undefined {
   if (namespace === undefined) return undefined
@@ -102,18 +124,6 @@ export class ModelsSettingsStore {
    * @param api - the wire face (settings/credentials/llm domains).
    */
   constructor(private readonly api: Pick<IApiClient, 'settings' | 'credentials' | 'llm'>) {}
-
-  /**
-   * Surface a failure from an operation the page ran outside {@link load} —
-   * a row removal — on the same banner a load failure uses.
-   * @param message - the failure text to show.
-   */
-  fail(message: string): void {
-    this.store.update((s) => {
-      s.status = 'error'
-      s.error = message
-    })
-  }
 
   /**
    * Refresh the whole page snapshot: directory and namespaces in parallel,

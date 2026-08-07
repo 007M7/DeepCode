@@ -6,8 +6,7 @@ import {
 } from '../src/api/rpc.schema.ts'
 import { z } from 'zod'
 import {
-  contentBlockSchema, promptContentPartSchema, sessionAttachmentRequestSchema, sessionAttachmentValueSchema,
-  sessionCancelRequestSchema, sessionCancelValueSchema, sessionCreateRequestSchema,
+  contentBlockSchema, sessionCancelRequestSchema, sessionCancelValueSchema, sessionCreateRequestSchema,
   sessionCreateValueSchema, sessionEventSchema, sessionHistoryRequestSchema, sessionHistoryValueSchema,
   sessionIdSchema, sessionListRequestSchema, sessionListValueSchema, sessionModelsRequestSchema,
   sessionModelsValueSchema, sessionPromptRequestSchema, sessionPromptValueSchema,
@@ -72,7 +71,6 @@ describe('rpcErrorSchema', () => {
       details: { provider: 'p', model: 'm' },
     }).code).toBe('model-unavailable')
     expect(rpcErrorSchema.parse({ code: 'agent-busy', message: 'm', details: { reason: 'r' } }).code).toBe('agent-busy')
-    expect(rpcErrorSchema.parse({ code: 'attachment-error', message: 'm', details: { reason: 'r' } }).code).toBe('attachment-error')
     expect(rpcErrorSchema.parse({ code: 'queue-item-not-found', message: 'm', details: { itemId: 'i' } }).code).toBe('queue-item-not-found')
     expect(rpcErrorSchema.parse({ code: 'command-error', message: 'm', details: {} }).code).toBe('command-error')
     expect(rpcErrorSchema.parse({ code: 'unknown-command', message: 'm', details: {} }).code).toBe('unknown-command')
@@ -199,6 +197,7 @@ describe('sessions domain schemas', () => {
     expect(sessionModelsRequestSchema.parse({ sessionId: 's1' }).sessionId).toBe('s1')
     expect(sessionModelsValueSchema.parse({
       current: { provider: 'deepseek-official', model: 'deepseek-v4-flash', reasoningEffort: 'max' },
+      routable: true,
       groups: [{
         id: 'deepseek-official',
         name: 'DeepSeek',
@@ -206,7 +205,6 @@ describe('sessions domain schemas', () => {
           id: 'deepseek-v4-flash',
           name: 'DeepSeek V4 Flash',
           description: 'fast',
-          unlisted: true,
           reasoning: {
             efforts: [
               { id: 'off', name: 'Off' },
@@ -269,20 +267,6 @@ describe('sessions domain schemas', () => {
       sessionId: 's1', itemId: 'i1', action: { kind: 'promote' },
     })).toThrow()
     expect(sessionCancelValueSchema.parse({ accepted: true }).accepted).toBe(true)
-    expect(promptContentPartSchema.parse({ type: 'text', text: 'x', extra: 1 })).toEqual({ type: 'text', text: 'x' })
-    expect(promptContentPartSchema.parse({
-      type: 'image', mediaType: 'image/png', data: 'AA==', name: 'pixel.png',
-    })).toMatchObject({ type: 'image', mediaType: 'image/png', name: 'pixel.png' })
-    const attachment = {
-      attachmentId: `sha256:${'a'.repeat(64)}`,
-      mediaType: 'image/png' as const,
-      bytes: 1,
-      width: 1,
-      height: 1,
-    }
-    expect(sessionAttachmentRequestSchema.parse({ sessionId: 's1', attachmentId: attachment.attachmentId }))
-      .toMatchObject({ sessionId: 's1' })
-    expect(sessionAttachmentValueSchema.parse({ attachment, data: 'AA==' }).attachment).toEqual(attachment)
     expect(sessionUpdateQueueValueSchema.parse({ accepted: true }).accepted).toBe(true)
     expect(contentBlockSchema.parse({ type: 'text', text: 'x', extra: 1 })).toMatchObject({ extra: 1 })
   })
@@ -292,13 +276,9 @@ describe('host domain schemas', () => {
   it('validates describe request/value', () => {
     expect(hostDescribeRequestSchema.parse({})).toEqual({})
     const value = hostDescribeValueSchema.parse({
-      version: '1',
-      cwd: '/x',
-      provider: 'p',
-      model: 'm',
-      attachedSessions: 2,
+      version: '1', cwd: '/x', provider: 'p', model: 'm', attachedSessions: 2,
     })
-    expect(value.attachedSessions).toBe(2)
+    expect(value).toMatchObject({ provider: 'p', model: 'm', attachedSessions: 2 })
     expect(hostDescribeValueSchema.parse({ version: '1', cwd: '/x', attachedSessions: 0 }).provider).toBeUndefined()
   })
 
@@ -443,7 +423,11 @@ describe('events frame schemas', () => {
       { type: 'question/requested', sessionId: 's', questions: [{ id: 'q', question: 'Q?', options: [{ label: 'L' }], multiSelect: true }] },
       { type: 'question/resolved', sessionId: 's', questionRpcId: 'r', outcome: 'answered' },
       { type: 'session/queue', sessionId: 's', items: [
-        { id: 'i1', message: { id: 'm1', role: 'user', content: [{ type: 'text', text: 'queued prompt' }], source: { kind: 'user', rpcId: 'r9' } } },
+        {
+          id: 'm1',
+          placement: 'queued',
+          message: { id: 'm1', role: 'user', content: [{ type: 'text', text: 'queued prompt' }], source: { kind: 'user', rpcId: 'r9' } },
+        },
       ] },
       { type: 'session/projection', sessionId: 's', key: 'todos', value: [{ content: 'x', status: 'pending' }], seq: 7 },
       { type: 'stream/error', error: { code: 'internal', message: 'm', details: {} } },
@@ -473,10 +457,21 @@ describe('events frame schemas', () => {
     }
   })
 
+  it('accepts every queue placement and rejects unknown placements', () => {
+    const item = (placement: string) => ({ type: 'session/queue', sessionId: 's', items: [{
+      id: 'm', placement,
+      message: { id: 'm', role: 'user', content: [], source: { kind: 'user' } },
+    }] })
+    for (const placement of ['queued', 'steering', 'context']) {
+      expect(() => muxFrameSchema.parse(item(placement))).not.toThrow()
+    }
+    expect(() => muxFrameSchema.parse(item('bogus'))).toThrow()
+  })
+
   it('rejects a queue snapshot with malformed items', () => {
     expect(() => muxFrameSchema.parse({ type: 'session/queue', sessionId: 's', items: 'x' })).toThrow()
-    expect(() => muxFrameSchema.parse({ type: 'session/queue', sessionId: 's', items: [{ id: '', message: {} }] })).toThrow()
-    expect(() => muxFrameSchema.parse({ type: 'session/queue', sessionId: 's', items: [{ id: 'i', message: { id: 'm', role: 'user', content: [], source: {} } }] })).toThrow()
+    expect(() => muxFrameSchema.parse({ type: 'session/queue', sessionId: 's', items: [{ id: '', role: 'user', content: [], source: { kind: 'user' } }] })).toThrow()
+    expect(() => muxFrameSchema.parse({ type: 'session/queue', sessionId: 's', items: [{ id: 'm', role: 'assistant', content: [], source: { kind: 'user' } }] })).toThrow()
   })
 
   it('accepts every host frame branch', () => {

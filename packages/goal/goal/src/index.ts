@@ -5,47 +5,46 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { Context, Service } from 'cordis'
+import { Context } from 'cordis'
 import z from 'schemastery'
 import { z as zod } from 'zod'
 import type { ZodType } from 'zod'
 import { agentEvents } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import { GatewayService, Remote } from '@deepseek-ai/dsh-type-meta'
 // Type-only: resolves ctx.sessionProjections for the optional unit child.
 import type {} from '@deepseek-ai/dsh-session-projection'
 import {
-  applyGoalChange,
   applyGoalEvent,
-  decodeGoalEvent,
+  decodeGoalChange,
   emptyGoalFoldState,
   goalChangeRef,
 } from './fold.ts'
 import type { GoalFoldState } from './fold.ts'
-import { renderGoalChange } from './render.ts'
 import {
   GOAL_CHANGE_VERSION,
   GoalError,
   GoalId,
 } from './runtime.ts'
 import type {
+  CreateGoalRequest,
+  CreateGoalResult,
+  EditGoalRequest,
+  GoalActivation,
   GoalBlockReason,
   GoalPhase,
   GoalProjection,
   GoalRef,
   GoalSnapshot,
+  GoalView,
 } from './types.ts'
 import type {
-  CreateGoalRequest,
-  EditGoalRequest,
-  GoalActivation,
   GoalChangeMeta,
   GoalChanged,
   GoalClearChangeMeta,
   GoalOperation,
   GoalSnapshotChangeMeta,
-  GoalView,
 } from './domain.ts'
 
 // The pure payload outlet (./types.ts, ONE home of the `goal` projection-key
@@ -56,7 +55,6 @@ export type * from './types.ts'
 export type * from './domain.ts'
 export { GOAL_CHANGE_VERSION, GoalError, GoalId } from './runtime.ts'
 export { decodeGoalChange, foldGoal, goalChangeRef } from './fold.ts'
-export { renderGoalChange } from './render.ts'
 
 declare module 'cordis' {
   interface Context {
@@ -96,22 +94,22 @@ const goalProjectionSchema: ZodType<GoalProjection | null> = zod.union([
  * @returns the next projection (same reference when the event is not a goal change).
  */
 export function applyGoalProjection(state: GoalProjection | null, event: SessionEvent): GoalProjection | null {
-  if (event.type !== 'user/message') return state
-  const source = event.data.source
-  if (source.kind !== 'goal' || source.round !== 0) return state
-  const change = source.change
-  // Session-log data is a durable boundary: the static type promises the kind,
-  // but a foreign or corrupted change record must degrade to same-reference,
-  // never feed the zod parse in the registry drive.
-  // oxlint-disable-next-line typescript/no-unnecessary-condition -- durable-boundary guard
-  if (change === undefined || change.kind !== 'goal/change') return state
-  if (change.operation === 'clear') return null
-  return {
-    goal: change.goal,
-    roundsStarted: change.roundsStarted,
-    createdAt: change.createdAt,
-    updatedAt: change.updatedAt,
+  if (event.type !== 'goal/change') return state
+  let change: GoalChangeMeta | undefined
+  try {
+    change = decodeGoalChange(event.data)
+  } catch (_invalidPersistedGoalChange) {
+    return state
   }
+  if (change === undefined) return state
+  return change.operation === 'clear'
+    ? null
+    : {
+      goal: change.goal,
+      roundsStarted: change.roundsStarted,
+      createdAt: change.createdAt,
+      updatedAt: change.updatedAt,
+    }
 }
 
 /** Deployment defaults for goal creation. */
@@ -126,19 +124,12 @@ export interface ResolvedConfig {
   defaultMaxGoalRounds: number
 }
 
-/** One accepted mutation waiting to enter or be observed in the session log. */
-interface PendingGoalChange {
-  readonly change: GoalChangeMeta
-  readonly activation: GoalActivation
-  applied: boolean
-}
-
-/** Process-local cache plus mutations waiting in the active tool-batch FIFO. */
+/** Process-local cache plus activation intent crossing the synchronous append boundary. */
 interface GoalCache {
   readonly state: GoalFoldState
   activation: GoalActivation
   observedSeq: number
-  readonly pending: PendingGoalChange[]
+  pendingActivation: { readonly seq: number; readonly activation: GoalActivation } | undefined
 }
 
 /** Validated create input with every deployment default materialized. */
@@ -188,13 +179,8 @@ function resolveBlockReason(reason: unknown): GoalBlockReason {
   return { code, message: message.trim() }
 }
 
-/** Compare the complete canonical payloads used for deferred reconciliation. */
-function sameChange(left: GoalChangeMeta, right: GoalChangeMeta): boolean {
-  return JSON.stringify(left) === JSON.stringify(right)
-}
-
 /** Goal service (`ctx.goals`) backed exclusively by the owning session log. */
-export class GoalService extends Service {
+export class GoalService extends GatewayService {
   static inject = ['agents']
 
   static Config: z<Config> = z.object({
@@ -209,7 +195,7 @@ export class GoalService extends Service {
     this.resolved = {
       defaultMaxGoalRounds: resolveMaxGoalRounds(config.defaultMaxGoalRounds ?? 256),
     }
-    ctx.on('agent/session-start', (agent) => {
+    ctx.on('agent/session-start', ({ agent }) => {
       this.cache(agent.session).activation = 'disarmed'
     })
     // The `goal` projection unit: last-wins fold of goal/change whole values
@@ -222,7 +208,7 @@ export class GoalService extends Service {
         init: () => null,
         apply: applyGoalProjection,
         view: state => state,
-        stateVersion: 1,
+        stateVersion: 4,
       })
     })
   }
@@ -287,6 +273,7 @@ export class GoalService extends Service {
    * @param request - at least one replacement field.
    * @returns the edited view.
    */
+  @Remote('edit')
   edit(agent: Agent, ref: GoalRef, request: EditGoalRequest): GoalView {
     const cache = this.prepareMutation(agent)
     const current = this.expectCurrent(cache, ref)
@@ -308,6 +295,7 @@ export class GoalService extends Service {
    * @param ref - expected current revision.
    * @returns the paused view.
    */
+  @Remote('pause')
   pause(agent: Agent, ref: GoalRef): GoalView {
     return this.transition(agent, ref, 'pause', ['active'], 'paused', 'disarmed')
   }
@@ -319,6 +307,7 @@ export class GoalService extends Service {
    * @param ref - expected current revision.
    * @returns the active view.
    */
+  @Remote('resume')
   resume(agent: Agent, ref: GoalRef): GoalView {
     const cache = this.prepareMutation(agent)
     const current = this.expectCurrent(cache, ref)
@@ -344,6 +333,7 @@ export class GoalService extends Service {
    * @param ref - expected current revision.
    * @returns the completed view.
    */
+  @Remote('complete')
   complete(agent: Agent, ref: GoalRef): GoalView {
     return this.transition(
       agent,
@@ -383,6 +373,7 @@ export class GoalService extends Service {
    * @param ref - expected current revision.
    * @returns the tombstone ref whose revision is one past the cleared snapshot.
    */
+  @Remote('clear')
   clear(agent: Agent, ref: GoalRef): GoalRef {
     const cache = this.prepareMutation(agent)
     const current = this.expectCurrent(cache, ref)
@@ -436,34 +427,21 @@ export class GoalService extends Service {
       state,
       activation: 'disarmed',
       observedSeq: session.seq,
-      pending: [],
+      pendingActivation: undefined,
     }
     this.caches.set(session, cache)
     return cache
   }
 
-  /** Incrementally observe durable events without losing deferred mutations. */
+  /** Incrementally observe durable events and reconcile local activation intent. */
   private sync(session: Session, cache: GoalCache): void {
     for (const event of session.events.slice(cache.observedSeq)) {
-      // A goal state change is a round-zero goal-sourced user message; a
-      // positive round is a continuation prompt handled by applyGoalEvent.
-      if (event.type === 'user/message' && event.data.source.kind === 'goal' && event.data.source.round === 0) {
-        const change = decodeGoalEvent(event)
-        if (change !== undefined) {
-          const pending = cache.pending[0]
-          if (pending !== undefined && sameChange(pending.change, change)) {
-            if (!pending.applied) {
-              applyGoalChange(cache.state, change)
-              cache.activation = pending.activation
-              pending.applied = true
-            }
-            cache.pending.shift()
-            cache.observedSeq += 1
-            continue
-          }
-        }
-      }
       applyGoalEvent(cache.state, event)
+      if (event.type === 'goal/change') {
+        cache.activation = cache.pendingActivation?.seq === event.seq
+          ? cache.pendingActivation.activation
+          : 'disarmed'
+      }
       cache.observedSeq += 1
     }
   }
@@ -555,41 +533,28 @@ export class GoalService extends Service {
     }
     this.commit(agent, cache, change, activation)
     const view = this.view(cache)
-    /* v8 ignore next -- applyGoalChange installs the snapshot immediately before this read */
+    /* v8 ignore next -- the durable goal event installs the snapshot before this read */
     if (view === undefined) throw new Error('snapshot commit cleared the goal unexpectedly')
     return view
   }
 
-  /** Accept one mutation into the agent log/FIFO, cache, and live event stream. */
+  /** Commit one mutation into the goal log, cache, and live event stream. */
   private commit(agent: Agent, cache: GoalCache, change: GoalChangeMeta, activation: GoalActivation): void {
     const ref = goalChangeRef(change)
-    const pending: PendingGoalChange = { change, activation, applied: false }
-    cache.pending.push(pending)
+    cache.pendingActivation = { seq: agent.session.seq, activation }
     try {
-      agent.inject(createUserMessage({
-        content: renderGoalChange(change),
-        source: { kind: 'goal', goalId: ref.id, revision: ref.revision, round: 0, change },
-      }))
-    } catch (error: unknown) {
-      const index = cache.pending.indexOf(pending)
-      /* v8 ignore next -- a committed goal append cannot reject after its contained observers run */
-      if (index < 0) throw new Error('goal injection failed after its pending mutation was reconciled', { cause: error })
-      cache.pending.splice(index, 1)
-      throw error
+      agent.session.append('goal/change', change)
+      this.sync(agent.session, cache)
+    } finally {
+      cache.pendingActivation = undefined
     }
-    if (!pending.applied) {
-      applyGoalChange(cache.state, change)
-      cache.activation = activation
-      pending.applied = true
-    }
-    this.sync(agent.session, cache)
     const goal = this.view(cache)
     const notification: GoalChanged = {
       operation: change.operation,
       ref: { ...ref },
       ...goal === undefined ? {} : { goal },
     }
-    agentEvents(this.ctx, agent).emit('goal/changed', notification)
+    agentEvents(this.ctx, agent).emit('goal/changed', { change: notification })
   }
 
   /** Build a detached current view. */
@@ -609,6 +574,18 @@ export class GoalService extends Service {
       updatedAt,
       activation: cache.activation,
     }
+  }
+
+  /**
+   * Create one Goal through the remote boundary.
+   * @param agent - exact live Agent resolved from the wire identity.
+   * @param request - objective and optional round cap.
+   * @returns the created Goal identity.
+   */
+  @Remote('create')
+  remoteExportCreate(agent: Agent, request: CreateGoalRequest): CreateGoalResult {
+    const view = this.create(agent, request)
+    return { ref: { id: view.id, revision: view.revision } }
   }
 }
 

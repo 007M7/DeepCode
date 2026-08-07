@@ -376,7 +376,7 @@ describe('feature configurator', () => {
     name: 'demo',
     description: 'demo',
     runtime: { model: 'deepseek-v4-flash' },
-    runInterface: 'tui',
+    runInterface: 'embed',
     packageManager: new NpmPackageManager('10.0.0'),
     releaseVersion: '0.0.1',
   }

@@ -100,7 +100,7 @@ describe('PiAiAdapter provider routing', () => {
     })
   })
 
-  it('uses a dynamic request effort and rejects unsupported efforts before network I/O', async () => {
+  it('uses a dynamic request effort and reports unsupported efforts before network I/O', async () => {
     const server = await mockServer([{ events: textEvents }, { events: textEvents }])
     const ctx = await harness(server.url, { reasoning: 'max' })
 
@@ -119,11 +119,15 @@ describe('PiAiAdapter provider routing', () => {
     expect(server.requests[1]).toMatchObject({ thinking: { type: 'disabled' } })
     expect(server.requests[1]).not.toHaveProperty('reasoning_effort')
 
-    await expect(assemble(ctx, {
+    const unsupported = await assemble(ctx, {
       model: 'deepseek-v4-flash',
       reasoningEffort: ReasoningEffortId('xhigh'),
       messages: [],
-    })).rejects.toMatchObject({ code: 'UNSUPPORTED_REASONING_EFFORT' })
+    })
+    expect(unsupported.finish).toMatchObject({
+      kind: 'error',
+      failure: { code: 'UNSUPPORTED_REASONING_EFFORT' },
+    })
     expect(server.requests).toHaveLength(2)
   })
 
@@ -140,19 +144,36 @@ describe('PiAiAdapter provider routing', () => {
     expect(result.message.content).toEqual([{ type: 'text', text: 'hello' }])
   })
 
-  it('rejects stop sequences rather than silently ignoring them', async () => {
+  it('names a route by its displayName, and by its own key once the profiles drop it', () => {
+    const adapter = adapterOf({ 'acme-gateway': {
+      apiKey: 'k',
+      displayName: 'Acme Gateway',
+      api: 'openai-completions',
+      baseURL: 'https://acme.test/v1',
+      models: [{ id: 'acme-large' }],
+    } })
+    expect(adapter.providerInfo('acme-gateway')).toEqual({ id: 'acme-gateway', name: 'Acme Gateway' })
+
+    // The registry and the profiles can disagree for a moment: a refused
+    // registration swap leaves the previous routes serving while resolution
+    // has already moved on, so a selector may ask about a route the current
+    // profiles no longer describe. It gets the key rather than nothing.
+    expect(adapter.providerInfo('departed')).toEqual({ id: 'departed', name: 'departed' })
+  })
+
+  it('reports unsupported stop sequences rather than silently ignoring them', async () => {
     const server = await mockServer([])
     const ctx = await harness(server.url)
-    await expect(assemble(ctx, { model: 'deepseek-v4-flash', messages: [], stop: ['END'] }))
-      .rejects.toMatchObject({ code: 'UNSUPPORTED_OPTION' })
+    const result = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [], stop: ['END'] })
+    expect(result.finish).toMatchObject({ kind: 'error', failure: { code: 'UNSUPPORTED_OPTION' } })
     expect(server.requests).toEqual([])
   })
 
-  it('rejects unknown catalog models before network I/O', async () => {
+  it('reports unknown catalog models before network I/O', async () => {
     const server = await mockServer([])
     const ctx = await harness(server.url)
-    await expect(assemble(ctx, { model: 'not-in-the-catalog', messages: [] }))
-      .rejects.toMatchObject({ code: 'UNKNOWN_MODEL' })
+    const result = await assemble(ctx, { model: 'not-in-the-catalog', messages: [] })
+    expect(result.finish).toMatchObject({ kind: 'error', failure: { code: 'UNKNOWN_MODEL' } })
     expect(server.requests).toEqual([])
   })
 
@@ -308,8 +329,8 @@ describe('PiAiAdapter provider routing', () => {
     const server = await mockServer([{ events: textEvents, delayMs: 200 }])
     const ctx = await harness(server.url, { streamIdleTimeoutMs: 20 })
 
-    await expect(assemble(ctx, { model: 'deepseek-v4-flash', messages: [] }))
-      .rejects.toMatchObject({ code: 'TIMEOUT' })
+    const result = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
+    expect(result.finish).toMatchObject({ kind: 'error', failure: { code: 'TIMEOUT' } })
     await Promise.race([
       server.responseClosed,
       new Promise<never>((_resolve, reject) => {
@@ -407,12 +428,11 @@ describe('provider profile lifecycle', () => {
       ReasoningEffortId('xhigh'),
       ReasoningEffortId('max'),
     ])
-    await expect(ctx.llm.resolveModelInfo('openai', 'gpt-4.1'))
-      .resolves.toMatchObject({
-        reasoning: {
-          efforts: [{ id: ReasoningEffortId('off'), name: 'Off' }],
-        },
-      })
+    // A catalog model without reasoning is the same case as a hand-declared
+    // one: pi-ai reports the single level `off`, which translates to omitting
+    // the reasoning option — exactly what naming no effort already does. The
+    // capability is reported unavailable rather than offering that control.
+    expect((await ctx.llm.resolveModelInfo('openai', 'gpt-4.1')).reasoning).toBeUndefined()
   })
 
   it('uses a supported profile reasoning value as the model default and rejects an unsupported one', async () => {
@@ -424,13 +444,24 @@ describe('provider profile lifecycle', () => {
     await expect(supported.llm.resolveModelInfo('deepseek', 'deepseek-v4-flash'))
       .resolves.toMatchObject({ reasoning: { defaultEffort: ReasoningEffortId('max') } })
 
+    // A profile level this model cannot take DESCRIBES as no default rather
+    // than failing: resolveModelInfo builds the model catalog, and a catalog
+    // that throws takes its whole provider out of every picker — one mis-set
+    // field would hide every model on the route, including the ones that do
+    // support the level. The request path below is where it is refused.
     const unsupported = new Context()
     await unsupported.plugin(LlmService)
     await unsupported.plugin(LlmPiAi, {
       providers: { deepseek: { reasoning: 'medium' } },
     })
-    await expect(unsupported.llm.resolveModelInfo('deepseek', 'deepseek-v4-flash'))
-      .rejects.toMatchObject({ code: 'UNSUPPORTED_REASONING_EFFORT' })
+    const described = await unsupported.llm.resolveModelInfo('deepseek', 'deepseek-v4-flash')
+    expect(described.reasoning?.defaultEffort).toBeUndefined()
+    expect(described.reasoning?.efforts.length).toBeGreaterThan(0)
+    await expect(assemble(unsupported, {
+      provider: 'deepseek', model: 'deepseek-v4-flash', messages: [],
+    })).resolves.toMatchObject({
+      finish: { kind: 'error', failure: { code: 'UNSUPPORTED_REASONING_EFFORT' } },
+    })
 
     const disabled = new Context()
     await disabled.plugin(LlmService)
@@ -465,19 +496,23 @@ describe('provider profile lifecycle', () => {
     vi.stubEnv('DEEPSEEK_API_KEY', 'ambient-key')
     const server = await mockServer([{ events: textEvents }])
     const ctx = await harness(server.url, { apiKey: undefined, apiKeyEnv: 'PI_CUSTOM_REF_KEY' })
-    await expect(assemble(ctx, { model: 'deepseek-v4-flash', messages: [] }))
-      .rejects.toMatchObject({ code: 'MISSING_CREDENTIAL' })
-    await expect(assemble(ctx, { model: 'deepseek-v4-flash', messages: [] }))
-      .rejects.toThrow(/provider route "deepseek".*PI_CUSTOM_REF_KEY/s)
+    const first = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
+    expect(first.finish).toMatchObject({ kind: 'error', failure: { code: 'MISSING_CREDENTIAL' } })
+    const second = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
+    expect(second.finish.kind).toBe('error')
+    if (second.finish.kind !== 'error') throw new Error('expected an error finish')
+    expect(second.finish.failure.message).toMatch(/provider route "deepseek".*PI_CUSTOM_REF_KEY/s)
     expect(server.requests).toHaveLength(0)
   })
 
-  it('validates empty, unknown, legacy-shaped, and explicitly blank profiles', () => {
+  it('validates empty, underspecified, legacy-shaped, and explicitly blank profiles', () => {
     // Empty and omitted dicts are the dormant zero-route posture, not errors.
     expect(resolveProfiles({}).size).toBe(0)
     expect(resolveProfiles(undefined).size).toBe(0)
     expect(() => resolveProfiles({ '': {} })).toThrow(/non-empty/)
-    expect(() => resolveProfiles({ 'not-real': {} })).toThrow(/unknown/)
+    // A route the installed catalog does not ship is allowed, but it has no
+    // defaults to fall back on: it must describe its own models.
+    expect(() => resolveProfiles({ 'not-real': {} })).toThrow(/resolves no models/)
     // The pre-release array shape and its per-profile provider field fail
     // loud with migration directions instead of half-working.
     expect(() => resolveProfiles([{ provider: 'openai' }] as never)).toThrow(/dict keyed by provider/)

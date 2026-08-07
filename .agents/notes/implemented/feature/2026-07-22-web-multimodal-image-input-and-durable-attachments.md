@@ -154,7 +154,7 @@ Malformed base64, unsupported or mismatched media, truncated image payloads, exc
 | `packages/llm/llm-pi-ai` | Resolve durable supported image input into native provider content. |
 | `packages/llm/llm-deepseek` | Reject image content explicitly. |
 | `packages/compact/compact-basic` | Preserve images in summary input and reject non-text checkpoint output explicitly. |
-| `packages/host/apiproxy` and `apps/cli` | Narrow upload wire, persist-before-event ordering, session-authorized reads, limits and model preflight, plus config-tree assembly. |
+| `packages/host/apiproxy` and `packages/bundle/base` | Narrow upload wire, persist-before-event ordering, session-authorized reads, limits and model preflight, plus default profile composition. |
 | `packages/client/connection` and `packages/client/runtime` | Bounded request buffering, wire types, fixture images, prompt uploads, attachment reads, and durable-reference folding. |
 | `packages/client/ui-conversation` | Per-session draft images, attachment rail, user and assistant image controls, and original preview. |
 | `packages/acp/acp` | Explicit fallback rendering for image blocks. |

@@ -89,13 +89,15 @@ describe('tails', () => {
     expect(view.container.querySelector('[data-state="ok"]')).not.toBeNull()
   })
 
-  it('BashRow carries data-state for running (row sweep) and StateDots for error/stopped (root session arm)', () => {
+  it('BashRow carries data-state for running (row sweep) and StateDots for error/stopped', () => {
     const sid = 'root-1' as SessionId
     const list = createSnapshotStore<SessionListState>({
       ids: [sid],
-      byId: { [sid]: { id: sid, title: 'r', displayTitle: 'r', running: false, waitingApproval: false, blank: false, updatedAt: 0 } },
+      byId: { [sid]: { id: sid, title: 'r', displayTitle: 'r', running: false, blank: false, updatedAt: 0 } },
       current: undefined,
       phase: 'ready',
+      subagentsByParent: {},
+      currentAddress: undefined,
     })
     const props = (block: RunningToolCall | ToolResultNode) => ({
       callId: 'c1', toolName: 'bash', block, openFile: vi.fn(),
@@ -125,7 +127,7 @@ describe('tails', () => {
     runningView.unmount()
 
     const errorView = render(<BashRow {...props(errorResult)} />)
-    expect(errorView.container.querySelector('[data-sample="bash-global"]')).not.toBeNull()
+    expect(errorView.container.querySelector('[data-sample="bash"]')).not.toBeNull()
     expect(errorView.container.querySelector('[data-state="error"]')).not.toBeNull()
     expect(errorView.getByText('失败')).toBeTruthy()
     errorView.unmount()

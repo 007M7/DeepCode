@@ -36,11 +36,16 @@ export class ModelService extends Service {
 
   private readonly live: LiveState = { directories: new Map() }
 
+  /** Localized composer-block copy; this plugin owns the string it raises. */
+  private readonly blockReason: () => string
+
   /**
    * @param ctx - owning root context (the service registers itself as `models`).
+   * @param config - the bound translator for this plugin's own dictionary.
    */
-  constructor(ctx: Context) {
+  constructor(ctx: Context, config: { blockReason: () => string }) {
     super(ctx, 'models')
+    this.blockReason = config.blockReason
     ctx.on('connection/reset', () => {
       for (const directory of this.live.directories.values()) directory.resetConnected()
     })
@@ -68,8 +73,33 @@ export class ModelService extends Service {
     const actx = sessions.scope(sessionId)
     if (actx === undefined) throw new Error(`ui-model: session "${String(sessionId)}" resolved no scope`)
     const connection = this.ctx.get('connection') as ConnectionHandle
-    const directory = new ModelDirectory(connection.api.sessions, sessionId)
+    const directory = new ModelDirectory(
+      connection.api.sessions,
+      sessionId,
+      () => sessions.subagentAddress(sessionId) === undefined,
+    )
     live.directories.set(sessionId, directory)
+    // The composer cannot read this plugin (the dependency runs one way), so
+    // the block is pushed: the Host says whether an adapter serves the
+    // session's route, and only a definite `false` makes the input inert.
+    // `null` — before the first load, or after one failed — must not, or a
+    // slow or unreachable Host would lock a working composer.
+    const conversation = this.ctx.get('conversation')
+    if (conversation !== undefined) {
+      const publish = (): void => {
+        conversation.blocks.set(sessionId, directory.store.getSnapshot().routable === false
+          ? { reason: this.blockReason() }
+          : undefined)
+      }
+      publish()
+      actx.effect(() => {
+        const stop = directory.store.subscribe(publish)
+        return () => {
+          stop()
+          conversation.blocks.set(sessionId, undefined)
+        }
+      }, 'ui-model: composer block')
+    }
     actx.effect(() => () => {
       directory.dispose()
       live.directories.delete(sessionId)

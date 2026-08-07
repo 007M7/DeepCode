@@ -2,8 +2,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import LlmService, { createUserMessage,
   CONTEXT_WINDOW_EXCEEDED_CODE,
-  errorChain,
-  LlmError,
   ProviderRequestId,
   QUOTA_EXCEEDED_CODE,
   ReasoningEffortId,
@@ -206,18 +204,22 @@ describe('DeepSeekAdapter against a mock server', () => {
       })
   })
 
-  it('rejects a per-request effort before I/O when thinking is disabled', async () => {
+  it('reports a per-request effort failure before I/O when thinking is disabled', async () => {
     const server = await mockServer([])
     const ctx = await harness(server.url, { thinking: 'disabled' })
 
-    await expect(assemble(ctx, {
+    const result = await assemble(ctx, {
       model: 'deepseek-v4-flash',
       reasoningEffort: ReasoningEffortId('high'),
       messages: [createUserMessage({
         content: [{ type: 'text', text: 'hi' }],
         source: { kind: 'plugin', plugin: 'test' },
       })],
-    })).rejects.toMatchObject({ code: 'UNSUPPORTED_REASONING_EFFORT' })
+    })
+    expect(result.finish).toMatchObject({
+      kind: 'error',
+      failure: { code: 'UNSUPPORTED_REASONING_EFFORT' },
+    })
     expect(server.requests).toHaveLength(0)
   })
 
@@ -250,23 +252,22 @@ describe('DeepSeekAdapter against a mock server', () => {
     [400, 'INVALID_REQUEST'],
     [500, 'SERVER'],
     [503, 'SERVER'],
-  ])('maps HTTP %d to LlmError code %s with the body message', async (status, code) => {
+  ])('maps HTTP %d to failure code %s with the body message', async (status, code) => {
     const behavior: Behavior = {
       kind: 'http-error',
       status,
       body: JSON.stringify({ error: { message: `failed with ${status}`, type: 't', code: 'c' } }),
     }
-    const server = await mockServer([behavior, behavior])
+    const server = await mockServer([behavior])
     const ctx = await harness(server.url)
-    await expect(assemble(ctx,{ model: 'deepseek-v4-flash', messages: [] }))
-      .rejects.toThrow(`failed with ${status}`)
-    await expect(
-      assemble(ctx,{ model: 'deepseek-v4-flash', messages: [] })
-        .catch((error: unknown) => (error as LlmError).code),
-    ).resolves.toBe(code)
+    const result = await assemble(ctx,{ model: 'deepseek-v4-flash', messages: [] })
+    expect(result.finish).toEqual({
+      kind: 'error',
+      failure: { message: `failed with ${status}`, code, status },
+    })
   })
 
-  it('classifies a thrown HTTP context-window rejection with the canonical code', async () => {
+  it('classifies an HTTP context-window failure with the canonical code', async () => {
     const server = await mockServer([{
       kind: 'http-error',
       status: 400,
@@ -279,9 +280,11 @@ describe('DeepSeekAdapter against a mock server', () => {
       }),
     }])
     const ctx = await harness(server.url)
-    const code = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
-      .catch((error: unknown) => (error as LlmError).code)
-    expect(code).toBe(CONTEXT_WINDOW_EXCEEDED_CODE)
+    const result = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
+    expect(result.finish).toMatchObject({
+      kind: 'error',
+      failure: { code: CONTEXT_WINDOW_EXCEEDED_CODE },
+    })
   })
 
   it('retains status, Retry-After seconds, and provider request id as structured facts', async () => {
@@ -292,19 +295,16 @@ describe('DeepSeekAdapter against a mock server', () => {
       headers: { 'retry-after': '2', 'x-request-id': 'req-429' },
     }])
     const ctx = await harness(server.url)
-    let thrown: unknown
-    try {
-      await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
-    } catch (error: unknown) {
-      thrown = error
-    }
-    expect(thrown).toBeInstanceOf(LlmError)
-    expect((thrown as LlmError).failure).toEqual({
-      message: 'slow down',
-      code: 'RATE_LIMIT',
-      status: 429,
-      providerRetryAfterMs: 2_000,
-      requestId: ProviderRequestId('req-429'),
+    const result = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
+    expect(result.finish).toEqual({
+      kind: 'error',
+      failure: {
+        message: 'slow down',
+        code: 'RATE_LIMIT',
+        status: 429,
+        providerRetryAfterMs: 2_000,
+        requestId: ProviderRequestId('req-429'),
+      },
     })
   })
 
@@ -322,16 +322,17 @@ describe('DeepSeekAdapter against a mock server', () => {
         },
       }])
       const ctx = await harness(server.url)
-      await expect(assemble(ctx, { model: 'deepseek-v4-flash', messages: [] }))
-        .rejects.toMatchObject({
-          failure: {
-            message: 'come back later',
-            code: 'SERVER',
-            status: 503,
-            providerRetryAfterMs: 3_000,
-            requestId: ProviderRequestId('deepseek-503'),
-          },
-        })
+      const result = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
+      expect(result.finish).toEqual({
+        kind: 'error',
+        failure: {
+          message: 'come back later',
+          code: 'SERVER',
+          status: 503,
+          providerRetryAfterMs: 3_000,
+          requestId: ProviderRequestId('deepseek-503'),
+        },
+      })
     } finally {
       dateNow.mockRestore()
     }
@@ -352,13 +353,11 @@ describe('DeepSeekAdapter against a mock server', () => {
         headers: { 'retry-after': value },
       }])
       const ctx = await harness(server.url)
-      let thrown: LlmError | undefined
-      try {
-        await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
-      } catch (error: unknown) {
-        if (error instanceof LlmError) thrown = error
-      }
-      expect(thrown?.failure).toEqual({ message: 'retry later', code: 'RATE_LIMIT', status: 429 })
+      const result = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
+      expect(result.finish).toEqual({
+        kind: 'error',
+        failure: { message: 'retry later', code: 'RATE_LIMIT', status: 429 },
+      })
     }
   })
 
@@ -379,53 +378,50 @@ describe('DeepSeekAdapter against a mock server', () => {
   it('keeps the status-line message for JSON error bodies without a message', async () => {
     const server = await mockServer([{ kind: 'http-error', status: 500, body: '{"error":{"type":"x"}}' }])
     const ctx = await harness(server.url)
-    await expect(assemble(ctx,{ model: 'deepseek-v4-flash', messages: [] }))
-      .rejects.toThrow(/HTTP 500/)
+    const result = await assemble(ctx,{ model: 'deepseek-v4-flash', messages: [] })
+    expect(result.finish.kind).toBe('error')
+    if (result.finish.kind !== 'error') throw new Error('expected an error finish')
+    expect(result.finish.failure.code).toBe('SERVER')
+    expect(result.finish.failure.message).toMatch(/HTTP 500/)
   })
 
   it('keeps the status-line message for non-JSON error bodies', async () => {
     const server = await mockServer([{ kind: 'http-error', status: 502, body: 'Bad Gateway', contentType: 'text/plain' }])
     const ctx = await harness(server.url)
-    await expect(assemble(ctx,{ model: 'deepseek-v4-flash', messages: [] }))
-      .rejects.toThrow(/HTTP 502/)
+    const result = await assemble(ctx,{ model: 'deepseek-v4-flash', messages: [] })
+    expect(result.finish.kind).toBe('error')
+    if (result.finish.kind !== 'error') throw new Error('expected an error finish')
+    expect(result.finish.failure.code).toBe('SERVER')
+    expect(result.finish.failure.message).toMatch(/HTTP 502/)
   })
 
   it('maps unusual statuses to HTTP_<status>', () => {
     expect(httpErrorCode(418)).toBe('HTTP_418')
   })
 
-  it('wraps a transport failure in TRANSPORT with the fetch cause chain in the message', async () => {
-    // Port 1 is reserved/unbound: fetch rejects with `TypeError: fetch failed`
-    // whose actionable detail (ECONNREFUSED) lives on `cause`.
+  it('reports a transport failure with the endpoint in the message', async () => {
+    // Port 1 is reserved/unbound, so the service normalizes the fetch failure.
     const ctx = await harness('http://127.0.0.1:1')
-    let caught: unknown
-    try {
-      await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
-    } catch (error: unknown) {
-      caught = error
-    }
-    expect(caught).toBeInstanceOf(LlmError)
-    const llmError = caught as LlmError
-    expect(llmError.code).toBe('TRANSPORT')
-    expect(llmError.message).toContain('http://127.0.0.1:1')
-    expect(llmError.cause).toBeInstanceOf(TypeError)
-    // The chain renderer reaches the transport diagnosis through the cause.
-    expect(errorChain(llmError)).toMatch(/ECONNREFUSED|EADDRNOTAVAIL|bad port/)
+    const result = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
+    expect(result.finish).toMatchObject({
+      kind: 'error',
+      failure: {
+        code: 'TRANSPORT',
+        message: 'DeepSeek API request to http://127.0.0.1:1 failed',
+      },
+    })
   })
 
-  it('classifies an aborted request without losing the transport rejection', async () => {
+  it('classifies an aborted request as an aborted finish', async () => {
     const controller = new AbortController()
     controller.abort()
     const ctx = await harness('http://127.0.0.1:1')
-    let caught: unknown
-    try {
-      await assemble(ctx, { model: 'deepseek-v4-flash', messages: [], signal: controller.signal })
-    } catch (error: unknown) {
-      caught = error
-    }
-    expect(caught).toBeInstanceOf(LlmError)
-    expect(caught).toMatchObject({ code: 'ABORTED' })
-    expect((caught as LlmError).cause).toMatchObject({ name: 'AbortError' })
+    const result = await assemble(ctx, {
+      model: 'deepseek-v4-flash',
+      messages: [],
+      signal: controller.signal,
+    })
+    expect(result.finish).toMatchObject({ kind: 'aborted', failure: { code: 'ABORTED' } })
   })
 
   it('throws EMPTY_RESPONSE when the response has no body', async () => {
@@ -443,20 +439,17 @@ describe('DeepSeekAdapter against a mock server', () => {
     }
   })
 
-  it('classifies an abrupt body close as TRANSPORT and retains its cause', async () => {
+  it('classifies an abrupt body close as TRANSPORT', async () => {
     const server = await mockServer([{
       kind: 'close-early',
       events: ['{"choices":[{"delta":{"content":"par"}}]}'],
     }])
     const ctx = await harness(server.url)
-    let caught: unknown
-    try {
-      await assemble(ctx,{ model: 'deepseek-v4-flash', messages: [] })
-    } catch (error: unknown) {
-      caught = error
-    }
-    expect(caught).toMatchObject({ code: 'TRANSPORT' })
-    expect(errorChain(caught)).toMatch(/terminated|socket|without \[DONE\]/)
+    const result = await assemble(ctx,{ model: 'deepseek-v4-flash', messages: [] })
+    expect(result.finish.kind).toBe('error')
+    if (result.finish.kind !== 'error') throw new Error('expected an error finish')
+    expect(result.finish.failure.code).toBe('TRANSPORT')
+    expect(result.finish.failure.message).toMatch(/^DeepSeek API stream from .* failed$/)
   })
 
   it('aborts mid-stream via the request signal', async () => {
@@ -478,7 +471,13 @@ describe('DeepSeekAdapter against a mock server', () => {
     })()
 
     setTimeout(() => { controller.abort() }, 30)
-    await expect(pending).rejects.toMatchObject({ code: 'ABORTED' })
+    const chunks = await pending
+    expect(chunks).toHaveLength(1)
+    expect(chunks[0]?.type).toBe('finish')
+    if (chunks[0]?.type !== 'finish') throw new Error('expected a finish chunk')
+    expect(chunks[0].reason.kind).toBe('aborted')
+    if (chunks[0].reason.kind !== 'aborted') throw new Error('expected an aborted finish')
+    expect(chunks[0].reason.failure.code).toBe('ABORTED')
   })
 
   it('maps connection failures to TRANSPORT without losing the cause', async () => {
@@ -700,6 +699,13 @@ describe('plugin registration and config', () => {
     })
   })
 
+  it('normalizes a literal API key and treats whitespace as absent', () => {
+    expect(resolveAdapterOptions({ apiKey: '  key  ' }).apiKey).toBe('key')
+    const whitespace = resolveAdapterOptions({ apiKey: ' \t ', apiKeyEnv: 'CUSTOM_API_KEY' })
+    expect(whitespace.apiKey).toBeUndefined()
+    expect(whitespace.apiKeyEnv).toBe('CUSTOM_API_KEY')
+  })
+
   it('uses the default model catalog when apply is called directly', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
@@ -793,6 +799,26 @@ describe('plugin registration and config', () => {
     expect(ctx.llm.listProviders()).toEqual([])
   })
 
+  it.each([0, 1.5])('rejects a per-model output cap of %s', (maxTokens) => {
+    expect(() => resolveAdapterOptions({ models: [{ id: 'bad-cap', maxTokens }] }))
+      .toThrow(/maxTokens must be a positive integer/)
+  })
+
+  it('prefers a model\'s own output cap over the profile default', async () => {
+    // The profile default stays what an unlisted or uncapped model resolves
+    // to, so adding a per-model cap changes one model rather than the route.
+    const adapter = adapterOf({ maxTokens: 4096, models: [
+      { id: 'capped', maxTokens: 512 },
+      { id: 'uncapped' },
+    ] })
+    await expect(adapter.resolveModel('deepseek-official', 'capped'))
+      .resolves.toMatchObject({ defaultMaxTokens: 512 })
+    await expect(adapter.resolveModel('deepseek-official', 'uncapped'))
+      .resolves.toMatchObject({ defaultMaxTokens: 4096 })
+    await expect(adapter.resolveModel('deepseek-official', 'not-in-catalog'))
+      .resolves.toMatchObject({ defaultMaxTokens: 4096 })
+  })
+
   it('rejects invalid context capacity when apply is called directly', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
@@ -858,12 +884,15 @@ describe('plugin registration and config', () => {
     // only the request itself needs a key.
     expect(ctx.llm.listProviders()).toEqual([{ id: 'deepseek-official', name: 'DeepSeek' }])
     await expect(ctx.llm.listModels('deepseek-official')).resolves.toHaveLength(2)
-    await expect(assemble(ctx, { model: 'deepseek-v4-flash', messages: [] }))
-      .rejects.toMatchObject({ code: 'MISSING_CREDENTIAL' })
+    const first = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
+    expect(first.finish).toMatchObject({ kind: 'error', failure: { code: 'MISSING_CREDENTIAL' } })
     // The guidance leads with the credential store — the path that keeps the
     // secret out of configuration files — and mentions a literal key last.
-    await expect(assemble(ctx, { model: 'deepseek-v4-flash', messages: [] }))
-      .rejects.toThrow(/store DEEPSEEK_API_KEY through the credentials service.*as a last resort.*"apiKey"/s)
+    const second = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
+    expect(second.finish.kind).toBe('error')
+    if (second.finish.kind !== 'error') throw new Error('expected an error finish')
+    expect(second.finish.failure.message)
+      .toMatch(/store DEEPSEEK_API_KEY through the credentials service.*as a last resort.*"apiKey"/s)
   })
 
   it('reads the ambient variable when no credentials seam is mounted', async () => {
@@ -883,8 +912,8 @@ describe('plugin registration and config', () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     await ctx.plugin(LlmDeepSeek, { baseURL: 'http://127.0.0.1:1' })
-    await expect(assemble(ctx, { model: 'deepseek-v4-flash', messages: [] }))
-      .rejects.toMatchObject({ code: 'MISSING_CREDENTIAL' })
+    const result = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
+    expect(result.finish).toMatchObject({ kind: 'error', failure: { code: 'MISSING_CREDENTIAL' } })
   })
 
   it('prefers explicit config over env for key and base URL', async () => {
@@ -967,5 +996,40 @@ describe('plugin registration and config', () => {
       retryPolicy: { mode: 'normal', maxRetries: -1 },
     })).rejects.toThrow(/retryPolicy/)
     expect(ctx.llm.listProviders()).toEqual([])
+  })
+})
+
+describe('API key format', () => {
+  it('trims a padded literal apiKey', () => {
+    expect(resolveAdapterOptions({ apiKey: '  sk-abc  ' }).apiKey).toBe('sk-abc')
+  })
+
+  it('leaves an omitted apiKey absent so apiKeyEnv still resolves it', () => {
+    expect(resolveAdapterOptions({}).apiKey).toBeUndefined()
+  })
+
+  it('treats a whitespace-only literal apiKey as absent, not as a failure', () => {
+    // This adapter's absence has a defined fallback, so a blank literal
+    // resolves through apiKeyEnv like an omitted one. (llm-pi-ai refuses a
+    // blank one instead: there, absence selects provider-native or OAuth
+    // authentication rather than a different source for the same key.)
+    const resolved = resolveAdapterOptions({ apiKey: '   ', apiKeyEnv: 'CUSTOM_API_KEY' })
+    expect(resolved.apiKey).toBeUndefined()
+    expect(resolved.apiKeyEnv).toBe('CUSTOM_API_KEY')
+  })
+
+  it('rejects a literal apiKey no header can carry', () => {
+    expect(() => resolveAdapterOptions({ apiKey: 'sk-\u{1F600}' }))
+      .toThrow(/no HTTP header can carry/)
+  })
+
+  it('never echoes the key in the rejection', () => {
+    const secret = 'sk-\u{1F600}supersecret'
+    expect(() => resolveAdapterOptions({ apiKey: secret })).toThrow()
+    try {
+      resolveAdapterOptions({ apiKey: secret })
+    } catch (error) {
+      expect((error as Error).message).not.toContain('supersecret')
+    }
   })
 })

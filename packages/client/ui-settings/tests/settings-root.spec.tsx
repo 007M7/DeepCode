@@ -14,6 +14,7 @@ type Step = { id: string; order: number }
 const SEAT_CONTENT: Record<string, string> = {
   'settings.trigger': 'Settings',
   'settings.header': 'Settings Title',
+  'settings.action': 'Open configuration file',
   'settings.close': 'Close',
 }
 
@@ -114,6 +115,13 @@ describe('SettingsPanel chrome seats', () => {
     expect(close.hasAttribute('aria-label')).toBe(false)
     expect(close.textContent).toContain('Close')
   })
+
+  it('renders header actions before the shell-owned close control', () => {
+    const { renderSlot } = mount()
+    openPanel()
+    expect(screen.getByText('Open configuration file')).toBeTruthy()
+    expect(renderSlot).toHaveBeenCalledWith('settings.action', {})
+  })
 })
 
 describe('SettingsPanel close paths', () => {
@@ -196,14 +204,19 @@ describe('SettingsPanel navigation', () => {
     expect(inactive).toHaveLength(0)
   })
 
-  it('makes the underlying application inert while onboarding owns the viewport', () => {
+  it('paints no takeover chrome of its own around the mounted step', () => {
+    // The chrome (mask, opaque stage, #root inert) belongs to the step via
+    // the OnboardingSurface primitive — a mounted-but-deciding step that
+    // renders null must show and block nothing (the reload white-flash fix;
+    // onboarding-surface.spec.tsx pins the primitive's half).
     const appRoot = document.createElement('div')
     appRoot.id = 'root'
     document.body.append(appRoot)
     const { view } = mount()
-    expect(appRoot.inert).toBe(true)
+    expect(view.container.querySelector('[class*="onboarding"]')).toBeNull()
+    expect(document.body.querySelector('[class*="onboarding"]')).toBeNull()
+    expect(appRoot.inert).not.toBe(true)
     view.unmount()
-    expect(appRoot.inert).toBe(false)
     appRoot.remove()
   })
 

@@ -16,7 +16,9 @@ import type { ISessions, SessionFace, SessionId } from '@deepseek-ai/dsh-client-
 import type { ImageAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attachment'
 import type { ComposerAttachment } from './contract/slots.ts'
 import type { QueueAction, QueueItemId } from './contract/queue.ts'
+import type { ComposerBlocks } from './input/blocks.ts'
 import type { DraftAttachmentId, InputService } from './input/contract.ts'
+import type { InputSubmitMode } from './contract/composer-submission.ts'
 
 /**
  * The outward conversation face (`ctx.conversation`): the scope-addressed
@@ -27,20 +29,25 @@ export interface IConversation {
   /** The per-session input machine registry (InputService face). */
   readonly input: InputService
   /**
+   * The per-session composer-block registry: how a plugin the composer
+   * cannot import makes a session's input inert with its own reason.
+   */
+  readonly blocks: ComposerBlocks
+  /**
    * Send a prompt into the caller scope's session (queued turn).
    * @param text - prompt text, sent verbatim as one text block.
    * @returns completion; business failures reject (and land in promptError).
    */
   send(text: string): Promise<void>
   /**
-   * Apply one operation to a pending queue occurrence.
+   * Apply one edit, remove, or strict steer operation to a pending queue occurrence.
    * @param itemId - agent-owned inbox occurrence identity.
-   * @param action - edit or remove operation.
-   * @returns completion; business failures reject.
+   * @param action - requested queue operation.
+   * @returns completion; converged strict-steer races resolve, while other failures reject.
    */
   updateQueue(itemId: QueueItemId, action: QueueAction): Promise<void>
   /**
-   * Cancel the scoped session's in-flight turn.
+   * Cancel the scoped session's in-flight turn while preserving its pending Queue.
    * @returns completion; failures reject as in send.
    */
   cancel(): Promise<void>
@@ -53,7 +60,12 @@ export interface IConversation {
 
 /** Create one browser-only draft descriptor; only its id enters input state. */
 function browserDraftAttachment(file: File): ComposerAttachment {
-  return { kind: 'image', id: crypto.randomUUID() as DraftAttachmentId, previewUrl: URL.createObjectURL(file), file }
+  return {
+    kind: 'image',
+    id: crypto.randomUUID() as DraftAttachmentId,
+    previewUrl: URL.createObjectURL(file),
+    file,
+  }
 }
 
 interface ImageUrlEntry {
@@ -79,6 +91,8 @@ export class UnsupportedImageMediaTypeError extends Error {
 export class ConversationService extends Service implements IConversation {
   /** The per-session input machine registry (InputService face, design §5.2). */
   readonly input: InputService
+  /** The per-session composer-block registry. */
+  readonly blocks: ComposerBlocks
   private readonly draftAttachments = new Map<DraftAttachmentId, ComposerAttachment>()
   private readonly imageUrls = new Map<string, ImageUrlEntry>()
   private readonly imageGenerations = new Map<SessionId, number>()
@@ -88,15 +102,17 @@ export class ConversationService extends Service implements IConversation {
   /**
    * @param ctx - owning root context (the plugin apply context; the service
    * registers itself and follows that fiber's lifetime).
-   * @param config - carries the InputService instance constructed by the
-   * plugin apply (the same InputHub the slot inject factories close over).
+   * @param config - carries the InputService and composer-block registry
+   * constructed by the plugin apply (the same instances the slot inject
+   * factories close over).
    */
-  constructor(ctx: Context, config: { input: InputService }) {
+  constructor(ctx: Context, config: { input: InputService; blocks: ComposerBlocks }) {
     super(ctx, 'conversation')
     this.input = config.input
+    this.blocks = config.blocks
     ctx.effect(() => () => {
       this.disposed = true
-      for (const url of this.createdImageUrls) URL.revokeObjectURL(url)
+      for (const url of this.createdImageUrls) revokePreview(url)
       this.createdImageUrls.clear()
       this.draftAttachments.clear()
       this.imageUrls.clear()
@@ -108,49 +124,42 @@ export class ConversationService extends Service implements IConversation {
    * Send a prompt into the scoped session. Business failures also land in the
    * session snapshot's promptError (object-layer surface); the rejection here
    * exists for caller choreography (the composer restores the draft on it).
-   * @param text - prompt text, sent verbatim as one text block when non-empty.
+   * @param text - prompt text, sent verbatim as one text block.
    */
   async send(text: string): Promise<void> {
     const session = this.scopedSession('send')
-    await this.sendFiles(session, text, [])
+    const result = await session.prompt([{ type: 'text', text }], 'queue')
+    if (!result.ok) throw new Error(`conversation.send failed: ${result.error.code}: ${result.error.message}`)
   }
 
   /**
-   * Submit the input shell's ordered draft-image ids with its text.
-   * Missing runtime objects fail explicitly instead of silently dropping a
-   * persisted or stale id.
+   * Submit ordered draft images with text through one host admission.
    * @param session - target session.
    * @param text - serialized prompt text.
    * @param imageIds - ordered draft-local attachment ids.
+   * @param mode - queue or steer delivery selected by composer policy.
    */
   async sendSession(
     session: SessionFace,
     text: string,
     imageIds: readonly DraftAttachmentId[],
+    mode: InputSubmitMode,
   ): Promise<void> {
     const attachments = this.draftImages(imageIds)
     if (attachments.length !== imageIds.length) {
       throw new Error('conversation.sendSession: one or more draft images are no longer available')
     }
-    await this.sendFiles(session, text, attachments.map(attachment => attachment.file))
+    const uploaded = await this.serializeImages(attachments.map(attachment => attachment.file))
+    const content = [...uploaded, ...(text === '' ? [] : [{ type: 'text' as const, text }])]
+    const result = await session.prompt(content, mode)
+    if (!result.ok) throw new Error(`conversation.send failed: ${result.error.code}: ${result.error.message}`)
     this.releaseDraftImages(attachments)
   }
 
-  private async sendFiles(
-    session: SessionFace,
-    text: string,
-    images: readonly File[],
-  ): Promise<void> {
-    const uploaded = await this.serializeImages(images)
-    const content = [...uploaded, ...(text === '' ? [] : [{ type: 'text' as const, text }])]
-    const result = await session.prompt(content, 'queue')
-    if (!result.ok) throw new Error(`conversation.send failed: ${result.error.code}: ${result.error.message}`)
-  }
-
   /**
-   * Create runtime-only draft attachments and their object URLs.
-   * @param files - browser-owned image files.
-   * @returns ordered attachment descriptors whose ids may enter the input state.
+   * Create runtime-only draft images and their object URLs.
+   * @param files - browser files to register after MIME validation.
+   * @returns ordered draft descriptors.
    */
   createDraftImages(files: readonly File[]): readonly ComposerAttachment[] {
     for (const file of files) imageMediaType(file.type)
@@ -163,9 +172,9 @@ export class ConversationService extends Service implements IConversation {
   }
 
   /**
-   * Resolve ordered input-state ids to runtime-owned draft attachments.
-   * @param ids - ordered ids from the per-session input state.
-   * @returns attachments still available in this browser runtime.
+   * Resolve ordered input-state ids to runtime-owned draft images.
+   * @param ids - draft attachment ids.
+   * @returns descriptors that remain live, in requested order.
    */
   draftImages(ids: readonly DraftAttachmentId[]): readonly ComposerAttachment[] {
     const attachments: ComposerAttachment[] = []
@@ -177,8 +186,8 @@ export class ConversationService extends Service implements IConversation {
   }
 
   /**
-   * Release one draft attachment preview.
-   * @param id - draft-local attachment id.
+   * Release one browser-owned draft image and preview URL.
+   * @param id - draft attachment id.
    */
   releaseDraftImage(id: DraftAttachmentId): void {
     const attachment = this.draftAttachments.get(id)
@@ -189,18 +198,18 @@ export class ConversationService extends Service implements IConversation {
   }
 
   /**
-   * Release sent draft attachment previews.
-   * @param attachments - successfully submitted attachments.
+   * Release a set of browser-owned draft images.
+   * @param attachments - descriptors to release.
    */
   releaseDraftImages(attachments: readonly ComposerAttachment[]): void {
     for (const attachment of attachments) this.releaseDraftImage(attachment.id)
   }
 
   /**
-   * Resolve and cache one session-authorized historical image as an object URL.
-   * @param sessionId - session whose durable log grants the read.
-   * @param attachment - immutable reference from that log.
-   * @returns a browser URL for inline and original-size display.
+   * Resolve and cache one session-authorized historical image URL.
+   * @param sessionId - owning session authorization scope.
+   * @param attachment - durable image reference.
+   * @returns browser URL valid until its rendered session is released.
    */
   resolveImage(sessionId: SessionId, attachment: ImageAttachmentRef): Promise<string> {
     if (this.disposed) return Promise.reject(new Error('conversation.resolveImage: service is disposed'))
@@ -209,7 +218,9 @@ export class ConversationService extends Service implements IConversation {
     if (cached !== undefined) return cached.pending
     const generation = this.imageGenerations.get(sessionId) ?? 0
     const session = this.requireSessions().binding(sessionId)?.session
-    if (session === undefined) return Promise.reject(new Error(`conversation.resolveImage: unknown session "${sessionId}"`))
+    if (session === undefined) {
+      return Promise.reject(new Error(`conversation.resolveImage: unknown session "${sessionId}"`))
+    }
     const pending = session.readAttachment(attachment.attachmentId)
       .then((result) => {
         if (!result.ok) throw new Error(`${result.error.code}: ${result.error.message}`)
@@ -221,9 +232,7 @@ export class ConversationService extends Service implements IConversation {
           return `data:${result.value.attachment.mediaType};base64,${bytesToBase64(result.value.data)}`
         }
         const bytes = Uint8Array.from(result.value.data)
-        const url = URL.createObjectURL(new Blob([bytes.buffer], {
-          type: result.value.attachment.mediaType,
-        }))
+        const url = URL.createObjectURL(new Blob([bytes.buffer], { type: result.value.attachment.mediaType }))
         this.createdImageUrls.add(url)
         return url
       })
@@ -237,7 +246,7 @@ export class ConversationService extends Service implements IConversation {
 
   /**
    * Release every historical image URL owned by one rendered session.
-   * @param sessionId - session whose rendered image scope is ending.
+   * @param sessionId - rendered session scope.
    */
   releaseSessionImages(sessionId: SessionId): void {
     this.imageGenerations.set(sessionId, (this.imageGenerations.get(sessionId) ?? 0) + 1)
@@ -248,7 +257,7 @@ export class ConversationService extends Service implements IConversation {
         if (!this.createdImageUrls.delete(url)) return
         revokePreview(url)
       }, () => {
-        // A failed or generation-invalidated load owns no cached object URL.
+        // A failed or invalidated load owns no object URL.
       })
     }
   }
@@ -258,11 +267,15 @@ export class ConversationService extends Service implements IConversation {
     const session = this.scopedSession('updateQueue')
     const result = await session.updateQueue(itemId, action)
     if (!result.ok) {
+      if (
+        action.kind === 'steer'
+        && (result.error.code === 'steer-unavailable' || result.error.code === 'queue-item-not-found')
+      ) return
       throw new Error(`conversation.updateQueue failed: ${result.error.code}: ${result.error.message}`)
     }
   }
 
-  /** Cancel the scoped session's in-flight turn (failures land in promptError and reject, as in send). */
+  /** Cancel the scoped session's in-flight turn while preserving Queue (failures land in promptError and reject, as in send). */
   async cancel(): Promise<void> {
     const session = this.scopedSession('cancel')
     const result = await session.cancel()
@@ -299,7 +312,7 @@ export class ConversationService extends Service implements IConversation {
     return sessions
   }
 
-  /** Convert browser files to the prompt wire's canonical base64 image parts. */
+  /** Convert browser files to canonical base64 prompt parts. */
   private serializeImages(images: readonly File[]): Promise<Parameters<SessionFace['prompt']>[0]> {
     return Promise.all(images.map(async file => ({
       type: 'image' as const,

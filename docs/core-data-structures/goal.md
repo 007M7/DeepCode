@@ -71,10 +71,10 @@ interface GoalView extends GoalSnapshot {
 
 ## Durable changes
 
-Every mutation is a round-zero goal-sourced `user/message` whose metadata is either a complete snapshot or a clear tombstone. The version, metadata, goal source, and verbatim rendered content form one replay invariant.
+Every mutation is a durable `goal/change` session event whose payload is either a complete post-mutation snapshot or a clear tombstone. The strict fold and persisted projection derive lifecycle state only from these events; inbox mutations do not affect goal state.
 
 ```ts type-equiv
-/** Full-snapshot goal mutation retained in a model-visible context event. */
+/** Full-snapshot goal mutation committed by a durable `goal/change` event. */
 interface GoalSnapshotChangeMeta {
   readonly kind: 'goal/change'
   readonly version: 1
@@ -97,18 +97,16 @@ interface GoalClearChangeMeta {
 }
 ```
 
-Goal state changes use round `0`. A continuation consumer attributes each admitted user-message turn with a positive, sequential round number and the current revision; replay rejects gaps, stale revisions, stopped phases, and cap overflow.
+A continuation consumer attributes each admitted user-message turn with a positive, sequential round number and the current revision; only these admitted `user/message` events advance `roundsStarted`. Replay rejects non-positive rounds, gaps, stale revisions, stopped phases, and cap overflow.
 
 ```ts type-equiv
-/** Message attribution for durable goal state and continuation rounds. */
+/** Message attribution for admitted continuation rounds. */
 interface GoalMessageSource {
   readonly kind: 'goal'
   readonly goalId: GoalId
   readonly revision: number
-  /** Zero for state changes; positive for admitted continuation rounds. */
+  /** Positive admitted continuation round. */
   readonly round: number
-  /** Complete durable mutation carried only by round-zero state-change messages. */
-  readonly change?: GoalChangeMeta
 }
 ```
 
@@ -133,7 +131,7 @@ interface EditGoalRequest {
 ```
 
 ```ts type-equiv
-/** Live notification after one goal mutation has been accepted for logging. */
+/** Live notification after one durable goal mutation commits. */
 interface GoalChanged {
   readonly operation: GoalOperation
   readonly ref: GoalRef
@@ -144,4 +142,4 @@ interface GoalChanged {
 
 ## Service behavior
 
-[`GoalService`](../../packages/goal/goal/src/index.ts) resolves creation defaults, folds strict replay, enforces exact-live-agent identity and compare-and-set mutations, overlays deferred injections, and emits contained `goal/changed` notifications. The package [README](../../packages/goal/goal/README.md) owns the callable and model-visible contract.
+[`GoalService`](../../packages/goal/goal/src/index.ts) resolves creation defaults, folds strict replay from durable `goal/change` events, enforces exact-live-agent identity and compare-and-set mutations, and emits contained `goal/changed` notifications. The package [README](../../packages/goal/goal/README.md) owns the callable and model-visible contract.

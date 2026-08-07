@@ -22,7 +22,7 @@ ApiProxy 在可配置提供方 namespace 之外，将 `permission` 显式加入 
 
 在 Settings 中更改「权限」会立即更新 `settings.yaml` 和选择器，但不会改变已打开的会话。之后的每个会话都可以从三个已固定的权限事实中重建，即使用户再次更改默认值或进程重启也不受影响。如果部署中组合后的沙箱和审批默认值与任何 preset 都不匹配，则必须显式配置 `defaultPreset`。
 
-组装后的 Web 快照现在包含功能完整的「权限」选择器。其无密钥浏览器场景会写入 `read-only`，验证现有的 `danger-full-access` 会话保持不变，并验证随后创建的会话以 read-only 事件三元组启动。
+组装后的 Web 快照包含功能完整的「权限」选择器。其无密钥浏览器场景会写入 `read-only`，验证现有的 `workspace-write` 会话保持不变，并验证随后创建的会话以 read-only 事件三元组启动。
 
 ## 曾考虑的替代方案
 

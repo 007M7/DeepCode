@@ -1,9 +1,11 @@
 // Web e2e scenarios: the settings surface — the modal shell (trigger, nav,
 // section switching, both close paths), the Appearance preference row (the
 // real theme gesture — click 深色 and the whole cascade runs: ThemeService preference -> localStorage dsh.theme
-// -> theme/change -> ui-layout's presenter -> body attribute -> alias token)
-// and the Language row (settings-scoped localization + persisted dsh.locale),
-// plus Permission as the persisted default for subsequently created sessions.
+// -> theme/change -> ui-layout's presenter -> body attribute -> alias token +
+// browser theme-color metadata)
+// the Language row (settings-scoped localization + persisted dsh.locale),
+// the busy-state Enter preference, plus Permission as the persisted default
+// for subsequently created sessions.
 // Zero model calls: everything is pure client + persistence state on a blank
 // frame, so there is no fixture and a stray stream would fail loud on the
 // open llm seam.
@@ -57,9 +59,33 @@ describe('web e2e: settings modal and General preferences', () => {
     expect(await trigger.getAttribute('aria-expanded')).toBe('true')
     // General is active by default; Permission, Language and Appearance are functional.
     expect(await dialog.getByRole('button', { name: '通用设置' }).getAttribute('aria-current')).toBe('true')
-    await dialog.getByRole('button', { name: 'Full access' }).waitFor({ timeout: 10_000 })
+    await dialog.getByRole('button', { name: 'Workspace Write' }).waitFor({ timeout: 10_000 })
     await expect.poll(() => dialog.getByText('语言', { exact: true }).count(), { timeout: 5_000 }).toBe(1)
     await expect.poll(() => dialog.getByText('外观', { exact: true }).count(), { timeout: 5_000 }).toBe(1)
+    const openDocument = dialog.getByRole('button', { name: '打开配置文件' })
+    await openDocument.waitFor({ timeout: 10_000 })
+    let openRequests = 0
+    await page.route('**/api/settings.openDocument', async (route) => {
+      const envelope = route.request().postDataJSON() as {
+        rpcId: string
+        payload: Record<string, never>
+      }
+      expect(envelope.payload).toEqual({})
+      openRequests += 1
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          type: 'server-response',
+          rpcId: envelope.rpcId,
+          result: { ok: true, value: { opened: true } },
+        }),
+      })
+    })
+    await openDocument.click()
+    await expect.poll(() => openRequests, { timeout: 5_000 }).toBe(1)
+    await expect.poll(() => openDocument.isEnabled(), { timeout: 5_000 }).toBe(true)
+    await page.unroute('**/api/settings.openDocument')
     // Golden of the freshly opened dialog (default zh, General active).
     const snapshot = await captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(DIALOG_EXPECTED, snapshot, MODE)
@@ -82,12 +108,12 @@ describe('web e2e: settings modal and General preferences', () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-settings-permission'))
     const existing = scaffold.ctx.sessions.create(SessionId('settings-permission-before'))
     expect(existing.events.find(event => event.type === 'permission/preset')?.data)
-      .toEqual({ preset: 'danger-full-access' })
+      .toEqual({ preset: 'workspace-write' })
 
     await page.getByRole('button', { name: '设置', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: '设置' })
     await dialog.waitFor({ timeout: 10_000 })
-    const selector = dialog.getByRole('button', { name: 'Full access' })
+    const selector = dialog.getByRole('button', { name: 'Workspace Write' })
     await selector.waitFor({ timeout: 10_000 })
     await expect.poll(() => selector.isEnabled(), { timeout: 5_000 }).toBe(true)
     await selector.click()
@@ -98,7 +124,7 @@ describe('web e2e: settings modal and General preferences', () => {
     expect(document).toContain('permission:')
     expect(document).toContain('defaultPreset: read-only')
     expect(existing.events.find(event => event.type === 'permission/preset')?.data)
-      .toEqual({ preset: 'danger-full-access' })
+      .toEqual({ preset: 'workspace-write' })
 
     const created = scaffold.ctx.sessions.create(SessionId('settings-permission-after'))
     expect(created.events.map(event => [event.type, event.data])).toEqual([
@@ -129,17 +155,37 @@ describe('web e2e: settings modal and General preferences', () => {
 
   it('flips the theme through the Appearance cubes and persists across reload', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-settings-appearance'))
-    const readState = async (): Promise<{ attr: boolean; token: string; stored: string | null }> =>
-      await page.evaluate(() => ({
+    interface ThemeState {
+      attr: boolean
+      background: string
+      stored: string | null
+      themeColor: string | null
+      themeColorCount: number
+      token: string
+    }
+    const readState = async (): Promise<ThemeState> => await page.evaluate(() => {
+      const metas = document.head.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')
+      const computed = getComputedStyle(document.body)
+      return {
         attr: document.body.hasAttribute('data-ds-dark-theme'),
-        token: getComputedStyle(document.body).getPropertyValue('--dsw-alias-bg-base').trim(),
+        background: computed.backgroundColor,
         stored: localStorage.getItem('dsh.theme'),
-      }))
+        themeColor: metas[0]?.content ?? null,
+        themeColorCount: metas.length,
+        token: computed.getPropertyValue('--dsw-alias-bg-base').trim(),
+      }
+    })
+    const expectThemeColorSynchronized = (state: ThemeState): void => {
+      expect(state.themeColorCount).toBe(1)
+      expect(state.background).not.toBe('rgba(0, 0, 0, 0)')
+      expect(state.themeColor).toBe(state.background)
+    }
     // Pin the OS scheme to light so the default `system` preference resolves
     // light and the dark flip below is unambiguously the gesture's doing.
     await page.emulateMedia({ colorScheme: 'light' })
     const light = await readState()
     expect(light.attr).toBe(false)
+    expectThemeColorSynchronized(light)
 
     await page.getByRole('button', { name: '设置', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: '设置' })
@@ -154,6 +200,7 @@ describe('web e2e: settings modal and General preferences', () => {
     expect(dark.attr).toBe(true)
     expect(dark.stored).toBe('dark')
     expect(dark.token).not.toBe(light.token)
+    expectThemeColorSynchronized(dark)
     await page.keyboard.press('Escape')
 
     // Reload: the preference survives boot (restore + presenter initial apply).
@@ -165,6 +212,7 @@ describe('web e2e: settings modal and General preferences', () => {
     const reloaded = await readState()
     expect(reloaded.attr).toBe(true)
     expect(reloaded.stored).toBe('dark')
+    expectThemeColorSynchronized(reloaded)
 
     // `system` follows the emulated OS scheme (dark stays dark, light clears).
     await page.getByRole('button', { name: '设置', exact: true }).click()
@@ -172,12 +220,41 @@ describe('web e2e: settings modal and General preferences', () => {
     await systemCube.click()
     await expect.poll(() => systemCube.getAttribute('aria-pressed'), { timeout: 5_000 }).toBe('true')
     await expect.poll(async () => (await readState()).attr, { timeout: 5_000 }).toBe(false)
+    expectThemeColorSynchronized(await readState())
     await page.emulateMedia({ colorScheme: 'dark' })
     await expect.poll(async () => (await readState()).attr, { timeout: 5_000 }).toBe(true)
+    expectThemeColorSynchronized(await readState())
     // Restore for the specs that follow: light preference beats the emulated
     // dark OS scheme, leaving the shared page in the light default.
     await page.getByRole('dialog', { name: '设置' }).getByRole('button', { name: '浅色' }).click()
     await expect.poll(async () => (await readState()).attr, { timeout: 5_000 }).toBe(false)
+    expectThemeColorSynchronized(await readState())
+    await page.keyboard.press('Escape')
+    expect(tripwire.pageErrors).toEqual([])
+  }, 90_000)
+
+  it('persists the busy-state Enter behavior across reload and restores Queue', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-settings-enter-behavior'))
+    await page.getByRole('button', { name: '设置', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: '设置' })
+    await dialog.waitFor({ timeout: 10_000 })
+    await dialog.getByRole('button', { name: '排队发送' }).click()
+    await page.getByRole('menuitem', { name: '插话发送' }).click()
+    await dialog.getByRole('button', { name: '插话发送' }).waitFor({ timeout: 10_000 })
+    expect(await page.evaluate(() => localStorage.getItem('dsh.conversation.busyEnter'))).toBe('steer')
+    await page.keyboard.press('Escape')
+
+    const warningStart = tripwire.warnings.length
+    await page.reload({ waitUntil: 'load' })
+    await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+    acknowledgeReloadConnectionLoss(tripwire, warningStart)
+    await page.getByRole('button', { name: '设置', exact: true }).click()
+    const reloaded = page.getByRole('dialog', { name: '设置' })
+    await reloaded.getByRole('button', { name: '插话发送' }).waitFor({ timeout: 10_000 })
+    await reloaded.getByRole('button', { name: '插话发送' }).click()
+    await page.getByRole('menuitem', { name: '排队发送' }).click()
+    await reloaded.getByRole('button', { name: '排队发送' }).waitFor({ timeout: 10_000 })
+    expect(await page.evaluate(() => localStorage.getItem('dsh.conversation.busyEnter'))).toBe('queue')
     await page.keyboard.press('Escape')
     expect(tripwire.pageErrors).toEqual([])
   }, 90_000)

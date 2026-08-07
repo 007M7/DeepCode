@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-位于 `ctx.sessionQuery` 之上、经工作区授权的模型工具。该 opt-in 包（package）只依赖统一接口，并注册 `session_search`、`session_event_search`、`session_trace`、`session_event_trace` 和 `session_event_read`；已交付的 TUI、Web 与无头组合默认挂载它，而 ACP（Agent Client Protocol）不挂载。
+位于 `ctx.sessionQuery` 之上、经工作区授权的模型工具。该 opt-in 包只依赖统一接口，并注册 `session_search`、`session_event_search`、`session_trace`、`session_event_trace` 和 `session_event_read`；已发布的宿主组合默认不挂载它。
 
 ## 配置
 

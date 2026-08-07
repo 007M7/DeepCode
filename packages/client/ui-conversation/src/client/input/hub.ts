@@ -12,6 +12,7 @@ import type { ClientContext, ISessions, SessionBinding, SessionFace, SessionId }
 import type { SlashController } from '@deepseek-ai/dsh-client-ui-slash/client'
 import { queueReadFaceOf } from '../queue/store.ts'
 import type { ComposerKeyboard, DraftAttachmentId, InputService, SessionInput } from './contract.ts'
+import type { InputSubmitMode } from '../contract/composer-submission.ts'
 import type { PopupDismissFace } from './facade.ts'
 import { SessionInputShell } from './facade.ts'
 
@@ -26,6 +27,7 @@ interface ConversationAttachmentFace {
     session: SessionFace,
     text: string,
     imageIds: readonly DraftAttachmentId[],
+    mode: InputSubmitMode,
   ): Promise<void>
   releaseDraftImage(id: DraftAttachmentId): void
 }
@@ -66,7 +68,7 @@ export class InputHub implements InputService {
       slash: () => this.controller(actx),
       popup: () => this.popup(actx),
       queue: queueReadFaceOf(session),
-      defaultSink: (text, imageIds) => { this.sink(session, text, imageIds) },
+      defaultSink: (text, imageIds, mode) => { this.sink(session, text, imageIds, mode) },
     })
     this.shells.set(id, shell)
     // The one teardown axis: listeners, shell, and map entries all ride the
@@ -84,14 +86,6 @@ export class InputHub implements InputService {
       ]
       return () => {
         for (const off of offs) off()
-        // Draft attachments die with the scope: the shell only holds ids, so
-        // the service-owned File objects and object URLs must be released
-        // here or they leak for the page lifetime. The lookup is optional —
-        // during application teardown or HMR of this plugin the root
-        // `conversation` service can already be unregistered while session
-        // scopes are still alive; a throwing disposer would abort teardown
-        // quiescence, and the service's own disposal effect revokes every
-        // remaining URL in that case anyway.
         const drafts = shell.snapshot.imageIds
         shell.dispose()
         this.shells.delete(id)
@@ -148,17 +142,13 @@ export class InputHub implements InputService {
     session: SessionFace,
     text: string,
     imageIds: readonly DraftAttachmentId[],
+    mode: InputSubmitMode,
   ): void {
     if (text === '' && imageIds.length === 0) return
     const shell = this.shells.get(session.sessionId)
     // Commit, not an editable clear: undo must not resurrect sent content.
     shell?.commitSend(imageIds)
-    void this.conversation().sendSession(session, text, imageIds).catch(() => {
-      // Restore only into the shell that still owns the session: if the scope
-      // died while the send was in flight, `commitSend` already removed the
-      // ids from the (now disposed) shell, so the teardown release could not
-      // see them — release the drafts here instead of resurrecting them onto
-      // a dead instance where they would leak for the page lifetime.
+    void this.conversation().sendSession(session, text, imageIds, mode).catch(() => {
       if (this.shells.get(session.sessionId) === shell) {
         shell?.restoreImages(imageIds)
         if (shell?.snapshot.draft === '') shell.setDraft(text)

@@ -1,15 +1,16 @@
 /** Session-fork boundaries, lineage, and inherited model routing. */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentHandle, CreateAgentOptions } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { LlmCallConfig } from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
-import type { Session, SessionId } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
+import type { Workspace } from '@deepseek-ai/dsh-workspace'
 import type { RpcRequest } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
 import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
 import { createApiProxy } from '@deepseek-ai/dsh-host-apiproxy'
@@ -21,13 +22,13 @@ function request<P>(payload: P): RpcRequest<P> {
   return { rpcId: RpcId(`fork-${String(nextRpc++)}`), payload }
 }
 
-async function composed(): Promise<Context> {
+async function composed(workspaces: readonly Workspace[] = []): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   await ctx.plugin(SystemPrompt, { persona: '' })
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(UserInteractionService)
-  ctx.provide('workspace', { list: () => [] } as never)
+  ctx.provide('workspace', { list: () => workspaces } as never)
   ctx.agents.setFactory({
     createAgent: async (ownerCtx: Context, options: CreateAgentOptions): Promise<AgentHandle> => {
       const session = ctx.sessions.create(options.sessionId, {
@@ -46,30 +47,42 @@ async function composed(): Promise<Context> {
   return ctx
 }
 
-function liveAgent(ctx: Context, id: string, turns: number, openTail = false): Session {
-  const session = ctx.sessions.create(sid(id), { meta: { cwd: '/proj' } })
+/** Tail turn appended after the completed ones: left open, or closed as aborted (a stopped turn). */
+type Tail = 'none' | 'open' | 'aborted'
+
+function liveAgent(
+  ctx: Context,
+  id: string,
+  turns: number,
+  tail: Tail = 'none',
+  lineage: { parentSession?: SessionId; origin?: 'subagent' } = {},
+): Session {
+  const session = ctx.sessions.create(sid(id), { meta: { cwd: '/proj', ...lineage } })
   for (let turn = 1; turn <= turns; turn++) {
-    session.append('turn/start', { turn, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn })
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: `prompt ${String(turn)}` }],
       source: { kind: 'user' },
     }), { surfaceOp: 'append' })
     session.append('turn/end', { turn, reason: { kind: 'completed' } })
   }
-  if (openTail) {
-    session.append('turn/start', { turn: turns + 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+  if (tail !== 'none') {
+    session.append('turn/start', { turn: turns + 1 })
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'open prompt' }],
       source: { kind: 'user' },
     }), { surfaceOp: 'append' })
+    if (tail === 'aborted') session.append('turn/end', {
+      turn: turns + 1,
+      reason: { kind: 'aborted', reason: { kind: 'user' } },
+    })
   }
   ctx.agents.register({ id: session.id, session, status: 'idle', ctx } as Agent)
   return session
 }
 
 const api = (ctx: Context) => createApiProxy(ctx, {
-  provider: 'default-provider',
-  model: 'default-model',
+  defaultTarget: () => ({ provider: 'default-provider', model: 'default-model' }),
   cwd: '/tmp',
   workspaceRoot: '/tmp',
 })
@@ -90,9 +103,106 @@ describe('sessions.fork', () => {
     await ctx.fiber.dispose()
   })
 
+  it('attaches a subagent fork to its nearest workspace-owning ancestor', async () => {
+    const accounted: SessionId[] = []
+    const attachSession = vi.fn<(sessionId: SessionId) => Promise<void>>()
+      .mockResolvedValue(undefined)
+    const workspace = {
+      sessionIds: accounted,
+      attachSession,
+    } as unknown as Workspace
+    const ctx = await composed([workspace])
+    const owner = liveAgent(ctx, 'session-owner', 1)
+    accounted.push(owner.id)
+    const child = liveAgent(ctx, 'session-child', 1, 'none', {
+      parentSession: owner.id,
+      origin: 'subagent',
+    })
+    const grandchild = liveAgent(ctx, 'session-grandchild', 1, 'none', {
+      parentSession: child.id,
+      origin: 'subagent',
+    })
+    ctx.provide('sessionQuery', {
+      traceSession: vi.fn(() => Promise.resolve({
+        target: { header: grandchild.header, live: true, persisted: false },
+        ancestors: [
+          { header: child.header, live: true, persisted: false },
+          { header: owner.header, live: true, persisted: false },
+        ],
+        descendants: [],
+        complete: true,
+        root: { header: owner.header, live: true, persisted: false },
+      })),
+    } as never)
+
+    const response = await api(ctx).sessions.fork(request({ sessionId: grandchild.id }))
+
+    expect(response.result.ok).toBe(true)
+    if (!response.result.ok) return
+    expect(attachSession).toHaveBeenCalledWith(response.result.value.sessionId)
+    expect(ctx.sessions.get(response.result.value.sessionId)?.header).toMatchObject({
+      parentSession: grandchild.id,
+      cwd: '/proj',
+    })
+    expect(ctx.sessions.get(response.result.value.sessionId)?.header.origin).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
+  it('forks a persisted subagent without resuming its Agent', async () => {
+    const ctx = await composed()
+    const sourceId = sid('session-cold-subagent')
+    const parentId = sid('session-cold-parent')
+    const header: SessionHeader = {
+      version: 0,
+      id: sourceId,
+      createdAt: 1,
+      cwd: '/proj',
+      parentSession: parentId,
+      origin: 'subagent',
+    }
+    const events = [
+      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      {
+        type: 'user/message',
+        seq: 1,
+        time: 2,
+        data: createUserMessage({ content: [{ type: 'text', text: 'work' }], source: { kind: 'user' } }),
+        surfaceOp: 'append',
+      },
+      { type: 'turn/end', seq: 2, time: 3, data: { turn: 1, reason: { kind: 'completed' } } },
+    ] as SessionEvent[]
+    ctx.provide('sessionPersistence', {
+      list: () => Promise.resolve([header]),
+      inspect: () => Promise.resolve({ meta: header, events }),
+    } as never)
+    ctx.provide('sessionQuery', {
+      traceSession: () => Promise.resolve({
+        target: { header, live: false, persisted: true },
+        ancestors: [],
+        descendants: [],
+        complete: true,
+        root: { header, live: false, persisted: true },
+      }),
+    } as never)
+    const resume = vi.spyOn(ctx.agents, 'resume')
+
+    const response = await api(ctx).sessions.fork(request({ sessionId: sourceId }))
+
+    expect(response.result.ok).toBe(true)
+    if (!response.result.ok) return
+    expect(resume).not.toHaveBeenCalled()
+    expect(ctx.agents.get(sourceId)).toBeUndefined()
+    expect(ctx.sessions.get(response.result.value.sessionId)?.header).toMatchObject({
+      parentSession: sourceId,
+      cwd: '/proj',
+    })
+    expect(ctx.sessions.get(response.result.value.sessionId)?.header.origin).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
   it('uses the last completed turn only for omitted and past-end anchors', async () => {
     const ctx = await composed()
-    const source = liveAgent(ctx, 'session-tail', 2, true)
+    const source = liveAgent(ctx, 'session-tail', 2, 'open')
     const proxy = api(ctx)
     const expectedTypes = [
       'turn/start', 'user/message', 'turn/end',
@@ -114,9 +224,26 @@ describe('sessions.fork', () => {
     await ctx.fiber.dispose()
   })
 
+  it('cuts through an aborted turn: stopped is closed, not open', async () => {
+    const ctx = await composed()
+    const source = liveAgent(ctx, 'session-aborted', 1, 'aborted')
+    // What a stopped message's fork button anchors on: the frozen node sits
+    // one event before its turn/end, floored client-side to that event's seq.
+    const anchor = (source.events.at(-1)?.seq ?? 0) - 1
+    const response = await api(ctx).sessions.fork(request({ sessionId: source.id, atSeq: anchor }))
+    expect(response.result.ok).toBe(true)
+    if (!response.result.ok) return
+    expect(ctx.sessions.get(response.result.value.sessionId)?.events.map(event => event.type)).toEqual([
+      'turn/start', 'user/message', 'turn/end',
+      'turn/start', 'user/message', 'turn/end',
+      'session/end-seed',
+    ])
+    await ctx.fiber.dispose()
+  })
+
   it('rejects an in-log anchor whose turn is still open', async () => {
     const ctx = await composed()
-    const source = liveAgent(ctx, 'session-open', 1, true)
+    const source = liveAgent(ctx, 'session-open', 1, 'open')
     const anchor = source.events.at(-1)?.seq ?? 0
     const response = await api(ctx).sessions.fork(request({ sessionId: source.id, atSeq: anchor }))
     expect(response.result).toMatchObject({
@@ -152,7 +279,7 @@ describe('sessions.fork', () => {
     })
     const fallback: LlmCallConfig = { provider: 'default-provider', model: 'default-model' }
     await expect(agentEvents(child.ctx, child).waterfall(
-      'agent/request', 1, 0, new AbortController().signal, () => Promise.resolve(fallback),
+      'agent/request', { turn: 1, step: 0, signal: new AbortController().signal }, () => Promise.resolve(fallback),
     )).resolves.toMatchObject({
       provider: 'inherited-provider',
       model: 'inherited-model',

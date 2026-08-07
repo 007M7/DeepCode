@@ -7,6 +7,7 @@
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
+import { hasTypeRTRemoteNavigation, isForbiddenPublicationFile } from './publication-payload.ts'
 
 const root = resolve(import.meta.dirname, '..')
 // vendor/* is single-level; packages/<group>/<pkg> nests one level deeper
@@ -14,6 +15,7 @@ const root = resolve(import.meta.dirname, '..')
 const workspaceGlobs = [
   { dir: 'vendor', depth: 1 },
   { dir: 'packages', depth: 2 },
+  { dir: 'apps', depth: 1 },
 ] as const
 const vendoredPackages = new Set([
   'cordis',
@@ -28,6 +30,10 @@ const vendoredPackages = new Set([
 ])
 
 const localArtifactDirs = new Set(['node_modules'])
+const appPackageFiles: Readonly<Record<string, readonly string[]>> = {
+  '@deepseek-ai/dsh': ['lib/*.js', 'config'],
+  '@deepseek-ai/dsh-frontend': ['dist'],
+}
 
 /** The subset of package.json fields this constraint check cares about. */
 interface PackageManifest {
@@ -96,8 +102,13 @@ function workspaceManifests(): WorkspaceManifest[] {
 }
 
 const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
+  // Profile bundles publish their dsh.bundle.patch layer beside the lib.
+  '@deepseek-ai/dsh-base': ['cordis.patch.yml'],
+  '@deepseek-ai/dsh-web-app': ['cordis.patch.yml'],
+  '@deepseek-ai/dsh-headless': ['cordis.patch.yml'],
+  '@deepseek-ai/dsh-client-ui-theme': ['lib/styles'],
   '@deepseek-ai/dsh-helper': ['lib/assets'],
-  '@deepseek-ai/dsh-tui': ['lib/prompt.js'],
+  '@deepseek-ai/dsh-pty-local': ['scripts/ensure-spawn-helper.mjs'],
   '@deepseek-ai/dsh-scripts': [
     'lib/dev/tsdown-config.js',
     'lib/local-plugin-loader-hooks.js',
@@ -111,6 +122,7 @@ function sameStringList(actual: readonly string[] | undefined, expected: readonl
 
 function expectedDshPackageFiles(manifest: PackageManifest): readonly string[] {
   const extras = manifest.name ? packageFileExtras[manifest.name] ?? [] : []
+  const typeRTRemoteNavigation = hasTypeRTRemoteNavigation(manifest)
   return [
     'lib/index.js',
     // Every package publishes its invariant ownership companion as a separate
@@ -134,9 +146,35 @@ function expectedDshPackageFiles(manifest: PackageManifest): readonly string[] {
     // declarations.
     ...usesEmittedTreeDefaults(manifest) ? ['lib/types/**/*.js'] : [],
     'lib/types/**/*.d.ts',
-    'lib/types/**/*.d.ts.map',
-    'src',
+    ...hasExportPair(manifest, './typert', './lib/typert.host.d.ts', './lib/typert.host.js')
+      ? ['lib/typert.host.js', 'lib/typert.host.d.ts']
+      : [],
+    ...hasExportPair(manifest, './client/typert', './lib/typert.client.d.ts', './lib/typert.client.js')
+      ? ['lib/typert.client.js', 'lib/typert.client.d.ts']
+      : [],
+    ...typeRTRemoteNavigation
+      ? [
+        'lib/typert.remote-client.js',
+        'lib/typert.remote-client.d.ts',
+        'lib/typert.remote-client.d.ts.map',
+        'src',
+      ]
+      : [],
   ]
+}
+
+/** Whether one conditional export exactly names the generated runtime and declaration pair. */
+function hasExportPair(
+  manifest: PackageManifest,
+  subpath: string,
+  types: string,
+  runtime: string,
+): boolean {
+  const entry = manifest.exports?.[subpath]
+  return typeof entry === 'object'
+    && entry !== null
+    && entry.types === types
+    && entry.default === runtime
 }
 
 /** Runtime target of an export entry: conditional `default`, or the bare-string shorthand. */
@@ -165,7 +203,25 @@ function checkWorkspace({ dir, manifest }: WorkspaceManifest): string[] {
     return errors
   }
 
-  if (manifest.name?.startsWith('@deepseek-ai/dsh-') && manifest.name !== '@deepseek-ai/dsh-root') {
+  if (manifest.name?.startsWith('@deepseek-ai/')) {
+    const publicationPolicy = { typeRTRemoteNavigation: hasTypeRTRemoteNavigation(manifest) }
+    for (const file of manifest.files ?? []) {
+      if (isForbiddenPublicationFile(file, publicationPolicy)) {
+        errors.push(`${label}: package.json files must not publish ${JSON.stringify(file)}`)
+      }
+    }
+  }
+
+  if (dir.startsWith('apps/') && manifest.name?.startsWith('@deepseek-ai/')) {
+    const expectedFiles = appPackageFiles[manifest.name]
+    if (expectedFiles === undefined) {
+      errors.push(`${label}: app package has no publication files policy`)
+    } else if (!sameStringList(manifest.files, expectedFiles)) {
+      errors.push(`${label}: package.json files must be ${JSON.stringify(expectedFiles)}`)
+    }
+  }
+
+  if (dir.startsWith('packages/') && manifest.name?.startsWith('@deepseek-ai/dsh-')) {
     const peer = manifest.peerDependencies?.cordis
     const dev = manifest.devDependencies?.cordis
 

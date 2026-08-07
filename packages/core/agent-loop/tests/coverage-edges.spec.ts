@@ -28,7 +28,7 @@ async function harness(adapter: MockAdapter) {
 
 function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
-    const dispose = ctx.on('agent/status', (subject, status) => {
+    const dispose = ctx.on('agent/status', ({ agent: subject, status }) => {
       if (subject === agent && status === 'idle') {
         dispose()
         resolve()
@@ -120,26 +120,21 @@ describe('thrown-value propagation', () => {
     })
 
     const errors: unknown[] = []
-    ctx.on('agent/error', (_agent, _turn, _step, error) => void errors.push(error))
+    ctx.on('agent/error', ({ error }) => void errors.push(error))
 
     send(agent, 'fails before turn start')
     send(agent, 'survives as the next item')
     await waitForIdle(ctx, agent)
     expect(errors).toHaveLength(1)
     expect(errors[0]).toBe('naked string error')
-    expect(adapter.requests).toHaveLength(1)
+    expect(adapter.requests).toHaveLength(0)
     const starts = agent.session.events.filter(event => event.type === 'turn/start')
     const ends = agent.session.events.filter(event => event.type === 'turn/end')
     const messages = agent.session.events.filter(event => event.type === 'user/message')
-    expect(starts).toHaveLength(1)
-    // The rejected turn/start committed nothing, so the survivor reuses turn 1
-    // and the rejected prompt does not leak into it.
-    expect(starts[0]?.type === 'turn/start' && starts[0].data.turn).toBe(1)
-    expect(ends).toHaveLength(1)
-    expect(messages).toHaveLength(1)
-    expect(messages[0]?.type === 'user/message' && messages[0].data.content).toEqual([
-      { type: 'text', text: 'survives as the next item' },
-    ])
+    expect(starts).toHaveLength(0)
+    expect(ends).toHaveLength(0)
+    expect(messages).toHaveLength(0)
+    expect(agent.inbox.nextTurn).toHaveLength(2)
   })
 
   it('preserves non-Error throws from the agent/request waterfall', async () => {
@@ -148,7 +143,7 @@ describe('thrown-value propagation', () => {
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     let threwOnce = false
-    ctx.on('agent/request', async (_agent, _turn, _step, _signal, next) => {
+    ctx.on('agent/request', async (_payload, next) => {
       if (!threwOnce) {
         threwOnce = true
         throw { code: 500 }
@@ -156,28 +151,23 @@ describe('thrown-value propagation', () => {
       return next()
     })
 
-    const errors: unknown[] = []
-    ctx.on('agent/error', (_agent, _turn, _step, error) => void errors.push(error))
-
     send(agent, 'go')
     await waitForIdle(ctx, agent)
-    expect(errors).toHaveLength(1)
-    expect(errors[0]).toEqual({ code: 500 })
     const turnEnd = agent.session.events.find(e => e.type === 'turn/end')
     expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind === 'error'
-      && ('failure' in turnEnd.data.reason ? turnEnd.data.reason.failure.code : turnEnd.data.reason.code))
-      .toBeUndefined()
+      ? turnEnd.data.reason.error.message
+      : undefined).toBe('[object Object]')
   })
 })
 
-describe('coded error data emission', () => {
-  it('errorData includes code when a coded error (LlmError) is thrown from a plugin', async () => {
+describe('durable error rendering', () => {
+  it('renders a coded error thrown from a plugin', async () => {
     const adapter = new MockAdapter([textResponse('turn 1')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     let threwOnce = false
-    ctx.on('agent/request', async (_agent, _turn, _step, _signal, next) => {
+    ctx.on('agent/request', async (_payload, next) => {
       if (!threwOnce) {
         threwOnce = true
         throw new LlmError('server overloaded', 'RATE_LIMIT')
@@ -185,20 +175,16 @@ describe('coded error data emission', () => {
       return next()
     })
 
-    const errors: unknown[] = []
-    ctx.on('agent/error', (_agent, _turn, _step, error) => void errors.push(error))
-
     send(agent, 'go')
     await waitForIdle(ctx, agent)
-    expect(errors).toHaveLength(1)
-    expect(errorChain(errors[0])).toBe('server overloaded')
 
-    // turn-end error reason includes the code
     const turnEnd = agent.session.events.find(e => e.type === 'turn/end')
     expect(turnEnd).toBeDefined()
     if (turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind === 'error') {
-      expect('failure' in turnEnd.data.reason ? turnEnd.data.reason.failure.code : turnEnd.data.reason.code)
-        .toBe('RATE_LIMIT')
+      expect(turnEnd.data.reason.error).toEqual({
+        message: 'server overloaded',
+        code: 'RATE_LIMIT',
+      })
     }
   })
 })
@@ -221,7 +207,7 @@ describe('disposed vs aborted branching', () => {
     await driverDone(agent)
 
     // Disposal wins abort classification because the error path checks it first.
-    expect(reasons).toContainEqual({ kind: 'disposed' })
+    expect(reasons).toContainEqual({ kind: 'aborted', reason: { kind: 'disposed' } })
   })
 })
 
@@ -264,7 +250,7 @@ describe('request-error action edges', () => {
     ])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('retry-after-cancel'), { provider: 'mock', model: 'mock' })
-    ctx.on('agent/request-error', async (subject) => {
+    ctx.on('agent/request-error', async ({ agent: subject }) => {
       subject.cancel({ kind: 'user' })
       return { kind: 'retry' }
     })
@@ -285,9 +271,7 @@ describe('request-error action edges', () => {
     ])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('retry-raced'), { provider: 'mock', model: 'mock' })
-    ctx.on('agent/request-error', async (
-      subject, _turn, _step, _error, _failure, _priorFailures, _retryPolicy, signal, next,
-    ) => {
+    ctx.on('agent/request-error', async ({ agent: subject, signal }, next) => {
       await next()
       subject.cancel({ kind: 'user' })
       expect(signal.aborted).toBe(true)
@@ -366,7 +350,7 @@ describe('persistent step-close rejection', () => {
       if (event.type === 'step/end') throw new Error('step close permanently rejected')
     })
     const statuses: string[] = []
-    ctx.on('agent/status', (subject, status) => { if (subject === agent) statuses.push(status) })
+    ctx.on('agent/status', ({ agent: subject, status }) => { if (subject === agent) statuses.push(status) })
 
     send(agent, 'go')
     await agent.whenIdle()
@@ -422,7 +406,7 @@ describe('turn close failure containment', () => {
       }
     })
     const errors: unknown[] = []
-    ctx.on('agent/error', (_agent, _turn, _step, error) => { errors.push(error) })
+    ctx.on('agent/error', ({ error }) => { errors.push(error) })
 
     send(agent, 'go')
     await agent.whenIdle()
@@ -480,48 +464,44 @@ describe('unrenderable failure settlement', () => {
     if (end?.type === 'turn/end' && end.data.reason.kind === 'error') {
       // The durable failure keeps the adapter facts' message, not the
       // unrenderable chain.
-      expect(end.data.reason.failure?.message).not.toBe('<unrenderable value>')
+      expect(errorChain(end.data.reason.error.message)).not.toBe('<unrenderable value>')
     }
   })
 })
 
 describe('driver bookkeeping edges', () => {
-  it('a deferred wake settles when replacement activity rejects', async () => {
-    const adapter = new MockAdapter([])
-    const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(SessionId('rejected-deferred-wake'), {
-      provider: 'mock',
-      model: 'mock',
-    })
-    ctx.on('agent/inbox/enqueue', (subject) => {
-      if (subject !== agent) return
-      subject.cancel({ kind: 'user' })
-      const mutable = subject as Agent & { done: Promise<void> }
-      mutable.done = Promise.reject(new Error('replacement rejected'))
-    })
+  it('rejects a direct turn invocation without a driver reservation', async () => {
+    const ctx = await harness(new MockAdapter([]))
+    const agent = ctx.agentLoop.create(SessionId('turn-without-reservation'), { provider: 'mock', model: 'mock' })
 
-    send(agent, 'cancel before wake')
-
-    await expect(agent.whenIdle()).resolves.toBeUndefined()
-    expect(agent.session.events).toEqual([])
+    await expect((agent as unknown as { turn(): Promise<boolean> }).turn())
+      .rejects.toThrow('turn without driver reservation')
+    expect(agent.status).toBe('idle')
   })
 
-  it('a whenIdle waiter survives a rejected driver promise', async () => {
-    const adapter = new MockAdapter([textResponse('ok')])
+  it('closes an entered turn as blocked when its next step is rejected', async () => {
+    const adapter = new MockAdapter([textResponse('first step')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(SessionId('waiter-chain'), { provider: 'mock', model: 'mock' })
-    // A throwing terminal-notification listener rejects the driver promise
-    // (the run's containment covers only session appends); the waiter's
-    // catch arm must treat that rejection as quiescence instead of
-    // propagating it.
-    ctx.on('agent/settled', (subject) => {
-      if (subject === agent) throw new Error('settled listener exploded')
+    const agent = ctx.agentLoop.create(SessionId('reject-next-step'), { provider: 'mock', model: 'mock' })
+    let proposals = 0
+    ctx.on('agent/pre-step', async (_payload, next) => {
+      proposals += 1
+      return proposals === 2 ? { kind: 'reject' } : next()
+    })
+    ctx.on('agent/turn-stopping', ({ agent: subject }) => {
+      subject.inject(createUserMessage({
+        content: [{ type: 'text', text: 'do not enter the next step' }],
+        source: { kind: 'plugin', plugin: 'test' },
+      }))
     })
 
-    send(agent, 'one')
-    // Entered while the run owns the abort slot, the waiter awaits the
-    // driver promise; its rejection must count as quiescence and resolve.
-    await expect(agent.whenIdle()).resolves.toBeUndefined()
+    send(agent, 'go')
+    await agent.whenIdle()
+
+    expect(proposals).toBe(2)
+    expect(adapter.requests).toHaveLength(1)
+    const end = agent.session.events.findLast(event => event.type === 'turn/end')
+    expect(end?.type === 'turn/end' && end.data.reason).toEqual({ kind: 'blocked' })
   })
 
   it('a request failure that concludes recovery after step/end closed keeps the boundary balanced', async () => {

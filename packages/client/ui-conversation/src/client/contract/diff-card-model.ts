@@ -76,11 +76,8 @@ function narrowDiffs(diffs: unknown): DiffHunk[] | null {
  *
  * This derivation consumes only `diffs`; the render intent's `title` field is
  * deliberately dropped. The row supplies its own title (`Edit`/`Write · path`
- * from the args) and that outranks the view's `title`, matching the TUI diff
- * branch, which likewise draws no view title. A tool that names its own diff
- * header therefore does not surface that text on the Web row — an accepted
- * product choice, recorded here as the one asymmetry with the terminal card,
- * whose derivation does consume the view's title.
+ * from the args), which outranks the view's `title`. A tool that names its own
+ * diff header therefore does not surface that text on the Web row.
  * @param block - RunningToolCall or ToolResultNode off the snapshot caches.
  * @returns the diff-card props, or null for the generic path.
  */

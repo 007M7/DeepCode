@@ -20,9 +20,13 @@ import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts
 import { createChatStore } from '../src/client/stores.ts'
 import { ChatView } from '../src/client/chat/ChatView.tsx'
 import { zh } from '../src/client/locales.ts'
-import { assistantActionsSeqs, deriveChatFlow, flowKeys } from '../src/client/chat/chat-flow.ts'
+import { assistantActionsSeqs, assistantBranchSeqs, deriveChatFlow, flowKeys, runningTurnStartTime } from '../src/client/chat/chat-flow.ts'
+import { formatRunDuration } from '../src/client/chat/message-chrome.ts'
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+})
 // Keyless create() persists under the bare declared key; clear between cases
 // so one harness's selection cannot rehydrate into the next.
 beforeEach(() => {
@@ -33,9 +37,9 @@ const SID = 's1' as SessionId
 
 function snapshotBase(): ConversationSnapshot {
   return {
-    sessionId: SID, nodes: [], partial: null, runningCalls: [], codeDispatches: new Map(),
+    sessionId: SID, nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [], codeDispatches: new Map(),
     pending: [], queue: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
-    hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null,
+    hasMore: false, loadingOlder: false, promptError: null, blank: false, subagent: null, lastAgentError: null,
   }
 }
 
@@ -93,7 +97,7 @@ const runningCall = (callId: string, name = 'bash'): RunningToolCall => ({
 /** Empty sessions-list hook for the global standard-kit seat. */
 function emptySessions() {
   const store = createSnapshotStore<SessionListState>(
-    { ids: [], byId: {}, current: undefined, phase: 'ready' })
+    { ids: [], byId: {}, current: undefined, phase: 'ready', subagentsByParent: {}, currentAddress: undefined })
   return bindSnapshotSelector(store)
 }
 
@@ -112,10 +116,10 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
   const loadOlder = vi.fn()
   const inspectCall = vi.fn<(callId: string) => void>()
   // In-memory scroll memory matching the apply.ts per-session map contract.
-  let savedScrollTop: number | null = null
-  const chatScroll = {
-    save: (top: number | null) => { savedScrollTop = top },
-    read: () => savedScrollTop,
+  let savedScroll: ReturnType<ChatViewSlotProps['chatScroll']['read']> = null
+  const chatScroll: ChatViewSlotProps['chatScroll'] = {
+    save: (position) => { savedScroll = position },
+    read: () => savedScroll,
   }
   const forkAt = vi.fn()
   // Selection rides the REAL chat store (same construction path as
@@ -126,6 +130,8 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
   const chat = createChatStore().create()
   const renderSlot = ((_key: string, _owner: object, opts?: { fallback?: React.ReactNode }) =>
     opts?.fallback ?? null) as unknown as ChatViewSlotProps['renderSlot']
+  const renderSlotChain = ((_key: string, _owner: object, opts?: { fallback?: React.ReactNode }) =>
+    opts?.fallback ?? null) as unknown as ChatViewSlotProps['renderSlotChain']
   // SessionProvider seat arrives with the session-scope child declaration;
   // ChatView never invokes it (render-prop pass-through stub).
   const SessionProviderStub: ChatViewSlotProps['SessionProvider'] = ({ children }) => <>{children(SID)}</>
@@ -146,6 +152,7 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
     useStore: bindSnapshotSelector(chat),
     actions: chat.actions,
     renderSlot,
+    renderSlotChain,
     SessionProvider: SessionProviderStub,
     openDetails,
     openFile,
@@ -159,6 +166,32 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
   }
   const setSelection = (next: SelectionTarget | null): void => { chat.actions.select(next) }
   return { set, ChatView, props, openDetails, openFile, loadOlder, inspectCall, chatScroll, forkAt, setSelection }
+}
+
+/** Simulate reader input (any device): a delivered position that deviates
+ * from the observed-top ledger of programmatic writes. */
+function readerScroll(element: HTMLElement, top: number): void {
+  element.scrollTop = top
+  fireEvent.scroll(element)
+}
+
+function installScrollMetrics(element: HTMLElement, initialHeight: number, clientHeight: number) {
+  let scrollHeight = initialHeight
+  let scrollTop = 0
+  Object.defineProperty(element, 'scrollHeight', { configurable: true, get: () => scrollHeight })
+  Object.defineProperty(element, 'clientHeight', { configurable: true, get: () => clientHeight })
+  Object.defineProperty(element, 'scrollTop', {
+    configurable: true,
+    get: () => scrollTop,
+    set: (value: number) => { scrollTop = Math.max(0, Math.min(value, scrollHeight - clientHeight)) },
+  })
+  return {
+    setHeight: (value: number) => { scrollHeight = value },
+    setLayout: (height: number, top: number) => {
+      scrollHeight = height
+      scrollTop = Math.max(0, Math.min(top, scrollHeight - clientHeight))
+    },
+  }
 }
 
 describe('chat-flow derivation', () => {
@@ -202,12 +235,12 @@ describe('chat-flow derivation', () => {
     expect(flowKeys(deriveChatFlow([toolResult(3, 'a'), assistant(4, 'found'), toolResult(5, 'b')]))).toBe('g3|n4|g5')
   })
 
-  it('assistantActionsSeqs keeps only the last content assistant per turn', () => {
+  it('assistantActionsSeqs keeps only the last content assistant per completed turn', () => {
     const thinkOnly: AssistantMessageNode = {
       kind: 'assistant', seq: 3, time: 3_000, turn: 1, step: 2,
       blocks: [{ kind: 'reasoning', text: 'planning' }],
     }
-    const seqs = assistantActionsSeqs([
+    const nodes: ConversationNode[] = [
       user(1, 'hi'),
       assistant(2, 'looking', 1),
       thinkOnly,
@@ -215,8 +248,49 @@ describe('chat-flow derivation', () => {
       assistant(5, 'done', 1),
       user(6, 'again'),
       assistant(7, 'second turn', 2),
-    ])
-    expect([...seqs].sort((a, b) => a - b)).toEqual([5, 7])
+    ]
+    expect([...assistantActionsSeqs(nodes, new Map([[1, 5], [2, 7]]))].sort((a, b) => a - b)).toEqual([5, 7])
+    // Turn 2 is still producing steps: its latest narration owns nothing, and
+    // the settled turn 1 keeps its seat.
+    expect([...assistantActionsSeqs(nodes, new Map([[1, 5]]))]).toEqual([5])
+  })
+
+  it('runningTurnStartTime selects the latest turn/start without a turn/end', () => {
+    expect(runningTurnStartTime(new Map([
+      [1, { startTime: 1_000, endTime: 5_000 }],
+      [2, { startTime: 6_000 }],
+    ]))).toBe(6_000)
+    expect(runningTurnStartTime(new Map([
+      [1, { startTime: 1_000, endTime: 5_000 }],
+      [2, { startTime: 6_000, endTime: 9_000 }],
+    ]))).toBeNull()
+  })
+
+  it('formatRunDuration localizes units and floors partial seconds', () => {
+    const t = makeTranslate(zh, commonZh)
+    expect(formatRunDuration(0, t)).toBe('0秒')
+    expect(formatRunDuration(-500, t)).toBe('0秒')
+    expect(formatRunDuration(15_999, t)).toBe('15秒')
+    expect(formatRunDuration(125_000, t)).toBe('2分05秒')
+  })
+
+  it('assistantBranchSeqs keeps only content-assistant tails; user/steering tails own no branch', () => {
+    const interruptedThink: AssistantMessageNode = {
+      kind: 'assistant', seq: 4.1, time: 4_100, turn: 1, step: 2,
+      blocks: [{ kind: 'reasoning', text: 'bad path' }], interrupted: true,
+    }
+    const nodes: ConversationNode[] = [
+      user(1, 'first'),
+      assistant(2, 'answer before tools'),
+      toolResult(3, 'a'),
+      interruptedThink,
+      user(6, 'second'),
+      assistant(7, 'clean tail', 2),
+      user(10, 'user-only tail'),
+      user(13, 'steering tail'),
+    ]
+    const seqs = assistantBranchSeqs(nodes, new Map([[1, 5], [2, 8], [3, 11], [4, 14]]))
+    expect([...seqs]).toEqual([7])
   })
 })
 
@@ -231,20 +305,36 @@ describe('ChatView', () => {
     expect(view.getByText('w1')).toBeTruthy()
   })
 
-  it('prepend keeps the viewport anchored when the reader is NOT at the bottom (no lastKey force)', () => {
-    // Covers the prepend early-return arm where lastItem exists but the key
-    // path is not taken (anchor branch wins before the appended-user check).
-    const h = makeHarness({ nodes: [user(9, 'late')], hasMore: true })
+  it('prepend keeps the reader\'s latest pending-request scroll position anchored', () => {
+    const h = makeHarness({ nodes: [user(9, 'first visible'), user(10, 'next visible')], hasMore: true })
     const view = render(<h.ChatView {...h.props} />)
     const scroller = view.container.querySelector('[class*="scroll"]') as HTMLDivElement
+    const first = view.container.querySelector('[data-chat-flow-key="n9"]') as HTMLDivElement
+    const next = view.container.querySelector('[data-chat-flow-key="n10"]') as HTMLDivElement
+    let firstTop = 100
+    let nextTop = 300
+    vi.spyOn(scroller, 'getBoundingClientRect').mockImplementation(
+      () => ({ top: 0, bottom: 200 } as DOMRect),
+    )
+    vi.spyOn(first, 'getBoundingClientRect').mockImplementation(
+      () => ({ top: firstTop, bottom: firstTop + 40 } as DOMRect),
+    )
+    vi.spyOn(next, 'getBoundingClientRect').mockImplementation(
+      () => ({ top: nextTop, bottom: nextTop + 40 } as DOMRect),
+    )
     Object.defineProperty(scroller, 'scrollHeight', { value: 800, writable: true })
     Object.defineProperty(scroller, 'clientHeight', { value: 200, writable: true })
-    scroller.scrollTop = 50
-    fireEvent.scroll(scroller)
+    readerScroll(scroller, 50)
     fireEvent.click(view.getByText('加载更早'))
+    // The reader moves after the request starts; this, not the click-time
+    // row, is the intent the arriving page must preserve.
+    firstTop = -200
+    nextTop = 60
+    readerScroll(scroller, 90)
     Object.defineProperty(scroller, 'scrollHeight', { value: 1300, writable: true })
-    act(() => { h.set({ nodes: [assistant(2, 'older'), user(9, 'late')] }) })
-    expect(scroller.scrollTop).toBe(550) // 50 + (1300 - 800)
+    nextTop = 560
+    act(() => { h.set({ nodes: [assistant(2, 'older'), user(9, 'first visible'), user(10, 'next visible')] }) })
+    expect(scroller.scrollTop).toBe(590) // latest 90 + the anchored row's 500px prepend shift
   })
 
   it('renders the fixture main line: bubble, narration, grouped tool rows', () => {
@@ -256,6 +346,115 @@ describe('ChatView', () => {
     expect(view.getByText('running tools')).toBeTruthy()
     expect(view.getAllByText('Bash')).toHaveLength(2)
     expect(view.getByText('run a')).toBeTruthy()
+    expect([...view.container.querySelectorAll('[data-chat-flow-key]')].map(row => ({
+      key: row.getAttribute('data-chat-flow-key'),
+      kind: row.getAttribute('data-chat-flow-kind'),
+    }))).toEqual([
+      { key: 'n1', kind: 'user' },
+      { key: 'n2', kind: 'assistant' },
+      { key: 'g3', kind: 'tool-group' },
+    ])
+    expect([...view.container.querySelectorAll('[data-chat-call-id]')].map(row => row.getAttribute('data-chat-call-id')))
+      .toEqual(['a', 'b'])
+    expect([...view.container.querySelectorAll('[data-chat-anchor-key]')].map(row => row.getAttribute('data-chat-anchor-key')))
+      .toEqual(['node:1', 'node:2', 'call:a', 'call:b'])
+  })
+
+  it('renders Host-pending steering at the flow tail and hands off to the durable node', () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    })
+    const pending = {
+      id: 'steer-occurrence' as never,
+      messageId: 'steer-message' as never,
+      placement: 'steering' as const,
+      content: [{ type: 'text' as const, text: 'interrupt now' }],
+      preview: 'interrupt now',
+      text: 'interrupt now',
+    }
+    const queued = {
+      id: 'queued-occurrence' as never,
+      messageId: 'queued-message' as never,
+      placement: 'queued' as const,
+      content: [{ type: 'text' as const, text: 'later' }],
+      preview: 'later',
+      text: 'later',
+    }
+    const h = makeHarness({ nodes: [assistant(1, 'working')], queue: [queued, pending], running: true })
+    const view = render(<h.ChatView {...h.props} />)
+
+    expect(view.getByText('interrupt now').closest('[data-pending-steering]')).not.toBeNull()
+    expect(view.queryByText('later')).toBeNull()
+    const pendingBubble = view.getByText('interrupt now').closest('[data-pending-steering]')
+    expect(pendingBubble).not.toBeNull()
+    // Pending and durable steering carry the same interjection caption, so the
+    // hand-off does not change what the row says it is.
+    expect(within(pendingBubble as HTMLElement).getByText('插话')).toBeTruthy()
+    fireEvent.click(within(pendingBubble as HTMLElement).getByRole('button', { name: '复制' }))
+    expect(writeText).toHaveBeenCalledWith('interrupt now')
+    expect(within(pendingBubble as HTMLElement).queryByRole('button', { name: '在新对话中分支' })).toBeNull()
+    expect(view.getByRole('status').compareDocumentPosition(view.getByText('interrupt now'))
+      & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
+
+    act(() => {
+      h.set({
+        queue: [queued],
+        nodes: [
+          assistant(1, 'working'),
+          {
+            kind: 'steering', messageId: pending.messageId,
+            seq: 2, time: 2_000,
+            content: [{ type: 'text', text: 'interrupt now' }], source: null,
+          },
+        ],
+      })
+    })
+    expect(view.getAllByText('interrupt now')).toHaveLength(1)
+    expect(view.container.querySelector('[data-pending-steering]')).toBeNull()
+    expect(view.getAllByText('插话')).toHaveLength(1)
+    // Only the durable steering bubble: the turn is still running, so its
+    // assistant narration owns no footer yet, and a steering bubble never
+    // carries a branch action.
+    expect(view.getAllByRole('button', { name: '复制' })).toHaveLength(1)
+    const durableBubble = view.getByText('interrupt now').closest('[class*="userRow"]') as HTMLElement
+    expect(within(durableBubble).queryByRole('button', { name: '在新对话中分支' })).toBeNull()
+
+    act(() => {
+      h.set({ running: false, turnEnds: new Map([[1, 3]]) })
+    })
+    // The completed turn's transcript tail is the steering bubble, not the
+    // narration, so the assistant's branch action stays unavailable and the
+    // steering bubble still offers none.
+    const branchButtons = view.getAllByRole('button', { name: '在新对话中分支' })
+    expect(branchButtons).toHaveLength(1)
+    expect(branchButtons[0]!.getAttribute('aria-disabled')).toBe('true')
+    fireEvent.click(branchButtons[0]!)
+    expect(h.forkAt).not.toHaveBeenCalled()
+  })
+
+  it('keeps a later pending occurrence visible when it reuses a durable MessageId', () => {
+    const pending = {
+      id: 'steer-occurrence-later' as never,
+      messageId: 'shared-steer-message' as never,
+      placement: 'steering' as const,
+      content: [{ type: 'text' as const, text: 'same steering' }],
+      preview: 'same steering',
+      text: 'same steering',
+    }
+    const h = makeHarness({
+      queue: [pending],
+      nodes: [{
+        kind: 'user', seq: 2, time: 2_000,
+        content: pending.content, source: null,
+      }],
+      running: true,
+    })
+    const view = render(<h.ChatView {...h.props} />)
+
+    expect(view.getAllByText('same steering')).toHaveLength(2)
+    expect(view.container.querySelectorAll('[data-pending-steering]')).toHaveLength(1)
   })
 
   it('animates only the latest unresolved model retry', () => {
@@ -263,6 +462,8 @@ describe('ChatView', () => {
     const nextRetry = { ...retry(3), turn: 2, retry: 2 }
     const context = {
       kind: 'context', seq: 4, time: 4_000, content: [], source: null,
+      provenance: { role: 'inject', label: null },
+      form: null,
     } as const satisfies ConversationNode
     const h = makeHarness({ nodes: [user(1, 'try'), retryNode], running: true })
     const view = render(<h.ChatView {...h.props} />)
@@ -330,21 +531,145 @@ describe('ChatView', () => {
         user(5, 'next'),
         assistant(6, 'second turn', 2),
       ],
+      turnEnds: new Map([[1, 4], [2, 6]]),
     })
     const view = render(<h.ChatView {...h.props} />)
-    // 2 user + 2 turn-tail assistants; mid-turn text at seq 2 stays chrome-free.
+    // Branch renders only under assistant answers; user bubbles keep copy alone.
     expect(view.getAllByRole('button', { name: '复制' })).toHaveLength(4)
-    expect(view.getAllByRole('button', { name: '在新对话中分支' })).toHaveLength(4)
+    const branchButtons = view.getAllByRole('button', { name: '在新对话中分支' })
+    expect(branchButtons).toHaveLength(2)
+    expect(branchButtons.map(button => button.getAttribute('aria-disabled'))).toEqual([null, null])
   })
 
-  it('forks from both user and finalized assistant message actions at their event seq', () => {
-    const h = makeHarness({ nodes: [user(1, 'question'), assistant(2, 'answer')] })
+  it('withholds assistant IconActions while the turn is still running', () => {
+    const h = makeHarness({
+      running: true,
+      runningCalls: [runningCall('a')],
+      nodes: [
+        user(1, 'first'),
+        assistant(2, 'previous answer', 1),
+        user(4, 'second'),
+        assistant(5, 'mid-turn text', 2),
+      ],
+      // Boundary seqs follow the log: a turn/end is strictly after its own nodes.
+      turnEnds: new Map([[1, 3]]),
+    })
     const view = render(<h.ChatView {...h.props} />)
+    // 2 user + the settled turn-1 tail, which keeps its seat while a later
+    // turn runs; turn 2's narration stays chrome-free while its tool runs, so
+    // the footer never appears and then moves.
+    expect(view.getAllByRole('button', { name: '复制' })).toHaveLength(3)
+    expect(view.getByText('mid-turn text')).toBeTruthy()
+    // turn/end lands: the same node becomes the settled answer and takes the seat.
+    act(() => { h.set({ running: false, runningCalls: [], turnEnds: new Map([[1, 3], [2, 6]]) }) })
+    expect(view.getAllByRole('button', { name: '复制' })).toHaveLength(4)
+  })
+
+  it('the actions-owning assistant footer shows the turn run time', () => {
+    const h = makeHarness({
+      nodes: [
+        user(1, 'hi'), // time 1_000
+        assistant(2, 'mid-turn text'),
+        assistant(16, 'final answer'),
+        toolResult(18, 'trailing'),
+      ],
+      turnTimings: new Map([[1, { startTime: 1_000, endTime: 20_000 }]]),
+      turnEnds: new Map([[1, 20]]),
+    })
+    const view = render(<h.ChatView {...h.props} />)
+    // The exact turn/end includes trailing tool activity after the final text.
+    expect(view.getAllByText(/用时 19秒/)).toHaveLength(1)
+  })
+
+  it('the settled footer appends first-step ttft and turn decode throughput', () => {
+    const first: AssistantMessageNode = {
+      kind: 'assistant', seq: 2, time: 2_000, turn: 1, step: 1, blocks: [{ kind: 'text', text: 'mid' }],
+      timing: { stepStartTime: 1_000, firstTokenTime: 2_200, completedTime: 5_200 },
+      usage: { outputTokens: 40 },
+    }
+    const second: AssistantMessageNode = {
+      kind: 'assistant', seq: 16, time: 16_000, turn: 1, step: 2, blocks: [{ kind: 'text', text: 'final' }],
+      timing: { stepStartTime: 10_000, firstTokenTime: 10_200, completedTime: 12_200 },
+      usage: { outputTokens: 60 },
+    }
+    const h = makeHarness({
+      nodes: [user(1, 'hi'), first, second],
+      turnTimings: new Map([[1, { startTime: 1_000, endTime: 20_000 }]]),
+      turnEnds: new Map([[1, 20]]),
+    })
+    const view = render(<h.ChatView {...h.props} />)
+    // First-step ttft (1.2s) plus 100 tokens over 5s of decode.
+    expect(view.getAllByText(/用时 19秒/)).toHaveLength(1)
+    expect(view.getAllByText(/首 token 1\.2秒/)).toHaveLength(1)
+    expect(view.getAllByText(/20 tok\/s/)).toHaveLength(1)
+  })
+
+  it('withholds ttft and throughput while the turn is still running', () => {
+    const settled: AssistantMessageNode = {
+      kind: 'assistant', seq: 2, time: 2_000, turn: 1, step: 1, blocks: [{ kind: 'text', text: 'answer' }],
+      timing: { stepStartTime: 1_000, firstTokenTime: 1_500, completedTime: 2_000 },
+      usage: { outputTokens: 10 },
+    }
+    const h = makeHarness({
+      nodes: [user(1, 'hi'), settled],
+      turnTimings: new Map([[1, { startTime: 1_000 }]]),
+      turnEnds: new Map(),
+      running: true,
+    })
+    const view = render(<h.ChatView {...h.props} />)
+    expect(view.queryByText(/首 token|tok\/s/)).toBeNull()
+  })
+
+  it('user and assistant message containers scope the hover-revealed time chrome', () => {
+    const h = makeHarness({
+      nodes: [user(1, 'hi'), assistant(2, 'answer')],
+      turnTimings: new Map([[1, { startTime: 1_000, endTime: 2_000 }]]),
+      turnEnds: new Map([[1, 2]]),
+    })
+    const view = render(<h.ChatView {...h.props} />)
+    // One scope per message row; the CSS reveal keys off this attribute.
+    expect(view.container.querySelectorAll('[data-time-hover-root]')).toHaveLength(2)
+  })
+
+  it('the run-time label is withheld when the turn start is outside the window', () => {
+    const h = makeHarness({
+      nodes: [assistant(16, 'tail without trigger')],
+      turnEnds: new Map([[1, 16]]),
+    })
+    const view = render(<h.ChatView {...h.props} />)
+    expect(view.queryByText(/用时/)).toBeNull()
+  })
+
+  it('enables fork only on the finalized assistant at the completed transcript tail', () => {
+    const h = makeHarness({
+      nodes: [user(1, 'question'), assistant(2, 'answer')],
+      turnEnds: new Map([[1, 3]]),
+    })
+    const view = render(<h.ChatView {...h.props} />)
+    // The user bubble offers no branch; the settled answer's is live.
     const buttons = view.getAllByRole('button', { name: '在新对话中分支' })
-    expect(buttons).toHaveLength(2)
+    expect(buttons).toHaveLength(1)
+    expect(buttons[0]!.getAttribute('aria-disabled')).toBeNull()
     fireEvent.click(buttons[0]!)
-    fireEvent.click(buttons[1]!)
-    expect(h.forkAt.mock.calls).toEqual([[1], [2]])
+    expect(h.forkAt.mock.calls).toEqual([[2]])
+  })
+
+  it('keeps branch visible but unavailable when tool and interrupted Think follow the response', () => {
+    const interruptedThink: AssistantMessageNode = {
+      kind: 'assistant', seq: 4.1, time: 4_100, turn: 1, step: 2,
+      blocks: [{ kind: 'reasoning', text: 'bad path' }], interrupted: true,
+    }
+    const h = makeHarness({
+      nodes: [user(1, 'question'), assistant(2, 'answer'), toolResult(3, 'a'), interruptedThink],
+      turnEnds: new Map([[1, 5]]),
+    })
+    const view = render(<h.ChatView {...h.props} />)
+    expect(view.getAllByRole('button', { name: '复制' })).toHaveLength(2)
+    const buttons = view.getAllByRole('button', { name: '在新对话中分支' })
+    expect(buttons).toHaveLength(1)
+    expect(buttons[0]!.getAttribute('aria-disabled')).toBe('true')
+    fireEvent.click(buttons[0]!)
+    expect(h.forkAt).not.toHaveBeenCalled()
   })
 
   it('renders assistant Markdown across history, streaming, final, and interrupted states while user text stays literal', () => {
@@ -417,7 +742,8 @@ describe('ChatView', () => {
     // Count renderSlot invocations: the memo boundary holds when CallRow does
     // not re-render, so the row's renderSlot call count freezes during chunks.
     let rowRenders = 0
-    h.props.renderSlot = ((_key: string, _owner: object) => {
+    h.props.renderSlot = ((key: string, _owner: object) => {
+      if (key !== 'conversation.chat.toolview') return null
       rowRenders += 1
       return <div data-testid="counting-row" />
     })
@@ -474,6 +800,30 @@ describe('ChatView', () => {
     expect(view.getByRole('status').textContent).toBe('Deep diving...')
   })
 
+  it('the running clock uses turn/start, ignores steering, and stays out of the live region', () => {
+    const startTime = Date.now() - 125_000
+    const trigger: UserMessageNode = { ...user(1, 'go'), time: startTime + 1 }
+    const h = makeHarness({
+      nodes: [trigger], turnTimings: new Map([[1, { startTime }]]), running: true,
+    })
+    const view = render(<h.ChatView {...h.props} />)
+    // Freshly mounted (as after a reload) yet already past the 15s gate.
+    const status = view.getByRole('status')
+    expect(status.textContent).toMatch(/^Deep diving\.\.\.2分0\d秒$/)
+    expect(status.querySelector('[aria-hidden="true"]')).not.toBeNull()
+    act(() => {
+      h.set({ queue: [{
+        id: 'steering-occurrence' as never,
+        messageId: 'steering-message' as never,
+        placement: 'steering',
+        content: [{ type: 'text', text: 'also' }],
+        preview: 'also',
+        text: 'also',
+      }] })
+    })
+    expect(status.textContent).toMatch(/^Deep diving\.\.\.2分0\d秒$/)
+  })
+
   it('dispatches each tool row through the keyed slot with the tool name as entryKey', () => {
     const h = makeHarness({ nodes: [toolResult(3, 'a')] })
     const calls: { key: string; entryKey?: string }[] = []
@@ -489,21 +839,97 @@ describe('ChatView', () => {
     expect(calls).toEqual([{ key: 'conversation.chat.toolview', entryKey: 'bash' }])
   })
 
-  it('prepend compensates scrollTop by the height delta; a trailing user node force-scrolls', () => {
+  it('prepend preserves a semantic row; a trailing user node force-scrolls', () => {
     const h = makeHarness({ nodes: [user(5, 'later'), assistant(6, 'a')], hasMore: true })
     const view = render(<h.ChatView {...h.props} />)
     const scroller = view.container.querySelector('[class*="scroll"]') as HTMLDivElement
     // jsdom has no layout: fake the metrics the anchor math reads.
     Object.defineProperty(scroller, 'scrollHeight', { value: 1000, writable: true })
     Object.defineProperty(scroller, 'clientHeight', { value: 400, writable: true })
+    const anchored = view.container.querySelector('[data-chat-flow-key="n5"]') as HTMLDivElement
+    let anchoredTop = 100
+    vi.spyOn(anchored, 'getBoundingClientRect').mockImplementation(
+      () => ({ top: anchoredTop, bottom: anchoredTop + 40 } as DOMRect),
+    )
+    readerScroll(scroller, 80)
     // Arm the paging anchor, then deliver an older page (head seq decreases).
     fireEvent.click(view.getByText('加载更早'))
     Object.defineProperty(scroller, 'scrollHeight', { value: 1600, writable: true })
+    anchoredTop = 700
     act(() => { h.set({ nodes: [user(1, 'old'), assistant(2, 'b'), user(5, 'later'), assistant(6, 'a')] }) })
-    expect(scroller.scrollTop).toBe(600) // 0 + (1600 - 1000)
+    expect(scroller.scrollTop).toBe(680) // reader offset 80 + the anchored row's 600px shift
     // A new trailing user bubble (own words) force-scrolls to the bottom.
     act(() => { h.set({ nodes: [user(1, 'old'), assistant(2, 'b'), user(5, 'later'), assistant(6, 'a'), user(9, 'mine')] }) })
     expect(scroller.scrollTop).toBe(1600)
+  })
+
+  it('uses stable call identity when a prepend changes the tool-group key amid unrelated growth', () => {
+    const h = makeHarness({ nodes: [toolResult(5, 'late')], hasMore: true })
+    const view = render(<h.ChatView {...h.props} />)
+    const scroller = view.container.querySelector('[class*="scroll"]') as HTMLDivElement
+    let prepended = false
+    const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this.dataset.chatAnchorKey === 'call:late') {
+        const top = prepended ? 400 : 100
+        return { top, bottom: top + 40 } as DOMRect
+      }
+      return { top: 0, bottom: 200 } as DOMRect
+    })
+    try {
+      Object.defineProperty(scroller, 'scrollHeight', { value: 700, writable: true })
+      Object.defineProperty(scroller, 'clientHeight', { value: 200, writable: true })
+      readerScroll(scroller, 80)
+      fireEvent.click(view.getByText('加载更早'))
+      // Total height grows by 500, but only 300 belongs before the call row.
+      Object.defineProperty(scroller, 'scrollHeight', { value: 1_200, writable: true })
+      prepended = true
+      act(() => { h.set({ nodes: [toolResult(4, 'early'), toolResult(5, 'late')] }) })
+      expect(scroller.scrollTop).toBe(380)
+    } finally {
+      rect.mockRestore()
+    }
+  })
+
+  it('uses the latest retry identity when prepending an earlier retry changes the flow key', () => {
+    const h = makeHarness({ nodes: [retry(5)], hasMore: true })
+    const view = render(<h.ChatView {...h.props} />)
+    const scroller = view.container.querySelector('[class*="scroll"]') as HTMLDivElement
+    let prepended = false
+    const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this.dataset.chatAnchorKey === 'node:5') {
+        const top = prepended ? 400 : 100
+        return { top, bottom: top + 40 } as DOMRect
+      }
+      return { top: 0, bottom: 200 } as DOMRect
+    })
+    try {
+      Object.defineProperty(scroller, 'scrollHeight', { value: 700, writable: true })
+      Object.defineProperty(scroller, 'clientHeight', { value: 200, writable: true })
+      readerScroll(scroller, 80)
+      fireEvent.click(view.getByText('加载更早'))
+      Object.defineProperty(scroller, 'scrollHeight', { value: 1_200, writable: true })
+      prepended = true
+      act(() => { h.set({ nodes: [retry(4), retry(5)] }) })
+      expect(scroller.scrollTop).toBe(380)
+      expect(view.container.querySelector('[data-chat-flow-key="n4"][data-chat-anchor-key="node:5"]')).not.toBeNull()
+    } finally {
+      rect.mockRestore()
+    }
+  })
+
+  it('back-to-bottom cancels an in-flight paging anchor', () => {
+    const h = makeHarness({ nodes: [user(9, 'late')], hasMore: true })
+    const view = render(<h.ChatView {...h.props} />)
+    const scroller = view.container.querySelector('[class*="scroll"]') as HTMLDivElement
+    Object.defineProperty(scroller, 'scrollHeight', { value: 800, writable: true })
+    Object.defineProperty(scroller, 'clientHeight', { value: 200, writable: true })
+    readerScroll(scroller, 50)
+    fireEvent.click(view.getByText('加载更早'))
+    fireEvent.click(view.getByLabelText('回到底部'))
+    Object.defineProperty(scroller, 'scrollHeight', { value: 1_300, writable: true })
+    act(() => { h.set({ nodes: [assistant(2, 'older'), user(9, 'late')] }) })
+    expect(scroller.scrollTop).toBe(1_300)
+    expect(h.chatScroll.read()).toBeNull()
   })
 
   it('scrolling away disables follow and shows the back-to-bottom button; clicking returns', () => {
@@ -512,8 +938,7 @@ describe('ChatView', () => {
     const scroller = view.container.querySelector('[class*="scroll"]') as HTMLDivElement
     Object.defineProperty(scroller, 'scrollHeight', { value: 1000, writable: true })
     Object.defineProperty(scroller, 'clientHeight', { value: 300, writable: true })
-    scroller.scrollTop = 100 // far from bottom
-    fireEvent.scroll(scroller)
+    readerScroll(scroller, 100) // far from bottom
     const backButton = view.getByLabelText('回到底部')
     expect(backButton).toBeTruthy()
     // Streaming growth must NOT drag a scrolled-away reader down.
@@ -525,6 +950,73 @@ describe('ChatView', () => {
     expect(view.queryByLabelText('回到底部')).toBeNull()
   })
 
+  it('keeps following when a stream-finalization shrink clamp delivers its scroll', () => {
+    const h = makeHarness({ nodes: [user(1, 'q'), assistant(2, 'a')] })
+    const view = render(<h.ChatView {...h.props} />)
+    const scroller = view.container.querySelector('[class*="scroll"]') as HTMLDivElement
+    const metrics = installScrollMetrics(scroller, 1_000, 300)
+    scroller.scrollTop = 700
+    fireEvent.scroll(scroller)
+
+    // Stream finalization shrinks the column: the browser clamps the pinned
+    // position onto the new floor and delivers a scroll event. The clamp
+    // lands exactly on the ledger's floor min, so it is not reader input.
+    metrics.setLayout(800, 700)
+    fireEvent.scroll(scroller)
+    expect(scroller.scrollTop).toBe(500)
+    expect(view.queryByLabelText('回到底部')).toBeNull()
+    expect(h.chatScroll.read()).toBeNull()
+
+    metrics.setHeight(1_200)
+    act(() => { h.set({ running: true }) })
+    expect(scroller.scrollTop).toBe(900)
+  })
+
+  it('uses the last delivered top when compositor scrolling precedes scroll delivery', () => {
+    const h = makeHarness({ nodes: [user(1, 'q'), assistant(2, 'a')] })
+    const view = render(<h.ChatView {...h.props} />)
+    const scroller = view.container.querySelector('[class*="scroll"]') as HTMLDivElement
+    installScrollMetrics(scroller, 1_000, 300)
+    scroller.scrollTop = 700
+    fireEvent.scroll(scroller)
+
+    // Chromium advances compositor geometry before delivering the event:
+    // attribution must compare against the observed-top ledger, never a
+    // baseline sampled from already-moved raw geometry.
+    scroller.scrollTop = 500
+    fireEvent.scroll(scroller)
+    expect(view.getByLabelText('回到底部')).toBeTruthy()
+  })
+
+  it('one ResizeObserver owns pinned dynamic-height follow and ignores growth while away', () => {
+    let notify: (() => void) | undefined
+    const observe = vi.fn()
+    class ResizeObserverStub {
+      constructor(callback: ResizeObserverCallback) {
+        notify = () => { callback([], this as unknown as ResizeObserver) }
+      }
+
+      observe = observe
+      disconnect = vi.fn()
+    }
+    vi.stubGlobal('ResizeObserver', ResizeObserverStub)
+    const h = makeHarness({ nodes: [user(1, 'q'), assistant(2, 'a')] })
+    const view = render(<h.ChatView {...h.props} />)
+    const scroller = view.container.querySelector('[class*="scroll"]') as HTMLDivElement
+    Object.defineProperty(scroller, 'scrollHeight', { value: 1_000, writable: true })
+    Object.defineProperty(scroller, 'clientHeight', { value: 300, writable: true })
+    scroller.scrollTop = 700
+    fireEvent.scroll(scroller)
+    Object.defineProperty(scroller, 'scrollHeight', { value: 1_200, writable: true })
+    act(() => { notify?.() })
+    expect(scroller.scrollTop).toBe(1_200)
+    readerScroll(scroller, 200)
+    Object.defineProperty(scroller, 'scrollHeight', { value: 1_400, writable: true })
+    act(() => { notify?.() })
+    expect(scroller.scrollTop).toBe(200)
+    expect(observe).toHaveBeenCalledTimes(1)
+  })
+
   it('entering the at-bottom threshold does not snap the remaining scroll distance', () => {
     const h = makeHarness({ nodes: [user(1, 'q'), assistant(2, 'a')] })
     const view = render(<h.ChatView {...h.props} />)
@@ -533,8 +1025,7 @@ describe('ChatView', () => {
     Object.defineProperty(scroller, 'clientHeight', { value: 300, writable: true })
     // Inside FOLLOW_THRESHOLD (24) but not flush with the floor — the chrome
     // re-render from setAtBottom must not force scrollTop to scrollHeight.
-    scroller.scrollTop = 690 // distance-to-bottom = 10
-    fireEvent.scroll(scroller)
+    readerScroll(scroller, 690) // distance-to-bottom = 10
     expect(view.queryByLabelText('回到底部')).toBeNull()
     expect(scroller.scrollTop).toBe(690)
   })
@@ -551,8 +1042,7 @@ describe('ChatView', () => {
       const view = render(<h.ChatView {...h.props} />, { container: host })
       // Open jump uses the host, not the local .scroll node.
       expect(host.scrollTop).toBe(2000)
-      host.scrollTop = 100
-      fireEvent.scroll(host)
+      readerScroll(host, 100)
       expect(view.getByLabelText('回到底部')).toBeTruthy()
       fireEvent.click(view.getByLabelText('回到底部'))
       expect(host.scrollTop).toBe(2000)
@@ -561,29 +1051,72 @@ describe('ChatView', () => {
     }
   })
 
-  it('a remount restores the saved scroll position instead of re-jumping to the bottom', () => {
+  it('a remount restores the saved semantic row after width reflow', () => {
     const host = document.createElement('div')
     host.setAttribute('data-conversation-scroll', '')
     Object.defineProperty(host, 'scrollHeight', { value: 2000, writable: true, configurable: true })
     Object.defineProperty(host, 'clientHeight', { value: 500, writable: true, configurable: true })
     Object.defineProperty(host, 'scrollTop', { value: 0, writable: true, configurable: true })
     document.body.appendChild(host)
+    let anchorTop = 80
+    vi.spyOn(host, 'getBoundingClientRect').mockImplementation(
+      () => ({ top: 0, bottom: 500 } as DOMRect),
+    )
+    const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this.dataset.chatAnchorKey === 'node:1') {
+        return { top: anchorTop, bottom: anchorTop + 40 } as DOMRect
+      }
+      return { top: 0, bottom: 40 } as DOMRect
+    })
     try {
       const h = makeHarness({ nodes: [user(1, 'q'), assistant(2, 'a')] })
       // Fresh open (nothing saved): the bottom jump stands.
       const view = render(<h.ChatView {...h.props} />, { container: host })
       expect(host.scrollTop).toBe(2000)
       // Reader scrolls up; the position is recorded continuously.
-      host.scrollTop = 100
-      fireEvent.scroll(host)
+      readerScroll(host, 100)
       // View-tab switch away and back: the view unmounts, then remounts.
       view.rerender(<div />)
+      anchorTop = 560
       host.scrollTop = 0
       view.rerender(<h.ChatView {...h.props} />)
-      expect(host.scrollTop).toBe(100)
+      expect(host.scrollTop).toBe(580) // approximate 100 + the row's 480px reflow shift
       // The restored position is above the floor: follow stays disarmed.
       expect(view.getByLabelText('回到底部')).toBeTruthy()
     } finally {
+      rect.mockRestore()
+      host.remove()
+    }
+  })
+
+  it('normalizes a semantic restore clamped to the bottom before an immediate remount', () => {
+    const host = document.createElement('div')
+    host.setAttribute('data-conversation-scroll', '')
+    Object.defineProperty(host, 'scrollHeight', { value: 2_000, writable: true, configurable: true })
+    Object.defineProperty(host, 'clientHeight', { value: 500, writable: true, configurable: true })
+    let scrollTop = 0
+    Object.defineProperty(host, 'scrollTop', {
+      configurable: true,
+      get: () => scrollTop,
+      set: (value: number) => { scrollTop = Math.min(value, 1_500) },
+    })
+    document.body.appendChild(host)
+    const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this.dataset.chatAnchorKey === 'node:1') return { top: 300, bottom: 340 } as DOMRect
+      return { top: 0, bottom: 500 } as DOMRect
+    })
+    try {
+      const h = makeHarness({ nodes: [user(1, 'q'), assistant(2, 'a')] })
+      h.chatScroll.save({ anchorKey: 'node:1', anchorTop: 80, scrollTop: 1_400 })
+      const view = render(<h.ChatView {...h.props} />, { container: host })
+      expect(host.scrollTop).toBe(1_500)
+      expect(h.chatScroll.read()).toBeNull()
+      view.rerender(<div />)
+      host.scrollTop = 0
+      view.rerender(<h.ChatView {...h.props} />)
+      expect(host.scrollTop).toBe(1_500)
+    } finally {
+      rect.mockRestore()
       host.remove()
     }
   })

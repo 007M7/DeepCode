@@ -13,6 +13,7 @@ import type { GoalsApi } from './goals.ts'
 import type { SettingsApi } from './settings.ts'
 import type { CredentialsApi } from './credentials.ts'
 import type { LlmApi } from './llm.ts'
+import type { SubagentsApi } from './subagents.ts'
 import type { RpcResponse } from './rpc.ts'
 
 /**
@@ -33,6 +34,9 @@ export interface RpcMethodMap {
   'session.attachment': SessionsApi['attachment']
   'session.updateQueue': SessionsApi['updateQueue']
   'session.cancel': SessionsApi['cancel']
+  'subagent.list': SubagentsApi['list']
+  'subagent.history': SubagentsApi['history']
+  'subagent.prompt': SubagentsApi['prompt']
   'host.describe': HostApi['describe']
   'host.pickDirectory': HostApi['pickDirectory']
   'host.listDirectory': HostApi['listDirectory']
@@ -54,6 +58,7 @@ export interface RpcMethodMap {
   'goal.complete': GoalsApi['complete']
   'goal.clear': GoalsApi['clear']
   'settings.describe': SettingsApi['describe']
+  'settings.openDocument': SettingsApi['openDocument']
   'settings.update': SettingsApi['update']
   'settings.replace': SettingsApi['replace']
   'settings.mutate': SettingsApi['mutate']
@@ -62,6 +67,7 @@ export interface RpcMethodMap {
   'credentials.unset': CredentialsApi['unset']
   'llm.providers': LlmApi['providers']
   'llm.models': LlmApi['models']
+  'llm.discoverModels': LlmApi['discoverModels']
 }
 
 /** Business request payload of method K (reaches through the RpcRequest narrow form to payload). */

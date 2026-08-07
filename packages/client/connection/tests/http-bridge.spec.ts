@@ -56,7 +56,7 @@ describe('HTTP bridge abort', () => {
     let carrierSignal: AbortSignal | undefined
     const pending = bridge(request, response, {
       fetch: async (input) => {
-        const fetchRequest = input as Request
+        const fetchRequest = input
         carrierSignal = fetchRequest.signal
         resolveStarted()
         if (!fetchRequest.signal.aborted) {

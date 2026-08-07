@@ -85,6 +85,56 @@ describe('inspectRequests', () => {
     expect(snapshot.callSchemas.get('call-1')?.name).toBe('read')
   })
 
+  it('does not promote a truncated resume or change header to the initial prompt', () => {
+    for (const reason of ['resume', 'change'] as const) {
+      const snapshot = inspectRequests(entriesOf([
+        at(10, 'step/start', { turn: 3, step: 1 }),
+        at(11, 'request/header', {
+          reason,
+          header: {
+            config: { provider: 'fake', model: 'model' },
+            system: 'tail-window prompt',
+          },
+        }),
+      ]))
+
+      expect(snapshot.requests[0]).toMatchObject({
+        purpose: 'assistant',
+        prompt: { system: 'tail-window prompt' },
+      })
+      expect(snapshot.requests[0]).not.toHaveProperty('promptChange')
+    }
+  })
+
+  it('classifies a prompt change once the preceding header is loaded', () => {
+    const snapshot = inspectRequests(entriesOf([
+      at(0, 'step/start', { turn: 1, step: 1 }),
+      at(1, 'request/header', {
+        reason: 'initial',
+        header: {
+          config: { provider: 'fake', model: 'model' },
+          system: 'before',
+        },
+      }),
+      at(2, 'step/start', { turn: 1, step: 2 }),
+      at(3, 'request/header', {
+        reason: 'change',
+        header: {
+          config: { provider: 'fake', model: 'model' },
+          system: 'after',
+        },
+      }),
+    ]))
+
+    expect(snapshot.requests[1]).toMatchObject({
+      promptChange: {
+        seq: 3,
+        kind: 'system',
+        previous: { system: 'before' },
+      },
+    })
+  })
+
   it('preserves a standalone compaction owner without widening assistant turns', () => {
     const snapshot = inspectRequests(entriesOf([
       at(0, 'compact/start', { turn: null }),
@@ -225,20 +275,15 @@ describe('inspectRequests', () => {
     const snapshot = inspectRequests(entriesOf([
       at(0, 'step/start', { turn: 1, step: 1 }),
       at(1, 'turn/end', {
-        turn: 1,
-        reason: {
-          kind: 'error',
-          step: 1,
-          failure: {
-            code: 'AUTH',
-            message: 'Authentication Fails, Your api key: sk-preview-secret is invalid',
-          },
+        turn: 1, reason: { kind: 'error', error: {
+          code: 'AUTH',
+          message: 'Authentication Fails, Your api key: sk-preview-secret is invalid',
+        },
         },
       }),
       at(2, 'step/start', { turn: 2, step: 1 }),
       at(3, 'turn/end', {
-        turn: 2,
-        reason: { kind: 'error', step: 1, message: 'plugin exploded' },
+        turn: 2, reason: { kind: 'error', error: { message: 'plugin exploded', code: 'UNKNOWN' } },
       }),
     ]))
 

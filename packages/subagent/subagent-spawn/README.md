@@ -52,5 +52,4 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 ## Known Limitations and Deferred Work
 
-- **Runs expose no `sendMessage`/`resume`** — the optional runtime capabilities are absent on in-process runs.
 - **Fresh means no parent transcript** — the child inherits cwd, lineage, model, and explicitly configured persona/tool restrictions, but none of the parent's conversation; use the fork provider when completed-turn context is required.

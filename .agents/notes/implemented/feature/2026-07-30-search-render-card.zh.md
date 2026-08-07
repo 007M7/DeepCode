@@ -18,7 +18,7 @@ Status: implemented
 
 用一个带两种形状的视图而非两张卡片，因为两个工具是同一个视觉对象 —— 一个搜索结果 —— web 消费方先在一个 `card` 值上分支，再在 `shape` 上分支决定行布局。判别式 `shape` 让每个变体的字段保持非可选（matches 视图总有 `files`，paths 视图总有 `paths`），而不是一个所有形状相关字段都可选的单一接口。
 
-该视图**不**携带结果文本。早期版本曾把面向模型的 `result.content` 附到视图上；那对每个消费方都是 no-op（TUI 本就回退到 `result.content`，web 回退读原始 `tool/result` 内容），却把整段搜索文本又序列化进持久化视图一遍。视图只承载结构化形状；无 search 卡片的 UI 回退到原始 `tool/result` 内容。
+该视图**不**携带结果文本。早期版本曾把面向模型的 `result.content` 附到视图上；但消费方的回退路径本就读取原始 `tool/result` 内容，因此这不会产生效果，却会把整段搜索文本又序列化进持久化视图一遍。视图只承载结构化形状；无 search 卡片的 UI 回退到原始结果内容。
 
 卡片标签只在结果时存在。搜索调用保持为 `GenericCallView`（`kind: 'search'`）：pending 状态没有匹配或路径可展示，所以 `SearchCallView` 能携带的东西不会比 generic 标题更多。这是与 terminal 卡片的不对称之处 —— terminal 的调用视图携带执行前就存在的命令、cwd、description；搜索的结构化内容只在 `execute` 之后才存在。
 
@@ -30,7 +30,7 @@ Status: implemented
 
 `SearchMeta` 的成员形状是对象字面量 `type` 别名，而非视图暴露的 `SearchFileMatches`/`SearchLineMatch` 接口，因为只有 type 别名可赋给 `presentationMeta` 返回的 `JsonValue` 索引签名；两者结构等价，所以投影值仍读回为 `SearchResultView`。
 
-TUI（`packages/ui/tui/src/components/transcript.ts`）不需要专门分支：它的结果视图 switch 显式处理 `terminal` 与 `diff`，`search` 视图落入同一个变暗的 generic body，从 `this.result?.content` 读取面向模型的文本。因为搜索视图不带自己的 `content`，而本 PR 之前 grep/glob 返回的是 generic 卡片，所以 TUI 输出与无 search 卡片的回退逐字节一致。渲染结构化 `files`/`paths` 形状的 web 前端是另一个后续 PR；本 PR 是后端契约及其两个生产者。
+没有专用 `search` 分支的消费方会回退到同一个 generic body，并从原始结果中读取面向模型的文本。因为搜索视图不带自己的 `content`，而本 PR 之前 grep/glob 返回的是 generic 卡片，所以该回退与引入 search 卡片之前的路径逐字节一致。渲染结构化 `files`/`paths` 形状的前端独立于这个后端契约及其两个生产者。
 
 ## 考虑过的备选
 
@@ -48,7 +48,7 @@ TUI（`packages/ui/tui/src/components/transcript.ts`）不需要专门分支：�
 
 `grep` 与 `glob` 现在在每次非嵌套的成功调用上计算 `presentationMeta`，这是对已保留匹配或路径的一次有界投影 —— 与 render 消费的是同一份保留产出，所以没有第二次保留计算，线上也没有翻倍的搜索文本。序列化 meta 受 `searchMetaMaxBytes` 约束，所以宽泛搜索不再把无界的结构化副本持久化进会话日志。
 
-无 search 卡片的 UI 渲染原始 `tool/result` 内容，所以没有消费方退化，TUI 也逐字节一致。渲染结构化形状的 web 消费方读 `truncated`/`total` 与按文件分组；因为视图只携带保留的、字节有界的页，想要完整结果的 UI 跟随面向模型文本里的 spill 定位符，与模型的做法完全一致。
+无 search 卡片的 UI 渲染原始 `tool/result` 内容，所以没有消费方退化。渲染结构化形状的消费方读 `truncated`/`total` 与按文件分组；因为视图只携带保留的、字节有界的页，想要完整结果的 UI 跟随面向模型文本里的 spill 定位符，与模型的做法完全一致。
 
 ## 测试
 

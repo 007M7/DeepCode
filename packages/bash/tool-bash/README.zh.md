@@ -4,9 +4,9 @@
 
 模型侧 `bash` 工具，注册在 `ctx.bash` 执行器 seam 上。前台执行始终位于该 seam 之后；后台进程句柄会注册到通用 `ctx.tasks` 运行时，并通过 `task_output`、`task_list` 和 `task_kill` 控制；这些工具由 `@deepseek-ai/dsh-tool-tasks` 提供。
 
-需要加载执行器实现（例如 `@deepseek-ai/dsh-bash-local`）；在 `ctx.bash` 可用之前，插件会保持等待状态（`inject: ['tools', 'bash', 'systemPrompt']`）。
+需要加载执行器实现（例如 `@deepseek-ai/dsh-bash-local`）与 [`@deepseek-ai/dsh-bash-env`](../bash-env/README.md) 注册表；在每个注入服务就绪之前，插件会保持等待状态（`inject: ['tools', 'bash', 'systemPrompt', 'bashEnv']`）。工具契约是 bash 方言——请挂载能解析 bash 的执行器。
 
-包（package）根只公开 Cordis 插件契约（`name`、`inject`、`Config`、`apply`）；结果渲染和后台进程适配仍是实现细节，由同包测试覆盖。
+包（package）根只公开 Cordis 插件契约（`name`、`inject`、`Config`、`apply`）；结果渲染和后台进程适配仍保留在包内部。
 
 插件还会提供 `tool:bash` 提示词段落（顺序 105）：检查每个结果中的 `[exit code: N]` 标记，发现失败时先调查原因再继续。
 
@@ -28,26 +28,7 @@
 
 ### 托管 shell 环境
 
-每次模型发起的前台或后台 bash 调用都会收到新收集的一组可信 `DSH_*` 环境变量。`DSH_HOME` 是由 [`@deepseek-ai/dsh-paths`](../../util/paths/README.md) 解析出的 Harness home 绝对路径（依次采用 `dshHome` 配置、环境中的 `$DSH_HOME`、`~/.dsh`），`DSH_SHELL=1` 则标识受托管的子进程。Agent 调用还会收到 `DSH_SESSION_ID=agent.session.header.id`；当活跃的持久化 seam 找到 JSONL 产物时，也会收到 `DSH_SESSION_JSONL=<absolute target path>`。JSONL 路径只是位置提示：首次 flush 前它可能尚不存在，也可能不包含当前缓冲的轮次，并且它不是授权凭据。
-
-`ctx.bashEnv` 持有收集过程。其他插件可以注册具有 effect 作用域的贡献方，提供稳定名称、已声明的键／说明以及 `resolve(execution: ToolExecution)`；重复持有或运行时返回未声明的键会快速失败，而 `list()` 无需执行提供方即可列举声明。Harness 内置项保留 `DSH_HOME`、`DSH_SHELL` 和 `DSH_SESSION_ID`；tool-bash 的持久化转换器持有 `DSH_SESSION_JSONL`，其值来自后端无关的 `sessionPersistence.locate()` seam。
-
-```ts
-import type { Context } from 'cordis'
-import type {} from '@deepseek-ai/dsh-tool-bash'
-
-export const inject = ['bashEnv']
-
-export function apply(ctx: Context): void {
-  ctx.bashEnv.register({
-    name: 'deployment-region',
-    variables: { DSH_DEPLOYMENT_REGION: { description: 'Current deployment region.' } },
-    resolve: execution => execution.agent === undefined ? {} : { DSH_DEPLOYMENT_REGION: 'cn-north' },
-  })
-}
-```
-
-overlay 根据当前 `ToolExecution` 计算，并通过专用的 `BashExecRequest.dshEnv` 通道传递。本地执行器会先删除继承的所有 `DSH_*`，再合并该快照，因此嵌套 harness 和并发的父／子 agent 不会泄漏陈旧身份。它绝不会修改 `process.env`。工具说明只教授通用 `$DSH_*` 约定，不会点名持久化专用变量，也不会添加永久的系统提示词段落。
+每次模型发起的前台或后台 bash 调用都会通过共享的 [`dsh-bash-env`](../bash-env/README.md) 注册表收到新收集的一组可信 `DSH_*` 环境变量：`DSH_HOME`（Harness home 绝对路径）、`DSH_SHELL=1`、agent 的 `DSH_SESSION_ID`，以及当活跃持久化后端能定位时的 `DSH_SESSION_JSONL`。注册表契约——贡献方注册、重复／未声明键的响亮失败、内置项保留与贡献方示例——住在该包的 README 里。快照通过专用的 `BashExecRequest.dshEnv` 通道传递；本地执行器会先删除继承的所有 `DSH_*` 再合并，因此嵌套 harness 和并发的父／子 agent 不会泄漏陈旧身份，且绝不修改 `process.env`。工具说明只教授通用 `$DSH_*` 约定，不会点名持久化专用变量，也不会添加永久的系统提示词段落。
 
 结果文本依次包含 stdout、可选的 `[stderr]` 段落和适用的沙箱拒绝、超时、信号、退出代码及截断标记。超时与最终退出状态分别报告；非零退出仍是由模型解释的结果，不会成为 `isError`。截断结果会链接安全的完整 spill 文件，或报告文件不可用。只有 spawn 错误和中止等基础设施故障才会产生 `isError`。
 
@@ -61,7 +42,7 @@ overlay 根据当前 `ToolExecution` 计算，并通过专用的 `BashExecReques
 
 ## 工具仅使用具名参数构建请求
 
-`BashExecRequest` seam 携带可选的 `stdoutMaxBytes`、`stdin`、普通 `env` 和托管 `dshEnv`，供可信进程内插件及此工具的环境注册表使用。模型侧工具不公开 `stdoutMaxBytes`、`stdin` 或 `env`：它使用具名的命令／工作目录／超时／信号／沙箱字段，加上从注册表收集的 `dshEnv` 来构建请求。额外模型键会被忽略，无法替换托管值。Shell 语法可以提供等价的命令级行为，而本地执行器会清除环境中的凭据和陈旧 `DSH_*` 值。参见 [stdin/env Agent Note（agent 决策记录）](../../../.agents/notes/implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md)。
+`BashExecRequest` seam 携带可选的 `stdoutMaxBytes`、`stdin`、普通 `env` 和托管 `dshEnv`，供可信进程内插件及此工具的环境注册表使用。模型侧工具不公开 `stdoutMaxBytes`、`stdin` 或 `env`：它使用具名的命令／工作目录／超时／信号／沙箱字段，加上从注册表收集的 `dshEnv` 来构建请求。额外模型键会被忽略，无法替换托管值。Shell 语法可以提供等价的命令级行为，而本地执行器会清除环境中的凭据和陈旧 `DSH_*` 值。参见 [stdin/env Agent Note](../../../.agents/notes/implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md)。
 
 ## 权限与升权
 
@@ -141,7 +122,7 @@ renderer 先输出依数据而定的 stdout 尾部，再输出可选的 `[stderr
 
 #### 模型看到的内容
 
-验证和策略失败统一为 `Error: <message>`。此包的稳定消息包括 `invalid command: expected a non-empty string`、`invalid description: expected a non-empty string`、`invalid timeoutMs: expected a positive number, got <value>`、`invalid escalation: sandbox_permissions requires a justification`、`invalid escalation: justification is only valid together with sandbox_permissions`、`invalid justification: expected a non-empty sentence`、`background execution is disabled for this bash tool`、`background tasks unavailable: load @deepseek-ai/dsh-tasks and @deepseek-ai/dsh-tool-tasks`、`sandbox_permissions is not available in this composition (no sandboxing executor to escalate)`、`sandbox escalation to "<mode>" is not strictly wider than this call's current "<mode>" mode`、审批不可用／拒绝／取消变体，以及 `command aborted`。
+验证和策略失败统一为 `Error: <message>`。此包的稳定消息包括 `invalid command: expected a non-empty string`、`invalid description: expected a non-empty string`、`invalid timeoutMs: expected a positive number, got <value>`、`invalid escalation: sandbox_permissions requires a justification`、`invalid escalation: justification is only valid together with sandbox_permissions`、`invalid justification: expected a non-empty sentence`、`background execution is disabled for this bash tool`、`background tasks unavailable: load @deepseek-ai/dsh-tasks and @deepseek-ai/dsh-tool-tasks`、`sandbox_permissions is not available in this composition (no sandboxing executor to escalate)`、`sandbox escalation to "<mode>" is not strictly wider than this call's current "<mode>" mode`、审批不可用／拒绝／取消变体，以及 `tool call aborted`。
 
 #### Token 影响
 

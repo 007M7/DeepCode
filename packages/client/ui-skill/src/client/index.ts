@@ -19,10 +19,24 @@
  * not kill the prewarm other consumers will hit, so it carries its own
  * abort (fired only on invalidation/teardown) while a candidates caller
  * with an aborted signal just returns early.
+ *
+ * This browser half also owns the `skill` keyed toolview: a replay-stable
+ * accent row derived only from each logged call/result slice.
  */
 import type { ConnectionHandle, SessionId, SkillEntry } from '@deepseek-ai/dsh-client-connection/client'
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ClientContext, ISessions } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SlashServiceContract, SlashSource } from '@deepseek-ai/dsh-client-ui-slash/client'
+// Type-only: pulls the locale plugin's Context merge (ctx.locale).
+import type {} from '@deepseek-ai/dsh-client-locale/client'
+import { SkillRow } from './SkillRow.tsx'
+import { en, NS, zh, type SkillKey } from './locales.ts'
+
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface LocaleNamespaceMap {
+    /** The dedicated skill tool row's copy. */
+    skill: SkillKey
+  }
+}
 
 /** One session's catalog fetch: the shared promise plus its own abort handle. */
 interface CatalogFetch {
@@ -32,15 +46,22 @@ interface CatalogFetch {
   settled?: readonly SkillEntry[]
 }
 
-/** Required services: the slash registry + the wire face the source closes over. */
-export const inject = ['slash', 'connection']
+/** Required services: reference source faces plus the tool-row and locale registries. */
+export const inject = ['slash', 'connection', 'sessions', 'slots', 'locale']
 
 /**
- * Client plugin body: register the '/' skill source over the root wire face.
+ * Client plugin body: register the '/' source, dictionaries, and keyed tool row.
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
+  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-skill: dictionaries')
+  ctx.slots.inject('conversation.chat.toolview', () => ctx.slots.register(
+    { name: 'conversation.chat.toolview', key: 'skill', locale: NS },
+    SkillRow,
+  ))
+
   const skills = (ctx.get('connection') as ConnectionHandle).api.skills
+  const sessions = ctx.get('sessions') as ISessions
   // Session-keyed catalog cache; single-flight per key. Plugin-closure state:
   // the fiber effect below is its teardown boundary.
   const fetches = new Map<SessionId, CatalogFetch>()
@@ -61,6 +82,7 @@ export function apply(ctx: ClientContext): void {
   }
 
   const fetchCatalog = (sessionId: SessionId): Promise<readonly SkillEntry[]> => {
+    if (sessions.subagentAddress(sessionId) !== undefined) return Promise.resolve([])
     const existing = fetches.get(sessionId)
     if (existing !== undefined) return existing.promise
     const abort = new AbortController()

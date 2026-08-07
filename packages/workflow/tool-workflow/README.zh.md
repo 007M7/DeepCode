@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-面向模型的 **`workflow` 工具**：运行一段扇出 subagent 的 JavaScript 编排脚本，并返回脚本的最终值。本包（package）负责基于 [`ctx.workflows`](../workflow/README.md) 塑造 schema 和生命周期；脚本解析、执行、上限与取消位于 seam 之后，消费方仍负责面向父级的 schema 和结果包络。
+面向模型的 **`workflow` 工具**：运行一段扇出 subagent 的 JavaScript 编排脚本，并返回脚本的最终值。本包负责基于 [`ctx.workflows`](../workflow/README.md) 塑造 schema 和生命周期；脚本解析、执行、上限与取消位于 seam 之后，消费方仍负责面向父级的 schema 和结果包络。
 
 ## 模型看到的内容
 
@@ -14,7 +14,7 @@
 
 ## 渲染意图
 
-渲染意图预先确定（见[渲染意图 Agent Note（agent 决策记录）](../../../.agents/notes/implemented/architecture/2026-07-02-tool-render-intent-union.md)）：使用一个 `generic` 卡片，标题为 `workflow: <meta.name>`，直接从 `args.meta.name` 读取（呈现是参数的纯函数，不要求引擎解析）；脚本文本作为 `rawInput` 携带。结果继续使用 generic 卡片。
+渲染意图预先确定（见[渲染意图 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-02-tool-render-intent-union.md)）：使用一个 `generic` 卡片，标题为 `workflow: <meta.name>`，直接从 `args.meta.name` 读取（呈现是参数的纯函数，不要求引擎解析）；脚本文本作为 `rawInput` 携带。结果继续使用 generic 卡片。
 
 ## 配置
 
@@ -71,7 +71,7 @@ Use the <toolName> tool ONLY when the user explicitly asks for a workflow or for
 
 #### KV Cache 影响
 
-仅追加；新增可见内容位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
+仅追加；新增可见内容位于可复用请求前缀之后，不会使现有 KV Cache 条目失效。
 
 ## 已知限制与暂缓事项
 

@@ -1,7 +1,8 @@
-// MessageItem: simple chat nodes — user bubble (right-aligned, with
-// clock + copy / branch IconActions), steering (same bubble, no actions),
-// context injection, compaction marker, retry disclosure, and
-// unknown-surface JSON rows.
+// MessageItem: simple chat nodes — user and consumed-steering bubbles
+// (right-aligned, with clock + copy IconActions; steering adds the
+// interjection caption that names it; branch lives only under assistant
+// answers), pending steering (caption + copy only), context injection,
+// compaction marker, retry disclosure, and unknown-surface JSON rows.
 
 import { memo, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
@@ -28,8 +29,6 @@ export interface MessageItemProps {
     | UnknownSurfaceNode
   loadImage?: ImageLoader
   retryActive?: boolean
-  /** Fork the session through the turn containing this message (user-bubble branch action). */
-  onFork?: (seq: number) => void
   /** The owning view's locale seat, passed down as a plain prop. */
   t: ChatViewSlotProps['t']
 }
@@ -179,21 +178,26 @@ function projectUserText(text: string): ReactNode {
   return <>{parts}</>
 }
 
-/** Right-aligned bubble shared by user and steering rows (steering has no actions). */
+/** Right-aligned bubble shared by user and steering rows. */
 function UserStyleBubble({
-  content, imageLoader, actions, t,
+  content, imageLoader, actions, pending = false, steering = false, t,
 }: {
   content: readonly unknown[]
   imageLoader: ImageLoader
   /** Optional IconActions (or similar) below the bubble; receives the joined text. */
   actions?: (text: string) => ReactNode
+  /** Whether this is the Host-authoritative pre-admission steering projection. */
+  pending?: boolean
+  /** Marks the bubble as mid-turn steering rather than a turn-opening prompt. */
+  steering?: boolean
   t: ChatViewSlotProps['t']
 }): ReactNode {
   const { text, images, rest } = contentParts(content)
   const truncated = (total: number): string => t('json.truncated', { total })
   const showBubble = text !== '' || rest.length > 0
   return (
-    <div className={css.userRow}>
+    <div className={css.userRow} data-pending-steering={pending || undefined} data-time-hover-root>
+      {steering && <span className={css.steeringMark} data-steering-mark>{t('message.steering')}</span>}
       <div className={css.userStack}>
         <ImageGallery images={images} load={imageLoader} align="end" t={t} />
         {showBubble && <div className={css.bubble}>
@@ -208,35 +212,71 @@ function UserStyleBubble({
   )
 }
 
+/**
+ * Render one Host-authoritative pending steering item with the same visual
+ * language as its eventual durable transcript node.
+ * @param props - Pending message content and conversation translator.
+ * @returns the pending steering bubble.
+ */
+export function PendingSteeringBubble({ content, loadImage, t }: {
+  content: readonly unknown[]
+  loadImage?: ImageLoader
+  t: ChatViewSlotProps['t']
+}): ReactNode {
+  const imageLoader = loadImage ?? (() => Promise.reject(new Error(t('image.serviceUnavailable'))))
+  return (
+    <UserStyleBubble
+      content={content}
+      imageLoader={imageLoader}
+      pending
+      steering
+      t={t}
+      actions={text => (
+        <MessageIconActions
+          text={text}
+          clock="start"
+          className={css.actions}
+          t={t}
+        />
+      )}
+    />
+  )
+}
+
 export const MessageItem = memo(function MessageItem({
-  node, loadImage, retryActive = false, onFork, t,
+  node, loadImage, retryActive = false, t,
 }: MessageItemProps) {
   const imageLoader = loadImage ?? (() => Promise.reject(new Error(t('image.serviceUnavailable'))))
   const truncated = (total: number): string => t('json.truncated', { total })
   switch (node.kind) {
     case 'user':
+    case 'steering':
       return (
         <UserStyleBubble
           content={node.content}
           imageLoader={imageLoader}
+          steering={node.kind === 'steering'}
           t={t}
           actions={text => (
             <MessageIconActions
               text={text}
               time={node.time}
               clock="start"
-              onBranch={onFork === undefined ? undefined : () => { onFork(node.seq) }}
               className={css.actions}
               t={t}
             />
           )}
         />
       )
-    case 'steering':
-      return <UserStyleBubble content={node.content} imageLoader={imageLoader} t={t} />
     case 'context':
       return (
-        <ContextInjectionRow content={node.content} source={node.source} t={t} />
+        <ContextInjectionRow
+          content={node.content}
+          source={node.source}
+          provenance={node.provenance}
+          form={node.form}
+          t={t}
+        />
       )
     case 'compaction':
       return <CompactionItem node={node} t={t} />

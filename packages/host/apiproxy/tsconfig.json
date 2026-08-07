@@ -24,6 +24,9 @@
       "path": "../../../vendor/schemastery"
     },
     {
+      "path": "../../api/remotes"
+    },
+    {
       "path": "../../util/brand"
     },
     {
@@ -55,6 +58,12 @@
     },
     {
       "path": "../../session-title/session-title"
+    },
+    {
+      "path": "../../session-query/session-query"
+    },
+    {
+      "path": "../../subagent/subagent"
     },
     {
       "path": "../../skill/skill"

@@ -2,16 +2,18 @@
 
 English | [中文](development.zh.md)
 
-This onboarding guide helps project contributors get started with the local environment, daily workflow, and CI flow; see the Agent Notes for design rationale and technical trade-offs.
+The setup tutorial takes a new contributor from prerequisites to a checked checkout. The contributor reference that follows covers repository layout, daily workflow, and CI shape. Design rationale and implementation details belong to the linked Agent Notes and scripts.
 
-## Prerequisites
+## Setup tutorial
+
+### Prerequisites
 
 - Node.js supports 22.19+ and 24+. CI covers 22.19, 24, and 26; see the [Node engine floor Agent Note](../.agents/notes/implemented/process/2026-07-06-node-engine-floor.md).
 - Corepack-enabled pnpm. The repo pins `pnpm@11.7.0` in `package.json`; run `corepack enable` if `pnpm --version` does not resolve through Corepack.
 - Git 2.26 or newer; hook setup enables Git's worktree-specific configuration extension.
-- Optional: a DeepSeek API key for the TUI, headless, and ACP automation demos and real-API e2e tests.
+- Optional: a DeepSeek API key for the Web, headless, and ACP automation demos and real-API e2e tests.
 
-## First-time setup
+### First-time setup
 
 Install dependencies from the repo root:
 
@@ -19,7 +21,7 @@ Install dependencies from the repo root:
 pnpm install
 ```
 
-The install also runs the root `postinstall` script, which installs lefthook from the repo dev dependency through `scripts/install-lefthook.mjs`. With `CI=true` or `GITHUB_ACTIONS=true`, the wrapper returns before Git discovery because automated jobs do not consume contributor hooks. Otherwise, it requires Git 2.26 or newer and gives the current worktree an explicit hook directory under its own Git directory; linked worktrees therefore use their own lefthook binary and configuration instead of rewriting common hooks. The first install enables Git's worktree-specific configuration extension and repository format 1; see the [worktree-local hooks Agent Note](../.agents/notes/implemented/process/2026-07-27-worktree-local-lefthook.md).
+The install also configures worktree-local lefthook hooks through `scripts/install-lefthook.mjs`. The [worktree-local hooks Agent Note](../.agents/notes/implemented/process/2026-07-27-worktree-local-lefthook.md) owns the safety and migration contract.
 
 If hooks are missing because dependencies were restored from cache or `postinstall` was skipped, install them manually:
 
@@ -27,11 +29,7 @@ If hooks are missing because dependencies were restored from cache or `postinsta
 node scripts/install-lefthook.mjs
 ```
 
-The wrapper refuses user-owned `core.hooksPath` values. An inherited system, global, or common-repository path requires `DSH_LEFTHOOK_ALLOW_HOOKS_PATH_OVERRIDE=1`. When Git seeds a new worktree with another registered worktree's marker-backed hook path, the wrapper replaces that copied value with the new worktree's own path; command-scoped and other worktree-scoped paths must be integrated or removed explicitly.
-
-Before enabling worktree config, migrate direct `extensions.*` in a format-0 common config, direct `core.worktree` or `core.bare=true`, and any non-empty dormant `config.worktree`. The common config and every worktree config must be regular files, while the owned hook directory may contain only unaliased regular files.
-
-After moving a checkout, rerun the wrapper to relocate its owned path and regenerate hooks. For a stale or invalid installer lock, first confirm no installer is running, then remove the reported lock and retry. If installation and hook-path rollback both fail, inspect the reported worktree config before retrying. The [worktree-local hooks Agent Note](../.agents/notes/implemented/process/2026-07-27-worktree-local-lefthook.md) owns the full safety contract.
+If the wrapper rejects existing Git configuration or reports a stale lock, follow its diagnostic and the linked Agent Note rather than editing worktree metadata speculatively. After moving a checkout, rerun the wrapper to regenerate the owned path.
 
 Run typecheck once after a fresh clone:
 
@@ -39,9 +37,13 @@ Run typecheck once after a fresh clone:
 pnpm run typecheck
 ```
 
-That first typecheck runs the whole-repo `tsc -b` graph: it emits every package/vendor `lib/types` and checks examples, tests, and scripts through the two no-emit aggregates described below.
+Setup is complete when `pnpm run typecheck` exits successfully.
 
-## TypeScript project layout
+## Contributor reference
+
+### TypeScript project layout
+
+The repository typecheck runs the whole-repo `tsc -b` graph: it emits every package/vendor `lib/types` and checks examples, tests, and scripts through two no-emit aggregates.
 
 The repository's TypeScript configuration has exactly three roles; every tsconfig file plays one of them.
 
@@ -60,6 +62,8 @@ Host and client stay two aggregate programs because both sides declaration-merge
 
 Static analysis and tests resolve workspace imports through the base `paths` map to `src` and must pass on a clean tree; gates that consume built `lib/` output declare that dependency explicitly. Decision record: [solution-root note](../.agents/notes/implemented/process/2026-07-22-tsconfig-solution-root-two-aggregates.md); the tsc-first emit pipeline is the [ts-build-config note](../.agents/notes/implemented/process/2026-06-17-ts-build-config.md).
 
+Business services declare callable methods on the Host with `@Remote` or `@RemoteScope`; the Host build generates Host-for-Client types and runtime contributions, and the Client's `api-remotes` composition loads those contributions under `ctx.remote` and scoped `agentCtx.remote` namespaces. See [API Gateway](api-gateway.md) for the generated artifacts on both sides, their assembly relationships, the SRC development fallback, and the Web build order.
+
 If a relevant local check consumes built package output, build once first:
 
 ```sh
@@ -68,7 +72,7 @@ pnpm run build
 
 `pnpm run hygiene` includes `publint`, which validates package entrypoints against the built `lib/*.js` files, and `verify-node-next-types`, which validates built declarations against a temporary NodeNext consumer. A fresh worktree has no bundled JS or declarations until `pnpm run build` runs; ordinary commits and pushes do not require that build unless their selected checks consume it.
 
-## Environment variables
+### Environment variables
 
 The real DeepSeek adapter and key-backed agent demos read credentials from the environment or from a gitignored `.env` at the repo root:
 
@@ -79,7 +83,7 @@ DEEPSEEK_BASE_URL=https://... # optional
 
 `DEEPSEEK_BASE_URL` is optional and defaults to the public API. Never commit real credentials. The real-API e2e suites self-skip when `DEEPSEEK_API_KEY` is not set.
 
-## Git hooks
+### Git hooks
 
 lefthook is configured in `lefthook.yml` as a fast local checkpoint:
 
@@ -92,55 +96,20 @@ The hooks intentionally do not run tests, snapshots, documentation checks, build
 
 Contributors can opt into the comprehensive local gate set with `pnpm run check:all`. The command is independent of both Git hooks and is not an agent instruction.
 
-## CI gates
+### CI gates
 
 The keyless [CI workflow](../.github/workflows/ci.yml) groups independent gates into broad lanes and runs a smaller compatibility signal across supported Node versions. Artifact consumers wait for one build within their lane. The separate real-API workflow runs `pnpm run test:e2e` with its configured worker bound. See [scripts/run-gates.ts](../scripts/run-gates.ts) and the workflow files for the current gate and job inventory.
 
-## Daily commands
+### Daily commands
 
-Use these from the repo root:
+The root [contributor instructions](../AGENTS.md#commands) summarize common commands, while [`package.json`](../package.json) and [scripts/run-gates.ts](../scripts/run-gates.ts) own the current script and gate inventories. Select the smallest checks that cover the changed surface. Documentation changes use `pnpm run doc-sync`; package-public behavior changes also update the owning README or JSDoc, and built-artifact checks require `pnpm run build` first.
 
-```sh
-pnpm run test           # unit tests
-pnpm run test:coverage  # unit tests with per-file coverage gates
-pnpm run test:e2e       # real-API tests; self-skips without DEEPSEEK_API_KEY
-pnpm run check:all      # comprehensive opt-in gate set; not wired to Git hooks
-pnpm run typecheck      # tsc -b over the root solution: emits package/vendor lib/types, checks both aggregates
-pnpm run lint           # oxlint .
-pnpm run lint:fix       # formatting-only ESLint, then oxlint . --fix
-pnpm run doc-typecheck  # compile checked TypeScript snippets in Markdown docs
-pnpm run gen-cordis-catalog     # regenerate docs/cordis-catalog/events.md + services.md from source
-pnpm run verify-cordis-catalog  # fail if either cordis catalog is stale
-pnpm run verify-export-jsdoc    # fail if a module-level package export lacks complete JSDoc
-pnpm run gen-doc-graphs     # regenerate generated relationship docs from source and curated graph definitions
-pnpm run verify-doc-graphs  # fail if generated relationship docs are stale
-pnpm run verify-md-wrap  # fail on hard-wrapped prose paragraphs in docs/README markdown
-pnpm run verify-mermaid  # fail if a ```mermaid diagram has invalid Mermaid syntax
-pnpm run verify-type-equiv  # fail if a ```ts type-equiv doc block drifts from its source type
-pnpm run verify-doc-budgets  # fail if a budgeted standing doc exceeds its word ceiling
-pnpm run gen-translation-brief   # print the minimal-update briefing for out-of-sync translation pairs (--apply splices code-only edits)
-pnpm run doc-sync       # all Markdown/doc gates, scheduled concurrently; the doc-sync leaf list in scripts/run-gates.ts is the full list
-pnpm run gen-module-graph     # regenerate docs/module-graph.md from package peerDeps
-pnpm run verify-module-graph  # fail if docs/module-graph.md is stale
-pnpm run build          # emit lib/types intermediates, then bundle lib/index.* runtime files
-pnpm run verify-node-next-types  # fail if built declarations are not NodeNext-consumable
-pnpm run hygiene        # knip, publint, workspace constraints, and NodeNext declaration check
-```
-
-When changing package public behavior, update the relevant README or JSDoc in the same change. `pnpm run doc-sync` catches checked TypeScript snippets, generated doc freshness, markdown wrap/link drift, type equivalence, translation pairing, Mermaid syntax, and doc budgets, but broader prose/API sync still needs review.
-
-## Demos
+### Demos
 
 The one-shot Headless coding agent needs `DEEPSEEK_API_KEY` in the environment or repo-root `.env`:
 
 ```sh
 pnpm run demo:headless "summarize this workspace"
-```
-
-The full-screen interactive coding agent needs `DEEPSEEK_API_KEY` in the environment or repo-root `.env`:
-
-```sh
-pnpm run demo:tui
 ```
 
 The self-referential cordis demo can inspect and modify its live plugin runtime and needs the same credentials (`web` by default, or `acp`):
@@ -155,7 +124,7 @@ The ACP automation server exposes fresh agent sessions over JSON-RPC stdio and a
 pnpm run demo:acp
 ```
 
-## TODO markers
+### TODO markers
 
 Use one of three comment tags to flag known issues in the code, ordered by urgency:
 
@@ -165,7 +134,7 @@ Use one of three comment tags to flag known issues in the code, ordered by urgen
 
 Pick the tag that matches the urgency so anyone scanning the code can tell a release blocker from a someday-maybe.
 
-## Documenting types verbatim (`ts type-equiv`)
+### Documenting types verbatim (`ts type-equiv`)
 
 The [core data structures](core-data-structures/core.md) docs paste source-equivalent declarations together with their original JSDoc so a reader sees the exact shape and source contract. To keep a paste from drifting when source changes, fence it as ` ```ts type-equiv ` (instead of ` ```ts `) and register it in `scripts/type-equiv.manifest.json` with the source file and symbol it mirrors:
 
@@ -174,7 +143,3 @@ The [core data structures](core-data-structures/core.md) docs paste source-equiv
 ```
 
 `pnpm run verify-type-equiv` (part of `doc-sync`) then extracts that symbol's declaration and attached JSDoc from source via the TypeScript parser and asserts the block matches both. For a class whose implementation bodies do not belong in the catalog, use ` ```ts public-api ` and set `"projection": "public-api"`; the checked projection retains the public fields, constructor, accessors, methods, and original class/member JSDoc while omitting bodies and private or protected members. Comparison ignores whitespace and non-JSDoc comments but requires every original JSDoc comment, including member documentation, so readers see the source contract beside the exact shape. The gate enforces a 1:1 correspondence by document, symbol, and projection between primary blocks and manifest entries; a paired `.zh.md` block reuses its unsuffixed sibling's entry only when the whole tracked fence sequence is byte-identical and ordered identically. `doc-typecheck` applies the same derivative rule to compilable fences, while skipping both source-equivalence fence kinds from compilation and its opt-out ratio. When you change a documented declaration or its JSDoc, the gate fails until you update the paste; when you add or remove a primary block, update the manifest in the same change.
-
-## Architecture context
-
-Read `docs/architecture.md` before changing anything under `packages/`. The codebase is built around Cordis plugins, event-sourced sessions, typed service seams, and explicit extension points.

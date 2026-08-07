@@ -7,12 +7,10 @@
 - text: Reply with a one-sentence description of event sourcing, then stop. {{clock}}
 - button "Copy":
   - img
-- button "Branch into a new conversation":
-  - img
-- button "Context injection":
+- button "Context injection @deepseek-ai/dsh-system-prompt":
   - img
   - img
-  - text: Context injection
+  - text: Context injection @deepseek-ai/dsh-system-prompt
 - paragraph: partial
 - status: Deep diving...
 - list:
@@ -20,12 +18,15 @@
     - text: Edited queue item
     - button "Edit queued message":
       - img
+    - tooltip "Edit queued message"
     - button "Remove queued message":
+      - img
+    - button "Steer queued message":
       - img
 - textbox "Message the agent"
 - button "Commands":
   - img
-- 'button "Access mode, current: Full access"': Full access
+- 'button "Access mode, current: Workspace Write"': Workspace Write
 - button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img

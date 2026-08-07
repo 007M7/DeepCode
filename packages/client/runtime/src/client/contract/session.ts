@@ -7,10 +7,10 @@
  * must stub); runtime-internal entry points (history staging, wire-frame
  * dispatch) stay on the class, invisible out here.
  */
-import type {
-  InboxItemId, PromptContentPart, QueueAction, RpcResult, SessionId,
-} from '@deepseek-ai/dsh-client-connection/client'
 import type { AttachmentIdType, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import type {
+  MessageId, PromptContentPart, QueueAction, RpcResult, SessionId,
+} from '@deepseek-ai/dsh-client-connection/client'
 import type { ConversationSnapshot } from '../sessions/conversation.ts'
 import type { ObservableSnapshot } from './store.ts'
 
@@ -47,14 +47,15 @@ export interface ISession {
     attachmentId: AttachmentIdType,
   ): Promise<RpcResult<{ attachment: ImageAttachmentRef; data: Uint8Array }>>
   /**
-   * Apply one mutation to a still-pending queue occurrence.
+   * Apply one edit, remove, or strict steer action to a still-pending queue occurrence.
    * @param itemId - agent-owned inbox occurrence identity.
-   * @param action - edit or remove operation.
+   * @param action - requested queue operation.
    * @returns acceptance, or a business/transport error.
    */
-  updateQueue(itemId: InboxItemId, action: QueueAction): Promise<RpcResult<{ accepted: true }>>
+  updateQueue(itemId: MessageId, action: QueueAction): Promise<RpcResult<{ accepted: true }>>
   /**
-   * Cancel the running turn.
+   * Cancel the running turn. Pending queued work remains and resumes in FIFO
+   * order after the Host reaches cancellation quiescence.
    * @returns acceptance, or the business error.
    */
   cancel(): Promise<RpcResult<{ accepted: true }>>

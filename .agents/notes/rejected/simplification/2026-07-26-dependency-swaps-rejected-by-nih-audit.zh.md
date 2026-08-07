@@ -18,7 +18,7 @@ Status: rejected — 下列每一项替换在证据上都未达到净简化门�
 - **以 `vscode-languageserver-types` 承担 lsp-local 的协议类型子集**：约 80 行类型加约 45 行守卫，但上游守卫在两个方向上都与本仓库不一致（接受本仓库必须拒绝的 `uri: undefined`；强制要求本仓库容忍缺失的 `targetRange`），而且 initialize 结果的形状住在 `vscode-languageserver-protocol` 里，会把 `vscode-jsonrpc` 拖成运行时依赖——为 80 行严格贴合规范的代码付出约 1 MB。
 - **以 `json-rpc-2.0` 替换 `dsh-jsonrpc`**：可删除的关联/分发代码确实存在（约 100–130 行），但 NDJSON 协议格式（wire format）必须与手写的 Python SDK 客户端逐位一致，该包只有单一维护者，且 [GUI RPC 决策](../../implemented/architecture/2026-07-19-gui-layering-and-rpc-protocol.md)已把这个包当作冻结的窄接口面对待。`vscode-jsonrpc` 更不合适（Content-Length 分帧、该协议并不具备的取消词汇）。
 - **以 `jsonrpcclient` 承担 Python SDK 客户端**：v4 只做消息的构造/解析——约 20 行——而真正要紧的 500 行（子进程生命周期、线程化读取器、id 关联、双向的服务端角色应答）全都保留；该库处于低维护模式。
-- **以 `eventsource-parser` 替换 apiproxy 的 `readSse`**：可删除的分帧只有约 15 行，线路两端都在仓库内，规范符合性无关紧要，而且这会给一个浏览器安全的包添加依赖。（对比 [llm-deepseek 提案](../../implemented/simplification/2026-07-26-eventsource-parser-for-deepseek-sse.md)：那里线路对面是真实的提供方。）
+- **以 `eventsource-parser` 替换 apiproxy 的 `readSse`**：可删除的分帧只有约 15 行，线路两端都在仓库内，规范符合性无关紧要，而且这会给一个浏览器安全的包添加依赖。（对比[已归档的 llm-deepseek 依赖决策](../../archived/simplification/2026-07-26-eventsource-parser-for-deepseek-sse.md)：那里线路对面是真实的提供方。）
 
 **重试、定时器与异步：**
 
@@ -46,9 +46,9 @@ Status: rejected — 下列每一项替换在证据上都未达到净简化门�
 - **以 `shell-quote` 承担 POSIX 单引号包裹**：两个各 1 行、测试详尽的引号辅助函数，对上一个处于维护模式、有 CVE 历史、转义输出还不一样的包——安全边界不是省一行代码的地方。
 - **以 `strip-ansi` 承担 pty 净化**：pty 净化器是一台流式状态机，带跨分片的断裂序列续接和 OSC `133;D` 提示符标记提取（shell 就绪信号）；无状态的剥离器只能替掉约 20 行内层代码，全部状态机构件原样保留。`stripVTControlCharacters` 还被实证会泄漏未终止的 OSC 载荷，会话标题归一化器必须剥除它们（反欺骗）。
 - **以 `pidtree`/`ps-tree` 承担 pty 进程巡检器**：它们只给裸 PID 树；这段代码需要对抗 PID 复用的启动时间身份校验，加上 `/proc` stdin 等待检测，没有包做这些。
-- **以 `execa` 承担 subagent-subprocess 的 dispose（资源释放）阶梯**：`forceKillAfterDelay` 覆盖 SIGTERM→SIGKILL，但覆盖不了先发 stdin EOF 的协作层级，也覆盖不了「无退出沿即 reject」契约；在这里采用它意味着重写各 spawn 调用点、同时阶梯照旧保留。（测试基础设施的 spawn 管线是另一回事——见 [execa Agent Note](../../implemented/testing/2026-07-26-execa-for-test-subprocess-plumbing.md)。）
+- **以 `execa` 承担 subagent-subprocess 的 dispose（资源释放）阶梯**：`forceKillAfterDelay` 覆盖 SIGTERM→SIGKILL，但覆盖不了先发 stdin EOF 的协作层级，也覆盖不了「无退出沿即 reject」契约；在这里采用它意味着重写各 spawn 调用点、同时阶梯照旧保留。（测试基础设施的 spawn 管线是另一回事——见[已归档的 execa 测试基础设施决策](../../archived/testing/2026-07-26-execa-for-test-subprocess-plumbing.md)。）
 - **以 `tree-kill` 承担 acp-snapshot 拆除与 lsp 进程终止**：那些代码行做的是排空顺序与错误传播，不是进程树遍历；lsp/bash 已经使用分离的进程组加 taskkill。
-- **在 TUI 测试驱动器上到处使用 node-pty**：[Windows TUI 决策](../../implemented/feature/2026-07-20-windows-tui-support.md)已明确否决在每个宿主上都用 node-pty；它已经是 Windows 那一条腿。
+- **在 TUI 测试驱动器上到处使用 node-pty**：已归档的 [Windows TUI 决策](../../archived/feature/2026-07-20-windows-tui-support.md)明确否决了在每个宿主上都使用 node-pty；它当时已经是 Windows 那一条腿。
 
 **服务器与 HTTP：**
 

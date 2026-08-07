@@ -11,7 +11,13 @@ import type { Context } from 'cordis'
 import z from 'schemastery'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { SubagentCapabilities, SubagentProvider, SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
+import type {
+  ContinuableCreateRequest,
+  ContinuableCreateSpec,
+  ResolvedSubagentStartRequest,
+  SubagentCapabilities,
+  SubagentProvider,
+} from '@deepseek-ai/dsh-subagent'
 import { startInProcessRun } from '@deepseek-ai/dsh-subagent-inprocess'
 
 export const name = 'subagent-fork'
@@ -59,13 +65,21 @@ class ForkProvider implements SubagentProvider {
 
   constructor(readonly name: string) {}
 
-  start(request: SubagentStartRequest) {
+  start(request: ResolvedSubagentStartRequest) {
     const seed = completedTurnPrefix(request.parent)
     return startInProcessRun(request, {
       // Only pass a seed when there's a completed turn to inherit; an empty seed
       // is equivalent to a fresh child, so omit it to keep the session unseeded.
       ...seed.length > 0 ? { seed } : {},
     })
+  }
+
+  prepareContinuable(request: ContinuableCreateRequest): Promise<ContinuableCreateSpec> {
+    // The fork prefix is captured ONCE, at creation: it becomes part of the
+    // child's own durable transcript, so a later cold resume replays that
+    // prefix instead of re-forking the parent's newer history.
+    const seed = completedTurnPrefix(request.parent)
+    return Promise.resolve(seed.length > 0 ? { seed } : {})
   }
 }
 

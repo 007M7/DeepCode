@@ -33,7 +33,7 @@ export function meta(id: string, cwd?: string): SessionHeader {
 /** A well-formed one-turn event log (contiguous seqs from 0). */
 export function oneTurnLog(): SessionEvent[] {
   return [
-    { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+    { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
     { type: 'user/message', seq: 1, time: 2, data: freezeMessage({
       id: MessageId('one-turn-user'),
       role: 'user',
@@ -124,7 +124,7 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
         // A second turn that crashed mid-flight: turn/start + step/start were
         // durably written, but no step/end / turn/end ever arrived.
         await persistence.append(m.id, [
-          { type: 'turn/start', seq: 6, time: 7, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
+          { type: 'turn/start', seq: 6, time: 7, data: { turn: 2 } },
           { type: 'step/start', seq: 7, time: 8, data: { turn: 2, step: 1 } },
         ])
         const beforeRepair = (await persistence.listSnapshots())
@@ -136,7 +136,7 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
         expect(afterInspect).toBe(beforeRepair)
         expect(inspected.events.map(e => e.type)).toEqual([
           'turn/start', 'user/message', 'step/start', 'assistant/message', 'step/end', 'turn/end',
-          'turn/start', 'step/start',
+          'turn/start', 'step/start', 'step/end', 'turn/end',
         ])
 
         // load PRESERVES the interrupted turn's events (a turn can be huge — they
@@ -157,7 +157,7 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
         // The closed log is durable and continuable: a fresh append continues at
         // the balanced length (seq 10), and a reload round-trips identically.
         await persistence.append(m.id, [
-          { type: 'turn/start', seq: 10, time: 9, data: { turn: 3, trigger: { kind: 'message', source: { kind: 'user' } } } },
+          { type: 'turn/start', seq: 10, time: 9, data: { turn: 3 } },
           { type: 'turn/end', seq: 11, time: 10, data: { turn: 3, reason: { kind: 'completed' } } },
         ])
         const reloaded = await persistence.load(m.id)
@@ -177,7 +177,7 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
         // BEFORE the tool/result was written (the loop runs tools after logging
         // the assistant message — a process killed mid-tool lands exactly here).
         await persistence.append(m.id, [
-          { type: 'turn/start', seq: 6, time: 7, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
+          { type: 'turn/start', seq: 6, time: 7, data: { turn: 2 } },
           { type: 'step/start', seq: 7, time: 8, data: { turn: 2, step: 1 } },
           { type: 'assistant/message', seq: 8, time: 9, data: {
             turn: 2, step: 1,
@@ -191,7 +191,7 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
                 ...{ provider: 'mock', model: 'mock' },
               },
             }),
-          } },
+          }, surfaceOp: 'append' },
         ])
 
         const loaded = await persistence.load(m.id)
@@ -227,7 +227,7 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
         const m = meta('unknown-tool-outcome')
         await persistence.create(m)
         await persistence.append(m.id, [
-          { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+          { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
           { type: 'step/start', seq: 1, time: 2, data: { turn: 1, step: 1 } },
           { type: 'assistant/message', seq: 2, time: 3, data: {
             turn: 1, step: 1,
@@ -255,7 +255,7 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
         }
         expect(synthetic.data.message.content[0].content[0].text).toContain('retry only if the operation is read-only or idempotent')
         expect(synthetic.data.message.content[0].content[0].text).toContain('if it may have side effects, first verify external state or ask the user')
-        const resumed = new Session(m.id, loaded.events, loaded.meta)
+        const resumed = Session.create(m.id, loaded.events, loaded.meta)
         const resumedResult = resumed.deriveMessages().find(message => message.content.some(block => block.type === 'tool-result'))
         expect(resumedResult?.content[0]).toMatchObject({
           type: 'tool-result', toolCallId: CallId('call-risk'), isError: true,
@@ -318,7 +318,7 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
 
         // Non-mutating: an interrupted-turn log is served as stored, no closers.
         await persistence.append(m.id, [
-          { type: 'turn/start', seq: 6, time: 7, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
+          { type: 'turn/start', seq: 6, time: 7, data: { turn: 2 } },
         ])
         const tail = await persistence.readFrom(m.id, 6)
         expect(tail.events.map(event => event.type)).toEqual(['turn/start'])
@@ -347,7 +347,7 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
           type: 'turn/start',
           seq: 6,
           time: 7,
-          data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } },
+          data: { turn: 2 },
         }])
         const changed = (await persistence.listSnapshots()).find(snapshot => snapshot.header.id === m.id)
         expect(changed?.revision).not.toBe(first?.revision)
@@ -376,7 +376,7 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
         const m = meta('s4')
         await persistence.create(m)
         const gapped: SessionEvent[] = [
-          { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+          { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
           { type: 'step/start', seq: 2, time: 2, data: { turn: 1, step: 1 } }, // gap: missing seq 1
         ]
         await expect(persistence.append(m.id, gapped)).rejects.toThrow()

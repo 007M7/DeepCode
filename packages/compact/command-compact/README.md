@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Human-facing `/compact` control over [`ctx.compact`](../compact/README.md). The plugin registers one global command through [`ctx.commands`](../../ui/commands/README.md), so every composed command adapter discovers it; the shipped TUI executes it without a model turn. The [queued manual compaction Agent Note](../../../.agents/notes/implemented/feature/2026-07-30-queued-manual-compaction.md) owns the admission, lock, and durability decisions.
+Human-facing `/compact` control over [`ctx.compact`](../compact/README.md). The plugin registers one global command through [`ctx.commands`](../../ui/commands/README.md), so every composed command adapter discovers and executes it without a model turn. The [queued manual compaction Agent Note](../../../.agents/notes/implemented/feature/2026-07-30-queued-manual-compaction.md) owns the admission, lock, and durability decisions.
 
 ## Command contract
 
@@ -41,7 +41,7 @@ The producer injects `commands` and `compact`. Mount the command registry, one b
   name: '@deepseek-ai/dsh-command-compact'
 ```
 
-The TUI example and CLI host mount it beside `compact-basic`. Automation surfaces that compose no command registry keep automatic compaction only.
+The shipped `dsh` base mounts it beside `compact-basic`, and the Web client provides the command adapter. Automation surfaces that compose no command adapter keep automatic compaction only.
 
 ## Model Experience
 

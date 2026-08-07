@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-通过 [`ctx.compact`](../compact/README.md) 提供面向用户的 `/compact` 压缩（compaction）控制。该插件通过 [`ctx.commands`](../../ui/commands/README.md) 注册一个全局命令，因此组合中的每个命令适配器都能发现它；随附 TUI 无需模型轮次即可执行该命令。[排队手动压缩 Agent Note（agent 决策记录）](../../../.agents/notes/implemented/feature/2026-07-30-queued-manual-compaction.md)拥有接纳、锁与持久性决策。
+通过 [`ctx.compact`](../compact/README.md) 提供面向用户的 `/compact` 压缩（compaction）控制。该插件通过 [`ctx.commands`](../../ui/commands/README.md) 注册一个全局命令，因此组合中的每个命令适配器都能发现并执行它，无需模型轮次。[排队手动压缩 Agent Note](../../../.agents/notes/implemented/feature/2026-07-30-queued-manual-compaction.md)拥有接纳、锁与持久性决策。
 
 ## 命令契约
 
@@ -41,7 +41,7 @@ busy 结果有意限定在进程范围内：活动的未匹配标记会阻塞，
   name: '@deepseek-ai/dsh-command-compact'
 ```
 
-TUI 示例与 CLI host 将它挂载在 `compact-basic` 旁。未组合命令注册表的自动化接口只保留自动压缩。
+随附 `dsh` 基础配置将它挂载在 `compact-basic` 旁，Web 客户端提供命令适配器。未组合命令适配器的自动化接口只保留自动压缩。
 
 ## 模型体验
 

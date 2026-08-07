@@ -11,7 +11,7 @@ import type { Wire } from './rpc.schema.ts'
 import { rpcErrorSchema, rpcIdSchema } from './rpc.schema.ts'
 import { approvalRequestIdSchema } from './approvals.schema.ts'
 import {
-  contentBlockSchema, inboxItemIdSchema, sessionEventSchema, sessionIdSchema, toolEventViewSchema,
+  contentBlockSchema, messageIdSchema, sessionEventSchema, sessionIdSchema, toolEventViewSchema,
 } from './sessions.schema.ts'
 import { workspaceIdSchema, workspaceViewSchema } from './workspace.schema.ts'
 
@@ -53,7 +53,8 @@ export const muxFrameSchema = z.discriminatedUnion('type', [
     type: z.literal('session/queue'),
     sessionId: sessionIdSchema,
     items: z.array(z.object({
-      id: inboxItemIdSchema,
+      id: messageIdSchema,
+      placement: z.union([z.literal('queued'), z.literal('steering'), z.literal('context')]),
       message: messageSchema,
     })),
   }),
@@ -65,7 +66,14 @@ export const muxFrameSchema = z.discriminatedUnion('type', [
 
 /** HostFrame union (payload slot of a host-stream ServerRequest). */
 export const hostFrameSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('host/session-added'), sessionId: sessionIdSchema, blank: z.boolean(), parentSessionId: sessionIdSchema.optional(), cwd: z.string().optional() }),
+  z.object({
+    type: z.literal('host/session-added'),
+    sessionId: sessionIdSchema,
+    blank: z.boolean(),
+    parentSessionId: sessionIdSchema.optional(),
+    origin: z.literal('subagent').optional(),
+    cwd: z.string().optional(),
+  }),
   z.object({ type: z.literal('host/session-removed'), sessionId: sessionIdSchema }),
   z.object({ type: z.literal('host/session-status'), sessionId: sessionIdSchema, running: z.boolean() }),
   z.object({ type: z.literal('host/agent-error'), sessionId: sessionIdSchema, message: z.string() }),

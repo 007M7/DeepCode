@@ -20,7 +20,7 @@
 - button "Settings":
   - img
   - text: Settings
-- text: Let's start building
+- text: Into the Unknown Preview
 - button "Choose workspace":
   - img
   - text: workspace
@@ -28,10 +28,10 @@
 - textbox "Describe what you want to build"
 - button "Commands":
   - img
-- 'button "Access mode, current: Full access"': Full access
+- 'button "Access mode, current: Workspace Write"': Workspace Write
 - button "Plan mode on, press to turn off": Plan
-- button "Select model, current deepseek-v4-flash":
-  - text: deepseek-v4-flash
+- button "Select model, current DeepSeek-V4-Flash":
+  - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
 - text: Details

@@ -33,7 +33,7 @@ async function harness(adapter: MockAdapter, toolOrder?: SystemPromptConfig['too
 
 function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
-    const dispose = ctx.on('agent/status', (subject, status) => {
+    const dispose = ctx.on('agent/status', ({ agent: subject, status }) => {
       if (subject === agent && status === 'idle') {
         dispose()
         resolve()
@@ -93,24 +93,18 @@ describe('loop-level canonical tool order', () => {
     expect(Object.isFrozen(adapter.requests[0])).toBe(true)
   })
 
-  it('fails the turn — no model request — when toolOrder names an unregistered tool', async () => {
-    // Unknown tool order fails before step or request creation and returns the agent to idle.
+  it('closes a no-step turn when toolOrder names an unregistered tool', async () => {
     const adapter = new MockAdapter([textResponse('never sent')])
     const ctx = await harness(adapter, ['ghost', TOOL_ORDER_REST])
     registerNamed(ctx, 'alpha')
-    const errors: Error[] = []
-    ctx.on('agent/error', (_agent, _turn, _step, error) => {
-      if (error instanceof Error) errors.push(error)
-    })
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
     expect(adapter.requests).toHaveLength(0)
-    expect(errors.map(e => e.message)).toEqual(['toolOrder lists unregistered tool "ghost"; known tools: alpha'])
     expect(foldRequestHeader(agent.session.events)).toBeUndefined()
-    const end = agent.session.events.find(e => e.type === 'turn/end')
-    expect(end?.type === 'turn/end' && end.data.reason).toMatchObject({ kind: 'error', step: 1 })
-    // The turn is balanced (turn/start → turn/end) with no step events inside.
+    expect(agent.session.events.some(e => e.type === 'turn/start')).toBe(true)
+    expect(agent.session.events.some(e => e.type === 'turn/end')).toBe(true)
     expect(agent.session.events.some(e => e.type === 'step/start')).toBe(false)
+    expect(agent.session.events.some(e => e.type === 'step/end')).toBe(false)
   })
 })

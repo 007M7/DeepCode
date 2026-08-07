@@ -1,7 +1,8 @@
 /* Geometry mirrors CodeBlock/TerminalBlock (12px radius, code-block surface,
    16px vertical margin) so a web card, a terminal card, and a fenced code block
-   read as one family. A source list is prose, not aligned output, so it wraps
-   normally rather than scrolling horizontally like a terminal card's output. */
+   read as one family. A source list is prose, not aligned output, so each row
+   wraps horizontally rather than scrolling sideways like a terminal card; the
+   list as a whole scrolls vertically within a capped height (see .sources). */
 
 .block {
   --dsl-web-radius: 12px;
@@ -27,13 +28,29 @@
   margin-bottom: 0;
 }
 
-/* The citation list: ordered so each source reads as a numbered reference. */
+/* The citation list: ordered so each source reads as a numbered reference. The
+   whole list — the sources the tool returned, matching what the model saw —
+   renders here; a max-height caps the card so a long list scrolls in place
+   rather than growing the card unbounded. The height is a design constant of the
+   card's geometry, not a deployment choice, so it lives here rather than a plugin
+   config field.
+
+   `overflow-y` makes this a scroll container, which also clips inline-start
+   overflow: a marker wider than `padding-left` loses its leading digits with no
+   way to scroll them back. Markers are right-aligned to the content edge, so the
+   padding must fit the widest one the list can produce. `searchMaxResults` is an
+   unbounded positive integer, so the padding is sized in `em` — against this
+   element's own font, the one a marker inherits — to hold a three-digit marker
+   (`999. ` measures 2.35em in the app font stack) plus the gap the one-digit
+   case already had. */
 .sources {
   margin: 0;
-  padding-left: 20px;
+  padding-left: 2.5em;
   display: flex;
   flex-direction: column;
   gap: 10px;
+  max-height: 320px;
+  overflow-y: auto;
 }
 
 .source {
@@ -63,26 +80,6 @@
   margin-top: 2px;
   color: var(--dsw-alias-label-tertiary);
   font: var(--dsw-font-xs-13);
-}
-
-.expandItem {
-  list-style: none;
-}
-
-.expand {
-  display: block;
-  width: 100%;
-  padding: 0;
-  border: none;
-  background-color: transparent;
-  color: var(--dsw-alias-label-tertiary);
-  cursor: pointer;
-  font: inherit;
-  text-align: left;
-}
-
-.expand:hover {
-  color: var(--dsw-alias-label-secondary);
 }
 
 .truncated {

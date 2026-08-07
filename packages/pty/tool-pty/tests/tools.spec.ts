@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
-import AgentRegistry, {} from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { renderToolsSdk } from '@deepseek-ai/dsh-tools'
@@ -16,9 +16,15 @@ import * as ToolPty from '@deepseek-ai/dsh-tool-pty'
 function fakeAgent(ctx: Context, rawId: string): Agent {
   const scope = ctx.plugin(() => {})
   const id = SessionId(rawId)
+  const session = Session.create(id)
   const agent: Agent = {
-    id, options: {}, session: new Session(id), status: 'idle', acceptsNextStep: false, ctx: scope.ctx,
-    followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, updateInbox: () => 'not-found', reserveTurnAdmission: () => undefined, cancel() {}, whenIdle: () => Promise.resolve(),
+    id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
+    status: 'idle',
+    ctx: scope.ctx,
+    send: () => {},
+    followup: () => {}, steer: () => {}, inject: () => {}, cancel() {},
+    runMaintenance: task => task(new AbortController().signal),
+    whenIdle: () => Promise.resolve(),
   }
   ctx.agents.register(agent)
   return agent

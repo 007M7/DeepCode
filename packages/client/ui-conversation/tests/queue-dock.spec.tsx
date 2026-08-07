@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
  * QueueDock rendering and operations: authoritative rows, inline editing,
- * collapse state, removal, failure notices, and live retirement.
+ * collapse state, removal, strict steering, failure notices, and live retirement.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
@@ -23,14 +23,18 @@ const SID = 's1' as SessionId
 const iid = (id: string): QueueItemId => id as QueueItemId
 
 function row(id: string, text: string | null, preview = text ?? '[image]'): QueuedMessage {
-  return { id: iid(id), preview, text }
+  return {
+    id: iid(id), messageId: `message-${id}` as never, placement: 'queued',
+    content: text === null ? [{ type: 'image', data: 'x' } as never] : [{ type: 'text', text }],
+    preview, text,
+  }
 }
 
 function snapshotWith(queue: QueuedMessage[]): ConversationSnapshot {
   return {
-    sessionId: SID, nodes: [], partial: null, runningCalls: [], codeDispatches: new Map(),
+    sessionId: SID, nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [], codeDispatches: new Map(),
     pending: [], queue, running: true, composerPhase: 'active', removed: false, openState: 'open', openError: null,
-    hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null,
+    hasMore: false, loadingOlder: false, promptError: null, blank: false, subagent: null, lastAgentError: null,
   }
 }
 
@@ -81,6 +85,14 @@ function kitFor(snapshot: ConversationSnapshot, injected: Partial<QueueDockInjec
 describe('QueueDock', () => {
   it('renders null while the queue is empty', () => {
     const snap = snapshotWith([])
+    const source = liveSession(snap)
+    const { container } = render(<QueueDock {...kitFor(snap)} useSession={source.useSession} />)
+    expect(container.innerHTML).toBe('')
+  })
+
+  it('leaves pending steering to the conversation flow', () => {
+    const steering = { ...row('s-1', 'interrupt'), placement: 'steering' as const }
+    const snap = snapshotWith([steering])
     const source = liveSession(snap)
     const { container } = render(<QueueDock {...kitFor(snap)} useSession={source.useSession} />)
     expect(container.innerHTML).toBe('')
@@ -188,10 +200,10 @@ describe('QueueDock', () => {
     fireEvent.click(getByRole('button', { name: '2 条排队消息' }))
     expect([...container.querySelectorAll('li')].map(item => item.textContent))
       .toEqual(['第一条排队消息', 'image [image]'])
-    expect(container.querySelectorAll('button')).toHaveLength(5)
+    expect(container.querySelectorAll('button')).toHaveLength(7)
     expect(container.querySelectorAll('[aria-label="编辑排队消息"]')).toHaveLength(2)
     expect(container.querySelectorAll('[aria-label="删除排队消息"]')).toHaveLength(2)
-    expect(container.querySelectorAll('[aria-label="立即发送排队消息"]')).toHaveLength(0)
+    expect(container.querySelectorAll('[aria-label="插话发送"]')).toHaveLength(2)
     expect((container.querySelectorAll('[aria-label="编辑排队消息"]')[0] as HTMLButtonElement).disabled).toBe(false)
     expect((container.querySelectorAll('[aria-label="编辑排队消息"]')[1] as HTMLButtonElement).disabled).toBe(true)
     expect(container.querySelectorAll('[aria-label="编辑排队消息"]')[1]?.getAttribute('title'))
@@ -274,6 +286,68 @@ describe('QueueDock', () => {
     })
   })
 
+  it('strictly steers complete row content only while the agent is running', async () => {
+    const running = snapshotWith([row('i-steer', null, 'image [image]')])
+    const source = liveSession(running)
+    const updateQueue = vi.fn(() => Promise.resolve())
+    const rendered = render(
+      <QueueDock {...kitFor(running, { updateQueue })} useSession={source.useSession} />,
+    )
+
+    const button = rendered.getByLabelText('插话发送')
+    expect(button).toHaveProperty('disabled', false)
+    fireEvent.click(button)
+    await waitFor(() => {
+      expect(updateQueue).toHaveBeenCalledWith(iid('i-steer'), { kind: 'steer' })
+    })
+
+    act(() => { source.push({ ...running, running: false }) })
+    expect(rendered.getByLabelText('插话发送')).toHaveProperty('disabled', true)
+    expect(rendered.getByLabelText('插话发送').getAttribute('title')).toBe('仅运行中可插话发送')
+  })
+
+  it('renders a session-backed subagent Queue without unsupported actions', () => {
+    const snap = {
+      ...snapshotWith([row('i-subagent', 'pending child follow-up')]),
+      subagent: {
+        address: {
+          parentSessionId: 'parent' as SessionId,
+          childSessionId: SID,
+          mode: 'continuable' as const,
+        },
+        parentAvailable: true,
+      },
+    }
+    const source = liveSession(snap)
+    const view = render(
+      <QueueDock {...kitFor(snap)} useSession={source.useSession} />,
+    )
+
+    expect(view.getByText('pending child follow-up')).toBeTruthy()
+    expect(view.queryByLabelText('编辑排队消息')).toBeNull()
+    expect(view.queryByLabelText('删除排队消息')).toBeNull()
+    expect(view.queryByLabelText('插话发送')).toBeNull()
+  })
+
+  it('keeps the row and reports a genuine steer failure', async () => {
+    const snap = snapshotWith([row('i-steer-race', 'pending steer')])
+    const source = liveSession(snap)
+    const notify = vi.fn()
+    const updateQueue = vi.fn(() => Promise.reject(new Error('transport failed')))
+    const { getByLabelText, getByText } = render(
+      <QueueDock {...kitFor(snap, { updateQueue, notify })} useSession={source.useSession} />,
+    )
+
+    fireEvent.click(getByLabelText('插话发送'))
+    await waitFor(() => {
+      expect(notify).toHaveBeenCalledWith(
+        'error',
+        '插话发送失败，请重试。',
+      )
+    })
+    expect(getByText('pending steer')).toBeTruthy()
+  })
+
   it('keeps the row and surfaces a notice when an operation loses the claim race', async () => {
     const snap = snapshotWith([row('i-race', 'pending')])
     const source = liveSession(snap)
@@ -302,8 +376,10 @@ describe('QueueDock', () => {
   it('registers as the terminal composer-context entry', () => {
     expect(queueDockEntry.name).toBe('conversation-queue-dock')
     expect(queueDockEntry.inject).toEqual(['slots', 'conversation', 'sessions'])
-    const register = vi.fn()
-    queueDockEntry.apply({ slots: { register } } as never)
+    const register = vi.fn(() => () => undefined)
+    const inject = vi.fn((_name: string, callback: () => () => void) => callback())
+    queueDockEntry.apply({ slots: { inject, register } } as never)
+    expect(inject).toHaveBeenCalledWith('conversation.input.dock', expect.any(Function))
     expect(register).toHaveBeenCalledWith(
       expect.objectContaining({ name: 'conversation.input.dock', id: 'queue', order: 20 }),
       QueueDock,

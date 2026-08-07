@@ -23,15 +23,17 @@ import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './suppor
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/question-composer', import.meta.url))
 const FIXTURE = join(SNAPSHOT_DIR, 'session.jsonl')
 const UI_EXPECTED = join(SNAPSHOT_DIR, 'ui.expected.md')
-// Second golden: the answered transcript — the question resolved into its
-// tool round trip and the final reply, the state the waiting golden cannot see.
+const SIDEBAR_EXPECTED = join(SNAPSHOT_DIR, 'sidebar.expected.md')
+const COMPOSED_EXPECTED = join(SNAPSHOT_DIR, 'composed.expected.md')
+// Final golden: the answered transcript — the question resolved into its tool
+// round trip and the final reply, the state the composer goldens cannot see.
 const ANSWERED_EXPECTED = join(SNAPSHOT_DIR, 'answered.expected.md')
 const MODE = webSnapshotMode()
 
 // The options carry long descriptions on purpose: the squeeze assertion below
 // needs option copy that WRAPS, which is the only shape that reproduces a
 // collapsed row painting its copy outside its own box.
-const PROMPT = 'Use the ask_user_question tool to ask me exactly one question with id "color", question "Which color do you prefer?", header "Pick one", and two options: label "Blue" with description "A cool recessive hue that reads as calm and trustworthy in long reading sessions and dense dashboards.", and label "Green" with description "A restful mid-spectrum hue with the highest perceived brightness, easiest on the eye over long sessions." After I answer, reply with the single word DONE and stop.'
+const PROMPT = 'Use the ask_user_question tool to ask me exactly one multi-select question with id "color", question "Which color do you prefer?", header "Pick one", and two options: label "Blue" with description "A cool recessive hue that reads as calm and trustworthy in long reading sessions and dense dashboards.", and label "Green" with description "A restful mid-spectrum hue with the highest perceived brightness, easiest on the eye over long sessions." Set multi_select to true. After I answer, reply with the single word DONE and stop.'
 
 describe('web e2e: resident question composer round trip', () => {
   let scaffold: WebScaffold
@@ -75,11 +77,17 @@ describe('web e2e: resident question composer round trip', () => {
     await composer.waitFor({ timeout: MODE === 'record' ? 120_000 : 30_000 })
     await expect.poll(() => composer.getByText('Which color do you prefer?').count(), { timeout: 10_000 }).toBeGreaterThan(0)
 
+    const selectedRow = page.locator('[role="treeitem"][aria-selected="true"]')
+    await expect.poll(() => selectedRow.locator('[data-state="warning"]').count(), { timeout: 10_000 }).toBe(1)
+    await expect.poll(() => selectedRow.getByText('Waiting for answer', { exact: true }).count(), { timeout: 10_000 }).toBe(1)
+
     if (MODE !== 'record') {
       // This golden owns the stable question surface; the answered-state
       // golden below owns the resulting transcript.
       const snapshot = await captureStableAria(page, '[data-question-key]', scaffold.workspaceCwd)
       await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
+      const sidebar = await captureStableAria(page, '[role="treeitem"][aria-selected="true"]', scaffold.workspaceCwd)
+      await compareOrRefreshGolden(SIDEBAR_EXPECTED, sidebar, MODE)
     }
 
     // Squeezed card: the option rows are the capped card's scroll content, so
@@ -124,9 +132,17 @@ describe('web e2e: resident question composer round trip', () => {
       await page.setViewportSize(original)
     }
 
-    await composer.getByRole('radio', { name: 'Blue' }).click()
-    // Submit: Enter on the focused option (the composer's documented submit).
-    await composer.getByRole('radio', { name: 'Blue' }).press('Enter')
+    const blue = composer.getByRole('checkbox', { name: 'Blue' })
+    await blue.click()
+    const custom = composer.getByRole('textbox')
+    await custom.fill('Include accessibility notes')
+    expect(await blue.getAttribute('aria-checked')).toBe('true')
+    expect(await custom.inputValue()).toBe('Include accessibility notes')
+    if (MODE !== 'record') {
+      const snapshot = await captureStableAria(page, '[data-question-key]', scaffold.workspaceCwd)
+      await compareOrRefreshGolden(COMPOSED_EXPECTED, snapshot, MODE)
+    }
+    await custom.press('Enter')
 
     const sessionId = await settled
     if (MODE === 'record') {
@@ -135,10 +151,18 @@ describe('web e2e: resident question composer round trip', () => {
     }
     // World state: the tool result carries the chosen answer, and DONE lands.
     const results = sessionEvents.filter(e => e.type === 'tool/result')
-    expect(JSON.stringify(results.at(-1))).toContain('Blue')
+    const answerText = results.flatMap(event => event.data.message.content.flatMap(block =>
+      block.type === 'tool-result'
+        ? block.content.filter(item => item.type === 'text').map(item => item.text)
+        : [],
+    )).at(-1)
+    expect(JSON.parse(answerText ?? '')).toEqual({
+      answers: [{ id: 'color', selected: ['Blue'], custom: 'Include accessibility notes' }],
+    })
     await expect.poll(() => page.getByText('DONE', { exact: true }).count(), { timeout: 15_000 }).toBeGreaterThanOrEqual(1)
     // Composer gone; regular input restored.
     expect(await page.locator('[data-question-key]').count()).toBe(0)
+    expect(await selectedRow.locator('[data-state="warning"]').count()).toBe(0)
     await expect.poll(() => page.locator('textarea').first().isEnabled(), { timeout: 10_000 }).toBe(true)
     // Golden of the answered transcript: the ask_user_question round trip
     // rendered as history (question tool row + DONE), composer takeover gone.
@@ -149,6 +173,12 @@ describe('web e2e: resident question composer round trip', () => {
   }, 200_000)
 
   it.skipIf(MODE === 'record')('keeps the fixture inventory closed', async () => {
-    await assertFixtureInventory(SNAPSHOT_DIR, ['session.jsonl', 'ui.expected.md', 'answered.expected.md'])
+    await assertFixtureInventory(SNAPSHOT_DIR, [
+      'session.jsonl',
+      'ui.expected.md',
+      'sidebar.expected.md',
+      'composed.expected.md',
+      'answered.expected.md',
+    ])
   })
 })

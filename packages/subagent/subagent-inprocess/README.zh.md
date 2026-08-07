@@ -14,9 +14,11 @@
 2. 直接调用 `parent.ctx.agents.create`，把必需的请求信号传入工厂的创建事务。
 3. 在该事务未发布的设置窗口中，安装请求的 persona、工具限制和结构化输出运行时。
 4. 发布子 agent，保留返回的 `AgentHandle`，并通过先调用 `child.followup(prompt)`、再调用 `child.whenIdle()` 来驱动一项任务。
-5. 读取子 agent 自身最后一条 assistant 消息，以及由消息触发的最新轮次原因；排除任何 fork 初始内容和后续轮次间记录。
+5. 从完整的自有子运行中读取子 agent 自身最后一条 assistant 消息和最终持久轮次原因，并排除任何 fork 初始内容。
 
 子 agent 会获得父 agent 的工作目录／会话谱系；除非 `request.agentOptions` 覆盖，否则还会继承父 agent 的提供方、模型和输出 token 上限。它获得全新的扁平注册作用域：父级所有权不会导入父 agent 的工具限制，也不会建立权限子集。
+
+该结果边界成立，是因为提供方拥有从发布到完全停稳的隔离子 agent 生命周期。在该生命周期内提交的 steering（中途引导）属于子运行；提供方不会声称输出只归初始 follow-up 所有。
 
 当组合中挂载了可选的沙箱策略或审批服务时，驱动器会在创建子 agent 前对父级的显式会话覆盖项获取快照，并在未发布的设置阶段追加一条带来源标记的事件，使其位于所有 fork 历史之后、会话发布之前。它绝不复制部署默认值或一次性授权；子 agent 后续的切换仍然优先。参见[策略继承决策](../../../.agents/notes/implemented/feature/2026-07-25-subagent-policy-inheritance.md)。
 
@@ -26,9 +28,9 @@
 
 兑现后，调用方拥有该运行。提供方插件卸载不会撤销它。`dispose()` 会移除实时中止监听器、记录取消，并委托给返回的 `AgentHandle.dispose()`；后者通过可复用的完全停稳事务停止循环、移除 agent 和会话，并展开有作用域的注册。取消决定所有尚未完成的进行中结果，并将其报告为 `aborted`；已经完成的轮次仍保持完成状态。
 
-## Spawn 与 fork 输入
+## spawn 与 fork 输入
 
-`InProcessRunOptions` 的形态为 `{ seed?: SessionEvent[] }`。spawn 省略该值。fork 提供平衡的已完成轮次前缀，并记录其长度，确保结果读取器不会把作为初始内容的父 agent 消息误认为子 agent 输出。
+`InProcessRunOptions` 的形态为 `{ seed?: SessionEvent[] }`。spawn 省略该值。fork 提供已配平的已完成轮次前缀，并记录其长度，确保结果读取器不会把作为初始内容的父 agent 消息误认为子 agent 输出。
 
 深度强制在 `startInProcessRun` 内部完成：它通过 `delegationDepthOf` 读取父 agent 深度（持久化的 `SessionHeader.delegationDepth` 具有权威性；运行时 `AgentOptions.subagentDepth` 可以加深但绝不能降低该值，因此恢复后的子 agent 会保留预算），缺失值按顶层深度零处理，拒绝格式错误的存储值，并报告尝试的子 agent 深度超过 `maxDepth`。超过安全整数范围、无法表示的深度会触发 `RangeError`。子 agent 深度写入子 agent header，因此会在持久化和恢复后保留。
 
@@ -74,7 +76,7 @@ When you have your final answer, you MUST report it by calling the `structured_o
 
 #### Token 影响
 
-固定指令和能力 token 仅由该子 agent 支付。结果文本进入子 agent 历史，而只有捕获的值会成为父 agent 结果。
+固定指令和能力产生的 token 开销仅由该子 agent 承担。结果文本进入子 agent 历史，而只有捕获的值会成为父 agent 结果。
 
 #### KV Cache 影响
 
@@ -92,7 +94,7 @@ When you have your final answer, you MUST report it by calling the `structured_o
 
 #### KV Cache 影响
 
-仅追加；新增可见内容位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
+仅追加；新增可见内容位于可复用请求前缀之后，不会使现有 KV Cache 条目失效。
 
 ### 父 agent 结果（间接）
 
@@ -106,9 +108,9 @@ When you have your final answer, you MUST report it by calling the `structured_o
 
 #### KV Cache 影响
 
-仅追加；新增可见内容位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
+仅追加；新增可见内容位于可复用请求前缀之后，不会使现有 KV Cache 条目失效。
 
-## 已知限制与延期工作
+## 已知限制与暂缓事项
 
 - **运行不公开 `sendMessage`/`resume`**：进程内运行不具备这些可选运行时能力。
 - **结构化捕获只接受 `defineTool` schema 子集**：不支持的 JSON Schema 构造会在子 agent 创建前失败；需要更广 schema 词汇的提供方必须采用不同的运行时。

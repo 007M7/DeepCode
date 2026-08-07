@@ -2,8 +2,8 @@
  * Settings shell slot contract — the canonical home of every settings slot
  * type. The shell is a pure composition face with zero copy of its own: it
  * occupies the sidebar-owned `sidebar.settings` hole and declares the slots
- * below; ALL text (trigger label, panel title, close aria, section content)
- * arrives from registrants. A feature owns its settings surface — adding a
+ * below; ALL text (trigger label, panel title, header actions, close aria,
+ * section content) arrives from registrants. A feature owns its settings surface — adding a
  * setting never means editing the shell; copy that belongs to no single
  * feature (chrome, the General section) is owned by ui-settings-general.
  */
@@ -30,6 +30,12 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      */
     'settings.header': { kind: 'single'; scope: 'root'; owner: SettingsHeaderOwnerProps }
     /**
+     * Optional actions rendered in the content-column header before Close.
+     * Registrants own visibility, behavior, copy, and failure presentation;
+     * the shell supplies only the ordered render site.
+     */
+    'settings.action': { kind: 'list'; scope: 'root'; owner: SettingsHeaderOwnerProps }
+    /**
      * The close button's visually-hidden label text (the button itself —
      * icon, geometry, focus — is shell chrome). Absent contribution leaves
      * the button without an accessible name (broken-composition state).
@@ -51,7 +57,13 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * Root-scoped onboarding steps contributed by settings features. The
      * shell mounts one ordered step at a time; the active registrant either
      * completes itself or keeps ownership until the user completes its sole
-     * path. Registrants own readiness, copy, and dialog behavior.
+     * path. Registrants own readiness, copy, dialog behavior, AND the
+     * takeover chrome: a step wraps its visible content in the
+     * OnboardingSurface primitive (mask, opaque stage, `#root` inert) and
+     * renders null while its private facts are still loading — the shell
+     * paints no chrome of its own, so a mounted-but-deciding step shows and
+     * blocks nothing (the reload white-flash fix; a bare unwrapped step
+     * would render without mask or stage).
      */
     'settings.onboarding': { kind: 'list'; scope: 'root'; owner: SettingsOnboardingOwnerProps }
   }
@@ -125,6 +137,11 @@ export type SettingsRootInjected = {
 export type SettingsRootComponentProps =
   PropsRuntime<'sidebar.settings'>
   & PropsRenderSlots<
-    'settings.trigger' | 'settings.header' | 'settings.close' | 'settings.section' | 'settings.onboarding'
+    | 'settings.trigger'
+    | 'settings.header'
+    | 'settings.action'
+    | 'settings.close'
+    | 'settings.section'
+    | 'settings.onboarding'
   >
   & InjectFace<SettingsRootInjected>

@@ -37,7 +37,6 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('first-message title provider wit
     const session = ctx.sessions.create(SessionId('real-title-provider'))
     session.append('turn/start', {
       turn: 1,
-      trigger: { kind: 'message', source: { kind: 'user' } },
     })
     const message = session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'Explain why append-only logs make session titles durable.' }],

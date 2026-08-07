@@ -8,13 +8,15 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 8px 32px 12px;
+  /* Sides = clearance + 16px so the card lands on the shared content width
+     (input card - 32) at every viewport. */
+  padding: 8px calc(var(--dsh-composer-side-clearance) + 16px) 12px;
 }
 
 .card {
   overflow: hidden;
   width: 100%;
-  max-width: 776px;
+  max-width: var(--dsh-chat-content-width);
   border: 1px solid var(--dsw-alias-state-warn-secondary);
   border-radius: 20px;
   background: var(--dsw-specific-input-major);
@@ -84,42 +86,14 @@
 /* Card-level row, not body content. Its padding reproduces the metrics the row
    had inside the body: 14px above (the flex gap of 6 plus the row's 8px top
    margin, neither of which reaches it out here) and the body's former 14px
-   bottom pad below, so the resting card is unchanged. */
+   bottom pad below, so the resting card is unchanged. Buttons are the shared
+   outline/primary capsules (Button atom, matching QuestionComposer's footer);
+   only the reject's danger hover is local. */
 .actionRow {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
   padding: 14px 16px 14px;
-}
-
-.allow,
-.reject {
-  padding: 6px 16px;
-  border-radius: 10px;
-  font-size: 13px;
-  line-height: 18px;
-  cursor: pointer;
-}
-
-.allow:disabled,
-.reject:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-/* Primary action: filled ink (draft's rightmost emphasis, minus the dropped
-   always-allow button). */
-.allow {
-  border: none;
-  background: var(--dsw-alias-label-primary);
-  color: var(--dsw-alias-label-primary-foreground);
-}
-
-/* Secondary: quiet outline. */
-.reject {
-  border: 1px solid var(--dsw-alias-border-l2-darkmode-thin);
-  background: transparent;
-  color: var(--dsw-alias-label-secondary);
 }
 
 .reject:hover:not(:disabled) {

@@ -19,6 +19,16 @@ interface TimingHooks {
   failNextHistory(): void
   appendUser(id: string, msg: string): void
   appendTitle(id: string, title: string): void
+  startReasoningChunkStorm(id: string, chunkCount: number, chunksPerInterval: number, intervalMs: number): string
+  reasoningChunkStormState(): {
+    sessionId: string
+    chunkCount: number
+    chunksPerInterval: number
+    intervalMs: number
+    emitted: number
+    marker: string
+    emitting: boolean
+  } | null
   beginModelRetry(id: string): void
   scheduleModelRetry(id: string, retry?: number, delayMs?: number): void
   cancelModelRetryDuringBackoff(id: string, delayMs?: number): void
@@ -149,6 +159,11 @@ describe('createFixtureApi', () => {
         },
         // No request ran, so neither pressure nor capacity is known yet.
         contextPressure: {},
+        contextBreakdown: {
+          systemTokens: 0,
+          toolsTokens: 0,
+          messageTokens: 0,
+        },
       } },
     })
   })
@@ -227,6 +242,10 @@ describe('createFixtureApi', () => {
     const times = events.slice(todoAt - 1, todoAt + 2).map(e => e.time)
     expect(times[0]).toBeLessThanOrEqual(times[1] ?? 0)
     expect(times[1]).toBeLessThanOrEqual(times[2] ?? 0)
+    // The sample is a parallel plan: this fixture chooses the parallel policy,
+    // so the surfaces fed from here face more than one active item.
+    const snapshot = events[todoAt] as { data: { todos: { status: string }[] } }
+    expect(snapshot.data.todos.filter(t => t.status === 'in_progress')).toHaveLength(2)
   })
 
   it('create adds a session and pushes host/session-added to open host streams', async () => {
@@ -294,6 +313,10 @@ describe('createFixtureApi', () => {
       frame.type === 'session/projection'
       && frame.key === 'contextPressure'
       && (frame.value as { contextWindow?: number }).contextWindow === 128_000)).toBe(true)
+    expect(frames.some(frame =>
+      frame.type === 'session/projection'
+      && frame.key === 'contextBreakdown'
+      && (frame.value as { messageTokens?: number }).messageTokens! > 0)).toBe(true)
     const finalize = frames.find((f): f is Extract<MuxFrame, { type: 'session/event' }> => f.type === 'session/event' && f.event.type === 'assistant/message')
     expect(JSON.stringify(finalize?.event.data)).toContain('（已中断）')
     // Idle cancel: no replay in flight, must not explode; running flips false.
@@ -301,7 +324,7 @@ describe('createFixtureApi', () => {
     expect(idleCancel.result).toMatchObject({ ok: true })
   })
 
-  it('steer during a replay inserts a steering message and the replay continues to completion', async () => {
+  it('steer during a replay lands a user/message inside the current turn and the replay continues', async () => {
     const api = createFixtureApi()
     const created = await api.sessions.create(req({}))
     if (!created.result.ok) throw new Error('create failed')
@@ -314,7 +337,7 @@ describe('createFixtureApi', () => {
     await api.sessions.prompt(req({ sessionId: id, mode: 'steer' as const, content: [{ type: 'text' as const, text: '插话' }] }))
     const frames = await framesPromise
     const types = frames.filter((f): f is Extract<MuxFrame, { type: 'session/event' }> => f.type === 'session/event').map(f => f.event.type)
-    expect(types).toContain('steering/message')
+    expect(JSON.stringify(frames)).toContain('插话')
     expect(types.at(-1)).toBe('turn/end') // steer did not restart the turn
   })
 
@@ -325,7 +348,7 @@ describe('createFixtureApi', () => {
       const envelopes: RpcRequest<MuxFrame>[] = []
       for await (const envelope of api.events.mux(req({}), abort.signal)) {
         envelopes.push(envelope)
-        if (envelopes.length >= 10) abort.abort()
+        if (envelopes.length >= 11) abort.abort()
       }
       return envelopes
     }
@@ -341,13 +364,18 @@ describe('createFixtureApi', () => {
     expect(first[5]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'goal', value: null })
     expect(first[6]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'tokenUsage' })
     expect(first[7]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'contextPressure' })
-    expect(first[8]?.payload).toMatchObject({ type: 'approval/requested', toolName: 'dangerous_tool' })
-    expect(second[8]?.rpcId).toBe(first[8]?.rpcId) // stable rpcId across replays (host replay semantics)
-    expect(first[9]?.payload).toMatchObject({ type: 'question/requested', sessionId: 'fx-alpha' })
-    expect(second[9]?.rpcId).toBe(first[9]?.rpcId)
+    expect(first[8]?.payload).toMatchObject({
+      type: 'session/projection', sessionId: 'fx-alpha', key: 'contextBreakdown',
+      value: { systemTokens: 0, toolsTokens: 0 },
+    })
+    expect((first[8]?.payload as { value: { messageTokens: number } }).value.messageTokens).toBeGreaterThan(0)
+    expect(first[9]?.payload).toMatchObject({ type: 'approval/requested', toolName: 'dangerous_tool' })
+    expect(second[9]?.rpcId).toBe(first[9]?.rpcId) // stable rpcId across replays (host replay semantics)
+    expect(first[10]?.payload).toMatchObject({ type: 'question/requested', sessionId: 'fx-alpha' })
+    expect(second[10]?.rpcId).toBe(first[10]?.rpcId)
   })
 
-  it('steer with no replay in flight promotes image bytes to a session-scoped reference', async () => {
+  it('steer with no replay in flight falls through to a fresh queued turn; non-text blocks stringify empty', async () => {
     const api = createFixtureApi()
     const abort = new AbortController()
     const framesPromise = collect<MuxFrame>(api.events.mux(req({}), abort.signal), abort,
@@ -355,61 +383,14 @@ describe('createFixtureApi', () => {
     await new Promise(resolve => setTimeout(resolve, 10))
     const created = await api.sessions.create(req({}))
     if (!created.result.ok) throw new Error('create failed')
-    // steer while idle + an image: the fixture mirrors the host's durable send boundary.
+    // steer while idle + a non-text content block (covers the '' arm of the text join).
     await api.sessions.prompt(req({
       sessionId: created.result.value.sessionId, mode: 'steer' as const,
-      content: [{ type: 'text' as const, text: '短' }, {
-        type: 'image' as const,
-        mediaType: 'image/png' as const,
-        data: 'iVBORw0KGgoAAAANSUhEUgAAAKAAAABaCAYAAAA/xl1SAAAAvklEQVR42u3SMQ0AAAjAMIyhELM4AAe8PD1qYFlk9cCXEAEDYkAwIAYEA2JAMCAGBANiQDAgBgQDYkAwIAYEA2JAMCAGBANiQDAgBgQDYkAwIAYEA2JAMCAGxIBCYEAMCAbEgGBADAgGxIBgQAwIBsSAYEAMCAbEgGBADAgGxIBgQAwIBsSAYEAMCAbEgGBADAgGxIAYEAyIAcGAGBAMiAHBgBgQDIgBwYAYEAyIAcGAGBAMiAHBgBgQDIgB4bYWLb6pnOb1xAAAAABJRU5ErkJggg==',
-        name: 'pixel.png',
-      }],
+      content: [{ type: 'text' as const, text: '短' }, { type: 'image', data: 'x' } as never],
     }))
     const frames = await framesPromise
     const types = frames.filter((f): f is Extract<MuxFrame, { type: 'session/event' }> => f.type === 'session/event').map(f => f.event.type)
-    expect(types[0]).toBe('turn/start') // idle steer degraded to a queued turn, not a steering insert
-    const user = frames.find((f): f is Extract<MuxFrame, { type: 'session/event' }> =>
-      f.type === 'session/event' && f.event.type === 'user/message')
-    const image = ((user?.event.data as { content?: { type: string; attachment?: { attachmentId: never } }[] } | undefined)?.content)
-      ?.find(block => block.type === 'image')
-    expect(image?.attachment).toBeDefined()
-    if (image?.attachment === undefined) throw new Error('fixture image missing')
-    const loaded = await api.sessions.attachment(req({
-      sessionId: created.result.value.sessionId,
-      attachmentId: image.attachment.attachmentId,
-    }))
-    expect(loaded.result).toMatchObject({ ok: true, value: { attachment: { name: 'pixel.png' } } })
-    const denied = await api.sessions.attachment(req({
-      sessionId: sid('fx-beta'), attachmentId: image.attachment.attachmentId,
-    }))
-    expect(denied.result).toMatchObject({
-      ok: false, error: { details: { reason: 'ATTACHMENT_NOT_REFERENCED' } },
-    })
-  })
-
-  it('accounts for every base64 padding form and reports a missing fixture attachment', async () => {
-    const api = createFixtureApi()
-    const created = await api.sessions.create(req({}))
-    if (!created.result.ok) throw new Error('create failed')
-    const sessionId = created.result.value.sessionId
-    const prompted = await api.sessions.prompt(req({
-      sessionId,
-      mode: 'queue' as const,
-      content: ['YQ==', 'YWI=', 'YWJj'].map(data => ({
-        type: 'image' as const,
-        mediaType: 'image/png' as const,
-        data,
-      })),
-    }))
-    expect(prompted.result.ok).toBe(true)
-    const missing = await api.sessions.attachment(req({
-      sessionId,
-      attachmentId: 'fixture:missing' as never,
-    }))
-    expect(missing.result).toMatchObject({
-      ok: false, error: { details: { reason: 'ATTACHMENT_NOT_FOUND' } },
-    })
-    await api.sessions.cancel(req({ sessionId }))
+    expect(types[0]).toBe('turn/start') // idle steer degraded to a queued turn, not an in-turn insert
   })
 
   it('gamma interval flip emits host/session-status and a running log-less session subscribes at lastSeq -1', async () => {
@@ -920,6 +901,50 @@ describe('createFixtureApi', () => {
     expect(abort.signal.aborted).toBe(false)
     expect(habort.signal.aborted).toBe(false)
   })
+
+  it('paces the opt-in reasoning stress hook from an external interval', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const api = createFixtureApi()
+    const hooks = timing()
+    expect(hooks.reasoningChunkStormState()).toBeNull()
+    expect(() => hooks.startReasoningChunkStorm('fx-alpha', 0, 1, 16)).toThrow(/chunk count/)
+    expect(() => hooks.startReasoningChunkStorm('fx-alpha', 1, 0, 16)).toThrow(/chunks per interval/)
+    expect(() => hooks.startReasoningChunkStorm('fx-alpha', 1, 1, 0)).toThrow(/reasoning interval/)
+    const abort = new AbortController()
+    try {
+      const streamed = collect(api.events.mux(req({}), abort.signal), abort, frames => frames.some(frame => (
+        frame.type === 'session/event'
+        && frame.event.type === 'assistant/chunk'
+        && frame.event.data.chunk.type === 'reasoning-delta'
+        && frame.event.data.chunk.text.includes('REASONING_STRESS_COMPLETE')
+      )))
+      const marker = hooks.startReasoningChunkStorm('fx-alpha', 3, 2, 16)
+      expect(() => hooks.startReasoningChunkStorm('fx-alpha', 1, 1, 16)).toThrow(/already running/)
+      expect(hooks.reasoningChunkStormState()).toMatchObject({ emitted: 0, emitting: true, marker })
+
+      await vi.advanceTimersByTimeAsync(0)
+      expect(hooks.reasoningChunkStormState()).toMatchObject({ emitted: 2, emitting: true })
+      await vi.advanceTimersByTimeAsync(16)
+      expect(hooks.reasoningChunkStormState()).toEqual({
+        sessionId: 'fx-alpha', chunkCount: 3, chunksPerInterval: 2, intervalMs: 16,
+        emitted: 3, marker, emitting: false,
+      })
+
+      const frames = await streamed
+      const deltas = frames.flatMap(frame => (
+        frame.type === 'session/event'
+        && frame.event.type === 'assistant/chunk'
+        && frame.event.data.chunk.type === 'reasoning-delta'
+          ? [frame.event.data.chunk.text]
+          : []
+      ))
+      expect(deltas).toEqual(['推理', '推理', `\n${marker}`])
+    } finally {
+      abort.abort()
+      vi.useRealTimers()
+    }
+  })
 })
 
 describe('FixtureApiClient (protocol-level fake carrier)', () => {
@@ -963,7 +988,6 @@ describe('FixtureApiClient (protocol-level fake carrier)', () => {
     const id = created.result.value.sessionId
     expect((await client.sessions.history({ sessionId: id })).result.ok).toBe(true)
     expect((await client.sessions.prompt({ sessionId: id, mode: 'queue', content: [{ type: 'text', text: '嗨' }] })).result.ok).toBe(true)
-    expect((await client.sessions.attachment({ sessionId: sid('fx-alpha'), attachmentId: 'fixture:image' as never })).result.ok).toBe(true)
     expect((await client.sessions.cancel({ sessionId: id })).result.ok).toBe(true)
     expect((await client.host.describe({})).result.ok).toBe(true)
     expect((await client.workspace.list({})).result.ok).toBe(true)
@@ -1002,6 +1026,21 @@ describe('FixtureApiClient (protocol-level fake carrier)', () => {
     // complete → complete is an invalid transition.
     expect((await client.goals.complete({ sessionId: id, ref })).result.ok).toBe(false)
     expect((await client.goals.clear({ sessionId: id, ref })).result).toEqual({ ok: true, value: { cleared: true } })
+
+    const goalHistory = await client.sessions.history({ sessionId: id })
+    if (!goalHistory.result.ok) throw new Error('goal history failed')
+    const goalEvents = goalHistory.result.value.events.map(entry => entry.event as unknown as {
+      type: string
+      data: {
+        operation?: string
+        source?: { kind?: string; round?: number }
+      }
+    })
+    const goalChanges = goalEvents.filter(event => event.type === 'goal/change')
+    expect(goalChanges.map(event => event.data.operation))
+      .toEqual(['create', 'edit', 'pause', 'resume', 'complete', 'clear'])
+    expect(goalEvents.some(event => event.type === 'user/message'
+      && event.data.source?.kind === 'goal' && event.data.source.round === 0)).toBe(false)
   })
 
   it('maps empty, prompt-reject, and workspace-first query scenarios', async () => {

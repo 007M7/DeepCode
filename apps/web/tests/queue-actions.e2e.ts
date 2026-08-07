@@ -1,16 +1,16 @@
 // Keyless browser coverage for pending queue actions through the shipped Web
-// composition and real HTTP/SSE wire. A replay override parks the active turn
-// so two ordinary follow-ups remain addressable while the page edits one and
-// removes one. The queue uses an existing recorded model
-// call; this scenario owns only the user-visible mid-turn golden.
+// composition and real HTTP/SSE wire. Replay overrides park consecutive turns
+// so the page can edit and remove exact occurrences, then stop the active turn
+// while proving the preserved Queue advances in FIFO order.
 import { existsSync } from 'node:fs'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterEach, describe, expect, it, onTestFailed } from 'vitest'
+import { deriveReplayScript, parseSessionLog, type ReplayEntry } from '@deepseek-ai/dsh-llm-replay'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import {
   assertFixtureInventory, captureStableAria, compareOrRefreshGolden,
@@ -22,6 +22,8 @@ const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/queue-actions', import.m
 const FIXTURE = fileURLToPath(new URL('./snapshots/live-interactions/session.jsonl', import.meta.url))
 const COLLAPSED_EXPECTED = join(SNAPSHOT_DIR, 'collapsed.expected.md')
 const EDITING_EXPECTED = join(SNAPSHOT_DIR, 'editing.expected.md')
+const LAYOUT_EXPECTED = join(SNAPSHOT_DIR, 'layout.expected.md')
+const PRESERVED_EXPECTED = join(SNAPSHOT_DIR, 'preserved.expected.md')
 const UI_EXPECTED = join(SNAPSHOT_DIR, 'ui.expected.md')
 const MODE = webSnapshotMode()
 
@@ -29,6 +31,13 @@ const ACTIVE_PROMPT = 'Reply with a one-sentence description of event sourcing, 
 const REMOVE = 'Queue item to remove'
 const EDIT = 'Queue item to edit'
 const EDITED = 'Edited queue item'
+const TAIL = 'Queue item preserved after stop'
+const WAKE = 'Wake the preserved queue'
+
+/** Durable turn-end classifications observed by the scenario. */
+function turnEndReasons(events: readonly SessionEvent[]): string[] {
+  return events.flatMap(event => event.type === 'turn/end' ? [event.data.reason.kind] : [])
+}
 
 describe('web e2e: queue row actions', () => {
   let scaffold: WebScaffold | undefined
@@ -52,13 +61,19 @@ describe('web e2e: queue row actions', () => {
     if (failures.length > 1) throw new AggregateError(failures, 'queue-actions teardown failed')
   })
 
-  it.skipIf(MODE === 'record')('edits and removes exact pending occurrences', async () => {
+  it.skipIf(MODE === 'record')('edits and removes exact occurrences and preserves Queue across stop', async () => {
     overrideDir = await mkdtemp(join(tmpdir(), 'dsh-web-queue-actions-'))
     const readyFile = join(overrideDir, '.hang-ready')
     const overridePath = join(overrideDir, 'replay.override.json')
-    await writeFile(overridePath, JSON.stringify({
-      patches: [{ at: 0, entry: { kind: 'hang', readyFile } }],
-    }))
+    const recorded = deriveReplayScript(parseSessionLog(await readFile(FIXTURE, 'utf8')))
+    expect(recorded).toHaveLength(1)
+    const replay: ReplayEntry[] = [
+      { kind: 'hang', readyFile },
+      recorded[0]!,
+      recorded[0]!,
+      recorded[0]!,
+    ]
+    await writeFile(overridePath, JSON.stringify(replay))
 
     const sessionEvents: SessionEvent[] = []
     scaffold = await launchWebScaffold({ replayFixture: FIXTURE, replayOverride: overridePath })
@@ -72,7 +87,7 @@ describe('web e2e: queue row actions', () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-queue-actions'))
 
     const input = page.locator('textarea').first()
-    const settled = scaffold.whenTurnSettled()
+    const firstSettled = scaffold.whenTurnSettled()
     await input.fill(ACTIVE_PROMPT)
     await input.press('Enter')
     await expect.poll(() => existsSync(readyFile), { timeout: 15_000 }).toBe(true)
@@ -135,17 +150,124 @@ describe('web e2e: queue row actions', () => {
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
 
-    const editedRow = page.getByText(EDITED, { exact: true }).locator('..')
-    await editedRow.getByRole('button', { name: 'Remove queued message' }).click()
-    await expect.poll(() => page.getByText(EDITED, { exact: true }).count()).toBe(0)
+    await input.fill(TAIL)
+    await input.press('Enter')
+    await expect.poll(
+      () => page.getByRole('button', { name: 'Remove queued message' }).count(),
+      { timeout: 10_000 },
+    ).toBe(2)
+
+    await page.getByRole('button', { name: 'Stop generating' }).click()
+    await firstSettled
+    await expect.poll(() => page.getByRole('button', { name: 'Stop generating' }).count())
+      .toBe(0)
+    await expect.poll(() => page.getByRole('button', { name: 'Remove queued message' }).count())
+      .toBe(2)
+
+    const preservedSnapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
+    await compareOrRefreshGolden(PRESERVED_EXPECTED, preservedSnapshot, MODE)
+
+    const settled = scaffold.whenTurnSettled()
+    await input.fill(WAKE)
+    await input.press('Enter')
+    await settled
+    await expect.poll(() => turnEndReasons(sessionEvents), { timeout: 15_000 })
+      .toEqual(['aborted', 'completed', 'completed', 'completed'])
+    expect(sessionEvents.flatMap(event => event.type === 'user/message' && event.data.source.kind === 'user'
+      ? event.data.content.flatMap(block => block.type === 'text' ? [block.text] : [])
+      : [])).toEqual([ACTIVE_PROMPT, EDITED, TAIL, WAKE])
+    await expect.poll(() => page.locator('[data-queue-dock]').count()).toBe(0)
+  }, 120_000)
+
+  it.skipIf(MODE === 'record')('orders Todo before Goal and Queue on one responsive card column', async () => {
+    overrideDir = await mkdtemp(join(tmpdir(), 'dsh-web-context-layout-'))
+    const readyFile = join(overrideDir, '.hang-ready')
+    const overridePath = join(overrideDir, 'replay.override.json')
+    await writeFile(overridePath, JSON.stringify([{ kind: 'hang', readyFile } satisfies ReplayEntry]))
+
+    const sessionEvents: SessionEvent[] = []
+    scaffold = await launchWebScaffold({ replayFixture: FIXTURE, replayOverride: overridePath })
+    scaffold.ctx.on('session/event', (_session, event: SessionEvent) => { sessionEvents.push(event) })
+    browser = await chromium.launch()
+    page = await newEnglishPage(browser)
+    const tripwire = watchConsole(page)
+    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+    await connectFreshWorkspace(page, scaffold.workspaceCwd)
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-context-layout'))
+
+    const input = page.locator('textarea').first()
+    const settled = scaffold.whenTurnSettled()
+    await input.fill('/goal Keep the composer context panels aligned')
+    await input.press('Enter')
+    await expect.poll(() => existsSync(readyFile), { timeout: 15_000 }).toBe(true)
+    await page.locator('[data-goal-bar]').waitFor({ timeout: 10_000 })
+
+    const sessions = scaffold.ctx.sessions.list()
+    expect(sessions).toHaveLength(1)
+    sessions[0]!.append('todo/write', {
+      todos: [
+        { content: 'Confirm the panel order', status: 'completed' },
+        { content: 'Align the panel widths', status: 'in_progress' },
+      ],
+    })
+    await page.locator('[data-testid="todo-panel"]').waitFor({ timeout: 10_000 })
+
+    for (const text of ['Layout queue first', 'Layout queue second']) {
+      await input.fill(text)
+      await input.press('Enter')
+    }
+    const queueHeader = page.getByRole('button', { name: '2 queued messages' })
+    await expect.poll(() => queueHeader.getAttribute('aria-expanded'), { timeout: 10_000 })
+      .toBe('false')
+
+    const layoutSnapshot = await captureStableAria(
+      page,
+      '[class*="centerCol"]',
+      scaffold.workspaceCwd,
+    )
+    await compareOrRefreshGolden(LAYOUT_EXPECTED, layoutSnapshot, MODE)
+
+    const expectAlignedContextPanels = async () => {
+      const queuePanelBox = await page.locator('[data-queue-dock] > div').boundingBox()
+      const todoBox = await page.locator('[data-testid="todo-panel"]').boundingBox()
+      const goalBox = await page.locator('[data-goal-bar] > div').boundingBox()
+      expect(queuePanelBox).not.toBeNull()
+      expect(todoBox).not.toBeNull()
+      expect(goalBox).not.toBeNull()
+      expect(todoBox!.y).toBeLessThan(goalBox!.y)
+      expect(goalBox!.y).toBeLessThan(queuePanelBox!.y)
+      expect(todoBox!.x).toBeCloseTo(goalBox!.x, 1)
+      expect(todoBox!.x).toBeCloseTo(queuePanelBox!.x, 1)
+      expect(todoBox!.width).toBeCloseTo(goalBox!.width, 1)
+      expect(todoBox!.width).toBeCloseTo(queuePanelBox!.width, 1)
+    }
+    await expectAlignedContextPanels()
+    await page.setViewportSize({ width: 640, height: 1000 })
+    await expectAlignedContextPanels()
+    await page.setViewportSize({ width: 1680, height: 1000 })
+
+    await queueHeader.click()
+    const removeButtons = page.getByRole('button', { name: 'Remove queued message' })
+    await expect.poll(() => removeButtons.count(), { timeout: 10_000 }).toBe(2)
+    await removeButtons.first().click()
+    await expect.poll(() => removeButtons.count(), { timeout: 10_000 }).toBe(1)
+    await removeButtons.first().click()
+    await expect.poll(() => page.locator('[data-queue-dock]').count(), { timeout: 10_000 }).toBe(0)
+    await page.getByRole('button', { name: 'Clear goal' }).click()
+    await expect.poll(() => page.locator('[data-goal-bar]').count(), { timeout: 10_000 }).toBe(0)
     await page.getByRole('button', { name: 'Stop generating' }).click()
     await settled
+
+    expect(turnEndReasons(sessionEvents)).toEqual(['aborted'])
+    expect(tripwire.pageErrors).toEqual([])
+    expect(tripwire.warnings).toEqual([])
   }, 120_000)
 
   it.skipIf(MODE === 'record')('keeps its snapshot inventory closed', async () => {
     await assertFixtureInventory(
       SNAPSHOT_DIR,
-      ['collapsed.expected.md', 'editing.expected.md', 'ui.expected.md'],
+      ['collapsed.expected.md', 'editing.expected.md', 'layout.expected.md', 'preserved.expected.md', 'ui.expected.md'],
     )
   })
 })

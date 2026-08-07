@@ -31,11 +31,13 @@ describe('ACP prompt lifecycle', () => {
     harness = undefined
   })
 
-  it('maps a max-token turn without losing its committed text', async () => {
+  it('maps a max-token turn to end_turn without losing its committed text', async () => {
     harness = await makeBridgeHarness({ script: [maxTokensResponse('cut off')] })
     const sessionId = await newSession(harness)
     const result = await harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] })
-    expect(result.stopReason).toBe('max_tokens')
+    // A token-limit turn ending is not a prompt-level stop reason (README):
+    // the prompt settles at whole-agent idle with end_turn.
+    expect(result.stopReason).toBe('end_turn')
     await vi.waitFor(() => { expect(messageText(harness!)).toBe('cut off') })
   })
 
@@ -78,10 +80,25 @@ describe('ACP prompt lifecycle', () => {
 
   it('rejects an ordinary plugin failure through the same prompt boundary', async () => {
     harness = await makeBridgeHarness({ script: [textResponse('must not run')] })
-    harness.ctx.on('agent/step', () => { throw new Error('plugin pre-step failed') })
+    harness.ctx.on('agent/pre-step', () => { throw new Error('plugin pre-step failed') })
     const sessionId = await newSession(harness)
     await expect(harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] }))
       .rejects.toThrow(/turn failed: plugin pre-step failed/)
+  })
+
+  it('rejects a turn-start failure before the prompt is claimed', async () => {
+    harness = await makeBridgeHarness({ script: [textResponse('must not run')] })
+    const sessionId = await newSession(harness)
+    const agent = harness.ctx.agents.get(SessionId(sessionId))!
+    const append = agent.session.append.bind(agent.session)
+    vi.spyOn(agent.session, 'append').mockImplementation(((type: string, ...rest: never[]) => {
+      if (type === 'turn/start') throw new Error('turn start unavailable')
+      return (append as (...args: never[]) => unknown)(type as never, ...rest)
+    }) as never)
+
+    await expect(harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] }))
+      .rejects.toThrow(/turn failed: turn start unavailable/)
+    vi.restoreAllMocks()
   })
 
   it('settles even when an earlier turn observer throws', async () => {
@@ -94,13 +111,13 @@ describe('ACP prompt lifecycle', () => {
       .resolves.toEqual({ stopReason: 'end_turn' })
   })
 
-  it('ignores an injection turn while correlating the owning message turn', async () => {
+  it('correlates the owning prompt when a synchronous injection joins its first step', async () => {
     harness = await makeBridgeHarness({ script: [textResponse('real answer')] })
     const sessionId = await newSession(harness)
     const agent = harness.ctx.agents.get(SessionId(sessionId))!
     let injected = false
-    harness.ctx.on('agent/inbox/enqueue', (subject) => {
-      if (subject === agent && !injected) {
+    harness.ctx.on('agent/inbox/inserted', ({ agent: subject, message }) => {
+      if (subject === agent && message.source.kind === 'user' && !injected) {
         injected = true
         agent.inject(createUserMessage({ content: [{ type: 'text', text: 'context' }], source: { kind: 'plugin', plugin: 'test' } }))
       }
@@ -115,28 +132,42 @@ describe('ACP prompt lifecycle', () => {
     harness = await makeBridgeHarness({ script: ['hang'] })
     const sessionId = await newSession(harness)
     const agent = harness.ctx.agents.get(SessionId(sessionId))!
-    let inserted = false
-    harness.ctx.on('agent/inbox/enqueue', (subject, item) => {
-      if (subject !== agent || item.message.source.kind !== 'user' || inserted) return
-      inserted = true
-      const source = { kind: 'plugin', plugin: 'test' } as const
-      agent.session.append('turn/start', { turn: 1, trigger: { kind: 'message', source } })
-      agent.session.append('user/message', createUserMessage({
-        content: [{ type: 'text', text: 'autonomous work' }],
-        source,
-      }), { surfaceOp: 'append' })
-      agent.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    let autonomousStarted!: () => void
+    const started = new Promise<void>((resolve) => { autonomousStarted = resolve })
+    harness.ctx.on('session/event', (session, event) => {
+      if (session === agent.session && event.type === 'assistant/chunk') autonomousStarted()
     })
+    agent.followup(createUserMessage({
+      content: [{ type: 'text', text: 'autonomous work' }],
+      source: { kind: 'plugin', plugin: 'test' },
+    }))
+    await started
 
     let settled = false
     const prompt = harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] })
       .finally(() => { settled = true })
     await vi.waitFor(() => {
-      expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(2)
+      expect(agent.session.events.filter(event => event.type === 'agent/inbox/spliced'
+        && event.data.inserted.length > 0)).toHaveLength(2)
     })
     expect(settled).toBe(false)
     await harness.client.cancel({ sessionId })
     await expect(prompt).resolves.toEqual({ stopReason: 'cancelled' })
+  })
+
+  it('correlates a prompt whose step history is replaced', async () => {
+    harness = await makeBridgeHarness({ script: [textResponse('rewritten answer')] })
+    harness.ctx.on('agent/pre-step', async () => ({
+      kind: 'enter',
+      messages: [createUserMessage({
+        content: [{ type: 'text', text: 'rewritten prompt' }],
+        source: { kind: 'plugin', plugin: 'test' },
+      })],
+    }))
+    const sessionId = await newSession(harness)
+
+    await expect(harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'original' }] }))
+      .resolves.toEqual({ stopReason: 'end_turn' })
   })
 
   it('frees the prompt slot when the agent rejects the send synchronously', async () => {
@@ -172,7 +203,39 @@ describe('ACP prompt lifecycle', () => {
     await harness.client.cancel({ sessionId })
     await expect(prompt).resolves.toEqual({ stopReason: 'cancelled' })
     await agent.whenIdle()
-    expect(agent.session.events.findLast(event => event.type === 'turn/end')?.data.reason).toEqual({ kind: 'aborted' })
+    expect(agent.session.events.findLast(event => event.type === 'turn/end')?.data.reason)
+      .toEqual({ kind: 'aborted', reason: { kind: 'user' } })
+  })
+
+  it('settles a hook-cancelled turn as end_turn, not cancelled', async () => {
+    harness = await makeBridgeHarness({ script: ['hang'] })
+    const sessionId = await newSession(harness)
+    const prompt = harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] })
+    const agent = harness.ctx.agents.get(SessionId(sessionId))!
+    await vi.waitFor(() => { expect(agent.status).toBe('running') })
+    // A hook or another owner cancels the agent: the ACP client never called
+    // session/cancel, so this is ordinary quiescence and reports end_turn.
+    agent.cancel({ kind: 'hook', reason: 'owner intervention' })
+    await expect(prompt).resolves.toEqual({ stopReason: 'end_turn' })
+  })
+
+  it('cancels autonomous running work without an in-flight prompt', async () => {
+    harness = await makeBridgeHarness({ script: ['hang'] })
+    const sessionId = await newSession(harness)
+    const agent = harness.ctx.agents.get(SessionId(sessionId))!
+    agent.followup(createUserMessage({
+      content: [{ type: 'text', text: 'autonomous work' }],
+      source: { kind: 'plugin', plugin: 'test' },
+    }))
+    await vi.waitFor(() => {
+      expect(agent.session.events.some(event => event.type === 'turn/start')).toBe(true)
+    })
+
+    await harness.client.cancel({ sessionId })
+    await agent.whenIdle()
+
+    expect(agent.session.events.findLast(event => event.type === 'turn/end')?.data.reason)
+      .toEqual({ kind: 'aborted', reason: { kind: 'user' } })
   })
 
   it('an idle cancel does not affect the following prompt', async () => {
@@ -201,7 +264,7 @@ describe('ACP prompt lifecycle', () => {
     harness = await makeBridgeHarness({ script: [errorResponse('transient boom'), textResponse('recovered')] })
     // A recovery policy: schedule one retry for the failed request.
     let retried = false
-    harness.ctx.on('agent/request-error', async (_subject) => {
+    harness.ctx.on('agent/request-error', async () => {
       if (!retried) {
         retried = true
         return { kind: 'retry' }
@@ -213,7 +276,7 @@ describe('ACP prompt lifecycle', () => {
     await vi.waitFor(() => { expect(messageText(harness!)).toBe('recovered') })
   })
 
-  it('a failed turn with no retry still rejects, at quiescence', async () => {
+  it('a failed turn with no retry still rejects', async () => {
     harness = await makeBridgeHarness({ script: [errorResponse('terminal boom')] })
     let offered = 0
     harness.ctx.on('agent/request-error', async () => { offered += 1 })
@@ -223,13 +286,36 @@ describe('ACP prompt lifecycle', () => {
     expect(offered).toBe(1)
   })
 
-  it('an admission-blocked prompt settles cancelled instead of hanging', async () => {
+  it('a pre-step-rejected prompt settles instead of hanging', async () => {
     harness = await makeBridgeHarness({ script: [] })
-    harness.ctx.on('agent/prompt-submit', async () => ({ kind: 'block' as const, reason: 'policy said no' }))
+    harness.ctx.on('agent/pre-step', async () => ({
+      kind: 'reject' as const,
+    }))
     const sessionId = await newSession(harness)
     await expect(harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] }))
-      .resolves.toEqual({ stopReason: 'cancelled' })
-    // The blocked prompt opened no turn and streamed nothing.
+      .resolves.toEqual({ stopReason: 'end_turn' })
+    // The rejected prompt closed a blocked turn without streaming anything.
     expect(messageText(harness)).toBe('')
+  })
+
+  it('cancels a prompt removed before its turn claims it', async () => {
+    harness = await makeBridgeHarness({ script: [] })
+    const sessionId = await newSession(harness)
+    const dispose = harness.ctx.on('agent/inbox/inserted', ({ agent, message }) => {
+      if (message.source.kind === 'user') agent.inbox.remove(message.id)
+    })
+
+    await expect(harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] }))
+      .resolves.toEqual({ stopReason: 'cancelled' })
+    dispose()
+  })
+
+  it('rejects a prompt when pre-step fails inside its open turn', async () => {
+    harness = await makeBridgeHarness({ script: [] })
+    harness.ctx.on('agent/pre-step', async () => { throw new Error('pre-step exploded') })
+    const sessionId = await newSession(harness)
+
+    await expect(harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] }))
+      .rejects.toThrow(/turn failed: pre-step exploded/)
   })
 })

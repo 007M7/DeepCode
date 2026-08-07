@@ -349,8 +349,13 @@ describe('SearchRow keyed card', () => {
     const registered: { key: unknown; locale: unknown; component: unknown }[] = []
     const ctx = {
       slots: {
+        inject: (_name: string, callback: () => Iterable<() => void>) => {
+          for (const _dispose of callback()) { /* exhaust transactional setup */ }
+          return () => undefined
+        },
         register: (options: { name: string; key: string; locale?: string }, component: unknown) => {
           registered.push({ key: options.key, locale: options.locale, component })
+          return () => undefined
         },
       },
     } as never
@@ -361,7 +366,7 @@ describe('SearchRow keyed card', () => {
     // One component, two keys.
     expect(registered[0]!.component).toBe(SearchRow)
     expect(registered[1]!.component).toBe(SearchRow)
-    expect(searchToolview.inject).toEqual(['slots', 'conversation'])
+    expect(searchToolview.inject).toEqual(['slots'])
   })
 })
 
@@ -370,7 +375,10 @@ describe('DetailsPanel Output section (search)', () => {
     localStorage.clear()
     const chat = createChatStore().create()
     if (selection !== null) chat.actions.select(selection)
-    const sessions = createSnapshotStore<SessionListState>({ ids: [], byId: {}, current: undefined, phase: 'ready' })
+    const sessions = createSnapshotStore<SessionListState>({
+      ids: [], byId: {}, current: undefined, phase: 'ready',
+      subagentsByParent: {}, currentAddress: undefined,
+    })
     const workspaces = createSnapshotStore<WorkspaceListState>({
       items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
@@ -400,10 +408,10 @@ describe('DetailsPanel Output section (search)', () => {
 
   function snapshot(over: Partial<ConversationSnapshot> = {}): ConversationSnapshot {
     return {
-      sessionId: SID, nodes: [], partial: null, runningCalls: [], codeDispatches: new Map(),
+      sessionId: SID, nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [], codeDispatches: new Map(),
       pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
       openState: 'open', openError: null, hasMore: false, loadingOlder: false,
-      promptError: null, blank: false, lastAgentError: null, ...over,
+      promptError: null, blank: false, subagent: null, lastAgentError: null, ...over,
     }
   }
 

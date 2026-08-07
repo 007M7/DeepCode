@@ -12,7 +12,7 @@ Status: implemented
 
 ## 决策
 
-根目录的 [`.oxlintrc.json`](../../../../.oxlintrc.json) 是仓库 lint 配置的权威来源。`lint` 包（package）脚本、门禁调度器、CI 和 lefthook 通过 [`scripts/run-oxlint.ts`](../../../../scripts/run-oxlint.ts) 调用 Oxlint，进行全仓库、类型感知或暂存验证。`lint:fix` 脚本和 lefthook 先调用仅用于格式化的 [`eslint.format.config.mjs`](../../../../eslint.format.config.mjs)，再运行 Oxlint。直接的 `eslint` 和 `@typescript-eslint/parser` 开发依赖仅用于这次不加载项目的格式化流程；其精确版本锁定经过测试的解析器与修复器配对，该配置不包含正确性规则或类型感知规则。
+根目录的 [`.oxlintrc.json`](../../../../.oxlintrc.json) 是仓库 lint 配置的权威来源。`lint` 包脚本、门禁调度器、CI 和 lefthook 通过 [`scripts/run-oxlint.ts`](../../../../scripts/run-oxlint.ts) 调用 Oxlint，进行全仓库、类型感知或暂存验证。`lint:fix` 脚本和 lefthook 先调用仅用于格式化的 [`eslint.format.config.mjs`](../../../../eslint.format.config.mjs)，再运行 Oxlint。直接的 `eslint` 和 `@typescript-eslint/parser` 开发依赖仅用于这次不加载项目的格式化流程；其精确版本锁定经过测试的解析器与修复器配对，该配置不包含正确性规则或类型感知规则。
 
 `options.typeAware` 启用 `oxlint-tsgolint`。其后端按文件发现 TypeScript 项目：包源码使用各自的包项目，host 测试、示例和网站使用 `tsconfig.host.json`，client 测试及 `scripts/client-bundle-purity.spec.ts` 使用 `tsconfig.client.json`。不含程序的根解决方案绝不会被扁平化。Oxlint 的 `--tsconfig` 覆盖项会影响导入解析，但类型感知 lint 会忽略它，因此本仓库不设置该选项。该配置显式载入迁移后的严格类型检查规则和仓库覆盖配置，而不启用内容可能发生变化的 Oxlint 宽泛类别。`typescript/no-unnecessary-condition` 仍从 Oxlint 的 nursery 规则集中启用，因为它在迁移前就是仓库强制执行的规则。
 

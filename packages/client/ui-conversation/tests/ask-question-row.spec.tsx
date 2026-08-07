@@ -124,11 +124,13 @@ describe('AskQuestionRow', () => {
     expect(screen.getByRole('button', { expanded: true })).toBeTruthy()
   })
 
-  it('askQuestionToolview is a plain registrant riding the conversation load-order seam', () => {
+  it('askQuestionToolview injects the toolview declaration directly', () => {
     expect(askQuestionToolview.name).toBe('ask-question-toolview')
-    expect(askQuestionToolview.inject).toEqual(['slots', 'conversation'])
-    const register = vi.fn()
-    askQuestionToolview.apply({ slots: { register } } as never)
+    expect(askQuestionToolview.inject).toEqual(['slots'])
+    const register = vi.fn(() => () => undefined)
+    const inject = vi.fn((_name: string, callback: () => () => void) => callback())
+    askQuestionToolview.apply({ slots: { inject, register } } as never)
+    expect(inject).toHaveBeenCalledWith('conversation.chat.toolview', expect.any(Function))
     expect(register).toHaveBeenCalledWith(
       { name: 'conversation.chat.toolview', key: 'ask_user_question', locale: 'conversation' },
       AskQuestionRow,

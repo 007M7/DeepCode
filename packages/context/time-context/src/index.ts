@@ -1,26 +1,26 @@
 /**
- * Opt-in request-preparation clock context. Eligible pre-step attempts append
- * durable, source-attributed time readings to conversation history.
+ * Opt-in request clock context. Eligible steps add durable,
+ * source-attributed time readings to the request history.
  *
  * @module @deepseek-ai/dsh-time-context
  */
 
 import type { Context } from 'cordis'
 import z from 'schemastery'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'time-context'
 
-/** The agent registry that owns the pre-step lifecycle seam. */
+/** The agent registry that owns pre-step processing. */
 export const inject = ['agents']
 
 /** Request-preparation clock formatting and append scheduling. Invalid values fail plugin load. */
 export interface Config {
   /** IANA time zone used for the rendered timestamp. Omit to resolve the Node process's system zone at plugin load. */
   timeZone?: string
-  /** Minimum milliseconds between durable injections in one session. Omit or set to 0 to inject on every eligible pre-step attempt. */
+  /** Minimum milliseconds between durable injections in one session. Omit or set to 0 to inject at every eligible step. */
   refreshIntervalMs?: number
 }
 
@@ -65,7 +65,6 @@ function precedingMessageTime(agent: Agent): number | undefined {
       case 'user/message':
       case 'assistant/message':
       case 'tool/result':
-      case 'steering/message':
         return event.time
       default:
         // Merge-extensible session events: non-surface records are not messages.
@@ -157,23 +156,32 @@ export function apply(ctx: Context, config: Config): void {
   }
   const resolvedTimeZone = formatter.resolvedOptions().timeZone
 
-  ctx.on('agent/step', (
-    agent: Agent,
-    turn: number,
-    step: number,
-    signal: AbortSignal,
-  ) => {
-    if (signal.aborted) return
+  ctx.on('agent/pre-step', async (
+    { agent, turn, step, signal },
+    next,
+  ): Promise<PreStepDecision> => {
+    const decision = await next()
+    if (decision.kind === 'reject' || signal.aborted) return decision
     const now = Date.now()
     if (refreshIntervalMs !== undefined && refreshIntervalMs > 0) {
       const lastInjection = latestInjectionTime(agent)
       if (lastInjection !== undefined
         && now >= lastInjection
-        && now - lastInjection < refreshIntervalMs) return
+        && now - lastInjection < refreshIntervalMs) return decision
     }
     const previous = step === 1
       ? precedingMessageTime(agent)
       : precedingStepContextTime(agent, turn)
-    agent.inject(createUserMessage({ content: [{ type: 'text', text: renderText(now, turn, step, previous, formatter, resolvedTimeZone) }], source: { kind: 'plugin', plugin: name } }))
+    const text = renderText(now, turn, step, previous, formatter, resolvedTimeZone)
+    return {
+      kind: 'enter',
+      messages: [
+        ...decision.messages,
+        createUserMessage({
+          content: [{ type: 'text', text }],
+          source: { kind: 'plugin', plugin: name, form: 'snapshot', sections: [{ name, text }] },
+        }),
+      ],
+    }
   }, { prepend: true })
 }

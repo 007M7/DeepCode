@@ -1,6 +1,0 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
-#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-07-27-question-composer-rows-do-not-shrink.md
-2026-07-27-question-composer-rows-do-not-shrink.md: 2e0e9b9ca6b141a200ba53d8b6f6f0cad5f7e89d
-2026-07-27-question-composer-rows-do-not-shrink.zh.md: 845d9ee883ad1c2c7abc63a01fce626be924b87f

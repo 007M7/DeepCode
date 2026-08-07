@@ -3,7 +3,7 @@ import { Context } from 'cordis'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import LlmService from '@deepseek-ai/dsh-llm'
+import LlmService, { INVALID_CREDENTIAL_CODE } from '@deepseek-ai/dsh-llm'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { CredentialsLocal } from '@deepseek-ai/dsh-credentials-local'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
@@ -96,10 +96,30 @@ describe('request-level dynamic configuration', () => {
     const server = await mockServer([{ kind: 'sse', events: textEvents }])
     const { ctx } = await boot(dir, { baseURL: server.url })
 
-    await expect(prompt(ctx)).rejects.toMatchObject({ code: 'MISSING_CREDENTIAL' })
+    const keyless = await prompt(ctx)
+    expect(keyless.finish).toMatchObject({ kind: 'error', failure: { code: 'MISSING_CREDENTIAL' } })
     await ctx.credentials.set(KEY_REF, 'sk-arrived')
     await prompt(ctx)
     expect(server.headers[0]?.authorization).toBe('Bearer sk-arrived')
+  })
+
+  it('rejects a stored credential no header can carry, never echoing it in the failure', async () => {
+    vi.stubEnv('DEEPSEEK_API_KEY', '')
+    const dir = await home()
+    const { ctx } = await boot(dir, { baseURL: 'http://127.0.0.1:1' })
+    const secret = 'sk-\u{1F600}supersecret'
+
+    // The real credentials seam (the path the web Models page writes through),
+    // not a hand-built stub: this package's own dynamic-config harness already
+    // boots one, and round-tripping the value through its actual store/read
+    // path is stronger evidence than a canned in-memory return would be.
+    await ctx.credentials.set(KEY_REF, secret)
+    const result = await prompt(ctx)
+    expect(result.finish).toMatchObject({ kind: 'error', failure: { code: INVALID_CREDENTIAL_CODE } })
+    if (result.finish.kind !== 'error') throw new Error('expected an error finish')
+    expect(result.finish.failure.message).not.toContain(secret)
+    expect(result.finish.failure.message).not.toContain('supersecret')
+    expect(result.finish.failure.message).not.toContain('ByteString')
   })
 
   it('advertises a live settings catalog without re-registration', async () => {

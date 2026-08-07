@@ -1,126 +1,58 @@
 // @vitest-environment jsdom
-// The built-bundle boot smoke: the ONE assembled-jsdom test that loads the
-// real `packages/client/*/lib/client.js` artifacts through AppWebEntry's
-// ModuleLoader path (fetchBundle/executeBundle) and proves the boot graph
-// assembles — staged activation across the immediately tier and the inject
-// layers, per-plugin CSS injection, and a rendered journey reaching chat
-// content from the keyless FixtureApiClient transport.
+// The built-bundle boot smoke: the assembled-jsdom test that owns the boot
+// graph itself. Other files share the same scaffolding (assembled-boot.ts) to
+// reach a surface only the built bundles expose; this one asserts that the
+// graph assembles at all — staged activation across the immediately tier and
+// the inject layers, per-plugin CSS injection, and a rendered journey reaching
+// chat content from the keyless FixtureApiClient transport.
 //
-// Behavior assertions do NOT belong here: component and wiring behavior is
-// pinned by the per-package suites (SlotTestRuntime benches over src), which
-// this smoke's plugin set cannot influence — bundling, module-table
-// resolution, and boot layering are the only failure modes left to it.
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
-import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import type { WebBootEntry } from '@deepseek-ai/dsh-client-modules/client'
-import { AppWebEntry } from '@deepseek-ai/dsh-client-web'
+// Component behavior remains owned by per-package suites (SlotTestRuntime
+// benches over src). This smoke additionally pins the resident interaction
+// fixture's cross-plugin projection because only the built connection/runtime/
+// workspace graph can prove that transport-to-row path end to end.
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { expect, it } from 'vitest'
+import { installAssembledBootEnv, mountAssembledApp } from './assembled-boot.ts'
 
-const PLUGINS: readonly (WebBootEntry & { dir: string })[] = [
-  { id: '@deepseek-ai/dsh-client-connection', dir: 'connection', url: '/plugins/connection.js', rev: 'fx', inject: [], immediately: true },
-  { id: '@deepseek-ai/dsh-client-runtime', dir: 'runtime', url: '/plugins/runtime.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-connection'], immediately: true },
-  { id: '@deepseek-ai/dsh-client-ui-theme', dir: 'ui-theme', url: '/plugins/ui-theme.js', rev: 'fx', inject: [], immediately: true },
-  { id: '@deepseek-ai/dsh-client-locale', dir: 'locale', url: '/plugins/locale.js', rev: 'fx', inject: [], immediately: true },
-  { id: '@deepseek-ai/dsh-client-ui-layout', dir: 'ui-layout', url: '/plugins/ui-layout.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-runtime'] },
-  { id: '@deepseek-ai/dsh-client-ui-sidebar', dir: 'ui-sidebar', url: '/plugins/ui-sidebar.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-ui-layout'] },
-  { id: '@deepseek-ai/dsh-client-ui-conversation', dir: 'ui-conversation', url: '/plugins/ui-conversation.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-ui-layout'] },
-  {
-    id: '@deepseek-ai/dsh-client-ui-workspace',
-    dir: 'ui-workspace',
-    url: '/plugins/ui-workspace.js',
-    rev: 'fx',
-    inject: [
-      '@deepseek-ai/dsh-client-runtime',
-      '@deepseek-ai/dsh-client-ui-conversation',
-      '@deepseek-ai/dsh-client-ui-sidebar',
-    ],
-  },
-  { id: '@deepseek-ai/dsh-client-ui-trajectory', dir: 'ui-trajectory', url: '/plugins/ui-trajectory.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-ui-conversation'] },
-]
-
-const bundles = new Map(PLUGINS.map(plugin => [
-  plugin.url,
-  readFileSync(join(process.cwd(), 'packages/client', plugin.dir, 'lib/client.js'), 'utf8'),
-]))
-
-interface FixtureWindow extends Window {
-  __DSH_BOOT__?: { rev: string; entries: WebBootEntry[] }
-  __ModuleLoader__?: unknown
-}
-
-class ResizeObserverStub {
-  observe(): void {}
-  disconnect(): void {}
-  unobserve(): void {}
-}
-
-const win = window as FixtureWindow
-let unmount: (() => void) | undefined
-
-beforeEach(() => {
-  localStorage.clear()
-  // English pinned before boot: role/text locators stay deterministic across
-  // localized component migrations (the newEnglishPage e2e convention).
-  localStorage.setItem('dsh.locale', 'en')
-  document.title = 'DeepSeek Harness'
-  vi.stubGlobal('ResizeObserver', ResizeObserverStub)
-  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) =>
-    setTimeout(() => { callback(0) }, 0) as unknown as number)
-  vi.stubGlobal('cancelAnimationFrame', (id: number) => { clearTimeout(id) })
-})
-
-afterEach(() => {
-  act(() => { unmount?.() })
-  unmount = undefined
-  cleanup()
-  delete win.__DSH_BOOT__
-  delete win.__ModuleLoader__
-  document.body.innerHTML = ''
-  document.head.querySelectorAll('style[data-plugin]').forEach((style) => { style.remove() })
-  document.title = ''
-  history.replaceState(null, '', '/')
-  vi.unstubAllGlobals()
-})
+installAssembledBootEnv()
 
 it('boots the built plugin graph and renders a fixture session end to end', async () => {
-  history.replaceState(null, '', '/?fixture')
-  const root = document.createElement('div')
-  root.id = 'root'
-  document.body.appendChild(root)
-  win.__DSH_BOOT__ = { rev: 'fx', entries: PLUGINS.map(({ dir: _dir, ...plugin }) => plugin) }
-  act(() => {
-    const entry = new AppWebEntry(root, {
-      fetchBundle: (url) => {
-        const code = bundles.get(url)
-        return code === undefined ? Promise.reject(new Error(`missing built bundle ${url}`)) : Promise.resolve(code)
-      },
-      executeBundle: (code) => { (0, eval)(code) },
-    })
-    void entry.run()
-    unmount = () => { entry.dispose() }
-  })
+  mountAssembledApp()
 
   // The sidebar renders from the boot graph: every inject layer activated.
   const tree = await screen.findByRole('tree', { name: 'Sessions' }, { timeout: 10_000 })
   await within(tree).findByText('4 sessions')
 
+  // The resident fixture has both a question and an approval; composer routing
+  // exposes the question first, and the assembled workspace plugin mirrors that
+  // actionable wait instead of the underlying running state.
+  const waitingTitle = await within(tree).findByText('Fixture 历史会话')
+  const waitingRow = waitingTitle.closest<HTMLElement>('[role="treeitem"]')
+  if (waitingRow === null) throw new Error('fixture Session title must belong to a tree row')
+  expect(waitingRow.querySelector('[data-state="warning"]')).not.toBeNull()
+  expect(waitingRow.querySelector('[data-state="ongoing"]')).toBeNull()
+  within(waitingRow).getByText('Waiting for answer')
+
   // Opening a session reaches chat content through the fixture transport.
-  fireEvent.click(await within(tree).findByText('Fixture 历史会话'))
+  fireEvent.click(waitingTitle)
   await waitFor(() => {
-    expect(document.querySelector('[data-sample="bash-global"]')).not.toBeNull()
+    expect(document.querySelector('[data-sample="bash"]')).not.toBeNull()
   }, { timeout: 10_000 })
 
-  // The journey also reaches durable image content: the history gallery
-  // resolves fixture bytes over the authorized sessions.attachment route into
-  // an object URL — an artifact-plane wire round trip through the built
-  // bundles. Gallery/lightbox/composer-rail behavior is pinned by the
-  // ui-conversation package suites, not here.
-  await waitFor(() => {
-    const image = document.querySelector('[data-align] img')
-    if (image === null) throw new Error('history image gallery missing')
-    expect(image.getAttribute('src')?.split(':')[0]).toBe('blob')
-  }, { timeout: 10_000 })
+  // Resolve the resident approval so the ordinary composer bar (which owns
+  // ContextMeter) resumes without replacing the session shell. This minimal
+  // boot graph intentionally does not mount the separate question UI plugin.
+  fireEvent.click(await screen.findByRole('button', { name: 'Allow once' }))
+
+  // The fixture mirrors all three token-meter projections, so the assembled
+  // ContextMeter reaches its composition panel instead of only the occupancy
+  // fallback path.
+  const contextTrigger = await screen.findByRole('button', { name: /of context used/ })
+  fireEvent.click(contextTrigger)
+  const contextPanel = await screen.findByRole('dialog', { name: 'of context used' })
+  within(contextPanel).getByText('System prompt')
+  within(contextPanel).getByText('Tools')
+  within(contextPanel).getByText('Messages')
 
   // The write/edit turns render a real diff card through the assembled graph
   // (the keyed FileMutationRow composing ToolRow + DiffBlock), not just the

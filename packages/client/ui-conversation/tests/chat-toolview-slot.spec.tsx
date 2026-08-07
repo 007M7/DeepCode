@@ -6,9 +6,8 @@
 // entryKey (the bash sample lands through its plugin), unregistered tools
 // fall back to GenericToolCard at the render site, live registration/unload
 // flips rows in place, duplicate keys fail loud, the inject channel feeds
-// (sessionId) => I into row components, and a registrant's
-// inject: ['slots', 'conversation'] load-order seam suspends on real fiber
-// semantics until the service (and with it the hole declaration) is present.
+// (sessionId) => I into row components, and a registrant can activate before
+// the declaration then land through slots.inject when the chat entry appears.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent } from '@testing-library/react'
@@ -91,7 +90,7 @@ describe('keyed toolview hole through the real machinery', () => {
     const view = b.runtime.renderRoot()
     // bash: the sample plugin's keyed registration took the row (root
     // session → global arm, decided inside the component off useSessions).
-    expect(view.container.querySelector('[data-sample="bash-global"]')).not.toBeNull()
+    expect(view.container.querySelector('[data-sample="bash"]')).not.toBeNull()
     expect(view.getByText('Bash')).toBeTruthy()
     expect(view.getByText('Build')).toBeTruthy()
     // mystery: no registration under that key → render-site fallback.
@@ -191,8 +190,8 @@ describe('keyed toolview hole through the real machinery', () => {
   })
 })
 
-describe('registrant load-order seam', () => {
-  it("suspends a registrant on inject: ['slots', 'conversation'] until the service (and the hole) exists", async () => {
+describe('registrant declaration injection', () => {
+  it('runs the plugin before ui-conversation and waits on the actual toolview declaration', async () => {
     const runtime = await SlotTestRuntime.create()
     runtime.provide('layout', { openDetails: vi.fn(), closeDetails: vi.fn() })
     const locale = new LocaleService(runtime.ctx)
@@ -200,31 +199,26 @@ describe('registrant load-order seam', () => {
     runtime.slots.installLocale(locale)
     await runtime.root.declare(LAYOUT_CHILDREN, AppRoot)
 
-    // Third-party posture, mounted BEFORE ui-conversation: real fiber inject
-    // semantics hold it — apply must not run while 'conversation' is absent.
-    // Uses ctx.plugin directly (the deliberate-suspension escape hatch; mount()
-    // would fail loud on the missing service). (Plain arrow, not vi.fn: mock
-    // functions carry a prototype and trip the fiber's isConstructor branch.)
+    // Third-party posture, mounted BEFORE ui-conversation. Plugin apply runs,
+    // while slots.inject waits for the declaration itself.
     let applyRuns = 0
     const registrantApply = (registrantCtx: typeof runtime.ctx): void => {
       applyRuns += 1
-      registrantCtx.slots.register(
-        { name: 'conversation.chat.toolview', key: 'late' }, () => null)
+      registrantCtx.slots.inject('conversation.chat.toolview', () => registrantCtx.slots.register(
+        { name: 'conversation.chat.toolview', key: 'late' }, () => null))
     }
     const late = runtime.ctx.plugin({
       name: 'late-registrant',
-      inject: ['slots', 'conversation'],
+      inject: ['slots'],
       apply: registrantApply,
     })
     await Promise.resolve()
-    expect(applyRuns).toBe(0)
-
-    // Mounting the package resolves the seam: service present ⟹ the chat
-    // entry (and its hole declaration) is already on the ledger, so the
-    // suspended registrant lands without an undeclared-slot throw.
-    await runtime.mount({ inject: [...inject], apply })
     await late.await()
     expect(applyRuns).toBe(1)
+    expect(runtime.slots.entries('conversation.chat.toolview')).toHaveLength(0)
+
+    // Mounting the package declares the slot and activates the waiting entry.
+    await runtime.mount({ inject: [...inject], apply })
     expect(runtime.slots.entries('conversation.chat.toolview').map(e => e.options.key))
       .toEqual(expect.arrayContaining(['bash', 'late']))
     await runtime.dispose()

@@ -10,15 +10,15 @@ The telemetry seam and OTel backend ([revival Note](2026-07-23-session-telemetry
 
 ## Decision
 
-The shared `dsh` core (`apps/cli/config/base.cordis.yml`) mounts the `telemetry-otel` row by default with a baked-in production endpoint, so every surface — TUI, web, and headless — reports; this is the **internal-testing deployment stance** — reporting is on when an endpoint exists, and users opt out through the environment. Each surface's exit path drains the queue: web/headless dispose on SIGINT/SIGTERM (headless gained those handlers in this change), and the TUI's normal exit runs `disposeRootAndExit` (root dispose, 5s bounded — above the ~1s drain ceiling configured here) while its `/resume` handoff disposes the root before `execve`.
+The shared `dsh` base (`apps/cli/config/base.cordis.yml`) mounts the `telemetry-otel` row by default with a baked-in production endpoint, so Web and headless report; the raw-config command also mounts it before applying its required deployment overlay. This is the **internal-testing deployment stance** — reporting is on when an endpoint exists, and users opt out through the environment. Web and headless use the [bounded, escalating process-shutdown controller](../bug-fix/2026-08-03-cli-signal-shutdown-escalation.md) on SIGINT/SIGTERM, giving the backend's three-second shutdown deadline time to drain before the five-second launcher bound.
 
 | Ruling | Value | Rationale |
 |---|---|---|
-| Mount surface | base.cordis.yml (TUI + web + headless) | One deployment stance for every surface; per-surface divergence would need a reason, and none exists |
+| Mount surface | base.cordis.yml (raw config + Web + headless) | One deployment stance for every tree that loads the shared base; the raw overlay decides whether that deployment creates sessions |
 | Endpoint | `DSH_TELEMETRY_OTLP_URL`, default `https://harness-telemetry.deepseeksvc.com/v1/logs` | Internal collector; the env override serves local/dev runs |
 | Opt-out switch | any non-empty `DSH_TELEMETRY_DISABLED` (including `0`/`false`) disables | A privacy switch prefers off-by-mistake over on-by-mistake; a row can only be disabled at AppCLIEntry's patch layer (config has no disable semantic, and the switch must precede the load-time `exporter.url` validation) |
 | Cadence | `processor.scheduledDelayMillis: 10000` (10s/batch) | Streaming while the session runs, never exit-time-only; a crash loses at most the last unexported interval |
-| Exit-drain bound | `exporter.timeoutMillis: 1000` + `maxExportBatchSize: 2048` (== maxQueueSize) + `exportTimeoutMillis: 1500` | Dispose must release within ~1s against an unreachable collector: timeoutMillis doubles as the per-attempt socket timeout and the retry deadline (1s effectively disables the SDK's 5-try backoff), and aligning batch size with the queue cap makes the drain a single batch; SDK defaults can stall 40s+ |
+| Exit-drain bound | `exporter.timeoutMillis: 1000` + `maxExportBatchSize: 2048` (== maxQueueSize) + `exportTimeoutMillis: 1500` + `shutdownTimeoutMillis: 3000` | Ordinary unreachable-collector failure releases in ~1s: timeoutMillis is the per-attempt socket timeout and retry deadline, while one queue-sized batch avoids sequential drain multiplication. The DSH-owned 3s outer bound covers the SDK's preceding unbounded `forceFlush()` wait when the transport Promise never obtains a socket. |
 | Compression | `compression: gzip` | Event bodies carry full content; cross-datacenter bandwidth |
 | CI isolation | top-level `env: DSH_TELEMETRY_DISABLED: '1'` in all 8 GitHub workflows | Every CI channel that boots the web composition (e2e/snapshot/built smokes) must not stream test sessions to the production endpoint |
 
@@ -30,7 +30,7 @@ The keyless integration test `apps/cli/tests/telemetry-web.e2e.ts` pins the depl
 
 **A config field instead of an env patch for the switch.** Infeasible: cordis rows have no config-level disable semantic, and `exporter.url` validation fails loud at plugin construction, so the switch must take effect before the Loader — AppCLIEntry's patch layer is the only seat.
 
-**A `Promise.race` timeout backstop around exit.** Deferred: the parameter set already bounds the worst-case drain to ~1.5-3s (typically <100ms), measured SIGINT-to-exit 110ms-1.1s; the unbounded drip-feed-response risk stays under observation, and on real evidence the race lands inside the backend's `shutdown()` (never the coordinator — that would decide loss semantics for every backend).
+**A `Promise.race` timeout backstop around exit.** Originally deferred because the SDK parameters appeared to bound the backend's drain to ~1.5-3s (typically <100ms), with measured SIGINT-to-exit of 110ms-1.1s. A Linux sandbox reproduction later proved that `BatchLogRecordProcessor.shutdown()` can wait forever in `exporter.forceFlush()` before reaching its `exportTimeoutMillis`-bounded completion Promise. The [CLI shutdown fix](../bug-fix/2026-08-03-cli-signal-shutdown-escalation.md) therefore adds both a three-second backend bound for that specific gap and a five-second process-level bound plus repeated-signal escape for the whole plugin tree.
 
 ## Consequences
 

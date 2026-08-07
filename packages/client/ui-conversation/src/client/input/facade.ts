@@ -16,6 +16,7 @@ import type {
   DraftAttachmentId, EditRange, EditSelection, InputActions, InputEffect, InputNotice, InputState,
   PasteComponent, QueuedMessage, SessionInput, SubmitAttempt,
 } from './contract.ts'
+import type { InputSubmitMode } from '../contract/composer-submission.ts'
 import { InputMachine } from './machine.ts'
 
 /** Popup face the shell needs (dismissal only; typed structurally to avoid a value import). */
@@ -39,7 +40,7 @@ export interface SessionInputDeps {
   /** Queue read face; overlaid onto InputState.queue (absent = empty). */
   queue?: ObservableSnapshot<readonly QueuedMessage[]> | undefined
   /** The plain-message sink (send choreography / materialize fork — the hub owns it). */
-  defaultSink(text: string, imageIds: readonly DraftAttachmentId[]): void
+  defaultSink(text: string, imageIds: readonly DraftAttachmentId[], mode: InputSubmitMode): void
 }
 
 /** Guard tier from the machine phase. */
@@ -71,7 +72,7 @@ export class SessionInputShell implements SessionInput {
     addImages: ids => this.addImages(ids),
     removeImage: (id) => { this.removeImage(id) },
     pruneImages: (ids) => { this.pruneImages(ids) },
-    submit: () => { this.submit() },
+    submit: () => { this.submit('queue') },
   }
 
   // Real wall clock: the typing-run merge window must actually expire in
@@ -101,10 +102,7 @@ export class SessionInputShell implements SessionInput {
     this.run(this.core.dispatch({ type: 'draft-changed', draft: text, ...(editRange !== undefined ? { editRange } : {}) }))
   }
 
-  /**
-   * Append ordered browser-owned draft attachment ids.
-   * @returns whether the ids were appended (busy admission phases refuse).
-   */
+  /** Append ordered image ids unless an admission transaction is locked. */
   addImages(ids: readonly DraftAttachmentId[]): boolean {
     if (this.snapshot.phase === 'adjudicating' || this.snapshot.phase === 'submitting') return false
     if (ids.length === 0) return true
@@ -113,7 +111,7 @@ export class SessionInputShell implements SessionInput {
     return true
   }
 
-  /** Remove one browser-owned draft attachment id. */
+  /** Remove one image id from this draft. */
   removeImage(id: DraftAttachmentId): void {
     const next = this.imageIds.filter(candidate => candidate !== id)
     if (next.length === this.imageIds.length) return
@@ -122,8 +120,8 @@ export class SessionInputShell implements SessionInput {
   }
 
   /**
-   * Drop ids whose browser objects no longer exist.
-   * @param available - ids that still resolve through the browser attachment registry.
+   * Keep only image ids that still resolve in the browser attachment registry.
+   * @param available - live registry ids.
    */
   pruneImages(available: readonly DraftAttachmentId[]): void {
     const keep = new Set(available)
@@ -134,8 +132,8 @@ export class SessionInputShell implements SessionInput {
   }
 
   /**
-   * Restore a failed attempt's ids before any images added after submission.
-   * @param ids - ordered identifiers captured by the failed attempt.
+   * Restore a failed attempt before any images added after its admission.
+   * @param ids - failed attempt image ids.
    */
   restoreImages(ids: readonly DraftAttachmentId[]): void {
     const current = new Set(this.imageIds)
@@ -147,21 +145,12 @@ export class SessionInputShell implements SessionInput {
    * Clear the draft as a successful-send commit: no undo unit is recorded and
    * the undo history is cut, so Ctrl/Cmd-Z cannot resurrect sent content
    * (the command path gets the same discipline from submit-settled success).
-   * @param imageIds - identifiers included in the committed attempt.
+   * @param imageIds - admitted image ids to remove from this draft.
    */
   commitSend(imageIds: readonly DraftAttachmentId[]): void {
     const submitted = new Set(imageIds)
     this.imageIds = this.imageIds.filter(id => !submitted.has(id))
     this.run(this.core.dispatch({ type: 'send-committed' }))
-  }
-
-  /**
-   * Insert a newline at the selection as one machine transaction (the
-   * execCommand path is gone — a second undo history would fork).
-   * @param selection - current DOM selection in draft coordinates.
-   */
-  newline(selection: EditSelection): void {
-    this.run(this.core.dispatch({ type: 'newline', selection }))
   }
 
   /** Undo the latest transaction (InputBar intercepts the platform chord). */
@@ -201,12 +190,12 @@ export class SessionInputShell implements SessionInput {
    * (adjudicating/submitting) force-closes the transient layers: the popup
    * dismisses and the menu tracks frozen.
    */
-  submit(): void {
+  submit(mode: InputSubmitMode = 'queue'): void {
     if (this.snapshot.draft.trim() === '' && this.imageIds.length > 0) {
-      if (this.snapshot.phase === 'plain') this.deps.defaultSink('', [...this.imageIds])
+      if (this.snapshot.phase === 'plain') this.deps.defaultSink('', [...this.imageIds], mode)
       return
     }
-    this.run(this.core.dispatch({ type: 'enter' }))
+    this.run(this.core.dispatch({ type: 'enter', mode }))
     const phase = this.snapshot.phase
     if (phase === 'adjudicating' || phase === 'submitting') {
       this.deps.popup?.()?.dismiss()
@@ -391,7 +380,7 @@ export class SessionInputShell implements SessionInput {
         return
       }
       case 'default-sink': {
-        this.sinkSerialized(fx.draft)
+        this.sinkSerialized(fx.draft, fx.mode)
         return
       }
       default:
@@ -406,11 +395,11 @@ export class SessionInputShell implements SessionInput {
    * send — notice + draft and chips retained, never a silent downgrade to
    * the clipboard text. Chip-free drafts skip the async detour.
    */
-  private sinkSerialized(draft: string): void {
+  private sinkSerialized(draft: string, mode: InputSubmitMode): void {
     const imageIds = [...this.imageIds]
     const occurrences = this.core.state.occurrences
     if (occurrences.length === 0) {
-      this.deps.defaultSink(draft.trim(), imageIds)
+      this.deps.defaultSink(draft.trim(), imageIds, mode)
       return
     }
     const slash = this.deps.slash?.()
@@ -430,7 +419,7 @@ export class SessionInputShell implements SessionInput {
           cursor = part.offset + 1
         }
         out += draft.slice(cursor)
-        this.deps.defaultSink(out.trim(), imageIds)
+        this.deps.defaultSink(out.trim(), imageIds, mode)
       },
       (error: unknown) => {
         controller.abort()

@@ -11,23 +11,28 @@
 /* Floating capsule input (figma Input_Bottom 75:8208): card floats above the
    viewport bottom inside the centered message column; textarea on top, action
    row below, one primary circle button bottom-right. Input width rides the
-   column (800 is a cap, not a fixed size — layout rule: the box shrinks with
-   the center column keeping its padding). Hero variant = the same card
-   centered in the empty state; the transition between the two is a position
-   move of one component. */
+   column (--dsh-composer-card-max-width = chat content + 32px, 16px per side,
+   is a cap, not a fixed size — layout rule: the box shrinks with the center
+   column keeping its clearance). Hero variant = the same card centered in the
+   empty state; the transition between the two is a position move of one
+   component. */
 
 .root {
   display: flex;
   flex-direction: column;
   align-items: center;
-  /* figma Input_Bottom: pad L32/R32/B8; the bottom gradient mask is owned by
-     the chat scroller. No top pad: the composer stack's gap owns the space
-     above; error/status strips still carry their own margin. */
+  /* Side pads ride the shared clearance (figma Input_Bottom drew L32/R32/B8;
+     the sides narrow with the shared width axis); the bottom gradient mask
+     is owned by the chat scroller. No top pad: the composer stack's gap owns
+     the space above; error/status strips still carry their own margin. */
   padding: 0 var(--dsh-composer-side-clearance) 8px;
 }
 
 .hero {
-  padding: 0;
+  /* No bottom pad in the centered hero, but the side clearance must survive:
+     the hero wrapper is full-width on narrow viewports, so this padding is
+     the only thing keeping the card off the edges there. */
+  padding: 0 var(--dsh-composer-side-clearance);
 }
 
 .error,
@@ -83,18 +88,37 @@
      the input border is one notch weaker than buttons) — exactly the
      l2-darkmode-thin pair. Fill: the input surface token (elevated in dark). */
   border: 1px solid var(--dsw-alias-border-l2-darkmode-thin);
-  border-radius: 20px;
+  border-radius: 22px;
   background: var(--dsw-specific-input-major);
   box-shadow: var(--dsw-shadow-lv2);
   font-size: 16px;
   line-height: 24px;
-  /* Elevated surface in dark, same as the menus: the textarea inside scrolls
-     once the composer hits its height cap, so the thumb takes the l2 pair.
-     Declared on the card because the elevation belongs to the surface, and the
-     custom properties inherit down to the textarea that actually scrolls (see
-     ui-theme styles/scrollbar.css for the rebinding contract). */
+  /* Elevated surface in dark, same as the menus: the draft scrollport inside
+     scrolls once the composer hits its height cap, so the thumb takes the l2
+     pair. Declared on the card because the elevation belongs to the surface,
+     and the custom properties inherit down to the box that actually scrolls
+     (see ui-theme styles/scrollbar.css for the rebinding contract). */
   --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
   --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
+}
+
+.dragActive {
+  border-color: var(--dsw-alias-state-business-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--dsw-alias-state-business-primary) 24%, transparent), var(--dsw-shadow-lv2);
+}
+
+.dropHint {
+  position: absolute;
+  z-index: 2;
+  inset: 4px;
+  display: grid;
+  place-items: center;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--dsw-specific-input-major) 88%, var(--dsw-alias-state-business-primary));
+  color: var(--dsw-alias-state-business-primary);
+  font-size: 14px;
+  font-weight: 600;
+  pointer-events: none;
 }
 
 .dragActive {
@@ -174,6 +198,57 @@
   cursor: pointer;
 }
 
+.attachments {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px 12px 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.attachment {
+  position: relative;
+  flex: 0 0 72px;
+  width: 72px;
+  height: 72px;
+}
+
+.thumbnail {
+  width: 72px;
+  height: 72px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--dsw-alias-border-l2-darkmode-thin);
+  border-radius: 12px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  cursor: zoom-in;
+}
+
+.thumbnail img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--dsw-specific-input-major);
+  border-radius: 999px;
+  background: var(--dsw-alias-label-primary);
+  color: var(--dsw-specific-input-major);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
 /* Floating overlay anchor (menu / popupSelect shell): entries position
    themselves against the card (bottom: 100% + gap); closed entries render null. */
 .overlayAnchor {
@@ -182,8 +257,21 @@
   height: 0;
 }
 
-/* Mirror-div auto-grow wrapper: the hidden mirror is in normal flow and sets the height
-   (min 2 lines / max 14 lines); the textarea rides it absolutely. Mirror and textarea
+/* The draft's scrollport, and the ONLY scrolling box in the composer: the
+   caret is the textarea's and every visible glyph is the backdrop's, so the two
+   layers stay together only by riding one offset the browser applies to both at
+   once. Scrolling one box and assigning the offset to the other cannot hold —
+   a wheel gesture is composited off the main thread, so the assignment lands
+   frames late and the words visibly trail the caret. The 14-line cap lives here
+   because this is the box the cap describes. */
+.scroll {
+  max-height: var(--dsh-composer-text-max-height);
+  overflow-y: auto;
+}
+
+/* Mirror-div auto-grow stack: the hidden mirror is in normal flow and sets the FULL draft
+   height (min 2 lines in hero); backdrop and textarea ride it absolutely, so both layers are
+   as tall as the draft and the scrollport above shows a window onto them. Mirror and textarea
    MUST share font, line-height, padding and wrapping rules or heights diverge. */
 .grow {
   position: relative;
@@ -235,7 +323,11 @@
   width: 100%;
   height: 100%;
   resize: none;
-  overflow-y: auto;
+  /* Never a scroller of its own: it is as tall as the draft, so it has no
+     scrollable overflow to hold an offset that could differ from the glyphs'.
+     The browser still reveals the caret — the scroll-into-view walks up to
+     .scroll and moves both layers together. */
+  overflow: hidden;
   border: none;
   outline: none;
   background: transparent;
@@ -259,22 +351,24 @@
      share the stack, so placeholder advances agree by construction. */
   font-family: 'DshChipCell', var(--dsw-font-family);
   font-size: inherit;
+  /* Three consumers, not two: the mirror sizes the stack, the layers must break
+     lines identically, and the caret reveal parses this value to step one line
+     down for a caret that sits after a newline. That parse needs a length, so a
+     theme resolving this to `normal` would make the reveal a silent no-op. */
   line-height: inherit;
   white-space: pre-wrap;
   word-break: break-word;
   overflow-wrap: anywhere;
-  /* These three MUST wrap at one width, because InputBar mirrors a single
-     scroll offset between .input and .backdrop and a layer that wraps onto
-     more lines is taller, has a larger scroll maximum, and clamps the mirrored
-     offset below the caret. Only .input scrolls, so only .input can lose
-     content width to a scrollbar that consumes layout space.
-     `scrollbar-gutter: stable` here does NOT buy that guarantee and was
-     removed after measuring: WebKit applies it to overflow-y:auto but not to
-     the overflow:hidden layers, so it left .input at 768 against 776 — the
-     same gap it was meant to close — while costing chromium 8px of text width
-     unconditionally. The gap it would have closed is measured and recorded in
-     the Agent Note (2026-07-31-composer-glyph-layer-tracks-the-textarea);
-     closing it needs one geometry every engine agrees on, not this property. */
+  /* These three MUST wrap at one width: the mirror decides the box height
+     the other two are laid out in, and a glyph layer that breaks lines
+     elsewhere than the textarea puts the words under the wrong caret. They do
+     so by construction now that all three sit INSIDE .scroll — a scrollbar
+     that consumes layout space narrows the scrollport, which is their shared
+     containing block, so it costs all three the same width on every engine.
+     Scrolling the textarea itself is what used to break this, and no property
+     fixed it: WebKit reserved gutter space for the overflow-y:auto textarea
+     and not for the overflow:hidden layers beside it, leaving them 8px apart
+     (768 against 776) — worth 2 to 5 wrapped lines on a long draft. */
 }
 
 /* figma 34:10434: #ADB2B8 light / #81858C dark — the caption pair exactly. */
@@ -292,10 +386,6 @@
 .mirror {
   visibility: hidden;
   pointer-events: none;
-  /* 14-line cap, shared with the composer takeovers (declared on
-     ConversationRoot .composerSeat). */
-  max-height: var(--dsh-composer-text-max-height);
-  overflow: hidden;
 }
 
 /* Hero (centered empty-state) keeps the 2-line floor (figma min-h 52 = ~2 × 24
@@ -311,8 +401,16 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 0 10px 10px 10px;
+  /* 2px moved from the bottom pad to the top: the whole control row sits 2px
+     lower in the card (it read too high against the textarea) while the card
+     height and the controls' own centering stay untouched. */
+  padding: 2px 8px 6px;
   min-width: 0;
+  /* Size container so the chips inside can collapse to icon-only when the
+     card runs out of row width (PermissionSelect @container rule). Anonymous
+     on purpose: CSS modules hash container-name per module, so a name declared
+     here can never match a query in another module's sheet. */
+  container-type: inline-size;
 }
 
 .tools,
@@ -323,13 +421,15 @@
   min-width: 0;
 }
 
-/* figma 75:8208: 16 between + and the mode chips; 4 between Plan / Read-only. */
+/* figma 75:8208 drew 16 between + and the mode chips and 4 between Plan /
+   Read-only; the chip gap widened to 12 so the pill chips read as separate
+   controls. */
 .tools {
   gap: 16px;
 }
 
 .modes {
-  gap: 4px;
+  gap: 12px;
 }
 
 .trailing {
@@ -409,6 +509,10 @@
   color: #fff;
   cursor: pointer;
   transition: background-color 100ms ease;
+  /* Opts out of the row's 2px downward shift (.row top pad): the send circle
+     keeps its original seat while the smaller chips sit lower. Transform, not
+     margin, so flex centering math is untouched. */
+  transform: translateY(-2px);
 }
 
 .primary:hover:not(:disabled) {

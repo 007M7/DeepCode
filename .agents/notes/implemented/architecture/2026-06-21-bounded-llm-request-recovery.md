@@ -4,11 +4,11 @@ Status: implemented
 
 English | [中文](2026-06-21-bounded-llm-request-recovery.zh.md)
 
-The [per-provider request retry policy](../feature/2026-07-24-provider-retry-policies.md) extends this foundation with exact-provider configuration and an explicit unbounded mode. This note continues to own structured failure facts, the closed-step recovery boundary, normal mode's transient defaults, visible single attempts, and durable retry status.
+The [per-provider request retry policy](../feature/2026-07-24-provider-retry-policies.md) extends this foundation with exact-provider configuration and an explicit unbounded mode. This note continues to own structured failure facts, the closed-step recovery boundary, normal mode's transient defaults, visible single attempts, and durable retry status. [Terminal LLM stream failures](2026-07-29-terminal-llm-stream-failures.md) supersedes its thrown-error identity and stream-sidecar mechanism.
 
 ## Problem
 
-`dsh-llm` can report provider failures either by throwing during adapter dispatch or iteration or by ending with `finish { kind: 'error' | 'aborted' }`. The final adapter boundary tags thrown failures so `dsh-agent-loop` can distinguish them from middleware and result-processing defects, and the loop normalizes both delivery forms into `agent/request-error` after closing the failed step. An unhandled failure is terminal; a handling listener repairs policy-owned state, returns `{ kind: 'retry' }`, and stops waterfall delegation. The [retry-action decision](../simplification/2026-07-27-request-error-retry-action.md) owns this return contract.
+Provider adapters can fail by throwing during dispatch or iteration or by ending with `finish { kind: 'error' | 'aborted' }`. The final adapter boundary normalizes thrown values to that terminal finish protocol before `dsh-agent-loop` receives them; middleware and result-processing defects remain thrown. The loop offers a terminal model-request failure to `agent/request-error`. An unhandled failure is terminal; a handling listener repairs policy-owned state, returns `{ kind: 'retry' }`, and stops waterfall delegation. The [retry-action decision](../simplification/2026-07-27-request-error-retry-action.md) owns this return contract.
 
 That boundary is already safe for another request attempt. Raw `assistant/chunk` events carry the failed `turn` and `step`, message derivation ignores them unless a successful `assistant/message` cites them, tool calls are dispatched only after a successful terminal finish and assembly, and a retry opens a new numbered turn from the durable log. The harness therefore does not need a second response lifecycle or tentative-output protocol to keep two attempts separate.
 
@@ -40,9 +40,9 @@ interface LlmFailure {
 
 `code` remains the provider-neutral machine-routing taxonomy established by `HarnessError`; the new fields are observations from the provider boundary. `ProviderRequestId` is owned and constructed by `dsh-llm`, then serializes as its provider-issued string. The payload deliberately has no `retryable`, `failover`, `partialOutput`, provider, model, phase, or route id fields. Retryability belongs to policy, provider/model are already in the durable request header, and partial output is derived from the failed step's `assistant/chunk` events.
 
-`LlmError` carries `failure: LlmFailure` and preserves `failure.code === error.code`. `FinishReasonMap.error` and `FinishReasonMap.aborted` carry the same payload instead of parallel failure shapes. An adapter-thrown `Error` keeps its exact object identity: the final-adapter scope associates the normalized facts with that object in call-local sidecar state and rethrows it unchanged; a non-`Error` throw is wrapped as today. `llmFailureOf(stream, error)` retrieves those facts alongside the existing provenance check, while an in-band finish without an error object becomes a new `LlmError`. This preserves listeners that key on error type or identity while giving all final-adapter failures, including unknown SDK exceptions, an `UNKNOWN` terminal payload.
+`LlmError` carries `failure: LlmFailure` and preserves `failure.code === error.code`. `FinishReasonMap.error` and `FinishReasonMap.aborted` carry the same payload instead of parallel failure shapes. The final adapter boundary detaches those facts from adapter-thrown values and emits the appropriate terminal finish; unknown SDK exceptions receive an `UNKNOWN` payload. Exact thrown-object identity does not cross the LLM stream seam.
 
-The agent loop keeps `RequestError` as that exact error object and passes `LlmFailure` as a separate argument to `agent/request-error`; it does not mutate possibly frozen third-party errors. It also uses the payload when converting an in-band finish and when recording an unrecovered `turn/end.reason`.
+The agent loop passes the terminal finish's `LlmFailure` to `agent/request-error` and uses the same payload when recording an unrecovered `turn/end.reason`.
 
 Adapters extract structured facts before falling back to message inspection. They validate HTTP status, parse `Retry-After` seconds or dates into a positive finite millisecond delay, brand the provider request id when exposed, and distinguish their own timeout from the caller's abort. Provider-specific codes and messages may refine a mapping, but no recovery listener parses them.
 
@@ -106,8 +106,8 @@ If recovery is exhausted, the final failure is stored once on `turn/end.reason` 
 
 ## Verification
 
-- `LlmFailure` is the single serializable payload for thrown, error-finish, and aborted-finish final-adapter failures; normalization preserves stable code, status, retry delay, branded provider request id, error cause, and caller-abort versus adapter-timeout classification where available.
-- An adapter-thrown `Error` reaches `agent/request-error` as the exact same object while its sidecar `LlmFailure` reaches the adjacent argument; tests retain the existing identity assertion for extensible and frozen third-party errors.
+- `LlmFailure` is the single serializable payload for adapter throws, error finishes, and aborted finishes; normalization preserves stable code, status, retry delay, branded provider request id, and caller-abort versus adapter-timeout classification where available.
+- Adapter throws become terminal failure chunks before reaching consumers; middleware and consumer exceptions remain thrown outside model-request recovery.
 - DeepSeek and pi-ai adapter tests cover representative 400, 401/403, 429, 5xx, connection, malformed/truncated stream, timeout, abort, retry-after seconds/date, request-id, and unknown-SDK-error paths without recovery policy parsing message text.
 - Pi-ai pins the SDK option to zero retries and performs one observed wire attempt for a retryable provider response; separate tests make removing either boundary fail.
 - `agent/request-error` carries current failure facts, immutable prior-retried failure facts, and the serving registration's immutable retry policy; a success clears the history, and alternating transient/context-overflow integration tests prove the two policies consume only their own finite budgets.

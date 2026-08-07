@@ -8,7 +8,7 @@ Status: proposed
 
 一个冷会话（已持久化、未附加）对「上次是什么时候在这里面工作过」没有任何已存储的答案。因此 `dsh-host-apiproxy` 的 `summarizeCold()` 在存在日志文件时用它的 mtime 来近似它——`locate()` 为 JSONL 解析出一个逐会话产物，为 SQLite 解析出 `undefined`，而 SQLite 的冷会话会回退到 `createdAt`——而 web 客户端就按由此得到的 `updatedAt` 为自己的会话树排序。这两个后端错的方向正好相反：JSONL 读出来偏新，SQLite 偏旧。
 
-mtime 回答的是另一个问题：这份产物上次是什么时候被写入的。每一次持久写入都会刷新它，包括那些并不是活动的写入：一次对撕裂尾部的截断修复、用来平衡被中断的轮次的那些合成 closer，以及带种子的会话会追加的 [`session/end-seed` 边界](../../implemented/architecture/2026-07-30-session-end-seed-log-boundary.md)。（没有待处理内容的 `flush` 不在其中：协调器在到达后端之前就返回了。）用户可见的后果是稳定的，而且只朝一个方向错：一个被触碰过却没有在里面工作过的会话，会把自己排到用户此后真正工作过的那些会话之前，而且每次触碰都会重新把它排上去一次。「触碰」比「恢复」的范围更宽——`dsh-host-apiproxy` 的 `agentFor()` 会在首次触碰时恢复一个冷会话，而 web 客户端仅仅打开一个会话时 `sessions.history` 就会到达它，因此普通的浏览就够了。
+mtime 回答的是另一个问题：这份产物上次是什么时候被写入的。每一次持久写入都会刷新它，包括那些并不是活动的写入：一次对撕裂尾部的截断修复、用来平衡被中断的轮次的那些合成 closer，以及带种子的会话会追加的 [`session/end-seed` 边界](../../implemented/architecture/2026-07-30-session-end-seed-log-boundary.md)。（没有待处理内容的 `flush` 不在其中：协调器在到达后端之前就返回了。）用户可见的后果是稳定的，而且只朝一个方向错：一个被触碰过却没有在里面工作过的会话，会把自己排到用户此后真正工作过的那些会话之前，而且每次触碰都会重新把它排上去一次。`dsh-host-apiproxy` 让 `session.history` 保持只执行检查，但任何绑定到 Agent 的普通会话控件都会通过 `agentFor()` 恢复会话，足以把冷态产物排到前面。
 
 已附加会话的那个投影有真正的修复办法（`lastActivityTime()` 会跳过边界），但它需要事件日志，而冷路径有意不去读日志。为计算 `updatedAt` 而读取日志，会让只读 header 的列举失去意义，而正是它让 `list()` 的开销随会话数量而非日志体量增长。
 

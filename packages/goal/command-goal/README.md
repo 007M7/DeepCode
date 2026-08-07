@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Human-facing `/goal` control over [`ctx.goals`](../goal/README.md). The plugin registers one global command through [`ctx.commands`](../../ui/commands/README.md), so every composed command adapter discovers it; the shipped TUI executes it without a model turn. The [human goal-command Agent Note](../../../.agents/notes/implemented/feature/2026-07-19-human-goal-command.md) owns the UX and composition decisions.
+Human-facing `/goal` control over [`ctx.goals`](../goal/README.md). The plugin registers one global command through [`ctx.commands`](../../ui/commands/README.md), so every composed command adapter discovers and executes it without a model turn. The [human goal-command Agent Note](../../../.agents/notes/implemented/feature/2026-07-19-human-goal-command.md) owns the UX and composition decisions.
 
 ## Command contract
 
@@ -17,7 +17,7 @@ Human-facing `/goal` control over [`ctx.goals`](../goal/README.md). The plugin r
 
 Control words are case-insensitive only when they occupy the complete input. Every other non-empty suffix is an objective, so `/goal pause after verification` creates that literal objective. The goal domain trims and validates objectives. Because the generic command plane has no modal editor or confirmation primitive, `edit` takes its replacement inline and an unfinished replacement returns a direct error instructing the user to edit or clear.
 
-Expected domain rejections become stable direct command errors without exposing branded ids or revisions. Unexpected implementation failures still reject dispatch so adapters can report them as command failures. Generic command text and output remain live UI state; every accepted mutation is persisted and made model-visible by `dsh-goal` rather than by this plugin.
+Expected domain rejections become stable direct command errors without exposing branded ids or revisions. Unexpected implementation failures still reject dispatch so adapters can report them as command failures. Generic command text and output remain live UI state; `dsh-goal` persists every accepted mutation through its own durable `goal/change` event.
 
 ## Composition
 
@@ -32,7 +32,7 @@ The producer injects `commands` and `goals`. A custom app mounts their owners pl
   name: '@deepseek-ai/dsh-command-goal'
 ```
 
-The TUI app enables the complete persisted-goal stack and this command by default. The ACP automation app enables the domain and model tools without mounting the command registry; `goals: false` removes that stack. The UI-less `agent-spine-demo` requires an explicit `goals: {}` so headless one-shot callers do not silently change from one physical turn to a multi-round operation.
+The shipped `dsh` base enables the persisted-goal stack and this command; the Web client provides its interactive adapter. The ACP automation app enables the domain and model tools without a command adapter; `goals: false` removes that stack. The UI-less `agent-spine-demo` requires an explicit `goals: {}` so headless one-shot callers do not silently change from one physical turn to a multi-round operation.
 
 ## Model Experience
 
@@ -40,19 +40,19 @@ The TUI app enables the complete persisted-goal stack and this command by defaul
 
 #### What the model sees
 
-The slash input and direct status/error output are absent from model requests. An accepted mutation later appears through the goal domain's raw `<goal_state>` snapshot or clear tombstone; this preserves the model-visible-is-logged invariant without logging presentation text.
+The slash input, mutation, and direct status/error output are absent from model requests. The goal domain records the mutation as `goal/change`; an enabled same-session driver may expose the resulting state in a later continuation prompt. Presentation text is never logged.
 
 #### Token effect
 
-Reading status or receiving a direct command error adds no model tokens. Each accepted mutation adds the goal domain's retained full snapshot, and an enabled same-session driver may add later goal-round prompts.
+Reading status, mutating a goal, or receiving a direct command error adds no model tokens. An enabled same-session driver may add later goal-round prompts.
 
 #### KV Cache effect
 
-Command discovery and direct output do not affect the cache. A mutation appends after the reusable history prefix; later compaction may replace the derived-history suffix.
+Command discovery, mutations, and direct output do not affect the cache. Later continuation prompts follow the driver's ordinary request history.
 
 ## Known Limitations and Deferred Work
 
 - **Plain-text interaction only** — the generic command registry has no modal edit form or replacement-confirmation callback; inline edit and explicit clear keep destructive intent deterministic across adapters.
 - **No per-command round-cap argument** — `defaultMaxGoalRounds` remains deployment config, while a direct human request may ask the model to edit `max_goal_rounds` through the separately authorized goal tool.
 - **No continuous status widget** — bare `/goal` is the portable observation surface; adapter-specific badges and reconnectable command output remain future UI work.
-- **TUI only in the shipped apps** — the headless CLI, ACP automation, and JSON-RPC adapters do not consume `ctx.commands`. Ordinary prompts can still authorize model-facing goal tools when those are composed.
+- **Web command adapter only in the shipped apps** — headless, ACP automation, and JSON-RPC adapters do not consume `ctx.commands`. Ordinary prompts can still authorize model-facing goal tools when those are composed.

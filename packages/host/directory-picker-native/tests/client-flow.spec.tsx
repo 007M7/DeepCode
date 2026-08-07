@@ -56,7 +56,16 @@ describe('directory-picker-native client half', () => {
     for (const hole of HOLES) expect(after.slots.entries(hole)).toHaveLength(1)
   })
 
-  it('rolls back wholesale and reports loudly when a rival provider wins after deferred activation', async () => {
+  it('fails loudly instead of deduplicating a duplicate package row', async () => {
+    const b = await bench()
+    b.declare()
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    const duplicate = b.ctx.plugin({ inject: [...inject], apply })
+    await expect(duplicate.await()).rejects.toThrow(/already has a registration/)
+    for (const hole of HOLES) expect(b.slots.entries(hole)).toHaveLength(1)
+  })
+
+  it('rolls back wholesale and reports loudly when a rival injection wins declaration activation', async () => {
     const b = await bench()
     const rejections: unknown[] = []
     const onUnhandled = (reason: unknown): void => { rejections.push(reason) }
@@ -64,15 +73,14 @@ describe('directory-picker-native client half', () => {
     process.on('unhandledRejection', onUnhandled)
     process.on('uncaughtException', onUnhandled)
     try {
-      // This provider activates BEFORE any hole exists: both deferrals wait.
-      // (Duplicate rows of the SAME package converge silently — the deferral
-      // skips a hole its own component already occupies; the conflict needs
-      // a rival provider.)
+      // The rival subscribes first, so synchronous declaration notifications
+      // let it occupy the pair before this provider's waiting injection runs.
+      b.slots.inject(HOLES[0], () => b.slots.inject(HOLES[1], function* () {
+        yield b.slots.register({ name: HOLES[0] } as never, () => null)
+        yield b.slots.register({ name: HOLES[1] } as never, () => null)
+      }))
       await b.ctx.plugin({ inject: [...inject], apply }).await()
       b.declare()
-      // A rival occupies both holes ahead of the pending microtask flush.
-      b.slots.register({ name: HOLES[0] } as never, () => null)
-      b.slots.register({ name: HOLES[1] } as never, () => null)
       await new Promise(resolve => setTimeout(resolve, 20))
       // The rival keeps both holes; this provider rolled back wholesale and
       // surfaced the conflict on the fail-loud channel — no partial mix.
@@ -97,11 +105,11 @@ describe('directory-picker-native client half', () => {
     }
   })
 
-  it('rolls back the first deferral when the second hole is already occupied', async () => {
+  it('rolls back the outer injection when the second hole is already occupied', async () => {
     const b = await bench()
     b.declare()
     // Foreign occupant in the SECOND registered hole: the pair construction
-    // throws after the first deferral installed its subscription.
+    // throws after the outer injection installed its subscription.
     b.slots.register({ name: HOLES[1] } as never, () => null)
     const rejections: unknown[] = []
     const onUnhandled = (reason: unknown): void => { rejections.push(reason) }

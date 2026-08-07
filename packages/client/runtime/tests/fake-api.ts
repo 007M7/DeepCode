@@ -73,6 +73,7 @@ export class FakeApiClient implements IApiClient {
 
   onModels: (payload: unknown) => Promise<RpcResponse<SessionModels>> = () => Promise.resolve(ok({
     current: this.defaultModel,
+    routable: true,
     groups: [{
       id: 'deepseek-official',
       name: 'DeepSeek',
@@ -133,6 +134,19 @@ export class FakeApiClient implements IApiClient {
     attachment: (payload: unknown) => this.record('session.attachment', payload, this.onAttachment(payload)),
     updateQueue: (payload: unknown) => this.record('session.updateQueue', payload, this.onUpdateQueue(payload)),
     cancel: (payload: unknown) => this.record('session.cancel', payload, this.onCancel(payload)),
+  }
+
+  onSubagentList: (payload: unknown) => Promise<RpcResponse<{ entries: never[]; parentAvailable: boolean }>>
+    = () => Promise.resolve(ok({ entries: [], parentAvailable: true }))
+  onSubagentHistory: (payload: unknown) => Promise<RpcResponse<{ events: never[]; hasMore: boolean }>>
+    = () => Promise.resolve(ok({ events: [], hasMore: false }))
+  onSubagentPrompt: (payload: unknown) => Promise<RpcResponse<{ messageId: never }>>
+    = () => Promise.resolve(ok({ messageId: 'fake-message' as never }))
+
+  readonly subagents: IApiClient['subagents'] = {
+    list: (payload: unknown) => this.record('subagent.list', payload, this.onSubagentList(payload)),
+    history: (payload: unknown) => this.record('subagent.history', payload, this.onSubagentHistory(payload)),
+    prompt: (payload: unknown) => this.record('subagent.prompt', payload, this.onSubagentPrompt(payload)),
   }
 
   readonly host: IApiClient['host'] = {
@@ -206,7 +220,8 @@ export class FakeApiClient implements IApiClient {
   }
 
   readonly settings: IApiClient['settings'] = {
-    describe: payload => this.record('settings.describe', payload, Promise.resolve(ok({ writable: true, namespaces: [] }))),
+    describe: payload => this.record('settings.describe', payload, Promise.resolve(ok({ writable: true, hasDocument: false, namespaces: [] }))),
+    openDocument: payload => this.record('settings.openDocument', payload, Promise.resolve(ok({ opened: true as const }))),
     update: payload => this.record('settings.update', payload, Promise.resolve(ok({ ns: 'fake', schema: {}, value: {}, applies: 'live' as const, secrets: [], revision: 0 }))),
     replace: payload => this.record('settings.replace', payload, Promise.resolve(ok({ ns: 'fake', schema: {}, value: {}, applies: 'live' as const, secrets: [], revision: 0 }))),
     mutate: payload => this.record('settings.mutate', payload, Promise.resolve(ok({ ns: 'fake', schema: {}, value: {}, applies: 'live' as const, secrets: [], revision: 0 }))),
@@ -221,6 +236,7 @@ export class FakeApiClient implements IApiClient {
   readonly llm: IApiClient['llm'] = {
     providers: payload => this.record('llm.providers', payload, Promise.resolve(ok({ providers: [] }))),
     models: payload => this.record('llm.models', payload, Promise.resolve(ok({ groups: [], failures: [] }))),
+    discoverModels: payload => this.record('llm.discoverModels', payload, Promise.resolve(ok({ models: [] }))),
   }
 
   /** When true, streams never fire onOpen (misbehaving-carrier material for the handshake timeout guard). */

@@ -1,12 +1,11 @@
 /**
  * apply wiring on a real cordis Context + SlotsService: SlashService mounts
  * as ctx.slash once its sessions dependency is up; the MenuView overlay
- * registration waits on the conversation seam (ctx.inject scope), lands once
- * the declarer is up, resolves the per-session controller from the slot's
+ * registration follows the slot declaration, resolves the per-session controller from the slot's
  * sessionId, and unregisters on fiber teardown.
  */
 import { Context } from 'cordis'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
 import { usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import { createScope, scopeOf, SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
@@ -25,8 +24,8 @@ async function bench() {
   await ctx.plugin(SlotsService).await()
   const slots = ctx.get('slots') as SlotsService
   // Stand-in for the ui-conversation composer entry: declare the overlay
-  // slot, then provide the conversation service (declaration precedes the
-  // service exactly as the real apply orders them).
+  // slot without providing ConversationService, which is not its lifecycle
+  // signal.
   slots.register(
     { name: 'root', children: { 'conversation.input.overlay': { kind: 'list', scope: 'session' } } } as never,
     () => null,
@@ -67,11 +66,7 @@ describe('apply', () => {
   it('registers MenuView into the overlay and resolves the per-session controller by slot sessionId', async () => {
     const { ctx, slots } = await bench()
     await ctx.plugin({ inject: [...inject], apply }).await()
-    expect(slots.entries('conversation.input.overlay')).toHaveLength(0)
-
-    ctx.provide('conversation', {})
-    // The inject scope activates asynchronously on the service arrival.
-    await vi.waitFor(() => { expect(slots.entries('conversation.input.overlay')).toHaveLength(1) })
+    expect(slots.entries('conversation.input.overlay')).toHaveLength(1)
     const entries = slots.entries('conversation.input.overlay')
     expect(entries[0]!.options.id).toBe('slash-menu')
     // Copy rides the standard locale seat, not the business face.
@@ -100,8 +95,7 @@ describe('apply', () => {
     const { ctx, slots } = await bench()
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
-    ctx.provide('conversation', {})
-    await vi.waitFor(() => { expect(slots.entries('conversation.input.overlay')).toHaveLength(1) })
+    expect(slots.entries('conversation.input.overlay')).toHaveLength(1)
 
     await fiber.dispose()
     expect(slots.entries('conversation.input.overlay')).toHaveLength(0)

@@ -1,7 +1,7 @@
 /**
- * High-level turns API over {@link HarnessClient}: `DeepSeekHarness` owns one
+ * High-level run API over {@link HarnessClient}: `DeepSeekHarness` owns one
  * runtime subprocess across many sessions; `HarnessSession.run` sends a
- * prompt and settles with the final response once `session.finished` arrives.
+ * prompt and settles when the whole agent next becomes idle.
  * Mirrors the Python SDK's `DeepSeekHarness`/`Session` pair.
  *
  * @module @deepseek-ai/dsh-sdk-client/api
@@ -9,9 +9,9 @@
 
 import { randomUUID } from 'node:crypto'
 import { resolve } from 'node:path'
-import type { SessionEvent, TurnEndReason } from '@deepseek-ai/dsh-session'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { HarnessClient, isRecord, SdkProtocolError } from './client.ts'
-import type { ContentBlock, DeepSeekHarnessOptions, HarnessClientOptions, HarnessNotification, TurnResult } from './types.ts'
+import type { ContentBlock, DeepSeekHarnessOptions, HarnessClientOptions, HarnessNotification, RunResult } from './types.ts'
 
 /**
  * Reusable SDK for running DeepSeek Harness agent turns in a runtime
@@ -93,9 +93,9 @@ export class DeepSeekHarness implements AsyncDisposable {
    * Run one prompt on a fresh (or named) session.
    * @param input - prompt text, or content blocks sent verbatim.
    * @param options - optional session id and per-notification observer.
-   * @returns the settled turn result.
+   * @returns the owned activity interval.
    */
-  run(input: string | ContentBlock[], options?: RunOptions): Promise<TurnResult> {
+  run(input: string | ContentBlock[], options?: RunOptions): Promise<RunResult> {
     return this.session(options?.sessionId).run(input, options)
   }
 
@@ -127,8 +127,7 @@ export interface RunOptions {
 }
 
 /**
- * One SDK session: a stable id plus the turn loop that pairs a
- * `session/prompt` with its `session.finished`.
+ * One SDK session: a stable id plus owned activity intervals.
  */
 export class HarnessSession {
   /**
@@ -138,27 +137,23 @@ export class HarnessSession {
   constructor(readonly harness: DeepSeekHarness, readonly id: string) {}
 
   /**
-   * Run one prompt turn to settlement.
+   * Queue one prompt, then observe the whole session through its next idle.
    * @param input - prompt text, or content blocks sent verbatim.
    * @param options - optional per-notification observer.
-   * @returns the settled turn result; rejects on transport loss, timeout, or
-   * a protocol error — never on a model-level failure (that is
-   * `status: 'error'` in the result).
+   * @returns the owned activity interval; rejects on transport loss, timeout,
+   * or a protocol error.
    */
-  async run(input: string | ContentBlock[], options?: Pick<RunOptions, 'onNotification'>): Promise<TurnResult> {
+  async run(input: string | ContentBlock[], options?: Pick<RunOptions, 'onNotification'>): Promise<RunResult> {
     await this.harness.start()
     const client = this.harness.client
     const contentBlocks = normalizeInput(input)
     const events: SessionEvent[] = []
     const notifications: HarnessNotification[] = []
-    let status: TurnResult['status'] = 'error'
-    let reason: TurnEndReason | undefined
-    let finished = false
 
     const subscription = client.subscribeSessionTree(this.id)
     const collect = (notification: HarnessNotification): void => {
       if (notification.method === 'session.event' && notification.params.sessionId === this.id) {
-        // Wire boundary: the envelope feeds the typed TurnResult, so a
+        // Wire boundary: the envelope feeds the typed RunResult, so a
         // malformed runtime surfaces as a protocol error, not as type-invalid
         // data (or a TypeError out of finalResponse).
         const event = validatedSessionEvent(notification.params.event)
@@ -167,37 +162,31 @@ export class HarnessSession {
         events.push(event)
         return
       }
-      if (notification.method === 'session.finished' && notification.params.sessionId === this.id) {
-        reason = validatedTurnEndReason(notification.params.reason)
-        notifications.push(notification)
-        options?.onNotification?.(notification)
-        status = notification.params.status === 'ok' ? 'ok' : 'error'
-        finished = true
-        return
-      }
       notifications.push(notification)
       options?.onNotification?.(notification)
     }
-    const accepted = client.prompt(this.id, contentBlocks)
-    // Drain concurrently so observers see progress while the prompt request
-    // is still pending (its response arrives only after settlement).
-    const drain = (async () => {
-      while (!finished) collect(await subscription.next())
-    })()
     try {
-      await Promise.all([accepted, drain])
+      const messageId = await client.prompt(this.id, contentBlocks)
+      let received = false
+      while (true) {
+        const notification = await subscription.next()
+        if (!received) {
+          if (notification.method !== 'session.event'
+            || notification.params.sessionId !== this.id
+            || !isInboxReceipt(notification.params.event, messageId)) continue
+          received = true
+        }
+        collect(notification)
+        if (notification.method === 'session.status'
+          && notification.params.sessionId === this.id
+          && notification.params.status === 'idle') break
+      }
     } finally {
-      // On a prompt rejection the drain is still parked on next(); closing the
-      // subscription settles it, and the swallow keeps that secondary
-      // TransportClosedError from surfacing as an unhandled rejection.
       subscription.close()
-      await drain.catch(() => {})
     }
 
     return {
       sessionId: this.id,
-      status,
-      reason,
       finalResponse: finalResponse(events),
       events,
       notifications,
@@ -232,18 +221,16 @@ function validatedSessionEvent(value: unknown): SessionEvent {
   return value as unknown as SessionEvent
 }
 
-/** Validate a wire `session.finished` reason (absent, or a kind-tagged record). */
-function validatedTurnEndReason(value: unknown): TurnEndReason | undefined {
-  if (value === undefined) return undefined
-  if (!isRecord(value) || typeof value.kind !== 'string') {
-    throw new SdkProtocolError(`session.finished carried a malformed reason: ${JSON.stringify(value)}`)
-  }
-  return value as unknown as TurnEndReason
+/** Whether a raw session event is the durable enqueue receipt for `messageId`. */
+function isInboxReceipt(value: unknown, messageId: string): boolean {
+  if (!isRecord(value) || value.type !== 'agent/inbox/spliced' || !isRecord(value.data)) return false
+  const inserted = value.data.inserted
+  return Array.isArray(inserted) && inserted.some(message => isRecord(message) && message.id === messageId)
 }
 
 /**
  * Extract the concatenated text of the last assistant message.
- * @param events - the turn's `session.event` payloads in wire order.
+ * @param events - the activity interval's `session.event` payloads in wire order.
  * @returns the final response text, or `''` when no assistant message exists.
  */
 export function finalResponse(events: SessionEvent[]): string {

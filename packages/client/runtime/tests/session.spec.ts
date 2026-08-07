@@ -6,7 +6,7 @@
  * enough.
  */
 
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
@@ -18,6 +18,11 @@ const at = (seq: number, e: Record<string, unknown>): SessionEvent =>
   ({ seq, time: 1_700_000_000_000 + seq, ...e }) as unknown as SessionEvent
 
 const SID = 'fk-s1' as SessionId
+const PARENT = 'fk-parent' as SessionId
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
 
 function makeSession(api = new FakeApiClient()): { api: FakeApiClient; session: Session } {
   return { api, session: new Session(SID, api) }
@@ -41,6 +46,11 @@ describe('open', () => {
     expect(snapshot.openState).toBe('open')
     expect(snapshot.hasMore).toBe(true)
     expect(snapshot.nodes.map(n => n.kind)).toEqual(['user', 'assistant'])
+    expect(snapshot.turnTimings.get(3)).toEqual({
+      startTime: 1_700_000_000_010,
+      endTime: 1_700_000_000_015,
+    })
+    expect(snapshot.turnEnds.get(3)).toBe(15)
   })
 
   it('is idempotent: concurrent opens share one history call, reopening when open is a no-op', async () => {
@@ -162,7 +172,41 @@ describe('live event path', () => {
     expect((last as { interrupted?: true }).interrupted).toBeUndefined()
   })
 
-  it('retracts the failed step partial on retry and keeps a replayable notice before the recovered response', async () => {
+  it('publishes cumulative chunks once per frame and lets finalization supersede the pending frame', async () => {
+    const frames: FrameRequestCallback[] = []
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.push(callback)
+      return frames.length
+    })
+    const { session } = await opened()
+    const published: Array<string | null> = []
+    session.subscribe(() => {
+      const block = session.getSnapshot().partial?.blocks[0]
+      published.push(block?.kind === 'text' ? block.text : null)
+    })
+    const feed = (event: SessionEvent) => {
+      session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event })
+    }
+
+    feed(ev.chunkStart(6, 1))
+    feed(ev.chunkText(7, 1, '累'))
+    feed(ev.chunkText(8, 1, '计'))
+    expect(published).toEqual([])
+    expect(frames).toHaveLength(1)
+
+    frames.shift()!(0)
+    expect(published).toEqual(['累计'])
+
+    feed(ev.chunkText(9, 1, '完成'))
+    feed(ev.assistant(10, 1, '累计完成'))
+    await Promise.resolve()
+    expect(published).toEqual(['累计', null])
+
+    frames.shift()!(0)
+    expect(published).toEqual(['累计', null])
+  })
+
+  it('retracts the failed-attempt partial and starts the retry on new chunk evidence', async () => {
     const { session } = await opened()
     const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
     const retryTurn = [
@@ -171,25 +215,13 @@ describe('live event path', () => {
       ev.stepStart(8, 1),
       ev.chunkStart(9, 1),
       ev.chunkText(10, 1, '不完整回复'),
-      ev.stepEnd(11, 1),
-      ev.retry(12, 1, 0, 1, 2, 450, '连接被重置'),
-      at(13, {
-        type: 'turn/end',
-        data: {
-          turn: 1,
-          reason: {
-            kind: 'error', step: 0,
-            failure: { code: 'TRANSPORT', message: '连接被重置' },
-          },
-        },
-      }),
-      at(14, { type: 'turn/start', data: { turn: 2, trigger: { kind: 'retry' } } }),
-      ev.stepStart(15, 2),
-      ev.assistant(16, 2, '完整回复'),
-      ev.stepEnd(17, 2),
-      ev.turnEnd(18, 2),
+      ev.retry(11, 1, 0, 1, 2, 450, '连接被重置'),
+      ev.chunkStart(12, 1),
+      ev.assistant(13, 1, '完整回复'),
+      ev.stepEnd(14, 1),
+      ev.turnEnd(15, 1),
     ]
-    for (const event of retryTurn.slice(0, 7)) feed(event)
+    for (const event of retryTurn.slice(0, 6)) feed(event)
 
     let snapshot = session.getSnapshot()
     expect(snapshot.partial).toBeNull()
@@ -208,17 +240,27 @@ describe('live event path', () => {
     })
     expect(JSON.stringify(snapshot.nodes)).not.toContain('不完整回复')
 
-    for (const event of retryTurn.slice(7)) feed(event)
+    for (const event of retryTurn.slice(6)) feed(event)
     snapshot = session.getSnapshot()
     expect(snapshot.nodes.slice(-2).map(node => node.kind)).toEqual(['model-retry', 'assistant'])
     expect(snapshot.nodes.some(node => node.kind === 'turn-error')).toBe(false)
     expect(snapshot.nodes.at(-2)).toMatchObject({ kind: 'model-retry', retryState: 'started' })
     expect(snapshot.nodes.at(-1)).toMatchObject({ kind: 'assistant', blocks: [{ kind: 'text', text: '完整回复' }] })
+    const retryStart = retryTurn.find(event => event.type === 'turn/start')
+    if (retryStart?.type !== 'turn/start') throw new Error('test fixture must include the retried turn start')
+    const retryEnd = retryTurn.find(event =>
+      event.type === 'turn/end' && event.data.turn === retryStart.data.turn)
+    if (retryEnd?.type !== 'turn/end') throw new Error('test fixture must complete the retry turn')
+    expect(snapshot.turnTimings.get(retryStart.data.turn)).toEqual({
+      startTime: retryStart.time,
+      endTime: retryEnd.time,
+    })
 
     const replay = makeSession()
     replay.api.onHistory = () => histResponse([...plainTurn(0, 0, 'a', 'b'), ...retryTurn])
     await replay.session.open()
     expect(replay.session.getSnapshot().nodes).toEqual(snapshot.nodes)
+    expect(replay.session.getSnapshot().turnTimings).toEqual(snapshot.turnTimings)
     expect(replay.session.getSnapshot().partial).toBeNull()
   })
 
@@ -230,35 +272,33 @@ describe('live event path', () => {
     const failedTurns = [
       ev.turnStart(6, 1),
       ev.user(7, '鉴权失败'),
-      at(8, {
+      ev.stepStart(8, 1),
+      at(9, {
         type: 'turn/end',
-        data: {
-          turn: 1,
-          reason: {
-            kind: 'error',
-            step: 0,
-            failure: {
-              code: 'AUTH',
-              message: 'Authentication Fails, Your api key: sk-preview-secret is invalid',
-            },
-          },
+        data: { turn: 1, reason: { kind: 'error', error: {
+          code: 'AUTH',
+          message: 'Authentication Fails, Your api key: sk-preview-secret is invalid',
+        },
+        },
         },
       }),
-      ev.turnStart(9, 2),
-      ev.user(10, '内部失败'),
-      at(11, {
+      ev.turnStart(10, 2),
+      ev.user(11, '内部失败'),
+      ev.stepStart(12, 2, 1),
+      at(13, {
         type: 'turn/end',
-        data: { turn: 2, reason: { kind: 'error', step: 1, message: 'plugin exploded' } },
+        data: { turn: 2, reason: { kind: 'error', error: { message: 'plugin exploded', code: 'UNKNOWN' } } },
       }),
     ]
     for (const event of failedTurns) feed(event)
 
     const errors = session.getSnapshot().nodes.filter(node => node.kind === 'turn-error')
     expect(errors).toMatchObject([
-      { seq: 8, turn: 1, step: 0, code: 'AUTH', message: 'API key is invalid' },
-      { seq: 11, turn: 2, step: 1, message: 'plugin exploded' },
+      { seq: 9, turn: 1, step: 0, code: 'AUTH', message: 'API key is invalid' },
+      // Every failed turn carries a structured failure; unstructured errors
+      // flatten to the UNKNOWN code.
+      { seq: 13, turn: 2, step: 1, code: 'UNKNOWN', message: 'plugin exploded' },
     ])
-    expect('code' in errors[1]!).toBe(false)
 
     const replay = makeSession()
     replay.api.onHistory = () => histResponse([...plainTurn(0, 0, 'a', 'b'), ...failedTurns])
@@ -395,7 +435,7 @@ describe('live event path', () => {
   })
 
   it.each(['aborted', 'disposed'] as const)(
-    'marks a scheduled retry as cancelled when its failed turn ends %s',
+    'marks a scheduled retry as cancelled when its failed turn receives the %s cause',
     async (reason) => {
       const { session } = await opened()
       const feed = (event: SessionEvent) => {
@@ -415,6 +455,24 @@ describe('live event path', () => {
     },
   )
 
+  it('marks a scheduled retry as started when its failed turn ends with an error', async () => {
+    const { session } = await opened()
+    const feed = (event: SessionEvent) => {
+      session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event })
+    }
+    feed(ev.turnStart(6, 1))
+    feed(ev.retry(7, 1))
+    feed(at(8, {
+      type: 'turn/end',
+      data: { turn: 1, reason: { kind: 'error', error: { message: 'retry failed', code: 'UNKNOWN' } } },
+    }))
+
+    expect(session.getSnapshot().nodes.at(-1)).toMatchObject({
+      kind: 'model-retry',
+      retryState: 'started',
+    })
+  })
+
   it('freezes an unfinalized partial into an interrupted node on turn/end (cancel path)', async () => {
     const { session } = await opened()
     const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
@@ -425,6 +483,7 @@ describe('live event path', () => {
     feed(ev.turnEnd(10, 1, 'aborted')) // no assistant/message ever arrives
     const snapshot = session.getSnapshot()
     expect(snapshot.partial).toBeNull()
+    expect(snapshot.turnEnds.get(1)).toBe(10)
     const frozen = snapshot.nodes.at(-1)
     expect(frozen).toMatchObject({ kind: 'assistant', interrupted: true, blocks: [{ kind: 'text', text: '说到一半' }] })
     // Ordered inside the flow: after the user message (seq 7), before any later turn.
@@ -580,6 +639,51 @@ describe('paging', () => {
 })
 
 describe('prompt and cancel errors', () => {
+  it('routes an addressed child through non-activating history and continuation prompt only', async () => {
+    const api = new FakeApiClient()
+    const session = new Session(SID, api, {
+      address: { parentSessionId: PARENT, childSessionId: SID, mode: 'continuable' },
+      parentAvailable: true,
+    })
+    await session.open()
+    const prompted = await session.prompt([{ type: 'text', text: '继续' }], 'queue')
+    const cancelled = await session.cancel()
+
+    expect(prompted).toEqual({ ok: true, value: { accepted: true } })
+    expect(cancelled).toMatchObject({ ok: false, error: { code: 'subagent-delivery-unavailable' } })
+    expect(api.callsOf('subagent.history')).toEqual([
+      { parentSessionId: PARENT, childSessionId: SID, mode: 'continuable', maxMessages: 50 },
+    ])
+    expect(api.callsOf('subagent.prompt')).toEqual([
+      {
+        parentSessionId: PARENT, childSessionId: SID, mode: 'continuable',
+        content: [{ type: 'text', text: '继续' }],
+      },
+    ])
+    expect(api.callsOf('session.history')).toEqual([])
+    expect(api.callsOf('session.prompt')).toEqual([])
+    expect(api.callsOf('session.cancel')).toEqual([])
+    expect(session.getSnapshot().subagent).toEqual({
+      address: { parentSessionId: PARENT, childSessionId: SID, mode: 'continuable' },
+      parentAvailable: true,
+    })
+  })
+
+  it('keeps one-shot history readable without exposing prompt or cancel transport', async () => {
+    const api = new FakeApiClient()
+    const session = new Session(SID, api, {
+      address: { parentSessionId: PARENT, childSessionId: SID, mode: 'one-shot' },
+    })
+    await session.open()
+    const prompted = await session.prompt([{ type: 'text', text: '继续' }], 'queue')
+
+    expect(prompted).toMatchObject({ ok: false, error: { code: 'subagent-not-resumable' } })
+    expect(api.callsOf('subagent.history')).toEqual([
+      { parentSessionId: PARENT, childSessionId: SID, mode: 'one-shot', maxMessages: 50 },
+    ])
+    expect(api.callsOf('subagent.prompt')).toEqual([])
+  })
+
   it('sends content through session.prompt; composerPhase steps blank → engaging synchronously at send entry', async () => {
     const { api, session } = makeSession()
     // The blank → engaging edge fires before the RPC settles: the first-send
@@ -1184,6 +1288,8 @@ describe('reference stability (the memo contract)', () => {
     expect(after).not.toBe(before)
     expect(after.runningCalls).toBe(before.runningCalls)
     expect(after.pending).toBe(before.pending)
+    expect(after.turnTimings).toBe(before.turnTimings)
+    expect(after.turnEnds).toBe(before.turnEnds)
     // And a mutation on the tracked domain swaps that array.
     feed(ev.toolResult(11, 1, 'c1', 'ECHO'))
     const resolved = session.getSnapshot()

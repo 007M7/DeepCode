@@ -1,6 +1,27 @@
-# Opt-in two-tool profile over the shipped Web composition. The default native
-# model surface is exactly persistent `bash` plus `str_replace_editor`; the
-# Web host, browser shell, workspace, persistence, and permission stack remain.
+# Opt-in Web shell for the RL core agent contract. The model receives exactly
+# the configured persona plus the native `bash` and `str_replace_editor`
+# schemas; the Web host, browser shell, persistence, and permission stack stay.
+
+# Match the Claude SWE-compatible RL core prompt. Disabling the Web runtime's
+# surface context removes its GUI orientation, managed shell variables, and the
+# launcher's source-checkout section through one configuration contract.
+# Workspace instructions are model-visible user context rather than a system
+# section, but RL core disables them as part of the same prompt contract.
+- id: system-prompt
+  config:
+    includeHarnessIdentity: false
+    persona: !!js process.env.DSH_SYSTEM_PROMPT ?? 'You are a helpful software engineer assistant.'
+
+- id: web-runtime
+  config:
+    surfaceContext: false
+
+- id: workspace-context
+  disabled: true
+
+- id: tools
+  config:
+    mode: native
 
 # Disable every model-facing consumer in the base/Web tree. plan-mode owns the
 # always-registered exit_plan_mode tool even while the session is not planning.
@@ -25,6 +46,12 @@
 - id: plan-mode
   disabled: true
 
+- id: tool-subagent-control
+  disabled: true
+
+- id: tool-subagent-list-agents
+  disabled: true
+
 - id: tool-subagent
   disabled: true
 
@@ -43,9 +70,6 @@
   disabled: true
 
 - id: tool-ralph
-  disabled: true
-
-- id: tool-session-query
   disabled: true
 
 - id: tool-str-replace-editor

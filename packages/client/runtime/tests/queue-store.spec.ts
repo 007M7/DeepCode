@@ -5,10 +5,9 @@
  */
 import { describe, expect, it } from 'vitest'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
-import type {
-  InboxItemId, MuxFrame, RpcId, SessionId,
-} from '@deepseek-ai/dsh-client-connection/client'
+import type { ContentBlock, UserMessage } from '@deepseek-ai/dsh-llm/types'
+import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
+import type { MessageId, MuxFrame, RpcId, SessionId } from '@deepseek-ai/dsh-client-connection/client'
 import { Session } from '../src/client/sessions/session.ts'
 import { SessionManager } from '../src/client/sessions/manager.ts'
 import { FakeApiClient } from './fake-api.ts'
@@ -16,12 +15,14 @@ import { FakeApiClient } from './fake-api.ts'
 const SID = 'fk-q1' as SessionId
 const text = (value: string): ContentBlock[] => [{ type: 'text', text: value }]
 const rid = (id: string): RpcId => id as RpcId
-const iid = (id: string): InboxItemId => id as InboxItemId
+const iid = (id: string): MessageId => id as MessageId
 
 interface QueueFixture {
   id: string
   body: string
   content?: ContentBlock[]
+  placement?: 'queued' | 'steering'
+  message?: UserMessage
 }
 
 /** Build one authoritative queue snapshot. */
@@ -31,7 +32,8 @@ function queueFrame(items: QueueFixture[]): MuxFrame {
     sessionId: SID,
     items: items.map(item => ({
       id: iid(item.id),
-      message: createUserMessage({
+      placement: item.placement ?? 'queued',
+      message: item.message ?? createUserMessage({
         content: item.content ?? text(item.body),
         source: { kind: 'user', rpcId: rid(`rpc-${item.id}`) } as never,
       }),
@@ -49,8 +51,14 @@ describe('queue snapshot intake', () => {
     session.handleMuxEnvelope(rid('env-1'), queueFrame([
       { id: 'q-1', body: '第一条  排队\n消息' },
     ]))
-    expect(session.getSnapshot().queue).toEqual([
-      { id: 'q-1', preview: '第一条 排队 消息', text: '第一条  排队\n消息' },
+    const queue = session.getSnapshot().queue
+    expect(typeof queue[0]?.messageId).toBe('string')
+    expect(queue).toMatchObject([
+      {
+        id: 'q-1', placement: 'queued',
+        content: [{ type: 'text', text: '第一条  排队\n消息' }],
+        preview: '第一条 排队 消息', text: '第一条  排队\n消息',
+      },
     ])
   })
 
@@ -61,8 +69,14 @@ describe('queue snapshot intake', () => {
       body: '',
       content: [{ type: 'text', text: 'hi' }, { type: 'image', data: 'x' } as never],
     }]))
-    expect(session.getSnapshot().queue).toEqual([
-      { id: 'q-image', preview: 'hi [image]', text: null },
+    const queue = session.getSnapshot().queue
+    expect(typeof queue[0]?.messageId).toBe('string')
+    expect(queue).toMatchObject([
+      {
+        id: 'q-image', placement: 'queued',
+        content: [{ type: 'text', text: 'hi' }, { type: 'image', data: 'x' }],
+        preview: 'hi [image]', text: null,
+      },
     ])
   })
 
@@ -85,8 +99,14 @@ describe('queue snapshot intake', () => {
     session.handleMuxEnvelope(rid('env-5'), queueFrame([
       { id: 'q-2', body: 'two edited' },
     ]))
-    expect(session.getSnapshot().queue).toEqual([
-      { id: 'q-2', preview: 'two edited', text: 'two edited' },
+    const queue = session.getSnapshot().queue
+    expect(typeof queue[0]?.messageId).toBe('string')
+    expect(queue).toMatchObject([
+      {
+        id: 'q-2', placement: 'queued',
+        content: [{ type: 'text', text: 'two edited' }],
+        preview: 'two edited', text: 'two edited',
+      },
     ])
     session.handleMuxEnvelope(rid('env-6'), queueFrame([]))
     expect(session.getSnapshot().queue).toEqual([])
@@ -99,6 +119,81 @@ describe('queue snapshot intake', () => {
     session.handleAgentError('unrelated')
     expect(session.getSnapshot().queue).toBe(before)
   })
+
+  it('retains steering placement and complete content in the same authoritative snapshot', () => {
+    const session = makeSession()
+    session.handleMuxEnvelope(rid('env-steering'), queueFrame([
+      { id: 'q-next', body: 'later' },
+      { id: 's-now', body: 'interrupt now', placement: 'steering' },
+    ]))
+
+    expect(session.getSnapshot().queue.map(item => ({
+      id: item.id, placement: item.placement, content: item.content,
+    }))).toEqual([
+      { id: 'q-next', placement: 'queued', content: text('later') },
+      { id: 's-now', placement: 'steering', content: text('interrupt now') },
+    ])
+  })
+
+  it('hands off exactly one current occurrence when live steering becomes durable', async () => {
+    const session = makeSession()
+    await session.open()
+    const message = createUserMessage({
+      content: text('same message'),
+      source: { kind: 'user' },
+    })
+    session.handleMuxEnvelope(rid('env-same-id'), queueFrame([
+      { id: 's-first', body: '', placement: 'steering', message },
+      { id: 's-second', body: '', placement: 'steering', message },
+    ]))
+    const durable = {
+      seq: 0,
+      time: 1_700_000_000_000,
+      type: 'user/message',
+      surfaceOp: 'append',
+      data: message,
+    } as SessionEvent
+
+    session.handleMuxEnvelope(rid('env-durable'), {
+      type: 'session/event', sessionId: SID, event: durable,
+    })
+    expect(session.getSnapshot().queue.map(item => item.id)).toEqual(['s-second'])
+    expect(session.getSnapshot().nodes.filter(node => node.kind === 'user')).toHaveLength(1)
+
+    session.handleMuxEnvelope(rid('env-reused-id'), queueFrame([
+      { id: 's-later', body: '', placement: 'steering', message },
+    ]))
+    session.handleMuxEnvelope(rid('env-replayed-durable'), {
+      type: 'session/event', sessionId: SID, event: durable,
+    })
+    expect(session.getSnapshot().queue.map(item => item.id)).toEqual(['s-later'])
+  })
+
+  it('hands off live steering when the agent claims it as a user message', async () => {
+    const session = makeSession()
+    await session.open()
+    const message = createUserMessage({
+      content: text('claimed steering'),
+      source: { kind: 'user' },
+    })
+    session.handleMuxEnvelope(rid('env-claimed'), queueFrame([
+      { id: 's-claimed', body: '', placement: 'steering', message },
+    ]))
+
+    session.handleMuxEnvelope(rid('env-user-message'), {
+      type: 'session/event',
+      sessionId: SID,
+      event: {
+        seq: 0,
+        time: 1_700_000_000_000,
+        type: 'user/message',
+        surfaceOp: 'append',
+        data: message,
+      },
+    })
+
+    expect(session.getSnapshot().queue).toEqual([])
+  })
 })
 
 describe('queue operation transport', () => {
@@ -110,11 +205,20 @@ describe('queue operation transport', () => {
 
     await expect(session.updateQueue(iid('q-op'), { kind: 'edit', content: text('next') }))
       .resolves.toEqual({ ok: true, value: { accepted: true } })
-    expect(api.callsOf('session.updateQueue')).toEqual([{
-      sessionId: SID,
-      itemId: 'q-op',
-      action: { kind: 'edit', content: text('next') },
-    }])
+    await expect(session.updateQueue(iid('q-op'), { kind: 'steer' }))
+      .resolves.toEqual({ ok: true, value: { accepted: true } })
+    expect(api.callsOf('session.updateQueue')).toEqual([
+      {
+        sessionId: SID,
+        itemId: 'q-op',
+        action: { kind: 'edit', content: text('next') },
+      },
+      {
+        sessionId: SID,
+        itemId: 'q-op',
+        action: { kind: 'steer' },
+      },
+    ])
     expect(session.getSnapshot().queue).toBe(before)
   })
 })

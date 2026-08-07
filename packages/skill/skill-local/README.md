@@ -14,6 +14,8 @@ Requires `ctx.skills` (`inject: ['skills']`).
 
 | Field | Default | Meaning |
 |---|---|---|
+| `providerName` | `local` | Unique name used to register this provider on `ctx.skills`. |
+| `includeDefaultRoots` | `true` | Include project and user roots around `customSkillDirs`; set false for an isolated custom-root provider. |
 | `dshHome` | `$DSH_HOME` or `~/.dsh` | DeepSeek Harness config root resolved by [`@deepseek-ai/dsh-paths`](../../util/paths/README.md); scans `skills` under this directory. |
 | `agentsHome` | `$DSH_AGENTS_HOME` or `~/.agents` | Shared agent config root scanned for compatible skills. |
 | `customSkillDirs` | `[]` | Additional local skill roots scanned after project roots and before user roots. |
@@ -36,7 +38,7 @@ Default roots are resolved in this provider's rank order:
 | 400 | `user-dsh` | `<dshHome>/skills` |
 | 500 | `user-agents` | `<agentsHome>/skills` |
 
-The project root is the nearest ancestor containing `.git`; without one, the current cwd is used. The user DSH root skips its `.system` child so system-owned directories are not treated as normal user skills. This provider supplies project and user skills; another provider may supply built-in system skills.
+The project root is the nearest ancestor containing `.git`; without one, the current cwd is used. The user DSH root skips its `.system` child so system-owned directories are not treated as normal user skills. `includeDefaultRoots: false` omits the project and user rows and the `$DSH_BUNDLED_SKILL_DIR` environment default while retaining explicitly configured custom and bundled roots, allowing several uniquely named isolated providers such as immutable repository Plugins to see only their own roots. This provider supplies project and user skills; another provider may supply built-in system skills.
 
 When `ctx.fs` is available, discovery lists roots through `ctx.fs.listDir`, reads skill files through `ctx.fs.readText`, and probes `.git` through the filesystem service. Full skill loads forward the lookup abort signal to filesystem metadata and content reads. Without a filesystem service, the provider falls back to abortable Node filesystem I/O so minimal local contexts can still load skills. Confirmed missing paths are valid empty state, malformed or non-text entries warn and skip, and unexpected discovery/read failures make the registry snapshot incomplete rather than replacing a last-good model catalog with a misleading deletion.
 

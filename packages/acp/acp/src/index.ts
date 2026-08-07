@@ -14,7 +14,7 @@ import { randomUUID } from 'node:crypto'
 import { isAbsolute } from 'node:path'
 import { Readable, Writable } from 'node:stream'
 import Schema from 'schemastery'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, errorChain } from '@deepseek-ai/dsh-llm'
 import {
   AgentSideConnection,
   ndJsonStream,
@@ -42,6 +42,19 @@ import { acpPromptToText, promptHasUnsupportedContent, turnEndToStopReason } fro
 export const name = 'acp'
 /** The bridge creates and owns agents; every other concern is carried by the agent composition. */
 export const inject = ['agents']
+
+/**
+ * The single continuable-subagent teardown the bridge needs. Declared
+ * structurally so this package does not depend on the subagent seam for one
+ * shutdown hook; an absent service means nothing continuable was materialized.
+ */
+interface ContinuableDrain {
+  /**
+   * Close admission below exact host-owned parents, then dispose only their
+   * continuable descendants child-first.
+   */
+  drainContinuableDescendants(parents: readonly Agent[]): Promise<void>
+}
 
 /** Preserve invalid-parameter detail in the SDK wire error message. */
 function invalidParams(detail: string): RequestError {
@@ -77,13 +90,10 @@ interface SessionRecord {
   inflight: {
     resolve: (reason: StopReason) => void
     reject: (error: Error) => void
+    messageId: string
     turn: number | undefined
-    /**
-     * A failed turn's terminal reason, held until quiescence: a retry action
-     * closes the failed turn and opens a successor that adopts the prompt, so
-     * rejecting at `turn/end` would race the recovery.
-     */
-    pendingError: Extract<TurnEndReason, { kind: 'error' }> | undefined
+    /** The correlated turn's ending, set at turn/end and settled at whole-agent idle. */
+    endReason: TurnEndReason | undefined
   } | undefined
 }
 
@@ -136,7 +146,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
     inflight: NonNullable<SessionRecord['inflight']>,
     reason: Extract<TurnEndReason, { kind: 'error' }>,
   ): void => {
-    inflight.reject(internalError(`turn failed: ${'failure' in reason ? reason.failure.message : reason.message}`))
+    inflight.reject(internalError(`turn failed: ${reason.error.message}`))
   }
 
   // Emit only committed assistant text. Raw chunks, reasoning, tools, plans,
@@ -172,28 +182,31 @@ export function apply(ctx: Context, config: AcpConfig): void {
       }
     } finally {
       const inflight = record.inflight
-      if (inflight !== undefined && event.type === 'turn/start') {
-        if (inflight.turn === undefined && event.data.trigger.kind === 'message'
-          && event.data.trigger.source.kind === 'user') {
-          inflight.turn = event.data.turn
-        } else if (inflight.pendingError !== undefined && event.data.trigger.kind === 'retry') {
-          // A recovery policy opened a retry turn on the failed history: the
-          // prompt rides it instead of rejecting on the failed turn's end.
-          inflight.turn = event.data.turn
-          inflight.pendingError = undefined
-        }
-      } else if (inflight !== undefined && event.type === 'turn/end' && inflight.turn === event.data.turn) {
+      if (inflight !== undefined && event.type === 'turn/end' && inflight.turn === event.data.turn) {
         if (event.data.reason.kind === 'error') {
-          // Hold the rejection: request recovery may adopt the prompt with a
-          // successor turn; quiescence without one delivers this error.
-          inflight.turn = undefined
-          inflight.pendingError = event.data.reason
-        } else {
+          // Model failures surface immediately as prompt errors; ordinary
+          // endings wait for whole-agent idle below.
           record.inflight = undefined
-          inflight.resolve(turnEndToStopReason(event.data.reason))
+          rejectFromError(inflight, event.data.reason)
+        } else {
+          inflight.endReason = event.data.reason
         }
       }
     }
+  })
+
+  ctx.on('agent/inbox/claimed', ({ agent, message, turn }) => {
+    const record = ownedRecord(agent)
+    const inflight = record?.inflight
+    if (inflight !== undefined && inflight.messageId === message.id) inflight.turn = turn
+  })
+
+  ctx.on('agent/error', ({ agent, turn, error }) => {
+    const record = ownedRecord(agent)
+    const inflight = record?.inflight
+    if (record === undefined || inflight === undefined || inflight.turn === turn) return
+    record.inflight = undefined
+    inflight.reject(internalError(`turn failed: ${errorChain(error)}`))
   })
 
   // Permission requests are a machine policy channel for ACP clients such as
@@ -276,17 +289,18 @@ export function apply(ctx: Context, config: AcpConfig): void {
         if (ctx.agents.get(record.agent.id) !== record.agent) {
           throw internalError('prompt was not queued: the agent was disposed outside the bridge')
         }
+        const message = createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } })
         const stopReason = await new Promise<StopReason>((resolve, reject) => {
           // Arm the slot before followup() so a listener-driven synchronous
           // turn cannot slip past correlation; a synchronous followup()
           // failure (invalid input) must free the slot again or the session
           // would reject every later prompt as already in flight.
           const inflight: NonNullable<SessionRecord['inflight']> = {
-            resolve, reject, turn: undefined, pendingError: undefined,
+            resolve, reject, messageId: message.id, turn: undefined, endReason: undefined,
           }
           record.inflight = inflight
           try {
-            record.agent.followup(createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }))
+            record.agent.followup(message)
             // The machine's send() contains listener failures and accepts
             // any typed input; this guards a future synchronous throw so the
             // slot cannot wedge.
@@ -297,18 +311,21 @@ export function apply(ctx: Context, config: AcpConfig): void {
             throw internalError(`prompt was not queued: ${detail}`)
           }
           /* v8 ignore stop */
-          // Admission is pre-turn and retries outlive their failed turn, so a
-          // turnless slot settles only at quiescence: a held failure rejects
-          // (no retry adopted the prompt); no turn at all means admission
-          // discarded the prompt — report cancelled.
+          // Settlement waits for whole-agent idle: a correlated turn/end arms
+          // `endReason`, while a turnless slot (admission discarded the
+          // prompt) stays cancelled. Other producers may run further turns
+          // before quiescence; the prompt settles only when the agent stops.
           void record.agent.whenIdle().then(() => {
-            if (record.inflight !== inflight || inflight.turn !== undefined) return
+            if (record.inflight !== inflight) return
             record.inflight = undefined
-            if (inflight.pendingError !== undefined) {
-              rejectFromError(inflight, inflight.pendingError)
-              return
+            const end = inflight.endReason
+            if (end === undefined) {
+              inflight.resolve('cancelled')
+            } else {
+              // Token-limit and other non-terminal endings are not prompt-level
+              // stop reasons (see README); only normal quiescence reports end_turn.
+              inflight.resolve(end.kind === 'max-tokens' ? 'end_turn' : turnEndToStopReason(end))
             }
-            inflight.resolve('cancelled')
           })
         })
         return { stopReason }
@@ -337,10 +354,45 @@ export function apply(ctx: Context, config: AcpConfig): void {
     closed = true
     const records = [...sessions.values()]
     sessions.clear()
-    quiescing = Promise.all(records.map(async (record) => {
+    // Stop the bridge's own work before any await: a descendant drain can block
+    // on persistence or scoped cleanup, and the top-level agents must not keep
+    // running model and tool calls for its whole duration.
+    for (const record of records) {
+      record.agent.cancel({ kind: 'user' })
       settlePrompt(record, 'cancelled')
-      await record.dispose()
-    })).then(() => {})
+    }
+    quiescing = (async () => {
+      // Continuable subagents outlive the turn that started them, and their
+      // Activations own descendant teardown. Drain only these sessions' forests
+      // child-first BEFORE disposing the top-level agents, so no descendant is
+      // left holding a runtime its owner already released and another frontend
+      // sharing this Context remains live.
+      // Read the one teardown method structurally: the bridge needs no other
+      // part of the subagent seam, so it does not depend on that package.
+      const subagents = ctx.get('subagents') as ContinuableDrain | undefined
+      if (subagents !== undefined) {
+        try {
+          await subagents.drainContinuableDescendants(records.map(record => record.agent))
+        } catch (error: unknown) {
+          logger.warn(`acp: continuable subagent teardown failed: ${String(error)}`)
+        }
+      }
+      const disposals = await Promise.allSettled(records.map(record => record.dispose()))
+      const failures: unknown[] = []
+      for (const result of disposals) {
+        if (result.status === 'rejected') failures.push(result.reason as unknown)
+      }
+      if (failures.length > 0) {
+        // The production consumer logs this AggregateError through `String`,
+        // which renders only its message. Embed every per-session diagnostic,
+        // including nested causes and aggregate members, in that message.
+        const detail = failures.map(failure => errorChain(failure)).join('; ')
+        throw new AggregateError(
+          failures,
+          `ACP agent teardown failed for ${failures.length} session(s): ${detail}`,
+        )
+      }
+    })()
     return quiescing
   }
 

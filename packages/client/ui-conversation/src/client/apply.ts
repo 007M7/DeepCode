@@ -7,16 +7,21 @@ import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type { ViewTab } from './contract/views.ts'
 import type {
-  ApprovalWait, ChatViewInjected, ComposerBarInjected, ComposerChainProps, ConversationInjected,
-  ConversationSessionInjected, DetailsInjected,
+  ApprovalWait, ChatScrollPosition, ChatViewInjected, ComposerBarInjected, ComposerChainProps, ConversationInjected,
+  ConversationSessionHeaderInjected, ConversationSessionInjected, DetailsInjected,
 } from './contract/slots.ts'
 import type { InputNotice } from './input/contract.ts'
 import { resolveToolPath } from './contract/tool-call-model.ts'
 import { createChatStore } from './stores.ts'
 import { ConversationService, UnsupportedImageMediaTypeError } from './service.ts'
 import type { IConversation } from './service.ts'
+import { ComposerBlockRegistry } from './input/blocks.ts'
+import type { ComposerBlock } from './input/blocks.ts'
 import { InputHub } from './input/hub.ts'
+import { ComposerSubmissionPolicy } from './input/submission-policy.ts'
 import { InputBar } from './skeleton/InputBar.tsx'
+import { EnterBehaviorRow } from './settings/EnterBehaviorRow.tsx'
+import type { EnterBehaviorRowInjected } from './settings/EnterBehaviorRow.tsx'
 import { ChatView } from './chat/ChatView.tsx'
 import { StatsLine } from './chat/StatsLine.tsx'
 import { bashToolviewSample } from './toolviews/bash-sample.tsx'
@@ -30,7 +35,7 @@ import { askQuestionToolview } from './toolviews/ask-question-row.tsx'
 import { todoDockEntry } from './skeleton/TodoPanel.tsx'
 import { queueDockEntry } from './queue/QueueDock.tsx'
 import { ConversationRoot } from './skeleton/ConversationRoot.tsx'
-import { ConversationSession } from './skeleton/ConversationSession.tsx'
+import { ConversationSession, ConversationSessionHeader } from './skeleton/ConversationSession.tsx'
 import { DetailsPanel } from './skeleton/DetailsPanel.tsx'
 import { en, NS, zh, type ConversationKey } from './locales.ts'
 
@@ -49,6 +54,11 @@ export const inject = ['slots', 'layout', 'sessions', 'workspaces', 'locale']
 // one identity across every no-session render.
 const ABSENT_NOTICES = {
   getSnapshot: (): InputNotice | null => null,
+  subscribe: () => () => {},
+}
+/** No session, therefore nothing to block; same one-identity rule as above. */
+const ABSENT_BLOCK = {
+  getSnapshot: (): ComposerBlock | undefined => undefined,
   subscribe: () => () => {},
 }
 const EMPTY_LEXICON: ReadonlyMap<'/' | '@', readonly string[]> = new Map()
@@ -100,11 +110,23 @@ export function apply(ctx: Context): void {
 
   // Apply-time construction keeps store identity bound to this fiber.
   const chatStore = createChatStore()
+  const submissionPolicy = new ComposerSubmissionPolicy()
 
-  // Chat scroll offsets by session, surviving view switches (the chat view
-  // unmounts under the tab ring). Deliberately not persisted: a fresh page
-  // load should keep the open-jump-to-bottom default.
-  const chatScrollTops = new Map<SessionId, number>()
+  ctx.slots.inject('settings.general.item', () => ctx.slots.register({
+    name: 'settings.general.item',
+    id: 'composer-enter',
+    order: 20,
+    locale: NS,
+    inject: (): EnterBehaviorRowInjected => ({
+      hooks: { busyEnter: submissionPolicy.busyEnter },
+      setBusyEnter: (behavior) => { submissionPolicy.setBusyEnter(behavior) },
+    }),
+  }, EnterBehaviorRow))
+
+  // Chat semantic reader positions by session, surviving view switches and
+  // width reflow when the tab ring remounts the view. Deliberately not
+  // persisted: a fresh page load keeps the open-jump-to-bottom default.
+  const chatScrollPositions = new Map<SessionId, ChatScrollPosition>()
 
   const viewTabs = (): ViewTab[] => {
     const tabs: ViewTab[] = []
@@ -115,10 +137,21 @@ export function apply(ctx: Context): void {
     }
     return tabs
   }
+  const views = {
+    list: viewTabs,
+    subscribe: (fn: () => void) => slots.subscribe('conversation.view', fn),
+    version: () => slots.getVersion('conversation.view'),
+  }
 
   // The per-session input machine registry (InputService face; published as
   // ctx.conversation.input by the service below sharing this one instance).
   const inputHub = new InputHub(ctx)
+
+  // The composer-block registry: a plugin that knows a session cannot send —
+  // ui-model, when no adapter serves the session's route — raises a block
+  // here, and the bar reads its own session's store. It cannot flow the other
+  // way: this package must not import the plugins that would know.
+  const composerBlocks = new ComposerBlockRegistry()
 
   // Decision 19/20: the input machine feeds every session-scope slot
   // component through the standard provide channel — the 'input' hook plus
@@ -143,6 +176,7 @@ export function apply(ctx: Context): void {
     locale: NS,
     children: {
       'conversation.session': { kind: 'single', scope: 'session' },
+      'conversation.session.header': { kind: 'single', scope: 'session' },
       'conversation.composer': { kind: 'chain', scope: 'session' },
       'conversation.composer.bar': { kind: 'single', scope: 'session-maybe' },
       'conversation.input.overlay': { kind: 'list', scope: 'session' },
@@ -153,6 +187,7 @@ export function apply(ctx: Context): void {
       'conversation.hero.workspace': { kind: 'single', scope: 'root' },
     },
     inject: (sessionId: SessionId | undefined): ConversationInjected => ({
+      hooks: { composerBlock: sessionId === undefined ? ABSENT_BLOCK : composerBlocks.storeFor(sessionId) },
       selectWorkspace: async (workspaceId) => {
         const nextId = await workspaces.connectWorkspace(workspaceId)
         if (sessionId !== undefined && nextId !== sessionId) {
@@ -160,9 +195,6 @@ export function apply(ctx: Context): void {
           const draft = from.snapshot.draft
           const imageIds = from.snapshot.imageIds
           const next = inputHub.shell(nextId)
-          // Transfer only on acceptance: a destination shell mid-submission
-          // refuses the whole mixed draft, which remains owned (and releasable)
-          // by the source shell instead of splitting text from its images.
           if (imageIds.length === 0 || next.addImages(imageIds)) {
             if (draft !== '') {
               next.setDraft(draft)
@@ -178,27 +210,39 @@ export function apply(ctx: Context): void {
     }),
   }, ConversationRoot)
 
-  // The strict session subtree owns only per-session store and view content;
-  // the resident parent keeps Hero and composer layout identity stable.
+  // The strict session body fills the resident scrollport without owning it;
+  // the Hero/composer path therefore stays fixed while the first blank
+  // session appears after a Workspace pick.
   slots.register({
     name: 'conversation.session',
-    locale: NS,
-    children: { 'conversation.view': { kind: 'list', scope: 'session' } },
+    children: {
+      'conversation.view': { kind: 'list', scope: 'session' },
+    },
     store: chatStore,
     inject: (sessionId: SessionId, _actions: BoundActions<typeof chatStore>): ConversationSessionInjected => {
       const conversation = concreteConversation(ctx)
       return {
-        views: {
-          list: viewTabs,
-          subscribe: fn => slots.subscribe('conversation.view', fn),
-          version: () => slots.getVersion('conversation.view'),
-        },
+        views,
         releaseSessionImages: (id) => { conversation.releaseSessionImages(id) },
         bindDraftMirror: write => inputHub.shell(sessionId).bindMirror(write),
-        open: (id) => { sessions.open(id) },
       }
     },
   }, ConversationSession)
+
+  // Header chrome sits above the resident scrollport but shares the same
+  // per-session chat store (active view) as its body and view entries.
+  slots.register({
+    name: 'conversation.session.header',
+    locale: NS,
+    children: {
+      'conversation.session.header.actions': { kind: 'list', scope: 'session' },
+    },
+    store: chatStore,
+    inject: (): ConversationSessionHeaderInjected => ({
+      views,
+      open: (id) => { sessions.open(id) },
+    }),
+  }, ConversationSessionHeader)
 
   // The default composer body: its own single slot inside the composer
   // chain's fallback (decision 20). Public machine surface arrives via the
@@ -224,6 +268,8 @@ export function apply(ctx: Context): void {
           addImages: undefined,
           removeImage: undefined,
           draftImages: undefined,
+          resolveSubmitMode: (running, gesture, steeringAvailable) =>
+            submissionPolicy.resolve(running, gesture, steeringAvailable),
           toggleCommandMenu: undefined,
           stop: undefined,
           command: undefined,
@@ -239,10 +285,7 @@ export function apply(ctx: Context): void {
           try {
             const images = conversation.createDraftImages(files)
             if (!shell.addImages(images.map(image => image.id))) {
-              // Refused intake (machineBusy raced a submission): release the
-              // just-created previews instead of stranding their object URLs.
               conversation.releaseDraftImages(images)
-              return null
             }
             return null
           } catch (error: unknown) {
@@ -259,6 +302,8 @@ export function apply(ctx: Context): void {
           shell.removeImage(id)
         },
         draftImages: ids => conversation.draftImages(ids),
+        resolveSubmitMode: (running, gesture, steeringAvailable) =>
+          submissionPolicy.resolve(running, gesture, steeringAvailable),
         toggleCommandMenu: slash === undefined
           ? undefined
           : (selection) => {
@@ -315,6 +360,7 @@ export function apply(ctx: Context): void {
     children: {
       'conversation.chat.toolview': { kind: 'keyed', scope: 'session' },
       'conversation.chat.commandview': { kind: 'keyed', scope: 'session' },
+      'conversation.chat.turnTail': { kind: 'chain', scope: 'session' },
     },
     store: chatStore,
     inject: (sessionId: SessionId, actions: BoundActions<typeof chatStore>): ChatViewInjected => {
@@ -341,11 +387,11 @@ export function apply(ctx: Context): void {
           actions.setView('trajectory')
         },
         chatScroll: {
-          save: (top) => {
-            if (top === null) chatScrollTops.delete(sessionId)
-            else chatScrollTops.set(sessionId, top)
+          save: (position) => {
+            if (position === null) chatScrollPositions.delete(sessionId)
+            else chatScrollPositions.set(sessionId, position)
           },
-          read: () => chatScrollTops.get(sessionId) ?? null,
+          read: () => chatScrollPositions.get(sessionId) ?? null,
         },
         forkAt: (seq) => {
           sessions.fork({ sessionId, atSeq: seq, increaseTitle: true })
@@ -359,18 +405,16 @@ export function apply(ctx: Context): void {
   }, ChatView)
 
   // Session stats stick with the composer (composer.dock = stats-line family).
-  slots.register({ name: 'conversation.composer.dock', id: 'stats', order: 0 }, StatsLine)
+  slots.register({ name: 'conversation.composer.dock', id: 'stats', order: 0, locale: NS }, StatsLine)
 
   // Class-plugin mount (packages/AGENTS.md service form): the service
   // registers itself as `conversation` and lives on its own child fiber.
-  // Mounted AFTER the chat entry register above — construction guarantee for
-  // toolview registrants using `inject: ['conversation']` as their load-order
-  // seam: the service being present implies the chat entry (and with it the
-  // 'conversation.chat.toolview' declaration) is on the ledger.
-  ctx.plugin(ConversationService, { input: inputHub })
+  // Presentation registrants depend directly on their slot declarations;
+  // this service remains only where conversation actions are required.
+  ctx.plugin(ConversationService, { input: inputHub, blocks: composerBlocks })
 
-  // The bash sample rides that exact seam, in third-party posture
-  // (ToolRow-matching Bash · {description} chrome; scoped badge in child sessions).
+  // The bash sample rides the same declaration seam, in third-party posture
+  // (ToolRow-matching Bash · {description} chrome).
   ctx.plugin(bashToolviewSample)
 
   // The read row rides the same seam (a product registration, not a sample):
@@ -412,4 +456,5 @@ export function apply(ctx: Context): void {
       closeDetails: () => { layout.closeDetails() },
     }),
   }, DetailsPanel)
+
 }

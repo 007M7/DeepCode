@@ -1,4 +1,4 @@
-/** Models section registration: declaration-aware deferral, the locale-following label thunk, and HMR recovery. */
+/** Models section registration: slot declaration injection, the locale-following label thunk, and HMR recovery. */
 import { Context } from 'cordis'
 import { describe, expect, it, vi } from 'vitest'
 import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
@@ -53,7 +53,7 @@ describe('ui-models apply', () => {
     expect(resolveSlotLabel(entry.options.label)).toBe('模型')
     const injected = (entry.inject as unknown as () => import('../src/client/ModelsSection.tsx').ModelsSectionInjected)()
     expect(injected.t('nav')).toBe('模型')
-    expect(injected.t('deleteTitle')).toBe('删除模型提供方？')
+    expect(injected.t('deleteTitle')).toBe('删除 {provider}？')
     expect(typeof injected.controller.load).toBe('function')
     expect(typeof injected.useSnapshot).toBe('function')
     expect(injected.api).toBeDefined()
@@ -80,10 +80,10 @@ describe('ui-models apply', () => {
     b.locale.setLocale('en')
     expect(resolveSlotLabel(b.slots.entries('settings.section')[0]!.options.label)).toBe('Models')
     const injected = b.slots.entries('settings.section')[0]!.inject as unknown as () => import('../src/client/ModelsSection.tsx').ModelsSectionInjected
-    expect(injected().t('deleteTitle')).toBe('Delete model provider?')
+    expect(injected().t('deleteTitle')).toBe('Delete {provider}?')
     b.locale.setLocale('zh')
     expect(resolveSlotLabel(b.slots.entries('settings.section')[0]!.options.label)).toBe('模型')
-    expect(injected().t('deleteTitle')).toBe('删除模型提供方？')
+    expect(injected().t('deleteTitle')).toBe('删除 {provider}？')
   })
 
   it('locale change while the slot is undeclared stays a no-op', async () => {

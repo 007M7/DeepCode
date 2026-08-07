@@ -149,15 +149,8 @@ function alwaysConfig(backoff: BackoffConfig = {}): AlwaysRetryPolicyConfig {
   }
 }
 
-function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
-  return new Promise((resolve) => {
-    const dispose = ctx.on('agent/status', (subject, status) => {
-      if (subject === agent && status === 'idle') {
-        dispose()
-        resolve()
-      }
-    })
-  })
+function waitForIdle(_ctx: Context, agent: Agent): Promise<void> {
+  return agent.whenIdle()
 }
 
 function waitForRetry(ctx: Context, agent: Agent, retryNumber: number): Promise<Extract<SessionEvent, { type: 'llm/retry' }>> {
@@ -180,7 +173,7 @@ afterEach(async () => {
 })
 
 describe('provider-routed retry policy', () => {
-  it('records the scheduled delay before opening a fresh request attempt', async () => {
+  it('records the scheduled delay before retrying the request', async () => {
     vi.useFakeTimers()
     const adapter = new ScriptedAdapter([
       new LlmError('busy', 'RATE_LIMIT', { status: 429 }),
@@ -219,7 +212,7 @@ describe('provider-routed retry policy', () => {
 
     expect(adapter.requests).toHaveLength(2)
     expect(agent.session.events.filter(item => item.type === 'step/start').map(item => item.data))
-      .toEqual([{ turn: 1, step: 1 }, { turn: 2, step: 1 }])
+      .toEqual([{ turn: 1, step: 1 }])
     expect(agent.session.deriveMessages().at(-1)).toEqual({
       id: expect.any(String) as unknown,
       role: 'assistant',
@@ -256,7 +249,7 @@ describe('provider-routed retry policy', () => {
     expect(agent.session.events.filter(event => event.type === 'assistant/message').map(event => ({
       turn: event.data.turn,
       step: event.data.step,
-    }))).toEqual([{ turn: 2, step: 1 }])
+    }))).toEqual([{ turn: 1, step: 1 }])
     expect(agent.session.deriveMessages().at(-1)).toMatchObject({
       role: 'assistant',
       content: [{ type: 'text', text: 'recovered' }],
@@ -289,14 +282,21 @@ describe('provider-routed retry policy', () => {
     await vi.advanceTimersByTimeAsync(500)
     await idle
 
+    const retryEvent = agent.session.events.find(event => event.type === 'llm/retry')
     const failedChunks = agent.session.events.filter(event =>
-      event.type === 'assistant/chunk' && event.data.turn === 1 && event.data.step === 1,
+      event.type === 'assistant/chunk'
+      && retryEvent !== undefined
+      && event.seq < retryEvent.seq,
     )
-    expect(failedChunks).toHaveLength(6)
-    expect(agent.session.events.filter(event => event.type === 'assistant/message').map(event => ({
+    expect(failedChunks).toHaveLength(7)
+    const assistantMessages = agent.session.events.filter(event => event.type === 'assistant/message')
+    expect(assistantMessages.map(event => ({
       turn: event.data.turn,
       step: event.data.step,
-    }))).toEqual([{ turn: 2, step: 1 }])
+    }))).toEqual([{ turn: 1, step: 1 }])
+    expect(failedChunks.every(event =>
+      !assistantMessages[0]?.sourceEventSeqs?.includes(event.seq),
+    )).toBe(true)
     expect(agent.session.events.some(event => event.type === 'tool/call')).toBe(false)
     expect(toolExecutions).toBe(0)
     expect(agent.session.deriveMessages().at(-1)).toMatchObject({
@@ -337,7 +337,7 @@ describe('provider-routed retry policy', () => {
     expect(agent.session.events.filter(event => event.type === 'llm/retry')).toHaveLength(2)
     expect(agent.session.events.at(-1)).toMatchObject({
       type: 'turn/end',
-      data: { reason: { kind: 'error', failure: { message: 'busy three', code: 'SERVER' } } },
+      data: { reason: { kind: 'error', error: { message: 'busy three', code: 'SERVER' } } },
     })
   })
 
@@ -448,10 +448,14 @@ describe('provider-routed retry policy', () => {
 
     expect(adapter.requests).toHaveLength(0)
     expect(agent.session.events.some(event => event.type === 'llm/retry')).toBe(false)
-    expect(agent.session.events.at(-1)).toMatchObject({
+    const end = agent.session.events.at(-1)
+    expect(end).toMatchObject({
       type: 'turn/end',
-      data: { reason: { kind: 'error', failure: { code: 'NO_ADAPTER' } } },
+      data: { reason: { kind: 'error', error: { code: 'NO_ADAPTER' } } },
     })
+    if (end?.type === 'turn/end' && end.data.reason.kind === 'error') {
+      expect(end.data.reason.error.message).toContain('no adapter registered for provider')
+    }
   })
 
   it('selects policy by the failed request provider', async () => {
@@ -502,7 +506,7 @@ describe('provider-routed retry policy', () => {
     ;({ ctx: context } = await harness(adapter, {
       other: alwaysConfig({ initialDelayMs: 1, maxDelayMs: 1, jitterRatio: 0 }),
     }, (ctx) => {
-      ctx.on('agent/request', async (_agent, _turn, _step, _signal, next) => ({
+      ctx.on('agent/request', async (_payload, next) => ({
         ...await next(),
         provider: 'other',
       }))
@@ -539,9 +543,9 @@ describe('provider-routed retry policy', () => {
         backoff: { initialDelayMs: 1, maxDelayMs: 1 },
       }),
     }, (ctx) => {
-      ctx.on('agent/request', async (_agent, turn, _step, _signal, next) => ({
+      ctx.on('agent/request', async (_payload, next) => ({
         ...await next(),
-        provider: turn === 1 ? 'mock' : 'other',
+        provider: adapter.requests.length === 0 ? 'mock' : 'other',
       }))
     }))
     const agent = context.agentLoop.create(SessionId('retry-provider-budgets'), {
@@ -877,7 +881,7 @@ describe('provider-routed retry policy', () => {
     context = mounted.ctx
     const downstream = Promise.withResolvers<RequestErrorAction>()
     const entered = Promise.withResolvers<undefined>()
-    context.on('agent/request-error', (agent) => {
+    context.on('agent/request-error', ({ agent }) => {
       agent.cancel({ kind: 'user' })
       entered.resolve(undefined)
       return downstream.promise
@@ -913,9 +917,7 @@ describe('provider-routed retry policy', () => {
     const captured = Promise.withResolvers<undefined>()
     let invokeCaptured: (() => Promise<void>) | undefined
     const mounted = await harness(adapter, {}, (ctx) => {
-      ctx.on('agent/request-error', (
-        _agent, _turn, _step, _error, _failure, _history, _retryPolicy, _signal, next,
-      ) => {
+      ctx.on('agent/request-error', (_payload, next) => {
         return new Promise<RequestErrorAction>((resolve) => {
           invokeCaptured = async () => { resolve(await next()) }
           captured.resolve(undefined)
@@ -924,9 +926,7 @@ describe('provider-routed retry policy', () => {
     })
     context = mounted.ctx
     let downstreamCalls = 0
-    context.on('agent/request-error', async (
-      _agent, _turn, _step, _error, _failure, _history, _retryPolicy, _signal, next,
-    ) => {
+    context.on('agent/request-error', async (_payload, next) => {
       downstreamCalls += 1
       return next()
     })
@@ -980,9 +980,7 @@ describe('provider-routed retry policy', () => {
       textResponse('must not run'),
     ])
     ;({ ctx: context } = await harness(adapter, { mock: policy }, (ctx) => {
-      ctx.on('agent/request-error', async (
-        agent, _turn, _step, _error, _failure, _history, _retryPolicy, _signal, next,
-      ) => {
+      ctx.on('agent/request-error', async ({ agent }, next) => {
         agent.cancel({ kind: 'user' })
         return next()
       })

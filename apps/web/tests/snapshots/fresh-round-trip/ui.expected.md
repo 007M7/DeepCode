@@ -7,12 +7,10 @@
 - text: "Use the bash tool to run exactly: echo WEB_E2E_OK. Then reply with the single word DONE and stop. {{clock}}"
 - button "Copy":
   - img
-- button "Branch into a new conversation":
-  - img
-- button "Context injection":
+- button "Context injection @deepseek-ai/dsh-system-prompt":
   - img
   - img
-  - text: Context injection
+  - text: Context injection @deepseek-ai/dsh-system-prompt
 - button "Think The user wants me to run a simple bash command and reply with \"DONE\".":
   - img
   - img
@@ -30,13 +28,14 @@
   - img
 - button "Branch into a new conversation":
   - img
-- text: {{clock}}
+- text: {{clock}} Ran for {{duration}} TTFT {{duration}} {{throughput}} tok/s
 - textbox "Message the agent"
 - button "Commands":
   - img
-- 'button "Access mode, current: Full access"': Full access
+- 'button "Access mode, current: Workspace Write"': Workspace Write
 - button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img
+- button "6% of context used"
 - button "Send message" [disabled]
-- text: 1 turns · 2 steps Tool call {{duration}} Context 6% of 128K Cache hit 99% Input 15.7K tok · Output 111 tok
+- text: 1 turns · 2 steps LLM {{duration}} · Tool call {{duration}} TTFT avg {{duration}} · {{throughput}} tok/s Cache hit 99% Input 15.7K tok · Output 111 tok

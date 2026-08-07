@@ -12,7 +12,7 @@ Status: implemented
 
 ## 决策
 
-该工具集以 [`@deepseek-ai/dsh-tool-cordis`](../../../../packages/cordis/tool-cordis/README.md) 发布，并由 `examples/web-cordis` 演示。它为模型提供三个工具，操作当前 DSH 进程中的活跃 Cordis 运行时：审视它、挂载一个仅存于内存的临时 Plugin，再将该 Plugin 卸载至完全停稳。
+该工具集以 [`@deepseek-ai/dsh-tool-cordis`](../../../../packages/cordis/tool-cordis/README.md) 发布，并由 `examples/web-cordis` 演示。它为模型提供三个工具，用于操作当前 DSH 进程中的活跃 Cordis 运行时：检查该运行时、挂载一个仅存于内存的临时 Plugin，再将该 Plugin 卸载至完全停稳。
 
 vm 隔离了意外的全局污染，上下文门面隐藏了框架内部细节。但二者都不限制已暴露服务的权限：临时 Plugin 可以调用 `ctx.bash` 以宿主执行器的权限运行命令，也能访问真实的文件系统和网络服务。它运行在共享 DSH runtime 中，可能影响同一进程的其他 session。这是一个需要显式启用的开发工具，信任等级与 bash 相当，不是安全边界，也不是产品默认配置。
 
@@ -60,7 +60,7 @@ vm 隔离了意外的全局污染，上下文门面隐藏了框架内部细节�
 
 ## 曾考虑的替代方案
 
-**用结构化的逐能力注册工具替代 `cordis_mount`。** 最具吸引力的替代方案是一个带有显式 `name` / `description` / `parameters` / `code` 字段的 `cordis_register_tool`（以及兄弟工具 `cordis_register_listener`、`cordis_register_service`……），而非单一的「挂载一个插件」原语。否决原因：它唯一的真正优势——对最常见的单一场景免去插件样板代码——不足以抵偿其代价，而单一的 mount 原语能一次性覆盖所有能力。
+**用结构化的逐能力注册工具替代 `cordis_mount`。** 最具吸引力的替代方案是一个带有显式 `name` / `description` / `parameters` / `code` 字段的 `cordis_register_tool`（以及配套工具 `cordis_register_listener`、`cordis_register_service`……），而非单一的「挂载一个插件」原语。否决原因：它唯一的真正优势——对最常见的单一场景免去插件样板代码——不足以抵偿其代价，而单一的 mount 原语能一次性覆盖所有能力。
 
 | 维度 | 结构化逐能力工具 | 单一 `cordis_mount` |
 |---|---|---|

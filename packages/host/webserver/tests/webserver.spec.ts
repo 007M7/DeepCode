@@ -2,16 +2,17 @@
  * REAL-composition coverage: a test-only cordis.yml booted through the
  * vendored Loader mounts the webserver row, and every assertion observes the
  * user-visible HTTP surface of the running server (routing precedence, index
- * taps, static-fallback semantics, per-request error containment, teardown).
+ * taps, fallback-seat semantics, per-request error containment, teardown).
  */
 
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
-import { mkdir } from 'node:fs/promises'
+import { once } from 'node:events'
+import { connect } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
-import { Context, FiberState } from 'cordis'
+import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import Include from '@cordisjs/plugin-include'
 import HttpServer from '../src/index.ts'
@@ -26,21 +27,15 @@ afterEach(async () => {
   root = undefined
 })
 
-/** Write a dist fixture and a cordis.yml with one webserver row, then boot it through the real Loader. */
+/** Write a cordis.yml with one webserver row, then boot it through the real Loader. */
 async function loadComposition(port = 0): Promise<Context> {
   root = await mkdtemp(join(tmpdir(), 'dsh-webserver-loader-'))
-  const dist = join(root, 'dist')
-  await mkdir(dist)
-  const distIndex = join(dist, 'index.html')
-  await writeFile(distIndex, '<head></head><body>shell</body>')
-  await writeFile(join(dist, 'app.js'), 'export {}')
   const configPath = join(root, 'cordis.yml')
   await writeFile(configPath, [
     "- name: '@deepseek-ai/dsh-host-webserver'",
     '  config:',
     "    host: '127.0.0.1'",
     `    port: ${String(port)}`,
-    `    distIndex: '${distIndex}'`,
     '',
   ].join('\n'))
 
@@ -72,11 +67,29 @@ async function request(port: number, path: string, init?: RequestInit): Promise<
   return { status: response.status, body: (await response.text()).slice(0, 80) }
 }
 
+/** Open one raw upgrade request and return after the handler writes its response. */
+async function upgrade(port: number, path: string): Promise<ReturnType<typeof connect>> {
+  const socket = connect(port, '127.0.0.1')
+  await once(socket, 'connect')
+  const response = once(socket, 'data')
+  socket.write([
+    `GET ${path} HTTP/1.1`,
+    `Host: 127.0.0.1:${String(port)}`,
+    'Connection: Upgrade',
+    'Upgrade: dsh-test',
+    '',
+    '',
+  ].join('\r\n'))
+  const [data] = await response as [Buffer]
+  expect(String(data)).toContain('101 Switching Protocols')
+  return socket
+}
+
 describe('real Loader composition', () => {
   // Real-Loader composition resolves workspace packages through tsx at test
   // time; first resolution after the host/client program split is slow enough
   // to trip the default 5s budget on cold caches.
-  it('serves registered routes, index taps, and the static fallback semantics', { timeout: 60_000 }, async () => {
+  it('serves registered routes, index taps, and the fallback-seat semantics', { timeout: 60_000 }, async () => {
     const loaded = await loadComposition()
     const unloaded = [...loaded.loader.entries()]
       .filter(entry => entry.fiber === undefined && !entry.disabled)
@@ -100,19 +113,24 @@ describe('real Loader composition', () => {
     expect(await request(port, '/api')).toMatchObject({ status: 200, body: 'API' })
     expect(await request(port, '/api/anything', { method: 'POST' })).toMatchObject({ status: 200, body: 'API' })
 
-    // Index taps apply in registration order on `/` and on the SPA fallback;
-    // the disposer removes the transform.
+    // Fallback seat: 404 while unclaimed; the owner answers everything no
+    // named route matches; index taps are the owner's to apply; the seat
+    // admits exactly one owner and the disposer releases it.
+    expect((await request(port, '/no/such/route')).status).toBe(404)
     const untap = server.tapIndex(html => html.replace('<head>', '<head><script>window.__T__=1</script>'))
-    expect((await request(port, '/')).body).toContain('__T__')
+    expect(server.applyIndexTaps('<head></head>')).toContain('__T__')
+    const releaseFallback = server.registerFallback((req, res) => {
+      // Decode like a real static server would — a malformed %-escape throws
+      // here, probing the webserver's per-request error containment.
+      decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname)
+      res.writeHead(200, { 'content-type': 'text/html' })
+      res.end(server.applyIndexTaps('<head></head><body>shell</body>'))
+    })
+    expect(() => server.registerFallback(() => {})).toThrow(/fallback already registered/)
     expect((await request(port, '/no/such/route')).body).toContain('__T__')
     untap()
-    expect((await request(port, '/')).body).not.toContain('__T__')
-
-    // Static fallback semantics: real asset served, traversal 403, non-GET/
-    // HEAD without a matching route 405.
-    expect(await request(port, '/app.js')).toMatchObject({ status: 200, body: 'export {}' })
-    expect((await request(port, '/..%2f..%2fetc%2fpasswd')).status).toBe(403)
-    expect((await request(port, '/nowhere', { method: 'POST' })).status).toBe(405)
+    expect((await request(port, '/no/such/route')).body).not.toContain('__T__')
+    expect((await request(port, '/no/such/route')).body).toContain('shell')
 
     // Per-request error containment: a malformed %-escape answers 400 and the
     // server keeps serving afterwards (no process-level failure path).
@@ -126,11 +144,59 @@ describe('real Loader composition', () => {
     const disposeOnce = server.register({ kind: 'exact', path: '/once', handler: (_req, res) => { res.writeHead(200); res.end('ONCE') } })
     expect(await request(port, '/once')).toMatchObject({ status: 200, body: 'ONCE' })
     disposeOnce()
-    expect((await request(port, '/once')).body).toContain('shell') // back to the SPA fallback
+    expect((await request(port, '/once')).body).toContain('shell') // back to the fallback owner
     expect(() => server.register({ kind: 'exact', path: '/once', handler: () => {} })).not.toThrow()
 
-    // Teardown: fiber dispose closes the socket and severs held connections.
+    // Releasing the seat restores the unclaimed 404 and registrability.
+    releaseFallback()
+    expect((await request(port, '/no/such/route')).status).toBe(404)
+    expect(() => server.registerFallback(() => {})).not.toThrow()
+
+    // Upgrade routes match exact pathnames, reject duplicate ownership, and
+    // become registrable again after disposal. The accepted socket stays open
+    // so the teardown assertion also covers upgraded-connection ownership.
+    let upgradedServerClosed = false
+    const disposeUpgrade = server.registerUpgrade({
+      path: '/events',
+      handler: (_req, socket) => {
+        socket.once('close', () => { upgradedServerClosed = true })
+        socket.write('HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: dsh-test\r\n\r\n')
+      },
+    })
+    expect(() => server.registerUpgrade({ path: '/events', handler: () => {} }))
+      .toThrow(/duplicate upgrade route/)
+    const upgraded = await upgrade(port, '/events?stream=mux')
+    disposeUpgrade()
+    expect(() => server.registerUpgrade({ path: '/events', handler: () => {} })).not.toThrow()
+
+    // The webserver contains raw-socket errors even before an upgrade handler
+    // has installed its protocol implementation.
+    server.registerUpgrade({
+      path: '/upgrade-error',
+      handler: async (_req, socket) => {
+        await Promise.resolve()
+        socket.destroy(new Error('test upgrade transport failure'))
+      },
+    })
+    const failedUpgrade = connect(port, '127.0.0.1')
+    failedUpgrade.on('error', () => { /* The server-side reset is the fixture outcome. */ })
+    await once(failedUpgrade, 'connect')
+    const failedUpgradeClosed = once(failedUpgrade, 'close')
+    failedUpgrade.write([
+      'GET /upgrade-error HTTP/1.1',
+      `Host: 127.0.0.1:${String(port)}`,
+      'Connection: Upgrade',
+      'Upgrade: dsh-test',
+      '',
+      '',
+    ].join('\r\n'))
+    await failedUpgradeClosed
+    expect(await request(port, '/probe')).toMatchObject({ status: 200, body: 'EXACT' })
+
+    // Teardown closes both ordinary and upgraded sockets before it resolves.
     await loaded.fiber.dispose()
+    expect(upgradedServerClosed).toBe(true)
+    upgraded.destroy()
     await expect(request(port, '/probe')).rejects.toThrow()
   })
 
@@ -140,25 +206,17 @@ describe('real Loader composition', () => {
     const firstRoot = root
     root = undefined // keep the first composition's files until the end
 
-    // loader.await() never rejects (allSettled); the bind failure surfaces as
-    // a FAILED fiber whose error escapes as a late rejection — the shape the
-    // boot's installFailLoud is contracted to catch. Capture it here the same
-    // way, and assert it really is the bind error.
-    const rejections: unknown[] = []
-    const onUnhandled = (err: unknown): void => { rejections.push(err) }
-    process.on('unhandledRejection', onUnhandled)
     let second: Context | undefined
     try {
-      second = await loadComposition(takenPort)
-      const entry = [...second.loader.entries()].find(e => e.options.name === '@deepseek-ai/dsh-host-webserver')
-      expect(entry?.fiber?.state).toBe(FiberState.FAILED)
-      // The rejection escapes a tick after loader.await() settles; bounded poll.
-      for (let i = 0; i < 100 && rejections.length === 0; i++) {
-        await new Promise(resolve => setTimeout(resolve, 10))
+      let failure: unknown
+      try {
+        await loadComposition(takenPort)
+      } catch (error) {
+        failure = error
       }
-      expect(rejections.map(String).join('\n')).toContain('EADDRINUSE')
+      second = context
+      expect(String(failure)).toMatch(/failed to apply loader entry.*EADDRINUSE/)
     } finally {
-      process.off('unhandledRejection', onUnhandled)
       await second?.fiber.dispose()
       context = first
       if (root !== undefined) await rm(root, { recursive: true, force: true })

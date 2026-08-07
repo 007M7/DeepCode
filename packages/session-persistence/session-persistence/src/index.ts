@@ -6,6 +6,7 @@
  */
 
 import { Context, Service } from 'cordis'
+import { SessionPreparation } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 import type { SessionPersistenceRevision } from './revision.ts'
 
@@ -21,9 +22,26 @@ export interface SessionPersistenceSnapshot {
   revision: SessionPersistenceRevision
 }
 
+/** Immutable logical session prepared from persistence or a live owner. */
+export interface SessionInspection {
+  /** Validated immutable session metadata. */
+  readonly meta: SessionHeader
+  /** Validated contiguous logical event log. */
+  readonly events: readonly SessionEvent[]
+}
+
 // The backend-agnostic write-path orchestration first-party backends compose.
-export { PersistenceCoordinator } from './coordinator.ts'
-export type { PersistenceBackend, StoredPrefix, StoredSuffix } from './coordinator.ts'
+export {
+  DEFAULT_PREPARED_SESSION_CACHE_SIZE,
+  PersistenceCoordinator,
+  SessionPersistenceCorruptionError,
+} from './coordinator.ts'
+export type {
+  PersistenceBackend,
+  PersistenceCoordinatorOptions,
+  StoredPrefix,
+  StoredSuffix,
+} from './coordinator.ts'
 
 declare module 'cordis' {
   interface Context {
@@ -83,46 +101,72 @@ export abstract class SessionPersistence extends Service {
   abstract append(id: SessionId, events: readonly SessionEvent[]): Promise<void>
 
   /**
-   * Load a header and balanced contiguous log. A complete interrupted final
-   * turn is preserved and durably closed with missing tool errors plus any open
-   * step and turn boundaries; only a torn final record is discarded. Unknown
-   * versions and corruption in the committed prefix reject. Implementations
-   * MUST NOT crash-repair an identity still bound to a live Session: a balanced
-   * live log may return with its stored header as a durable snapshot, while an
-   * open live turn rejects.
-   * A coordinator-backed cold load reserves the identity across storage awaits,
-   * so concurrent publication of a same-id live Session rejects.
-   * Returned events are detached, and every identified message is deeply
-   * frozen. Coordinator-backed implementations upgrade supported pre-identity
-   * message events before validation; other malformed messages reject before
-   * any stored event is returned.
+   * Prepare the exact unpublished Session used by resume. Implementations may
+   * reuse object graphs retained by an earlier {@link inspect} after confirming
+   * their durable revision is still current; disposal releases an unpublished
+   * reservation. Revision retries require the durable log to remain unchanged
+   * for one read/check round trip; continuous external writers may delay completion.
+   * @param id - persisted session to prepare.
+   * @param signal - optional cancellation for preparation work.
+   * @returns one owned unpublished Session preparation.
+   */
+  async prepare(id: SessionId, signal?: AbortSignal): Promise<SessionPreparation> {
+    signal?.throwIfAborted()
+    const loaded = await this.load(id)
+    signal?.throwIfAborted()
+    const sessions = this.ctx.get('sessions')
+    if (sessions === undefined) {
+      throw new Error('cannot prepare a session: SessionStore is not configured')
+    }
+    return SessionPreparation.create(sessions.prepare(id, {
+      seed: loaded.events.map(event => structuredClone(event)),
+      meta: structuredClone(loaded.meta),
+      seedSource: 'persistence',
+    }))
+  }
+
+  /**
+   * Load an immutable balanced logical view and commit any required cold
+   * recovery. A complete interrupted final turn is preserved and durably
+   * closed with missing tool errors plus any open step and turn boundaries;
+   * only a torn final record is discarded. Unknown versions and corruption in
+   * the committed prefix reject. Implementations MUST NOT crash-repair an
+   * identity still bound to a live Session: a balanced live log may return as a
+   * durable snapshot, while an open live turn rejects. Returned values may be
+   * shared with immutable live or prepared state and must not be mutated.
+   * Revision-based implementations may wait for one stable read/check round trip.
    * @param id - the persisted session to reload.
    * @returns the header and a log ending on a balanced `turn/end`.
    */
-  abstract load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }>
+  abstract load(id: SessionId): Promise<SessionInspection>
 
   /**
-   * Inspect a header and its valid contiguous stored prefix without repairing
-   * a torn tail, closing an interrupted turn, or publishing coordinator state.
-   * This read is serialized with writes for the same id and returns detached
-   * values with upgraded, deeply frozen identified messages, so observers
-   * cannot mutate message identity/content or backend-owned state. Other
-   * malformed messages reject.
+   * Inspect an immutable logical session without committing recovery or
+   * publishing it. A cold complete interrupted turn receives synthetic closers
+   * in memory and a torn physical tail remains untouched. An already-live
+   * Session instead yields its current immutable snapshot, which may contain an
+   * open turn and its `session/end-seed` boundary. Coordinator-backed
+   * implementations retain the exact cold unpublished Session for bounded
+   * reuse by a later {@link prepare}. A stale ready source is reloaded; a source
+   * already committing or reserved for resume remains exclusive, and inspection
+   * may borrow its immutable view. Callers borrow only the immutable header and
+   * log. Continuous external writers may delay revision convergence.
    * @param id - the persisted session to inspect.
    * @param signal - optional cancellation for queued and backend read work.
-   * @returns the header and valid stored event prefix exactly as observed.
+   * @returns the validated header and current logical event log.
    */
-  abstract inspect(id: SessionId, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }>
+  abstract inspect(id: SessionId, signal?: AbortSignal): Promise<SessionInspection>
 
   /**
    * Read the stored events from `fromSeq` onward — the read-from-seq
    * primitive for read models that resume from a watermark (e.g. a persisted
-   * projection cache folding only the tail past its checkpoint). Like
-   * {@link inspect} it is non-mutating and detached: no torn-tail truncation,
-   * no synthetic closers, no coordinator-state publication; only events from
-   * the valid contiguous stored prefix are returned, so a torn fragment never
-   * reaches the caller. `fromSeq` at or beyond the stored prefix returns an
-   * empty event list (never an error). Backends whose medium can seek by seq
+   * projection cache folding only the tail past its checkpoint). Unlike
+   * {@link inspect}, it is a detached physical suffix read: no preparation
+   * cache, torn-tail truncation, synthetic closers, or coordinator-state
+   * publication. Only events from the valid contiguous stored prefix are
+   * returned, so a torn fragment never reaches the caller. `fromSeq` at or
+   * beyond the stored prefix returns an empty event list (never an error).
+   * Backends whose medium can seek by seq
    * (SQLite) read only the suffix; sequential media (JSONL, both encodings)
    * still parse the whole artifact and skip forward — the primitive bounds
    * what is RETURNED and refolded, not every backend's physical read.

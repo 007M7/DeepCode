@@ -17,7 +17,7 @@ import type { SessionEvent, SessionId, SessionHeader, SurfaceOp } from '@deepsee
  * layout; orthogonal to a session's own `version` (which versions the EVENT
  * vocabulary, stored per session in the `sessions` row).
  */
-export const SCHEMA_VERSION = 12
+export const SCHEMA_VERSION = 13
 
 /** SQLite application id protecting unrelated databases from persistence writes. */
 export const SESSION_PERSISTENCE_SQLITE_APPLICATION_ID = 0x44534850
@@ -36,6 +36,7 @@ export interface SessionRow {
   cwd: string | null
   parent_session: string | null
   seed_length: number | null
+  origin: 'subagent' | null
   /** Stable identity assigned when this log is materialized. */
   incarnation: string
   /** Monotonic log-change token incremented in each mutating transaction. */
@@ -122,6 +123,7 @@ function configureDatabase(db: DatabaseSync, path: string, journalMode: JournalM
         cwd              TEXT,
         parent_session   TEXT,
         seed_length      INTEGER,
+        origin           TEXT,
         delegation_depth INTEGER,
         incarnation      TEXT NOT NULL,
         revision         INTEGER NOT NULL
@@ -180,6 +182,7 @@ export function rowToMeta(row: SessionRow): SessionHeader {
     ...row.cwd !== null ? { cwd: row.cwd } : {},
     ...row.parent_session !== null ? { parentSession: row.parent_session as SessionId } : {},
     ...row.seed_length !== null ? { seedLength: row.seed_length } : {},
+    ...row.origin !== null ? { origin: row.origin } : {},
     ...row.delegation_depth !== null ? { delegationDepth: row.delegation_depth } : {},
   }
 }

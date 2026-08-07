@@ -37,6 +37,8 @@ export interface TrajectorySourceBlock {
 export interface TrajectoryCellProps extends HTMLAttributes<HTMLDivElement> {
   /** 1-based record index shown as `#N`. */
   index: number
+  /** Projection-stable identity when no single source event owns the record lifecycle. */
+  recordId?: string
   kind: TrajectoryCellKind
   /** Single-line summary; CSS ellipsis when it overflows. */
   text: string
@@ -92,13 +94,32 @@ export interface TrajectoryCellProps extends HTMLAttributes<HTMLDivElement> {
 }
 
 /**
- * Format own-duration for the trailing time column.
+ * Resolve the identity that survives prepending older projected records.
+ * @param cell - Projected trajectory record.
+ * @returns Stable identity from the owning event or tool call, with a fixture fallback.
+ */
+export function trajectoryRecordId(cell: TrajectoryCellProps): string {
+  if (cell.recordId !== undefined) return cell.recordId
+  if (cell.callId !== undefined) return `${cell.kind}\u0000call\u0000${cell.callId}`
+  if (cell.sourceSeq !== undefined) return `${cell.kind}\u0000seq\u0000${cell.sourceSeq}`
+  return `${cell.kind}\u0000index\u0000${cell.index}`
+}
+
+/**
+ * Format a duration in milliseconds with thousands separators.
+ * @param milliseconds - Duration in milliseconds, or `null` when absent.
+ * @returns `—` when unknown, otherwise an integer-millisecond label.
+ */
+export function formatDurationMillis(milliseconds: number | null): string {
+  if (milliseconds === null || !Number.isFinite(milliseconds)) return '—'
+  return `${Math.round(milliseconds).toLocaleString('en-US')} ms`
+}
+
+/**
+ * Format an elapsed duration given in seconds as a millisecond label.
  * @param seconds - Duration seconds, or `null` when absent.
- * @returns `—` when unknown, otherwise a seconds label.
+ * @returns `—` when unknown, otherwise an integer-millisecond label.
  */
 export function formatElapsedSeconds(seconds: number | null): string {
-  if (seconds === null || !Number.isFinite(seconds)) return '—'
-  const rounded = Math.round(seconds * 10) / 10
-  if (Number.isInteger(rounded)) return `${rounded} s`
-  return `${rounded.toFixed(1)} s`
+  return formatDurationMillis(seconds === null ? null : seconds * 1000)
 }

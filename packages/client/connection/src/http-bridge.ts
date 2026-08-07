@@ -5,6 +5,16 @@
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 
+/** Transport-independent request handler consumed by the Host HTTP bridge. */
+export interface FetchHandler {
+  /**
+   * Handle one standard Fetch request.
+   * @param request - request produced by the active transport bridge.
+   * @returns complete or streaming Fetch response.
+   */
+  fetch(request: Request): Promise<Response>
+}
+
 /**
  * Bridge one node:http request to the fetch-shaped handler (client close
  * aborts; SSE bodies stream out chunk by chunk).
@@ -16,8 +26,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 export async function bridge(
   req: IncomingMessage,
   res: ServerResponse,
-  apiHandler: { fetch: typeof fetch },
-  maxRequestBodyBytes: number,
+  apiHandler: FetchHandler,
+  maxRequestBodyBytes = 32 * 1024 * 1024,
 ): Promise<void> {
   const abort = new AbortController()
   // Client-disconnect detection MUST hang off the response, not the request:
@@ -30,10 +40,6 @@ export async function bridge(
   })
   const declaredLength = req.headers['content-length']
   if (declaredLength !== undefined && Number(declaredLength) > maxRequestBodyBytes) {
-    // Same discipline as the chunked-overrun path below: destroy, never
-    // drain. resume() would keep the socket open while the client trickles
-    // its declared length — an already-rejected request holding a server
-    // socket for as long as it likes.
     res.writeHead(413, { connection: 'close' })
     res.end()
     req.destroy()

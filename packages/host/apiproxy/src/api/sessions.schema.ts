@@ -7,7 +7,7 @@
 
 import { z } from 'zod'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
-import type { InboxItemId } from '@deepseek-ai/dsh-agent/brand'
+import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { RequestPayload, ResponseValue } from './rpc-map.ts'
 import type { Wire } from './rpc.schema.ts'
 import type {
@@ -26,8 +26,8 @@ import {
 /** SessionId: one brand cast after shape validation (the only cast point in this domain). */
 export const sessionIdSchema = z.string().min(1) as unknown as z.ZodType<SessionId>
 
-/** InboxItemId: one brand cast after non-empty string validation. */
-export const inboxItemIdSchema = z.string().min(1) as unknown as z.ZodType<InboxItemId>
+/** MessageId: one brand cast after non-empty string validation. */
+export const messageIdSchema = z.string().min(1) as unknown as z.ZodType<MessageId>
 
 /**
  * WorkspaceId: the workspace domain's one brand cast. Hosted here rather
@@ -54,6 +54,7 @@ export const sessionSummarySchema = z.object({
   running: z.boolean(),
   blank: z.boolean(),
   parentSessionId: sessionIdSchema.optional(),
+  origin: z.literal('subagent').optional(),
   cwd: z.string().optional(),
   projections: z.lazy(() => sessionProjectionsBlockSchema).optional(),
 }) as unknown as z.ZodType<Wire<SessionSummary>>
@@ -165,7 +166,6 @@ export const modelCatalogModelSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   description: z.string().optional(),
-  unlisted: z.literal(true).optional(),
   reasoning: modelReasoningSchema.optional(),
 }) satisfies z.ZodType<Wire<ModelCatalogModel>>
 
@@ -195,10 +195,10 @@ export const toolEventViewSchema = z.discriminatedUnion('for', [
 ]) as unknown as z.ZodType<ToolEventView>
 
 /** One session.history item: the session event plus its optional host-computed tool view. */
-export const historyEntrySchema = z.object({
+export const historyEntrySchema: z.ZodType<Wire<HistoryEntry>> = z.object({
   event: sessionEventSchema,
   view: toolEventViewSchema.optional(),
-}) satisfies z.ZodType<Wire<HistoryEntry>>
+}) as unknown as z.ZodType<Wire<HistoryEntry>>
 
 /**
  * Projection baseline passthrough: `values` stays a wide record — each value
@@ -212,11 +212,11 @@ export const sessionProjectionsBlockSchema = z.object({
 }) as unknown as z.ZodType<SessionProjectionsBlock>
 
 /** session.history response value (projections rides the tail page only). */
-export const sessionHistoryValueSchema = z.object({
+export const sessionHistoryValueSchema: z.ZodType<Wire<ResponseValue<'session.history'>>> = z.object({
   events: z.array(historyEntrySchema),
   hasMore: z.boolean(),
   projections: sessionProjectionsBlockSchema.optional(),
-}) satisfies z.ZodType<Wire<ResponseValue<'session.history'>>>
+})
 
 /** session.models request payload. */
 export const sessionModelsRequestSchema = z.object({
@@ -226,6 +226,7 @@ export const sessionModelsRequestSchema = z.object({
 /** session.models response value. */
 export const sessionModelsValueSchema = z.object({
   current: modelTargetSchema,
+  routable: z.boolean(),
   groups: z.array(modelProviderGroupSchema),
   failures: z.array(modelCatalogFailureSchema),
 }) satisfies z.ZodType<Wire<ResponseValue<'session.models'>>>
@@ -304,10 +305,11 @@ export const sessionAttachmentValueSchema = z.object({
 /** session.updateQueue request payload. */
 export const sessionUpdateQueueRequestSchema = z.object({
   sessionId: sessionIdSchema,
-  itemId: inboxItemIdSchema,
+  itemId: messageIdSchema,
   action: z.discriminatedUnion('kind', [
     z.object({ kind: z.literal('edit'), content: z.array(contentBlockSchema) }),
     z.object({ kind: z.literal('remove') }),
+    z.object({ kind: z.literal('steer') }),
   ]),
 }) as unknown as z.ZodType<RequestPayload<'session.updateQueue'>>
 

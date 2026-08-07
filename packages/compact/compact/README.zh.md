@@ -4,7 +4,7 @@
 
 **压缩（compaction） seam**：抽象 `CompactService`（`ctx.compact`）定义压缩做什么，即判定历史记录是否过大，并将较早范围摘要为单个表层节点，但不规定如何实现。
 
-这个包（package）是压缩能力的接口层，因此各项职责均可独立演进，也可独立替换：
+这个包是压缩能力的接口层，因此各项职责均可独立演进，也可独立替换：
 
 | 包 | 职责 |
 |---|---|
@@ -12,7 +12,7 @@
 | `@deepseek-ai/dsh-compact-basic` | 后端：`ctx.tokenMeter` 压力 + token 预算保留 + `llm.stream()` 摘要 |
 | `@deepseek-ai/dsh-command-compact` | 面向用户的 `/compact` 命令，基于 `ctx.compact.compactNow()` 实现 |
 
-与 bash seam 不同，该接口依赖 `@deepseek-ai/dsh-session` 和 `@deepseek-ai/dsh-llm`。契约的动词基于 `Session` 定义，其输出使用 `ContentBlock` 词汇，因此无法在不指名这些包的情况下表达。这项对「接口只依赖 cordis」指引的偏离是有意的，并记录在 [压缩能力 seam Agent Note（agent 决策记录）](../../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md) 中。
+与 bash seam 不同，该接口依赖 `@deepseek-ai/dsh-session` 和 `@deepseek-ai/dsh-llm`。契约的动词基于 `Session` 定义，其输出使用 `ContentBlock` 词汇，因此无法在不指名这些包的情况下表达。这项对「接口只依赖 cordis」指引的偏离是有意的，并记录在 [压缩能力 seam Agent Note](../../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md) 中。
 
 ## 服务 API（`ctx.compact`）
 
@@ -38,7 +38,7 @@
 
 ## 表层契约
 
-`SurfaceEventType` 是封闭联合：只有 `user/message`、`assistant/message`、`tool/result` 和 `steering/message` 可以携带 `surfaceOp`。因此 `compact/*` 事件**不能**出现在表层上。成功压缩改为：
+`SurfaceEventType` 是封闭联合：只有 `user/message`、`assistant/message` 和 `tool/result` 可以携带 `surfaceOp`。因此 `compact/*` 事件**不能**出现在表层上。成功压缩改为：
 
 1. 追加 `compact/start`（仅日志）：获取锁；
 2. 摘要该范围；

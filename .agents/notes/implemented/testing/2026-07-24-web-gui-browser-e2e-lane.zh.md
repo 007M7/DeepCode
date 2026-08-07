@@ -24,7 +24,7 @@ Web GUI 以一条真实组装链交付——chromium 页面 → client 插件 bu
 
 ### 确定性规则
 
-回放模式下浏览器断言的屏障栈，按序：（1）host 侧 `await agent.whenIdle()` 加超时，以进程内 `turn/end` 为锚——空闲翻转发生在持久化落盘之后，一次等待同时覆盖轮次完成与持久性；（2）浏览器安定轮询（流式输出节点已卸载、最终文本可见）。录制模式下，日志采收在 `whenIdle()` 之后、scaffold 释放之前进行，此时运行中的会话仍然可用。单独监听进程内 `turn/end` 是错误屏障（它先于 SSE 帧到达浏览器、先于 fsync 触发）；文件轮询被禁止（NFS 上慢，且被 `whenIdle` 取代）；`networkidle` 被彻底禁止（SSE 流保持打开时它永不解析）。
+回放模式下浏览器断言的屏障栈，按序：（1）host 侧 `await agent.whenIdle()` 加超时，以进程内 `turn/end` 为锚——空闲翻转发生在持久化落盘之后，一次等待同时覆盖轮次完成与持久性；（2）浏览器安定轮询（流式输出节点已卸载、最终文本可见）。录制模式下，日志采收在 `whenIdle()` 之后、scaffold 释放之前进行，此时运行中的会话仍然可用。单独监听进程内 `turn/end` 是错误屏障（它先于 SSE 帧到达浏览器、先于 fsync 触发）；禁止轮询持久化文件来充当轮次完成或持久性屏障（NFS 上慢，且被 `whenIdle` 取代），但工具控制的临时就绪标记可以仅作为该完成屏障之前的交互门控进行轮询；`networkidle` 被彻底禁止（SSE 流保持打开时它永不解析）。导航断言会在页面加载前同时监听 `session.list` 和 `workspace.list` 的初始响应，随后等待播种数据投影到 DOM；仅凭 shell 已挂载不能判定就绪，因为较晚完成的 bootstrap 可能替换受控状态。
 
 不做单次瞬态 DOM 断言：从回放产出到 React 提交的每一跳都可能合并分片，采样 `[data-streaming]` 天然就是竞态。流式输出的增量性由持久化的 `assistant/chunk` 事件断言（模型可见 ⟺ 已记录，使日志成为权威证据）。`dsh-llm-replay` 的可选 `paceMs`（默认缺省 = 突发）只是让浏览器观察到真正增量 SSE 的真实感旋钮；正确性绝不依赖它，且节奏等待期间中止会即时取消。
 
@@ -42,11 +42,13 @@ Web GUI 以一条真实组装链交付——chromium 页面 → client 插件 bu
 
 ### 覆盖契约
 
-该车道覆盖三类行为。实时轮次场景钉住普通工具执行、取消、不可重试失败、瞬态重试、常驻提问与轮次中途 steering；同步依赖持久事件、`whenIdle()` 或显式回放标记，而不使用延时。冷历史场景通过真实持久化 API 播种，在不调用模型的情况下覆盖历史渲染、侧栏搜索、Trajectory 与 Waterfall 视图及工具详情。浏览器生命周期场景覆盖首次发送时物化工作区、重新加载恢复、布局重置、主题与语言偏好，以及工作区的创建、重命名和视图操作。每类场景都断言浏览器表面和权威的 host 状态；离群的模型调用或未耗尽的 fixture 会使拆卸失败。
+该车道覆盖三类行为。实时轮次场景钉住普通工具执行、取消、不可重试失败、瞬态重试、常驻提问与轮次中途 steering；同步依赖持久事件、`whenIdle()` 或显式回放标记，而不使用延时。冷历史场景通过真实持久化 API 播种，在不调用模型的情况下覆盖历史渲染、侧栏搜索、Trajectory 与 Waterfall 视图及工具详情。浏览器生命周期场景覆盖首次发送时物化工作区、重新加载恢复、布局重置、主题与语言偏好，以及工作区的创建、重命名和视图操作。每类场景都断言浏览器表面和权威的 host 状态；离群的模型调用或未耗尽的 fixture 会使拆卸失败。必需车道还包含一份合成的 88 轮 Chat 滚动契约，其中混合了换行 Markdown、围栏代码以及成对的 bash 调用/结果。真实 wheel、输入框、工具、tab、会话与 viewport 交互会在并发历史前插加带节奏流式输出、贴底/离底流式输出、工具 disclosure 离屏循环、扩展历史后的视图/会话重新挂载、宽度重排、贴底后立即重新挂载、输入框尺寸变化以及 textarea wheel 链场景中，断言一个具名已结算行相对 transcript scrollport 的顶部位置和到真实底部的距离；真实键盘翻页与触摸式惯性滑动模拟额外钉住不依赖 wheel 的贴底跟随所有权（[读者滚动归因笔记](../bug-fix/2026-08-06-reader-scroll-attribution-observed-top-ledger.md)）；它刻意不钉 DOM 基数或绝对 `scrollTop`，因此同一契约可以验收虚拟化实现。另一份基于同一 fixture 的交互契约钉住异构行顺序、相邻工具 disclosure 的独立状态、用户消息剪贴板内容的精确值、以轮次为边界的消息 fork、源会话/子会话隔离，以及子会话中的一次真实追问轮次；wheel 输入只用于导航到语义目标，不承载几何预期。一份简短的实时历史契约从空白工作区开始，连续驱动输入框轮次，其中包括真实的 bash 调用/结果轮次和一段带节奏的长篇最终响应；它钉住单一会话身份、每轮事件的精确归属、浏览器回显唯一性与输入框恢复，不设置时间阈值。
 
 ### CI 立场
 
 根据[浏览器快照 CI 决策](2026-07-30-web-browser-snapshot-ci-gate.md)，该车道是 Linux 拉取请求必需的只比较门禁。`node 24 / snapshots and artifacts` 消费方任务在[消费方独立构建](../process/2026-07-30-independent-ci-consumer-build.md)中负责唯一一次 Linux 构建，安装锁文件选定的 Chromium，恢复以操作系统和锁文件为键的缓存，并用 `DSH_SNAPSHOT=replay` 运行该车道。这是有意的平面切分：host 与 spec 使用 [tsx 源码启动契约](../architecture/2026-07-29-dsh-source-launch-tsx-esm.md)，浏览器则消费 `apps/web/dist` 和包的 `lib/client.js` 产物，因此门禁依赖 `built-package-invariants` 提供这些客户端产物。托管和自托管的默认分支 Linux 串行任务运行同一门禁；托管任务生成供 PR 消费的浏览器缓存，持久化自托管池则不需要托管侧缓存。CI 从不录制或刷新预期输出。场景仍面向 POSIX，并继续置于 Windows 和 macOS 矩阵之外。
+
+高基数性能诊断使用单独按需启用的 `apps/web/tests/**/*.perf.ts` 清单，并且只由 `vitest.web.perf.config.ts` 选中。`complex-history.perf.ts` 的隔离用例复用真实 scaffold：工作区用例播种 1,000 个紧凑会话以及一份包含 500 次工具调用的 500 轮次历史，在 Chat 中穷尽并重新挂载该历史，并报告 Chromium 主线程、DOM、监听器、堆内存、分页、搜索和 Trajectory 测量结果。两个续聊用例播种同一份长历史，但比较默认的 24 轮次 Chat 窗口与展开全部 500 轮次的状态，然后各自通过真实输入框、agent loop、SSE wire、工具和持久化继续进行 8 个相同轮次；其中两轮执行真实 `bash` 调用并断言其持久化结果，最后一轮则填入一条包含 8,232 个字符的混合语言提示词，并回放 120 个带节奏的文本增量。一个单独的 soak 用例从空白会话开始，通过真实输入框连续驱动 100 轮，每第 10 轮执行一次 `bash` 调用并产生结果，每 10 轮强制执行一次 GC，并报告每 10 轮的延迟窗口及保留的浏览器状态。随后它通过受信任的浏览器点击提交第 101 个纯文本轮次，并使用浏览器时钟分别测量发送到 transcript DOM 和发送到绘制后的延迟，排除输入框的草稿镜像，并与完整轮次完成时间分开。逐轮诊断涵盖输入框填入、点击到用户消息回显、点击到首个分片、完成、浏览器变更、持久化分片和工具事件；合成回放模型拥有足够的上下文容量，可使 fixture 基数保持稳定，而不会因压缩（compaction）消耗脚本化调用。结构性断言钉住预期的负载、流和工具形状，但时间仍不设阈值，因为机器速度不属于正确性契约。必需的 `vitest.web.config.ts` 清单仍仅限 `*.e2e.ts` 和 `*.snapshot.ts`，因此 `test:web:built` 及其 CI 门禁都不会收集性能用例。
 
 ## 业界先例
 
@@ -72,11 +74,13 @@ Web GUI 以一条真实组装链交付——chromium 页面 → client 插件 bu
 
 **以真实模型浏览器测试充当无密钥车道。** 已否决：按构造即不确定；被调研的前车之鉴（open-webui）长出无界超时后被删除。带密钥的 W5 冒烟仍是真实模型侧的补充。
 
+**在必需的浏览器门禁中运行高基数性能用例。** 已否决：其 fixture 设置和完整历史渲染会增加数十秒耗时，而壁钟时间和内存值随 host 不同而变化，无法提供稳定的正确性阈值。必需车道保留确定性行为断言；贡献者在调查或更改大列表和长历史渲染时运行该诊断用例。
+
 **客户端 `data-dsh-busy` 安定信号。** 暂缓：host 侧 `whenIdle` 屏障配合稳定 DOM 轮询，足以覆盖当前场景。第一次安定轮询抖动，或必要状态在 DOM 中不可观察时，再重新考虑。
 
 ## Testing
 
-`pnpm run test:web` 构建并无密钥运行该车道；`test:web:built` 基于现有构建产物运行。`DSH_SNAPSHOT=record pnpm exec vitest run --config vitest.web.config.ts apps/web/tests/<spec>` 对真实模型录制一个发起提示的场景，`DSH_SNAPSHOT=refresh pnpm run test:web` 则无密钥重写 aria 预期输出。CI 显式选择回放模式。live-interactions AUTH 场景会把不可重试的终态失败钉为 Chat 内联状态，其中携带适合展示的消息与错误码，并验证提供方回显的凭据片段不会出现在 Chat 或 Trajectory 中；该场景同时覆盖输入框恢复与 `turn/end` 错误。scaffold 环境隔离场景会在全部 3 个环境 skill 根目录中分别填入不同条目，并要求这些条目都不得进入组装后的目录。`dsh-llm-replay` 单元覆盖率钉住节奏控制、取消、消费诊断、sidecar 校验、按索引替换与唯一的追加位置。
+`pnpm run test:web` 构建并无密钥运行该车道；`test:web:built` 基于现有构建产物运行。`pnpm run test:web:perf` 构建并运行手动性能清单；`test:web:perf:built` 复用现有产物。`DSH_SNAPSHOT=record pnpm exec vitest run --config vitest.web.config.ts apps/web/tests/<spec>` 对真实模型录制一个发起提示的场景，`DSH_SNAPSHOT=refresh pnpm run test:web` 则无密钥重写 aria 预期输出。CI 显式选择回放模式。live-interactions AUTH 场景会把不可重试的终态失败钉为 Chat 内联状态，其中携带适合展示的消息与错误码，并验证提供方回显的凭据片段不会出现在 Chat 或 Trajectory 中；该场景同时覆盖输入框恢复与 `turn/end` 错误。scaffold 环境隔离场景会在全部 3 个环境 skill 根目录中分别填入不同条目，并要求这些条目都不得进入组装后的目录。`dsh-llm-replay` 单元覆盖率钉住节奏控制、取消、消费诊断、sidecar 校验、按索引替换与唯一的追加位置。
 
 ## 暂缓
 
@@ -84,7 +88,8 @@ Web GUI 以一条真实组装链交付——chromium 页面 → client 插件 bu
 - **恢复后追问场景**：真实 wire 上的历史/实时缝合路径；当该代码变更或回归时作为独立场景补充。
 - **输入框 steering 手势**：输入在运行期间锁定（只能停止或等待），因此 steering 场景从页面走 wire 做 steer；`TODO(web-steer-composer)` 待产品长出真实的输入框手势后，把驱动步骤升级为该手势。
 - **拖拽会话重排**：`workspace.insertSessionBefore` 尚无浏览器场景；它需要在同一个工作区里物化两个会话，并合成 HTML5 拖拽事件。当该表面变更或回归时再补充。无行为的会话 Rename/Fork/Delete 和工作区 Delete 菜单行待获得行为后再补充场景。
+- **长历史 Chat 到 Trajectory 的 Inspect**：独立的检查数据源会在视图打开后穷尽历史，而所选记录由一个派生的表格索引定位；随着较早页面前插，该索引可能移动。短历史 Inspect 仍有覆盖；在选中项具有稳定的语义身份之前，长历史交互契约不包含这项交接。
 
 ## 后果
 
-Web 表面获得了录制一次/永久回放的层级：真实 chromium → SSE → apiproxy → 循环 → 工具 → 持久化的链路以约 10-30 秒无密钥运行，重复运行结果确定，fixture 由车道自身持有并可重录。接受的成本：每次有意的会话 UI 变更都以一次无密钥 `DSH_SNAPSHOT=refresh` 收尾（预期输出变动是受评审的 diff，锚断言保住语义绿色）；aria 格式归 Playwright 所有——仓库唯一不受自己控制的提交快照格式——因此 playwright 版本升级必须是刻意的升级加刷新提交（依赖在 `apps/web/package.json` 中浮动为 `^1.49.0`；若变动伤人则改为精确锁定）；回放的首次调用顺序绑定把每个场景限制为至多一个发起提示的会话，消费断言是绊线；`compact-basic` 与会话共享回放游标，仅在发布的 128k 目录窗口下保持闲置；必需的消费方任务承担 Chromium 供给与一次浏览器运行的成本，使改动组装后 UI 的 PR（Pull Request）持有相应的预期输出 diff。
+Web 表面获得了录制一次/永久回放的层级：真实 chromium → SSE → apiproxy → 循环 → 工具 → 持久化的链路以约 10-30 秒无密钥运行，重复运行结果确定，fixture 由车道自身持有并可重录。接受的成本：每次有意的会话 UI 变更都以一次无密钥 `DSH_SNAPSHOT=refresh` 收尾（预期输出变动是受评审的 diff，锚断言保住语义绿色）；aria 格式归 Playwright 所有——仓库唯一不受自己控制的提交快照格式——因此 playwright 版本升级必须是刻意的升级加刷新提交（依赖在 `apps/web/package.json` 中浮动为 `^1.49.0`；若变动伤人则改为精确锁定）；回放的首次调用顺序绑定把每个场景限制为至多一个发起提示的会话，消费断言是绊线；`compact-basic` 与会话共享回放游标，仅在发布的 128k 目录窗口下保持闲置；必需的消费方任务承担 Chromium 供给与一次浏览器运行的成本，使改动组装后 UI 的 PR（Pull Request）持有相应的预期输出 diff。按需启用的性能车道保留了可重复的诊断工作负载，又不会向 CI 添加受 host 差异影响的时长或内存预期；在仓库拥有经校准的基准测试环境之前，性能回归仍是需要人工解读的信号。

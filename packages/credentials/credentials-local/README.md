@@ -32,7 +32,7 @@ External edits publish `credentials/updated` per changed reference after the sna
 
 ## Security boundary
 
-The document is `0600` under a `0700` directory, which stops other OS users — **not** the model. Tool processes (bash, the filesystem tools) run as the same user, so under the shipped `danger-full-access` default they can read this file exactly like any other file the user owns, and no sandbox mode singles it out. What the harness does hold to is narrower: it never hands the model a resolved path to the document, and never loads it into the process environment (see [app-boot's Personal config](../../ui/app-boot/README.md#personal-config)), so reaching the value takes a deliberate read of a path the agent was not given.
+The document is `0600` under a `0700` directory, which stops other OS users — **not** the model. Tool processes (bash, the filesystem tools) run as the same user, and the shipped `workspace-write` file policy confines mutations rather than reads, so they can read this file exactly like any other file the user owns; no sandbox mode singles it out. What the harness does hold to is narrower: it never hands the model a resolved path to the document, and never loads it into the process environment (see [app-boot's Harness-home layers](../../ui/app-boot/README.md#profiles)), so reaching the value takes a deliberate read of a path the agent was not given.
 
 That is discretion, not a boundary. A deployment that must keep provider keys away from its own agent cannot get there with file permissions; an OS-keychain provider — a store the model's processes cannot read at all — is the deferred answer and belongs beside this provider as a sibling package.
 
@@ -48,7 +48,7 @@ No direct invalidation; credentials never enter a request prefix.
 
 - **Multi-line entries refuse `set`/`unset`** — the line editor will not rewrite an entry it would corrupt; `describe` reports them `writable: false` and edits must go to the file directly.
 - **Same-reference concurrent writes are last-write-wins** — the writer lock and the read-modify-write keep concurrent writers from dropping each other's entries, but two writers editing one reference still resolve to the later write; there is no revision check.
-- **A same-UID process can read the document** — see [Security boundary](#security-boundary): only a confining sandbox mode denies it, and an OS-keychain provider is deferred.
+- **A same-UID process can read the document** — see [Security boundary](#security-boundary): the file-effect sandbox modes do not deny reads, and an OS-keychain provider is deferred.
 - **Unrepresentable values fail loud** — control characters, or a mix of both quote styles with backslashes, cannot round-trip the dotenv line format.
 - **Environment changes are invisible** — `process.env` is read live per resolution, but no event can announce a change there.
 - **Atomic, not crash-durable** — inherited from `dsh-atomic-write`; the store re-reads on boot.

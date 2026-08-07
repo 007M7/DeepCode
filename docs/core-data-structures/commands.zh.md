@@ -2,7 +2,7 @@
 
 [English](commands.md) | 中文
 
-[`dsh-commands`](../../packages/ui/commands) 的用户命令 seam。交互式适配器用它发现插件拥有的命令，并针对确切的 agent（智能体）直接执行这些命令，而不创建模型消息。[命令 Agent Note（agent 决策记录）](../../.agents/notes/implemented/feature/2026-07-19-plugin-command-registration.md) 负责分发与生命周期的决策依据；[包（package）README](../../packages/ui/commands/README.md) 负责组合方式与限制。
+[`dsh-commands`](../../packages/ui/commands) 的用户命令 seam。交互式适配器用它发现插件拥有的命令，并针对确切的 agent（智能体）直接执行这些命令，而不创建模型消息。[命令 Agent Note](../../.agents/notes/implemented/feature/2026-07-19-plugin-command-registration.md) 负责分发与生命周期的决策依据；[包 README](../../packages/ui/commands/README.md) 负责组合方式与限制。
 
 来源：[`packages/ui/commands/src/index.ts`](../../packages/ui/commands/src/index.ts)
 
@@ -31,6 +31,12 @@ interface CommandDefinition {
   readonly description: string
   /** Optional free-form input hint advertised to capable clients. */
   readonly input?: CommandInputDescriptor
+  /**
+   * Whether `command/run` records `rawInput`. Defaults to true. A command
+   * whose domain event owns the payload sets this false to avoid duplicating
+   * that payload in the session log.
+   */
+  readonly recordInput?: boolean
   /** Execute against the receiving agent without sending the command to the model. */
   readonly handler: (invocation: CommandInvocation) => CommandResult | Promise<CommandResult>
 }
@@ -38,7 +44,7 @@ interface CommandDefinition {
 
 ## 调用与结果
 
-适配器拥有取消操作，并传入确切的目标 agent。`rawInput` 紧接在解析后的名称之后，并保留适配器传入的分隔符与后缀。结果会直接呈现给 UI，而不是工具结果或会话事件。
+取消由适配器负责，适配器会传入确切的目标 agent。`rawInput` 紧接在解析后的名称之后，并保留适配器传入的分隔符与后缀。结果会直接呈现给 UI，而不是工具结果或会话事件。
 
 ```ts type-equiv
 /** Invocation passed to one registered command handler. */

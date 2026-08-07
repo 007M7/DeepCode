@@ -26,6 +26,8 @@ import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import { REPO_ROOT, connectFreshWorkspace, newEnglishPage, probeFreePort, requireDist, saveFailureShot } from './support.ts'
 
+const DEVELOPMENT_PROMPT = fileURLToPath(new URL('./snapshots/web-runtime-context/development-prompt.expected.md', import.meta.url))
+
 function waitForReadyLine(child: ChildProcess): Promise<string> {
   return new Promise((resolveReady, reject) => {
     let out = ''
@@ -184,7 +186,7 @@ describe('dsh web keyless CLI smoke', () => {
     }
   })
 
-  it('injects the invoking workspace AGENTS.md into the provider request', async () => {
+  it('routes --dev runtime context and workspace instructions through the real CLI request', async () => {
     requireDist()
     const workspace = mkdtempSync(join(tmpdir(), 'dsh-web-workspace-'))
     mkdirSync(join(workspace, '.git'))
@@ -194,16 +196,19 @@ describe('dsh web keyless CLI smoke', () => {
       messages?: { role?: string; content?: string }[]
       tools?: { function?: { name?: string } }[]
     }
-    let resolveProviderRequest!: (request: NativeProviderRequest) => void
-    const providerRequest = new Promise<NativeProviderRequest>((resolve) => {
-      resolveProviderRequest = resolve
+    let resolveProviderRequests!: (requests: NativeProviderRequest[]) => void
+    const requests: NativeProviderRequest[] = []
+    const providerRequests = new Promise<NativeProviderRequest[]>((resolve) => {
+      resolveProviderRequests = resolve
     })
     const provider = createServer((request, response) => {
       let body = ''
       request.setEncoding('utf8')
       request.on('data', (chunk: string) => { body += chunk })
       request.on('end', () => {
-        resolveProviderRequest(JSON.parse(body) as NativeProviderRequest)
+        const parsed = JSON.parse(body) as NativeProviderRequest
+        if ((parsed.tools?.length ?? 0) > 0) requests.push(parsed)
+        if (requests.length === 1) resolveProviderRequests(requests)
         response.writeHead(200, { 'content-type': 'text/event-stream' })
         response.end([
           'data: {"choices":[{"delta":{"role":"assistant","content":null,"reasoning_content":""}}]}',
@@ -220,7 +225,7 @@ describe('dsh web keyless CLI smoke', () => {
     const tsxLoader = pathToFileURL(createRequire(join(REPO_ROOT, 'package.json')).resolve('tsx')).href
     const child = spawn(
       process.execPath,
-      ['--import', tsxLoader, join(REPO_ROOT, 'apps/cli/src/bin.ts'), 'web', '--port', '0'],
+      ['--import', tsxLoader, join(REPO_ROOT, 'apps/cli/src/bin.ts'), 'web', '--port', '0', '--dev'],
       {
         cwd: workspace,
         env: {
@@ -242,16 +247,22 @@ describe('dsh web keyless CLI smoke', () => {
         mode: 'queue',
         content: [{ type: 'text', text: 'go' }],
       })
-      const captured = await Promise.race([
-        providerRequest,
+      const capturedRequests = await Promise.race([
+        providerRequests,
         new Promise<never>((_resolve, reject) => {
           setTimeout(() => { reject(new Error('provider request not received in 10s')) }, 10_000).unref()
         }),
       ])
-      expect(captured.messages?.some(message =>
-        message.role === 'user' && message.content?.includes('<available_skills>'))).toBe(false)
+      const captured = capturedRequests[0]
+      if (captured === undefined) {
+        throw new Error('provider did not receive the workspace projection request')
+      }
       const workspaceMessage = captured.messages?.find(message =>
         message.role === 'user' && message.content?.includes('web-workspace-context-probe'))
+      const systemMessage = captured.messages?.find(message => message.role === 'system')
+      const expectedWebSection = readFileSync(DEVELOPMENT_PROMPT, 'utf8').trimEnd()
+        .replace('{{webUrl}}', baseUrl)
+      expect(systemMessage?.content).toContain(expectedWebSection)
       expect(workspaceMessage).toMatchInlineSnapshot(`
         {
           "content": "<system-reminder>
@@ -476,7 +487,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
         '--import', tsxLoader, join(REPO_ROOT, 'apps/cli/src/bin.ts'), 'web', '--port', String(port),
         // Pin the in-browser picker: the shipped `-auto` row would resolve to
         // the native OS chooser on this bind, and no page can drive that.
-        '--config', fileURLToPath(new URL('./pin-browse-picker.overlay.yml', import.meta.url)),
+        '--patch', fileURLToPath(new URL('./pin-browse-picker.overlay.yml', import.meta.url)),
       ],
       {
         cwd: sessionsDir,
@@ -588,7 +599,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     // Bash renders through the third-party sample registration. Match that
     // exact row: other clickable variants (for example Think disclosure)
     // may precede the tool call in document order.
-    const toolRow = page.locator('[data-sample="bash-global"]')
+    const toolRow = page.locator('[data-sample="bash"]')
     await toolRow.waitFor({ timeout: 120_000 })
     await screen(page, '08-bash-round')
     expect(await detailsTrack(page)).toBe(0)

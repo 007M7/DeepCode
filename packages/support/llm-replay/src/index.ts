@@ -173,9 +173,10 @@ export function parseSessionHeader(text: string): { id: string; createdAt: numbe
 /**
  * Reconstruct the per-`stream()` replay script from a recorded session log.
  *
- * Groups `assistant/chunk` events by turn and step. Every group must end in a
- * `finish`; a missing terminator means the live stream threw, so derivation
- * rejects and the scenario must provide an explicit override.
+ * Splits `assistant/chunk` events at every `finish`, using turn and step changes
+ * to detect an unterminated prior call. A missing terminator means the live
+ * stream threw, so derivation rejects and the scenario must provide an explicit
+ * override. Multiple calls may share one turn and step when the loop retries.
  * @param events - the recorded session's events; only `assistant/chunk` is consulted.
  * @returns one `chunks` entry per recorded model call, in call order.
  */
@@ -197,14 +198,16 @@ export function deriveReplayScript(events: SessionEvent[]): ReplayEntry[] {
     if (event.type !== 'assistant/chunk') continue
     const { turn, step, chunk } = event.data
     const key = `${turn}/${step}`
-    if (key !== currentKey) {
-      // A new (turn, step) — i.e. a new stream() call. Close the previous one
-      // (skip the initial empty buffer before any chunk has been seen).
+    if (current.length > 0 && key !== currentKey) {
       close(currentKey, current)
-      currentKey = key
+    }
+    if (current.length === 0) currentKey = key
+    current.push(chunk)
+    if (chunk.type === 'finish') {
+      close(currentKey, current)
+      currentKey = undefined
       current = []
     }
-    current.push(chunk)
   }
   close(currentKey, current)
   return script
@@ -240,6 +243,96 @@ const REPLAY_CHUNK_TYPES = new Set<StreamChunk['type']>([
   'usage',
   'finish',
 ])
+
+const FROM_REQUEST_OPEN = '{{fromRequest:'
+const FROM_REQUEST_CLOSE = '}}'
+
+/** Collect every string leaf of one JSON-shaped value, in traversal order. */
+function collectStrings(value: unknown, out: string[]): void {
+  if (typeof value === 'string') {
+    out.push(value)
+    return
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectStrings(item, out)
+    return
+  }
+  if (value !== null && typeof value === 'object') {
+    for (const item of Object.values(value)) collectStrings(item, out)
+  }
+}
+
+/** Resolve one placeholder pattern against the request corpus; the LAST match wins. */
+function resolveFromRequest(pattern: string, corpus: string): string {
+  let regex: RegExp
+  try {
+    regex = new RegExp(pattern, 'g')
+  } catch (error) {
+    // RegExp construction only throws SyntaxError; String() carries its message.
+    throw new Error(`llm-replay: fromRequest has an invalid pattern ${JSON.stringify(pattern)}: ${String(error)}`)
+  }
+  let last: RegExpExecArray | undefined
+  for (const match of corpus.matchAll(regex)) last = match
+  if (last === undefined) {
+    throw new Error(`llm-replay: fromRequest pattern ${JSON.stringify(pattern)} matched nothing in the request`)
+  }
+  return last[1] ?? last[0]
+}
+
+/** Replace every `{{fromRequest:<pattern>}}` occurrence in one scripted string. */
+function substituteString(text: string, corpus: string): string {
+  let result = ''
+  let cursor = 0
+  while (true) {
+    const open = text.indexOf(FROM_REQUEST_OPEN, cursor)
+    if (open === -1) return result + text.slice(cursor)
+    let close = text.indexOf(FROM_REQUEST_CLOSE, open + FROM_REQUEST_OPEN.length)
+    if (close === -1) {
+      throw new Error(`llm-replay: fromRequest placeholder is unterminated in ${JSON.stringify(text)}`)
+    }
+    // The last two braces of a consecutive `}` run terminate the placeholder,
+    // so a pattern may end with a brace quantifier like `[0-9a-f]{4}`.
+    while (text[close + FROM_REQUEST_CLOSE.length] === '}') close += 1
+    const pattern = text.slice(open + FROM_REQUEST_OPEN.length, close)
+    result += text.slice(cursor, open) + resolveFromRequest(pattern, corpus)
+    cursor = close + FROM_REQUEST_CLOSE.length
+  }
+}
+
+/** Deep-copy one JSON-shaped value with scripted placeholders resolved. */
+function substituteValue(value: unknown, corpus: string): unknown {
+  if (typeof value === 'string') {
+    return value.includes(FROM_REQUEST_OPEN) ? substituteString(value, corpus) : value
+  }
+  if (Array.isArray(value)) return value.map(item => substituteValue(item, corpus))
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, substituteValue(item, corpus)]))
+  }
+  return value
+}
+
+/**
+ * Resolve every `{{fromRequest:<regex>}}` placeholder in one scripted entry
+ * against the live request. The corpus is every string leaf of the request
+ * messages joined by newlines; the pattern's LAST corpus match wins and its
+ * first capture group (or, without one, the whole match) substitutes in place.
+ * Scenario sidecars use this to script arguments no static file can know,
+ * such as a randomly minted goal id the model must echo back. A pattern that
+ * matches nothing, an invalid pattern, and an unterminated placeholder each
+ * fail loud. The last two braces of a consecutive `}` run terminate the
+ * placeholder, so a pattern may end with a brace quantifier but cannot
+ * contain `}}` followed by further pattern content. Derived entries pass
+ * through the same resolution as sidecar entries.
+ * @param entry - the scripted entry about to replay.
+ * @param messages - the live request messages searched by the placeholders.
+ * @returns the entry itself when no placeholder appears, else a resolved deep copy.
+ */
+export function resolveScriptedEntry(entry: ReplayEntry, messages: GenerateOptions['messages']): ReplayEntry {
+  if (!JSON.stringify(entry).includes(FROM_REQUEST_OPEN)) return entry
+  const leaves: string[] = []
+  collectStrings(messages, leaves)
+  return substituteValue(entry, leaves.join('\n')) as ReplayEntry
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -583,7 +676,7 @@ export function installLlmReplay(ctx: Context, config: ReplayConfig): ReplayHand
           + `but its script has only ${boundState.entries.length}; re-record the scenario`,
         )
       }
-      yield* replayEntry(entry, options.signal, paceMs)
+      yield* replayEntry(resolveScriptedEntry(entry, options.messages), options.signal, paceMs)
     })()
   }
   const providers = config.providers ?? []

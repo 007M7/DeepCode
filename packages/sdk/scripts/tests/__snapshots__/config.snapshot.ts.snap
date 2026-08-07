@@ -84,14 +84,9 @@ Change file: package.json
           "choiceMode": "exclusive",
           "choices": [
             {
-              "default": false,
+              "default": true,
               "label": "ACP automation server",
               "value": "acp",
-            },
-            {
-              "default": true,
-              "label": "Terminal TUI",
-              "value": "tui",
             },
             {
               "default": false,
@@ -278,16 +273,6 @@ Change file: package.json
           "label": "Tool timeout policy",
           "required": false,
           "value": "feature:timeout-policy",
-          "warning": undefined,
-        },
-        {
-          "choiceMode": undefined,
-          "choices": undefined,
-          "default": false,
-          "disabled": false,
-          "label": "Ask the user from the model loop",
-          "required": false,
-          "value": "feature:ask-user",
           "warning": undefined,
         },
       ],

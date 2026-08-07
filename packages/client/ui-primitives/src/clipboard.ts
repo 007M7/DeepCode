@@ -1,6 +1,5 @@
-// Package-internal clipboard write, shared by every copy control in this
-// package (CodeBlock's code copy, TerminalBlock's output copy). Not part of the
-// public surface: consumers get the components, not the host detection.
+// Host clipboard write shared by Web UI copy controls. Success feedback stays
+// with each control; this seam only reports whether the host accepted a write.
 
 /**
  * Write text to the host clipboard, preferring the async Clipboard API and

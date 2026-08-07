@@ -1,7 +1,21 @@
-import { readdirSync, readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { join, resolve } from 'node:path'
+import { tmpdir } from 'node:os'
 import { describe, expect, it } from 'vitest'
-import { collectPythonDependencies, isPermissive, type Manifest, manifestPatterns, parsePyprojectRequirements, parseVendoredRows, render, tierExternalDeps } from './gen-third-party-notices.ts'
+import {
+  CLAUDE_AGENT_SDK_PACKAGE,
+  claudeDistributionFromManifest,
+  collectPythonDependencies,
+  isOwnerAuthorizedRuntime,
+  isPermissive,
+  type Manifest,
+  manifestPatterns,
+  parsePyprojectRequirements,
+  parseVendoredRows,
+  render,
+  tierExternalDeps,
+  virtualManifest,
+} from './gen-third-party-notices.ts'
 
 const root = resolve(import.meta.dirname, '..')
 
@@ -11,7 +25,9 @@ describe('THIRD_PARTY_NOTICES.md', () => {
   // Pre-commit regenerates the file whenever a manifest is staged, so reaching
   // this assertion means the notices were committed without that hook.
   it('matches what the generator produces from the current manifests', () => {
-    expect(readFileSync(resolve(root, 'THIRD_PARTY_NOTICES.md'), 'utf8'), 'stale notices — run `pnpm run gen-third-party-notices`').toBe(render())
+    const generated = render()
+    expect(generated).toContain('It depends on the third-party software listed below.')
+    expect(readFileSync(resolve(root, 'THIRD_PARTY_NOTICES.md'), 'utf8'), 'stale notices — run `pnpm run gen-third-party-notices`').toBe(generated)
   })
 })
 
@@ -60,6 +76,56 @@ describe('tierExternalDeps', () => {
 
     expect(tierExternalDeps(manifests, names).get('shared')).toBe(true)
     expect(tierExternalDeps(manifests, names).has('@deepseek-ai/dsh-cli')).toBe(false)
+  })
+})
+
+describe('virtualManifest', () => {
+  it('resolves a manifest from an ordinary prefix-matching store directory', () => {
+    const root = mkdtempSync(join(tmpdir(), 'dsh-notices-prefix-'))
+    try {
+      const name = '@scope/pkg'
+      const version = '1.0.0'
+      const store = join(root, 'store')
+      const manifestDir = join(store, `${name.replace('/', '+')}@${version}`, 'node_modules', name)
+      mkdirSync(manifestDir, { recursive: true })
+      writeFileSync(join(manifestDir, 'package.json'), JSON.stringify({ name, version, license: 'MIT' }))
+
+      expect(virtualManifest(store, name)).toMatchObject({ name, version, license: 'MIT' })
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('falls back to a content scan when pnpm 11 truncates the store directory name', () => {
+    const root = mkdtempSync(join(tmpdir(), 'dsh-notices-truncated-'))
+    try {
+      const name = '@scope/pkg'
+      const version = '2.0.0'
+      const store = join(root, 'store')
+      // The truncated name no longer starts with `@scope+pkg@`, so only the
+      // whole-store content scan can find the package.
+      const manifestDir = join(store, '@scope+pkg_9f1c2d3e4a5b6c7d8e9f0a1b2c3d4e5f', 'node_modules', name)
+      mkdirSync(manifestDir, { recursive: true })
+      writeFileSync(join(manifestDir, 'package.json'), JSON.stringify({ name, version, license: 'Apache-2.0' }))
+
+      expect(virtualManifest(store, name)).toMatchObject({ name, version, license: 'Apache-2.0' })
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('returns undefined when neither the prefix nor the content scan finds the package', () => {
+    const root = mkdtempSync(join(tmpdir(), 'dsh-notices-miss-'))
+    try {
+      const store = join(root, 'store')
+      const other = join(store, 'other-pkg@1.0.0', 'node_modules', 'other-pkg')
+      mkdirSync(other, { recursive: true })
+      writeFileSync(join(other, 'package.json'), JSON.stringify({ name: 'other-pkg', version: '1.0.0' }))
+
+      expect(virtualManifest(store, '@scope/missing')).toBeUndefined()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })
 
@@ -172,7 +238,14 @@ describe('collectPythonDependencies', () => {
 describe('isPermissive', () => {
   it('accepts the licenses this project ships and rejects copyleft or unknown ones', () => {
     expect(['MIT', 'ISC', 'BSD-3-Clause', 'Apache-2.0', 'MIT / Apache-2.0', '(MIT OR CC0-1.0)'].every(isPermissive)).toBe(true)
-    expect(['LGPL-3.0-only', 'MPL-2.0', 'GPL-3.0-or-later', 'SEE LICENSE IN LICENSE'].some(isPermissive)).toBe(false)
+    expect([
+      'LGPL-3.0-only',
+      'MPL-2.0',
+      'GPL-3.0-or-later',
+      'SEE LICENSE IN LICENSE',
+      'SEE LICENSE IN README.md',
+      'SEE LICENSE IN LICENSE.md',
+    ].some(isPermissive)).toBe(false)
   })
 
   it('requires every operand of an AND, so a copyleft conjunct cannot ride along', () => {
@@ -191,6 +264,66 @@ describe('isPermissive', () => {
     expect(['MIT)', '((MIT', '(MIT OR GPL-3.0-only', 'MIT OR OR GPL-3.0-only'].some(isPermissive)).toBe(false)
     expect(isPermissive('MIT+')).toBe(false)
     expect(isPermissive('GPL-2.0-only WITH Classpath-exception-2.0')).toBe(false)
+  })
+})
+
+describe('official Claude distribution authorization', () => {
+  it('authorizes only the direct SDK identity without relabeling its license', () => {
+    expect(isOwnerAuthorizedRuntime(CLAUDE_AGENT_SDK_PACKAGE)).toBe(true)
+    expect(isOwnerAuthorizedRuntime(`${CLAUDE_AGENT_SDK_PACKAGE}-linux-x64`))
+      .toBe(false)
+    expect(isOwnerAuthorizedRuntime('@anthropic-ai/unrelated')).toBe(false)
+    expect(isPermissive('SEE LICENSE IN README.md')).toBe(false)
+  })
+
+  it('derives version-independent platform payloads from the official SDK manifest', () => {
+    expect(claudeDistributionFromManifest({
+      name: CLAUDE_AGENT_SDK_PACKAGE,
+      version: '9.8.7',
+      license: 'future declared terms',
+      claudeCodeVersion: '6.5.4',
+      optionalDependencies: {
+        [`${CLAUDE_AGENT_SDK_PACKAGE}-linux-x64`]: '9.8.7',
+        [`${CLAUDE_AGENT_SDK_PACKAGE}-darwin-arm64`]: '9.8.7',
+      },
+    })).toEqual({
+      sdkVersion: '9.8.7',
+      claudeCodeVersion: '6.5.4',
+      payloads: [
+        {
+          name: `${CLAUDE_AGENT_SDK_PACKAGE}-darwin-arm64`,
+          version: '9.8.7',
+        },
+        {
+          name: `${CLAUDE_AGENT_SDK_PACKAGE}-linux-x64`,
+          version: '9.8.7',
+        },
+      ],
+    })
+  })
+
+  it('rejects a wrong SDK identity, missing payloads, and unrelated optionals', () => {
+    expect(() => claudeDistributionFromManifest({
+      name: '@anthropic-ai/unrelated',
+      version: '1.0.0',
+      claudeCodeVersion: '1.0.0',
+      optionalDependencies: {
+        [`${CLAUDE_AGENT_SDK_PACKAGE}-linux-x64`]: '1.0.0',
+      },
+    })).toThrow(`expected ${CLAUDE_AGENT_SDK_PACKAGE} manifest`)
+    expect(() => claudeDistributionFromManifest({
+      name: CLAUDE_AGENT_SDK_PACKAGE,
+      version: '1.0.0',
+      claudeCodeVersion: '1.0.0',
+    })).toThrow('declares no optional platform payloads')
+    expect(() => claudeDistributionFromManifest({
+      name: CLAUDE_AGENT_SDK_PACKAGE,
+      version: '1.0.0',
+      claudeCodeVersion: '1.0.0',
+      optionalDependencies: {
+        '@anthropic-ai/unrelated': '1.0.0',
+      },
+    })).toThrow('outside its authorized platform-payload identity')
   })
 })
 

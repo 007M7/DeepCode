@@ -9,7 +9,8 @@
  * The virtual loader registers each real stylesheet as a watch dependency.
  */
 import { readFile } from 'node:fs/promises'
-import { basename, dirname, resolve as resolvePath } from 'node:path'
+import { basename, dirname, relative, resolve as resolvePath, sep } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { UserConfig } from 'tsdown'
 import { transform } from 'lightningcss'
 import { PLATFORM_MODULES } from './web/src/platform.ts'
@@ -30,6 +31,9 @@ const CSS_VIRTUAL_SUFFIX = '.mjs'
  */
 export const INLINE_SAFE = /^@deepseek-ai\/dsh-(host-apiproxy|session|llm|tools|brand)(\/|$)/
 
+/** Generated descriptor/codec contribution with no shared runtime identity. */
+const GENERATED_REMOTE = /^@deepseek-ai\/dsh-[a-z0-9]+(?:-[a-z0-9]+)*\/remote$/
+
 /**
  * Documented TEMPORARY exemption, not a platform module (hence not in
  * platform.ts): the snapshot-store engine (createSnapshotStore/defineStore/
@@ -45,6 +49,16 @@ const RUNTIME_STORE_EXEMPTION = '@deepseek-ai/dsh-client-runtime/client'
 /** Externals resolved from the loader module table: the platform seed entries plus the documented runtime exemption. */
 export const CLIENT_EXTERNALS: readonly string[] = [...PLATFORM_MODULES, RUNTIME_STORE_EXEMPTION]
 
+const REPOSITORY_ROOT = fileURLToPath(new URL('../..', import.meta.url))
+
+/** Rebase a physical lib-relative source onto the browser's repository-shaped URL tree. */
+function browserSourcePath(source: string, sourcemapPath: string): string {
+  if (!source.startsWith('.')) return source
+  const physicalSource = resolvePath(dirname(sourcemapPath), source)
+  const repositoryPath = relative(REPOSITORY_ROOT, physicalSource).split(sep).join('/')
+  return repositoryPath.startsWith('packages/') ? `../../../${repositoryPath}` : source
+}
+
 /**
  * Build the tsdown config for one UI plugin package: the node-half lib build
  * plus the browser client bundle. A package-level tsdown.config.ts REPLACES
@@ -58,7 +72,7 @@ export const CLIENT_EXTERNALS: readonly string[] = [...PLATFORM_MODULES, RUNTIME
  * own tsdown.config.ts (a preset-side glob hides it from the mechanical check).
  * @returns tsdown user configs emitting lib/*.js and lib/client.js.
  */
-export function clientBundle(id: string, libEntry: readonly string[]): UserConfig[] {
+export function clientBundle(id: string, libEntry: readonly string[]): [UserConfig, UserConfig] {
   return [{
     entry: [...libEntry],
     outDir: 'lib',
@@ -78,6 +92,9 @@ export function clientBundle(id: string, libEntry: readonly string[]): UserConfi
     platform: 'browser',
     // Types ship from lib/types (tsc); dts here would wrap the banner/footer into .d.cts and break parsing.
     dts: false,
+    // Plugin code is fetched outside Vite's module graph, so its own bundle
+    // must carry the TS/TSX mapping consumed by browser profiling tools.
+    sourcemap: true,
     clean: false,
     external: [...CLIENT_EXTERNALS],
     // Browser bundles inline node-idiom deps (zustand/immer read
@@ -112,9 +129,9 @@ export function clientBundle(id: string, libEntry: readonly string[]): UserConfi
       resolveId(source: string) {
         if (!source.startsWith('@deepseek-ai/')) return null
         if (CLIENT_EXTERNALS.includes(source)) return null // platform module: external wins
-        if (INLINE_SAFE.test(source)) return null // wire/type layer: inline is the point
+        if (INLINE_SAFE.test(source) || GENERATED_REMOTE.test(source)) return null // wire contribution: inline is the point
         throw new Error(
-          `client bundle purity: "${source}" is not a platform module (CLIENT_EXTERNALS) and not an inline-safe wire layer — `
+          `client bundle purity: "${source}" is not a platform module (CLIENT_EXTERNALS), an inline-safe wire layer, or a generated /remote contribution — `
           + 'cross-plugin value imports are forbidden; collaborate through cordis services (type-only imports are erased and never reach this gate)',
         )
       },
@@ -156,6 +173,11 @@ export function clientBundle(id: string, libEntry: readonly string[]): UserConfi
     }],
     outputOptions: {
       entryFileNames: 'client.js',
+      // The map is served from /plugins/<scoped-package>/client.js.map. The
+      // browser resolves its local sources back into the repository-shaped
+      // /packages/<group>/<package>/src tree; sourcesContent keeps them usable
+      // without exposing that tree as an HTTP route.
+      sourcemapPathTransform: browserSourcePath,
       banner: `window.__ModuleLoader__.load({ id: ${JSON.stringify(id)}, factory: (require) => {`,
       footer: `return module.exports; } });`,
       intro: 'var module = { exports: {} }; var exports = module.exports;',

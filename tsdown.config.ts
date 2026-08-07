@@ -1,4 +1,5 @@
 import { defineConfig } from 'tsdown'
+import { typertPlugin } from './packages/typert/generator/lib/types/tsdown-plugin.js'
 
 /**
  * JS bundling for vendored Cordis and Harness TypeScript packages.
@@ -27,4 +28,7 @@ export default defineConfig({
   fixedExtension: false,
   dts: false,
   clean: false,
+  // The final pass sees both independent TypeScript faces. Workspace mode
+  // writes only packages that explicitly publish a Typert/Remote subpath.
+  plugins: [typertPlugin({ mode: 'workspace' })],
 })

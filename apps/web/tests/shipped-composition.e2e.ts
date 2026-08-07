@@ -6,10 +6,13 @@
 import { tmpdir } from 'node:os'
 import { afterEach, expect, it } from 'vitest'
 import { canonicalPath, writableRoots } from '@deepseek-ai/dsh-sandbox'
+import { SessionId } from '@deepseek-ai/dsh-session'
 // Empty type imports carry the tools/sandboxPolicy/approval Context merges.
 import type {} from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import type {} from '@deepseek-ai/dsh-user-approval'
+import type {} from '@deepseek-ai/dsh-permission'
+import type {} from '@deepseek-ai/dsh-commands'
 import { launchWebScaffold, type WebScaffold } from './scaffold.ts'
 
 /**
@@ -27,13 +30,10 @@ const EXPECTED_TOOLS = [
   'edit',
   'exit_plan_mode',
   'get_goal',
+  'list_agents',
   'ralph',
   'read',
-  'session_event_read',
-  'session_event_search',
-  'session_event_trace',
-  'session_search',
-  'session_trace',
+  'send_message',
   'skill',
   'str_replace_editor',
   'subagent',
@@ -49,10 +49,10 @@ const EXPECTED_TOOLS = [
 ]
 
 /**
- * `glob` and `grep` come from `dsh-tool-fs-search`, which probes `command -v rg`
- * through the mounted bash executor at load and registers neither tool when
- * ripgrep is absent. That is a host dependency, not a composition decision, so the
- * pair is asserted separately — present together or absent together.
+ * `glob` and `grep` come from `dsh-tool-fs-search`, which spawns the PACKAGED
+ * ripgrep binary (`@vscode/ripgrep`) through the subprocess seam, so the pair
+ * is always present on every host — asserted as fixed members, not a host
+ * dependency.
  */
 const RIPGREP_TOOLS = ['glob', 'grep']
 
@@ -63,11 +63,13 @@ afterEach(async () => {
   scaffold = undefined
 })
 
-it('assembles the shipped Web catalog and keeps its access default', async () => {
+it('assembles the shipped Web catalog with the confined access default', async () => {
   scaffold = await launchWebScaffold()
   const names = scaffold.ctx.tools.schemas().map(schema => schema.name).sort()
   expect(names.filter(name => !RIPGREP_TOOLS.includes(name))).toEqual(EXPECTED_TOOLS)
-  expect([[], RIPGREP_TOOLS]).toContainEqual(names.filter(name => RIPGREP_TOOLS.includes(name)))
+  // The packaged ripgrep binary ships with the dependency, so the pair is a
+  // fixed roster member on every host.
+  expect(names.filter(name => RIPGREP_TOOLS.includes(name))).toEqual(RIPGREP_TOOLS)
   // `workspace-write` is not "the workspace and nothing else": the shared roots
   // helper always admits the temp directories too. Pinning it against an
   // explicit mode keeps the claim independent of this surface's default, and
@@ -76,8 +78,22 @@ it('assembles the shipped Web catalog and keeps its access default', async () =>
   expect(writableRoots(scaffold.ctx.sandboxPolicy.resolve({ mode: 'workspace-write' }))).toEqual(
     expect.arrayContaining([canonicalPath('/tmp'), canonicalPath(tmpdir())]),
   )
-  // The Web surface keeps its shipped access default; the base's confined one
-  // reaches the TUI. Pinning both keeps a base change from moving Web silently.
-  expect(scaffold.ctx.sandboxPolicy.defaultMode).toBe('danger-full-access')
-  expect(scaffold.ctx.approval.config.policy).toBe('never')
+  expect(scaffold.ctx.sandboxPolicy.defaultMode).toBe('workspace-write')
+  expect(scaffold.ctx.approval.config.policy).toBe('ask')
+  expect(scaffold.ctx.permission.defaultPreset).toBe('workspace-write')
+
+  const handle = await scaffold.ctx.agents.create({
+    sessionId: SessionId('shipped-command-catalog'),
+    meta: { cwd: scaffold.workspaceCwd },
+    agentOptions: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+  })
+  try {
+    expect(scaffold.ctx.commands.list(handle.agent)).toContainEqual({
+      name: 'feedback',
+      description: 'record feedback about this session',
+      input: { hint: '<text>' },
+    })
+  } finally {
+    await handle.dispose()
+  }
 }, 120_000)

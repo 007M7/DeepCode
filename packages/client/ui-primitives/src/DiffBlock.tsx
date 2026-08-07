@@ -1,13 +1,12 @@
 // DiffBlock: the inline-diff surface for a file mutation (write/edit) — a copy
 // control over one or more per-file hunks, each a bold path header followed by
 // the removed block (`-`, error color) and the added block (`+`, success
-// color), with a dim `└ +A -R · N file(s)` footer. The +/- block form mirrors
-// the TUI transcript's diff card (packages/ui/tui: diffLines) so a diff reads
-// the same across front ends: the removed side is the old text in full, the
-// added side the new text in full, both split on the same terminator rule, and
-// the footer counts distinct paths on both ends. Output never soft-wraps — an
-// aligned source line keeps its indentation and scrolls horizontally instead of
-// folding. Colors resolve through --dsw-* tokens; geometry mirrors CodeBlock.
+// color), with a dim `└ +A -R · N file(s)` footer. Unlike the TUI's exact
+// changed-row comparison, this block renders the old and new sides in full.
+// Both front ends share the line-terminator rule and distinct-path file count.
+// Output never soft-wraps — an aligned source line keeps its indentation and
+// scrolls horizontally instead of folding. Colors resolve through --dsw-*
+// tokens; geometry mirrors CodeBlock.
 
 import { useCallback, useMemo, useState } from 'react'
 import clsx from 'clsx'

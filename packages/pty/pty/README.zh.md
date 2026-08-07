@@ -25,7 +25,7 @@
 
 #### 模型看到的内容
 
-没有直接可见内容。此包（package）不注册提示词或工具；可见 schema 和结果文本由 `@deepseek-ai/dsh-tool-pty` 负责。
+没有直接可见内容。此包不注册提示词或工具；可见 schema 和结果文本由 `@deepseek-ai/dsh-tool-pty` 负责。
 
 #### Token 影响
 

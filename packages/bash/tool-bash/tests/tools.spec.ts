@@ -20,6 +20,7 @@ import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 import SandboxPolicyService from '@deepseek-ai/dsh-sandbox-policy'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
+import * as BashEnvPlugin from '@deepseek-ai/dsh-bash-env'
 import { processOutcome } from '../src/background.ts'
 import { renderProcessRead, renderResult } from '../src/render.ts'
 
@@ -35,6 +36,7 @@ async function setup() {
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(LocalSubprocessService)
   ;(ctx.subprocess as LocalSubprocessService).internals = { spillDir }
+  await ctx.plugin(BashEnvPlugin)
   await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000, graceMs: 200 })
   await ctx.plugin(ToolBash)
   return ctx
@@ -50,6 +52,7 @@ async function setupWithTasks() {
   await ctx.plugin(ToolTasks)
   await ctx.plugin(LocalSubprocessService)
   ;(ctx.subprocess as LocalSubprocessService).internals = { spillDir }
+  await ctx.plugin(BashEnvPlugin)
   await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000, graceMs: 200 })
   await ctx.plugin(ToolBash)
   return ctx
@@ -188,6 +191,7 @@ async function setupSandboxed(withApproval = false) {
   await ctx.plugin(SandboxPolicyService, {})
   await ctx.plugin(RecordingSandboxExecutor)
   if (withApproval) await ctx.plugin(ApprovalService)
+  await ctx.plugin(BashEnvPlugin)
   await ctx.plugin(ToolBash)
   return { ctx, bash: ctx.bash as RecordingSandboxExecutor }
 }
@@ -281,6 +285,7 @@ describe('bash tool', () => {
     await ctx.plugin(LocalSubprocessService)
     ;(ctx.subprocess as LocalSubprocessService).internals = { spillDir }
     await ctx.plugin(LocalBashExecutor, { maxOutputBytes: 100, graceMs: 200 })
+    await ctx.plugin(BashEnvPlugin)
     await ctx.plugin(ToolBash)
     const result = await call(ctx, 'bash', { command: 'for i in $(seq 1 100); do printf "line-%04d\\n" $i; done', description: 'test command' })
     expect(text(result)).toContain('[output truncated; full output: ')
@@ -300,7 +305,7 @@ describe('bash tool', () => {
     expect(text(result)).toMatch(/ENOENT/)
   })
 
-  it('surfaces foreground aborts as isError', async () => {
+  it('surfaces foreground aborts as the structured TOOL_ABORTED error', async () => {
     const ctx = await setup()
     const controller = new AbortController()
     const pending = ctx.tools.execute({
@@ -312,7 +317,10 @@ describe('bash tool', () => {
     setTimeout(() => { controller.abort() }, 50)
     const result = await pending
     expect(result.isError).toBe(true)
-    expect(text(result)).toMatch(/aborted/)
+    expect(result.error).toMatchObject({
+      message: 'tool call aborted',
+      info: { name: 'AbortError', code: TOOL_ABORTED },
+    })
   })
 
   // Type and required-key violations are rejected by the harness
@@ -389,6 +397,7 @@ describe('bash tool', () => {
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(LocalSubprocessService)
     await ctx.plugin(LocalBashExecutor, {})
+    await ctx.plugin(BashEnvPlugin)
     const fiber = await ctx.plugin(ToolBash)
     expect(ctx.tools.schemas()).toHaveLength(1)
     expect((await ctx.systemPrompt.assemble()).sections.map(s => s.name)).toEqual(['harness:identity', 'deployment:persona', 'tool:bash'])
@@ -403,6 +412,7 @@ describe('bash tool', () => {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
     // inject: ['tools', 'bash'] keeps the plugin pending until bash exists.
+    await ctx.plugin(BashEnvPlugin)
     await ctx.plugin(ToolBash)
     expect(ctx.tools.schemas()).toHaveLength(0)
     await ctx.plugin(LocalSubprocessService)
@@ -493,6 +503,7 @@ describe('background execution through the task runtime', () => {
     await ctx.plugin(LocalTaskService)
     await ctx.plugin(ToolTasks)
     await ctx.plugin(CountingStartExecutor)
+    await ctx.plugin(BashEnvPlugin)
     await ctx.plugin(ToolBash)
 
     const controller = new AbortController()
@@ -520,6 +531,7 @@ describe('background execution through the task runtime', () => {
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(LocalTaskService)
     await ctx.plugin(CountingStartExecutor)
+    await ctx.plugin(BashEnvPlugin)
     await ctx.plugin(ToolBash)
 
     const result = await call(ctx, 'bash', { command: 'sleep 60', description: 'test command', run_in_background: true })
@@ -534,6 +546,7 @@ describe('background execution through the task runtime', () => {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(LocalSubprocessService)
+    await ctx.plugin(BashEnvPlugin)
     await ctx.plugin(LocalBashExecutor, {})
     await ctx.plugin(ToolBash, { enableRunInBackground: false })
 
@@ -568,6 +581,7 @@ describe('sandbox escalation through the generic task producer', () => {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(RecordingSandboxExecutor)
+    await ctx.plugin(BashEnvPlugin)
     await expect(ctx.plugin(ToolBash)).rejects.toThrow('tool-bash: the mounted bash executor confines but ctx.sandboxPolicy is missing')
   })
 
@@ -1003,9 +1017,9 @@ describe('tool-owned UI presentation (presentCall / presentResult)', () => {
     // not renderResult output, so a generic fenced card, no terminal output/exit.
     const out = ctx.tools.get('bash')!.presentResult!(
       { command: 'x', description: 'x' },
-      { content: [{ type: 'text', text: 'command aborted' }], isError: true },
+      { content: [{ type: 'text', text: 'tool call aborted' }], isError: true },
     )
-    expect(out).toEqual({ card: 'generic', content: [{ type: 'text', text: '```console\ncommand aborted\n```' }] })
+    expect(out).toEqual({ card: 'generic', content: [{ type: 'text', text: '```console\ntool call aborted\n```' }] })
   })
 
   it('bash presentResult: leaves a non-text (unexpected) result untouched → undefined (UI keeps raw content)', async () => {
@@ -1097,8 +1111,9 @@ describe('the model-facing bash tool builds its request from named args only (no
     }
     await ctx.plugin(LocalTaskService)
     await ctx.plugin(ToolTasks)
+    await ctx.plugin(BashEnvPlugin, { dshHome: recordingDshHome })
     await ctx.plugin(RecordingBashExecutor)
-    await ctx.plugin(ToolBash, { dshHome: recordingDshHome })
+    await ctx.plugin(ToolBash)
     return { ctx, bash: ctx.bash as RecordingBashExecutor }
   }
 

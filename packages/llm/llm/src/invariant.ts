@@ -72,7 +72,9 @@ async function* validateStream(
         usageSeen = true
         break
       case 'finish':
-        if (open.size > 0) fail(`LLM stream finished with ${open.size} open block(s)`)
+        if (open.size > 0 && chunk.reason.kind !== 'error' && chunk.reason.kind !== 'aborted') {
+          fail(`LLM stream finished with ${open.size} open block(s)`)
+        }
         finished = true
         break
     }

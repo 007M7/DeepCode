@@ -6,6 +6,6 @@ ACP（Agent Client Protocol）组将 harness 中的 agent（智能体）公开�
 
 | 包 | 职责 |
 |---|---|
-| [`acp/`](acp/README.md) | 仅面向自动化的 ACP 服务器：新文本会话、已提交的 assistant 输出、机器权限策略、取消和由连接负责的清理。 |
+| [`acp/`](acp/README.md) | 仅面向自动化的 ACP 服务器。 |
 
 与之匹配的进程外 subagent 客户端仍位于 [`subagent/subagent-acp`](../subagent/subagent-acp/README.md)，因为它实现 subagent 提供方接口；任意 ACP 客户端都可以按照同一服务器契约驱动该服务器。

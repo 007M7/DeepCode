@@ -35,6 +35,8 @@ export interface DeepSeekCatalogModel {
   description?: string
   /** Known combined request/response context capacity; omitted when deployment metadata is unavailable. */
   contextWindow?: number
+  /** Per-request output cap for this model; omission falls back to the profile's {@link DeepSeekConnectionOptions.maxTokens}. */
+  maxTokens?: number
 }
 
 /**
@@ -186,7 +188,7 @@ export class DeepSeekAdapter extends LlmAdapter {
         ? { provider, id: model, name: model, inputModalities: ['text' as const] }
         : modelInfo(provider, configured),
       context: { contextWindow },
-      defaultMaxTokens: connection.maxTokens,
+      defaultMaxTokens: configured?.maxTokens ?? connection.maxTokens,
       ...connection.defaults.thinking === 'disabled'
         ? {
           reasoning: {

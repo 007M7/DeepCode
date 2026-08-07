@@ -23,21 +23,48 @@
   overflow: visible;
 }
 
-/* figma 34:10411: fish + title, gap 10, centered; 26/32 wt500. */
+/* figma 34:10411: fish + title, gap 10, centered; 26/32 wt500. The preview
+   badge is a product addition outside that source: a mono superscript pill
+   riding the title's top-right. */
 .headline {
-  display: flex;
+  display: grid;
+  grid-template-columns: 34px auto auto;
+  column-gap: 10px;
   align-items: center;
   justify-content: center;
-  gap: 10px;
   font-size: 26px;
   line-height: 32px;
   font-weight: 500;
   color: var(--dsw-alias-label-primary);
 }
 
+.headlineText {
+  grid-row: 1;
+  grid-column: 2;
+}
+
+.previewBadge {
+  grid-row: 1;
+  grid-column: 3;
+  align-self: start;
+  margin-top: 2px;
+  margin-left: -3px;
+  padding: 1px 7px 0;
+  border: 1px solid var(--dsw-alias-interactive-bg-hover);
+  border-radius: 24px;
+  background: var(--dsw-alias-state-business-tertiary);
+  color: var(--dsw-alias-label-primary-bluish);
+  font-family: var(--ds-font-family-code);
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
 /* figma fish fill rides business blue. */
 .fish {
-  flex: none;
+  grid-row: 1;
+  grid-column: 1;
   color: var(--dsw-alias-state-business-primary);
 }
 

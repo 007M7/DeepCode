@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render } from '@testing-library/react'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
@@ -18,15 +18,26 @@ import { zh } from '../src/client/locales.ts'
 // Mirrors the real lookup chain (conversation namespace, then common).
 const t: AssistantMarkdownProps['t'] = makeTranslate(zh, commonZh)
 
-afterEach(cleanup)
+/** jsdom has no ResizeObserver; StatsLine watches its row for ellipsis truncation through one. */
+class ResizeObserverStub {
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+}
+
+beforeEach(() => { vi.stubGlobal('ResizeObserver', ResizeObserverStub) })
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+})
 
 const SID = 's1' as SessionId
 
 function snapshotBase(): ConversationSnapshot {
   return {
-    sessionId: SID, nodes: [], partial: null, runningCalls: [], codeDispatches: new Map(),
+    sessionId: SID, nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [], codeDispatches: new Map(),
     pending: [], queue: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
-    hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null,
+    hasMore: false, loadingOlder: false, promptError: null, blank: false, subagent: null, lastAgentError: null,
   }
 }
 
@@ -56,11 +67,12 @@ describe('render branch tails', () => {
     const source = { getSnapshot: () => snap, subscribe: () => () => {} }
     const view = render(
       <StatsLine
+        t={t}
         useSession={bindSnapshotSelector(source) as unknown as UseSession<ConversationSnapshot>}
         useProjection={() => undefined}
       />,
     )
-    expect(view.container.textContent).toBe('2 turns · 3 steps')
+    expect(view.container.textContent).toBe('2 轮 · 3 步')
   })
 
   it('AssistantMarkdown reasoning as the streaming tail renders the running ring', () => {
@@ -76,7 +88,7 @@ describe('render branch tails', () => {
     const chat = createChatStore().create()
     chat.actions.select({ turnSeq: 1, callId: 'ghost' } satisfies SelectionTarget)
     const emptyList = createSnapshotStore<SessionListState>(
-      { ids: [], byId: {}, current: undefined, phase: 'ready' })
+      { ids: [], byId: {}, current: undefined, phase: 'ready', subagentsByParent: {}, currentAddress: undefined })
     const emptyWorkspaces = createSnapshotStore<WorkspaceListState>({
       items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
@@ -119,7 +131,7 @@ describe('render branch tails', () => {
     const chat = createChatStore().create()
     chat.actions.select({ turnSeq: 8, callId: 'p1:code:1', toolName: 'read' } satisfies SelectionTarget)
     const emptyList = createSnapshotStore<SessionListState>(
-      { ids: [], byId: {}, current: undefined, phase: 'ready' })
+      { ids: [], byId: {}, current: undefined, phase: 'ready', subagentsByParent: {}, currentAddress: undefined })
     const emptyWorkspaces = createSnapshotStore<WorkspaceListState>({
       items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,

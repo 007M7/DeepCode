@@ -30,7 +30,7 @@ block.
   "provider": "deepseek-official",
   "apiKey": "<key>",
   "model": "deepseek-v4-flash",
-  "interface": "tui",
+  "interface": "acp",
   "pm": "npm",
   "install": false,
   "features": [
