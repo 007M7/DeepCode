@@ -56,7 +56,7 @@ Schedule 拥有自己的数值五字段 parser，而不开放 Croner 语言。�
 
 频率证明会枚举完整的 400 年 Gregorian 日期周期，并与精确的一日内时刻组合。它会检查同日相邻时点、跨午夜相邻时点与周期首尾衔接处的相邻时点，拒绝任何短于 5 分钟的名义间隔；整个过程既不维护配额，也不对更短窗口采样。
 
-生产环境精确锁定的依赖是 `croner@10.0.1`：这是一个采用 MIT 许可证、不含传递依赖的 ESM 包。Schedule 为其提供隐藏的 seconds=`0` 与 year=`1-9999`，以 paused 状态且不带 callback 构造；timer、门控、准入与持久化仍由 Schedule 拥有。适配器会拒绝由夏令时空档规范化产生的候选值，在重叠时段选择第一个时刻，并要求正向与反向 cursor 严格移动。JavaScript 构造器会重映射 0–99 年，因此 Schedule 自有的本地日历搜索会处理这一低年份范围及其向安全年份的过渡；只有安全年份搜索才会委托给 Croner。live create 与到期处理使用当前 Croner 和 ICU；回放只检查规范化的规则／时区 shape、整分钟且年份为四位数的 UTC 时点，以及 `currentScheduledAt <= occurrenceAt <= acceptedAt < nextScheduledAt`，因此 tzdata 变化绝不会使已提交的 history 失效。
+生产环境精确锁定的依赖是 `croner@10.0.1`：这是一个采用 MIT 许可证、不含传递依赖的 ESM 包。Schedule 为其提供隐藏的 seconds=`0` 与 year=`1-9999`，以 paused 状态且不带 callback 构造；timer、门控、准入与持久化仍由 Schedule 拥有。适配器会拒绝由夏令时空档规范化产生的候选值，在重叠时段选择第一个时刻，并要求正向与反向 cursor 严格移动。JavaScript 构造器会重映射 0–99 年，因此 Schedule 自有的本地日历搜索会处理这一低年份范围及其向安全年份的过渡；只有安全年份搜索才会委托给 Croner。live create 与到期处理（包括 append 前的 package invariant）使用当前 Croner 和 ICU；回放只检查规范化的规则／时区 shape、整分钟且年份为四位数的 UTC 时点，以及 `currentScheduledAt <= occurrenceAt <= acceptedAt < nextScheduledAt`，因此 tzdata 变化绝不会使已提交的 history 失效。
 
 ### Persistence checkpoint 与初始化恢复
 

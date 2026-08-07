@@ -4,7 +4,7 @@ import InvariantService, { InvariantError } from '@deepseek-ai/dsh-invariants'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import * as scheduleInvariant from '../src/invariant.ts'
-import { ScheduleId } from '../src/domain.ts'
+import { createCronScheduleRecord, resolveCronOccurrence, ScheduleId } from '../src/domain.ts'
 import type { ScheduleChange } from '../src/types.ts'
 
 function event(data: unknown, seq: number): SessionEvent {
@@ -50,6 +50,100 @@ describe('Schedule package invariant', () => {
 
     session.append('schedule/change', { version: 1, operation: 'dispatch', id: ScheduleId('schedule-1') })
     expect(session.events).toHaveLength(3)
+    await ctx.fiber.dispose()
+  })
+
+  it('validates live Cron records and dispatches with current calendar data', async () => {
+    const { ctx } = await harness()
+    const session = ctx.sessions.create(SessionId('schedule-live-cron-invariant'))
+    expect(() => session.append('schedule/change', {
+      version: 1,
+      operation: 'create',
+      schedule: {
+        id: ScheduleId('schedule-invalid-live-cron'),
+        kind: 'cron',
+        prompt: 'invalid current target',
+        cron: '0 9 * * *',
+        timeZone: 'UTC',
+        scheduledAt: '2026-08-06T12:00:00.000Z',
+      },
+    })).toThrow(InvariantError)
+    expect(() => session.append('schedule/change', {
+      version: 1,
+      operation: 'create',
+      schedule: {
+        id: ScheduleId('schedule-alias-live-cron'),
+        kind: 'cron',
+        prompt: 'noncanonical zone',
+        cron: '0 9 * * *',
+        timeZone: 'US/Eastern',
+        scheduledAt: '2026-08-06T13:00:00.000Z',
+      },
+    })).toThrow(InvariantError)
+    expect(() => session.append('schedule/change', {
+      version: 1,
+      operation: 'create',
+      schedule: {
+        id: ScheduleId('schedule-fast-live-cron'),
+        kind: 'cron',
+        prompt: 'too frequent',
+        cron: '* * * * *',
+        timeZone: 'UTC',
+        scheduledAt: '2026-08-06T12:00:00.000Z',
+      },
+    })).toThrow(InvariantError)
+
+    const record = createCronScheduleRecord(
+      ScheduleId('schedule-valid-live-cron'),
+      'valid current target',
+      '0 9 * * *',
+      'UTC',
+      Date.parse('2026-08-06T08:00:00.000Z'),
+    )
+    session.append('schedule/change', { version: 1, operation: 'create', schedule: record })
+    const acceptedAt = '2026-08-07T12:00:00.000Z'
+    const expected = resolveCronOccurrence(record, Date.parse(acceptedAt))
+    expect(() => session.append('schedule/change', {
+      version: 1,
+      operation: 'dispatch',
+      id: record.id,
+      occurrenceAt: record.scheduledAt,
+      acceptedAt,
+      nextScheduledAt: expected.nextScheduledAt,
+    })).toThrow(InvariantError)
+    expect(session.events).toHaveLength(1)
+    session.append('schedule/change', {
+      version: 1,
+      operation: 'dispatch',
+      id: record.id,
+      occurrenceAt: expected.occurrenceAt,
+      acceptedAt,
+      nextScheduledAt: expected.nextScheduledAt,
+    })
+    expect(session.events).toHaveLength(2)
+    await ctx.fiber.dispose()
+  })
+
+  it('keeps existing Cron replay structural across time-zone data changes', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(InvariantService)
+    ctx.sessions.create(SessionId('schedule-historical-cron-invariant'), {
+      seed: [event({
+        version: 1,
+        operation: 'create',
+        schedule: {
+          id: 'schedule-historical-cron',
+          kind: 'cron',
+          prompt: 'historical target',
+          cron: '0 9 * * *',
+          timeZone: 'UTC',
+          scheduledAt: '2026-08-06T12:00:00.000Z',
+        },
+      }, 0)],
+    })
+    const fiber = await ctx.plugin(scheduleInvariant)
+    await fiber.dispose()
     await ctx.fiber.dispose()
   })
 

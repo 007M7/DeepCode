@@ -48,6 +48,7 @@ describe('restricted cron grammar and frequency proof', () => {
     ['5-20/05 1-3 * * *', '5-20/5 1-3 * * *'],
     ['05 01 01,15 01,12 *', '5 1 1,15 1,12 *'],
     ['0 0 * * 7', '0 0 * * 7'],
+    ['0 9 * * */7', '0 9 * * */7'],
   ])('canonicalizes %s', (input, canonical) => {
     expect(canonicalizeCronExpression(input)).toBe(canonical)
   })
@@ -181,6 +182,13 @@ describe('Croner calendar adapter', () => {
       occurrenceAt: yearOne.scheduledAt,
       nextScheduledAt: '0001-01-03T00:00:00.000Z',
     })
+    expect(createCronScheduleRecord(
+      ScheduleId('schedule-low-year-positive-offset-seam'),
+      'positive offset seam',
+      '0 0 1 1 *',
+      'Etc/GMT-14',
+      Date.parse('0108-12-31T23:59:59.999Z'),
+    ).scheduledAt).toBe('0109-12-31T10:00:00.000Z')
   })
 
   it('skips a DST gap and chooses the first instant in an overlap', () => {

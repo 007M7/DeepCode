@@ -510,7 +510,7 @@ function parseCronField(raw: string, spec: CronFieldSpec): ParsedCronField {
     const canonical = step.value === 1 ? '*' : `*/${step.canonical}`
     return Object.freeze({
       canonical,
-      values: cronValues(cronRange(spec.min, spec.max, step.value), spec, canonical === '*'),
+      values: cronValues(cronRange(spec.min, spec.max, step.value), spec, true),
     })
   }
 
@@ -704,6 +704,7 @@ function isCanonicalCronCandidate(
   timeZone: string,
   epoch: number,
 ): boolean {
+  /* v8 ignore next 4 -- pinned Croner emits finite in-range whole-minute candidates for this expression. */
   if (!Number.isSafeInteger(epoch)
     || epoch < MIN_FOUR_DIGIT_YEAR_MS
     || epoch > MAX_FOUR_DIGIT_YEAR_MS
@@ -789,7 +790,6 @@ function nextCronInstant(rule: ParsedCronRule, timeZone: string, after: number):
   if (new Date(after).getUTCFullYear() <= CRONER_LOW_YEAR_CUTOFF) {
     const lower = ownedLowYearCronInstant(rule, timeZone, after, 1)
     if (lower !== undefined) return lower
-    cursor = Math.max(cursor, Date.parse('0109-12-31T23:59:59.999Z'))
   }
   const evaluator = cronEvaluator(rule, timeZone)
   const formatter = cronLocalFormatter(timeZone)
@@ -870,6 +870,26 @@ function previousCronInstant(
   }
   /* v8 ignore next -- a real Croner candidate either retreats or reaches the persisted baseline. */
   return latestCronInstantThrough(rule, timeZone, baseline, acceptedAt)
+}
+
+/** Validate one newly appended Cron record against the current parser, ICU, and calendar adapter. */
+function validateLiveCronRecord(record: CronScheduleRecord): void {
+  try {
+    const rule = parseCronRule(record.cron)
+    const timeZone = canonicalizeTimeZone(record.timeZone)
+    if (timeZone !== record.timeZone) {
+      throw new ScheduleLogError('live cron timeZone must use its current canonical IANA name')
+    }
+    const target = Date.parse(record.scheduledAt)
+    if (nextCronInstant(rule, timeZone, target - 60_000) !== target) {
+      throw new ScheduleLogError('live cron scheduledAt must match its rule in the current time-zone data')
+    }
+  } catch (error: unknown) {
+    if (error instanceof ScheduleLogError) throw error
+    /* v8 ignore next -- current parser and adapter failures are Error subclasses. */
+    const detail = error instanceof Error ? error.message : String(error)
+    throw new ScheduleLogError(`live cron record is invalid: ${detail}`)
+  }
 }
 
 /** Decode the exact v1 after record shape. */
@@ -1268,6 +1288,33 @@ export function foldScheduleEvents(
     seenIds: Object.freeze([...seen]),
     ...(lastRecurringAcceptedAt === undefined ? {} : { lastRecurringAcceptedAt }),
   })
+}
+
+/**
+ * Validate a newly appended Cron fact with current calendar data without revalidating replay history.
+ * @param events - Complete exact-session log before the candidate append.
+ * @param value - Candidate `schedule/change` payload.
+ * @param seedLength - Inherited prefix length excluded from child ownership.
+ */
+export function validateLiveScheduleChange(
+  events: readonly SessionEvent[],
+  value: unknown,
+  seedLength = 0,
+): void {
+  const change = decodeScheduleChange(value)
+  if (change.operation === 'create') {
+    if (change.schedule.kind === 'cron') validateLiveCronRecord(change.schedule)
+    return
+  }
+  if (change.operation !== 'dispatch' || !('acceptedAt' in change) || !('occurrenceAt' in change)) return
+  const record = foldScheduleEvents(events, seedLength).active.find(candidate => candidate.id === change.id)
+  /* v8 ignore next -- the preceding candidate fold requires calendar fields to target an active Cron record. */
+  if (record?.kind !== 'cron') return
+  const expected = resolveCronOccurrence(record, Date.parse(change.acceptedAt))
+  const nextScheduledAt = 'nextScheduledAt' in change ? change.nextScheduledAt : undefined
+  if (change.occurrenceAt !== expected.occurrenceAt || nextScheduledAt !== expected.nextScheduledAt) {
+    throw new ScheduleLogError('live cron dispatch must match the current calendar decision')
+  }
 }
 
 /**

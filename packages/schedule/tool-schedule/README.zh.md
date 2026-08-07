@@ -34,7 +34,7 @@ Web Host 会在创建 Session 时以及每次提交提示词时校验并规范�
 
 Schedule 会针对完整的 400 年 Gregorian 历法周期证明名义本地间隔，其中包括跨午夜相邻时点与周期首尾衔接处的相邻时点；任何可能以不足 5 分钟的间隔重复发生的规则都会被拒绝。它通过 `Intl` 规范化显式时区；接受 `UTC`、IANA Area/Location 名称或链接，不接受本地默认值、缩写或数值偏移。
 
-私有 `croner@10.0.1` 适配器以 paused 状态运行，不创建 callback 或 timer。它补入隐藏的 seconds=`0` 与 year=`1-9999`，过滤由夏令时空档规范化产生的候选值，在重叠时段选择第一个时刻，并严格推进正向与反向 cursor。由于 JavaScript 构造器会重映射 0–99 年，Schedule 自有的本地日历搜索会覆盖这一低年份范围及其向安全年份的过渡；只有进入安全年份后，适配器才会将搜索委托给 Croner。create 选择严格晚于 admission 的第一个 match。延迟唤醒以持久目标为 baseline，选择比 baseline 更新且不晚于共享 `acceptedAt` 的最新 current match，并找到第一个未来 match。回放只校验规范化结构、整分钟的 UTC 值与单调 dispatch 关系；绝不会让当前 Croner、ICU 或频率证明重新裁定历史 occurrence。
+私有 `croner@10.0.1` 适配器以 paused 状态运行，不创建 callback 或 timer。它补入隐藏的 seconds=`0` 与 year=`1-9999`，过滤由夏令时空档规范化产生的候选值，在重叠时段选择第一个时刻，并严格推进正向与反向 cursor。由于 JavaScript 构造器会重映射 0–99 年，Schedule 自有的本地日历搜索会覆盖这一低年份范围及其向安全年份的过渡；只有进入安全年份后，适配器才会将搜索委托给 Croner。create 选择严格晚于 admission 的第一个 match。延迟唤醒以持久目标为 baseline，选择比 baseline 更新且不晚于共享 `acceptedAt` 的最新 current match，并找到第一个未来 match。package invariant 只对新发生的 live create 与 dispatch append 应用同一套当前日历验证。回放只校验规范化结构、整分钟的 UTC 值与单调 dispatch 关系；绝不会让当前 Croner、ICU 或频率证明重新裁定历史 occurrence。
 
 ## 管理工具
 
