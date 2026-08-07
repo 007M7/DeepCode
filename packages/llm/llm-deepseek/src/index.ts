@@ -13,7 +13,7 @@
 
 import type { Context } from 'cordis'
 import z from 'schemastery'
-import { LlmError, resolveRetryPolicy, RetryPolicySchema } from '@deepseek-ai/dsh-llm'
+import { assertUsableApiKey, LlmError, resolveRetryPolicy, RetryPolicySchema } from '@deepseek-ai/dsh-llm'
 import type { RetryPolicyConfig } from '@deepseek-ai/dsh-llm'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { environmentOf, type EnvironmentSnapshot } from '@deepseek-ai/dsh-environment'
@@ -228,12 +228,14 @@ export function apply(ctx: Context, config: Config): void {
     const credentials = ctx.get('credentials')
     if (credentials !== undefined) {
       const hit = await credentials.resolve(ref)
-      if (hit !== undefined) return hit.value
+      if (hit !== undefined) return assertUsableApiKey(hit.value, 'llm-deepseek', ref)
     } else {
       // Without the seam there is no managed store to rank against, so the
       // environment is the whole credential plane.
       const ambient = environmentOf(ctx).getFrom(ref, ['process', 'project-env', 'user-env'])
-      if (ambient !== undefined && ambient.value.length > 0) return ambient.value
+      if (ambient !== undefined && ambient.value.length > 0) {
+        return assertUsableApiKey(ambient.value, 'llm-deepseek', ref)
+      }
     }
     throw new LlmError(
       `llm-deepseek: no API key for provider route "${PROVIDER}"; store ${ref} through the credentials`

@@ -46,6 +46,14 @@ export interface ToolRowProps {
   icon: ReactNode
   title: string
   summary: string
+  /**
+   * Trailing summary fragment rendered outside the ellipsized summary text, so
+   * a narrow row clips the summary before this. For a fragment whose whole
+   * value is surviving that clip — the todo row's parallel-active count.
+   * null/absent = the summary is the whole collapsed content. Dropped on an
+   * error row, whose collapsed summary is the failure line instead.
+   */
+  summarySuffix?: string | null | undefined
   /** Expanded-body input text; null = no input section. */
   body: string | null
   /** Flattened result text for the expanded Output section; null/absent = no output section. */
@@ -139,6 +147,7 @@ export function ToolRow({
   icon,
   title,
   summary,
+  summarySuffix,
   body,
   output,
   errorSummary,
@@ -173,6 +182,9 @@ export function ToolRow({
   // the error color outranks both the args summary and a terminal description.
   const failureLine = state === 'error' ? errorSummary ?? null : null
   const summaryText = failureLine ?? summary
+  // The failure line replaces the summary wholesale, so a suffix derived from
+  // the call args has nothing left to sit beside.
+  const suffix = failureLine === null ? summarySuffix ?? null : null
   // The failure line is error prose, not the path: no open-file affordance.
   const fileLink = filePath !== undefined && onOpenFile !== undefined && failureLine === null
   const isThink = variant === 'think'
@@ -249,6 +261,7 @@ export function ToolRow({
                 {summaryText}
               </span>
             )}
+            {suffix !== null && <span className={css.summarySuffix}>{suffix}</span>}
           </>
         )}
       >

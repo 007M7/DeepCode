@@ -71,6 +71,11 @@
     maxTokens: 8192
     compactionRetries: 1
 
+# Projection registry: durable subagent identity (mode/label) folds through
+# its registered units; subagent catalog reads fail loud without the capability.
+- id: session-projection
+  name: '@deepseek-ai/dsh-session-projection'
+
 # Expose fresh-child `spawn` and completed-prefix `fork` through independent
 # in-process backends.
 - id: subagent
@@ -129,6 +134,8 @@
 # `todo_write` replaces the logged whole list.
 - id: tool-todo
   name: '@deepseek-ai/dsh-tool-todo'
+  config:
+    allowParallelInProgress: true
 
 # Policy loads before the model-facing filesystem tools so writes and edits
 # require an observed file. Relative paths resolve from the process cwd.

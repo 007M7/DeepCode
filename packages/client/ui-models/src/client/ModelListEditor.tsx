@@ -74,6 +74,13 @@ export interface ModelListEditorProps {
   onReset?: () => void
   /** Endpoint facts for the fetch action. */
   probe: ProbeTarget
+  /**
+   * Copy key naming why the fetch action is unavailable, or `undefined` when
+   * it is. The card owns this because the key it would send is judged there:
+   * asking with a key the form has already refused spends a round trip to be
+   * told what the field already says.
+   */
+  probeBlocked?: keyof typeof en | undefined
   /** Wire face the fetch action calls. */
   api: Pick<IApiClient, 'llm'>
   /** Section copy. */
@@ -314,8 +321,10 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
         <button
           type="button"
           className={styles['linkButton']}
-          disabled={disabled || busy || !askable}
-          title={askable ? undefined : t('fetchNeedsBaseUrl')}
+          disabled={disabled || busy || !askable || props.probeBlocked !== undefined}
+          title={props.probeBlocked !== undefined
+            ? t(props.probeBlocked)
+            : askable ? undefined : t('fetchNeedsBaseUrl')}
           onClick={() => { void fetchModels() }}
         >
           {busy ? t('fetching') : t('fetchModels')}

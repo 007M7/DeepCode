@@ -48,6 +48,7 @@ const ENV_READ_ALLOWLIST: Readonly<Record<string, string>> = {
   // Bootstrap-only DSH_* switches, which no discovered file may set.
   'packages/skill/skill-local/src/index.ts': 'reads $DSH_AGENTS_HOME and $DSH_BUNDLED_SKILL_DIR, both bootstrap-only',
   'packages/web/web/src/index.ts': 'reads $DSH_WEB_SEARCH_PROVIDER and $DSH_WEB_FETCH_PROVIDER, both bootstrap-only',
+  'packages/host/apiproxy/src/native-path-opener.ts': 'reads the WSL interop markers of this process to pick an opener',
   'packages/host/directory-picker-auto/src/index.ts': 'reads launch facts (display, SSH) of this process',
   'packages/host/directory-picker-auto/src/resolve.ts': 'reads launch facts (display, SSH) of this process',
 

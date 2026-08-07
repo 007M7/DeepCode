@@ -2,9 +2,10 @@
 // "Tool call" card, registered into the keyed 'conversation.chat.toolview'
 // hole like the bash sample (a product registration, not a sample). The row
 // composes ToolRow (chrome, running sweep, whole-row expand) and swaps in a
-// summary of the written list (counts + active item) from the call args; the
-// durable list itself renders in the TodoPanel above the composer, so the
-// row stays one line until expanded.
+// summary of the written list (counts + active items) from the call args, with
+// the parallel-active count riding ToolRow's non-shrinking summary suffix so a
+// narrow row never clips it; the durable list itself renders in the TodoPanel
+// above the composer, so the row stays one line until expanded.
 
 import { IconChecklistOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { Context } from 'cordis'
@@ -13,18 +14,26 @@ import type { ToolRowProps } from '../contract/slots.ts'
 import { toolRowModel } from '../contract/tool-call-model.ts'
 import { ToolRow } from '../chat/ToolRow.tsx'
 import { NS } from '../locales.ts'
+import { planSummary, type PlanItemLike } from './plan-summary.ts'
 
 /** Todo row props: the toolview runtime share plus the standard locale seat. */
 type TodoRowProps = ToolRowProps & PropsLocale<'conversation'>
 
-/** One parsed args item, shape-checked (model JSON: any field may be missing or mistyped). */
-interface TodoWriteItem { content?: unknown; status?: unknown }
-
-function isItem(value: unknown): value is TodoWriteItem {
+function isItem(value: unknown): value is PlanItemLike {
   return typeof value === 'object' && value !== null
 }
 
-function summarize(argsRaw: string, t: TodoRowProps['t']): string | null {
+/**
+ * The row's summary split at the ellipsis boundary: `text` truncates, `extra`
+ * is the parallel-active count that must not, so a narrow row never clips the
+ * one part that says several tasks are running.
+ */
+interface RowSummary {
+  text: string
+  extra: number
+}
+
+function summarize(argsRaw: string, t: TodoRowProps['t']): RowSummary | null {
   let parsed: unknown
   try {
     parsed = JSON.parse(argsRaw)
@@ -37,12 +46,12 @@ function summarize(argsRaw: string, t: TodoRowProps['t']): string | null {
   if (typeof parsed !== 'object' || parsed === null) return null
   const todos = (parsed as { todos?: unknown }).todos
   if (!Array.isArray(todos) || !todos.every(isItem)) return null
-  const done = todos.filter(item => item.status === 'completed').length
-  const active = todos.find(item => item.status === 'in_progress')
-  const head = t('todo.completed', { done, total: todos.length })
-  return typeof active?.content === 'string' && active.content !== ''
-    ? `${head} · ${active.content}`
-    : head
+  const { done, total, activeContent, activeExtra } = planSummary(todos)
+  const head = t('todo.completed', { done, total })
+  return {
+    text: activeContent === null ? head : `${head} · ${activeContent}`,
+    extra: activeExtra,
+  }
 }
 
 /** One-line plan update row (the whole row toggles the call's Input/Output
@@ -52,7 +61,7 @@ function summarize(argsRaw: string, t: TodoRowProps['t']): string | null {
 export function TodoRow({ toolName, block, inspect, t }: TodoRowProps) {
   const model = toolRowModel(toolName, block)
   const argsRaw = ('kind' in block ? block.call?.argsRaw : block.argsRaw) ?? ''
-  const summary = summarize(argsRaw, t) ?? model.summary
+  const summary = summarize(argsRaw, t) ?? { text: model.summary, extra: 0 }
   return (
     <ToolRow
       t={t}
@@ -60,7 +69,8 @@ export function TodoRow({ toolName, block, inspect, t }: TodoRowProps) {
       toolName={toolName}
       icon={<IconChecklistOutline14 />}
       title={t('todo.rowTitle')}
-      summary={summary}
+      summary={summary.text}
+      summarySuffix={summary.extra > 0 ? `+${summary.extra}` : null}
       body={model.body}
       output={model.output}
       errorSummary={model.errorSummary}

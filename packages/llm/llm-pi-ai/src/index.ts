@@ -44,7 +44,7 @@
 
 import type { Context } from 'cordis'
 import { environmentOf } from '@deepseek-ai/dsh-environment'
-import { LlmError } from '@deepseek-ai/dsh-llm'
+import { assertUsableApiKey, LlmError } from '@deepseek-ai/dsh-llm'
 import type { AdapterRegistrationHandle, DirectoryRegistrationHandle, LlmConfigurableProvider } from '@deepseek-ai/dsh-llm'
 import { deepEqualJson, installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { PiAiAdapter } from './adapter.ts'
@@ -144,7 +144,7 @@ export function apply(ctx: Context, config: Config): void {
       ? (await credentials.resolve(ref))?.value
       // Without the seam the environment is the whole credential plane.
       : environmentOf(ctx).getFrom(ref, ['process', 'project-env', 'user-env'])?.value
-    if (hit !== undefined && hit.length > 0) return hit
+    if (hit !== undefined && hit.length > 0) return assertUsableApiKey(hit, 'llm-pi-ai', ref)
     throw new LlmError(
       `llm-pi-ai: no credential for provider route "${provider}"; its profile resolves ${ref}, which is not`
       + ` set — store ${ref} through the credentials service (the web Models page writes it) or export it,`

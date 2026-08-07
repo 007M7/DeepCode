@@ -36,7 +36,9 @@
       "entry": [
         "headless-agent/tests/fixtures/cli-mock-llm.ts",
         "headless-agent/tests/fixtures/semantic-checkpoint-agent.ts",
+        "headless-agent/tests/fixtures/subagent-diagnostic-agent.ts",
         "headless-agent/tests/fixtures/subagent-inheritance-agent.ts",
+        "headless-agent/tests/fixtures/workspace-context-resume-agent.ts",
         "headless-agent/tests/fixtures/goal-domain/seed-goal.ts",
         "headless-agent/tests/fixtures/time-context-driver.ts",
         "headless-agent/tests/fixtures/time-context-mock-llm.ts",
@@ -46,6 +48,7 @@
         "acp-agent/tests/fixtures/partial-landlock-sandbox.ts",
         "acp-agent/tests/fixtures/subagent-durability-failure.ts",
         "acp-agent/tests/fixtures/subagent-settlement-marker.ts",
+        "acp-agent/tests/fixtures/workspace-context-compaction.ts",
         "acp-agent/tests/fixtures/subagent/subagent-acp/mock-delegating-llm.ts",
         "acp-agent/tests/fixtures/subagent/subagent-acp/driver.ts",
         "acp-agent/tests/fixtures/subagent/subagent-claude-code/fixture.ts",
