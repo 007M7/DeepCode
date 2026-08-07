@@ -14,9 +14,11 @@ Empty-draft Cmd/Ctrl+Enter now steers every still-pending `queued`-placement inb
 
 The gesture is strictly the accelerated chord. Plain Enter with an empty draft stays a no-op even under the busy-Enter Steer preference, draft content outranks the queue (accelerated Enter steers only the draft), and idle or subagent sessions keep the existing empty-draft no-op because steering has no live turn to enter.
 
+The same computed availability gate drives discovery: while the draft is empty, the input is unlocked and not in a transient machine lock, the command menu is closed, an ordinary primary session is running, and at least one row remains `queued`, the textarea placeholder advertises that Cmd/Ctrl+Enter steers all queued messages. An owner-supplied placeholder still takes precedence, and the steer hint deliberately outranks the plan-mode placeholder while available (the gesture genuinely works in that window).
+
 ## Consequences
 
-One keyboard gesture now replaces N clicks while keeping a single strict-steer path and a single authority for convergence. The per-row button and the gesture are the same host operation, so races and failure semantics stay identical. The cost is a presentation-layer branch that must stay in sync with the dock's gating window (running, non-subagent) — the hub re-checks the snapshot at execution time, so the gate is advisory and the host remains authoritative.
+One keyboard gesture now replaces N clicks while keeping a single strict-steer path and a single authority for convergence. The per-row button and the gesture are the same host operation, so races and failure semantics stay identical. The gesture and its placeholder share one presentation-layer gate, while the hub re-checks the snapshot at execution time, so the client gate remains advisory and the host remains authoritative.
 
 ## Related
 
@@ -28,3 +30,4 @@ The per-row 插话发送 action and its strict-steer boundary are owned by [Stee
 - **Steering via `session.prompt(mode: 'steer')` per row.** Rejected: that mints new messages instead of transferring the pending occurrences and would split the dock's immutable-message contract; `updateQueue({ kind: 'steer' })` already atomically transfers the exact occurrence.
 - **Firing all row steers concurrently.** Rejected: arrival order at the host is not guaranteed, and steering order is model-visible; sequential awaits preserve FIFO.
 - **A new host RPC for steer-all.** Rejected: the existing per-item operation is idempotent enough — each row is one strict steer, and mid-flush closure converges silently — so a protocol change buys nothing.
+- **A send-button tooltip.** Rejected: the primary button is Stop while an ordinary session is running, which is the only window where the whole-queue gesture is available. The empty-draft placeholder occupies that exact window and can describe the keyboard action directly.

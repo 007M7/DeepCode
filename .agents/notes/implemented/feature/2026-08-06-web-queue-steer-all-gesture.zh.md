@@ -14,9 +14,11 @@ Status: implemented
 
 该手势严格限定为加速组合键。空草稿 + 普通 Enter 仍然无操作（即使 busy-Enter 偏好为 Steer）；草稿内容优先于队列（加速 Enter 只插话当前草稿）；idle 或 subagent 会话保持原有空草稿无操作，因为没有可插入的运行中轮次。
 
+同一套计算得出的可用性门控也负责提示该手势：当草稿为空、输入框未锁定且不处于瞬态机器锁（adjudicating/submitting）、命令菜单未打开、普通主会话正在运行且至少一行仍为 `queued` 时，文本框 placeholder 会提示 Cmd/Ctrl+Enter 将全部排队消息插话发送。owner 提供的 placeholder 仍然优先；可用时 steer 提示会刻意优先于 plan 模式 placeholder（该窗口内手势确实可用）。
+
 ## Consequences
 
-一个键盘手势替代 N 次点击，同时保持单一严格 steer 路径与单一收敛权威。逐条按钮与手势是同一个 host 操作，竞态与失败语义完全一致。代价是呈现层多了一个分支，必须与 dock 的门控窗口（running、非 subagent）保持同步——hub 在执行时重新读取快照，所以该门控只是建议性的，host 仍是权威。
+一个键盘手势替代 N 次点击，同时保持单一严格 steer 路径与单一收敛权威。逐条按钮与手势是同一个 host 操作，竞态与失败语义完全一致。手势及其 placeholder 共用一个呈现层门控；hub 在执行时会重新读取快照，因此客户端门控仍只是建议性的，host 仍是权威。
 
 ## Related
 
@@ -28,3 +30,4 @@ Status: implemented
 - **逐条用 `session.prompt(mode: 'steer')` 插话。** 已拒绝：那会铸造新消息而不是转移 pending 行，破坏 dock 的不可变消息契约；`updateQueue({ kind: 'steer' })` 已经原子地转移了确切的那条。
 - **并发触发所有行。** 已拒绝：host 到达顺序无法保证，而插话顺序对模型可见；顺序 await 保证 FIFO。
 - **为 steer-all 新增 host RPC。** 已拒绝：现有逐条操作已足够幂等——每行一次严格 steer，中途关闭静默收敛——协议改动没有收益。
+- **发送按钮 tooltip。** 已拒绝：普通会话运行时，主按钮是 Stop，这也是整队列手势唯一可用的窗口。空草稿时的 placeholder 恰好在该窗口显示，可以直接说明这项键盘操作。

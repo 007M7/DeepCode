@@ -169,6 +169,57 @@ function bench(over?: BenchOptions) {
 }
 
 describe('Enter semantics', () => {
+  it('advertises the empty-draft whole-queue steering gesture when it is available', () => {
+    const { textarea } = bench({ running: true, queue: [row('q-1')], steerQueue: vi.fn() })
+    expect(textarea.placeholder).toBe('Cmd/Ctrl+Enter 插话发送全部排队消息')
+  })
+
+  it('keeps the owning placeholder or ordinary guidance when whole-queue steering is unavailable', () => {
+    expect(bench({ running: true }).textarea.placeholder).toBe('给智能体发消息')
+    expect(bench({ queue: [row('q-1')] }).textarea.placeholder).toBe('给智能体发消息')
+    expect(bench({ running: true, queue: [row('q-1')], draft: '消息' }).textarea.placeholder).toBe('给智能体发消息')
+    expect(bench({
+      running: true,
+      queue: [row('q-1')],
+      subagent: {
+        address: { parentSessionId: 'parent' as SessionId, childSessionId: SID, mode: 'continuable' },
+        parentAvailable: true,
+      },
+    }).textarea.placeholder).toBe('给智能体发消息')
+    expect(bench({
+      running: true,
+      queue: [row('q-1')],
+      placeholder: '上层指定提示',
+    }).textarea.placeholder).toBe('上层指定提示')
+    // The command menu owns Enter while open: neither the hint nor the
+    // gesture may claim the chord.
+    expect(bench({
+      running: true,
+      queue: [row('q-1')],
+      commandMenuOpen: true,
+    }).textarea.placeholder).toBe('给智能体发消息')
+    // The steer hint intentionally outranks the plan placeholder: while it
+    // shows, the whole-queue gesture is genuinely available in plan mode.
+    expect(bench({
+      running: true,
+      queue: [row('q-1')],
+      plan: { active: true, pending: false },
+    }).textarea.placeholder).toBe('Cmd/Ctrl+Enter 插话发送全部排队消息')
+  })
+
+  it('an open command menu withholds the whole-queue steering gesture', () => {
+    const steerQueue = vi.fn()
+    const { textarea, sink } = bench({
+      running: true,
+      queue: [row('q-1')],
+      commandMenuOpen: true,
+      steerQueue,
+    })
+    fireEvent.keyDown(textarea, { key: 'Enter', metaKey: true })
+    expect(steerQueue).not.toHaveBeenCalled()
+    expect(sink).not.toHaveBeenCalled()
+  })
+
   it('plain Enter submits queue mode through the machine; repeat and empty are suppressed', () => {
     const { textarea, sink } = bench({ draft: 'hello' })
     fireEvent.keyDown(textarea, { key: 'Enter' })

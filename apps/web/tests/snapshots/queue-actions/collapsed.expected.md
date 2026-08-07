@@ -14,7 +14,7 @@
 - paragraph: partial
 - status: Deep diving...
 - button "2 queued messages"
-- textbox "Message the agent"
+- textbox "Cmd/Ctrl+Enter steers all queued messages"
 - button "Commands":
   - img
 - 'button "Access mode, current: Workspace Write"': Workspace Write
