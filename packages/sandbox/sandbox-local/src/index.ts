@@ -1,12 +1,16 @@
 /**
  * Local sandbox backend. It selects the platform runner chain (Linux bwrap then
- * Landlock; macOS Seatbelt), functionally probes competing candidates once, and
- * reports each wrap's enforcement and stderr classification facts. Missing or unusable
- * confinement fails closed rather than returning the original argv.
+ * Landlock; macOS Seatbelt; Windows the ACL restricted-token runner), functionally probes
+ * competing candidates once, and reports each wrap's enforcement and stderr
+ * classification facts. Missing or unusable confinement fails closed rather
+ * than returning the original argv.
  * @module @deepseek-ai/dsh-sandbox-local
  */
 
 import { spawnSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { fileURLToPath } from 'node:url'
 import {
   LAUNCHER_BIN,
   LAUNCHER_FAILURE_EXIT,
@@ -69,6 +73,27 @@ function defaultProbeSeatbelt(seatbeltExec: string, timeoutMs: number): boolean 
   return probe.status === 0
 }
 
+/**
+ * Functional windows-acl probe: run the runner in read-only mode (zero grants,
+ * no ACL mutation) around `cmd /c exit 0` — exit 0 means the runner created
+ * the restricted token and spawned the child under it. The win32 chain is a
+ * sole candidate, so the product never probes; the probe exists for override
+ * chains and mirrors the other rungs' shape.
+ */
+function defaultProbeWindowsAcl(runnerInvocation: string[], timeoutMs: number): boolean {
+  const program = runnerInvocation[0]
+  if (program === undefined) return false
+  const probe = spawnSync(program, [
+    ...runnerInvocation.slice(1),
+    '--workspace', tmpdir(), '--temp', tmpdir(), '--mode', 'read-only',
+    '--', 'cmd', '/c', 'exit', '0',
+  ], {
+    timeout: timeoutMs,
+    stdio: 'ignore',
+  })
+  return probe.status === 0
+}
+
 /** Test seam: inject probe verdicts / a fake launcher / a platform without real runners. */
 export interface SandboxInternals {
   /** Replaces `process.platform` for chain selection (exercise any platform's chain from any host). */
@@ -85,10 +110,14 @@ export interface SandboxInternals {
   landlockLauncher?: string
   /** Replaces the `sandbox-exec` executable the probe and wraps invoke (a fake script). */
   seatbeltExec?: string
+  /** Replaces the resolved windows-acl runner argv prefix (a fake runner). */
+  windowsAclRunnerArgs?: string[]
+  /** Replaces the functional windows-acl probe (the win32 chain's sole rung — only consulted if that chain ever grows). */
+  probeWindowsAcl?: () => boolean
 }
 
 /** The chain's verdict: which runner confines, and how completely it enforces. */
-type SelectedRunner = { runner: 'bwrap' | 'landlock' | 'seatbelt'; enforcement: SandboxEnforcement }
+type SelectedRunner = { runner: 'bwrap' | 'landlock' | 'seatbelt' | 'windows-acl'; enforcement: SandboxEnforcement }
 
 /**
  * The runner chain per platform — selection is BY PLATFORM first, probes
@@ -102,11 +131,10 @@ type SelectedRunner = { runner: 'bwrap' | 'landlock' | 'seatbelt'; enforcement: 
 const PLATFORM_CHAINS: Record<string, readonly SelectedRunner['runner'][]> = {
   linux: ['bwrap', 'landlock'],
   darwin: ['seatbelt'],
-  // Reserved slot, deliberately empty: Windows support fills it with a confinement runner
-  // (AppContainer / restricted-token family, shipped from its own repository on the
-  // landlock-run template) plus a SelectedRunner['runner'] union member — the switches'
-  // assertNever guards then walk the implementer to every site.
-  win32: [],
+  // The Windows restricted-token runner (@deepseek-ai/dsh-sandbox-windows-acl):
+  // a sole candidate, selected without a probe — its execution-time refusal
+  // fails closed through its stderr signature (windows-acl-run:) and exit 127.
+  win32: ['windows-acl'],
 }
 
 /**
@@ -122,6 +150,9 @@ const STATIC_ENFORCEMENT: Record<SelectedRunner['runner'], SandboxEnforcement> =
   bwrap: 'full',
   landlock: 'full',
   seatbelt: 'full',
+  // The restricted token intersects every write access by construction, so
+  // the ACL runner governs every promised file effect — full enforcement.
+  'windows-acl': 'full',
 }
 
 /**
@@ -144,6 +175,9 @@ const DENIAL_SIGNATURES = {
   bwrap: ['read-only file system'],
   landlock: ['permission denied'],
   seatbelt: ['operation not permitted'],
+  // pwsh/.NET: "Access to the path '...' is denied."; cmd: "Access is denied.";
+  // node EACCES: "permission denied".
+  'windows-acl': ['access is denied', 'access to the path', 'permission denied'],
   runnerCommand: ['read-only file system', 'permission denied'],
 } as const satisfies Record<SelectedRunner['runner'] | 'runnerCommand', readonly string[]>
 
@@ -152,7 +186,9 @@ const DENIAL_SIGNATURES = {
  * fatal-line launcher-failure contract. Bubblewrap's current fatal paths exit
  * 1 but its public contract does not reserve that status, while sandbox-exec
  * publishes no launcher-failure status; those backends remain signature-only.
- * Keep the Landlock tuple aligned with the assembled snapshot fixture at
+ * The windows-acl runner prints `windows-acl-run: <detail>` on every
+ * runner-side failure and exits 127. Keep the Landlock tuple aligned with the
+ * assembled snapshot fixture at
  * `examples/acp-agent/tests/fixtures/partial-landlock-sandbox.ts`.
  */
 const RUNNER_FAILURE_RULES = {
@@ -163,6 +199,7 @@ const RUNNER_FAILURE_RULES = {
     informationalLines: [`${LAUNCHER_BIN}: partial enforcement (older Landlock ABI)`],
   }],
   seatbelt: [{ fatalSignatures: ['sandbox-exec: '] }],
+  'windows-acl': [{ fatalSignatures: ['windows-acl-run: '] }],
 } as const satisfies Record<SelectedRunner['runner'], readonly RunnerFailureRule[]>
 
 /**
@@ -245,6 +282,14 @@ export class LocalSandboxProvider extends SandboxProvider {
       case 'bwrap': return ['bwrap', ...bwrapProfileArgs(policy)]
       case 'landlock': return [this.landlockLauncher(), ...landlockProfileArgs(policy)]
       case 'seatbelt': return [this.seatbeltExec(), ...seatbeltProfileArgs(policy)]
+      case 'windows-acl': return [
+        ...this.windowsAclRunnerInvocation(),
+        '--workspace', policy.workspaceRoot,
+        // Explicit, never GetTempPathW-defaulted: the runner grants exactly
+        // this directory (workspace-write) or nothing (read-only).
+        '--temp', tmpdir(),
+        '--mode', policy.mode,
+      ]
       default: return assertNever(runner)
     }
   }
@@ -295,6 +340,11 @@ export class LocalSandboxProvider extends SandboxProvider {
         const probe = this.internals.probeSeatbelt ?? (exec => defaultProbeSeatbelt(exec, this.probeTimeoutMs))
         return probe(this.seatbeltExec()) ? 'full' : 'unusable'
       }
+      case 'windows-acl': {
+        const probe = this.internals.probeWindowsAcl
+          ?? (() => defaultProbeWindowsAcl(this.windowsAclRunnerInvocation(), this.probeTimeoutMs))
+        return probe() ? 'full' : 'unusable'
+      }
       default: return assertNever(runner)
     }
   }
@@ -307,6 +357,21 @@ export class LocalSandboxProvider extends SandboxProvider {
   /** The `sandbox-exec` executable to probe and exec (test seam over the system one). */
   private seatbeltExec(): string {
     return this.internals.seatbeltExec ?? 'sandbox-exec'
+  }
+
+  /**
+   * The windows-acl runner argv prefix: the built lib/runner.js entry when
+   * present (production), else the package source through tsx (development).
+   * The prefix stays `[node, runner, ...]` — a future native-exe runner keeps
+   * the same argv contract and only swaps these entries.
+   */
+  private windowsAclRunnerInvocation(): string[] {
+    const override = this.internals.windowsAclRunnerArgs
+    if (override !== undefined) return override
+    const builtEntry = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-sandbox-windows-acl/runner'))
+    if (existsSync(builtEntry)) return [process.execPath, builtEntry]
+    const sourceEntry = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-sandbox-windows-acl/src/runner.ts'))
+    return [process.execPath, '--import', 'tsx/esm', sourceEntry]
   }
 }
 

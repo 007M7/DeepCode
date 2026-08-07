@@ -30,7 +30,7 @@ describe('dsh-base bundle', () => {
     expect(rows.some(row => row.id === 'agent-loop')).toBe(true)
   })
 
-  it('ships the Windows platform layer as the documented danger-full-access roster', () => {
+  it('ships the Windows platform layer as the confined pwsh roster over the ACL runner chain', () => {
     const root = fileURLToPath(new URL('..', import.meta.url))
     const parsed = yaml.load(
       readFileSync(resolve(root, 'windows.cordis.patch.yml'), 'utf8'),
@@ -44,30 +44,20 @@ describe('dsh-base bundle', () => {
     const disables = parsed
       .filter(patch => patch.disabled === true)
       .map(patch => patch.id)
-    // The POSIX-only sandboxed stacks leave the Windows roster as one unit:
-    // shell (bash-sandbox/tool-bash), the permission switcher it requires,
-    // the fs/sandbox policy stack whose OS runners do not exist on win32,
-    // and the approval service — nothing on Windows asks for approval, so
-    // the model is never told approval exists or that asks auto-reject.
-    expect(disables).toEqual(
-      expect.arrayContaining([
-        'bash-sandbox',
-        'tool-bash',
-        'permission',
-        'ui-permission',
-        'sandbox',
-        'sandbox-policy',
-        'fs-sandbox',
-        'approval',
-      ]),
-    )
+    // Only the POSIX bash stack is disabled: the Windows roster confines the
+    // pwsh executor through the ACL runner chain, so the sandbox/policy rows,
+    // the permission switcher, fs-sandbox, and the approval service all stay
+    // enabled exactly as on POSIX — only the shell is swapped.
+    expect(disables).toEqual(['bash-sandbox', 'tool-bash'])
     const inserted = parsed
       .flatMap(patch => patch.insert ?? [])
       .map(row => row.id)
-    expect(inserted).toEqual(
-      expect.arrayContaining(['pwsh-local', 'tool-pwsh', 'fs-local']),
-    )
-    // Full danger-full-access degradation: no approval surface at all.
-    expect(parsed.find(patch => patch.id === 'approval')?.config).toBeUndefined()
+    expect(inserted).toEqual(['pwsh-sandbox', 'tool-pwsh', 'fs-local'])
+    // The patch no longer touches the permission/approval surface at all.
+    expect(parsed.find(patch => patch.id === 'approval')).toBeUndefined()
+    expect(parsed.find(patch => patch.id === 'permission')).toBeUndefined()
+    expect(parsed.find(patch => patch.id === 'sandbox')).toBeUndefined()
+    expect(parsed.find(patch => patch.id === 'sandbox-policy')).toBeUndefined()
+    expect(parsed.find(patch => patch.id === 'fs-sandbox')).toBeUndefined()
   })
 })

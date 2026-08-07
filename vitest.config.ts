@@ -47,6 +47,16 @@ const windowsCoverageExclusions = process.platform === 'win32'
     ]
   : []
 
+// Windows-only packages: their sources execute exclusively on win32 (koffi
+// loads Win32 libraries), so the Linux coverage lane can never cover them.
+// The Windows dev/CI lane exercises them through the probe/runner suites; the
+// per-file 100% gate must not fail on their Linux-uncovered paths.
+const windowsOnlyCoverageExclusions = process.platform !== 'win32'
+  ? [
+      'packages/sandbox/sandbox-windows-acl/src/**/*.ts',
+    ]
+  : []
+
 // Mirrors windowsCoverageExclusions: pwsh-local's run/start/lifecycle suites
 // self-skip without a real pwsh (executor.spec.ts hasPwsh), leaving this file
 // far below per-file 100% on pwsh-less hosts; the exemption keeps those hosts
@@ -221,6 +231,7 @@ export default defineConfig({
         'packages/session-projection/session-projection/src/index.ts',
         ...windowsUnsupportedPackages.map(path => `${path}/src/**/*.ts`),
         ...windowsCoverageExclusions,
+        ...windowsOnlyCoverageExclusions,
         ...pwshCoverageExclusions,
       ],
       // 100% or it doesn't merge (docs/testing.md: excessive tests are welcome).
