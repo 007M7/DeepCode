@@ -1248,6 +1248,35 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     return llm === undefined || llm.listProviders().some(entry => entry.id === provider)
   }
 
+  /**
+   * Resolve the addressed agent for a turn-starting method and refuse when no
+   * adapter serves its current route: a route nothing serves cannot start a
+   * turn, and letting it try spends the whole pre-step path to fail inside
+   * the adapter with a message about registration. Refusing here names the
+   * model the session is pointed at while the draft is still in the composer.
+   * This is the enforcement boundary shared by `session.prompt` and
+   * `skill.invoke`: a client that disables its input is an affordance, and
+   * both methods stay callable regardless.
+   */
+  async function turnAgentFor<T>(
+    request: RpcRequest<unknown>, sessionId: SessionId,
+  ): Promise<{ agent: Agent } | { refused: RpcResponse<T> }> {
+    const found = await agentFor(sessionId)
+    if ('error' in found) return { refused: err(request, found.error) }
+    const agent = found.agent
+    const target = targetFor(agent).current
+    if (!routeServed(target.provider)) {
+      return {
+        refused: err(request, {
+          code: 'model-unavailable',
+          message: `no adapter serves provider "${target.provider}"; select a model for this session`,
+          details: { provider: target.provider, model: target.model },
+        }),
+      }
+    }
+    return { agent }
+  }
+
   /** Missing-service report shared by the settings domain (skills-domain stance). */
   function settingsAbsent(): RpcError {
     return { code: 'internal', message: 'settings service is absent: this deployment does not mount a settings provider (e.g. @deepseek-ai/dsh-settings-local) in its composition', details: {} }
@@ -1784,23 +1813,9 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
       async prompt(request) {
         const { sessionId, mode, content } = request.payload
-        const found = await agentFor(sessionId)
-        if ('error' in found) return err(request, found.error)
-        const agent = found.agent
-        // A route no adapter serves cannot start a turn, and letting it try
-        // spends the whole pre-step path to fail inside the adapter with a
-        // message about registration. Refusing here names the model the
-        // session is pointed at while the draft is still in the composer.
-        // This is the enforcement boundary: a client that disables its input
-        // is an affordance, and this method stays callable regardless.
-        const target = targetFor(agent).current
-        if (!routeServed(target.provider)) {
-          return err(request, {
-            code: 'model-unavailable',
-            message: `no adapter serves provider "${target.provider}"; select a model for this session`,
-            details: { provider: target.provider, model: target.model },
-          })
-        }
+        const resolved = await turnAgentFor<{ accepted: true }>(request, sessionId)
+        if ('refused' in resolved) return resolved.refused
+        const agent = resolved.agent
         // The rpcId rides MessageSource into user/message (merge declaration in api/sessions.ts; provisional correlation).
         const source: MessageSource = { kind: 'user', rpcId: request.rpcId }
         try {
@@ -2377,20 +2392,9 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
       async invoke(request) {
         const { sessionId, name, text } = request.payload
-        const found = await agentFor(sessionId)
-        if ('error' in found) return err(request, found.error)
-        const agent = found.agent
-        // Same turn-start refusal boundary as sessions.prompt: injection
-        // starts a turn, so a route no adapter serves is refused while the
-        // composer still shows the draft.
-        const target = targetFor(agent).current
-        if (!routeServed(target.provider)) {
-          return err(request, {
-            code: 'model-unavailable',
-            message: `no adapter serves provider "${target.provider}"; select a model for this session`,
-            details: { provider: target.provider, model: target.model },
-          })
-        }
+        const resolved = await turnAgentFor<{ accepted: true }>(request, sessionId)
+        if ('refused' in resolved) return resolved.refused
+        const agent = resolved.agent
         const skillRegistry = ctx.get('skills')
         if (skillRegistry === undefined) {
           return err(request, { code: 'internal', message: 'skill registry is absent: this deployment does not mount @deepseek-ai/dsh-skill in its composition (cordis.yml or explicit assembly)', details: {} })
