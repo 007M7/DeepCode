@@ -262,7 +262,10 @@ The available tools:`
  * Render the full `tools:sdk` prompt section: the fixed usage instructions
  * plus one `declare const tools` interface covering every given tool.
  * Deterministic — tools are emitted in lexicographic name order, so an
- * unchanged tool set produces byte-identical text across assemblies.
+ * unchanged tool set produces byte-identical text across assemblies. The sort
+ * is not a total order on byte-equal names, so two schemas sharing a name
+ * would render in argument order; the caller's visible-capability map is keyed
+ * by name, so the input never carries a duplicate.
  * @param schemas - the tool schemas to declare (the caller excludes
  *   `run_code` itself).
  * @returns the complete section text.

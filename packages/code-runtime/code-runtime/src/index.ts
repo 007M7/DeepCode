@@ -36,7 +36,8 @@ export abstract class CodeRuntime extends Service {
    * lowercase identifier. Informational, not gating — a consumer that
    * generates language-specific presentation (typed SDK stubs, usage
    * instructions) switches on it and fails loud on a language it cannot
-   * present. Well-known value: `'typescript'`.
+   * present. Well-known values: `'typescript'` and `'python'`, those
+   * `dsh-tools` presents; only `'typescript'` has a published backend.
    */
   abstract readonly language: string
 
