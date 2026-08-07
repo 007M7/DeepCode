@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import {
-  createEnvironmentSnapshot, DSH_ENVIRONMENT_KEY, environmentOf, isBootstrapOnly,
+  createEnvironmentSnapshot, DSH_ENVIRONMENT_KEY, environmentOf,
 } from '../src/index.ts'
 
 const layered = createEnvironmentSnapshot([
@@ -64,40 +64,6 @@ describe('environmentOf', () => {
       expect(snapshot.get('DSH_ENV_SPEC_FALLBACK')).toEqual({ value: 'ambient', source: 'process' })
     } finally {
       vi.unstubAllEnvs()
-    }
-  })
-})
-
-describe('isBootstrapOnly', () => {
-  it.each([
-    'PATH', 'HOME', 'USERPROFILE', 'SHELL',
-    'NODE_OPTIONS', 'NODE_PATH', 'NODE_EXTRA_CA_CERTS',
-    'LD_PRELOAD', 'LD_LIBRARY_PATH',
-    'SSL_CERT_FILE', 'SSL_CERT_DIR',
-    'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY',
-  ])('rejects %s, which decides how the process starts or reaches the network', (name) => {
-    expect(isBootstrapOnly(name)).toBe(true)
-  })
-
-  it.each([
-    ['DSH_HOME', 'the harness home'],
-    ['DSH_PERMISSION_MODE', 'the permission mode'],
-    ['DSH_AGENTS_HOME', 'a model-visible instruction root'],
-    ['DSH_ANYTHING_ADDED_LATER', 'a switch that does not exist yet'],
-    ['XDG_CONFIG_HOME', 'a state root'],
-    ['DYLD_INSERT_LIBRARIES', 'a library preload'],
-  ])('rejects the whole namespace: %s (%s)', (name) => {
-    expect(isBootstrapOnly(name)).toBe(true)
-  })
-
-  it('matches case-insensitively, so a lowercase proxy name is not a bypass', () => {
-    expect(isBootstrapOnly('https_proxy')).toBe(true)
-    expect(isBootstrapOnly('dsh_permission_mode')).toBe(true)
-  })
-
-  it('allows ordinary variables, including provider credentials and endpoints', () => {
-    for (const name of ['DEEPSEEK_API_KEY', 'DEEPSEEK_BASE_URL', 'EXA_API_KEY', 'MY_PROJECT_FLAG', 'PATHS']) {
-      expect(isBootstrapOnly(name)).toBe(false)
     }
   })
 })

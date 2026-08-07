@@ -15,7 +15,7 @@ import { Context, type FiberState } from 'cordis'
 import Loader, { type Entry, type EntryOptions } from '@cordisjs/plugin-loader'
 import Include, { applyEntryPatches, entryListSchema, type PatchOptions } from '@cordisjs/plugin-include'
 import { dshHomePath, resolveDshHome } from '@deepseek-ai/dsh-paths'
-import { createEnvironmentSnapshot, isBootstrapOnly, type EnvironmentSnapshot } from '@deepseek-ai/dsh-environment'
+import { createEnvironmentSnapshot, type EnvironmentSnapshot } from '@deepseek-ai/dsh-environment'
 import type {} from '@cordisjs/plugin-hmr'
 // Side-effect type import: resolves `ctx.get('systemPrompt')` to the service.
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -86,6 +86,72 @@ export function loadEnv(
     }
     // ENOENT (no .env) is fine — rely on the ambient environment.
   }
+}
+
+/** Exact names no discovered file may set. */
+const BOOTSTRAP_NAMES = new Set([
+  // Process launch and module resolution.
+  'PATH', 'HOME', 'USERPROFILE', 'SHELL',
+  'NODE_OPTIONS', 'NODE_PATH', 'NODE_EXTRA_CA_CERTS',
+  'LD_PRELOAD', 'LD_LIBRARY_PATH', 'LD_AUDIT',
+  // Interpreter start-up hooks: each of these makes a runtime execute a file
+  // of the setter's choosing on every invocation, before the program runs.
+  // `BASH_ENV` is the sharpest — the bash tool spawns `bash -c`, which sources
+  // it every time — but every runtime an agent shells out to has one.
+  'BASH_ENV', 'ENV', 'SHELLOPTS', 'BASHOPTS',
+  'PERL5OPT', 'PERL5LIB', 'PYTHONSTARTUP', 'PYTHONPATH', 'RUBYOPT', 'RUBYLIB',
+  'JAVA_TOOL_OPTIONS', '_JAVA_OPTIONS', 'JDK_JAVA_OPTIONS',
+  'PYTHONHOME',
+  // Version-control hooks that run a command on the setter's behalf, and the
+  // config redirections that can define such a hook indirectly (a substituted
+  // git config file can set core.pager or a credential helper).
+  'GIT_SSH', 'GIT_SSH_COMMAND', 'GIT_EXTERNAL_DIFF', 'GIT_PAGER', 'GIT_EDITOR',
+  'GIT_ASKPASS', 'SSH_ASKPASS',
+  'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_SYSTEM', 'GIT_CONFIG_COUNT',
+  'EDITOR', 'VISUAL', 'PAGER',
+  // Network reach and trust.
+  'SSL_CERT_FILE', 'SSL_CERT_DIR',
+  'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY',
+  'REQUESTS_CA_BUNDLE', 'CURL_CA_BUNDLE',
+  // Turns off TLS verification outright, which is the sharpest form of
+  // "how the network is trusted".
+  'NODE_TLS_REJECT_UNAUTHORIZED',
+])
+
+/** Name prefixes no discovered file may set. */
+const BOOTSTRAP_PREFIXES = ['DSH_', 'XDG_', 'DYLD_', 'BASH_FUNC_']
+
+/**
+ * Whether a variable may come only from the inherited process environment.
+ *
+ * The invoking project is trusted to *configure* the agent's work — its
+ * endpoints, its ordinary variables, even a credential. It is not trusted to
+ * change the harness itself, and that is what a bootstrap variable does: it
+ * decides how a process launches (`PATH`, `NODE_OPTIONS`, `LD_PRELOAD`), what
+ * code a runtime executes before the program it was asked to run (`BASH_ENV`
+ * and its per-language siblings, the Git hook commands), where model-visible
+ * instructions load from (`DSH_*` covers the Harness home, the agents home,
+ * and the bundled skill root), or how the network is reached and trusted
+ * (proxy and CA variables).
+ *
+ * The distinction is that these take effect with no user action, before any
+ * turn, outside the permission policy and the sandbox — `DSH_PERMISSION_MODE`
+ * would switch off the approvals that make trusting a project meaningful at
+ * all, and `BASH_ENV` runs a file of the project's choosing on every single
+ * `bash -c` the tool issues. Trusting a project's code to run under the
+ * agent's policy is not the same as letting it rewrite that policy.
+ *
+ * They are therefore rejected at load rather than ranked below another layer:
+ * a user who wrote one into a file believes it applies, and silently ignoring
+ * it is its own failure. The whole `DSH_*` namespace is denied rather than an
+ * audited subset, because a switch added later must not become settable by
+ * being forgotten.
+ * @param name - the variable name.
+ * @returns true when only the inherited environment may supply it.
+ */
+function isBootstrapOnly(name: string): boolean {
+  const upper = name.toUpperCase()
+  return BOOTSTRAP_NAMES.has(upper) || BOOTSTRAP_PREFIXES.some(prefix => upper.startsWith(prefix))
 }
 
 /**

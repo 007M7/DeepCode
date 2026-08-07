@@ -30,17 +30,7 @@ const endpoint = environmentOf(ctx).get('DEEPSEEK_BASE_URL')?.value
 
 `environmentOf(ctx)` returns the launcher's snapshot when the product CLI booted the tree, and otherwise the inherited environment as the only layer. That fallback does not weaken the rules: an SDK host or a bare `cordis.yml` discovered no files, so everything it has really is the environment it was launched with.
 
-## Bootstrap variables
-
-`isBootstrapOnly(name)` names the variables only the inherited environment may set. The launcher rejects a `.env` that declares one, before applying anything.
-
-Trusting a project to configure the agent's work is not the same as letting it change the harness. A bootstrap variable decides **how a process launches** (`PATH`, `SHELL`, `NODE_OPTIONS`, `LD_PRELOAD`, `DYLD_*`), **what code a runtime executes before the program it was asked to run** (`BASH_ENV` and its per-language siblings — `PERL5OPT`, `PYTHONSTARTUP`, `RUBYOPT`, `JAVA_TOOL_OPTIONS` — plus the Git hook commands), **where model-visible instructions load from** (the whole `DSH_*` namespace, `HOME`, `XDG_*`), or **how the network is reached and trusted** (proxy and CA variables). Matching is case-insensitive, so `https_proxy` is not a bypass.
-
-These take effect with no user action, before any turn, outside the permission policy and the sandbox: `DSH_PERMISSION_MODE` would switch off the approvals that make trusting a project meaningful, and `BASH_ENV` runs a file of the project's choosing on every `bash -c` the bash tool issues.
-
-The whole `DSH_*` namespace is denied rather than an audited subset: the harness's own switches — the permission mode, the agents home, the bundled skill root — are exactly what a hostile project would want, and a switch added later must not become settable by forgetting to list it.
-
 ## Known Limitations and Deferred Work
 
-- **The snapshot is not a subprocess boundary** — every layer is also materialized into `process.env`, so ordinary project variables reach child processes under [`dsh-subprocess`](../../subprocess/subprocess/README.md)'s scrub. That is intended for ordinary variables; the code-loading hooks that would abuse it are rejected at load instead, and the deny list is the thing to extend when a new runtime hook appears.
+- **The snapshot is not a subprocess boundary** — every layer is also materialized into `process.env`, so ordinary project variables reach child processes under [`dsh-subprocess`](../../subprocess/subprocess/README.md)'s scrub. The product launcher's [`.env` contract](../../ui/app-boot/README.md#profiles) rejects bootstrap variables before materialization.
 - **No per-workspace layer** — the project layer is the *invoking* directory, fixed at launch. A workspace selected later in the Web UI contributes nothing, deliberately: following it would let a model's own workspace change the harness environment mid-session.
