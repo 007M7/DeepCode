@@ -27,6 +27,7 @@ import { ZH_BROWSER_LOCALE, saveFailureShot } from './support.ts'
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/models-settings', import.meta.url))
 const EMPTY_EXPECTED = join(SNAPSHOT_DIR, 'empty.expected.md')
 const CONFIGURED_EXPECTED = join(SNAPSHOT_DIR, 'configured.expected.md')
+const DECLARED_EXPECTED = join(SNAPSHOT_DIR, 'declared.expected.md')
 const NATIVE_DELETE_EXPECTED = join(SNAPSHOT_DIR, 'native-delete.expected.md')
 const DELETE_EXPECTED = join(SNAPSHOT_DIR, 'delete.expected.md')
 const MODE = webSnapshotMode()
@@ -133,7 +134,7 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
     await dialog.getByRole('textbox', { name: 'API 密钥', exact: true }).fill('sk-e2e-minimax')
     await dialog.getByRole('button', { name: '保存', exact: true }).click()
     // The profile lands in settings.yaml with only the derived reference, the
-    // key value lands in the harness home's .env, the dormant route
+    // key value lands in the harness home's .credentials.yaml, the dormant route
     // registers, and the topology frame invalidates the page into the row.
     await expect.poll(
       async () => dialog.getByRole('textbox', { name: 'API 密钥', exact: true }).count(),
@@ -145,11 +146,11 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
     expect(document).toContain('minimax-cn:')
     expect(document).toContain('apiKeyEnv: MINIMAX_CN_API_KEY')
     expect(document).not.toContain('sk-e2e-minimax')
-    const credentialFile = join(scaffold.harnessHome, '.env')
+    const credentialFile = join(scaffold.harnessHome, '.credentials.yaml')
     await expect.poll(
       async () => readFile(credentialFile, 'utf8').catch(() => ''),
       { timeout: 10_000 },
-    ).toContain('MINIMAX_CN_API_KEY=sk-e2e-minimax')
+    ).toContain('MINIMAX_CN_API_KEY: sk-e2e-minimax')
     expect(await page.content()).not.toContain('sk-e2e-minimax')
   }, 60_000)
 
@@ -158,19 +159,52 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
     const dialog = page.getByRole('dialog', { name: '设置' })
     await dialog.getByRole('button', { name: '编辑 minimax-cn' }).click()
     await dialog.getByText('自定义设置').click()
-    const effort = dialog.getByLabel('推理强度')
-    await effort.waitFor({ timeout: 10_000 })
-    await effort.selectOption('high')
+    const url = dialog.getByLabel('API 地址')
+    await url.waitFor({ timeout: 10_000 })
+    await url.fill('https://gateway.minimax.example/v1')
     await dialog.getByRole('button', { name: '保存', exact: true }).click()
     // The editor closes back to the row; the fold's write merged into the
     // stored profile beside the reference.
-    await expect.poll(async () => dialog.getByLabel('推理强度').count(), { timeout: 10_000 }).toBe(0)
+    await expect.poll(async () => dialog.getByLabel('API 地址').count(), { timeout: 10_000 }).toBe(0)
     await dialog.getByText('已保存 minimax-cn。', { exact: true }).waitFor({ timeout: 10_000 })
     const document = await readFile(join(scaffold.harnessHome, 'settings.yaml'), 'utf8')
-    expect(document).toContain('reasoning: high')
+    expect(document).toContain('baseURL: https://gateway.minimax.example/v1')
     expect(document).toContain('apiKeyEnv: MINIMAX_CN_API_KEY')
     const snapshot = await captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(CONFIGURED_EXPECTED, snapshot, MODE)
+    expect(tripwire.pageErrors).toEqual([])
+  }, 60_000)
+
+  it('declares a route the adapter does not ship', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-models-declare'))
+    const dialog = page.getByRole('dialog', { name: '设置' })
+    const declare = dialog.getByRole('button', { name: '添加自定义提供方' })
+    await expect.poll(async () => declare.isEnabled(), { timeout: 10_000 }).toBe(true)
+    await declare.click()
+    await dialog.getByLabel('Provider ID').fill('acme-gateway')
+    await dialog.getByLabel('显示名称').fill('Acme Gateway')
+    await dialog.getByLabel('API 地址').fill('https://gateway.acme.example/v1')
+    // No reasoning effort on a provider card at all: effort is a per-model
+    // capability, the models under one provider disagree about it, and a
+    // switch in the composer already records provider+model+effort together.
+    expect(await dialog.getByLabel('推理强度').count()).toBe(0)
+    await dialog.getByRole('button', { name: '添加模型' }).click()
+    await dialog.getByLabel('模型 ID 1').fill('acme-large')
+    await dialog.getByRole('button', { name: '创建提供方', exact: true }).click()
+
+    const row = dialog.getByText('Acme Gateway', { exact: true }).first()
+    await row.waitFor({ timeout: 10_000 })
+    const document = await readFile(join(scaffold.harnessHome, 'settings.yaml'), 'utf8')
+    expect(document).toContain('acme-gateway:')
+
+    // The tag follows the adapter's installed catalog: this route is in no
+    // catalog, while minimax-cn is — even though both now have profiles.
+    const rowCard = (name: string) => dialog.locator('li').filter({ hasText: name }).first()
+    await expect.poll(async () => rowCard('Acme Gateway').getByText('自定义').count(), { timeout: 10_000 }).toBe(1)
+    expect(await rowCard('minimax-cn').getByText('自定义').count()).toBe(0)
+
+    const snapshot = await captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd)
+    await compareOrRefreshGolden(DECLARED_EXPECTED, snapshot, MODE)
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)
 
@@ -196,7 +230,7 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
       async () => readFile(join(scaffold.harnessHome, 'settings.yaml'), 'utf8'),
       { timeout: 10_000 },
     ).not.toContain('minimax-cn:')
-    expect(await readFile(join(scaffold.harnessHome, '.env'), 'utf8'))
+    expect(await readFile(join(scaffold.harnessHome, '.credentials.yaml'), 'utf8'))
       .not.toContain('MINIMAX_CN_API_KEY')
     await expect.poll(
       async () => page.getByRole('dialog', { name: '删除 minimax-cn？' }).count(),
@@ -208,7 +242,8 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
 
   it.skipIf(MODE === 'record')('keeps the fixture inventory closed', async () => {
     await assertFixtureInventory(SNAPSHOT_DIR, [
-      'configured.expected.md', 'delete.expected.md', 'empty.expected.md', 'native-delete.expected.md',
+      'configured.expected.md', 'declared.expected.md', 'delete.expected.md',
+      'empty.expected.md', 'native-delete.expected.md',
     ])
   })
 })

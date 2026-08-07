@@ -197,6 +197,7 @@ describe('sessions domain schemas', () => {
     expect(sessionModelsRequestSchema.parse({ sessionId: 's1' }).sessionId).toBe('s1')
     expect(sessionModelsValueSchema.parse({
       current: { provider: 'deepseek-official', model: 'deepseek-v4-flash', reasoningEffort: 'max' },
+      routable: true,
       groups: [{
         id: 'deepseek-official',
         name: 'DeepSeek',
@@ -274,8 +275,10 @@ describe('sessions domain schemas', () => {
 describe('host domain schemas', () => {
   it('validates describe request/value', () => {
     expect(hostDescribeRequestSchema.parse({})).toEqual({})
-    const value = hostDescribeValueSchema.parse({ version: '1', cwd: '/x', provider: 'p', model: 'm', attachedSessions: 2 })
-    expect(value.attachedSessions).toBe(2)
+    const value = hostDescribeValueSchema.parse({
+      version: '1', cwd: '/x', provider: 'p', model: 'm', attachedSessions: 2,
+    })
+    expect(value).toMatchObject({ provider: 'p', model: 'm', attachedSessions: 2 })
     expect(hostDescribeValueSchema.parse({ version: '1', cwd: '/x', attachedSessions: 0 }).provider).toBeUndefined()
   })
 

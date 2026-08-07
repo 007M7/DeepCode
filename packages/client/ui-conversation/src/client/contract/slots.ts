@@ -6,6 +6,7 @@ import type {
 import type { CommandNode, ConversationNode, ConversationSnapshot, ObservableSnapshot, PendingInteraction, PendingWait, SessionId, ToolCallBlock, WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { MarkdownFileMentions } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
+import type { ComposerBlock } from '../input/blocks.ts'
 import type { ComposerKeyboard, EditSelection, InputActions, InputNotice, InputState } from '../input/contract.ts'
 import type { createChatStore } from '../stores.ts'
 import type { ComposerSubmitGesture, InputSubmitMode } from './composer-submission.ts'
@@ -274,6 +275,12 @@ export interface ConversationInjected {
    * When a blank session is already current, carry its draft to the target.
    */
   selectWorkspace: (workspaceId: WorkspaceId) => Promise<void>
+  /**
+   * Framework-bound sources. `composerBlock` is this session's block when a
+   * plugin raised one; the reason is the blocker's own localized copy, which
+   * the root renders as the inert composer's placeholder.
+   */
+  hooks: { composerBlock: ObservableSnapshot<ComposerBlock | undefined> }
 }
 
 /** Business callbacks injected into the strict Session body seat. */
@@ -309,6 +316,14 @@ export interface ConversationSessionHeaderInjected {
 export interface ComposerBarOwnerProps {
   /** Hero = empty-state centered card; composer = resident bottom bar. */
   variant: 'hero' | 'composer'
+  /**
+   * A block another plugin raised for this session: the bar refuses input and
+   * shows the blocker's reason as the placeholder, but — unlike `disabled` —
+   * keeps the model seat live. Every block this contract has is one the user
+   * clears by choosing a model, so locking that seat too would leave the
+   * composer telling them to do the one thing it prevents.
+   */
+  blocked?: { readonly reason: string }
   /**
    * Inert no-workspace state: the bar renders its normal DOM fully disabled
    * (textarea, add, send) so the workspace pick transitions in place instead
@@ -407,7 +422,7 @@ export type ConversationSlotProps =
     | 'conversation.input.left' | 'conversation.input.right'
     | 'conversation.hero.workspace'
   >
-  & ConversationInjected
+  & InjectFace<ConversationInjected>
   & PropsLocale<'conversation'>
 
 /** Full strict-session body props: per-session store, view ring, and draft mirror. */

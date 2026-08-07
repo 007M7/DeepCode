@@ -24,6 +24,9 @@
       "path": "../../../vendor/schemastery"
     },
     {
+      "path": "../../api/remotes"
+    },
+    {
       "path": "../../util/brand"
     },
     {

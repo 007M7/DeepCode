@@ -15,6 +15,8 @@ import { resolveToolPath } from './contract/tool-call-model.ts'
 import { createChatStore } from './stores.ts'
 import { ConversationService } from './service.ts'
 import type { IConversation } from './service.ts'
+import { ComposerBlockRegistry } from './input/blocks.ts'
+import type { ComposerBlock } from './input/blocks.ts'
 import { InputHub } from './input/hub.ts'
 import { ComposerSubmissionPolicy } from './input/submission-policy.ts'
 import { InputBar } from './skeleton/InputBar.tsx'
@@ -52,6 +54,11 @@ export const inject = ['slots', 'layout', 'sessions', 'workspaces', 'locale']
 // one identity across every no-session render.
 const ABSENT_NOTICES = {
   getSnapshot: (): InputNotice | null => null,
+  subscribe: () => () => {},
+}
+/** No session, therefore nothing to block; same one-identity rule as above. */
+const ABSENT_BLOCK = {
+  getSnapshot: (): ComposerBlock | undefined => undefined,
   subscribe: () => () => {},
 }
 const EMPTY_LEXICON: ReadonlyMap<'/' | '@', readonly string[]> = new Map()
@@ -133,6 +140,12 @@ export function apply(ctx: Context): void {
   // ctx.conversation.input by the service below sharing this one instance).
   const inputHub = new InputHub(ctx)
 
+  // The composer-block registry: a plugin that knows a session cannot send —
+  // ui-model, when no adapter serves the session's route — raises a block
+  // here, and the bar reads its own session's store. It cannot flow the other
+  // way: this package must not import the plugins that would know.
+  const composerBlocks = new ComposerBlockRegistry()
+
   // Decision 19/20: the input machine feeds every session-scope slot
   // component through the standard provide channel — the 'input' hook plus
   // the two public actions. Materialization is the shell creation trigger
@@ -167,6 +180,7 @@ export function apply(ctx: Context): void {
       'conversation.hero.workspace': { kind: 'single', scope: 'root' },
     },
     inject: (sessionId: SessionId | undefined): ConversationInjected => ({
+      hooks: { composerBlock: sessionId === undefined ? ABSENT_BLOCK : composerBlocks.storeFor(sessionId) },
       selectWorkspace: async (workspaceId) => {
         const nextId = await workspaces.connectWorkspace(workspaceId)
         if (sessionId !== undefined && nextId !== sessionId) {
@@ -353,7 +367,7 @@ export function apply(ctx: Context): void {
   // registers itself as `conversation` and lives on its own child fiber.
   // Presentation registrants depend directly on their slot declarations;
   // this service remains only where conversation actions are required.
-  ctx.plugin(ConversationService, { input: inputHub })
+  ctx.plugin(ConversationService, { input: inputHub, blocks: composerBlocks })
 
   // The bash sample rides the same declaration seam, in third-party posture
   // (ToolRow-matching Bash · {description} chrome).
