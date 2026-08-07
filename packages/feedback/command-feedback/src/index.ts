@@ -9,6 +9,7 @@
 import type { Context } from 'cordis'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
 import type { Session } from '@deepseek-ai/dsh-session'
+import { getOrCreateAnonymousUserId } from '@deepseek-ai/dsh-user-id'
 
 export const name = 'command-feedback'
 export const inject = ['commands']
@@ -41,8 +42,8 @@ export function recordFeedback(session: Session, text: string): void {
  * Validate, record, and acknowledge one feedback entry. Returning an error
  * leaves no `feedback/record` event.
  * @param invocation - receiving agent, raw command input, and UI cancellation.
- * @returns an acknowledgement containing the receiving session id, or a usage error
- * when no feedback text was supplied.
+ * @returns an acknowledgement containing the receiving session and anonymous
+ * user ids, or a usage error when no feedback text was supplied.
  */
 function executeFeedbackCommand(invocation: CommandInvocation): CommandResult {
   if (invocation.rawInput.trim().length === 0) {
@@ -51,7 +52,7 @@ function executeFeedbackCommand(invocation: CommandInvocation): CommandResult {
   recordFeedback(invocation.agent.session, invocation.rawInput)
   return {
     kind: 'success',
-    text: `Feedback recorded for session ${invocation.agent.session.id}`,
+    text: `Feedback recorded for session ${invocation.agent.session.id}\nUser: ${getOrCreateAnonymousUserId()}`,
   }
 }
 

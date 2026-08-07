@@ -8,7 +8,7 @@ Trigger-independent session feedback plus human-facing `/feedback` capture. The 
 
 | Input | Result |
 |---|---|
-| `/feedback <text>` | Append `feedback/record` and acknowledge with `Feedback recorded for session {id}`. |
+| `/feedback <text>` | Append `feedback/record` and acknowledge with `Feedback recorded for session {sessionId}` followed by `User: {userId}`. |
 | `/feedback` | Return a direct usage error. Whitespace-only input is treated as empty. |
 
 Surrounding whitespace is discarded, but feedback is otherwise unparsed: no truncation, case folding, or control words. Text that looks like another command, such as `/feedback /plan felt slow`, is feedback content. Repeated commands each produce their own event; nothing is replaced or merged.
@@ -17,7 +17,7 @@ Surrounding whitespace is discarded, but feedback is otherwise unparsed: no trun
 
 `recordFeedback(session, text)` is the command-independent write path. It rejects empty normalized text and appends `feedback/record { text }`; a different UI, hook, or host integration can call it without constructing a slash command. The `/feedback` handler uses that producer and starts no model work. The optional [`dsh-session-telemetry-otel`](../../session/session-telemetry-otel) consumer observes the event without changing its capture contract.
 
-The feedback text appears in exactly one durable payload: `feedback/record`. [`dsh-commands`](../../interaction/commands/README.md) still appends its generic `command/run` / `command/done` pairing, but this definition sets `recordInput: false`, so `command/run` omits `args`; the paired `command/done` carries only the outcome. All three events are log-only and absent from the ordered surface, `deriveMessages()`, and model requests. These appends start persistence's ordinary eager drain, but neither producer forces `session/flush`, so acknowledgement means the feedback is in the log, not that it has reached disk. Rejected empty input leaves only the command pairing settled as `kind: 'error'`, with no `feedback/record`.
+The feedback text appears in exactly one durable payload: `feedback/record`. [`dsh-commands`](../../interaction/commands/README.md) still appends its generic `command/run` / `command/done` pairing, but this definition sets `recordInput: false`, so `command/run` omits `args`; the paired `command/done` carries only the outcome. All three events are log-only and absent from the ordered surface, `deriveMessages()`, and model requests. These appends start persistence's ordinary eager drain, but neither producer forces `session/flush`, so acknowledgement means the feedback is in the log, not that it has reached disk. The acknowledgement identifies both the receiving session and the [shared anonymous user](../../session/user-id/); the first accepted feedback for a harness home can create `$DSH_HOME/.userid`. Rejected empty input leaves only the command pairing settled as `kind: 'error'`, with no `feedback/record` and no user-id lookup.
 
 The event is authoritative rather than the command record because feedback may arrive through a trigger other than `/feedback`. Keeping the payload out of `command/run` avoids two records carrying the same text.
 

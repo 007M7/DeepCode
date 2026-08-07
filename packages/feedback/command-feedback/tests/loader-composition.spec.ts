@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import Include from '@cordisjs/plugin-include'
@@ -11,6 +11,7 @@ import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import CommandService from '@deepseek-ai/dsh-commands'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import * as CommandFeedback from '@deepseek-ai/dsh-command-feedback'
+import { getOrCreateAnonymousUserId } from '@deepseek-ai/dsh-user-id'
 
 let root: string | undefined
 let context: Context | undefined
@@ -20,6 +21,7 @@ afterEach(async () => {
   context = undefined
   if (root !== undefined) await rm(root, { recursive: true, force: true })
   root = undefined
+  vi.unstubAllEnvs()
 })
 
 /** Register one idle agent over a store-owned session, as an app's spine does. */
@@ -51,6 +53,7 @@ function agent(ctx: Context): Agent {
 describe('/feedback real Loader composition through cordis.yml', () => {
   it('boots cordis.yml and records feedback without model-visible output', async () => {
     root = await mkdtemp(join(tmpdir(), 'dsh-command-feedback-loader-'))
+    vi.stubEnv('DSH_HOME', root)
     const configPath = join(root, 'cordis.yml')
     await writeFile(configPath, [
       "- name: '@deepseek-ai/dsh-agent'",
@@ -87,9 +90,10 @@ describe('/feedback real Loader composition through cordis.yml', () => {
     expect(context.commands.list(owner).map(command => command.name)).toContain('feedback')
 
     const accepted = await context.commands.execute(owner, '/feedback the diff view is unreadable', signal)
+    const userId = getOrCreateAnonymousUserId({ env: { DSH_HOME: root } })
     expect(accepted?.result).toEqual({
       kind: 'success',
-      text: 'Feedback recorded for session feedback-loader-agent',
+      text: `Feedback recorded for session feedback-loader-agent\nUser: ${userId}`,
     })
     const rejected = await context.commands.execute(owner, '/feedback', signal)
     expect(rejected?.result).toEqual({

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
@@ -6,6 +6,17 @@ import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import CommandService from '@deepseek-ai/dsh-commands'
 import SessionStore, { foldSurface, Session, SessionId } from '@deepseek-ai/dsh-session'
 import * as commandFeedback from '@deepseek-ai/dsh-command-feedback'
+
+const { USER_ID, getOrCreateAnonymousUserId } = vi.hoisted(() => {
+  const USER_ID = '01234567-89ab-4cde-8f01-23456789abcd'
+  return { USER_ID, getOrCreateAnonymousUserId: vi.fn(() => USER_ID) }
+})
+
+vi.mock('@deepseek-ai/dsh-user-id', () => ({
+  getOrCreateAnonymousUserId,
+}))
+
+beforeEach(() => getOrCreateAnonymousUserId.mockClear())
 
 interface Harness {
   readonly ctx: Context
@@ -93,7 +104,7 @@ describe('/feedback human command', () => {
     const test = await harness()
     await expect(run(test, ' the diff view is unreadable')).resolves.toEqual({
       kind: 'success',
-      text: `Feedback recorded for session ${test.session.id}`,
+      text: `Feedback recorded for session ${test.session.id}\nUser: ${USER_ID}`,
     })
     expect(feedbackTexts(test.session)).toEqual(['the diff view is unreadable'])
     const commandRun = test.session.events.find(event => event.type === 'command/run')
@@ -141,8 +152,8 @@ describe('/feedback human command', () => {
       test.ctx.commands.execute(test.agent, '/feedback second', signal),
     ])
     expect(settled.map(item => item?.result)).toEqual([
-      { kind: 'success', text: `Feedback recorded for session ${test.session.id}` },
-      { kind: 'success', text: `Feedback recorded for session ${test.session.id}` },
+      { kind: 'success', text: `Feedback recorded for session ${test.session.id}\nUser: ${USER_ID}` },
+      { kind: 'success', text: `Feedback recorded for session ${test.session.id}\nUser: ${USER_ID}` },
     ])
     expect(feedbackTexts(test.session)).toEqual(['first', 'second'])
   })
@@ -167,6 +178,7 @@ describe('/feedback human command', () => {
     }
     await expect(run(test)).resolves.toEqual(expected)
     await expect(run(test, '   \n\t ')).resolves.toEqual(expected)
+    expect(getOrCreateAnonymousUserId).not.toHaveBeenCalled()
     expect(feedbackTexts(test.session)).toEqual([])
     const done = test.session.events.filter(event => event.type === 'command/done')
     expect(done.map(event => event.data.kind)).toEqual(['error', 'error'])
