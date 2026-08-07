@@ -67,11 +67,19 @@ function validateReading(
   event: SessionEvent<'user/message'>,
   fail: InvariantFailure,
 ): void {
-  const [block] = event.data.content
-  if (event.data.content.length !== 1 || block?.type !== 'text') {
+  const blockValue: unknown = event.data.content[0]
+  const block = typeof blockValue === 'object' && blockValue !== null
+    ? blockValue as Record<string, unknown>
+    : undefined
+  const blockText = block?.text
+  if (event.data.content.length !== 1
+    || block === undefined
+    || Object.keys(block).length !== 2
+    || block.type !== 'text'
+    || typeof blockText !== 'string') {
     fail('time-context messages must contain exactly one text block')
   }
-  const match = READING.exec(block.text)
+  const match = READING.exec(blockText)
   if (match === null) fail('time-context message does not match the durable reading format')
   const turn = Number(match[1])
   const step = Number(match[2])
@@ -88,17 +96,19 @@ function validateReading(
     fail('time-context source must retain package ownership')
   }
   const sections: unknown = 'sections' in source ? source.sections : undefined
-  const section: unknown = Array.isArray(sections) ? sections[0] : undefined
+  const sectionValue: unknown = Array.isArray(sections) ? sections[0] : undefined
+  const section = typeof sectionValue === 'object' && sectionValue !== null
+    ? sectionValue as Record<string, unknown>
+    : undefined
   if (Object.keys(source).length !== 4
     || source.form !== 'snapshot'
     || !Array.isArray(sections)
     || sections.length !== 1
-    || typeof section !== 'object'
-    || section === null
-    || !('name' in section)
+    || section === undefined
+    || Object.keys(section).length !== 2
     || section.name !== SOURCE_NAME
-    || !('text' in section)
-    || section.text !== block.text) {
+    || typeof section.text !== 'string'
+    || section.text !== blockText) {
     fail('time-context source must carry only the exact snapshot text, not request authority')
   }
   const renderedAuthority = `Session time zone: ${match[4]}.\nClient time zone for this request: ${match[5]}.`

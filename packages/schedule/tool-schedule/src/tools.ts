@@ -226,18 +226,26 @@ function isTimeContextReading(event: SessionEvent): boolean {
     || source.plugin !== 'time-context'
     || Object.keys(source).length !== 4
     || source.form !== 'snapshot') return false
-  const [block] = event.data.content
+  const blockValue: unknown = event.data.content[0]
+  const block = typeof blockValue === 'object' && blockValue !== null
+    ? blockValue as Record<string, unknown>
+    : undefined
   const sections: unknown = source.sections
-  const section: unknown = Array.isArray(sections) ? sections[0] : undefined
+  const sectionValue: unknown = Array.isArray(sections) ? sections[0] : undefined
+  const section = typeof sectionValue === 'object' && sectionValue !== null
+    ? sectionValue as Record<string, unknown>
+    : undefined
   return event.data.content.length === 1
-    && block?.type === 'text'
+    && block !== undefined
+    && Object.keys(block).length === 2
+    && block.type === 'text'
+    && typeof block.text === 'string'
     && Array.isArray(sections)
     && sections.length === 1
-    && typeof section === 'object'
-    && section !== null
-    && 'name' in section
+    && section !== undefined
+    && Object.keys(section).length === 2
     && section.name === 'time-context'
-    && 'text' in section
+    && typeof section.text === 'string'
     && section.text === block.text
 }
 

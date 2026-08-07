@@ -359,6 +359,65 @@ describe('Schedule tool protocol', () => {
     })
   })
 
+  it('does not let an array-like snapshot marker authorize an implicit local at', async () => {
+    const test = await harness(true, 'Asia/Shanghai')
+    test.agent.session.append('turn/start', { turn: 1 })
+    test.agent.session.append('step/start', { turn: 1, step: 1 })
+    test.agent.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'request' }],
+      source: { kind: 'user', clientTimeZone: 'Asia/Shanghai' } as never,
+    }), { surfaceOp: 'append' })
+    const text = 'time context'
+    test.agent.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text }],
+      source: {
+        kind: 'plugin',
+        plugin: 'time-context',
+        form: 'snapshot',
+        sections: { 0: { name: 'time-context', text }, length: 1 },
+      } as never,
+    }), { surfaceOp: 'append' })
+
+    expect(value(await execute(test, 'schedule_create', {
+      prompt: 'malformed marker', at: { date: '2026-08-06', time: '09:00:00' },
+    }))).toMatchObject({
+      code: 'timezone_confirmation_required',
+      sessionTimeZone: 'Asia/Shanghai',
+      clientTimeZones: [],
+    })
+  })
+
+  it.each([
+    ['a non-object text block', 7, [{ name: 'time-context', text: 'time context' }]],
+    ['matched non-string text', { type: 'text', text: 7 }, [{ name: 'time-context', text: 7 }]],
+    ['extra text-block field', { type: 'text', text: 'time context', extra: true }, [{ name: 'time-context', text: 'time context' }]],
+    ['non-string section text', { type: 'text', text: 'time context' }, [{ name: 'time-context', text: 7 }]],
+    ['extra section field', { type: 'text', text: 'time context' }, [{ name: 'time-context', text: 'time context', extra: true }]],
+  ] as const)(
+    'does not let snapshot provenance with %s authorize an implicit local at',
+    async (_name, block, sections) => {
+      const test = await harness(true, 'Asia/Shanghai')
+      test.agent.session.append('turn/start', { turn: 1 })
+      test.agent.session.append('step/start', { turn: 1, step: 1 })
+      test.agent.session.append('user/message', createUserMessage({
+        content: [{ type: 'text', text: 'request' }],
+        source: { kind: 'user', clientTimeZone: 'Asia/Shanghai' } as never,
+      }), { surfaceOp: 'append' })
+      test.agent.session.append('user/message', createUserMessage({
+        content: [block as never],
+        source: { kind: 'plugin', plugin: 'time-context', form: 'snapshot', sections } as never,
+      }), { surfaceOp: 'append' })
+
+      expect(value(await execute(test, 'schedule_create', {
+        prompt: 'malformed marker', at: { date: '2026-08-06', time: '09:00:00' },
+      }))).toMatchObject({
+        code: 'timezone_confirmation_required',
+        sessionTimeZone: 'Asia/Shanghai',
+        clientTimeZones: [],
+      })
+    },
+  )
+
   it.each(['step/end', 'turn/end'] as const)(
     'fails closed after the current %s boundary',
     async (boundary) => {

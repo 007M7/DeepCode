@@ -155,6 +155,90 @@ describe('time-context invariants', () => {
     }).toThrow(/must carry only the exact snapshot text/)
   })
 
+  it('rejects snapshot provenance whose section differs from the model-visible text', async () => {
+    const ctx = await setup()
+    const base = event(reading())
+    const mismatched: SessionEvent<'user/message'> = {
+      ...base,
+      data: {
+        ...base.data,
+        source: {
+          kind: 'plugin',
+          plugin: 'time-context',
+          form: 'snapshot',
+          sections: [{ name: 'time-context', text: 'different' }],
+        },
+      },
+    }
+    expect(() => {
+      ctx.emit('session/event', preparing(1, 1), mismatched)
+    }).toThrow(/must carry only the exact snapshot text/)
+  })
+
+  it('rejects snapshot provenance whose sections are only array-like', async () => {
+    const ctx = await setup()
+    const base = event(reading())
+    const arrayLike: SessionEvent<'user/message'> = {
+      ...base,
+      data: {
+        ...base.data,
+        source: {
+          kind: 'plugin',
+          plugin: 'time-context',
+          form: 'snapshot',
+          sections: { 0: { name: 'time-context', text: reading() }, length: 1 },
+        } as never,
+      },
+    }
+    expect(() => {
+      ctx.emit('session/event', preparing(1, 1), arrayLike)
+    }).toThrow(/must carry only the exact snapshot text/)
+  })
+
+  it.each([
+    [
+      'matched non-string text',
+      { type: 'text', text: 7 },
+      [{ name: 'time-context', text: 7 }],
+      /must contain exactly one text block/,
+    ],
+    [
+      'an extra text-block field',
+      { type: 'text', text: reading(), extra: true },
+      [{ name: 'time-context', text: reading() }],
+      /must contain exactly one text block/,
+    ],
+    [
+      'non-string section text',
+      { type: 'text', text: reading() },
+      [{ name: 'time-context', text: 7 }],
+      /must carry only the exact snapshot text/,
+    ],
+    [
+      'an extra section field',
+      { type: 'text', text: reading() },
+      [{ name: 'time-context', text: reading(), extra: true }],
+      /must carry only the exact snapshot text/,
+    ],
+  ] as const)(
+    'rejects snapshot provenance with %s',
+    async (_name, block, sections, diagnostic) => {
+      const ctx = await setup()
+      const base = event(reading())
+      const malformed: SessionEvent<'user/message'> = {
+        ...base,
+        data: {
+          ...base.data,
+          content: [block as never],
+          source: { kind: 'plugin', plugin: 'time-context', form: 'snapshot', sections } as never,
+        },
+      }
+      expect(() => {
+        ctx.emit('session/event', preparing(1, 1), malformed)
+      }).toThrow(diagnostic)
+    },
+  )
+
   it('rejects package-owned provenance without snapshot sections', async () => {
     const ctx = await setup()
     const base = event(reading())
