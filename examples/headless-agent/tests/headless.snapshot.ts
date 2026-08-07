@@ -1,8 +1,8 @@
-import { readFile, readdir, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { delimiter, dirname, join } from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
 import {
   normalizeSessionLog,
   normalizeStdout,
@@ -54,9 +54,7 @@ const reasoningConfigPath = fileURLToPath(new URL('./fixtures/cli.cordis.yml', i
 const deepseekDefaultsConfigPath = fileURLToPath(new URL('./fixtures/deepseek-defaults.cordis.yml', import.meta.url))
 const dshRunOverlayPath = fileURLToPath(new URL('./fixtures/dsh-run.cordis.yml', import.meta.url))
 const dshRunSessionExpected = join(snapshotsDir, 'dsh-run', 'session.expected.jsonl')
-const cliMockLlmPluginUrl = pathToFileURL(
-  fileURLToPath(new URL('./fixtures/cli-mock-llm.ts', import.meta.url)),
-).href
+const cliMockLlmPluginPath = fileURLToPath(new URL('./fixtures/cli-mock-llm.ts', import.meta.url))
 const refreshing = process.env.DSH_SNAPSHOT === 'refresh'
 
 interface JsonObject {
@@ -209,10 +207,17 @@ describe('headless stream-json snapshots', () => {
       binArgs: ['run', '--patch', dshRunOverlayPath, task],
       tsconfigPath,
       env: {
-        DSH_RUN_MOCK_PLUGIN_URL: cliMockLlmPluginUrl,
         DSH_PERMISSION_MODE: 'danger-full-access',
         DSH_TELEMETRY_DISABLED: '1',
         NODE_OPTIONS: [process.env.NODE_OPTIONS, '--disable-warning=ExperimentalWarning'].filter(Boolean).join(' '),
+      },
+      prepare: async (cwd) => {
+        const fixtureDir = join(cwd, '.dsh', 'profiles', 'headless', 'snapshot-fixtures')
+        await mkdir(fixtureDir, { recursive: true })
+        await Promise.all([
+          copyFile(cliMockLlmPluginPath, join(fixtureDir, 'cli-mock-llm.ts')),
+          writeFile(join(fixtureDir, 'package.json'), '{"type":"module"}\n'),
+        ])
       },
       inspect: async (cwd) => {
         const logs = await persistedLogs(cwd, join(cwd, '.dsh', 'sessions'))
