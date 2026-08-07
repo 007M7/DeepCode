@@ -30,10 +30,10 @@
       "path": "../../session-persistence/session-persistence"
     },
     {
-      "path": "../../session-query/session-query"
+      "path": "../../session-projection/session-projection"
     },
     {
-      "path": "../../session-projection/session-projection"
+      "path": "../../session-projection/session-projection-cache"
     },
     {
       "path": "../../tasks/tasks"

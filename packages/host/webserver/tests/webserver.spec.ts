@@ -2,11 +2,10 @@
  * REAL-composition coverage: a test-only cordis.yml booted through the
  * vendored Loader mounts the webserver row, and every assertion observes the
  * user-visible HTTP surface of the running server (routing precedence, index
- * taps, static-fallback semantics, per-request error containment, teardown).
+ * taps, fallback-seat semantics, per-request error containment, teardown).
  */
 
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
-import { mkdir } from 'node:fs/promises'
 import { once } from 'node:events'
 import { connect } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -28,21 +27,15 @@ afterEach(async () => {
   root = undefined
 })
 
-/** Write a dist fixture and a cordis.yml with one webserver row, then boot it through the real Loader. */
+/** Write a cordis.yml with one webserver row, then boot it through the real Loader. */
 async function loadComposition(port = 0): Promise<Context> {
   root = await mkdtemp(join(tmpdir(), 'dsh-webserver-loader-'))
-  const dist = join(root, 'dist')
-  await mkdir(dist)
-  const distIndex = join(dist, 'index.html')
-  await writeFile(distIndex, '<head></head><body>shell</body>')
-  await writeFile(join(dist, 'app.js'), 'export {}')
   const configPath = join(root, 'cordis.yml')
   await writeFile(configPath, [
     "- name: '@deepseek-ai/dsh-host-webserver'",
     '  config:',
     "    host: '127.0.0.1'",
     `    port: ${String(port)}`,
-    `    distIndex: '${distIndex}'`,
     '',
   ].join('\n'))
 
@@ -96,7 +89,7 @@ describe('real Loader composition', () => {
   // Real-Loader composition resolves workspace packages through tsx at test
   // time; first resolution after the host/client program split is slow enough
   // to trip the default 5s budget on cold caches.
-  it('serves registered routes, index taps, and the static fallback semantics', { timeout: 60_000 }, async () => {
+  it('serves registered routes, index taps, and the fallback-seat semantics', { timeout: 60_000 }, async () => {
     const loaded = await loadComposition()
     const unloaded = [...loaded.loader.entries()]
       .filter(entry => entry.fiber === undefined && !entry.disabled)
@@ -120,21 +113,24 @@ describe('real Loader composition', () => {
     expect(await request(port, '/api')).toMatchObject({ status: 200, body: 'API' })
     expect(await request(port, '/api/anything', { method: 'POST' })).toMatchObject({ status: 200, body: 'API' })
 
-    // Index taps apply in registration order on `/` and on the SPA fallback;
-    // the disposer removes the transform.
+    // Fallback seat: 404 while unclaimed; the owner answers everything no
+    // named route matches; index taps are the owner's to apply; the seat
+    // admits exactly one owner and the disposer releases it.
+    expect((await request(port, '/no/such/route')).status).toBe(404)
     const untap = server.tapIndex(html => html.replace('<head>', '<head><script>window.__T__=1</script>'))
-    expect((await request(port, '/')).body).toContain('__T__')
+    expect(server.applyIndexTaps('<head></head>')).toContain('__T__')
+    const releaseFallback = server.registerFallback((req, res) => {
+      // Decode like a real static server would — a malformed %-escape throws
+      // here, probing the webserver's per-request error containment.
+      decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname)
+      res.writeHead(200, { 'content-type': 'text/html' })
+      res.end(server.applyIndexTaps('<head></head><body>shell</body>'))
+    })
+    expect(() => server.registerFallback(() => {})).toThrow(/fallback already registered/)
     expect((await request(port, '/no/such/route')).body).toContain('__T__')
     untap()
-    expect((await request(port, '/')).body).not.toContain('__T__')
-
-    // Static fallback semantics: real asset served, traversal 403, non-GET/
-    // HEAD without a matching route 405.
-    expect(await request(port, '/app.js')).toMatchObject({ status: 200, body: 'export {}' })
-    await writeFile(join(root!, 'dist', 'app.js'), 'export const rebuilt = true')
-    expect(await request(port, '/app.js')).toMatchObject({ status: 200, body: 'export const rebuilt = true' })
-    expect((await request(port, '/..%2f..%2fetc%2fpasswd')).status).toBe(403)
-    expect((await request(port, '/nowhere', { method: 'POST' })).status).toBe(405)
+    expect((await request(port, '/no/such/route')).body).not.toContain('__T__')
+    expect((await request(port, '/no/such/route')).body).toContain('shell')
 
     // Per-request error containment: a malformed %-escape answers 400 and the
     // server keeps serving afterwards (no process-level failure path).
@@ -148,8 +144,13 @@ describe('real Loader composition', () => {
     const disposeOnce = server.register({ kind: 'exact', path: '/once', handler: (_req, res) => { res.writeHead(200); res.end('ONCE') } })
     expect(await request(port, '/once')).toMatchObject({ status: 200, body: 'ONCE' })
     disposeOnce()
-    expect((await request(port, '/once')).body).toContain('shell') // back to the SPA fallback
+    expect((await request(port, '/once')).body).toContain('shell') // back to the fallback owner
     expect(() => server.register({ kind: 'exact', path: '/once', handler: () => {} })).not.toThrow()
+
+    // Releasing the seat restores the unclaimed 404 and registrability.
+    releaseFallback()
+    expect((await request(port, '/no/such/route')).status).toBe(404)
+    expect(() => server.registerFallback(() => {})).not.toThrow()
 
     // Upgrade routes match exact pathnames, reject duplicate ownership, and
     // become registrable again after disposal. The accepted socket stays open

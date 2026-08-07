@@ -190,6 +190,7 @@ describe('subagent ownership fence', () => {
     const meta = header('session-child', 1000, {
       parentSession: sid('session-parent'),
       seedLength: 0,
+      origin: 'subagent',
     })
     const events = [
       { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
@@ -243,6 +244,47 @@ describe('subagent ownership fence', () => {
     expect(resume).not.toHaveBeenCalled()
     expect(ctx.agents.get(sessionId)).toBeUndefined()
     expect(inspect).toHaveBeenCalledTimes(3)
+  })
+
+  it('no longer treats a descriptor-only cold child without origin as subagent-owned', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(UserInteractionService)
+    const sessionId = sid('session-legacy-child')
+    const meta = header('session-legacy-child', 1000, {
+      parentSession: sid('session-parent'),
+      seedLength: 0,
+    })
+    const events = [
+      {
+        type: 'subagent/descriptor',
+        seq: 0,
+        time: 1,
+        data: { version: 2, mode: 'continuable', provider: 'spawn', label: 'child' },
+      },
+    ] as SessionEvent[]
+    ctx.provide('sessionPersistence', {
+      list: () => Promise.resolve([meta]),
+      inspect: () => Promise.resolve({ meta, events }),
+      locate: () => undefined,
+    } as never)
+    // Pre-#1569 stores classify a child only through the descriptor event and
+    // carry no header `origin`; the pre-release decision stops recognizing
+    // them, so the ownership fence lets generic resume reach the registry
+    // instead of answering `agent-busy`.
+    const resume = vi.spyOn(ctx.agents, 'resume')
+      .mockRejectedValue(new Error('registry unavailable in this bench'))
+    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
+
+    const prompt = await api.sessions.prompt(request({
+      sessionId,
+      mode: 'queue',
+      content: [{ type: 'text', text: 'follow up' }],
+    }))
+    expect(resume).toHaveBeenCalledTimes(1)
+    expect(prompt.result.ok).toBe(false)
+    if (!prompt.result.ok) expect(prompt.result.error.code).toBe('internal')
   })
 
   it('rejects origin-marked and runtime-owned live children from generic controls', async () => {

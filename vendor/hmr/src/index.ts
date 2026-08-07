@@ -215,7 +215,7 @@ class Hmr extends Service {
       // the scan-triggered refresh waits on that apply — a teardown deadlock
       // that strands boot without a diagnostic. Only events after the scan
       // matter here; `registerConfig` keeps its own initial scan because a
-      // personal config present at registration must apply once.
+      // user patch layer present at registration must apply once.
       ignoreInitial: true,
     })
 
