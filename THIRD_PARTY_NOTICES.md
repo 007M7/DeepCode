@@ -57,6 +57,8 @@ External packages that a workspace package resolves at runtime. `scripts/install
 | [`clsx`](https://github.com/lukeed/clsx) | MIT |
 | [`commander`](https://github.com/tj/commander.js) | MIT |
 | [`diff`](https://github.com/kpdecker/jsdiff) | BSD-3-Clause |
+| [`dotenv`](https://github.com/motdotla/dotenv) | BSD-2-Clause |
+| [`e2b`](https://github.com/e2b-dev/e2b) | MIT |
 | [`eventsource-parser`](https://github.com/rexxars/eventsource-parser) | MIT |
 | [`handlebars`](https://github.com/handlebars-lang/handlebars.js) | MIT |
 | [`immer`](https://github.com/immerjs/immer) | MIT |

@@ -56,7 +56,6 @@ function makeInstance(
     maxStderrBytes: 100_000,
     shutdownTimeoutMs: 200,
     killGraceMs: 200,
-    pathToFileUri: path => pathToFileURL(path).href,
     ...overrides,
   }, spawnSubprocess, writer)
   live.push(instance)
@@ -92,7 +91,6 @@ function scriptInstance(script: string, overrides: Partial<InstanceSpec> = {}): 
     maxStderrBytes: 100_000,
     shutdownTimeoutMs: 150,
     killGraceMs: 150,
-    pathToFileUri: path => pathToFileURL(path).href,
     ...overrides,
   }, spawnSubprocess)
   live.push(instance)

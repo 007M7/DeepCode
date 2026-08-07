@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { boot } from '@deepseek-ai/dsh-app-boot'
+import { Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-fs-e2b'
@@ -14,18 +15,20 @@ if (configPath === undefined) throw new Error('usage: bin.ts <cordis.yml>')
 const ctx = await boot('e2b-composition', resolve(configPath))
 const ownerFiber = ctx.plugin(() => {})
 const ownerId = SessionId('e2b-live-owner')
+const session = Session.create(ownerId)
 const owner: Agent = {
   id: ownerId,
   options: {},
-  session: new Session(ownerId),
+  session,
+  inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
   status: 'idle',
-  acceptsNextStep: false,
   ctx: ownerFiber.ctx,
-  followup() {},
-  steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }),
-  inject() {},
   send() {},
+  followup() {},
+  steer() {},
+  inject() {},
   cancel() {},
+  runMaintenance: task => task(new AbortController().signal),
   whenIdle: () => Promise.resolve(),
 }
 const unregisterOwner = ctx.agents.register(owner)

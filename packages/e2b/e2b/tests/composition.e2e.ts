@@ -3,6 +3,7 @@ import { join, posix } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Context } from 'cordis'
 import { describe, expect, it } from 'vitest'
+import { Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { runLoaderSmoke } from '@deepseek-ai/dsh-loader-smoke'
 import {
@@ -78,18 +79,20 @@ describe.skipIf(!process.env.E2B_API_KEY)('E2B live Loader composition', () => {
       expect(environmentProbe.collected.stdout?.readFrom(0).text).toBe('DIRECT=<> LEAK=<0>\n')
       await expect(sandbox.files.read(profileLeakPath)).rejects.toBeInstanceOf(FileNotFoundError)
       const ownerId = SessionId('e2b-pty-env-owner')
+      const ownerSession = Session.create(ownerId)
       const owner: Agent = {
         id: ownerId,
         options: {},
-        session: new Session(ownerId),
+        session: ownerSession,
+        inbox: new Inbox(ownerSession, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
         status: 'idle',
-        acceptsNextStep: false,
         ctx,
-        followup() {},
-        steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }),
-        inject() {},
         send() {},
+        followup() {},
+        steer() {},
+        inject() {},
         cancel() {},
+        runMaintenance: task => task(new AbortController().signal),
         whenIdle: () => Promise.resolve(),
       }
       const backend = new LocalPtyBackend(ctx, {

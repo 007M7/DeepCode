@@ -6,7 +6,7 @@ Packages use the `@deepseek-ai/dsh-*` scope. Cordis `Service` subclasses and fun
 
 ## Hierarchy
 
-Groups contain packages at `packages/<group>/<pkg>/`; names remain `@deepseek-ai/dsh-<pkg>`. **Group READMEs own package/ctx-key maps.**
+Groups hold `packages/<group>/<pkg>/`; names stay `@deepseek-ai/dsh-<pkg>`. **Group READMEs own package/ctx-key maps.**
 
 | Group | Role | Release expectation |
 |---|---|---|

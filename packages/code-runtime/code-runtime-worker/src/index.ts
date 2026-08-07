@@ -21,10 +21,6 @@ import { jsonStringBytesUpTo, jsonValueBytesUpTo, truncateJsonStringBytes } from
 import { decodeWorkerJson, encodeWorkerJson } from './worker-json.ts'
 import type { WorkerJsonWire } from './worker-json.ts'
 
-export { jsonStringBytesUpTo, jsonValueBytesUpTo, truncateJsonStringBytes } from './output-json.ts'
-export { decodeWorkerJson, encodeWorkerJson } from './worker-json.ts'
-export type { WorkerJsonWire } from './worker-json.ts'
-
 /** Plugin config: every execution cap, changeable from `cordis.yml` (no hardcoded tunables). */
 export interface Config {
   /**
@@ -169,19 +165,14 @@ function parseWorkerMessage(raw: unknown): WorkerToHost | undefined {
 }
 
 
-/** Shared outer-output accounting for one isolated run; binding values never enter it. */
-export class OutputLedger {
+/** One run's combined outer-output ledger; binding values never enter it. */
+class OutputLedger {
   private bytes = 2 // JSON serialization of the empty logs array: []
   private entries = 0
 
   constructor(private readonly maxBytes: number) {}
 
-  /**
-   * Admit one exact log entry, or report that the hard cap was crossed.
-   * @param text - Candidate log entry.
-   * @param sink - Accepted log entries for the current run.
-   * @returns Whether the complete entry fits the remaining outer-output budget.
-   */
+  /** Admit one exact log entry, or report that the hard cap was crossed. */
   admit(text: string, sink: string[]): boolean {
     const separatorBytes = this.entries > 0 ? 1 : 0
     const stringBytes = jsonStringBytesUpTo(text, this.maxBytes - this.bytes - separatorBytes)
@@ -192,33 +183,19 @@ export class OutputLedger {
     return true
   }
 
-  /**
-   * Finalize a successful absent-or-JSON completion against the combined cap.
-   * @param logs - Already accepted log entries.
-   * @param value - Optional lossless-JSON completion value.
-   * @returns A success result or an output-limit failure.
-   */
+  /** Finalize a successful absent-or-JSON completion against the combined cap. */
   success(logs: string[], value?: CodeJsonValue): CodeRunResult {
     if (value !== undefined && jsonValueBytesUpTo(value, this.maxBytes - this.bytes) === undefined) return this.limit(logs)
     return { logs, ...value !== undefined ? { value } : {} }
   }
 
-  /**
-   * Finalize a failure diagnostic, with output-limit taking precedence when combined bytes exceed the cap.
-   * @param logs - Already accepted log entries.
-   * @param error - Candidate failure diagnostic.
-   * @returns The diagnostic result or an output-limit failure.
-   */
+  /** Finalize a failure diagnostic, with output-limit taking precedence when combined bytes exceed the cap. */
   failure(logs: string[], error: CodeRunFailure): CodeRunResult {
     if (jsonStringBytesUpTo(error.message, this.maxBytes - this.bytes) === undefined) return this.limit(logs)
     return { logs, error }
   }
 
-  /**
-   * Build the explicit output-limit failure while retaining a fitting prefix of the final log.
-   * @param logs - Candidate log entries in original order.
-   * @returns A capped output-limit result.
-   */
+  /** Build the explicit output-limit failure while retaining a fitting prefix of the final log. */
   limit(logs: string[]): CodeRunResult {
     const fullMessage = `outer output exceeded ${this.maxBytes} bytes`
     // The fixed diagnostic is ASCII, so every character is one byte plus the quotes.

@@ -32,7 +32,7 @@ Every field is validated and defaulted; `maxOutputBytes` is a safe integer of at
 
 ## The worker entry, unbuilt and built
 
-Source mode loads erasable-only `src/worker.ts` through Node's native type stripping. Its transitive runtime closure contains only Node built-ins and relative source modules, so a fresh checkout never requires a sibling workspace package's unbuilt `lib/` export. The worker-local JSON snapshotter is parity-tested against the session-owned canonical boundary; both sides flatten and rebuild validated values around the message port so application nesting never reaches structured clone. Built mode passes the sibling `lib/worker.cjs` as a filesystem path because pkg's VFS Worker hook expects CommonJS; the same path works under ordinary Node. `tests/built-lib.e2e.ts` pins the real load path required by [docs/testing.md](../../../docs/testing.md).
+Source mode loads erasable-only `src/worker.ts` through Node's native type stripping. Its transitive runtime closure contains only Node built-ins and relative source modules, so a fresh checkout never requires a sibling workspace package's unbuilt `lib/` export. The worker-local and session-owned JSON boundaries both flatten and rebuild validated values around the message port so application nesting never reaches structured clone. Built mode passes the sibling `lib/worker.cjs` as a filesystem path because pkg's VFS Worker hook expects CommonJS; the same path works under ordinary Node. The repository-wide requirement to exercise this published entry path belongs to the [testing policy](../../../docs/testing.md).
 
 The SDK surface is the default/named `WorkerCodeRuntime` class plus `Config`. The operational `./worker` subpath exists only as the packaged spawn entry; the wire protocol and bootstrap helpers are source-private implementation details.
 
@@ -46,8 +46,8 @@ No direct invalidation; the named consumer owns any request-prefix changes.
 
 ## Known Limitations and Deferred Work
 
-- **OS processes a program spawns survive termination** — `worker.terminate()` ends the thread only; deployments requiring process-tree cleanup select `dsh-code-runtime-subprocess`, whose mounted subprocess provider owns that cleanup.
-- **Type-strip rides Node's experimental `stripTypeScriptTypes` API** — the relied-on behavior is pinned by unit tests, with amaro/sucrase as named drop-in replacements if it shifts.
+- **OS processes a program spawns survive termination** — `worker.terminate()` ends the thread only, weaker than bash-local's process-group kill; orphan cleanup is a deployment concern until a container backend exists.
+- **Type-strip rides Node's experimental `stripTypeScriptTypes` API** — amaro or sucrase are the named drop-in replacements if the relied-on behavior shifts.
 - **`computeMs` expiry can overshoot by up to one poll interval** — busy time is sampled every 25 ms (an internal constant, deliberately not config).
 - **Programs get a five-method `console` shim** (`log`/`info`/`warn`/`error`/`debug`) — deliberately not Node's full console surface.
 - **Intermediate binding values have no byte cap** — a program can exhaust process or worker memory with a value that never becomes outer output.

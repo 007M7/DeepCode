@@ -305,6 +305,16 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'e2b',
+    summary: 'Creates one lazily consumable E2B SDK handle and deletes the sandbox at timeout or disposal.',
+    methods: [
+      {
+        signature: 'async getSandbox(): Promise<Sandbox>',
+        jsDoc: '/**\n * Return the shared live SDK handle.\n * @returns the created sandbox after the configured cwd exists.\n * @throws when E2B rejects creation or the service is disposing.\n */',
+      },
+    ],
+  },
+  {
     key: 'fs',
     summary: 'Abstract filesystem provider.',
     methods: [

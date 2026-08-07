@@ -25,7 +25,6 @@
 |---|---|---|
 | `ctx.llm` | [`llm/`](../packages/llm/README.md) | 适配器注册表和模型流式调用 |
 | `ctx.tokenMeter` | [`llm/token-meter`](../packages/llm/token-meter/README.md) | 感知回放的单实例请求压力与表面压力 |
-| `ctx.e2b` | [`e2b/`](../packages/e2b/README.md) | 共享 E2B 沙箱 |
 | `ctx.bash` | [`bash/`](../packages/bash/README.md) | 前台和后台命令执行 |
 | `ctx.subprocess` | [`subprocess/`](../packages/subprocess/README.md) | 可执行文件查找、受管进程树、终端 |
 | `ctx.pty` | [`pty/`](../packages/pty/README.md) | 按 owner 隔离的持久化终端会话 |
