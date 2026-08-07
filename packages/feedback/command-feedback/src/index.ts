@@ -83,6 +83,9 @@ export function recordFeedback(session: Session, text: string): void {
  * @returns an acknowledgement containing the receiving session and anonymous
  * user ids plus the session-sharing disclosure, or a usage error when no
  * feedback text was supplied.
+ * @returns an acknowledgement containing the receiving session id and the
+ * session-sharing disclosure, or a usage error when no feedback text was supplied.
+>>>>>>> 632abf2957 (feat(feedback): disclose session sharing in the /feedback acknowledgement)
  */
 function executeFeedbackCommand(invocation: CommandInvocation, ctx: Context): CommandResult {
   if (invocation.rawInput.trim().length === 0) {
@@ -93,6 +96,8 @@ function executeFeedbackCommand(invocation: CommandInvocation, ctx: Context): Co
   return {
     kind: 'success',
     text: `Feedback recorded for session ${invocation.agent.session.id}\nUser: ${getOrCreateAnonymousUserId()}. ${sharingDisclosure(telemetry)}`,
+    text: `Feedback recorded for session ${invocation.agent.session.id}. ${sharingDisclosure(telemetry)}`,
+>>>>>>> 632abf2957 (feat(feedback): disclose session sharing in the /feedback acknowledgement)
   }
 }
 
