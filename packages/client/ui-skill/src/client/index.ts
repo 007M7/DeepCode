@@ -2,13 +2,15 @@
  * Skill reference plugin, browser half: registers the '/' skill source —
  * candidates from the skill.list RPC addressed by the per-call session
  * projection's sessionId (sessions are always agent-backed; the host
- * resolves cwd from the session header), pick inserts the literal `/name `
- * text (decision 21: the draft carries plain text, chip visuals are derived
- * by scanning against the source lexicon, and the prompt ships the same
- * literal — no `<skill>` tag). The RPC rides the plugin's root-context
- * connection captured at registration — the source never reads services off
- * a per-call argument. No adjudication hooks: skill references ride
- * ordinary prompts and never enter command adjudication.
+ * resolves cwd from the session header). A menu pick or an entered `/name
+ * [args]` line claims into a skill.invoke transaction: the host renders the
+ * skill body and injects it as a user message, so invocation is
+ * deterministic for every user-invocable skill — including
+ * `disable-model-invocation` skills the model-side catalog never lists
+ * (issue #1470). The RPC rides the plugin's root-context connection
+ * captured at registration — the source never reads services off a per-call
+ * argument. Draft chip visuals still derive from the lexicon scan; the
+ * legacy `<skill>` reference codec is gone (decision 21 removal cut).
  *
  * Catalog fetches are cached per session (the small twin of the ui-command
  * directory): the per-keystroke candidates re-poll filters a settled
@@ -25,7 +27,7 @@
  */
 import type { ConnectionHandle, SessionId, SkillEntry } from '@deepseek-ai/dsh-client-connection/client'
 import type { ClientContext, ISessions } from '@deepseek-ai/dsh-client-runtime/client'
-import type { SlashServiceContract, SlashSource } from '@deepseek-ai/dsh-client-ui-slash/client'
+import type { PickOutcome, SlashServiceContract, SlashSource } from '@deepseek-ai/dsh-client-ui-slash/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { SkillRow } from './SkillRow.tsx'
@@ -119,6 +121,30 @@ export function apply(ctx: ClientContext): void {
     for (const key of [...fetches.keys()]) invalidate(key)
   }
 
+  /** User-only marker in the active language (the menu hint is plain text, resolved at candidate time). */
+  const userOnlyHint = (): string => ctx.locale.getSnapshot().active === 'zh' ? zh['menu.userOnly'] : en['menu.userOnly']
+
+  /**
+   * Args-tolerant claim for one skill: token `/name ` plus the skill.invoke
+   * transaction. Blank args stay off the wire; an RPC refusal folds into the
+   * composer's error outcome (transport failures throw).
+   */
+  const invokeClaim = (session: { readonly sessionId: SessionId }, name: string): PickOutcome => ({
+    claim: {
+      token: `/${name} `,
+      submit: async (args) => {
+        const trimmed = args.trim()
+        const { result } = await skills.invoke({
+          sessionId: session.sessionId,
+          name,
+          ...trimmed === '' ? {} : { text: trimmed },
+        })
+        if (!result.ok) return { kind: 'error', text: `${result.error.code}: ${result.error.message}` }
+        return { kind: 'success' }
+      },
+    },
+  })
+
   const source: SlashSource = {
     trigger: '/',
     name: 'skill',
@@ -129,7 +155,11 @@ export function apply(ctx: ClientContext): void {
       if (signal.aborted) return []
       return skills
         .filter(skill => skill.name.startsWith(query))
-        .map(skill => ({ name: skill.name, description: skill.description }))
+        .map(skill => ({
+          name: skill.name,
+          description: skill.description,
+          ...skill.modelInvocable ? {} : { hint: userOnlyHint() },
+        }))
     },
     warm(session) {
       // Fire-and-forget scope-birth prewarm; the shared fetch reports
@@ -149,16 +179,21 @@ export function apply(ctx: ClientContext): void {
         if (listeners.size === 0) lexiconListeners.delete(key)
       }
     },
-    onPick({ candidate }) {
-      // Decision 21: plain-text reference — the literal lands in the draft
-      // and ships to the model verbatim (trailing space closes the token).
-      // Legacy path (decision 21), retained for the removal cut, no longer reached:
-      // return { insert: { source: 'skill', ref: candidate.name, label: candidate.name, clipboardText: `/${candidate.name}` } }
-      return { text: `/${candidate.name} ` }
+    onPick({ candidate, session }) {
+      return invokeClaim(session, candidate.name)
     },
-    codec: {
-      clipboardText: ref => `/${ref}`,
-      serialize: ref => Promise.resolve(`<skill>${ref}</skill>`),
+    async matchEnter(session, line, signal) {
+      const trimmed = line.trim()
+      if (!trimmed.startsWith('/')) return undefined
+      const ws = trimmed.search(/\s/)
+      const name = (ws === -1 ? trimmed : trimmed.slice(0, ws)).slice(1)
+      if (name === '') return undefined
+      // Strong-wait the catalog: an unknown name stays a plain prompt (the
+      // default sink), never a swallowed line.
+      const catalog = await fetchCatalog(session.sessionId)
+      if (signal.aborted) return undefined
+      if (!catalog.some(skill => skill.name === name)) return undefined
+      return invokeClaim(session, name)
     },
   }
   const slash = ctx.get('slash') as SlashServiceContract

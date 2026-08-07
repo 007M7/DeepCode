@@ -20,11 +20,15 @@ import type { ClientSessionContext, SlashSource } from '@deepseek-ai/dsh-client-
 import { apply, inject } from '../src/client/index.ts'
 import { SkillRow as SkillToolRow } from '../src/client/SkillRow.tsx'
 
-type SkillRow = { name: string; description: string; whenToUse?: string }
+type SkillRow = { name: string; description: string; whenToUse?: string; modelInvocable?: boolean }
 type ListResult =
   | { ok: true; value: { skills: SkillRow[] } }
   | { ok: false; error: { code: string; message: string; details: object } }
 type ListFn = (payload: object, signal?: AbortSignal) => Promise<{ result: ListResult }>
+type InvokeResult =
+  | { ok: true; value: { accepted: true } }
+  | { ok: false; error: { code: string; message: string; details: object } }
+type InvokeFn = (payload: object) => Promise<{ result: InvokeResult }>
 
 interface PresentationCapture {
   slots: SlotsService
@@ -49,16 +53,18 @@ function providePresentation(ctx: Context): PresentationCapture {
       capture.dictionaries.push({ namespace, dictionaries })
       return () => { capture.localeDisposed = true }
     },
+    getSnapshot: () => ({ active: 'zh', locales: ['zh', 'en'], revision: 0 }),
   })
   return capture
 }
 
 /** Boot the plugin over fake slash/connection faces; returns the captured source and its ctx. */
-async function bench(list: ListFn, addressed?: SessionId) {
+async function bench(list: ListFn, addressed?: SessionId, invoke?: InvokeFn) {
   const ctx = new Context()
   let captured: SlashSource | undefined
   ctx.provide('slash', { registerSource: (src: SlashSource) => { captured = src; return () => {} } })
-  ctx.provide('connection', { api: { skills: { list } } })
+  const defaultInvoke: InvokeFn = () => Promise.resolve({ result: { ok: true as const, value: { accepted: true as const } } })
+  ctx.provide('connection', { api: { skills: { list, invoke: invoke ?? defaultInvoke } } })
   ctx.provide('sessions', {
     subagentAddress: (id: SessionId) => id === addressed
       ? { parentSessionId: sid('parent'), childSessionId: id, mode: 'continuable' as const }
@@ -70,9 +76,9 @@ async function bench(list: ListFn, addressed?: SessionId) {
 }
 
 const CATALOG: SkillRow[] = [
-  { name: 'commit-helper', description: 'commit flow' },
-  { name: 'code-review', description: 'review flow', whenToUse: 'reviews' },
-  { name: 'deploy', description: 'deploy flow' },
+  { name: 'commit-helper', description: 'commit flow', modelInvocable: true },
+  { name: 'code-review', description: 'review flow', whenToUse: 'reviews', modelInvocable: true },
+  { name: 'deploy', description: 'deploy flow', modelInvocable: true },
 ]
 
 const listOk = (skills: SkillRow[]): ListFn => () => Promise.resolve({ result: { ok: true as const, value: { skills } } })
@@ -117,12 +123,14 @@ describe('apply', () => {
           'row.failed': 'skill 加载失败',
           'row.stopped': 'skill 加载已中止',
           'row.instructions': '说明',
+          'menu.userOnly': '仅用户',
         },
         en: {
           'row.running': 'Loading skill',
           'row.failed': 'Skill load failed',
           'row.stopped': 'Skill load stopped',
           'row.instructions': 'Instructions',
+          'menu.userOnly': 'user-only',
         },
       },
     }])
@@ -313,9 +321,10 @@ describe('lexicon', () => {
   })
 })
 
-describe('pick and codec', () => {
-  it('onPick returns the literal /name text with a closing space (decision 21)', async () => {
-    const { source } = await bench(listOk(CATALOG))
+describe('pick claims into skill.invoke', () => {
+  it('onPick returns an args-tolerant claim whose submit invokes the skill', async () => {
+    const invoke = vi.fn(() => Promise.resolve({ result: { ok: true as const, value: { accepted: true as const } } }))
+    const { source } = await bench(listOk(CATALOG), undefined, invoke)
     const outcome = source.onPick({
       candidate: { name: 'commit-helper', description: 'commit flow' },
       session: proj('s1'),
@@ -323,21 +332,72 @@ describe('pick and codec', () => {
       via: 'menu',
       span: { start: 0, end: 4, draftRev: 7 },
     })
-    expect(outcome).toEqual({ text: '/commit-helper ' })
+    if (outcome === undefined || outcome === 'handled' || !('claim' in outcome)) throw new Error('expected a claim outcome')
+    expect(outcome.claim.token).toBe('/commit-helper ')
+    await expect(outcome.claim.submit('check the fixture', {} as never)).resolves.toEqual({ kind: 'success' })
+    expect(invoke).toHaveBeenCalledWith({ sessionId: sid('s1'), name: 'commit-helper', text: 'check the fixture' })
   })
 
-  it('codec projects clipboard `/name` and serializes the model form <skill>name</skill>', async () => {
+  it('submit omits blank args and folds an RPC refusal into an error outcome', async () => {
+    const invoke = vi.fn(() => Promise.resolve({
+      result: { ok: false as const, error: { code: 'skill-not-invocable', message: 'nope', details: { name: 'deploy' } } },
+    }))
+    const { source } = await bench(listOk(CATALOG), undefined, invoke)
+    const outcome = source.onPick({
+      candidate: { name: 'deploy', description: 'deploy flow' },
+      session: proj('s1'),
+      position: 'leading',
+      via: 'menu',
+      span: { start: 0, end: 4, draftRev: 7 },
+    })
+    if (outcome === undefined || outcome === 'handled' || !('claim' in outcome)) throw new Error('expected a claim outcome')
+    await expect(outcome.claim.submit('   ', {} as never))
+      .resolves.toEqual({ kind: 'error', text: 'skill-not-invocable: nope' })
+    expect(invoke).toHaveBeenCalledWith({ sessionId: sid('s1'), name: 'deploy' })
+  })
+
+  it('drops the legacy reference codec (decision 21 removal cut)', async () => {
     const { source } = await bench(listOk(CATALOG))
-    expect(source.codec!.clipboardText('deploy')).toBe('/deploy')
-    await expect(source.codec!.serialize('deploy', new AbortController().signal))
-      .resolves.toBe('<skill>deploy</skill>')
+    expect(source.codec).toBeUndefined()
   })
 })
 
 describe('adjudication', () => {
-  it('never participates: no matchSpace/matchEnter hooks on the skill source', async () => {
+  it('claims an entered /name line, args-tolerant, once the catalog knows the name', async () => {
+    const invoke = vi.fn(() => Promise.resolve({ result: { ok: true as const, value: { accepted: true as const } } }))
+    const { source } = await bench(listOk(CATALOG), undefined, invoke)
+    const outcome = await source.matchEnter!(proj('s1'), '/deploy run the smoke suite', new AbortController().signal)
+    if (outcome === undefined || outcome === 'handled' || !('claim' in outcome)) throw new Error('expected a claim outcome')
+    expect(outcome.claim.token).toBe('/deploy ')
+    await outcome.claim.submit('run the smoke suite', {} as never)
+    expect(invoke).toHaveBeenCalledWith({ sessionId: sid('s1'), name: 'deploy', text: 'run the smoke suite' })
+  })
+
+  it('answers undefined for unknown names, non-slash lines, and bare "/"', async () => {
+    const { source } = await bench(listOk(CATALOG))
+    const signal = new AbortController().signal
+    await expect(source.matchEnter!(proj('s1'), '/unlisted do it', signal)).resolves.toBeUndefined()
+    await expect(source.matchEnter!(proj('s1'), 'plain prose', signal)).resolves.toBeUndefined()
+    await expect(source.matchEnter!(proj('s1'), '/', signal)).resolves.toBeUndefined()
+  })
+
+  it('never claims on space (menu and enter own the skill flows)', async () => {
     const { source } = await bench(listOk(CATALOG))
     expect(typeof source.matchSpace).toBe('undefined')
-    expect(typeof source.matchEnter).toBe('undefined')
+  })
+})
+
+describe('user-only marking', () => {
+  it('carries the user-only hint on candidates the model cannot invoke', async () => {
+    const rows: SkillRow[] = [
+      { name: 'shared-skill', description: 'both surfaces', modelInvocable: true },
+      { name: 'user-only-skill', description: 'user surface only', modelInvocable: false },
+    ]
+    const { source } = await bench(listOk(rows))
+    const candidates = await source.candidates(proj('s1'), req(''))
+    expect(candidates).toEqual([
+      { name: 'shared-skill', description: 'both surfaces' },
+      { name: 'user-only-skill', description: 'user surface only', hint: '仅用户' },
+    ])
   })
 })
