@@ -2565,8 +2565,6 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-timeout-policy` — requires `tools` ([`packages/timeout/timeout-policy/src/index.ts`](../packages/timeout/timeout-policy/src/index.ts))
 - `@deepseek-ai/dsh-tool-ask-user` — requires `tools` · `userInteraction` ([`packages/ui/tool-ask-user/src/index.ts`](../packages/ui/tool-ask-user/src/index.ts))
 - `@deepseek-ai/dsh-tool-subagent-control` — requires `tools` · `subagents` ([`packages/subagent/tool-subagent-control/src/index.ts`](../packages/subagent/tool-subagent-control/src/index.ts))
-- `@deepseek-ai/dsh-tool-todo` — requires `tools` ([`packages/todo/tool-todo/src/index.ts`](../packages/todo/tool-todo/src/index.ts))
-- `@deepseek-ai/dsh-typert-registry` ([`packages/typert/registry/src/index.ts`](../packages/typert/registry/src/index.ts))
 - `@deepseek-ai/dsh-user-interaction` ([`packages/ui/user-interaction/src/index.ts`](../packages/ui/user-interaction/src/index.ts))
 - `@deepseek-ai/dsh-workspace` — requires `storageDomain` · `sessionPersistence` ([`packages/workspace/workspace/src/index.ts`](../packages/workspace/workspace/src/index.ts))
 
