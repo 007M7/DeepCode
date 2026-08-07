@@ -205,6 +205,12 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
             <li key={row.entry.provider} className={styles['rowCard']}>
               <div className={styles['rowHead']}>
                 <span className={styles['rowName']}>{row.entry.displayName}</span>
+                {/* Only the adapter can tell a hand-declared route from a
+                    shipped one it also has a stored profile for, so the tag
+                    follows its answer and stays off when it gives none. */}
+                {row.entry.declared === true
+                  ? <span className={styles['rowTag']}>{t('customTag')}</span>
+                  : null}
                 <span className={styles['rowActions']}>
                   <button
                     type="button"

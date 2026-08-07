@@ -92,11 +92,21 @@ function registrationFacts(profiles: ReadonlyMap<string, ResolvedPiAiProviderPro
 function directoryEntries(
   profiles: ReadonlyMap<string, ResolvedPiAiProviderProfile>,
 ): LlmConfigurableProvider[] {
+  const catalog = new Set(catalogProviderIds())
   const entries = new Map<string, LlmConfigurableProvider>()
   const declare = (provider: string, displayName: string): void => {
-    entries.set(provider, { provider, displayName, settingsNs: NS, settingsPath: ['providers', provider] })
+    entries.set(provider, {
+      provider,
+      displayName,
+      settingsNs: NS,
+      settingsPath: ['providers', provider],
+      // Membership of the installed catalog, not of the settings document:
+      // narrowing a shipped provider's models stores a profile too, and that
+      // route is still one pi-ai knows.
+      declared: !catalog.has(provider),
+    })
   }
-  for (const provider of catalogProviderIds()) declare(provider, provider)
+  for (const provider of catalog) declare(provider, provider)
   for (const [provider, profile] of profiles) declare(provider, profile.displayName)
   return [...entries.values()]
 }

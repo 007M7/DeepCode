@@ -2,7 +2,17 @@
 
 [English](README.md) | 中文
 
-所有客户端形态共用的 API 网关：TS 契约（`src/api/`，不依赖 Node，可从浏览器导入）、fetch 载体对（`src/fetch/`：宿主侧的 `toFetchHandler`，以及客户端侧的 `AbstractApiClient` 与平台子类）和宿主侧实现（`src/api-proxy.ts`：`createApiProxy` 加上默认导出的 `ApiProxyService` 网关插件，其配置为 `{provider, model, workspaceRoot?}`，提供 `ctx.apiProxy`）。该包在设计上与传输方式无关，不注册任何路由；HTTP 等载体自行包装 `ctx.apiProxy`。已发布的核心组合位于 [`packages/bundle/base/cordis.patch.yml`](../../bundle/base/cordis.patch.yml)。
+所有客户端形态共用的 API 网关：TS 契约（`src/api/`，不依赖 Node，可从浏览器导入）、fetch 载体对（`src/fetch/`：宿主侧的 `toFetchHandler`，以及客户端侧的 `AbstractApiClient` 与平台子类）和宿主侧实现（`src/api-proxy.ts`：`createApiProxy` 加上默认导出的 `ApiProxyService` 网关插件，其配置为 `{provider, model, reasoningEffort?, workspaceRoot?}`，提供 `ctx.apiProxy`）。该包在设计上与传输方式无关，不注册任何路由；HTTP 等载体自行包装 `ctx.apiProxy`。已发布的核心组合位于 [`packages/bundle/base/cordis.patch.yml`](../../bundle/base/cordis.patch.yml)。
+
+## 默认路由（`api-gateway` 设置段）
+
+`{provider, model, reasoningEffort?}` 同时是网关的用户设置段，注册在 `api-gateway` 之下：组合条目是 `base` 层，`settings.yaml` 把用户自己的选择叠加其上。`workspaceRoot` 刻意不在段内——它是启动器事实，不是偏好。
+
+会话按三级解析自己的路由，且每次读取都重新解析，而不是只在创建时种一次：本进程内的显式选择，其次是该会话自己最新记录的 `request/header`，最后才是这个默认值。重新解析正是让两个方向都成立的原因——已经跑过一轮的会话此后永远从自己的日志推导路由，改默认值不会重定向它；而仍然空白的会话（新建会话会复用一个，而不是再开一个）则会用上它创建之后才保存的默认值。
+
+`session.selectModel` 会把被接受的切换记录为新的默认值，实践中默认值就是这样选定的，没有另一个单独的手势。写入是整段替换而非合并，因为切到一个不支持推理的模型必须清掉已存的等级；存储失败只记日志，不会撤销这次切换——它对自己所在的会话已经生效。没有设置提供方的部署保留组合条目，切换只停留在进程内。
+
+存下来的路由不做注册表校验，两个方向都不做。默认值指向一个已在模型页删除的路由时，它照样作为会话的 `current` 送到 `session.models`——匹配不到任何已公布的分组，而这恰恰是让选择器提示重新选择、而不是显示一个部署根本够不着的模型的原因。静默修复它还会破坏刻意保留的反面情形：适配器可以服务一个自己目录未公布的模型。
 
 ## 契约层（`/api`）
 

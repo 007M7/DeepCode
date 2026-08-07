@@ -66,22 +66,23 @@ export interface Config extends DefaultRouteSettings {
   workspaceRoot?: string
 }
 
-/**
- * The default-route fields, as fresh schema instances. Both the plugin config
- * and the settings section are built from this one call, so the section stays
- * a subset of the config structurally rather than by a comment two people have
- * to keep true.
- */
-function defaultRouteFields(): { [K in keyof Required<DefaultRouteSettings>]: z<string> } {
-  return {
-    provider: z.string().required(),
-    model: z.string().required(),
-    reasoningEffort: z.string(),
-  }
-}
+/** The config fields the settings section carries; the rest stay launcher-owned. */
+const DEFAULT_ROUTE_FIELDS = ['provider', 'model', 'reasoningEffort'] as const
 
-/** Schema of the settings section. */
-const DefaultRouteSchema: z<DefaultRouteSettings> = z.object(defaultRouteFields())
+/**
+ * The settings section's schema, picked out of the plugin config rather than
+ * restated. The config stays a plain literal because the configuration-catalog
+ * generator reads it statically; picking from it is what keeps the section a
+ * subset of it as both evolve.
+ * @param config - the plugin config schema to pick from.
+ * @returns the section schema over {@link DEFAULT_ROUTE_FIELDS}.
+ */
+function defaultRouteSchema(config: z<Config>): z<DefaultRouteSettings> {
+  const fields = Object.fromEntries(
+    DEFAULT_ROUTE_FIELDS.map(field => [field, config.dict?.[field]]),
+  )
+  return z.object(fields) as z<DefaultRouteSettings>
+}
 
 /** Project the stored/composed section onto the agent-facing target shape. */
 function routeTarget(settings: DefaultRouteSettings): AgentLlmTarget {
@@ -106,7 +107,9 @@ export class ApiProxyService extends Service implements ApiProxy {
   ]
 
   static Config: z<Config> = z.object({
-    ...defaultRouteFields(),
+    provider: z.string().required(),
+    model: z.string().required(),
+    reasoningEffort: z.string(),
     workspaceRoot: z.string(),
   })
 
@@ -135,7 +138,7 @@ export class ApiProxyService extends Service implements ApiProxy {
       ...config.reasoningEffort === undefined ? {} : { reasoningEffort: config.reasoningEffort },
     }
     let route: () => DefaultRouteSettings = () => entry
-    installSettingsSection(ctx, API_GATEWAY_SETTINGS_NAMESPACE, DefaultRouteSchema, entry, {
+    installSettingsSection(ctx, API_GATEWAY_SETTINGS_NAMESPACE, defaultRouteSchema(ApiProxyService.Config), entry, {
       setSource: (current) => {
         route = current
       },

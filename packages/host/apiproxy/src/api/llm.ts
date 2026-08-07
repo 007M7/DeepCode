@@ -22,6 +22,12 @@ export interface ConfigurableProviderView {
   settingsPath: string[]
   /** Whether the route is currently registered (its models are requestable). */
   active: boolean
+  /**
+   * Whether the owning adapter knows this route only because configuration
+   * declared it. Absent when the adapter draws no such distinction, so a
+   * surface must treat absence as "unknown", not as "shipped".
+   */
+  declared?: boolean
 }
 
 /** Llm-domain unary methods (the map keys llm.* of RpcMethodMap). */

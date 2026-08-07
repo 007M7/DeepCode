@@ -72,6 +72,20 @@
   color: var(--dsw-alias-label-primary);
 }
 
+/* Reads as an annotation on the name, not as a second name: caption size and
+   the secondary label tone, so it never competes with the row's own title.
+   `rowActions` keeps the `margin-left: auto`, which is what holds the tag
+   beside the name instead of letting it drift across the row. */
+.rowTag {
+  flex: none;
+  padding: 1px 6px;
+  border: 1px solid var(--dsw-alias-border-l3);
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-secondary);
+}
+
 .rowActions {
   display: inline-flex;
   align-items: center;

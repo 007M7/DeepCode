@@ -66,6 +66,8 @@ function scriptedFace(options: {
   providers?: Record<string, unknown>
   /** User layer, when it differs from the effective section. */
   userProviders?: Record<string, unknown>
+  /** Routes the adapter reports as hand-declared; the rest come back as shipped. */
+  declaredRoutes?: readonly string[]
   discover?: ReturnType<typeof vi.fn>
   mutate?: ReturnType<typeof vi.fn>
   set?: ReturnType<typeof vi.fn>
@@ -86,6 +88,7 @@ function scriptedFace(options: {
           settingsNs: 'llm-pi-ai',
           settingsPath: ['providers', provider],
           active: true,
+          declared: options.declaredRoutes?.includes(provider) ?? false,
         })),
       }))),
       models: vi.fn(() => Promise.resolve(ok({ groups: [], failures: [] }))),
@@ -599,6 +602,53 @@ describe('endpoint interrogation', () => {
   })
 })
 
+describe('provider rows', () => {
+  it('tags the routes the adapter declared, and only those', async () => {
+    await mountSection({
+      providers: {
+        openai: { apiKeyEnv: 'OPENAI_API_KEY' },
+        'acme-gateway': { apiKeyEnv: 'ACME_GATEWAY_API_KEY', baseURL: 'https://acme.test/v1' },
+      },
+      declaredRoutes: ['acme-gateway'],
+    })
+
+    const rowOf = (provider: string): HTMLElement => {
+      const row = screen.getByText(provider).closest('li')
+      if (row === null) throw new Error(`no row for ${provider}`)
+      return row
+    }
+    expect(rowOf('acme-gateway').textContent).toContain(en.customTag)
+    // `openai` carries a stored profile too — the tag follows the adapter's
+    // catalog, not the presence of settings, so it stays off here.
+    expect(rowOf('openai').textContent).not.toContain(en.customTag)
+  })
+
+  it('shows no tag when the adapter draws no catalog distinction', async () => {
+    const scripted = scriptedFace({ providers: { openai: { apiKeyEnv: 'OPENAI_API_KEY' } } })
+    scripted.face.llm.providers = vi.fn(() => Promise.resolve(ok({
+      providers: [{
+        provider: 'openai',
+        displayName: 'openai',
+        settingsNs: 'llm-pi-ai',
+        settingsPath: ['providers', 'openai'],
+        active: true,
+      }],
+    }))) as never
+    const controller = new ModelsSettingsStore(scripted.face as unknown as WireFace)
+    await controller.load()
+    render(<ModelsSection
+      controller={controller}
+      useSnapshot={bindSnapshotSelector(controller.store)}
+      api={scripted.face as never}
+      t={t}
+    />)
+
+    // Absent is "unknown", never "shipped": an adapter that answers nothing
+    // must not have its routes labelled either way.
+    expect(screen.queryByText(en.customTag)).toBeNull()
+  })
+})
+
 describe('hand-declared providers', () => {
   function mountCard(overrides: Partial<Parameters<typeof CustomProviderCard>[0]> = {}) {
     const scripted = scriptedFace()
@@ -683,7 +733,7 @@ describe('hand-declared providers', () => {
     declare()
     fireEvent.click(screen.getByText(en.create))
     await waitFor(() => { expect(second.onClose).toHaveBeenCalledWith(true) })
-    expect(firstMutate(second.mutate).ops[0].value).not.toHaveProperty('reasoning')
+    expect(firstMutate(second.mutate).ops[0]).not.toHaveProperty('value.reasoning')
   })
 
   it('names the blocked gate under the form, and nothing once it is satisfied', () => {

@@ -25,6 +25,7 @@ import { ZH_BROWSER_LOCALE, saveFailureShot } from './support.ts'
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/models-settings', import.meta.url))
 const EMPTY_EXPECTED = join(SNAPSHOT_DIR, 'empty.expected.md')
 const CONFIGURED_EXPECTED = join(SNAPSHOT_DIR, 'configured.expected.md')
+const DECLARED_EXPECTED = join(SNAPSHOT_DIR, 'declared.expected.md')
 const DELETE_EXPECTED = join(SNAPSHOT_DIR, 'delete.expected.md')
 const MODE = webSnapshotMode()
 
@@ -114,10 +115,47 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)
 
+  it('declares a route the adapter does not ship, with its own reasoning effort', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-models-declare'))
+    const dialog = page.getByRole('dialog', { name: '设置' })
+    const declare = dialog.getByRole('button', { name: '添加自定义提供方' })
+    await expect.poll(async () => declare.isEnabled(), { timeout: 10_000 }).toBe(true)
+    await declare.click()
+    await dialog.getByLabel('Provider ID').fill('acme-gateway')
+    await dialog.getByLabel('显示名称').fill('Acme Gateway')
+    await dialog.getByLabel('API 地址').fill('https://gateway.acme.example/v1')
+    // The create card offers the same provider-level effort the editor card
+    // does for this namespace; a route declared without it would gain the
+    // control only on reopening.
+    await dialog.getByLabel('推理强度').selectOption('high')
+    await dialog.getByRole('button', { name: '添加模型' }).click()
+    await dialog.getByLabel('模型 ID 1').fill('acme-large')
+    await dialog.getByRole('button', { name: '创建提供方', exact: true }).click()
+
+    const row = dialog.getByText('Acme Gateway', { exact: true }).first()
+    await row.waitFor({ timeout: 10_000 })
+    const document = await readFile(join(scaffold.harnessHome, 'settings.yaml'), 'utf8')
+    expect(document).toContain('acme-gateway:')
+    expect(document).toContain('reasoning: high')
+
+    // The tag follows the adapter's installed catalog: this route is in no
+    // catalog, while minimax-cn is — even though both now have profiles.
+    const rowCard = (name: string) => dialog.locator('li').filter({ hasText: name }).first()
+    await expect.poll(async () => rowCard('Acme Gateway').getByText('自定义').count(), { timeout: 10_000 }).toBe(1)
+    expect(await rowCard('minimax-cn').getByText('自定义').count()).toBe(0)
+
+    const snapshot = await captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd)
+    await compareOrRefreshGolden(DECLARED_EXPECTED, snapshot, MODE)
+    expect(tripwire.pageErrors).toEqual([])
+  }, 60_000)
+
   it('confirms provider deletion before removing its settings profile', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-models-delete'))
     const settingsDialog = page.getByRole('dialog', { name: '设置' })
-    await settingsDialog.getByRole('button', { name: '删除', exact: true }).click()
+    // Two rows carry a delete action now that a route is also declared; this
+    // scenario is about minimax-cn, so it names its own row.
+    const minimaxRow = settingsDialog.locator('li').filter({ hasText: 'minimax-cn' }).first()
+    await minimaxRow.getByRole('button', { name: '删除', exact: true }).click()
     const deleteDialog = page.getByRole('dialog', { name: '删除模型提供方？' })
     await deleteDialog.waitFor({ timeout: 10_000 })
     const snapshot = await captureStableAria(
@@ -129,7 +167,7 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
 
     await deleteDialog.getByRole('button', { name: '取消', exact: true }).click()
     expect(await readFile(join(scaffold.harnessHome, 'settings.yaml'), 'utf8')).toContain('minimax-cn:')
-    await settingsDialog.getByRole('button', { name: '删除', exact: true }).click()
+    await minimaxRow.getByRole('button', { name: '删除', exact: true }).click()
     await page.getByRole('dialog', { name: '删除模型提供方？' })
       .getByRole('button', { name: '删除提供方', exact: true }).click()
     await expect.poll(
@@ -147,6 +185,7 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
   }, 60_000)
 
   it.skipIf(MODE === 'record')('keeps the fixture inventory closed', async () => {
-    await assertFixtureInventory(SNAPSHOT_DIR, ['configured.expected.md', 'delete.expected.md', 'empty.expected.md'])
+    await assertFixtureInventory(SNAPSHOT_DIR,
+      ['configured.expected.md', 'declared.expected.md', 'delete.expected.md', 'empty.expected.md'])
   })
 })

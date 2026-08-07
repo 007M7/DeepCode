@@ -578,17 +578,27 @@ Requires: `agents` · `directoryPicker` · `llm` · `sessions` · `subagents` ·
 
 ```ts config-catalog
 /** Gateway plugin config: host-level agent routing and Workspace creation root. */
-export interface Config {
-  /** Default provider route for created/resumed agents. */
-  provider: string
-  /** Default model id. */
-  model: string
+export interface Config extends DefaultRouteSettings {
   /** Parent directory for name-created Workspaces; defaults to the Host cwd. */
   workspaceRoot?: string
 }
+
+/**
+ * The user-settable slice of the gateway config: the route a session starts
+ * from when its own log names none. `workspaceRoot` is deliberately not part
+ * of it — that is a launcher fact, not a preference.
+ */
+export interface DefaultRouteSettings {
+  /** Default provider route for created agents. */
+  provider: string
+  /** Default model id. */
+  model: string
+  /** Default reasoning effort; absence preserves the adapter/provider default. */
+  reasoningEffort?: string
+}
 ```
 
-Source: [`packages/host/apiproxy/src/index.ts:33`](../packages/host/apiproxy/src/index.ts)
+Source: [`packages/host/apiproxy/src/index.ts:64`](../packages/host/apiproxy/src/index.ts)
 
 ## `@deepseek-ai/dsh-host-directory-picker-browse`
 

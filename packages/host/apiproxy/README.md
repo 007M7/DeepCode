@@ -2,7 +2,17 @@
 
 English | [中文](README.zh.md)
 
-The API gateway every client shape shares: the TS contract (`src/api/`, zero Node dependencies, importable from the browser), the fetch carrier pair (`src/fetch/`: `toFetchHandler` on the host side, `AbstractApiClient` plus platform subclasses on the client side), and the host-side implementation (`src/api-proxy.ts`: `createApiProxy` plus the default-exported `ApiProxyService` gateway plugin — config `{provider, model, workspaceRoot?}`, provides `ctx.apiProxy`). Transport-agnostic by design: this package registers no routes; carriers such as HTTP wrap `ctx.apiProxy` themselves. The shipped core composition lives in [`packages/bundle/base/cordis.patch.yml`](../../bundle/base/cordis.patch.yml).
+The API gateway every client shape shares: the TS contract (`src/api/`, zero Node dependencies, importable from the browser), the fetch carrier pair (`src/fetch/`: `toFetchHandler` on the host side, `AbstractApiClient` plus platform subclasses on the client side), and the host-side implementation (`src/api-proxy.ts`: `createApiProxy` plus the default-exported `ApiProxyService` gateway plugin — config `{provider, model, reasoningEffort?, workspaceRoot?}`, provides `ctx.apiProxy`). Transport-agnostic by design: this package registers no routes; carriers such as HTTP wrap `ctx.apiProxy` themselves. The shipped core composition lives in [`packages/bundle/base/cordis.patch.yml`](../../bundle/base/cordis.patch.yml).
+
+## The default route (`api-gateway` settings section)
+
+`{provider, model, reasoningEffort?}` is also the gateway's user-settings section, registered under `api-gateway`: the composition entry is the `base` layer and `settings.yaml` layers the user's own choice over it. `workspaceRoot` is deliberately outside the section — a launcher fact, not a preference.
+
+A session resolves its route from three tiers, re-read on every access rather than seeded once: a selection made in this process, else the session's own latest logged `request/header`, else this default. Re-reading is what makes both directions hold — a session that has run a turn derives its route from its log forever after, so changing the default never retargets it, while a session still blank (New Session reuses one rather than minting another) starts from a default saved after it was created.
+
+`session.selectModel` records an accepted switch as the new default, which is how the default is chosen in practice: there is no separate gesture. The write replaces the section wholesale rather than merging, because switching to a model with no reasoning effort has to clear a stored one; a storage failure is logged without undoing the switch, which already applies to its own session. A deployment with no settings provider keeps the composition entry and a switch stays process-local.
+
+The stored route is not validated against the registry, in either direction. A default naming a route the Models page has since removed still reaches `session.models` as the session's `current` — matching no advertised group, which is precisely what makes a selector prompt for a replacement instead of naming a model the deployment cannot reach. Repairing it silently would also break the deliberate converse: an adapter may serve a model its catalog does not advertise.
 
 ## Contract layer (`/api`)
 
