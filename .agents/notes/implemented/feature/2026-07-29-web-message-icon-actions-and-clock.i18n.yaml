@@ -1,6 +1,0 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
-#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-07-29-web-message-icon-actions-and-clock.md
-2026-07-29-web-message-icon-actions-and-clock.md: feced6aeb11d176d6c774242a4d1dae14f6730f8
-2026-07-29-web-message-icon-actions-and-clock.zh.md: 5e33182421b423f45c84dbe1a979505f4c31b819
