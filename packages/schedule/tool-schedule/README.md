@@ -16,7 +16,7 @@ The package owns the strict version-1 `schedule/change` create, delete, and disp
 
 Replay rejects unknown versions, extra fields, reused ids, and delete or dispatch transitions against inactive records. Normal sessions fold the complete log. A fork folds only `session.events.slice(session.header.seedLength ?? 0)`, so it does not inherit its parent's reminders. The package's `./invariant` companion applies the same policy to existing logs and candidate events.
 
-`scheduleReminderPresentation(events, dispatchSeq, seedLength)` is the pure Host-facing receipt projection. It returns `scheduleId`, prompt, occurrence, and `session-local` mode from the dispatch's nearest preceding same-id create. The current fork's `seedLength` is a hard boundary for child-owned dispatches, while inherited dispatches search their persisted prefix; resumed ancestors therefore remain renderable, nested generations may reuse session-local ids, and presentation never changes live ownership.
+`scheduleReminderPresentation(events, dispatchSeq, seedLength)` is the pure Host-facing receipt projection. It returns `scheduleId`, prompt, and occurrence from the dispatch's nearest preceding same-id create; the client renderer adds the fixed `session-local` label. The current fork's `seedLength` is a hard boundary for child-owned dispatches, while inherited dispatches search their persisted prefix; resumed ancestors therefore remain renderable, nested generations may reuse session-local ids, and presentation never changes live ownership.
 
 ## Management tools
 

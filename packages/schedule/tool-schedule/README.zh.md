@@ -16,7 +16,7 @@
 
 回放会拒绝未知版本、额外字段、重复使用的 id，以及针对非活动记录的 delete 或 dispatch 转换。普通会话折叠完整日志。fork 只折叠 `session.events.slice(session.header.seedLength ?? 0)`，因此不会继承父会话的提醒。此包的 `./invariant` 配套项会对现有日志和候选事件应用相同策略。
 
-`scheduleReminderPresentation(events, dispatchSeq, seedLength)` 是供 Host 使用的纯回执投影。它从 dispatch 之前最近的同 id create 返回 `scheduleId`、prompt、occurrence 和 `session-local` 模式。当前 fork 的 `seedLength` 是 child 自有 dispatch 的硬边界，而继承的 dispatch 则会搜索其已持久前缀；因此恢复后的祖先仍可渲染，嵌套 generation 可以复用会话本地 id，presentation 绝不会改变 live ownership。
+`scheduleReminderPresentation(events, dispatchSeq, seedLength)` 是供 Host 使用的纯回执投影。它从 dispatch 之前最近的同 id create 返回 `scheduleId`、prompt 和 occurrence；client renderer 添加固定的 `session-local` 标签。当前 fork 的 `seedLength` 是 child 自有 dispatch 的硬边界，而继承的 dispatch 则会搜索其已持久前缀；因此恢复后的祖先仍可渲染，嵌套 generation 可以复用会话本地 id，presentation 绝不会改变 live ownership。
 
 ## 管理工具
 
