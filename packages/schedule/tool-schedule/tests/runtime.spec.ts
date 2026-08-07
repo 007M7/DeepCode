@@ -4,6 +4,7 @@ import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentCancelCause, InboxTarget } from '@deepseek-ai/dsh-agent'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import { Cron } from 'croner'
 import {
   MIN_RECURRING_INTERVAL_SECONDS,
   ScheduleId,
@@ -168,6 +169,43 @@ afterEach(async () => {
 })
 
 describe('Schedule timer and admission runtime', () => {
+  it('contains calendar resolution failure without permanently faulting the owner', async () => {
+    const test = await harness()
+    const invalidId = ScheduleId('schedule-invalid-zone')
+    appendCron(test, invalidId, '0 0 * * *', Date.now() - 86_400_000)
+    const wakeFailure = vi.spyOn(Cron.prototype, 'previousRuns').mockImplementation(() => {
+      throw new Error('calendar unavailable')
+    })
+    const owner = ownerFor(test)
+    owner.start()
+    await settle()
+    expect(test.followed).toEqual([])
+    wakeFailure.mockRestore()
+
+    let restoreCalendarFailure: (() => void) | undefined
+    test.controls.onReserve = () => {
+      const calendarFailure = vi.spyOn(Cron.prototype, 'previousRuns').mockImplementation(() => {
+        throw new Error('calendar unavailable')
+      })
+      restoreCalendarFailure = () => { calendarFailure.mockRestore() }
+    }
+    owner.requestDrive()
+    await settle()
+    expect(test.followed).toEqual([])
+
+    restoreCalendarFailure?.()
+    test.controls.onReserve = undefined
+    test.agent.session.append('schedule/change', { version: 1, operation: 'delete', id: invalidId })
+    appendAfter(test, 'schedule-healthy-after', 1, Date.now() - 2_000)
+    owner.requestDrive()
+    await settle()
+    expect(test.followed).toHaveLength(1)
+    expect(test.agent.session.events.some(event =>
+      event.type === 'schedule/change'
+      && event.data.operation === 'dispatch'
+      && event.data.id === 'schedule-healthy-after')).toBe(true)
+  })
+
   it('segments waits beyond the Node timer limit and rechecks the wall clock', async () => {
     const test = await harness()
     const delaySeconds = Math.ceil((MAX_TIMER_DELAY_MS + 1_500) / 1_000)

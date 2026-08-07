@@ -105,7 +105,7 @@ reminders_json: [{"schedule_id":<id>,"occurrence_at":<UTC RFC 3339>,"reminder_pr
 ## 已知限制与暂缓事项
 
 - **仅限会话本地交付**：提醒只有在原会话 live 时才能准时运行；cold 会话不会收到外部通知，只有恢复后才会处理 overdue 记录。
-- **活动驱动的重试**：到期 preflight 被拒绝或 framing／入队失败被收容后，overdue 记录仍保持活动，但不会启动私有重试 timer；后续 agent 活动进入 idle，或成功的 Schedule 管理 preflight 要求 owner 重新计算后，owner 会重试。
+- **活动驱动的重试**：到期 preflight 被拒绝、当前日历求值失败被收容，或 framing／入队失败被收容后，overdue 记录仍保持活动，但不会启动私有重试 timer；后续 agent 活动进入 idle，或成功的 Schedule 管理 preflight 要求 owner 重新计算后，owner 会重试。
 - **受限的日历语言**：cron 只接受本文所述的数值五字段子集，其中一个日期字段必须不受限，并要求显式 IANA 时区；它不开放名称、macro、秒、年份、Quartz operator 或用户可选的 DST 策略。
 - **Session 时区不可变**：新的 Schedule Web Session 会记录一个默认浏览器时区，且没有时区编辑器。旧有的无 header Session 仍为 `unavailable`，不匹配或有歧义的请求必须显式指定 `time_zone`。
 - **存在狭窄的崩溃重复窗口**：同步 `followup` 获得准入后、dispatch 检查点完成前发生崩溃，可能使提醒在恢复后重复；此包不承诺模型完成、用户确认或外部副作用恰好一次。

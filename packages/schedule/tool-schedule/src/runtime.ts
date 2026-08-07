@@ -235,6 +235,16 @@ export class ScheduleOwner {
     }
   }
 
+  /** Contain a current calendar-resolution failure without permanently faulting this owner. */
+  private decide(folded: FoldedSchedules, now: number): DueDecision | undefined {
+    try {
+      return dueDecision(folded, now)
+    } catch (error: unknown) {
+      this.ctx.logger.warn(`tool-schedule: calendar decision failed for agent "${this.agent.id}": ${renderThrown(error)}`)
+      return undefined
+    }
+  }
+
   /** Preflight, fold, arm, or dispatch the next one-shot or recurring batch. */
   private async driveOnce(): Promise<void> {
     this.clearTimer()
@@ -253,7 +263,8 @@ export class ScheduleOwner {
     const folded = this.readFolded()
     if (folded === undefined) return
     const wakeNow = Date.now()
-    const wakeDecision = dueDecision(folded, wakeNow)
+    const wakeDecision = this.decide(folded, wakeNow)
+    if (wakeDecision === undefined) return
     if (wakeDecision.kind === 'wait') {
       if (wakeDecision.target !== undefined) this.arm(wakeDecision.target, wakeNow)
       return
@@ -266,7 +277,8 @@ export class ScheduleOwner {
         const claimed = this.readFolded()
         if (claimed === undefined) return Promise.resolve(false)
         const decisionNow = Date.now()
-        const decision = dueDecision(claimed, decisionNow)
+        const decision = this.decide(claimed, decisionNow)
+        if (decision === undefined) return Promise.resolve(false)
         if (decision.kind === 'wait') {
           if (decision.target !== undefined) this.arm(decision.target, decisionNow)
           return Promise.resolve(false)

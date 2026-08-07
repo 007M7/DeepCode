@@ -143,6 +143,28 @@ describe('Schedule package invariant', () => {
       }, 0)],
     })
     const fiber = await ctx.plugin(scheduleInvariant)
+    const alias = ctx.sessions.create(SessionId('schedule-historical-zone-alias'), {
+      seed: [event({
+        version: 1,
+        operation: 'create',
+        schedule: {
+          id: 'schedule-historical-zone-alias',
+          kind: 'cron',
+          prompt: 'historical zone alias',
+          cron: '0 9 * * *',
+          timeZone: 'US/Eastern',
+          scheduledAt: '2026-08-06T13:00:00.000Z',
+        },
+      }, 0)],
+    })
+    expect(() => alias.append('schedule/change', {
+      version: 1,
+      operation: 'dispatch',
+      id: ScheduleId('schedule-historical-zone-alias'),
+      occurrenceAt: '2026-08-07T13:00:00.000Z',
+      acceptedAt: '2026-08-07T14:00:00.000Z',
+      nextScheduledAt: '2026-08-08T13:00:00.000Z',
+    })).not.toThrow()
     const invalidLiveRules = [
       {
         id: 'schedule-historical-fast-cron',

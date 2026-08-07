@@ -689,6 +689,29 @@ function cronLocalFormatter(timeZone: string): Intl.DateTimeFormat {
   })
 }
 
+/** Skip a pre-standard-time sub-minute offset era without enumerating every Cron occurrence. */
+function cursorBeforeNextOffsetTransition(formatter: Intl.DateTimeFormat, epoch: number): number {
+  const initialOffset = localProjection(formatter, epoch).offset
+  let lower = epoch
+  let step = 366 * 86_400_000
+  let upper = epoch
+  while (upper < MAX_FOUR_DIGIT_YEAR_MS) {
+    upper = Math.min(MAX_FOUR_DIGIT_YEAR_MS, lower + step)
+    // IANA local-mean-time offsets do not return after a zone adopts standard time.
+    if (localProjection(formatter, upper).offset !== initialOffset) break
+    /* v8 ignore next 2 -- every supported IANA zone leaves local mean time before year 9999. */
+    if (upper === MAX_FOUR_DIGIT_YEAR_MS) return upper
+    lower = upper
+    step = Math.min(step * 2, MAX_FOUR_DIGIT_YEAR_MS - lower)
+  }
+  while (upper - lower > 1) {
+    const middle = lower + Math.floor((upper - lower) / 2)
+    if (localProjection(formatter, middle).offset === initialOffset) lower = middle
+    else upper = middle
+  }
+  return upper - 1
+}
+
 /** Whether local calendar fields satisfy one parsed rule. */
 function cronMatchesLocal(rule: ParsedCronRule, local: CalendarParts): boolean {
   const dayOfWeek = new Date(calendarEpoch(local)).getUTCDay()
@@ -727,6 +750,10 @@ function ownedLowYearCronInstant(
 ): number | undefined {
   const minYear = 1
   const maxYear = CRONER_LOW_YEAR_SEARCH_END
+  const formatter = cronLocalFormatter(timeZone)
+  const boundaryOffset = localProjection(formatter, boundary).offset
+  // IANA sub-minute local-mean-time offsets persist beyond this entire low-year bridge.
+  if (boundaryOffset % 60_000 !== 0) return undefined
   const utcYear = new Date(boundary).getUTCFullYear()
   const startYear = direction === 1
     ? Math.max(minYear, utcYear - 1)
@@ -769,6 +796,7 @@ function ownedLowYearCronInstant(
             /* v8 ignore next -- supported ICU data has no low-year transition gap to skip. */
             continue
           }
+          /* v8 ignore next -- a whole-minute low-year offset maps minute rules to whole-minute UTC. */
           if (candidate % 60_000 !== 0) continue
           if (direction === 1) {
             if (candidate > boundary) return candidate
@@ -812,6 +840,10 @@ function nextCronInstant(rule: ParsedCronRule, timeZone: string, after: number):
     }
     gapCorrections = 0
     if (epoch > MAX_FOUR_DIGIT_YEAR_MS) return undefined
+    if (epoch % 60_000 !== 0) {
+      cursor = cursorBeforeNextOffsetTransition(formatter, epoch)
+      continue
+    }
     if (isCanonicalCronCandidate(rule, formatter, timeZone, epoch)) return epoch
     cursor = epoch
   }
@@ -888,9 +920,6 @@ function validateLiveCronRule(record: CronScheduleRecord): {
   try {
     const rule = parseCronRule(record.cron)
     const timeZone = canonicalizeTimeZone(record.timeZone)
-    if (timeZone !== record.timeZone) {
-      throw new ScheduleLogError('live cron timeZone must use its current canonical IANA name')
-    }
     if (!rule.hasMatchingDate) {
       throw new ScheduleLogError('live cron rule must have a matching Gregorian date')
     }
@@ -904,6 +933,9 @@ function validateLiveCronRule(record: CronScheduleRecord): {
 function validateLiveCronRecord(record: CronScheduleRecord): void {
   const { rule, timeZone } = validateLiveCronRule(record)
   try {
+    if (timeZone !== record.timeZone) {
+      throw new ScheduleLogError('live cron timeZone must use its current canonical IANA name')
+    }
     const target = Date.parse(record.scheduledAt)
     if (nextCronInstant(rule, timeZone, target - 60_000) !== target) {
       throw new ScheduleLogError('live cron scheduledAt must match its rule in the current time-zone data')

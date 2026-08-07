@@ -228,6 +228,14 @@ describe('Croner calendar adapter', () => {
       occurrenceAt: '2026-11-01T05:30:00.000Z',
       nextScheduledAt: '2026-11-02T06:30:00.000Z',
     })
+    expect(resolveCronOccurrence({
+      ...overlap,
+      cron: '0,30 1 * * *',
+      scheduledAt: '2026-10-31T05:30:00.000Z',
+    }, Date.parse('2026-11-01T07:00:00.000Z'))).toEqual({
+      occurrenceAt: '2026-11-01T05:30:00.000Z',
+      nextScheduledAt: '2026-11-02T06:00:00.000Z',
+    })
     expect(createCronScheduleRecord(
       ScheduleId('schedule-overlap-after-first'),
       'after first overlap instant',
@@ -236,6 +244,18 @@ describe('Croner calendar adapter', () => {
       Date.parse('2026-11-01T05:45:00.000Z'),
     ).scheduledAt).toBe('2026-11-02T06:30:00.000Z')
   })
+
+  it('skips a sub-minute local-mean-time era before iterating dense safe-year matches', () => {
+    const record = createCronScheduleRecord(
+      ScheduleId('schedule-sub-minute-offset'),
+      'standard-time handoff',
+      '*/5 * * * *',
+      'Europe/Amsterdam',
+      Date.parse('0100-01-01T00:00:00.000Z'),
+    )
+    expect(new Date(record.scheduledAt).getUTCFullYear()).toBeGreaterThan(109)
+    expect(Math.abs(Date.parse(record.scheduledAt) % 60_000)).toBe(0)
+  }, 1_000)
 
   it('selects the latest current match after a persisted baseline', () => {
     const record = createCronScheduleRecord(

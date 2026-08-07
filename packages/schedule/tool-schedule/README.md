@@ -105,7 +105,7 @@ The reminder appends after existing history and preserves its reusable prefix. I
 ## Known Limitations and Deferred Work
 
 - **Session-local delivery only** — a reminder runs on time only while its original session is live; a cold session receives no external notification and processes an overdue record only after resume.
-- **Activity-driven retry** — a rejected due preflight or contained framing/enqueue failure leaves the overdue record active but starts no private retry timer; the owner retries after later Agent activity reaches idle or a successful Schedule management preflight asks it to recompute.
+- **Activity-driven retry** — a rejected due preflight, contained current-calendar resolution failure, or contained framing/enqueue failure leaves the overdue record active but starts no private retry timer; the owner retries after later Agent activity reaches idle or a successful Schedule management preflight asks it to recompute.
 - **Restricted calendar language** — cron accepts only the documented numeric five-field subset with one unrestricted day field and an explicit IANA zone; it does not expose names, macros, seconds, years, Quartz operators, or user-selectable DST policy.
 - **Immutable Session zone** — a new Schedule Web Session captures one default browser zone and has no zone editor. Older headerless Sessions remain `unavailable`, and a mismatched or ambiguous request must name `time_zone` explicitly.
 - **Narrow crash duplicate window** — a crash after synchronous followup admission but before the dispatch checkpoint can repeat the reminder after recovery; the package does not claim model completion, user acknowledgement, or exactly-once external effects.
