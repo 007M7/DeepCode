@@ -24,24 +24,14 @@ import {
 } from './DeepSeekModelsEditor.tsx'
 import { EditorFooter } from './EditorFooter.tsx'
 import { ModelListEditor } from './ModelListEditor.tsx'
+import { EFFORT_FIELD, ReasoningEffortField } from './ReasoningEffortField.tsx'
+import type { EffortFamily } from './ReasoningEffortField.tsx'
 import { deriveKeyRef, messageOf } from './store.ts'
 import type { en } from './locales.ts'
 import styles from './ModelsSection.module.css'
 
 /** Per-adapter-family curated field sets (unknown namespaces get the hint alone). */
-type EditorLayout = 'deepseek' | 'pi-ai' | 'unknown'
-
-/** Reasoning vocabularies per layout; the empty option means "inherit". */
-const EFFORT_CHOICES: Record<'deepseek' | 'pi-ai', readonly string[]> = {
-  deepseek: ['off', 'high', 'max'],
-  'pi-ai': ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
-}
-
-/** The draft key the effort select edits, per layout. */
-const EFFORT_FIELD: Record<'deepseek' | 'pi-ai', string> = {
-  deepseek: 'reasoningEffort',
-  'pi-ai': 'reasoning',
-}
+type EditorLayout = EffortFamily | 'unknown'
 
 /** The public DeepSeek endpoint shown as the deepseek base-URL placeholder. */
 const DEEPSEEK_PUBLIC_BASE_URL = 'https://api.deepseek.com'
@@ -279,7 +269,7 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
    * family as a parameter is what makes `EFFORT_FIELD` total here: an
    * unknown namespace never reaches this body.
    */
-  const curatedFields = (family: 'deepseek' | 'pi-ai'): ReactNode => {
+  const curatedFields = (family: EffortFamily): ReactNode => {
     const effortField = EFFORT_FIELD[family]
     const customModels = getPath(draft, ['models'])
     const modelsOverridden = hasPath(draft, ['models'])
@@ -333,23 +323,13 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
                 }}
               />
             </div>
-            <div className={styles['field']}>
-              <span className={styles['fieldLabel']}>{t('effort')}</span>
-              <select
-                className={`${styles['input']} ${styles['selectInput']}`}
-                value={stringAt(draft, effortField) ?? ''}
-                aria-label={t('effort')}
-                disabled={disabled}
-                onChange={(event) => {
-                  setField(effortField, event.target.value === '' ? undefined : event.target.value)
-                }}
-              >
-                <option value="">{t('effortInherit')}</option>
-                {EFFORT_CHOICES[family].map(choice => (
-                  <option key={choice} value={choice}>{choice}</option>
-                ))}
-              </select>
-            </div>
+            <ReasoningEffortField
+              family={family}
+              value={stringAt(draft, effortField) ?? ''}
+              onChange={(effort) => { setField(effortField, effort) }}
+              t={t}
+              disabled={disabled}
+            />
             {/* Both families edit the same rows through the same contract; only
                 the extras differ — DeepSeek's inherited capacities, pi-ai's
                 endpoint interrogation. */}

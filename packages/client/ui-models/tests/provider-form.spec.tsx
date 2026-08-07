@@ -652,6 +652,40 @@ describe('hand-declared providers', () => {
     expect(set).toHaveBeenCalledWith({ ref: 'ACME_GATEWAY_API_KEY', value: 'gw-key' })
   })
 
+  it('offers the same reasoning effort the editor does, and omits it when inherited', async () => {
+    const { mutate, onClose } = mountCard()
+    const declare = (): void => {
+      fireEvent.change(screen.getByLabelText(en.customRoute), { target: { value: 'acme' } })
+      fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: 'https://acme.test/v1' } })
+      fireEvent.click(screen.getByRole('button', { name: en.addModel }))
+      fireEvent.change(screen.getByLabelText(`${en.modelId} 1`), { target: { value: 'acme-large' } })
+    }
+    declare()
+
+    // The vocabulary is the namespace's, not DeepSeek's — a route declared
+    // here is edited by the pi-ai layout, which offers exactly these.
+    const select = screen.getByLabelText(en.effort) as HTMLSelectElement
+    expect([...select.options].map(option => option.value))
+      .toEqual(['', 'off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])
+
+    fireEvent.change(select, { target: { value: 'high' } })
+    fireEvent.click(screen.getByText(en.create))
+    await waitFor(() => { expect(onClose).toHaveBeenCalledWith(true) })
+    expect(firstMutate(mutate).ops[0]).toMatchObject({
+      path: ['providers', 'acme'],
+      value: { reasoning: 'high' },
+    })
+
+    // Inherit is the field being absent: an empty string would fail the schema
+    // that types this as an effort name.
+    cleanup()
+    const second = mountCard()
+    declare()
+    fireEvent.click(screen.getByText(en.create))
+    await waitFor(() => { expect(second.onClose).toHaveBeenCalledWith(true) })
+    expect(firstMutate(second.mutate).ops[0].value).not.toHaveProperty('reasoning')
+  })
+
   it('names the blocked gate under the form, and nothing once it is satisfied', () => {
     mountCard()
     fireEvent.change(screen.getByLabelText(en.customRoute), { target: { value: 'acme' } })

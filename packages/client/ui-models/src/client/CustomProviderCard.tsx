@@ -22,6 +22,7 @@ import { EditorFooter } from './EditorFooter.tsx'
 import { validateDeepSeekModels } from './DeepSeekModelsEditor.tsx'
 import { ModelListEditor } from './ModelListEditor.tsx'
 import type { ModelDraft } from './ModelListEditor.tsx'
+import { EFFORT_FIELD, ReasoningEffortField } from './ReasoningEffortField.tsx'
 import { deriveKeyRef, messageOf } from './store.ts'
 import type { en } from './locales.ts'
 import styles from './ModelsSection.module.css'
@@ -69,6 +70,7 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
   const [baseURL, setBaseURL] = useState('')
   const [protocol, setProtocol] = useState(protocols[0] ?? '')
   const [keyDraft, setKeyDraft] = useState('')
+  const [effort, setEffort] = useState<string | undefined>(undefined)
   const [models, setModels] = useState<readonly ModelDraft[]>([])
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string | undefined>(undefined)
@@ -101,6 +103,9 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
       apiKeyEnv: keyRef,
       api: protocol,
       baseURL,
+      // Inherit is the field being absent, not an empty string: the schema
+      // types it as an effort name, and an empty one would fail the write.
+      ...effort === undefined ? {} : { [EFFORT_FIELD['pi-ai']]: effort },
       models: models.map(model => ({ ...model })),
     }
     const response = await api.settings.mutate({
@@ -209,6 +214,15 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
           onChange={(event) => { setKeyDraft(event.target.value) }}
         />
       </div>
+      {/* The same control the editor card shows for this namespace: a route
+          declared here and edited there must offer the same profile. */}
+      <ReasoningEffortField
+        family="pi-ai"
+        value={effort ?? ''}
+        onChange={setEffort}
+        t={t}
+        disabled={disabled}
+      />
       <ModelListEditor
         models={models}
         onChange={setModels}
