@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-The **local-filesystem implementation** of the `ctx.fs` provider seam ([`@deepseek-ai/dsh-fs`](../fs)). Backs the twelve `FileSystem` primitives with the host filesystem; loading it as a plugin populates `ctx.fs`.
+The **local-filesystem implementation** of the `ctx.fs` provider seam ([`@deepseek-ai/dsh-fs`](../fs)). Backs the eleven `FileSystem` primitives with the host filesystem; loading it as a plugin populates `ctx.fs`.
 
 ```ts ignore-check
 import { LocalFileSystem } from '@deepseek-ai/dsh-fs-local'

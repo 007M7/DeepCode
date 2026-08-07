@@ -44,9 +44,9 @@ function config(): ResolvedConfig {
   }
 }
 
-function agent(ctx: Context): Agent {
+function agent(ctx: Context, cwd?: string): Agent {
   const id = SessionId('agent')
-  const session = Session.create(id, undefined, { version: 0, id, createdAt: 0 })
+  const session = Session.create(id, undefined, { version: 0, id, createdAt: 0, ...cwd === undefined ? {} : { cwd } })
   return {
     id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
     status: 'idle',
@@ -213,6 +213,42 @@ describe('LocalPtyBackend startup rollback', () => {
     })
     expect(spawned?.env?.PTY_TEST_SECRET).toBeUndefined()
     expect(initialized).toHaveBeenCalledWith(undefined)
+    expect((ctx.sandbox as RecordingSandbox).calls).toEqual([{
+      argv: ['/bin/bash', '-i'],
+      policy: { mode: 'workspace-write', workspaceRoot: '/workspace' },
+    }])
+  })
+
+  it('resolves session mode and root together before wrapping the shell', async () => {
+    const ctx = new Context()
+    await ctx.plugin(RecordingSandbox)
+    await ctx.plugin(SandboxPolicyService, { mode: 'read-only', workspaceRoot: '/deployment-fallback' })
+    const terminal = terminalHandle()
+    let spawned: SubprocessTerminalSpawnSpec | undefined
+    const spawnTerminal = async (spec: SubprocessTerminalSpawnSpec): Promise<SubprocessTerminalHandle> => {
+      spawned = spec
+      return terminal
+    }
+    const initialized = vi.fn<() => Promise<void>>().mockResolvedValue(undefined)
+    const session = { initialize: initialized } as unknown as LocalPtySession
+    const backend = new LocalPtyBackend(
+      ctx,
+      { ...config(), shellArgs: ['-i'] },
+      spawnTerminal,
+      () => session,
+    )
+    const owner = agent(ctx, '/session-workspace')
+    setSandboxMode(owner.session, 'workspace-write')
+    expect(await backend.spawn(spec(owner))).toBe(session)
+
+    expect(spawned).toMatchObject({
+      argv: ['/sandbox', '--', '/bin/bash', '-i'],
+      cwd: '/session-workspace',
+    })
+    expect((ctx.sandbox as RecordingSandbox).calls).toEqual([{
+      argv: ['/bin/bash', '-i'],
+      policy: { mode: 'workspace-write', workspaceRoot: '/session-workspace' },
+    }])
   })
 
   it('rejects a confined spawn without a sandbox provider', async () => {

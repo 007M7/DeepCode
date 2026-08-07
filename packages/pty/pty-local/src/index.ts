@@ -10,7 +10,7 @@ import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { PtyBackendCleanupError } from '@deepseek-ai/dsh-pty'
 import type { PtyBackend, PtyBackendSpawnSpec } from '@deepseek-ai/dsh-pty'
 import type { SubprocessTerminalHandle, SubprocessTerminalSpawnSpec } from '@deepseek-ai/dsh-subprocess'
-import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
+import type { SandboxExecutionPolicy } from '@deepseek-ai/dsh-sandbox'
 import { effectiveSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
 import { type Config, type ResolvedConfig, validateConfig } from './config.ts'
 import { LocalPtySession } from './session.ts'
@@ -68,18 +68,15 @@ function childEnvironment(spec: PtyBackendSpawnSpec): Record<string, string> {
   }
 }
 
-function spawnArgv(ctx: Context, config: ResolvedConfig, spec: PtyBackendSpawnSpec): string[] {
+function spawnArgv(ctx: Context, config: ResolvedConfig, policy: SandboxExecutionPolicy): string[] {
   const argv = [config.shellPath, ...config.shellArgs]
-  const mode: SandboxMode = effectiveSandboxMode(spec.owner.session.events) ?? ctx.sandboxPolicy.defaultMode
-  if (mode === 'danger-full-access') return argv
+  if (policy.mode === 'danger-full-access') return argv
   const sandbox = ctx.get('sandbox')
   if (sandbox === undefined) {
-    throw new Error(`pty-local: sandbox mode "${mode}" requires a ctx.sandbox provider in the execution world`)
+    throw new Error(`pty-local: sandbox mode "${policy.mode}" requires a ctx.sandbox provider in the execution world`)
   }
-  return sandbox.confine(argv, {
-    mode: mode,
-    workspaceRoot: ctx.sandboxPolicy.workspaceRoot,
-  }).argv
+  // Re-state the discriminant because object spread does not preserve its narrowed type.
+  return sandbox.confine(argv, { ...policy, mode: policy.mode }).argv
 }
 
 // TODO(pty-initialize-race-home): Fold this outer abort race into
@@ -122,11 +119,12 @@ export class LocalPtyBackend implements PtyBackend {
   async spawn(spec: PtyBackendSpawnSpec): Promise<LocalPtySession> {
     spec.signal?.throwIfAborted()
     ensureSandboxModeFence(this.ctx, spec.owner)
-    const argv = spawnArgv(this.ctx, this.config, spec)
+    const policy = this.ctx.sandboxPolicy.resolve({ session: spec.owner.session })
+    const argv = spawnArgv(this.ctx, this.config, policy)
     if (argv[0] === undefined) throw new Error('pty-local: sandbox returned empty argv')
     const terminal = await this.spawnTerminal({
       argv,
-      cwd: spec.cwd ?? this.ctx.sandboxPolicy.workspaceRoot,
+      cwd: spec.cwd ?? policy.workspaceRoot,
       env: childEnvironment(spec),
       rows: this.config.rows,
       cols: this.config.cols,
