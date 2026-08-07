@@ -471,7 +471,7 @@ export function registerScheduleTools(
             && isRecurringGateExhausted(folded.lastRecurringAcceptedAt)) {
             return {
               code: 'time_out_of_range',
-              message: 'The scheduled time must be representable as a four-digit-year RFC 3339 UTC instant.',
+              message: 'No compliant recurring delivery time remains representable within the four-digit-year range.',
             }
           }
           const id = allocateScheduleId(folded)

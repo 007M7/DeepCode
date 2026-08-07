@@ -28,11 +28,9 @@ import {
   ScheduleId,
   createAfterScheduleRecord,
   foldScheduleEvents,
+  scheduleReminderPresentation,
 } from '@deepseek-ai/dsh-tool-schedule'
-import {
-  createEveryScheduleRecord,
-  resolveEveryOccurrence,
-} from '../../../packages/schedule/tool-schedule/src/domain.ts'
+import type { EveryScheduleRecord } from '@deepseek-ai/dsh-tool-schedule'
 
 const MODE = webSnapshotMode()
 const OVERLAY = fileURLToPath(new URL('../../../examples/web-schedule/cordis.yml', import.meta.url))
@@ -394,22 +392,23 @@ describe.skipIf(MODE === 'record')('web e2e: fixed-rate restart and batch receip
         title: 'Every restart session', messageSeqs: [], source: { kind: 'user' },
       })
       const seededAt = Date.now()
-      const records = [
-        createEveryScheduleRecord(
-          ScheduleId('schedule-every-primary'),
-          EVERY_PROMPTS[0],
-          300,
-          seededAt - 1_200_000,
-        ),
-        createEveryScheduleRecord(
-          ScheduleId('schedule-every-secondary'),
-          EVERY_PROMPTS[1],
-          300,
-          seededAt - 1_140_000,
-        ),
+      const records: readonly [EveryScheduleRecord, EveryScheduleRecord] = [
+        {
+          id: ScheduleId('schedule-every-primary'),
+          kind: 'every',
+          prompt: EVERY_PROMPTS[0],
+          everySeconds: 300,
+          scheduledAt: new Date(seededAt - 900_000).toISOString(),
+        },
+        {
+          id: ScheduleId('schedule-every-secondary'),
+          kind: 'every',
+          prompt: EVERY_PROMPTS[1],
+          everySeconds: 300,
+          scheduledAt: new Date(seededAt - 840_000).toISOString(),
+        },
       ]
       const [primary, secondary] = records
-      if (primary === undefined || secondary === undefined) throw new Error('missing every fixtures')
       const recordIds = new Set(records.map(record => record.id))
       for (const record of records) {
         seeded.append('schedule/change', { version: 1, operation: 'create', schedule: record })
@@ -470,7 +469,16 @@ describe.skipIf(MODE === 'record')('web e2e: fixed-rate restart and batch receip
       let batchSnapshot = batchBlock.text
       const occurrencePlaceholders = ['{{primaryOccurrenceAt}}', '{{secondaryOccurrenceAt}}'] as const
       for (const [index, record] of records.entries()) {
-        const occurrenceAt = resolveEveryOccurrence(record, Date.parse(acceptedAt)).occurrenceAt
+        const dispatch = dispatches.find(event => event.type === 'schedule/change'
+          && event.data.operation === 'dispatch'
+          && event.data.id === record.id)
+        if (dispatch?.type !== 'schedule/change') throw new Error(`missing dispatch for ${record.id}`)
+        const occurrenceAt = scheduleReminderPresentation(
+          agent.session.events,
+          dispatch.seq,
+          agent.session.header.seedLength ?? 0,
+        )?.occurrenceAt
+        if (occurrenceAt === undefined) throw new Error(`missing receipt occurrence for ${record.id}`)
         batchSnapshot = batchSnapshot.split(occurrenceAt).join(occurrencePlaceholders[index])
       }
       await compareOrRefreshGolden(EVERY_BATCH_EXPECTED, batchSnapshot, MODE)

@@ -327,7 +327,7 @@ describe('Schedule tool protocol', () => {
       prompt: 'rolled back', every_seconds: 300,
     }))).toEqual({
       code: 'time_out_of_range',
-      message: 'The scheduled time must be representable as a four-digit-year RFC 3339 UTC instant.',
+      message: 'No compliant recurring delivery time remains representable within the four-digit-year range.',
     })
     expect(test.agent.session.events.filter(event => event.type === 'schedule/change')).toHaveLength(2)
     expect(value(await execute(test, 'schedule_list', {}))).toEqual([])
