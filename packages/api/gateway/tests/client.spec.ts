@@ -432,7 +432,7 @@ describe('Client TypeRT API', () => {
     expect((ctx.remote as unknown as Record<string, unknown>).goals).toBeUndefined()
   })
 
-  it('rejects a method obtained from a withdrawn namespace getter', async () => {
+  it('fails a method obtained from a withdrawn namespace getter', async () => {
     const ctx = await bench(vi.fn<ConnectionHandle['rpc']['call']>())
     const dispose = await ctx.remote.$mount({ package: '@fixture/goals', descriptors: [directDescriptor()] })
     const namespace = ctx.get('remote.goals') as unknown as object
@@ -442,8 +442,8 @@ describe('Client TypeRT API', () => {
 
     expect(getter).toBeTypeOf('function')
     const withdrawn = getter?.call(namespace) as (...args: unknown[]) => Promise<unknown>
-    await expect(withdrawn('agent-1', { objective: 'ship' }))
-      .rejects.toThrow('Remote method is no longer mounted')
+    expect(() => withdrawn('agent-1', { objective: 'ship' }))
+      .toThrow('Remote method is no longer mounted')
   })
 
   it('preserves a __proto__ wire parameter as an own named argument', async () => {
