@@ -686,7 +686,9 @@ class FaceAnalyzer {
     const records: ExportRecord[] = []
     for (const [subpath, target] of targets) {
       if (target.includes('*') || subpath === './package.json'
-        || subpath === './typert' || subpath === './client/typert' || target.endsWith('.json')) continue
+        || subpath === './typert' || subpath === './client/typert'
+        // Data exports (bundle patch lists, JSON manifests) carry no TypeScript API.
+        || target.endsWith('.json') || target.endsWith('.yml') || target.endsWith('.yaml')) continue
       const sourcePath = sourcePathForExport(registration.root, target)
       const sourceFile = this.sourceFiles.get(realPath(sourcePath))
       if (sourceFile === undefined) {
