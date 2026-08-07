@@ -51,6 +51,10 @@ export interface RpcErrorDetailsMap {
   'command-error': {}
   /** A leading-/ prompt named no registered command; the message names the token. */
   'unknown-command': {}
+  /** A skill invocation named no skill in the session's workspace (unknown or ill-formed name). */
+  'skill-not-found': { name: string }
+  /** A skill invocation named a skill whose policy forbids user invocation. */
+  'skill-not-invocable': { name: string }
   /**
    * A settings write was refused (schema validation, unknown namespace,
    * read-only provider, or storage failure); the message is the seam's text.

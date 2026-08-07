@@ -228,7 +228,10 @@ describe('skill.list', () => {
     // touch (or resume through) the Agent registry.
     const session = ctx.sessions.create(undefined, { meta: { cwd: '/proj' } })
     const value = expectOk(await api.skills.list(request({ sessionId: session.id })))
-    expect(value.skills).toEqual([{ name: 'commit-helper', description: 'Git commits', whenToUse: 'when committing' }])
+    expect(value.skills).toEqual([
+      { name: 'commit-helper', description: 'Git commits', whenToUse: 'when committing', modelInvocable: true },
+      { name: 'user-only', description: 'User-only', modelInvocable: false },
+    ])
     expect(seenCwds).toEqual(['/proj'])
     expect(ctx.agents.get(session.id)).toBeUndefined()
   })
@@ -263,6 +266,117 @@ describe('skill.list', () => {
     // this surfaces as an empty ok catalog rather than an error.
     const value = expectOk(response)
     expect(value.skills).toEqual([])
+  })
+})
+
+describe('skill.invoke', () => {
+  /** Provider with one user-only and one model-only skill, both loadable. */
+  function registerInvokeSkills(ctx: Context): void {
+    const summaries = [
+      {
+        name: 'user-only', description: 'User-only',
+        invocation: { modelInvocable: false, userInvocable: true },
+        source: 'custom', provider: 'probe', rank: 0, locator: null,
+        resourceBase: { kind: 'directory', path: '/proj/.agents/skills/user-only' },
+      },
+      {
+        name: 'model-only', description: 'Model-only',
+        invocation: { modelInvocable: true, userInvocable: false },
+        source: 'custom', provider: 'probe', rank: 0, locator: null,
+      },
+    ] as const
+    ctx.skills.registerProvider(() => ({
+      name: 'probe',
+      list: () => Promise.resolve(summaries.map(summary => ({ ...summary }))),
+      get: candidate => Promise.resolve({
+        ...summaries.find(summary => summary.name === candidate.name)!,
+        content: 'Follow the probe instructions.',
+      }),
+    }))
+  }
+
+  /** Agent stub whose session carries a project cwd and whose followup records the injected message. */
+  function invokableAgent(ctx: Context): { agent: Agent; followup: ReturnType<typeof vi.fn> } {
+    const session = ctx.sessions.create(undefined, { meta: { cwd: '/proj' } })
+    const inbox = new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} })
+    const followup = vi.fn()
+    const agent = { id: session.id, session, inbox, status: 'idle', ctx, followup } as unknown as Agent
+    ctx.agents.register(agent)
+    return { agent, followup }
+  }
+
+  it('injects a user-invocable skill as a user message with the invocation source', async () => {
+    const ctx = await harness()
+    registerInvokeSkills(ctx)
+    const api = createApiProxy(ctx, DEFAULTS)
+    const { agent, followup } = invokableAgent(ctx)
+    const value = expectOk(await api.skills.invoke(request({
+      sessionId: agent.id, name: 'user-only', text: 'and check the fixture',
+    })))
+    expect(value).toEqual({ accepted: true })
+    expect(followup).toHaveBeenCalledTimes(1)
+    const message = followup.mock.calls[0]?.[0] as UserMessage
+    expect(message.source).toEqual({ kind: 'skill-invocation', name: 'user-only', args: 'and check the fixture' })
+    expect(message.content).toHaveLength(1)
+    const text = (message.content[0] as { text: string }).text
+    expect(text).toContain('<skill_content name="user-only">')
+    expect(text).toContain('Base directory for this skill: /proj/.agents/skills/user-only')
+    expect(text).toContain('Follow the probe instructions.')
+    expect(text.endsWith('\n\nand check the fixture')).toBe(true)
+  })
+
+  it('omits args from the source and content when no text rides the invocation', async () => {
+    const ctx = await harness()
+    registerInvokeSkills(ctx)
+    const api = createApiProxy(ctx, DEFAULTS)
+    const { agent, followup } = invokableAgent(ctx)
+    expectOk(await api.skills.invoke(request({ sessionId: agent.id, name: 'user-only' })))
+    const message = followup.mock.calls[0]?.[0] as UserMessage
+    expect(message.source).toEqual({ kind: 'skill-invocation', name: 'user-only' })
+    const text = (message.content[0] as { text: string }).text
+    expect(text.endsWith('</skill_content>')).toBe(true)
+  })
+
+  it('rejects a skill the user may not invoke', async () => {
+    const ctx = await harness()
+    registerInvokeSkills(ctx)
+    const api = createApiProxy(ctx, DEFAULTS)
+    const { agent, followup } = invokableAgent(ctx)
+    const error = expectErr(await api.skills.invoke(request({ sessionId: agent.id, name: 'model-only' })))
+    expect(error.code).toBe('skill-not-invocable')
+    expect(followup).not.toHaveBeenCalled()
+  })
+
+  it('rejects an unknown or invalid skill name', async () => {
+    const ctx = await harness()
+    registerInvokeSkills(ctx)
+    const api = createApiProxy(ctx, DEFAULTS)
+    const { agent } = invokableAgent(ctx)
+    const missing = expectErr(await api.skills.invoke(request({ sessionId: agent.id, name: 'absent-skill' })))
+    expect(missing.code).toBe('skill-not-found')
+    const invalid = expectErr(await api.skills.invoke(request({ sessionId: agent.id, name: 'Not A Name' })))
+    expect(invalid.code).toBe('skill-not-found')
+  })
+
+  it('surfaces a followup refusal as agent-busy', async () => {
+    const ctx = await harness()
+    registerInvokeSkills(ctx)
+    const api = createApiProxy(ctx, DEFAULTS)
+    const { agent, followup } = invokableAgent(ctx)
+    followup.mockImplementation(() => { throw new Error('inbox closed') })
+    const error = expectErr(await api.skills.invoke(request({ sessionId: agent.id, name: 'user-only' })))
+    expect(error.code).toBe('agent-busy')
+  })
+
+  it('fails loud with internal when the skill registry is not mounted', async () => {
+    const ctx = await harness({ skills: false })
+    const api = createApiProxy(ctx, DEFAULTS)
+    const session = ctx.sessions.create(undefined, { meta: { cwd: '/proj' } })
+    const inbox = new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} })
+    ctx.agents.register({ id: session.id, session, inbox, status: 'idle', ctx, followup: vi.fn() } as unknown as Agent)
+    const error = expectErr(await api.skills.invoke(request({ sessionId: session.id, name: 'user-only' })))
+    expect(error.code).toBe('internal')
+    expect(error.message).toContain('skill registry is absent')
   })
 })
 

@@ -14,6 +14,7 @@ export const skillEntrySchema = z.object({
   name: z.string().min(1),
   description: z.string(),
   whenToUse: z.string().optional(),
+  modelInvocable: z.boolean(),
 }) satisfies z.ZodType<Wire<SkillEntry>>
 
 /** skill.list request payload. */
@@ -25,3 +26,15 @@ export const skillListRequestSchema = z.object({
 export const skillListValueSchema = z.object({
   skills: z.array(skillEntrySchema),
 }) satisfies z.ZodType<Wire<ResponseValue<'skill.list'>>>
+
+/** skill.invoke request payload. */
+export const skillInvokeRequestSchema = z.object({
+  sessionId: sessionIdSchema,
+  name: z.string().min(1),
+  text: z.string().optional(),
+}) satisfies z.ZodType<Wire<RequestPayload<'skill.invoke'>>>
+
+/** skill.invoke response value. */
+export const skillInvokeValueSchema = z.object({
+  accepted: z.literal(true),
+}) satisfies z.ZodType<Wire<ResponseValue<'skill.invoke'>>>

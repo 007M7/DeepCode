@@ -10,16 +10,28 @@ import type { RpcRequest, RpcResponse } from './rpc.ts'
 
 /** Skill catalog row (wire projection of the host SkillSummary; provider/source vocabulary stays host-side). */
 export interface SkillEntry {
-  /** Kebab-case identifier referenced as `<skill>name</skill>` in prompts. */
+  /** Kebab-case identifier the user references as `/name` in the composer. */
   readonly name: string
   /** Short routing description. */
   readonly description: string
   /** Optional extra routing guidance. */
   readonly whenToUse?: string
+  /** False marks a user-only skill (`disable-model-invocation`): invocable here, absent from the model catalog. */
+  readonly modelInvocable: boolean
 }
 
-/** Skill-domain unary methods (the map key skill.* of RpcMethodMap). */
+/** Skill-domain unary methods (the map keys skill.* of RpcMethodMap). */
 export interface SkillsApi {
-  /** Lists skills usable by the browser's user-selected model-reference path. */
+  /** Lists the user-invocable skill catalog for the session's project. */
   list(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<{ skills: readonly SkillEntry[] }>>
+
+  /**
+   * Injects one user-invocable skill into the addressed agent as a user-role
+   * message (the canonical `<skill_content>` rendering, with `text` appended
+   * when present) and starts a turn. The host enforces user-invocation policy
+   * here: a model-only or unknown name is refused regardless of what a client
+   * menu offered. Session-backed subagents reject with `agent-busy`.
+   */
+  invoke(request: RpcRequest<{ sessionId: SessionId; name: string; text?: string }>):
+  Promise<RpcResponse<{ accepted: true }>>
 }

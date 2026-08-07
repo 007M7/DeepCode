@@ -18,6 +18,8 @@ import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import { SessionQueryError, type SessionSearchCursor } from '@deepseek-ai/dsh-session-query'
 import { SubagentError } from '@deepseek-ai/dsh-subagent'
 import type { SubagentListEntry as CatalogSubagentListEntry } from '@deepseek-ai/dsh-subagent'
+import { isSkillName, isUserInvocable, renderSkillContent } from '@deepseek-ai/dsh-skill'
+import type { SkillInvocationSource } from '@deepseek-ai/dsh-skill'
 import type { Workspace, WorkspaceRecord } from '@deepseek-ai/dsh-workspace'
 import {
   workspaceDomainState, workspaceRecord, WorkspaceId as brandWorkspaceId,
@@ -2359,18 +2361,70 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           return err(request, { code: 'internal', message: 'skill registry is absent: this deployment does not mount @deepseek-ai/dsh-skill in its composition (cordis.yml or explicit assembly)', details: {} })
         }
         try {
-          const skills = (await skillRegistry.list({ cwd }))
-            .filter(skill => skill.invocation.modelInvocable && skill.invocation.userInvocable)
+          const skills = (await skillRegistry.list({ cwd })).filter(isUserInvocable)
           return ok(request, {
             skills: skills.map(skill => ({
               name: skill.name,
               description: skill.description,
               ...skill.whenToUse === undefined ? {} : { whenToUse: skill.whenToUse },
+              modelInvocable: skill.invocation.modelInvocable,
             })),
           })
         } catch (error: unknown) {
           return err(request, { code: 'internal', message: `skill listing failed: ${String(error)}`, details: {} })
         }
+      },
+
+      async invoke(request) {
+        const { sessionId, name, text } = request.payload
+        const found = await agentFor(sessionId)
+        if ('error' in found) return err(request, found.error)
+        const agent = found.agent
+        // Same turn-start refusal boundary as sessions.prompt: injection
+        // starts a turn, so a route no adapter serves is refused while the
+        // composer still shows the draft.
+        const target = targetFor(agent).current
+        if (!routeServed(target.provider)) {
+          return err(request, {
+            code: 'model-unavailable',
+            message: `no adapter serves provider "${target.provider}"; select a model for this session`,
+            details: { provider: target.provider, model: target.model },
+          })
+        }
+        const skillRegistry = ctx.get('skills')
+        if (skillRegistry === undefined) {
+          return err(request, { code: 'internal', message: 'skill registry is absent: this deployment does not mount @deepseek-ai/dsh-skill in its composition (cordis.yml or explicit assembly)', details: {} })
+        }
+        const lookup = { cwd: agent.session.header.cwd }
+        // isSkillName guards the registry contract; an ill-formed name is
+        // indistinguishable from an absent one for the caller.
+        const summary = isSkillName(name)
+          ? (await skillRegistry.list(lookup)).find(skill => skill.name === name)
+          : undefined
+        if (summary === undefined) {
+          return err(request, { code: 'skill-not-found', message: `skill "${name}" is unknown in this workspace`, details: { name } })
+        }
+        // The operation boundary owns user-invocation policy: client menus
+        // filtering their candidates is an affordance, not enforcement.
+        if (!isUserInvocable(summary)) {
+          return err(request, { code: 'skill-not-invocable', message: `skill "${name}" is not available for user invocation`, details: { name } })
+        }
+        const skill = await skillRegistry.get(name, lookup)
+        if (skill === undefined) {
+          return err(request, { code: 'skill-not-found', message: `skill "${name}" is unknown in this workspace`, details: { name } })
+        }
+        const body = renderSkillContent(skill)
+        const source: SkillInvocationSource = { kind: 'skill-invocation', name, ...text === undefined ? {} : { args: text } }
+        try {
+          const message: UserMessage = createUserMessage({
+            content: [{ type: 'text', text: text === undefined ? body : `${body}\n\n${text}` }],
+            source,
+          })
+          agent.followup(message)
+        } catch (error: unknown) {
+          return err(request, { code: 'agent-busy', message: 'skill invocation rejected', details: { reason: String(error) } })
+        }
+        return ok(request, { accepted: true as const })
       },
     },
 

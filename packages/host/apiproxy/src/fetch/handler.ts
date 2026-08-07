@@ -41,7 +41,7 @@ import {
   workspaceRenameRequestSchema,
 } from '../api/workspace.schema.ts'
 import { commandExecuteRequestSchema, commandListRequestSchema } from '../api/commands.schema.ts'
-import { skillListRequestSchema } from '../api/skills.schema.ts'
+import { skillInvokeRequestSchema, skillListRequestSchema } from '../api/skills.schema.ts'
 import {
   goalCreateRequestSchema,
   goalEditRequestSchema,
@@ -109,6 +109,7 @@ const UNARY_ROUTES: UnaryRoutes = {
   'command.list': { schema: commandListRequestSchema, invoke: (api, r) => api.commands.list(r) },
   'command.execute': { schema: commandExecuteRequestSchema, invoke: (api, r, signal) => api.commands.execute(r, signal) },
   'skill.list': { schema: skillListRequestSchema, invoke: (api, r) => api.skills.list(r) },
+  'skill.invoke': { schema: skillInvokeRequestSchema, invoke: (api, r) => api.skills.invoke(r) },
   'goal.create': { schema: goalCreateRequestSchema, invoke: (api, r) => api.goals.create(r) },
   'goal.edit': { schema: goalEditRequestSchema, invoke: (api, r) => api.goals.edit(r) },
   'goal.pause': { schema: goalPauseRequestSchema, invoke: (api, r) => api.goals.pause(r) },
