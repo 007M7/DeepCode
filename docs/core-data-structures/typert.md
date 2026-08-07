@@ -126,10 +126,10 @@ interface TypeRTService {
 }
 ```
 
-Generated consumer declarations merge direct namespaces into the map inherited by `TypeRTClientApi`.
+Generated consumer declarations merge direct namespaces into the map inherited by `TypeRTClientRemote`.
 
 ```ts type-equiv
-/** Merge-extensible direct namespace surface generated for Client API services. */
+/** Merge-extensible direct namespace surface generated for Client Remote services. */
 interface TypeRTRemoteNamespaceMap {}
 ```
 
@@ -186,18 +186,18 @@ interface TypertGateway {
 }
 ```
 
-## Consumer API
+## Consumer Remote
 
-`ctx.api` exposes only namespaces contributed by imported `/remote` artifacts. Mounting installs the generated descriptors and concrete root/scoped methods as one fiber-owned operation; no JavaScript Proxy or Host Service type enters the consumer.
+`ctx.remote` exposes only namespaces contributed by imported `/remote` artifacts. `$mount()` installs generated descriptors and concrete methods as one fiber-owned operation. Each namespace is a traced `remote.<namespace>` Cordis child Service whose lifetime spans its mounted methods; no JavaScript Proxy or Host business Service type enters the consumer.
 
 ```ts type-equiv
-/** Client API capability implemented by the Gateway and consumed by Remote assemblies. */
-interface TypeRTClientApi extends TypeRTRemoteNamespaceMap {
+/** Client Remote capability implemented by the Gateway and consumed by Remote assemblies. */
+interface TypeRTClientRemote extends TypeRTRemoteNamespaceMap {
   /**
    * Mount one generated Host-for-Client contribution in the caller's fiber.
    * @param contribution - explicitly selected Remote package artifact.
-   * @returns disposer withdrawing descriptors and concrete methods together.
+   * @returns disposer after namespace services and concrete methods are ready.
    */
-  mount(contribution: TypeRTRemoteContribution): TypeRTDisposer
+  $mount(contribution: TypeRTRemoteContribution): Promise<TypeRTDisposer>
 }
 ```

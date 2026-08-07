@@ -77,7 +77,7 @@ export type TypeRTRemoteContextApi<ContextKey extends string> = {
   TypeRTRemoteContextNamespace<Namespace, ContextKey>
 }
 
-/** Merge-extensible direct namespace surface generated for Client API services. */
+/** Merge-extensible direct namespace surface generated for Client Remote services. */
 export interface TypeRTRemoteNamespaceMap {}
 
 /** Awaitable disposer returned by Cordis-owned TypeRT registrations. */
@@ -176,14 +176,14 @@ export interface TypeRTRemoteContribution {
   readonly descriptors: readonly InvocationDescriptor[]
 }
 
-/** Client API capability implemented by the Gateway and consumed by Remote assemblies. */
-export interface TypeRTClientApi extends TypeRTRemoteNamespaceMap {
+/** Client Remote capability implemented by the Gateway and consumed by Remote assemblies. */
+export interface TypeRTClientRemote extends TypeRTRemoteNamespaceMap {
   /**
    * Mount one generated Host-for-Client contribution in the caller's fiber.
    * @param contribution - explicitly selected Remote package artifact.
-   * @returns disposer withdrawing descriptors and concrete methods together.
+   * @returns disposer after namespace services and concrete methods are ready.
    */
-  mount(contribution: TypeRTRemoteContribution): TypeRTDisposer
+  $mount(contribution: TypeRTRemoteContribution): Promise<TypeRTDisposer>
 }
 
 /**

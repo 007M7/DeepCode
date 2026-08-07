@@ -143,18 +143,18 @@ describe.skipIf(!requiredArtifacts)('Goal Remote built LIB chain', () => {
 
       let invalidRejected = false
       try {
-        await client.api.goals.create(rootAgent.id, { objective: 1 })
+        await client.remote.goals.create(rootAgent.id, { objective: 1 })
       } catch {
         invalidRejected = true
       }
-      const rootResult = await client.api.goals.create(rootAgent.id, { objective: 'root goal' })
-      const rootEdit = await client.api.goals.edit(
+      const rootResult = await client.remote.goals.create(rootAgent.id, { objective: 'root goal' })
+      const rootEdit = await client.remote.goals.edit(
         rootAgent.id,
         rootResult.ref,
         { objective: 'edited root goal' },
       )
       const agentContext = client.extend({ builtAgentId: scopedAgent.id })
-      const scopedResult = await agentContext.goals.create({ objective: 'scoped goal', maxGoalRounds: 3 })
+      const scopedResult = await agentContext.remote.goals.create({ objective: 'scoped goal', maxGoalRounds: 3 })
       const result = {
         invalidRejected,
         rootResult,

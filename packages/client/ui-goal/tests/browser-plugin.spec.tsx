@@ -10,7 +10,7 @@
  * plugin fiber (HMR safety). The node half and the invariant companion are
  * exercised over the same Context.
  */
-import { Context } from 'cordis'
+import { Context, Service } from 'cordis'
 import { describe, expect, it, vi } from 'vitest'
 import { cleanup, render } from '@testing-library/react'
 import { afterEach } from 'vitest'
@@ -71,8 +71,17 @@ async function bench(options: {
     clear: answer(`${prefix}/clear`, ref),
   })
   let activeGoals: ReturnType<typeof goals> | undefined = goals('goals')
-  ctx.provide('api', {
-    get goals() { return activeGoals },
+  class RemoteService extends Service {
+    constructor(serviceCtx: Context) {
+      super(serviceCtx, 'remote')
+    }
+  }
+  new RemoteService(ctx)
+  ctx.provide('remote.goals', {
+    get edit() { return activeGoals?.edit },
+    get pause() { return activeGoals?.pause },
+    get resume() { return activeGoals?.resume },
+    get clear() { return activeGoals?.clear },
   })
   await ctx.plugin(SlotsService).await()
   ctx.slots.register({

@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Two-sided TypeRT RPC endpoint for Host and Client Cordis environments. The Host entry provides `ctx.typertGateway`, while `@deepseek-ai/dsh-api-gateway/client` provides `ctx.api`; both consume the same generated `InvocationDescriptor` contract and leave business selection to API Remotes and transport, request correlation, trust, and response envelopes to Connection.
+Two-sided TypeRT RPC endpoint for Host and Client Cordis environments. The Host entry provides `ctx.typertGateway`, while `@deepseek-ai/dsh-api-gateway/client` provides `ctx.remote`; both consume the same generated `InvocationDescriptor` contract and leave business selection to API Remotes and transport, request correlation, trust, and response envelopes to Connection.
 
 ## Host service: `TypertGatewayService` (ctx key: `typertGateway`)
 
@@ -14,13 +14,13 @@ The Host entry registers a trusted-host interceptor on Connection's shared `/api
 
 A cancellation-aware Remote method declares `signal: AbortSignal` as its final Host parameter. The signal is descriptor metadata rather than a wire argument: Connection supplies it to the Gateway, and the Gateway injects it after decoded business parameters. SRC recognizes the reserved final name, while strict generation additionally requires the global `AbortSignal` type.
 
-## Client service: `ClientApi` (ctx key: `api`)
+## Client service: `ClientRemote` (ctx key: `remote`)
 
-`ctx.api.mount()` validates and registers a generated Host-for-Client contribution, then installs concrete direct and scoped methods for the calling Cordis fiber. Duplicate endpoints, namespace collisions, and descriptors without strict generated codecs fail before methods become callable.
+`ctx.remote.$mount()` validates and registers a generated Host-for-Client contribution, then installs concrete direct and scoped methods for the calling Cordis fiber. Each namespace is a traced `remote.<namespace>` child Service and unloads after its last method is withdrawn. Duplicate endpoints, namespace collisions, and descriptors without strict generated codecs fail before methods become callable.
 
 Each call validates positional inputs, constructs the descriptor's exact named `args`, and sends it through `ctx.connection.rpc.call('/api', endpoint, ...)`. Generated cancellation-aware methods accept a final optional `AbortSignal`; the Client combines it with the contribution mount lifetime before calling Connection. The returned value is validated before reaching application code. Withdrawing a contribution removes its descriptors and methods together, aborts in-flight calls, and makes retained method handles reject.
 
-Generated declaration merges provide the TypeScript API through the shared `TypeRTClientApi` contract. The Client entry contains no Host Service or Host Cordis interface merge, and method lookup and invocation use ordinary objects and functions rather than a JavaScript Proxy.
+Generated declaration merges provide the TypeScript API through the shared `TypeRTClientRemote` contract. The Client entry contains no Host Service or Host Cordis interface merge, and method lookup and invocation use ordinary objects and functions rather than a JavaScript Proxy.
 
 ## Model Experience
 

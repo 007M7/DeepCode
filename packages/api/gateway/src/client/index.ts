@@ -1,35 +1,23 @@
 /**
  * Client projection of generated TypeRT Remote descriptors. Contributions
- * install concrete namespace methods; no JavaScript Proxy participates in
- * lookup, invocation, or type exposure.
+ * install traced `remote.<namespace>` services; no JavaScript Proxy
+ * participates in method lookup, invocation, or type exposure.
  */
 
-import { Service, symbols } from 'cordis'
+import { Service } from 'cordis'
 import type { Context } from 'cordis'
 import type { ConnectionHandle, RpcError } from '@deepseek-ai/dsh-client-connection/client'
 import type {
   InvocationDescriptor,
-  TypeRTClientApi,
+  TypeRTClientRemote,
   TypeRTCodec,
   TypeRTDisposer,
   TypeRTRemoteContribution,
 } from '@deepseek-ai/dsh-type-meta'
 
-type RemoteMethod = (...args: unknown[]) => Promise<unknown>
-
 interface MountToken {
   active: boolean
   readonly abort: AbortController
-}
-
-interface DirectNamespaceRecord {
-  readonly value: Record<string, RemoteMethod>
-  readonly tokens: Map<string, MountToken>
-}
-
-interface ScopedNamespaceRecord {
-  readonly service: ScopedRemoteNamespace
-  readonly tokens: Map<string, MountToken>
 }
 
 interface ScopedProjection {
@@ -39,13 +27,36 @@ interface ScopedProjection {
   readonly parameterIndex?: number
 }
 
-/** Typed API service augmented by generated direct Remote namespaces. */
-export type ClientApi = TypeRTClientApi
+interface DirectMethod {
+  readonly descriptor: InvocationDescriptor
+  readonly token: MountToken
+}
+
+interface ScopedMethod extends DirectMethod {
+  readonly projection: ScopedProjection
+}
+
+interface RemoteMethodRecord {
+  direct?: DirectMethod
+  scoped?: ScopedMethod
+}
+
+interface BoundContextIdentity {
+  readonly value: unknown
+}
+
+interface RemoteNamespaceHandle {
+  readonly service: RemoteNamespaceService
+  readonly dispose: TypeRTDisposer
+}
+
+/** Typed Remote service augmented by generated direct namespaces. */
+export type ClientRemote = TypeRTClientRemote
 
 declare module 'cordis' {
   interface Context {
-    /** Generated direct Remote namespaces selected by the Client assembly. */
-    api: ClientApi
+    /** Generated Remote namespaces selected by the Client assembly. */
+    remote: ClientRemote
   }
 }
 
@@ -53,48 +64,56 @@ declare module 'cordis' {
 export const inject = ['typert', 'connection']
 
 /**
- * Install the typed Client API service.
+ * Install the typed Client Remote service.
  * @param ctx - Client Cordis root.
  */
 export function apply(ctx: Context): void {
-  new ClientApiService(ctx)
+  new ClientRemoteService(ctx)
 }
 
-class ClientApiService extends Service implements TypeRTClientApi {
+class ClientRemoteService extends Service implements TypeRTClientRemote {
   private readonly ownerCtx: Context
-  private readonly direct = new Map<string, DirectNamespaceRecord>()
-  private readonly scoped = new Map<string, ScopedNamespaceRecord>()
+  private readonly namespaces = new Map<string, RemoteNamespaceHandle>()
+  private mutations = Promise.resolve()
 
   constructor(ctx: Context) {
-    super(ctx, 'api')
+    super(ctx, 'remote')
     this.ownerCtx = ctx
   }
 
-  mount(contribution: TypeRTRemoteContribution): ReturnType<TypeRTClientApi['mount']> {
-    this.validateContribution(contribution)
+  async $mount(contribution: TypeRTRemoteContribution): ReturnType<TypeRTClientRemote['$mount']> {
     const callerCtx = this.ctx
+    const owned = callerCtx.effect(async () => {
+      const dispose = await this.enqueue(() => this.mountContribution(callerCtx, contribution))
+      return () => this.enqueue(dispose)
+    }, `api-gateway.client.$mount(${JSON.stringify(contribution.package)})`)
+    await owned
+    return async () => { await owned() }
+  }
+
+  private enqueue<T>(operation: () => T | Promise<T>): Promise<T> {
+    const result = this.mutations.then(operation, operation)
+    this.mutations = result.then(() => undefined, () => undefined)
+    return result
+  }
+
+  private async mountContribution(
+    callerCtx: Context,
+    contribution: TypeRTRemoteContribution,
+  ): Promise<TypeRTDisposer> {
+    this.validateContribution(contribution)
     const disposeRemote = callerCtx.typert.remotes.register(contribution)
-    let disposeMethods: () => void | Promise<void>
+    const installed: TypeRTDisposer[] = []
     try {
-      disposeMethods = callerCtx.effect(() => {
-        const installed: Array<() => void> = []
-        try {
-          for (const descriptor of contribution.descriptors) installed.push(this.install(descriptor))
-        } catch (error) {
-          for (const dispose of installed.reverse()) dispose()
-          throw error
-        }
-        return () => {
-          for (const dispose of installed.reverse()) dispose()
-        }
-      }, `api-gateway.client.mount(${JSON.stringify(contribution.package)})`)
+      for (const descriptor of contribution.descriptors) installed.push(await this.install(descriptor))
     } catch (error) {
-      /* v8 ignore next -- rollback disposal only rejects if Cordis teardown itself fails while handling the installation error. */
-      Promise.resolve(disposeRemote()).catch(() => {})
+      for (const dispose of installed.reverse()) await dispose()
+      await disposeRemote()
       throw error
     }
     return async () => {
-      await Promise.all([disposeMethods(), disposeRemote()])
+      for (const dispose of installed.reverse()) await dispose()
+      await disposeRemote()
     }
   }
 
@@ -112,10 +131,8 @@ class ClientApiService extends Service implements TypeRTClientApi {
       }
       methods.add(descriptor.method)
       table.set(descriptor.namespace, methods)
-      const live = kind === 'direct'
-        ? this.direct.get(descriptor.namespace)?.tokens
-        : this.scoped.get(descriptor.namespace)?.tokens
-      if (live?.has(descriptor.method) === true) {
+      const namespace = this.namespaces.get(descriptor.namespace)?.service
+      if (namespace?.has(kind, descriptor.method) === true) {
         throw new Error(`client api: ${kind} method ${endpointOf(descriptor)} is already mounted`)
       }
     }
@@ -124,110 +141,142 @@ class ClientApiService extends Service implements TypeRTClientApi {
       if (descriptor.invocation.kind === 'direct') add(direct, descriptor, 'direct')
       if (scopedProjection(descriptor) !== undefined) add(scoped, descriptor, 'scoped')
     }
-    for (const namespace of direct.keys()) {
-      if (!this.direct.has(namespace) && namespace in this) {
-        throw new Error(`client api: namespace ${JSON.stringify(namespace)} conflicts with the API service`)
-      }
-    }
-    for (const [namespace, methods] of scoped) {
-      const record = this.scoped.get(namespace)
-      if (record !== undefined) {
-        for (const method of methods) record.service.assertMethodAvailable(method)
-      } else {
-        for (const method of methods) ScopedRemoteNamespace.assertMethodAvailable(namespace, method)
-        const property = this.ownerCtx.reflect.props[namespace]
-        if (property?.type === 'accessor' || this.ownerCtx.get(namespace) !== undefined) {
-          throw new Error(`client api: scoped namespace ${JSON.stringify(namespace)} conflicts with an existing Context property`)
+    const namespaces = new Set([...direct.keys(), ...scoped.keys()])
+    for (const namespace of namespaces) {
+      const service = this.namespaces.get(namespace)?.service
+      if (service === undefined) {
+        if (namespace in this) {
+          throw new Error(`client api: namespace ${JSON.stringify(namespace)} conflicts with the Remote service`)
         }
+        const serviceKey = remoteServiceKey(namespace)
+        const property = this.ownerCtx.reflect.props[serviceKey]
+        if (property?.type === 'accessor' || this.ownerCtx.get(serviceKey) !== undefined) {
+          throw new Error(`client api: namespace ${JSON.stringify(namespace)} conflicts with an existing Remote namespace`)
+        }
+      }
+      for (const method of new Set([...(direct.get(namespace) ?? []), ...(scoped.get(namespace) ?? [])])) {
+        if (service === undefined) RemoteNamespaceService.assertMethodAvailable(namespace, method)
+        else service.assertMethodAvailable(method)
       }
     }
   }
 
-  private install(descriptor: InvocationDescriptor): () => void {
+  private async install(descriptor: InvocationDescriptor): Promise<TypeRTDisposer> {
     const token: MountToken = { active: true, abort: new AbortController() }
-    const installed: (() => void)[] = []
+    const installed: TypeRTDisposer[] = []
     try {
       if (descriptor.invocation.kind === 'direct') {
-        installed.push(this.installDirect(descriptor, token))
+        installed.push(await this.installDirect(descriptor, token))
       }
       const projection = scopedProjection(descriptor)
-      if (projection !== undefined) installed.push(this.installScoped(descriptor, projection, token))
+      if (projection !== undefined) installed.push(await this.installScoped(descriptor, projection, token))
     } catch (error) {
       token.active = false
-      for (const dispose of installed.reverse()) dispose()
       token.abort.abort()
+      for (const dispose of installed.reverse()) await dispose()
       throw error
     }
-    return () => {
+    return async () => {
       /* v8 ignore next -- Cordis effect disposers are idempotent and invoke this cleanup at most once. */
       if (!token.active) return
       token.active = false
-      for (const dispose of installed.reverse()) dispose()
       token.abort.abort()
+      for (const dispose of installed.reverse()) await dispose()
     }
   }
 
-  private installDirect(descriptor: InvocationDescriptor, token: MountToken): () => void {
-    let namespace = this.direct.get(descriptor.namespace)
-    const fresh = namespace === undefined
-    if (namespace === undefined) {
-      namespace = { value: Object.create(null) as Record<string, RemoteMethod>, tokens: new Map() }
-      Object.defineProperty(this, descriptor.namespace, {
-        configurable: true,
-        enumerable: true,
-        value: namespace.value,
-      })
-    }
+  private async installDirect(descriptor: InvocationDescriptor, token: MountToken): Promise<TypeRTDisposer> {
+    const namespace = await this.namespace(descriptor.namespace)
     try {
-      Object.defineProperty(namespace.value, descriptor.method, {
-        configurable: true,
-        enumerable: true,
-        value: (...args: unknown[]) => this.invoke(descriptor, undefined, token, this.ownerCtx, args),
-      })
+      namespace.service.installDirect(descriptor, token)
     } catch (error) {
-      if (fresh) Reflect.deleteProperty(this, descriptor.namespace)
+      await this.disposeNamespace(descriptor.namespace, namespace)
       throw error
     }
-    if (fresh) this.direct.set(descriptor.namespace, namespace)
-    namespace.tokens.set(descriptor.method, token)
-    return () => {
-      /* v8 ignore next -- duplicate live methods are rejected before installation, so no newer token can replace this one. */
-      if (namespace.tokens.get(descriptor.method) !== token) return
-      Reflect.deleteProperty(namespace.value, descriptor.method)
-      namespace.tokens.delete(descriptor.method)
-      if (namespace.tokens.size !== 0) return
-      this.direct.delete(descriptor.namespace)
-      Reflect.deleteProperty(this, descriptor.namespace)
+    return async () => {
+      if (!namespace.service.remove('direct', descriptor.method, token)) return
+      await this.disposeNamespace(descriptor.namespace, namespace)
     }
   }
 
-  private installScoped(
+  private async installScoped(
     descriptor: InvocationDescriptor,
     projection: ScopedProjection,
     token: MountToken,
-  ): () => void {
-    let namespace = this.scoped.get(descriptor.namespace)
-    if (namespace === undefined) {
-      const service = new ScopedRemoteNamespace(
-        this.ownerCtx,
-        descriptor.namespace,
-        (current, currentProjection, currentToken, caller, args) =>
-          this.invoke(current, currentProjection, currentToken, caller, args),
-      )
-      service.install(descriptor, projection, token)
-      namespace = { service, tokens: new Map() }
-      this.scoped.set(descriptor.namespace, namespace)
-    } else {
-      namespace.service.install(descriptor, projection, token)
+  ): Promise<TypeRTDisposer> {
+    const namespace = await this.namespace(descriptor.namespace)
+    try {
+      namespace.service.installScoped(descriptor, projection, token)
+    } catch (error) {
+      await this.disposeNamespace(descriptor.namespace, namespace)
+      throw error
     }
-    namespace.tokens.set(descriptor.method, token)
-    return () => {
-      /* v8 ignore next -- duplicate live methods are rejected before installation, so no newer token can replace this one. */
-      if (namespace.tokens.get(descriptor.method) !== token) return
-      namespace.service.remove(descriptor.method)
-      namespace.tokens.delete(descriptor.method)
-      if (namespace.tokens.size === 0) this.scoped.delete(descriptor.namespace)
+    return async () => {
+      if (!namespace.service.remove('scoped', descriptor.method, token)) return
+      await this.disposeNamespace(descriptor.namespace, namespace)
     }
+  }
+
+  private async namespace(name: string): Promise<RemoteNamespaceHandle> {
+    let namespace = this.namespaces.get(name)
+    if (namespace !== undefined) return namespace
+    let service: RemoteNamespaceService | undefined
+    const fiber = this.ownerCtx.plugin({
+      name: remoteServiceKey(name),
+      apply: (ctx: Context) => {
+        service = new RemoteNamespaceService(
+          ctx,
+          name,
+          (direct, scoped, caller, args) => this.invokeMethod(direct, scoped, caller, args),
+        )
+      },
+    })
+    try {
+      await fiber
+    } catch (error) {
+      await fiber.dispose()
+      throw error
+    }
+    /* v8 ignore next -- a settled namespace fiber synchronously constructs its Service. */
+    if (service === undefined) throw new Error(`client api: namespace ${JSON.stringify(name)} did not start`)
+    namespace = { service, dispose: fiber.dispose }
+    this.namespaces.set(name, namespace)
+    return namespace
+  }
+
+  private async disposeNamespace(name: string, namespace: RemoteNamespaceHandle): Promise<void> {
+    if (!namespace.service.empty || this.namespaces.get(name) !== namespace) return
+    this.namespaces.delete(name)
+    await namespace.dispose()
+  }
+
+  private invokeMethod(
+    direct: DirectMethod | undefined,
+    scoped: ScopedMethod | undefined,
+    callerCtx: Context,
+    values: readonly unknown[],
+  ): Promise<unknown> {
+    if (scoped !== undefined) {
+      const binder = this.ownerCtx.typert.contexts.getClient(scoped.projection.context)
+      const identity = binder?.identity(callerCtx)
+      if (identity !== undefined) {
+        return this.invoke(
+          scoped.descriptor,
+          scoped.projection,
+          scoped.token,
+          callerCtx,
+          values,
+          { value: identity },
+        )
+      }
+    }
+    if (direct !== undefined) {
+      return this.invoke(direct.descriptor, undefined, direct.token, callerCtx, values)
+    }
+    if (scoped !== undefined) {
+      return this.invoke(scoped.descriptor, scoped.projection, scoped.token, callerCtx, values)
+    }
+    throw new Error('client api: Remote method is no longer mounted')
   }
 
   private async invoke(
@@ -236,6 +285,7 @@ class ClientApiService extends Service implements TypeRTClientApi {
     token: MountToken,
     callerCtx: Context,
     values: readonly unknown[],
+    boundIdentity?: BoundContextIdentity,
   ): Promise<unknown> {
     const endpoint = endpointOf(descriptor)
     if (!token.active) throw new Error(`client api: Remote method ${endpoint} is no longer mounted`)
@@ -251,11 +301,15 @@ class ClientApiService extends Service implements TypeRTClientApi {
     }
     const args = Object.create(null) as Record<string, unknown>
     if (projection !== undefined) {
-      const binder = this.ownerCtx.typert.contexts.getClient(projection.context)
-      if (binder === undefined) {
+      const binder = boundIdentity === undefined
+        ? this.ownerCtx.typert.contexts.getClient(projection.context)
+        : undefined
+      if (boundIdentity === undefined && binder === undefined) {
         throw new Error(`client api: ${endpoint} has no Client Context binder for ${JSON.stringify(projection.context)}`)
       }
-      const identity = binder.identity(callerCtx)
+      const identity = boundIdentity === undefined
+        ? binder?.identity(callerCtx)
+        : boundIdentity.value
       if (identity === undefined) {
         throw new Error(`client api: ${endpoint} requires a ${JSON.stringify(projection.context)} Context`)
       }
@@ -281,23 +335,19 @@ class ClientApiService extends Service implements TypeRTClientApi {
 }
 
 type InvokeRemote = (
-  descriptor: InvocationDescriptor,
-  projection: ScopedProjection,
-  token: MountToken,
+  direct: DirectMethod | undefined,
+  scoped: ScopedMethod | undefined,
   callerCtx: Context,
   args: readonly unknown[],
 ) => Promise<unknown>
 
-class ScopedRemoteNamespace {
-  private readonly ctx: Context
-  private readonly ownerCtx: Context
-  private readonly methods = new Set<string>()
-  private disposeService: TypeRTDisposer | undefined
-  readonly name: string
+class RemoteNamespaceService extends Service {
+  private readonly methods = new Map<string, RemoteMethodRecord>()
+  private readonly namespace: string
 
   static assertMethodAvailable(namespace: string, method: string): void {
-    if (SCOPED_NAMESPACE_FIELDS.has(method) || method in ScopedRemoteNamespace.prototype) {
-      throw new Error(`client api: scoped method ${JSON.stringify(`${namespace}/${method}`)} conflicts with its namespace service`)
+    if (REMOTE_NAMESPACE_FIELDS.has(method) || method in RemoteNamespaceService.prototype) {
+      throw new Error(`client api: method ${JSON.stringify(`${namespace}/${method}`)} conflicts with its namespace service`)
     }
   }
 
@@ -306,54 +356,92 @@ class ScopedRemoteNamespace {
     name: string,
     private readonly invokeRemote: InvokeRemote,
   ) {
-    this.ctx = ctx
-    this.ownerCtx = ctx
-    this.name = name
-    Object.defineProperty(this, symbols.tracker, {
-      value: { associate: name, property: 'ctx' },
-    })
+    super(ctx, remoteServiceKey(name))
+    this.namespace = name
   }
 
   assertMethodAvailable(method: string): void {
-    ScopedRemoteNamespace.assertMethodAvailable(this.name, method)
-    if (method in this) {
-      throw new Error(`client api: scoped method ${JSON.stringify(`${this.name}/${method}`)} conflicts with its namespace service`)
+    RemoteNamespaceService.assertMethodAvailable(this.namespace, method)
+    if (method in this && !this.methods.has(method)) {
+      throw new Error(`client api: method ${JSON.stringify(`${this.namespace}/${method}`)} conflicts with its namespace service`)
     }
   }
 
-  install(descriptor: InvocationDescriptor, projection: ScopedProjection, token: MountToken): void {
-    this.assertMethodAvailable(descriptor.method)
-    const activate = this.methods.size === 0
-    const method = descriptor.method
+  get empty(): boolean {
+    return this.methods.size === 0
+  }
+
+  has(kind: 'direct' | 'scoped', method: string): boolean {
+    return this.methods.get(method)?.[kind] !== undefined
+  }
+
+  installDirect(descriptor: InvocationDescriptor, token: MountToken): void {
+    this.install(descriptor.method, 'direct', { descriptor, token })
+  }
+
+  installScoped(descriptor: InvocationDescriptor, projection: ScopedProjection, token: MountToken): void {
+    this.install(descriptor.method, 'scoped', { descriptor, projection, token })
+  }
+
+  private install(method: string, kind: 'direct', value: DirectMethod): void
+  private install(method: string, kind: 'scoped', value: ScopedMethod): void
+  private install(method: string, kind: 'direct' | 'scoped', value: DirectMethod | ScopedMethod): void {
+    this.assertMethodAvailable(method)
+    let record = this.methods.get(method)
+    const fresh = record === undefined
+    record ??= {}
+    if (record[kind] !== undefined) {
+      throw new Error(`client api: ${kind} method ${this.namespace}/${method} is already mounted`)
+    }
     try {
-      Object.defineProperty(this, method, {
-        configurable: true,
-        enumerable: true,
-        value: function (this: ScopedRemoteNamespace, ...args: unknown[]): Promise<unknown> {
-          return this.invokeRemote(descriptor, projection, token, this.ctx, args)
-        },
-      })
-      if (activate) {
-        this.disposeService = this.ownerCtx.reflect.provide(this.name, this)
+      if (fresh) {
+        Object.defineProperty(this, method, {
+          configurable: true,
+          enumerable: true,
+          get: function (this: RemoteNamespaceService): (...args: unknown[]) => Promise<unknown> {
+            const callerCtx = this.ctx
+            const current = this.methods.get(method)
+            const direct = current?.direct
+            const scoped = current?.scoped
+            return (...args: unknown[]) => {
+              return this.invokeRemote(direct, scoped, callerCtx, args)
+            }
+          },
+        })
+        this.methods.set(method, record)
       }
+      if (kind === 'direct') record.direct = value
+      else record.scoped = value as ScopedMethod
     } catch (error) {
-      Reflect.deleteProperty(this, method)
+      if (kind === 'direct') delete record.direct
+      else delete record.scoped
+      if (fresh) {
+        this.methods.delete(method)
+        Reflect.deleteProperty(this, method)
+      }
       throw error
     }
-    this.methods.add(method)
   }
 
-  remove(method: string): void {
-    Reflect.deleteProperty(this, method)
+  remove(kind: 'direct' | 'scoped', method: string, token: MountToken): boolean {
+    const record = this.methods.get(method)
+    const current = record?.[kind]
+    /* v8 ignore next -- duplicate live variants are rejected before installation, so no newer token can replace this one. */
+    if (record === undefined || current?.token !== token) return false
+    if (kind === 'direct') delete record.direct
+    else delete record.scoped
+    if (record.direct !== undefined || record.scoped !== undefined) return true
     this.methods.delete(method)
-    if (this.methods.size !== 0) return
-    const disposeService = this.disposeService
-    this.disposeService = undefined
-    void disposeService?.()
+    Reflect.deleteProperty(this, method)
+    return true
   }
 }
 
-const SCOPED_NAMESPACE_FIELDS = new Set(['ctx', 'disposeService', 'invokeRemote', 'methods', 'name', 'ownerCtx'])
+const REMOTE_NAMESPACE_FIELDS = new Set(['ctx', 'empty', 'invokeRemote', 'methods', 'name', 'namespace'])
+
+function remoteServiceKey(namespace: string): string {
+  return `remote.${namespace}`
+}
 
 function endpointOf(descriptor: Pick<InvocationDescriptor, 'namespace' | 'method'>): string {
   return `${descriptor.namespace}/${descriptor.method}`

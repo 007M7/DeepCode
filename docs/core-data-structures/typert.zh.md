@@ -126,10 +126,10 @@ interface TypeRTService {
 }
 ```
 
-生成的消费方声明会把 direct namespace 合并到 `TypeRTClientApi` 继承的 map 中。
+生成的消费方声明会把 direct namespace 合并到 `TypeRTClientRemote` 继承的 map 中。
 
 ```ts type-equiv
-/** Merge-extensible direct namespace surface generated for Client API services. */
+/** Merge-extensible direct namespace surface generated for Client Remote services. */
 interface TypeRTRemoteNamespaceMap {}
 ```
 
@@ -186,18 +186,18 @@ interface TypertGateway {
 }
 ```
 
-## 消费方 API
+## 消费方 Remote
 
-`ctx.api` 只暴露由已导入 `/remote` 产物贡献的 namespace。挂载会把生成的 descriptor 与具体的 root/scoped 方法作为一项由 fiber 持有的操作统一注册；JavaScript Proxy 与 Host 服务类型都不会进入消费方。
+`ctx.remote` 只暴露由已导入 `/remote` 产物贡献的 namespace。`$mount()` 会把生成的 descriptor 与具体方法作为一项由 fiber 持有的操作统一注册。每个 namespace 都是可追踪的 `remote.<namespace>` Cordis 子 Service，其生命周期覆盖已挂载的方法；JavaScript Proxy 与 Host 业务 Service 类型都不会进入消费方。
 
 ```ts type-equiv
-/** Client API capability implemented by the Gateway and consumed by Remote assemblies. */
-interface TypeRTClientApi extends TypeRTRemoteNamespaceMap {
+/** Client Remote capability implemented by the Gateway and consumed by Remote assemblies. */
+interface TypeRTClientRemote extends TypeRTRemoteNamespaceMap {
   /**
    * Mount one generated Host-for-Client contribution in the caller's fiber.
    * @param contribution - explicitly selected Remote package artifact.
-   * @returns disposer withdrawing descriptors and concrete methods together.
+   * @returns disposer after namespace services and concrete methods are ready.
    */
-  mount(contribution: TypeRTRemoteContribution): TypeRTDisposer
+  $mount(contribution: TypeRTRemoteContribution): Promise<TypeRTDisposer>
 }
 ```

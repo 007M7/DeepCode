@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-为 Host 与 Client 两侧的 Cordis 环境提供 TypeRT RPC endpoint。Host 入口提供 `ctx.typertGateway`，`@deepseek-ai/dsh-api-gateway/client` 则提供 `ctx.api`；两者使用同一份生成的 `InvocationDescriptor` 契约，并将业务选择交给 API Remotes，将传输、请求关联、信任和响应封装交给 Connection。
+为 Host 与 Client 两侧的 Cordis 环境提供 TypeRT RPC endpoint。Host 入口提供 `ctx.typertGateway`，`@deepseek-ai/dsh-api-gateway/client` 则提供 `ctx.remote`；两者使用同一份生成的 `InvocationDescriptor` 契约，并将业务选择交给 API Remotes，将传输、请求关联、信任和响应封装交给 Connection。
 
 ## Host 服务：`TypertGatewayService`（ctx key：`typertGateway`）
 
@@ -14,13 +14,13 @@ Connection 可用时，Host 入口会在 Connection 共享的 `/api` FetchHandle
 
 支持取消的 Remote 方法会把 `signal: AbortSignal` 声明为最后一个 Host 参数。signal 是 descriptor 元数据，而不是 wire 参数：Connection 将它提供给 Gateway，Gateway 则在已解码的业务参数之后注入它。SRC 识别这个保留的末位参数名，严格生成还要求它具有全局 `AbortSignal` 类型。
 
-## Client 服务：`ClientApi`（ctx key：`api`）
+## Client 服务：`ClientRemote`（ctx key：`remote`）
 
-`ctx.api.mount()` 会校验并注册生成的 Host-for-Client 贡献项，然后为发起调用的 Cordis fiber 安装具体的直接方法和作用域方法。重复端点、命名空间冲突，以及缺少生成的严格编解码器的描述符，都会在方法可调用前报错。
+`ctx.remote.$mount()` 会校验并注册生成的 Host-for-Client 贡献项，然后为发起调用的 Cordis fiber 安装具体的直接方法和作用域方法。每个 namespace 都是可追踪的 `remote.<namespace>` 子 Service，并在最后一个方法撤回后卸载。重复端点、命名空间冲突，以及缺少生成的严格编解码器的描述符，都会在方法可调用前报错。
 
 每次调用都会校验位置参数，构造与描述符完全匹配的具名 `args`，再通过 `ctx.connection.rpc.call('/api', endpoint, ...)` 发送。生成的支持取消的方法接受最后一个可选 `AbortSignal`；Client 会在调用 Connection 前将它与贡献项的挂载生命周期合并。返回值经过校验后才会交给应用代码。撤回贡献项会同时移除其描述符和方法、中止正在进行的调用，并使外部仍持有的方法句柄在调用时返回拒绝。
 
-生成的声明合并通过共享的 `TypeRTClientApi` 契约提供 TypeScript API。Client 入口不包含 Host 服务或 Host Cordis 接口合并；方法查找和调用使用普通对象与函数，而不使用 JavaScript Proxy。
+生成的声明合并通过共享的 `TypeRTClientRemote` 契约提供 TypeScript API。Client 入口不包含 Host 服务或 Host Cordis 接口合并；方法查找和调用使用普通对象与函数，而不使用 JavaScript Proxy。
 
 ## 模型体验
 

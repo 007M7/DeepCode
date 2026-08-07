@@ -62,7 +62,7 @@ Host and client stay two aggregate programs because both sides declaration-merge
 
 Static analysis and tests resolve workspace imports through the base `paths` map to `src` and must pass on a clean tree; gates that consume built `lib/` output declare that dependency explicitly. Decision record: [solution-root note](../.agents/notes/implemented/process/2026-07-22-tsconfig-solution-root-two-aggregates.md); the tsc-first emit pipeline is the [ts-build-config note](../.agents/notes/implemented/process/2026-06-17-ts-build-config.md).
 
-Business services declare callable methods on the Host with `@Remote` or `@RemoteContext`; the Host build generates Host-for-Client types and runtime contributions, and the Client's `api-remotes` composition loads those contributions and mounts concrete methods on `ctx.api` or the corresponding scoped Context. See [API Gateway](api-gateway.md) for the generated artifacts on both sides, their assembly relationships, the SRC development fallback, and the Web build order.
+Business services declare callable methods on the Host with `@Remote` or `@RemoteContext`; the Host build generates Host-for-Client types and runtime contributions, and the Client's `api-remotes` composition loads those contributions under `ctx.remote` and scoped `agentCtx.remote` namespaces. See [API Gateway](api-gateway.md) for the generated artifacts on both sides, their assembly relationships, the SRC development fallback, and the Web build order.
 
 If a relevant local check consumes built package output, build once first:
 

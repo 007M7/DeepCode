@@ -11,8 +11,8 @@ import type { Context } from 'cordis'
 import type {
   RpcResult, SessionId, SubagentAddress,
 } from '@deepseek-ai/dsh-client-connection/client'
-import type { TypeRTRemoteContextApi } from '@deepseek-ai/dsh-type-meta'
 import type { HostObservable, SessionMaybeProvideInfo } from '@deepseek-ai/dsh-client-ui-slots'
+import type { AgentContext } from '../agents/scope.ts'
 import type { SessionSearchResultItem } from '../sessions/manager.ts'
 import type {
   SessionBinding, SessionListState, SessionProvideDescriptor,
@@ -20,8 +20,7 @@ import type {
 import type { SessionFace } from './session.ts'
 import type { ObservableSnapshot } from './store.ts'
 
-/** Client Cordis Context carrying one Agent identity and its generated Remote namespaces. */
-export type AgentContext = Context & TypeRTRemoteContextApi<'agent'>
+export type { AgentContext } from '../agents/scope.ts'
 
 /** The sessions-service face injected as `ctx.sessions`. */
 export interface ISessions {

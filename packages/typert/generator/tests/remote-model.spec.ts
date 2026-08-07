@@ -593,8 +593,8 @@ const created: Promise<CreateGoalResult> = create('agent-1', { title: 'ship' })
 const cancellable: Promise<CreateGoalResult> = create('agent-1', { title: 'ship' }, new AbortController().signal)
 const createdScoped: Promise<CreateGoalResult> = createScoped({ title: 'ship' })
 const renamed: Promise<RenameGoalResult> = rename({ ref: 'goal-1', title: 'land' })
-declare const ctx: { api: TypeRTRemoteNamespaceMap }
-const navigated: Promise<CreateGoalResult> = ctx.api.goals.create('agent-1', { title: 'navigate' })
+declare const ctx: { remote: TypeRTRemoteNamespaceMap }
+const navigated: Promise<CreateGoalResult> = ctx.remote.goals.create('agent-1', { title: 'navigate' })
 void contribution
 void created
 void cancellable
@@ -643,7 +643,7 @@ void navigated
     readFile: path => ts.sys.readFile(path),
     realpath: path => ts.sys.realpath?.(path) ?? path,
   })
-  const navigation = 'ctx.api.goals.create'
+  const navigation = 'ctx.remote.goals.create'
   const position = consumerSource.indexOf(navigation) + navigation.lastIndexOf('create') + 1
   const definitions = languageService.getDefinitionAtPosition(consumerPath, position)
   const generatedDefinition = definitions?.find(candidate => candidate.fileName === declarationPath)
@@ -672,8 +672,8 @@ function assertRemoteConsumerWithoutImportHasNoNamespace(consumerRoot: string): 
   const consumerPath = join(consumerRoot, 'consumer-without-remote.ts')
   writeFileSync(consumerPath, `
 import type { TypeRTRemoteNamespaceMap } from '@deepseek-ai/dsh-type-meta'
-declare const ctx: { api: TypeRTRemoteNamespaceMap }
-ctx.api.goals.create('agent-1', { title: 'must not compile' })
+declare const ctx: { remote: TypeRTRemoteNamespaceMap }
+ctx.remote.goals.create('agent-1', { title: 'must not compile' })
 `)
   const configPath = join(consumerRoot, 'tsconfig.consumer-without-remote.json')
   writeFileSync(configPath, JSON.stringify({

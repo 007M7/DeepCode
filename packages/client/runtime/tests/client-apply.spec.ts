@@ -38,7 +38,8 @@ async function mount(): Promise<Bench> {
     },
   }
   ctx.reflect.provide('connection', handle)
-  ctx.reflect.provide('api', {})
+  ctx.reflect.provide('remote', {})
+  ctx.reflect.provide('remote.goals', {})
   await ctx.plugin(RuntimeClient).await()
   return bench
 }

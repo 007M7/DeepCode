@@ -179,8 +179,8 @@ declare module 'cordis' {
   }
 }
 
-/** Required services: the typed Remote API, wire handle, and Client TypeRT registry. */
-export const inject = ['api', 'connection', 'typert']
+/** Required services: the Remote root and Goal namespace, wire handle, and Client TypeRT registry. */
+export const inject = ['remote', 'remote.goals', 'connection', 'typert']
 
 /** Mounts the browser runtime services and connection stream.
  * @param ctx - Client Cordis context.

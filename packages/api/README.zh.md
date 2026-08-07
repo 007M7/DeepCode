@@ -6,10 +6,10 @@
 
 | 包 | 职责 | ctx key |
 |---|---|---|
-| [`remotes/`](remotes/README.md) | Host Agent/Session lookup 策略与 Client Remote contribution 装配 | 无服务；配置 `ctx.typert` 并消费 `ctx.api` |
-| [`gateway/`](gateway/README.md) | Host TypeRT 分发器与 Client API endpoint | `ctx.typertGateway` / `ctx.api` |
+| [`remotes/`](remotes/README.md) | Host Agent/Session lookup 策略与 Client Remote contribution 装配 | 无服务；配置 `ctx.typert` 并消费 `ctx.remote` |
+| [`gateway/`](gateway/README.md) | Host TypeRT 分发器与 Client Remote endpoint | `ctx.typertGateway` / `ctx.remote` |
 
-运行时依赖方向为 `remotes → gateway → connection → webserver`：BFF 消费共享的 `TypeRTClientApi` 契约，Gateway 把传输交给 Connection，Connection 再挂载到 HTTP server。Cordis 服务注入与 Client 模块元数据在不让 Remotes Client 入口导入具体 Gateway 实现的前提下维持该顺序。
+运行时依赖方向为 `remotes → gateway → connection → webserver`：BFF 消费共享的 `TypeRTClientRemote` 契约，Gateway 把传输交给 Connection，Connection 再挂载到 HTTP server。Cordis 服务注入与 Client 模块元数据在不让 Remotes Client 入口导入具体 Gateway 实现的前提下维持该顺序。
 
 ## 已知限制与延期工作
 
