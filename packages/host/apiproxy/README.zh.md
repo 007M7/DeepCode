@@ -32,7 +32,7 @@ Workspace 列表与 Session 列表是相互独立的重连基线。`workspace.cr
 
 目录选择委托给组合的 `ctx.directoryPicker` 后端（[目录选择 seam](../directory-picker/README.md)）；调用组合能力 kind 之外的方法会以 `directory-picker-unavailable` 失败（客户端不需要广播——组合的选择器包自己的 client half 渲染匹配的交互）。在 `native` 下，`host.pickDirectory` 打开一个原生选择器并返回选中路径（取消为 `null`）；该方法需等待用户完成操作，不使用默认的 30 秒一元调用超时，而调用方与连接的中止仍会传播至原生进程。在 `browse` 下，`host.listDirectory` 返回一个按名称排序的目录层级，携带面包屑祖先链、`home` 锚点与宿主判定的 `hidden` 标志（不带路径即家目录），`host.createDirectory` 创建一个经校验的子段；后端的类型化失败 1:1 映射为 `directory-unreadable`／`directory-exists`／`directory-create-failed` 错误码。浏览器载体的前缀级信任栅栏（dsh-client-connection）像覆盖其他所有 `/api` 请求一样覆盖上述全部方法。
 
-`host.openPath` 会用操作系统的默认应用打开一个文件系统路径（macOS 为 `open`，Windows 为 `Invoke-Item`，Linux 为 `xdg-open`）。浏览器载体对其施加与 `host.pickDirectory` 相同的回环、同源限制。
+`host.openPath` 会用操作系统的默认应用打开一个文件系统路径（macOS 为 `open`，Windows 为 `Invoke-Item`，桌面 Linux 为 `xdg-open`）。WSL 会通过 `wslpath -w` 转换 Linux 路径，并将所得 Windows/UNC 路径交给 Windows `Invoke-Item`，而非假定存在 Linux 桌面文件关联。浏览器载体对其施加与 `host.pickDirectory` 相同的回环、同源限制。
 
 `agentPreset.list` 领域向浏览器暴露部署的 preset 名单，使其在开启会话时能够提供选择；每一行携带它的 `trust`（`user` preset 的权限恰好等于它所引用的插件）以及它是否为当前默认值。未组装任何 preset 的部署返回空名单而非错误，因为共用宿主组装本身就是一种有效部署。`agentPreset.select` 用另一个 preset 重组某个会话的 agent，且仅在会话空白时允许：一旦跑过任何轮次，那段历史就是在该 preset 的工具下产生的，替换会留下无法执行的已记录 tool call，此时返回 `agent-preset-locked`。agent 与会话都不销毁——只替换组装，且替换失败会恢复原来的组装。
 
