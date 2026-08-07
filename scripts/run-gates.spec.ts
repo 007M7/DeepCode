@@ -60,6 +60,7 @@ describe('gate graph validation', () => {
     'ci-linux-primary',
     'ci-static',
     'ci-lint',
+    'ci-lint-contracts-ready',
     'ci-coverage',
     'ci-snapshot',
     'ci-artifacts',
@@ -138,6 +139,57 @@ describe('Oxlint gate', () => {
       command: process.execPath,
       args: ['/private/pnpm.cjs', 'run', 'lint'],
     })
+  })
+})
+
+describe('TypeRT contract preparation', () => {
+  it('prepares primary source consumers once before they run', () => {
+    const subject = withPnpmEntrypoint(() => gatesForMode('ci-primary'))
+
+    expect(subject.find(item => item.id === 'typert-contracts')).toMatchObject({
+      displayCommand: 'pnpm run build:lib:host',
+      args: ['/private/pnpm.cjs', 'run', 'build:lib:host'],
+    })
+    for (const [id, script] of [
+      ['typecheck', 'typecheck:contracts-ready'],
+      ['lint', 'lint:contracts-ready'],
+      ['doc-typecheck', 'doc-typecheck:contracts-ready'],
+    ] as const) {
+      expect(subject.find(item => item.id === id)).toMatchObject({
+        displayCommand: `pnpm run ${script}`,
+        args: ['/private/pnpm.cjs', 'run', script],
+        needs: ['typert-contracts'],
+      })
+    }
+    expect(subject.find(item => item.id === 'build')?.needs).toEqual([
+      'typecheck',
+      'lint',
+      'doc-typecheck',
+    ])
+  })
+
+  it('reuses contracts from the validated consumer build', () => {
+    const subject = withPnpmEntrypoint(() => gatesForMode('ci-consumers'))
+
+    expect(subject.find(item => item.id === 'lint-and-duplication')).toMatchObject({
+      displayCommand: 'pnpm run check:ci:lint:contracts-ready',
+      args: ['/private/pnpm.cjs', 'run', 'check:ci:lint:contracts-ready'],
+    })
+    expect(subject.find(item => item.id === 'doc-typecheck')).toMatchObject({
+      displayCommand: 'pnpm run doc-typecheck:contracts-ready',
+      args: ['/private/pnpm.cjs', 'run', 'doc-typecheck:contracts-ready'],
+    })
+  })
+
+  it('keeps standalone aggregates responsible for preparation', () => {
+    const lint = withPnpmEntrypoint(() => gatesForMode('ci-lint')[0])
+    const preparedLint = withPnpmEntrypoint(() => gatesForMode('ci-lint-contracts-ready')[0])
+    const docTypecheck = withPnpmEntrypoint(() =>
+      gatesForMode('doc-sync').find(item => item.id === 'doc-typecheck'))
+
+    expect(lint?.displayCommand).toBe('pnpm run lint')
+    expect(preparedLint?.displayCommand).toBe('pnpm run lint:contracts-ready')
+    expect(docTypecheck?.displayCommand).toBe('pnpm run doc-typecheck')
   })
 })
 

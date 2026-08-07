@@ -37,4 +37,4 @@ pre-commit:
 pre-push:
   jobs:
     - name: typecheck
-      run: node_modules/.bin/tsc -b --pretty false
+      run: pnpm run typecheck
