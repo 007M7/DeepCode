@@ -872,23 +872,44 @@ function previousCronInstant(
   return latestCronInstantThrough(rule, timeZone, baseline, acceptedAt)
 }
 
-/** Validate one newly appended Cron record against the current parser, ICU, and calendar adapter. */
-function validateLiveCronRecord(record: CronScheduleRecord): void {
+/** Normalize a current calendar-validation failure for the package invariant. */
+function throwLiveCronValidationError(error: unknown): never {
+  if (error instanceof ScheduleLogError) throw error
+  /* v8 ignore next -- current parser and adapter failures are Error subclasses. */
+  const detail = error instanceof Error ? error.message : String(error)
+  throw new ScheduleLogError(`live cron record is invalid: ${detail}`)
+}
+
+/** Validate one Cron rule and zone against current grammar, frequency, and ICU data. */
+function validateLiveCronRule(record: CronScheduleRecord): {
+  readonly rule: ParsedCronRule
+  readonly timeZone: string
+} {
   try {
     const rule = parseCronRule(record.cron)
     const timeZone = canonicalizeTimeZone(record.timeZone)
     if (timeZone !== record.timeZone) {
       throw new ScheduleLogError('live cron timeZone must use its current canonical IANA name')
     }
+    if (!rule.hasMatchingDate) {
+      throw new ScheduleLogError('live cron rule must have a matching Gregorian date')
+    }
+    return { rule, timeZone }
+  } catch (error: unknown) {
+    throwLiveCronValidationError(error)
+  }
+}
+
+/** Validate one newly appended Cron record against the current calendar adapter. */
+function validateLiveCronRecord(record: CronScheduleRecord): void {
+  const { rule, timeZone } = validateLiveCronRule(record)
+  try {
     const target = Date.parse(record.scheduledAt)
     if (nextCronInstant(rule, timeZone, target - 60_000) !== target) {
       throw new ScheduleLogError('live cron scheduledAt must match its rule in the current time-zone data')
     }
   } catch (error: unknown) {
-    if (error instanceof ScheduleLogError) throw error
-    /* v8 ignore next -- current parser and adapter failures are Error subclasses. */
-    const detail = error instanceof Error ? error.message : String(error)
-    throw new ScheduleLogError(`live cron record is invalid: ${detail}`)
+    throwLiveCronValidationError(error)
   }
 }
 
@@ -1310,6 +1331,7 @@ export function validateLiveScheduleChange(
   const record = foldScheduleEvents(events, seedLength).active.find(candidate => candidate.id === change.id)
   /* v8 ignore next -- the preceding candidate fold requires calendar fields to target an active Cron record. */
   if (record?.kind !== 'cron') return
+  validateLiveCronRule(record)
   const expected = resolveCronOccurrence(record, Date.parse(change.acceptedAt))
   const nextScheduledAt = 'nextScheduledAt' in change ? change.nextScheduledAt : undefined
   if (change.occurrenceAt !== expected.occurrenceAt || nextScheduledAt !== expected.nextScheduledAt) {

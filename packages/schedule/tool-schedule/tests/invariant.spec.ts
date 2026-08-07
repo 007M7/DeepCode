@@ -143,6 +143,48 @@ describe('Schedule package invariant', () => {
       }, 0)],
     })
     const fiber = await ctx.plugin(scheduleInvariant)
+    const invalidLiveRules = [
+      {
+        id: 'schedule-historical-fast-cron',
+        cron: '* * * * *',
+        scheduledAt: '2026-08-06T12:00:00.000Z',
+        occurrenceAt: '2026-08-06T12:01:00.000Z',
+        acceptedAt: '2026-08-06T12:01:00.000Z',
+        nextScheduledAt: '2026-08-06T12:02:00.000Z',
+      },
+      {
+        id: 'schedule-historical-impossible-cron',
+        cron: '0 0 31 2 *',
+        scheduledAt: '2026-02-01T00:00:00.000Z',
+        occurrenceAt: '2026-02-01T00:00:00.000Z',
+        acceptedAt: '2026-02-01T00:00:00.000Z',
+        nextScheduledAt: undefined,
+      },
+    ] as const
+    for (const invalid of invalidLiveRules) {
+      const replay = ctx.sessions.create(SessionId(invalid.id), {
+        seed: [event({
+          version: 1,
+          operation: 'create',
+          schedule: {
+            id: invalid.id,
+            kind: 'cron',
+            prompt: 'historical rule',
+            cron: invalid.cron,
+            timeZone: 'UTC',
+            scheduledAt: invalid.scheduledAt,
+          },
+        }, 0)],
+      })
+      expect(() => replay.append('schedule/change', {
+        version: 1,
+        operation: 'dispatch',
+        id: ScheduleId(invalid.id),
+        occurrenceAt: invalid.occurrenceAt,
+        acceptedAt: invalid.acceptedAt,
+        ...(invalid.nextScheduledAt === undefined ? {} : { nextScheduledAt: invalid.nextScheduledAt }),
+      })).toThrow(InvariantError)
+    }
     await fiber.dispose()
     await ctx.fiber.dispose()
   })
