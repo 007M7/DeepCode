@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-The dsh browser-surface bundle. [`cordis.patch.yml`](cordis.patch.yml) rides over [`dsh-base`](../base/README.md): it sets the coding persona, inserts the Web host rows (webserver, API gateway, workspace, projection, storage) and the browser plugin roster, and mounts this package's own `web-runtime` glue plugin (config `{mode, printUrl, lanAddresses}`). That plugin owns what used to be launcher code: it resolves the built frontend dist through `@deepseek-ai/dsh-frontend`'s exports (workspace knowledge of this bundle, never user config), mounts the [`frontend-static`](../../host/frontend-static/README.md) fallback owner over it, registers the web-surface prompt section and the bash-visible `DSH_WEB_URL`/`DSH_WEB_MODE` runtime variables, and prints the `dsh web:` URL line when `printUrl` is true. The `dsh web` launcher alias patches `mode`/`lanAddresses`/`printUrl` and the flag family over these rows; [`dsh-headless`](../headless/README.md) layers on top and silences the URL line.
+The dsh browser-surface bundle. [`cordis.patch.yml`](cordis.patch.yml) rides over [`dsh-base`](../base/README.md): it sets the coding persona, inserts the Web host rows (webserver, API gateway, workspace, projection cache, storage) and the browser plugin roster, and mounts this package's own `web-runtime` glue plugin (config `{mode, printUrl, surfaceContext, lanAddresses}`). That plugin owns what used to be launcher code: it resolves the built frontend dist through `@deepseek-ai/dsh-frontend`'s exports (workspace knowledge of this bundle, never user config), mounts the [`frontend-static`](../../host/frontend-static/README.md) fallback owner over it, registers the web-surface prompt section and the bash-visible `DSH_WEB_URL`/`DSH_WEB_MODE` runtime variables when `surfaceContext` is true, and prints the `dsh web:` URL line when `printUrl` is true. The `dsh web` launcher alias patches `mode`/`lanAddresses` and the flag family over these rows; [`dsh-headless`](../headless/README.md) layers on top, silences the URL line, and disables the surface context.
 
 ## Model Experience
 
@@ -10,7 +10,7 @@ The dsh browser-surface bundle. [`cordis.patch.yml`](cordis.patch.yml) rides ove
 
 #### What the model sees
 
-The `app:web-surface` global section (order −98) orients the model to the GUI: the canonical local URL, the "this page" referent, the HMR/rebuild update contract for the active mode, and the instruction not to start replacement servers. `DSH_WEB_URL` and `DSH_WEB_MODE` additionally appear in the managed bash environment with their descriptions, resolved per invocation from the live server.
+When `surfaceContext` is true, the `app:web-surface` global section (order −98) orients the model to the GUI: the canonical local URL, the "this page" referent, the HMR/rebuild update contract for the active mode, and the instruction not to start replacement servers. `DSH_WEB_URL` and `DSH_WEB_MODE` additionally appear in the managed bash environment with their descriptions, resolved per invocation from the live server. When it is false, neither the section nor the variables are registered.
 
 #### Token effect
 

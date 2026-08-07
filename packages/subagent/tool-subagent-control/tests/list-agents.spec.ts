@@ -8,11 +8,11 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import type { SubagentListEntry } from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn'
 import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
-import { TestSessionQueryService } from '../../../session-query/session-query/tests/test-service.ts'
 import * as tool from '../src/list-agents.ts'
 
 const testToolSignal = new AbortController().signal
@@ -29,9 +29,9 @@ async function setup(script: ConstructorParameters<typeof MockAdapter>[0]) {
   roots.push(root)
   await ctx.plugin(JsonlSessionPersistence, { root })
   await ctx.plugin(AgentLoop, { agents: [] })
+  await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(SubagentService)
   await ctx.plugin(SubagentSpawn, { providerName: 'spawn' })
-  await ctx.plugin(TestSessionQueryService)
   await ctx.plugin(tool)
   ctx.llm.registerAdapter(['mock'], new MockAdapter(script))
   const parent = ctx.agentLoop.create(SessionId('parent'), { provider: 'mock', model: 'mock' })
@@ -177,17 +177,16 @@ describe('dsh-tool-subagent-control/list-agents', () => {
     await mountAgentLoopTestDependencies(ctx)
     await ctx.plugin(AgentLoop, { agents: [] })
     await ctx.plugin(SubagentService)
-    await ctx.plugin(TestSessionQueryService)
     const fiber = await ctx.plugin(tool)
     expect(ctx.tools.schemas().some(schema => schema.name === 'list_agents')).toBe(true)
     await fiber.dispose()
     expect(ctx.tools.schemas().some(schema => schema.name === 'list_agents')).toBe(false)
   })
 
-  it('has the namespace-plugin export shape and requires sessionQuery at load', () => {
+  it('has the namespace-plugin export shape', () => {
     expect('default' in tool).toBe(false)
     expect(tool.name).toBe('tool-subagent-list-agents')
-    expect(tool.inject).toEqual(['tools', 'subagents', 'sessionQuery'])
+    expect(tool.inject).toEqual(['tools', 'subagents'])
     expect(typeof tool.apply).toBe('function')
   })
 })
