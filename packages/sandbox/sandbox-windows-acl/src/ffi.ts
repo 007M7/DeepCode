@@ -14,9 +14,14 @@ import * as abi from './win32-abi.ts'
 
 /** Branded koffi 3 native pointer. Koffi 3 pointers are BigInt values; the brand keeps them out of numeric contexts. */
 declare const nativePtr: unique symbol
+/** Koffi 3 native pointer (a BigInt address), branded so it cannot silently enter numeric contexts. */
 export type NativePtr = bigint & { readonly [nativePtr]: true }
 
-/** True for NULL pointers, however koffi returns them (null or 0n). */
+/**
+ * True for NULL pointers, however koffi returns them (null or 0n).
+ * @param value - a pointer as koffi may hand it back (pointer, null, or 0n).
+ * @returns a type guard narrowing to the NULL shapes.
+ */
 export function isNullPtr(value: NativePtr | null | undefined): value is null | undefined {
   return value === null || value === undefined || (value as bigint) === 0n
 }
@@ -40,6 +45,7 @@ export interface ProcessInfoOutput {
   dwThreadId: number
 }
 
+/** The lazy koffi binding table: every Win32 call the ACL backend uses, signature-verified against the real headers. */
 export interface Win32Bindings {
   // ---- process / token handles --------------------------------------------
   openProcess(desiredAccess: number, inheritHandle: number, pid: number): NativePtr
@@ -111,6 +117,7 @@ export interface Win32Bindings {
 const PVOID: Ptr = koffi.pointer('void')
 const PPVOID: Ptr = koffi.pointer(PVOID)
 
+/** koffi STARTUPINFOW layout; its size is asserted against abi.STARTUPINFOW_SIZE at load. */
 export const STARTUPINFOW = koffi.struct('STARTUPINFOW', {
   cb: 'uint32',
   lpReserved: 'str16',
@@ -132,6 +139,7 @@ export const STARTUPINFOW = koffi.struct('STARTUPINFOW', {
   hStdError: PVOID,
 })
 
+/** koffi PROCESS_INFORMATION layout; its size is asserted against abi.PROCESS_INFORMATION_SIZE at load. */
 export const PROCESS_INFORMATION = koffi.struct('PROCESS_INFORMATION', {
   hProcess: PVOID,
   hThread: PVOID,
@@ -146,78 +154,127 @@ if (PROCESS_INFORMATION.size !== abi.PROCESS_INFORMATION_SIZE) {
   throw new Error(`PROCESS_INFORMATION layout mismatch: koffi computed ${PROCESS_INFORMATION.size}, header probe says ${abi.PROCESS_INFORMATION_SIZE}`)
 }
 
-/** Allocate one pointer-sized slot (for `T **` out-parameters). */
+/**
+ * Allocate one pointer-sized slot (for `T **` out-parameters).
+ * @returns the allocated slot pointer.
+ */
 export function allocPtrSlot(): NativePtr {
   const value: unknown = koffi.alloc(PVOID, 1)
   return value as NativePtr
 }
 
-/** Allocate one uint32 slot. */
+/**
+ * Allocate one uint32 slot.
+ * @returns the allocated slot pointer.
+ */
 export function allocUint32(): NativePtr {
   const value: unknown = koffi.alloc('uint32', 1)
   return value as NativePtr
 }
 
-/** Write a uint32 value into a slot pointer. */
+/**
+ * Write a uint32 value into a slot pointer.
+ * @param slot - the slot allocated by {@link allocUint32}.
+ * @param value - the uint32 to encode.
+ */
 export function encodeUint32(slot: NativePtr, value: number): void {
   koffi.encode(slot, 'uint32', value)
 }
 
-/** Decode the pointer stored in a pointer-sized slot (NULL becomes null). */
+/**
+ * Decode the pointer stored in a pointer-sized slot (NULL becomes null).
+ * @param slot - the pointer-sized slot holding the out-parameter value.
+ * @returns the decoded pointer, or null for NULL.
+ */
 export function decodePtr(slot: NativePtr): NativePtr | null {
   const value: unknown = koffi.decode(slot, PVOID)
   if (isNullPtr(value as NativePtr | null | undefined)) return null
   return value as NativePtr
 }
 
-/** Decode a uint32 at a slot pointer. */
+/**
+ * Decode a uint32 at a slot pointer.
+ * @param slot - the uint32 slot holding the out-parameter value.
+ * @returns the decoded uint32.
+ */
 export function decodeUint32(slot: NativePtr): number {
   const value: unknown = koffi.decode(slot, 'uint32')
   return value as number
 }
 
-/** Decode a UTF-16 string at a pointer. */
+/**
+ * Decode a UTF-16 string at a pointer.
+ * @param ptr - pointer to the NUL-terminated UTF-16 string.
+ * @returns the decoded string.
+ */
 export function decodeStr16(ptr: NativePtr): string {
   const value: unknown = koffi.decode(ptr, 'str16')
   return value as string
 }
 
-/** Cast a koffi pointer to its numeric address (bigint, used for raw struct packing). */
+/**
+ * Cast a koffi pointer to its numeric address (bigint, used for raw struct packing).
+ * @param ptr - the koffi pointer.
+ * @returns the pointer's numeric address.
+ */
 export function ptrAddress(ptr: NativePtr): bigint {
   return koffi.address(ptr)
 }
 
-/** Allocate a raw byte block (used for SID copies and variable-length arrays). */
+/**
+ * Allocate a raw byte block (used for SID copies and variable-length arrays).
+ * @param length - the block size in bytes.
+ * @returns the allocated block pointer.
+ */
 export function allocBytes(length: number): NativePtr {
   const value: unknown = koffi.alloc('uint8', length)
   return value as NativePtr
 }
 
-/** Decode a pointer VALUE stored in memory at `buffer[offset]` (e.g. TOKEN_GROUPS entries). */
+/**
+ * Decode a pointer VALUE stored in memory at `buffer[offset]` (e.g. TOKEN_GROUPS entries).
+ * @param buffer - the buffer holding the pointer value.
+ * @param offset - byte offset of the pointer inside the buffer.
+ * @returns the decoded pointer, or null for NULL.
+ */
 export function decodePtrAt(buffer: Buffer, offset: number): NativePtr | null {
   const value: unknown = koffi.decode(buffer, offset, PVOID)
   if (isNullPtr(value as NativePtr | null | undefined)) return null
   return value as NativePtr
 }
 
-/** Allocate a zeroed STARTUPINFOW. */
+/**
+ * Allocate a zeroed STARTUPINFOW.
+ * @returns the allocated struct pointer.
+ */
 export function allocStartupInfo(): NativePtr {
   const value: unknown = koffi.alloc(STARTUPINFOW, 1)
   return value as NativePtr
 }
 
-/** Write the stdio-relevant fields into a zeroed STARTUPINFOW (others stay default-initialized). */
+/**
+ * Write the stdio-relevant fields into a zeroed STARTUPINFOW (others stay default-initialized).
+ * @param startupInfo - the allocated STARTUPINFOW to encode into.
+ * @param fields - the field subset to write.
+ */
 export function encodeStartupInfo(startupInfo: NativePtr, fields: StartupInfoInput): void {
   koffi.encode(startupInfo, STARTUPINFOW, fields)
 }
 
-/** Allocate a zeroed PROCESS_INFORMATION. */
+/**
+ * Allocate a zeroed PROCESS_INFORMATION.
+ * @returns the allocated struct pointer.
+ */
 export function allocProcessInfo(): NativePtr {
   const value: unknown = koffi.alloc(PROCESS_INFORMATION, 1)
   return value as NativePtr
 }
 
-/** Decode a PROCESS_INFORMATION after CreateProcessAsUserW. */
+/**
+ * Decode a PROCESS_INFORMATION after CreateProcessAsUserW.
+ * @param processInfo - the PROCESS_INFORMATION filled by the spawn call.
+ * @returns the decoded handle/id fields.
+ */
 export function decodeProcessInfo(processInfo: NativePtr): ProcessInfoOutput {
   const value: unknown = koffi.decode(processInfo, PROCESS_INFORMATION)
   return value as ProcessInfoOutput
@@ -276,12 +333,20 @@ function bindings(): Win32Bindings {
   return cached
 }
 
-/** Resolve the lazy Win32 bindings (throws the first binding failure, fail-closed). */
+/**
+ * Resolve the lazy Win32 bindings (throws the first binding failure, fail-closed).
+ * @returns the cached binding table.
+ */
 export function win32(): Promise<Win32Bindings> {
   return Promise.resolve(bindings())
 }
 
-/** Turn a Win32 error code into readable text via FormatMessageW. */
+/**
+ * Turn a Win32 error code into readable text via FormatMessageW.
+ * @param api - the binding table.
+ * @param win32Code - the error code to format.
+ * @returns the formatted message text, or '' when formatting fails.
+ */
 export function errorText(api: Win32Bindings, win32Code: number): string {
   const buffer = Buffer.alloc(1024)
   const length = api.formatMessageW(
@@ -295,13 +360,24 @@ export function errorText(api: Win32Bindings, win32Code: number): string {
 /**
  * Throw a Win32Error for a BOOL-style API failure. MUST be called immediately
  * after the failed call so GetLastError is not clobbered by other Win32 calls.
+ * @param api - the binding table.
+ * @param name - the failed API's name for the error message.
+ * @param detail - optional detail overriding the formatted system message.
+ * @returns never — always throws.
  */
 export function throwLastError(api: Win32Bindings, name: string, detail?: string): never {
   const win32Code = api.getLastError()
   throw new Win32Error(name, win32Code, detail ?? errorText(api, win32Code))
 }
 
-/** Throw a Win32Error for an HRESULT-style API return value (the value IS the error code). */
+/**
+ * Throw a Win32Error for an HRESULT-style API return value (the value IS the error code).
+ * @param api - the binding table.
+ * @param name - the failed API's name for the error message.
+ * @param win32Code - the API's returned error code.
+ * @param detail - optional detail overriding the formatted system message.
+ * @returns never — always throws.
+ */
 export function throwWin32(api: Win32Bindings, name: string, win32Code: number, detail?: string): never {
   throw new Win32Error(name, win32Code, detail ?? errorText(api, win32Code))
 }

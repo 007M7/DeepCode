@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Windows write-restriction sandbox backend for the [harness sandbox seam](../sandbox/): a Node.js/[koffi](https://koffi.dev/) port of the mechanism in [huoyaoyuan/windows-acl-restrict-poc](https://github.com/huoyaoyuan/windows-acl-restrict-poc) (`10e4dfb`, the fixed revision), built as the preparation layer for a Windows `SandboxProvider` (`workspace-write` / `read-only` modes). Linux/macOS backends live in [`@deepseek-ai/dsh-sandbox-local`](../sandbox-local/).
+Windows write-restriction sandbox backend for the [harness sandbox seam](../sandbox/): a Node.js/[koffi](https://koffi.dev/) port of the mechanism in [huoyaoyuan/windows-acl-restrict-poc](https://github.com/huoyaoyuan/windows-acl-restrict-poc) (`10e4dfb`, the fixed revision), mounted as the win32 rung of the [`@deepseek-ai/dsh-sandbox-local`](../sandbox-local/) chain (`workspace-write` / `read-only` modes); the same package carries the Linux/macOS backends.
 
 Mechanism in one line: the caller's token is duplicated into a `WRITE_RESTRICTED` token whose restricting SIDs include an orphan SID (`S-1-4-x-y`) that only this sandbox instance has added to the workspace and temp directories' DACLs. Windows then grants a write only where BOTH the caller's normal access AND the restricting-SID intersection allow it — the orphan SID is the write allowlist, and it grants nothing anywhere else on the system.
 
@@ -10,6 +10,8 @@ Mechanism in one line: the caller's token is duplicated into a `WRITE_RESTRICTED
 
 ```ts
 import { AclSandbox } from '@deepseek-ai/dsh-sandbox-windows-acl'
+
+const workspaceRoot = process.cwd()
 
 const sandbox = new AclSandbox({ writableDirs: [workspaceRoot] })
 await sandbox.init() // throws on ANY Win32 failure — never spawns unrestricted
@@ -56,9 +58,16 @@ The koffi struct definitions assert their sizes against the probe at module load
 - **Granted directories must be caller-owned.** The owner's implicit `WRITE_DAC` is what lets the sandbox edit the DACL without elevation.
 - **The temp grant follows `GetTempPathW`** — pass `tempDir` explicitly whenever possible. `GetTempPathW` reads the NATIVE environment block, which host runtimes that manage `process.env` through worker pools may not keep in sync (verified with vitest: a worker-side `process.env.TMP` change never reached the native block). A defaulted grant landing on the real temp dir inherits `(OI)(CI)` over every subdirectory of temp, silently widening the allowlist — point it at a per-sandbox directory instead.
 
+## Model Experience
+
+Indirectly, through [`dsh-bash-sandbox`](../../bash/bash-sandbox/README.md), [`dsh-pwsh-sandbox`](../../bash/pwsh-sandbox/README.md), and their tools, which render this backend's enforcement and denial facts (the confined stderr the tool layer classifies through `denialSignatures`) while the [`dsh-sandbox`](../sandbox/README.md) seam owns the `SANDBOX_UNAVAILABLE` text and runner selection.
+
+#### KV Cache effect
+
+None directly; the denial surface belongs to the tool layer.
+
 ## Known Limitations and Deferred Work
 
-- **No `SandboxProvider` wiring yet** — this package is the primitives layer; the `ctx.sandbox.confine()` integration (spawn-side token application plus the `denialSignatures`/`runnerFailureRules` contract) is the next step and cannot reuse the argv-wrapping style of `dsh-sandbox-local` because the restricted token must be applied at `CreateProcess` time.
 - **One write allowlist per instance** — the orphan SID is the unit of the allowlist; reusing one sandbox instance across two workspaces widens both grants to both roots. Create one instance per workspace root.
 - **Cleanup is best-effort by design** — `dispose()` attempts every revocation and aggregates failures into an `AggregateError`; a cleanup failure leaves a standing (but orphan-SID-only) ACE that this process's next `init()`/`dispose()` cycle or `icacls` (via the ACE, not the trustee name) can still remove.
-- **Read-side confinement, network policy, and job-object kill-on-close are out of scope** for this layer and belong to the future provider design.
+- **Read-side confinement and network policy are out of scope** — `WRITE_RESTRICTED` intersects write accesses only; pair this backend with a read-side policy for stronger confinement.

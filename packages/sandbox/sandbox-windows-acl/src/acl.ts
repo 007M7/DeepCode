@@ -35,6 +35,9 @@ function buildExplicitAccess(sidPtr: NativePtr, mode: number, permissions: numbe
  * orphan SID on `path`, inheriting to subcontainers and objects. The directory
  * must be owned by the caller (owner implicit WRITE_DAC) — same precondition
  * as the POC.
+ * @param api - the binding table.
+ * @param path - the directory whose DACL gains the grant (the workspace or temp root).
+ * @param sidPtr - the orphan write SID the ACE names.
  */
 export function grantWrite(api: Win32Bindings, path: string, sidPtr: NativePtr): void {
   const newAclSlot = allocPtrSlot()
@@ -63,6 +66,10 @@ export function grantWrite(api: Win32Bindings, path: string, sidPtr: NativePtr):
  * descriptor allocation — only the descriptor may be LocalFree'd, and it must
  * not be freed before SetEntriesInAclW has consumed the ACL. Freeing the ACL
  * pointer itself corrupts the heap (verified the hard way).
+ * @param api - the binding table.
+ * @param path - the directory whose DACL loses the orphan-SID ACEs.
+ * @param sidPtr - the orphan write SID whose ACEs are removed.
+ * @returns whether an ACE removal was attempted (false when the directory carries no DACL at all).
  */
 export function revokeWrite(api: Win32Bindings, path: string, sidPtr: NativePtr): boolean {
   const ownerSlot = allocPtrSlot()

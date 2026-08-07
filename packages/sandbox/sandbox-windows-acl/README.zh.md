@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-面向 [harness 沙盒接口](../sandbox/) 的 Windows 写入限制沙盒后端：用 Node.js/[koffi](https://koffi.dev/) 移植了 [huoyaoyuan/windows-acl-restrict-poc](https://github.com/huoyaoyuan/windows-acl-restrict-poc)（`10e4dfb` 修复版）的机制，作为 Windows 端 `SandboxProvider`（`workspace-write` / `read-only` 模式）实装的准备层。Linux/macOS 后端见 [`@deepseek-ai/dsh-sandbox-local`](../sandbox-local/)。
+面向 [harness 沙盒接口](../sandbox/) 的 Windows 写入限制沙盒后端：用 Node.js/[koffi](https://koffi.dev/) 移植了 [huoyaoyuan/windows-acl-restrict-poc](https://github.com/huoyaoyuan/windows-acl-restrict-poc)（`10e4dfb` 修复版）的机制，作为 [`@deepseek-ai/dsh-sandbox-local`](../sandbox-local/) 链的 win32 档（`workspace-write` / `read-only` 模式）挂载；同一包还携带 Linux/macOS 后端。
 
 一句话机制：把调用者令牌复制为 `WRITE_RESTRICTED` 受限令牌，其 restricting SIDs 中加入一个孤儿 SID（`S-1-4-x-y`），该 SID 只被本沙盒实例加到工作区与临时目录的 DACL 上。此后 Windows 只在「调用者正常权限」与「restricting SID 交集」同时允许时才放行写入——孤儿 SID 就是写入白名单，而它在系统其余位置不授予任何权限。
 
@@ -11,13 +11,15 @@
 ```ts
 import { AclSandbox } from '@deepseek-ai/dsh-sandbox-windows-acl'
 
+const workspaceRoot = process.cwd()
+
 const sandbox = new AclSandbox({ writableDirs: [workspaceRoot] })
-await sandbox.init() // 任何 Win32 调用失败都会抛错——绝不降级为无沙盒运行
+await sandbox.init() // throws on ANY Win32 failure — never spawns unrestricted
 
 const child = sandbox.spawn({ command: 'pwsh', args: ['-NoProfile', '-Command', '...'], cwd: workspaceRoot })
 const { stdout, stderr, exitCode } = await child.wait()
 
-sandbox.dispose() // 回收所有挂起的授权；逐项报告清理失败
+sandbox.dispose() // revokes all standing grants; reports every cleanup failure
 ```
 
 本包对**每一个** Win32 API 调用都做返回值检查；失败抛出 `Win32Error`，携带 API 名、精确的 Win32 错误码、`FormatMessageW` 系统文本和出错的路径/上下文。这是有意为之：原 POC 忽略所有返回值，当 `CreateRestrictedToken` 失败时会静默地用**完整未受限令牌**运行子进程（fail-open）。本移植从构造上保证 fail-closed。
@@ -56,9 +58,16 @@ g++ -std=c++20 -municode -O2 -o abi-probe.exe verify/abi-probe.cpp -ladvapi32 &&
 - **被授权目录必须归调用者所有。** 所有者隐含的 `WRITE_DAC` 是免提权改 DACL 的前提。
 - **临时目录授权跟随 `GetTempPathW`** —— 尽可能显式传入 `tempDir`。`GetTempPathW` 读取的是原生环境块，用 worker 池管理 `process.env` 的宿主运行时（vitest 实测）不会把 worker 侧的 `process.env.TMP` 改动同步过去。若默认授权落到真实临时目录，其 `(OI)(CI)` 继承会覆盖 temp 下所有子目录、静默扩大白名单——请指向按沙盒隔离的目录。
 
+## 模型体验
+
+经 [`dsh-bash-sandbox`](../../bash/bash-sandbox/README.md)、[`dsh-pwsh-sandbox`](../../bash/pwsh-sandbox/README.md) 及其工具间接生效：它们渲染本后端的强制完整性与拒绝事实（受限 stderr 由工具层按 `denialSignatures` 分类），而 [`dsh-sandbox`](../sandbox/README.md) seam 拥有 `SANDBOX_UNAVAILABLE` 文本与 runner 选择。
+
+#### KV Cache 影响
+
+无直接影响；拒绝呈现面属于工具层。
+
 ## 已知限制与后续工作
 
-- **尚未接入 `SandboxProvider`** —— 本包是原语层；`ctx.sandbox.confine()` 的集成（在 spawn 侧应用受限令牌，并补齐 `denialSignatures`/`runnerFailureRules` 契约）是下一步。该集成不能沿用 `dsh-sandbox-local` 的 argv 包装风格，因为受限令牌必须在 `CreateProcess` 时生效。
 - **每个实例一个写入白名单** —— 孤儿 SID 是白名单的基本单位；同一沙盒实例跨两个工作区复用时，两个根目录会互相扩大授权面。请按工作区根目录各建一个实例。
 - **清理尽力而为** —— `dispose()` 会尝试全部回收并把失败聚合为 `AggregateError`；清理失败只会留下仅含孤儿 SID 的 ACE，本进程下次 `init()`/`dispose()` 循环或 `icacls`（按 ACE 而非受托者名）仍可清除。
-- **读侧隔离、网络策略、job-object 关闭即杀** 超出本层范围，留给未来的 provider 设计。
+- **读侧隔离与网络策略超出范围** —— `WRITE_RESTRICTED` 只对写访问做交集检查；更强的隔离需叠加读侧策略。

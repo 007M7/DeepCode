@@ -38,6 +38,7 @@ import * as abi from './win32-abi.ts'
 export { quoteArg } from './spawn.ts'
 export { Win32Error } from './errors.ts'
 
+/** Construction options: the write allowlist, the optional temp grant, and the orphan SID identity. */
 export interface AclSandboxOptions {
   /** Directories the confined child may write into (must exist and be caller-owned). */
   writableDirs: readonly string[]
@@ -51,6 +52,7 @@ export interface AclSandboxOptions {
   writeSid?: string
 }
 
+/** Per-spawn options: the program, its argv/cwd, and the stdio shape. */
 export interface AclSandboxSpawnOptions {
   /** Program to run (resolved via PATH search when unqualified, like CreateProcess). */
   command: string
@@ -67,12 +69,14 @@ export interface AclSandboxSpawnOptions {
   stdio?: 'pipe' | 'inherit'
 }
 
+/** A settled confined child: captured stdio and the exit code. */
 export interface AclSandboxChildResult {
   stdout: Buffer
   stderr: Buffer
   exitCode: number
 }
 
+/** A running confined child: its pid and a settlement promise. */
 export interface AclSandboxChild {
   /** Child process id. */
   pid: number
@@ -98,7 +102,9 @@ function getTempPath(api: Win32Bindings): string {
  * failure.
  */
 export class AclSandbox {
+  /** Absolute writable directories (constructor-validated). */
   readonly writableDirs: string[]
+  /** The orphan SID string whose ACEs form the write allowlist. */
   readonly writeSid: string
   private readonly tempDirOption: string | null | undefined
   private tempDirResolved: string | null | undefined
@@ -199,6 +205,8 @@ export class AclSandbox {
    * placed in a kill-on-close job (dies with the caller). Call dispose() only
    * after all children have exited — revoking grants under a live child
    * removes its remaining write allowance.
+   * @param options - the program, argv/cwd, and stdio shape.
+   * @returns the running child.
    */
   spawn(options: AclSandboxSpawnOptions): AclSandboxChild {
     const api = this.api

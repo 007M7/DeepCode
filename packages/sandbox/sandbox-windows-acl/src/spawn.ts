@@ -17,6 +17,8 @@ import * as abi from './win32-abi.ts'
  * Quote one argument per the CommandLineToArgvW parsing rules (backslash
  * escaping only before quotes; a trailing backslash before the closing quote
  * is doubled).
+ * @param argument - one argv entry to quote.
+ * @returns the quoted entry (bare when quoting is unnecessary).
  */
 export function quoteArg(argument: string): string {
   if (argument === '') return '""'
@@ -37,7 +39,12 @@ export function quoteArg(argument: string): string {
   return quoted + '"'
 }
 
-/** Build the single command line CreateProcess parses from program + argv. */
+/**
+ * Build the single command line CreateProcess parses from program + argv.
+ * @param program - the executable (argv[0]).
+ * @param args - the remaining argv entries.
+ * @returns the joined, quoted command line.
+ */
 export function buildCommandLine(program: string, args: readonly string[]): string {
   return [program, ...args].map(quoteArg).join(' ')
 }
@@ -63,6 +70,7 @@ function setInheritable(api: Win32Bindings, handle: NativePtr, label: string): v
   }
 }
 
+/** A confined child spawned with piped stdio: process handle plus the pipe read ends to drain. */
 export interface SpawnedNative {
   pid: number
   process: NativePtr
@@ -74,6 +82,10 @@ export interface SpawnedNative {
  * Create a process under the restricted token with piped stdio. The child's
  * stdin is closed immediately (EOF), matching the POC; stdout/stderr read ends
  * are returned for draining.
+ * @param api - the binding table.
+ * @param token - the restricted token the child runs under.
+ * @param options - command, args, and working directory.
+ * @returns the spawned child's handles.
  */
 export function spawnSandboxed(
   api: Win32Bindings,
@@ -133,7 +145,12 @@ export function spawnSandboxed(
   }
 }
 
-/** Drain one pipe read end to a Buffer via non-blocking PeekNamedPipe polling. */
+/**
+ * Drain one pipe read end to a Buffer via non-blocking PeekNamedPipe polling.
+ * @param api - the binding table.
+ * @param handle - the pipe read end to drain (closed when done).
+ * @returns the complete pipe contents.
+ */
 export async function drainPipe(api: Win32Bindings, handle: NativePtr): Promise<Buffer> {
   const chunks: Buffer[] = []
   for (;;) {
@@ -167,6 +184,9 @@ export async function drainPipe(api: Win32Bindings, handle: NativePtr): Promise<
  * the child has already exited, so this wait returns immediately. Calling it
  * earlier would block the event loop and starve the drains (the pipe-buffer
  * deadlock the POC comments warn about).
+ * @param api - the binding table.
+ * @param process - the child process handle (closed when done).
+ * @returns the child's exit code.
  */
 export function waitForExit(api: Win32Bindings, process: NativePtr): number {
   const waitResult = api.waitForSingleObject(process, abi.INFINITE)
@@ -197,6 +217,7 @@ function createKillOnCloseJob(api: Win32Bindings): NativePtr {
   return job
 }
 
+/** A confined child spawned with inherited stdio: process handle plus its kill-on-close job. */
 export interface SpawnedInherited {
   pid: number
   process: NativePtr
@@ -217,6 +238,10 @@ export interface SpawnedInherited {
  * STARTF_USESTDHANDLES — otherwise the child receives INVALID std handles
  * ("The handle is invalid", verified the hard way). The child starts
  * suspended so it can be assigned to a kill-on-close job before it runs.
+ * @param api - the binding table.
+ * @param token - the restricted token the child runs under.
+ * @param options - command, args, and working directory.
+ * @returns the spawned child's handles and job.
  */
 export function spawnSandboxedInherited(
   api: Win32Bindings,

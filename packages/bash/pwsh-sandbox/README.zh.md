@@ -15,9 +15,19 @@
 
 ### 隔离生效，拒绝以命令失败呈现
 
-模型看到受限命令自身的 stderr（Windows ACL runner 下如 `Access to the path '...' is denied.`）；工具层把分类后的拒绝转成标准权限拒绝面，与 bash 工具完全一致。
+#### 模型看到什么
 
-## 已知限制
+受限命令自身的 stderr（Windows ACL runner 下如 `Access to the path '...' is denied.`）；工具层把分类后的拒绝转成标准权限拒绝面，与 bash 工具完全一致。
+
+#### Token 影响
+
+除命令 stderr 与工具层标准拒绝面外，无额外模型可见文本。
+
+#### KV Cache 影响
+
+无直接影响；拒绝呈现面属于工具层。
+
+## 已知限制与后续工作
 
 - **Windows 上读不受限**（ACL runner 只限写）；读边界文档在 `@deepseek-ai/dsh-sandbox-windows-acl`。
 - **Windows workspace-write 的临时区域是真实临时目录**（`GetTempPathW`）。这是有意为之的后端自定义选择，与 Landlock 的决策（`readWrite: ['/tmp', ...]`）同类：seam 的 "backend-defined temp area" 词汇表允许它，`tests/acl.e2e.ts` 的逃逸探针也正是因此位于 temp 树之外。按运行创建私有临时目录（bwrap `--tmpfs /tmp` 的语义）还需 runner 改写环境块——这是可选的进一步加固，而非正确性缺口。

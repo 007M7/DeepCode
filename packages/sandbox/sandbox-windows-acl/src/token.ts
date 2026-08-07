@@ -16,6 +16,8 @@ import * as abi from './win32-abi.ts'
  * CreateRestrictedToken requires (the POC's OpenProcessToken call; the token
  * handle is obtained through a real OpenProcess handle because the
  * GetCurrentProcess() pseudo-handle is not addressable through koffi).
+ * @param api - the binding table.
+ * @returns the opened token handle.
  */
 export function openCurrentProcessToken(api: Win32Bindings): NativePtr {
   const processHandle = api.openProcess(abi.PROCESS_QUERY_INFORMATION, 0, process.pid)
@@ -42,6 +44,9 @@ export function openCurrentProcessToken(api: Win32Bindings): NativePtr {
  * Find and copy the token's logon session SID (S-1-5-5-x-y, attribute
  * SE_GROUP_LOGON_ID). The restricted token needs it for WinSta0/desktop and
  * other per-logon objects; the POC extracts it the same way.
+ * @param api - the binding table.
+ * @param token - the token whose groups are scanned.
+ * @returns a copied logon SID (thrown when the token carries none).
  */
 export function findLogonSid(api: Win32Bindings, token: NativePtr): NativePtr {
   const neededSlot = allocUint32()
@@ -70,7 +75,12 @@ export function findLogonSid(api: Win32Bindings, token: NativePtr): NativePtr {
   throw new Error(`CreateRestrictedToken prerequisite failed: no logon SID found among ${groupCount} token groups`)
 }
 
-/** Create one well-known SID (68-byte buffer) and assert its validity. */
+/**
+ * Create one well-known SID (68-byte buffer) and assert its validity.
+ * @param api - the binding table.
+ * @param type - the WELL_KNOWN_SID_TYPE to create.
+ * @returns the created SID pointer.
+ */
 export function makeWellKnownSid(api: Win32Bindings, type: number): NativePtr {
   const sid = allocBytes(abi.SECURITY_MAX_SID_SIZE)
   const sizeSlot = allocUint32()
@@ -91,6 +101,7 @@ function buildRestrictingSids(sids: readonly NativePtr[]): Buffer {
   return buffer
 }
 
+/** The well-known SIDs packed into every restricted token's restricting list. */
 export interface RestrictingSidSet {
   world: NativePtr
   authUser: NativePtr
@@ -105,6 +116,12 @@ export interface RestrictingSidSet {
  * write SID that forms the write allowlist. S-1-2-1 (console logon) is
  * intentionally absent: see win32-abi.ts for the verified failure modes.
  * FAILS CLOSED: any failure throws — never spawn unrestricted.
+ * @param api - the binding table.
+ * @param currentToken - the process token to restrict.
+ * @param logonSid - the copied logon session SID.
+ * @param writeSid - the orphan SID forming the write allowlist.
+ * @param known - the well-known SIDs entering the restricting list.
+ * @returns the restricted token handle.
  */
 export function createRestrictedToken(
   api: Win32Bindings,
