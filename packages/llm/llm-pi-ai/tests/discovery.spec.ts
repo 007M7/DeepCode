@@ -1,6 +1,6 @@
 import { createServer } from 'node:http'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import LlmService, { userAgent } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
@@ -12,6 +12,9 @@ const servers: Server[] = []
 const touchedEnv: string[] = []
 
 afterEach(async () => {
+  // A no-op when the test never stubbed `fetch`; only 'probe key format'
+  // below installs one.
+  vi.unstubAllGlobals()
   for (const name of touchedEnv.splice(0)) Reflect.deleteProperty(process.env, name)
   await Promise.all(servers.splice(0).map(server => new Promise(resolve => server.close(resolve))))
 })
@@ -309,5 +312,47 @@ describe('draft-provider model discovery', () => {
 
     await expect(ctx.llm.discoverModels('llm-pi-ai', { provider: 'openai' }))
       .rejects.toMatchObject({ code: 'NO_DISCOVERY' })
+  })
+})
+
+describe('probe key format', () => {
+  it('reports an illegal probe key as a credential fault, not an unreachable endpoint', async () => {
+    await expect(discoverModels({
+      baseURL: 'https://acme.test',
+      api: 'openai-completions',
+      apiKey: 'sk-\u{1F600}',
+    })).rejects.toMatchObject({ code: 'INVALID_CREDENTIAL' })
+  })
+
+  it('reports a blank probe key as a credential fault too', async () => {
+    // The Models page omits `apiKey` entirely for a cleared field rather than
+    // sending '', so this pins the contract for every other caller: a supplied
+    // key is judged, and only an absent one probes unauthenticated. '' means
+    // "I have a key" and is answered as the empty key it is.
+    await expect(discoverModels({
+      baseURL: 'https://acme.test',
+      api: 'openai-completions',
+      apiKey: '',
+    })).rejects.toMatchObject({ code: 'INVALID_CREDENTIAL' })
+  })
+
+  it('leaves a probe with no key unauthenticated', async () => {
+    // The file's other cases capture headers through a real local HTTP server
+    // (`listingServer`); this one has no route or stored key to resolve, so
+    // the smallest real double is a `fetch` stub, scoped to this test and
+    // unstubbed by the shared `afterEach` above.
+    const requests: RequestInit[] = []
+    vi.stubGlobal('fetch', async (_url: string | URL, init?: RequestInit) => {
+      requests.push(init ?? {})
+      return new Response(JSON.stringify({ data: [] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    })
+
+    await discoverModels({ baseURL: 'https://acme.test', api: 'openai-completions' })
+
+    const headers = new Headers(requests[0]?.headers)
+    expect(headers.has('authorization')).toBe(false)
   })
 })

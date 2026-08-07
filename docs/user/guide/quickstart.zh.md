@@ -57,5 +57,6 @@ headless-agent 使用 `@deepseek-ai/dsh-cli-demo` app。`dsh web` 则启动 `web
 
 ## 下一步
 
+- [配置模型](./providers.md) — 接入 DeepSeek 之外的提供方与自定义网关
 - [配置文件](./config.md) — 了解 `cordis.yml` 的格式
 - [开发插件](../develop/basic/) — 编写自己的 tool 或后端
