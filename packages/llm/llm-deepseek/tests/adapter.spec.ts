@@ -699,6 +699,13 @@ describe('plugin registration and config', () => {
     })
   })
 
+  it('normalizes a literal API key and treats whitespace as absent', () => {
+    expect(resolveAdapterOptions({ apiKey: '  key  ' }).apiKey).toBe('key')
+    const whitespace = resolveAdapterOptions({ apiKey: ' \t ', apiKeyEnv: 'CUSTOM_API_KEY' })
+    expect(whitespace.apiKey).toBeUndefined()
+    expect(whitespace.apiKeyEnv).toBe('CUSTOM_API_KEY')
+  })
+
   it('uses the default model catalog when apply is called directly', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
@@ -989,5 +996,40 @@ describe('plugin registration and config', () => {
       retryPolicy: { mode: 'normal', maxRetries: -1 },
     })).rejects.toThrow(/retryPolicy/)
     expect(ctx.llm.listProviders()).toEqual([])
+  })
+})
+
+describe('API key format', () => {
+  it('trims a padded literal apiKey', () => {
+    expect(resolveAdapterOptions({ apiKey: '  sk-abc  ' }).apiKey).toBe('sk-abc')
+  })
+
+  it('leaves an omitted apiKey absent so apiKeyEnv still resolves it', () => {
+    expect(resolveAdapterOptions({}).apiKey).toBeUndefined()
+  })
+
+  it('treats a whitespace-only literal apiKey as absent, not as a failure', () => {
+    // This adapter's absence has a defined fallback, so a blank literal
+    // resolves through apiKeyEnv like an omitted one. (llm-pi-ai refuses a
+    // blank one instead: there, absence selects provider-native or OAuth
+    // authentication rather than a different source for the same key.)
+    const resolved = resolveAdapterOptions({ apiKey: '   ', apiKeyEnv: 'CUSTOM_API_KEY' })
+    expect(resolved.apiKey).toBeUndefined()
+    expect(resolved.apiKeyEnv).toBe('CUSTOM_API_KEY')
+  })
+
+  it('rejects a literal apiKey no header can carry', () => {
+    expect(() => resolveAdapterOptions({ apiKey: 'sk-\u{1F600}' }))
+      .toThrow(/no HTTP header can carry/)
+  })
+
+  it('never echoes the key in the rejection', () => {
+    const secret = 'sk-\u{1F600}supersecret'
+    expect(() => resolveAdapterOptions({ apiKey: secret })).toThrow()
+    try {
+      resolveAdapterOptions({ apiKey: secret })
+    } catch (error) {
+      expect((error as Error).message).not.toContain('supersecret')
+    }
   })
 })

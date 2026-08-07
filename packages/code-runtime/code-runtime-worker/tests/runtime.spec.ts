@@ -787,7 +787,17 @@ describe('WorkerCodeRuntime — seam misuse and lifecycle', () => {
     const cases: [string, RegExp][] = [
       ['not valid!', /not a usable identifier/],
       ['await', /not a usable identifier/],
-      ['console', /duplicate binding global/],
+      // `$tools` is legal JS but outside the seam's language-portable subset:
+      // the same namespace list must work against every backend's language.
+      ['$tools', /not a usable identifier/],
+      // `a$b` pins the second character class too: the old identifier regex
+      // `[A-Za-z0-9_$]*` would have accepted a `$` after the first character.
+      ['a$b', /not a usable identifier/],
+      // `lambda` is a Python keyword, refused here directly (not just
+      // transitively) so the worker's adoption of PORTABLE_RESERVED_WORDS is
+      // its own regression, symmetric with the `$tools` case.
+      ['lambda', /not a usable identifier/],
+      ['console', /reserved binding global/],
     ]
     for (const [global, message] of cases) {
       await expect(runtime.run({ program: 'return 1', bindings: [{ global, functions: {} }] })).rejects.toThrow(message)
@@ -814,7 +824,7 @@ describe('WorkerCodeRuntime — seam misuse and lifecycle', () => {
 
     await expect(run([namespace('tools', 'not valid!')])).rejects.toThrow(/error class.*not a usable identifier/)
     await expect(run([namespace('tools', 'await')])).rejects.toThrow(/error class.*not a usable identifier/)
-    await expect(run([namespace('tools', 'console')])).rejects.toThrow(/duplicate injected global/)
+    await expect(run([namespace('tools', 'console')])).rejects.toThrow(/reserved binding global/)
     await expect(run([namespace('tools', 'tools')])).rejects.toThrow(/duplicate injected global/)
     await expect(run([
       namespace('tools', 'CallError'),
@@ -822,6 +832,14 @@ describe('WorkerCodeRuntime — seam misuse and lifecycle', () => {
     ])).rejects.toThrow(/duplicate injected global/)
     await expect(run([namespace('tools', 'CallError', '')])).rejects.toThrow(/member property.*not usable/)
     await expect(run([namespace('tools', 'CallError', 'message')])).rejects.toThrow(/member property.*not usable/)
+    // The shared exclusion set covers Python's exception-protocol members and
+    // dunders too, so the same errorClass is valid (or not) on every backend.
+    await expect(run([namespace('tools', 'CallError', 'args')])).rejects.toThrow(/member property.*not usable/)
+    await expect(run([namespace('tools', 'CallError', '__dict__')])).rejects.toThrow(/member property.*not usable/)
+    // The Python backend's owned globals are refused here too (shared
+    // RESERVED_BINDING_GLOBALS), keeping namespace lists backend-portable.
+    await expect(runtime.run({ program: 'return 1', bindings: [{ global: '__dsh_main__', functions: {} }] }))
+      .rejects.toThrow(/reserved binding global/)
   })
 
   it('rejects config values that are not positive numbers', async () => {

@@ -668,7 +668,13 @@ Requires: `llm`
  * reasoning effort resolves to `high`.
  */
 export interface Config {
-  /** Literal API key; prefer {@link apiKeyEnv} so no secret enters configuration files. */
+  /**
+   * Trimmed literal API key; whitespace-only is absent, so it resolves through
+   * {@link apiKeyEnv} like an omitted one. Prefer {@link apiKeyEnv} to keep
+   * secrets out of configuration files. {@link resolveAdapterOptions} also
+   * format-checks what remains: a value no HTTP header can carry fails there
+   * rather than inside `fetch`.
+   */
   apiKey?: string
   /** Credential reference (environment-variable name) resolved per request; defaults to `DEEPSEEK_API_KEY`. */
   apiKeyEnv?: string
@@ -726,7 +732,11 @@ export interface Config {
 
 /** Configuration for one pi-ai provider route; the `providers` dict key IS the route. */
 export interface PiAiProviderProfile {
-  /** Literal provider credential; prefer {@link apiKeyEnv}. With both absent pi-ai uses its provider-native ambient discovery. */
+  /**
+   * Literal provider credential; prefer {@link apiKeyEnv}. With both absent pi-ai uses its
+   * provider-native ambient discovery. Trimmed and format-checked by {@link resolveProfiles}; a
+   * value no HTTP header can carry fails there rather than inside `fetch`.
+   */
   apiKey?: string
   /** Credential reference (environment-variable name) resolved per request through `ctx.credentials`. */
   apiKeyEnv?: string
@@ -798,7 +808,7 @@ export interface PiAiModelProfile {
 
 Depends on: `CacheRetention` (`@earendil-works/pi-ai`) · `ModelThinkingLevel` (`@earendil-works/pi-ai`) · [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts) · `ThinkingBudgets` (`@earendil-works/pi-ai`) · `Transport` (`@earendil-works/pi-ai`)
 
-Source: [`packages/llm/llm-pi-ai/src/config.ts:122`](../packages/llm/llm-pi-ai/src/config.ts)
+Source: [`packages/llm/llm-pi-ai/src/config.ts:126`](../packages/llm/llm-pi-ai/src/config.ts)
 
 ## `@deepseek-ai/dsh-llm-replay`
 
@@ -2218,8 +2228,9 @@ export interface Config {
   /**
    * Model presentation. `native` (default) sends every visible schema; `code`
    * sends only `run_code` plus a generated SDK prompt; `both` sends both forms.
-   * Code modes require a TypeScript runtime and fail prompt assembly when it is
-   * absent or mismatched. Under `code`, native names in `toolOrder` are invalid.
+   * Code modes require a `ctx.codeRuntime` whose `language` has a registered
+   * SDK renderer (TypeScript or Python) and fail prompt assembly when it is
+   * absent or has no renderer. Under `code`, native names in `toolOrder` are invalid.
    */
   mode?: ToolPresentationMode
   /**
@@ -2236,7 +2247,7 @@ export interface Config {
 export type ToolPresentationMode = 'native' | 'code' | 'both'
 ```
 
-Source: [`packages/core/tools/src/index.ts:592`](../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:616`](../packages/core/tools/src/index.ts)
 
 ## `@deepseek-ai/dsh-typert-loader`
 
