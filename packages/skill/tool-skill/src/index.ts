@@ -9,12 +9,13 @@ import type { Context } from 'cordis'
 import z from 'schemastery'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { assertNever, createUserMessage } from '@deepseek-ai/dsh-llm'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
 import {
+  escapeText,
   isModelInvocable,
   isSkillName,
-  type SkillDefinition,
+  renderSkillContent,
   type SkillSummary,
 } from '@deepseek-ai/dsh-skill'
 
@@ -203,52 +204,6 @@ export function apply(ctx: Context, config: Config = {}): void {
   })
 }
 
-function renderSkillContent(skill: Pick<SkillDefinition, 'name' | 'provider' | 'resourceBase' | 'content'>): string {
-  const resourceHint = renderResourceHint(skill)
-  return [
-    `<skill_content name="${escapeAttr(skill.name)}">`,
-    '<skill_resources>',
-    ...resourceHint,
-    '</skill_resources>',
-    '',
-    '<skill_instructions>',
-    skill.content,
-    '</skill_instructions>',
-    '</skill_content>',
-  ].join('\n')
-}
-
-function renderResourceHint(skill: Pick<SkillDefinition, 'provider' | 'resourceBase'>): string[] {
-  const base = skill.resourceBase
-  if (base === undefined) {
-    return [
-      `Resources for this skill are managed by provider "${escapeText(skill.provider)}".`,
-      'Load referenced resources only as needed.',
-    ]
-  }
-  switch (base.kind) {
-    case 'directory':
-      return [
-        `Base directory for this skill: ${escapeText(base.path)}`,
-        'Resolve relative paths mentioned by this skill against the base directory before using them. Load referenced resources only as needed.',
-      ]
-    case 'url':
-      return [
-        `Base URL for this skill: ${escapeText(base.url)}`,
-        'Resolve relative URLs mentioned by this skill against the base URL before using them. Load referenced resources only as needed.',
-      ]
-    case 'opaque':
-      return [
-        `Resources for this skill: ${escapeText(base.description)}`,
-        'Load referenced resources only as needed.',
-      ]
-    /* v8 ignore start -- SkillResourceBase is a closed union; a future kind must fail compilation here. */
-    default:
-      return assertNever(base, 'SkillResourceBase.kind')
-    /* v8 ignore stop */
-  }
-}
-
 function renderCatalogMessage(entries: SkillCatalogSource['entries']): UserMessage {
   return createUserMessage({
     content: [{
@@ -392,12 +347,4 @@ function assertPositiveInteger(name: string, value: number, minimum = 1): void {
   if (!Number.isInteger(value) || value < minimum) {
     throw new Error(`tool-skill: ${name} must be an integer greater than or equal to ${minimum}`)
   }
-}
-
-function escapeAttr(value: string): string {
-  return value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;')
-}
-
-function escapeText(value: string): string {
-  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
 }
