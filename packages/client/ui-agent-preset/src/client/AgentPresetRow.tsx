@@ -7,9 +7,9 @@
 import { useEffect, useState } from 'react'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import { IconChevronDownOutline14, Menu } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { AgentPresetSettingsState } from './settings-store.ts'
 import type { AgentPresetSettingsKey } from './locales.ts'
+import { PresetMenu } from './PresetMenu.tsx'
 import css from './AgentPresetRow.module.css'
 
 /** Registration-side business face for the host-backed preference. */
@@ -52,12 +52,7 @@ export function AgentPresetRow({ load, select, useAgentPreset, t }: AgentPresetR
   // every session shares the host composition — the row simply does not exist.
   if (state.status === 'unavailable') return null
   const busy = state.status === 'loading' || state.status === 'saving'
-  // The metadata name is what every other surface shows — the new-session chip,
-  // the session header, the preset cards — so this row shows it too; the id is
-  // the addressing, not the label. A preset that names itself nothing falls
-  // back to its id, which is then all there is to say about it.
-  const chosen = state.options.find(option => option.id === state.currentValue)
-  const label = state.currentValue === '' ? t('loading') : (chosen?.name ?? state.currentValue)
+  const label = state.currentValue === '' ? t('loading') : state.currentValue
   const description: string = state.error ?? t('description')
 
   return (
@@ -66,38 +61,17 @@ export function AgentPresetRow({ load, select, useAgentPreset, t }: AgentPresetR
         <div className={css.title}>{t('title')}</div>
         <div className={css.desc} role={state.error === null ? undefined : 'alert'}>{description}</div>
       </div>
-      <Menu
-        open={open}
-        onClose={() => { setOpen(false) }}
-        // A locally authored preset is exactly as privileged as the plugins it
-        // names, so the list says which rows are local rather than presenting
-        // every preset as shipped and vetted.
-        items={state.options.map(option => ({
-          id: option.id,
-          label: option.trust === 'user'
-            ? `${option.name ?? option.id} · ${t('userTrust')}`
-            : option.name ?? option.id,
-        }))}
+      <PresetMenu
+        options={state.options}
         selectedId={state.currentValue}
-        onSelect={(id) => {
-          setOpen(false)
-          void select(id)
-        }}
-        align="end"
-        portal
-        anchor={(
-          <button
-            type="button"
-            className={css.selector}
-            aria-haspopup="menu"
-            aria-expanded={open}
-            disabled={busy || !state.writable || state.options.length === 0}
-            onClick={() => { setOpen(value => !value) }}
-          >
-            {label}
-            <IconChevronDownOutline14 className={css.chevron} />
-          </button>
-        )}
+        label={label}
+        userTrustLabel={t('userTrust')}
+        buttonClassName={css.selector}
+        chevronClassName={css.chevron}
+        disabled={busy || !state.writable || state.options.length === 0}
+        open={open}
+        onOpenChange={setOpen}
+        onSelect={(id) => { void select(id) }}
       />
     </div>
   )
