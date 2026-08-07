@@ -53,7 +53,12 @@ export function PresetMenu({
       onClose={() => { onOpenChange(false) }}
       items={options.map(option => ({
         id: option.id,
-        label: option.trust === 'user' ? `${option.id} · ${userTrustLabel}` : option.id,
+        // The metadata name is what every surface shows; the id is addressing,
+        // not a label. A preset that names itself nothing falls back to its id,
+        // which is then all there is to say about it.
+        label: option.trust === 'user'
+          ? `${option.name ?? option.id} · ${userTrustLabel}`
+          : option.name ?? option.id,
       }))}
       selectedId={selectedId}
       onSelect={(id) => {
