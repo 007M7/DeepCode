@@ -215,7 +215,7 @@ function validateCreateArgs(args: { prompt: string; after_seconds: number }): Sc
  * @param rootCtx - Global service context owning sessions and durability.
  * @param toolCtx - Exact agent-scoped context receiving the definitions.
  * @param agent - Exact live owner whose session the tools mutate.
- * @param onDurableChange - Called after a create or actual delete barrier succeeds.
+ * @param onDurableChange - Called after every successful preflight and again after a create or actual delete barrier succeeds.
  * @returns Idempotent aggregate disposer for the three registrations.
  */
 export function registerScheduleTools(
