@@ -48,7 +48,7 @@ The line is that these take effect with no user action, before any turn, outside
 
 **`packages/util/environment` owns the snapshot**, deliberately as a utility rather than a three-package capability seam. The snapshot is frozen before Cordis starts and injected once by the launcher, so there is no runtime implementation to swap; consumers need types and pure functions, which a `util/` package gives them without depending on a UI package. `environmentOf(ctx)` returns the launcher's snapshot, or the inherited environment as the only layer — an SDK host or bare `cordis.yml` discovered no files, so its single layer really is what it was launched with, and the same trusted lookups keep working there unchanged.
 
-**`verify-config-source-ownership`** keeps both rules: no unregistered `process.env` read under `packages/*/*/src` (26 allowlisted, each with the reason it is a process fact), and no `apiKey`/`baseURL`/`headers` inlined from the environment in shipped Cordis configuration. Removing those inlines is what makes the deployment tier meaningful — with the shipped tree silent on `baseURL`, a present value means a human or deployment set it.
+**`verify-config-source-ownership`** is a narrow tripwire for the ordinary single-line form of an `apiKey`/`baseURL`/`headers` environment inline in shipped Cordis configuration. Removing those inlines is what makes the deployment tier meaningful — with the shipped tree silent on `baseURL`, a present value means a human or deployment set it. Adapters own actual resolution; the gate makes no repository-wide claim about `process.env` access.
 
 ## Consequences
 

@@ -50,7 +50,7 @@ inherited process environment      (read-only, wins)
 
 **`packages/util/environment` 拥有该快照**，刻意做成 utility 而不是三包能力 seam。快照在 Cordis 启动前就冻结，并由启动器一次性注入，因此不存在需要切换的运行时实现；消费方需要的只是类型和纯函数，而 `util/` 包能提供这些且不必依赖 UI 包。`environmentOf(ctx)` 返回启动器的快照，或者返回只含继承环境的那一层——SDK 宿主或裸 `cordis.yml` 从未发现过任何文件，它那唯一一层确实就是它被启动时的环境，因此同样的受信查询在那里原样继续工作。
 
-**`verify-config-source-ownership`** 守住这两条规则：`packages/*/*/src` 下没有未登记的 `process.env` 读取（26 处在 allowlist 中，各自写明它为何是进程事实），以及已交付 Cordis 配置中不得从环境内联 `apiKey`/`baseURL`/`headers`。删除这些内联正是「部署层」得以成立的原因——已交付配置树对 `baseURL` 保持沉默之后，「有值」就意味着「人或部署设过它」。
+**`verify-config-source-ownership`** 仅作为一道窄门禁，检查已交付 Cordis 配置中从环境内联 `apiKey`/`baseURL`/`headers` 的普通单行写法。删除这些内联正是「部署层」得以成立的原因——已交付配置树对 `baseURL` 保持沉默之后，「有值」就意味着「人或部署设过它」。实际解析由适配器负责；该门禁不声称覆盖仓库范围内的 `process.env` 访问。
 
 ## Consequences
 
