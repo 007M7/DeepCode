@@ -2,7 +2,9 @@
 
 English | [中文](README.zh.md)
 
-Skill reference source, browser half: registers the `/`-trigger `skill` source into `ctx.slash`. Ordinary-session candidates come from the `skill.list` RPC addressed by the per-call `ClientSessionContext` projection's `{sessionId}`, with the host resolving `cwd` from the session header. The host returns the intersection of model-invocable and user-invocable skills because this browser path inserts a model reference rather than loading the body directly. Catalog-addressed continuable children resolve no skill candidates locally because the existing skill RPC requires an attached session; viewing their persisted history must not activate them. Catalogs cache per ordinary session with a single-flight fetch; the scope-birth `warm` hook prewarms the session's entry and `connection/reset` clears everything. Results filter by `startsWith(query)`; picking a candidate lands the literal `/name ` text through the slash pipeline (decision 21 plain-text reference), and the source `codec` owns the reference's two projections: `clipboardText` → `/name`, `serialize` → the model form `<skill>name</skill>` invoked at submit time. The RPC rides the plugin's root-context connection captured at registration — the source never reads services off a per-call argument. The source implements no `matchSpace`/`matchEnter` hooks — skill references never enter command adjudication and ride ordinary prompts into the default sink.
+Skill invocation source, browser half: registers the `/`-trigger `skill` source into `ctx.slash`. Ordinary-session candidates come from the `skill.list` RPC addressed by the per-call `ClientSessionContext` projection's `{sessionId}`, with the host resolving `cwd` from the session header. The host serves every user-invocable skill; a `modelInvocable: false` entry (a `disable-model-invocation` skill, whose only entry point is this path) wears the user-only marker as a description prefix in the active language. Catalog-addressed continuable children resolve no skill candidates locally because the existing skill RPC requires an attached session; viewing their persisted history must not activate them. Catalogs cache per ordinary session with a single-flight fetch; the scope-birth `warm` hook prewarms the session's entry and `connection/reset` clears everything. Results filter by `startsWith(query)`.
+
+A menu pick or an entered `/name [args]` line claims the composer into an args-tolerant `skill.invoke` transaction (`matchEnter` strong-waits the catalog; an unknown name answers undefined and stays a plain prompt). Submit trims the args, keeps blank args off the wire, and folds an RPC refusal into the composer's error outcome; the host renders the skill body and injects it as a user message before starting the turn, so invocation is deterministic for every user-invocable skill. The RPC rides the plugin's root-context connection captured at registration — the source never reads services off a per-call argument. Draft chip visuals still derive from the `lexicon` scan; the legacy `<skill>name</skill>` reference codec is gone (decision 21 removal cut) and `matchSpace` stays unimplemented — menu and enter own the skill flows.
 
 A failed `skill.list` throws from `candidates`, which the slash shell logs and folds into a silent menu-group drop — the menu shows only pending/ready states.
 
@@ -14,23 +16,22 @@ The browser plugin also registers a keyed `skill` toolview in `conversation.chat
 
 ## Model Experience
 
-### Skill reference text in the user prompt
+### User-explicit skill invocation
 
 #### What the model sees
 
-A picked candidate lands the literal `/name ` in the draft (decision 21: plain text, no `<skill>` tag); the text reaches the model verbatim inside the ordinary user message (`session.prompt`), with no dedicated content block, prompt section, or host-side expansion. The association with the actual skill is model-side and non-deterministic: the session prefix already carries the skill catalog (rendered by `dsh-tool-skill`), and the reference's name matching a catalog entry is what invites the model to load it.
+A claimed invocation never ships the `/name` literal. The host (`skill.invoke`) renders the canonical `<skill_content>` block — the same `renderSkillContent` output the `skill` tool returns — appends the user's trailing text after a blank line, and injects the whole as one user-role message carrying the `skill-invocation` source, immediately starting a turn. Loading is deterministic: the model receives the full body without being asked to call the `skill` tool, and the catalog (rendered by `dsh-tool-skill`) tells it not to re-load an inline-injected skill.
 
 #### Token effect
 
-Conditional and tiny: only a pick (or hand-typing the same text) adds the reference's characters to that one user message. Menu browsing and the candidate fetch add zero model tokens.
+One invocation adds the rendered skill body plus the trailing text to that turn's user message — the same cost as the model loading the skill through the tool, paid unconditionally instead of at the model's discretion. Menu browsing and the candidate fetch add zero model tokens.
 
 #### KV Cache effect
 
-Append-only: the reference is part of a new user message appended after the reusable history prefix. This package never edits earlier request tokens.
+Append-only: the injected message lands after the reusable history prefix. This package never edits earlier request tokens.
 
 ## Known Limitations and Deferred Work
 
 - **Result-only history pages use the generic row** — keyed dispatch needs the paired call in the runtime window; pagination that leaves the call outside has no tool identity. This client presentation feature does not extend the history wire contract to recover it.
-- **Non-deterministic skill loading** — the reference is a collaboration cue, not a guarantee; the model may ignore it. The rework path when hit rate proves insufficient (a host-side `context/skill-reference` guidance package, or full-text injection) sits in the design ledger; the wire text shape would not change.
-- **First keystroke may race the prewarm** — the scope-birth warm launches the catalog fetch, but a menu opened before it settles shows no skill candidates for that keystroke. Accepted by design: skill references do not participate in enter adjudication, so nothing correctness-bearing waits on the catalog.
+- **Enter waits on the catalog once** — `matchEnter` strong-waits the session's first catalog fetch before answering, so an enter racing a cold cache resolves against the settled catalog rather than silently missing. A menu opened before the prewarm settles still shows no skill candidates for that keystroke.
 - **Text is the truth** — the reference is plain draft text; a hand-typed identical token is the same reference. Chip visuals derive from the lexicon scan; no occurrence identity or position tracking (componentized chips are a ledger item).

@@ -37,6 +37,10 @@
 | `{ modelInvocable: false, userInvocable: true }` | 排除 | 包含 |
 | `{ modelInvocable: false, userInvocable: false }` | 排除 | 排除 |
 
+### 共享的面向模型渲染
+
+`renderSkillContent(skill)` 把一个已加载 skill 渲染为规范的 `<skill_content>` 块（转义后的 `name` 属性、资源提示、原样正文）。它是两条加载路径的唯一真源：`dsh-tool-skill` 将其作为 `skill` 工具结果返回，宿主的用户显式 `skill.invoke` 将其作为用户消息注入，因此无论加载由谁发起，模型看到的都是同一种形态。`escapeText` 随之一并导出，供要在同一标记框架中嵌入文案的消费方使用。该包还声明 `skill-invocation` 这个 `MessageSource` kind（{ name, args? }），用户显式注入会把它打在自己的消息上——transcript（文本记录）消费方依据这份元数据呈现该次调用，而不是重新解析正文。
+
 `isModelInvocable(skill)` 和 `isUserInvocable(skill)` 分别直接读取对应的正向字段。`ctx.skills.get()` 仍是受信且与策略无关的加载原语，因此每个面向用户或模型的消费方都必须先执行与自身接口匹配的判定，再暴露或加载 skill。
 
 ## 提供方契约

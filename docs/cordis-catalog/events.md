@@ -677,7 +677,7 @@ A skill provider, runtime contribution, or provider-backed catalog may have chan
 'skills/change'(): void
 ```
 
-Source: [`packages/skill/skill/src/index.ts:188`](../../packages/skill/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:279`](../../packages/skill/skill/src/index.ts)
 
 ## `subagent/*`
 
