@@ -7,6 +7,7 @@ import { afterAll, describe, expect, it } from 'vitest'
 import {
   defineAcpSnapshotSuite,
   stabilizeFixtureMessageIds,
+  tokenizeSessionFixtureCwd,
   type HarvestedLog,
   type Scenario,
 } from '../src/index.ts'
@@ -679,6 +680,109 @@ describe('stabilizeFixtureMessageIds', () => {
     }
   })
 
+  it('rewrites only complete messages carried by surface events or durable inbox splices', () => {
+    const ids = {
+      freshUser: '11111111-1111-4111-8111-111111111111',
+      oldUser: '22222222-2222-4222-8222-222222222222',
+      freshAssistant: '33333333-3333-4333-8333-333333333333',
+      oldAssistant: '44444444-4444-4444-8444-444444444444',
+      freshTool: '55555555-5555-4555-8555-555555555555',
+      oldTool: '66666666-6666-4666-8666-666666666666',
+      oldMalformed: '77777777-7777-4777-8777-777777777777',
+    } as const
+    const message = (id: string, role: string, text: string): Record<string, unknown> => ({
+      id,
+      role,
+      content: [{ type: 'text', text }],
+      source: { kind: role === 'user' ? 'user' : 'model' },
+    })
+    const log = (userId: string, assistantId: string, toolId: string, malformedId: string): string => [
+      JSON.stringify({ type: 'session', id: 'same', cwd: '{{cwd}}' }),
+      JSON.stringify({
+        type: 'agent/inbox/spliced',
+        data: {
+          inserted: [
+            message(userId, 'user', 'user'),
+            { ...message(userId, 'user', 'malformed inbox'), source: null },
+          ],
+        },
+      }),
+      JSON.stringify({ type: 'user/message', data: message(userId, 'user', 'user') }),
+      JSON.stringify({ type: 'assistant/message', data: { message: message(assistantId, 'assistant', 'assistant') } }),
+      JSON.stringify({ type: 'tool/result', data: { message: message(toolId, 'tool', 'tool') } }),
+      JSON.stringify({ type: 'turn/start', data: { id: userId } }),
+      JSON.stringify({ type: 'steering/message', data: message(userId, 'user', 'obsolete') }),
+      JSON.stringify({ type: 'user/message', data: { ...message(userId, 'user', 'malformed'), source: null } }),
+      JSON.stringify({ type: 'user/message', data: message(malformedId, 'user', 'non-UUID') }),
+      JSON.stringify({ type: 'assistant/message', data: null }),
+      JSON.stringify({ type: 42, data: message(userId, 'user', 'non-string type') }),
+      '',
+    ].join('\n')
+
+    const stable = stabilizeFixtureMessageIds(
+      [log(ids.freshUser, ids.freshAssistant, ids.freshTool, 'not-a-uuid')],
+      [log(ids.oldUser, ids.oldAssistant, ids.oldTool, ids.oldMalformed)],
+    )[0] as string
+    const records = stable.trim().split('\n').map(line => JSON.parse(line) as Record<string, unknown>)
+
+    const inserted = ((records[1]?.data as { inserted: Array<{ id: string }> }).inserted)
+    expect(inserted[0]?.id).toBe(ids.oldUser)
+    expect(inserted[1]?.id).toBe(ids.freshUser)
+    expect((records[2]?.data as { id: string }).id).toBe(ids.oldUser)
+    expect((records[3]?.data as { message: { id: string } }).message.id).toBe(ids.oldAssistant)
+    expect((records[4]?.data as { message: { id: string } }).message.id).toBe(ids.oldTool)
+    expect((records[5]?.data as { id: string }).id).toBe(ids.freshUser)
+    expect((records[6]?.data as { id: string }).id).toBe(ids.freshUser)
+    expect((records[7]?.data as { id: string }).id).toBe(ids.freshUser)
+    expect((records[8]?.data as { id: string }).id).toBe('not-a-uuid')
+  })
+
+  it('matches cwd-bearing messages only after the fresh log reaches fixture-ready form', () => {
+    const freshId = '11111111-1111-4111-8111-111111111111'
+    const existingId = '22222222-2222-4222-8222-222222222222'
+    const freshCwd = '/tmp/acp-snapshot-fresh-cwd'
+    const message = (id: string, path: string): Record<string, unknown> => ({
+      type: 'user/message',
+      data: {
+        id,
+        role: 'user',
+        content: [{ type: 'text', text: `read ${path}/input.txt` }],
+        source: { kind: 'user' },
+      },
+    })
+    const fresh = tokenizeSessionFixtureCwd([
+      JSON.stringify({ type: 'session', id: 'fresh', cwd: freshCwd }),
+      JSON.stringify(message(freshId, freshCwd)),
+      '',
+    ].join('\n'))
+    const existing = [
+      JSON.stringify({ type: 'session', id: 'old', cwd: '{{cwd}}' }),
+      JSON.stringify(message(existingId, '{{cwd}}')),
+      '',
+    ].join('\n')
+
+    expect(stabilizeFixtureMessageIds([fresh], [existing])[0]).toContain(`"id":"${existingId}"`)
+  })
+
+  it('rejects a fingerprint connected to an id that also identifies different content', () => {
+    const freshId = '11111111-1111-4111-8111-111111111111'
+    const conflictingId = '22222222-2222-4222-8222-222222222222'
+    const competingId = '33333333-3333-4333-8333-333333333333'
+    const message = (id: string, text: string): string => JSON.stringify({
+      type: 'user/message',
+      data: { id, role: 'user', content: [{ type: 'text', text }], source: { kind: 'user' } },
+    })
+    const fresh = `${message(freshId, 'shared')}\n`
+    const existing = [
+      message(conflictingId, 'shared'),
+      message(conflictingId, 'different'),
+      message(competingId, 'shared'),
+      '',
+    ].join('\n')
+
+    expect(stabilizeFixtureMessageIds([fresh], [existing])).toEqual([fresh])
+  })
+
   it('leaves fresh fixtures unchanged when no committed counterpart exists', () => {
     const fresh = '{"type":"session","id":"new"}\n'
     expect(stabilizeFixtureMessageIds([fresh], [''])).toEqual([fresh])
@@ -726,76 +830,28 @@ describe('refreshFixtureReplacements', () => {
     ])
   })
 
-  it('maps one inherited message id across parent and child logs', () => {
+  it('leaves complete message ids out of the literal refresh replacement list', () => {
     const freshMessageId = '11111111-1111-4111-8111-111111111111'
     const existingMessageId = '22222222-2222-4222-8222-222222222222'
-    const content = [{ type: 'text', text: 'inherited' }]
     const log = (sessionId: string, messageId: string): string => [
       JSON.stringify({ type: 'session', id: sessionId, cwd: '/same' }),
       JSON.stringify({
         type: 'user/message',
-        data: { role: 'user', content, source: { kind: 'user' }, id: messageId },
+        data: {
+          id: messageId,
+          role: 'user',
+          content: [{ type: 'text', text: 'same' }],
+          source: { kind: 'user' },
+        },
       }),
       '',
     ].join('\n')
-    const harvested = (content: string): HarvestedLog => ({ id: 'diagnostic', createdAt: 1, content })
-
     const replacements = refreshFixtureReplacements(
-      [harvested(log('fresh-parent', freshMessageId)), harvested(log('fresh-child', freshMessageId))],
-      [log('old-parent', existingMessageId), log('old-child', existingMessageId)],
+      [{ id: 'diagnostic', createdAt: 1, content: log('fresh', freshMessageId) }],
+      [log('old', existingMessageId)],
     )
 
-    expect(replacements.filter(replacement => replacement.from === freshMessageId)).toEqual([
-      { from: freshMessageId, to: existingMessageId },
-    ])
-  })
-
-  it('keeps fresh ids for new, changed, and ambiguous messages', () => {
-    const ids = {
-      new: '11111111-1111-4111-8111-111111111111',
-      changed: '22222222-2222-4222-8222-222222222222',
-      ambiguousA: '33333333-3333-4333-8333-333333333333',
-      ambiguousB: '44444444-4444-4444-8444-444444444444',
-      oldChanged: '55555555-5555-4555-8555-555555555555',
-      oldAmbiguous: '66666666-6666-4666-8666-666666666666',
-      stable: '77777777-7777-4777-8777-777777777777',
-    } as const
-    const message = (id: string, text: string): Record<string, unknown> => ({
-      type: 'user/message',
-      data: { role: 'user', content: [{ type: 'text', text }], source: { kind: 'user' }, id },
-    })
-    const log = (messages: Record<string, unknown>[]): string => [
-      JSON.stringify({ type: 'session', id: 'same', cwd: '/same' }),
-      ...messages.map(record => JSON.stringify(record)),
-      '',
-    ].join('\n')
-    const fresh = log([
-      message(ids.new, 'new'),
-      message(ids.changed, 'changed'),
-      message(ids.changed, 'changed again'),
-      message(ids.ambiguousA, 'duplicate'),
-      message(ids.ambiguousB, 'duplicate'),
-      message(ids.stable, 'stable'),
-    ])
-    const existing = log([
-      message(ids.oldChanged, 'before'),
-      message(ids.oldAmbiguous, 'duplicate'),
-      message(ids.stable, 'stable'),
-    ])
-
-    const replacements = refreshFixtureReplacements(
-      [{ id: 'diagnostic', createdAt: 1, content: fresh }],
-      [existing],
-    )
-
-    const replacedIds = replacements.map(replacement => replacement.from)
-    for (const id of [
-      ids.new,
-      ids.changed,
-      ids.ambiguousA,
-      ids.ambiguousB,
-      ids.stable,
-    ]) expect(replacedIds).not.toContain(id)
+    expect(replacements).toEqual([{ from: 'fresh', to: 'old' }])
   })
 })
 
@@ -936,11 +992,36 @@ describe('stabilizeRefreshLog', () => {
       [{ id: 'diagnostic', createdAt: 1, content: fresh }],
       [existing],
     )
-    const output = stabilize(fresh, existing, replacements).trim().split('\n')
+    const refreshed = stabilize(fresh, existing, replacements)
+    const intermediate = refreshed.trim().split('\n')
+      .map(line => JSON.parse(line) as Record<string, unknown>)
+    expect((intermediate[1]?.data as { id: string }).id).toBe(freshUserId)
+    expect(((intermediate[3]?.data as { message: { id: string } }).message).id).toBe(freshAssistantId)
+
+    const output = (stabilizeFixtureMessageIds([refreshed], [existing])[0] as string).trim().split('\n')
       .map(line => JSON.parse(line) as Record<string, unknown>)
 
     expect((output[1]?.data as { id: string }).id).toBe(existingUserId)
     expect(((output[3]?.data as { message: { id: string } }).message).id).toBe(existingAssistantId)
+  })
+
+  it('leaves an aligned complete message id to the fixture-ready structural pass', () => {
+    const freshId = '11111111-1111-4111-8111-111111111111'
+    const existingId = '22222222-2222-4222-8222-222222222222'
+    const log = (id: string): string => [
+      JSON.stringify({ type: 'session', id: 'same', createdAt: 1, cwd: '/same' }),
+      JSON.stringify({
+        type: 'user/message',
+        data: { id, role: 'user', content: [{ type: 'text', text: 'same' }], source: { kind: 'user' } },
+      }),
+      '',
+    ].join('\n')
+    const fresh = log(freshId)
+    const existing = log(existingId)
+    const refreshed = stabilize(fresh, existing)
+
+    expect(refreshed).toContain(`"id":"${freshId}"`)
+    expect(stabilizeFixtureMessageIds([refreshed], [existing])[0]).toContain(`"id":"${existingId}"`)
   })
 
   it('keeps volatile fixture fields while preserving fresh meaningful payloads', () => {

@@ -350,15 +350,18 @@ describe('TypeScript SDK snapshots over the jsonrpc runtime', () => {
           content: log.content,
         }))
         const replacements = refreshFixtureReplacements(harvested, expectedContents)
-        expectedContents = await Promise.all(ordered.map(async (log, index) => {
+        const refreshed = ordered.map((log, index) => {
           const existing = expectedContents[index]
-          const file = files[index]
-          if (existing === undefined || file === undefined) throw new Error(`no fixture for persisted log ${index}`)
-          const stable = scrubRequestHeaders(tokenizeSessionFixtureCwd(
+          if (existing === undefined) throw new Error(`no fixture for persisted log ${index}`)
+          return scrubRequestHeaders(tokenizeSessionFixtureCwd(
             stabilizeRefreshLog(log.content, existing, replacements, actualContext),
           ))
+        })
+        expectedContents = stabilizeFixtureMessageIds(refreshed, expectedContents)
+        await Promise.all(expectedContents.map(async (stable, index) => {
+          const file = files[index]
+          if (file === undefined) throw new Error(`no fixture for persisted log ${index}`)
           await writeFile(file, stable)
-          return stable
         }))
       }
 
