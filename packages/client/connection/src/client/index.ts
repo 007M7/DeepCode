@@ -8,7 +8,7 @@ import type { IApiClient } from './api.ts'
 import { ConnectionController, type ConnectionConfig, type ConnectionSinks, type ConnectionState } from './connection.ts'
 import { FixtureApiClient } from './fixture.ts'
 import { WebApiClient } from './web-api-client.ts'
-import { createUnavailableConnectionRpc, createWebConnectionRpc } from './rpc.ts'
+import { createWebConnectionRpc } from './rpc.ts'
 import { isLoopbackHostname } from '../loopback-hostname.ts'
 import type { ClientConnectionRpc } from '../rpc.ts'
 
@@ -74,8 +74,9 @@ export interface ConnectionHandle {
 export function apply(ctx: Context): void {
   const pageLocation = typeof location === 'undefined' ? undefined : location
   const fixture = pageLocation !== undefined && new URLSearchParams(pageLocation.search).has('fixture')
-  const api: IApiClient = fixture ? new FixtureApiClient() : new WebApiClient()
-  const rpc = fixture ? createUnavailableConnectionRpc() : createWebConnectionRpc()
+  const fixtureClient = fixture ? new FixtureApiClient() : undefined
+  const api: IApiClient = fixtureClient ?? new WebApiClient()
+  const rpc = fixtureClient?.rpc ?? createWebConnectionRpc()
   let started = false
   const handle: ConnectionHandle = {
     api,

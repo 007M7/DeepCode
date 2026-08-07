@@ -285,9 +285,37 @@ describe('connection client apply', () => {
     }
   })
 
-  it('keeps generic Remote calls unavailable in the client-only fixture', async () => {
+  it('carries Goal Remotes over the same state as the client-only fixture API', async () => {
     ;(globalThis as Win).location = { hostname: 'localhost', search: '?fixture' }
     const handle = await mount()
-    await expect(handle.rpc.call('/api', 'goals/create', {})).rejects.toThrow(/unavailable in fixture mode/)
+    const created = await handle.rpc.call('/api', 'goals/create', {
+      args: { agentId: 'fx-alpha', request: { objective: 'fixture remote' } },
+    })
+    expect(created).toMatchObject({ ok: true, value: { ref: { revision: 1 } } })
+    if (!created.ok) throw new Error('fixture Goal create failed')
+    const ref = (created.value as { ref: { id: string; revision: number } }).ref
+    const edited = await handle.rpc.call('/api', 'goals/edit', {
+      args: { agentId: 'fx-alpha', ref, request: { objective: 'edited fixture remote' } },
+    })
+    expect(edited).toMatchObject({ ok: true, value: { objective: 'edited fixture remote', revision: 2 } })
+    const editedRef = { id: ref.id, revision: 2 }
+    const paused = await handle.rpc.call('/api', 'goals/pause', {
+      args: { agentId: 'fx-alpha', ref: editedRef },
+    })
+    expect(paused).toMatchObject({ ok: true, value: { phase: 'paused', activation: 'disarmed', revision: 3 } })
+    const resumed = await handle.rpc.call('/api', 'goals/resume', {
+      args: { agentId: 'fx-alpha', ref: { id: ref.id, revision: 3 } },
+    })
+    expect(resumed).toMatchObject({ ok: true, value: { phase: 'active', activation: 'armed', revision: 4 } })
+    const completed = await handle.rpc.call('/api', 'goals/complete', {
+      args: { agentId: 'fx-alpha', ref: { id: ref.id, revision: 4 } },
+    })
+    expect(completed).toMatchObject({ ok: true, value: { phase: 'complete', activation: 'disarmed', revision: 5 } })
+    await expect(handle.rpc.call('/api', 'goals/clear', {
+      args: { agentId: 'fx-alpha', ref: { id: ref.id, revision: 5 } },
+    })).resolves.toEqual({ ok: true, value: { id: ref.id, revision: 6 } })
+    await expect(handle.rpc.call('/other', 'goals/create', {})).rejects.toThrow(/channel.*unavailable/)
+    await expect(handle.rpc.call('/api', 'unknown/read', { args: { agentId: 'fx-alpha' } }))
+      .rejects.toThrow(/endpoint.*unavailable/)
   })
 })

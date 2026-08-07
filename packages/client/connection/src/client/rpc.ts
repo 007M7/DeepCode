@@ -48,18 +48,6 @@ export function createWebConnectionRpc(): ClientConnectionRpc {
   }
 }
 
-/**
- * Create the fixture-mode caller, where no Host Remote registry exists.
- * @returns caller that rejects every generic Remote invocation.
- */
-export function createUnavailableConnectionRpc(): ClientConnectionRpc {
-  return {
-    call(channel, endpoint) {
-      return Promise.reject(new Error(`connection RPC ${channel}/${endpoint} is unavailable in fixture mode`))
-    },
-  }
-}
-
 function resolveBase(): string {
   const location = (globalThis as { location?: { origin?: string } }).location
   return location?.origin !== undefined && location.origin !== 'null' ? location.origin : INTERNAL_BASE
