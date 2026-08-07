@@ -57,5 +57,6 @@ headless-agent uses the `@deepseek-ai/dsh-cli-demo` app. `dsh web` instead boots
 
 ## Next steps
 
+- [Configure models](./providers.md) — reach providers beyond DeepSeek, and custom gateways
 - [Configuration](./config.md) — understand the `cordis.yml` format
 - [Develop a plugin](../develop/basic/) — build your own tool or backend
