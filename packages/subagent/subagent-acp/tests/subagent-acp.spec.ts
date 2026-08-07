@@ -7,6 +7,7 @@ import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import * as acp from '../src/index.ts'
 import { acpStopReason, acpContentText, DEFAULT_DISPOSE_EOF_GRACE_MS, DEFAULT_DISPOSE_GRACE_MS, disposeAcpChild, startAcpRun, toAcpPrompt, type AcpRunSpec } from '../src/run.ts'
 import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
@@ -147,7 +148,7 @@ describe('disposeAcpChild (the backend-owned teardown ladder over seam verbs)', 
 
   it('tier 1: a cooperative child exits on stdin EOF without any signal', async () => {
     const child = bash('read -r line; exit 0')
-    await disposeAcpChild(child, 5_000, 200)
+    await disposeAcpChild(child, 5_000)
     const outcome = await child.done
     expect(outcome.exitCode).toBe(0)
     expect(outcome.signal).toBeNull()
@@ -155,7 +156,7 @@ describe('disposeAcpChild (the backend-owned teardown ladder over seam verbs)', 
 
   it('tier 2: an EOF-deaf child dies by the terminate escalation (SIGTERM)', async () => {
     const child = bash('sleep 60')
-    await disposeAcpChild(child, 100, 5_000)
+    await disposeAcpChild(child, 100)
     const outcome = await child.done
     expect(outcome.signal).toBe('SIGTERM')
   })
@@ -166,28 +167,9 @@ describe('disposeAcpChild (the backend-owned teardown ladder over seam verbs)', 
     while (!child.collected.stdout!.readFrom(0).text.includes('armed')) {
       await new Promise(resolve => setTimeout(resolve, 10))
     }
-    await disposeAcpChild(child, 50, 2_000)
+    await disposeAcpChild(child, 50)
     const outcome = await child.done
     expect(outcome.signal).toBe('SIGKILL')
-  })
-
-  it('throws when the tree survives even the escalation window', async () => {
-    // A handle whose tree never exits (waitForExit only ever aborts): the
-    // ladder must fail loud instead of resolving over survivors. Built as a
-    // stub because the ladder composes only public verbs.
-    const never: Parameters<typeof disposeAcpChild>[0] = {
-      pid: 1,
-      stdin: undefined,
-      stdout: undefined,
-      stderr: undefined,
-      collected: {},
-      done: new Promise(() => {}),
-      terminate: () => {},
-      waitForExit: (signal?: AbortSignal) => new Promise((resolve) => {
-        signal?.addEventListener('abort', () => { resolve(false) }, { once: true })
-      }),
-    }
-    await expect(disposeAcpChild(never, 20, 20)).rejects.toThrow(/did not exit within its dispose windows/)
   })
 
   it('observes a spawn-level rejection and returns without a process to reap', async () => {
@@ -197,7 +179,7 @@ describe('disposeAcpChild (the backend-owned teardown ladder over seam verbs)', 
       stdio: { stdin: 'ignore', stdout: { maxBytes: 1000 }, stderr: { maxBytes: 1000 } },
       graceMs: 200,
     })
-    await expect(disposeAcpChild(child, 1_000, 1_000)).resolves.toBeUndefined()
+    await expect(disposeAcpChild(child, 1_000)).resolves.toBeUndefined()
     await expect(child.done).rejects.toThrow()
   })
 })
@@ -721,13 +703,20 @@ describe('dsh-subagent-acp', () => {
     }
   })
 
-  it('rejects a non-positive dispose grace at load', async () => {
-    for (const bad of [{ disposeEofGraceMs: 0 }, { disposeGraceMs: -1 }, { disposeEofGraceMs: Number.NaN }]) {
+  it('rejects a dispose grace outside the Node timer range at load', async () => {
+    for (const bad of [
+      { disposeEofGraceMs: 0 },
+      { disposeGraceMs: -1 },
+      { disposeEofGraceMs: Number.NaN },
+      { disposeGraceMs: Number.POSITIVE_INFINITY },
+      { disposeEofGraceMs: MAX_TIMER_DELAY_MS + 1 },
+      { disposeGraceMs: MAX_TIMER_DELAY_MS + 1 },
+    ]) {
       const ctx = new Context()
       await ctx.plugin(SubagentService)
       await ctx.plugin(LocalSubprocessService)
       await expect(ctx.plugin(acp, { providerName: 'acp', command: 'true', args: [], permission: 'reject', env: {}, ...bad }))
-        .rejects.toThrow(/subagent-acp: dispose(?:Eof)?GraceMs must be a positive finite number/)
+        .rejects.toThrow(new RegExp(`subagent-acp: dispose(?:Eof)?GraceMs must be a positive finite number no greater than ${MAX_TIMER_DELAY_MS}`))
       await ctx.fiber.dispose()
     }
   })

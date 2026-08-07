@@ -397,12 +397,13 @@ describe('write tool', () => {
     expect(text(result)).toContain('file_path must be a non-empty string')
   })
 
-  it('propagates a backend FsError as an isError result carrying its code', async () => {
+  it('propagates a backend FsError as an isError result carrying its code and remedy', async () => {
     const { ctx, fs } = await setup()
     fs.rejectWith = new FsError('blocked', 'FS_STALE_VERSION')
     const result = await call(ctx, 'write', { file_path: 'a.txt', content: 'hi' })
     expect(result.isError).toBe(true)
     expect(result.error).toMatchObject({ info: { name: 'FsError', code: 'FS_STALE_VERSION' } })
+    expect(text(result)).toContain('re-read the file, then retry')
   })
 })
 

@@ -55,7 +55,7 @@ Because the plugin influences the world only through events, removing it does no
 
 #### What the model sees
 
-This plugin adds no prompt or schema. It rejects an edit without a prior read with code `FS_NOT_OBSERVED` and exact message `edit requires reading "<path>" first`. Guarded mutations whose observed version is stale propagate the provider-owned `FS_STALE_VERSION` error. [`dsh-tool-fs`](../tool-fs/README.md) owns the model-facing error wrapper; observation state is never shown.
+This plugin adds no prompt or schema. It rejects an edit without a prior read with code `FS_NOT_OBSERVED` and exact message `edit requires reading "<path>" first`. Guarded mutations whose observed version is stale propagate the provider-owned `FS_STALE_VERSION` error. [`dsh-tool-fs`](../tool-fs/README.md) owns the model-facing error wrapper, which appends the recovery instruction to `FS_STALE_VERSION` (`— re-read the file, then retry`) and `FS_NOT_OBSERVED` (`— read the file, then retry`) messages while preserving the code; observation state is never shown.
 
 #### Token effect
 
