@@ -18,6 +18,7 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
 import type { IApiClient } from '@deepseek-ai/dsh-client-connection/client'
+import { apiKeyFailure } from './apiKey.ts'
 import { EditorFooter } from './EditorFooter.tsx'
 import { validateDeepSeekModels } from './DeepSeekModelsEditor.tsx'
 import { ModelListEditor } from './ModelListEditor.tsx'
@@ -80,12 +81,22 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
   // bad row is named by its position here too. Capacities have route-level
   // fallbacks; what a route cannot default is at least one model.
   const modelFailure = validateDeepSeekModels(models)
+  const keyFailure = apiKeyFailure(keyDraft)
+  // The typed key with paste whitespace removed. A blank field yields an empty
+  // string, which the create path reads as "no key supplied" — a route may
+  // legitimately authenticate through the provider's own ambient discovery.
+  const keyValue = keyDraft.trim()
   const ready = route.length > 0 && !routeInvalid && !routeTaken
     && baseURL.length > 0 && models.length > 0 && modelFailure === undefined
+    && keyFailure === undefined
   // The one blocked gate worth a line under the form. The route id is omitted
   // because its own field already explains itself, and a satisfied card says
   // nothing at all rather than printing an empty paragraph.
   const hint = failure !== undefined || ready
+    // The key field prints its own failure directly beneath itself, so a card
+    // blocked only by the key stays silent here rather than answering with the
+    // next unmet gate — which is satisfied, and reads as a second, false fault.
+    || keyFailure !== undefined
     ? undefined
     : baseURL.length === 0
       ? t('customNeedsBaseUrl')
@@ -112,8 +123,8 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
       expectedRevision: openedAt,
     })
     if (!response.result.ok) return response.result.error.message
-    if (keyDraft.length > 0) {
-      const stored = await api.credentials.set({ ref: keyRef, value: keyDraft })
+    if (keyValue.length > 0) {
+      const stored = await api.credentials.set({ ref: keyRef, value: keyValue })
       // The profile landed; saying the key did not is the only honest report,
       // and the row is now editable so the key can be entered again there.
       if (!stored.result.ok) return stored.result.error.message
@@ -208,6 +219,12 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
           disabled={disabled}
           onChange={(event) => { setKeyDraft(event.target.value) }}
         />
+        {/* A create card has no stored key to keep, so the blank case says
+            what a blank field means here instead: this route may authenticate
+            through the provider's own ambient discovery or OAuth. */}
+        {keyFailure === undefined
+          ? null
+          : <p className={styles['error']}>{t(keyFailure === 'keyBlank' ? 'keyBlankNew' : keyFailure)}</p>}
       </div>
       <ModelListEditor
         models={models}
@@ -216,8 +233,9 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
           settingsNs: NS,
           baseURL,
           api: protocol,
-          ...keyDraft.length === 0 ? {} : { apiKey: keyDraft },
+          ...keyValue.length === 0 ? {} : { apiKey: keyValue },
         }}
+        probeBlocked={keyFailure === 'keyBlank' ? 'keyBlankNew' : keyFailure}
         api={api}
         t={t}
         disabled={disabled}
