@@ -368,7 +368,6 @@
       name: '@deepseek-ai/dsh-web-search-deepseek'
       config:
         apiKeyEnv: DEEPSEEK_API_KEY
-        baseURL: !!js process.env.DEEPSEEK_SEARCH_BASE_URL
 
     - id: tool-web
       name: '@deepseek-ai/dsh-tool-web'

@@ -16,6 +16,7 @@ const SHIPPED_CONFIG_GLOBS = [
   'apps/*/config/*.yml',
   'examples/*/*.cordis.yml',
   'examples/*/cordis.yml',
+  'packages/bundle/*/cordis.patch.yml',
   // The Python runtime ships its own default composition inside the wheel.
   'python/*/src/**/cordis.yml',
 ]
@@ -29,29 +30,35 @@ const SHIPPED_CONFIG_GLOBS = [
  */
 const INLINE_DENY = /^\s*(apiKey|baseURL|apiKeyEnv|authToken|headers)\s*:\s*!!js\b/
 
-const failures: string[] = []
-
-for (const glob of SHIPPED_CONFIG_GLOBS) {
-  for (const file of globSync(glob, { cwd: ROOT })) {
-    const rel = file.split(sep).join('/')
-    readFileSync(resolve(ROOT, rel), 'utf8').split('\n').forEach((line, index) => {
-      if (!INLINE_DENY.test(line)) return
-      failures.push(
-        `${rel}:${String(index + 1)}: inlines a credential or endpoint from the environment.`
-        + ' The adapter resolves apiKeyEnv through ctx.credentials and the endpoint through the'
-        + ' environment snapshot; inlining here bypasses both ladders.',
-      )
-    })
+/** Return every forbidden inline environment form in shipped configuration. */
+export function collectConfigSourceOwnershipViolations(root: string): string[] {
+  const failures: string[] = []
+  for (const glob of SHIPPED_CONFIG_GLOBS) {
+    for (const file of globSync(glob, { cwd: root })) {
+      const rel = file.split(sep).join('/')
+      readFileSync(resolve(root, rel), 'utf8').split('\n').forEach((line, index) => {
+        if (!INLINE_DENY.test(line)) return
+        failures.push(
+          `${rel}:${String(index + 1)}: inlines a credential or endpoint from the environment.`
+          + ' The adapter resolves apiKeyEnv through ctx.credentials and the endpoint through the'
+          + ' environment snapshot; inlining here bypasses both ladders.',
+        )
+      })
+    }
   }
+  return failures
 }
 
-if (failures.length > 0) {
-  process.stderr.write('verify-config-source-ownership: configuration source ownership violated:\n')
-  for (const failure of failures) process.stderr.write(`  ${failure}\n`)
-  process.exit(1)
-}
+if (process.argv[1] && import.meta.filename === resolve(process.argv[1])) {
+  const failures = collectConfigSourceOwnershipViolations(ROOT)
+  if (failures.length > 0) {
+    process.stderr.write('verify-config-source-ownership: configuration source ownership violated:\n')
+    for (const failure of failures) process.stderr.write(`  ${failure}\n`)
+    process.exit(1)
+  }
 
-process.stdout.write(
-  'verify-config-source-ownership: no credential or endpoint uses the ordinary inline environment form'
-  + ' in shipped configuration.\n',
-)
+  process.stdout.write(
+    'verify-config-source-ownership: no credential or endpoint uses the ordinary inline environment form'
+    + ' in shipped configuration.\n',
+  )
+}
