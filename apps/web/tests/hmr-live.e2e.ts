@@ -75,7 +75,7 @@ it('hot-reloads a real client-plugin source edit without refreshing the page', a
   if (!existsSync(binPath)) throw new Error('HMR browser test needs the built dsh bin; run pnpm run build first')
   const originalSource = await readFile(sourcePath)
   const originalBundle = await readFile(bundlePath)
-  const oldText = "Into the unknown"
+  const oldText = 'Into the unknown'
   const sourceNeedle = "'hero.headline': 'Into the unknown'"
   const newText = `HMR UPDATED ${'x'.repeat(80)}`
   const updatedSource = originalSource.toString().replace(sourceNeedle, `'hero.headline': '${newText}'`)
