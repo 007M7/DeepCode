@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url'
 import tsconfigPaths from 'vite-tsconfig-paths'
 import { resolvePwshPath } from './packages/bash/pwsh-local/src/resolve.ts'
 import { defineConfig } from 'vitest/config'
-import { vitestExecArgv } from './vitest.shared.ts'
+import { standardDecoratorPlugin, vitestExecArgv } from './vitest.shared.ts'
 import { COVERAGE_EXEMPT_ENV, coverageExemptHeavySuites } from './scripts/coverage-exempt.ts'
 
 // Prints exact `path:line:col` records for every uncovered statement, branch
@@ -88,7 +88,7 @@ const processBoundTests = [
 ]
 
 export default defineConfig({
-  plugins: [pathsPlugin()],
+  plugins: [pathsPlugin(), standardDecoratorPlugin()],
   test: {
     setupFiles: ['./scripts/test-invariants.ts'],
     // .tsx: client component specs (jsdom via per-file @vitest-environment pragma).
@@ -99,7 +99,7 @@ export default defineConfig({
     // always fork.
     projects: [
       {
-        plugins: [pathsPlugin()],
+        plugins: [pathsPlugin(), standardDecoratorPlugin()],
         test: {
           name: 'thread-safe',
           execArgv: vitestExecArgv,
@@ -119,7 +119,7 @@ export default defineConfig({
         },
       },
       {
-        plugins: [pathsPlugin()],
+        plugins: [pathsPlugin(), standardDecoratorPlugin()],
         test: {
           name: 'process-bound',
           execArgv: vitestExecArgv,
@@ -181,6 +181,10 @@ export default defineConfig({
         'packages/client/hmr/src/invariant.ts',
         'packages/client/connection/src/index.ts',
         'packages/client/connection/src/http-bridge.ts',
+        // This assembly imports generated Host-for-Client code that exists
+        // only in lib; the post-build built-bin smoke executes both entries.
+        'packages/api/remotes/src/index.ts',
+        'packages/api/remotes/src/client/index.ts',
         // Slash/command/input round: per-file gaps deferred with the same
         // client-lane debt. TODO(gui): cover and remove with the lane above.
         'packages/client/connection/src/client/fixture.ts',
