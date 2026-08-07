@@ -13,6 +13,7 @@ export type {
 export type { ToolCallBlock } from './contract/tool-call-model.ts'
 export type { ConversationKey } from './locales.ts'
 export type {
+  ChatFileMentions,
   ChatStore, ChatViewInjected, ChatViewSlotProps, CommandRowOwnerProps, CommandRowProps, ComposerBarInjected,
   ComposerChainProps, ConversationInjected,
   ConversationSessionHeaderInjected, ConversationSessionInjected, ConversationSlotProps,

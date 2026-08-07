@@ -313,6 +313,7 @@ export function apply(ctx: Context): void {
           actions.select(target)
           layout.openDetails()
         },
+        fileMentions: owner => ctx.get('chatFileMentions')?.forClosing(owner),
         openFile: (path) => {
           const cwd = sessions.list.getSnapshot().byId[sessionId]?.cwd
           void workspaces.openPath(resolveToolPath(cwd, path)).catch(() => {

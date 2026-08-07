@@ -241,3 +241,23 @@
   background: var(--dsw-alias-bg-base);
   object-fit: contain;
 }
+
+/* Inline file mention: a real file named in prose is the same affordance as a
+   tool row's path link, so it reads the same — underlined at rest. */
+.fileMention {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: var(--dsw-alias-label-secondary);
+  text-decoration: underline;
+  text-decoration-color: var(--dsw-alias-label-quaternary);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.fileMention:hover {
+  color: var(--dsw-alias-label-primary);
+  text-decoration-color: currentColor;
+}

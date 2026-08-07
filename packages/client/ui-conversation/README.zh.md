@@ -50,7 +50,7 @@ Host 带 placement 的 `session/queue` 快照也会携带待处理 steering。Qu
 
 `src/client/` 按领域组织。`contract/` 是唯一的跨领域共享表层（`slots.ts` slot 声明与组合后的 props、`views.ts` 共享原语、`tool-call-model.ts`）；`skeleton/`、`chat/` 和 `toolviews/` 目录只导入 contract 文件，彼此之间从不互相导入。`apply.ts` 是唯一允许导入全部三个领域的组装点。`/client` 导出表层只包含契约：`apply`／`inject`、两个服务类和 `contract/` 类型家族；实现组件与 store factory 保持内部，经 apply 的 slot 注册抵达页面。
 
-完成的一轮以一个 turn-tail 空位收尾：chat 视图在收尾 assistant 正文与其 IconActions 之间渲染 `conversation.chat.turnTail` list slot，每轮一次、位于 `assistantActionsSeqs` 选出的 seq，派发 `TurnTailOwnerProps`（快照节点、收尾 seq，以及工具行的 `openFile`）。本包只拥有空位；填充它的产物行——从改写工具 `locations` 的派生、chip 上限、文案——都在 `@deepseek-ai/dsh-client-ui-deliverables` 里，因此把那个插件从 cordis.yml 中组合掉即可关闭该交互面，空位以零成本渲染为空。
+完成的一轮以一个 turn-tail 空位收尾：chat 视图在收尾 assistant 正文与其 IconActions 之间渲染 `conversation.chat.turnTail` list slot，每轮一次、位于 `assistantActionsSeqs` 选出的 seq，派发 `TurnTailOwnerProps`（快照节点、收尾 seq，以及工具行的 `openFile`）。本包只拥有空位；填充它的产物行——从改写工具 `locations` 的派生、chip 上限、文案——都在 `@deepseek-ai/dsh-client-ui-deliverables` 里，因此把那个插件从 cordis.yml 中组合掉即可关闭该交互面，空位以零成本渲染为空。收尾正文经由同一个开关参与其中：chat 视图向可选的 `chatFileMentions` service（ctx.get；由同一插件提供）索取收尾消息的行内代码词表，并把结果接进 MarkdownText 的 `fileMentions` seam——service 缺席时正文保持死文本。
 
 ## 模型体验
 

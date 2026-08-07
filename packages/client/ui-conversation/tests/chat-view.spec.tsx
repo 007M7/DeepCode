@@ -154,6 +154,8 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
     inspectCall,
     chatScroll,
     forkAt,
+    // Absent-service default; mention tests override with a real resolver.
+    fileMentions: () => undefined,
     // Mirrors the real lookup chain (conversation namespace, then common).
     t: makeTranslate(zh, commonZh),
   }
@@ -246,6 +248,45 @@ describe('chat-flow derivation', () => {
     // Turn 2 is still producing steps: its latest narration owns nothing, and
     // the settled turn 1 keeps its seat.
     expect([...assistantActionsSeqs(nodes, new Map([[1, 5]]))]).toEqual([5])
+  })
+
+  it('threads the injected file-mention vocabulary into the closing prose only', () => {
+    const wrote = (seq: number, callId: string, path: string): ToolResultNode => ({
+      ...toolResult(seq, callId, 'write'),
+      callView: {
+        card: 'diff', title: 'Write', diffs: [{ path, oldText: null, newText: 'x' }], locations: [{ path }],
+      },
+    })
+    const h = makeHarness({
+      nodes: [
+        user(1, 'build it'),
+        assistant(2, 'writing `report.html` now', 1),
+        wrote(3, 'w', 'site/report.html'),
+        assistant(4, 'Wrote `report.html`; `notes.md` untouched.', 1),
+      ],
+      turnEnds: new Map([[1, 4]]),
+    })
+    // Stub provider mirroring the real service: only produced files resolve.
+    h.props.fileMentions = owner => ({
+      resolve: (value) => {
+        if (value !== 'report.html') return undefined
+        return {
+          open: () => { h.openFile(`for-seq-${String(owner.seq)}/site/report.html`) },
+          label: '打开 site/report.html',
+          title: 'site/report.html',
+        }
+      },
+    })
+    const view = render(<h.ChatView {...h.props} />)
+    // Exactly one live mention: the closing message links, the mid-turn
+    // narration stays inert code, and the unknown file resolves to nothing.
+    const mentions = view.container.querySelectorAll('code button')
+    expect(mentions).toHaveLength(1)
+    const mention = view.getByRole('button', { name: '打开 site/report.html' })
+    expect(mention.getAttribute('title')).toBe('site/report.html')
+    fireEvent.click(mention)
+    // The vocabulary was built from the closing message's own owner currency.
+    expect(h.openFile).toHaveBeenCalledWith('for-seq-4/site/report.html')
   })
 
   it('runningTurnStartTime selects the latest turn/start without a turn/end', () => {

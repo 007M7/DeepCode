@@ -335,7 +335,8 @@ function StreamingTail({ useSession, t }: {
  * render through the declared keyed hole's renderSlot share).
  */
 export function ChatView({
-  useSession, useSessions, useStore, renderSlot, renderSlotChain, sessionId, openFile, loadOlder, inspectCall, chatScroll, forkAt, t,
+  useSession, useSessions, useStore, renderSlot, renderSlotChain, sessionId, openFile, loadOlder, inspectCall, chatScroll, forkAt,
+  fileMentions, t,
 }: ChatViewSlotProps) {
   const nodes = useSession(s => s.nodes)
   const turnTimings = useSession(s => s.turnTimings)
@@ -603,6 +604,7 @@ export function ChatView({
           turnTail={actionSeqs.has(node.seq)
             ? { renderSlotChain, owner: { nodes, seq: node.seq, openFile } }
             : undefined}
+          fileMentions={actionSeqs.has(node.seq) ? fileMentions : undefined}
           t={t}
         />
       )
