@@ -214,21 +214,19 @@ export function apply(ctx: Context, config: Config): () => void {
     const formatter = sessionTimeZone === undefined
       ? fallbackFormatter
       : formatterFor(sessionTimeZone)
+    const text = renderText(
+      now,
+      turn,
+      step,
+      previous,
+      formatter,
+      displayTimeZone,
+      sessionTimeZone,
+      requestMessages(agent, turn, messages),
+    )
     return createUserMessage({
-      content: [{
-        type: 'text',
-        text: renderText(
-          now,
-          turn,
-          step,
-          previous,
-          formatter,
-          displayTimeZone,
-          sessionTimeZone,
-          requestMessages(agent, turn, messages),
-        ),
-      }],
-      source: { kind: 'plugin', plugin: name },
+      content: [{ type: 'text', text }],
+      source: { kind: 'plugin', plugin: name, form: 'snapshot', sections: [{ name, text }] },
     })
   }
 

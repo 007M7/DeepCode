@@ -32,6 +32,8 @@ function event(
         ? {
           kind: 'plugin',
           plugin,
+          form: 'snapshot',
+          sections: [{ name: plugin, text }],
         }
         : { kind: 'plugin', plugin },
     }),
@@ -77,6 +79,8 @@ function appendReading(session: Session, text: string): void {
     source: {
       kind: 'plugin',
       plugin: 'time-context',
+      form: 'snapshot',
+      sections: [{ name: 'time-context', text }],
     },
   }), { surfaceOp: 'append' })
 }
@@ -148,7 +152,22 @@ describe('time-context invariants', () => {
     }
     expect(() => {
       ctx.emit('session/event', preparing(1, 1), duplicate)
-    }).toThrow(/must not duplicate request authority/)
+    }).toThrow(/must carry only the exact snapshot text/)
+  })
+
+  it('rejects package-owned provenance without snapshot sections', async () => {
+    const ctx = await setup()
+    const base = event(reading())
+    const unformed: SessionEvent<'user/message'> = {
+      ...base,
+      data: {
+        ...base.data,
+        source: { kind: 'plugin', plugin: 'time-context' },
+      },
+    }
+    expect(() => {
+      ctx.emit('session/event', preparing(1, 1), unformed)
+    }).toThrow(/must carry only the exact snapshot text/)
   })
 
   it('validates each existing reading against its preceding durable prefix', async () => {

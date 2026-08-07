@@ -222,16 +222,23 @@ interface AtTimeZoneContext {
 function isTimeContextReading(event: SessionEvent): boolean {
   if (event.type !== 'user/message') return false
   const source = event.data.source
+  if (source.kind !== 'plugin'
+    || source.plugin !== 'time-context'
+    || Object.keys(source).length !== 4
+    || source.form !== 'snapshot') return false
   const [block] = event.data.content
+  const sections: unknown = source.sections
+  const section: unknown = Array.isArray(sections) ? sections[0] : undefined
   return event.data.content.length === 1
     && block?.type === 'text'
-    && source.kind === 'plugin'
-    && source.plugin === 'time-context'
-    && Object.keys(source).length === 4
-    && source.form === 'snapshot'
-    && source.sections.length === 1
-    && source.sections[0]?.name === 'time-context'
-    && source.sections[0].text === block.text
+    && Array.isArray(sections)
+    && sections.length === 1
+    && typeof section === 'object'
+    && section !== null
+    && 'name' in section
+    && section.name === 'time-context'
+    && 'text' in section
+    && section.text === block.text
 }
 
 /** Derive request zones only while the current open turn contains a time-context reading. */

@@ -82,8 +82,24 @@ function validateReading(
   if (turn !== expected.turn || step !== expected.step) {
     fail(`time-context reading names turn ${turn}/step ${step}, expected turn ${expected.turn}/step ${expected.step}`)
   }
-  if (Object.keys(event.data.source).length !== 2) {
-    fail('time-context source must not duplicate request authority')
+  const source = event.data.source
+  /* v8 ignore next 2 -- replay and dispatch callers select this exact package-owned source before validation. */
+  if (source.kind !== 'plugin' || source.plugin !== SOURCE_NAME) {
+    fail('time-context source must retain package ownership')
+  }
+  const sections: unknown = 'sections' in source ? source.sections : undefined
+  const section: unknown = Array.isArray(sections) ? sections[0] : undefined
+  if (Object.keys(source).length !== 4
+    || source.form !== 'snapshot'
+    || !Array.isArray(sections)
+    || sections.length !== 1
+    || typeof section !== 'object'
+    || section === null
+    || !('name' in section)
+    || section.name !== SOURCE_NAME
+    || !('text' in section)
+    || section.text !== block.text) {
+    fail('time-context source must carry only the exact snapshot text, not request authority')
   }
   const renderedAuthority = `Session time zone: ${match[4]}.\nClient time zone for this request: ${match[5]}.`
   const expectedAuthority = renderTimeZoneContext(
