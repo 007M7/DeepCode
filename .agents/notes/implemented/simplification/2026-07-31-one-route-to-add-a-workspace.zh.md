@@ -25,7 +25,7 @@ Status: implemented
 
 `WorkspaceCreateFlow` 现更名为 `WorkspacePickFlow`，其 `createOnly` prop 更名为 `addOnly`；注入的 `createWorkspace` 从 `{ name } | { path }` 收窄为 `{ path }`。
 
-## Wire and CLI residue
+## Wire and CLI follow-up (shipped)
 
 本节曾划定的后续删除已经落地：`workspace.create` 只接受 `{ path }`（`name` 成员已从 wire schema 与 `WorkspaceApi` 移除），网关失去了 `workspaceRoot` 配置及其默认值，客户端 seam 收窄为 path 写法（`WorkspaceCreateInput`、`WorkspacesService.create`、`intentName`），`dsh web --workspace-root` flag 连同其 `apps/cli` reference 文档行一并删除。`workspace-name-conflict` 仍留在 wire 上，作为 `workspace.rename` 的重名错误。
 
@@ -45,7 +45,7 @@ Status: implemented
 
 **为将来可能新增的入口（克隆仓库、远程目录）保留菜单壳。** 否决，依据"require a current owner and need"：这样的入口目前并不存在，而等它到来时再恢复菜单，比现在就发一个空壳的改动更小。
 
-**在同一改动中删除 wire 的按名称创建分支。** 本 PR 否决：那是 backend/CLI 面，reviewer 不同、测试波及面更广，而紧急的决定是 UI。见 residue 一节——它是被标记了，不是被遗忘了。
+**在同一改动中删除 wire 的按名称创建分支。** UI PR 否决：那是 backend/CLI 面，reviewer 不同、测试波及面更广，而当时紧急的决定是 UI。删除随后作为独立的后续改动落地，上文 follow-up 一节记录了它移除的内容。
 
 **在 e2e scaffold 中经 host 注册 workspace，而不驱动对话框。** 否决：那会让全部 15 个场景与选择器解耦，整条 lane 将无法证明幸存的这条路径能走到可用的 composer。现在每个场景都会走真实对话框来接纳自己的目录；只有"新建文件夹"那一半集中在一个场景里，因为处处重复只会让共享辅助函数失去幂等性，却换不来额外信号。
 

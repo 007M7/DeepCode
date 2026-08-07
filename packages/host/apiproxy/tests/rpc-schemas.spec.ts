@@ -327,6 +327,8 @@ describe('workspace domain schemas', () => {
   it('create requires a path', () => {
     expect(workspaceCreateRequestSchema.parse({ path: '/p' }).path).toBe('/p')
     expect(() => workspaceCreateRequestSchema.parse({})).toThrow()
+    // The retired create-by-name spelling stays a clean schema rejection.
+    expect(() => workspaceCreateRequestSchema.parse({ name: 'n' })).toThrow()
     expect(workspaceCreateValueSchema.parse({ workspace: view, created: false }).created).toBe(false)
   })
 

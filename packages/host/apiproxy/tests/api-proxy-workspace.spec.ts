@@ -252,8 +252,7 @@ describe('host.openPath', () => {
 describe('workspace.create', () => {
   it('serializes concurrent creates of one path into a single registration', async () => {
     const { api, root } = await harness()
-    const target = join(root, 'alpha')
-    mkdirSync(target)
+    const target = stageDir(root, 'alpha')
     const responses = await Promise.all([
       api.workspace.create(request({ path: target })),
       api.workspace.create(request({ path: target })),
@@ -269,8 +268,7 @@ describe('workspace.create', () => {
 
   it('adopts only existing directories', async () => {
     const { api, root } = await harness()
-    const existing = join(root, 'existing')
-    mkdirSync(existing)
+    const existing = stageDir(root, 'existing')
     const first = expectOk(await api.workspace.create(request({ path: existing })))
     const repeated = expectOk(await api.workspace.create(request({ path: existing })))
     expect(first).toMatchObject({ created: true, workspace: { path: existing, title: 'existing' } })

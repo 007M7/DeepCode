@@ -25,7 +25,7 @@ The direct-open path carries the busy rule the menu entry states: while a pick i
 
 `WorkspaceCreateFlow` is now `WorkspacePickFlow` and its `createOnly` prop is `addOnly`; the injected `createWorkspace` narrows from `{ name } | { path }` to `{ path }`.
 
-## Wire and CLI residue
+## Wire and CLI follow-up (shipped)
 
 Deleted in the follow-up change this section used to scope: `workspace.create` accepts only `{ path }` (the `name` member left the wire schema and `WorkspaceApi`), the gateway lost its `workspaceRoot` config and default, the client seam narrowed to the path spelling (`WorkspaceCreateInput`, `WorkspacesService.create`, `intentName`), and the `dsh web --workspace-root` flag is gone together with its `apps/cli` reference lines. `workspace-name-conflict` remains on the wire as `workspace.rename`'s duplicate-title error.
 
@@ -45,7 +45,7 @@ Deleted in the follow-up change this section used to scope: `workspace.create` a
 
 **Keep the menu shell for entries we might add later (clone a repo, remote directory).** Rejected under "require a current owner and need": no such entry exists, and restoring a menu when one arrives is a smaller change than shipping an empty frame now.
 
-**Delete the wire's create-by-name branch in the same change.** Rejected for this PR: it is backend/CLI surface with a different reviewer and a wider test fallout, and the urgent decision is the UI. See the residue section — it is marked, not forgotten.
+**Delete the wire's create-by-name branch in the same change.** Rejected for the UI PR: it was backend/CLI surface with a different reviewer and a wider test fallout, and the urgent decision was the UI. The deletion shipped as its own follow-up change; the follow-up section above records what it removed.
 
 **Register the workspace through the host in the e2e scaffold instead of driving the dialog.** Rejected: it would have decoupled all 15 scenarios from the picker, so nothing in the lane would prove the surviving route reaches a live composer. Every scenario now walks the real dialog to adopt its directory; only the create-a-folder half is concentrated in one scenario, because repeating it everywhere makes the shared helper non-idempotent for no extra signal.
 

@@ -535,7 +535,7 @@ describe('createFixtureApi', () => {
     expect(reused.result.value).toMatchObject({ created: false, workspace: { workspaceId: 'fx-ws-fixture' } })
   })
 
-  it('workspace.create by name mints a new entity and pushes host/workspace-changed', async () => {
+  it('workspace.create on a fresh path mints a new entity and pushes host/workspace-changed', async () => {
     const api = createFixtureApi()
     const abort = new AbortController()
     const seen: HostFrame[] = []
