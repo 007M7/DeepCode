@@ -25,24 +25,33 @@ export const inject = ['invariants']
 function preparationPosition(history: readonly SessionEvent[], fail: InvariantFailure): { turn: number; step: number } {
   let openTurn: number | undefined
   let openStep: number | undefined
+  let requestStarted = false
   for (const event of history) {
     switch (event.type) {
       case 'turn/start': {
         openTurn = event.data.turn
         openStep = undefined
+        requestStarted = false
         break
       }
       case 'step/start': {
         openStep = event.data.step
+        requestStarted = false
+        break
+      }
+      case 'request/header': {
+        requestStarted = true
         break
       }
       case 'step/end': {
         openStep = undefined
+        requestStarted = false
         break
       }
       case 'turn/end': {
         openTurn = undefined
         openStep = undefined
+        requestStarted = false
         break
       }
       default:
@@ -51,6 +60,7 @@ function preparationPosition(history: readonly SessionEvent[], fail: InvariantFa
   }
   if (openTurn === undefined) fail('time-context reading must be appended inside an open turn')
   if (openStep === undefined) fail('time-context reading must follow step/start')
+  if (requestStarted) fail('time-context reading must precede request/header')
   return { turn: openTurn, step: openStep }
 }
 

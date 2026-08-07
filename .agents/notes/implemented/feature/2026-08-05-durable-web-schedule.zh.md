@@ -37,6 +37,8 @@ Status: implemented
 
 官方 Web create 路径要求浏览器提供 IANA 时区，在 Host 边界校验并规范化后，将其一次性存为不可变的 `SessionHeader.timeZone`。resume 保留该值，fork 复制该值；若针对相同 id 与 cwd 的另一次 create 得到的规范化时区不同，则发生冲突。Session core 保持该字段可选，使时区支持前的 Session 仍可读取，但其时区明确为 `unavailable`；绝不会用后续浏览器请求回填 legacy header。JSONL 保留该可选 header；SQLite schema v14 增加 nullable `time_zone`，并以原子方式升级自有 v13 数据库，不为既有行猜测值。
 
+这笔精确的 v13 到 v14 事务，是对“预发布阶段默认拒绝旧存储格式”立场的一项窄幅、已规划例外：在引入时区 metadata 前，可能已经存在有效的无时区 Session 数据库。它只接受自有 v13 布局；更旧、更新或伪造的 schema 都会在不修改数据的前提下被拒绝，而且不会建立通用迁移框架。
+
 每条 Web 提示词都会单独采样自己的 `clientTimeZone`；Host 在进入 Agent 前校验该值，并把它绑定到不可变的 `user-rpc` 消息来源。它是请求 provenance，而不是连接或 Session 的可变属性，因此并发 tab 无法相互覆盖，排队、steering（中途引导）、编辑、重试和持久化 history 都会保留来源时区。
 
 Time-context 会委托 `agent/pre-step`，从不可变 Session header 和与消息绑定的浏览器来源为最终进入的非空批次派生时区，再向该批次追加一条模型可见读数。其来源仍是简单插件标记，不会把这些事实复制成另一份持久权威。AgentLoop 领取当前批次后才插入的 steering（中途引导）保留常规 next-step 归属，并在该步骤进入时获得新上下文。`step/start` 之前出现 reject、空决策、取消或失败时，不会记录读数；本功能也不增加 inbox 或 AgentLoop 生命周期状态。

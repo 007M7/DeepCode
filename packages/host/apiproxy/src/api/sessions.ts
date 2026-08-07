@@ -215,6 +215,7 @@ export interface SessionsApi {
     workspaceId?: WorkspaceId
     cwd?: string
     sessionId?: SessionId
+    /** Required by the Host; optional here so omission returns the stable `invalid-time-zone` RPC error. */
     timeZone?: string
   }>):
   Promise<RpcResponse<{ sessionId: SessionId }>>
@@ -300,6 +301,7 @@ export interface SessionsApi {
     sessionId: SessionId
     mode: 'queue' | 'steer'
     content: ContentBlock[]
+    /** Required by the Host; optional here so omission returns the stable `invalid-time-zone` RPC error. */
     clientTimeZone?: string
   }>):
   Promise<RpcResponse<{ accepted: true; command?: { kind: 'success'; text?: string } }>>

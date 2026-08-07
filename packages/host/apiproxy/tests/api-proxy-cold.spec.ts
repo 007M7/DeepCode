@@ -549,6 +549,51 @@ describe('cold Session zone identity', () => {
     })
     expect(resume).not.toHaveBeenCalled()
   })
+
+  it.each([
+    ['a missing zone', undefined, null],
+    ['an invalid zone', 'CST', 'CST'],
+  ] as const)('rejects %s before resuming a cold Session', async (_case, clientTimeZone, detailValue) => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(UserInteractionService)
+    const sessionId = sid('session-cold-prompt-zone')
+    const meta = header('session-cold-prompt-zone', 1000, { timeZone: 'UTC' })
+    ctx.provide('sessionPersistence', {
+      list: () => Promise.resolve([meta]),
+      inspect: () => Promise.resolve({ meta, events: [] as SessionEvent[] }),
+      locate: () => undefined,
+    } as never)
+    const resume = vi.spyOn(ctx.agents, 'resume')
+    const api = createApiProxy(ctx, {
+      defaultTarget: () => ({ provider: 'p', model: 'm' }),
+      cwd: '/tmp',
+      workspaceRoot: '/tmp',
+    })
+
+    const promptRequest = request({
+      sessionId,
+      mode: 'queue' as const,
+      content: [{ type: 'text' as const, text: 'rejected before resume' }],
+      clientTimeZone: clientTimeZone ?? 'UTC',
+    })
+    if (clientTimeZone === undefined) {
+      delete (promptRequest.payload as { clientTimeZone?: string }).clientTimeZone
+    }
+    const response = await api.sessions.prompt(promptRequest)
+
+    expect(response.result).toMatchObject({
+      ok: false,
+      error: {
+        code: 'invalid-time-zone',
+        details: { field: 'clientTimeZone', value: detailValue },
+      },
+    })
+    expect(resume).not.toHaveBeenCalled()
+    expect(ctx.agents.get(sessionId)).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
 })
 
 describe('sessions.prompt synchronous rejection', () => {

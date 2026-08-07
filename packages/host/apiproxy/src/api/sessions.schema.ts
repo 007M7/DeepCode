@@ -95,7 +95,7 @@ export const sessionSearchValueSchema = z.object({
   hasMore: z.boolean(),
 }) satisfies z.ZodType<Wire<ResponseValue<'session.search'>>>
 
-/** session.create request payload (at most one of workspaceId / cwd). */
+/** session.create payload; timeZone stays schema-optional so Host omission returns `invalid-time-zone`. */
 export const sessionCreateRequestSchema = z.object({
   workspaceId: workspaceIdSchema.optional(),
   cwd: z.string().optional(),
@@ -247,7 +247,7 @@ export const sessionSelectModelValueSchema = z.object({
 /** ContentBlock passthrough: core is merge-extensible — the type discriminant envelope is strict, the rest stays wide. */
 export const contentBlockSchema = z.looseObject({ type: z.string() })
 
-/** session.prompt request payload. */
+/** session.prompt payload; clientTimeZone stays schema-optional so Host omission returns `invalid-time-zone`. */
 export const sessionPromptRequestSchema = z.object({
   sessionId: sessionIdSchema,
   mode: z.union([z.literal('queue'), z.literal('steer')]),

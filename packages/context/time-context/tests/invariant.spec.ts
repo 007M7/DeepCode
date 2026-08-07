@@ -102,6 +102,18 @@ describe('time-context invariants', () => {
     }).not.toThrow()
   })
 
+  it('rejects a reading appended after request execution starts', async () => {
+    const ctx = await setup()
+    const session = preparing(1, 1)
+    session.append('request/header', {
+      header: { config: { provider: 'mock', model: 'mock' } },
+      reason: 'initial',
+    })
+    expect(() => {
+      ctx.emit('session/event', session, event(reading()))
+    }).toThrow(/must precede request\/header/)
+  })
+
   it('derives Session and client zones from their original durable owners', async () => {
     const ctx = await setup()
     const id = SessionId('time-invariant-zones')
