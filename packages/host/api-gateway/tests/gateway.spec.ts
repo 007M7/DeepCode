@@ -314,6 +314,25 @@ class NoBindingService extends Service {
   }
 }
 
+class ObservedClaimService extends Service {
+  private readonly binding = bindTypeRTGateway(this, 'observedClaim', { namespace: 'observed-claim' })
+  bindingReads = 0
+
+  constructor(ctx: Context) {
+    super(ctx, 'observedClaim')
+  }
+
+  get typertGateway() {
+    this.bindingReads += 1
+    return this.binding
+  }
+
+  @Remote
+  run(value: string): string {
+    return value
+  }
+}
+
 class MissingMethodService extends Service {
   readonly typertGateway = bindTypeRTGateway(this, 'missingMethod', { namespace: 'missing-method' })
 
@@ -947,6 +966,36 @@ describe('TypertGatewayService', () => {
 
     await gatewayFiber.dispose()
     expect(connection.handler).toBeUndefined()
+  })
+
+  it('caches SRC ownership until the Cordis Service set changes', async () => {
+    const ctx = new Context()
+    await ctx.plugin(TypertRegistry)
+    await ctx.plugin(FakeConnectionService)
+    await ctx.plugin(TypertGatewayService)
+    const observedFiber = ctx.plugin(ObservedClaimService)
+    await observedFiber
+    const connection = rawConnection(ctx)
+    const observed = ctx.get('observedClaim') as unknown as ObservedClaimService & {
+      [symbols.original]?: ObservedClaimService
+    }
+    const service = observed[symbols.original] ?? observed
+
+    expect(connection.matches?.('legacy/list')).toBe(false)
+    expect(connection.matches?.('legacy/list')).toBe(false)
+    expect(service.bindingReads).toBe(1)
+    expect(connection.matches?.('observed-claim/run')).toBe(true)
+    expect(connection.matches?.('observed-claim/run')).toBe(true)
+    expect(service.bindingReads).toBe(1)
+
+    const unrelatedFiber = ctx.plugin(NoBindingService)
+    await unrelatedFiber
+    expect(connection.matches?.('legacy/list')).toBe(false)
+    expect(service.bindingReads).toBe(2)
+
+    await observedFiber.dispose()
+    expect(connection.matches?.('observed-claim/run')).toBe(false)
+    await unrelatedFiber.dispose()
   })
 
   it('dispatches claimed invocations through /api and leaves unclaimed endpoints to its fallback', async () => {

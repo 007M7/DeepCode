@@ -158,7 +158,7 @@ ctx.typert.lookups   wire ID 到 Host 活对象的 provider
 ctx.typert.contexts  Host Context resolver 与 Client Context binder
 ```
 
-Every registration returns a disposer owned by the caller's Cordis fiber. Client contribution mounting registers the descriptor set and concrete methods as one owned operation. The Host Gateway resolves descriptors, Services, and providers from current state for every claim and invocation instead of retaining endpoint registrations. Removing a strict definition, Service, or provider therefore makes the corresponding call unavailable without leaving a stale live object.
+Every registration returns a disposer owned by the caller's Cordis fiber. Client contribution mounting registers the descriptor set and concrete methods as one owned operation. The Host Gateway caches only the set of SRC-owned endpoint names and discards it whenever the Cordis Service set changes; it retains no descriptor, Service, or provider. Invocation resolves all live objects from current state, so removing a strict definition, Service, or provider makes the corresponding call unavailable without leaving a stale live object.
 
 The lookup registry retains the stable wire declaration after its live resolver unloads. SRC parsing continues to classify the parameter as a lookup, while invocation fails with `lookup-unavailable`; it never reclassifies the incoming ID as an ordinary JSON business object. Re-registering the same key with different parameter, wire, or canonical type symbols fails for the lifetime of that TypeRT Service.
 
@@ -355,7 +355,7 @@ CI and releases use LIB. Moving all repository coverage to LIB is separate follo
 
 ## Host Gateway resolution
 
-The Host Gateway registers one `/api` interceptor with Connection and does not maintain a second endpoint registry. Its ownership matcher resolves each endpoint from the current TypeRT local registry or scans current Cordis Services for a matching `typertGateway` binding and SRC Remote marker. TypeRT definitions and business Services may therefore arrive in either order.
+The Host Gateway registers one `/api` interceptor with Connection and does not maintain a second endpoint registry. Its ownership matcher checks the current TypeRT local registry first, then consults an invalidation-aware set populated by scanning current Cordis Services for `typertGateway` bindings and SRC Remote markers. A Cordis Service change discards the set, so TypeRT definitions and business Services may arrive in either order without making legacy `/api` traffic rescan every Service on each request or letting arbitrary request paths grow the cache.
 
 Invocation resolves the descriptor, receiver, lookup providers, and Context provider again from current state. A current strict descriptor takes precedence over SRC. After a strict endpoint has appeared, `TypeRTLocalRegistry.hasSeen()` keeps it owned when that descriptor is withdrawn and forbids SRC fallback for the remainder of the registry lifetime; re-registering the strict descriptor restores calls. Removing a Service or provider makes invocation fail explicitly, and the Gateway neither retains invalid objects nor invokes a method with a raw lookup ID.
 

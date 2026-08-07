@@ -158,7 +158,7 @@ ctx.typert.lookups   wire ID 到 Host 活对象的 provider
 ctx.typert.contexts  Host Context resolver 与 Client Context binder
 ```
 
-每次注册都返回由调用方 Cordis fiber 持有的 disposer。挂载 Client contribution 时，descriptor 集与具体方法会作为一项有明确所有者的操作统一注册。Host Gateway 每次认领和调用时都从当前状态解析 descriptor、Service 与提供方，不保留 endpoint 注册。因此移除 strict definition、Service 或提供方会使相应调用不可用，且不会留下陈旧的活对象。
+每次注册都返回由调用方 Cordis fiber 持有的 disposer。挂载 Client contribution 时，descriptor 集与具体方法会作为一项有明确所有者的操作统一注册。Host Gateway 只缓存 SRC 所认领的 endpoint 名称集合，并在 Cordis Service 集合发生变化时整体丢弃该集合；它不保留 descriptor、Service 或提供方。调用时会从当前状态解析所有活对象，因此移除 strict definition、Service 或提供方会使相应调用不可用，且不会留下陈旧的活对象。
 
 lookup 注册表会在活 resolver 卸载后保留稳定的 wire 声明。SRC 解析仍会把该参数归类为 lookup，而调用会以 `lookup-unavailable` 失败；系统绝不会把传入的 ID 重新归类为普通 JSON 业务对象。在同一个 TypeRT Service 的生命周期内，以不同参数、wire 或规范类型 symbol 重新注册同一 key 会直接失败。
 
@@ -355,7 +355,7 @@ CI 和发布运行 LIB。全仓 coverage 全部切换到 LIB 是独立后续工�
 
 ## Host Gateway 解析
 
-Host Gateway 向 Connection 注册一个 `/api` interceptor，不维护第二份 endpoint 注册表。ownership matcher 会从当前 TypeRT local 注册表解析各 endpoint，或扫描当前 Cordis Service，查找匹配的 `typertGateway` binding 与 SRC Remote 标记。因此 TypeRT definition 与业务 Service 可以按任意顺序到达。
+Host Gateway 向 Connection 注册一个 `/api` interceptor，不维护第二份 endpoint 注册表。ownership matcher 会先检查当前 TypeRT local 注册表，再查询一份可失效的集合；该集合通过扫描当前 Cordis Service 中的 `typertGateway` binding 与 SRC Remote 标记生成。Cordis Service 发生变化时会整体丢弃该集合，因此 TypeRT definition 与业务 Service 可以按任意顺序到达，同时既不会让旧 API Proxy 的 `/api` 流量在每次请求时重新扫描所有 Service，也不会因任意请求路径而扩大缓存。
 
 每次调用都会重新从当前状态解析 descriptor、receiver、lookup 提供方与 Context 提供方。当前 strict descriptor 优先于 SRC。strict endpoint 一旦出现，即使随后撤回对应 descriptor，`TypeRTLocalRegistry.hasSeen()` 仍会在注册表剩余生命周期内保持对它的认领并禁止回退 SRC；重新注册 strict descriptor 即可恢复调用。移除 Service 或提供方会让调用明确失败；Gateway 既不保留失效对象，也不会以原始 lookup ID 调用方法。
 

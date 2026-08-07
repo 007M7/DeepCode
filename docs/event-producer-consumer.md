@@ -66,6 +66,7 @@ This matrix shows which packages dispatch each harness-owned event and which pac
 | `credentials/changed` | `runtime` (`emit`) | `ui-models` |
 | `internal/dispatch` | - | [`commands`](../packages/ui/commands), [`compact`](../packages/compact/compact), [`fs`](../packages/fs/fs), [`goal`](../packages/goal/goal), [`goal-session`](../packages/goal/goal-session), [`hook-protocol`](../packages/hooks/hook-protocol), [`llm-retry`](../packages/llm/llm-retry), [`permission`](../packages/ui/permission), [`plan-mode`](../packages/plan/plan-mode), [`pty-local`](../packages/pty/pty-local), `runtime`, [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`session-title`](../packages/session-title/session-title), [`subagent`](../packages/subagent/subagent), [`time-context`](../packages/context/time-context), [`tool-todo`](../packages/todo/tool-todo), [`tools`](../packages/core/tools), [`user-approval`](../packages/ui/user-approval), [`workflow`](../packages/workflow/workflow) |
 | `internal/plugin` | - | `hmr`, `loader`, `modules`, `webserver` |
+| `internal/service` | - | `api-gateway` |
 | `internal/status` | - | [`agent`](../packages/core/agent) |
 | `locale/change` | `locale` (`emit`) | `locale` |
 | `models/changed` | `runtime` (`emit`) | `ui-models` |

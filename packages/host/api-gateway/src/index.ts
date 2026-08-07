@@ -76,12 +76,17 @@ export class TypertGatewayError extends Error {
 export class TypertGatewayService extends Service implements TypertGateway {
   static inject = ['typert']
 
+  private srcClaims: ReadonlySet<string> | undefined
+
   /**
    * Register the Gateway against the active TypeRT registry.
    * @param ctx - owning Host Context with TypeRT registry access.
    */
   constructor(ctx: Context) {
     super(ctx, 'typertGateway')
+    ctx.on('internal/service', () => {
+      this.srcClaims = undefined
+    })
     ctx.inject(['connection'], (connectionCtx) => {
       connectionCtx.connection.rpc.intercept(
         '/api',
@@ -95,18 +100,26 @@ export class TypertGatewayService extends Service implements TypertGateway {
   private claimsEndpoint(endpoint: string): boolean {
     const segments = endpoint.split('/')
     if (segments.length !== 2 || segments[0] === '' || segments[1] === '') return false
-    const [namespace, method] = segments as [string, string]
     if (this.ctx.typert.local.get(endpoint) !== undefined || this.ctx.typert.local.hasSeen(endpoint)) return true
+    this.srcClaims ??= this.collectSrcClaims()
+    return this.srcClaims.has(endpoint)
+  }
+
+  private collectSrcClaims(): ReadonlySet<string> {
+    const claims = new Set<string>()
     for (const [serviceKey, definition] of Object.entries(this.ctx.reflect.props)) {
       if (definition.type !== 'service') continue
       const receiver = this.ctx.get(serviceKey) as unknown
       if (!isObject(receiver)) continue
       const original = originalOf(receiver)
       const binding = Reflect.get(original, 'typertGateway') as unknown
-      if (!isObject(binding) || Reflect.get(binding, 'namespace') !== namespace) continue
-      if (remoteMethods(original).some(candidate => (candidate.exportName ?? candidate.method) === method)) return true
+      if (!isObject(binding) || typeof Reflect.get(binding, 'namespace') !== 'string') continue
+      const namespace = Reflect.get(binding, 'namespace') as string
+      for (const candidate of remoteMethods(original)) {
+        claims.add(endpointOf(namespace, candidate.exportName ?? candidate.method))
+      }
     }
-    return false
+    return claims
   }
 
   /**
