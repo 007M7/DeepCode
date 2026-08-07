@@ -880,6 +880,24 @@ describe('hand-declared providers', () => {
     expect(set).not.toHaveBeenCalled()
   })
 
+  it('tells a whitespace-only key what a blank field means on a create card', () => {
+    const { mutate } = mountCard()
+
+    fireEvent.change(screen.getByLabelText(en.customRoute), { target: { value: 'acme-gateway' } })
+    fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: 'https://gateway.acme.example/v1' } })
+    fireEvent.click(screen.getByRole('button', { name: en.addModel }))
+    fireEvent.change(screen.getByLabelText(`${en.modelId} 1`), { target: { value: 'acme-large' } })
+    fireEvent.change(screen.getByLabelText(en.keyInput), { target: { value: '   ' } })
+
+    // There is no stored key to keep here, so the blank case says the thing
+    // that is true of a route being declared: it may authenticate elsewhere.
+    expect(screen.getByText(en.keyBlankNew)).toBeTruthy()
+    expect(screen.queryByText(en.keyBlank)).toBeNull()
+    expect(buttonNamed(en.fetchModels).title).toBe(en.keyBlankNew)
+    expect(buttonNamed(en.create).disabled).toBe(true)
+    expect(mutate).not.toHaveBeenCalled()
+  })
+
   it('creates without a key when the route authenticates some other way', async () => {
     const { set, onClose } = mountCard()
 
