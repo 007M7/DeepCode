@@ -14,8 +14,8 @@ import {
 const WINDOWS_PATCH = `- id: bash-sandbox
   disabled: true
 - insert:
-    - id: pwsh-local
-      name: '@deepseek-ai/dsh-pwsh-local'
+    - id: pwsh-sandbox
+      name: '@deepseek-ai/dsh-pwsh-sandbox'
 `
 
 /** One fake bundle layer rooted in a temp directory. */
@@ -48,7 +48,7 @@ describe('resolveWindowsShellLayer', () => {
     expect(layer?.label.endsWith(WINDOWS_SHELL_PATCH_FILENAME)).toBe(true)
     expect(layer?.patches).toEqual([
       { id: 'bash-sandbox', disabled: true },
-      { insert: [{ id: 'pwsh-local', name: '@deepseek-ai/dsh-pwsh-local' }] },
+      { insert: [{ id: 'pwsh-sandbox', name: '@deepseek-ai/dsh-pwsh-sandbox' }] },
     ])
   })
 
@@ -73,7 +73,7 @@ describe('the shipped Windows composition (real bundle layers)', () => {
   // suite composes the shipped patch files, not test fixtures.
   const anchor = fileURLToPath(new URL('../package.json', import.meta.url))
 
-  it('composes the win32 danger-full-access roster through the real patch layers', () => {
+  it('composes the win32 confined roster through the real patch layers', () => {
     home = mkdtempSync(join(tmpdir(), 'dsh-windows-home-'))
     initProfile(join(home, PROFILES_DIR, 'web'), ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'])
     const profile = loadProfile('dsh', 'web', anchor, home)
@@ -85,19 +85,24 @@ describe('the shipped Windows composition (real bundle layers)', () => {
       message => warnings.push(message),
     )
     const byId = new Map(rows.map(row => [row.id, row]))
-    for (const id of ['bash-sandbox', 'tool-bash', 'permission', 'ui-permission',
-      'sandbox', 'sandbox-policy', 'fs-sandbox', 'approval']) {
+    // Only the POSIX bash stack leaves the roster: the permission surface
+    // (sandbox/sandbox-policy/fs-sandbox, permission, approval) stays enabled
+    // exactly as on POSIX — the confined pwsh executor is what changes.
+    for (const id of ['bash-sandbox', 'tool-bash']) {
       expect(byId.get(id)?.disabled, `row ${id}`).toBe(true)
     }
-    for (const id of ['pwsh-local', 'tool-pwsh', 'fs-local']) {
+    for (const id of ['permission', 'ui-permission', 'sandbox', 'sandbox-policy', 'fs-sandbox', 'approval']) {
+      expect(byId.get(id)?.disabled, `row ${id}`).not.toBe(true)
+    }
+    for (const id of ['pwsh-sandbox', 'tool-pwsh']) {
       expect(byId.has(id), `inserted row ${id}`).toBe(true)
     }
-    // The web-app layer provides ui-permission, so the full web profile
-    // composes without any no-match warning.
+    // The patch touches only base-owned rows plus inserts, so the full web
+    // profile composes without any no-match warning.
     expect(warnings).toEqual([])
   })
 
-  it('leaves POSIX untouched and base-only profiles warned but harmless', () => {
+  it('leaves POSIX untouched and base-only profiles compose without warnings', () => {
     home = mkdtempSync(join(tmpdir(), 'dsh-windows-home-'))
     initProfile(join(home, PROFILES_DIR, 'web'), ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'])
     const profile = loadProfile('dsh', 'web', anchor, home)
@@ -106,10 +111,11 @@ describe('the shipped Windows composition (real bundle layers)', () => {
     const posixById = new Map(posixRows.map(row => [row.id, row]))
     expect(posixById.get('bash-sandbox')?.disabled).not.toBe(true)
     expect(posixById.has('pwsh-local')).toBe(false)
+    expect(posixById.has('pwsh-sandbox')).toBe(false)
 
-    // A base-only custom profile (the DEFAULT_PROFILE_BUNDLES template):
-    // ui-permission has no row to patch, so the shipped layer warns once per
-    // composition — never fails — exactly as its header comment documents.
+    // A base-only custom profile (the DEFAULT_PROFILE_BUNDLES template): the
+    // patch touches only base-owned rows (bash-sandbox/tool-bash) plus its
+    // inserts, so the composition produces no no-match warning.
     initProfile(join(home, PROFILES_DIR, 'base-only'), ['@deepseek-ai/dsh-base'])
     const baseOnly = loadProfile('dsh', 'base-only', anchor, home)
     const baseWarnings: string[] = []
@@ -119,6 +125,6 @@ describe('the shipped Windows composition (real bundle layers)', () => {
       [...baseOnly.layers.map(layer => layer.patches), win32!.patches],
       message => baseWarnings.push(message),
     )
-    expect(baseWarnings.some(message => message.includes('ui-permission'))).toBe(true)
+    expect(baseWarnings).toEqual([])
   })
 })

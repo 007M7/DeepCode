@@ -52,7 +52,7 @@ describe('dsh-base bundle', () => {
     const inserted = parsed
       .flatMap(patch => patch.insert ?? [])
       .map(row => row.id)
-    expect(inserted).toEqual(['pwsh-sandbox', 'tool-pwsh', 'fs-local'])
+    expect(inserted).toEqual(['pwsh-sandbox', 'tool-pwsh'])
     // The patch no longer touches the permission/approval surface at all.
     expect(parsed.find(patch => patch.id === 'approval')).toBeUndefined()
     expect(parsed.find(patch => patch.id === 'permission')).toBeUndefined()

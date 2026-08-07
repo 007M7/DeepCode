@@ -5,7 +5,9 @@
 # stack is the SANDBOXED PowerShell executor plus the full permission
 # surface: sandbox/sandbox-policy enforce the file-effect policy, the
 # permission switcher and the approval service run exactly as on POSIX, and
-# fs-sandbox fences the in-process filesystem view. Only the POSIX bash
+# the fs row stays the base's sandboxed provider (fs-sandbox) — mounting
+# dsh-fs-local alongside it would double-register ctx.fs and fail the load.
+# Only the POSIX bash
 # stack (bash-sandbox/tool-bash) is disabled — bash has no Windows runner.
 # A Windows host that prefers the unconfined local pwsh executor or full
 # access overrides these rows through its profile or home cordis.patch.yml.
@@ -27,6 +29,3 @@
 
     - id: tool-pwsh
       name: '@deepseek-ai/dsh-tool-pwsh'
-
-    - id: fs-local
-      name: '@deepseek-ai/dsh-fs-local'

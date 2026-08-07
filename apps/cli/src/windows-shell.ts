@@ -1,8 +1,8 @@
 /**
  * The Windows shell platform layer: on win32 hosts the shipped profile
- * compositions swap the POSIX-only bash stack for the PowerShell stack
- * (`@deepseek-ai/dsh-pwsh-local` + `@deepseek-ai/dsh-tool-pwsh`), matching
- * the Windows-pwsh-default roadmap. The layer is the base bundle's
+ * compositions swap the POSIX-only bash stack for the sandbox-confined
+ * PowerShell stack (`@deepseek-ai/dsh-pwsh-sandbox` +
+ * `@deepseek-ai/dsh-tool-pwsh`), matching the Windows-pwsh-default roadmap. The layer is the base bundle's
  * `windows.cordis.patch.yml`, injected by the launcher between the bundle
  * layers and the user layers so a user patch can still override it — the
  * only override channel is composition config, like every other roster
