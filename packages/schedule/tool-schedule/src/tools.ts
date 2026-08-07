@@ -71,7 +71,7 @@ const PERSISTENCE_ERROR_SCHEMA = {
   properties: {
     code: { type: 'string', required: true, const: 'persistence_uncertain' },
     message: { type: 'string', required: true },
-    operation: { type: 'string', required: true, enum: ['create', 'list', 'delete', 'dispatch'] },
+    operation: { type: 'string', required: true, enum: ['create', 'list', 'delete'] },
     id: { type: 'string' },
   },
 } as const

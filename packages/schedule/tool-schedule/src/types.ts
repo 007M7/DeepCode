@@ -76,8 +76,8 @@ export interface ScheduleReminderPresentation {
   readonly deliveryMode: ScheduleDeliveryMode
 }
 
-/** Operations whose persistence barrier may be uncertain. */
-export type SchedulePersistenceOperation = 'create' | 'list' | 'delete' | 'dispatch'
+/** Management operations whose persistence barrier may be uncertain. */
+export type SchedulePersistenceOperation = 'create' | 'list' | 'delete'
 
 /** Stable error returned for an empty reminder prompt. */
 export interface InvalidPromptError {
