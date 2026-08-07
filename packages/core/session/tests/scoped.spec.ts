@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { createScope, scopeOf } from '@deepseek-ai/dsh-scope'
 import type { Scope, ScopeKey } from '@deepseek-ai/dsh-scope'
-import SessionStore from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
 
 async function mount(): Promise<Context> {
@@ -219,6 +219,25 @@ describe('sessions.flush()', () => {
 
     await expect(ctx.sessions.flush(session)).resolves.toBe(true)
     expect(checkpoints).toEqual([0])
+  })
+
+  it('contains successful-checkpoint dispatch resolution failure without reversing the barrier', async () => {
+    const ctx = await mount()
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
+    const checkpoints: number[] = []
+    ctx.on('session/flush', () => true)
+    ctx.on('internal/dispatch', (_mode, name) => {
+      if (name === 'session/flushed') throw new Error('flushed dispatch instrumentation')
+    })
+    ctx.on('session/flushed', (_session, throughSeq) => { checkpoints.push(throughSeq) })
+    const session = ctx.sessions.create(SessionId('flushed-dispatch'))
+
+    await expect(ctx.sessions.flush(session)).resolves.toBe(true)
+    expect(checkpoints).toEqual([])
+    expect(warnings).toEqual([
+      'session "flushed-dispatch": session/flushed dispatch threw: Error: flushed dispatch instrumentation',
+    ])
   })
 
   it('may publish overlapping checkpoints out of order without widening either boundary', async () => {

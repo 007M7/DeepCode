@@ -1071,18 +1071,22 @@ export class SessionStore extends Service {
     const durable = results.some(result => result.status === 'fulfilled' && result.value === true)
     if (durable) {
       const flushedArgs: unknown[] = [session, throughSeq]
-      const observers = collectSessionCallbacks(this.ctx, [
-        carrier,
-        'session/flushed',
-        ...flushedArgs,
-      ])
-      invokeContainedSessionObservers(
-        this.ctx,
-        'session/flushed',
-        session.id,
-        flushedArgs,
-        observers,
-      )
+      try {
+        const observers = collectSessionCallbacks(this.ctx, [
+          carrier,
+          'session/flushed',
+          ...flushedArgs,
+        ])
+        invokeContainedSessionObservers(
+          this.ctx,
+          'session/flushed',
+          session.id,
+          flushedArgs,
+          observers,
+        )
+      } catch (error: unknown) {
+        this.ctx.logger.warn(`session "${session.id}": session/flushed dispatch threw: ${String(error)}`)
+      }
     }
     return durable
   }
