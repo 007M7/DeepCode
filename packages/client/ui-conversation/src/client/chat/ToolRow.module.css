@@ -89,6 +89,20 @@
   text-overflow: clip;
 }
 
+/* Trailing summary fragment kept out of .summary's ellipsis, for a count whose
+   whole value is that it survives a narrow row (the todo row's parallel-active
+   `+n`). Repeats .summary's type because it sits beside that text, and its
+   `nowrap` too: `flex: none` stops the box shrinking but not the text wrapping,
+   which would break the one-line row in the narrow case the slot exists for. */
+.summarySuffix {
+  flex: none;
+  margin-left: 4px;
+  white-space: nowrap;
+  font-size: 14px;
+  line-height: 24px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
 /* File-tool path: same geometry as .summary; hover underline + pointer. */
 .fileLink {
   flex: 1 1 auto;

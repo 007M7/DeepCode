@@ -500,7 +500,7 @@ abstract run(request: CodeRunRequest): Promise<CodeRunResult>
 
 Types: [CodeRunRequest](../core-data-structures/code-runtime.md) · [CodeRunResult](../core-data-structures/code-runtime.md)
 
-Source: [`packages/code-runtime/code-runtime/src/index.ts:33`](../../packages/code-runtime/code-runtime/src/index.ts)
+Source: [`packages/code-runtime/code-runtime/src/index.ts:104`](../../packages/code-runtime/code-runtime/src/index.ts)
 
 ## `ctx.commands` — `CommandService`
 
@@ -2201,22 +2201,32 @@ registerContinuableSetup(contribution: ContinuableSetupContribution): () => void
 async drainContinuableDescendants(parents: readonly Agent[]): Promise<void>
 
 /**
- * Enumerate the parent's direct session-backed subagents from the
- * live-preferred session corpus without loading or resuming an Agent. Session
- * query supplies lineage, candidate order, event reads, and live state; this
- * service interprets descriptor mode, activity, and per-child diagnostics
- * without consulting Agent registrations, Activations, or providers.
+ * Enumerate the parent's direct session-backed subagents without loading or
+ * resuming an Agent and without any query seam: the listing merges the live
+ * session store with optional session persistence (live-preferred) and
+ * serves each child's durable mode/label from the registered `subagent`
+ * projection unit down a three-rung ladder — the registry's watermark
+ * snapshot for a live child; for a cold one, a durable projection-cache
+ * row when the optional cache serves an own-suffix identity (its `seq`
+ * gate proves the value postdates the fork seed, where a child's own
+ * descriptor is immutable once appended), else one persistence inspection
+ * folded through the registry. The
+ * projection fold is the single classification authority; per-child
+ * diagnostics relay a fold that served no identity or a failed inspection,
+ * never a list-time descriptor parse. Absent persistence, enumeration is
+ * live-only (a cold child cannot be resumed then either, so its absence is
+ * capability absence, not an error). This service consults no Agent
+ * registrations, Activations, or providers.
  *
- * The trace and exact descriptor read receive `signal`; the full event-list
- * read has no signal parameter, so the scan rechecks cancellation around
- * every await and between candidates. Query rejections that settle after an
- * abort become a stable `SubagentError` with code `CANCELLED`.
+ * Every persistence read receives `signal`, and the listing rechecks
+ * cancellation around each of those awaits. Read rejections that settle
+ * after an abort become a stable `SubagentError` with code `CANCELLED`.
  * @param parentSessionId - parent session whose direct children are listed.
- * @param signal - caller-owned cancellation forwarded where supported and
- *   observed around every query await.
- * @returns children and per-child diagnostics in stable trace order.
- * @throws {@link SubagentError} when session query is unavailable or the
- *   caller cancels the scan.
+ * @param signal - caller-owned cancellation forwarded to persistence reads
+ *   and observed around every read await.
+ * @returns children and per-child diagnostics ordered by `createdAt`, then id.
+ * @throws {@link SubagentError} when the projection registry or the session
+ *   store is not mounted, or the caller cancels the listing.
  */
 listChildren(parentSessionId: SessionId, signal?: AbortSignal): Promise<SubagentListEntry[]>
 
@@ -2615,7 +2625,7 @@ async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>
 
 Types: [ScopeKey](../core-data-structures/scope.md) · [ToolDefinition](../core-data-structures/tools.md) · [ToolExecutionInput](../core-data-structures/tools.md) · [ToolExecutionMode](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolGuard](../core-data-structures/tools.md) · [ToolRestriction](../core-data-structures/tools.md) · [ToolSchema](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:714`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:739`](../../packages/core/tools/src/index.ts)
 
 ## `ctx.typert` — `TypertRegistry`
 
