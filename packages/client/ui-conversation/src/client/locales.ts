@@ -184,7 +184,7 @@ export const en = {
   'access.confirm.acknowledge': 'I understand the risks and want to continue',
   'access.confirm.cancel': 'Cancel',
   'access.confirm.enable': 'Enable Full access',
-  'hero.headline': 'Into the unknown',
+  'hero.headline': 'Into the Unknown',
   'hero.preview': 'Preview',
   'hero.chooseWorkspace': 'Choose workspace',
   'session.hierarchy': 'Session hierarchy',
