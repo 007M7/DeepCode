@@ -90,7 +90,6 @@ export class WorkspaceTypertGenerator {
         throw new TypertAnalysisError(`typert(${artifact.face}): ${artifact.package} package files must include ${file}`)
       }
     }
-    if (artifact.remote === undefined) return
     const remoteExpected = {
       types: './lib/typert.remote-client.d.ts',
       default: './lib/typert.remote-client.js',
@@ -98,16 +97,25 @@ export class WorkspaceTypertGenerator {
     const remoteActual = manifest.exports !== null && typeof manifest.exports === 'object'
       ? (manifest.exports as Record<string, unknown>)['./remote']
       : undefined
+    const remoteFiles = [
+      'lib/typert.remote-client.js',
+      'lib/typert.remote-client.d.ts',
+      'lib/typert.remote-client.d.ts.map',
+    ]
+    if (artifact.remote === undefined) {
+      if (remoteActual !== undefined || remoteFiles.some(file => files.includes(file))) {
+        throw new TypertAnalysisError(
+          `typert(host): ${artifact.package} publishes Remote artifacts but has no Remote methods`,
+        )
+      }
+      return
+    }
     if (!sameExport(remoteActual, remoteExpected)) {
       throw new TypertAnalysisError(
         `typert(host): ${artifact.package} must export ./remote as ${JSON.stringify(remoteExpected)}`,
       )
     }
-    for (const file of [
-      'lib/typert.remote-client.js',
-      'lib/typert.remote-client.d.ts',
-      'lib/typert.remote-client.d.ts.map',
-    ]) {
+    for (const file of remoteFiles) {
       if (!files.includes(file)) {
         throw new TypertAnalysisError(`typert(host): ${artifact.package} package files must include ${file}`)
       }

@@ -134,8 +134,11 @@ class ClientApiService extends Service implements ClientApi {
       const record = this.scoped.get(namespace)
       if (record !== undefined) {
         for (const method of methods) record.service.assertMethodAvailable(method)
-      } else if (this.ownerCtx.reflect.props[namespace] !== undefined) {
-        throw new Error(`client api: scoped namespace ${JSON.stringify(namespace)} conflicts with an existing Context property`)
+      } else {
+        for (const method of methods) ScopedRemoteNamespace.assertMethodAvailable(namespace, method)
+        if (this.ownerCtx.reflect.props[namespace] !== undefined) {
+          throw new Error(`client api: scoped namespace ${JSON.stringify(namespace)} conflicts with an existing Context property`)
+        }
       }
     }
   }
@@ -143,11 +146,18 @@ class ClientApiService extends Service implements ClientApi {
   private install(descriptor: InvocationDescriptor): () => void {
     const token: MountToken = { active: true, abort: new AbortController() }
     const installed: (() => void)[] = []
-    if (descriptor.invocation.kind === 'direct') {
-      installed.push(this.installDirect(descriptor, token))
+    try {
+      if (descriptor.invocation.kind === 'direct') {
+        installed.push(this.installDirect(descriptor, token))
+      }
+      const projection = scopedProjection(descriptor)
+      if (projection !== undefined) installed.push(this.installScoped(descriptor, projection, token))
+    } catch (error) {
+      token.active = false
+      for (const dispose of installed.reverse()) dispose()
+      token.abort.abort()
+      throw error
     }
-    const projection = scopedProjection(descriptor)
-    if (projection !== undefined) installed.push(this.installScoped(descriptor, projection, token))
     return () => {
       /* v8 ignore next -- Cordis effect disposers are idempotent and invoke this cleanup at most once. */
       if (!token.active) return
@@ -192,19 +202,19 @@ class ClientApiService extends Service implements ClientApi {
   ): () => void {
     let namespace = this.scoped.get(descriptor.namespace)
     if (namespace === undefined) {
-      namespace = {
-        service: new ScopedRemoteNamespace(
-          this.ownerCtx,
-          descriptor.namespace,
-          (current, currentProjection, currentToken, caller, args) =>
-            this.invoke(current, currentProjection, currentToken, caller, args),
-        ),
-        tokens: new Map(),
-      }
+      const service = new ScopedRemoteNamespace(
+        this.ownerCtx,
+        descriptor.namespace,
+        (current, currentProjection, currentToken, caller, args) =>
+          this.invoke(current, currentProjection, currentToken, caller, args),
+      )
+      service.install(descriptor, projection, token)
+      namespace = { service, tokens: new Map() }
       this.scoped.set(descriptor.namespace, namespace)
+    } else {
+      namespace.service.install(descriptor, projection, token)
     }
     namespace.tokens.set(descriptor.method, token)
-    namespace.service.install(descriptor, projection, token)
     return () => {
       /* v8 ignore next -- duplicate live methods are rejected before installation, so no newer token can replace this one. */
       if (namespace.tokens.get(descriptor.method) !== token) return
@@ -275,6 +285,12 @@ class ScopedRemoteNamespace extends Service {
   private readonly ownerCtx: Context
   private readonly methods = new Set<string>()
 
+  static assertMethodAvailable(namespace: string, method: string): void {
+    if (SCOPED_NAMESPACE_FIELDS.has(method) || method in ScopedRemoteNamespace.prototype) {
+      throw new Error(`client api: scoped method ${JSON.stringify(`${namespace}/${method}`)} conflicts with its namespace service`)
+    }
+  }
+
   constructor(
     ctx: Context,
     name: string,
@@ -285,6 +301,7 @@ class ScopedRemoteNamespace extends Service {
   }
 
   assertMethodAvailable(method: string): void {
+    ScopedRemoteNamespace.assertMethodAvailable(this.name, method)
     if (method in this) {
       throw new Error(`client api: scoped method ${JSON.stringify(`${this.name}/${method}`)} conflicts with its namespace service`)
     }
@@ -310,6 +327,8 @@ class ScopedRemoteNamespace extends Service {
     if (this.methods.size === 0) this.ownerCtx.set(this.name, undefined)
   }
 }
+
+const SCOPED_NAMESPACE_FIELDS = new Set(['ctx', 'invokeRemote', 'methods', 'name', 'ownerCtx'])
 
 function endpointOf(descriptor: Pick<InvocationDescriptor, 'namespace' | 'method'>): string {
   return `${descriptor.namespace}/${descriptor.method}`

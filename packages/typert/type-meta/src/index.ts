@@ -7,6 +7,17 @@
 import { Service, type Context } from 'cordis'
 import type { TypeRTContextMap } from './types.ts'
 
+const TYPERT_REMOTE_SEGMENT_PATTERN = /^[A-Za-z0-9_$.-]+$/
+
+/**
+ * Test one generated Remote name against the Connection endpoint grammar.
+ * @param value - namespace, method, lookup, or Context segment.
+ * @returns whether the value can cross the shared RPC carrier unchanged.
+ */
+export function isTypeRTRemoteSegment(value: string): boolean {
+  return TYPERT_REMOTE_SEGMENT_PATTERN.test(value)
+}
+
 export type {
   InvocationDescriptor,
   InvocationParameterDescriptor,
@@ -236,7 +247,7 @@ function sameInvocation(left: RemoteInvocationMarker, right: RemoteInvocationMar
 }
 
 function validateName(subject: string, value: string): void {
-  if (value.length === 0 || value.includes('/')) {
-    throw new TypeError(`type-meta: ${subject} must be nonempty and must not contain "/"`)
+  if (!isTypeRTRemoteSegment(value)) {
+    throw new TypeError(`type-meta: ${subject} must contain only RPC endpoint segment characters`)
   }
 }

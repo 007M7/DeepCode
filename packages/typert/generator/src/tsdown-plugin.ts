@@ -6,7 +6,7 @@
  * @module @deepseek-ai/dsh-typert-generator/tsdown
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import ts from 'typescript'
 import { WorkspaceTypertGenerator } from './workspace.ts'
@@ -103,14 +103,23 @@ export function typertPlugin(pluginOptions: TypertPluginOptions = {}): TypertPlu
 function emitArtifacts(packageDir: string, artifacts: readonly WorkspaceEmitResult[]): void {
   const output = join(packageDir, 'lib')
   mkdirSync(output, { recursive: true })
+  let emittedRemote = false
   for (const artifact of artifacts) {
     writeFileSync(join(output, `typert.${artifact.face}.js`), artifact.js)
     writeFileSync(join(output, `typert.${artifact.face}.d.ts`), artifact.dts)
     if (artifact.remote !== undefined) {
+      emittedRemote = true
       writeFileSync(join(output, 'typert.remote-client.js'), artifact.remote.js)
       writeFileSync(join(output, 'typert.remote-client.d.ts'), artifact.remote.dts)
       writeFileSync(join(output, 'typert.remote-client.d.ts.map'), artifact.remote.dtsMap)
     }
+  }
+  if (!emittedRemote && artifacts.some(artifact => artifact.face === 'host')) {
+    for (const file of [
+      'typert.remote-client.js',
+      'typert.remote-client.d.ts',
+      'typert.remote-client.d.ts.map',
+    ]) rmSync(join(output, file), { force: true })
   }
 }
 

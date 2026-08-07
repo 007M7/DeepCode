@@ -414,8 +414,9 @@ export class FaceModelEmitter {
     invocation: InvocationModel,
     referenceNames: ReadonlyMap<SymbolId, string>,
   ): void {
-    const signature = `${invocation.method}: ${this.remoteFunctionType(invocation, referenceNames, false)}`
-    this.pushMappedRemoteSignature(lines, sourceMap, packageModel, invocation, signature, invocation.method.length)
+    const key = renderRemotePropertyName(invocation.method)
+    const signature = `${key}: ${this.remoteFunctionType(invocation, referenceNames, false)}`
+    this.pushMappedRemoteSignature(lines, sourceMap, packageModel, invocation, signature, key.length)
   }
 
   private pushMappedRemoteSignature(
@@ -912,6 +913,10 @@ function safeIdentifier(name: string): string {
   const normalized = name.replace(/[^$\w]/gu, '_')
   if (/^[$A-Z_a-z]/u.test(normalized)) return normalized
   return `_${normalized}`
+}
+
+function renderRemotePropertyName(name: string): string {
+  return /^[$A-Z_a-z][$\w]*$/u.test(name) ? name : quote(name)
 }
 
 function quote(value: string): string {

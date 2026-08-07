@@ -162,6 +162,8 @@ describe('type-meta Remote declarations', () => {
     const method: (this: object) => void = function (this: object): void {}
     expect(() => { (Remote as unknown as (value: typeof method) => void)(method) }).toThrow('context is missing')
     expect(() => Remote('bad/name')).toThrow('export name')
+    expect(() => Remote('bad#name')).toThrow('export name')
+    expect(() => Remote('bad name')).toThrow('export name')
     expect(() => RemoteContext('' as 'metaFixture')).toThrow('Context key')
     expect(() => RemoteContext('metaFixture', 'bad/name')).toThrow('export name')
 
@@ -203,6 +205,7 @@ describe('type-meta Remote declarations', () => {
   it('rejects ambiguous binding names', () => {
     expect(() => bindTypeRTGateway({}, '')).toThrow('service key')
     expect(() => bindTypeRTGateway({}, 'goals', { namespace: 'api/goals' })).toThrow('namespace')
+    expect(() => bindTypeRTGateway({}, 'goals', { namespace: 'api goals' })).toThrow('namespace')
   })
 })
 

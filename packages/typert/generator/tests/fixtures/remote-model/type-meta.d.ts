@@ -50,7 +50,13 @@ declare module '@deepseek-ai/dsh-type-meta' {
     context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Result>,
   ): void
 
-  export function RemoteContext(key: Extract<keyof TypeRTContextMap, string>):
+  export function Remote(exportName: string):
+  <This extends object, Args extends unknown[], Result>(
+    method: (this: This, ...args: Args) => Result,
+    context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Result>,
+  ) => void
+
+  export function RemoteContext(key: Extract<keyof TypeRTContextMap, string>, exportName?: string):
   <This extends object, Args extends unknown[], Result>(
     method: (this: This, ...args: Args) => Result,
     context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Result>,

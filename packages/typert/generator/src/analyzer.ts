@@ -8,6 +8,7 @@
 import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { dirname, extname, join, relative, resolve, sep } from 'node:path'
 import ts from 'typescript'
+import { isTypeRTRemoteSegment } from '@deepseek-ai/dsh-type-meta'
 import type {
   CrossFaceLink,
   DocumentationModel,
@@ -1171,8 +1172,8 @@ class FaceAnalyzer {
         namespace = value
       }
     }
-    if (!isRemoteSegment(service)) this.fail(serviceArgument, 'Gateway service key must be nonempty and must not contain "/"')
-    if (!isRemoteSegment(namespace)) this.fail(options ?? call, 'Gateway namespace must be nonempty and must not contain "/"')
+    if (!isRemoteSegment(service)) this.fail(serviceArgument, 'Gateway service key must contain only RPC endpoint segment characters')
+    if (!isRemoteSegment(namespace)) this.fail(options ?? call, 'Gateway namespace must contain only RPC endpoint segment characters')
     return { service, namespace, site }
   }
 
@@ -1196,7 +1197,7 @@ class FaceAnalyzer {
         if (expression.arguments.length !== 1) this.fail(expression, 'Remote() requires one exported method name')
         const exportName = stringLiteralValue(expression.arguments[0])
         if (exportName === undefined || !isRemoteSegment(exportName)) {
-          this.fail(expression.arguments[0] ?? expression, 'Remote() name must be a nonempty string literal without "/"')
+          this.fail(expression.arguments[0] ?? expression, 'Remote() name must be a string literal containing only RPC endpoint segment characters')
         }
         marker = { kind: 'direct', exportName }
       } else if (ts.isCallExpression(expression)
@@ -1206,12 +1207,12 @@ class FaceAnalyzer {
         }
         const context = stringLiteralValue(expression.arguments[0])
         if (context === undefined || !isRemoteSegment(context)) {
-          this.fail(expression.arguments[0] ?? expression, 'RemoteContext() key must be a nonempty string literal without "/"')
+          this.fail(expression.arguments[0] ?? expression, 'RemoteContext() key must be a string literal containing only RPC endpoint segment characters')
         }
         const exportArgument = expression.arguments[1]
         const exportName = exportArgument === undefined ? undefined : stringLiteralValue(exportArgument)
         if (exportArgument !== undefined && (exportName === undefined || !isRemoteSegment(exportName))) {
-          this.fail(exportArgument, 'RemoteContext() name must be a nonempty string literal without "/"')
+          this.fail(exportArgument, 'RemoteContext() name must be a string literal containing only RPC endpoint segment characters')
         }
         marker = { kind: 'context', context, ...exportName === undefined ? {} : { exportName } }
       } else {
@@ -1251,7 +1252,7 @@ class FaceAnalyzer {
         this.fail(declaration, 'TypeRTLookupMap entries must be required properties')
       }
       const key = memberName(declaration.name)
-      if (!isRemoteSegment(key)) this.fail(declaration.name, 'TypeRTLookupMap key must be nonempty and must not contain "/"')
+      if (!isRemoteSegment(key)) this.fail(declaration.name, 'TypeRTLookupMap key must contain only RPC endpoint segment characters')
       if (!ts.isTypeReferenceNode(declaration.type)
         || !this.isTypeMetaSymbol(declaration.type.typeName, 'TypeRTLookup')
         || declaration.type.typeArguments?.length !== 2) {
@@ -1287,7 +1288,7 @@ class FaceAnalyzer {
         this.fail(declaration, 'TypeRTContextMap entries must be required properties')
       }
       const key = memberName(declaration.name)
-      if (!isRemoteSegment(key)) this.fail(declaration.name, 'TypeRTContextMap key must be nonempty and must not contain "/"')
+      if (!isRemoteSegment(key)) this.fail(declaration.name, 'TypeRTContextMap key must contain only RPC endpoint segment characters')
       if (!ts.isTypeReferenceNode(declaration.type)
         || !this.isTypeMetaSymbol(declaration.type.typeName, 'TypeRTContext')
         || declaration.type.typeArguments?.length !== 1) {
@@ -1331,16 +1332,6 @@ class FaceAnalyzer {
     const type = this.convertType(authoredType)
     const codecType = this.resolvedRemoteCodecType(authoredType)
     const rootSymbol = this.namedWorkspaceType(authoredType)
-    if (rootSymbol !== undefined) {
-      const imported = this.publicRemoteType(rootSymbol, authoredType)
-      return {
-        type,
-        codecType,
-        typeSymbol: `${imported.specifier}#${imported.name}`,
-        imports: [imported],
-      }
-    }
-    if (requireNamed) this.fail(authoredType, 'lookup and Context wire types must be named public types')
     const imports = new Map<SymbolId, RemoteTypeImportModel>()
     const visit = (node: ts.Node): void => {
       if ((ts.isTypeReferenceNode(node) || ts.isImportTypeNode(node))) {
@@ -1355,13 +1346,23 @@ class FaceAnalyzer {
             && this.registrationForFile(declaration.getSourceFile().fileName) !== undefined) {
             const imported = this.publicRemoteType(resolved, node)
             imports.set(imported.symbol, imported)
-            return
           }
         }
       }
       ts.forEachChild(node, visit)
     }
     visit(authoredType)
+    if (rootSymbol !== undefined) {
+      const imported = this.publicRemoteType(rootSymbol, authoredType)
+      return {
+        type,
+        codecType,
+        typeSymbol: `${imported.specifier}#${imported.name}`,
+        imports: [...imports.values()].sort((left, right) =>
+          left.specifier.localeCompare(right.specifier) || left.name.localeCompare(right.name)),
+      }
+    }
+    if (requireNamed) this.fail(authoredType, 'lookup and Context wire types must be named public types')
     return {
       type,
       codecType,
@@ -2810,7 +2811,7 @@ function stringLiteralValue(node: ts.Node | undefined): string | undefined {
 }
 
 function isRemoteSegment(value: string): boolean {
-  return value.length > 0 && !value.includes('/')
+  return isTypeRTRemoteSegment(value)
 }
 
 function expressionName(node: ts.Expression): string | undefined {

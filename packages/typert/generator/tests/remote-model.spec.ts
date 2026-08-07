@@ -216,6 +216,91 @@ export type GenericResult = {
     expect(dispatch?.result.schema.safeParse({ kind: 'ship', value: { cancelled: true } }).success).toBe(false)
   })
 
+  it('imports public type arguments nested under a named generic boundary', () => {
+    const root = copyFixture()
+    editFile(root, 'packages/remote/src/types.ts', source => `${source}
+
+/** Generic Remote envelope. */
+export interface Box<Value> {
+  readonly value: Value
+}
+
+/** Payload reachable only as a generic argument. */
+export interface BoxPayload {
+  readonly count: number
+}
+`)
+    editFile(root, 'packages/remote/src/index.ts', source => source
+      .replace(
+        '  RenameGoalResult,\n',
+        '  RenameGoalResult,\n  Box,\n  BoxPayload,\n',
+      )
+      .replace(
+        '  rename(request: RenameGoalRequest): RenameGoalResult {\n    return { renamed: request.title.length > 0 }\n  }\n}',
+        `  rename(request: RenameGoalRequest): RenameGoalResult {
+    return { renamed: request.title.length > 0 }
+  }
+
+  @Remote
+  box(request: Box<BoxPayload>): Box<BoxPayload> {
+    return request
+  }
+}`,
+      ))
+
+    const [artifact] = new WorkspaceTypertGenerator(root).generate()
+    expect(artifact?.remote?.dts).toMatch(/import type \{ [^}]*Box[^}]*BoxPayload[^}]* \} from '@fixture\/remote\/types'/)
+    expect(artifact?.remote?.dts).toContain('box: (request: Box<BoxPayload>) => Promise<Box<BoxPayload>>')
+    assertRemoteConsumerTypechecks(artifact?.remote?.dts, artifact?.remote?.dtsMap, root)
+  })
+
+  it('quotes aliased methods in generated namespace interfaces', () => {
+    const root = copyFixture()
+    editFile(root, 'packages/remote/src/index.ts', source => source.replace(
+      '  rename(request: RenameGoalRequest): RenameGoalResult {\n    return { renamed: request.title.length > 0 }\n  }\n}',
+      `  rename(request: RenameGoalRequest): RenameGoalResult {
+    return { renamed: request.title.length > 0 }
+  }
+
+  @Remote('create-goal')
+  createAlias(request: CreateGoalRequest): CreateGoalResult {
+    return { ref: request.title }
+  }
+}`,
+    ))
+
+    const [artifact] = new WorkspaceTypertGenerator(root).generate()
+    expect(artifact?.remote?.dts).toContain("'create-goal': (request: CreateGoalRequest) => Promise<CreateGoalResult>")
+    assertRemoteConsumerTypechecks(artifact?.remote?.dts, artifact?.remote?.dtsMap, root)
+  })
+
+  it.each(['create#v2', 'create goal'])('rejects untransportable Remote alias %s', (alias) => {
+    const root = copyFixture()
+    editFile(root, 'packages/remote/src/index.ts', source => source.replace(
+      '  @Remote\n  async create(',
+      `  @Remote('${alias}')\n  async create(`,
+    ))
+
+    expect(() => analyzeRemote(root, false)).toThrow(/RPC endpoint segment characters/)
+  })
+
+  it('rejects a Remote export after its last Remote method is removed', () => {
+    const root = copyFixture()
+    editFile(root, 'packages/remote/src/index.ts', source => source
+      .replace('  @Remote\n', '')
+      .replace("  @RemoteContext('agent')\n", ''))
+    editFile(root, 'packages/remote/src/types.ts', source => `${source}
+
+/** @typert schema */
+export interface RemainingSchema {
+  readonly value: string
+}
+`)
+
+    expect(() => new WorkspaceTypertGenerator(root).generate())
+      .toThrow('publishes Remote artifacts but has no Remote methods')
+  })
+
   it.each([
     {
       name: 'missing binding',
@@ -429,9 +514,9 @@ function remotePackage(root: string): {
   return packageModel
 }
 
-function copyFixture(): string {
+function copyFixture(sourceRoot = fixtureRoot): string {
   const root = mkdtempSync(join(tmpdir(), 'dsh-typert-remote-model-'))
-  cpSync(fixtureRoot, root, { recursive: true })
+  cpSync(sourceRoot, root, { recursive: true })
   temporaryRoots.push(root)
   return root
 }
@@ -444,10 +529,14 @@ function editFile(root: string, relativePath: string, edit: (source: string) => 
   writeFileSync(path, result)
 }
 
-function assertRemoteConsumerTypechecks(dts: string | undefined, dtsMap: string | undefined): void {
+function assertRemoteConsumerTypechecks(
+  dts: string | undefined,
+  dtsMap: string | undefined,
+  sourceRoot = fixtureRoot,
+): void {
   if (dts === undefined) throw new Error('Remote fixture emitted no Host-for-Client declaration')
   if (dtsMap === undefined) throw new Error('Remote fixture emitted no Host-for-Client declaration map')
-  const consumerRoot = copyFixture()
+  const consumerRoot = copyFixture(sourceRoot)
   const declarationPath = join(consumerRoot, 'packages/remote/lib/typert.remote-client.d.ts')
   const declarationMapPath = `${declarationPath}.map`
   const consumerPath = join(consumerRoot, 'consumer.ts')

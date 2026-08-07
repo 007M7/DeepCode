@@ -345,7 +345,7 @@ SRC supports local source startup. The `WeakMap` records created by `@Remote` an
 
 For example, `@Remote('create') remoteExportCreate(agent, request, signal)` resolves to the external method `create`, implementation member `remoteExportCreate`, two top-level business parameters, and one cancellation injection point. Lookup registration rewrites `agent` to the wire field `agentId`, `request` is passed as a same-named JSON parameter, and the final `signal` stays outside the payload. SRC does not start a `ts.Program`, use a preload or loader hook, generate or rewrite source, or inspect the internal structure of an ordinary JSON object.
 
-A signature that SRC cannot resolve unambiguously fails when the Service mounts. It does not guess at object destructuring, ambiguity caused by default parameters, rest parameters, nested lookups, or complex types.
+A signature that SRC cannot resolve unambiguously fails on the first invocation that resolves its descriptor; Service mounting records only the decorator marker and does not inspect the JavaScript signature. SRC does not guess at object destructuring, ambiguity caused by default parameters, rest parameters, nested lookups, or complex types.
 
 LIB supports CI, releases, and the prerequisite Web build. TypeRT scans the complete Host project and checks Remote decorators, explicit bindings, service keys, endpoint conflicts, lookup/Context declarations, public-symbol reachability, JSON codecs, result codecs, and that a reserved final `signal` parameter has the global `AbortSignal` type, then generates strict descriptors.
 

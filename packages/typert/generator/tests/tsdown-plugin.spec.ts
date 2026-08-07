@@ -3,8 +3,9 @@ import { mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { WorkspaceEmitResult } from '../src/workspace.ts'
 
-const generated = vi.hoisted(() => vi.fn(() => [
+const generated = vi.hoisted(() => vi.fn<() => WorkspaceEmitResult[]>(() => [
   {
     package: '@deepseek-ai/dsh-tools',
     packageRoot: 'packages/core/tools',
@@ -139,6 +140,36 @@ describe('typertPlugin', () => {
       .toBe('export declare const remoteOnly: true\n//# sourceMappingURL=typert.remote-client.d.ts.map\n')
     expect(readFileSync(join(packageLib, 'typert.remote-client.d.ts.map'), 'utf8'))
       .toBe('{"version":3}\n')
+  })
+
+  it('removes stale Remote artifacts from a Host package without Remote output', async () => {
+    const root = await workspace()
+    const output = await packageOutput(root, 'tools', {
+      name: '@deepseek-ai/dsh-tools',
+      exports: { './typert': './lib/typert.host.js' },
+    })
+    const packageLib = join(root, 'packages', 'tools', 'lib')
+    for (const file of [
+      'typert.remote-client.js',
+      'typert.remote-client.d.ts',
+      'typert.remote-client.d.ts.map',
+    ]) writeFileSync(join(packageLib, file), 'stale\n')
+    generated.mockReturnValueOnce([{
+      package: '@deepseek-ai/dsh-tools',
+      packageRoot: 'packages/core/tools',
+      face: 'host',
+      exports: [],
+      js: 'export const host = true\n',
+      dts: 'export declare const host: true\n',
+    }])
+
+    typertPlugin().writeBundle({ dir: output })
+
+    for (const file of [
+      'typert.remote-client.js',
+      'typert.remote-client.d.ts',
+      'typert.remote-client.d.ts.map',
+    ]) expect(existsSync(join(packageLib, file))).toBe(false)
   })
 
   it('emits every explicit workspace contributor once from a host-only prepass', async () => {

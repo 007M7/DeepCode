@@ -279,6 +279,24 @@ describe('Client TypeRT API', () => {
     await disposeMultipleScoped()
   })
 
+  it('rolls back direct projection when scoped installation fails', async () => {
+    const ctx = await bench(vi.fn<ConnectionHandle['rpc']['call']>())
+    const descriptor: InvocationDescriptor = {
+      ...directDescriptor(),
+      id: '@fixture/goals#fresh/remove',
+      namespace: 'fresh',
+      method: 'remove',
+    }
+
+    for (const packageName of ['@fixture/first-attempt', '@fixture/second-attempt']) {
+      expect(() => ctx.api.mount({ package: packageName, descriptors: [descriptor] }))
+        .toThrow('conflicts with its namespace service')
+      expect((ctx.api as unknown as Record<string, unknown>).fresh).toBeUndefined()
+      expect(ctx.get('fresh')).toBeUndefined()
+      expect(ctx.typert.remotes.list()).toEqual([])
+    }
+  })
+
   it('rejects weak parameter and Context codecs plus malformed scope projections', async () => {
     const ctx = await bench(vi.fn<ConnectionHandle['rpc']['call']>())
     const direct = directDescriptor()

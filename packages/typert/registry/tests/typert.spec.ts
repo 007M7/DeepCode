@@ -247,6 +247,14 @@ describe('TypertRegistry', () => {
     })).toThrow('endpoint "goals/create" is already registered')
   })
 
+  it.each(['create#v2', 'create goal'])('rejects untransportable invocation method %s', async (method) => {
+    const ctx = await makeCtx()
+    expect(() => ctx.typert.remotes.register({
+      package: '@fixture/invalid-endpoint',
+      descriptors: [{ ...invocation(), method }],
+    })).toThrow('RPC endpoint segment characters')
+  })
+
   it('mounts Remote contributions in the calling fiber and withdraws them exactly', async () => {
     const ctx = await makeCtx()
     const descriptor = invocation()
