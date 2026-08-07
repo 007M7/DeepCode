@@ -1,7 +1,7 @@
 import { availableParallelism } from 'node:os'
 import tsconfigPaths from 'vite-tsconfig-paths'
 import { defineConfig } from 'vitest/config'
-import { vitestExecArgv } from './vitest.shared.ts'
+import { standardDecoratorPlugin, vitestExecArgv } from './vitest.shared.ts'
 
 const DEFAULT_SNAPSHOT_MAX_CONCURRENCY = 5
 
@@ -40,7 +40,7 @@ export default defineConfig({
   // Same resolution note as vitest.config.ts: bare workspace names resolve
   // through the tsconfig.base.json paths facade; the native option cannot do
   // this (the root tsconfig is a solution file with no paths).
-  plugins: [tsconfigPaths({ projects: ['./tsconfig.base.json'] })],
+  plugins: [tsconfigPaths({ projects: ['./tsconfig.base.json'] }), standardDecoratorPlugin()],
   test: {
     execArgv: vitestExecArgv,
     setupFiles: ['./scripts/test-invariants.ts'],

@@ -1,6 +1,8 @@
 /** Browser runtime services for slots, sessions, workspaces, and connection-stream delivery. */
 import type { Context } from 'cordis'
 import type { ConnectionHandle, SessionId } from '@deepseek-ai/dsh-client-connection/client'
+import type {} from '@deepseek-ai/dsh-api-remotes/client'
+import type { TypeRTContext } from '@deepseek-ai/dsh-type-meta'
 import type { MaybeSnapshotSelectorHook, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import { SlotsService } from './slots.ts'
 import { SessionsService } from './sessions/service.ts'
@@ -28,7 +30,7 @@ export type { ISession, ProjectionsFace, SessionFace } from './contract/session.
 export type {
   ISessionHistory, SessionHistoryFace, SessionHistorySnapshot,
 } from './contract/session-history.ts'
-export type { ISessions } from './contract/sessions.ts'
+export type { AgentContext, ISessions } from './contract/sessions.ts'
 export type { IWorkspaces } from './contract/workspaces.ts'
 export type {
   SessionBinding, SessionListState, SessionProvideContribution, SessionProvideDescriptor, SessionSummary,
@@ -76,6 +78,13 @@ export type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
 
 /** Client-side Cordis context after declaration merging. */
 export type ClientContext = Context
+
+declare module '@deepseek-ai/dsh-type-meta' {
+  interface TypeRTContextMap {
+    /** Client Agent scope identity; the agent and session share one wire id. */
+    agent: TypeRTContext<SessionId>
+  }
+}
 
 /** The conversation-snapshot selector hook (ConvViewProps/ToolRowProps take this). */
 export type UseConversationSession = SnapshotSelectorHook<ConversationSnapshot>
@@ -172,8 +181,8 @@ declare module 'cordis' {
   }
 }
 
-/** Required services: the wire handle mounted by the connection plugin. */
-export const inject = ['connection']
+/** Required services: the Remote root, wire handle, and Client TypeRT registry. */
+export const inject = ['remote', 'connection', 'typert']
 
 /** Mounts the browser runtime services and connection stream.
  * @param ctx - Client Cordis context.
@@ -182,6 +191,9 @@ export function apply(ctx: Context): void {
   ctx.plugin(SlotsService)
   const connection = ctx.get('connection') as ConnectionHandle
   const sessions = new SessionsService(ctx, connection.api)
+  ctx.typert.contexts.registerClient('agent', {
+    identity: candidate => sessions.scopeOf(candidate),
+  })
   const sessionHistory = new SessionHistoryService(ctx, connection.api)
   const workspaces = new WorkspacesService(ctx, connection.api, sessions)
   ctx.effect(

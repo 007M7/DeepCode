@@ -8,7 +8,7 @@ English | [中文](2026-08-05-turn-tail-actions-require-a-completed-turn.zh.md)
 
 Assistant IconActions were derived from the finalized transcript alone: the last content-text assistant of each turn owned the row. That quantity is stable only after the turn closes. While a turn is still producing steps, the narration a model writes before a tool call *is* the last content assistant so far, so it took the row for as long as the tool ran and then lost it to the next step's text. Readers saw copy, branch, and a clock appear under an intermediate sentence, shift the flow by one 28px row, and disappear. The row was also incoherent in that state: its branch control was already disabled through `turnEnds`, and its `Ran for` label was already withheld through `turnTimings`, so only copy worked.
 
-The [message chrome decision](../feature/2026-07-29-web-message-icon-actions-and-clock.md) always claimed mid-turn narration stays chrome-free; the derivation never carried a completion signal to make that true.
+The [archived message-chrome decision](../../archived/feature/2026-07-29-web-message-icon-actions-and-clock.md) always claimed mid-turn narration stays chrome-free; the derivation never carried a completion signal to make that true.
 
 ## Decision
 

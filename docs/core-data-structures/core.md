@@ -20,6 +20,7 @@ Everything else is documented on a **sub-page**, not here. The rule that draws t
 | [llm-streaming.md](llm-streaming.md) | the `StreamChunk` wire protocol + adapter contract, `BlockAssembler`, the `LlmAdapter` seam |
 | [token-meter.md](token-meter.md) | immutable scalar and positional replay measurements with consumed-log revisions |
 | [scope.md](scope.md) | scoped registration identity, dispatch carriers, and the owned `Scope` context |
+| [typert.md](typert.md) | Remote invocation descriptors, lookup/Context declarations, TypeRT registries, and the Host Gateway/Client API seams |
 | [goal.md](goal.md) | persisted goal identity, lifecycle snapshots, activation, change records, and round attribution |
 | [commands.md](commands.md) | the human-command seam: definitions, adapter discovery, direct invocation, results, and parsing views |
 | [session.md](session.md) | the full `SessionEventMap` variant catalog, `TurnTrigger`/`TurnEndReason`, `deriveMessages()`, execution enclosure, and standalone events |

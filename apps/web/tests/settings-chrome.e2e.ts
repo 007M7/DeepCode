@@ -1,7 +1,8 @@
 // Web e2e scenarios: the settings surface — the modal shell (trigger, nav,
 // section switching, both close paths), the Appearance preference row (the
 // real theme gesture — click 深色 and the whole cascade runs: ThemeService preference -> Host settings
-// -> theme/change -> ui-layout's presenter -> body attribute -> alias token)
+// -> theme/change -> ui-layout's presenter -> body attribute -> alias token +
+// browser theme-color metadata)
 // the Language row and busy-state Enter preference (both Host-backed), plus
 // Permission as the persisted default for subsequently created sessions.
 // Zero model calls: everything is pure client + persistence state on a blank
@@ -153,17 +154,38 @@ describe('web e2e: settings modal and General preferences', () => {
 
   it('flips the theme through the Appearance cubes and persists across reload and a distinct port', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-settings-appearance'))
-    const readState = async (target: Page = page): Promise<{ attr: boolean; token: string; legacy: string | null }> =>
-      await target.evaluate(() => ({
+    interface ThemeState {
+      attr: boolean
+      background: string
+      /** Pre-migration localStorage key; the Host-backed world never writes it. */
+      legacy: string | null
+      themeColor: string | null
+      themeColorCount: number
+      token: string
+    }
+    const readState = async (target: Page = page): Promise<ThemeState> => await target.evaluate(() => {
+      const metas = document.head.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')
+      const computed = getComputedStyle(document.body)
+      return {
         attr: document.body.hasAttribute('data-ds-dark-theme'),
-        token: getComputedStyle(document.body).getPropertyValue('--dsw-alias-bg-base').trim(),
+        background: computed.backgroundColor,
         legacy: localStorage.getItem('dsh.theme'),
-      }))
+        themeColor: metas[0]?.content ?? null,
+        themeColorCount: metas.length,
+        token: computed.getPropertyValue('--dsw-alias-bg-base').trim(),
+      }
+    })
+    const expectThemeColorSynchronized = (state: ThemeState): void => {
+      expect(state.themeColorCount).toBe(1)
+      expect(state.background).not.toBe('rgba(0, 0, 0, 0)')
+      expect(state.themeColor).toBe(state.background)
+    }
     // Pin the OS scheme to light so the default `system` preference resolves
     // light and the dark flip below is unambiguously the gesture's doing.
     await page.emulateMedia({ colorScheme: 'light' })
     const light = await readState()
     expect(light.attr).toBe(false)
+    expectThemeColorSynchronized(light)
 
     await page.getByRole('button', { name: '设置', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: '设置' })
@@ -178,6 +200,7 @@ describe('web e2e: settings modal and General preferences', () => {
     expect(dark.attr).toBe(true)
     expect(dark.legacy).toBeNull()
     expect(dark.token).not.toBe(light.token)
+    expectThemeColorSynchronized(dark)
     await expect.poll(async () => readFile(join(scaffold.harnessHome, 'settings.yaml'), 'utf8'), { timeout: 5_000 })
       .toMatch(/ui-theme:\n\s+preference: dark/)
     await page.keyboard.press('Escape')
@@ -189,7 +212,9 @@ describe('web e2e: settings modal and General preferences', () => {
     acknowledgeReloadConnectionLoss(tripwire, warningStart)
     await page.emulateMedia({ colorScheme: 'light' })
     await expect.poll(async () => (await readState()).attr, { timeout: 5_000 }).toBe(true)
-    expect((await readState()).legacy).toBeNull()
+    const reloaded = await readState()
+    expect(reloaded.legacy).toBeNull()
+    expectThemeColorSynchronized(reloaded)
 
     // A second live Host binds another ephemeral port but shares the same
     // user-settings home. Its fresh origin has no theme localStorage and still
@@ -203,7 +228,9 @@ describe('web e2e: settings modal and General preferences', () => {
       await secondPage.goto(second.baseUrl, { waitUntil: 'load' })
       await secondPage.waitForSelector('[class*="frame"]', { timeout: 30_000 })
       await expect.poll(async () => (await readState(secondPage)).attr, { timeout: 5_000 }).toBe(true)
-      expect((await readState(secondPage)).legacy).toBeNull()
+      const secondState = await readState(secondPage)
+      expect(secondState.legacy).toBeNull()
+      expectThemeColorSynchronized(secondState)
       expect(secondTripwire.pageErrors).toEqual([])
       expect(secondTripwire.warnings).toEqual([])
     } finally {
@@ -217,12 +244,15 @@ describe('web e2e: settings modal and General preferences', () => {
     await systemCube.click()
     await expect.poll(() => systemCube.getAttribute('aria-pressed'), { timeout: 5_000 }).toBe('true')
     await expect.poll(async () => (await readState()).attr, { timeout: 5_000 }).toBe(false)
+    expectThemeColorSynchronized(await readState())
     await page.emulateMedia({ colorScheme: 'dark' })
     await expect.poll(async () => (await readState()).attr, { timeout: 5_000 }).toBe(true)
+    expectThemeColorSynchronized(await readState())
     // Restore for the specs that follow: light preference beats the emulated
     // dark OS scheme, leaving the shared page in the light default.
     await page.getByRole('dialog', { name: '设置' }).getByRole('button', { name: '浅色' }).click()
     await expect.poll(async () => (await readState()).attr, { timeout: 5_000 }).toBe(false)
+    expectThemeColorSynchronized(await readState())
     await page.keyboard.press('Escape')
     expect(tripwire.pageErrors).toEqual([])
   }, 90_000)

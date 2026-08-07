@@ -24,6 +24,9 @@
       "path": "../schema-form"
     },
     {
+      "path": "../../api/remotes"
+    },
+    {
       "path": "../../host/apiproxy"
     },
     {
@@ -46,6 +49,12 @@
     },
     {
       "path": "../../support/invariants"
+    },
+    {
+      "path": "../../typert/type-meta"
+    },
+    {
+      "path": "../../typert/registry"
     }
   ],
   "exclude": [

@@ -13,6 +13,7 @@ import { scopeOf, scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type { Message } from '@deepseek-ai/dsh-llm'
 import { SESSION_FORMAT_VERSION, SessionId } from './types.ts'
+import type { TypeRTLookup } from '@deepseek-ai/dsh-type-meta'
 import type { CreateSessionOptions, EpochHeader, PrepareSessionOptions, RequestContext, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType } from './types.ts'
 import { snapshotJsonValue } from './json.ts'
 import { deriveEventMessage, SurfaceManager } from './surface.ts'
@@ -102,6 +103,12 @@ declare module 'cordis' {
      * @mode parallel
      */
     'session/flush'(this: Scoped<Session>, session: Session): Promise<void> | void
+  }
+}
+
+declare module '@deepseek-ai/dsh-type-meta' {
+  interface TypeRTLookupMap {
+    session: TypeRTLookup<Session, SessionId>
   }
 }
 
@@ -803,6 +810,15 @@ export class SessionStore extends Service {
 
   constructor(ctx: Context) {
     super(ctx, 'sessions')
+    ctx.inject(['typert'], (typeCtx) => {
+      typeCtx.typert.lookups.register('session', {
+        parameter: 'session',
+        wire: 'sessionId',
+        hostTypeSymbol: '@deepseek-ai/dsh-session#Session',
+        wireTypeSymbol: '@deepseek-ai/dsh-session/types#SessionId',
+        resolve: sessionId => this.get(sessionId),
+      })
+    })
   }
 
   /**

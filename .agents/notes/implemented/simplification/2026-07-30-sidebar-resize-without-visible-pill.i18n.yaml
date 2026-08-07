@@ -1,6 +1,0 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
-#   pnpm run verify-translation-pairing --write .agents/notes/implemented/simplification/2026-07-30-sidebar-resize-without-visible-pill.md
-2026-07-30-sidebar-resize-without-visible-pill.md: cc41898990fa23ff2937140186a8324217911d2e
-2026-07-30-sidebar-resize-without-visible-pill.zh.md: 9f1f521df2848b15f5015719bfa6f0e0e9b7be0c
