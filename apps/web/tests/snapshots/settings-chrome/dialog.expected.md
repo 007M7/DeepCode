@@ -11,6 +11,10 @@
   - button "关闭":
     - img
     - text: 关闭
+  - text: Agent preset 对此后新建的会话生效。运行中的会话保持它开始时的 preset。
+  - button "standard":
+    - text: standard
+    - img
   - text: 权限 选择新会话的默认权限模式
   - button "Workspace Write":
     - text: Workspace Write

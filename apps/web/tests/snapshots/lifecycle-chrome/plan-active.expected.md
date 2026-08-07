@@ -30,6 +30,9 @@
   - img
 - 'button "Access mode, current: Workspace Write"': Workspace Write
 - button "Plan mode on, press to turn off": Plan
+- button "standard":
+  - text: standard
+  - img
 - button "Select model":
   - text: Select model
   - img
