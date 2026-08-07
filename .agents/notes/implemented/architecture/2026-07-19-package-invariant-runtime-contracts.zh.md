@@ -50,7 +50,7 @@ Status: implemented
 | `dsh-user-approval` | approval asked/decided 记录按 call 配对，并使用有效 outcome 和 policy。 |
 | `dsh-workflow` | 工作流和 child-agent start/end 事件保持 run metadata、身份、outcome、数量和 error 关系。 |
 | `dsh-tasks` | 当前与终态 task 快照保持 id/kind、owner、status 和 timestamp 关系。 |
-| `dsh-tool-todo` | 持久化全量快照使用唯一且已 trim 的条目、封闭 status，并且最多有一个活动条目。 |
+| `dsh-tool-todo` | 持久化全量快照使用唯一且已 trim 的条目和封闭 status。 |
 | `dsh-time-context` | 标注插件来源的时钟 reading 必须匹配会话当前打开的轮次、下一个步骤开始前的位置和 elapsed baseline；渲染时间必须可解析，且不得晚于对应事件。 |
 
 基于会话的 companion 在加载时验证已有持久化事件；关系依赖事件顺序时，会使用每个候选事件之前的事件前缀。其他检查观测权威实时事件边界或可变服务结果。如果接受无效事件会提交错误状态，验证就在发布前执行。
