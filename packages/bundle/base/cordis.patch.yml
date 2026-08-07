@@ -100,6 +100,12 @@
         path: ':memory:'
         openAt: first-search
 
+    # Shared projection registry: subagent catalog identity (mode/label) folds
+    # through its registered units, so the `list_agents` surface below fails
+    # loud without it; web layers reuse this same mount for list rows.
+    - id: session-projection
+      name: '@deepseek-ai/dsh-session-projection'
+
     # Session telemetry, on for every dsh mode: mirrors every session-log
     # event (assistant/chunk projected to first-of-step) plus ops markers onto
     # OTLP/HTTP log records, streaming on the batch processor's cadence
@@ -211,6 +217,9 @@
     - id: commands
       name: '@deepseek-ai/dsh-commands'
 
+    - id: command-feedback
+      name: '@deepseek-ai/dsh-command-feedback'
+
     - id: goal
       name: '@deepseek-ai/dsh-goal'
 
@@ -320,6 +329,8 @@
 
     - id: tool-todo
       name: '@deepseek-ai/dsh-tool-todo'
+      config:
+        allowParallelInProgress: true
 
     # Persisted same-session goals reach the model and the slash menu here; the
     # domain, driver, and `/goal` command are above.

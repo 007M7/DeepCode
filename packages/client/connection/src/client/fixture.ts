@@ -474,11 +474,14 @@ function buildAlphaLog(): SessionEvent[] {
     push({ type: 'step/end', data: { turn, step: 0 } })
     push({ type: 'turn/end', data: { turn, reason: { kind: 'completed' } } })
   }
-  // Turn 67: todo_write sample — the TodoRow toolview in the flow plus the
-  // todo/write snapshot event feeding the TodoPanel plan strip.
+  // Turn 71: todo_write sample — the TodoRow toolview in the flow plus the
+  // todo/write snapshot event feeding the TodoPanel plan strip. Two items are
+  // in_progress: this fixture chooses the parallel policy, so both surfaces
+  // must render a parallel plan rather than the first active item alone.
   const fixtureTodos = [
     { content: '梳理需求', status: 'completed' },
     { content: '实现 fixture 样本', status: 'in_progress' },
+    { content: '跑后台构建', status: 'in_progress' },
     { content: '浏览器验收', status: 'pending' },
   ]
   // Turn 65: the terminal sample turn 60's two clean prompt rows cannot cover —
@@ -531,7 +534,7 @@ function buildAlphaLog(): SessionEvent[] {
   toolTurn(70, 'web_fetch', '{"url":"https://www.deepseek.com/blog/harness-architecture"}', '# Harness architecture\n\nEverything is a plugin.')
 
   const todoArgs = JSON.stringify({ todos: fixtureTodos })
-  toolTurn(71, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 1 in progress, 1 completed.')
+  toolTurn(71, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 2 in progress, 1 completed.')
   // The real tool appends the snapshot mid-execution — between tool/call and
   // tool/result — so the fixture reproduces that exact ordering (the last
   // toolTurn events run ... tool/call, tool/result, step/end, turn/end).
@@ -686,9 +689,9 @@ function viewFor(event: SessionEvent, log: readonly SessionEvent[]): ToolEventVi
 
 /**
  * Fixture parallel of the plan unit's double-event fold: `command/run`
- * records named `plan` set the wanted target (`off` → false, else true);
- * `plan/mode` commits and clears it. `wanted` is exposed for the prompt
- * boundary (the fixture's step/start parallel).
+ * records named `plan` with recorded input set the wanted target (`off` →
+ * false, else true); `plan/mode` commits and clears it. `wanted` is exposed
+ * for the prompt boundary (the fixture's step/start parallel).
  */
 function foldPlan(log: readonly SessionEvent[]): { active: boolean; pending: boolean; wanted: boolean | null } {
   let active = false
@@ -697,7 +700,8 @@ function foldPlan(log: readonly SessionEvent[]): { active: boolean; pending: boo
     const item = event as unknown as { type: string; data?: Record<string, unknown> }
     if (item.type === 'command/run' && item.data?.['name'] === 'plan') {
       const args = item.data['args']
-      wanted = (typeof args === 'string' ? args : '').trim() !== 'off'
+      if (typeof args !== 'string') continue
+      wanted = args.trim() !== 'off'
     } else if (item.type === 'plan/mode') {
       active = item.data?.['active'] === true
       wanted = null
@@ -1004,9 +1008,11 @@ function projectionFramesOf(id: SessionId, log: readonly SessionEvent[], event: 
       seq: event.seq,
     }]
   }
-  // The plan unit advances on its two folded event kinds.
+  // The plan unit advances on its two folded event kinds when the command
+  // lifecycle contains the input that represents a plan selection.
+  const commandData = event as unknown as { data: { name?: string; args?: unknown } }
   if (type === 'plan/mode' || (type === 'command/run'
-    && (event as unknown as { data: { name?: string } }).data.name === 'plan')) {
+    && commandData.data.name === 'plan' && typeof commandData.data.args === 'string')) {
     return [{
       type: 'session/projection',
       sessionId: id,

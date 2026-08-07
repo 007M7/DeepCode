@@ -40,6 +40,8 @@ flowchart LR
   cfg --> plugin_dsh_base_session_persistence_jsonl
   plugin_dsh_base_session_query_sqlite["session-query-sqlite<br/>@deepseek-ai/dsh-session-query-sqlite"]
   cfg --> plugin_dsh_base_session_query_sqlite
+  plugin_dsh_base_session_projection["session-projection<br/>@deepseek-ai/dsh-session-projection"]
+  cfg --> plugin_dsh_base_session_projection
   plugin_dsh_base_telemetry_otel["telemetry-otel<br/>@deepseek-ai/dsh-session-telemetry-otel"]
   cfg --> plugin_dsh_base_telemetry_otel
   plugin_dsh_base_subprocess["subprocess<br/>@deepseek-ai/dsh-subprocess-local"]
@@ -76,6 +78,8 @@ flowchart LR
   cfg --> plugin_dsh_base_tool_skill
   plugin_dsh_base_commands["commands<br/>@deepseek-ai/dsh-commands"]
   cfg --> plugin_dsh_base_commands
+  plugin_dsh_base_command_feedback["command-feedback<br/>@deepseek-ai/dsh-command-feedback"]
+  cfg --> plugin_dsh_base_command_feedback
   plugin_dsh_base_goal["goal<br/>@deepseek-ai/dsh-goal"]
   cfg --> plugin_dsh_base_goal
   plugin_dsh_base_goal_session["goal-session<br/>@deepseek-ai/dsh-goal-session"]
@@ -166,6 +170,7 @@ flowchart LR
 | `llm-pi-ai` | `@deepseek-ai/dsh-llm-pi-ai` |
 | `session-persistence-jsonl` | `@deepseek-ai/dsh-session-persistence-jsonl` |
 | `session-query-sqlite` | `@deepseek-ai/dsh-session-query-sqlite` |
+| `session-projection` | `@deepseek-ai/dsh-session-projection` |
 | `telemetry-otel` | `@deepseek-ai/dsh-session-telemetry-otel` |
 | `subprocess` | `@deepseek-ai/dsh-subprocess-local` |
 | `sandbox` | `@deepseek-ai/dsh-sandbox-local` |
@@ -184,6 +189,7 @@ flowchart LR
 | `skill-local` | `@deepseek-ai/dsh-skill-local` |
 | `tool-skill` | `@deepseek-ai/dsh-tool-skill` |
 | `commands` | `@deepseek-ai/dsh-commands` |
+| `command-feedback` | `@deepseek-ai/dsh-command-feedback` |
 | `goal` | `@deepseek-ai/dsh-goal` |
 | `goal-session` | `@deepseek-ai/dsh-goal-session` |
 | `command-goal` | `@deepseek-ai/dsh-command-goal` |

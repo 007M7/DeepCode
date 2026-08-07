@@ -56,6 +56,7 @@
     { "path": "./packages/client/ui-layout" },
     { "path": "./packages/client/ui-sidebar" },
     { "path": "./packages/client/ui-conversation" },
+    { "path": "./packages/client/ui-deliverables" },
     { "path": "./packages/client/ui-workspace" },
     { "path": "./packages/client/ui-slash" },
     { "path": "./packages/client/ui-command" },
