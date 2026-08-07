@@ -14,7 +14,7 @@ Empty-draft Cmd/Ctrl+Enter now steers every still-pending `queued`-placement inb
 
 The gesture is strictly the accelerated chord. Plain Enter with an empty draft stays a no-op even under the busy-Enter Steer preference, draft content outranks the queue (accelerated Enter steers only the draft), and idle or subagent sessions keep the existing empty-draft no-op because steering has no live turn to enter.
 
-The same computed availability gate drives discovery: while the draft is empty, the input is unlocked, an ordinary primary session is running, and at least one row remains `queued`, the textarea placeholder advertises that Cmd/Ctrl+Enter steers all queued messages. An owner-supplied placeholder still takes precedence.
+The same computed availability gate drives discovery: while the draft is empty, the input is unlocked and not in a transient machine lock, the command menu is closed, an ordinary primary session is running, and at least one row remains `queued`, the textarea placeholder advertises that Cmd/Ctrl+Enter steers all queued messages. An owner-supplied placeholder still takes precedence, and the steer hint deliberately outranks the plan-mode placeholder while available (the gesture genuinely works in that window).
 
 ## Consequences
 

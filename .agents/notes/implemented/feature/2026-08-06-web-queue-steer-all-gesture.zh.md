@@ -14,7 +14,7 @@ Status: implemented
 
 该手势严格限定为加速组合键。空草稿 + 普通 Enter 仍然无操作（即使 busy-Enter 偏好为 Steer）；草稿内容优先于队列（加速 Enter 只插话当前草稿）；idle 或 subagent 会话保持原有空草稿无操作，因为没有可插入的运行中轮次。
 
-同一套计算得出的可用性门控也负责提示该手势：当草稿为空、输入框未锁定、普通主会话正在运行且至少一行仍为 `queued` 时，文本框 placeholder 会提示 Cmd/Ctrl+Enter 将全部排队消息插话发送。owner 提供的 placeholder 仍然优先。
+同一套计算得出的可用性门控也负责提示该手势：当草稿为空、输入框未锁定且不处于瞬态机器锁（adjudicating/submitting）、命令菜单未打开、普通主会话正在运行且至少一行仍为 `queued` 时，文本框 placeholder 会提示 Cmd/Ctrl+Enter 将全部排队消息插话发送。owner 提供的 placeholder 仍然优先；可用时 steer 提示会刻意优先于 plan 模式 placeholder（该窗口内手势确实可用）。
 
 ## Consequences
 

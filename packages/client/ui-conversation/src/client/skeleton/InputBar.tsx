@@ -89,7 +89,7 @@ export function InputBar({
   const disabled = removed || inert || !live
   const locked = disabled
   const machineBusy = input?.phase === 'adjudicating' || input?.phase === 'submitting'
-  const canSteerQueue = !locked && !machineBusy && empty && running && subagent === null
+  const canSteerQueue = !locked && !machineBusy && !commandMenuOpen && empty && running && subagent === null
     && input.queue.some(row => row.placement === 'queued')
 
   // Scroll the draft scrollport the minimum that brings `caret` into view — the
@@ -486,8 +486,11 @@ export function InputBar({
               data-phase={input?.phase ?? 'inert'}
               placeholder={placeholder ?? (disabled
                 ? t('placeholder.unavailable')
+                // The steer hint deliberately outranks the plan placeholder:
+                // while it shows, the whole-queue gesture is genuinely available
+                // (the gate never consults plan mode), so the actionable hint wins.
                 : canSteerQueue
-                  ? t('input.steerQueueShortcut')
+                  ? t('placeholder.steerQueue')
                   : planActive ? t('placeholder.plan') : t('placeholder.default'))}
               rows={2}
               onChange={onChange}
