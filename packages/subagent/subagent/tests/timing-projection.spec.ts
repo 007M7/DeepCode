@@ -23,11 +23,15 @@ describe('subagent timing projection', () => {
     await ctx.plugin(SessionProjectionRegistry)
     const serviceFiber = await ctx.plugin(SubagentService)
 
-    expect(ctx.sessionProjections.snapshot(ctx.sessions.create()).values.subagentTiming)
-      .toEqual({ settledMs: 0 })
+    const before = ctx.sessionProjections.snapshot(ctx.sessions.create()).values
+    expect(before.subagentTiming).toEqual({ settledMs: 0 })
+    // The identity unit registers alongside timing; an empty log serves its
+    // serializable null sentinel.
+    expect(before.subagent).toBeNull()
     await serviceFiber.dispose()
-    expect(ctx.sessionProjections.snapshot(ctx.sessions.create()).values.subagentTiming)
-      .toBeUndefined()
+    const after = ctx.sessionProjections.snapshot(ctx.sessions.create()).values
+    expect(after.subagentTiming).toBeUndefined()
+    expect(after.subagent).toBeUndefined()
   })
 
   it('resets inherited seed timing at the child descriptor and sums later completed turns', () => {

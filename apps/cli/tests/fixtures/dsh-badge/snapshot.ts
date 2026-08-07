@@ -9,8 +9,12 @@ import type {} from '@deepseek-ai/dsh-tools'
 
 const overlayPath = process.argv[2]
 if (overlayPath === undefined) throw new Error('dsh-badge snapshot requires an overlay path')
-const baseConfigPath = fileURLToPath(new URL('../../../config/base.cordis.yml', import.meta.url))
-const ctx = await boot('dsh-badge-snapshot', baseConfigPath, loadOverlayPatches('dsh-badge-snapshot', overlayPath))
+const rootConfigPath = fileURLToPath(new URL('../../../../../packages/bundle/base/tests/fixtures/root.cordis.yml', import.meta.url))
+const basePatchPath = fileURLToPath(new URL('../../../../../packages/bundle/base/cordis.patch.yml', import.meta.url))
+const ctx = await boot('dsh-badge-snapshot', rootConfigPath, [
+  ...loadOverlayPatches('dsh-badge-snapshot', basePatchPath),
+  ...loadOverlayPatches('dsh-badge-snapshot', overlayPath),
+])
 
 try {
   const agentId = SessionId('dsh-badge-snapshot')

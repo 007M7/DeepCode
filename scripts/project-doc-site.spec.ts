@@ -1,12 +1,14 @@
 /** Tests for the documentation website projection adapter. */
 
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { docsPages, type DocsPage } from '../website/docs.ts'
-import { addProjectionFrontmatter, projectedPageContent, rewriteMarkdown } from './project-doc-site.ts'
+import {
+  addProjectionFrontmatter, projectedPageContent, publishableImage, rewriteMarkdown,
+} from './project-doc-site.ts'
 
 const roots: string[] = []
 const repositoryRoot = resolve(import.meta.dirname, '..')
@@ -63,6 +65,32 @@ describe('website source layout', () => {
   })
 })
 
+describe('publishableImage', () => {
+  it('accepts a regular file inside the repository', () => {
+    const { root } = fixture()
+    const real = realpathSync(join(root, 'packages/logo.svg'))
+    expect(publishableImage(join(root, 'packages/logo.svg'), realpathSync(root))).toBe(real)
+  })
+
+  it('refuses a target whose real path escapes the repository', () => {
+    // Publication copies the bytes onto the site, so a reference reaching a
+    // build-machine file must not be treated as an image the repository owns.
+    const { root } = fixture()
+    const outside = mkdtempSync(join(tmpdir(), 'dsh-doc-site-outside-'))
+    roots.push(outside)
+    writeFileSync(join(outside, 'secret.png'), 'not really a png\n')
+    symlinkSync(join(outside, 'secret.png'), join(root, 'packages/linked.png'))
+
+    expect(publishableImage(join(root, 'packages/linked.png'), realpathSync(root))).toBeUndefined()
+    expect(publishableImage(join(outside, 'secret.png'), realpathSync(root))).toBeUndefined()
+  })
+
+  it('refuses a directory', () => {
+    const { root } = fixture()
+    expect(publishableImage(join(root, 'packages'), realpathSync(root))).toBeUndefined()
+  })
+})
+
 describe('rewriteMarkdown', () => {
   it('maps published pages and pins unpublished source links', () => {
     const { root, pages } = fixture()
@@ -93,7 +121,7 @@ describe('rewriteMarkdown', () => {
     })).toBe('[B](./reference-root/b.md)\n')
   })
 
-  it('uses raw GitHub content for unpublished images', () => {
+  it('uses raw GitHub content for unpublished images when nothing places them', () => {
     const { root, pages } = fixture()
     expect(rewriteMarkdown('![logo](../packages/logo.svg)\n', {
       locale: 'en',
@@ -103,6 +131,57 @@ describe('rewriteMarkdown', () => {
       repoRoot: root,
       repositoryRef: 'abc123',
     })).toBe('![logo](https://raw.githubusercontent.com/deepseek-harness/deepseek-harness/abc123/packages/logo.svg)\n')
+  })
+
+  it('hands an image to the placer and uses the URL it returns', () => {
+    // A raw GitHub URL cannot serve a private repository, so the site build
+    // carries images itself; the placer is what puts them there. The stand-in
+    // derives its URL the way the real one does, so a placer that stopped
+    // returning the basename would fail here rather than pass on a constant.
+    const { root, pages } = fixture()
+    const placed: string[] = []
+    expect(rewriteMarkdown('![logo](../packages/logo.svg)\n', {
+      locale: 'en',
+      sourcePath: 'docs/a.md',
+      route: 'en/a.md',
+      pages,
+      repoRoot: root,
+      repositoryRef: 'abc123',
+      placeImage: (absPath) => {
+        const name = absPath.split('/').pop() ?? ''
+        placed.push(name)
+        return `./${name}`
+      },
+    })).toBe('![logo](./logo.svg)\n')
+    expect(placed).toEqual(['logo.svg'])
+  })
+
+  it('keeps a placed image\u2019s query or fragment', () => {
+    // An SVG view fragment and a Vite query both change what the reference
+    // means, and the GitHub branch has always carried them.
+    const { root, pages } = fixture()
+    expect(rewriteMarkdown('![logo](../packages/logo.svg#view)\n', {
+      locale: 'en',
+      sourcePath: 'docs/a.md',
+      route: 'en/a.md',
+      pages,
+      repoRoot: root,
+      repositoryRef: 'abc123',
+      placeImage: absPath => `./${absPath.split('/').pop() ?? ''}`,
+    })).toBe('![logo](./logo.svg#view)\n')
+  })
+
+  it('leaves a published page link to the route even when a placer exists', () => {
+    const { root, pages } = fixture()
+    expect(rewriteMarkdown('[B](b.md)\n', {
+      locale: 'en',
+      sourcePath: 'docs/a.md',
+      route: 'en/a.md',
+      pages,
+      repoRoot: root,
+      repositoryRef: 'abc123',
+      placeImage: () => { throw new Error('a page link must not be placed as an asset') },
+    })).toBe('[B](./reference/b.md)\n')
   })
 
   it('does not rewrite Markdown-looking text inside code fences', () => {

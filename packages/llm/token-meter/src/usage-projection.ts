@@ -155,9 +155,10 @@ ProjectionDefinition<'tokenUsage', TokenUsageState> = {
  * `projectedTokens` — the sample plus the surface's signed movement since it
  * was taken — so occupancy answers for the next request rather than the last
  * one. The total rides {@link foldSurfaceProjection}, so the state stays O(1)
- * and a replacement shrinks it by its logged shadow price. A usage sample is
- * stamped BEFORE the same event joins the surface, so an `assistant/message`
- * anchors against the surface its own request saw.
+ * and a replacement shrinks it by its logged shadow price. A replacement
+ * without a claim preserves the previous total. A usage sample is stamped
+ * BEFORE the same event joins the surface, so an `assistant/message` anchors
+ * against the surface its own request saw.
  */
 export const contextPressureProjectionDefinition:
 ProjectionDefinition<'contextPressure', ContextPressureState> = {

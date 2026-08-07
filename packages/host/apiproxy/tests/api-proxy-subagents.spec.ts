@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import type { SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
-import { SessionQueryError } from '@deepseek-ai/dsh-session-query'
 import { SubagentError } from '@deepseek-ai/dsh-subagent'
 import { RpcId } from '../src/api/rpc.ts'
 import type { RpcRequest } from '../src/api/rpc.ts'
@@ -21,7 +20,12 @@ function bench(options: {
   entries?: object[]
   followupError?: Error
   listError?: Error
-  readError?: Error
+  /** Persistence forgets the child entirely (the vanished-mid-read race). */
+  storedChild?: false
+  /** Attach the child to the live session store instead of persistence only. */
+  liveChild?: true
+  /** Every registered projection unit throws on this child's payloads. */
+  projectionsThrow?: true
   historyParent?: SessionId
 } = {}) {
   const parent = { id: PARENT }
@@ -49,25 +53,44 @@ function bench(options: {
   ) => options.followupError === undefined
     ? Promise.resolve('message-1')
     : Promise.reject(options.followupError))
-  const readSession = vi.fn(() => options.readError === undefined
-    ? Promise.resolve({
-      session: {
-        version: 0, id: CHILD, createdAt: 1, parentSession: options.historyParent ?? PARENT,
-      } satisfies SessionHeader,
-      events: [
-        { type: 'user/message', seq: 0, time: 1, data: { content: [{ type: 'text', text: 'work' }], source: { kind: 'user' } } },
-      ] as unknown as SessionEvent[],
-    })
-    : Promise.reject(options.readError))
+  const childHeader = {
+    version: 0, id: CHILD, createdAt: 1, cwd: '/proj', parentSession: options.historyParent ?? PARENT,
+  } satisfies SessionHeader
+  const childEvents = [
+    { type: 'user/message', seq: 0, time: 1, data: { content: [{ type: 'text', text: 'work' }], source: { kind: 'user' } } },
+  ] as unknown as SessionEvent[]
+  const inspect = vi.fn(() => Promise.resolve({ meta: childHeader, events: childEvents }))
+  const liveBlock = { values: {}, asOfSeq: 3 }
+  const coldBlock = { values: {}, asOfSeq: 0 }
+  const snapshot = vi.fn(() => {
+    if (options.projectionsThrow === true) throw new Error('hostile unit')
+    return liveBlock
+  })
+  const restore = vi.fn(() => {
+    if (options.projectionsThrow === true) throw new Error('hostile unit')
+    return { snapshot: coldBlock }
+  })
   const ctx = new Context()
   ctx.provide('agents', { get: getAgent })
   ctx.provide('subagents', { listChildren, followup })
-  ctx.provide('sessionQuery', { readSession })
+  ctx.provide('sessions', {
+    get: (id: SessionId) => options.liveChild === true && id === CHILD
+      ? { id: CHILD, header: childHeader, events: childEvents }
+      : undefined,
+  })
+  ctx.provide('sessionPersistence', {
+    list: () => Promise.resolve(options.storedChild === false ? [] : [childHeader]),
+    inspect,
+    locate: () => undefined,
+  })
+  // The gateway's own projection push feed subscribes at construction; the
+  // no-op disposer keeps that seam quiet while these tests pin history reads.
+  ctx.provide('sessionProjections', { snapshot, restore, onChanged: () => () => {} })
   ctx.provide('userInteraction', { registerProvider: () => () => {} })
   const api = createApiProxy(ctx, {
     provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp',
   })
-  return { api, getAgent, listChildren, readSession, followup, parent }
+  return { api, getAgent, listChildren, inspect, snapshot, restore, followup, parent }
 }
 
 describe('subagent gateway', () => {
@@ -113,7 +136,7 @@ describe('subagent gateway', () => {
   })
 
   it('reads a healthy direct child without looking up or activating any Agent', async () => {
-    const { api, getAgent, readSession } = bench()
+    const { api, getAgent, inspect, restore } = bench()
     const response = await api.subagents.history(request({
       parentSessionId: PARENT, childSessionId: CHILD, mode: 'continuable', maxMessages: 10,
     }))
@@ -121,8 +144,46 @@ describe('subagent gateway', () => {
       ok: true,
       value: { hasMore: false, events: [{ event: { type: 'user/message', seq: 0 } }] },
     })
-    expect(readSession).toHaveBeenCalledWith(CHILD)
+    expect(inspect).toHaveBeenCalledWith(CHILD)
+    expect(restore).toHaveBeenCalledTimes(1)
     expect(getAgent).not.toHaveBeenCalled()
+  })
+
+  it('serves a live child from the in-memory snapshot and the watermark projections', async () => {
+    const { api, inspect, snapshot, restore } = bench({ liveChild: true })
+    const response = await api.subagents.history(request({
+      parentSessionId: PARENT, childSessionId: CHILD, mode: 'continuable',
+    }))
+    expect(response.result).toMatchObject({
+      ok: true,
+      value: { hasMore: false, projections: { asOfSeq: 3 } },
+    })
+    expect(snapshot).toHaveBeenCalledTimes(1)
+    expect(restore).not.toHaveBeenCalled()
+    expect(inspect).not.toHaveBeenCalled()
+  })
+
+  it('serves the page without projections when a hostile unit breaks the fold', async () => {
+    const cold = bench({ projectionsThrow: true })
+    const coldResponse = await cold.api.subagents.history(request({
+      parentSessionId: PARENT, childSessionId: CHILD, mode: 'continuable',
+    }))
+    expect(coldResponse.result).toMatchObject({
+      ok: true,
+      value: { hasMore: false, events: [{ event: { type: 'user/message', seq: 0 } }] },
+    })
+    if (coldResponse.result.ok) expect('projections' in coldResponse.result.value).toBe(false)
+
+    const live = bench({ projectionsThrow: true, liveChild: true })
+    const liveResponse = await live.api.subagents.history(request({
+      parentSessionId: PARENT, childSessionId: CHILD, mode: 'continuable',
+    }))
+    expect(liveResponse.result).toMatchObject({
+      ok: true,
+      value: { hasMore: false, events: [{ event: { type: 'user/message', seq: 0 } }] },
+    })
+    if (liveResponse.result.ok) expect('projections' in liveResponse.result.value).toBe(false)
+    expect(live.snapshot).toHaveBeenCalledTimes(1)
   })
 
   it('reads one-shot history and rejects an address with the wrong mode', async () => {
@@ -130,18 +191,18 @@ describe('subagent gateway', () => {
       kind: 'child', id: CHILD, mode: 'one-shot', label: 'batch',
       activity: 'inactive', hasChildren: false,
     }
-    const { api, readSession } = bench({ entries: [oneShot] })
+    const { api, inspect } = bench({ entries: [oneShot] })
     expect((await api.subagents.history(request({
       parentSessionId: PARENT, childSessionId: CHILD, mode: 'one-shot',
     }))).result).toMatchObject({ ok: true })
     expect((await api.subagents.history(request({
       parentSessionId: PARENT, childSessionId: CHILD, mode: 'continuable',
     }))).result).toMatchObject({ ok: false, error: { code: 'subagent-not-found' } })
-    expect(readSession).toHaveBeenCalledTimes(1)
+    expect(inspect).toHaveBeenCalledTimes(1)
   })
 
   it('rejects a diagnostic address before reading history', async () => {
-    const { api, readSession } = bench({ entries: [
+    const { api, inspect } = bench({ entries: [
       { kind: 'diagnostic', id: CHILD, reason: 'unsupported' },
     ] })
     const response = await api.subagents.history(request({
@@ -154,7 +215,34 @@ describe('subagent gateway', () => {
         details: { parentSessionId: PARENT, childSessionId: CHILD, reason: 'unsupported' },
       },
     })
-    expect(readSession).not.toHaveBeenCalled()
+    expect(inspect).not.toHaveBeenCalled()
+  })
+
+  it('maps the missing projections capability to one wire face on list, history, and prompt', async () => {
+    const listError = () => new SubagentError(
+      'listing subagents requires the sessionProjections registry (load @deepseek-ai/dsh-session-projection)',
+      'SUBAGENT_CONTROL_PROJECTIONS_UNAVAILABLE',
+    )
+    const expected = {
+      code: 'internal',
+      message: 'subagent catalog is unavailable: this deployment does not mount the sessionProjections registry (load @deepseek-ai/dsh-session-projection)',
+    }
+
+    const list = bench({ listError: listError() })
+    expect((await list.api.subagents.list(request({ parentSessionId: PARENT }))).result)
+      .toMatchObject({ ok: false, error: expected })
+
+    const history = bench({ listError: listError() })
+    expect((await history.api.subagents.history(request({
+      parentSessionId: PARENT, childSessionId: CHILD, mode: 'continuable',
+    }))).result).toMatchObject({ ok: false, error: expected })
+    expect(history.inspect).not.toHaveBeenCalled()
+
+    const prompt = bench({ listError: listError() })
+    expect((await prompt.api.subagents.prompt(request({
+      parentSessionId: PARENT, childSessionId: CHILD, mode: 'continuable', content: [],
+    }), new AbortController().signal)).result).toMatchObject({ ok: false, error: expected })
+    expect(prompt.followup).not.toHaveBeenCalled()
   })
 
   it('routes human content through the exact live parent with rpc attribution', async () => {
@@ -193,9 +281,7 @@ describe('subagent gateway', () => {
   })
 
   it('maps history disappearance and hides unexpected backend details', async () => {
-    const disappeared = bench({
-      readError: new SessionQueryError('secret path', 'SESSION_QUERY_SESSION_NOT_FOUND'),
-    })
+    const disappeared = bench({ storedChild: false })
     expect((await disappeared.api.subagents.history(request({
       parentSessionId: PARENT, childSessionId: CHILD, mode: 'continuable',
     }))).result).toMatchObject({

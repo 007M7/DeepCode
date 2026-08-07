@@ -10,6 +10,8 @@ A developer's own preferences — which provider and model the TUI uses, persona
 
 ## Decision
 
+The entry modes and the personal file's name and location below are superseded by the [profile plugin bundles decision](../architecture/2026-08-05-profile-plugin-bundles.md): `dsh` boots profiles, and the personal layer became the per-profile and home-level `cordis.patch.yml`. What survives unchanged is this note's substance — the Harness home as the machine-level layer's root, patch semantics over a shipped composition, and fail-loud parsing.
+
 Two coupled pieces, aligned with the `apps/` assembly tier proposed by the `dsh web` PR (#443):
 
 **The `dsh` CLI (`apps/cli`, npm name `@deepseek-ai/dsh`).** `apps/*` is the product-assembly tier over `packages/*` libraries. One bin dispatches the default interactive TUI, `-p`/`--prompt` headless turns, and the `web` surface. The TUI boots `examples/tui-agent/cordis.yml` (or `--config`) with the invoking directory as the workspace. The committed `bin/dsh` launcher resolves the checkout through its own real path and runs the app with tsx's ESM hook; the [source-launch decision](../architecture/2026-07-29-dsh-source-launch-tsx-esm.md) owns that contract. `pnpm run demo:tui` runs the same entry.
@@ -46,4 +48,4 @@ The TUI and Web register the exact personal path through Cordis HMR after boot. 
 
 ## Testing
 
-`packages/ui/app-boot/tests/personal-config.spec.ts` pins parsing, startup application, exact-path add/failure/recovery/removal, last-good rollback, failure broadcast, and preservation of app-owned patches. `examples/tui-agent/tests/tui-keyless-smoke.e2e.ts` boots the real dsh bin with no overlay, a personal environment and UI patch, a config-only cached repository skill, and invalid personal YAML. Test launchers isolate `$DSH_HOME`, so a developer's real overlay cannot leak into fixtures.
+`packages/ui/app-boot/tests/user-patches.spec.ts` pins parsing, startup application, exact-path add/failure/recovery/removal, last-good rollback, failure broadcast, and preservation of app-owned patches. `apps/cli/tests/built-bin.e2e.ts` boots the real dsh bin over a profile and exercises the live patch layer end to end. Test launchers isolate `$DSH_HOME`, so a developer's real overlay cannot leak into fixtures.

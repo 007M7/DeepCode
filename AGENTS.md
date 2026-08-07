@@ -24,6 +24,7 @@ packages/    @deepseek-ai/dsh-<pkg> workspaces at packages/<group>/<pkg>/
   compact/     compaction seam + basic backend
   context/     request-context plugins
   subagent/    subagent seam + spawn/fork/ACP backends + delegation tool
+  bundle/      profile plugin bundles: installable patch layers for dsh --profile
   workflow/    workflow seam + worker-thread engine + workflow tool
   todo/        todo_write tool
   plan/        plan mode as logged per-agent collaboration state

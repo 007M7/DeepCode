@@ -53,9 +53,10 @@ Open `http://127.0.0.1:3080`. The agent can read and write files, run commands, 
 
 ## What happened
 
-headless-agent uses the `@deepseek-ai/dsh-cli-demo` app. `dsh web` instead composes [`apps/cli/config/base.cordis.yml`](../../../apps/cli/config/base.cordis.yml) with [`apps/cli/config/web.cordis.yml`](../../../apps/cli/config/web.cordis.yml) and no app bundle. Both select the DeepSeek model and capability plugins appropriate to their entry mode.
+headless-agent uses the `@deepseek-ai/dsh-cli-demo` app. `dsh web` instead boots the `web` profile: the [`dsh-base`](../../../packages/bundle/base/cordis.patch.yml) and [`dsh-web-app`](../../../packages/bundle/web-app/cordis.patch.yml) bundle patch layers composed over an empty root. Both select the DeepSeek model and capability plugins appropriate to their entry mode.
 
 ## Next steps
 
+- [Configure models](./providers.md) — reach providers beyond DeepSeek, and custom gateways
 - [Configuration](./config.md) — understand the `cordis.yml` format
 - [Develop a plugin](../develop/basic/) — build your own tool or backend

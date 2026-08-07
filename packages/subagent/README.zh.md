@@ -11,6 +11,8 @@
 | [`subagent-spawn/`](subagent-spawn/README.md) | 启动全新的进程内子 agent | 注册到 `ctx.subagents` |
 | [`subagent-fork/`](subagent-fork/README.md) | 从父 agent 已完成的历史记录启动进程内子 agent | 注册到 `ctx.subagents` |
 | [`subagent-acp/`](subagent-acp/README.md) | 通过 ACP（Agent Client Protocol）启动进程外子 agent | 注册到 `ctx.subagents` |
+| [`subagent-codex/`](subagent-codex/README.md) | 启动真实的 Codex app-server 子 agent | 注册到 `ctx.subagents` |
+| [`subagent-claude-code/`](subagent-claude-code/README.md) | 通过官方 Claude Agent SDK 启动真实的 Claude Code 子 agent | 注册到 `ctx.subagents` |
 | [`subagent-dsh-sdk/`](subagent-dsh-sdk/README.md) | 通过 TypeScript SDK 启动进程外 Harness 子 agent | 注册到 `ctx.subagents` |
 | [`tool-subagent/`](tool-subagent/README.md) | 向模型公开委派操作 | 注册到 `ctx.tools` |
 | [`tool-subagent-control/`](tool-subagent-control/README.md) | 向模型公开子级消息发送和列举操作 | 注册到 `ctx.tools` |
