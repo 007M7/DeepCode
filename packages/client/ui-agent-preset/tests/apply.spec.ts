@@ -92,6 +92,11 @@ async function bench() {
         },
       },
       settings: {
+        // The row reads this to learn whether this browser may write at all.
+        describe: () => Promise.resolve({
+          rpcId: 'r',
+          result: { ok: true as const, value: { writable: true, hasDocument: true, namespaces: [] } },
+        }),
         update: (payload: { patch: unknown }) => { calls.push(`settings:${JSON.stringify(payload.patch)}`); return Promise.resolve({ rpcId: 'r', result: { ok: true as const, value: {} } }) },
       },
     },
