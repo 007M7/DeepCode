@@ -460,10 +460,15 @@ Source: [`packages/host/frontend-static/src/index.ts:28`](../packages/host/front
 export interface Config {
   /** Base directory for relative paths. Defaults to `process.cwd()`. */
   cwd?: string
+  /**
+   * Exclusive UTF-8 byte limit on each overwrite-diff side, capped by the
+   * runtime's safe allocation/decode maximum. Defaults to 10 MiB.
+   */
+  diffBasisMaxBytes?: number
 }
 ```
 
-Source: [`packages/fs/fs-local/src/index.ts:38`](../packages/fs/fs-local/src/index.ts)
+Source: [`packages/fs/fs-local/src/index.ts:39`](../packages/fs/fs-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-fs-sandbox`
 
@@ -471,10 +476,10 @@ Requires: `sandboxPolicy`
 
 ```ts config-catalog
 /**
- * Plugin config: the local backend's knobs, verbatim (only `cwd`, the resolve
- * base for relative paths). The sandbox default (mode + `workspace-write`
- * fallback root) is NOT here — `ctx.sandboxPolicy` resolves each calling
- * session for every enforcing capability.
+ * Plugin config: the local backend's knobs verbatim (`cwd` resolution default
+ * and `diffBasisMaxBytes` overwrite-presentation bound). The sandbox default
+ * (mode + `workspace-write` fallback root) is NOT here — `ctx.sandboxPolicy`
+ * resolves each calling session for every enforcing capability.
  */
 export type Config = LocalConfig
 ```

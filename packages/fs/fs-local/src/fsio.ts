@@ -15,6 +15,8 @@ import { FsError, FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
 import { copyFileDaclWin32, replaceFileWin32 } from './win32.ts'
 
 const BINARY_SAMPLE_BYTES = 8192
+// Bound one non-abortable FileHandle.read so cancellation is observed between chunks.
+const DIFF_BASIS_READ_CHUNK_BYTES = 64 * 1024
 
 function isENOENT(error: unknown): boolean {
   return error instanceof Error && 'code' in error && error.code === 'ENOENT'
@@ -70,9 +72,8 @@ function versionOf(info: BigIntStats): FsVersion {
 }
 
 /**
- * Test seam: lets specs pin the atomic-write temp names (to prove
- * exclusive-open behavior without a name race) and observe the staged temp
- * file before it is renamed over the target.
+ * Test seam: lets specs pin the atomic-write temp names (to prove exclusive-open behavior without
+ * a name race), override native boundaries, and observe the staged temp file before publication.
  */
 export interface FsIoInternals {
   /** Override the host platform for native-publication unit coverage. */
@@ -564,17 +565,53 @@ export async function readForEdit(
 }
 
 /**
- * Best-effort overwrite diff basis. Binary or invalid UTF-8 returns `null` so the write still
- * succeeds and presentation falls back to a whole-file diff.
+ * Best-effort overwrite diff basis. Binary, invalid UTF-8, or a file at/above the byte limit
+ * returns `null` so the write still succeeds and presentation falls back to a whole-file diff.
+ * The bound is enforced on the opened descriptor rather than a prior path stat, so concurrent
+ * external replacement or size changes cannot make this helper buffer more than `maxBytes`.
  * @param absolutePath - the file to read (typically a target key); it must exist.
+ * @param maxBytes - exclusive upper bound for bytes held as the contextual-diff basis.
  * @param signal - aborts the read (`FS_ABORTED`).
- * @returns the LF-normalized text, or null for a binary or non-UTF-8 file.
+ * @returns the LF-normalized text, or null for a non-regular, at/above-limit, binary, non-UTF-8,
+ * or descriptor-size-changed file.
  */
-export async function readTextForDiff(absolutePath: string, signal?: AbortSignal): Promise<string | null> {
-  const buffer = await readFileAbortable(absolutePath, 'read', signal)
-  if (buffer.includes(0)) return null
+export async function readTextForDiff(
+  absolutePath: string,
+  maxBytes: number,
+  signal?: AbortSignal,
+): Promise<string | null> {
+  throwIfAborted(signal, 'read')
+  const handle = await open(absolutePath, 'r')
+  let buffer: Buffer
+  let total = 0
+  let openedSize = 0
   try {
-    return normalizeLineEndings(new TextDecoder('utf-8', { fatal: true }).decode(buffer))
+    throwIfAborted(signal, 'read')
+    const info = await handle.stat()
+    throwIfAborted(signal, 'read')
+    /* v8 ignore next -- requires a post-preflight replacement with a non-file;
+     * direct coverage is not portable to Windows. */
+    if (!info.isFile()) return null
+    if (info.size >= maxBytes) return null
+    openedSize = info.size
+    // One extra byte detects growth after stat without retaining per-read backing buffers.
+    buffer = Buffer.allocUnsafe(openedSize + 1)
+    while (total < buffer.length) {
+      throwIfAborted(signal, 'read')
+      const length = Math.min(buffer.length - total, DIFF_BASIS_READ_CHUNK_BYTES)
+      const { bytesRead } = await handle.read(buffer, total, length, null)
+      if (bytesRead === 0) break
+      total += bytesRead
+    }
+  } finally {
+    await handle.close()
+  }
+  throwIfAborted(signal, 'read')
+  if (total !== openedSize) return null
+  const basis = buffer.subarray(0, total)
+  if (basis.includes(0)) return null
+  try {
+    return normalizeLineEndings(new TextDecoder('utf-8', { fatal: true }).decode(basis))
   } catch (error: unknown) {
     /* v8 ignore next 2 -- TextDecoder({fatal}) only throws TypeError on invalid bytes; any other throw is an unreachable runtime fault. */
     if (!(error instanceof TypeError)) throw error

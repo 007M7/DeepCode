@@ -5,7 +5,7 @@
  * policy and lives in `dsh-fs-policy`, so it is not tested here.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { chmod, mkdtemp, readFile, rename, rm, stat, symlink, unlink, writeFile, mkdir, readdir, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -16,6 +16,7 @@ import {
   probe,
   probeNoFollow,
   readForEdit,
+  readTextForDiff,
   readWholeText,
   resolveLocalTarget,
   restoreLineEndings,
@@ -313,6 +314,205 @@ describe('readWholeText', () => {
     const pending = readWholeText(localTarget(file), ac.signal)
     ac.abort()
     await expect(pending).rejects.toMatchObject({ code: 'FS_ABORTED' })
+  })
+})
+
+describe('readTextForDiff', () => {
+  it('returns normalized text only when the opened file is strictly below the limit', async () => {
+    const file = join(dir, 'basis.txt')
+    await writeFile(file, 'a\r\nb')
+    expect(await readTextForDiff(file, 5)).toBe('a\nb')
+    expect(await readTextForDiff(file, 4)).toBeNull()
+  })
+
+  it('bounds the actual opened file rather than trusting an earlier path size', async () => {
+    const file = join(dir, 'replaced.txt')
+    await writeFile(file, 'tiny')
+    const earlierSize = (await stat(file)).size
+    await writeFile(file, '123456789')
+    expect(earlierSize).toBeLessThan(8)
+    expect(await readTextForDiff(file, 8)).toBeNull()
+  })
+
+  it('returns null when the opened file shrinks after descriptor stat', async () => {
+    const file = join(dir, 'shrinking.txt')
+    await writeFile(file, 'abcdef')
+    vi.resetModules()
+    vi.doMock('node:fs/promises', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('node:fs/promises')>()
+      return {
+        ...actual,
+        async open(...args: Parameters<typeof actual.open>) {
+          const handle = await actual.open(...args)
+          return {
+            close: handle.close.bind(handle),
+            read: handle.read.bind(handle),
+            async stat(...statArgs: Parameters<typeof handle.stat>) {
+              const info = await handle.stat(...statArgs)
+              await writeFile(file, 'abc')
+              return info
+            },
+          }
+        },
+      }
+    })
+
+    try {
+      const { readTextForDiff: isolatedReadTextForDiff } = await import('../src/fsio.ts')
+      expect(await isolatedReadTextForDiff(file, 8)).toBeNull()
+    } finally {
+      vi.doUnmock('node:fs/promises')
+      vi.resetModules()
+    }
+  })
+
+  it('returns null when the opened file grows after descriptor stat', async () => {
+    // Pins the one-extra-byte EOF probe: with a buffer of exactly openedSize a
+    // grown file would read openedSize bytes and pass the consistency check.
+    const file = join(dir, 'growing.txt')
+    await writeFile(file, 'abcdef')
+    vi.resetModules()
+    vi.doMock('node:fs/promises', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('node:fs/promises')>()
+      return {
+        ...actual,
+        async open(...args: Parameters<typeof actual.open>) {
+          const handle = await actual.open(...args)
+          return {
+            close: handle.close.bind(handle),
+            read: handle.read.bind(handle),
+            async stat(...statArgs: Parameters<typeof handle.stat>) {
+              const info = await handle.stat(...statArgs)
+              await writeFile(file, 'abcdef-grown')
+              return info
+            },
+          }
+        },
+      }
+    })
+
+    try {
+      const { readTextForDiff: isolatedReadTextForDiff } = await import('../src/fsio.ts')
+      expect(await isolatedReadTextForDiff(file, 32)).toBeNull()
+    } finally {
+      vi.doUnmock('node:fs/promises')
+      vi.resetModules()
+    }
+  })
+
+  it('returns null for binary and invalid UTF-8 without blocking the caller write', async () => {
+    await writeFile(join(dir, 'bin'), Buffer.from([0x68, 0x00, 0x69]))
+    await writeFile(join(dir, 'bad'), Buffer.from([0x68, 0xff, 0x69]))
+    expect(await readTextForDiff(join(dir, 'bin'), 8)).toBeNull()
+    expect(await readTextForDiff(join(dir, 'bad'), 8)).toBeNull()
+  })
+
+  it('honors a pre-aborted signal', async () => {
+    const file = join(dir, 'basis.txt')
+    await writeFile(file, 'text')
+    await expect(readTextForDiff(file, 8, AbortSignal.abort())).rejects.toMatchObject({ code: 'FS_ABORTED' })
+  })
+
+  it.each(['open', 'stat'] as const)('observes cancellation immediately after %s', async (stage) => {
+    const file = join(dir, 'basis.txt')
+    await writeFile(file, 'text')
+    const reached = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    let statCalls = 0
+    const allocate = vi.spyOn(Buffer, 'allocUnsafe')
+    vi.resetModules()
+    vi.doMock('node:fs/promises', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('node:fs/promises')>()
+      return {
+        ...actual,
+        async open(...args: Parameters<typeof actual.open>) {
+          const handle = await actual.open(...args)
+          if (stage === 'open') {
+            reached.resolve(undefined)
+            await release.promise
+          }
+          return {
+            close: handle.close.bind(handle),
+            read: handle.read.bind(handle),
+            async stat(...statArgs: Parameters<typeof handle.stat>) {
+              statCalls += 1
+              const info = await handle.stat(...statArgs)
+              if (stage === 'stat') {
+                reached.resolve(undefined)
+                await release.promise
+              }
+              return info
+            },
+          }
+        },
+      }
+    })
+
+    try {
+      const { readTextForDiff: isolatedReadTextForDiff } = await import('../src/fsio.ts')
+      const controller = new AbortController()
+      const pending = isolatedReadTextForDiff(file, 8, controller.signal)
+      await reached.promise
+      const allocationCalls = allocate.mock.calls.length
+      controller.abort()
+      release.resolve(undefined)
+      await expect(pending).rejects.toMatchObject({ code: 'FS_ABORTED' })
+      expect(statCalls).toBe(stage === 'open' ? 0 : 1)
+      expect(allocate).toHaveBeenCalledTimes(allocationCalls)
+    } finally {
+      release.resolve(undefined)
+      allocate.mockRestore()
+      vi.doUnmock('node:fs/promises')
+      vi.resetModules()
+    }
+  })
+
+  it('bounds descriptor reads and observes cancellation before the next chunk', async () => {
+    const file = join(dir, 'large-basis.txt')
+    const fileBytes = 200 * 1024
+    await writeFile(file, 'x'.repeat(fileBytes))
+    const firstRead = Promise.withResolvers<undefined>()
+    const releaseFirstRead = Promise.withResolvers<undefined>()
+    const readLengths: number[] = []
+    vi.resetModules()
+    vi.doMock('node:fs/promises', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('node:fs/promises')>()
+      return {
+        ...actual,
+        async open(...args: Parameters<typeof actual.open>) {
+          const handle = await actual.open(...args)
+          return {
+            stat: handle.stat.bind(handle),
+            close: handle.close.bind(handle),
+            async read(buffer: Buffer, offset: number, length: number, position: number | null) {
+              readLengths.push(length)
+              const result = await handle.read(buffer, offset, length, position)
+              if (readLengths.length === 1) {
+                firstRead.resolve(undefined)
+                await releaseFirstRead.promise
+              }
+              return result
+            },
+          }
+        },
+      }
+    })
+
+    try {
+      const { readTextForDiff: isolatedReadTextForDiff } = await import('../src/fsio.ts')
+      const controller = new AbortController()
+      const pending = isolatedReadTextForDiff(file, fileBytes + 1, controller.signal)
+      await firstRead.promise
+      expect(readLengths).toEqual([64 * 1024])
+      controller.abort()
+      releaseFirstRead.resolve(undefined)
+      await expect(pending).rejects.toMatchObject({ code: 'FS_ABORTED' })
+      expect(readLengths).toHaveLength(1)
+    } finally {
+      releaseFirstRead.resolve(undefined)
+      vi.doUnmock('node:fs/promises')
+      vi.resetModules()
+    }
   })
 })
 
