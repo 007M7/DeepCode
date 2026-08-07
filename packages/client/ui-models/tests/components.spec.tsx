@@ -92,13 +92,12 @@ function wireNamespaces(): SettingsNamespaceView[] {
       value: {
         apiKeyEnv: 'DEEPSEEK_API_KEY',
         baseURL: 'https://base',
-        reasoningEffort: 'high',
         defaultContextWindow: 1_000_000,
         maxTokens: 256_000,
         models: DEFAULT_DEEPSEEK_MODELS,
       },
       base: { defaultContextWindow: 1_000_000, maxTokens: 256_000, models: DEFAULT_DEEPSEEK_MODELS },
-      user: { reasoningEffort: 'high' },
+      user: { baseURL: 'https://base' },
       applies: 'live',
       secrets: [{ path: ['apiKey'], set: false }],
       revision: 0,
@@ -729,16 +728,16 @@ describe('ModelsSection', () => {
     // user layer and replaced it wholesale, deleting any stored literal key.
     const { replace, update, mutate } = await mountSection()
     fireEvent.click(screen.getByText(en.customized))
-    const effort = screen.getByLabelText<HTMLSelectElement>(en.effort)
-    expect(effort.value).toBe('high')
-    fireEvent.change(effort, { target: { value: '' } })
+    const url = screen.getByLabelText<HTMLInputElement>(en.baseUrl)
+    expect(url.value).toBe('https://base')
+    fireEvent.change(url, { target: { value: '' } })
     fireEvent.click(screen.getByText(en.apply))
     await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
     expect(replace).not.toHaveBeenCalled()
     expect(update).not.toHaveBeenCalled()
     expect(mutate.mock.calls[0]?.[0]).toEqual({
       ns: 'llm-deepseek',
-      ops: [{ op: 'unset', path: ['reasoningEffort'] }],
+      ops: [{ op: 'unset', path: ['baseURL'] }],
       expectedRevision: 0,
     })
   })
@@ -795,17 +794,16 @@ describe('ModelsSection', () => {
     const urls = screen.getAllByLabelText<HTMLInputElement>(en.baseUrl)
     expect(urls).toHaveLength(2)
     expect((urls[1] as HTMLInputElement).value).toBe('https://proxy')
-    const effort = screen.getAllByLabelText<HTMLSelectElement>(en.effort)
-    fireEvent.change(effort[effort.length - 1] as HTMLSelectElement, { target: { value: 'xhigh' } })
+    fireEvent.change(urls[1] as HTMLInputElement, { target: { value: 'https://proxy/v2' } })
     fireEvent.click(screen.getAllByText(en.apply)[1] as HTMLElement)
     await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
-    // Only the edited field travels: apiKeyEnv, baseURL and headers were
-    // already stored with these values, so no op restates them — and the
-    // profile's stored literal apiKey, absent from the redacted view the card
-    // read, is named by nothing at all.
+    // Only the edited field travels: apiKeyEnv and headers were already stored
+    // with these values, so no op restates them — and the profile's stored
+    // literal apiKey, absent from the redacted view the card read, is named by
+    // nothing at all.
     expect(mutate.mock.calls[0]?.[0]).toEqual({
       ns: 'llm-pi-ai',
-      ops: [{ op: 'set', path: ['providers', 'openai', 'reasoning'], value: 'xhigh' }],
+      ops: [{ op: 'set', path: ['providers', 'openai', 'baseURL'], value: 'https://proxy/v2' }],
       expectedRevision: 0,
     })
   })

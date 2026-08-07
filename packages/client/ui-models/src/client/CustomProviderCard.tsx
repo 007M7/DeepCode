@@ -14,13 +14,11 @@
  * and at least one model — are required here rather than at load, so the
  * failure names the field while the user is still looking at it.
  *
- * There is deliberately no reasoning-effort control. A hand-declared model
- * carries no reasoning capability — pi-ai's installed catalog is what supplies
- * one, and it has nothing under this route — so a profile effort here makes
- * `resolveModel` throw UNSUPPORTED_REASONING_EFFORT for every model on the
- * route, which drops the whole provider out of the model picker. The editor
- * card hides the control for the same reason once the directory reports the
- * route as declared.
+ * There is deliberately no reasoning-effort control, here or on the editor
+ * card: effort is a per-MODEL capability, and the models under one provider
+ * disagree about it, so a provider-scoped control can only be set to a value
+ * some of them reject. The composer's model picker offers each model its own
+ * levels instead.
  */
 
 import { useState } from 'react'
@@ -206,9 +204,11 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
           onChange={(event) => { setRoute(event.target.value) }}
         />
       </div>
-      <p className={styles['advancedHint']}>
-        {routeInvalid ? t('customRouteInvalid') : routeTaken ? t('customRouteTaken') : t('customRouteHint')}
-      </p>
+      {/* A rejected id reads as a fault, not as guidance — the same split the
+          key field below already makes between its failure and its hint. */}
+      {routeInvalid || routeTaken
+        ? <p className={styles['error']}>{t(routeInvalid ? 'customRouteInvalid' : 'customRouteTaken')}</p>
+        : <p className={styles['advancedHint']}>{t('customRouteHint')}</p>}
       <div className={styles['field']}>
         <span className={styles['fieldLabel']}>{t('customDisplayName')}</span>
         <input

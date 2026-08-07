@@ -705,35 +705,24 @@ describe('hand-declared providers', () => {
     expect(set).toHaveBeenCalledWith({ ref: 'ACME_GATEWAY_API_KEY', value: 'gw-key' })
   })
 
-  it('offers no reasoning effort at all, in either card, for a hand-declared route', async () => {
+  it('scopes each card to fields a provider can actually own', async () => {
+    // Reasoning effort used to sit here. It is a per-MODEL capability and the
+    // models under one provider disagree about it, so a provider-scoped
+    // control could only be set to a value some of them reject — which took
+    // the whole provider out of the picker. The composer's model picker owns
+    // the choice, and a switch there records provider+model+effort together.
+    const fields = () => [...document.querySelectorAll('input,select')]
+      .map(el => el.getAttribute('aria-label')).filter(Boolean)
+
     mountCard()
     fireEvent.change(screen.getByLabelText(en.customRoute), { target: { value: 'acme' } })
-    fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: 'https://acme.test/v1' } })
-    // A hand-declared model carries no reasoning capability — pi-ai's
-    // installed catalog is what supplies one, and it ships nothing under this
-    // route — so a profile effort makes `resolveModel` throw
-    // UNSUPPORTED_REASONING_EFFORT for every model on it and drops the whole
-    // provider out of the picker. Offering the control would be offering a way
-    // to break the route.
-    expect(screen.queryByLabelText(en.effort)).toBeNull()
+    expect(fields()).toEqual([en.customRoute, en.customDisplayName, en.baseUrl, en.customApi, en.keyInput])
     cleanup()
 
-    // The editor card withholds it for the same route for the same reason...
-    await mountSection({
-      providers: { 'acme-gateway': { apiKeyEnv: 'ACME_GATEWAY_API_KEY', baseURL: 'https://acme.test/v1' } },
-      declaredRoutes: ['acme-gateway'],
-    })
-    openEditor('acme-gateway')
-    expect(screen.queryByLabelText(en.effort)).toBeNull()
-    cleanup()
-
-    // ...and keeps it for a route the adapter actually ships, whose models do
-    // carry the capability.
     await mountSection({ providers: { openai: { apiKeyEnv: 'OPENAI_API_KEY' } } })
     openEditor('openai')
-    const select = screen.getByLabelText<HTMLSelectElement>(en.effort)
-    expect([...select.options].map(option => option.value))
-      .toEqual(['', 'off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])
+    fireEvent.click(screen.getByText(en.customized))
+    expect(fields()).toEqual([en.keyInput, en.baseUrl])
   })
 
   it('retries only the key after the profile landed, and reports the provider on cancel', async () => {
@@ -825,6 +814,20 @@ describe('hand-declared providers', () => {
 
     fireEvent.change(routeField, { target: { value: 'a1' } })
     expect(screen.queryByText(en.customRouteInvalid)).toBeNull()
+  })
+
+  it('styles a rejected route id as a fault and its guidance as a hint', () => {
+    mountCard()
+    const routeField = screen.getByLabelText(en.customRoute)
+    // Same split the key field makes: what the user got wrong reads as a
+    // fault, what they have yet to do reads as guidance.
+    expect(screen.getByText(en.customRouteHint).className).toMatch(/advancedHint/)
+
+    fireEvent.change(routeField, { target: { value: '2' } })
+    expect(screen.getByText(en.customRouteInvalid).className).toMatch(/error/)
+
+    fireEvent.change(routeField, { target: { value: 'openai' } })
+    expect(screen.getByText(en.customRouteTaken).className).toMatch(/error/)
   })
 
   it('derives a reference the credential seam accepts for every id it admits', () => {
