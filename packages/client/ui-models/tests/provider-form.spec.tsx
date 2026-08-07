@@ -954,6 +954,19 @@ describe('API key field', () => {
     expect((set.mock.calls[0]?.[0] as { value: string }).value).toBe('sk-abc')
   })
 
+  it('blocks the interrogation too, rather than spending a round trip on a refused key', async () => {
+    const { discover } = await mountSection()
+    openEditor('openai')
+
+    fireEvent.change(screen.getByLabelText(en.keyInput), { target: { value: 'sk-\u{1F600}' } })
+
+    // The host would refuse this before building the header anyway; asking is
+    // a round trip to be told what the field already says.
+    expect(buttonNamed(en.fetchModels).disabled).toBe(true)
+    expect(buttonNamed(en.fetchModels).title).toBe(en.keyIllegalCharacters)
+    expect(discover).not.toHaveBeenCalled()
+  })
+
   it('carries the trimmed key into an interrogation, not the padded draft', async () => {
     const { discover } = await mountSection()
     openEditor('openai')

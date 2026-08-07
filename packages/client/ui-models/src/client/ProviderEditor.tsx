@@ -371,7 +371,7 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
                   defaultMaxTokens={typeof defaultMaxTokens === 'number' ? defaultMaxTokens : undefined}
                 />
               )
-              : <ModelListEditor {...catalogProps} probe={probe} api={api} />}
+              : <ModelListEditor {...catalogProps} probe={probe} probeBlocked={keyFailure} api={api} />}
           </div>
         </details>
       </>

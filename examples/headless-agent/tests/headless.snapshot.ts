@@ -31,6 +31,10 @@ const retryScenarioDir = join(snapshotsDir, 'provider-retry')
 const retryConfigPath = fileURLToPath(new URL('../retry.cordis.snapshot.yml', import.meta.url))
 const credentialsScenarioDir = join(snapshotsDir, 'missing-credential')
 const credentialsConfigPath = fileURLToPath(new URL('../credentials.cordis.snapshot.yml', import.meta.url))
+// Same keyless composition as the missing-credential scenario: the endpoint is
+// never dialed either way, because a supplied-but-unusable key fails credential
+// resolution exactly where an absent one does.
+const invalidCredentialScenarioDir = join(snapshotsDir, 'invalid-credential')
 const ralphScenarioDir = join(snapshotsDir, 'ralph-loop')
 const ralphConfigPath = fileURLToPath(new URL('../ralph.cordis.snapshot.yml', import.meta.url))
 const startupFailureConfigPath = fileURLToPath(new URL('./fixtures/startup-activation-error/cordis.yml', import.meta.url))
@@ -252,6 +256,42 @@ describe('headless stream-json snapshots', () => {
       'store DEEPSEEK_API_KEY through the credentials service (the web Models page writes it),',
     )
     expect(normalized).toContain('as a last resort')
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
+  it('logs actionable invalid-credential guidance through the one-shot app', async () => {
+    const streamExpected = join(invalidCredentialScenarioDir, 'stream-json.expected.jsonl')
+    let runCwd = ''
+    const result = await runLoaderSmoke({
+      label: 'invalid-credential headless stream-json snapshot',
+      tempDirPrefix: 'headless-snapshot-invalid-credential-',
+      binScript,
+      configPath: credentialsConfigPath,
+      binArgs: ['--config', credentialsConfigPath, '--output-format', 'stream-json', 'say pong'],
+      tsconfigPath,
+      env: {
+        // A key that exists but no HTTP header can carry — the paste this
+        // change exists for. Before it, `fetch` refused to build the header
+        // and the turn ended on a retried ByteString TypeError.
+        DEEPSEEK_API_KEY: 'sk-\u{1F600}pasted-from-a-chat-window',
+        DEEPSEEK_BASE_URL: '',
+        NODE_OPTIONS: [process.env.NODE_OPTIONS, '--disable-warning=ExperimentalWarning'].filter(Boolean).join(' '),
+      },
+      prepare: (cwd) => { runCwd = cwd },
+    })
+
+    expect(result.stderr).toBe('')
+    const normalized = normalizeHeadlessStream(result.stdout, runCwd)
+    if (refreshing) await writeFile(streamExpected, normalized)
+    expect(normalized).toBe(await readFile(streamExpected, 'utf8'))
+    // The durable failure names the reference to correct and the writer that
+    // usually owns it, and stays true in a composition that mounts no Models
+    // page at all.
+    expect(normalized).toContain('the API key resolved from DEEPSEEK_API_KEY contains characters')
+    expect(normalized).toContain('the web Models page writes it')
+    // Neither the key nor the transport-level symptom it used to produce may
+    // reach the user: the code point of one character is still the key.
+    expect(normalized).not.toContain('pasted-from-a-chat-window')
+    expect(normalized).not.toContain('ByteString')
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
   it('logs the model default and a dynamic next-step reasoning effort', async () => {

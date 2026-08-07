@@ -325,8 +325,10 @@ describe('probe key format', () => {
   })
 
   it('reports a blank probe key as a credential fault too', async () => {
-    // A cleared form field arrives as '', not an absent key; it must fail the
-    // same way a typed-in illegal key does, rather than probing unauthenticated.
+    // The Models page omits `apiKey` entirely for a cleared field rather than
+    // sending '', so this pins the contract for every other caller: a supplied
+    // key is judged, and only an absent one probes unauthenticated. '' means
+    // "I have a key" and is answered as the empty key it is.
     await expect(discoverModels({
       baseURL: 'https://acme.test',
       api: 'openai-completions',

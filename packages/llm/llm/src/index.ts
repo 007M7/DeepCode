@@ -145,11 +145,16 @@ export class LlmError extends HarnessError {
 export function assertUsableApiKey(raw: string, pkg: string, ref: string): string {
   const checked = normalizeApiKey(raw)
   if (checked.ok) return checked.value
+  // The Models page is named as the writer it usually is, not as the only one:
+  // the same value can arrive from a hand-edited .env or a shell export in a
+  // composition that mounts no credentials seam at all, where directing the
+  // user to a page that deployment does not serve would be a dead end.
   throw new LlmError(
     checked.reason === 'empty'
-      ? `${pkg}: the API key stored as ${ref} is blank; re-enter it on the web Models page`
-      : `${pkg}: the API key stored as ${ref} contains characters no HTTP header can carry;`
-        + ' re-enter it on the web Models page, pasting the raw key only',
+      ? `${pkg}: the API key resolved from ${ref} is blank; set ${ref} to the raw key`
+        + ' (the web Models page writes it) or export it in the launching environment'
+      : `${pkg}: the API key resolved from ${ref} contains characters no HTTP header can carry;`
+        + ` set ${ref} to the raw key alone (the web Models page writes it)`,
     INVALID_CREDENTIAL_CODE,
   )
 }

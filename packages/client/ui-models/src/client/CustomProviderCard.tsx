@@ -215,7 +215,12 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
           disabled={disabled}
           onChange={(event) => { setKeyDraft(event.target.value) }}
         />
-        {keyFailure === undefined ? null : <p className={styles['error']}>{t(keyFailure)}</p>}
+        {/* A create card has no stored key to keep, so the blank case says
+            what a blank field means here instead: this route may authenticate
+            through the provider's own ambient discovery or OAuth. */}
+        {keyFailure === undefined
+          ? null
+          : <p className={styles['error']}>{t(keyFailure === 'keyBlank' ? 'keyBlankNew' : keyFailure)}</p>}
       </div>
       <ModelListEditor
         models={models}
@@ -226,6 +231,7 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
           api: protocol,
           ...keyValue.length === 0 ? {} : { apiKey: keyValue },
         }}
+        probeBlocked={keyFailure === 'keyBlank' ? 'keyBlankNew' : keyFailure}
         api={api}
         t={t}
         disabled={disabled}
