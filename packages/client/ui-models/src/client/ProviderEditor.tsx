@@ -167,7 +167,12 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
     return typeof value === 'string' && value.trim().length > 0 ? value : undefined
   }
   const setField = (key: string, next: string | undefined): void => {
-    setDraft(current => next === undefined ? deletePath(current, [key]) : setPath(current, [key], next))
+    // A value of nothing but whitespace is cleared, not stored: `stringAt`
+    // already reports it as absent, so the field would otherwise render empty
+    // while the draft still carried the spaces into `settings.yaml`, where
+    // both adapters would accept that non-empty string as a real value.
+    const value = next === undefined || next.trim().length === 0 ? undefined : next
+    setDraft(current => value === undefined ? deletePath(current, [key]) : setPath(current, [key], value))
   }
 
   // The model list is validated by the same per-row checker for both families,

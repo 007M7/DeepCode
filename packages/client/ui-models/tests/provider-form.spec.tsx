@@ -880,6 +880,22 @@ describe('hand-declared providers', () => {
     expect(set).not.toHaveBeenCalled()
   })
 
+  it('stays silent about the other gates when only the key is refused', () => {
+    mountCard()
+
+    fireEvent.change(screen.getByLabelText(en.customRoute), { target: { value: 'acme-gateway' } })
+    fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: 'https://gateway.acme.example/v1' } })
+    fireEvent.click(screen.getByRole('button', { name: en.addModel }))
+    fireEvent.change(screen.getByLabelText(`${en.modelId} 1`), { target: { value: 'acme-large' } })
+    fireEvent.change(screen.getByLabelText(en.keyInput), { target: { value: 'sk-\u{1F600}' } })
+
+    // Route, endpoint, and models are all satisfied, so answering with the
+    // next unmet gate would print a second, false fault beside the real one.
+    expect(screen.getByText(en.keyIllegalCharacters)).toBeTruthy()
+    expect(screen.queryByText(en.customNeedsModels)).toBeNull()
+    expect(screen.queryByText(en.customNeedsBaseUrl)).toBeNull()
+  })
+
   it('tells a whitespace-only key what a blank field means on a create card', () => {
     const { mutate } = mountCard()
 
@@ -925,6 +941,21 @@ describe('API key field', () => {
 
     await waitFor(() => { expect(mutate).toHaveBeenCalled() })
     expect(set).not.toHaveBeenCalled()
+  })
+
+  it('clears a whitespace-only base URL instead of writing the spaces', async () => {
+    const { mutate } = await mountSection()
+    openEditor('openai')
+
+    // The field renders this as empty, so the draft must agree: storing the
+    // spaces would hand both adapters a non-empty string they accept as a URL.
+    fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: '   ' } })
+    fireEvent.click(screen.getByText(en.apply))
+
+    await waitFor(() => { expect(mutate).toHaveBeenCalled() })
+    const ops = firstMutate(mutate).ops
+    expect(ops.some(op => op.op === 'set' && op.path.includes('baseURL'))).toBe(false)
+    expect(ops.some(op => op.op === 'unset' && op.path.includes('baseURL'))).toBe(true)
   })
 
   it('blocks submit and names the field when the key holds only whitespace', async () => {

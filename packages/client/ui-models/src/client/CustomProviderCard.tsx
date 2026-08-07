@@ -93,6 +93,10 @@ export function CustomProviderCard(props: CustomProviderCardProps): ReactNode {
   // because its own field already explains itself, and a satisfied card says
   // nothing at all rather than printing an empty paragraph.
   const hint = failure !== undefined || ready
+    // The key field prints its own failure directly beneath itself, so a card
+    // blocked only by the key stays silent here rather than answering with the
+    // next unmet gate — which is satisfied, and reads as a second, false fault.
+    || keyFailure !== undefined
     ? undefined
     : baseURL.length === 0
       ? t('customNeedsBaseUrl')

@@ -12,13 +12,15 @@
 const LEGAL_API_KEY = /^[\x21-\x7E]+$/
 
 /**
- * A pasted `NAME=value` environment line. Restricted to an upper-case
- * identifier so a real key cannot match: `sk-` forms break at the hyphen.
- * This heuristic runs only here — a resolver applying it could lock a user
- * out of a gateway whose key legitimately takes this shape, with the
- * environment refusing it too and no way through.
+ * A pasted `NAME=value` environment line. Two narrowings keep real keys clear
+ * of it: the name must be upper-case, so `sk-` forms break at the hyphen, and
+ * the `=` must be followed by something other than another `=`, so base64
+ * padding on an all-upper-case key (`ABCD==`) is not mistaken for an
+ * assignment. This heuristic runs only here — a resolver applying it could
+ * lock a user out of a gateway whose key legitimately takes this shape, with
+ * the environment refusing it too and no way through.
  */
-const ENV_LINE = /^[A-Z][A-Z0-9_]*=/
+const ENV_LINE = /^[A-Z][A-Z0-9_]*=[^=]/
 
 /** Copy key naming why a typed key cannot be saved. */
 export type ApiKeyFailureKey = 'keyBlank' | 'keyIllegalCharacters' | 'keyLooksWrapped'

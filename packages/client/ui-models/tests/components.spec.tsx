@@ -1092,6 +1092,8 @@ describe('apiKeyFailure', () => {
     ['a padded key, which the caller trims', '  sk-abc  '],
     ['the printable-ASCII boundary characters', '!~'],
     ['a hyphenated key carrying an equals sign', 'sk-ABC=xyz'],
+    ['an all-upper-case key ending in base64 padding', 'ABCD=='],
+    ['an all-upper-case key ending in one padding character', 'MNOPQRST='],
   ])('accepts %s', (_label, draft) => {
     expect(apiKeyFailure(draft)).toBeUndefined()
   })
