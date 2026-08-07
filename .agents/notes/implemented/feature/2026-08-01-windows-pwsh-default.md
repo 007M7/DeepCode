@@ -35,7 +35,7 @@ The pwsh GUI rendering stage (stage 2 of the original roadmap) shipped earlier w
 - A Windows host running a shipped `dsh` surface gets `pwsh` as its shell tool and PowerShell as the `ctx.bash` executor without configuration; `bash` is absent from the model-visible roster there (its tool row is disabled).
 - Windows has no sandbox at all: the fs tools run unconfined (`dsh-fs-local`), the approval service is absent (nothing asks for approval, and the model is never told approval exists), and the permission switcher is gone. The model-visible posture is honest full access rather than a boundary the shell can bypass.
 - POSIX hosts are unchanged: the platform layer never applies, and the bash stack remains the universal `cordis.patch.yml` rows.
-- Windows hosts that prefer the bash stack (e.g. with WSL/Git-Bash on PATH) override the shipped default through their profile or home `cordis.patch.yml` — composition config is the one override channel.
+- Windows hosts that prefer the bash stack (e.g. with WSL/Git-Bash on PATH) override the shipped default through their profile or home `cordis.patch.yml` — disabling `pwsh-local`/`tool-pwsh` and re-enabling `bash-sandbox`/`tool-bash` (both executors register the same `bash` service, so an incomplete recipe fails loud at load) — composition config is the one override channel.
 
 ## Verification
 

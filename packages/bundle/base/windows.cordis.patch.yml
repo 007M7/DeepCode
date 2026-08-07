@@ -13,6 +13,14 @@
 # dsh.bundle.patch — that field names the one universal layer). A Windows
 # host that prefers bash or confinement overrides these rows through its
 # profile or home cordis.patch.yml.
+# The bash-restore recipe must be complete: disable pwsh-local and tool-pwsh
+# AND re-enable bash-sandbox and tool-bash (plus permission/ui-permission only
+# if the switcher is wanted) — both executors register the same 'bash'
+# service, so re-enabling the bash rows while pwsh-local stays inserted fails
+# loud at load on a duplicate registration.
+# The ui-permission disable targets a row owned by dsh-web-app, not dsh-base:
+# a base-only profile (e.g. the `dsh plugin --profile` default template) has
+# no such row, and the no-match logs a harmless warning on every load.
 
 - id: bash-sandbox
   disabled: true

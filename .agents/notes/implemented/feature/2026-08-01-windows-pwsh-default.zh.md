@@ -35,7 +35,7 @@ harness 交付的执行画像在每个平台都是 bash 优先。Windows 主机�
 - 运行交付版 `dsh` 表面的 Windows 主机无需配置即获得 `pwsh` 作为 shell 工具、PowerShell 作为 `ctx.bash` 执行器；那里的模型可见清单中没有 `bash`（其工具行被禁用）。
 - Windows 上没有任何沙箱：fs 工具不限权运行（`dsh-fs-local`）、`approval` 服务不存在（没有任何动作需要审批，模型也不会被告知审批存在）、权限切换器消失。模型可见的姿态是诚实的全权访问，而不是一个 shell 可以绕过的边界。
 - POSIX 主机不变：平台层永不生效，bash 栈仍是通用 `cordis.patch.yml` 的行。
-- 偏好 bash 栈的 Windows 主机（例如 PATH 上有 WSL/Git-Bash 时）通过其 profile 或 home 的 `cordis.patch.yml` 覆盖交付默认——组合配置是唯一的覆盖通道。
+- 偏好 bash 栈的 Windows 主机（例如 PATH 上有 WSL/Git-Bash 时）通过其 profile 或 home 的 `cordis.patch.yml` 覆盖交付默认——禁用 `pwsh-local`/`tool-pwsh` 并重新启用 `bash-sandbox`/`tool-bash`（两个执行器注册同一个 `bash` 服务，配方不完整会在加载时 fail loud）——组合配置是唯一的覆盖通道。
 
 ## 验证
 

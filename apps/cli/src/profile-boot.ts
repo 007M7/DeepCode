@@ -132,11 +132,11 @@ function allPatches(composed: ComposedProfile): PatchOptions[] {
 /**
  * Load `name` and compose its effective patch stack: bundle layers in
  * `dsh.profile.bundles` order, the win32 shell platform layer (when the host
- * is Windows), the
- * profile's user layer, the home-level user layer (`$DSH_HOME/cordis.patch.yml`
- * — machine-local preferences that apply to every profile, so it outranks the
- * per-profile layer), `--patch` overlays, then flag patches derived from the
- * composed rows, then the telemetry switch.
+ * is Windows), the profile's user layer, the home-level user layer
+ * (`$DSH_HOME/cordis.patch.yml` — machine-local preferences that apply to
+ * every profile, so it outranks the per-profile layer), `--patch` overlays,
+ * then flag patches derived from the composed rows, then the telemetry
+ * switch.
  * @param name - the profile name.
  * @param patchFiles - `--patch` overlay paths, in argv order.
  * @param deriveFlagPatches - launcher hook turning composed rows into flag patches.
