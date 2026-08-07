@@ -319,12 +319,14 @@ async function summarizeCold(
     // a cold log to check for turns would defeat the index read, so a listed
     // cold session is served as not-blank (its log holds its conversation).
     blank: false,
-    ...meta.parentSession === undefined ? {} : { parentSessionId: meta.parentSession },
-    ...meta.origin === undefined ? {} : { origin: meta.origin },
-    /* v8 ignore next -- the empty arm needs a cwd-less meta, but list()
-    filters those out (legacy logs are not served); the conditional mirrors
-    summarize() shape. */
-    ...meta.cwd === undefined ? {} : { cwd: meta.cwd },
+    // The same projection the attached path uses. Hand-copying the header here
+    // is how `agentPreset` went missing from cold rows while `summarize()`
+    // served it — a restored session then read as preset-less and the picker
+    // showed the deployment default instead of what the session runs. With no
+    // events to read (a cold row never loads its log, see `blank` above), this
+    // resolves to the header's value; a switch recorded while blank surfaces
+    // once the session attaches.
+    ...sessionListFields(meta),
   }
 }
 
@@ -745,6 +747,14 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   const targets = new WeakMap<Agent, WebLlmTargetRef>()
   /** Implicit resume of cold sessions, deduplicating concurrent calls (follows the jsonrpc sessionCreations precedent). */
   const resumes = new Map<SessionId, Promise<Agent>>()
+  /**
+   * Serializes `agentPreset.select` per session. Two concurrent selects both
+   * pass the blank check, and the second `unmountPresetFor` then finds nothing
+   * to unmount because the first already removed the record — leaving two
+   * compositions registered into one agent layer. The client's `busy` flag is
+   * not enforcement: the wire is reachable directly.
+   */
+  const presetSwitches = new Map<SessionId, Promise<unknown>>()
   /** Client-chosen identity creation/resume, deduplicated across concurrent retries. */
   const sessionCreations = new Map<SessionId, Promise<Agent>>()
   /** Serializes path ownership and explicit title checks with Workspace mutations. */
@@ -1119,7 +1129,14 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           const handle = await ctx.agents.resume({
             resumeSessionId: sessionId,
             agentOptions,
-            setup: (await composeAgent(inspected.meta.agentPreset)).setup,
+            // Resolved from the LOG, not the header: a session that switched
+            // while blank ran its turns under the newer composition, and the
+            // header is written once at creation. Reading the header here
+            // would silently undo the switch on the next restart and restore
+            // that history under the old tool set.
+            setup: (await composeAgent(
+              resolveSessionPreset({ header: inspected.meta, events: inspected.events }),
+            )).setup,
           })
           return handle.agent
         } finally {
@@ -2528,39 +2545,51 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const found = await agentFor(sessionId)
         if ('error' in found) return err(request, found.error)
         const { agent } = found
-        if (!sessionBlank(agent.session)) {
-          return err(request, {
-            code: 'agent-preset-locked',
-            message: `session "${sessionId}" has already started; its agent preset is fixed`,
-            details: { sessionId, agentPreset },
-          })
+        const swap = async (): Promise<RpcResponse<{ agentPreset: string }>> => {
+          // Re-read inside the queue: an earlier switch may have run, and a
+          // conversation may have started, since this request arrived.
+          if (!sessionBlank(agent.session)) {
+            return err(request, {
+              code: 'agent-preset-locked',
+              message: `session "${sessionId}" has already started; its agent preset is fixed`,
+              details: { sessionId, agentPreset },
+            })
+          }
+          try {
+            const preset = await presets.recompose(agent.ctx, agentPreset)
+            // Recorded only after the swap committed: the log states what the
+            // agent runs, and a rejected mount leaves the previous composition.
+            agent.session.append('agent-preset/selected', { agentPreset: preset.id })
+            return ok(request, { agentPreset: preset.id })
+          } catch (error: unknown) {
+            if (error instanceof UnknownPresetError) {
+              return err(request, {
+                code: 'agent-preset-not-found',
+                message: error.message,
+                details: { agentPreset: error.presetId, available: [...error.available] },
+              })
+            }
+            if (error instanceof PresetMountError) {
+              return err(request, {
+                code: 'agent-preset-invalid',
+                message: error.message,
+                details: { agentPreset: error.presetId, reason: error.reason },
+              })
+            }
+            return err(request, {
+              code: 'internal',
+              message: `failed to select agent preset "${agentPreset}": ${String(error)}`,
+              details: {},
+            })
+          }
         }
+        const queued = presetSwitches.get(sessionId) ?? Promise.resolve()
+        const turn = queued.then(swap)
+        presetSwitches.set(sessionId, turn.catch(() => undefined))
         try {
-          const preset = await presets.recompose(agent.ctx, agentPreset)
-          // Recorded only after the swap committed: the log states what the
-          // agent runs, and a rejected mount leaves the previous composition.
-          agent.session.append('agent-preset/selected', { agentPreset: preset.id })
-          return ok(request, { agentPreset: preset.id })
-        } catch (error: unknown) {
-          if (error instanceof UnknownPresetError) {
-            return err(request, {
-              code: 'agent-preset-not-found',
-              message: error.message,
-              details: { agentPreset: error.presetId, available: [...error.available] },
-            })
-          }
-          if (error instanceof PresetMountError) {
-            return err(request, {
-              code: 'agent-preset-invalid',
-              message: error.message,
-              details: { agentPreset: error.presetId, reason: error.reason },
-            })
-          }
-          return err(request, {
-            code: 'internal',
-            message: `failed to select agent preset "${agentPreset}": ${String(error)}`,
-            details: {},
-          })
+          return await turn
+        } finally {
+          if (presetSwitches.get(sessionId) === turn) presetSwitches.delete(sessionId)
         }
       },
     },
