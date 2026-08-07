@@ -29,9 +29,7 @@ export type { LanguageRowComponentProps, LanguageRowInjected } from './LanguageR
 export type { LanguageOptionRow, LanguageRowState } from './settings-store.ts'
 export type { SettingsGeneralItemOwnerProps } from './settings-contract.ts'
 export type { CommonKey } from '../locales/index.ts'
-export {
-  LOCALE_IDS, LOCALE_PREFERENCE_FIELD, LOCALE_SETTINGS_NAMESPACE, type LocaleId,
-} from '../locale-settings.ts'
+export type { LocaleId } from '../locale-settings.ts'
 
 // The translate currency lives in ui-slots (the render machinery synthesizes
 // the seat); re-exported here so dictionary owners import one package.

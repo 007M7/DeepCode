@@ -5,9 +5,10 @@ import { Context } from 'cordis'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import {
-  apply, inject, LOCALE_SETTINGS_NAMESPACE, SETTINGS_NS,
+  apply, inject, SETTINGS_NS,
 } from '@deepseek-ai/dsh-client-locale/client'
 import type { LanguageRowInjected, LocaleService } from '@deepseek-ai/dsh-client-locale/client'
+import { LOCALE_SETTINGS_NAMESPACE } from '../src/locale-settings.ts'
 import { LanguageRow } from '../src/client/LanguageRow.tsx'
 import type { createLanguageRowStore } from '../src/client/settings-store.ts'
 
