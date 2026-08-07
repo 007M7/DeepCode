@@ -143,6 +143,130 @@ describe('the agent-preset settings controller', () => {
     expect(state.status).toBe('error')
     expect(state.error).toBe('host down')
   })
+
+  it('falls back to the first preset when the roster names no default', async () => {
+    const controller = new AgentPresetSettingsController(fakeApi([
+      { id: 'standard', trust: 'system', isDefault: false },
+      { id: 'core-web', trust: 'system', isDefault: false },
+    ]))
+
+    await controller.load()
+
+    // The row has to show something the menu can select; the first row of the
+    // roster is the deployment's own order.
+    expect(controller.store.getSnapshot().currentValue).toBe('standard')
+  })
+
+  it('reads a rejection that is not an Error', async () => {
+    const rejecting = (value: unknown): IApiClient => ({
+      agentPresets: {
+        list: () => Promise.resolve({
+          rpcId: 'r',
+          result: { ok: true as const, value: { presets: [{ id: 'standard', trust: 'system', isDefault: true }] } },
+        }),
+      },
+      settings: {
+        describe: () => Promise.resolve({
+          rpcId: 'r', result: { ok: true as const, value: { writable: true, hasDocument: true, namespaces: [] } },
+        }),
+        update: () => Promise.reject(value),
+      },
+    } as unknown as IApiClient)
+    const controller = new AgentPresetSettingsController(rejecting('socket closed'))
+    await controller.load()
+
+    await controller.select('core-web')
+
+    // A transport may reject with anything; the row still has to say something.
+    expect(controller.store.getSnapshot().error).toBe('socket closed')
+
+    const failing = new AgentPresetSettingsController({
+      agentPresets: { list: () => Promise.reject('offline') },
+      settings: {
+        describe: () => Promise.resolve({
+          rpcId: 'r', result: { ok: true as const, value: { writable: true, hasDocument: true, namespaces: [] } },
+        }),
+      },
+    } as unknown as IApiClient)
+
+    await failing.load()
+
+    expect(failing.store.getSnapshot().error).toBe('offline')
+  })
+
+  it('lets one roster call in flight answer for every caller', async () => {
+    let answer = (): void => {}
+    const pending = new Promise<void>((resolve) => { answer = resolve })
+    let calls = 0
+    const api = {
+      agentPresets: {
+        list: async () => {
+          calls += 1
+          await pending
+          return { rpcId: 'r', result: { ok: true as const, value: { presets: [] } } }
+        },
+      },
+      settings: {
+        describe: () => Promise.resolve({
+          rpcId: 'r', result: { ok: true as const, value: { writable: true, hasDocument: true, namespaces: [] } },
+        }),
+      },
+    } as unknown as IApiClient
+    const controller = new AgentPresetSettingsController(api)
+
+    // Both the settings surface and a reconnect can ask at once; a second
+    // request must not race a roster the first is already reading.
+    const first = controller.load()
+    await controller.load()
+    answer()
+    await first
+
+    expect(calls).toBe(1)
+  })
+
+  it('reports a transport failure rather than throwing at the row', async () => {
+    const api = {
+      agentPresets: { list: () => Promise.reject(new Error('offline')) },
+      settings: {
+        describe: () => Promise.resolve({
+          rpcId: 'r', result: { ok: true as const, value: { writable: true, hasDocument: true, namespaces: [] } },
+        }),
+        update: () => Promise.reject(new Error('socket closed')),
+      },
+    } as unknown as IApiClient
+    const controller = new AgentPresetSettingsController(api)
+
+    await controller.load()
+
+    expect(controller.store.getSnapshot().status).toBe('error')
+    expect(controller.store.getSnapshot().error).toBe('offline')
+  })
+
+  it('restores the previous default when the write never reached the host', async () => {
+    const presets = [
+      { id: 'standard', trust: 'system' as const, isDefault: true },
+      { id: 'core-web', trust: 'system' as const, isDefault: false },
+    ]
+    const api = {
+      agentPresets: {
+        list: () => Promise.resolve({ rpcId: 'r', result: { ok: true as const, value: { presets } } }),
+      },
+      settings: {
+        describe: () => Promise.resolve({
+          rpcId: 'r', result: { ok: true as const, value: { writable: true, hasDocument: true, namespaces: [] } },
+        }),
+        update: () => Promise.reject(new Error('socket closed')),
+      },
+    } as unknown as IApiClient
+    const controller = new AgentPresetSettingsController(api)
+    await controller.load()
+
+    await controller.select('core-web')
+
+    expect(controller.store.getSnapshot().currentValue).toBe('standard')
+    expect(controller.store.getSnapshot().status).toBe('ready')
+    expect(controller.store.getSnapshot().error).toBe('socket closed')
+  })
 })
 
 describe('the composer seat controller', () => {
@@ -239,5 +363,62 @@ describe('the composer seat controller', () => {
 
     expect(controller.store.getSnapshot().options).toEqual([])
     expect(controller.store.getSnapshot().switchable).toBe(false)
+  })
+
+  it('reads a rejection that is not an Error', async () => {
+    const api = {
+      agentPresets: {
+        list: () => Promise.reject('offline'),
+        select: () => Promise.reject('socket closed'),
+      },
+    } as unknown as IApiClient
+    const controller = new AgentPresetSeatController(api, 's1' as never, () => ({ blank: true }))
+
+    await controller.load()
+    expect(controller.store.getSnapshot().error).toBe('offline')
+
+    controller.store.set({ ...controller.store.getSnapshot(), current: 'standard', switchable: true })
+    await controller.select('core-web')
+
+    // A transport may reject with anything; the seat still has to say something.
+    expect(controller.store.getSnapshot().error).toBe('socket closed')
+  })
+
+  it('surfaces a roster failure and keeps the seat unswitchable', async () => {
+    const api = {
+      agentPresets: {
+        list: () => Promise.resolve({
+          rpcId: 'r',
+          result: { ok: false as const, error: { code: 'internal', message: 'roster down', details: {} } },
+        }),
+      },
+    } as unknown as IApiClient
+    const controller = new AgentPresetSeatController(api, 's1' as never, () => ({ blank: true }))
+
+    await controller.load()
+
+    expect(controller.store.getSnapshot().error).toBe('roster down')
+    expect(controller.store.getSnapshot().switchable).toBe(false)
+  })
+
+  it('reports a transport failure on either call rather than throwing at the seat', async () => {
+    const api = {
+      agentPresets: {
+        list: () => Promise.reject(new Error('offline')),
+        select: () => Promise.reject(new Error('socket closed')),
+      },
+    } as unknown as IApiClient
+    const controller = new AgentPresetSeatController(api, 's1' as never, () => ({ blank: true }))
+
+    await controller.load()
+    expect(controller.store.getSnapshot().error).toBe('offline')
+
+    // A switch that never reached the host leaves the session on what it ran.
+    controller.store.set({ ...controller.store.getSnapshot(), current: 'standard', switchable: true })
+    await controller.select('core-web')
+
+    expect(controller.store.getSnapshot().current).toBe('standard')
+    expect(controller.store.getSnapshot().busy).toBe(false)
+    expect(controller.store.getSnapshot().error).toBe('socket closed')
   })
 })

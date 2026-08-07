@@ -73,7 +73,8 @@ export class AgentPresetSettingsController {
         return
       }
       const presets = response.result.value.presets
-      if (presets.length === 0) {
+      const [first] = presets
+      if (first === undefined) {
         this.set({ status: 'unavailable', options: [], currentValue: '' })
         return
       }
@@ -87,7 +88,9 @@ export class AgentPresetSettingsController {
         error: null,
         writable: described.result.ok && described.result.value.writable,
         options: presets.map(preset => ({ id: preset.id, trust: preset.trust })),
-        currentValue: presets.find(preset => preset.isDefault)?.id ?? presets[0]?.id ?? '',
+        // A roster can mark nothing default: settings can name a preset that
+        // was since deleted, and the picker still has to show something.
+        currentValue: presets.find(preset => preset.isDefault)?.id ?? first.id,
       })
     } catch (error) {
       this.set({ status: 'error', error: error instanceof Error ? error.message : String(error) })
