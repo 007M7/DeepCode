@@ -1,10 +1,12 @@
 import { fileURLToPath } from 'node:url'
 import { readFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
 import { mkdir, utimes, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { homedir } from 'node:os'
 import { expect, it } from 'vitest'
 import { defineAcpSnapshotSuite, type Scenario, type SnapshotSuiteOptions } from '@deepseek-ai/dsh-acp-snapshot'
+import { resolvePwshPath } from '@deepseek-ai/dsh-pwsh-local'
 import { decodeStorageRecord } from '@deepseek-ai/dsh-session'
 
 /**
@@ -47,6 +49,8 @@ const SUBAGENT_DURABILITY_FAILURE_CONFIG = fileURLToPath(
 const LSP_CONFIG = fileURLToPath(new URL('./lsp.cordis.yml', import.meta.url))
 const WEB_CONFIG = fileURLToPath(new URL('../web.cordis.yml', import.meta.url))
 const FS_SEARCH_CONFIG = fileURLToPath(new URL('./fs-search.cordis.yml', import.meta.url))
+const PARTIAL_LANDLOCK_CONFIG = fileURLToPath(new URL('../partial-landlock.cordis.yml', import.meta.url))
+const PWSH_CONFIG = fileURLToPath(new URL('./pwsh.cordis.yml', import.meta.url))
 const SNAPSHOTS_DIR = join(dirname(fileURLToPath(import.meta.url)), 'snapshots')
 const PACKED_CHUNKS_SOURCE = 'hook-cc-pretool-deny'
 
@@ -157,6 +161,48 @@ const SCENARIOS: Scenario[] = [
     configPath: PTY_CONFIG,
   },
   { name: 'bash-tool-turn', hasModelTurn: true, recorded: true },
+  // The pwsh overlay (pwsh.cordis.yml / pwsh.cordis.snapshot.yml) swaps the
+  // bundle's bash tool for the PowerShell twin, so its header class pins its
+  // own prompt/tool sidecars and a recorded transcript.
+  {
+    name: 'pwsh-tool-turn',
+    hasModelTurn: true,
+    recorded: true,
+    pinsHeader: true,
+    headerClass: 'pwsh',
+    configPath: PWSH_CONFIG,
+    // The composition boots the real pwsh executor; hosts without a `pwsh`
+    // binary skip the run (fixtures stay guarded). The recorded turn writes
+    // PWSH_OK via [Console]::Out.Write so the fixture carries no platform
+    // newline and one recording replays on every host.
+    pwshOnly: true,
+  },
+  // Authored keyless replay through a test-only partial-Landlock provider:
+  // the exact compatibility notice must stay ordinary stderr when the wrapped
+  // `false` command exits 1, rather than becoming SANDBOX_UNAVAILABLE.
+  {
+    name: 'partial-landlock-child-failure',
+    hasModelTurn: true,
+    recorded: false,
+    headerClass: 'sandbox',
+    configPath: PARTIAL_LANDLOCK_CONFIG,
+    env: { DSH_PERMISSION_MODE: 'read-only' },
+    posixOnly: true,
+  },
+  // A valid cwd plus a missing provider executable exercises the assembled
+  // foreground error and background task marker without a platform runner.
+  {
+    name: 'missing-sandbox-runner',
+    hasModelTurn: true,
+    recorded: false,
+    headerClass: 'sandbox',
+    configPath: PARTIAL_LANDLOCK_CONFIG,
+    env: {
+      DSH_PERMISSION_MODE: 'read-only',
+      DSH_SNAPSHOT_MISSING_SANDBOX_RUNNER: '1',
+    },
+    posixOnly: true,
+  },
   { name: 'todo-write', hasModelTurn: true, recorded: true },
   {
     name: 'skill-load',
@@ -230,6 +276,8 @@ const SCENARIOS: Scenario[] = [
   // symlinked instruction file to its target's content. A second nested path
   // containing a literal closing tag is created at runtime: Git cannot check
   // that name out on Windows, so this delimiter-injection case is POSIX-only.
+  // The fixture also shadows the baseline after the first touch finishes its
+  // projection; the next entering pre-step restores it before request 2.
   // The scenario-specific config keeps home/root discovery hermetic, and the
   // resulting prefix needs its own pinned header class.
   {
@@ -356,12 +404,13 @@ const SCENARIOS: Scenario[] = [
   // tool/code-dispatch events. Each overlay composes and pins its own header class.
   { name: 'code-mode-turn', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'code', configPath: CODE_MODE_CONFIG },
   // A nested fs dispatch inside run_code discovers workspace instructions. The
-  // injected user/message must follow the outer result while retaining workspace
-  // provenance, which proves Code Mode carries deferred tool context end to end.
+  // projection enters the inbox after the outer result and becomes model-visible
+  // on the following step, retaining workspace provenance end to end.
   {
     name: 'code-mode-workspace-context',
     hasModelTurn: true,
-    recorded: true,
+    recorded: false,
+    overridden: true,
     pinsHeader: true,
     headerClass: 'code-workspace-context',
     systemPromptSource: 'code-mode-turn',
@@ -419,11 +468,17 @@ const SCENARIOS: Scenario[] = [
   },
 ]
 
+// Hosts without a usable PowerShell skip the pwsh-tool-turn run (its fixtures
+// stay guarded); the probe follows the executor's own resolution so a Windows
+// host with only an install-location pwsh still runs the scenario.
+const hasPwsh = spawnSync(resolvePwshPath(), ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '$true'], { encoding: 'utf8' }).status === 0
+
 defineAcpSnapshotSuite({
   agent: AGENT,
   snapshotsDir: SNAPSHOTS_DIR,
   scenarios: SCENARIOS,
   mode: snapshotModeFromEnv(process.env.DSH_SNAPSHOT),
+  hasPwsh,
 })
 
 it('packed ACP fixture retains every chunk row kind without changing the logical session', () => {
@@ -438,15 +493,25 @@ it('packed ACP fixture retains every chunk row kind without changing the logical
   expect([...new Set(rowTypes)].sort()).toStrictEqual(['reasoning-chunks', 'text-chunks', 'tool-call-chunks'])
   const withoutMessageId = (record: unknown): unknown => {
     const cloned = structuredClone(record) as {
+      time?: unknown
       type?: unknown
-      data?: { id?: unknown; message?: { id?: unknown } }
+      data?: {
+        durationMs?: unknown
+        id?: unknown
+        inserted?: Array<{ id?: unknown }>
+        message?: { id?: unknown }
+      }
+    }
+    delete cloned.time
+    if (cloned.type === 'agent/inbox/spliced') {
+      for (const message of cloned.data?.inserted ?? []) delete message.id
     }
     if (cloned.type === 'user/message') delete cloned.data?.id
     if (cloned.type === 'assistant/message'
-      || cloned.type === 'tool/result'
-      || cloned.type === 'steering/message') {
+      || cloned.type === 'tool/result') {
       delete cloned.data?.message?.id
     }
+    if (cloned.type === 'hook/result') delete cloned.data?.durationMs
     return cloned
   }
   const logicalRecords = (records: readonly unknown[]): unknown[] => [

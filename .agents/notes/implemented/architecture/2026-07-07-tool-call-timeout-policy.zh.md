@@ -79,7 +79,7 @@ function toolTimeoutResult(timeoutMs: number): ToolExecutionResult {
 
 `web_fetch` 和 `web_search` 已迁移。`dsh-tool-web` 保留对其面向模型 schema 的所有权，这些 schema 不暴露超时旋钮：`web_fetch` 移除了 `timeout_ms` 参数以匹配参考 agent 的形状，`web_search` 保持仅查询。工具体不导入 `@deepseek-ai/dsh-timeout`；它们将 `exec.signal` 转发给 `ctx.web`。
 
-`dsh-web-fetch-local` 保留一个配置级别的 `timeoutMs` 作为大型资源兜底，服务于直接调用 `ctx.web.fetch()` 的调用方和配置错误的部署；它不拥有面向模型的超时。当 `TOOL_TIMEOUT` 信号先到达 fetch 提供方时，提供方作用域的分类将其视为上游 `WEB_ABORTED`，而外层 `tools/execute` 包装器将最终工具结果替换为 `TOOL_TIMEOUT`。一个已发布的 web 工具部署将提供方兜底配置为高于 `timeout-policy` 预算，使工具调用策略在模型调用中通常胜出。
+`dsh-web-fetch-local` 保留一个在提供方层面配置的 `timeoutMs`，作为较大的资源兜底值，服务于直接调用 `ctx.web.fetch()` 的调用方和配置错误的部署；它不拥有面向模型的超时。当 `TOOL_TIMEOUT` 信号先到达 fetch 提供方时，提供方作用域的分类将其视为上游 `WEB_ABORTED`，而外层 `tools/execute` 包装器将最终工具结果替换为 `TOOL_TIMEOUT`。一个已发布的 web 工具部署将提供方兜底配置为高于 `timeout-policy` 预算，使工具调用策略在模型调用中通常胜出。
 
 `bash` 保持当前的后端超时路径。`dsh-tool-bash` 继续暴露 `timeoutMs` 和 `run_in_background`；`dsh-bash-local` 继续使用 `@deepseek-ai/dsh-timeout` 处理 `BASH_TIMEOUT`；钩子桥接继续调用 `runHook()` 并通过 `ctx.bash` 传递 `timeoutMs`。这保持了前台/后台/钩子行为的稳定。
 
@@ -89,7 +89,7 @@ function toolTimeoutResult(timeoutMs: number): ToolExecutionResult {
 
 ## 曾考虑的替代方案
 
-**将插件命名为 `tool-timeout`。** 字面的 Agent Note 名称匹配了 `gen-tool-catalog` 完整性守卫的 `packages/*/tool-*` glob，该 glob 要求每个匹配项注册一个面向模型的工具。本插件不注册任何工具——它是一个 `tools/execute` 包装器——因此 `tool-*` 名称要么导致 `verify-tool-catalog` 失败，要么强制产生一个误导性的启动条目。包（package）为 `@deepseek-ai/dsh-timeout-policy`，位于新的 `packages/timeout/` 组；cordis.yml 的 `id` 仍可为 `timeout-policy`。
+**将插件命名为 `tool-timeout`。** 字面的 Agent Note 名称匹配了 `gen-tool-catalog` 完整性守卫的 `packages/*/tool-*` glob，该 glob 要求每个匹配项注册一个面向模型的工具。本插件不注册任何工具——它是一个 `tools/execute` 包装器——因此 `tool-*` 名称要么导致 `verify-tool-catalog` 失败，要么强制产生一个误导性的启动条目。包为 `@deepseek-ai/dsh-timeout-policy`，位于新的 `packages/timeout/` 组；cordis.yml 的 `id` 仍可为 `timeout-policy`。
 
 **仅保留逐工具的超时处理。** 这是 `bash` 和 `web_fetch` 的既有形态，也与 Claude Code 和 Codex 对 shell 命令的做法一致。它对 web 类工具不利，因为每个新的支持超时的工具都必须自行选择校验方式、上限语义、文档、快照和分类。插件集中了策略和分类，让每个工具的 schema 专注于业务输入。
 
@@ -101,14 +101,14 @@ function toolTimeoutResult(timeoutMs: number): ToolExecutionResult {
 
 **让 `timeout-policy` 自行匹配工具参数。** 诸如「当 `bash.run_in_background` 为 true 时禁用超时」之类的规则引擎会让策略插件了解工具特定的参数语义。通过不将 bash 迁移到工具调用超时来规避此问题。
 
-**使用 `tools/pre-execute` 加 `tools/post-execute` 代替新的环绕 seam。** pre 监听器可以启动截止时间并修改 `exec.signal`；post 监听器可以分类并替换。这样做的问题是截止时间的生命周期会跨越两个独立的 waterfall：需要 call-id 映射、在每条 pre-deny/tool-throw/post-throw/dispose 路径上清理，以及与其他监听器的排序规则。`tools/pre-execute` 也是允许/拒绝门禁，而非执行包装器。`tools/execute` 给超时一个词法作用域：启动、委托、分类、释放。
+**使用 `tools/pre-execute` 加 `tools/post-execute` 代替新的环绕 seam。** pre 监听器可以启动截止时间并修改 `exec.signal`；post 监听器可以分类并替换。这样做的问题是截止时间的生命周期会跨越两个独立的 waterfall：需要 call-id 映射、在每条 pre-deny/tool-throw/post-throw/dispose（资源释放）路径上清理，以及与其他监听器的排序规则。`tools/pre-execute` 也是允许/拒绝门禁，而非执行包装器。`tools/execute` 给超时一个词法作用域：启动、委托、分类、释放。
 
 **使用 `Promise.race` 对非协作工具强制超时。** 与超时库 Agent Note 相同的理由否决：它在底层进程、fetch 或提供方操作可能仍在运行时就将控制权返回给调用方。插件只发送信号；终止仍是实现方的责任。
 
 ## 后果
 
-- `@deepseek-ai/dsh-tools` 在有意拆分 pre/post 工具钩子的拦截 seam 之后，获得了一个环绕分发的表面。其契约是狭窄的——包装注册表分发，而非替代 pre 门禁或 post 结果策略——且基础 `next()` 是带规范化的分发，因此包装器永远不会看到原始的工具抛出。
+- `@deepseek-ai/dsh-tools` 在有意拆分 pre/post 工具钩子的拦截 seam 之后，获得了一个环绕分发接口。其契约是狭窄的——包装注册表分发，而非替代 pre 门禁或 post 结果策略——且基础 `next()` 是带规范化的分发，因此包装器永远不会看到未经处理的工具异常。
 - 多个 `tools/execute` 监听器按普通 Cordis waterfall 顺序组合：调用 `next()` 的监听器包装下游监听器加分发；不调用 `next()` 直接返回的监听器短路它们。一个同时组合超时与未来重试/沙箱/指标包装器的部署通过注册顺序选择语义（「超时覆盖整个重试」vs「超时覆盖每次尝试」）。
-- 按声明加入是一个有意的误配置风险：工具可以声明 `timeoutMs` 但不遵循 `exec.signal`，这样的工具在超时时不会停止。注册表会等待这一未达完全停稳的工具体，而不是竞速它；同时插件契约声明：声明预算意味着协作；web 工具在已转发信号的工具上验证了这一模式。
+- 按声明加入是一个有意的误配置风险：工具可以声明 `timeoutMs` 但不遵循 `exec.signal`，这样的工具在超时时不会停止。注册表会等待这个尚未完全停稳的工具体结束，而不是与它竞速；同时插件契约声明：声明预算意味着协作；web 工具在已转发信号的工具上验证了这一模式。
 - 过渡期间 `bash` 和已迁移的 web 工具有意使用不同的超时路径：`TOOL_TIMEOUT` 是面向模型的工具调用预算，而 `BASH_TIMEOUT` 仍是 bash 和钩子使用的 bash 后端超时。
 - 与字面提案的偏差，按 implemented-Agent Note 规则记录：插件包为 `@deepseek-ai/dsh-timeout-policy`（而非 `tool-timeout`）；信号替换是在 `next()` 之前就地修改 `exec.signal`（而非 `next({ ...exec, signal })`，Cordis 会忽略后者）；逐工具预算声明在 `ToolDefinition` 上（`timeoutMs`，由拥有该工具的插件从其配置中设置），而非在本插件配置中按工具名映射——因此执行器是零配置的，拼错工具名不可能发生。以上三点均在上文 `## Decision` 中描述。

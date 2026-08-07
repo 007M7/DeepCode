@@ -1,7 +1,7 @@
 /**
  * apiproxy contract-layer barrel. api/ has zero Node dependencies and is
- * importable from the browser; the TS interfaces are the authoritative contract, HTTP/SSE are
- * merely physical channels (four-quadrant message model).
+ * importable from the browser; the TS interfaces are the authoritative contract, while HTTP,
+ * WebSocket, and in-process SSE are merely physical channels (four-quadrant message model).
  */
 
 import type { SessionsApi } from './sessions.ts'
@@ -51,8 +51,9 @@ export type { EventsApi, MuxFrame, HostFrame, QueuedInboxItem, ToolCallView, Too
 export type { GoalsApi, GoalId, GoalRef } from './goals.ts'
 export type { SettingsApi, SettingsNamespaceView, SettingsPathOpView, SettingsSecretView } from './settings.ts'
 export type { CredentialsApi, CredentialView } from './credentials.ts'
-export type { ConfigurableProviderView, LlmApi } from './llm.ts'
+export type { ConfigurableProviderView, DiscoveredModelView, LlmApi } from './llm.ts'
 export type { ApprovalResponsePayload } from './approvals.ts'
+
 export type { QuestionResponsePayload } from './questions.ts'
 
 // ---- Message layer: narrow forms (domain-signature view) ----
@@ -71,7 +72,11 @@ export type {
 // ---- Errors and ids ----
 export { RpcId, transportError } from './rpc.ts'
 export type { RpcError, RpcErrorCode, RpcErrorDetailsMap, RpcResult } from './rpc.ts'
-export type { InboxItemId } from '@deepseek-ai/dsh-agent/brand'
+export {
+  clientRequestSchema,
+  serverRequestSchema,
+  serverResponseSchema,
+} from './rpc.schema.ts'
 
 // ---- Fixed session-search product bounds ----
 export {

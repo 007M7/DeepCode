@@ -198,18 +198,13 @@
   white-space: nowrap;
 }
 
-.description,
-.unlisted {
+.description {
   overflow: hidden;
   color: var(--dsw-alias-label-tertiary);
   font-size: 12px;
   line-height: 18px;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.unlisted {
-  color: var(--dsw-alias-state-warn-label);
 }
 
 .check {

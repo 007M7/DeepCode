@@ -56,6 +56,10 @@ declare module 'cordis' {
 - Registration is an effect (disposer with the fiber): an unloaded plugin's key disappears from subsequent responses and the client reads it as capability absence — HMR semantics for free. Duplicate keys throw. Domain plugins register under `ctx.inject(['sessionProjections'], …)` so headless assemblies without the registry stay unaffected.
 - The package owns `./invariant` (every served key has a live registration).
 
+### Shipped consumer: the subagent identity unit
+
+The registry's two read faces already serve a shipped consumer beyond this RFC's wire plan: [subagent list identity via the projection unit](../../implemented/architecture/2026-08-06-subagent-list-identity-projection.md) registers a `subagent` unit — the durable mode/label identity folded last-wins from `subagent/descriptor` — and `SubagentService.listChildren` reads it through `snapshot()` for a live child (the watermark cache, zero log reads) and `restore({}, events, 0)` over one persistence inspection for a cold one. The registry contract is unchanged: no failure channel and no new read face — a unit never throws, an absent value is the signal, and how absence renders is that consumer's decision.
+
 ### Wire: projections block on the history tail page
 
 ```ts ignore-check
@@ -115,11 +119,11 @@ The one existing violation of "no hooks through inject" — `DetailsInjected.use
 Two log-only (non-surface, model-invisible) events, mirroring the `tool/call`/`tool/result` pairing:
 
 ```ts ignore-check
-'command/run':  { commandId: string; name: string; args: string; source: CommandSource }
+'command/run':  { commandId: string; name: string; args?: string; source: CommandSource }
 'command/done': { commandId: string; kind: 'success' | 'error'; text?: string }
 ```
 
-The host command executor (`packages/ui/commands`) appends `command/run` before invoking the handler and `command/done` at settlement — direct standalone appends on the receiving agent's session, in the same shape as every other plugin-owned log-only event after the [synthetic-turn removal](../../implemented/simplification/2026-07-28-remove-synthetic-log-only-turns.md): no turn wraps them (turns describe model-loop executions only), persistence drains them at ordinary checkpoints, and the commands package's own invariant companion enforces the run/done pairing. The payload is structured — `name` and `args` are the parser's own split (`parseCommand`'s name and rawInput), so a consumer (a projection unit folding its own command records, a rich command card) never re-parses a line. `text` is the handler's verbatim outcome — factual data of the same nature as `tool/result.content`, not presentation (how it is laid out remains client-computed at render time, satisfying the "presentation never enters the log" red line). Domains that want the model to know the outcome keep doing what they do today (plan's narration, goal's inject) — that is a domain decision, unchanged.
+The host command executor (`packages/ui/commands`) appends `command/run` before invoking the handler and `command/done` at settlement — direct standalone appends on the receiving agent's session, in the same shape as every other plugin-owned log-only event after the [synthetic-turn removal](../../implemented/simplification/2026-07-28-remove-synthetic-log-only-turns.md): no turn wraps them (turns describe model-loop executions only), persistence drains them at ordinary checkpoints, and the commands package's own invariant companion enforces the run/done pairing. The payload is structured — `name` and, by default, `args` are the parser's own split (`parseCommand`'s name and rawInput), so a consumer (a projection unit folding its own command records, a rich command card) never re-parses a line. A definition sets `recordInput: false` when its authoritative domain event owns the payload; `command/run` then omits `args` rather than duplicating it. `text` is the handler's verbatim outcome — factual data of the same nature as `tool/result.content`, not presentation (how it is laid out remains client-computed at render time, satisfying the "presentation never enters the log" red line). Domains that want the model to know the outcome keep doing what they do today (plan's narration, goal's inject) — that is a domain decision, unchanged.
 
 Because committed events broadcast on the mux stream, refresh persistence, multi-tab sync, and fork/resume recovery all come for free. The `command.execute` RPC degrades to admission — `{ matched, commandId? }`: whether the line resolved, and the minted pairing id when it did, so the issuing client can correlate its request with the flow node the lifecycle events produce. The one-shot notice channel (`runDetached` → `noticeFor`) is retired.
 

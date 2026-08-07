@@ -17,7 +17,7 @@ import { useState, type KeyboardEvent } from 'react'
 import type { Context } from 'cordis'
 import clsx from 'clsx'
 import {
-  IconApiOutline14, IconChevronDownOutline14, StateDot, TerminalBlock,
+  IconApiOutline14, IconChevronDownOutline14, IconInspectOutline12, StateDot, TerminalBlock,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ToolRowProps } from '../contract/slots.ts'
@@ -153,9 +153,7 @@ export function BashRow({ toolName, block, sessionId, useSessions, inspect, t }:
             )}
           {inspect !== undefined && (
             <button type="button" className={css.inspectButton} onClick={inspect}>
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
-                <path d="M16 8L10.8571 12V10.552L14.1383 8L10.8571 5.448V4L16 8ZM5.14286 10.552L1.86171 8L5.14286 5.448V4L0 8L5.14286 12V10.552ZM9.02514 4L5.59657 12H6.84057L10.2691 4H9.02514Z" fill="currentColor" />
-              </svg>
+              <IconInspectOutline12 />
               Inspect
             </button>
           )}
@@ -166,19 +164,18 @@ export function BashRow({ toolName, block, sessionId, useSessions, inspect, t }:
 }
 
 /**
- * The sample as a plain registrant plugin. `inject` carries the load-order
- * seam: requiring the conversation service guarantees the chat entry (and
- * with it the 'conversation.chat.toolview' declaration) is registered —
- * ui-conversation's apply mounts the service after the chat entry.
+ * The sample as a plain registrant plugin. Slot injection follows the chat
+ * toolview declaration across independent activation and reload lifetimes.
  */
 export const bashToolviewSample = {
   name: 'bash-toolview-sample',
-  inject: ['slots', 'conversation'],
+  inject: ['slots'],
   /**
    * Register the bash row into the chat view's keyed toolview hole.
    * @param ctx - registrant context (disposal rides ctx.effect inside slots.register).
    */
   apply(ctx: Context): void {
-    ctx.slots.register({ name: 'conversation.chat.toolview', key: 'bash', locale: NS }, BashRow)
+    ctx.slots.inject('conversation.chat.toolview', () =>
+      ctx.slots.register({ name: 'conversation.chat.toolview', key: 'bash', locale: NS }, BashRow))
   },
 }

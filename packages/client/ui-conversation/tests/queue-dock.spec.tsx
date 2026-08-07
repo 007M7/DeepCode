@@ -375,8 +375,10 @@ describe('QueueDock', () => {
   it('registers as the terminal composer-context entry', () => {
     expect(queueDockEntry.name).toBe('conversation-queue-dock')
     expect(queueDockEntry.inject).toEqual(['slots', 'conversation', 'sessions'])
-    const register = vi.fn()
-    queueDockEntry.apply({ slots: { register } } as never)
+    const register = vi.fn(() => () => undefined)
+    const inject = vi.fn((_name: string, callback: () => () => void) => callback())
+    queueDockEntry.apply({ slots: { inject, register } } as never)
+    expect(inject).toHaveBeenCalledWith('conversation.input.dock', expect.any(Function))
     expect(register).toHaveBeenCalledWith(
       expect.objectContaining({ name: 'conversation.input.dock', id: 'queue', order: 20 }),
       QueueDock,

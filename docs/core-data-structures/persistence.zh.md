@@ -4,7 +4,7 @@
 
 事件日志的**持久性 seam**。[session.md](session.md) 描述了内存中的 `Session`：仅追加的 `SessionEvent` 日志即为真源。本页描述如何使该日志持久化：抽象的 `SessionPersistence` 服务、它的后端、flush 检查点、崩溃恢复，以及随日志一同存储的元数据头。日志承载的事件词汇在生成的[持久化日志事件目录](../persistence-catalog.md)中逐项列举。
 
-该 seam 是典型的[能力 seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)：一个抽象服务（[dsh-session-persistence](../../packages/session-persistence/session-persistence)，`ctx.sessionPersistence`）在现有 `SessionEvent` 上定义 locate/create/append、会执行崩溃修复的 load、不会修改数据的 inspect，以及轻量的 list/snapshot 观察——**没有平行的持久化类型**——以及两个可互换、通过同一套 `runPersistenceContract` 的后端。见 [session-persistence Agent Note（agent 决策记录）](../../.agents/notes/implemented/architecture/2026-06-14-session-persistence.md)。
+该 seam 是典型的[能力 seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)：一个抽象服务（[dsh-session-persistence](../../packages/session-persistence/session-persistence)，`ctx.sessionPersistence`）在现有 `SessionEvent` 上定义 locate/create/append、可复用的 Session 准备流程、逻辑 load/inspect、物理后缀读取，以及轻量的 list/snapshot 观察——**没有平行的持久化事件类型**——以及两个实现同一契约的可互换后端。见 [session-persistence Agent Note](../../.agents/notes/implemented/architecture/2026-06-14-session-persistence.md)。
 
 ## flush 检查点
 
@@ -14,9 +14,9 @@
 
 后端重新加载一个在轮次中途崩溃的日志时，会发现一个已打开的 `turn/start` 却没有 `turn/end`。它**不会**截断日志：在长周期任务中，单个轮次可能非常庞大（许多步骤、大量工具输出），而这些事件在崩溃前已被持久追加。后端改为用一个合成的 `turn/end { reason: { kind: 'interrupted' } }` 关闭这个遗留轮次，在不改变其前后任何独立事件的情况下配平被中断的执行。`interrupted` 是唯一一个不由循环发出的 `TurnEndReason`（见 [session.md](session.md#why-a-turn-ended-turnendreasonmap)）。
 
-修复仅适用于冷会话。对于活跃 id，`SessionPersistence.load(id)` 会对内存日志拍摄快照，等待该快照完成持久化，并且只在日志平衡时连同已存储的 header 返回；若活跃轮次仍未闭合，则拒绝操作，而不是添加合成的中断边界。由协调器管理的冷加载会在后端读取和修复写入期间占用该 id，因此并发发布同 id 的活跃会话会被拒绝并回滚。HMR 也会接管活跃前缀，而不会关闭其中正在进行的轮次。
+修复仅适用于冷会话。对于活跃 id，`SessionPersistence.load(id)` 会等待权威内存快照完成持久化，并且只在日志平衡时返回；若活跃轮次仍未闭合，则拒绝操作，而不是添加合成的中断边界。HMR 会接管活跃前缀，而不会关闭其中正在进行的轮次。
 
-`SessionPersistence.inspect(id)` 是恢复机制面向观察方的对等操作：它返回已存储有效前缀的独立副本，不截断不完整记录、不添加中断结束事件，也不发布写入状态。同 id 串行化确保它与后端写入保持一致。派生读取模型使用 `inspect`，绝不使用 `load`，因此即使活跃所有权并发建立，观察已落检查点但仍未闭合的轮次也不会修改日志。
+`SessionPersistence.inspect(id)` 会构造一个不可变的逻辑 Session，但不发布它，也不写入恢复内容。冷检查会在内存中配平中断的 turn，同时保持撕裂的物理尾部不变；检查已经实时存在的 Session 则借用其当前不可变快照，因此可能包含打开的 turn。使用协调器的实现会在有界 LRU 中保留这个精确的冷未发布 Session，因此重复历史读取与后续 `prepare(id)` 可复用同一次读取、解压、验证、冻结及 Session 构造。`prepare(id)` 会预留该 Session、提交待处理修复并返回可 dispose 的发布句柄；`load(id)` 使用相同机制提交修复，但不会发布 Session。该生命周期由 [Session 准备阶段决策](../../.agents/notes/implemented/architecture/2026-08-05-session-preparation.md)定义。
 
 ## `SessionLocation`——可选的逐会话产物目标
 
@@ -82,7 +82,7 @@ interface SessionHeader {
 
 ## `CreateSessionOptions`：seed 与元数据
 
-通过 store 创建 `Session` 时会接收 `seed`（初始回放或 fork 历史）与 `meta`（store 折叠进 `SessionHeader` 的存储层字段）。store 填充 `version`/`id` 并为 `createdAt` 提供默认值；调用方提供已校验的绝对 `cwd`、`parentSession` 谱系、`seedLength` 种子边界、可选的粗粒度 `origin`、`delegationDepth`，以及——仅在重建已持久化会话时——需要保留的原始 `createdAt`。`origin: 'subagent'` 让产品导航能够隐藏重复的 child 行；它不证明描述符有效，也不证明 child 可以恢复。
+通过 store 创建 `Session` 时会接收 `seed`（初始回放或 fork 历史）与 `meta`（store 折叠进 `SessionHeader` 的存储层字段）。store 填充 `version`/`id` 并为 `createdAt` 提供默认值；调用方可以提供已校验的绝对 `cwd`、`parentSession` 谱系、`seedLength` 种子边界、可选的粗粒度 `origin`、`delegationDepth` 以及已有的 `createdAt`。`origin: 'subagent'` 让产品导航能够隐藏重复的 child 行；它不证明描述符有效，也不证明 child 可以恢复。
 
 ```ts type-equiv
 /**
@@ -110,6 +110,72 @@ interface CreateSessionOptions {
 
 因此，回放/fork 的调用方式为 `ctx.sessions.create(id, { seed: seedEvents })`；将一个*持久化*会话恢复为活跃 agent 的调用方式为 `ctx.agents.resume({ resumeSessionId })`。
 
+## 准备与恢复所有权
+
+`SessionStore.prepare()` 接收普通创建选项，或通过 `RestoredSessionOptions` 转移所有权的新鲜持久化对象图。恢复分支会直接验证并冻结转移来的 header 与事件，因此调用方不得保留可变别名。`SessionPreparation` 随后持有该精确的未发布 Session，直至发布或回滚；dispose 是同步且幂等的。持久化检查只暴露 `SessionInspection`，即从同一个已准备 Session 借用的不可变逻辑视图。
+
+```ts type-equiv
+/**
+ * Fresh storage values transferred to {@link SessionStore.prepare} without a
+ * second serialization copy. Callers retain no mutable aliases.
+ */
+interface RestoredSessionOptions {
+  /** Fresh detached storage events to validate and freeze in place. */
+  readonly seed: SessionEvent[]
+  /** Fresh detached storage metadata to validate and freeze in place. */
+  readonly meta: SessionHeader
+  /** Select the persistence ownership-transfer path. */
+  readonly seedSource: 'persistence'
+}
+```
+
+```ts type-equiv
+/** Inputs accepted while constructing an unpublished Session. */
+type PrepareSessionOptions =
+  | (CreateSessionOptions & { readonly seedSource?: undefined })
+  | RestoredSessionOptions
+```
+
+```ts type-equiv
+/** Options for a preparation whose provider retains unpublished state. */
+interface SessionPreparationOptions {
+  /** Release provider-owned state when the Session was not published. */
+  readonly release?: () => void
+}
+```
+
+```ts public-api
+/**
+ * One exact unpublished Session and the provider state that keeps it usable.
+ * Disposal is synchronous and idempotent. Providers decide whether release
+ * returns the Session to a cache or discards it; publication may consume that
+ * state before disposal, making the callback a no-op.
+ */
+declare class SessionPreparation implements Disposable {
+  /** The exact Session to use for setup and publication. */
+  readonly session: Session;
+  /**
+   * Wrap an unpublished Session in one preparation lifetime.
+   * @param session - exact unpublished Session.
+   * @param options - optional provider release behavior.
+   * @returns a preparation disposed after publication or rollback.
+   */
+  static create(session: Session, options?: SessionPreparationOptions): SessionPreparation;
+  /** Release provider state once when this preparation leaves its caller. */
+  [Symbol.dispose](): void;
+}
+```
+
+```ts type-equiv
+/** Immutable logical session prepared from persistence or a live owner. */
+interface SessionInspection {
+  /** Validated immutable session metadata. */
+  readonly meta: SessionHeader
+  /** Validated contiguous logical event log. */
+  readonly events: readonly SessionEvent[]
+}
+```
+
 ## 轻量源修订号
 
 派生状态的消费方会在加载完整事件日志之前比较一个低开销的不透明修订号。其表示由持久化后端拥有，并随 append 或会修改数据的 load 修复以事务方式改变；调用方仅比较修订号是否相等。
@@ -134,7 +200,7 @@ interface SessionPersistenceSnapshot {
 
 ## 后端
 
-两者都实现同一个抽象 `SessionPersistence`（在 `SessionEvent` 上执行 locate/create/append/load/inspect/list/listSnapshots），并通过 `runPersistenceContract`，证明该 seam 确实与后端无关：
+两者都实现同一个抽象 `SessionPersistence`（在 `SessionEvent` 上执行 locate/create/append/prepare/load/inspect/readFrom/list/listSnapshots，观察方法可选支持取消），并通过 `runPersistenceContract`，证明该 seam 确实与后端无关：
 
 - **[dsh-session-persistence-jsonl](../../packages/session-persistence/session-persistence-jsonl)**——每个会话一份仅追加的逻辑 JSONL 日志，默认存储为带 checksum 的连续 Zstandard frame，也可配置为原始行；支持崩溃安全的原子写入、被中断轮次的恢复以及读取/回放路径。
 - **[dsh-session-persistence-sqlite](../../packages/session-persistence/session-persistence-sqlite)**：基于 `node:sqlite`，每个 `SessionEvent` 一行。行结构 `(session_id, seq, type, time, data, source_event_seqs, surface_op)` 与事件 1:1 映射（包含可选的 surface 元数据），因此没有需要保持同步的并行持久化 schema。

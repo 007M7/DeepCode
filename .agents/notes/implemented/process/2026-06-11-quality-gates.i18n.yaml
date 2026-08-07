@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-06-11-quality-gates.md
 2026-06-11-quality-gates.md: 60db7ba5cfa8184c0fcce764aa027f32a9b721ab
-2026-06-11-quality-gates.zh.md: a5ac7cd831255d479f7a1d75586785e546877fba
+2026-06-11-quality-gates.zh.md: 10585977820ba8e4f4bc6e251d484dc657d0558c

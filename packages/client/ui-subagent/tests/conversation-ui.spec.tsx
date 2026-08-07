@@ -56,7 +56,6 @@ function props(
         displayTitle: 'worker',
         running: true,
         blank: false,
-        waitingApproval: false,
         updatedAt: Date.now(),
       },
     },
@@ -83,7 +82,6 @@ function summary(id: SessionId, updatedAt: number): SessionSummary {
     displayTitle: id,
     running: false,
     blank: false,
-    waitingApproval: false,
     updatedAt,
   }
 }

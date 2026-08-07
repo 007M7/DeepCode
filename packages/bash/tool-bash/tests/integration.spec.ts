@@ -14,6 +14,7 @@ import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
+import * as BashEnvPlugin from '@deepseek-ai/dsh-bash-env'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 
 /**
@@ -32,8 +33,9 @@ async function harness(adapter: MockAdapter, sessionRoot?: string, dshHome?: str
   await ctx.plugin(LocalTaskService)
   await ctx.plugin(ToolTasks)
   await ctx.plugin(LocalSubprocessService)
+  await ctx.plugin(BashEnvPlugin, dshHome === undefined ? {} : { dshHome })
   await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
-  await ctx.plugin(ToolBash, dshHome === undefined ? {} : { dshHome })
+  await ctx.plugin(ToolBash)
   ctx.llm.registerAdapter(['mock'], adapter)
   return ctx
 }
@@ -46,7 +48,7 @@ afterEach(() => {
 
 function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
-    const dispose = ctx.on('agent/status', (subject, status) => {
+    const dispose = ctx.on('agent/status', ({ agent: subject, status }) => {
       if (subject === agent && status === 'idle') {
         dispose()
         resolve()
@@ -172,7 +174,7 @@ describe('bash tool through the agent loop', () => {
     expect(resultText(toolResult)).toContain('[exit code: 9]')
   })
 
-  it('background: start ack → completion notice as user/message → task_output collects it', async () => {
+  it('background: start ack → pending completion notice → task_output collects it', async () => {
     // The task id is deterministic (a fresh LocalTaskService counts per kind from 1),
     // so the script can name `bash-1` without threading a generated id.
     const adapter = new MockAdapter([
@@ -192,20 +194,27 @@ describe('bash tool through the agent loop', () => {
     expect(resultText(firstResult)).toBe('started background task bash-1')
 
     // The task settles on its own; the tool-tasks notice listener injects a
-    // durable plugin-sourced user/message into the owning agent's session
-    // (settlement may race turn end, so poll for it).
+    // pending next-step message without waking the idle agent.
     const isNotice = (e: SessionEvent): e is SessionEvent<'user/message'> =>
       e.type === 'user/message' && e.data.source.kind === 'plugin'
-    await pollUntil(() => events(agent).some(isNotice))
-    const notice = events(agent).find(isNotice)!
-    expect(notice.data.content.some(
+    await pollUntil(() => agent.inbox.nextStep.some(message => message.source.kind === 'plugin'))
+    const pendingNotice = agent.inbox.nextStep.find(message => message.source.kind === 'plugin')!
+    expect(pendingNotice.content.some(
       block => block.type === 'text' && block.text.includes('background task bash-1 (bash: echo bg-ok) finished'),
     )).toBe(true)
-    expect(notice.data.source).toEqual({ kind: 'plugin', plugin: 'tool-tasks' })
+    expect(pendingNotice.source).toEqual({
+      kind: 'plugin',
+      plugin: 'tool-tasks',
+      form: 'notice',
+      summary: 'bash echo bg-ok [status: completed, exit code: 0]',
+    })
 
-    // The next turn collects the output through the generic task tool.
+    // The next turn first admits that notice as user/message, then collects
+    // the output through the generic task tool.
     agent.followup(createUserMessage({ content: [{ type: 'text', text: 'collect it' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
+    const notice = events(agent).find(isNotice)!
+    expect(notice.data).toEqual(pendingNotice)
     const readResult = findEvent(events(agent), 'tool/result', 'last')
     expect(readResult.data.message.content[0].isError).toBe(false)
     expect(resultText(readResult)).toContain('bg-ok')

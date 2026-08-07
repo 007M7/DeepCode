@@ -69,7 +69,7 @@ interface FsInfo {
 }
 ```
 
-`lstat` 是路径层级、不跟随链接的元数据原语。它接收路径而不是 `FsTarget`，因为 `resolve` 会有意跟随 symlink 以产生稳定标识；需要检查信任边界的消费方可以先调用 `lstat`，在解析前拒绝 `symlink`。
+`lstat` 是路径级、不跟随链接的元数据原语。它接收路径而不是 `FsTarget`，因为 `resolve` 会有意跟随 symlink 以产生稳定标识；需要检查信任边界的消费方可以先调用 `lstat`，在解析前拒绝 `symlink`。
 
 ```ts type-equiv
 /**
@@ -111,7 +111,7 @@ interface FsDirEntry {
 
 ## 写入与编辑守卫（提供方 seam）
 
-`writeText` 和 `editText` 的版本守卫都是可选的：省略它执行无条件（裸提供方）变更，提供它则启用守卫。`writeText` 的守卫是 `FsWriteIntent`：`createIfAbsent` 在目标缺失时创建，目标已存在时以 `FS_NOT_OBSERVED` 拒绝；`replaceIfVersion` 仅在目标存在且版本匹配时替换，否则报 `FS_STALE_VERSION`。省略 `expected` 则无条件创建或覆盖。联合类型本身只包含两种有守卫的意图；「无守卫」通过省略表达，因此 write 和 edit 共享同一个对称的 `expected?` 形状。
+`writeText` 和 `editText` 的版本守卫都是可选的：省略守卫时执行无条件的裸提供方变更，提供守卫时则执行相应的条件检查。`writeText` 的守卫是 `FsWriteIntent`：`createIfAbsent` 在目标缺失时创建，目标已存在时以 `FS_NOT_OBSERVED` 拒绝；`replaceIfVersion` 仅在目标存在且版本匹配时替换，否则报 `FS_STALE_VERSION`。省略 `expected` 则无条件创建或覆盖。联合类型本身只包含两种有守卫的意图；「无守卫」通过省略表达，因此 write 和 edit 共享同一个对称的 `expected?` 形状。
 
 ```ts type-equiv
 /**
@@ -179,11 +179,11 @@ interface FsEditOutcome {
 
 `dsh-fs` 拥有三个事件，由工具分发、策略插件监听，使发射方（`dsh-tool-fs`）与监听方（`dsh-fs-policy`）共享词汇，而发射方无需依赖策略插件。它们只携带 `dsh-fs` 词汇加一个不透明的 `object` actor，不含面向模型的概念，也不含 agent/会话所有者结构。
 
-`fs/write-intent` 与 `fs/edit-intent` 是**单槽决策 waterfall**：工具分发时附带一个默认 thunk（返回 `undefined`，即裸提供方），监听方完全决策而不调用 `next()`。该槽按注册顺序先到先得——由策略插件占据是部署约定，而非强制不变式。`fs/observed` 是一个即发即弃的记录事件，通过普通 `ctx.emit` 分发；其监听方必须是同步的、仅产生副作用，因为工具不守卫该 emit——抛异常的监听方会在一次已成功的变更上表现为工具的 `isError` 结果。生成的目录在 [events.md](../cordis-catalog/events.md) 中展示确切签名。
+`fs/write-intent` 与 `fs/edit-intent` 是**单槽决策 waterfall**：工具分发时附带一个默认 thunk（返回 `undefined`，即裸提供方），监听方完全决策而不调用 `next()`。该槽按注册顺序先到先得——由策略插件占据是部署约定，而非强制不变式。`fs/observed` 是一个即发即弃的记录事件，通过普通 `ctx.emit` 分发；其监听方必须是同步的、仅产生副作用，因为工具不会捕获该 emit 抛出的异常——抛出异常的监听方会导致工具为一次已经成功的变更返回 `isError` 结果。生成的目录在 [events.md](../cordis-catalog/events.md) 中展示确切签名。
 
 ## 执行上下文（策略插件）
 
-策略插件只需要足够的执行上下文，通过收窄 `fs/*` 事件携带的不透明 `object` actor 来推导观测状态的所有者。`ToolExecution` 满足此形状，因此 `dsh-tool-fs` 将其执行对象作为 actor 直接传递，而无需让 `dsh-fs-policy` 导入工具、agent 或会话包（package）。
+策略插件只需要足够的执行上下文，通过收窄 `fs/*` 事件携带的不透明 `object` actor 来推导观测状态的所有者。`ToolExecution` 满足此形状，因此 `dsh-tool-fs` 将其执行对象作为 actor 直接传递，而无需让 `dsh-fs-policy` 导入工具、agent 或会话包。
 
 ```ts type-equiv
 /**

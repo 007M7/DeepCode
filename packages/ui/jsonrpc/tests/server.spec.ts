@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import AgentRegistry, { type Agent, type AgentHandle } from '@deepseek-ai/dsh-agent'
 
-import SessionStore, { SessionId, type UserMessage } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import * as agentCore from '@deepseek-ai/dsh-agent-spine-demo'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
@@ -127,12 +127,13 @@ describe('HarnessSdkServer', () => {
       }) as { serverInfo: { name: string } }
       expect(init.serverInfo.name).toBe('deepseek-harness-sdk-runtime')
 
-      await server.handleRequest('session/prompt', {
+      const receipt = await server.handleRequest('session/prompt', {
         sessionId: 'main',
         contentBlocks: [{ type: 'text', text: 'fix it' }],
       })
+      expect((receipt as { messageId?: unknown }).messageId).toBeTypeOf('string')
 
-      expect(llmServer.requests).toHaveLength(1)
+      await vi.waitFor(() => { expect(llmServer.requests).toHaveLength(1) })
       const body = llmServer.requests[0] as { model: string; messages: { role: string }[]; max_tokens?: number }
       expect(body.model).toBe('dsagent-model')
       expect(body.max_tokens).toBe(321)
@@ -140,16 +141,18 @@ describe('HarnessSdkServer', () => {
       expect(body.messages.at(-1)?.role).toBe('user')
       expect(llmServer.headers[0]?.authorization).toBe('Bearer test-key')
       expect(transport.notifications.some(n => n.method === 'session.event')).toBe(true)
-      expect(transport.notifications.at(-1)).toMatchObject({
-        method: 'session.finished',
-        params: { sessionId: 'main', status: 'ok' },
+      await vi.waitFor(() => {
+        expect(transport.notifications.findLast(n => n.method === 'session.status')).toEqual({
+          method: 'session.status',
+          params: { sessionId: 'main', status: 'idle' },
+        })
       })
 
       await server.handleRequest('session/prompt', {
         sessionId: 'main',
         contentBlocks: [{ type: 'text', text: 'again' }],
       })
-      expect(llmServer.requests).toHaveLength(2)
+      await vi.waitFor(() => { expect(llmServer.requests).toHaveLength(2) })
 
       const orphanHandle = await ctx.agents.create({
         sessionId: SessionId('orphan-session'),
@@ -168,24 +171,17 @@ describe('HarnessSdkServer', () => {
     }
   })
 
-  it('rejects overlapping prompts for one session without serializing other sessions', async () => {
-    let releaseMain: (() => void) | undefined
-    const firstMainIdle = new Promise<void>((resolve) => { releaseMain = resolve })
-    const mainWhenIdle = vi.fn<() => Promise<void>>()
-      .mockReturnValueOnce(firstMainIdle)
-      .mockResolvedValue(undefined)
+  it('queues overlapping prompts for one session without blocking other sessions', async () => {
     const mainFollowup = vi.fn<Agent['followup']>()
     const mainAgent = ({
       id: SessionId('main'),
       followup: mainFollowup,
-      whenIdle: mainWhenIdle,
-    } satisfies Pick<Agent, 'id' | 'followup' | 'whenIdle'>) as unknown as Agent
+    } satisfies Pick<Agent, 'id' | 'followup'>) as unknown as Agent
     const otherFollowup = vi.fn<Agent['followup']>()
     const otherAgent = ({
       id: SessionId('other'),
       followup: otherFollowup,
-      whenIdle: vi.fn(() => Promise.resolve()),
-    } satisfies Pick<Agent, 'id' | 'followup' | 'whenIdle'>) as unknown as Agent
+    } satisfies Pick<Agent, 'id' | 'followup'>) as unknown as Agent
     const mainHandle = { agent: mainAgent, dispose: vi.fn(() => Promise.resolve()) }
     const otherHandle = { agent: otherAgent, dispose: vi.fn(() => Promise.resolve()) }
     const create = vi.fn(async (options: { sessionId: SessionId }) =>
@@ -202,20 +198,11 @@ describe('HarnessSdkServer', () => {
       contentBlocks: [{ type: 'text', text }],
     })
 
-    const first = prompt('main', 'first')
-    await vi.waitFor(() => { expect(mainFollowup).toHaveBeenCalledOnce() })
+    expect((await prompt('main', 'first')).messageId).toBeTypeOf('string')
+    expect((await prompt('main', 'overlap')).messageId).toBeTypeOf('string')
+    expect((await prompt('other', 'independent')).messageId).toBeTypeOf('string')
 
-    await expect(prompt('main', 'overlap')).rejects.toThrow('session already has an active prompt: main')
-    await expect(prompt('other', 'independent')).resolves.toEqual({ accepted: true })
-    releaseMain?.()
-    await expect(first).resolves.toEqual({ accepted: true })
-    await expect(prompt('main', 'sequential')).resolves.toEqual({ accepted: true })
-
-    mainWhenIdle.mockRejectedValueOnce(new Error('turn wait failed'))
-    await expect(prompt('main', 'failing')).rejects.toThrow('turn wait failed')
-    await expect(prompt('main', 'after failure')).resolves.toEqual({ accepted: true })
-
-    expect(mainFollowup).toHaveBeenCalledTimes(4)
+    expect(mainFollowup).toHaveBeenCalledTimes(2)
     expect(otherFollowup).toHaveBeenCalledOnce()
     await server.shutdown()
     expect(mainHandle.dispose).toHaveBeenCalledOnce()
@@ -247,7 +234,7 @@ describe('HarnessSdkServer', () => {
       contentBlocks: [{ type: 'text', text }],
     })
 
-    await expect(prompt('while live')).resolves.toEqual({ accepted: true })
+    expect((await prompt('while live')).messageId).toBeTypeOf('string')
     live = false
     await expect(prompt('after detach')).rejects.toThrow('session agent was disposed outside the server: zombie')
     // The detached agent was never driven by the rejected prompt.
@@ -255,61 +242,26 @@ describe('HarnessSdkServer', () => {
     await server.shutdown()
   })
 
-  it('reports the message-turn outcome when a later non-message turn settles before idle', async () => {
+  it('forwards whole-agent status without attributing a turn outcome', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(AgentRegistry)
     const transport = new FakeTransport()
-    const server = new HarnessSdkServer(ctx, transport) as unknown as {
-      prompt(params: { sessionId: string; contentBlocks: { type: 'text'; text: string }[] }): Promise<unknown>
-      sessions: Map<string, { handle: AgentHandle; lastTurnEnd: undefined; activePrompt: boolean }>
-      shutdown(): Promise<Record<string, never>>
-    }
+    const server = new HarnessSdkServer(ctx, transport)
     const session = ctx.sessions.create(SessionId('message-outcome'))
     const agent = ({
       id: SessionId('message-outcome'),
       session,
-      followup(input: UserMessage) {
-        session.append('turn/start', {
-          turn: 1,
-          trigger: { kind: 'message', source: input.source },
-        })
-        session.append('user/message', input, { surfaceOp: 'append' })
-        session.append('turn/end', { turn: 1, reason: { kind: 'max-tokens' } })
-        session.append('turn/start', {
-          turn: 2,
-          trigger: { kind: 'injection', source: { kind: 'plugin', plugin: 'late-metadata' } },
-        })
-        session.append('user/message', createUserMessage({
-          content: [{ type: 'text', text: 'late metadata' }],
-          source: { kind: 'plugin', plugin: 'late-metadata' },
-        }), { surfaceOp: 'append' })
-        session.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
-        return input.id
-      },
-      whenIdle: () => Promise.resolve(),
-    } satisfies Pick<Agent, 'id' | 'session' | 'followup' | 'whenIdle'>) as unknown as Agent
-    ctx.agents.register(agent)
-    server.sessions.set('message-outcome', {
-      handle: { agent, dispose: () => Promise.resolve() },
-      lastTurnEnd: undefined,
-      activePrompt: false,
-    })
+    } satisfies Pick<Agent, 'id' | 'session'>) as Agent
 
-    await server.prompt({
-      sessionId: 'message-outcome',
-      contentBlocks: [{ type: 'text', text: 'bounded prompt' }],
-    })
+    ctx.emit('agent/status', { agent, status: 'running' })
+    ctx.emit('agent/status', { agent, status: 'idle' })
 
-    expect(transport.notifications.findLast(notification => notification.method === 'session.finished'))
-      .toEqual({
-        method: 'session.finished',
-        params: {
-          sessionId: 'message-outcome',
-          status: 'error',
-          reason: { kind: 'max-tokens' },
-        },
-      })
+    expect(transport.notifications.filter(notification => notification.method === 'session.status'))
+      .toEqual([
+        { method: 'session.status', params: { sessionId: 'message-outcome', status: 'running' } },
+        { method: 'session.status', params: { sessionId: 'message-outcome', status: 'idle' } },
+      ])
     await server.shutdown()
     await ctx.fiber.dispose()
   })
@@ -358,7 +310,7 @@ describe('HarnessSdkServer', () => {
         contentBlocks: [{ type: 'text', text: 'hello' }],
       })
 
-      expect(llmServer.requests).toHaveLength(1)
+      await vi.waitFor(() => { expect(llmServer.requests).toHaveLength(1) })
       await server.shutdown()
     } finally {
       await ctx.fiber.dispose()
@@ -883,43 +835,6 @@ describe('HarnessSdkServer', () => {
     },
   )
 
-  it('classifies defensive finish states', async () => {
-    const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-finish-states-'))
-    const ctx = await makeHarness(storageDir)
-    try {
-      const server = new HarnessSdkServer(ctx, new FakeTransport()) as unknown as {
-        finishedStatus(reason: unknown): 'ok' | 'error'
-        shutdown(): Promise<Record<string, never>>
-      }
-
-      expect(server.finishedStatus(undefined)).toBe('error')
-      expect(server.finishedStatus({ kind: 'max-tokens' })).toBe('error')
-      expect(server.finishedStatus({ kind: 'error' })).toBe('error')
-      await server.shutdown()
-    } finally {
-      await ctx.fiber.dispose()
-      await rm(storageDir, { recursive: true, force: true })
-    }
-  })
-
-  it('can report max-token turn termination as an accepted evaluation result', async () => {
-    const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-max-tokens-success-'))
-    const ctx = await makeHarness(storageDir)
-    try {
-      const server = new HarnessSdkServer(ctx, new FakeTransport(), { maxTokensAsSuccess: true }) as unknown as {
-        finishedStatus(reason: unknown): 'ok' | 'error'
-        shutdown(): Promise<Record<string, never>>
-      }
-
-      expect(server.finishedStatus({ kind: 'max-tokens' })).toBe('ok')
-      expect(server.finishedStatus({ kind: 'error' })).toBe('error')
-      await server.shutdown()
-    } finally {
-      await ctx.fiber.dispose()
-      await rm(storageDir, { recursive: true, force: true })
-    }
-  })
-
   it('reports no adapter when the LLM service is absent', async () => {
     const ctx = new Context()
     try {
@@ -1047,6 +962,6 @@ describe('HarnessSdkServer', () => {
     const server = new HarnessSdkServer(ctx, new FakeTransport())
 
     await expect(server.shutdown()).rejects.toBe(listenerFailure)
-    expect(on).toHaveBeenCalledTimes(3)
+    expect(on).toHaveBeenCalledTimes(4)
   })
 })

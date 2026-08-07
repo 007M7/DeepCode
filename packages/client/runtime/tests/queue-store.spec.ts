@@ -7,9 +7,7 @@ import { describe, expect, it } from 'vitest'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, UserMessage } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
-import type {
-  InboxItemId, MuxFrame, RpcId, SessionId,
-} from '@deepseek-ai/dsh-client-connection/client'
+import type { MessageId, MuxFrame, RpcId, SessionId } from '@deepseek-ai/dsh-client-connection/client'
 import { Session } from '../src/client/sessions/session.ts'
 import { SessionManager } from '../src/client/sessions/manager.ts'
 import { FakeApiClient } from './fake-api.ts'
@@ -17,7 +15,7 @@ import { FakeApiClient } from './fake-api.ts'
 const SID = 'fk-q1' as SessionId
 const text = (value: string): ContentBlock[] => [{ type: 'text', text: value }]
 const rid = (id: string): RpcId => id as RpcId
-const iid = (id: string): InboxItemId => id as InboxItemId
+const iid = (id: string): MessageId => id as MessageId
 
 interface QueueFixture {
   id: string
@@ -151,16 +149,16 @@ describe('queue snapshot intake', () => {
     const durable = {
       seq: 0,
       time: 1_700_000_000_000,
-      type: 'steering/message',
+      type: 'user/message',
       surfaceOp: 'append',
-      data: { turn: 1, message },
+      data: message,
     } as SessionEvent
 
     session.handleMuxEnvelope(rid('env-durable'), {
       type: 'session/event', sessionId: SID, event: durable,
     })
     expect(session.getSnapshot().queue.map(item => item.id)).toEqual(['s-second'])
-    expect(session.getSnapshot().nodes.filter(node => node.kind === 'steering')).toHaveLength(1)
+    expect(session.getSnapshot().nodes.filter(node => node.kind === 'user')).toHaveLength(1)
 
     session.handleMuxEnvelope(rid('env-reused-id'), queueFrame([
       { id: 's-later', body: '', placement: 'steering', message },
@@ -169,6 +167,32 @@ describe('queue snapshot intake', () => {
       type: 'session/event', sessionId: SID, event: durable,
     })
     expect(session.getSnapshot().queue.map(item => item.id)).toEqual(['s-later'])
+  })
+
+  it('hands off live steering when the agent claims it as a user message', async () => {
+    const session = makeSession()
+    await session.open()
+    const message = createUserMessage({
+      content: text('claimed steering'),
+      source: { kind: 'user' },
+    })
+    session.handleMuxEnvelope(rid('env-claimed'), queueFrame([
+      { id: 's-claimed', body: '', placement: 'steering', message },
+    ]))
+
+    session.handleMuxEnvelope(rid('env-user-message'), {
+      type: 'session/event',
+      sessionId: SID,
+      event: {
+        seq: 0,
+        time: 1_700_000_000_000,
+        type: 'user/message',
+        surfaceOp: 'append',
+        data: message,
+      },
+    })
+
+    expect(session.getSnapshot().queue).toEqual([])
   })
 })
 

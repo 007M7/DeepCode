@@ -51,7 +51,7 @@ function api(overrides: {
       models: () => Promise.resolve(ok({ groups: [], failures: [] })),
     },
     settings: {
-      describe: overrides.describeSettings ?? (() => Promise.resolve(ok({ writable: true, namespaces: NAMESPACES }))),
+      describe: overrides.describeSettings ?? (() => Promise.resolve(ok({ writable: true, hasDocument: false, namespaces: NAMESPACES }))),
       update: () => Promise.resolve(fail('unused')),
       replace: () => Promise.resolve(fail('unused')),
     },
@@ -135,6 +135,7 @@ describe('ModelsSettingsStore', () => {
     const { face } = api({
       describeSettings: () => Promise.resolve(ok({
         writable: true,
+        hasDocument: false,
         namespaces: [{
           ...NAMESPACES[0],
           secrets: [
@@ -195,6 +196,7 @@ describe('edge joins', () => {
     const { face } = api({
       describeSettings: () => Promise.resolve(ok({
         writable: true,
+        hasDocument: false,
         namespaces: [{
           ns: 'llm-pi-ai',
           schema: {},
@@ -221,6 +223,7 @@ describe('edge joins', () => {
     const { face, seenRefs } = api({
       describeSettings: () => Promise.resolve(ok({
         writable: true,
+        hasDocument: false,
         namespaces: [{ ns: 'llm-pi-ai', schema: {}, value: { providers: {} }, applies: 'live' as const, secrets: [], revision: 0 }] as never,
       })),
       providers: () => Promise.resolve(ok({

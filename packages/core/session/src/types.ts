@@ -5,7 +5,6 @@ import type {
   LlmCallConfig,
   LlmCallConfigAdapterDefaults,
   LlmFailure,
-  MessageSource,
   StreamChunk,
   TokenUsage,
   ToolResultMessage,
@@ -95,23 +94,32 @@ export interface CreateSessionOptions {
 }
 
 /**
- * What started a turn.
- * Merge-extensible sum type (same pattern as MessageSourceMap).
+ * Fresh storage values transferred to {@link SessionStore.prepare} without a
+ * second serialization copy. Callers retain no mutable aliases.
  */
-export interface TurnTriggerMap {
-  message: { kind: 'message'; source: MessageSource }
-  /** Recovery turn reopened over the repaired current session log. */
-  retry: { kind: 'retry' }
-  /**
-   * An out-of-band producer explicitly enclosed injected context in a one-shot
-   * turn. `Agent.inject()` appends idle context directly and does not use this
-   * trigger; the source mirrors the producer of the enclosed `user/message`.
-   */
-  injection: { kind: 'injection'; source: MessageSource }
+export interface RestoredSessionOptions {
+  /** Fresh detached storage events to validate and freeze in place. */
+  readonly seed: SessionEvent[]
+  /** Fresh detached storage metadata to validate and freeze in place. */
+  readonly meta: SessionHeader
+  /** Select the persistence ownership-transfer path. */
+  readonly seedSource: 'persistence'
 }
 
-/** The union over {@link TurnTriggerMap} — what started a turn; plugins extend it by merging variants into the map. */
-export type TurnTrigger = TurnTriggerMap[keyof TurnTriggerMap]
+/** Inputs accepted while constructing an unpublished Session. */
+export type PrepareSessionOptions =
+  | (CreateSessionOptions & { readonly seedSource?: undefined })
+  | RestoredSessionOptions
+
+/** Why an active agent driver was cancelled. */
+export type AgentCancelCause =
+  | { readonly kind: 'user' }
+  | { readonly kind: 'parent' }
+  | { readonly kind: 'hook'; readonly reason: string }
+  | { readonly kind: 'disposed' }
+
+/** Durable cancellation cause, including imports whose original coarse record carried no cause. */
+export type TurnEndCancelCause = AgentCancelCause | { readonly kind: 'legacy' }
 
 /**
  * Why a turn ended. Merge-extensible sum type.
@@ -119,20 +127,15 @@ export type TurnTrigger = TurnTriggerMap[keyof TurnTriggerMap]
 export interface TurnEndReasonMap {
   completed: { kind: 'completed' }
   /** A cancellation request interrupted the live turn. */
-  aborted: { kind: 'aborted' }
+  aborted: { kind: 'aborted'; reason: TurnEndCancelCause }
+
+  blocked: { kind: 'blocked' }
   /**
-   * The turn failed: a step threw or the model reported a failure. `step` is the
-   * step number the failure occurred on (the operational error's location — the
-   * single durable record of an in-turn failure; live diagnostics also fire via
-   * `agent/error`). Final model-request failures retain their normalized facts
-   * as one `failure`; other thrown values retain their rendered message and a
-   * real `HarnessError` code when present.
+   * The turn failed. `error` is always a structured failure: the `LlmError`
+   * facts verbatim, or `{ message: errorChain(error), code: 'UNKNOWN' }`
+   * flattened from any other error.
    */
-  error: { kind: 'error'; step: number } & (
-    | { failure: LlmFailure; message?: never; code?: never }
-    | { message: string; code?: string; failure?: never }
-  )
-  disposed: { kind: 'disposed' }
+  error: { kind: 'error'; error: LlmFailure }
   /** At least one step reached its output-token ceiling, even if a plugin continued the turn. */
   'max-tokens': { kind: 'max-tokens' }
   /**
@@ -158,7 +161,7 @@ export type TurnEndReason = TurnEndReasonMap[keyof TurnEndReasonMap]
 export interface TodoItem {
   /** What this task is — a short imperative line shown in the UI. */
   content: string
-  /** Lifecycle state. `in_progress` marks the single task being worked now. */
+  /** Lifecycle state. `in_progress` marks a task being worked now; parallel work may mark several. */
   status: 'pending' | 'in_progress' | 'completed'
 }
 
@@ -178,17 +181,13 @@ export interface EpochHeader {
   tools?: ToolSchema[]
 }
 
-/**
- * Registration-bound context metadata of one resolved model route. Adapter
- * metadata about a route rather than a request input, which is why it lives
- * outside {@link EpochHeader}.
- */
+/** Registration-bound metadata for one resolved model route. */
 export interface RequestContext {
-  /** Registered provider route the metadata was resolved through. */
+  /** Registered provider route the metadata belongs to. */
   provider: string
   /** Provider-owned model id the metadata belongs to. */
   model: string
-  /** Maximum combined request and response context in tokens; absent when the adapter advertises none. */
+  /** Maximum combined request and response context in tokens, when advertised. */
   contextWindow?: number
 }
 
@@ -208,14 +207,19 @@ export type RequestHeaderReason = 'initial' | 'resume' | 'change'
  */
 export interface SessionEventMap {
   /**
-   * Opens turn `turn`. `trigger` records what started the model loop.
+   * Opens turn `turn` before the loop claims queued input or runs pre-step.
+   * Rejection, empty input, cancellation, or failure may close it with no
+   * step; otherwise the following identified `user/message` event or batch
+   * records the messages entering the step.
    */
-  'turn/start': { turn: number; trigger: TurnTrigger }
+  'turn/start': { turn: number }
   /**
-   * Closes turn `turn` with the {@link TurnEndReason} that ended it. The loop
-   * awaits `session/flush` after an ordinary turn ends before claiming the next
-   * queued item. Success commits the turn; rejection is reported live and does
-   * not prevent later work.
+   * Closes turn `turn` with the {@link TurnEndReason} that ended it. A turn
+   * with no entered step has no `step/start` or `step/end`. The loop does not await a
+   * flush at turn boundaries: `dsh-session-checkpoint-policy` owns the
+   * per-request durability checkpoint, and consumers that read storage after
+   * `whenIdle()` flush themselves. Success commits the turn; rejection is
+   * reported live and does not prevent later work.
    */
   'turn/end': { turn: number; reason: TurnEndReason }
   /** Opens step `step` of turn `turn` — one model call plus the tool executions it requested. */
@@ -226,9 +230,8 @@ export interface SessionEventMap {
    * A user-role message on the model-visible surface: a direct human prompt
    * (the queued message claimed for this turn), a synthetic `agent.inject()`
    * context (file-change notices, subdir AGENTS.md, skill content, cron
-   * notifications, …), or an admitted goal continuation round. All three
-   * project their `content` verbatim; `source` tells them apart. An idle
-   * injection may append this event between turns without running the model.
+   * notifications, …), or an entered goal continuation round. All three
+   * project their `content` verbatim; `source` tells them apart.
    */
   'user/message': UserMessage
   /** Raw stream chunk — token-level replay fidelity. */
@@ -264,8 +267,6 @@ export interface SessionEventMap {
     error?: { name: string; code: string }
     meta?: JsonValue
   }
-  /** Steering content injected between steps of a running turn. */
-  'steering/message': { turn: number; message: UserMessage }
   /** Whole-list snapshot; latest write wins on replay. Log-only UI state; never derived history. */
   'todo/write': { todos: TodoItem[] }
   /**
@@ -274,21 +275,14 @@ export interface SessionEventMap {
    */
   'request/header': { header: EpochHeader; reason: RequestHeaderReason }
   /**
-   * Registration-bound context metadata for the route a request resolved to,
-   * appended inside its step beside `request/header` and only when the route
-   * or capacity differs from the last record. It is log-only and deliberately
-   * NOT part of {@link EpochHeader}: capacity is adapter metadata about a
-   * route, not an input the request was built from, so it must not participate
-   * in request reconstruction or header equality. `contextWindow` is absent
-   * when the route's adapter advertises no capacity.
+   * Route metadata for the next request, logged only when the route or capacity
+   * changes. It does not participate in request reconstruction or header equality.
    */
   'request/context': RequestContext
   /**
    * Marks the end of a constructor seed. Events before it have smaller seq
    * values and came from the seed (resume, fork, or replay); this lifecycle
-   * produced none of them. An explicitly supplied empty seed puts the marker
-   * at seq 0, distinguishing an empty resumed session from a fresh session.
-   * This log-only event is the durable projection of
+   * produced none of them. This log-only event is the durable projection of
    * {@link Session.firstLiveSeq}. Its payload is empty — position and `time`
    * carry the meaning.
    *
@@ -322,7 +316,6 @@ export type SurfaceEventType =
   | 'user/message'
   | 'assistant/message'
   | 'tool/result'
-  | 'steering/message'
 
 /**
  * A {@link SessionEvent} that is **on** the ordered surface — its
@@ -339,7 +332,7 @@ export type SurfaceEvent = SessionEvent<SurfaceEventType> & { surfaceOp: Surface
  * How a session event entered the ordered surface. Only valid on
  * {@link SurfaceEventType} events.
  *
- * - `'append'`: added to the tail — normal path for user/assistant/tool/steering
+ * - `'append'`: added to the tail — normal path for user/assistant/tool
  *   messages.
  * - `{ op: 'replace', start, end }`: replaces surface nodes from `start`
  *   (inclusive) through `end` (inclusive) with this node. Both must exist as
@@ -374,7 +367,7 @@ export interface SurfaceIntent {
  *
  * The {@link sourceEventSeqs} and {@link surfaceOp} fields are conditional:
  * they only exist on {@link SurfaceEventType} variants (`user/message`,
- * `assistant/message`, `tool/result`, `steering/message`).
+ * `assistant/message`, `tool/result`).
  * Non-surface events (boundary markers, chunks, usage, errors) never carry
  * surface metadata — the compiler enforces this at `Session.append()`
  * call sites.

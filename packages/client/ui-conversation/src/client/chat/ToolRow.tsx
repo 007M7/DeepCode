@@ -23,7 +23,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
 import clsx from 'clsx'
 import {
-  CodeBlock, DiffBlock, ReadBlock, SearchBlock, StateDot, TerminalBlock, WebBlock,
+  CodeBlock, DiffBlock, IconInspectOutline12, ReadBlock, SearchBlock, StateDot, TerminalBlock, WebBlock,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { WebBlockProps } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
@@ -46,6 +46,14 @@ export interface ToolRowProps {
   icon: ReactNode
   title: string
   summary: string
+  /**
+   * Trailing summary fragment rendered outside the ellipsized summary text, so
+   * a narrow row clips the summary before this. For a fragment whose whole
+   * value is surviving that clip — the todo row's parallel-active count.
+   * null/absent = the summary is the whole collapsed content. Dropped on an
+   * error row, whose collapsed summary is the failure line instead.
+   */
+  summarySuffix?: string | null | undefined
   /** Expanded-body input text; null = no input section. */
   body: string | null
   /** Flattened result text for the expanded Output section; null/absent = no output section. */
@@ -99,15 +107,6 @@ export interface ToolRowProps {
   inspect?: (() => void) | undefined
 }
 
-/** The Inspect pill's code glyph (user-supplied 16×16), fill follows text color. */
-function IconInspect() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
-      <path d="M16 8L10.8571 12V10.552L14.1383 8L10.8571 5.448V4L16 8ZM5.14286 10.552L1.86171 8L5.14286 5.448V4L0 8L5.14286 12V10.552ZM9.02514 4L5.59657 12H6.84057L10.2691 4H9.02514Z" fill="currentColor" />
-    </svg>
-  )
-}
-
 /** Leading-slot state substitution: the tool icon yields to the terminal state
  *  semantic (error = red, interrupted = amber halo). Running keeps the icon —
  *  the row sweep (CSS on data-state) carries the in-flight signal. */
@@ -139,6 +138,7 @@ export function ToolRow({
   icon,
   title,
   summary,
+  summarySuffix,
   body,
   output,
   errorSummary,
@@ -173,6 +173,9 @@ export function ToolRow({
   // the error color outranks both the args summary and a terminal description.
   const failureLine = state === 'error' ? errorSummary ?? null : null
   const summaryText = failureLine ?? summary
+  // The failure line replaces the summary wholesale, so a suffix derived from
+  // the call args has nothing left to sit beside.
+  const suffix = failureLine === null ? summarySuffix ?? null : null
   // The failure line is error prose, not the path: no open-file affordance.
   const fileLink = filePath !== undefined && onOpenFile !== undefined && failureLine === null
   const isThink = variant === 'think'
@@ -249,6 +252,7 @@ export function ToolRow({
                 {summaryText}
               </span>
             )}
+            {suffix !== null && <span className={css.summarySuffix}>{suffix}</span>}
           </>
         )}
       >
@@ -319,7 +323,7 @@ export function ToolRow({
               className={css.inspectButton}
               onClick={inspect}
             >
-              <IconInspect />
+              <IconInspectOutline12 />
               Inspect
             </button>
           )}

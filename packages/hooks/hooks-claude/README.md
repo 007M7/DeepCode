@@ -37,7 +37,7 @@ The hooks **themselves** run in the agent's session workspace: for the agent-sco
 | CC hook | Harness seam | Mapping |
 |---|---|---|
 | `SessionStart` | `agent/session-start` (emit) | additionalContext → `agent.inject()` into the new session (cannot block) |
-| `UserPromptSubmit` | `agent/prompt-submit` (waterfall) | `deny` → `PromptDecision.block`; additionalContext-only → delegate via `next()` then prepend a separately sourced context to downstream `additionalContexts` (a later listener can still block/rewrite) |
+| `UserPromptSubmit` | `agent/pre-step` (waterfall) | `deny` → `PreStepDecision.reject`; additionalContext-only → delegate via `next()` then append a separately sourced message to a downstream `enter` decision (a later outer listener can still reject/rewrite) |
 | `PreToolUse` | `tools/pre-execute` (waterfall) | `deny` → `PreToolDecision.deny`; `ask` → `PreToolDecision.ask` |
 | `PostToolUse` | `tools/post-execute` (waterfall) | `deny` → `block` with feedback; additionalContext-only → delegate via `next()` then prepend a separately sourced context to the downstream decision; Code Mode defers sub-call contexts until the outer `run_code` result |
 | `Stop` | `agent/turn-stopping` (serial) | a blocking Stop hook feeds its reason through `steer()`, forcing another step |
@@ -52,7 +52,7 @@ Every agent-scoped stdin payload carries `session_id` and string-shaped `transcr
 
 ## Context source
 
-Injected context carries an explicit `{ kind: 'plugin', plugin: 'hooks-claude' }` source. `agent.inject()` defaults a missing source to `{ kind: 'user' }`, which would mislabel plugin context as a user prompt — so the bridge always names itself.
+Injected context carries an explicit `{ kind: 'plugin', plugin: 'hooks-claude' }` source so the durable message is never mistaken for a user prompt.
 
 ## Model Experience
 

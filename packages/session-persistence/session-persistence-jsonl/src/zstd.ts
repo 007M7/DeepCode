@@ -5,8 +5,12 @@
  * @module dsh-session-persistence-jsonl/zstd
  */
 
-import { constants, zstdCompress, zstdDecompress, type ZstdOptions } from 'node:zlib'
+import {
+  constants, zstdCompress, zstdDecompress, type ZstdOptions,
+} from 'node:zlib'
 import { promisify } from 'node:util'
+import { NodePrivateZstdFrameDecoder } from './zstd-private-decoder.ts'
+import { PublicZstdFrameDecoder } from './zstd-public-decoder.ts'
 
 const ZSTD_MAGIC = 0xFD2FB528
 const zstdCompressAsync = promisify(zstdCompress)
@@ -115,6 +119,29 @@ export async function compressZstdFrame(input: Buffer | string): Promise<Buffer>
  */
 export async function decompressZstdFrame(input: Buffer): Promise<Buffer> {
   return zstdDecompressAsync(input)
+}
+
+/** Common lifecycle for interchangeable synchronous multi-frame decoders. */
+export interface ZstdFrameDecoder {
+  /**
+   * Decode and checksum complete frames in source order. Each yielded buffer
+   * remains valid only until the iterator advances to the next frame.
+   * @param source - concatenated Zstandard frame bytes.
+   * @param frames - structurally complete ranges within `source`.
+   * @returns one plaintext buffer per frame.
+   */
+  decode(source: Buffer, frames: readonly ZstdFrameRange[]): Generator<Buffer, void, void>
+  /** Release decoder-owned resources; repeated calls are harmless. */
+  close(): void
+}
+
+/**
+ * Select the shared private decoder when the running Node 22/24/26 shape is
+ * compatible, otherwise preserve correctness with the public one-shot API.
+ * @returns a synchronous decoder with an implementation-independent lifecycle.
+ */
+export function createZstdFrameDecoder(): ZstdFrameDecoder {
+  return NodePrivateZstdFrameDecoder.create() ?? new PublicZstdFrameDecoder()
 }
 
 /**

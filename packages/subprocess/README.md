@@ -2,11 +2,11 @@
 
 English | [中文](README.zh.md)
 
-The shared home for spawning managed child-process trees: fully-specified spawn specs with Node-shaped per-stream stdio dispositions (raw pipes, inherit, bounded tail-keep collection with spill files), the one credential scrub every harness spawner uses, offset-based incremental reads, tree-scoped signalling with SIGTERM→grace→SIGKILL escalation, and the cooperative dispose ladder. Command defaulting, shell semantics, deadlines, protocol framing, and presentation stay with consumers — the [bash executors](../bash/README.md), the [LSP host](../lsp/README.md), and the [ACP subagent backend](../subagent/README.md). See the [subprocess seam Agent Note](../../.agents/notes/implemented/architecture/2026-07-26-subprocess-seam.md).
+This family runs host subprocesses behind an explicit process-lifecycle service.
 
-| Package | ctx key | Role |
+| Package | Role | ctx key |
 |---|---|---|
-| [`subprocess`](subprocess/README.md) (`@deepseek-ai/dsh-subprocess`) | `ctx.subprocess` | The seam: abstract `SubprocessService.spawn(spec)`, the fully-explicit `SubprocessSpawnSpec` with per-stream stdio dispositions, `SubprocessHandle` (streams, offset-based readers, terminate/waitForExit/dispose), and the shared scrub + `DSH_*`/`CollectedOutput` vocabulary |
-| [`subprocess-local`](subprocess-local/README.md) (`@deepseek-ai/dsh-subprocess-local`) | — | The local implementation: detached process trees, per-disposition stream wiring, tail-keep truncation with bounded private spill files, the `DSH_*` merge order, tree signalling with escalation, the dispose ladder, and terminate-and-join disposal |
+| [`subprocess/`](subprocess/README.md) | Defines subprocess launch, stream, termination, and disposal contracts | `ctx.subprocess` |
+| [`subprocess-local/`](subprocess-local/README.md) | Implements local process-tree execution | registers on `ctx.subprocess` |
 
-The service owns process lifetime across consumer reloads; consumers own what a process means (a bash command, a future non-shell runner) and every default that shapes one.
+The service owns process lifetime; each consumer owns what the process does and which defaults apply.

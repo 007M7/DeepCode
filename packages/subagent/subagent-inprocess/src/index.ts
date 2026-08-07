@@ -55,7 +55,6 @@ function toStopReason(reason: TurnEndReason | undefined): SubagentStopReason {
     case 'aborted':
       return 'aborted'
     case 'error':
-    case 'disposed':
     case 'interrupted':
     default:
       return 'error'
@@ -76,10 +75,13 @@ function prePublicationAbort(): Error {
 /** Append one one-shot descriptor inside the child's initial turn before its first request. */
 function attachDescriptorAppend(childCtx: Context, descriptor: SubagentDescriptorData): void {
   let appended = false
-  childCtx.on('agent/step', (agent) => {
-    if (appended) return
-    appended = true
-    agent.session.append('subagent/descriptor', descriptor)
+  childCtx.on('agent/pre-step', async ({ agent }, next) => {
+    const decision = await next()
+    if (!appended && decision.kind === 'enter') {
+      appended = true
+      agent.session.append('subagent/descriptor', descriptor)
+    }
+    return decision
   })
 }
 

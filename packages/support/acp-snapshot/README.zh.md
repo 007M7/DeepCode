@@ -55,11 +55,11 @@ defineAcpSnapshotSuite({
 
 每个 pin 默认拥有其生成的 `system-prompt.expected.md` 或 `tool-schemas.expected.json`；当完整的对应序列相同时，`systemPromptSource` 和 `toolSchemasSource` 指定另一个 pin 作为来源，因此每个不同版本只提交一次。该 pin 的 `session.jsonl` 存储 `"system":"{{system}}","tools":"{{tools}}"`，同时保留配置、原因和任何模型可见前缀。具有合法运行中 header 变更的 pin 声明 `expectedHeaderChanges`；共享来源必须声明相同的 header 变更数量，录制/刷新会拒绝生成不同字节的共享引用方。
 
-每个场景都比较 `stdout.expected.jsonl`，其中以 cwd 为根的分隔符规范化为 `/`。在 Windows 上，`pinsNativeWindowsStdout` 还会在共享预期输出之后比较完整 `stdout.expected.windows.jsonl`，并在启用时精确要求该 sidecar。需要非 Windows 主机的场景声明 `posixOnly`，在 Windows 上跳过运行测试，但 fixture 保护仍在所有平台覆盖其已提交文件；示例包括 POSIX 进程语义（例如取消实时 bash 调用会终止脱离进程组）和 Windows 无法表示的生成路径。
+每个场景都比较 `stdout.expected.jsonl`，其中以 cwd 为根的分隔符规范化为 `/`。在 Windows 上，`pinsNativeWindowsStdout` 还会在共享预期输出之后比较完整 `stdout.expected.windows.jsonl`，并在启用时精确要求该 sidecar。需要非 Windows 主机的场景声明 `posixOnly`，在 Windows 上跳过运行测试，但 fixture 保护仍在所有平台覆盖其已提交文件；示例包括 POSIX 进程语义（例如取消实时 bash 调用会终止脱离进程组）和 Windows 无法表示的生成路径。组合需要可用 `pwsh` 的场景声明 `pwshOnly`；调用方提供的 `hasPwsh` 探测（随附的 acp-agent 套件遵循执行器自身的解析，因此 Program Files 安装也计入）在解析不到可用 `pwsh` 时跳过运行测试，而 fixture 保护仍处处覆盖其已提交文件。
 
 示例还发布 `cordis.snapshot.yml` 回放 overlay，位于 `cordis.yml` 旁边（bin 在 `DSH_SNAPSHOT=replay` 下交换它们，见[单源回放配置 Agent Note](../../../.agents/notes/archived/testing/2026-07-04-single-source-acp-replay-config.md)）；回放 fixture 由 [`dsh-llm-replay`](../llm-replay/README.md) 提供，该包通过对子级设置的 `DSH_SNAPSHOT_*` env var 指向它。`pnpm run test:snapshot:record` 调用实时 LLM，并重写已记录场景的模型 fixture；`pnpm run test:snapshot:refresh` 保持无密钥，运行回放 overlay，并从已提交模型脚本重写 stdout、可比较会话日志预期输出，以及各 pin 自有的提示词与工具 schema sidecar。Fixture 角色、录制/回放/刷新语义和场景表字段记录在 `Scenario` 以及[快照 Agent Note](../../../.agents/notes/implemented/testing/2026-06-19-acp-snapshot-tests.md) 中。
 
-约束：`suite.ts` 与 `harness.ts` 导入 vitest（harness 通过 `vi.waitFor` 轮询其持久边界等待），因此包入口只能在 vitest 运行中导入（启动器和规范化器没有此依赖，但从同一入口发布）。启动器和套件工厂按设计专用于 ACP，启动器使用 SDK 的 `ClientSideConnection`；规范化器是与传输无关的会话日志/文本辅助工具，还由 TUI 快照套件和 web 浏览器 e2e lane 消费。输入脚本覆盖初始化、新建会话、文本提示、取消、预期 RPC 失败和持久轮次边界等待。权限往返是选项类别选择（`allow_once`、`reject_once`等）的 FIFO 队列，映射到 agent 发出的 `optionId`；缺少或耗尽的队列回答 `cancelled`，未提供类别会拒绝运行。
+约束：`suite.ts` 与 `harness.ts` 导入 vitest（harness 通过 `vi.waitFor` 轮询其持久边界等待），因此包入口只能在 vitest 运行中导入（启动器和规范化器没有此依赖，但从同一入口发布）。启动器和套件工厂按设计专用于 ACP，启动器使用 SDK 的 `ClientSideConnection`；规范化器是与传输无关的会话日志/文本辅助工具，还由 Web 浏览器 e2e lane 消费。输入脚本覆盖初始化、新建会话、文本提示、取消、预期 RPC 失败和持久轮次边界等待。权限往返是选项类别选择（`allow_once`、`reject_once` 等）的 FIFO 队列，映射到 agent 发出的 `optionId`；缺少或耗尽的队列回答 `cancelled`，未提供类别会拒绝运行。
 
 ## 模型体验
 

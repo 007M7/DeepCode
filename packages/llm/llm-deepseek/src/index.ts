@@ -13,7 +13,7 @@
 
 import type { Context } from 'cordis'
 import z from 'schemastery'
-import { LlmError, resolveRetryPolicy, RetryPolicySchema } from '@deepseek-ai/dsh-llm'
+import { assertUsableApiKey, LlmError, normalizeApiKey, resolveRetryPolicy, RetryPolicySchema } from '@deepseek-ai/dsh-llm'
 import type { RetryPolicyConfig } from '@deepseek-ai/dsh-llm'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { deepEqualJson, installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
@@ -58,7 +58,13 @@ const DEFAULT_MODELS: DeepSeekCatalogModel[] = [
  * reasoning effort resolves to `high`.
  */
 export interface Config {
-  /** Literal API key; prefer {@link apiKeyEnv} so no secret enters configuration files. */
+  /**
+   * Trimmed literal API key; whitespace-only is absent, so it resolves through
+   * {@link apiKeyEnv} like an omitted one. Prefer {@link apiKeyEnv} to keep
+   * secrets out of configuration files. {@link resolveAdapterOptions} also
+   * format-checks what remains: a value no HTTP header can carry fails there
+   * rather than inside `fetch`.
+   */
   apiKey?: string
   /** Credential reference (environment-variable name) resolved per request; defaults to `DEEPSEEK_API_KEY`. */
   apiKeyEnv?: string
@@ -68,7 +74,7 @@ export interface Config {
   thinking?: 'enabled' | 'disabled'
   /** Default thinking effort (default `high`); `off` disables thinking per request. */
   reasoningEffort?: 'off' | 'high' | 'max'
-  /** Default per-request output cap (default 256,000); explicit request values win. */
+  /** Default per-request output cap (default 256,000); a model's own cap and explicit request values win. */
   maxTokens?: number
   /** Positive context capacity used when the selected model has no exact value (default 1,000,000). */
   defaultContextWindow?: number
@@ -85,6 +91,7 @@ const catalogModel: z<DeepSeekCatalogModel> = z.object({
   name: z.string(),
   description: z.string(),
   contextWindow: z.number().step(1).min(1),
+  maxTokens: z.number().step(1).min(1),
 })
 
 export const Config: z<Config> = z.object({
@@ -125,6 +132,12 @@ function resolveModels(models: readonly DeepSeekCatalogModel[] | undefined): Dee
         `llm-deepseek: catalog model "${model.id}" contextWindow must be a positive integer`,
       )
     }
+    if (model.maxTokens !== undefined
+      && (!Number.isInteger(model.maxTokens) || model.maxTokens <= 0)) {
+      throw new Error(
+        `llm-deepseek: catalog model "${model.id}" maxTokens must be a positive integer`,
+      )
+    }
     if (seen.has(model.id)) throw new Error(`llm-deepseek: duplicate catalog model "${model.id}"`)
     seen.add(model.id)
     return {
@@ -132,6 +145,7 @@ function resolveModels(models: readonly DeepSeekCatalogModel[] | undefined): Dee
       ...model.name === undefined ? {} : { name: model.name },
       ...model.description === undefined ? {} : { description: model.description },
       ...model.contextWindow === undefined ? {} : { contextWindow: model.contextWindow },
+      ...model.maxTokens === undefined ? {} : { maxTokens: model.maxTokens },
     }
   })
 }
@@ -166,8 +180,25 @@ export function resolveAdapterOptions(config: Config): ResolvedDeepSeekOptions {
       `llm-deepseek: streamIdleTimeoutMs must be a positive finite number no greater than ${MAX_TIMER_DELAY_MS}`,
     )
   }
+  // An absent apiKey is not a failure: it falls through to apiKeyEnv below.
+  // A supplied one must be usable, so a malformed literal fails here beside
+  // the other beyond-schema bounds instead of inside `fetch`.
+  // Absence is not a failure, and a blank literal is absence: both resolve
+  // through apiKeyEnv below, which is this adapter's defined fallback. (The
+  // pi-ai adapter refuses a blank one instead, because there absence selects a
+  // different authentication mode rather than a different source for the same
+  // key.) What a literal cannot be is unusable: a value no HTTP header can
+  // carry fails here beside the other beyond-schema bounds, not inside `fetch`.
+  let apiKey: string | undefined
+  if (config.apiKey !== undefined) {
+    const checked = normalizeApiKey(config.apiKey)
+    if (!checked.ok && checked.reason === 'illegalCharacters') {
+      throw new Error('llm-deepseek: apiKey contains characters no HTTP header can carry; paste the raw key only')
+    }
+    apiKey = checked.ok ? checked.value : undefined
+  }
   return {
-    ...config.apiKey !== undefined && config.apiKey.length > 0 ? { apiKey: config.apiKey } : {},
+    ...apiKey === undefined ? {} : { apiKey },
     apiKeyEnv: credentialRef(config.apiKeyEnv ?? DEFAULT_API_KEY_ENV),
     baseURL: config.baseURL ?? process.env.DEEPSEEK_BASE_URL ?? PUBLIC_BASE_URL,
     defaults: {
@@ -215,12 +246,12 @@ export function apply(ctx: Context, config: Config): void {
     const credentials = ctx.get('credentials')
     if (credentials !== undefined) {
       const hit = await credentials.resolve(ref)
-      if (hit !== undefined) return hit.value
+      if (hit !== undefined) return assertUsableApiKey(hit.value, 'llm-deepseek', ref)
     } else {
       // Without the seam, keep the historical ambient fallback so a plain
       // cordis.yml composition works from the environment alone.
       const ambient = process.env[ref]
-      if (ambient !== undefined && ambient.length > 0) return ambient
+      if (ambient !== undefined && ambient.length > 0) return assertUsableApiKey(ambient, 'llm-deepseek', ref)
     }
     throw new LlmError(
       `llm-deepseek: no API key for provider route "${PROVIDER}"; store ${ref} through the credentials`

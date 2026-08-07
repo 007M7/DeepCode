@@ -132,6 +132,10 @@ export interface TrajectoryTimelineProps {
   turns: readonly TrajectoryTurnModel[]
   mode: TrajectoryTimelineMode
   range: TrajectoryTimeRange | null
+  /** Whether the loaded timeline omits an earlier history prefix. */
+  hasEarlierRecords?: boolean
+  /** Load one earlier history page from the truncation control. */
+  onLoadEarlier?: () => Promise<boolean>
   selectedIndex?: number | null
   /** Record indexes matching the active ledger search, or null without a query. */
   searchMatchIndexes?: ReadonlySet<number> | null
@@ -191,11 +195,49 @@ function LaneLabels() {
   )
 }
 
+function EarlierHistoryBoundary({
+  loading,
+  onHover,
+  onLoad,
+}: {
+  loading: boolean
+  onHover: () => void
+  onLoad: (() => void) | undefined
+}) {
+  return (
+    <Tooltip
+      label={loading ? 'Loading earlier history…' : 'Click to load earlier history'}
+      side="right"
+      delayMs={TIMELINE_TOOLTIP_DELAY_MS}
+    >
+      <button
+        type="button"
+        className={css.earlierHistory}
+        data-earlier-history
+        data-loading={loading || undefined}
+        aria-label={loading ? 'Loading earlier history' : 'Load earlier history'}
+        aria-disabled={loading || onLoad === undefined}
+        onClick={onLoad}
+        onPointerEnter={(event) => {
+          event.stopPropagation()
+          onHover()
+        }}
+        onPointerMove={(event) => { event.stopPropagation() }}
+        onPointerDown={(event) => { event.stopPropagation() }}
+      >
+        …
+      </button>
+    </Tooltip>
+  )
+}
+
 /** Overview renderer with drag ranges, click-sized focus, and Escape reset. */
 export const TrajectoryTimeline = memo(function TrajectoryTimeline({
   turns,
   mode,
   range,
+  hasEarlierRecords = false,
+  onLoadEarlier,
   selectedIndex = null,
   searchMatchIndexes = null,
   onRangeChange,
@@ -222,6 +264,7 @@ export const TrajectoryTimeline = memo(function TrajectoryTimeline({
   const trackRef = useRef<HTMLDivElement | null>(null)
   const [draft, setDraft] = useState<TrajectoryTimeRange | null>(null)
   const [hover, setHover] = useState<HoverPoint | null>(null)
+  const [loadingEarlier, setLoadingEarlier] = useState(false)
   const [panning, setPanning] = useState(false)
   const [viewport, setViewport] = useState<TrajectoryTimeRange | null>(null)
   const [animateViewport, setAnimateViewport] = useState(false)
@@ -278,6 +321,15 @@ export const TrajectoryTimeline = memo(function TrajectoryTimeline({
     )
   const domainDuration = viewport === null ? fullDuration : viewportDuration
   const domainStart = viewport === null ? model?.start ?? 0 : viewportStart
+  const showsEarlierBoundary = hasEarlierRecords
+    && model !== null
+    && domainStart === model.start
+  const loadEarlier = onLoadEarlier === undefined || loadingEarlier
+    ? undefined
+    : () => {
+      setLoadingEarlier(true)
+      void onLoadEarlier().finally(() => { setLoadingEarlier(false) })
+    }
   const projectedDomainStyle = model === null
     ? undefined
     : {
@@ -333,6 +385,13 @@ export const TrajectoryTimeline = memo(function TrajectoryTimeline({
           <LaneLabels />
           <div className={css.track}>
             <span className={css.empty}>No timing data</span>
+            {hasEarlierRecords && (
+              <EarlierHistoryBoundary
+                loading={loadingEarlier}
+                onHover={() => { setHover(null) }}
+                onLoad={loadEarlier}
+              />
+            )}
           </div>
         </div>
       </section>
@@ -541,6 +600,13 @@ export const TrajectoryTimeline = memo(function TrajectoryTimeline({
             event.preventDefault()
           }}
         >
+          {showsEarlierBoundary && (
+            <EarlierHistoryBoundary
+              loading={loadingEarlier}
+              onHover={() => { setHover(null) }}
+              onLoad={loadEarlier}
+            />
+          )}
           {hover !== null && hover.recordIndex === null && draft === null && (
             <div
               className={css.hoverLine}
@@ -609,7 +675,7 @@ export const TrajectoryTimeline = memo(function TrajectoryTimeline({
               .map((span) => {
                 const left = (span.start - model.start) / fullDuration
                 const width = (span.end - span.start) / fullDuration
-                const widthPercent = Math.max(width * 100, 0.35)
+                const widthPercent = width * 100
                 const detail = detailByIndex.get(span.index)
                 const ttftMs = detail?.ttftMs
                 const decodingMs = detail?.decodingMs
@@ -646,7 +712,7 @@ export const TrajectoryTimeline = memo(function TrajectoryTimeline({
                       style={{
                         '--trajectory-span-left': `${left * 100}%`,
                         '--trajectory-span-width': `${widthPercent}%`,
-                        '--trajectory-span-gap': `clamp(0.25px, ${widthPercent * 0.08}%, 1px)`,
+                        '--trajectory-span-gap': `min(${widthPercent * 0.08}%, 1px)`,
                         '--trajectory-span-lane': span.lane,
                         ...(ttftFraction === null
                           ? {}

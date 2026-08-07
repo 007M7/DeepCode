@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import SessionStore, { SessionId, type Session } from '@deepseek-ai/dsh-session'
-import { createUserMessage, ProviderRequestId , createMessage } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, ProviderRequestId } from '@deepseek-ai/dsh-llm'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import InvariantService from '@deepseek-ai/dsh-invariants'
 import * as RetryInvariant from '@deepseek-ai/dsh-llm-retry/invariant'
-import { providerForClosedStep } from '../src/history.ts'
+import { providerForOpenStep } from '../src/history.ts'
 
 async function setup(): Promise<Context> {
   const ctx = new Context()
@@ -15,26 +15,24 @@ async function setup(): Promise<Context> {
   return ctx
 }
 
-function closeStep(ctx: Context, id: string, turn = 1, step = 1) {
+function openStep(ctx: Context, id: string, turn = 1, step = 1) {
   const session = ctx.sessions.create(SessionId(id))
-  session.append('turn/start', { turn, trigger: { kind: 'message', source: { kind: 'user' } } })
+  session.append('turn/start', { turn })
   session.append('step/start', { turn, step })
   session.append('request/header', {
     header: { config: { provider: 'mock', model: 'mock' } },
     reason: 'initial',
   })
-  session.append('step/end', { turn, step })
   return session
 }
 
 function appendRetryTurn(session: Session, turn: number) {
-  session.append('turn/start', { turn, trigger: { kind: 'retry' } })
+  session.append('turn/start', { turn })
   session.append('step/start', { turn, step: 1 })
   session.append('request/header', {
     header: { config: { provider: 'mock', model: 'mock' } },
     reason: 'initial',
   })
-  session.append('step/end', { turn, step: 1 })
   session.append('llm/retry', { turn, step: 1, ...normal })
 }
 
@@ -58,28 +56,24 @@ const always = {
 }
 
 describe('llm-retry invariants', () => {
-  it('has no provider without the requested closed step or a route marker', () => {
-    expect(providerForClosedStep([], 1, 1)).toBeUndefined()
-    expect(providerForClosedStep([{
-      type: 'step/end',
+  it('has no provider without the requested open step or a route marker', () => {
+    expect(providerForOpenStep([], 1, 1)).toBeUndefined()
+    expect(providerForOpenStep([{
+      type: 'step/start',
       data: { turn: 1, step: 1 },
     }] as never, 1, 1)).toBeUndefined()
   })
 
-  it('accepts bounded and unbounded records after successive closed steps', async () => {
+  it('accepts successive bounded and unbounded records inside their open steps', async () => {
     const ctx = await setup()
-    const session = closeStep(ctx, 'retry-invariant-valid')
+    const session = openStep(ctx, 'retry-invariant-valid')
 
     expect(() => {
       session.append('llm/retry', { turn: 1, step: 1, ...normal })
-      session.append('turn/end', { turn: 1, reason: { kind: 'error', step: 1, failure } })
-      session.append('turn/start', { turn: 2, trigger: { kind: 'retry' } })
-      session.append('step/start', { turn: 2, step: 1 })
-      session.append('step/end', { turn: 2, step: 1 })
       session.append('llm/retry', {
-        turn: 2, step: 1, ...normal, retry: 2, delayMs: 0,
+        turn: 1, step: 1, ...normal, retry: 2, delayMs: 0,
       })
-      const unbounded = closeStep(ctx, 'retry-invariant-always')
+      const unbounded = openStep(ctx, 'retry-invariant-always')
       unbounded.append('llm/retry', { turn: 1, step: 1, ...always })
     }).not.toThrow()
     expect(() => { ctx.emit('tools/change') }).not.toThrow()
@@ -87,7 +81,7 @@ describe('llm-retry invariants', () => {
 
   it('validates the complete durable failure payload', async () => {
     const ctx = await setup()
-    const complete = closeStep(ctx, 'retry-invariant-complete-failure')
+    const complete = openStep(ctx, 'retry-invariant-complete-failure')
     expect(() => {
       complete.append('llm/retry', {
         turn: 1,
@@ -126,7 +120,7 @@ describe('llm-retry invariants', () => {
       ['request-id-empty', { message: 'failed', code: 'RATE_LIMIT', requestId: '' }, /failure\.requestId/],
     ]
     for (const [name, invalidFailure, message] of invalidFailures) {
-      const session = closeStep(ctx, `retry-invariant-failure-${name}`)
+      const session = openStep(ctx, `retry-invariant-failure-${name}`)
       expect(() => {
         session.append('llm/retry', {
           turn: 1, step: 1, ...always, failure: invalidFailure,
@@ -150,95 +144,75 @@ describe('llm-retry invariants', () => {
     ['delay-type', { ...normal, delayMs: '1' }, /delayMs/],
   ])('rejects invalid retry data: %s', async (name, data, message) => {
     const ctx = await setup()
-    const session = closeStep(ctx, `retry-invariant-${name}`)
+    const session = openStep(ctx, `retry-invariant-${name}`)
     expect(() => {
       session.append('llm/retry', { turn: 1, step: 1, ...data } as never)
     }).toThrow(message)
   })
 
-  it('rejects records outside the latest closed step of an open turn', async () => {
+  it('rejects records outside the currently open turn and step', async () => {
     const ctx = await setup()
     const absent = ctx.sessions.create(SessionId('retry-invariant-no-turn'))
     expect(() => {
       absent.append('llm/retry', { turn: 1, step: 1, ...normal })
     }).toThrow(/inside an open turn/)
 
-    const wrongTurn = closeStep(ctx, 'retry-invariant-wrong-turn')
+    const wrongTurn = openStep(ctx, 'retry-invariant-wrong-turn')
     expect(() => {
       wrongTurn.append('llm/retry', { turn: 2, step: 1, ...normal })
     }).toThrow(/open turn is 1/)
 
-    const openStep = ctx.sessions.create(SessionId('retry-invariant-open-step'))
-    openStep.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    openStep.append('step/start', { turn: 1, step: 1 })
+    const closedStep = openStep(ctx, 'retry-invariant-closed-step')
+    closedStep.append('step/end', { turn: 1, step: 1 })
     expect(() => {
-      openStep.append('llm/retry', { turn: 1, step: 1, ...normal })
-    }).toThrow(/step 1 is still open/)
+      closedStep.append('llm/retry', { turn: 1, step: 1, ...normal })
+    }).toThrow(/inside an open step/)
 
     const noStep = ctx.sessions.create(SessionId('retry-invariant-no-step'))
-    noStep.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    noStep.append('turn/start', { turn: 1 })
     expect(() => {
       noStep.append('llm/retry', { turn: 1, step: 1, ...normal })
-    }).toThrow(/latest closed step is undefined/)
+    }).toThrow(/inside an open step/)
 
-    const wrongStep = closeStep(ctx, 'retry-invariant-wrong-step')
+    const wrongStep = openStep(ctx, 'retry-invariant-wrong-step')
     expect(() => {
       wrongStep.append('llm/retry', { turn: 1, step: 2, ...normal })
-    }).toThrow(/latest closed step is 1/)
+    }).toThrow(/open step is 1\/1/)
 
-    const closedTurn = closeStep(ctx, 'retry-invariant-closed-turn')
-    closedTurn.append('turn/end', { turn: 1, reason: { kind: 'aborted' } })
+    const closedTurn = openStep(ctx, 'retry-invariant-closed-turn')
+    closedTurn.append('step/end', { turn: 1, step: 1 })
+    closedTurn.append('turn/end', { turn: 1, reason: { kind: 'aborted', reason: { kind: 'user' } },
+    })
     expect(() => {
       closedTurn.append('llm/retry', { turn: 1, step: 1, ...normal })
     }).toThrow(/inside an open turn/)
   })
 
-  it('rejects a second retry record for the same step', async () => {
+  it('accepts successive retries in one step and rejects skipped numbering', async () => {
     const ctx = await setup()
-    const session = closeStep(ctx, 'retry-invariant-duplicate')
+    const session = openStep(ctx, 'retry-invariant-number-sequence')
     session.append('llm/retry', { turn: 1, step: 1, ...normal })
+    session.append('llm/retry', { turn: 1, step: 1, ...normal, retry: 2 })
 
     expect(() => {
-      session.append('llm/retry', { turn: 1, step: 1, ...normal, retry: 2 })
-    }).toThrow(/duplicates the retry record/)
+      session.append('llm/retry', { turn: 1, step: 1, ...always, retry: 2 })
+    }).toThrow(/must equal provider policy retry 1/)
   })
 
-  it('binds retry numbering to the provider policy and resets it after success', async () => {
+  it('binds retry numbering to the provider policy and resets it for a new step', async () => {
     const ctx = await setup()
-    const mismatch = closeStep(ctx, 'retry-invariant-numbering')
+    const mismatch = openStep(ctx, 'retry-invariant-numbering')
     mismatch.append('llm/retry', { turn: 1, step: 1, ...normal })
-    mismatch.append('turn/end', { turn: 1, reason: { kind: 'error', step: 1, failure } })
-    mismatch.append('turn/start', { turn: 2, trigger: { kind: 'retry' } })
-    mismatch.append('step/start', { turn: 2, step: 1 })
-    mismatch.append('step/end', { turn: 2, step: 1 })
     expect(() => {
-      mismatch.append('llm/retry', { turn: 2, step: 1, ...normal, retry: 1 })
+      mismatch.append('llm/retry', { turn: 1, step: 1, ...normal, retry: 1 })
     }).toThrow(/must equal provider policy retry 2/)
 
-    const reset = closeStep(ctx, 'retry-invariant-reset')
+    const reset = openStep(ctx, 'retry-invariant-reset')
     reset.append('llm/retry', { turn: 1, step: 1, ...normal })
-    reset.append('turn/end', { turn: 1, reason: { kind: 'error', step: 1, failure } })
-    reset.append('turn/start', { turn: 2, trigger: { kind: 'retry' } })
-    reset.append('step/start', { turn: 2, step: 1 })
-    reset.append('assistant/message', {
-      turn: 2,
-      step: 1,
-      message: createMessage({
-        role: 'assistant',
-        content: [{ type: 'text', text: 'success' }],
-        source: {
-          kind: 'model',
-          ...{ provider: 'mock', model: 'mock' },
-        },
-      }),
-    }, { surfaceOp: 'append' })
-    reset.append('step/end', { turn: 2, step: 1 })
-    reset.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
-    reset.append('turn/start', { turn: 3, trigger: { kind: 'message', source: { kind: 'user' } } })
-    reset.append('step/start', { turn: 3, step: 1 })
-    reset.append('step/end', { turn: 3, step: 1 })
+    reset.append('step/end', { turn: 1, step: 1 })
+    reset.append('step/start', { turn: 1, step: 2 })
     expect(() => {
-      reset.append('llm/retry', { turn: 3, step: 1, ...normal })
+      reset.append('llm/retry', { turn: 1, step: 2, ...normal })
     }).not.toThrow()
   })
 
@@ -262,9 +236,7 @@ describe('llm-retry invariants', () => {
     appendRetryTurn(nonFailureEnd, 2)
 
     const missingStart = ctx.sessions.create(SessionId('retry-invariant-missing-start'))
-    missingStart.append('turn/end', {
-      turn: 1,
-      reason: { kind: 'error', step: 1, failure },
+    missingStart.append('turn/end', { turn: 1, reason: { kind: 'error', error: failure },
     })
     appendRetryTurn(missingStart, 2)
 
@@ -274,7 +246,7 @@ describe('llm-retry invariants', () => {
 
   it('rejects a provider that does not match the failed request route', async () => {
     const ctx = await setup()
-    const session = closeStep(ctx, 'retry-invariant-provider')
+    const session = openStep(ctx, 'retry-invariant-provider')
     expect(() => {
       session.append('llm/retry', { turn: 1, step: 1, ...always, provider: 'other' })
     }).toThrow(/does not match the failed request provider mock/)
@@ -284,7 +256,7 @@ describe('llm-retry invariants', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create(SessionId('retry-invariant-late'))
-    session.append('step/end', { turn: 1, step: 1 })
+    session.append('step/start', { turn: 1, step: 1 })
     session.append('llm/retry', { turn: 1, step: 1, ...normal })
     await ctx.plugin(InvariantService)
     await expect(ctx.plugin(RetryInvariant)).rejects.toThrow(/inside an open turn/)

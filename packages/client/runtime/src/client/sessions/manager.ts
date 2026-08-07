@@ -12,6 +12,7 @@ import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { mergeOrderedBaseline } from '../ordered-baseline.ts'
 import type { SessionListEntry, TitledSessionSummary } from './lineage.ts'
 import { flattenLineage } from './lineage.ts'
+import type { PendingInteractionStatus } from './pending.ts'
 // Type-only merge edge: the title domain's client-namespace outlet declares
 // the 'title' projection key this manager projects into list rows (and any
 // useProjection('title') consumer reads). Zero value imports by construction.
@@ -70,23 +71,52 @@ type SessionListMutation =
   /** Local first-send flip: the sender clears blank without waiting for a host frame. */
   | { kind: 'engaged'; sessionId: SessionId }
 
-/** Per-session cap for pre-instantiation approval/question buffering (low-frequency frames; a few dozen covers any real backlog). */
-const PENDING_BUFFER_CAP = 32
+/** Stable identity of a frame retained until an uninstantiated Session can consume it. */
+function bufferedRequestKey(envelope: RpcRequest<MuxFrame>): string | undefined {
+  const frame = envelope.payload
+  switch (frame.type) {
+    case 'approval/requested': return `a:${frame.approvalId}`
+    case 'question/requested': return `q:${envelope.rpcId}`
+    case 'session/queue': return 'queue'
+    /* v8 ignore next -- pendingBuffers contains only the three frame types above. */
+    default: return undefined
+  }
+}
 
+/** Match ui-question's binary plan-review routing at the wire boundary. */
+function questionInteractionStatus(
+  questions: Extract<MuxFrame, { type: 'question/requested' }>['questions'],
+): PendingInteractionStatus {
+  if (questions.length !== 1) return 'question'
+  const question = questions[0] as typeof questions[number]
+  const intent = question.intent
+  if (intent?.kind !== 'plan-review' || question.detail === undefined) return 'question'
+  if (question.multiSelect === true) return 'question'
+  const options = question.options ?? []
+  if (options.length > 2) return 'question'
+  return options.some(option => option.label === intent.approve) ? 'plan-review' : 'question'
+}
 
 /** Instance cluster + frame entry + the session list (see the web client architecture RFC). */
 export class SessionManager {
   private readonly sessions = new Map<SessionId, Session>()
-  /** Approval/question frame buffer for uninstantiated sessions: pending interactions never hit
-   *  history (cannot be backfilled on open), the one frame class that must not take the
-   *  drop-and-backfill path; replayed and cleared on instantiation. Bounded per session (these
-   *  frames are low-frequency; overflow drops oldest) and dropped on session-removed (audit S7). */
+  /** Pre-instantiation buffer for answerable requests and the queued-turn snapshot, which history
+   *  cannot reconstruct on open. Live requests remain until resolution; queue and replay duplicates
+   *  compact by identity. Instantiation replays and clears it, while removal drops it (audit S7). */
   private readonly pendingBuffers = new Map<SessionId, RpcRequest<MuxFrame>[]>()
-  /** Outstanding approval questions per session, keyed by approvalId (idempotent under mux-open
-   *  replays of the same requested frame). Manager-owned rather than read off Session instances
-   *  because the sidebar must light up for sessions never instantiated. Cleared per connection
-   *  generation — the reopen replay re-adds still-pending questions — and on session-removed. */
-  private readonly waitingApprovals = new Map<SessionId, Set<string>>()
+  /** Outstanding answerable interactions per session, keyed by their stable request identity.
+   *  Manager-owned rather than read off Session instances because the sidebar must light up for
+   *  sessions never instantiated. Cleared per connection generation — the reopen replay re-adds
+   *  still-pending requests — and on session-removed. */
+  private readonly pendingInteractions = new Map<SessionId, Map<string, PendingInteractionStatus>>()
+  /**
+   * Sessions that finished running while not selected — the sidebar's green
+   * "done" reminder (manager-owned, survives connection generations; cleared
+   * on select and session-removed, re-armed by the next completion).
+   */
+  private readonly completedNotifications = new Set<SessionId>()
+  /** Last-observed running bits per session; the true→false edge here arms {@link completedNotifications}. */
+  private readonly prevRunning = new Map<SessionId, boolean>()
   /** Per-session projection value stores, retained independently of instance arrival (the
    *  title-snapshot precedent, generalized): push frames land here whether or not the Session
    *  is instantiated (list rows read the 'title' key), and an instantiated Session adopts the
@@ -153,6 +183,8 @@ export class SessionManager {
         : this.catalogs.get(address.parentSessionId)?.parentAvailable ?? false,
     )
     this.selected = sessionId
+    // Looking at the session consumes its completion reminder (dot clears).
+    this.completedNotifications.delete(sessionId)
     void this.refreshSubagents(sessionId)
     this.notifier.notifyNow()
   }
@@ -170,6 +202,7 @@ export class SessionManager {
     this.addresses.set(address.childSessionId, address)
     this.sessions.get(address.childSessionId)?.configureSubagent(address, catalog?.parentAvailable ?? false)
     this.selected = address.childSessionId
+    this.completedNotifications.delete(address.childSessionId)
     void this.refreshSubagents(address.childSessionId)
     this.notifier.notifyNow()
   }
@@ -392,13 +425,28 @@ export class SessionManager {
       try {
         const { result } = await this.api.sessions.list({})
         if (result.ok) {
-          let summaries = this.listPhase === 'pending'
+          const baseline = this.listPhase === 'pending'
             ? result.value.items
             : mergeOrderedBaseline(established, result.value.items, summary => summary.sessionId)
-          for (const mutation of mutations) summaries = applyMutation(summaries, mutation)
+          // Seed first observations from the pull-time baseline BEFORE replaying
+          // in-flight mutations, then reconcile the reminders after EVERY
+          // replayed mutation: an edge that happens entirely between mutations
+          // (baseline idle → running → idle) must still arm, which a single
+          // sync on the folded result would collapse away.
+          for (const s of baseline) {
+            if (!this.prevRunning.has(s.sessionId)) this.prevRunning.set(s.sessionId, s.running)
+          }
+          let summaries = baseline
+          for (const mutation of mutations) {
+            summaries = applyMutation(summaries, mutation)
+            this.summaries = summaries
+            this.syncCompletedNotifications()
+          }
           this.summaries = summaries
           this.listState = 'idle'
           this.listPhase = 'ready'
+          // Covers the empty-mutations pull (a plain baseline carries no edge).
+          this.syncCompletedNotifications()
           // Push running/blank bits down to instantiated Sessions (the list is the authoritative summary source).
           for (const s of this.summaries) {
             const session = this.sessions.get(s.sessionId)
@@ -544,6 +592,8 @@ export class SessionManager {
   private recordMutation(mutation: SessionListMutation): void {
     this.listMutations?.push(mutation)
     this.summaries = applyMutation(this.summaries, mutation)
+    // Eager edge reconciliation — a snapshot-build-time pass would miss consecutive status frames.
+    this.syncCompletedNotifications()
     this.notifier.markDirty()
   }
 
@@ -565,6 +615,26 @@ export class SessionManager {
   getListSnapshot(): SessionListSnapshot {
     this.notifier.ensureFresh()
     return this.listSnapshotCache
+  }
+
+  /** Add or refresh one stable pending-interaction identity. */
+  private trackPending(sessionId: SessionId, key: string, status: PendingInteractionStatus): void {
+    let interactions = this.pendingInteractions.get(sessionId)
+    if (interactions === undefined) {
+      interactions = new Map()
+      this.pendingInteractions.set(sessionId, interactions)
+    }
+    if (interactions.get(key) === status) return
+    interactions.set(key, status)
+    this.notifier.markDirty()
+  }
+
+  /** Settle one pending-interaction identity without disturbing sibling waits. */
+  private resolvePending(sessionId: SessionId, key: string): void {
+    const interactions = this.pendingInteractions.get(sessionId)
+    if (interactions === undefined || !interactions.delete(key)) return
+    if (interactions.size === 0) this.pendingInteractions.delete(sessionId)
+    this.notifier.markDirty()
   }
 
   // ---- ConnectionController sinks (wired by boot) ----
@@ -592,11 +662,10 @@ export class SessionManager {
       // them so last-wins cannot pin a phantom value over recomputed truth.
       this.projectionStores.get(frame.sessionId)?.truncate(frame.lastSeq)
       this.notifier.markDirty()
-      // New mux-generation baseline: buffered session/queue frames belong to
-      // the previous generation and the host is about to resend the live
-      // snapshot — drop them, or every reconnect appends a duplicate batch
-      // (and enough reconnects push real approval/question frames past the
-      // cap). Same re-baseline signal Session uses for its own mirror.
+      // New mux-generation baseline: discard the previous queue snapshot.
+      // The host omits session/queue when the live queue is empty, so retaining
+      // it could replay stale work when the Session is instantiated later.
+      // This is the same re-baseline signal Session uses for its own mirror.
       const buffered = this.pendingBuffers.get(frame.sessionId)
       if (buffered !== undefined) {
         const kept = buffered.filter(item => item.payload.type !== 'session/queue')
@@ -606,41 +675,52 @@ export class SessionManager {
         }
       }
     }
-    // List-level waiting-approval bit (the sidebar amber dot): tracked here for
-    // every session, instantiated or not; approvalId keys make replays idempotent.
+    // List-level pending-interaction status (the sidebar amber dot): tracked
+    // for every session, instantiated or not; stable keys make replays idempotent.
     if (frame.type === 'approval/requested') {
-      let ids = this.waitingApprovals.get(frame.sessionId)
-      if (ids === undefined) this.waitingApprovals.set(frame.sessionId, ids = new Set())
-      if (!ids.has(frame.approvalId)) {
-        ids.add(frame.approvalId)
-        this.notifier.markDirty()
-      }
+      this.trackPending(frame.sessionId, `a:${frame.approvalId}`, 'approval')
     } else if (frame.type === 'approval/resolved') {
-      const ids = this.waitingApprovals.get(frame.sessionId)
-      if (ids !== undefined && ids.delete(frame.approvalId)) {
-        if (ids.size === 0) this.waitingApprovals.delete(frame.sessionId)
-        this.notifier.markDirty()
-      }
+      this.resolvePending(frame.sessionId, `a:${frame.approvalId}`)
+    } else if (frame.type === 'question/requested') {
+      this.trackPending(
+        frame.sessionId,
+        `q:${envelope.rpcId}`,
+        questionInteractionStatus(frame.questions),
+      )
+    } else if (frame.type === 'question/resolved') {
+      this.resolvePending(frame.sessionId, `q:${frame.questionRpcId}`)
     }
     const session = this.sessions.get(frame.sessionId)
     if (session === undefined) {
-      // Approval/question/queue frames never hit history: buffer for replay on
-      // instantiation; everything else drops (not instantiated — history fully
-      // backfills on open).
+      // Answerable requests never hit history: retain each live identity until
+      // instantiation, compacting replay duplicates and resolutions so list
+      // status cannot outlive the PendingWait the user would need to answer.
+      // Queue is a latest-value snapshot; everything else drops because open
+      // backfills it from history.
       switch (frame.type) {
         case 'approval/requested':
-        case 'approval/resolved':
         case 'question/requested':
-        case 'question/resolved':
         case 'session/queue': {
           const buffer = this.pendingBuffers.get(frame.sessionId) ?? []
-          const prior = frame.type === 'session/queue'
-            ? buffer.findIndex(item => item.payload.type === 'session/queue')
-            : -1
-          if (prior !== -1) buffer.splice(prior, 1)
-          buffer.push(envelope)
-          if (buffer.length > PENDING_BUFFER_CAP) buffer.splice(0, buffer.length - PENDING_BUFFER_CAP)
+          const key = frame.type === 'approval/requested'
+            ? `a:${frame.approvalId}`
+            : frame.type === 'question/requested' ? `q:${envelope.rpcId}` : 'queue'
+          const prior = buffer.findIndex(item => bufferedRequestKey(item) === key)
+          if (prior === -1) buffer.push(envelope)
+          else buffer[prior] = envelope
           this.pendingBuffers.set(frame.sessionId, buffer)
+          return
+        }
+        case 'approval/resolved':
+        case 'question/resolved': {
+          const buffer = this.pendingBuffers.get(frame.sessionId)
+          if (buffer === undefined) return
+          const key = frame.type === 'approval/resolved'
+            ? `a:${frame.approvalId}`
+            : `q:${frame.questionRpcId}`
+          const prior = buffer.findIndex(item => bufferedRequestKey(item) === key)
+          if (prior !== -1) buffer.splice(prior, 1)
+          if (buffer.length === 0) this.pendingBuffers.delete(frame.sessionId)
           return
         }
         default:
@@ -689,7 +769,7 @@ export class SessionManager {
           this.sessions.get(frame.sessionId)?.handleRemoved()
         }
         this.pendingBuffers.delete(frame.sessionId) // a removed session's buffered frames must not replay on a future instantiation
-        this.waitingApprovals.delete(frame.sessionId) // a removed session cannot wait on anyone
+        this.pendingInteractions.delete(frame.sessionId) // a removed session cannot wait on anyone
         if (!durableSubagent) this.projectionStores.delete(frame.sessionId)
         // A pull already in flight was requested before this removal and can
         // carry the pre-removal parentAvailable:true, which would resurrect
@@ -735,20 +815,19 @@ export class SessionManager {
    * The moment a connection generation dies (before any next-generation frame
    * can arrive — onConnected waits for the readiness handshake while replayed
    * frames flow from stream open, so clearing there would race the replay):
-   * drop generation-scoped live state. Approvals resolved while disconnected
-   * send no frame, so the stale bits and the buffered answerable frames must
-   * not survive into the next generation — the mux-open replay re-adds every
-   * still-pending question with its live rpcId.
-   */
+   * drop generation-scoped live state. Interactions resolved while disconnected
+   * send no frame, so stale statuses and buffered answerable frames must not
+   * survive into the next generation — mux-open replay re-adds every still-pending
+   * request with its live rpcId.
+  */
   handleDisconnected(): void {
-    if (this.waitingApprovals.size > 0) {
-      this.waitingApprovals.clear()
+    if (this.pendingInteractions.size > 0) {
+      this.pendingInteractions.clear()
       this.notifier.markDirty()
     }
     for (const [sessionId, buffer] of [...this.pendingBuffers]) {
       const kept = buffer.filter(item =>
-        item.payload.type !== 'approval/requested' && item.payload.type !== 'approval/resolved'
-        && item.payload.type !== 'question/requested' && item.payload.type !== 'question/resolved')
+        item.payload.type !== 'approval/requested' && item.payload.type !== 'question/requested')
       if (kept.length === buffer.length) continue
       if (kept.length === 0) this.pendingBuffers.delete(sessionId)
       else this.pendingBuffers.set(sessionId, kept)
@@ -842,6 +921,38 @@ export class SessionManager {
     })
   }
 
+  /**
+   * Reconcile completion reminders against the latest summaries, eagerly after
+   * every mutation and pull (a snapshot-build-time pass would collapse
+   * consecutive status frames into one observation). A running→idle edge of a
+   * non-selected session arms its reminder; running disarms it; removal drops
+   * it. First observation only records the running bit — sessions already
+   * idle at load get no reminder.
+   */
+  private syncCompletedNotifications(): void {
+    const seen = new Set<SessionId>()
+    for (const s of this.summaries) {
+      seen.add(s.sessionId)
+      const prev = this.prevRunning.get(s.sessionId)
+      if (prev === undefined) {
+        this.prevRunning.set(s.sessionId, s.running)
+        continue
+      }
+      if (prev && !s.running) {
+        if (s.sessionId !== this.selected) this.completedNotifications.add(s.sessionId)
+      } else if (s.running) {
+        this.completedNotifications.delete(s.sessionId)
+      }
+      this.prevRunning.set(s.sessionId, s.running)
+    }
+    for (const id of this.prevRunning.keys()) {
+      if (!seen.has(id)) this.prevRunning.delete(id)
+    }
+    for (const id of this.completedNotifications) {
+      if (!seen.has(id)) this.completedNotifications.delete(id)
+    }
+  }
+
   private buildListSnapshot(): SessionListSnapshot {
     const merged: TitledSessionSummary[] = this.summaries.map((summary) => {
       // List rows read the generic 'title' projection key (host-computed unit
@@ -855,7 +966,15 @@ export class SessionManager {
         ...(projectionValues === undefined ? {} : { projectionValues }),
       }
     })
-    const fresh = flattenLineage(merged, new Set(this.waitingApprovals.keys()))
+    const pendingInteractions = new Map<SessionId, PendingInteractionStatus>()
+    for (const [sessionId, interactions] of this.pendingInteractions) {
+      const statuses = [...interactions.values()]
+      // The composer selects the first question ahead of approval. Mirror that
+      // answer order so the sidebar names the interaction the user can act on.
+      const status = statuses.find(candidate => candidate !== 'approval') ?? statuses[0]
+      if (status !== undefined) pendingInteractions.set(sessionId, status)
+    }
+    const fresh = flattenLineage(merged, pendingInteractions, this.completedNotifications)
     const items = fresh.map((entry) => {
       const prev = this.entryCache.get(entry.sessionId)
       if (
@@ -863,8 +982,9 @@ export class SessionManager {
         && prev.blank === entry.blank
         && prev.parentSessionId === entry.parentSessionId && prev.cwd === entry.cwd
         && prev.origin === entry.origin && prev.title === entry.title && prev.depth === entry.depth
-        && prev.waitingApproval === entry.waitingApproval
+        && prev.pendingInteraction === entry.pendingInteraction
         && prev.projectionValues === entry.projectionValues
+        && prev.completed === entry.completed
       ) return prev
       this.entryCache.set(entry.sessionId, entry)
       return entry

@@ -1,3 +1,13 @@
+/* Models settings section, in the settings-panel design language: 14/22 body,
+ * 12/18 caption, capsule controls (h36 r18; h28 r14 where a row is dense),
+ * 32px fields, and `border-l2` hairlines — the vocabulary GeneralSection and
+ * the Button/Input primitives already use.
+ *
+ * Every color resolves through a `--dsw-alias-*` token. The section used to
+ * name `--border` / `--surface` / `--text-*`, which nothing in this app
+ * defines, so it always rendered the light-mode literals written as their
+ * fallbacks and stayed light under the dark theme. */
+
 .section {
   display: flex;
   flex-direction: column;
@@ -8,20 +18,31 @@
 
 .title {
   margin: 0;
-  font-size: 18px;
-  font-weight: 600;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
 }
 
 .intro {
   margin: 0;
-  font-size: 13px;
+  font-size: 14px;
+  line-height: 22px;
   color: var(--dsw-alias-label-tertiary);
 }
 
 .notice {
   margin: 0;
   font-size: 12px;
+  line-height: 18px;
   color: var(--dsw-alias-state-warn-label);
+}
+
+.savedNotice {
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-state-success-primary);
 }
 
 .rows {
@@ -31,9 +52,11 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
+/* A configured provider: outlined on the panel fill, so the filled editor
+   card it expands into reads as the nested object. */
 .rowCard {
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 12px;
@@ -41,7 +64,6 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
-  background: var(--dsw-alias-bg-layer-3);
 }
 
 .rowHead {
@@ -50,39 +72,98 @@
   gap: 10px;
 }
 
+.rowIdentity {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
 .rowName {
-  font-size: 15px;
-  font-weight: 600;
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+}
+
+/* Reads as an annotation on the name, not as a second name: caption size and
+   the secondary label tone, so it never competes with the row's own title. It
+   sits inside `rowIdentity` with the credential dot, which is what keeps it
+   beside the name rather than drifting toward the actions. */
+.rowTag {
+  flex: none;
+  padding: 1px 6px;
+  border: 1px solid var(--dsw-alias-border-l3);
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.credentialDot {
+  box-sizing: border-box;
+  display: inline-block;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.credentialDotConfigured {
+  background: var(--dsw-alias-state-success-primary);
+}
+
+.credentialDotMissing {
+  background: var(--dsw-alias-state-error-primary);
 }
 
 .rowActions {
   display: inline-flex;
-  gap: 8px;
+  align-items: center;
+  gap: 4px;
   margin-left: auto;
 }
 
-.primaryButton {
+/* `box-sizing` on every control here: the app has no global border-box reset,
+   so without it the outlined variants stand 2px taller than the filled ones
+   they sit beside (Cancel next to Apply, Edit next to Delete). */
+.primaryButton,
+.secondaryButton,
+.addButton {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 36px;
+  padding: 0 14px;
   border: none;
-  border-radius: 999px;
-  padding: 8px 18px;
+  border-radius: 18px;
+  font: inherit;
+  font-size: 14px;
+  line-height: 22px;
+  cursor: pointer;
+}
+
+.primaryButton {
   background: var(--dsw-alias-button-primary-fill);
   color: var(--dsw-alias-label-primary-foreground);
-  font: inherit;
-  cursor: pointer;
 }
 
 .primaryButton:hover:not(:disabled) {
   background: var(--dsw-alias-button-primary-hover);
 }
 
-.secondaryButton {
+.secondaryButton,
+.addButton {
   border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 999px;
-  padding: 6px 14px;
-  background: var(--dsw-alias-bg-layer-3);
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+}
+
+.secondaryButton:hover:not(:disabled),
+.addButton:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .secondaryButton:hover:not(:disabled) {
@@ -90,12 +171,19 @@
 }
 
 .dangerButton {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+  padding: 0 14px;
   border: none;
-  border-radius: 8px;
-  padding: 4px 8px;
-  background: none;
+  border-radius: 18px;
+  background: transparent;
   color: var(--dsw-alias-state-error-primary);
   font: inherit;
+  font-size: 14px;
+  line-height: 22px;
   cursor: pointer;
 }
 
@@ -103,17 +191,43 @@
   background: var(--dsw-alias-interactive-bg-hover-danger);
 }
 
+/* Provider-row controls take the dense capsule (Button `.sm`). */
+.rowActions .secondaryButton,
+.rowActions .dangerButton {
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 14px;
+  font-size: 12px;
+  line-height: 18px;
+}
+
 .primaryButton:disabled,
 .secondaryButton:disabled,
-.dangerButton:disabled {
-  opacity: 0.5;
+.dangerButton:disabled,
+.addButton:disabled,
+.linkButton:disabled,
+.addModelButton:disabled {
+  opacity: 0.4;
   cursor: default;
 }
 
+.primaryButton:focus-visible,
+.secondaryButton:focus-visible,
+.dangerButton:focus-visible,
+.addButton:focus-visible,
+.linkButton:focus-visible,
+.addModelButton:focus-visible,
+.iconButton:focus-visible,
+.customizedSummary:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--dsw-alias-border-l3);
+}
+
+/* Editing surface: a filled module on the panel, matching the settings
+   selector fill rather than adding another outline inside the row. */
 .editor {
-  border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 12px;
-  background: var(--dsw-alias-bg-layer-2);
+  background: var(--dsw-alias-bg-module-platform);
   padding: 14px 16px;
   display: flex;
   flex-direction: column;
@@ -128,11 +242,14 @@
 
 .editorTitle {
   font-size: 14px;
-  font-weight: 600;
+  line-height: 22px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
 }
 
 .editorRoute {
   font-size: 12px;
+  line-height: 18px;
   color: var(--dsw-alias-label-tertiary);
 }
 
@@ -147,33 +264,36 @@
   align-items: center;
   gap: 10px;
   font-size: 12px;
+  line-height: 18px;
   font-weight: 500;
   color: var(--dsw-alias-label-secondary);
 }
 
 .linkButton {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 10px;
   border: none;
-  background: none;
-  padding: 0;
+  border-radius: 14px;
+  background: transparent;
   color: var(--dsw-alias-label-tertiary);
   font: inherit;
   font-size: 12px;
-  text-decoration: underline;
+  line-height: 18px;
   cursor: pointer;
 }
 
 .linkButton:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
   color: var(--dsw-alias-label-secondary);
-}
-
-.linkButton:disabled {
-  opacity: 0.5;
-  cursor: default;
 }
 
 .advancedHint {
   margin: 0;
   font-size: 12px;
+  line-height: 18px;
   color: var(--dsw-alias-label-tertiary);
 }
 
@@ -189,34 +309,32 @@
   gap: 12px;
 }
 
+/* The two ways to gain a provider, as equal siblings spanning the same width
+   as the rows above. Wraps rather than shrinking below a legible label. */
+.addActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .addButton {
-  display: inline-flex;
-  align-items: center;
+  /* Overrides the shared button base above: these two are not pills sitting in
+     a footer but the last slot of the provider list, so they split the row
+     evenly and repeat the row cards' corner. Dashed, like every other "nothing
+     here yet" affordance on this page, to read as a place rather than a
+     command. */
+  flex: 1 1 0;
+  min-width: 180px;
   gap: 6px;
-  align-self: flex-start;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 999px;
-  padding: 8px 16px;
-  font: inherit;
-  background: var(--dsw-alias-bg-layer-3);
-  color: inherit;
-  cursor: pointer;
-}
-
-.addButton:hover:not(:disabled) {
-  background: var(--dsw-alias-interactive-bg-hover-solid);
-}
-
-.addButton:disabled {
-  opacity: 0.5;
-  cursor: default;
+  height: 44px;
+  border: 1px dashed var(--dsw-alias-border-l3);
+  border-radius: 12px;
 }
 
 .addCard,
 .setupCard {
-  border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 12px;
-  background: var(--dsw-alias-bg-layer-3);
+  background: var(--dsw-alias-bg-module-platform);
   padding: 14px 16px;
   display: flex;
   flex-direction: column;
@@ -224,9 +342,9 @@
   list-style: none;
 }
 
+/* Nested in a card that already carries the module chrome. */
 .addCard .editor,
 .setupCard .editor {
-  border: none;
   background: none;
   padding: 0;
 }
@@ -236,12 +354,44 @@
   padding-top: 10px;
 }
 
+/* Native disclosure marker replaced by a rotating chevron: the built-in
+   triangle differs per engine and cannot take the label color. */
 .customizedSummary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  padding: 2px 4px;
+  margin-left: -4px;
+  border-radius: 6px;
   cursor: pointer;
   font-size: 12px;
+  line-height: 18px;
   font-weight: 500;
   color: var(--dsw-alias-label-secondary);
-  list-style: revert;
+  list-style: none;
+}
+
+.customizedSummary::-webkit-details-marker {
+  display: none;
+}
+
+.customizedSummary::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-right: 1.5px solid currentcolor;
+  border-bottom: 1.5px solid currentcolor;
+  transform: rotate(-45deg) translate(-1px, -1px);
+  transition: transform 120ms ease;
+}
+
+.customized[open] > .customizedSummary::before {
+  transform: rotate(45deg) translate(-1px, -1px);
+}
+
+.customizedSummary:hover {
+  color: var(--dsw-alias-label-primary);
 }
 
 .customizedBody {
@@ -251,15 +401,171 @@
   padding-top: 12px;
 }
 
+/* Model catalog: a table, not a stack of cards. The column captions are
+   written once above the rows, so a row is one line of fields plus its
+   delete control; each field still carries the indexed `aria-label` that
+   names it, and the caption strip is hidden from assistive tech to keep
+   that name from being announced twice. */
+.modelCatalog {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--dsw-alias-border-l2);
+}
+
+.modelCatalogHeading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.modelCatalogTitle {
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.modelCatalogMeta,
+.modelEmpty {
+  margin: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+/* Model list, shared with the pi-ai provider form (PR #1368): one bordered
+   entry per model, id and display name on the row, capacities behind the
+   row's own disclosure. The token names are this file's, not that branch's —
+   `--dsw-alias-border-subtle`, `--dsw-alias-text-tertiary`, and
+   `--dsw-alias-text-primary` are undefined here and resolve to their
+   light-mode literals, which is the defect this section was just moved off. */
+.modelList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.modelListHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.modelEntry {
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  padding: 6px;
+}
+
+.modelRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Square, label-free affordances: the row's own inputs carry the meaning, so
+   the actions stay glyphs and announce themselves through aria-label. */
+.iconButton {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+}
+
+.iconButton:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.iconButton:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+/* The delete glyph keeps the danger tint the rest of the section uses. */
+.iconButtonDanger:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover-danger);
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.modelAdvanced {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px;
+  padding: 8px 4px 2px;
+}
+
+.modelField {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.modelFieldLabel {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.modelEmpty {
+  padding: 12px;
+  border: 1px dashed var(--dsw-alias-border-l3);
+  border-radius: 8px;
+  text-align: center;
+}
+
+.addModelButton {
+  box-sizing: border-box;
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 14px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 12px;
+  line-height: 18px;
+  cursor: pointer;
+}
+
+.addModelButton:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
 .input {
   box-sizing: border-box;
-  padding: 9px 12px;
+  width: 100%;
+  height: 32px;
+  padding: 0 10px;
   border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 10px;
+  border-radius: 8px;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
+  line-height: 22px;
   background: var(--dsw-alias-bg-layer-1);
   color: var(--dsw-alias-label-primary);
+}
+
+/* Enum pickers hold a handful of short options; a field-width dropdown reads
+   as a text field the user is expected to fill. */
+select.input {
+  max-width: 240px;
+  cursor: pointer;
 }
 
 .input:focus {
@@ -269,6 +575,11 @@
 
 .input::placeholder {
   color: var(--dsw-alias-label-dimmed);
+}
+
+.input:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 /* Select variant of .input: replaces the OS arrow (which sits flush against
@@ -288,6 +599,7 @@
 .error {
   margin: 0;
   font-size: 12px;
+  line-height: 18px;
   color: var(--dsw-alias-state-error-primary);
 }
 
@@ -302,4 +614,62 @@
 
 .deleteConfirm:hover:not(:disabled) {
   background: var(--dsw-alias-interactive-bg-hover-danger);
+}
+
+/* Icon-button label seat: named for assistive tech and for the tests that
+   query these controls by their text. */
+.hiddenLabel {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .customizedSummary::before {
+    transition: none;
+  }
+}
+
+.fetchDialog {
+  max-width: 520px;
+
+  /* The candidate list scrolls inside this dialog, an elevated surface, so the
+     scrollbar indirection is rebound here rather than on the scrolling child:
+     the elevation choice belongs with the surface and inherits down (see
+     ui-theme styles/scrollbar.css for the contract). */
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
+}
+
+.candidateList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 320px;
+  margin: 0;
+  overflow-y: auto;
+  padding: 0;
+  list-style: none;
+}
+
+.candidate {
+  border-radius: 6px;
+}
+
+.candidateLabel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+
+.candidateId {
+  flex: 1 1 auto;
+  font-family: var(--ds-font-family-code);
+  font-size: 13px;
+  overflow-wrap: anywhere;
 }

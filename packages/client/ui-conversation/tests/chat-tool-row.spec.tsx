@@ -59,6 +59,7 @@ const result = (over?: Partial<ToolResultNode>): ToolResultNode => ({
 describe('tool-call-model', () => {
   it('classifies known tools and falls back to others', () => {
     expect(classifyTool('bash')).toBe('bash')
+    expect(classifyTool('pwsh')).toBe('bash')
     expect(classifyTool('read')).toBe('read')
     expect(classifyTool('web_fetch')).toBe('read')
     expect(classifyTool('web_search')).toBe('search')
@@ -69,6 +70,12 @@ describe('tool-call-model', () => {
     expect(classifyTool('cordis_mount')).toBe('code')
     expect(classifyTool('cordis_unmount')).toBe('others')
     expect(classifyTool('todo_write')).toBe('others')
+  })
+
+  it('gives the pwsh shell row the bash family treatment with its own title', () => {
+    const m = toolRowModel('pwsh', running())
+    expect(m.variant).toBe('bash')
+    expect(m.title).toBe('Pwsh')
   })
 
   it('derives state across running/ok/error/interrupted', () => {
@@ -292,6 +299,20 @@ describe('ToolRow', () => {
   it('an error row without an error summary keeps the args summary', () => {
     const view = render(<ToolRow {...rowProps} state="error" errorSummary={null} />)
     expect(view.getByText('List files')).toBeTruthy()
+  })
+
+  it('renders summarySuffix outside the ellipsized summary span, and drops it on a failure line', () => {
+    const view = render(<ToolRow {...rowProps} summarySuffix="+2" />)
+    const summary = view.getByText('List files')
+    const suffix = view.getByText('+2')
+    // Separate spans: .summary truncates, the suffix must not travel inside it.
+    expect(summary.contains(suffix)).toBe(false)
+    view.unmount()
+    // The failure line replaces the summary wholesale, so the suffix goes with it.
+    const failed = render(
+      <ToolRow {...rowProps} state="error" errorSummary="boom" summarySuffix="+2" />,
+    )
+    expect(failed.queryByText('+2')).toBeNull()
   })
 
   it('an error file row drops the open-file link (the summary is failure prose, not the path)', () => {

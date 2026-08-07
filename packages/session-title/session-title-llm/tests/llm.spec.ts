@@ -80,7 +80,6 @@ function request(ctx: Context, signal = new AbortController().signal): SessionTi
   const session = ctx.sessions.create(SessionId(`title-call-${++nextSession}`))
   session.append('turn/start', {
     turn: 1,
-    trigger: { kind: 'message', source: { kind: 'user' } },
   })
   const first = session.append('user/message', createUserMessage({
     content: [{ type: 'text', text: 'first prompt' }],

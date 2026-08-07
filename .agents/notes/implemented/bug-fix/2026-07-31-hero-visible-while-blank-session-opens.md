@@ -24,12 +24,10 @@ The summary flag and the snapshot's own `blank` are distinct sources: the snapsh
 
 ## Deferred
 
-The no-session→session tree relocation in `ConversationRoot` (the hero/composer subtree moves into the `conversation.session` outlet) still rebuilds the composer DOM on the same transition; removing it means moving `conversation.session` to `session-maybe` scope, a slot-contract change that needs its own proposal.
-
 Object-layer reference churn found while diagnosing this — no-op projections minting fresh snapshots, the create path projecting twice, `select()` using `notifyNow` from async continuations — is real but independent of the visible flash.
 
 ## Consequences
 
 Startup auto-selection renders the hero immediately and keeps the composer seat and header visible through the history round-trip, so launching into a recent workspace no longer looks like a page reload. Sessions whose summary does not prove them blank keep the previous settling behavior, so the guard still covers the case it was written for. Skeleton tests pin all three summary shapes: a row reporting `blank: false` settles, an absent row settles, and a summary-proven blank session opening under `loading` renders hero chrome with a live textarea.
 
-The assembled coverage is `apps/web/tests/startup-auto-selection.e2e.ts` (keyless web browser lane): it registers a workspace, holds the `session.history` response open at the browser's network boundary, and asserts the visible frame while the auto-selected open is in flight — hero phase, hero title, painted composer — plus a recorded phase timeline of exactly `['hero']` for the whole load. Holding the round-trip is what makes it a regression test rather than a race: against a loopback host the open settles too fast to sample, and with the exemption reverted the held window is precisely when the root reports `settling`.
+The assembled coverage is `apps/web/tests/startup-auto-selection.e2e.ts` (keyless web browser lane). Its first Workspace connection asserts that the Hero root, Workspace chip, scroll body, composer seat, and textarea remain the same DOM nodes when the blank Session appears. It then holds the `session.history` response open at the browser's network boundary and asserts the visible frame while the auto-selected open is in flight — hero phase, hero title, painted composer — plus a recorded phase timeline of exactly `['hero']` for the whole load. Holding the round-trip is what makes the second case a regression test rather than a race: against a loopback host the open settles too fast to sample, and with the exemption reverted the held window is precisely when the root reports `settling`.

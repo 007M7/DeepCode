@@ -23,6 +23,7 @@ function mount(version?: string, mutateImpl: () => Promise<unknown> = () => Prom
     settings: {
       describe: () => Promise.resolve(response({
         writable: true,
+        hasDocument: false,
         namespaces: [{
           ns: WELCOME_NOTICE_SETTINGS_NAMESPACE,
           schema: {},

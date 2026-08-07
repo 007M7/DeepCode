@@ -24,9 +24,7 @@
     "lib/invariant.js",
     "lib/bin.js",
     "lib/assets",
-    "lib/types/**/*.d.ts",
-    "lib/types/**/*.d.ts.map",
-    "src"
+    "lib/types/**/*.d.ts"
   ],
   "license": "BSD-3-Clause",
   "dependencies": {

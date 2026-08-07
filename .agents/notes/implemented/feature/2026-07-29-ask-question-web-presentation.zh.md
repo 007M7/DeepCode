@@ -1,4 +1,4 @@
-# Agent Note：Ask-question Web 呈现
+# Agent Note: Ask-question Web 呈现
 
 Status: implemented
 

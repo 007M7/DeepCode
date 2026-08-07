@@ -29,6 +29,7 @@ import * as agentInvariant from '@deepseek-ai/dsh-agent/invariant'
 import * as scopeInvariant from '@deepseek-ai/dsh-scope/invariant'
 import * as agentLoopInvariant from '@deepseek-ai/dsh-agent-loop/invariant'
 import * as toolBash from '@deepseek-ai/dsh-tool-bash'
+import * as bashEnv from '@deepseek-ai/dsh-bash-env'
 import * as workspaceContext from '@deepseek-ai/dsh-workspace-context'
 import * as toolSkill from '@deepseek-ai/dsh-tool-skill'
 import * as toolTasks from '@deepseek-ai/dsh-tool-tasks'
@@ -234,7 +235,8 @@ export function apply(ctx: Context, config: Config): void {
   ctx.plugin(scopeInvariant)
   ctx.plugin(agentLoopInvariant)
   if (config.toolBash !== false) {
-    ctx.plugin(toolBash, Object.assign({}, config.toolBash, { dshHome }))
+    ctx.plugin(bashEnv, { dshHome })
+    ctx.plugin(toolBash, config.toolBash ?? {})
   }
   if (config.workspaceContext !== false) {
     ctx.plugin(workspaceContext, config.workspaceContext)

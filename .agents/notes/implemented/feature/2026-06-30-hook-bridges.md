@@ -6,7 +6,7 @@ English | [中文](2026-06-30-hook-bridges.zh.md)
 
 ## Problem
 
-The harness's extension surface is its typed interception seams ([the interception-seams Agent Note](2026-06-30-interception-seams.md)): a "native hook" is just an ordinary cordis plugin subscribing to `agent/session-start`, `agent/prompt-submit`, `tools/pre-execute`, `tools/post-execute`, `agent/turn-stopping`, `subagent/start`, or `subagent/end`. But users arrive with **existing** Claude Code (CC) and Codex hook configs — a `hooks.json` (or a settings file's `hooks` key) full of shell-command hooks — and want those to run unmodified. This Agent Note introduces the two **bridge plugins** that translate that external shell-hook protocol onto the typed seams, built on the shared wire-protocol library ([the hook-protocol-lib Agent Note](2026-06-30-hook-protocol-lib.md)).
+The harness's extension surface is its typed interception seams ([the interception-seams Agent Note](2026-06-30-interception-seams.md)): a "native hook" is just an ordinary cordis plugin subscribing to `agent/session-start`, `agent/pre-step`, `tools/pre-execute`, `tools/post-execute`, `agent/turn-stopping`, `subagent/start`, or `subagent/end`. But users arrive with **existing** Claude Code (CC) and Codex hook configs — a `hooks.json` (or a settings file's `hooks` key) full of shell-command hooks — and want those to run unmodified. This Agent Note introduces the two **bridge plugins** that translate that external shell-hook protocol onto the typed seams, built on the shared wire-protocol library ([the hook-protocol-lib Agent Note](2026-06-30-hook-protocol-lib.md)).
 
 The framing that shapes the whole design: **a bridge is a compatibility adapter, not a power tool.** Anything a bridge does (block a tool, inject context, force continuation, observe a subagent) a native cordis plugin does more powerfully — typed returns, full `ctx`, no serialization boundary. The bridge's reason to exist is to run the explicitly supported subset of external CC/Codex command hooks. That keeps each bridge thin: parse the config, pick a matcher mode, build the per-event payload, call `runHook` + `mergeHookOutputs` from the shared lib, and map the neutral outcome onto a seam Decision. The package READMEs own the exact current unsupported-event and partial-field inventory against the official protocols.
 
@@ -24,7 +24,7 @@ Each bridge maps the neutral `MergedHookOutcome` from the shared lib onto the se
 | Seam | CC | Codex |
 |---|---|---|
 | `agent/session-start` (emit) | additionalContext → `agent.inject()` | plain-stdout output → additionalContext → `agent.inject()` |
-| `agent/prompt-submit` | `deny`→`block`; context-only→delegate+fold | `block`→`block`; context-only→delegate+fold |
+| `agent/pre-step` | `deny`→`reject`; context-only→delegate+fold into `enter` | `block`→`reject`; context-only→delegate+fold into `enter` |
 | `tools/pre-execute` | `deny`→`deny`; `ask`→`ask` | `block`→`deny` (no allow/ask) |
 | `tools/post-execute` | `deny`→`block`+feedback; context-only→delegate+fold | same |
 | `agent/turn-stopping` | blocking Stop → next-step steering | same |
@@ -37,11 +37,11 @@ The CC bridge's `ask` result is a real permission path, not a terminal bridge de
 
 Every bridge `inject()` and additional-context input explicitly passes `{ kind: 'plugin', plugin: 'hooks-claude' | 'hooks-codex' }`. Unit coverage pins the resulting `user/message.source` as the plugin rather than the user.
 
-`UserPromptSubmit` runs during admission, before any turn opens. It therefore writes no turn-scoped `hook/invoked` / `hook/result` pair: a block leaves no transcript, while allowed additional context is durably represented by its sourced `user/message`. The Codex payload still receives the candidate next `turn_id`; rejection does not consume that number.
+`UserPromptSubmit` runs at pre-step after `turn/start`, so every invocation writes its turn-scoped `hook/invoked` / `hook/result` pair. Rejection leaves the claimed input removed, closes the turn as blocked with no step, and retains the hook pair as its durable decision evidence. The Codex payload receives that open turn's `turn_id`.
 
 ### Adding context is not a veto — delegate, then prepend
 
-A hook that only attaches `additionalContext` (no block/deny) is NOT a decision the bridge should return on its own: returning `allow`/`accept` from a waterfall listener WITHOUT calling `next()` short-circuits every later `agent/prompt-submit` / `tools/post-execute` listener, so a policy/sandbox plugin registered after the bridge would never see the prompt. Each bridge therefore delegates via `next()` before adding its context to the downstream decision. Both seams carry ordered `additionalContexts` arrays, so the bridge prepends its separately sourced entry while preserving every downstream source, envelope, and metadata field; a downstream prompt block still drops all context because the prompt never reaches the model, while post-tool block semantics may explicitly retain contexts. Code Mode ferries the same array through the outer `run_code` result. Only a real `deny`/`block` from the hook itself short-circuits. Tests assert a later listener can still block a prompt a context-only hook allowed and that retained prompt and post-tool contexts remain separate.
+A hook that only attaches `additionalContext` (no block/deny) is NOT a decision the bridge should return on its own: returning `enter` from a waterfall listener WITHOUT calling `next()` short-circuits every later `agent/pre-step` / `tools/post-execute` listener, so a policy/sandbox plugin registered after the bridge would never see the prompt. Each bridge therefore delegates via `next()` before adding its context to a downstream enter decision. The bridge preserves every downstream message, while a downstream pre-step rejection drops the whole claimed batch because no step opens. Post-tool decisions retain their independent ordered `additionalContexts` semantics, including Code Mode deferral through the outer `run_code` result. Only a real `deny`/`block` from the hook itself short-circuits. Tests assert a later listener can still reject a prompt after a context-only hook and that retained prompt and post-tool contexts remain separate.
 
 ### CLAUDE_PROJECT_DIR defaults to the session workspace
 

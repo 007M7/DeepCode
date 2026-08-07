@@ -2,6 +2,10 @@
 
 English | [中文](index.zh.md)
 
+This page has two parts: a concept reference for the three-layer capability pattern, followed by an advanced tutorial that builds one capability. Complete the [basic plugin path](../basic/) and [services tutorial](../framework/service.md) first.
+
+## Concept reference
+
 When a capability is general enough to need replaceable implementations, such as Bash execution, Harness splits it into three packages: an **interface**, an **implementation**, and a **consumer**. Each layer can evolve or be replaced independently.
 
 ## Bash example
@@ -32,10 +36,7 @@ One interface can have multiple implementations selected through `cordis.yml`:
 # Local execution
 - name: '@deepseek-ai/dsh-bash-local'
 
-# Or a future remote sandbox implementation
-# - name: '@deepseek-ai/dsh-bash-remote'
-#   config:
-#     endpoint: 'https://sandbox.example.com'
+# Replace this row with another package that implements the same service.
 ```
 
 The interface and tool remain unchanged while the implementation changes.
@@ -52,17 +53,9 @@ The interface and tool remain unchanged while the implementation changes.
 - The consumer depends on the interface.
 - The implementation and consumer **do not depend on each other**.
 
-## Built-in three-layer capabilities
+The [capability-seam reference](../../../capability-seams.md) owns the current built-in families and package links.
 
-| Capability | Interface | Implementation | Consumer |
-|------|-------------|------|---------------|
-| Bash | `dsh-bash` | `dsh-bash-local` | `dsh-tool-bash` |
-| Filesystem | `dsh-fs` | `dsh-fs-local` + `dsh-fs-policy` | `dsh-tool-fs` |
-| Web | `dsh-web` | `dsh-web-fetch-local` / `dsh-web-search-*` | `dsh-tool-web` |
-| Subagent | `dsh-subagent` | `dsh-subagent-spawn` / `dsh-subagent-fork` | `dsh-tool-subagent` |
-| Compaction | `dsh-compact` | `dsh-compact-basic` | The implementation consumes agent-loop extension events |
-
-## Develop a three-layer capability
+## Tutorial: develop a three-layer capability
 
 ### Step 1: define the interface
 

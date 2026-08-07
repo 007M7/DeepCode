@@ -21,11 +21,12 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, waitFor, within } from '@testing-library/react'
+import { useState } from 'react'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
 import type { ISession, SessionId, TodoItem, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
 import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import { SlotTestRuntime, usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
-import { apply, inject } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { apply, inject, type EmptyWorkspaceOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 
 // The service reads its initial locale from the browser; these specs assert
 // the shipped Chinese copy, so they state the browser they assume.
@@ -82,6 +83,16 @@ const LAYOUT_CHILDREN = {
   'conversation': { kind: 'single', scope: 'session-maybe' },
   'details': { kind: 'single', scope: 'session' },
 } as const
+
+/** Stateful occupant proving the root-scoped Hero workspace outlet is not rebuilt. */
+function WorkspaceProbe({ open }: EmptyWorkspaceOwnerProps) {
+  const [count, setCount] = useState(0)
+  return (
+    <button data-testid="workspace-probe" onClick={() => { setCount(value => value + 1) }}>
+      {String(open)}:{count}
+    </button>
+  )
+}
 
 async function bench(nodes: ToolResultNode[], opts?: { blank?: boolean }) {
   const runtime = await SlotTestRuntime.create()
@@ -185,6 +196,49 @@ describe('resident composer', () => {
     expect(textarea).not.toBeNull()
     expect(textarea!.disabled).toBe(true)
     expect(view.getByRole('button', { name: '选择工作区' })).toBeTruthy()
+    await runtime.dispose()
+  })
+
+  it('keeps the complete Hero tree mounted when the first Workspace session appears', async () => {
+    const runtime = await SlotTestRuntime.create()
+    runtime.provide('layout', { openDetails: vi.fn(), closeDetails: vi.fn() })
+    const locale = new LocaleService(runtime.ctx)
+    runtime.provide('locale', locale)
+    runtime.slots.installLocale(locale)
+    await runtime.workspaces.update((draft) => {
+      draft.items = [{ workspaceId: 'w1', title: 'Proj', path: '/proj', sessionIds: [SID] }] as never
+    })
+    await runtime.root.declare(LAYOUT_CHILDREN, AppRoot)
+    await runtime.mount({ inject: [...inject], apply })
+    runtime.slots.register({ name: 'conversation.hero.workspace' }, WorkspaceProbe)
+    const view = runtime.renderRoot()
+
+    const root = view.container.querySelector('[data-phase="hero"]')!
+    const scrollBody = view.container.querySelector('[data-conversation-scroll]')!
+    const composerSeat = view.container.querySelector('[data-composer-seat]')!
+    const textarea = view.container.querySelector('textarea')!
+    const workspaceChip = view.getByRole('button', { name: '选择工作区' })
+    const workspaceProbe = view.getByTestId('workspace-probe')
+    expect(textarea.disabled).toBe(true)
+
+    fireEvent.click(workspaceChip)
+    fireEvent.click(workspaceProbe)
+    expect(workspaceProbe.textContent).toBe('true:1')
+
+    await runtime.sessions.add({
+      id: SID,
+      summary: { title: 'S', displayTitle: 'S', cwd: '/proj', blank: true },
+      snapshot: { blank: true, composerPhase: 'blank' },
+    })
+
+    expect(view.container.querySelector('[data-phase="hero"]')).toBe(root)
+    expect(view.container.querySelector('[data-conversation-scroll]')).toBe(scrollBody)
+    expect(view.container.querySelector('[data-composer-seat]')).toBe(composerSeat)
+    expect(view.container.querySelector('textarea')).toBe(textarea)
+    expect(view.getByRole('button', { name: '选择工作区' })).toBe(workspaceChip)
+    expect(view.getByTestId('workspace-probe')).toBe(workspaceProbe)
+    expect(workspaceProbe.textContent).toBe('true:1')
+    expect(textarea.disabled).toBe(false)
     await runtime.dispose()
   })
 

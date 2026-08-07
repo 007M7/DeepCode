@@ -4,7 +4,7 @@
 
 TypeScript 项目分析器和模型驱动的 Typert 生成器。在生成任何产物之前，它会先将开发者编写的源类型树转换为独立于编译器的 `FaceModel` 和 `TypeGraph` 数据。静态分析无需 Cordis 即可消费该模型；各产物生成组件均不会接收 TypeScript 抽象语法树（AST）或类型检查器对象。
 
-宿主侧与客户端侧分别使用独立的 `ts.Program` 实例，二者以 `tsconfig.host.json` 和 `tsconfig.client.json` 初始化。直接项目引用确定各包（package）所属的 face，`package.json#exports` 确定所有跨包公开边界，跨 face 的边则只能来自源码中的导入或重新导出。NPM 依赖拥有的类型（包括 `@types` 包中的全局声明）继续以 `external` 引用表示，不会被展开。
+宿主侧与客户端侧分别使用独立的 `ts.Program` 实例，二者以 `tsconfig.host.json` 和 `tsconfig.client.json` 初始化。直接项目引用确定各包所属的 face，`package.json#exports` 确定所有跨包公开边界，跨 face 的边则只能来自源码中的导入或重新导出。NPM 依赖拥有的类型（包括 `@types` 包中的全局声明）继续以 `external` 引用表示，不会被展开。
 
 ## 分析模型
 
@@ -32,7 +32,7 @@ TypeScript 项目分析器和模型驱动的 Typert 生成器。在生成任何�
 
 无。
 
-## 已知限制与暂缓工作
+## 已知限制与暂缓事项
 
 - 系统会跳过包导出中的模式匹配；参与贡献的包需要具体的导出目标。
 - 跨 face 的具名重新导出和星号重新导出会生成链接；在 `TypeTargetModel` 能够不经展平便表示模块命名空间之前，命名空间重新导出会失败。

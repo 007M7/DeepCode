@@ -47,10 +47,10 @@ function waitForLine(
 
 describe('jsonrpc-agent keyless smoke', () => {
   it.each([
-    { label: 'accepts max-token results by default', envValue: undefined, expectedStatus: 'ok' },
-    { label: 'accepts max-token results when enabled through env', envValue: 'true', expectedStatus: 'ok' },
-    { label: 'reports max-token results as errors when disabled through env', envValue: 'false', expectedStatus: 'error' },
-  ])('$label', async ({ envValue, expectedStatus }) => {
+    { label: 'reports max-token turns with the default mapping config', envValue: undefined },
+    { label: 'reports max-token turns with mapping enabled through env', envValue: 'true' },
+    { label: 'reports max-token turns with mapping disabled through env', envValue: 'false' },
+  ])('$label', async ({ envValue }) => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-agent-smoke-'))
     const modelRequests: Record<string, unknown>[] = []
     const modelServer = createServer((request, response) => {
@@ -120,18 +120,29 @@ describe('jsonrpc-agent keyless smoke', () => {
         method: 'session/prompt',
         params: { sessionId: 'main', contentBlocks: [{ type: 'text', text: 'inspect tools' }] },
       })}\n`)
-      const finished = await waitForLine(lines, value => value.method === 'session.finished', () => stderr)
-      expect(finished).toMatchObject({
+      const prompt = await waitForLine(lines, value => value.id === 2, () => stderr)
+      expect(prompt).toMatchObject({
         jsonrpc: '2.0',
-        method: 'session.finished',
+        id: 2,
+        result: { messageId: expect.any(String) as unknown },
+      })
+      const turnEnd = await waitForLine(lines, (value) => {
+        if (value.method !== 'session.event') return false
+        const params = value.params as Record<string, unknown> | undefined
+        const event = params?.event as Record<string, unknown> | undefined
+        return params?.sessionId === 'main' && event?.type === 'turn/end'
+      }, () => stderr)
+      expect(turnEnd).toMatchObject({
+        jsonrpc: '2.0',
+        method: 'session.event',
         params: {
           sessionId: 'main',
-          status: expectedStatus,
-          reason: { kind: 'max-tokens' },
+          event: {
+            type: 'turn/end',
+            data: { reason: { kind: 'max-tokens' } },
+          },
         },
       })
-      const prompt = await waitForLine(lines, value => value.id === 2, () => stderr)
-      expect(prompt).toMatchObject({ jsonrpc: '2.0', id: 2, result: { accepted: true } })
       const tools = modelRequests[0]?.tools as { function?: { name?: string } }[]
       expect(modelRequests[0]?.max_tokens).toBe(1234)
       expect(tools.map(tool => tool.function?.name).sort()).toEqual([

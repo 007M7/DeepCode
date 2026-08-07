@@ -12,13 +12,24 @@ import { isPromise } from 'node:util/types'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
+import type { TypeRTContext, TypeRTLookup } from '@deepseek-ai/dsh-type-meta'
 import type { Agent, AgentOptions } from './types.ts'
 
 export * from './types.ts'
-export * from './brand.ts'
+export * from './inbox.ts'
 export * from './llm-target.ts'
 export { agentCarrier, agentEvents, assembleContextFor, emitAgentEvent } from './dispatch.ts'
 export type { AgentEventDispatch, AgentSubjectEvent } from './dispatch.ts'
+
+declare module '@deepseek-ai/dsh-type-meta' {
+  interface TypeRTLookupMap {
+    agent: TypeRTLookup<Agent, SessionId>
+  }
+
+  interface TypeRTContextMap {
+    agent: TypeRTContext<SessionId>
+  }
+}
 
 declare module 'cordis' {
   interface Context {
@@ -187,8 +198,8 @@ export interface AgentFactory {
    */
   createAgent(ownerCtx: Context, options: CreateAgentOptions): Promise<AgentHandle>
   /**
-   * Load a persisted session and resume an agent on it. Async because it awaits
-   * both `ctx.sessionPersistence.load` and the optional unpublished setup
+   * Prepare a persisted session and resume an agent on it. Async because it awaits
+   * both `ctx.sessionPersistence.prepare` and the optional unpublished setup
    * transaction; must be called after that service exists (consumers inject
    * `sessionPersistence`). Publication follows the same setup-commit and
    * ordered boundary as {@link createAgent}.
@@ -251,6 +262,20 @@ export class AgentRegistry extends Service {
 
   constructor(ctx: Context) {
     super(ctx, 'agents')
+    ctx.inject(['typert'], (typeCtx) => {
+      typeCtx.typert.lookups.register('agent', {
+        parameter: 'agent',
+        wire: 'agentId',
+        hostTypeSymbol: '@deepseek-ai/dsh-agent#Agent',
+        wireTypeSymbol: '@deepseek-ai/dsh-session/types#SessionId',
+        resolve: sessionId => this.get(sessionId),
+      })
+      typeCtx.typert.contexts.registerHost('agent', {
+        wire: 'agentId',
+        wireTypeSymbol: '@deepseek-ai/dsh-session/types#SessionId',
+        resolve: sessionId => this.get(sessionId)?.ctx,
+      })
+    })
     // The `ctx.agent` DX accessor: default `undefined` on every context, so a
     // plain plugin context reads cleanly instead of hitting the Cordis
     // unknown-property throw. Each Agent.ctx shadows it with an own property
@@ -498,7 +523,7 @@ export class AgentRegistry extends Service {
 
   /** Emit the paired disposal edge through the entry's stable carrier. */
   private emitDisposed(entry: AgentEntry): void {
-    const args: unknown[] = [entry.carrier, 'agent/disposed', entry.agent]
+    const args: unknown[] = [entry.carrier, 'agent/disposed', { agent: entry.agent }]
     for (const callback of this.ctx.events.dispatch('emit', args)) {
       try {
         const returned: unknown = callback(...args)
@@ -530,7 +555,7 @@ export class AgentRegistry extends Service {
     // lifecycle edge; detach still pairs a partially delivered first edge.
     entry.announcing = true
     entry.announced = true
-    const args: unknown[] = [entry.carrier, 'agent/created', entry.agent]
+    const args: unknown[] = [entry.carrier, 'agent/created', { agent: entry.agent }]
     try {
       for (const callback of this.ctx.events.dispatch('emit', args)) {
         // A synchronous creation failure vetoes publication and rolls back.

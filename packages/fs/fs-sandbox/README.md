@@ -39,5 +39,5 @@ A standing-policy change appends an owner-rendered superseding runtime-context s
 ## Known Limitations and Deferred Work
 
 - **A policy fence, not a kernel boundary** — the check is trusted code over a model-controlled path, so the residual resolve-to-syscall TOCTOU is narrowed (by the in-place re-canonicalization) but not eliminated; adversarial host processes are out of scope. Kernel-grade isolation of untrusted code stays `ctx.bash`'s.
-- **Fence-vs-runner parity is derived, not asserted** — the writable set comes from `writableRoots`, shared with the Seatbelt profile and pinned by a parity test; a runner profile that changed its writable set without that function would drift.
+- **Fence-vs-runner parity is derived from one owner** — the writable set comes from `writableRoots`, shared with the Seatbelt profile; a runner profile that defines its writable set elsewhere would drift.
 - **Requires `ctx.sandboxPolicy`** — tools use it to resolve each session policy and the backend uses it for agentless-call fallbacks; the backend does not confine without it composed.

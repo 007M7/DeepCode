@@ -32,7 +32,7 @@ Status: implemented
 
 `pnpm run build` 是两阶段构建：
 
-- 阶段 1：在根 solution 上执行 `tsc -b`，将逐模块的 `.js`、声明文件 `.d.ts`、JS sourcemap `.js.map` 和声明 sourcemap `.d.ts.map` 输出到各包的 `lib/types`。这是权威的 TypeScript 编译结果。发布时保留 `.d.ts` / `.d.ts.map`，忽略 `.js` / `.js.map`。
+- 阶段 1：在根 solution 上执行 `tsc -b`，将逐模块的 `.js`、声明文件 `.d.ts`、JS sourcemap `.js.map` 和声明 sourcemap `.d.ts.map` 输出到各包的 `lib/types`。这是权威的 TypeScript 编译结果。发布时保留 `.d.ts`；如果包的运行时 export 显式指向该输出树，也会保留其中的 `.js` 文件。`.js.map` 和 `.d.ts.map` 留在本地构建树中。
     - 该图是从根 solution `tsconfig.json` 经两个聚合可达的 project-reference 图（[拓扑](2026-07-22-tsconfig-solution-root-two-aggregates.md)），用于校验并输出包/vendor 的构建结果。
 - 阶段 2：打包器读取 `lib/types` 下输出的 JS，将打包后的运行时入口写为 `lib/index.js` 或 `lib/index.mjs`（沿用当前行为）。此阶段仅做打包，禁止读取 TypeScript 源码或输出声明文件。
 
@@ -77,9 +77,9 @@ tsx scripts/clean.ts
 
 - `packages/<group>/<pkg>` 和 `vendor/*` 下的每个模块有一份本地 tsconfig，同时服务于构建、类型检查和直接运行源码的工具（如 `dsh` 源码 loader、`tsx` 和 `vitest`）。
 - `build` 命令驱动根 solution 图。`tsc -b` 负责可发布的逐模块 `.js` 和 `.d.ts` 输出，打包器仅负责 `lib/index.*`。
-    - `lib/types/*.d.ts` 和 `.d.ts.map` 是发布用的声明输出。
+    - `lib/types/*.d.ts` 是发布用的声明输出；`.d.ts.map` 只作为本地编译产物保留。
     - `lib/types/*.d.ts` 使用显式 `.ts` 相对说明符，TypeScript 的 NodeNext/Node16 解析器会将其映射到同级的 `.d.ts` 文件。
-    - `lib/types/*.js` 仅作为打包器输入，禁止用作运行时入口或公开导入目标。
+    - `lib/types/*.js` 通常仅作为打包器输入。只有显式运行时 export 指向该输出树时，才会发布这些文件。
     - `lib/index.*` 是发布用的运行时输出，由打包器（当前为 `tsdown`）生成。
 - `pnpm run verify-node-next-types` 扫描构建出的声明文件，检查是否存在缺少文件扩展名的相对说明符，然后以 `moduleResolution: "NodeNext"` 对构建出的 `types`/`exports` 接口进行临时外部 ESM 消费方的类型检查，确保声明说明符的回归在发布前被捕获。
 - `typecheck` 命令使用 `tsconfig.json`。示例、测试和脚本由根 no-emit 项目检查，包和 vendor 模块保持与 `build` 相同的输出行为。包和 vendor 源码始终处于 project-reference 边界之后。

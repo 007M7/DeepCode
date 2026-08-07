@@ -260,7 +260,9 @@ describe('web e2e: long Chat interaction contract', () => {
     expect(await composer.inputValue()).toBe('')
     expect(await composer.isEnabled()).toBe(true)
     expect(source.session.events.some(event => carries(event, CONTINUE_PROMPT))).toBe(false)
-    expect(child.session.events.filter(event => carries(event, CONTINUE_PROMPT))).toHaveLength(1)
+    expect(child.session.events.filter(event => (
+      event.type === 'user/message' && carries(event, CONTINUE_PROMPT)
+    ))).toHaveLength(1)
     const lastTurnEnd = child.session.events.findLast((event): event is SessionEvent<'turn/end'> => (
       event.type === 'turn/end'
     ))

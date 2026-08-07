@@ -64,6 +64,7 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
             ok: true,
             value: {
               current: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+              routable: true,
               groups: [],
               failures: [],
             },
@@ -220,7 +221,10 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
     },
     settings: {
       async describe(request) {
-        return { rpcId: request.rpcId, result: { ok: true, value: { writable: true, namespaces: [] } } }
+        return { rpcId: request.rpcId, result: { ok: true, value: { writable: true, hasDocument: false, namespaces: [] } } }
+      },
+      async openDocument(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { opened: true as const } } }
       },
       async update(request) {
         return { rpcId: request.rpcId, result: { ok: false, error: { code: 'settings-rejected', message: 'stub', details: { ns: request.payload.ns } } } }
@@ -249,6 +253,9 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
       },
       async models(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { groups: [], failures: [] } } }
+      },
+      async discoverModels(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { models: [] } } }
       },
     },
     events: {

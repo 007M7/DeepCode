@@ -85,27 +85,83 @@ describe('TranscriptAdapter', () => {
 
   it('materializes every append-origin variant with field mapping', () => {
     const adapter = new TranscriptAdapter()
+    const steering = createUserMessage({
+      content: [{ type: 'text', text: '插话' }],
+      source: { kind: 'user' },
+    })
     adapter.reset([
       ev.user(0, '用户'),
       ev.assistant(1, 0, '助手'),
-      at(2, { type: 'steering/message', surfaceOp: 'append', data: {
-        turn: 0,
-        message: createUserMessage({
-          content: [{ type: 'text', text: '插话' }],
-          source: { kind: 'user' },
-        }),
+      at(2, { type: 'agent/inbox/spliced', data: {
+        target: 'next-step', start: 0, inserted: [steering],
       } }),
-      at(3, { type: 'user/message', surfaceOp: 'append', data: createUserMessage({
+      at(3, { type: 'agent/inbox/spliced', data: {
+        target: 'next-step', start: 0, removedCount: 1, inserted: [],
+      } }),
+      at(4, { type: 'user/message', surfaceOp: 'append', data: steering }),
+      at(5, { type: 'user/message', surfaceOp: 'append', data: createUserMessage({
         content: [{ type: 'text', text: '上下文' }], source: { kind: 'plugin', plugin: 'p' },
       }) }),
-      ev.toolCall(4, 0, 'c1', 'echo', '{"x":1}'),
-      ev.toolResult(5, 0, 'c1', '结果'),
+      ev.toolCall(6, 0, 'c1', 'echo', '{"x":1}'),
+      ev.toolResult(7, 0, 'c1', '结果'),
     ])
     const nodes = adapter.nodes()
     expect(nodes.map(n => n.kind)).toEqual(['user', 'assistant', 'steering', 'context', 'tool-result'])
+    expect(nodes.find(n => n.kind === 'steering')).toMatchObject({ messageId: steering.id })
     expect(nodes.find(n => n.kind === 'tool-result')).toMatchObject({
       callId: 'c1', call: { name: 'echo', argsRaw: '{"x":1}' }, isError: false,
     })
+  })
+
+  it('identifies steering on the live append path', () => {
+    const adapter = new TranscriptAdapter()
+    const steering = createUserMessage({
+      content: [{ type: 'text', text: 'live steer' }],
+      source: { kind: 'user' },
+    })
+    adapter.reset([])
+    adapter.append(at(0, { type: 'agent/inbox/spliced', data: {
+      target: 'next-step', start: 0, inserted: [steering],
+    } }))
+    adapter.append(at(1, { type: 'agent/inbox/spliced', data: {
+      target: 'next-step', start: 0, removedCount: 1, inserted: [],
+    } }))
+    adapter.append(at(2, { type: 'user/message', surfaceOp: 'append', data: steering }))
+    expect(adapter.nodes()).toMatchObject([{ kind: 'steering', messageId: steering.id }])
+  })
+
+  it('does not mark queued, canceled, or non-user next-step messages as steering', () => {
+    const adapter = new TranscriptAdapter()
+    const queued = createUserMessage({ content: [{ type: 'text', text: 'queued' }], source: { kind: 'user' } })
+    const canceled = createUserMessage({ content: [{ type: 'text', text: 'canceled' }], source: { kind: 'user' } })
+    const context = createUserMessage({
+      content: [{ type: 'text', text: 'context' }],
+      source: { kind: 'plugin', plugin: 'test' },
+    })
+    adapter.reset([
+      at(0, { type: 'agent/inbox/spliced', data: {
+        target: 'next-turn', start: 0, inserted: [queued],
+      } }),
+      at(1, { type: 'agent/inbox/spliced', data: {
+        target: 'next-turn', start: 0, removedCount: 1, inserted: [],
+      } }),
+      at(2, { type: 'user/message', surfaceOp: 'append', data: queued }),
+      at(3, { type: 'agent/inbox/spliced', data: {
+        target: 'next-step', start: 0, inserted: [canceled],
+      } }),
+      at(4, { type: 'agent/inbox/spliced', data: {
+        target: 'next-step', start: 0, removedCount: 1, inserted: [], outcome: 'canceled',
+      } }),
+      at(5, { type: 'user/message', surfaceOp: 'append', data: canceled }),
+      at(6, { type: 'agent/inbox/spliced', data: {
+        target: 'next-step', start: 0, inserted: [context],
+      } }),
+      at(7, { type: 'agent/inbox/spliced', data: {
+        target: 'next-step', start: 0, removedCount: 1, inserted: [],
+      } }),
+      at(8, { type: 'user/message', surfaceOp: 'append', data: context }),
+    ])
+    expect(adapter.nodes().map(node => node.kind)).toEqual(['user', 'user', 'context'])
   })
 
   it('skips events core does not call surface-eligible, marker or not', () => {
@@ -205,10 +261,15 @@ describe('TranscriptAdapter', () => {
       adapter.reset([
         at(0, { type: 'user/message', surfaceOp: 'append', data: createUserMessage({
           content: [{ type: 'text', text: '注入的上下文' }],
-          source: { kind: 'plugin', plugin: 'compact' },
+          source: { kind: 'plugin', plugin: 'compact', form: 'instructions' },
         }) }),
       ])
-      expect(adapter.nodes()).toMatchObject([{ kind: 'context', seq: 0 }])
+      expect(adapter.nodes()).toMatchObject([{
+        kind: 'context',
+        seq: 0,
+        provenance: { role: 'inject', label: 'compact' },
+        form: 'instructions',
+      }])
     })
 
     it('ignores a foreign plugin s replacement user/message', () => {
@@ -371,6 +432,14 @@ describe('TranscriptAdapter', () => {
       expect(adapter.nodes()[0]).toMatchObject({ kind: 'command', name: 'goal', args: ' ship it', outcome: null })
     })
 
+    it('represents command input omitted by the host as null', () => {
+      const adapter = new TranscriptAdapter()
+      adapter.reset([ev.commandRunWithoutInput(0, 'cmd-private', 'feedback')])
+      expect(adapter.nodes()[0]).toMatchObject({
+        kind: 'command', name: 'feedback', args: null, outcome: null,
+      })
+    })
+
     it('soft-falls a done-only window into a node built from the done (cross-window cut)', () => {
       const adapter = new TranscriptAdapter()
       adapter.reset([ev.commandDone(80, 'cmd-3', 'error', '失败了')])
@@ -413,6 +482,50 @@ describe('TranscriptAdapter', () => {
       const nodes = adapter.nodes()
       expect(nodes.map(n => [n.kind, n.seq])).toEqual([['user', 0], ['command', 1], ['compaction', 3]])
       expect(nodes[1]).toMatchObject({ name: 'compact', outcome: { kind: 'success', text: '已压缩' } })
+    })
+  })
+
+  describe('assistant timing', () => {
+    const base = 1_700_000_000_000
+
+    it('derives step timing across a window rebuild (start + first token + completion)', () => {
+      const adapter = new TranscriptAdapter()
+      adapter.reset([
+        ev.turnStart(0, 0),
+        ev.user(1, '问'),
+        ev.stepStart(2, 0),
+        ev.chunkStart(3, 0),
+        ev.chunkText(4, 0, '答'),
+        ev.chunkText(5, 0, '案'),
+        ev.assistant(6, 0, '答案'),
+        ev.turnEnd(7, 0),
+      ])
+      const assistant = adapter.nodes().find(n => n.kind === 'assistant')
+      expect(assistant).toMatchObject({
+        timing: { stepStartTime: base + 2, firstTokenTime: base + 4, completedTime: base + 6 },
+      })
+    })
+
+    it('derives the same timing on the live append path, first token winning once', () => {
+      const adapter = new TranscriptAdapter()
+      adapter.reset([ev.user(0, '问')])
+      adapter.append(ev.stepStart(1, 0))
+      adapter.append(ev.chunkText(2, 0, '首'))
+      adapter.append(ev.chunkText(3, 0, '次'))
+      adapter.append(ev.assistant(4, 0, '首次'))
+      const assistant = adapter.nodes().find(n => n.kind === 'assistant')
+      expect(assistant).toMatchObject({
+        timing: { stepStartTime: base + 1, firstTokenTime: base + 2, completedTime: base + 4 },
+      })
+    })
+
+    it('soft-falls to null boundaries when the step opening fell outside the window', () => {
+      const adapter = new TranscriptAdapter()
+      adapter.reset([ev.assistant(100, 0, '被切窗的答案')])
+      const assistant = adapter.nodes().find(n => n.kind === 'assistant')
+      expect(assistant).toMatchObject({
+        timing: { stepStartTime: null, firstTokenTime: null, completedTime: base + 100 },
+      })
     })
   })
 })

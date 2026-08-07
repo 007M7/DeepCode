@@ -1,4 +1,4 @@
-/** Unit tests for the prompt-v4 renderer and three-section response parser. */
+/** Unit tests for the prompt-v7 content and unchanged three-section protocol. */
 
 import { readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
@@ -15,6 +15,20 @@ const root = resolve(import.meta.dirname, '..')
 const document = readFileSync(join(root, 'docs/i18n/translation-prompt.md'), 'utf8')
 const terminology = '| English | 中文 |\n|---|---|\n| agent | agent |'
 
+const retainedExamples = [
+  ['### Colloquial verb → Professional verb', 'The repo pins pnpm@11.7.0 in package.json', '该仓库在 package.json 中固定使用 pnpm@11.7.0'],
+  ['### Run-on sentence → Natural phrasing with pause', 'Read docs/architecture.md before changing anything under packages/.', '在修改 packages/ 目录下的任何内容之前，请先阅读 docs/architecture.md。'],
+  ['### Stiff passive voice → Active and natural', 'a green gate means the pair was confirmed consistent at these exact contents, not that the confirmation was sound.', '门禁通过意味着这组文档在当前内容上的一致性得到了确认，不代表确认本身正确可靠。'],
+  ['### Invented word → Natural expression', 'A sidecar record of both blob hashes makes consistency checkable', '伴随记录保存两侧 blob hash，使一致性可检查'],
+  ['### Em-dash → Colon/period', 'FIXME — an issue that should block a new release.', 'FIXME：应当阻塞新版本发布的问题。'],
+  ['### Overly literal → Meaningful rendering', 'awkward phrasing is easier to hear without the source anchoring you', '不对照原文时，更容易察觉别扭的表达'],
+  ['### Terminology — do not translate what should be kept in English', 'typed service seams, and explicit extension points', '类型化的服务 seam 与显式扩展点'],
+  ['### Slang/jargon → Professional phrasing', 'The committed agent workflow lives in .agents/skills/dsh-translate-docs', '仓库内置的 agent 工作流见 .agents/skills/dsh-translate-docs'],
+  ['### "For humans" — translate the intent, not the word', 'For humans, start with the development guide', '面向开发者：请先阅读开发指南'],
+  ['### Code block comments — NEVER translate', '# full-screen TUI coding agent (needs DEEPSEEK_API_KEY)', 'keep exactly as-is, byte-for-byte'],
+  ['### Language switcher — flip direction', 'English | [中文](README.zh.md)', '[English](README.md) | 中文'],
+]
+
 describe('translation prompt rendering', () => {
   it('renders both directions with every placeholder resolved', () => {
     const en = renderTranslationPrompt(document, { sourceLanguage: 'English', sourceFilename: 'guide.md', terminology })
@@ -22,13 +36,29 @@ describe('translation prompt rendering', () => {
     expect(en).toContain(terminology)
     expect(en).not.toContain('{{')
     expect(en).toContain('plain source stays plain (必须)')
-    expect(en).toContain('When the target language is English, use the "English" column without a Chinese gloss')
-    expect(en).toContain('for a Chinese target, use an established Chinese rendering')
-    expect(en).toContain('for an English target, use the established English technical term')
-    expect(en).toContain('does an English target use established English terminology')
+    expect(en).toContain('For an English target, use the established English technical term')
+    expect(en).toContain('does a Chinese target use an established Chinese rendering')
+    expect(en).toContain('does an English target use the established English technical term')
     expect(en).toContain('The parser removes exactly one framing escape')
     const zh = renderTranslationPrompt(document, { sourceLanguage: 'Chinese', sourceFilename: 'guide.zh.md', terminology })
     expect(zh).toContain('from Chinese to English')
+  })
+
+  it('retains every v4 embedded example', () => {
+    for (const example of retainedExamples) {
+      for (const fragment of example) expect(document).toContain(fragment)
+    }
+  })
+
+  it('states the selected v7 safeguards', () => {
+    const rendered = renderTranslationPrompt(document, { sourceLanguage: 'English', sourceFilename: 'guide.md', terminology })
+    expect(rendered).toContain('## Priority')
+    expect(rendered).toContain('### Faithfulness')
+    expect(rendered).toContain('do not invent a filename or switcher')
+    expect(rendered).toContain('Markdown emphasis markers do not create a word boundary')
+    expect(rendered).toContain('Never invent responsibility merely to avoid a passive construction')
+    expect(rendered).toContain('Never vary a terminology-table form, defined concept, or contract verb merely for stylistic variety')
+    expect(rendered).toContain('Return exactly three raw XML sections')
   })
 
   it('rejects a template with unknown or missing placeholders', () => {

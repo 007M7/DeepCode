@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-模型输入组装注册表。插件贡献有序且稳定的系统段、缓存安全的动态上下文、工具 schema 和具名变量。循环在每个步骤组装一次，将稳定段渲染为系统提示词，并且仅在文本变化或压缩（compaction）移除了保留的快照时，追加一份持久的完整动态上下文快照。此插件拥有静态 harness 身份和全局部署 persona；agent（智能体）作用域的 persona 会遮蔽全局默认值。
+系统提示词组装注册表。插件贡献有序段、工具 schema 和具名变量。循环在每个步骤组装一次，并将结果渲染为完整的模型提示词。此插件拥有静态 harness 身份和全局部署 persona；agent（智能体）作用域的 persona 会遮蔽全局默认值。
 
 ## 配置
 
@@ -17,7 +17,6 @@
 ### 公开 API
 
 - `ctx.systemPrompt.section(section: PromptSection): () => void`：贡献一个段。层由调用上下文的作用域决定：`agent.ctx` 只为该 agent 贡献，并在该处遮蔽同名全局段。同一层中的重复名称和非有限顺序会抛出。随调用 fiber 一并 dispose（资源释放）。
-- `ctx.systemPrompt.context(context: PromptContext): () => void`：贡献缓存安全的动态模型上下文。上下文与系统段分别排序；带作用域的贡献会遮蔽同名全局项。仅在完整当前集合变化或缺失时，agent loop（智能体循环）会在保留的历史后将其具体化为一份带来源的 user 角色快照。同一层中的重复名称和非有限顺序会抛出。随调用 fiber 一并 dispose。
 - `ctx.systemPrompt.tools(provider: (context: AssembleContext) => ToolProviderResult): () => void`：贡献工具 schema；每次组装时使用该次组装的上下文求值。`ToolProviderResult` = `{ schemas, knownNames? }`：`schemas` 是限制后的可见集合；`knownNames` 是限制前由 `toolOrder` 使用的全集。提供方不得返回名为 `TOOL_ORDER_REST` 的 schema。带作用域提供方只在其作用域的组装中查询。随调用 fiber 一并 dispose。
 - `ctx.systemPrompt.variable(name: string, provider: (context) => string | undefined): () => void`：贡献提示词变量，在段文本中以 `{{name}}` 引用。带作用域变量会为该 agent 遮蔽同名全局变量。同层重复或无法引用的名称会抛出；`undefined` 表示「本次组装没有值」。随调用 fiber 一并 dispose。
 - `ctx.systemPrompt.assemble(context?: AssembleContext): Promise<PromptAssembly>`：为一个调用方组装提示词：将全局层与 `context.scope` 的层合并，并在变换 seam 前分离工具 schema。它经过按作用域筛选的 `system-prompt/assemble` waterfall，并返回其权威结果。可选的 `context.signal` 显式控制本次组装请求；提供方与监听器可以配合该信号，但不得将它保留给另一轮次。当已配置的 `toolOrder` 指名提供方 `knownNames` 全集以外的工具，或提供方返回保留的其余项名称时，调用会被拒绝。
@@ -30,22 +29,19 @@
 
 - `AssembleContext`：说明一次 `assemble()` 调用的用途。它可通过合并扩展；此处声明 `scope?: ScopeKey`（层选择器）与 `signal?: AbortSignal`（显式请求控制能力），而 `dsh-agent` 声明 `agent?: Agent`（类型化 DX 字段；绝不能在没有 `scope` 时设置，应使用 `assembleContextFor(agent, signal)`）。提供方必须容忍字段缺席，因为裸 `assemble()` 携带的是无作用域、无信号的空上下文。`signal` 是请求值，不是环境 Agent 执行 frame 的一部分。
 - `PromptSection`：`{ name, order, text }`。各段按 `order` 升序拼接。顺序区间：`-100` 是 harness 身份，`0` 是部署 persona，工具引导使用 `100–199`。
-- `PromptContext`：`{ name, order, text }`。上下文承载不断变化的当前事实，这些事实不能改写已缓存的系统／历史前缀；上下文与段使用相同的逐组装提供方契约和严格变量契约。
-- `PromptAssembly`：`{ sections: AssembledSection[], contexts: AssembledContext[], tools: ToolSchema[], variables: Record<string, string | undefined> }`。段与上下文文本到达时已解析，但尚未插值；`variables` 包含对上下文解析后的每个已注册变量。工具 schema 按设计属于组装结果：「模型获知自己能做什么」是一个连贯整体，尽管适配器把 schema 作为独立 wire 字段传输。
+- `PromptAssembly`：`{ sections: AssembledSection[], tools: ToolSchema[], variables: Record<string, string | undefined> }`。段文本到达时已解析，但尚未插值；`variables` 包含对上下文解析后的每个已注册变量。工具 schema 按设计属于组装结果：「模型获知自己能做什么」是一个连贯整体，尽管适配器把 schema 作为独立 wire 字段传输。
 - `renderPrompt(assembly)`：插值每个段中的 `{{variable}}` 引用，删除空段，并用空行连接。严格规则：未知引用（使用 `Object.hasOwn` 查找，因此 `{{constructor}}` 等原型名称未知）、已注册但无值的引用、格式错误的完整 `{{…}}` 组，或一个起始 `{{` 没有打开完整组、但后面仍有 `}}`（`{{{model}}}`），都会抛出；明确失败胜过交付格式错误的提示词。孤立的 `{{` 如果后面任何位置都没有 `}}`，会按字面量通过；替换值绝不再次扫描。
-- `renderContextSnapshot(assembly)`：对上下文执行同样严格的插值，删除空条目，并发出一份带显式取代声明的完整快照。活动集合为空时返回 `''`；先前可见的上下文消失时，循环会发出一份清除快照。
 
 可通过合并扩展：插件可以借助声明合并，为 `PromptAssembly` 和 `AssembleContext` 声明额外字段。
 
 ### 扩展点
 
 - 段提供方：工具包（package）拥有跨调用引导（`tool:bash`、`tool:read` 等）；此插件拥有 `harness:identity` 与 `deployment:persona`。
-- 上下文提供方：策略及其他变化状态的归属方贡献完整的当前事实，而不改变稳定的系统提示词。
-- 变量提供方：agent loop 注册 `model` 与 `cwd`；任何插件都可以注册自己拥有的事实（未来的 `date`、git 状态等）。
+- 变量提供方：agent loop（智能体循环）注册 `model` 与 `cwd`；任何插件都可以注册自己拥有的事实（未来的 `date`、git 状态等）。
 - 工具 schema 提供方：`ToolRegistry` 自动将自身注册为工具提供方。
 - [`system-prompt/assemble` waterfall](#live-events)：按调用方协作式修改或替换组装结果。
 
-设计原理：[提示词变量 Agent Note（agent 决策记录）](../../../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)。
+设计原理：[提示词变量 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)。
 
 ## 模型体验
 
@@ -68,20 +64,6 @@ You are an AI agent powered by the DeepSeek Harness SDK.
 #### KV Cache 影响
 
 只要身份、persona、变量、段文本与顺序的渲染完全相同，前缀就保持稳定。任何变更都可能从第一个变化的系统提示词 token 起使复用失效。
-
-### 动态运行时上下文
-
-#### 模型看到的内容
-
-活动上下文经过严格插值后按确定顺序连接，并在首次需要该快照的请求之前立即记录为一条带来源的 user 角色消息。消息以 `Current runtime context. This snapshot supersedes earlier runtime-context snapshots.` 开头。变化后的快照会追加到保留的历史之后；保留的快照未变时不会增加内容。如果压缩移除了它，当前完整快照会再次发出。移除最后一项上下文时会发出一份显式清除快照。
-
-#### Token 影响
-
-首次请求、上下文实际变化、压缩移除保留的快照或活动集合变空时，会增加一条简洁消息。未变化的步骤不会增加重复 token。
-
-#### KV Cache 影响
-
-在保留的历史之后仅追加。上下文变化会保留先前缓存的系统与对话前缀，而不会改写第一条 wire 消息。
 
 ### 工具 schema
 

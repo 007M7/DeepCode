@@ -27,7 +27,7 @@ export type SurfaceOp =
   | { op: 'replace'; start: number; end: number }  // shadow [start, end] inclusive
 ```
 
-1. **Append** — add the new event seq to the tail. Used by `user/message`, `assistant/message`, `tool/result`, `context/message`, `steering/message`. The loop passes `surfaceOp: 'append'` on all such appends and records `sourceEventSeqs` where applicable: every successful `assistant/message` records its complete `assistant/chunk` source set, including `[]`, while `tool/result` records its `tool/call` source.
+1. **Append** — add the new event seq to the tail. Used by `user/message`, `assistant/message`, `tool/result`, `context/message`. The loop passes `surfaceOp: 'append'` on all such appends and records `sourceEventSeqs` where applicable: every successful `assistant/message` records its complete `assistant/chunk` source set, including `[]`, while `tool/result` records its `tool/call` source.
 
 2. **Replace** — remove entries from `start` through `end` (both inclusive) and insert the new event seq in their place. Both `start` and `end` must be present in the current surface; `start === end` replaces one entry. The event's `sourceEventSeqs` must contain every shadowed surface seq. The shadowed events remain in the log but are no longer on the surface.
 

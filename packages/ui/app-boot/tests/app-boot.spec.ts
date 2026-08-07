@@ -435,11 +435,10 @@ describe('boot', () => {
   })
 
   it('returns instead of asserting over a tree a surface disposed mid-startup', async () => {
-    // What a TUI `/exit` does (ui-tui's disposeRootAndExit): dispose the root
-    // fiber, which lands while boot() is still awaiting the Loader whenever the
-    // surface renders before the last entry settles. The Loader service goes
-    // with the tree, so reading it for the post-boot assertions would crash an
-    // app that exited exactly as the user asked.
+    // A surface can dispose the root fiber while boot() is still awaiting the
+    // Loader, before the last entry settles. The Loader service goes with the
+    // tree, so reading it for the post-boot assertions would crash an app that
+    // exited exactly as the user asked.
     const dir = tmp()
     writeFileSync(join(dir, 'exiting.mjs'), [
       'export const name = "exiting"',

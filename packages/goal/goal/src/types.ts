@@ -23,6 +23,23 @@ export interface GoalRef {
   readonly revision: number
 }
 
+/** Input whose omitted round cap is resolved by the service configuration. */
+export interface CreateGoalRequest {
+  readonly objective: string
+  readonly maxGoalRounds?: number
+}
+
+/** Wire-safe acknowledgement of one created goal. */
+export interface CreateGoalResult {
+  readonly ref: GoalRef
+}
+
+/** Fields changed by an edit; at least one must be present. */
+export interface EditGoalRequest {
+  readonly objective?: string
+  readonly maxGoalRounds?: number
+}
+
 /** Durable continuation phase. Activation is process-local and separate. */
 export type GoalPhase =
   | 'active'
@@ -50,9 +67,24 @@ export interface GoalSnapshot extends GoalRef {
   readonly maxGoalRounds: number
 }
 
+/** Whether this live process may automatically continue an active goal. */
+export type GoalActivation = 'armed' | 'disarmed'
+
+/** Current goal projection, including values derived from the session log. */
+export interface GoalView extends GoalSnapshot {
+  /** Highest admitted round number for this goal. */
+  readonly roundsStarted: number
+  /** Epoch milliseconds of the create mutation. */
+  readonly createdAt: number
+  /** Epoch milliseconds of the latest mutation. */
+  readonly updatedAt: number
+  /** Process-local continuation eligibility; never persisted. */
+  readonly activation: GoalActivation
+}
+
 /**
  * The `goal` projection value: the current durable goal with its replay
- * counters, exactly as the latest `goal/change` source carried them.
+ * counters, exactly as the latest `goal/change` event carried them.
  * Activation is process-local (never persisted) and deliberately absent —
  * the projection reflects durable phase only.
  */

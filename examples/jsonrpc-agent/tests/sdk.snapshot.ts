@@ -2,7 +2,7 @@
  * Keyless snapshot coverage for the TypeScript SDK path: each scenario spawns
  * the REAL `dsh-jsonrpc-agent` runtime (per `DSH_EXAMPLE_MODE`) through the
  * REAL `@deepseek-ai/dsh-sdk-client`, drives one turn over stdio JSON-RPC,
- * and pins three surfaces — the SDK `TurnResult`, the complete notification
+ * and pins three surfaces — the SDK `RunResult`, the complete notification
  * stream, and the persisted session logs. Replay serves recorded model
  * responses via `llm-replay` (`cordis.snapshot.yml`); `DSH_SNAPSHOT=record`
  * re-records against the live API; `DSH_SNAPSHOT=refresh` replays committed
@@ -25,7 +25,7 @@ import {
   type NormalizeContext,
 } from '@deepseek-ai/dsh-acp-snapshot'
 import { resolveExampleLaunch } from '@deepseek-ai/dsh-loader-smoke'
-import { DeepSeekHarness, type HarnessNotification, type TurnResult } from '@deepseek-ai/dsh-sdk-client'
+import { DeepSeekHarness, type HarnessNotification, type RunResult } from '@deepseek-ai/dsh-sdk-client'
 
 const testsDir = dirOf(import.meta.url)
 const snapshotsDir = join(testsDir, 'snapshots')
@@ -217,18 +217,17 @@ function normalizeNotifications(notifications: readonly HarnessNotification[], c
   return normalizeStdout(`${records.map(record => JSON.stringify(record)).join('\n')}\n`, ctx)
 }
 
-/** Normalize the turn-result projection (status, reason kind, final text). */
-function normalizeResult(result: TurnResult, ctx: NormalizeContext): string {
+/** Normalize the owned-run projection. */
+function normalizeResult(result: RunResult, ctx: NormalizeContext): string {
   return normalizeStdout(`${JSON.stringify({
-    status: result.status,
-    reason: result.reason,
+    sessionId: result.sessionId,
     finalResponse: result.finalResponse,
   })}\n`, ctx)
 }
 
 /** One SDK turn against a fresh runtime subprocess in an isolated cwd. */
 async function runScenario(scenario: SdkScenario): Promise<{
-  result: TurnResult
+  result: RunResult
   notifications: HarnessNotification[]
   logs: PersistedLog[]
   observedFiles: Record<string, string | MissingFile>
@@ -381,8 +380,10 @@ describe('TypeScript SDK snapshots over the jsonrpc runtime', () => {
       expect(normalizedResult).toBe(await readFile(resultExpectedPath, 'utf8'))
 
       // Wire-shape invariants that must hold in every mode.
-      expect(result.status).toBe('ok')
-      expect(notifications.at(-1)?.method).toBe('session.finished')
+      expect(notifications.at(-1)).toMatchObject({
+        method: 'session.status',
+        params: { status: 'idle' },
+      })
       expect(observedFiles).toEqual(scenario.expectedFiles ?? {})
       if (scenario.expectedTools !== undefined) {
         const parent = ordered[0]

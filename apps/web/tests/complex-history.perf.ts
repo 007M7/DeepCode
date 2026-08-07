@@ -319,10 +319,9 @@ function fixtureLog(session: Session): string {
 }
 
 function smallSidebarFixture(): string {
-  const session = new Session(SessionId('perf-small-template'))
+  const session = Session.create(SessionId('perf-small-template'))
   session.append('turn/start', {
     turn: 1,
-    trigger: { kind: 'message', source: { kind: 'user' } },
   })
   const user = session.append('user/message', createUserMessage({
     content: text('Inspect this compact synthetic session.'),
@@ -342,11 +341,10 @@ function smallSidebarFixture(): string {
 }
 
 function longHistoryFixture(): string {
-  const session = new Session(SessionId(LONG_SESSION_ID))
+  const session = Session.create(SessionId(LONG_SESSION_ID))
   for (let turn = 1; turn <= LONG_HISTORY_TURNS; turn += 1) {
     session.append('turn/start', {
       turn,
-      trigger: { kind: 'message', source: { kind: 'user' } },
     })
     const user = session.append('user/message', createUserMessage({
       content: text(

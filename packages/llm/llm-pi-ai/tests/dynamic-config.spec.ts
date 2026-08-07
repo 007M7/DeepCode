@@ -68,6 +68,7 @@ describe('request-level dynamic profiles', () => {
       displayName: 'openai',
       settingsNs: 'llm-pi-ai',
       settingsPath: ['providers', 'openai'],
+      declared: false,
     })
     await ctx.settings.update(NS, {
       providers: { deepseek: { apiKeyEnv: 'PI_DYNAMIC_KEY', baseURL: server.url } },
@@ -105,8 +106,8 @@ describe('request-level dynamic profiles', () => {
     // composition route stays.
     await ctx.settings.replace(NS, {})
     expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['openai'])
-    await expect(assemble(ctx, { provider: 'deepseek', model: 'deepseek-v4-flash', messages: [] }))
-      .rejects.toMatchObject({ code: 'NO_ADAPTER' })
+    const removed = await assemble(ctx, { provider: 'deepseek', model: 'deepseek-v4-flash', messages: [] })
+    expect(removed.finish).toMatchObject({ kind: 'error', failure: { code: 'NO_ADAPTER' } })
   })
 
   it('rotates the per-request credential referenced by apiKeyEnv', async () => {
@@ -146,13 +147,16 @@ describe('request-level dynamic profiles', () => {
     expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['openai'])
   })
 
-  it('keeps the last good profiles when a settings snapshot names an unknown provider', async () => {
+  it('refuses a settings write this adapter could not serve, leaving its routes alone', async () => {
     const dir = await home()
     const ctx = await boot(dir, { providers: { openai: {} } })
 
-    // Schema-valid but catalog-invalid: the resolver rejects it and the
-    // last good route set keeps serving.
-    await ctx.settings.update(NS, { providers: { 'not-a-real-provider': {} } })
+    // Shape-valid but unserviceable: a route the catalog does not ship and
+    // that lists no models of its own. The section schema resolves the whole
+    // profile set, so this is refused where it is written rather than stored
+    // and then quietly disabling every route in the namespace.
+    await expect(ctx.settings.update(NS, { providers: { 'not-a-real-provider': {} } }))
+      .rejects.toThrow(/resolves no models/)
     expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['openai'])
   })
 

@@ -22,13 +22,7 @@ export default defineConfig({
     const bundlePath = join(root, 'lib/client.js')
     await writeFile(sourcePath, 'export const version = "watch-v1"\n')
     bundles = await watchClientPlugins(root, ['.'], 50)
-    await expect.poll(async () => {
-      try {
-        return (await readFile(bundlePath, 'utf8')).includes('watch-v1')
-      } catch {
-        return false
-      }
-    }, { timeout: 10_000 }).toBe(true)
+    expect(await readFile(bundlePath, 'utf8')).toContain('watch-v1')
 
     await new Promise(resolve => setTimeout(resolve, 1_000))
     await writeFile(sourcePath, `export const version = "watch-v2-${'x'.repeat(100)}"\n`)

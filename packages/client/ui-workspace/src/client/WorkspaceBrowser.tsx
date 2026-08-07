@@ -308,6 +308,7 @@ function SearchResults({
               result={result}
               currentId={list.current}
               onOpen={open}
+              t={t}
             />
           ))}
         </div>

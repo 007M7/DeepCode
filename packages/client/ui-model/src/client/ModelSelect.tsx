@@ -174,8 +174,13 @@ export function ModelSelect(
     })
   }
 
-  const modelLabel = choices[selectedIndex]?.model.name ?? state.current?.model ?? t('trigger.fallback')
+  const modelLabel = currentChoice?.model.name ?? t('trigger.fallback')
   const triggerLabel = effortLabel === undefined ? modelLabel : `${modelLabel} · ${effortLabel}`
+  const triggerAria = currentChoice === undefined
+    ? t('trigger.selectAria')
+    : effortLabel === undefined
+      ? t('trigger.aria', { model: modelLabel })
+      : t('trigger.ariaEffort', { model: modelLabel, effort: effortLabel })
   itemRefs.current = []
   let itemIndex = 0
   const itemRef = () => {
@@ -189,9 +194,7 @@ export function ModelSelect(
         ref={triggerRef}
         type="button"
         className={css.trigger}
-        aria-label={effortLabel === undefined
-          ? t('trigger.aria', { model: modelLabel })
-          : t('trigger.ariaEffort', { model: modelLabel, effort: effortLabel })}
+        aria-label={triggerAria}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? `${id}-menu` : undefined}
@@ -276,9 +279,6 @@ export function ModelSelect(
                               <span className={css.modelName}>{model.name}</span>
                               {model.description !== undefined && (
                                 <span className={css.description}>{model.description}</span>
-                              )}
-                              {model.unlisted === true && (
-                                <span className={css.unlisted}>{t('option.currentUnlisted')}</span>
                               )}
                             </span>
                             <span className={css.check}>

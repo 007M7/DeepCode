@@ -1,6 +1,6 @@
 /**
  * Pure derivation of the terminal-card props from a frozen call slice: the
- * `card:'terminal'` render intent the bash tool declares arrives on the
+ * `card:'terminal'` render intent the shell tools declare arrives on the
  * snapshot as `callView`/`resultView`, and this is the one place that turns
  * that pair into what {@link TerminalBlock} draws. Both conversation render
  * sites (the chat tool row's expanded body and the details panel's Output

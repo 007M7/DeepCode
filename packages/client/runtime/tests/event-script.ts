@@ -12,7 +12,7 @@ const at = (seq: number, e: Record<string, unknown>): SessionEvent =>
 
 export const ev = {
   turnStart: (seq: number, turn: number): SessionEvent =>
-    at(seq, { type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } }),
+    at(seq, { type: 'turn/start', data: { turn } }),
   user: (seq: number, body: string): SessionEvent =>
     at(seq, { type: 'user/message', surfaceOp: 'append', data: createUserMessage({
       content: text(body), source: { kind: 'user' },
@@ -82,9 +82,16 @@ export const ev = {
       },
     }),
   turnEnd: (seq: number, turn: number, reason: 'completed' | 'aborted' | 'disposed' = 'completed'): SessionEvent =>
-    at(seq, { type: 'turn/end', data: { turn, reason: { kind: reason } } }),
+    at(seq, { type: 'turn/end', data: {
+      turn,
+      reason: reason === 'completed'
+        ? { kind: 'completed' }
+        : { kind: 'aborted', reason: { kind: reason === 'disposed' ? 'disposed' : 'user' } },
+    } }),
   commandRun: (seq: number, commandId: string, name: string, args = ''): SessionEvent =>
     at(seq, { type: 'command/run', data: { commandId, name, args, source: { kind: 'user' } } }),
+  commandRunWithoutInput: (seq: number, commandId: string, name: string): SessionEvent =>
+    at(seq, { type: 'command/run', data: { commandId, name, source: { kind: 'user' } } }),
   commandDone: (seq: number, commandId: string, kind: 'success' | 'error' = 'success', text?: string): SessionEvent =>
     at(seq, { type: 'command/done', data: { commandId, kind, ...text === undefined ? {} : { text } } }),
   /** A compaction's log-only `compact/summary` provenance record. */

@@ -60,7 +60,7 @@ describe('PermissionRow', () => {
     const mutate = vi.fn(() => Promise.resolve(ok(view('workspace-write', 1))))
     const controller = new PermissionSettingsController({
       settings: {
-        describe: () => Promise.resolve(ok({ writable: true, namespaces: [view('read-only')] })),
+        describe: () => Promise.resolve(ok({ writable: true, hasDocument: false, namespaces: [view('read-only')] })),
         mutate,
       } as never,
     })
@@ -87,7 +87,7 @@ describe('PermissionRow', () => {
     const mutate = vi.fn(() => Promise.resolve(ok(view('danger-full-access', 1))))
     const controller = new PermissionSettingsController({
       settings: {
-        describe: () => Promise.resolve(ok({ writable: true, namespaces: [view('read-only')] })),
+        describe: () => Promise.resolve(ok({ writable: true, hasDocument: false, namespaces: [view('read-only')] })),
         mutate,
       } as never,
     })
@@ -111,7 +111,7 @@ describe('PermissionRow', () => {
   it('hides an unavailable namespace and disables a read-only provider', async () => {
     const absent = new PermissionSettingsController({
       settings: {
-        describe: () => Promise.resolve(ok({ writable: true, namespaces: [] })),
+        describe: () => Promise.resolve(ok({ writable: true, hasDocument: false, namespaces: [] })),
         mutate: vi.fn(),
       } as never,
     })
@@ -121,7 +121,7 @@ describe('PermissionRow', () => {
 
     const readonly = new PermissionSettingsController({
       settings: {
-        describe: () => Promise.resolve(ok({ writable: false, namespaces: [view('read-only')] })),
+        describe: () => Promise.resolve(ok({ writable: false, hasDocument: false, namespaces: [view('read-only')] })),
         mutate: vi.fn(),
       } as never,
     })
@@ -148,7 +148,7 @@ describe('PermissionRow', () => {
     })
     mount(controller)
     expect((await screen.findByRole('button', { name: 'Loading' })).hasAttribute('disabled')).toBe(true)
-    describe.resolve(ok({ writable: true, namespaces: [view('read-only')] }))
+    describe.resolve(ok({ writable: true, hasDocument: false, namespaces: [view('read-only')] }))
     const button = await screen.findByRole('button', { name: 'Read Only' })
     fireEvent.click(button)
     fireEvent.click(screen.getByRole('menuitem', { name: 'Workspace Write' }))

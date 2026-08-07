@@ -137,19 +137,18 @@ export function TodoDock({ useProjection, t }: TodoDockProps) {
 }
 
 /**
- * The plan strip as a plain registrant plugin (QueueDock posture).
- * `inject: ['conversation']` is the ordering seam: the conversation service
- * mounts after ui-conversation's slot registrations, so the
- * 'conversation.input.dock' declaration is on the ledger by then.
+ * The plan strip as a plain registrant plugin (QueueDock posture), following
+ * the input-dock declaration across independent activation and reload.
  */
 export const todoDockEntry = {
   name: 'conversation-todo-dock',
-  inject: ['slots', 'conversation'],
+  inject: ['slots'],
   /**
    * Register the plan strip before the goal and queue entries (order 0).
    * @param ctx - registrant context (disposal rides ctx.effect inside slots.register).
    */
   apply(ctx: Context): void {
-    ctx.slots.register({ name: 'conversation.input.dock', id: 'todo', order: 0, locale: NS }, TodoDock)
+    ctx.slots.inject('conversation.input.dock', () =>
+      ctx.slots.register({ name: 'conversation.input.dock', id: 'todo', order: 0, locale: NS }, TodoDock))
   },
 }

@@ -31,8 +31,8 @@
   border-bottom: 1px solid var(--dsw-alias-border-l2);
 }
 
-/* Blank hero/settling: keep the header node mounted (stable Session tree for
-   the wrapActiveBody composer) without taking column space. */
+/* Blank hero/settling: keep the strict Session header mounted without taking
+   column space; the root-owned scrollport and composer remain below it. */
 .headerHidden {
   display: none;
 }
@@ -191,6 +191,19 @@
   flex-direction: column;
   min-height: 0;
   overflow-y: auto;
+  /* The column scrolls on ONE axis. Stating `hidden` rather than leaving the
+     initial `visible` is what removes the horizontal bar: a box that scrolls in
+     one axis computes `visible` to `auto` in the other, so any bleed becomes
+     user-scrollable. `.heroGlow` bleeds by construction (1051/776 of the hero
+     box), which put a horizontal scrollbar under every center column narrower
+     than the glow. Clipping is unchanged — `overflow-y: auto` already made this
+     a scroll container that clips both axes, so this only takes away the bar. */
+  overflow-x: hidden;
+  /* Reserved unconditionally: the composer seat rides this box's content box in
+     Chat and its padding box under a view's composer overlay, so an `auto`
+     gutter moves the input card sideways by the bar's width whenever the two
+     differ ([decision](../../../../../../.agents/notes/implemented/bug-fix/2026-08-04-composer-tab-gutter-reservation.md)). */
+  scrollbar-gutter: stable;
 }
 
 .root[data-phase='active'] .viewArea {
@@ -221,7 +234,13 @@
    ownership of the seat geometry and its active-phase precedence. */
 .scrollBody:has([data-conversation-composer-overlay]) {
   position: relative;
-  overflow: hidden;
+  /* A clipping box nothing scrolls out of, stated as a scroll container on both
+     axes rather than `overflow: hidden`: WebKit honours the reservation above
+     only in the `overflow-y: auto` form, and a single-axis scroller computes
+     the other axis to `auto`
+     ([decision](../../../../../../.agents/notes/implemented/bug-fix/2026-08-04-composer-tab-gutter-reservation.md)). */
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .scrollBody:has([data-conversation-composer-overlay]) > .viewArea {

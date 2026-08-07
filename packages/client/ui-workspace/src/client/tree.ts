@@ -4,7 +4,8 @@
  * remains visible.
  */
 import type {
-  SessionId, SessionListState, SessionSearchResultItem, SessionSummary, WorkspaceId, WorkspaceView,
+  PendingInteractionStatus, SessionId, SessionListState, SessionSearchResultItem, SessionSummary,
+  WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
 
 /** Group key for Sessions outside every Workspace. */
@@ -20,9 +21,11 @@ export interface SessionNode {
   title: string
   /** The provisional blank session (renderer shows the localized New Session title). */
   blank: boolean
-  /** The runtime Session list reports a pending approval request for this Session. */
-  waitingApproval: boolean
+  /** The runtime Session list reports an interaction awaiting this user. */
+  pendingInteraction?: PendingInteractionStatus
   running: boolean
+  /** Finished running while not selected and not yet opened (the green "done" reminder dot). */
+  completed: boolean
   updatedAt: number
 }
 
@@ -50,7 +53,11 @@ export interface SearchResultNode {
   id: SessionId
   title: string
   workspace: string
+  /** The runtime Session list reports an interaction awaiting this user. */
+  pendingInteraction?: PendingInteractionStatus
   running: boolean
+  /** Finished running while not selected and not yet opened (the green "done" reminder dot). */
+  completed: boolean
   snippet?: string
 }
 
@@ -171,9 +178,10 @@ function sessionNode(s: SessionSummary): SessionNode {
     id: s.id,
     title: sessionTitle(s),
     blank: s.blank,
-    waitingApproval: s.waitingApproval,
     running: s.running,
+    completed: s.completed === true,
     updatedAt: s.updatedAt,
+    ...(s.pendingInteraction === undefined ? {} : { pendingInteraction: s.pendingInteraction }),
   }
 }
 
@@ -324,6 +332,10 @@ export function deriveSearchResults(
         title: sessionTitle(summary),
         workspace: labelOf(summary),
         running: summary.running,
+        ...(summary.pendingInteraction === undefined
+          ? {}
+          : { pendingInteraction: summary.pendingInteraction }),
+        completed: summary.completed === true,
         ...match === undefined ? {} : { snippet: match.snippet },
       }
     }),

@@ -8,6 +8,8 @@ Client command surface (`ctx.command`): the session-keyed command-directory cach
 
 `CommandDirectory` (`src/client/directory.ts`) is the one wire-derived cache, keyed by session. Ordinary sessions fetch through `command.list({sessionId})`, and the source's scope-birth `warm` hook prewarms the session's entry. Catalog-addressed continuable children resolve an empty command directory locally: `command.list` is Agent-bound, so prewarming it would activate a child merely to view persisted history. Entries are soft-invalidated by the `commands/changed` typed event (old snapshot serves while the repull flies), hard-invalidated by `connection/reset`, epoch-guarded so a superseded pull can never overwrite a newer one. `matchSpace` answers synchronously from this cache only; `matchEnter` strong-waits it on the SubmitAttempt signal and rejects on warmup failure — a `/` line is never silently downgraded to a plain prompt.
 
+Menu queries fuzzy-match ordered, case-insensitive subsequences of command names. Prefixes rank first; separator boundaries, adjacent characters, and shorter gaps rank the remaining matches, with directory and contribution order breaking ties. This affects discovery only: space and Enter still require an exact command name. Rationale: [Web slash-command fuzzy discovery](../../../.agents/notes/implemented/feature/2026-08-04-web-slash-command-fuzzy-discovery.md).
+
 `PopupSelectController` (`src/client/popup.ts`) is the headless shell state: `PopupSelectView` self-registers into `conversation.input.overlay` (the SlotMap key is ui-conversation's; this package pulls the declaration in with a type-only import — no runtime edge). The shell is a transient layer holding focus while open; token-segment consumption after onSelect runs both branches through `consumeTokenSegment` (menu-path span CAS, enter-path bare-token equality) against the draft face the wiring layer binds via `bindDraft`.
 
 The `/client` export surface is the plugin body (`apply`/`inject`), `CommandService`, the directory and popup classes with their state types, and the frozen contract types; the shell component itself is internal to the overlay registration.
@@ -22,5 +24,4 @@ None directly; this package neither assembles nor sends a provider request. Comm
 
 ## Known Limitations and Deferred Work
 
-- **The popupSelect shell has no shipped business consumer** — model selection (host `selectModel`) is the design's reference case and lands with its own feature work; until then the shell is exercised by package tests only.
 - **Detached-result notices fall back to the console off-session** — the fire-and-forget paths route results to the triggering session's composer via `SessionInput.notify`; after session teardown the console line is the only remaining surface.

@@ -8,7 +8,7 @@ import { parseArgs } from 'node:util'
 import type { Context } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, type TokenUsage } from '@deepseek-ai/dsh-llm'
-import type { SessionEvent, TurnEndReason } from '@deepseek-ai/dsh-session'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { boot, loadEnv, resolveConfigPath } from '@deepseek-ai/dsh-app-boot'
 
 const CLI_NAME = 'dsh-cli-demo'
@@ -32,11 +32,8 @@ export type CliCommand =
 /** DSH-native final record emitted by JSON modes. */
 export interface CliResult {
   readonly type: 'result'
-  readonly success: boolean
   readonly sessionId: string
-  readonly turn: number
-  readonly result: string
-  readonly reason: TurnEndReason
+  readonly output: string
   readonly usage?: TokenUsage
 }
 
@@ -203,13 +200,8 @@ async function waitForStartupIdle(agent: Agent, signal?: AbortSignal): Promise<v
 }
 
 /**
- * Run one message-triggered turn on the configured top-level agent, aggregate its
- * final text and model usage, wait for idle plus an explicit persistence flush,
- * and return its durable ending. Only the selected agent's task turn reaches
- * `onEvent`; startup injections and unrelated sessions are ignored. The context
- * must contain exactly one top-level agent. Signal abort cancels that agent; an
- * abort before the correlated task turn rejects. An observer throw cancels the
- * turn and is rethrown after the agent reaches idle and the session flushes.
+ * Run one owned activity interval on the configured top-level agent, from the
+ * task's durable enqueue receipt through whole-agent idle.
  * @param ctx - settled Loader root containing one agent plus `ctx.sessions`.
  * @param options - task, optional cancellation, and optional stream observer.
  * @returns the DSH-native result envelope after durable quiescence.
@@ -222,68 +214,40 @@ export async function runOneShot(ctx: Context, options: OneShotOptions): Promise
   }
   await waitForStartupIdle(agent, options.signal)
 
-  let targetTurn: number | undefined
-  let reason: TurnEndReason | undefined
-  let result = ''
+  const message = createUserMessage({ content: [{ type: 'text', text: options.task }], source: { kind: 'user' } })
+  let received = false
+  let output = ''
   const usageByStep = new Map<string, TokenUsage>()
   let outputError: Error | undefined
-  let resolveTurn!: () => void
-  let rejectTurn!: (error: Error) => void
-  let firstTurnEnded = false
-  const turnEnded = new Promise<void>((resolve, reject) => {
-    resolveTurn = resolve
-    rejectTurn = reject
-  })
-
-  const settleResolved = (): void => {
-    if (firstTurnEnded) return
-    firstTurnEnded = true
-    resolveTurn()
-  }
-  const settleRejected = (error: Error): void => {
-    // The once-registered abort listener is the only rejecter, and a settled
-    // prompt makes targetTurn defined so onAbort skips rejection entirely;
-    // kept for symmetry with settleResolved.
-    /* v8 ignore next -- unreachable second settlement, see above */
-    if (firstTurnEnded) return
-    firstTurnEnded = true
-    rejectTurn(error)
-  }
+  let interrupted: CliInterruptedError | undefined
   const observe = (sessionId: string, event: SessionEvent): void => {
     if (outputError !== undefined || options.onEvent === undefined) return
     try {
       options.onEvent(sessionId, event)
     } catch (error: unknown) {
       outputError = toError(error)
-      agent.cancel({ kind: 'user' })
+      queueMicrotask(() => {
+        agent.cancel({ kind: 'user' })
+      })
     }
   }
 
   const disposeListener = ctx.on('session/event', (session, event) => {
     if (session !== agent.session) return
-    if (targetTurn === undefined) {
-      if (event.type !== 'turn/start' || event.data.trigger.kind !== 'message') return
-      targetTurn = event.data.turn
-    } else if (event.type === 'turn/start' && event.data.trigger.kind === 'retry'
-      && reason?.kind === 'error') {
-      targetTurn = event.data.turn
-      reason = undefined
+    if (!received) {
+      if (event.type !== 'agent/inbox/spliced'
+        || !event.data.inserted.some(inserted => inserted.id === message.id)) return
+      received = true
     }
     observe(session.id, event)
-    if (event.type === 'assistant/chunk'
-      && event.data.turn === targetTurn
-      && event.data.chunk.type === 'usage') {
+    if (event.type === 'assistant/chunk' && event.data.chunk.type === 'usage') {
       usageByStep.set(`${event.data.turn}/${event.data.step}`, event.data.chunk.usage)
     }
-    if (event.type === 'assistant/message' && event.data.turn === targetTurn) {
-      result = assistantText(event) ?? result
+    if (event.type === 'assistant/message') {
+      output = assistantText(event) ?? output
       if (event.data.usage !== undefined) {
         usageByStep.set(`${event.data.turn}/${event.data.step}`, event.data.usage)
       }
-    }
-    if (event.type === 'turn/end' && event.data.turn === targetTurn) {
-      reason = event.data.reason
-      settleResolved()
     }
   })
 
@@ -291,8 +255,8 @@ export async function runOneShot(ctx: Context, options: OneShotOptions): Promise
   let onAbort: (() => void) | undefined
   if (signal !== undefined) {
     onAbort = (): void => {
+      interrupted ??= new CliInterruptedError(interruptionReason(signal))
       agent.cancel({ kind: 'user' })
-      if (targetTurn === undefined) settleRejected(new CliInterruptedError(interruptionReason(signal)))
     }
     signal.addEventListener('abort', onAbort, { once: true })
     /* v8 ignore next -- closes the race between startup-idle completion and listener registration */
@@ -300,37 +264,27 @@ export async function runOneShot(ctx: Context, options: OneShotOptions): Promise
   }
 
   try {
-    /* v8 ignore next -- skips send only when cancellation wins the listener-registration race above */
-    if (!firstTurnEnded) { // oxlint-disable-line typescript/no-unnecessary-condition
-      agent.followup(createUserMessage({ content: [{ type: 'text', text: options.task }], source: { kind: 'user' } }))
-    }
-    await turnEnded
+    if (interrupted === undefined) agent.followup(message)
+    await agent.whenIdle()
   } finally {
     if (onAbort !== undefined) signal?.removeEventListener('abort', onAbort)
-    await agent.whenIdle()
     disposeListener()
   }
 
-  /* v8 ignore next 3 -- turnEnded resolves only from the matching branch that assigns both values */
-  if (targetTurn === undefined || reason === undefined) {
-    throw new Error('task ended without a correlated turn/end event')
-  }
   await ctx.sessions.flush(agent.session)
   if (outputError !== undefined) throw outputError
+  if (interrupted !== undefined) throw interrupted
   const usage = [...usageByStep.values()].reduce<TokenUsage | undefined>(addUsage, undefined)
   return {
     type: 'result',
-    success: reason.kind === 'completed',
     sessionId: agent.session.id,
-    turn: targetTurn,
-    result,
-    reason,
+    output,
     ...usage === undefined ? {} : { usage },
   }
 }
 
 function renderResult(outputFormat: OutputFormat, result: CliResult): string {
-  return outputFormat === 'text' ? `${result.result}\n` : `${JSON.stringify(result)}\n`
+  return outputFormat === 'text' ? `${result.output}\n` : `${JSON.stringify(result)}\n`
 }
 
 /**
@@ -377,23 +331,6 @@ async function bootInterruptibly(
     throw error
   } finally {
     signal.removeEventListener('abort', onAbort)
-  }
-}
-
-/**
- * Render a non-completed turn reason for stderr.
- * @param reason - durable turn ending to describe.
- * @returns a concise diagnostic fragment.
- */
-export function formatTurnFailure(reason: TurnEndReason): string {
-  switch (reason.kind) {
-    case 'completed': return 'completed'
-    case 'aborted': return 'was aborted'
-    case 'error': return `failed at step ${reason.step}: ${'failure' in reason ? reason.failure.message : reason.message}`
-    case 'disposed': return 'was disposed'
-    case 'max-tokens': return 'reached the model output-token limit'
-    case 'interrupted': return 'was interrupted during persistence recovery'
-    default: return `ended with ${JSON.stringify(reason)}`
   }
 }
 
@@ -451,8 +388,7 @@ export async function executeCli(args: readonly string[], runtime: CliRuntime = 
         : {},
     })
     writeStdout(renderResult(command.outputFormat, result))
-    exitCode = result.success ? 0 : 1
-    if (!result.success) diagnostic = `${CLI_NAME}: turn ${result.turn} ${formatTurnFailure(result.reason)}\n`
+    exitCode = 0
   } catch (error: unknown) {
     diagnostic = `${CLI_NAME}: ${toError(error).message}\n`
   } finally {

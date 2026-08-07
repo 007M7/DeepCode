@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Model-input assembly registry. Plugins contribute ordered stable system sections, cache-safe dynamic context, tool schemas, and named variables. The loop assembles once per step, renders stable sections as the system prompt, and appends a durable full dynamic-context snapshot only when its text changes or compaction removed the retained snapshot. This plugin owns the static harness identity and global deployment persona; an agent-scoped persona shadows the global default.
+System prompt assembly registry. Plugins contribute ordered sections, tool schemas, and named variables. The loop assembles once per step and renders the result as the complete model prompt. This plugin owns the static harness identity and global deployment persona; an agent-scoped persona shadows the global default.
 
 ## Config
 
@@ -17,7 +17,6 @@ Model-input assembly registry. Plugins contribute ordered stable system sections
 ### Public API
 
 - `ctx.systemPrompt.section(section: PromptSection): () => void` Contribute a section. The layer is the calling context's scope: `agent.ctx` contributes to that agent alone, shadowing a same-named global section there. Duplicate names within one layer and non-finite orders throw. Disposed with the calling fiber.
-- `ctx.systemPrompt.context(context: PromptContext): () => void` Contribute cache-safe dynamic model context. Contexts are ordered independently from system sections; scoped contributions shadow same-named globals. The agent loop materializes the complete current set as one sourced user-role snapshot after retained history, only when changed or missing. Duplicate names within one layer and non-finite orders throw. Disposed with the calling fiber.
 - `ctx.systemPrompt.tools(provider: (context: AssembleContext) => ToolProviderResult): () => void` Contribute tool schemas, evaluated at each assembly with that assembly's context. `ToolProviderResult` = `{ schemas, knownNames? }`: `schemas` is the post-restriction visible set; `knownNames` is the pre-restriction universe used by `toolOrder`. A provider must not return a schema named `TOOL_ORDER_REST`. Scoped providers are consulted only for their scope's assemblies. Disposed with the calling fiber.
 - `ctx.systemPrompt.variable(name: string, provider: (context) => string | undefined): () => void` Contribute a prompt variable, referenced from section text as `{{name}}`. Scoped variables shadow a same-named global for that agent. Duplicate-in-layer or unreferenceable names throw; `undefined` means "no value for this assembly". Disposed with the calling fiber.
 - `ctx.systemPrompt.assemble(context?: AssembleContext): Promise<PromptAssembly>` Assemble the prompt for one caller: the global layer merged with `context.scope`'s layer, with tool schemas detached before the transform seam. Runs through the scope-filtered `system-prompt/assemble` waterfall and returns its authoritative result. An optional `context.signal` explicitly controls this assembly request; providers and listeners may cooperate with it but must not retain it for another turn. Rejects when a configured `toolOrder` names a tool outside the providers' `knownNames` universe, or when a provider returns the reserved rest-entry name.
@@ -30,17 +29,14 @@ Model-input assembly registry. Plugins contribute ordered stable system sections
 
 - `AssembleContext` — what one `assemble()` call is FOR. Merge-extensible; declares `scope?: ScopeKey` (the layer selector) and `signal?: AbortSignal` (the explicit request control capability) here, while `dsh-agent` declares `agent?: Agent` (the typed DX field — never set without `scope`; use `assembleContextFor(agent, signal)`). Providers must tolerate absent fields because a bare `assemble()` carries an empty, scope-less, signal-less context. `signal` is a request value, not part of the ambient Agent execution frame.
 - `PromptSection` — `{ name, order, text }`. Sections are concatenated in ascending `order`. Order bands: `-100` is the harness identity, `0` the deployment persona, tool guidance uses `100–199`.
-- `PromptContext` — `{ name, order, text }`. Contexts carry changing current facts that must not rewrite the cached system/history prefix; they use the same per-assembly provider and strict-variable contracts as sections.
-- `PromptAssembly` — `{ sections: AssembledSection[], contexts: AssembledContext[], tools: ToolSchema[], variables: Record<string, string | undefined> }`. Section and context texts arrive resolved but not yet interpolated; `variables` holds every registered variable resolved against the context. Tool schemas are part of the assembly by design: "what the model is told it can do" is one coherent thing, even though adapters transmit schemas as a separate wire field.
+- `PromptAssembly` — `{ sections: AssembledSection[], tools: ToolSchema[], variables: Record<string, string | undefined> }`. Section texts arrive resolved but not yet interpolated; `variables` holds every registered variable resolved against the context. Tool schemas are part of the assembly by design: "what the model is told it can do" is one coherent thing, even though adapters transmit schemas as a separate wire field.
 - `renderPrompt(assembly)` — interpolates `{{variable}}` references in each section, drops empty sections, joins with blank lines. STRICT: an unknown reference (`Object.hasOwn` lookup — prototype names like `{{constructor}}` are unknown), a registered-but-valueless reference, a malformed complete `{{…}}` group, or a `{{` that opens no complete group while a `}}` still follows (`{{{model}}}`) throws — fail loud beats shipping a malformed prompt. A lone `{{` with no `}}` anywhere after it passes through verbatim; substituted values are never re-scanned.
-- `renderContextSnapshot(assembly)` — applies the same strict interpolation to contexts, drops empty entries, and emits one full snapshot with an explicit supersession statement. An empty active set returns `''`; the loop emits one clearing snapshot when previously visible context disappears.
 
 Merge-extensible: plugins can declare extra fields on `PromptAssembly` and `AssembleContext` via declaration merging.
 
 ### Extension points
 
 - Section providers: tool packages own their cross-call guidance (`tool:bash`, `tool:read`, …); this plugin owns `harness:identity` and `deployment:persona`.
-- Context providers: policy and other changing-state owners contribute complete current facts without mutating the stable system prompt.
 - Variable providers: the agent loop registers `model` and `cwd`; any plugin can register the facts it owns (a future `date`, git state, …).
 - Tool schema providers: `ToolRegistry` registers itself as a tool provider automatically.
 - The [`system-prompt/assemble` waterfall](#live-events): cooperatively mutate or replace the assembly per caller.
@@ -68,20 +64,6 @@ Identity is a fixed per-request cost when enabled. Persona and plugin text are r
 #### KV Cache effect
 
 Prefix-stable while identity, persona, variables, section text, and order render identically. Any change may invalidate reuse from the first changed system-prompt token.
-
-### Dynamic runtime context
-
-#### What the model sees
-
-Active contexts are joined in deterministic order after strict interpolation and logged as one sourced user-role message immediately before the request that first needs that snapshot. The message begins `Current runtime context. This snapshot supersedes earlier runtime-context snapshots.` A changed snapshot is appended after retained history; an unchanged retained snapshot adds nothing. If compaction removes it, the current full snapshot is emitted again. Removing the last context emits one explicit clearing snapshot.
-
-#### Token effect
-
-One concise message on the first request, on an effective context change, after compaction removed the retained snapshot, or when the active set becomes empty. Unchanged steps add no duplicate tokens.
-
-#### KV Cache effect
-
-Append-only after retained history. A context change preserves the previously cached system and conversation prefix instead of rewriting the first wire message.
 
 ### Tool schemas
 

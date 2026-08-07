@@ -69,7 +69,7 @@ async function load(root: string): Promise<SessionEvent[]> {
   await ctx.plugin(SessionStore)
   await ctx.plugin(SessionPersistenceJsonl, { root, compression: 'none' })
   try {
-    return (await ctx.sessionPersistence.load(sessionId)).events
+    return [...(await ctx.sessionPersistence.load(sessionId)).events]
   } finally {
     await ctx.fiber.dispose()
   }
@@ -85,7 +85,8 @@ describe.skipIf(process.platform === 'win32')('semantic checkpoint hard-crash re
     expect(crashed.markerText).toBe('request-dispatched')
     const events = await load(crashed.root)
     expect(events.map(event => event.type)).toEqual([
-      'turn/start', 'user/message', 'step/start', 'request/header', 'request/context', 'step/end', 'turn/end',
+      'agent/inbox/spliced', 'turn/start', 'agent/inbox/spliced',
+      'step/start', 'user/message', 'request/header', 'request/context', 'step/end', 'turn/end',
     ])
     expect(events.at(-1)).toMatchObject({
       type: 'turn/end', data: { reason: { kind: 'interrupted' } },

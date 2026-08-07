@@ -12,7 +12,7 @@ Status: implemented
 
 ## 决策
 
-`sse.ts` 将 SSE 分帧委托给 `eventsource-parser/stream` 的 `EventSourceParserStream`：`parseSse` 把响应 body 依次管道接入 `new TextDecoderStream()` 和 `new EventSourceParserStream()`，只保留 DeepSeek 协议垫层——逐个产出事件的 `data`，遇到 `[DONE]` 终止，流在未见哨兵时结束则抛出 `LlmError('STREAM_CLOSED')`。所需的全部内置能力（`TextDecoderStream`、`pipeThrough`、可异步迭代的 `ReadableStream`）在 Node ^22.19 引擎下限即已存在。规范符合性测试已删除；`tests/sse.spec.ts` 只固定 `[DONE]`/`STREAM_CLOSED`/EOF 契约。`eventsource-parser` 是 `llm-deepseek` 继 schemastery 之后的第二个运行时依赖。曾把该适配器标为「手写 fetch + SSE 解析」的[孪生适配器 Agent Note（agent 决策记录）](../architecture/2026-06-13-twin-llm-adapters.md)与 `dsh-llm` JSDoc，现在将其描述为直接 fetch 加库分帧的 SSE。
+`sse.ts` 将 SSE 分帧委托给 `eventsource-parser/stream` 的 `EventSourceParserStream`：`parseSse` 把响应 body 依次管道接入 `new TextDecoderStream()` 和 `new EventSourceParserStream()`，只保留 DeepSeek 协议垫层——逐个产出事件的 `data`，遇到 `[DONE]` 终止，流在未见哨兵时结束则抛出 `LlmError('STREAM_CLOSED')`。所需的全部内置能力（`TextDecoderStream`、`pipeThrough`、可异步迭代的 `ReadableStream`）在 Node ^22.19 引擎下限即已存在。规范符合性测试已删除；`tests/sse.spec.ts` 只固定 `[DONE]`/`STREAM_CLOSED`/EOF 契约。`eventsource-parser` 是 `llm-deepseek` 继 schemastery 之后的第二个运行时依赖。曾把该适配器标为「手写 fetch + SSE 解析」的[孪生适配器 Agent Note](../architecture/2026-06-13-twin-llm-adapters.md)与 `dsh-llm` JSDoc，现在将其描述为直接 fetch 加库分帧的 SSE。
 
 该库还会剥离开头的 BOM（手写解析器在 BOM 之后会无法匹配 `data:`），并提供手写解析器缺少的 `maxBufferSize` 加固能力。
 

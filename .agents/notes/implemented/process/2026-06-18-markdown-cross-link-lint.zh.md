@@ -6,9 +6,9 @@ Status: implemented
 
 ## 问题
 
-本仓库的文档通过相对路径互相链接：`[topic](../implemented/2026-…-….md)`、`[the cookbook](adding-a-tool.md)`、`[architecture.md](../../architecture.md)`。此前没有任何机制验证这些目标是否存在。重命名或移动文件会静默破坏所有指向它的链接，且在读者点击之前不可见。[Doc-sync 强制](../../archived/process/2026-06-11-doc-sync-enforcement.md)已经将两类文档漂移机械化（无法编译的代码块、陈旧的事件分类表），[verify-md-wrap](../../archived/process/2026-06-11-doc-sync-enforcement.md) 覆盖了第三类（硬换行的段落），但死链是第四类同样可机械检查、却仍靠肉眼验证的问题。
+本仓库的文档通过相对路径互相链接：`[topic](../implemented/2026-…-….md)`、`[the cookbook](adding-a-tool.md)`、`[architecture.md](../../architecture.md)`。此前没有任何机制验证这些目标是否存在。重命名或移动文件会静默破坏所有指向它的链接，且在读者点击之前不可见。[doc-sync（文档同步门禁）强制执行](../../archived/process/2026-06-11-doc-sync-enforcement.md)已经将两类文档漂移的检查自动化（无法编译的代码块、陈旧的事件分类表），[verify-md-wrap](../../archived/process/2026-06-11-doc-sync-enforcement.md) 覆盖了第三类（硬换行的段落），但死链是第四类同样可机械检查、却仍靠肉眼验证的问题。
 
-引入这道门禁的直接动因是 Agent Note（agent 决策记录）目录树重组：将 `docs/adr/` 与 `.agents/notes/` 统一到同一个 `.agents/notes/` 下，并设置 `proposed/`、`implemented/`、`rejected/` 子目录，需要手工重命名约 40 条文档间链接。只要有一处路径输入错误，就会在没有任何检查拦截的情况下交付断链。
+引入这道门禁的直接动因是 Agent Note 目录树重组：将 `docs/adr/` 与 `.agents/notes/` 统一到同一个 `.agents/notes/` 下，并设置 `proposed/`、`implemented/`、`rejected/` 子目录，需要手工重命名约 40 条文档间链接。只要有一处路径输入错误，就会在没有任何检查拦截的情况下交付断链。
 
 ## 决策
 
@@ -18,9 +18,9 @@ Status: implemented
 - 仅当目标是**相对路径**时才检查。跳过带协议的 URL（`https:`、`mailto:` 等）、协议相对路径（`//host`）、根绝对路径（`/path`，在检出目录中没有稳定基准）以及纯页内锚点（`#section`）。剥除 `#fragment`/`?query`，相对于链接所在文件的目录解析路径，并断言目标在磁盘上存在。
 - 只报告、不改写；发现第一条死链即以非零状态退出。
 
-检查范围与其他门禁一致，并额外包含 AGENTS.md 文件对以及 `.agents/skills/` 下仓库自有的 agent-skill（技能）Markdown（这些 skill 文件会交叉链接到 docs 目录树，因此本次重组也改写了其中的链接）：`README.md`、`docs/**/*.md`、`packages/*/README.md`、`AGENTS.md`、`packages/AGENTS.md`、`.agents/skills/**/*.md`。系统按真实路径去重（`CLAUDE.md` symlink 会解析到 AGENTS.md 文件）。该检查接入 `doc-sync`，因此相关文档变更与 CI 执行同一套断链检查。
+检查范围与其他门禁一致，并额外包含 AGENTS.md 文件对以及 `.agents/skills/` 下仓库自有的 agent skill（技能）Markdown（这些 skill 文件会交叉链接到 docs 目录树，因此本次重组也改写了其中的链接）：`README.md`、`docs/**/*.md`、`packages/*/README.md`、`AGENTS.md`、`packages/AGENTS.md`、`.agents/skills/**/*.md`。系统按真实路径去重（`CLAUDE.md` symlink 会解析到 AGENTS.md 文件）。该检查接入 `doc-sync`，因此相关文档变更与 CI 执行同一套断链检查。
 
-本门禁检查的是*文件存在性*，而非锚点有效性：指向一个真实文件但带有 `#wrong-heading` 片段的链接仍会通过（文件可解析；片段被剥除）。
+本门禁检查的是*文件存在性*，而非锚点有效性：指向一个真实文件但带有 `#wrong-heading` 片段的链接仍会通过（文件路径可解析；片段被剥除）。
 
 ## 曾考虑的替代方案
 

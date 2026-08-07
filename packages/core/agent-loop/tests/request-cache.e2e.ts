@@ -59,7 +59,7 @@ async function loopHarness(): Promise<Context> {
 
 function waitForIdle(context: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
-    const dispose = context.on('agent/status', (subject, status) => {
+    const dispose = context.on('agent/status', ({ agent: subject, status }) => {
       if (subject === agent && status === 'idle') {
         dispose()
         resolve()

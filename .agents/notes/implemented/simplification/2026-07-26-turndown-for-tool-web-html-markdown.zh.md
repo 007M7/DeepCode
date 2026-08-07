@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-`dsh-tool-web` 的 `src/html.ts`（约 86 行，另有约 40 行专属测试；已由本变更删除）曾用正则表达式把抓取到的 HTML 转成 markdown：剥离 script、style、noscript 标签与注释，转换 `<a>`/`<h1-6>`/`<li>`，解码数字实体外加一张 12 项的命名实体表，并折叠空白。该模块自身的 JSDoc 写明「A richer converter can replace it without changing the seam or tool schema」，README 的 Known Limitations 章节也把它记载为「a minimal regex converter, not an HTML parser — tables, images, and nested formatting are lost」。[web 能力 seam 决策记录](../architecture/2026-06-24-web-capability-seam.md)把 HTML 转 markdown 作为呈现职责划归本包（package），因此替换点恰好就在这里。每个抓取到的 HTML 页面上，该转换器的输出都对模型可见；此前没有任何无密钥快照执行到 `web_fetch`，因此没有预期输出固定它的行为。
+`dsh-tool-web` 的 `src/html.ts`（约 86 行，另有约 40 行专属测试；已由本变更删除）曾用正则表达式把抓取到的 HTML 转成 markdown：剥离 script、style、noscript 标签与注释，转换 `<a>`/`<h1-6>`/`<li>`，解码数字实体外加一张 12 项的命名实体表，并折叠空白。该模块自身的 JSDoc 写明「A richer converter can replace it without changing the seam or tool schema」，README 的 Known Limitations 章节也把它记载为「a minimal regex converter, not an HTML parser — tables, images, and nested formatting are lost」。[web 能力 seam 决策记录](../architecture/2026-06-24-web-capability-seam.md)把 HTML 转 markdown 作为呈现职责划归本包，因此替换点恰好就在这里。每个抓取到的 HTML 页面上，该转换器的输出都对模型可见；此前没有任何无密钥快照执行到 `web_fetch`，因此没有预期输出固定它的行为。
 
 ## 决策
 
@@ -16,7 +16,7 @@ Status: implemented
 
 ## 快照覆盖
 
-此前缺失的无密钥 `web_fetch` 快照随本变更以 acp-agent 场景 `web-fetch` 落地：`examples/acp-agent/web.cordis.yml` 组合了 web seam、真实的 `dsh-web-fetch-local` 提供方、`search: false` 的 `tool-web`，以及 `web-fetch-fixture-server.mjs`——一个固定端口（抓取的 URL 是录制 transcript（文本记录）的一部分）上的回环 HTTP fixture，提供包含命名实体、GFM 表格与嵌套格式的确定性 HTML。录制与无密钥回放都驱动真实的 HTTP 抓取与转换；固定住的工具结果就是 turndown 的输出，该场景同时固定 `web` header 类（`web_fetch` 的 schema 与指引）。
+此前缺失的无密钥 `web_fetch` 快照随本变更以 acp-agent 场景 `web-fetch` 落地：`examples/acp-agent/web.cordis.yml` 组合了 web seam、真实的 `dsh-web-fetch-local` 提供方、`search: false` 的 `tool-web`，以及 `web-fetch-fixture-server.mjs`——一个固定端口（抓取的 URL 是录制 transcript（文本记录）的一部分）上的回环 HTTP fixture（测试前置数据），提供包含命名实体、GFM 表格与嵌套格式的确定性 HTML。录制与无密钥回放都驱动真实的 HTTP 抓取与转换；固定住的工具结果就是 turndown 的输出，该场景同时固定 `web` header 类（`web_fetch` 的 schema 与指引）。
 
 ## 曾考虑的替代方案
 

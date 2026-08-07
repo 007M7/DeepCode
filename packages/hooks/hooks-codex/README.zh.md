@@ -12,7 +12,7 @@
 - **没有 Codex 插件 env 注入，也没有配置时 placeholder 替换**（命令仍会接收执行器环境，并通过其 shell 运行）。
 - **没有工具前审批或改写路径**：hook 可以阻塞，但桥接不会预审批或替换工具输入。
 
-原生 Cordis 插件可以完成此桥接的所有工作，并且功能更强；该桥接只是已映射 Codex 子集的兼容路径（见 [拦截 seam Agent Note（agent 决策记录）](../../../.agents/notes/implemented/feature/2026-06-30-interception-seams.md)）。
+原生 Cordis 插件可以完成此桥接的所有工作，并且功能更强；该桥接只是已映射 Codex 子集的兼容路径（见 [拦截 seam Agent Note](../../../.agents/notes/implemented/feature/2026-06-30-interception-seams.md)）。
 
 ## 配置
 
@@ -43,7 +43,7 @@ hook 本身会在 agent（智能体）的会话工作区中运行：对 agent sc
 | Codex hook | Harness seam | 映射 |
 |---|---|---|
 | `SessionStart` | `agent/session-start`（emit） | 纯 stdout hook 的输出 → additionalContext → `agent.inject()` |
-| `UserPromptSubmit` | `agent/prompt-submit`（waterfall，瀑布式事件） | `block`（退出码 2）→ `PromptDecision.block`；仅 additionalContext → 通过 `next()` 委托，再将一个单独标记源的上下文前置到下游 `additionalContexts` |
+| `UserPromptSubmit` | `agent/pre-step`（waterfall，瀑布式事件） | `block`（退出码 2）→ `PreStepDecision.reject`；仅 additionalContext → 通过 `next()` 委托，再向下游 `enter` 决策追加一条单独标记来源的消息 |
 | `PreToolUse` | `tools/pre-execute`（waterfall） | `block` → `PreToolDecision.deny`（没有 `allow`／`ask`） |
 | `PostToolUse` | `tools/post-execute`（waterfall） | `block` → 带反馈的 `block`；仅 additionalContext → 通过 `next()` 委托，再将一个单独标记源的上下文前置到下游决策；Code Mode 将子调用上下文延迟到外层 `run_code` 结果 |
 | `Stop` | `agent/turn-stopping`（serial） | 阻塞 Stop hook 通过 `steer()` 送入其原因，强制再执行一步 |
@@ -56,7 +56,7 @@ hook 本身会在 agent（智能体）的会话工作区中运行：对 agent sc
 
 ## 上下文源
 
-注入上下文携带显式 `{ kind: 'plugin', plugin: 'hooks-codex' }` 源（否则 `agent.inject()` 会将其默认为 `{ kind: 'user' }`）。
+注入上下文携带显式 `{ kind: 'plugin', plugin: 'hooks-codex' }` 来源，因此持久消息绝不会被误认为用户提示词。
 
 ## 模型体验
 
@@ -72,7 +72,7 @@ hook 不返回上下文时没有成本。Hook 文本取决于数据，会被记�
 
 #### KV Cache 影响
 
-仅追加；新可见内容位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
+仅追加；新可见内容位于可复用请求前缀之后，不会使现有 KV Cache 条目失效。
 
 ### 已阻塞提示词或工具结果
 

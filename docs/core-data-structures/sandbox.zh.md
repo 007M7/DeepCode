@@ -2,7 +2,7 @@
 
 [English](sandbox.md) | 中文
 
-[dsh-sandbox](../../packages/sandbox/sandbox) 的进程沙箱 seam 将与宿主共享文件系统和内核的子进程 argv 包装在文件效果策略中，而不将消费方耦合到特定平台运行器。[dsh-sandbox-local](../../packages/sandbox/sandbox-local) 提供 Linux bwrap/Landlock 与 macOS Seatbelt 后端；[dsh-bash-sandbox](../../packages/bash/bash-sandbox) 是第一个消费方。容器、microVM 和远程执行是完整能力 seam 的兄弟实现，而非 `ctx.sandbox` 的提供方。
+[dsh-sandbox](../../packages/sandbox/sandbox) 的进程沙箱 seam 将与宿主共享文件系统和内核的子进程 argv 包装在文件效果策略中，而不将消费方耦合到特定平台运行器。[dsh-sandbox-local](../../packages/sandbox/sandbox-local) 提供 Linux bwrap/Landlock 与 macOS Seatbelt 后端；[dsh-bash-sandbox](../../packages/bash/bash-sandbox) 是第一个消费方。容器、microVM 和远程执行是完整能力 seam 的同级实现，而非 `ctx.sandbox` 的提供方。
 
 源码：[`packages/sandbox/sandbox/src/index.ts`](../../packages/sandbox/sandbox/src/index.ts)
 
@@ -27,7 +27,7 @@ type SandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access'
 type ConfinedSandboxMode = Exclude<SandboxMode, 'danger-full-access'>
 ```
 
-强制执行程度是一个报告事实。`full` 表示后端管控了该模式承诺的所有文件效果；`partial` 表示活跃后端或较旧的内核 ABI 仅管控其中一个子集，因此要求绝对保证的消费方必须拒绝或向上暴露这一区别。
+强制执行完整性是后端报告的事实。`full` 表示后端管控了该模式承诺的所有文件效果；`partial` 表示活跃后端或较旧的内核 ABI 仅管控其中一个子集，因此要求绝对保证的消费方必须拒绝或向上暴露这一区别。
 
 ```ts type-equiv
 /**
@@ -68,7 +68,7 @@ interface SandboxPolicyRequest {
 }
 ```
 
-只有受约束的执行会到达 `ctx.sandbox`；其提供方策略在保留同一 root 的同时收窄模式。这使并发会话、消费方与一次性提权重试可以向同一提供方请求不同边界，而无需改变提供方状态。
+只有受约束的执行会到达 `ctx.sandbox`；传给提供方的策略在保留同一 root 的同时收窄模式。这使并发会话、消费方与一次性提权重试可以向同一提供方请求不同边界，而无需改变提供方状态。
 
 ```ts type-equiv
 /**
@@ -87,7 +87,27 @@ interface SandboxPolicy extends SandboxExecutionPolicy {
 
 ## 包装后的 argv 与分类方言
 
-`ConfinedArgv` 是消费方实际 spawn 的内容。除了替换后的 argv，它还携带后端的强制执行事实和两种正交的 stderr 方言。`denialSignatures` 用于识别沙箱正常工作时被隔离命令被阻止的情况。`runnerFailureSignatures` 用于识别沙箱运行器在执行命令之前拒绝或失败的情况；消费方应先检查后者，将其作为沙箱基础设施故障上报，而非普通任务失败。
+`RunnerFailureRule` 汇集用于判定 runner 在执行命令前失败的证据。消费方要求进程以非零状态退出，并同时满足可选的允许退出码门控，以及余下某一 stderr 行中不区分大小写的致命签名。系统会先按不区分大小写的整行精确匹配移除信息性排除项，因此无害的 runner 通知本身不能证明失败。匹配到的行仍可用作错误详情；分类过程不会重写 stderr。
+
+```ts type-equiv
+/**
+ * Evidence that identifies a sandbox runner failing before it executes the
+ * wrapped command. A consumer first applies {@link allowedExitCodes} when
+ * present, removes {@link informationalLines} by case-insensitive exact line
+ * equality, then matches {@link fatalSignatures} case-insensitively within
+ * each remaining stderr line. Exit status alone never proves runner failure.
+ */
+interface RunnerFailureRule {
+  /** Nonzero process exit codes on which this rule may match; omitted permits any nonzero exit. */
+  allowedExitCodes?: readonly number[]
+  /** Non-empty substrings identifying a fatal runner diagnostic on one stderr line. */
+  fatalSignatures: readonly string[]
+  /** Benign stderr lines excluded by exact full-line equality before fatal matching. */
+  informationalLines?: readonly string[]
+}
+```
+
+`ConfinedArgv` 是消费方实际 spawn 的内容。除了替换后的 argv，它还携带后端的强制执行事实和两种正交的 stderr 分类器。`denialSignatures` 用于识别沙箱正常工作时受限命令被阻止的情况。`runnerFailureRules` 用于识别沙箱 runner 在执行命令之前拒绝或失败的情况；消费方应先检查后者，将其作为沙箱基础设施故障上报，而非普通任务失败。
 
 ```ts type-equiv
 /**
@@ -110,18 +130,19 @@ interface ConfinedArgv {
    */
   denialSignatures: readonly string[]
   /**
-   * Case-insensitive signatures for runner failure before command execution.
-   * Consumers check these before denial signatures: runner failure means the
+   * Structured runner-failure evidence rules. Consumers require a matching
+   * fatal stderr line (after informational exclusions) and any rule-specific
+   * exit-code gate before checking denial signatures: runner failure means the
    * command never ran, while denial means confinement worked and blocked it.
    */
-  runnerFailureSignatures: readonly string[]
+  runnerFailureRules: readonly RunnerFailureRule[]
 }
 ```
 
-运维人员配置的本地运行器必须为自身的 pre-exec 拒绝方言提供至少一条 `runnerFailureSignatures` 条目；提供方会自动添加外层 shell 的 missing 和 unexecutable 形式。这使得可执行的自定义运行器拒绝其 profile 的情况能够与被包装命令以相同状态码退出的情况区分开来。
+[本地提供方](../../packages/sandbox/sandbox-local/README.md)拥有运维配置，并将其 runner 方言映射到这些规则。[沙箱化 bash 消费方](../../packages/bash/bash-sandbox/README.md)拥有 spawn 与结果归因。
 
 ## 提供方与 fail-closed 错误
 
-`ctx.sandbox.confine(argv, policy)` 返回一个 `ConfinedArgv`，或在没有可用后端时抛出 `SandboxUnavailableError`（错误码 `SANDBOX_UNAVAILABLE`）。已选定的运行器也可能在执行时 fail-closed，此时其失败签名承载相同的基础设施含义。对于受限策略，静默的无隔离透传永远不合法。
+`ctx.sandbox.confine(argv, policy)` 返回一个 `ConfinedArgv`，或在没有可用后端时抛出 `SandboxUnavailableError`（错误码 `SANDBOX_UNAVAILABLE`）。消费方也可以在 spawn 或观察所返回的 argv 时对失败进行分类；该归因属于消费方契约。对于受限策略，静默的无隔离透传永远不合法。
 
-提供方探测在多个候选后端之间仲裁，结果在提供方生命周期内缓存。只有一个候选后端的平台可以直接选定它；执行时拒绝仍保留安全属性。本地提供方将 bwrap 和 Seatbelt 报告为 full，并保留 Landlock 启动器的 full/partial 内核裁定。
+提供方选择、探测、缓存和后端专有的强制执行报告归[本地提供方](../../packages/sandbox/sandbox-local/README.md)所有。

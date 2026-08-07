@@ -8,14 +8,12 @@ import { mkdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Context } from 'cordis'
 import { installAgentLlmTarget } from '@deepseek-ai/dsh-agent'
-import type {
-  Agent, AgentLlmTarget, AgentLlmTargetRef, AgentStatus, InboxItem, InboxItemId,
-} from '@deepseek-ai/dsh-agent'
-import { createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import type { Agent, AgentLlmTarget, AgentLlmTargetRef, AgentOptions, AgentStatus } from '@deepseek-ai/dsh-agent'
+import { createUserMessage, freezeMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { errorChain } from '@deepseek-ai/dsh-llm'
 import type { MessageSource } from '@deepseek-ai/dsh-llm'
 import { isAppendSurfaceEvent, lastActivityTime } from '@deepseek-ai/dsh-session'
-import type { Session, SessionEvent, SessionHeader, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, SessionEventMap, SessionHeader, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import { SessionQueryError, type SessionSearchCursor } from '@deepseek-ai/dsh-session-query'
 import { SubagentError } from '@deepseek-ai/dsh-subagent'
@@ -28,9 +26,10 @@ import {
 // Type-only: brings the `ctx.tools` Context merge into this program (viewFor reads presenters).
 import type {} from '@deepseek-ai/dsh-tools'
 import type {
-  ApiProxy, CredentialView, GoalRef, HistoryEntry, HostFrame, ModelCatalogFailure, ModelProviderGroup,
+  ApiProxy, ConfigurableProviderView, CredentialView, GoalRef, HistoryEntry, HostFrame,
+  ModelCatalogFailure, ModelProviderGroup,
   ModelReasoning, MuxFrame, QuestionResponsePayload, SessionProjectionsBlock, SessionSearchItem,
-  SessionSummary, SettingsNamespaceView, SubagentAddress, ToolEventView,
+  QueuedInboxItem, SessionSummary, SettingsNamespaceView, SubagentAddress, ToolEventView,
   WorkspaceId, WorkspaceView,
 } from './api/index.ts'
 import {
@@ -70,10 +69,26 @@ import type {
 } from '@deepseek-ai/dsh-user-interaction'
 import { UserInteractionError } from '@deepseek-ai/dsh-user-interaction'
 import { DirectoryPickerError } from '@deepseek-ai/dsh-host-directory-picker'
-import { openNativePath } from './native-path-opener.ts'
+import {
+  ApiRemoteSessionNotFound as SessionNotFound,
+  ApiRemoteSubagentSessionOwnership as SubagentSessionOwnership,
+  apiRemoteSubagentOwnershipError,
+  createApiRemoteAgentResolver,
+  hasApiRemoteSubagentOwner,
+  inspectApiRemoteSession,
+} from '@deepseek-ai/dsh-api-remotes'
+import { openNativePath, openNativeTextFile } from './native-path-opener.ts'
 
 /** Page size when history is called without maxMessages. */
 const DEFAULT_MAX_MESSAGES = 50
+
+/**
+ * The settings namespace carrying the user's default route. Named for the
+ * gateway rather than for the package, because this key is what a person reads
+ * and writes in `settings.yaml`; the row id in a composition happens to match
+ * but does not determine it.
+ */
+export const API_GATEWAY_SETTINGS_NAMESPACE = settingsNamespace('api-gateway')
 
 /** Non-model settings namespaces intentionally served to the Web client. */
 const WEB_SETTINGS_NAMESPACES = ['permission'] as const
@@ -85,7 +100,7 @@ const SESSION_SEARCH_PROVIDER_CALL_LIMIT = 100
 const COLD_SUMMARY_BATCH_SIZE = 16
 
 /** Conversation message event types (the pagination counting unit). */
-const MESSAGE_TYPES = new Set(['user/message', 'assistant/message', 'steering/message'])
+const MESSAGE_TYPES = new Set(['user/message', 'assistant/message'])
 
 /** Product settings intentionally exposed beside model-provider namespaces. */
 const PRODUCT_SETTINGS_NAMESPACES = new Set(['ui-onboarding'])
@@ -135,30 +150,19 @@ function ok<T>(request: RpcRequest<unknown>, value: T): RpcResponse<T> {
 
 /**
  * Build the provider/model catalog over every registered route. Shared by the
- * session-scoped `session.models` (which passes the session's current target
- * so an unlisted current model still renders selectable) and the host-scoped
- * `llm.models` (no current). Per-provider failures ride `failures` without
- * failing the sound groups; groups that advertise nothing are dropped.
+ * session-scoped `session.models` and host-scoped `llm.models`. Catalog
+ * membership stays advisory: an unlisted session target remains valid for
+ * provider dispatch, but is not injected back into the selector after its
+ * owning catalog stops advertising it. Per-provider failures ride `failures`
+ * without failing the sound groups; groups that advertise nothing are dropped.
  */
-async function buildModelCatalog(
-  ctx: Context,
-  current?: { provider: string; model: string },
-): Promise<{ groups: ModelProviderGroup[]; failures: ModelCatalogFailure[] }> {
+async function buildModelCatalog(ctx: Context): Promise<{
+  groups: ModelProviderGroup[]
+  failures: ModelCatalogFailure[]
+}> {
   const catalog = await Promise.all(ctx.llm.listProviders().map(async (provider) => {
     try {
-      const advertised = await ctx.llm.listModels(provider.id)
-      const models = [...advertised]
-      if (
-        current !== undefined
-        && provider.id === current.provider
-        && !models.some(model => model.id === current.model)
-      ) {
-        models.push({
-          provider: provider.id,
-          id: current.model,
-          name: current.model,
-        })
-      }
+      const models = await ctx.llm.listModels(provider.id)
       const entries = await Promise.all(models.map(async (model) => {
         const resolved = await ctx.llm.resolveModelInfo(provider.id, model.id)
         const reasoning: ModelReasoning | undefined = resolved.reasoning === undefined
@@ -179,12 +183,6 @@ async function buildModelCatalog(
           id: model.id,
           name: model.name,
           ...model.description === undefined ? {} : { description: model.description },
-          ...current !== undefined
-            && provider.id === current.provider
-            && model.id === current.model
-            && !advertised.some(candidate => candidate.id === current.model)
-            ? { unlisted: true as const }
-            : {},
           ...reasoning === undefined ? {} : { reasoning },
         }
       }))
@@ -348,14 +346,29 @@ function directoryError(error: unknown): RpcError {
 
 /** Resolved Host routing and project-directory defaults consumed by the API implementation. */
 export interface ApiProxyDefaults {
-  provider: string
-  model: string
+  /**
+   * The route a session starts from when its own log names none. Read on
+   * every access rather than captured, so a default saved during this process
+   * reaches the sessions that have not run a turn yet.
+   */
+  defaultTarget: () => AgentLlmTarget
+  /**
+   * Record a selection as the new default. Either absent, or a closure that
+   * may itself decline — the gateway plugin always passes one, and it no-ops
+   * when the deployment mounts no settings provider or when the write races
+   * service teardown. A switch then stays process-local. A rejection is
+   * reported and swallowed: the switch already applies to its own session,
+   * and undoing it because storage failed would be the worse outcome.
+   */
+  persistDefaultTarget?: (target: AgentLlmTarget) => Promise<void>
   /** Default project directory for new sessions whose create request carries no cwd. */
   cwd: string
   /** Parent directory for name-created workspaces. */
   workspaceRoot: string
   /** Native open-with-default-application; injectable for carrier tests. */
   openPath?: (path: string, signal: AbortSignal) => Promise<void>
+  /** Native text-editor handoff; injectable for settings-document tests. */
+  openTextFile?: (path: string, signal: AbortSignal) => Promise<void>
 }
 
 /** The tool/call payload fields the presenter path reads. */
@@ -544,6 +557,28 @@ function detachedProjectionsFor(
   return registry.restore({}, events, 0).snapshot
 }
 
+/**
+ * Best-effort projections for one subagent history page, fail-soft like
+ * {@link listProjectionsFor}: a registered unit throwing on a corrupt payload
+ * never blocks transcript reading — the page is served without the block.
+ * @param ctx - context carrying the logger for the degradation warning.
+ * @param childSessionId - the child whose page is being decorated.
+ * @param compute - the arm-specific fold (live watermark or detached restore).
+ * @returns the projections block, or undefined when the fold failed.
+ */
+function subagentHistoryProjections(
+  ctx: Context,
+  childSessionId: SessionId,
+  compute: () => SessionProjectionsBlock | undefined,
+): SessionProjectionsBlock | undefined {
+  try {
+    return compute()
+  } catch (error) {
+    ctx.logger.warn(`subagent.history: projections for "${childSessionId}" failed (serving the page without them): ${String(error)}`)
+    return undefined
+  }
+}
+
 /** Map continuation admission failures without exposing provider details. */
 function subagentPromptError(
   request: RpcRequest<{ childSessionId: SessionId }>,
@@ -584,6 +619,15 @@ function subagentPromptError(
   return err(request, { code: 'internal', message: 'subagent prompt failed', details: {} })
 }
 
+/** Stable RPC face of the missing projections capability, shared by every catalog read path. */
+function projectionsUnavailableError(): RpcError {
+  return {
+    code: 'internal',
+    message: 'subagent catalog is unavailable: this deployment does not mount the sessionProjections registry (load @deepseek-ai/dsh-session-projection)',
+    details: {},
+  }
+}
+
 /** Verify one address and mode against the complete direct-child catalog. */
 async function catalogChild(
   ctx: Context,
@@ -617,34 +661,13 @@ async function catalogChild(
     }
     return { entry }
   } catch (error: unknown) {
-    if (signal?.aborted
-      || (error instanceof SubagentError && error.code === 'CANCELLED')
-      || (error instanceof SessionQueryError && error.code === 'SESSION_QUERY_ABORTED')) {
+    if (signal?.aborted || (error instanceof SubagentError && error.code === 'CANCELLED')) {
       return { error: { code: 'cancelled', message: 'subagent catalog read was cancelled', details: {} } }
     }
-    if (error instanceof SessionQueryError && error.code === 'SESSION_QUERY_SESSION_NOT_FOUND') {
-      return {
-        error: {
-          code: 'subagent-not-found',
-          message: `parent session "${parentSessionId}" was not found`,
-          details: { parentSessionId, childSessionId },
-        },
-      }
+    if (error instanceof SubagentError && error.code === 'SUBAGENT_CONTROL_PROJECTIONS_UNAVAILABLE') {
+      return { error: projectionsUnavailableError() }
     }
     return { error: { code: 'internal', message: 'subagent catalog read failed', details: {} } }
-  }
-}
-
-/**
- * Thrown by the cold-resume path when the id names no servable session
- * (absent from the store, or a pre-project legacy log without a cwd).
- */
-class SessionNotFound extends Error {}
-
-/** Session identity whose lifecycle belongs to subagent routing, not generic Host resume. */
-class SubagentSessionOwnership extends Error {
-  constructor(readonly sessionId: SessionId) {
-    super(`session "${sessionId}" is a subagent session; use subagent delivery`)
   }
 }
 
@@ -714,11 +737,13 @@ function changedWorkspaceView(workspaceId: string, value: unknown): WorkspaceVie
  * @returns the ApiProxy implementation.
  */
 export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiProxy {
-  const agentOptions = { provider: defaults.provider, model: defaults.model }
+  /** The seed route each create/resume declares; re-read so it never goes stale. */
+  const agentOptions = (): AgentOptions => {
+    const { provider, model } = defaults.defaultTarget()
+    return { provider, model }
+  }
   type WebLlmTargetRef = AgentLlmTargetRef & { current: AgentLlmTarget }
   const targets = new WeakMap<Agent, WebLlmTargetRef>()
-  /** Implicit resume of cold sessions, deduplicating concurrent calls (follows the jsonrpc sessionCreations precedent). */
-  const resumes = new Map<SessionId, Promise<Agent>>()
   /** Client-chosen identity creation/resume, deduplicated across concurrent retries. */
   const sessionCreations = new Map<SessionId, Promise<Agent>>()
   /** Serializes path ownership and explicit title checks with Workspace mutations. */
@@ -729,24 +754,39 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
   /**
    * Install or return the session-local target that prompt assembly snapshots.
-   * Seed order: latest logged request/header, else the host default routing.
-   * There is no create-time per-session override tier on this wire — if one
-   * returns (a create-options contribution), it must fold in between the two.
+   *
+   * Precedence, resolved on EVERY read rather than seeded once: a selection
+   * made in this process, else the session's own latest logged request/header,
+   * else the live host default. Re-reading is what keeps the two tiers honest
+   * in both directions — a session that has run a turn derives its route from
+   * its log forever after, so changing the default never retargets it; and a
+   * session still blank (New Session reuses one rather than minting another)
+   * starts from a default saved after it was created. There is no create-time
+   * per-session override tier on this wire — if one returns (a create-options
+   * contribution), it must fold in between the selection and the log.
    */
   function targetFor(agent: Agent): WebLlmTargetRef {
     const installed = targets.get(agent)
     if (installed !== undefined) return installed
-    const logged = agent.session.requestHeader()?.config
+    let picked: AgentLlmTarget | undefined
     const target: WebLlmTargetRef = {
-      current: logged === undefined
-        ? { provider: defaults.provider, model: defaults.model }
-        : {
+      get current(): AgentLlmTarget {
+        if (picked !== undefined) return picked
+        // Incrementally folded by the session, so a per-step read costs
+        // O(new events) rather than a rescan.
+        const logged = agent.session.requestHeader()?.config
+        if (logged === undefined) return defaults.defaultTarget()
+        return {
           provider: logged.provider,
           model: logged.model,
           ...logged.reasoningEffort === undefined
             ? {}
             : { reasoningEffort: logged.reasoningEffort },
-        },
+        }
+      },
+      set current(next: AgentLlmTarget) {
+        picked = next
+      },
       assembled: undefined,
     }
     installAgentLlmTarget(agent.ctx, target)
@@ -760,6 +800,16 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     if (agent === undefined) throw new Error('api-proxy: agent setup has no scoped agent')
     targetFor(agent)
   }
+
+  const hasSubagentOwner = (
+    session: Pick<Session, 'header'>,
+    agent: Agent | undefined,
+  ): boolean => hasApiRemoteSubagentOwner(ctx, session, agent)
+  const subagentOwnershipError = (sessionId: SessionId): RpcError =>
+    apiRemoteSubagentOwnershipError(sessionId)
+  const inspectServable = (sessionId: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> =>
+    inspectApiRemoteSession(ctx, sessionId)
+  const agentFor = createApiRemoteAgentResolver(ctx, { agentOptions, setup: installTarget })
 
   /** Send one transient frame to every connected mux consumer. */
   function broadcast(payload: MuxFrame): void {
@@ -777,128 +827,36 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     })
   })
 
-  /**
-   * Per-session pending-occurrence mirror serving live and mux-open
-   * `session/queue` snapshots. It carries both queued and steering placements.
-   * Each terminal inbox event retires one matching occurrence, so repeated
-   * sends of the same identified message remain visible until every occurrence
-   * is claimed.
-   */
-  const queuedMirror = new Map<SessionId, InboxItem[]>()
-  type UnseenQueueEvent =
-    | { readonly kind: 'update'; readonly item: InboxItem }
-    | { readonly kind: 'terminal' }
-  const unseenQueueEvents = new Map<SessionId, Map<InboxItemId, UnseenQueueEvent>>()
-  const rememberUnseen = (sessionId: SessionId, itemId: InboxItemId, event: UnseenQueueEvent): void => {
-    let events = unseenQueueEvents.get(sessionId)
-    if (events === undefined) {
-      events = new Map()
-      unseenQueueEvents.set(sessionId, events)
+  /** Project both durable inbox lists, optionally including the splice currently being emitted. */
+  const queueItems = (
+    agent: Agent,
+    splice?: SessionEventMap['agent/inbox/spliced'],
+  ): QueuedInboxItem[] => {
+    const project = (target: 'next-turn' | 'next-step'): readonly UserMessage[] => {
+      const messages = target === 'next-turn' ? agent.inbox.nextTurn : agent.inbox.nextStep
+      return splice?.target === target
+        ? messages.toSpliced(splice.start, splice.removedCount ?? 0, ...splice.inserted)
+        : messages
     }
-    events.set(itemId, event)
-    // Only synchronous re-entrancy may deliver a mutation before its outer
-    // enqueue observer. Drop unmatched protocol-invalid observations instead
-    // of retaining process-local ids indefinitely.
-    queueMicrotask(() => {
-      const current = unseenQueueEvents.get(sessionId)
-      if (current?.get(itemId) !== event) return
-      current.delete(itemId)
-      if (current.size === 0) unseenQueueEvents.delete(sessionId)
-    })
-  }
-  const takeUnseen = (sessionId: SessionId, itemId: InboxItemId): UnseenQueueEvent | undefined => {
-    const events = unseenQueueEvents.get(sessionId)
-    const event = events?.get(itemId)
-    if (event === undefined) return undefined
-    events?.delete(itemId)
-    if (events?.size === 0) unseenQueueEvents.delete(sessionId)
-    return event
-  }
-  const publishQueue = (sessionId: SessionId): void => {
-    const items = queuedMirror.get(sessionId) ?? []
-    broadcast({
-      type: 'session/queue',
-      sessionId,
-      items: items.map(item => ({
-        id: item.id,
-        placement: item.placement,
-        message: item.message,
+    return [
+      ...project('next-turn').map(message => ({ id: message.id, placement: 'queued' as const, message })),
+      ...project('next-step').map(message => ({
+        id: message.id,
+        // Only user-origin messages are steering; injected context (approval
+        // notices, task completion, attached snapshots) is not a user action
+        // and must not render as a pending steering bubble.
+        placement: message.source.kind === 'user' ? 'steering' as const : 'context' as const,
+        message,
       })),
-    })
-  }
-  ctx.effect(() => {
-    const retireKnown = (sessionId: SessionId, itemId: InboxItemId): boolean => {
-      const entries = queuedMirror.get(sessionId)
-      if (entries === undefined) return false
-      const index = entries.findIndex(entry => entry.id === itemId)
-      if (index === -1) return false
-      entries.splice(index, 1)
-      if (entries.length === 0) queuedMirror.delete(sessionId)
-      return true
-    }
-    const retire = (agent: Agent, item: InboxItem): boolean => {
-      if (retireKnown(agent.id, item.id)) return true
-      rememberUnseen(agent.id, item.id, { kind: 'terminal' })
-      return false
-    }
-    const disposers = [
-      ctx.on('agent/inbox/enqueue', (agent: Agent, item: InboxItem) => {
-        const unseen = takeUnseen(agent.id, item.id)
-        if (unseen?.kind === 'terminal') return
-        let entries = queuedMirror.get(agent.id)
-        if (entries === undefined) {
-          entries = []
-          queuedMirror.set(agent.id, entries)
-        }
-        entries.push(unseen?.kind === 'update' ? unseen.item : item)
-        publishQueue(agent.id)
-      }),
-      ctx.on('agent/inbox/update', (agent: Agent, item: InboxItem) => {
-        const entries = queuedMirror.get(agent.id)
-        if (entries === undefined) {
-          rememberUnseen(agent.id, item.id, { kind: 'update', item })
-          return
-        }
-        const index = entries.findIndex(entry => entry.id === item.id)
-        if (index === -1) {
-          rememberUnseen(agent.id, item.id, { kind: 'update', item })
-          return
-        }
-        entries.splice(index, 1, item)
-        publishQueue(agent.id)
-      }),
-      ctx.on('agent/inbox/dequeue', (agent: Agent, item: InboxItem) => {
-        if (item.placement === 'steering') {
-          // AgentLoop appends the durable steering/message synchronously after
-          // this claim. Retain and retire the mirror row in the following
-          // microtask so any re-entrant snapshot and the Host's linear mux
-          // stream keep it visible until the durable event exists.
-          const present = queuedMirror.get(agent.id)?.some(entry => entry.id === item.id) === true
-          if (!present) {
-            retire(agent, item)
-            return
-          }
-          queueMicrotask(() => {
-            if (retireKnown(agent.id, item.id)) publishQueue(agent.id)
-          })
-        } else if (retire(agent, item)) {
-          // Queued claims have no durable same-message handoff to order.
-          // Publish retirement synchronously as before.
-          publishQueue(agent.id)
-        }
-      }),
-      ctx.on('agent/inbox/discard', (agent: Agent, items: InboxItem[]) => {
-        let changed = false
-        for (const item of items) changed = retire(agent, item) || changed
-        if (changed) publishQueue(agent.id)
-      }),
-      ctx.on('session/disposed', (session: Session) => {
-        queuedMirror.delete(session.id)
-        unseenQueueEvents.delete(session.id)
-      }),
     ]
-    return () => { for (const dispose of disposers) dispose() }
-  }, 'api-proxy: queued mirror')
+  }
+
+  ctx.on('session/event', (session, event) => {
+    if (event.type !== 'agent/inbox/spliced') return
+    const agent = ctx.agents.get(session.id)
+    if (agent?.session !== session) return
+    broadcast({ type: 'session/queue', sessionId: session.id, items: queueItems(agent, event.data) })
+  })
 
   /** Remove a wait before settling it: synchronous deletion makes the first claimant win. */
   function claimQuestion(pending: PendingQuestion, outcome: 'answered' | 'cancelled'): void {
@@ -1034,128 +992,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     })
   }
 
-  /** Whether the session's own suffix carries the durable subagent discriminator. */
-  function hasSubagentDescriptor(session: Pick<Session, 'events' | 'header'>): boolean {
-    const events = session.events
-    // Indexed scan from the own-suffix start: slicing copies the whole suffix
-    // on every Agent-bound RPC, including each `session.prompt` on long
-    // transcripts.
-    for (let index = session.header.seedLength ?? 0; index < events.length; index += 1) {
-      if (events[index]?.type === 'subagent/descriptor') return true
-    }
-    return false
-  }
-
-  /**
-   * Generic Host interaction cannot claim a durably classified subagent or an
-   * Agent created through its live parent. The runtime-owner arm also covers
-   * descriptor-less child publication windows and older stored headers.
-   */
-  function hasSubagentOwner(
-    session: Pick<Session, 'events' | 'header'>,
-    agent: Agent | undefined,
-  ): boolean {
-    if (session.header.origin === 'subagent' || hasSubagentDescriptor(session)) return true
-    const parentId = session.header.parentSession
-    if (parentId === undefined || agent === undefined) return false
-    const parent = ctx.agents.get(parentId)
-    return parent !== undefined && ctx.agents.isOwnedBy(agent.id, parent)
-  }
-
-  /** Stable generic-Host error for an identity reserved to subagent routing. */
-  function subagentOwnershipError(sessionId: SessionId): RpcError {
-    return {
-      code: 'agent-busy',
-      message: `session "${sessionId}" is owned by subagent routing`,
-      details: { reason: 'use subagent delivery for this child session' },
-    }
-  }
-
-  /** Inspect one cold served session without repairing, resuming, or publishing it. */
-  async function inspectServable(sessionId: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
-    const persistence = ctx.get('sessionPersistence')
-    if (persistence === undefined) {
-      throw new Error('session persistence is not configured (load a dsh-session-persistence backend)')
-    }
-    const meta = (await persistence.list()).find(m => m.id === sessionId)
-    if (meta === undefined || meta.cwd === undefined) throw new SessionNotFound(`session "${sessionId}" not found`)
-    const inspected = await persistence.inspect(sessionId)
-    if (inspected.meta.cwd === undefined) throw new SessionNotFound(`session "${sessionId}" not found`)
-    return inspected
-  }
-
-  /**
-   * Resolve one live registered identity through the subagent-ownership
-   * fence: subagent-owned agents answer `agent-busy`, plain agents pass.
-   * Fences the live agent's own session rather than trusting a
-   * "registered ⇒ attached-store" invariant — a registered subagent whose
-   * session is ever absent from the attached store must still not be handed
-   * out through generic Host routing. `undefined` means no live agent.
-   */
-  function fencedLiveAgent(sessionId: SessionId): { agent: Agent } | { error: RpcError } | undefined {
-    const live = ctx.agents.get(sessionId)
-    if (live === undefined) return undefined
-    if (hasSubagentOwner(live.session, live)) return { error: subagentOwnershipError(sessionId) }
-    return { agent: live }
-  }
-
-  async function agentFor(sessionId: SessionId): Promise<{ agent: Agent } | { error: RpcError }> {
-    const fenced = fencedLiveAgent(sessionId)
-    if (fenced !== undefined) return fenced
-    const attached = ctx.sessions.get(sessionId)
-    if (attached !== undefined && hasSubagentOwner(attached, undefined)) {
-      return { error: subagentOwnershipError(sessionId) }
-    }
-    let resume = resumes.get(sessionId)
-    if (resume === undefined) {
-      resume = (async () => {
-        try {
-          const inspected = await inspectServable(sessionId)
-          if (hasSubagentOwner({ header: inspected.meta, events: inspected.events }, undefined)) {
-            throw new SubagentSessionOwnership(sessionId)
-          }
-          const publishedSession = ctx.sessions.get(sessionId)
-          const publishedAgent = ctx.agents.get(sessionId)
-          if (publishedSession !== undefined && hasSubagentOwner(publishedSession, publishedAgent)) {
-            throw new SubagentSessionOwnership(sessionId)
-          }
-          const handle = await ctx.agents.resume({
-            resumeSessionId: sessionId,
-            agentOptions,
-            setup: installTarget,
-          })
-          return handle.agent
-        } finally {
-          resumes.delete(sessionId)
-        }
-      })()
-      resumes.set(sessionId, resume)
-    }
-    try {
-      return { agent: await resume }
-    } catch (error: unknown) {
-      if (error instanceof SessionNotFound) {
-        return { error: { code: 'session-not-found', message: error.message, details: { sessionId } } }
-      }
-      if (error instanceof SubagentSessionOwnership) {
-        return { error: subagentOwnershipError(error.sessionId) }
-      }
-      // A concurrent publish can win the identity between the pre-resume
-      // re-check and `ctx.agents.resume` publication; the ID-collision
-      // rejection falls through here. Mirror ensureSession's `.catch` in
-      // full: classify a subagent-owned winner into the stable ownership
-      // error, and hand a clean plain-agent winner straight back.
-      const fenced = fencedLiveAgent(sessionId)
-      if (fenced !== undefined) return fenced
-      const attached = ctx.sessions.get(sessionId)
-      if (attached !== undefined && hasSubagentOwner(attached, undefined)) {
-        return { error: subagentOwnershipError(sessionId) }
-      }
-      // The internal details slot is contractually {}; the reason rides the message.
-      return { error: { code: 'internal', message: `resume failed for session "${sessionId}": ${String(error)}`, details: {} } }
-    }
-  }
-
   type SessionReadState = {
     id: SessionId
     header: SessionHeader
@@ -1230,7 +1066,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           // Ownership first: explicit-id adoption of a session-backed
           // subagent must answer `agent-busy` regardless of the requested
           // cwd (the api/commands.ts contract), not a cwd conflict.
-          if (hasSubagentOwner({ header: inspected.meta, events: inspected.events }, undefined)) {
+          if (hasSubagentOwner({ header: inspected.meta }, undefined)) {
             throw new SubagentSessionOwnership(sessionId)
           }
           if (inspected.meta.cwd !== cwd) {
@@ -1238,7 +1074,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           }
           return (await ctx.agents.resume({
             resumeSessionId: sessionId,
-            agentOptions,
+            agentOptions: agentOptions(),
             setup: installTarget,
           })).agent
         }
@@ -1250,7 +1086,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         }
         return (await ctx.agents.create({
           sessionId,
-          agentOptions,
+          agentOptions: agentOptions(),
           meta: { cwd },
           setup: installTarget,
         })).agent
@@ -1397,9 +1233,64 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     }
   }
 
+  /**
+   * Whether an adapter currently serves this route, and therefore whether a
+   * session pointed at it can start a turn. Catalog membership cannot answer
+   * it: an adapter may serve a model its own catalog stopped advertising, so
+   * a route missing from the groups is not the same as one nothing serves.
+   * A composition with no llm registry at all cannot judge and says yes —
+   * the dispatch it would have refused fails on its own terms.
+   */
+  function routeServed(provider: string): boolean {
+    const llm = ctx.get('llm')
+    return llm === undefined || llm.listProviders().some(entry => entry.id === provider)
+  }
+
   /** Missing-service report shared by the settings domain (skills-domain stance). */
   function settingsAbsent(): RpcError {
     return { code: 'internal', message: 'settings service is absent: this deployment does not mount a settings provider (e.g. @deepseek-ai/dsh-settings-local) in its composition', details: {} }
+  }
+
+  /** Open one Host-resolved target and map native failures onto the wire vocabulary. */
+  async function openTarget(
+    request: RpcRequest<unknown>, path: string, signal: AbortSignal,
+    open: (path: string, signal: AbortSignal) => Promise<void>,
+  ): Promise<RpcResponse<{ opened: true }>> {
+    try {
+      await open(path, signal)
+      return ok(request, { opened: true as const })
+    } catch (error: unknown) {
+      if (signal.aborted) {
+        return err(request, {
+          code: 'cancelled',
+          message: 'path open was aborted',
+          details: {},
+        })
+      }
+      return err(request, {
+        code: 'internal',
+        message: `path open failed: ${error instanceof Error ? error.message : String(error)}`,
+        details: {},
+      })
+    }
+  }
+
+  /** Open one Host-resolved path with its default application. */
+  function openPath(
+    request: RpcRequest<unknown>, path: string, signal: AbortSignal,
+  ): Promise<RpcResponse<{ opened: true }>> {
+    const open = defaults.openPath
+      ?? ((target: string, openSignal: AbortSignal) => openNativePath(target, openSignal))
+    return openTarget(request, path, signal, open)
+  }
+
+  /** Open one Host-resolved text document in a native editor. */
+  function openTextFile(
+    request: RpcRequest<unknown>, path: string, signal: AbortSignal,
+  ): Promise<RpcResponse<{ opened: true }>> {
+    const open = defaults.openTextFile
+      ?? ((target: string, openSignal: AbortSignal) => openNativeTextFile(target, openSignal))
+    return openTarget(request, path, signal, open)
   }
 
   /** Missing-service report shared by the credentials domain. */
@@ -1556,7 +1447,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               page = await sessionQuery.searchSessions({
                 query: request.payload.query,
                 eventFilters: [
-                  { kind: 'type', values: ['user/message', 'assistant/message', 'steering/message'] },
+                  { kind: 'type', values: ['user/message', 'assistant/message'] },
                   { kind: 'surface', values: ['current'] },
                 ],
                 limit: requestedPageLimit,
@@ -1724,8 +1615,9 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const found = await agentFor(sessionId)
         if ('error' in found) return err(request, found.error)
         const current = targetFor(found.agent).current
-        const { groups, failures } = await buildModelCatalog(ctx, current)
-        return ok(request, { current: { ...current }, groups, failures })
+        const { groups, failures } = await buildModelCatalog(ctx)
+        const routable = routeServed(current.provider)
+        return ok(request, { current: { ...current }, routable, groups, failures })
       },
 
       async selectModel(request) {
@@ -1748,6 +1640,17 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               : { reasoningEffort: resolved.reasoningEffort },
           }
           targetFor(found.agent).current = selected
+          // A switch is also how this deployment's default is chosen: the next
+          // session created without one of its own starts here. Sessions that
+          // have already logged a route are unaffected — they derive from
+          // their own log (see targetFor).
+          try {
+            await defaults.persistDefaultTarget?.(selected)
+          } catch (error: unknown) {
+            ctx.logger.warn(
+              `api-proxy: the model switch applies to this session but was not saved as the default: ${String(error)}`,
+            )
+          }
           return ok(request, { selected: { ...selected } })
         } catch (error: unknown) {
           return err(request, {
@@ -1850,7 +1753,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               parentSession: source.id,
               seedLength: cut,
             },
-            agentOptions,
+            agentOptions: agentOptions(),
             setup: installTarget,
           })
         } catch (error: unknown) {
@@ -1882,6 +1785,20 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const found = await agentFor(sessionId)
         if ('error' in found) return err(request, found.error)
         const agent = found.agent
+        // A route no adapter serves cannot start a turn, and letting it try
+        // spends the whole pre-step path to fail inside the adapter with a
+        // message about registration. Refusing here names the model the
+        // session is pointed at while the draft is still in the composer.
+        // This is the enforcement boundary: a client that disables its input
+        // is an affordance, and this method stays callable regardless.
+        const target = targetFor(agent).current
+        if (!routeServed(target.provider)) {
+          return err(request, {
+            code: 'model-unavailable',
+            message: `no adapter serves provider "${target.provider}"; select a model for this session`,
+            details: { provider: target.provider, model: target.model },
+          })
+        }
         // The rpcId rides MessageSource into user/message (merge declaration in api/sessions.ts; provisional correlation).
         const source: MessageSource = { kind: 'user', rpcId: request.rpcId }
         try {
@@ -1908,20 +1825,32 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             details: { itemId },
           }))
         }
-        const result = agent.updateInbox(itemId, action)
-        if (result === 'not-found') {
+        const target = agent.inbox.nextTurn.some(message => message.id === itemId)
+          ? 'next-turn'
+          : agent.inbox.nextStep.some(message => message.id === itemId) ? 'next-step' : undefined
+        const message = target === undefined
+          ? undefined
+          : (target === 'next-turn' ? agent.inbox.nextTurn : agent.inbox.nextStep)
+            .find(candidate => candidate.id === itemId)
+        if (target === undefined || message === undefined) {
           return Promise.resolve(err(request, {
             code: 'queue-item-not-found',
             message: 'queued item is no longer pending',
             details: { itemId },
           }))
         }
-        if (result === 'steer-unavailable') {
+        if (action.kind === 'steer' && (target !== 'next-turn' || agent.status !== 'running')) {
           return Promise.resolve(err(request, {
             code: 'steer-unavailable',
             message: 'current turn no longer accepts steering',
             details: { itemId },
           }))
+        }
+        if (action.kind === 'edit') {
+          agent.inbox.replace(itemId, freezeMessage({ ...message, content: action.content }))
+        } else {
+          agent.inbox.remove(itemId)
+          if (action.kind === 'steer') agent.steer(message)
         }
         return Promise.resolve(ok(request, { accepted: true as const }))
       },
@@ -1958,14 +1887,15 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             parentAvailable: ctx.agents.get(request.payload.parentSessionId) !== undefined,
           })
         } catch (error: unknown) {
-          if (signal?.aborted
-            || (error instanceof SubagentError && error.code === 'CANCELLED')
-            || (error instanceof SessionQueryError && error.code === 'SESSION_QUERY_ABORTED')) {
+          if (signal?.aborted || (error instanceof SubagentError && error.code === 'CANCELLED')) {
             return err(request, {
               code: 'cancelled',
               message: 'subagent catalog read was cancelled',
               details: {},
             })
+          }
+          if (error instanceof SubagentError && error.code === 'SUBAGENT_CONTROL_PROJECTIONS_UNAVAILABLE') {
+            return err(request, projectionsUnavailableError())
           }
           return err(request, {
             code: 'internal',
@@ -1983,44 +1913,65 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           parentSessionId, childSessionId, mode,
         }, signal)
         if (verified.error !== undefined) return err(request, verified.error)
-        try {
-          const snapshot = await ctx.sessionQuery.readSession(childSessionId)
-          signal?.throwIfAborted()
-          if (snapshot.session.parentSession !== parentSessionId) {
-            return err(request, {
-              code: 'subagent-unauthorized',
-              message: 'subagent parent changed during history read',
-              details: { childSessionId },
-            })
-          }
-          const page = historyPage(ctx, snapshot.events, beforeSeq, maxMessages)
-          const projections = beforeSeq === undefined
-            ? detachedProjectionsFor(ctx, snapshot.events)
+        // The generic-history data plane: an attached child serves its
+        // in-memory snapshot and the registry's live watermark projections; a
+        // cold child is one persistence inspection plus a detached fold.
+        let header: SessionHeader
+        let events: SessionEvent[]
+        let projections: SessionProjectionsBlock | undefined
+        const attached = ctx.sessions.get(childSessionId)
+        if (attached !== undefined) {
+          header = attached.header
+          events = [...attached.events]
+          projections = beforeSeq === undefined
+            ? subagentHistoryProjections(ctx, childSessionId, () => projectionsFor(ctx, attached))
             : undefined
-          return ok(request, { ...page, ...projections === undefined ? {} : { projections } })
-        } catch (error: unknown) {
-          if (signal?.aborted
-            || (error instanceof SessionQueryError && error.code === 'SESSION_QUERY_ABORTED')) {
+        } else {
+          try {
+            const inspected = await inspectServable(childSessionId)
+            header = inspected.meta
+            events = inspected.events
+            projections = beforeSeq === undefined
+              ? subagentHistoryProjections(ctx, childSessionId, () => detachedProjectionsFor(ctx, inspected.events))
+              : undefined
+          } catch (error: unknown) {
+            if (signal?.aborted) {
+              return err(request, {
+                code: 'cancelled',
+                message: 'subagent history read was cancelled',
+                details: {},
+              })
+            }
+            if (error instanceof SessionNotFound) {
+              return err(request, {
+                code: 'subagent-not-found',
+                message: 'subagent disappeared during history read',
+                details: { parentSessionId, childSessionId },
+              })
+            }
             return err(request, {
-              code: 'cancelled',
-              message: 'subagent history read was cancelled',
+              code: 'internal',
+              message: 'subagent history read failed',
               details: {},
             })
           }
-          if (error instanceof SessionQueryError
-            && error.code === 'SESSION_QUERY_SESSION_NOT_FOUND') {
-            return err(request, {
-              code: 'subagent-not-found',
-              message: 'subagent disappeared during history read',
-              details: { parentSessionId, childSessionId },
-            })
-          }
+        }
+        if (signal?.aborted) {
           return err(request, {
-            code: 'internal',
-            message: 'subagent history read failed',
+            code: 'cancelled',
+            message: 'subagent history read was cancelled',
             details: {},
           })
         }
+        if (header.parentSession !== parentSessionId) {
+          return err(request, {
+            code: 'subagent-unauthorized',
+            message: 'subagent parent changed during history read',
+            details: { childSessionId },
+          })
+        }
+        const page = historyPage(ctx, events, beforeSeq, maxMessages)
+        return ok(request, { ...page, ...projections === undefined ? {} : { projections } })
       },
 
       async prompt(request, signal) {
@@ -2201,13 +2152,16 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     host: {
       describe(request) {
         // TODO(step2): version should read apps/cli's package.json; placeholder for now.
+        const route = defaults.defaultTarget()
         return Promise.resolve(ok(request, {
           version: '0.0.1',
           // Same source as session.create's fallback: the UI's default project
           // must match where an unspecified-cwd session actually lands.
           cwd: defaults.cwd,
-          provider: defaults.provider,
-          model: defaults.model,
+          // Read live for the same reason: this is what the NEXT session will
+          // start from, so a saved default has to be what it reports.
+          provider: route.provider,
+          model: route.model,
           attachedSessions: ctx.agents.list().length,
         }))
       },
@@ -2280,25 +2234,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       },
 
       async openPath(request, signal) {
-        try {
-          const open = defaults.openPath
-            ?? ((path: string, openSignal: AbortSignal) => openNativePath(path, openSignal))
-          await open(request.payload.path, signal)
-          return ok(request, { opened: true as const })
-        } catch (error: unknown) {
-          if (signal.aborted) {
-            return err(request, {
-              code: 'cancelled',
-              message: 'path open was aborted',
-              details: {},
-            })
-          }
-          return err(request, {
-            code: 'internal',
-            message: `path open failed: ${error instanceof Error ? error.message : String(error)}`,
-            details: {},
-          })
-        }
+        return openPath(request, request.payload.path, signal)
       },
     },
 
@@ -2445,10 +2381,54 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const exposed = exposedNamespaces()
         return Promise.resolve(ok(request, {
           writable: settings.writable,
+          hasDocument: settings.documentPath !== undefined,
           namespaces: settings.describe({ redactSecrets: true })
             .filter(descriptor => exposed.has(String(descriptor.ns)))
             .map(namespaceView),
         }))
+      },
+      async openDocument(request, signal) {
+        const settings = ctx.get('settings')
+        if (settings === undefined) return err(request, settingsAbsent())
+        if (isAborted(signal)) {
+          return err(request, {
+            code: 'cancelled',
+            message: 'settings document open was aborted',
+            details: {},
+          })
+        }
+        let path: string | undefined
+        try {
+          path = await settings.prepareDocument()
+        } catch (error: unknown) {
+          if (isAborted(signal)) {
+            return err(request, {
+              code: 'cancelled',
+              message: 'settings document preparation was aborted',
+              details: {},
+            })
+          }
+          return err(request, {
+            code: 'internal',
+            message: `settings document preparation failed: ${error instanceof Error ? error.message : String(error)}`,
+            details: {},
+          })
+        }
+        if (path === undefined) {
+          return err(request, {
+            code: 'internal',
+            message: 'settings provider has no local document to open',
+            details: {},
+          })
+        }
+        if (isAborted(signal)) {
+          return err(request, {
+            code: 'cancelled',
+            message: 'settings document open was aborted',
+            details: {},
+          })
+        }
+        return openTextFile(request, path, signal)
       },
       update: request => settingsWrite(request, request.payload.ns, 'update', request.payload.patch, request.payload.expectedRevision),
       replace: request => settingsWrite(request, request.payload.ns, 'replace', request.payload.section, request.payload.expectedRevision),
@@ -2510,15 +2490,17 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const active = new Set(registered.map(provider => provider.id))
         const directory = ctx.llm.listConfigurableProviders()
         const declared = new Set(directory.map(entry => entry.provider))
-        const views = directory.map(entry => ({
+        const views: ConfigurableProviderView[] = directory.map(entry => ({
           provider: entry.provider,
           displayName: entry.displayName,
           settingsNs: entry.settingsNs,
           settingsPath: [...entry.settingsPath],
           active: active.has(entry.provider),
+          ...entry.declared === undefined ? {} : { declared: entry.declared },
         }))
         // Routes registered without a directory declaration still appear —
-        // they exist and serve models — just with no settings address.
+        // they exist and serve models — just with no settings address. No
+        // adapter claimed them, so nothing can say whether they are shipped.
         for (const provider of registered) {
           if (declared.has(provider.id)) continue
           views.push({
@@ -2534,6 +2516,30 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
       async models(request) {
         return ok(request, await buildModelCatalog(ctx))
+      },
+
+      async discoverModels(request, signal) {
+        const { settingsNs, provider, baseURL, api, apiKey } = request.payload
+        try {
+          const models = await ctx.llm.discoverModels(settingsNs, {
+            ...provider === undefined ? {} : { provider },
+            ...baseURL === undefined ? {} : { baseURL },
+            ...api === undefined ? {} : { api },
+            ...apiKey === undefined ? {} : { apiKey },
+            ...signal === undefined ? {} : { signal },
+          })
+          return ok(request, { models })
+        } catch (error: unknown) {
+          // Every failure here is the user's next move, not a transport fault:
+          // a wrong endpoint, a rejected key, or a protocol with no listing all
+          // end at the same place — fill the models in by hand. The details
+          // repeat only what the caller already sent, never the credential.
+          return err(request, {
+            code: 'model-discovery-failed',
+            message: error instanceof Error ? error.message : String(error),
+            details: { settingsNs, ...baseURL === undefined ? {} : { baseURL } },
+          })
+        }
       },
     },
 
@@ -2559,16 +2565,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         // Queue snapshot baseline (pendingQuestions precedent): frames replayed
         // in arrival order per session; a reconnecting client rebuilds its
         // queue view from these alone.
-        for (const [sessionId, items] of queuedMirror) {
-          queue.push(frame({
-            type: 'session/queue',
-            sessionId,
-            items: items.map(item => ({
-              id: item.id,
-              placement: item.placement,
-              message: item.message,
-            })),
-          }))
+        for (const session of ctx.sessions.list()) {
+          const agent = ctx.agents.get(session.id)
+          if (agent?.session === session && agent.inbox.hasPending) {
+            queue.push(frame({ type: 'session/queue', sessionId: session.id, items: queueItems(agent) }))
+          }
         }
         // Per-session open-call table for result-view pairing. Bounded by the
         // per-turn call count: entries clear on turn/end; a table miss (stream
@@ -2629,10 +2630,10 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           ctx.on('session/disposed', (session: Session) => {
             queue.push(frame({ type: 'host/session-removed', sessionId: session.id }))
           }),
-          ctx.on('agent/status', (agent: Agent, status: AgentStatus) => {
+          ctx.on('agent/status', ({ agent, status }: { agent: Agent; status: AgentStatus }) => {
             queue.push(frame({ type: 'host/session-status', sessionId: agent.id, running: status === 'running' }))
           }),
-          ctx.on('agent/error', (agent: Agent, _turn: number, _step: number, error: unknown) => {
+          ctx.on('agent/error', ({ agent, error }: { agent: Agent; error: unknown }) => {
             queue.push(frame({ type: 'host/agent-error', sessionId: agent.id, message: errorChain(error) }))
           }),
           ctx.on('domain/changed', (change) => {
@@ -2688,8 +2689,14 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             queue.push(frame({ type: 'host/settings-changed', ns: name }))
             // A provider's own settings carry its model catalog and endpoint,
             // so a change there invalidates the model list even when the route
-            // set is untouched — `llm/adapters-updated` alone misses it.
-            if (modelProviderNamespaces().has(name)) queue.push(frame({ type: 'host/models-changed' }))
+            // set is untouched — `llm/adapters-updated` alone misses it. The
+            // gateway's own section is the other such source: it names the
+            // route every session with no logged one resolves to, so an
+            // externally edited default (another tab, a hand-edited
+            // settings.yaml) has to reach an open selector too.
+            if (modelProviderNamespaces().has(name) || name === String(API_GATEWAY_SETTINGS_NAMESPACE)) {
+              queue.push(frame({ type: 'host/models-changed' }))
+            }
           }),
           ctx.on('credentials/updated', (ref) => {
             queue.push(frame({ type: 'host/credentials-changed', ref: String(ref) }))

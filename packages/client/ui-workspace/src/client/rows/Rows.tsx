@@ -166,14 +166,30 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, t }: {
   )
 }
 
-/** Session status presentation; approval waiting outranks the underlying running state. */
-function sessionStatus(node: SessionNode, t: RowTranslate): { state: StateDotState; label: string } {
-  if (node.waitingApproval) return { state: 'warning', label: t('status.waitingApproval') }
+/* v8 ignore next 3 -- closed-union backstop; only reached if the status is forged */
+function assertNever(value: never): never {
+  throw new Error(`unknown pending interaction: ${String(value)}`)
+}
+
+/** Session status presentation; pending user interaction outranks the running state. */
+function sessionStatus(
+  node: Pick<SessionNode, 'pendingInteraction' | 'running' | 'completed'>,
+  t: RowTranslate,
+): { state: StateDotState; label: string } {
+  switch (node.pendingInteraction) {
+    case 'approval': return { state: 'warning', label: t('status.waitingApproval') }
+    case 'plan-review': return { state: 'warning', label: t('status.planReview') }
+    case 'question': return { state: 'warning', label: t('status.waitingAnswer') }
+    case undefined: break
+    /* v8 ignore next -- closed PendingInteractionStatus union */
+    default: return assertNever(node.pendingInteraction)
+  }
   if (node.running) return { state: 'ongoing', label: t('status.running') }
+  if (node.completed) return { state: 'done', label: t('status.completed') }
   return { state: 'done', label: t('status.idle') }
 }
 
-/** Hover-card body: full title, relative time, and approval/running/idle status. */
+/** Hover-card body: full title, relative time, and interaction/running/completed/idle status. */
 function SessionHoverContent({ node, now, t }: { node: SessionNode; now: number; t: RowTranslate }) {
   const status = sessionStatus(node, t)
   return (
@@ -215,14 +231,17 @@ export interface RowDragProps {
  * @param props.result - merged local/content search row.
  * @param props.currentId - selected session id.
  * @param props.onOpen - open the selected session.
+ * @param props.t - Workspace-browser translation seat.
  * @returns the result button.
  */
-export function SearchResultItem({ result, currentId, onOpen }: {
+export function SearchResultItem({ result, currentId, onOpen, t }: {
   result: SearchResultNode
   currentId: string | undefined
   onOpen: (id: SearchResultNode['id']) => void
+  t: RowTranslate
 }) {
   const selected = result.id === currentId
+  const status = sessionStatus(result, t)
   return (
     <button
       type="button"
@@ -232,7 +251,14 @@ export function SearchResultItem({ result, currentId, onOpen }: {
       onClick={() => { onOpen(result.id) }}
     >
       <span className={css.searchResultHeading}>
-        <span className={css.slot}>{result.running && <StateDot state="ongoing" />}</span>
+        <span className={css.slot}>
+          {(status.state !== 'done' || result.completed) && (
+            <>
+              <StateDot state={status.state} />
+              <span className={css.visuallyHidden}>{status.label}</span>
+            </>
+          )}
+        </span>
         <span className={css.searchResultTitle}>{result.title}</span>
       </span>
       <span className={css.searchResultWorkspace}>{result.workspace}</span>
@@ -250,7 +276,7 @@ function rowHalf(e: { clientY: number; currentTarget: HTMLElement }): 'before' |
 }
 
 /**
- * One top-level 34px session row: status dot (approval waiting outranks
+ * One top-level 34px session row: status dot (pending user interaction outranks
  * running), title, relative time, and the row actions menu.
  * @param props.node - derived session node.
  * @param props.currentId - selected session id (row highlight).
@@ -326,8 +352,11 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
           drag.drop(rowHalf(e))
         }}
     >
+      {/* Pending interactions and running outrank the idle state; a
+          finished-but-unviewed session shows the green done reminder dot
+          (cleared by opening the session). */}
       <span className={css.slot}>
-        {status.state !== 'done' && (
+        {(status.state !== 'done' || row.completed) && (
           <>
             <StateDot state={status.state} />
             <span className={css.visuallyHidden}>{status.label}</span>

@@ -12,9 +12,10 @@ DeepSeek Harness SDK is a plugin-based agent harness on vendored Cordis: **every
 vendor/      Vendored Cordis source — manifest + sync procedure in vendor/README.md
 packages/    @deepseek-ai/dsh-<pkg> workspaces at packages/<group>/<pkg>/
   core/        product API spine: session, system-prompt, tools, agent, agent-loop
+  api/         Remote BFF assembly and TypeRT RPC gateway
   typert/      type graph generator, loader, and runtime registry
   llm/         LLM seam + DeepSeek adapters (direct-fetch + pi-ai design twin)
-  bash/        bash executor seam + local impl + model-facing bash tools
+  bash/        bash executor seam + local/pwsh impls + model-facing shell tools
   subprocess/  subprocess seam + local process-tree impl
   pty/         persistent PTY seam/backend/tools
   fs/          filesystem seam + local impl + policy gate + read/write/edit tools
@@ -24,6 +25,7 @@ packages/    @deepseek-ai/dsh-<pkg> workspaces at packages/<group>/<pkg>/
   compact/     compaction seam + basic backend
   context/     request-context plugins
   subagent/    subagent seam + spawn/fork/ACP backends + delegation tool
+  bundle/      profile plugin bundles: installable patch layers for dsh --profile
   workflow/    workflow seam + worker-thread engine + workflow tool
   todo/        todo_write tool
   plan/        plan mode as logged per-agent collaboration state

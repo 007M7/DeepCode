@@ -16,11 +16,11 @@ Status: implemented
 
 ## 决定
 
-- `execa` 是根 devDependency，同时是 `@deepseek-ai/dsh-loader-smoke`（唯一的 `src/` 消费者）的运行时依赖。上述 spawn、收集、超时的代码位置统一经由 `await execa(cmd, args, { cwd, env, timeout, killSignal: 'SIGKILL', reject: false })` 运行：其结果以相互独立的字段报告 `{ stdout, stderr, exitCode, signal, timedOut, failed }`，与本仓库防御模式中「正交的子进程结果各自独立上报」的规则一致。`runLoaderSmoke` 传 `input: ''` 以兑现其 stdin 关闭契约；断言固定精确流字节的位置传 `stripFinalNewline: false`。
-- 真正定制的部分继续保持定制，只是架在 execa 拥有的子进程之上：cli-demo 在流中遇到标记即中断的逻辑、jsonrpc 基于行谓词的协议驱动，以及 crash-recovery 在故障点发送 SIGKILL 的编排。`smoke-real.e2e.ts` 的三个长驻交互式服务器保留原生 `spawn`——跨双流监听就绪行加上分级的 SIGTERM→等待→SIGKILL 拆除就是该处的全部内容，execa 在那里删不掉任何东西；它在本 note 中的份额是那份死的 `.env` 解析器。
-- `llm-mock-server` 的 CLI 经由 `parseArgs` 切分（strict、不允许位置参数）；数值转换、边界检查与跨选项约束仍手工实现，被固定的错误消息测试改为携带 `parseArgs` 自己的切分器文本。
+- `execa` 是根 devDependency，同时是 `@deepseek-ai/dsh-loader-smoke`（唯一的 `src/` 消费方）的运行时依赖。上述 spawn、收集、超时的代码位置统一经由 `await execa(cmd, args, { cwd, env, timeout, killSignal: 'SIGKILL', reject: false })` 运行：其结果以相互独立的字段报告 `{ stdout, stderr, exitCode, signal, timedOut, failed }`，与本仓库防御模式中「正交的子进程结果各自独立上报」的规则一致。`runLoaderSmoke` 传 `input: ''` 以兑现其 stdin 关闭契约；断言固定精确流字节的位置传 `stripFinalNewline: false`。
+- 真正定制的部分继续保持定制，只是架在 execa 拥有的子进程之上：cli-demo 在流中遇到标记即中断的逻辑、jsonrpc 基于行谓词的协议驱动，以及 crash-recovery 在故障点发送 SIGKILL 的编排。`smoke-real.e2e.ts` 的三个长驻交互式服务器保留原生 `spawn`——跨双流监听就绪行加上分级的 SIGTERM→等待→SIGKILL 拆除就是该处的全部内容，execa 在那里删不掉任何东西；本 Agent Note 涉及该文件的部分，仅是那份已成为死代码的 `.env` 解析器。
+- `llm-mock-server` 的 CLI（命令行界面）经由 `parseArgs` 切分（strict、不允许位置参数）；数值转换、边界检查与跨选项约束仍手工实现，固定错误消息的测试改为采用 `parseArgs` 自己的切分器文本。
 - 两份 `loadRootEnv` 拷贝被整体删除：拥有它们的 vitest 配置（`vitest.web.config.ts` 无条件、`vitest.snapshot.config.ts` 在 record 模式下）在这些文件运行之前就加载了仓库根部的 `.env`。
-- 那四个轮询循环改乘 `vi.waitFor`，显式传入 `{ interval, timeout }`，并在回调中抛出带描述信息的错误；`waitForPersistedTurnStart` 把「持久化记录格式非法」的校验错误捕获到重试循环之外，使其立即让运行失败，而不是被重试到截止时间。
+- 那四个轮询循环改用 `vi.waitFor`，显式传入 `{ interval, timeout }`，并在回调中抛出带描述信息的错误；`waitForPersistedTurnStart` 把「持久化记录格式非法」的校验错误捕获到重试循环之外，使其立即让运行失败，而不是被重试到截止时间。
 
 ## 曾考虑的替代方案
 
@@ -32,6 +32,6 @@ Status: implemented
 
 - 手写的收集/超时代码块全部移除，包括 `loader-smoke` 中两个标注 `/* v8 ignore */`、无法人为诱发的 OS 错误分支：spawn 与流故障如今经由 execa 的结果字段结算，这个 `src/` 文件不再携带任何覆盖率豁免，逐文件门禁覆盖其余全部分支。
 - 捕获的输出如今受 execa 默认 100 MB `maxBuffer` 约束（溢出即终止子进程），此前是无界的；`loader-smoke` README 的局限条目反映了这一点。
-- 直接子进程的超时终止以及退出/信号结果规范化均由 execa 跨平台负责，不再逐处手写；如 `loader-smoke` README 所述，这些辅助函数依然不负责终止进程树。每个改写后的套件在本次变更中已在 POSIX 上重新运行，另一平台由 Windows CI 车道负责。
+- 直接子进程的超时终止以及退出/信号结果规范化均由 execa 跨平台负责，不再逐处手写；如 `loader-smoke` README 所述，这些辅助函数依然不负责终止进程树。每个改写后的套件在本次变更中已在 POSIX 上重新运行，另一平台由 Windows CI 通道负责。
 - execa 是新增的根 devDependency（此前完全不存在于 lockfile 中）；它是 npm 上被依赖最多的包之一且维护活跃，exe/运行时闭包不受影响（仅测试使用）。
 - mock-server CLI 切分器层面的错误文本不再由本仓库决定：未知选项、缺失取值与多余位置参数报告 `parseArgs` 的措辞，并在 `tests/cli.spec.ts` 中如此固定。
