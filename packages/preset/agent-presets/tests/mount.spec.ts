@@ -218,45 +218,6 @@ describe('a roster with nothing in it', () => {
   })
 })
 
-describe('attributing a service to a subtree', () => {
-  it('never writes the preset file back, however the subtree changes', async () => {
-    delete (globalThis as { __RECONFIGURE__?: unknown }).__RECONFIGURE__
-    const handle = await ctx.agents.create({
-      sessionId: SessionId('sess-write'),
-      setup: async (agentCtx: Context) => void await ctx.agentPresets.mount(agentCtx, 'standard'),
-    })
-    const file = join(FIXTURES, 'system', 'standard', 'agent.cordis.yml')
-    const before = await readFile(file, 'utf8')
-
-    // The inherited `write()` persists the whole tree whenever the Loader
-    // decides a row's config moved, so one row reconfiguring itself would
-    // rewrite the shipped composition — here, with the row's new tool name.
-    const reconfigure = (globalThis as { __RECONFIGURE__?: (tool: string) => Promise<void> }).__RECONFIGURE__
-    expect(reconfigure).toBeTypeOf('function')
-    await reconfigure!('rewritten')
-
-    expect(toolNames(ctx, handle.agent)).toContain('rewritten')
-    expect(await readFile(file, 'utf8')).toBe(before)
-
-    await handle.dispose()
-  })
-
-  it('attributes nothing to a subtree that is already torn down', async () => {
-    const handle = await ctx.agents.create({
-      sessionId: SessionId('sess-torn'),
-      setup: async (agentCtx: Context) => void await ctx.agentPresets.mount(agentCtx, 'standard'),
-    })
-    const [mount] = livePresetMounts().filter(entry => entry.presetId === 'standard')
-    expect(mount).toBeDefined()
-
-    await handle.dispose()
-
-    // A disposed subtree owns nothing, so it can never be blamed for a service
-    // some other subtree published under the same name afterwards.
-    expect(leakedServices(ctx, mount!.fiber)).toEqual([])
-  })
-})
-
 describe('the preset file is an input, never a persistence target', () => {
   it('survives a row that disposes itself, which makes the Loader persist a tree', async () => {
     // The preset lives in a temp root, not under `fixtures/`: without the
@@ -307,6 +268,23 @@ describe('the preset file is an input, never a persistence target', () => {
     // `disabled: true` onto the row and, in the shipped case, truncating the
     // composition every session shares.
     expect(await readFile(path, 'utf8')).toBe(composition)
+  })
+})
+
+describe('attributing a service to a subtree', () => {
+  it('attributes nothing to a subtree that is already torn down', async () => {
+    const handle = await ctx.agents.create({
+      sessionId: SessionId('sess-torn'),
+      setup: async (agentCtx: Context) => void await ctx.agentPresets.mount(agentCtx, 'standard'),
+    })
+    const [mount] = livePresetMounts().filter(entry => entry.presetId === 'standard')
+    expect(mount).toBeDefined()
+
+    await handle.dispose()
+
+    // A disposed subtree owns nothing, so it can never be blamed for a service
+    // some other subtree published under the same name afterwards.
+    expect(leakedServices(ctx, mount!.fiber)).toEqual([])
   })
 })
 
