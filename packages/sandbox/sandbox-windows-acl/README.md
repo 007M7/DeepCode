@@ -6,6 +6,8 @@ Windows write-restriction sandbox backend for the [harness sandbox seam](../sand
 
 Mechanism in one line: the caller's token is duplicated into a `WRITE_RESTRICTED` token whose restricting SIDs include an orphan SID (`S-1-4-x-y`) that only this sandbox instance has added to the workspace and temp directories' DACLs. Windows then grants a write only where BOTH the caller's normal access AND the restricting-SID intersection allow it — the orphan SID is the write allowlist, and it grants nothing anywhere else on the system.
 
+Building directly on the raw ACL mechanism is the recorded design choice: it implements both confinement modes without the problems the rejected container options carry — see the [design note](../../../.agents/notes/implemented/feature/2026-08-08-windows-acl-restricted-token-sandbox.md) ([mxc](https://github.com/microsoft/mxc/blob/main/docs/process-container/os-version-support.md) needs an OS floor of Windows 11 24H2 and wholesale host DACL writes for arbitrary-path reads; AppContainer cannot do arbitrary-path reads at all).
+
 ## Usage
 
 ```ts

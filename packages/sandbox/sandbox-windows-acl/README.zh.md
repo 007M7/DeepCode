@@ -6,6 +6,8 @@
 
 一句话机制：把调用者令牌复制为 `WRITE_RESTRICTED` 受限令牌，其 restricting SIDs 中加入一个孤儿 SID（`S-1-4-x-y`），该 SID 只被本沙盒实例加到工作区与临时目录的 DACL 上。此后 Windows 只在「调用者正常权限」与「restricting SID 交集」同时允许时才放行写入——孤儿 SID 就是写入白名单，而它在系统其余位置不授予任何权限。
 
+直接基于原始 ACL 机制实现是记录在案的设计选择：它能在不引入两个被否决容器方案所带问题的前提下实现两种限制模式——见[设计笔记](../../../.agents/notes/implemented/feature/2026-08-08-windows-acl-restricted-token-sandbox.md)（[mxc](https://github.com/microsoft/mxc/blob/main/docs/process-container/os-version-support.md) 要求 Windows 11 24H2 起步的 OS 版本，且任意路径读需要全盘写入宿主 DACL；AppContainer 则根本不支持任意路径读）。
+
 ## 用法
 
 ```ts
