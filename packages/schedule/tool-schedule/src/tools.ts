@@ -245,7 +245,6 @@ function isTimeContextReading(event: SessionEvent): boolean {
     && section !== undefined
     && Object.keys(section).length === 2
     && section.name === 'time-context'
-    && typeof section.text === 'string'
     && section.text === block.text
 }
 

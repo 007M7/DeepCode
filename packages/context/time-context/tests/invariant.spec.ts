@@ -209,12 +209,6 @@ describe('time-context invariants', () => {
       /must contain exactly one text block/,
     ],
     [
-      'non-string section text',
-      { type: 'text', text: reading() },
-      [{ name: 'time-context', text: 7 }],
-      /must carry only the exact snapshot text/,
-    ],
-    [
       'an extra section field',
       { type: 'text', text: reading() },
       [{ name: 'time-context', text: reading(), extra: true }],

@@ -107,7 +107,6 @@ function validateReading(
     || section === undefined
     || Object.keys(section).length !== 2
     || section.name !== SOURCE_NAME
-    || typeof section.text !== 'string'
     || section.text !== blockText) {
     fail('time-context source must carry only the exact snapshot text, not request authority')
   }

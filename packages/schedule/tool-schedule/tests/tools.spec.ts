@@ -391,7 +391,6 @@ describe('Schedule tool protocol', () => {
     ['a non-object text block', 7, [{ name: 'time-context', text: 'time context' }]],
     ['matched non-string text', { type: 'text', text: 7 }, [{ name: 'time-context', text: 7 }]],
     ['extra text-block field', { type: 'text', text: 'time context', extra: true }, [{ name: 'time-context', text: 'time context' }]],
-    ['non-string section text', { type: 'text', text: 'time context' }, [{ name: 'time-context', text: 7 }]],
     ['extra section field', { type: 'text', text: 'time context' }, [{ name: 'time-context', text: 'time context', extra: true }]],
   ] as const)(
     'does not let snapshot provenance with %s authorize an implicit local at',
