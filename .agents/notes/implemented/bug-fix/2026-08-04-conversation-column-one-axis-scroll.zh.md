@@ -1,7 +1,6 @@
-# Agent Note: 会话列只在一个轴上滚动
+# Agent Note：会话列只在一个轴上滚动
 
-Status: implemented
-Archived: 2026-08-07
+状态：已实现
 
 [English](2026-08-04-conversation-column-one-axis-scroll.md) | 中文
 

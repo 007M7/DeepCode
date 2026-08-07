@@ -1,7 +1,6 @@
 # Agent Note: The conversation column scrolls on one axis
 
 Status: implemented
-Archived: 2026-08-07
 
 English | [中文](2026-08-04-conversation-column-one-axis-scroll.zh.md)
 
