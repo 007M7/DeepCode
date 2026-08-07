@@ -18,7 +18,6 @@
     "@deepseek-ai/dsh-bash-env": "workspace:*",
     "@deepseek-ai/dsh-bash-local": "workspace:*",
     "@deepseek-ai/dsh-bash-sandbox": "workspace:*",
-    "@deepseek-ai/dsh-cli-demo": "workspace:*",
     "@deepseek-ai/dsh-code-runtime-worker": "workspace:*",
     "@deepseek-ai/dsh-command-feedback": "workspace:*",
     "@deepseek-ai/dsh-command-goal": "workspace:*",

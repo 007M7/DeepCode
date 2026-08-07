@@ -47,7 +47,7 @@ const ralphScenarioDir = join(snapshotsDir, 'ralph-loop')
 const ralphConfigPath = fileURLToPath(new URL('../ralph.cordis.snapshot.yml', import.meta.url))
 const startupFailureConfigPath = fileURLToPath(new URL('./fixtures/startup-activation-error/cordis.yml', import.meta.url))
 const startupFailureExpected = join(snapshotsDir, 'startup-activation-error', 'stderr.expected.txt')
-const binScript = fileURLToPath(new URL('../../../packages/examples/cli-demo/src/bin.ts', import.meta.url))
+const binScript = fileURLToPath(new URL('./fixtures/headless-driver.ts', import.meta.url))
 const dshBinScript = fileURLToPath(new URL('../../../apps/cli/src/bin.ts', import.meta.url))
 const tsconfigPath = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
 const reasoningConfigPath = fileURLToPath(new URL('./fixtures/cli.cordis.yml', import.meta.url))
@@ -242,8 +242,9 @@ describe('headless stream-json snapshots', () => {
       label: 'headless startup activation error snapshot',
       tempDirPrefix: 'headless-snapshot-startup-error-',
       binScript,
+      libBinScript: binScript,
       configPath: startupFailureConfigPath,
-      binArgs: ['--config', startupFailureConfigPath, '--output-format', 'stream-json', 'unreachable task'],
+      binArgs: [startupFailureConfigPath, 'unreachable task'],
       tsconfigPath,
       expectedExitCode: 1,
     })
@@ -259,8 +260,9 @@ describe('headless stream-json snapshots', () => {
       label: 'provider retry headless stream-json snapshot',
       tempDirPrefix: 'headless-snapshot-provider-retry-',
       binScript,
+      libBinScript: binScript,
       configPath: retryConfigPath,
-      binArgs: ['--config', retryConfigPath, '--output-format', 'stream-json', prompt],
+      binArgs: [retryConfigPath, prompt],
       tsconfigPath,
       env: {
         DSH_SNAPSHOT: 'replay',
@@ -299,8 +301,9 @@ describe('headless stream-json snapshots', () => {
       label: 'compaction recovery headless stream-json snapshot',
       tempDirPrefix: 'headless-snapshot-compaction-recovery-',
       binScript,
+      libBinScript: binScript,
       configPath: compactionConfigPath,
-      binArgs: ['--config', compactionConfigPath, '--output-format', 'stream-json', prompt],
+      binArgs: [compactionConfigPath, prompt],
       tsconfigPath,
       env: {
         DSH_SNAPSHOT: 'replay',
@@ -367,8 +370,9 @@ describe('headless stream-json snapshots', () => {
       label: 'missing-credential headless stream-json snapshot',
       tempDirPrefix: 'headless-snapshot-missing-credential-',
       binScript,
+      libBinScript: binScript,
       configPath: credentialsConfigPath,
-      binArgs: ['--config', credentialsConfigPath, '--output-format', 'stream-json', 'say pong'],
+      binArgs: [credentialsConfigPath, 'say pong'],
       tsconfigPath,
       env: {
         // First-run posture: no key in the environment, none under ./.dsh.
@@ -404,8 +408,9 @@ describe('headless stream-json snapshots', () => {
       label: 'invalid-credential headless stream-json snapshot',
       tempDirPrefix: 'headless-snapshot-invalid-credential-',
       binScript,
+      libBinScript: binScript,
       configPath: credentialsConfigPath,
-      binArgs: ['--config', credentialsConfigPath, '--output-format', 'stream-json', 'say pong'],
+      binArgs: [credentialsConfigPath, 'say pong'],
       tsconfigPath,
       env: {
         // A key that exists but no HTTP header can carry — the paste this
@@ -438,8 +443,9 @@ describe('headless stream-json snapshots', () => {
       label: 'reasoning effort headless stream-json snapshot',
       tempDirPrefix: 'headless-snapshot-reasoning-effort-',
       binScript,
+      libBinScript: binScript,
       configPath: reasoningConfigPath,
-      binArgs: ['--config', reasoningConfigPath, '--output-format', 'stream-json', 'prove dynamic reasoning effort'],
+      binArgs: [reasoningConfigPath, 'prove dynamic reasoning effort'],
       tsconfigPath,
     })
 
@@ -480,12 +486,10 @@ describe('headless stream-json snapshots', () => {
         label: 'DeepSeek adapter defaults headless stream-json snapshot',
         tempDirPrefix: 'headless-snapshot-deepseek-defaults-',
         binScript,
+        libBinScript: binScript,
         configPath: deepseekDefaultsConfigPath,
         binArgs: [
-          '--config',
           deepseekDefaultsConfigPath,
-          '--output-format',
-          'stream-json',
           'return the deterministic response',
         ],
         tsconfigPath,
@@ -540,8 +544,9 @@ describe('headless stream-json snapshots', () => {
       label: 'advanced headless stream-json snapshot',
       tempDirPrefix: 'headless-snapshot-advanced-',
       binScript,
+      libBinScript: binScript,
       configPath: advancedConfigPath,
-      binArgs: ['--config', advancedConfigPath, '--output-format', 'stream-json', prompt],
+      binArgs: [advancedConfigPath, prompt],
       tsconfigPath,
       env: {
         DSH_SNAPSHOT: 'replay',
@@ -611,8 +616,9 @@ describe('headless stream-json snapshots', () => {
       label: 'goal tools headless stream-json snapshot',
       tempDirPrefix: 'headless-snapshot-goal-tools-',
       binScript,
+      libBinScript: binScript,
       configPath: goalConfigPath,
-      binArgs: ['--config', goalConfigPath, '--output-format', 'stream-json', prompt],
+      binArgs: [goalConfigPath, prompt],
       tsconfigPath,
       env: {
         DSH_SNAPSHOT: 'replay',
@@ -667,8 +673,9 @@ describe('headless stream-json snapshots', () => {
       label: 'Ralph loop headless stream-json snapshot',
       tempDirPrefix: 'headless-snapshot-ralph-loop-',
       binScript,
+      libBinScript: binScript,
       configPath: ralphConfigPath,
-      binArgs: ['--config', ralphConfigPath, '--output-format', 'stream-json', prompt],
+      binArgs: [ralphConfigPath, prompt],
       tsconfigPath,
       env: {
         DSH_SNAPSHOT: 'replay',
@@ -748,8 +755,9 @@ describe('headless stream-json snapshots', () => {
       label: 'headless persistent PTY snapshot',
       tempDirPrefix: 'headless-snapshot-pty-',
       binScript,
+      libBinScript: binScript,
       configPath: ptyConfigPath,
-      binArgs: ['--config', ptyConfigPath, '--output-format', 'stream-json', prompt],
+      binArgs: [ptyConfigPath, prompt],
       tsconfigPath,
       env: {
         DSH_SNAPSHOT: 'replay',

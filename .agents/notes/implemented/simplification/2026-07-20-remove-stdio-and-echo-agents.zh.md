@@ -19,18 +19,18 @@ DeepSeek Harness 在 TUI 和 Headless coding agent 之外，还提供了两个�
 保留的应用角色均有明确归属：
 
 - `@deepseek-ai/dsh-tui` 负责终端交互式执行。它会在 Loader 启动前拒绝非 TTY 流；`apps/cli/config/base.cordis.yml` 与 `tui.cordis.yml` overlay 拥有完整 coding 组装，PTY 与终端快照覆盖则位于 `apps/cli/tests/`。
-- [`@deepseek-ai/dsh-cli-demo`](../../../../packages/examples/cli-demo/README.md) 负责非交互式执行，包括管道方式。`examples/headless-agent` 拥有真实模型的单次任务组装、回放快照、通用真实 agent 测试套件，以及仅供测试使用的无密钥 Loader fixture。
+- [`dsh run`](../../../../apps/cli/README.md) 负责非交互式执行。其 `headless` profile 是产品组装；`examples/headless-agent` 负责回放快照、通用真实 agent 测试套件和未导出的无密钥 Loader driver。
 - [`@deepseek-ai/dsh-acp-demo`](../../../../packages/examples/acp-demo/README.md) 和 `@deepseek-ai/dsh-jsonrpc` 负责各自的分帧协议集成。
 
 SDK 工程模型与 create/config 工作流将 `stdio` 运行接口选项替换为 `tui`；生成的 TUI 工程组合 `@deepseek-ai/dsh-tui`，并创建或恢复一个确切会话。仓库中的演示文档要求 DeepSeek API key，并优先引导到真实的 Headless 或 TUI agent。
 
-无密钥验证由测试负责。Headless Loader 冒烟测试使用 fixture 适配器验证真实工具往返；CLI built-bin 测试套件固定输出、持久化、失败和信号语义；各包专属的 Loader 测试则将确定性适配器放在对应场景旁。其中任何一项都不会作为可运行的 mock agent 对外暴露。
+无密钥验证由测试负责。Headless Loader 冒烟测试使用 fixture 适配器验证真实工具往返；`dsh` built-bin 测试套件固定单次运行的输出、持久化、失败和信号语义；各包专属的 Loader 测试则将确定性适配器放在对应场景旁。其中任何一项都不会作为可运行的 mock agent 对外暴露。
 
 ## 验证
 
 TUI 与 Headless 的 Loader 覆盖以源码和构建产物两种模式运行真实 app 包。由 PTY 驱动的子进程覆盖仅用于 TUI 生命周期；其他入口冒烟测试使用单次管道协议。Headless 验证任务/结果契约和工具调用契约。生成图谱与仓库搜索会拒绝陈旧的包、命令、叶节点、SDK 接口、`createStdioChat` 和 `StdioRuntime` 引用。
 
-构建后的 `dsh` 可执行文件会在 Loader 启动前拒绝通过管道启动 TUI，并指向其单次 `-p` 模式；`apps/cli/tests/built-bin.e2e.ts` 固定了该执行路径，而 `cli-demo` 的 built-bin 套件在普通 Node 下运行文本、JSON 和经过结构化解析的 `stream-json` 输出，持久化新建会话，并在不污染 stdout 的情况下拒绝无效参数和缺失配置。Code Mode 由程序化 TUI 快照与 ACP overlay demo 覆盖。时间上下文集成通过真实 Headless 组装执行两个有序轮次，而更细粒度的耗时行为由时间上下文的包级测试负责。
+构建后的 `dsh` 可执行文件会在 Loader 启动前拒绝通过管道启动 TUI，并指向 `dsh run`；`apps/cli/tests/built-bin.e2e.ts` 在普通 Node 下固定产品的一次性路径，包括输出、持久化、无效参数、缺失配置和信号。headless 示例仅供测试的 JSONL driver 保留组装后的规范事件快照，而不会创建第二套 CLI（命令行界面）契约。Code Mode 由程序化 TUI 快照与 ACP overlay demo 覆盖。时间上下文集成通过显式的 Headless 测试组装执行两个有序轮次，而更细粒度的耗时行为由时间上下文的包级测试负责。
 
 ## 曾考虑的替代方案
 

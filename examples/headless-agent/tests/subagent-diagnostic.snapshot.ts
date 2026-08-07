@@ -19,7 +19,7 @@ const fixtureDir = fileURLToPath(new URL('./subagent-diagnostic-snapshots/descri
 const replayOverride = join(fixtureDir, 'replay.override.json')
 const parentExpected = join(fixtureDir, 'parent.expected.jsonl')
 const configPath = fileURLToPath(new URL('../subagent-diagnostic.cordis.snapshot.yml', import.meta.url))
-const binScript = fileURLToPath(new URL('../../../packages/examples/cli-demo/src/bin.ts', import.meta.url))
+const binScript = fileURLToPath(new URL('./fixtures/headless-driver.ts', import.meta.url))
 const tsconfigPath = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
 const parentId = SessionId('subagent-diagnostic-parent')
 const childId = SessionId('subagent-diagnostic-child')
@@ -77,8 +77,9 @@ describe('descriptor-less cold child diagnostic snapshot', () => {
       label: 'subagent diagnostic headless stream-json snapshot',
       tempDirPrefix: 'dsh-subagent-diag-',
       binScript,
+      libBinScript: binScript,
       configPath,
-      binArgs: ['--config', configPath, '--output-format', 'stream-json', task],
+      binArgs: [configPath, task],
       tsconfigPath,
       env: {
         DSH_SNAPSHOT_FILE: replayOverride,

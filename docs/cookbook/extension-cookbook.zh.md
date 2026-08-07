@@ -90,7 +90,7 @@ export function apply(ctx: Context) {
 
 ## 可运行的组装示例
 
-可运行叶子从 `examples/*/cordis.yml` 加载各自的插件树；根目录的 `demo:*` 脚本和这些叶子目录是权威清单。非交互式叶子使用 [`@deepseek-ai/dsh-cli-demo`](../../packages/examples/cli-demo)，ACP 叶子使用 [`@deepseek-ai/dsh-acp-demo`](../../packages/examples/acp-demo)，JSON-RPC 叶子使用 [`@deepseek-ai/dsh-jsonrpc-demo`](../../packages/examples/jsonrpc-demo)，应用包共享 [`@deepseek-ai/dsh-agent-spine-demo`](../../packages/examples/agent-spine-demo)。
+可运行叶子从 `examples/*/cordis.yml` 加载各自的插件树；根目录的 `demo:*` 脚本和这些叶子目录是权威清单。产品 `dsh` 启动器负责 Web 和一次性 headless 执行，ACP 叶子使用 [`@deepseek-ai/dsh-acp-demo`](../../packages/examples/acp-demo)，JSON-RPC 叶子使用 [`@deepseek-ai/dsh-jsonrpc-demo`](../../packages/examples/jsonrpc-demo)。headless 快照叶节点显式挂载 [`@deepseek-ai/dsh-agent-spine-demo`](../../packages/examples/agent-spine-demo) 和 JSONL 持久化，再通过示例自有的测试 fixture（测试前置数据）驱动这些组件，而不是通过已交付的 app 包。
 
 ## 功能→机制映射
 
@@ -122,7 +122,7 @@ export function apply(ctx: Context) {
 | Skill（技能） | section + 工具注册；调用时通过 `inject()` 注入 skill 内容 |
 | 记忆 | section provider + 工具 |
 | 定时任务（cron） | 插件注册面向模型的调度工具；定时器触发 → 空闲时 `followup(…, {source: {kind: 'cron', …}})`／忙碌时 `inject()` 通知 |
-| UI（GUI；CLI 输出 JSONL） | 监听 `session/event`（助手分片、边界、工具活动）；输入 → `followup()` |
+| UI（GUI；CLI（命令行界面）输出 JSONL） | 监听 `session/event`（助手分片、边界、工具活动）；输入 → `followup()` |
 | 遥测 / 可回放 trace | `session/event` → JSONL；回放 = `sessions.create(id, { seed })` |
 | 模型适配器 | 通过 `registerAdapter` 注册 `LlmAdapter` 子类（`dsh-llm-deepseek`、`dsh-llm-pi-ai`） |
 | 插件热重载 | 每个注册都是一个 `ctx.effect` → vendor 的 HMR（热模块替换）直接生效 |
