@@ -8,7 +8,6 @@
  * routes — physical carriers wrap `ctx.apiProxy` themselves.
  */
 
-import { resolve } from 'node:path'
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
 import type { ApiProxy } from './api/index.ts'
@@ -29,20 +28,18 @@ declare module 'cordis' {
   }
 }
 
-/** Gateway plugin config: host-level agent routing and Workspace creation root. */
+/** Gateway plugin config: host-level agent routing. */
 export interface Config {
   /** Default provider route for created/resumed agents. */
   provider: string
   /** Default model id. */
   model: string
-  /** Parent directory for name-created Workspaces; defaults to the Host cwd. */
-  workspaceRoot?: string
 }
 
 /**
  * The API gateway service: implements the ApiProxy contract over the composed
  * host context and provides it as `ctx.apiProxy`. The Host cwd is the default
- * project directory and the fallback parent for name-created Workspaces.
+ * project directory.
  */
 export class ApiProxyService extends Service implements ApiProxy {
   static inject = [
@@ -53,7 +50,6 @@ export class ApiProxyService extends Service implements ApiProxy {
   static Config: z<Config> = z.object({
     provider: z.string().required(),
     model: z.string().required(),
-    workspaceRoot: z.string(),
   })
 
   readonly sessions: ApiProxy['sessions']
@@ -71,12 +67,10 @@ export class ApiProxyService extends Service implements ApiProxy {
 
   constructor(ctx: Context, config: Config) {
     super(ctx, 'apiProxy')
-    const cwd = process.cwd()
     const api = createApiProxy(ctx, {
       provider: config.provider,
       model: config.model,
-      cwd,
-      workspaceRoot: resolve(config.workspaceRoot ?? cwd),
+      cwd: process.cwd(),
     })
     this.sessions = api.sessions
     this.subagents = api.subagents

@@ -85,7 +85,6 @@ const api = (ctx: Context) => createApiProxy(ctx, {
   provider: 'default-provider',
   model: 'default-model',
   cwd: '/tmp',
-  workspaceRoot: '/tmp',
 })
 
 describe('sessions.fork', () => {

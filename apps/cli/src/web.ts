@@ -1,7 +1,7 @@
 /**
  * `dsh web` — the browser-surface alias over the profile boot: `--profile web`
- * plus the Web flag family (`--host/--port/--dev/--workspace-root/
- * --trusted-host`), each flag becoming a patch over the composed profile
+ * plus the Web flag family (`--host/--port/--dev/--trusted-host`), each flag
+ * becoming a patch over the composed profile
  * tree. All web runtime glue (dist serving, prompt section, URL line) lives
  * in the `@deepseek-ai/dsh-web-app` bundle; this launcher only derives
  * flag patches and the LAN-trust snapshot.
@@ -58,7 +58,6 @@ export interface WebFlags {
   host?: string
   port?: number
   dev: boolean
-  workspaceRoot?: string
   trustedHosts?: string[]
 }
 
@@ -82,7 +81,6 @@ function deriveWebFlagPatches(
   }
   if (flags.host !== undefined) put('webserver', 'host', flags.host)
   if (flags.port !== undefined) put('webserver', 'port', flags.port)
-  if (flags.workspaceRoot !== undefined) put('api-gateway', 'workspaceRoot', flags.workspaceRoot)
   const composedHost = (rows.get('webserver')?.config as { host?: string } | undefined)?.host
   const { lanAddresses, trustedHosts } = resolveLanTrust(flags.host ?? composedHost, flags.trustedHosts ?? [])
   if (trustedHosts.length > 0) {
@@ -118,8 +116,8 @@ export function webSurfaceContextEnabled(rows: ProfileRows): boolean {
 }
 
 /**
- * Serve the browser UI from the web profile. Host/port/workspace-root flags
- * are passed through only when given (absent, the composed profile values
+ * Serve the browser UI from the web profile. Host/port flags are passed
+ * through only when given (absent, the composed profile values
  * stand); `web-runtime.mode` and `lanAddresses` are launcher-derived on
  * every boot. The URL line is printed by the web-app bundle's runtime row
  * after Loader settlement.

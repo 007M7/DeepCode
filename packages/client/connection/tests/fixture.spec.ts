@@ -546,7 +546,7 @@ describe('createFixtureApi', () => {
       }
     })()
     await new Promise(resolve => setTimeout(resolve, 10))
-    const created = await api.workspace.create(req({ name: 'nova' }))
+    const created = await api.workspace.create(req({ path: '/tmp/fixture-workspaces/nova' }))
     if (!created.result.ok) throw new Error('create failed')
     expect(created.result.value.created).toBe(true)
     expect(created.result.value.workspace).toMatchObject({
@@ -554,16 +554,7 @@ describe('createFixtureApi', () => {
     })
     await consuming
     expect(seen).toEqual([{ type: 'host/workspace-changed', workspace: created.result.value.workspace }])
-    // path spelling falls back to the basename when no title/name rides along.
-    const pathOnly = await api.workspace.create(req({ path: '/tmp/fixture-elsewhere/base' }))
-    if (!pathOnly.result.ok) throw new Error('pathOnly failed')
-    expect(pathOnly.result.value.workspace.title).toBe('base')
-    // Degenerate spellings reach the impl unfiltered (the fixture carrier has
-    // no schema gate): both-absent falls back to the bucket dir, and a
-    // basename-less path serves as its own title.
-    const bare = await api.workspace.create(req({}))
-    if (!bare.result.ok) throw new Error('bare failed')
-    expect(bare.result.value.workspace).toMatchObject({ path: '/tmp/fixture-workspaces/', title: 'fixture-workspaces' })
+    // A basename-less path serves as its own title.
     const rootPath = await api.workspace.create(req({ path: '/' }))
     if (!rootPath.result.ok) throw new Error('rootPath failed')
     expect(rootPath.result.value.workspace.title).toBe('/')
@@ -584,7 +575,7 @@ describe('createFixtureApi', () => {
     const missing = await api.workspace.rename(req({ workspaceId: 'fx-ws-void' as WorkspaceId, title: 'x' }))
     expect(missing.result).toMatchObject({ ok: false, error: { code: 'workspace-not-found', details: { workspaceId: 'fx-ws-void' } } })
 
-    await api.workspace.create(req({ name: 'occupied' }))
+    await api.workspace.create(req({ path: '/tmp/fixture-workspaces/occupied' }))
     const conflict = await api.workspace.rename(req({ workspaceId: wsid, title: ' occupied ' }))
     expect(conflict.result).toMatchObject({ ok: false, error: { code: 'workspace-name-conflict', details: { name: 'occupied' } } })
 
@@ -722,7 +713,7 @@ describe('createFixtureApi', () => {
     expect(initialSessions.result).toMatchObject({ ok: true, value: { items: [] } })
     expect(initialWorkspaces.result).toMatchObject({ ok: true, value: { items: [] } })
 
-    const made = await api.workspace.create(req({ name: 'nova' }))
+    const made = await api.workspace.create(req({ path: '/tmp/fixture-workspaces/nova' }))
     if (!made.result.ok) throw new Error('workspace create failed')
     const abort = new AbortController()
     const framesPromise = collect(api.events.host(req({}), abort.signal), abort, frames => frames.length === 2)
@@ -991,7 +982,7 @@ describe('FixtureApiClient (protocol-level fake carrier)', () => {
     expect((await client.sessions.cancel({ sessionId: id })).result.ok).toBe(true)
     expect((await client.host.describe({})).result.ok).toBe(true)
     expect((await client.workspace.list({})).result.ok).toBe(true)
-    const workspace = await client.workspace.create({ name: 'via-client' })
+    const workspace = await client.workspace.create({ path: '/tmp/fixture-workspaces/via-client' })
     if (!workspace.result.ok) throw new Error('workspace create failed')
     expect(workspace.result.value.workspace.title).toBe('via-client')
     const wsid = workspace.result.value.workspace.workspaceId
@@ -1049,7 +1040,7 @@ describe('FixtureApiClient (protocol-level fake carrier)', () => {
     })
     const client = new FixtureApiClient()
     await expect(client.sessions.list({})).resolves.toMatchObject({ result: { ok: true, value: { items: [] } } })
-    const made = await client.workspace.create({ name: 'query-workspace' })
+    const made = await client.workspace.create({ path: '/tmp/fixture-workspaces/query-workspace' })
     if (!made.result.ok) throw new Error('workspace create failed')
     const abort = new AbortController()
     const framesPromise = collect(client.events.host({}, abort.signal), abort, frames => frames.length === 2)

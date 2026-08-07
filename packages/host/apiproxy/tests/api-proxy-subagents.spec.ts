@@ -88,7 +88,7 @@ function bench(options: {
   ctx.provide('sessionProjections', { snapshot, restore, onChanged: () => () => {} })
   ctx.provide('userInteraction', { registerProvider: () => () => {} })
   const api = createApiProxy(ctx, {
-    provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp',
+    provider: 'p', model: 'm', cwd: '/tmp',
   })
   return { api, getAgent, listChildren, inspect, snapshot, restore, followup, parent }
 }

@@ -125,7 +125,7 @@ describe('Web session model selection', () => {
       model: 'private-preview',
       reasoningEffort: ReasoningEffortId('max'),
     })
-    const api = createApiProxy(ctx, { provider: 'deepseek-official', model: 'deepseek-chat', cwd: '/tmp', workspaceRoot: '/tmp' })
+    const api = createApiProxy(ctx, { provider: 'deepseek-official', model: 'deepseek-chat', cwd: '/tmp' })
 
     const catalog = expectValue(await api.sessions.models(request({ sessionId })))
     expect(catalog.current).toEqual({
@@ -160,7 +160,7 @@ describe('Web session model selection', () => {
 
   it('accepts an advisory-unlisted model, rejects an unavailable provider, and switches only after the next assembly', async () => {
     const { ctx, agent, sessionId } = await harness()
-    const api = createApiProxy(ctx, { provider: 'deepseek-official', model: 'deepseek-chat', cwd: '/tmp', workspaceRoot: '/tmp' })
+    const api = createApiProxy(ctx, { provider: 'deepseek-official', model: 'deepseek-chat', cwd: '/tmp' })
     const seed: LlmCallConfig = { provider: 'seed', model: 'seed', temperature: 0.2 }
     const signal = new AbortController().signal
 

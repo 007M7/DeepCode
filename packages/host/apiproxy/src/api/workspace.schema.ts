@@ -31,14 +31,10 @@ export const workspaceListValueSchema = z.object({
   archivedSessionIds: z.array(sessionIdSchema),
 }) satisfies z.ZodType<Wire<ResponseValue<'workspace.list'>>>
 
-/** workspace.create request payload: exactly one of path/name (the contract's create spellings). */
+/** workspace.create request payload: the existing directory to adopt. */
 export const workspaceCreateRequestSchema = z.object({
-  path: z.string().optional(),
-  name: z.string().optional(),
-}).refine(
-  payload => (payload.path === undefined) !== (payload.name === undefined),
-  { message: 'workspace.create requires exactly one of path / name' },
-) satisfies z.ZodType<Wire<RequestPayload<'workspace.create'>>>
+  path: z.string(),
+}) satisfies z.ZodType<Wire<RequestPayload<'workspace.create'>>>
 
 /** workspace.create response value. */
 export const workspaceCreateValueSchema = z.object({

@@ -59,7 +59,7 @@ function stubAgent(session: Session): Agent {
 
 /** Compose the API over real Session, Agent, Storage, Domain, and Workspace services. */
 async function harness(
-  workspaceRoot = realpathSync(mkdtempSync(join(tmpdir(), 'dsh-apiproxy-workspace-'))),
+  root = realpathSync(mkdtempSync(join(tmpdir(), 'dsh-apiproxy-workspace-'))),
   picker: DirectoryPickerCapability = { kind: 'native', pick: async () => null },
   extras: { openPath?: (path: string, signal: AbortSignal) => Promise<void> } = {},
 ) {
@@ -102,11 +102,17 @@ async function harness(
   const api = createApiProxy(ctx, {
     provider: 'test',
     model: 'test-model',
-    cwd: workspaceRoot,
-    workspaceRoot,
+    cwd: root,
     ...extras.openPath === undefined ? {} : { openPath: extras.openPath },
   })
-  return { api, ctx, storageDomain, workspaceRoot }
+  return { api, ctx, storageDomain, root }
+}
+
+/** Stage one directory under the harness root for path adoption. */
+function stageDir(root: string, name: string): string {
+  const path = join(root, name)
+  mkdirSync(path)
+  return path
 }
 
 describe('host.pickDirectory', () => {
@@ -244,30 +250,26 @@ describe('host.openPath', () => {
 })
 
 describe('workspace.create', () => {
-  it('serializes concurrent names and rejects the duplicate', async () => {
-    const { api, workspaceRoot } = await harness()
+  it('serializes concurrent creates of one path into a single registration', async () => {
+    const { api, root } = await harness()
+    const target = join(root, 'alpha')
+    mkdirSync(target)
     const responses = await Promise.all([
-      api.workspace.create(request({ name: 'alpha' })),
-      api.workspace.create(request({ name: 'alpha' })),
+      api.workspace.create(request({ path: target })),
+      api.workspace.create(request({ path: target })),
     ])
-    const created = responses.find(response => response.result.ok)
-    const duplicate = responses.find(response => !response.result.ok)
+    const values = responses.map(response => expectOk(response))
+    const created = values.find(value => value.created)
+    const resolved = values.find(value => !value.created)
 
-    expect(created).toBeDefined()
-    expect(expectOk(created!)).toMatchObject({
-      created: true,
-      workspace: { path: join(workspaceRoot, 'alpha'), title: 'alpha' },
-    })
-    expect(duplicate?.result).toMatchObject({
-      ok: false,
-      error: { code: 'workspace-name-conflict', details: { name: 'alpha' } },
-    })
-    expect(existsSync(join(workspaceRoot, 'alpha'))).toBe(true)
+    expect(created).toMatchObject({ workspace: { path: target, title: 'alpha' } })
+    expect(resolved?.workspace.workspaceId).toBe(created?.workspace.workspaceId)
+    expect(expectOk(await api.workspace.list(request({}))).items).toHaveLength(1)
   })
 
-  it('adopts only existing directories and rejects unsafe names', async () => {
-    const { api, workspaceRoot } = await harness()
-    const existing = join(workspaceRoot, 'existing')
+  it('adopts only existing directories', async () => {
+    const { api, root } = await harness()
+    const existing = join(root, 'existing')
     mkdirSync(existing)
     const first = expectOk(await api.workspace.create(request({ path: existing })))
     const repeated = expectOk(await api.workspace.create(request({ path: existing })))
@@ -281,21 +283,16 @@ describe('workspace.create', () => {
     const reopened = expectOk(await api.workspace.create(request({ path: existing })))
     expect(reopened.workspace.title).toBe('renamed-existing')
 
-    const missing = join(workspaceRoot, 'missing')
+    const missing = join(root, 'missing')
     const missingResult = await api.workspace.create(request({ path: missing }))
     expect(missingResult.result).toMatchObject({ ok: false, error: { code: 'workspace-invalid-path' } })
     expect(existsSync(missing)).toBe(false)
-
-    for (const name of ['', '.', '..', 'a/b', 'a\\b']) {
-      const invalid = await api.workspace.create(request({ name }))
-      expect(invalid.result).toMatchObject({ ok: false, error: { code: 'workspace-invalid-path' } })
-    }
   })
 
   it('adopts different paths that derive the same Workspace title', async () => {
-    const { api, workspaceRoot } = await harness()
-    const first = join(workspaceRoot, 'one', 'project')
-    const second = join(workspaceRoot, 'two', 'project')
+    const { api, root } = await harness()
+    const first = join(root, 'one', 'project')
+    const second = join(root, 'two', 'project')
     mkdirSync(first, { recursive: true })
     mkdirSync(second, { recursive: true })
     const firstResult = expectOk(await api.workspace.create(request({ path: first })))
@@ -316,8 +313,8 @@ describe('workspace.create', () => {
 
 describe('session creation and Workspace membership', () => {
   it('attaches a preallocated idempotent session while cwd-only sessions stay ungrouped', async () => {
-    const { api, ctx } = await harness()
-    const workspace = expectOk(await api.workspace.create(request({ name: 'project' }))).workspace
+    const { api, ctx, root } = await harness()
+    const workspace = expectOk(await api.workspace.create(request({ path: stageDir(root, 'project') }))).workspace
     const sessionId = SessionId('session-workspace-preallocated')
 
     expectOk(await api.sessions.create(request({ workspaceId: workspace.workspaceId, sessionId })))
@@ -343,8 +340,8 @@ describe('session creation and Workspace membership', () => {
   })
 
   it('retains a published session when attachment fails and repairs it on retry', async () => {
-    const { api, ctx } = await harness()
-    const created = expectOk(await api.workspace.create(request({ name: 'project' }))).workspace
+    const { api, ctx, root } = await harness()
+    const created = expectOk(await api.workspace.create(request({ path: stageDir(root, 'project') }))).workspace
     const workspace = ctx.workspace.list()[0]
     if (workspace === undefined) throw new Error('workspace missing from registry')
     vi.spyOn(workspace, 'attachSession').mockRejectedValueOnce(new Error('simulated write failure'))
@@ -394,7 +391,7 @@ describe('Host Workspace increments', () => {
   })
 
   it('streams committed Workspace and Session increments after empty baselines', async () => {
-    const { api } = await harness()
+    const { api, root } = await harness()
     expect(expectOk(await api.workspace.list(request({}))).items).toEqual([])
     expect(expectOk(await api.sessions.list(request({}))).items).toEqual([])
 
@@ -402,7 +399,7 @@ describe('Host Workspace increments', () => {
     const stream: AsyncIterator<RpcRequest<HostFrame>> =
       api.events.host(request({}), abort.signal)[Symbol.asyncIterator]()
     const workspaceIncrement = nextHostFrame(stream)
-    const workspace = expectOk(await api.workspace.create(request({ name: 'project' }))).workspace
+    const workspace = expectOk(await api.workspace.create(request({ path: stageDir(root, 'project') }))).workspace
     expect(await workspaceIncrement).toMatchObject({
       payload: { type: 'host/workspace-changed', workspace: { workspaceId: workspace.workspaceId } },
     })
@@ -430,7 +427,7 @@ describe('Host Workspace increments', () => {
   })
 
   it('does not publish a Workspace whose registry-order commit fails', async () => {
-    const { api, storageDomain } = await harness()
+    const { api, storageDomain, root } = await harness()
     const domain = storageDomain.get('workspace')
     if (domain === undefined) throw new Error('workspace domain is not open')
     vi.spyOn(domain.global, 'set').mockRejectedValueOnce(new Error('simulated registry order failure'))
@@ -439,7 +436,7 @@ describe('Host Workspace increments', () => {
       api.events.host(request({}), abort.signal)[Symbol.asyncIterator]()
     const next = stream.next()
 
-    const failed = await api.workspace.create(request({ name: 'ghost' }))
+    const failed = await api.workspace.create(request({ path: stageDir(root, 'ghost') }))
     expect(failed.result.ok).toBe(false)
     expect(expectOk(await api.workspace.list(request({}))).items).toEqual([])
     abort.abort()
@@ -447,8 +444,8 @@ describe('Host Workspace increments', () => {
   })
 
   it('deletes the registration, keeps its session and folder, and streams one removal', async () => {
-    const { api, ctx } = await harness()
-    const workspace = expectOk(await api.workspace.create(request({ name: 'delete-me' }))).workspace
+    const { api, ctx, root } = await harness()
+    const workspace = expectOk(await api.workspace.create(request({ path: stageDir(root, 'delete-me') }))).workspace
     const sessionId = SessionId('session-kept-after-workspace-delete')
     expectOk(await api.sessions.create(request({ workspaceId: workspace.workspaceId, sessionId })))
 
@@ -480,8 +477,8 @@ describe('Host Workspace increments', () => {
   })
 
   it('archives a session into the global set, keeps its accounting, and streams the set once', async () => {
-    const { api } = await harness()
-    const workspace = expectOk(await api.workspace.create(request({ name: 'archive-home' }))).workspace
+    const { api, root } = await harness()
+    const workspace = expectOk(await api.workspace.create(request({ path: stageDir(root, 'archive-home') }))).workspace
     const sessionId = SessionId('session-to-archive')
     expectOk(await api.sessions.create(request({ workspaceId: workspace.workspaceId, sessionId })))
     expect(expectOk(await api.workspace.list(request({}))).archivedSessionIds).toEqual([])

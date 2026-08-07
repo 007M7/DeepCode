@@ -62,7 +62,7 @@ describe('sessions.list cold merge', () => {
         return undefined
       },
     })
-    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
+    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp' })
 
     const response = await api.sessions.list(request({}))
     expect(response.result.ok).toBe(true)
@@ -90,7 +90,7 @@ describe('attached updatedAt excludes end-seed', () => {
     await ctx.plugin(SessionStore)
     await ctx.plugin(UserInteractionService)
     await ctx.plugin(AgentRegistry)
-    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
+    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp' })
 
     // Old work, resumed just now: the log tail would report the pickup.
     const worked = 1_000_000
@@ -148,7 +148,7 @@ describe('cold history recovery view', () => {
       inspect: (id: SessionId, signal?: AbortSignal) => coordinator.inspect(id, signal),
       locate: () => undefined,
     } as never)
-    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
+    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp' })
 
     const history = await api.sessions.history(request({ sessionId, beforeSeq: 2, maxMessages: 10 }))
     if (!history.result.ok) throw new Error('history failed')
@@ -216,7 +216,7 @@ describe('subagent ownership fence', () => {
       locate: () => undefined,
     } as never)
     const resume = vi.spyOn(ctx.agents, 'resume')
-    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
+    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp' })
 
     const history = await api.sessions.history(request({ sessionId }))
     expect(history.result.ok).toBe(true)
@@ -275,7 +275,7 @@ describe('subagent ownership fence', () => {
     // instead of answering `agent-busy`.
     const resume = vi.spyOn(ctx.agents, 'resume')
       .mockRejectedValue(new Error('registry unavailable in this bench'))
-    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
+    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp' })
 
     const prompt = await api.sessions.prompt(request({
       sessionId,
@@ -316,7 +316,7 @@ describe('subagent ownership fence', () => {
     })
     const startingChild = { id: startingSession.id, session: startingSession, status: 'idle', ctx } as Agent
     ctx.agents.enter(startingChild, parent)
-    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
+    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp' })
 
     const stopped = await api.sessions.cancel(request({ sessionId: originChild.id }))
     expect(stopped.result.ok).toBe(false)
@@ -362,7 +362,7 @@ describe('subagent ownership fence', () => {
     const followup = vi.fn()
     const agent = { id: session.id, session, status: 'idle', ctx, followup } as unknown as Agent
     ctx.agents.register(agent)
-    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
+    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp' })
 
     const response = await api.sessions.prompt(request({
       sessionId: agent.id,
@@ -380,7 +380,7 @@ describe('degenerate composition (no persistence, no factory)', () => {
     await ctx.plugin(SessionStore)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(UserInteractionService)
-    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
+    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp' })
 
     const listed = await api.sessions.list(request({}))
     expect(listed.result.ok).toBe(true)
@@ -405,7 +405,7 @@ describe('degenerate composition (no persistence, no factory)', () => {
       list: () => Promise.resolve([]),
       inspect,
     } as never)
-    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
+    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp' })
 
     const response = await api.sessions.history(request({ sessionId: sid('session-missing') }))
     expect(response.result.ok).toBe(false)
@@ -431,7 +431,7 @@ describe('sessions.prompt synchronous rejection', () => {
       followup: () => { throw new Error('agent "session-throwing" lifecycle disposed') },
       steer: () => { throw new Error('agent "session-throwing" lifecycle disposed') },
     } as unknown as Agent)
-    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
+    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp' })
 
     for (const mode of ['queue', 'steer'] as const) {
       const response = await api.sessions.prompt(request({
@@ -475,7 +475,7 @@ describe('sessions.prompt synchronous rejection', () => {
       ctx.agents.register(child)
       throw new Error('session id already published')
     })
-    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
+    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp' })
 
     const models = await api.sessions.models(request({ sessionId }))
     expect(models.result.ok).toBe(false)

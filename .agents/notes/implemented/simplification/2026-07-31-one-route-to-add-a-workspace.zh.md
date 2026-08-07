@@ -27,7 +27,7 @@ Status: implemented
 
 ## Wire and CLI residue
 
-Host 侧的 `workspace.create` 仍接受 `{ name }`，`dsh web --workspace-root` 也仍在为它提供目标目录，但已没有任何产品表层会走到它们。把名称送到 wire 的客户端一段同样如此：`WorkspaceCreateInput`、`WorkspacesService.create` 的 `{ name }` 分支、`intentName` 的名称分支，以及 manager 中"workspaceRoot 下的 name"这一契约。`apps/cli/README.md` 及其中文对照本也仍把 `--workspace-root` 记为"创建具名 Workspace"。这一整套都在 `packages/host/apiproxy/src/api-proxy.ts` 的调用点标记为待删除，并留给后续改动：它横跨 backend、客户端 seam 与 CLI 面，有各自的 reviewer 和各自的测试波及面（api-proxy workspace 套件、runtime workspace 套件、配置目录），而本决定中阻塞发布的部分是 UI。
+本节曾划定的后续删除已经落地：`workspace.create` 只接受 `{ path }`（`name` 成员已从 wire schema 与 `WorkspaceApi` 移除），网关失去了 `workspaceRoot` 配置及其默认值，客户端 seam 收窄为 path 写法（`WorkspaceCreateInput`、`WorkspacesService.create`、`intentName`），`dsh web --workspace-root` flag 连同其 `apps/cli` reference 文档行一并删除。`workspace-name-conflict` 仍留在 wire 上，作为 `workspace.rename` 的重名错误。
 
 ## Testing
 

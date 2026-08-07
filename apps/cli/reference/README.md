@@ -37,7 +37,7 @@ Git-hosted plugins that ship sources build during install through their `prepare
 
 ## Web alias
 
-`dsh web` is a hardcoded alias for `--profile web` that additionally accepts the Web flag family. `--host`, `--port`, `--workspace-root`, and repeatable `--trusted-host` values become patches over the composed rows; their owning plugin schemas validate them at boot. `--dev` switches the web-runtime row to development mode and inserts the client-plugin HMR receiver; it expects a separate `pnpm run dev:web` watcher for no-refresh client bundle updates.
+`dsh web` is a hardcoded alias for `--profile web` that additionally accepts the Web flag family. `--host`, `--port`, and repeatable `--trusted-host` values become patches over the composed rows; their owning plugin schemas validate them at boot. `--dev` switches the web-runtime row to development mode and inserts the client-plugin HMR receiver; it expects a separate `pnpm run dev:web` watcher for no-refresh client bundle updates.
 
 ```sh
 dsh web

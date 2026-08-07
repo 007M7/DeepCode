@@ -40,7 +40,6 @@ interface WebInvocation {
   host?: string
   port?: number
   dev: boolean
-  workspaceRoot?: string
   /** Extra authorities for the /api browser-trust fence. */
   trustedHosts?: string[]
 }
@@ -62,7 +61,6 @@ interface WebOptions {
   host?: string
   port?: string
   dev?: boolean
-  workspaceRoot?: string
   trustedHost?: string[]
   dumpConfig?: boolean
   dumpDefaultConfig?: boolean
@@ -152,7 +150,6 @@ Examples:
     .option('--host <host>', 'bind host; pass 0.0.0.0 to reach it from another machine')
     .option('--port <port>', 'listen port; pass 0 to let the OS pick a free one')
     .option('--dev', 'mount the client-plugin HMR receiver (run pnpm run dev:web separately to rebuild bundles)')
-    .option('--workspace-root <path>', 'parent directory for workspaces created from the browser UI')
     .option('--trusted-host <authority...>', 'extra authority the /api browser-trust fence accepts (host or host:port; repeatable)')
     .option('--dump-config', 'print the composed web-profile tree (with the user layer and any --patch) and exit')
     .option('--dump-default-config', 'print the web profile\'s bundle layers (no user layer) and exit')
@@ -172,8 +169,8 @@ Examples:
         // dropping them would print a tree that differs from the same
         // invocation's boot.
         if (options.host !== undefined || options.port !== undefined || options.dev === true
-          || options.workspaceRoot !== undefined || options.trustedHost !== undefined) {
-          program.error('error: config dumps take no web flags (--host/--port/--dev/--workspace-root/--trusted-host)')
+          || options.trustedHost !== undefined) {
+          program.error('error: config dumps take no web flags (--host/--port/--dev/--trusted-host)')
         }
         resolved = { mode: 'dump-config', profile: 'web', defaultOnly, patches }
         return
@@ -187,7 +184,6 @@ Examples:
         ...options.host !== undefined && { host: options.host },
         ...options.port !== undefined && { port: Number(options.port) },
         dev: options.dev === true,
-        ...options.workspaceRoot !== undefined && { workspaceRoot: options.workspaceRoot },
         ...options.trustedHost !== undefined && { trustedHosts: options.trustedHost },
       }
     })

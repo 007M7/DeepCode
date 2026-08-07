@@ -324,11 +324,9 @@ describe('workspace domain schemas', () => {
     expect(() => workspaceArchiveSessionValueSchema.parse({ archivedSessionIds: 's1' })).toThrow()
   })
 
-  it('create requires exactly one of path/name (both refine arms)', () => {
+  it('create requires a path', () => {
     expect(workspaceCreateRequestSchema.parse({ path: '/p' }).path).toBe('/p')
-    expect(workspaceCreateRequestSchema.parse({ name: 'n' }).name).toBe('n')
-    expect(() => workspaceCreateRequestSchema.parse({})).toThrow(/exactly one/)
-    expect(() => workspaceCreateRequestSchema.parse({ path: '/p', name: 'n' })).toThrow(/exactly one/)
+    expect(() => workspaceCreateRequestSchema.parse({})).toThrow()
     expect(workspaceCreateValueSchema.parse({ workspace: view, created: false }).created).toBe(false)
   })
 

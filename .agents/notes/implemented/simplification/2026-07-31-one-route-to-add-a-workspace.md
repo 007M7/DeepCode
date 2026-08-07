@@ -27,7 +27,7 @@ The direct-open path carries the busy rule the menu entry states: while a pick i
 
 ## Wire and CLI residue
 
-The host's `workspace.create` still accepts `{ name }`, and `dsh web --workspace-root` still feeds its target directory, but no product surface reaches either any more. The same is true of the client seam that carried the name to the wire: `WorkspaceCreateInput`, `WorkspacesService.create`'s `{ name }` arm, `intentName`'s name branch, and the manager's "name under workspaceRoot" contract. `apps/cli/README.md` and its Chinese counterpart still document `--workspace-root` as creating named Workspaces. The whole set is marked for deletion at the call site in `packages/host/apiproxy/src/api-proxy.ts` and left to a follow-up change: it is backend, client-seam, and CLI surface with its own reviewer and its own test fallout (the api-proxy workspace suite, the runtime workspace suite, the config catalog), and the release-blocking part of this decision is the UI.
+Deleted in the follow-up change this section used to scope: `workspace.create` accepts only `{ path }` (the `name` member left the wire schema and `WorkspaceApi`), the gateway lost its `workspaceRoot` config and default, the client seam narrowed to the path spelling (`WorkspaceCreateInput`, `WorkspacesService.create`, `intentName`), and the `dsh web --workspace-root` flag is gone together with its `apps/cli` reference lines. `workspace-name-conflict` remains on the wire as `workspace.rename`'s duplicate-title error.
 
 ## Testing
 

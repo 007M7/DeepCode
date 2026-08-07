@@ -24,7 +24,7 @@ import type { RpcRequest, RpcResponse } from '../src/api/rpc.ts'
 import { RpcId } from '../src/api/rpc.ts'
 import { createApiProxy } from '../src/api-proxy.ts'
 
-const DEFAULTS = { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' }
+const DEFAULTS = { provider: 'p', model: 'm', cwd: '/tmp' }
 
 let nextRpc = 1
 function request<P>(payload: P): RpcRequest<P> {
