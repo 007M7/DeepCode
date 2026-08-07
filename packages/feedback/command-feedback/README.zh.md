@@ -8,7 +8,7 @@
 
 | 输入 | 结果 |
 |---|---|
-| `/feedback <text>` | 追加 `feedback/record`，并以 `Feedback recorded.` 确认。 |
+| `/feedback <text>` | 追加 `feedback/record`，并以 `Feedback recorded for session {id}` 确认。 |
 | `/feedback` | 返回一个直接用法错误。仅含空白的输入视为空输入。 |
 
 前后空白会被丢弃，但除此之外，反馈内容不会被解析：没有截断、大小写折叠或控制词。看起来像另一个命令的文本（例如 `/feedback /plan felt slow`）就是反馈内容。重复执行命令时，每次都会产生一个事件；不会发生替换或合并。

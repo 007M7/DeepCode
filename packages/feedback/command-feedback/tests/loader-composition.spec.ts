@@ -87,7 +87,10 @@ describe('/feedback real Loader composition through cordis.yml', () => {
     expect(context.commands.list(owner).map(command => command.name)).toContain('feedback')
 
     const accepted = await context.commands.execute(owner, '/feedback the diff view is unreadable', signal)
-    expect(accepted?.result).toEqual({ kind: 'success', text: 'Feedback recorded.' })
+    expect(accepted?.result).toEqual({
+      kind: 'success',
+      text: 'Feedback recorded for session feedback-loader-agent',
+    })
     const rejected = await context.commands.execute(owner, '/feedback', signal)
     expect(rejected?.result).toEqual({
       kind: 'error',

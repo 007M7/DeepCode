@@ -8,7 +8,7 @@ Trigger-independent session feedback plus human-facing `/feedback` capture. The 
 
 | Input | Result |
 |---|---|
-| `/feedback <text>` | Append `feedback/record` and acknowledge with `Feedback recorded.` |
+| `/feedback <text>` | Append `feedback/record` and acknowledge with `Feedback recorded for session {id}`. |
 | `/feedback` | Return a direct usage error. Whitespace-only input is treated as empty. |
 
 Surrounding whitespace is discarded, but feedback is otherwise unparsed: no truncation, case folding, or control words. Text that looks like another command, such as `/feedback /plan felt slow`, is feedback content. Repeated commands each produce their own event; nothing is replaced or merged.

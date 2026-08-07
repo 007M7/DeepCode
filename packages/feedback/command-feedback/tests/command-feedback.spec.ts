@@ -93,7 +93,7 @@ describe('/feedback human command', () => {
     const test = await harness()
     await expect(run(test, ' the diff view is unreadable')).resolves.toEqual({
       kind: 'success',
-      text: 'Feedback recorded.',
+      text: `Feedback recorded for session ${test.session.id}`,
     })
     expect(feedbackTexts(test.session)).toEqual(['the diff view is unreadable'])
     const commandRun = test.session.events.find(event => event.type === 'command/run')
@@ -141,8 +141,8 @@ describe('/feedback human command', () => {
       test.ctx.commands.execute(test.agent, '/feedback second', signal),
     ])
     expect(settled.map(item => item?.result)).toEqual([
-      { kind: 'success', text: 'Feedback recorded.' },
-      { kind: 'success', text: 'Feedback recorded.' },
+      { kind: 'success', text: `Feedback recorded for session ${test.session.id}` },
+      { kind: 'success', text: `Feedback recorded for session ${test.session.id}` },
     ])
     expect(feedbackTexts(test.session)).toEqual(['first', 'second'])
   })
