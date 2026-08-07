@@ -82,7 +82,9 @@ function Editor({ draft, blocker, t, actions }: EditorProps): ReactNode {
               placeholder={t('presetIdPlaceholder')}
               onChange={(event) => { actions.setId(event.target.value) }}
             />
-            <span className={css.hint}>{`${t('copyOf')} ${draft.source}`}</span>
+            {draft.source === undefined
+              ? null
+              : <span className={css.hint}>{`${t('copyOf')} ${draft.source}`}</span>}
           </label>
         )
         : null}
@@ -195,8 +197,8 @@ export function AgentPresetSection(props: AgentPresetSectionProps): ReactNode {
           </button>
           <span className={css.editorTitle}>
             {draft.creating
-              ? `${t('newPreset')} · ${t('copyOf')} ${draft.source}`
-              : `${draft.writable ? t('edit') : t('view')} · ${draft.name === '' ? draft.source : draft.name}`}
+              ? (draft.source === undefined ? t('newPreset') : `${t('newPreset')} · ${t('copyOf')} ${draft.source}`)
+              : `${draft.writable ? t('edit') : t('view')} · ${draft.name === '' ? draft.id : draft.name}`}
           </span>
         </div>
         <Editor draft={draft} blocker={blocker} t={t} actions={editorActions} />
