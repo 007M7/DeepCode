@@ -116,7 +116,13 @@ export const Config = z.union([
 
 // ---- Plugin apply ----
 
-export function apply(ctx: Context, config: Config): void {
+/**
+ * Connect one MCP server and publish its initial tool generation before activation.
+ * @param ctx - plugin context carrying the tool registry.
+ * @param config - resolved transport and server namespace configuration.
+ * @returns startup readiness after connection and initial tool discovery settle.
+ */
+export function apply(ctx: Context, config: Config): Promise<void> {
   // Reserve the namespace first: a duplicate `serverName` fails THIS instance
   // at load with an actionable error and leaves the earlier instance intact.
   ctx.effect(() => {
@@ -179,4 +185,6 @@ export function apply(ctx: Context, config: Config): void {
     for (const dispose of live().values()) dispose()
     try { await client.close() } catch { /* transport already gone */ }
   }, 'mcp-client.connection')
+
+  return ready.then(() => undefined)
 }

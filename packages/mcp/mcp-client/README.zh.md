@@ -56,7 +56,7 @@ MCP 客户端桥接插件：连接外部 [Model Context Protocol](https://modelc
 
 ## 行为
 
-- 连接时：`listTools()` → 通过 `ctx.tools.register()` 使用各自公开名称注册每个工具。
+- 连接时：插件激活会等待 `listTools()`，并在组合开始首个轮次前通过 `ctx.tools.register()` 以公开名称注册每个工具。初始连接失败会记录日志，插件仍会激活但不注册工具。
 - 监听 `notifications/tools/list_changed` → 重新同步；同步失败时保留上一世代的注册。
 - 工具执行：`client.callTool({ name: rawName, arguments }, { signal })`，支持超时 + 中止；公开名称绝不会发给服务器。
 - 规范成功值是 `{ content: JsonValue[], structuredContent? }`；完整的 JSON MCP 块会保留给编程调用方。受支持且已声明的 `outputSchema` 会验证 `structuredContent`；不受支持的 schema 词汇会回退为不受约束的 `JsonValue`。
@@ -101,7 +101,6 @@ MCP 客户端桥接插件：连接外部 [Model Context Protocol](https://modelc
 
 ## 已知限制与暂缓事项
 
-- **初始发现是异步的**：插件加载不会等待连接和 `listTools()`，因此在启动或 HMR 后立即开始的轮次可能在 MCP 工具注册前完成组装。
 - **只桥接 MCP 的工具能力**：资源和提示词没有 harness 消费接口，暂缓实现。
 - **崩溃恢复需要手动触发**：传输关闭后不会自动重新连接；已注册工具可能仍然可见，但会因传输已关闭而调用失败，直到 HMR 重载或重启 Host。
 - **Native 非文本渲染有损**：图片、音频与资源载荷在模型上下文中会变成占位符，即使执行局部的规范值保留了其 JSON 块。更丰富的 Native 多媒体投影暂缓实现。

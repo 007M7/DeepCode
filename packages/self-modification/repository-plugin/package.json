@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-repository-plugin",
-  "description": "Restricted repository plugin format and Cordis runtime for DeepSeek Harness",
+  "description": "Trusted repository package format and Cordis runtime for DeepSeek Harness",
   "version": "0.0.1",
   "private": true,
   "type": "module",

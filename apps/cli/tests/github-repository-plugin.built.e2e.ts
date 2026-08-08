@@ -1,4 +1,5 @@
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -13,7 +14,7 @@ const required = process.env.DSH_REQUIRE_GITHUB_REPOSITORY_PLUGIN_E2E === '1'
 const enabled = required || source !== undefined
 
 describe.skipIf(!enabled)('dsh run GitHub repository Plugin installation', () => {
-  it('installs a private exact GitHub source and exposes its skill to the model', async () => {
+  it('installs, builds, and runs skill, MCP, and TypeScript Plugin contributions from a private exact GitHub source', async () => {
     expect(existsSync(dshBin), 'the repository Plugin acceptance must run the built dsh entry').toBe(true)
     expect(source, 'DSH_GITHUB_REPOSITORY_PLUGIN_SOURCE is required by this CI lane').toMatch(
       /^github:[^/\s#&]+\/[^/\s#&]+#[0-9a-f]{40}&path:\/.*\/\.dsh-plugin$/u,
@@ -21,9 +22,11 @@ describe.skipIf(!enabled)('dsh run GitHub repository Plugin installation', () =>
 
     const apiKey = 'github-repository-plugin-e2e-key'
     const server = await startMockLlmServer({
-      sequence: ['success'],
+      sequence: ['tool_call_success', 'success'],
       apiKey,
-      successText: 'private GitHub repository Plugin reached dsh run',
+      toolName: 'mcp__github_repository__proof',
+      toolArguments: '{}',
+      successText: 'trusted GitHub repository package reached dsh run',
     })
     const home = mkdtempSync(join(tmpdir(), 'dsh-github-repository-plugin-'))
     const patch = join(home, 'github-repository-plugin.cordis.patch.yml')
@@ -45,7 +48,7 @@ describe.skipIf(!enabled)('dsh run GitHub repository Plugin installation', () =>
       ], {
         cwd: repoRoot,
         input: '',
-        timeout: 120_000,
+        timeout: 180_000,
         killSignal: 'SIGKILL',
         reject: false,
         env: {
@@ -57,14 +60,20 @@ describe.skipIf(!enabled)('dsh run GitHub repository Plugin installation', () =>
         },
       })
       if (result.timedOut) {
-        throw new Error(`dsh GitHub repository Plugin run did not exit within 120s. stdout:\n${result.stdout}\nstderr:\n${result.stderr}`)
+        throw new Error(`dsh GitHub repository Plugin run did not exit within 180s. stdout:\n${result.stdout}\nstderr:\n${result.stderr}`)
       }
       expect(result.exitCode, `${result.stderr}\nstdout:\n${result.stdout}`).toBe(0)
-      expect(result.stdout).toBe('private GitHub repository Plugin reached dsh run')
-      expect(server.requests.length).toBeGreaterThan(0)
-      expect(JSON.stringify(server.requests.map(request => request.body))).toContain(
+      expect(result.stdout).toBe('trusted GitHub repository package reached dsh run')
+      expect(server.requests).toHaveLength(2)
+      const firstRequest = JSON.stringify(server.requests[0]!.body)
+      const secondRequest = JSON.stringify(server.requests[1]!.body)
+      expect(firstRequest).toContain(
         'Proves that dsh installed a private repository Plugin from an exact GitHub source.',
       )
+      expect(firstRequest).toContain('mcp__github_repository__proof')
+      expect(firstRequest).toContain('Proves that an MCP server compiled from the exact GitHub repository package is active.')
+      expect(secondRequest).toContain('MCP_FROM_GITHUB_REPOSITORY')
+      expect(secondRequest).toContain('TS_PLUGIN_FROM_GITHUB_REPOSITORY')
 
       const cacheRoot = join(home, 'cache', 'repository-plugins')
       const generations = readdirSync(cacheRoot, { withFileTypes: true }).filter(entry => entry.isDirectory())
@@ -74,16 +83,38 @@ describe.skipIf(!enabled)('dsh run GitHub repository Plugin installation', () =>
       expect(manifest).toMatchObject({
         name: 'dsh-github-repository-plugin-e2e-fixture',
         private: true,
-        scripts: { prepack: 'dsh-plugin-prepare' },
+        scripts: {
+          prepack: 'tsc --noEmit && tsdown src/plugin.ts src/mcp-server.ts --no-config --tsconfig tsconfig.json --out-dir lib --platform node --target es2024 --clean && dsh-plugin-prepare',
+        },
+        dsh: {
+          skills: ['../skills'],
+          mcpServers: './.mcp.json',
+          entry: './lib/plugin.mjs',
+        },
+        dependencies: {
+          '@modelcontextprotocol/sdk': '1.29.0',
+        },
+        devDependencies: {
+          cordis: '4.0.0-rc.7',
+          tsdown: '0.22.2',
+          typescript: '6.0.3',
+        },
       })
-      expect(manifest).not.toHaveProperty('dependencies')
-      expect(manifest).not.toHaveProperty('devDependencies')
       expect(readFileSync(join(installed, 'dsh-plugin-assets/skills/0/github-source-proof/SKILL.md'), 'utf8'))
         .toContain('This skill exists only in the GitHub repository source fixture.')
-      expect(readFileSync(join(installed, 'dsh-plugin.mjs'), 'utf8')).toContain('dsh-repository-plugin')
+      expect(readFileSync(join(installed, 'dsh-plugin-assets/.mcp.json'), 'utf8')).toContain('lib/mcp-server.mjs')
+      expect(readFileSync(join(installed, 'lib/plugin.mjs'), 'utf8')).toContain('TS_PLUGIN_FROM_GITHUB_REPOSITORY')
+      expect(readFileSync(join(installed, 'lib/mcp-server.mjs'), 'utf8')).toContain('MCP_FROM_GITHUB_REPOSITORY')
+      expect(existsSync(join(installed, 'src'))).toBe(false)
+      const installedRequire = createRequire(join(installed, 'lib/mcp-server.mjs'))
+      expect(existsSync(installedRequire.resolve('@modelcontextprotocol/sdk/server/mcp.js'))).toBe(true)
+      const wrapper = readFileSync(join(installed, 'dsh-plugin.mjs'), 'utf8')
+      expect(wrapper).toContain('dsh-repository-plugin')
+      expect(wrapper).toContain('await import(manifest.entry)')
+      expect(wrapper).toContain('"entry":"./lib/plugin.mjs"')
     } finally {
       await server.close()
       rmSync(home, { recursive: true, force: true })
     }
-  }, 130_000)
+  }, 190_000)
 })

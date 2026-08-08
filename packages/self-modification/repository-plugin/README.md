@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Restricted repository Plugin format for DeepSeek Harness. A repository author declares static skill roots and an optional common `.mcp.json` in `.dsh-plugin/package.json`; the prepare helper copies those assets and emits a fixed import-free Cordis wrapper. The runtime wrapper can only delegate to this DSH-owned package, which composes [`dsh-skill-local`](../../skill/skill-local/README.md) and [`dsh-mcp-client`](../../mcp/mcp-client/README.md). Design rationale: [static repository Plugin format Agent Note](../../../.agents/notes/implemented/architecture/2026-07-30-static-repository-plugin-format.md).
+Trusted repository package format for DeepSeek Harness. A `.dsh-plugin` npm package may contribute a compiled Cordis/DSH Plugin entry, skill roots, and a common `.mcp.json`; its ordinary `prepack` lifecycle owns dependency installation and source compilation before the DSH prepare helper validates the outputs and emits the Loader wrapper. Static contributions compose [`dsh-skill-local`](../../skill/skill-local/README.md) and [`dsh-mcp-client`](../../mcp/mcp-client/README.md). Design rationale: [trusted repository package code](../../../.agents/notes/implemented/architecture/2026-08-08-trusted-repository-package-code.md) and the [static contribution subformat](../../../.agents/notes/implemented/architecture/2026-07-30-static-repository-plugin-format.md).
 
 ## Authoring format
 
@@ -13,17 +13,30 @@ Place an ordinary package in the repository's `.dsh-plugin` directory:
   "name": "humanize-dsh-plugin",
   "version": "0.0.0",
   "private": true,
+  "type": "module",
   "scripts": {
-    "prepack": "dsh-plugin-prepare"
+    "build": "tsc",
+    "prepack": "npm run build && dsh-plugin-prepare"
   },
   "dsh": {
+    "entry": "./lib/plugin.js",
     "skills": ["../skills"],
     "mcpServers": "../.mcp.json"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0"
+  },
+  "devDependencies": {
+    "typescript": "6.0.3"
   }
 }
 ```
 
-`scripts.prepack` must be exactly `dsh-plugin-prepare`. DSH supplies that command from its own installed runtime while preparing Git source, so the repository package needs no DSH or npm dependency. `dsh.skills` is an optional array of local skill roots. `dsh.mcpServers` is an optional path to one `.mcp.json`; at least one field is required. Paths are relative to `.dsh-plugin`, must stay under its parent source directory, and may therefore refer to existing repository assets such as `../skills`. A repository containing several Plugins gives each one its own `.dsh-plugin` package under a different selectable subdirectory.
+`scripts.prepack` must be non-empty and invoke `dsh-plugin-prepare`; it may run arbitrary package-owned build steps first. DSH supplies only that helper command from its installed runtime: the package declares and runs its own compiler, runtime dependencies, and other npm lifecycle code. DSH does not transpile TypeScript or infer a package entry.
+
+`dsh.entry` is an optional relative path to a compiled ESM Cordis Plugin inside `.dsh-plugin`. The module may use either namespace exports or a default export and owns its ordinary `name`, `inject`, `Config`, registrations, and effects. `dsh.skills` is an optional array of local skill roots, and `dsh.mcpServers` is an optional path to one `.mcp.json`; at least one of the three fields is required. Skill and MCP paths may reach adjacent repository assets but must remain beneath the directory containing `.dsh-plugin`; the compiled entry must remain inside the package selected and packed by the package manager. A repository containing several Plugins gives each one its own `.dsh-plugin` package under a different selectable subdirectory.
+
+The repository package and every dependency or lifecycle script it runs are trusted code, just like an npm package selected directly by the user. This format is not a sandbox: install only repositories whose code may access the host process, filesystem, network, and services declared through Cordis. Exact refs and the immutable cache provide identity and reproducibility, not isolation.
 
 ## Standalone app configuration
 
@@ -46,19 +59,17 @@ Long-lived surfaces watch both `cordis.patch.yml` layers through Cordis HMR. A v
 
 ## Preparation
 
-During exact Git installation, DSH places a temporary host-owned `dsh-plugin-prepare` command on the isolated package lifecycle `PATH`; the command is not fetched from npm. The required `prepack` lifecycle runs after the Git package's dependency installation and before its selected subdirectory is packed, including when `.dsh-plugin` sits inside another package-manager workspace. The command validates `package.json#dsh`, verifies skill-root types, parses the MCP file, copies assets under `dsh-plugin-assets`, and writes `dsh-plugin.mjs`. Before importing that wrapper, DSH revalidates that the installed package retained the exact `prepack` declaration. The wrapper contains only the normalized static manifest and fixed code that looks up the `dsh-repository-plugin` Loader builtin. It neither discovers nor compiles repository JavaScript, and the runtime never imports another repository entry point. Failure to run or complete preparation fails installation before a cache generation is published. Rationale: [host-owned Git source preparation Agent Note](../../../.agents/notes/implemented/bug-fix/2026-08-08-host-owned-git-repository-plugin-preparation.md).
-
-The containing package manager still runs the configured repository package's lifecycle scripts. This restriction defines the supported DSH contribution surface; it is not a security boundary for a repository that the user chose to install as executable package-manager source.
+During exact Git installation, DSH places a temporary host-owned `dsh-plugin-prepare` command on the isolated package lifecycle `PATH`; the command is not fetched from npm. The required `prepack` lifecycle runs after the Git package's dependency installation and before its selected subdirectory is packed, including when `.dsh-plugin` sits inside another package-manager workspace. Package-owned commands may build TypeScript or other source before invoking the helper. The helper validates `package.json#dsh`, verifies that the compiled entry is an in-package file, validates skill and MCP sources, copies static assets under `dsh-plugin-assets`, and writes `dsh-plugin.mjs`. Before importing that wrapper, DSH revalidates that the installed package retained a `prepack` declaration containing the helper command. Failure to build or prepare fails installation before a cache generation is published. Rationale: [host-owned Git source preparation Agent Note](../../../.agents/notes/implemented/bug-fix/2026-08-08-host-owned-git-repository-plugin-preparation.md).
 
 ## Runtime composition
 
-Loading this package registers one effect-scoped Loader builtin. Each generated wrapper delegates to that builtin with its own module URL and prepared manifest. The runtime validates every declared skill root as an existing in-package directory before mounting — a package whose generated outputs were dropped (a `files`/`.npmignore` mistake, a damaged cache entry) fails the plugin load instead of silently mounting a skill-less plugin. Repository skill roots mount as a uniquely named `dsh-skill-local` provider with default project/user roots excluded and watching disabled; cached package generations are immutable. Wrapper disposal removes the provider and all composed MCP clients through normal Cordis child-fiber teardown.
+Loading this package registers one effect-scoped Loader builtin. Each generated wrapper delegates its prepared static manifest to that builtin, then imports and mounts `dsh.entry` when declared. The entry is an ordinary Cordis child Plugin: its own `inject` gates activation, startup failures reject the repository generation, and all of its effects disappear on Loader removal or rollback. The runtime likewise validates every declared skill root as an existing in-package directory before mounting — a package whose generated outputs were dropped by `files`/`.npmignore` or damaged in cache fails instead of silently losing contributions. Repository skill roots mount as uniquely named `dsh-skill-local` providers with default project/user roots excluded and watching disabled; cached package generations are immutable.
 
 ## Common MCP format
 
 The `.mcp.json` root is `{ "mcpServers": { ... } }`. A stdio entry accepts only `type: "stdio"` (optional), `command`, `args`, and `env`; an HTTP entry accepts only `type: "http"`, `url`, and `headers`. String values support exact `${NAME}` process-environment expansion at Plugin load, and a missing name fails that load. HTTP URLs become the existing MCP client's `streamable-http` transport; stdio entries use the prepared package directory as `cwd`.
 
-Unknown fields reject, including OAuth and `auth` objects. There is no `CLAUDE_PLUGIN_ROOT` expansion or compatibility layer. After translation, the existing `dsh-mcp-client` exclusively owns transport creation, connection diagnostics, tool synchronization, calls, and disconnect lifecycle; a network or child-process connection failure retains that client's established log-and-no-tools behavior.
+Unknown fields reject, including OAuth and `auth` objects. There is no `CLAUDE_PLUGIN_ROOT` expansion or compatibility layer. After translation, the existing `dsh-mcp-client` exclusively owns transport creation, connection diagnostics, tool synchronization, calls, and disconnect lifecycle. Plugin activation waits for the initial connection and tool discovery, so the first model request observes a successful initial tool generation; a network or child-process connection failure is logged and still activates with no tools.
 
 ## Export shape
 
@@ -94,8 +105,22 @@ Conditional on successful connection and the remote tool list; schemas recur on 
 
 Stable connected tool lists are prefix-stable. Plugin lifecycle or MCP tool-list changes can change later tool-schema prefixes from the first affected definition.
 
+### Repository code
+
+#### What the model sees
+
+Data-dependent. The trusted Cordis entry may contribute any DSH behavior available through its declared services and events, including tools, prompt sections, policies, commands, and transformations. Every model-visible contribution remains subject to its owning DSH seam's logging and lifecycle contract.
+
+#### Token effect
+
+Defined by the services and registrations the entry contributes; the repository format itself adds no model content.
+
+#### KV Cache effect
+
+Stable registrations preserve the owning surface's normal prefix behavior. Loading, removing, or replacing the exact repository generation can change any prefixes affected by that Plugin.
+
 ## Known Limitations and Deferred Work
 
-- **Skills and MCP only** — commands, hooks, agents, apps, arbitrary Cordis code, marketplaces, and compatibility shims are intentionally outside this format.
+- **No code sandbox** — `dsh.entry`, npm dependencies, and package lifecycle scripts execute with the DSH host's authority; repository trust is mandatory.
 - **No MCP authentication protocol** — static headers may use environment expansion, but OAuth-bearing definitions reject and private-server login flows are not implemented here.
 - **Generated assets are immutable runtime input** — repository cache generations are not watched; source, ref, path, or configuration must select another prepared generation.

@@ -28,13 +28,18 @@ async function temporaryDirectory(name: string): Promise<string> {
   return directory
 }
 
-async function writePlugin(root: string, name: string, dsh: Record<string, unknown>): Promise<string> {
+async function writePlugin(
+  root: string,
+  name: string,
+  dsh: Record<string, unknown>,
+  prepack = RepositoryPlugin.REPOSITORY_PLUGIN_PREPARE_COMMAND,
+): Promise<string> {
   const directory = join(root, '.dsh-plugin')
   await mkdir(directory, { recursive: true })
   await writeFile(join(directory, 'package.json'), `${JSON.stringify({
     name,
     version: '0.0.0',
-    scripts: { prepack: RepositoryPlugin.REPOSITORY_PLUGIN_PREPARE_COMMAND },
+    scripts: { prepack },
     dsh,
   }, undefined, 2)}\n`)
   return directory
@@ -82,6 +87,24 @@ describe('dsh-plugin-prepare', () => {
       .resolves.toContain('mcp.expo.dev')
   })
 
+  it('preserves a compiled package entry and accepts a build before the host prepare command', async () => {
+    const root = await temporaryDirectory('compiled-entry')
+    const directory = await writePlugin(root, 'compiled-entry-fixture', {
+      entry: './lib/plugin.mjs',
+    }, 'npm run build && dsh-plugin-prepare')
+    await mkdir(join(directory, 'lib'))
+    await writeFile(join(directory, 'lib/plugin.mjs'), 'export default { name: "compiled-entry" }\n')
+
+    await expect(RepositoryPlugin.prepareDshPlugin(directory)).resolves.toEqual({
+      name: 'compiled-entry-fixture',
+      skills: [],
+      entry: './lib/plugin.mjs',
+    })
+    const wrapper = await readFile(join(directory, RepositoryPlugin.PREPARED_ENTRY_FILENAME), 'utf8')
+    expect(wrapper).toContain('await import(manifest.entry)')
+    expect(wrapper).toContain('"entry":"./lib/plugin.mjs"')
+  })
+
   it('rejects unsupported OAuth MCP metadata before publishing outputs', async () => {
     const root = await temporaryDirectory('oauth')
     await writeFile(join(root, '.mcp.json'), JSON.stringify({
@@ -118,9 +141,18 @@ describe('dsh-plugin-prepare', () => {
     }))
     await expect(RepositoryPlugin.prepareDshPlugin(lifecycle)).rejects.toThrow('prepack')
 
+    const skippedPrepareRoot = await temporaryDirectory('skipped-prepare')
+    const skippedPrepare = await writePlugin(
+      skippedPrepareRoot,
+      'skipped-prepare',
+      { skills: ['../skills'] },
+      'npm run build',
+    )
+    await expect(RepositoryPlugin.prepareDshPlugin(skippedPrepare)).rejects.toThrow('must invoke dsh-plugin-prepare')
+
     const emptyRoot = await temporaryDirectory('empty-metadata')
     const empty = await writePlugin(emptyRoot, 'empty', {})
-    await expect(RepositoryPlugin.prepareDshPlugin(empty)).rejects.toThrow('declare at least one skill root or mcpServers file')
+    await expect(RepositoryPlugin.prepareDshPlugin(empty)).rejects.toThrow('declare at least one skill root, mcpServers file, or compiled entry')
 
     const missingRoot = await temporaryDirectory('missing-asset')
     const missing = await writePlugin(missingRoot, 'missing', { skills: ['../missing'] })
@@ -149,16 +181,21 @@ describe('dsh-plugin-prepare', () => {
     await writeSkill(outside, 'outside-skill')
     const escaped = await writePlugin(escapedRoot, 'escaped', { skills: [relative(join(escapedRoot, '.dsh-plugin'), outside)] })
     await expect(RepositoryPlugin.prepareDshPlugin(escaped)).rejects.toThrow('escapes its plugin source root')
+
+    const escapedEntryRoot = await temporaryDirectory('escaped-entry')
+    await writeFile(join(escapedEntryRoot, 'outside.mjs'), 'export default {}\n')
+    const escapedEntry = await writePlugin(escapedEntryRoot, 'escaped-entry', { entry: '../outside.mjs' })
+    await expect(RepositoryPlugin.prepareDshPlugin(escapedEntry)).rejects.toThrow('escapes its plugin source root')
   })
 
-  it('validates prepared wrapper configs with and without MCP assets', () => {
+  it('validates prepared wrapper configs with optional MCP assets and code entries', () => {
     expect(() => parsePreparedPluginConfig({})).toThrow('invalid prepared DSH plugin')
     expect(parsePreparedPluginConfig({
       baseUrl: 'file:///plugin/dsh-plugin.mjs',
-      manifest: { name: 'fixture', skills: [], mcpServers: 'dsh-plugin-assets/.mcp.json' },
+      manifest: { name: 'fixture', skills: [], mcpServers: 'dsh-plugin-assets/.mcp.json', entry: './lib/plugin.js' },
     })).toEqual({
       baseUrl: 'file:///plugin/dsh-plugin.mjs',
-      manifest: { name: 'fixture', skills: [], mcpServers: 'dsh-plugin-assets/.mcp.json' },
+      manifest: { name: 'fixture', skills: [], mcpServers: 'dsh-plugin-assets/.mcp.json', entry: './lib/plugin.js' },
     })
   })
 })
@@ -192,6 +229,35 @@ describe('prepared repository plugin Loader composition', () => {
     await expect(ctx.skills.get('loaded-from-repository')).resolves.toBeUndefined()
     await registrar.dispose()
     expect(ctx.loader.builtins[RepositoryPlugin.REPOSITORY_PLUGIN_BUILTIN]).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
+  it('mounts and removes the repository package code entry through the real Loader', async () => {
+    const root = await temporaryDirectory('code-loader')
+    const directory = await writePlugin(root, 'code-loader-fixture', { entry: './lib/plugin.mjs' })
+    await mkdir(join(directory, 'lib'))
+    await writeFile(join(directory, 'lib/plugin.mjs'), [
+      "export const name = 'repository-code-proof'",
+      'export function apply(ctx) {',
+      "  ctx.provide('repositoryCodeProof', { source: 'compiled-entry' })",
+      '}',
+      '',
+    ].join('\n'))
+    await RepositoryPlugin.prepareDshPlugin(directory)
+
+    const ctx = new Context()
+    ctx.baseUrl = pathToFileURL(directory).href + '/'
+    await ctx.plugin(Loader)
+    await ctx.plugin(RepositoryPlugin)
+    const id = await ctx.loader.create({
+      name: pathToFileURL(join(directory, RepositoryPlugin.PREPARED_ENTRY_FILENAME)).href,
+    })
+    await ctx.loader.await()
+    const getService = (name: string): unknown => (ctx as unknown as { get(name: string): unknown }).get(name)
+    expect(getService('repositoryCodeProof')).toEqual({ source: 'compiled-entry' })
+
+    await ctx.loader.remove(id)
+    expect(getService('repositoryCodeProof')).toBeUndefined()
     await ctx.fiber.dispose()
   })
 
@@ -484,7 +550,23 @@ describe('configured GitHub repository sources', () => {
     await expect(loadPreparedRepository(ctx, { resolve: async () => root }, 'github:owner/repository#old&path:/.dsh-plugin'))
       .rejects.toMatchObject({
         cause: expect.objectContaining({
-          message: expect.stringContaining('must declare scripts.prepack') as string,
+          message: expect.stringContaining('must declare a non-empty scripts.prepack') as string,
+        }) as Error,
+      })
+    await ctx.fiber.dispose()
+  })
+
+  it('rejects an installed source whose prepack omits the host prepare command', async () => {
+    const root = await temporaryDirectory('installed-skipped-prepare')
+    await writeFile(join(root, 'package.json'), JSON.stringify({
+      name: 'installed-skipped-prepare',
+      scripts: { prepack: 'npm run build' },
+    }))
+    const ctx = new Context()
+    await expect(loadPreparedRepository(ctx, { resolve: async () => root }, 'github:owner/repository#unprepared&path:/.dsh-plugin'))
+      .rejects.toMatchObject({
+        cause: expect.objectContaining({
+          message: expect.stringContaining('must invoke dsh-plugin-prepare') as string,
         }) as Error,
       })
     await ctx.fiber.dispose()

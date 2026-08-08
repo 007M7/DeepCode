@@ -14,6 +14,7 @@ import { z } from 'zod'
 import {
   PREPARED_ENTRY_FILENAME,
   REPOSITORY_PLUGIN_PREPARE_COMMAND,
+  hasRepositoryPrepareCommand,
 } from './format.ts'
 
 // Value mirror: Cordis's const enum has no runtime object to import. Keep
@@ -80,7 +81,10 @@ export async function createRepositoryPrepareCommand(): Promise<RepositoryPrepar
 const GITHUB_SOURCE_PATTERN = /^github:([^/\s#&]+)\/([^/\s#&]+)#([^\s#&]+)(?:&path:(\/[^\s&]+))?$/
 const installedPackageSchema = z.looseObject({
   scripts: z.looseObject({
-    prepack: z.literal(REPOSITORY_PLUGIN_PREPARE_COMMAND),
+    prepack: z.string().min(1).refine(
+      hasRepositoryPrepareCommand,
+      { message: `must invoke ${REPOSITORY_PLUGIN_PREPARE_COMMAND}` },
+    ),
   }),
 })
 
@@ -127,7 +131,7 @@ async function assertInstalledPackageMetadata(directory: string): Promise<void> 
   }
   const result = installedPackageSchema.safeParse(value)
   if (!result.success) {
-    throw new Error(`installed DSH plugin package must declare scripts.prepack as ${JSON.stringify(REPOSITORY_PLUGIN_PREPARE_COMMAND)}:\n${z.prettifyError(result.error)}`)
+    throw new Error(`installed DSH plugin package must declare a non-empty scripts.prepack that invokes ${JSON.stringify(REPOSITORY_PLUGIN_PREPARE_COMMAND)}:\n${z.prettifyError(result.error)}`)
   }
 }
 

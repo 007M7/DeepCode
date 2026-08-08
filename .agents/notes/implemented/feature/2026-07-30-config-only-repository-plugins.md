@@ -6,13 +6,13 @@ English | [中文](2026-07-30-config-only-repository-plugins.zh.md)
 
 ## Problem
 
-A standalone `dsh` user has no developer-owned SDK project whose `package.json`, lockfile, and `cordis.yml` can carry an external Plugin dependency. Requiring an install command or another state file would make “use this repository” a multi-step workflow, while loading arbitrary repository code would bypass the restricted [static repository Plugin format](../architecture/2026-07-30-static-repository-plugin-format.md). Long-running TUI and Web processes also need a failed edit to preserve their usable Plugin generation and tell observers why the candidate was rejected.
+A standalone `dsh` user has no developer-owned SDK project whose `package.json`, lockfile, and `cordis.yml` can carry an external Plugin dependency. Requiring an install command or another state file would make “use this repository” a multi-step workflow, while trusted repository code still needs an exact-source, transactional lifecycle owned by the [repository package format](../architecture/2026-08-08-trusted-repository-package-code.md). Long-running TUI and Web processes also need a failed edit to preserve their usable Plugin generation and tell observers why the candidate was rejected.
 
 ## Decision
 
 The shipped TUI and Web/headless `cordis.yml` trees contain an empty `repository-plugins` entry. A user changes only `$DSH_HOME/config.yaml`, replacing that entry's config with a `repositories` list. Each item uses `github:owner/repository#<ref>` plus an optional `&path:/.../.dsh-plugin`; omission selects `/.dsh-plugin`. An explicit ref is mandatory, paths are absolute within the repository and end in `.dsh-plugin`, and duplicate normalized specifiers reject before installation. There is no marketplace, discovery index, HTTPS URL vocabulary, or implicit latest generation.
 
-`@deepseek-ai/dsh-repository-plugin` validates and normalizes each source, then resolves it through the generic vendored [`RepositoryCache`](../architecture/2026-07-30-package-manager-native-repository-cache.md). The default cache is `$DSH_HOME/cache/repository-plugins`; `cacheDir` is the explicit deployment override. Bundled pnpm selects the configured repository subpackage, runs its ordinary lifecycle including `prepare`, and atomically publishes the exact specifier. The DSH host imports only the generated `dsh-plugin.mjs` wrapper and mounts it as a child fiber, so skills and MCP retain the owners, failure contracts, and teardown defined by the format package.
+`@deepseek-ai/dsh-repository-plugin` validates and normalizes each source, then resolves it through the generic vendored [`RepositoryCache`](../architecture/2026-07-30-package-manager-native-repository-cache.md). The default cache is `$DSH_HOME/cache/repository-plugins`; `cacheDir` is the explicit deployment override. Bundled pnpm selects the configured repository subpackage, installs its dependencies, runs its package-authored `prepack` and the host preparation helper, and atomically publishes the exact specifier. The DSH host imports the generated `dsh-plugin.mjs` wrapper and mounts it as a child fiber; that wrapper composes static skill and MCP owners plus an explicit trusted Cordis entry when declared.
 
 ## Live update and failure
 
@@ -24,7 +24,7 @@ An identical specifier permanently reuses its cache generation. HMR watches conf
 
 ## Trust boundary
 
-Configuring a repository authorizes package-manager lifecycle code from that repository and its dependencies to run with the user's filesystem authority. The pnpm child removes ambient environment variables whose names contain `KEY`, `PASSWORD`, `SECRET`, or `TOKEN`, but this is credential-exposure reduction rather than a sandbox. The fixed runtime wrapper prevents repository-authored Cordis entry points from becoming part of the supported Plugin format; it does not make package preparation untrusted-safe.
+Configuring a repository authorizes package-manager lifecycle code, dependencies, the explicit `dsh.entry`, and spawned MCP servers from that repository to run with the user's filesystem authority. The pnpm child removes ambient environment variables whose names contain `KEY`, `PASSWORD`, `SECRET`, or `TOKEN`, but this is credential-exposure reduction rather than a sandbox. The prepared wrapper validates composition boundaries and lifecycle state; it does not make repository code safe to run when the source is untrusted.
 
 ## Alternatives considered
 
@@ -43,7 +43,7 @@ Configuring a repository authorizes package-manager lifecycle code from that rep
 - A repository that adds `.dsh-plugin/package.json` can reach standalone users through one personal-config edit without changing its existing skills or `.mcp.json` layout.
 - Long-running apps can add, replace, or remove configured generations without restart; rejected candidates retain the last good runtime and produce one generic Cordis event.
 - First use may require Git/network access and preparation time. Later starts reuse the exact prepared cache; old generations consume disk until a separate cache-management policy exists.
-- Only skills and common MCP definitions are supported. Hooks, commands, agents, apps, arbitrary Cordis code, compatibility shims, OAuth-bearing MCP definitions, and marketplaces remain intentionally absent.
+- Skills and common MCP definitions retain portable static adapters, while an explicit `dsh.entry` can contribute DSH-native Cordis behavior. Format-specific compatibility shims, OAuth-bearing MCP definitions, and marketplaces remain intentionally absent.
 
 ## Testing
 

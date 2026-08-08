@@ -141,8 +141,7 @@ describe('apply (plugin lifecycle)', () => {
   })
 
   it('connects, syncs tools under the namespace, and registers a notification handler', async () => {
-    apply(ctx, stdioConfig)
-    await sleep(50)
+    await apply(ctx, stdioConfig)
 
     expect(mockConnect).toHaveBeenCalled()
     expect(mockListTools).toHaveBeenCalled()
@@ -152,11 +151,10 @@ describe('apply (plugin lifecycle)', () => {
   })
 
   it('rejects a duplicate serverName at load and leaves the first instance intact', async () => {
-    apply(ctx, stdioConfig)
-    await sleep(50)
+    await apply(ctx, stdioConfig)
     expect(ctx.tools.get('mcp__srv__remote')).toBeDefined()
 
-    expect(() => { apply(ctx, stdioConfig) }).toThrow(/serverName "srv" is already in use/)
+    expect(() => { void apply(ctx, stdioConfig) }).toThrow(/serverName "srv" is already in use/)
     // First instance unaffected.
     expect(ctx.tools.get('mcp__srv__remote')).toBeDefined()
   })
@@ -165,8 +163,7 @@ describe('apply (plugin lifecycle)', () => {
     const first = new Context()
     await first.plugin(SystemPrompt)
     await first.plugin(ToolRegistry)
-    apply(first, stdioConfig)
-    await sleep(50)
+    await apply(first, stdioConfig)
 
     await first.fiber.dispose()
     await sleep(50)
@@ -176,16 +173,17 @@ describe('apply (plugin lifecycle)', () => {
     const second = new Context()
     await second.plugin(SystemPrompt)
     await second.plugin(ToolRegistry)
-    expect(() => { apply(second, stdioConfig) }).not.toThrow()
+    await expect(apply(second, stdioConfig)).resolves.toBeUndefined()
+    await second.fiber.dispose()
   })
 
   it('scopes serverName reservations per app root', async () => {
     const other = await mountRegistry()
 
-    apply(ctx, stdioConfig)
+    const first = apply(ctx, stdioConfig)
     // Same serverName on a DIFFERENT root is fine.
-    expect(() => { apply(other, stdioConfig) }).not.toThrow()
-    await sleep(50)
+    const second = apply(other, stdioConfig)
+    await Promise.all([first, second])
 
     expect(ctx.tools.get('mcp__srv__remote')).toBeDefined()
     expect(other.tools.get('mcp__srv__remote')).toBeDefined()
@@ -194,8 +192,7 @@ describe('apply (plugin lifecycle)', () => {
   it('logs error and registers no tools when connect fails; dispose is a no-op', async () => {
     mockConnect.mockRejectedValue(new Error('connection refused'))
 
-    apply(ctx, stdioConfig)
-    await sleep(50)
+    await apply(ctx, stdioConfig)
 
     expect(mockListTools).not.toHaveBeenCalled()
     expect(ctx.tools.get('mcp__srv__remote')).toBeUndefined()
@@ -208,8 +205,7 @@ describe('apply (plugin lifecycle)', () => {
   })
 
   it('re-syncs tools on ToolListChanged notification', async () => {
-    apply(ctx, stdioConfig)
-    await sleep(50)
+    await apply(ctx, stdioConfig)
 
     expect(ctx.tools.get('mcp__srv__remote')).toBeDefined()
 
@@ -226,8 +222,7 @@ describe('apply (plugin lifecycle)', () => {
   })
 
   it('keeps the previous generation when a re-sync fails', async () => {
-    apply(ctx, stdioConfig)
-    await sleep(50)
+    await apply(ctx, stdioConfig)
     expect(ctx.tools.get('mcp__srv__remote')).toBeDefined()
 
     mockListTools.mockRejectedValue(new Error('flaky server'))
@@ -242,7 +237,7 @@ describe('apply (plugin lifecycle)', () => {
     // Load through ctx.plugin so ONLY the plugin's fiber is disposed — the
     // registry must survive to observe the unregistration.
     const fiber = ctx.plugin({ name: 'mcp-client', inject: ['tools'], apply }, stdioConfig)
-    await sleep(50)
+    await fiber
 
     // Advance to a second generation first.
     mockListTools.mockResolvedValue({
@@ -264,8 +259,7 @@ describe('apply (plugin lifecycle)', () => {
   it('effect disposer handles client.close failure gracefully', async () => {
     mockClose.mockRejectedValue(new Error('already closed'))
 
-    apply(ctx, stdioConfig)
-    await sleep(50)
+    await apply(ctx, stdioConfig)
 
     // Should not throw when dispose is triggered.
     await ctx.fiber.dispose()
@@ -283,8 +277,7 @@ describe('apply (plugin lifecycle)', () => {
       toolCallTimeoutMs: 30_000,
     }
 
-    apply(ctx, httpConfig)
-    await sleep(50)
+    await apply(ctx, httpConfig)
 
     expect(mockConnect).toHaveBeenCalled()
     expect(ctx.tools.get('mcp__web__remote')).toBeDefined()

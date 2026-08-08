@@ -1,5 +1,5 @@
 /**
- * Restricted repository-plugin runtime for static skills and common MCP definitions.
+ * Trusted repository-package runtime for code, skills, and common MCP definitions.
  * @module @deepseek-ai/dsh-repository-plugin
  */
 
