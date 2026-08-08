@@ -75,7 +75,7 @@ DSH 有意在调用摘要器前记录 `compact/start`。缓慢或崩溃的尝试
 
 ### 参考实现边界
 
-[PR #835](https://github.com/deepseek-harness/deepseek-harness/pull/835) 用作命令、预留、测试与快照结构的参考实现，但未被合并。它的进程本地 `WeakSet` 锁与 locked／unlocked 方法拆分经过评估后未被采用，因为持久标记对是唯一可达的锁。
+一个未合并的参考实现为命令、预留、测试与快照结构提供了参考。它的进程本地 `WeakSet` 锁与 locked／unlocked 方法拆分经过评估后未被采用，因为持久标记对是唯一可达的锁。
 
 该参考实现还包含客户端侧替换锚点机制，用于保留 transcript（文本记录）位置。按日志顺序排列的 transcript 投影已经从事件顺序消费压缩，并且不会查询可变 surface 位置，因此这些锚点经过评估后未被采用。
 

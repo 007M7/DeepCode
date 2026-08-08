@@ -140,8 +140,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'typert-registry',
     title: 'Runtime type registry',
     mode: 'core',
-    consumers: ['typert-loader'],
-    note: 'Plugins register live zod contributions directly or through dsh-typert-loader; runtime consumers query schemas and reflection metadata at their own edges.',
+    consumers: ['typert-loader', 'api-gateway'],
+    note: 'Plugins register live zod contributions directly or through dsh-typert-loader; the API gateway consumes invocation descriptors and providers, while other runtime consumers query schemas and reflection metadata at their own edges.',
+  },
+  {
+    key: 'typertGateway',
+    pkg: 'api-gateway',
+    title: 'TypeRT Host invocation gateway',
+    mode: 'core',
+    note: 'Associates generated Remote descriptors with live Cordis services, resolves registered identities, and exposes unary calls through the shared Connection RPC carrier.',
   },
   {
     key: 'sessionPersistence',

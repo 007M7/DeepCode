@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Packages use the `@deepseek-ai/dsh-*` scope. Each is a Cordis `Service` subclass or function plugin; contributions use `ctx.effect()`, `ctx.on()`, or `ctx.waterfall()`. Authoring rules: [package](AGENTS.md) and [root](../AGENTS.md#conventions).
+Packages use the `@deepseek-ai/dsh-*` scope. Cordis `Service` subclasses and function plugins contribute through `ctx.effect()`, `ctx.on()`, or `ctx.waterfall()`. Authoring rules: [package](AGENTS.md) and [root](../AGENTS.md#conventions).
 
 ## Hierarchy
 
@@ -11,8 +11,10 @@ Packages live at `packages/<group>/<pkg>/`; groups are containers, while names r
 | Group | Role | Release expectation |
 |---|---|---|
 | [`core/`](core/README.md) | Product API spine: sessions, prompts, tools, agent services, and the concrete loop | Product — stable surface |
+| [`api/`](api/README.md) | Remote BFF assembly and TypeRT RPC gateway | Product — stable surface |
 | [`typert/`](typert/README.md) | Type graph generation, artifact loading, and runtime registry | Product — stable surface |
-| [`goal/`](goal/README.md) | Persisted same-session goal state and lifecycle | Product — stable surface |
+| [`goal/`](goal/README.md) | Same-session goal persistence and lifecycle | Product — stable surface |
+| [`feedback/`](feedback/README.md) | Human feedback | Product — stable surface |
 | [`llm/`](llm/README.md) | LLM capability family: the abstract service + provider adapters | Product — stable surface |
 | [`subprocess/`](subprocess/README.md) | Subprocess capability family: spawn seam + local process-tree implementation | Product — stable surface |
 | [`bash/`](bash/README.md) | Bash capability family: executor seam, local impl, model-facing tool | Product — stable surface |
@@ -26,7 +28,7 @@ Packages live at `packages/<group>/<pkg>/`; groups are containers, while names r
 | [`context/`](context/README.md) | Model-visible request context, including workspace instructions and time context | Product — stable surface |
 | [`subagent/`](subagent/README.md) | Subagent capability family: the provider-registry seam and the model-facing delegation tool | Product — stable surface |
 | [`tasks/`](tasks/README.md) | Generic background-task runtime and model-facing `task_*` control tools | Product — stable surface |
-| [`workflow/`](workflow/README.md) | Workflow capability family: the script-engine seam, worker-thread engine, and model-facing `workflow` and fresh-agent `ralph` tools | Product — stable surface |
+| [`workflow/`](workflow/README.md) | Script seam, worker-thread engine, and model-facing `workflow`/`ralph` tools | Product — stable surface |
 | [`web/`](web/README.md) | Web capability family: seam, search/fetch provider impls, and the model-facing web tools | Product — stable surface |
 | [`spill/`](spill/README.md) | Spill capability family: storage seam, local impl, tool-result spill policy | Product — stable surface |
 | [`todo/`](todo/README.md) | The model-facing `todo_write` tool | Product — stable surface |

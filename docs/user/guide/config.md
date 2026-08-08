@@ -18,10 +18,6 @@ A minimal configuration is a list of plugin entries:
 ```yaml
 - id: llm-deepseek
   name: '@deepseek-ai/dsh-llm-deepseek'
-  config:
-    apiKey: !!js process.env.DEEPSEEK_API_KEY
-    models:
-      - deepseek-v4-flash
 
 - id: bash
   name: '@deepseek-ai/dsh-bash-local'
@@ -53,15 +49,14 @@ Cordis starts sibling entries concurrently. A plugin declares required services 
 
 `dsh --profile <name>` composes the profile's bundle patch layers (its manifest's `dsh.profile.bundles` list, in order) over an empty root, then the profile's own `~/.dsh/profiles/<name>/cordis.patch.yml`, then each `--patch <path>` overlay, then CLI-flag patches. Later layers win per row.
 
-A patch replaces a row's entire `config` value; it does not deep-merge keys. For example, patching `llm-deepseek` with only `config: { thinking: disabled }` also removes that row's configured `apiKey` and `baseURL`, so restate every key the row must retain.
+A patch replaces a row's entire `config` value; it does not deep-merge keys. For example, patching `llm-deepseek` with only `config: { thinking: disabled }` also removes that row's configured `apiKeyEnv` and `baseURL`, so restate every key the row must retain.
 
 ## JavaScript values and environment variables
 
-The Cordis loader evaluates runtime expressions tagged with `!!js`. Keep API keys and other secrets in the gitignored `.env` file at the repository root, never in committed configuration.
+The Cordis loader evaluates runtime expressions tagged with `!!js` for non-secret runtime values. Bundled LLM adapters carry credential references such as `apiKeyEnv`; the value belongs in an environment layer or `$DSH_HOME/.credentials.yaml`, not Cordis configuration.
 
 ```yaml
 config:
-  apiKey: !!js process.env.DEEPSEEK_API_KEY
   cwd: !!js process.cwd()
 ```
 

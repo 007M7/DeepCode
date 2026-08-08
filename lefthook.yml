@@ -15,7 +15,7 @@ pre-commit:
       glob: '*.{ts,tsx,mts,cts,mjs}'
       exclude:
         - 'vendor/*/src/**'
-      run: node_modules/.bin/tsx scripts/run-oxlint.ts --fix --no-error-on-unmatched-pattern {staged_files}
+      run: node_modules/.bin/tsx scripts/run-oxlint.ts --config .oxlintrc.staged.json --fix --no-error-on-unmatched-pattern {staged_files}
       stage_fixed: true
 
     # Regenerate rather than reject: a dependency edit that forgot the notices
@@ -37,4 +37,4 @@ pre-commit:
 pre-push:
   jobs:
     - name: typecheck
-      run: node_modules/.bin/tsc -b --pretty false
+      run: pnpm run typecheck

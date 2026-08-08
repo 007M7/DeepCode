@@ -1,7 +1,7 @@
 #!/bin/sh
 # dsh one-line installer.
 #
-#   curl -fsSL https://raw.githubusercontent.com/deepseek-harness/deepseek-harness/master/scripts/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/deepseek-ai/deepseek-harness-sdk/master/scripts/install.sh | sh
 #
 # It clones the harness under ~/.dsh/source (the master clone at
 # ~/.dsh/source/master), adds a per-install staging worktree at
@@ -47,12 +47,10 @@
 #   DSH_CURRENT      stable symlink to the active worktree (default: $DSH_SOURCE/current)
 #   DSH_BIN_DIR      directory the `dsh` symlink lands in (default: ~/.local/bin)
 #   DSH_HOME         Harness home holding profiles and user patches (default: ~/.dsh)
-# FIXME(install-ts): Move the post-checkout workflow into a tested TypeScript
-# entrypoint; keep this POSIX shell file as the curl/source bootstrap.
 set -eu
 
 DSH_REF=${DSH_REF:-master}
-DSH_REPO=${DSH_REPO:-https://github.com/deepseek-harness/deepseek-harness.git}
+DSH_REPO=${DSH_REPO:-https://github.com/deepseek-ai/deepseek-harness-sdk.git}
 # DSH_SOURCE is the staging-worktree container and the default home of `current`.
 # DSH_MASTER names the main clone: clone mode defaults it inside DSH_SOURCE,
 # while adoption discovers an existing clone anywhere on disk. Remember whether

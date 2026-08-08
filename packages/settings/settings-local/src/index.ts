@@ -272,10 +272,17 @@ export class SettingsLocal extends Settings {
   private parse(text: string): Record<string, unknown> {
     let root: unknown
     if (this.spec.format === 'yaml') {
+      // `prettyErrors` is on only for `linePos`; `error.message` is never
+      // used, because the parser quotes the offending source line and a
+      // settings document can hold a `role('secret')` value.
       const document = parseDocument(text, { prettyErrors: true })
       if (document.errors.length > 0) {
         throw new Error(`settings-local: invalid document at ${this.spec.filename}: ${
-          document.errors.map(error => error.message).join('; ')}`)
+          document.errors.map((error) => {
+            const at = error.linePos?.[0]
+            /* v8 ignore next -- `prettyErrors` populates linePos on every error; the guard answers its optional type */
+            return `${error.code}${at === undefined ? '' : ` at line ${String(at.line)}, column ${String(at.col)}`}`
+          }).join('; ')}`)
       }
       root = document.toJS() ?? {}
     } else {

@@ -7,13 +7,17 @@
 // coverage gate still requires exercised.
 
 import { Context } from 'cordis'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
 import { apply as themeApply, inject as themeInject, ThemeService } from '@deepseek-ai/dsh-client-ui-theme/client'
 import { apply, inject, LayoutService } from '@deepseek-ai/dsh-client-ui-layout/client'
 import { apply as nodeApply } from '@deepseek-ai/dsh-client-ui-layout'
 import * as invariant from '@deepseek-ai/dsh-client-ui-layout/invariant'
+
+beforeEach(() => {
+  document.head.querySelectorAll('meta[name="theme-color"]').forEach((node) => { node.remove() })
+})
 
 async function bench() {
   const ctx = new Context()
@@ -65,13 +69,17 @@ describe('ui-layout client apply', () => {
     // Initial getter application: jsdom has no matchMedia, system resolves light.
     expect(document.documentElement.style.colorScheme).toBe('light')
     expect(document.body.hasAttribute('data-ds-dark-theme')).toBe(false)
+    const themeColorMeta = document.head.querySelector<HTMLMetaElement>('meta[name="theme-color"]')
+    expect(themeColorMeta).not.toBeNull()
     const theme = ctx.get('theme') as ThemeService
     theme.setTheme('dark')
     expect(document.documentElement.style.colorScheme).toBe('dark')
     expect(document.body.hasAttribute('data-ds-dark-theme')).toBe(true)
+    expect(document.head.querySelector('meta[name="theme-color"]')).toBe(themeColorMeta)
     await fiber.dispose()
     expect(document.documentElement.style.colorScheme).toBe('')
     expect(document.body.hasAttribute('data-ds-dark-theme')).toBe(false)
+    expect(themeColorMeta?.isConnected).toBe(false)
     // Listener is off: further theme changes no longer reach the document.
     theme.setTheme('light')
     theme.setTheme('dark')

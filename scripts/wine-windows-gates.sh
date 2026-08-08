@@ -204,12 +204,14 @@ cat "$scratch/logs/smoke.log"
 grep -q '^smoke: win32 x64' "$scratch/logs/smoke.log" || { echo 'wine-windows-gates: Windows Node smoke did not report win32 x64' >&2; exit 1; }
 
 # ---- the two blocking surfaces, concurrently ------------------------------
-# The same shape run-gates gives ci-windows-blocking on native Windows:
-# `build` = tsc -b then tsdown, `production site` = the VitePress build. Both
-# statuses are captured so one failure cannot hide the other's result.
+# The build preserves the face order from package.json: compile and bundle the
+# Host face before compiling and bundling the Client face.
+# Both statuses are captured so one failure cannot hide the other's result.
 build_gate() {
-  wine_node "$scratch/logs/tsc.log" "$tsc_js" -b --pretty false || return $?
-  wine_node "$scratch/logs/tsdown.log" "$tsdown_js"
+  wine_node "$scratch/logs/host-tsc.log" "$tsc_js" -b tsconfig.host.json --pretty false || return $?
+  wine_node "$scratch/logs/host-tsdown.log" "$tsdown_js" --env.DSH_BUILD_FACE host || return $?
+  wine_node "$scratch/logs/client-tsc.log" "$tsc_js" -b tsconfig.client.json --pretty false || return $?
+  wine_node "$scratch/logs/client-tsdown.log" "$tsdown_js" --env.DSH_BUILD_FACE client
 }
 site_gate() {
   cd website
@@ -235,7 +237,11 @@ report() {
     for log in "$@"; do tail -n 200 "$log" >&2 || true; done
   fi
 }
-report 'build (tsc -b, tsdown)' "$build_status" "$scratch/logs/tsc.log" "$scratch/logs/tsdown.log"
+report 'build (Host tsc/tsdown, Client tsc/tsdown)' "$build_status" \
+  "$scratch/logs/host-tsc.log" \
+  "$scratch/logs/host-tsdown.log" \
+  "$scratch/logs/client-tsc.log" \
+  "$scratch/logs/client-tsdown.log"
 report 'production site (vitepress build)' "$site_status" "$scratch/logs/site.log"
 if (( build_status != 0 )); then exit "$build_status"; fi
 exit "$site_status"

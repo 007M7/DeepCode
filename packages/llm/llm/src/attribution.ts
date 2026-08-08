@@ -40,8 +40,7 @@ export interface AppIdentity {
 export const APP_IDENTITY: AppIdentity = {
   product: 'deepseek-harness',
   version,
-  // FIXME: create the public deepseek-ai/deepseek-harness-sdk repository this
-  // URL promises before the first release ships attribution pointing at it.
+  // TODO(public-home): Ensure this public source repository exists before release.
   url: 'https://github.com/deepseek-ai/deepseek-harness-sdk',
 }
 

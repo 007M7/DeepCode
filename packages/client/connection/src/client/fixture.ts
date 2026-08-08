@@ -35,10 +35,12 @@ import type {
 } from './api.ts'
 import type { RequestPayload, ResponseValue, RpcMethodMap } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { AbstractApiClient, RpcId, SESSION_SEARCH_RESULT_LIMIT } from './api.ts'
+import { randomUuid } from './random-uuid.ts'
+import type { ClientConnectionRpc } from '../rpc.ts'
 
 /** The fake carrier mints like a real one (business code never mints). */
 function rpcRequest<P>(payload: P): RpcRequest<P> {
-  return { rpcId: RpcId(crypto.randomUUID()), payload }
+  return { rpcId: RpcId(randomUuid()), payload }
 }
 
 function text(t: string): ContentBlock[] {
@@ -689,9 +691,9 @@ function viewFor(event: SessionEvent, log: readonly SessionEvent[]): ToolEventVi
 
 /**
  * Fixture parallel of the plan unit's double-event fold: `command/run`
- * records named `plan` set the wanted target (`off` → false, else true);
- * `plan/mode` commits and clears it. `wanted` is exposed for the prompt
- * boundary (the fixture's step/start parallel).
+ * records named `plan` with recorded input set the wanted target (`off` →
+ * false, else true); `plan/mode` commits and clears it. `wanted` is exposed
+ * for the prompt boundary (the fixture's step/start parallel).
  */
 function foldPlan(log: readonly SessionEvent[]): { active: boolean; pending: boolean; wanted: boolean | null } {
   let active = false
@@ -700,7 +702,8 @@ function foldPlan(log: readonly SessionEvent[]): { active: boolean; pending: boo
     const item = event as unknown as { type: string; data?: Record<string, unknown> }
     if (item.type === 'command/run' && item.data?.['name'] === 'plan') {
       const args = item.data['args']
-      wanted = (typeof args === 'string' ? args : '').trim() !== 'off'
+      if (typeof args !== 'string') continue
+      wanted = args.trim() !== 'off'
     } else if (item.type === 'plan/mode') {
       active = item.data?.['active'] === true
       wanted = null
@@ -1007,9 +1010,11 @@ function projectionFramesOf(id: SessionId, log: readonly SessionEvent[], event: 
       seq: event.seq,
     }]
   }
-  // The plan unit advances on its two folded event kinds.
+  // The plan unit advances on its two folded event kinds when the command
+  // lifecycle contains the input that represents a plan selection.
+  const commandData = event as unknown as { data: { name?: string; args?: unknown } }
   if (type === 'plan/mode' || (type === 'command/run'
-    && (event as unknown as { data: { name?: string } }).data.name === 'plan')) {
+    && commandData.data.name === 'plan' && typeof commandData.data.args === 'string')) {
     return [{
       type: 'session/projection',
       sessionId: id,
@@ -1325,6 +1330,16 @@ class FxInbox<F> implements StreamConn<F> {
  * @returns an ApiProxy backed entirely by in-memory state — no host process, no network.
  */
 export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
+  return createFixtureWorld(options).api
+}
+
+interface FixtureWorld {
+  readonly api: ApiProxy
+  readonly rpc: ClientConnectionRpc
+}
+
+/** Build the fixture's legacy API and Remote RPC faces over one state graph. */
+function createFixtureWorld(options: FixtureOptions): FixtureWorld {
   // The resident fixture sessions all carry history, so none of them is blank.
   const sessions: SessionSummary[] = options.empty ? [] : [
     { sessionId: sid('fx-alpha'), updatedAt: Date.now(), running: true, blank: false, cwd: '/tmp/fixture' },
@@ -1503,30 +1518,140 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
     return backscanGoal(log) as FxGoalProjection
   }
 
-  /** Shared CAS mutation path of the goal verbs (undefined next = invalid transition). */
-  const fxMutateGoal = (
-    request: RpcRequest<{ sessionId: SessionId; ref: { id: string; revision: number } }>,
-    ref: { id: string; revision: number },
-    next: (current: FxGoalProjection) => FxGoalProjection['goal'] | undefined,
-  ): Promise<RpcResponse<{ ref: { id: never; revision: number } }>> => {
-    const missing = requireSession(request)
+  type FxGoalRef = { id: string; revision: number }
+  type FxGoalView = FxGoalProjection['goal'] & {
+    roundsStarted: number
+    createdAt: number
+    updatedAt: number
+    activation: 'armed' | 'disarmed'
+  }
+
+  const goalFailure = <T>(message: string): RpcResult<T> => ({
+    ok: false,
+    error: { code: 'internal', message, details: {} },
+  })
+
+  const requireGoalSession = (id: SessionId): RpcResult<never> | undefined => (
+    summaryOf(id) === undefined
+      ? { ok: false, error: { code: 'session-not-found', message: `no session ${id}`, details: { sessionId: id } } }
+      : undefined
+  )
+
+  const goalView = (projection: FxGoalProjection): FxGoalView => ({
+    ...projection.goal,
+    roundsStarted: projection.roundsStarted,
+    createdAt: projection.createdAt,
+    updatedAt: projection.updatedAt,
+    activation: projection.goal.phase === 'active' ? 'armed' : 'disarmed',
+  })
+
+  /** Canonical fixture implementation of the generated Goal Remote contract. */
+  const goalRemotes = {
+    create(id: SessionId, request: { objective: string; maxGoalRounds?: number }): RpcResult<{ ref: FxGoalRef }> {
+      const missing = requireGoalSession(id)
+      if (missing !== undefined) return missing
+      const current = backscanGoal(logOf(id))
+      if (current !== null && current.goal.phase !== 'complete') {
+        return goalFailure(`goal "${current.goal.id}" already exists`)
+      }
+      const now = Date.now()
+      const projection = appendGoalChange(id, {
+        kind: 'goal/change', version: 1, operation: 'create',
+        goal: {
+          id: `fx-goal-${logOf(id).length}`,
+          revision: 1,
+          objective: request.objective,
+          phase: 'active',
+          maxGoalRounds: request.maxGoalRounds ?? 256,
+        },
+        roundsStarted: 0, createdAt: now, updatedAt: now,
+      })
+      return { ok: true, value: { ref: { id: projection.goal.id, revision: projection.goal.revision } } }
+    },
+    edit(id: SessionId, ref: FxGoalRef, request: { objective?: string; maxGoalRounds?: number }): RpcResult<FxGoalView> {
+      return mutateGoal(id, ref, current => ({
+        ...current.goal,
+        revision: current.goal.revision + 1,
+        ...request.objective === undefined ? {} : { objective: request.objective },
+        ...request.maxGoalRounds === undefined ? {} : { maxGoalRounds: request.maxGoalRounds },
+      }))
+    },
+    pause(id: SessionId, ref: FxGoalRef): RpcResult<FxGoalView> {
+      return mutateGoal(id, ref, current => (
+        current.goal.phase === 'active'
+          ? { ...current.goal, revision: current.goal.revision + 1, phase: 'paused' }
+          : undefined
+      ))
+    },
+    resume(id: SessionId, ref: FxGoalRef): RpcResult<FxGoalView> {
+      return mutateGoal(id, ref, current => (
+        current.goal.phase === 'paused' || current.goal.phase === 'blocked' || current.goal.phase === 'active'
+          ? { ...current.goal, revision: current.goal.revision + 1, phase: 'active' }
+          : undefined
+      ))
+    },
+    complete(id: SessionId, ref: FxGoalRef): RpcResult<FxGoalView> {
+      return mutateGoal(id, ref, current => (
+        current.goal.phase === 'complete'
+          ? undefined
+          : { ...current.goal, revision: current.goal.revision + 1, phase: 'complete' }
+      ))
+    },
+    clear(id: SessionId, ref: FxGoalRef): RpcResult<FxGoalRef> {
+      const resolved = resolveGoal(id, ref)
+      if (!resolved.ok) return resolved
+      const current = resolved.value
+      const tombstone = { id: current.goal.id, revision: current.goal.revision + 1 }
+      appendGoalChange(id, {
+        kind: 'goal/change', version: 1, operation: 'clear', cleared: tombstone, clearedAt: Date.now(),
+      })
+      return { ok: true, value: tombstone }
+    },
+  }
+
+  /** Resolve one current goal revision for a canonical Remote mutation. */
+  function resolveGoal(id: SessionId, ref: FxGoalRef): RpcResult<FxGoalProjection> {
+    const missing = requireGoalSession(id)
     if (missing !== undefined) return missing
-    const id = request.payload.sessionId
     const current = backscanGoal(logOf(id))
     if (current === null || current.goal.id !== ref.id || current.goal.revision !== ref.revision) {
-      return err(request, { code: 'internal', message: 'stale or missing goal revision', details: { goalCode: 'GOAL_STALE_REVISION' } })
+      return goalFailure('stale or missing goal revision')
     }
+    return { ok: true, value: current }
+  }
+
+  /** Shared CAS mutation path behind the canonical Remote verbs. */
+  function mutateGoal(
+    id: SessionId,
+    ref: FxGoalRef,
+    next: (current: FxGoalProjection) => FxGoalProjection['goal'] | undefined,
+  ): RpcResult<FxGoalView> {
+    const resolved = resolveGoal(id, ref)
+    if (!resolved.ok) return resolved
+    const current = resolved.value
     const goal = next(current)
     if (goal === undefined) {
-      return err(request, { code: 'internal', message: `invalid goal transition from "${current.goal.phase}"`, details: { goalCode: 'GOAL_INVALID_TRANSITION' } })
+      return goalFailure(`invalid goal transition from "${current.goal.phase}"`)
     }
     const projection = appendGoalChange(id, {
       kind: 'goal/change', version: 1,
       operation: goal.phase === current.goal.phase ? 'edit' : goal.phase === 'paused' ? 'pause' : goal.phase === 'active' ? 'resume' : 'complete',
       goal, roundsStarted: current.roundsStarted, createdAt: current.createdAt, updatedAt: Date.now(),
     })
-    return ok(request, { ref: { id: projection.goal.id as never, revision: projection.goal.revision } })
+    return { ok: true, value: goalView(projection) }
   }
+
+  const mapGoalResult = <T, U>(result: RpcResult<T>, map: (value: T) => U): RpcResult<U> => (
+    result.ok ? { ok: true, value: map(result.value) } : result
+  )
+
+  const goalRefResult = (result: RpcResult<FxGoalView>): RpcResult<{ ref: { id: never; revision: number } }> => (
+    mapGoalResult(result, view => ({ ref: { id: view.id as never, revision: view.revision } }))
+  )
+
+  const legacyGoalResponse = <P, T>(request: RpcRequest<P>, result: RpcResult<T>): Promise<RpcResponse<T>> => (
+    Promise.resolve({ rpcId: request.rpcId, result })
+  )
 
   /** At most one in-flight replay per session; cancel clears it. */
   const replays = new Map<SessionId, { timer: ReturnType<typeof setTimeout>; finish(aborted: boolean): void }>()
@@ -1773,7 +1898,7 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
     replays.set(id, { timer: setTimeout(tick, 80), finish })
   }
 
-  return {
+  const api: ApiProxy = {
     sessions: {
       list: request => ok(request, { items: [...sessions].sort((a, b) => b.updatedAt - a.updatedAt) }),
       search: (request, signal) => {
@@ -1975,6 +2100,9 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
       models: request => ok(request, {
         current: modelTargets.get(request.payload.sessionId)
           ?? { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+        // The fixture's routes all serve; a surface exercising the blocked
+        // posture drives it through its own stub.
+        routable: true,
         groups: fixtureModelGroups(),
         failures: [],
       }),
@@ -2321,66 +2449,51 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         if (missing !== undefined) return missing
         return ok(request, {
           skills: [
-            { name: 'fixture-demo', description: 'fixture 技能样本', whenToUse: '仅供 UI 目录渲染验收' },
+            { name: 'fixture-demo', description: 'fixture 技能样本', whenToUse: '仅供 UI 目录渲染验收', modelInvocable: true },
+            { name: 'fixture-user-only', description: 'fixture 仅用户技能样本', modelInvocable: false },
           ],
         })
       },
     },
     goals: {
-      // Mutation-only mirror of the host handlers: each verb CAS-checks the
-      // projected current goal, appends the whole-value change (the mux
-      // stream and projection frame ride the shared append path), and
-      // acknowledges with the new ref only.
-      create: (request) => {
-        const missing = requireSession(request)
-        if (missing !== undefined) return missing
-        const id = request.payload.sessionId
-        const current = backscanGoal(logOf(id))
-        if (current !== null && current.goal.phase !== 'complete') {
-          return err(request, { code: 'internal', message: `goal "${current.goal.id}" already exists`, details: { goalCode: 'GOAL_ALREADY_EXISTS' } })
-        }
-        const projection = appendGoalChange(id, {
-          kind: 'goal/change', version: 1, operation: 'create',
-          goal: { id: `fx-goal-${logOf(id).length}`, revision: 1, objective: request.payload.objective, phase: 'active', maxGoalRounds: request.payload.maxGoalRounds ?? 256 },
-          roundsStarted: 0, createdAt: Date.now(), updatedAt: Date.now(),
-        })
-        return ok(request, { ref: { id: projection.goal.id as never, revision: projection.goal.revision } })
-      },
-      edit: request => fxMutateGoal(request, request.payload.ref, current => ({
-        ...current.goal,
-        revision: current.goal.revision + 1,
-        ...request.payload.objective === undefined ? {} : { objective: request.payload.objective },
-        ...request.payload.maxGoalRounds === undefined ? {} : { maxGoalRounds: request.payload.maxGoalRounds },
-      })),
-      pause: request => fxMutateGoal(request, request.payload.ref, current => (
-        current.goal.phase === 'active'
-          ? { ...current.goal, revision: current.goal.revision + 1, phase: 'paused' }
-          : undefined
-      )),
-      resume: request => fxMutateGoal(request, request.payload.ref, current => (
-        current.goal.phase === 'paused' || current.goal.phase === 'blocked' || current.goal.phase === 'active'
-          ? { ...current.goal, revision: current.goal.revision + 1, phase: 'active' }
-          : undefined
-      )),
-      complete: request => fxMutateGoal(request, request.payload.ref, current => (
-        current.goal.phase === 'complete'
-          ? undefined
-          : { ...current.goal, revision: current.goal.revision + 1, phase: 'complete' }
-      )),
-      clear: (request) => {
-        const missing = requireSession(request)
-        if (missing !== undefined) return missing
-        const id = request.payload.sessionId
-        const current = backscanGoal(logOf(id))
-        if (current === null || current.goal.id !== request.payload.ref.id || current.goal.revision !== request.payload.ref.revision) {
-          return err(request, { code: 'internal', message: 'stale or missing goal revision', details: { goalCode: 'GOAL_STALE_REVISION' } })
-        }
-        appendGoalChange(id, {
-          kind: 'goal/change', version: 1, operation: 'clear',
-          cleared: { id: current.goal.id, revision: current.goal.revision + 1 }, clearedAt: Date.now(),
-        })
-        return ok(request, { cleared: true as const })
-      },
+      // Compatibility face only: old API Proxy payloads and acknowledgements
+      // adapt to the canonical fixture Remote implementation above.
+      create: request => legacyGoalResponse(
+        request,
+        mapGoalResult(
+          goalRemotes.create(request.payload.sessionId, {
+            objective: request.payload.objective,
+            ...request.payload.maxGoalRounds === undefined ? {} : { maxGoalRounds: request.payload.maxGoalRounds },
+          }),
+          value => ({ ref: { id: value.ref.id as never, revision: value.ref.revision } }),
+        ),
+      ),
+      edit: request => legacyGoalResponse(
+        request,
+        goalRefResult(goalRemotes.edit(request.payload.sessionId, request.payload.ref, {
+          ...request.payload.objective === undefined ? {} : { objective: request.payload.objective },
+          ...request.payload.maxGoalRounds === undefined ? {} : { maxGoalRounds: request.payload.maxGoalRounds },
+        })),
+      ),
+      pause: request => legacyGoalResponse(
+        request,
+        goalRefResult(goalRemotes.pause(request.payload.sessionId, request.payload.ref)),
+      ),
+      resume: request => legacyGoalResponse(
+        request,
+        goalRefResult(goalRemotes.resume(request.payload.sessionId, request.payload.ref)),
+      ),
+      complete: request => legacyGoalResponse(
+        request,
+        goalRefResult(goalRemotes.complete(request.payload.sessionId, request.payload.ref)),
+      ),
+      clear: request => legacyGoalResponse(
+        request,
+        mapGoalResult(
+          goalRemotes.clear(request.payload.sessionId, request.payload.ref),
+          () => ({ cleared: true as const }),
+        ),
+      ),
     },
     events: {
       async *mux(_request, signal) {
@@ -2500,8 +2613,11 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
       providers: request => ok(request, {
         providers: [
           { provider: 'deepseek-official', displayName: 'DeepSeek', settingsNs: 'llm-deepseek', settingsPath: [], active: true },
-          { provider: 'openai', displayName: 'openai', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai'], active: true },
-          { provider: 'anthropic', displayName: 'anthropic', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'anthropic'], active: false },
+          { provider: 'openai', displayName: 'openai', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai'], active: true, declared: false },
+          { provider: 'anthropic', displayName: 'anthropic', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'anthropic'], active: false, declared: false },
+          // One hand-declared route, so a surface reading this fixture meets
+          // the tagged shape rather than only the shipped one.
+          { provider: 'acme-gateway', displayName: 'Acme Gateway', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'acme-gateway'], active: true, declared: true },
         ],
       }),
       models: request => ok(request, { groups: fixtureModelGroups(), failures: [] }),
@@ -2538,6 +2654,36 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
       return Promise.resolve({ accepted: true })
     },
   }
+
+  const rpc: ClientConnectionRpc = {
+    call(channel, endpoint, payload) {
+      if (channel !== '/api') {
+        return Promise.reject(new Error(`fixture connection RPC channel ${JSON.stringify(channel)} is unavailable`))
+      }
+      const args = (payload as {
+        args: {
+          agentId: SessionId
+          ref?: { id: string; revision: number }
+          request?: { objective?: string; maxGoalRounds?: number }
+        }
+      }).args
+      const sessionId = args.agentId
+      switch (endpoint) {
+        case 'goals/create': return Promise.resolve(goalRemotes.create(sessionId, {
+          objective: args.request?.objective as string,
+          ...args.request?.maxGoalRounds === undefined ? {} : { maxGoalRounds: args.request.maxGoalRounds },
+        }))
+        case 'goals/edit': return Promise.resolve(goalRemotes.edit(sessionId, args.ref as FxGoalRef, args.request ?? {}))
+        case 'goals/pause': return Promise.resolve(goalRemotes.pause(sessionId, args.ref as FxGoalRef))
+        case 'goals/resume': return Promise.resolve(goalRemotes.resume(sessionId, args.ref as FxGoalRef))
+        case 'goals/complete': return Promise.resolve(goalRemotes.complete(sessionId, args.ref as FxGoalRef))
+        case 'goals/clear': return Promise.resolve(goalRemotes.clear(sessionId, args.ref as FxGoalRef))
+        default:
+          return Promise.reject(new Error(`fixture connection RPC endpoint ${JSON.stringify(endpoint)} is unavailable`))
+      }
+    },
+  }
+  return { api, rpc }
 }
 
 /**
@@ -2549,10 +2695,14 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
  */
 export class FixtureApiClient extends AbstractApiClient {
   private readonly api: ApiProxy
+  /** Generic Remote caller backed by the same in-memory state as the legacy fixture API. */
+  readonly rpc: ClientConnectionRpc
 
   constructor() {
     super()
-    this.api = createFixtureApi(fixtureOptionsFromLocation())
+    const world = createFixtureWorld(fixtureOptionsFromLocation())
+    this.api = world.api
+    this.rpc = world.rpc
   }
 
   protected doFetch(): Promise<Response> {

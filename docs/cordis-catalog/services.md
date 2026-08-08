@@ -216,7 +216,7 @@ roots(): Agent[]
 
 Types: [Agent](../core-data-structures/core.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/index.ts:242`](../../packages/core/agent/src/index.ts)
+Source: [`packages/core/agent/src/index.ts:253`](../../packages/core/agent/src/index.ts)
 
 ## `ctx.approval` — `ApprovalService`
 
@@ -451,7 +451,7 @@ async execute( agent: Agent, line: string, signal: AbortSignal, ): Promise<Comma
 
 Types: [Agent](../core-data-structures/core.md) · [CommandDefinition](../core-data-structures/commands.md) · [CommandDescriptor](../core-data-structures/commands.md)
 
-Source: [`packages/ui/commands/src/index.ts:278`](../../packages/ui/commands/src/index.ts)
+Source: [`packages/ui/commands/src/index.ts:286`](../../packages/ui/commands/src/index.ts)
 
 ## `ctx.compact` — `CompactService` (abstract seam)
 
@@ -718,7 +718,7 @@ create(agent: Agent, request: CreateGoalRequest): GoalView
  * @param request - at least one replacement field.
  * @returns the edited view.
  */
-edit(agent: Agent, ref: GoalRef, request: EditGoalRequest): GoalView
+@Remote('edit') edit(agent: Agent, ref: GoalRef, request: EditGoalRequest): GoalView
 
 /**
  * Pause an active goal and disarm automatic continuation.
@@ -726,7 +726,7 @@ edit(agent: Agent, ref: GoalRef, request: EditGoalRequest): GoalView
  * @param ref - expected current revision.
  * @returns the paused view.
  */
-pause(agent: Agent, ref: GoalRef): GoalView
+@Remote('pause') pause(agent: Agent, ref: GoalRef): GoalView
 
 /**
  * Resume and arm a stopped goal, or rearm an active goal after a
@@ -735,7 +735,7 @@ pause(agent: Agent, ref: GoalRef): GoalView
  * @param ref - expected current revision.
  * @returns the active view.
  */
-resume(agent: Agent, ref: GoalRef): GoalView
+@Remote('resume') resume(agent: Agent, ref: GoalRef): GoalView
 
 /**
  * Mark a current non-complete goal complete and disarm it.
@@ -743,7 +743,7 @@ resume(agent: Agent, ref: GoalRef): GoalView
  * @param ref - expected current revision.
  * @returns the completed view.
  */
-complete(agent: Agent, ref: GoalRef): GoalView
+@Remote('complete') complete(agent: Agent, ref: GoalRef): GoalView
 
 /**
  * Mark an active goal blocked and disarm it.
@@ -760,12 +760,20 @@ block(agent: Agent, ref: GoalRef, reason: GoalBlockReason): GoalView
  * @param ref - expected current revision.
  * @returns the tombstone ref whose revision is one past the cleared snapshot.
  */
-clear(agent: Agent, ref: GoalRef): GoalRef
+@Remote('clear') clear(agent: Agent, ref: GoalRef): GoalRef
+
+/**
+ * Create one Goal through the remote boundary.
+ * @param agent - exact live Agent resolved from the wire identity.
+ * @param request - objective and optional round cap.
+ * @returns the created Goal identity.
+ */
+@Remote('create') remoteExportCreate(agent: Agent, request: CreateGoalRequest): CreateGoalResult
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [CreateGoalRequest](../core-data-structures/goal.md) · [EditGoalRequest](../core-data-structures/goal.md) · [GoalBlockReason](../core-data-structures/goal.md) · [GoalRef](../core-data-structures/goal.md) · [GoalView](../core-data-structures/goal.md)
+Types: [Agent](../core-data-structures/core.md) · [CreateGoalRequest](../core-data-structures/goal.md) · [CreateGoalResult](../core-data-structures/goal.md) · [EditGoalRequest](../core-data-structures/goal.md) · [GoalBlockReason](../core-data-structures/goal.md) · [GoalRef](../core-data-structures/goal.md) · [GoalView](../core-data-structures/goal.md)
 
-Source: [`packages/goal/goal/src/index.ts:181`](../../packages/goal/goal/src/index.ts)
+Source: [`packages/goal/goal/src/index.ts:183`](../../packages/goal/goal/src/index.ts)
 
 ## `ctx.httpServer` — `HttpServerService`
 
@@ -1748,7 +1756,7 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 
 Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [PrepareSessionOptions](../core-data-structures/persistence.md) · [Session](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:800`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:807`](../../packages/core/session/src/index.ts)
 
 ## `ctx.sessionTitle` — `SessionTitleService`
 
@@ -1938,7 +1946,7 @@ async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefiniti
 
 Types: [SkillCatalogSnapshot](../core-data-structures/skills.md) · [SkillDefinition](../core-data-structures/skills.md) · [SkillLookupOptions](../core-data-structures/skills.md) · [SkillProvider](../core-data-structures/skills.md) · [SkillProviderControl](../core-data-structures/skills.md) · [SkillRegistration](../core-data-structures/skills.md) · [SkillSummary](../core-data-structures/skills.md)
 
-Source: [`packages/skill/skill/src/index.ts:212`](../../packages/skill/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:304`](../../packages/skill/skill/src/index.ts)
 
 ## `ctx.spillStore` — `SpillStore` (abstract seam)
 
@@ -2364,7 +2372,7 @@ flush?(): void
 abstract shutdown(): Promise<void>
 ```
 
-Source: [`packages/telemetry/session-telemetry/src/index.ts:135`](../../packages/telemetry/session-telemetry/src/index.ts)
+Source: [`packages/telemetry/session-telemetry/src/index.ts:140`](../../packages/telemetry/session-telemetry/src/index.ts)
 
 ## `ctx.tokenMeter` — `TokenMeterService`
 
@@ -2527,16 +2535,17 @@ Source: [`packages/core/tools/src/index.ts:739`](../../packages/core/tools/src/i
 
 ## `ctx.typert` — `TypertRegistry`
 
-Registry of generated schemas and package reflection.
+Registry of generated schemas, package reflection, invocations, and Remote dependency providers.
 
 ```ts cordis-catalog
 /**
  * Register one generated contribution atomically for the calling fiber.
- * Duplicate package-face identities or schema keys reject the whole batch.
- * @param contribution - generated schemas and package metadata.
+ * Duplicate package-face identities, schemas, invocation ids, or endpoints
+ * reject the whole batch.
+ * @param contribution - generated schemas, reflection, and Host invocations.
  * @returns the exact effect disposer that removes this contribution.
  */
-register(contribution: TypertContribution): () => void
+register(contribution: TypertContribution): TypeRTDisposer
 
 /**
  * Look up one schema by `<package>#<name>`.
@@ -2584,7 +2593,23 @@ listPackages(filter: TypertPackageFilter = {}): TypertPackageRecord[]
 toJSONSchema(key: string, params?: z.core.ToJSONSchemaParams): z.core.JSONSchema.BaseSchema
 ```
 
-Source: [`packages/typert/registry/src/index.ts:67`](../../packages/typert/registry/src/index.ts)
+Source: [`packages/typert/registry/src/service.ts:446`](../../packages/typert/registry/src/service.ts)
+
+## `ctx.typertGateway` — `TypertGatewayService`
+
+Resolve strict generated definitions or conservative SRC markers against current Cordis Services and TypeRT providers.
+
+```ts cordis-catalog
+/**
+ * Invoke one live Remote method through strict generated reflection or SRC markers.
+ * @param request - decoded endpoint and exact named wire arguments.
+ * @returns the validated business result.
+ * @throws {@link TypertGatewayError} for dispatch, provider, or boundary failures; lookup-policy and business errors retain identity.
+ */
+async invoke(request: InvokeRemoteRequest): Promise<unknown>
+```
+
+Source: [`packages/api/gateway/src/index.ts:78`](../../packages/api/gateway/src/index.ts)
 
 ## `ctx.userInteraction` — `UserInteractionService`
 

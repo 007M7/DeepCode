@@ -86,6 +86,20 @@
   color: var(--dsw-alias-label-primary);
 }
 
+/* Reads as an annotation on the name, not as a second name: caption size and
+   the secondary label tone, so it never competes with the row's own title. It
+   sits inside `rowIdentity` with the credential dot, which is what keeps it
+   beside the name rather than drifting toward the actions. */
+.rowTag {
+  flex: none;
+  padding: 1px 6px;
+  border: 1px solid var(--dsw-alias-border-l3);
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-secondary);
+}
+
 .credentialDot {
   box-sizing: border-box;
   display: inline-block;

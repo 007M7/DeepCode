@@ -85,5 +85,5 @@ Mounting or unmounting a prompt or tool contribution changes later request prefi
 ## Known Limitations and Deferred Work
 
 - **The sandbox is containment for honest code, not a security boundary** — host-realm helpers on the sandbox global are reachable, so mount code can reach Node; load this plugin as deliberately as you would grant a bash tool (see § Trust stance).
-- **The `ctx` façade exposes no `effect()`** — mount code cannot register a bespoke disposer; `on`/`provide`/`tools.register` cover every mount seen so far, and a guarded `effect` waits on a real need (`FIXME(sandbox-effect)`).
+- **The `ctx` façade exposes no `effect()`** — mount code cannot register a bespoke disposer; `on`/`provide`/`tools.register` are the supported cleanup paths.
 - **`vmTimeoutMs` bounds only synchronous evaluation** — an async mount body escapes it; there is no async budget on mount code.

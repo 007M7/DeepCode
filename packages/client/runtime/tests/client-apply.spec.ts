@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import type { ConnectionSinks } from '@deepseek-ai/dsh-client-connection/client'
 import { SESSION_SEARCH_RESULT_LIMIT } from '@deepseek-ai/dsh-host-apiproxy/api'
+import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 import * as RuntimeClient from '../src/client/index.ts'
 import type { SessionsService } from '../src/client/sessions/service.ts'
 import type { WorkspacesService } from '../src/client/workspaces/service.ts'
@@ -22,17 +23,22 @@ interface Bench {
 
 async function mount(): Promise<Bench> {
   const ctx = new Context()
+  await ctx.plugin(TypertRegistry)
   const api = new FakeApiClient()
   const bench: Bench = { ctx, api, sinks: undefined, stopped: 0 }
   const handle: ConnectionHandle = {
     api,
     isLoopback: true,
+    rpc: {
+      call: () => Promise.reject(new Error('unexpected generic RPC call')),
+    },
     start: (sinks) => {
       bench.sinks = sinks
       return { stop: () => { bench.stopped += 1 } }
     },
   }
   ctx.reflect.provide('connection', handle)
+  ctx.reflect.provide('remote', {})
   await ctx.plugin(RuntimeClient).await()
   return bench
 }

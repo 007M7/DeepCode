@@ -231,7 +231,7 @@ export class CordisCatalogProjector {
       for (const service of packageModel.services) {
         const declaration = this.renderer.declaration(service.symbol)
         if (declaration.kind !== 'class'
-          || !/^packages\/[^/]+\/[^/]+\/src\/index\.ts$/.test(service.location.file)
+          || !/^packages\/[^/]+\/[^/]+\/src\/[^/]+\.ts$/.test(service.location.file)
           || declaration.location.file !== service.location.file) continue
         const doc = parseJsDoc(declaration.jsDoc ?? '').doc
         const source = pointer(declaration.location)

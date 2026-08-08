@@ -131,4 +131,4 @@ The lifecycle boundary makes crash state unambiguous:
 - **Loop:** Tests pin pre-step after the preceding `step/end` and before the next `step/start`, actual `agent/request` routing, closed failed steps, fresh retry numbering, and complete thrown/in-band overflow → compaction → reconstructed retry composition.
 - **Manual:** Maintenance serialization, marker ordering, injection retention, live/stale orphan classification, cancellation, close/flush failures, command mapping, and the queued TUI journey are pinned without a model key.
 - **With-key e2e:** A real model and bash session with lowered limits triggers compaction, records a complete `compact/start…end` pair, shrinks the surface, and finishes the task.
-- **Snapshot gap:** Runaway-turn compaction cannot yet replay because the summarization call records no `assistant/chunk` events or `sessionId`; interleaved summarization-call replay remains follow-up work.
+- **Snapshot gap:** The summarization call is session-associated and logs `compact/summary`, but ordinary transcript replay does not derive its auxiliary response; keyless assembled coverage therefore needs an explicit replay override.
