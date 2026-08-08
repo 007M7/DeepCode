@@ -62,6 +62,7 @@ describe('dsh badge assembled snapshot', () => {
       </available_skills>
 
       If the user names a skill, or the task clearly matches a skill's description, call the \`skill\` tool with the exact skill name before taking task actions. Load all applicable skills, then follow their full instructions. This catalog contains summaries only; do not infer or follow a skill's instructions until it has been loaded.
+      A user may also invoke a skill directly; its <skill_content> block then appears in this conversation. Follow it, and do not call the \`skill\` tool again for that skill.
       </system-reminder>",
             "type": "text",
           },
@@ -84,14 +85,14 @@ describe('dsh badge assembled snapshot', () => {
 
       - Local PNG: [\`dsh-badge.png\`](dsh-badge.png), 726×120 source image; render at 121×20
       - Shields.io image URL: \`https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white\`
-      - Project URL: \`https://github.com/deepseek-harness/deepseek-harness\`
+      - Project URL: \`https://github.com/deepseek-ai/deepseek-harness-sdk\`
 
       ## Markdown
 
       Use this linked badge in Markdown:
 
       \`\`\`markdown
-      [![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-harness/deepseek-harness)
+      [![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness-sdk)
       \`\`\`
 
       If attribution should not be linked, use:
@@ -123,14 +124,14 @@ describe('dsh badge assembled snapshot', () => {
 
       - Local PNG: [\`dsh-badge.png\`](dsh-badge.png), 726×120 source image; render at 121×20
       - Shields.io image URL: \`https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white\`
-      - Project URL: \`https://github.com/deepseek-harness/deepseek-harness\`
+      - Project URL: \`https://github.com/deepseek-ai/deepseek-harness-sdk\`
 
       ## Markdown
 
       Use this linked badge in Markdown:
 
       \`\`\`markdown
-      [![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-harness/deepseek-harness)
+      [![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness-sdk)
       \`\`\`
 
       If attribution should not be linked, use:
