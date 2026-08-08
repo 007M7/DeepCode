@@ -35,11 +35,6 @@
     # once the web UI owns the choice per session.
     mode: !!js process.env.DSH_TOOLS_MODE
 
-- id: llm-deepseek
-  config:
-    apiKey: !!js process.env.DEEPSEEK_API_KEY
-    baseURL: !!js process.env.DEEPSEEK_BASE_URL
-
 # ── web-only host rows, the transport layer, and the browser roster ─────────
 
 # `dshClient` rows are the browser roster the modules node half scans into
@@ -123,6 +118,9 @@
     # webserver under /api; browser half is the fetch/SSE client.
     - id: connection
       name: '@deepseek-ai/dsh-client-connection'
+
+    - id: api-remotes
+      name: '@deepseek-ai/dsh-api-remotes'
 
     - id: client-runtime
       name: '@deepseek-ai/dsh-client-runtime'

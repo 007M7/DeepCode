@@ -1,25 +1,3 @@
-import { defineConfig } from 'tsdown'
+import { clientBundle } from '../../client/tsdown.client.ts'
 
-/** Build the registry and its invariant companion as independent bundles. */
-export default defineConfig([
-  {
-    entry: ['lib/types/index.js'],
-    outDir: 'lib',
-    format: ['esm'],
-    platform: 'node',
-    target: 'es2024',
-    fixedExtension: false,
-    dts: false,
-    clean: false,
-  },
-  {
-    entry: ['lib/types/invariant.js'],
-    outDir: 'lib',
-    format: ['esm'],
-    platform: 'node',
-    target: 'es2024',
-    fixedExtension: false,
-    dts: false,
-    clean: false,
-  },
-])
+export default clientBundle('@deepseek-ai/dsh-typert-registry', ['lib/types/index.js', 'lib/types/invariant.js'])

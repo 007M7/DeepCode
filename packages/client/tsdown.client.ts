@@ -31,6 +31,9 @@ const CSS_VIRTUAL_SUFFIX = '.mjs'
  */
 export const INLINE_SAFE = /^@deepseek-ai\/dsh-(host-apiproxy|session|llm|tools|brand)(\/|$)/
 
+/** Generated descriptor/codec contribution with no shared runtime identity. */
+const GENERATED_REMOTE = /^@deepseek-ai\/dsh-[a-z0-9]+(?:-[a-z0-9]+)*\/remote$/
+
 /**
  * Documented TEMPORARY exemption, not a platform module (hence not in
  * platform.ts): the snapshot-store engine (createSnapshotStore/defineStore/
@@ -126,9 +129,9 @@ export function clientBundle(id: string, libEntry: readonly string[]): [UserConf
       resolveId(source: string) {
         if (!source.startsWith('@deepseek-ai/')) return null
         if (CLIENT_EXTERNALS.includes(source)) return null // platform module: external wins
-        if (INLINE_SAFE.test(source)) return null // wire/type layer: inline is the point
+        if (INLINE_SAFE.test(source) || GENERATED_REMOTE.test(source)) return null // wire contribution: inline is the point
         throw new Error(
-          `client bundle purity: "${source}" is not a platform module (CLIENT_EXTERNALS) and not an inline-safe wire layer — `
+          `client bundle purity: "${source}" is not a platform module (CLIENT_EXTERNALS), an inline-safe wire layer, or a generated /remote contribution — `
           + 'cross-plugin value imports are forbidden; collaborate through cordis services (type-only imports are erased and never reach this gate)',
         )
       },

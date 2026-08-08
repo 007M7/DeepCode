@@ -9,6 +9,8 @@ Package reflection is keyed by `<package>#<face>`. Schemas are keyed by `<packag
 ## Public API
 
 - `TypertRegistry` is the default plugin and provides `ctx.typert`.
+- `ctx.typert.lookups.register()` registers the wire declaration and default resolver owned by the business package; `configure()` registers a resolver owned by Host composition that may run asynchronously. Their lifetimes are independent: configuration may precede the provider, and unloading the configuration restores the default policy.
+- `ctx.typert.contexts.registerHost()` and `configureHost()` apply the same ownership split to scoped Context identity; `registerClient()` supplies the corresponding Client Context binder.
 - `register(contribution)` rejects malformed identities and duplicate package-face or schema keys before committing anything, then returns the exact Cordis effect disposer.
 - `get(key)`, `resolve(key)`, and `list(filter?)` query live schemas. `resolve()` distinguishes a malformed key, an absent package, and a package that contributes no schema under that name.
 - `getPackage(packageName, face?)` and `listPackages(filter?)` query generated service, event, and object reflection; the default face is `host`.

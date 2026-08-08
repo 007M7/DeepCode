@@ -16,6 +16,9 @@
     },
     {
       "path": "../../support/invariants"
+    },
+    {
+      "path": "../type-meta"
     }
   ]
 }

@@ -12,6 +12,12 @@ const AUDIT_MARKER = '<!-- dsh-issue-policy -->'
 const OWNER_LINE = /^Owner: @([A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?)$/
 const TYPES = new Set(['Idea', 'Feature', 'Bug', 'Research', 'Task'])
 const PRIORITIES = ['p0', 'p1', 'p2', 'p3']
+const TERMINAL_STATUSES = new Set(['Done', 'No action'])
+const ACTIVE_STATUS_ORDER = config.statuses.filter((status) => !TERMINAL_STATUSES.has(status))
+
+for (const status of ['In progress', 'In review']) {
+  if (!ACTIVE_STATUS_ORDER.includes(status)) throw new Error(`config.statuses 缺少 ${status}`)
+}
 
 /**
  * Return Markdown outside balanced details elements.
@@ -127,6 +133,22 @@ export function requiresPullRequestPolicy({
 }) {
   const automated = authorType === 'Bot' || authorType === 'App'
   return !isDraft && !automated && (reviewRequestCount > 0 || reviewCount > 0)
+}
+
+/**
+ * Derive a forward-only Issue status from the current PR phase.
+ * @param {string|null} currentStatus Current Project status.
+ * @param {{isDraft: boolean, reviewRequestCount: number, reviewCount: number}} pull PR phase.
+ * @returns {string|null} Status to write, or null when no forward transition exists.
+ */
+export function nextResolvingIssueStatus(currentStatus, pull) {
+  const target =
+    !pull.isDraft && (pull.reviewRequestCount > 0 || pull.reviewCount > 0)
+      ? 'In review'
+      : 'In progress'
+  const currentIndex = ACTIVE_STATUS_ORDER.indexOf(currentStatus)
+  const targetIndex = ACTIVE_STATUS_ORDER.indexOf(target)
+  return currentIndex >= 0 && currentIndex < targetIndex ? target : null
 }
 
 function stripIgnoredMarkdown(body) {
@@ -401,8 +423,7 @@ async function ensureProjectItem(number) {
   }
 }
 
-async function setStatus(number, status) {
-  const context = await ensureProjectItem(number)
+async function updateStatus(context, status) {
   const option = context.statusField.options.find((candidate) => candidate.name === status)
   if (!option) throw new Error(`Status 不存在：${status}`)
   if (context.item.fieldValueByName?.name === status) return
@@ -422,6 +443,10 @@ async function setStatus(number, status) {
       optionId: option.id,
     },
   )
+}
+
+async function setStatus(number, status) {
+  await updateStatus(await ensureProjectItem(number), status)
 }
 
 async function upsertAudit(number, errors) {
@@ -491,11 +516,14 @@ async function pullRequestSnapshot(number) {
   }
 }
 
-async function moveResolvingIssues(pull, from, to) {
+async function advanceResolvingIssues(pull) {
   for (const number of pull.references.resolving) {
-    const current = await issueSnapshot(number)
-    if (!current || current.status !== from) continue
-    await setStatus(number, to)
+    const context = await projectContext(number)
+    const target = nextResolvingIssueStatus(context.item?.fieldValueByName?.name ?? null, pull)
+    if (!target) continue
+    // TODO: Replace this latest-state guard with per-Issue serialization or a
+    // conditional ProjectV2 update; GraphQL currently has no compare-and-swap.
+    await updateStatus(context, target)
     await auditIssue(number)
   }
 }
@@ -530,12 +558,7 @@ async function runLifecycle(eventName, event) {
 
   if (eventName === 'pull_request' || eventName === 'pull_request_review') {
     const pull = await pullRequestSnapshot(event.pull_request.number)
-    const errors = validatePullRequest(pull)
-    if (errors.length > 0) return
-    await moveResolvingIssues(pull, 'Ready', 'In progress')
-    if (pull.reviewRequestCount > 0 || pull.reviewCount > 0) {
-      await moveResolvingIssues(pull, 'In progress', 'In review')
-    }
+    await advanceResolvingIssues(pull)
   }
 }
 

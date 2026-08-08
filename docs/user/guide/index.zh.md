@@ -11,8 +11,6 @@ Harness 将一个 AI Agent（智能体） 所需要的所有能力——LLM 调�
 ```yaml
 # Select the LLM backend
 - name: '@deepseek-ai/dsh-llm-deepseek'
-  config:
-    apiKey: !!js process.env.DEEPSEEK_API_KEY
 
 # Select the one-shot application
 - id: cli-agent

@@ -11,6 +11,7 @@ Packages live at `packages/<group>/<pkg>/`; groups are containers, while names r
 | Group | Role | Release expectation |
 |---|---|---|
 | [`core/`](core/README.md) | Product API spine: sessions, prompts, tools, agent services, and the concrete loop | Product — stable surface |
+| [`api/`](api/README.md) | Remote BFF assembly and TypeRT RPC gateway | Product — stable surface |
 | [`typert/`](typert/README.md) | Type graph generation, artifact loading, and runtime registry | Product — stable surface |
 | [`goal/`](goal/README.md) | Same-session goal persistence and lifecycle | Product — stable surface |
 | [`feedback/`](feedback/README.md) | Human feedback | Product — stable surface |

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-// Assembled search-card snapshot: boots the real built `packages/client/*/lib/
-// client.js` bundles through AppWebEntry's ModuleLoader path against the keyless
+// Assembled search-card snapshot: boots the real built workspace client bundles
+// through AppWebEntry's ModuleLoader path against the keyless
 // FixtureApiClient transport (no API key, no model round), opens the fixture
 // session, and pins the search card the `grep` turn (fixture turn 66) renders in
 // the assembled application. The built-boot smoke proves the graph boots but

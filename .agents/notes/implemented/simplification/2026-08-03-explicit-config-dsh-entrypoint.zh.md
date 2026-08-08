@@ -20,7 +20,7 @@ CLI 不再交付 TUI 应用。TUI overlay、启动器、首次运行 onboarding 
 
 `dsh web` 保留共享 base、Web overlay 与个人或显式用户层。`dsh -p` 保留一次性 Web/headless 组合。可复用 TUI 包（package）在本入口变更后起初保留，随后[全包移除决策](2026-08-04-remove-tui-package.md)将其及 SDK 接口删除。
 
-本决策取代以下记录中专用于 `dsh` 的部分：[独立 TUI 入口](../../archived/feature/2026-07-17-dedicated-full-screen-tui-front-door.md)、[个人配置](../feature/2026-07-20-dsh-cli-personal-config.md)、[引导式 skill 命令](../../archived/feature/2026-07-28-dsh-guided-skill-session-commands.md)、[meta workspace](../../archived/feature/2026-07-28-dsh-meta-source-workspace.md)、[共享配置 overlay](2026-07-29-shared-base-config-overlays.md)、[配置转储](../feature/2026-07-30-dsh-dump-config.md)、[首次运行欢迎页](../../archived/feature/2026-07-30-versioned-tui-first-run-welcome.md)和[实验性子命令门禁](../../archived/feature/2026-07-31-experimental-subcommand-gate.md)。后续的[全包移除决策](2026-08-04-remove-tui-package.md)取代了其中关于可复用包的决策，并整合了已删除的启动器身份记录。
+本决策取代以下记录中专用于 `dsh` 的部分：[独立 TUI 入口](../../archived/feature/2026-07-17-dedicated-full-screen-tui-front-door.md)、[个人配置](../feature/2026-07-20-dsh-cli-personal-config.md)、[引导式 skill 命令](../../archived/feature/2026-07-28-dsh-guided-skill-session-commands.md)、[meta workspace](../../archived/feature/2026-07-28-dsh-meta-source-workspace.md)、[共享配置 overlay](2026-07-29-shared-base-config-overlays.md)、[配置转储](../../archived/feature/2026-07-30-dsh-dump-config.md)、[首次运行欢迎页](../../archived/feature/2026-07-30-versioned-tui-first-run-welcome.md)和[实验性子命令门禁](../../archived/feature/2026-07-31-experimental-subcommand-gate.md)。后续的[全包移除决策](2026-08-04-remove-tui-package.md)取代了其中关于可复用包的决策，并整合了已删除的启动器身份记录。
 
 ## 验证
 

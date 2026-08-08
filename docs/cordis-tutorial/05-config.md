@@ -69,12 +69,12 @@ The plugin's fiber goes to FAILED, and this tutorial's launcher exits with statu
 
 ## Computed config values
 
-The loader used in this repo supports a `!!js` tag for config values that must be computed at load time, such as reading an API key from the environment:
+The loader used in this repo supports a `!!js` tag for config values that must be computed at load time:
 
 ```yaml
-- name: '@deepseek-ai/dsh-llm-deepseek'
+- name: './config-demo.ts'
   config:
-    apiKey: !!js process.env.DEEPSEEK_API_KEY
+    greeting: !!js process.env.DEMO_GREETING ?? 'Hello'
 ```
 
 `!!js` works **only inside `config`**. Entry metadata (`name`, `id`, `disabled`, `inject`, ...) is static; `disabled: !!js ...` produces a truthy expression object that always disables the entry. See [loader configuration](../cordis-primer.md#loader-configuration).
