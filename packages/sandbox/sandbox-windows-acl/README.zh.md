@@ -4,7 +4,7 @@
 
 面向 [harness 沙盒接口](../sandbox/) 的 Windows 写入限制沙盒后端：用 Node.js/[koffi](https://koffi.dev/) 移植了 [huoyaoyuan/windows-acl-restrict-poc](https://github.com/huoyaoyuan/windows-acl-restrict-poc)（`10e4dfb` 修复版）的机制，作为 [`@deepseek-ai/dsh-sandbox-local`](../sandbox-local/) 链的 win32 档（`workspace-write` / `read-only` 模式）挂载；同一包还携带 Linux/macOS 后端。
 
-一句话机制：把调用者令牌复制为 `WRITE_RESTRICTED` 受限令牌，其 restricting SIDs 中加入一个孤儿 SID（`S-1-4-x-y`），该 SID 的 Write ACE 只存在于会话的工作区与私有临时目录上（seam 为每个会话只配置一个 SID，并为服务器的生命周期物化 ACE——见[隔离 runner](#the-confinement-runner)）。此后 Windows 只在「调用者正常权限」与「restricting SID 交集」同时允许时才放行写入——孤儿 SID 就是写入白名单，而它在系统其余位置不授予任何权限。
+一句话机制：把调用者令牌复制为 `WRITE_RESTRICTED` 受限令牌，其 restricting SIDs 中加入一个孤儿 SID（`S-1-4-x-y`），该 SID 的 Write ACE 只存在于会话的工作区与私有临时目录上（seam 为每个会话只配置一个 SID，并为服务器的生命周期物化 ACE——见[隔离 runner](#the-confinement-runner)）。此后 Windows 只在「调用者正常权限」与「restricting SID 交集」同时允许时才放行写入——孤儿 SID 就是写入白名单，而它在系统其余位置不授予任何权限；令牌的写检查还会继承**其他** restricting SID 的环境写 ACE（保活组登录 SID + Everyone——下文「模式」段是完整边界）。
 
 直接基于原始 ACL 机制实现是记录在案的设计选择：它能在不引入两个被否决容器方案所带问题的前提下实现两种限制模式——见[设计笔记](../../../.agents/notes/implemented/feature/2026-08-08-windows-acl-restricted-token-sandbox.md)（[mxc](https://github.com/microsoft/mxc/blob/main/docs/process-container/os-version-support.md) 要求 Windows 11 24H2 起步的 OS 版本，且任意路径读需要全盘写入宿主 DACL；AppContainer 则根本不支持任意路径读）。
 
@@ -38,7 +38,7 @@ node runner.js --workspace <dir> --temp <dir> --mode <read-only|workspace-write>
 
 runner 创建受限令牌，在令牌下启动被包裹的 argv，stdio 直接透传（spawn 前后把调用方的管道句柄恢复/清除继承位——Node 启动时会清掉自身 stdio 的继承位，裸 spawn 必须补偿这一点），把子进程放进 `KILL_ON_JOB_CLOSE` 作业（runner 死亡即杀死子进程），忽略自身的控制台 Ctrl+C 让子进程自行处理，镜像子进程退出码，退出时回收所有授权。任何 runner 侧失败都会向 stderr 打印 `windows-acl-run: <detail>` 并以 127 退出——seam 的 `RUNNER_FAILURE_RULES` 据此区分 runner 失败与真正的权限拒绝。
 
-**按会话授权复用**（`--write-sid`）：seam 为每个会话只配置一个孤儿 SID——以仅作日志记录的 `sandbox/acl-session` 事件写入会话日志，因此恢复的会话回放**同一个** SID，fork 则铸造一个新的——并在会话首次受限执行时惰性物化其 ACE，在**服务器**进程生命周期内持有（提供方 dispose 时撤销）。传入 `--write-sid` 时 runner 既不授权也不回收（`manageDacls: false`）；不传它（独立使用）则与之前一样按调用自行管理授权。重启后重新授权是幂等的：`grantWrite` 读取当前 DACL，当完全相同的 ACE 已存在时跳过 `SetNamedSecurityInfoW` 的应用（该应用会把相同的 ACE 急切地重新传播到整棵树——大型工作区上以分钟计）。异常关闭遗留的 ACE 无需垃圾回收：会话记录重新授权同一个 SID，下一次 dispose 即撤销它们。已知代价：在大型工作区树上物化授权会阻塞整次急切传播，每个服务器生命周期内每会话一次。
+**按会话授权复用**（`--write-sid`）：seam 为每个会话只配置一个孤儿 SID——以仅作日志记录的 `sandbox/acl-session` 事件写入会话日志（绑定其所属会话 id，在 fold 处校验），因此恢复的会话回放**同一个** SID，fork 则铸造一个新的——并在会话首次受限执行时惰性物化其 ACE，在**服务器**进程生命周期内持有（提供方 dispose 时撤销）。新供给在追加之后立即触发一次**即时**持久化 flush（无 write-behind 去抖），因此记录在 flush 延迟内即持久化——在该窗口内崩溃可能遗留失效的孤儿 SID ACE，这是唯一记录在案的自愈缺口（spawn seam 是同步的，因此记录与 ACE 之间不存在 await 屏障）。传入 `--write-sid` 时 runner 既不授权也不回收（`manageDacls: false`）；不传它（独立使用）则与之前一样按调用自行管理授权。重启后重新授权是幂等的：`grantWrite` 读取当前 DACL，当完全相同的 ACE 已存在时跳过 `SetNamedSecurityInfoW` 的应用（该应用会把相同的 ACE 急切地重新传播到整棵树——大型工作区上以分钟计）。异常关闭遗留的 ACE 无需垃圾回收：会话记录重新授权同一个 SID，下一次 dispose 即撤销它们。已知代价：在大型工作区树上物化授权会阻塞整次急切传播，每个服务器生命周期内每会话一次。
 
 模式（令牌的 restricting SID 列表随模式而定；保活组在**两种**模式下都是登录 SID + Everyone——没有它们，早期 DLL init 会以 `0xC0000142` 死亡，CNG 会让 pwsh 以 `0xE0434352` 崩溃）：
 - `workspace-write`（登录 SID、Everyone、孤儿 SID）：工作区与会话的**私有**临时子目录携带孤儿 SID 的 Write 授权；其余写全部被令牌交集拒绝。
@@ -64,7 +64,7 @@ g++ -std=c++20 -municode -O2 -o abi-probe.exe verify/abi-probe.cpp -ladvapi32 &&
 - **控制台隔离不可用。** 受限令牌下用 `CREATE_NO_WINDOW` / `CREATE_NEW_CONSOLE` 创建的子进程会在 DLL 初始化阶段以 `STATUS_DLL_INIT_FAILED`（`0xC0000142`）死亡。POC 曾试图把控制台登录 SID（`S-1-2-1`）加进 restricting 列表来修复：在 Windows 11 26200 上 `CreateWellKnownSid(WinLocalLogonSid)` 直接失败（`ERROR_INVALID_PARAMETER` 87），改用正确的 `WinConsoleLogonSid` 虽能得到合法的 `S-1-2-1`，子进程仍然死亡，POC 最终版本遂删除了该 SID 并放弃控制台隔离。因此子进程共享宿主控制台；stdio 重定向走管道，不受影响。
 - **ACL 授权是对真实目录的驻留改动。** 进程中途死亡会留下授权；`dispose()` 负责回收，`init()` 后续步骤失败时也会回滚已应用的授权。POC 注释里的手工清理命令（`icacls <dir> /remove '*S-1-4-…'`）在本平台实测失败（`ERROR_NONE_MAPPED` 1332）——请通过本模块回收。按会话记录让异常关闭可自愈：恢复时重新授权同一个 SID（ACE 已存在则跳过应用），并在下一次 dispose 撤销；孤儿 ACE 不会因每次重启而累积新 SID。
 - **被授权目录必须归调用者所有。** 所有者隐含的 `WRITE_DAC` 是免提权改 DACL 的前提。
-- **临时目录授权跟随 `GetTempPathW`** —— 尽可能显式传入 `tempDir`。`GetTempPathW` 读取的是原生环境块，用 worker 池管理 `process.env` 的宿主运行时（vitest 实测）不会把 worker 侧的 `process.env.TMP` 改动同步过去。seam 会传入会话的**私有**子目录（`<temp>\dsh-<hash>`）；若默认授权落到真实临时目录，其 `(OI)(CI)` 继承会覆盖 temp 下所有子目录、静默扩大白名单——请指向按沙盒隔离的目录。
+- **临时目录授权跟随 `GetTempPathW`** —— 尽可能显式传入 `tempDir`。`GetTempPathW` 读取的是原生环境块，用 worker 池管理 `process.env` 的宿主运行时（vitest 实测）不会把 worker 侧的 `process.env.TMP` 改动同步过去。seam 会传入会话的**私有**子目录（`<temp>\dsh-<16 random hex>`，独占创建——已有条目或 reparse point 会响亮失败）；若默认授权落到真实临时目录，其 `(OI)(CI)` 继承会覆盖 temp 下所有子目录、静默扩大白名单——请指向按沙盒隔离的目录。
 - **受限子进程的临时根目录按会话私有**（workspace-write + `--write-sid`）：runner 在 spawn 之前用 `SetEnvironmentVariableW` 把 TMP/TEMP 改写为会话的私有子目录，子进程继承改写后的环境块（bwrap `--tmpfs /tmp` 的语义）。read-only 保持环境中的临时目录条目不动——那里的写入反正会被拒绝。子目录本身只是 `%TEMP%` 下的普通垃圾、没有垃圾回收：OS 对临时目录的日常清理会回收它，记录的确定性让之后的恢复可以复用它。
 - **`whoami` 与令牌检查类 cmdlet 在受限令牌下会失败。** 副本上的 `GetTokenInformation` 对子进程部分不可用，因此 `whoami /all` 会报错——这是受限方案的诊断噪音，而非运行故障；真正重要的拒绝面（文件写入）不受影响。
 
@@ -80,6 +80,7 @@ g++ -std=c++20 -municode -O2 -o abi-probe.exe verify/abi-probe.cpp -ladvapi32 &&
 
 - **每个实例一个写入白名单** —— 孤儿 SID 是白名单的基本单位；同一沙盒实例跨两个工作区复用时，两个根目录会互相扩大授权面。请按工作区根目录各建一个实例（seam 的按会话记录正是这样做的：每个会话一个 SID，以会话不可变的 cwd 为键）。
 - **清理尽力而为** —— `dispose()` 会尝试全部回收并把失败聚合为 `AggregateError`；清理失败只会留下仅含孤儿 SID 的 ACE，本进程下次 `init()`/`dispose()` 循环或 `icacls`（按 ACE 而非受托者名）仍可清除。
+- **NULL DACL 目录在 grant+revoke 下不保持身份。** 带 NULL DACL 的目录（罕见——Windows 创建的目录都带真实 DACL）意味着「所有人完全控制」；`grantWrite` 从该 null 构建新 ACL，而 revoke 往返之后留下的是**空**（deny-all）DACL，而非原来的 NULL DACL。POC 也有同样行为；真实的工作区与临时目录都带真实 DACL，因此这仍是一条记录在案的边角，而非被守护的路径。
 - **授权物化是急切的全树传播。** 对带可继承 ACE 的目录调用 `SetNamedSecurityInfoW` 会立即遍历每个后代（**不是**按访问惰性求值——实测在大型工作区树加上真实临时根上要几十秒）。按会话复用使它在每个服务器生命周期内每会话只付一次（在首次受限执行时惰性发生；完全相同的 ACE 历经重启存活时整体跳过）；自管理的 runner 回退路径仍每次调用都付。若会话的工作区巨大，每个服务器生命周期内的第一次 pwsh 调用会相应地变慢。
 - **在两个服务器进程中并发恢复同一会话会产生两个 SID。** 持久化记录存放在会话日志中；两个进程各自读取或创建记录，按路径的锁保持 DACL 合并一致，最后写入的记录胜出并用于后续恢复——落败 SID 的 ACE 由其所属进程的 dispose 撤销。单写者的会话用法（常规部署形态）不会遇到这种情况。
 - **读侧隔离与网络策略超出范围** —— `WRITE_RESTRICTED` 只对写访问做交集检查；更强的隔离需叠加读侧策略。

@@ -102,6 +102,32 @@ describe('spawn failure paths close their handles', () => {
     expect(closeHandle).toHaveBeenCalledTimes(3)
     expect(closed).toEqual([201n, 200n, 100n])
   })
+
+  it('spawnSandboxedInherited TERMINATES the suspended child before closing handles when AssignProcessToJobObject fails', () => {
+    // The child is created suspended and is NOT in the kill-on-close job when
+    // the assignment fails: closing the job cannot kill it, so the failure
+    // branch must TerminateProcess first or every failure strands a hanging
+    // orphan forever.
+    const { api: baseApi, closeHandle } = resumeFailureApi()
+    type JobFailureApi = Win32Bindings & {
+      assignProcessToJobObject: ReturnType<typeof vi.fn>
+      terminateProcess: ReturnType<typeof vi.fn>
+    }
+    const api = baseApi as JobFailureApi
+    api.assignProcessToJobObject = vi.fn(() => 0)
+    api.terminateProcess = vi.fn(() => 1)
+    let caught: unknown
+    try {
+      spawnSandboxedInherited(api, token, { command: 'probe.exe', args: [], cwd: 'C:\\' })
+    } catch (error) {
+      caught = error
+    }
+    expect(caught).toBeInstanceOf(Win32Error)
+    expect((caught as Win32Error).api).toBe('AssignProcessToJobObject')
+    expect(api.terminateProcess).toHaveBeenCalledExactlyOnceWith(200n, 1)
+    // thread, process, job — and the child is already dead before they close.
+    expect(closeHandle).toHaveBeenCalledTimes(3)
+  })
 })
 
 describe('getTempPath buffer defense', () => {

@@ -29,7 +29,7 @@ import z from 'schemastery'
 import { assertNever } from '@deepseek-ai/dsh-llm'
 import { SandboxProvider, SandboxUnavailableError } from '@deepseek-ai/dsh-sandbox'
 import type { ConfinedArgv, ConfinedSandboxMode, RunnerFailureRule, SandboxEnforcement, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
-import { SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionId } from '@deepseek-ai/dsh-session'
 import { AclWriteGrant } from '@deepseek-ai/dsh-sandbox-windows-acl'
 import { provisionAclSession, sessionAclRecord } from './acl-session.ts'
 import type { AclSessionRecord } from './acl-session.ts'
@@ -163,8 +163,12 @@ const STATIC_ENFORCEMENT: Record<SelectedRunner['runner'], SandboxEnforcement> =
   bwrap: 'full',
   landlock: 'full',
   seatbelt: 'full',
-  // The restricted token intersects every write access by construction, so
-  // the ACL runner governs every promised file effect — full enforcement.
+  // 'full' is the SUPPORTED-SURFACE promise: on NTFS both restricting lists
+  // close every ambient write (INTERACTIVE/LOCAL and Authenticated Users are
+  // absent from both — pinned by the runner's Public-probe and CIM-denial
+  // regressions). FAT-class (non-ACL) targets are declared unsupported
+  // (warn-only) in the backend README — outside the promise, not an
+  // exception to it.
   'windows-acl': 'full',
 }
 
@@ -194,13 +198,19 @@ const DENIAL_SIGNATURES = {
   runnerCommand: ['read-only file system', 'permission denied'],
 } as const satisfies Record<SelectedRunner['runner'] | 'runnerCommand', readonly string[]>
 
+/** The windows-acl runner's documented failure exit (its own RUNNER_FAILURE_EXIT contract, distinct from Landlock's 125). */
+const WINDOWS_ACL_RUNNER_FAILURE_EXIT = 127
+
 /**
  * Runner-owned fatal diagnostics. Landlock has a versioned exit-125 plus
  * fatal-line launcher-failure contract. Bubblewrap's current fatal paths exit
  * 1 but its public contract does not reserve that status, while sandbox-exec
  * publishes no launcher-failure status; those backends remain signature-only.
  * The windows-acl runner prints `windows-acl-run: <detail>` on every
- * runner-side failure and exits 127. Keep the Landlock tuple aligned with the
+ * runner-side failure and exits 127 — the rule is exit-gated on that status
+ * so a confined command that merely PRINTS the signature (or a runner
+ * cleanup failure reported on a non-zero child exit) is never misclassified
+ * as "the command did not run". Keep the Landlock tuple aligned with the
  * assembled snapshot fixture at
  * `examples/acp-agent/tests/fixtures/partial-landlock-sandbox.ts`.
  */
@@ -212,7 +222,7 @@ const RUNNER_FAILURE_RULES = {
     informationalLines: [`${LAUNCHER_BIN}: partial enforcement (older Landlock ABI)`],
   }],
   seatbelt: [{ fatalSignatures: ['sandbox-exec: '] }],
-  'windows-acl': [{ fatalSignatures: ['windows-acl-run: '] }],
+  'windows-acl': [{ allowedExitCodes: [WINDOWS_ACL_RUNNER_FAILURE_EXIT], fatalSignatures: ['windows-acl-run: '] }],
 } as const satisfies Record<SelectedRunner['runner'], readonly RunnerFailureRule[]>
 
 /**
@@ -319,48 +329,63 @@ export class LocalSandboxProvider extends SandboxProvider {
    * the session log (provisioned on first use), its ACEs materialized once
    * per server lifetime, and the runner receives `--write-sid` plus the
    * session's PRIVATE temp subdirectory — it grants nothing and revokes
-   * nothing. Agentless calls (no session) pass no SID: the runner
-   * self-manages per-call grants on the ambient temp root.
+   * nothing. A fresh provision kicks an IMMEDIATE persistence flush right
+   * after the append (no write-behind debounce delay), narrowing the
+   * crash-and-lose-record window to the flush latency itself — the residual
+   * is documented in the README (the spawn seams are synchronous, so no
+   * await barrier exists between record and ACEs). Agentless calls (no
+   * session) pass no SID: the runner self-manages per-call grants on the
+   * ambient temp root.
    * @param policy - the resolved per-call policy.
    * @returns the runner invocation.
    */
   private windowsAclRunnerArgv(policy: SandboxPolicy): string[] {
     const sessionId = policy.sessionId
-    const record = sessionId === undefined ? undefined : this.aclSessionRecord(sessionId, policy.workspaceRoot)
-    if (record !== undefined) this.materializeAclGrant(record, policy.mode)
+    if (sessionId === undefined) {
+      return [
+        ...this.windowsAclRunnerInvocation(),
+        '--workspace', policy.workspaceRoot,
+        '--temp', tmpdir(),
+        '--mode', policy.mode,
+      ]
+    }
+    const record = this.aclSessionRecord(sessionId, policy.workspaceRoot)
+    this.materializeAclGrant(record, policy.mode)
     return [
       ...this.windowsAclRunnerInvocation(),
       '--workspace', policy.workspaceRoot,
       // Workspace-write sessions confine their temp writes to the PRIVATE
       // per-session subdirectory (bwrap --tmpfs /tmp semantics); read-only
-      // and agentless runs pass the ambient temp root — the runner validates
-      // it exists but grants nothing (or self-manages, agentless only).
-      '--temp', policy.mode === 'workspace-write' && record !== undefined ? record.tempDir : tmpdir(),
+      // runs pass the ambient temp root — the runner validates it exists
+      // but grants nothing.
+      '--temp', policy.mode === 'workspace-write' ? record.tempDir : tmpdir(),
       '--mode', policy.mode,
-      ...record === undefined ? [] : ['--write-sid', record.writeSid],
+      '--write-sid', record.writeSid,
     ]
   }
 
   /**
    * Fold (or provision) the calling session's durable windows-acl record.
    * The provision appends exactly one log-only `sandbox/acl-session` event
-   * to the session log; the record's workspace must equal the policy root —
-   * both derive from the session's immutable cwd, so a mismatch is a
-   * corrupted composition and fails loud.
+   * to the session log and kicks an immediate persistence flush (the
+   * write-behind coordinator's bounded window would otherwise delay the
+   * record's durability past its ACE materialization); the record's
+   * workspace must equal the policy root — both derive from the session's
+   * immutable cwd, so a mismatch is a corrupted composition and fails loud.
    * @param sessionId - the policy's calling-session identity.
    * @param workspaceRoot - the resolved policy root.
    * @returns the session's record.
    */
-  private aclSessionRecord(sessionId: string, workspaceRoot: string): AclSessionRecord {
+  private aclSessionRecord(sessionId: SessionId, workspaceRoot: string): AclSessionRecord {
     const store = this.ctx.get('sessions')
     if (store === undefined) {
       throw new Error('sandbox-local: per-session windows-acl confinement requires the session store (ctx.sessions)')
     }
-    const session = store.get(SessionId(sessionId))
+    const session = store.get(sessionId)
     if (session === undefined) {
       throw new Error(`sandbox-local: windows-acl policy carries session "${sessionId}" but ctx.sessions has no such session`)
     }
-    const existing = sessionAclRecord(session.events)
+    const existing = sessionAclRecord(session.events, sessionId)
     if (existing !== undefined) {
       if (existing.workspace !== workspaceRoot) {
         throw new Error(
@@ -370,20 +395,30 @@ export class LocalSandboxProvider extends SandboxProvider {
       }
       return existing
     }
-    return provisionAclSession(session, workspaceRoot)
+    const record = provisionAclSession(session, workspaceRoot)
+    // Immediate durability kick: the append is write-behind (bounded
+    // coordinator window); flush now so the record is durable as close to
+    // its ACE materialization as the synchronous confine seam allows. The
+    // residual window (a crash inside the flush latency) can strand inert
+    // orphan-SID ACEs — documented in the README.
+    void store.flush(session)
+    return record
   }
 
   /**
    * Materialize the record's ACEs once per server lifetime: lazily at the
    * session's first confined execution, reused for every later call (the map
    * hit is the whole call). Workspace-write grants the workspace root and
-   * the private temp subdirectory (created here); read-only materializes
-   * NOTHING — its token alone restricts every write, and a standing grant
-   * from an earlier workspace-write period is KEPT through a downgrade
-   * (never revoked): the read-only restricted token carries no orphan SID
-   * (the read-only list), so the ACE is inert there, while the map hit keeps the
-   * re-upgrade free of re-propagation. Fail-closed: a half-materialized
-   * grant is revoked before the error propagates.
+   * the private temp subdirectory — created here EXCLUSIVELY (the name is
+   * random and unguessable, a pre-existing entry throws EEXIST, and a
+   * reparse point is rejected, so the grant never lands on an
+   * attacker-placed object); read-only materializes NOTHING — its token
+   * alone restricts every write, and a standing grant from an earlier
+   * workspace-write period is KEPT through a downgrade (never revoked): the
+   * read-only restricted token carries no orphan SID (the read-only list),
+   * so the ACE is inert there, while the map hit keeps the re-upgrade free
+   * of re-propagation. Fail-closed: a half-materialized grant is revoked
+   * before the error propagates.
    * @param record - the session's durable record.
    * @param mode - the policy mode (grants exist only under workspace-write).
    */
@@ -391,7 +426,10 @@ export class LocalSandboxProvider extends SandboxProvider {
     if (this.aclGrants.has(record.writeSid) || mode === 'read-only') return
     const grant = AclWriteGrant.create(record.writeSid)
     try {
-      mkdirSync(record.tempDir, { recursive: true })
+      // Exclusive creation (no `recursive`): a pre-existing entry OR a
+      // reparse point both fail EEXIST — the grant never lands on a foreign
+      // object.
+      mkdirSync(record.tempDir)
       grant.add(record.workspace)
       grant.add(record.tempDir)
     } catch (error) {

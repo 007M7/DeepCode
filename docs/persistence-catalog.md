@@ -501,13 +501,15 @@ Source: [`packages/core/session/src/types.ts:276`](../packages/core/session/src/
  * The session's windows-acl write identity was provisioned — log-only
  * (like `sandbox/mode`; NOT a surface event, carries no `surfaceOp`):
  * durable and replayable, never in the model transcript. The LAST such
- * event is the session's record ({@link sessionAclRecord}); the
- * provider appends exactly one on the session's first Windows confined
- * execution.
+ * event owned by the session is its record ({@link sessionAclRecord});
+ * the provider appends exactly one on the session's first Windows
+ * confined execution.
  */
 'sandbox/acl-session': {
   /** The orphan write SID (`S-1-4-x-y`) whose ACEs form the session's write allowlist. */
   writeSid: string
+  /** The owning session — the binding a fork's copied event cannot satisfy. */
+  sessionId: SessionId
   /** The workspace root the grant applies to (the session's immutable cwd, as resolved). */
   workspace: string
   /** The session's private temp subdirectory under the host temp root. */
@@ -515,7 +517,7 @@ Source: [`packages/core/session/src/types.ts:276`](../packages/core/session/src/
 }
 ```
 
-Source: [`packages/sandbox/sandbox-local/src/acl-session.ts:34`](../packages/sandbox/sandbox-local/src/acl-session.ts)
+Source: [`packages/sandbox/sandbox-local/src/acl-session.ts:36`](../packages/sandbox/sandbox-local/src/acl-session.ts)
 
 #### `sandbox/mode` — log-only
 

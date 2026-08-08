@@ -114,6 +114,12 @@ function pwshDescription(backgroundEnabled: boolean, escalationModes: readonly S
     + 'On Windows a force-killed command settles as `[exit code: 1]` without a signal marker — treat it as an interruption, not a command failure. '
     + background
   if (escalationModes.length === 0) return base
+  // The CLM contract below is Windows-restricted-token behavior, but the gate
+  // is 'any confining executor is mounted' (escalationModes non-empty). The
+  // conflation is safe today because every shipped composition pairing
+  // tool-pwsh with a confining executor is win32-only; a future POSIX
+  // pwsh-sandbox composition must gate the CLM sentence on the platform
+  // instead (tracked in the pwsh-tool-and-executor Agent Note).
   return base + ' Under the Windows sandbox, pwsh runs in PowerShell ConstrainedLanguage mode (read-only and '
     + 'workspace-write): prefer cmdlets and core types (`[string]`, `[datetime]`, `[regex]`, `[guid]`); '
     + '.NET static calls (`[System.IO.*]::`, `[math]::`), `Add-Type`, COM objects, and reflection fail '

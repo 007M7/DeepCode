@@ -43,7 +43,7 @@ describe('windows-acl win32 chain (LocalSandboxProvider)', () => {
     ])
     expect(confined.enforcement).toBe('full')
     expect(confined.denialSignatures).toEqual(['access is denied', 'access to the path', 'permission denied'])
-    expect(confined.runnerFailureRules).toEqual([{ fatalSignatures: ['windows-acl-run: '] }])
+    expect(confined.runnerFailureRules).toEqual([{ allowedExitCodes: [127], fatalSignatures: ['windows-acl-run: '] }])
     // A sole candidate is selected unprobed.
     expect(probeWindowsAcl).not.toHaveBeenCalled()
   })
@@ -53,6 +53,6 @@ describe('windows-acl win32 chain (LocalSandboxProvider)', () => {
     const confined = sandbox.confine(['true'], RO)
     expect(confined.argv.slice(-4)).toEqual(['--mode', 'read-only', '--', 'true'])
     expect(confined.enforcement).toBe('full')
-    expect(confined.runnerFailureRules).toEqual([{ fatalSignatures: ['windows-acl-run: '] }])
+    expect(confined.runnerFailureRules).toEqual([{ allowedExitCodes: [127], fatalSignatures: ['windows-acl-run: '] }])
   })
 })

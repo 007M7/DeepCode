@@ -331,7 +331,11 @@ export function spawnSandboxedInherited(
   }
 
   if (api.assignProcessToJobObject(job, processHandle) === 0) {
+    // The child was created suspended and is NOT in the kill-on-close job:
+    // closing handles would leave it suspended forever. Terminate it first,
+    // then drop the handles and throw.
     const win32Code = api.getLastError()
+    api.terminateProcess(processHandle, 1)
     api.closeHandle(threadHandle)
     api.closeHandle(processHandle)
     api.closeHandle(job)

@@ -383,7 +383,7 @@ describe('the windows-acl probe (runner invocation contract)', () => {
     expect(confined.argv.slice(-4)).toEqual(['--mode', 'read-only', '--', 'true'])
     expect(confined.enforcement).toBe('full')
     expect(confined.denialSignatures).toEqual(['access is denied', 'access to the path', 'permission denied'])
-    expect(confined.runnerFailureRules).toEqual([{ fatalSignatures: ['windows-acl-run: '] }])
+    expect(confined.runnerFailureRules).toEqual([{ allowedExitCodes: [127], fatalSignatures: ['windows-acl-run: '] }])
   })
 
   it('reads a failing probe as unusable and walks to the next rung', async () => {

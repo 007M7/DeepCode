@@ -5,8 +5,14 @@
  * token whose restricting SIDs include an orphan SID (`S-1-4-x-y`) that only
  * this sandbox instance adds to the target directories' DACLs — the
  * intersection check then allows writes exactly where that SID has a Write
- * ACE, and nowhere else. Unlike the POC, every API failure throws with the
- * API name and exact Win32 code; a child is NEVER spawned unrestricted.
+ * ACE, and nowhere else the orphan SID is concerned (the token's write check
+ * ALSO inherits the ambient write ACEs of the other restricting SIDs — the
+ * keep-alive group logon SID + Everyone; Authenticated Users,
+ * INTERACTIVE, and LOCAL are absent from both lists — see the seam's
+ * dual-list contract in `packages/sandbox/sandbox-local` and the package
+ * README's Modes section for the complete boundary). Unlike the POC, every
+ * API failure throws with the API name and exact Win32 code; a child is
+ * NEVER spawned unrestricted.
  *
  * Known boundaries (inherent to restricted tokens, not this port):
  *  - writes are restricted; reads, network, and process visibility are NOT

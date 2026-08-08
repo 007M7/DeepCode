@@ -123,6 +123,9 @@ export interface Win32Bindings {
   createJobObjectW(attributes: null, name: null): NativePtr
   setInformationJobObject(job: NativePtr, cls: number, information: Buffer, length: number): number
   assignProcessToJobObject(job: NativePtr, process: NativePtr): number
+  // Terminate a suspended child that could not be placed in the kill-on-close
+  // job — closing handles alone would leave it hanging forever.
+  terminateProcess(process: NativePtr, exitCode: number): number
   // ---- console -------------------------------------------------------------
   // HandlerRoutine=null + add=1 makes this process ignore CTRL+C (wincon.h):
   // the runner survives console Ctrl+C so the child handles its own and the
@@ -417,6 +420,7 @@ function bindings(): Win32Bindings {
     createJobObjectW: bind(kernel32, 'CreateJobObjectW', PVOID, [PVOID, 'str16']),
     setInformationJobObject: bind(kernel32, 'SetInformationJobObject', 'int', [PVOID, 'int', PVOID, 'uint32']),
     assignProcessToJobObject: bind(kernel32, 'AssignProcessToJobObject', 'int', [PVOID, PVOID]),
+    terminateProcess: bind(kernel32, 'TerminateProcess', 'int', [PVOID, 'uint32']),
     setConsoleCtrlHandler: bind(kernel32, 'SetConsoleCtrlHandler', 'int', [PVOID, 'int']),
     getStdHandle: bind(kernel32, 'GetStdHandle', PVOID, ['int']),
   } as unknown as Win32Bindings

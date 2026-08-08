@@ -129,6 +129,13 @@ describe('helpers (pure)', () => {
       expect(classifyRunnerFailure(127, 'clean output', rules)).toBeUndefined()
       expect(classifyRunnerFailure(127, 'fake-runner: x', [{ fatalSignatures: ['  '] }])).toBeUndefined()
     })
+
+    it('the windows-acl rule is exit-gated on 127: a confined command that merely prints the signature on a non-127 exit is NOT a runner failure', () => {
+      const windowsAclRules: readonly RunnerFailureRule[] = [{ allowedExitCodes: [127], fatalSignatures: ['windows-acl-run: '] }]
+      expect(classifyRunnerFailure(3, 'windows-acl-run: something the command printed', windowsAclRules)).toBeUndefined()
+      expect(classifyRunnerFailure(127, 'windows-acl-run: missing --workspace', windowsAclRules))
+        .toEqual({ detail: 'windows-acl-run: missing --workspace' })
+    })
   })
 
   describe('matchesSignature', () => {
