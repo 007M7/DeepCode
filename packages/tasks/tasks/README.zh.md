@@ -12,6 +12,7 @@
 - `kill(id, caller?, reason?)` 在更改状态前调用生产方取消。取消抛出异常时任务保持运行；成功则把状态改为 `stopping`，并将终止交付标记为已报告。
 - `wait(id, timeoutMs, caller?, signal?)` 返回终止快照，或在超时时返回存活快照。中止只会停止等待；一旦终止交付已向该等待方提交，终止结果优先。
 - `onTaskDone(listener)` 观察每条终止记录及其精确 owner。监听器抛出的异常和产生的拒绝都会被隔离；系统不会等待监听器工作。
+- `onTasksChanged(listener)` 观察可见集合的变化——注册、转入 stopping、结算，以及 owner 销毁时的移除——只携带集合发生变化的那个 owner，或在无主任务变化、因而每个调用方的集合都随之变化时携带 `undefined`。它按 owner 分粒度，因为移除是任何逐任务记录都无法表达的变化；它也不是 `onTaskDone` 的超集：它不含任何投递含义，也不把任何东西标为已上报。
 - `attachSurface(name)` 在其 effect 生命周期内声明控制表层。如果没有附加任何表层，`start()` 会在生产方执行前失败。
 
 有 owner 的访问会比较任务的 `SessionId` 与调用方。`bash-1` 等 id 可预测，因此这道隔离是安全边界。无 owner 的任务向调用方开放，并持续到服务释放。

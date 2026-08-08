@@ -12,6 +12,7 @@ The background task registry seam (`ctx.tasks`). The abstract `TaskService` and 
 - `kill(id, caller?, reason?)` invokes producer cancellation before changing status. A cancellation throw leaves the task running; success changes it to `stopping` and marks terminal delivery reported.
 - `wait(id, timeoutMs, caller?, signal?)` returns a terminal snapshot or the live snapshot at timeout. Aborting stops only the wait; settlement wins once it has committed terminal delivery to that waiter.
 - `onTaskDone(listener)` observes each terminal record with the exact owner. Listener throws and rejections are contained; listener work is not awaited.
+- `onTasksChanged(listener)` observes visible-set changes — registration, the stopping transition, settlement, and owner-disposal removal — carrying only the owner whose set moved, or `undefined` when an unowned task changed and every caller's set moved with it. It is owner-granular because removal is a change no per-task record can express, and it is not a superset of `onTaskDone`: it carries no delivery meaning and marks nothing reported.
 - `attachSurface(name)` declares a control surface for its effect lifetime. `start()` fails before producer execution when none is attached.
 
 Owned access compares the task's `SessionId` with the caller's. Ids such as `bash-1` are predictable, so this fence is the boundary. Unowned tasks are open to callers and last until service disposal.

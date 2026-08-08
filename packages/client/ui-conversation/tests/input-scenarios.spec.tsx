@@ -123,7 +123,7 @@ async function scopedBench(register?: (slash: SlashService) => void) {
     useSession: bindSnapshotSelector(sessionStore),
     useSessions: bindSnapshotSelector(createSnapshotStore({
       ids: [], byId: {}, current: undefined, phase: 'ready',
-      subagentsByParent: {}, currentAddress: undefined,
+      subagentsByParent: {}, tasksBySession: {}, currentAddress: undefined,
     })),
     useWorkspaces: bindSnapshotSelector(createSnapshotStore({
       items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,

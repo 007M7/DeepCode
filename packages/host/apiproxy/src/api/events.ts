@@ -14,6 +14,7 @@ import type { CallId } from '@deepseek-ai/dsh-llm/brand'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools/presentation'
 import type { RpcError, RpcId, RpcRequest } from './rpc.ts'
+import type { TaskView } from './tasks.ts'
 import type { WorkspaceView } from './workspace.ts'
 
 // Client-side consumers take the render-intent vocabulary from the contract;
@@ -81,6 +82,20 @@ export type MuxFrame =
    * in QueueDock, while pending steering renders at the conversation tail.
    */
   | { type: 'session/queue'; sessionId: SessionId; items: QueuedInboxItem[] }
+  /**
+   * Complete set of background tasks this session can see, after every registry
+   * commit that changes it: registration, the stopping transition, settlement,
+   * and owner-disposal removal. The registry is process-local and holds no
+   * durable event, so — exactly like `session/queue` — the whole snapshot is
+   * what makes a start, a kill, a reconnect, and a second tab converge on one
+   * authoritative value.
+   *
+   * Sent as a subscription baseline only for a session that currently has
+   * tasks; an absent key means an empty set. A change that empties the set
+   * still sends `[]`, since that transition is the only one absence cannot
+   * express.
+   */
+  | { type: 'session/tasks'; sessionId: SessionId; tasks: TaskView[] }
   /**
    * One projection unit's finished value changed (session-projection RFC).
    * Live push state, never logged — replay recomputes on the host (the

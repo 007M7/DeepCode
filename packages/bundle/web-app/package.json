@@ -54,6 +54,7 @@
     "@deepseek-ai/dsh-client-ui-skill": "workspace:^",
     "@deepseek-ai/dsh-client-ui-slash": "workspace:^",
     "@deepseek-ai/dsh-client-ui-subagent": "workspace:^",
+    "@deepseek-ai/dsh-client-ui-task": "workspace:^",
     "@deepseek-ai/dsh-client-ui-theme": "workspace:^",
     "@deepseek-ai/dsh-client-ui-tool": "workspace:^",
     "@deepseek-ai/dsh-client-ui-trajectory": "workspace:^",

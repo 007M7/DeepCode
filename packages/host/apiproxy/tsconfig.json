@@ -66,6 +66,9 @@
       "path": "../../skill/skill"
     },
     {
+      "path": "../../tasks/tasks"
+    },
+    {
       "path": "../../ui/commands"
     },
     {

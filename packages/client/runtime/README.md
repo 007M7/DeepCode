@@ -24,6 +24,8 @@ SlotsService gives the renderer separate bare observables for `useSessions` and 
 
 `indexSubagentDescendants()` derives per-parent total and running descendant counts from the retained list mirror. It follows only uninterrupted `origin: 'subagent'` ancestry, so an ordinary fork starts a separate ownership subtree; cycles stop without throwing, and a missing parent remains a harmless key until its summary arrives.
 
+`SessionListState.tasksBySession` mirrors the Host's `session/tasks` frames last-wins, keyed by session and needing no Session instance. An emptied set is stored as an absent key, so absence and `[]` are one representation and consumers never test a sentinel. Two clears keep it from outliving its truth: `session/subscribed` drops the session's mirror, because a fresh generation sends a baseline only for a non-empty set and a retained list would survive as a phantom, and `host/session-removed` drops it again, because owner disposal removed the records on the mux stream while the removal frame rides the host stream, leaving the two with no relative order.
+
 `SessionsService.search(query, signal)` is a stateless one-shot action over the `session.search` RPC. It returns ranked session/snippet pairs without putting query, loading, or error state into the shared Session list, so each UI owner controls debounce, cancellation, stale-response suppression, and fallback presentation. `searchResultLimit` re-exposes `SESSION_SEARCH_RESULT_LIMIT` — the bound the response schema itself enforces — as injected presentation data, so client plugins do not duplicate it. It is a protocol constant rather than per-connection state, so the connection handle does not carry it.
 
 ## New Session and the blank mirror

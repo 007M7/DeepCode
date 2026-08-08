@@ -30,7 +30,7 @@ import type {
   ApiProxy, ConfigurableProviderView, CredentialView, GoalRef, HistoryEntry, HostFrame,
   ModelCatalogFailure, ModelProviderGroup,
   ModelReasoning, MuxFrame, QuestionResponsePayload, SessionProjectionsBlock, SessionSearchItem,
-  QueuedInboxItem, SessionSummary, SettingsNamespaceView, SubagentAddress, ToolEventView,
+  QueuedInboxItem, SessionSummary, SettingsNamespaceView, SubagentAddress, TaskView, ToolEventView,
   WorkspaceId, WorkspaceView,
 } from './api/index.ts'
 import {
@@ -40,6 +40,9 @@ import {
 } from './api/session-search.ts'
 // Type-only: resolves `ctx.get('sessionProjections')` to the projection registry.
 import type {} from '@deepseek-ai/dsh-session-projection'
+// Type-only: resolves `ctx.get('tasks')` to the background task registry.
+import type {} from '@deepseek-ai/dsh-tasks'
+import type { TaskSnapshot } from '@deepseek-ai/dsh-tasks'
 // Type-only: resolves `ctx.get('sessionProjectionCache')` (the cold listing column).
 import type {} from '@deepseek-ai/dsh-session-projection-cache'
 // GoalError narrows domain rejections to their stable codes at the wire boundary.
@@ -259,6 +262,22 @@ function frame<F>(payload: F): RpcRequest<F> {
 /** Queue the subscription baseline frame. */
 function subscribeSession(queue: FrameQueue<RpcRequest<MuxFrame>>, session: Session): void {
   queue.push(frame({ type: 'session/subscribed', sessionId: session.id, lastSeq: session.seq - 1 }))
+}
+
+/**
+ * Project registry snapshots onto the wire view, dropping the three internal
+ * fields {@link TaskView} documents as absent.
+ */
+function taskViews(snapshots: readonly TaskSnapshot[]): TaskView[] {
+  return snapshots.map(task => ({
+    id: task.id,
+    kind: task.kind,
+    label: task.label,
+    status: task.status,
+    ...task.detail === undefined ? {} : { detail: task.detail },
+    startedAt: task.startedAt,
+    ...task.finishedAt === undefined ? {} : { finishedAt: task.finishedAt },
+  }))
 }
 
 /**
@@ -2586,6 +2605,19 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             queue.push(frame({ type: 'session/queue', sessionId: session.id, items: queueItems(agent) }))
           }
         }
+        // Background-task baseline. `ctx.agents.get` is the non-resuming read:
+        // a session with no live Agent owns no tasks, so it correctly sees only
+        // the unowned ones, and listing never revives a cold session. An empty
+        // set sends nothing — absence is how the client reads "no tasks".
+        const tasks = ctx.get('tasks')
+        if (tasks !== undefined) {
+          for (const session of ctx.sessions.list()) {
+            const views = taskViews(tasks.list(ctx.agents.get(session.id)))
+            if (views.length > 0) {
+              queue.push(frame({ type: 'session/tasks', sessionId: session.id, tasks: views }))
+            }
+          }
+        }
         // Per-session open-call table for result-view pairing. Bounded by the
         // per-turn call count: entries clear on turn/end; a table miss (stream
         // opened mid-turn) backscans the session's in-memory events instead.
@@ -2614,6 +2646,24 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           ctx.on('session/disposed', (session: Session) => {
             openCalls.delete(session.id)
           }),
+          ...tasks === undefined ? [] : [tasks.onTasksChanged((owner) => {
+            if (owner !== undefined) {
+              // The exact owner instance the fence compares against, so the
+              // push stays correct even while that Agent's scope is tearing
+              // down and a lookup by id would already miss.
+              queue.push(frame({ type: 'session/tasks', sessionId: owner.id, tasks: taskViews(tasks.list(owner)) }))
+              return
+            }
+            // An unowned task is visible to every caller, so every subscribed
+            // session's set changed with it.
+            for (const session of ctx.sessions.list()) {
+              queue.push(frame({
+                type: 'session/tasks',
+                sessionId: session.id,
+                tasks: taskViews(tasks.list(ctx.agents.get(session.id))),
+              }))
+            }
+          })],
         ]
         return queue.iterate(signal, () => {
           muxQueues.delete(queue)

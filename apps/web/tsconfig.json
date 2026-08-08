@@ -67,6 +67,7 @@
     "tests/goal-bar.e2e.ts",
     "tests/subagent-conversation.e2e.ts",
     "tests/sidebar-subagent-activity.e2e.ts",
+    "tests/background-task-list.e2e.ts",
     "tests/bash-abort-row.e2e.ts",
     "tests/skill-tool-row.e2e.ts",
     "tests/turn-tail-actions.e2e.ts",

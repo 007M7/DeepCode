@@ -1110,3 +1110,60 @@ describe('completed reminder', () => {
     expect(entry(manager, S2)?.completed).toBe(true)
   })
 })
+
+describe('background-task mirror', () => {
+  const view = (over: Partial<{ id: string; status: string; label: string }> = {}) => ({
+    id: 'bash-1', kind: 'bash', label: 'pnpm run build', status: 'running', startedAt: 5, ...over,
+  })
+  const tasksFrame = (sessionId: SessionId, tasks: unknown[]) =>
+    ({ rpcId: 't' as never, payload: { type: 'session/tasks', sessionId, tasks } as never })
+
+  it('mirrors the whole set last-wins, keyed per session, with no Session instance needed', () => {
+    const manager = new SessionManager(new FakeApiClient())
+    manager.handleMuxEnvelope(tasksFrame(S1, [view()]))
+    manager.handleMuxEnvelope(tasksFrame(S2, [view({ id: 'pwsh-1', label: 'other' })]))
+    const first = manager.getListSnapshot().tasksBySession
+    expect(first[S1]).toEqual([view()])
+    expect(first[S2]?.[0]?.label).toBe('other')
+
+    // Last-wins: the newer whole set replaces, it does not merge.
+    manager.handleMuxEnvelope(tasksFrame(S1, [view({ status: 'completed' })]))
+    expect(manager.getListSnapshot().tasksBySession[S1]).toEqual([view({ status: 'completed' })])
+  })
+
+  it('stores an emptied set as an absent key so absence and [] read alike', () => {
+    const manager = new SessionManager(new FakeApiClient())
+    manager.handleMuxEnvelope(tasksFrame(S1, [view()]))
+    expect(S1 in manager.getListSnapshot().tasksBySession).toBe(true)
+    manager.handleMuxEnvelope(tasksFrame(S1, []))
+    expect(S1 in manager.getListSnapshot().tasksBySession).toBe(false)
+  })
+
+  it('clears the mirror on re-subscribe, because a task-free generation sends no baseline', () => {
+    const manager = new SessionManager(new FakeApiClient())
+    manager.handleMuxEnvelope(tasksFrame(S1, [view()]))
+    manager.handleMuxEnvelope({
+      rpcId: 's' as never,
+      payload: { type: 'session/subscribed', sessionId: S1, lastSeq: 3 },
+    })
+    expect(S1 in manager.getListSnapshot().tasksBySession).toBe(false)
+  })
+
+  it('drops the rows when the session is removed, whichever stream lands first', () => {
+    const manager = new SessionManager(new FakeApiClient())
+    manager.handleHostEnvelope({ rpcId: 'a' as never, payload: { type: 'host/session-added', blank: true, sessionId: S1 } })
+    manager.handleMuxEnvelope(tasksFrame(S1, [view()]))
+    manager.handleHostEnvelope({ rpcId: 'r' as never, payload: { type: 'host/session-removed', sessionId: S1 } })
+    expect(S1 in manager.getListSnapshot().tasksBySession).toBe(false)
+  })
+
+  it('notifies list subscribers so an open header re-renders without a poll', async () => {
+    const manager = new SessionManager(new FakeApiClient())
+    const seen = vi.fn()
+    manager.subscribe(seen)
+    manager.handleMuxEnvelope(tasksFrame(S1, [view()]))
+    // The notifier batches on a microtask; the frame itself is already applied.
+    await Promise.resolve()
+    expect(seen).toHaveBeenCalled()
+  })
+})

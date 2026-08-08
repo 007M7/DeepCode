@@ -8,7 +8,9 @@
 
 import { Context, Service } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { TaskDoneListener, TaskId, TaskRead, TaskSnapshot, TaskStart } from './types.ts'
+import type {
+  TaskDoneListener, TaskId, TaskRead, TaskSnapshot, TaskStart, TasksChangedListener,
+} from './types.ts'
 
 export { TaskId } from './types.ts'
 export type {
@@ -21,6 +23,7 @@ export type {
   TaskSnapshot,
   TaskStart,
   TaskStatus,
+  TasksChangedListener,
 } from './types.ts'
 
 declare module 'cordis' {
@@ -128,6 +131,22 @@ export abstract class TaskService extends Service {
    * @returns disposer that unregisters the listener.
    */
   abstract onTaskDone(listener: TaskDoneListener): () => void
+
+  /**
+   * Register an effect-scoped observer of visible-set changes. It fires after
+   * every commit that changes what {@link list} returns for that owner —
+   * registration, the stopping transition, settlement, and owner-disposal
+   * removal — so an observer re-reads rather than accumulating deltas.
+   *
+   * This is not a superset of {@link onTaskDone}: that one delivers the terminal
+   * record under first-wins semantics a control surface couples to notice
+   * delivery, while this one carries no delivery meaning and marks nothing
+   * reported. Listeners are contained and never awaited.
+   * @param listener - receives the owner whose visible set changed, or
+   *   `undefined` when an unowned task changed and every caller's set did.
+   * @returns disposer that unregisters the listener.
+   */
+  abstract onTasksChanged(listener: TasksChangedListener): () => void
 
   /**
    * Attach an effect-scoped surface that can read and stop tasks. {@link start}

@@ -13,6 +13,7 @@ import { approvalRequestIdSchema } from './approvals.schema.ts'
 import {
   contentBlockSchema, messageIdSchema, sessionEventSchema, sessionIdSchema, toolEventViewSchema,
 } from './sessions.schema.ts'
+import { taskViewSchema } from './tasks.schema.ts'
 import { workspaceIdSchema, workspaceViewSchema } from './workspace.schema.ts'
 
 /** Question shape validated strictly against core dsh-user-interaction. */
@@ -58,6 +59,7 @@ export const muxFrameSchema = z.discriminatedUnion('type', [
       message: messageSchema,
     })),
   }),
+  z.object({ type: z.literal('session/tasks'), sessionId: sessionIdSchema, tasks: z.array(taskViewSchema) }),
   // value stays wide: it already passed its unit's own schema on the host,
   // and deep-validating here would import every domain's schema into the carrier.
   z.object({ type: z.literal('session/projection'), sessionId: sessionIdSchema, key: z.string().min(1), value: z.unknown(), seq: z.number().int().nonnegative() }),

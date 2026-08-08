@@ -13,7 +13,10 @@ import { Context } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import { TaskService, TaskId } from '@deepseek-ai/dsh-tasks'
-import type { TaskDoneListener, TaskKind, TaskOutcome, TaskRead, TaskSnapshot, TaskStart, TaskStatus } from '@deepseek-ai/dsh-tasks'
+import type {
+  TaskDoneListener, TaskKind, TaskOutcome, TaskRead, TaskSnapshot, TaskStart, TaskStatus,
+  TasksChangedListener,
+} from '@deepseek-ai/dsh-tasks'
 
 /** Timeout code that distinguishes a bounded wait from caller cancellation. */
 export const TASK_WAIT_TIMEOUT = 'TASK_WAIT_TIMEOUT'
@@ -59,6 +62,7 @@ export class LocalTaskService extends TaskService {
   private counters = new Map<string, number>()
   private surfaces = new Set<symbol>()
   private listeners = new Set<TaskDoneListener>()
+  private changeListeners = new Set<TasksChangedListener>()
   private listenersClosed = false
   /** Owner agents with attached scope cleanup, mapped to the exact disposer. */
   private ownerCleanups = new Map<Agent, () => Promise<void> | void>()
@@ -119,6 +123,9 @@ export class LocalTaskService extends TaskService {
         this.settle(task, { status: 'failed', detail: String(error) })
       },
     )
+    // Registration is complete and cannot fail from here, so the visible set
+    // has genuinely changed.
+    this.notifyChanged(task.owner)
     return id
   }
 
@@ -156,6 +163,7 @@ export class LocalTaskService extends TaskService {
     task.cancel(reason)
     task.status = 'stopping'
     task.reported = true
+    this.notifyChanged(task.owner)
     return 'requested'
   }
 
@@ -217,6 +225,14 @@ export class LocalTaskService extends TaskService {
     return () => void dispose()
   }
 
+  onTasksChanged(listener: TasksChangedListener): () => void {
+    const dispose = this.ctx.effect(() => {
+      this.changeListeners.add(listener)
+      return () => this.changeListeners.delete(listener)
+    }, 'tasks.onTasksChanged()')
+    return () => void dispose()
+  }
+
   attachSurface(name: string): () => void {
     // One token per call keeps duplicate labels independently disposable.
     const token = Symbol(name)
@@ -263,6 +279,20 @@ export class LocalTaskService extends TaskService {
   }
 
   /**
+   * Announce that one owner's visible set changed. Each listener is contained
+   * so an observer cannot break a lifecycle commit that already happened.
+   */
+  private notifyChanged(owner: Agent | undefined): void {
+    for (const listener of this.changeListeners) {
+      try {
+        listener(owner)
+      } catch (error: unknown) {
+        this.selfCtx.logger.warn(`tasks: onTasksChanged listener threw: ${String(error)}`)
+      }
+    }
+  }
+
+  /**
    * Record the first terminal outcome, notify contained listeners, and release
    * waiters. First-wins preserves a teardown force-failure against late producer
    * settlement. Pending waits mark the task reported before listeners run.
@@ -291,6 +321,7 @@ export class LocalTaskService extends TaskService {
     task.waitResolvers.clear()
     for (const resolveWait of waitResolvers) resolveWait()
     task.markSettled()
+    this.notifyChanged(task.owner)
   }
 
   /**
@@ -323,6 +354,9 @@ export class LocalTaskService extends TaskService {
     this.cancelForTeardown(owned, 'owner disposed')
     await Promise.all(owned.map(task => task.settled))
     for (const task of owned) this.store.delete(task.id)
+    // Removal is the one visible-set change no per-task record carries, so it
+    // must be announced here or an observer keeps the dropped rows forever.
+    if (owned.length > 0) this.notifyChanged(owner)
   }
 
   /**
@@ -336,6 +370,11 @@ export class LocalTaskService extends TaskService {
     this.cancelForTeardown(all, 'tasks service disposed')
     await Promise.all(all.map(task => task.settled))
     this.store.clear()
+    // No change notification here: every `onTasksChanged` registration is an
+    // effect on this service's own fiber, so the listeners are already gone by
+    // the time service teardown reaches this line. An observer learns the
+    // registry left through its own disposal, not through a final empty set.
+    this.changeListeners.clear()
     // Detach cross-fiber owner effects after the shared store is quiescent.
     const ownerCleanups = [...this.ownerCleanups.values()]
     this.ownerCleanups.clear()

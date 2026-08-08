@@ -2339,6 +2339,22 @@ abstract wait(id: TaskId, timeoutMs: number, caller?: Agent, signal?: AbortSigna
 abstract onTaskDone(listener: TaskDoneListener): () => void
 
 /**
+ * Register an effect-scoped observer of visible-set changes. It fires after
+ * every commit that changes what {@link list} returns for that owner —
+ * registration, the stopping transition, settlement, and owner-disposal
+ * removal — so an observer re-reads rather than accumulating deltas.
+ *
+ * This is not a superset of {@link onTaskDone}: that one delivers the terminal
+ * record under first-wins semantics a control surface couples to notice
+ * delivery, while this one carries no delivery meaning and marks nothing
+ * reported. Listeners are contained and never awaited.
+ * @param listener - receives the owner whose visible set changed, or
+ *   `undefined` when an unowned task changed and every caller's set did.
+ * @returns disposer that unregisters the listener.
+ */
+abstract onTasksChanged(listener: TasksChangedListener): () => void
+
+/**
  * Attach an effect-scoped surface that can read and stop tasks. {@link start}
  * refuses work while none is attached.
  * @param name - diagnostic label; duplicate names remain independent.
@@ -2347,9 +2363,9 @@ abstract onTaskDone(listener: TaskDoneListener): () => void
 abstract attachSurface(name: string): () => void
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [TaskDoneListener](../core-data-structures/tasks.md) · [TaskId](../core-data-structures/tasks.md) · [TaskRead](../core-data-structures/tasks.md) · [TaskSnapshot](../core-data-structures/tasks.md) · [TaskStart](../core-data-structures/tasks.md)
+Types: [Agent](../core-data-structures/core.md) · [TaskDoneListener](../core-data-structures/tasks.md) · [TaskId](../core-data-structures/tasks.md) · [TaskRead](../core-data-structures/tasks.md) · [TaskSnapshot](../core-data-structures/tasks.md) · [TaskStart](../core-data-structures/tasks.md) · [TasksChangedListener](../core-data-structures/tasks.md)
 
-Source: [`packages/tasks/tasks/src/index.ts:50`](../../packages/tasks/tasks/src/index.ts)
+Source: [`packages/tasks/tasks/src/index.ts:53`](../../packages/tasks/tasks/src/index.ts)
 
 ## `ctx.telemetry` — `Telemetry` (abstract seam)
 

@@ -66,6 +66,7 @@
     { "path": "./packages/client/ui-command" },
     { "path": "./packages/client/ui-skill" },
     { "path": "./packages/client/ui-subagent" },
+    { "path": "./packages/client/ui-task" },
     { "path": "./packages/client/ui-goal" },
     { "path": "./packages/client/ui-model" },
     { "path": "./packages/client/ui-permission" },
