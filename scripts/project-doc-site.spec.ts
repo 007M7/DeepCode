@@ -3,7 +3,7 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { docsPages, type DocsPage } from '../website/docs.ts'
 import {
@@ -148,7 +148,7 @@ describe('rewriteMarkdown', () => {
       repoRoot: root,
       repositoryRef: 'abc123',
       placeImage: (absPath) => {
-        const name = absPath.split('/').pop() ?? ''
+        const name = basename(absPath)
         placed.push(name)
         return `./${name}`
       },
@@ -167,7 +167,7 @@ describe('rewriteMarkdown', () => {
       pages,
       repoRoot: root,
       repositoryRef: 'abc123',
-      placeImage: absPath => `./${absPath.split('/').pop() ?? ''}`,
+      placeImage: absPath => `./${basename(absPath)}`,
     })).toBe('![logo](./logo.svg#view)\n')
   })
 

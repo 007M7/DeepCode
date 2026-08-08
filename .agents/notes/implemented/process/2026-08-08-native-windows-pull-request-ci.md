@@ -16,6 +16,8 @@ The required `windows` job in [ci.yml](../../../../.github/workflows/ci.yml) run
 
 The aggregate keeps workspace build, production-site, and 100%-per-file coverage failures blocking while reporting the broader static, documentation, package, and built-artifact portability inventory as observational. Coverage has a four-worker budget; one runner shares installation and build outputs across those gates, and serial gate and publint worker bounds keep the standard image within a predictable resource envelope. Linux remains the owner of duplicate lint and snapshot enforcement.
 
+The first native run exposed two failures hidden by the compatibility lane. Documentation projection tests derived an image basename by splitting only on `/`; they now use Node's platform basename. Chokidar consumers received `%TEMP%` through the `C:\\Users\\RUNNER~1` 8.3 alias while libuv returned the long directory name, tripping its Windows event-path assertion. Shared settings and credentials watchers, plus Cordis module and exact-config HMR, now canonicalize the existing native watch base or deepest existing ancestor before opening the watcher and preserve a missing suffix, while file access and diagnostics retain the configured path.
+
 Wine-only infrastructure is absent from the supported workflow: there is no apt-cache producer, compatibility script, hoisted snapshot install, Windows Node download, or local `check:windows-wine` command. The [archived Wine experiment](../../archived/process/2026-07-27-wine-windows-gates-experiment.md) remains historical evidence for its measured latency and fidelity trade-offs, not a current execution path.
 
 ## Alternatives considered
@@ -31,5 +33,7 @@ Wine-only infrastructure is absent from the supported workflow: there is no apt-
 ## Consequences
 
 Pull requests receive a real NT kernel, NTFS, PowerShell, Windows process, and native addon signal before the aggregate can pass. The job is slower than the Wine compatibility lane and can queue on Windows capacity, but its green result now describes the supported host rather than an approximation.
+
+The native lane is also a portability inventory: its exact-head acceptance requires every blocking gate to pass and the final summary to contain no non-blocking failure. That distinction caught path contracts which a successful wrapper conclusion alone would have concealed.
 
 Removing the Wine cache producer and local script deletes a separate install topology and its recurring compatibility failures. Native coverage now runs through the same required job and enforces the repository's per-file threshold without Windows-only source exclusions for supported LSP behavior. Native snapshots remain a named gap rather than being implied by the job name; they require their own tested contract before becoming part of this required lane.

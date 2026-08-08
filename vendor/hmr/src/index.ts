@@ -4,7 +4,7 @@ import { ModuleLoader, type ModuleJob, type ResolveResult } from '@cordisjs/plug
 import type { Include } from '@cordisjs/plugin-include'
 import { FSWatcher, watch, type ChokidarOptions } from 'chokidar'
 import { dirname, relative, resolve } from 'node:path'
-import { stat } from 'node:fs/promises'
+import { realpath, stat } from 'node:fs/promises'
 import { handleError } from './error.ts'
 import type {} from '@cordisjs/plugin-timer'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -61,13 +61,18 @@ interface ConfigRegistration {
   watcher: FSWatcher
 }
 
-async function findWatchRoot(filename: string): Promise<{ root: string; depth: number }> {
+async function findWatchRoot(filename: string): Promise<{ filename: string; root: string; depth: number }> {
   let root = dirname(filename)
   let depth = 0
   while (true) {
     try {
       if (!(await stat(root)).isDirectory()) throw new Error(`config watch parent is not a directory: ${root}`)
-      return { root, depth }
+      const canonicalRoot = await realpath(root)
+      return {
+        filename: resolve(canonicalRoot, relative(root, filename)),
+        root: canonicalRoot,
+        depth,
+      }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
       const parent = dirname(root)
@@ -129,9 +134,11 @@ class Hmr extends Service {
   async registerConfig(filename: string, refresh: () => Promise<void> | void): Promise<() => Promise<void>> {
     if (!this.watcher) throw new Error('HMR is not active')
     filename = resolve(this.baseDir, filename)
-    if (this.configs.has(filename)) throw new Error(`config path already registered: ${filename}`)
+    const target = await findWatchRoot(filename)
+    const watchFilename = target.filename
+    if (this.configs.has(watchFilename)) throw new Error(`config path already registered: ${filename}`)
 
-    const { root, depth } = await findWatchRoot(filename)
+    const { root, depth } = target
     const watcher = watch(root, {
       ...this.config,
       cwd: undefined,
@@ -140,9 +147,10 @@ class Hmr extends Service {
       ignoreInitial: false,
     })
     const registration = { watcher }
-    this.configs.set(filename, registration)
+    this.configs.set(watchFilename, registration)
     const onChange = (path: string) => {
-      if (resolve(path) !== filename) return
+      const observed = resolve(path)
+      if (observed !== filename && observed !== watchFilename) return
       this.refreshConfig(registration, filename, refresh)
     }
     watcher.on('add', onChange)
@@ -167,12 +175,12 @@ class Hmr extends Service {
     try {
       await ready.promise
       return this.ctx.effect(() => async () => {
-        if (this.configs.get(filename) === registration) this.configs.delete(filename)
+        if (this.configs.get(watchFilename) === registration) this.configs.delete(watchFilename)
         await watcher.close()
         await this.configRefreshes.get(registration)?.running
       }, 'hmr.registerConfig()')
     } catch (error) {
-      this.configs.delete(filename)
+      this.configs.delete(watchFilename)
       await watcher.close()
       throw error
     }
@@ -205,10 +213,11 @@ class Hmr extends Service {
     }
 
     const match = picomatch(ignored)
+    const watchBaseDir = await realpath(this.baseDir)
     this.watcher = watch(root, {
       ...this.config,
-      cwd: this.baseDir,
-      ignored: path => match(relative(this.baseDir, path)),
+      cwd: watchBaseDir,
+      ignored: path => match(relative(watchBaseDir, path)),
       // The initial scan re-announces files the boot just consumed: an `add`
       // for a config file refreshes an include whose initial apply may still
       // be in flight, and a failing apply then rolls this plugin back while
