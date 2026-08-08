@@ -21,9 +21,9 @@ Install dependencies from the repo root:
 pnpm install
 ```
 
-The install also configures worktree-local lefthook hooks through `scripts/install-lefthook.mjs`. The [worktree-local hooks Agent Note](../.agents/notes/implemented/process/2026-07-27-worktree-local-lefthook.md) owns the safety and migration contract.
+The install also configures worktree-local Lefthook hooks and the `dsh-translation-pairing` Git merge driver through `scripts/install-lefthook.mjs`. The [worktree-local hooks Agent Note](../.agents/notes/implemented/process/2026-07-27-worktree-local-lefthook.md) owns the hook-path safety contract; the [automatic pairing merges Agent Note](../.agents/notes/implemented/process/2026-08-08-automatic-translation-pairing-merges.md) owns the merge driver.
 
-If hooks are missing because dependencies were restored from cache or `postinstall` was skipped, install them manually:
+If either integration is missing because dependencies were restored from cache or `postinstall` was skipped, install them manually:
 
 ```sh
 node scripts/install-lefthook.mjs
@@ -98,18 +98,21 @@ DEEPSEEK_BASE_URL=https://... # optional
 
 `DEEPSEEK_BASE_URL` is optional and defaults to the public API. Never commit real credentials. The real-API e2e suites self-skip when `DEEPSEEK_API_KEY` is not set.
 
-### Git hooks
+### Git integrations
+
+The pairing merge driver derives a conflicted `.i18n.yaml` record from the confirmed ancestor, current, and other owner blobs when both language files merge cleanly. It fails closed on owner conflicts or invalid records; after an already-stopped merge, run `pnpm run resolve-translation-pairing-conflicts`. See the [bilingual documentation contract](i18n/README.md#the-pairing-contract) for the exact boundary.
 
 lefthook is configured in `lefthook.yml` as a fast local checkpoint:
 
-- `pre-commit` applies formatting-only ESLint fixes, validates the staged files with the project-free `.oxlintrc.staged.json` profile and applies Oxlint's native fixes, regenerates `THIRD_PARTY_NOTICES.md` when a staged file is one of its inputs, checks the staged diff for whitespace errors, and runs the vendor manifest guard.
+- `pre-commit` verifies staged pairing records against the staged owner blobs, applies formatting-only ESLint fixes, validates the staged files with the project-free `.oxlintrc.staged.json` profile and applies Oxlint's native fixes, regenerates `THIRD_PARTY_NOTICES.md` when a staged file is one of its inputs, checks the staged diff for whitespace errors, and runs the vendor manifest guard.
+- `pre-merge-commit` performs the same index-backed pairing check before Git creates an automatic merge commit.
 - `pre-push` runs `pnpm run typecheck`, which completes the Host lib phase, including generated TypeRT contracts, before the Client TypeScript check.
 
 The vendor manifest guard checks that changes under `vendor/*/src` are staged with the matching `vendor/README.md` manifest update. See `vendor/README.md` before editing vendored code.
 
-The hooks intentionally do not run tests, snapshots, documentation checks, builds, or hygiene. Contributors run the [checks relevant to the changed behavior](../AGENTS.md#run-relevant-checks-locally) once; CI owns exhaustive coverage, built-artifact smokes, and the Node 22.19, 24, and 26 compatibility matrix.
+Apart from the scoped staged-record verification, the hooks intentionally do not run tests, snapshots, documentation checks, builds, or hygiene. Contributors run the [checks relevant to the changed behavior](../AGENTS.md#run-relevant-checks-locally) once; CI owns exhaustive coverage, built-artifact smokes, and the Node 22.19, 24, and 26 compatibility matrix.
 
-Contributors can opt into the comprehensive local gate set with `pnpm run check:all`. The command is independent of both Git hooks and is not an agent instruction.
+Contributors can opt into the comprehensive local gate set with `pnpm run check:all`. The command is independent of the Git hooks and is not an agent instruction.
 
 ### CI gates
 

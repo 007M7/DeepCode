@@ -16,6 +16,8 @@
   ```
 
   用 blob hash 而不是 commit hash，这样同一个 PR 里改动的文件也能算出记录（`git hash-object foo.md`），一致性是纯内容比较。`--write` 会先把这些快照存入本地 Git 对象库再写下记录，未提交的工作树内容也不例外；它还会在内容寻址的 `refs/dsh/translation-pairing/snapshots/` ref 下固定每个不同的已存 blob，使垃圾回收无法让已记录的恢复指针失效。因此记录的 hash 能还原任一侧上次确认时的确切文本，所以失去同步的配对是「按被改一侧的 diff 最小化地修补另一侧」，从不整篇重译。`pnpm run gen-translation-brief <pair>` 会以能安全对齐的最窄粒度——先是有改动的 Markdown 单元，再是标题小节，最后是整篇文档——机械地汇集这次更新的工作集：被改一侧自上次确认以来的 diff、每个改动块的三方文本、改动触及的术语表行，以及有约束力的更新规则；仅落在配对中逐字节一致的围栏代码块内的改动可以直接算出，`--apply` 则经结构签名校验后把它拼接进对侧文件（[briefed-updates Agent Note](../../.agents/notes/implemented/process/2026-07-26-briefed-minimal-translation-updates.md)）。两侧对齐后，`pnpm run verify-translation-pairing --write <pair>` 重新记录两个 hash；那份 yaml diff 就是「确认一致」这个动作本身，可以被评审，也正因如此，`--write` 要求点名你确认过的配对（`--write --all` 是显式的全语料形式）。
+
+  当两个分支都包含同一配对的有效确认时，已安装的 `dsh-translation-pairing` Git 合并驱动只会在 Git 默认文本合并能分别干净合并记录所指向的英文三方 blob 与中文三方 blob，且合并后的配对仍保留两侧的语言切换行和结构签名时，组合出一份新记录。任何无法确定的情形都保留为普通冲突；`pnpm run resolve-translation-pairing-conflicts` 会对已经停止的合并执行同一套遇错即保留冲突的操作。[自动配对合并 Agent Note](../../.agents/notes/implemented/process/2026-08-08-automatic-translation-pairing-merges.md) 负责记录该机制与备选方案。
 - **语言切换行。** 两个文件在各自 H1 标题之后立即互链：英文文件带 `English | [中文](foo.zh.md)`，中文文件带 `[English](foo.md) | 中文`。
 - **结构与另一侧一一对应。** 标题深度与顺序、列表类型、有序列表起始编号、列表项数量、表格行列数、链接目标与逐字节一致的代码块在配对两侧一一对应；完整保持规则见 [translation-rules.md](translation-rules.md)。既有 Markdown 门禁对 `.zh.md` 文件原样生效（`verify-md-wrap`、`verify-md-links`）。
 
