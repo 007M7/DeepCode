@@ -15,3 +15,5 @@
 | [`tool-pwsh/`](tool-pwsh/README.md) | 向模型公开 PowerShell 执行。 | （注册到 `ctx.tools`） |
 
 叶节点 `cordis.yml` 选择一个执行器实现和所需的面向模型工具。沙箱化组合还会选择一个 `ctx.sandbox` 提供方；[ACP（Agent Client Protocol）示例](../../examples/acp-agent/)展示一套完整接线。
+
+子系统参考——请求/spec 词汇、结果、后台进程、服务与事件——见 [docs/subsystems/bash.md](../../docs/subsystems/bash.md)。

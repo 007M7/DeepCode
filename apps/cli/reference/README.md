@@ -69,7 +69,7 @@ The base bundle mounts the native DeepSeek adapter, settings and credential prov
 
 Session events stream as OTLP/HTTP logs by default. `DSH_TELEMETRY_OTLP_URL` selects another collector. Any non-empty `DSH_TELEMETRY_DISABLED` disables the telemetry row before boot. The shipped base has no telemetry redaction rule, so exported records can contain message text, tool arguments and results, and workspace paths; the [telemetry Agent Note](../../../.agents/notes/implemented/feature/2026-07-31-web-telemetry-default-mount.md) owns that deployment decision.
 
-The empty `repository-plugins` row lets profile patch layers mount prepared immutable repository Plugin generations. See the [repository Plugin contract](../../../packages/cordis/repository-plugin/README.md#standalone-app-configuration). The CLI also ships `@deepseek-ai/dsh-mcp-client` as a dependency for patch layers, but no MCP server is enabled by default because each server command is trusted executable code outside the agent sandbox.
+The empty `repository-plugins` row lets profile patch layers mount prepared immutable repository Plugin generations. See the [repository Plugin contract](../../../packages/self-modification/repository-plugin/README.md#standalone-app-configuration). The CLI also ships `@deepseek-ai/dsh-mcp-client` as a dependency for patch layers, but no MCP server is enabled by default because each server command is trusted executable code outside the agent sandbox.
 
 ## Source launcher
 

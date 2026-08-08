@@ -31,7 +31,7 @@ const EVENT_ENVELOPE_TYPE_NAMES = [
 
 type EventEnvelopeTypeName = typeof EVENT_ENVELOPE_TYPE_NAMES[number]
 
-/** Primary core-data-structures page for linked payload types. */
+/** Primary subsystems page for linked payload types. */
 const LINK_MAP: Record<string, string> = {
   CallId: 'core.md',
   ContentBlock: 'core.md',
@@ -330,7 +330,7 @@ function typeLinks(payload: string): string {
     if (new RegExp(`\\b${name}\\b`).test(payload)) seen.add(name)
   }
   if (seen.size === 0) return ''
-  const links = [...seen].sort().map(n => `[${n}](core-data-structures/${LINK_MAP[n]})`)
+  const links = [...seen].sort().map(n => `[${n}](subsystems/${LINK_MAP[n]})`)
   return `Types: ${links.join(' · ')}`
 }
 
@@ -352,11 +352,11 @@ export function render(events: AnnotatedLogEventEntry[], envelopeTypes: EventEnv
     '',
     '# Session Persistence Event Catalog',
     '',
-    'Every event type that can appear in a session\'s durable event log: the complete persisted `SessionEvent` envelope and each member of the merge-extensible `SessionEventMap` — the owning vocabulary in `@deepseek-ai/dsh-session` plus every plugin declaration merge in this repo — with source JSDoc, full payload declaration, surface badge, and declaration site. It complements [session.md](core-data-structures/session.md) (surface ordering and the `deriveMessages()` projection), [persistence.md](core-data-structures/persistence.md) (how the log is made durable), and the [cordis events catalog](cordis-catalog/events.md) (the live bus wiring — a log event is NOT a cordis event; it reaches listeners via the single `session/event` emit).',
+    'Every event type that can appear in a session\'s durable event log: the complete persisted `SessionEvent` envelope and each member of the merge-extensible `SessionEventMap` — the owning vocabulary in `@deepseek-ai/dsh-session` plus every plugin declaration merge in this repo — with source JSDoc, full payload declaration, surface badge, and declaration site. It complements [session.md](subsystems/session.md) (surface ordering and the `deriveMessages()` projection), [persistence.md](subsystems/persistence.md) (how the log is made durable), and the generated region of [session.md](subsystems/session.md#cordis-surface) (the live bus wiring — a log event is NOT a cordis event; it reaches listeners via the single `session/event` emit).',
     '',
     'This file is GENERATED from source (`scripts/gen-persistence-catalog.ts`) and verified fresh by `pnpm run verify-persistence-catalog` (part of `doc-sync`) — do not edit it by hand. Declaration blocks retain the source declaration and nested property JSDoc, removing only the indentation imposed by a containing interface/module, and use a `ts persistence-catalog` fence (skipped by doc-typecheck because declarations reference types from their owning modules). Type names in a payload link to the page that documents them. See [the persistence-log-catalog Agent Note](../.agents/notes/archived/process/2026-07-04-persistence-log-catalog.md).',
     '',
-    'The envelope declarations below compose each event\'s `type`, monotonic `seq`, epoch-ms `time`, `data`, and the conditional `surfaceOp`/`sourceEventSeqs` fields. **surface** marks a `SurfaceEventType` member: it produces an LLM message and declares how it joins the surface list. **log-only** marks everything else: a durable, replayable record with no derived-history contribution. Every payload is JSON-serializable (enforced at `Session.append`), and the whole format is pinned at `SESSION_FORMAT_VERSION = 0` — pre-release, no compatibility implied ([the version stance](core-data-structures/persistence.md)). Scope: the packages in this repo; a downstream plugin can merge further event types, which are outside this catalog by construction.',
+    'The envelope declarations below compose each event\'s `type`, monotonic `seq`, epoch-ms `time`, `data`, and the conditional `surfaceOp`/`sourceEventSeqs` fields. **surface** marks a `SurfaceEventType` member: it produces an LLM message and declares how it joins the surface list. **log-only** marks everything else: a durable, replayable record with no derived-history contribution. Every payload is JSON-serializable (enforced at `Session.append`), and the whole format is pinned at `SESSION_FORMAT_VERSION = 0` — pre-release, no compatibility implied ([the version stance](subsystems/persistence.md)). Scope: the packages in this repo; a downstream plugin can merge further event types, which are outside this catalog by construction.',
     '',
     '## Event envelope',
     '',

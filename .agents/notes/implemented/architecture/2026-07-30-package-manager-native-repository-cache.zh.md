@@ -44,4 +44,4 @@ Loader 将 `pnpm@11.7.0` 作为固定版本的运行时依赖，并使用当前 
 
 ## 测试
 
-`packages/ui/app-boot/tests/repository-cache.spec.ts` 覆盖同进程 single-flight、跨实例缓存复用、精确 specifier 隔离、失败暂存清理与重试，以及边界校验。其真实本地 Git 用例会调用随附的 pnpm，运行 fixture（测试前置数据）仓库的 `prepare` 脚本，并在不访问网络的情况下，从已安装缓存项中读取准备后的文件。
+`packages/boot/app-boot/tests/repository-cache.spec.ts` 覆盖同进程 single-flight、跨实例缓存复用、精确 specifier 隔离、失败暂存清理与重试，以及边界校验。其真实本地 Git 用例会调用随附的 pnpm，运行 fixture（测试前置数据）仓库的 `prepare` 脚本，并在不访问网络的情况下，从已安装缓存项中读取准备后的文件。

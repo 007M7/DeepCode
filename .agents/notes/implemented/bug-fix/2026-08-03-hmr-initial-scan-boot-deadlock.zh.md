@@ -38,4 +38,4 @@
 
 ## 测试
 
-`apps/cli/tests/tui-keyless-smoke.e2e.ts` 中 `dsh` 无效 provider 的 PTY 用例钉住了端到端契约：以 1 退出、带标签的 `dsh: plugin tree failed to load:` 诊断指明 `$.providers`、以及证明整棵树已被释放的 bracketed-paste 复位序列。此修复之前，同一用例观察到的是无诊断的 exit 13。重载行为仍由 `packages/ui/app-boot/tests/config-reload.spec.ts` 与 `packages/ui/app-boot/tests/hmr-config.spec.ts` 覆盖。
+`apps/cli/tests/tui-keyless-smoke.e2e.ts` 中 `dsh` 无效 provider 的 PTY 用例钉住了端到端契约：以 1 退出、带标签的 `dsh: plugin tree failed to load:` 诊断指明 `$.providers`、以及证明整棵树已被释放的 bracketed-paste 复位序列。此修复之前，同一用例观察到的是无诊断的 exit 13。重载行为仍由 `packages/boot/app-boot/tests/config-reload.spec.ts` 与 `packages/boot/app-boot/tests/hmr-config.spec.ts` 覆盖。

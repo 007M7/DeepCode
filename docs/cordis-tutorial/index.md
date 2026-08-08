@@ -6,7 +6,7 @@ Cordis is the plugin framework underneath the DeepSeek Harness SDK: a small runt
 
 The audience is agent developers. You do not need deep TypeScript experience; the [TypeScript notes](#typescript-notes) below explain the syntax that may be unfamiliar, and every chapter shows the exact commands and expected output.
 
-If you want the condensed concept reference instead of a walkthrough, read the [Cordis primer](../cordis-primer.md). The exhaustive API reference lives in the generated [events](../cordis-catalog/events.md) and [services](../cordis-catalog/services.md) catalogs and the [Cordis core API](../cordis-catalog/core/context.md) pages.
+If you want the condensed concept reference instead of a walkthrough, read the [Cordis primer](../cordis-primer.md). The exhaustive API reference lives in the generated `cordis-surface` regions on the [subsystem pages](../subsystems/core.md) and the [Cordis core API](../cordis-api/context.md) pages.
 
 ## Setup
 

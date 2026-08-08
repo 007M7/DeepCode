@@ -18,7 +18,7 @@
       "path": "../../../vendor/loader"
     },
     {
-      "path": "../../ui/app-boot"
+      "path": "../../boot/app-boot"
     },
     {
       "path": "../../acp/acp"
@@ -39,10 +39,10 @@
       "path": "../../context/workspace-context"
     },
     {
-      "path": "../../session-persistence/session-checkpoint-policy"
+      "path": "../../session/session-checkpoint-policy"
     },
     {
-      "path": "../../session-persistence/session-persistence-jsonl"
+      "path": "../../session/session-persistence-jsonl"
     },
     {
       "path": "../../support/invariants"

@@ -15,7 +15,7 @@
 - `scrubbedParentEnv()` / `SENSITIVE_ENV_PATTERN` 是唯一一份共享的环境清理定义：环境中形似凭据的名称与 `DSH_*` 名称都会被丢弃，显式 `env` 在清除之后合并。本地的普通 spawn 与终端 spawn 都应用该定义；拥有自身 spawn 的 SDK 管理传输可直接导入它。
 - 服务自身的 dispose（资源释放）会终止所有仍在运行的受管进程并等待其退出。
 
-参见[子进程数据结构目录](../../../docs/core-data-structures/subprocess.md)与[seam Agent Note（agent 决策记录）](../../../.agents/notes/implemented/architecture/2026-07-26-subprocess-seam.md)。
+参见[子进程子系统页面](../../../docs/subsystems/subprocess.md)与[seam Agent Note（agent 决策记录）](../../../.agents/notes/implemented/architecture/2026-07-26-subprocess-seam.md)。
 
 ## 模型体验
 
