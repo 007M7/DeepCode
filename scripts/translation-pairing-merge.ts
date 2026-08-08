@@ -97,13 +97,13 @@ function assertDefaultTextMerge(root: string, paths: TranslationPairPaths): void
   }
 }
 
-function mergeBlobTriplet(
+function runTextMerge(
   root: string,
-  owner: string,
-  ancestor: Buffer,
-  current: Buffer,
-  other: Buffer,
-): Buffer {
+  label: string,
+  ancestor: Buffer | string,
+  current: Buffer | string,
+  other: Buffer | string,
+): { output: Buffer; status: number | null } {
   const temporary = mkdtempSync(join(tmpdir(), 'dsh-translation-pairing-merge-'))
   try {
     const ancestorPath = join(temporary, 'ancestor')
@@ -115,24 +115,35 @@ function mergeBlobTriplet(
     const result = spawnSync('git', [
       '-C', root,
       'merge-file', '-p',
-      '-L', `${owner}:current`,
-      '-L', `${owner}:ancestor`,
-      '-L', `${owner}:other`,
+      '-L', `${label}:current`,
+      '-L', `${label}:ancestor`,
+      '-L', `${label}:other`,
       currentPath, ancestorPath, otherPath,
     ], { maxBuffer: GIT_COMMAND_MAX_BUFFER })
     if (result.error) {
-      throw new Error(`merging ${owner} failed: ${result.error.message}`, { cause: result.error })
+      throw new Error(`merging ${label} failed: ${result.error.message}`, { cause: result.error })
     }
-    if (result.status !== 0) {
-      const kind = result.status !== null && result.status > 0 && result.status <= 127
-        ? 'has content conflicts'
-        : `failed with status ${String(result.status)}`
-      throw new Error(`${owner} ${kind}`)
-    }
-    return result.stdout
+    return { output: result.stdout, status: result.status }
   } finally {
     rmSync(temporary, { recursive: true, force: true })
   }
+}
+
+function mergeBlobTriplet(
+  root: string,
+  owner: string,
+  ancestor: Buffer,
+  current: Buffer,
+  other: Buffer,
+): Buffer {
+  const result = runTextMerge(root, owner, ancestor, current, other)
+  if (result.status !== 0) {
+    const kind = result.status !== null && result.status > 0 && result.status <= 127
+      ? 'has content conflicts'
+      : `failed with status ${String(result.status)}`
+    throw new Error(`${owner} ${kind}`)
+  }
+  return result.output
 }
 
 function loadRecordOwners(
@@ -243,11 +254,14 @@ function unmergedSidecars(root: string): Map<string, UnmergedStages> {
 function assertUneditedSidecar(
   root: string,
   metaPath: string,
+  ancestorRecord: string,
   currentRecord: string,
   otherRecord: string,
 ): void {
   const worktreeRecord = readFileSync(join(root, metaPath), 'utf8')
   if (worktreeRecord === currentRecord || worktreeRecord === otherRecord) return
+  const textMerge = runTextMerge(root, metaPath, ancestorRecord, currentRecord, otherRecord)
+  if (textMerge.status === 0 && textMerge.output.toString('utf8') === worktreeRecord) return
   const stageDataLines = [currentRecord, otherRecord]
     .flatMap(record => record.split(/\r?\n/))
     .filter(line => line !== '' && !line.startsWith('#'))
@@ -282,7 +296,7 @@ export function resolveTranslationPairingConflicts(root: string): string[] {
       const ancestorRecord = readGitBlob(root, stages.ancestor, `ancestor ${metaPath}`).toString('utf8')
       const currentRecord = readGitBlob(root, stages.current, `current ${metaPath}`).toString('utf8')
       const otherRecord = readGitBlob(root, stages.other, `other ${metaPath}`).toString('utf8')
-      assertUneditedSidecar(root, metaPath, currentRecord, otherRecord)
+      assertUneditedSidecar(root, metaPath, ancestorRecord, currentRecord, otherRecord)
       const result = mergeTranslationPairingRecords(
         root,
         metaPath,

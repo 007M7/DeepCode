@@ -31,8 +31,14 @@ const PAIRING_MERGE_DRIVER_CONFIG = [
   ['merge.dsh-translation-pairing.name', 'DeepSeek Harness bilingual pairing records'],
   [
     'merge.dsh-translation-pairing.driver',
-    'node --import tsx/esm scripts/merge-translation-pairing.ts %O %A %B %P',
+    'scripts/merge-translation-pairing-driver.sh %O %A %B %P',
   ],
+]
+const PAIRING_MERGE_DRIVER_PROBE = [
+  '--import',
+  'tsx/esm',
+  'scripts/merge-translation-pairing.ts',
+  '--probe',
 ]
 
 function errorCode(error) {
@@ -678,6 +684,10 @@ function installPairingMergeDriver(root, worktreeConfigPath) {
   }
 }
 
+function probePairingMergeDriver(root) {
+  capture(process.execPath, PAIRING_MERGE_DRIVER_PROBE, { cwd: root })
+}
+
 async function main() {
   if (process.env.CI === 'true' || process.env.GITHUB_ACTIONS === 'true') return
   if (typeof lefthookPackage.bin?.lefthook !== 'string') return
@@ -767,6 +777,7 @@ async function main() {
     let pathChanged = false
     let rollbackPairingMergeDriver = () => {}
     try {
+      probePairingMergeDriver(root)
       rollbackPairingMergeDriver = installPairingMergeDriver(root, worktreeConfigPath)
       git(['config', '--worktree', 'core.hooksPath', hooksPath], root)
       pathChanged = worktreePath !== hooksPath

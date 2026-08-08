@@ -102,6 +102,8 @@ DEEPSEEK_BASE_URL=https://... # optional
 
 当两种语言的文件都使用 Git 默认文本策略且能干净合并时，配对合并驱动会根据已确认的祖先、当前和另一侧的配对文档 blob，推导出发生冲突的 `.i18n.yaml` 记录。配对文档发生冲突、存在非文本合并配置或记录无效时，它会拒绝处理并保留冲突；如果合并已经因冲突而停止，请运行 `pnpm run resolve-translation-pairing-conflicts`，该命令会暂存每份可安全生成的配对记录；如果其他配对冲突仍需手工处理，则以非零状态退出。确切边界见[双语文档契约](i18n/README.md#the-pairing-contract)。
 
+安装脚本在发布 worktree 配置前，会探测确切的 Node/tsx 驱动入口点。如果该运行时之后变得不可用，不依赖 Node 的启动器会写入 Git 的普通文本合并结果、让伴随文件保持未解决状态，并打印恢复路径；请恢复依赖后运行 `pnpm run resolve-translation-pairing-conflicts`，或运行 `git merge --abort`。如果 `pre-merge-commit` 拒绝原本能干净完成的合并，Git 会把完整结果留在暂存区但不创建提交；请修复失败后运行 `git commit`，或中止合并。确切的索引与 `MERGE_HEAD` 状态由[自动配对合并 Agent Note](../.agents/notes/implemented/process/2026-08-08-automatic-translation-pairing-merges.md#failure-contract)负责记录。
+
 lefthook 在 `lefthook.yml` 中配置，作为快速的本地检查点：
 
 - `pre-commit` 对照暂存的配对文档 blob 校验暂存的配对记录，应用仅用于格式化的 ESLint 修复，使用不加载项目的 `.oxlintrc.staged.json` 配置验证暂存文件并应用 Oxlint 的原生修复，在暂存文件属于 `THIRD_PARTY_NOTICES.md` 的输入时重新生成该文件，然后检查暂存 diff 中的空白错误，并运行 vendor manifest（元数据清单）守卫；

@@ -1,9 +1,9 @@
 /** Integration coverage for automatic and explicit pairing-record conflict resolution. */
 
 import { execFileSync, spawnSync } from 'node:child_process'
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { delimiter, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { gitBlobHash, storeGitBlob } from './translation-pairing-git.ts'
@@ -17,6 +17,8 @@ import {
 } from './translation-pairing-record.ts'
 
 const driver = fileURLToPath(new URL('./merge-translation-pairing.ts', import.meta.url))
+const driverLauncher = fileURLToPath(new URL('./merge-translation-pairing-driver.sh', import.meta.url))
+const workspaceRoot = fileURLToPath(new URL('../', import.meta.url))
 const tsxLoader = fileURLToPath(import.meta.resolve('tsx/esm'))
 const fixtures: string[] = []
 
@@ -44,6 +46,16 @@ function write(root: string, path: string, content: string): void {
 
 function shellQuote(value: string): string {
   return `"${value.replace(/["\\$`]/g, '\\$&')}"`
+}
+
+function installFixtureRuntime(root: string): void {
+  const linkType = process.platform === 'win32' ? 'junction' : 'dir'
+  symlinkSync(
+    join(workspaceRoot, 'node_modules'),
+    join(root, 'node_modules'),
+    linkType,
+  )
+  symlinkSync(join(workspaceRoot, 'scripts'), join(root, 'scripts'), linkType)
 }
 
 function createFixture(attributes = true): Fixture {
@@ -99,6 +111,17 @@ function commitPair(fixture: Fixture, source: string, zh: string, message: strin
   return sidecar
 }
 
+function commitTextCleanPair(fixture: Fixture, source: string, zh: string, message: string): void {
+  const sidecar = record(fixture.root, 'docs/guide.md', source, zh)
+  write(
+    fixture.root,
+    'docs/guide.i18n.yaml',
+    sidecar.replace('\nguide.zh.md:', '\n# Stable separator for independent line merges.\nguide.zh.md:'),
+  )
+  git(fixture, ['add', '.'])
+  git(fixture, ['commit', '-m', message])
+}
+
 function createDivergedPair(fixture: Fixture): { ancestor: string; current: string; other: string } {
   const ancestor = commitPair(fixture, baseSource, baseZh, 'base')
   git(fixture, ['switch', '-c', 'current'])
@@ -107,6 +130,15 @@ function createDivergedPair(fixture: Fixture): { ancestor: string; current: stri
   const other = commitPair(fixture, otherSource, otherZh, 'other')
   git(fixture, ['switch', 'current'])
   return { ancestor, current, other }
+}
+
+function createTextCleanDivergedPair(fixture: Fixture): void {
+  commitTextCleanPair(fixture, baseSource, baseZh, 'base')
+  git(fixture, ['switch', '-c', 'current'])
+  commitTextCleanPair(fixture, currentSource, baseZh, 'current source')
+  git(fixture, ['switch', 'master'])
+  commitTextCleanPair(fixture, baseSource, otherZh, 'other translation')
+  git(fixture, ['switch', 'current'])
 }
 
 function startStoppedPairingMerge(fixture: Fixture): void {
@@ -279,17 +311,162 @@ describe('translation pairing merge composition', () => {
   it('runs as Git\'s custom driver and commits a clean composed record', () => {
     const fixture = createFixture()
     createDivergedPair(fixture)
-    const command = [
-      shellQuote(process.execPath),
-      '--import', shellQuote(tsxLoader),
-      shellQuote(driver),
-      '%O', '%A', '%B', '%P',
-    ].join(' ')
-    git(fixture, ['config', 'merge.dsh-translation-pairing.driver', command])
+    installFixtureRuntime(fixture.root)
+    git(fixture, [
+      'config',
+      'merge.dsh-translation-pairing.driver',
+      'scripts/merge-translation-pairing-driver.sh %O %A %B %P',
+    ])
 
     git(fixture, ['merge', '--no-edit', 'master'])
 
     expect(git(fixture, ['diff', '--name-only', '--diff-filter=U'])).toBe('')
+    expectMergedPair(fixture)
+  })
+
+  it('leaves an ordinary recoverable conflict when the configured runtime is unavailable', () => {
+    const fixture = createFixture()
+    const records = createDivergedPair(fixture)
+    const fakeBin = join(fixture.root, 'fake-bin')
+    const fakeNode = join(fakeBin, 'node')
+    write(fixture.root, 'fake-bin/node', '#!/bin/sh\nexit 72\n')
+    chmodSync(fakeNode, 0o755)
+    const command = [
+      shellQuote(driverLauncher),
+      '%O', '%A', '%B', '%P',
+    ].join(' ')
+    git(fixture, ['config', 'merge.dsh-translation-pairing.driver', command])
+    const headBefore = git(fixture, ['rev-parse', 'HEAD'])
+
+    const result = spawnSync('git', ['-C', fixture.root, 'merge', '--no-commit', 'master'], {
+      encoding: 'utf8',
+      env: {
+        ...fixture.env,
+        PATH: `${fakeBin}${delimiter}${fixture.env.PATH ?? ''}`,
+      },
+    })
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('runtime is unavailable; leaving an ordinary text conflict')
+    expect(git(fixture, ['rev-parse', 'HEAD'])).toBe(headBefore)
+    expect(git(fixture, ['rev-parse', '--verify', 'MERGE_HEAD'])).not.toBe('')
+    expect(git(fixture, ['diff', '--name-only', '--diff-filter=U'])).toBe('docs/guide.i18n.yaml')
+    expect(git(fixture, ['ls-files', '--unmerged', '--', 'docs/guide.i18n.yaml']).split('\n')).toHaveLength(3)
+    const conflicted = readFileSync(join(fixture.root, 'docs/guide.i18n.yaml'), 'utf8')
+    expect(conflicted).toContain('<<<<<<< docs/guide.i18n.yaml:current')
+    for (const record of [records.current, records.other]) {
+      const dataLines = record.split('\n').filter(line => line !== '' && !line.startsWith('#')).join('\n')
+      expect(conflicted).toContain(dataLines)
+    }
+
+    expect(resolveTranslationPairingConflicts(fixture.root)).toEqual(['docs/guide.i18n.yaml'])
+    expectMergedPair(fixture)
+  })
+
+  it('falls back before a broken driver entrypoint can replace the launcher', () => {
+    const fixture = createFixture()
+    createDivergedPair(fixture)
+    const fakeBin = join(fixture.root, 'fake-bin')
+    const fakeNode = join(fakeBin, 'node')
+    write(
+      fixture.root,
+      'fake-bin/node',
+      '#!/bin/sh\nif [ "$3" = "--eval" ]; then exit 0; fi\nexit 72\n',
+    )
+    chmodSync(fakeNode, 0o755)
+    git(fixture, [
+      'config',
+      'merge.dsh-translation-pairing.driver',
+      `${shellQuote(driverLauncher)} %O %A %B %P`,
+    ])
+
+    const result = spawnSync('git', ['-C', fixture.root, 'merge', '--no-commit', 'master'], {
+      encoding: 'utf8',
+      env: {
+        ...fixture.env,
+        PATH: `${fakeBin}${delimiter}${fixture.env.PATH ?? ''}`,
+      },
+    })
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('runtime is unavailable; leaving an ordinary text conflict')
+    expect(readFileSync(join(fixture.root, 'docs/guide.i18n.yaml'), 'utf8')).toContain(
+      '<<<<<<< docs/guide.i18n.yaml:current',
+    )
+  })
+
+  it('keeps a clean text fallback unresolved until the explicit resolver confirms it', () => {
+    const fixture = createFixture()
+    createTextCleanDivergedPair(fixture)
+    const fakeBin = join(fixture.root, 'fake-bin')
+    const fakeNode = join(fakeBin, 'node')
+    write(fixture.root, 'fake-bin/node', '#!/bin/sh\nexit 72\n')
+    chmodSync(fakeNode, 0o755)
+    git(fixture, [
+      'config',
+      'merge.dsh-translation-pairing.driver',
+      `${shellQuote(driverLauncher)} %O %A %B %P`,
+    ])
+
+    const result = spawnSync('git', ['-C', fixture.root, 'merge', '--no-commit', 'master'], {
+      encoding: 'utf8',
+      env: {
+        ...fixture.env,
+        PATH: `${fakeBin}${delimiter}${fixture.env.PATH ?? ''}`,
+      },
+    })
+
+    expect(result.status).toBe(1)
+    expect(git(fixture, ['diff', '--name-only', '--diff-filter=U'])).toBe('docs/guide.i18n.yaml')
+    const canonicalRecord = renderTranslationPairingRecord(translationPairPaths('docs/guide.md'), {
+      sourceHash: gitBlobHash(Buffer.from(currentSource)),
+      zhHash: gitBlobHash(Buffer.from(otherZh)),
+    })
+    expect(readFileSync(join(fixture.root, 'docs/guide.i18n.yaml'), 'utf8')).toBe(
+      canonicalRecord.replace(
+        '\nguide.zh.md:',
+        '\n# Stable separator for independent line merges.\nguide.zh.md:',
+      ),
+    )
+
+    expect(resolveTranslationPairingConflicts(fixture.root)).toEqual(['docs/guide.i18n.yaml'])
+    expect(readFileSync(join(fixture.root, 'docs/guide.md'), 'utf8')).toBe(currentSource)
+    expect(readFileSync(join(fixture.root, 'docs/guide.zh.md'), 'utf8')).toBe(otherZh)
+    expect(readFileSync(join(fixture.root, 'docs/guide.i18n.yaml'), 'utf8')).toBe(canonicalRecord)
+  })
+
+  it('leaves a staged merge when the pre-merge-commit hook rejects it', () => {
+    const fixture = createFixture()
+    createDivergedPair(fixture)
+    installFixtureRuntime(fixture.root)
+    git(fixture, [
+      'config',
+      'merge.dsh-translation-pairing.driver',
+      'scripts/merge-translation-pairing-driver.sh %O %A %B %P',
+    ])
+    const hooks = join(fixture.root, 'hooks')
+    write(
+      fixture.root,
+      'hooks/pre-merge-commit',
+      '#!/bin/sh\necho "fixture pre-merge-commit rejection" >&2\nexit 77\n',
+    )
+    chmodSync(join(hooks, 'pre-merge-commit'), 0o755)
+    git(fixture, ['config', 'core.hooksPath', hooks])
+    const headBefore = git(fixture, ['rev-parse', 'HEAD'])
+
+    const result = spawnSync('git', ['-C', fixture.root, 'merge', '--no-edit', 'master'], {
+      encoding: 'utf8',
+      env: fixture.env,
+    })
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('fixture pre-merge-commit rejection')
+    expect(git(fixture, ['rev-parse', 'HEAD'])).toBe(headBefore)
+    expect(git(fixture, ['rev-parse', '--verify', 'MERGE_HEAD'])).not.toBe('')
+    expect(git(fixture, ['diff', '--name-only', '--diff-filter=U'])).toBe('')
+    expect(git(fixture, ['diff', '--cached', '--name-only']).split('\n')).toContain(
+      'docs/guide.i18n.yaml',
+    )
     expectMergedPair(fixture)
   })
 
