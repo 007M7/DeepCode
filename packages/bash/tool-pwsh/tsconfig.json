@@ -42,7 +42,7 @@
       "path": "../../bash/bash-env"
     },
     {
-      "path": "../../ui/user-approval"
+      "path": "../../interaction/user-approval"
     },
     {
       "path": "../../sandbox/sandbox"

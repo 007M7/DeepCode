@@ -15,3 +15,5 @@ dsh Web GUI 的宿主侧：所有客户端形态共享的 API 网关，以及承
 | [`directory-picker-auto/`](directory-picker-auto/README.md) | 宿主自适应选择器组合 | 挂载一个后端 |
 
 `apiproxy` 保持传输无关；[`client/connection`](../client/connection/README.md) 提供浏览器／HTTP 载体。选择器实现可在共享 seam 后互相替换。
+
+子系统参考：[http-server.md](../../docs/subsystems/http-server.md) 与 [workspace.md](../../docs/subsystems/workspace.md)（挑选 seam）。

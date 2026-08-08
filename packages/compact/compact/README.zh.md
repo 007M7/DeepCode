@@ -24,7 +24,7 @@
 | `compactNow(agent, signal)` | 即使未达到自动压力，也显式压缩一段有效、平衡的较早范围。该操作会在让出控制权前同步预留空闲轮次接纳；没有有效范围时不写入任何内容；在摘要前记录独立的 `compact/* { turn: null }` 尝试；释放预留前等待其持久性检查点。预期操作失败使用 `ManualCompactionError`；取消会原样重新抛出 abort 原因。 |
 | `compactRegion(start, end, agent, signal?)` | 强制将表层节点 `[start, end]`（包含两端 seq）从 `agent.session` 摘要为单个替换节点，其源为 `COMPACT_CHECKPOINT_SOURCE`。如果压缩已在进行、`start`／`end` 不是表层节点，或 `start` 在表层上位于 `end` 之后，则**抛出异常**。该范围是表层位置范围，不是数值 seq 区间：在之前的 replace 将新生成的高 seq 摘要节点放到已遮蔽范围的位置之后，表层顺序不再跟随 seq 顺序。 |
 
-`CompactionResult` 向调用方保留原始摘要与记录操作过程的事件 seq，同时保留已遮蔽范围与 token 计量；其结构由漂移检查保障，定义见 [压缩数据结构参考](../../../docs/core-data-structures/compaction.md#compactionresult)。
+`CompactionResult` 向调用方保留原始摘要与记录操作过程的事件 seq，同时保留已遮蔽范围与 token 计量；其结构由漂移检查保障，定义见 [压缩数据结构参考](../../../docs/subsystems/compaction.md#compactionresult)。
 
 `compactIfNeeded` 和 `compactNow` 必须传入 `signal`；`compactRegion` 的该参数可选。通过 `ctx.llm.stream()` 摘要的后端**必须** 将它转发到调用的 `GenerateOptions.signal`，因此 abort 或 fiber dispose（资源释放）会停止进行中的摘要。自动和显式范围标记对会从当前打开的轮次恢复其数字形式归属。手动标记对不要求存在打开的轮次，并标记 `turn: null`。
 
@@ -68,7 +68,7 @@
 
 ## 在 host 程序之外识别检查点（`./checkpoint`）
 
-`COMPACT_CHECKPOINT_SOURCE` 与 `isCompactCheckpointSource()` 声明在 `@deepseek-ai/dsh-compact/checkpoint` 子路径上，并由包根重新导出，因此 host 侧消费方仍从根读取它们。该叶子不导入 cordis、也不声明任何模块增强（即 [`dsh-commands/brand`](../../ui/commands/README.md) 的形状），这正是客户端或 wire 程序能够命名该检查点来源的原因：包的**根**根本无法进入这类程序，因为它会到达 `dsh-session` 的根，而那处 `Context` 合并会让 host 的 `sessions` 服务与客户端自己的冲突（`TS2717`——每侧一个程序，见 [development.md](../../../docs/development.md#typescript-project-layout)）。Web 客户端的对话记录适配器用仅类型导入把它的插件字面量钉在该叶子上，因此在此处改插件 id 会让那边编译失败。
+`COMPACT_CHECKPOINT_SOURCE` 与 `isCompactCheckpointSource()` 声明在 `@deepseek-ai/dsh-compact/checkpoint` 子路径上，并由包根重新导出，因此 host 侧消费方仍从根读取它们。该叶子不导入 cordis、也不声明任何模块增强（即 [`dsh-commands/brand`](../../interaction/commands/README.md) 的形状），这正是客户端或 wire 程序能够命名该检查点来源的原因：包的**根**根本无法进入这类程序，因为它会到达 `dsh-session` 的根，而那处 `Context` 合并会让 host 的 `sessions` 服务与客户端自己的冲突（`TS2717`——每侧一个程序，见 [development.md](../../../docs/development.md#typescript-project-layout)）。Web 客户端的对话记录适配器用仅类型导入把它的插件字面量钉在该叶子上，因此在此处改插件 id 会让那边编译失败。
 
 ## 模型体验
 

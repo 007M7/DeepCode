@@ -44,4 +44,4 @@ An identical specifier permanently reuses its published entry. The caller change
 
 ## Testing
 
-`packages/ui/app-boot/tests/repository-cache.spec.ts` covers same-process single-flight, cross-instance cache reuse, exact-specifier separation, failed-stage cleanup and retry, and boundary validation. Its real local-Git case invokes the bundled pnpm, runs the fixture repository's `prepare` script, and reads the prepared file from the installed cache entry without network access.
+`packages/boot/app-boot/tests/repository-cache.spec.ts` covers same-process single-flight, cross-instance cache reuse, exact-specifier separation, failed-stage cleanup and retry, and boundary validation. Its real local-Git case invokes the bundled pnpm, runs the fixture repository's `prepare` script, and reads the prepared file from the installed cache entry without network access.

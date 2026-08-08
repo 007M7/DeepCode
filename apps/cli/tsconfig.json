@@ -18,7 +18,7 @@
       "path": "../../vendor/include"
     },
     {
-      "path": "../../packages/ui/app-boot"
+      "path": "../../packages/boot/app-boot"
     },
     {
       "path": "../../packages/bundle/base"

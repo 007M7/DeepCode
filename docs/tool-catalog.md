@@ -3,7 +3,7 @@
 
 # Tool Schema Catalog
 
-Every model-facing tool a shipped plugin contributes to `ctx.tools`: the `name`, `description`, and JSON-Schema `parameters` the model receives via the system-prompt assembly. It complements the cordis [events](cordis-catalog/events.md) & [services](cordis-catalog/services.md) catalogs (the wiring a plugin listens to and calls) and [core-data-structures/](core-data-structures/core.md) (the types those signatures move) — this page is the *tools* the agent is offered.
+Every model-facing tool a shipped plugin contributes to `ctx.tools`: the `name`, `description`, and JSON-Schema `parameters` the model receives via the system-prompt assembly. It complements the [subsystem pages](subsystems/core.md) (the types plus each page's generated `cordis-surface` wiring region) — this page is the *tools* the agent is offered.
 
 This file is GENERATED and verified fresh by `pnpm run verify-tool-catalog` (part of `doc-sync`) — do not edit it by hand. Unlike the cordis catalog (a pure source-AST pass), this generator BOOTS each tool plugin on a real context and reads `ctx.tools.schemas()`, because a tool schema is not statically knowable (runtime-spread enums, concatenated descriptions, config-driven names, raw-JSON-Schema MCP tools). A completeness guard globs `packages/*/tool-*` and fails if any package is missing from the generator's boot manifest, so a new tool cannot be silently undocumented. See [the tool-schema-catalog Agent Note](../.agents/notes/implemented/process/2026-07-02-tool-schema-catalog.md).
 
@@ -107,7 +107,7 @@ Ask the user a concise question when you need confirmation, a choice, or missing
 }
 ```
 
-Source: [`packages/ui/tool-ask-user/src/index.ts`](../packages/ui/tool-ask-user/src/index.ts)
+Source: [`packages/interaction/tool-ask-user/src/index.ts`](../packages/interaction/tool-ask-user/src/index.ts)
 
 ask_user_question pauses the tool call until the active UI provider returns a human answer.
 
@@ -280,7 +280,7 @@ Inspect the live Cordis runtime in the current DSH process. Read-only. Sections:
 }
 ```
 
-Source: [`packages/cordis/tool-cordis/src/index.ts`](../packages/cordis/tool-cordis/src/index.ts)
+Source: [`packages/self-modification/tool-cordis/src/index.ts`](../packages/self-modification/tool-cordis/src/index.ts)
 
 ### `cordis_mount`
 
@@ -301,7 +301,7 @@ Mount a temporary Cordis Plugin in the current DSH process. This creates an in-m
 }
 ```
 
-Source: [`packages/cordis/tool-cordis/src/index.ts`](../packages/cordis/tool-cordis/src/index.ts)
+Source: [`packages/self-modification/tool-cordis/src/index.ts`](../packages/self-modification/tool-cordis/src/index.ts)
 
 ### `cordis_unmount`
 
@@ -322,7 +322,7 @@ Unmount a current-process temporary Plugin created by cordis_mount. Waits for it
 }
 ```
 
-Source: [`packages/cordis/tool-cordis/src/index.ts`](../packages/cordis/tool-cordis/src/index.ts)
+Source: [`packages/self-modification/tool-cordis/src/index.ts`](../packages/self-modification/tool-cordis/src/index.ts)
 
 Not in any shipped tree (a deliberate opt-in — temporary Plugin code reaches the real runtime, see .agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md). Plugins created by cordis_mount may register ADDITIONAL model-visible tools until unmounted or DSH restarts; a full changed request header logs those tool-set changes.
 

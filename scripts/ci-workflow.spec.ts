@@ -28,6 +28,33 @@ describe('CI workflow', () => {
   })
 })
 
+describe('E2B e2e workflow', () => {
+  it('is manual-only and fails loud before running the focused live suite', () => {
+    const workflow = loadWorkflow('.github/workflows/e2b-e2e.yml')
+    expect(workflow.on).toEqual({ workflow_dispatch: null })
+    if (!isRecord(workflow.jobs) || !isRecord(workflow.jobs.e2b) || !Array.isArray(workflow.jobs.e2b.steps)) {
+      throw new TypeError('E2B e2e workflow must define the e2b job steps')
+    }
+
+    const steps = workflow.jobs.e2b.steps.filter(isRecord)
+    const preflight = steps.find(step => step.name === 'Preflight (require E2B API key)')
+    const e2b = steps.find(step => step.name === 'E2B tests (live sandbox)')
+
+    expect(preflight).toMatchObject({
+      env: { E2B_API_KEY: '${{ secrets.E2B_API_KEY_EXTERNAL }}' },
+    })
+    expect(preflight?.run).toContain('E2B_API_KEY_EXTERNAL repository secret')
+    expect(e2b).toMatchObject({
+      env: {
+        E2B_API_KEY: '${{ secrets.E2B_API_KEY_EXTERNAL }}',
+        DSH_E2E_MAX_WORKERS: '1',
+        DSH_EXAMPLE_MODE: 'lib',
+      },
+    })
+    expect(e2b?.run).toContain('packages/e2b/e2b/tests/composition.e2e.ts')
+  })
+})
+
 describe('Issue lifecycle workflow', () => {
   it('uses review signals instead of rerunning when a draft becomes ready', () => {
     const lifecycle = loadWorkflow('.github/workflows/issue-lifecycle.yml')

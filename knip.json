@@ -295,7 +295,7 @@
         "tests/**/*.ts"
       ]
     },
-    "packages/telemetry/session-telemetry-otel": {
+    "packages/session/session-telemetry-otel": {
       "entry": [
         "tests/**/*.spec.ts",
         "tests/**/*.e2e.ts"
@@ -426,7 +426,7 @@
         "tests/**/*.ts"
       ]
     },
-    "packages/session-title/session-title-first-message-llm": {
+    "packages/session/session-title-first-message-llm": {
       "entry": [
         "tests/**/*.spec.ts",
         "tests/**/*.e2e.ts"
@@ -446,7 +446,7 @@
         "tests/**/*.ts"
       ]
     },
-    "packages/session-persistence/session-checkpoint-policy": {
+    "packages/session/session-checkpoint-policy": {
       "entry": [
         "tests/**/*.spec.ts",
         "tests/**/*.e2e.ts"
@@ -525,7 +525,7 @@
         "tests/**/*.ts"
       ]
     },
-    "packages/ui/jsonrpc": {
+    "packages/scaffold/server": {
       "entry": [
         "tests/**/*.spec.ts",
         "tests/**/*.e2e.ts"
@@ -535,7 +535,7 @@
         "tests/**/*.ts"
       ]
     },
-    "packages/ui/commands": {
+    "packages/interaction/commands": {
       "entry": [
         "tests/**/*.spec.ts"
       ],
@@ -549,7 +549,7 @@
         "src/**/*.ts"
       ]
     },
-    "packages/sdk/create-sdk": {
+    "packages/scaffold/create-sdk": {
       "entry": [
         "src/bin.ts",
         "tests/**/*.spec.ts",
@@ -561,7 +561,7 @@
         "tests/**/*.ts"
       ]
     },
-    "packages/sdk/scripts": {
+    "packages/scaffold/scripts": {
       "entry": [
         "src/bin.ts",
         "tests/**/*.spec.ts",

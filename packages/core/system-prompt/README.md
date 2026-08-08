@@ -23,7 +23,7 @@ System prompt assembly registry. Plugins contribute ordered sections, tool schem
 
 ### Live events
 
-`system-prompt/assemble` is authoritative; listeners that replace entries must preserve any active Code Mode or structured-output protocol. Use [`ToolRegistry.restrict()`](../tools/README.md) when filtering must stay aligned across presentation, lookup, and execution. Registry-change notifications are unfiltered. The generated [event catalog](../../../docs/cordis-catalog/events.md) owns signatures and dispatch contracts.
+`system-prompt/assemble` is authoritative; listeners that replace entries must preserve any active Code Mode or structured-output protocol. Use [`ToolRegistry.restrict()`](../tools/README.md) when filtering must stay aligned across presentation, lookup, and execution. Registry-change notifications are unfiltered. The generated region of [system-prompt.md](../../../docs/subsystems/system-prompt.md#cordis-surface) owns signatures and dispatch contracts.
 
 ### Key types
 

@@ -3,11 +3,11 @@
 
 # Session Persistence Event Catalog
 
-Every event type that can appear in a session's durable event log: the complete persisted `SessionEvent` envelope and each member of the merge-extensible `SessionEventMap` — the owning vocabulary in `@deepseek-ai/dsh-session` plus every plugin declaration merge in this repo — with source JSDoc, full payload declaration, surface badge, and declaration site. It complements [session.md](core-data-structures/session.md) (surface ordering and the `deriveMessages()` projection), [persistence.md](core-data-structures/persistence.md) (how the log is made durable), and the [cordis events catalog](cordis-catalog/events.md) (the live bus wiring — a log event is NOT a cordis event; it reaches listeners via the single `session/event` emit).
+Every event type that can appear in a session's durable event log: the complete persisted `SessionEvent` envelope and each member of the merge-extensible `SessionEventMap` — the owning vocabulary in `@deepseek-ai/dsh-session` plus every plugin declaration merge in this repo — with source JSDoc, full payload declaration, surface badge, and declaration site. It complements [session.md](subsystems/session.md) (surface ordering and the `deriveMessages()` projection), [persistence.md](subsystems/persistence.md) (how the log is made durable), and the generated region of [session.md](subsystems/session.md#cordis-surface) (the live bus wiring — a log event is NOT a cordis event; it reaches listeners via the single `session/event` emit).
 
 This file is GENERATED from source (`scripts/gen-persistence-catalog.ts`) and verified fresh by `pnpm run verify-persistence-catalog` (part of `doc-sync`) — do not edit it by hand. Declaration blocks retain the source declaration and nested property JSDoc, removing only the indentation imposed by a containing interface/module, and use a `ts persistence-catalog` fence (skipped by doc-typecheck because declarations reference types from their owning modules). Type names in a payload link to the page that documents them. See [the persistence-log-catalog Agent Note](../.agents/notes/archived/process/2026-07-04-persistence-log-catalog.md).
 
-The envelope declarations below compose each event's `type`, monotonic `seq`, epoch-ms `time`, `data`, and the conditional `surfaceOp`/`sourceEventSeqs` fields. **surface** marks a `SurfaceEventType` member: it produces an LLM message and declares how it joins the surface list. **log-only** marks everything else: a durable, replayable record with no derived-history contribution. Every payload is JSON-serializable (enforced at `Session.append`), and the whole format is pinned at `SESSION_FORMAT_VERSION = 0` — pre-release, no compatibility implied ([the version stance](core-data-structures/persistence.md)). Scope: the packages in this repo; a downstream plugin can merge further event types, which are outside this catalog by construction.
+The envelope declarations below compose each event's `type`, monotonic `seq`, epoch-ms `time`, `data`, and the conditional `surfaceOp`/`sourceEventSeqs` fields. **surface** marks a `SurfaceEventType` member: it produces an LLM message and declares how it joins the surface list. **log-only** marks everything else: a durable, replayable record with no derived-history contribution. Every payload is JSON-serializable (enforced at `Session.append`), and the whole format is pinned at `SESSION_FORMAT_VERSION = 0` — pre-release, no compatibility implied ([the version stance](subsystems/persistence.md)). Scope: the packages in this repo; a downstream plugin can merge further event types, which are outside this catalog by construction.
 
 ## Event envelope
 
@@ -123,9 +123,9 @@ Source: [`packages/core/agent/src/types.ts:300`](../packages/core/agent/src/type
 }
 ```
 
-Types: [CallId](core-data-structures/core.md)
+Types: [CallId](subsystems/core.md)
 
-Source: [`packages/ui/user-approval/src/index.ts:44`](../packages/ui/user-approval/src/index.ts)
+Source: [`packages/interaction/user-approval/src/index.ts:44`](../packages/interaction/user-approval/src/index.ts)
 
 #### `approval/decided` — log-only
 
@@ -141,7 +141,7 @@ Source: [`packages/ui/user-approval/src/index.ts:44`](../packages/ui/user-approv
 }
 ```
 
-Source: [`packages/ui/user-approval/src/index.ts:55`](../packages/ui/user-approval/src/index.ts)
+Source: [`packages/interaction/user-approval/src/index.ts:55`](../packages/interaction/user-approval/src/index.ts)
 
 #### `approval/policy` — log-only
 
@@ -161,7 +161,7 @@ Source: [`packages/ui/user-approval/src/index.ts:55`](../packages/ui/user-approv
 }
 ```
 
-Source: [`packages/ui/user-approval/src/index.ts:67`](../packages/ui/user-approval/src/index.ts)
+Source: [`packages/interaction/user-approval/src/index.ts:67`](../packages/interaction/user-approval/src/index.ts)
 
 ### `assistant/*`
 
@@ -172,7 +172,7 @@ Source: [`packages/ui/user-approval/src/index.ts:67`](../packages/ui/user-approv
 'assistant/chunk': { turn: number; step: number; chunk: StreamChunk }
 ```
 
-Types: [StreamChunk](core-data-structures/llm-streaming.md)
+Types: [StreamChunk](subsystems/llm-streaming.md)
 
 Source: [`packages/core/session/src/types.ts:238`](../packages/core/session/src/types.ts)
 
@@ -188,7 +188,7 @@ Source: [`packages/core/session/src/types.ts:238`](../packages/core/session/src/
 'assistant/message': { turn: number; step: number; message: AssistantMessage; usage?: TokenUsage }
 ```
 
-Types: [TokenUsage](core-data-structures/llm-streaming.md)
+Types: [TokenUsage](subsystems/llm-streaming.md)
 
 Source: [`packages/core/session/src/types.ts:245`](../packages/core/session/src/types.ts)
 
@@ -211,7 +211,7 @@ Source: [`packages/core/session/src/types.ts:245`](../packages/core/session/src/
 }
 ```
 
-Source: [`packages/ui/commands/src/index.ts:151`](../packages/ui/commands/src/index.ts)
+Source: [`packages/interaction/commands/src/index.ts:151`](../packages/interaction/commands/src/index.ts)
 
 #### `command/run` — log-only
 
@@ -229,7 +229,7 @@ Source: [`packages/ui/commands/src/index.ts:151`](../packages/ui/commands/src/in
 'command/run': { commandId: CommandId; name: string; args?: string; source: CommandSource }
 ```
 
-Source: [`packages/ui/commands/src/index.ts:144`](../packages/ui/commands/src/index.ts)
+Source: [`packages/interaction/commands/src/index.ts:144`](../packages/interaction/commands/src/index.ts)
 
 ### `compact/*`
 
@@ -328,7 +328,7 @@ Source: [`packages/compact/compact/src/types.ts:19`](../packages/compact/compact
 )
 ```
 
-Types: [ContentBlock](core-data-structures/core.md) · [TokenUsage](core-data-structures/llm-streaming.md)
+Types: [ContentBlock](subsystems/core.md) · [TokenUsage](subsystems/llm-streaming.md)
 
 Source: [`packages/compact/compact/src/types.ts:29`](../packages/compact/compact/src/types.ts)
 
@@ -449,7 +449,7 @@ Source: [`packages/llm/llm-retry/src/index.ts:17`](../packages/llm/llm-retry/src
 'permission/preset': { preset: string }
 ```
 
-Source: [`packages/ui/permission/src/index.ts:50`](../packages/ui/permission/src/index.ts)
+Source: [`packages/interaction/permission/src/index.ts:50`](../packages/interaction/permission/src/index.ts)
 
 ### `plan/*`
 
@@ -580,9 +580,9 @@ Source: [`packages/core/session/src/types.ts:304`](../packages/core/session/src/
 'session/title': SessionTitleEventData
 ```
 
-Types: [SessionTitleEventData](core-data-structures/session-title.md)
+Types: [SessionTitleEventData](subsystems/session-title.md)
 
-Source: [`packages/session-title/session-title/src/index.ts:100`](../packages/session-title/session-title/src/index.ts)
+Source: [`packages/session/session-title/src/index.ts:100`](../packages/session/session-title/src/index.ts)
 
 #### `session/title-llm-request` — log-only
 
@@ -591,9 +591,9 @@ Source: [`packages/session-title/session-title/src/index.ts:100`](../packages/se
 'session/title-llm-request': SessionTitleLlmRequestEventData
 ```
 
-Types: [SessionTitleLlmRequestEventData](core-data-structures/session-title.md)
+Types: [SessionTitleLlmRequestEventData](subsystems/session-title.md)
 
-Source: [`packages/session-title/session-title-llm/src/index.ts:43`](../packages/session-title/session-title-llm/src/index.ts)
+Source: [`packages/session/session-title-llm/src/index.ts:43`](../packages/session/session-title-llm/src/index.ts)
 
 ### `step/*`
 
@@ -641,7 +641,7 @@ Source: [`packages/subagent/subagent/src/descriptor.ts:37`](../packages/subagent
 'todo/write': { todos: TodoItem[] }
 ```
 
-Types: [TodoItem](core-data-structures/session.md)
+Types: [TodoItem](subsystems/session.md)
 
 Source: [`packages/core/session/src/types.ts:271`](../packages/core/session/src/types.ts)
 
@@ -658,7 +658,7 @@ Source: [`packages/core/session/src/types.ts:271`](../packages/core/session/src/
 'tool/call': { turn: number; step: number; callId: CallId; name: string; arguments: string }
 ```
 
-Types: [CallId](core-data-structures/core.md)
+Types: [CallId](subsystems/core.md)
 
 Source: [`packages/core/session/src/types.ts:251`](../packages/core/session/src/types.ts)
 
@@ -683,7 +683,7 @@ Source: [`packages/core/session/src/types.ts:251`](../packages/core/session/src/
 'tool/code-dispatch': { parentCallId: CallId; subCallId: CallId; name: string; arguments: unknown; isError: boolean; content: ContentBlock[] }
 ```
 
-Types: [CallId](core-data-structures/core.md) · [ContentBlock](core-data-structures/core.md)
+Types: [CallId](subsystems/core.md) · [ContentBlock](subsystems/core.md)
 
 Source: [`packages/core/tools/src/code-mode.ts:49`](../packages/core/tools/src/code-mode.ts)
 
@@ -706,7 +706,7 @@ Source: [`packages/core/tools/src/code-mode.ts:49`](../packages/core/tools/src/c
 'tool/code-dispatch-start': { parentCallId: CallId; subCallId: CallId; name: string; arguments: unknown }
 ```
 
-Types: [CallId](core-data-structures/core.md)
+Types: [CallId](subsystems/core.md)
 
 Source: [`packages/core/tools/src/code-mode.ts:33`](../packages/core/tools/src/code-mode.ts)
 
@@ -751,7 +751,7 @@ Source: [`packages/core/session/src/types.ts:263`](../packages/core/session/src/
 'turn/end': { turn: number; reason: TurnEndReason }
 ```
 
-Types: [TurnEndReason](core-data-structures/session.md)
+Types: [TurnEndReason](subsystems/session.md)
 
 Source: [`packages/core/session/src/types.ts:224`](../packages/core/session/src/types.ts)
 
