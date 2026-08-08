@@ -9,12 +9,15 @@ import type { Context } from 'cordis'
 import z from 'schemastery'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { assertNever, createUserMessage } from '@deepseek-ai/dsh-llm'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
 import {
+  escapeText,
   isModelInvocable,
   isSkillName,
-  type SkillDefinition,
+  isUserInvocable,
+  renderSkillContent,
+  type SkillInvocationSource,
   type SkillSummary,
 } from '@deepseek-ai/dsh-skill'
 
@@ -160,6 +163,49 @@ export function apply(ctx: Context, config: Config = {}): void {
     throw new Error('dsh-tool-skill: registered skill tool is not visible in the global registry')
   }
 
+  // User-explicit skill invocation: a claimed user message whose first line
+  // starts with `/<name>` naming a user-invocable skill is a deterministic
+  // load gesture. The rendered body enters this step as injected
+  // instructions context appended after every other injection — background
+  // first (workspace rules, runtime policy, the catalog), the material the
+  // model must act on last, closest to its answer. Registration order makes
+  // that placement deterministic: this listener registers before the catalog
+  // listener, so the waterfall hands it the catalog-bearing list to extend.
+  // Only `source.kind === 'user'` messages are scanned — external text
+  // cannot forge the gesture — and a token naming no user-invocable skill
+  // stays ordinary prose (the command registry is a different closed
+  // namespace, resolved client-side before a line ever becomes a prompt).
+  // This is the only entry point for `disable-model-invocation` skills; the
+  // catalog and the `skill` tool below never see them.
+  ctx.on('agent/pre-step', async (
+    { agent, messages, signal },
+    next,
+  ): Promise<PreStepDecision> => {
+    const decision = await next()
+    if (decision.kind === 'reject') return decision
+    const names = invokedSkillNames(messages)
+    if (names.length === 0) return decision
+    signal.throwIfAborted()
+    const lookup = { cwd: agent.session.header.cwd, signal }
+    const injections: UserMessage[] = []
+    for (const name of names) {
+      const skill = await ctx.skills.get(name, lookup)
+      signal.throwIfAborted()
+      // Unknown names and user-disabled skills stay plain prose: the
+      // gesture was never a claim this boundary recognizes. The check sits
+      // on the loaded definition — the single lookup that produces what is
+      // actually injected.
+      if (skill === undefined || !isUserInvocable(skill)) continue
+      const source: SkillInvocationSource = { kind: 'skill-invocation', name, form: 'instructions' }
+      injections.push(createUserMessage({
+        content: [{ type: 'text', text: renderSkillContent(skill) }],
+        source,
+      }))
+    }
+    if (injections.length === 0) return decision
+    return { kind: 'enter', messages: [...decision.messages, ...injections] }
+  })
+
   // Register after the tool so reverse teardown removes guidance first. Exact definition
   // identity prevents a scoped shadow merely named `skill` from inheriting this catalog.
   ctx.on('agent/pre-step', async (
@@ -203,52 +249,6 @@ export function apply(ctx: Context, config: Config = {}): void {
   })
 }
 
-function renderSkillContent(skill: Pick<SkillDefinition, 'name' | 'provider' | 'resourceBase' | 'content'>): string {
-  const resourceHint = renderResourceHint(skill)
-  return [
-    `<skill_content name="${escapeAttr(skill.name)}">`,
-    '<skill_resources>',
-    ...resourceHint,
-    '</skill_resources>',
-    '',
-    '<skill_instructions>',
-    skill.content,
-    '</skill_instructions>',
-    '</skill_content>',
-  ].join('\n')
-}
-
-function renderResourceHint(skill: Pick<SkillDefinition, 'provider' | 'resourceBase'>): string[] {
-  const base = skill.resourceBase
-  if (base === undefined) {
-    return [
-      `Resources for this skill are managed by provider "${escapeText(skill.provider)}".`,
-      'Load referenced resources only as needed.',
-    ]
-  }
-  switch (base.kind) {
-    case 'directory':
-      return [
-        `Base directory for this skill: ${escapeText(base.path)}`,
-        'Resolve relative paths mentioned by this skill against the base directory before using them. Load referenced resources only as needed.',
-      ]
-    case 'url':
-      return [
-        `Base URL for this skill: ${escapeText(base.url)}`,
-        'Resolve relative URLs mentioned by this skill against the base URL before using them. Load referenced resources only as needed.',
-      ]
-    case 'opaque':
-      return [
-        `Resources for this skill: ${escapeText(base.description)}`,
-        'Load referenced resources only as needed.',
-      ]
-    /* v8 ignore start -- SkillResourceBase is a closed union; a future kind must fail compilation here. */
-    default:
-      return assertNever(base, 'SkillResourceBase.kind')
-    /* v8 ignore stop */
-  }
-}
-
 function renderCatalogMessage(entries: SkillCatalogSource['entries']): UserMessage {
   return createUserMessage({
     content: [{
@@ -262,6 +262,7 @@ function renderCatalogMessage(entries: SkillCatalogSource['entries']): UserMessa
         '</available_skills>',
         '',
         "If the user names a skill, or the task clearly matches a skill's description, call the `skill` tool with the exact skill name before taking task actions. Load all applicable skills, then follow their full instructions. This catalog contains summaries only; do not infer or follow a skill's instructions until it has been loaded.",
+        'A user may also invoke a skill directly; its <skill_content> block then appears in this conversation. Follow it, and do not call the `skill` tool again for that skill.',
         '</system-reminder>',
       ].join('\n'),
     }],
@@ -277,9 +278,11 @@ function renderCatalogUpdate(entries: SkillCatalogSource['entries']): UserMessag
   const availability = entries.length === 0
     ? [
       'No skills are currently available through the `skill` tool. Do not use names from earlier skill catalogs.',
+      'A user may still invoke a skill directly; its <skill_content> block then appears in this conversation. Follow it, and do not call the `skill` tool for it.',
     ]
     : [
       'Use only names in this replacement catalog. If the user names a listed skill, or the task clearly matches its description, call the `skill` tool with the exact name before acting.',
+      'A user may also invoke a skill directly; its <skill_content> block then appears in this conversation. Follow it, and do not call the `skill` tool again for that skill.',
     ]
   return createUserMessage({
     content: [{
@@ -394,10 +397,33 @@ function assertPositiveInteger(name: string, value: number, minimum = 1): void {
   }
 }
 
-function escapeAttr(value: string): string {
-  return value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;')
-}
+/**
+ * A whitespace-bounded `/name` token (the public skill-name grammar) anywhere
+ * in the text — the same word-boundary shape the transcript chip decoration
+ * uses, so a gesture reads as one wherever it sits in the sentence. A second
+ * `/` or any non-boundary character breaks the match, which keeps file paths
+ * (`/usr/bin`) and fractions (`5/8`) out.
+ */
+const SKILL_GESTURE = /(^|\s)\/([a-z0-9]+(?:-[a-z0-9]+)*)(?=\s|$)/g
 
-function escapeText(value: string): string {
-  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+/**
+ * `/name` gesture tokens from the claimed user messages, deduplicated in
+ * first-seen order. Every text block of direct user input is scanned; no
+ * other source can forge a gesture.
+ * @param messages - the step's claimed batch.
+ * @returns candidate skill names, unvalidated against the registry.
+ */
+function invokedSkillNames(messages: readonly UserMessage[]): string[] {
+  const names: string[] = []
+  for (const message of messages) {
+    if ((message.source as { kind?: unknown }).kind !== 'user') continue
+    for (const block of message.content) {
+      if (block.type !== 'text') continue
+      for (const match of block.text.matchAll(SKILL_GESTURE)) {
+        const name = match[2]
+        if (name !== undefined && !names.includes(name)) names.push(name)
+      }
+    }
+  }
+  return names
 }

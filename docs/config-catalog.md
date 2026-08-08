@@ -1457,7 +1457,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/skill/skill/src/index.ts:170`](../packages/skill/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:262`](../packages/skill/skill/src/index.ts)
 
 ## `@deepseek-ai/dsh-skill-local`
 
@@ -2049,7 +2049,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/skill/tool-skill/src/index.ts:58`](../packages/skill/tool-skill/src/index.ts)
+Source: [`packages/skill/tool-skill/src/index.ts:61`](../packages/skill/tool-skill/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-str-replace-editor`
 

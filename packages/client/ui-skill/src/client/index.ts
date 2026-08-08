@@ -2,13 +2,16 @@
  * Skill reference plugin, browser half: registers the '/' skill source —
  * candidates from the skill.list RPC addressed by the per-call session
  * projection's sessionId (sessions are always agent-backed; the host
- * resolves cwd from the session header), pick inserts the literal `/name `
- * text (decision 21: the draft carries plain text, chip visuals are derived
- * by scanning against the source lexicon, and the prompt ships the same
- * literal — no `<skill>` tag). The RPC rides the plugin's root-context
- * connection captured at registration — the source never reads services off
- * a per-call argument. No adjudication hooks: skill references ride
- * ordinary prompts and never enter command adjudication.
+ * resolves cwd from the session header). A pick lands the literal `/name `
+ * text and the prompt ships the same literal (decision 21); determinism
+ * lives host-side — the pre-step boundary (`dsh-tool-skill`) recognizes a
+ * leading `/name` naming a user-invocable skill and injects the rendered
+ * body for every front end, including `disable-model-invocation` skills the
+ * model-side catalog never lists (issue #1470). The RPC rides the plugin's
+ * root-context connection captured at registration — the source never reads
+ * services off a per-call argument. Draft chip visuals still derive from
+ * the lexicon scan; the legacy `<skill>` reference codec is gone (decision
+ * 21 removal cut).
  *
  * Catalog fetches are cached per session (the small twin of the ui-command
  * directory): the per-keystroke candidates re-poll filters a settled
@@ -119,6 +122,10 @@ export function apply(ctx: ClientContext): void {
     for (const key of [...fetches.keys()]) invalidate(key)
   }
 
+  // The bound translate resolves against the registered dictionaries with the
+  // locale service's own fallback ladder; candidate-time reads stay plain text.
+  const t = ctx.locale.bind(NS)
+
   const source: SlashSource = {
     trigger: '/',
     name: 'skill',
@@ -129,7 +136,12 @@ export function apply(ctx: ClientContext): void {
       if (signal.aborted) return []
       return skills
         .filter(skill => skill.name.startsWith(query))
-        .map(skill => ({ name: skill.name, description: skill.description }))
+        .map(skill => ({
+          name: skill.name,
+          // The user-only marker rides the description (the menu's only
+          // secondary text); `hint` is the claim-state ghost text, not a badge.
+          description: skill.modelInvocable ? skill.description : `${t('menu.userOnly')} · ${skill.description}`,
+        }))
     },
     warm(session) {
       // Fire-and-forget scope-birth prewarm; the shared fetch reports
@@ -150,15 +162,13 @@ export function apply(ctx: ClientContext): void {
       }
     },
     onPick({ candidate }) {
-      // Decision 21: plain-text reference — the literal lands in the draft
-      // and ships to the model verbatim (trailing space closes the token).
-      // Legacy path (decision 21), retained for the removal cut, no longer reached:
-      // return { insert: { source: 'skill', ref: candidate.name, label: candidate.name, clipboardText: `/${candidate.name}` } }
+      // Decision 21: the pick lands plain text and the prompt ships the same
+      // literal. Determinism no longer rides the client — the host's
+      // pre-step boundary (dsh-tool-skill) recognizes the leading /name and
+      // injects the rendered body for every front end. A name shared with a
+      // host command still resolves to the command: adjudication claims the
+      // line client-side before it ever becomes a prompt.
       return { text: `/${candidate.name} ` }
-    },
-    codec: {
-      clipboardText: ref => `/${ref}`,
-      serialize: ref => Promise.resolve(`<skill>${ref}</skill>`),
     },
   }
   const slash = ctx.get('slash') as SlashServiceContract

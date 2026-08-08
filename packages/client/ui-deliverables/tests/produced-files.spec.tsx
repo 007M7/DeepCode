@@ -73,6 +73,7 @@ describe('producedForClosing derivation', () => {
     expect(producedForClosing(nodes, 999)).toEqual([])
   })
 
+
   it('counts a generic edit and never spills across the turn boundary', () => {
     const inserted = (seq: number, callId: string, path: string): ToolResultNode => ({
       ...toolResult(seq, callId, 'str_replace_editor'),

@@ -170,7 +170,7 @@ export class Include extends EntryTree {
   private readonly: boolean
   private content?: string
   private data?: EntryOptions[]
-  private writeTask?: NodeJS.Timeout
+  private writeTask?: NodeJS.Timeout | undefined
   private applyQueue: Promise<unknown> = Promise.resolve()
 
   constructor(ctx: Context, public config: Include.Config) {
