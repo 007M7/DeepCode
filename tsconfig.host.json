@@ -44,6 +44,7 @@
     "apps/web/tests/markdown-inline-code-links.e2e.ts",
     "apps/web/tests/queue-actions.e2e.ts",
     "apps/web/tests/skill-invocation-policy.e2e.ts",
+    "apps/web/tests/skill-user-invoke.e2e.ts",
     "apps/web/tests/permission-policy-context.e2e.ts",
     "apps/web/tests/access-confirmation.e2e.ts",
     "apps/web/tests/shipped-composition.e2e.ts",

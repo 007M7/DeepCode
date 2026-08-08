@@ -57,6 +57,7 @@
     "tests/markdown-inline-code-links.e2e.ts",
     "tests/queue-actions.e2e.ts",
     "tests/skill-invocation-policy.e2e.ts",
+    "tests/skill-user-invoke.e2e.ts",
     "tests/permission-policy-context.e2e.ts",
     "tests/access-confirmation.e2e.ts",
     "tests/shipped-composition.e2e.ts",
