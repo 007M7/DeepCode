@@ -1,14 +1,16 @@
 /**
  * Keyless snapshot-test LLM replay. It derives one model-call script per
- * recorded session from `assistant/chunk` events and binds fresh live sessions
- * to parent/child scripts by first-call order. Throw and hang cases require an
- * explicit override because a session log cannot reconstruct them alone.
+ * recorded session from `assistant/chunk` events and durable compaction
+ * summaries, then binds fresh live sessions to parent/child scripts by
+ * first-call order. Throw and hang cases require an explicit override because
+ * a session log cannot reconstruct them alone.
  * @module @deepseek-ai/dsh-llm-replay
  */
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { delimiter as pathDelimiter } from 'node:path'
 import type { Context } from 'cordis'
+import type {} from '@deepseek-ai/dsh-compact'
 import { decodeStorageRecord } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type {
@@ -24,8 +26,9 @@ import { LlmAdapter, LlmError, assertNever, resolveRetryPolicy } from '@deepseek
 
 /**
  * One recorded model call. `throw` may replay prefix chunks before failing;
- * `hang` models cancellation. Only ordinary chunk entries derive from JSONL;
- * the other variants come from an override sidecar.
+ * `hang` models cancellation. Chunk entries derive from ordinary model streams
+ * and complete compaction outputs in JSONL; the other variants come from an
+ * override sidecar.
  */
 export type ReplayEntry =
   | { kind: 'chunks'; chunks: StreamChunk[] }
@@ -174,10 +177,12 @@ export function parseSessionHeader(text: string): { id: string; createdAt: numbe
  * Reconstruct the per-`stream()` replay script from a recorded session log.
  *
  * Splits `assistant/chunk` events at every `finish`, using turn and step changes
- * to detect an unterminated prior call. A missing terminator means the live
- * stream threw, so derivation rejects and the scenario must provide an explicit
- * override. Multiple calls may share one turn and step when the loop retries.
- * @param events - the recorded session's events; only `assistant/chunk` is consulted.
+ * to detect an unterminated prior call. A complete `compact/summary.rawOutput`
+ * becomes a canonical successful stream at the summary's log position. A
+ * missing assistant terminator means the live stream threw, so derivation
+ * rejects and the scenario must provide an explicit override. Multiple calls
+ * may share one turn and step when the loop retries.
+ * @param events - the recorded session's events.
  * @returns one `chunks` entry per recorded model call, in call order.
  */
 export function deriveReplayScript(events: SessionEvent[]): ReplayEntry[] {
@@ -195,6 +200,22 @@ export function deriveReplayScript(events: SessionEvent[]): ReplayEntry[] {
     script.push({ kind: 'chunks', chunks })
   }
   for (const event of events) {
+    if (event.type === 'compact/summary') {
+      close(currentKey, current)
+      currentKey = undefined
+      current = []
+      if (event.data.rawOutput !== undefined) {
+        const chunks: StreamChunk[] = []
+        for (const [index, block] of event.data.rawOutput.entries()) {
+          chunks.push({ type: 'block-start', index, blockType: block.type })
+          chunks.push({ type: 'block-end', index, block })
+        }
+        if (event.data.usage !== undefined) chunks.push({ type: 'usage', usage: event.data.usage })
+        chunks.push({ type: 'finish', reason: { kind: 'stop' } })
+        script.push({ kind: 'chunks', chunks })
+      }
+      continue
+    }
     if (event.type !== 'assistant/chunk') continue
     const { turn, step, chunk } = event.data
     const key = `${turn}/${step}`

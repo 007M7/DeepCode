@@ -100,8 +100,7 @@ async function harness(
   // object per harness mirrors the seam's stability contract.
   ctx.provide('directoryPicker', { capability: () => picker } as never)
   const api = createApiProxy(ctx, {
-    provider: 'test',
-    model: 'test-model',
+    defaultTarget: () => ({ provider: 'test', model: 'test-model' }),
     cwd: workspaceRoot,
     workspaceRoot,
     ...extras.openPath === undefined ? {} : { openPath: extras.openPath },

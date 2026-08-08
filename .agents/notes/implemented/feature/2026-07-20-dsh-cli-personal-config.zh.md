@@ -41,7 +41,7 @@ TUI 和 Web 启动后通过 Cordis HMR（热模块替换）注册确切的个人
 ## Consequences
 
 - 在任意目录运行 `dsh`（以及 `pnpm run demo:tui`），无需修改 checkout，即可应用个人提供方、模型、仓库插件和其他 Loader 配置项；已针对个人 Anthropic 代理与 Opus 4.8 端到端验证，包括一次 bash 工具往返。
-- 由于按 id 定位的补丁替换整个 `config`，个人覆盖必须复述它保留的基础字段，并可能随基础配置项形态变化而漂移；诊断手段是 loader 的「配置项未找到/名称不匹配」警告和 [`dsh --dump-config`](2026-07-30-dsh-dump-config.md)（打印这些补丁合成出的配置树）。
+- 由于按 id 定位的补丁替换整个 `config`，个人覆盖必须复述它保留的基础字段，并可能随基础配置项形态变化而漂移；诊断手段是 loader 的「配置项未找到/名称不匹配」警告和 [`dsh --dump-config`](../../../../apps/cli/README.md#profiles)（打印这些补丁合成出的配置树）。
 - 个人补丁只在被启动文件自身的树里解析 id，因此嵌套 include 的 overlay（Code Mode）不会被个性化；这些叶子的实际运行等价性暂缓。
 - `dsh-app-boot` 依赖 `js-yaml`，并直接导入 include 的 `!!js` YAML 方言（`entryListSchema`）；与 `apps/cli` 一样依赖 `@deepseek-ai/dsh-paths` 以获取 `resolveDshHome`。
 - 只有长时间运行的 TUI 和 Web 进程进行实时监视。无头自动化使用确定性的启动配置，退出时不会保留 watcher。

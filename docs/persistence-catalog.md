@@ -356,7 +356,7 @@ Source: [`packages/feedback/command-feedback/src/index.ts:24`](../packages/feedb
 'goal/change': GoalChangeMeta
 ```
 
-Source: [`packages/goal/goal/src/domain.ts:81`](../packages/goal/goal/src/domain.ts)
+Source: [`packages/goal/goal/src/domain.ts:66`](../packages/goal/goal/src/domain.ts)
 
 ### `hook/*`
 

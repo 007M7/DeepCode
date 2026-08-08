@@ -24,6 +24,9 @@
       "path": "../../../vendor/schemastery"
     },
     {
+      "path": "../../api/remotes/tsconfig.host.json"
+    },
+    {
       "path": "../../util/brand"
     },
     {

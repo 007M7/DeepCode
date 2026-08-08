@@ -115,6 +115,15 @@
         "tests/**/*.ts"
       ]
     },
+    "packages/api/remotes": {
+      "entry": [
+        "tests/**/*.e2e.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ]
+    },
     "packages/client/ui-primitives": {
       "entry": [
         "tests/**/*.spec.tsx"
@@ -126,6 +135,16 @@
       ]
     },
     "packages/client/ui-goal": {
+      "entry": [
+        "tests/**/*.spec.tsx"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "src/**/*.tsx",
+        "tests/**/*.tsx"
+      ]
+    },
+    "packages/client/ui-deliverables": {
       "entry": [
         "tests/**/*.spec.tsx"
       ],
@@ -190,7 +209,8 @@
     "packages/typert/generator": {
       "entry": [
         "tests/**/*.spec.ts",
-        "tests/fixtures/type-model/**/*.ts"
+        "tests/fixtures/type-model/**/*.ts",
+        "tests/fixtures/remote-model/**/*.ts"
       ],
       "project": [
         "src/**/*.ts",

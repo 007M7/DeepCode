@@ -48,6 +48,7 @@
 | `ctx.credentials` | [`credentials/`](../packages/credentials/README.md) | 具名密钥引用，按操作解析，绝不内联进配置 |
 | `ctx.directoryPicker` | [`host/directory-picker`](../packages/host/directory-picker/README.md) | GUI 宿主目录选取（`native`／`browse` 交互） |
 | `ctx.typert` | [`typert/registry`](../packages/typert/registry/README.md) | 生成的包反射和实时 Zod schema 的运行时注册表 |
+| `ctx.typertGateway` | [`api/gateway`](../packages/api/gateway/README.md) | 通过 [API Gateway](api-gateway.md) 分发 TypeRT Remote 一元调用 |
 | `ctx.invariants` | [`support/invariants`](../packages/support/invariants/README.md) | 按包名筛选包自有运行时检查的注册表 |
 
 ## 事件

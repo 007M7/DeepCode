@@ -29,7 +29,7 @@ import type { SessionProjectionMap } from '@deepseek-ai/dsh-session-projection/t
 import type { SnapshotStore } from '../contract/store.ts'
 import { createSnapshotStore } from '../contract/store.ts'
 import type { SessionFace } from '../contract/session.ts'
-import type { ISessions } from '../contract/sessions.ts'
+import type { AgentContext, ISessions } from '../contract/sessions.ts'
 import { createScope, scopeOf as scopeTagOf } from '../agents/scope.ts'
 import { SessionManager } from './manager.ts'
 import type { SessionListPhase, SessionSearchResultItem, SubagentCatalogSnapshot } from './manager.ts'
@@ -133,7 +133,7 @@ export interface SessionBinding {
   readonly sessionId: SessionId
   /** The outward session face only — feature code never sees the concrete class. */
   readonly session: SessionFace
-  readonly ctx: Context
+  readonly ctx: AgentContext
 }
 
 // Scope primitives live in ../agents/scope.ts (the client mirror of host
@@ -188,7 +188,7 @@ function increasedForkTitle(title: string): string {
 
 interface ScopeRecord {
   fiber: Fiber
-  ctx: Context
+  ctx: AgentContext
   binding: SessionBinding
   /** The concrete Session for runtime-internal entry points (staging open()); the binding carries only the outward face. */
   session: Session
@@ -489,7 +489,7 @@ export class SessionsService implements ISessions {
    * @param id - session id (the agent identity — 1:1 same axis).
    * @returns scoped ctx, or undefined for a session neither listed nor already scoped.
    */
-  scope(id: SessionId): Context | undefined {
+  scope(id: SessionId): AgentContext | undefined {
     return this.resolve(id)?.ctx
   }
 

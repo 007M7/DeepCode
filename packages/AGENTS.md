@@ -19,7 +19,7 @@ These package-specific rules supplement the repo-wide [conventions](../AGENTS.md
 
 Naming notes:
 
-- **Package tsconfig shape:** extends `tsconfig.base.json` (client: `tsconfig.base.client.json`), `rootDir: src`, `outDir: lib/types`, a `references` entry per workspace dependency plus `support/invariants`; registered in exactly one aggregate — host packages in `tsconfig.host.json`, client in `tsconfig.client.json` ([layout](../docs/development.md#typescript-project-layout)).
+- **Package tsconfig:** extends `tsconfig.base.json` (Client: `tsconfig.base.client.json`), uses `rootDir: src`, `outDir: lib/types`, and references each workspace dependency plus `support/invariants`; registers in exactly one aggregate. Only `api/remotes` splits for generated contracts; ordinary two-entry Client plugins do not ([layout](../docs/development.md#typescript-project-layout)).
 - `src/types.ts` contains only types — no runtime code.
 - Tests live at package level under `tests/`, not `src/__tests__/`.
 - A package's README and JSDoc are part of the change: altered behavior (config keys, defaults, error codes, wire fields) updates them in the same commit. `doc-sync` gates what it can; apply [dsh-prose-standard](../.agents/skills/dsh-prose-standard/SKILL.md) for complete, concise prose and verify accuracy against code.

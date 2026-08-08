@@ -107,7 +107,11 @@ async function harness(presets?: readonly string[]) {
     },
   }
   ctx.agents.setFactory(factory)
-  const api = createApiProxy(ctx, { provider: 'test', model: 'test-model', cwd, workspaceRoot: cwd })
+  const api = createApiProxy(ctx, {
+    defaultTarget: () => ({ provider: 'test', model: 'test-model' }),
+    cwd,
+    workspaceRoot: cwd,
+  })
   return { api, ctx, cwd }
 }
 

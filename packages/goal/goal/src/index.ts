@@ -5,13 +5,14 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { Context, Service } from 'cordis'
+import { Context } from 'cordis'
 import z from 'schemastery'
 import { z as zod } from 'zod'
 import type { ZodType } from 'zod'
 import { agentEvents } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import { GatewayService, Remote } from '@deepseek-ai/dsh-type-meta'
 // Type-only: resolves ctx.sessionProjections for the optional unit child.
 import type {} from '@deepseek-ai/dsh-session-projection'
 import {
@@ -27,22 +28,23 @@ import {
   GoalId,
 } from './runtime.ts'
 import type {
+  CreateGoalRequest,
+  CreateGoalResult,
+  EditGoalRequest,
+  GoalActivation,
   GoalBlockReason,
   GoalPhase,
   GoalProjection,
   GoalRef,
   GoalSnapshot,
+  GoalView,
 } from './types.ts'
 import type {
-  CreateGoalRequest,
-  EditGoalRequest,
-  GoalActivation,
   GoalChangeMeta,
   GoalChanged,
   GoalClearChangeMeta,
   GoalOperation,
   GoalSnapshotChangeMeta,
-  GoalView,
 } from './domain.ts'
 
 // The pure payload outlet (./types.ts, ONE home of the `goal` projection-key
@@ -178,7 +180,7 @@ function resolveBlockReason(reason: unknown): GoalBlockReason {
 }
 
 /** Goal service (`ctx.goals`) backed exclusively by the owning session log. */
-export class GoalService extends Service {
+export class GoalService extends GatewayService {
   static inject = ['agents']
 
   static Config: z<Config> = z.object({
@@ -271,6 +273,7 @@ export class GoalService extends Service {
    * @param request - at least one replacement field.
    * @returns the edited view.
    */
+  @Remote('edit')
   edit(agent: Agent, ref: GoalRef, request: EditGoalRequest): GoalView {
     const cache = this.prepareMutation(agent)
     const current = this.expectCurrent(cache, ref)
@@ -292,6 +295,7 @@ export class GoalService extends Service {
    * @param ref - expected current revision.
    * @returns the paused view.
    */
+  @Remote('pause')
   pause(agent: Agent, ref: GoalRef): GoalView {
     return this.transition(agent, ref, 'pause', ['active'], 'paused', 'disarmed')
   }
@@ -303,6 +307,7 @@ export class GoalService extends Service {
    * @param ref - expected current revision.
    * @returns the active view.
    */
+  @Remote('resume')
   resume(agent: Agent, ref: GoalRef): GoalView {
     const cache = this.prepareMutation(agent)
     const current = this.expectCurrent(cache, ref)
@@ -328,6 +333,7 @@ export class GoalService extends Service {
    * @param ref - expected current revision.
    * @returns the completed view.
    */
+  @Remote('complete')
   complete(agent: Agent, ref: GoalRef): GoalView {
     return this.transition(
       agent,
@@ -367,6 +373,7 @@ export class GoalService extends Service {
    * @param ref - expected current revision.
    * @returns the tombstone ref whose revision is one past the cleared snapshot.
    */
+  @Remote('clear')
   clear(agent: Agent, ref: GoalRef): GoalRef {
     const cache = this.prepareMutation(agent)
     const current = this.expectCurrent(cache, ref)
@@ -567,6 +574,18 @@ export class GoalService extends Service {
       updatedAt,
       activation: cache.activation,
     }
+  }
+
+  /**
+   * Create one Goal through the remote boundary.
+   * @param agent - exact live Agent resolved from the wire identity.
+   * @param request - objective and optional round cap.
+   * @returns the created Goal identity.
+   */
+  @Remote('create')
+  remoteExportCreate(agent: Agent, request: CreateGoalRequest): CreateGoalResult {
+    const view = this.create(agent, request)
+    return { ref: { id: view.id, revision: view.revision } }
   }
 }
 

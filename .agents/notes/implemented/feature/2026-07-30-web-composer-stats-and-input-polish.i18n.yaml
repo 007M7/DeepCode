@@ -1,6 +1,0 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
-#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-07-30-web-composer-stats-and-input-polish.md
-2026-07-30-web-composer-stats-and-input-polish.md: 78f286cb0edf58d0212492024b8706ffd432ee70
-2026-07-30-web-composer-stats-and-input-polish.zh.md: eeba56d9f3c2ef10222e32b0809e099f60181ac8

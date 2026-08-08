@@ -31,7 +31,7 @@ await ctx.credentials.unset(ref)                         // no-op when absent; s
 
 ## Providers
 
-[`dsh-credentials-local`](../credentials-local/README.md) 把活跃进程环境叠加在 `$DSH_HOME/.env` 文件之上。seam 形状为 keyring、辅助命令、KMS 后端的 provider 留好了位置；远端 settings provider 永远不必携带机密。
+[`dsh-credentials-local`](../credentials-local/README.md) 把继承的进程环境叠加在其受管 `$DSH_HOME/.credentials.yaml` 文档之上，并以启动器的项目和用户 `.env` 层作为后备。seam 形状为 keyring、辅助命令、KMS 后端的 provider 留好了位置；远端 settings provider 永远不必携带机密。
 
 ## Model Experience
 

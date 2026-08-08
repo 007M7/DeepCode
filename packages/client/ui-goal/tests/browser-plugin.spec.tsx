@@ -1,16 +1,16 @@
 // @vitest-environment jsdom
 /**
- * ui-goal browser half on a real cordis Context with fake slots/connection/
+ * ui-goal browser half on a real cordis Context with fake slots/api/
  * sessions faces: the plugin registers the GoalBar dock entry at
- * conversation.input.dock, the inject face's three verbs read the CAS ref
+ * conversation.input.dock, the inject face's four verbs read the CAS ref
  * from the session's CURRENT projected value at call time (no fence — the
- * RPC's compare-and-set is the guard), a missing projection short-circuits
- * to the no-current-goal error without touching the wire, and RPC errors
+ * Remote method's compare-and-set is the guard), a missing projection short-circuits
+ * to the no-current-goal error without touching the wire, and Remote errors
  * map onto the inline-render result shape. Registration disposal rides the
  * plugin fiber (HMR safety). The node half and the invariant companion are
  * exercised over the same Context.
  */
-import { Context } from 'cordis'
+import { Context, Service } from 'cordis'
 import { describe, expect, it, vi } from 'vitest'
 import { cleanup, render } from '@testing-library/react'
 import { afterEach } from 'vitest'
@@ -44,27 +44,45 @@ function makeProjection(revision = 3): GoalProjection {
   }
 }
 
-/** Boot the plugin over fake faces; goals verbs record payloads and answer per the script. */
-async function bench(options: { projection?: GoalProjection | null | undefined; failWith?: { code: string; message: string } } = {}) {
+/** Boot the plugin over fake faces; Goal Remote methods record arguments and answer per the script. */
+async function bench(options: {
+  projection?: GoalProjection | null | undefined
+  failWith?: { code: string; message: string }
+  rejectWith?: unknown
+} = {}) {
   const ctx = new Context()
-  const calls: { method: string; payload: unknown }[] = []
+  const calls: { method: string; args: unknown[] }[] = []
   function answer<T>(method: string, value: T) {
-    return (payload: unknown) => {
-      calls.push({ method, payload })
-      return Promise.resolve({
-        result: options.failWith === undefined
-          ? { ok: true as const, value }
-          : { ok: false as const, error: { ...options.failWith, details: {} } },
-      })
+    return (...args: unknown[]) => {
+      calls.push({ method, args })
+      // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- the non-Error rejection is the defensive scenario under test.
+      if ('rejectWith' in options) return Promise.reject(options.rejectWith)
+      if (options.failWith !== undefined) {
+        return Promise.reject(new Error(`Remote ${method} failed`, { cause: options.failWith }))
+      }
+      return Promise.resolve(value)
     }
   }
   const ref = { id: 'g-1', revision: 3 }
-  ctx.provide('connection', { api: { goals: {
-    edit: answer('goal.edit', { ref }),
-    pause: answer('goal.pause', { ref }),
-    resume: answer('goal.resume', { ref }),
-    clear: answer('goal.clear', { cleared: true as const }),
-  } } })
+  const goals = (prefix: string) => ({
+    edit: answer(`${prefix}/edit`, { ref }),
+    pause: answer(`${prefix}/pause`, { ref }),
+    resume: answer(`${prefix}/resume`, { ref }),
+    clear: answer(`${prefix}/clear`, ref),
+  })
+  let activeGoals: ReturnType<typeof goals> | undefined = goals('goals')
+  class RemoteService extends Service {
+    constructor(serviceCtx: Context) {
+      super(serviceCtx, 'remote')
+    }
+  }
+  new RemoteService(ctx)
+  ctx.provide('remote.goals', {
+    get edit() { return activeGoals?.edit },
+    get pause() { return activeGoals?.pause },
+    get resume() { return activeGoals?.resume },
+    get clear() { return activeGoals?.clear },
+  })
   await ctx.plugin(SlotsService).await()
   ctx.slots.register({
     name: 'root', children: { 'conversation.input.dock': { kind: 'list', scope: 'session' } },
@@ -85,6 +103,8 @@ async function bench(options: { projection?: GoalProjection | null | undefined; 
     ctx,
     fiber,
     calls,
+    remountGoals: () => { activeGoals = goals('remounted-goals') },
+    unmountGoals: () => { activeGoals = undefined },
     entry: () => {
       const entry = ctx.slots.entries('conversation.input.dock')[0]
       if (entry === undefined) return undefined
@@ -113,12 +133,34 @@ describe('ui-goal browser plugin', () => {
     expect(await verbs.onPause()).toEqual({ ok: true })
     expect(await verbs.onResume()).toEqual({ ok: true })
     expect(await verbs.onClear()).toEqual({ ok: true })
-    expect(b.calls.map(c => c.method)).toEqual(['goal.edit', 'goal.pause', 'goal.resume', 'goal.clear'])
+    expect(b.calls.map(c => c.method)).toEqual(['goals/edit', 'goals/pause', 'goals/resume', 'goals/clear'])
     const ref = { id: 'g-1', revision: 5 }
-    expect(b.calls[0]?.payload).toEqual({ sessionId: 's1', ref, objective: 'New objective' })
-    expect(b.calls[1]?.payload).toEqual({ sessionId: 's1', ref })
-    expect(b.calls[2]?.payload).toEqual({ sessionId: 's1', ref })
-    expect(b.calls[3]?.payload).toEqual({ sessionId: 's1', ref })
+    expect(b.calls[0]?.args).toEqual(['s1', ref, { objective: 'New objective' }])
+    expect(b.calls[1]?.args).toEqual(['s1', ref])
+    expect(b.calls[2]?.args).toEqual(['s1', ref])
+    expect(b.calls[3]?.args).toEqual(['s1', ref])
+  })
+
+  it('verbs read a remounted Remote namespace at action time', async () => {
+    const b = await bench({ projection: makeProjection() })
+    await b.fiber.await()
+    const verbs = b.entry()!.inject!(sid('s1'))
+    b.remountGoals()
+
+    expect(await verbs.onPause()).toEqual({ ok: true })
+    expect(b.calls).toMatchObject([{ method: 'remounted-goals/pause' }])
+  })
+
+  it('settles every verb when the Remote namespace is temporarily absent', async () => {
+    const b = await bench({ projection: makeProjection() })
+    await b.fiber.await()
+    const verbs = b.entry()!.inject!(sid('s1'))
+    b.unmountGoals()
+
+    for (const result of [await verbs.onEdit('x'), await verbs.onPause(), await verbs.onResume(), await verbs.onClear()]) {
+      expect(result).toMatchObject({ ok: false, error: { code: 'internal' } })
+    }
+    expect(b.calls).toHaveLength(0)
   })
 
   it('a null or absent projection short-circuits every verb without touching the wire', async () => {
@@ -133,11 +175,24 @@ describe('ui-goal browser plugin', () => {
     }
   })
 
-  it('maps a settled RPC error onto the inline-render shape', async () => {
+  it('maps a Remote error onto the inline-render shape', async () => {
     const b = await bench({ projection: makeProjection(), failWith: { code: 'internal', message: 'stale revision' } })
     await b.fiber.await()
     const verbs = b.entry()!.inject!(sid('s1'))
     expect(await verbs.onEdit('x')).toEqual({ ok: false, error: { code: 'internal', message: 'stale revision' } })
+  })
+
+  it.each([
+    [new Error('connection closed'), 'connection closed'],
+    ['connection closed', 'goal mutation failed'],
+    [new Error('invalid Remote failure', { cause: null }), 'invalid Remote failure'],
+    [new Error('invalid Remote failure', { cause: { code: 1, message: 'stale revision' } }), 'invalid Remote failure'],
+    [new Error('invalid Remote failure', { cause: { code: 'internal', message: 1 } }), 'invalid Remote failure'],
+  ])('maps an unstructured rejection onto an internal error', async (rejection, message) => {
+    const b = await bench({ projection: makeProjection(), rejectWith: rejection })
+    await b.fiber.await()
+    const verbs = b.entry()!.inject!(sid('s1'))
+    expect(await verbs.onEdit('x')).toEqual({ ok: false, error: { code: 'internal', message } })
   })
 
   it('drops the dock entry when the plugin fiber unloads (HMR safety)', async () => {
