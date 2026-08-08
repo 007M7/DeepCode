@@ -157,19 +157,19 @@ const SEARCH_MATCHES_FIXTURE: { path: string; matches: { lineNumber: number; lin
     ],
   },
   {
-    path: 'packages/client/ui-conversation/src/client/contract/search-card-model.ts',
+    path: 'packages/client/ui-tool/src/client/tool/models/search-card-model.ts',
     matches: [
-      { lineNumber: 24, line: 'export const CHAT_SEARCH_MAX_LINES = 8' },
-      { lineNumber: 60, line: 'export function searchCardModel(block: ToolCallBlock): SearchCardModel | null {' },
+      { lineNumber: 45, line: 'export const CHAT_SEARCH_MAX_LINES = 8' },
+      { lineNumber: 130, line: 'export function searchCardModel(block: ToolCallBlock): SearchCardModel | null {' },
     ],
   },
   {
-    path: 'packages/client/ui-conversation/src/client/toolviews/search-row.tsx',
+    path: 'packages/client/ui-tool/src/client/tool/toolviews/search-row.tsx',
     matches: [
-      { lineNumber: 33, line: 'export function SearchRow({ toolName, block, inspect, t }: SearchRowProps) {' },
-      { lineNumber: 35, line: '  const search = searchCardModel(block)' },
-      { lineNumber: 52, line: '      search={search}' },
-      { lineNumber: 78, line: "      yield ctx.slots.register({ name: 'conversation.chat.toolview', key: 'grep', locale: NS }, SearchRow)" },
+      { lineNumber: 34, line: 'export function SearchRow({ toolName, block, inspect, t }: SearchRowProps) {' },
+      { lineNumber: 36, line: '  const search = searchCardModel(block)' },
+      { lineNumber: 56, line: '      search={search}' },
+      { lineNumber: 78, line: "      yield ctx.slots.register({ name: 'tool.call.toolview', key: 'grep', locale: NS }, SearchRow)" },
     ],
   },
 ]
@@ -197,9 +197,9 @@ const SEARCH_MATCHES_TEXT = [
 const SEARCH_PATHS_FIXTURE = [
   'packages/client/ui-primitives/src/SearchBlock.tsx',
   'packages/client/ui-primitives/src/SearchBlock.module.css',
-  'packages/client/ui-conversation/src/client/contract/search-card-model.ts',
-  'packages/client/ui-conversation/src/client/toolviews/search-row.tsx',
-  'packages/client/ui-conversation/tests/search-card.spec.tsx',
+  'packages/client/ui-tool/src/client/tool/models/search-card-model.ts',
+  'packages/client/ui-tool/src/client/tool/toolviews/search-row.tsx',
+  'packages/client/ui-tool/tests/search-card.spec.tsx',
 ]
 
 /**

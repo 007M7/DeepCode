@@ -85,7 +85,7 @@ declare module '@deepseek-ai/dsh-type-meta' {
   }
 }
 
-/** The conversation-snapshot selector hook (ConvViewProps/ToolRowProps take this). */
+/** The conversation-snapshot selector hook supplied to session-scoped UI entries. */
 export type UseConversationSession = SnapshotSelectorHook<ConversationSnapshot>
 
 /**
