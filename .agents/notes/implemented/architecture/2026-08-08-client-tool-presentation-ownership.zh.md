@@ -66,6 +66,8 @@ slot 声明同时限定渲染所有权。conversation chat entry 通过 `childre
 
 整体席位的 `ToolTreeOwnerProps` 携带 root `callId`、`toolName`、`ToolCallBlock`、`selectedCallId`、session `cwd`、`openFile(path)` 与 `inspectCall(callId)`。`ToolCallTree` 把 root 或 child 转成相同的 `ToolCallOwnerProps`，并把 inspect 收窄成当前 call 的回调。原子 owner 不携带 `ReactNode`、Cordis `Context`、Session service 或 projector；业务 view 只消费一个标准调用块和宿主动作。
 
+席位填充方还要在每个 root 和 child wrapper 上保留 conversation DOM 契约：`data-chat-anchor-key="call:<callId>"`、`data-chat-call-id`，以及 selected call 上的 `data-selected="true"`。`ChatView` 用 anchor key 恢复 prepend/paging 位置；child wrapper 由 Tool owner 独自编排，因此这些属性也由它输出。
+
 业务插件遵循同一个注册形态：
 
 ```text

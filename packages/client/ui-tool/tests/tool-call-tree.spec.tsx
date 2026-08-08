@@ -7,7 +7,7 @@ import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import type { ToolTreeProps } from '../src/client/contract/slots.ts'
 import { ToolCallTree } from '../src/client/tool/ToolCallTree.tsx'
-import { zh } from '../../ui-conversation/src/client/locales.ts'
+import { zh } from '@deepseek-ai/dsh-client-ui-conversation/src/client/locales.ts'
 
 afterEach(cleanup)
 

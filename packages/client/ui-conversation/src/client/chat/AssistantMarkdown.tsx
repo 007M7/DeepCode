@@ -81,7 +81,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
             case 'text': return (
               <MarkdownText key={i} text={block.text} streaming={streaming} codeLabels={codeLabels} />
             )
-            case 'reasoning': return <ReasoningRow key={i} text={block.text} running={streaming && i === last} />
+            case 'reasoning': return <ReasoningRow key={i} text={block.text} running={streaming && i === last} t={t} />
             // Grouped into tool rows by ChatView; hasVisible above skips an empty shell.
             case 'tool-call': return null
             default: return (

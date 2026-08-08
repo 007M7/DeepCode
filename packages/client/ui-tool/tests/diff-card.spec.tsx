@@ -16,12 +16,12 @@ import type { SelectionTarget } from '@deepseek-ai/dsh-client-ui-conversation/cl
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { CHAT_DIFF_MAX_LINES, diffCardModel } from '../src/client/tool/models/diff-card-model.ts'
-import { createChatStore } from '../../ui-conversation/src/client/stores.ts'
+import { createChatStore } from '@deepseek-ai/dsh-client-ui-conversation/src/client/stores.ts'
 import { GenericToolCard, type GenericToolCardProps } from '../src/client/tool/toolviews/GenericToolCard.tsx'
-import { DetailsPanel } from '../../ui-conversation/src/client/skeleton/DetailsPanel.tsx'
+import { DetailsPanel } from '@deepseek-ai/dsh-client-ui-conversation/src/client/skeleton/DetailsPanel.tsx'
 import { FileMutationRow, fileMutationToolview } from '../src/client/tool/toolviews/file-mutation-row.tsx'
 import { renderToolDetails, SessionProviderStub } from './tool-details-render.tsx'
-import { zh } from '../../ui-conversation/src/client/locales.ts'
+import { zh } from '@deepseek-ai/dsh-client-ui-conversation/src/client/locales.ts'
 
 afterEach(cleanup)
 

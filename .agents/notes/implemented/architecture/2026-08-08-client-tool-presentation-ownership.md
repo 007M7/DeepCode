@@ -66,6 +66,8 @@ A slot declaration also constrains render ownership. The conversation chat entry
 
 The whole seat's `ToolTreeOwnerProps` carries the root `callId`, `toolName`, `ToolCallBlock`, `selectedCallId`, session `cwd`, `openFile(path)`, and `inspectCall(callId)`. `ToolCallTree` converts either a root or child into the same `ToolCallOwnerProps` and narrows inspect to a callback for that call. The atomic owner carries no `ReactNode`, Cordis `Context`, Session service, or projector; a business view consumes only one standard call block and host actions.
 
+The seat filler also preserves the conversation DOM contract on every root and child wrapper: `data-chat-anchor-key="call:<callId>"`, `data-chat-call-id`, and `data-selected="true"` on the selected call. `ChatView` consumes the anchor key to restore prepend/paging position; the Tool owner emits it because it alone composes child wrappers.
+
 Business plugins use one registration shape:
 
 ```text

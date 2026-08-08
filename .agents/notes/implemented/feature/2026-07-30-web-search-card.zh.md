@@ -12,7 +12,7 @@ Status: implemented
 
 ## Decision
 
-`SearchBlock` 是一个 `ui-primitives` 组件，把一次已完成的搜索渲染成两种形态之一，`grep`/`glob` 调用的 Web 渲染点都通过它消费搜索 render intent。`ui-tool/src/client/models/search-card-model.ts` 是把 snapshot 的 `resultView` 转成组件 props 的唯一位置，因此没有渲染点重新推导形态。当结果视图不是搜索卡片时它返回 null（走 generic 路径），包括仍在运行的调用（搜索卡片仅在结果阶段存在，`execute` 前无内容）、`grep`/`glob` 失败或嵌套 `run_code` dispatch 产生的 generic 结果、terminal 结果视图、本客户端版本不认识的 `card` 值、`shape` 是本版本无法编译的 `card: 'search'` 视图，以及 —— 因为 `shape` 和分组/扁平内容与 host schema 只做字符串校验的那同一个不可信 wire 帧同行 —— 一个 `shape` 已知但 `files`/`paths` 缺失或格式错误的视图（否则会让 `SearchBlock` 在 `.reduce`/`.map` 处崩溃）。结果视图的判别键是 `shape`（不是 `kind` —— 后端把 `kind` 留给 call view 的选图标签）；`SearchBlock` 自身的 prop 仍是 `kind`，由本推导从 `shape` 映射得到。
+`SearchBlock` 是一个 `ui-primitives` 组件，把一次已完成的搜索渲染成两种形态之一，`grep`/`glob` 调用的 Web 渲染点都通过它消费搜索 render intent。`ui-tool/src/client/tool/models/search-card-model.ts` 是把 snapshot 的 `resultView` 转成组件 props 的唯一位置，因此没有渲染点重新推导形态。当结果视图不是搜索卡片时它返回 null（走 generic 路径），包括仍在运行的调用（搜索卡片仅在结果阶段存在，`execute` 前无内容）、`grep`/`glob` 失败或嵌套 `run_code` dispatch 产生的 generic 结果、terminal 结果视图、本客户端版本不认识的 `card` 值、`shape` 是本版本无法编译的 `card: 'search'` 视图，以及 —— 因为 `shape` 和分组/扁平内容与 host schema 只做字符串校验的那同一个不可信 wire 帧同行 —— 一个 `shape` 已知但 `files`/`paths` 缺失或格式错误的视图（否则会让 `SearchBlock` 在 `.reduce`/`.map` 处崩溃）。结果视图的判别键是 `shape`（不是 `kind` —— 后端把 `kind` 留给 call view 的选图标签）；`SearchBlock` 自身的 prop 仍是 `kind`，由本推导从 `shape` 映射得到。
 
 与终端卡片的不对称是刻意的，继承自后端契约：`terminalCardModel` 同时读 `callView` 和 `resultView`，因为命令、cwd、description 在调用时就存在；`searchCardModel` 只读 `resultView`，因为搜索的匹配或路径只在执行后存在。因此运行中的搜索行只显示摘要，没有卡片。
 

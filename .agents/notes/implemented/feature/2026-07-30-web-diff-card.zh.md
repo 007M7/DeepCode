@@ -14,7 +14,7 @@ Web 客户端忽略了它。write/edit 调用落到 `GenericToolCard`，其行�
 
 ## Decision
 
-`DiffBlock` 是一个 `ui-primitives` 组件，把文件改动渲染为内联 diff 表面，write/edit 调用的两个 Web 渲染点都通过它消费 diff 渲染意图：chat 工具行的行体和详情面板的 Output 区。`ui-tool/src/client/models/diff-card-model.ts` 是唯一把快照的 `callView`/`resultView` 对转成组件 props 的地方，因此两个渲染点不会对一次改动产生分歧。当两侧都未声明 `card: 'diff'` 时它返回 null —— 走通用路径 —— 包括本客户端版本不认识的 `card` 值，以及已结算调用的 result view 是 generic 的情况（write/edit 的执行错误正是这样留在通用路径上的）。调用结算后 result 侧是权威：已应用的 hunk 替换仅从参数推导的 call 时 diff。分页窗口丢弃了 call 头也仍能渲染，因为 result view 携带完整改动。
+`DiffBlock` 是一个 `ui-primitives` 组件，把文件改动渲染为内联 diff 表面，write/edit 调用的两个 Web 渲染点都通过它消费 diff 渲染意图：chat 工具行的行体和详情面板的 Output 区。`ui-tool/src/client/tool/models/diff-card-model.ts` 是唯一把快照的 `callView`/`resultView` 对转成组件 props 的地方，因此两个渲染点不会对一次改动产生分歧。当两侧都未声明 `card: 'diff'` 时它返回 null —— 走通用路径 —— 包括本客户端版本不认识的 `card` 值，以及已结算调用的 result view 是 generic 的情况（write/edit 的执行错误正是这样留在通用路径上的）。调用结算后 result 侧是权威：已应用的 hunk 替换仅从参数推导的 call 时 diff。分页窗口丢弃了 call 头也仍能渲染，因为 result view 携带完整改动。
 
 该组件与 TUI 共用单栏框架、行终止符规则和去重路径计数。两者的行分类不同：Web 渲染完整的变更前后两侧，而 TUI 会在有界比较完成时派生中性上下文和精确变更行，并把整侧回退标记为近似结果。
 

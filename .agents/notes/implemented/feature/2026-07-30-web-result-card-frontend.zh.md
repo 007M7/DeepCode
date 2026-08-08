@@ -10,7 +10,7 @@ Status: implemented
 
 ## Decision
 
-`WebBlock` 是一个 `ui-primitives` 组件,渲染一次已完成的 web 检索,web 调用的每个 Web 渲染点都通过它消费 `web` 渲染意图:键控的 chat 工具行（`web_search`/`web_fetch`）、`GenericToolCard` 渲染点兜底,以及详情面板的 Output 区。`ui-tool/src/client/models/web-card-model.ts` 是唯一把快照的 `resultView` 转成组件 props 的地方,镜像 `terminal-card-model.ts`,因此没有两个渲染点会对一次 web 调用的显示产生分歧。它返回 null —— 走通用路径 —— 对运行中的调用（web 卡片是 result-only 的,因为工具保留 generic pending 视图）、对 result view 不是 web 卡片的已结算调用（包括本客户端版本不认识的 `card` 值,它经 wire 抵达因而不能被信任为已编译的变体）、对 generic result view（web 工具的错误路径返回 generic 卡片,其文本由通用路径保留）、以及对本客户端版本不认识 `kind` 的 web 卡片（更新的 host 经 wire 发来的值,读作 fetch 会画出空 URL 和 `HTTP undefined`）。
+`WebBlock` 是一个 `ui-primitives` 组件,渲染一次已完成的 web 检索,web 调用的每个 Web 渲染点都通过它消费 `web` 渲染意图:键控的 chat 工具行（`web_search`/`web_fetch`）、`GenericToolCard` 渲染点兜底,以及详情面板的 Output 区。`ui-tool/src/client/tool/models/web-card-model.ts` 是唯一把快照的 `resultView` 转成组件 props 的地方,镜像 `terminal-card-model.ts`,因此没有两个渲染点会对一次 web 调用的显示产生分歧。它返回 null —— 走通用路径 —— 对运行中的调用（web 卡片是 result-only 的,因为工具保留 generic pending 视图）、对 result view 不是 web 卡片的已结算调用（包括本客户端版本不认识的 `card` 值,它经 wire 抵达因而不能被信任为已编译的变体）、对 generic result view（web 工具的错误路径返回 generic 卡片,其文本由通用路径保留）、以及对本客户端版本不认识 `kind` 的 web 卡片（更新的 host 经 wire 发来的值,读作 fetch 会画出空 URL 和 `HTTP undefined`）。
 
 一个组件绘制两种 kind,由 `kind` 判别。`search` 把 answer 作为 markdown 显示在引用列表上方;每个 source 是一个安全外链,以其标题为标签,provider 未给标题时以其主机名为标签,下方是 snippet 与发布日期,工具截断列表时显示 `来源列表已截断` 提示。`fetch` 显示一个紧凑摘要:带链接的最终 URL、其 HTTP 状态、以及 `内容已截断` 提示。用一个组件而非两个,因为两者都是渲染为同一卡片族的 web 检索 —— 这正是契约把它们放在一个 `card` 标签下、用 `kind` 判别的原因。
 

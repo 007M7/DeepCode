@@ -47,6 +47,7 @@ describe('ReasoningRow', () => {
         streaming
       />,
     )
+    expect(view.getByText('运行中')).toBeTruthy()
     const summary = view.getByText('Newest reasoning tokens')
     Object.defineProperties(summary, {
       scrollWidth: { configurable: true, value: 300 },
@@ -76,6 +77,7 @@ describe('ReasoningRow', () => {
     )
     flushAnimationFrames(3)
     expect(view.getByText('Inspect the session')).toBeTruthy()
+    expect(view.queryByText('运行中')).toBeNull()
     expect(summary.scrollLeft).toBe(0)
     expect(summary.hasAttribute('data-follow-end')).toBe(false)
   })

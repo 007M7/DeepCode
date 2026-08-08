@@ -9,7 +9,7 @@ import { resolveWorkspacePath } from '@deepseek-ai/dsh-client-runtime/client'
 import { classifyTool, resultText, toolRowModel } from '../src/client/tool/models/tool-call-model.ts'
 import { ToolRow } from '../src/client/tool/components/ToolRow.tsx'
 import { GenericToolCard, type GenericToolCardProps } from '../src/client/tool/toolviews/GenericToolCard.tsx'
-import { zh } from '../../ui-conversation/src/client/locales.ts'
+import { zh } from '@deepseek-ai/dsh-client-ui-conversation/src/client/locales.ts'
 
 afterEach(() => {
   cleanup()

@@ -1269,6 +1269,7 @@ describe('ChatView', () => {
     const fv = render(<failed.ChatView {...failed.props} />)
     expect(fv.container.querySelector('[data-state="error"]')).not.toBeNull()
     expect(fv.getByText('命令失败')).toBeTruthy()
+    expect(fv.getByText('失败')).toBeTruthy()
 
     // Still executing: running state with the executing copy.
     const executing = makeHarness({

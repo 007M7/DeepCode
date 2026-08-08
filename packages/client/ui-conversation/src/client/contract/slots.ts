@@ -33,6 +33,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     /**
      * One root Tool call at its ordered ChatFlow position. The chat view owns
      * placement; ui-tool owns root/subcall composition and keyed dispatch.
+     * The filler preserves the call-anchor DOM contract documented by
+     * {@link ToolTreeOwnerProps} for every root and child wrapper.
      */
     'conversation.chat.tool': { kind: 'single'; scope: 'session'; owner: ToolTreeOwnerProps }
     /**
@@ -176,7 +178,12 @@ export interface TurnTailOwnerProps {
   openFile: (path: string) => void
 }
 
-/** Owner currency of the chat view's whole-Tool rendering seat. */
+/**
+ * Owner currency of the chat view's whole-Tool rendering seat. The filler
+ * wraps every rendered root and child with `data-chat-anchor-key="call:<id>"`
+ * and `data-chat-call-id="<id>"`, plus `data-selected="true"` for the selected
+ * call. ChatView consumes those anchors to restore prepend/paging position.
+ */
 export interface ToolTreeOwnerProps {
   /** Root Tool call identity, stable across running → settled. */
   callId: CallId

@@ -10,7 +10,7 @@ Status: implemented
 
 ## Decision
 
-`ReadBlock` 是一个 `ui-primitives` 组件，把一次读取结果渲染成带行号、可选语法高亮的文件视图，读取的两个 Web 渲染点都通过它消费读取渲染意图：聊天工具行（常驻在摘要行之下）与详情面板的 Output 区段。`ui-tool/src/client/models/read-card-model.ts` 是把快照的 `resultView` 转成组件 props 的唯一位置，因此两个渲染点不会产生分歧。
+`ReadBlock` 是一个 `ui-primitives` 组件，把一次读取结果渲染成带行号、可选语法高亮的文件视图，读取的两个 Web 渲染点都通过它消费读取渲染意图：聊天工具行（常驻在摘要行之下）与详情面板的 Output 区段。`ui-tool/src/client/tool/models/read-card-model.ts` 是把快照的 `resultView` 转成组件 props 的唯一位置，因此两个渲染点不会产生分歧。
 
 **新建一个 `ReadBlock` primitive，而不是扩展 `CodeBlock`。** `CodeBlock` 已经带语言横幅和复制控件做 shiki 高亮，但读取视图需要一个每行带该行自身文件行号的行号栏，而 `CodeBlock` 把内容渲染为单个 `<pre>` 树、没有逐行结构。给 `CodeBlock` 加一个可选行号栏会把读取专属的关切（窗口行号、"显示 N / M"提示、高度上限）强加给共享该组件的每个 markdown 代码围栏和每个 `run_code` 程序体。`ReadBlock` 转而复用真正共享的部分：`markdown/highlight.ts` 里的 shiki 语法单例。那里新增的 `highlightLines(code, lang)` 把代码切成 shiki 自己的逐行 token 数组（`codeToTokens`），而不是 `highlightToHtml` 产出的单 `<pre>` HTML，于是该 block 能每行放一个行号、同时用同一套 `--shiki-*` 自定义属性、同一份语法白名单给内容上色。高度上限及其头/尾展开算法照抄自 `TerminalBlock`（`ceil(max/2)` 行头部加剩余的尾部），因此长读取和长命令输出在同一处折叠。复制控件写入窗口的原始文本（各行以换行拼接），绝不含行号栏或横幅。
 

@@ -19,10 +19,10 @@ import type {
 import type { ToolResultView } from '@deepseek-ai/dsh-client-connection/client'
 import type { SelectionTarget } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { CHAT_READ_MAX_LINES, readCardModel } from '../src/client/tool/models/read-card-model.ts'
-import { createChatStore } from '../../ui-conversation/src/client/stores.ts'
+import { createChatStore } from '@deepseek-ai/dsh-client-ui-conversation/src/client/stores.ts'
 import { GenericToolCard, type GenericToolCardProps } from '../src/client/tool/toolviews/GenericToolCard.tsx'
-import { zh } from '../../ui-conversation/src/client/locales.ts'
-import { DetailsPanel } from '../../ui-conversation/src/client/skeleton/DetailsPanel.tsx'
+import { zh } from '@deepseek-ai/dsh-client-ui-conversation/src/client/locales.ts'
+import { DetailsPanel } from '@deepseek-ai/dsh-client-ui-conversation/src/client/skeleton/DetailsPanel.tsx'
 import { ReadRow, readToolview } from '../src/client/tool/toolviews/read-row.tsx'
 import { renderToolDetails, SessionProviderStub } from './tool-details-render.tsx'
 

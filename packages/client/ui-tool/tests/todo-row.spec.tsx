@@ -8,7 +8,7 @@ import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts
 import { TodoRow, todoToolview } from '../src/client/tool/toolviews/todo-row.tsx'
 import { planSummary } from '../src/client/tool/toolviews/plan-summary.ts'
 import { CONVERSATION_NS as NS } from '../src/client/locale.ts'
-import { zh } from '../../ui-conversation/src/client/locales.ts'
+import { zh } from '@deepseek-ai/dsh-client-ui-conversation/src/client/locales.ts'
 
 type TodoRowProps = Parameters<typeof TodoRow>[0]
 

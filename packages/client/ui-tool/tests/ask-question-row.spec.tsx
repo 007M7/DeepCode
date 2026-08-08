@@ -14,7 +14,7 @@ import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 // Export discipline: packages/client/AGENTS.md.
 import { AskQuestionRow, askQuestionToolview } from '../src/client/tool/toolviews/ask-question-row.tsx'
-import { zh } from '../../ui-conversation/src/client/locales.ts'
+import { zh } from '@deepseek-ai/dsh-client-ui-conversation/src/client/locales.ts'
 
 afterEach(cleanup)
 
