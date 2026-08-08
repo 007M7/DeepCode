@@ -2,7 +2,7 @@
 /** Test driver that sends two turns through one Headless Loader composition. */
 
 import { boot, resolveConfigPath } from '@deepseek-ai/dsh-app-boot'
-import { runFixtureTurn } from './one-shot.ts'
+import { runFixtureTurn } from '@deepseek-ai/dsh-loader-smoke'
 
 const configPath = process.argv[2]
 if (configPath === undefined) throw new Error('time-context driver requires a config path')

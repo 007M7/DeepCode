@@ -376,6 +376,9 @@ importers:
       '@deepseek-ai/dsh-llm-replay':
         specifier: workspace:*
         version: link:../packages/support/llm-replay
+      '@deepseek-ai/dsh-loader-smoke':
+        specifier: workspace:*
+        version: link:../packages/support/loader-smoke
       '@deepseek-ai/dsh-lsp':
         specifier: workspace:*
         version: link:../packages/lsp/lsp
@@ -5936,9 +5939,18 @@ importers:
         specifier: ^4.22.4
         version: 4.22.4
     devDependencies:
+      '@deepseek-ai/dsh-agent':
+        specifier: workspace:^
+        version: link:../../core/agent
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../invariants
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:^
+        version: link:../../llm/llm
+      '@deepseek-ai/dsh-session':
+        specifier: workspace:^
+        version: link:../../core/session
       cordis:
         specifier: ^4.0.0-rc.6
         version: link:../../../vendor/cordis

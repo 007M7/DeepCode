@@ -14,7 +14,7 @@ The replay suites still need canonical session events to pin assembled backend b
 
 Delete `@deepseek-ai/dsh-cli-demo` completely: its package, bin, parser, app plugin, output formats, tests, workspace references, generated-catalog entries, and active documentation. No alias or compatibility package remains. The root `demo:headless` script is retained only as a direct alias of `dsh run`; the product command owns final-text stdout, the observation URL on stderr, persistence, exit status, and shutdown.
 
-`examples/headless-agent` becomes an explicit test composition. Its Loader configs mount `@deepseek-ai/dsh-agent-spine-demo`, one root agent, JSONL persistence, and checkpoint policy as separate rows instead of hiding them behind an app bundle. An unexported example-owned TypeScript fixture drives a task and emits canonical events as JSONL for replay snapshots. It is launched only by tests, has no package export or bin, and is not a supported product output format.
+`examples/headless-agent` becomes an explicit test composition. Its Loader configs mount `@deepseek-ai/dsh-agent-spine-demo`, one root agent, JSONL persistence, and checkpoint policy as separate rows instead of hiding them behind an app bundle. The support-tier `@deepseek-ai/dsh-loader-smoke` package owns the shared direct-agent turn helper; unexported example-local drivers select their Loader configuration and render canonical events as JSONL. They are launched only by tests, have no bin, and do not define a supported product output format.
 
 ## Alternatives considered
 

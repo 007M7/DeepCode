@@ -11,7 +11,7 @@ import { createServer } from 'node:http'
 import { once } from 'node:events'
 import { boot, resolveConfigPath } from '@deepseek-ai/dsh-app-boot'
 import { recordFeedback } from '@deepseek-ai/dsh-command-feedback'
-import { runFixtureTurn } from './one-shot.ts'
+import { runFixtureTurn } from '@deepseek-ai/dsh-loader-smoke'
 
 const configPath = process.argv[2]
 if (configPath === undefined) throw new Error('telemetry-otel driver requires a config path')

@@ -22,6 +22,7 @@ pnpm -v
 git clone https://github.com/deepseek-ai/deepseek-harness-sdk.git
 cd deepseek-harness
 pnpm install
+pnpm run build
 ```
 
 在仓库根目录创建已被 Git 忽略的 `.env`：
@@ -42,10 +43,9 @@ pnpm run dsh run "summarize the architecture of this workspace"
 
 ## 第三步：使用 Web UI
 
-构建并启动浏览器界面：
+启动浏览器界面：
 
 ```sh
-pnpm run build
 pnpm run dsh web
 ```
 

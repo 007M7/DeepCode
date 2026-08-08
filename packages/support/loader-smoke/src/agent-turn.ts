@@ -1,4 +1,7 @@
-/** Test-only direct-agent turn driver shared by assembled Loader fixtures. */
+/**
+ * Test-only direct-agent turn driver shared by assembled Loader fixtures.
+ * @module @deepseek-ai/dsh-loader-smoke/agent-turn
+ */
 
 import type { Context } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -39,7 +42,7 @@ function onlyRootAgent(ctx: Context): Agent {
   const agents = ctx.get('agents')?.roots() ?? []
   const [agent] = agents
   if (agent === undefined || agents.length !== 1) {
-    throw new Error(`headless fixture requires exactly one top-level agent, found ${agents.length}`)
+    throw new Error(`fixture turn requires exactly one top-level agent, found ${agents.length}`)
   }
   return agent
 }

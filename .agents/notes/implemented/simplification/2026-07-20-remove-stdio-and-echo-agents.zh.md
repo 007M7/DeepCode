@@ -24,13 +24,13 @@ DeepSeek Harness 在 TUI 和 Headless coding agent 之外，还提供了两个�
 
 SDK 工程模型与 create/config 工作流将 `stdio` 运行接口选项替换为 `tui`；生成的 TUI 工程组合 `@deepseek-ai/dsh-tui`，并创建或恢复一个确切会话。仓库中的演示文档要求 DeepSeek API key，并优先引导到真实的 Headless 或 TUI agent。
 
-无密钥验证由测试负责。Headless Loader 冒烟测试使用 fixture 适配器验证真实工具往返；`dsh` built-bin 测试套件固定单次运行的输出、持久化、失败和信号语义；各包专属的 Loader 测试则将确定性适配器放在对应场景旁。其中任何一项都不会作为可运行的 mock agent 对外暴露。
+无密钥验证由测试负责。Headless Loader 冒烟测试使用 fixture 适配器验证真实工具往返；`dsh` built-bin 测试套件固定已发布的一次性入口和输出；产品 Headless 快照固定持久化；Headless PTY 关闭 e2e 固定信号升级。各包专属的 Loader 测试则将确定性适配器放在对应场景旁。其中任何一项都不会作为可运行的 mock agent 对外暴露。
 
 ## 验证
 
 TUI 与 Headless 的 Loader 覆盖以源码和构建产物两种模式运行真实 app 包。由 PTY 驱动的子进程覆盖仅用于 TUI 生命周期；其他入口冒烟测试使用单次管道协议。Headless 验证任务/结果契约和工具调用契约。生成图谱与仓库搜索会拒绝陈旧的包、命令、叶节点、SDK 接口、`createStdioChat` 和 `StdioRuntime` 引用。
 
-构建后的 `dsh` 可执行文件会在 Loader 启动前拒绝通过管道启动 TUI，并指向 `dsh run`；`apps/cli/tests/built-bin.e2e.ts` 在普通 Node 下固定产品的一次性路径，包括输出、持久化、无效参数、缺失配置和信号。headless 示例仅供测试的 JSONL driver 保留组装后的规范事件快照，而不会创建第二套 CLI（命令行界面）契约。Code Mode 由程序化 TUI 快照与 ACP overlay demo 覆盖。时间上下文集成通过显式的 Headless 测试组装执行两个有序轮次，而更细粒度的耗时行为由时间上下文的包级测试负责。
+构建后的 `dsh` 可执行文件会在 Loader 启动前拒绝通过管道启动 TUI，并指向 `dsh run`；`apps/cli/tests/built-bin.e2e.ts` 在普通 Node 下固定产品的一次性入口，包括输出和无效参数。`examples/headless-agent/tests/headless.snapshot.ts` 固定产品持久化，`apps/cli/tests/headless-shutdown.e2e.ts` 则负责有界信号升级。headless 示例仅供测试的 JSONL driver 保留组装后的规范事件快照，而不会创建第二套 CLI（命令行界面）契约。Code Mode 由程序化 TUI 快照与 ACP overlay demo 覆盖。时间上下文集成通过显式的 Headless 测试组装执行两个有序轮次，而更细粒度的耗时行为由时间上下文的包级测试负责。
 
 ## 曾考虑的替代方案
 

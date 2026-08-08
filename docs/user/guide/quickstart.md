@@ -22,6 +22,7 @@ pnpm -v
 git clone https://github.com/deepseek-ai/deepseek-harness-sdk.git
 cd deepseek-harness
 pnpm install
+pnpm run build
 ```
 
 Create the gitignored repository-root `.env`:
@@ -42,10 +43,9 @@ pnpm run dsh run "summarize the architecture of this workspace"
 
 ## Step 3: use the Web UI
 
-Build and start the browser interface:
+Start the browser interface:
 
 ```sh
-pnpm run build
 pnpm run dsh web
 ```
 

@@ -3,8 +3,8 @@
 
 import type { Context } from 'cordis'
 import { boot, installFailLoud, loadEnv, resolveConfigPath } from '@deepseek-ai/dsh-app-boot'
+import { runFixtureTurn } from '@deepseek-ai/dsh-loader-smoke'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import { runFixtureTurn } from './one-shot.ts'
 
 const NAME = 'headless-test-driver'
 const [configPath, ...taskParts] = process.argv.slice(2)
@@ -16,7 +16,7 @@ const uninstallFailLoud = installFailLoud(NAME)
 let ctx: Context | undefined
 try {
   loadEnv(NAME)
-  ctx = await boot(NAME, resolveConfigPath(configPath, process.env.DSH_SNAPSHOT))
+  ctx = await boot(NAME, resolveConfigPath(configPath, undefined))
   const result = await runFixtureTurn(ctx, {
     task: taskParts.join(' '),
     onEvent: (sessionId: string, event: SessionEvent) => {

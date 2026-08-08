@@ -10,7 +10,7 @@
 | [`acp-demo/`](acp-demo/README.md) | `@deepseek-ai/dsh-acp-demo` | ACP 自动化应用组合包 |
 | [`jsonrpc-demo/`](jsonrpc-demo/README.md) | `@deepseek-ai/dsh-jsonrpc-demo` | 外部配置 JSON-RPC 运行时 |
 
-`agent-spine-demo` 是共享组合包；`acp-demo` 添加自动化入口，`jsonrpc-demo` 则启动由部署方拥有的插件树。产品单次执行归 `dsh run` 所有，而不再由本目录中的 package 提供。
+`agent-spine-demo` 是共享组合包；`acp-demo` 添加自动化入口，`jsonrpc-demo` 则启动由部署方拥有的插件树。产品单次执行归 `dsh run` 所有；本目录没有任何包提供该功能。
 
 这些包不是产品 API。产品 seam 与前端入口仍位于各自的归属组；演示组合包只选择具体组合。
 

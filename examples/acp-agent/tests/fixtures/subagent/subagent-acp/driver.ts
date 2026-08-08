@@ -2,7 +2,7 @@
 /** Test driver: one delegation turn through a headless Loader composition. */
 
 import { boot, resolveConfigPath } from '@deepseek-ai/dsh-app-boot'
-import { runFixtureTurn } from '../../../../../headless-agent/tests/fixtures/one-shot.ts'
+import { runFixtureTurn } from '@deepseek-ai/dsh-loader-smoke'
 
 const configPath = process.argv[2]
 if (configPath === undefined) throw new Error('acp-subagent cwd driver requires a config path')
