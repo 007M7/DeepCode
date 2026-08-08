@@ -749,7 +749,6 @@ export function isPlugin(value: unknown): value is Plugin {
  * @param plugin - the plugin the mount code returned.
  * @returns an equivalent plugin whose `apply` sees the sandbox context façade.
  */
-// FIXME(sandbox-effect): expose guarded custom effects when a mount needs bespoke cleanup.
 export function guardedPlugin(plugin: Plugin): Plugin {
   if (typeof plugin === 'function') {
     const functionPlugin = plugin as (ctx: Context, config?: unknown) => unknown

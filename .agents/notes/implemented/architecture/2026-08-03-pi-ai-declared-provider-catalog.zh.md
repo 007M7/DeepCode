@@ -14,7 +14,7 @@ Status: implemented
 
 提供方路由是一份**声明**，已安装 catalog 是它的默认值。`resolveProfiles` 不再拿路由键去核对 `getBuiltinProviders()`，而是把每条路由解析成一份物化模型列表，外加服务它的 pi-ai `Provider`：
 
-- `catalog.ts` 把已安装 catalog 合并到 profile 自身条目之下。profile 的 `models` 列表*替换*该路由的 catalog（列表缺席或为空则原样服务），每个条目从同 `id` 的已安装模型继承自身未设置的字段。只有 harness 会消费的字段可配置——`id`、`name`、`contextWindow`、`maxTokens`。定价与输入模态不出现在配置面，因为没有任何读取方：`replay.ts` 把 pi-ai 的成本元数据清零，`context.ts` 只保留文本块。推理缺席则是另一个理由：一个孤立的能力布尔量会让 pi-ai 公布出没有 `thinkingLevelMap` 可供拼写的档位，因此它沿用已安装条目或直接缺席。物化时以已安装条目铺底、再覆盖那四个字段，而不是逐字段枚举结果：枚举式重建会静默丢弃本包未建模的每一个 `Model` 字段——`headers` 就是这样从某条 nvidia 路由上消失过一次。
+- `catalog.ts` 把已安装 catalog 合并到 profile 自身条目之下。profile 的 `models` 列表*替换*该路由的 catalog（列表缺席或为空则原样服务），每个条目从同 `id` 的已安装模型继承自身未设置的字段。只有 harness 会消费的字段可配置——本 note 写就时为 `id`、`name`、`contextWindow`、`maxTokens`；[[2026-08-08-pi-ai-per-model-reasoning-declarations]] 之后加入了 `reasoningEfforts` 与 `compat`，当初「推理沿用已安装条目或直接缺席」的立场也在那里被重新审视（孤立的能力布尔量仍被拒绝；带 wire 拼写的逐档位完整声明没有它那个问题）。定价与输入模态仍不出现在配置面，因为没有任何读取方：`replay.ts` 把 pi-ai 的成本元数据清零，`context.ts` 只保留文本块。物化时以已安装条目铺底、再覆盖已配置的字段，而不是逐字段枚举结果：枚举式重建会静默丢弃本包未建模的每一个 `Model` 字段——`headers` 就是这样从某条 nvidia 路由上消失过一次。
 - `provider.ts` 构造路由的 `Provider`。保持 catalog 协议不变的 catalog 路由会**复用**已安装提供方，只替换 `getModels()`；其余路由都由 `createProvider()` 基于一张协议表构造，表中条目正是 pi-ai 自己的提供方工厂所用的 `@earendil-works/pi-ai/api/*.lazy` factory。该表刻意窄于 pi-ai 的完整 API 集合——只保留 profile 能用密钥、端点与标头完整描述的协议，因此 Bedrock（SigV4 加 region）、Vertex（project、location、ADC）、Azure（提供方环境加 api-version）与 Codex（OAuth）不在其中，而不是被当作无法认证的路由提供出去。catalog 路由仍可经自己的 provider 抵达它们；被拒的只有显式覆盖。
 - `adapter.ts` 把每次解析变成一份**不可变快照**——profiles 加上持有这些 provider 的 `createModels()` 集合——每个操作都在自己第一个 `await` 之前整体捕获一份。
 - 模型**显式配置**的 `maxTokens` 会成为 seam 的 `defaultMaxTokens`；从已安装 catalog 继承来的那份不会：pi-ai 要求 `Model.maxTokens` 表示模型的输出**能力**，而 `defaultMaxTokens` 是部署选定、发给未点名上限的请求的那个值，把前者物化成后者会让每个请求都被一个无人选择的数字封顶。
@@ -35,7 +35,7 @@ Status: implemented
 
 pi-ai 把没有推理元数据的模型报告为只支持 `off` 一档，而适配器此前原样透传。它抵达 seam 时是一个单元素的 effort 列表，任何界面都会把它渲染成一个只有一项可选控件的选择器——而这个控件在撒谎：`off` 在派发时变成被*省略*的 reasoning 选项，与「不点名任何档位」产出的请求逐字节相同。自身默认就在思考的提供方会继续思考，界面却显示 `off` 已选中。
 
-因此只要 `model.reasoning` 为假，`reasoningInfo` 就省略 seam 的 `reasoning` 字段。判据是模型自身的元数据，而非模型的来源，所以它覆盖每一个手工声明的模型**以及** pi-ai 标记为不具备推理能力的那 251 个已安装 catalog 模型。它们此前提供那个孤零零的 `off`，现在什么也不提供，界面只剩提供方默认。携带推理元数据的模型不受影响——其档位列表仍不经筛选地穿过 seam、`off` 也在内，因为在那里它是在真实备选之间做选择。
+因此只要 `model.reasoning` 为假，`reasoningInfo` 就省略 seam 的 `reasoning` 字段。判据是模型自身的元数据，而非模型的来源，所以它覆盖条目未声明 `reasoningEfforts` 的每一个手工声明模型（[[2026-08-08-pi-ai-per-model-reasoning-declarations]] 让声明的档位携带这份元数据）**以及** pi-ai 标记为不具备推理能力的那 251 个已安装 catalog 模型。它们此前提供那个孤零零的 `off`，现在什么也不提供，界面只剩提供方默认。携带推理元数据的模型不受影响——其档位列表仍不经筛选地穿过 seam、`off` 也在内，因为在那里它是在真实备选之间做选择。
 
 ### 凭据留在 pi-ai 之外
 
@@ -50,7 +50,7 @@ pi-ai 的 `Models` 自带一套凭据概念——按提供方 id 索引的 `Cred
 - **保留 `createProvider()` 但不建 `Models` 集合**，改由 `provider.streamSimple(model, ctx, {apiKey})` 发起。改动最小且凭据路径原封不动，但 `createProvider` 的 `auth` 是必填字段，这条路上它永远不会被调用——一份因签名而必填、却没有调用方的实现。它还让 `refreshModels` 需要手工构造 `RefreshModelsContext`，并使适配器始终不在 pi-ai 真正支持的运行时上。
 - **catalog 路由复用已安装提供方，只有声明式路由走 `createProvider()`**，且两者不共享解析。对 catalog 行为零风险，但 catalog 物化、端点覆盖与每模型配置这三件事都要各写两遍，而改指协议的 catalog 路由还得在解析中途跳到另一条路径。已采纳的拆法把不对称收敛在提供方构造这一处——那里的不对称是 pi-ai 不暴露已构造提供方的 API 实现所强加的。
 - **让每条路由都经 `createProvider()` 重建**，包括 catalog 路由。完全对称，但已构造的 `Provider` 不暴露自己的 `api`，于是协议表会成为「哪些提供方能用」的天花板——Bedrock 经独立入口加载其 Smithy 模块，会因此静默失效。
-- **完整暴露 pi-ai 的 `Model` 形状**（成本、输入模态、`thinkingLevelMap`、`compat`）。可配置性最大，但这些字段当前没有任何读取方，因此配了价格或模态什么也不会改变，却看起来像是受支持的。
+- **完整暴露 pi-ai 的 `Model` 形状**（成本、输入模态、`thinkingLevelMap`、`compat`）。可配置性最大，但这些字段当时没有任何读取方，因此配了价格或模态什么也不会改变，却看起来像是受支持的。这条否决里由消费方驱动的那一半后来兑现了：[[2026-08-08-pi-ai-per-model-reasoning-declarations]] 在选择器与分派真正消费之后开放了推理（以 `reasoningEfforts` 的形态，而非裸 `thinkingLevelMap`）和两个推理分派 `compat` 开关；成本与模态仍因原有理由保持关闭。
 
 - **保留单个可变 `Models` 集合并重新同步。** 分配更少，且对每个同步完成解析的操作都是正确的；唯独对那个不同步的操作恰恰是错的：`stream()` 会在捕获模型与派发模型之间 await 一次凭据。
 - **用「先 dispose 再注册」模拟目录原子替换。** 无需改 seam，且在新集合有效时确实可用——而那正是从不需要原子性的那种情形。

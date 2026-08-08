@@ -85,5 +85,5 @@ Namespace 插件：命名导出 `name`／`inject`／`Config`／`apply`，无默�
 ## 已知限制与暂缓事项
 
 - **沙箱只用于约束诚实代码，并非安全边界**：可以访问沙箱全局变量上的 host realm helper，因此挂载代码可以触达 Node；加载该插件时，应当像授予 bash 工具一样慎重（见 § 信任立场）。
-- **`ctx` façade 不公开 `effect()`**：挂载代码无法注册定制 disposer；`on`／`provide`／`tools.register` 已覆盖目前出现的每项挂载，受保护的 `effect` 会等待真实需求（`FIXME(sandbox-effect)`）。
+- **`ctx` façade 不公开 `effect()`**：挂载代码无法注册定制 disposer；`on`／`provide`／`tools.register` 是受支持的清理路径。
 - **`vmTimeoutMs` 只限制同步求值**：async 挂载主体可逃出该边界；挂载代码没有 async 预算。

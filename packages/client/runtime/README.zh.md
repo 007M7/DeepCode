@@ -22,6 +22,8 @@ Workspace 和 Session 列表各自具有单调的 `pending` → `ready` 基线�
 
 SlotsService 分别为 renderer 提供 `useSessions` 与 `useWorkspaces` 的裸 observable；web-react 创建钩子。Workspace 业务状态不会进入 `SessionListState` 或配置项 store。
 
+`indexSubagentDescendants()` 从保留的列表镜像中派生每个 parent 的后代总数与运行中后代数。它只沿不间断的 `origin: 'subagent'` 祖先链追踪，因此普通 fork 会开启独立的归属子树；遇到环时，追踪会停止但不会抛出异常，缺失的 parent 则会保留为无害的键，直至其摘要到达。
+
 `SessionsService.search(query, signal)` 是基于 `session.search` RPC 的无状态单次操作。它返回经过排序的会话／snippet 对，但不会将查询条件、加载状态或错误状态写入共享 Session 列表，因此每个 UI 所有者都自行负责防抖、取消、抑制陈旧响应和回退呈现。`searchResultLimit` 将 `SESSION_SEARCH_RESULT_LIMIT`——即响应 schema 自身强制执行的上限——作为注入的呈现数据重新公开，使客户端插件无需复制该值。它是协议常量而非逐连接状态，因此连接 handle 不携带它。
 
 ## New Session 与 blank 镜像
@@ -36,7 +38,7 @@ SlotsService 分别为 renderer 提供 `useSessions` 与 `useWorkspaces` 的裸 
 
 `ConversationSnapshot.nodes` 是面向人的 transcript，不是模型 surface。`TranscriptAdapter` 按日志顺序投影原始窗口。每个 append 来源的 surface 事件（`isAppendSurfaceEvent`）落在它自己的日志位置上，每次落地的压缩（compaction）检查点还会贡献一个 `CompactionSummaryNode` 标记；适配器从不查询 surface 顺序。`SteeringHistory` 会重放该窗口中的持久 `agent/inbox/spliced` 记录：用户来源的消息从 `next-step` 被领取，并以相同身份落成 `user/message` 时，会投影为 `SteeringMessageNode`；从 `next-turn` 领取的消息仍是用户节点，非用户来源的 next-step 输入仍是上下文。`ConversationSnapshot.turnEnds` 把该窗口中的每个已完成轮次映射到其 `turn/end` seq；它独立于 transcript 保留轮次完成状态，使呈现层能够在启用操作前要求存在真实边界。于是一次落地的压缩会保留它在模型侧遮蔽掉的对话：标记报告模型从哪里开始看不见那段历史，而不是把它抹掉。仅模型可见的 replacement 副本不进入记录：被裁剪的 `tool/result` 和重新生成的 `assistant/message` 只为模型重写一个节点，不标记任何边界。检查点是携带压缩 seam 插件来源、且**替换**了一段 surface 范围的 `user/message`；一条 append 的插件来源 `user/message` 是注入上下文，不是压缩。每个上下文节点还携带一份 `provenance` 视图：`contextProvenance()` 只读取持久来源，据此判定该行是 `inject`（注入）还是跨会话的 `recall`（召回），并用该来源已经记录的指令文件路径、被引用会话标题或插件 id 命名其生产者。客户端不保存任何插件 id 表，因此重命名或新挂载的生产者无需客户端发版即可保持可辨识，恢复的会话日志与外部日志的投影结果和实时会话完全一致；没有可读 kind 的来源则降级为无名注入。与之并列的 `contextForm()` 读取生产方声明的 `ContextForm`，这是相互独立的第二根轴：`kind` 说明上下文由谁产生，`form` 说明它是何种形态的信息，因此多个生产方可以共用一种形态。本 UI 版本不呈现的形态投影为 null，按 opaque 渲染。适配器的插件字面量通过对无 cordis 的 [`dsh-compact/checkpoint`](../../compact/compact/README.md) 叶子做仅类型导入，钉在压缩 seam 自己的声明上：在那里改名会让此处 `tsc` 失败；而对该包（package）做**值**导入会被客户端纯度门禁拒绝，包的**根**即便作为类型也无法到达（它会到达 `dsh-session` 的根，其 `Context` 合并会让 host 的 `sessions` 与本程序的冲突）。
 
-由于投影按日志顺序，节点数组天然按 seq 单调：仅日志的 `command/run` / `command/done` 节点按 seq 插入，`Session` 按分数 seq 归并被打断的冻结节点，而检查点所引范围落在窗口之外的窗口会渲染出标记且不打印任何日志。标记的摘要文本来自检查点的 `compact/summary` 溯源；窗口切分把溯源留在窗口外时该行不可展开而非空白，后续补上溯源的分页会解析出文本。性能契约：一次追加最多物化一个节点，并且仅在加入该节点时复制投影；不改变任何节点的事件保持上一次的数组引用（分片风暴零成本），未变化的节点保持其对象标识。
+由于投影按日志顺序，节点数组天然按 seq 单调：仅日志的 `command/run` / `command/done` 节点按 seq 插入，`Session` 按分数 seq 归并被打断的冻结节点，而检查点所引范围落在窗口之外的窗口会渲染出标记且不打印任何日志。标记的摘要文本、被替换条目数量和估算的被遮蔽 token 数量都来自检查点的 `compact/summary` 溯源；窗口切分把溯源留在窗口外时这些字段不可用，后续补上溯源的分页会解析出它们。`CommandNode.outcome.sourceEventSeq` 保留成功命令对该摘要事件的显式引用，使呈现层能够配对 `/compact` 与其检查点，而无须解析结算文案或假定两行相邻。性能契约：一次追加最多物化一个节点，并且仅在加入该节点时复制投影；不改变任何节点的事件保持上一次的数组引用（分片风暴零成本），未变化的节点保持其对象标识。
 
 ## 请求检查
 

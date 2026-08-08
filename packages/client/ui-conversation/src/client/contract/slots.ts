@@ -3,7 +3,7 @@ import type { ReactNode, RefObject } from 'react'
 import type {
   InjectFace, MaybeSnapshotSelectorHook, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore, SnapshotSelectorHook,
 } from '@deepseek-ai/dsh-client-ui-slots'
-import type { CommandNode, ConversationNode, ConversationSnapshot, ObservableSnapshot, PendingInteraction, PendingWait, SessionId, ToolCallBlock, WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { CommandNode, CompactionSummaryNode, ConversationNode, ConversationSnapshot, ObservableSnapshot, PendingInteraction, PendingWait, SessionId, ToolCallBlock, WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { ComposerBlock } from '../input/blocks.ts'
 import type { ComposerKeyboard, EditSelection, InputActions, InputNotice, InputState } from '../input/contract.ts'
@@ -31,13 +31,12 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      */
     'conversation.view': { kind: 'list'; scope: 'session'; owner: ConvViewOwnerProps }
     /**
-     * The chat view's per-tool row hole: keyed dispatch on the wire tool name
-     * (the key space is runtime-open — SlotMap declares slots, never keys).
-     * Declared by the chat view entry (declaring is claiming); the render
-     * site dispatches via `entryKey: toolName` with GenericToolCard as the
-     * `fallback` for unregistered tools.
+     * One root Tool call at its ordered ChatFlow position. The chat view owns
+     * placement; ui-tool owns root/subcall composition and keyed dispatch.
+     * The filler preserves the call-anchor DOM contract documented by
+     * {@link ToolTreeOwnerProps} for every root and child wrapper.
      */
-    'conversation.chat.toolview': { kind: 'keyed'; scope: 'session'; owner: ToolRowOwnerProps }
+    'conversation.chat.tool': { kind: 'single'; scope: 'session'; owner: ToolTreeOwnerProps }
     /**
      * The chat view's per-command row hole: keyed dispatch on the command
      * name (`command/run.name`; a run-less cross-window node has none and
@@ -55,6 +54,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * to return null; an all-declined chain renders nothing.
      */
     'conversation.chat.turnTail': { kind: 'chain'; scope: 'session'; owner: TurnTailOwnerProps }
+    /** Selected Tool call output inside the details panel. */
+    'conversation.details.tool': { kind: 'single'; scope: 'session'; owner: DetailsToolOwnerProps }
     /**
      * The composer takeover chain: entries are selector-routed replacements
      * of the default InputBar. Declared by this package's 'conversation'
@@ -178,56 +179,57 @@ export interface TurnTailOwnerProps {
 }
 
 /**
- * Owner share of a per-view toolview slot: the call material the rendering
- * view supplies per row. Uniform across views — the trajectory/waterfall
- * toolview slots (same kind/scope/owner, names fixed by the slot-naming
- * discipline) land with their own row render sites; today only the chat slot
- * is declared (RendersCheck rejects a declaration nobody renders).
+ * Owner currency of the chat view's whole-Tool rendering seat. The filler
+ * wraps every rendered root and child with `data-chat-anchor-key="call:<id>"`
+ * and `data-chat-call-id="<id>"`, plus `data-selected="true"` for the selected
+ * call. ChatView consumes those anchors to restore prepend/paging position.
  */
-export interface ToolRowOwnerProps {
-  /** Tool call identity (details linkage; stable across running → settled). */
+export interface ToolTreeOwnerProps {
+  /** Root Tool call identity, stable across running → settled. */
   callId: CallId
-  /** Wire tool name (also the keyed dispatch key at the render site). */
+  /** Root wire Tool name. */
   toolName: string
-  /** Frozen call slice: the running call or the settled result node. */
+  /** Frozen root call slice: running call or settled result node. */
   block: ToolCallBlock
+  /** Selected call id; the Tool owner resolves whether it is root or child. */
+  selectedCallId?: CallId | undefined
   /** Session workspace root; path summaries display relative to it. */
   cwd?: string | undefined
   /**
    * Open a tool-arg filesystem path with the host OS default application.
-   * The chat view resolves relative paths against the session cwd.
+   * The conversation owner resolves relative paths against the session cwd.
    */
   openFile: (path: string) => void
   /**
-   * Jump to this call's record in the trajectory view (the expanded row's
-   * hover Inspect affordance). Undefined when no trajectory jump is wired.
+   * Jump to any call in this tree in the trajectory view.
    */
-  inspect?: (() => void) | undefined
+  inspectCall: (callId: CallId) => void
 }
 
-/**
- * Full props of a registered tool-row component: the slot's runtime share
- * (owner payload + session standard kit + global seat). Registrants type
- * their component `FC<ToolRowProps & I>` with `I` inferred from their inject
- * factory. Declared against the chat slot; the three per-view toolview slots
- * share one declaration shape, so this alias serves them all.
- */
-export type ToolRowProps = PropsRuntime<'conversation.chat.toolview'>
+/** Owner currency of the details panel's Tool output renderer. */
+export interface DetailsToolOwnerProps {
+  /** Frozen selected call slice. */
+  block: ToolCallBlock
+  /** Session workspace root for card cwd and relative-path display. */
+  cwd?: string | undefined
+}
 
 /**
  * Owner share of the per-command row slot: the frozen {@link CommandNode}
  * slice off the snapshot (cache-stable reference — memo premise). The node
- * carries the whole lifecycle (structured name/args, pairing id,
- * outcome-or-executing), so a
- * registrant needs no second data channel; domain state arrives through its
- * own projection cell.
+ * carries the whole lifecycle (structured name/args, pairing id, and
+ * outcome-or-executing). A successful domain command may also carry the
+ * explicitly linked projection node needed to fold two log records into one
+ * presentation row.
  */
 export interface CommandRowOwnerProps {
   /** Folded command lifecycle node (run + optional done). */
   node: CommandNode
+  /** Explicitly linked compaction checkpoint for the settled `/compact` presentation. */
+  compaction?: CompactionSummaryNode
 }
 
-/** Full props of a registered command-row component (same shape rule as {@link ToolRowProps}). */
+/** Full props of a registered command-row component. */
 export type CommandRowProps = PropsRuntime<'conversation.chat.commandview'>
 
 /**
@@ -519,9 +521,9 @@ export interface ChatViewInjected {
   forkAt: (seq: number) => void
 }
 
-/** Full chat-view component props: runtime & the declared toolview/commandview holes' render share & store & injected & locale seat. */
+/** Full chat-view component props: runtime & its Tool/command/tail render shares & store & injected & locale seat. */
 export type ChatViewSlotProps =
-  PropsRuntime<'conversation.view'> & PropsRenderSlots<'conversation.chat.toolview' | 'conversation.chat.commandview' | 'conversation.chat.turnTail'>
+  PropsRuntime<'conversation.view'> & PropsRenderSlots<'conversation.chat.tool' | 'conversation.chat.commandview' | 'conversation.chat.turnTail'>
   & PropsStore<ChatStore> & ChatViewInjected & PropsLocale<'conversation'>
 
 /**
@@ -533,8 +535,9 @@ export interface DetailsInjected {
   closeDetails: () => void
 }
 
-/** Full details-slot component props: selection rides the shared store, call material useSession; copy the locale seat. */
-export type DetailsSlotProps = PropsRuntime<'details'> & PropsStore<ChatStore> & DetailsInjected & PropsLocale<'conversation'>
+/** Full details-slot props: selection store, Tool output seat, injected close callback, and locale. */
+export type DetailsSlotProps = PropsRuntime<'details'> & PropsRenderSlots<'conversation.details.tool'>
+  & PropsStore<ChatStore> & DetailsInjected & PropsLocale<'conversation'>
 
 /** Owner share common to the hero / New-Session Workspace pickers. */
 export interface EmptyWorkspaceOwnerProps {

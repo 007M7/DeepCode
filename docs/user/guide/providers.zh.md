@@ -59,6 +59,16 @@ llm-pi-ai:
         - id: claude-sonnet-4-5
           contextWindow: 200000
 
+    # Catalog route with one model reshaped in place; the rest of the catalog
+    # keeps serving (a models list would replace it instead).
+    deepseek:
+      apiKeyEnv: DEEPSEEK_API_KEY
+      modelOverrides:
+        deepseek-v4-pro:
+          reasoningEfforts:
+            off:
+            high: high
+
     # Hand-declared route: pi-ai ships nothing under this key, so the profile
     # supplies the whole provider.
     acme-gateway:
@@ -66,11 +76,22 @@ llm-pi-ai:
       apiKeyEnv: ACME_GATEWAY_API_KEY
       api: openai-completions
       baseURL: https://gateway.acme.example/v1
+      # Reasoning dialect for an endpoint whose URL pi-ai cannot recognize.
+      compat:
+        thinkingFormat: deepseek
       models:
         - id: acme-large
           name: Acme Large
           contextWindow: 65536
           maxTokens: 4096
+        - id: acme-think
+          name: Acme Think
+          # key = level offered in the picker, value = what goes on the wire;
+          # only off may leave the value empty (supported, send nothing).
+          reasoningEfforts:
+            off:
+            high: high
+            max: ultra
 ```
 
 settings 段落**逐个提供方**地盖在 `cordis.yml` 的同名配置之上，所以你可以只覆盖某个路由的一个字段，其余保持组合里的样子。
@@ -79,9 +100,15 @@ settings 段落**逐个提供方**地盖在 `cordis.yml` 的同名配置之上�
 
 ## 模型目录
 
-`models` 是**替换**该路由的内置目录，不是往里追加；省略或留空则原样使用内置目录。每个条目会从同 `id` 的内置模型继承自己没写的字段，所以「收窄到两个模型」「更正一个容量」「加一个比内置目录更新的模型」都是一行编辑。
+`models` 是**替换**该路由的内置目录，不是往里追加；省略或留空则原样使用内置目录。每个条目会从同 `id` 的内置模型继承自己没写的字段，所以「收窄到两个模型」「更正一个容量」「加一个比内置目录更新的模型」都是一行编辑——但一旦声明了这份列表，该路由要继续服务的每个模型就都必须出现在其中，条目哪怕只写一个 `id` 也足够。
 
-可配置的只有 harness 会消费的四个字段：`id`、`name`、`contextWindow`、`maxTokens`。定价与输入模态没有消费方，推理能力也不按模型配置——它随内置目录条目走。
+就地重塑目录里的几个模型、保留其余，归 `modelOverrides` 管：它以目录模型 id 为键，接受与 `models` 条目相同的字段，目录的其余部分原样继续服务。覆盖若点名了目录没有描述的模型，或与 `models` 列表并存，或写在自定义提供方上，都会被拒绝，而不是被静默跳过。
+
+可配置的模型字段是 `id`、`name`、`contextWindow`、`maxTokens`、`reasoningEfforts` 与 `compat`。定价与输入模态没有消费方，随内置目录条目走。
+
+**按模型声明推理档位。** `reasoningEfforts` 列出模型提供的档位：每个键都会出现在输入框的档位选择器里，其值是分派在协议中实际发送的内容——`high: high` 原样透传名称，`max: ultra` 则为使用自有词汇的网关改名。没写的档位不会被提供。`off` 比较特殊：声明而不给值，选择器里会出现 Off，选中它时什么也不发送；完全不写，选择器不提供 Off，请求也不携带关闭开关——由提供方自己的默认行为决定。`reasoningEfforts: false` 声明一个不具备推理能力的模型，这也是从网关服务不了的目录模型上剥除推理的办法。不写这个字段，自定义模型不推理，目录模型保留目录给出的档位。
+
+**选定推理方言。** 档位如何在协议中传输——单独一个 `reasoning_effort`、DeepSeek 的 `thinking: {type}` 加档位，诸如此类——通常靠端点 URL 来猜，而私有网关的 URL 什么也说明不了，于是 DeepSeek 风格的网关只会收到 OpenAI 方言的请求。`compat.thinkingFormat` 用来显式指定方言，`compat.supportsReasoningEffort: false` 则让该参数不再发给拒绝它的端点；两者既可设在路由上（作为其模型的默认值），也可按模型设置，且仅适用于 `openai-completions` 路由。
 
 两处容量都没给出的模型，取路由级兜底 `defaultContextWindow`（262144）与 `defaultMaxTokens`（32768）。这两个数按定义就是猜测，所以它们是路由字段：网关服务的模型更小时改一次即可。
 
@@ -114,6 +141,7 @@ api-gateway:
 
 - **`MISSING_CREDENTIAL`** — profile 里的 `apiKeyEnv` 指向的变量没有值。用模型页存一次密钥，或导出该环境变量。
 - **`UNKNOWN_MODEL`** — 请求的模型不在该路由配置的目录里。把它加进 `models`，或改用目录里已有的 id。
+- **`UNSUPPORTED_REASONING_EFFORT`** — 请求向模型要了一个它不提供的档位。从输入框为该模型列出的档位里挑一个，或把缺的那个声明进该模型的 `reasoningEfforts`。
 - **`settings-rejected`** — 写入的 profile 服务不了，错误信息会点名具体的路由和模型。手工声明的路由检查 `api`、`baseURL`、`models` 是否齐全。
 - **获取可用模型返回 401** — 端点拒绝了这次探测。检查密钥；若地址指向的是 Anthropic 风格网关，注意探测只读 OpenAI 兼容的 `GET /models`，此时手工填写模型即可。
 

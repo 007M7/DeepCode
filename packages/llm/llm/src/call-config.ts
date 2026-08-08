@@ -12,6 +12,8 @@ import type { ReasoningEffortId } from './brand.ts'
 /** Process-local identities of request objects assembled by dsh-agent-loop. */
 const AGENT_LOOP_REQUESTS = new WeakSet<GenerateOptions>()
 
+// TODO(call-config-shape): Revisit which fields are epoch-level for cache reuse
+// and where provider-specific request options belong.
 /**
  * Provider, model, reasoning effort, and sampling scalars of one conversation's
  * requests. Every field maps 1:1 onto the same-named `GenerateOptions` field;

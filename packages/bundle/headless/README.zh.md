@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-dsh 一次性任务组合包。[`cordis.patch.yml`](cordis.patch.yml) 叠加在 [`dsh-base`](../base/README.md) + [`dsh-web-app`](../web-app/README.md) 之上：把 webserver 移到 OS 分配的端口（并行运行绝不冲突），关闭 URL 行输出，并插入本包的 `headless-runner` 插件（配置为 `{task}`）。runner 通过进程内 API 载体（架在 `toFetchHandler(ctx.apiProxy)` 之上的 `InProcessApiClient`，因此序列化、zod、SSE（Server-Sent Events）帧封装这整条 wire 链路都会真实运行）驱动一个任务轮次，聚合该轮次最终的 assistant 文本，写到 stdout，再经启动器提供的 `ctx.headlessIo` seam 请求退出（完成 → 0，否则 1）。Web 组合保持挂载，因此运行中的会话可在浏览器中通过 stderr 公告的 URL 观察。启动器把任务文本 patch 进来（`dsh --profile headless "task"`）；如果向没有这一行的 profile 传入任务，则大声失败。
+dsh 一次性任务组合包。[`cordis.patch.yml`](cordis.patch.yml) 叠加在 [`dsh-base`](../base/README.md) + [`dsh-web-app`](../web-app/README.md) 之上：把 webserver 移到 OS 分配的端口（并行运行绝不冲突），关闭 URL 行输出，并插入本包的 `headless-runner` 插件（配置为 `{task}`）。runner 通过进程内 API 载体（架在 `toFetchHandler(ctx.apiProxy)` 之上的 `InProcessApiClient`，因此序列化、zod、SSE（Server-Sent Events）帧封装这整条 wire 链路都会真实运行）驱动一个任务轮次，在 idle 时等待该 mux 消费完会话的最终事件序号，再聚合该轮次最终的 assistant 文本，写到 stdout，并经启动器提供的 `ctx.headlessIo` seam 请求退出（完成 → 0，否则 1）。Web 组合保持挂载，因此运行中的会话可在浏览器中通过 stderr 公告的 URL 观察。启动器把任务文本 patch 进来（`dsh run "task"`）；若所选 profile 缺少该行，则显式报错。
 
 ## 模型体验
 

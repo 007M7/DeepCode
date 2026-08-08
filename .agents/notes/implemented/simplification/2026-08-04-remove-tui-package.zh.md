@@ -16,7 +16,7 @@ Status: implemented
 
 SDK 的运行接口联合类型现在只包含 `acp` 与 `embed`。`create-sdk` 默认使用 ACP，生成的模板不再包含终端启动、恢复、会话环境或模型参数分支；内置的 `ask-user` 功能也被移除，因为剩余两个生成接口都不提供 `UserInteractionProvider`。宿主应用仍可直接挂载提供方无关的 `dsh-user-interaction`、`dsh-commands` 和呈现 seam。
 
-本决策取代[显式配置 `dsh` 入口决策](2026-08-03-explicit-config-dsh-entrypoint.md)中保留可复用包的决定，也使已归档 TUI 实现记录不再适用于当前状态。这些历史记录继续保持冻结，但不再作为受支持包或应用清单的依据。
+本决策取代[显式配置 `dsh` 入口决策](../../archived/simplification/2026-08-03-explicit-config-dsh-entrypoint.md)中保留可复用包的决定，也使已归档 TUI 实现记录不再适用于当前状态。这些历史记录继续保持冻结，但不再作为受支持包或应用清单的依据。
 
 本记录汇总了删除后无法继续保持当前状态的仅限包记录。终端 UI 曾在长对话期间保持会话身份可见、移除重复模型标签、为消息附加耗时与阶段状态、在提示词旁显示 workspace 与分支上下文，并保守地解析完整 XML 包装层，以生成人类可读的回退输出。这些选择改善了一个终端前端，但没有部署时不足以证明应保留它。未来的 XML 回退仍必须使用真实解析器而非正则表达式。
 
