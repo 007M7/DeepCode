@@ -72,6 +72,6 @@ Hunt these in any doc; the [dsh-doc-standards](../.agents/skills/dsh-doc-standar
 
 ## Cross-reference with machine-checkable links, never free prose
 
-Link repository references with relative Markdown paths, never bare filenames or Agent Note numbers. `verify-md-links` catches missing targets; the [cross-link Agent Note](../.agents/notes/implemented/process/2026-06-18-markdown-cross-link-lint.md) owns the rationale.
+Link repository references with relative Markdown paths, never bare filenames or Agent Note numbers. `verify-md-links` rejects missing targets and dead `#fragment` anchors ([rationale](../.agents/notes/implemented/process/2026-06-18-markdown-cross-link-lint.md)).
 
 The gate checks file existence, not `#anchor` validity — verify anchors yourself when linking to one.
