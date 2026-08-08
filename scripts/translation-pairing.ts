@@ -120,6 +120,8 @@ export function pairAnchorOfArgument(argument: string): string {
 
 /** A parsed `verify-translation-pairing` invocation. */
 export interface TranslationPairingCliRequest {
+  /** Content plane read by the check. Writes and corpus checks use the working tree. */
+  input: 'worktree' | 'index'
   mode: 'check' | 'list' | 'write'
   /** `corpus` runs discovery over the whole tree; `pairs` touches only the named anchors. */
   scope: 'corpus' | 'pairs'
@@ -142,24 +144,32 @@ export interface TranslationPairingCliRequest {
 export function parseTranslationPairingCliArgs(argv: string[]): TranslationPairingCliRequest {
   const flags = argv.filter(argument => argument.startsWith('--'))
   const anchors = [...new Set(argv.filter(argument => !argument.startsWith('--')).map(pairAnchorOfArgument))].sort()
-  const unknown = flags.filter(flag => !['--list', '--write', '--all'].includes(flag))
+  const unknown = flags.filter(flag => !['--list', '--write', '--all', '--cached'].includes(flag))
   if (unknown.length > 0) throw new Error(`unknown flag(s): ${unknown.join(', ')}`)
   const listMode = flags.includes('--list')
   const writeMode = flags.includes('--write')
   const allMode = flags.includes('--all')
-  if (listMode && (writeMode || allMode || anchors.length > 0)) {
+  const cachedMode = flags.includes('--cached')
+  if (listMode && (writeMode || allMode || cachedMode || anchors.length > 0)) {
     throw new Error('--list reports the whole corpus and takes no other flags or paths')
   }
   if (allMode && !writeMode) throw new Error('--all only applies to --write')
+  if (cachedMode && writeMode) throw new Error('--cached is a read-only index check and cannot be combined with --write')
+  if (cachedMode && anchors.length === 0) throw new Error('--cached requires the staged pair paths to check')
   if (writeMode) {
     if (anchors.length > 0 && allMode) throw new Error('--write takes either pair paths or --all, not both')
     if (anchors.length === 0 && !allMode) {
       throw new Error('--write requires the pair(s) you confirmed (any file of a pair), or --all to re-record every complete pair; recording pairs you did not review blesses unconfirmed content')
     }
-    return { mode: 'write', scope: allMode ? 'corpus' : 'pairs', anchors }
+    return { input: 'worktree', mode: 'write', scope: allMode ? 'corpus' : 'pairs', anchors }
   }
-  if (listMode) return { mode: 'list', scope: 'corpus', anchors: [] }
-  return { mode: 'check', scope: anchors.length > 0 ? 'pairs' : 'corpus', anchors }
+  if (listMode) return { input: 'worktree', mode: 'list', scope: 'corpus', anchors: [] }
+  return {
+    input: cachedMode ? 'index' : 'worktree',
+    mode: 'check',
+    scope: anchors.length > 0 ? 'pairs' : 'corpus',
+    anchors,
+  }
 }
 
 /** The structural surface compared between the two sides of a pair. */
