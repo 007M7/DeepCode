@@ -45,6 +45,7 @@ export type Config = LocalConfig
  * calls fall back to deployment policy. `result.sandbox` reports the mode and
  * enforcement actually used.
  */
+/* jscpd:ignore-start -- deliberate call-for-call mirror of bash-sandbox's executor (pwsh-tool-and-executor Agent Note) */
 export class SandboxPwshExecutor extends PwshLocalExecutor {
   static override inject = ['subprocess', 'sandbox', 'sandboxPolicy']
 
@@ -180,5 +181,6 @@ export class SandboxPwshExecutor extends PwshLocalExecutor {
     return this.ctx.sandbox.confine(this.argv(spec), policy)
   }
 }
+/* jscpd:ignore-end */
 
 export default SandboxPwshExecutor
