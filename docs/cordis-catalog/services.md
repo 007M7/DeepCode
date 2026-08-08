@@ -522,7 +522,7 @@ async execute( agent: Agent, line: string, signal: AbortSignal, ): Promise<Comma
 
 Types: [Agent](../core-data-structures/core.md) · [CommandDefinition](../core-data-structures/commands.md) · [CommandDescriptor](../core-data-structures/commands.md)
 
-Source: [`packages/ui/commands/src/index.ts:286`](../../packages/ui/commands/src/index.ts)
+Source: [`packages/ui/commands/src/index.ts:305`](../../packages/ui/commands/src/index.ts)
 
 ## `ctx.compact` — `CompactService` (abstract seam)
 
@@ -1380,7 +1380,7 @@ abstract listSnapshots(signal?: AbortSignal): Promise<SessionPersistenceSnapshot
 
 Types: [SessionEvent](../core-data-structures/core.md) · [SessionHeader](../core-data-structures/persistence.md) · [SessionId](../core-data-structures/core.md) · [SessionInspection](../core-data-structures/persistence.md) · [SessionLocation](../core-data-structures/persistence.md) · [SessionPersistenceSnapshot](../core-data-structures/persistence.md) · [SessionPreparation](../core-data-structures/persistence.md)
 
-Source: [`packages/session-persistence/session-persistence/src/index.ts:70`](../../packages/session-persistence/session-persistence/src/index.ts)
+Source: [`packages/session-persistence/session-persistence/src/index.ts:72`](../../packages/session-persistence/session-persistence/src/index.ts)
 
 ## `ctx.sessionProjectionCache` — `SessionProjectionCache`
 
@@ -2017,7 +2017,7 @@ async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefiniti
 
 Types: [SkillCatalogSnapshot](../core-data-structures/skills.md) · [SkillDefinition](../core-data-structures/skills.md) · [SkillLookupOptions](../core-data-structures/skills.md) · [SkillProvider](../core-data-structures/skills.md) · [SkillProviderControl](../core-data-structures/skills.md) · [SkillRegistration](../core-data-structures/skills.md) · [SkillSummary](../core-data-structures/skills.md)
 
-Source: [`packages/skill/skill/src/index.ts:209`](../../packages/skill/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:304`](../../packages/skill/skill/src/index.ts)
 
 ## `ctx.spillStore` — `SpillStore` (abstract seam)
 
@@ -2143,6 +2143,23 @@ async startContinuable(spec: ContinuableStartSpec): Promise<ContinuableStart>
 async followup( parent: Agent, childId: SessionId, content: ContentBlock[], options: SubagentFollowupOptions, ): Promise<MessageId>
 
 /**
+ * Interrupt one live continuable child's current turn under a human parent
+ * address or an exact live ancestor Agent. Fire-and-return: the cancel
+ * signal is issued before this returns, but the target may keep running
+ * until it observes the signal. Unclaimed pending inbox work, the Activation,
+ * and published descendants are preserved; claimed work is not requeued.
+ * Once the interrupted driver is idle, a waking send resumes the parked FIFO
+ * queue. An absent target — including a one-shot or unknown id —
+ * is an accepted no-op, as is a manager-less composition, which cannot own a
+ * live Activation.
+ * @param targetSessionId - the durable child session id to interrupt.
+ * @param authority - the human parent address or exact live ancestor Agent.
+ * @throws {SubagentError} `UNAUTHORIZED` when the authority does not own the
+ *   live target.
+ */
+interrupt(targetSessionId: SessionId, authority: SubagentInterruptAuthority): void
+
+/**
  * Deliver selected content from one live continuable child to its durable
  * direct parent. The child is the authority credential; callers cannot name a
  * recipient. Reporting does not conclude the child's turn or Activation.
@@ -2208,6 +2225,23 @@ async drainContinuableDescendants(parents: readonly Agent[]): Promise<void>
 listChildren(parentSessionId: SessionId, signal?: AbortSignal): Promise<SubagentListEntry[]>
 
 /**
+ * Enumerate the root's complete session-backed subagent tree in stable
+ * pre-order from one live-preferred corpus, without loading or resuming an
+ * Agent. Ordinary sessions and one-shot children remain traversal nodes so
+ * continuable descendants below them are discovered; each returned entry
+ * adds its durable `parentId` and root-relative `depth`. Identity resolution,
+ * diagnostics, optional persistence, and cancellation follow the same
+ * projection-backed contract as {@link listChildren}.
+ * @param rootSessionId - session whose complete descendant tree is listed.
+ * @param signal - caller-owned cancellation forwarded to persistence reads
+ *   and observed around every read await.
+ * @returns children and per-candidate diagnostics with tree position, in
+ *   stable pre-order.
+ * @throws {@link SubagentError} under the same conditions as {@link listChildren}.
+ */
+listDescendants(rootSessionId: SessionId, signal?: AbortSignal): Promise<SubagentDescendantListEntry[]>
+
+/**
  * Register a provider under its name. Registration is effect-scoped and HMR
  * safe; removing a provider blocks new starts but does not revoke runs that
  * were already returned to their holders.
@@ -2242,9 +2276,9 @@ list(): string[]
 async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [ContinuableSetupContribution](../core-data-structures/subagent.md) · [ContinuableStart](../core-data-structures/subagent.md) · [ContinuableStartSpec](../core-data-structures/subagent.md) · [MessageId](../core-data-structures/core.md) · [SessionId](../core-data-structures/core.md) · [SubagentFollowupOptions](../core-data-structures/subagent.md) · [SubagentListEntry](../core-data-structures/subagent.md) · [SubagentProvider](../core-data-structures/subagent.md) · [SubagentReportOptions](../core-data-structures/subagent.md) · [SubagentRun](../core-data-structures/subagent.md) · [SubagentStartRequest](../core-data-structures/subagent.md)
+Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [ContinuableSetupContribution](../core-data-structures/subagent.md) · [ContinuableStart](../core-data-structures/subagent.md) · [ContinuableStartSpec](../core-data-structures/subagent.md) · [MessageId](../core-data-structures/core.md) · [SessionId](../core-data-structures/core.md) · [SubagentDescendantListEntry](../core-data-structures/subagent.md) · [SubagentFollowupOptions](../core-data-structures/subagent.md) · [SubagentInterruptAuthority](../core-data-structures/subagent.md) · [SubagentListEntry](../core-data-structures/subagent.md) · [SubagentProvider](../core-data-structures/subagent.md) · [SubagentReportOptions](../core-data-structures/subagent.md) · [SubagentRun](../core-data-structures/subagent.md) · [SubagentStartRequest](../core-data-structures/subagent.md)
 
-Source: [`packages/subagent/subagent/src/index.ts:165`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:167`](../../packages/subagent/subagent/src/index.ts)
 
 ## `ctx.subprocess` — `SubprocessService` (abstract seam)
 
@@ -2698,8 +2732,17 @@ registerProvider(provider: UserInteractionProvider): () => void
 /**
  * Ask the active UI provider and wait for the user's answer.
  *
+ * When a caller supplies an agent, human interaction is valid only for the
+ * exact live runtime root. Runtime ownership, not durable session lineage,
+ * decides this boundary: an owned child has no human answerer and would
+ * block forever, while a lineage-bearing session resumed as a new runtime
+ * root may ask normally.
+ *
  * @param request Questions, owner agent, and abort signal.
  * @returns The answer chosen or typed by the human.
+ * @throws {UserInteractionError} code `CALLER_NOT_LIVE` when a supplied
+ *   agent is not the registry's exact live instance, or `DELEGATED_CALLER`
+ *   when that live agent is owned by another agent.
  */
 async ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer>
 ```

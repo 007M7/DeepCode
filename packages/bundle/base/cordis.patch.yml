@@ -218,6 +218,10 @@
     - id: skill-local
       name: '@deepseek-ai/dsh-skill-local'
 
+    - id: skill-badge
+      name: '@deepseek-ai/dsh-skill-badge'
+      disabled: true
+
     - id: tool-skill
       name: '@deepseek-ai/dsh-tool-skill'
 

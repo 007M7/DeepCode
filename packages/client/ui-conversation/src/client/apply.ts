@@ -1,7 +1,7 @@
 /** Registers the conversation components, shared store, and service callbacks. */
 import type { Context } from 'cordis'
 import { resolveSlotLabel, type BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ISessions, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import { resolveWorkspacePath, type ISessions, type SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
@@ -11,7 +11,6 @@ import type {
   ConversationSessionHeaderInjected, ConversationSessionInjected, DetailsInjected,
 } from './contract/slots.ts'
 import type { InputNotice } from './input/contract.ts'
-import { resolveToolPath } from './contract/tool-call-model.ts'
 import { createChatStore } from './stores.ts'
 import { ConversationService } from './service.ts'
 import type { IConversation } from './service.ts'
@@ -24,14 +23,7 @@ import { EnterBehaviorRow } from './settings/EnterBehaviorRow.tsx'
 import type { EnterBehaviorRowInjected } from './settings/EnterBehaviorRow.tsx'
 import { ChatView } from './chat/ChatView.tsx'
 import { StatsLine } from './chat/StatsLine.tsx'
-import { bashToolviewSample } from './toolviews/bash-sample.tsx'
-import { readToolview } from './toolviews/read-row.tsx'
-import { fileMutationToolview } from './toolviews/file-mutation-row.tsx'
-import { searchToolview } from './toolviews/search-row.tsx'
-import { webToolview } from './toolviews/web-row.tsx'
 import { ApprovalPanel } from './skeleton/ApprovalPanel.tsx'
-import { todoToolview } from './toolviews/todo-row.tsx'
-import { askQuestionToolview } from './toolviews/ask-question-row.tsx'
 import { todoDockEntry } from './skeleton/TodoPanel.tsx'
 import { queueDockEntry } from './queue/QueueDock.tsx'
 import { ConversationRoot } from './skeleton/ConversationRoot.tsx'
@@ -41,7 +33,7 @@ import { en, NS, zh, type ConversationKey } from './locales.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
-    /** The conversation surfaces' copy (skeleton, chat view, toolviews, docks). */
+    /** The conversation skeleton, chat flow, commands, details, and docks copy. */
     conversation: ConversationKey
   }
 }
@@ -304,10 +296,8 @@ export function apply(ctx: Context): void {
   slots.register({ name: 'conversation.composer', select: selectApproval, priority: 1, locale: NS }, ApprovalPanel)
 
   // The chat view: first entry of the ring this package just declared.
-  // Declaring the keyed toolview hole here is claiming it: ChatView is the
-  // only component authorized to render per-tool rows. Shares the chat
-  // store, so its selection writes land in the same per-session instance the
-  // details panel reads.
+  // ChatView owns ordered Tool placement but delegates each whole root call
+  // to ui-tool, which owns root/subcall composition and atomic dispatch.
   slots.register({
     name: 'conversation.view',
     id: 'chat',
@@ -315,7 +305,7 @@ export function apply(ctx: Context): void {
     label: () => t('view.chat'),
     locale: NS,
     children: {
-      'conversation.chat.toolview': { kind: 'keyed', scope: 'session' },
+      'conversation.chat.tool': { kind: 'single', scope: 'session' },
       'conversation.chat.commandview': { kind: 'keyed', scope: 'session' },
       'conversation.chat.turnTail': { kind: 'chain', scope: 'session' },
     },
@@ -327,9 +317,10 @@ export function apply(ctx: Context): void {
           actions.select(target)
           layout.openDetails()
         },
+        fileMentions: owner => ctx.get('chatFileMentions')?.forClosing(owner),
         openFile: (path) => {
           const cwd = sessions.list.getSnapshot().byId[sessionId]?.cwd
-          void workspaces.openPath(resolveToolPath(cwd, path)).catch(() => {
+          void workspaces.openPath(resolveWorkspacePath(cwd, path)).catch(() => {
             // Host/OS open failures stay silent in the chat row; the native
             // app surfaces its own error dialog when the path is unusable.
           })
@@ -368,34 +359,6 @@ export function apply(ctx: Context): void {
   // this service remains only where conversation actions are required.
   ctx.plugin(ConversationService, { input: inputHub, blocks: composerBlocks })
 
-  // The bash sample rides the same declaration seam, in third-party posture
-  // (ToolRow-matching Bash · {description} chrome).
-  ctx.plugin(bashToolviewSample)
-
-  // The read row rides the same seam (a product registration, not a sample):
-  // Read · {path} chrome with the file's read card resident below it.
-  ctx.plugin(readToolview)
-
-  // The write/edit rows ride the same seam: a file-mutation call declares the
-  // diff render intent, so these rows stack the applied diff card under their
-  // path-link summary (the terminal card's posture, applied to diffs).
-  ctx.plugin(fileMutationToolview)
-
-  // The grep/glob search row rides the same seam: one component registered
-  // under both tool names, since both declare the same search render intent.
-  ctx.plugin(searchToolview)
-
-  // The web rows ride the same seam: one WebRow registered under both
-  // web_search and web_fetch, rendering the completed retrieval's web card
-  // resident under the summary (a product registration, not a sample).
-  ctx.plugin(webToolview)
-
-  // The todo_write row rides the same seam (a product registration, not a sample).
-  ctx.plugin(todoToolview)
-
-  // The ask_user_question row: waiting/answered/cancelled interaction outcome.
-  ctx.plugin(askQuestionToolview)
-
   // The plan strip rides the input dock above the queue rows (same posture).
   ctx.plugin(todoDockEntry)
 
@@ -406,6 +369,9 @@ export function apply(ctx: Context): void {
   slots.register({
     name: 'details',
     locale: NS,
+    children: {
+      'conversation.details.tool': { kind: 'single', scope: 'session' },
+    },
     store: chatStore,
     inject: (): DetailsInjected => ({
       closeDetails: () => { layout.closeDetails() },

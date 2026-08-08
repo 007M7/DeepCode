@@ -5,7 +5,7 @@ import {
   resolveExampleMode,
 } from '@deepseek-ai/dsh-loader-smoke'
 
-const SRC_BIN = '/repo/packages/examples/cli-demo/src/bin.ts'
+const SRC_BIN = '/repo/packages/examples/acp-demo/src/bin.ts'
 const TSCONFIG = '/repo/tsconfig.json'
 
 const originalMode = process.env[EXAMPLE_MODE_ENV]
@@ -65,7 +65,7 @@ describe('resolveExampleLaunch', () => {
       env: { DSH_HOME: '/tmp/home' },
     })
     expect(args).not.toContain('--import')
-    expect(args).toContain('/repo/packages/examples/cli-demo/lib/bin.js')
+    expect(args).toContain('/repo/packages/examples/acp-demo/lib/bin.js')
     expect(args.slice(-2)).toEqual(['--config', './cordis.yml'])
     expect(env.TSX_TSCONFIG_PATH).toBeUndefined()
     expect(env.DSH_HOME).toBe('/tmp/home')
@@ -100,6 +100,6 @@ describe('resolveExampleLaunch', () => {
   it('defaults the mode from the environment', () => {
     process.env[EXAMPLE_MODE_ENV] = 'lib'
     const { args } = resolveExampleLaunch({ srcBin: SRC_BIN })
-    expect(args).toContain('/repo/packages/examples/cli-demo/lib/bin.js')
+    expect(args).toContain('/repo/packages/examples/acp-demo/lib/bin.js')
   })
 })

@@ -211,7 +211,6 @@ export function TrajectoryView({
   const nodes = inspection.eventNodes
   const partial = inspection.partial
   const runningCalls = inspection.runningCalls
-  const codeDispatches = inspection.codeDispatches
   const loadHistoryTailRef = useRef(loadHistoryTail)
   loadHistoryTailRef.current = loadHistoryTail
   const historyControllerRef = useRef<AbortController | null>(null)
@@ -366,12 +365,11 @@ export function TrajectoryView({
       runningCalls,
       requests: selectedRequests,
       callSchemas,
-      codeDispatches,
     })
     return { turns, lastIndex: lastCellIndex(turns) }
   }, [
     selectedNodes, partialTurn, partialStep,
-    runningCalls, selectedRequests, callSchemas, codeDispatches,
+    runningCalls, selectedRequests, callSchemas,
   ])
   const timelinePartialSignature = partialStructureSignature(partial)
   const timelinePartial = useMemo<ConversationSnapshot['partial']>(() => partial === null

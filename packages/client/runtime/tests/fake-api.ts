@@ -140,10 +140,14 @@ export class FakeApiClient implements IApiClient {
   onSubagentPrompt: (payload: unknown) => Promise<RpcResponse<{ messageId: never }>>
     = () => Promise.resolve(ok({ messageId: 'fake-message' as never }))
 
+  onSubagentInterrupt: (payload: unknown) => Promise<RpcResponse<{ accepted: true }>>
+    = () => Promise.resolve(ok({ accepted: true as const }))
+
   readonly subagents: IApiClient['subagents'] = {
     list: (payload: unknown) => this.record('subagent.list', payload, this.onSubagentList(payload)),
     history: (payload: unknown) => this.record('subagent.history', payload, this.onSubagentHistory(payload)),
     prompt: (payload: unknown) => this.record('subagent.prompt', payload, this.onSubagentPrompt(payload)),
+    interrupt: (payload: unknown) => this.record('subagent.interrupt', payload, this.onSubagentInterrupt(payload)),
   }
 
   readonly host: IApiClient['host'] = {
@@ -197,6 +201,7 @@ export class FakeApiClient implements IApiClient {
     = () => Promise.resolve(ok({ matched: false }))
   onSkillList: (payload: unknown) => Promise<RpcResponse<{ skills: SkillEntry[] }>>
     = () => Promise.resolve(ok({ skills: [] }))
+
 
   readonly commands: IApiClient['commands'] = {
     list: (payload: unknown) => this.record('command.list', payload, this.onCommandList(payload)),

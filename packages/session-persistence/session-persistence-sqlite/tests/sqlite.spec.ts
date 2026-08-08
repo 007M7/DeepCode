@@ -675,6 +675,7 @@ describe('SessionPersistenceSqlite: edge cases', () => {
     const fiber = await ctx.plugin(SessionPersistenceSqlite, {
       path: ':memory:',
       preparedSessionCacheSize: 1,
+      writeBatchMaxDelayMs: 1,
     })
     const m = meta('sqlite-preparation-cache')
     await ctx.sessionPersistence.create(m)

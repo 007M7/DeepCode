@@ -16,6 +16,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execa } from 'execa'
 
+export {
+  runFixtureTurn,
+  type FixtureTurnOptions,
+  type FixtureTurnResult,
+} from './agent-turn.ts'
+
 const DEFAULT_PROCESS_TIMEOUT_MS = 30_000
 
 /** Vitest deadline that leaves room for the subprocess-owned 30-second diagnostic timeout. */

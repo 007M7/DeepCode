@@ -14,13 +14,11 @@ Pasting a key containing an emoji, CJK text, or a full-width punctuation mark in
 
 Whitespace passed every check. `ProviderEditor` tested `keyDraft.length`, so a key of three spaces was stored and then authenticated as `Bearer` plus blanks. Neither adapter checked a credential- or environment-sourced key — the path the Models page writes, and therefore the path users actually take.
 
-Sources: deepseek-harness#1594 and #1595; dsh-external#247, #249, #266, and #210.
-
 ## Decision
 
 One rule defines a legal key: **after trimming, non-empty, and every character within `[\x21-\x7E]`** — printable ASCII, space excluded.
 
-This single predicate covers every input the sources list: empty, leading and trailing whitespace, interior whitespace, C0 control characters, emoji, CJK text, and full-width punctuation. It is also exactly the constraint that produced the ByteString failure, so the two issues close on one definition rather than on two coincidentally related fixes.
+This single predicate covers every reported input: empty, leading and trailing whitespace, interior whitespace, C0 control characters, emoji, CJK text, and full-width punctuation. It is also exactly the constraint that produced the ByteString failure, so the failures share one definition rather than two coincidentally related fixes.
 
 A second, narrower rule catches a pasted environment line: input matching `^[A-Z][A-Z0-9_]*=[^=]` or wrapped in matching quotes is refused. Restricting the prefix to upper-case keeps real keys clear of it — `sk-` forms break the identifier match at the hyphen — and requiring a non-`=` character after the separator keeps base64 padding clear of it too. It reports the same format failure as an illegal character rather than its own message: the reader's next move is identical either way, so a separate line would name a cause without changing what to do.
 
@@ -76,7 +74,7 @@ The client cannot import any of this: client packages reference only client pack
 
 **Running the shape heuristic in the resolvers too.** Symmetric, and it would stop a pasted environment line written directly into `.env`. Rejected for the lockout described above: a false positive in a resolver leaves the user no working path, while a false positive in the browser leaves the environment open.
 
-**Probing the provider at save time to prove the key works.** It would close the complaint the sources actually open with — a save that reports success and fails at the first turn. Rejected as out of scope and, on the code as it stood, unbuildable: `discoverModels` short-circuits to the installed catalog before any network call for exactly the providers pi-ai ships catalogs for, so it verified nothing about the key, and the DeepSeek card has no probe at all. A verifier's value is distinguishing "key rejected" from "cannot reach", which is the distinction this change makes reliable; building it first would have produced a verifier unable to tell its own outcomes apart. Comparable products also do not verify on save, so a blocking network call there would be an unexpected behavior rather than a missing one.
+**Probing the provider at save time to prove the key works.** It would close the original complaint — a save that reports success and fails at the first turn. Rejected as out of scope and, on the code as it stood, unbuildable: `discoverModels` short-circuits to the installed catalog before any network call for exactly the providers pi-ai ships catalogs for, so it verified nothing about the key, and the DeepSeek card has no probe at all. A verifier's value is distinguishing "key rejected" from "cannot reach", which is the distinction this change makes reliable; building it first would have produced a verifier unable to tell its own outcomes apart. Comparable products also do not verify on save, so a blocking network call there would be an unexpected behavior rather than a missing one.
 
 ## Consequences
 

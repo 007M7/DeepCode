@@ -32,11 +32,24 @@
  *         apiKeyEnv: ACME_GATEWAY_API_KEY
  *         api: openai-completions
  *         baseURL: https://gateway.acme.example/v1
+ *         # Reasoning dialect for a URL pi-ai cannot recognize.
+ *         compat:
+ *           thinkingFormat: deepseek
  *         models:
  *           - id: acme-large
  *             name: Acme Large
  *             contextWindow: 65536
  *             maxTokens: 4096
+ *           - id: acme-think
+ *             name: Acme Think
+ *             contextWindow: 262144
+ *             maxTokens: 32768
+ *             # key = selectable level, value = wire spelling; only off may
+ *             # leave the value empty (supported, send nothing).
+ *             reasoningEfforts:
+ *               off:
+ *               high: high
+ *               max: ultra
  * ```
  *
  * @module @deepseek-ai/dsh-llm-pi-ai
@@ -56,7 +69,15 @@ import { discoverModels } from './discovery.ts'
 export { PiAiAdapter } from './adapter.ts'
 export type { PiAiAdapterOptions } from './adapter.ts'
 export { Config } from './config.ts'
-export type { PiAiModelProfile, PiAiProviderProfile, ResolvedPiAiProviderProfile } from './config.ts'
+export type {
+  PiAiCompatProfile,
+  PiAiModelOverride,
+  PiAiModelProfile,
+  PiAiProviderProfile,
+  PiAiReasoningEfforts,
+  PiAiThinkingFormat,
+  ResolvedPiAiProviderProfile,
+} from './config.ts'
 export { supportedProtocols } from './provider.ts'
 
 export const name = 'llm-pi-ai'

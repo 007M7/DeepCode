@@ -536,8 +536,6 @@ interface ToolSchema {
 
 在协议格式上，循环构建的请求先读取 `system` 槽位（渲染后的提示词组装），再读取派生历史——边界快照，其尾部在轮次首步是最新的 `user/message`，在后续步骤是上一步的工具结果。开发不变式针对每个循环构建的请求精确重算此等式。
 
-FIXME(call-config-shape)：重新审视其余哪些字段出于缓存目的确实属于 epoch 层级（`model` 和模型持有的推理强度已明确属于；采样标量目前出于谨慎保留在此）。
-
 ```ts type-equiv
 /**
  * Provider, model, reasoning effort, and sampling scalars of one conversation's
@@ -695,7 +693,11 @@ interface Agent {
 
   /**
    * Route identified input to an inbox boundary and optionally wake the driver.
-   * Waking input submitted after active cancellation is queued for the next turn.
+   * Waking input submitted after active cancellation is queued for the next
+   * turn and runs when the aborted activity converges to idle; a `disposed`
+   * cancel leaves it parked. A wake submitted while already idle always opens
+   * its turn boundary, even when its message is cleared before the driver
+   * claims ([cancel-convergence wake latch](../../../../.agents/notes/implemented/bug-fix/2026-08-07-cancel-convergence-wake-latch.md)).
    * @param message - identified content and its producer provenance.
    * @param target - the preferred next-turn or next-step inbox boundary.
    * @param wakeup - whether delivery may wake the driver.

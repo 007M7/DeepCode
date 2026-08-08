@@ -128,6 +128,9 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
           result: { ok: true, value: { messageId: 'message-1' as never } },
         }
       },
+      async interrupt(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { accepted: true as const } } }
+      },
     },
     host: {
       async describe(request) {
@@ -196,7 +199,7 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
     },
     skills: {
       async list(request) {
-        return { rpcId: request.rpcId, result: { ok: true, value: { skills: [{ name: 'commit-helper', description: 'Git commits' }] } } }
+        return { rpcId: request.rpcId, result: { ok: true, value: { skills: [{ name: 'commit-helper', description: 'Git commits', modelInvocable: true }] } } }
       },
     },
     goals: {
@@ -381,7 +384,7 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     const miss = await c.commands.execute({ sessionId: 's' as never, line: '/nope' })
     expect(miss.result).toEqual({ ok: true, value: { matched: false } })
     const skills = await c.skills.list({ sessionId: 's' as never })
-    expect(skills.result).toEqual({ ok: true, value: { skills: [{ name: 'commit-helper', description: 'Git commits' }] } })
+    expect(skills.result).toEqual({ ok: true, value: { skills: [{ name: 'commit-helper', description: 'Git commits', modelInvocable: true }] } })
   })
 
   it('lets command.execute finish after the 30-second default unary deadline', async () => {
@@ -433,6 +436,11 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
       mode: 'continuable',
       content: [],
     })).result).toEqual({ ok: true, value: { messageId: 'message-1' } })
+    expect((await c.subagents.interrupt({
+      parentSessionId: 'parent' as never,
+      childSessionId: 'child' as never,
+      mode: 'continuable',
+    })).result).toEqual({ ok: true, value: { accepted: true } })
   })
 
   it('keeps caller and connection aborts on command.execute', async () => {

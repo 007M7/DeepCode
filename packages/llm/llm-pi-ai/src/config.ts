@@ -21,8 +21,8 @@ import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { resolveRetryPolicy, RetryPolicySchema } from '@deepseek-ai/dsh-llm'
 import type { ResolvedRetryPolicy, RetryPolicyConfig } from '@deepseek-ai/dsh-llm'
-import { resolveRouteModels } from './catalog.ts'
-import type { PiAiModelProfile } from './catalog.ts'
+import { resolveRouteModels, SUPPORTED_THINKING_FORMATS, THINKING_LEVELS } from './catalog.ts'
+import type { PiAiCompatProfile, PiAiModelOverride, PiAiModelProfile, PiAiReasoningEfforts } from './catalog.ts'
 import { buildProvider, supportedProtocols } from './provider.ts'
 
 /** Default maximum idle interval while an adapter stream read is outstanding. */
@@ -34,7 +34,13 @@ export const DEFAULT_CONTEXT_WINDOW = 262_144
 /** Output capability assumed for a model neither configuration nor the catalog sizes. */
 export const DEFAULT_MAX_TOKENS = 32_768
 
-export type { PiAiModelProfile } from './catalog.ts'
+export type {
+  PiAiCompatProfile,
+  PiAiModelOverride,
+  PiAiModelProfile,
+  PiAiReasoningEfforts,
+  PiAiThinkingFormat,
+} from './catalog.ts'
 
 /** Configuration for one pi-ai provider route; the `providers` dict key IS the route. */
 export interface PiAiProviderProfile {
@@ -56,6 +62,22 @@ export interface PiAiProviderProfile {
    * unset fields from the installed model of the same id.
    */
   models?: PiAiModelProfile[]
+  /**
+   * Installed-catalog customizations by model id: each entry reshapes that
+   * one model with the same fields a {@link models} entry takes, while the
+   * rest of the catalog keeps serving untouched. Only meaningful on a catalog
+   * route with no `models` list — `models` already replaces the catalog, so
+   * an override beside it, on a route the catalog does not ship, or naming a
+   * model the catalog does not describe is refused rather than skipped.
+   */
+  modelOverrides?: Record<string, PiAiModelOverride>
+  /**
+   * Reasoning-dispatch switches for every `openai-completions` model on this
+   * route; each model's own `compat` overrides per field. What neither sets
+   * keeps the installed catalog entry's value, then pi-ai's baseURL-derived
+   * detection.
+   */
+  compat?: PiAiCompatProfile
   /**
    * Context capacity for a model this route lists that neither the entry nor
    * the installed catalog sizes (default 262,144). A guess by construction, so
@@ -133,12 +155,45 @@ const thinkingBudgets = z.object({
   high: z.number(),
 })
 
-const modelProfile: z<PiAiModelProfile> = z.object({
-  id: z.string().required(),
+const compatProfile: z<PiAiCompatProfile> = z.object({
+  thinkingFormat: z.union(SUPPORTED_THINKING_FORMATS),
+  supportsReasoningEffort: z.boolean(),
+})
+
+/**
+ * Keys are the offered levels, values their wire spellings. A valueless key
+ * (`off:`) survives validation because schemastery passes nullable data
+ * through before any member schema runs — `z.const(null)` only shapes the
+ * error for non-null wrong values and what a configuration surface renders.
+ * Only resolution decides which levels may leave the value empty, so the
+ * diagnostic can name the route and model. The assertion narrows
+ * schemastery's `Dict`, which types every literal key as required; dict
+ * validation is per-present-key, so the runtime shape is the partial record.
+ */
+const reasoningEfforts = z.dict(
+  z.union([z.string(), z.const(null)]),
+  z.union(THINKING_LEVELS),
+) as unknown as z<PiAiReasoningEfforts>
+
+/** The fields a `models` entry and a `modelOverrides` value share; only the id's home differs. */
+const modelFields = {
   name: z.string(),
   contextWindow: z.number().step(1).min(1),
   maxTokens: z.number().step(1).min(1),
+  // The union, not a bare dict: schemastery materializes an absent dict as
+  // `{}`, and absent must stay distinguishable — it means "inherit the
+  // installed catalog's capability", while `false` disables reasoning.
+  reasoningEfforts: z.union([z.const(false), reasoningEfforts]),
+  compat: compatProfile,
+}
+
+const modelProfile: z<PiAiModelProfile> = z.object({
+  id: z.string().required(),
+  ...modelFields,
 })
+
+/** A {@link modelProfile} whose id lives in the `modelOverrides` dict key. */
+const modelOverride: z<PiAiModelOverride> = z.object(modelFields)
 
 const profile = z.object({
   apiKeyEnv: z.string().role('credential-ref'),
@@ -146,10 +201,12 @@ const profile = z.object({
   api: z.union(supportedProtocols()),
   baseURL: z.string(),
   models: z.array(modelProfile),
+  modelOverrides: z.dict(modelOverride),
+  compat: compatProfile,
   defaultContextWindow: z.number().step(1).min(1).default(DEFAULT_CONTEXT_WINDOW),
   defaultMaxTokens: z.number().step(1).min(1).default(DEFAULT_MAX_TOKENS),
   headers: z.dict(z.string()),
-  reasoning: z.union(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']),
+  reasoning: z.union(THINKING_LEVELS),
   thinkingBudgets,
   cacheRetention: z.union(['none', 'short', 'long']),
   transport: z.union(['sse', 'websocket', 'websocket-cached', 'auto']),
@@ -240,6 +297,8 @@ export function resolveProfiles(
       ...source.api === undefined ? {} : { api: source.api },
       ...source.baseURL === undefined ? {} : { baseURL: source.baseURL },
       ...source.models === undefined ? {} : { models: source.models },
+      ...source.modelOverrides === undefined ? {} : { modelOverrides: source.modelOverrides },
+      ...source.compat === undefined ? {} : { compat: source.compat },
       defaultContextWindow: source.defaultContextWindow ?? DEFAULT_CONTEXT_WINDOW,
       defaultMaxTokens: source.defaultMaxTokens ?? DEFAULT_MAX_TOKENS,
     })
