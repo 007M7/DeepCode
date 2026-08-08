@@ -10,7 +10,7 @@
 import { writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { Context } from 'cordis'
+import { FiberState, type Context } from 'cordis'
 import type { PatchOptions } from '@cordisjs/plugin-include'
 import {
   boot,
@@ -168,6 +168,10 @@ export interface RunProfileOptions {
   environment: EnvironmentSnapshot
 }
 
+function suppressSignalShutdownError(signal: AbortSignal, error: unknown): void {
+  if (!signal.aborted) throw error
+}
+
 /**
  * Boot one profile invocation end to end and leave process lifetime to the
  * mounted plugins (or to the one-shot runner when `task` is present).
@@ -196,11 +200,16 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
 
   const app: { current?: Context } = {}
   const shutdown = createProcessShutdown(async () => { await app.current?.fiber.dispose() })
+  const signalShutdown = new AbortController()
+  const interrupt = (code: number): void => {
+    signalShutdown.abort()
+    shutdown.interrupt(code)
+  }
   // Signals own teardown throughout the startup window, not only after boot()
   // settles: an inserted front door can publish readiness before sibling rows
   // finish mounting.
-  process.on('SIGTERM', () => { shutdown.interrupt(options.task === undefined ? 0 : 143) })
-  process.on('SIGINT', () => { shutdown.interrupt(130) })
+  process.on('SIGTERM', () => { interrupt(options.task === undefined ? 0 : 143) })
+  process.on('SIGINT', () => { interrupt(130) })
   installFailLoud(NAME, process, async () => {
     await app.current?.fiber.dispose()
   })
@@ -243,33 +252,37 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
     await options.prepare?.(hostCtx, composed.rows)
   })
   app.current = ctx
-  // A surface can dispose the whole tree while startup was still in flight
-  // (early SIGTERM); the Loader service goes with it and there is nothing to
-  // keep live.
-  if (watchProfilePatch && ctx.get('loader') !== undefined) {
-    // Config-only HMR for the live profile patch layer: the web bundle
-    // disables the shared module-reload `hmr` row (its reload lifecycle is
-    // untested), so when the composition leaves no HMR service, mount a
-    // watch-only instance with no module roots — cordis.patch.yml edits stay
-    // live on every long-lived surface. A silent skip would break the
-    // documented hot-reload contract. HMR injects the timer service, which a
-    // bare custom profile may not mount either.
-    if (ctx.get('hmr') === undefined) {
-      if (ctx.get('timer') === undefined) {
-        await ctx.loader.create({ name: '@cordisjs/plugin-timer' })
+  // A surface can dispose the whole tree while startup or this post-boot
+  // watcher setup is still in flight. Fiber state owns liveness; the local
+  // signal fact distinguishes that expected exit race from a real HMR error.
+  if (watchProfilePatch && !signalShutdown.signal.aborted && ctx.fiber.state === FiberState.ACTIVE) {
+    try {
+      // Config-only HMR for the live profile patch layer: the web bundle
+      // disables the shared module-reload `hmr` row (its reload lifecycle is
+      // untested), so when the composition leaves no HMR service, mount a
+      // watch-only instance with no module roots — cordis.patch.yml edits stay
+      // live on every long-lived surface. A silent skip would break the
+      // documented hot-reload contract. HMR injects the timer service, which a
+      // bare custom profile may not mount either.
+      if (ctx.get('hmr') === undefined) {
+        if (ctx.get('timer') === undefined) {
+          await ctx.loader.create({ name: '@cordisjs/plugin-timer' })
+        }
+        await ctx.loader.create({ name: '@cordisjs/plugin-hmr', config: { root: [] } })
       }
-      await ctx.loader.create({ name: '@cordisjs/plugin-hmr', config: { root: [] } })
+      await watchUserPatches(ctx, {
+        binName: NAME,
+        filename: composed.profile.patchPath,
+        compose: composeLive,
+      })
+      await watchUserPatches(ctx, {
+        binName: NAME,
+        filename: homePatchPath(),
+        compose: composeLive,
+      })
+    } catch (error) {
+      suppressSignalShutdownError(signalShutdown.signal, error)
     }
-    await watchUserPatches(ctx, {
-      binName: NAME,
-      filename: composed.profile.patchPath,
-      compose: composeLive,
-    })
-    await watchUserPatches(ctx, {
-      binName: NAME,
-      filename: homePatchPath(),
-      compose: composeLive,
-    })
   }
   return { ctx, shutdown }
 }
