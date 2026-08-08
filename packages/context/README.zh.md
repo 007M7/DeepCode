@@ -12,3 +12,5 @@
 | [`workspace-context/`](workspace-context/README.md) | workspace 指令上下文 | — |
 
 [`workspace-context` 决策记录](../../.agents/notes/implemented/feature/2026-06-24-workspace-context.md)解释其逐 agent（智能体）／会话隔离和生命周期拆分。
+
+会话引用见 [docs/subsystems/session-reference.md](../../docs/subsystems/session-reference.md)；[`workspace-context` 决策记录](../../.agents/notes/implemented/feature/2026-06-24-workspace-context.md)拥有其按 agent/会话隔离与生命周期拆分。

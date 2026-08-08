@@ -29,7 +29,6 @@
     {
       "path": "../ui-slots"
     },
-
     {
       "path": "../../support/invariants"
     }

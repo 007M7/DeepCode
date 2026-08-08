@@ -35,23 +35,20 @@
 | [`todo/`](todo/README.md) | 面向模型的 `todo_write` 工具 | 产品：稳定表面 |
 | [`plan/`](plan/README.md) | Plan 协作状态，提供直接进入命令与经评审的退出 | 产品：稳定表面 |
 | [`preset/`](preset/README.md) | 由 preset `cordis.yml` 按会话组装 agent | 产品：稳定表面 |
-| [`timeout/`](timeout/README.md) | 工具调用 `tools/execute` 截止时间强制执行 | 产品：稳定表面 |
-| [`guard/`](guard/README.md) | 循环卫生建议性重复调用提醒 | 产品：稳定表面 |
+| [`guard/`](guard/README.md) | 循环卫生守卫：建议性重复调用提醒 + `tools/execute` 截止时间强制执行器 | 产品：稳定表面 |
 | [`bundle/`](bundle/README.md) | 可安装的 `dsh --profile` 补丁层 | 产品：稳定表面 |
-| [`cordis/`](cordis/README.md) | Cordis 运行时集成：自检、临时 Plugin、受限 repository Plugin 加载 | 产品：稳定表面 |
+| [`self-modification/`](self-modification/README.md) | agent 修改自身运行时：检查实时运行时的插件与服务，挂载／卸载模型所写插件（[设计](../.agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md)），以及受限 repository Plugin 加载 | 产品：稳定表面 |
 | [`hooks/`](hooks/README.md) | 钩子桥接 + 共享 Claude Code／Codex 协议格式库 | 产品：稳定表面 |
-| [`session-persistence/`](session-persistence/README.md) | 持久化 seam + JSONL/SQLite 后端 | 产品：稳定表面 |
-| [`session-projection/`](session-projection/README.md) | 投影 seam：领域折叠单元供给全量值 | 产品：稳定表面 |
+| [`session/`](session/README.md) | 持久会话数据平面：持久化 seam + JSONL/SQLite 后端、投影 seam、日志支持的标题、会话上报 | 产品：稳定表面 |
 | [`session-query/`](session-query/README.md) | 会话检索系列：逻辑语料库、有界读取、血缘、事件关系、语义过滤和 SQLite 全文搜索 | 产品：稳定表面 |
-| [`session-title/`](session-title/README.md) | 日志支撑的会话标题：回退服务与选用 LLM 提供方 | 产品：稳定表面 |
 | [`settings/`](settings/README.md) | 用户设置 seam + 文件 provider | 产品：稳定表面 |
 | [`credentials/`](credentials/README.md) | 凭据引用 seam + 环境叠加 `.env` provider | 产品：稳定表面 |
-| [`telemetry/`](telemetry/README.md) | 会话上报：捕获／脱敏 seam、OTel 后端 | 产品：稳定表面 |
 | [`storage/`](storage/README.md) | 非会话存储中枢 + 后端 + 领域形式 | 产品：稳定表面 |
 | [`workspace/`](workspace/README.md) | Workspace 实体 | 产品：稳定表面 |
-| [`sdk/`](sdk/README.md) | 项目 SDK 工具 | 产品：稳定表面 |
+| [`scaffold/`](scaffold/README.md) | 创建／启动／驱动项目的工具：helper、启动器、初始化器、带两端的通信协议、启动器 telemetry | 产品：稳定表面 |
 | [`acp/`](acp/README.md) | 仅面向自动化的 Agent Client Protocol 服务器 | 产品：稳定表面 |
-| [`ui/`](ui/README.md) | JSON-RPC 集成、批准／交互 seam、用户问答工具 | 产品：稳定表面 |
+| [`interaction/`](interaction/README.md) | 人机协作平面：批准／交互 seam、权限预设、命令、用户问答工具 | 产品：稳定表面 |
+| [`boot/`](boot/README.md) | 共享的 app bin 启动粘合层 | 产品：稳定表面 |
 | [`host/`](host/README.md) | web GUI 宿主半侧：API 网关 + HTTP 路由服务器 | 产品：稳定表面 |
 | [`client/`](client/README.md) | web GUI 浏览器半侧：shell、协议层、对象服务、slot、`ui-*` 插件 | 产品：稳定表面 |
 | [`experimental/`](experimental/README.md) | 原型和内部插件 | 未发布 |
