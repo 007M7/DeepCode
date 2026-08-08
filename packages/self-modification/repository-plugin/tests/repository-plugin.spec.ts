@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -14,6 +14,7 @@ import * as RepositoryPlugin from '@deepseek-ai/dsh-repository-plugin'
 import * as RepositoryPluginInvariant from '@deepseek-ai/dsh-repository-plugin/invariant'
 import { parsePreparedPluginConfig } from '../src/format.ts'
 import {
+  createRepositoryPrepareCommand,
   loadPreparedRepository,
   resolveRepositoryCacheDirectory,
   resolveRepositorySpecifier,
@@ -30,7 +31,12 @@ async function temporaryDirectory(name: string): Promise<string> {
 async function writePlugin(root: string, name: string, dsh: Record<string, unknown>): Promise<string> {
   const directory = join(root, '.dsh-plugin')
   await mkdir(directory, { recursive: true })
-  await writeFile(join(directory, 'package.json'), `${JSON.stringify({ name, version: '0.0.0', dsh }, undefined, 2)}\n`)
+  await writeFile(join(directory, 'package.json'), `${JSON.stringify({
+    name,
+    version: '0.0.0',
+    scripts: { prepack: RepositoryPlugin.REPOSITORY_PLUGIN_PREPARE_COMMAND },
+    dsh,
+  }, undefined, 2)}\n`)
   return directory
 }
 
@@ -101,6 +107,16 @@ describe('dsh-plugin-prepare', () => {
     await mkdir(malformed)
     await writeFile(join(malformed, 'package.json'), '{')
     await expect(RepositoryPlugin.prepareDshPlugin(malformed)).rejects.toThrow('failed to read DSH plugin package metadata')
+
+    const lifecycleRoot = await temporaryDirectory('wrong-lifecycle')
+    const lifecycle = join(lifecycleRoot, '.dsh-plugin')
+    await mkdir(lifecycle)
+    await writeFile(join(lifecycle, 'package.json'), JSON.stringify({
+      name: 'wrong-lifecycle',
+      scripts: { prepare: 'dsh-plugin-prepare' },
+      dsh: { skills: ['../skills'] },
+    }))
+    await expect(RepositoryPlugin.prepareDshPlugin(lifecycle)).rejects.toThrow('prepack')
 
     const emptyRoot = await temporaryDirectory('empty-metadata')
     const empty = await writePlugin(emptyRoot, 'empty', {})
@@ -272,6 +288,17 @@ describe('prepared repository plugin Loader composition', () => {
 })
 
 describe('configured GitHub repository sources', () => {
+  it('creates host-owned prepare commands and removes them idempotently', async () => {
+    const command = await createRepositoryPrepareCommand()
+    expect(await readFile(join(command.directory, RepositoryPlugin.REPOSITORY_PLUGIN_PREPARE_COMMAND), 'utf8'))
+      .toContain(process.execPath)
+    expect(await readFile(join(command.directory, `${RepositoryPlugin.REPOSITORY_PLUGIN_PREPARE_COMMAND}.cmd`), 'utf8'))
+      .toContain(process.execPath)
+    await command.dispose()
+    await command.dispose()
+    await expect(stat(command.directory)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
   it('defaults an omitted source list and rejects unknown configuration fields', () => {
     expect(RepositoryPlugin.Config.parse(undefined)).toEqual({ repositories: [] })
     expect(RepositoryPlugin.Config.safeParse({ repositories: [], unexpected: true }).success).toBe(false)
@@ -439,10 +466,41 @@ describe('configured GitHub repository sources', () => {
 
   it('labels a missing prepared wrapper with its exact source and path', async () => {
     const root = await temporaryDirectory('missing-wrapper')
+    const directory = await writePlugin(root, 'missing-wrapper', { skills: ['../skills'] })
     const ctx = new Context()
     const specifier = 'github:owner/repository#missing&path:/.dsh-plugin'
-    await expect(loadPreparedRepository(ctx, { resolve: async () => root }, specifier))
+    await expect(loadPreparedRepository(ctx, { resolve: async () => directory }, specifier))
       .rejects.toThrow(`failed to load prepared repository Plugin ${JSON.stringify(specifier)}`)
+    await ctx.fiber.dispose()
+  })
+
+  it('rejects installed source with the obsolete prepare lifecycle', async () => {
+    const root = await temporaryDirectory('installed-lifecycle')
+    await writeFile(join(root, 'package.json'), JSON.stringify({
+      name: 'installed-lifecycle',
+      scripts: { prepare: 'dsh-plugin-prepare' },
+    }))
+    const ctx = new Context()
+    await expect(loadPreparedRepository(ctx, { resolve: async () => root }, 'github:owner/repository#old&path:/.dsh-plugin'))
+      .rejects.toMatchObject({
+        cause: expect.objectContaining({
+          message: expect.stringContaining('must declare scripts.prepack') as string,
+        }) as Error,
+      })
+    await ctx.fiber.dispose()
+  })
+
+  it('labels missing installed package metadata with its source', async () => {
+    const root = await temporaryDirectory('missing-installed-metadata')
+    const ctx = new Context()
+    const specifier = 'github:owner/repository#damaged&path:/.dsh-plugin'
+    await expect(loadPreparedRepository(ctx, { resolve: async () => root }, specifier))
+      .rejects.toMatchObject({
+        message: expect.stringContaining(JSON.stringify(specifier)) as string,
+        cause: expect.objectContaining({
+          message: expect.stringContaining('failed to read installed DSH plugin package metadata') as string,
+        }) as Error,
+      })
     await ctx.fiber.dispose()
   })
 })

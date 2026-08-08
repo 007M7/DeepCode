@@ -8,7 +8,7 @@ import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
-import { dirname, join, resolve } from 'node:path'
+import { delimiter, dirname, join, resolve } from 'node:path'
 
 /** Exact pnpm release shipped with the Loader for repository installation. */
 export const BUNDLED_PNPM_VERSION = '11.7.0'
@@ -21,6 +21,14 @@ const SENSITIVE_ENV_PATTERN = /KEY|PASSWORD|SECRET|TOKEN/i
 /** Injectable isolated-install boundary used by {@link RepositoryCache}. */
 export type RepositoryInstall = (directory: string) => Promise<void>
 
+/** Installation controls for {@link RepositoryCache}. */
+export interface RepositoryCacheOptions {
+  /** Override the isolated package installation boundary. */
+  install?: RepositoryInstall
+  /** Command directories resolved absolutely and prepended to package lifecycle `PATH`. */
+  executableDirectories?: readonly string[]
+}
+
 interface CacheMarker {
   specifier: string
 }
@@ -29,12 +37,26 @@ function scrubEnvironment(environment: NodeJS.ProcessEnv = process.env): NodeJS.
   return Object.fromEntries(Object.entries(environment).filter(([name]) => !SENSITIVE_ENV_PATTERN.test(name)))
 }
 
+function installEnvironment(executableDirectories: readonly string[]): NodeJS.ProcessEnv {
+  const scrubbed = scrubEnvironment()
+  if (executableDirectories.length === 0) return scrubbed
+  const path = Object.entries(scrubbed).find(([name]) => name.toUpperCase() === 'PATH')?.[1]
+  const withoutPath = Object.fromEntries(Object.entries(scrubbed).filter(([name]) => name.toUpperCase() !== 'PATH'))
+  return {
+    ...withoutPath,
+    PATH: [...executableDirectories, ...(path === undefined ? [] : [path])].join(delimiter),
+  }
+}
+
 function appendOutput(current: string, chunk: Uint8Array): string {
   const combined = current + Buffer.from(chunk).toString('utf8')
   return combined.length <= MAX_ERROR_OUTPUT ? combined : combined.slice(-MAX_ERROR_OUTPUT)
 }
 
-async function installWithBundledPnpm(directory: string): Promise<void> {
+async function installWithBundledPnpm(
+  directory: string,
+  executableDirectories: readonly string[],
+): Promise<void> {
   const require = createRequire(import.meta.url)
   const pnpmManifest = require.resolve('pnpm')
   const pnpmBin = join(dirname(pnpmManifest), 'bin', 'pnpm.mjs')
@@ -47,7 +69,7 @@ async function installWithBundledPnpm(directory: string): Promise<void> {
       '--reporter=append-only',
     ], {
       cwd: directory,
-      env: scrubEnvironment(),
+      env: installEnvironment(executableDirectories),
       shell: false,
       stdio: ['ignore', 'pipe', 'pipe'],
     })
@@ -122,13 +144,16 @@ export class RepositoryCache {
   readonly directory: string
 
   private readonly tasks = new Map<string, Promise<string>>()
+  private readonly install: RepositoryInstall
 
   /**
    * @param directory - caller-owned persistent cache root.
-   * @param install - isolated package installation boundary; defaults to the bundled pnpm.
+   * @param options - isolated installer override and lifecycle command directories.
    */
-  constructor(directory: string, private readonly install: RepositoryInstall = installWithBundledPnpm) {
+  constructor(directory: string, options: RepositoryCacheOptions = {}) {
     this.directory = resolve(directory)
+    const executableDirectories = (options.executableDirectories ?? []).map(entry => resolve(entry))
+    this.install = options.install ?? (staging => installWithBundledPnpm(staging, executableDirectories))
   }
 
   /**

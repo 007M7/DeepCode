@@ -14,10 +14,7 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "prepare": "dsh-plugin-prepare"
-  },
-  "devDependencies": {
-    "@deepseek-ai/dsh-repository-plugin": "^0.0.1"
+    "prepack": "dsh-plugin-prepare"
   },
   "dsh": {
     "skills": ["../skills"],
@@ -26,7 +23,7 @@
 }
 ```
 
-`dsh.skills` 是可选的本地 skill 根数组。`dsh.mcpServers` 是指向一个 `.mcp.json` 的可选路径；两者至少声明一个。路径相对于 `.dsh-plugin`，必须留在其父级源码目录下，因此可以引用 `../skills` 等仓库现有资源。一个仓库可以在不同的可选择子目录下放置多个各自独立的 `.dsh-plugin` 包。
+`scripts.prepack` 必须精确设为 `dsh-plugin-prepare`。DSH 会在准备 Git 源时由已安装的运行时提供该命令，因此仓库包无需添加 DSH 或 NPM 依赖。`dsh.skills` 是可选的本地 skill 根数组。`dsh.mcpServers` 是指向一个 `.mcp.json` 的可选路径；两者至少声明一个。路径相对于 `.dsh-plugin`，必须留在其父级源码目录下，因此可以引用 `../skills` 等仓库现有资源。一个仓库可以在不同的可选择子目录下放置多个各自独立的 `.dsh-plugin` 包。
 
 ## 独立应用配置
 
@@ -47,7 +44,7 @@
 
 ## 准备阶段
 
-`dsh-plugin-prepare` 校验 `package.json#dsh`、确认 skill 根类型、解析 MCP 文件、把资源复制到 `dsh-plugin-assets`，并写入 `dsh-plugin.mjs`。包装模块只包含规范化后的静态 manifest（元数据清单），以及查找 `dsh-repository-plugin` Loader builtin 的固定代码；它不会发现或编译仓库 JavaScript，运行时也不会导入仓库的其他入口。
+安装精确指定的 Git 源时，DSH 会把一个临时的宿主自有 `dsh-plugin-prepare` 命令放入隔离的包生命周期 `PATH`；该命令不从 NPM 获取。必需的 `prepack` 生命周期在 Git 包完成依赖安装后、选定子目录打包前运行，即使 `.dsh-plugin` 位于另一个包管理器工作区内也不例外。该命令校验 `package.json#dsh`、确认 skill 根类型、解析 MCP 文件、把资源复制到 `dsh-plugin-assets`，并写入 `dsh-plugin.mjs`。导入该包装模块前，DSH 会重新校验已安装包是否仍保留精确的 `prepack` 声明。包装模块只包含规范化后的静态 manifest（元数据清单），以及查找 `dsh-repository-plugin` Loader builtin 的固定代码；它不会发现或编译仓库 JavaScript，运行时也不会导入仓库的其他入口。准备阶段未运行或未完成时，安装会在发布缓存 generation 前失败。设计依据见[宿主自有 Git 源准备 Agent Note](../../../.agents/notes/implemented/bug-fix/2026-08-08-host-owned-git-repository-plugin-preparation.md)。
 
 外层包管理器仍会运行已配置仓库包的生命周期脚本。这里的限制只定义 DSH 所支持的贡献表面；对于用户选择以可执行包管理器源安装的仓库，它并不是安全边界。
 

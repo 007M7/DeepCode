@@ -406,6 +406,7 @@ function ciConsumerGates(): Gate[] {
       needs: validatedBuild,
     }),
     builtBinSmokeGate(validatedBuild),
+    githubRepositoryPluginE2eGate(validatedBuild),
   ]
 }
 
@@ -633,6 +634,20 @@ function builtBinSmokeGate(needs: string[] = ['build']): Gate {
     label: 'built-bin smoke',
     needs,
     env: { DSH_EXAMPLE_MODE: 'lib' },
+  })
+}
+
+function githubRepositoryPluginE2eGate(needs: string[]): Gate {
+  return pnpmExec('github-repository-plugin-e2e', [
+    'vitest',
+    'run',
+    '--config',
+    'vitest.e2e.config.ts',
+    'apps/cli/tests/github-repository-plugin.built.e2e.ts',
+  ], {
+    label: 'GitHub repository Plugin dsh run',
+    needs,
+    env: { DSH_REQUIRE_GITHUB_REPOSITORY_PLUGIN_E2E: '1' },
   })
 }
 

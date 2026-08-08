@@ -3,12 +3,18 @@
  * @module
  */
 
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import type { Context, Fiber, FiberState, Plugin } from 'cordis'
 import type { RepositoryCache } from '@cordisjs/plugin-loader/repository'
 import { resolveDshHome } from '@deepseek-ai/dsh-paths'
-import { PREPARED_ENTRY_FILENAME } from './format.ts'
+import { z } from 'zod'
+import {
+  PREPARED_ENTRY_FILENAME,
+  REPOSITORY_PLUGIN_PREPARE_COMMAND,
+} from './format.ts'
 
 // Value mirror: Cordis's const enum has no runtime object to import. Keep
 // aligned with `packages/self-modification/tool-cordis/src/fiber-state.ts`.
@@ -17,11 +23,66 @@ const FIBER_ACTIVE = 2 as FiberState.ACTIVE
 /** Directory under the Harness home containing immutable repository generations. */
 export const DEFAULT_REPOSITORY_CACHE_DIRECTORY = 'repository-plugins'
 
+/** Temporary host command supplied to repository package lifecycle scripts. */
+export interface RepositoryPrepareCommand {
+  /** Absolute directory to prepend to the isolated install's executable search path. */
+  directory: string
+  /** Remove the temporary command directory. */
+  dispose(): Promise<void>
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`
+}
+
+function batchQuote(value: string): string {
+  return `"${value.replaceAll('%', '%%')}"`
+}
+
+/**
+ * Materialize the DSH-owned prepare executable used only while pnpm packs Git source.
+ * @returns a command directory and its idempotent cleanup operation.
+ */
+export async function createRepositoryPrepareCommand(): Promise<RepositoryPrepareCommand> {
+  const directory = await mkdtemp(join(tmpdir(), 'dsh-repository-plugin-bin-'))
+  const target = fileURLToPath(new URL('../lib/bin.js', import.meta.url))
+  try {
+    await Promise.all([
+      writeFile(join(directory, REPOSITORY_PLUGIN_PREPARE_COMMAND), [
+        '#!/bin/sh',
+        `exec ${shellQuote(process.execPath)} ${shellQuote(target)} "$@"`,
+        '',
+      ].join('\n'), { mode: 0o700 }),
+      writeFile(join(directory, `${REPOSITORY_PLUGIN_PREPARE_COMMAND}.cmd`), [
+        '@echo off',
+        `${batchQuote(process.execPath)} ${batchQuote(target)} %*`,
+        '',
+      ].join('\r\n'), { mode: 0o700 }),
+    ])
+  } catch (cause) {
+    /* v8 ignore next -- requires a host filesystem failure after mkdtemp; cleanup semantics are the contract under test. */
+    await rm(directory, { recursive: true, force: true })
+    /* v8 ignore next -- preserves that unstageable host failure after best-effort cleanup. */
+    throw cause
+  }
+  return {
+    directory,
+    async dispose() {
+      await rm(directory, { recursive: true, force: true })
+    },
+  }
+}
+
 // The ref segment excludes `#` so `github:o/r#a#b` fails here — at the config
 // parser, with the syntax the error message promises — instead of inside the
 // cache's pnpm install ('misconfiguration fails loud at the earliest
 // resolvable point').
 const GITHUB_SOURCE_PATTERN = /^github:([^/\s#&]+)\/([^/\s#&]+)#([^\s#&]+)(?:&path:(\/[^\s&]+))?$/
+const installedPackageSchema = z.looseObject({
+  scripts: z.looseObject({
+    prepack: z.literal(REPOSITORY_PLUGIN_PREPARE_COMMAND),
+  }),
+})
 
 function validPluginPath(path: string): boolean {
   const segments = path.split('/').slice(1)
@@ -57,6 +118,19 @@ export function resolveRepositoryCacheDirectory(configured: string | undefined):
   return resolve(configured ?? join(resolveDshHome(), 'cache', DEFAULT_REPOSITORY_CACHE_DIRECTORY))
 }
 
+async function assertInstalledPackageMetadata(directory: string): Promise<void> {
+  let value: unknown
+  try {
+    value = JSON.parse(await readFile(join(directory, 'package.json'), 'utf8')) as unknown
+  } catch (cause) {
+    throw new Error(`failed to read installed DSH plugin package metadata in ${directory}`, { cause })
+  }
+  const result = installedPackageSchema.safeParse(value)
+  if (!result.success) {
+    throw new Error(`installed DSH plugin package must declare scripts.prepack as ${JSON.stringify(REPOSITORY_PLUGIN_PREPARE_COMMAND)}:\n${z.prettifyError(result.error)}`)
+  }
+}
+
 /**
  * Load one exact repository generation's generated wrapper as a child Cordis fiber.
  * @param ctx - repository runtime context that owns the child.
@@ -73,6 +147,7 @@ export async function loadPreparedRepository(
   const directory = await cache.resolve(specifier)
   const filename = join(directory, PREPARED_ENTRY_FILENAME)
   try {
+    await assertInstalledPackageMetadata(directory)
     const plugin = await import(/* @vite-ignore */pathToFileURL(filename).href) as Plugin
     const fiber = ctx.plugin(plugin)
     await fiber

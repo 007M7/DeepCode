@@ -20,6 +20,7 @@ import {
 } from './format.ts'
 import { parseMcpDocument, resolveMcpServers } from './mcp.ts'
 import {
+  createRepositoryPrepareCommand,
   loadPreparedRepository,
   resolveRepositoryCacheDirectory,
   resolveRepositorySpecifier,
@@ -29,6 +30,7 @@ export {
   PREPARED_ASSET_DIRECTORY,
   PREPARED_ENTRY_FILENAME,
   REPOSITORY_PLUGIN_BUILTIN,
+  REPOSITORY_PLUGIN_PREPARE_COMMAND,
   prepareDshPlugin,
   type PreparedPluginManifest,
 } from './format.ts'
@@ -129,17 +131,24 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   if (new Set(repositories).size !== repositories.length) {
     throw new Error('repository sources must resolve to unique exact specifiers')
   }
-  const cache = new RepositoryCache(resolveRepositoryCacheDirectory(config.cacheDir))
-  await ctx.effect(async function* () {
-    ctx.loader.builtins[REPOSITORY_PLUGIN_BUILTIN] = preparedRuntime
-    yield () => {
-      if (ctx.loader.builtins[REPOSITORY_PLUGIN_BUILTIN] === preparedRuntime) {
-        Reflect.deleteProperty(ctx.loader.builtins, REPOSITORY_PLUGIN_BUILTIN)
+  const prepareCommand = repositories.length === 0 ? undefined : await createRepositoryPrepareCommand()
+  try {
+    const cache = new RepositoryCache(resolveRepositoryCacheDirectory(config.cacheDir), {
+      executableDirectories: prepareCommand === undefined ? [] : [prepareCommand.directory],
+    })
+    await ctx.effect(async function* () {
+      ctx.loader.builtins[REPOSITORY_PLUGIN_BUILTIN] = preparedRuntime
+      yield () => {
+        if (ctx.loader.builtins[REPOSITORY_PLUGIN_BUILTIN] === preparedRuntime) {
+          Reflect.deleteProperty(ctx.loader.builtins, REPOSITORY_PLUGIN_BUILTIN)
+        }
       }
-    }
-    for (const repository of repositories) {
-      const plugin = await loadPreparedRepository(ctx, cache, repository)
-      yield plugin.dispose
-    }
-  }, 'repository-plugin runtime and sources')
+      for (const repository of repositories) {
+        const plugin = await loadPreparedRepository(ctx, cache, repository)
+        yield plugin.dispose
+      }
+    }, 'repository-plugin runtime and sources')
+  } finally {
+    await prepareCommand?.dispose()
+  }
 }

@@ -14,10 +14,7 @@ Place an ordinary package in the repository's `.dsh-plugin` directory:
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "prepare": "dsh-plugin-prepare"
-  },
-  "devDependencies": {
-    "@deepseek-ai/dsh-repository-plugin": "^0.0.1"
+    "prepack": "dsh-plugin-prepare"
   },
   "dsh": {
     "skills": ["../skills"],
@@ -26,7 +23,7 @@ Place an ordinary package in the repository's `.dsh-plugin` directory:
 }
 ```
 
-`dsh.skills` is an optional array of local skill roots. `dsh.mcpServers` is an optional path to one `.mcp.json`; at least one field is required. Paths are relative to `.dsh-plugin`, must stay under its parent source directory, and may therefore refer to existing repository assets such as `../skills`. A repository containing several Plugins gives each one its own `.dsh-plugin` package under a different selectable subdirectory.
+`scripts.prepack` must be exactly `dsh-plugin-prepare`. DSH supplies that command from its own installed runtime while preparing Git source, so the repository package needs no DSH or npm dependency. `dsh.skills` is an optional array of local skill roots. `dsh.mcpServers` is an optional path to one `.mcp.json`; at least one field is required. Paths are relative to `.dsh-plugin`, must stay under its parent source directory, and may therefore refer to existing repository assets such as `../skills`. A repository containing several Plugins gives each one its own `.dsh-plugin` package under a different selectable subdirectory.
 
 ## Standalone app configuration
 
@@ -47,7 +44,7 @@ Long-lived surfaces watch both `cordis.patch.yml` layers through Cordis HMR. A v
 
 ## Preparation
 
-`dsh-plugin-prepare` validates `package.json#dsh`, verifies skill-root types, parses the MCP file, copies assets under `dsh-plugin-assets`, and writes `dsh-plugin.mjs`. The wrapper contains only the normalized static manifest and fixed code that looks up the `dsh-repository-plugin` Loader builtin. It neither discovers nor compiles repository JavaScript, and the runtime never imports another repository entry point.
+During exact Git installation, DSH places a temporary host-owned `dsh-plugin-prepare` command on the isolated package lifecycle `PATH`; the command is not fetched from npm. The required `prepack` lifecycle runs after the Git package's dependency installation and before its selected subdirectory is packed, including when `.dsh-plugin` sits inside another package-manager workspace. The command validates `package.json#dsh`, verifies skill-root types, parses the MCP file, copies assets under `dsh-plugin-assets`, and writes `dsh-plugin.mjs`. Before importing that wrapper, DSH revalidates that the installed package retained the exact `prepack` declaration. The wrapper contains only the normalized static manifest and fixed code that looks up the `dsh-repository-plugin` Loader builtin. It neither discovers nor compiles repository JavaScript, and the runtime never imports another repository entry point. Failure to run or complete preparation fails installation before a cache generation is published. Rationale: [host-owned Git source preparation Agent Note](../../../.agents/notes/implemented/bug-fix/2026-08-08-host-owned-git-repository-plugin-preparation.md).
 
 The containing package manager still runs the configured repository package's lifecycle scripts. This restriction defines the supported DSH contribution surface; it is not a security boundary for a repository that the user chose to install as executable package-manager source.
 

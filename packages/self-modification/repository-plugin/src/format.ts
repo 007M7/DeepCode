@@ -14,6 +14,8 @@ export const PREPARED_ENTRY_FILENAME = 'dsh-plugin.mjs'
 export const PREPARED_ASSET_DIRECTORY = 'dsh-plugin-assets'
 /** Loader builtin used by every generated import-free wrapper. */
 export const REPOSITORY_PLUGIN_BUILTIN = 'dsh-repository-plugin'
+/** Exact host-owned command required by the repository package `prepack` lifecycle. */
+export const REPOSITORY_PLUGIN_PREPARE_COMMAND = 'dsh-plugin-prepare'
 
 const sourceMetadataSchema = z.object({
   skills: z.array(z.string().min(1)).default([]),
@@ -23,6 +25,9 @@ const sourceMetadataSchema = z.object({
 })
 const sourcePackageSchema = z.looseObject({
   name: z.string().min(1),
+  scripts: z.looseObject({
+    prepack: z.literal(REPOSITORY_PLUGIN_PREPARE_COMMAND),
+  }),
   dsh: sourceMetadataSchema,
 })
 const preparedManifestSchema = z.object({
@@ -148,7 +153,7 @@ export async function prepareDshPlugin(directory: string = process.cwd()): Promi
     throw new Error(`failed to read DSH plugin package metadata in ${pluginDirectory}`, { cause })
   }
   const parsed = sourcePackageSchema.safeParse(packageValue)
-  if (!parsed.success) throw formatZodError('invalid package.json#dsh', parsed.error)
+  if (!parsed.success) throw formatZodError('invalid DSH plugin package.json', parsed.error)
 
   const sourceRoot = await realpath(dirname(pluginDirectory))
   const skillSources: string[] = []
