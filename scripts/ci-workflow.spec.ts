@@ -42,7 +42,7 @@ describe('CI workflow', () => {
 
     expect(windows['runs-on']).toBe('windows-2025')
     expect(windows.name).toBe('windows node 24 / native complete')
-    expect(windows.env).toMatchObject({ DSH_COVERAGE_MAX_WORKERS: '4' })
+    expect(windows.env).toMatchObject({ DSH_COVERAGE_MAX_WORKERS: '1' })
     expect(commandSteps).toHaveLength(3)
     expect(commandSteps.every(step => step.shell === 'pwsh')).toBe(true)
     expect(commandSteps.map(step => step.run)).toContain('pnpm run check:ci:windows-complete')

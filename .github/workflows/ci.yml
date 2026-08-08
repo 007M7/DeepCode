@@ -310,7 +310,7 @@ jobs:
     runs-on: windows-2025
     name: windows node 24 / native complete
     env:
-      DSH_COVERAGE_MAX_WORKERS: '4'
+      DSH_COVERAGE_MAX_WORKERS: '1'
       DSH_GATE_CONCURRENCY: '1'
       DSH_PUBLINT_CONCURRENCY: '1'
     steps:

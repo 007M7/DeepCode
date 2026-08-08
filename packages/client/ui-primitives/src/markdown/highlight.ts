@@ -156,13 +156,33 @@ const regexEngine = createJavaScriptRegexEngine({
 
 let singleton: HighlighterCore | undefined
 
-/** The synchronous highlighter (one instance per document); pre-warmed below, lazy as the fallback. */
-function highlighter(): HighlighterCore {
-  singleton ??= createHighlighterCoreSync({
+/** Representative paths through every boot grammar, compiled before user content is timed. */
+const BOOT_GRAMMAR_WARMUPS = [
+  { lang: 'typescript', code: 'const answer: number = 42' },
+  { lang: 'shellscript', code: 'printf \'%s\\n\' "$HOME"' },
+  { lang: 'json', code: '{"ready":true}' },
+] as const
+
+/** Construct and pre-tokenize the boot grammars outside the user-content scan budget. */
+function createHighlighter(): HighlighterCore {
+  const instance = createHighlighterCoreSync({
     themes: [cssVariablesTheme],
     langs: LANGS,
     engine: regexEngine,
   })
+  for (const sample of BOOT_GRAMMAR_WARMUPS) {
+    instance.codeToTokens(sample.code, {
+      lang: sample.lang,
+      theme: 'css-variables',
+      tokenizeTimeLimit: 0,
+    })
+  }
+  return instance
+}
+
+/** The synchronous highlighter (one instance per document); pre-warmed below, lazy as the fallback. */
+function highlighter(): HighlighterCore {
+  singleton ??= createHighlighter()
   return singleton
 }
 

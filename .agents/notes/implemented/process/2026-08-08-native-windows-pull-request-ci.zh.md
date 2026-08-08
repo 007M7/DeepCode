@@ -14,7 +14,7 @@ Status: implemented
 
 [ci.yml](../../../../.github/workflows/ci.yml) 中必需的 `windows` 作业在 GitHub 标准 `windows-2025` 镜像上使用原生 PowerShell 运行。该作业为工作区符号链接启用开发人员模式，通过 `pnpm/action-setup` 提供仓库固定版本的 pnpm，在不传输 store 归档的情况下执行不可变安装，并运行 `pnpm run check:ci:windows-complete`。稳定的 `windows` 作业 ID 仍是 `all checks passed` 的依赖项；其显示名称为 `windows node 24 / native complete`。
 
-工作区构建、生产网站和逐文件 100% 覆盖率检查失败时，聚合作业会继续阻断；更广泛的静态检查、文档、包和构建产物可移植性清单则作为观测项报告。覆盖率检查的工作线程预算为 4 个；同一台运行器在这些门禁之间共享安装结果与构建输出，串行门禁与 publint 工作线程上限使标准镜像的资源使用保持在可预测范围内。重复执行的 lint 与快照强制检查仍由 Linux 负责。
+工作区构建、生产网站和逐文件 100% 覆盖率检查失败时，聚合作业会继续阻断；更广泛的静态检查、文档、包和构建产物可移植性清单则作为观测项报告。覆盖率检查的工作线程预算为 1 个，门禁并发数也保持为 1，因此插桩套件不会与免覆盖率的高负载套件重叠执行；同一台运行器在这些门禁之间共享安装结果与构建输出，串行门禁与 publint 工作线程上限使标准镜像的资源使用保持在可预测范围内。重复执行的 lint 与快照强制检查仍由 Linux 负责。
 
 首次原生运行暴露出两项被兼容性通道掩盖的故障。文档投影测试此前只按 `/` 拆分来派生图片 basename；现在改为使用 Node 根据平台计算的 basename。Chokidar 消费方收到的 `%TEMP%` 以 `C:\\Users\\RUNNER~1` 这个 8.3 别名表示，而 libuv 返回的是长目录名，导致其 Windows 事件路径断言失败。共享的设置 watcher 与凭据 watcher，以及 Cordis 的模块 HMR（热模块替换）与精确配置 HMR，现在都会在打开 watcher 前规范化现有的原生监听基准路径或层级最深的现有祖先路径，并保留尚不存在的后缀；文件访问和诊断仍使用配置路径。
 
@@ -36,7 +36,11 @@ Status: implemented
 
 随后的分支头精确托管运行又隔离出另外 7 项 fixture 契约。PowerShell 后台输出场景现在会等待进程完成，再排空并比较最后一段增量；pi-ai 空闲 watchdog 场景则保留 1 秒的有界关闭期限，以容纳 Windows 延迟送达的 socket 通知。异步工作区投影会在宿主解析后的根目录上填充内存文件系统。Include 重试验收现在断言注入的故障与最终持久化结果，而不再断言可能包含另一项合法串行写入的偶然 rename 总次数。LSP 的裸命令 fixture 会在 Windows 上通过 `PATHEXT` 提供 `.cmd` 可执行文件，URI 渲染预期也会区分执行环境的路径约定与测试宿主的分隔符。上述修改既没有跳过受支持路径，也没有削弱结果断言。
 
-该次运行还暴露出语法高亮会受运行器资源争用影响，而不只取决于源文本。Shiki 的 JavaScript 引擎会把超过 3,000 个字符的 TextMate 正则推迟到首次匹配时再编译，Shiki 同时把这段编译时间计入每行 500 毫秒的 tokenization（词元化）预算。繁忙的 Windows 覆盖率工作线程因此可能在首次 TypeScript 行匹配到 `const` 后提前停止，并让剩余内容沿用同一关键字样式。客户端现在仍使用 Shiki 的默认正则转换，但关闭延迟编译：scanner（扫描器）创建时会立即编译各项模式，而既有的 500 毫秒预算仍会约束对用户内容的扫描。词元边界与 Markdown DOM fixture 会继续要求完整高亮结果，不接受这类部分结果流。
+该次运行还暴露出语法高亮会受运行器资源争用影响，而不只取决于源文本。Shiki 的 JavaScript 引擎会把超过 3,000 个字符的 TextMate 正则推迟到首次匹配时再编译，Shiki 同时把这段编译时间计入每行 500 毫秒的 tokenization（词元化）预算。繁忙的 Windows 覆盖率工作线程因此可能在首次 TypeScript 行匹配到 `const` 后提前停止，并让剩余内容沿用同一关键字样式。客户端现在仍使用 Shiki 的默认正则转换，但会关闭延迟编译，并在构造单例时以不设启动期截止时间的方式，为每项启动时语法 tokenization 一段代表性样例。因此，scanner（扫描器）创建与模式编译会在用户内容进入仍为每行 500 毫秒的预算前完成。词元边界与 Markdown DOM fixture 会继续要求完整高亮结果，不接受这类部分结果流。
+
+同一次分支头精确托管运行还表明，在标准 Windows 镜像上并发使用 3 个插桩 Vitest 工作线程并不安全：彼此独立的 Git merge 集成用例与 JSON-RPC HTTP 集成用例会同时触及默认的 5 秒上限。原生通道现在只为 Vitest 提供 1 个工作线程；真实 Git 子进程套件与两项真实 HTTP 组合用例则获得显式的 15 秒集成预算，其工作负载与断言均未改变。translation merge fixture 在把 `import.meta.resolve('tsx/esm')` 传给 Node 的 `--import` 时，也会保留其 `file:` URL；此前把它转换为盘符路径会在驱动程序输出自有恢复指引前就失败。纳入最新的 package regrouping（包重组）后，采用 fork 隔离的 JSONL 套件清单会跟随它在 `packages/session/` 下的新位置，而不会悄然把这一进程绑定套件送回共享线程池。
+
+项目 skill 组合 fixture 另有一项最终一致性竞态：宿主资源紧张时，agent 可能在 `write` 返回后、Chokidar 使 skill 目录缓存失效前就开始下一次模型步骤，导致替换目录消息落到后续 `skill` 调用之后。现在，fixture 会在写入后的工具边界等待真实注册表观察到 `hot-skill`，然后继续严格断言请求顺序与持久转录。生产代码仍保持异步；测试会显式等待其本来要验证的 watcher 契约，而不是依赖调度时序或接受另一个请求索引。
 
 POSIX 模式位、基于 chmod 的不可读状态和基于 chmod 的 writer lock 拒绝在 Windows 上没有等价机制。这些验收场景继续在 POSIX 上强制执行，并在 Windows 上跳过；内容、原子替换、符号链接安全、通过平台无关文件系统冲突验证的回滚与恢复，以及原生 Windows 长路径行为仍保有覆盖。没有任何受支持的产品源码为适应这些差异而从 Windows 覆盖率中排除。
 
