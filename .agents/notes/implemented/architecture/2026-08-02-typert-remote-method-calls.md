@@ -217,6 +217,8 @@ Host lib build
 
 The existing top-level `build` still runs `build:lib` before `build:web`, but `build:lib` must complete the Host and Remote artifacts before starting Client TypeScript compilation. A clean build must not depend on stale `.d.ts` files from an earlier build.
 
+Compiler-backed repository gates that resolve the consumer surface have the same prerequisite even when their primary inputs are source files. The public `typecheck`, `lint`, and `doc-typecheck` commands run the Host contract pass first. The gate scheduler may use their `*:contracts-ready` variants only after an explicit TypeRT-contract or complete-build dependency, so parallel lanes neither read missing declarations nor run concurrent generators against the same outputs.
+
 ## The `/remote` package entry
 
 Every business package that provides Remote methods exports a generated `/remote` subpath:
@@ -490,6 +492,7 @@ The package topology is `api/remotes → api/gateway → client/connection → h
 
 - Goal Service directly decorates mutation methods whose business signatures already match the Remote contract and keeps `remoteExportCreate(...)` only to adapt `GoalView` into `CreateGoalResult`, without a second route, codec, or Client method list.
 - A clean `build:lib` emits Host and consumer Remote artifacts before Client compilation, including the business package's JS, DTS, and declaration map under `/remote`.
+- After `clean`, standalone `typecheck`, `lint`, and `doc-typecheck` regenerate the Remote contracts; the pre-push hook uses the same prepared typecheck, and CI source consumers wait for one shared contract pass.
 - Importing `@deepseek-ai/dsh-goal/remote` adds the strict `ctx.remote.goals.create(...)` type and declaration navigation to `remoteExportCreate`; omitting that import omits the namespace.
 - Mounting the same import's JS contribution supplies endpoint, parameter, result, lookup, Context, and Zod reflection and materializes the call without a handwritten stub.
 - Root and Agent-scoped calls cross the real shared `/api` carrier, resolve `agentId` to the live Agent, invoke the original Goal receiver, and return through the existing RPC envelope.
@@ -501,7 +504,7 @@ The package topology is `api/remotes → api/gateway → client/connection → h
 
 ## Consequences
 
-Remote API types depend on generated `lib` declarations. Build orchestration must finish the Host contract pass before compiling Host and Client consumers; an incorrect order makes a clean build depend on stale artifacts.
+Remote API types depend on generated `lib` declarations. Build and gate orchestration must finish the Host contract pass before compiling or semantically analyzing Host and Client consumers; an incorrect order makes a clean command depend on stale artifacts.
 
 Source navigation requires a Remote package to publish both its declaration map and the `src` file referenced by the map. If package `files` omits either side, types still compile but consumer navigation stops at the generated DTS. The workspace manifest check must therefore treat both as one publication contract.
 
