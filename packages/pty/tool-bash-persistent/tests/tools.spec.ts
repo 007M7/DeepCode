@@ -421,7 +421,7 @@ describe('tool-bash-persistent', () => {
     await call(ctx, owner, 'warm up')
     const session = stub.sessions[0]!
     session.mode = 'paged-scrollback'
-    session.scrollback = ''
+    session.scrollback = 'older one\nolder two\nolder three\nolder four\n'
 
     expect(text(await call(ctx, owner, 'paged output'))).toBe('hello from stub')
   })
