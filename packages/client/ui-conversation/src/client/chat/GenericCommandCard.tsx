@@ -45,6 +45,7 @@ export function GenericCommandCard({ node, t, runningSummary }: GenericCommandCa
   const open = expanded && body !== null
   return (
     <div className={css.root} data-variant="others" data-state={state}>
+      {state === 'running' && <span className={a11yCss.visuallyHidden}>{t('row.running')}</span>}
       {state === 'error' && <span className={a11yCss.visuallyHidden}>{t('row.failed')}</span>}
       <DisclosureRow
         rowClassName={css.row}

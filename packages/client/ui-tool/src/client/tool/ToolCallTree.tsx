@@ -1,5 +1,5 @@
 /** Root/subcall Tool composition with one keyed atomic dispatch path. */
-import { memo, useMemo } from 'react'
+import { memo, useMemo, type ReactNode } from 'react'
 import type { CodeSubCall, ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ToolCallOwnerProps, ToolTreeProps } from '../contract/slots.ts'
 import { GenericToolCard } from './toolviews/GenericToolCard.tsx'
@@ -12,12 +12,13 @@ function subCallName(node: CodeSubCall): string {
 
 /** One atomic call dispatched through the Tool-owned keyed slot. */
 const ToolCall = memo(function ToolCall({
-  renderSlot, callId, toolName, block, openFile, selected, cwd, inspectCall, t,
+  renderSlot, callId, toolName, block, openFile, selected, cwd, inspectCall, t, children,
 }: Pick<ToolTreeProps, 'renderSlot' | 'openFile' | 'cwd' | 'inspectCall' | 't'> & {
   callId: string
   toolName: string
   block: ToolCallBlock
   selected: boolean
+  children?: ReactNode
 }) {
   const owner: ToolCallOwnerProps = useMemo(() => ({
     callId,
@@ -38,6 +39,7 @@ const ToolCall = memo(function ToolCall({
         entryKey: toolName,
         fallback: <GenericToolCard {...owner} t={t} />,
       })}
+      {children}
     </div>
   )
 })
@@ -53,18 +55,17 @@ export function ToolCallTree({
 }: ToolTreeProps) {
   const subCalls = useSession(snapshot => snapshot.codeDispatches.get(callId))
   return (
-    <>
-      <ToolCall
-        renderSlot={renderSlot}
-        callId={callId}
-        toolName={toolName}
-        block={block}
-        openFile={openFile}
-        selected={callId === selectedCallId}
-        cwd={cwd}
-        inspectCall={inspectCall}
-        t={t}
-      />
+    <ToolCall
+      renderSlot={renderSlot}
+      callId={callId}
+      toolName={toolName}
+      block={block}
+      openFile={openFile}
+      selected={callId === selectedCallId}
+      cwd={cwd}
+      inspectCall={inspectCall}
+      t={t}
+    >
       {subCalls !== undefined && subCalls.length > 0 ? (
         <div className={css.subCalls} data-subcalls>
           {subCalls.map(node => (
@@ -83,6 +84,6 @@ export function ToolCallTree({
           ))}
         </div>
       ) : null}
-    </>
+    </ToolCall>
   )
 }

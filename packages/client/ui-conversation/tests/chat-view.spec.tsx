@@ -1278,6 +1278,7 @@ describe('ChatView', () => {
     const xv = render(<executing.ChatView {...executing.props} />)
     expect(xv.container.querySelector('[data-state="running"]')).not.toBeNull()
     expect(xv.getByText('执行中…')).toBeTruthy()
+    expect(xv.getByText('运行中')).toBeTruthy()
 
     // Cross-window soft-fall (run page truncated): generic title, outcome preserved.
     const orphan = makeHarness({

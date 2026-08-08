@@ -57,6 +57,8 @@ describe('ToolCallTree', () => {
     const view = render(
       <ToolCallTree {...props(block, new Map([['parent', [child]]]), child.callId)} />,
     )
+    expect(view.container.querySelector('[data-subcalls]')?.parentElement)
+      .toBe(view.container.querySelector('[data-chat-call-id="parent"]'))
     expect(view.container.querySelector('[data-chat-call-id="parent"]')?.hasAttribute('data-selected')).toBe(false)
     expect(view.container.querySelector('[data-chat-call-id="parent:code:1"]')?.getAttribute('data-selected')).toBe('true')
   })
