@@ -44,9 +44,9 @@ SlotsService 分别为 renderer 提供 `useSessions` 与 `useWorkspaces` 的裸 
 
 `SessionHistoryInspection.requests` 是一条按时间顺序排列、以用途为判别字段的提供方请求流。助手请求始终携带数值型 `turn` 与 `step`；压缩请求携带 `step: 0`，其 `turn` 所有者可以是 `null`。这个 null 所有者表示手动压缩独立运行在两个轮次之间，并不表示它属于任一相邻轮次。`session/end-seed` 边界会在边界时刻将未匹配的压缩请求以错误状态结束，错误固定为 `Compaction was interrupted before completion.`；后续 start 会投影为独立请求，而不会覆盖这项遗留的未匹配请求。
 
-## Code Mode 子调用索引
+## Code Mode 子调用树
 
-`ConversationSnapshot.codeDispatches` 按父调用的 callId 和启动顺序，用原生调用块形状组织一个 `run_code` 调用的子调用：`tool/code-dispatch-start` 事件落成 `RunningToolCall` 形状（行组件从该形状推导运行中的转圈状态），其 `tool/code-dispatch` 完结事件原位替换为 `ToolResultNode` 形状，`callTime` 携带成对 start 事件的时间。start 落在回放窗口之外的完结事件则直接追加，`callTime: null`（耗时未知——绝不伪造零耗时）。live mux 帧与历史回放构建相同的索引；子调用永不进入 transcript 的 `nodes` 流；无关快照交换不会改变每个父调用对应的数组引用和映射引用，两者均保持 memo 稳定。
+每个 `ToolCallBlock` 都通过 `subCalls` 按启动顺序递归拥有自己的子调用。Runtime 的 `ToolCallTree` 私下维护 parent callId 到 child 的索引：`tool/code-dispatch-start` 事件落成 `RunningToolCall`，对应的 `tool/code-dispatch` 完结事件原位替换为 `ToolResultNode`，其 `callTime` 来自成对 start 事件；start 落在回放窗口之外时，完结事件会以 `callTime: null` 直接追加，绝不伪造零耗时。live mux 帧与历史回放共用这套 fold 和树投影；子调用不会成为 transcript `nodes` 中的独立 root。一次 child 变化只会复制从该 child 到所属 root 的祖先链，未变化的 sibling 和其他 root 保持对象引用稳定。
 
 ## Session 标题投影
 

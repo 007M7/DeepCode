@@ -44,9 +44,9 @@ Because the projection is log-ordered, the node array is seq-monotonic by constr
 
 `SessionHistoryInspection.requests` is one chronological, purpose-discriminated provider-request stream. Assistant requests always carry their numeric `turn` and `step`; compaction requests carry `step: 0` and a `turn` owner that may be `null`. That null owner means a manual compaction ran standalone between turns, not that it belongs to either adjacent turn. A `session/end-seed` boundary closes an unmatched compaction request as an error at the boundary time with `Compaction was interrupted before completion.`; a later start projects as an independent request instead of overwriting the orphan.
 
-## Code Mode sub-dispatch index
+## Code Mode child-call tree
 
-`ConversationSnapshot.codeDispatches` groups a `run_code` call's sub-dispatches under their parent callId, in start order, using the native call-block shapes: a `tool/code-dispatch-start` event lands the `RunningToolCall` form (rows derive the running ring from the shape) and its `tool/code-dispatch` settlement replaces it in place with the `ToolResultNode` form, `callTime` carrying the paired start's time. A settle whose start fell outside the replay window appends directly with `callTime: null` (duration unknown — never a fabricated zero). Live mux frames and history replay build the identical index; sub-calls never join the transcript `nodes` flow; per-parent array and map references are memo-stable across unrelated snapshot swaps.
+Every `ToolCallBlock` recursively owns its children through `subCalls`, in start order. Runtime's `ToolCallTree` privately maintains the parent-callId-to-children index: a `tool/code-dispatch-start` event lands as a `RunningToolCall`, and the matching `tool/code-dispatch` settlement replaces it in place with a `ToolResultNode` whose `callTime` comes from the paired start. When the start fell outside the replay window, the settlement appends directly with `callTime: null`; Runtime never fabricates a zero duration. Live mux frames and history replay share this fold and tree projection, and child calls never become independent roots in transcript `nodes`. A child update copies only its ancestor path to the owning root; unchanged siblings and other roots retain object identity.
 
 ## Session title projection
 

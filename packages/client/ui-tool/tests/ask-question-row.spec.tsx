@@ -24,11 +24,11 @@ const resultNode = (argsRaw: string, resultText: string | null, over?: Partial<T
   kind: 'tool-result', seq: 10, time: 2_000, callTime: 1_000, callId: 'c1',
   call: { name: 'ask_user_question', argsRaw },
   content: resultText === null ? [] : [{ type: 'text', text: resultText }],
-  isError: false, callView: null, resultView: null, ...over,
+  isError: false, callView: null, resultView: null, subCalls: [], ...over,
 })
 
 const runningCall = (argsRaw: string) =>
-  ({ callId: 'c1', name: 'ask_user_question', argsRaw, turn: 1, step: 1, time: 1_000, callView: null })
+  ({ callId: 'c1', name: 'ask_user_question', argsRaw, turn: 1, step: 1, time: 1_000, callView: null, subCalls: [] })
 
 // Standard locale seat stub mirroring the real ns → common → key chain.
 const t = makeTranslate(zh, commonZh)

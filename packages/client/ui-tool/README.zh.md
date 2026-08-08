@@ -4,11 +4,11 @@
 
 Client Tool 展示插件。`ui-conversation` 通过 `conversation.chat.tool` 交付一个已经排好位置的 root call；本包渲染该 root 及其 Code Dispatch 子调用，并把每个原子调用通过 keyed slot `tool.call.toolview` 分发。没有注册的 Tool 名称使用通用卡片。
 
-业务 UI 包只注册 wire Tool 名称和原子视图，不配对 Session Event、不重建 transcript，也不拥有 root/subcall 拓扑。Runtime 继续负责 call/result 配对、生命周期和 `codeDispatches`；conversation view 继续负责 ChatFlow 位置。
+业务 UI 包只注册 wire Tool 名称和原子视图，不配对 Session Event、不重建 transcript，也不拥有 root/subcall 拓扑。Runtime 继续负责 call/result 配对、生命周期和递归 `subCalls` 投影；conversation view 继续负责 ChatFlow 位置。
 
 ## 渲染契约
 
-`ToolCallTree` 接收一个 root `ToolCallBlock`、selection 状态、会话 `cwd`，以及用于打开文件和检查调用的 Host 回调。它通过标准 session slot props 选择 Runtime 投影的 `codeDispatches[rootCallId]` 数组，再让 root 与每个 child 经过同一条原子分发路径。Runtime 当前只暴露一层 Code Dispatch child，因此 renderer 保留该形状，不自行发明递归数据。
+`ToolCallTree` 接收一个已经包含递归 `subCalls` 的 root `ToolCallBlock`、selection 状态、会话 `cwd`，以及用于打开文件和检查调用的 Host 回调。它递归遍历标准 call block，让 root 与任意深度的 child 经过同一条原子分发路径，不再订阅独立的 parent-to-children map。
 
 每个 root 和 child wrapper 都保留 `conversation.chat.tool` 的 call-anchor DOM 契约，供分页和 selection 使用。
 
@@ -44,6 +44,5 @@ owner 载荷为 `ToolCallOwnerProps`：`callId`、`toolName`、冻结的 `block`
 
 ## 已知限制与后续工作
 
-- Runtime 当前只暴露一层 Code Dispatch 子调用。renderer 会让 root 和 child 经过同一个原子分发路径，但不宣称 wire 拓扑已经支持任意递归。
 - 现有第一方 Tool 视图初期仍集中在本包，之后可以通过 keyed slot 独立迁回各自业务包。
 - Tool 文案暂时复用 `ui-conversation` locale namespace。

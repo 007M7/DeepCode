@@ -1,12 +1,12 @@
 /** Root/subcall Tool composition with one keyed atomic dispatch path. */
 import { memo, useMemo, type ReactNode } from 'react'
-import type { CodeSubCall, ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ToolCallOwnerProps, ToolTreeProps } from '../contract/slots.ts'
 import { GenericToolCard } from './toolviews/GenericToolCard.tsx'
 import css from './ToolCallTree.module.css'
 
-/** Resolve a Code Dispatch child's wire Tool name from either lifecycle form. */
-function subCallName(node: CodeSubCall): string {
+/** Resolve a Tool call's wire name from either lifecycle form. */
+function callName(node: ToolCallBlock): string {
   return 'kind' in node ? node.call?.name ?? '' : node.name
 }
 
@@ -44,40 +44,33 @@ const ToolCall = memo(function ToolCall({
   )
 })
 
-/**
- * Render one root Tool call and its currently supported one-level Code
- * Dispatch children. Root and children use the same atomic keyed dispatch.
- * @param props - whole-Tool owner data and the Tool-owned child-slot share.
- * @returns the Tool call tree.
- */
-export function ToolCallTree({
-  useSession, renderSlot, callId, toolName, block, selectedCallId, cwd, openFile, inspectCall, t,
-}: ToolTreeProps) {
-  const subCalls = useSession(snapshot => snapshot.codeDispatches.get(callId))
+const ToolCallBranch = memo(function ToolCallBranch({
+  renderSlot, block, selectedCallId, cwd, openFile, inspectCall, t,
+}: Pick<ToolTreeProps, 'renderSlot' | 'selectedCallId' | 'cwd' | 'openFile' | 'inspectCall' | 't'> & {
+  block: ToolCallBlock
+}) {
   return (
     <ToolCall
       renderSlot={renderSlot}
-      callId={callId}
-      toolName={toolName}
+      callId={block.callId}
+      toolName={callName(block)}
       block={block}
       openFile={openFile}
-      selected={callId === selectedCallId}
+      selected={block.callId === selectedCallId}
       cwd={cwd}
       inspectCall={inspectCall}
       t={t}
     >
-      {subCalls !== undefined && subCalls.length > 0 ? (
+      {block.subCalls.length > 0 ? (
         <div className={css.subCalls} data-subcalls>
-          {subCalls.map(node => (
-            <ToolCall
-              key={node.callId}
+          {block.subCalls.map(child => (
+            <ToolCallBranch
+              key={child.callId}
               renderSlot={renderSlot}
-              callId={node.callId}
-              toolName={subCallName(node)}
-              block={node}
-              openFile={openFile}
-              selected={node.callId === selectedCallId}
+              block={child}
+              selectedCallId={selectedCallId}
               cwd={cwd}
+              openFile={openFile}
               inspectCall={inspectCall}
               t={t}
             />
@@ -85,5 +78,27 @@ export function ToolCallTree({
         </div>
       ) : null}
     </ToolCall>
+  )
+})
+
+/**
+ * Render one root Tool call and its recursive children through the same
+ * atomic keyed dispatch.
+ * @param props - whole-Tool owner data and the Tool-owned child-slot share.
+ * @returns the Tool call tree.
+ */
+export function ToolCallTree({
+  renderSlot, block, selectedCallId, cwd, openFile, inspectCall, t,
+}: ToolTreeProps) {
+  return (
+    <ToolCallBranch
+      renderSlot={renderSlot}
+      block={block}
+      selectedCallId={selectedCallId}
+      cwd={cwd}
+      openFile={openFile}
+      inspectCall={inspectCall}
+      t={t}
+    />
   )
 }

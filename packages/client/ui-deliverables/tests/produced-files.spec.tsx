@@ -37,7 +37,7 @@ const toolResult = (seq: number, callId: string, name = 'bash'): ToolResultNode 
   kind: 'tool-result', seq, time: seq * 1_000, callId,
   call: { name, argsRaw: `{"command":"cmd-${callId}","description":"run ${callId}"}` },
   callTime: seq * 1_000 - 500,
-  content: [], isError: false, callView: null, resultView: null,
+  content: [], isError: false, callView: null, resultView: null, subCalls: [],
 })
 const wrote = (seq: number, callId: string, ...paths: string[]): ToolResultNode => ({
   ...toolResult(seq, callId, 'write'),

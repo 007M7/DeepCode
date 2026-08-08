@@ -103,6 +103,7 @@ function materializeNode(
         meta: event.data.meta,
         callView: call?.callView ?? null,
         resultView,
+        subCalls: [],
       }
     }
     /* v8 ignore next 2 -- defensive arm: only the four surface-eligible types

@@ -40,19 +40,27 @@ function runningMaterial(call: RunningToolCall): CallMaterial {
   return { name: call.name, argsRaw: call.argsRaw, block: call }
 }
 
+function findCall(block: ToolCallBlock, callId: string): ToolCallBlock | undefined {
+  if (block.callId === callId) return block
+  for (const child of block.subCalls) {
+    const found = findCall(child, callId)
+    if (found !== undefined) return found
+  }
+  return undefined
+}
+
 function materialFor(s: ConversationSnapshot, callId: string): CallMaterial | null {
   for (const node of s.nodes) {
-    if (node.kind === 'tool-result' && node.callId === callId) return settledMaterial(node, callId)
+    if (node.kind !== 'tool-result') continue
+    const found = findCall(node, callId)
+    if (found !== undefined) {
+      return 'kind' in found ? settledMaterial(found, callId) : runningMaterial(found)
+    }
   }
-  const open = s.runningCalls.find(c => c.callId === callId)
-  if (open !== undefined) return runningMaterial(open)
-  // run_code sub-dispatches: the native call-block shapes, so a selected
-  // sub-row resolves through the same material as a native call — the
-  // settled ToolResultNode form, or the RunningToolCall form mid-flight.
-  for (const subs of s.codeDispatches.values()) {
-    for (const sub of subs) {
-      if (sub.callId !== callId) continue
-      return 'kind' in sub ? settledMaterial(sub, callId) : runningMaterial(sub)
+  for (const root of s.runningCalls) {
+    const found = findCall(root, callId)
+    if (found !== undefined) {
+      return 'kind' in found ? settledMaterial(found, callId) : runningMaterial(found)
     }
   }
   return null

@@ -1,4 +1,3 @@
-import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import {
   SurfaceManager, isSurfaceEligibleType, isSurfaceEvent,
@@ -7,7 +6,7 @@ import type {
   HistoryEntry, ToolCallView, ToolResultView,
 } from '@deepseek-ai/dsh-client-connection/client'
 import type {
-  AssistantRequestConfig, AssistantTiming, CodeSubCall, ConversationNode,
+  AssistantRequestConfig, AssistantTiming, ConversationNode,
   PartialAssistant, RunningToolCall,
 } from '../sessions/conversation.ts'
 import { toAssistantBlocks } from '../sessions/conversation.ts'
@@ -20,6 +19,7 @@ import type { ConversationPromptSnapshot } from '../sessions/request-inspection.
 import { PartialAccumulator } from '../sessions/partial.ts'
 import type { AssistantStepMetadata } from '../sessions/assistant-timing.ts'
 import { indexAssistantStepTiming, settledAssistantTiming } from '../sessions/assistant-timing.ts'
+import { ToolCallTree } from '../sessions/tool-call-tree.ts'
 
 interface CallIndexEntry {
   name: string
@@ -41,7 +41,6 @@ export interface ConversationHistoryProjection {
   interruptedNodes: readonly ConversationNode[]
   partial: PartialAssistant | null
   runningCalls: readonly RunningToolCall[]
-  codeDispatches: ReadonlyMap<string, readonly CodeSubCall[]>
 }
 
 function replacementCrossesWindowHead(event: SessionEvent, baseSeq: number): boolean {
@@ -177,6 +176,7 @@ function materializeNode(
         meta: event.data.meta,
         callView: call?.callView ?? null,
         resultView,
+        subCalls: [],
       }
     }
     default:
@@ -188,74 +188,22 @@ function materializeNode(
 }
 /* jscpd:ignore-end */
 
-function projectTransient(entries: readonly HistoryEntry[]): Pick<
+interface TransientProjection extends Pick<
   ConversationHistoryProjection,
-  'interruptedNodes' | 'partial' | 'runningCalls' | 'codeDispatches'
+  'interruptedNodes' | 'partial' | 'runningCalls'
 > {
+  toolCallTree: ToolCallTree
+}
+
+function projectTransient(entries: readonly HistoryEntry[]): TransientProjection {
   let partial: PartialAccumulator | null = null
   const openCalls = new Map<string, RunningToolCall>()
   const interruptedNodes: ConversationNode[] = []
-  const codeDispatches = new Map<string, readonly CodeSubCall[]>()
+  const toolCallTree = new ToolCallTree()
 
   for (const entry of entries) {
     const { event } = entry
-    if ((event.type as string) === 'tool/code-dispatch-start') {
-      const data = event.data as unknown as {
-        parentCallId: string
-        subCallId: string
-        name: string
-        arguments: unknown
-      }
-      const siblings = codeDispatches.get(data.parentCallId) ?? []
-      // The independent replay emits the same public running-call shape as
-      // Chat without reading or mutating Session's live index.
-      /* jscpd:ignore-start */
-      codeDispatches.set(data.parentCallId, [...siblings, {
-        callId: data.subCallId,
-        name: data.name,
-        argsRaw: JSON.stringify(data.arguments),
-        turn: 0,
-        step: 0,
-        time: event.time,
-        callView: null,
-      }])
-      /* jscpd:ignore-end */
-      continue
-    }
-    if ((event.type as string) === 'tool/code-dispatch') {
-      const data = event.data as unknown as {
-        parentCallId: string
-        subCallId: string
-        name: string
-        arguments: unknown
-        isError: boolean
-        content: ContentBlock[]
-      }
-      const siblings = codeDispatches.get(data.parentCallId) ?? []
-      const at = siblings.findIndex(sub => sub.callId === data.subCallId)
-      const started = at === -1 ? undefined : siblings[at]
-      // History independently reproduces the public settled-call shape instead
-      // of consuming Session's live code-dispatch projection.
-      /* jscpd:ignore-start */
-      const settled: CodeSubCall = {
-        kind: 'tool-result', seq: event.seq, time: event.time,
-        callId: data.subCallId,
-        call: { name: data.name, argsRaw: JSON.stringify(data.arguments) },
-        callTime: started?.time ?? null,
-        content: data.content,
-        isError: data.isError,
-        callView: null,
-        resultView: null,
-      }
-      codeDispatches.set(
-        data.parentCallId,
-        at === -1
-          ? [...siblings, settled]
-          : siblings.map((sub, index) => index === at ? settled : sub),
-      )
-      /* jscpd:ignore-end */
-      continue
-    }
+    if (toolCallTree.apply(event)) continue
     switch (event.type) {
       case 'assistant/chunk': {
         const { turn, step, chunk } = event.data
@@ -280,6 +228,7 @@ function projectTransient(entries: readonly HistoryEntry[]): Pick<
           step: event.data.step,
           time: event.time,
           callView: entry.view?.for === 'call' ? entry.view.view : null,
+          subCalls: [],
         })
         /* jscpd:ignore-end */
         break
@@ -317,6 +266,7 @@ function projectTransient(entries: readonly HistoryEntry[]): Pick<
             error: { name: 'Interrupted', code: 'interrupted' },
             callView: call.callView,
             resultView: null,
+            subCalls: [],
           })
           /* jscpd:ignore-end */
         }
@@ -331,7 +281,7 @@ function projectTransient(entries: readonly HistoryEntry[]): Pick<
     interruptedNodes,
     partial: partial?.toPartial() ?? null,
     runningCalls: [...openCalls.values()],
-    codeDispatches,
+    toolCallTree,
   }
 }
 
@@ -462,9 +412,17 @@ export function projectConversationHistory(
     }
   }
 
+  const transient = projectTransient(entries)
+  const projectedEventNodes = transient.toolCallTree.projectNodes(eventNodes)
+  const projectedContexts = contexts.map((context): ConversationContext => {
+    const nodes = transient.toolCallTree.projectNodes(context.nodes)
+    return nodes === context.nodes ? context : { ...context, nodes }
+  })
   return {
-    eventNodes,
-    contexts,
-    ...projectTransient(entries),
+    eventNodes: projectedEventNodes,
+    contexts: projectedContexts,
+    interruptedNodes: transient.toolCallTree.projectNodes(transient.interruptedNodes),
+    partial: transient.partial,
+    runningCalls: transient.toolCallTree.projectRunningCalls(transient.runningCalls),
   }
 }
