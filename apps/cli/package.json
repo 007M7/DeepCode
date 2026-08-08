@@ -36,11 +36,14 @@
     "node-addon-require-builtin": "^0.1.4"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-frontend-static": "workspace:^",
     "@deepseek-ai/dsh-host-apiproxy": "workspace:^",
     "@deepseek-ai/dsh-host-webserver": "workspace:^",
+    "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-llm-mock-server": "workspace:^",
     "@deepseek-ai/dsh-loader-smoke": "workspace:^",
+    "@deepseek-ai/dsh-session": "workspace:^",
     "@deepseek-ai/dsh-system-prompt": "workspace:^",
     "@deepseek-ai/dsh-tools": "workspace:^",
     "@types/js-yaml": "^4.0.9",

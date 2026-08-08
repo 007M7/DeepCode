@@ -57,6 +57,7 @@ flowchart TD
   end
   subgraph group_skill["packages/skill"]
     pkg_skill["skill"]
+    pkg_skill_badge["skill-badge"]
     pkg_skill_local["skill-local"]
     pkg_tool_skill["tool-skill"]
   end
@@ -205,7 +206,6 @@ flowchart TD
   subgraph group_examples["packages/examples"]
     pkg_acp_demo["acp-demo"]
     pkg_agent_spine_demo["agent-spine-demo"]
-    pkg_cli_demo["cli-demo"]
     pkg_jsonrpc_demo["jsonrpc-demo"]
   end
   subgraph group_feedback["packages/feedback"]
@@ -300,7 +300,6 @@ flowchart TD
   pkg_timeout --> pkg_invariants
   pkg_scope --> pkg_invariants
   pkg_llm_mock_server --> pkg_invariants
-  pkg_loader_smoke --> pkg_invariants
   pkg_base --> pkg_invariants
   pkg_client_modules --> pkg_invariants
   pkg_client_schema_form --> pkg_invariants
@@ -429,6 +428,8 @@ flowchart TD
   pkg_fs --> pkg_invariants
   pkg_fs --> pkg_llm
   pkg_fs --> pkg_sandbox
+  pkg_skill_badge --> pkg_invariants
+  pkg_skill_badge --> pkg_skill
   pkg_compact --> pkg_invariants
   pkg_compact --> pkg_llm
   pkg_compact --> pkg_session
@@ -559,6 +560,10 @@ flowchart TD
   pkg_llm_replay --> pkg_invariants
   pkg_llm_replay --> pkg_llm
   pkg_llm_replay --> pkg_session
+  pkg_loader_smoke --> pkg_agent
+  pkg_loader_smoke --> pkg_invariants
+  pkg_loader_smoke --> pkg_llm
+  pkg_loader_smoke --> pkg_session
   pkg_commands --> pkg_agent
   pkg_commands --> pkg_brand
   pkg_commands --> pkg_invariants
@@ -1145,16 +1150,6 @@ flowchart TD
   pkg_acp_demo --> pkg_session_query_sqlite
   pkg_acp_demo --> pkg_tools
   pkg_acp_demo --> pkg_workspace_context
-  pkg_cli_demo --> pkg_agent
-  pkg_cli_demo --> pkg_agent_spine_demo
-  pkg_cli_demo --> pkg_app_boot
-  pkg_cli_demo --> pkg_invariants
-  pkg_cli_demo --> pkg_llm
-  pkg_cli_demo --> pkg_session
-  pkg_cli_demo --> pkg_session_checkpoint_policy
-  pkg_cli_demo --> pkg_session_persistence_jsonl
-  pkg_cli_demo --> pkg_tools
-  pkg_cli_demo --> pkg_workspace_context
 ```
 
 | Package | Group | Depends on |
@@ -1169,7 +1164,6 @@ flowchart TD
 | [`timeout`](../packages/util/timeout) | `util` | [`invariants`](../packages/support/invariants) |
 | [`scope`](../packages/core/scope) | `core` | [`invariants`](../packages/support/invariants) |
 | [`llm-mock-server`](../packages/support/llm-mock-server) | `support` | [`invariants`](../packages/support/invariants) |
-| [`loader-smoke`](../packages/support/loader-smoke) | `support` | [`invariants`](../packages/support/invariants) |
 | [`base`](../packages/bundle/base) | `bundle` | [`invariants`](../packages/support/invariants) |
 | [`client-modules`](../packages/client/modules) | `client` | [`invariants`](../packages/support/invariants) |
 | [`client-schema-form`](../packages/client/schema-form) | `client` | [`invariants`](../packages/support/invariants) |
@@ -1220,6 +1214,7 @@ flowchart TD
 | [`agent`](../packages/core/agent) | `core` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt), [`type-meta`](../packages/typert/type-meta) |
 | [`bash`](../packages/bash/bash) | `bash` | [`invariants`](../packages/support/invariants), [`sandbox`](../packages/sandbox/sandbox), [`subprocess`](../packages/subprocess/subprocess) |
 | [`fs`](../packages/fs/fs) | `fs` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`sandbox`](../packages/sandbox/sandbox) |
+| [`skill-badge`](../packages/skill/skill-badge) | `skill` | [`invariants`](../packages/support/invariants), [`skill`](../packages/skill/skill) |
 | [`compact`](../packages/compact/compact) | `compact` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`web-fetch-local`](../packages/web/web-fetch-local) | `web` | [`invariants`](../packages/support/invariants), [`timeout`](../packages/util/timeout), [`web`](../packages/web/web) |
 | [`web-search-exa`](../packages/web/web-search-exa) | `web` | [`environment`](../packages/util/environment), [`invariants`](../packages/support/invariants), [`web`](../packages/web/web) |
@@ -1253,6 +1248,7 @@ flowchart TD
 | [`session-persistence-sqlite`](../packages/session-persistence/session-persistence-sqlite) | `session-persistence` | [`invariants`](../packages/support/invariants), [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence) |
 | [`session-title`](../packages/session-title/session-title) | `session-title` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-projection`](../packages/session-projection/session-projection) |
 | [`llm-replay`](../packages/support/llm-replay) | `support` | [`compact`](../packages/compact/compact), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
+| [`loader-smoke`](../packages/support/loader-smoke) | `support` | [`agent`](../packages/core/agent), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`commands`](../packages/ui/commands) | `ui` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`scope`](../packages/core/scope), [`session`](../packages/core/session) |
 | [`user-approval`](../packages/ui/user-approval) | `ui` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt) |
 | [`user-interaction`](../packages/ui/user-interaction) | `ui` | [`agent`](../packages/core/agent), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm) |
@@ -1350,4 +1346,3 @@ flowchart TD
 | [`sdk-client`](../packages/sdk/sdk-client) | `sdk` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`sdk-protocol`](../packages/sdk/sdk-protocol), [`session`](../packages/core/session) |
 | [`subagent-dsh-sdk`](../packages/subagent/subagent-dsh-sdk) | `subagent` | [`agent`](../packages/core/agent), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`sdk-client`](../packages/sdk/sdk-client), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent), [`subprocess`](../packages/subprocess/subprocess) |
 | [`acp-demo`](../packages/examples/acp-demo) | `examples` | [`acp`](../packages/acp/acp), [`agent-spine-demo`](../packages/examples/agent-spine-demo), [`app-boot`](../packages/ui/app-boot), [`invariants`](../packages/support/invariants), [`session-checkpoint-policy`](../packages/session-persistence/session-checkpoint-policy), [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl), [`session-query`](../packages/session-query/session-query), [`session-query-sqlite`](../packages/session-query/session-query-sqlite), [`tools`](../packages/core/tools), [`workspace-context`](../packages/context/workspace-context) |
-| [`cli-demo`](../packages/examples/cli-demo) | `examples` | [`agent`](../packages/core/agent), [`agent-spine-demo`](../packages/examples/agent-spine-demo), [`app-boot`](../packages/ui/app-boot), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-checkpoint-policy`](../packages/session-persistence/session-checkpoint-policy), [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl), [`tools`](../packages/core/tools), [`workspace-context`](../packages/context/workspace-context) |

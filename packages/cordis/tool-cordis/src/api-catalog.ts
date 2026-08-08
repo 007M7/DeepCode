@@ -1793,7 +1793,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CommandResult',
-    declaration: 'export type CommandResult = {\n    readonly kind: \'success\';\n    readonly text?: string;\n} | {\n    readonly kind: \'error\';\n    readonly text: string;\n};',
+    declaration: 'export type CommandResult = {\n    readonly kind: \'success\';\n    readonly text?: string;\n    readonly sourceEventSeq?: number;\n} | {\n    readonly kind: \'error\';\n    readonly text: string;\n};',
   },
   {
     name: 'CompactAgentContext',

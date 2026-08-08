@@ -20,6 +20,9 @@ const MAX_COLLECT_ATTEMPTS = 2
 const RUNTIME_PROVIDER = 'runtime'
 const RUNTIME_RANK = 250
 
+/** Standard precedence rank for packaged skill providers and local bundled roots. */
+export const BUNDLED_SKILL_RANK = 600
+
 /**
  * Return whether a string is a valid kebab-case skill name.
  * @param name - candidate skill name to validate.

@@ -343,7 +343,7 @@ A command was registered or unregistered. This is an unfiltered registry notific
 'commands/change'(): void
 ```
 
-Source: [`packages/ui/commands/src/index.ts:161`](../../packages/ui/commands/src/index.ts)
+Source: [`packages/ui/commands/src/index.ts:172`](../../packages/ui/commands/src/index.ts)
 
 ## `credentials/*`
 
@@ -677,7 +677,7 @@ A skill provider, runtime contribution, or provider-backed catalog may have chan
 'skills/change'(): void
 ```
 
-Source: [`packages/skill/skill/src/index.ts:280`](../../packages/skill/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:283`](../../packages/skill/skill/src/index.ts)
 
 ## `subagent/*`
 

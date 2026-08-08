@@ -249,46 +249,6 @@ Depends on: [`LocalConfig`](#deepseek-aidsh-bash-local)
 
 Source: [`packages/bash/bash-sandbox/src/index.ts:35`](../packages/bash/bash-sandbox/src/index.ts)
 
-## `@deepseek-ai/dsh-cli-demo`
-
-```ts config-catalog
-/** App config forwarded to the spine, configured agent, and JSONL backend. */
-export interface Config {
-  /** Provider route for the configured agent. */
-  provider: string
-  /** Model name for the configured agent; a matching adapter must be registered. */
-  model: string
-  /** Bundled agent-loop concurrency cap; `1` is serial and omission uses its default. */
-  maxParallelToolCalls?: number
-  /** Deployment persona forwarded to the system-prompt plugin. */
-  persona?: string
-  /** Explicit model-facing tool order forwarded to the system-prompt plugin. */
-  toolOrder?: string[]
-  /** Tool-registry presentation config forwarded through agent-spine-demo. */
-  tools?: ToolsConfig
-  /** DeepSeek Harness home directory exposed to bash and used for local skill discovery. */
-  dshHome?: string
-  /** Fallback session-title limits forwarded through agent-spine-demo. */
-  sessionTitle?: NonNullable<agentCore.Config['sessionTitle']>
-  /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
-  persistenceRoot?: string
-  /** JSONL artifact encoding; defaults to checksummed Zstandard frames. */
-  persistenceCompression?: JsonlCompression
-  /** Skill registry, local-provider, and model-facing consumer config. */
-  skills?: agentCore.SkillConfig
-  /** Model-facing bash tool config forwarded through agent-spine-demo. */
-  toolBash?: NonNullable<agentCore.Config['toolBash']>
-  /** Generic background-task control-tool config forwarded through agent-spine-demo. */
-  toolTasks?: NonNullable<agentCore.Config['toolTasks']>
-  /** Controls automatic AGENTS.md/CLAUDE.md loading; configure a byte budget or set `false`. */
-  workspaceContext: agentCore.Config['workspaceContext']
-}
-```
-
-Depends on: [`agentCore`](../packages/examples/agent-spine-demo/src/index.ts) · [`JsonlCompression`](../packages/session-persistence/session-persistence-jsonl/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools)
-
-Source: [`packages/examples/cli-demo/src/index.ts:26`](../packages/examples/cli-demo/src/index.ts)
-
 ## `@deepseek-ai/dsh-client-connection`
 
 Requires: `httpServer`
@@ -509,7 +469,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/bundle/headless/src/index.ts:33`](../packages/bundle/headless/src/index.ts)
+Source: [`packages/bundle/headless/src/index.ts:32`](../packages/bundle/headless/src/index.ts)
 
 ## `@deepseek-ai/dsh-hooks-claude`
 
@@ -931,7 +891,7 @@ export interface ReplayModelConfig {
 
 Depends on: [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts)
 
-Source: [`packages/support/llm-replay/src/index.ts:731`](../packages/support/llm-replay/src/index.ts)
+Source: [`packages/support/llm-replay/src/index.ts:744`](../packages/support/llm-replay/src/index.ts)
 
 ## `@deepseek-ai/dsh-llm-retry`
 
@@ -1531,7 +1491,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/skill/skill/src/index.ts:262`](../packages/skill/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:265`](../packages/skill/skill/src/index.ts)
 
 ## `@deepseek-ai/dsh-skill-local`
 
@@ -2618,6 +2578,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-session` ([`packages/core/session/src/index.ts`](../packages/core/session/src/index.ts))
 - `@deepseek-ai/dsh-session-checkpoint-policy` — requires `llm` · `sessionPersistence` · `sessions` · `tools` ([`packages/session-persistence/session-checkpoint-policy/src/index.ts`](../packages/session-persistence/session-checkpoint-policy/src/index.ts))
 - `@deepseek-ai/dsh-session-projection` ([`packages/session-projection/session-projection/src/index.ts`](../packages/session-projection/session-projection/src/index.ts))
+- `@deepseek-ai/dsh-skill-badge` — requires `skills` ([`packages/skill/skill-badge/src/index.ts`](../packages/skill/skill-badge/src/index.ts))
 - `@deepseek-ai/dsh-storage` ([`packages/storage/storage/src/index.ts`](../packages/storage/storage/src/index.ts))
 - `@deepseek-ai/dsh-subagent` ([`packages/subagent/subagent/src/index.ts`](../packages/subagent/subagent/src/index.ts))
 - `@deepseek-ai/dsh-subprocess-local` ([`packages/subprocess/subprocess-local/src/index.ts`](../packages/subprocess/subprocess-local/src/index.ts))

@@ -691,11 +691,15 @@ describe('MessageItem arms', () => {
       <MessageItem t={t} node={{
         kind: 'compaction', seq: 5, time: 1_000,
         summary: '## 摘要标题\n\n保留的事实。',
+        summaryEventSeq: 4,
+        shadowedItemCount: 16,
+        shadowedTokenCount: 11_309,
       }}
       />,
     )
     const row = view.getByRole('button', { name: /上下文已压缩/ })
     expect(row.getAttribute('aria-expanded')).toBe('false')
+    expect(view.getByText('已压缩 16 条历史记录（约 11309 tokens）')).toBeTruthy()
     expect(view.queryByText(/保留的事实/)).toBeNull()
     fireEvent.click(row)
     expect(row.getAttribute('aria-expanded')).toBe('true')
@@ -705,7 +709,10 @@ describe('MessageItem arms', () => {
   })
 
   it('a marker whose provenance fell outside the window is not expandable', () => {
-    const view = render(<MessageItem t={t} node={{ kind: 'compaction', seq: 6, time: 1_000, summary: null }} />)
+    const view = render(<MessageItem t={t} node={{
+      kind: 'compaction', seq: 6, time: 1_000, summary: null,
+      summaryEventSeq: null, shadowedItemCount: null, shadowedTokenCount: null,
+    }} />)
     const row = view.getByRole('button', { name: /上下文已压缩/ })
     expect(row).toHaveProperty('disabled', true)
     expect(row.getAttribute('aria-expanded')).toBeNull()

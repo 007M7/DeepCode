@@ -329,13 +329,13 @@ describe('official Claude distribution authorization', () => {
 
 describe('manifestPatterns', () => {
   it('derives globs from the declared members, so a new member area is read', () => {
-    expect(manifestPatterns(['packages/*/*', 'tools/*'], ['packages/*'])).toEqual([
+    expect(manifestPatterns(['packages/*/*', 'tools/*', 'native/landlock-run', 'native/landlock-run/packages/*'])).toEqual([
       'package.json',
       'packages/*/*/package.json',
       'tools/*/package.json',
-      'examples/*/package.json',
       'native/landlock-run/package.json',
       'native/landlock-run/packages/*/package.json',
+      'examples/*/package.json',
     ])
   })
 })

@@ -1,4 +1,4 @@
-/** Reject tracked files that expose the internal repository identity. */
+/** Reject tracked files that expose the internal repository identity outside audited publishing declarations. */
 
 import { execFileSync } from 'node:child_process'
 import { existsSync, lstatSync, readFileSync, readlinkSync } from 'node:fs'
@@ -9,6 +9,15 @@ const root = resolve(import.meta.dirname, '..')
 const internalOwner = ['deepseek', 'harness'].join('-')
 const internalRepository = [internalOwner, internalOwner].join('/')
 const internalIssueShorthand = `${internalOwner}#`
+const trustedPublishingRepositoryUrl = `git+https://github.com/${internalRepository}.git`
+
+/** Exact declarations that intentionally expose the source repository for trusted publishing. */
+const allowedInternalRepositoryLineByFile: Readonly<Record<string, string>> = {
+  'native/landlock-run/packages/entry/package.json': `"url": "${trustedPublishingRepositoryUrl}",`,
+  'native/landlock-run/packages/linux-arm64/package.json': `"url": "${trustedPublishingRepositoryUrl}",`,
+  'native/landlock-run/packages/linux-x64/package.json': `"url": "${trustedPublishingRepositoryUrl}",`,
+  'scripts/check-workspace-constraints.ts': `const repositoryUrl = '${trustedPublishingRepositoryUrl}'`,
+}
 
 const namedReferenceCharacters: Readonly<Record<string, string>> = {
   hyphen: '-',
@@ -40,7 +49,7 @@ export interface InternalRepositoryReference {
 }
 
 /**
- * Locate internal-repository references in one text file.
+ * Locate unaudited internal-repository references in one text file.
  * @param file - Repository-relative path used in diagnostics.
  * @param source - Text to inspect.
  * @returns every matching source line.
@@ -49,7 +58,9 @@ export function findInternalRepositoryReferences(file: string, source: string): 
   const references: InternalRepositoryReference[] = []
   for (const [index, line] of source.split('\n').entries()) {
     const canonicalLine = canonicalReferenceText(line)
-    if (canonicalLine.includes(internalRepository) || canonicalLine.includes(internalIssueShorthand)) {
+    const isAllowedPublishingDeclaration = line.trim() === allowedInternalRepositoryLineByFile[file]
+    if (!isAllowedPublishingDeclaration
+      && (canonicalLine.includes(internalRepository) || canonicalLine.includes(internalIssueShorthand))) {
       references.push({ file, line: index + 1 })
     }
   }
@@ -81,9 +92,9 @@ const isMain = invokedPath !== undefined && import.meta.url === pathToFileURL(re
 if (isMain) {
   const references = scanRepository(root)
   if (references.length === 0) {
-    console.log('verify-public-repository-links: tracked files expose no internal repository identity.')
+    console.log('verify-public-repository-links: tracked files expose no unexpected internal repository identity.')
   } else {
-    console.error('verify-public-repository-links: internal repository references found:')
+    console.error('verify-public-repository-links: unexpected internal repository references found:')
     for (const reference of references) console.error(`  ${reference.file}:${String(reference.line)}`)
     process.exitCode = 1
   }

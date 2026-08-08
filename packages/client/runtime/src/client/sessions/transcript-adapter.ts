@@ -158,6 +158,29 @@ function compactSummaryText(event: SessionEvent): string | null {
   return text.trim() === '' ? null : text
 }
 
+interface CompactSummaryDetails {
+  readonly summary: string | null
+  readonly shadowedItemCount: number | null
+  readonly shadowedTokenCount: number | null
+}
+
+/** Recover human-facing summary material from one structurally narrowed wire event. */
+function compactSummaryDetails(event: SessionEvent): CompactSummaryDetails {
+  const data = event.data as unknown as { shadowedSeqs?: unknown; shadowedTokenCount?: unknown }
+  const shadowedSeqs = data.shadowedSeqs
+  const tokenCount = data.shadowedTokenCount
+  return {
+    summary: compactSummaryText(event),
+    shadowedItemCount: Array.isArray(shadowedSeqs)
+      && shadowedSeqs.every((seq: unknown) => Number.isSafeInteger(seq) && (seq as number) >= 0)
+      ? shadowedSeqs.length
+      : null,
+    shadowedTokenCount: Number.isSafeInteger(tokenCount) && (tokenCount as number) >= 0
+      ? tokenCount as number
+      : null,
+  }
+}
+
 /**
  * One landed checkpoint -> the human-facing compaction marker. The summary text
  * comes from the checkpoint's own provenance (`sourceEventSeqs` names the
@@ -172,13 +195,28 @@ function materializeCompaction(
 ): CompactionSummaryNode {
   const sources = (checkpoint as SessionEvent & { sourceEventSeqs?: number[] }).sourceEventSeqs
   let summary: string | null = null
+  let summaryEventSeq: number | null = null
+  let shadowedItemCount: number | null = null
+  let shadowedTokenCount: number | null = null
   for (const seq of sources ?? []) {
     const candidate = eventIndex.get(seq)
     if (candidate === undefined || (candidate.type as string) !== 'compact/summary') continue
-    summary = compactSummaryText(candidate)
+    const details = compactSummaryDetails(candidate)
+    summary = details.summary
+    summaryEventSeq = candidate.seq
+    shadowedItemCount = details.shadowedItemCount
+    shadowedTokenCount = details.shadowedTokenCount
     break
   }
-  return { kind: 'compaction', seq: checkpoint.seq, time: checkpoint.time, summary }
+  return {
+    kind: 'compaction',
+    seq: checkpoint.seq,
+    time: checkpoint.time,
+    summary,
+    summaryEventSeq,
+    shadowedItemCount,
+    shadowedTokenCount,
+  }
 }
 
 /** Log-ordered human transcript over a paged raw event window (never consults surface order). */
@@ -323,9 +361,22 @@ export class TranscriptAdapter {
       return true
     }
     if ((event.type as string) !== 'command/done') return false
-    const data = event.data as unknown as { commandId: CommandId; kind: 'success' | 'error'; text?: string }
+    const data = event.data as unknown as {
+      commandId: CommandId
+      kind: 'success' | 'error'
+      text?: string
+      sourceEventSeq?: number
+    }
     const run = this.commandIdx.get(data.commandId)
-    const outcome = { kind: data.kind, ...data.text === undefined ? {} : { text: data.text } }
+    const sourceEventSeq = data.kind === 'success'
+      && Number.isSafeInteger(data.sourceEventSeq) && (data.sourceEventSeq as number) >= 0
+      ? data.sourceEventSeq as number
+      : undefined
+    const outcome = {
+      kind: data.kind,
+      ...data.text === undefined ? {} : { text: data.text },
+      ...sourceEventSeq === undefined ? {} : { sourceEventSeq },
+    }
     if (run === undefined) {
       // Cross-window cut: the run page fell out of the window — build the
       // node from the done alone (same soft-fall as a call-less tool result).

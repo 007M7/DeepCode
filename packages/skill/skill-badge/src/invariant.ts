@@ -1,22 +1,22 @@
 /**
- * Package-owned invariant companion for `@deepseek-ai/dsh-cli-demo`.
- * @module @deepseek-ai/dsh-cli-demo/invariant
+ * Package-owned invariant companion for `@deepseek-ai/dsh-skill-badge`.
+ * @module @deepseek-ai/dsh-skill-badge/invariant
  */
 
 /* jscpd:ignore-start */
 import type { Context } from 'cordis'
 import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
-const PACKAGE_NAME = '@deepseek-ai/dsh-cli-demo'
+const PACKAGE_NAME = '@deepseek-ai/dsh-skill-badge'
 
 /** Cordis companion plugin name. */
-export const name = 'cli-demo-invariant'
+export const name = 'skill-badge-invariant'
 /** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: this composition package owns no independent event stream or mutable data;
- * Loader and built-entry tests cover its wiring.
+ * No runtime invariant: the package owns one immutable provider registration,
+ * while the skill registry owns registration uniqueness and lifecycle checks.
  */
 const install: InvariantInstaller = () => {}
 

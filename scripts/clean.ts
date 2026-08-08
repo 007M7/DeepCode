@@ -72,6 +72,11 @@ export class RepositoryCleaner {
     for (const entry of await readdir(this.root, { withFileTypes: true })) {
       if (entry.isFile() && entry.name.endsWith('.tsbuildinfo')) targets.add(join(this.root, entry.name))
     }
+    await this.addIfPresent(
+      targets,
+      join(this.root, 'native/landlock-run/tsconfig.tsbuildinfo'),
+      canonicalRoot,
+    )
 
     // The root project-reference graph is the source of truth for live build targets.
     // Each emitting project declares lib/types as outDir; its parent lib also owns
@@ -114,6 +119,7 @@ export class RepositoryCleaner {
     const outputs = new Set<string>()
     const pending = [join(this.root, 'tsconfig.json')]
     const visited = new Set<string>()
+    const nativeEntryOutput = join(this.root, 'native/landlock-run/packages/entry/lib')
 
     while (pending.length > 0) {
       const nextConfigPath = pending.pop()
@@ -125,10 +131,14 @@ export class RepositoryCleaner {
       const parsed = parseConfig(configPath)
       if (parsed.options.outDir !== undefined) {
         const typesDirectory = resolve(parsed.options.outDir)
-        if (basename(typesDirectory) !== 'types') {
+        const outputDirectory = basename(typesDirectory) === 'types'
+          ? dirname(typesDirectory)
+          : typesDirectory === nativeEntryOutput
+            ? typesDirectory
+            : undefined
+        if (outputDirectory === undefined) {
           throw new Error(`clean: expected TypeScript outDir to end in /types: ${repositoryPath(this.root, typesDirectory)}`)
         }
-        const outputDirectory = dirname(typesDirectory)
         this.assertRepositoryTarget(outputDirectory)
         outputs.add(outputDirectory)
       }

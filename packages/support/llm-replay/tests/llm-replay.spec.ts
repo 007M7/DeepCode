@@ -202,6 +202,7 @@ describe('deriveReplayScript', () => {
         data: {
           summary: rawOutput,
           rawOutput,
+          llmStreamCall: true,
           shadowedRange: { start: 1, end: 1 },
           shadowedSeqs: [1],
           shadowedTokenCount: 20,
@@ -238,6 +239,49 @@ describe('deriveReplayScript', () => {
     expect(deriveReplayScript([event])).toEqual([])
   })
 
+  it('does not infer a local LLM call from external compact output', () => {
+    const block = { type: 'text' as const, text: 'remote summary' }
+    const event: SessionEvent<'compact/summary'> = {
+      type: 'compact/summary',
+      seq: 1,
+      time: 0,
+      data: {
+        summary: [block],
+        rawOutput: [block],
+        shadowedRange: { start: 1, end: 1 },
+        shadowedSeqs: [1],
+        shadowedTokenCount: 20,
+        provider: 'remote',
+        model: 'remote',
+      },
+    }
+
+    expect(deriveReplayScript([event])).toEqual([])
+  })
+
+  it('rejects a persisted marked compact LLM call without its complete output', () => {
+    const [event] = parseSessionLog([
+      JSON.stringify({ type: 'session', version: 0, id: 'invalid-compact', createdAt: 0 }),
+      JSON.stringify({
+        type: 'compact/summary',
+        seq: 1,
+        time: 0,
+        data: {
+          summary: [{ type: 'text', text: 'incomplete provenance' }],
+          llmStreamCall: true,
+          shadowedRange: { start: 1, end: 1 },
+          shadowedSeqs: [1],
+          shadowedTokenCount: 20,
+          provider: 'mock',
+          model: 'mock',
+        },
+      }),
+    ].join('\n'))
+
+    expect(() => deriveReplayScript(event === undefined ? [] : [event]))
+      .toThrow(/LLM stream call without rawOutput/)
+  })
+
   it('derives a compact/summary stream when usage is unavailable', () => {
     const block = { type: 'text' as const, text: 'summary without usage' }
     const event: SessionEvent<'compact/summary'> = {
@@ -247,6 +291,7 @@ describe('deriveReplayScript', () => {
       data: {
         summary: [block],
         rawOutput: [block],
+        llmStreamCall: true,
         shadowedRange: { start: 1, end: 1 },
         shadowedSeqs: [1],
         shadowedTokenCount: 20,
@@ -287,6 +332,27 @@ describe('deriveReplayScript', () => {
       chunkEvent(1, 1, 1, { type: 'block-start', index: 0, blockType: 'text' }),
       chunkEvent(2, 1, 2, { type: 'finish', reason: { kind: 'stop' } }),
     ]
+    expect(() => deriveReplayScript(events)).toThrow(/model call 1\/1 ended without a finish chunk/)
+  })
+
+  it('rejects an unfinished call at a compact summary boundary', () => {
+    const events: SessionEvent[] = [
+      chunkEvent(1, 1, 1, { type: 'block-start', index: 0, blockType: 'text' }),
+      {
+        type: 'compact/summary',
+        seq: 2,
+        time: 0,
+        data: {
+          summary: [{ type: 'text', text: 'external checkpoint' }],
+          shadowedRange: { start: 1, end: 1 },
+          shadowedSeqs: [1],
+          shadowedTokenCount: 20,
+          provider: 'external',
+          model: 'external',
+        },
+      },
+    ]
+
     expect(() => deriveReplayScript(events)).toThrow(/model call 1\/1 ended without a finish chunk/)
   })
 })

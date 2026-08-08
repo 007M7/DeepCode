@@ -33,7 +33,7 @@ Status: implemented
 
 早期草案将完整算法（保留遍历、token 求和、文本提取）作为接口上的具体方法。这会将契约重新耦合到一种策略：想要不同保留策略或事件排序的后端必须与继承来的具体代码对抗。将三个操作都设为抽象，把所有*怎么做*的决策放在后端，并让接口保持为*做什么*的声明。token 测量根本不是压缩钩子；单例服务使多个消费方能够共享逐会话的回放折叠。
 
-`compactIfNeeded(agent, trigger, signal)` 接受显式的 `'pressure' | 'context-overflow'` 触发原因与取消信号。它只读取最新的持久化已路由请求；没有 header 就不执行工作，任何已路由的提供方/模型目标都使用单例估算器。`compactNow(agent, signal)` 要求 agent 处于 idle，即使未达到压力也进行一次有效的平衡缩减；不存在这种范围时返回 `null`，且不写入任何内容。`compactRegion(start, end, agent, signal?)` 将 `agent.session` 作为唯一会话身份，并为显式调用方保留可选 signal。默认摘要器依次从显式配置、最新记录的已路由目标和 agent 选项解析目标，并在任何 `llm/stream` 路由后记录提供方/模型对。它回放已路由请求的前缀，并将压缩指令追加为尾部 user 消息，从而复用提供方的热 KV cache；见[摘要前缀缓存 Agent Note](../bug-fix/2026-07-21-compaction-summary-prefix-cache-reuse.md)。该调用将提供方无关的 `GenerateOptions.purpose` 设为 `compaction`；适配器可以将此用途映射为对模型隐藏的传输元数据，DeepSeek 适配器会发送 `x-deepseek-harness-compact: 1`。
+`compactIfNeeded(agent, trigger, signal)` 接受显式的 `'pressure' | 'context-overflow'` 触发原因与取消信号。它只读取最新的持久化已路由请求；没有 header 就不执行工作，任何已路由的提供方/模型目标都使用单例估算器。`compactNow(agent, signal)` 要求 agent 处于 idle，即使未达到压力也进行一次有效的平衡缩减；不存在这种范围时返回 `null`，且不写入任何内容。`compactRegion(start, end, agent, signal?)` 将 `agent.session` 作为唯一会话身份，并为显式调用方保留可选 signal。默认摘要器依次从显式配置、最新记录的已路由目标和 agent 选项解析目标，并在任何 `llm/stream` 路由后记录提供方/模型对。它回放已路由请求的前缀，并将压缩指令追加为尾部 user 消息，从而复用提供方的热 KV cache；见[摘要前缀缓存 Agent Note](../bug-fix/2026-07-21-compaction-summary-prefix-cache-reuse.md)。该结果携带 `llmStreamCall: true`，因为生成它时恰好通过此上下文的 LLM 服务发起了一次调用；只有满足相同条件时，子类才设置该标记，因为单有保留的 `rawOutput` 并不能判定调用路径。该调用将提供方无关的 `GenerateOptions.purpose` 设为 `compaction`；适配器可以将此用途映射为对模型隐藏的传输元数据，DeepSeek 适配器会发送 `x-deepseek-harness-compact: 1`。
 
 ### 成功的持久步骤工作完成后运行自动压力检查
 
@@ -76,7 +76,7 @@ retry → next numbered step/start      ⟵ derives from the replacement surface
 ```
 compact/start    → log-only. Acquires the lock.
 [summarize older range via the backend]
-compact/summary  → log-only. Provenance: raw summary, range, shadowed seqs, token count.
+compact/summary  → log-only. Provenance: raw summary, local-call marker, range, shadowed seqs, token count.
 user/message     → canonical checkpoint source + surfaceOp { op:'replace', start, end }.
                    THE surface mutation (framed summary).
                    deriveMessages() renders it as a user-role message.
@@ -131,4 +131,4 @@ compact/end      → log-only. Releases the lock (carries `error` on a recoverab
 - **循环测试：** 测试固定 pre-step 发生在前一个 `step/end` 之后、下一个 `step/start` 之前，使用实际 `agent/request` 路由，关闭失败步骤，分配新的重试编号，并覆盖完整的抛出/带内溢出 → 压缩 → 重建重试组合。
 - **手动测试：** 无需模型密钥即可固定 maintenance 串行化、标记顺序、注入保留、活动／陈旧未匹配标记分类、取消、闭合／flush 失败、命令映射以及排队 TUI 流程。
 - **带密钥 e2e：** 真实模型和 bash 会话在降低的限制下触发压缩，记录完整的 `compact/start…end` 对，缩小 surface，并完成任务。
-- **快照缺口：** 摘要调用与会话关联并记录 `compact/summary`，但普通 transcript（文本记录）回放不会派生其辅助响应；因此，要实现无密钥的组装态覆盖，就必须显式提供回放 override。
+- **快照：** 组装后的上下文溢出场景仅在 `llmStreamCall: true` 证明本地 LLM 服务执行了辅助调用时，才从 `compact/summary` 派生该调用；规范重建的块在不固定提供方增量切分的情况下固定完整恢复过程。

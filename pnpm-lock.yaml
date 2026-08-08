@@ -192,6 +192,9 @@ importers:
         specifier: ^0.1.4
         version: 0.1.4
     devDependencies:
+      '@deepseek-ai/dsh-agent':
+        specifier: workspace:^
+        version: link:../../packages/core/agent
       '@deepseek-ai/dsh-frontend-static':
         specifier: workspace:^
         version: link:../../packages/host/frontend-static
@@ -201,12 +204,18 @@ importers:
       '@deepseek-ai/dsh-host-webserver':
         specifier: workspace:^
         version: link:../../packages/host/webserver
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:^
+        version: link:../../packages/llm/llm
       '@deepseek-ai/dsh-llm-mock-server':
         specifier: workspace:^
         version: link:../../packages/support/llm-mock-server
       '@deepseek-ai/dsh-loader-smoke':
         specifier: workspace:^
         version: link:../../packages/support/loader-smoke
+      '@deepseek-ai/dsh-session':
+        specifier: workspace:^
+        version: link:../../packages/core/session
       '@deepseek-ai/dsh-system-prompt':
         specifier: workspace:^
         version: link:../../packages/core/system-prompt
@@ -313,9 +322,6 @@ importers:
       '@deepseek-ai/dsh-bash-sandbox':
         specifier: workspace:*
         version: link:../packages/bash/bash-sandbox
-      '@deepseek-ai/dsh-cli-demo':
-        specifier: workspace:*
-        version: link:../packages/examples/cli-demo
       '@deepseek-ai/dsh-code-runtime-worker':
         specifier: workspace:*
         version: link:../packages/code-runtime/code-runtime-worker
@@ -379,6 +385,9 @@ importers:
       '@deepseek-ai/dsh-llm-replay':
         specifier: workspace:*
         version: link:../packages/support/llm-replay
+      '@deepseek-ai/dsh-loader-smoke':
+        specifier: workspace:*
+        version: link:../packages/support/loader-smoke
       '@deepseek-ai/dsh-lsp':
         specifier: workspace:*
         version: link:../packages/lsp/lsp
@@ -587,6 +596,34 @@ importers:
         specifier: workspace:*
         version: link:../packages/context/workspace-context
 
+  native/landlock-run:
+    devDependencies:
+      '@deepseek-ai/node-addon-landlock-run':
+        specifier: workspace:*
+        version: link:packages/entry
+      '@types/node':
+        specifier: ^26.0.1
+        version: 26.1.2
+      tsx:
+        specifier: ^4.20.6
+        version: 4.22.4
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+
+  native/landlock-run/packages/entry:
+    optionalDependencies:
+      '@deepseek-ai/node-addon-landlock-run-linux-arm64':
+        specifier: workspace:*
+        version: link:../linux-arm64
+      '@deepseek-ai/node-addon-landlock-run-linux-x64':
+        specifier: workspace:*
+        version: link:../linux-x64
+
+  native/landlock-run/packages/linux-arm64: {}
+
+  native/landlock-run/packages/linux-x64: {}
+
   packages/acp/acp:
     dependencies:
       '@agentclientprotocol/sdk':
@@ -771,12 +808,12 @@ importers:
       '@deepseek-ai/dsh-subprocess-local':
         specifier: workspace:^
         version: link:../../subprocess/subprocess-local
+      '@deepseek-ai/node-addon-landlock-run':
+        specifier: workspace:*
+        version: link:../../../native/landlock-run/packages/entry
       cordis:
         specifier: ^4.0.0-rc.7
         version: link:../../../vendor/cordis
-      node-addon-landlock-run:
-        specifier: 0.0.0-test.0
-        version: 0.0.0-test.0
 
   packages/bash/pwsh-local:
     dependencies:
@@ -1035,6 +1072,9 @@ importers:
       '@deepseek-ai/dsh-skill':
         specifier: workspace:^
         version: link:../../skill/skill
+      '@deepseek-ai/dsh-skill-badge':
+        specifier: workspace:^
+        version: link:../../skill/skill-badge
       '@deepseek-ai/dsh-skill-local':
         specifier: workspace:^
         version: link:../../skill/skill-local
@@ -1488,7 +1528,7 @@ importers:
         version: 16.3.2(@testing-library/dom@10.4.1)(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       vitest:
         specifier: ^4.1.8
-        version: 4.1.8(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(@vitest/coverage-v8@4.1.8)(jsdom@29.1.1)(vite@8.0.16(@types/node@25.9.3)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
+        version: 4.1.8(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(@vitest/coverage-v8@4.1.8)(jsdom@29.1.1)(vite@8.0.16(@types/node@26.1.2)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
     devDependencies:
       '@deepseek-ai/dsh-client-runtime':
         specifier: workspace:^
@@ -3196,60 +3236,12 @@ importers:
       '@deepseek-ai/dsh-workspace-context':
         specifier: workspace:^
         version: link:../../context/workspace-context
+      '@deepseek-ai/node-addon-landlock-run':
+        specifier: workspace:*
+        version: link:../../../native/landlock-run/packages/entry
       cordis:
         specifier: ^4.0.0-rc.7
         version: link:../../../vendor/cordis
-      node-addon-landlock-run:
-        specifier: 0.0.0-test.0
-        version: 0.0.0-test.0
-
-  packages/examples/cli-demo:
-    devDependencies:
-      '@cordisjs/plugin-include':
-        specifier: workspace:^
-        version: link:../../../vendor/include
-      '@cordisjs/plugin-loader':
-        specifier: workspace:^
-        version: link:../../../vendor/loader
-      '@deepseek-ai/dsh-agent':
-        specifier: workspace:^
-        version: link:../../core/agent
-      '@deepseek-ai/dsh-agent-spine-demo':
-        specifier: workspace:^
-        version: link:../agent-spine-demo
-      '@deepseek-ai/dsh-app-boot':
-        specifier: workspace:^
-        version: link:../../ui/app-boot
-      '@deepseek-ai/dsh-invariants':
-        specifier: workspace:^
-        version: link:../../support/invariants
-      '@deepseek-ai/dsh-llm':
-        specifier: workspace:^
-        version: link:../../llm/llm
-      '@deepseek-ai/dsh-session':
-        specifier: workspace:^
-        version: link:../../core/session
-      '@deepseek-ai/dsh-session-checkpoint-policy':
-        specifier: workspace:^
-        version: link:../../session-persistence/session-checkpoint-policy
-      '@deepseek-ai/dsh-session-persistence-jsonl':
-        specifier: workspace:^
-        version: link:../../session-persistence/session-persistence-jsonl
-      '@deepseek-ai/dsh-system-prompt':
-        specifier: workspace:^
-        version: link:../../core/system-prompt
-      '@deepseek-ai/dsh-tools':
-        specifier: workspace:^
-        version: link:../../core/tools
-      '@deepseek-ai/dsh-workspace-context':
-        specifier: workspace:^
-        version: link:../../context/workspace-context
-      cordis:
-        specifier: ^4.0.0-rc.7
-        version: link:../../../vendor/cordis
-      schemastery:
-        specifier: ^3.17.0
-        version: link:../../../vendor/schemastery
 
   packages/examples/jsonrpc-demo:
     dependencies:
@@ -4549,9 +4541,9 @@ importers:
 
   packages/sandbox/sandbox-local:
     dependencies:
-      node-addon-landlock-run:
-        specifier: 0.0.0-test.0
-        version: 0.0.0-test.0
+      '@deepseek-ai/node-addon-landlock-run':
+        specifier: workspace:*
+        version: link:../../../native/landlock-run/packages/entry
       schemastery:
         specifier: ^3.18.0
         version: link:../../../vendor/schemastery
@@ -5167,6 +5159,18 @@ importers:
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../../llm/llm
+      cordis:
+        specifier: ^4.0.0-rc.7
+        version: link:../../../vendor/cordis
+
+  packages/skill/skill-badge:
+    devDependencies:
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../support/invariants
+      '@deepseek-ai/dsh-skill':
+        specifier: workspace:^
+        version: link:../skill
       cordis:
         specifier: ^4.0.0-rc.7
         version: link:../../../vendor/cordis
@@ -5902,7 +5906,7 @@ importers:
         version: link:../loader-smoke
       vitest:
         specifier: ^4.1.8
-        version: 4.1.8(@opentelemetry/api@1.9.0)(@types/node@25.9.3)(@vitest/coverage-v8@4.1.8)(jsdom@29.1.1)(vite@8.0.16(@types/node@25.9.3)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
+        version: 4.1.8(@opentelemetry/api@1.9.0)(@types/node@25.9.3)(@vitest/coverage-v8@4.1.8)(jsdom@29.1.1)(vite@8.0.16(@types/node@26.1.2)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
     devDependencies:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
@@ -5987,9 +5991,18 @@ importers:
         specifier: ^4.22.4
         version: 4.22.4
     devDependencies:
+      '@deepseek-ai/dsh-agent':
+        specifier: workspace:^
+        version: link:../../core/agent
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../invariants
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:^
+        version: link:../../llm/llm
+      '@deepseek-ai/dsh-session':
+        specifier: workspace:^
+        version: link:../../core/session
       cordis:
         specifier: ^4.0.0-rc.6
         version: link:../../../vendor/cordis
@@ -9710,6 +9723,9 @@ packages:
   '@types/node@25.9.3':
     resolution: {integrity: sha512-603BddQMv3pUcr4U2dhujk83N2tTDVr/34wII2B6bJy6g+8WD6yUb11jszNs0gdi4PesVWl7ABt8nYMVpnLUcg==}
 
+  '@types/node@26.1.2':
+    resolution: {integrity: sha512-Vu4a5UFA9rIIFJ7rB/Vaafh9lrCQszopTCx6KjFboXTGQbPNasehVR5TEiithSDGyd1DEiUByggTZsg8jukeIg==}
+
   '@types/picomatch@3.0.2':
     resolution: {integrity: sha512-n0i8TD3UDB7paoMMxA3Y65vUncFJXjcUf7lQY7YyKGl6031FNjfsLs6pdLFCy2GNFxItPJG8GvvpbZc2skH7WA==}
 
@@ -11534,22 +11550,6 @@ packages:
   node-addon-api@7.1.1:
     resolution: {integrity: sha512-5m3bsyrjFWE1xf7nz7YXdN4udnVtXK6/Yfgn5qnahL6bCkf2yKt4k3nuTKAtT4r3IG8JNR2ncsIMdZuAzJjHQQ==}
 
-  node-addon-landlock-run-linux-arm64@0.0.0-test.0:
-    resolution: {integrity: sha512-oJsXcC33qKl9mWYx0n9YPJ2pUAoY39PoIX0Gx4lDrSCTEvENFrEaODAsQYNY+eEGpn9YMN7E+FOftvea3/1FqQ==}
-    engines: {node: '>=20'}
-    cpu: [arm64]
-    os: [linux]
-
-  node-addon-landlock-run-linux-x64@0.0.0-test.0:
-    resolution: {integrity: sha512-eXvdfnH/UV55MTZzroKvM3CD68SP5OlCsuth908YOcJOnn0LPD5KJjmBz6ToDlBYjF52NNK62+g7TvmUWjbKWQ==}
-    engines: {node: '>=20'}
-    cpu: [x64]
-    os: [linux]
-
-  node-addon-landlock-run@0.0.0-test.0:
-    resolution: {integrity: sha512-c5qopltRonjW6+VinXYMp4FVi9Sxf8eQEb/9G82EksQQ+JC4CDprv+ko5URWmtyZ3wD4GFdeRTyw1AG5yCwJhQ==}
-    engines: {node: '>=20'}
-
   node-addon-native-custom-loader@0.1.4:
     resolution: {integrity: sha512-DreegO6EoC1JHWYBv3j8Miwp2Zl/CyBeNyoeyCbnEdjyYFEulR4Gcb3wj9fXF7KMDY0ZJ5MWwHcXP8GVNyScnA==}
     engines: {node: '>=20'}
@@ -12298,6 +12298,9 @@ packages:
 
   undici-types@7.24.6:
     resolution: {integrity: sha512-WRNW+sJgj5OBN4/0JpHFqtqzhpbnV0GuB+OozA9gCL7a993SmU+1JBZCzLNxYsbMfIeDL+lTsphD5jN5N+n0zg==}
+
+  undici-types@8.3.0:
+    resolution: {integrity: sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ==}
 
   undici@7.28.0:
     resolution: {integrity: sha512-cRZYrTDwWznlnRiPjggAGxZXanty6M8RV1ff8Wm4LWXBp7/IG8v5DnOm74DtUBp9OONpK75YlPnIjQqX0dBDtA==}
@@ -14729,6 +14732,10 @@ snapshots:
     dependencies:
       undici-types: 7.24.6
 
+  '@types/node@26.1.2':
+    dependencies:
+      undici-types: 8.3.0
+
   '@types/picomatch@3.0.2': {}
 
   '@types/prop-types@15.7.15': {}
@@ -14882,13 +14889,13 @@ snapshots:
     optionalDependencies:
       vite: 8.0.16(@types/node@22.20.0)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)
 
-  '@vitest/mocker@4.1.8(vite@8.0.16(@types/node@25.9.3)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))':
+  '@vitest/mocker@4.1.8(vite@8.0.16(@types/node@26.1.2)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))':
     dependencies:
       '@vitest/spy': 4.1.8
       estree-walker: 3.0.3
       magic-string: 0.30.21
     optionalDependencies:
-      vite: 8.0.16(@types/node@25.9.3)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)
+      vite: 8.0.16(@types/node@26.1.2)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)
 
   '@vitest/pretty-format@4.1.8':
     dependencies:
@@ -16874,17 +16881,6 @@ snapshots:
 
   node-addon-api@7.1.1: {}
 
-  node-addon-landlock-run-linux-arm64@0.0.0-test.0:
-    optional: true
-
-  node-addon-landlock-run-linux-x64@0.0.0-test.0:
-    optional: true
-
-  node-addon-landlock-run@0.0.0-test.0:
-    optionalDependencies:
-      node-addon-landlock-run-linux-arm64: 0.0.0-test.0
-      node-addon-landlock-run-linux-x64: 0.0.0-test.0
-
   node-addon-native-custom-loader@0.1.4: {}
 
   node-addon-require-builtin-darwin-arm64@0.1.4:
@@ -17701,6 +17697,8 @@ snapshots:
 
   undici-types@7.24.6: {}
 
+  undici-types@8.3.0: {}
+
   undici@7.28.0: {}
 
   unicorn-magic@0.3.0: {}
@@ -17816,7 +17814,7 @@ snapshots:
       tsx: 4.22.4
       yaml: 2.9.0
 
-  vite@8.0.16(@types/node@25.9.3)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0):
+  vite@8.0.16(@types/node@26.1.2)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0):
     dependencies:
       lightningcss: 1.32.0
       picomatch: 4.0.4
@@ -17824,7 +17822,7 @@ snapshots:
       rolldown: 1.0.3
       tinyglobby: 0.2.17
     optionalDependencies:
-      '@types/node': 25.9.3
+      '@types/node': 26.1.2
       esbuild: 0.28.1
       fsevents: 2.3.3
       jiti: 2.7.0
@@ -17918,10 +17916,10 @@ snapshots:
     transitivePeerDependencies:
       - msw
 
-  vitest@4.1.8(@opentelemetry/api@1.9.0)(@types/node@25.9.3)(@vitest/coverage-v8@4.1.8)(jsdom@29.1.1)(vite@8.0.16(@types/node@25.9.3)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)):
+  vitest@4.1.8(@opentelemetry/api@1.9.0)(@types/node@25.9.3)(@vitest/coverage-v8@4.1.8)(jsdom@29.1.1)(vite@8.0.16(@types/node@26.1.2)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)):
     dependencies:
       '@vitest/expect': 4.1.8
-      '@vitest/mocker': 4.1.8(vite@8.0.16(@types/node@25.9.3)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
+      '@vitest/mocker': 4.1.8(vite@8.0.16(@types/node@26.1.2)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
       '@vitest/pretty-format': 4.1.8
       '@vitest/runner': 4.1.8
       '@vitest/snapshot': 4.1.8
@@ -17938,7 +17936,7 @@ snapshots:
       tinyexec: 1.2.4
       tinyglobby: 0.2.17
       tinyrainbow: 3.1.0
-      vite: 8.0.16(@types/node@25.9.3)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)
+      vite: 8.0.16(@types/node@26.1.2)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)
       why-is-node-running: 2.3.0
     optionalDependencies:
       '@opentelemetry/api': 1.9.0
@@ -17978,10 +17976,10 @@ snapshots:
     transitivePeerDependencies:
       - msw
 
-  vitest@4.1.8(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(@vitest/coverage-v8@4.1.8)(jsdom@29.1.1)(vite@8.0.16(@types/node@25.9.3)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)):
+  vitest@4.1.8(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(@vitest/coverage-v8@4.1.8)(jsdom@29.1.1)(vite@8.0.16(@types/node@26.1.2)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)):
     dependencies:
       '@vitest/expect': 4.1.8
-      '@vitest/mocker': 4.1.8(vite@8.0.16(@types/node@25.9.3)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
+      '@vitest/mocker': 4.1.8(vite@8.0.16(@types/node@26.1.2)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
       '@vitest/pretty-format': 4.1.8
       '@vitest/runner': 4.1.8
       '@vitest/snapshot': 4.1.8
@@ -17998,7 +17996,7 @@ snapshots:
       tinyexec: 1.2.4
       tinyglobby: 0.2.17
       tinyrainbow: 3.1.0
-      vite: 8.0.16(@types/node@25.9.3)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)
+      vite: 8.0.16(@types/node@26.1.2)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)
       why-is-node-running: 2.3.0
     optionalDependencies:
       '@opentelemetry/api': 1.9.1
