@@ -174,17 +174,31 @@ describe('real @openai/codex 0.147.0 product', () => {
   }, 60_000)
 
   it('cancels a real app-server command approval without executing the command', async () => {
-    const { harness, fixture } = await realHarness([
+    const command = process.platform === 'win32'
+      ? 'cmd /c type nul > approval-side-effect'
+      : 'touch approval-side-effect'
+    const commandCalls = [
       {
-        kind: 'functionCall',
         name: 'exec_command',
         arguments: {
-          cmd: process.platform === 'win32'
-            ? 'cmd /c type nul > approval-side-effect'
-            : 'touch approval-side-effect',
+          cmd: command,
           sandbox_permissions: 'require_escalated',
           justification: 'exercise the unattended approval boundary',
         },
+      },
+      {
+        name: 'shell_command',
+        arguments: {
+          command,
+          sandbox_permissions: 'require_escalated',
+          justification: 'exercise the unattended approval boundary',
+        },
+      },
+    ] as const
+    const { harness, fixture } = await realHarness([
+      {
+        kind: 'advertisedFunctionCall',
+        choices: commandCalls,
       },
     ])
     const sideEffect = join(harness.workspace, 'approval-side-effect')
@@ -202,9 +216,9 @@ describe('real @openai/codex 0.147.0 product', () => {
     expect(existsSync(sideEffect)).toBe(false)
     expect(fixture.requests).toHaveLength(1)
     const tools = fixture.requests[0]!.body.tools as Array<Record<string, unknown>>
-    expect(tools).toEqual(expect.arrayContaining([
-      expect.objectContaining({ type: 'function', name: 'exec_command' }),
-    ]))
+    expect(commandCalls.some(call => tools.some(tool => (
+      tool.type === 'function' && tool.name === call.name
+    )))).toBe(true)
     expect(fixture.requests.every(requestEntry =>
       requestEntry.headers.authorization === 'Bearer dsh-fake-openai-key',
     )).toBe(true)

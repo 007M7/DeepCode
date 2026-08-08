@@ -32,7 +32,9 @@ Status: implemented
 
 下一次完整覆盖率运行触及的是 6 项相互独立的末端故障，不再是同一问题的连锁结果。React 队列动作覆盖现在会在 awaited `act()` 中解析模拟请求，再观察渲染完成后的状态。未闭合 Markdown 工作负载保留全部 6,400 个候选项，并采用显式的 3 秒覆盖率预算；异步工作区投影告警测试则为外层用例设置 20 秒预算，大于其 10 秒轮询预算。真实 Claude Code 拆卸会在所有受管句柄均报告退出后，采用带 10 次有界重试的异步递归删除，以容纳 Windows 延迟释放句柄的行为，同时不削弱完全停稳断言。
 
-另有两个产品边界需要基础性修复。Include 的防抖配置持久化此前会从计时器启动一个无人观察的 Promise；Windows 在替换 `cordis.yml` 时若瞬时返回 `EPERM`，既可能丢失已禁用行，也会让 rejection 以未处理形式逸出。现在，vendored writer 会串行化写入，只对瞬时的访问／忙碌错误执行有界退避重试，观察每个 rejection，并在拆卸时排空最新写入；真实 Loader 组合测试会注入一次 `EPERM` 并证明持久化重试。Codex 0.146 在 Windows 上会把 `exec_command` 提供给回环 Responses 模型，却在自身路由器中拒绝模型返回的调用；这与 [openai/codex#31665](https://github.com/openai/codex/issues/31665) 跟踪的上游故障属于同一类。开发证据现锁定当前稳定版 0.147.0：重新生成的上游 schema 保留了提供方拥有的握手、线程／轮次、审批、用户输入和 elicitation 契约；真实产品测试则再次证明命令会在不产生副作用的情况下被拒绝，且整棵进程树退出。
+另有两个产品边界需要基础性修复。Include 的防抖配置持久化此前会从计时器启动一个无人观察的 Promise；Windows 在替换 `cordis.yml` 时若瞬时返回 `EPERM`，既可能丢失已禁用行，也会让 rejection 以未处理形式逸出。现在，vendored writer 会串行化写入，只对瞬时的访问／忙碌错误执行有界退避重试，观察每个 rejection，并在拆卸时排空最新写入；真实 Loader 组合测试会注入一次 `EPERM` 并证明持久化重试。Codex 0.146 在 Windows 上会把 `exec_command` 提供给回环 Responses 模型，却在自身路由器中拒绝模型返回的调用；这与 [openai/codex#31665](https://github.com/openai/codex/issues/31665) 跟踪的上游故障属于同一类。开发证据现锁定当前稳定版 0.147.0：重新生成的上游 schema 保留了提供方拥有的握手、线程／轮次、审批、用户输入和 elicitation 契约。当宿主无法使用 unified exec 时，Codex 可能改为提供旧版 `shell_command`；因此，回环模型现在会选择实际提供的命令工具，并使用该工具对应的参数形态，而不再无条件注入 `exec_command`。真实产品测试由此会通过各宿主的实际默认工具清单，证明无人值守拒绝不产生副作用，且整棵进程树退出。
+
+随后的分支头精确托管运行又隔离出另外 7 项 fixture 契约。PowerShell 后台输出场景现在会等待进程完成，再排空并比较最后一段增量；pi-ai 空闲 watchdog 场景则保留 1 秒的有界关闭期限，以容纳 Windows 延迟送达的 socket 通知。异步工作区投影会在宿主解析后的根目录上填充内存文件系统。Include 重试验收现在断言注入的故障与最终持久化结果，而不再断言可能包含另一项合法串行写入的偶然 rename 总次数。LSP 的裸命令 fixture 会在 Windows 上通过 `PATHEXT` 提供 `.cmd` 可执行文件，URI 渲染预期也会区分执行环境的路径约定与测试宿主的分隔符。上述修改既没有跳过受支持路径，也没有削弱结果断言。
 
 POSIX 模式位、基于 chmod 的不可读状态和基于 chmod 的 writer lock 拒绝在 Windows 上没有等价机制。这些验收场景继续在 POSIX 上强制执行，并在 Windows 上跳过；内容、原子替换、符号链接安全、通过平台无关文件系统冲突验证的回滚与恢复，以及原生 Windows 长路径行为仍保有覆盖。没有任何受支持的产品源码为适应这些差异而从 Windows 覆盖率中排除。
 

@@ -22,7 +22,7 @@ import BrowseDirectoryPicker from '@deepseek-ai/dsh-host-directory-picker-browse
 import NativeDirectoryPicker from '@deepseek-ai/dsh-host-directory-picker-native'
 import * as DirectoryPickerAuto from '../src/index.ts'
 
-const renameControl = vi.hoisted(() => ({ attempts: 0, remainingFailures: 0 }))
+const renameControl = vi.hoisted(() => ({ attempts: 0, injectedFailures: 0, remainingFailures: 0 }))
 
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs/promises')>()
@@ -32,6 +32,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
       renameControl.attempts++
       if (renameControl.remainingFailures > 0) {
         renameControl.remainingFailures--
+        renameControl.injectedFailures++
         throw Object.assign(new Error(`transient rename failure for ${newPath}`), { code: 'EPERM' })
       }
       await actual.rename(oldPath, newPath)
@@ -59,6 +60,7 @@ afterEach(async () => {
   root = undefined
   fakeBin = undefined
   renameControl.attempts = 0
+  renameControl.injectedFailures = 0
   renameControl.remainingFailures = 0
 })
 
@@ -187,6 +189,8 @@ describe('real Loader composition', () => {
     expect(entryNames(ctx)).not.toContain(NATIVE)
     // Same self-dispose persistence as above: let the write land before teardown.
     await expect.poll(async () => await readFile(configPath, 'utf8')).toContain('disabled: true')
-    expect(renameControl.attempts).toBe(2)
+    expect(renameControl.injectedFailures).toBe(1)
+    expect(renameControl.remainingFailures).toBe(0)
+    expect(renameControl.attempts).toBeGreaterThanOrEqual(2)
   })
 })

@@ -55,7 +55,7 @@ describe('renderUri', () => {
   it('returns an absolute path for a file: URI outside the workspace', () => {
     const outside = resolve(WS, '..', 'other', 'lib', 'b.ts')
     const uri = pathToFileURL(outside).href
-    expect(renderUri(uri, WS_URI)).toBe(outside)
+    expect(renderUri(uri, WS_URI)).toBe(outside.replaceAll('\\', '/'))
   })
 
   it('renders the workspace root itself as "."', () => {
@@ -83,7 +83,7 @@ describe('renderUri', () => {
   })
 
   it('preserves backslashes as ordinary POSIX filename characters', () => {
-    expect(renderUri('file:///home/u/proj/dir%5Cname/a.ts', WS_URI)).toBe('dir\\name/a.ts')
+    expect(renderUri('file:///home/u/proj/dir%5Cname/a.ts', 'file:///home/u/proj')).toBe('dir\\name/a.ts')
   })
 
   it('keeps malformed or mismatched URI coordinates verbatim', () => {

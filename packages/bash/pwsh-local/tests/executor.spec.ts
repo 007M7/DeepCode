@@ -314,9 +314,10 @@ describe.skipIf(!hasPwsh)('PwshLocalExecutor.start (background process handles)'
       env: { BG_VAR: 'bg-env' },
       dshEnv: { DSH_BG_VAR: 'bg-dsh-env' },
     }))
-    const output = await readUntil(proc, '[bg-env][bg-dsh-env]')
-    expect(output).toBe('bg-stdin\n[bg-env][bg-dsh-env]\n')
+    const partialOutput = await readUntil(proc, '[bg-env][bg-dsh-env]')
     await proc.done
+    const output = partialOutput + lf(proc.readOutput().delta)
+    expect(output).toBe('bg-stdin\n[bg-env][bg-dsh-env]\n')
     expect(proc.exitCode).toBe(0)
   })
 
