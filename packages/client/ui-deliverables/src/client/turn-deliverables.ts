@@ -3,7 +3,6 @@
  * nodes. Client-only and model-free: the vocabulary is the mutation tools'
  * own follow-along `locations`, never the closing prose.
  */
-import { opensUserTurn } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConversationNode, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
 import type { TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 
@@ -63,7 +62,7 @@ export function producedForClosing(nodes: readonly ConversationNode[], seq: numb
       }
       continue
     }
-    if (opensUserTurn(node)) {
+    if (node.kind === 'user') {
       turn = undefined
       pending = []
       seen = new Set()

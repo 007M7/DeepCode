@@ -2454,23 +2454,6 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
           ],
         })
       },
-      invoke: (request) => {
-        const missing = requireSession(request)
-        if (missing !== undefined) return missing
-        const { sessionId, name, text: args } = request.payload
-        const body = `<skill_content name="${name}">\n<skill_resources>\nBase directory for this skill: /fixture/skills/${name}\n</skill_resources>\n\n<skill_instructions>\nFixture ${name} instructions.\n</skill_instructions>\n</skill_content>`
-        // Mirror the host: injection is a user-role message carrying the
-        // skill-invocation source, immediately visible in the transcript.
-        // The client program cannot see the host-side MessageSourceMap merge
-        // (sources are opaque wire JSON to the UI), so the fixture stamps the
-        // durable shape through the same assertion the projections read back.
-        const source = { kind: 'skill-invocation', name, ...args === undefined ? {} : { args } } as unknown as MessageSource
-        append(sessionId, {
-          type: 'user/message', surfaceOp: 'append',
-          data: userMessage(text(args === undefined ? body : `${body}\n\n${args}`), source),
-        })
-        return ok(request, { accepted: true as const })
-      },
     },
     goals: {
       // Compatibility face only: old API Proxy payloads and acknowledgements
@@ -2779,7 +2762,6 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'command.list': return this.api.commands.list(request)
       case 'command.execute': return this.api.commands.execute(request, signal)
       case 'skill.list': return this.api.skills.list(request)
-      case 'skill.invoke': return this.api.skills.invoke(request, signal)
       case 'goal.create': return this.api.goals.create(request)
       case 'goal.edit': return this.api.goals.edit(request)
       case 'goal.pause': return this.api.goals.pause(request)

@@ -20,22 +20,14 @@ export interface SkillEntry {
   readonly modelInvocable: boolean
 }
 
-/** Skill-domain unary methods (the map keys skill.* of RpcMethodMap). */
+/**
+ * Skill-domain unary methods (the map key skill.* of RpcMethodMap). Listing
+ * is the domain's only RPC: invocation itself is a plain `session.prompt`
+ * whose leading `/name` token the host recognizes at the pre-step boundary
+ * (`dsh-tool-skill` injects the rendered body there), so every client shares
+ * one deterministic path with no dedicated invocation wire.
+ */
 export interface SkillsApi {
   /** Lists the user-invocable skill catalog for the session's project. */
   list(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<{ skills: readonly SkillEntry[] }>>
-
-  /**
-   * Injects one user-invocable skill into the addressed agent as a user-role
-   * message (the canonical `<skill_content>` rendering, with `text` appended
-   * when present) and starts a turn. The host enforces user-invocation policy
-   * here — on the discovery summary and again on the loaded definition, so a
-   * catalog change between the two lookups cannot slip a user-disabled body
-   * through — a model-only or unknown name is refused regardless of what a
-   * client menu offered. The carrier's request signal aborts the skill
-   * lookup and refuses injection once the caller has given up (`cancelled`).
-   * Session-backed subagents reject with `agent-busy`.
-   */
-  invoke(request: RpcRequest<{ sessionId: SessionId; name: string; text?: string }>, signal: AbortSignal):
-  Promise<RpcResponse<{ accepted: true }>>
 }

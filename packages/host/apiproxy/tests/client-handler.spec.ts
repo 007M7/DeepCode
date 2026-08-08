@@ -86,7 +86,7 @@ function scriptedApi(overrides: {
       execute: r => ok(r, { matched: false }),
       ...overrides.commands,
     },
-    skills: { list: r => ok(r, { skills: [] }), invoke: r => ok(r, { accepted: true as const }), ...overrides.skills },
+    skills: { list: r => ok(r, { skills: [] }), ...overrides.skills },
     goals: {
       create: err,
       edit: err,

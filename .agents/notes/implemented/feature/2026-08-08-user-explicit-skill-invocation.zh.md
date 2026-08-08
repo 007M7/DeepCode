@@ -1,4 +1,4 @@
-# Agent Note: 经 skill.invoke 的用户显式 skill 调用
+# Agent Note: pre-step 手势边界上的用户显式 skill 调用
 
 Status: implemented
 
@@ -10,28 +10,27 @@ Status: implemented
 
 ## 决策
 
-用户显式调用是一次确定性的宿主侧注入，对每一个用户可调用的 skill 一致：
+用户显式调用是一次宿主侧的 pre-step 注入，对每一个用户可调用的 skill 和每一种前端一致：
 
-- `skill.invoke { sessionId, name, text? }`（宿主 apiproxy）在操作边界强制执行用户调用策略（`skill-not-found`/`skill-not-invocable`），用共享的 `renderSkillContent` 渲染该 skill，在一个空行之后追加可选的尾随文本，并把整体作为一条携带新增 `skill-invocation` `MessageSource` kind（`{ name, args? }`）的 user 角色消息注入，随后经由与 `session.prompt` 相同的「路由是否有适配器在服务」闸门开启一个轮次。
-- `renderSkillContent` 从 `dsh-tool-skill` 移入 `dsh-skill` seam：`skill` 工具结果与注入共享同一份逐字一致的 `<skill_content>` 形态，目录文本则新增了这条 seam 规则——已内联注入的 skill 必须被遵循，而不是再经工具重新加载。
-- `skill.list` 提供每一个用户可调用的 skill 并携带 `modelInvocable`，因此浏览器菜单会带标记地列出仅限用户的 skill（描述前缀——`hint` 字段是认领态的 ghost text，菜单从不渲染它）。
-- ui-skill 把菜单 pick 或回车提交的 `/name [args]` 认领进 invoke 事务（`matchEnter` 强等目录；未知名称保持为普通提示词）。已不可达的旧 `<skill>name</skill>` 引用 codec 被移除。
-- transcript（文本记录）依据来源元数据把这次注入物化为专用的 `skill-invocation` 节点（绝不从正文重新解析），并渲染为一个右对齐气泡：`/name` chip、尾随文本，以及收在 disclosure 之后的注入块。
+- `dsh-tool-skill` 注册第二个 `agent/pre-step` 监听器（与其目录监听器并列，也是 `workspace-instructions` 与运行时上下文快照搭乘的同一 seam）：它在该步骤已认领的消息中扫描以空白为界的 `/name` token——文本中任意位置均可，与 transcript（文本记录）chip 装饰所用的词边界形状相同——收集按首见去重的名称，逐个经 `ctx.skills.get` 加载，在已加载定义上检查 `isUserInvocable`（产生注入内容的正是这同一次查找），用共享的 `renderSkillContent` 渲染，并把注入追加在该步骤所有其他注入之后：背景在前（工作区规则、运行时策略、目录），模型必须着手处理的材料在最后、最贴近它的回答。注册顺序钉住了这一位置——手势监听器先于目录监听器注册，因此 waterfall 会把携带目录的列表交给它来扩展。
+- 精确性来自封闭集合匹配，与斜杠命令完全一致：`/goal` 对照命令注册表解析，`/name` 对照工作区的用户可调用 skill 目录解析；未命中即保持为普通行文，因此绝不猜测。只扫描 `source.kind === 'user'` 的消息——外部文本无法伪造手势。路径（`/usr/bin`）、分数（`5/8`）与带前缀的 token（`foo/name`）都会破坏该边界。
+- 客户端停留在决策 21：菜单 pick 落下字面文本 `/name `，提示词将其原样发出；ui-skill 不实现任何裁决钩子，也没有引用 codec。`skill.list`（现在是该领域唯一的 RPC）提供每一个用户可调用的 skill 并携带 `modelInvocable`，供菜单标出仅限用户的条目。与宿主命令同名的名称解析为命令——裁决在客户端把该行认领走，它尚未成为提示词。
+- 注入是一条携带 `skill-invocation` 来源（`{ name, form: 'instructions' }`）的 `user` 角色消息，因此 `user/message` 落账、上下文注入的 transcript 行（以 skill 名称标注）与回放全部免费获得；`renderSkillContent` 位于 `dsh-skill` seam，与 `skill` 工具结果逐字共享，目录的结尾一句会告诉模型遵循注入块而不是重新加载。
 
-同类产品调研（Pi、OpenCode、Claude Code、Kimi Code、Codex、DeepSeek-Reasonix——本地检出）结论一致：在每个产品上，用户显式触发都是以 user 角色消息做程序化注入、模型零参与；提示词引导的工具加载只存在于模型自主轨道上；disable-model-invocation 的对应物只把关模型侧表层。Kimi 的来源元数据渲染与 Claude Code/Kimi 的禁止重载提示词规则，可直接平移到 `MessageSource` 与目录那句话上。
+同类产品调研（Pi、OpenCode、Claude Code、Kimi Code、Codex、DeepSeek-Reasonix——本地检出）一致表明：用户显式触发都是模型零参与的程序化注入；最终形态最接近 Codex 核心侧的 `$name` mention 扫描——它同样让每一种前端免于自行实现识别。
 
 ## 考虑过的替代方案
 
-- **`agent.inject()` 上下文注入**——没有同类产品先例；这次手势是一个用户轮次，不是环境通知，而且上下文行呈现、压缩（compaction）与归属全都不匹配。否决。
+- **`skill.invoke` RPC（宿主注入、客户端认领）**——最先实现，共两轮迭代：先是单条混合消息（用户文本折进正文），后是经 inbox 原语投递的手势提示词加注入两条消息。经真实会话测试后否决：混合消息让用户行文污染了注入；两条消息的形态依赖唤醒顺序的微妙之处（`followup` 在第一个唤醒调用内同步认领整个 next-turn 队列，把之后的消息滞留到下一轮次——已实际复现），而专设 RPC 复制了 `session.prompt` 已提供的路径，还让 TUI/ACP 不得不各自重新实现识别。pre-step seam 把 RPC、认领机制与顺序隐患一并干净移除。
+- **从 RPC 处理器调用 `agent.inject()`**——inject 队列（`next-step`，不唤醒）会在 next-turn 提示词之前被认领，使注入在日志中排到手势之上；而与会唤醒的 `followup` 搭配又会重新引入同样的顺序耦合。pre-step 监听器在步骤组装内部注入，那里的顺序是显式的。
 - **宿主 `/skill <name>` 命令**（命令注册表，plan 模式先例）——两 token 的 UX、没有名称补全、仅限用户的 skill 在菜单里仍不可发现；按 cwd 的 skill 目录也与静态命令注册表格格不入。否决。
 - **客户端展开**（拉取正文、拼进提示词）——授权沦为可被绕过的客户端善意，日志失去调用语义，而且 Codex 已删除其等价机制（custom prompts）转向核心注入。否决。
-- **宿主提示词流水线扫描 `/name`**（Codex 的 `$name` core mentions）——重复了裁决层，还有吞掉普通行文中字面斜杠的风险；认领路径已经覆盖了这一需求。否决。
+- **提示词协议上的结构化引用载荷**（Codex `UserInput::Skill` 的类似物：客户端在文本旁附带 `{skills: [...]}`，边界优先采用它而不是扫描）——考虑过并暂缓：现有斜杠命令体系在协议上本身就是行文本，封闭集合的目录匹配已经消除了猜测；已记为台账事项，以备手势精确性某天需要客户端意图。
 - **每次注入一条前导语**（Kimi 的 `User activated the skill …`）——弃用，改为一次性的目录句子：同样的上下文、只支付一次，且注入块与工具结果保持逐字节一致。
 
 ## 后果
 
-- 决策 21 的纯文本引用路径在提交处被取代：草稿仍承载纯文本与 lexicon 派生的 chip 视觉，但提交会认领进一次确定性注入，而不是把字面文本发出去再碰运气。模型自主轨道（目录 + `skill` 工具）不变。
-- 每一次用户可调用 skill 的调用现在都无条件付出其完整渲染正文的成本——这是确定性的代价，同类调研表明所有产品都在支付。
+- 决策 21 的纯文本引用如今就是客户端的全部故事：草稿承载纯文本，chip 视觉由 lexicon 派生，发出的文本由宿主边界评判——手动键入的手势、菜单 pick 与 TUI 提示词无从区分，也同等确定。
+- 每一次用户可调用 skill 的调用都无条件付出其完整渲染正文的成本——这是确定性的代价，同类调研表明所有产品都在支付。在句子中间提到一个已知 skill 名称也会加载它；这就是 Codex 的 mention 语义，属于有意接受。
 - `skill-invocation` 来源搭乘 `user/message`，因此「模型可见 ⟺ 已记录」在不新增事件类型的情况下继续成立，回放与 UI 读取的是元数据而非文本标记。
-- TUI 与 ACP 之后可以为同样的语义采用 `skill.invoke`；在那之前，TUI 的客户端展开仍是它自己的路径。
 - 放弃逐次注入前导语后被接受的残余：no-reload framing 只搭乘目录，而 skill 全部为仅用户的工作区永远不会发布首个目录——注入可能在完全没有 framing 的情况下到达，模型可能多余地调用一次 `skill` 工具（替换目录的空臂携带该句；从未发布的情形没有）。仅为 framing 而发布目录被判定比这一次可恢复的错误更糟。

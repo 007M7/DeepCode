@@ -24,7 +24,6 @@
 import {
   memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode,
 } from 'react'
-import { opensUserTurn } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
   CodeSubCall, CommandNode, ConversationNode, ConversationSnapshot, RunningToolCall, ToolResultNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
@@ -119,7 +118,7 @@ function activeRetrySeq(nodes: readonly ConversationNode[], running: boolean): n
     const node = nodes[index]
     if (node === undefined) continue
     if (node.kind === 'model-retry') return node.retryState === 'cancelled' ? null : node.seq
-    if (node.kind === 'assistant' || opensUserTurn(node)) return null
+    if (node.kind === 'assistant' || node.kind === 'user') return null
   }
   return null
 }
@@ -448,11 +447,10 @@ export function ChatView({
       return
     }
     firstSeqRef.current = firstSeq
-    // Own words must be visible: a new trailing user-turn node (a prompt or an
-    // explicit skill invocation) force-scrolls (send lives in the composer, so
-    // arrival is detected here, not armed there).
+    // Own words must be visible: a new trailing user node force-scrolls
+    // (send lives in the composer, so arrival is detected here, not armed there).
     const appendedUser = lastKey !== lastKeyRef.current
-      && lastItem !== undefined && lastItem.kind === 'node' && opensUserTurn(lastItem.node)
+      && lastItem !== undefined && lastItem.kind === 'node' && lastItem.node.kind === 'user'
     const appendedSteering = lastSteeringId !== null && lastSteeringId !== lastSteeringIdRef.current
     const tipMoved = followSigRef.current !== followSig
     lastKeyRef.current = lastKey

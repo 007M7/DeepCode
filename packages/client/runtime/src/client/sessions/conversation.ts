@@ -129,25 +129,6 @@ export interface ContextMessageNode {
   form: KnownContextForm | null
 }
 
-/**
- * A user-explicit skill invocation: the host injected the rendered skill as a
- * user message carrying the `skill-invocation` source, so the card presents
- * `/name args` from source metadata and collapses the injected body.
- */
-export interface SkillInvocationNode {
-  kind: 'skill-invocation'
-  seq: number
-  /** Unix epoch ms from the source session event. */
-  time: number
-  /** Invoked skill name read off the message source. */
-  name: string
-  /** Trailing user text read off the message source, when recorded. */
-  args?: string
-  /** Full injected model-facing content (collapsed by default in the UI). */
-  content: readonly ContentBlock[]
-  source: unknown
-}
-
 /** Durable notice that a closed failed step is waiting for a model-request retry. */
 export type ModelRetryNode = LlmRetryEventData & {
   kind: 'model-retry'
@@ -258,27 +239,12 @@ export interface CommandNode {
   outcome: { kind: 'success' | 'error'; text?: string } | null
 }
 
-/**
- * Whether a node opens a user turn on the transcript surface. A direct user
- * message and a user-explicit skill invocation both start the turn the next
- * assistant answer closes; parallel consumers (turn boundaries, retry
- * liveness, own-words scrolling) share this one predicate instead of each
- * re-encoding the kind list. Steering stays out: an interjection lands
- * mid-turn and closes nothing.
- * @param node - any conversation node.
- * @returns true for the user-turn-opening kinds.
- */
-export function opensUserTurn(node: Pick<ConversationNode, 'kind'>): boolean {
-  return node.kind === 'user' || node.kind === 'skill-invocation'
-}
-
 /** Finalized conversation node union (kind discriminates; seq is the React key). */
 export type ConversationNode =
   | UserMessageNode
   | AssistantMessageNode
   | SteeringMessageNode
   | ContextMessageNode
-  | SkillInvocationNode
   | ModelRetryNode
   | TurnErrorNode
   | ToolResultNode

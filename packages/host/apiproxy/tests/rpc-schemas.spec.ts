@@ -31,7 +31,7 @@ import {
   commandDescriptorSchema, commandExecuteRequestSchema, commandExecuteValueSchema,
   commandListRequestSchema, commandListValueSchema,
 } from '../src/api/commands.schema.ts'
-import { skillEntrySchema, skillInvokeRequestSchema, skillInvokeValueSchema, skillListRequestSchema, skillListValueSchema } from '../src/api/skills.schema.ts'
+import { skillEntrySchema, skillListRequestSchema, skillListValueSchema } from '../src/api/skills.schema.ts'
 import { hostFrameSchema, muxFrameSchema, askUserQuestionItemSchema } from '../src/api/events.schema.ts'
 import { approvalRequestIdSchema, approvalResponsePayloadSchema } from '../src/api/approvals.schema.ts'
 import { askUserQuestionAnswerSchema, questionResponsePayloadSchema } from '../src/api/questions.schema.ts'
@@ -74,8 +74,6 @@ describe('rpcErrorSchema', () => {
     expect(rpcErrorSchema.parse({ code: 'queue-item-not-found', message: 'm', details: { itemId: 'i' } }).code).toBe('queue-item-not-found')
     expect(rpcErrorSchema.parse({ code: 'command-error', message: 'm', details: {} }).code).toBe('command-error')
     expect(rpcErrorSchema.parse({ code: 'unknown-command', message: 'm', details: {} }).code).toBe('unknown-command')
-    expect(rpcErrorSchema.parse({ code: 'skill-not-found', message: 'm', details: { name: 'n' } }).code).toBe('skill-not-found')
-    expect(rpcErrorSchema.parse({ code: 'skill-not-invocable', message: 'm', details: { name: 'n' } }).code).toBe('skill-not-invocable')
     expect(rpcErrorSchema.parse({ code: 'title-invalid', message: 'm', details: { sessionId: 's' } }).code).toBe('title-invalid')
     expect(rpcErrorSchema.parse({ code: 'internal', message: 'm', details: {} }).code).toBe('internal')
   })
@@ -83,7 +81,6 @@ describe('rpcErrorSchema', () => {
   it('rejects a known code with missing details', () => {
     expect(() => rpcErrorSchema.parse({ code: 'agent-busy', message: 'm', details: {} })).toThrow()
     expect(() => rpcErrorSchema.parse({ code: 'title-invalid', message: 'm', details: {} })).toThrow()
-    expect(() => rpcErrorSchema.parse({ code: 'skill-not-invocable', message: 'm', details: {} })).toThrow()
     expect(() => rpcErrorSchema.parse({ code: 'command-error', message: 'm' })).toThrow()
     expect(() => rpcErrorSchema.parse({ code: 'nope', message: 'm', details: {} })).toThrow()
   })
@@ -407,19 +404,6 @@ describe('skills domain schemas', () => {
     expect(() => skillEntrySchema.parse({ name: '', description: 'd', modelInvocable: true })).toThrow()
     // modelInvocable is required wire data: an entry without it fails.
     expect(() => skillEntrySchema.parse({ name: 'n', description: 'd' })).toThrow()
-  })
-
-  it('validates the invoke request/value pair', () => {
-    expect(skillInvokeRequestSchema.parse({ sessionId: 's1', name: 'user-only' }))
-      .toEqual({ sessionId: 's1', name: 'user-only' })
-    expect(skillInvokeRequestSchema.parse({ sessionId: 's1', name: 'user-only', text: 'check it' }).text)
-      .toBe('check it')
-    expect(() => skillInvokeRequestSchema.parse({ sessionId: 's1', name: '' })).toThrow()
-    expect(() => skillInvokeRequestSchema.parse({ name: 'user-only' })).toThrow()
-    // A blank trailing text is refused at the wire boundary, not by client courtesy.
-    expect(() => skillInvokeRequestSchema.parse({ sessionId: 's1', name: 'user-only', text: '' })).toThrow()
-    expect(skillInvokeValueSchema.parse({ accepted: true })).toEqual({ accepted: true })
-    expect(() => skillInvokeValueSchema.parse({ accepted: false })).toThrow()
   })
 })
 

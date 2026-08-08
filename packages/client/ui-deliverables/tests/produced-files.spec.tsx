@@ -73,26 +73,6 @@ describe('producedForClosing derivation', () => {
     expect(producedForClosing(nodes, 999)).toEqual([])
   })
 
-  it('treats a user-explicit skill invocation as a turn boundary', () => {
-    // The injection opens a user turn exactly like a typed prompt: files
-    // written before it must not spill into the turn its answer closes.
-    const skillInvocation = {
-      kind: 'skill-invocation' as const, seq: 4, time: 4_000,
-      name: 'hidden-demo',
-      content: [{ type: 'text', text: '<skill_content name="hidden-demo">x</skill_content>' }] as never,
-      source: null,
-    }
-    const nodes: ConversationNode[] = [
-      user(1, 'write things'),
-      assistant(2, 'wrote', 1),
-      wrote(3, 'a', 'stale.txt'),
-      skillInvocation,
-      wrote(5, 'b', 'fresh.txt'),
-      assistant(6, 'followed the skill', 2),
-    ]
-    expect(producedForClosing(nodes, 6)).toEqual(['fresh.txt'])
-    expect(producedForClosing(nodes, 6)).not.toContain('stale.txt')
-  })
 
   it('counts a generic edit and never spills across the turn boundary', () => {
     const inserted = (seq: number, callId: string, path: string): ToolResultNode => ({

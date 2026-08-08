@@ -322,10 +322,9 @@ describe('lexicon', () => {
   })
 })
 
-describe('pick claims into skill.invoke', () => {
-  it('onPick returns an args-tolerant claim whose submit invokes the skill', async () => {
-    const invoke = vi.fn(() => Promise.resolve({ result: { ok: true as const, value: { accepted: true as const } } }))
-    const { source } = await bench(listOk(CATALOG), undefined, invoke)
+describe('pick lands plain text (decision 21)', () => {
+  it('onPick returns the literal /name text with a closing space', async () => {
+    const { source } = await bench(listOk(CATALOG))
     const outcome = source.onPick({
       candidate: { name: 'commit-helper', description: 'commit flow' },
       session: proj('s1'),
@@ -333,58 +332,16 @@ describe('pick claims into skill.invoke', () => {
       via: 'menu',
       span: { start: 0, end: 4, draftRev: 7 },
     })
-    if (outcome === undefined || outcome === 'handled' || !('claim' in outcome)) throw new Error('expected a claim outcome')
-    expect(outcome.claim.token).toBe('/commit-helper ')
-    await expect(outcome.claim.submit('check the fixture', {} as never)).resolves.toEqual({ kind: 'success' })
-    expect(invoke).toHaveBeenCalledWith({ sessionId: sid('s1'), name: 'commit-helper', text: 'check the fixture' })
+    expect(outcome).toEqual({ text: '/commit-helper ' })
   })
 
-  it('submit omits blank args and folds an RPC refusal into an error outcome', async () => {
-    const invoke = vi.fn(() => Promise.resolve({
-      result: { ok: false as const, error: { code: 'skill-not-invocable', message: 'nope', details: { name: 'deploy' } } },
-    }))
-    const { source } = await bench(listOk(CATALOG), undefined, invoke)
-    const outcome = source.onPick({
-      candidate: { name: 'deploy', description: 'deploy flow' },
-      session: proj('s1'),
-      position: 'leading',
-      via: 'menu',
-      span: { start: 0, end: 4, draftRev: 7 },
-    })
-    if (outcome === undefined || outcome === 'handled' || !('claim' in outcome)) throw new Error('expected a claim outcome')
-    await expect(outcome.claim.submit('   ', {} as never))
-      .resolves.toEqual({ kind: 'error', text: 'skill-not-invocable: nope' })
-    expect(invoke).toHaveBeenCalledWith({ sessionId: sid('s1'), name: 'deploy' })
-  })
-
-  it('drops the legacy reference codec (decision 21 removal cut)', async () => {
+  it('keeps the legacy reference codec removed and stays out of adjudication', async () => {
     const { source } = await bench(listOk(CATALOG))
+    // Determinism lives host-side (the pre-step gesture boundary), so the
+    // source neither claims lines nor serializes reference markup.
     expect(source.codec).toBeUndefined()
-  })
-})
-
-describe('adjudication', () => {
-  it('claims an entered /name line, args-tolerant, once the catalog knows the name', async () => {
-    const invoke = vi.fn(() => Promise.resolve({ result: { ok: true as const, value: { accepted: true as const } } }))
-    const { source } = await bench(listOk(CATALOG), undefined, invoke)
-    const outcome = await source.matchEnter!(proj('s1'), '/deploy run the smoke suite', new AbortController().signal)
-    if (outcome === undefined || outcome === 'handled' || !('claim' in outcome)) throw new Error('expected a claim outcome')
-    expect(outcome.claim.token).toBe('/deploy ')
-    await outcome.claim.submit('run the smoke suite', {} as never)
-    expect(invoke).toHaveBeenCalledWith({ sessionId: sid('s1'), name: 'deploy', text: 'run the smoke suite' })
-  })
-
-  it('answers undefined for unknown names, non-slash lines, and bare "/"', async () => {
-    const { source } = await bench(listOk(CATALOG))
-    const signal = new AbortController().signal
-    await expect(source.matchEnter!(proj('s1'), '/unlisted do it', signal)).resolves.toBeUndefined()
-    await expect(source.matchEnter!(proj('s1'), 'plain prose', signal)).resolves.toBeUndefined()
-    await expect(source.matchEnter!(proj('s1'), '/', signal)).resolves.toBeUndefined()
-  })
-
-  it('never claims on space (menu and enter own the skill flows)', async () => {
-    const { source } = await bench(listOk(CATALOG))
     expect(typeof source.matchSpace).toBe('undefined')
+    expect(typeof source.matchEnter).toBe('undefined')
   })
 })
 

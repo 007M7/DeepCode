@@ -39,7 +39,7 @@ import {
   workspaceRenameValueSchema,
 } from '../api/workspace.schema.ts'
 import { commandExecuteValueSchema, commandListValueSchema } from '../api/commands.schema.ts'
-import { skillInvokeValueSchema, skillListValueSchema } from '../api/skills.schema.ts'
+import { skillListValueSchema } from '../api/skills.schema.ts'
 import {
   goalCreateValueSchema,
   goalEditValueSchema,
@@ -118,7 +118,6 @@ export interface IApiClient {
   }
   skills: {
     list(payload: RequestPayload<'skill.list'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'skill.list'>>>
-    invoke(payload: RequestPayload<'skill.invoke'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'skill.invoke'>>>
   }
   events: {
     mux(payload: Parameters<ApiProxy['events']['mux']>[0]['payload'], signal: AbortSignal, onOpen?: () => void): AsyncIterable<RpcRequest<MuxFrame>>
@@ -186,7 +185,6 @@ const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseV
   'command.list': commandListValueSchema,
   'command.execute': commandExecuteValueSchema,
   'skill.list': skillListValueSchema,
-  'skill.invoke': skillInvokeValueSchema,
   'goal.create': goalCreateValueSchema,
   'goal.edit': goalEditValueSchema,
   'goal.pause': goalPauseValueSchema,
@@ -443,7 +441,6 @@ export abstract class AbstractApiClient implements IApiClient {
 
   readonly skills: IApiClient['skills'] = {
     list: (payload, signal) => this.callUnary('skill.list', payload, signal),
-    invoke: (payload, signal) => this.callUnary('skill.invoke', payload, signal),
   }
 
   readonly goals: IApiClient['goals'] = {

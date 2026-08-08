@@ -198,9 +198,6 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
       async list(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { skills: [{ name: 'commit-helper', description: 'Git commits', modelInvocable: true }] } } }
       },
-      async invoke(request) {
-        return { rpcId: request.rpcId, result: { ok: true, value: { accepted: true as const } } }
-      },
     },
     goals: {
       async create(request) {
@@ -385,8 +382,6 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     expect(miss.result).toEqual({ ok: true, value: { matched: false } })
     const skills = await c.skills.list({ sessionId: 's' as never })
     expect(skills.result).toEqual({ ok: true, value: { skills: [{ name: 'commit-helper', description: 'Git commits', modelInvocable: true }] } })
-    const invoked = await c.skills.invoke({ sessionId: 's' as never, name: 'commit-helper', text: 'go' })
-    expect(invoked.result).toEqual({ ok: true, value: { accepted: true } })
   })
 
   it('lets command.execute finish after the 30-second default unary deadline', async () => {

@@ -1,18 +1,20 @@
 - banner:
   - navigation "Session hierarchy":
-    - button "workspace" [disabled]
+    - button "/user-invoke-demo and confirm the fixtur" [disabled]
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
-- text: /user-invoke-demo and confirm the fixture wiring
-- group: View injected skill content
-- text: {{clock}}
+- text: /user-invoke-demo and confirm the fixture wiring {{clock}}
 - button "Copy":
   - img
 - button "Context injection @deepseek-ai/dsh-system-prompt":
   - img
   - img
   - text: Context injection @deepseek-ai/dsh-system-prompt
+- button "Context injection user-invoke-demo":
+  - img
+  - img
+  - text: Context injection user-invoke-demo
 - paragraph: USER_INVOKE_REPLY acknowledged; following the injected skill.
 - button "Copy":
   - img

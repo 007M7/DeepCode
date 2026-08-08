@@ -1,9 +1,9 @@
 // Web e2e scenario: a user invokes a disable-model-invocation skill through
 // the composer (issue #1470). The entered `/name args` line claims into
-// skill.invoke: the real host renders the skill body, injects it as a
-// user-role message carrying the skill-invocation source, and starts a turn
-// answered by the replay seam. The transcript shows the dedicated invocation
-// card (chip + args, body collapsed) and the model's reply.
+// skill.invoke: the real host forwards the gesture as an ordinary user
+// prompt, injects the rendered body as instructions context named after the
+// skill, and starts a turn answered by the replay seam. The transcript shows
+// the gesture bubble, the collapsed context-injection row, and the reply.
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
@@ -96,7 +96,7 @@ describe.skipIf(MODE === 'record')('web e2e: user-explicit skill invocation thro
     if (failures.length > 1) throw new AggregateError(failures, 'skill-user-invoke e2e cleanup failed')
   })
 
-  it('claims /name args into an injection card and a replayed answer', async () => {
+  it('claims /name args into a gesture bubble, an injection row, and a replayed answer', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-skill-user-invoke'))
     const composer = page.locator('textarea:enabled').last()
     await composer.waitFor({ timeout: 15_000 })
@@ -112,23 +112,26 @@ describe.skipIf(MODE === 'record')('web e2e: user-explicit skill invocation thro
     await composer.fill(`/${SKILL_NAME} ${ARGS_TEXT}`)
     await composer.press('Enter')
 
-    // The injection card presents the gesture from source metadata: chip plus
-    // args, with the rendered <skill_content> collapsed behind a disclosure.
-    const card = page.locator('[data-skill-invocation]')
-    await card.waitFor({ timeout: 15_000 })
-    const chip = card.locator('[data-ref-chip="skill"]')
-    expect(await chip.textContent()).toBe(`/${SKILL_NAME}`)
-    expect(await card.textContent()).toContain(ARGS_TEXT)
+    // The gesture stays an ordinary user bubble (decorated /name token plus
+    // the trailing text), ahead of the injected context.
+    const bubble = page.locator('[data-ref-chip="skill"]').first()
+    await bubble.waitFor({ timeout: 15_000 })
+    expect(await bubble.textContent()).toBe(`/${SKILL_NAME}`)
 
-    const disclosure = card.locator('details')
-    expect(await disclosure.getAttribute('open')).toBeNull()
-    await card.locator('summary').click()
-    const body = card.locator('pre')
-    await body.waitFor()
-    expect(await body.textContent()).toContain(`<skill_content name="${SKILL_NAME}">`)
-    expect(await body.textContent()).toContain('Reply with the fixture acknowledgement line.')
-    expect(await body.textContent()).toContain(ARGS_TEXT)
-    await card.locator('summary').click()
+    // The rendered body arrives as a context-injection row named after the
+    // skill; expanding it reveals the canonical <skill_content> block, and
+    // the user's text is NOT folded into it.
+    const injectionRow = page.getByRole('button', { name: `Context injection ${SKILL_NAME}` })
+    await injectionRow.waitFor({ timeout: 15_000 })
+    await injectionRow.click()
+    const injectionBody = page
+      .locator('[data-context-injection-body]')
+      .filter({ hasText: `<skill_content name="${SKILL_NAME}">` })
+    await injectionBody.waitFor({ timeout: 10_000 })
+    const injected = await injectionBody.textContent()
+    expect(injected).toContain('Reply with the fixture acknowledgement line.')
+    expect(injected).not.toContain(ARGS_TEXT)
+    await injectionRow.click()
 
     // The injection started a turn; the replay seam answers it.
     await page.getByText('USER_INVOKE_REPLY', { exact: false }).first().waitFor({ timeout: 20_000 })

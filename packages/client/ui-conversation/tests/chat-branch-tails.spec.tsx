@@ -865,41 +865,6 @@ describe('MessageItem arms', () => {
     expect(view.getByRole('status').textContent).toBe('正在重试模型请求（1/2） · 1s')
   })
 
-  it('skill-invocation renders the /name chip, args, and a collapsed injected body', () => {
-    const body = '<skill_content name="hidden-demo">instructions</skill_content>\n\ncheck the fixture'
-    const view = render(
-      <MessageItem t={t} node={{
-        kind: 'skill-invocation', seq: 4, time: 1_000,
-        name: 'hidden-demo', args: 'check the fixture',
-        content: [{ type: 'text', text: body }] as never,
-        source: null,
-      }}
-      />,
-    )
-    const chip = view.container.querySelector('[data-ref-chip="skill"]')
-    expect(chip?.textContent).toBe('/hidden-demo')
-    const details = view.container.querySelector('details')
-    expect(details).toBeTruthy()
-    expect(details?.open).toBe(false)
-    expect(view.getByText('查看注入的 skill 内容')).toBeTruthy()
-    expect(view.container.querySelector('pre')?.textContent).toBe(body)
-    expect(view.container.querySelector('[data-skill-invocation]')).toBeTruthy()
-  })
-
-  it('skill-invocation without args renders only the chip line', () => {
-    const view = render(
-      <MessageItem t={t} node={{
-        kind: 'skill-invocation', seq: 5, time: 1_000,
-        name: 'bare-skill',
-        content: [{ type: 'text', text: '<skill_content name="bare-skill">x</skill_content>' }] as never,
-        source: null,
-      }}
-      />,
-    )
-    const bubble = view.container.querySelector('[data-skill-invocation]')
-    expect(bubble?.textContent).toContain('/bare-skill')
-    expect(bubble?.textContent).not.toContain('undefined')
-  })
 })
 
 describe('formatMessageClock', () => {

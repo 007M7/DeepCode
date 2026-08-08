@@ -198,8 +198,6 @@ export class FakeApiClient implements IApiClient {
   onSkillList: (payload: unknown) => Promise<RpcResponse<{ skills: SkillEntry[] }>>
     = () => Promise.resolve(ok({ skills: [] }))
 
-  onSkillInvoke: (payload: unknown) => Promise<RpcResponse<{ accepted: true }>>
-    = () => Promise.resolve(ok({ accepted: true as const }))
 
   readonly commands: IApiClient['commands'] = {
     list: (payload: unknown) => this.record('command.list', payload, this.onCommandList(payload)),
@@ -208,7 +206,6 @@ export class FakeApiClient implements IApiClient {
 
   readonly skills: IApiClient['skills'] = {
     list: (payload: unknown) => this.record('skill.list', payload, this.onSkillList(payload)),
-    invoke: (payload: unknown) => this.record('skill.invoke', payload, this.onSkillInvoke(payload)),
   }
 
   readonly goals: IApiClient['goals'] = {

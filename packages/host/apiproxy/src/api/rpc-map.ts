@@ -50,7 +50,6 @@ export interface RpcMethodMap {
   'command.list': CommandsApi['list']
   'command.execute': CommandsApi['execute']
   'skill.list': SkillsApi['list']
-  'skill.invoke': SkillsApi['invoke']
   'goal.create': GoalsApi['create']
   'goal.edit': GoalsApi['edit']
   'goal.pause': GoalsApi['pause']

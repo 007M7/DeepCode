@@ -2,15 +2,16 @@
  * Skill reference plugin, browser half: registers the '/' skill source —
  * candidates from the skill.list RPC addressed by the per-call session
  * projection's sessionId (sessions are always agent-backed; the host
- * resolves cwd from the session header). A menu pick or an entered `/name
- * [args]` line claims into a skill.invoke transaction: the host renders the
- * skill body and injects it as a user message, so invocation is
- * deterministic for every user-invocable skill — including
- * `disable-model-invocation` skills the model-side catalog never lists
- * (issue #1470). The RPC rides the plugin's root-context connection
- * captured at registration — the source never reads services off a per-call
- * argument. Draft chip visuals still derive from the lexicon scan; the
- * legacy `<skill>` reference codec is gone (decision 21 removal cut).
+ * resolves cwd from the session header). A pick lands the literal `/name `
+ * text and the prompt ships the same literal (decision 21); determinism
+ * lives host-side — the pre-step boundary (`dsh-tool-skill`) recognizes a
+ * leading `/name` naming a user-invocable skill and injects the rendered
+ * body for every front end, including `disable-model-invocation` skills the
+ * model-side catalog never lists (issue #1470). The RPC rides the plugin's
+ * root-context connection captured at registration — the source never reads
+ * services off a per-call argument. Draft chip visuals still derive from
+ * the lexicon scan; the legacy `<skill>` reference codec is gone (decision
+ * 21 removal cut).
  *
  * Catalog fetches are cached per session (the small twin of the ui-command
  * directory): the per-keystroke candidates re-poll filters a settled
@@ -27,7 +28,7 @@
  */
 import type { ConnectionHandle, SessionId, SkillEntry } from '@deepseek-ai/dsh-client-connection/client'
 import type { ClientContext, ISessions } from '@deepseek-ai/dsh-client-runtime/client'
-import type { PickOutcome, SlashServiceContract, SlashSource } from '@deepseek-ai/dsh-client-ui-slash/client'
+import type { SlashServiceContract, SlashSource } from '@deepseek-ai/dsh-client-ui-slash/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { SkillRow } from './SkillRow.tsx'
@@ -125,27 +126,6 @@ export function apply(ctx: ClientContext): void {
   // locale service's own fallback ladder; candidate-time reads stay plain text.
   const t = ctx.locale.bind(NS)
 
-  /**
-   * Args-tolerant claim for one skill: token `/name ` plus the skill.invoke
-   * transaction. Blank args stay off the wire; an RPC refusal folds into the
-   * composer's error outcome (transport failures throw).
-   */
-  const invokeClaim = (session: { readonly sessionId: SessionId }, name: string): PickOutcome => ({
-    claim: {
-      token: `/${name} `,
-      submit: async (args) => {
-        const trimmed = args.trim()
-        const { result } = await skills.invoke({
-          sessionId: session.sessionId,
-          name,
-          ...trimmed === '' ? {} : { text: trimmed },
-        })
-        if (!result.ok) return { kind: 'error', text: `${result.error.code}: ${result.error.message}` }
-        return { kind: 'success' }
-      },
-    },
-  })
-
   const source: SlashSource = {
     trigger: '/',
     name: 'skill',
@@ -181,25 +161,14 @@ export function apply(ctx: ClientContext): void {
         if (listeners.size === 0) lexiconListeners.delete(key)
       }
     },
-    onPick({ candidate, session }) {
-      return invokeClaim(session, candidate.name)
-    },
-    // Adjudication polls sources in registration order and the web bundle
-    // mounts ui-command first, so a name shared with a host command claims as
-    // the command — deliberate precedence (commands are explicit host
-    // features; peer products resolve the collision the same way), not a race.
-    async matchEnter(session, line, signal) {
-      const trimmed = line.trim()
-      if (!trimmed.startsWith('/')) return undefined
-      const ws = trimmed.search(/\s/)
-      const name = (ws === -1 ? trimmed : trimmed.slice(0, ws)).slice(1)
-      if (name === '') return undefined
-      // Strong-wait the catalog: an unknown name stays a plain prompt (the
-      // default sink), never a swallowed line.
-      const catalog = await fetchCatalog(session.sessionId)
-      if (signal.aborted) return undefined
-      if (!catalog.some(skill => skill.name === name)) return undefined
-      return invokeClaim(session, name)
+    onPick({ candidate }) {
+      // Decision 21: the pick lands plain text and the prompt ships the same
+      // literal. Determinism no longer rides the client — the host's
+      // pre-step boundary (dsh-tool-skill) recognizes the leading /name and
+      // injects the rendered body for every front end. A name shared with a
+      // host command still resolves to the command: adjudication claims the
+      // line client-side before it ever becomes a prompt.
+      return { text: `/${candidate.name} ` }
     },
   }
   const slash = ctx.get('slash') as SlashServiceContract
