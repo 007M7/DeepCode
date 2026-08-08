@@ -29,4 +29,32 @@ describe('public repository link policy', () => {
       { file: 'subject.md', line: 8 },
     ])
   })
+
+  it('allows only the exact audited trusted-publishing repository declarations', () => {
+    const internalOwner = ['deepseek', 'harness'].join('-')
+    const internalRepository = [internalOwner, internalOwner].join('/')
+    const repositoryUrl = `git+https://github.com/${internalRepository}.git`
+    const manifestLine = `  "url": "${repositoryUrl}",`
+    const constraintLine = `const repositoryUrl = '${repositoryUrl}'`
+    const allowedDeclarations = [
+      ['native/landlock-run/packages/entry/package.json', manifestLine],
+      ['native/landlock-run/packages/linux-arm64/package.json', manifestLine],
+      ['native/landlock-run/packages/linux-x64/package.json', manifestLine],
+      ['scripts/check-workspace-constraints.ts', constraintLine],
+    ] as const
+
+    for (const [file, source] of allowedDeclarations) {
+      expect(findInternalRepositoryReferences(file, source)).toEqual([])
+    }
+
+    const wrongFile = 'native/landlock-run/package.json'
+    expect(findInternalRepositoryReferences(wrongFile, manifestLine)).toEqual([{ file: wrongFile, line: 1 }])
+
+    const manifestFile = 'native/landlock-run/packages/entry/package.json'
+    const wrongField = `  "homepage": "${repositoryUrl}",`
+    expect(findInternalRepositoryReferences(manifestFile, wrongField)).toEqual([{ file: manifestFile, line: 1 }])
+
+    const encodedLine = manifestLine.replace('github.com/', 'github.com\\/')
+    expect(findInternalRepositoryReferences(manifestFile, encodedLine)).toEqual([{ file: manifestFile, line: 1 }])
+  })
 })
