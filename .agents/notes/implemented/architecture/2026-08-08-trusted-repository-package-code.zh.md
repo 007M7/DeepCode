@@ -18,7 +18,7 @@
 
 生成的包装层先挂载 DSH 自有的静态运行时来处理 skill 和 MCP 定义，再动态导入显式入口、解包其导出并将其挂载为子级。两个子级都必须进入 Cordis `ACTIVE`；无法满足的 `inject` 或启动异常会拒绝 repository Loader 事务，而不会提交未激活的 generation。Loader 移除、替换失败和父级 dispose（资源释放）会一并撤销入口、skill 提供方、MCP client 及其 effect。
 
-`dsh-mcp-client` 会在插件应用期间完成其初始连接和工具同步 promise。因此，有效 server 的工具会在父级 repository 包装层激活前、一次性应用发起首个模型请求前就已存在。初始连接失败沿用既有的收束失败契约：系统会记录日志，client 激活但不注册工具，dispose 仍会关闭 transport。
+`dsh-mcp-client` 会在插件应用期间完成其初始连接和工具同步 promise。其入口必须是 `async function`，而不是返回 Promise 的普通函数：Cordis 会把带 prototype 的普通函数识别为 constructor，不会把 constructor 返回的 Promise 当作启动工作。因此，有效 server 的工具会在父级 repository 包装层激活前、一次性应用发起首个模型请求前就已存在。其 `failOnStartupError` 配置默认保留独立可选 server 的行为，同时允许 repository adapter 要求已声明 server 必须可用。Repository 转换出的 MCP client 会启用该模式，因此初始连接或发现失败会拒绝候选 generation，回滚仍会关闭 transport。
 
 ## 信任边界
 
@@ -41,11 +41,11 @@
 - TypeScript DSH 插件可以存放在 GitHub 仓库中，安装普通 NPM 依赖，在 `prepack` 期间完成编译，并在无需把插件包发布到 NPM 的情况下运行。
 - 仅含静态贡献的 repository 包仍然有效，并保留无 import 包装层；添加 `dsh.entry` 会使该包选择启用运行时代码导入。
 - 包构建、依赖安装、入口导入、所需服务未满足或插件启动失败，都会阻止候选 generation 替换最后一个可用配置。
-- 初始 MCP 连接可能延长应用启动时间；连接失败被收束后，仍会得到一个正常运行、但不含该 server 工具的应用。
+- 初始 MCP 连接可能延长应用启动时间；repository 声明的 server 不可用时，该候选 generation 无法激活。
 - Repository 代码获得宿主权限，因此源码评审和锁定不可变 ref 是运行安全要求，而不是可选加固措施。
 
 ## 测试
 
-repository 格式测试通过真实 Loader 准备并挂载使用 default export 的代码入口，观察入口自有服务，移除 Loader 配置项，再观察清理；测试还保留针对 skill／MCP 准备、路径包含约束、包损坏、等待服务和回滚的覆盖。MCP 生命周期测试要求 `apply` 只在初始工具发布后完成，同时保留收束连接失败与清理覆盖。
+repository 格式测试通过真实 Loader 准备并挂载使用 default export 的代码入口，观察入口自有服务，移除 Loader 配置项，再观察清理；测试还保留针对 skill／MCP 准备、路径包含约束、包损坏、等待服务和回滚的覆盖。MCP 生命周期测试要求 `apply` 只在初始工具发布后完成，保留选择收束连接失败的能力，并证明严格启动拒绝仍会关闭 client。
 
 Node 24 消费方验收使用实际构建的 `dsh run` 命令、全新 DSH 主目录，以及锁定到 PR（Pull Request）的精确 head SHA 且经过认证的私有 GitHub 源。该 repository 包安装固定版本的运行时依赖与开发依赖，在 `prepack` 期间对 TypeScript 进行类型检查和打包，准备一个 skill、一个 stdio MCP server 及 `dsh.entry`，在首个真实模型请求中暴露 skill 与 MCP schema，执行 MCP 工具，并让已编译 Cordis 入口向结果追加第二个标记，供后续请求观察。缓存断言要求打包安装中不存在源码文件，同时必须存在两个已构建模块、其已安装依赖、复制资源和生成包装层。

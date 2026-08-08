@@ -82,6 +82,7 @@ const stdioConfig: Config = {
   env: {},
   cwd: '',
   toolCallTimeoutMs: 60_000,
+  failOnStartupError: false,
 }
 
 // ---- Tests ----
@@ -150,11 +151,30 @@ describe('apply (plugin lifecycle)', () => {
     expect(ctx.tools.get('remote')).toBeUndefined()
   })
 
+  it('keeps the Cordis plugin loading until initial discovery publishes its tools', async () => {
+    const connection: PromiseWithResolvers<void> = Promise.withResolvers()
+    mockConnect.mockImplementation(async () => {
+      await connection.promise
+    })
+    const fiber = ctx.plugin({ name: 'mcp-client-lifecycle', inject, apply }, stdioConfig)
+    let activated = false
+    const activation = Promise.resolve(fiber).then(() => { activated = true })
+
+    await vi.waitFor(() => { expect(mockConnect).toHaveBeenCalled() })
+    expect(activated).toBe(false)
+    expect(ctx.tools.get('mcp__srv__remote')).toBeUndefined()
+
+    connection.resolve()
+    await activation
+    expect(ctx.tools.get('mcp__srv__remote')).toBeDefined()
+    await fiber.dispose()
+  })
+
   it('rejects a duplicate serverName at load and leaves the first instance intact', async () => {
     await apply(ctx, stdioConfig)
     expect(ctx.tools.get('mcp__srv__remote')).toBeDefined()
 
-    expect(() => { void apply(ctx, stdioConfig) }).toThrow(/serverName "srv" is already in use/)
+    await expect(apply(ctx, stdioConfig)).rejects.toThrow(/serverName "srv" is already in use/)
     // First instance unaffected.
     expect(ctx.tools.get('mcp__srv__remote')).toBeDefined()
   })
@@ -201,6 +221,19 @@ describe('apply (plugin lifecycle)', () => {
     // close still attempted, no throw.
     await ctx.fiber.dispose()
     await sleep(50)
+    expect(mockClose).toHaveBeenCalled()
+  })
+
+  it('rejects activation and still closes the client when startup failure is configured as fatal', async () => {
+    mockConnect.mockRejectedValue(new Error('connection refused'))
+    await expect(apply(ctx, {
+      ...stdioConfig,
+      failOnStartupError: true,
+    })).rejects.toThrow('initial connection or tool discovery failed')
+
+    expect(mockListTools).not.toHaveBeenCalled()
+    expect(ctx.tools.get('mcp__srv__remote')).toBeUndefined()
+    await ctx.fiber.dispose()
     expect(mockClose).toHaveBeenCalled()
   })
 
@@ -275,6 +308,7 @@ describe('apply (plugin lifecycle)', () => {
       url: 'http://localhost:3000/mcp',
       headers: { Authorization: 'Bearer x' },
       toolCallTimeoutMs: 30_000,
+      failOnStartupError: false,
     }
 
     await apply(ctx, httpConfig)

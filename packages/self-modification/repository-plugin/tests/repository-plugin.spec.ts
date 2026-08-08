@@ -261,7 +261,7 @@ describe('prepared repository plugin Loader composition', () => {
     await ctx.fiber.dispose()
   })
 
-  it('delegates an MCP-only plugin to the existing client without turning connect failure into Loader failure', async () => {
+  it('fails an MCP repository plugin load when its declared server cannot connect', async () => {
     const root = await temporaryDirectory('mcp-loader')
     await writeFile(join(root, '.mcp.json'), JSON.stringify({
       mcpServers: { offline: { command: join(root, 'missing-mcp-command') } },
@@ -275,12 +275,10 @@ describe('prepared repository plugin Loader composition', () => {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(RepositoryPlugin)
-    const id = await ctx.loader.create({
+    await expect(ctx.loader.create({
       name: pathToFileURL(join(directory, RepositoryPlugin.PREPARED_ENTRY_FILENAME)).href,
-    })
-    await ctx.loader.await()
+    })).rejects.toThrow('initial connection or tool discovery failed')
     expect(ctx.tools.schemas().some(tool => tool.name.startsWith('mcp__offline__'))).toBe(false)
-    await ctx.loader.remove(id)
     await ctx.fiber.dispose()
   })
 

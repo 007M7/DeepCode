@@ -75,6 +75,7 @@ describe('fixture server — controlled scenarios', () => {
     env: {},
     cwd: packageDir,
     toolCallTimeoutMs: 15_000,
+    failOnStartupError: false,
   }
 
   beforeAll(async () => {
@@ -164,10 +165,11 @@ describe('fixture server — duplicate serverName', () => {
       env: {},
       cwd: packageDir,
       toolCallTimeoutMs: 15_000,
+      failOnStartupError: false,
     }
     await apply(ctx, config)
 
-    expect(() => { void apply(ctx, config) }).toThrow(/serverName "dup" is already in use/)
+    await expect(apply(ctx, config)).rejects.toThrow(/serverName "dup" is already in use/)
 
     await ctx.fiber.dispose()
     await sleep(200)
@@ -185,6 +187,7 @@ describe('fixture server — disposal', () => {
       env: {},
       cwd: packageDir,
       toolCallTimeoutMs: 15_000,
+      failOnStartupError: false,
     })
 
     // Tools are registered before dispose.
@@ -210,6 +213,7 @@ describe('server-everything — official test server', () => {
     env: {},
     cwd: '',
     toolCallTimeoutMs: 30_000,
+    failOnStartupError: false,
   }
 
   beforeAll(async () => {
@@ -277,6 +281,7 @@ describe('server-filesystem — real filesystem operations', () => {
       env: {},
       cwd: '',
       toolCallTimeoutMs: 30_000,
+      failOnStartupError: false,
     }
     await apply(ctx, config)
   }, 60_000)
@@ -393,6 +398,7 @@ describe('streamable-http — in-process MCP server', () => {
       url: baseUrl,
       headers: { Authorization: 'Bearer e2e-test-token' },
       toolCallTimeoutMs: 15_000,
+      failOnStartupError: false,
     }
     await apply(ctx, config)
   }, 30_000)

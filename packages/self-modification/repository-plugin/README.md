@@ -69,7 +69,7 @@ Loading this package registers one effect-scoped Loader builtin. Each generated 
 
 The `.mcp.json` root is `{ "mcpServers": { ... } }`. A stdio entry accepts only `type: "stdio"` (optional), `command`, `args`, and `env`; an HTTP entry accepts only `type: "http"`, `url`, and `headers`. String values support exact `${NAME}` process-environment expansion at Plugin load, and a missing name fails that load. HTTP URLs become the existing MCP client's `streamable-http` transport; stdio entries use the prepared package directory as `cwd`.
 
-Unknown fields reject, including OAuth and `auth` objects. There is no `CLAUDE_PLUGIN_ROOT` expansion or compatibility layer. After translation, the existing `dsh-mcp-client` exclusively owns transport creation, connection diagnostics, tool synchronization, calls, and disconnect lifecycle. Plugin activation waits for the initial connection and tool discovery, so the first model request observes a successful initial tool generation; a network or child-process connection failure is logged and still activates with no tools.
+Unknown fields reject, including OAuth and `auth` objects. There is no `CLAUDE_PLUGIN_ROOT` expansion or compatibility layer. After translation, the existing `dsh-mcp-client` exclusively owns transport creation, connection diagnostics, tool synchronization, calls, and disconnect lifecycle. Repository-declared servers enable its strict startup mode: Plugin activation waits for the initial connection and tool discovery, so the first model request observes a successful initial tool generation, while a network, child-process, or discovery failure rejects the candidate repository generation instead of silently activating without its declared tools.
 
 ## Export shape
 

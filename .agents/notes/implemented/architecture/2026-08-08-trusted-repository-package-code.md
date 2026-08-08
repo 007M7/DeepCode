@@ -18,7 +18,7 @@ The package owns its npm dependencies and build toolchain. `scripts.prepack` is 
 
 The generated wrapper first mounts the DSH-owned static runtime for skills and MCP definitions, then dynamically imports and unwraps the explicit entry and mounts it as a child. Both children must reach Cordis `ACTIVE`; an unsatisfied `inject` or startup exception rejects the repository Loader transaction instead of committing an inert generation. Loader removal, failed replacement, and parent disposal unwind the entry, skill providers, MCP clients, and their effects together.
 
-`dsh-mcp-client` resolves its initial connection and tool synchronization promise as part of Plugin application. A valid server's tools therefore exist before its parent repository wrapper activates and before a one-shot application starts its first model request. Initial connection failure keeps the existing contained failure contract: it is logged, the client activates with no tools, and disposal still closes the transport.
+`dsh-mcp-client` resolves its initial connection and tool synchronization promise as part of Plugin application. Its entry is an `async function`, not an ordinary function returning a Promise: Cordis identifies prototype-bearing ordinary functions as constructors and does not treat a constructor's returned Promise as startup work. A valid server's tools therefore exist before its parent repository wrapper activates and before a one-shot application starts its first model request. Its `failOnStartupError` config preserves optional standalone servers by default while letting repository adapters require their declared servers. Repository-translated MCP clients enable that mode, so initial connection or discovery failure rejects the candidate generation and rollback still closes the transport.
 
 ## Trust boundary
 
@@ -41,11 +41,11 @@ Model-visible behavior remains governed by the owning DSH seam. A repository ent
 - A TypeScript DSH Plugin can live in a GitHub repository, install ordinary npm dependencies, compile during `prepack`, and run without publishing the Plugin package to npm.
 - Static-only repository packages remain valid and retain import-free wrappers; adding `dsh.entry` opts that package into runtime code import.
 - A package build, dependency install, entry import, unmet service, or Plugin startup failure prevents the candidate generation from replacing the last good configuration.
-- The initial MCP connection can lengthen application startup, while a contained connection failure still yields a running application with no tools from that server.
+- The initial MCP connection can lengthen application startup, and a repository-declared server that is unavailable prevents that candidate generation from activating.
 - Repository code receives host authority, so source review and immutable pinning are operational security requirements rather than optional hardening.
 
 ## Testing
 
-Repository-format tests prepare and mount default-export code entries through the real Loader, observe an entry-owned service, remove the Loader row, and observe cleanup; they also retain skill/MCP preparation, containment, damaged-package, pending-service, and rollback coverage. MCP lifecycle tests require `apply` to settle only after initial tool publication while preserving contained connect failure and teardown.
+Repository-format tests prepare and mount default-export code entries through the real Loader, observe an entry-owned service, remove the Loader row, and observe cleanup; they also retain skill/MCP preparation, containment, damaged-package, pending-service, and rollback coverage. MCP lifecycle tests require `apply` to settle only after initial tool publication, preserve opt-in contained connect failure, and prove strict startup rejection still closes the client.
 
 The Node 24 consumer acceptance uses the actual built `dsh run` command with a fresh DSH home and an authenticated private GitHub source pinned to the pull request's exact head SHA. That repository package installs pinned runtime and development dependencies, type-checks and bundles TypeScript during `prepack`, prepares a skill plus a stdio MCP server and `dsh.entry`, exposes the skill and MCP schema in the first real model request, executes the MCP tool, and lets the compiled Cordis entry append a second marker to the result observed in the following request. Cache assertions require source files to be absent from the packed installation while both built modules, their installed dependency, copied assets, and generated wrapper are present.

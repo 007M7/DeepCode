@@ -69,7 +69,7 @@ Git 传输使用宿主的常规 Git 认证。公共仓库无需凭据；私有�
 
 `.mcp.json` 根对象是 `{ "mcpServers": { ... } }`。stdio 条目只接受可选的 `type: "stdio"`、`command`、`args` 和 `env`；HTTP 条目只接受 `type: "http"`、`url` 和 `headers`。字符串值在插件加载时支持严格的 `${NAME}` 进程环境变量展开；缺失变量会使该次加载失败。HTTP URL 映射到现有 MCP client 的 `streamable-http` transport；stdio 条目以已准备的包目录作为 `cwd`。
 
-未知字段会被拒绝，包括 OAuth 字段与 `auth` 对象。不提供 `CLAUDE_PLUGIN_ROOT` 展开或兼容层。完成格式转换后，现有 `dsh-mcp-client` 独占 transport 创建、连接诊断、工具同步、调用和断开生命周期。插件激活会等待初始连接与工具发现，因此首个模型请求会看到成功的初始工具 generation；网络或子进程连接失败会记录日志，且插件仍会激活但不注册工具。
+未知字段会被拒绝，包括 OAuth 字段与 `auth` 对象。不提供 `CLAUDE_PLUGIN_ROOT` 展开或兼容层。完成格式转换后，现有 `dsh-mcp-client` 独占 transport 创建、连接诊断、工具同步、调用和断开生命周期。Repository 声明的 server 会启用其严格启动模式：插件激活会等待初始连接与工具发现，因此首个模型请求会看到成功的初始工具 generation；网络、子进程或发现失败则会拒绝候选 repository generation，而不是在缺少已声明工具的情况下静默激活。
 
 ## 导出形状
 

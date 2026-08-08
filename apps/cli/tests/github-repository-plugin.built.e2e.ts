@@ -67,15 +67,16 @@ describe.skipIf(!enabled)('dsh run GitHub repository Plugin installation', () =>
       expect(result.exitCode, `${result.stderr}\nstdout:\n${result.stdout}`).toBe(0)
       expect(result.stdout).toBe('trusted GitHub repository package reached dsh run')
       expect(server.requests).toHaveLength(2)
+      const runtimeDiagnostic = `${result.stderr}\nstdout:\n${result.stdout}`
       const firstRequest = JSON.stringify(server.requests[0]!.body)
       const secondRequest = JSON.stringify(server.requests[1]!.body)
-      expect(firstRequest).toContain(
+      expect(firstRequest, runtimeDiagnostic).toContain(
         'Proves that dsh installed a private repository Plugin from an exact GitHub source.',
       )
-      expect(firstRequest).toContain('mcp__github_repository__proof')
-      expect(firstRequest).toContain('Proves that an MCP server compiled from the exact GitHub repository package is active.')
-      expect(secondRequest).toContain('MCP_FROM_GITHUB_REPOSITORY')
-      expect(secondRequest).toContain('TS_PLUGIN_FROM_GITHUB_REPOSITORY')
+      expect(firstRequest, runtimeDiagnostic).toContain('mcp__github_repository__proof')
+      expect(firstRequest, runtimeDiagnostic).toContain('Proves that an MCP server compiled from the exact GitHub repository package is active.')
+      expect(secondRequest, runtimeDiagnostic).toContain('MCP_FROM_GITHUB_REPOSITORY')
+      expect(secondRequest, runtimeDiagnostic).toContain('TS_PLUGIN_FROM_GITHUB_REPOSITORY')
 
       const cacheRoot = join(home, 'cache', 'repository-plugins')
       const generations = readdirSync(cacheRoot, { withFileTypes: true }).filter(entry => entry.isDirectory())
