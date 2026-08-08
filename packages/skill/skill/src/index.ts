@@ -121,17 +121,18 @@ export function isUserInvocable(skill: Pick<SkillSummary, 'invocation'>): boolea
 }
 
 /**
- * Durable message source for a user-explicit skill invocation: the host
- * injects the rendered skill as a user-role message carrying this source, so
- * transcript consumers present the invocation from metadata instead of
- * re-parsing the model-facing text.
+ * Durable source for the context message a user-explicit skill invocation
+ * injects: the user's own words ride a plain user message, and the rendered
+ * skill body follows as injected `instructions`-form context carrying this
+ * source, so transcript consumers present the injection from metadata
+ * instead of re-parsing the model-facing text.
  */
 export interface SkillInvocationSource {
   readonly kind: 'skill-invocation'
   /** Invoked skill name, validated user-invocable at the injecting boundary. */
   readonly name: string
-  /** Trailing free text the user submitted after the skill token, when present. */
-  readonly args?: string
+  /** Injected skill bodies are instructions for the model to follow. */
+  readonly form: 'instructions'
 }
 
 declare module '@deepseek-ai/dsh-llm' {

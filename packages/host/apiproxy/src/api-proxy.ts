@@ -18,8 +18,7 @@ import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import { SessionQueryError, type SessionSearchCursor } from '@deepseek-ai/dsh-session-query'
 import { SubagentError } from '@deepseek-ai/dsh-subagent'
 import type { SubagentListEntry as CatalogSubagentListEntry } from '@deepseek-ai/dsh-subagent'
-import { isSkillName, isUserInvocable, renderSkillContent } from '@deepseek-ai/dsh-skill'
-import type { SkillInvocationSource } from '@deepseek-ai/dsh-skill'
+import { isUserInvocable } from '@deepseek-ai/dsh-skill'
 import type { Workspace, WorkspaceRecord } from '@deepseek-ai/dsh-workspace'
 import {
   workspaceDomainState, workspaceRecord, WorkspaceId as brandWorkspaceId,
@@ -1254,9 +1253,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
    * turn, and letting it try spends the whole pre-step path to fail inside
    * the adapter with a message about registration. Refusing here names the
    * model the session is pointed at while the draft is still in the composer.
-   * This is the enforcement boundary shared by `session.prompt` and
-   * `skill.invoke`: a client that disables its input is an affordance, and
-   * both methods stay callable regardless.
+   * This is `session.prompt`'s enforcement boundary: a client that disables
+   * its input is an affordance, and the method stays callable regardless.
    */
   async function turnAgentFor<T>(
     request: RpcRequest<unknown>, sessionId: SessionId,
@@ -2388,73 +2386,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         } catch (error: unknown) {
           return err(request, { code: 'internal', message: `skill listing failed: ${String(error)}`, details: {} })
         }
-      },
-
-      async invoke(request, signal) {
-        const { sessionId, name, text } = request.payload
-        const resolved = await turnAgentFor<{ accepted: true }>(request, sessionId)
-        if ('refused' in resolved) return resolved.refused
-        const agent = resolved.agent
-        if (agent.session.header.cwd === undefined) {
-          // Same stance as skill.list: a cwd-less header is a pre-project
-          // legacy log, and skill discovery has no root to resolve against.
-          return err(request, { code: 'internal', message: `session "${sessionId}" has no project cwd`, details: {} })
-        }
-        const skillRegistry = ctx.get('skills')
-        if (skillRegistry === undefined) {
-          return err(request, { code: 'internal', message: 'skill registry is absent: this deployment does not mount @deepseek-ai/dsh-skill in its composition (cordis.yml or explicit assembly)', details: {} })
-        }
-        const lookup = { cwd: agent.session.header.cwd, signal }
-        let skill
-        try {
-          // isSkillName guards the registry contract; an ill-formed name is
-          // indistinguishable from an absent one for the caller.
-          const summary = isSkillName(name)
-            ? (await skillRegistry.list(lookup)).find(candidate => candidate.name === name)
-            : undefined
-          if (summary === undefined) {
-            return err(request, { code: 'skill-not-found', message: `skill "${name}" is unknown in this workspace`, details: { name } })
-          }
-          // The operation boundary owns user-invocation policy: client menus
-          // filtering their candidates is an affordance, not enforcement.
-          if (!isUserInvocable(summary)) {
-            return err(request, { code: 'skill-not-invocable', message: `skill "${name}" is not available for user invocation`, details: { name } })
-          }
-          const loaded = await skillRegistry.get(name, lookup)
-          if (loaded === undefined) {
-            return err(request, { code: 'skill-not-found', message: `skill "${name}" is unknown in this workspace`, details: { name } })
-          }
-          // Recheck on the loaded definition (the skill-tool execute template):
-          // list and get collect independently, so a provider change between
-          // the two awaits can swap the winning candidate for a user-disabled
-          // one — the boundary must judge what it actually injects.
-          if (!isUserInvocable(loaded)) {
-            return err(request, { code: 'skill-not-invocable', message: `skill "${name}" is not available for user invocation`, details: { name } })
-          }
-          skill = loaded
-        } catch (error: unknown) {
-          if (signal.aborted) {
-            return err(request, { code: 'cancelled', message: 'skill invocation cancelled', details: {} })
-          }
-          return err(request, { code: 'internal', message: `skill invocation failed: ${String(error)}`, details: {} })
-        }
-        if (signal.aborted) {
-          // The caller already gave up (unary deadline or navigation): a turn
-          // it will never observe must not start.
-          return err(request, { code: 'cancelled', message: 'skill invocation cancelled', details: {} })
-        }
-        const body = renderSkillContent(skill)
-        const source: SkillInvocationSource = { kind: 'skill-invocation', name, ...text === undefined ? {} : { args: text } }
-        try {
-          const message: UserMessage = createUserMessage({
-            content: [{ type: 'text', text: text === undefined ? body : `${body}\n\n${text}` }],
-            source,
-          })
-          agent.followup(message)
-        } catch (error: unknown) {
-          return err(request, { code: 'agent-busy', message: 'skill invocation rejected', details: { reason: String(error) } })
-        }
-        return ok(request, { accepted: true as const })
       },
     },
 

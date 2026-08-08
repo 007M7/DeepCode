@@ -15,7 +15,9 @@ import {
   escapeText,
   isModelInvocable,
   isSkillName,
+  isUserInvocable,
   renderSkillContent,
+  type SkillInvocationSource,
   type SkillSummary,
 } from '@deepseek-ai/dsh-skill'
 
@@ -160,6 +162,49 @@ export function apply(ctx: Context, config: Config = {}): void {
   if (registeredSkillTool === undefined) {
     throw new Error('dsh-tool-skill: registered skill tool is not visible in the global registry')
   }
+
+  // User-explicit skill invocation: a claimed user message whose first line
+  // starts with `/<name>` naming a user-invocable skill is a deterministic
+  // load gesture. The rendered body enters this step as injected
+  // instructions context appended after every other injection — background
+  // first (workspace rules, runtime policy, the catalog), the material the
+  // model must act on last, closest to its answer. Registration order makes
+  // that placement deterministic: this listener registers before the catalog
+  // listener, so the waterfall hands it the catalog-bearing list to extend.
+  // Only `source.kind === 'user'` messages are scanned — external text
+  // cannot forge the gesture — and a token naming no user-invocable skill
+  // stays ordinary prose (the command registry is a different closed
+  // namespace, resolved client-side before a line ever becomes a prompt).
+  // This is the only entry point for `disable-model-invocation` skills; the
+  // catalog and the `skill` tool below never see them.
+  ctx.on('agent/pre-step', async (
+    { agent, messages, signal },
+    next,
+  ): Promise<PreStepDecision> => {
+    const decision = await next()
+    if (decision.kind === 'reject') return decision
+    const names = invokedSkillNames(messages)
+    if (names.length === 0) return decision
+    signal.throwIfAborted()
+    const lookup = { cwd: agent.session.header.cwd, signal }
+    const injections: UserMessage[] = []
+    for (const name of names) {
+      const skill = await ctx.skills.get(name, lookup)
+      signal.throwIfAborted()
+      // Unknown names and user-disabled skills stay plain prose: the
+      // gesture was never a claim this boundary recognizes. The check sits
+      // on the loaded definition — the single lookup that produces what is
+      // actually injected.
+      if (skill === undefined || !isUserInvocable(skill)) continue
+      const source: SkillInvocationSource = { kind: 'skill-invocation', name, form: 'instructions' }
+      injections.push(createUserMessage({
+        content: [{ type: 'text', text: renderSkillContent(skill) }],
+        source,
+      }))
+    }
+    if (injections.length === 0) return decision
+    return { kind: 'enter', messages: [...decision.messages, ...injections] }
+  })
 
   // Register after the tool so reverse teardown removes guidance first. Exact definition
   // identity prevents a scoped shadow merely named `skill` from inheriting this catalog.
@@ -350,4 +395,35 @@ function assertPositiveInteger(name: string, value: number, minimum = 1): void {
   if (!Number.isInteger(value) || value < minimum) {
     throw new Error(`tool-skill: ${name} must be an integer greater than or equal to ${minimum}`)
   }
+}
+
+/**
+ * A whitespace-bounded `/name` token (the public skill-name grammar) anywhere
+ * in the text — the same word-boundary shape the transcript chip decoration
+ * uses, so a gesture reads as one wherever it sits in the sentence. A second
+ * `/` or any non-boundary character breaks the match, which keeps file paths
+ * (`/usr/bin`) and fractions (`5/8`) out.
+ */
+const SKILL_GESTURE = /(^|\s)\/([a-z0-9]+(?:-[a-z0-9]+)*)(?=\s|$)/g
+
+/**
+ * `/name` gesture tokens from the claimed user messages, deduplicated in
+ * first-seen order. Every text block of direct user input is scanned; no
+ * other source can forge a gesture.
+ * @param messages - the step's claimed batch.
+ * @returns candidate skill names, unvalidated against the registry.
+ */
+function invokedSkillNames(messages: readonly UserMessage[]): string[] {
+  const names: string[] = []
+  for (const message of messages) {
+    if ((message.source as { kind?: unknown }).kind !== 'user') continue
+    for (const block of message.content) {
+      if (block.type !== 'text') continue
+      for (const match of block.text.matchAll(SKILL_GESTURE)) {
+        const name = match[2]
+        if (name !== undefined && !names.includes(name)) names.push(name)
+      }
+    }
+  }
+  return names
 }
