@@ -241,7 +241,12 @@ describe.skipIf(MODE === 'record')('web e2e: durable after reminder receipt', ()
   }, 60_000)
 
   it('keeps the fixture inventory closed', async () => {
-    await assertFixtureInventory(SNAPSHOT_DIR, ['at-receipt.expected.md', 'receipt.expected.md'])
+    await assertFixtureInventory(SNAPSHOT_DIR, [
+      'at-receipt.expected.md',
+      'every-batch.expected.md',
+      'every-receipt.expected.md',
+      'receipt.expected.md',
+    ])
   })
 })
 
