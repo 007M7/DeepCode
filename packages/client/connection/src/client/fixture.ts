@@ -2779,7 +2779,7 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'command.list': return this.api.commands.list(request)
       case 'command.execute': return this.api.commands.execute(request, signal)
       case 'skill.list': return this.api.skills.list(request)
-      case 'skill.invoke': return this.api.skills.invoke(request)
+      case 'skill.invoke': return this.api.skills.invoke(request, signal)
       case 'goal.create': return this.api.goals.create(request)
       case 'goal.edit': return this.api.goals.edit(request)
       case 'goal.pause': return this.api.goals.pause(request)

@@ -258,6 +258,20 @@ export interface CommandNode {
   outcome: { kind: 'success' | 'error'; text?: string } | null
 }
 
+/**
+ * Whether a node opens a user turn on the transcript surface. A direct user
+ * message and a user-explicit skill invocation both start the turn the next
+ * assistant answer closes; parallel consumers (turn boundaries, retry
+ * liveness, own-words scrolling) share this one predicate instead of each
+ * re-encoding the kind list. Steering stays out: an interjection lands
+ * mid-turn and closes nothing.
+ * @param node - any conversation node.
+ * @returns true for the user-turn-opening kinds.
+ */
+export function opensUserTurn(node: Pick<ConversationNode, 'kind'>): boolean {
+  return node.kind === 'user' || node.kind === 'skill-invocation'
+}
+
 /** Finalized conversation node union (kind discriminates; seq is the React key). */
 export type ConversationNode =
   | UserMessageNode

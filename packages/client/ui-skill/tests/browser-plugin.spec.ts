@@ -53,7 +53,8 @@ function providePresentation(ctx: Context): PresentationCapture {
       capture.dictionaries.push({ namespace, dictionaries })
       return () => { capture.localeDisposed = true }
     },
-    getSnapshot: () => ({ active: 'zh', locales: ['zh', 'en'], revision: 0 }),
+    // Minimal bound-translate fake: zh dictionary lookup, key passthrough on miss.
+    bind: () => (key: string) => key === 'menu.userOnly' ? '仅用户' : key,
   })
   return capture
 }

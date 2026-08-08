@@ -4,7 +4,7 @@
 
 skill（技能）调用 source 的浏览器端：把 `/` 触发的 `skill` source 注册进 `ctx.slash`。普通会话的候选来自 `skill.list` RPC，以每次调用的 `ClientSessionContext` 投影中的 `{sessionId}` 寻址，host 从会话 header 解析 `cwd`。宿主提供每一个用户可调用的 skill；`modelInvocable: false` 的条目（即 `disable-model-invocation` skill，此路径是其唯一入口）会以当前语言把仅限用户标记作为描述前缀带上。由目录寻址的可继续 subagent 在客户端解析为没有 skill 候选，因为现有 skill RPC 要求会话已挂载；查看其持久化历史不得激活它。目录按普通会话缓存，拉取走 single-flight；scope 创建时的 `warm` 钩子预热该会话的缓存项，`connection/reset` 清空全部缓存。结果按 `startsWith(query)` 过滤。
 
-菜单 pick 或回车提交的一行 `/name [args]` 会把 composer 认领进一个容忍参数的 `skill.invoke` 事务（`matchEnter` 强等目录；未知名称应答 undefined，保持为普通提示词）。提交时会修剪参数、让空白参数不上协议，并把 RPC 拒绝折叠进 composer 的错误结局；宿主在开启轮次之前渲染 skill 正文并将其作为用户消息注入，因此对每一个用户可调用的 skill，调用都是确定性的。RPC 使用插件注册时捕获的根上下文连接——source 绝不从每次调用的参数上读取服务。草稿 chip 视觉仍由 `lexicon` 扫描派生；旧的 `<skill>name</skill>` 引用 codec 已经移除（决策 21 的移除裁定），`matchSpace` 保持不实现——skill 流程归菜单与回车所有。
+菜单 pick 或回车提交的一行 `/name [args]` 会把 composer 认领进一个容忍参数的 `skill.invoke` 事务（`matchEnter` 强等目录；未知名称应答 undefined，保持为普通提示词）。与宿主命令同名的 skill 名解析为命令：裁决按注册顺序轮询各 source，而 web bundle 把 ui-command 挂载在本 source 之前——这是有意的优先级，与同行产品一致。提交时会修剪参数、让空白参数不上协议，并把 RPC 拒绝折叠进 composer 的错误结局；宿主在开启轮次之前渲染 skill 正文并将其作为用户消息注入，因此对每一个用户可调用的 skill，调用都是确定性的。RPC 使用插件注册时捕获的根上下文连接——source 绝不从每次调用的参数上读取服务。草稿 chip 视觉仍由 `lexicon` 扫描派生；旧的 `<skill>name</skill>` 引用 codec 已经移除（决策 21 的移除裁定），`matchSpace` 保持不实现——skill 流程归菜单与回车所有。
 
 `skill.list` 失败时 `candidates` 抛出异常，slash 壳层记录日志并折叠为静默的菜单组丢弃——菜单只显示 pending／ready 状态。
 

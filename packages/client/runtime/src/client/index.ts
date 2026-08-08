@@ -45,6 +45,7 @@ export { createSnapshotStore, defineStore, shallowEqual } from './contract/store
 export type {
   EngineStoreHandle, EngineStoreInstance, ObservableSnapshot, SnapshotStore,
 } from './contract/store.ts'
+export { opensUserTurn } from './sessions/conversation.ts'
 export type {
   AssistantBlock, AssistantMessageNode, AssistantProvenanceView, AssistantRequestConfig,
   AssistantTiming, CodeSubCall, CommandNode, CompactionSummaryNode, ComposerPhase,

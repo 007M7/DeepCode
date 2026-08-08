@@ -121,8 +121,9 @@ export function apply(ctx: ClientContext): void {
     for (const key of [...fetches.keys()]) invalidate(key)
   }
 
-  /** User-only marker in the active language (the menu hint is plain text, resolved at candidate time). */
-  const userOnlyHint = (): string => ctx.locale.getSnapshot().active === 'zh' ? zh['menu.userOnly'] : en['menu.userOnly']
+  // The bound translate resolves against the registered dictionaries with the
+  // locale service's own fallback ladder; candidate-time reads stay plain text.
+  const t = ctx.locale.bind(NS)
 
   /**
    * Args-tolerant claim for one skill: token `/name ` plus the skill.invoke
@@ -159,7 +160,7 @@ export function apply(ctx: ClientContext): void {
           name: skill.name,
           // The user-only marker rides the description (the menu's only
           // secondary text); `hint` is the claim-state ghost text, not a badge.
-          description: skill.modelInvocable ? skill.description : `${userOnlyHint()} · ${skill.description}`,
+          description: skill.modelInvocable ? skill.description : `${t('menu.userOnly')} · ${skill.description}`,
         }))
     },
     warm(session) {
@@ -183,6 +184,10 @@ export function apply(ctx: ClientContext): void {
     onPick({ candidate, session }) {
       return invokeClaim(session, candidate.name)
     },
+    // Adjudication polls sources in registration order and the web bundle
+    // mounts ui-command first, so a name shared with a host command claims as
+    // the command — deliberate precedence (commands are explicit host
+    // features; peer products resolve the collision the same way), not a race.
     async matchEnter(session, line, signal) {
       const trimmed = line.trim()
       if (!trimmed.startsWith('/')) return undefined
