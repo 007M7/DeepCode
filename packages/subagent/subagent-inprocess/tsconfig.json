@@ -39,7 +39,7 @@
       "path": "../../support/invariants"
     },
     {
-      "path": "../../ui/user-approval"
+      "path": "../../interaction/user-approval"
     }
   ]
 }

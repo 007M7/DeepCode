@@ -15,7 +15,7 @@ The subprocess seam (`ctx.subprocess`) is the process half of one execution worl
 - `scrubbedParentEnv()` / `SENSITIVE_ENV_PATTERN` are the one shared scrub definition: ambient credential-shaped and `DSH_*` names are dropped, and explicit `env` merges after the scrub. The local ordinary and terminal spawns both apply it; SDK-managed transports that own their spawn may import it directly.
 - Disposal of the service terminates all still-running managed processes and awaits their exit.
 
-See the [subprocess data-structure catalog](../../../docs/core-data-structures/subprocess.md) and the [seam Agent Note](../../../.agents/notes/implemented/architecture/2026-07-26-subprocess-seam.md).
+See the [subprocess subsystem page](../../../docs/subsystems/subprocess.md) and the [seam Agent Note](../../../.agents/notes/implemented/architecture/2026-07-26-subprocess-seam.md).
 
 ## Model Experience
 

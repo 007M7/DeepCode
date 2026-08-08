@@ -48,4 +48,4 @@ The TUI and Web register the exact personal path through Cordis HMR after boot. 
 
 ## Testing
 
-`packages/ui/app-boot/tests/user-patches.spec.ts` pins parsing, startup application, exact-path add/failure/recovery/removal, last-good rollback, failure broadcast, and preservation of app-owned patches. `apps/cli/tests/built-bin.e2e.ts` boots the real dsh bin over a profile and exercises the live patch layer end to end. Test launchers isolate `$DSH_HOME`, so a developer's real overlay cannot leak into fixtures.
+`packages/boot/app-boot/tests/user-patches.spec.ts` pins parsing, startup application, exact-path add/failure/recovery/removal, last-good rollback, failure broadcast, and preservation of app-owned patches. `apps/cli/tests/built-bin.e2e.ts` boots the real dsh bin over a profile and exercises the live patch layer end to end. Test launchers isolate `$DSH_HOME`, so a developer's real overlay cannot leak into fixtures.

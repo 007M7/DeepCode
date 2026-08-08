@@ -14,3 +14,5 @@
 | [`llm-replay/`](llm-replay/README.md) | 为无密钥测试和演示回放已记录的模型响应 |
 
 当一个包获得产品契约和产品消费方时，它会移出 `support/`。
+
+不变式契约记录在 [docs/subsystems/invariants.md](../../docs/subsystems/invariants.md)。

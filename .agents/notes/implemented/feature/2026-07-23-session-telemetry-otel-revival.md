@@ -10,7 +10,7 @@ Every deployment that wants harness sessions in an observability stack must hand
 
 ## Decision
 
-`packages/telemetry/` revives the two reviewed packages under the SDK stance — the harness provides the capability, the deployment configures where records go and owns what leaves in them:
+`packages/session/` (formerly `telemetry/`) revives the two reviewed packages under the SDK stance — the harness provides the capability, the deployment configures where records go and owns what leaves in them:
 
 - **`@deepseek-ai/dsh-session-telemetry`** — the seam. `TelemetryBackend` (`emit`/`flush?`/`shutdown`), the service-registered `Telemetry` form, and `TelemetryCoordinator` owning capture: live adoption with cursor read-back and the per-append firehose (project → `structuredClone` → redact → `emit`, zero I/O), buffer-free on-demand replay from the canonical log, the fixed first-chunk-per-(turn, step) projection, the live `agent/error` relay, and live dispose-time `shutdown` records.
 - **The `telemetry/record` waterfall** — the delta over the branch version and the seam's redaction extension point. Every record passes it before reaching any backend; the seam ships NO rules of its own — the innermost `next()` is a pass-through, deployments mount their rules as listeners (stacking by transforming `next()`'s return value), and a throwing rule withholds the record fail-closed. Redaction applies to the exported copy only; the canonical log is never rewritten.
