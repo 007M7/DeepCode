@@ -31,7 +31,7 @@ Status: proposed
 
 `TaskSurfaceModelV1` 使用 JSON。它包含内容块、输入字段和一个提交标签；不包含代码、回调、选择器、HTML、CSS、可执行产物的 URL，也不包含表达式语言。该类型与核心会话中现有的 `SurfaceManager`/`SurfaceOp` 消息归约类型无关；Task Surface 是一套产品交互协议。
 
-```ts ignore-check
+```ts
 interface TaskSurfaceModelV1 {
   version: 1
   title: string
@@ -85,7 +85,7 @@ Task Surface 服务通过受 schema 校验的配置定义限制。初始默认�
 
 浏览器安全的领域包从 `@deepseek-ai/dsh-brand` 以仅类型方式导入 `Branded` 原语，并拥有全部三个 Task Surface ID。根据[规范工具输出契约](../../implemented/architecture/2026-07-20-canonical-tool-output-contract.md)，规范值仅存在于本次执行中。因此，回放通过 `output.presentationMeta(args, value)` 将以下带标签的载荷随 `tool/result.meta` 一并持久化：
 
-```ts ignore-check
+```ts
 import type { Branded } from '@deepseek-ai/dsh-brand'
 
 type TaskSurfaceId = Branded<'TaskSurfaceId'>

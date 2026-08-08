@@ -31,7 +31,7 @@ Short blocking questions remain with [`ask_user_question`](../../implemented/fea
 
 `TaskSurfaceModelV1` is JSON. It contains content blocks, input fields, and one submit label; it contains no code, callbacks, selectors, HTML, CSS, URLs to executable assets, or expression language. This type is unrelated to core Session's existing `SurfaceManager`/`SurfaceOp` message-reduction types; Task Surface is a product interaction protocol.
 
-```ts ignore-check
+```ts
 interface TaskSurfaceModelV1 {
   version: 1
   title: string
@@ -85,7 +85,7 @@ The tool definition omits `isConcurrencySafe`. Under the existing tool-registry 
 
 The browser-safe domain package imports the type-only `Branded` primitive from `@deepseek-ai/dsh-brand` and owns all three Task Surface IDs. The canonical value is execution-local under the [canonical tool output contract](../../implemented/architecture/2026-07-20-canonical-tool-output-contract.md). Replay therefore uses `output.presentationMeta(args, value)` to persist this tagged payload with `tool/result.meta`:
 
-```ts ignore-check
+```ts
 import type { Branded } from '@deepseek-ai/dsh-brand'
 
 type TaskSurfaceId = Branded<'TaskSurfaceId'>
