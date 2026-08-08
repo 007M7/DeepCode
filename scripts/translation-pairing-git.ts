@@ -27,6 +27,39 @@ function runGit(root: string, args: string[], operation: string, input?: Buffer)
   return result.stdout
 }
 
+/** One regular stage-zero Git index entry and its exact blob bytes. */
+export interface GitIndexBlob {
+  /** Object ID recorded in the index. */
+  objectId: string
+  /** Blob bytes stored under that object ID. */
+  content: Buffer
+}
+
+/**
+ * Read one path from the Git index without consulting working-tree bytes.
+ *
+ * @param root - Repository root.
+ * @param path - Repository-relative path.
+ * @returns The stage-zero blob, or `undefined` when the path is absent.
+ * @throws Error when the path is unmerged or has an invalid index shape.
+ */
+export function readGitIndexBlob(root: string, path: string): GitIndexBlob | undefined {
+  const output = runGit(
+    root,
+    ['ls-files', '--stage', '-z', '--', path],
+    `git ls-files --stage for ${path}`,
+  ).toString('utf8')
+  const entries = output.split('\0').filter(Boolean)
+  if (entries.length === 0) return undefined
+  if (entries.length !== 1) throw new Error(`${path} does not have exactly one resolved index entry`)
+  const match = /^(?:\d+) ([0-9a-f]+) 0\t[\s\S]+$/.exec(entries[0] ?? '')
+  if (!match?.[1]) throw new Error(`${path} remains unmerged or has an invalid index entry`)
+  return {
+    objectId: match[1],
+    content: runGit(root, ['cat-file', 'blob', match[1]], `reading staged ${path}`),
+  }
+}
+
 /**
  * Persist exact working-tree bytes so a pairing record can later recover them
  * with `git cat-file`, even when they have never appeared in the index or a
