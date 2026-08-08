@@ -8,6 +8,7 @@ import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
+import { tmpdir } from 'node:os'
 import { delimiter, dirname, join, resolve } from 'node:path'
 
 /** Exact pnpm release shipped with the Loader for repository installation. */
@@ -48,6 +49,14 @@ function installEnvironment(executableDirectories: readonly string[]): NodeJS.Pr
   }
 }
 
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`
+}
+
+function batchQuote(value: string): string {
+  return `"${value.replaceAll('%', '%%')}"`
+}
+
 function appendOutput(current: string, chunk: Uint8Array): string {
   const combined = current + Buffer.from(chunk).toString('utf8')
   return combined.length <= MAX_ERROR_OUTPUT ? combined : combined.slice(-MAX_ERROR_OUTPUT)
@@ -60,29 +69,46 @@ async function installWithBundledPnpm(
   const require = createRequire(import.meta.url)
   const pnpmManifest = require.resolve('pnpm')
   const pnpmBin = join(dirname(pnpmManifest), 'bin', 'pnpm.mjs')
-  let output = ''
-  const result = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
-    const child = spawn(process.execPath, [
-      pnpmBin,
-      'install',
-      '--no-frozen-lockfile',
-      '--reporter=append-only',
-    ], {
-      cwd: directory,
-      env: installEnvironment(executableDirectories),
-      shell: false,
-      stdio: ['ignore', 'pipe', 'pipe'],
+  const commandDirectory = await mkdtemp(join(tmpdir(), 'cordis-repository-pnpm-'))
+  try {
+    await Promise.all([
+      writeFile(join(commandDirectory, 'pnpm'), [
+        '#!/bin/sh',
+        `exec ${shellQuote(process.execPath)} ${shellQuote(pnpmBin)} --ignore-workspace "$@"`,
+        '',
+      ].join('\n'), { mode: 0o700 }),
+      writeFile(join(commandDirectory, 'pnpm.cmd'), [
+        '@echo off',
+        `${batchQuote(process.execPath)} ${batchQuote(pnpmBin)} --ignore-workspace %*`,
+        '',
+      ].join('\r\n'), { mode: 0o700 }),
+    ])
+    let output = ''
+    const result = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
+      const child = spawn(process.execPath, [
+        pnpmBin,
+        'install',
+        '--no-frozen-lockfile',
+        '--reporter=append-only',
+      ], {
+        cwd: directory,
+        env: installEnvironment([commandDirectory, ...executableDirectories]),
+        shell: false,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+      child.stdout.on('data', (chunk: Uint8Array) => { output = appendOutput(output, chunk) })
+      child.stderr.on('data', (chunk: Uint8Array) => { output = appendOutput(output, chunk) })
+      child.once('error', reject)
+      child.once('close', (code, signal) => { resolve({ code, signal }) })
     })
-    child.stdout.on('data', (chunk: Uint8Array) => { output = appendOutput(output, chunk) })
-    child.stderr.on('data', (chunk: Uint8Array) => { output = appendOutput(output, chunk) })
-    child.once('error', reject)
-    child.once('close', (code, signal) => { resolve({ code, signal }) })
-  })
-  if (result.signal !== null) {
-    throw new Error(`bundled pnpm install was killed by ${result.signal}${output ? `\n${output.trimEnd()}` : ''}`)
-  }
-  if (result.code !== 0) {
-    throw new Error(`bundled pnpm install exited with code ${String(result.code)}${output ? `\n${output.trimEnd()}` : ''}`)
+    if (result.signal !== null) {
+      throw new Error(`bundled pnpm install was killed by ${result.signal}${output ? `\n${output.trimEnd()}` : ''}`)
+    }
+    if (result.code !== 0) {
+      throw new Error(`bundled pnpm install exited with code ${String(result.code)}${output ? `\n${output.trimEnd()}` : ''}`)
+    }
+  } finally {
+    await rm(commandDirectory, { recursive: true, force: true })
   }
 }
 

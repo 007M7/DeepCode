@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-08-host-owned-git-repository-plugin-preparation.md
-2026-08-08-host-owned-git-repository-plugin-preparation.md: b459184f802981f91f611b0b781651cede0c9efd
-2026-08-08-host-owned-git-repository-plugin-preparation.zh.md: 5e24efa59ce44ffa8214f9c5ef9ff722ac0ca73a
+2026-08-08-host-owned-git-repository-plugin-preparation.md: 3f92c0b2d782735bfb548711bb13a7a8d03a3824
+2026-08-08-host-owned-git-repository-plugin-preparation.zh.md: ef34c99b5d9f31ea13c5fddfee77c30e640d25c9

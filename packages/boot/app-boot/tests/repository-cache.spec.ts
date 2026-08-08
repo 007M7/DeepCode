@@ -112,7 +112,7 @@ describe('RepositoryCache', () => {
     await expect(cache.resolve(specifier)).rejects.toThrow('repository cache marker is invalid')
   })
 
-  it('selects and prepares a root .dsh-plugin Git subpath through the bundled pnpm', { timeout: 60_000 }, async () => {
+  it('isolates and prepares a .dsh-plugin Git subpath from an enclosing pnpm workspace', { timeout: 60_000 }, async () => {
     const root = await temporaryRoot('repository-pnpm')
     const repository = join(root, 'source')
     const executableDirectory = join(root, 'bin')
@@ -132,16 +132,40 @@ describe('RepositoryCache', () => {
       '',
     ].join('\r\n'))
     await mkdir(join(repository, '.dsh-plugin'), { recursive: true })
+    await mkdir(join(repository, 'build-helper'), { recursive: true })
     await mkdir(join(repository, 'skills', 'fixture'), { recursive: true })
     await writeFile(join(repository, 'package.json'), `${JSON.stringify({
       name: 'repository-fixture',
+      private: true,
       version: '1.0.0',
+      packageManager: `pnpm@${BUNDLED_PNPM_VERSION}`,
     })}\n`)
+    await writeFile(join(repository, 'pnpm-workspace.yaml'), 'packages: []\n')
+    await writeFile(join(repository, 'pnpm-lock.yaml'), [
+      "lockfileVersion: '9.0'",
+      'settings:',
+      '  autoInstallPeers: true',
+      '  excludeLinksFromLockfile: false',
+      'importers:',
+      '  .: {}',
+      '',
+    ].join('\n'))
+    await writeFile(join(repository, 'build-helper', 'package.json'), `${JSON.stringify({
+      name: 'repository-build-helper',
+      version: '1.0.0',
+      bin: 'index.js',
+    })}\n`)
+    await writeFile(join(repository, 'build-helper', 'index.js'), [
+      '#!/usr/bin/env node',
+      "require('node:fs').writeFileSync('dependency-built.txt', 'dependency available\\n')",
+      '',
+    ].join('\n'), { mode: 0o700 })
     await writeFile(join(repository, 'skills', 'fixture', 'SKILL.md'), 'repository skill source\n')
     await writeFile(join(repository, '.dsh-plugin', 'package.json'), `${JSON.stringify({
       name: 'repository-plugin-fixture',
       version: '1.0.0',
-      scripts: { prepack: 'dsh-plugin-prepare' },
+      scripts: { prepack: 'repository-build-helper && dsh-plugin-prepare' },
+      devDependencies: { 'repository-build-helper': 'file:../build-helper' },
       dsh: { skills: ['../skills'] },
     })}\n`)
     await execFileAsync('git', ['init', '--quiet'], { cwd: repository })
@@ -159,6 +183,7 @@ describe('RepositoryCache', () => {
     const installed = await new RepositoryCache(join(root, 'cache'), {
       executableDirectories: [executableDirectory],
     }).resolve(specifier)
+    await expect(readFile(join(installed, 'dependency-built.txt'), 'utf8')).resolves.toBe('dependency available\n')
     await expect(readFile(join(installed, 'prepared.txt'), 'utf8')).resolves.toBe('visible|absent\n')
     await expect(readFile(join(installed, 'dsh-plugin.mjs'), 'utf8')).resolves.toContain('export function apply')
     await expect(readFile(join(installed, 'dsh-plugin-assets/skills/0/fixture/SKILL.md'), 'utf8'))
