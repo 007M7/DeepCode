@@ -14,7 +14,7 @@ import { isDeepStrictEqual } from 'node:util'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { Session, UserMessage } from '@deepseek-ai/dsh-session'
-import type { ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
+import type { ToolExecution, ToolExecutionResult, ToolExecutionToken } from '@deepseek-ai/dsh-tools'
 import { Config, resolveConfig, workspaceBaselineIdentity, type ResolvedConfig } from './config.ts'
 import { findProjectRoot, loadBaselineInstructionSet } from './files.ts'
 import {
@@ -85,15 +85,22 @@ export function apply(ctx: Context, config: Config): void {
     excludedScopes: ReadonlySet<string>
   }>()
   const projectionLifecycle = new AbortController()
+  type ProjectionTouch = { agent: Agent; path: string }
+  const executionTouches = new Map<ToolExecutionToken, ProjectionTouch[]>()
   ctx.effect(
     () => () => {
       projectionLifecycle.abort(new Error('workspace-context disposed'))
+      executionTouches.clear()
     },
     'workspace-context.projectionLifecycle',
   )
   // Emit listeners are not awaited, so each projection must compose against the
   // inbox produced by earlier file results for the same agent.
   const projectionTails = new WeakMap<Agent, Promise<void>>()
+  // Execution ancestry and the enclosing durable step are the two commit
+  // boundaries before an asynchronous projection may mutate the agent inbox.
+  const openSteps = new WeakMap<Session, boolean>()
+  const stepTouches = new WeakMap<Session, ProjectionTouch[]>()
 
   const compose = async (
     agent: Agent,
@@ -272,6 +279,46 @@ export function apply(ctx: Context, config: Config): void {
     while ((projection = projectionTails.get(agent)) !== undefined) await projection
   }
 
+  const stepIsOpen = (session: Session): boolean => {
+    const known = openSteps.get(session)
+    if (known !== undefined) return known
+    let open = false
+    for (const event of session.events) {
+      if (event.type === 'step/start') open = true
+      else if (event.type === 'step/end' || event.type === 'turn/end') open = false
+    }
+    openSteps.set(session, open)
+    return open
+  }
+
+  const projectTouch = (touch: ProjectionTouch): void => {
+    const session = touch.agent.session
+    if (!stepIsOpen(session)) {
+      queueProjection(touch.agent, touch.path)
+      return
+    }
+    const pending = stepTouches.get(session)
+    if (pending === undefined) stepTouches.set(session, [touch])
+    else pending.push(touch)
+  }
+
+  ctx.on('session/event', (session, event) => {
+    if (event.type === 'step/start') {
+      openSteps.set(session, true)
+      return
+    }
+    if (event.type === 'turn/end') {
+      openSteps.set(session, false)
+      return
+    }
+    if (event.type !== 'step/end') return
+    openSteps.set(session, false)
+    const pending = stepTouches.get(session)
+    if (pending === undefined) return
+    stepTouches.delete(session)
+    for (const touch of pending) queueProjection(touch.agent, touch.path)
+  })
+
   ctx.on('agent/pre-step', async (
     { agent, messages, step, signal },
     next,
@@ -301,9 +348,20 @@ export function apply(ctx: Context, config: Config): void {
   })
 
   ctx.on('tools/result', (exec: ToolExecution, result: ToolExecutionResult) => {
-    if (result.isError || exec.agent === undefined || exec.signal.aborted) return
-    const ownPath = filePathFromExecution(exec)
-    if (ownPath === undefined) return
-    queueProjection(exec.agent, ownPath)
+    const touches = executionTouches.get(exec.token) ?? []
+    executionTouches.delete(exec.token)
+    if (!result.isError && exec.agent !== undefined && !exec.signal.aborted) {
+      const ownPath = filePathFromExecution(exec)
+      if (ownPath !== undefined) touches.push({ agent: exec.agent, path: ownPath })
+    }
+    if (exec.parent !== undefined) {
+      if (touches.length > 0) {
+        const parentTouches = executionTouches.get(exec.parent)
+        if (parentTouches === undefined) executionTouches.set(exec.parent, touches)
+        else parentTouches.push(...touches)
+      }
+      return
+    }
+    for (const touch of touches) projectTouch(touch)
   })
 }

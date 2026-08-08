@@ -13,7 +13,6 @@
           thresholdRatio: 0.99
           retainTokens: 20
           maxTokens: 32
-          compactionRetries: 1
       - insert:
           - id: llm-replay
             name: '@deepseek-ai/dsh-llm-replay'
