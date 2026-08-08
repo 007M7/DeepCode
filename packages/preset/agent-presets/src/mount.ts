@@ -185,8 +185,9 @@ export async function mountPreset(agentCtx: Context, preset: AgentPreset): Promi
     )
   }
   const config: Include.Config = { path: pathToFileURL(preset.path).href }
-  // Before the record this mount is about to add: every session takes this
-  // path, so it is what keeps the set bounded on a host that never reads it.
+  // Before the record this mount is about to add: standing mounts are one per
+  // preset and live until whole-tree teardown, so pruning here only sweeps
+  // records of torn-down runtimes (tests; an HMR reload of the roster).
   pruneDisposedMounts()
   const handle = agentCtx.plugin(PresetTree, config)
   try {
