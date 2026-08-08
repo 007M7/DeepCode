@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
@@ -491,7 +491,8 @@ describe('dsh-agent-spine-demo bundle', () => {
             callId: event.data.message.source.callId,
             isError: result.isError,
             text: result.content.map(block => block.type === 'text' ? block.text : '').join('\n')
-              .replaceAll(root, '{{cwd}}'),
+              .replaceAll(root, '{{cwd}}')
+              .replaceAll(sep, '/'),
           }]
         }
         return []

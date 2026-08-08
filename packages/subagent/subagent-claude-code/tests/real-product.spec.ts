@@ -90,7 +90,7 @@ afterEach(async () => {
   await Promise.all(contexts.splice(0).map(ctx => ctx.fiber.dispose()))
   await Promise.all(fixtures.splice(0).map(fixture => fixture.close()))
   for (const root of roots.splice(0)) {
-    rmSync(root, { recursive: true, force: true })
+    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
   observedSdkMessages.length = 0
 })

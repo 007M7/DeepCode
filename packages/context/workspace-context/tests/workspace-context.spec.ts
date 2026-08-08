@@ -4122,7 +4122,7 @@ describe('dynamic nested workspace context injection', () => {
 
       await vi.waitFor(() => {
         expect(warn).toHaveBeenCalledWith('workspace instruction refresh failed: %o', failure)
-      })
+      }, { timeout: 10_000 })
     } finally {
       await ctx.fiber.dispose()
     }

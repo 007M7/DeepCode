@@ -27,6 +27,7 @@ import {
 const execFileAsync = promisify(execFile)
 const packageRoot = resolve(fileURLToPath(new URL('..', import.meta.url)))
 const codexBinDir = join(packageRoot, 'node_modules', '.bin')
+const codexEntry = join(packageRoot, 'node_modules', '@openai', 'codex', 'bin', 'codex.js')
 const codexPackage = JSON.parse(readFileSync(
   join(packageRoot, 'node_modules', '@openai', 'codex', 'package.json'),
   'utf8',
@@ -40,7 +41,7 @@ afterEach(async () => {
   await Promise.all(contexts.splice(0).map(ctx => ctx.fiber.dispose()))
   await Promise.all(fixtures.splice(0).map(fixture => fixture.close()))
   for (const root of roots.splice(0)) {
-    rmSync(root, { recursive: true, force: true })
+    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -147,7 +148,7 @@ describe('real @openai/codex 0.146.0 product', () => {
       { kind: 'complete', text: sentinel },
     ])
     expect(codexPackage.version).toBe('0.146.0')
-    const version = await execFileAsync(join(codexBinDir, 'codex'), ['--version'], {
+    const version = await execFileAsync(process.execPath, [codexEntry, '--version'], {
       env: { ...process.env, ...harness.env },
     })
     expect(version.stdout.trim()).toBe('codex-cli 0.146.0')
@@ -178,7 +179,9 @@ describe('real @openai/codex 0.146.0 product', () => {
         kind: 'functionCall',
         name: 'exec_command',
         arguments: {
-          cmd: 'touch approval-side-effect',
+          cmd: process.platform === 'win32'
+            ? 'cmd /c type nul > approval-side-effect'
+            : 'touch approval-side-effect',
           sandbox_permissions: 'require_escalated',
           justification: 'exercise the unattended approval boundary',
         },

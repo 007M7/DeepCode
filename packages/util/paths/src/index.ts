@@ -4,7 +4,7 @@
  * @module @deepseek-ai/dsh-paths
  */
 
-import { realpath } from 'node:fs/promises'
+import { opendir, realpath } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 
@@ -32,7 +32,12 @@ export async function canonicalizeWatchPath(path: string): Promise<string> {
   const missing: string[] = []
   while (true) {
     try {
-      return join(await realpath(current), ...missing.reverse())
+      const canonical = await realpath(current)
+      if (missing.length > 0) {
+        const directory = await opendir(canonical)
+        await directory.close()
+      }
+      return join(canonical, ...missing.reverse())
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
       const parent = dirname(current)

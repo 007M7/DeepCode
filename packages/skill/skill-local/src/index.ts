@@ -487,7 +487,9 @@ class SkillWatchManager {
 
   private async openRootWatcher(state: RootWatchState, mode: Extract<RootWatchMode, { kind: 'root' }>): Promise<WatchHandle> {
     const watcher = chokidar.watch(mode.anchor, {
-      persistent: false,
+      // Chokidar owns late native fs.watch errors only for persistent watchers;
+      // this provider's effect explicitly closes every handle at teardown.
+      persistent: true,
       ignoreInitial: true,
       depth: 1,
       followSymlinks: this.config.followSymlinks,

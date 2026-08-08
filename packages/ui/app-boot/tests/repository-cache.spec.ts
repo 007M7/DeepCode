@@ -11,6 +11,9 @@ import { BUNDLED_PNPM_VERSION, RepositoryCache, type RepositoryInstall } from '@
 const execFileAsync = promisify(execFile)
 const roots: string[] = []
 
+/** Normalize Git's platform checkout line endings for source-content assertions. */
+const lf = (text: string): string => text.replace(/\r\n/g, '\n')
+
 async function temporaryRoot(name: string): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), `cordis-${name}-`))
   roots.push(root)
@@ -151,8 +154,8 @@ describe('RepositoryCache', () => {
     const installed = await new RepositoryCache(join(root, 'cache')).resolve(specifier)
     await expect(readFile(join(installed, 'prepared.txt'), 'utf8')).resolves.toBe('visible|absent\n')
     await expect(readFile(join(installed, 'dsh-plugin.mjs'), 'utf8')).resolves.toContain('export function apply')
-    await expect(readFile(join(installed, 'dsh-plugin-assets/skills/0/fixture/SKILL.md'), 'utf8'))
-      .resolves.toBe('repository skill source\n')
+    expect(lf(await readFile(join(installed, 'dsh-plugin-assets/skills/0/fixture/SKILL.md'), 'utf8')))
+      .toBe('repository skill source\n')
     await expect(readFile(join(installed, 'package.json'), 'utf8'))
       .resolves.toContain('repository-plugin-fixture')
   })

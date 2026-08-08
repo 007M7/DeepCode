@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import z from 'schemastery'
-import { chmod, lstat, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
@@ -67,7 +67,7 @@ describe('boot and reads', () => {
 
     await expect(ctx.settings.prepareDocument()).resolves.toBe(path)
     expect(await readFile(path, 'utf8')).toBe('')
-    expect((await stat(path)).mode & 0o777).toBe(0o600)
+    if (process.platform !== 'win32') expect((await stat(path)).mode & 0o777).toBe(0o600)
     expect(scope.get()).toEqual({ theme: 'dark', fontSize: 14 })
   })
 
@@ -128,7 +128,7 @@ describe('boot and reads', () => {
     expect(scope.get()).toEqual({ theme: 'dark', fontSize: 14 })
   })
 
-  it('fails loud at boot when the document exists but is unreadable', async () => {
+  it.skipIf(process.platform === 'win32')('fails loud at boot when the document exists but is unreadable', async () => {
     const dir = await tempDir()
     const path = join(dir, 'settings.yaml')
     await writeFile(path, 'ui-theme:\n  theme: light\n')
@@ -168,7 +168,7 @@ describe('persist', () => {
 
     const written = await readFile(path, 'utf8')
     expect(written).toContain('theme: light')
-    expect((await stat(path)).mode & 0o777).toBe(0o600)
+    if (process.platform !== 'win32') expect((await stat(path)).mode & 0o777).toBe(0o600)
     // Atomic replace leaves no temp artifact behind.
     expect((await readdir(dir)).sort()).toEqual(['settings.yaml'])
   })
@@ -203,7 +203,7 @@ describe('persist', () => {
 
     expect(await readFile(victim, 'utf8')).toBe('precious')
     expect((await lstat(path)).isSymbolicLink()).toBe(false)
-    expect((await stat(path)).mode & 0o777).toBe(0o600)
+    if (process.platform !== 'win32') expect((await stat(path)).mode & 0o777).toBe(0o600)
     expect(await readFile(path, 'utf8')).toContain('theme: light')
   })
 
@@ -337,16 +337,18 @@ describe('persist', () => {
     expect(written).toEqual({ 'ui-theme': { theme: 'light' } })
   })
 
-  it('rejects and leaves no temp residue when the directory turns unwritable', async () => {
+  it('rejects and recovers when the document path becomes a directory', async () => {
     const dir = await tempDir()
     const path = join(dir, 'settings.yaml')
+    const backup = join(dir, 'settings.committed.yaml')
     await writeFile(path, 'ui-theme:\n  theme: light\n')
     const ctx = await boot({ path, watch: false })
     const scope = ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema)
-    await chmod(dir, 0o500)
-    cleanups.push(() => chmod(dir, 0o700))
+    await rename(path, backup)
+    await mkdir(path)
     await expect(scope.update({ theme: 'dark' })).rejects.toThrow()
-    await chmod(dir, 0o700)
+    await rm(path, { recursive: true })
+    await rename(backup, path)
     expect((await readdir(dir)).sort()).toEqual(['settings.yaml'])
     expect(scope.get().theme).toBe('light')
     // The failed persist must not poison the document write chain.

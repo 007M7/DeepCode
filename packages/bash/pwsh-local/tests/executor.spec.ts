@@ -9,7 +9,7 @@
  * writes CRLF on Windows, so exact text assertions normalize line endings.
  */
 
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -33,7 +33,9 @@ const lf = (text: string): string => text.replace(/\r\n/g, '\n')
 
 /** Case-insensitive path equality on Windows (Get-Location may re-case the drive). */
 function samePath(actual: string, expected: string): boolean {
-  const norm = (value: string) => (process.platform === 'win32' ? value.toLowerCase() : value)
+  const norm = (value: string) => (
+    process.platform === 'win32' ? realpathSync.native(value).toLowerCase() : value
+  )
   return norm(actual) === norm(expected)
 }
 
@@ -72,7 +74,11 @@ describe('resolvePwshPath and candidatePwshPaths (pure, every platform)', () => 
   it('falls through an empty configured path to platform resolution', () => {
     // SystemRoot points at a non-existent tree so the Windows PowerShell 5.1
     // fallback candidate cannot exist either.
-    expect(resolvePwshPath('', { PATH: 'P:\\Store', SystemRoot: 'S:\\no-windows' }, 'win32')).toBe('pwsh')
+    expect(resolvePwshPath('', {
+      PATH: 'P:\\Store',
+      ProgramFiles: 'P:\\no-program-files',
+      SystemRoot: 'S:\\no-windows',
+    }, 'win32')).toBe('pwsh')
   })
 
   it('returns pwsh on non-Windows platforms regardless of the environment', () => {

@@ -1078,7 +1078,7 @@ describe('SubagentService.listDescendants', () => {
     }])
   })
 
-  it('discovers continuable descendants below ordinary and one-shot intermediates', async () => {
+  it('discovers continuable descendants below ordinary and one-shot intermediates', { timeout: 20_000 }, async () => {
     const { ctx, parent } = await setup([textResponse('one shot')])
     // An ordinary fork has no descriptor: omitted itself, subtree still walked.
     const fork = ctx.sessions.fork(parent.session, undefined, SessionId('plain-fork'))

@@ -168,7 +168,7 @@ describe('layer ladder', () => {
     expect(await stored.credentials.resolve(KEY)).toEqual({ value: 'stored', source: 'file' })
   })
 
-  it('refuses a document other OS users can read', async () => {
+  it.skipIf(process.platform === 'win32')('refuses a document other OS users can read', async () => {
     const dir = await tempDir()
     const path = join(dir, '.credentials.yaml')
     await writeFile(path, 'DSH_CRED_TEST: leaked\n', { mode: 0o644 })
@@ -274,7 +274,7 @@ describe('document writes', () => {
     const seen = updates(ctx)
     await ctx.credentials.set(KEY, 'sk-fresh')
     expect(await readFile(path, 'utf8')).toBe('DSH_CRED_TEST: sk-fresh\n')
-    expect((await stat(path)).mode & 0o777).toBe(0o600)
+    if (process.platform !== 'win32') expect((await stat(path)).mode & 0o777).toBe(0o600)
     expect(await ctx.credentials.resolve(KEY)).toEqual({ value: 'sk-fresh', source: 'file' })
     expect(seen).toEqual([KEY])
   })

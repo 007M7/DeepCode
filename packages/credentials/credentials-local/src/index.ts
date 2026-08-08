@@ -97,16 +97,23 @@ const GROUP_OTHER_BITS = 0o077
  * here — so the check is skipped rather than faked, and the file's protection
  * there is whatever the create and replace APIs express.
  * @param filename - absolute path of the document.
- * @throws when the file exists with group or other permission bits set.
+ * @throws when the path hierarchy is invalid or the file exists with group or other permission bits set.
  */
 async function assertOwnerOnly(filename: string): Promise<void> {
-  /* v8 ignore next -- native Windows coverage exercises the skip; POSIX covers the check */
-  if (process.platform === 'win32') return
+  /* v8 ignore start -- native Windows coverage exercises this path; POSIX covers mode enforcement */
+  if (process.platform === 'win32') {
+    // Windows has no POSIX mode bits, but it reports a file-as-parent as
+    // ordinary ENOENT; canonicalization preserves the invalid-path failure.
+    await canonicalizeWatchPath(filename)
+    return
+  }
+  /* v8 ignore stop */
   let mode: number
   try {
     mode = (await stat(filename)).mode
   } catch (error) {
     if (!isENOENT(error)) throw error
+    await canonicalizeWatchPath(filename)
     return
   }
   const offending = mode & GROUP_OTHER_BITS

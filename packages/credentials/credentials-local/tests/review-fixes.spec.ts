@@ -78,7 +78,7 @@ describe('read-modify-write', () => {
     const home = join(dir, 'home')
     const ctx = await boot({ path: join(home, '.credentials.yaml'), watch: false })
     await ctx.credentials.set(ALPHA, 'one')
-    expect((await stat(home)).mode & 0o777).toBe(0o700)
+    if (process.platform !== 'win32') expect((await stat(home)).mode & 0o777).toBe(0o700)
   })
 })
 
