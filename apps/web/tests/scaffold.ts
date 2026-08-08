@@ -32,7 +32,7 @@ import { expect } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import Include, { type PatchOptions } from '@cordisjs/plugin-include'
-import { scrubRequestHeaders } from '@deepseek-ai/dsh-acp-snapshot'
+import { scrubRequestHeaders, stabilizeFixtureMessageIds } from '@deepseek-ai/dsh-acp-snapshot'
 import {
   addHarnessSourceSection,
   assertEntriesLoaded,
@@ -528,11 +528,14 @@ function rawSessionLog(session: Session): string {
 export async function recordFixture(scaffold: WebScaffold, sessionId: SessionId, fixturePath: string): Promise<void> {
   const agent = scaffold.ctx.agents.get(sessionId)
   if (agent === undefined) throw new Error(`record harvest: no live agent for ${sessionId}`)
-  const tokenized = scrubRequestHeaders(rawSessionLog(agent.session))
+  const fresh = scrubRequestHeaders(rawSessionLog(agent.session))
     .split(sessionId).join('{{sessionId}}')
     .split(scaffold.workspaceCwd).join('{{cwd}}')
     .replace(/"rpcId":"[^"]+"/g, '"rpcId":"{{rpcId}}"')
-  await writeFile(fixturePath, tokenized)
+  const existing = existsSync(fixturePath) ? await readFile(fixturePath, 'utf8') : ''
+  const stable = stabilizeFixtureMessageIds([fresh], [existing])[0]
+  if (stable === undefined) throw new Error('record harvest: no stabilized fixture')
+  await writeFile(fixturePath, stable)
 }
 
 /**

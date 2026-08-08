@@ -300,7 +300,6 @@ flowchart TD
   pkg_timeout --> pkg_invariants
   pkg_scope --> pkg_invariants
   pkg_skill --> pkg_invariants
-  pkg_acp_snapshot --> pkg_invariants
   pkg_llm_mock_server --> pkg_invariants
   pkg_loader_smoke --> pkg_invariants
   pkg_base --> pkg_invariants
@@ -448,6 +447,8 @@ flowchart TD
   pkg_session_persistence --> pkg_brand
   pkg_session_persistence --> pkg_invariants
   pkg_session_persistence --> pkg_session
+  pkg_acp_snapshot --> pkg_invariants
+  pkg_acp_snapshot --> pkg_session
   pkg_app_boot --> pkg_environment
   pkg_app_boot --> pkg_invariants
   pkg_app_boot --> pkg_paths
@@ -1167,7 +1168,6 @@ flowchart TD
 | [`timeout`](../packages/util/timeout) | `util` | [`invariants`](../packages/support/invariants) |
 | [`scope`](../packages/core/scope) | `core` | [`invariants`](../packages/support/invariants) |
 | [`skill`](../packages/skill/skill) | `skill` | [`invariants`](../packages/support/invariants) |
-| [`acp-snapshot`](../packages/support/acp-snapshot) | `support` | [`invariants`](../packages/support/invariants) |
 | [`llm-mock-server`](../packages/support/llm-mock-server) | `support` | [`invariants`](../packages/support/invariants) |
 | [`loader-smoke`](../packages/support/loader-smoke) | `support` | [`invariants`](../packages/support/invariants) |
 | [`base`](../packages/bundle/base) | `bundle` | [`invariants`](../packages/support/invariants) |
@@ -1225,6 +1225,7 @@ flowchart TD
 | [`web-search-perplexity`](../packages/web/web-search-perplexity) | `web` | [`environment`](../packages/util/environment), [`invariants`](../packages/support/invariants), [`web`](../packages/web/web) |
 | [`spill`](../packages/spill/spill) | `spill` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`session-persistence`](../packages/session-persistence/session-persistence) | `session-persistence` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`session`](../packages/core/session) |
+| [`acp-snapshot`](../packages/support/acp-snapshot) | `support` | [`invariants`](../packages/support/invariants), [`session`](../packages/core/session) |
 | [`app-boot`](../packages/ui/app-boot) | `ui` | [`environment`](../packages/util/environment), [`invariants`](../packages/support/invariants), [`paths`](../packages/util/paths), [`system-prompt`](../packages/core/system-prompt) |
 | [`client-ui-question`](../packages/client/ui-question) | `client` | [`client-locale`](../packages/client/locale), [`invariants`](../packages/support/invariants) |
 | [`client-ui-settings-general`](../packages/client/ui-settings-general) | `client` | [`client-connection`](../packages/client/connection), [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-settings`](../packages/client/ui-settings), [`client-ui-slots`](../packages/client/ui-slots), [`client-web-react`](../packages/client/web-react), [`invariants`](../packages/support/invariants) |
