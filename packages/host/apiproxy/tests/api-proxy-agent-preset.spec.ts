@@ -363,3 +363,37 @@ describe('agentPreset.select', () => {
     expect(response.result.error.code).toBe('agent-preset-not-found')
   })
 })
+
+describe('session.history presenters', () => {
+  it('resolves the live agent so a preset-composed presenter is reachable', async () => {
+    const { api, ctx } = await harness(['standard'])
+    await api.sessions.create(request({ sessionId: SessionId('h1'), agentPreset: 'standard' }))
+
+    const response = await api.sessions.history(request({ sessionId: SessionId('h1') }))
+
+    expect(response.result.ok).toBe(true)
+    expect(ctx.agents.get(SessionId('h1'))).toBeDefined()
+  })
+
+  it('serves the transcript when no agent can be resolved for it', async () => {
+    // The roster is composed, so the read tries; this harness resumes nothing.
+    // A resolution failure is not a read failure — the transcript still
+    // serves, with the generic cards a viewless entry renders.
+    const { api } = await harness(['standard'])
+
+    const response = await api.sessions.history(request({ sessionId: SessionId('h2') }))
+
+    expect(response.result.ok).toBe(false)
+    const failure = response.result as { ok: false; error: { code: string } }
+    expect(failure.error.code).toBe('session-not-found')
+  })
+
+  it('keeps the storage-only read when the deployment composes no roster', async () => {
+    const { api } = await harness()
+    await api.sessions.create(request({ sessionId: SessionId('h3') }))
+
+    const response = await api.sessions.history(request({ sessionId: SessionId('h3') }))
+
+    expect(response.result.ok).toBe(true)
+  })
+})
