@@ -16,7 +16,7 @@ Status: implemented
 
 本包（package）声明仅写入日志的 `feedback/record { text }` 会话事件，并导出 `recordFeedback(session, text)`，作为不依赖命令的生产方。该生产方丢弃前后空白，拒绝空结果，并且恰好追加一个事件。`/feedback` 委托给它，因此其他 UI、钩子或 host 集成无需构造斜杠命令也能记录同一个领域事实。
 
-`dsh-commands` 仍会围绕 `/feedback` 写入 `command/run` / `command/done` 生命周期配对，但该命令设置了 `recordInput: false`。因此，它的 `command/run` 携带命令标识与来源，但不携带 `args`；反馈文本只存在于 `feedback/record` 中，而 `command/done` 携带确认结果。三个记录都仅写入日志且非 surface。它们的追加会启动持久化的常规即时排空；没有任何环节强制 flush，因此确认文本报告的是反馈已进入日志，而非已经落盘。
+`dsh-commands` 仍会围绕 `/feedback` 写入 `command/run` / `command/done` 生命周期配对，但该命令设置了 `recordInput: false`。因此，它的 `command/run` 携带命令标识与来源，但不携带 `args`；反馈文本只存在于 `feedback/record` 中，而 `command/done` 携带确认结果。三个记录都仅写入日志且非 surface。它们的追加会进入持久化的常规有界写入路径；没有任何环节强制 flush，因此确认文本报告的是反馈已进入日志，而非已经落盘。
 
 采集对正在运行的 agent 与模型仍不产生后续动作。可选的 OTel 遥测包后续增加了一个基础设施消费方：它在 `FEEDBACK_ONLY` 模式下将 `feedback/record` 作为释放触发器，在 `DISABLED` 模式下将其作为本地警告触发器，且不改变反馈事件或命令路径。见[反馈门控的会话遥测](2026-08-05-feedback-gated-session-telemetry.md)。
 

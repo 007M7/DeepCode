@@ -16,7 +16,7 @@ Status: implemented
 
 - **事件对**：`tool/code-dispatch-start`（父/子 id、名称、规范化参数）在调度器真正启动某个调用时才追加，而非在提交时，因此因 run 结算而被放弃的排队调用不会留下任何日志。既有的 `tool/code-dispatch` 结算该事件对（`subCallId` 相同）；每个已启动的调用恰好结算一次（中止也会作为 `isError` 结果经由流水线结算）。计时即这两个事件的 `time` 字段。两个事件都保持仅日志；模型上下文不受影响；格式保持 v0。
 - **桥接层调度器**：已提交的调用在启动那一刻经 `registry.executionMode` 分类（与 loop 所用完全相同、故障时默认判为不安全的 `isConcurrencySafe` 契约），并严格按提交顺序启动。所有有序阶段——start 事件追加、`prepare`（pre-execute/守卫）、队首 `finalize`/`finish` 提交（post-execute + 上下文延迟提交 + settle 事件追加）——由单通道驱动器独占执行，因此有序策略阶段彼此绝不重叠，只有 around-dispatch/工具体阶段并发运行，与原生 loop 的时序完全一致（`fillPool` 先 await `startCall` 再 `commitReady`）。连续被分类为可并行的调用可以重叠执行，上限为 `maxParallelSubCalls`（`Config` 字段，Loader schema 校验之外直接构造时也重新校验，默认值 10，即 loop 调度器自身的默认值；设为 `1` 即恢复串行分发）；独占调用则先排空池、独自运行，且其屏障保持到自身提交（含 post-execute）完成为止，与原生独占分组一致。run 结算时会中止仍在运行的分发，并放弃已排队未启动的分发（绑定调用被拒绝，不产生事件），随后排空到完全停稳——包括程序返回时已在途的提交——之后外层结果才结束该轮次。
-- **客户端侧**：`CodeSubCall` 拓宽为 `RunningToolCall | ToolResultNode`：start 事件把运行中形状写入分发索引（行组件从该形状推导出运行指示环，与原生运行中的调用处理完全一致），其结算事件则原位替换该条目，即使并行完成也保持启动顺序不变，并把 start 事件的 `time` 作为 `callTime`（时长来源）带入。未观察到对应 start 的结算事件（窗口切在事件对中间，或日志录制于 start 事件引入之前）会直接追加，因此旧日志仍能照常渲染。
+- **客户端侧**：运行时的 `ToolCallTree` 把 start 事件存为 `RunningToolCall` 子级，并通过父级递归的 `subCalls` 投影出来（行组件从该形状推导出运行指示环，与原生运行中的调用处理完全一致）。其结算事件会原位替换私有索引中的条目，即使并行完成也保持启动顺序不变，并把 start 事件的 `time` 作为 `callTime`（时长来源）带入。未观察到对应 start 的结算事件（窗口切在事件对中间，或日志录制于 start 事件引入之前）会直接追加，因此旧日志仍能照常渲染。
 - **SDK 提示词**：面向模型的「调用按顺序执行」一句替换为真实契约（相互独立的安全调用可以在 `Promise.all` 下重叠执行；相互依赖的工作以 `await` 顺序衔接）；这是模型可见的变更，每一份 Code Mode 快照都已重新录制。
 
 ## 曾考虑的替代方案

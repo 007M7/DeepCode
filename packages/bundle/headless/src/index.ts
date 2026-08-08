@@ -6,8 +6,7 @@
  * (InProcessApiClient over toFetchHandler(ctx.apiProxy), so the full wire
  * chain — serialization, zod, SSE framing — really runs), prints the final
  * assistant text at agent quiescence, and exits (completed → 0, else 1). The
- * task text arrives as launcher-patched config
- * (`dsh --profile headless "task"`).
+ * task text arrives as launcher-patched config (`dsh run "task"`).
  * @module @deepseek-ai/dsh-headless
  */
 
@@ -86,26 +85,31 @@ async function unwrap<T>(response: RpcResponse<T>, io: HeadlessIo): Promise<T> {
  * `agent/status` subscription; the stream itself carries no status frame.
  * @param frames - the mux stream opened before the prompt.
  * @param sessionId - the headless session.
- * @param idle - resolves when the agent reaches quiescence.
+ * @param idle - resolves to the final session-event sequence when the agent reaches quiescence.
  * @param io - process-facing effects for stream diagnostics.
  * @returns the aggregated outcome.
  */
 async function consumeUntilIdle(
   frames: AsyncIterable<RpcRequest<MuxFrame>>,
   sessionId: SessionId,
-  idle: Promise<void>,
+  idle: Promise<number>,
   io: HeadlessIo,
 ): Promise<TurnOutcome> {
   let started = false
   let text = ''
   let reason: string = 'error'
-  void (async () => {
+  let observedSeq = -1
+  let resolveProgress: (() => void) | undefined
+  const streamDone = (async () => {
     try {
       for await (const frame of frames) {
         const payload = frame.payload
         if (payload.type === 'stream/error') return
         if (payload.type !== 'session/event' || payload.sessionId !== sessionId) continue
         const event = payload.event
+        observedSeq = event.seq
+        resolveProgress?.()
+        resolveProgress = undefined
         if (event.type === 'turn/start') {
           started = true
           continue
@@ -121,7 +125,12 @@ async function consumeUntilIdle(
       io.stderr.write(`dsh: event stream failed: ${String(error)}\n`)
     }
   })()
-  await idle
+  const streamEnded = streamDone.then(() => 'ended' as const)
+  const idleSeq = await idle
+  while (observedSeq < idleSeq) {
+    const progress = new Promise<'progress'>((resolve) => { resolveProgress = () => { resolve('progress') } })
+    if (await Promise.race([progress, streamEnded]) === 'ended') break
+  }
   return { text, reason }
 }
 
@@ -154,9 +163,9 @@ export function apply(ctx: Context, config: Config): void {
     // port of this runner must replace it with a wire-visible idle signal.
     const abort = new AbortController()
     const frames = api.events.mux({}, abort.signal)
-    const idle = new Promise<void>((resolve) => {
+    const idle = new Promise<number>((resolve) => {
       ctx.on('agent/status', ({ agent, status }) => {
-        if (agent.id === created.sessionId && status === 'idle') resolve()
+        if (agent.id === created.sessionId && status === 'idle') resolve(agent.session.seq - 1)
       })
     })
     const done = consumeUntilIdle(frames, created.sessionId, idle, io)

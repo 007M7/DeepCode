@@ -64,6 +64,7 @@ function scriptedApi(overrides: {
       list: r => ok(r, { entries: [], parentAvailable: false }),
       history: r => ok(r, { events: [], hasMore: false }),
       prompt: r => ok(r, { messageId: 'message-1' as never }),
+      interrupt: r => ok(r, { accepted: true as const }),
       ...overrides.subagents,
     },
     host: {
@@ -268,6 +269,32 @@ describe('unary round trip', () => {
       expect(response.result.error.code).toBe('bad-request')
       expect((response.result.error.details as { issues: unknown[] }).issues.length).toBeGreaterThan(0)
     }
+  })
+
+  it('round-trips subagent.interrupt and rejects a one-shot or incomplete address', async () => {
+    const interrupt = vi.fn((r: RpcRequest<unknown>) => ok(r, { accepted: true as const }))
+    const api = scriptedApi({ subagents: { interrupt } })
+    const c = client(api)
+
+    const accepted = await c.subagents.interrupt({
+      parentSessionId: sid('parent'), childSessionId: sid('child'), mode: 'continuable',
+    })
+    expect(accepted.result).toEqual({ ok: true, value: { accepted: true } })
+    expect(interrupt).toHaveBeenCalledTimes(1)
+
+    // The wire schema owns the mode fence: a one-shot address never reaches the impl.
+    const oneShot = await c.subagents.interrupt({
+      parentSessionId: sid('parent'), childSessionId: sid('child'), mode: 'one-shot',
+    } as never)
+    expect(oneShot.result.ok).toBe(false)
+    if (!oneShot.result.ok) expect(oneShot.result.error.code).toBe('bad-request')
+
+    const incomplete = await c.subagents.interrupt({
+      parentSessionId: sid('parent'), mode: 'continuable',
+    } as never)
+    expect(incomplete.result.ok).toBe(false)
+    if (!incomplete.result.ok) expect(incomplete.result.error.code).toBe('bad-request')
+    expect(interrupt).toHaveBeenCalledTimes(1)
   })
 
   it('rejects a method/path mismatch as bad-request', async () => {

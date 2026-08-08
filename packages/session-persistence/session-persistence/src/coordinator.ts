@@ -15,13 +15,21 @@ import {
   snapshotSessionEvent,
 } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
+import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import type { SessionInspection } from './index.ts'
 import type { SessionPersistenceRevision } from './revision.ts'
 import { observeQueuedAbort, SessionPreparations } from './preparations.ts'
 import type { SessionPreparationReservation } from './preparations.ts'
+import { SessionWriteBehind } from './write-behind.ts'
 
 /** Default number of detached session preparations retained by a coordinator. */
 export const DEFAULT_PREPARED_SESSION_CACHE_SIZE = 5
+
+/** Default maximum intentional wait before a live session batch starts writing. */
+export const DEFAULT_WRITE_BATCH_MAX_DELAY_MS = 200
+
+/** Largest write batching delay accepted by Node's timer implementation. */
+export const MAX_WRITE_BATCH_DELAY_MS = MAX_TIMER_DELAY_MS
 
 /** Durable session contents failed validation after a successful backend read. */
 export class SessionPersistenceCorruptionError extends Error {
@@ -39,6 +47,8 @@ export class SessionPersistenceCorruptionError extends Error {
 export interface PersistenceCoordinatorOptions {
   /** Maximum completed unpublished preparations retained for reuse. */
   readonly preparedSessionCacheSize: number
+  /** Maximum intentional batching wait after an idle live queue receives work. */
+  readonly writeBatchMaxDelayMs: number
 }
 
 /**
@@ -174,11 +184,10 @@ interface SessionState {
   owner?: Session
 }
 
-/** One live session's initialization and eager write-behind controller. */
+/** One live session's initialization and bounded write-behind controller. */
 interface LiveSessionState {
-  pending: SessionEvent[]
   init: Promise<void>
-  flush: Promise<void> | undefined
+  writes: SessionWriteBehind
 }
 
 /** One validated cold source and the exact unpublished Session built from it. */
@@ -531,7 +540,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   private states = new Map<SessionId, SessionState>()
   /** Lifecycle and write-behind state keyed by the exact live Session. */
   private live = new Map<Session, LiveSessionState>()
-  /** Exact disposed lifecycles whose eager tail is still draining. */
+  /** Exact disposed lifecycles whose buffered tail is still draining. */
   private retirements = new Map<SessionId, Promise<void>>()
   /** Shared cold reads, unpublished reservations, and completed LRU entries. */
   private readonly preparations: SessionPreparations<PreparedSessionSource<TornMarker>, SessionState>
@@ -540,18 +549,27 @@ export class PersistenceCoordinator<TornMarker = unknown> {
    * same id, so writes for one session never interleave. Keyed by session id.
    */
   private chains = new Map<SessionId, Promise<unknown>>()
+  /** Resolved fixed write-batching window shared by per-session controllers. */
+  private readonly writeBatchMaxDelayMs: number
 
   constructor(
     private ctx: Context,
     private backend: PersistenceBackend<TornMarker>,
     options: PersistenceCoordinatorOptions = {
       preparedSessionCacheSize: DEFAULT_PREPARED_SESSION_CACHE_SIZE,
+      writeBatchMaxDelayMs: DEFAULT_WRITE_BATCH_MAX_DELAY_MS,
     },
   ) {
     if (!Number.isSafeInteger(options.preparedSessionCacheSize)
       || options.preparedSessionCacheSize < 1) {
       throw new TypeError('preparedSessionCacheSize must be a positive safe integer')
     }
+    if (!Number.isSafeInteger(options.writeBatchMaxDelayMs)
+      || options.writeBatchMaxDelayMs < 1
+      || options.writeBatchMaxDelayMs > MAX_WRITE_BATCH_DELAY_MS) {
+      throw new TypeError(`writeBatchMaxDelayMs must be an integer between 1 and ${MAX_WRITE_BATCH_DELAY_MS}`)
+    }
+    this.writeBatchMaxDelayMs = options.writeBatchMaxDelayMs
     this.preparations = new SessionPreparations(options.preparedSessionCacheSize)
     this.installWritePath()
   }
@@ -1014,14 +1032,13 @@ export class PersistenceCoordinator<TornMarker = unknown> {
       void this.initFor(session)
     })
 
-    // Keep a persistence-owned copy of each frozen event and start an eager drain.
+    // Keep a persistence-owned copy of each frozen event and start its bounded window.
     ctx.on('session/event', (session, event) => {
       const live = this.initFor(session)
-      live.pending.push(structuredClone(event))
-      if (live.flush === undefined) this.scheduleDrain(session, live)
+      live.writes.enqueue(event)
     })
 
-    // Callers use flush as the observation barrier for the eager write path.
+    // Callers use flush as the immediate durability barrier for buffered writes.
     ctx.on('session/flush', session => this.flush(session))
 
     // Session disposal is observe-only, so retirement contains its own failure.
@@ -1067,7 +1084,10 @@ export class PersistenceCoordinator<TornMarker = unknown> {
       return restored
     }
     const seed = session.events.map(e => structuredClone(e))
-    const live: LiveSessionState = { pending: [], init: Promise.resolve(), flush: undefined }
+    const live: LiveSessionState = {
+      init: Promise.resolve(),
+      writes: this.createWriteBehind(session, () => live.init),
+    }
     this.live.set(session, live)
     live.init = this.serialize(session.header.id, () => this.onCreated(session, seed))
     live.init.catch(() => { /* observed by flush/dispose through the controller */ })
@@ -1088,7 +1108,10 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     const suffix = session.events.slice(state.cursor).map(event => structuredClone(event))
     this.preparations.attach(reservation)
     state.owner = session
-    const live: LiveSessionState = { pending: [], init: Promise.resolve(), flush: undefined }
+    const live: LiveSessionState = {
+      init: Promise.resolve(),
+      writes: this.createWriteBehind(session, () => live.init),
+    }
     if (suffix.length > 0) {
       live.init = this.serialize(session.id, () => this.appendCore(session.id, suffix))
       live.init.catch(() => { /* observed by flush/dispose through the controller */ })
@@ -1152,7 +1175,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
         return
       }
       const owner = this.live.get(tracked.owner)
-      if (!tracked.materialized && !owner?.pending.length) {
+      if (!tracked.materialized && !owner?.writes.hasWork) {
         this.states.delete(id)
       } else {
         throw new Error(`session "${id}" is already bound to a different live session in this backend (id collision)`)
@@ -1213,42 +1236,38 @@ export class PersistenceCoordinator<TornMarker = unknown> {
 
   private async flush(session: Session): Promise<void> {
     const live = this.initFor(session)
-    await live.init
-    const overlapping = live.flush
-    if (overlapping !== undefined) await Promise.allSettled([overlapping])
-    while (live.flush !== undefined || live.pending.length > 0) {
-      if (live.flush !== undefined) await live.flush
-      else await this.ensureFlush(session, live)
+    live.writes.cancelAutomaticWait()
+    try {
+      await live.init
+    } catch (error: unknown) {
+      // Admission is closed during retirement/teardown, but an ordinary flush
+      // may have raced one last enqueue while initialization was pending.
+      live.writes.cancelAutomaticWait()
+      throw error
     }
+    await live.writes.flush()
   }
 
-  /** Start an eager drain without exposing its failure to the synchronous append. */
-  private scheduleDrain(session: Session, live: LiveSessionState): void {
-    void this.ensureFlush(session, live).catch((error: unknown) => {
-      this.ctx.logger.warn(`${this.backend.name}: eager drain for session "${session.id}" failed (buffered events retained): ${String(error)}`)
+  /** Build one package-private write controller around initialization and id serialization. */
+  private createWriteBehind(session: Session, ready: () => Promise<void>): SessionWriteBehind {
+    return new SessionWriteBehind({
+      maxDelayMs: this.writeBatchMaxDelayMs,
+      write: async (batch) => {
+        await ready()
+        await this.serialize(session.header.id, () => this.appendLiveBatch(session.header.id, batch))
+      },
+      reportBackgroundFailure: (error) => {
+        this.ctx.logger.warn(`${this.backend.name}: background write for session "${session.id}" failed (buffered events retained): ${String(error)}`)
+      },
     })
   }
 
-  /** Start one drain for the complete pending batch. */
-  private ensureFlush(session: Session, live: LiveSessionState): Promise<void> {
-    const flush = live.init
-      .then(() => this.serialize(session.header.id, () => this.drain(session.header.id, live)))
-      .finally(() => { live.flush = undefined })
-    live.flush = flush
-    void flush.then(() => {
-      if (live.pending.length > 0) this.scheduleDrain(session, live)
-    }, () => {})
-    return flush
-  }
-
-  /** Drain one stable prefix; events admitted during the write remain pending. */
-  private async drain(id: SessionId, live: LiveSessionState): Promise<void> {
-    const batch = live.pending.slice()
+  /** Append one controller-owned prefix after filtering events initialization already stored. */
+  private async appendLiveBatch(id: SessionId, batch: readonly SessionEvent[]): Promise<void> {
     const state = this.states.get(id)
-    /* v8 ignore next -- state is always set by the awaited init before flush */
+    /* v8 ignore next -- state is always set by the awaited initialization */
     const cursor = state?.cursor ?? 0
     const fresh = batch.filter(e => e.seq >= cursor)
     await this.appendCore(id, fresh)
-    live.pending.splice(0, batch.length)
   }
 }

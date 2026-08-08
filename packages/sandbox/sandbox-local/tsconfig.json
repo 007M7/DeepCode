@@ -18,6 +18,9 @@
       "path": "../../../vendor/schemastery"
     },
     {
+      "path": "../../../native/landlock-run/packages/entry"
+    },
+    {
       "path": "../../llm/llm"
     },
     {

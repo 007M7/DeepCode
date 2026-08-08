@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-供 app bin（[`dsh`](../../../apps/cli/README.md)、[`dsh-cli-demo`](../../examples/cli-demo/README.md)、[`dsh-acp-demo`](../../examples/acp-demo/README.md)）共用的启动粘合层：每个 bin 都是在这些 helper 上构建的精简自执行组合，并以自身诊断前缀参数化。这样，Loader 故障行为只由一处负责，不会在已发布产物之间逐渐分化。
+供 app bin（[`dsh`](../../../apps/cli/README.md) 与 [`dsh-acp-demo`](../../examples/acp-demo/README.md)）共用的启动粘合层：每个 bin 都是在这些 helper 上构建的精简自执行组合，并以自身诊断前缀参数化。这样，Loader 故障行为只由一处负责，不会在已发布产物之间逐渐分化。
 
 | 导出 | 职责 |
 |---|---|

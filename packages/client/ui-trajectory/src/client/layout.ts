@@ -5,11 +5,11 @@
 import type {
   AssistantBlock,
   AssistantMessageNode,
-  CodeSubCall,
   ConversationSnapshot,
   RequestInspectionSnapshot,
   RequestPromptChange,
   RequestView,
+  ToolCallBlock,
   ToolResultNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { extractMarkdownPlainText } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -39,8 +39,6 @@ export interface TrajectoryLayoutInput {
   runningCalls: ConversationSnapshot['runningCalls']
   requests?: readonly RequestView[]
   callSchemas?: RequestInspectionSnapshot['callSchemas']
-  /** run_code sub-dispatches by parent callId (sub-cells nest under the parent Tool cell). */
-  codeDispatches: ConversationSnapshot['codeDispatches']
 }
 
 interface UsageLike {
@@ -57,6 +55,7 @@ interface LaidCell {
   absTime: number | null
   toolName?: string
   callId?: string
+  subCalls?: readonly ToolCallBlock[]
 }
 
 interface LaidGroup {
@@ -131,9 +130,11 @@ function inputCellDetail(node: InputNode): Pick<
  */
 export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly TrajectoryTurnModel[] {
   const {
-    nodes, partial, runningCalls, requests = [], callSchemas, codeDispatches,
+    nodes, partial, runningCalls, requests = [], callSchemas,
   } = input
   const resultByCall = indexResults(nodes)
+  const callById = new Map<string, ToolCallBlock>(resultByCall)
+  for (const call of runningCalls) callById.set(call.callId, call)
   const emittedCallIds = indexAssistantCallIds(nodes)
   const callStartById = new Map<string, number>()
   for (const result of resultByCall.values()) {
@@ -344,8 +345,7 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
     }
     if (node.kind === 'assistant') {
       const laidList = withSubCalls(
-        expandAssistant(node, index + 1, prevAbsTime, resultByCall, callStartById),
-        codeDispatches,
+        expandAssistant(node, index + 1, prevAbsTime, resultByCall, callStartById, callById),
       )
       if (node.step > 0) pushStep(node.turn, node.step, laidList)
       else for (const laid of laidList) pushMessage(node.turn, laid)
@@ -381,6 +381,7 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
           absTime: finiteTime(node.callTime ?? node.time),
           ...(toolName !== undefined ? { toolName } : {}),
           callId: node.callId,
+          subCalls: node.subCalls,
           cell: {
             index: ++index,
             kind: 'tool',
@@ -398,7 +399,7 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
             startedAt: finiteTime(node.callTime),
           },
         }]
-        for (const laid of expandSubCalls(codeDispatches.get(node.callId), index)) {
+        for (const laid of expandSubCalls(node.subCalls, index)) {
           laidList.push(laid)
           index = laid.cell.index
         }
@@ -413,14 +414,15 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
       kind: 'assistant', seq: Number.MAX_SAFE_INTEGER, time: 0,
       turn: partial.turn, step: partial.step, blocks: partial.blocks,
     }
-    const laidList = expandAssistant(
+    const laidList = withSubCalls(expandAssistant(
       fake,
       index + 1,
       prevAbsTime,
       resultByCall,
       callStartById,
+      callById,
       { streaming: true },
-    )
+    ))
     if (partial.step > 0) pushStep(partial.turn, partial.step, laidList)
     else for (const laid of laidList) pushMessage(partial.turn, laid)
     const last = laidList[laidList.length - 1]
@@ -434,6 +436,7 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
       absTime: null,
       toolName: call.name,
       callId: call.callId,
+      subCalls: call.subCalls,
       cell: {
         index: ++index,
         kind: 'tool',
@@ -444,7 +447,7 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
         startedAt: finiteTime(call.time),
       },
     }]
-    for (const laid of expandSubCalls(codeDispatches.get(call.callId), index)) {
+    for (const laid of expandSubCalls(call.subCalls, index)) {
       laidList.push(laid)
       index = laid.cell.index
     }
@@ -491,7 +494,6 @@ export function appendTrajectoryPartialLayout(
     nodes: [],
     partial,
     runningCalls: [],
-    codeDispatches: new Map(),
   }).at(0)
   if (partialTurn === undefined) return turns
   const streamed: TrajectoryTurnModel = {
@@ -622,6 +624,7 @@ function expandAssistant(
   prevAbsTime: number | null,
   results: Map<string, ToolResultNode>,
   callStarts: ReadonlyMap<string, number>,
+  calls: ReadonlyMap<string, ToolCallBlock>,
   opts?: { streaming?: boolean },
 ): LaidCell[] {
   if (opts?.streaming === true && node.blocks.length === 0) return []
@@ -677,10 +680,12 @@ function expandAssistant(
       ? null
       : durationSeconds(result.time, result.callTime)
     const callAbs = finiteTime(callStarts.get(block.callId))
+    const call = calls.get(block.callId)
     out.push({
       absTime: callAbs,
       toolName: block.name,
       callId: block.callId,
+      ...(call === undefined ? {} : { subCalls: call.subCalls }),
       cell: {
         index: ++index, kind: 'tool',
         text: summarizeCall(block.name, block.argsRaw),
@@ -883,15 +888,14 @@ function collectCallIds(
 
 
 
-/** Interleave each tool cell's run_code sub-dispatch cells right after it, reindexing followers. */
-function withSubCalls(laidList: LaidCell[], codeDispatches: ConversationSnapshot['codeDispatches']): LaidCell[] {
-  if (codeDispatches.size === 0) return laidList
+/** Interleave each tool cell's nested child calls right after it, reindexing followers. */
+function withSubCalls(laidList: LaidCell[]): LaidCell[] {
+  if (!laidList.some(laid => laid.subCalls !== undefined && laid.subCalls.length > 0)) return laidList
   const out: LaidCell[] = []
   let index = laidList[0] !== undefined ? laidList[0].cell.index - 1 : 0
   for (const laid of laidList) {
     out.push({ ...laid, cell: { ...laid.cell, index: ++index } })
-    if (laid.callId === undefined) continue
-    for (const sub of expandSubCalls(codeDispatches.get(laid.callId), index)) {
+    for (const sub of expandSubCalls(laid.subCalls, index)) {
       out.push(sub)
       index = sub.cell.index
     }
@@ -901,7 +905,7 @@ function withSubCalls(laidList: LaidCell[], codeDispatches: ConversationSnapshot
 
 /** Sub-dispatch cells for one run_code parent, in start order (running = null duration). */
 function expandSubCalls(
-  subs: readonly CodeSubCall[] | undefined,
+  subs: readonly ToolCallBlock[] | undefined,
   startIndex: number,
 ): LaidCell[] {
   if (subs === undefined || subs.length === 0) return []
@@ -909,7 +913,7 @@ function expandSubCalls(
   let index = startIndex
   for (const sub of subs) {
     const settled = 'kind' in sub
-    out.push({
+    const laid: LaidCell = {
       absTime: settled ? finiteTime(sub.callTime ?? sub.time) : finiteTime(sub.time),
       toolName: settled ? sub.call?.name ?? sub.callId : sub.name,
       callId: sub.callId,
@@ -938,7 +942,12 @@ function expandSubCalls(
           ? finiteTime(sub.callTime)
           : finiteTime(sub.time),
       },
-    })
+    }
+    out.push(laid)
+    for (const child of expandSubCalls(sub.subCalls, index)) {
+      out.push(child)
+      index = child.cell.index
+    }
   }
   return out
 }

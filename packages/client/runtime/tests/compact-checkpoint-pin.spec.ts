@@ -36,7 +36,10 @@ describe('compaction checkpoint recognition', () => {
   it('recognizes a checkpoint carrying the seam-canonical source', () => {
     const adapter = new TranscriptAdapter()
     adapter.reset([canonicalCheckpoint(1)])
-    expect(adapter.nodes()).toEqual([{ kind: 'compaction', seq: 1, time: 1_700_000_000_001, summary: null }])
+    expect(adapter.nodes()).toEqual([{
+      kind: 'compaction', seq: 1, time: 1_700_000_000_001, summary: null,
+      summaryEventSeq: null, shadowedItemCount: null, shadowedTokenCount: null,
+    }])
   })
 
   it("agrees with the seam's own predicate on the source it recognizes", () => {

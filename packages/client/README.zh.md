@@ -22,6 +22,7 @@ dsh web GUI 的浏览器侧：shell 启动、浏览器与宿主通信、共享 U
 | [`ui-sidebar/`](ui-sidebar/README.md) | 展示 Workspace 与会话导航。 |
 | [`ui-workspace/`](ui-workspace/README.md) | 提供 Workspace 选择与创建界面。 |
 | [`ui-conversation/`](ui-conversation/README.md) | 展示当前会话及其输入界面。 |
+| [`ui-tool/`](ui-tool/README.md) | 编排 Tool 调用树和按 Tool 键控的视图。 |
 | [`ui-goal/`](ui-goal/README.md) | 展示和管理当前目标。 |
 | [`ui-trajectory/`](ui-trajectory/README.md) | 提供 agent（智能体）活动的其他视图。 |
 | [`ui-command/`](ui-command/README.md) | 提供会话感知的命令发现与分发。 |

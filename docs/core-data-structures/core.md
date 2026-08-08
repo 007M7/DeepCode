@@ -530,8 +530,6 @@ The loop builds each request from logged state. `EpochHeader` records call confi
 
 On the wire, a loop-built request reads the `system` slot (the rendered prompt assembly) followed by the derived history — the boundary snapshot, whose tail is the newest `user/message` on a turn's first step and the previous step's tool results on later steps. The dev invariant recomputes exactly this equation against every loop-built request.
 
-FIXME(call-config-shape): revisit which remaining fields are genuinely epoch-level for cache purposes (`model` and the model-owned reasoning effort are explicit; the sampling scalars sit here out of caution).
-
 ```ts type-equiv
 /**
  * Provider, model, reasoning effort, and sampling scalars of one conversation's
@@ -687,7 +685,11 @@ interface Agent {
 
   /**
    * Route identified input to an inbox boundary and optionally wake the driver.
-   * Waking input submitted after active cancellation is queued for the next turn.
+   * Waking input submitted after active cancellation is queued for the next
+   * turn and runs when the aborted activity converges to idle; a `disposed`
+   * cancel leaves it parked. A wake submitted while already idle always opens
+   * its turn boundary, even when its message is cleared before the driver
+   * claims ([cancel-convergence wake latch](../../../../.agents/notes/implemented/bug-fix/2026-08-07-cancel-convergence-wake-latch.md)).
    * @param message - identified content and its producer provenance.
    * @param target - the preferred next-turn or next-step inbox boundary.
    * @param wakeup - whether delivery may wake the driver.

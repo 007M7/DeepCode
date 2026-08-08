@@ -17,12 +17,22 @@
 - id: seed-goal
   name: './seed-goal.ts'
 
-- id: cli-agent
-  name: '@deepseek-ai/dsh-cli-demo'
+- id: agent-spine
+  name: '@deepseek-ai/dsh-agent-spine-demo'
   config:
-    provider: cli-mock
-    model: cli-mock
+    agents:
+      - id: main
+        provider: cli-mock
+        model: cli-mock
+        cwd: !!js process.cwd()
     persona: 'Test the persisted goal domain.'
-    persistenceRoot: './.sessions'
-    persistenceCompression: none
     workspaceContext: false
+
+- id: persistence
+  name: '@deepseek-ai/dsh-session-persistence-jsonl'
+  config:
+    root: './.sessions'
+    compression: none
+
+- id: checkpoint-policy
+  name: '@deepseek-ai/dsh-session-checkpoint-policy'

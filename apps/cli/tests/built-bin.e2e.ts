@@ -182,11 +182,53 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
     const help = await runBuiltBin(['--help'])
     expect(help.code).toBe(0)
     expect(help.stdout).toContain('dsh --profile web')
+    expect(help.stdout).toContain('dsh run "run the tests"')
     expect(help.stdout).toContain('dsh plugin --profile')
     expect(help.stdout).not.toMatch(/^\s+(?:tui|meta|upgrade)\b/mu)
-    for (const removed of [['tui'], ['--config', 'x.yml'], ['-p', 'task']]) {
+    for (const removed of [['tui'], ['--config', 'x.yml'], ['-p', 'task'], ['--profile', 'headless', 'task']]) {
       const result = await runBuiltBin(removed)
       expect(result.code).toBe(1)
+    }
+  }, 30_000)
+
+  it('prints run help without initializing the selected profile', async () => {
+    const parent = mkdtempSync(join(tmpdir(), 'dsh-run-help-'))
+    const home = join(parent, 'not-created')
+    try {
+      const result = await runBuiltBin(['run', '--help'], { DSH_HOME: home })
+      expect(result.code).toBe(0)
+      expect(result.stderr).toBe('')
+      expect(result.stdout).toContain('Usage: dsh run [options] <task...>')
+      expect(existsSync(home)).toBe(false)
+    } finally {
+      rmSync(parent, { recursive: true, force: true })
+    }
+  })
+
+  it('runs the default headless profile through the published run command', async () => {
+    const apiKey = 'built-dsh-run-key'
+    const server = await startMockLlmServer({
+      sequence: ['success'],
+      apiKey,
+      successText: 'published dsh run reached the mock',
+    })
+    const home = mkdtempSync(join(tmpdir(), 'dsh-built-run-'))
+    try {
+      const result = await runBuiltBin(['run', 'answer', 'from', 'the', 'published', 'entry'], {
+        DSH_HOME: home,
+        DSH_TELEMETRY_DISABLED: '1',
+        DEEPSEEK_API_KEY: apiKey,
+        DEEPSEEK_BASE_URL: server.baseURL,
+      })
+      expect(result.code, result.stderr).toBe(0)
+      expect(result.stdout).toBe('published dsh run reached the mock')
+      expect(result.stderr).toMatch(/^dsh: observing at http:\/\/127\.0\.0\.1:\d+$/u)
+      expect(server.requests.length).toBeGreaterThan(0)
+      expect(server.requests.every(request => request.path === '/chat/completions')).toBe(true)
+      expect(JSON.stringify(server.requests.map(request => request.body))).toContain('answer from the published entry')
+    } finally {
+      await server.close()
+      rmSync(home, { recursive: true, force: true })
     }
   }, 30_000)
 

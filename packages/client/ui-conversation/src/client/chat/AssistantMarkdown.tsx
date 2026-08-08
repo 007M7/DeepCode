@@ -12,13 +12,12 @@
 import { memo, useMemo } from 'react'
 import type { AssistantBlock } from '@deepseek-ai/dsh-client-runtime/client'
 import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
-import {
-  IconThinkOutline14, JsonBlock, MarkdownText,
-} from '@deepseek-ai/dsh-client-ui-primitives'
-import type { ChatViewSlotProps, TurnTailOwnerProps } from '../contract/slots.ts'
+import { JsonBlock, MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { MarkdownFileMentions } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { ChatViewSlotProps, ChatViewInjected, TurnTailOwnerProps } from '../contract/slots.ts'
 import { hasContentText } from './chat-flow.ts'
 import { MessageIconActions } from './MessageIconActions.tsx'
-import { ToolRow } from './ToolRow.tsx'
+import { ReasoningRow } from './ReasoningRow.tsx'
 import css from './AssistantMarkdown.module.css'
 
 export interface AssistantMarkdownProps {
@@ -43,22 +42,12 @@ export interface AssistantMarkdownProps {
   onFork?: ((seq: number) => void) | undefined
   /** Turn-tail slot dispatch share and owner currency; omitted for a mid-turn assistant. */
   turnTail?: (Pick<PropsRenderSlots<'conversation.chat.turnTail'>, 'renderSlotChain'> & { owner: TurnTailOwnerProps }) | undefined
+  /** Prose file-mention factory (the injected face); omitted wherever `turnTail` is. */
+  fileMentions?: ChatViewInjected['fileMentions'] | undefined
   /** The message is not the transcript tail of a completed turn. */
   forkUnavailable?: boolean | undefined
   /** The owning view's locale seat, passed down as a plain prop. */
   t: ChatViewSlotProps['t']
-}
-
-function firstLine(text: string): string {
-  const nl = text.indexOf('\n')
-  return nl === -1 ? text : text.slice(0, nl)
-}
-
-/** Latest non-blank reasoning line while the block is still streaming. */
-function latestLine(text: string): string {
-  const visible = text.trimEnd()
-  const nl = visible.lastIndexOf('\n')
-  return nl === -1 ? visible : visible.slice(nl + 1)
 }
 
 /** Joined text blocks for the copy action (reasoning / tool heads stay out). */
@@ -71,26 +60,26 @@ function copyText(blocks: readonly AssistantBlock[]): string {
 }
 
 /** Reasoning block as the Think variant summary row (figma 39:28304). */
-function ThinkRow({ text, running, t }: { text: string; running: boolean; t: AssistantMarkdownProps['t'] }) {
-  return (
-    <ToolRow
-      t={t}
-      variant="think"
-      icon={<IconThinkOutline14 size={14} />}
-      title="Think"
-      summary={running ? latestLine(text) : firstLine(text)}
-      body={text}
-      state={running ? 'running' : 'ok'}
-    />
-  )
-}
-
 export const AssistantMarkdown = memo(function AssistantMarkdown({
-  blocks, streaming, interrupted, time, runMs, ttftMs, tokensPerSecond, seq, onFork, forkUnavailable, turnTail, t,
+  blocks, streaming, interrupted, time, runMs, ttftMs, tokensPerSecond, seq, onFork, forkUnavailable, turnTail,
+  fileMentions, t,
 }: AssistantMarkdownProps) {
   // Stable per locale revision (t identity changes on switch): a fresh object
   // per render would rebuild MarkdownText's component table every chunk.
   const codeLabels = useMemo(() => ({ copyLabel: t('copy'), copiedLabel: t('copied') }), [t])
+  // Mention vocabulary for the closing prose. Keyed on the anchor seq, not the
+  // growing transcript: a settled turn's produced files are final, and a
+  // fresh identity per append would discard MarkdownText's cached parse for
+  // every settled closing message on every stream chunk. The window-prepend
+  // edge (a mid-turn window start later gaining earlier same-turn writes)
+  // leaves a mention unlinked until remount — never a wrong link.
+  const owner = turnTail?.owner
+  const mentions: MarkdownFileMentions | undefined = useMemo(
+    () => (owner === undefined ? undefined : fileMentions?.(owner)),
+    // Deliberately not `owner`: its identity changes per append while the
+    // seq-addressed vocabulary it yields does not.
+    [fileMentions, owner?.seq],
+  )
   const last = blocks.length - 1
   // Tool-call heads render as tool rows in the chat view's grouping pass, so
   // a node that is only those heads (or empty) would paint an empty root
@@ -107,9 +96,15 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
         {blocks.map((block, i) => {
           switch (block.kind) {
             case 'text': return (
-              <MarkdownText key={i} text={block.text} streaming={streaming} codeLabels={codeLabels} />
+              <MarkdownText
+                key={i}
+                text={block.text}
+                streaming={streaming}
+                codeLabels={codeLabels}
+                fileMentions={mentions}
+              />
             )
-            case 'reasoning': return <ThinkRow key={i} text={block.text} running={streaming && i === last} t={t} />
+            case 'reasoning': return <ReasoningRow key={i} text={block.text} running={streaming && i === last} t={t} />
             // Grouped into tool rows by ChatView; hasVisible above skips an empty shell.
             case 'tool-call': return null
             default: return (

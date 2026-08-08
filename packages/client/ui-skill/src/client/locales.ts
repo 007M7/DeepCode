@@ -9,6 +9,7 @@ export const zh = {
   'row.failed': 'skill 加载失败',
   'row.stopped': 'skill 加载已中止',
   'row.instructions': '说明',
+  'menu.userOnly': '仅用户',
 } satisfies Record<string, string>
 
 /** The skill namespace key union. */
@@ -20,4 +21,5 @@ export const en = {
   'row.failed': 'Skill load failed',
   'row.stopped': 'Skill load stopped',
   'row.instructions': 'Instructions',
+  'menu.userOnly': 'user-only',
 } satisfies Record<SkillKey, string>
