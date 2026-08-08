@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "prepare": "dsh-plugin-prepare"
+    "prepack": "dsh-plugin-prepare"
   },
   "dsh": {
     "skills": [
