@@ -12,7 +12,10 @@ import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { assembleContextFor, type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { beforeEach, describe, expect, it } from 'vitest'
-import AgentPresets, { COMPOSITION_FILE, leakedServices, livePresetMounts } from '@deepseek-ai/dsh-agent-presets'
+import AgentPresets, {
+  COMPOSITION_FILE, leakedServices, livePresetMounts, mountPreset, serviceForAgent,
+} from '@deepseek-ai/dsh-agent-presets'
+import { createScope, scopeOf, setScopeParent } from '@deepseek-ai/dsh-scope'
 
 declare module 'cordis' {
   interface Context {
@@ -182,9 +185,43 @@ describe('rejecting a composition that cannot be used', () => {
   })
 
   it('answers undefined for a service the agent\'s preset does not mount', async () => {
+    // The isolated preset's standing instance exists in the same runtime, so
+    // the lookup finds the NAME and must still refuse it: the instance lives
+    // under another mount's fiber, not this agent's composition.
+    await agentOn(ctx, 'sess-reach-other', 'isolated')
     const agent = await agentOn(ctx, 'sess-reach-none', 'standard')
 
     expect(ctx.agentPresets.serviceFor(agent, 'fixtureIsolatedSvc')).toBeUndefined()
+  })
+
+  it('answers undefined for an agent outside the scope machinery', async () => {
+    // Unscoped, scoped-but-unparented, and parented to a key no live mount
+    // owns are the three ways a context can fail to name a standing mount;
+    // each is an answer, not a throw, because the caller asked a question.
+    expect(serviceForAgent(ctx, { ctx }, 'fixtureIsolatedSvc')).toBeUndefined()
+    const loner = createScope(ctx, { test: 'loner' })
+    expect(serviceForAgent(ctx, { ctx: loner.ctx }, 'fixtureIsolatedSvc')).toBeUndefined()
+    const orphan = createScope(ctx, { test: 'orphan' })
+    setScopeParent(scopeOf(orphan.ctx)!, { agentPreset: 'never-mounted' })
+    expect(serviceForAgent(ctx, { ctx: orphan.ctx }, 'fixtureIsolatedSvc')).toBeUndefined()
+  })
+
+  it('refuses to mount a preset directly into an unscoped context', async () => {
+    // The service's own mount() guards this before delegating; the exported
+    // function is callable on its own, so the boundary holds there too.
+    const preset = await ctx.agentPresets.resolve('standard')
+
+    await expect(mountPreset(ctx, preset)).rejects.toThrow(/unscoped context/)
+  })
+
+  it('hands a host reader the standing key without starting an agent', async () => {
+    const key = await ctx.agentPresets.standingKeyFor('minimal')
+
+    // The mount exists for the reader; no agent, session, or turn started.
+    expect(key).toEqual({ agentPreset: 'minimal' })
+    expect(ctx.agents.get(SessionId('minimal'))).toBeUndefined()
+    // A second reader resolves the same generation, not a new mount.
+    expect(await ctx.agentPresets.standingKeyFor('minimal')).toBe(key)
   })
 
   it('reports the known ids when a preset is unknown', async () => {
