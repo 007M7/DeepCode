@@ -911,16 +911,17 @@ describe('E2B subprocess terminal service', () => {
 
   it('contains a failed automatic terminal release until service disposal retries it', async () => {
     const { fiber, fake } = await service()
-    fake.clearOnTerm = false
-    fake.clearOnKill = false
-    const terminal = await (fiber.ctx).subprocess.spawnTerminal(spec({ graceMs: 1 }))
+    fake.groups = []
+    const terminal = await (fiber.ctx).subprocess.spawnTerminal(spec())
+    const terminate = vi.spyOn(terminal, 'terminate')
+      .mockRejectedValueOnce(new Error('automatic release failed'))
     fake.handle.succeed(0)
     await terminal.done
-    await new Promise(resolve => setTimeout(resolve, 10))
-    expect(fake.commands).toContain('kill -KILL -- -123')
+    await vi.waitFor(() => { expect(terminate).toHaveBeenCalledTimes(1) })
+    await new Promise(resolve => setTimeout(resolve, 0))
 
-    fake.groups = []
     await fiber.dispose()
-    await expect(terminal.terminate()).resolves.toBeUndefined()
+    expect(terminate).toHaveBeenCalledTimes(2)
+    expect(fake.handle.disconnects).toBe(1)
   })
 })

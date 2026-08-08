@@ -48,6 +48,8 @@ Status: implemented
 
 再下一次运行已到达修复后的分支，但一项真实 PowerShell executor 组合用例会在生成覆盖率报告前，触及 Vitest 的 5 秒上限。该 fixture 把产品超时和测试超时都配置成了同样的 5 秒；插桩环境下，executor 因而没有余量返回其自有结果或自有超时分类。现在，命令的产品预算为 10 秒，集成测试上限为 15 秒；退出码、输出和解析后超时值的断言均未改变。
 
+随后的分支头精确运行通过了全部 10,938 项插桩测试，并隔离出 4 个现有 fixture 依赖宿主调度的剩余位置。E2B 服务 fixture 现在会注入并观察一次立即发生的终端自动释放拒绝，再证明服务释放会重试该终端。pi-ai 发现 fixture 改为从受控响应 body 的读取过程触发取消，不再与本地 socket 定时器竞速；persistent-bash fixture 则让 PTY 增量片段成为唯一可恢复输出，再断言渲染后的回退结果。这些用例会在每种宿主上直接执行受支持分支；覆盖率清单与分母均未改变。
+
 POSIX 模式位、基于 chmod 的不可读状态和基于 chmod 的 writer lock 拒绝在 Windows 上没有等价机制。这些验收场景继续在 POSIX 上强制执行，并在 Windows 上跳过；内容、原子替换、符号链接安全、通过平台无关文件系统冲突验证的回滚与恢复，以及原生 Windows 长路径行为仍保有覆盖。只有本质上属于 POSIX 的源码分支带有窄范围且说明明确的分母忽略；没有任何源码文件或平台无关分支为适应这些差异而从 Windows 覆盖率中排除。
 
 受支持的工作流不含 Wine 专属基础设施：不存在 apt 缓存生产者、兼容性脚本、对仓库快照执行的 hoisted 安装、Windows Node 下载或本地 `check:windows-wine` 命令。[已归档的 Wine 实验](../../archived/process/2026-07-27-wine-windows-gates-experiment.md)仍作为其实测延迟与保真度取舍的历史证据，而非当前执行路径。

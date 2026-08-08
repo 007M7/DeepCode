@@ -95,6 +95,7 @@ type StubMode =
   | 'spawn-error'
   | 'send-error'
   | 'prompt-after-idle'
+  | 'incremental-fallback'
   | 'empty-page-after-latest'
   | 'paged-scrollback'
 
@@ -166,6 +167,10 @@ class StubPtySession implements PtyBackendSession {
     this.pendingText = ''
     const start = /__DSH_PERSISTENT_BASH_START_[^_]+(?:-[^_]+)*__/.exec(sent)?.[0]
     const end = /__DSH_PERSISTENT_BASH_END_[^:]+:/.exec(sent)?.[0]
+    if (this.mode === 'incremental-fallback') {
+      const incremental = `${start ?? ''}\nincrement\n${this.motd}`
+      return this.operation(Promise.resolve(this.result(this.motd, 'stdin_read')), incremental)
+    }
     if (this.mode === 'torn-status') {
       const output = `${start ?? ''}\nhello from stub\n${end ?? ''}`
       this.scrollback += output
@@ -251,10 +256,10 @@ class StubPtySession implements PtyBackendSession {
     return { viewport, waitReason, sessionStatus: this.statusValue, truncated: false }
   }
 
-  private operation(done: Promise<ReturnType<StubPtySession['result']>>): PtySendOperation {
+  private operation(done: Promise<ReturnType<StubPtySession['result']>>, delta = ''): PtySendOperation {
     return {
       done,
-      readOutput: () => ({ delta: '', truncated: false }),
+      readOutput: () => ({ delta, truncated: false }),
       cancel: () => false,
     }
   }
@@ -330,6 +335,10 @@ describe('tool-bash-persistent', () => {
 
     session.mode = 'idle-then-normal'
     expect(text(await call(ctx, owner, 'silent then complete'))).toContain('hello from')
+
+    session.mode = 'incremental-fallback'
+    session.scrollback = ''
+    expect(text(await call(ctx, owner, 'incremental fallback'))).toBe('increment')
 
     session.mode = 'prompt-only'
     const promptFallback = text(await call(ctx, owner, 'bad {'))
