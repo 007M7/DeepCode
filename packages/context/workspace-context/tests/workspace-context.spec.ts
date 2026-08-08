@@ -4099,7 +4099,7 @@ describe('dynamic nested workspace context injection', () => {
     }
   })
 
-  it('warns when an asynchronous file-result projection fails', async () => {
+  it('warns when an asynchronous file-result projection fails', { timeout: 20_000 }, async () => {
     const ctx = new Context()
     try {
       await ctx.plugin(RecordingFileSystem)

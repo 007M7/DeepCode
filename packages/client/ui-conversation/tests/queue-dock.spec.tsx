@@ -164,7 +164,11 @@ describe('QueueDock', () => {
     expect(view.getByText('remove me')).toBeTruthy()
     expect(view.getByText('second')).toBeTruthy()
 
-    act(() => { finishUpdate?.() })
+    expect(updateQueue).toHaveBeenCalledOnce()
+    await act(async () => {
+      finishUpdate?.()
+      await Promise.resolve()
+    })
     await waitFor(() => {
       expect(header).toHaveProperty('disabled', false)
       expect(header.getAttribute('aria-expanded')).toBe('false')
