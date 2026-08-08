@@ -39,6 +39,12 @@
       "path": "../../core/system-prompt"
     },
     {
+      "path": "../../sandbox/sandbox"
+    },
+    {
+      "path": "../../sandbox/sandbox-policy"
+    },
+    {
       "path": "../../support/invariants"
     }
   ]

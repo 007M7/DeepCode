@@ -4,11 +4,13 @@
  * `@deepseek-ai/dsh-pwsh-local`) backs `ctx.bash`; the tool contract is
  * PowerShell-dialect: native `C:\...` paths and `$env:NAME` variables.
  *
- * Behavior mirrors `dsh-tool-bash` call-for-call minus the sandbox surface:
- * foreground and `run_in_background` execution (background handles register
- * with the generic `ctx.tasks` runtime), the managed `DSH_*` environment
- * through the shared `bash-env` registry, and the bash marker/truncation
- * rendering story. UI presentation mirrors the bash tool's too: a completed
+ * Behavior mirrors `dsh-tool-bash` call-for-call minus the escalation
+ * surface: foreground and `run_in_background` execution (background handles
+ * register with the generic `ctx.tasks` runtime), the managed `DSH_*`
+ * environment through the shared `bash-env` registry, the per-call sandbox
+ * policy resolution (the calling session's mode and cwd travel to the
+ * confining executor), and the bash marker/truncation rendering story. UI
+ * presentation mirrors the bash tool's too: a completed
  * foreground call is a terminal card with the parsed exit-status pill, using
  * the shared exit-status parse from `@deepseek-ai/dsh-bash`.
  *
@@ -19,12 +21,14 @@ import { isAbsolute, resolve as resolvePath } from 'node:path'
 import type { Context } from 'cordis'
 import z from 'schemastery'
 import { defineTool, TOOL_ABORTED } from '@deepseek-ai/dsh-tools'
-import type { GenericCallView, TerminalCallView, ToolResult, ToolResultView } from '@deepseek-ai/dsh-tools'
+import type { GenericCallView, TerminalCallView, ToolExecution, ToolResult, ToolResultView } from '@deepseek-ai/dsh-tools'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tasks'
 import type {} from '@deepseek-ai/dsh-bash-env'
+import type { SandboxExecutionPolicy } from '@deepseek-ai/dsh-sandbox'
+import type { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 import type { BashRunResult } from '@deepseek-ai/dsh-bash'
 import { parseExitStatus } from '@deepseek-ai/dsh-bash'
 import { processOutcome } from './background.ts'
@@ -141,6 +145,14 @@ const BACKGROUND_OUTPUT_PROPERTIES = {
 
 export function apply(ctx: Context, config: Config = {}): void {
   const backgroundEnabled = config.enableRunInBackground ?? true
+  const defaultMode = ctx.bash.sandboxMode
+  const sandboxPolicy: SandboxPolicyService | undefined = defaultMode === undefined ? undefined : ctx.get('sandboxPolicy')
+  if (defaultMode !== undefined && sandboxPolicy === undefined) {
+    throw new Error('tool-pwsh: the mounted bash executor confines but ctx.sandboxPolicy is missing')
+  }
+  /** Resolve the complete standing policy for this call when a confining executor is mounted. */
+  const resolveSandboxPolicy = (exec: ToolExecution): SandboxExecutionPolicy | undefined =>
+    sandboxPolicy?.resolve(exec.agent === undefined ? {} : { session: exec.agent.session })
 
   ctx.systemPrompt.section({
     name: 'tool:pwsh',
@@ -224,12 +236,15 @@ export function apply(ctx: Context, config: Config = {}): void {
     /* jscpd:ignore-start -- the execute path mirrors dsh-tool-bash's by design (see the pwsh-tool-and-executor Agent Note). */
     async execute(args: PwshToolArgs, exec) {
       validatePwshArgs(args)
+      // Description is display metadata; workdir defaults to the caller's session.
+      const standingPolicy = resolveSandboxPolicy(exec)
       const workdir = resolveWorkdir(args.workdir, exec)
       const request = {
         command: args.command,
         ...workdir !== undefined ? { workdir } : {},
         ...args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {},
         dshEnv: ctx.bashEnv.collect(exec),
+        ...standingPolicy !== undefined ? { sandboxPolicy: standingPolicy } : {},
       }
       if (args.run_in_background === true) {
         // Undeclared keys are allowed, so schema omission also needs enforcement.

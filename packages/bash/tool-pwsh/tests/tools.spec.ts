@@ -11,7 +11,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve as resolvePath } from 'node:path'
 import { CallId } from '@deepseek-ai/dsh-llm'
@@ -24,6 +24,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { BashExecutor } from '@deepseek-ai/dsh-bash'
 import type { BashExecRequest, BashExecSpec, BashProcess, BashRunResult } from '@deepseek-ai/dsh-bash'
+import SandboxPolicyService from '@deepseek-ai/dsh-sandbox-policy'
 import * as ToolPwsh from '@deepseek-ai/dsh-tool-pwsh'
 import * as BashEnvPlugin from '@deepseek-ai/dsh-bash-env'
 import type { BashProcessRead } from '@deepseek-ai/dsh-bash'
@@ -151,8 +152,58 @@ async function setupWithTasks(toolConfig: Partial<ToolPwsh.Config> = {}, dshHome
 }
 
 /**
+ * A CONFINING fake executor (`sandboxMode` advertised): the tool must resolve
+ * the calling session's standing policy and stamp it on the request, exactly
+ * like the bash tool — the per-session sandbox-policy regression surface.
+ */
+class ConfiningFakeBash extends BashExecutor {
+  requests: BashExecRequest[] = []
+
+  override get sandboxMode() {
+    return 'read-only' as const
+  }
+
+  override resolve(request: BashExecRequest): BashExecSpec {
+    this.requests.push(request)
+    return {
+      command: request.command,
+      workdir: request.workdir ?? process.cwd(),
+      timeoutMs: request.timeoutMs ?? 60_000,
+      stdoutMaxBytes: request.stdoutMaxBytes ?? 64_000,
+      ...request.signal ? { signal: request.signal } : {},
+      ...request.dshEnv !== undefined ? { dshEnv: request.dshEnv } : {},
+      sandboxPolicy: request.sandboxPolicy,
+    }
+  }
+
+  override async run(_spec: BashExecSpec): Promise<BashRunResult> {
+    return runResult('ok\n')
+  }
+
+  override start(_spec: BashExecSpec): BashProcess {
+    return fakeProcess()
+  }
+}
+
+/** Sandboxed composition: the shared policy service + a confining executor + the pwsh tool. */
+async function setupSandboxed(toolConfig: Partial<ToolPwsh.Config> = {}) {
+  const ctx = new Context()
+  await ctx.plugin(SystemPrompt)
+  await ctx.plugin(ToolRegistry)
+  await ctx.plugin(AgentRegistry)
+  await ctx.plugin(BashEnvPlugin)
+  await ctx.plugin(SandboxPolicyService, {})
+  await ctx.plugin(ConfiningFakeBash)
+  await ctx.plugin(ToolPwsh, toolConfig)
+  const bash = ctx.bash as ConfiningFakeBash
+  return { ctx, bash }
+}
+
+/**
  * Build a fake {@link Agent} with the shared agent/session identity, give it a
  * dedicated lifecycle fiber for `Agent.ctx`, and register it in `ctx.agents`.
+ * The fake session carries an empty event log (the sandbox-policy resolver
+ * folds the log for mode overrides, mirroring a real session).
  */
 function registerFakeAgent(ctx: Context, sessionId: string): Agent {
   const scopeFiber = ctx.plugin(() => {})
@@ -160,7 +211,7 @@ function registerFakeAgent(ctx: Context, sessionId: string): Agent {
   const agent = {
     id,
     ctx: scopeFiber.ctx,
-    session: { id, header: { version: 0, id, createdAt: 0 } },
+    session: { id, header: { version: 0, id, createdAt: 0 }, events: [] },
   } as unknown as Agent
   ctx.agents.register(agent)
   return agent
@@ -394,6 +445,52 @@ describe('execution through the bash seam', () => {
     const result = await call(ctx, 'pwsh', { command: 'Start-Sleep -Seconds 60', description: 'sleep' })
     expect(result.isError).toBe(true)
     expect(result.error).toMatchObject({ info: { name: 'AbortError', code: TOOL_ABORTED } })
+  })
+})
+
+describe('per-call sandbox policy resolution', () => {
+  it('stamps the CALLING SESSION\'s resolved policy onto the request (session cwd, not the server launch dir)', async () => {
+    const { ctx, bash } = await setupSandboxed()
+    const sessionCwd = mkdtempSync(join(tmpdir(), 'dsh-tool-pwsh-policy-'))
+    const agent = registerFakeAgent(ctx, 'policy-session')
+    Object.assign(agent.session.header, { cwd: sessionCwd })
+    const result = await call(ctx, 'pwsh', { command: 'Write-Output hi', description: 'say hi' }, agent)
+    expect(result.isError).toBe(false)
+    // The policy's workspace root is the session cwd canonicalized by the
+    // policy service (realpath + resolve), NEVER the web server's launch dir;
+    // the calling session's identity rides along for backend per-session state.
+    expect(bash.requests[0]?.sandboxPolicy).toEqual({
+      mode: 'read-only',
+      workspaceRoot: resolvePath(realpathSync.native(sessionCwd)),
+      sessionId: 'policy-session',
+    })
+  })
+
+  it('falls back to the deployment policy without an agent, and omits the field entirely without a confining executor', async () => {
+    const { ctx, bash } = await setupSandboxed()
+    await call(ctx, 'pwsh', { command: 'Write-Output hi', description: 'say hi' })
+    expect(bash.requests[0]?.sandboxPolicy).toEqual({
+      mode: 'read-only',
+      workspaceRoot: resolvePath(realpathSync.native(process.cwd())),
+    })
+
+    // The base FakeBash advertises no sandboxMode, so the tool must not stamp
+    // any policy (the executor defaulting stays the executor's own).
+    const plain = await setup()
+    await call(plain.ctx, 'pwsh', { command: 'Write-Output hi', description: 'say hi' })
+    expect(plain.bash.requests[0]).not.toHaveProperty('sandboxPolicy')
+  })
+
+  it('fails load when a confining executor has no shared sandbox-policy resolver', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(BashEnvPlugin)
+    await ctx.plugin(ConfiningFakeBash)
+    await expect(ctx.plugin(ToolPwsh)).rejects.toThrow(
+      'tool-pwsh: the mounted bash executor confines but ctx.sandboxPolicy is missing',
+    )
   })
 })
 
