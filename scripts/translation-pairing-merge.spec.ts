@@ -58,6 +58,28 @@ function installFixtureRuntime(root: string): void {
   symlinkSync(join(workspaceRoot, 'scripts'), join(root, 'scripts'), linkType)
 }
 
+function startMergeWithFakeNode(
+  fixture: Fixture,
+  nodeScript = '#!/bin/sh\nexit 72\n',
+) {
+  const fakeBin = join(fixture.root, 'fake-bin')
+  const fakeNode = join(fakeBin, 'node')
+  write(fixture.root, 'fake-bin/node', nodeScript)
+  chmodSync(fakeNode, 0o755)
+  git(fixture, [
+    'config',
+    'merge.dsh-translation-pairing.driver',
+    `${shellQuote(driverLauncher)} %O %A %B %P`,
+  ])
+  return spawnSync('git', ['-C', fixture.root, 'merge', '--no-commit', 'master'], {
+    encoding: 'utf8',
+    env: {
+      ...fixture.env,
+      PATH: `${fakeBin}${delimiter}${fixture.env.PATH ?? ''}`,
+    },
+  })
+}
+
 function createFixture(attributes = true): Fixture {
   const root = mkdtempSync(join(tmpdir(), 'dsh-translation-pairing-merge-'))
   fixtures.push(root)
@@ -327,24 +349,9 @@ describe('translation pairing merge composition', () => {
   it('leaves an ordinary recoverable conflict when the configured runtime is unavailable', () => {
     const fixture = createFixture()
     const records = createDivergedPair(fixture)
-    const fakeBin = join(fixture.root, 'fake-bin')
-    const fakeNode = join(fakeBin, 'node')
-    write(fixture.root, 'fake-bin/node', '#!/bin/sh\nexit 72\n')
-    chmodSync(fakeNode, 0o755)
-    const command = [
-      shellQuote(driverLauncher),
-      '%O', '%A', '%B', '%P',
-    ].join(' ')
-    git(fixture, ['config', 'merge.dsh-translation-pairing.driver', command])
     const headBefore = git(fixture, ['rev-parse', 'HEAD'])
 
-    const result = spawnSync('git', ['-C', fixture.root, 'merge', '--no-commit', 'master'], {
-      encoding: 'utf8',
-      env: {
-        ...fixture.env,
-        PATH: `${fakeBin}${delimiter}${fixture.env.PATH ?? ''}`,
-      },
-    })
+    const result = startMergeWithFakeNode(fixture)
 
     expect(result.status).toBe(1)
     expect(result.stderr).toContain('runtime is unavailable; leaving an ordinary text conflict')
@@ -366,27 +373,10 @@ describe('translation pairing merge composition', () => {
   it('falls back before a broken driver entrypoint can replace the launcher', () => {
     const fixture = createFixture()
     createDivergedPair(fixture)
-    const fakeBin = join(fixture.root, 'fake-bin')
-    const fakeNode = join(fakeBin, 'node')
-    write(
-      fixture.root,
-      'fake-bin/node',
+    const result = startMergeWithFakeNode(
+      fixture,
       '#!/bin/sh\nif [ "$3" = "--eval" ]; then exit 0; fi\nexit 72\n',
     )
-    chmodSync(fakeNode, 0o755)
-    git(fixture, [
-      'config',
-      'merge.dsh-translation-pairing.driver',
-      `${shellQuote(driverLauncher)} %O %A %B %P`,
-    ])
-
-    const result = spawnSync('git', ['-C', fixture.root, 'merge', '--no-commit', 'master'], {
-      encoding: 'utf8',
-      env: {
-        ...fixture.env,
-        PATH: `${fakeBin}${delimiter}${fixture.env.PATH ?? ''}`,
-      },
-    })
 
     expect(result.status).toBe(1)
     expect(result.stderr).toContain('runtime is unavailable; leaving an ordinary text conflict')
@@ -398,23 +388,7 @@ describe('translation pairing merge composition', () => {
   it('keeps a clean text fallback unresolved until the explicit resolver confirms it', () => {
     const fixture = createFixture()
     createTextCleanDivergedPair(fixture)
-    const fakeBin = join(fixture.root, 'fake-bin')
-    const fakeNode = join(fakeBin, 'node')
-    write(fixture.root, 'fake-bin/node', '#!/bin/sh\nexit 72\n')
-    chmodSync(fakeNode, 0o755)
-    git(fixture, [
-      'config',
-      'merge.dsh-translation-pairing.driver',
-      `${shellQuote(driverLauncher)} %O %A %B %P`,
-    ])
-
-    const result = spawnSync('git', ['-C', fixture.root, 'merge', '--no-commit', 'master'], {
-      encoding: 'utf8',
-      env: {
-        ...fixture.env,
-        PATH: `${fakeBin}${delimiter}${fixture.env.PATH ?? ''}`,
-      },
-    })
+    const result = startMergeWithFakeNode(fixture)
 
     expect(result.status).toBe(1)
     expect(git(fixture, ['diff', '--name-only', '--diff-filter=U'])).toBe('docs/guide.i18n.yaml')
