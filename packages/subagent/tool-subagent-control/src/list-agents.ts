@@ -11,27 +11,43 @@ import type { Context } from 'cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { SessionId } from '@deepseek-ai/dsh-session'
+import { assertNever } from '@deepseek-ai/dsh-llm'
 import type { SubagentDescendantListEntry, SubagentListEntry } from '@deepseek-ai/dsh-subagent'
 
 export const name = 'tool-subagent-list-agents'
 export const inject = ['tools', 'subagents', 'agents']
 
+type ListAgentsScope = 'children' | 'descendants'
+
+interface ListAgentsRequest {
+  readonly scope?: ListAgentsScope
+}
+
+interface ListAgentsSpec {
+  readonly scope: ListAgentsScope
+}
+
 type ListAgentsEntry =
   | {
     readonly kind: 'child'
-    readonly id: string
+    readonly id: SessionId
     readonly label: string
     readonly status: 'running' | 'idle' | 'complete'
-    readonly parent?: string
+    readonly parent?: SessionId
     readonly depth?: number
   }
   | {
     readonly kind: 'diagnostic'
-    readonly id: string
+    readonly id: SessionId
     readonly reason: 'corrupt' | 'unsupported' | 'unavailable'
-    readonly parent?: string
+    readonly parent?: SessionId
     readonly depth?: number
   }
+
+/** Resolve the optional model request into an internal required-scope spec. */
+function resolveListAgentsRequest(request: ListAgentsRequest): ListAgentsSpec {
+  return { scope: request.scope ?? 'children' }
+}
 
 /**
  * Refine one candidate's status through the live Agent registry: `running`
@@ -50,7 +66,7 @@ function project(
   entry: SubagentListEntry,
   position?: Pick<SubagentDescendantListEntry, 'parentId' | 'depth'>,
 ): ListAgentsEntry | undefined {
-  const at = position === undefined ? {} : { parent: position.parentId as string, depth: position.depth }
+  const at = position === undefined ? {} : { parent: position.parentId, depth: position.depth }
   if (entry.kind === 'diagnostic') {
     return { kind: 'diagnostic', id: entry.id, reason: entry.reason, ...at }
   }
@@ -121,22 +137,25 @@ export function apply(ctx: Context): void {
           ],
         },
       },
-      render: (args, entries) => [{
-        type: 'text',
-        text: entries.length === 0
-          ? '(no subagents)'
-          : entries.map((entry) => {
-            // A descendants row always carries its position; children rows
-            // never render it. String() spans the schema-optional shape
-            // without a dead fallback branch.
-            const at = args.scope === 'descendants'
-              ? ` parent=${String(entry.parent)} depth=${String(entry.depth)}`
-              : ''
-            return entry.kind === 'child'
-              ? `${entry.id} [${entry.status}]${at} — ${entry.label}`
-              : `${entry.id} [diagnostic: ${entry.reason}]${at}`
-          }).join('\n'),
-      }],
+      render: (args, entries) => {
+        const request = resolveListAgentsRequest(args)
+        return [{
+          type: 'text',
+          text: entries.length === 0
+            ? '(no subagents)'
+            : entries.map((entry) => {
+              // A descendants row always carries its position; children rows
+              // never render it. String() spans the schema-optional shape
+              // without a dead fallback branch.
+              const at = request.scope === 'descendants'
+                ? ` parent=${String(entry.parent)} depth=${String(entry.depth)}`
+                : ''
+              return entry.kind === 'child'
+                ? `${entry.id} [${entry.status}]${at} — ${entry.label}`
+                : `${entry.id} [diagnostic: ${entry.reason}]${at}`
+            }).join('\n'),
+        }]
+      },
     },
     async execute(args, exec) {
       const parent = exec.agent
@@ -144,18 +163,26 @@ export function apply(ctx: Context): void {
         // Non-agent callers have no session whose children could be listed.
         throw new Error('list_agents requires a calling agent (exec.agent was undefined)')
       }
+      const request = resolveListAgentsRequest(args)
       // The registry drains started tool bodies, so the scan must observe the
       // call's signal rather than finish a slow catalog after cancellation.
-      if (args.scope === 'descendants') {
-        const entries = await ctx.subagents.listDescendants(parent.id, exec.signal)
-        return entries
-          .map(entry => project(ctx.agents, entry, entry))
-          .filter(entry => entry !== undefined)
+      switch (request.scope) {
+        case 'children': {
+          const entries = await ctx.subagents.listChildren(parent.id, exec.signal)
+          return entries
+            .map(entry => project(ctx.agents, entry))
+            .filter(entry => entry !== undefined)
+        }
+        case 'descendants': {
+          const entries = await ctx.subagents.listDescendants(parent.id, exec.signal)
+          return entries
+            .map(entry => project(ctx.agents, entry, entry))
+            .filter(entry => entry !== undefined)
+        }
+        /* v8 ignore next 2 -- the resolver normalizes the schema-validated closed scope before dispatch. */
+        default:
+          return assertNever(request.scope, 'list_agents scope')
       }
-      const entries = await ctx.subagents.listChildren(parent.id, exec.signal)
-      return entries
-        .map(entry => project(ctx.agents, entry))
-        .filter(entry => entry !== undefined)
     },
   }))
 }
