@@ -9,6 +9,7 @@ import { posix } from 'node:path'
 import { Context } from 'cordis'
 import z from 'schemastery'
 import { SubprocessService } from '@deepseek-ai/dsh-subprocess'
+import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import type {
   SubprocessHandle,
   SubprocessSpawnSpec,
@@ -33,6 +34,18 @@ interface SchemaResolvedConfig extends Config {
 interface TerminalSetup {
   done: Promise<void>
   controller: AbortController
+}
+
+/**
+ * Enforce the seam's documented grace bound (positive, finite, one Node timer),
+ * matching subprocess-local's spawn-time check; an unbounded grace would make
+ * the remote force-escalation deadline unreachable.
+ * @param graceMs - The spec's cleanup grace in milliseconds.
+ */
+function requireRepresentableGrace(graceMs: number): void {
+  if (!Number.isFinite(graceMs) || graceMs <= 0 || graceMs > MAX_TIMER_DELAY_MS) {
+    throw new Error(`subprocess graceMs must be a positive finite number no greater than ${MAX_TIMER_DELAY_MS}`)
+  }
 }
 
 /** E2B command manager registered as `ctx.subprocess`. */
@@ -130,6 +143,7 @@ export class E2BSubprocessService extends SubprocessService {
     if (program === undefined || program.length === 0) {
       throw new Error('invalid argv: expected a non-empty program name at argv[0]')
     }
+    requireRepresentableGrace(spec.graceMs)
     if (spec.signal?.aborted === true) {
       throw new Error(`aborted before spawn: ${String(spec.signal.reason)}`)
     }
@@ -153,6 +167,7 @@ export class E2BSubprocessService extends SubprocessService {
     if (program === undefined || program.length === 0) {
       throw new Error('subprocess-e2b: terminal argv must contain a program')
     }
+    requireRepresentableGrace(spec.graceMs)
     spec.signal?.throwIfAborted()
     const stateDir = posix.join(this.ctx.e2b.runtimeRoot, 'terminals', randomUUID())
     const done = Promise.withResolvers<void>()

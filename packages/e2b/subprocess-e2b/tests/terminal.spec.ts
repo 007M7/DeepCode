@@ -259,10 +259,20 @@ function holdRequestUntilAbort(started: PromiseWithResolvers<AbortSignal>) {
   }
 }
 
+/** Spawn the terminal under test with the config default the service would pass. */
+function testSpawn(
+  runtime: Parameters<typeof spawnE2BTerminal>[0],
+  spec: Parameters<typeof spawnE2BTerminal>[1],
+  stateDir: string,
+  pollMs = 20,
+): ReturnType<typeof spawnE2BTerminal> {
+  return spawnE2BTerminal(runtime, spec, stateDir, pollMs)
+}
+
 describe('E2B terminal allocation', () => {
   it('hides bootstrap-shell bytes and preserves requested-shell bytes across the output boundary', async () => {
     const fake = new FakeTerminalSandbox()
-    const terminal = await spawnE2BTerminal(runtime(fake), spec(), '/runtime/terminal-one')
+    const terminal = await testSpawn(runtime(fake), spec(), '/runtime/terminal-one')
     let output = ''
     terminal.output.on('data', (chunk) => { output += String(chunk) })
     await new Promise(resolve => setTimeout(resolve, 0))
@@ -314,7 +324,7 @@ describe('E2B terminal allocation', () => {
   it('inherits only safe ambient values and limits the allocation signal to setup', async () => {
     const fake = new FakeTerminalSandbox()
     const controller = new AbortController()
-    const terminal = await spawnE2BTerminal(
+    const terminal = await testSpawn(
       runtime(fake),
       spec({ env: undefined, signal: controller.signal }),
       '/runtime/abort-live',
@@ -335,7 +345,7 @@ describe('E2B terminal allocation', () => {
     const fake = new FakeTerminalSandbox()
     fake.deferCreate()
     const controller = new AbortController()
-    const spawning = spawnE2BTerminal(
+    const spawning = testSpawn(
       runtime(fake),
       spec({ signal: controller.signal }),
       '/runtime/allocation-cancel',
@@ -352,23 +362,23 @@ describe('E2B terminal allocation', () => {
 
   it('rejects malformed environment and argv values before PTY allocation', async () => {
     const invalidName = new FakeTerminalSandbox()
-    await expect(spawnE2BTerminal(runtime(invalidName), spec({ env: { 'BAD=NAME': 'x' } }), '/runtime/name'))
+    await expect(testSpawn(runtime(invalidName), spec({ env: { 'BAD=NAME': 'x' } }), '/runtime/name'))
       .rejects.toThrow('environment entries')
     expect(invalidName.createOptions).toBeUndefined()
 
     const invalidValue = new FakeTerminalSandbox()
-    await expect(spawnE2BTerminal(runtime(invalidValue), spec({ env: { BAD: 'x\0y' } }), '/runtime/value'))
+    await expect(testSpawn(runtime(invalidValue), spec({ env: { BAD: 'x\0y' } }), '/runtime/value'))
       .rejects.toThrow('environment entries')
 
     const invalidArg = new FakeTerminalSandbox()
-    await expect(spawnE2BTerminal(runtime(invalidArg), spec({ argv: ['/bin/bash', 'x\0y'] }), '/runtime/argv'))
+    await expect(testSpawn(runtime(invalidArg), spec({ argv: ['/bin/bash', 'x\0y'] }), '/runtime/argv'))
       .rejects.toThrow('argv must not contain NUL')
   })
 
   it('cleans malformed handles, bootstrap failures, and readiness failures', async () => {
     const failedState = new FakeTerminalSandbox()
     failedState.writeError = new Error('state write failed')
-    await expect(spawnE2BTerminal(runtime(failedState), spec(), '/runtime/state-write'))
+    await expect(testSpawn(runtime(failedState), spec(), '/runtime/state-write'))
       .rejects.toThrow('state write failed')
     expect(failedState.writes.get('/runtime/state-write/environment')).toContain('KEEP=visible\0')
     expect(failedState.removed).toContain('/runtime/state-write')
@@ -377,19 +387,19 @@ describe('E2B terminal allocation', () => {
     const stateAlreadyGone = new FakeTerminalSandbox()
     stateAlreadyGone.writeError = new Error('state write failed after external cleanup')
     stateAlreadyGone.removeError = new FileNotFoundError('state already gone')
-    await expect(spawnE2BTerminal(runtime(stateAlreadyGone), spec(), '/runtime/state-gone'))
+    await expect(testSpawn(runtime(stateAlreadyGone), spec(), '/runtime/state-gone'))
       .rejects.toThrow('state write failed after external cleanup')
 
     const invalidPid = new FakeTerminalSandbox()
     invalidPid.handle.pid = 0
-    await expect(spawnE2BTerminal(runtime(invalidPid), spec(), '/runtime/invalid-pid'))
+    await expect(testSpawn(runtime(invalidPid), spec(), '/runtime/invalid-pid'))
       .rejects.toThrow('invalid terminal pid 0')
     expect(invalidPid.handle.sdkKills).toBe(1)
     expect(invalidPid.removed).toContain('/runtime/invalid-pid')
 
     const failedInput = new FakeTerminalSandbox()
     failedInput.sendError = new Error('bootstrap failed')
-    await expect(spawnE2BTerminal(runtime(failedInput), spec(), '/runtime/input'))
+    await expect(testSpawn(runtime(failedInput), spec(), '/runtime/input'))
       .rejects.toThrow('bootstrap failed')
     expect(failedInput.commands).toContain('kill -TERM -- -123')
     expect(failedInput.groups).toEqual([])
@@ -397,7 +407,7 @@ describe('E2B terminal allocation', () => {
     const invalidSession = new FakeTerminalSandbox()
     invalidSession.sessionId = 'not-a-session\n'
     invalidSession.clearOnTerm = false
-    await expect(spawnE2BTerminal(runtime(invalidSession), spec(), '/runtime/session'))
+    await expect(testSpawn(runtime(invalidSession), spec(), '/runtime/session'))
       .rejects.toThrow('cannot resolve process session')
     expect(invalidSession.commands).toContain('kill -TERM -- -123')
     expect(invalidSession.commands).toContain('kill -KILL -- -123')
@@ -410,7 +420,7 @@ describe('E2B terminal allocation', () => {
     const termFailed = new FakeTerminalSandbox()
     termFailed.sendError = new Error('bootstrap failed')
     termFailed.termFailure = new Error('TERM transport failed')
-    await expect(spawnE2BTerminal(runtime(termFailed), spec(), '/runtime/term-failed'))
+    await expect(testSpawn(runtime(termFailed), spec(), '/runtime/term-failed'))
       .rejects.toThrow('bootstrap failed')
     expect(termFailed.commands).toContain('kill -KILL -- -123')
     expect(termFailed.handle.sdkKills).toBe(1)
@@ -421,7 +431,7 @@ describe('E2B terminal allocation', () => {
     uninspectable.handle.sdkKillError = new Error('PTY kill failed')
     let uninspectableFailure: unknown
     try {
-      await spawnE2BTerminal(runtime(uninspectable), spec(), '/runtime/uninspectable')
+      await testSpawn(runtime(uninspectable), spec(), '/runtime/uninspectable')
     } catch (error: unknown) {
       uninspectableFailure = error
     }
@@ -432,21 +442,21 @@ describe('E2B terminal allocation', () => {
     survivingGroups.sendError = new Error('bootstrap failed')
     survivingGroups.clearOnTerm = false
     survivingGroups.clearOnKill = false
-    await expect(spawnE2BTerminal(runtime(survivingGroups), spec({ graceMs: 1 }), '/runtime/surviving-groups'))
+    await expect(testSpawn(runtime(survivingGroups), spec({ graceMs: 1 }), '/runtime/surviving-groups'))
       .rejects.toThrow('bootstrap failed')
 
     const survivingPid = new FakeTerminalSandbox()
     survivingPid.sendError = new Error('bootstrap failed')
     survivingPid.groups = []
     survivingPid.handle.settleOnSdkKill = false
-    await expect(spawnE2BTerminal(runtime(survivingPid), spec({ graceMs: 1 }), '/runtime/surviving-pid'))
+    await expect(testSpawn(runtime(survivingPid), spec({ graceMs: 1 }), '/runtime/surviving-pid'))
       .rejects.toThrow('bootstrap failed')
 
     const waitFailed = new FakeTerminalSandbox()
     waitFailed.handle.waitError = new Error('wait failed')
     waitFailed.handle.settleOnSdkKill = false
     waitFailed.handle.sdkKillError = new Error('kill failed')
-    await expect(spawnE2BTerminal(runtime(waitFailed), spec(), '/runtime/wait-failed'))
+    await expect(testSpawn(runtime(waitFailed), spec(), '/runtime/wait-failed'))
       .rejects.toThrow('wait failed')
     expect(waitFailed.handle.sdkKills).toBe(1)
 
@@ -454,7 +464,7 @@ describe('E2B terminal allocation', () => {
     cleanupFailed.handle.pid = 0
     cleanupFailed.handle.sdkKillError = new Error('kill transport failed')
     cleanupFailed.removeError = new Error('remove transport failed')
-    await expect(spawnE2BTerminal(runtime(cleanupFailed), spec(), '/runtime/cleanup-failed'))
+    await expect(testSpawn(runtime(cleanupFailed), spec(), '/runtime/cleanup-failed'))
       .rejects.toThrow('invalid terminal pid 0')
 
     const expiredDuringRollback = new FakeTerminalSandbox()
@@ -463,7 +473,7 @@ describe('E2B terminal allocation', () => {
     expiredDuringRollback.handle.settleOnSdkKill = false
     expiredDuringRollback.handle.sdkKillError = new SandboxNotFoundError('sandbox expired')
     expiredDuringRollback.removeError = new SandboxNotFoundError('sandbox expired')
-    await expect(spawnE2BTerminal(runtime(expiredDuringRollback), spec(), '/runtime/expired-rollback'))
+    await expect(testSpawn(runtime(expiredDuringRollback), spec(), '/runtime/expired-rollback'))
       .rejects.toThrow('bootstrap failed before timeout')
     expect(expiredDuringRollback.handle.sdkKills).toBe(1)
 
@@ -471,30 +481,30 @@ describe('E2B terminal allocation', () => {
     expiredBeforeSdkRollback.handle.waitError = new Error('wait failed after timeout')
     expiredBeforeSdkRollback.handle.sdkKillError = new SandboxNotFoundError('sandbox expired')
     expiredBeforeSdkRollback.handle.settleOnSdkKill = false
-    await expect(spawnE2BTerminal(runtime(expiredBeforeSdkRollback), spec(), '/runtime/expired-sdk-rollback'))
+    await expect(testSpawn(runtime(expiredBeforeSdkRollback), spec(), '/runtime/expired-sdk-rollback'))
       .rejects.toThrow('wait failed after timeout')
 
     const missingDuringDisconnect = new FakeTerminalSandbox()
     missingDuringDisconnect.sendError = new Error('bootstrap failed before disconnect')
     missingDuringDisconnect.handle.disconnectError = new SandboxNotFoundError('sandbox expired')
-    await expect(spawnE2BTerminal(runtime(missingDuringDisconnect), spec(), '/runtime/missing-disconnect'))
+    await expect(testSpawn(runtime(missingDuringDisconnect), spec(), '/runtime/missing-disconnect'))
       .rejects.toThrow('bootstrap failed before disconnect')
 
     const failedDisconnect = new FakeTerminalSandbox()
     failedDisconnect.sendError = new Error('bootstrap failed with disconnect failure')
     failedDisconnect.handle.disconnectError = new Error('disconnect transport failed')
-    await expect(spawnE2BTerminal(runtime(failedDisconnect), spec(), '/runtime/failed-disconnect'))
+    await expect(testSpawn(runtime(failedDisconnect), spec(), '/runtime/failed-disconnect'))
       .rejects.toThrow('bootstrap failed with disconnect failure')
   })
 
   it('propagates setup cancellation and provider failures', async () => {
     const aborted = new FakeTerminalSandbox()
-    await expect(spawnE2BTerminal(runtime(aborted), spec({ signal: AbortSignal.abort(new Error('stop')) }), '/runtime/abort'))
+    await expect(testSpawn(runtime(aborted), spec({ signal: AbortSignal.abort(new Error('stop')) }), '/runtime/abort'))
       .rejects.toThrow('stop')
 
     const createFailed = new FakeTerminalSandbox()
     createFailed.createError = new Error('create failed')
-    await expect(spawnE2BTerminal(runtime(createFailed), spec(), '/runtime/create'))
+    await expect(testSpawn(runtime(createFailed), spec(), '/runtime/create'))
       .rejects.toThrow('create failed')
 
   })
@@ -502,7 +512,7 @@ describe('E2B terminal allocation', () => {
   it('bounds a missing bootstrap-output boundary by process exit or cancellation', async () => {
     const exited = new FakeTerminalSandbox()
     exited.emitOutputMarker = false
-    const exiting = spawnE2BTerminal(runtime(exited), spec(), '/runtime/missing-output-boundary')
+    const exiting = testSpawn(runtime(exited), spec(), '/runtime/missing-output-boundary')
     await vi.waitFor(() => { expect(exited.inputs).toHaveLength(1) })
     exited.handle.succeed(0)
     await expect(exiting).rejects.toThrow('terminal exited before publishing its output boundary')
@@ -510,7 +520,7 @@ describe('E2B terminal allocation', () => {
     const cancelled = new FakeTerminalSandbox()
     cancelled.emitOutputMarker = false
     const controller = new AbortController()
-    const cancelling = spawnE2BTerminal(
+    const cancelling = testSpawn(
       runtime(cancelled),
       spec({ signal: controller.signal }),
       '/runtime/cancel-output-boundary',
@@ -525,7 +535,7 @@ describe('E2B terminal allocation', () => {
 describe('E2B terminal lifecycle', () => {
   it('aborts and joins in-flight terminal operations before cleanup', async () => {
     const fake = new FakeTerminalSandbox()
-    const terminal = await spawnE2BTerminal(runtime(fake), spec(), '/runtime/in-flight-operations')
+    const terminal = await testSpawn(runtime(fake), spec(), '/runtime/in-flight-operations')
     const writeStarted = Promise.withResolvers<AbortSignal>()
     const inspectStarted = Promise.withResolvers<AbortSignal>()
     const signalStarted = Promise.withResolvers<AbortSignal>()
@@ -563,7 +573,7 @@ describe('E2B terminal lifecycle', () => {
   it('maps ordinary exits, closes output, and reports an absent foreground after exit', async () => {
     const fake = new FakeTerminalSandbox()
     fake.groups = []
-    const terminal = await spawnE2BTerminal(runtime(fake), spec(), '/runtime/natural')
+    const terminal = await testSpawn(runtime(fake), spec(), '/runtime/natural')
     terminal.output.resume()
     const ended = once(terminal.output, 'end')
     fake.handle.succeed(7)
@@ -583,7 +593,7 @@ describe('E2B terminal lifecycle', () => {
   ] as const)('classifies an unrequested command exit %i', async (exitCode, expected) => {
     const fake = new FakeTerminalSandbox()
     fake.groups = []
-    const terminal = await spawnE2BTerminal(runtime(fake), spec(), `/runtime/exit-${exitCode}`)
+    const terminal = await testSpawn(runtime(fake), spec(), `/runtime/exit-${exitCode}`)
     fake.handle.fail(exitCode)
     await expect(terminal.done).resolves.toEqual(expected)
     await terminal.terminate()
@@ -593,7 +603,7 @@ describe('E2B terminal lifecycle', () => {
     const fake = new FakeTerminalSandbox()
     fake.groups = []
     fake.zombieGroups = [123]
-    const terminal = await spawnE2BTerminal(runtime(fake), spec(), '/runtime/zombie-session')
+    const terminal = await testSpawn(runtime(fake), spec(), '/runtime/zombie-session')
 
     fake.handle.succeed(0)
     await expect(terminal.done).resolves.toEqual({ exitCode: 0, signal: null })
@@ -605,7 +615,7 @@ describe('E2B terminal lifecycle', () => {
 
   it('treats a timeout-killed sandbox as quiescent during terminal cleanup', async () => {
     const fake = new FakeTerminalSandbox()
-    const terminal = await spawnE2BTerminal(runtime(fake), spec(), '/runtime/expired-sandbox')
+    const terminal = await testSpawn(runtime(fake), spec(), '/runtime/expired-sandbox')
     fake.sessionGroupsFailure = new SandboxNotFoundError('sandbox expired')
     fake.handle.succeed(0)
 
@@ -618,7 +628,7 @@ describe('E2B terminal lifecycle', () => {
     fake.groups = []
     fake.handle.settleOnSdkKill = false
     fake.handle.sdkKillError = new SandboxNotFoundError('sandbox expired')
-    const terminal = await spawnE2BTerminal(runtime(fake), spec({ graceMs: 1 }), '/runtime/expired-pty-kill')
+    const terminal = await testSpawn(runtime(fake), spec({ graceMs: 1 }), '/runtime/expired-pty-kill')
 
     await terminal.terminate()
     expect(fake.handle.sdkKills).toBe(1)
@@ -629,7 +639,7 @@ describe('E2B terminal lifecycle', () => {
     fake.groups = []
     fake.handle.settleOnSdkKill = false
     fake.handle.sdkKillError = new Error('PTY kill transport failed')
-    const terminal = await spawnE2BTerminal(runtime(fake), spec({ graceMs: 1 }), '/runtime/failed-pty-kill')
+    const terminal = await testSpawn(runtime(fake), spec({ graceMs: 1 }), '/runtime/failed-pty-kill')
 
     await expect(terminal.terminate()).rejects.toThrow('PTY kill transport failed')
     fake.handle.sdkKillError = undefined
@@ -643,7 +653,7 @@ describe('E2B terminal lifecycle', () => {
     ['propagates another failure', new Error('disconnect failed'), false],
   ] as const)('%s while disconnecting a settled terminal', async (_label, failure, accepted) => {
     const fake = new FakeTerminalSandbox()
-    const terminal = await spawnE2BTerminal(runtime(fake), spec(), `/runtime/disconnect-${accepted}`)
+    const terminal = await testSpawn(runtime(fake), spec(), `/runtime/disconnect-${accepted}`)
     fake.handle.disconnectError = failure
     fake.groups = []
     fake.handle.succeed(0)
@@ -655,7 +665,7 @@ describe('E2B terminal lifecycle', () => {
   it('rejects killing the terminal shell and propagates live foreground failures', async () => {
     const fake = new FakeTerminalSandbox()
     fake.foreground = '123\n'
-    const terminal = await spawnE2BTerminal(runtime(fake), spec(), '/runtime/signal')
+    const terminal = await testSpawn(runtime(fake), spec(), '/runtime/signal')
     await expect(terminal.signalForeground('SIGKILL')).rejects.toThrow('refusing to SIGKILL')
     fake.foreground = 'invalid\n'
     await expect(terminal.inspectForeground()).rejects.toThrow('cannot resolve foreground')
@@ -671,7 +681,7 @@ describe('E2B terminal lifecycle', () => {
     const fake = new FakeTerminalSandbox()
     fake.groups = [123, 456]
     fake.clearOnTerm = false
-    const terminal = await spawnE2BTerminal(runtime(fake), spec({ graceMs: 0 }), '/runtime/escalate')
+    const terminal = await testSpawn(runtime(fake), spec({ graceMs: 0 }), '/runtime/escalate')
     const terminating = terminal.terminate()
     await expect(terminal.done).resolves.toEqual({ exitCode: null, signal: 'SIGKILL' })
     await terminating
@@ -682,7 +692,7 @@ describe('E2B terminal lifecycle', () => {
   it('surfaces cleanup failures and allows a later retry', async () => {
     const fake = new FakeTerminalSandbox()
     fake.groups = [1]
-    const terminal = await spawnE2BTerminal(runtime(fake), spec({ graceMs: 1 }), '/runtime/retry')
+    const terminal = await testSpawn(runtime(fake), spec({ graceMs: 1 }), '/runtime/retry')
     await expect(terminal.terminate()).rejects.toThrow('unsafe process group 1')
 
     fake.groups = []
@@ -694,7 +704,7 @@ describe('E2B terminal lifecycle', () => {
   it('propagates a process-group signalling transport failure before retry', async () => {
     const fake = new FakeTerminalSandbox()
     fake.termFailure = new Error('signal transport failed')
-    const terminal = await spawnE2BTerminal(runtime(fake), spec({ graceMs: 1 }), '/runtime/signal-failure')
+    const terminal = await testSpawn(runtime(fake), spec({ graceMs: 1 }), '/runtime/signal-failure')
     await expect(terminal.terminate()).rejects.toThrow('signal transport failed')
 
     fake.groups = []
@@ -704,7 +714,7 @@ describe('E2B terminal lifecycle', () => {
 
     const alreadyExited = new FakeTerminalSandbox()
     alreadyExited.termFailure = commandError(1)
-    const tolerant = await spawnE2BTerminal(runtime(alreadyExited), spec({ graceMs: 1 }), '/runtime/group-exited')
+    const tolerant = await testSpawn(runtime(alreadyExited), spec({ graceMs: 1 }), '/runtime/group-exited')
     const tolerantTermination = tolerant.terminate()
     await expect(tolerant.done).resolves.toEqual({ exitCode: null, signal: 'SIGKILL' })
     await tolerantTermination
@@ -714,7 +724,7 @@ describe('E2B terminal lifecycle', () => {
     const fake = new FakeTerminalSandbox()
     fake.groups = []
     fake.removeError = new Error('private state already gone')
-    const terminal = await spawnE2BTerminal(runtime(fake), spec(), '/runtime/reject-during-cleanup')
+    const terminal = await testSpawn(runtime(fake), spec(), '/runtime/reject-during-cleanup')
     terminal.output.on('error', () => {})
     const cleanup = terminal.terminate()
     await Promise.resolve()
@@ -727,7 +737,7 @@ describe('E2B terminal lifecycle', () => {
     const fake = new FakeTerminalSandbox()
     fake.groups = []
     fake.handle.settleOnSdkKill = false
-    const terminal = await spawnE2BTerminal(runtime(fake), spec({ graceMs: 1 }), '/runtime/reject-after-kill')
+    const terminal = await testSpawn(runtime(fake), spec({ graceMs: 1 }), '/runtime/reject-after-kill')
     terminal.output.on('error', () => {})
     const cleanup = terminal.terminate()
     while (fake.handle.sdkKills === 0) await new Promise(resolve => setTimeout(resolve, 0))
@@ -741,20 +751,20 @@ describe('E2B terminal lifecycle', () => {
     const survivor = new FakeTerminalSandbox()
     survivor.clearOnTerm = false
     survivor.clearOnKill = false
-    const terminal = await spawnE2BTerminal(runtime(survivor), spec({ graceMs: 1 }), '/runtime/survivor')
+    const terminal = await testSpawn(runtime(survivor), spec({ graceMs: 1 }), '/runtime/survivor')
     await expect(terminal.terminate()).rejects.toThrow('surviving process groups: 123')
 
     const livePid = new FakeTerminalSandbox()
     livePid.groups = []
     livePid.handle.settleOnSdkKill = false
-    const live = await spawnE2BTerminal(runtime(livePid), spec({ graceMs: 1 }), '/runtime/live-pid')
+    const live = await testSpawn(runtime(livePid), spec({ graceMs: 1 }), '/runtime/live-pid')
     await expect(live.terminate()).rejects.toThrow('surviving pid: 123')
     livePid.handle.succeed(0)
     await live.done
 
     const crashed = new FakeTerminalSandbox()
     crashed.groups = []
-    const failed = await spawnE2BTerminal(runtime(crashed), spec(), '/runtime/crashed')
+    const failed = await testSpawn(runtime(crashed), spec(), '/runtime/crashed')
     const outputError = once(failed.output, 'error')
     crashed.handle.crash('transport gone')
     await expect(failed.done).rejects.toEqual('transport gone')

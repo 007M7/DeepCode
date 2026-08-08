@@ -1841,7 +1841,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/e2b/subprocess-e2b/src/index.ts:24`](../packages/e2b/subprocess-e2b/src/index.ts)
+Source: [`packages/e2b/subprocess-e2b/src/index.ts:25`](../packages/e2b/subprocess-e2b/src/index.ts)
 
 ## `@deepseek-ai/dsh-system-prompt`
 

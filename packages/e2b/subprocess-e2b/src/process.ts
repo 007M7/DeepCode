@@ -194,7 +194,7 @@ export class E2BSubprocessHandle implements SubprocessHandle {
     private readonly runtime: E2BSandboxService,
     private readonly spec: SubprocessSpawnSpec,
     readonly stateDir: string,
-    private readonly pollMs = 20,
+    private readonly pollMs: number,
   ) {
     this.paths = {
       pid: posix.join(stateDir, 'pid'),
@@ -378,7 +378,7 @@ export class E2BSubprocessHandle implements SubprocessHandle {
           await this.removeFailedState(sandbox)
         } catch (cleanupError: unknown) {
           failure = new AggregateError(
-            [error, cleanupError],
+            [failure, cleanupError],
             'subprocess-e2b: command failed and private state cleanup failed',
           )
         }
@@ -398,8 +398,10 @@ export class E2BSubprocessHandle implements SubprocessHandle {
     const signal = this.terminationController.signal
     const ambient = await readRemoteEnvironment(sandbox, signal)
     this.controlEnvs = bootstrapEnvironment(ambient)
-    await sandbox.files.makeDir(this.stateDir, { signal })
+    // Own the directory before the request: a cancellation racing a committed
+    // creation must still enter cleanup (removal tolerates an absent path).
     this.stateDirectoryCreated = true
+    await sandbox.files.makeDir(this.stateDir, { signal })
     await sandbox.commands.run(
       `chmod 700 -- ${quoteE2BShellArg(this.stateDir)}`,
       commandOpts(this.controlEnvs, signal),

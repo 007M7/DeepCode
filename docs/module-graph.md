@@ -340,6 +340,7 @@ flowchart TD
   pkg_subprocess_e2b --> pkg_e2b
   pkg_subprocess_e2b --> pkg_invariants
   pkg_subprocess_e2b --> pkg_subprocess
+  pkg_subprocess_e2b --> pkg_timeout
   pkg_frontend_static --> pkg_host_webserver
   pkg_frontend_static --> pkg_invariants
   pkg_helper --> pkg_brand
@@ -1208,7 +1209,7 @@ flowchart TD
 | [`client-hmr`](../packages/client/hmr) | `client` | [`client-modules`](../packages/client/modules), [`host-webserver`](../packages/host/webserver), [`invariants`](../packages/support/invariants) |
 | [`client-runtime`](../packages/client/runtime) | `client` | [`invariants`](../packages/support/invariants), [`type-meta`](../packages/typert/type-meta), [`typert-registry`](../packages/typert/registry) |
 | [`credentials`](../packages/credentials/credentials) | `credentials` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants) |
-| [`subprocess-e2b`](../packages/e2b/subprocess-e2b) | `e2b` | [`e2b`](../packages/e2b/e2b), [`invariants`](../packages/support/invariants), [`subprocess`](../packages/subprocess/subprocess) |
+| [`subprocess-e2b`](../packages/e2b/subprocess-e2b) | `e2b` | [`e2b`](../packages/e2b/e2b), [`invariants`](../packages/support/invariants), [`subprocess`](../packages/subprocess/subprocess), [`timeout`](../packages/util/timeout) |
 | [`frontend-static`](../packages/host/frontend-static) | `host` | [`host-webserver`](../packages/host/webserver), [`invariants`](../packages/support/invariants) |
 | [`helper`](../packages/sdk/helper) | `sdk` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`subprocess`](../packages/subprocess/subprocess) |
 | [`telemetry`](../packages/sdk/telemetry) | `sdk` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`paths`](../packages/util/paths) |

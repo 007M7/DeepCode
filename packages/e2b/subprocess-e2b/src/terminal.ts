@@ -459,7 +459,7 @@ export async function spawnE2BTerminal(
   runtime: E2BSandboxService,
   spec: SubprocessTerminalSpawnSpec,
   stateDir: string,
-  pollMs = 20,
+  pollMs: number,
 ): Promise<E2BTerminalHandle> {
   const sandbox = await runtime.getSandbox()
   spec.signal?.throwIfAborted()
