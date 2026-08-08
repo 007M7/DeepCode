@@ -35,6 +35,8 @@ describe.skipIf(!enabled)('dsh run GitHub repository Plugin installation', () =>
       '  config:',
       '    repositories:',
       `      - ${JSON.stringify(source)}`,
+      '- id: session-title-llm',
+      '  disabled: true',
       '',
     ].join('\n'))
 
