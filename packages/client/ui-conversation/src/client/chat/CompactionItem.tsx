@@ -9,6 +9,7 @@
 import { memo, useState } from 'react'
 import type { CompactionSummaryNode } from '@deepseek-ai/dsh-client-runtime/client'
 import {
+  IconApiOutline14,
   IconChevronDownOutline14,
   IconChevronRightOutline14,
   MarkdownText,
@@ -56,8 +57,16 @@ export const CompactionItem = memo(function CompactionItem({
         aria-expanded={expandable ? open : undefined}
         onClick={() => { setExpanded(value => !value) }}
       >
-        <span className={css.compactionLeading}>
-          {open ? <IconChevronDownOutline14 /> : <IconChevronRightOutline14 />}
+        <span className={css.compactionLeading} aria-hidden>
+          <span className={css.compactionContextIcon} data-compaction-icon="context">
+            <IconApiOutline14 />
+          </span>
+          <span
+            className={css.compactionDisclosureIcon}
+            data-compaction-disclosure={open ? 'expanded' : 'collapsed'}
+          >
+            {open ? <IconChevronDownOutline14 /> : <IconChevronRightOutline14 />}
+          </span>
         </span>
         <span className={css.compactionTitle}>{title ?? t('message.compaction')}</span>
         <span className={css.compactionSep} aria-hidden />

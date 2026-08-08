@@ -1303,9 +1303,12 @@ describe('ChatView', () => {
     expect(view.getByText('已压缩 16 条历史记录（约 11309 tokens）')).toBeTruthy()
     const row = view.getByRole('button', { name: /compact/ })
     expect(row.getAttribute('aria-expanded')).toBe('false')
+    expect(row.querySelector('[data-compaction-icon="context"]')).not.toBeNull()
+    expect(row.querySelector('[data-compaction-disclosure="collapsed"]')).not.toBeNull()
     expect(view.queryByText('保留的事实。')).toBeNull()
     fireEvent.click(row)
     expect(row.getAttribute('aria-expanded')).toBe('true')
+    expect(row.querySelector('[data-compaction-disclosure="expanded"]')).not.toBeNull()
     expect(view.getByRole('heading', { name: '压缩摘要' })).toBeTruthy()
   })
 
