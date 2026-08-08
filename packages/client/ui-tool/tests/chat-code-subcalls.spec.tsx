@@ -56,7 +56,9 @@ const runningCode = (callId: string): RunningToolCall => ({
   subCalls: [],
 })
 
-const subCall = (seq: number, parent: string, n: number, name: string, args: object, resultText: string, isError = false): ToolCallBlock => ({
+const subCall = (
+  seq: number, parent: string, n: number, name: string, args: object, resultText: string, isError = false,
+): ToolCallBlock => ({
   kind: 'tool-result', seq, time: seq * 1_000,
   callId: `${parent}:code:${n}`,
   call: { name, argsRaw: JSON.stringify(args) },

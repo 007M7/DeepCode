@@ -44,5 +44,6 @@ owner 载荷为 `ToolCallOwnerProps`：`callId`、`toolName`、冻结的 `block`
 
 ## 已知限制与后续工作
 
+- Host 不把 `run_code` 暴露为 Code Mode 程序 binding，因此生产事件目前只能产生一层分发；递归的运行时/UI 契约已为未来的嵌套生产者做好准备。
 - 现有第一方 Tool 视图初期仍集中在本包，之后可以通过 keyed slot 独立迁回各自业务包。
 - Tool 文案暂时复用 `ui-conversation` locale namespace。

@@ -917,7 +917,6 @@ function expandSubCalls(
       absTime: settled ? finiteTime(sub.callTime ?? sub.time) : finiteTime(sub.time),
       toolName: settled ? sub.call?.name ?? sub.callId : sub.name,
       callId: sub.callId,
-      subCalls: sub.subCalls,
       cell: {
         index: ++index,
         kind: 'subtool',

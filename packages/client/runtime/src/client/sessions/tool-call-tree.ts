@@ -10,9 +10,9 @@ interface ProjectedBlock {
   value: ToolCallBlock
 }
 
-function sameBlocks(
-  left: readonly ToolCallBlock[],
-  right: readonly ToolCallBlock[],
+function sameReferences<T>(
+  left: readonly T[],
+  right: readonly T[],
 ): boolean {
   return left.length === right.length
     && left.every((block, index) => block === right[index])
@@ -68,6 +68,7 @@ export class ToolCallTree {
         subCalls: [],
       }
       const siblings = this.childrenByParent.get(data.parentCallId) ?? []
+      if (this.wouldCreateCycle(data.parentCallId, data.subCallId)) return true
       this.childrenByParent.set(data.parentCallId, [...siblings, running])
       this.revision++
       return true
@@ -83,6 +84,7 @@ export class ToolCallTree {
     }
     const siblings = this.childrenByParent.get(data.parentCallId) ?? []
     const at = siblings.findIndex(sub => sub.callId === data.subCallId)
+    if (at === -1 && this.wouldCreateCycle(data.parentCallId, data.subCallId)) return true
     const started = at === -1 ? undefined : siblings[at]
     const settled: ToolResultNode = {
       kind: 'tool-result',
@@ -116,14 +118,11 @@ export class ToolCallTree {
     if (this.nodesCache?.source === nodes && this.nodesCache.revision === this.revision) {
       return this.nodesCache.value
     }
-    let changed = false
     const projected = nodes.map((node): ConversationNode => {
       if (node.kind !== 'tool-result') return node
-      const value = this.projectBlock(node) as ToolResultNode
-      changed ||= value !== node
-      return value
+      return this.projectBlock(node) as ToolResultNode
     })
-    const value = changed ? projected : nodes
+    const value = sameReferences(nodes, projected) ? nodes : projected
     this.nodesCache = { source: nodes, revision: this.revision, value }
     return value
   }
@@ -137,13 +136,8 @@ export class ToolCallTree {
     if (this.runningCache?.source === calls && this.runningCache.revision === this.revision) {
       return this.runningCache.value
     }
-    let changed = false
-    const projected = calls.map((call): RunningToolCall => {
-      const value = this.projectBlock(call) as RunningToolCall
-      changed ||= value !== call
-      return value
-    })
-    const value = changed ? projected : calls
+    const projected = calls.map(call => this.projectBlock(call) as RunningToolCall)
+    const value = sameReferences(calls, projected) ? calls : projected
     this.runningCache = { source: calls, revision: this.revision, value }
     return value
   }
@@ -151,11 +145,11 @@ export class ToolCallTree {
   private projectBlock(block: ToolCallBlock): ToolCallBlock {
     const children = this.childrenByParent.get(block.callId) ?? block.subCalls
     const projectedChildren = children.map(child => this.projectBlock(child))
-    const childValue = sameBlocks(children, projectedChildren)
+    const childValue = sameReferences(children, projectedChildren)
       ? children
       : projectedChildren
     const cached = this.projectedByCall.get(block.callId)
-    if (cached?.source === block && sameBlocks(cached.children, childValue)) {
+    if (cached?.source === block && sameReferences(cached.children, childValue)) {
       return cached.value
     }
     const value: ToolCallBlock = block.subCalls === childValue
@@ -167,5 +161,20 @@ export class ToolCallTree {
       value,
     })
     return value
+  }
+
+  private wouldCreateCycle(parentCallId: string, subCallId: string): boolean {
+    if (parentCallId === subCallId) return true
+    const pending = [subCallId]
+    const visited = new Set(pending)
+    for (const callId of pending) {
+      for (const child of this.childrenByParent.get(callId) ?? []) {
+        if (child.callId === parentCallId) return true
+        if (visited.has(child.callId)) continue
+        visited.add(child.callId)
+        pending.push(child.callId)
+      }
+    }
+    return false
   }
 }
