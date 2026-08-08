@@ -60,6 +60,12 @@ export class AgentPresetSeatController {
     private readonly api: Pick<IApiClient, 'agentPresets'>,
     /** The session the hero is about to hand over to, when there is one. */
     private readonly currentSession: () => SeatSessionSummary | undefined,
+    /**
+     * Publish an applied switch into the session list, so the header label
+     * moves with the composition instead of waiting for the next full list
+     * refresh. Optional: a harness that renders no list omits it.
+     */
+    private readonly onApplied?: (sessionId: string, agentPreset: string) => void,
   ) {}
 
   private set(patch: Partial<AgentPresetSeatState>): void {
@@ -129,6 +135,7 @@ export class AgentPresetSeatController {
       }
       // Consumed: the next new session opens on the deployment default again.
       this.set({ busy: false, current: response.result.value.agentPreset })
+      this.onApplied?.(session.id, response.result.value.agentPreset)
     } catch (error) {
       this.staged = undefined
       this.set({ busy: false, error: messageOf(error), current: this.fallback })

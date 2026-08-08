@@ -1587,6 +1587,27 @@ describe('per-agent presentation', () => {
     expect(native.sections.some(section => section.name === 'tools:sdk')).toBe(false)
   })
 
+  it('inherits a STANDING preset scope\'s mode down the chain, agents beside it unaffected', async () => {
+    const { setScopeParent } = await import('@deepseek-ai/dsh-scope')
+    const { ctx, systemPrompt } = await setup({ mode: 'native' })
+    registerEcho(ctx)
+    // The preset's standing scope declares once; the agent only PARENTS to it
+    // (the per-preset standing-mount shape — no per-agent declaration at all).
+    const standing = await mintAgentScope(ctx, 'preset:code-like')
+    standing.scope.ctx.tools.presentAs('code')
+    const joined = await mintAgentScope(ctx, 'joined-agent')
+    setScopeParent(joined.agent, standing.agent)
+    const loner = await mintAgentScope(ctx, 'loner-agent')
+
+    expect(ctx.tools.get(RUN_CODE_NAME, joined.agent)).toBeDefined()
+    const coded = await systemPrompt.assemble({ scope: joined.agent })
+    expect(coded.tools.map(tool => tool.name)).toEqual([RUN_CODE_NAME])
+    // A sibling that never parented stays native, as does the global view.
+    expect(ctx.tools.get(RUN_CODE_NAME, loner.agent)).toBeUndefined()
+    const native = await systemPrompt.assemble({ scope: loner.agent })
+    expect(native.tools.map(tool => tool.name)).toEqual(['echo'])
+  })
+
   it('keeps run_code out of a native agent\'s dispatch table', async () => {
     const { ctx } = await setup({ mode: 'native' })
     registerEcho(ctx)

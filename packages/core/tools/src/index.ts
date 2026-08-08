@@ -835,7 +835,16 @@ export class ToolRegistry extends Service {
    * @returns the resolved presentation mode.
    */
   private modeFor(scope?: ScopeKey): ToolPresentationMode {
-    return this.layers.peek(scope)?.mode ?? this.defaultMode
+    // Nearest scope wins along the chain: a preset's standing declaration
+    // covers every agent parented under it, and an agent's own (were one ever
+    // declared) would override its preset's. The mode decides what the model
+    // SEES, which is exactly the class of fact the chain inherits.
+    const layers = this.layers.chainLayers(scope)
+    for (let index = layers.length - 1; index >= 0; index -= 1) {
+      const mode = layers[index]?.mode
+      if (mode !== undefined) return mode
+    }
+    return this.defaultMode
   }
 
   /**

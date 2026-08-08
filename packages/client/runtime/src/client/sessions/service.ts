@@ -365,6 +365,10 @@ export class SessionsService implements ISessions {
     return this.manager.refreshSubagents(parentSessionId)
   }
 
+  noteAgentPreset(sessionId: SessionId, agentPreset: string): void {
+    this.manager.noteAgentPreset(sessionId, agentPreset)
+  }
+
   /**
    * Clear the current selection so the layout shows the no-session empty
    * state (new-session affordance and the workspace preselection flow).

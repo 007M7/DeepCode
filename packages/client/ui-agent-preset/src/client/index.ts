@@ -98,6 +98,8 @@ export function apply(ctx: ClientContext): void {
           blank: summary.blank,
           ...summary.agentPreset === undefined ? {} : { agentPreset: summary.agentPreset },
         }
+    }, (sessionId, agentPreset) => {
+      scope.sessions.noteAgentPreset(sessionId as never, agentPreset)
     })
 
     const seatInjected = (): AgentPresetSeatInjected => ({
