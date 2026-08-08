@@ -17,7 +17,16 @@ Two planes, and the choice is not about how "agent-related" something feels — 
 
 **A service with a consumer outside the agent plane cannot move into a preset.** `subagents` is the worked example: the registry answers cross-session queries for the host api-proxy, so a per-session copy both starves that host row — it waits forever for a service nothing provides — and collides on the second session, since a provider name registers once. The preset contributes the delegation *tools*; the registry and its backends stay host-side.
 
-A preset is a directory holding one `agent.cordis.yml`. The shipped ones live beside the deployment's composition; locally authored ones live under `$DSH_HOME/.agent-presets/<name>/`.
+A preset is a directory holding one `agent.cordis.yml`, optionally beside a `preset.yml` carrying display metadata — `name` and `description` (and, for shipped presets, a roster `order`). Write the metadata too: a preset without it shows up in every picker as its bare directory name. The shipped presets live beside the deployment's composition; locally authored ones live under `${DSH_HOME:-$HOME/.dsh}/.agent-presets/<name>/`.
+
+## Authoring a preset
+
+1. **Start from a copy.** Read a shipped composition close to what you want (the `standard` preset is the full coding agent) and copy its whole directory into `${DSH_HOME:-$HOME/.dsh}/.agent-presets/<id>/` — the id must be lowercase letters, digits, and hyphens, because it becomes the directory name. A composition written from scratch usually forgets a group realm or a consumer row; a copy starts loadable.
+2. **Expect the file sandbox.** The preset root lies outside the session workspace, so under the default `workspace-write` policy the first write is denied. Retry that exact command once with `sandbox_permissions` escalation and a short justification — the user sees and approves it. Batch your writes (one heredoc per file) rather than escalating many small commands.
+3. **Rewrite `preset.yml`**: give the copy its own `name` and `description`, and drop any `order` the source declared — that field sorts the shipped roster.
+4. **Edit `agent.cordis.yml`** row by row, keeping the plane rule and realm rule above.
+
+The shipped preset directories are off-limits: never edit or delete them, and never escalate the sandbox to reach them, even when a change there looks quicker — an upgrade overwrites the install, and corrupting the `cordis` preset disables preset authoring itself. Locally authored presets under the user root are yours to create, edit, and delete.
 
 ## The rule that catches people
 
@@ -48,9 +57,9 @@ A consumer left outside the group resolves the host's registry, which the preset
 
 ## Verifying a change
 
-Read the live runtime with `cordis_inspect` — it reports the services, the plugin fibers, and the registered tools as they actually are, which is the only reliable check that a row did what its name suggests.
+Read the live runtime with `cordis_inspect` — it reports the services, the plugin fibers, and the registered tools as they actually are, which is the only reliable check that a row did what its name suggests. Note it shows THIS session's composition: a preset you just wrote is not mounted anywhere until a session starts on it.
 
-After editing a preset, start a new session on it and confirm the tool list is what you intended. A preset is read at session creation, so an edit never affects a session already running; the file is never written back either, so your composition is exactly what you wrote.
+To check a preset you authored, re-read the files you wrote and walk the shape: a top-level YAML list, every row a map with a `name`, every group carrying its own list, service-publishing rows behind an `isolate` realm. The settings page's preset roster runs the same shape check and marks an unloadable preset broken in red — point the user there, and ask them to start a session on the new preset to confirm the tool list; you cannot start one yourself.
 
 `cordis_mount` evaluates JavaScript against the live runtime and disappears on restart. It is for probing, not for shipping a capability: a capability belongs in a composition file.
 

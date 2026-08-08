@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, mkdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -57,10 +57,28 @@ describe('preset discovery', () => {
     })
   })
 
-  it('skips a directory that holds no composition file', async () => {
+  it('reports a directory with no composition as a broken preset slot', async () => {
     const found = await scanRoot(USER)
 
-    expect(found.map(preset => preset.id)).not.toContain('not-a-preset')
+    // The directory still occupies its id — a copy to that name is refused —
+    // so hiding it would leave nothing to see or delete. It surfaces broken.
+    const ghost = found.find(preset => preset.id === 'not-a-preset')
+    expect(ghost?.broken).toMatch(/agent\.cordis\.yml is missing/)
+  })
+
+  it('skips a directory whose name no preset id could ever claim', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-presets-oddname-'))
+    await mkdir(join(root, '.hidden'))
+    await mkdir(join(root, 'Has_Caps'))
+    await mkdir(join(root, 'usable'))
+    await writeFile(join(root, 'usable', COMPOSITION_FILE), '[]\n')
+
+    const found = await scanRoot({ path: root, trust: 'user' })
+
+    // `.hidden` and `Has_Caps` cannot collide with any copy target, so
+    // reporting tool residue as broken presets would only train users to
+    // ignore the marker.
+    expect(found.map(preset => preset.id)).toEqual(['usable'])
   })
 
   it('records the root trust on every preset it discovers', async () => {
@@ -109,5 +127,71 @@ describe('preset discovery', () => {
     const found = await scanRoot({ path: '~/.dsh-agent-presets-absent', trust: 'user' })
 
     expect(found).toEqual([])
+  })
+})
+
+describe('composition health', () => {
+  /** One directory under a fresh root holding `composition`, scanned. */
+  async function scanned(composition: string): Promise<string | undefined> {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-presets-health-'))
+    await mkdir(join(root, 'probe'))
+    await writeFile(join(root, 'probe', COMPOSITION_FILE), composition)
+    const [preset] = await scanRoot({ path: root, trust: 'user' })
+    return preset?.broken
+  }
+
+  it('reports unparsable YAML with the parser\'s reason', async () => {
+    expect(await scanned('- id: x\n  name: [unclosed\n')).toMatch(/not valid YAML/)
+  })
+
+  it('reports a composition that is not a list of rows', async () => {
+    expect(await scanned('name: not-a-list\n')).toMatch(/top-level list of plugin rows/)
+  })
+
+  it('reports the first row that names no plugin, by position', async () => {
+    expect(await scanned('- id: ok\n  name: some-plugin\n- id: broken\n'))
+      .toMatch(/row 2 names no plugin/)
+  })
+
+  it('reports a row that is not a map at all', async () => {
+    expect(await scanned('- just-a-string\n')).toMatch(/row 1 is not a plugin row/)
+  })
+
+  it('descends into a group\'s own row list', async () => {
+    const composition = '- id: grp\n  name: cordis:group\n  group: true\n  config:\n    - id: inner\n'
+    expect(await scanned(composition)).toMatch(/row 1 row 1 names no plugin/)
+  })
+
+  it('reports a group whose config is not a list', async () => {
+    const composition = '- id: grp\n  name: cordis:group\n  group: true\n  config: not-a-list\n'
+    expect(await scanned(composition)).toMatch(/group row 1 must hold a list/)
+  })
+
+  it('accepts a group whose own list is healthy', async () => {
+    const composition = '- id: grp\n  name: cordis:group\n  group: true\n  config:\n    - id: inner\n      name: some-plugin\n'
+    expect(await scanned(composition)).toBeUndefined()
+  })
+
+  it('reports a composition that stats but cannot be read', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-presets-unreadable-'))
+    await mkdir(join(root, 'sealed'))
+    const path = join(root, 'sealed', COMPOSITION_FILE)
+    await writeFile(path, '[]\n')
+    await chmod(path, 0o000)
+
+    const [preset] = await scanRoot({ path: root, trust: 'user' })
+
+    expect(preset?.broken).toMatch(/cannot be read/)
+  })
+
+  it('accepts the loader dialect, !!js scalars included', async () => {
+    // Health must never call a composition broken that the loader accepts:
+    // `!!js` is the loader's own extension, so it parses here too.
+    const composition = '- id: x\n  name: some-plugin\n  config:\n    value: !!js "1 + 1"\n'
+    expect(await scanned(composition)).toBeUndefined()
+  })
+
+  it('accepts an empty list', async () => {
+    expect(await scanned('[]\n')).toBeUndefined()
   })
 })

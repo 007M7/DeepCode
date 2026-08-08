@@ -17,16 +17,7 @@ import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { expandHomePath } from '@deepseek-ai/dsh-paths'
 import { METADATA_FILE, renderPresetMetadata } from './metadata.ts'
-import type { AgentPreset, PresetRoot } from './types.ts'
-
-/**
- * Ids a preset directory may use.
- *
- * The id becomes a path segment, so this is a containment boundary rather than
- * a style rule: `..`, a separator, or an absolute-looking name would place the
- * composition outside the root the deployment authorised.
- */
-const PRESET_ID = /^[a-z0-9][a-z0-9-]*$/
+import { PRESET_ID, type AgentPreset, type PresetRoot } from './types.ts'
 
 /** A preset id that cannot be used as a directory name under a root. */
 export class InvalidPresetIdError extends Error {

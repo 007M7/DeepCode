@@ -90,7 +90,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async resolve(id?: string): Promise<AgentPreset>',
-        jsDoc: '/**\n * Resolve one preset by id.\n * @param id - the preset id, or `undefined` for {@link defaultId}.\n * @returns the resolved preset.\n * @throws when no configured root supplies that id.\n */',
+        jsDoc: '/**\n * Resolve one preset by id.\n *\n * A broken preset resolves — deleting one, reading one, and reporting one\n * all need the row — and the mounting paths refuse it AFTER resolution\n * through {@link resolveMountable}.\n * @param id - the preset id, or `undefined` for {@link defaultId}.\n * @returns the resolved preset.\n * @throws when no configured root supplies that id.\n */',
       },
       {
         signature: 'async mount(agentCtx: Context, id?: string): Promise<AgentPreset>',
@@ -1701,7 +1701,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'AgentPreset',
-    declaration: 'export interface AgentPreset {\n    readonly id: string;\n    readonly trust: PresetTrust;\n    readonly path: string;\n    readonly name?: string;\n    readonly description?: string;\n    readonly order?: number;\n}',
+    declaration: 'export interface AgentPreset {\n    readonly id: string;\n    readonly trust: PresetTrust;\n    readonly path: string;\n    readonly name?: string;\n    readonly description?: string;\n    readonly order?: number;\n    readonly broken?: string;\n}',
   },
   {
     name: 'AgentSetup',

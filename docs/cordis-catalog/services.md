@@ -61,6 +61,10 @@ async list(): Promise<AgentPreset[]>
 
 /**
  * Resolve one preset by id.
+ *
+ * A broken preset resolves — deleting one, reading one, and reporting one
+ * all need the row — and the mounting paths refuse it AFTER resolution
+ * through {@link resolveMountable}.
  * @param id - the preset id, or `undefined` for {@link defaultId}.
  * @returns the resolved preset.
  * @throws when no configured root supplies that id.

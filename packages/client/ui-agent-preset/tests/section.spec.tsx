@@ -172,6 +172,43 @@ describe('the preset list', () => {
     expect(duplicate.getAttribute('data-tip')).toBe(en.duplicateUnavailable)
   })
 
+  it('marks a broken custom preset: unselectable, uncopyable, still deletable', () => {
+    const actions = renderSection({
+      rows: [
+        { id: 'standard', trust: 'system', isDefault: true },
+        { id: 'ghost', trust: 'user', isDefault: false, name: '幽灵预设', broken: 'the composition file agent.cordis.yml is missing' },
+      ],
+    })
+
+    const ghost = rowFor('ghost')
+    // The reason is on the card, and the body cannot pick what cannot mount.
+    expect(within(ghost).getByText(en.brokenBadge)).toBeTruthy()
+    expect(within(ghost).getByRole('alert').textContent).toContain('is missing')
+    const body = within(ghost).getByRole('button', { name: `${en.brokenBadge}: 幽灵预设` })
+    expect(body).toHaveProperty('disabled', true)
+    fireEvent.click(body)
+    expect(actions.makeDefault).not.toHaveBeenCalled()
+    // Copying a broken preset would only mint another broken one; deleting
+    // and the location remain — the files are where it gets fixed.
+    const duplicate = within(ghost).getByRole('button', { name: `${en.duplicate}: 幽灵预设` })
+    expect(duplicate).toHaveProperty('disabled', true)
+    expect(duplicate.getAttribute('data-tip')).toBe(en.brokenNoCopy)
+    expect(within(ghost).getByRole('button', { name: `${en.delete}: 幽灵预设` })).toBeTruthy()
+    expect(within(ghost).getByRole('button', { name: `${en.openLocation}: 幽灵预设` })).toBeTruthy()
+  })
+
+  it('withholds the viewer on a broken shipped preset', () => {
+    renderSection({
+      rows: [{ id: 'standard', trust: 'system', isDefault: false, name: '标准模式', broken: 'the composition is not valid YAML' }],
+    })
+
+    // There is no readable composition to offer; the reason on the card is
+    // the whole story a shipped row can tell.
+    const standard = rowFor('standard')
+    expect(within(standard).queryByRole('button', { name: `${en.view}: 标准模式` })).toBeNull()
+    expect(within(standard).getByRole('alert').textContent).toContain('not valid YAML')
+  })
+
   it('labels the location by what it will do without a desktop', () => {
     renderSection({ hasDocument: false })
 

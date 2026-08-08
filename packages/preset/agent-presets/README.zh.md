@@ -8,20 +8,20 @@
 
 ## 服务：`AgentPresets`（ctx 键：`agentPresets`）
 
-发现过程不做缓存：`list()` 与 `resolve()` 每次调用都重新读取各个根目录，因此进程运行期间新写的 preset 立即可见，被删除的 preset 也会在下一次读取时消失。
+发现过程不做缓存：`list()` 与 `resolve()` 每次调用都重新读取各个根目录，因此进程运行期间新写的 preset 立即可见，被删除的 preset 也会在下一次读取时消失。发现过程同时负责 preset 的**健康**：组装文件缺失或不可加载（YAML 无法解析——用加载器自己的方言检查，含 `!!js`——或不是由具名插件行组成的列表）的目录会作为携带 `broken` 原因的行列出而不是被跳过，因为被跳过的目录仍在磁盘上占着它的 id，而各个界面却没有任何可删的东西。目录名不是可用 preset id（`[a-z0-9][a-z0-9-]*`）的目录才被直接跳过：复制永远不可能占用那种名字。
 
 - `ctx.agentPresets.defaultId: string` 调用方未指定时挂载的 preset id。
-- `ctx.agentPresets.list(): Promise<AgentPreset[]>` 当前各根目录提供的全部 preset；id 重复时靠前的根目录胜出。
-- `ctx.agentPresets.resolve(id?): Promise<AgentPreset>` 按 id 取一个 preset，缺省取 `defaultId`。没有任何根目录提供该 id 时抛错，并列出可用 id。
-- `ctx.agentPresets.mount(agentCtx, id?): Promise<AgentPreset>` 用一个 preset 组装一个 agent——确保其常驻挂载（并发去重）并把 agent 的 scope key 认父到它——返回该 preset 供调用方记录。
-- `ctx.agentPresets.recompose(agentCtx, id): Promise<AgentPreset>` 把一个 agent 重链到另一个 preset 的常驻组装。仅在该 agent 尚无任何产出时合法——**由调用方负责该检查**；新挂载在链移动之前确保完成，失败时 agent 原封不动。
-- `ctx.agentPresets.standingKeyFor(id?): Promise<ScopeKey>` 没有 agent 的宿主读取方（冷读记录）解析 preset 注册所用的常驻 scope key；确保挂载而不启动任何 agent、会话或轮次。
+- `ctx.agentPresets.list(): Promise<AgentPreset[]>` 当前各根目录提供的全部 preset；id 重复时靠前的根目录胜出；损坏的 preset 也在其中，各自携带原因。
+- `ctx.agentPresets.resolve(id?): Promise<AgentPreset>` 按 id 取一个 preset，缺省取 `defaultId`。没有任何根目录提供该 id 时抛错，并列出可用 id。损坏的 preset 照样解析——删除、读取与上报都需要这一行。
+- `ctx.agentPresets.mount(agentCtx, id?): Promise<AgentPreset>` 用一个 preset 组装一个 agent——确保其常驻挂载（并发去重）并把 agent 的 scope key 认父到它——返回该 preset 供调用方记录。对损坏的 preset 直接以发现时记下的原因拒绝，所以每种不可加载的形态都在加载器介入之前以同一方式失败。
+- `ctx.agentPresets.recompose(agentCtx, id): Promise<AgentPreset>` 把一个 agent 重链到另一个 preset 的常驻组装。仅在该 agent 尚无任何产出时合法——**由调用方负责该检查**；新挂载在链移动之前确保完成，失败时 agent 原封不动。与 `mount()` 一样拒绝损坏的 preset。
+- `ctx.agentPresets.standingKeyFor(id?): Promise<ScopeKey>` 没有 agent 的宿主读取方（冷读记录）解析 preset 注册所用的常驻 scope key；确保挂载而不启动任何 agent、会话或轮次。与 `mount()` 一样拒绝损坏的 preset。
 - `ctx.agentPresets.authorable: boolean` 是否有任一配置根目录具备 `user` 信任级别，因而 preset 是否可创建。
 - `ctx.agentPresets.read(id): Promise<string>` 某个 preset 的组装文本，与存储内容逐字一致。
 - `ctx.agentPresets.copy(from, id, name?): Promise<void>` 通过整目录复制一个既有 preset 来创建本地创作的 preset——唯一的创作写入。组装文本不经过这道接缝，因此副本与其来源同等可加载；复制出的元数据保留来源的描述、但绝不保留其名称与 roster 排序，`name`（或回退到 id）才是区分两行的依据。
 - `ctx.agentPresets.remove(id): Promise<void>` 删除一个本地创作的 preset；已加入的会话保留其常驻挂载。若用户默认值恰好指向刚删除的 preset 则一并清除：存一个尚不存在的默认值是刻意的，但本次删除的这个再也不会有人提供，留着会让所有未显式指定的新会话无法启动。
 
-`AgentPreset` 携带 `id`（目录名）、`trust`（`system` 或 `user`，取自它所在的根目录）以及 `path`（组装文件的绝对路径）。
+`AgentPreset` 携带 `id`（目录名）、`trust`（`system` 或 `user`，取自它所在的根目录）、`path`（组装文件的绝对路径），以及——仅当该 preset 无法组装会话时——`broken`（一条人类可读的原因，名单界面原样展示）。
 
 ### 应在何处调用 `mount()`
 
@@ -44,7 +44,7 @@ agent 工厂的 `setup(agentCtx)` 钩子是唯一受支持的调用点。只有�
 创作即复制。新 preset 是某个既有 preset 的整目录副本——组装、元数据、skill 目录、附带资产——落在首个 `user` 根目录之下；输入只有两个由服务对照自身根目录解析的 id 加一个可选显示名，因此调用方从不提供组装文本，一次复制不会授予 roster 尚未携带的任何能力。创建之后的一切都发生在 preset 自己的文件里。`copy()` 在任何内容落盘之前拒绝三种情况：
 
 - **不符合 `[a-z0-9][a-z0-9-]*` 的 id。** id 会成为目录名，因此约束是 id 自身的性质，而非事后再做一次路径检查——`../escape`、`a/b` 与绝对路径都作为 id 被拒绝。
-- **已被占用的 id。** 复制从不覆写：任一根目录已提供该 id 即拒绝（与随附 preset 同名的用户目录只会被它遮蔽），磁盘上占着该名字却不是 preset 的目录同样拒绝。
+- **已被占用的 id。** 复制从不覆写：任一根目录已提供该 id 即拒绝（与随附 preset 同名的用户目录只会被它遮蔽），磁盘上占着该名字的目录同样拒绝。发现过程会把这样的目录列为损坏的 preset，所以这条拒绝的出路——删掉它——就在报告它的同一页面上。
 - **未知的来源。** 来源可以是任何信任级别——复制随附 preset 正是主要用途——但必须存在；复制失败会回滚做到一半的目录，而不是留下一个 discovery 看不见的目录。
 
 复制出的目录树被收紧为仅属主可用（文件 `0o600` 并保留属主执行位，目录 `0o700`），符号链接被解引用以保证副本自包含，且根目录在首次复制时创建——部署配置了尚不存在的用户根目录，正是首次运行的正常状态。复制出的 `preset.yml` 会被重写：保留来源的描述供作者就地编辑，但丢弃其名称与 roster `order`——副本若与来源呈现得一模一样、或按随附集合声明的顺序排序，roster 就不再能区分它们。`remove()` 拒绝随部署提供的 preset；随附集合正是副本的已知良好起点。
@@ -122,6 +122,7 @@ Indirectly, through the plugins a standing composition registers, which own ever
 
 - **会话一旦产出内容便无法更换 preset** —— `recompose` 把**空白**会话的父作用域重链到另一个常驻挂载，且仅限空白会话：切换已运行过的组装会抽走模型已调用的工具。更改默认值只影响此后创建的会话。
 - **代际只以组装文件为键** —— stamp 检查只察觉 `agent.cordis.yml` 的变化，察觉不到旁边 skill 文件或资产的编辑；那些编辑要等组装文件本身变动或进程重启才达到新会话。已加入的会话保持其代际，进程存活期间不回收被替代的代际（上限取决于组装被编辑的频率，而非会话数）。
-- **副本从不被实际挂载以校验** —— 它与来源逐字节相同，因此磁盘上已坏的来源会产出同样在下一个选择它的会话处失败的副本，与来源的失败方式完全一致。
+- **副本从不被实际挂载以校验** —— 它与来源逐字节相同，因此磁盘上已坏的来源会产出与来源同样损坏的副本；发现过程的健康检查会在下一次读取名单时把两行都标出来，而不是把失败推迟到会话启动。
+- **健康是形状检查，不是挂载** —— 发现过程只证明组装能以加载器方言解析、由具名行组成，不证明每一行的模块都能解析并激活；引用不存在的包的行仍在第一个会话处失败，并回滚该会话的创建。
 - **副本是会漂移的快照** —— 升级部署不会更新随附 preset 的副本，本层也没有表达「standard 加一处改动」的 patch 语义（那是 bundle 层 `cordis.patch.yml` 的能力）；随附集合自己也接受同样的代价——`cordis` 与 `code` 就是 `standard` 的完整副本——换来整份组装在一个文件里可读。
 - **根目录扫描不做监听** —— 每次读取都实际访问文件系统，这让名单保持新鲜，但每次 `list()` 会对每个根目录产生一次 `readdir`。

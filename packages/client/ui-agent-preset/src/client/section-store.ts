@@ -33,6 +33,13 @@ export interface PresetRow {
   trust: 'system' | 'user'
   /** Whether a session that names no preset gets this one. */
   isDefault: boolean
+  /**
+   * Why the preset cannot compose a session, absent when it can. A broken
+   * row renders marked and unselectable — its directory still occupies the
+   * id, so deleting it (or fixing the files) is the way out, and this page
+   * is where both of those live.
+   */
+  broken?: string
 }
 
 /** The copy dialog: a new id and optional display name over a fixed source. */

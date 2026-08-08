@@ -8,7 +8,7 @@
 //
 // Zero model calls: no replay fixture mounts, so a stray stream fails loud.
 import { existsSync } from 'node:fs'
-import { mkdtemp, readFile, realpath } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
@@ -26,6 +26,7 @@ const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/agent-preset-authoring',
 const SECTION_EXPECTED = join(SNAPSHOT_DIR, 'section.expected.md')
 const COPY_DIALOG_EXPECTED = join(SNAPSHOT_DIR, 'copy-dialog.expected.md')
 const CREATED_EXPECTED = join(SNAPSHOT_DIR, 'created.expected.md')
+const DAMAGED_EXPECTED = join(SNAPSHOT_DIR, 'damaged.expected.md')
 /** The shipped roster, beside the composition that names it. */
 const SHIPPED_PRESETS = fileURLToPath(new URL('../../cli/config/agent-presets', import.meta.url))
 const OVERLAY = fileURLToPath(new URL('./agent-preset-authoring.overlay.yml', import.meta.url))
@@ -172,6 +173,63 @@ describe('web e2e: agent-preset authoring is a host-side copy', () => {
     // Custom group gone with its only member; the shipped set stands.
     expect(await dialog.getByRole('heading', { name: '自定义' }).count()).toBe(0)
     expect(await dialog.getByText('标准模式').count()).toBeGreaterThan(0)
+  }, 60_000)
+
+  it('marks damaged presets broken and clears a ghost through delete', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-preset-authoring-damaged'))
+    // The two hand-edit damage shapes: a composition that no longer parses,
+    // and a directory whose composition file was deleted outright.
+    await mkdir(join(userRoot, 'broken-yaml'), { recursive: true })
+    await writeFile(join(userRoot, 'broken-yaml', 'agent.cordis.yml'), '- id: x\n  name: [unclosed\n')
+    await mkdir(join(userRoot, 'ghost'), { recursive: true })
+    await writeFile(join(userRoot, 'ghost', 'preset.yml'), 'name: 幽灵预设\ndescription: composition 已被手动删除。\n')
+
+    // The section reads the roster when it mounts; hop away and back.
+    const dialog = settingsDialog()
+    await dialog.getByRole('button', { name: '通用设置' }).click()
+    await dialog.getByRole('button', { name: 'Agent 预设' }).click()
+    await dialog.getByText('已损坏').first().waitFor({ timeout: 10_000 })
+
+    const snapshot = withPresetRoot(
+      await captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd))
+    await compareOrRefreshGolden(DAMAGED_EXPECTED, snapshot, MODE)
+    // Both damage shapes surface as marked, unselectable, uncopyable cards
+    // that still carry their metadata and the discovery-reported reason.
+    expect(snapshot).toContain('已损坏: broken-yaml')
+    expect(snapshot).toContain('已损坏: 幽灵预设')
+    expect(snapshot).toContain('not valid YAML')
+    expect(snapshot).toContain('agent.cordis.yml is missing')
+    expect(await dialog.getByRole('button', { name: '已损坏: broken-yaml' }).isDisabled()).toBe(true)
+    expect(await dialog.getByRole('button', { name: '复制: 幽灵预设' }).isDisabled()).toBe(true)
+    // A broken card offers no "set default" affordance at all — the aria name
+    // IS the broken marking, so the picking name must not exist.
+    expect(await dialog.getByRole('button', { name: '设为默认: broken-yaml' }).count()).toBe(0)
+
+    // The ghost's way out is the card's own delete — and the id it blocked
+    // is claimable again immediately afterwards.
+    await dialog.getByRole('button', { name: '删除: 幽灵预设' }).click()
+    const confirm = page.getByRole('dialog', { name: '删除该预设？' })
+    await confirm.waitFor({ timeout: 10_000 })
+    await confirm.getByRole('button', { name: '删除', exact: true }).click()
+    await confirm.waitFor({ state: 'detached', timeout: 10_000 })
+    await expect.poll(async () => dialog.getByText('幽灵预设').count(), { timeout: 10_000 }).toBe(0)
+    expect(existsSync(join(userRoot, 'ghost'))).toBe(false)
+
+    await dialog.getByRole('button', { name: '复制: 极简模式' }).click()
+    const copyDialog = page.getByRole('dialog', { name: '复制预设 · 复制自 极简模式' })
+    await copyDialog.waitFor({ timeout: 10_000 })
+    await copyDialog.getByPlaceholder('my-agent').fill('ghost')
+    await copyDialog.getByRole('button', { name: '创建' }).click()
+    await copyDialog.waitFor({ state: 'detached', timeout: 10_000 })
+    await dialog.getByRole('button', { name: '设为默认: ghost' }).waitFor({ timeout: 10_000 })
+
+    // Leave the roster as the earlier tests shaped it.
+    await dialog.getByRole('button', { name: '删除: ghost' }).click()
+    const cleanup = page.getByRole('dialog', { name: '删除该预设？' })
+    await cleanup.waitFor({ timeout: 10_000 })
+    await cleanup.getByRole('button', { name: '删除', exact: true }).click()
+    await cleanup.waitFor({ state: 'detached', timeout: 10_000 })
+    await rm(join(userRoot, 'broken-yaml'), { recursive: true, force: true })
   }, 60_000)
 
   it('starts a creator-mode session from the section', async () => {

@@ -238,13 +238,50 @@ describe('the preset roster', () => {
   it('lists every root\'s presets with the earlier root winning', async () => {
     const listed = await ctx.agentPresets.list()
 
+    // `not-a-preset` is the fixture ghost: no composition file, listed broken.
     expect(listed.map(preset => preset.id).sort())
-      .toEqual(['broken', 'isolated', 'late', 'leaky', 'minimal', 'pending', 'standard', 'two-broken'])
+      .toEqual(['broken', 'isolated', 'late', 'leaky', 'minimal', 'not-a-preset', 'pending', 'standard', 'two-broken'])
     expect(listed.find(preset => preset.id === 'standard')?.trust).toBe('system')
+    expect(listed.find(preset => preset.id === 'not-a-preset')?.broken).toMatch(/is missing/)
   })
 
   it('exposes the configured default id', () => {
     expect(ctx.agentPresets.defaultId).toBe('standard')
+  })
+})
+
+describe('composing from a broken preset', () => {
+  /** A roster whose only user preset carries `composition`. */
+  async function rosterWith(composition: string): Promise<Context> {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-preset-broken-'))
+    await mkdir(join(root, 'damaged'))
+    await writeFile(join(root, 'damaged', COMPOSITION_FILE), composition)
+    return await harness({ default: 'damaged', roots: [{ path: root, trust: 'user' as const }] })
+  }
+
+  it('refuses the mount up front with the discovery-reported reason', async () => {
+    const scoped = await rosterWith('- id: x\n  name: [unclosed\n')
+
+    // The refusal happens before the loader ever sees the file, so every
+    // unloadable shape gets the same early PresetMountError — and a rejected
+    // setup rolls the whole agent creation back.
+    await expect(agentOn(scoped, 'sess-broken', 'damaged')).rejects.toThrow(PresetMountError)
+    await expect(agentOn(scoped, 'sess-broken-2', 'damaged')).rejects.toThrow(/not valid YAML/)
+    expect(livePresetMounts().filter(mount => mount.presetId === 'damaged')).toHaveLength(0)
+  })
+
+  it('refuses the standing key a cold reader would mount by', async () => {
+    const scoped = await rosterWith('rows: not-a-list\n')
+
+    await expect(scoped.agentPresets.standingKeyFor('damaged'))
+      .rejects.toThrow(/top-level list of plugin rows/)
+  })
+
+  it('still resolves the broken row for the surfaces that manage it', async () => {
+    const scoped = await rosterWith('- id: x\n  name: [unclosed\n')
+
+    // Deleting and reporting need the row; only composing refuses it.
+    expect((await scoped.agentPresets.resolve('damaged')).broken).toMatch(/not valid YAML/)
   })
 })
 

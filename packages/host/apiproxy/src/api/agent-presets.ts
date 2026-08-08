@@ -33,6 +33,13 @@ export interface AgentPresetEntry {
   readonly name?: string
   /** One sentence on what the preset is for, when it published one. */
   readonly description?: string
+  /**
+   * Why this preset cannot compose a session, absent when it can. A broken
+   * preset stays listed — its directory still occupies the id, so a surface
+   * must be able to show and delete it — but offering it for selection would
+   * only defer this reason to a failed session start.
+   */
+  readonly broken?: string
 }
 
 /** agent-preset-domain unary methods (the map key agentPreset.* of RpcMethodMap). */

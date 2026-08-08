@@ -73,6 +73,8 @@ export interface RosterPreset {
   name?: string
   /** One sentence on what the preset is for. */
   description?: string
+  /** Why the preset cannot compose a session, absent when it can. */
+  broken?: string
 }
 
 /** The roster the host answered with. */
@@ -134,19 +136,24 @@ export async function beginRosterRead<S extends { status: string; error: string 
 }
 
 /**
- * The roster entries as every surface renders them.
+ * The roster entries as the pickers render them: healthy presets only.
  *
- * The chip, the row, and the management section all show the same three
- * facts, and `exactOptionalPropertyTypes` makes "absent" and "present as
- * undefined" different shapes — so the spread dance belongs in one place
- * rather than once per store.
+ * The chip and the row exist to choose the NEXT session's composition, and a
+ * broken preset cannot compose one — offering it would defer the discovery
+ * of that fact to a failed session start. The management section renders the
+ * full roster (broken rows included) from its own store instead.
+ *
+ * The chip, the row, and the management section all show the same facts, and
+ * `exactOptionalPropertyTypes` makes "absent" and "present as undefined"
+ * different shapes — so the spread dance belongs in one place rather than
+ * once per store.
  * @param presets - the roster the host answered with.
- * @returns one option per preset, in roster order.
+ * @returns one option per selectable preset, in roster order.
  */
 export function presetOptions(
-  presets: readonly { id: string; trust: 'system' | 'user'; name?: string; description?: string }[],
+  presets: readonly { id: string; trust: 'system' | 'user'; name?: string; description?: string; broken?: string }[],
 ): AgentPresetOption[] {
-  return presets.map(preset => ({
+  return presets.filter(preset => preset.broken === undefined).map(preset => ({
     id: preset.id,
     trust: preset.trust,
     ...preset.name === undefined ? {} : { name: preset.name },

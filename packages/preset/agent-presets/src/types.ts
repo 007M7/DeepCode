@@ -7,6 +7,16 @@
  */
 export type PresetTrust = 'system' | 'user'
 
+/**
+ * Ids a preset directory may use.
+ *
+ * The id becomes a path segment, so this is a containment boundary rather than
+ * a style rule: `..`, a separator, or an absolute-looking name would place the
+ * composition outside the root the deployment authorised. Discovery shares it:
+ * a directory whose name no copy could ever claim is not a preset slot.
+ */
+export const PRESET_ID = /^[a-z0-9][a-z0-9-]*$/
+
 /** One preset directory that carries a mountable agent composition. */
 export interface AgentPreset {
   /** Stable identifier; the preset directory's name. */
@@ -21,6 +31,13 @@ export interface AgentPreset {
   readonly description?: string
   /** Declared position within its group; absent sorts after those that declare one. */
   readonly order?: number
+  /**
+   * Why this preset cannot compose a session, absent when it can. A broken
+   * preset stays on the roster — hiding it would leave its directory blocking
+   * the id with nothing to see or delete — but every mounting path refuses it
+   * up front with this reason instead of failing deep inside the loader.
+   */
+  readonly broken?: string
 }
 
 /** One directory scanned for preset subdirectories. */

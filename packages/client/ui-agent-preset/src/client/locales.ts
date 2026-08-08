@@ -7,6 +7,7 @@ export type AgentPresetSettingsKey =
   | 'duplicate' | 'duplicateUnavailable' | 'delete' | 'presetId' | 'presetIdPlaceholder' | 'copyOf'
   | 'displayName' | 'displayNamePlaceholder'
   | 'inUse' | 'noDescription' | 'builtInGroup' | 'customGroup'
+  | 'brokenBadge' | 'brokenNoCopy'
   | 'composition' | 'cancel' | 'close' | 'retry'
   | 'copyTitle' | 'copyIntro' | 'create' | 'creating' | 'creatorDraft'
   | 'openLocation' | 'showLocation' | 'revealedPathLabel'
@@ -40,6 +41,8 @@ export const en: Record<AgentPresetSettingsKey, string> = {
   builtInGroup: 'Built-in',
   customGroup: 'Custom',
   noDescription: 'No description.',
+  brokenBadge: 'Broken',
+  brokenNoCopy: 'Broken presets cannot be duplicated',
   copyOf: 'Copied from',
   composition: 'Composition (agent.cordis.yml)',
   cancel: 'Cancel',
@@ -90,6 +93,8 @@ export const zh: Record<AgentPresetSettingsKey, string> = {
   builtInGroup: '内置',
   customGroup: '自定义',
   noDescription: '暂无描述。',
+  brokenBadge: '已损坏',
+  brokenNoCopy: '预设已损坏，无法复制',
   copyOf: '复制自',
   composition: '组装（agent.cordis.yml）',
   cancel: '取消',

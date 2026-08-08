@@ -153,6 +153,10 @@ export class AgentPresets extends Service {
 
   /**
    * Resolve one preset by id.
+   *
+   * A broken preset resolves — deleting one, reading one, and reporting one
+   * all need the row — and the mounting paths refuse it AFTER resolution
+   * through {@link resolveMountable}.
    * @param id - the preset id, or `undefined` for {@link defaultId}.
    * @returns the resolved preset.
    * @throws when no configured root supplies that id.
@@ -165,6 +169,24 @@ export class AgentPresets extends Service {
       throw new UnknownPresetError(wanted, presets.map(preset => preset.id))
     }
     return found
+  }
+
+  /**
+   * Resolve one preset that is about to compose an agent, refusing a broken
+   * one with its discovery-reported reason. Failing here rather than inside
+   * the loader keeps the answer the same for every unloadable shape — ghost
+   * directory, unparsable YAML, rowless list — and spends no mount attempt
+   * on a composition discovery already read as unusable.
+   * @param id - the preset id, or `undefined` for {@link defaultId}.
+   * @returns the resolved, mountable preset.
+   * @throws when the preset is unknown or discovery reports it broken.
+   */
+  private async resolveMountable(id?: string): Promise<AgentPreset> {
+    const preset = await this.resolve(id)
+    if (preset.broken !== undefined) {
+      throw new PresetMountError(preset.id, preset.broken)
+    }
+    return preset
   }
 
   /**
@@ -198,7 +220,7 @@ export class AgentPresets extends Service {
     if (agentKey === undefined) {
       throw new Error('agent-presets: refusing to compose an unscoped context; the scope key is what joins an agent to its preset')
     }
-    const preset = await this.resolve(id)
+    const preset = await this.resolveMountable(id)
     const standing = await this.ensureStanding(preset)
     setScopeParent(agentKey, standing.key)
     return preset
@@ -314,7 +336,7 @@ export class AgentPresets extends Service {
     if (agentKey === undefined) {
       throw new Error('agent-presets: refusing to recompose an unscoped context')
     }
-    const preset = await this.resolve(id)
+    const preset = await this.resolveMountable(id)
     const standing = await this.ensureStanding(preset)
     setScopeParent(agentKey, standing.key)
     return preset
@@ -332,7 +354,7 @@ export class AgentPresets extends Service {
    * @throws when the preset is unknown or its composition is unusable.
    */
   async standingKeyFor(id?: string): Promise<ScopeKey> {
-    const preset = await this.resolve(id)
+    const preset = await this.resolveMountable(id)
     return (await this.ensureStanding(preset)).key
   }
 

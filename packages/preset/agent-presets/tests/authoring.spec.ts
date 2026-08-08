@@ -258,11 +258,36 @@ describe('display metadata beside a composition', () => {
   })
 })
 
-describe('a stray file beside the preset directories', () => {
-  it('does not become a preset', async () => {
-    await mkdir(join(userRoot, 'not-a-preset'), { recursive: true })
-    await writeFile(join(userRoot, 'not-a-preset', 'README.txt'), 'nope\n')
+describe('the on-disk occupancy backstop', () => {
+  it('refuses a directory the roster cannot see', async () => {
+    // The service's roster check sees every id-shaped directory now, so this
+    // is the race backstop: a directory appearing between the roster read and
+    // the copy still gets the readable refusal, not a filesystem error code.
+    await mkdir(join(userRoot, 'raced'), { recursive: true })
+    const source = await ctx.agentPresets.resolve('standard')
 
-    expect((await ctx.agentPresets.list()).some(preset => preset.id === 'not-a-preset')).toBe(false)
+    await expect(copyComposition(
+      [{ path: userRoot, trust: 'user' as const }], source, 'raced',
+    )).rejects.toThrow(/already exists/)
+  })
+})
+
+describe('a ghost directory under the user root', () => {
+  it('lists broken, blocks its id, and clears through remove', async () => {
+    // The classic hand-edit: the composition file was deleted, the directory
+    // stayed. It must not vanish from the roster — its id is still taken, so
+    // there has to be something to see and delete.
+    await mkdir(join(userRoot, 'ghost'), { recursive: true })
+    await writeFile(join(userRoot, 'ghost', 'README.txt'), 'composition deleted by hand\n')
+
+    const ghost = (await ctx.agentPresets.list()).find(preset => preset.id === 'ghost')
+    expect(ghost?.broken).toMatch(/agent\.cordis\.yml is missing/)
+    await expect(ctx.agentPresets.copy('standard', 'ghost')).rejects.toThrow(/already exists/)
+
+    // remove is the way out the roster row offers; the id is claimable again.
+    await ctx.agentPresets.remove('ghost')
+    expect(existsSync(join(userRoot, 'ghost'))).toBe(false)
+    await ctx.agentPresets.copy('standard', 'ghost')
+    expect((await ctx.agentPresets.list()).find(preset => preset.id === 'ghost')?.broken).toBeUndefined()
   })
 })

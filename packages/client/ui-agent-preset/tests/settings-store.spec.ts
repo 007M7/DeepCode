@@ -90,6 +90,20 @@ describe('the agent-preset settings controller', () => {
     ])
   })
 
+  it('offers no broken preset: the pickers choose the NEXT session\'s composition', async () => {
+    const controller = new AgentPresetSettingsController(fakeApi([
+      { id: 'standard', trust: 'system', isDefault: true },
+      { id: 'damaged', trust: 'user', isDefault: false, broken: 'the composition is not valid YAML' },
+    ] as never))
+
+    await controller.load()
+
+    // A broken preset cannot compose a session; listing it here would defer
+    // that discovery to a failed session start. The management section shows
+    // (and deletes) it from its own store instead.
+    expect(controller.store.getSnapshot().options.map(option => option.id)).toEqual(['standard'])
+  })
+
   it('carries the display metadata a preset published', async () => {
     const controller = new AgentPresetSettingsController(fakeApi([
       { id: 'standard', trust: 'system', isDefault: true, name: '标准模式', description: '完整的编码 agent。' },

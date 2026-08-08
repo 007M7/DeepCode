@@ -177,49 +177,67 @@ export function AgentPresetSection(props: AgentPresetSectionProps): ReactNode {
             <h3 className={css.groupHead}>{heading}</h3>
             <ul className={css.cards}>
               {group.map(row => (
-                <li key={row.id} className={row.isDefault ? `${css.card} ${css.cardActive}` : css.card}>
+                <li
+                  key={row.id}
+                  className={row.broken !== undefined
+                    ? `${css.card} ${css.cardBroken}`
+                    : row.isDefault ? `${css.card} ${css.cardActive}` : css.card}
+                >
                   {/* The card body IS the control: picking a preset is the
                       common act, so it should not hide behind a small button.
                       The action row sits outside it — nesting buttons is
-                      invalid, and these act on the card rather than select it. */}
+                      invalid, and these act on the card rather than select it.
+                      A broken preset cannot compose a session, so its body is
+                      disabled and the card says why instead of offering it. */}
                   <button
                     type="button"
                     className={css.cardMain}
                     aria-pressed={row.isDefault}
-                    disabled={row.isDefault}
+                    disabled={row.isDefault || row.broken !== undefined}
                     // Without this the name is the whole card read aloud —
                     // title, badge, description, id.
-                    aria-label={`${row.isDefault ? t('inUse') : t('setDefault')}: ${row.name ?? row.id}`}
-                    title={row.isDefault ? t('inUse') : t('setDefault')}
+                    aria-label={`${row.broken !== undefined ? t('brokenBadge') : row.isDefault ? t('inUse') : t('setDefault')}: ${row.name ?? row.id}`}
+                    title={row.broken ?? (row.isDefault ? t('inUse') : t('setDefault'))}
                     onClick={() => { void props.makeDefault(row.id) }}
                   >
                     <span className={css.cardHead}>
                       <span className={css.cardName}>{row.name ?? row.id}</span>
+                      {row.broken !== undefined
+                        ? <span className={css.brokenBadge}>{t('brokenBadge')}</span>
+                        : null}
                       <span className={css.badge}>
                         {row.trust === 'user' ? t('userTrust') : t('builtIn')}
                       </span>
                       {row.isDefault ? <span className={css.inUse}>{t('inUse')}</span> : null}
                     </span>
                     <span className={css.cardDesc}>{row.description ?? t('noDescription')}</span>
+                    {row.broken === undefined
+                      ? null
+                      : <span className={css.cardBrokenReason} role="alert">{row.broken}</span>}
                     <code className={css.cardId}>{row.id}</code>
                   </button>
                   <div className={css.cardFoot}>
                     {/* Shipped presets are the compositions a copy starts
                         from, so READING one is the point; a custom preset is
                         edited in its files instead, which the location action
-                        leads to. */}
+                        leads to. A broken shipped preset has no readable
+                        composition to offer, so its viewer is withheld; a
+                        broken custom one keeps the location action — the
+                        files are where it gets fixed. */}
                     {row.trust === 'system'
-                      ? (
-                        <button
-                          type="button"
-                          className={css.iconButton}
-                          data-tip={t('view')}
-                          aria-label={`${t('view')}: ${row.name ?? row.id}`}
-                          onClick={() => { void props.view(row.id) }}
-                        >
-                          <IconBrowseOutline16 />
-                        </button>
-                      )
+                      ? row.broken === undefined
+                        ? (
+                          <button
+                            type="button"
+                            className={css.iconButton}
+                            data-tip={t('view')}
+                            aria-label={`${t('view')}: ${row.name ?? row.id}`}
+                            onClick={() => { void props.view(row.id) }}
+                          >
+                            <IconBrowseOutline16 />
+                          </button>
+                        )
+                        : null
                       : (
                         <button
                           type="button"
@@ -234,8 +252,10 @@ export function AgentPresetSection(props: AgentPresetSectionProps): ReactNode {
                     <button
                       type="button"
                       className={css.iconButton}
-                      disabled={!state.authorable}
-                      data-tip={state.authorable ? t('duplicate') : t('duplicateUnavailable')}
+                      disabled={!state.authorable || row.broken !== undefined}
+                      data-tip={row.broken !== undefined
+                        ? t('brokenNoCopy')
+                        : state.authorable ? t('duplicate') : t('duplicateUnavailable')}
                       aria-label={`${t('duplicate')}: ${row.name ?? row.id}`}
                       onClick={() => { props.beginCopy(row.id) }}
                     >

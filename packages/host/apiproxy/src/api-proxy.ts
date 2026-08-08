@@ -2678,6 +2678,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             isDefault: preset.id === defaultId,
             ...preset.name === undefined ? {} : { name: preset.name },
             ...preset.description === undefined ? {} : { description: preset.description },
+            ...preset.broken === undefined ? {} : { broken: preset.broken },
           })),
           authorable: presets.authorable,
           hasDocument: canOpenPaths(),

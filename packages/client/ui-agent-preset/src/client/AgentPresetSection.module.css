@@ -67,6 +67,35 @@
   border-color: var(--dsw-alias-label-primary);
 }
 
+/* A broken preset reads as damaged before anything else: the card cannot be
+   picked, so its border carries the warning the disabled body cannot. */
+.cardBroken {
+  border-color: var(--dsw-alias-state-error-primary);
+}
+
+.cardBroken:hover {
+  border-color: var(--dsw-alias-state-error-primary);
+}
+
+.brokenBadge {
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 11px;
+  line-height: 17px;
+  white-space: nowrap;
+  font-weight: 500;
+  background: var(--dsw-alias-state-error-primary);
+  color: var(--dsw-alias-bg-layer-3);
+}
+
+/* The discovery-reported reason, verbatim: it names the file and the fix. */
+.cardBrokenReason {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--dsw-alias-state-error-primary);
+  overflow-wrap: anywhere;
+}
+
 /* The card body is the control that picks the preset. */
 .cardMain {
   flex: 1;
