@@ -33,7 +33,16 @@ switch (invocation.mode) {
       environment: loadLayeredEnv('dsh'),
       profile: invocation.profile,
       patchFiles: invocation.patches,
-      ...invocation.task !== undefined && { task: invocation.task },
+    })
+    break
+  }
+  case 'run': {
+    const { runProfile } = await import('./profile-boot.ts')
+    await runProfile({
+      environment: loadLayeredEnv('dsh'),
+      profile: invocation.profile,
+      patchFiles: invocation.patches,
+      task: invocation.task,
     })
     break
   }

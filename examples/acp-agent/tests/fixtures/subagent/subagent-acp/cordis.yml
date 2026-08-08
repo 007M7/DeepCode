@@ -34,12 +34,22 @@
     # budget, so the local numeric default cannot apply here.
     maxDepth: 'provider-managed'
 
-- id: cli-agent
-  name: '@deepseek-ai/dsh-cli-demo'
+- id: agent-spine
+  name: '@deepseek-ai/dsh-agent-spine-demo'
   config:
-    provider: mock
-    model: mock-delegate
+    agents:
+      - id: main
+        provider: mock
+        model: mock-delegate
+        cwd: !!js process.cwd()
     persona: 'Test ACP subagent cwd inheritance.'
-    persistenceRoot: './.sessions'
-    persistenceCompression: 'none'
     workspaceContext: false
+
+- id: persistence
+  name: '@deepseek-ai/dsh-session-persistence-jsonl'
+  config:
+    root: './.sessions'
+    compression: 'none'
+
+- id: checkpoint-policy
+  name: '@deepseek-ai/dsh-session-checkpoint-policy'
