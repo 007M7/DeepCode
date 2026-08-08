@@ -90,8 +90,8 @@ async function prepareFsSearchWorkspace(cwd: string): Promise<void> {
   }
 }
 
-// FIXME: Migrate backend-oriented scenarios to the headless stream-json suite;
-// this ACP suite should eventually retain only automation-protocol contracts.
+// TODO(acp-snapshot-ownership): Move backend/product scenarios to headless while
+// retaining ACP protocol contracts here.
 
 function fixtureRecords(name: string): unknown[] {
   return readFileSync(join(SNAPSHOTS_DIR, name, 'session.jsonl'), 'utf8')

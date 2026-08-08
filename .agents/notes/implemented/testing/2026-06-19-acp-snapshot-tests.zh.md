@@ -80,6 +80,6 @@ Status: implemented
 
 ## 后果
 
-该测试层为每个场景增加经过评审的输入、会话、stdout、可选 override 和可选 workspace fixture，并为每个不同的已固定提示词序列、每个不同的已固定工具 schema 序列各增加一个文件。记录与回放都会把 workspace seed 复制到生成的 cwd。作为回报，该层通过真实 Loader 和工具组合提供确定性的无密钥覆盖。保留下来的大多数场景测试的是组装后的后端而非 ACP；[仅面向自动化的 ACP 决策](../simplification/2026-07-23-acp-automation-only-protocol.md#snapshot-boundary)将该语料保留在此处，并把向传输无关 headless 套件的任何迁移推迟为一项独立的测试变更（套件级 FIXME 标记了这一点）。
+该测试层为每个场景增加经过评审的输入、会话、stdout、可选 override 和可选 workspace fixture，并为每个不同的已固定提示词序列、每个不同的已固定工具 schema 序列各增加一个文件。记录与回放都会把 workspace seed 复制到生成的 cwd。作为回报，该层通过真实 Loader 和工具组合提供确定性的无密钥覆盖。保留下来的大多数场景测试的是组装后的后端而非 ACP；[仅面向自动化的 ACP 决策](../simplification/2026-07-23-acp-automation-only-protocol.md#snapshot-boundary)将该语料保留在此处，直至它能够在不损失覆盖的情况下迁移到传输无关的 headless 套件。
 
 本 Agent Note 与[拟议的确定性 Agent Note](../../proposed/testing/2026-06-11-deterministic-and-stress-testing.md)相关，但不取代它：该提案的“通用回放 fixture”在每次测试后重新派生会话*消息历史*（内部一致性不变量），而这些快照固定组装后的行为与外部自动化输出。在后端语料迁出 ACP 之前，两者相互补充。

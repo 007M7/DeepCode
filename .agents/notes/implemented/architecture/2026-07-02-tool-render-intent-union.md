@@ -14,7 +14,7 @@ A tool declares how its calls render in a UI (an editor's tool-call card) throug
 - Which combinations are *valid* is unwritten: a `terminal` call that also sets `content` means "description above the card"; a generic call that sets `terminal` is meaningless but representable. The type permits nonsense.
 - There is no way to express the one file-tool affordance an editor most wants — a **diff card** (`{path, oldText, newText}`, which Zed renders as an inline diff / new-file preview). `ToolCallPresentation.content` is the *LLM* `ContentBlock[]` vocabulary (text/image), so a tool literally cannot ask for a diff.
 
-The existing `FIXME(tool-presentation)` in `packages/core/tools/src/index.ts` named the fix: "redesign the type so a tool declares its render INTENT once (e.g. a tagged union over card kinds) rather than a bag of optional fields the bridge stitches together." An earlier rejected collapse-tool-owned-presentation proposal deferred it explicitly: rich rendering "should return later as a tagged render-intent union after there are at least two real tools and two real consumers to validate the vocabulary." That bar is met by multiple producer families plus the TUI and host/client-runtime (Web) consumers.
+An earlier rejected collapse-tool-owned-presentation proposal deferred rich rendering until it could "return later as a tagged render-intent union after there are at least two real tools and two real consumers to validate the vocabulary." That bar is met by multiple producer families plus the TUI and host/client-runtime (Web) consumers.
 
 ## Decision
 

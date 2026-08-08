@@ -4,8 +4,6 @@
 
 DeepSeek Harness SDK 的领域词汇为每个概念规定一个规范术语。各术语通过标准 Markdown 锚点链接到相应条目；实现细节留在各包的 README 与 Agent Note 中。
 
-FIXME(glossary-completeness): 首次发布前扩充本术语表，使其覆盖 SDK 的其他核心与能力子系统，而非仅限于 agent scope。
-
 ## agent-scope
 
 - **scope**：按 agent（智能体）划分的注册单位。一项贡献（工具、提示词片段、变量、限制、监听器）要么是*全局的*（对所有 agent 可见），要么是*带作用域的*（归属于恰好一个 [scope key](#scope-key)）。只有两层，采用扁平结构：带作用域的注册不会向下继承给 subagent；子树行为通过 [lineage](#lineage) 数据表达，从不通过 scope 结构。

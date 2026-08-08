@@ -36,7 +36,7 @@ Without a repository checkout, download the selected overlay directly:
 mkdir -p "${DSH_HOME:-$HOME/.dsh}"
 curl --fail --location \
   --output "${DSH_HOME:-$HOME/.dsh}/memory.cordis.yml" \
-  https://raw.githubusercontent.com/deepseek-harness/deepseek-harness/master/examples/mcp-memory/memorix.cordis.yml
+  https://raw.githubusercontent.com/deepseek-ai/deepseek-harness-sdk/master/examples/mcp-memory/memorix.cordis.yml
 dsh web --patch "${DSH_HOME:-$HOME/.dsh}/memory.cordis.yml"
 ```
 
