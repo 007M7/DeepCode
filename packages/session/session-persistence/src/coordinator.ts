@@ -1112,7 +1112,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     const live = this.createLiveState(session)
     if (suffix.length > 0) {
       const init = this.serialize(session.id, () => this.appendCore(session.id, suffix)).catch((error: unknown) => {
-        if (live.init === init) live.init = undefined
+        live.init = undefined
         throw error
       })
       live.init = init
