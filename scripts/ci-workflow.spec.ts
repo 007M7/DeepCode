@@ -27,26 +27,40 @@ describe('CI workflow', () => {
     }
   })
 
-  it('runs the required Windows contract on a native hosted runner', () => {
+  it('keeps Wine blocking while native Windows reports independently', () => {
     const workflow = loadWorkflow('.github/workflows/ci.yml')
-    if (!isRecord(workflow.jobs) || !isRecord(workflow.jobs.windows)) {
-      throw new TypeError('CI workflow must define the windows job')
+    if (!isRecord(workflow.jobs)
+      || !isRecord(workflow.jobs.windows)
+      || !isRecord(workflow.jobs['windows-native'])
+      || !isRecord(workflow.jobs['all-checks-passed'])) {
+      throw new TypeError('CI workflow must define Wine, native Windows, and aggregate jobs')
     }
 
     const windows = workflow.jobs.windows
-    if (!Array.isArray(windows.steps)) throw new TypeError('windows job must define steps')
-    const steps: unknown[] = windows.steps
-    const commandSteps = steps.filter((step): step is Record<string, unknown> & { run: string } => (
+    const windowsNative = workflow.jobs['windows-native']
+    const aggregate = workflow.jobs['all-checks-passed']
+    if (!Array.isArray(windows.steps) || !Array.isArray(windowsNative.steps) || !Array.isArray(aggregate.needs)) {
+      throw new TypeError('Windows jobs must define steps and the aggregate must define needs')
+    }
+    const nativeCommandSteps = windowsNative.steps.filter((step): step is Record<string, unknown> & { run: string } => (
       isRecord(step) && typeof step.run === 'string'
     ))
 
-    expect(windows['runs-on']).toBe('windows-2025')
-    expect(windows.name).toBe('windows node 24 / native complete')
-    expect(commandSteps).toHaveLength(3)
-    expect(commandSteps.every(step => step.shell === 'pwsh')).toBe(true)
-    expect(commandSteps.map(step => step.run)).toContain('pnpm run check:ci:windows-complete')
-    expect(JSON.stringify(windows)).not.toMatch(/wine/i)
-    expect(workflow.jobs).not.toHaveProperty('wine-apt-cache')
+    expect(windows['runs-on']).toBe('ubuntu-latest')
+    expect(windows.name).toBe('windows node 24 / wine blocking')
+    expect(windows.if).toBe("github.event_name == 'pull_request'")
+    expect(JSON.stringify(windows)).toContain('bash scripts/wine-windows-gates.sh')
+    expect(workflow.jobs).toHaveProperty('wine-apt-cache')
+    expect(windowsNative['runs-on']).toBe('windows-2025')
+    expect(windowsNative.name).toBe('windows node 24 / native complete')
+    expect(windowsNative.if).toBe("github.event_name == 'pull_request'")
+    expect(windowsNative).not.toHaveProperty('continue-on-error')
+    expect(nativeCommandSteps).toHaveLength(3)
+    expect(nativeCommandSteps.every(step => step.shell === 'pwsh')).toBe(true)
+    expect(nativeCommandSteps.map(step => step.run)).toContain('pnpm run check:ci:windows-complete')
+    expect(JSON.stringify(windowsNative)).not.toMatch(/wine/i)
+    expect(aggregate.needs).toContain('windows')
+    expect(aggregate.needs).not.toContain('windows-native')
   })
 })
 
