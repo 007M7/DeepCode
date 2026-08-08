@@ -143,7 +143,8 @@ function bench(over?: BenchOptions) {
   }
   const view = render(<InputBar {...props} />)
   const textarea = view.container.querySelector('textarea')!
-  const stopping = over?.running === true && over.subagent === undefined
+  const stopping = over?.running === true
+    && (over.subagent === undefined || over.subagent.address.mode === 'continuable')
   const button = view.container.querySelector<HTMLButtonElement>(
     `button[aria-label="${stopping ? '停止生成' : '发送消息'}"]`,
   )!
@@ -250,8 +251,8 @@ describe('running and lock semantics (queue cut 1)', () => {
     expect(ctrl.sink).toHaveBeenCalledWith('also queue', 'queue')
   })
 
-  it('running subagent primary admits a follow-up instead of exposing Stop', () => {
-    const { button, sink, stop } = bench({
+  it('running continuable subagent turns the same primary into Stop while typing stays free', () => {
+    const { button, textarea, sink, stop } = bench({
       running: true,
       draft: '后续消息',
       subagent: {
@@ -263,23 +264,54 @@ describe('running and lock semantics (queue cut 1)', () => {
         parentAvailable: true,
       },
     })
-    expect(button.getAttribute('aria-label')).toBe('发送消息')
+    // One primary action only: Send switched to Stop, no side-by-side interrupt.
+    expect(button.getAttribute('aria-label')).toBe('停止生成')
+    expect(textarea.disabled).toBe(false)
     fireEvent.click(button)
+    expect(stop).toHaveBeenCalledTimes(1)
+    expect(sink).not.toHaveBeenCalled()
+    // Enter still queues the follow-up while the primary offers Stop.
+    fireEvent.keyDown(textarea, { key: 'Enter' })
     expect(sink).toHaveBeenCalledWith('后续消息', 'queue')
-    expect(stop).not.toHaveBeenCalled()
+  })
 
-    const empty = bench({
+  it('parent-offline running continuable locks the input but keeps the same primary Stop usable', () => {
+    const { button, textarea, stop, view } = bench({
       running: true,
+      draft: '',
       subagent: {
         address: {
           parentSessionId: 'parent' as SessionId,
           childSessionId: SID,
           mode: 'continuable',
         },
+        parentAvailable: false,
+      },
+    })
+    expect(textarea.disabled).toBe(true)
+    expect(textarea.placeholder).toBe('父会话已离线，无法继续发送；仍可停止当前运行')
+    expect((view.getByLabelText('命令') as HTMLButtonElement).disabled).toBe(true)
+    expect(button.getAttribute('aria-label')).toBe('停止生成')
+    expect(button.disabled).toBe(false)
+    fireEvent.click(button)
+    expect(stop).toHaveBeenCalledTimes(1)
+  })
+
+  it('running one-shot subagent never exposes Stop', () => {
+    const { button, stop } = bench({
+      running: true,
+      draft: '不可停止',
+      subagent: {
+        address: {
+          parentSessionId: 'parent' as SessionId,
+          childSessionId: SID,
+          mode: 'one-shot',
+        },
         parentAvailable: true,
       },
     })
-    expect(empty.button.disabled).toBe(true)
+    expect(button.getAttribute('aria-label')).toBe('发送消息')
+    expect(stop).not.toHaveBeenCalled()
   })
 
   it('keeps both running subagent Enter gestures on Queue transport', () => {
