@@ -40,6 +40,11 @@ export interface SubagentPromptReceipt {
   messageId: MessageId
 }
 
+/** Uniform acknowledgement that one interrupt request was admitted. */
+export interface SubagentInterruptReceipt {
+  accepted: true
+}
+
 /** Durable parent/child address that selects subagent transport in the client. */
 export type SubagentAddress =
   & {
@@ -94,4 +99,17 @@ export interface SubagentsApi {
     >,
     signal: AbortSignal,
   ): Promise<RpcResponse<SubagentPromptReceipt>>
+
+  /**
+   * Interrupts a live continuable child's current turn under the address's
+   * durable direct-parent authority, without requiring a live parent Agent,
+   * consulting the catalog, or resuming anything. Fire-and-return: `accepted`
+   * acknowledges the admitted cancel signal, not target quiescence, so the
+   * child may remain visibly running briefly. Unclaimed queued follow-ups are
+   * kept and parked; an absent, idle, or already-completed target is likewise
+   * `accepted`.
+   */
+  interrupt(
+    request: RpcRequest<Extract<SubagentAddress, { mode: 'continuable' }>>,
+  ): Promise<RpcResponse<SubagentInterruptReceipt>>
 }

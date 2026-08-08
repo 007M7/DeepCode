@@ -119,6 +119,8 @@ describe('spawn construction (pure, every platform)', () => {
   /** A subprocess service that records spawn specs and settles instantly. */
   class CapturingSubprocessService extends SubprocessService {
     specs: SubprocessSpawnSpec[] = []
+    override async resolveExecutable(command: string): Promise<string> { return command }
+    override spawnTerminal(): Promise<never> { throw new Error('pwsh spawns pipes, never terminals') }
     private readonly reader: SubprocessOutputReader = {
       readFrom: () => ({ text: '', lossy: false, nextOffset: 0 }),
     }

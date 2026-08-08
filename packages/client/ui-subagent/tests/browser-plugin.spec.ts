@@ -161,19 +161,26 @@ describe('apply', () => {
     const select = composerEntry.select as (owner: ComposerChainProps) => SubagentReadOnlyMatch | null
     const owner = (
       subagent: ConversationSnapshot['subagent'] | undefined,
+      running = false,
     ): ComposerChainProps => ({
       interactions: [],
       session: subagent === undefined
         ? undefined
-        : ({ subagent } as unknown as ConversationSnapshot),
+        : ({ subagent, running } as unknown as ConversationSnapshot),
     })
     expect(select(owner(undefined))).toBeNull()
     expect(select(owner(null))).toBeNull()
     expect(select(owner({ address: { ...address, mode: 'one-shot' }, parentAvailable: true })))
       .toEqual({ reason: 'one-shot' })
+    // One-shot stays read-only even while running: it has no stop action.
+    expect(select(owner({ address: { ...address, mode: 'one-shot' }, parentAvailable: true }, true)))
+      .toEqual({ reason: 'one-shot' })
     expect(select(owner({ address, parentAvailable: true }))).toBeNull()
     expect(select(owner({ address, parentAvailable: false })))
       .toEqual({ reason: 'parent-unavailable' })
+    // A RUNNING parent-offline continuable yields the default composer, whose
+    // disabled input still carries the primary Stop; stopped, it takes back over.
+    expect(select(owner({ address, parentAvailable: false }, true))).toBeNull()
   })
 })
 

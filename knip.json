@@ -47,6 +47,7 @@
         "headless-agent/tests/fixtures/time-context-mock-llm.ts",
         "headless-agent/tests/fixtures/telemetry-otel-driver.ts",
         "headless-agent/tests/fixtures/telemetry-redact-rule.ts",
+        "headless-agent/tests/fixtures/e2b/e2b/bin.ts",
         "acp-agent/tests/snapshots/lsp-definition/workspace/subject.ts",
         "acp-agent/tests/fixtures/child-question-tripwire.ts",
         "acp-agent/tests/fixtures/partial-landlock-sandbox.ts",
@@ -232,6 +233,7 @@
       ]
     },
     "packages/bash/pwsh-sandbox": {
+    "packages/e2b/e2b": {
       "entry": [
         "tests/**/*.spec.ts",
         "tests/**/*.e2e.ts"

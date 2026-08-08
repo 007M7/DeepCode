@@ -578,6 +578,21 @@ abstract capability(): DirectoryPickerCapability
 
 Source: [`packages/host/directory-picker/src/index.ts:131`](../../packages/host/directory-picker/src/index.ts)
 
+## `ctx.e2b` — `E2BSandboxService`
+
+Creates one lazily consumable E2B SDK handle and deletes the sandbox at timeout or disposal. Creation begins at plugin construction; adapters await getSandbox before their first operation.
+
+```ts cordis-catalog
+/**
+ * Return the shared live SDK handle.
+ * @returns the created sandbox after the configured cwd exists.
+ * @throws when E2B rejects creation or the service is disposing.
+ */
+async getSandbox(): Promise<Sandbox>
+```
+
+Source: [`packages/e2b/e2b/src/index.ts:74`](../../packages/e2b/e2b/src/index.ts)
+
 ## `ctx.fs` — `FileSystem` (abstract seam)
 
 Abstract filesystem provider. Targets must preserve identity across aliases; reads expose regular UTF-8 text or typed errors, listings are stable and content-free, and mutations are atomic. Optional guards add stale protection without changing the unguarded provider contract.
@@ -593,6 +608,34 @@ Abstract filesystem provider. Targets must preserve identity across aliases; rea
  * @returns the stable target; the same file yields the same `targetKey`.
  */
 abstract resolve(path: string, opts?: { cwd?: string; signal?: AbortSignal }): Promise<FsTarget>
+
+/**
+ * Return the canonical absolute path a subprocess in this filesystem's
+ * execution world can open. The path is deliberately separate from
+ * {@link FsTarget.targetKey}: consumers may pass this value to another OS
+ * capability, but must continue treating the target key as opaque.
+ * @param target - the resolved target whose process path is required.
+ * @returns an absolute path in the backend's execution world.
+ */
+abstract processPath(target: FsTarget): string
+
+/**
+ * Return the canonical `file:` URI for a target in this filesystem's
+ * execution world. Backends own URI encoding because the host platform may
+ * differ from the execution platform.
+ * @param target - the resolved target to encode.
+ * @returns the target's canonical file URI.
+ */
+abstract fileUrl(target: FsTarget): string
+
+/**
+ * Test canonical containment without exposing or parsing backend target
+ * keys. Both targets must come from this provider.
+ * @param parent - canonical directory target.
+ * @param child - canonical candidate target.
+ * @returns true when `child` is `parent` or a descendant of it.
+ */
+abstract contains(parent: FsTarget, child: FsTarget): boolean
 
 /**
  * Return target metadata, or `undefined` when the target does not exist.
@@ -678,7 +721,7 @@ abstract editText( target: FsTarget, edit: FsEditRequest, expected?: { version: 
 
 Types: [FsDirEntry](../core-data-structures/filesystem.md) · [FsEditOutcome](../core-data-structures/filesystem.md) · [FsEditRequest](../core-data-structures/filesystem.md) · [FsInfo](../core-data-structures/filesystem.md) · [FsPathInfo](../core-data-structures/filesystem.md) · [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md) · [FsWriteIntent](../core-data-structures/filesystem.md) · [FsWriteOutcome](../core-data-structures/filesystem.md) · [SandboxExecutionPolicy](../core-data-structures/sandbox.md)
 
-Source: [`packages/fs/fs/src/index.ts:81`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:83`](../../packages/fs/fs/src/index.ts)
 
 ## `ctx.goals` — `GoalService`
 
@@ -2072,6 +2115,23 @@ async startContinuable(spec: ContinuableStartSpec): Promise<ContinuableStart>
 async followup( parent: Agent, childId: SessionId, content: ContentBlock[], options: SubagentFollowupOptions, ): Promise<MessageId>
 
 /**
+ * Interrupt one live continuable child's current turn under a human parent
+ * address or an exact live ancestor Agent. Fire-and-return: the cancel
+ * signal is issued before this returns, but the target may keep running
+ * until it observes the signal. Unclaimed pending inbox work, the Activation,
+ * and published descendants are preserved; claimed work is not requeued.
+ * Once the interrupted driver is idle, a waking send resumes the parked FIFO
+ * queue. An absent target — including a one-shot or unknown id —
+ * is an accepted no-op, as is a manager-less composition, which cannot own a
+ * live Activation.
+ * @param targetSessionId - the durable child session id to interrupt.
+ * @param authority - the human parent address or exact live ancestor Agent.
+ * @throws {SubagentError} `UNAUTHORIZED` when the authority does not own the
+ *   live target.
+ */
+interrupt(targetSessionId: SessionId, authority: SubagentInterruptAuthority): void
+
+/**
  * Deliver selected content from one live continuable child to its durable
  * direct parent. The child is the authority credential; callers cannot name a
  * recipient. Reporting does not conclude the child's turn or Activation.
@@ -2137,6 +2197,23 @@ async drainContinuableDescendants(parents: readonly Agent[]): Promise<void>
 listChildren(parentSessionId: SessionId, signal?: AbortSignal): Promise<SubagentListEntry[]>
 
 /**
+ * Enumerate the root's complete session-backed subagent tree in stable
+ * pre-order from one live-preferred corpus, without loading or resuming an
+ * Agent. Ordinary sessions and one-shot children remain traversal nodes so
+ * continuable descendants below them are discovered; each returned entry
+ * adds its durable `parentId` and root-relative `depth`. Identity resolution,
+ * diagnostics, optional persistence, and cancellation follow the same
+ * projection-backed contract as {@link listChildren}.
+ * @param rootSessionId - session whose complete descendant tree is listed.
+ * @param signal - caller-owned cancellation forwarded to persistence reads
+ *   and observed around every read await.
+ * @returns children and per-candidate diagnostics with tree position, in
+ *   stable pre-order.
+ * @throws {@link SubagentError} under the same conditions as {@link listChildren}.
+ */
+listDescendants(rootSessionId: SessionId, signal?: AbortSignal): Promise<SubagentDescendantListEntry[]>
+
+/**
  * Register a provider under its name. Registration is effect-scoped and HMR
  * safe; removing a provider blocks new starts but does not revoke runs that
  * were already returned to their holders.
@@ -2171,9 +2248,9 @@ list(): string[]
 async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [ContinuableSetupContribution](../core-data-structures/subagent.md) · [ContinuableStart](../core-data-structures/subagent.md) · [ContinuableStartSpec](../core-data-structures/subagent.md) · [MessageId](../core-data-structures/core.md) · [SessionId](../core-data-structures/core.md) · [SubagentFollowupOptions](../core-data-structures/subagent.md) · [SubagentListEntry](../core-data-structures/subagent.md) · [SubagentProvider](../core-data-structures/subagent.md) · [SubagentReportOptions](../core-data-structures/subagent.md) · [SubagentRun](../core-data-structures/subagent.md) · [SubagentStartRequest](../core-data-structures/subagent.md)
+Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [ContinuableSetupContribution](../core-data-structures/subagent.md) · [ContinuableStart](../core-data-structures/subagent.md) · [ContinuableStartSpec](../core-data-structures/subagent.md) · [MessageId](../core-data-structures/core.md) · [SessionId](../core-data-structures/core.md) · [SubagentDescendantListEntry](../core-data-structures/subagent.md) · [SubagentFollowupOptions](../core-data-structures/subagent.md) · [SubagentInterruptAuthority](../core-data-structures/subagent.md) · [SubagentListEntry](../core-data-structures/subagent.md) · [SubagentProvider](../core-data-structures/subagent.md) · [SubagentReportOptions](../core-data-structures/subagent.md) · [SubagentRun](../core-data-structures/subagent.md) · [SubagentStartRequest](../core-data-structures/subagent.md)
 
-Source: [`packages/subagent/subagent/src/index.ts:165`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:167`](../../packages/subagent/subagent/src/index.ts)
 
 ## `ctx.subprocess` — `SubprocessService` (abstract seam)
 
@@ -2181,12 +2258,27 @@ Abstract subprocess service. Subclass, implement spawn, and load the subclass as
 
 Implementations must honor these semantics:
 
+- Executable paths belong to one execution world shared with the mounted filesystem provider.
 - spawn returns immediately with a live handle; `done` resolves at process close with exit facts and rejects only for spawn-level failures.
 - Collect-mode readers are offset-based and non-consuming, so independent readers never consume one another's output; lossy reads report truncation and the spill file holding the complete stream when one exists. Piped streams are handed to the caller raw and never buffered here.
 - SubprocessHandle.terminate (and the spec's abort signal) escalates SIGTERM→grace→SIGKILL — the only termination verb — tree-scoped on every platform. SubprocessHandle.waitForExit observes whole-tree liveness, so a consumer-owned teardown ladder can hold each tier on real quiescence.
 - Disposal of the service terminates all still-running managed processes and awaits their exit.
+- spawnTerminal owns terminal allocation, text transport, foreground groups, signalling, and whole-session quiescence behind one awaited termination method; readiness and persistent-shell policy stay in the PTY consumer. Its output stream ends after queued terminal output when the top-level process exits.
 
 ```ts cordis-catalog
+/**
+ * Resolve one configured executable in this provider's execution world.
+ * Absolute paths are verified; bare names use the provider's scrubbed PATH
+ * plus explicit environment overrides. Relative paths containing separators
+ * are rejected: no current consumer defines which directory they would
+ * resolve against, so providers fail loud instead of guessing.
+ * @param command - absolute executable path or bare PATH name.
+ * @param env - explicit environment entries used for lookup.
+ * @param signal - aborts remote or local lookup.
+ * @returns a canonical executable path.
+ */
+abstract resolveExecutable( command: string, env?: Readonly<Record<string, string>>, signal?: AbortSignal, ): Promise<string>
+
 /**
  * Start one managed child process from a fully-specified spec; this seam
  * applies no defaults.
@@ -2194,11 +2286,20 @@ Implementations must honor these semantics:
  * @returns the live process handle (streams/readers, signalling, outcome promise).
  */
 abstract spawn(spec: SubprocessSpawnSpec): SubprocessHandle
+
+/**
+ * Allocate a real terminal and start one owned process session. This is the
+ * only non-pipe process primitive: implementations own terminal byte I/O,
+ * foreground groups, signals, and complete session-tree cleanup.
+ * @param spec - fully specified argv, cwd, environment, dimensions, grace, and allocation cancellation.
+ * @returns the live terminal handle after allocation succeeds.
+ */
+abstract spawnTerminal(spec: SubprocessTerminalSpawnSpec): Promise<SubprocessTerminalHandle>
 ```
 
-Types: [SubprocessHandle](../core-data-structures/subprocess.md) · [SubprocessSpawnSpec](../core-data-structures/subprocess.md)
+Types: [SubprocessHandle](../core-data-structures/subprocess.md) · [SubprocessSpawnSpec](../core-data-structures/subprocess.md) · [SubprocessTerminalHandle](../core-data-structures/subprocess.md) · [SubprocessTerminalSpawnSpec](../core-data-structures/subprocess.md)
 
-Source: [`packages/subprocess/subprocess/src/index.ts:91`](../../packages/subprocess/subprocess/src/index.ts)
+Source: [`packages/subprocess/subprocess/src/index.ts:102`](../../packages/subprocess/subprocess/src/index.ts)
 
 ## `ctx.systemPrompt` — `SystemPrompt`
 
