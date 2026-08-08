@@ -1,9 +1,15 @@
 ---
 name: dsh-translate-docs
-description: Use when creating or updating the bilingual counterpart of a doc in this repo (English ↔ Chinese pairs) — tells the orchestrating agent when to delegate translation to a subagent, and orients the translator to the pairing contract, the terminology source of truth, the translation rules, and the consistency gate that verifies the result
+description: Manually run the extended DeepSeek Harness bilingual-document workflow, including generated briefings, delegated prose translation, whole-document translation, and scoped pairing verification.
+disable-model-invocation: true
+user-invocable: true
 ---
 
 # Translating DeepSeek-Harness docs
+
+## Invocation boundary
+
+Run this extended workflow only when the user explicitly invokes `dsh-translate-docs` by name. Never select or load it for ordinary documentation work, from another skill, or from an inferred translation need; routine translation follows the one-shot, one-pass rule in [docs/AGENTS.md](../../../docs/AGENTS.md).
 
 ## What this skill is
 
