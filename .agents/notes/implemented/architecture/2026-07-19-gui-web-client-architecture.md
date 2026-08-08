@@ -44,7 +44,7 @@ Implementation homes: registry core and the props-share types in `packages/clien
 
 A service is a plugin's only API surface toward other plugins (UI components and injection faces are not APIs; a plugin nobody calls mounts no service — ui-trajectory is the minimal-plugin exemplar: no ctx service, only view-slot registrations). The roster: `ctx.connection` (api client + stream handles), `ctx.slots` (registry wrapper emitting `slots/changed`, render entry, renderer install seam), `ctx.sessions` (list store, current-session state, scope tree), `ctx.loader`, `ctx.theme`, `ctx.i18n`, `ctx.layout` (cross-plugin view navigation), `ctx.conversation` (send/cancel/startSession). Viewing state that used to live in service stores (panel widths, selection, drafts) now lives in entry-declared stores per the [slot system standard](2026-07-22-slot-type-chain-implementation.md).
 
-There is no registration model besides slots — the former view and tool rings both dissolved into it. Conversation views are entries of the `'conversation.view'` list slot ui-conversation declares, tab metadata rides the registration options (`id`/`order`/`label`), and per-view chrome lives inside the view components themselves. A tool row is a keyed child slot each view declares for itself — today `'conversation.chat.toolview'` (keyed/session), declared by the chat entry's `children` table; the key space is runtime-open (SlotMap declares slots, never keys), which is what the tool ring's open tool-name set required. The render site dispatches per row via `entryKey: toolName` with `GenericToolCard` as the call-site `fallback`; the owner payload is the uniform `ToolRowOwnerProps` (`callId`/`toolName`/`block`/`openDetails`), and `ToolRowProps` composes it with the session standard kit for registrant components. Registrants are plain plugins with zero dedicated machinery: `ctx.slots.inject('conversation.chat.toolview', () => ctx.slots.register({ name: 'conversation.chat.toolview', key: '<tool>', inject? }, Row))`; the declaration is the load and reload dependency, independently from `ConversationService` ([decision](2026-08-05-slot-declaration-injection.md)). Interaction drafts and other row state ride the ordinary store seat. Trajectory/waterfall get same-shaped slots (names fixed by the slot-naming discipline `<domain>.<entry>.<hole>`, one shared owner type) that land with their own row render sites — RendersCheck rejects a declaration nobody renders, so the two slots cannot be declared early.
+There is no registration model besides slots — the former view and tool rings both dissolved into it. Conversation views are entries of the `'conversation.view'` list slot ui-conversation declares, tab metadata rides the registration options (`id`/`order`/`label`), and per-view chrome lives inside the view components themselves. Tool presentation crosses one explicit package boundary: ui-conversation places each ordered root call into the single `'conversation.chat.tool'` seat and passes the Runtime-projected Code Dispatch children without interpreting their Tool names; ui-tool renders that root/child shape and declares the keyed/session `'tool.call.toolview'` child slot. The key space stays runtime-open (SlotMap declares slots, never keys), and both roots and children dispatch by `entryKey: toolName` with `GenericToolCard` as the fallback. Business packages register atomic views through `ctx.slots.inject('tool.call.toolview', () => ctx.slots.register({ name: 'tool.call.toolview', key: '<tool>', inject? }, Row))`; the declaration is the load and reload dependency ([decision](2026-08-05-slot-declaration-injection.md)). ui-conversation separately delegates the selected call's details body through `'conversation.details.tool'`, so ui-tool's card models remain the single presentation owner without making conversation import Tool components.
 
 **Scope addressing** mirrors the host's agent-scope idiom: services are root singletons whose methods take no sessionId — they read the caller's scope mark (`scopeOf(ctx)`). Inside a session scope, `ctx.conversation.send('hi', 'queue')` targets that session; cross-session calls re-target by switching ctx (`ctx.sessions.scope(id)!.conversation.send(...)`); calling a scoped method from root ctx throws. Client session scopes are minted like host agent scopes (a no-op plugin fiber + a scope-key extend), built lazily on first viewing and torn down only when the session is removed and unwatched — host-session death alone does not tear a scope (it freezes into a read-only viewport).
 
@@ -86,22 +86,24 @@ The glue package is the whole ctx↔React boundary; components stay framework-fr
 
 ## Directory shape
 
-Twelve `packages/client/*` packages (ui-slots, ui-primitives, web-react, connection, runtime, ui-layout, ui-sidebar, ui-conversation, ui-trajectory, ui-theme, i18n, web) plus `apps/web` — the vite application, a thin `main` over the shell's boot export. Plugin packages keep their browser half under `src/client/`; **every build artifact lands in `lib/`** — the node half as `lib/index.js`/`lib/invariant.js`, the browser bundle as `lib/client.js` (the shared tsdown client preset emits both; there is no `dist/` directory, and `exports["./client"]` points at `./lib/client.js`). Dependency direction: `ui-slots ← web-react ← runtime ← ui-* (peers) ← web`, with ui-primitives/ui-theme/i18n as zero-dependency side paths.
+Client packages live under `packages/client/*`, with `apps/web` as the thin Vite application over the shell's boot export. Plugin packages keep their browser half under `src/client/`; **every build artifact lands in `lib/`** — the node half as `lib/index.js`/`lib/invariant.js`, the browser bundle as `lib/client.js` (the shared tsdown client preset emits both; there is no `dist/` directory, and `exports["./client"]` points at `./lib/client.js`). `ui-slots`, web-react, and runtime form the infrastructure direction; feature plugins cooperate through services and slots rather than importing presentation implementations.
 
 A multi-domain plugin package additionally splits its client half by future package boundaries — ui-conversation is the exemplar:
 
 ```
 src/client/
-  contract/    the only shared face between domains (types + composed props shares)
-  service.ts   cross-domain orchestration (imports contract only)
-  skeleton/    domain: shell components (ConversationRoot/InputBar/EmptyState/DetailsPanel)
-  chat/        domain: the chat view
-  toolviews/   domain: sample tool-row registrants (third-party posture)
-  apply.ts     the ONLY file allowed to import across domains (assembly point)
-  index.ts     thin re-export shell (contract + apply + components)
+  contract/    shared slot and cross-domain types
+  service.ts   cross-domain orchestration
+  skeleton/    conversation shell and details host
+  chat/        ordered conversation view
+  input/       composer state machine
+  queue/       queued-message presentation
+  settings/    conversation settings rows
+  apply.ts     cross-domain assembly point
+  index.ts     public contract surface
 ```
 
-Domain implementation files never import a sibling domain — shared surfaces route through `contract/` (e.g. the toolviews samples take `ToolRowProps` from the contract, never chat internals). `scripts/verify-client-domain-graph.ts` enforces the layering (contract=0, domains=1, apply/index=2; imports may only point at levels ≤ own; sibling-domain edges fail). A future package split promotes each domain directory to a package and mechanically rewrites import paths.
+Domain implementation files never import a sibling domain; shared surfaces route through `contract/`. `scripts/verify-client-domain-graph.ts` enforces the layering (contract=0, domains=1, apply/index=2; imports may only point at levels ≤ own; sibling-domain edges fail). Tool presentation is already a separate `ui-tool` package and reaches chat and details only through the slots ui-conversation declares.
 
 ## How to develop
 
@@ -122,5 +124,5 @@ Token streams no longer shake the render tree: a frame storm costs unsubscribed 
 | One statically-linked SPA bundle | Plugins must be host-composable at runtime (config-driven); a monolith re-couples every UI feature to one build |
 | window globals / import maps for shared deps | The DI require table keeps sharing explicit, fail-loud, and swappable; globals leak identity and version silently |
 | Business data in zustand slices | The event window/accumulator is a behavioral state machine, not a flat slice; the object layer keeps snapshot granularity and batching controllable |
-| String-keyed global component registry for tool rows | Per-view keyed child slots plus in-component session branching carry the same need with the one registration model; a parallel registry does not come back ([toolview dissolution](2026-07-23-toolview-dissolution.md)) |
+| Parallel string-keyed component registry for Tool rows | ui-tool's keyed child slot carries the runtime-open Tool-name set through the one slot registration model ([toolview dissolution](2026-07-23-toolview-dissolution.md)) |
 | Progressive/Suspense boot in P-I | One-flip boot is strictly simpler; the loader's per-plugin status face is kept so progressive lighting can land later without re-architecture |
