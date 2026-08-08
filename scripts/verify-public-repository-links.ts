@@ -10,6 +10,27 @@ const internalOwner = ['deepseek', 'harness'].join('-')
 const internalRepository = [internalOwner, internalOwner].join('/')
 const internalIssueShorthand = `${internalOwner}#`
 
+const namedReferenceCharacters: Readonly<Record<string, string>> = {
+  hyphen: '-',
+  num: '#',
+  sol: '/',
+}
+
+/** Normalize source spellings that render or decode to repository separators. */
+function canonicalReferenceText(source: string): string {
+  return source
+    .replaceAll('\\/', '/')
+    .replace(/\\u(0023|002d|002f)/gi, (_match, code: string) => String.fromCodePoint(Number.parseInt(code, 16)))
+    .replace(/%(23|2d|2f)/gi, (_match, code: string) => String.fromCodePoint(Number.parseInt(code, 16)))
+    .replace(/&#(?:(\d+)|x([\da-f]+));/gi, (entity, decimal: string | undefined, hexadecimal: string | undefined) => {
+      const code = Number.parseInt(decimal ?? hexadecimal ?? '', decimal === undefined ? 16 : 10)
+      return code === 35 || code === 45 || code === 47 ? String.fromCodePoint(code) : entity
+    })
+    .replace(/&(hyphen|num|sol);/gi, (entity, name: string) => namedReferenceCharacters[name.toLowerCase()] ?? entity)
+    .normalize('NFKC')
+    .toLowerCase()
+}
+
 /** One tracked reference to the internal repository. */
 export interface InternalRepositoryReference {
   /** Repository-relative file path. */
@@ -27,7 +48,8 @@ export interface InternalRepositoryReference {
 export function findInternalRepositoryReferences(file: string, source: string): InternalRepositoryReference[] {
   const references: InternalRepositoryReference[] = []
   for (const [index, line] of source.split('\n').entries()) {
-    if (line.includes(internalRepository) || line.includes(internalIssueShorthand)) {
+    const canonicalLine = canonicalReferenceText(line)
+    if (canonicalLine.includes(internalRepository) || canonicalLine.includes(internalIssueShorthand)) {
       references.push({ file, line: index + 1 })
     }
   }
