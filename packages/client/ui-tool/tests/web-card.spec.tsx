@@ -56,7 +56,7 @@ const resultFetch = (over?: Partial<Extract<ToolResultView, { card: 'web'; kind:
 
 const runningSearch = (over?: Partial<RunningToolCall>): RunningToolCall => ({
   callId: 'c1', name: 'web_search', argsRaw: SEARCH_ARGS,
-  turn: 1, step: 1, time: 1_000, callView: { card: 'generic', title: 'Search', kind: 'search' }, ...over,
+  turn: 1, step: 1, time: 1_000, callView: { card: 'generic', title: 'Search', kind: 'search' }, subCalls: [], ...over,
 })
 
 const settledSearch = (over?: Partial<ToolResultNode>): ToolResultNode => ({
@@ -64,7 +64,7 @@ const settledSearch = (over?: Partial<ToolResultNode>): ToolResultNode => ({
   call: { name: 'web_search', argsRaw: SEARCH_ARGS },
   callTime: 1_000,
   content: [{ type: 'text', text: 'search text' }], isError: false,
-  callView: { card: 'generic', title: 'Search', kind: 'search' }, resultView: resultSearch(), ...over,
+  callView: { card: 'generic', title: 'Search', kind: 'search' }, resultView: resultSearch(), subCalls: [], ...over,
 })
 
 const settledFetch = (over?: Partial<ToolResultNode>): ToolResultNode => ({
@@ -72,7 +72,7 @@ const settledFetch = (over?: Partial<ToolResultNode>): ToolResultNode => ({
   call: { name: 'web_fetch', argsRaw: FETCH_ARGS },
   callTime: 1_000,
   content: [{ type: 'text', text: 'fetch body' }], isError: false,
-  callView: { card: 'generic', title: 'Fetch', kind: 'fetch' }, resultView: resultFetch(), ...over,
+  callView: { card: 'generic', title: 'Fetch', kind: 'fetch' }, resultView: resultFetch(), subCalls: [], ...over,
 })
 
 describe('webCardModel', () => {
@@ -235,7 +235,7 @@ describe('DetailsPanel web Output section', () => {
 
   function snapshot(over: Partial<ConversationSnapshot> = {}): ConversationSnapshot {
     return {
-      sessionId: SID, nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [], codeDispatches: new Map(),
+      sessionId: SID, nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [],
       pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
       openState: 'open', openError: null, hasMore: false, loadingOlder: false,
       promptError: null, blank: false, subagent: null, lastAgentError: null, ...over,

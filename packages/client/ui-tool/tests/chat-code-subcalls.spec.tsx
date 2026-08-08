@@ -13,8 +13,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render } from '@testing-library/react'
 import { createSnapshotStore, SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
-  CodeSubCall, ConversationSnapshot, RunningToolCall, SessionId, SessionListState,
-  ToolResultNode, WorkspaceListState,
+  ConversationSnapshot, RunningToolCall, SessionId, SessionListState,
+  ToolCallBlock, ToolResultNode, WorkspaceListState,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { createSlotRenderer } from '@deepseek-ai/dsh-client-web-react'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
@@ -48,27 +48,35 @@ const codeResult = (seq: number, callId: string): ToolResultNode => ({
   call: { name: 'run_code', argsRaw: RUN_CODE_ARGS },
   callTime: seq * 1_000 - 500,
   content: [{ type: 'text', text: 'demo.txt' }], isError: false, callView: null, resultView: null,
+  subCalls: [],
 })
 
 const runningCode = (callId: string): RunningToolCall => ({
   callId, name: 'run_code', argsRaw: RUN_CODE_ARGS, turn: 9, step: 0, time: 9_000, callView: null,
+  subCalls: [],
 })
 
-const subCall = (seq: number, parent: string, n: number, name: string, args: object, resultText: string, isError = false): CodeSubCall => ({
+const subCall = (
+  seq: number, parent: string, n: number, name: string, args: object, resultText: string, isError = false,
+): ToolCallBlock => ({
   kind: 'tool-result', seq, time: seq * 1_000,
   callId: `${parent}:code:${n}`,
   call: { name, argsRaw: JSON.stringify(args) },
   callTime: seq * 1_000,
   content: [{ type: 'text', text: resultText }], isError, callView: null, resultView: null,
+  subCalls: [],
 })
 
 function snapshotWith(
   nodes: ToolResultNode[],
-  codeDispatches: ReadonlyMap<string, readonly CodeSubCall[]>,
+  subCalls: readonly ToolCallBlock[],
   runningCalls: RunningToolCall[] = [],
 ): ConversationSnapshot {
+  const nestedNodes = nodes.map(node => ({ ...node, subCalls }))
+  const nestedRunningCalls = runningCalls.map(call => ({ ...call, subCalls }))
   return {
-    sessionId: SID, nodes, turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls, codeDispatches,
+    sessionId: SID, nodes: nestedNodes, turnTimings: new Map(), turnEnds: new Map(), partial: null,
+    runningCalls: nestedRunningCalls,
     pending: [], queue: [], running: runningCalls.length > 0, composerPhase: 'active', removed: false,
     openState: 'open', openError: null,
     hasMore: false, loadingOlder: false, promptError: null, blank: false, subagent: null, lastAgentError: null,
@@ -165,11 +173,11 @@ function mountApp(slots: SlotsService) {
 describe('run_code sub-calls through the real chat machinery', () => {
   it('renders the code-variant parent row with the description summary and nested sub-rows', async () => {
     const parent = 'call-64'
-    const dispatches = new Map([[parent, [
+    const subCalls = [
       subCall(11, parent, 1, 'bash', { command: 'ls notes', description: 'List notes' }, 'demo.txt'),
       subCall(12, parent, 2, 'mystery', { n: 1 }, 'ok'),
-    ]]])
-    const b = await bench(snapshotWith([codeResult(10, parent)], dispatches))
+    ]
+    const b = await bench(snapshotWith([codeResult(10, parent)], subCalls))
     const view = mountApp(b.slots)
 
     // Parent row: the code variant with the model-authored description.
@@ -193,12 +201,12 @@ describe('run_code sub-calls through the real chat machinery', () => {
   it('renders Cordis sub-calls with lifecycle titles over the generic variants', async () => {
     const parent = 'call-cordis'
     const code = 'return { name: "audit", apply(ctx) {} }'
-    const dispatches = new Map([[parent, [
+    const subCalls = [
       subCall(11, parent, 1, 'cordis_inspect', { what: 'temporary' }, '## Temporary Plugins'),
       subCall(12, parent, 2, 'cordis_mount', { code }, 'Temporary Plugin dyn-2 is running'),
       subCall(13, parent, 3, 'cordis_unmount', { id: 'dyn-2' }, 'Temporary Plugin dyn-2 was unmounted and removed.'),
-    ]]])
-    const b = await bench(snapshotWith([codeResult(10, parent)], dispatches))
+    ]
+    const b = await bench(snapshotWith([codeResult(10, parent)], subCalls))
     const view = mountApp(b.slots)
     const nest = view.container.querySelector('[data-subcalls]')!
 
@@ -214,7 +222,7 @@ describe('run_code sub-calls through the real chat machinery', () => {
 
   it('expanding the code row reveals the program body verbatim (shiki-tokenized)', async () => {
     const parent = 'call-64'
-    const b = await bench(snapshotWith([codeResult(10, parent)], new Map()))
+    const b = await bench(snapshotWith([codeResult(10, parent)], []))
     const view = mountApp(b.slots)
     // The code row is expandable via the whole summary row (body = the program).
     const toggle = view.container.querySelector('[data-variant="code"] [data-expandable]')
@@ -230,10 +238,10 @@ describe('run_code sub-calls through the real chat machinery', () => {
 
   it('an isError sub-call renders the error state dot exactly like a failed native row', async () => {
     const parent = 'call-64'
-    const dispatches = new Map([[parent, [
+    const subCalls = [
       subCall(11, parent, 1, 'mystery', { n: 1 }, 'Error: boom', true),
-    ]]])
-    const b = await bench(snapshotWith([codeResult(10, parent)], dispatches))
+    ]
+    const b = await bench(snapshotWith([codeResult(10, parent)], subCalls))
     const view = mountApp(b.slots)
     const nested = view.container.querySelector('[data-subcalls] [data-variant][data-state="error"]')
     expect(nested).not.toBeNull()
@@ -241,11 +249,11 @@ describe('run_code sub-calls through the real chat machinery', () => {
 
   it('a file sub-row click opens the host path; bash sub-rows do not open details', async () => {
     const parent = 'call-64'
-    const dispatches = new Map([[parent, [
+    const subCalls = [
       subCall(11, parent, 1, 'read', { path: 'notes/demo.txt' }, 'ok'),
       subCall(12, parent, 2, 'bash', { command: 'ls notes', description: 'List notes' }, 'demo.txt'),
-    ]]])
-    const b = await bench(snapshotWith([codeResult(10, parent)], dispatches))
+    ]
+    const b = await bench(snapshotWith([codeResult(10, parent)], subCalls))
     const view = mountApp(b.slots)
     view.getByText('notes/demo.txt').click()
     expect(b.layout.openDetails).not.toHaveBeenCalled()
@@ -258,10 +266,10 @@ describe('run_code sub-calls through the real chat machinery', () => {
 
   it('a RUNNING run_code call nests its so-far dispatches under the spinner row', async () => {
     const parent = 'call-live'
-    const dispatches = new Map([[parent, [
+    const subCalls = [
       subCall(21, parent, 1, 'bash', { command: 'ls notes', description: 'List notes' }, 'demo.txt'),
-    ]]])
-    const b = await bench(snapshotWith([], dispatches, [runningCode(parent)]))
+    ]
+    const b = await bench(snapshotWith([], subCalls, [runningCode(parent)]))
     const view = mountApp(b.slots)
     const running = view.container.querySelector('[data-variant="code"][data-state="running"]')
     expect(running).not.toBeNull()
@@ -272,12 +280,11 @@ describe('run_code sub-calls through the real chat machinery', () => {
 
   it('a started-but-unsettled sub-call renders the running state exactly like a native in-flight row', async () => {
     const parent = 'call-live'
-    const runningSub: CodeSubCall = {
+    const runningSub: ToolCallBlock = {
       callId: `${parent}:code:1`, name: 'grep', argsRaw: '{"pattern":"todo"}',
-      turn: 0, step: 0, time: 21_000, callView: null,
+      turn: 0, step: 0, time: 21_000, callView: null, subCalls: [],
     }
-    const dispatches = new Map([[parent, [runningSub]]])
-    const b = await bench(snapshotWith([], dispatches, [runningCode(parent)]))
+    const b = await bench(snapshotWith([], [runningSub], [runningCode(parent)]))
     const view = mountApp(b.slots)
     // The nested row derives 'running' from the RunningToolCall shape — the
     // same data-state chrome (row sweep) a native in-flight row wears.
@@ -291,9 +298,9 @@ describe('run_code sub-calls through the real chat machinery', () => {
       kind: 'tool-result', seq: 10, time: 10_000, callId: parent,
       call: { name: 'mystery', argsRaw: '{"n":1}' },
       callTime: 9_500,
-      content: [], isError: false, callView: null, resultView: null,
+      content: [], isError: false, callView: null, resultView: null, subCalls: [],
     }
-    const b = await bench(snapshotWith([plain], new Map()))
+    const b = await bench(snapshotWith([plain], []))
     const view = mountApp(b.slots)
     expect(view.container.querySelector('[data-subcalls]')).toBeNull()
   })
