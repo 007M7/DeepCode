@@ -108,6 +108,7 @@ async function assertOwnerOnly(filename: string): Promise<void> {
     return
   }
   /* v8 ignore stop */
+  /* v8 ignore start -- Windows has no POSIX mode enforcement; POSIX behavior tests enforce this peer. */
   let mode: number
   try {
     mode = (await stat(filename)).mode
@@ -122,6 +123,7 @@ async function assertOwnerOnly(filename: string): Promise<void> {
     `credentials-local: ${filename} is readable beyond its owner (mode ${(mode & 0o777).toString(8)});`
     + ` run "chmod 600 ${filename}" before starting again`,
   )
+  /* v8 ignore stop */
 }
 
 /** Whether a filesystem error means absence; every non-ENOENT failure must surface. */

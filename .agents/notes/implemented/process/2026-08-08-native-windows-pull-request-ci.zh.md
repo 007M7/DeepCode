@@ -42,7 +42,9 @@ Status: implemented
 
 项目 skill 组合 fixture 另有一项最终一致性竞态：宿主资源紧张时，agent 可能在 `write` 返回后、Chokidar 使 skill 目录缓存失效前就开始下一次模型步骤，导致替换目录消息落到后续 `skill` 调用之后。现在，fixture 会在写入后的工具边界等待真实注册表观察到 `hot-skill`，然后继续严格断言请求顺序与持久转录。生产代码仍保持异步；测试会显式等待其本来要验证的 watcher 契约，而不是依赖调度时序或接受另一个请求索引。
 
-POSIX 模式位、基于 chmod 的不可读状态和基于 chmod 的 writer lock 拒绝在 Windows 上没有等价机制。这些验收场景继续在 POSIX 上强制执行，并在 Windows 上跳过；内容、原子替换、符号链接安全、通过平台无关文件系统冲突验证的回滚与恢复，以及原生 Windows 长路径行为仍保有覆盖。没有任何受支持的产品源码为适应这些差异而从 Windows 覆盖率中排除。
+下一次分支头精确运行通过了全部 10,933 项插桩测试，但逐文件阈值仍在 99.95% 正确失败，从而暴露出 5 个此前恰由 Linux 覆盖的分支。新增的确定性跨平台 fixture 会分别覆盖 PTY 向后翻页拼接 scrollback、以目录作为 settings 文档、非法 SQLite 文件名，以及 regular file（普通文件）父级之下的原子写入锁。credentials provider 剩余的 `stat` 与模式位强制分支本质上只属于 POSIX，因此采用与持久 JSONL、storage backend 相同的窄范围、带说明的对等分支忽略；其行为测试仍会在 POSIX 上强制执行。阈值与源码文件清单均未改变。
+
+POSIX 模式位、基于 chmod 的不可读状态和基于 chmod 的 writer lock 拒绝在 Windows 上没有等价机制。这些验收场景继续在 POSIX 上强制执行，并在 Windows 上跳过；内容、原子替换、符号链接安全、通过平台无关文件系统冲突验证的回滚与恢复，以及原生 Windows 长路径行为仍保有覆盖。只有本质上属于 POSIX 的源码分支带有窄范围且说明明确的分母忽略；没有任何源码文件或平台无关分支为适应这些差异而从 Windows 覆盖率中排除。
 
 受支持的工作流不含 Wine 专属基础设施：不存在 apt 缓存生产者、兼容性脚本、对仓库快照执行的 hoisted 安装、Windows Node 下载或本地 `check:windows-wine` 命令。[已归档的 Wine 实验](../../archived/process/2026-07-27-wine-windows-gates-experiment.md)仍作为其实测延迟与保真度取舍的历史证据，而非当前执行路径。
 

@@ -96,6 +96,7 @@ type StubMode =
   | 'send-error'
   | 'prompt-after-idle'
   | 'empty-page-after-latest'
+  | 'paged-scrollback'
 
 class StubPtySession implements PtyBackendSession {
   readonly motd = '__DSH_PERSISTENT_BASH_PROMPT__ '
@@ -211,6 +212,19 @@ class StubPtySession implements PtyBackendSession {
       return { text: '', totalLines: 2, lineBegin: 1, lineEnd: 1, truncated: false }
     }
     const lines = this.scrollback.split('\n')
+    if (this.mode === 'paged-scrollback') {
+      const offset = request.offset ?? 0
+      const end = lines.length - offset
+      const start = Math.max(0, end - 3)
+      const returnedLines = end - start
+      return {
+        text: lines.slice(start, end).join('\n'),
+        totalLines: lines.length,
+        lineBegin: offset,
+        lineEnd: offset + returnedLines,
+        truncated: this.historyTruncated,
+      }
+    }
     return {
       text: this.scrollback,
       totalLines: this.mode === 'empty-page-after-latest' ? lines.length + 1 : lines.length,
@@ -400,6 +414,16 @@ describe('tool-bash-persistent', () => {
 
     session.mode = 'empty-page-after-latest'
     expect(text(await call(ctx, owner, 'empty continuation page'))).toContain('hello from stub')
+  })
+
+  it('assembles retained output across backward scrollback pages', async () => {
+    const { ctx, owner, stub } = await setup({ backendType: 'stub', maxOutputChars: 1_000 })
+    await call(ctx, owner, 'warm up')
+    const session = stub.sessions[0]!
+    session.mode = 'paged-scrollback'
+    session.scrollback = ''
+
+    expect(text(await call(ctx, owner, 'paged output'))).toBe('hello from stub')
   })
 
   it('sanitizes a prompt fallback reached after multiple polling rounds', async () => {

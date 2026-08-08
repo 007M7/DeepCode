@@ -2,7 +2,7 @@ import { lstat, mkdir, mkdtemp, readFile, readdir, stat, symlink, writeFile } fr
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { writeFileAtomic } from '../src/index.ts'
+import { withFileLock, writeFileAtomic } from '../src/index.ts'
 
 async function scratch(): Promise<string> {
   return mkdtemp(join(tmpdir(), 'dsh-atomic-write-'))
@@ -44,5 +44,19 @@ describe('writeFileAtomic', () => {
     await mkdir(target)
     await expect(writeFileAtomic(target, 'content', { mode: 0o600 })).rejects.toThrow()
     expect((await readdir(dir)).filter(entry => entry.includes('.tmp'))).toEqual([])
+  })
+})
+
+describe('withFileLock', () => {
+  it('rejects an invalid parent hierarchy before running the operation', async () => {
+    const dir = await scratch()
+    const parent = join(dir, 'not-a-directory')
+    await writeFile(parent, 'occupied')
+    let called = false
+
+    await expect(withFileLock(join(parent, 'document'), async () => {
+      called = true
+    })).rejects.toThrow(/ENOENT|ENOTDIR|not a directory/i)
+    expect(called).toBe(false)
   })
 })

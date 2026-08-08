@@ -137,6 +137,13 @@ describe('boot and reads', () => {
     await expect(boot({ path, watch: false })).rejects.toThrow(/EACCES|permission/i)
   })
 
+  it('fails loud when the document path names a directory', async () => {
+    const dir = await tempDir()
+    const path = join(dir, 'settings.yaml')
+    await mkdir(path)
+    await expect(boot({ path, watch: false })).rejects.toThrow(/EISDIR|directory/i)
+  })
+
   it('fails loud on an unsupported extension', async () => {
     const dir = await tempDir()
     await expect(boot({ path: join(dir, 'settings.toml'), watch: false }))
