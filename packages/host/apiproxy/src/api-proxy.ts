@@ -1211,6 +1211,30 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     return undefined
   }
 
+  /**
+   * The agent whose layer holds this session's tool presenters.
+   *
+   * A preset registers its tools into the agent's OWN layer, so a transcript
+   * read while no agent exists finds no presenter at all and every card
+   * degrades to the generic renderer — silently, because a viewless entry is
+   * also what a tool with no presenter produces. Reading therefore resolves
+   * the agent, through the same deduplicated resume every other session method
+   * takes, whenever a roster is composed.
+   *
+   * A deployment composing no roster keeps the storage-only read it always
+   * had: its tools are in the host layer, which needs no agent to address. A
+   * resolution failure is not a read failure either — the transcript still
+   * serves, with the generic cards it would have rendered anyway.
+   * @param sessionId - the transcript being read.
+   * @returns the agent to resolve presenters against, or undefined for none.
+   */
+  async function presenterAgentFor(sessionId: SessionId): Promise<Agent | undefined> {
+    const live = ctx.get('agents')?.get(sessionId)
+    if (live !== undefined || ctx.get('agentPresets') === undefined) return live
+    const found = await agentFor(sessionId)
+    return 'error' in found ? undefined : found.agent
+  }
+
   /** Read one transcript cut and optional projection baseline without acquiring an Agent owner. */
   async function historyStateFor(
     sessionId: SessionId,
@@ -1831,11 +1855,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             details: {},
           })
         }
-        // `ctx.get`, not `ctx.agents`: this is the COLD path, and a caller may
-        // serve history from storage with no agent registry composed at all.
-        // An absent registry means no live agent, which is the same answer a
-        // present one gives here — presenters fall back to the global layer.
-        const page = historyPage(ctx, state.events, beforeSeq, maxMessages, ctx.get('agents')?.get(sessionId))
+        const page = historyPage(ctx, state.events, beforeSeq, maxMessages, await presenterAgentFor(sessionId))
         return ok(request, {
           events: page.events,
           hasMore: page.hasMore,
