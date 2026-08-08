@@ -62,6 +62,7 @@
     "verify-md-links": "tsx scripts/verify-md-links.ts",
     "verify-doc-refs": "tsx scripts/verify-doc-refs.ts",
     "verify-package-paths": "tsx scripts/verify-package-paths.ts",
+    "verify-config-source-ownership": "tsx scripts/verify-config-source-ownership.ts",
     "verify-package-invariants": "tsx scripts/verify-package-invariants.ts",
     "verify-built-package-invariants": "node scripts/verify-built-package-invariants.mjs",
     "verify-package-readme-model-experience": "tsx scripts/verify-package-readme-model-experience.ts",

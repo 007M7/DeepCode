@@ -9,6 +9,7 @@ import type { Context } from 'cordis'
 import z from 'schemastery'
 import type {} from '@deepseek-ai/dsh-agent'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
+import { environmentOf } from '@deepseek-ai/dsh-environment'
 import type {} from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-web'
 import {
@@ -67,6 +68,14 @@ export const Config: z<Config> = z.object({
   maxUses: z.number().step(1).min(1),
 })
 
+/**
+ * Environment variable naming this provider's endpoint. Deliberately distinct
+ * from `$DEEPSEEK_BASE_URL`, which belongs to the chat-completions adapter:
+ * search speaks the Anthropic-compatible Messages API, so one variable cannot
+ * serve both.
+ */
+const SEARCH_BASE_URL_ENV = 'DEEPSEEK_SEARCH_BASE_URL'
+
 /** Register the DeepSeek search provider with `ctx.web`. */
 export function apply(ctx: Context, config: Config): void {
   const maxTokens = config.maxTokens ?? DEEPSEEK_DEFAULT_MAX_TOKENS
@@ -80,11 +89,14 @@ export function apply(ctx: Context, config: Config): void {
     resolveApiKey: async () => {
       const credentials = ctx.get('credentials')
       if (credentials !== undefined) return (await credentials.resolve(apiKeyEnv))?.value
-      const ambient = process.env[apiKeyEnv]
-      return ambient !== undefined && ambient.length > 0 ? ambient : undefined
+      // Without the seam the environment is the whole credential plane.
+      const ambient = environmentOf(ctx).get(apiKeyEnv)
+      return ambient !== undefined && ambient.value.length > 0 ? ambient.value : undefined
     },
     apiKeyEnv,
-    baseURL: config.baseURL ?? DEEPSEEK_DEFAULT_BASE_URL,
+    baseURL: config.baseURL
+      ?? environmentOf(ctx).get(SEARCH_BASE_URL_ENV)?.value
+      ?? DEEPSEEK_DEFAULT_BASE_URL,
     model: config.model ?? DEEPSEEK_DEFAULT_MODEL,
     apiVersion: config.apiVersion ?? DEEPSEEK_DEFAULT_API_VERSION,
     maxTokens,

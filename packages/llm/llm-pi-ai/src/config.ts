@@ -19,7 +19,7 @@ import z from 'schemastery'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
-import { normalizeApiKey, resolveRetryPolicy, RetryPolicySchema } from '@deepseek-ai/dsh-llm'
+import { resolveRetryPolicy, RetryPolicySchema } from '@deepseek-ai/dsh-llm'
 import type { ResolvedRetryPolicy, RetryPolicyConfig } from '@deepseek-ai/dsh-llm'
 import { resolveRouteModels, SUPPORTED_THINKING_FORMATS, THINKING_LEVELS } from './catalog.ts'
 import type { PiAiCompatProfile, PiAiModelOverride, PiAiModelProfile, PiAiReasoningEfforts } from './catalog.ts'
@@ -44,12 +44,6 @@ export type {
 
 /** Configuration for one pi-ai provider route; the `providers` dict key IS the route. */
 export interface PiAiProviderProfile {
-  /**
-   * Literal provider credential; prefer {@link apiKeyEnv}. With both absent pi-ai uses its
-   * provider-native ambient discovery. Trimmed and format-checked by {@link resolveProfiles}; a
-   * value no HTTP header can carry fails there rather than inside `fetch`.
-   */
-  apiKey?: string
   /** Credential reference (environment-variable name) resolved per request through `ctx.credentials`. */
   apiKeyEnv?: string
   /** Name shown by configuration surfaces; defaults to the route key. */
@@ -201,7 +195,6 @@ const modelOverride: z<PiAiModelOverride> = z.object({
 })
 
 const profile = z.object({
-  apiKey: z.string().role('secret'),
   apiKeyEnv: z.string().role('credential-ref'),
   displayName: z.string(),
   api: z.union(supportedProtocols()),
@@ -280,19 +273,6 @@ export function resolveProfiles(
   for (const [provider, source] of entries) {
     rejectRemovedFields(provider, source)
     if (provider.length === 0) throw new Error('llm-pi-ai: provider names must be non-empty')
-    // Omission selects the installed provider's own auth — ambient discovery
-    // or OAuth — so only a supplied key is judged.
-    let apiKey: string | undefined
-    if (source.apiKey !== undefined) {
-      const checked = normalizeApiKey(source.apiKey)
-      if (!checked.ok) {
-        throw new Error(checked.reason === 'empty'
-          ? `llm-pi-ai: provider "${provider}" has an empty apiKey; omit it to use ambient authentication`
-          : `llm-pi-ai: provider "${provider}" has an apiKey containing characters no HTTP header can carry;`
-            + ' paste the raw key only')
-      }
-      apiKey = checked.value
-    }
     if (source.baseURL !== undefined && source.baseURL.length === 0) {
       throw new Error(`llm-pi-ai: provider "${provider}" has an empty baseURL`)
     }
@@ -324,7 +304,6 @@ export function resolveProfiles(
     const { apiKeyEnv, retryPolicy, models: _models, displayName: _displayName, ...rest } = source
     resolved.set(provider, {
       ...rest,
-      ...apiKey === undefined ? {} : { apiKey },
       provider,
       displayName,
       ...apiKeyEnv === undefined ? {} : { apiKeyEnv: credentialRef(apiKeyEnv) },
@@ -339,7 +318,7 @@ export function resolveProfiles(
         ...source.api === undefined ? {} : { api: source.api },
         ...source.baseURL === undefined ? {} : { baseURL: source.baseURL },
         models: catalog.models,
-        namesCredential: source.apiKey !== undefined || apiKeyEnv !== undefined,
+        namesCredential: apiKeyEnv !== undefined,
       }),
     })
   }

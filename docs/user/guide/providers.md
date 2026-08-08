@@ -31,7 +31,7 @@ That holds for providers that authenticate with an API key. The catalog also car
 
 **Let the endpoint report its models.** Expand **Model catalog** and choose **Fetch available models**: the interrogation asks the endpoint **the form currently shows** — including a base URL edited but not yet saved and a key typed but not yet stored — and offers what it reports as candidates to pick from. A route the installed catalog describes is answered from that catalog with no network call. Adopting a candidate only writes rows into the draft; nothing is stored until you save.
 
-Keys are write-only: the page only ever holds a redacted descriptor, never the literal secret. A key you enter is stored in `$DSH_HOME/.env`, and the profile records only the variable name that references it.
+Keys are write-only: the page only ever holds a redacted descriptor, never the literal secret. A key you enter is stored in `$DSH_HOME/.credentials.yaml`, and the profile records only the variable name that references it.
 
 ## settings.yaml for advanced configuration
 
@@ -116,9 +116,9 @@ Model ids are not lifecycle configuration. Requesting a model the route does not
 
 ## Credentials
 
-Prefer `apiKeyEnv`: it is a *reference* resolved per request, so no secret enters the configuration file. A literal `apiKey` is the escape hatch. Omitting both is what leaves a route unauthenticated, which for a catalog route means pi-ai's own environment discovery. A reference that resolves to nothing fails the request with `MISSING_CREDENTIAL` rather than falling through to whatever unrelated key the environment happens to hold.
+Use `apiKeyEnv`: it is a *reference* resolved per request, so no secret enters the configuration file. Omitting it leaves a route unauthenticated, which for a catalog route means pi-ai's own environment discovery. A reference that resolves to nothing fails the request with `MISSING_CREDENTIAL` rather than falling through to whatever unrelated key the environment happens to hold.
 
-References resolve from `$DSH_HOME/.env` — what the Models page's key fields write — and from the matching environment variable when no credential service is mounted. One credential serves every model on its route.
+Under `dsh`, references resolve from the inherited environment, the Models page's `$DSH_HOME/.credentials.yaml` store, the invoking directory's `.env`, then `$DSH_HOME/.env`. Without a credential service, a reference reads only the matching environment variable. One credential serves every model on its route.
 
 ## Point an agent at the new provider
 
