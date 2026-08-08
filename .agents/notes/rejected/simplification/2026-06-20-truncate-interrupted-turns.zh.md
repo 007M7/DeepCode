@@ -21,7 +21,7 @@ Status: rejected — 单个轮次可以包含大量真实工作，包括多个�
 - `TurnEndReasonMap` 移除 `interrupted` 变体。
 - `interruptedTurnClosers()` 及其测试删除。
 - 持久化协调器的修复钩子截断后端特有的撕裂或未关闭的尾部状态，不追加关闭事件。
-- [会话持久化文档](../../../../packages/session-persistence/session-persistence/README.md)说明加载返回最后一个已完成的轮次，不包含部分最终轮次。
+- [会话持久化文档](../../../../packages/session/session-persistence/README.md)说明加载返回最后一个已完成的轮次，不包含部分最终轮次。
 - 快照与契约测试随其所固定的行为一同更新。
 - 会话格式版本与记录的 fixture（测试前置数据）刷新；按预发布格式策略，非当前版本的存储日志被拒绝，不提供迁移路径。
 

@@ -20,7 +20,7 @@ harness 可以将一个任务委派给一个子 agent（`dsh-tool-subagent`）�
 
 ### seam（dsh-workflow）
 
-`ctx.workflows` 是 bash 形态的抽象 `WorkflowService`——每个上下文一个引擎，无命名提供方注册表（引擎是部署级替换，不是共存者）。`start(request)` 对无法启动的脚本同步抛出；返回的 `WorkflowRun` 的 `result` 永不 reject（失败时结算为 `stopReason: 'error' | 'cancelled'`）。`workflow/*` 事件是仅观察的 emit，携带数据快照（id + meta；`workflow/end` 省略 result 值），按监听器隔离，与 `subagent/start`/`subagent/end` 对称——控制权留在 run 的持有者手中。词汇详情见 [core-data-structures/workflow.md](../../../../docs/core-data-structures/workflow.md)。
+`ctx.workflows` 是 bash 形态的抽象 `WorkflowService`——每个上下文一个引擎，无命名提供方注册表（引擎是部署级替换，不是共存者）。`start(request)` 对无法启动的脚本同步抛出；返回的 `WorkflowRun` 的 `result` 永不 reject（失败时结算为 `stopReason: 'error' | 'cancelled'`）。`workflow/*` 事件是仅观察的 emit，携带数据快照（id + meta；`workflow/end` 省略 result 值），按监听器隔离，与 `subagent/start`/`subagent/end` 对称——控制权留在 run 的持有者手中。词汇详情见 [subsystems/workflow.md](../../../../docs/subsystems/workflow.md)。
 
 ### 引擎（dsh-workflow-workerthread）：每次运行一个 worker 线程
 

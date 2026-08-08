@@ -23,6 +23,7 @@ import {
   parseTranslationMarkdown,
   parseTranslationPairingCliArgs,
   parseTranslationPairingManifest,
+  partitionGeneratedRegions,
   isTranslationScopeFile,
   TRANSLATION_SCOPE_GLOB_EXCLUDES,
   translationStructureDiff,
@@ -225,6 +226,27 @@ for (const source of [...pairAnchors].sort()) {
   if (!consistent) {
     state.set(source, 'out-of-sync')
     continue
+  }
+
+  // Generated regions are language-invariant: the exact same generator output
+  // (markers included) must appear in both sides, in the same order. The
+  // structural signature below compares the region content again as part of
+  // the whole document; this dedicated check exists to name the divergence
+  // precisely and to reject a region grammar violation on either side.
+  let sourceRegions: { regions: string[]; stripped: string }
+  let zhRegions: { regions: string[]; stripped: string }
+  try {
+    sourceRegions = partitionGeneratedRegions(sourceContent.toString('utf8'))
+    zhRegions = partitionGeneratedRegions(zhContent.toString('utf8'))
+  } catch (error) {
+    errors.push(`${source} ↔ ${zh}: ${error instanceof Error ? error.message : String(error)}`)
+    state.set(source, 'out-of-sync')
+    continue
+  }
+  if (sourceRegions.regions.length !== zhRegions.regions.length
+    || sourceRegions.regions.some((region, index) => region !== zhRegions.regions[index])) {
+    errors.push(`${source} ↔ ${zh}: generated regions differ between the pair — regenerate (the generator writes both sides byte-identically)`)
+    state.set(source, 'out-of-sync')
   }
 
   const sourceTree = parseTranslationMarkdown(sourceContent.toString('utf8'))

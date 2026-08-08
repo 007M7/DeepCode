@@ -11,3 +11,5 @@
 | [`tool-tasks/`](tool-tasks/README.md) | 向模型公开任务控制和完成通知 | 注册到 `ctx.tools` |
 
 参见[后台任务运行时](../../.agents/notes/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md)和[任务注册表](../../.agents/notes/implemented/architecture/2026-07-26-task-registry-seam.md)决策。
+
+子系统参考——id 方案、拥有者围栏契约、快照——见 [docs/subsystems/tasks.md](../../docs/subsystems/tasks.md)；设计见[后台任务运行时](../../.agents/notes/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md)与[任务注册表 seam](../../.agents/notes/implemented/architecture/2026-07-26-task-registry-seam.md) Agent Note。

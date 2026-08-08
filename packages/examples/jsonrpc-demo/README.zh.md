@@ -2,11 +2,11 @@
 
 [English](README.md) | 中文
 
-只包含 bin 的应用，启动外部 `cordis.yml`；其 [`jsonrpc`](../../ui/jsonrpc/README.md) 入口通过按换行分隔的 stdio 为 SDK 客户端提供服务。配置负责组合主干、后端和服务插件。发布的 bin 名为 `dsh-jsonrpc-agent`，`lib/bin.js` 还会作为 Python SDK 使用的 `dsh-jsonrpc-agent-pkg` [单文件可执行运行时](../../../.agents/notes/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md)交付。
+只包含 bin 的应用，启动外部 `cordis.yml`；其 [`jsonrpc`](../../scaffold/server/README.md) 入口通过按换行分隔的 stdio 为 SDK 客户端提供服务。配置负责组合主干、后端和服务插件。发布的 bin 名为 `dsh-jsonrpc-agent`，`lib/bin.js` 还会作为 Python SDK 使用的 `dsh-jsonrpc-agent-pkg` [单文件可执行运行时](../../../.agents/notes/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md)交付。
 
 ## 配置发现
 
-第一个非空通道生效：先 `$DSH_CORDIS_CONFIG`，再位置参数 `argv[2]`。如果二者都没有指向现有文件，bin 会向 stderr 打印单行用法并以 1 退出；没有工作目录回退或内置回退。[`dsh-app-boot`](../../ui/app-boot/README.md) 会使插件加载失败成为致命错误。此协议不使用 `DSH_SNAPSHOT`。
+第一个非空通道生效：先 `$DSH_CORDIS_CONFIG`，再位置参数 `argv[2]`。如果二者都没有指向现有文件，bin 会向 stderr 打印单行用法并以 1 退出；没有工作目录回退或内置回退。[`dsh-app-boot`](../../boot/app-boot/README.md) 会使插件加载失败成为致命错误。此协议不使用 `DSH_SNAPSHOT`。
 
 不含 `dsh-jsonrpc` 的配置仍然有效，只是不提供任何服务；bin 不会指定服务器插件。
 

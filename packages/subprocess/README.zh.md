@@ -10,3 +10,5 @@
 | [`subprocess-local`](subprocess-local/README.md)（`@deepseek-ai/dsh-subprocess-local`） | 无 | 本地实现：detached 进程树、有界收集／spill、`node-pty`、前台／会话检查、进程树信号发送，以及先终止再等待退出的资源释放 |
 
 即使消费方重载，进程生命周期仍由服务负责管理；消费方负责定义进程的含义（一条 bash 命令、未来的非 shell 运行器），以及决定塑造该进程的每一项默认值。
+
+子系统参考——spawn spec、输出读取器、结果、`DSH_*` 环境——见 [docs/subsystems/subprocess.md](../../docs/subsystems/subprocess.md)；seam 决定见 [subprocess seam Agent Note](../../.agents/notes/implemented/architecture/2026-07-26-subprocess-seam.md)。

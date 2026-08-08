@@ -44,6 +44,6 @@ This closes the routing correctness gap, and two recorded fork scenarios exercis
 
 ## Consequences
 
-- A new persisted header field across core + both backends; the core-data-structures catalog (`persistence.md`) is updated in the same change (its `SessionHeader` / `CreateSessionOptions` `type-equiv` blocks).
+- A new persisted header field across core + both backends; the subsystems catalog (`persistence.md`) is updated in the same change (its `SessionHeader` / `CreateSessionOptions` `type-equiv` blocks).
 - Existing SQLite databases at schema v2 are rejected on open (no user data pre-release).
 - Spawn replay is unchanged (`seedLength` 0). Fork replay now routes a child to its own script; covered by a regression in `llm-replay`'s tests (a child fixture whose seeded prefix carries a parent chunk — the derived child script must exclude it, proven red without the slice) and a persistence round-trip test (both backends, via the shared coordinator contract).

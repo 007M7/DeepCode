@@ -30,7 +30,7 @@
       "path": "../../core/session"
     },
     {
-      "path": "../../session-persistence/session-persistence"
+      "path": "../../session/session-persistence"
     },
     {
       "path": "../../llm/llm"

@@ -2,11 +2,11 @@
 
 English | [中文](README.zh.md)
 
-Bin-only app that boots an external `cordis.yml`; its [`jsonrpc`](../../ui/jsonrpc/README.md) entry serves SDK clients over newline-delimited stdio. The config composes the spine, backends, and serving plugin. The published bin is `dsh-jsonrpc-agent`, and `lib/bin.js` also ships as the `dsh-jsonrpc-agent-pkg` [single-executable runtime](../../../.agents/notes/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md) used by the Python SDK.
+Bin-only app that boots an external `cordis.yml`; its [`jsonrpc`](../../scaffold/server/README.md) entry serves SDK clients over newline-delimited stdio. The config composes the spine, backends, and serving plugin. The published bin is `dsh-jsonrpc-agent`, and `lib/bin.js` also ships as the `dsh-jsonrpc-agent-pkg` [single-executable runtime](../../../.agents/notes/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md) used by the Python SDK.
 
 ## Config discovery
 
-The first non-empty channel wins: `$DSH_CORDIS_CONFIG`, then positional `argv[2]`. If neither names an existing file, the bin prints one-line usage to stderr and exits 1; there is no working-directory or built-in fallback. [`dsh-app-boot`](../../ui/app-boot/README.md) makes plugin load failures fatal. This protocol does not use `DSH_SNAPSHOT`.
+The first non-empty channel wins: `$DSH_CORDIS_CONFIG`, then positional `argv[2]`. If neither names an existing file, the bin prints one-line usage to stderr and exits 1; there is no working-directory or built-in fallback. [`dsh-app-boot`](../../boot/app-boot/README.md) makes plugin load failures fatal. This protocol does not use `DSH_SNAPSHOT`.
 
 A config without `dsh-jsonrpc` is valid and serves nothing; the bin does not designate a server plugin.
 

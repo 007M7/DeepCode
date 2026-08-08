@@ -46,7 +46,7 @@ Surrounding whitespace is discarded, but nothing else is parsed. `/feedback /pla
 
 **Make `/feedback` a true no-op that records nothing.** The most literal reading of "does not do anything". Rejected because it makes the command pointless: the stated requirement was that the remark reach the session log.
 
-**Register the command inside an existing package** such as `packages/ui/commands`. Avoids a new group and its README pair. Rejected: `ctx.commands` is the registry, not a home for arbitrary command implementations, and the requester asked for a standalone package.
+**Register the command inside an existing package** such as `packages/interaction/commands`. Avoids a new group and its README pair. Rejected: `ctx.commands` is the registry, not a home for arbitrary command implementations, and the requester asked for a standalone package.
 
 **Parse structure out of the text** (category prefixes, severity markers). Rejected as speculative: no consumer needs that structure, and any control-word grammar makes the corresponding literal feedback unrecordable. Verbatim text is the widest surface a future consumer can narrow; a parsed one cannot be widened after the fact.
 
