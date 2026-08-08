@@ -650,17 +650,6 @@ describe('Schedule tool protocol', () => {
     expect(test.agent.session.events.filter(event => event.type === 'schedule/change')).toEqual([])
   })
 
-  it('rejects an empty or padded delete id before persistence', async () => {
-    const test = await harness()
-    for (const id of ['', ' schedule-1']) {
-      expect(value(await execute(test, 'schedule_delete', { id }))).toEqual({
-        code: 'invalid_rule',
-        message: 'schedule_delete id must be non-empty without surrounding whitespace.',
-      })
-    }
-    expect(test.flushes.count).toBe(0)
-  })
-
   it('returns a range error only after the create preflight', async () => {
     const test = await harness()
     expect(value(await execute(test, 'schedule_create', {

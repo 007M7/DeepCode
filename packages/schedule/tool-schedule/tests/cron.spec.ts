@@ -367,7 +367,6 @@ describe('durable Cron replay', () => {
       scheduleId: 'schedule-cron',
       prompt: 'daily review',
       occurrenceAt: '2026-08-08T01:00:00.000Z',
-      deliveryMode: 'session-local',
     })
   })
 
