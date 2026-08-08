@@ -1,0 +1,78 @@
+- dialog "设置":
+  - navigation:
+    - text: 设置
+    - button "通用设置":
+      - img
+      - text: 通用设置
+    - button "模型":
+      - img
+      - text: 模型
+    - button "Agent 预设":
+      - img
+      - text: Agent 预设
+  - button "打开配置文件"
+  - button "关闭":
+    - img
+    - text: 关闭
+  - heading "Agent 预设" [level=2]
+  - paragraph: 预设即一个会话的 Agent 所运行的插件组装 —— 它的工具、提示词与能力。复制一份即可改成自己的，之后直接编辑它的文件。 想从最小的骨架开始，就复制「极简模式」。
+  - heading "内置" [level=3]
+  - list:
+    - listitem:
+      - 'button "当前使用: 标准模式" [disabled] [pressed]':
+        - text: 标准模式 内置 当前使用 完整的编码 agent：文件读写、shell、检索、计划、委派与工作流。
+        - code: standard
+      - 'button "查看: 标准模式"':
+        - img
+        - text: 查看
+      - 'button "复制: 标准模式"':
+        - img
+        - text: 复制
+    - listitem:
+      - 'button "设为默认: 代码模式"':
+        - text: 代码模式 内置 标准模式的工具改为 Code Mode 呈现：模型写一段 TypeScript 调用 SDK，一次执行代替多轮工具调用。
+        - code: code
+      - 'button "查看: 代码模式"':
+        - img
+        - text: 查看
+      - 'button "复制: 代码模式"':
+        - img
+        - text: 复制
+    - listitem:
+      - 'button "设为默认: 极简模式"':
+        - text: 极简模式 内置 只向模型呈现 bash 与 str_replace_editor，适合 benchmark 与最小复现。
+        - code: minimal
+      - 'button "查看: 极简模式"':
+        - img
+        - text: 查看
+      - 'button "复制: 极简模式"':
+        - img
+        - text: 复制
+    - listitem:
+      - 'button "设为默认: 创造模式"':
+        - text: 创造模式 内置 标准模式加上自指工具集，可以读改自己运行的这套组装，并据此创作新的预设。
+        - code: cordis
+      - 'button "查看: 创造模式"':
+        - img
+        - text: 查看
+      - 'button "复制: 创造模式"':
+        - img
+        - text: 复制
+  - heading "自定义" [level=3]
+  - list:
+    - listitem:
+      - 'button "设为默认: 我的模式"':
+        - text: 我的模式 自定义 只向模型呈现 bash 与 str_replace_editor，适合 benchmark 与最小复现。
+        - code: my-agent
+      - 'button "查看路径: 我的模式"':
+        - img
+        - text: 查看路径
+      - 'button "复制: 我的模式"':
+        - img
+        - text: 复制
+      - 'button "删除: 我的模式"':
+        - img
+        - text: 删除
+      - paragraph:
+        - text: 预设文件：
+        - code: {{presetRoot}}/my-agent

@@ -101,8 +101,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Read one preset\'s composition text.\n * @param id - the preset id.\n * @returns the composition exactly as stored.\n * @throws when no configured root supplies that id.\n */',
       },
       {
-        signature: 'async write(id: string, content: string, metadata: PresetMetadata = {}): Promise<void>',
-        jsDoc: '/**\n * Create or replace a locally authored preset.\n *\n * The text is shape-checked before it lands, so a save cannot leave a file no\n * session could load; it is NOT mounted, so a composition that parses but\n * names a missing plugin still fails at the next session that selects it.\n * @param id - the preset id, which becomes its directory name.\n * @param content - the composition text.\n * @param metadata - display name and description; clearing both removes the file.\n * @throws when the id is unusable, the text is not an entry list, or the\n * deployment configures no writable root.\n */',
+        signature: 'async copy(from: string, id: string, name?: string): Promise<void>',
+        jsDoc: '/**\n * Create a locally authored preset by copying an existing one whole.\n *\n * Copy is the only authoring write. Composition text never crosses this\n * seam: the source is named by id and its directory is copied as it stands,\n * so the copy is exactly as loadable as its source and authoring grants no\n * capability the roster did not already carry. The copy is NOT mounted to\n * validate — a source that mounts today yields a copy that mounts today.\n * @param from - the preset the copy starts from; shipped presets are the\n * primary source, so any trust is accepted.\n * @param id - the new preset\'s id, which becomes its directory name.\n * @param name - display name for the copy; absent falls back to the id.\n * @throws when the source is unknown, the id is unusable or already taken,\n * or the deployment configures no writable root.\n */',
       },
       {
         signature: 'async remove(id: string): Promise<void>',
@@ -2268,10 +2268,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'PrepareSessionOptions',
     declaration: 'export type PrepareSessionOptions = (CreateSessionOptions & {\n    readonly seedSource?: undefined;\n}) | RestoredSessionOptions;',
-  },
-  {
-    name: 'PresetMetadata',
-    declaration: 'export interface PresetMetadata {\n    readonly name?: string;\n    readonly description?: string;\n    readonly order?: number;\n}',
   },
   {
     name: 'PresetOption',

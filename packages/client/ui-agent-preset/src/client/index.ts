@@ -2,7 +2,8 @@
  * Agent-preset surface plugin, browser half — four surfaces over one roster:
  * a General-settings row for the default preset, a chip on the new-session
  * screen for the session about to start, a read-only label in the session
- * header, and a settings section that authors the compositions themselves.
+ * header, and a settings section that manages the roster (copy, delete,
+ * default, and the way into a preset's own files).
  *
  * A running session keeps the composition it began with (the host refuses to
  * adopt an existing session under a different preset). That is what splits
@@ -36,7 +37,7 @@ export type { AgentPresetSeatInjected, AgentPresetSeatProps } from './AgentPrese
 export type { AgentPresetSectionInjected, AgentPresetSectionProps } from './AgentPresetSection.tsx'
 export type { AgentPresetSeatState, SeatSessionSummary } from './seat-store.ts'
 export {
-  draftBlocker, type AgentPresetSectionState, type PresetDraft, type PresetRow,
+  draftBlocker, type AgentPresetSectionState, type CopyDraft, type PresetRow, type PresetView,
 } from './section-store.ts'
 export type { AgentPresetOption, AgentPresetSettingsState } from './settings-store.ts'
 export { AGENT_PRESET_SETTINGS_NS, writeDefaultPreset } from './settings-store.ts'
@@ -158,14 +159,14 @@ export function apply(ctx: ClientContext): void {
   const sectionInjected = (): AgentPresetSectionInjected => ({
     hooks: { agentPresetSection: section.store },
     load: () => section.load(),
-    open: (id: string) => section.open(id),
-    createFrom: (from?: string) => section.createFrom(from),
-    close: () => { section.close() },
-    setId: (id: string) => { section.setId(id) },
-    setContent: (content: string) => { section.setContent(content) },
-    setName: (name: string) => { section.setName(name) },
-    setDescription: (description: string) => { section.setDescription(description) },
-    save: () => section.save(),
+    view: (id: string) => section.view(id),
+    closeView: () => { section.closeView() },
+    beginCopy: (from: string) => { section.beginCopy(from) },
+    cancelCopy: () => { section.cancelCopy() },
+    setCopyId: (id: string) => { section.setCopyId(id) },
+    setCopyName: (name: string) => { section.setCopyName(name) },
+    confirmCopy: () => section.confirmCopy(),
+    openLocation: (id: string) => section.openLocation(id),
     confirmDelete: (id: string | null) => { section.confirmDelete(id) },
     remove: () => section.remove(),
     makeDefault: (id: string) => section.makeDefault(id),

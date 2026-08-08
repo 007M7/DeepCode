@@ -6,31 +6,6 @@
   color: var(--dsw-alias-label-primary);
 }
 
-/* Editing form: take the settings column's whole height so the composition
-   gets the space the panel has, instead of a fixed-row box with an empty band
-   under it. The list keeps the default flow — a card grid pinned to the top
-   reads as a list, while a stretched one would drift its rows apart. */
-.sectionFill {
-  height: 100%;
-}
-
-.sectionFill .editor {
-  flex: 1;
-  min-height: 0;
-}
-
-.sectionFill .codeField {
-  flex: 1;
-  min-height: 0;
-}
-
-.sectionFill .codeField .code {
-  flex: 1;
-  min-height: 160px;
-  /* The drag handle would fight the flex height it is nested in. */
-  resize: none;
-}
-
 .title {
   margin: 0;
   font-size: 18px;
@@ -40,17 +15,6 @@
 .intro {
   margin: 0;
   font-size: 13px;
-  color: var(--dsw-alias-label-tertiary);
-}
-
-.notice {
-  margin: 0;
-  font-size: 12px;
-  color: var(--dsw-alias-state-warn-label);
-}
-
-.hint {
-  font-size: 12px;
   color: var(--dsw-alias-label-tertiary);
 }
 
@@ -199,6 +163,11 @@
   align-items: center;
 }
 
+.iconButton:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 .iconButton:hover:not(:disabled) {
   background: var(--dsw-alias-bg-layer-1);
   color: var(--dsw-alias-label-primary);
@@ -237,6 +206,28 @@
   color: var(--dsw-alias-state-error-primary);
 }
 
+/* Where the host has no desktop opener, the row answers with the directory
+   itself — text to copy, not a control that would spawn into nothing. */
+.revealedPath {
+  margin: 0;
+  padding: 6px 16px 10px;
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.revealedPath code {
+  font-family: var(--dsw-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  color: var(--dsw-alias-label-secondary);
+  user-select: all;
+  overflow-wrap: anywhere;
+}
+
+.revealedPathLabel {
+  white-space: nowrap;
+}
 
 .secondaryButton {
   border: none;
@@ -254,16 +245,9 @@
   background: var(--dsw-alias-bg-layer-1);
 }
 
-.secondaryButton:disabled,
-.addButton:disabled {
+.secondaryButton:disabled {
   opacity: 0.5;
   cursor: default;
-}
-
-.editor {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
 }
 
 .field {
@@ -278,8 +262,7 @@
   color: var(--dsw-alias-label-secondary);
 }
 
-.input,
-.code {
+.input {
   box-sizing: border-box;
   padding: 9px 12px;
   border: 1px solid var(--dsw-alias-border-l2);
@@ -290,18 +273,7 @@
   color: var(--dsw-alias-label-primary);
 }
 
-.code {
-  font-family: var(--dsw-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  line-height: 1.5;
-  resize: vertical;
-  white-space: pre;
-  overflow-wrap: normal;
-  overflow-x: auto;
-  tab-size: 2;
-}
-
-.input:focus,
-.code:focus {
+.input:focus {
   outline: none;
   border-color: var(--dsw-alias-brand-primary);
 }
@@ -310,65 +282,33 @@
   color: var(--dsw-alias-label-dimmed);
 }
 
-/* A shipped composition is drawn a rung up, and it is the one most likely to
-   overflow, so its scroll thumb rebinds to that rung. */
-.code[readonly] {
-  color: var(--dsw-alias-label-secondary);
+.dialog {
+  width: min(560px, 100%);
+}
+
+.dialogFields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* A shipped composition can be long; the dialog scrolls it rather than grow. */
+.viewerCode {
+  margin: 0;
+  padding: 12px;
+  max-height: min(52vh, 480px);
+  overflow: auto;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 10px;
   background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-secondary);
+  font-family: var(--dsw-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: pre;
+  tab-size: 2;
   --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
   --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
-}
-
-.editorActions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.editorBar {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  padding-bottom: 4px;
-  border-bottom: 1px solid var(--dsw-alias-border-l2);
-}
-
-.backButton {
-  appearance: none;
-  border: 0;
-  background: none;
-  padding: 0;
-  font: inherit;
-  font-size: 13px;
-  color: var(--dsw-alias-label-tertiary);
-  cursor: pointer;
-}
-
-.backButton:hover {
-  color: var(--dsw-alias-label-primary);
-}
-
-.backButton:focus-visible {
-  outline: 2px solid var(--dsw-alias-brand-primary);
-  outline-offset: 2px;
-  border-radius: 4px;
-}
-
-.editorTitle {
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.addButton {
-  align-self: flex-start;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 999px;
-  padding: 8px 16px;
-  font: inherit;
-  font-size: 13px;
-  background: var(--dsw-alias-bg-layer-3);
-  color: inherit;
-  cursor: pointer;
 }
 
 .error {

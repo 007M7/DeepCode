@@ -81,6 +81,8 @@ export interface RosterValue {
   presets: readonly RosterPreset[]
   /** Whether this browser may author presets at all. */
   authorable: boolean
+  /** Whether the host can open a preset directory on a native desktop. */
+  hasDocument: boolean
 }
 
 /** The roster, or the message to show in its place. */

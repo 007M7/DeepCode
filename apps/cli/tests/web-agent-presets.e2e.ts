@@ -376,32 +376,28 @@ describe('authoring a preset on the shipped composition', () => {
     }])
   })
 
-  it('refuses to overwrite or delete a shipped preset', async () => {
-    await expect(authorCtx.agentPresets.write('standard', '- id: x\n')).rejects.toThrow(/ships with the deployment/)
+  it('refuses to copy over or delete a shipped preset', async () => {
+    await expect(authorCtx.agentPresets.copy('minimal', 'standard')).rejects.toThrow(/already exists/)
     await expect(authorCtx.agentPresets.remove('standard')).rejects.toThrow(/ships with the deployment/)
   })
 
   it.each(['../escape', 'a/b', '/abs', 'Upper'])('refuses the uncontainable id %j', async (id) => {
     // The id becomes a directory name under the user root, so containment is
     // checked on the id rather than on the joined path afterwards.
-    await expect(authorCtx.agentPresets.write(id, '- id: x\n')).rejects.toThrow()
+    await expect(authorCtx.agentPresets.copy('minimal', id)).rejects.toThrow()
   })
 
-  it('refuses text that is not a Cordis entry list', async () => {
-    await expect(authorCtx.agentPresets.write('bad-shape', 'tools: []\n')).rejects.toThrow()
-    await expect(authorCtx.agentPresets.resolve('bad-shape')).rejects.toThrow()
-  })
+  it('copies a shipped preset a session then really composes from', async () => {
+    await authorCtx.agentPresets.copy('minimal', 'my-agent', '我的模式')
 
-  it('writes a preset a session then really composes from', async () => {
-    const copied = await authorCtx.agentPresets.read('minimal')
-
-    await authorCtx.agentPresets.write('my-agent', copied)
-
-    // Round-trips through the roster as a `user` row, and the composition the
-    // editor saved is one the mount actually accepts.
+    // Round-trips through the roster as a `user` row carrying the given name
+    // and the source's description, over the source's own composition text.
     const preset = await authorCtx.agentPresets.resolve('my-agent')
+    const source = await authorCtx.agentPresets.resolve('minimal')
     expect(preset.trust).toBe('user')
-    expect(await authorCtx.agentPresets.read('my-agent')).toBe(copied)
+    expect(preset.name).toBe('我的模式')
+    expect(preset.description).toBe(source.description)
+    expect(await authorCtx.agentPresets.read('my-agent')).toBe(await authorCtx.agentPresets.read('minimal'))
     // Owner-only, in an owner-only directory: a composition is executable
     // configuration on a machine that may have other users.
     expect((await stat(preset.path)).mode & 0o777).toBe(0o600)
@@ -410,7 +406,7 @@ describe('authoring a preset on the shipped composition', () => {
       setup: agentCtx => authorCtx.agentPresets.mount(agentCtx, 'my-agent').then(() => undefined),
     })
     try {
-      // The same tools the shipped `minimal` composes, from a file written
+      // The same tools the shipped `minimal` composes, from a directory copied
       // through the service into a root outside the installed harness.
       expect(toolNames(authorCtx, handle.agent)).toEqual(['bash', 'str_replace_editor'])
     } finally {
@@ -418,8 +414,8 @@ describe('authoring a preset on the shipped composition', () => {
     }
   })
 
-  it('deletes what it wrote', async () => {
-    await authorCtx.agentPresets.write('doomed', '- id: tool-web-search\n  name: \'@deepseek-ai/dsh-tool-web-search\'\n')
+  it('deletes what it copied', async () => {
+    await authorCtx.agentPresets.copy('minimal', 'doomed')
 
     await authorCtx.agentPresets.remove('doomed')
 

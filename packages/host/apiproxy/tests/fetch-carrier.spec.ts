@@ -198,7 +198,7 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
       list(request: RpcRequest<{}>) {
         return Promise.resolve({
           rpcId: request.rpcId,
-          result: { ok: true as const, value: { presets: [], authorable: false } },
+          result: { ok: true as const, value: { presets: [], authorable: false, hasDocument: false } },
         })
       },
       select(request: RpcRequest<{ agentPreset: string }>) {
@@ -206,12 +206,15 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
         return Promise.resolve({ rpcId: request.rpcId, result: { ok: true as const, value } })
       },
       read(request: RpcRequest<{ agentPreset: string }>) {
-        const value = { agentPreset: request.payload.agentPreset, trust: 'user' as const, content: '', writable: true }
+        const value = { agentPreset: request.payload.agentPreset, trust: 'user' as const, content: '' }
         return Promise.resolve({ rpcId: request.rpcId, result: { ok: true as const, value } })
       },
-      write(request: RpcRequest<{ agentPreset: string }>) {
+      copy(request: RpcRequest<{ from: string; agentPreset: string }>) {
         const value = { agentPreset: request.payload.agentPreset }
         return Promise.resolve({ rpcId: request.rpcId, result: { ok: true as const, value } })
+      },
+      openDocument(request: RpcRequest<{ agentPreset: string }>) {
+        return Promise.resolve({ rpcId: request.rpcId, result: { ok: true as const, value: { opened: true as const } } })
       },
       remove(request: RpcRequest<{ agentPreset: string }>) {
         return Promise.resolve({ rpcId: request.rpcId, result: { ok: true as const, value: {} } })
@@ -364,19 +367,21 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     const c = client()
 
     // The whole domain crosses the carrier: the roster a picker reads, the
-    // per-session switch, and the three authoring calls the settings editor
-    // makes. Each has its own request schema, so a registration missing from
-    // either half fails here rather than in the browser.
+    // per-session switch, and the authoring calls the settings page makes.
+    // Each has its own request schema, so a registration missing from either
+    // half fails here rather than in the browser.
     expect((await c.agentPresets.list({})).result).toEqual({
-      ok: true, value: { presets: [], authorable: false },
+      ok: true, value: { presets: [], authorable: false, hasDocument: false },
     })
     expect((await c.agentPresets.select({ sessionId: 's' as never, agentPreset: 'minimal' })).result)
       .toEqual({ ok: true, value: { agentPreset: 'minimal' } })
     expect((await c.agentPresets.read({ agentPreset: 'mine' })).result).toEqual({
-      ok: true, value: { agentPreset: 'mine', trust: 'user', content: '', writable: true },
+      ok: true, value: { agentPreset: 'mine', trust: 'user', content: '' },
     })
-    expect((await c.agentPresets.write({ agentPreset: 'mine', content: '- id: x\n' })).result)
+    expect((await c.agentPresets.copy({ from: 'standard', agentPreset: 'mine' })).result)
       .toEqual({ ok: true, value: { agentPreset: 'mine' } })
+    expect((await c.agentPresets.openDocument({ agentPreset: 'mine' })).result)
+      .toEqual({ ok: true, value: { opened: true } })
     expect((await c.agentPresets.remove({ agentPreset: 'mine' })).result).toEqual({ ok: true, value: {} })
   })
 

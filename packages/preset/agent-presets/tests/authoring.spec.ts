@@ -1,10 +1,12 @@
 /**
- * Authoring a preset writes a composition into the deployment's `user` root.
- * The id is a directory name, so its pattern is a containment boundary rather
- * than a style rule; the shipped `.system` set stays read-only.
+ * Authoring a preset copies an existing one's directory into the deployment's
+ * `user` root — copy is the only authoring write, so no caller ever supplies
+ * composition text. The id is a directory name, so its pattern is a
+ * containment boundary rather than a style rule; the shipped `.system` set
+ * stays read-only.
  */
 
-import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -14,7 +16,7 @@ import Loader from '@cordisjs/plugin-loader'
 import Include from '@cordisjs/plugin-include'
 import { beforeEach, describe, expect, it } from 'vitest'
 import AgentPresets, {
-  COMPOSITION_FILE, METADATA_FILE, assertComposition,
+  COMPOSITION_FILE, copyComposition, METADATA_FILE,
 } from '@deepseek-ai/dsh-agent-presets'
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'fixtures')
@@ -22,6 +24,21 @@ const VALID = '- id: tool-alpha\n  name: ../../plugins/contribute.js\n  config:\
 
 let ctx: Context
 let userRoot: string
+
+/** Hand-craft a preset directory (tests cannot author text through the service). */
+async function seedPreset(
+  root: string, id: string, options: { composition?: string; metadata?: string; extras?: Record<string, string> } = {},
+): Promise<void> {
+  await mkdir(join(root, id), { recursive: true })
+  await writeFile(join(root, id, COMPOSITION_FILE), options.composition ?? VALID)
+  if (options.metadata !== undefined) {
+    await writeFile(join(root, id, METADATA_FILE), options.metadata)
+  }
+  for (const [name, content] of Object.entries(options.extras ?? {})) {
+    await mkdir(dirname(join(root, id, name)), { recursive: true })
+    await writeFile(join(root, id, name), content)
+  }
+}
 
 beforeEach(async () => {
   userRoot = await mkdtemp(join(tmpdir(), 'dsh-preset-authoring-'))
@@ -38,76 +55,59 @@ beforeEach(async () => {
   })
 })
 
-describe('authoring a preset', () => {
-  it('creates one in the user root and lists it', async () => {
-    await ctx.agentPresets.write('mine', VALID)
+describe('copying a preset', () => {
+  it('copies a shipped preset into the user root and lists it', async () => {
+    await ctx.agentPresets.copy('standard', 'mine')
 
-    expect(await readFile(join(userRoot, 'mine', COMPOSITION_FILE), 'utf8')).toBe(VALID)
+    expect(await readFile(join(userRoot, 'mine', COMPOSITION_FILE), 'utf8'))
+      .toBe(await ctx.agentPresets.read('standard'))
     const listed = await ctx.agentPresets.list()
     expect(listed.find(preset => preset.id === 'mine')?.trust).toBe('user')
   })
 
-  it('reads back what it stored', async () => {
-    await ctx.agentPresets.write('mine', VALID)
+  it('copies the whole directory, execute bits kept and group/other stripped', async () => {
+    await seedPreset(userRoot, 'source', {
+      extras: { 'skills/demo/SKILL.md': '# demo\n', 'skills/demo/run.sh': '#!/bin/sh\n' },
+    })
+    await chmod(join(userRoot, 'source', 'skills', 'demo', 'run.sh'), 0o755)
 
-    expect(await ctx.agentPresets.read('mine')).toBe(VALID)
+    await ctx.agentPresets.copy('source', 'mine')
+
+    expect(await readFile(join(userRoot, 'mine', 'skills', 'demo', 'SKILL.md'), 'utf8')).toBe('# demo\n')
+    // A preset may ship runnable helpers; the copy keeps them runnable for the
+    // owner while withdrawing the world-readability of the install.
+    expect((await stat(join(userRoot, 'mine', 'skills', 'demo', 'run.sh'))).mode & 0o777).toBe(0o700)
+    expect((await stat(join(userRoot, 'mine', 'skills', 'demo', 'SKILL.md'))).mode & 0o777).toBe(0o600)
+    expect((await stat(join(userRoot, 'mine'))).mode & 0o777).toBe(0o700)
   })
 
-  it('replaces an existing local preset', async () => {
-    await ctx.agentPresets.write('mine', VALID)
-    const next = '- id: tool-beta\n  name: ../../plugins/contribute.js\n  config:\n    tool: beta\n'
+  it('keeps the source description but never its name or order', async () => {
+    await seedPreset(userRoot, 'source', { metadata: 'name: 源模式\ndescription: 只做检索。\norder: 1\n' })
 
-    await ctx.agentPresets.write('mine', next)
+    await ctx.agentPresets.copy('source', 'mine')
 
-    expect(await ctx.agentPresets.read('mine')).toBe(next)
+    // Two rows presenting identically is how a roster stops being a chooser,
+    // and the shipped set's declared order is not the copy's to claim.
+    const metadata = await readFile(join(userRoot, 'mine', METADATA_FILE), 'utf8')
+    expect(metadata).toContain('description: 只做检索。')
+    expect(metadata).not.toContain('name:')
+    expect(metadata).not.toContain('order:')
+    expect((await ctx.agentPresets.list()).find(preset => preset.id === 'mine'))
+      .toMatchObject({ description: '只做检索。' })
   })
 
-  it('refuses an id that could escape the preset root', async () => {
-    for (const id of ['../escape', 'a/b', '/abs', '..', 'Upper']) {
-      await expect(ctx.agentPresets.write(id, VALID)).rejects.toThrow(/must match/)
-    }
-    // Nothing was created for any of them.
-    expect(existsSync(join(userRoot, 'escape'))).toBe(false)
+  it('stores the display name the author supplied', async () => {
+    await ctx.agentPresets.copy('standard', 'mine', '我的模式')
+
+    expect(await readFile(join(userRoot, 'mine', METADATA_FILE), 'utf8')).toContain('name: 我的模式')
+    expect((await ctx.agentPresets.list()).find(preset => preset.id === 'mine'))
+      .toMatchObject({ name: '我的模式' })
   })
 
-  it('refuses text that is not a top-level entry list', async () => {
-    await expect(ctx.agentPresets.write('bad', 'tools: [a, b]\n'))
-      .rejects.toThrow(/top-level list of plugin rows/)
-    await expect(ctx.agentPresets.write('bad', '- id: x\n  name: [unclosed\n'))
-      .rejects.toThrow(/not a valid entry list/)
+  it('publishes no metadata file when there is nothing to publish', async () => {
+    await seedPreset(userRoot, 'source')
 
-    expect(existsSync(join(userRoot, 'bad'))).toBe(false)
-  })
-
-  it('accepts a composition using the `!!js` dialect the include reads', () => {
-    // A preset legitimately carries expressions; rejecting them would make
-    // the editor refuse compositions the loader accepts.
-    expect(() => { assertComposition('- id: x\n  name: y\n  config:\n    cwd: !!js process.cwd()\n') })
-      .not.toThrow()
-  })
-
-  it('refuses to overwrite a preset that ships with the deployment', async () => {
-    await expect(ctx.agentPresets.write('standard', VALID))
-      .rejects.toThrow(/ships with the deployment/)
-
-    expect(await ctx.agentPresets.read('standard')).not.toBe(VALID)
-  })
-})
-
-describe('display metadata beside a composition', () => {
-  it('stores the name and description the author supplied', async () => {
-    await ctx.agentPresets.write('mine', VALID, { name: '我的模式', description: '只做检索。' })
-
-    expect(await readFile(join(userRoot, 'mine', METADATA_FILE), 'utf8'))
-      .toContain('name: 我的模式')
-    const listed = (await ctx.agentPresets.list()).find(preset => preset.id === 'mine')
-    expect(listed).toMatchObject({ name: '我的模式', description: '只做检索。' })
-  })
-
-  it('removes the file when both fields are cleared', async () => {
-    await ctx.agentPresets.write('mine', VALID, { name: '我的模式' })
-
-    await ctx.agentPresets.write('mine', VALID, {})
+    await ctx.agentPresets.copy('source', 'mine')
 
     // An empty metadata document would read as an intentional blank name;
     // absence is what "this preset publishes no display text" looks like.
@@ -115,20 +115,56 @@ describe('display metadata beside a composition', () => {
     expect((await ctx.agentPresets.list()).find(preset => preset.id === 'mine')?.name).toBeUndefined()
   })
 
-  it('keeps a composition mountable when its metadata is unreadable', async () => {
-    await ctx.agentPresets.write('mine', VALID)
-    await writeFile(join(userRoot, 'mine', METADATA_FILE), 'name: [unclosed\n')
+  it('refuses an id that could escape the preset root', async () => {
+    for (const id of ['../escape', 'a/b', '/abs', '..', 'Upper']) {
+      await expect(ctx.agentPresets.copy('standard', id)).rejects.toThrow(/must match/)
+    }
+    // Nothing was created for any of them.
+    expect(existsSync(join(userRoot, 'escape'))).toBe(false)
+  })
 
-    // Presentation is not capability: discovery still yields the preset.
-    const listed = (await ctx.agentPresets.list()).find(preset => preset.id === 'mine')
-    expect(listed?.name).toBeUndefined()
-    expect(await ctx.agentPresets.resolve('mine')).toMatchObject({ id: 'mine' })
+  it('refuses an id the roster already supplies, shipped ones included', async () => {
+    await ctx.agentPresets.copy('standard', 'mine')
+
+    await expect(ctx.agentPresets.copy('standard', 'mine')).rejects.toThrow(/already exists/)
+    // A user directory named like a shipped preset would be shadowed by it.
+    await expect(ctx.agentPresets.copy('standard', 'minimal')).rejects.toThrow(/already exists/)
+  })
+
+  it('refuses a directory that occupies the name without being a preset', async () => {
+    await mkdir(join(userRoot, 'occupied'), { recursive: true })
+    await writeFile(join(userRoot, 'occupied', 'README.txt'), 'nope\n')
+
+    // Discovery does not list it (no composition file), so only the disk
+    // check can refuse it with a readable error instead of a filesystem code.
+    await expect(ctx.agentPresets.copy('standard', 'occupied')).rejects.toThrow(/already exists/)
+    expect(await readFile(join(userRoot, 'occupied', 'README.txt'), 'utf8')).toBe('nope\n')
+  })
+
+  it('reports an unknown source rather than creating anything', async () => {
+    await expect(ctx.agentPresets.copy('never-existed', 'mine')).rejects.toThrow(/not found/)
+    expect(existsSync(join(userRoot, 'mine'))).toBe(false)
+  })
+
+  it('leaves nothing behind when the copy itself fails', async () => {
+    const source = {
+      id: 'gone',
+      trust: 'user' as const,
+      path: join(userRoot, 'gone', COMPOSITION_FILE),
+    }
+
+    // The source vanished between resolve and copy: the half-made target is
+    // rolled back rather than left invisible to discovery.
+    await expect(copyComposition(
+      [{ path: userRoot, trust: 'user' as const }], source, 'mine',
+    )).rejects.toThrow()
+    expect(existsSync(join(userRoot, 'mine'))).toBe(false)
   })
 })
 
 describe('deleting a preset', () => {
   it('removes a locally authored one', async () => {
-    await ctx.agentPresets.write('mine', VALID)
+    await ctx.agentPresets.copy('standard', 'mine')
 
     await ctx.agentPresets.remove('mine')
 
@@ -149,8 +185,7 @@ describe('deleting a preset', () => {
 describe('a deployment with more than one user root', () => {
   it('refuses to delete a preset the writable root does not own', async () => {
     const second = await mkdtemp(join(tmpdir(), 'dsh-preset-second-'))
-    await mkdir(join(second, 'elsewhere'), { recursive: true })
-    await writeFile(join(second, 'elsewhere', COMPOSITION_FILE), VALID)
+    await seedPreset(second, 'elsewhere')
     const layered = new Context()
     layered.baseUrl = pathToFileURL(FIXTURES).href + '/'
     await layered.plugin(Loader)
@@ -184,26 +219,42 @@ describe('a deployment with no writable root', () => {
     })
 
     expect(readOnly.agentPresets.authorable).toBe(false)
-    await expect(readOnly.agentPresets.write('mine', VALID))
+    await expect(readOnly.agentPresets.copy('standard', 'mine'))
       .rejects.toThrow(/no user-writable preset root/)
   })
 })
 
 describe('a user root that does not exist yet', () => {
-  it('is created by the first save', async () => {
+  it('is created by the first copy', async () => {
     const absent = join(await mkdtemp(join(tmpdir(), 'dsh-preset-absent-')), 'nested', 'preset')
     const fresh = new Context()
     fresh.baseUrl = pathToFileURL(FIXTURES).href + '/'
     await fresh.plugin(Loader)
     fresh.loader.builtins.include = Include
     await fresh.plugin(AgentPresets, {
-      default: 'mine',
-      roots: [{ path: absent, trust: 'user' as const }],
+      default: 'standard',
+      roots: [
+        { path: join(FIXTURES, 'system'), trust: 'system' as const },
+        { path: absent, trust: 'user' as const },
+      ],
     })
 
-    await fresh.agentPresets.write('mine', VALID)
+    await fresh.agentPresets.copy('standard', 'mine')
 
-    expect(await readFile(join(absent, 'mine', COMPOSITION_FILE), 'utf8')).toBe(VALID)
+    expect(await readFile(join(absent, 'mine', COMPOSITION_FILE), 'utf8'))
+      .toBe(await fresh.agentPresets.read('standard'))
+  })
+})
+
+describe('display metadata beside a composition', () => {
+  it('keeps a composition mountable when its metadata is unreadable', async () => {
+    await ctx.agentPresets.copy('standard', 'mine')
+    await writeFile(join(userRoot, 'mine', METADATA_FILE), 'name: [unclosed\n')
+
+    // Presentation is not capability: discovery still yields the preset.
+    const listed = (await ctx.agentPresets.list()).find(preset => preset.id === 'mine')
+    expect(listed?.name).toBeUndefined()
+    expect(await ctx.agentPresets.resolve('mine')).toMatchObject({ id: 'mine' })
   })
 })
 

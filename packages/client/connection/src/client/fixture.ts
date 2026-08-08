@@ -2464,6 +2464,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
           isDefault: id === fixtureDefaultPreset,
         })),
         authorable: true,
+        hasDocument: true,
       }),
       select: (request) => {
         fixtureDefaultPreset = request.payload.agentPreset
@@ -2483,21 +2484,42 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
           agentPreset,
           trust: preset.trust,
           content: preset.content,
-          writable: preset.trust === 'user',
         })
       },
-      write: (request) => {
-        const { agentPreset, content } = request.payload
+      copy: (request) => {
+        const { from, agentPreset } = request.payload
+        const source = fixturePresets.get(from)
+        if (source === undefined) {
+          return err(request, {
+            code: 'agent-preset-not-found',
+            message: `unknown agent preset "${from}"`,
+            details: { agentPreset: from, available: [...fixturePresets.keys()] },
+          })
+        }
+        if (fixturePresets.has(agentPreset)) {
+          return err(request, {
+            code: 'agent-preset-invalid',
+            message: `agent preset "${agentPreset}" already exists`,
+            details: { agentPreset, reason: 'already exists' },
+          })
+        }
+        fixturePresets.set(agentPreset, { trust: 'user', content: source.content })
+        return ok(request, { agentPreset })
+      },
+      // Native opens are deterministic no-op successes in this fixture, so the
+      // open-directory affordance renders and the path-text fallback stays a
+      // component-test concern.
+      openDocument: (request) => {
+        const { agentPreset } = request.payload
         const existing = fixturePresets.get(agentPreset)
-        if (existing?.trust === 'system') {
+        if (existing === undefined || existing.trust === 'system') {
           return err(request, {
             code: 'agent-preset-read-only',
             message: `agent preset "${agentPreset}" ships with the deployment`,
             details: { agentPreset, reason: 'it ships with the deployment' },
           })
         }
-        fixturePresets.set(agentPreset, { trust: 'user', content })
-        return ok(request, { agentPreset })
+        return ok(request, { opened: true as const })
       },
       remove: (request) => {
         const { agentPreset } = request.payload
@@ -2835,7 +2857,8 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'agentPreset.list': return this.api.agentPresets.list(request)
       case 'agentPreset.select': return this.api.agentPresets.select(request)
       case 'agentPreset.read': return this.api.agentPresets.read(request)
-      case 'agentPreset.write': return this.api.agentPresets.write(request)
+      case 'agentPreset.copy': return this.api.agentPresets.copy(request)
+      case 'agentPreset.openDocument': return this.api.agentPresets.openDocument(request, new AbortController().signal)
       case 'agentPreset.remove': return this.api.agentPresets.remove(request)
       case 'goal.create': return this.api.goals.create(request)
       case 'goal.edit': return this.api.goals.edit(request)

@@ -26,6 +26,7 @@ export const agentPresetListRequestSchema = z.object({
 export const agentPresetListValueSchema = z.object({
   presets: z.array(agentPresetEntrySchema),
   authorable: z.boolean(),
+  hasDocument: z.boolean(),
 }) satisfies z.ZodType<Wire<ResponseValue<'agentPreset.list'>>>
 
 /** agentPreset.select request payload. */
@@ -49,23 +50,32 @@ export const agentPresetReadValueSchema = z.object({
   agentPreset: z.string(),
   trust: z.union([z.literal('system'), z.literal('user')]),
   content: z.string(),
-  writable: z.boolean(),
   name: z.string().optional(),
   description: z.string().optional(),
 }) satisfies z.ZodType<Wire<ResponseValue<'agentPreset.read'>>>
 
-/** agentPreset.write request payload. */
-export const agentPresetWriteRequestSchema = z.object({
+/** agentPreset.copy request payload. */
+export const agentPresetCopyRequestSchema = z.object({
+  from: z.string().min(1),
   agentPreset: z.string().min(1),
-  content: z.string(),
   name: z.string().optional(),
-  description: z.string().optional(),
-}) satisfies z.ZodType<Wire<RequestPayload<'agentPreset.write'>>>
+}) satisfies z.ZodType<Wire<RequestPayload<'agentPreset.copy'>>>
 
-/** agentPreset.write response value. */
-export const agentPresetWriteValueSchema = z.object({
+/** agentPreset.copy response value. */
+export const agentPresetCopyValueSchema = z.object({
   agentPreset: z.string(),
-}) satisfies z.ZodType<Wire<ResponseValue<'agentPreset.write'>>>
+}) satisfies z.ZodType<Wire<ResponseValue<'agentPreset.copy'>>>
+
+/** agentPreset.openDocument request payload. */
+export const agentPresetOpenDocumentRequestSchema = z.object({
+  agentPreset: z.string().min(1),
+}) satisfies z.ZodType<Wire<RequestPayload<'agentPreset.openDocument'>>>
+
+/** agentPreset.openDocument response value. */
+export const agentPresetOpenDocumentValueSchema = z.union([
+  z.object({ opened: z.literal(true) }),
+  z.object({ opened: z.literal(false), path: z.string() }),
+]) satisfies z.ZodType<Wire<ResponseValue<'agentPreset.openDocument'>>>
 
 /** agentPreset.remove request payload. */
 export const agentPresetRemoveRequestSchema = z.object({

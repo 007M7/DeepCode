@@ -5,7 +5,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { mkdir, stat } from 'node:fs/promises'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import type { Context } from 'cordis'
 import { installAgentLlmTarget } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentLlmTarget, AgentLlmTargetRef, AgentOptions, AgentStatus } from '@deepseek-ai/dsh-agent'
@@ -25,7 +25,7 @@ import {
 } from '@deepseek-ai/dsh-workspace'
 // Type-only: brings the `ctx.tools` Context merge into this program (viewFor reads presenters).
 import {
-  InvalidCompositionError, InvalidPresetIdError, PresetMountError,
+  InvalidPresetIdError, PresetExistsError, PresetMountError,
   PresetNotWritableError, resolveSessionPreset,
   SETTINGS_NAMESPACE as AGENT_PRESET_SETTINGS_NAMESPACE, UnknownPresetError,
 } from '@deepseek-ai/dsh-agent-presets'
@@ -83,7 +83,7 @@ import {
   hasApiRemoteSubagentOwner,
   inspectApiRemoteSession,
 } from '@deepseek-ai/dsh-api-remotes'
-import { openNativePath, openNativeTextFile } from './native-path-opener.ts'
+import { canOpenNativePath, openNativePath, openNativeTextFile } from './native-path-opener.ts'
 
 /** Page size when history is called without maxMessages. */
 const DEFAULT_MAX_MESSAGES = 50
@@ -415,6 +415,14 @@ export interface ApiProxyDefaults {
   openPath?: (path: string, signal: AbortSignal) => Promise<void>
   /** Native text-editor handoff; injectable for settings-document tests. */
   openTextFile?: (path: string, signal: AbortSignal) => Promise<void>
+  /**
+   * Whether handing a path to the native opener can work at all — the
+   * `hasDocument` capability the preset roster reports, and the switch
+   * between opening a preset directory and answering its path as text.
+   * Absent, an injected `openPath` counts as openable and everything else
+   * falls back to platform detection ({@link canOpenNativePath}).
+   */
+  canOpenPath?: () => boolean
 }
 
 /** The tool/call payload fields the presenter path reads. */
@@ -757,7 +765,7 @@ function presetError(agentPreset: string, error: unknown): RpcError {
   if (error instanceof PresetNotWritableError) {
     return { code: 'agent-preset-read-only', message: error.message, details: { agentPreset, reason: error.message } }
   }
-  if (error instanceof InvalidPresetIdError || error instanceof InvalidCompositionError) {
+  if (error instanceof InvalidPresetIdError || error instanceof PresetExistsError) {
     return { code: 'agent-preset-invalid', message: error.message, details: { agentPreset, reason: error.message } }
   }
   return { code: 'internal', message: `agent preset "${agentPreset}": ${String(error)}`, details: {} }
@@ -1541,6 +1549,13 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     const open = defaults.openTextFile
       ?? ((target: string, openSignal: AbortSignal) => openNativeTextFile(target, openSignal))
     return openTarget(request, path, signal, open)
+  }
+
+  /** Whether this deployment can hand a path to a native opener at all. */
+  function canOpenPaths(): boolean {
+    if (defaults.canOpenPath !== undefined) return defaults.canOpenPath()
+    // An injected opener is by definition usable; otherwise ask the platform.
+    return defaults.openPath !== undefined || canOpenNativePath()
   }
 
   /** Missing-service report shared by the credentials domain. */
@@ -2614,7 +2629,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       // simply offers no choice.
       async list(request) {
         const presets = ctx.get('agentPresets')
-        if (presets === undefined) return ok(request, { presets: [], authorable: false })
+        if (presets === undefined) return ok(request, { presets: [], authorable: false, hasDocument: false })
         const defaultId = presets.defaultId
         return ok(request, {
           presets: (await presets.list()).map(preset => ({
@@ -2625,6 +2640,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             ...preset.description === undefined ? {} : { description: preset.description },
           })),
           authorable: presets.authorable,
+          hasDocument: canOpenPaths(),
         })
       },
 
@@ -2682,7 +2698,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
       // Authoring is privileged (see PRIVILEGED_METHODS in dsh-client-connection):
       // a composition names the plugins a session runs, so reading one is
-      // reconnaissance and writing one is arbitrary capability.
+      // reconnaissance, and copy/remove/openDocument manage the roster and
+      // drive the host desktop.
       async read(request) {
         const { agentPreset } = request.payload
         const presets = ctx.get('agentPresets')
@@ -2693,7 +2710,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             agentPreset: preset.id,
             trust: preset.trust,
             content: await presets.read(preset.id),
-            writable: preset.trust === 'user' && presets.authorable,
             ...preset.name === undefined ? {} : { name: preset.name },
             ...preset.description === undefined ? {} : { description: preset.description },
           })
@@ -2702,16 +2718,36 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         }
       },
 
-      async write(request) {
-        const { agentPreset, content, name, description } = request.payload
+      async copy(request) {
+        const { from, agentPreset, name } = request.payload
         const presets = ctx.get('agentPresets')
         if (presets === undefined) return err(request, noRoster(agentPreset))
         try {
-          await presets.write(agentPreset, content, {
-            ...name === undefined ? {} : { name },
-            ...description === undefined ? {} : { description },
-          })
+          await presets.copy(from, agentPreset, name)
           return ok(request, { agentPreset })
+        } catch (error: unknown) {
+          return err(request, presetError(agentPreset, error))
+        }
+      },
+
+      async openDocument(request, signal) {
+        const { agentPreset } = request.payload
+        const presets = ctx.get('agentPresets')
+        if (presets === undefined) return err(request, noRoster(agentPreset))
+        try {
+          const preset = await presets.resolve(agentPreset)
+          // Same line as copy/remove draw: the shipped install is not the
+          // user's to manage, and pointing an editor into it invites edits an
+          // upgrade will silently overwrite.
+          if (preset.trust !== 'user') {
+            throw new PresetNotWritableError(preset.id, 'it ships with the deployment')
+          }
+          // The id resolved against the Host's own roots is what selects the
+          // directory — no browser payload carries a path in either direction
+          // unless the deployment has no opener to hand it to.
+          const directory = dirname(preset.path)
+          if (!canOpenPaths()) return ok(request, { opened: false as const, path: directory })
+          return await openPath(request, directory, signal)
         } catch (error: unknown) {
           return err(request, presetError(agentPreset, error))
         }

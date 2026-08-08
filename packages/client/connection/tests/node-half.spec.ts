@@ -160,8 +160,9 @@ describe('connection node half', () => {
       'credentials.describe', 'credentials.set', 'credentials.unset',
       'llm.discoverModels',
       // A composition names the plugins a session runs: reading one is
-      // reconnaissance and writing one is arbitrary capability.
-      'agentPreset.read', 'agentPreset.write', 'agentPreset.remove',
+      // reconnaissance, and copy/remove/openDocument manage the roster and
+      // drive the host desktop.
+      'agentPreset.read', 'agentPreset.copy', 'agentPreset.openDocument', 'agentPreset.remove',
     ]) {
       const denied = fakeResponse()
       await routes[0]!.handler(
@@ -455,7 +456,7 @@ describe('connection node half over a real HTTP server', () => {
         // Carries a draft credential and turns the host into a fetcher for a
         // URL the caller picked: an anonymous LAN caller must not reach it.
         'llm.discoverModels',
-        'agentPreset.read', 'agentPreset.write', 'agentPreset.remove',
+        'agentPreset.read', 'agentPreset.copy', 'agentPreset.openDocument', 'agentPreset.remove',
       ]) {
         expect([method, await call(port, method, 'harness.example')]).toEqual([method, 403])
       }

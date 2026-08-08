@@ -21,16 +21,16 @@
  * @module @deepseek-ai/dsh-agent-presets
  */
 
+import { stat } from 'node:fs/promises'
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
 import { createScope, scopeOf, setScopeParent, type Scope, type ScopeKey } from '@deepseek-ai/dsh-scope'
 import { settingsNamespace, type SettingsScope, type default as SettingsService } from '@deepseek-ai/dsh-settings'
 import { discoverPresets } from './discovery.ts'
-import { deleteComposition, readComposition, writeComposition } from './authoring.ts'
-import type { PresetMetadata } from './metadata.ts'
+import { copyComposition, deleteComposition, readComposition } from './authoring.ts'
 import { mountPreset, serviceForAgent } from './mount.ts'
-import { PresetNotWritableError } from './authoring.ts'
-import { UnknownPresetError, type AgentPreset, type Config } from './types.ts'
+import { PresetExistsError } from './authoring.ts'
+import { PresetMountError, UnknownPresetError, type AgentPreset, type Config } from './types.ts'
 
 /** Settings namespace carrying the user's chosen default preset. */
 export const SETTINGS_NAMESPACE = 'agent-presets'
@@ -55,8 +55,8 @@ export {
   type PresetMount,
 } from './mount.ts'
 export {
-  assertComposition, deleteComposition, InvalidCompositionError, InvalidPresetIdError,
-  PresetNotWritableError, readComposition, writableRoot, writeComposition,
+  copyComposition, deleteComposition, InvalidPresetIdError, PresetExistsError,
+  PresetNotWritableError, readComposition, writableRoot,
 } from './authoring.ts'
 export { resolveSessionPreset, type PresetBearingSession } from './session.ts'
 export { PresetMountError, UnknownPresetError } from './types.ts'
@@ -171,10 +171,12 @@ export class AgentPresets extends Service {
    * Standing mounts by preset id, single-flight so two agents racing the
    * first use of one preset share one composition. A settled failure is
    * removed so a later session retries a preset whose file has been fixed; a
-   * settled success is permanent for the process — the composition a running
-   * session joined must survive the file changing or disappearing underneath
-   * it, so file edits reach only future generations (a later authoring layer
-   * swaps this pointer; it never disposes a joined generation).
+   * settled success serves until the composition FILE visibly changes — each
+   * generation records its file stamp, and a stale stamp starts the next
+   * generation for sessions created afterwards. Sessions already joined keep
+   * the generation they run on; a superseded one is never disposed while the
+   * process lives (reclaimed only by whole-tree teardown), so editing files
+   * is bounded by how often compositions change, not by session count.
    */
   private readonly standing = new Map<string, Promise<StandingMount>>()
 
@@ -218,29 +220,32 @@ export class AgentPresets extends Service {
   }
 
   /**
-   * Create or replace a locally authored preset.
+   * Create a locally authored preset by copying an existing one whole.
    *
-   * The text is shape-checked before it lands, so a save cannot leave a file no
-   * session could load; it is NOT mounted, so a composition that parses but
-   * names a missing plugin still fails at the next session that selects it.
-   * @param id - the preset id, which becomes its directory name.
-   * @param content - the composition text.
-   * @param metadata - display name and description; clearing both removes the file.
-   * @throws when the id is unusable, the text is not an entry list, or the
-   * deployment configures no writable root.
+   * Copy is the only authoring write. Composition text never crosses this
+   * seam: the source is named by id and its directory is copied as it stands,
+   * so the copy is exactly as loadable as its source and authoring grants no
+   * capability the roster did not already carry. The copy is NOT mounted to
+   * validate — a source that mounts today yields a copy that mounts today.
+   * @param from - the preset the copy starts from; shipped presets are the
+   * primary source, so any trust is accepted.
+   * @param id - the new preset's id, which becomes its directory name.
+   * @param name - display name for the copy; absent falls back to the id.
+   * @throws when the source is unknown, the id is unusable or already taken,
+   * or the deployment configures no writable root.
    */
-  async write(id: string, content: string, metadata: PresetMetadata = {}): Promise<void> {
-    // A shipped preset belongs to the deployment: overwriting it would remove
-    // the known-good composition a broken local one is compared against.
-    const existing = (await this.list()).find(preset => preset.id === id)
-    if (existing !== undefined && existing.trust !== 'user') {
-      throw new PresetNotWritableError(id, 'it ships with the deployment')
+  async copy(from: string, id: string, name?: string): Promise<void> {
+    const source = await this.resolve(from)
+    // The roster check refuses ids any root supplies — shipped ones included,
+    // since a user directory named like a shipped preset is shadowed by it.
+    // The disk check inside copyComposition only sees the writable root.
+    if ((await this.list()).some(preset => preset.id === id)) {
+      throw new PresetExistsError(id)
     }
-    await writeComposition(this.config.roots, id, content, metadata)
-    // Future generations only: the standing pointer is dropped so the NEXT
-    // session composes the edited file, while every session already joined
-    // keeps the mount it runs on — a superseded generation is never disposed
-    // while the process lives (reclaimed only by whole-tree teardown).
+    await copyComposition(this.config.roots, source, id, name)
+    // A settled mount under this id can only be stale (its preset was deleted
+    // from disk outside `remove`); the new preset must not inherit it. Every
+    // session already joined keeps the generation it runs on regardless.
     this.standing.delete(id)
   }
 
@@ -251,8 +256,8 @@ export class AgentPresets extends Service {
    */
   async remove(id: string): Promise<void> {
     await deleteComposition(this.config.roots, await this.resolve(id))
-    // Same generation rule as `write`: sessions on the deleted preset keep
-    // their standing mount; only new sessions see the roster without it.
+    // Sessions on the deleted preset keep their standing mount; only new
+    // sessions see the roster without it.
     this.standing.delete(id)
     // Storing a default that does not exist YET is deliberate — the roster is a
     // live directory, so a name absent now may exist by the time a session asks
@@ -332,24 +337,69 @@ export class AgentPresets extends Service {
   }
 
   /** Resolve (or create, single-flight) the standing mount of one preset. */
-  private ensureStanding(preset: AgentPreset): Promise<StandingMount> {
+  private async ensureStanding(preset: AgentPreset): Promise<StandingMount> {
     const pending = this.standing.get(preset.id)
-    if (pending !== undefined) return pending
+    if (pending !== undefined) {
+      const mounted = await pending
+      // Files are the only composition editor (authoring is copy/delete), so
+      // the stamp is what notices an edit: a changed file starts the next
+      // generation here, for this and later sessions. An unreadable stamp
+      // serves the current generation — a mount must survive its file
+      // disappearing, and failing the session over a stat would not.
+      const current = await compositionStamp(preset.path)
+      if (current === undefined || sameStamp(mounted.stamp, current)) return mounted
+      // Guarded delete: a caller that raced this one may have already started
+      // the next generation, and dropping THAT pointer would fork a third.
+      if (this.standing.get(preset.id) === pending) this.standing.delete(preset.id)
+      return this.ensureStanding(preset)
+    }
     const created = (async (): Promise<StandingMount> => {
       const key: ScopeKey = { agentPreset: preset.id }
       const scope = createScope(this.selfCtx, key)
       try {
+        // Stamped before the file is read: an edit racing the mount makes the
+        // stamp stale rather than silently current, so the next session
+        // refreshes instead of trusting a composition older than its stamp.
+        const stamp = await compositionStamp(preset.path)
+        if (stamp === undefined) {
+          throw new PresetMountError(preset.id, `composition file is unreadable: ${preset.path}`)
+        }
         await mountPreset(scope.ctx, preset)
+        return { key, scope, stamp }
       } catch (error) {
         this.standing.delete(preset.id)
         await scope.dispose()
         throw error
       }
-      return { key, scope }
     })()
     this.standing.set(preset.id, created)
     return created
   }
+}
+
+/** The composition file identity one standing generation was mounted from. */
+interface CompositionStamp {
+  /** Modification time in milliseconds, as `stat` reports it. */
+  readonly mtimeMs: number
+  /** File size in bytes, the tiebreak for edits within one mtime tick. */
+  readonly size: number
+}
+
+/** Read one composition file's stamp, or undefined when it cannot be statted. */
+async function compositionStamp(path: string): Promise<CompositionStamp | undefined> {
+  try {
+    const { mtimeMs, size } = await stat(path)
+    return { mtimeMs, size }
+  } catch {
+    // Deleted, replaced by an unreadable entry, or otherwise unstattable all
+    // mean the same to the caller: the file offers no identity to compare.
+    return undefined
+  }
+}
+
+/** Whether two stamps name the same file state. */
+function sameStamp(a: CompositionStamp, b: CompositionStamp): boolean {
+  return a.mtimeMs === b.mtimeMs && a.size === b.size
 }
 
 /** One preset's standing composition. */
@@ -358,6 +408,8 @@ interface StandingMount {
   readonly key: ScopeKey
   /** Disposal boundary; held for whole-tree teardown, never per-session. */
   readonly scope: Scope
+  /** Stamp of the composition file this generation was mounted from. */
+  readonly stamp: CompositionStamp
 }
 
 export default AgentPresets

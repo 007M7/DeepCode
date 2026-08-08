@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 /**
  * The management section's rendering rules: which actions a row offers depends
- * on its trust and whether it is the default, a shipped composition opens
- * without a Save, and a draft the host would refuse is blocked before it is
- * sent.
+ * on its trust, a shipped composition opens in a read-only viewer, creation is
+ * a copy dialog that collects an id and an optional name, and the location
+ * action follows the host's desktop capability.
  */
 
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
@@ -12,7 +12,7 @@ import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { AgentPresetSection } from '../src/client/AgentPresetSection.tsx'
 import type { AgentPresetSectionProps } from '../src/client/AgentPresetSection.tsx'
-import type { AgentPresetSectionState } from '../src/client/section-store.ts'
+import type { AgentPresetSectionState, CopyDraft } from '../src/client/section-store.ts'
 import { en } from '../src/client/locales.ts'
 
 afterEach(cleanup)
@@ -21,13 +21,16 @@ const READY: AgentPresetSectionState = {
   status: 'ready',
   error: null,
   authorable: true,
+  hasDocument: true,
   rows: [
     { id: 'standard', trust: 'system', isDefault: true, name: '标准模式', description: '完整的编码 agent。' },
     { id: 'mine', trust: 'user', isDefault: false },
   ],
-  draft: null,
+  copy: null,
+  view: null,
   pendingDelete: null,
   deleting: false,
+  revealedPaths: {},
 }
 
 /**
@@ -39,14 +42,14 @@ function renderSection(state: Partial<AgentPresetSectionState> = {}) {
   const store = createSnapshotStore<AgentPresetSectionState>({ ...READY, ...state })
   const actions = {
     load: vi.fn(() => Promise.resolve()),
-    open: vi.fn(() => Promise.resolve()),
-    createFrom: vi.fn(() => Promise.resolve()),
-    close: vi.fn(),
-    setId: vi.fn(),
-    setContent: vi.fn(),
-    setName: vi.fn(),
-    setDescription: vi.fn(),
-    save: vi.fn(() => Promise.resolve()),
+    view: vi.fn(() => Promise.resolve()),
+    closeView: vi.fn(),
+    beginCopy: vi.fn(),
+    cancelCopy: vi.fn(),
+    setCopyId: vi.fn(),
+    setCopyName: vi.fn(),
+    confirmCopy: vi.fn(() => Promise.resolve()),
+    openLocation: vi.fn(() => Promise.resolve()),
     confirmDelete: vi.fn(),
     remove: vi.fn(() => Promise.resolve()),
     makeDefault: vi.fn(() => Promise.resolve()),
@@ -105,14 +108,20 @@ describe('the preset list', () => {
     // read-only, the other is the user's own.
     expect(screen.getByRole('heading', { name: en.builtInGroup })).toBeTruthy()
     expect(screen.getByRole('heading', { name: en.customGroup })).toBeTruthy()
-    expect(within(rowFor('standard')).getByText(en.builtIn)).toBeTruthy()
-    expect(within(rowFor('mine')).getByText(en.userTrust)).toBeTruthy()
   })
 
   it('shows no group heading for a set nobody has', () => {
     renderSection({ rows: [{ id: 'standard', trust: 'system', isDefault: true }] })
 
     expect(screen.queryByRole('heading', { name: en.customGroup })).toBeNull()
+  })
+
+  it('leads with the guidance that creation starts from a copy', () => {
+    renderSection()
+
+    // The page has no create button: the intro is what tells a first-time
+    // reader that duplicating a built-in preset IS the way to make one.
+    expect(screen.getByText(new RegExp(en.copyHint))).toBeTruthy()
   })
 
   it('picks a preset by clicking its card, and the one in use is inert', () => {
@@ -127,27 +136,49 @@ describe('the preset list', () => {
     expect(actions.makeDefault).not.toHaveBeenCalled()
   })
 
-  it('offers Edit for a local preset and View for a shipped one', () => {
+  it('offers View on a shipped row and the location on a custom one', () => {
     renderSection()
 
-    expect(within(rowFor('mine')).getByRole('button', { name: en.edit })).toBeTruthy()
-    // A shipped composition is readable but not editable, and the label is
-    // what says so before the editor opens.
-    expect(within(rowFor('standard')).getByRole('button', { name: en.view })).toBeTruthy()
+    // A shipped preset is the composition a copy starts from — reading it is
+    // the point. A custom preset is edited in its files, so its row leads
+    // there instead; there is no editor for either.
+    const standard = rowFor('standard')
+    expect(within(standard).getByRole('button', { name: `${en.view}: 标准模式` })).toBeTruthy()
+    expect(within(standard).queryByRole('button', { name: `${en.openLocation}: 标准模式` })).toBeNull()
+    const mine = rowFor('mine')
+    expect(within(mine).getByRole('button', { name: `${en.openLocation}: mine` })).toBeTruthy()
+    expect(within(mine).queryByRole('button', { name: `${en.view}: mine` })).toBeNull()
   })
 
   it('offers Delete only for a locally authored preset', () => {
     renderSection()
 
-    expect(within(rowFor('mine')).getByRole('button', { name: en.delete })).toBeTruthy()
-    expect(within(rowFor('standard')).queryByRole('button', { name: en.delete })).toBeNull()
+    expect(within(rowFor('mine')).getByRole('button', { name: `${en.delete}: mine` })).toBeTruthy()
+    expect(within(rowFor('standard')).queryByRole('button', { name: `${en.delete}: 标准模式` })).toBeNull()
   })
 
-  it('hides duplication and disables creation when nothing is writable', () => {
+  it('disables duplication when nothing is writable, and says why', () => {
     renderSection({ authorable: false })
 
-    expect(screen.queryByRole('button', { name: en.duplicate })).toBeNull()
-    expect(screen.getByText(`+ ${en.newPreset}`)).toHaveProperty('disabled', true)
+    const duplicate = within(rowFor('standard')).getByRole('button', { name: `${en.duplicate}: 标准模式` })
+    expect(duplicate).toHaveProperty('disabled', true)
+    expect(duplicate.getAttribute('data-tip')).toBe(en.duplicateUnavailable)
+  })
+
+  it('labels the location by what it will do without a desktop', () => {
+    renderSection({ hasDocument: false })
+
+    expect(within(rowFor('mine')).getByRole('button', { name: `${en.showLocation}: mine` })).toBeTruthy()
+  })
+
+  it('shows a revealed directory on its row', () => {
+    renderSection({ revealedPaths: { mine: '/home/user/.dsh/.agent-presets/mine' } })
+
+    const mine = rowFor('mine')
+    expect(within(mine).getByText('/home/user/.dsh/.agent-presets/mine')).toBeTruthy()
+    expect(within(mine).getByText(en.revealedPathLabel)).toBeTruthy()
+    // The reveal belongs to its row alone.
+    expect(within(rowFor('standard')).queryByText(en.revealedPathLabel)).toBeNull()
   })
 
   it('routes the row actions to the controller', () => {
@@ -155,15 +186,14 @@ describe('the preset list', () => {
 
     // The card body is the control that picks a preset.
     fireEvent.click(within(rowFor('mine')).getByRole('button', { name: `${en.setDefault}: mine` }))
-    fireEvent.click(within(rowFor('mine')).getByRole('button', { name: en.edit }))
-    fireEvent.click(within(rowFor('mine')).getByRole('button', { name: en.duplicate }))
-    fireEvent.click(screen.getByText(`+ ${en.newPreset}`))
+    fireEvent.click(within(rowFor('mine')).getByRole('button', { name: `${en.openLocation}: mine` }))
+    fireEvent.click(within(rowFor('mine')).getByRole('button', { name: `${en.duplicate}: mine` }))
+    fireEvent.click(within(rowFor('standard')).getByRole('button', { name: `${en.view}: 标准模式` }))
 
     expect(actions.makeDefault).toHaveBeenCalledWith('mine')
-    expect(actions.open).toHaveBeenCalledWith('mine')
-    expect(actions.createFrom).toHaveBeenCalledWith('mine')
-    // The bare "new" copies the default, which the controller resolves.
-    expect(actions.createFrom).toHaveBeenLastCalledWith()
+    expect(actions.openLocation).toHaveBeenCalledWith('mine')
+    expect(actions.beginCopy).toHaveBeenCalledWith('mine')
+    expect(actions.view).toHaveBeenCalledWith('standard')
   })
 
   it('shows a page-level failure without hiding the list', () => {
@@ -194,126 +224,97 @@ describe('the preset list', () => {
   })
 })
 
-describe('the composition editor', () => {
-  const draft = {
-    id: 'mine', source: 'mine', creating: false, content: '- id: tool-read\n',
-    writable: true, name: '我的预设', description: '', saving: false, error: null,
+describe('the copy dialog', () => {
+  const draft: CopyDraft = {
+    from: 'standard', fromTitle: '标准模式', id: '', name: '', saving: false, error: null,
   }
 
-  it('opens a blank draft without naming a preset it came from', () => {
-    const { source: _copied, ...blank } = draft
-    renderSection({ draft: { ...blank, id: '', creating: true } })
+  it('names its source and collects only an id and a display name', () => {
+    const actions = renderSection({ copy: draft })
 
-    // "New preset" starts empty — copying is what the per-row Duplicate does,
-    // so a blank draft has no source to name and shows no copied-from hint.
-    expect(screen.getByText(en.newPreset)).toBeTruthy()
-    expect(screen.queryByText(new RegExp(en.copyOf))).toBeNull()
+    const dialog = screen.getByRole('dialog')
+    expect(dialog.getAttribute('aria-label')).toBe(`${en.copyTitle} · ${en.copyOf} 标准模式`)
+    expect(within(dialog).getByText(en.copyIntro)).toBeTruthy()
+    fireEvent.change(within(dialog).getByPlaceholderText(en.presetIdPlaceholder), { target: { value: 'my-agent' } })
+    fireEvent.change(within(dialog).getByPlaceholderText(en.displayNamePlaceholder), { target: { value: '我的模式' } })
+
+    expect(actions.setCopyId).toHaveBeenCalledWith('my-agent')
+    expect(actions.setCopyName).toHaveBeenCalledWith('我的模式')
+    // Nothing else is collected: the description and the composition are
+    // edited in the preset's own files.
+    expect(within(dialog).queryByRole('textbox', { name: /description/i })).toBeNull()
   })
 
-  it('replaces the list while editing, and returns to it', () => {
-    const actions = renderSection({ draft })
+  it('creates and cancels through the controller', () => {
+    const actions = renderSection({ copy: { ...draft, id: 'my-agent' } })
 
-    // The form is tall and a card column is ~268px: squeezing it into one is
-    // unusable, and hanging it off the end orphans it from the card it edits.
-    expect(screen.queryByRole('heading', { name: en.builtInGroup })).toBeNull()
-    const editor = screen.getByLabelText(en.composition)
-    expect(editor).toHaveProperty('value', '- id: tool-read\n')
-    fireEvent.change(editor, { target: { value: '- id: tool-edit\n' } })
-    fireEvent.click(screen.getByRole('button', { name: `← ${en.backToList}` }))
+    const dialog = screen.getByRole('dialog')
+    fireEvent.click(within(dialog).getByText(en.create))
+    fireEvent.click(within(dialog).getByText(en.cancel))
 
-    expect(actions.setContent).toHaveBeenCalledWith('- id: tool-edit\n')
-    expect(actions.close).toHaveBeenCalledTimes(1)
+    expect(actions.confirmCopy).toHaveBeenCalledTimes(1)
+    expect(actions.cancelCopy).toHaveBeenCalledTimes(1)
   })
 
-  it('saves and cancels through the controller', () => {
-    const actions = renderSection({ draft })
+  it('blocks a copy the host would refuse, and says why', () => {
+    const actions = renderSection({ copy: { ...draft, id: 'Upper Case' } })
 
-    fireEvent.click(screen.getByText(en.save))
-    fireEvent.click(screen.getByText(en.cancel))
-
-    expect(actions.save).toHaveBeenCalledTimes(1)
-    expect(actions.close).toHaveBeenCalledTimes(1)
-  })
-
-  it('reports a save in flight and blocks a second click', () => {
-    const actions = renderSection({ draft: { ...draft, saving: true } })
-
-    fireEvent.click(screen.getByText(en.saving))
-
-    expect(actions.save).not.toHaveBeenCalled()
-  })
-
-  it('shows a shipped composition read-only, with no way to save it', () => {
-    renderSection({ draft: { ...draft, id: 'standard', source: 'standard', writable: false } })
-
-    expect(screen.getByLabelText(en.composition)).toHaveProperty('readOnly', true)
-    expect(screen.getByText(en.readOnlyNotice)).toBeTruthy()
-    expect(screen.queryByText(en.save)).toBeNull()
-    // Nothing to commit or abandon, and the back link above already leaves —
-    // a lone Close button would be a second way out of the same screen.
-    expect(screen.queryByText(en.cancel)).toBeNull()
-    expect(screen.getByRole('button', { name: `← ${en.backToList}` })).toBeTruthy()
-  })
-
-  it('titles the panel by what it is doing', () => {
-    renderSection({ draft })
-    expect(screen.getByText(`${en.edit} · 我的预设`)).toBeTruthy()
-    cleanup()
-
-    // An unnamed draft falls back to what it was copied from.
-    renderSection({ draft: { ...draft, name: '' } })
-    expect(screen.getByText(`${en.edit} · mine`)).toBeTruthy()
-    cleanup()
-
-    renderSection({ draft: { ...draft, writable: false } })
-    expect(screen.getByText(`${en.view} · 我的预设`)).toBeTruthy()
-  })
-
-  it('names a new preset and says what it was copied from', () => {
-    const actions = renderSection({
-      draft: { ...draft, id: '', source: 'standard', creating: true },
-    })
-
-    expect(screen.getByText(`${en.copyOf} standard`)).toBeTruthy()
-    fireEvent.change(screen.getByPlaceholderText(en.presetIdPlaceholder), { target: { value: 'my-agent' } })
-
-    expect(actions.setId).toHaveBeenCalledWith('my-agent')
-  })
-
-  it('edits the display name and description through the controller', () => {
-    const actions = renderSection({ draft })
-
-    fireEvent.change(screen.getByLabelText(en.displayName), { target: { value: '我的模式' } })
-    fireEvent.change(screen.getByLabelText(en.displayDescription), { target: { value: '只做检索。' } })
-
-    expect(actions.setName).toHaveBeenCalledWith('我的模式')
-    expect(actions.setDescription).toHaveBeenCalledWith('只做检索。')
-  })
-
-  it('offers no display fields on a read-only preset', () => {
-    renderSection({ draft: { ...draft, writable: false } })
-
-    // Nothing here can be saved, so an editable name would be a lie.
-    expect(screen.queryByLabelText(en.displayName)).toBeNull()
-  })
-
-  it('blocks a save the host would refuse, and says why', () => {
-    const actions = renderSection({
-      draft: { ...draft, id: 'Upper Case', source: 'standard', creating: true },
-    })
-
-    expect(screen.getByRole('alert').textContent).toBe(en.idInvalid)
-    fireEvent.click(screen.getByText(en.save))
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).getByRole('alert').textContent).toBe(en.idInvalid)
+    fireEvent.click(within(dialog).getByText(en.create))
 
     // Disabled rather than round-tripping: the id is a directory name and the
     // rule is the host's own.
-    expect(actions.save).not.toHaveBeenCalled()
+    expect(actions.confirmCopy).not.toHaveBeenCalled()
   })
 
   it('shows the host\'s refusal instead of the local blocker', () => {
-    renderSection({ draft: { ...draft, error: 'composition is not an entry list' } })
+    renderSection({ copy: { ...draft, id: 'my-agent', error: 'already exists' } })
 
-    expect(screen.getByRole('alert').textContent).toBe('composition is not an entry list')
+    expect(within(screen.getByRole('dialog')).getByRole('alert').textContent).toBe('already exists')
+  })
+
+  it('reports a copy in flight and blocks a second click', () => {
+    const actions = renderSection({ copy: { ...draft, id: 'my-agent', saving: true } })
+
+    fireEvent.click(within(screen.getByRole('dialog')).getByText(en.creating))
+
+    expect(actions.confirmCopy).not.toHaveBeenCalled()
+  })
+
+  it('dismisses on Escape', () => {
+    const actions = renderSection({ copy: draft })
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+
+    expect(actions.cancelCopy).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('the read-only viewer', () => {
+  it('shows the composition text under the preset\'s name', () => {
+    renderSection({ view: { id: 'standard', title: '标准模式', content: '- id: tool-bash\n' } })
+
+    const dialog = screen.getByRole('dialog')
+    expect(dialog.getAttribute('aria-label')).toBe(`${en.view} · 标准模式`)
+    expect(within(dialog).getByText(en.composition)).toBeTruthy()
+    expect(within(dialog).getByText(/tool-bash/).textContent).toBe('- id: tool-bash\n')
+  })
+
+  it('closes through the controller', () => {
+    const actions = renderSection({ view: { id: 'standard', title: '标准模式', content: '- id: x\n' } })
+
+    fireEvent.click(within(screen.getByRole('dialog')).getByText(en.close))
+
+    expect(actions.closeView).toHaveBeenCalledTimes(1)
+  })
+
+  it('dismisses on Escape', () => {
+    const actions = renderSection({ view: { id: 'standard', title: '标准模式', content: '- id: x\n' } })
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+
+    expect(actions.closeView).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -321,7 +322,7 @@ describe('deleting a preset', () => {
   it('asks before deleting', () => {
     const actions = renderSection()
 
-    fireEvent.click(within(rowFor('mine')).getByRole('button', { name: en.delete }))
+    fireEvent.click(within(rowFor('mine')).getByRole('button', { name: `${en.delete}: mine` }))
 
     expect(actions.confirmDelete).toHaveBeenCalledWith('mine')
   })

@@ -12,8 +12,11 @@ import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { assembleContextFor, type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { beforeEach, describe, expect, it } from 'vitest'
-import AgentPresets, { COMPOSITION_FILE, leakedServices, livePresetMounts } from '@deepseek-ai/dsh-agent-presets'
+import AgentPresets, {
+  COMPOSITION_FILE, leakedServices, livePresetMounts, mountPreset, PresetMountError, serviceForAgent,
+} from '@deepseek-ai/dsh-agent-presets'
 import type { Config } from '@deepseek-ai/dsh-agent-presets'
+import { createScope, scopeOf, setScopeParent } from '@deepseek-ai/dsh-scope'
 
 declare module 'cordis' {
   interface Context {
@@ -196,9 +199,33 @@ describe('rejecting a composition that cannot be used', () => {
   })
 
   it('answers undefined for a service the agent\'s preset does not mount', async () => {
+    // The isolated preset's standing instance exists in the same runtime, so
+    // the lookup finds the NAME and must still refuse it: the instance lives
+    // under another mount's fiber, not this agent's composition.
+    await agentOn(ctx, 'sess-reach-other', 'isolated')
     const agent = await agentOn(ctx, 'sess-reach-none', 'standard')
 
     expect(ctx.agentPresets.serviceFor(agent, 'fixtureIsolatedSvc')).toBeUndefined()
+  })
+
+  it('answers undefined for an agent outside the scope machinery', async () => {
+    // Unscoped, scoped-but-unparented, and parented to a key no live mount
+    // owns are the three ways a context can fail to name a standing mount;
+    // each is an answer, not a throw, because the caller asked a question.
+    expect(serviceForAgent(ctx, { ctx }, 'fixtureIsolatedSvc')).toBeUndefined()
+    const loner = createScope(ctx, { test: 'loner' })
+    expect(serviceForAgent(ctx, { ctx: loner.ctx }, 'fixtureIsolatedSvc')).toBeUndefined()
+    const orphan = createScope(ctx, { test: 'orphan' })
+    setScopeParent(scopeOf(orphan.ctx)!, { agentPreset: 'never-mounted' })
+    expect(serviceForAgent(ctx, { ctx: orphan.ctx }, 'fixtureIsolatedSvc')).toBeUndefined()
+  })
+
+  it('refuses to mount a preset directly into an unscoped context', async () => {
+    // The service's own mount() guards this before delegating; the exported
+    // function is callable on its own, so the boundary holds there too.
+    const preset = await ctx.agentPresets.resolve('standard')
+
+    await expect(mountPreset(ctx, preset)).rejects.toThrow(/unscoped context/)
   })
 
   it('reports the known ids when a preset is unknown', async () => {
@@ -407,5 +434,103 @@ describe('replacing a composition', () => {
   it('refuses an unscoped context', async () => {
     await expect(ctx.agentPresets.recompose(ctx, 'minimal'))
       .rejects.toThrow(/unscoped context/)
+  })
+})
+
+describe('editing a composition file', () => {
+  /** One-row composition whose single tool is named `tool`. */
+  const rowFor = (tool: string): string =>
+    `- id: only\n  name: ${join(FIXTURES, 'plugins', 'contribute.js')}\n  config:\n    tool: ${tool}\n`
+
+  /**
+   * A context over a temp root holding one editable preset. The id is
+   * per-test because `livePresetMounts()` is a process-global registry.
+   */
+  async function editable(id: string): Promise<{ scoped: Context; path: string }> {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-preset-edit-'))
+    await mkdir(join(root, id))
+    const path = join(root, id, COMPOSITION_FILE)
+    await writeFile(path, rowFor('before'))
+    const scoped = await harness({ default: id, roots: [{ path: root, trust: 'user' as const }] })
+    return { scoped, path }
+  }
+
+  it('starts a new generation for later sessions while joined ones keep theirs', async () => {
+    const { scoped, path } = await editable('edited')
+    const first = await agentOn(scoped, 'sess-gen-first', 'edited')
+    expect(toolNames(scoped, first)).toEqual(['before'])
+
+    // Files are the only composition editor now (authoring is copy/delete),
+    // so the standing mount notices the file's stamp changing on its own.
+    await writeFile(path, rowFor('afterwards'))
+
+    const second = await agentOn(scoped, 'sess-gen-second', 'edited')
+    expect(toolNames(scoped, second)).toEqual(['afterwards'])
+    // The joined session keeps the generation it runs on.
+    expect(toolNames(scoped, first)).toEqual(['before'])
+  })
+
+  it('gives two sessions racing the refreshed file one shared new generation', async () => {
+    const { scoped, path } = await editable('raced')
+    await agentOn(scoped, 'sess-race-seed', 'raced')
+
+    await writeFile(path, rowFor('afterwards'))
+
+    // Whichever racer swaps the pointer first, the other must join it rather
+    // than fork a third generation off the same edit.
+    const [left, right] = await Promise.all([
+      agentOn(scoped, 'sess-race-left', 'raced'),
+      agentOn(scoped, 'sess-race-right', 'raced'),
+    ])
+    expect(toolNames(scoped, left)).toEqual(['afterwards'])
+    expect(toolNames(scoped, right)).toEqual(['afterwards'])
+    expect(livePresetMounts().filter(mount => mount.presetId === 'raced')).toHaveLength(2)
+  })
+
+  it('hands a host reader the standing key without starting an agent', async () => {
+    const { scoped } = await editable('cold-read')
+
+    const key = await scoped.agentPresets.standingKeyFor('cold-read')
+
+    // The mount exists for the reader; no agent, session, or turn started.
+    expect(key).toEqual({ agentPreset: 'cold-read' })
+    expect(livePresetMounts().filter(mount => mount.presetId === 'cold-read')).toHaveLength(1)
+    expect(scoped.agents.get(SessionId('cold-read'))).toBeUndefined()
+    // A second reader resolves the same generation, not a new mount.
+    expect(await scoped.agentPresets.standingKeyFor('cold-read')).toBe(key)
+  })
+
+  it('refuses to mount a generation it cannot stamp', async () => {
+    const { scoped, path } = await editable('unstampable')
+    await rm(path)
+
+    // Discovery would refuse the preset too; a caller that resolved just
+    // before the deletion must get a mount failure, not an unstamped
+    // generation that no later edit could ever refresh.
+    const racer = scoped.agentPresets as unknown as {
+      ensureStanding(preset: { id: string; trust: 'user'; path: string }): Promise<unknown>
+    }
+    await expect(racer.ensureStanding({ id: 'unstampable', trust: 'user', path }))
+      .rejects.toThrow(PresetMountError)
+    expect(livePresetMounts().filter(mount => mount.presetId === 'unstampable')).toHaveLength(0)
+  })
+
+  it('keeps serving the mounted generation when the file cannot be statted', async () => {
+    const { scoped, path } = await editable('stale')
+    await agentOn(scoped, 'sess-stale-served', 'stale')
+    expect(livePresetMounts().filter(mount => mount.presetId === 'stale')).toHaveLength(1)
+
+    await rm(path)
+
+    // Discovery refuses a preset whose composition cannot be statted, so the
+    // public route cannot reach this state — but a caller that resolved just
+    // before the deletion still can, and it must be served the standing
+    // generation rather than failed over a stat.
+    const racer = scoped.agentPresets as unknown as {
+      ensureStanding(preset: { id: string; trust: 'user'; path: string }): Promise<unknown>
+    }
+    await racer.ensureStanding({ id: 'stale', trust: 'user', path })
+
+    expect(livePresetMounts().filter(mount => mount.presetId === 'stale')).toHaveLength(1)
   })
 })

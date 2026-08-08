@@ -3,11 +3,13 @@
 /** Locale keys these surfaces render. */
 export type AgentPresetSettingsKey =
   | 'title' | 'description' | 'loading' | 'error' | 'userTrust' | 'seatHint' | 'headerHint'
-  | 'nav' | 'sectionIntro' | 'builtIn' | 'defaultBadge' | 'setDefault' | 'edit' | 'view'
-  | 'duplicate' | 'delete' | 'newPreset' | 'presetId' | 'presetIdPlaceholder' | 'copyOf'
-  | 'displayName' | 'displayNamePlaceholder' | 'displayDescription' | 'displayDescriptionPlaceholder'
-  | 'inUse' | 'noDescription' | 'builtInGroup' | 'customGroup' | 'backToList'
-  | 'composition' | 'readOnlyNotice' | 'save' | 'saving' | 'cancel' | 'close' | 'retry'
+  | 'nav' | 'sectionIntro' | 'copyHint' | 'builtIn' | 'setDefault' | 'view'
+  | 'duplicate' | 'duplicateUnavailable' | 'delete' | 'presetId' | 'presetIdPlaceholder' | 'copyOf'
+  | 'displayName' | 'displayNamePlaceholder'
+  | 'inUse' | 'noDescription' | 'builtInGroup' | 'customGroup'
+  | 'composition' | 'cancel' | 'close' | 'retry'
+  | 'copyTitle' | 'copyIntro' | 'create' | 'creating'
+  | 'openLocation' | 'showLocation' | 'revealedPathLabel'
   | 'idRequired' | 'idInvalid' | 'idTaken'
   | 'deleteTitle' | 'deleteDescription' | 'deleteConfirm' | 'deleting'
 
@@ -23,40 +25,42 @@ export const en: Record<AgentPresetSettingsKey, string> = {
   nav: 'Agent presets',
   sectionIntro:
     'A preset is the plugin composition one session\'s agent runs — its tools, prompt, and capabilities. '
-    + 'Built-in presets are read-only; duplicate one to make your own.',
+    + 'Duplicate one to make your own, then edit its files directly.',
+  copyHint: 'To start from the smallest skeleton, duplicate Minimal.',
   builtIn: 'Built-in',
-  defaultBadge: 'Default',
   setDefault: 'Set as default',
-  edit: 'Edit',
   view: 'View',
   duplicate: 'Duplicate',
+  duplicateUnavailable: 'This deployment has no writable preset directory',
   delete: 'Delete',
-  newPreset: 'New preset',
   presetId: 'Identifier',
   presetIdPlaceholder: 'my-agent',
   displayName: 'Name',
-  displayNamePlaceholder: 'Shown in the picker',
-  displayDescription: 'Description',
-  displayDescriptionPlaceholder: 'One sentence on what this preset is for',
+  displayNamePlaceholder: 'Shown in the picker; defaults to the identifier',
   inUse: 'In use',
-  backToList: 'All presets',
   builtInGroup: 'Built-in',
   customGroup: 'Custom',
   noDescription: 'No description.',
   copyOf: 'Copied from',
   composition: 'Composition (agent.cordis.yml)',
-  readOnlyNotice: 'This preset ships with the deployment and cannot be edited. Duplicate it to make your own.',
-  save: 'Save',
-  saving: 'Saving…',
   cancel: 'Cancel',
   close: 'Close',
   retry: 'Retry',
+  copyTitle: 'Duplicate preset',
+  copyIntro:
+    'The whole preset is copied on this machine. The identifier becomes its directory name and cannot '
+    + 'be changed later; everything else is edited in the preset\'s own files.',
+  create: 'Create',
+  creating: 'Creating…',
+  openLocation: 'Open folder',
+  showLocation: 'Show location',
+  revealedPathLabel: 'Preset files:',
   idRequired: 'Give the preset an identifier.',
   idInvalid: 'Use lowercase letters, digits, and hyphens, starting with a letter or digit.',
   idTaken: 'A preset with this identifier already exists.',
   deleteTitle: 'Delete this preset?',
   deleteDescription:
-    'The composition file is deleted. Sessions already running on it keep working; new sessions cannot select it.',
+    'The preset directory is deleted. Sessions already running on it keep working; new sessions cannot select it.',
   deleteConfirm: 'Delete',
   deleting: 'Deleting…',
 }
@@ -71,39 +75,39 @@ export const zh: Record<AgentPresetSettingsKey, string> = {
   seatHint: '即将开始的这个会话所用的 Agent 预设',
   headerHint: '本会话运行的 Agent 预设，开始时即固定',
   nav: 'Agent 预设',
-  sectionIntro: '预设即一个会话的 Agent 所运行的插件组装 —— 它的工具、提示词与能力。内置预设只读；复制一份即可改成自己的。',
+  sectionIntro: '预设即一个会话的 Agent 所运行的插件组装 —— 它的工具、提示词与能力。复制一份即可改成自己的，之后直接编辑它的文件。',
+  copyHint: '想从最小的骨架开始，就复制「极简模式」。',
   builtIn: '内置',
-  defaultBadge: '默认',
   setDefault: '设为默认',
-  edit: '编辑',
   view: '查看',
   duplicate: '复制',
+  duplicateUnavailable: '此部署未配置可写的预设目录',
   delete: '删除',
-  newPreset: '新建预设',
   presetId: '标识符',
   presetIdPlaceholder: 'my-agent',
   displayName: '名称',
-  displayNamePlaceholder: '选择器中显示的名字',
-  displayDescription: '描述',
-  displayDescriptionPlaceholder: '一句话说明这个预设做什么',
+  displayNamePlaceholder: '选择器中显示的名字，缺省用标识符',
   inUse: '当前使用',
-  backToList: '全部预设',
   builtInGroup: '内置',
   customGroup: '自定义',
   noDescription: '暂无描述。',
   copyOf: '复制自',
   composition: '组装（agent.cordis.yml）',
-  readOnlyNotice: '该预设随部署提供，不可编辑。复制一份即可改成自己的。',
-  save: '保存',
-  saving: '正在保存…',
   cancel: '取消',
   close: '关闭',
   retry: '重试',
-  idRequired: '请填写预设名称。',
+  copyTitle: '复制预设',
+  copyIntro: '整个预设会在本机复制一份。标识符将成为目录名，事后无法更改；其余内容之后直接在预设自己的文件里编辑。',
+  create: '创建',
+  creating: '正在创建…',
+  openLocation: '打开目录',
+  showLocation: '查看路径',
+  revealedPathLabel: '预设文件：',
+  idRequired: '请填写标识符。',
   idInvalid: '只能使用小写字母、数字与连字符，且以字母或数字开头。',
   idTaken: '该标识符已被占用。',
   deleteTitle: '删除该预设？',
-  deleteDescription: '组装文件将被删除。已在其上运行的会话不受影响；新会话将无法再选择它。',
+  deleteDescription: '预设目录将被删除。已在其上运行的会话不受影响；新会话将无法再选择它。',
   deleteConfirm: '删除',
   deleting: '正在删除…',
 }

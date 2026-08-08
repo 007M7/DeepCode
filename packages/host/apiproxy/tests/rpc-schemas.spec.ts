@@ -32,7 +32,9 @@ import {
   commandListRequestSchema, commandListValueSchema,
 } from '../src/api/commands.schema.ts'
 import { skillEntrySchema, skillListRequestSchema, skillListValueSchema } from '../src/api/skills.schema.ts'
-import { agentPresetEntrySchema, agentPresetListValueSchema } from '../src/api/agent-presets.schema.ts'
+import {
+  agentPresetEntrySchema, agentPresetListValueSchema, agentPresetOpenDocumentValueSchema,
+} from '../src/api/agent-presets.schema.ts'
 import { hostFrameSchema, muxFrameSchema, askUserQuestionItemSchema } from '../src/api/events.schema.ts'
 import { approvalRequestIdSchema, approvalResponsePayloadSchema } from '../src/api/approvals.schema.ts'
 import { askUserQuestionAnswerSchema, questionResponsePayloadSchema } from '../src/api/questions.schema.ts'
@@ -516,9 +518,17 @@ describe('agent-preset schemas', () => {
   })
 
   it('accepts an empty roster', () => {
-    // A deployment composing no presets still reports whether one could be
-    // written, so a surface knows to offer creation rather than nothing at all.
-    expect(agentPresetListValueSchema.parse({ presets: [], authorable: false }))
-      .toEqual({ presets: [], authorable: false })
+    // A deployment composing no presets still reports its authoring and
+    // native-open capabilities, so a surface knows what to offer.
+    expect(agentPresetListValueSchema.parse({ presets: [], authorable: false, hasDocument: false }))
+      .toEqual({ presets: [], authorable: false, hasDocument: false })
+  })
+
+  it('answers the open-document union by its discriminant', () => {
+    expect(agentPresetOpenDocumentValueSchema.parse({ opened: true })).toEqual({ opened: true })
+    expect(agentPresetOpenDocumentValueSchema.parse({ opened: false, path: '/presets/mine' }))
+      .toEqual({ opened: false, path: '/presets/mine' })
+    // A closed reply must carry the path the surface shows instead.
+    expect(() => agentPresetOpenDocumentValueSchema.parse({ opened: false })).toThrow()
   })
 })

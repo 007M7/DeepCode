@@ -27,10 +27,17 @@ usePinnedBrowserLanguages('zh-CN')
 
 const ROSTER_ONE = {
   rpcId: 'r',
-  result: { ok: true as const, value: { presets: [{ id: 'standard', trust: 'system', isDefault: true }], authorable: true } },
+  result: {
+    ok: true as const,
+    value: {
+      presets: [{ id: 'standard', trust: 'system', isDefault: true }],
+      authorable: true,
+      hasDocument: true,
+    },
+  },
 }
 
-/** The roster after this browser authored one preset of its own. */
+/** The roster after this browser copied one preset of its own. */
 const ROSTER_AUTHORED = {
   rpcId: 'r',
   result: {
@@ -41,6 +48,7 @@ const ROSTER_AUTHORED = {
         { id: 'mine', trust: 'user', isDefault: false },
       ],
       authorable: true,
+      hasDocument: true,
     },
   },
 }
@@ -56,6 +64,7 @@ const ROSTER_MOVED = {
         { id: 'minimal', trust: 'system', isDefault: true },
       ],
       authorable: true,
+      hasDocument: true,
     },
   },
 }
@@ -76,14 +85,18 @@ async function bench() {
         list: () => { calls.push('list'); return Promise.resolve(ROSTER) },
         read: () => Promise.resolve({
           rpcId: 'r',
-          result: { ok: true as const, value: { agentPreset: 'standard', trust: 'system', content: '', writable: false } },
+          result: { ok: true as const, value: { agentPreset: 'standard', trust: 'system', content: '' } },
         }),
-        write: (payload: { agentPreset: string }) => {
-          calls.push(`write:${payload.agentPreset}`)
+        copy: (payload: { from: string; agentPreset: string }) => {
+          calls.push(`copy:${payload.agentPreset}`)
           // The host's roster now contains it, which is the whole point of the
-          // write and what every surface must converge on.
+          // copy and what every surface must converge on.
           ROSTER = ROSTER_AUTHORED
           return Promise.resolve({ rpcId: 'r', result: { ok: true as const, value: { agentPreset: payload.agentPreset } } })
+        },
+        openDocument: (payload: { agentPreset: string }) => {
+          calls.push(`openDocument:${payload.agentPreset}`)
+          return Promise.resolve({ rpcId: 'r', result: { ok: true as const, value: { opened: true as const } } })
         },
         remove: () => Promise.resolve({ rpcId: 'r', result: { ok: true as const, value: {} } }),
         select: (payload: { agentPreset: string }) => {
@@ -195,23 +208,29 @@ describe('ui-agent-preset apply', () => {
   })
 
   it('routes the section actions to one controller', async () => {
-    const { ctx, slots } = await bench()
+    const { ctx, slots, calls } = await bench()
     declareRoot(slots)
     await ctx.plugin({ inject: [...inject], apply }).await()
     const section = (slots.entries('settings.section')[0]!.inject as unknown as () => AgentPresetSectionInjected)()
 
     await section.load()
-    section.setId('mine')
-    section.setContent('- id: x\n')
-    section.setName('我的模式')
-    section.setDescription('只做检索。')
+    section.beginCopy('standard')
+    section.cancelCopy()
+    section.beginCopy('standard')
+    section.setCopyId('mine')
+    section.setCopyName('我的模式')
+    await section.confirmCopy()
+    await section.view('standard')
+    section.closeView()
     section.confirmDelete('mine')
-    section.close()
-    await Promise.all([section.open('standard'), section.createFrom(), section.save(), section.remove()])
+    await Promise.all([section.openLocation('mine'), section.remove()])
 
-    // One controller behind every action: the delete the section confirmed is
-    // the one its remove() sees.
-    expect(section.hooks.agentPresetSection.getSnapshot().rows).toHaveLength(1)
+    // One controller behind every action: the copy the dialog named is the
+    // one the roster re-read reflects, and the delete the section confirmed
+    // is the one its remove() sees.
+    expect(calls).toContain('copy:mine')
+    expect(calls.filter(call => call === 'openDocument:mine').length).toBeGreaterThan(0)
+    expect(section.hooks.agentPresetSection.getSnapshot().rows).toHaveLength(2)
   })
 
   it('refreshes a showing surface when its namespace changes, and ignores others', async () => {
@@ -329,14 +348,14 @@ describe('ui-agent-preset apply', () => {
 
     const section = (slots.entries('settings.section')[0]!.inject as unknown as () => AgentPresetSectionInjected)()
     await section.load()
-    await section.createFrom()
-    section.setId('mine')
-    section.setName('我的模式')
-    await section.save()
+    section.beginCopy('standard')
+    section.setCopyId('mine')
+    section.setCopyName('我的模式')
+    await section.confirmCopy()
 
-    // Authoring writes a file rather than a setting, so nothing on the wire
-    // announces it: a preset authored to be used must appear on the one screen
-    // that starts sessions, without a reload.
+    // Authoring copies a directory rather than writing a setting, so nothing
+    // on the wire announces it: a preset created to be used must appear on
+    // the one screen that starts sessions, without a reload.
     await vi.waitFor(() => {
       expect(seat.hooks.agentPresetSeat.getSnapshot().options.map(option => option.id)).toEqual(['standard', 'mine'])
     })

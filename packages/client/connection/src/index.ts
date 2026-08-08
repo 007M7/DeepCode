@@ -67,8 +67,10 @@ export const Config: z<ConnectionConfig> = z.object({
  */
 const PRIVILEGED_METHODS = new Set([
   // A preset composition names the plugins a session runs, so reading one is
-  // reconnaissance and writing one is arbitrary capability — strictly more than
-  // the settings document beside it.
+  // reconnaissance; copy and remove rearrange what the deployment offers, and
+  // openDocument drives the host desktop — all more than the roster beside
+  // them. (Authoring is copy-only, so no method here accepts composition text
+  // or a path; the pin is about who may manage the roster at all.)
   //
   // CHOOSING one is not pinned, and `agentPreset.list` is not either. Picking a
   // preset looks like escalation — one of them mounts the toolset that edits the
@@ -79,7 +81,8 @@ const PRIVILEGED_METHODS = new Set([
   // any caller that may start a session at all can already run commands as this
   // process. Pinning the switch would be a fence beside an open gate.
   'agentPreset.read',
-  'agentPreset.write',
+  'agentPreset.copy',
+  'agentPreset.openDocument',
   'agentPreset.remove',
   'host.pickDirectory',
   'host.openPath',

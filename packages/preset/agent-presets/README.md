@@ -16,16 +16,16 @@ Discovery is unmemoized: `list()` and `resolve()` re-read the roots on every cal
 - `ctx.agentPresets.mount(agentCtx, id?): Promise<AgentPreset>` Compose one agent from a preset — ensure its standing mount (single-flight) and parent the agent's scope key to it — returning the preset for the caller to record.
 - `ctx.agentPresets.recompose(agentCtx, id): Promise<AgentPreset>` Re-link one agent to a different preset's standing composition. Valid only while the agent has produced nothing — **the caller owns that check**; the new mount is ensured before the link moves, so a failure leaves the agent as it was.
 - `ctx.agentPresets.standingKeyFor(id?): Promise<ScopeKey>` The standing scope key a host reader with no agent (a cold transcript read) resolves preset registrations in; ensures the mount without starting an agent, session, or turn.
-- `ctx.agentPresets.authorable: boolean` Whether any configured root has `user` trust, and therefore whether a preset can be written at all.
+- `ctx.agentPresets.authorable: boolean` Whether any configured root has `user` trust, and therefore whether a preset can be created at all.
 - `ctx.agentPresets.read(id): Promise<string>` One preset's composition text, exactly as stored.
-- `ctx.agentPresets.write(id, content): Promise<void>` Create or replace a locally authored preset. Edits reach only future generations: the standing pointer drops, sessions already joined keep the mount they run on.
+- `ctx.agentPresets.copy(from, id, name?): Promise<void>` Create a locally authored preset by copying an existing one's whole directory — the only authoring write. No composition text crosses this seam, so a copy is exactly as loadable as its source; the copied metadata keeps the source's description but never its name or roster order, and `name` (or the id fallback) is what distinguishes the rows.
 - `ctx.agentPresets.remove(id): Promise<void>` Delete a locally authored preset; joined sessions keep their standing mount. Clears the user default when it named the preset just deleted: storing a default that does not exist yet is deliberate, but one this call removed will never be supplied again and would fail every session created without an explicit pick.
 
 `AgentPreset` carries `id` (the directory name), `trust` (`system` or `user`, from the root it was found under), and `path` (the absolute composition file).
 
 ### Where to call `mount()`
 
-The agent factory's `setup(agentCtx)` hook is the one supported call site. Only there is the join installed while the agent is still unpublished, so a rejected composition rolls the whole creation back rather than leaving a half-composed session. The standing subtree is owned by the roster service's own fiber — deliberately its UNTRACED context, because a subtree minted from a traced `this.ctx` resolves every service through the caller's shadow fiber instead of each entry's own inject store — so it survives every agent and unwinds only with the whole tree. A settled mount is permanent for the process: the composition a running session joined must outlive its file changing or disappearing underneath it, so file edits reach only future generations.
+The agent factory's `setup(agentCtx)` hook is the one supported call site. Only there is the join installed while the agent is still unpublished, so a rejected composition rolls the whole creation back rather than leaving a half-composed session. The standing subtree is owned by the roster service's own fiber — deliberately its UNTRACED context, because a subtree minted from a traced `this.ctx` resolves every service through the caller's shadow fiber instead of each entry's own inject store — so it survives every agent and unwinds only with the whole tree. Each generation records its composition file's stamp (mtime and size): a session that finds the stamp stale starts the next generation, while every session already joined keeps the one it runs on — the composition a running session joined outlives its file changing or disappearing underneath it, and files are the only composition editor, so the stamp is what carries an edit to later sessions.
 
 ### Which preset a session runs
 
@@ -41,13 +41,13 @@ The restriction to a produced-nothing agent is a product rule, not a mechanical 
 
 ## Authoring
 
-A locally authored preset is a directory under the first `user` root holding one `agent.cordis.yml`. `write()` refuses three things before anything lands:
+Authoring is copy-only. A new preset is a whole-directory copy of an existing one — composition, metadata, skill directories, assets — landed under the first `user` root; the inputs are two ids the service resolves against its own roots plus an optional display name, so no caller ever supplies composition text and a copy grants nothing the roster did not already carry. Everything after creation happens in the preset's own files. `copy()` refuses three things before anything lands:
 
 - **An id that is not `[a-z0-9][a-z0-9-]*`.** The id becomes a directory name, so containment is a property of the id itself rather than of a path check after the fact — `../escape`, `a/b`, and an absolute path are all rejected as ids.
-- **Text that is not a Cordis entry list.** The content is parsed with the loader's own schema and dialect (`!!js` included), so a save cannot leave a file no session could load. Shape only: a composition naming a plugin that does not exist is accepted here and fails at the next session that selects it.
-- **A preset that ships with the deployment.** Overwriting one would remove the known-good composition a broken local preset is compared against. `remove()` refuses the same.
+- **An id that is already taken.** A copy never overwrites: any root supplying the id refuses it (a user directory named like a shipped preset would be shadowed by it), and a directory occupying the name on disk without being a preset refuses it too.
+- **An unknown source.** The source may be any trust — copying a shipped preset is the primary case — but it must exist; a failed copy rolls its half-made directory back rather than leaving one discovery cannot see.
 
-Writes are atomic and owner-only (`0o600`, in a `0o700` directory), and the root is created on first write — a deployment configuring a user root that does not exist yet is the normal first-run state.
+The copied tree is re-tightened to owner-only (`0o600` files keeping their owner-execute bit, `0o700` directories), symlinks are dereferenced so the copy is self-contained, and the root is created on first copy — a deployment configuring a user root that does not exist yet is the normal first-run state. The copied `preset.yml` is rewritten: the source's description is kept for the author to edit in place, but its name and roster `order` are dropped — a copy presenting itself identically to its source, or sorted into the shipped set's declared order, would make the roster stop distinguishing them. `remove()` refuses a preset that ships with the deployment; the shipped set is the known-good compositions copies start from.
 
 ### How a preset's rows resolve
 
@@ -121,7 +121,7 @@ Prefix-stable for the life of an agent: a composition is installed once, before 
 ## Known Limitations and Deferred Work
 
 - **A preset cannot be changed once a session has produced anything** — `recompose` re-links a BLANK session's parent scope to another standing mount, and only a blank one: switching a composition that already ran would strand tools the model has called. Changing the default affects only sessions created afterwards.
-- **A standing mount reads its file once per generation** — the first session to name a preset fixes its composition until an authoring `write()`/`remove()` drops the pointer or the whole tree unloads; sessions already joined keep their generation, and nothing reclaims a superseded one while the process lives (bounded by how often compositions are edited, not by sessions).
-- **A written composition is never mounted to validate** — `write()` checks shape, not resolvability, so a preset naming a missing plugin is stored and fails at the next session that selects it.
-- **Display names are the directory id** — a preset carries no manifest, so pickers and settings surfaces show the id until a consumer needs richer metadata.
+- **A generation is keyed on the composition file alone** — the stamp check notices `agent.cordis.yml` changing, not an edit to a skill file or asset beside it; those reach new sessions only once the composition file itself moves or the process restarts. Sessions already joined keep their generation, and nothing reclaims a superseded one while the process lives (bounded by how often compositions are edited, not by sessions).
+- **A copy is never mounted to validate** — it is byte-identical to its source, so a source broken on disk yields a copy that fails at the next session that selects it, exactly as the source would.
+- **A copy is a snapshot that drifts** — upgrading the deployment does not update copies of shipped presets, and there is no patch semantics at this layer to express "standard plus one change" (that is the bundle layer's `cordis.patch.yml`); the shipped set itself accepts the same cost — `cordis` and `code` are full copies of `standard` — so the whole assembly stays readable in one file.
 - **Root scans are not watched** — every read hits the filesystem instead, which keeps the roster fresh but puts one `readdir` per root on each `list()`.

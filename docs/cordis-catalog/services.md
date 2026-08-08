@@ -91,18 +91,21 @@ async mount(agentCtx: Context, id?: string): Promise<AgentPreset>
 async read(id: string): Promise<string>
 
 /**
- * Create or replace a locally authored preset.
+ * Create a locally authored preset by copying an existing one whole.
  *
- * The text is shape-checked before it lands, so a save cannot leave a file no
- * session could load; it is NOT mounted, so a composition that parses but
- * names a missing plugin still fails at the next session that selects it.
- * @param id - the preset id, which becomes its directory name.
- * @param content - the composition text.
- * @param metadata - display name and description; clearing both removes the file.
- * @throws when the id is unusable, the text is not an entry list, or the
- * deployment configures no writable root.
+ * Copy is the only authoring write. Composition text never crosses this
+ * seam: the source is named by id and its directory is copied as it stands,
+ * so the copy is exactly as loadable as its source and authoring grants no
+ * capability the roster did not already carry. The copy is NOT mounted to
+ * validate — a source that mounts today yields a copy that mounts today.
+ * @param from - the preset the copy starts from; shipped presets are the
+ * primary source, so any trust is accepted.
+ * @param id - the new preset's id, which becomes its directory name.
+ * @param name - display name for the copy; absent falls back to the id.
+ * @throws when the source is unknown, the id is unusable or already taken,
+ * or the deployment configures no writable root.
  */
-async write(id: string, content: string, metadata: PresetMetadata = {}): Promise<void>
+async copy(from: string, id: string, name?: string): Promise<void>
 
 /**
  * Delete a locally authored preset.

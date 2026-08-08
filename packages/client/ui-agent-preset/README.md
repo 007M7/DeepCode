@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-The agent-preset surfaces: a General-settings row choosing which [preset](../../preset/agent-presets/README.md) new sessions are composed from, a chip on the new-session screen choosing the next session's, a read-only label in the session header, and a settings section that authors the compositions themselves.
+The agent-preset surfaces: a General-settings row choosing which [preset](../../preset/agent-presets/README.md) new sessions are composed from, a chip on the new-session screen choosing the next session's, a read-only label in the session header, and a settings section that manages the roster — copy, delete, default, and the way into a preset's own files.
 
 ## Why it is a new-session preference
 
@@ -30,21 +30,23 @@ The row re-reads on `settings/changed` for its own namespace and on `connection/
 
 ## The management section
 
-A fourth surface, its own settings page (`settings.section` id `agent-presets`, ordered after Models — choosing a model is routine, composing an agent is the deployment-shaping act behind it): the roster as rows, and one composition open in a YAML editor at a time.
+A fourth surface, its own settings page (`settings.section` id `agent-presets`, ordered after Models — choosing a model is routine, composing an agent is the deployment-shaping act behind it): the roster as cards, a copy dialog as the only way a preset is created, and a read-only viewer over the shipped compositions.
 
-A shipped preset opens read-only. It is the known-good composition a local one is written against, so reading it is the point and overwriting it is not — the deployment's copy is what a broken local preset is compared against. **Duplicate** copies any row, because a copy always lands in the local root regardless of where the text came from; **New preset** starts blank, since copying is already offered on the row being copied and a composition nobody named is text the author has to recognise as unwanted before deleting it.
+The browser edits no composition text. Editing YAML in a web textarea was a weak surface (no completion, no highlighting, no diff), so a new preset is a host-side copy of an existing one — the dialog collects an id (it becomes the directory name, which is why it must be named up front and cannot change later) and an optional display name, and `{ from, id, name? }` is all that crosses the wire. Everything else — description, composition, skills — is edited in the preset's own files, and the page's other job is getting the user TO those files: the copy completes by opening the new directory, and every custom row keeps a location action. Where the host has no desktop opener (`hasDocument: false` on the roster; remote and container deployments), the same actions answer the directory as text on the row instead of offering a button that would spawn into nothing.
 
-An id becomes a directory name, so the editor mirrors the host's own containment rule (`[a-z0-9][a-z0-9-]*`) and refuses a name already in use — a create landing on an existing name would overwrite a preset the user never opened. Both checks are conveniences: the host re-applies them, along with the composition's shape, and its answer is what the editor reports on failure. A save that parses is still only a save; a composition naming a plugin that does not exist fails at the next session that selects it.
+A shipped preset opens in the read-only viewer. It is the known-good composition a copy starts from, so reading it is the point; it offers no location and no delete — its install is overwritten by upgrades and is not the user's to manage. The intro carries the guidance a create button used to imply: to start from the smallest skeleton, duplicate 极简模式 (31 lines against standard's 233).
 
-Deleting removes the file. Sessions already composed from it keep running — a composition is mounted once at session creation and nothing re-reads the file.
+The dialog mirrors the host's own containment rule (`[a-z0-9][a-z0-9-]*`) and refuses a name already in use — a copy never overwrites. Both checks are conveniences: the host re-applies them and its answer is what the dialog reports on failure.
+
+Deleting removes the preset directory. Sessions already composed from it keep running — a composition is mounted once at session creation and nothing re-reads the file.
 
 Setting the default writes the `agent-presets` settings namespace, which the host exposes to configuration clients ([`dsh-apiproxy`](../../host/apiproxy/README.md) keeps an explicit allowlist — a namespace outside it makes a picker move and then silently forget).
 
-`agentPreset.read`, `write`, `remove`, and `select` are loopback-pinned ([`dsh-client-connection`](../connection/README.md)): a composition names the plugins a session runs, so reading one is reconnaissance and writing one is arbitrary capability. `agentPreset.list` is not — it carries ids and trust, and a LAN client's picker needs it.
+`agentPreset.read`, `copy`, `openDocument`, and `remove` are loopback-pinned ([`dsh-client-connection`](../connection/README.md)): a composition names the plugins a session runs, so reading one is reconnaissance, and the rest manage the roster and drive the host desktop. `agentPreset.list` is not — it carries ids, trust, and the two path-free capability flags, and a LAN client's picker needs it.
 
 ## When the surfaces are absent
 
-A deployment that composes no presets answers with an empty roster, and the row, the chip, the label, and the section all render nothing — every session then shares the host composition, and there is nothing to choose between or manage. A deployment that configures no writable root answers `authorable: false`, and the section stays a read-only browser: the rows still open, but creating is offered nowhere rather than through a button whose save always fails.
+A deployment that composes no presets answers with an empty roster, and the row, the chip, the label, and the section all render nothing — every session then shares the host composition, and there is nothing to choose between or manage. A deployment that configures no writable root answers `authorable: false`, and the section stays a read-only browser: the shipped compositions still open in the viewer, but every copy action is disabled with the reason as its tooltip rather than offering a dialog whose create always fails.
 
 ## Model Experience
 
@@ -56,6 +58,6 @@ No direct invalidation. Changing the default never touches a running session's p
 
 ## Known Limitations and Deferred Work
 
-- **A preset without metadata is listed by id** — display text is optional, and a preset that publishes none (every preset authored by duplicating another starts that way) shows its directory name.
-- **The editor is a plain textarea** — no YAML syntax highlighting, folding, or schema completion; the host's shape check on save is the only validation.
-- **A saved composition is not mounted** — a preset that parses but names a missing plugin is accepted, and fails at the next session that selects it.
+- **A preset without metadata is listed by id** — display text is optional, and a copy given no name deliberately falls back to its directory name rather than presenting itself identically to its source.
+- **A revealed path is display text, not a link** — where the host has no desktop opener the row shows the directory to copy by hand; the browser cannot open a host filesystem location itself.
+- **Composition edits are invisible to the page** — the files are edited outside the browser and nothing on the wire announces a file change, so the roster re-reads on its own actions, `settings/changed`, and `connection/reset`, not on every disk edit.

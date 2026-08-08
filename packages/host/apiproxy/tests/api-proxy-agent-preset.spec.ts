@@ -15,7 +15,7 @@ import SessionStore, { SessionId, type Session } from '@deepseek-ai/dsh-session'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import { RpcId, type RpcRequest } from '../src/api/rpc.ts'
 import {
-  InvalidCompositionError, InvalidPresetIdError, resolveSessionPreset, UnknownPresetError,
+  InvalidPresetIdError, PresetExistsError, resolveSessionPreset, UnknownPresetError,
 } from '@deepseek-ai/dsh-agent-presets'
 import { GoalId } from '@deepseek-ai/dsh-goal'
 import { createApiProxy } from '../src/api-proxy.ts'
@@ -34,19 +34,22 @@ function stubAgent(session: Session): Agent {
 /**
  * A roster whose `mount` is a no-op: this spec is about the gateway's identity
  * rules, and the composition itself is covered by the real-composition test in
- * `apps/cli`.
+ * `apps/cli`. Ids listed in `userIds` present as locally authored; the rest
+ * ship with the deployment.
  */
-function roster(ids: readonly string[]): unknown {
+function roster(ids: readonly string[], userIds: readonly string[] = []): unknown {
+  const trustOf = (id: string): 'system' | 'user' => (userIds.includes(id) ? 'user' : 'system')
+  const presetOf = (id: string): object =>
+    ({ id, trust: trustOf(id), path: `/presets/${id}/agent.cordis.yml` })
   return {
     defaultId: ids[0],
-    list: () => Promise.resolve(ids.map(id => ({ id, trust: 'system', path: `/presets/${id}.yml` }))),
+    list: () => Promise.resolve(ids.map(presetOf)),
     resolve: (id?: string) => {
       const wanted = id ?? ids[0] ?? ''
       if (!ids.includes(wanted)) return Promise.reject(new UnknownPresetError(wanted, ids))
-      return Promise.resolve({ id: wanted, trust: 'system', path: `/presets/${wanted}.yml` })
+      return Promise.resolve(presetOf(wanted))
     },
-    mount: (_ctx: Context, id?: string) =>
-      Promise.resolve({ id: id ?? ids[0], trust: 'system', path: '/presets/x.yml' }),
+    mount: (_ctx: Context, id?: string) => Promise.resolve(presetOf(id ?? ids[0] ?? '')),
     // What a real mount leaves behind: a service instance only the agent that
     // mounted it can be used to address. The doubles are per agent so a test
     // can tell "this session's" from "some session's".
@@ -56,11 +59,10 @@ function roster(ids: readonly string[]): unknown {
     },
     authorable: true,
     read: (id: string) => Promise.resolve(`# ${id}\n- id: x\n  name: y\n`),
-    write: (id: string, content: string) => {
-      if (!ids.includes(id) && !/^[a-z0-9][a-z0-9-]*$/.test(id)) {
-        return Promise.reject(new InvalidPresetIdError(id))
-      }
-      if (!content.trimStart().startsWith('-')) return Promise.reject(new InvalidCompositionError('not a list'))
+    copy: (from: string, id: string) => {
+      if (!ids.includes(from)) return Promise.reject(new UnknownPresetError(from, ids))
+      if (!/^[a-z0-9][a-z0-9-]*$/.test(id)) return Promise.reject(new InvalidPresetIdError(id))
+      if (ids.includes(id)) return Promise.reject(new PresetExistsError(id))
       return Promise.resolve()
     },
     remove: (id: string) => {
@@ -97,14 +99,18 @@ const failingStandingKeys = new Set<string>()
 /** Per-agent service instances a mounted preset would own, keyed by session id. */
 const services = new Map<string, Record<string, unknown>>()
 
-async function harness(presets?: readonly string[], persistence?: unknown) {
+async function harness(
+  presets?: readonly string[],
+  persistence?: unknown,
+  options: { userIds?: readonly string[]; defaults?: Record<string, unknown> } = {},
+) {
   const cwd = realpathSync(mkdtempSync(join(tmpdir(), 'dsh-apiproxy-preset-')))
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(UserInteractionService)
   ctx.provide('sessionPersistence', (persistence ?? { list: () => Promise.resolve([]) }) as never)
-  if (presets !== undefined) ctx.provide('agentPresets', roster(presets) as never)
+  if (presets !== undefined) ctx.provide('agentPresets', roster(presets, options.userIds) as never)
 
   const factory: AgentFactory = {
     async createAgent(_ownerCtx, options) {
@@ -131,6 +137,7 @@ async function harness(presets?: readonly string[], persistence?: unknown) {
     defaultTarget: () => ({ provider: 'test', model: 'test-model' }),
     cwd,
     workspaceRoot: cwd,
+    ...options.defaults,
   })
   return { api, ctx, cwd }
 }
@@ -404,38 +411,59 @@ describe('agentPreset.select', () => {
 })
 
 describe('authoring over the wire', () => {
-  it('reads a composition and reports whether it may be edited', async () => {
+  it('reads a composition with its trust', async () => {
     const { api } = await harness(['standard'])
 
     const response = await api.agentPresets.read(request({ agentPreset: 'standard' }))
 
     expect(response.result.ok).toBe(true)
     if (!response.result.ok) throw new Error('unreachable')
-    // The shipped set is readable but not writable: it belongs to the
-    // deployment, and it is what a broken local preset is compared against.
+    // The shipped set is readable: it is the known-good composition a copy
+    // starts from, and trust is what tells a surface to say so.
     expect(response.result.value.trust).toBe('system')
-    expect(response.result.value.writable).toBe(false)
     expect(response.result.value.content).toContain('- id: x')
   })
 
-  it('rejects an id that could escape the preset root', async () => {
+  it('copies a preset under a new id', async () => {
     const { api } = await harness(['standard'])
 
-    const response = await api.agentPresets.write(request({ agentPreset: '../escape', content: '- id: x\n' }))
+    const response = await api.agentPresets.copy(
+      request({ from: 'standard', agentPreset: 'mine', name: '我的模式' }))
+
+    expect(response.result.ok).toBe(true)
+    if (!response.result.ok) throw new Error('unreachable')
+    expect(response.result.value.agentPreset).toBe('mine')
+  })
+
+  it('rejects a copy target that could escape the preset root', async () => {
+    const { api } = await harness(['standard'])
+
+    const response = await api.agentPresets.copy(request({ from: 'standard', agentPreset: '../escape' }))
 
     expect(response.result.ok).toBe(false)
     if (response.result.ok) throw new Error('unreachable')
     expect(response.result.error.code).toBe('agent-preset-invalid')
   })
 
-  it('rejects content that is not an entry list', async () => {
-    const { api } = await harness(['standard'])
+  it('rejects a copy target the roster already supplies', async () => {
+    const { api } = await harness(['standard', 'minimal'])
 
-    const response = await api.agentPresets.write(request({ agentPreset: 'mine', content: 'tools: []\n' }))
+    const response = await api.agentPresets.copy(request({ from: 'standard', agentPreset: 'minimal' }))
 
     expect(response.result.ok).toBe(false)
     if (response.result.ok) throw new Error('unreachable')
     expect(response.result.error.code).toBe('agent-preset-invalid')
+    expect(response.result.error.message).toMatch(/already exists/)
+  })
+
+  it('rejects a copy whose source is unknown', async () => {
+    const { api } = await harness(['standard'])
+
+    const response = await api.agentPresets.copy(request({ from: 'never-existed', agentPreset: 'mine' }))
+
+    expect(response.result.ok).toBe(false)
+    if (response.result.ok) throw new Error('unreachable')
+    expect(response.result.error.code).toBe('agent-preset-not-found')
   })
 
   it('reports a deployment that composes no presets', async () => {
@@ -456,6 +484,81 @@ describe('authoring over the wire', () => {
     expect(response.result.ok).toBe(false)
     if (response.result.ok) throw new Error('unreachable')
     expect(response.result.error.code).toBe('agent-preset-not-found')
+  })
+})
+
+describe('opening a preset directory', () => {
+  it('hands the resolved directory to the native opener', async () => {
+    const opened: string[] = []
+    const { api } = await harness(['standard', 'my-preset'], undefined, {
+      userIds: ['my-preset'],
+      defaults: { openPath: (path: string) => { opened.push(path); return Promise.resolve() } },
+    })
+
+    const response = await api.agentPresets.openDocument(
+      request({ agentPreset: 'my-preset' }), new AbortController().signal)
+
+    expect(response.result.ok).toBe(true)
+    if (!response.result.ok) throw new Error('unreachable')
+    expect(response.result.value).toEqual({ opened: true })
+    // The id selected the directory; the browser supplied no path.
+    expect(opened).toEqual(['/presets/my-preset'])
+  })
+
+  it('answers the path as text where the deployment has no opener', async () => {
+    const { api } = await harness(['standard', 'my-preset'], undefined, {
+      userIds: ['my-preset'],
+      defaults: { canOpenPath: () => false },
+    })
+
+    const response = await api.agentPresets.openDocument(
+      request({ agentPreset: 'my-preset' }), new AbortController().signal)
+
+    expect(response.result.ok).toBe(true)
+    if (!response.result.ok) throw new Error('unreachable')
+    expect(response.result.value).toEqual({ opened: false, path: '/presets/my-preset' })
+  })
+
+  it('refuses a preset that ships with the deployment', async () => {
+    const opened: string[] = []
+    const { api } = await harness(['standard'], undefined, {
+      defaults: { openPath: (path: string) => { opened.push(path); return Promise.resolve() } },
+    })
+
+    const response = await api.agentPresets.openDocument(
+      request({ agentPreset: 'standard' }), new AbortController().signal)
+
+    // Pointing an editor into the install invites edits an upgrade will
+    // silently overwrite; the refusal mirrors copy/remove.
+    expect(response.result.ok).toBe(false)
+    if (response.result.ok) throw new Error('unreachable')
+    expect(response.result.error.code).toBe('agent-preset-read-only')
+    expect(opened).toEqual([])
+  })
+
+  it('reports the roster capability on list', async () => {
+    const openable = await harness(['standard'], undefined, {
+      defaults: { canOpenPath: () => true },
+    })
+    const headless = await harness(['standard'], undefined, {
+      defaults: { canOpenPath: () => false },
+    })
+
+    const yes = await openable.api.agentPresets.list(request({}))
+    const no = await headless.api.agentPresets.list(request({}))
+
+    expect(yes.result.ok && yes.result.value.hasDocument).toBe(true)
+    expect(no.result.ok && no.result.value.hasDocument).toBe(false)
+  })
+
+  it('counts an injected opener as openable', async () => {
+    const { api } = await harness(['standard'], undefined, {
+      defaults: { openPath: () => Promise.resolve() },
+    })
+
+    const response = await api.agentPresets.list(request({}))
+
+    expect(response.result.ok && response.result.value.hasDocument).toBe(true)
   })
 })
 

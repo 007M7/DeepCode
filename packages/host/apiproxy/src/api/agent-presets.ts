@@ -3,10 +3,10 @@
  * session, plus the authoring calls behind it.
  *
  * `list` is ordinary: it carries ids and trust, and every preset picker needs
- * it. Everything else is privileged and loopback-pinned — a composition names
- * the plugins a session runs, so reading one is reconnaissance, writing one is
- * arbitrary capability, and selecting one can move a session onto a preset
- * that edits the live runtime.
+ * it. The authoring calls are privileged and loopback-pinned — a composition
+ * names the plugins a session runs, so reading one is reconnaissance, and
+ * although authoring is copy-only (no caller supplies composition text or a
+ * path), copying and deleting still rearrange what the deployment offers.
  */
 
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -45,11 +45,13 @@ export interface AgentPresetsApi {
    * shipped ids.
    * An empty roster means the deployment composes no presets at all, and
    * every session shares the host composition. `authorable` reports whether
-   * the deployment configures a root new presets can be written to, which is
-   * a deployment fact rather than a per-preset one.
+   * the deployment configures a root new presets can be written to, and
+   * `hasDocument` whether `openDocument` can hand a preset directory to a
+   * native opener — both deployment facts rather than per-preset ones, and
+   * neither exposes a Host path.
    */
   list(request: RpcRequest<{}>):
-  Promise<RpcResponse<{ presets: readonly AgentPresetEntry[]; authorable: boolean }>>
+  Promise<RpcResponse<{ presets: readonly AgentPresetEntry[]; authorable: boolean; hasDocument: boolean }>>
 
   /**
    * Recompose one session's agent from a different preset.
@@ -63,28 +65,44 @@ export interface AgentPresetsApi {
   Promise<RpcResponse<{ agentPreset: string }>>
 
   /**
-   * Read one preset's composition text, for an editor.
+   * Read one preset's composition text, for the read-only viewer.
    *
-   * Privileged: a composition names the plugins a session runs, so reading one
-   * is reconnaissance and writing one is arbitrary capability.
+   * Privileged: a composition names the plugins a session runs, so reading
+   * one is reconnaissance.
    */
   read(request: RpcRequest<{ agentPreset: string }>):
   Promise<RpcResponse<{
     agentPreset: string
     trust: 'system' | 'user'
     content: string
-    writable: boolean
     name?: string
     description?: string
   }>>
 
   /**
-   * Create or replace a locally authored preset. Shipped presets are refused;
-   * the text is shape-checked before it lands, so a save cannot leave a file no
-   * session could load.
+   * Create a locally authored preset by copying an existing one whole.
+   *
+   * The only authoring write. No composition text and no path crosses the
+   * wire: `from` and `agentPreset` are ids the Host resolves against its own
+   * roots, so a copy is exactly as loadable as its source and grants nothing
+   * the roster did not already carry. The copy keeps the source's description
+   * (the file is the author's to edit afterwards) but not its name — `name`
+   * here or the id fallback is what distinguishes the rows.
    */
-  write(request: RpcRequest<{ agentPreset: string; content: string; name?: string; description?: string }>):
+  copy(request: RpcRequest<{ from: string; agentPreset: string; name?: string }>):
   Promise<RpcResponse<{ agentPreset: string }>>
+
+  /**
+   * Hand one locally authored preset's DIRECTORY to the platform opener, for
+   * editing the files that are now the only composition editor. The request
+   * carries an id, never a path — the Host resolves it — so no browser
+   * payload can select an arbitrary filesystem target. Where the deployment
+   * has no native opener (`hasDocument: false` on `list`), the reply carries
+   * the resolved directory for the surface to show as text instead. Shipped
+   * presets are refused: their install is not the user's to manage.
+   */
+  openDocument(request: RpcRequest<{ agentPreset: string }>, signal: AbortSignal):
+  Promise<RpcResponse<{ opened: true } | { opened: false; path: string }>>
 
   /** Delete a locally authored preset. Shipped presets are refused. */
   remove(request: RpcRequest<{ agentPreset: string }>): Promise<RpcResponse<{}>>
