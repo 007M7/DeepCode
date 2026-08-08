@@ -2390,32 +2390,58 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         }
       },
 
-      async invoke(request) {
+      async invoke(request, signal) {
         const { sessionId, name, text } = request.payload
         const resolved = await turnAgentFor<{ accepted: true }>(request, sessionId)
         if ('refused' in resolved) return resolved.refused
         const agent = resolved.agent
+        if (agent.session.header.cwd === undefined) {
+          // Same stance as skill.list: a cwd-less header is a pre-project
+          // legacy log, and skill discovery has no root to resolve against.
+          return err(request, { code: 'internal', message: `session "${sessionId}" has no project cwd`, details: {} })
+        }
         const skillRegistry = ctx.get('skills')
         if (skillRegistry === undefined) {
           return err(request, { code: 'internal', message: 'skill registry is absent: this deployment does not mount @deepseek-ai/dsh-skill in its composition (cordis.yml or explicit assembly)', details: {} })
         }
-        const lookup = { cwd: agent.session.header.cwd }
-        // isSkillName guards the registry contract; an ill-formed name is
-        // indistinguishable from an absent one for the caller.
-        const summary = isSkillName(name)
-          ? (await skillRegistry.list(lookup)).find(skill => skill.name === name)
-          : undefined
-        if (summary === undefined) {
-          return err(request, { code: 'skill-not-found', message: `skill "${name}" is unknown in this workspace`, details: { name } })
+        const lookup = { cwd: agent.session.header.cwd, signal }
+        let skill
+        try {
+          // isSkillName guards the registry contract; an ill-formed name is
+          // indistinguishable from an absent one for the caller.
+          const summary = isSkillName(name)
+            ? (await skillRegistry.list(lookup)).find(candidate => candidate.name === name)
+            : undefined
+          if (summary === undefined) {
+            return err(request, { code: 'skill-not-found', message: `skill "${name}" is unknown in this workspace`, details: { name } })
+          }
+          // The operation boundary owns user-invocation policy: client menus
+          // filtering their candidates is an affordance, not enforcement.
+          if (!isUserInvocable(summary)) {
+            return err(request, { code: 'skill-not-invocable', message: `skill "${name}" is not available for user invocation`, details: { name } })
+          }
+          const loaded = await skillRegistry.get(name, lookup)
+          if (loaded === undefined) {
+            return err(request, { code: 'skill-not-found', message: `skill "${name}" is unknown in this workspace`, details: { name } })
+          }
+          // Recheck on the loaded definition (the skill-tool execute template):
+          // list and get collect independently, so a provider change between
+          // the two awaits can swap the winning candidate for a user-disabled
+          // one — the boundary must judge what it actually injects.
+          if (!isUserInvocable(loaded)) {
+            return err(request, { code: 'skill-not-invocable', message: `skill "${name}" is not available for user invocation`, details: { name } })
+          }
+          skill = loaded
+        } catch (error: unknown) {
+          if (signal.aborted) {
+            return err(request, { code: 'cancelled', message: 'skill invocation cancelled', details: {} })
+          }
+          return err(request, { code: 'internal', message: `skill invocation failed: ${String(error)}`, details: {} })
         }
-        // The operation boundary owns user-invocation policy: client menus
-        // filtering their candidates is an affordance, not enforcement.
-        if (!isUserInvocable(summary)) {
-          return err(request, { code: 'skill-not-invocable', message: `skill "${name}" is not available for user invocation`, details: { name } })
-        }
-        const skill = await skillRegistry.get(name, lookup)
-        if (skill === undefined) {
-          return err(request, { code: 'skill-not-found', message: `skill "${name}" is unknown in this workspace`, details: { name } })
+        if (signal.aborted) {
+          // The caller already gave up (unary deadline or navigation): a turn
+          // it will never observe must not start.
+          return err(request, { code: 'cancelled', message: 'skill invocation cancelled', details: {} })
         }
         const body = renderSkillContent(skill)
         const source: SkillInvocationSource = { kind: 'skill-invocation', name, ...text === undefined ? {} : { args: text } }

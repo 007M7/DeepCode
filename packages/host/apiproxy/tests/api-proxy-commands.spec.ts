@@ -305,6 +305,8 @@ describe('skill.invoke', () => {
     return { agent, followup }
   }
 
+  const live = () => new AbortController().signal
+
   it('injects a user-invocable skill as a user message with the invocation source', async () => {
     const ctx = await harness()
     registerInvokeSkills(ctx)
@@ -312,7 +314,7 @@ describe('skill.invoke', () => {
     const { agent, followup } = invokableAgent(ctx)
     const value = expectOk(await api.skills.invoke(request({
       sessionId: agent.id, name: 'user-only', text: 'and check the fixture',
-    })))
+    }), live()))
     expect(value).toEqual({ accepted: true })
     expect(followup).toHaveBeenCalledTimes(1)
     const message = followup.mock.calls[0]?.[0] as UserMessage
@@ -330,7 +332,7 @@ describe('skill.invoke', () => {
     registerInvokeSkills(ctx)
     const api = createApiProxy(ctx, DEFAULTS)
     const { agent, followup } = invokableAgent(ctx)
-    expectOk(await api.skills.invoke(request({ sessionId: agent.id, name: 'user-only' })))
+    expectOk(await api.skills.invoke(request({ sessionId: agent.id, name: 'user-only' }), live()))
     const message = followup.mock.calls[0]?.[0] as UserMessage
     expect(message.source).toEqual({ kind: 'skill-invocation', name: 'user-only' })
     const text = (message.content[0] as { text: string }).text
@@ -342,8 +344,51 @@ describe('skill.invoke', () => {
     registerInvokeSkills(ctx)
     const api = createApiProxy(ctx, DEFAULTS)
     const { agent, followup } = invokableAgent(ctx)
-    const error = expectErr(await api.skills.invoke(request({ sessionId: agent.id, name: 'model-only' })))
+    const error = expectErr(await api.skills.invoke(request({ sessionId: agent.id, name: 'model-only' }), live()))
     expect(error.code).toBe('skill-not-invocable')
+    expect(followup).not.toHaveBeenCalled()
+  })
+
+  it('rechecks user policy on the loaded definition (list/get race)', async () => {
+    const ctx = await harness()
+    // The provider flips the skill user-invocable in list but user-disabled
+    // in get — the window a provider change between the two collects opens.
+    ctx.skills.registerProvider(() => ({
+      name: 'flipping',
+      list: () => Promise.resolve([{
+        name: 'flipper', description: 'Race probe',
+        invocation: { modelInvocable: false, userInvocable: true },
+        source: 'custom', provider: 'flipping', rank: 0, locator: null,
+      }]),
+      get: () => Promise.resolve({
+        name: 'flipper', description: 'Race probe',
+        invocation: { modelInvocable: false, userInvocable: false },
+        source: 'custom', provider: 'flipping',
+        content: 'Must never inject.',
+      }),
+    }))
+    const api = createApiProxy(ctx, DEFAULTS)
+    const { agent, followup } = invokableAgent(ctx)
+    const error = expectErr(await api.skills.invoke(request({ sessionId: agent.id, name: 'flipper' }), live()))
+    expect(error.code).toBe('skill-not-invocable')
+    expect(followup).not.toHaveBeenCalled()
+  })
+
+  it('reports skill-not-found when the summary wins but the load returns nothing', async () => {
+    const ctx = await harness()
+    ctx.skills.registerProvider(() => ({
+      name: 'vanishing',
+      list: () => Promise.resolve([{
+        name: 'ghost', description: 'Vanishes on load',
+        invocation: { modelInvocable: false, userInvocable: true },
+        source: 'custom', provider: 'vanishing', rank: 0, locator: null,
+      }]),
+      get: () => Promise.resolve(undefined),
+    }))
+    const api = createApiProxy(ctx, DEFAULTS)
+    const { agent, followup } = invokableAgent(ctx)
+    const error = expectErr(await api.skills.invoke(request({ sessionId: agent.id, name: 'ghost' }), live()))
+    expect(error.code).toBe('skill-not-found')
     expect(followup).not.toHaveBeenCalled()
   })
 
@@ -352,10 +397,41 @@ describe('skill.invoke', () => {
     registerInvokeSkills(ctx)
     const api = createApiProxy(ctx, DEFAULTS)
     const { agent } = invokableAgent(ctx)
-    const missing = expectErr(await api.skills.invoke(request({ sessionId: agent.id, name: 'absent-skill' })))
+    const missing = expectErr(await api.skills.invoke(request({ sessionId: agent.id, name: 'absent-skill' }), live()))
     expect(missing.code).toBe('skill-not-found')
-    const invalid = expectErr(await api.skills.invoke(request({ sessionId: agent.id, name: 'Not A Name' })))
+    const invalid = expectErr(await api.skills.invoke(request({ sessionId: agent.id, name: 'Not A Name' }), live()))
     expect(invalid.code).toBe('skill-not-found')
+  })
+
+  it('folds a loader failure into a structured internal error', async () => {
+    const ctx = await harness()
+    ctx.skills.registerProvider(() => ({
+      name: 'exploding',
+      list: () => Promise.resolve([{
+        name: 'grenade', description: 'Loader throws',
+        invocation: { modelInvocable: false, userInvocable: true },
+        source: 'custom', provider: 'exploding', rank: 0, locator: null,
+      }]),
+      get: () => Promise.reject(new Error('disk exploded')),
+    }))
+    const api = createApiProxy(ctx, DEFAULTS)
+    const { agent, followup } = invokableAgent(ctx)
+    const error = expectErr(await api.skills.invoke(request({ sessionId: agent.id, name: 'grenade' }), live()))
+    expect(error.code).toBe('internal')
+    expect(error.message).toContain('skill invocation failed')
+    expect(followup).not.toHaveBeenCalled()
+  })
+
+  it('refuses to start a turn the caller already abandoned', async () => {
+    const ctx = await harness()
+    registerInvokeSkills(ctx)
+    const api = createApiProxy(ctx, DEFAULTS)
+    const { agent, followup } = invokableAgent(ctx)
+    const abort = new AbortController()
+    abort.abort()
+    const error = expectErr(await api.skills.invoke(request({ sessionId: agent.id, name: 'user-only' }), abort.signal))
+    expect(error.code).toBe('cancelled')
+    expect(followup).not.toHaveBeenCalled()
   })
 
   it('surfaces a followup refusal as agent-busy', async () => {
@@ -364,8 +440,22 @@ describe('skill.invoke', () => {
     const api = createApiProxy(ctx, DEFAULTS)
     const { agent, followup } = invokableAgent(ctx)
     followup.mockImplementation(() => { throw new Error('inbox closed') })
-    const error = expectErr(await api.skills.invoke(request({ sessionId: agent.id, name: 'user-only' })))
+    const error = expectErr(await api.skills.invoke(request({ sessionId: agent.id, name: 'user-only' }), live()))
     expect(error.code).toBe('agent-busy')
+  })
+
+  it('refuses a cwd-less session with the skill.list stance', async () => {
+    const ctx = await harness()
+    registerInvokeSkills(ctx)
+    const api = createApiProxy(ctx, DEFAULTS)
+    const session = ctx.sessions.create(undefined)
+    const inbox = new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} })
+    const followup = vi.fn()
+    ctx.agents.register({ id: session.id, session, inbox, status: 'idle', ctx, followup } as unknown as Agent)
+    const error = expectErr(await api.skills.invoke(request({ sessionId: session.id, name: 'user-only' }), live()))
+    expect(error.code).toBe('internal')
+    expect(error.message).toContain('has no project cwd')
+    expect(followup).not.toHaveBeenCalled()
   })
 
   it('fails loud with internal when the skill registry is not mounted', async () => {
@@ -374,7 +464,7 @@ describe('skill.invoke', () => {
     const session = ctx.sessions.create(undefined, { meta: { cwd: '/proj' } })
     const inbox = new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} })
     ctx.agents.register({ id: session.id, session, inbox, status: 'idle', ctx, followup: vi.fn() } as unknown as Agent)
-    const error = expectErr(await api.skills.invoke(request({ sessionId: session.id, name: 'user-only' })))
+    const error = expectErr(await api.skills.invoke(request({ sessionId: session.id, name: 'user-only' }), live()))
     expect(error.code).toBe('internal')
     expect(error.message).toContain('skill registry is absent')
   })

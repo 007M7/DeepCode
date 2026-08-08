@@ -416,6 +416,8 @@ describe('skills domain schemas', () => {
       .toBe('check it')
     expect(() => skillInvokeRequestSchema.parse({ sessionId: 's1', name: '' })).toThrow()
     expect(() => skillInvokeRequestSchema.parse({ name: 'user-only' })).toThrow()
+    // A blank trailing text is refused at the wire boundary, not by client courtesy.
+    expect(() => skillInvokeRequestSchema.parse({ sessionId: 's1', name: 'user-only', text: '' })).toThrow()
     expect(skillInvokeValueSchema.parse({ accepted: true })).toEqual({ accepted: true })
     expect(() => skillInvokeValueSchema.parse({ accepted: false })).toThrow()
   })

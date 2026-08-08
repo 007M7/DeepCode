@@ -27,11 +27,14 @@ export const skillListValueSchema = z.object({
   skills: z.array(skillEntrySchema),
 }) satisfies z.ZodType<Wire<ResponseValue<'skill.list'>>>
 
-/** skill.invoke request payload. */
+/**
+ * skill.invoke request payload. `text` is the user's trailing message; a
+ * blank one stays off the wire (the boundary, not client courtesy, refuses it).
+ */
 export const skillInvokeRequestSchema = z.object({
   sessionId: sessionIdSchema,
   name: z.string().min(1),
-  text: z.string().optional(),
+  text: z.string().min(1).optional(),
 }) satisfies z.ZodType<Wire<RequestPayload<'skill.invoke'>>>
 
 /** skill.invoke response value. */
