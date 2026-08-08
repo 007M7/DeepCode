@@ -23,7 +23,7 @@ Through [`dsh-bash-sandbox`](../../bash/bash-sandbox/README.md) and [`dsh-tool-b
 ##### Exact error
 
 ```markdown
-sandbox mode "<mode>" is requested but no sandbox backend is usable on this host; refusing to run the command unconfined. Install bubblewrap or run a Landlock-enforcing kernel (Linux), ensure sandbox-exec is usable (macOS) — Windows has no confinement backend yet — or switch the consumer to danger-full-access.
+sandbox mode "<mode>" is requested but no sandbox backend is usable on this host; refusing to run the command unconfined. Install bubblewrap or run a Landlock-enforcing kernel (Linux), ensure sandbox-exec is usable (macOS), or ensure the ACL restricted-token runner can start (Windows) — otherwise switch the consumer to danger-full-access.
 ```
 
 #### Token effect

@@ -57,14 +57,17 @@ export class AclWriteGrant {
   /**
    * Grant the write ACE on one directory (idempotent: an already-standing
    * exact ACE skips the eager full-tree re-propagation — see
-   * {@link grantWrite}) and record the path for {@link dispose}. Callers
-   * treat a throw as a failed materialization and dispose the instance to
-   * revoke the paths granted so far.
+   * {@link grantWrite}) and record the path for {@link dispose}. The path is
+   * recorded BEFORE the grant: a post-apply throw (a LocalFree failure after
+   * SetNamedSecurityInfoW succeeded) must still revoke it, and revoking an
+   * ungranted path is a no-op merge. Callers treat a throw as a failed
+   * materialization and dispose the instance to revoke the paths granted so
+   * far.
    * @param path - the directory whose DACL gains the grant.
    */
   add(path: string): void {
-    grantWrite(this.api, path, this.sidPtr)
     this.grantedPaths.push(path)
+    grantWrite(this.api, path, this.sidPtr)
   }
 
   /** Every directory currently carrying the grant, in grant order. */

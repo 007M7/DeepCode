@@ -130,6 +130,8 @@ export class AclSandbox {
   private api: Win32Bindings | undefined
   private token: NativePtr | undefined
   private writeSidPtr: NativePtr | undefined
+  /** The well-known/logon SID allocations init() makes; freed by dispose() alongside the write SID. */
+  private sidAllocations: NativePtr[] = []
   private grantedPaths: string[] = []
 
   constructor(options: AclSandboxOptions) {
@@ -182,16 +184,24 @@ export class AclSandbox {
       // remove any (its dispose() must not revoke the caller's standing grant).
       if (this.manageDacls) {
         for (const path of tempDir !== null ? [...this.writableDirs, tempDir] : this.writableDirs) {
-          grantWrite(api, path, writeSidPtr)
+          // Record BEFORE granting: grantWrite can throw after a successful
+          // apply (a LocalFree failure), and the fail-closed catch must still
+          // revoke that path (revoking an ungranted path is a no-op merge).
           this.grantedPaths.push(path)
+          grantWrite(api, path, writeSidPtr)
         }
       }
       const logonSid = findLogonSid(api, currentToken)
+      this.sidAllocations.push(logonSid)
+      const worldSid = makeWellKnownSid(api, abi.WinWorldSid)
+      this.sidAllocations.push(worldSid)
+      const authUserSid = makeWellKnownSid(api, abi.WinAuthenticatedUserSid)
+      this.sidAllocations.push(authUserSid)
       const restricted = createRestrictedToken(
         api, currentToken, logonSid, writeSidPtr,
         {
-          world: makeWellKnownSid(api, abi.WinWorldSid),
-          authUser: makeWellKnownSid(api, abi.WinAuthenticatedUserSid),
+          world: worldSid,
+          authUser: authUserSid,
         },
         this.mode,
       )
@@ -201,7 +211,8 @@ export class AclSandbox {
     } catch (error) {
       // Best-effort close on the failure path (last error already captured in `error`).
       api.closeHandle(currentToken)
-      // Fail-closed cleanup: never leave standing grants behind a failed init.
+      // Fail-closed cleanup: never leave standing grants or SID allocations
+      // behind a failed init.
       const cleanupFailures: unknown[] = []
       const writeSidPtr = this.writeSidPtr
       if (writeSidPtr !== undefined) {
@@ -211,6 +222,14 @@ export class AclSandbox {
           } catch (cleanupError) {
             cleanupFailures.push(cleanupError)
           }
+        }
+      }
+      for (const sidPtr of this.sidAllocations.splice(0)) {
+        try {
+          const freed = api.localFree(sidPtr)
+          if (!isNullPtr(freed)) throwLastError(api, 'LocalFree', 'init SID allocation')
+        } catch (cleanupError) {
+          cleanupFailures.push(cleanupError)
         }
       }
       if (cleanupFailures.length > 0) {
@@ -300,6 +319,14 @@ export class AclSandbox {
     if (token !== undefined) {
       try {
         if (api.closeHandle(token) === 0) throwLastError(api, 'CloseHandle', 'restricted token')
+      } catch (error) {
+        failures.push(error)
+      }
+    }
+    for (const sidPtr of this.sidAllocations.splice(0)) {
+      try {
+        const freed = api.localFree(sidPtr)
+        if (!isNullPtr(freed)) throwLastError(api, 'LocalFree', 'init SID allocation')
       } catch (error) {
         failures.push(error)
       }
