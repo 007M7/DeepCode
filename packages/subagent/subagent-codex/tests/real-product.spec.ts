@@ -140,18 +140,18 @@ function responseInputTexts(body: Record<string, unknown>): string[] {
   })
 }
 
-describe('real @openai/codex 0.146.0 product', () => {
+describe('real @openai/codex 0.147.0 product', () => {
   it('passes the exact task and fake authentication to local Responses and returns exact text', async () => {
-    const sentinel = 'REAL_CODEX_SENTINEL_0_146_0'
+    const sentinel = 'REAL_CODEX_SENTINEL_0_147_0'
     const task = 'Return the fixture sentinel exactly.'
     const { harness, fixture } = await realHarness([
       { kind: 'complete', text: sentinel },
     ])
-    expect(codexPackage.version).toBe('0.146.0')
+    expect(codexPackage.version).toBe('0.147.0')
     const version = await execFileAsync(process.execPath, [codexEntry, '--version'], {
       env: { ...process.env, ...harness.env },
     })
-    expect(version.stdout.trim()).toBe('codex-cli 0.146.0')
+    expect(version.stdout.trim()).toBe('codex-cli 0.147.0')
 
     const run = await harness.ctx.subagents.start('codex', {
       prompt: [{ type: 'text', text: task }],
