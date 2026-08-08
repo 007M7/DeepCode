@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, rmSync, mkdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -96,6 +96,13 @@ describe('the shipped Windows composition (real bundle layers)', () => {
     }
     for (const id of ['pwsh-sandbox', 'tool-pwsh']) {
       expect(byId.has(id), `inserted row ${id}`).toBe(true)
+    }
+    // The launcher's cold-start module fallback BFS-links the apps/cli
+    // dependency closure into the profile's node_modules (the pwsh-local
+    // precedent), so every inserted bare plugin must resolve from there.
+    const cliManifest = JSON.parse(readFileSync(anchor, 'utf8')) as { dependencies?: Record<string, string> }
+    for (const name of ['@deepseek-ai/dsh-pwsh-sandbox', '@deepseek-ai/dsh-tool-pwsh']) {
+      expect(cliManifest.dependencies?.[name], `cold-start closure must reach ${name}`).toBeDefined()
     }
     // The patch touches only base-owned rows plus inserts, so the full web
     // profile composes without any no-match warning.
