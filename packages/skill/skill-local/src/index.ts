@@ -19,7 +19,7 @@ import z from 'schemastery'
 import type Schema from 'schemastery'
 import { parse as parseYaml } from 'yaml'
 import type { FileSystem, FsDirEntry, FsTarget } from '@deepseek-ai/dsh-fs'
-import { resolveDshHome } from '@deepseek-ai/dsh-paths'
+import { canonicalizeWatchPath, resolveDshHome } from '@deepseek-ai/dsh-paths'
 import {
   BUNDLED_SKILL_RANK,
   isSkillName,
@@ -525,7 +525,7 @@ class SkillWatchManager {
       readiness.resolve(undefined)
     })
     for (const event of ['add', 'addDir', 'change', 'unlink', 'unlinkDir'] as const) {
-      watcher.on(event, (path) => { this.handleWatchEvent(state, event, path) })
+      watcher.on(event, (path) => { this.handleWatchEvent(state, mode, event, path) })
     }
     try {
       await readiness.promise
@@ -540,12 +540,14 @@ class SkillWatchManager {
 
   private handleWatchEvent(
     state: RootWatchState,
+    mode: Extract<RootWatchMode, { kind: 'root' }>,
     event: SkillWatchEvent,
     path: string,
   ): void {
-    if (this.closing || !isRelevantWatchEvent(state.root, event, resolve(path))) return
+    const target = resolve(path)
+    if (this.closing || !isRelevantWatchEvent({ ...state.root, path: mode.anchor }, event, target)) return
     this.queueInvalidation()
-    if (resolve(path) === state.root.path && event === 'unlinkDir') {
+    if (target === mode.anchor && event === 'unlinkDir') {
       state.unhealthy = true
       this.scheduleRewatch(state)
     }
@@ -625,11 +627,12 @@ async function resolveRootWatchMode(root: string): Promise<RootWatchMode> {
     try {
       const info = await stat(candidate)
       if (info.isDirectory()) {
-        if (candidate === root) return { kind: 'root', anchor: root }
+        const anchor = await canonicalizeWatchPath(candidate)
+        if (candidate === root) return { kind: 'root', anchor }
         const firstSegment = relative(candidate, root).split(sep)[0]
         /* v8 ignore next -- candidate is a strict ancestor of root. */
-        if (firstSegment === undefined || firstSegment.length === 0) return { kind: 'root', anchor: root }
-        return { kind: 'ancestor', anchor: candidate, nextPath: join(candidate, firstSegment) }
+        if (firstSegment === undefined || firstSegment.length === 0) return { kind: 'root', anchor }
+        return { kind: 'ancestor', anchor, nextPath: join(anchor, firstSegment) }
       }
     } catch (error) {
       /* v8 ignore next -- Non-absence stat failures are platform/permission-specific and propagate as incomplete discovery. */

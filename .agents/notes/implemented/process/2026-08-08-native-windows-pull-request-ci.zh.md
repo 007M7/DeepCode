@@ -22,6 +22,8 @@ Status: implemented
 
 这项阻断覆盖率门禁又暴露出两项从未在原生通道上运行过的 fixture 契约。JSONL 实体化故障场景现在断言结构化文件系统错误码，因为 Windows 的持久目录实现拥有 `ENOTDIR` 错误码，却不会将其复制进人类可读文本。ACP（Agent Client Protocol）拆卸阶梯现在使用 Node 子进程，不再假定 POSIX shell，并断言 Windows 的强制终止结果而非 POSIX 信号名称；POSIX 仍会证明 `SIGTERM` 与 `SIGKILL` 两级。这些套件会加载原生绑定或拥有真实进程树，因此 Windows 线程池会让它们在现有的 fork 隔离项目中运行，同时仍将这些套件的覆盖率汇入同一项逐文件阈值。
 
+分支纳入更新的 `master` 后，下一次原生覆盖率运行发现了最后一条未纳入统一契约的 watcher 路径和一项压力测试预算。`skill-local` 曾以配置时的路径拼写打开现有 Chokidar 根，因此 `%TEMP%` 仍可能以 `C:\\Users\\RUNNER~1` 进入 libuv，而事件使用长目录名；现在它的根模式与祖先模式共用规范化监听路径契约，发现过程仍保留配置路径。新增的 10,000 会话后代遍历在 Windows 覆盖率插桩下还会超过 Vitest 默认超时，因此该栈安全工作负载保持原有规模并获得显式的 20 秒压力测试预算，而不是缩小深度或按平台跳过。
+
 下一次分支头精确运行暴露出观测项中剩余的一项 built-bin 故障：其生命周期 fixture 通过 `process.kill()` 或 `subprocess.kill()` 发送 `SIGTERM`；在 Windows 上，这种调用会无条件终止目标进程，而不会交付为优雅释放所注册的进程事件。POSIX 验收仍发送真实信号。在 Windows 上，fixture 改为从子进程内部请求同一个已注册事件：自终止探测直接请求，由父进程控制的生命周期场景则通过标记请求；因此，完整组装后的关闭与释放路径仍得到覆盖，也无需断言操作系统提供了本不存在的信号机制。该项验收随即暴露出底层的提前关闭竞态：boot 返回后，回退 HMR watcher 仍在挂载，此时信号可能对根 fiber 执行 dispose（资源释放），由此产生的服务未激活错误会逸出并被报告为 boot 失败。boot 后 setup 现在只会在权威根 fiber 仍处于活跃状态时接纳工作；只有当本次调用所记录的信号已取得关闭流程所有权时，才会隔离并发 setup 错误，无关的 HMR 故障仍会响亮失败。
 
 受支持的工作流不含 Wine 专属基础设施：不存在 apt 缓存生产者、兼容性脚本、对仓库快照执行的 hoisted 安装、Windows Node 下载或本地 `check:windows-wine` 命令。[已归档的 Wine 实验](../../archived/process/2026-07-27-wine-windows-gates-experiment.md)仍作为其实测延迟与保真度取舍的历史证据，而非当前执行路径。
