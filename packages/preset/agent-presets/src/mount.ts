@@ -18,7 +18,7 @@ import { pathToFileURL } from 'node:url'
 import { Context, type Fiber } from 'cordis'
 import { Include } from '@cordisjs/plugin-include'
 import type { EntryTree } from '@cordisjs/plugin-loader'
-import { scopeOf, type ScopeKey } from '@deepseek-ai/dsh-scope'
+import { scopeOf, scopeParentOf, type ScopeKey } from '@deepseek-ai/dsh-scope'
 import { PresetMountError, type AgentPreset } from './types.ts'
 
 /** What one mounted subtree publishes about itself for the audit to read. */
@@ -77,8 +77,8 @@ export interface PresetMount {
   readonly presetId: string
   /** The mounted subtree's fiber. */
   readonly fiber: Fiber
-  /** The scope the subtree was mounted for — the agent that owns it. */
-  readonly scope: ScopeKey
+  /** The standing scope key agents are parented to (undefined only in torn-down records). */
+  readonly key: ScopeKey | undefined
 }
 
 const mounts = new Set<PresetMount>()
@@ -113,24 +113,6 @@ function pruneDisposedMounts(): void {
 export function livePresetMounts(): PresetMount[] {
   pruneDisposedMounts()
   return [...mounts]
-}
-
-/**
- * Discard the composition currently installed for one scope, if any.
- *
- * Only a composition that has produced nothing may be replaced: swapping a
- * live agent's tools mid-conversation would leave logged tool calls the new
- * composition cannot make. The caller owns that check — this function does the
- * teardown and returns once the subtree is quiescent.
- * @param scope - the agent whose installed composition to discard.
- * @returns the preset id that was discarded, or `undefined` when none was.
- */
-export async function unmountPresetFor(scope: ScopeKey): Promise<string | undefined> {
-  const installed = livePresetMounts().find(mount => mount.scope === scope)
-  if (installed === undefined) return undefined
-  mounts.delete(installed)
-  await Promise.resolve(installed.fiber.dispose())
-  return installed.presetId
 }
 
 /**
@@ -209,14 +191,22 @@ export function serviceForAgent<K extends string & keyof Context>(
   agent: { ctx: Context },
   name: K,
 ): Context[K] | undefined {
-  const root = agent.ctx.fiber
+  // The agent's own key is parented to its preset's standing key; the mount
+  // is no longer under the agent's fiber, so the search roots at the standing
+  // mount instead of walking up from the agent.
+  const agentKey = scopeOf(agent.ctx)
+  if (agentKey === undefined) return undefined
+  const standingKey = scopeParentOf(agentKey)
+  if (standingKey === undefined) return undefined
+  const mount = livePresetMounts().find(candidate => candidate.key === standingKey)
+  if (mount === undefined) return undefined
   const store = ctx.reflect.store
   for (const key of Object.getOwnPropertySymbols(store)) {
     const impl = store[key]
     /* v8 ignore next -- cordis deletes a store slot on disposal rather than clearing it */
     if (impl === undefined) continue
     if (impl.name !== name) continue
-    if (withinFiber(impl.fiber, root)) return impl.value as Context[K]
+    if (withinFiber(impl.fiber, mount.fiber)) return impl.value as Context[K]
   }
   return undefined
 }
@@ -269,8 +259,9 @@ export async function mountPreset(agentCtx: Context, preset: AgentPreset): Promi
     )
   }
   const config: Include.Config = { path: pathToFileURL(preset.path).href }
-  // Before the record this mount is about to add: every session takes this
-  // path, so it is what keeps the set bounded on a host that never reads it.
+  // Before the record this mount is about to add: standing mounts are one per
+  // preset and live until whole-tree teardown, so pruning here only sweeps
+  // records of torn-down runtimes (tests; an HMR reload of the roster).
   pruneDisposedMounts()
   const handle = agentCtx.plugin(PresetTree, config)
   try {
@@ -290,7 +281,7 @@ export async function mountPreset(agentCtx: Context, preset: AgentPreset): Promi
         + 'a preset service must sit behind an `isolate` realm or move to the host composition',
       )
     }
-    mounts.add({ presetId: preset.id, fiber, scope })
+    mounts.add({ presetId: preset.id, fiber, key: scopeOf(agentCtx) })
   } catch (error) {
     try {
       await handle.dispose()

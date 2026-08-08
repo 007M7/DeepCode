@@ -94,7 +94,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async mount(agentCtx: Context, id?: string): Promise<AgentPreset>',
-        jsDoc: '/**\n * Compose one agent from a preset, installing it under that agent alone.\n *\n * Call from the agent factory\'s `setup(agentCtx)`; a rejection there rolls\n * the agent creation back, so a broken preset never yields a half-composed\n * session.\n * @param agentCtx - the agent\'s scope context.\n * @param id - the preset id, or `undefined` for {@link defaultId}.\n * @returns the preset that was mounted, for the caller to record.\n * @throws when the preset is unknown or its composition is unusable.\n */',
+        jsDoc: '/**\n * Compose one agent from a preset: ensure the preset\'s standing mount, then\n * parent the agent\'s scope key to it so the mount\'s registrations and\n * listeners cover this agent.\n *\n * Call from the agent factory\'s `setup(agentCtx)`; a rejection there rolls\n * the agent creation back, so a broken preset never yields a half-composed\n * session.\n * @param agentCtx - the agent\'s scope context.\n * @param id - the preset id, or `undefined` for {@link defaultId}.\n * @returns the preset that was composed, for the caller to record.\n * @throws when the preset is unknown or its composition is unusable.\n */',
       },
       {
         signature: 'serviceFor<K extends string & keyof Context>(agent: { ctx: Context }, name: K): Context[K] | undefined',
@@ -102,7 +102,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async recompose(agentCtx: Context, id: string): Promise<AgentPreset>',
-        jsDoc: '/**\n * Replace the composition installed for one agent.\n *\n * Only valid while the agent has produced nothing: swapping tools mid\n * conversation would leave logged tool calls the new composition cannot make.\n * The CALLER owns that check — this method does not read session history.\n *\n * The swap is unmount-then-mount because two compositions cannot coexist:\n * both would register the same tool names into one layer. A failed mount\n * therefore restores the previous composition rather than leaving the agent\n * with nothing.\n * @param agentCtx - the agent\'s scope context.\n * @param id - the preset to compose the agent from instead.\n * @returns the preset now installed.\n * @throws when the preset is unknown or its composition is unusable; the\n * previous composition is restored first.\n */',
+        jsDoc: '/**\n * Re-link one agent to a different preset\'s standing composition.\n *\n * Only valid while the agent has produced nothing: swapping tools mid\n * conversation would leave logged tool calls the new composition cannot\n * make. The CALLER owns that check — this method does not read session\n * history.\n *\n * The swap is a parent re-link, not an unmount: standing mounts are shared\n * and permanent, so the old composition stays for its other agents and the\n * new one is ensured BEFORE the link moves. An unknown or unusable preset\n * therefore throws with the agent exactly as it was — there is no torn-down\n * state to restore.\n * @param agentCtx - the agent\'s scope context.\n * @param id - the preset to compose the agent from instead.\n * @returns the preset now installed.\n * @throws when the preset is unknown or its composition is unusable.\n */',
+      },
+      {
+        signature: 'async standingKeyFor(id?: string): Promise<ScopeKey>',
+        jsDoc: '/**\n * The standing scope key of one preset, for a host reader with no agent.\n *\n * A cold transcript read resolves tool presenters against the composition\n * the session recorded, and the standing mount makes that possible without\n * resuming anything: ensuring the mount composes plugins but starts no\n * agent, no session, and no turn.\n * @param id - the preset id, or `undefined` for {@link defaultId}.\n * @returns the standing scope key readers pass as a registry view scope.\n * @throws when the preset is unknown or its composition is unusable.\n */',
       },
     ],
   },
