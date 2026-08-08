@@ -10,7 +10,7 @@ The Web transcript renders `skill` calls through the generic fallback row, so a 
 
 ## Decision
 
-`ui-skill` registers a component under the existing `conversation.chat.toolview` keyed slot with key `skill`. The component owns its row chrome from the public `ToolRowProps` contract, matching the independent registrant posture used by the Bash sample instead of importing conversation-private components.
+`ui-skill` registers a component under ui-tool's `tool.call.toolview` keyed slot with key `skill`. The component consumes the public `ToolCallViewProps` owner contract and owns its row chrome without importing ui-tool presentation internals.
 
 The collapsed row uses a 14-pixel document-and-sparkle glyph and the Bash row's neutral hierarchy: tertiary glyph, secondary `Skill` title, caption separator, and tertiary skill name. Running, failed, and interrupted calls retain the transcript's shimmer, error dot and first-line summary, and warning dot semantics. A settled call expands through the whole summary row into a 260-pixel bounded `Instructions` card containing the exact durable result text; the existing trajectory `Inspect` handoff remains available below the card.
 

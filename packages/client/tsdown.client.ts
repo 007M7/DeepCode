@@ -230,7 +230,7 @@ function clientConfig(id: string, entry: string): UserConfig {
         const { code, exports: cssExports } = transform({
           filename: fileId,
           code: source,
-          cssModules: { pattern: `[hash]_[local]` },
+          cssModules: { pattern: '[hash]_[local]' },
           minify: true,
         })
         const classMap: Record<string, string> = {}
@@ -239,13 +239,13 @@ function clientConfig(id: string, entry: string): UserConfig {
         return [
           `const css = ${JSON.stringify(code.toString())};`,
           `const tagId = ${JSON.stringify(`${id}/${basename(fileId)}`)};`,
-          `if (typeof document !== 'undefined' && document.querySelector('style[data-plugin-css=' + JSON.stringify(tagId) + ']') === null) {`,
-          `  const tag = document.createElement('style');`,
+          'if (typeof document !== \'undefined\' && document.querySelector(\'style[data-plugin-css=\' + JSON.stringify(tagId) + \']\') === null) {',
+          '  const tag = document.createElement(\'style\');',
           `  tag.dataset.plugin = ${JSON.stringify(id)};`,
-          `  tag.dataset.pluginCss = tagId;`,
-          `  tag.textContent = css;`,
-          `  document.head.appendChild(tag);`,
-          `}`,
+          '  tag.dataset.pluginCss = tagId;',
+          '  tag.textContent = css;',
+          '  document.head.appendChild(tag);',
+          '}',
           `export default ${JSON.stringify(classMap)};`,
         ].join('\n')
       },
@@ -258,7 +258,7 @@ function clientConfig(id: string, entry: string): UserConfig {
       // without exposing that tree as an HTTP route.
       sourcemapPathTransform: browserSourcePath,
       banner: `window.__ModuleLoader__.load({ id: ${JSON.stringify(id)}, factory: (require) => {`,
-      footer: `return module.exports; } });`,
+      footer: 'return module.exports; } });',
       intro: 'var module = { exports: {} }; var exports = module.exports;',
     },
   }

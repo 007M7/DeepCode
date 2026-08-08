@@ -6,7 +6,8 @@ import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { UseSession } from '@deepseek-ai/dsh-client-web-react'
 import type { ConversationSnapshot, SessionId, SessionListState, WorkspaceListState } from '@deepseek-ai/dsh-client-runtime/client'
-import type { SelectionTarget } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { SessionProviderComponent } from '@deepseek-ai/dsh-client-ui-slots'
+import type { DetailsSlotProps, DetailsToolOwnerProps, SelectionTarget } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { createChatStore } from '../src/client/stores.ts'
@@ -33,9 +34,20 @@ afterEach(() => {
 
 const SID = 's1' as SessionId
 
+/** Minimal framework seat for direct DetailsPanel host tests. */
+const SessionProviderStub: SessionProviderComponent = ({ children }) => children(SID)
+
+/** Observe the owner currency without importing the Tool details renderer. */
+function renderToolDetailsProbe(owners?: DetailsToolOwnerProps[]): DetailsSlotProps['renderSlot'] {
+  return (_key, owner) => {
+    owners?.push(owner as DetailsToolOwnerProps)
+    return <div data-testid="tool-details-seat" />
+  }
+}
+
 function snapshotBase(): ConversationSnapshot {
   return {
-    sessionId: SID, nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [], codeDispatches: new Map(),
+    sessionId: SID, nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [],
     pending: [], queue: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
     hasMore: false, loadingOlder: false, promptError: null, blank: false, subagent: null, lastAgentError: null,
   }
@@ -95,6 +107,8 @@ describe('render branch tails', () => {
     })
     const view = render(
       <DetailsPanel
+        SessionProvider={SessionProviderStub}
+        renderSlot={renderToolDetailsProbe()}
         sessionId={SID}
         useSession={bindSnapshotSelector({ getSnapshot: () => snap, subscribe: () => () => {} })}
         useSessions={bindSnapshotSelector(emptyList)}
@@ -112,26 +126,39 @@ describe('render branch tails', () => {
     expect(view.getByText('该调用不在当前窗口内')).toBeTruthy()
   })
 
-  it('DetailsPanel resolves a run_code sub-callId to its full logged args and output', () => {
+  it('DetailsPanel resolves a nested run_code leaf to its full logged args and output', () => {
     localStorage.clear()
     const snap = snapshotBase()
     const longText = 'x'.repeat(1_000)
-    snap.codeDispatches = new Map([['p1', [{
-      kind: 'tool-result', seq: 8, time: 8_000, callId: 'p1:code:1',
-      call: { name: 'read', argsRaw: '{"path":"notes/demo.txt"}' },
-      callTime: 8_000,
-      content: [{ type: 'text', text: longText }], isError: false, callView: null, resultView: null,
-    }]]])
+    snap.runningCalls = [{
+      callId: 'p1', name: 'run_code', argsRaw: '{}', turn: 1, step: 1,
+      time: 7_000, callView: null, subCalls: [{
+        kind: 'tool-result', seq: 8, time: 8_000, callId: 'p1:code:1',
+        call: { name: 'run_code', argsRaw: '{"code":"return 1"}' },
+        callTime: 8_000,
+        content: [], isError: false, callView: null, resultView: null,
+        subCalls: [{
+          kind: 'tool-result', seq: 9, time: 9_000, callId: 'p1:code:1:code:1',
+          call: { name: 'read', argsRaw: '{"path":"notes/demo.txt"}' },
+          callTime: 8_500,
+          content: [{ type: 'text', text: longText }], isError: false, callView: null, resultView: null,
+          subCalls: [],
+        }],
+      }],
+    }]
     const chat = createChatStore().create()
-    chat.actions.select({ turnSeq: 8, callId: 'p1:code:1', toolName: 'read' } satisfies SelectionTarget)
+    chat.actions.select({ turnSeq: 9, callId: 'p1:code:1:code:1', toolName: 'read' } satisfies SelectionTarget)
     const emptyList = createSnapshotStore<SessionListState>(
       { ids: [], byId: {}, current: undefined, phase: 'ready', subagentsByParent: {}, currentAddress: undefined })
     const emptyWorkspaces = createSnapshotStore<WorkspaceListState>({
       items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
     })
+    const owners: DetailsToolOwnerProps[] = []
     const view = render(
       <DetailsPanel
+        SessionProvider={SessionProviderStub}
+        renderSlot={renderToolDetailsProbe(owners)}
         sessionId={SID}
         useSession={bindSnapshotSelector({ getSnapshot: () => snap, subscribe: () => () => {} })}
         useSessions={bindSnapshotSelector(emptyList)}
@@ -145,10 +172,15 @@ describe('render branch tails', () => {
         t={t}
       />,
     )
-    // Sub-call material: the sub-tool name titles the panel, args pretty-print,
-    // and the COMPLETE logged output renders (no truncation anywhere).
+    // Conversation resolves the selected sub-call and hands its complete
+    // frozen block to the Tool-owned details seat.
     expect(view.getByText('read')).toBeTruthy()
-    expect(view.getByText(/notes\/demo\.txt/)).toBeTruthy()
-    expect(view.getByText(longText)).toBeTruthy()
+    expect(view.getByTestId('tool-details-seat')).toBeTruthy()
+    expect(owners).toHaveLength(1)
+    expect(owners[0]?.block).toMatchObject({
+      callId: 'p1:code:1:code:1',
+      call: { name: 'read', argsRaw: '{"path":"notes/demo.txt"}' },
+      content: [{ type: 'text', text: longText }],
+    })
   })
 })

@@ -28,13 +28,14 @@ function settled(over: Partial<ToolResultNode> = {}): ToolResultNode {
     isError: false,
     callView: null,
     resultView: null,
+    subCalls: [],
     ...over,
   }
 }
 
 function running(argsRaw = '{"name":"dsh-manage-issues"}'): RunningToolCall {
   return {
-    callId: 'call-skill', name: 'skill', argsRaw, turn: 1, step: 1, time: 2_000, callView: null,
+    callId: 'call-skill', name: 'skill', argsRaw, turn: 1, step: 1, time: 2_000, callView: null, subCalls: [],
   }
 }
 

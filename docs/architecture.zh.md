@@ -121,7 +121,7 @@ idle inject:
 
 适配器选择、分发与迭代失败会成为 error 或 aborted 类型的终止 `finish` 分片。`agent/request-error` 接收请求坐标、标准化 `LlmFailure`、可用的重试策略和信号；middleware 与消费方错误仍在恢复之外。失败分片既不提交消息，也不提交工具调用。
 
-其他故障使用 `agent/error`；取消和资源释放优先于恢复。在提交请求头之前，轮次信号会取消功能准备；尚未分派的工具会得到合成的 `tool/call`/`ABORTED_BEFORE_DISPATCH` 对。实际生效的 `cancel(cause)` 会在清空队列和中止前报告原因；空闲调用不发事件。持久化层以 `aborted` 区分取消，以 `disposed` 区分会等待完全停稳的拆卸（[决策](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)）。
+其他故障使用 `agent/error`；取消和资源释放优先于恢复。在提交请求头之前，轮次信号会取消功能准备；尚未分派的工具会得到合成的 `tool/call`/`ABORTED_BEFORE_DISPATCH` 对。实际生效的 `cancel(cause)` 会在清空队列和中止前报告原因；空闲调用不发事件。abort 触发后、收敛前到达的唤醒输入会在 driver 的收敛边界执行，而 `disposed` 取消则将其停放（[取消收敛窗口唤醒锁存](../.agents/notes/implemented/bug-fix/2026-08-07-cancel-convergence-wake-latch.md)）。持久化层以 `aborted` 区分取消，以 `disposed` 区分会等待完全停稳的拆卸（[决策](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)）。
 
 轮次和步骤事件均位于轮次边界内；loop 只会在轮次内从进入步骤的批次追加 `user/message`。轮次会在首次领取与 pre-step 之前打开，因此拒绝、空输入、取消或失败会关闭一个不包含任何步骤事件的持久轮次。独立的 `compact/* { turn: null }` 事件不占用轮次，其锁定时刻标记可以与 inbox splice 交错。重新加载会为中断的轮次合成结束事件；`session/end-seed` 区分陈旧的压缩遗留项与活跃锁。关闭后仅由 `agent/error` 报告故障。每个轮次有一个 [TurnEndReason](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap)。
 
@@ -141,9 +141,9 @@ idle inject:
 
 **模型可见 ⟺ 已记录**：在 `step/start` 进入的消息加上折叠后的 `request/header` 可以重建每个请求。该 header 会标记适配器默认值，使后续提议丢弃这些值并重新解析路由，同时不丢失显式设置。`request/context` 会在路由变化时另行记录与注册项绑定的提供方、模型及容量元数据；它不参与请求重建或 header 相等性判断。`dsh-agent-loop/invariant` 通过 `ctx.invariants` 断言可重建性（[可重建性](../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)）。
 
-持久性由插件负责。后端会尽快排空同步的 `session/event` 通知。`session/flush` 位于请求与顶层工具分发之前，并在 `turn/end` 之后、另一个轮次或空闲状态之前执行。`SessionPersistence` 存储事件和 header 元数据；JSONL 默认采用带校验和的 Zstandard，SQLite 遵循同一契约（[决策](../.agents/notes/implemented/bug-fix/2026-07-21-semantic-session-checkpoints.md)）。
+持久性由插件负责。后端会将同步的 `session/event` 通知复制到固定窗口的持久化批次中；`session/flush` 会绕过等待，在请求与顶层工具分发之前执行，并在 `turn/end` 之后、另一个轮次或空闲状态之前执行。`SessionPersistence` 存储事件和 header 元数据；JSONL 默认采用带校验和的 Zstandard，SQLite 遵循同一契约（[检查点决策](../.agents/notes/implemented/bug-fix/2026-07-21-semantic-session-checkpoints.md)、[批处理决策](../.agents/notes/implemented/architecture/2026-08-08-bounded-session-persistence-write-batching.md)）。
 
-在轮次之间，事件所有方通过 `Session` 追加纯日志事件，仅为持久性而刷写。`session/title` 需要尽快持久化与生命周期排空；手动压缩会在操作完成前 flush 其标记对。标题工作绝不延迟响应；最新标题按后写覆盖并携带来源信息。标题记录是可继承的 fork 边界（[决策](../.agents/notes/implemented/feature/2026-07-21-log-backed-session-titles.md)）。
+在轮次之间，事件所有方通过 `Session` 追加纯日志事件，仅为持久性而刷写。`session/title` 依赖有界后台持久化与生命周期排空；手动压缩会在操作完成前 flush 其标记对。标题工作绝不延迟响应；最新标题按后写覆盖并携带来源信息。标题记录是可继承的 fork 边界（[决策](../.agents/notes/implemented/feature/2026-07-21-log-backed-session-titles.md)）。
 
 ### 模型内容
 

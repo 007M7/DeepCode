@@ -28,7 +28,7 @@ const replayOverride = join(fixtureDir, 'replay.override.json')
 const sessionExpected = join(fixtureDir, 'session.expected.jsonl')
 const precedenceExpected = join(dirname(fixtureDir), 'precedence-change/session.expected.jsonl')
 const configPath = fileURLToPath(new URL('../workspace-context-resume.cordis.snapshot.yml', import.meta.url))
-const binScript = fileURLToPath(new URL('../../../packages/examples/cli-demo/src/bin.ts', import.meta.url))
+const binScript = fileURLToPath(new URL('./fixtures/headless-driver.ts', import.meta.url))
 const tsconfigPath = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
 const sessionId = SessionId('workspace-context-resume')
 const refreshing = process.env.DSH_SNAPSHOT === 'refresh'
@@ -119,8 +119,9 @@ describe('workspace-context resume snapshot', () => {
       label: 'workspace-context resume headless stream-json snapshot',
       tempDirPrefix: 'dsh-workspace-context-resume-',
       binScript,
+      libBinScript: binScript,
       configPath,
-      binArgs: ['--config', configPath, '--output-format', 'stream-json', 'Acknowledge the current workspace instruction.'],
+      binArgs: [configPath, 'Acknowledge the current workspace instruction.'],
       tsconfigPath,
       env: {
         DSH_SNAPSHOT_FILE: replayFixture,
@@ -175,8 +176,9 @@ describe('workspace-context resume snapshot', () => {
       label: 'workspace-context precedence-change resume snapshot',
       tempDirPrefix: 'dsh-workspace-context-precedence-',
       binScript,
+      libBinScript: binScript,
       configPath,
-      binArgs: ['--config', configPath, '--output-format', 'stream-json', 'Acknowledge the current workspace instruction.'],
+      binArgs: [configPath, 'Acknowledge the current workspace instruction.'],
       tsconfigPath,
       env: {
         DSH_SNAPSHOT_FILE: replayFixture,

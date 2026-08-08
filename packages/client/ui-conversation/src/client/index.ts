@@ -10,14 +10,14 @@ export type { IConversation } from './service.ts'
 export type {
   CallId, ChatStoreState, SelectionTarget, ViewTab,
 } from './contract/views.ts'
-export type { ToolCallBlock } from './contract/tool-call-model.ts'
 export type { ConversationKey } from './locales.ts'
 export type {
+  ChatFileMentions,
   ChatStore, ChatViewInjected, ChatViewSlotProps, CommandRowOwnerProps, CommandRowProps, ComposerBarInjected,
   ComposerChainProps, ConversationInjected,
-  ConversationSessionHeaderInjected, ConversationSessionInjected, ConversationSlotProps,
-  ConvViewOwnerProps, ConvViewProps, DetailsInjected, DetailsSlotProps,
-  EmptyWorkspaceOwnerProps, ToolRowOwnerProps, ToolRowProps, TurnTailOwnerProps,
+  ConversationSessionHeaderInjected, ConversationSessionInjected, ConversationSlotProps, ConvViewOwnerProps,
+  ConvViewProps, DetailsInjected, DetailsSlotProps, DetailsToolOwnerProps, EmptyWorkspaceOwnerProps,
+  ToolTreeOwnerProps, TurnTailOwnerProps,
 } from './contract/slots.ts'
 // Export discipline: packages/client/AGENTS.md.
 

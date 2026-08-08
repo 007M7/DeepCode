@@ -21,7 +21,7 @@
 - **溢出恢复**：提供方已确认的溢出不需容量元数据。它会绕过常规压力与保留，执行剪枝，再尝试一次最大平衡头部缩减，并留下最新不可分单元。只要 `surface.replaceGeneration` 前进，就允许重试，包括剪枝在后续摘要工作抛出异常前已落地的情况。如果没有替换、目标特定上限已耗尽、已取消，或遇到未知／非规范错误，则保留原始提供方失败。
 - **失败处理**：活动的未匹配 `compact/start` 是持久锁。位于较新 `session/end-seed` 之前的未匹配标记，是先前生命周期留下的陈旧证据，不会阻塞；位于该边界之后的标记报告 `busy`。摘要和 span 变更失败会以错误闭合，并保持会话表层不变，但日志中仍保留该尝试。闭合失败会有意留下阻塞性的未匹配标记。压力检查中的运行故障会发出警告并继续；只有此前没有替换推进表层时，溢出恢复失败才保留原始提供方错误。完成清理与持久化后，取消仍具有最终决定权。
 
-受保护的 `summarize()` 方法是唯一的子类钩子。基于模板或远程摘要器的子类可以覆盖该方法，同时压力、保留、溯源、缩减验证与已遮蔽 token 计量仍由 `ctx.tokenMeter` 负责。钩子返回安全摘要，以及完整提供方输出、调用 envelope 和可用时的 usage（`{ summary, rawOutput?, provider, model, maxTokens?, usage? }`）；事务会在 `compact/summary` 上保留这些字段。
+受保护的 `summarize()` 方法是唯一的子类钩子。基于模板或远程摘要器的子类可以覆盖该方法，同时压力、保留、溯源、缩减验证与已遮蔽 token 计量仍由 `ctx.tokenMeter` 负责。钩子返回安全摘要，以及完整提供方输出、调用 envelope 和可用时的 usage（`{ summary, rawOutput?, llmStreamCall?, provider, model, maxTokens?, usage? }`）；`llmStreamCall: true` 表示生成该结果时恰好通过此上下文的 `ctx.llm.stream()` 发起了一次调用，且必须提供完整的 `rawOutput`；未带标记的 `rawOutput` 并不能判定调用路径。事务会在 `compact/summary` 上保留这些字段。
 
 ## 配置（`BasicCompactConfig`）
 

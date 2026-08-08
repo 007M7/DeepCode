@@ -14,9 +14,11 @@ DeepSeek Harness 使用同一原语，使项目特定的评审、插件编写和
 
 `@deepseek-ai/dsh-skill` 是纯提供方注册表（`ctx.skills`），`@deepseek-ai/dsh-skill-local` 是随附的本地文件系统提供方，`@deepseek-ai/dsh-tool-skill` 负责持久化会话目录与面向模型的 loader 工具。`dsh-agent-spine-demo` 默认加载注册表、本地提供方和消费方，使 TUI、headless 与 ACP（Agent Client Protocol）应用获得相同行为，同时嵌入式或远程提供方可在不修改注册表或消费方的前提下贡献 skill。其 `skills` 配置将 `registry`、`local` 和 `tool` 分支分别转发给对应的所有者。
 
+专用的随包提供方可以贡献不可变的 skill，无需文件系统发现。交付的 CLI（命令行界面）默认将 `@deepseek-ai/dsh-skill-badge` 声明为禁用；启用其组合配置行，就会通过同一个注册表和消费方贡献官方徽章指令（见[决策](2026-08-06-bundled-dsh-badge-skill.md)）。
+
 提供方插件在 `apply()` 期间同步注册。提供方成员资格是由直接 effect 持有的状态：注册与 dispose（资源释放）同步地使已完成的目录失效，发现操作按需读取当前提供方映射而非监听注册表变更事件。提供方目录从等待的 `list()` 调用返回排序后的候选项，远程提供方在此过程中执行初始化、认证和发现，同时遵守查找的 abort 信号。注册表校验每个候选项，按排名、提供方注册顺序和提供方内部顺序以先到先得方式解决同名 skill 冲突，然后按 skill 名称排序摘要以保证消费方获得确定性结果。它仅缓存已完成的目录快照，并在发现过程中提供方/运行时修订版本发生变化时重试，因此卸载操作不会将一个陈旧且不可解析的 skill 冻结到会话目录中。运行时 `ctx.skills.register(...)` 仍作为嵌入式进程内 skill 的便捷方式保留，使用 project 优先于 user 的优先级；`runtime` 保留为注册表拥有的提供方名称。
 
-本地提供方按先到先得的排名顺序扫描 cwd 敏感的项目根目录、自定义根目录和用户根目录：项目 `.dsh`、项目 `.agents`、`customSkillDirs`、用户 `.dsh`，然后是用户 `.agents`。用户 `.dsh/skills` 扫描跳过 `.system`，以免系统拥有的目录被当作普通用户内容处理。DeepSeek Harness 不随附内置系统 skill；嵌入式或远程提供方在配置后提供额外 skill。
+本地提供方按先到先得的排名顺序扫描 cwd 敏感的项目根目录、自定义根目录和用户根目录：项目 `.dsh`、项目 `.agents`、`customSkillDirs`、用户 `.dsh`，然后是用户 `.agents`。用户 `.dsh/skills` 扫描跳过 `.system`，以免系统拥有的目录被当作普通用户内容处理。本地提供方不会合成内置系统 skill；已配置的 bundled 根目录和专用提供方会提供额外 skill。
 
 每个 skill 是 `<name>/SKILL.md` 或带 YAML frontmatter 的 `<name>.md`。`name` 和 `description` 为必填；`whenToUse`、`metadata`、`disable-model-invocation` 和 `user-invocable` 为可选。名称采用 kebab-case。调用字段会投影到类型化的嵌套策略中，具体由[模型与用户独立调用决策](2026-07-28-skill-invocation-policy.md)定义；解析器会拒绝旧的驼峰拼写。YAML frontmatter 使用 `yaml` 包（package）解析，而非 `js-yaml` 或手写解析器：`yaml` 是本包有限 frontmatter 需求已声明的现代解析器，窄解析器要么拒绝用户预期可用的合法 YAML，要么膨胀为一个未经评审的 YAML 子集。
 
@@ -48,7 +50,7 @@ DeepSeek Harness 使用同一原语，使项目特定的评审、插件编写和
 
 agent-core 主干包含一个目录贡献者、一个本地提供方和一个面向模型的工具。Skill 发现是 cwd 敏感的，因此以不同会话 cwd 值创建 agent 的调用方可以按设计观察到不同的项目 skill 覆盖。
 
-目录对于固定的根目录集合和运行时注册修订版本是确定性的，但不监视磁盘变化；发现结果被缓存，直到运行时注册使缓存失效或进程重启。
+目录对于固定的根目录集合和运行时注册修订版本是确定性的。本地提供方会监视已配置的根目录，并在发生相关磁盘变化后使已完成的目录失效；运行时注册和提供方释放也会使其失效。
 
 ## 延后
 

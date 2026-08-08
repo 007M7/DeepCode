@@ -4,6 +4,7 @@
  * own follow-along `locations`, never the closing prose.
  */
 import type { ConversationNode, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
+import type { MarkdownFileMentions } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 
 /**
@@ -87,4 +88,46 @@ export function selectProducedFiles(owner: TurnTailOwnerProps): readonly string[
   const { nodes, seq } = owner
   const paths = producedForClosing(nodes, seq)
   return paths.length === 0 ? null : paths
+}
+
+/**
+ * Trailing path segment, the part that identifies the file at a glance.
+ * @param path - Slash- or backslash-separated path.
+ * @returns The final segment, or the whole string when separator-free.
+ */
+export function basename(path: string): string {
+  const at = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'))
+  return at === -1 ? path : path.slice(at + 1)
+}
+
+/**
+ * File-mention vocabulary over one turn's produced paths, for the closing
+ * message's prose: an inline-code token opens the file it names. A token
+ * resolves by exact path, or by being exactly the basename of exactly one
+ * produced path — a basename two paths share stays inert rather than
+ * guessing, so a mention link can never open the wrong file or 404.
+ * @param paths - The turn's produced paths (tool order, already deduped).
+ * @param openFile - The chat view's file opener.
+ * @param label - Localizes the accessible open-label for a resolved path.
+ * @returns The resolver MarkdownText consumes; the full path rides `title`,
+ * the same disambiguator the row's chips carry.
+ */
+export function producedFileMentions(
+  paths: readonly string[],
+  openFile: (path: string) => void,
+  label: (path: string) => string,
+): MarkdownFileMentions {
+  return {
+    resolve(value) {
+      const path = paths.includes(value) ? value : onlyPathWithBasename(paths, value)
+      if (path === undefined) return undefined
+      return { open: () => { openFile(path) }, label: label(path), title: path }
+    },
+  }
+}
+
+/** The single produced path whose basename is exactly `value`, else undefined. */
+function onlyPathWithBasename(paths: readonly string[], value: string): string | undefined {
+  const matches = paths.filter(path => basename(path) === value)
+  return matches.length === 1 ? matches[0] : undefined
 }

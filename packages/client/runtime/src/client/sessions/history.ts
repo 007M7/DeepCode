@@ -1,7 +1,7 @@
 import type { ToolSchema } from '@deepseek-ai/dsh-llm/types'
 import type { HistoryEntry } from '@deepseek-ai/dsh-client-connection/client'
 import type {
-  CodeSubCall, ConversationNode, PartialAssistant, RunningToolCall,
+  ConversationNode, PartialAssistant, RunningToolCall,
 } from './conversation.ts'
 import type { ConversationContext } from './conversation-context.ts'
 import { projectConversationHistory } from '../session-history/history-fold.ts'
@@ -34,7 +34,6 @@ export interface SessionHistoryInspection {
   interruptedNodes: readonly ConversationNode[]
   partial: PartialAssistant | null
   runningCalls: readonly RunningToolCall[]
-  codeDispatches: ReadonlyMap<string, readonly CodeSubCall[]>
 }
 
 /**
@@ -111,9 +110,6 @@ export function createHistoryInspection(
     },
     get runningCalls() {
       return conversationProjection().runningCalls
-    },
-    get codeDispatches() {
-      return conversationProjection().codeDispatches
     },
     get requests() {
       return requestProjection().requests

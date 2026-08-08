@@ -20,7 +20,7 @@ const childReplay = join(fixtureDir, 'child.replay.jsonl')
 const parentExpected = join(fixtureDir, 'parent.expected.jsonl')
 const childExpected = join(fixtureDir, 'child.expected.jsonl')
 const configPath = fileURLToPath(new URL('../subagent-inheritance.cordis.snapshot.yml', import.meta.url))
-const binScript = fileURLToPath(new URL('../../../packages/examples/cli-demo/src/bin.ts', import.meta.url))
+const binScript = fileURLToPath(new URL('./fixtures/headless-driver.ts', import.meta.url))
 const tsconfigPath = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
 const sessionId = SessionId('subagent-inheritance-parent')
 const refreshing = process.env.DSH_SNAPSHOT === 'refresh'
@@ -59,8 +59,9 @@ describe('parent-only override inheritance snapshot', () => {
       label: 'subagent inheritance headless stream-json snapshot',
       tempDirPrefix: 'dsh-subagent-inherit-',
       binScript,
+      libBinScript: binScript,
       configPath,
-      binArgs: ['--config', configPath, '--output-format', 'stream-json', task],
+      binArgs: [configPath, task],
       tsconfigPath,
       env: {
         // The primary fixture path must exist for llm-replay's config guard;

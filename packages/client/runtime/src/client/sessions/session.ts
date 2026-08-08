@@ -13,7 +13,7 @@ import type {
 import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { SessionFace } from '../contract/session.ts'
 import type {
-  CodeSubCall, ComposerPhase, ConversationNode, ConversationSnapshot, ModelRetryNode,
+  ComposerPhase, ConversationNode, ConversationSnapshot, ModelRetryNode,
   OpenState, PromptError, QueuedMessage, RunningToolCall,
 } from './conversation.ts'
 import type { PendingInteraction } from './pending.ts'
@@ -24,6 +24,7 @@ import { Notifier } from './notifier.ts'
 import { isVisibleAssistantChunk, PartialAccumulator } from './partial.ts'
 import { ProjectionValueStore } from './projection-store.ts'
 import type { ProjectionsBaseline } from './projection-store.ts'
+import { ToolCallTree } from './tool-call-tree.ts'
 
 /** Messages requested per history page. */
 export const PAGE_MESSAGES = 50
@@ -129,11 +130,8 @@ export class Session implements SessionFace {
   private queued: QueuedMessage[] = []
   private queueRev = 0
   private queueCache: { rev: number; value: QueuedMessage[] } | null = null
-  /** `run_code` sub-dispatches by parent callId (window-derived, like openCalls). Appends
-   *  copy-on-write the per-parent array so published snapshot references never mutate. */
-  private codeDispatches = new Map<string, readonly CodeSubCall[]>()
-  private dispatchesRev = 0
-  private dispatchesCache: { rev: number; value: ReadonlyMap<string, readonly CodeSubCall[]> } | null = null
+  /** Window-derived child-call lifecycle and immutable tree projection. */
+  private readonly toolCallTree = new ToolCallTree()
   private running = false
   private address: SubagentAddress | undefined
   private parentAvailable = false
@@ -283,17 +281,22 @@ export class Session implements SessionFace {
 
   /**
    * Stop the active turn while the Host preserves pending inbox work; failures
-   * land in promptError (same error-strip display slot).
+   * land in promptError (same error-strip display slot). A continuable
+   * subagent address routes through `subagent.interrupt`, whose durable
+   * parent-address authority works without a live parent Agent; a one-shot
+   * address stays uncancellable (the UI offers no stop action, so this arm is
+   * defensive).
    * @returns the cancel result.
    */
   async cancel(): Promise<RpcResult<{ accepted: true }>> {
-    if (this.address !== undefined) {
+    const address = this.address
+    if (address !== undefined && address.mode === 'one-shot') {
       const result: RpcResult<{ accepted: true }> = {
         ok: false,
         error: {
           code: 'subagent-delivery-unavailable',
           message: 'subagent activation cancellation is unavailable',
-          details: { childSessionId: this.address.childSessionId },
+          details: { childSessionId: address.childSessionId },
         },
       }
       this.promptError = { op: 'stop', error: result.error }
@@ -302,7 +305,9 @@ export class Session implements SessionFace {
     }
     let result: RpcResult<{ accepted: true }>
     try {
-      result = (await this.api.sessions.cancel({ sessionId: this.sessionId })).result
+      result = address !== undefined
+        ? (await this.api.subagents.interrupt(address)).result
+        : (await this.api.sessions.cancel({ sessionId: this.sessionId })).result
     } catch (error) {
       result = transportError(error)
     }
@@ -746,65 +751,10 @@ export class Session implements SessionFace {
       this.derivedRev++
       return
     }
-    // The `tool/code-dispatch-start`/`tool/code-dispatch` pair is declared by
-    // the host-side dsh-tools plugin whose types cannot enter the client
-    // program (its host Context merges collide with the client's), so this
-    // wire consumer narrows them structurally — the same posture as every
-    // other cross-wire event payload.
-    if ((event.type as string) === 'tool/code-dispatch-start') {
-      // A started sub-dispatch enters the index as a RunningToolCall — the
-      // exact shape a native in-flight call renders from — under its parent
-      // run_code callId; it never joins the surface flow.
-      const data = event.data as unknown as {
-        parentCallId: string
-        subCallId: string
-        name: string
-        arguments: unknown
-      }
-      const running: CodeSubCall = {
-        callId: data.subCallId, name: data.name,
-        argsRaw: JSON.stringify(data.arguments),
-        turn: 0, step: 0, time: event.time, callView: null,
-      }
-      const siblings = this.codeDispatches.get(data.parentCallId) ?? []
-      this.codeDispatches.set(data.parentCallId, [...siblings, running])
-      this.dispatchesRev++
-      return
-    }
-    if ((event.type as string) === 'tool/code-dispatch') {
-      // Settlement replaces the running entry in place (same array position,
-      // so parallel sub-calls keep their start order) with the
-      // ToolResultNode form; a settle with no observed start (history window
-      // cut mid-pair, or a pre-start-event log) appends directly.
-      const data = event.data as unknown as {
-        parentCallId: string
-        subCallId: string
-        name: string
-        arguments: unknown
-        isError: boolean
-        content: ContentBlock[]
-      }
-      const siblings = this.codeDispatches.get(data.parentCallId) ?? []
-      const at = siblings.findIndex(sub => sub.callId === data.subCallId)
-      const started = at === -1 ? undefined : siblings[at]
-      const settled: CodeSubCall = {
-        kind: 'tool-result', seq: event.seq, time: event.time,
-        callId: data.subCallId,
-        call: { name: data.name, argsRaw: JSON.stringify(data.arguments) },
-        // Duration source: the paired start's time when observed; null =
-        // unknown (settle-only window), matching the native tool-result
-        // contract so views never present a fabricated zero duration.
-        callTime: started === undefined ? null : started.time,
-        content: data.content, isError: data.isError,
-        callView: null, resultView: null,
-      }
-      this.codeDispatches.set(
-        data.parentCallId,
-        at === -1 ? [...siblings, settled] : siblings.map((sub, index) => (index === at ? settled : sub)),
-      )
-      this.dispatchesRev++
-      return
-    }
+    // These lifecycle events are declared by a host-only plugin whose Context
+    // types cannot enter the client program. ToolCallTree owns their structural
+    // wire narrowing, pairing, and nested snapshot projection.
+    if (this.toolCallTree.apply(event)) return
     switch (event.type) {
       case 'turn/start':
         this.lastStepByTurn.set(event.data.turn, 0)
@@ -834,6 +784,7 @@ export class Session implements SessionFace {
           callId: String(event.data.callId), name: event.data.name, argsRaw: event.data.arguments,
           turn: event.data.turn, step: event.data.step, time: event.time,
           callView: view?.for === 'call' ? view.view : null,
+          subCalls: [],
         })
         this.callsRev++
         return
@@ -901,7 +852,7 @@ export class Session implements SessionFace {
             call: { name: call.name, argsRaw: call.argsRaw },
             callTime: call.time,
             content: [], isError: true, error: { name: 'Interrupted', code: 'interrupted' },
-            callView: call.callView, resultView: null,
+            callView: call.callView, resultView: null, subCalls: [],
           })
           this.derivedRev++
         }
@@ -948,8 +899,7 @@ export class Session implements SessionFace {
     this.turnTimingsRev++
     this.turnEnds = new Map()
     this.turnEndsRev++
-    this.codeDispatches = new Map()
-    this.dispatchesRev++
+    this.toolCallTree.reset()
     for (let i = 0; i < this.events.length; i++) {
       const event = this.events[i]
       /* v8 ignore next -- dense-array guard: i stays within events.length, so the undefined arm needs a sparse array no caller builds. */
@@ -988,22 +938,18 @@ export class Session implements SessionFace {
     if (this.pendingCache === null || this.pendingCache.rev !== this.pendingRev) {
       this.pendingCache = { rev: this.pendingRev, value: [...this.pending.values()] }
     }
-    if (this.dispatchesCache === null || this.dispatchesCache.rev !== this.dispatchesRev) {
-      this.dispatchesCache = { rev: this.dispatchesRev, value: new Map(this.codeDispatches) }
-    }
     if (this.queueCache === null || this.queueCache.rev !== this.queueRev) {
       this.queueCache = { rev: this.queueRev, value: this.queued }
     }
     const partial = this.partial?.toPartial() ?? null
     return {
       sessionId: this.sessionId,
-      nodes,
+      nodes: this.toolCallTree.projectNodes(nodes),
       turnTimings: this.turnTimingsCache.value,
       turnEnds: this.turnEndsCache.value,
       partial,
-      runningCalls: this.callsCache.value,
+      runningCalls: this.toolCallTree.projectRunningCalls(this.callsCache.value),
       pending: this.pendingCache.value,
-      codeDispatches: this.dispatchesCache.value,
       queue: this.queueCache.value,
       running: this.running,
       subagent: this.address === undefined

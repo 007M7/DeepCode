@@ -1,5 +1,5 @@
 /**
- * Shared boot glue for the app bins (`dsh`, `dsh-cli-demo`, `dsh-acp-demo`): load the gitignored
+ * Shared boot glue for the app bins (`dsh`, `dsh-acp-demo`): load the gitignored
  * `.env`, install the fail-loud Loader guards, resolve the config path (snapshot-aware), load the
  * optional user patch layers from the Harness home (`~/.dsh`), expose its path resolver to
  * config expressions, and drive the Cordis Loader against a leaf `cordis.yml` until the tree settles.

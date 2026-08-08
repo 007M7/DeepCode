@@ -16,7 +16,7 @@ This zero-config function plugin consumes `ctx.sessions`, `ctx.llm`, `ctx.tools`
   name: '@deepseek-ai/dsh-session-checkpoint-policy'
 ```
 
-Persistence and checkpoint scheduling are intentionally separate Cordis plugins. A persistence backend eagerly writes `session/event` appends and makes each requested `session/flush` an observation barrier; this policy chooses the request, tool-dispatch, and next-step barriers. Loading a backend without this policy is valid, but a crash may lose the latest eagerly buffered events. First-party persisted apps and runtimes mount both plugins explicitly; a specialized deployment may deliberately omit or replace the policy.
+Persistence and checkpoint scheduling are intentionally separate Cordis plugins. A persistence backend starts bounded background batches for `session/event` appends and makes each requested `session/flush` an immediate quiescence barrier; this policy chooses the request, tool-dispatch, and next-step barriers. Loading a backend without this policy is valid, but a crash may lose events still inside the configured batching window or an outstanding write. First-party persisted apps and runtimes mount both plugins explicitly; a specialized deployment may deliberately omit or replace the policy.
 
 The policy wraps `llm/stream` lazily, so the downstream stream is not constructed until the live session's buffered request events are durable. It wraps `tools/execute` after pre-execute policy and guards; a top-level tool body runs only after its recorded call is durable. If cancellation lands while that flush is pending, the wrapper returns the canonical `ABORTED_BEFORE_DISPATCH` result without entering the tool body. Nested tool dispatches reuse the outer model-visible call's checkpoint. `agent/pre-step` persists the preceding response/result batch before request derivation.
 
@@ -41,5 +41,5 @@ The repair result is appended after the reusable prefix, so it does not invalida
 ## Known Limitations and Deferred Work
 
 - The policy durably records execution intent, not generic exactly-once effects. Side-effecting tools should forward `exec.callId` as an idempotency key when their provider supports one.
-- Streaming `assistant/chunk` events have no per-chunk checkpoint. They reach storage with the next semantic checkpoint, so a hard crash may lose the current partial response.
+- Streaming `assistant/chunk` events have no per-chunk checkpoint. Bounded background batches normally persist them before the next semantic checkpoint, but a hard crash may lose the current in-memory batch or outstanding write.
 - A persisted call without a result cannot prove whether its external effect completed. Recovery therefore records an unknown outcome instead of retrying automatically.

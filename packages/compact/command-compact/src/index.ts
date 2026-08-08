@@ -68,6 +68,7 @@ async function executeCompact(
     return {
       kind: 'success',
       text: `Compacted ${result.shadowedSeqs.length} history items (~${result.shadowedTokenCount} tokens).`,
+      sourceEventSeq: result.summarySeq,
     }
   } catch (error: unknown) {
     if (invocation.signal.aborted) return { kind: 'error', text: 'Compaction cancelled.' }
