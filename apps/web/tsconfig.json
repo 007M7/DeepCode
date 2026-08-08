@@ -38,6 +38,7 @@
     "tests/settings-chrome.e2e.ts",
     "tests/models-settings.e2e.ts",
     "tests/default-model.e2e.ts",
+    "tests/declared-reasoning.e2e.ts",
     "tests/onboarding-deepseek-config.e2e.ts",
     "tests/remote-welcome.e2e.ts",
     "tests/workspace-management.e2e.ts",
