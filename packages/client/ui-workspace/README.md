@@ -16,7 +16,7 @@ Session rows render the runtime's live `pendingInteraction` classification: appr
 
 Both target slots are declared by other plugins, so `apply` uses `slots.inject()` to register for each declaration lifetime and re-register after a declaring slot is restored.
 
-The shared sidebar projection hides rows whose durable Session summary has `origin: 'subagent'`; users enter those conversations through the selected parent's subagent header catalog. Ordinary forks remain visible because lineage alone does not set that origin. The runtime keeps hidden rows available for conversation, title, and addressed transport state.
+The shared sidebar projection hides rows whose durable Session summary has `origin: 'subagent'`; users enter those conversations through the selected parent's subagent header catalog. Each visible ordinary row inherits the blue activity indicator while any descendant reached through uninterrupted subagent-origin lineage is running, and its hover and assistive text report the exact running-descendant count without describing an idle parent as running. Ordinary forks remain visible and terminate this aggregation because lineage alone does not set their origin. Pending user interaction remains the primary row marker while descendant activity stays available as a separate hover and assistive status. The runtime keeps hidden rows available for conversation, title, and addressed transport state.
 
 ## Model Experience
 
