@@ -8,11 +8,11 @@ Status: implemented
 
 bash 工具的调用与结果都声明 `card: 'terminal'`（[渲染意图联合类型](../architecture/2026-07-02-tool-render-intent-union.md)）：调用视图携带命令、一段可选的模型撰写描述以及工作目录，结果视图携带输出、退出码与终止信号。该视图早已抵达浏览器——host、connection 与 runtime 把它投递到 `ConversationSnapshot` 的 `callView`/`resultView` 上——原 TUI 曾把它渲染为带 `$` 提示符的卡片，附退出行与首尾高度上限。
 
-Web client 却对它视而不见。`packages/client/ui-conversation/src/client/contract/tool-call-model.ts` 仅从原始工具参数推导每一行，`skeleton/DetailsPanel.tsx` 则把所有工具的内容块压平进一个 `<pre>`，样式为 `white-space: pre-wrap; word-break: break-word`。软换行加上没有高度约束，带来两个缺陷：多列输出（`ls`、表格、制表符绘图）被折成一段文字，丢掉了这类输出赖以存在的列对齐；而单列的长列表会把详情面板拉长到与列表等长。
+Web client 却对它视而不见。`packages/client/ui-tool/src/client/tool/models/tool-call-model.ts` 仅从原始工具参数推导每一行，`skeleton/DetailsPanel.tsx` 则把所有工具的内容块压平进一个 `<pre>`，样式为 `white-space: pre-wrap; word-break: break-word`。软换行加上没有高度约束，带来两个缺陷：多列输出（`ls`、表格、制表符绘图）被折成一段文字，丢掉了这类输出赖以存在的列对齐；而单列的长列表会把详情面板拉长到与列表等长。
 
 ## Decision
 
-`TerminalBlock` 是 `ui-primitives` 中把 shell 命令渲染为终端表面的组件，bash 调用在 Web 侧的两个渲染点都经由它消费 terminal 渲染意图：聊天工具行展开后的正文，以及详情面板的 Output 区。`ui-tool/src/client/models/terminal-card-model.ts` 是把快照上的 `callView`/`resultView` 这一对转换为该组件 props 的唯一位置，因此两个渲染点不可能在命令、cwd 或退出状态上产生分歧。当两侧都不声明 `card: 'terminal'` 时它返回 null，即走 generic 路径——包括本 client 版本不认识的 `card` 取值；当一个已落定调用的结果视图是 generic 时同样返回 null，这正是 bash 工具的执行错误与后台启动得以保持既有渲染的方式。渲染意图契约交给 UI 桥接层的两项职责也落在这里，而不在工具侧：已落定结果的 `title` **替换**待定标题；工作目录针对会话 workspace 解析——视图给出的绝对路径原样使用，相对路径在 workspace 之下拼接，省略则**就是** workspace，而这正是不带 `workdir` 的 bash 调用的常见情形。纯 presenter 看不到会话 cwd，因此该解析属于这道接缝；两个渲染点各自从会话列表行取出 cwd 传入。只有**存在**的调用视图才能表示「省略了 cwd，因此取 workspace」：当分页窗口丢掉调用头时，任何地方都不再有 cwd——结果视图并不携带它——而原调用完全可能使用过一个显式 workdir，因此提示行绘制一个裸 `$`，而不是命名一个它无法知晓的目录。解析后的路径还会归一化其 `.`／`..` 段，因为 bash 执行器在运行前就已解析 workdir：相对 `/w/app` 的 `..` 实际运行在 `/w`，因此提示标签必须读作 `w` 而不是 `..`。UNC 路径的 `server` 与 `share` 属于其根，而非可弹出的路径段，因为 Windows 无法越过一个共享向上。调用视图的 `description` 走同一处推导，因为契约把它渲染在卡片上方，且它必须优先于该行由参数推导出的摘要。三个渲染点都会绘制它：两种聊天行形态与详情面板。展开后的行自行绘制它，因为一行处于展开态时其折叠摘要是隐藏的——否则该描述将只在折叠时可见，这与「位于卡片上方」的含义正好相反。
+`TerminalBlock` 是 `ui-primitives` 中把 shell 命令渲染为终端表面的组件，bash 调用在 Web 侧的两个渲染点都经由它消费 terminal 渲染意图：聊天工具行展开后的正文，以及详情面板的 Output 区。`packages/client/ui-tool/src/client/tool/models/terminal-card-model.ts` 是把快照上的 `callView`/`resultView` 这一对转换为该组件 props 的唯一位置，因此两个渲染点不可能在命令、cwd 或退出状态上产生分歧。当两侧都不声明 `card: 'terminal'` 时它返回 null，即走 generic 路径——包括本 client 版本不认识的 `card` 取值；当一个已落定调用的结果视图是 generic 时同样返回 null，这正是 bash 工具的执行错误与后台启动得以保持既有渲染的方式。渲染意图契约交给 UI 桥接层的两项职责也落在这里，而不在工具侧：已落定结果的 `title` **替换**待定标题；工作目录针对会话 workspace 解析——视图给出的绝对路径原样使用，相对路径在 workspace 之下拼接，省略则**就是** workspace，而这正是不带 `workdir` 的 bash 调用的常见情形。纯 presenter 看不到会话 cwd，因此该解析属于这道接缝；两个渲染点各自从会话列表行取出 cwd 传入。只有**存在**的调用视图才能表示「省略了 cwd，因此取 workspace」：当分页窗口丢掉调用头时，任何地方都不再有 cwd——结果视图并不携带它——而原调用完全可能使用过一个显式 workdir，因此提示行绘制一个裸 `$`，而不是命名一个它无法知晓的目录。解析后的路径还会归一化其 `.`／`..` 段，因为 bash 执行器在运行前就已解析 workdir：相对 `/w/app` 的 `..` 实际运行在 `/w`，因此提示标签必须读作 `w` 而不是 `..`。UNC 路径的 `server` 与 `share` 属于其根，而非可弹出的路径段，因为 Windows 无法越过一个共享向上。调用视图的 `description` 走同一处推导，因为契约把它渲染在卡片上方，且它必须优先于该行由参数推导出的摘要。三个渲染点都会绘制它：两种聊天行形态与详情面板。展开后的行自行绘制它，因为一行处于展开态时其折叠摘要是隐藏的——否则该描述将只在折叠时可见，这与「位于卡片上方」的含义正好相反。
 
 该组件的契约：
 
@@ -27,7 +27,7 @@ Web client 却对它视而不见。`packages/client/ui-conversation/src/client/c
 
 ### 聊天行内嵌输出推翻了一条既有约定
 
-`chat/ToolRow.tsx` 与 `contract/tool-call-model.ts` 都断言过「绝不内嵌输出——完整结果在详情面板」。在行内显示终端块推翻了这一点，依据是 owner 的明确决定。
+`packages/client/ui-tool/src/client/tool/components/ToolRow.tsx` 与 `packages/client/ui-tool/src/client/tool/models/tool-call-model.ts` 都断言过「绝不内嵌输出——完整结果在详情面板」。在行内显示终端块推翻了这一点，依据是 owner 的明确决定。
 
 这次推翻成立的理由：对 shell 命令而言，输出**就是**用户要读的结果，把它专门收进面板会让最常见的情形变成两步交互。行内一个有界、限高、不换行的终端块，正是让 bash 密集的 transcript 一遍读完的条件。旧规则真正担心的是行高不受输出长度约束，而高度上限加展开控件正是防止其复现的机制。
 

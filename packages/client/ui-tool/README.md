@@ -32,7 +32,7 @@ This package currently owns the generic fallback and the built-in bash/pwsh, rea
 
 ## Model Experience
 
-None. This package renders already logged Tool calls and results and does not alter model requests, Tool execution, or session events.
+None, as this package renders already logged Tool calls and results without altering model requests, Tool execution, or session events.
 
 #### KV Cache effect
 

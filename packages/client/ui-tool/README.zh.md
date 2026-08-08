@@ -32,7 +32,7 @@ owner 载荷为 `ToolCallOwnerProps`：`callId`、`toolName`、冻结的 `block`
 
 ## 模型体验
 
-无。本包只渲染已经记录的 Tool 调用和结果，不改变模型请求、Tool 执行或 Session Event。
+无，因为本包只渲染已经记录的 Tool 调用和结果，不改变模型请求、Tool 执行或 Session Event。
 
 #### KV Cache 影响
 
