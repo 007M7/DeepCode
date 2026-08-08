@@ -109,9 +109,6 @@ int wmain()
 	P(WRITE_RESTRICTED);
 
 	P((int)WinWorldSid);
-	P((int)WinLocalSid);
-	P((int)WinInteractiveSid);
-	P((int)WinAuthenticatedUserSid);
 	P((int)WinLocalLogonSid);
 	P((int)WinConsoleLogonSid);
 

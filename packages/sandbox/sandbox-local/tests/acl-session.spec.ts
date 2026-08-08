@@ -199,7 +199,7 @@ describe('windows-acl per-session grant (LocalSandboxProvider)', () => {
       expect(mockState.grants).toHaveLength(1)
 
       // Downgrade: the standing grant is KEPT — never revoked, never
-      // re-granted. The read-only restricted token's list I carries no
+      // re-granted. The read-only restricted token's list carries no
       // orphan SID (pinned by the windows-acl runner regression), so the
       // ACE is inert under read-only while the map hit keeps the
       // re-upgrade free of eager propagation.

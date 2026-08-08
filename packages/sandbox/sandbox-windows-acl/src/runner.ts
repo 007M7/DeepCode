@@ -15,9 +15,12 @@
  *  - workspace-write: the workspace and temp directories carry the orphan-SID
  *    Write grant; every other write is denied by the token intersection.
  *  - read-only: STRICT zero grants — no directory is writable, not even the
- *    NUL device (`> $null` fails with access denied); the token's restricting
- *    list also drops Authenticated Users (CIM unavailable — documented in
- *    README).
+ *    NUL device (`> $null` fails with access denied); the restricting list
+ *    carries no orphan SID, so a standing grant ACE from an earlier
+ *    workspace-write period stays inert. BOTH modes drop Authenticated Users
+ *    (CIM unavailable — documented in README) and INTERACTIVE/LOCAL (the
+ *    Public tree writes are denied); the two lists share the keep-alive group
+ *    (logon SID, EVERYONE) and differ only by the orphan.
  *
  * `--write-sid`: the seam's per-session grant contract — the CALLER has
  * already materialized the orphan-SID ACEs (once per session, server

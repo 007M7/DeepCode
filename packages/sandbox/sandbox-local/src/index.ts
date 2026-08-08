@@ -381,7 +381,7 @@ export class LocalSandboxProvider extends SandboxProvider {
    * NOTHING — its token alone restricts every write, and a standing grant
    * from an earlier workspace-write period is KEPT through a downgrade
    * (never revoked): the read-only restricted token carries no orphan SID
-   * (list I), so the ACE is inert there, while the map hit keeps the
+   * (the read-only list), so the ACE is inert there, while the map hit keeps the
    * re-upgrade free of re-propagation. Fail-closed: a half-materialized
    * grant is revoked before the error propagates.
    * @param record - the session's durable record.

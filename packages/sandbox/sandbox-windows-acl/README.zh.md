@@ -40,9 +40,11 @@ runner 创建受限令牌，在令牌下启动被包裹的 argv，stdio 直接�
 
 **按会话授权复用**（`--write-sid`）：seam 为每个会话只配置一个孤儿 SID——以仅作日志记录的 `sandbox/acl-session` 事件写入会话日志，因此恢复的会话回放**同一个** SID，fork 则铸造一个新的——并在会话首次受限执行时惰性物化其 ACE，在**服务器**进程生命周期内持有（提供方 dispose 时撤销）。传入 `--write-sid` 时 runner 既不授权也不回收（`manageDacls: false`）；不传它（独立使用）则与之前一样按调用自行管理授权。重启后重新授权是幂等的：`grantWrite` 读取当前 DACL，当完全相同的 ACE 已存在时跳过 `SetNamedSecurityInfoW` 的应用（该应用会把相同的 ACE 急切地重新传播到整棵树——大型工作区上以分钟计）。异常关闭遗留的 ACE 无需垃圾回收：会话记录重新授权同一个 SID，下一次 dispose 即撤销它们。已知代价：在大型工作区树上物化授权会阻塞整次急切传播，每个服务器生命周期内每会话一次。
 
-模式（令牌的 restricting SID 列表随模式而定）：
-- `workspace-write`（列表 J = 登录 SID、Everyone、Authenticated Users、孤儿 SID）：工作区与会话的**私有**临时子目录携带孤儿 SID 的 Write 授权；其余写全部被令牌交集拒绝。Authenticated Users 保留在列表中，CIM 路径才能继续工作（`Get-CimInstance`、`Get-ComputerInfo`）；代价是残留的 Authenticated Users 可写面——尤其是 C:\ 盘根，那里驻留的 `AU:(AD)` + `AU:(OI)(CI)(IO)(M)` ACE 允许 AU 受限的子进程通过创建目录树逃逸——见设计笔记。
-- `read-only`（列表 I = 登录 SID、Everyone——不含孤儿 SID）：**严格零授权**——没有任何可写位置，令牌还**去掉** Authenticated Users，让环境写入面归零（上述 C:\ 根逃逸被关闭）。孤儿 SID 有意留在列表 I **之外**：先前 workspace-write 时期留下的驻留授权 ACE（`/permission` 降级，或崩溃后恢复的会话）在 read-only 下保持**失效**，因为 write-restricted 的 pass-2 检查只授予 restricting 列表所携带的内容——而未撤销的 ACE 让重新升级免于重新传播。NUL 设备是带安全描述符的对象，同样不被授权（区别于 Linux 的 `/dev/null` sink）：`Set-Content NUL` 与原生 `> NUL` 写会以 access denied 失败，而 PowerShell 的 `> $null` 重定向不受影响（它直接丢弃、不打开 NUL）。代价是 CIM 不可用：WMI 命名空间安全检查失败（`0x80041003`），因此 CIM cmdlet 与 `Get-ComputerInfo`（静默返回不完整结果而非报错）不可用——模型可见面文档化的是这一契约，而非提示词承诺。
+模式（令牌的 restricting SID 列表随模式而定；保活组在**两种**模式下都是登录 SID + Everyone——没有它们，早期 DLL init 会以 `0xC0000142` 死亡，CNG 会让 pwsh 以 `0xE0434352` 崩溃）：
+- `workspace-write`（登录 SID、Everyone、孤儿 SID）：工作区与会话的**私有**临时子目录携带孤儿 SID 的 Write 授权；其余写全部被令牌交集拒绝。
+- `read-only`（登录 SID、Everyone——不含孤儿 SID）：**严格零授权**——没有任何可写位置。孤儿 SID 有意留在列表**之外**：先前 workspace-write 时期留下的驻留授权 ACE（`/permission` 降级，或崩溃后恢复的会话）在 read-only 下保持**失效**，因为 write-restricted 的 pass-2 检查只授予 restricting 列表所携带的内容——而未撤销的 ACE 让重新升级免于重新传播。NUL 设备是带安全描述符的对象，同样不被授权（区别于 Linux 的 `/dev/null` sink）：`Set-Content NUL` 与原生 `> NUL` 写会以 access denied 失败，而 PowerShell 的 `> $null` 重定向不受影响（它直接丢弃、不打开 NUL）。
+
+Authenticated Users 在**两种**列表中都缺席——WMI 命名空间安全检查失败（`0x80041003`），因此 CIM cmdlet 与 `Get-ComputerInfo`（静默返回不完整结果而非报错）在**每一种**受限模式下都不可用，且 C:\-root 建树逃逸（驻留的 `AU:(AD)` + `AU:(OI)(CI)(IO)(M)` ACE）在两种模式下都被关闭——模型可见面文档化的是这一契约，而非提示词承诺。INTERACTIVE/LOCAL 同样在**两种**列表中都缺席：宿主的 Public 树把写权限授予 INTERACTIVE，因此 Public 写入会被拒绝——由 runner 的环境可写 Public-probe 回归钉住（见设计笔记）。
 
 `AclSandbox` 类（`tempDir: null` 关闭临时目录授权）仍是直接 spawn 场景的程序化 API；`AclWriteGrant` 是按会话契约中服务器侧的物化半边。
 
@@ -81,5 +83,5 @@ g++ -std=c++20 -municode -O2 -o abi-probe.exe verify/abi-probe.cpp -ladvapi32 &&
 - **授权物化是急切的全树传播。** 对带可继承 ACE 的目录调用 `SetNamedSecurityInfoW` 会立即遍历每个后代（**不是**按访问惰性求值——实测在大型工作区树加上真实临时根上要几十秒）。按会话复用使它在每个服务器生命周期内每会话只付一次（在首次受限执行时惰性发生；完全相同的 ACE 历经重启存活时整体跳过）；自管理的 runner 回退路径仍每次调用都付。若会话的工作区巨大，每个服务器生命周期内的第一次 pwsh 调用会相应地变慢。
 - **在两个服务器进程中并发恢复同一会话会产生两个 SID。** 持久化记录存放在会话日志中；两个进程各自读取或创建记录，按路径的锁保持 DACL 合并一致，最后写入的记录胜出并用于后续恢复——落败 SID 的 ACE 由其所属进程的 dispose 撤销。单写者的会话用法（常规部署形态）不会遇到这种情况。
 - **读侧隔离与网络策略超出范围** —— `WRITE_RESTRICTED` 只对写访问做交集检查；更强的隔离需叠加读侧策略。
-- **宽目录与 FAT 卷警告留待后续** —— 针对异常宽的目录或 FAT 类（无 ACL）卷授权的 UI 侧警告尚未实现；FAT 卷只会让授权立即报错。
+- **宽目录与 FAT 卷警告留待后续；FAT 类目标保持可写。** 针对异常宽的目录或 FAT 类（无 ACL）卷授权的 UI 侧警告尚未实现，且 FAT 卷作为授权**根**时只会让授权立即报错（无 ACL 支持）。位于授权根**之外**的 FAT 类目标则不同：它没有安全描述符，因此受限令牌的写检查会通过（Everyone 在两种列表中都存在），这类目标在**两种**受限模式下都可写。FAT 视作历史残留——不支持、不工程化应对；这一仅警告性姿态在此记录成文，而非加以缓解。
 - **两种受限模式都以 ConstrainedLanguage 运行 `pwsh`。** 受限令牌触发 PowerShell 的锁定检测，因此在 `read-only` 与 `workspace-write` 下语言模式都是 ConstrainedLanguage：`Add-Type`（C# 编译、P/Invoke）、非核心 .NET 静态调用（`[System.IO.*]::`、`[math]::`、`[Environment]::`）、COM 对象与反射都会以 `Cannot create type` / `Cannot invoke method`（“only core types”）错误失败，且 `$ExecutionContext.SessionState.LanguageMode = 'FullLanguage'` 会被拒绝。核心 cmdlet、核心类型（`[string]`、`[datetime]`、`[regex]`、`[guid]`）、`-f` 格式化与属性访问继续工作。`pwsh` 工具描述把这一契约教给模型；`danger-full-access` 调用不受隔离、以 FullLanguage 运行。

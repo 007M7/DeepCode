@@ -195,14 +195,9 @@ export class AclSandbox {
       this.sidAllocations.push(logonSid)
       const worldSid = makeWellKnownSid(api, abi.WinWorldSid)
       this.sidAllocations.push(worldSid)
-      const authUserSid = makeWellKnownSid(api, abi.WinAuthenticatedUserSid)
-      this.sidAllocations.push(authUserSid)
       const restricted = createRestrictedToken(
         api, currentToken, logonSid, writeSidPtr,
-        {
-          world: worldSid,
-          authUser: authUserSid,
-        },
+        { world: worldSid },
         this.mode,
       )
       this.token = restricted

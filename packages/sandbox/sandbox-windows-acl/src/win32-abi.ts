@@ -79,20 +79,8 @@ export const LUA_TOKEN = 0x4
 export const WRITE_RESTRICTED = 0x8
 
 // WELL_KNOWN_SID_TYPE (winnt.h lines ~3369-3407)
-/** WinWorldSid: S-1-1-0 (Everyone). */
+/** WinWorldSid: S-1-1-0 (Everyone) — the only well-known SID the restricted tokens use (keep-alive group; see token.ts). */
 export const WinWorldSid = 1
-/**
- * WinLocalSid: S-1-2-0 (LOCAL) — safe, created successfully on every init
- * (it sits in every restricted token's restricting list). The
- * CreateWellKnownSid ERROR_INVALID_PARAMETER failure documented in this
- * module's header comment belongs to WinLocalLogonSid (S-1-2-1), NOT to
- * this type.
- */
-export const WinLocalSid = 2
-/** WinInteractiveSid: S-1-5-4 (INTERACTIVE). */
-export const WinInteractiveSid = 11
-/** WinAuthenticatedUserSid: S-1-5-11 (Authenticated Users). */
-export const WinAuthenticatedUserSid = 17
 
 // TOKEN_INFORMATION_CLASS (winnt.h line ~3963: TokenUser=1, TokenGroups=2)
 /** TokenGroups: GetTokenInformation class returning the token's group SIDs. */
