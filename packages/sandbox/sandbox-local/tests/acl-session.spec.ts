@@ -150,6 +150,68 @@ describe('windows-acl per-session grant (LocalSandboxProvider)', () => {
     }
   })
 
+  it('mode switch: read-only materializes nothing, the upgrade materializes ONCE with the same SID, and the downgrade keeps the standing grant (no revoke, no re-grant)', async () => {
+    try {
+      const { ctx, sandbox } = await setup()
+      const ws = workspaceRoot()
+      scratch.push(ws)
+      const privateTemp = sessionTempDir('sess-switch')
+      scratch.push(privateTemp)
+      const session = ctx.sessions.create(SessionId('sess-switch'), { meta: { cwd: ws } })
+      const readOnly: SandboxPolicy = { mode: 'read-only', workspaceRoot: ws, sessionId: 'sess-switch' }
+      const workspaceWrite: SandboxPolicy = { mode: 'workspace-write', workspaceRoot: ws, sessionId: 'sess-switch' }
+
+      // Read-only first: the record still rides along (--write-sid, one
+      // event) but NOTHING is materialized and the ambient temp root is
+      // passed — the map stays empty, so the later upgrade must materialize.
+      const confinedRo = sandbox.confine(['true'], readOnly)
+      expect(confinedRo.argv).toEqual([
+        'node', 'windows-acl-runner.js',
+        '--workspace', ws,
+        '--temp', tmpdir(),
+        '--mode', 'read-only',
+        '--write-sid', 'S-1-4-42-42',
+        '--',
+        'true',
+      ])
+      expect(mockState.grants).toHaveLength(0)
+      expect(existsSync(privateTemp)).toBe(false)
+
+      // Upgrade: the FIRST workspace-write confine materializes the grant
+      // (the map was empty — read-only never wrote it) with the SAME SID
+      // and the private temp dir, so the upgrade path cannot dead-end.
+      const upgraded = sandbox.confine(['true'], workspaceWrite)
+      expect(upgraded.argv).toEqual([
+        'node', 'windows-acl-runner.js',
+        '--workspace', ws,
+        '--temp', privateTemp,
+        '--mode', 'workspace-write',
+        '--write-sid', 'S-1-4-42-42',
+        '--',
+        'true',
+      ])
+      expect(mockState.grants).toHaveLength(1)
+      expect(mockState.grants[0]).toMatchObject({ writeSid: 'S-1-4-42-42', added: [ws, privateTemp], disposed: false })
+      expect(existsSync(privateTemp)).toBe(true)
+
+      // Reuse: the second workspace-write call is the map hit.
+      sandbox.confine(['true'], workspaceWrite)
+      expect(mockState.grants).toHaveLength(1)
+
+      // Downgrade: the standing grant is KEPT — never revoked, never
+      // re-granted. The read-only restricted token's list I carries no
+      // orphan SID (pinned by the windows-acl runner regression), so the
+      // ACE is inert under read-only while the map hit keeps the
+      // re-upgrade free of eager propagation.
+      sandbox.confine(['true'], readOnly)
+      expect(mockState.grants).toHaveLength(1)
+      expect(mockState.grants[0]!.disposed).toBe(false)
+      expect(session.events.filter(event => event.type === 'sandbox/acl-session')).toHaveLength(1)
+    } finally {
+      cleanup()
+    }
+  })
+
   it('resume: a seeded record replays with the SAME SID and no second event is appended', async () => {
     try {
       const ws = workspaceRoot()

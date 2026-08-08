@@ -57,6 +57,10 @@ describe.skipIf(!isWin32 || !pwshAvailable())('windows-acl runner', () => {
   it('workspace-write: the confined child writes granted directories only', () => {
     const probe = [
       "$ErrorActionPreference='SilentlyContinue';",
+      // The restricted token puts pwsh into ConstrainedLanguage in BOTH modes
+      // (documented Known Limitation) — pinned here so a token change that
+      // silently restores FullLanguage is caught.
+      '\'LANGMODE: \' + $ExecutionContext.SessionState.LanguageMode;',
       `try{Set-Content -Path '${writableDir}\\child-wrote.txt' -Value ok -ErrorAction Stop;'TARGET-WRITE: OK'}catch{'TARGET-WRITE: DENIED'};`,
       `try{Set-Content -Path '${isolatedTemp}\\child-wrote.txt' -Value ok -ErrorAction Stop;'TEMP-WRITE: OK'}catch{'TEMP-WRITE: DENIED'};`,
       `try{Set-Content -Path '${escapeFile}' -Value ok -ErrorAction Stop;'ESCAPE-WRITE: OK (ESCAPE!)'}catch{'ESCAPE-WRITE: DENIED'};`,
@@ -70,6 +74,7 @@ describe.skipIf(!isWin32 || !pwshAvailable())('windows-acl runner', () => {
       '--', 'pwsh', '/NoLogo', '/NonInteractive', '/NoProfile', '/Command', probe,
     ])
     expect(result.status, `stderr: ${result.stderr}`).toBe(0)
+    expect(result.stdout).toContain('LANGMODE: ConstrainedLanguage')
     expect(result.stdout).toContain('TARGET-WRITE: OK')
     expect(result.stdout).toContain('TEMP-WRITE: OK')
     expect(result.stdout).toContain('ESCAPE-WRITE: DENIED')
@@ -100,6 +105,7 @@ describe.skipIf(!isWin32 || !pwshAvailable())('windows-acl runner', () => {
       '--', 'pwsh', '/NoLogo', '/NonInteractive', '/NoProfile', '/Command', probe,
     ])
     expect(result.status, `stderr: ${result.stderr}`).toBe(0)
+    expect(result.stdout).toContain('LANGMODE: ConstrainedLanguage')
     expect(result.stdout).toContain('TARGET-WRITE: DENIED')
     expect(result.stdout).toContain('TEMP-WRITE: DENIED')
     expect(result.stdout).toContain('NUL-WRITE: DENIED')
@@ -165,6 +171,46 @@ describe.skipIf(!isWin32 || !pwshAvailable())('windows-acl runner', () => {
     } finally {
       grant.dispose()
       rmSync(privateTemp, { recursive: true, force: true })
+    }
+  }, 30_000)
+
+  it('mode-downgrade leak regression: a STANDING workspace grant is inert under read-only and effective again on re-upgrade', () => {
+    // The reported defect: a session that materialized its grant in
+    // workspace-write keeps the ACE standing for the server lifetime. After
+    // switching to read-only, the restricted token's list I must carry NO
+    // orphan SID — the standing ACE stays but the pass-2 check cannot use
+    // it, so the workspace write is denied (previously it LEAKED). The
+    // switch back reuses the SAME standing ACE: the re-upgrade write lands
+    // without any re-grant.
+    const writeSid = 'S-1-4-9001-7'
+    const grant = AclWriteGrant.create(writeSid)
+    grant.add(writableDir)
+    try {
+      const downgradeProbe = [
+        "$ErrorActionPreference='SilentlyContinue';",
+        `try{Set-Content -Path '${writableDir}\\downgraded.txt' -Value ok -ErrorAction Stop;'DOWNGRADE-WRITE: OK (LEAK!)'}catch{'DOWNGRADE-WRITE: DENIED'}`,
+      ].join('')
+      const downgraded = runRunner([
+        '--workspace', writableDir, '--temp', isolatedTemp, '--mode', 'read-only', '--write-sid', writeSid,
+        '--', 'pwsh', '/NoLogo', '/NonInteractive', '/NoProfile', '/Command', downgradeProbe,
+      ])
+      expect(downgraded.status, `stderr: ${downgraded.stderr}`).toBe(0)
+      expect(downgraded.stdout).toContain('DOWNGRADE-WRITE: DENIED')
+      expect(existsSync(join(writableDir, 'downgraded.txt'))).toBe(false)
+
+      const reupgradeProbe = [
+        "$ErrorActionPreference='SilentlyContinue';",
+        `try{Set-Content -Path '${writableDir}\\reupgraded.txt' -Value ok -ErrorAction Stop;'REUPGRADE-WRITE: OK'}catch{'REUPGRADE-WRITE: DENIED'}`,
+      ].join('')
+      const reupgraded = runRunner([
+        '--workspace', writableDir, '--temp', isolatedTemp, '--mode', 'workspace-write', '--write-sid', writeSid,
+        '--', 'pwsh', '/NoLogo', '/NonInteractive', '/NoProfile', '/Command', reupgradeProbe,
+      ])
+      expect(reupgraded.status, `stderr: ${reupgraded.stderr}`).toBe(0)
+      expect(reupgraded.stdout).toContain('REUPGRADE-WRITE: OK')
+      expect(existsSync(join(writableDir, 'reupgraded.txt'))).toBe(true)
+    } finally {
+      grant.dispose()
     }
   }, 30_000)
 

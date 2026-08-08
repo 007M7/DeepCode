@@ -42,7 +42,7 @@ runner 创建受限令牌，在令牌下启动被包裹的 argv，stdio 直接�
 
 模式（令牌的 restricting SID 列表随模式而定）：
 - `workspace-write`（列表 J = 登录 SID、Everyone、Authenticated Users、孤儿 SID）：工作区与会话的**私有**临时子目录携带孤儿 SID 的 Write 授权；其余写全部被令牌交集拒绝。Authenticated Users 保留在列表中，CIM 路径才能继续工作（`Get-CimInstance`、`Get-ComputerInfo`）；代价是残留的 Authenticated Users 可写面——尤其是 C:\ 盘根，那里驻留的 `AU:(AD)` + `AU:(OI)(CI)(IO)(M)` ACE 允许 AU 受限的子进程通过创建目录树逃逸——见设计笔记。
-- `read-only`（列表 I = 登录 SID、Everyone、孤儿 SID）：**严格零授权**——没有任何可写位置，令牌还**去掉** Authenticated Users，让环境写入面归零（上述 C:\ 根逃逸被关闭）。NUL 设备是带安全描述符的对象，同样不被授权（区别于 Linux 的 `/dev/null` sink）：`Set-Content NUL` 与原生 `> NUL` 写会以 access denied 失败，而 PowerShell 的 `> $null` 重定向不受影响（它直接丢弃、不打开 NUL）。代价是 CIM 不可用：WMI 命名空间安全检查失败（`0x80041003`），因此 CIM cmdlet 与 `Get-ComputerInfo`（静默返回不完整结果而非报错）不可用——模型可见面文档化的是这一契约，而非提示词承诺。
+- `read-only`（列表 I = 登录 SID、Everyone——不含孤儿 SID）：**严格零授权**——没有任何可写位置，令牌还**去掉** Authenticated Users，让环境写入面归零（上述 C:\ 根逃逸被关闭）。孤儿 SID 有意留在列表 I **之外**：先前 workspace-write 时期留下的驻留授权 ACE（`/permission` 降级，或崩溃后恢复的会话）在 read-only 下保持**失效**，因为 write-restricted 的 pass-2 检查只授予 restricting 列表所携带的内容——而未撤销的 ACE 让重新升级免于重新传播。NUL 设备是带安全描述符的对象，同样不被授权（区别于 Linux 的 `/dev/null` sink）：`Set-Content NUL` 与原生 `> NUL` 写会以 access denied 失败，而 PowerShell 的 `> $null` 重定向不受影响（它直接丢弃、不打开 NUL）。代价是 CIM 不可用：WMI 命名空间安全检查失败（`0x80041003`），因此 CIM cmdlet 与 `Get-ComputerInfo`（静默返回不完整结果而非报错）不可用——模型可见面文档化的是这一契约，而非提示词承诺。
 
 `AclSandbox` 类（`tempDir: null` 关闭临时目录授权）仍是直接 spawn 场景的程序化 API；`AclWriteGrant` 是按会话契约中服务器侧的物化半边。
 
@@ -82,3 +82,4 @@ g++ -std=c++20 -municode -O2 -o abi-probe.exe verify/abi-probe.cpp -ladvapi32 &&
 - **在两个服务器进程中并发恢复同一会话会产生两个 SID。** 持久化记录存放在会话日志中；两个进程各自读取或创建记录，按路径的锁保持 DACL 合并一致，最后写入的记录胜出并用于后续恢复——落败 SID 的 ACE 由其所属进程的 dispose 撤销。单写者的会话用法（常规部署形态）不会遇到这种情况。
 - **读侧隔离与网络策略超出范围** —— `WRITE_RESTRICTED` 只对写访问做交集检查；更强的隔离需叠加读侧策略。
 - **宽目录与 FAT 卷警告留待后续** —— 针对异常宽的目录或 FAT 类（无 ACL）卷授权的 UI 侧警告尚未实现；FAT 卷只会让授权立即报错。
+- **两种受限模式都以 ConstrainedLanguage 运行 `pwsh`。** 受限令牌触发 PowerShell 的锁定检测，因此在 `read-only` 与 `workspace-write` 下语言模式都是 ConstrainedLanguage：`Add-Type`（C# 编译、P/Invoke）、非核心 .NET 静态调用（`[System.IO.*]::`、`[math]::`、`[Environment]::`）、COM 对象与反射都会以 `Cannot create type` / `Cannot invoke method`（“only core types”）错误失败，且 `$ExecutionContext.SessionState.LanguageMode = 'FullLanguage'` 会被拒绝。核心 cmdlet、核心类型（`[string]`、`[datetime]`、`[regex]`、`[guid]`）、`-f` 格式化与属性访问继续工作。`pwsh` 工具描述把这一契约教给模型；`danger-full-access` 调用不受隔离、以 FullLanguage 运行。

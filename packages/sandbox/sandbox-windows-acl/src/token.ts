@@ -111,7 +111,7 @@ export interface RestrictingSidSet {
  * Create the write-restricted token with the mode-selected restricting list
  * (dual lists verified on Win11 26200, see the POC-worktree restrict-variant
  * harness):
- *  - list I (read-only):   [logon SID, EVERYONE, orphan]
+ *  - list I (read-only):   [logon SID, EVERYONE]
  *  - list J (workspace-write): [logon SID, EVERYONE, Authenticated Users, orphan]
  *
  * The logon SID and EVERYONE are shared: they keep the early startup chain
@@ -121,15 +121,22 @@ export interface RestrictingSidSet {
  * (0x80041003 otherwise) — read-only drops it for a zero ambient-write
  * surface (it closes the host's C:\-root tree-creation escape, where
  * `AU:(AD)` + `AU:(OI)(CI)(IO)(M)` ACEs stand) at the cost of CIM
- * unavailability; documented in README. INTERACTIVE/LOCAL are absent from
- * BOTH lists — the host's Public tree grants write to INTERACTIVE, so
- * removing it closes that escape. S-1-2-1 (console logon) is intentionally
- * absent: see win32-abi.ts for the verified failure modes. FAILS CLOSED: any
- * failure throws — never spawn unrestricted.
+ * unavailability; documented in README. List I also carries NO orphan: a
+ * standing grant ACE from an earlier workspace-write period (a
+ * `/permission` mode downgrade, or a crash-resumed session) must stay INERT
+ * under read-only — the WRITE_RESTRICTED pass-2 check grants only what the
+ * restricting list carries, so omitting the orphan keeps read-only strictly
+ * zero-grant even with stale ACEs standing, while the unrevoked ACE keeps
+ * the re-upgrade free (the seam's grant map hits it — no re-propagation).
+ * INTERACTIVE/LOCAL are absent from BOTH lists — the host's Public tree
+ * grants write to INTERACTIVE, so removing it closes that escape. S-1-2-1
+ * (console logon) is intentionally absent: see win32-abi.ts for the
+ * verified failure modes. FAILS CLOSED: any failure throws — never spawn
+ * unrestricted.
  * @param api - the binding table.
  * @param currentToken - the process token to restrict.
  * @param logonSid - the copied logon session SID.
- * @param writeSid - the orphan SID forming the write allowlist.
+ * @param writeSid - the orphan SID forming the write allowlist (list J only).
  * @param known - the well-known SIDs entering the restricting list.
  * @param mode - selects the restricting list (I for read-only, J for workspace-write).
  * @returns the restricted token handle.
@@ -143,7 +150,7 @@ export function createRestrictedToken(
   mode: 'read-only' | 'workspace-write',
 ): NativePtr {
   const restrictingSids = buildRestrictingSids(mode === 'read-only'
-    ? [logonSid, known.world, writeSid]
+    ? [logonSid, known.world]
     : [logonSid, known.world, known.authUser, writeSid])
   const tokenSlot = allocPtrSlot()
   const created = api.createRestrictedToken(
