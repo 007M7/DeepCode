@@ -4,13 +4,14 @@
   config:
     path: ./cordis.yml
     patches:
-      - id: cli-agent
-        name: '@deepseek-ai/dsh-cli-demo'
+      - id: agent-spine
+        name: '@deepseek-ai/dsh-agent-spine-demo'
         config:
-          provider: deepseek-official
-          model: deepseek-v4-pro
-          persistenceRoot: './.sessions'
-          persistenceCompression: !!js "process.env.DSH_SNAPSHOT === undefined ? 'zstd' : 'none'"
+          agents:
+            - id: main
+              provider: deepseek-official
+              model: deepseek-v4-pro
+              cwd: !!js process.cwd()
           workspaceContext:
             maxBytes: 65536
           tools:
@@ -19,6 +20,11 @@
             You are headless-agent, a coding assistant powered by the {{model}} model. Your working directory is {{cwd}}.
 
             Verify your work by running the code or tests. Keep answers brief and factual.
+      - id: persistence
+        name: '@deepseek-ai/dsh-session-persistence-jsonl'
+        config:
+          root: './.sessions'
+          compression: !!js "process.env.DSH_SNAPSHOT === undefined ? 'zstd' : 'none'"
       - insert:
           - id: code-runtime
             name: '@deepseek-ai/dsh-code-runtime-worker'

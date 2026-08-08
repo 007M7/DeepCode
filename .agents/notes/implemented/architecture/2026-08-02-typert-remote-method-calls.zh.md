@@ -217,6 +217,8 @@ Host lib build
 
 现有顶层 `build` 仍表现为先 `build:lib`、再 `build:web`，但 `build:lib` 内部必须先完成 Host 与 Remote artifact，再启动 Client TypeScript 编译。一次干净构建不能依赖上次残留的 `.d.ts`。
 
+即使主要输入是源文件，需要通过编译器解析消费方 surface 的仓库门禁也有相同的前置条件。公共 `typecheck`、`lint` 和 `doc-typecheck` 命令会先执行 Host 契约 pass。门禁调度器仅可在显式的 TypeRT 契约依赖或完整构建依赖完成后使用对应的 `*:contracts-ready` 变体，使并行 lane 既不会读取缺失的声明，也不会针对同一输出并发运行多个生成器。
+
 ## `/remote` 包入口
 
 每个提供 Remote 方法的业务包导出生成的 `/remote` 子路径：
@@ -490,6 +492,7 @@ Connection 提供共享 channel interceptor 与当前 HTTP carrier 映射。WebS
 
 - Goal Service 直接装饰业务签名已经符合 Remote 契约的变更类方法，仅保留 `remoteExportCreate(...)` 把 `GoalView` 适配为 `CreateGoalResult`，无需第二条路由、第二份 codec 或 Client 方法清单。
 - 一次干净的 `build:lib` 会在 Client 编译前生成 Host 与消费方 Remote 产物，包括业务包 `/remote` 下的 JS、DTS 和 declaration map。
+- `clean` 后，单独运行 `typecheck`、`lint` 或 `doc-typecheck` 都会重新生成 Remote 契约；pre-push 钩子使用同一个已包含契约准备步骤的 typecheck，CI 中的源码消费方则等待一次共享的契约 pass。
 - 导入 `@deepseek-ai/dsh-goal/remote` 会加入严格的 `ctx.remote.goals.create(...)` 类型，并可通过 declaration 导航到 `remoteExportCreate`；不导入时不会出现该 namespace。
 - 挂载同一次 import 得到的 JS contribution 会提供 endpoint、参数、结果、lookup、Context 和 Zod 反射，并在无需手写 stub 的情况下实体化调用。
 - Root 与 Agent-scoped 调用会经过真实的共享 `/api` carrier，将 `agentId` 解析为活 Agent，调用原始 Goal receiver，并通过既有 RPC envelope 返回。
@@ -501,7 +504,7 @@ Connection 提供共享 channel interceptor 与当前 HTTP carrier 映射。WebS
 
 ## 后果
 
-Remote API 类型依赖生成的 `lib` 声明，构建编排必须在 Host 和 Client 消费端编译前完成 contract pass；顺序错误会让干净构建依赖陈旧产物。
+Remote API 类型依赖生成的 `lib` 声明，构建与门禁编排必须在对 Host 和 Client 消费方进行编译或语义分析之前完成 Host 契约 pass；顺序错误会使干净环境中的命令依赖陈旧产物。
 
 源码导航依赖 Remote package 同时发布 declaration map 和 map 指向的 `src`。package `files` 漏掉任一侧时类型仍可编译，但消费端跳转会停在生成 DTS，因此 workspace manifest 校验必须把两者作为同一发布契约。
 
