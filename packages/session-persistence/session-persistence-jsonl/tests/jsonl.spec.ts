@@ -166,6 +166,7 @@ describe('SessionPersistenceJsonl: format helpers', () => {
     const fiber = await ctx.plugin(SessionPersistenceJsonl, {
       root: relative(process.cwd(), absoluteRoot),
       compression: 'none',
+      writeBatchMaxDelayMs: 1,
     })
     const m = meta('relative-location', '/work')
     expect(ctx.sessionPersistence.locate(m)).toEqual({

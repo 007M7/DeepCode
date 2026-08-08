@@ -50,7 +50,6 @@ export function conversationSnapshot(sessionId: SessionId): ConversationSnapshot
     turnEnds: new Map(),
     partial: null,
     runningCalls: [],
-    codeDispatches: new Map(),
     pending: [],
     queue: [],
     running: false,

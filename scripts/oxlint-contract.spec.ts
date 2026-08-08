@@ -221,6 +221,39 @@ export const longProbe = 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 +
     expect(result.status, normalizedOutput(result)).toBe(0)
   })
 
+  it('keeps staged validation project-free while preserving source rules', async () => {
+    const configPath = join(repositoryRoot, '.oxlintrc.staged.json')
+    const result = parseConfigFileTextToJson(configPath, await readFile(configPath, 'utf8'))
+    if (result.error !== undefined) {
+      throw new Error(flattenDiagnosticMessageText(result.error.messageText, '\n'))
+    }
+    expect(result.config).toMatchObject({
+      extends: ['./.oxlintrc.json'],
+      options: { typeAware: false },
+    })
+
+    const suffix = randomUUID()
+    const path = join(repositoryRoot, 'scripts', `staged-lint-probe-${suffix}.ts`)
+    try {
+      await writeFile(path, 'export const value={answer:1};\n')
+      const lint = runOxlint([
+        '--config',
+        relative(repositoryRoot, configPath),
+        '--format',
+        'unix',
+        relative(repositoryRoot, path),
+      ])
+      const output = normalizedOutput(lint)
+
+      expect(lint.error).toBeUndefined()
+      expect(lint.status, output).toBe(1)
+      expect(output).toContain('@stylistic')
+      expect(output).not.toContain('typescript(')
+    } finally {
+      await rm(path, { force: true })
+    }
+  })
+
   it('applies staged stylistic fixes before Oxlint validation', async () => {
     const suffix = randomUUID()
     const configPath = await writeContractConfig(suffix)

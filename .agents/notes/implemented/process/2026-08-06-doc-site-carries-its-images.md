@@ -20,7 +20,7 @@ Only a regular file whose real path stays inside the repository is copied; anyth
 
 `docsSourceFiles()` reports the placed images alongside the Markdown, so the dev server's watcher re-projects when a screenshot is replaced instead of serving the previous copy until something touches the page.
 
-`placeImage` is optional because `rewriteMarkdown` is also called directly by its spec, where no generated tree exists. Without it the old GitHub-raw behavior stands, which keeps that seam honest: the fallback is still the correct answer for a consumer that only rewrites text.
+`placeImage` is optional because `rewriteMarkdown` is also called directly by its spec, where no generated tree exists. Without it the GitHub-raw fallback points at the public source home, which keeps that seam honest for a consumer that only rewrites text.
 
 Canonical Markdown keeps writing ordinary repository-relative image paths, so the same file renders on GitHub and on the site. No document carries a site-absolute URL to satisfy VitePress.
 
@@ -36,7 +36,7 @@ Canonical Markdown keeps writing ordinary repository-relative image paths, so th
 
 Images in published documentation now work regardless of who is reading or whether the repository is public, and the site build has no runtime dependency on GitHub for them. The generated tree grows by one copy of each referenced image per locale — the four screenshots in the model-provider guide add roughly 270 KB per locale.
 
-Images referenced from *unpublished* documents are untouched: they still resolve to GitHub raw, and still fail for a private repository. Nothing consumes them today, and a document that is not on the site has no site build to carry its assets.
+Images referenced from *unpublished* documents are untouched. A text-only projection resolves them against the public source home; a document that is not on the site has no site build to carry its assets.
 
 ## Testing
 

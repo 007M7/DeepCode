@@ -6,7 +6,7 @@ import { useState, type KeyboardEvent, type ReactNode } from 'react'
 import {
   IconChevronDownOutline14, IconInspectOutline12, IconSkillOutline16, StateDot,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { ToolRowProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { ToolCallViewProps } from '@deepseek-ai/dsh-client-ui-tool/client'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import css from './SkillRow.module.css'
 
@@ -14,7 +14,7 @@ import css from './SkillRow.module.css'
 type SkillRowState = 'running' | 'ok' | 'error' | 'stopped'
 
 /** Full row props: the toolview runtime share plus this package's locale seat. */
-type SkillRowProps = ToolRowProps & PropsLocale<'skill'>
+type SkillRowProps = ToolCallViewProps & PropsLocale<'skill'>
 
 /** Compact, replay-stable view model for the dedicated row. */
 interface SkillRowModel {
@@ -45,9 +45,9 @@ function skillName(argsRaw: string, callId: string): string {
   return argsRaw === '' ? callId : firstLine(argsRaw)
 }
 
-/** Flatten durable result blocks under the generic tool-row text contract.
- *  Keep aligned with ui-conversation's contract/tool-call-model.ts `resultText`. */
-function resultText(block: ToolRowProps['block']): string | null {
+/** Flatten durable result blocks under the generic Tool-row text contract.
+ *  Keep aligned with ui-tool's models/tool-call-model.ts `resultText`. */
+function resultText(block: ToolCallViewProps['block']): string | null {
   if (!('kind' in block)) return null
   const parts: string[] = []
   for (const item of block.content) {
@@ -60,7 +60,7 @@ function resultText(block: ToolRowProps['block']): string | null {
 }
 
 /** Derive display state without consulting the live skill catalog. */
-function skillRowModel(block: ToolRowProps['block']): SkillRowModel {
+function skillRowModel(block: ToolCallViewProps['block']): SkillRowModel {
   const settled = 'kind' in block
   const argsRaw = (settled ? block.call?.argsRaw : block.argsRaw) ?? ''
   const state: SkillRowState = !settled

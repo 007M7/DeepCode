@@ -12,12 +12,12 @@ Status: implemented
 
 ## 决策
 
-**子调用在界面流之外单独索引为 `ToolResultNode`，经由与原生行相同的 keyed slot 渲染，以始终可见的方式嵌套在父行之下。**
+**子调用是在 surface 流之外递归附着到父级的标准 Tool 调用块，经由与原生行相同的 keyed slot 渲染，并始终显示在父级之下。**
 
-- **数据层**：`Session.applyEventSideEffects` 把窗口内的每条 `tool/code-dispatch` 折入 `ConversationSnapshot.codeDispatches: ReadonlyMap<parentCallId, readonly CodeSubCall[]>`，其中 `CodeSubCall` 本身就是 `ToolResultNode`（子调用 id 充当 `callId`，已记录的参数经 JSON 字符串化写入 `call.argsRaw`，完整记录的 `content`/`isError` 原样携带）。实时多路复用帧与历史回放构建出同一份索引（`rebuildDerivedFromWindow` 先清空再重新推导；逐父级的写时复制（copy-on-write）数组保持快照引用稳定，便于 memo 化）。子调用永不进入 `nodes`——surface 流始终精确等于模型可见的轮次结构。该事件在 wire 消费方边界作结构性收窄（dsh-tools 的宿主类型无法进入客户端程序——宿主端/客户端两侧的 `Context` 声明合并会冲突），姿态与所有跨 wire 载荷一致。
-- **渲染层**：`ChatView` 的 `CallRow` 先渲染父行，随后对索引中出现的父级渲染一组 `[data-subcalls]` 嵌套的 `SubCallRow`，每一行都经由同一个 `'conversation.chat.toolview'` keyed slot、以 `entryKey = sub-tool name` 分发，并共用同一个 `GenericToolCard` 后备组件。与原生行的同一性由构造保证：一个 keyed 注册（例如 bash 样例）接管子行与接管顶层行的方式完全相同，注册本身零改动。运行中的父调用（`runningCalls`）也以同样的方式嵌套目前已产生的分发，因此子行在运行期间实时流入（PR1 在每次分发完成时即记录该分发）。
+- **数据层**：运行时的 `ToolCallTree` 把窗口内的 `tool/code-dispatch-start` 与 `tool/code-dispatch` 事件折入私有的逐父级索引，再把运行中和已结算的子级投影到递归的 `ToolCallBlock.subCalls` 上。实时 Session 投影与 `projectConversationHistory` 共享这一折叠过程；逐父级的写时复制数组和路径复制投影让无关 root 与 sibling 保持引用稳定。子调用永不进入 `nodes`——surface 流始终精确等于模型可见的轮次结构。这些事件在 wire 消费方边界作结构性收窄，该边界也会拒绝成环的父子关系（dsh-tools 的宿主类型无法进入客户端程序，因为宿主端与客户端两侧的 `Context` 声明合并会冲突）。
+- **渲染层**：`ChatView` 通过整体 Tool seat `'conversation.chat.tool'` 传递每个 parent 及其递归 child。ui-tool 的 `ToolCallTree` 先渲染 parent，再渲染 `[data-subcalls]` 嵌套；每个原子调用都通过同一个 `'tool.call.toolview'` keyed slot，以 Tool 名称作为 `entryKey`，并共用 `GenericToolCard` fallback。一个 keyed 注册因此无需变化即可同时接管任意后代与顶层调用。运行中的 parent（`runningCalls`）在同一个递归块中接收已累积的 dispatch，使 child 行在运行期间实时流入。
 - **`run_code` 的呈现**：新增一种 `code` 行变体（分类器映射 `run_code → code`、标题 `Code`、图标 `IconCodeOutline16`），以模型撰写的 `description` 作摘要，展开后显示程序本身（在 markdown 代码块的填充底色上以等宽字体呈现），而非参数的 JSON 封装。
-- **详情面板**：`materialFor` 按 nodes → runningCalls → 分发索引的顺序逐级回落，因此被选中的子调用 callId 会经由与已完结的原生调用完全相同的渲染路径，解析出完整参数与完整输出。
+- **详情面板**：`materialFor` 递归搜索 `nodes` 与 `runningCalls`，因此被选中的后代 callId 会经由与已完结的原生调用完全相同的渲染路径，解析出完整参数与完整输出。
 
 ## 曾考虑的替代方案
 
@@ -29,4 +29,4 @@ Status: implemented
 
 ## 后果
 
-自定义 toolview 注册免费适用于子调用——而且是刻意为之：不存在按注册粒度的退出机制，唯一的出路是组件自行读取自身上下文，而当前没有任何消费方需要这么做。选中高亮经由同一条 `selectedCallId` 通道到达嵌套行（分组归属判断会同时检验两个层级）。trajectory/waterfall 仍把 `run_code` 渲染为单独一行——它们的子调用 span 推迟到增加分发计时（start/end 事件）的那个 PR；缺少计时，waterfall 上的 span 就是在撒谎。fixture（测试前置数据）的轮次 64（`?fixture`），加上 `code-mode-round` 浏览器 e2e（录制的真实轮次、无密钥回放），共同锁定整个界面；jsdom 测试套件则锁定 slot 分发、错误状态、详情解析与索引引用稳定性。
+自定义 toolview 注册免费适用于子调用——而且是刻意为之：不存在按注册粒度的退出机制，唯一的出路是组件自行读取自身上下文，而当前没有任何消费方需要这么做。选中高亮经由同一条 `selectedCallId` 通道到达嵌套行（分组归属会搜索整棵树）。trajectory/waterfall 仍把 `run_code` 渲染为单独一行——它们的子调用 span 推迟到增加分发计时（start/end 事件）的那个 PR；缺少计时，waterfall 上的 span 就是在撒谎。fixture（测试前置数据）的轮次 64（`?fixture`），加上 `code-mode-round` 浏览器 e2e（录制的真实轮次、无密钥回放），共同锁定整个界面；jsdom 与运行时测试套件则锁定 slot 分发、错误状态、递归详情解析、历史投影与引用稳定的路径复制。

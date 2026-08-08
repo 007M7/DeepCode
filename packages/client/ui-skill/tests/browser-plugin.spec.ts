@@ -20,11 +20,15 @@ import type { ClientSessionContext, SlashSource } from '@deepseek-ai/dsh-client-
 import { apply, inject } from '../src/client/index.ts'
 import { SkillRow as SkillToolRow } from '../src/client/SkillRow.tsx'
 
-type SkillRow = { name: string; description: string; whenToUse?: string }
+type SkillRow = { name: string; description: string; whenToUse?: string; modelInvocable?: boolean }
 type ListResult =
   | { ok: true; value: { skills: SkillRow[] } }
   | { ok: false; error: { code: string; message: string; details: object } }
 type ListFn = (payload: object, signal?: AbortSignal) => Promise<{ result: ListResult }>
+type InvokeResult =
+  | { ok: true; value: { accepted: true } }
+  | { ok: false; error: { code: string; message: string; details: object } }
+type InvokeFn = (payload: object) => Promise<{ result: InvokeResult }>
 
 interface PresentationCapture {
   slots: SlotsService
@@ -37,7 +41,7 @@ function providePresentation(ctx: Context): PresentationCapture {
   const slots = new SlotsService(ctx)
   slots.register({
     name: 'root',
-    children: { 'conversation.chat.toolview': { kind: 'keyed', scope: 'session' } },
+    children: { 'tool.call.toolview': { kind: 'keyed', scope: 'session' } },
   } as never, () => null)
   const capture: PresentationCapture = {
     slots,
@@ -49,16 +53,19 @@ function providePresentation(ctx: Context): PresentationCapture {
       capture.dictionaries.push({ namespace, dictionaries })
       return () => { capture.localeDisposed = true }
     },
+    // Minimal bound-translate fake: zh dictionary lookup, key passthrough on miss.
+    bind: () => (key: string) => key === 'menu.userOnly' ? '仅用户' : key,
   })
   return capture
 }
 
 /** Boot the plugin over fake slash/connection faces; returns the captured source and its ctx. */
-async function bench(list: ListFn, addressed?: SessionId) {
+async function bench(list: ListFn, addressed?: SessionId, invoke?: InvokeFn) {
   const ctx = new Context()
   let captured: SlashSource | undefined
   ctx.provide('slash', { registerSource: (src: SlashSource) => { captured = src; return () => {} } })
-  ctx.provide('connection', { api: { skills: { list } } })
+  const defaultInvoke: InvokeFn = () => Promise.resolve({ result: { ok: true as const, value: { accepted: true as const } } })
+  ctx.provide('connection', { api: { skills: { list, invoke: invoke ?? defaultInvoke } } })
   ctx.provide('sessions', {
     subagentAddress: (id: SessionId) => id === addressed
       ? { parentSessionId: sid('parent'), childSessionId: id, mode: 'continuable' as const }
@@ -70,9 +77,9 @@ async function bench(list: ListFn, addressed?: SessionId) {
 }
 
 const CATALOG: SkillRow[] = [
-  { name: 'commit-helper', description: 'commit flow' },
-  { name: 'code-review', description: 'review flow', whenToUse: 'reviews' },
-  { name: 'deploy', description: 'deploy flow' },
+  { name: 'commit-helper', description: 'commit flow', modelInvocable: true },
+  { name: 'code-review', description: 'review flow', whenToUse: 'reviews', modelInvocable: true },
+  { name: 'deploy', description: 'deploy flow', modelInvocable: true },
 ]
 
 const listOk = (skills: SkillRow[]): ListFn => () => Promise.resolve({ result: { ok: true as const, value: { skills } } })
@@ -106,7 +113,7 @@ describe('apply', () => {
     ctx.provide('sessions', { subagentAddress: () => undefined })
     const presentation = providePresentation(ctx)
     await ctx.plugin({ inject: [...inject], apply }).await()
-    const entry = presentation.slots.entries('conversation.chat.toolview')[0]
+    const entry = presentation.slots.entries('tool.call.toolview')[0]
     expect(entry?.options).toMatchObject({ key: 'skill' })
     expect(entry?.locale).toBe('skill')
     expect(entry?.component).toBe(SkillToolRow)
@@ -117,12 +124,14 @@ describe('apply', () => {
           'row.failed': 'skill 加载失败',
           'row.stopped': 'skill 加载已中止',
           'row.instructions': '说明',
+          'menu.userOnly': '仅用户',
         },
         en: {
           'row.running': 'Loading skill',
           'row.failed': 'Skill load failed',
           'row.stopped': 'Skill load stopped',
           'row.instructions': 'Instructions',
+          'menu.userOnly': 'user-only',
         },
       },
     }])
@@ -149,7 +158,7 @@ describe('apply', () => {
     // …and fiber teardown releases it.
     await fiber.dispose()
     expect(() => slash.registerSource(rival)).not.toThrow()
-    expect(presentation.slots.entries('conversation.chat.toolview')).toHaveLength(0)
+    expect(presentation.slots.entries('tool.call.toolview')).toHaveLength(0)
     expect(presentation.localeDisposed).toBe(true)
   })
 })
@@ -313,8 +322,8 @@ describe('lexicon', () => {
   })
 })
 
-describe('pick and codec', () => {
-  it('onPick returns the literal /name text with a closing space (decision 21)', async () => {
+describe('pick lands plain text (decision 21)', () => {
+  it('onPick returns the literal /name text with a closing space', async () => {
     const { source } = await bench(listOk(CATALOG))
     const outcome = source.onPick({
       candidate: { name: 'commit-helper', description: 'commit flow' },
@@ -326,18 +335,27 @@ describe('pick and codec', () => {
     expect(outcome).toEqual({ text: '/commit-helper ' })
   })
 
-  it('codec projects clipboard `/name` and serializes the model form <skill>name</skill>', async () => {
+  it('keeps the legacy reference codec removed and stays out of adjudication', async () => {
     const { source } = await bench(listOk(CATALOG))
-    expect(source.codec!.clipboardText('deploy')).toBe('/deploy')
-    await expect(source.codec!.serialize('deploy', new AbortController().signal))
-      .resolves.toBe('<skill>deploy</skill>')
+    // Determinism lives host-side (the pre-step gesture boundary), so the
+    // source neither claims lines nor serializes reference markup.
+    expect(source.codec).toBeUndefined()
+    expect(typeof source.matchSpace).toBe('undefined')
+    expect(typeof source.matchEnter).toBe('undefined')
   })
 })
 
-describe('adjudication', () => {
-  it('never participates: no matchSpace/matchEnter hooks on the skill source', async () => {
-    const { source } = await bench(listOk(CATALOG))
-    expect(typeof source.matchSpace).toBe('undefined')
-    expect(typeof source.matchEnter).toBe('undefined')
+describe('user-only marking', () => {
+  it('prefixes the description of candidates the model cannot invoke', async () => {
+    const rows: SkillRow[] = [
+      { name: 'shared-skill', description: 'both surfaces', modelInvocable: true },
+      { name: 'user-only-skill', description: 'user surface only', modelInvocable: false },
+    ]
+    const { source } = await bench(listOk(rows))
+    const candidates = await source.candidates(proj('s1'), req(''))
+    expect(candidates).toEqual([
+      { name: 'shared-skill', description: 'both surfaces' },
+      { name: 'user-only-skill', description: '仅用户 · user surface only' },
+    ])
   })
 })

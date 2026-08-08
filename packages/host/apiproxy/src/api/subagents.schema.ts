@@ -69,6 +69,18 @@ export const subagentPromptRequestSchema = z.object({
   content: z.array(contentBlockSchema),
 }) as unknown as z.ZodType<RequestPayload<'subagent.prompt'>>
 
+/** subagent.interrupt request payload. */
+export const subagentInterruptRequestSchema = z.object({
+  parentSessionId: sessionIdSchema,
+  childSessionId: sessionIdSchema,
+  mode: z.literal('continuable'),
+}) satisfies z.ZodType<Wire<RequestPayload<'subagent.interrupt'>>>
+
+/** subagent.interrupt response value. */
+export const subagentInterruptValueSchema = z.object({
+  accepted: z.literal(true),
+}) satisfies z.ZodType<Wire<ResponseValue<'subagent.interrupt'>>>
+
 const messageIdSchema = z.string() as unknown as z.ZodType<MessageId>
 
 /** subagent.prompt response value. */
