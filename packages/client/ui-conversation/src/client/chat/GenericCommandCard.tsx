@@ -42,7 +42,7 @@ export function GenericCommandCard({ node, t }: GenericCommandCardProps) {
   const body = text !== undefined && text.includes('\n') ? text : null
   const open = expanded && body !== null
   return (
-    <div className={css.root} data-state={state}>
+    <div className={css.root} data-variant="others" data-state={state}>
       {state === 'error' && <span className={a11yCss.visuallyHidden}>{t('row.failed')}</span>}
       <DisclosureRow
         rowClassName={css.row}

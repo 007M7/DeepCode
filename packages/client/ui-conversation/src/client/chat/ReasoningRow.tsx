@@ -38,7 +38,7 @@ export function ReasoningRow({ text, running, t }: { text: string; running: bool
   }, [running, scheduleSummaryScroll, summary])
 
   return (
-    <div className={css.root} data-state={running ? 'running' : 'ok'}>
+    <div className={css.root} data-variant="think" data-state={running ? 'running' : 'ok'}>
       {running && <span className={a11yCss.visuallyHidden}>{t('row.running')}</span>}
       <DisclosureRow
         rowClassName={css.row}
