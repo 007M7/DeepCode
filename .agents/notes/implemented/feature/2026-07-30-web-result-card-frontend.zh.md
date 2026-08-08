@@ -10,7 +10,7 @@ Status: implemented
 
 ## Decision
 
-`WebBlock` 是一个 `ui-primitives` 组件,渲染一次已完成的 web 检索,web 调用的每个 Web 渲染点都通过它消费 `web` 渲染意图:键控的 chat 工具行（`web_search`/`web_fetch`）、`GenericToolCard` 渲染点兜底,以及详情面板的 Output 区。`ui-conversation/src/client/contract/web-card-model.ts` 是唯一把快照的 `resultView` 转成组件 props 的地方,镜像 `terminal-card-model.ts`,因此没有两个渲染点会对一次 web 调用的显示产生分歧。它返回 null —— 走通用路径 —— 对运行中的调用（web 卡片是 result-only 的,因为工具保留 generic pending 视图）、对 result view 不是 web 卡片的已结算调用（包括本客户端版本不认识的 `card` 值,它经 wire 抵达因而不能被信任为已编译的变体）、对 generic result view（web 工具的错误路径返回 generic 卡片,其文本由通用路径保留）、以及对本客户端版本不认识 `kind` 的 web 卡片（更新的 host 经 wire 发来的值,读作 fetch 会画出空 URL 和 `HTTP undefined`）。
+`WebBlock` 是一个 `ui-primitives` 组件,渲染一次已完成的 web 检索,web 调用的每个 Web 渲染点都通过它消费 `web` 渲染意图:键控的 chat 工具行（`web_search`/`web_fetch`）、`GenericToolCard` 渲染点兜底,以及详情面板的 Output 区。`ui-tool/src/client/models/web-card-model.ts` 是唯一把快照的 `resultView` 转成组件 props 的地方,镜像 `terminal-card-model.ts`,因此没有两个渲染点会对一次 web 调用的显示产生分歧。它返回 null —— 走通用路径 —— 对运行中的调用（web 卡片是 result-only 的,因为工具保留 generic pending 视图）、对 result view 不是 web 卡片的已结算调用（包括本客户端版本不认识的 `card` 值,它经 wire 抵达因而不能被信任为已编译的变体）、对 generic result view（web 工具的错误路径返回 generic 卡片,其文本由通用路径保留）、以及对本客户端版本不认识 `kind` 的 web 卡片（更新的 host 经 wire 发来的值,读作 fetch 会画出空 URL 和 `HTTP undefined`）。
 
 一个组件绘制两种 kind,由 `kind` 判别。`search` 把 answer 作为 markdown 显示在引用列表上方;每个 source 是一个安全外链,以其标题为标签,provider 未给标题时以其主机名为标签,下方是 snippet 与发布日期,工具截断列表时显示 `来源列表已截断` 提示。`fetch` 显示一个紧凑摘要:带链接的最终 URL、其 HTTP 状态、以及 `内容已截断` 提示。用一个组件而非两个,因为两者都是渲染为同一卡片族的 web 检索 —— 这正是契约把它们放在一个 `card` 标签下、用 `kind` 判别的原因。
 
@@ -38,7 +38,7 @@ Status: implemented
 
 `packages/client/ui-primitives/tests/web-block.spec.tsx` 把组件钉到 per-file 100% 门槛:两种 kind;标题-或-主机名-或-原始 URL 的标签回退;两种 kind 上的安全链接属性（http(s) URL 成为带 `target`/`rel` 的外链,`javascript:`/`file:`/无法解析的 URL 渲染为无 href 的纯 span）;snippet 与日期在存在/为空/缺失时的显示或省略;由标志位控制的截断提示;以及完整 source 列表渲染在单个滚动容器内、无展开控件、`<li value>` 从 1 起为每条 source 连续编号。
 
-`packages/client/ui-conversation/tests/web-card.spec.tsx` 在每个接线接缝镜像 `terminal-card.spec.tsx`:`webCardModel` 的派生投影每个 source 字段、其截断与缺失 answer 的支路、fetch 派生、以及每个 null 支路（运行中、null result view、generic result view、未知 card 标签、未知 web `kind`）;键控 `WebRow` 对两种 kind 的常驻卡片、其仅摘要行的运行中与失败支路;`GenericToolCard` 兜底为 web 声明工具长出常驻卡片、并为非 web 调用保持纯行;详情面板 Output 区对两种 kind —— 含 `web_fetch` 正文摊平在其 URL/状态卡片下方 —— 及其对非 web 结果的摊平回退;以及在 `web_search` 与 `web_fetch` 两键下用一个组件的键控注册。该文件位于覆盖率 `exclude` 列表（`ui-conversation/src/*`）,因此覆盖率运行不度量它。
+`packages/client/ui-tool/tests/web-card.spec.tsx` 在每个接线接缝镜像 `terminal-card.spec.tsx`:`webCardModel` 的派生投影每个 source 字段、其截断与缺失 answer 的支路、fetch 派生、以及每个 null 支路（运行中、null result view、generic result view、未知 card 标签、未知 web `kind`）;键控 `WebRow` 对两种 kind 的常驻卡片、其仅摘要行的运行中与失败支路;`GenericToolCard` 兜底为 web 声明工具长出常驻卡片、并为非 web 调用保持纯行;详情面板 Output 区对两种 kind —— 含 `web_fetch` 正文摊平在其 URL/状态卡片下方 —— 及其对非 web 结果的摊平回退;以及在 `web_search` 与 `web_fetch` 两键下用一个组件的键控注册。该文件位于覆盖率 `exclude` 列表（`ui-tool/src/*`）,因此覆盖率运行不度量它。
 
 fixture（`packages/client/connection/src/client/fixture.ts`）添加 turn 66（`web_search`）与 67（`web_fetch`）,内联撰写,因为客户端 fixture 无法 import web 工具:turn 66 的 result view 携带一个 answer 与三个 source,演练引用列表（一个带 snippet 与日期的有标题 source、一个无标题因而以主机名标注链接的 source、一个有日期无 snippet 的 source）并开启截断提示;turn 67 携带抓取的 URL 与一个 200 状态。两者都保留 generic pending call view,仅在 result 时添加 `web` 卡片,匹配契约的 result-only web 形状,且以真实工具命名,使其命中键控 `WebRow`。它们被排在 todo turn（重编号为 68）之前,理由与终端 turn 相同:待定计划在下一个 `turn/start` 退休,所以排在其后的 turn 会清空 dock 的 plan strip。这驱动 built-boot snapshot 与一个实时 `?fixture` 服务。
 
