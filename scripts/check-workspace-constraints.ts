@@ -126,6 +126,7 @@ const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
   '@deepseek-ai/dsh-client-ui-theme': ['lib/styles'],
   '@deepseek-ai/dsh-helper': ['lib/assets'],
   '@deepseek-ai/dsh-pty-local': ['scripts/ensure-spawn-helper.mjs'],
+  '@deepseek-ai/dsh-skill-badge': ['assets'],
   '@deepseek-ai/dsh-scripts': [
     'lib/dev/tsdown-config.js',
     'lib/local-plugin-loader-hooks.js',

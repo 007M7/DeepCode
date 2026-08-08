@@ -148,6 +148,7 @@
     { "path": "./packages/ui/permission" },
     { "path": "./packages/core/tools" },
     { "path": "./packages/skill/skill" },
+    { "path": "./packages/skill/skill-badge" },
     { "path": "./packages/skill/skill-local" },
     { "path": "./packages/skill/tool-skill" },
     { "path": "./packages/ui/tool-ask-user" },
