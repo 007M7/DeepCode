@@ -3,6 +3,7 @@ import { Context } from 'cordis'
 import SessionStore, { Session, SessionId, isJsonValue } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import {
+  DEFAULT_PREPARED_SESSION_CACHE_SIZE, DEFAULT_WRITE_BATCH_MAX_DELAY_MS, MAX_WRITE_BATCH_DELAY_MS,
   SessionPersistence, SessionPersistenceRevision, PersistenceCoordinator,
   type PersistenceBackend, type SessionPersistenceSnapshot, type StoredPrefix, type StoredSuffix,
 } from '../src/index.ts'
@@ -53,7 +54,9 @@ interface MemoryConfig { store?: MemoryStore }
 /** Test-only view of the coordinator containers whose retirement is the contract under test. */
 interface CoordinatorInternals {
   states: Map<unknown, unknown>
-  live: Map<unknown, { pending: unknown[]; flush: Promise<void> | undefined }>
+  live: Map<unknown, {
+    writes: { pending: unknown[]; active: Promise<void> | undefined; hasWork: boolean }
+  }>
   chains: Map<unknown, unknown>
   retirements: Map<unknown, Promise<void>>
 }
@@ -253,7 +256,7 @@ runCoordinatorContract('memory', async (): Promise<CoordinatorFixture> => {
   }
 })
 
-describe('PersistenceCoordinator eager writes', () => {
+describe('PersistenceCoordinator bounded writes', () => {
   it('starts a follow-up batch for events admitted during an in-flight write', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
@@ -263,11 +266,14 @@ describe('PersistenceCoordinator eager writes', () => {
       if (attempt === 1) await appendGate.promise
     }
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
-      new PersistenceCoordinator(inner, backend)
+      new PersistenceCoordinator(inner, backend, {
+        preparedSessionCacheSize: DEFAULT_PREPARED_SESSION_CACHE_SIZE,
+        writeBatchMaxDelayMs: 1,
+      })
     }, { inject: ['sessions'] }))
 
     try {
-      const session = ctx.sessions.create(SessionId('eager-follow-up'))
+      const session = ctx.sessions.create(SessionId('bounded-follow-up'))
       await ctx.sessions.flush(session)
       session.append('turn/start', { turn: 1 })
       await vi.waitFor(() => { expect(backend.appendAttempts).toBe(1) })
@@ -286,7 +292,7 @@ describe('PersistenceCoordinator eager writes', () => {
     }
   })
 
-  it('retries a failed overlapping eager write at the explicit flush barrier', async () => {
+  it('retries a failed overlapping background write at the explicit flush barrier', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const backend = new ControlledBackend()
@@ -294,15 +300,18 @@ describe('PersistenceCoordinator eager writes', () => {
     backend.beforeAppend = async (attempt) => {
       if (attempt === 1) {
         await appendGate.promise
-        throw new Error('transient eager failure')
+        throw new Error('transient background failure')
       }
     }
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
-      new PersistenceCoordinator(inner, backend)
+      new PersistenceCoordinator(inner, backend, {
+        preparedSessionCacheSize: DEFAULT_PREPARED_SESSION_CACHE_SIZE,
+        writeBatchMaxDelayMs: 1,
+      })
     }, { inject: ['sessions'] }))
 
     try {
-      const session = ctx.sessions.create(SessionId('eager-flush-retry'))
+      const session = ctx.sessions.create(SessionId('bounded-flush-retry'))
       await ctx.sessions.flush(session)
       session.append('turn/start', { turn: 1 })
       session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
@@ -401,7 +410,18 @@ describe('PersistenceCoordinator session preparations', () => {
 
     expect(() => new PersistenceCoordinator(ctx, backend, {
       preparedSessionCacheSize: capacity,
+      writeBatchMaxDelayMs: DEFAULT_WRITE_BATCH_MAX_DELAY_MS,
     })).toThrow(/positive safe integer/)
+  })
+
+  it.each([0, 1.5, MAX_WRITE_BATCH_DELAY_MS + 1])('rejects invalid write batch delay %s', (delay) => {
+    const ctx = new Context()
+    const backend = new ControlledBackend()
+
+    expect(() => new PersistenceCoordinator(ctx, backend, {
+      preparedSessionCacheSize: DEFAULT_PREPARED_SESSION_CACHE_SIZE,
+      writeBatchMaxDelayMs: delay,
+    })).toThrow(/writeBatchMaxDelayMs must be an integer between/)
   })
 
   it('retries invalidated prepare and load reservations', async () => {
@@ -586,6 +606,39 @@ describe('PersistenceCoordinator session preparations', () => {
       const live = internals.attachPrepared(preparation.session, reservation)
       await expect(live.init).rejects.toBe(failure)
     } finally {
+      preparation[Symbol.dispose]()
+      await fiber.dispose()
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('writes new events after publishing a preparation with no unpublished suffix', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const backend = new ControlledBackend()
+    const id = SessionId('prepared-live-write')
+    const stored = [
+      ...oneTurnLog(),
+      { type: 'session/end-seed', seq: 6, time: 7, data: {} } as SessionEvent,
+    ]
+    backend.store.set(id, { meta: meta(id), events: stored })
+    let coordinator!: PersistenceCoordinator<never>
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      coordinator = new PersistenceCoordinator(inner, backend)
+    }, { inject: ['sessions'] }))
+    const preparation = await coordinator.prepare(id)
+    const detach = ctx.sessions.enter(preparation.session)
+
+    try {
+      ctx.sessions.announce(preparation.session)
+      preparation.session.append('turn/start', { turn: 2 })
+      preparation.session.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
+
+      await expect(ctx.sessions.flush(preparation.session)).resolves.toBe(true)
+      expect(backend.store.get(id)?.events.map(event => event.seq))
+        .toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8])
+    } finally {
+      detach()
       preparation[Symbol.dispose]()
       await fiber.dispose()
       await ctx.fiber.dispose()
@@ -1004,7 +1057,10 @@ describe('PersistenceCoordinator session preparations', () => {
     backend.store.set(secondId, { meta: meta(secondId), events: oneTurnLog() })
     let coordinator!: PersistenceCoordinator<never>
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
-      coordinator = new PersistenceCoordinator(inner, backend, { preparedSessionCacheSize: 1 })
+      coordinator = new PersistenceCoordinator(inner, backend, {
+        preparedSessionCacheSize: 1,
+        writeBatchMaxDelayMs: DEFAULT_WRITE_BATCH_MAX_DELAY_MS,
+      })
     }, { inject: ['sessions'] }))
 
     try {
@@ -1529,7 +1585,7 @@ describe('PersistenceCoordinator retirement', () => {
 
       await vi.waitFor(() => {
         expect(backend.appendAttempts).toBeGreaterThanOrEqual(1)
-        expect([...internals.live.values()][0]?.pending).toEqual(expect.arrayContaining([
+        expect([...internals.live.values()][0]?.writes.pending).toEqual(expect.arrayContaining([
           expect.objectContaining({ seq: 0 }),
           expect.objectContaining({ seq: 1 }),
         ]))
@@ -1573,7 +1629,7 @@ describe('PersistenceCoordinator retirement', () => {
       await vi.waitFor(() => {
         expect(backend.appendAttempts).toBe(1)
         expect(internals.live.size).toBe(1)
-        expect([...internals.live.values()][0]?.flush).toBeInstanceOf(Promise)
+        expect([...internals.live.values()][0]?.writes.active).toBeInstanceOf(Promise)
       })
 
       let disposed = false
