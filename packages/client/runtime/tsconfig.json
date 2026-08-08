@@ -24,9 +24,6 @@
       "path": "../schema-form"
     },
     {
-      "path": "../../api/remotes"
-    },
-    {
       "path": "../../host/apiproxy"
     },
     {

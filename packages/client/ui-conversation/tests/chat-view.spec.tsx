@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Profiler } from 'react'
 import { act, cleanup, fireEvent, render, within } from '@testing-library/react'
 import type {
-  AssistantMessageNode, CommandNode, ConversationNode, ConversationSnapshot,
+  AssistantMessageNode, CommandNode, CompactionSummaryNode, ConversationNode, ConversationSnapshot,
   ModelRetryNode, RunningToolCall, SessionId, SessionListState, ToolResultNode, TurnErrorNode,
   UserMessageNode, WorkspaceListState,
 } from '@deepseek-ai/dsh-client-runtime/client'
@@ -92,6 +92,19 @@ const toolResult = (seq: number, callId: string, name = 'bash'): ToolResultNode 
 })
 const runningCall = (callId: string, name = 'bash'): RunningToolCall => ({
   callId, name, argsRaw: `{"command":"cmd-${callId}"}`, turn: 2, step: 1, time: 1_000, callView: null,
+})
+const command = (over: Partial<CommandNode> = {}): CommandNode => ({
+  kind: 'command', seq: 5, time: 5_000, commandId: 'cmd-1' as CommandNode['commandId'],
+  name: 'plan', args: '', outcome: { kind: 'success', text: '已进入 plan mode' },
+  ...over,
+})
+const compaction = (over: Partial<CompactionSummaryNode> = {}): CompactionSummaryNode => ({
+  kind: 'compaction', seq: 8, time: 8_000,
+  summary: '## 压缩摘要\n\n保留的事实。',
+  summaryEventSeq: 7,
+  shadowedItemCount: 16,
+  shadowedTokenCount: 11_309,
+  ...over,
 })
 
 /** Empty sessions-list hook for the global standard-kit seat. */
@@ -210,6 +223,79 @@ describe('chat-flow derivation', () => {
     expect(flowKeys(updated)).toBe('n1|n2')
     expect(updated).toHaveLength(2)
     expect(updated[1]?.kind === 'node' && updated[1].node).toBe(second)
+  })
+
+  it('folds a successful /compact lifecycle into its explicitly linked checkpoint', () => {
+    const running = command({
+      seq: 1,
+      commandId: 'cmd-compact' as CommandNode['commandId'],
+      name: 'compact',
+      outcome: null,
+    })
+    expect(flowKeys(deriveChatFlow([user(0, 'before'), running]))).toBe('n0|ccmd-compact')
+
+    const settled = {
+      ...running,
+      outcome: { kind: 'success' as const, text: 'Compacted 16 history items.', sourceEventSeq: 3 },
+    }
+    const checkpoint = compaction({ seq: 4, summaryEventSeq: 3 })
+    const items = deriveChatFlow([user(0, 'before'), settled, user(2, 'injected while compacting'), checkpoint])
+    expect(flowKeys(items)).toBe('n0|n2|ccmd-compact')
+    expect(items.at(-1)).toEqual({
+      kind: 'command-compaction',
+      key: 'ccmd-compact',
+      command: settled,
+      compaction: checkpoint,
+    })
+  })
+
+  it('does not split adjacent tool results around a folded /compact command', () => {
+    const folded = command({
+      seq: 2,
+      commandId: 'cmd-compact' as CommandNode['commandId'],
+      name: 'compact',
+      outcome: { kind: 'success', sourceEventSeq: 4 },
+    })
+    const items = deriveChatFlow([
+      toolResult(1, 'a'),
+      folded,
+      toolResult(3, 'b'),
+      compaction({ seq: 5, summaryEventSeq: 4 }),
+    ])
+    expect(flowKeys(items)).toBe('g1|ccmd-compact')
+    expect(
+      items[0]?.kind === 'tool-group' && items[0].results.map(result => result.callId),
+    ).toEqual(['a', 'b'])
+  })
+
+  it('keeps automatic, unlinked, and ambiguously linked compactions as separate rows', () => {
+    const automatic = compaction({ seq: 2, summaryEventSeq: 1 })
+    expect(flowKeys(deriveChatFlow([automatic]))).toBe('n2')
+
+    const first = command({
+      seq: 3,
+      commandId: 'cmd-a' as CommandNode['commandId'],
+      name: 'compact',
+      outcome: { kind: 'success', sourceEventSeq: 9 },
+    })
+    const second = command({
+      seq: 4,
+      commandId: 'cmd-b' as CommandNode['commandId'],
+      name: 'compact',
+      outcome: { kind: 'success', sourceEventSeq: 9 },
+    })
+    const ambiguous = compaction({ seq: 10, summaryEventSeq: 9 })
+    expect(flowKeys(deriveChatFlow([first, second, ambiguous]))).toBe('ccmd-a|ccmd-b|n10')
+
+    const sole = command({
+      seq: 11,
+      commandId: 'cmd-sole' as CommandNode['commandId'],
+      name: 'compact',
+      outcome: { kind: 'success', sourceEventSeq: 12 },
+    })
+    const duplicateA = compaction({ seq: 13, summaryEventSeq: 12 })
+    const duplicateB = compaction({ seq: 14, summaryEventSeq: 12 })
+    expect(flowKeys(deriveChatFlow([sole, duplicateA, duplicateB]))).toBe('ccmd-sole|n13|n14')
   })
 
   it('skips render-nothing assistant nodes so tool runs stay one group', () => {
@@ -1172,11 +1258,6 @@ describe('ChatView', () => {
   })
 
   it('renders command nodes as durable rows: settled text, error state, executing spinner, run-less soft-fall', () => {
-    const command = (over: Partial<CommandNode>): CommandNode => ({
-      kind: 'command', seq: 5, time: 5_000, commandId: 'cmd-1' as CommandNode['commandId'],
-      name: 'plan', args: '', outcome: { kind: 'success', text: '已进入 plan mode' },
-      ...over,
-    })
     // Settled success: the bare command name is the title, the outcome text
     // the summary — neither the dispatched `/` nor its arguments reach the row
     // (the settlement text already says what the command did).
@@ -1210,5 +1291,66 @@ describe('ChatView', () => {
     const ov = render(<orphan.ChatView {...orphan.props} />)
     expect(ov.getByText('命令')).toBeTruthy()
     expect(ov.getByText('已完成')).toBeTruthy()
+  })
+
+  it('renders /compact as one stateful disclosure from running through completion', () => {
+    const running = command({
+      commandId: 'cmd-compact' as CommandNode['commandId'],
+      name: 'compact',
+      outcome: null,
+    })
+    const h = makeHarness({ nodes: [running] })
+    const view = render(<h.ChatView {...h.props} />)
+    expect(view.getByText('正在压缩…')).toBeTruthy()
+    expect(view.container.querySelector('[data-state="running"]')).not.toBeNull()
+
+    act(() => {
+      h.set({
+        nodes: [{
+          ...running,
+          outcome: {
+            kind: 'success',
+            text: 'Compacted 16 history items (~11309 tokens).',
+            sourceEventSeq: 7,
+          },
+        }, compaction()],
+      })
+    })
+
+    expect(view.queryByText('正在压缩…')).toBeNull()
+    expect(view.queryByText('上下文已压缩')).toBeNull()
+    expect(view.getByText('已压缩 16 条历史记录（约 11309 tokens）')).toBeTruthy()
+    const row = view.getByRole('button', { name: /compact/ })
+    expect(row.getAttribute('aria-expanded')).toBe('false')
+    expect(row.querySelector('[data-compaction-icon="context"]')).not.toBeNull()
+    expect(row.querySelector('[data-compaction-disclosure="collapsed"]')).not.toBeNull()
+    expect(view.queryByText('保留的事实。')).toBeNull()
+    fireEvent.click(row)
+    expect(row.getAttribute('aria-expanded')).toBe('true')
+    expect(row.querySelector('[data-compaction-disclosure="expanded"]')).not.toBeNull()
+    expect(view.getByRole('heading', { name: '压缩摘要' })).toBeTruthy()
+  })
+
+  it('keeps /compact no-history and error settlements on the generic command row', () => {
+    const noHistory = makeHarness({
+      nodes: [command({
+        name: 'compact',
+        outcome: { kind: 'success', text: 'No compactable history yet.' },
+      })],
+    })
+    const noHistoryView = render(<noHistory.ChatView {...noHistory.props} />)
+    expect(noHistoryView.getByText('No compactable history yet.')).toBeTruthy()
+    expect(noHistoryView.queryByRole('button')).toBeNull()
+
+    const failed = makeHarness({
+      nodes: [command({
+        commandId: 'cmd-compact-failed' as CommandNode['commandId'],
+        name: 'compact',
+        outcome: { kind: 'error', text: 'Compaction cancelled.' },
+      })],
+    })
+    const failedView = render(<failed.ChatView {...failed.props} />)
+    expect(failedView.getByText('Compaction cancelled.')).toBeTruthy()
+    expect(failedView.container.querySelector('[data-state="error"]')).not.toBeNull()
   })
 })

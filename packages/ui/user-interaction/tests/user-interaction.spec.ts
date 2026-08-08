@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
+import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import UserInteractionService, {
   UserInteractionError,
   type AskUserQuestionRequest,
@@ -15,6 +16,14 @@ function provider(answer = 'approved'): UserInteractionProvider & { seen: AskUse
       return { answers: [{ id: request.questions[0]?.id ?? 'missing', selected: [answer] }] }
     },
   }
+}
+
+function stubAgent(id: string, delegationDepth = 0): Agent {
+  const agentId = id as Agent['id']
+  return {
+    id: agentId,
+    session: { id: agentId, header: { delegationDepth } },
+  } as unknown as Agent
 }
 
 describe('UserInteractionService', () => {
@@ -81,6 +90,74 @@ describe('UserInteractionService', () => {
 
     await expect(ctx.userInteraction.ask({ questions: [] }))
       .rejects.toMatchObject({ name: 'UserInteractionError', code: 'EMPTY_QUESTIONS' })
+    expect(p.ask).not.toHaveBeenCalled()
+  })
+
+  it('rejects a live runtime-owned agent before reaching the provider', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(UserInteractionService)
+    const p = { ask: vi.fn(async () => ({ answers: [] })) }
+    ctx.userInteraction.registerProvider(p)
+    const root = stubAgent('root', 0)
+    const child = stubAgent('child', 0)
+    ctx.agents.enter(root, undefined)
+    ctx.agents.enter(child, root)
+
+    await expect(ctx.userInteraction.ask({
+      questions: [{ id: 'confirm', question: 'Proceed?' }],
+      agent: child,
+    })).rejects.toMatchObject({
+      name: 'UserInteractionError',
+      code: 'DELEGATED_CALLER',
+      message: "human interaction is unavailable while the calling agent is owned by another live agent; include the unresolved question or decision in the child agent's final result",
+    })
+    expect(p.ask).not.toHaveBeenCalled()
+  })
+
+  it('reaches the provider for a lineage-bearing session resumed as a runtime root', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(UserInteractionService)
+    const p = provider('yes')
+    ctx.userInteraction.registerProvider(p)
+    const agent = stubAgent('resumed-root', 1)
+    ctx.agents.enter(agent, undefined)
+
+    const result = await ctx.userInteraction.ask({
+      questions: [{ id: 'confirm', question: 'Proceed?' }],
+      agent,
+    })
+
+    expect(result).toEqual({ answers: [{ id: 'confirm', selected: ['yes'] }] })
+  })
+
+  it('rejects a supplied agent when no live registry can attest it', async () => {
+    const ctx = new Context()
+    await ctx.plugin(UserInteractionService)
+    const p = { ask: vi.fn(async () => ({ answers: [] })) }
+    ctx.userInteraction.registerProvider(p)
+
+    await expect(ctx.userInteraction.ask({
+      questions: [{ id: 'confirm', question: 'Proceed?' }],
+      agent: stubAgent('unattested'),
+    })).rejects.toMatchObject({ name: 'UserInteractionError', code: 'CALLER_NOT_LIVE' })
+    expect(p.ask).not.toHaveBeenCalled()
+  })
+
+  it('rejects a stale agent object that reuses a live id', async () => {
+    const ctx = new Context()
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(UserInteractionService)
+    const p = { ask: vi.fn(async () => ({ answers: [] })) }
+    ctx.userInteraction.registerProvider(p)
+    const live = stubAgent('same-id')
+    ctx.agents.enter(live, undefined)
+
+    await expect(ctx.userInteraction.ask({
+      questions: [{ id: 'confirm', question: 'Proceed?' }],
+      agent: stubAgent('same-id'),
+    })).rejects.toMatchObject({ name: 'UserInteractionError', code: 'CALLER_NOT_LIVE' })
     expect(p.ask).not.toHaveBeenCalled()
   })
 

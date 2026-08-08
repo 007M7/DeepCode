@@ -57,7 +57,7 @@ Remote 方法可以同步返回或返回 Promise。若需要协作式取消，Ho
 
 Client 使用普通对象上的具体函数，不使用 JavaScript Proxy。直接调用与作用域调用分别出现在 `ctx.remote.<namespace>` 和 `agentCtx.remote.<namespace>`。每个 namespace 都是注册为 `remote.<namespace>` 的可追踪 Cordis 子 Service；Client assembly 通过 `ctx.remote.$mount()` 挂载贡献，最后一个方法撤回后该 namespace 随即卸载。依赖声明归实际调用方所有：只有读取 `ctx.remote.<namespace>` 或 `agentCtx.remote.<namespace>` 的业务包才在自己的 `inject` 中同时声明 `remote` 与 `remote.<namespace>`；只负责挂载 contribution 的 assembly，以及不调用该 namespace 的上层 runtime，不代业务包声明 namespace 依赖。当一个 `@Remote` 方法恰好有一个 lookup 参数、且同名 `TypeRTContextMap` 使用相同 wire identity 时，生成的作用域签名会省略该 identity 参数。`@RemoteScope` 只生成作用域调用界面。
 
-```ts
+```ts ignore-check
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { AgentContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type { Context } from 'cordis'
@@ -94,7 +94,11 @@ API Gateway 包同时拥有 Host dispatcher 与 Client Remote endpoint 两个对
 
 ## 严格生成链路
 
-根构建按 `build:lib:host`、`build:lib:client`、`build:web` 排序。Host lib 构建首先运行 `build:lib:contracts`：它先编译 TypeRT generator，再通过 `tsdown.typert-host.config.ts` 以 `tsconfig.host.json` 为种子启动 Host `ts.Program`。生成器不会把 Host 与 Client 聚合放入同一个 program，因而不会触发两侧 Cordis `Context` 声明合并冲突。
+根构建依次执行 `build:lib:host`、`build:lib:client` 与 `build:web`。Host lib 阶段先运行 `tsc -b tsconfig.host.json`，再运行 `tsdown --env.DSH_BUILD_FACE host`；TypeRT generator 由正常 Host Project Reference 图编译，并在这次 tsdown 中以 Host aggregate 为唯一 `ts.Program` 种子运行。Client lib 阶段随后运行 `tsc -b tsconfig.client.json` 与 `tsdown --env.DSH_BUILD_FACE client`，使用刚生成的 Remote Client 声明和运行时贡献，但不再次启动 TypeRT。
+
+两次 tsdown 都接收完整 workspace，且都只打包 `lib/types` 中由对应 tsc 阶段发射的 JavaScript。根配置不扫描 Client 产物、不按 package 名分类，也不向 tsdown 传维护式 filter；各包的本地配置根据 `DSH_BUILD_FACE` 返回当前阶段的入口。普通 Client plugin 在 Client 阶段一起生成 Node loader 入口与 browser bundle。
+
+`api-remotes` 是唯一拆分 TypeScript face 的 package 特例。它的 Host project 负责 Agent/Session lookup 策略，Client project 则依赖业务包在 Host tsdown 中生成的 `/remote` 声明；根 aggregate 与直接消费方必须分别引用 `api/remotes/tsconfig.host.json` 或 `api/remotes/tsconfig.client.json`。包内 `clientBundle(..., { hostPhase: true })` 让 Host 入口在 Host tsdown 中生成，让 Client tsdown 只生成 browser 入口。其他 package 仍只登记在一个 aggregate 中。
 
 每个贡献业务包把生成文件写入自己的 `lib/`，而不是源码目录：
 
@@ -149,13 +153,13 @@ pnpm run dev:web
 
 `dsh` 通过 tsx 启动 Host 源码，所以 Host 可以使用 SRC 回退；`dev:web` 只监听带 `dshClient` 声明的 Client plugin 并重写其 `lib/client.js`，它不会分析 Host decorator，也不会生成 Remote Client DTS。
 
-只修改 Remote 方法实现体而不改变契约时，无需重新生成 TypeRT 文件。新增或删除 decorator、修改导出名、namespace、参数、返回值、lookup、Context 或取消签名时，先重新生成严格契约，再让 Client bundle 使用新的产物：
+只修改 Remote 方法实现体而不改变契约时，无需重新生成 TypeRT 文件。新增或删除 decorator、修改导出名、namespace、参数、返回值、lookup、Context 或取消签名时，重新执行有序 lib 构建，让 Host 先生成严格契约，再让 Client 编译并打包新的贡献：
 
 ```sh
-pnpm run build:lib:contracts
+pnpm run build:lib
 ```
 
-运行中的 Client watcher 会在重新打包时消费这些生成文件；没有 watcher 时运行 `pnpm run build:lib:client`。仅重新编译前端源码不能从 Host decorator 推导新类型。`pnpm run typecheck` 自带 `build:lib:contracts` 前置步骤，CI 与发布构建也使用严格生成链路。
+运行中的 Client watcher 会在重新打包时消费这些生成文件。若已单独运行 `pnpm run build:lib:host` 刷新 Host 契约，也可再运行 `pnpm run build:lib:client` 完成 Client 侧；干净工作树不能跳过 Host 阶段。仅重新编译前端源码不能从 Host decorator 推导新类型。`pnpm run typecheck` 会执行 Host lib 阶段后再运行 Client tsc，CI 与发布构建也使用同一顺序。
 
 ## 边界
 

@@ -25,6 +25,7 @@ import {
   type Profile,
 } from '@deepseek-ai/dsh-app-boot'
 import { resolveDshHome } from '@deepseek-ai/dsh-paths'
+import { DSH_ENVIRONMENT_KEY, type EnvironmentSnapshot } from '@deepseek-ai/dsh-environment'
 import type { HeadlessIo } from '@deepseek-ai/dsh-headless'
 import { createProcessShutdown, type ProcessShutdown } from './process-shutdown.ts'
 
@@ -46,7 +47,7 @@ export const INSTALL_ANCHOR = fileURLToPath(new URL('../package.json', import.me
 /** The session-telemetry row id the DSH_TELEMETRY_DISABLED switch targets. */
 const TELEMETRY_ROW_ID = 'telemetry-otel'
 
-/** The one-shot runner row a positional task requires and configures. */
+/** The one-shot runner row a `dsh run` task requires and configures. */
 const HEADLESS_ROW_ID = 'headless-runner'
 
 /** The empty root entry list every profile tree patches over. */
@@ -159,10 +160,12 @@ export interface RunProfileOptions {
   patchFiles: readonly string[]
   /** Launcher hook turning the pre-flag composed rows into flag patches (the web alias's flag family). */
   deriveFlagPatches?: (rows: ProfileRows) => PatchOptions[]
-  /** One-shot task text; requires the composition to mount the headless runner row. */
+  /** `dsh run` task text; requires the composition to mount the headless runner row. */
   task?: string
   /** Surface setup registered after Loader installation and before any config-tree entry mounts. */
   prepare?: (ctx: Context, rows: ProfileRows) => Promise<void> | void
+  /** This run's frozen environment snapshot, provided to the tree before any entry mounts. */
+  environment: EnvironmentSnapshot
 }
 
 /**
@@ -187,7 +190,7 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
     // error naming no fix.
     throw new Error(
       `dsh: profile ${JSON.stringify(options.profile)} mounts the one-shot runner and needs a task: `
-      + `dsh --profile ${options.profile} "<task>"`,
+      + `dsh run --profile ${options.profile} "<task>"`,
     )
   }
 
@@ -226,6 +229,9 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
   // application must not mutate the objects later reloads recompose from.
   const ctx = await boot(NAME, rootConfig, structuredClone(allPatches(composed)), async (hostCtx) => {
     app.current = hostCtx
+    // Before any config-tree entry mounts, so a plugin that resolves a
+    // user-facing value at construction already sees this run's layers.
+    hostCtx.provide(DSH_ENVIRONMENT_KEY, options.environment)
     if (options.task !== undefined) {
       const io: HeadlessIo = {
         stdout: process.stdout,

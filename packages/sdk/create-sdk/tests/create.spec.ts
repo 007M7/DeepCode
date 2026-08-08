@@ -381,7 +381,7 @@ describe('CreateWizard and scaffolder', () => {
     }).run()
     await scaffoldProject(resolved.directory, resolved.request)
     expect(await readFile(join(resolved.directory, '.env'), 'utf8')).toBe(
-      '# Required before start; an empty value makes provider startup fail.\nDEEPSEEK_API_KEY=\n',
+      '# Required before the first model request.\nDEEPSEEK_API_KEY=\n',
     )
     expect(port.requests).toContain('Keep the API key empty and fill .env later?')
   })

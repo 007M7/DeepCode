@@ -80,8 +80,8 @@ function renderProviderEditor({ target, ...props }: ProviderEditorRenderProps): 
  * Remove one user-added provider and its page-managed credential. Credential
  * removal comes first so a second-step failure leaves the provider row visible
  * and the whole operation safely retryable; both unsets are idempotent.
- * The settings removal names the profile rather than rebuilding its redacted
- * namespace, which would drop literal secrets stored elsewhere.
+ * The settings removal names the profile rather than rebuilding its whole
+ * namespace from a partial view.
  * @param api - settings and credential wire faces.
  * @param controller - the page store to refresh.
  * @param target - the provider's settings address and optional managed credential.
@@ -112,16 +112,14 @@ export async function removeProviderProfile(
 }
 
 /**
- * Whether a whole-section provider still needs its first key: nothing marks
- * the credential configured and no literal `apiKey` is stored, so the page
- * opens the setup card instead of showing a row.
+ * Whether a whole-section provider still needs its first key: an unconfigured
+ * credential opens the setup card instead of showing a row.
  * @param row - the joined provider row.
  * @returns whether to render the setup card.
  */
 export function needsSetup(row: ProviderRow): boolean {
   if (row.entry.settingsPath.length > 0) return false
-  if (row.credential?.configured === true) return false
-  return !row.literalApiKeyConfigured
+  return row.credential?.configured !== true
 }
 
 function targetOf(row: ProviderRow): EditorTarget {
@@ -264,7 +262,7 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
             )
           }
           const open = !adding && editing?.provider === row.entry.provider
-          const credentialConfigured = row.literalApiKeyConfigured || row.credential?.configured === true
+          const credentialConfigured = row.credential?.configured === true
           const credentialMissing = !credentialConfigured
             && row.apiKeyEnv !== undefined
             && row.credential?.configured === false

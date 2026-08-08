@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-This reference defines the profile, web-alias, plugin-management, and config-dump command modes. Argv is parsed once through [`src/args.ts`](../src/args.ts), and [`src/bin.ts`](../src/bin.ts) dynamically imports only the selected runner.
+This reference defines the profile, one-shot run, web-alias, plugin-management, and config-dump command modes. Argv is parsed once through [`src/args.ts`](../src/args.ts), and [`src/bin.ts`](../src/bin.ts) dynamically imports only the selected runner.
 
 ## Profile boot
 
@@ -12,7 +12,7 @@ Bundle names resolve from the dsh installation first, then from the profile dire
 
 The `web` and `headless` profiles auto-initialize from shipped templates on first use (`web`: base + web-app; `headless`: base + web-app + headless). Any other missing profile fails loud with a hint to run `dsh plugin --profile <name> add <package>`.
 
-A positional task (`dsh --profile headless "run the tests"`) requires the composition to mount the one-shot runner row (`headless-runner`); the launcher patches the task text into that row, the runner drives one fresh persisted session through the in-process API carrier, prints the final assistant text on stdout, and exits 0 on a completed turn, else 1. The session's Web host runs on an OS-assigned port and is announced on stderr, so the run is observable in a browser.
+Profile boot accepts no positional task. A profile that mounts the one-shot runner row (`headless-runner`) therefore fails loud with the canonical `dsh run --profile <name> "<task>"` command instead of reaching the row's raw required-field error.
 
 Inspect the composed tree without booting it:
 
@@ -22,6 +22,12 @@ dsh --profile web --patch ./extra.yml --dump-config
 ```
 
 `--dump-default-config` prints only the bundle layers; `--dump-config` adds the profile's `cordis.patch.yml`, the home-level `$DSH_HOME/cordis.patch.yml`, and `--patch` overlays. Both print provenance comments per layer; `!!js` expressions remain unevaluated, and unmatched patch targets are reported on stderr.
+
+## One-shot run
+
+`dsh run [--profile <name>] [--patch <path>...] <task...>` joins the task arguments with spaces, rejects a missing or blank task, and defaults `--profile` to `headless`. Repeatable `--patch` overlays occupy the same layer position as profile-boot overlays. A custom selected profile must mount `headless-runner`; otherwise launch fails before boot with a diagnostic naming that missing row.
+
+The launcher patches the task text into the runner row, which drives one fresh persisted session through the in-process API carrier, prints the final assistant text on stdout, and exits 0 on a completed turn, else 1. At the idle boundary, the runner waits until its mux consumer has observed the session's final event sequence before deriving that output and exit reason. The session's Web host runs on an OS-assigned port and is announced on stderr, so the run is observable in a browser.
 
 ## Plugin management
 
@@ -59,7 +65,7 @@ New sessions default to the `workspace-write` permission preset. Bash and filesy
 
 ## Shared deployment behavior
 
-The base bundle mounts the native DeepSeek adapter, settings and credential providers, stable `web_search`, repository Plugin support, and session telemetry. Provider credentials live in `$DSH_HOME/.env` or the ambient environment and remain rotatable because the launcher never hoists the credential file into `process.env`. Search uses `DEEPSEEK_API_KEY` and accepts `DEEPSEEK_SEARCH_BASE_URL`; `web_fetch` is disabled unless a patch layer inserts a provider and enables it.
+The base bundle mounts the native DeepSeek adapter, settings and credential providers, stable `web_search`, repository Plugin support, and session telemetry. Provider credentials resolve from the inherited environment, `$DSH_HOME/.credentials.yaml`, the invoking directory's `.env`, then `$DSH_HOME/.env`; the managed document is never materialized into `process.env`, while both `.env` files are ordinary launch environment layers. Search uses `DEEPSEEK_API_KEY` and accepts `DEEPSEEK_SEARCH_BASE_URL`; `web_fetch` is disabled unless a patch layer inserts a provider and enables it.
 
 Session events stream as OTLP/HTTP logs by default. `DSH_TELEMETRY_OTLP_URL` selects another collector. Any non-empty `DSH_TELEMETRY_DISABLED` disables the telemetry row before boot. The shipped base has no telemetry redaction rule, so exported records can contain message text, tool arguments and results, and workspace paths; the [telemetry Agent Note](../../../.agents/notes/implemented/feature/2026-07-31-web-telemetry-default-mount.md) owns that deployment decision.
 

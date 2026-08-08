@@ -9,6 +9,7 @@
  * The virtual loader registers each real stylesheet as a watch dependency.
  */
 import { readFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
 import { basename, dirname, relative, resolve as resolvePath, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { UserConfig } from 'tsdown'
@@ -33,6 +34,12 @@ export const INLINE_SAFE = /^@deepseek-ai\/dsh-(host-apiproxy|session|llm|tools|
 
 /** Generated descriptor/codec contribution with no shared runtime identity. */
 const GENERATED_REMOTE = /^@deepseek-ai\/dsh-[a-z0-9]+(?:-[a-z0-9]+)*\/remote$/
+
+/**
+ * Workspace mode replaces an empty config array with the root defaults. A
+ * falsey entry instead removes this package before entry resolution.
+ */
+const SKIP_WORKSPACE_BUILD: UserConfig = { entry: '' }
 
 /**
  * Documented TEMPORARY exemption, not a platform module (hence not in
@@ -61,19 +68,85 @@ function browserSourcePath(source: string, sourcemapPath: string): string {
 
 /**
  * Build the tsdown config for one UI plugin package: the node-half lib build
- * plus the browser client bundle. A package-level tsdown.config.ts REPLACES
- * the root workspace shape, so the lib half must be restated here — dropping
- * it leaves the package without lib/index.js and the host Loader cannot
- * import its node half.
+ * plus the browser client bundle. Client packages emit both halves during the
+ * Client pass by default; packages needed for Host reflection may opt into the
+ * earlier Host pass. A package-level tsdown.config.ts REPLACES the root
+ * workspace shape, so the lib half must be restated here — dropping it leaves
+ * the package without lib/index.js and the host Loader cannot import its node
+ * half.
  * @param id - plugin id (package name), stamped into the __ModuleLoader__.load
  * handoff and onto the injected style tags.
  * @param libEntry - node-half entries, spelled at the call site so the
  * package-invariants gate can see `lib/types/invariant.js` in each package's
  * own tsdown.config.ts (a preset-side glob hides it from the mechanical check).
- * @returns tsdown user configs emitting lib/*.js and lib/client.js.
+ * @param options - phase placement, lib overrides, and companion Node configs.
+ * @returns ENV-selected tsdown config for the current build face.
  */
-export function clientBundle(id: string, libEntry: readonly string[]): [UserConfig, UserConfig] {
-  return [{
+export function clientBundle(
+  id: string,
+  libEntry: readonly string[],
+  options: ClientBundleOptions = {},
+): BuildFaceConfig {
+  const lib = clientLibraryConfig(id, libEntry, options.lib)
+  return ({ env }) => {
+    const face = buildFace(env?.DSH_BUILD_FACE)
+    const client = clientConfig(id, face === undefined
+      ? 'src/client/index.ts'
+      : 'lib/types/client/index.js')
+    const node = [lib, ...(options.companions ?? [])]
+    if (face === 'host') return options.hostPhase === true ? node : [SKIP_WORKSPACE_BUILD]
+    if (face === 'client') return options.hostPhase === true ? [client] : [...node, client]
+    return [...node, client]
+  }
+}
+
+/**
+ * Build a Client-only Node library during the Client pass.
+ * @param id - Package name used in tsdown diagnostics.
+ * @param libEntry - Emitted JavaScript entries consumed from `lib/types`.
+ * @returns ENV-selected tsdown config for the Client build face.
+ */
+export function clientLibrary(id: string, libEntry: readonly string[]): BuildFaceConfig {
+  const lib = clientLibraryConfig(id, libEntry)
+  return clientOnly([lib])
+}
+
+/**
+ * Select arbitrary package-local configs only during the Client pass.
+ * @param configs - Node-side configs emitted after Client tsc.
+ * @returns ENV-selected tsdown config for the Client build face.
+ */
+export function clientOnly(configs: readonly UserConfig[]): BuildFaceConfig {
+  return ({ env }) => buildFace(env?.DSH_BUILD_FACE) === 'host'
+    ? [SKIP_WORKSPACE_BUILD]
+    : [...configs]
+}
+
+interface ClientBundleOptions {
+  /** Emit the Node-side artifacts during the Host pass instead of the Client pass. */
+  readonly hostPhase?: boolean
+  /** Additional Node-side configs emitted alongside the package library. */
+  readonly companions?: readonly UserConfig[]
+  /** Overrides for the package's primary Node-side library config. */
+  readonly lib?: UserConfig
+}
+
+type BuildFace = 'host' | 'client' | undefined
+
+type BuildFaceConfig = (inlineConfig: Pick<UserConfig, 'env'>) => UserConfig[]
+
+function buildFace(value: unknown): BuildFace {
+  if (value === undefined || value === 'host' || value === 'client') return value
+  throw new Error(`tsdown: --env.DSH_BUILD_FACE must be host or client, received ${String(value)}`)
+}
+
+function clientLibraryConfig(
+  id: string,
+  libEntry: readonly string[],
+  overrides: UserConfig = {},
+): UserConfig {
+  return {
+    name: id,
     entry: [...libEntry],
     outDir: 'lib',
     format: ['esm'],
@@ -82,8 +155,14 @@ export function clientBundle(id: string, libEntry: readonly string[]): [UserConf
     fixedExtension: false,
     dts: false,
     clean: false,
-  }, {
-    entry: { client: 'src/client/index.ts' },
+    ...overrides,
+  }
+}
+
+function clientConfig(id: string, entry: string): UserConfig {
+  return {
+    name: `${id}/client`,
+    entry: { client: entry },
     // Browser bundle lands next to the node half (single lib/ artifact dir;
     // the entryFileNames pin keeps it exactly lib/client.js). clean must stay
     // off — a default clean would wipe the node-half output emitted above.
@@ -139,7 +218,7 @@ export function clientBundle(id: string, libEntry: readonly string[]): [UserConf
       name: 'dsh-css-modules-inline',
       resolveId(source: string, importer: string | undefined) {
         if (!source.endsWith('.module.css')) return null
-        const abs = importer !== undefined ? resolvePath(dirname(importer), source) : source
+        const abs = importer !== undefined ? sourceAssetPath(source, importer) : source
         return CSS_VIRTUAL_PREFIX + abs + CSS_VIRTUAL_SUFFIX
       },
       async load(virtualId: string) {
@@ -151,7 +230,7 @@ export function clientBundle(id: string, libEntry: readonly string[]): [UserConf
         const { code, exports: cssExports } = transform({
           filename: fileId,
           code: source,
-          cssModules: { pattern: `[hash]_[local]` },
+          cssModules: { pattern: '[hash]_[local]' },
           minify: true,
         })
         const classMap: Record<string, string> = {}
@@ -160,13 +239,13 @@ export function clientBundle(id: string, libEntry: readonly string[]): [UserConf
         return [
           `const css = ${JSON.stringify(code.toString())};`,
           `const tagId = ${JSON.stringify(`${id}/${basename(fileId)}`)};`,
-          `if (typeof document !== 'undefined' && document.querySelector('style[data-plugin-css=' + JSON.stringify(tagId) + ']') === null) {`,
-          `  const tag = document.createElement('style');`,
+          'if (typeof document !== \'undefined\' && document.querySelector(\'style[data-plugin-css=\' + JSON.stringify(tagId) + \']\') === null) {',
+          '  const tag = document.createElement(\'style\');',
           `  tag.dataset.plugin = ${JSON.stringify(id)};`,
-          `  tag.dataset.pluginCss = tagId;`,
-          `  tag.textContent = css;`,
-          `  document.head.appendChild(tag);`,
-          `}`,
+          '  tag.dataset.pluginCss = tagId;',
+          '  tag.textContent = css;',
+          '  document.head.appendChild(tag);',
+          '}',
           `export default ${JSON.stringify(classMap)};`,
         ].join('\n')
       },
@@ -179,8 +258,18 @@ export function clientBundle(id: string, libEntry: readonly string[]): [UserConf
       // without exposing that tree as an HTTP route.
       sourcemapPathTransform: browserSourcePath,
       banner: `window.__ModuleLoader__.load({ id: ${JSON.stringify(id)}, factory: (require) => {`,
-      footer: `return module.exports; } });`,
+      footer: 'return module.exports; } });',
       intro: 'var module = { exports: {} }; var exports = module.exports;',
     },
-  }]
+  }
+}
+
+/** Resolve an emitted JS asset import against its source-tree counterpart. */
+function sourceAssetPath(source: string, importer: string): string {
+  const emitted = resolvePath(dirname(importer), source)
+  if (existsSync(emitted)) return emitted
+  const marker = `${sep}lib${sep}types${sep}`
+  const boundary = emitted.indexOf(marker)
+  if (boundary < 0) return emitted
+  return resolvePath(emitted.slice(0, boundary), 'src', emitted.slice(boundary + marker.length))
 }
