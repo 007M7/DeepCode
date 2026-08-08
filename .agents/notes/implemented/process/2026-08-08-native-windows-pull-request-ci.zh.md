@@ -36,6 +36,8 @@ Status: implemented
 
 随后的分支头精确托管运行又隔离出另外 7 项 fixture 契约。PowerShell 后台输出场景现在会等待进程完成，再排空并比较最后一段增量；pi-ai 空闲 watchdog 场景则保留 1 秒的有界关闭期限，以容纳 Windows 延迟送达的 socket 通知。异步工作区投影会在宿主解析后的根目录上填充内存文件系统。Include 重试验收现在断言注入的故障与最终持久化结果，而不再断言可能包含另一项合法串行写入的偶然 rename 总次数。LSP 的裸命令 fixture 会在 Windows 上通过 `PATHEXT` 提供 `.cmd` 可执行文件，URI 渲染预期也会区分执行环境的路径约定与测试宿主的分隔符。上述修改既没有跳过受支持路径，也没有削弱结果断言。
 
+该次运行还暴露出语法高亮会受运行器资源争用影响，而不只取决于源文本。Shiki 的 JavaScript 引擎会把超过 3,000 个字符的 TextMate 正则推迟到首次匹配时再编译，Shiki 同时把这段编译时间计入每行 500 毫秒的 tokenization（词元化）预算。繁忙的 Windows 覆盖率工作线程因此可能在首次 TypeScript 行匹配到 `const` 后提前停止，并让剩余内容沿用同一关键字样式。客户端现在仍使用 Shiki 的默认正则转换，但关闭延迟编译：scanner（扫描器）创建时会立即编译各项模式，而既有的 500 毫秒预算仍会约束对用户内容的扫描。词元边界与 Markdown DOM fixture 会继续要求完整高亮结果，不接受这类部分结果流。
+
 POSIX 模式位、基于 chmod 的不可读状态和基于 chmod 的 writer lock 拒绝在 Windows 上没有等价机制。这些验收场景继续在 POSIX 上强制执行，并在 Windows 上跳过；内容、原子替换、符号链接安全、通过平台无关文件系统冲突验证的回滚与恢复，以及原生 Windows 长路径行为仍保有覆盖。没有任何受支持的产品源码为适应这些差异而从 Windows 覆盖率中排除。
 
 受支持的工作流不含 Wine 专属基础设施：不存在 apt 缓存生产者、兼容性脚本、对仓库快照执行的 hoisted 安装、Windows Node 下载或本地 `check:windows-wine` 命令。[已归档的 Wine 实验](../../archived/process/2026-07-27-wine-windows-gates-experiment.md)仍作为其实测延迟与保真度取舍的历史证据，而非当前执行路径。
