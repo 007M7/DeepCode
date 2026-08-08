@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
 import { mkdtemp, mkdir, readFile, rm, writeFile, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL, fileURLToPath } from 'node:url'
+import { Context } from 'cordis'
+import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import { LspInstance, readHostSource } from '@deepseek-ai/dsh-lsp-local'
 import { encodeMessage } from '@deepseek-ai/dsh-lsp-local'
 import type { ConnectionWriter } from '@deepseek-ai/dsh-lsp-local/src/connection.ts'
@@ -15,6 +18,8 @@ const fixtureServer = fileURLToPath(new URL('./fixture-server.ts', import.meta.u
 
 let root: string
 let ws: string
+let ctx: Context
+let fs: LocalFileSystem
 let live: LspInstance[] = []
 
 beforeEach(async () => {
@@ -22,11 +27,15 @@ beforeEach(async () => {
   ws = join(root, 'ws')
   await mkdir(ws)
   await writeFile(join(ws, 'a.ts'), 'const x = 1\n')
+  ctx = new Context()
+  await ctx.plugin(LocalFileSystem, { cwd: root })
+  fs = ctx.fs as LocalFileSystem
 })
 
 afterEach(async () => {
   for (const instance of live) await instance.dispose()
   live = []
+  await ctx.fiber.dispose()
   await rm(root, { recursive: true, force: true })
 })
 
@@ -39,6 +48,7 @@ function makeInstance(
     command: process.execPath,
     args: [fixtureServer],
     cwd: ws,
+    workspaceUri: pathToFileURL(ws).href,
     env: { ...scrubbedParentEnv(), ...env },
     configuration: { setting: 42 },
     initializationOptions: { init: true },
@@ -58,7 +68,12 @@ function query(operation: LspProviderQuery['operation'] = 'goToDefinition'): Lsp
 
 /** Run a query against an instance, reading the source first the way the provider does. */
 async function run(instance: LspInstance, operation: LspProviderQuery['operation'] = 'goToDefinition', signal?: AbortSignal): Promise<LspQueryResult> {
-  const source = await readHostSource('a.ts', ws, 4_000_000)
+  const workspace = {
+    target: await fs.resolve(ws),
+    canonicalPath: ws,
+    fileUrl: pathToFileURL(ws).href,
+  }
+  const source = await readHostSource(fs, 'a.ts', workspace, 4_000_000)
   return instance.query(query(operation), source, signal)
 }
 
@@ -68,6 +83,7 @@ function scriptInstance(script: string, overrides: Partial<InstanceSpec> = {}): 
     command: process.execPath,
     args: ['-e', script],
     cwd: ws,
+    workspaceUri: pathToFileURL(ws).href,
     env: scrubbedParentEnv(),
     configuration: null,
     initializationOptions: null,
@@ -102,17 +118,17 @@ describe('LspInstance server-request handling', () => {
 
   it('accepts a lifecycle client/registerCapability request', async () => {
     const instance = makeInstance({ LSP_FAKE_ON_OPEN: 'lifecycle', LSP_FAKE_DEF: 'null' })
-    await expect(run(instance, 'goToDefinition')).resolves.toEqual({ kind: 'locations', locations: [], resolvedWorkspaceRoot: ws })
+    await expect(run(instance, 'goToDefinition')).resolves.toEqual({ kind: 'locations', locations: [], resolvedWorkspaceUri: pathToFileURL(ws).href })
   })
 
   it('rejects a workspace/applyEdit request but keeps serving', async () => {
     const instance = makeInstance({ LSP_FAKE_ON_OPEN: 'applyEdit', LSP_FAKE_DEF: 'null' })
-    await expect(run(instance, 'goToDefinition')).resolves.toEqual({ kind: 'locations', locations: [], resolvedWorkspaceRoot: ws })
+    await expect(run(instance, 'goToDefinition')).resolves.toEqual({ kind: 'locations', locations: [], resolvedWorkspaceUri: pathToFileURL(ws).href })
   })
 
   it('rejects an unknown server request but keeps serving', async () => {
     const instance = makeInstance({ LSP_FAKE_ON_OPEN: 'unknown', LSP_FAKE_DEF: 'null' })
-    await expect(run(instance, 'goToDefinition')).resolves.toEqual({ kind: 'locations', locations: [], resolvedWorkspaceRoot: ws })
+    await expect(run(instance, 'goToDefinition')).resolves.toEqual({ kind: 'locations', locations: [], resolvedWorkspaceUri: pathToFileURL(ws).href })
   })
 })
 
@@ -248,7 +264,7 @@ describe('LspInstance query and abort', () => {
     await expect(run(instance, 'goToDefinition')).resolves.toEqual({
       kind: 'locations',
       locations: [],
-      resolvedWorkspaceRoot: ws,
+      resolvedWorkspaceUri: pathToFileURL(ws).href,
     })
     expect(instance.dead).toBe(true)
   })
@@ -331,14 +347,22 @@ describe('LspInstance disposal', () => {
 function processAlive(pid: number): boolean {
   try {
     process.kill(pid, 0)
-    return true
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false
     throw error
   }
+  if (process.platform !== 'linux') return true
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8')
+    const state = stat.slice(stat.lastIndexOf(')') + 2).split(/\s+/, 1)[0]
+    return !/^[ZXx]$/.test(state ?? '')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
+    throw error
+  }
 }
 
-/** Wait until a process id disappears so temporary-workspace cleanup cannot race handle release. */
+/** Wait until a process can no longer execute so temporary-workspace cleanup cannot race handle release. */
 async function waitForProcessExit(pid: number, timeoutMs = 3_000): Promise<void> {
   const started = Date.now()
   while (processAlive(pid)) {

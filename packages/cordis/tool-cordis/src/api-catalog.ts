@@ -305,12 +305,34 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'e2b',
+    summary: 'Creates one lazily consumable E2B SDK handle and deletes the sandbox at timeout or disposal.',
+    methods: [
+      {
+        signature: 'async getSandbox(): Promise<Sandbox>',
+        jsDoc: '/**\n * Return the shared live SDK handle.\n * @returns the created sandbox after the configured cwd exists.\n * @throws when E2B rejects creation or the service is disposing.\n */',
+      },
+    ],
+  },
+  {
     key: 'fs',
     summary: 'Abstract filesystem provider.',
     methods: [
       {
         signature: 'abstract resolve(path: string, opts?: { cwd?: string; signal?: AbortSignal }): Promise<FsTarget>',
         jsDoc: '/**\n * Resolve a model/plugin-supplied path into a stable {@link FsTarget}. May perform I/O (a\n * remote/sandboxed backend may need a round-trip to map a path to a stable identity), hence\n * async even though the local backend only normalizes + realpaths.\n *\n * @param path - the path to resolve; relative paths resolve against `opts.cwd`.\n * @param opts - optional cwd override and cancellation signal.\n * @returns the stable target; the same file yields the same `targetKey`.\n */',
+      },
+      {
+        signature: 'abstract processPath(target: FsTarget): string',
+        jsDoc: '/**\n * Return the canonical absolute path a subprocess in this filesystem\'s\n * execution world can open. The path is deliberately separate from\n * {@link FsTarget.targetKey}: consumers may pass this value to another OS\n * capability, but must continue treating the target key as opaque.\n * @param target - the resolved target whose process path is required.\n * @returns an absolute path in the backend\'s execution world.\n */',
+      },
+      {
+        signature: 'abstract fileUrl(target: FsTarget): string',
+        jsDoc: '/**\n * Return the canonical `file:` URI for a target in this filesystem\'s\n * execution world. Backends own URI encoding because the host platform may\n * differ from the execution platform.\n * @param target - the resolved target to encode.\n * @returns the target\'s canonical file URI.\n */',
+      },
+      {
+        signature: 'abstract contains(parent: FsTarget, child: FsTarget): boolean',
+        jsDoc: '/**\n * Test canonical containment without exposing or parsing backend target\n * keys. Both targets must come from this provider.\n * @param parent - canonical directory target.\n * @param child - canonical candidate target.\n * @returns true when `child` is `parent` or a descendant of it.\n */',
       },
       {
         signature: 'abstract stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined>',
@@ -929,6 +951,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Deliver one later message to a continuable child as its next FIFO turn. A\n * resident child\'s Agent inbox accepts it directly (waking a `waiting`\n * Activation), while an absent one is cold-resumed from its persisted\n * Session. The Agent inbox is the only queue, so every accepted message has\n * one observable order.\n * @param parent - the exact live direct parent authorizing this delivery.\n * @param childId - durable child session id.\n * @param content - user-role content to deliver.\n * @param options - durable provenance and caller cancellation, which stops the\n *   operation only before inbox acceptance.\n * @returns the accepted message\'s inbox id.\n * @throws when continuation services are unavailable, parent authority is\n *   rejected, or the message was not admitted.\n */',
       },
       {
+        signature: 'interrupt(targetSessionId: SessionId, authority: SubagentInterruptAuthority): void',
+        jsDoc: '/**\n * Interrupt one live continuable child\'s current turn under a human parent\n * address or an exact live ancestor Agent. Fire-and-return: the cancel\n * signal is issued before this returns, but the target may keep running\n * until it observes the signal. Unclaimed pending inbox work, the Activation,\n * and published descendants are preserved; claimed work is not requeued.\n * Once the interrupted driver is idle, a waking send resumes the parked FIFO\n * queue. An absent target — including a one-shot or unknown id —\n * is an accepted no-op, as is a manager-less composition, which cannot own a\n * live Activation.\n * @param targetSessionId - the durable child session id to interrupt.\n * @param authority - the human parent address or exact live ancestor Agent.\n * @throws {SubagentError} `UNAUTHORIZED` when the authority does not own the\n *   live target.\n */',
+      },
+      {
         signature: 'async reportFrom( child: Agent, content: ContentBlock[], options: SubagentReportOptions, ): Promise<MessageId>',
         jsDoc: '/**\n * Deliver selected content from one live continuable child to its durable\n * direct parent. The child is the authority credential; callers cannot name a\n * recipient. Reporting does not conclude the child\'s turn or Activation.\n * @param child - exact live reporting child.\n * @param content - selected model-facing content.\n * @param options - parent scheduling and pre-acceptance cancellation.\n * @returns the stable identity of the parent-accepted message.\n * @throws when continuation services are unavailable, sender authorization\n *   fails, or the direct parent is not live.\n */',
       },
@@ -943,6 +969,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'listChildren(parentSessionId: SessionId, signal?: AbortSignal): Promise<SubagentListEntry[]>',
         jsDoc: '/**\n * Enumerate the parent\'s direct session-backed subagents without loading or\n * resuming an Agent and without any query seam: the listing merges the live\n * session store with optional session persistence (live-preferred) and\n * serves each child\'s durable mode/label from the registered `subagent`\n * projection unit down a three-rung ladder — the registry\'s watermark\n * snapshot for a live child; for a cold one, a durable projection-cache\n * row when the optional cache serves an own-suffix identity (its `seq`\n * gate proves the value postdates the fork seed, where a child\'s own\n * descriptor is immutable once appended), else one persistence inspection\n * folded through the registry. The\n * projection fold is the single classification authority; per-child\n * diagnostics relay a fold that served no identity or a failed inspection,\n * never a list-time descriptor parse. Absent persistence, enumeration is\n * live-only (a cold child cannot be resumed then either, so its absence is\n * capability absence, not an error). This service consults no Agent\n * registrations, Activations, or providers.\n *\n * Every persistence read receives `signal`, and the listing rechecks\n * cancellation around each of those awaits. Read rejections that settle\n * after an abort become a stable `SubagentError` with code `CANCELLED`.\n * @param parentSessionId - parent session whose direct children are listed.\n * @param signal - caller-owned cancellation forwarded to persistence reads\n *   and observed around every read await.\n * @returns children and per-child diagnostics ordered by `createdAt`, then id.\n * @throws {@link SubagentError} when the projection registry or the session\n *   store is not mounted, or the caller cancels the listing.\n */',
+      },
+      {
+        signature: 'listDescendants(rootSessionId: SessionId, signal?: AbortSignal): Promise<SubagentDescendantListEntry[]>',
+        jsDoc: '/**\n * Enumerate the root\'s complete session-backed subagent tree in stable\n * pre-order from one live-preferred corpus, without loading or resuming an\n * Agent. Ordinary sessions and one-shot children remain traversal nodes so\n * continuable descendants below them are discovered; each returned entry\n * adds its durable `parentId` and root-relative `depth`. Identity resolution,\n * diagnostics, optional persistence, and cancellation follow the same\n * projection-backed contract as {@link listChildren}.\n * @param rootSessionId - session whose complete descendant tree is listed.\n * @param signal - caller-owned cancellation forwarded to persistence reads\n *   and observed around every read await.\n * @returns children and per-candidate diagnostics with tree position, in\n *   stable pre-order.\n * @throws {@link SubagentError} under the same conditions as {@link listChildren}.\n */',
       },
       {
         signature: 'registerProvider(provider: SubagentProvider): () => void',
@@ -967,8 +997,16 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     summary: 'Abstract subprocess service.',
     methods: [
       {
+        signature: 'abstract resolveExecutable( command: string, env?: Readonly<Record<string, string>>, signal?: AbortSignal, ): Promise<string>',
+        jsDoc: '/**\n * Resolve one configured executable in this provider\'s execution world.\n * Absolute paths are verified; bare names use the provider\'s scrubbed PATH\n * plus explicit environment overrides. Relative paths containing separators\n * are rejected: no current consumer defines which directory they would\n * resolve against, so providers fail loud instead of guessing.\n * @param command - absolute executable path or bare PATH name.\n * @param env - explicit environment entries used for lookup.\n * @param signal - aborts remote or local lookup.\n * @returns a canonical executable path.\n */',
+      },
+      {
         signature: 'abstract spawn(spec: SubprocessSpawnSpec): SubprocessHandle',
         jsDoc: '/**\n * Start one managed child process from a fully-specified spec; this seam\n * applies no defaults.\n * @param spec - argv, directory, stdio dispositions, grace, cancellation, and environment.\n * @returns the live process handle (streams/readers, signalling, outcome promise).\n */',
+      },
+      {
+        signature: 'abstract spawnTerminal(spec: SubprocessTerminalSpawnSpec): Promise<SubprocessTerminalHandle>',
+        jsDoc: '/**\n * Allocate a real terminal and start one owned process session. This is the\n * only non-pipe process primitive: implementations own terminal byte I/O,\n * foreground groups, signals, and complete session-tree cleanup.\n * @param spec - fully specified argv, cwd, environment, dimensions, grace, and allocation cancellation.\n * @returns the live terminal handle after allocation succeeds.\n */',
       },
     ],
   },
@@ -2780,12 +2818,20 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SubagentCapabilities {\n    readonly outputSchema: boolean;\n    readonly depthLimit: boolean;\n    readonly toolFilter: boolean;\n    readonly persona: boolean;\n}',
   },
   {
+    name: 'SubagentDescendantListEntry',
+    declaration: 'export type SubagentDescendantListEntry = SubagentListEntry & {\n    readonly parentId: SessionId;\n    readonly depth: number;\n};',
+  },
+  {
     name: 'SubagentDescriptorData',
     declaration: 'export type SubagentDescriptorData = OneShotSubagentDescriptorData | ContinuableSubagentDescriptorData;',
   },
   {
     name: 'SubagentFollowupOptions',
     declaration: 'export interface SubagentFollowupOptions {\n    readonly source: MessageSource;\n    readonly signal: AbortSignal;\n}',
+  },
+  {
+    name: 'SubagentInterruptAuthority',
+    declaration: 'export type SubagentInterruptAuthority = {\n    readonly kind: \'user\';\n    readonly parentSessionId: SessionId;\n} | {\n    readonly kind: \'ancestor\';\n    readonly agent: Agent;\n};',
   },
   {
     name: 'SubagentListEntry',
@@ -2862,6 +2908,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SubprocessStdio',
     declaration: 'export interface SubprocessStdio {\n    stdin: SubprocessStdinMode;\n    stdout: SubprocessOutputMode;\n    stderr: SubprocessOutputMode;\n}',
+  },
+  {
+    name: 'SubprocessTerminalForeground',
+    declaration: 'export interface SubprocessTerminalForeground {\n    processGroupId: number;\n    inputWaiting: boolean;\n}',
+  },
+  {
+    name: 'SubprocessTerminalHandle',
+    declaration: 'export interface SubprocessTerminalHandle {\n    readonly pid: number;\n    readonly output: Readable;\n    readonly done: Promise<SubprocessOutcome>;\n    write(data: string): Promise<void>;\n    inspectForeground(): Promise<SubprocessTerminalForeground | undefined>;\n    signalForeground(signal: SubprocessTerminalSignal): Promise<number>;\n    terminate(): Promise<void>;\n}',
+  },
+  {
+    name: 'SubprocessTerminalSignal',
+    declaration: 'export type SubprocessTerminalSignal = \'SIGINT\' | \'SIGTERM\' | \'SIGKILL\' | \'SIGTSTP\' | \'SIGHUP\';',
+  },
+  {
+    name: 'SubprocessTerminalSpawnSpec',
+    declaration: 'export interface SubprocessTerminalSpawnSpec {\n    argv: readonly string[];\n    cwd: string;\n    env?: Record<string, string> | undefined;\n    rows: number;\n    cols: number;\n    graceMs: number;\n    signal?: AbortSignal | undefined;\n}',
   },
   {
     name: 'SurfaceEvent',

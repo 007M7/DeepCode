@@ -1,8 +1,8 @@
-/** Platform process-table inspection used for readiness, signals, and teardown. */
+/** Platform process-table inspection for terminal readiness, signals, and teardown. */
 
 import { closeSync, openSync, readFileSync, readdirSync, readSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
-import type { PtySignal } from '@deepseek-ai/dsh-pty'
+import type { SubprocessTerminalSignal } from '@deepseek-ai/dsh-subprocess'
 
 /** PID plus start identity, preventing teardown escalation after PID reuse. */
 export interface ProcessIdentity {
@@ -16,9 +16,11 @@ export interface ProcessInspector {
   isStdinWaiting(pgid: number): boolean
   /** Return the root and its current transitive descendants, children first. */
   processTree(rootPid: number): ProcessIdentity[]
+  /** Return current members of one POSIX process session when the platform exposes them. */
+  processSession(sessionId: number): ProcessIdentity[]
   /** Return whether the exact identity remains a non-quiescent process. */
   isAlive(identity: ProcessIdentity): boolean
-  signalGroup(pgid: number, signal: PtySignal): void
+  signalGroup(pgid: number, signal: SubprocessTerminalSignal): void
   signalProcess(identity: ProcessIdentity, signal: 'SIGTERM' | 'SIGKILL'): void
 }
 
@@ -83,6 +85,35 @@ function readLinuxStat(internals: ProcessInspectorInternals, pid: number): ProcS
   } catch (_unreadableProcEntry) {
     return undefined
   }
+}
+
+/**
+ * Report whether a Linux process group has an executing member. `false`
+ * means the group contains only zombie/dead entries; `undefined` means the
+ * process table could not prove either outcome.
+ * @param processGroupId - POSIX process-group id to inspect.
+ * @param internals - injectable process-table operations.
+ * @returns Live-member presence, or `undefined` when unavailable/absent.
+ */
+export function linuxProcessGroupHasLiveMembers(
+  processGroupId: number,
+  internals: ProcessInspectorInternals = DEFAULT_INTERNALS,
+): boolean | undefined {
+  let entries: string[]
+  try {
+    entries = internals.readDir('/proc')
+  } catch (_unreadableProcDirectory) {
+    return undefined
+  }
+  let matched = false
+  for (const entry of entries) {
+    if (!/^\d+$/.test(entry)) continue
+    const stat = readLinuxStat(internals, Number(entry))
+    if (stat?.pgrp !== processGroupId) continue
+    matched = true
+    if (!/^[ZXx]$/.test(stat.state)) return true
+  }
+  return matched ? false : undefined
 }
 
 function numericEntries(internals: ProcessInspectorInternals, path: string): number[] {
@@ -201,9 +232,10 @@ abstract class PosixProcessInspector implements ProcessInspector {
   abstract foregroundPgid(shellPid: number): number | undefined
   abstract isStdinWaiting(pgid: number): boolean
   abstract processTree(rootPid: number): ProcessIdentity[]
+  abstract processSession(sessionId: number): ProcessIdentity[]
   abstract isAlive(identity: ProcessIdentity): boolean
 
-  signalGroup(pgid: number, signal: PtySignal): void {
+  signalGroup(pgid: number, signal: SubprocessTerminalSignal): void {
     this.internals.kill(-pgid, signal)
   }
 
@@ -272,6 +304,13 @@ class LinuxProcessInspector extends PosixProcessInspector {
     return processTree(entries, rootPid)
   }
 
+  processSession(sessionId: number): ProcessIdentity[] {
+    return numericEntries(this.internals, '/proc').flatMap((pid) => {
+      const stat = readLinuxStat(this.internals, pid)
+      return stat?.session === sessionId ? [{ pid, started: stat.started }] : []
+    })
+  }
+
   isAlive(identity: ProcessIdentity): boolean {
     const stat = readLinuxStat(this.internals, identity.pid)
     return stat?.started === identity.started && !/^[ZXx]$/.test(stat.state)
@@ -307,6 +346,10 @@ class MacProcessInspector extends PosixProcessInspector {
     return processTree(macProcessTable(this.internals), rootPid)
   }
 
+  processSession(_sessionId: number): ProcessIdentity[] {
+    return []
+  }
+
   isAlive(identity: ProcessIdentity): boolean {
     return macProcessTable(this.internals).some(entry => entry.pid === identity.pid && entry.started === identity.started)
   }
@@ -327,5 +370,5 @@ export function createProcessInspector(
 ): ProcessInspector {
   if (platform === 'linux') return new LinuxProcessInspector(arch, internals)
   if (platform === 'darwin') return new MacProcessInspector(internals)
-  throw new Error(`pty-local: unsupported platform ${platform}`)
+  throw new Error(`subprocess-local: terminal inspection is unsupported on platform ${platform}`)
 }

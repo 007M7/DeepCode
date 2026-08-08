@@ -7,7 +7,7 @@ describe('TerminalSanitizer', () => {
     expect(sanitizer.push('red\x1b[3')).toEqual({ text: 'red', prompt: false })
     expect(sanitizer.push('1m text\x1b[0m\r\n')).toEqual({ text: ' text\n', prompt: false })
     expect(sanitizer.push('\x1b]133;')).toEqual({ text: '', prompt: false })
-    expect(sanitizer.push('D;0\x07dsh> ')).toEqual({ text: 'dsh> ', prompt: true, promptText: true })
+    expect(sanitizer.push('D;0\x07dsh> ')).toEqual({ text: 'dsh> ', prompt: true, promptTail: 'dsh> ' })
   })
 
   it('drops unrelated OSC, short escapes, BEL, and incomplete trailing escape', () => {
@@ -35,8 +35,8 @@ describe('TerminalSanitizer', () => {
 
   it('reports printable prompt text that follows a marker in a later chunk', () => {
     const sanitizer = new TerminalSanitizer(64)
-    expect(sanitizer.push('\x1b]133;D;0\x07')).toEqual({ text: '', prompt: true })
-    expect(sanitizer.push('dsh> ')).toEqual({ text: 'dsh> ', prompt: false, promptText: true })
+    expect(sanitizer.push('\x1b]133;D;0\x07')).toEqual({ text: '', prompt: true, promptTail: '' })
+    expect(sanitizer.push('dsh> ')).toEqual({ text: 'dsh> ', prompt: false, promptTail: 'dsh> ' })
   })
 
   it('bounds and discards unterminated control sequences through their terminators', () => {
