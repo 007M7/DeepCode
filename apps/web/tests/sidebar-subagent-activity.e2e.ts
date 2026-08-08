@@ -145,6 +145,10 @@ describe('web e2e: sidebar subagent activity', () => {
       MODE,
     )
     expect(await ownerRow.locator('[data-state="ongoing"]').count()).toBe(1)
+    await ownerRow.click()
+    const runningTrigger = page.getByRole('button', { name: '1 subagent running' })
+    await runningTrigger.waitFor({ timeout: 10_000 })
+    expect(await runningTrigger.locator('[data-state="ongoing"]').count()).toBe(1)
     await assertFixtureInventory(SNAPSHOT_DIR, ['owner-running.expected.md'])
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])

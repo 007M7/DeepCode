@@ -105,7 +105,7 @@ one-shot 行始终会用文案替代输入框，说明执行记录为只读。�
 - 通用 Host 测试固定在不发布 Agent 的情况下读取已附加与冷态历史及执行 fork、冷态投影归并、按描述符／origin／运行时 owner 拒绝、拒绝显式 id 接纳，以及直接队列控制栅栏。
 - 客户端对象测试固定已保留与已恢复的地址、one-shot 只读拒绝、历史路由、可继续提示词路由、已寻址对话不提供取消、屏蔽绑定到 agent 的模型控件、实时活动状态翻转（包括在途响应回放与 detach 回退）、subagent parent 可展开性翻转与成员刷新。
 - jsdom 测试固定后代聚合计数与活动状态、侧边栏活动在嵌套谱系中的传播与普通 fork 边界、行状态优先级、token 用量总计、精确到秒的运行中耗时与冻结后 inactive 耗时、采用自适应单位的长耗时及其精确无障碍文本、目录缺失或为陈旧空目录时由摘要支撑的根操作、已知加载行的形态、混合 mode 行、点击前的叶子展开控件、diagnostic、后代懒加载展开、直接 parent 地址、键盘行为与两种只读原因。
-- 无密钥的组装 Web 快照包含一个具有持久化 token 用量的 inactive 可继续 child、一个具有确定性长耗时的 inactive one-shot sibling 和一个持久化 grandchild；它会固定触发器在一次陈旧的空目录响应后仍显示三个后代，并固定 token 用量与计时行、自适应长耗时呈现以及页头中的聚合 `running` 状态转换，在不激活的情况下展开、打开持久化历史、准入一条用户 FIFO 后续消息、归并 child mux 事件，并证明 one-shot 历史仍然只读。另一个独立的组装场景会在 model seam 处保持一个真实的 child Agent 轮次进行中，同时固定可见空闲 owner 的聚合运行状态，随后在 teardown 期间取消该轮次。
+- 无密钥的组装 Web 快照包含一个具有持久化 token 用量的 inactive 可继续 child、一个具有确定性长耗时的 inactive one-shot sibling 和一个持久化 grandchild；它会固定触发器在一次陈旧的空目录响应后仍显示三个后代，并固定 token 用量与计时行及自适应长耗时呈现，在不激活的情况下展开、打开持久化历史、准入一条用户 FIFO 后续消息、归并 child mux 事件，并证明 one-shot 历史仍然只读。另一个独立的组装场景会在 model seam 处保持一个真实的 child Agent 轮次进行中，同时固定页头和可见空闲 owner 行中的聚合运行状态，随后在 teardown 期间取消该轮次。
 - 导航测试固定仅含 subagent 的面包屑导航、从 subagent 创建 fork 时的 Workspace 归属，以及 `origin: 'subagent'` 侧边栏过滤，同时不隐藏普通 fork。
 
 ## 后果
