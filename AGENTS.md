@@ -15,29 +15,32 @@ packages/    @deepseek-ai/dsh-<pkg> workspaces at packages/<group>/<pkg>/
   api/         Remote BFF assembly and TypeRT RPC gateway
   typert/      type graph generator, loader, and runtime registry
   llm/         LLM seam + DeepSeek adapters (direct-fetch + pi-ai design twin)
+  e2b/         E2B POC: sandbox + FS/subprocess adapters
   bash/        bash executor seam + local/pwsh impls + model-facing shell tools
   subprocess/  subprocess seam + local process-tree impl
   pty/         persistent PTY seam/backend/tools
-  fs/          filesystem seam + local impl + policy gate + read/write/edit tools
-  lsp/         language-server seam + local stdio provider + model-facing lsp tool
+  fs/          filesystem seam/backends/policy/tools
+  lsp/         language-server seam/local backend/tool
   skill/       skill provider registry + local impl + catalog/loader tool
   web/         web seam + search/fetch providers + model-facing web tools
   compact/     compaction seam + basic backend
   context/     request-context plugins
-  subagent/    subagent seam + spawn/fork/ACP backends + delegation tool
-  bundle/      profile plugin bundles: installable patch layers for dsh --profile
+  subagent/    subagent seam + spawn/fork/ACP backends + tool
+  bundle/      installable dsh --profile patch-layer bundles
   workflow/    workflow seam + worker-thread engine + workflow tool
   todo/        todo_write tool
-  plan/        plan mode as logged per-agent collaboration state
-  guard/       loop-hygiene plugins
-  cordis/      self-referential toolset: the agent inspects/mounts plugins in its own runtime
-  hooks/       Claude Code/Codex hook bridges + shared wire-protocol library
-  session-persistence/  persistence seam + JSONL/SQLite backends
-  settings/    user-settings seam + file-backed provider
-  credentials/ credential-reference seam + env-over-.env provider
+  plan/        plan mode as logged state
+  guard/       loop-hygiene + tool-timeout plugins
+  self-modification/  the agent inspects/mounts its own plugins
+  hooks/       Claude Code/Codex hook bridges + wire-protocol library
+  session/     durable session data: persistence, projection, titles, telemetry
+  settings/    user-settings seam + file provider
+  credentials/ credential-reference seam + env/.env provider
   acp/         automation-only Agent Client Protocol server
-  ui/          JSON-RPC bridge; boot, approval, interaction plugins
-  examples/    demo bundles (agent-spine + CLI/ACP/JSON-RPC bins) leaves load
+  interaction/ approval/interaction seams, permission, commands, ask-user
+  boot/        shared app-bin glue
+  scaffold/    project tooling: helper, launcher, initializer, SDK protocol
+  examples/    demo bundles (agent-spine + CLI/ACP/JSON-RPC bins)
   support/     dev/test infrastructure
   util/        zero-dependency utilities
 python/      Python SDK and bundled runtime (see python/README.md)
@@ -118,7 +121,7 @@ Real-API tests and demos read `DEEPSEEK_API_KEY`, optional `DEEPSEEK_BASE_URL`, 
 - **A tool's UI render intent is part of its design**, decided up front (`generic`/`terminal`/`diff`, `locations`); presentation methods are pure functions of `args` ([cookbook](docs/cookbook/adding-a-tool.md)).
 - **Plan unit, e2e, and snapshot coverage** for new seams, lifecycle shapes, and transcript surfaces; missing snapshot-harness support is part of the implementation, not deferred follow-up.
 - **Choose PR history deliberately.** Split independent changes; fix the introducing PR before propagation. Standalone PRs and official stacks may merge-forward or rebase after review. Rewrites use `--force-with-lease`, abort on remote movement, never raw `--force`; an in-progress merge-forward preserves its checkpoint before taking a newer base ([rationale](.agents/notes/implemented/process/2026-08-02-native-github-stacks-and-optional-rebases.md)).
-- **Label PRs:** one kind (`feature`/`bug-fix`/`doc`/`testing`/`cleanup`), each matching area; the [taxonomy](.agents/notes/implemented/process/2026-07-25-semantic-pr-label-taxonomy.md) is extensible.
+- **Labels:** one PR `kind/*`, all material `area/*`, and native Issue Type ([taxonomy](.agents/notes/implemented/process/2026-08-08-unified-github-label-taxonomy.md)).
 - TODO markers: `FIXME`/`TODO`/`XXX` by urgency ([semantics](docs/development.md)).
 - Files end with exactly one trailing newline; `git diff --cached --check` (pre-commit) gates it.
 

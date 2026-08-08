@@ -154,7 +154,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
   {
     pkg: '@deepseek-ai/dsh-tool-ask-user',
     dir: 'tool-ask-user',
-    source: 'packages/ui/tool-ask-user/src/index.ts',
+    source: 'packages/interaction/tool-ask-user/src/index.ts',
     requires: ['ctx.tools', 'ctx.userInteraction'],
     writes: ['tool/call', 'tool/result after a UI/provider answers the question'],
     async mount(ctx) {
@@ -226,7 +226,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
   {
     pkg: '@deepseek-ai/dsh-tool-cordis',
     dir: 'tool-cordis',
-    source: 'packages/cordis/tool-cordis/src/index.ts',
+    source: 'packages/self-modification/tool-cordis/src/index.ts',
     requires: ['ctx.tools'],
     writes: ['tool/call', 'tool/result', 'process-local temporary Plugin lifecycle'],
     async mount(ctx) {
@@ -399,10 +399,11 @@ const TOOL_PACKAGES: ToolPackage[] = [
     pkg: '@deepseek-ai/dsh-tool-subagent-control',
     dir: 'tool-subagent-control',
     source: {
+      interrupt_agent: 'packages/subagent/tool-subagent-control/src/index.ts',
       list_agents: 'packages/subagent/tool-subagent-control/src/list-agents.ts',
       send_message: 'packages/subagent/tool-subagent-control/src/index.ts',
     },
-    requires: ['ctx.tools', 'ctx.subagents', 'ctx.sessionProjections (list_agents catalog rows)'],
+    requires: ['ctx.tools', 'ctx.subagents', 'ctx.agents and ctx.sessionProjections (list_agents only)'],
     writes: ['tool/call', 'tool/result', 'child session events through ctx.subagents'],
     async mount(ctx) {
       await ctx.plugin(SubagentService)
@@ -414,7 +415,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(ToolSubagentListAgents)
     },
     note:
-      'The globally named control tools over continuable background subagents: provider-bound `tool-subagent` instances register distinct delegation tools, while this package registers `send_message` once, plus `list_agents` from its separately loaded `/list-agents` plugin (whose catalog rows are served through the sessionProjections registry).',
+      'The globally named control tools over continuable background subagents: provider-bound `tool-subagent` instances register distinct delegation tools, while this package registers `send_message` and `interrupt_agent` once, plus `list_agents` from its separately loaded `/list-agents` plugin (whose catalog rows use the sessionProjections and live Agent registries).',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-subagent-report',
@@ -607,7 +608,7 @@ export function render(catalog: ToolCatalog): string {
     '',
     '# Tool Schema Catalog',
     '',
-    'Every model-facing tool a shipped plugin contributes to `ctx.tools`: the `name`, `description`, and JSON-Schema `parameters` the model receives via the system-prompt assembly. It complements the cordis [events](cordis-catalog/events.md) & [services](cordis-catalog/services.md) catalogs (the wiring a plugin listens to and calls) and [core-data-structures/](core-data-structures/core.md) (the types those signatures move) — this page is the *tools* the agent is offered.',
+    'Every model-facing tool a shipped plugin contributes to `ctx.tools`: the `name`, `description`, and JSON-Schema `parameters` the model receives via the system-prompt assembly. It complements the [subsystem pages](subsystems/core.md) (the types plus each page\'s generated `cordis-surface` wiring region) — this page is the *tools* the agent is offered.',
     '',
     'This file is GENERATED and verified fresh by `pnpm run verify-tool-catalog` (part of `doc-sync`) — do not edit it by hand. Unlike the cordis catalog (a pure source-AST pass), this generator BOOTS each tool plugin on a real context and reads `ctx.tools.schemas()`, because a tool schema is not statically knowable (runtime-spread enums, concatenated descriptions, config-driven names, raw-JSON-Schema MCP tools). A completeness guard globs `packages/*/tool-*` and fails if any package is missing from the generator\'s boot manifest, so a new tool cannot be silently undocumented. See [the tool-schema-catalog Agent Note](../.agents/notes/implemented/process/2026-07-02-tool-schema-catalog.md).',
     '',
@@ -654,6 +655,16 @@ async function main(): Promise<void> {
       process.exit(0)
     }
     console.error(`gen-tool-catalog: ${OUT} is stale. Run \`pnpm run gen-tool-catalog\` and commit ${OUT}.`)
+    const committedLines = committed?.split('\n') ?? []
+    const generatedLines = content.split('\n')
+    const lineCount = Math.max(committedLines.length, generatedLines.length)
+    for (let index = 0; index < lineCount; index += 1) {
+      if (committedLines[index] === generatedLines[index]) continue
+      console.error(`gen-tool-catalog: first difference at line ${index + 1}`)
+      console.error(`  committed: ${JSON.stringify(committedLines[index])}`)
+      console.error(`  generated: ${JSON.stringify(generatedLines[index])}`)
+      break
+    }
     process.exit(1)
   }
 

@@ -8,8 +8,6 @@ The package knows no harness concepts and serves no files: the `/api` HTTP bridg
 
 A listen failure (EADDRINUSE…) throws out of activation and rejects Loader composition with the bind diagnostic; the failed candidate fiber is disposed. An HTTP request whose handling throws (a fallback owner's `decodeURIComponent` on a malformed %-escape, a client dropping mid-body) is answered 400 — or the socket destroyed when headers are already out — and logged as a warning; it never exits the process. An upgrade-handler exception or upgraded-socket transport error is logged as a warning and destroys its socket. Disposal starts `close()` and `closeAllConnections()`, destroys every tracked upgraded socket, and returns only after the HTTP server and those sockets have closed.
 
-In development, the client-plugin registry synchronously captures each built bundle's stat baseline before it returns, then polls those baselines and re-hashes changed content. Each rescan stages its candidate table, graph, and watch map before publishing them, so a baseline failure preserves the prior graph. An immediate rebuild therefore cannot disappear into an asynchronously established watch baseline; a rename window marks the path dirty, retains the last successful baseline, and forces a re-hash when the bundle reappears even with identical metadata.
-
 ## Model Experience
 
 None, as the package is a Web carrier between the browser and the HTTP/upgrade routes other plugins register; nothing here reaches a model request.

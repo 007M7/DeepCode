@@ -12,7 +12,7 @@ Deep process-local infrastructure sometimes needs a trusted initiating Agent bel
 
 ## Decision
 
-The mandatory `ctx.agents` service uses Node `AsyncLocalStorage` to carry the initiating Agent. It stores the exact `Agent` directly rather than introducing a one-field frame; a separate private run token records nested boundary lineage only for teardown bookkeeping and carries no identity. The [core-data catalog](../../../../docs/core-data-structures/core.md#initiating-agent) identifies the carried type.
+The mandatory `ctx.agents` service uses Node `AsyncLocalStorage` to carry the initiating Agent. It stores the exact `Agent` directly rather than introducing a one-field frame; a separate private run token records nested boundary lineage only for teardown bookkeeping and carries no identity. The [core-data catalog](../../../../docs/subsystems/core.md#initiating-agent) identifies the carried type.
 
 `currentInitiator()` reads optionally, `requireInitiator()` throws `no initiating agent is active`, and `withInitiator(agent, operation)` preserves the operation's exact synchronous value or Promise. `withoutInitiator(operation)` establishes a clearing boundary for work that must not inherit an Agent. Session remains derived as `agent.session`; turn, step, tool call, `signal`, model, `cwd`, sandbox, and authorization stay with their existing owners.
 

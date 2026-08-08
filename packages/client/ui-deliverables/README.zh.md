@@ -8,6 +8,8 @@
 
 `ProducedFiles` 在收尾消息正文与其 IconActions 之间渲染该行：一个安静的标签、至多六枚 chip（文本为文件名，完整路径作为 `title`），超出上限则显示一个明确的剩余计数。每枚 chip 经由 owner 提供的 `openFile` 打开——与工具行相同的 Host 打开器，chat 视图会把相对路径按会话 cwd 解析。设计原理：[workspace 文件链接 Agent Note](../../../.agents/notes/implemented/feature/2026-07-31-web-workspace-file-links.md)。
 
+收尾正文承载同一份词表。本插件提供 chat 视图按收尾消息查询的 `chatFileMentions` service：`producedFileMentions` 按精确路径解析行内代码 token，或当 token 恰好是且仅是一条产出路径的 basename 时解析——两条路径共享的 basename 保持死文本而不猜测，因此提及链接永远不会打开错误的文件或 404。解析成功的提及保留 code 胶囊并采用 markdown 样式表的链接语言——静止为链接蓝、悬停出下划线，与 URL 提升的行内代码完全一致——完整路径作为其 `title`；提及绝不会渲染在锚点内部或流式文本里。决策记录：[行内文件提及 Agent Note](../../../.agents/notes/implemented/feature/2026-08-07-web-inline-file-mentions.md)。
+
 ## 模型体验
 
 无。该行是对已记录工具元数据的纯客户端派生，这里没有任何内容进入模型请求。
@@ -18,4 +20,4 @@
 
 ## 已知限制与暂缓事项
 
-- **正文提及仍是死文本。**收尾消息里以行内代码写出的文件名尚不能点击打开；把它接到同一份 `locations` 词表是 stacked 的后续工作。
+- **提及匹配只认精确路径或唯一 basename。**后缀式提及（`out/index.html` 写作 `index.html` 可解析；`deep/out/index.html` 写作 `out/index.html` 则不行）保持死文本；放宽匹配器等真实的收尾消息形态需要时再做。

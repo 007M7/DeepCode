@@ -16,7 +16,7 @@ harness 已有一个具体的 `bash` 能力 seam（`dsh-bash` / `dsh-bash-local`
 
 如果没有 `ctx.fs` 接口，将本地文件系统访问替换为沙箱或远程后端时，即使面向模型的契约应当保持稳定，工具 schema、演示和提示词引导也会被迫变动。这还使权限/沙箱边界更难推理：一个 `cwd` 选项看起来像沙箱，但除非有显式的后端或 `tools/execute` 策略强制隔离，否则它只是一个基础路径。
 
-我们需要文件系统工具在成为公开包接口之前，以与 bash 相同的能力 seam 形态落地。
+我们需要文件系统工具在成为公开包（package）接口之前，以与 bash 相同的能力 seam 形态落地。
 
 ## 决策
 
@@ -51,7 +51,7 @@ harness 已有一个具体的 `bash` 能力 seam（`dsh-bash` / `dsh-bash-local`
 
 `@deepseek-ai/dsh-fs-local` 依赖 `@deepseek-ai/dsh-fs` 和 `cordis`。它继承 `FileSystem`，将自身注册为 `ctx.fs`，拥有本地后端配置（如基目录），并包含所有直接的 `node:fs` / `node:path` 访问。它不持有观测状态存储——新鲜度是后端铸造、策略插件记录的版本令牌。
 
-`@deepseek-ai/dsh-tool-fs` 依赖 `@deepseek-ai/dsh-fs`、`@deepseek-ai/dsh-tools`、`@deepseek-ai/dsh-system-prompt` 和 `cordis`。它注册面向模型的工具和提示词段落。它禁止导入 `node:fs`、`node:path` 或 `@deepseek-ai/dsh-fs-local`；文件系统执行始终通过 `ctx.fs`。如果实现需要具体的 agent（智能体）或会话辅助类型，这些依赖属于 `tool-fs`；它们禁止回漏到 `dsh-fs` 中。
+`@deepseek-ai/dsh-tool-fs` 依赖 `@deepseek-ai/dsh-fs`、`@deepseek-ai/dsh-tools`、`@deepseek-ai/dsh-system-prompt` 和 `cordis`。它注册面向模型的工具和提示词段落。它禁止导入 `node:fs`、`node:path` 或 `@deepseek-ai/dsh-fs-local`；文件系统执行始终通过 `ctx.fs`。如果实现需要具体的 agent 或会话辅助类型，这些依赖属于 `tool-fs`；它们禁止回漏到 `dsh-fs` 中。
 
 根 `tool-fs` 插件通过组合各工具的注册辅助函数来注册完整的文件系统工具套件（`read`、`write` 和 `edit`）。它注入 `fs`，从不导入实现包。
 
@@ -62,8 +62,9 @@ harness 已有一个具体的 `bash` 能力 seam（`dsh-bash` / `dsh-bash-local`
 该接口涵盖以下语义操作：
 
 - 将模型/插件提供的路径解析为后端定义的目标。
+- 将解析后的目标转换为同一执行环境的规范进程路径或 `file:` URI，并在不解析其不透明键的情况下检查包含关系。
 - 获取目标元数据而不读取文件内容。
-- 从目标读取有界的 UTF-8 文本页。
+- 读取完整或流式 UTF-8 文本；消费方执行各自的视图与保留上限。
 - 创建或替换一个 UTF-8 文本文件。
 - 通过字面替换编辑一个已有的 UTF-8 文本文件。
 
@@ -83,13 +84,15 @@ harness 已有一个具体的 `bash` 能力 seam（`dsh-bash` / `dsh-bash-local`
 - 不透明的 `targetKey`，用于陈旧守护和文件状态查找。本地后端可能使用类似 realpath 的键；远程后端可能使用工作区 URI 或文件 id。消费方禁止解析或假设它是本地绝对路径。
 - `displayPath`，用于面向模型/UI 的输出。根据后端不同，它可能是本地绝对路径、工作区相对路径或远程 URI。
 
-读取和变更结果必须包含不透明的文件 `version`。本地后端从 bigint stat 元数据（`dev`、`ino`、`size`、`mtimeNs` 和 `ctimeNs`）派生令牌，因此同大小重写和 inode 替换都会可靠地使消费方持有的版本失效；远程后端可以使用 revision id 或类似 hash 的令牌。`dsh-fs-policy` 插件记录版本用于陈旧检查；消费方可以展示相关元数据但禁止解释版本令牌。
+即使另一项能力共享提供方的执行环境，`targetKey` 仍保持不透明。这类消费方通过提供方的 `processPath(target)`、`fileUrl(target)` 或 `contains(parent, child)` 获取所需事实；[可移植执行环境决策](2026-07-28-portable-execution-world-consumers.md)说明这些事实为何属于文件系统 seam。
 
-提供方返回已解码的文本：`readText` 返回整个常规文本文件，`streamText` 为大文件流式输出相同的文本语义。两者负责常规文件检查；有界的行/输出处理不是它们的职责——行窗口化、带行号渲染和总行数统计位于执行器（`dsh-tool-fs`）中，执行器通过 `ctx.fs` 读取并渲染面向模型的窗口。提供方负责 UTF-8 解码和二进制/NUL 拒绝；它不知道行窗口或视图。
+读取和变更结果必须包含不透明的文件 `version`。本地后端从 bigint stat 元数据（`dev`、`ino`、`size`、`mtimeNs` 和 `ctimeNs`）派生令牌，因此同大小重写和 inode 替换都会可靠地使消费方失效；远程后端可以使用 revision id 或类似 hash 的令牌。`dsh-fs-policy` 插件记录版本用于陈旧检查；消费方可以展示相关元数据但禁止解释版本令牌。
+
+提供方返回已解码的文本：`readText` 返回整个普通文本文件，`streamText` 为大文件或消费方自有的保留上限流式传输相同的文本语义。行窗口化、字节上限、带行号渲染和总行数统计归 `dsh-tool-fs`、`dsh-lsp-local` 等消费方所有。提供方负责普通文件检查、UTF-8 解码和二进制／NUL 拒绝；它不知道行窗口、协议上限或视图。
 
 观测状态记录不在 `ctx.fs` 上：成功读取后，执行器发出 `fs/observed`，`dsh-fs-policy` 插件为推导出的 owner 记录 `{ version }`。没有 `full`/`partial` 视图——任何窗口的读取都记录版本，新鲜度（而非视图完整性）授权后续的写入/编辑。
 
-全文件写入创建或替换 UTF-8 文本文件。后端在支持且有文档说明时可以创建父目录。已有的非常规目标被拒绝。`writeText` 接受一个可选期望：`createIfAbsent` 创建缺失的目标并拒绝已存在的（报 `FS_NOT_OBSERVED`，这是策略处理未观测 owner 时采用的分支）；`replaceIfVersion` 仅在目标处于观测版本时替换，否则报 `FS_STALE_VERSION`；省略期望则为无条件的裸提供方创建或覆盖。策略插件根据 owner 的观测状态选择提供哪个期望。
+全文件写入创建或替换 UTF-8 文本文件。后端在支持且有文档说明时可以创建父目录。已有的非常规目标被拒绝。`writeText` 接受一个可选期望：`createIfAbsent` 创建缺失的目标并拒绝已存在的（报 `FS_NOT_OBSERVED`，这是策略为未观测 owner 使用的路径）；`replaceIfVersion` 仅在目标处于观测版本时替换，否则报 `FS_STALE_VERSION`；省略期望则为无条件的裸提供方创建或覆盖。策略插件根据 owner 的观测状态选择提供哪个期望。
 
 字面编辑是提供方原语（`editText`），而非在 `tool-fs` 中由读取加写入组合而成。字面匹配、重复匹配拒绝、CRLF 保留、二进制拒绝、可选的陈旧版本检查和原子读-改-写必须一起留在后端的变更临界区内。`editText` 接受相同的可选版本期望；陈旧检查在字面匹配之前运行，因此基于旧读取的编辑会报 `FS_STALE_VERSION`。远程后端可以将编辑实现为原生的 compare-and-edit 操作；消费方不强制本地风格的组合。
 
@@ -124,11 +127,11 @@ harness 已有一个具体的 `bash` 能力 seam（`dsh-bash` / `dsh-bash-local`
 
 ## 测试
 
-测试遵循包边界，而不仅是用户可见的工具：`dsh-fs` 中的服务 seam；`dsh-fs-local` 中通过 `ctx.fs` 接口测试的真实文件系统行为（解析、符号链接、流式输出、二进制/UTF-8 拒绝、无条件和版本守护的写入、字面编辑语义、行尾保留、结构化 `FsError` 错误码）；`dsh-tool-fs` 中基于真实本地提供方的消费方接口（只 mock 模型/时钟，从不 mock 协作者）；以及通过 `ctx.tools.execute()` 在有和没有 `dsh-fs-policy` 的情况下进行集成测试，通过从磁盘回读文件来验证世界状态，既不信任规范值，也不信任渲染内容。观测状态/owner 推导策略在 `dsh-fs-policy` 中测试，不在此处。
+测试遵循包边界，而不仅是用户可见的工具：`dsh-fs` 中的服务 seam；`dsh-fs-local` 中通过 `ctx.fs` 接口测试的真实文件系统行为（解析、符号链接、流式传输、二进制/UTF-8 拒绝、无条件和版本守护的写入、字面编辑语义、行尾保留、结构化 `FsError` 错误码）；`dsh-tool-fs` 中基于真实本地提供方的消费方接口（只 mock 模型/时钟，从不 mock 协作者）；以及通过 `ctx.tools.execute()` 在有和没有 `dsh-fs-policy` 的情况下进行集成测试，通过从磁盘回读文件来验证世界状态，既不信任规范值，也不信任渲染内容。观测状态/owner 推导策略在 `dsh-fs-policy` 中测试，不在此处。
 
 本仓库曾踩过的防御性模式类别被直接固定：
 
-- **原子写入临时文件安全。** 写入/编辑通过目标旁边一个私有随机 `0700` 目录中独占且仅所有者可访问（`'wx'`、`0o600`）的临时文件暂存，失败时清理，最后原子 rename——与 bash spill 文件规则一致，因为可预测的全局可读临时路径会招致符号链接竞争和信息泄露。测试断言权限，并断言已存在的临时路径不会被覆盖；此原语是 seam 的常设要求。
+- **原子写入临时文件安全。** 写入/编辑通过目标旁边一个私有随机 `0700` 目录中的独占 owner-only（`'wx'`、`0o600`）临时文件暂存，失败时清理，最后原子 rename——与 bash 溢出文件规则一致，因为可预测的 world-readable 临时路径招致符号链接竞争和信息泄露。测试断言权限，并断言已存在的临时路径不会被覆盖；此原语是 seam 的常设要求。
 - **通过符号链接的 `targetKey` 同一性。** 两个输入路径解析到同一 realpath 时共享一个观测状态条目：通过路径 A 的 `read` 满足通过符号链接路径 B 的 `edit` 的读后编辑守护，通过一个路径的陈旧写入可通过另一个路径检测到。
 - **并发/陈旧竞争。** 对同一目标的两个并发写入/编辑操作确定性地收敛——一个成功，另一个被 `FS_STALE_VERSION` 拒绝——成功的编辑刷新记录状态，使同一 owner 的下一次编辑可以继续。
 - **HMR（热模块替换）安全与 dispose（资源释放）。** dispose 后端的 fiber 会撤回 `ctx.fs` 提供方；后续的提供方以无继承状态启动。

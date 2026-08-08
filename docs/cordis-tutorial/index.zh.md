@@ -6,7 +6,7 @@ Cordis 是 DeepSeek Harness SDK 底层的插件框架：它是一个小型运行
 
 本教程面向 agent 开发者。你不需要深入掌握 TypeScript；下文的 [TypeScript 说明](#typescript-notes)会解释可能陌生的语法，并且每一章都会给出确切命令和预期输出。
 
-如果你想阅读精简的概念参考，而不是逐步实践，请参阅 [Cordis 入门](../cordis-primer.md)。详尽的 API 参考见生成的[事件](../cordis-catalog/events.md)与[服务](../cordis-catalog/services.md)目录，以及 [Cordis 核心 API](../cordis-catalog/core/context.md) 页面。
+如果你想阅读精简的概念参考，而不是逐步实践，请参阅 [Cordis 入门](../cordis-primer.md)。详尽的 API 参考见[子系统页面](../subsystems/core.md)上生成的 `cordis-surface` 区块，以及 [Cordis 核心 API](../cordis-api/context.md)页面。
 
 ## 准备工作
 

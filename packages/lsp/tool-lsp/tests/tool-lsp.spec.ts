@@ -44,6 +44,7 @@ let seq = 0
 const testToolSignal = new AbortController().signal
 const workspaceRoot = resolve('/virtual/workspace')
 const resolvedWorkspaceRoot = resolve('/virtual/real-workspace')
+const resolvedWorkspaceUri = pathToFileURL(resolvedWorkspaceRoot).href
 const workspaceAlias = resolve('/virtual/workspace-alias')
 /** `cwd: null` means "no agent" (tests LSP_WORKSPACE_REQUIRED); a string is the session cwd. */
 function call(ctx: Context, args: unknown, cwd: string | null = workspaceRoot) {
@@ -59,7 +60,7 @@ function call(ctx: Context, args: unknown, cwd: string | null = workspaceRoot) {
 const okLocations: LspQueryResult = {
   kind: 'locations',
   locations: [{ uri: pathToFileURL(join(workspaceRoot, 'a.ts')).href, range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } } }],
-  resolvedWorkspaceRoot: workspaceRoot,
+  resolvedWorkspaceUri: pathToFileURL(workspaceRoot).href,
 }
 
 describe('tool-lsp registration', () => {
@@ -138,7 +139,7 @@ describe('tool-lsp execution', () => {
     const { ctx } = await mount(stubProvider(() => ({
       kind: 'locations',
       locations,
-      resolvedWorkspaceRoot: cappedWorkspaceRoot,
+      resolvedWorkspaceUri: pathToFileURL(cappedWorkspaceRoot).href,
     })), { maxLocations: 1 })
     const result = await call(ctx, { operation: 'findReferences', file_path: 'a.ts', line: 1, character: 1 }, cappedWorkspaceRoot)
     expect(result.content[0]).toEqual({
@@ -147,17 +148,17 @@ describe('tool-lsp execution', () => {
     })
     expect(result).toMatchObject({
       isError: false,
-      value: { kind: 'locations', locations, resolvedWorkspaceRoot: cappedWorkspaceRoot },
+      value: { kind: 'locations', locations, resolvedWorkspaceUri: pathToFileURL(cappedWorkspaceRoot).href },
     })
   })
 
-  it('relativizes against the provider resolvedWorkspaceRoot, not the session cwd', async () => {
+  it('relativizes against the provider resolvedWorkspaceUri, not the session cwd', async () => {
     // A symlinked session cwd resolves to the real path that contains the provider's location URIs.
     // Relativizing against the alias would misclassify the location as external.
     const provider = stubProvider(() => ({
       kind: 'locations',
       locations: [{ uri: pathToFileURL(join(resolvedWorkspaceRoot, 'a.ts')).href, range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } } }],
-      resolvedWorkspaceRoot,
+      resolvedWorkspaceUri,
     }))
     const { ctx } = await mount(provider)
     const result = await call(ctx, { operation: 'goToDefinition', file_path: 'a.ts', line: 1, character: 1 }, workspaceAlias)

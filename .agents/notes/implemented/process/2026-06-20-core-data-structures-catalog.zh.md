@@ -12,9 +12,11 @@ Status: implemented
 
 ## 决策
 
-新增的 `docs/core-data-structures/` 目录对这些词汇编目，并配有新的 `verify-type-equiv` doc-sync（文档同步门禁），使每个粘贴的类型声明及其 JSDoc 与源码保持同步。
+新增的 `docs/subsystems/` 目录对这些词汇编目，并配有新的 `verify-type-equiv` doc-sync（文档同步门禁），使每个粘贴的类型声明及其 JSDoc 与源码保持同步。
 
 ### 何为「核心」——主干与 seam 的分界线
+
+> **作为页面范围界定规则已被取代**，见[按包锚定的子系统页面](2026-08-03-package-anchored-subsystem-pages.md)：每页现在锚定到声明其词汇的包分组。下文的 `ts type-equiv` 机制仍然有效。
 
 范围界定并非自上而下拍定，而是将候选定义逐一对照具体的边界类型反复测试，直到一条规则在所有案例中都成立。决定性的测试是 `BashExecRequest`/`BashExecSpec`/`BashRunResult`：bash 是一个能力 *seam*，不属于 agent loop（智能体循环）主干；如果这些算「核心」，那么「核心」就意味着*所有跨包词汇*，目录沦为平铺罗列；如果不算，「核心」就意味着*中央主干*，bash 词汇归入子页面。后者胜出，由此确定了整体结构：一个**分层文件夹**，而非一份平铺文档。
 
@@ -25,7 +27,7 @@ Status: implemented
 - `ToolSchema` 是核心（它是流经每个步骤的模型请求 `GenerateOptions` 的一个字段），即使它在概念上属于工具流水线——当*流经主干*与*概念归属*冲突时，前者胜出。
 - 工具展示词汇（`ToolCallView`/`ToolResultView` 等）、`SessionPersistence` 持久性 seam 以及 bash 词汇是子页面。
 
-`core.md` 是一份**自包含的主干文档**：它给出每个主干结构的确切类型定义，辅以最少的行文，并链接到子页面获取各 seam 的细节。子页面包括 `llm-streaming.md`、`session.md`、`persistence.md`（沿内存模型与持久性 seam 的分界线从会话页面拆出）、`tools.md` 和 `bash.md`。
+`core.md` 是一份**自包含的主干文档**：它给出每个主干结构的确切类型定义，辅以最少的行文，并链接到同级 seam 页面获取各 seam 的细节；目录的 [README](../../../../docs/subsystems/README.md) 索引全部页面。最初的 seam 页面包括 `llm-streaming.md`、`session.md`、`persistence.md`（沿内存模型与持久性 seam 的分界线从会话页面拆出）、`tools.md` 和 `bash.md`。
 
 ### `ts type-equiv` 机制——既逐字又防漂移
 
@@ -58,3 +60,4 @@ Status: implemented
 - 主干与 seam 分界线是一个可复用的范围界定工具，而非一次性的：同一条「你编写/持有/接收的东西是核心；为其提供类型推导/渲染/持久化的机制是细节」规则，后来也被用于界定事件/服务目录的 harness 层与继承层分层。
 - `ts type-equiv` 围栏是继 ` ```ts `（编译）和 ` ```ts ignore-check `（草稿）之后的第三种文档块类别。后续的姊妹门禁又增加了第四种 ` ```ts cordis-catalog `（生成签名），复用了相同的跳过并排除处理。
 - 添加或重塑核心类型现在附带一项文档义务，作者必须履行（门禁无法检测缺失的*新*类型），由 `dsh-code-review` 检查清单兜底。
+- 自 2026-07-27 起，子页面层级覆盖每个承载服务的子系统：九个精简页面（权限预设、计划模式、运行时不变式、HTTP 载体、存储——同时拥有 `ctx.storage` 与 `ctx.storageDomain`——终端扩展、工作区、客户端模块、遥测）覆盖了原先没有页面的十个 `ctx` 服务，于是每个 harness 服务和事件作用域都有恰好一个所属的 subsystems 页面——这是把按子系统生成的服务/事件参考写入这些页面（而非平铺目录）的前提。

@@ -28,7 +28,11 @@ export class PtyBackendCleanupError extends AggregateError {
 /** Why one interactive send returned control to its caller. */
 export type PtyWaitReason = 'stdin_read' | 'inferred_idle' | 'timeout' | 'session_exit'
 
-/** Signals the model-facing PTY surface permits for foreground process groups. */
+/**
+ * Signals the model-facing PTY surface permits for foreground process groups.
+ * Kept member-identical to `SubprocessTerminalSignal` in
+ * `@deepseek-ai/dsh-subprocess` without a cross-seam dependency; change both together.
+ */
 export type PtySignal = 'SIGINT' | 'SIGTERM' | 'SIGKILL' | 'SIGTSTP' | 'SIGHUP'
 
 /** Top-level PTY process status, independent of a send's wait reason. */

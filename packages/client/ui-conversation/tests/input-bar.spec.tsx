@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // InputBar behavior over the machine wiring: Enter-send semantics (IME guard,
 // Shift newline, busy Enter policy, Ctrl/Meta steering, repeat suppression), running
-// semantics (input stays free; primary turns stop), the machine pending lock,
+// semantics (input stays free; continuable children keep Send beside Stop), the machine pending lock,
 // decoration backdrop, error/notice strips, and the focus-keeping mousedown.
 
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
@@ -143,11 +143,14 @@ function bench(over?: BenchOptions) {
   }
   const view = render(<InputBar {...props} />)
   const textarea = view.container.querySelector('textarea')!
-  const stopping = over?.running === true && over.subagent === undefined
+  const primaryStops = over?.running === true && over.subagent === undefined
   const button = view.container.querySelector<HTMLButtonElement>(
-    `button[aria-label="${stopping ? '停止生成' : '发送消息'}"]`,
+    `button[aria-label="${primaryStops ? '停止生成' : '发送消息'}"]`,
   )!
-  return { view, textarea, button, props, sink, shell, wiring: shell, session, stop, slotCalls, menuLauncher }
+  const interruptButton = view.container.querySelector<HTMLButtonElement>('button[aria-label="停止生成"]')
+  return {
+    view, textarea, button, interruptButton, props, sink, shell, wiring: shell, session, stop, slotCalls, menuLauncher,
+  }
 }
 
 describe('Enter semantics', () => {
@@ -250,8 +253,8 @@ describe('running and lock semantics (queue cut 1)', () => {
     expect(ctrl.sink).toHaveBeenCalledWith('also queue', 'queue')
   })
 
-  it('running subagent primary admits a follow-up instead of exposing Stop', () => {
-    const { button, sink, stop } = bench({
+  it('running continuable subagent keeps Send beside an independent Stop', () => {
+    const { button, interruptButton, textarea, sink, stop } = bench({
       running: true,
       draft: '后续消息',
       subagent: {
@@ -264,22 +267,53 @@ describe('running and lock semantics (queue cut 1)', () => {
       },
     })
     expect(button.getAttribute('aria-label')).toBe('发送消息')
+    expect(interruptButton).not.toBeNull()
+    expect(textarea.disabled).toBe(false)
     fireEvent.click(button)
     expect(sink).toHaveBeenCalledWith('后续消息', 'queue')
-    expect(stop).not.toHaveBeenCalled()
+    fireEvent.click(interruptButton!)
+    expect(stop).toHaveBeenCalledTimes(1)
+  })
 
-    const empty = bench({
+  it('parent-offline running continuable locks Send but keeps independent Stop usable', () => {
+    const { button, interruptButton, textarea, stop, view } = bench({
       running: true,
+      draft: '',
       subagent: {
         address: {
           parentSessionId: 'parent' as SessionId,
           childSessionId: SID,
           mode: 'continuable',
         },
+        parentAvailable: false,
+      },
+    })
+    expect(textarea.disabled).toBe(true)
+    expect(textarea.placeholder).toBe('父会话已离线，无法继续发送；仍可停止当前运行')
+    expect((view.getByLabelText('命令') as HTMLButtonElement).disabled).toBe(true)
+    expect(button.getAttribute('aria-label')).toBe('发送消息')
+    expect(button.disabled).toBe(true)
+    expect(interruptButton?.disabled).toBe(false)
+    fireEvent.click(interruptButton!)
+    expect(stop).toHaveBeenCalledTimes(1)
+  })
+
+  it('running one-shot subagent never exposes Stop', () => {
+    const { button, interruptButton, stop } = bench({
+      running: true,
+      draft: '不可停止',
+      subagent: {
+        address: {
+          parentSessionId: 'parent' as SessionId,
+          childSessionId: SID,
+          mode: 'one-shot',
+        },
         parentAvailable: true,
       },
     })
-    expect(empty.button.disabled).toBe(true)
+    expect(button.getAttribute('aria-label')).toBe('发送消息')
+    expect(interruptButton).toBeNull()
+    expect(stop).not.toHaveBeenCalled()
   })
 
   it('keeps both running subagent Enter gestures on Queue transport', () => {

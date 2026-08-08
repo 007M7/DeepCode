@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-The goal family owns durable objective state independently of the model-facing tools and continuation policy that consume it.
+Durable objective state for an agent session, owned independently of the model-facing tools and continuation policy that consume it. Goal state is part of the owning session log; consumers depend on `dsh-goal`, never on the concrete agent loop.
 
 | Package | Role | ctx key |
 |---|---|---|
@@ -11,4 +11,4 @@ The goal family owns durable objective state independently of the model-facing t
 | [`tool-goal/`](tool-goal/README.md) | Model-facing goal tools | — |
 | [`command-goal/`](command-goal/README.md) | Human-facing goal command | — |
 
-Goal state is part of the owning session log. Consumers depend on `dsh-goal`, not on the concrete agent loop; continuation behavior belongs in a separate plugin on the public agent seams.
+The subsystem reference — goal identity, lifecycle snapshots, activation, change records — is [docs/subsystems/goal.md](../../docs/subsystems/goal.md).

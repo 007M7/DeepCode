@@ -352,9 +352,10 @@ const SCENARIOS: Scenario[] = [
   },
   // Authored durable-catalog transcript: the snapshot-only lifecycle marker
   // fences the second parent turn behind the child's Activation end, so
-  // `list_agents` deterministically reads the persisted child as complete.
-  // The tool itself executes for real against the control service, session
-  // query, and JSONL persistence; the marker is not model-visible.
+  // `list_agents({ scope: 'descendants' })` deterministically reads the
+  // persisted child as complete, then `interrupt_agent` executes its accepted
+  // no-op against that settled id. Both tools run through the assembled control
+  // service; the marker is not model-visible.
   {
     name: 'subagent-list-agents',
     hasModelTurn: true,
