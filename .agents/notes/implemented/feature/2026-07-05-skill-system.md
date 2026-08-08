@@ -28,7 +28,7 @@ Local skill filesystem I/O goes through `ctx.fs` when a filesystem service is lo
 
 The registry's `list()` returns every winning summary, while model and user consumers apply the invocation predicates owned by the [independent invocation-policy decision](2026-07-28-skill-invocation-policy.md). The `skill({ name })` tool loads one model-invocable skill for the current agent cwd and returns a tool result containing `<skill_content name="...">`, `<skill_resources>`, and `<skill_instructions>`. `resourceBase` supplies a directory, URL, or opaque provider-managed base for explicitly referenced scripts, references, and assets; resources load only as needed, without directory enumeration. An unresolved name reports that the skill is unknown or no longer available; invalid names and skills with `invocation.modelInvocable: false` retain distinct tool errors. The tool result is the model-visible disclosure path.
 
-The data structures and catalog/tool contract are documented in [skills.md](../../../../docs/core-data-structures/skills.md), with service signatures in the generated [services catalog](../../../../docs/cordis-catalog/services.md).
+The data structures and catalog/tool contract are documented in [skills.md](../../../../docs/subsystems/skills.md), with service signatures in the generated [services catalog](../../../../docs/subsystems/skills.md#cordis-surface).
 
 ## Alternatives considered
 

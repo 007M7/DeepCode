@@ -30,4 +30,4 @@ Status: implemented
 
 ## 后果
 
-钩子桥接层通过既有的 bash seam 传递 JSON 载荷和钩子特定变量，保留其进程组终止、截断和溢出行为。模型接口面不变，bash 工具仍是模型调用请求构建的唯一所有者。相关词汇定义见 [bash 数据结构参考](../../../../docs/core-data-structures/bash.md)。
+钩子桥接层通过既有的 bash seam 传递 JSON 载荷和钩子特定变量，保留其进程组终止、截断和溢出行为。模型接口面不变，bash 工具仍是模型调用请求构建的唯一所有者。相关词汇定义见 [bash 数据结构参考](../../../../docs/subsystems/bash.md)。

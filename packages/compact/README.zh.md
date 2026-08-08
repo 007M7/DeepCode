@@ -12,3 +12,5 @@
 | [`command-compact/`](command-compact/README.md) | 用户压缩命令 | 注册到 `ctx.commands` |
 
 后端、可选修剪器和用户命令通过该 seam 组合；token 测量仍是独立的 LLM（大语言模型）家族服务。[压缩能力 seam Agent Note](../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md)负责依赖关系的设计原理。
+
+子系统参考——`compact/*` 事件、`CompactionResult`、服务、剪除结果——见 [docs/subsystems/compaction.md](../../docs/subsystems/compaction.md)；seam 有意依赖 `dsh-session`/`dsh-llm` 的决定记录在[压缩能力 seam Agent Note](../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md)。

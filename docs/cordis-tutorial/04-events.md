@@ -89,7 +89,7 @@ Because `ctx.on()` is an effect, the listener disappears with the plugin — no 
 | bail | `ctx.bail(name, ...args)` | Synchronous version of serial. |
 | waterfall | `ctx.waterfall(name, ...args, next)` | Around-middleware; see below. |
 
-Every harness event documents its mode in the generated [events catalog](../cordis-catalog/events.md).
+Every harness event documents its mode in the generated reference on its owning [subsystem page](../subsystems/core.md).
 
 ## Waterfall: transform or short-circuit
 
@@ -137,7 +137,7 @@ Walk through the second line: listener 1 runs first, calls `next()`, which invok
 
 The discipline that follows: **a waterfall listener that only observes or annotates must call `next()`**; returning without it is a deliberate short-circuit. Forgetting `next()` in a logging listener silently swallows the default behavior for everyone downstream. This is important enough that it is a standing rule of this repository ([waterfall semantics](../cordis-primer.md#cordis-waterfall-semantics)).
 
-The harness uses waterfalls for decisions that cooperating plugins may wrap or answer: [`agent/request`](../cordis-catalog/events.md#agentrequest--waterfall) lets a plugin replace the model-call config, and [`approval/request`](../cordis-catalog/events.md#approvalrequest--waterfall) lets a policy answer instead of the user.
+The harness uses waterfalls for decisions that cooperating plugins may wrap or answer: [`agent/request`](../subsystems/core.md#agentrequest--waterfall) lets a plugin replace the model-call config, and [`approval/request`](../subsystems/approval.md#approvalrequest--waterfall) lets a policy answer instead of the user.
 
 Next: [Configuration](05-config.md) — plugin options from `cordis.yml`.
 
