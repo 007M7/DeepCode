@@ -185,7 +185,7 @@ describe('dsh-tool-subagent-control/list-agents', () => {
     )
   })
 
-  it('forwards the tool cancellation signal to child enumeration', async () => {
+  it('resolves omitted scope to children and forwards the tool cancellation signal', async () => {
     const { ctx, parent } = await setup([])
     const signal = new AbortController().signal
     const listChildren = vi.spyOn(ctx.subagents, 'listChildren').mockResolvedValue([])
@@ -326,7 +326,7 @@ describe('dsh-tool-subagent-control/list-agents', () => {
     )
   })
 
-  it('forwards the tool cancellation signal to descendant enumeration', async () => {
+  it('preserves explicit descendants scope and forwards the tool cancellation signal', async () => {
     const { ctx, parent } = await setup([])
     const signal = new AbortController().signal
     const listDescendants = vi.spyOn(ctx.subagents, 'listDescendants').mockResolvedValue([])

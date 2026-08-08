@@ -20,3 +20,4 @@
   - img
 - 'button "Access mode, current: Workspace Write" [disabled]': Workspace Write
 - button "Stop generating"
+- button "Send message" [disabled]
