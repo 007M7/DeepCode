@@ -34,6 +34,10 @@ The [landstrip evaluation](../../rejected/feature/2026-07-26-evaluate-landstrip-
 
 Bought: write-only confinement with no new OS floor (`CreateRestrictedToken` predates the mxc releases by two decades), reads/network/process visibility untouched exactly as the mode vocabulary requires, and fail-closed errors carrying the API name and the exact Win32 code. Cost: no read-side or network isolation; console isolation unavailable (hidden-console children die with `STATUS_DLL_INIT_FAILED`; children share the host console); standing ACE mutations on the granted roots (caller-owned directories, revoked by `dispose()`); the workspace-write temp grant is the real temp directory — the same backend-defined choice the Landlock rung makes.
 
+## Testing
+
+The product-visible Windows roster flip is win32-only, so the keyless snapshot fixtures — which must replay on macOS/Linux — cannot cover it; the bundle composition specs ([`base.spec.ts`](../../../../packages/bundle/base/tests/base.spec.ts), [`windows-shell.spec.ts`](../../../../apps/cli/tests/windows-shell.spec.ts)) plus the win32 real-runner suites (`packages/sandbox/sandbox-windows-acl/tests/`, `packages/bash/pwsh-sandbox/tests/`) are the substitute evidence, and the CI Windows lane owns the assembled signal.
+
 ## Related
 
 The [pwsh executor decision](2026-08-01-pwsh-tool-and-executor.md) owns the pwsh-sandbox/tool-pwsh dialect split this rung consumes.

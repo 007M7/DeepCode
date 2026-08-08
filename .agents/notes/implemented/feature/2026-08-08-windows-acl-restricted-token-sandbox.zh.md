@@ -34,6 +34,10 @@ AppContainer 令牌没有环境读访问：每个可读路径都必须预先通�
 
 所得：仅写隔离、不引入新的 OS 版本下限（`CreateRestrictedToken` 比 mxc 的版本早二十年）、读/网络/进程可见性完全不受影响（与模式词汇表一致）、fail-closed 错误携带 API 名与精确 Win32 错误码。所失：无读侧或网络隔离；控制台隔离不可用（隐藏控制台子进程以 `STATUS_DLL_INIT_FAILED` 死亡；子进程共享宿主控制台）；被授权根目录上有驻留 ACE 改动（目录须为调用者所有，由 `dispose()` 回收）；workspace-write 的临时授权是真实临时目录——与 Landlock 档相同的后端定义选择。
 
+## Testing
+
+产品可见的 Windows 阵容切换仅存在于 win32，而 keyless 快照夹具必须在 macOS/Linux 上可重放，因此无法覆盖它；替代证据是 bundle 组合 spec（[`base.spec.ts`](../../../../packages/bundle/base/tests/base.spec.ts)、[`windows-shell.spec.ts`](../../../../apps/cli/tests/windows-shell.spec.ts)）加上 win32 真实 runner 套件（`packages/sandbox/sandbox-windows-acl/tests/`、`packages/bash/pwsh-sandbox/tests/`），组装态信号由 CI 的 Windows lane 负责。
+
 ## Related
 
 [pwsh 执行器决策](2026-08-01-pwsh-tool-and-executor.md)拥有本档所消费的 pwsh-sandbox/tool-pwsh 方言划分。

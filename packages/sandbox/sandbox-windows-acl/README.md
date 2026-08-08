@@ -72,4 +72,5 @@ None directly; the denial surface belongs to the tool layer.
 
 - **One write allowlist per instance** — the orphan SID is the unit of the allowlist; reusing one sandbox instance across two workspaces widens both grants to both roots. Create one instance per workspace root.
 - **Cleanup is best-effort by design** — `dispose()` attempts every revocation and aggregates failures into an `AggregateError`; a cleanup failure leaves a standing (but orphan-SID-only) ACE that this process's next `init()`/`dispose()` cycle or `icacls` (via the ACE, not the trustee name) can still remove.
+- **Each confined command mutates two directory DACLs** — a grant on entry and a revoke on exit, on the workspace root and the temp root: a handful of Win32 calls per command (inheritance is evaluated lazily per access, not a per-file walk). The runner pays this per command; reusing one grant per session is deferred work if the churn ever matters.
 - **Read-side confinement and network policy are out of scope** — `WRITE_RESTRICTED` intersects write accesses only; pair this backend with a read-side policy for stronger confinement.
