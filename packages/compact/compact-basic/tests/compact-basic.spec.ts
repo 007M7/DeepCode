@@ -1,9 +1,9 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, expectTypeOf, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import BasicCompactService from '@deepseek-ai/dsh-compact-basic'
 import type { BasicCompactConfig } from '@deepseek-ai/dsh-compact-basic'
 import { selectCompactableRange } from '@deepseek-ai/dsh-compact-basic/src/region.ts'
-import type { SummarizationInput } from '@deepseek-ai/dsh-compact-basic/src/summarizer.ts'
+import type { SummarizationInput, SummaryResult } from '@deepseek-ai/dsh-compact-basic/src/summarizer.ts'
 import { toolPairingBalancedAfter, toolPairingBalancedBefore } from '@deepseek-ai/dsh-compact'
 import {
   resolveCompactSpec,
@@ -1166,6 +1166,15 @@ async function summarizerHarness(
 }
 
 describe('default one-shot summarizer', () => {
+  it('requires complete raw output when a subclass marks one local LLM stream call', () => {
+    expectTypeOf<{
+      summary: ContentBlock[]
+      llmStreamCall: true
+      provider: string
+      model: string
+    }>().not.toExtend<SummaryResult>()
+  })
+
   it('uses configured model/default cap, forwards cancellation, and keeps only safe text', async () => {
     const { adapter, compact } = await summarizerHarness([
       { type: 'reasoning', text: 'private' },

@@ -85,24 +85,27 @@ export interface SummarizationInput {
 }
 
 /** Safe summary content plus the exact auxiliary call envelope recorded in provenance. */
-export interface SummaryResult {
+export type SummaryResult = {
   summary: ContentBlock[]
-  /**
-   * Complete provider output before the text-only summary projection; this
-   * alone does not identify the call path.
-   */
-  rawOutput?: ContentBlock[]
-  /**
-   * Present only when producing the summary consumed exactly one call through
-   * this context's `ctx.llm.stream()`.
-   */
-  llmStreamCall?: true
   provider: string
   model: string
   maxTokens?: number
   /** Provider-reported usage for this summarization request. */
   usage?: TokenUsage
-}
+} & (
+  | {
+    /** Complete provider output before the text-only summary projection. */
+    rawOutput: ContentBlock[]
+    /** Identifies exactly one call through this context's `ctx.llm.stream()`. */
+    llmStreamCall: true
+  }
+  | {
+    /** Optional complete output from an unmarked template, remote, or other summarizer. */
+    rawOutput?: ContentBlock[]
+    /** An unmarked result does not identify a call through this context's LLM seam. */
+    llmStreamCall?: never
+  }
+)
 
 /**
  * Run the default cache-reusing `ctx.llm.stream()` summarization call: replay

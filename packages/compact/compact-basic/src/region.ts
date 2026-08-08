@@ -43,7 +43,7 @@ interface PreparedCompaction extends SurfaceSelection {
   readonly input: SummarizationInput
 }
 
-interface SummarizedCompaction extends PreparedCompaction, SummaryResult {
+type SummarizedCompaction = PreparedCompaction & SummaryResult & {
   readonly checkpointMessage: UserMessage
 }
 
@@ -415,18 +415,18 @@ function commitCompactionBody(
     shadowedSeqs,
     shadowedTokenCount,
     summary,
-    rawOutput,
-    llmStreamCall,
     provider,
     model,
     maxTokens,
     usage,
     checkpointMessage,
   } = summarized
+  const callProvenance = summarized.llmStreamCall === true
+    ? { rawOutput: summarized.rawOutput, llmStreamCall: true as const }
+    : summarized.rawOutput === undefined ? {} : { rawOutput: summarized.rawOutput }
   const summaryEvent = session.append('compact/summary', {
     summary,
-    ...rawOutput === undefined ? {} : { rawOutput },
-    ...llmStreamCall === undefined ? {} : { llmStreamCall },
+    ...callProvenance,
     shadowedRange: { start, end },
     shadowedSeqs: [...shadowedSeqs],
     shadowedTokenCount,

@@ -259,23 +259,27 @@ describe('deriveReplayScript', () => {
     expect(deriveReplayScript([event])).toEqual([])
   })
 
-  it('rejects a marked compact LLM call without its complete output', () => {
-    const event: SessionEvent<'compact/summary'> = {
-      type: 'compact/summary',
-      seq: 1,
-      time: 0,
-      data: {
-        summary: [{ type: 'text', text: 'incomplete provenance' }],
-        llmStreamCall: true,
-        shadowedRange: { start: 1, end: 1 },
-        shadowedSeqs: [1],
-        shadowedTokenCount: 20,
-        provider: 'mock',
-        model: 'mock',
-      },
-    }
+  it('rejects a persisted marked compact LLM call without its complete output', () => {
+    const [event] = parseSessionLog([
+      JSON.stringify({ type: 'session', version: 0, id: 'invalid-compact', createdAt: 0 }),
+      JSON.stringify({
+        type: 'compact/summary',
+        seq: 1,
+        time: 0,
+        data: {
+          summary: [{ type: 'text', text: 'incomplete provenance' }],
+          llmStreamCall: true,
+          shadowedRange: { start: 1, end: 1 },
+          shadowedSeqs: [1],
+          shadowedTokenCount: 20,
+          provider: 'mock',
+          model: 'mock',
+        },
+      }),
+    ].join('\n'))
 
-    expect(() => deriveReplayScript([event])).toThrow(/LLM stream call without rawOutput/)
+    expect(() => deriveReplayScript(event === undefined ? [] : [event]))
+      .toThrow(/LLM stream call without rawOutput/)
   })
 
   it('derives a compact/summary stream when usage is unavailable', () => {

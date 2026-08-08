@@ -237,7 +237,7 @@ Source: [`packages/ui/commands/src/index.ts:139`](../packages/ui/commands/src/in
 'compact/end': { turn: number | null; error?: string }
 ```
 
-Source: [`packages/compact/compact/src/types.ts:62`](../packages/compact/compact/src/types.ts)
+Source: [`packages/compact/compact/src/types.ts:65`](../packages/compact/compact/src/types.ts)
 
 #### `compact/prune` — log-only
 
@@ -261,7 +261,7 @@ Source: [`packages/compact/compact/src/types.ts:62`](../packages/compact/compact
 }
 ```
 
-Source: [`packages/compact/compact/src/types.ts:72`](../packages/compact/compact/src/types.ts)
+Source: [`packages/compact/compact/src/types.ts:75`](../packages/compact/compact/src/types.ts)
 
 #### `compact/start` — log-only
 
@@ -290,16 +290,6 @@ Source: [`packages/compact/compact/src/types.ts:19`](../packages/compact/compact
  */
 'compact/summary': {
   summary: ContentBlock[]
-  /**
-   * Complete provider output before the backend's safe summary projection;
-   * this alone does not identify the call path.
-   */
-  rawOutput?: ContentBlock[]
-  /**
-   * Present only when producing the summary consumed exactly one call
-   * through this context's `ctx.llm.stream()`.
-   */
-  llmStreamCall?: true
   shadowedRange: { start: number; end: number }
   shadowedSeqs: number[]
   shadowedTokenCount: number
@@ -316,7 +306,20 @@ Source: [`packages/compact/compact/src/types.ts:19`](../packages/compact/compact
   maxTokens?: number
   /** Provider-reported token usage for the summarization request, when emitted. */
   usage?: TokenUsage
-}
+} & (
+  | {
+    /** Complete provider output before the backend's safe summary projection. */
+    rawOutput: ContentBlock[]
+    /** Identifies exactly one call through this context's `ctx.llm.stream()`. */
+    llmStreamCall: true
+  }
+  | {
+    /** Optional complete output from an unmarked template, remote, or other summarizer. */
+    rawOutput?: ContentBlock[]
+    /** An unmarked summary does not identify a call through this context's LLM seam. */
+    llmStreamCall?: never
+  }
+)
 ```
 
 Types: [ContentBlock](core-data-structures/core.md) · [TokenUsage](core-data-structures/llm-streaming.md)

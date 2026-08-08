@@ -1,7 +1,7 @@
 /**
  * Keyless snapshot-test LLM replay. It derives one model-call script per
- * recorded session from `assistant/chunk` events and durable compaction
- * summaries, then binds fresh live sessions to parent/child scripts by
+ * recorded session from `assistant/chunk` events and explicitly marked local
+ * compaction calls, then binds fresh live sessions to parent/child scripts by
  * first-call order. Throw and hang cases require an explicit override because
  * a session log cannot reconstruct them alone.
  * @module @deepseek-ai/dsh-llm-replay
@@ -14,6 +14,7 @@ import type {} from '@deepseek-ai/dsh-compact'
 import { decodeStorageRecord } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type {
+  ContentBlock,
   GenerateOptions,
   LlmModelInfo,
   LlmProviderInfo,
@@ -21,14 +22,15 @@ import type {
   ResolvedRetryPolicy,
   RetryPolicyConfig,
   StreamChunk,
+  TokenUsage,
 } from '@deepseek-ai/dsh-llm'
 import { LlmAdapter, LlmError, assertNever, resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
 
 /**
  * One recorded model call. `throw` may replay prefix chunks before failing;
- * `hang` models cancellation. Chunk entries derive from ordinary model streams
- * and complete compaction outputs in JSONL; the other variants come from an
- * override sidecar.
+ * `hang` models cancellation. Derived chunk entries come from ordinary model
+ * streams and complete outputs of explicitly marked local compaction calls;
+ * an override sidecar can supply any variant.
  */
 export type ReplayEntry =
   | { kind: 'chunks'; chunks: StreamChunk[] }
@@ -205,16 +207,23 @@ export function deriveReplayScript(events: SessionEvent[]): ReplayEntry[] {
       close(currentKey, current)
       currentKey = undefined
       current = []
-      if (event.data.llmStreamCall === true) {
-        if (event.data.rawOutput === undefined) {
+      // JSONL decoding crosses an untyped durable boundary, so retain its wider
+      // shape even though current in-process producers enforce this correlation.
+      const persisted: {
+        readonly llmStreamCall?: true
+        readonly rawOutput?: ContentBlock[]
+        readonly usage?: TokenUsage
+      } = event.data
+      if (persisted.llmStreamCall === true) {
+        if (persisted.rawOutput === undefined) {
           throw new Error('llm-replay: compact/summary marks an LLM stream call without rawOutput')
         }
         const chunks: StreamChunk[] = []
-        for (const [index, block] of event.data.rawOutput.entries()) {
+        for (const [index, block] of persisted.rawOutput.entries()) {
           chunks.push({ type: 'block-start', index, blockType: block.type })
           chunks.push({ type: 'block-end', index, block })
         }
-        if (event.data.usage !== undefined) chunks.push({ type: 'usage', usage: event.data.usage })
+        if (persisted.usage !== undefined) chunks.push({ type: 'usage', usage: persisted.usage })
         chunks.push({ type: 'finish', reason: { kind: 'stop' } })
         script.push({ kind: 'chunks', chunks })
       }
