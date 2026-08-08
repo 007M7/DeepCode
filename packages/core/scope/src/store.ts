@@ -190,10 +190,9 @@ export class ScopedLayers<L extends ScopeLayer> {
    * @returns the existing layers, nearest last; absent overlays are skipped.
    */
   chainLayers(scope: ScopeKey | undefined): L[] {
-    const chain = scopeChainOf(scope)
     const layers: L[] = []
-    for (let index = chain.length - 1; index >= 0; index -= 1) {
-      const layer = this.scoped.get(chain[index]!)
+    for (const key of scopeChainOf(scope).reverse()) {
+      const layer = this.scoped.get(key)
       if (layer !== undefined) layers.push(layer)
     }
     return layers

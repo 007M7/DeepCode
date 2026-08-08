@@ -68,20 +68,22 @@ async list(): Promise<AgentPreset[]>
 async resolve(id?: string): Promise<AgentPreset>
 
 /**
- * Compose one agent from a preset, installing it under that agent alone.
+ * Compose one agent from a preset: ensure the preset's standing mount, then
+ * parent the agent's scope key to it so the mount's registrations and
+ * listeners cover this agent.
  *
  * Call from the agent factory's `setup(agentCtx)`; a rejection there rolls
  * the agent creation back, so a broken preset never yields a half-composed
  * session.
  * @param agentCtx - the agent's scope context.
  * @param id - the preset id, or `undefined` for {@link defaultId}.
- * @returns the preset that was mounted, for the caller to record.
+ * @returns the preset that was composed, for the caller to record.
  * @throws when the preset is unknown or its composition is unusable.
  */
 async mount(agentCtx: Context, id?: string): Promise<AgentPreset>
 ```
 
-Source: [`packages/preset/agent-presets/src/index.ts:36`](../../packages/preset/agent-presets/src/index.ts)
+Source: [`packages/preset/agent-presets/src/index.ts:48`](../../packages/preset/agent-presets/src/index.ts)
 
 ## `ctx.agents` — `AgentRegistry`
 

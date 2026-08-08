@@ -166,8 +166,8 @@ describe('scope parent chain', () => {
     expect(scopeParentOf(preset)).toBeUndefined()
     expect(scopeChainOf(agent)).toEqual([agent, preset])
     expect(scopeChainOf(undefined)).toEqual([])
-    expect(() => setScopeParent(preset, agent)).toThrow(/cycle/)
-    expect(() => setScopeParent(preset, preset)).toThrow(/cycle/)
+    expect(() => { setScopeParent(preset, agent) }).toThrow(/cycle/)
+    expect(() => { setScopeParent(preset, preset) }).toThrow(/cycle/)
   })
 
   it('re-links to a different parent (the blank-session recompose path)', () => {

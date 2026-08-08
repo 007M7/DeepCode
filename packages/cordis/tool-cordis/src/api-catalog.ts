@@ -94,7 +94,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async mount(agentCtx: Context, id?: string): Promise<AgentPreset>',
-        jsDoc: '/**\n * Compose one agent from a preset, installing it under that agent alone.\n *\n * Call from the agent factory\'s `setup(agentCtx)`; a rejection there rolls\n * the agent creation back, so a broken preset never yields a half-composed\n * session.\n * @param agentCtx - the agent\'s scope context.\n * @param id - the preset id, or `undefined` for {@link defaultId}.\n * @returns the preset that was mounted, for the caller to record.\n * @throws when the preset is unknown or its composition is unusable.\n */',
+        jsDoc: '/**\n * Compose one agent from a preset: ensure the preset\'s standing mount, then\n * parent the agent\'s scope key to it so the mount\'s registrations and\n * listeners cover this agent.\n *\n * Call from the agent factory\'s `setup(agentCtx)`; a rejection there rolls\n * the agent creation back, so a broken preset never yields a half-composed\n * session.\n * @param agentCtx - the agent\'s scope context.\n * @param id - the preset id, or `undefined` for {@link defaultId}.\n * @returns the preset that was composed, for the caller to record.\n * @throws when the preset is unknown or its composition is unusable.\n */',
       },
     ],
   },
