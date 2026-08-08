@@ -13,7 +13,7 @@ The [evidence-chain decision](../../notes/implemented/process/2026-08-08-browser
 
 A pull request that changes product-user-visible GUI behavior MUST include a demonstration GIF recorded with this skill and embedded in the pull request body via [the assets-branch workflow](#publish-to-an-assets-branch).
 
-The GIF's provenance is part of the evidence and must be real: a real server booted from that pull request's own branch tree, a real API key, and real model rounds. Never substitute fixture queries, mock transports, synthetic event injection, or test-only hooks unless the user explicitly asked for fixture provenance. State the provenance next to the embed — which tree served, which mode flags, that a real model round ran — so reviewers know exactly what the recording proves.
+The GIF's provenance is part of the evidence and must be real: a real server booted from that pull request's own branch tree, a real API key, and real model rounds. Never substitute fixture queries, mock transports, synthetic event injection, or test-only hooks unless the user explicitly asked for fixture provenance. State the provenance next to the embed — the exact demonstrated commit SHA, which tree and origin served, which mode flags or browser-state exceptions applied, and that a real model round ran — so reviewers know exactly what the recording proves.
 
 ## Keep the boundary explicit
 
@@ -26,14 +26,14 @@ The GIF's provenance is part of the evidence and must be real: a real server boo
 
 A GIF for a specific pull request demonstrates that pull request's tree, so stage per pull request:
 
-1. Build the branch tree being demonstrated — here, `pnpm run build && pnpm run build:web` — from the worktree that holds that branch. A GIF recorded against another branch's build misattributes the evidence.
-2. Boot one server per port from that tree with fresh scratch `DSH_HOME`, `DSH_AGENTS_HOME`, workspace, and session state so settings or sessions from another run cannot affect the evidence. Source the root `.env` for the API key through the application's normal path; never echo the key.
+1. Require a clean worktree, record its exact commit with `git rev-parse HEAD`, then build that recorded tree — here, `pnpm run build && pnpm run build:web`. A GIF recorded against another commit's build misattributes the evidence.
+2. Boot one server per port from that tree with fresh scratch `DSH_HOME`, `DSH_AGENTS_HOME`, workspace, and session state. Give the browser a fresh isolated context or profile as well; if the browser workflow cannot create one, clear that origin's cookies and site storage before navigation so persisted client state cannot affect the evidence. Source the root `.env` for the API key through the application's normal path; never echo the key.
 3. Treat one storyboard as one evidence run: every published frame comes from that server and those state roots, workspace, session, and model-backed scenario run. If capture automation fails, discard its frames and rerun from fresh roots; never splice frames from separate runs.
 4. When switching between pull requests, stop the old server by PID or an exact match on its command line. A broad `pkill -f` pattern can match and kill the shell that launched it — including your own.
 
 ## Record the flow
 
-1. Invoke the available browser-control skill and follow its setup, interaction, and cleanup instructions. If it is unavailable, use the repository-declared Playwright dependency in an isolated headless browser; do not install another driver or launch the user's browser. State that fallback in the provenance.
+1. Invoke the available browser-control skill and follow its setup, interaction, and cleanup instructions. Use the user's existing Chrome state only when requested or required; state that exception in the provenance and do not claim fresh client state. If browser control is unavailable, use the repository-declared Playwright dependency in an isolated headless browser; do not install another driver or launch the user's browser. State that fallback in the provenance.
 2. Resolve the evidence boundary before recording: identify the exact origin, whether the app is built or in development, the transport, and any fixture or mock mode. Record only claims that the observed setup supports.
 3. When a production default opens a native operating-system surface that headless automation cannot drive, select an official browser-operable production backend through the application's normal configuration. State the override in the provenance; a fixture, mock transport, or test-only hook is not an acceptable substitute.
 4. Choose three to six states that tell one story, such as typed, running, settled, and detail. Prefer semantic state changes over continuous capture; omit loading churn that does not help the viewer.
@@ -82,6 +82,8 @@ Perform this step only when the task includes attaching the GIF to a pull reques
 
 Never commit a GIF to the pull request's own branch or any branch that merges into a long-lived branch: binary media committed there bloats the repository history for every future clone. GIFs live on a dedicated orphan assets branch — a branch with no parent commit and nothing but media — and one assets branch serves a whole pull request series (existing branches: `code-mode-ui-assets`, `pr-613-assets`).
 
+Before either workflow below pushes, verify that the assets branch contains media only and that the staged GIF's checksum matches the verified local artifact.
+
 For an existing assets branch, work in a shallow single-branch scratch clone so the publication cannot touch your working tree:
 
 ```sh
@@ -95,9 +97,9 @@ git push origin <assets-branch>
 
 For a new series, make a fresh shallow scratch clone (`git clone --depth 1 <repo-url> /tmp/assets-checkout`), create the orphan branch with `git switch --orphan <assets-branch>`, then add the GIF, commit, and push the same way.
 
-Before pushing, verify that the assets branch contains media only and that the staged GIF's checksum matches the verified local artifact. After pushing, use authenticated GitHub API or raw requests to confirm the remote path, byte size, checksum, `200` response, and `image/gif` content type. An anonymous `404` does not disprove a private-repository asset; authenticate the verification instead. This proves the repository-member review path, not public availability.
+After pushing, use authenticated GitHub API or raw requests to confirm the remote path, byte size, checksum, `200` response, and `image/gif` content type. An anonymous `404` does not disprove a private-repository asset; authenticate the verification instead. This proves the repository-member review path, not public availability.
 
-Immediately before editing the pull-request body, re-read its live head and compare it with the head recorded in the GIF provenance. Stop and re-record when it moved. After the edit, render the body through GitHub's Markdown API and confirm that the expected `<img>` is present without changing the pull request's code head.
+Immediately before editing the pull-request body, re-read its live head and compare it with the commit recorded in the GIF provenance. Stop and re-record when it moved. After the edit, re-read the live head and require it to remain at that recorded commit. Separately, render the body through GitHub's Markdown API and confirm that the expected `<img>` is present.
 
 Embed the GIF in the pull request body with the raw blob URL; the `?raw=true` suffix is required, because the plain blob URL renders GitHub's file page instead of the image:
 
