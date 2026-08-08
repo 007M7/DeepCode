@@ -234,7 +234,7 @@ describe('windows-acl per-session grant (LocalSandboxProvider)', () => {
     }
   })
 
-  it('fails loud on a matching-but-tampered record: a non-orphan write SID or a foreign temp path never materializes', async () => {
+  it('fails loud on a matching-but-tampered record: non-orphan SID, foreign temp path, and non-string fields never materialize', async () => {
     try {
       const { ctx, sandbox } = await setup()
       const ws = workspaceRoot()
@@ -245,13 +245,26 @@ describe('windows-acl per-session grant (LocalSandboxProvider)', () => {
       ctx.sessions.create(SessionId('tampered-sid'), { seed: [recordEvent(everyone)], meta: { cwd: ws } })
       const sidPolicy: SandboxPolicy = { mode: 'workspace-write', workspaceRoot: ws, sessionId: SessionId('tampered-sid') }
       expect(() => sandbox.confine(['true'], sidPolicy)).toThrow(/malformed write SID/)
-      expect(mockState.grants).toHaveLength(0)
 
       // tempDir outside the host temp root.
       const foreignTemp = { writeSid: 'S-1-4-42-7', sessionId: SessionId('tampered-temp'), workspace: ws, tempDir: '/attacker/path' }
       ctx.sessions.create(SessionId('tampered-temp'), { seed: [recordEvent(foreignTemp)], meta: { cwd: ws } })
       const tempPolicy: SandboxPolicy = { mode: 'workspace-write', workspaceRoot: ws, sessionId: SessionId('tampered-temp') }
       expect(() => sandbox.confine(['true'], tempPolicy)).toThrow(/outside the host temp root/)
+
+      // Non-string durable fields (a corrupted/tampered JSONL payload): the
+      // typeof guards fail loud before any string operation runs.
+      const cases: Array<{ id: string; record: Record<string, unknown>; expect: RegExp }> = [
+        { id: 'tampered-type-sid', record: { writeSid: 42, sessionId: SessionId('tampered-type-sid'), workspace: ws, tempDir: shapedTempPath() }, expect: /malformed write SID/ },
+        { id: 'tampered-type-ws-null', record: { writeSid: 'S-1-4-42-6', sessionId: SessionId('tampered-type-ws-null'), workspace: null, tempDir: shapedTempPath() }, expect: /empty workspace/ },
+        { id: 'tampered-type-ws-empty', record: { writeSid: 'S-1-4-42-6', sessionId: SessionId('tampered-type-ws-empty'), workspace: '', tempDir: shapedTempPath() }, expect: /empty workspace/ },
+        { id: 'tampered-type-temp', record: { writeSid: 'S-1-4-42-6', sessionId: SessionId('tampered-type-temp'), workspace: ws, tempDir: 123 }, expect: /outside the host temp root/ },
+      ]
+      for (const c of cases) {
+        ctx.sessions.create(SessionId(c.id), { seed: [recordEvent(c.record as never)], meta: { cwd: ws } })
+        const policy: SandboxPolicy = { mode: 'workspace-write', workspaceRoot: ws, sessionId: SessionId(c.id) }
+        expect(() => sandbox.confine(['true'], policy), c.id).toThrow(c.expect)
+      }
       expect(mockState.grants).toHaveLength(0)
     } finally {
       cleanup()
