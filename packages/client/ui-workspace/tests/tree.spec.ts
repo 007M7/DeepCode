@@ -77,6 +77,22 @@ describe('deriveGroups', () => {
     expect(strayGroups.map(group => group.key)).toEqual(['first'])
   })
 
+  it('projects the completion reminder into session and search rows (absent = false)', () => {
+    const done = { ...summary('done', 3), completed: true }
+    const plain = summary('plain', 2)
+    const sessions = list(done, plain)
+    const groups = deriveGroups(
+      sessions, [workspace('first', ['done', 'plain'])], noArchive, view(['first']),
+    )
+    const doneNode = groups[0]!.sessions.find(session => session.id === done.id)!
+    const plainNode = groups[0]!.sessions.find(session => session.id === plain.id)!
+    expect(doneNode.completed).toBe(true)
+    expect(plainNode.completed).toBe(false)
+    expect(deriveFlat(sessions, noArchive).find(node => node.id === done.id)!.completed).toBe(true)
+    const search = deriveSearchResults(sessions, [workspace('first', ['done', 'plain'])], 'done', noArchive, { items: [], hasMore: false }, 10)
+    expect(search.items[0]?.completed).toBe(true)
+  })
+
   it('hides subagent-origin sessions without hiding ordinary forks', () => {
     const parent = summary('parent', 1)
     const fork = { ...summary('fork', 2), parentId: parent.id }
@@ -259,6 +275,7 @@ describe('deriveSearchResults', () => {
           workspace: 'Alpha',
           running: false,
           pendingInteraction: 'plan-review',
+          completed: false,
           snippet: 'title session body excerpt',
         },
         {
@@ -266,12 +283,14 @@ describe('deriveSearchResults', () => {
           title: 'Ordinary title',
           workspace: 'Needle Workspace',
           running: false,
+          completed: false,
         },
         {
           id: contentHit.id,
           title: 'content-hit',
           workspace: 'c',
           running: false,
+          completed: false,
           snippet: 'body needle excerpt',
         },
       ],

@@ -216,7 +216,7 @@ roots(): Agent[]
 
 Types: [Agent](../core-data-structures/core.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/index.ts:242`](../../packages/core/agent/src/index.ts)
+Source: [`packages/core/agent/src/index.ts:253`](../../packages/core/agent/src/index.ts)
 
 ## `ctx.approval` — `ApprovalService`
 
@@ -398,7 +398,7 @@ abstract run(request: CodeRunRequest): Promise<CodeRunResult>
 
 Types: [CodeRunRequest](../core-data-structures/code-runtime.md) · [CodeRunResult](../core-data-structures/code-runtime.md)
 
-Source: [`packages/code-runtime/code-runtime/src/index.ts:33`](../../packages/code-runtime/code-runtime/src/index.ts)
+Source: [`packages/code-runtime/code-runtime/src/index.ts:104`](../../packages/code-runtime/code-runtime/src/index.ts)
 
 ## `ctx.commands` — `CommandService`
 
@@ -451,7 +451,7 @@ async execute( agent: Agent, line: string, signal: AbortSignal, ): Promise<Comma
 
 Types: [Agent](../core-data-structures/core.md) · [CommandDefinition](../core-data-structures/commands.md) · [CommandDescriptor](../core-data-structures/commands.md)
 
-Source: [`packages/ui/commands/src/index.ts:278`](../../packages/ui/commands/src/index.ts)
+Source: [`packages/ui/commands/src/index.ts:286`](../../packages/ui/commands/src/index.ts)
 
 ## `ctx.compact` — `CompactService` (abstract seam)
 
@@ -718,7 +718,7 @@ create(agent: Agent, request: CreateGoalRequest): GoalView
  * @param request - at least one replacement field.
  * @returns the edited view.
  */
-edit(agent: Agent, ref: GoalRef, request: EditGoalRequest): GoalView
+@Remote('edit') edit(agent: Agent, ref: GoalRef, request: EditGoalRequest): GoalView
 
 /**
  * Pause an active goal and disarm automatic continuation.
@@ -726,7 +726,7 @@ edit(agent: Agent, ref: GoalRef, request: EditGoalRequest): GoalView
  * @param ref - expected current revision.
  * @returns the paused view.
  */
-pause(agent: Agent, ref: GoalRef): GoalView
+@Remote('pause') pause(agent: Agent, ref: GoalRef): GoalView
 
 /**
  * Resume and arm a stopped goal, or rearm an active goal after a
@@ -735,7 +735,7 @@ pause(agent: Agent, ref: GoalRef): GoalView
  * @param ref - expected current revision.
  * @returns the active view.
  */
-resume(agent: Agent, ref: GoalRef): GoalView
+@Remote('resume') resume(agent: Agent, ref: GoalRef): GoalView
 
 /**
  * Mark a current non-complete goal complete and disarm it.
@@ -743,7 +743,7 @@ resume(agent: Agent, ref: GoalRef): GoalView
  * @param ref - expected current revision.
  * @returns the completed view.
  */
-complete(agent: Agent, ref: GoalRef): GoalView
+@Remote('complete') complete(agent: Agent, ref: GoalRef): GoalView
 
 /**
  * Mark an active goal blocked and disarm it.
@@ -760,16 +760,24 @@ block(agent: Agent, ref: GoalRef, reason: GoalBlockReason): GoalView
  * @param ref - expected current revision.
  * @returns the tombstone ref whose revision is one past the cleared snapshot.
  */
-clear(agent: Agent, ref: GoalRef): GoalRef
+@Remote('clear') clear(agent: Agent, ref: GoalRef): GoalRef
+
+/**
+ * Create one Goal through the remote boundary.
+ * @param agent - exact live Agent resolved from the wire identity.
+ * @param request - objective and optional round cap.
+ * @returns the created Goal identity.
+ */
+@Remote('create') remoteExportCreate(agent: Agent, request: CreateGoalRequest): CreateGoalResult
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [CreateGoalRequest](../core-data-structures/goal.md) · [EditGoalRequest](../core-data-structures/goal.md) · [GoalBlockReason](../core-data-structures/goal.md) · [GoalRef](../core-data-structures/goal.md) · [GoalView](../core-data-structures/goal.md)
+Types: [Agent](../core-data-structures/core.md) · [CreateGoalRequest](../core-data-structures/goal.md) · [CreateGoalResult](../core-data-structures/goal.md) · [EditGoalRequest](../core-data-structures/goal.md) · [GoalBlockReason](../core-data-structures/goal.md) · [GoalRef](../core-data-structures/goal.md) · [GoalView](../core-data-structures/goal.md)
 
-Source: [`packages/goal/goal/src/index.ts:181`](../../packages/goal/goal/src/index.ts)
+Source: [`packages/goal/goal/src/index.ts:183`](../../packages/goal/goal/src/index.ts)
 
 ## `ctx.httpServer` — `HttpServerService`
 
-The web-shape HTTP carrier service. Activation listens immediately (route registration order carries no request-facing semantics: named routes are composed to be disjoint, and the static dist fallback answers anything not yet claimed during the boot window). A listen failure throws out of init — a FAILED fiber the boot's fail-loud sweep reports.
+The web-shape HTTP carrier service. Activation listens immediately (route registration order carries no request-facing semantics: named routes are composed to be disjoint, and the fallback seat answers anything not yet claimed during the boot window — 404 until its owner registers). A listen failure throws out of init — a FAILED fiber the boot's fail-loud sweep reports.
 
 ```ts cordis-catalog
 /**
@@ -789,15 +797,33 @@ register(route: WebRoute): () => void
 registerUpgrade(route: WebUpgradeRoute): () => void
 
 /**
- * Register an index.html transform, applied to every index response in
- * registration order.
+ * Claim the fallback seat: the handler answering every request no named
+ * route matches (the SPA dist server in the shipped Web composition). One
+ * owner only — a second registration throws, because two fallbacks cannot
+ * compose.
+ * @param handler - owns the full response lifecycle of unmatched requests.
+ * @returns the disposer releasing the seat.
+ */
+registerFallback(handler: WebRoute['handler']): () => void
+
+/**
+ * Register an index.html transform, applied by the fallback owner to every
+ * index response ({@link applyIndexTaps}) in registration order.
  * @param transform - pure html-to-html function.
  * @returns the disposer removing the transform.
  */
 tapIndex(transform: (html: string) => string): () => void
+
+/**
+ * Run an index.html body through the registered taps in registration order
+ * — called by the fallback owner on every index response it renders.
+ * @param html - the raw index.html body.
+ * @returns the transformed body.
+ */
+applyIndexTaps(html: string): string
 ```
 
-Source: [`packages/host/webserver/src/index.ts:63`](../../packages/host/webserver/src/index.ts)
+Source: [`packages/host/webserver/src/index.ts:60`](../../packages/host/webserver/src/index.ts)
 
 ## `ctx.invariants` — `InvariantService`
 
@@ -844,15 +870,38 @@ listProviders(): LlmProviderInfo[]
  * entry, or a provider already declared by any registration throws
  * `LlmError` without registering the rest. Disposed with the fiber.
  * @param entries - every configurable provider this plugin owns.
- * @returns the disposer that withdraws all of them.
+ * @returns a handle that withdraws all of them, and can atomically replace them.
  */
-registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): () => void
+registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): DirectoryRegistrationHandle
 
 /**
  * List every declared configurable provider, registered or dormant.
  * @returns detached directory entries in declaration order.
  */
 listConfigurableProviders(): LlmConfigurableProvider[]
+
+/**
+ * Offer to interrogate provider endpoints on behalf of the settings
+ * namespace this plugin owns. The namespace is the key because that is what
+ * a configuration surface already holds from the configurable-provider
+ * directory, and because a provider being *added* has no route to name yet.
+ * Disposed with the fiber.
+ * @param settingsNs - the namespace whose profiles this discovery serves.
+ * @param discover - interrogates one endpoint; must honor `request.signal`.
+ * @returns the disposer that withdraws the offer.
+ */
+registerModelDiscovery( settingsNs: string, discover: (request: LlmModelDiscoveryRequest) => Promise<readonly LlmDiscoveredModel[]>, ): () => void
+
+/**
+ * Interrogate one provider endpoint for the models it advertises. The
+ * request describes a draft, not a stored route, so nothing here reads or
+ * writes settings or credentials — the caller owns both, and the reply is
+ * candidate metadata a surface may offer for adoption.
+ * @param settingsNs - namespace whose registered discovery serves this draft.
+ * @param request - the endpoint, protocol, and one-shot credential to use.
+ * @returns the advertised models, deduplicated in endpoint order.
+ */
+async discoverModels( settingsNs: string, request: LlmModelDiscoveryRequest, ): Promise<LlmDiscoveredModel[]>
 
 /**
  * Resolve the retry policy captured when one provider route was registered.
@@ -916,9 +965,9 @@ async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<Prepared
 stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 ```
 
-Types: [AdapterRegistrationHandle](../core-data-structures/core.md) · [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmCallConfig](../core-data-structures/core.md) · [LlmConfigurableProvider](../core-data-structures/core.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [LlmResolvedModelInfo](../core-data-structures/core.md) · [PreparedLlmCall](../core-data-structures/llm-streaming.md) · [ResolvedRetryPolicy](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
+Types: [AdapterRegistrationHandle](../core-data-structures/core.md) · [DirectoryRegistrationHandle](../core-data-structures/core.md) · [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmCallConfig](../core-data-structures/core.md) · [LlmConfigurableProvider](../core-data-structures/core.md) · [LlmDiscoveredModel](../core-data-structures/core.md) · [LlmModelDiscoveryRequest](../core-data-structures/core.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [LlmResolvedModelInfo](../core-data-structures/core.md) · [PreparedLlmCall](../core-data-structures/llm-streaming.md) · [ResolvedRetryPolicy](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:232`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:292`](../../packages/llm/llm/src/index.ts)
 
 ## `ctx.permission` — `PermissionService`
 
@@ -1707,7 +1756,7 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 
 Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [PrepareSessionOptions](../core-data-structures/persistence.md) · [Session](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:800`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:807`](../../packages/core/session/src/index.ts)
 
 ## `ctx.sessionTitle` — `SessionTitleService`
 
@@ -1839,7 +1888,7 @@ async mutate(ns: SettingsNamespace, ops: readonly SettingsPathOp[], expectedRevi
 
 Types: [SettingsDescribeOptions](../core-data-structures/settings.md) · [SettingsDescriptor](../core-data-structures/settings.md) · [SettingsNamespace](../core-data-structures/settings.md) · [SettingsPathOp](../core-data-structures/settings.md) · [SettingsRegisterOptions](../core-data-structures/settings.md) · [SettingsScope](../core-data-structures/settings.md)
 
-Source: [`packages/settings/settings/src/index.ts:365`](../../packages/settings/settings/src/index.ts)
+Source: [`packages/settings/settings/src/index.ts:387`](../../packages/settings/settings/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 
@@ -1897,7 +1946,7 @@ async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefiniti
 
 Types: [SkillCatalogSnapshot](../core-data-structures/skills.md) · [SkillDefinition](../core-data-structures/skills.md) · [SkillLookupOptions](../core-data-structures/skills.md) · [SkillProvider](../core-data-structures/skills.md) · [SkillProviderControl](../core-data-structures/skills.md) · [SkillRegistration](../core-data-structures/skills.md) · [SkillSummary](../core-data-structures/skills.md)
 
-Source: [`packages/skill/skill/src/index.ts:209`](../../packages/skill/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:301`](../../packages/skill/skill/src/index.ts)
 
 ## `ctx.spillStore` — `SpillStore` (abstract seam)
 
@@ -2058,22 +2107,32 @@ registerContinuableSetup(contribution: ContinuableSetupContribution): () => void
 async drainContinuableDescendants(parents: readonly Agent[]): Promise<void>
 
 /**
- * Enumerate the parent's direct session-backed subagents from the
- * live-preferred session corpus without loading or resuming an Agent. Session
- * query supplies lineage, candidate order, event reads, and live state; this
- * service interprets descriptor mode, activity, and per-child diagnostics
- * without consulting Agent registrations, Activations, or providers.
+ * Enumerate the parent's direct session-backed subagents without loading or
+ * resuming an Agent and without any query seam: the listing merges the live
+ * session store with optional session persistence (live-preferred) and
+ * serves each child's durable mode/label from the registered `subagent`
+ * projection unit down a three-rung ladder — the registry's watermark
+ * snapshot for a live child; for a cold one, a durable projection-cache
+ * row when the optional cache serves an own-suffix identity (its `seq`
+ * gate proves the value postdates the fork seed, where a child's own
+ * descriptor is immutable once appended), else one persistence inspection
+ * folded through the registry. The
+ * projection fold is the single classification authority; per-child
+ * diagnostics relay a fold that served no identity or a failed inspection,
+ * never a list-time descriptor parse. Absent persistence, enumeration is
+ * live-only (a cold child cannot be resumed then either, so its absence is
+ * capability absence, not an error). This service consults no Agent
+ * registrations, Activations, or providers.
  *
- * The trace and exact descriptor read receive `signal`; the full event-list
- * read has no signal parameter, so the scan rechecks cancellation around
- * every await and between candidates. Query rejections that settle after an
- * abort become a stable `SubagentError` with code `CANCELLED`.
+ * Every persistence read receives `signal`, and the listing rechecks
+ * cancellation around each of those awaits. Read rejections that settle
+ * after an abort become a stable `SubagentError` with code `CANCELLED`.
  * @param parentSessionId - parent session whose direct children are listed.
- * @param signal - caller-owned cancellation forwarded where supported and
- *   observed around every query await.
- * @returns children and per-child diagnostics in stable trace order.
- * @throws {@link SubagentError} when session query is unavailable or the
- *   caller cancels the scan.
+ * @param signal - caller-owned cancellation forwarded to persistence reads
+ *   and observed around every read await.
+ * @returns children and per-child diagnostics ordered by `createdAt`, then id.
+ * @throws {@link SubagentError} when the projection registry or the session
+ *   store is not mounted, or the caller cancels the listing.
  */
 listChildren(parentSessionId: SessionId, signal?: AbortSignal): Promise<SubagentListEntry[]>
 
@@ -2313,7 +2372,7 @@ flush?(): void
 abstract shutdown(): Promise<void>
 ```
 
-Source: [`packages/telemetry/session-telemetry/src/index.ts:135`](../../packages/telemetry/session-telemetry/src/index.ts)
+Source: [`packages/telemetry/session-telemetry/src/index.ts:140`](../../packages/telemetry/session-telemetry/src/index.ts)
 
 ## `ctx.tokenMeter` — `TokenMeterService`
 
@@ -2472,20 +2531,21 @@ async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>
 
 Types: [ScopeKey](../core-data-structures/scope.md) · [ToolDefinition](../core-data-structures/tools.md) · [ToolExecutionInput](../core-data-structures/tools.md) · [ToolExecutionMode](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolGuard](../core-data-structures/tools.md) · [ToolRestriction](../core-data-structures/tools.md) · [ToolSchema](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:714`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:739`](../../packages/core/tools/src/index.ts)
 
 ## `ctx.typert` — `TypertRegistry`
 
-Registry of generated schemas and package reflection.
+Registry of generated schemas, package reflection, invocations, and Remote dependency providers.
 
 ```ts cordis-catalog
 /**
  * Register one generated contribution atomically for the calling fiber.
- * Duplicate package-face identities or schema keys reject the whole batch.
- * @param contribution - generated schemas and package metadata.
+ * Duplicate package-face identities, schemas, invocation ids, or endpoints
+ * reject the whole batch.
+ * @param contribution - generated schemas, reflection, and Host invocations.
  * @returns the exact effect disposer that removes this contribution.
  */
-register(contribution: TypertContribution): () => void
+register(contribution: TypertContribution): TypeRTDisposer
 
 /**
  * Look up one schema by `<package>#<name>`.
@@ -2533,7 +2593,23 @@ listPackages(filter: TypertPackageFilter = {}): TypertPackageRecord[]
 toJSONSchema(key: string, params?: z.core.ToJSONSchemaParams): z.core.JSONSchema.BaseSchema
 ```
 
-Source: [`packages/typert/registry/src/index.ts:67`](../../packages/typert/registry/src/index.ts)
+Source: [`packages/typert/registry/src/service.ts:446`](../../packages/typert/registry/src/service.ts)
+
+## `ctx.typertGateway` — `TypertGatewayService`
+
+Resolve strict generated definitions or conservative SRC markers against current Cordis Services and TypeRT providers.
+
+```ts cordis-catalog
+/**
+ * Invoke one live Remote method through strict generated reflection or SRC markers.
+ * @param request - decoded endpoint and exact named wire arguments.
+ * @returns the validated business result.
+ * @throws {@link TypertGatewayError} for dispatch, provider, or boundary failures; lookup-policy and business errors retain identity.
+ */
+async invoke(request: InvokeRemoteRequest): Promise<unknown>
+```
+
+Source: [`packages/api/gateway/src/index.ts:78`](../../packages/api/gateway/src/index.ts)
 
 ## `ctx.userInteraction` — `UserInteractionService`
 

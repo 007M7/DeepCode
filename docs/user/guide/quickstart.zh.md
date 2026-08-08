@@ -19,9 +19,10 @@ pnpm -v
 ## 第一步：安装并配置 API key
 
 ```sh
-git clone https://github.com/deepseek-harness/deepseek-harness.git
+git clone https://github.com/deepseek-ai/deepseek-harness-sdk.git
 cd deepseek-harness
 pnpm install
+pnpm run build
 ```
 
 在仓库根目录创建已被 Git 忽略的 `.env`：
@@ -35,17 +36,16 @@ DEEPSEEK_API_KEY=sk-your-key-here
 运行一个非交互式任务并打印最终回答：
 
 ```sh
-pnpm run demo:headless "summarize the architecture of this workspace"
+pnpm run dsh run "summarize the architecture of this workspace"
 ```
 
-Headless 运行一个完整的模型/工具轮次，持久化会话，打印结果后退出。需要规范事件流时可使用 `--output-format stream-json`。
+`dsh run` 创建并持久化一个新会话，打印最终 assistant 回答，然后退出。运行期间，stderr 会打印可用于观察该会话的本地浏览器 URL。
 
 ## 第三步：使用 Web UI
 
-构建并启动浏览器界面：
+启动浏览器界面：
 
 ```sh
-pnpm run build
 pnpm run dsh web
 ```
 
@@ -53,9 +53,10 @@ pnpm run dsh web
 
 ## 回头看
 
-headless-agent 使用 `@deepseek-ai/dsh-cli-demo` app。`dsh web` 则组合 [`apps/cli/config/base.cordis.yml`](../../../apps/cli/config/base.cordis.yml) 与 [`apps/cli/config/web.cordis.yml`](../../../apps/cli/config/web.cordis.yml)，不使用 app 组合包。二者都会根据各自入口模式选择 DeepSeek 模型和能力插件。
+`dsh run` 启动 `headless` profile：[`dsh-base`](../../../packages/bundle/base/cordis.patch.yml)、[`dsh-web-app`](../../../packages/bundle/web-app/cordis.patch.yml) 和 [`dsh-headless`](../../../packages/bundle/headless/cordis.patch.yml) 在空根之上组合。`dsh web` 使用前两层，不包含一次性 runner。二者都会根据各自入口模式选择 DeepSeek 模型和能力插件。
 
 ## 下一步
 
+- [配置模型](./providers.md) — 接入 DeepSeek 之外的提供方与自定义网关
 - [配置文件](./config.md) — 了解 `cordis.yml` 的格式
 - [开发插件](../develop/basic/) — 编写自己的 tool 或后端

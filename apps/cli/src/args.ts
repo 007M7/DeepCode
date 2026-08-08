@@ -1,43 +1,50 @@
 /**
  * Commander adapter for the `dsh` command-line entry. The default command
- * boots one required `--config` overlay over the shipped base; `-p` selects
- * the one-shot headless path and `web` selects the browser application.
- * Commander owns help, version, and parse errors.
+ * boots a named profile (`--profile <name>`), optionally with extra `--patch`
+ * overlays. `run` owns one-shot task execution, defaulting to the headless
+ * profile; `web` is a hardcoded alias for `--profile web` that adds the Web
+ * flag family; `plugin` manages a profile's plugin dependencies by forwarding
+ * to pnpm. Commander owns help, version, and parse errors.
  * @module @deepseek-ai/dsh/args
  */
 
 import { Command, CommanderError } from 'commander'
 
-/** Boot a caller-selected overlay over the shipped base config. */
-interface ConfigInvocation {
-  mode: 'config'
-  config: string
+/** Boot a named profile. */
+interface ProfileInvocation {
+  mode: 'profile'
+  profile: string
+  /** Extra patch-list overlays applied after the profile's own layer, in argv order. */
+  patches: string[]
 }
 
-/** Print a composed config tree and exit without booting. */
+/** Run one task through a profile mounting the headless runner. */
+interface RunInvocation {
+  mode: 'run'
+  profile: string
+  /** Extra patch-list overlays applied after the profile's own layer, in argv order. */
+  patches: string[]
+  /** Non-blank task text joined from the variadic positional arguments. */
+  task: string
+}
+
+/** Print a composed profile tree and exit without booting. */
 interface DumpConfigInvocation {
   mode: 'dump-config'
-  surface: 'config' | 'web'
-  /** Omit every caller or personal layer and print the shipped tree. */
+  profile: string
+  /** Omit the profile's user layer and --patch overlays; print bundle layers only. */
   defaultOnly: boolean
-  /** Explicit overlay to compose over the base or Web surface. */
-  config?: string
-}
-
-/** Headless one-shot: `dsh -p "task"`. */
-interface HeadlessInvocation {
-  mode: 'headless'
-  prompt: string
+  patches: string[]
 }
 
 /**
- * Browser UI: `dsh web`. Host and port remain unvalidated pass-throughs to
- * the webserver schema; absent values leave the shipped Web overlay intact.
+ * Browser UI: `dsh web` (alias of `--profile web`). Host and port remain
+ * unvalidated pass-throughs to the webserver schema; absent values leave the
+ * shipped web bundle values intact.
  */
 interface WebInvocation {
   mode: 'web'
-  /** Overlay applied over the shipped Web composition instead of the personal one. */
-  config?: string
+  patches: string[]
   host?: string
   port?: number
   dev: boolean
@@ -46,12 +53,20 @@ interface WebInvocation {
   trustedHosts?: string[]
 }
 
+/** Manage a profile's plugins: forward `args` to pnpm inside the profile directory. */
+interface PluginInvocation {
+  mode: 'plugin'
+  profile: string
+  /** Raw pnpm arguments, verbatim. */
+  args: string[]
+}
+
 /** The resolved `dsh` invocation. Help, version, and errors exit inside {@link parseDshArgs}. */
-export type DshInvocation = ConfigInvocation | DumpConfigInvocation | HeadlessInvocation | WebInvocation
+export type DshInvocation = ProfileInvocation | RunInvocation | DumpConfigInvocation | WebInvocation | PluginInvocation
 
 /** Raw web-subcommand options straight from Commander. */
 interface WebOptions {
-  config?: string
+  patch?: string[]
   host?: string
   port?: string
   dev?: boolean
@@ -61,43 +76,17 @@ interface WebOptions {
   dumpDefaultConfig?: boolean
 }
 
-/** Resolve config-dump flags for one command shape. */
-function resolveDump(
-  surface: 'config' | 'web',
-  options: { config?: string; dumpConfig?: boolean; dumpDefaultConfig?: boolean },
-  error: (message: string) => never,
-): DumpConfigInvocation | undefined {
-  if (options.dumpConfig !== true && options.dumpDefaultConfig !== true) return undefined
-  if (options.dumpConfig === true && options.dumpDefaultConfig === true) {
-    error('error: --dump-config and --dump-default-config are mutually exclusive')
-  }
-  const defaultOnly = options.dumpDefaultConfig === true
-  if (defaultOnly && options.config !== undefined) {
-    error('error: --dump-default-config prints the shipped tree and takes no --config')
-  }
-  if (surface === 'config' && !defaultOnly && options.config === undefined) {
-    error('error: --dump-config requires --config <path>')
-  }
-  return {
-    mode: 'dump-config',
-    surface,
-    defaultOnly,
-    ...options.config !== undefined && { config: options.config },
-  }
+/** Raw run-subcommand options straight from Commander. */
+interface RunOptions {
+  profile: string
+  patch?: string[]
 }
 
-/** Narrow raw `web` options into a {@link WebInvocation}. */
-function resolveWeb(options: WebOptions): WebInvocation {
-  return {
-    mode: 'web',
-    ...options.config !== undefined && { config: options.config },
-    ...options.host !== undefined && { host: options.host },
-    ...options.port !== undefined && { port: Number(options.port) },
-    dev: options.dev === true,
-    ...options.workspaceRoot !== undefined && { workspaceRoot: options.workspaceRoot },
-    ...options.trustedHost !== undefined && { trustedHosts: options.trustedHost },
-  }
-}
+/**
+ * Repeatable single-value collector: `--patch a.yml --patch b.yml`. Never
+ * variadic — a variadic `--patch` would swallow a following positional task.
+ */
+const collect = (value: string, previous: string[] = []): string[] => [...previous, value]
 
 /**
  * Resolve argv into one invocation, or print and exit for help, version, or an
@@ -111,77 +100,132 @@ export function parseDshArgs(argv: readonly string[], version: string): DshInvoc
   const program = new Command()
     .name('dsh')
     .version(version, '-V, --version', 'output the version number')
-    .description('dsh: boot a DeepSeek Harness config overlay over the shipped base configuration.')
+    .description('dsh: boot a DeepSeek Harness profile — an ordered stack of plugin-bundle patch layers under your own overrides.')
     .addHelpText('after', `
 Examples:
-  dsh --config ./app.cordis.yml  boot an overlay over the shipped base
-  dsh -p "run the tests"         answer one task, print the result, and exit
-  dsh web                       serve the browser UI
+  dsh --profile web                          boot the web profile (same as: dsh web)
+  dsh run "run the tests"                    answer one task, print the result, and exit
+  dsh run --profile custom "run the tests"   run one task through a custom one-shot profile
+  dsh --profile tui --patch ./extra.yml      boot a custom profile with one extra overlay
+  dsh plugin --profile tui add <package>     install a plugin into the tui profile
+  dsh web --port 8080                        the web alias with its flag family
 `)
     .exitOverride()
     .enablePositionalOptions()
-    .option('-p, --prompt <task>', 'answer this task without an interactive UI, then exit')
-    .option('--config <path>', 'overlay of loader patches to apply over the shipped base')
-    .option('--dump-config', 'print the base plus --config overlay and exit')
-    .option('--dump-default-config', 'print the shipped base config and exit')
+    .option('--profile <name>', 'the profile under $DSH_HOME/profiles to boot')
+    .option('--patch <path>', 'extra patch-list overlay applied after the profile layer (repeatable)', collect)
+    .option('--dump-config', 'print the composed profile tree and exit')
+    .option('--dump-default-config', 'print the profile tree without its user layer or --patch overlays and exit')
     .action((options: {
-      config?: string
-      prompt?: string
+      profile?: string
+      patch?: string[]
       dumpConfig?: boolean
       dumpDefaultConfig?: boolean
     }) => {
-      if (options.config === '') program.error('error: --config needs a path')
-      const dump = resolveDump('config', options, message => program.error(message))
-      if (dump !== undefined) {
-        if (options.prompt !== undefined) {
-          program.error('error: --dump-config/--dump-default-config take no -p/--prompt')
+      const profile = options.profile ?? program.error('error: --profile <name> is required')
+      if (profile === '') program.error('error: --profile needs a name')
+      const patches = options.patch ?? []
+      if (patches.includes('')) program.error('error: --patch needs a path')
+      if (options.dumpConfig === true || options.dumpDefaultConfig === true) {
+        if (options.dumpConfig === true && options.dumpDefaultConfig === true) {
+          program.error('error: --dump-config and --dump-default-config are mutually exclusive')
         }
-        resolved = dump
+        const defaultOnly = options.dumpDefaultConfig === true
+        if (defaultOnly && patches.length > 0) {
+          program.error('error: --dump-default-config prints the bundle layers and takes no --patch')
+        }
+        resolved = { mode: 'dump-config', profile, defaultOnly, patches }
         return
       }
-      if (options.prompt !== undefined) {
-        if (options.prompt === '') program.error('error: --prompt needs a task')
-        if (options.config !== undefined) program.error('error: --prompt takes no --config')
-        resolved = { mode: 'headless', prompt: options.prompt }
-        return
-      }
-      const config = options.config ?? program.error('error: --config <path> is required')
-      resolved = { mode: 'config', config }
+      resolved = { mode: 'profile', profile, patches }
     })
 
   /** Reject parent options that crossed a subcommand boundary. */
   const rejectParentOptions = (command: string): void => {
     const parent = program.opts<{
-      config?: string
-      prompt?: string
+      profile?: string
+      patch?: string[]
       dumpConfig?: boolean
       dumpDefaultConfig?: boolean
     }>()
-    if (parent.config !== undefined || parent.prompt !== undefined
+    if (parent.profile !== undefined || parent.patch !== undefined
       || parent.dumpConfig !== undefined || parent.dumpDefaultConfig !== undefined) {
-      program.error(`error: ${command} takes none of parent --config, -p/--prompt, --dump-config, or --dump-default-config`)
+      program.error(`error: ${command} takes none of parent --profile, --patch, --dump-config, or --dump-default-config`)
     }
   }
 
-  const web = program.command('web').description('serve the browser UI on the configured host and port')
+  const run = program.command('run').description('run one task through a profile mounting the headless runner')
+  run
+    .option('--profile <name>', 'one-shot profile under $DSH_HOME/profiles', 'headless')
+    .option('--patch <path>', 'extra patch-list overlay applied after the profile layer (repeatable)', collect)
+    .argument('<task...>', 'task text')
+    .action((task: string[], options: RunOptions) => {
+      rejectParentOptions('run')
+      const profile = options.profile
+      if (profile === '') program.error('error: --profile needs a name')
+      const patches = options.patch ?? []
+      if (patches.includes('')) program.error('error: --patch needs a path')
+      const joined = task.join(' ')
+      if (joined.trim() === '') program.error('error: run needs a non-blank task')
+      resolved = { mode: 'run', profile, patches, task: joined }
+    })
+
+  const web = program.command('web').description('serve the browser UI (alias of --profile web) on the configured host and port')
   web
-    .option('--config <path>', 'apply this overlay of loader patches over the shipped Web configuration')
+    .option('--patch <path>', 'extra patch-list overlay applied after the profile layer (repeatable)', collect)
     .option('--host <host>', 'bind host; pass 0.0.0.0 to reach it from another machine')
     .option('--port <port>', 'listen port; pass 0 to let the OS pick a free one')
     .option('--dev', 'mount the client-plugin HMR receiver (run pnpm run dev:web separately to rebuild bundles)')
     .option('--workspace-root <path>', 'parent directory for workspaces created from the browser UI')
     .option('--trusted-host <authority...>', 'extra authority the /api browser-trust fence accepts (host or host:port; repeatable)')
-    .option('--dump-config', 'print the composed config tree (base + web + --config/personal overlay) and exit')
-    .option('--dump-default-config', 'print the shipped config tree (base + web overlay, no user layer) and exit')
+    .option('--dump-config', 'print the composed web-profile tree (with the user layer and any --patch) and exit')
+    .option('--dump-default-config', 'print the web profile\'s bundle layers (no user layer) and exit')
     .action((options: WebOptions) => {
       rejectParentOptions('web')
-      if (options.config === '') program.error('error: --config needs a path')
-      const dump = resolveDump('web', options, message => program.error(message))
-      if (dump !== undefined) {
-        resolved = dump
+      const patches = options.patch ?? []
+      if (patches.includes('')) program.error('error: --patch needs a path')
+      if (options.dumpConfig === true || options.dumpDefaultConfig === true) {
+        if (options.dumpConfig === true && options.dumpDefaultConfig === true) {
+          program.error('error: --dump-config and --dump-default-config are mutually exclusive')
+        }
+        const defaultOnly = options.dumpDefaultConfig === true
+        if (defaultOnly && patches.length > 0) {
+          program.error('error: --dump-default-config prints the bundle layers and takes no --patch')
+        }
+        // The dump is boot-free and does not derive flag patches; silently
+        // dropping them would print a tree that differs from the same
+        // invocation's boot.
+        if (options.host !== undefined || options.port !== undefined || options.dev === true
+          || options.workspaceRoot !== undefined || options.trustedHost !== undefined) {
+          program.error('error: config dumps take no web flags (--host/--port/--dev/--workspace-root/--trusted-host)')
+        }
+        resolved = { mode: 'dump-config', profile: 'web', defaultOnly, patches }
         return
       }
-      resolved = resolveWeb(options)
+      if (options.port !== undefined && !/^\d+$/.test(options.port)) {
+        program.error(`error: --port must be a number, got ${JSON.stringify(options.port)}`)
+      }
+      resolved = {
+        mode: 'web',
+        patches,
+        ...options.host !== undefined && { host: options.host },
+        ...options.port !== undefined && { port: Number(options.port) },
+        dev: options.dev === true,
+        ...options.workspaceRoot !== undefined && { workspaceRoot: options.workspaceRoot },
+        ...options.trustedHost !== undefined && { trustedHosts: options.trustedHost },
+      }
+    })
+
+  const plugin = program.command('plugin').description('manage a profile\'s plugins by forwarding the remaining arguments to pnpm in the profile directory')
+  plugin
+    .requiredOption('--profile <name>', 'the profile whose plugins to manage (initialized on first use)')
+    .allowUnknownOption()
+    .argument('[args...]', 'pnpm arguments, forwarded verbatim (add <pkg>, remove <pkg>, why <pkg>, ...)')
+    .action((args: string[], options: { profile: string }) => {
+      rejectParentOptions('plugin')
+      if (options.profile === '') program.error('error: --profile needs a name')
+      if (args.length === 0) program.error('error: plugin needs pnpm arguments to forward (e.g. add <package>)')
+      resolved = { mode: 'plugin', profile: options.profile, args }
     })
 
   try {

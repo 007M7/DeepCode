@@ -77,7 +77,8 @@ describe('ConsentResolver cordis.yml state', () => {
       '- id: llm',
       '  name: \'@deepseek-ai/dsh-llm-deepseek\'',
       '  config:',
-      '    apiKey: !!js process.env.DEEPSEEK_API_KEY',
+      '    apiKeyEnv: DEEPSEEK_API_KEY',
+      '    model: !!js process.env.DEEPSEEK_MODEL',
       '',
     ].join('\n')
     expect(await resolver.resolve(await projectDir(yml)))

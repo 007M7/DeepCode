@@ -4,11 +4,11 @@ Status: implemented
 
 [English](2026-07-29-dsh-source-launch-tsx-esm.md) | 中文
 
-> 取代[原生 TypeScript 源码启动](2026-07-28-dsh-native-typescript-source-launch.md)：Node 移除了该决策所依赖的能力。
+> 取代[已归档的原生 TypeScript 源码启动](../../archived/architecture/2026-07-28-dsh-native-typescript-source-launch.md)：Node 移除了该决策所依赖的能力。
 
 ## 问题
 
-[原生源码启动决策](2026-07-28-dsh-native-typescript-source-launch.md)让 `apps/cli/src/bin.ts` 在 `node --experimental-transform-types` 下运行，配合一个只做解析的 paths loader，由 Node 负责 TypeScript 转换。Node 26.0.0 移除了 `--experimental-transform-types`（进程以 `bad option` 拒绝该 flag），只保留 strip 模式，而 strip 模式无法接受这个源码图必需的语法：vendor Cordis 中的参数属性（`constructor(private ctx: Context)`）、`vendor/hmr` 中的 `@Inject` 装饰器，以及遍布 `vendor/` 与 `packages/workflow` 的运行时 enum/namespace。仓库的 engines 范围（`^22.19.0 || >=24.0.0`）包含 Node 26，因此原生启动链在其上完全无法启动——且没有任何 CI 任务执行过真实启动向量，这一不兼容悄然发布。
+[已归档的原生源码启动决策](../../archived/architecture/2026-07-28-dsh-native-typescript-source-launch.md)让 `apps/cli/src/bin.ts` 在 `node --experimental-transform-types` 下运行，配合一个只做解析的 paths loader，由 Node 负责 TypeScript 转换。Node 26.0.0 移除了 `--experimental-transform-types`（进程以 `bad option` 拒绝该 flag），只保留 strip 模式，而 strip 模式无法接受这个源码图必需的语法：vendor Cordis 中的参数属性（`constructor(private ctx: Context)`）、`vendor/hmr` 中的 `@Inject` 装饰器，以及遍布 `vendor/` 与 `packages/workflow` 的运行时 enum/namespace。仓库的 engines 范围（`^22.19.0 || >=24.0.0`）包含 Node 26，因此原生启动链在其上完全无法启动——且没有任何 CI 任务执行过真实启动向量，这一不兼容悄然发布。
 
 启动延迟同样是问题：off-thread 的 `module.register()` 钩子工作线程把每次解析都跨线程序列化（TUI 启动期间约 440ms 的 `makeSyncRequest` 等待），而完整的 tsx 默认形态（`--import tsx`）会因其 CJS 钩子放大解析开销而多花约 0.4s。
 
@@ -35,4 +35,4 @@ node-compat CI 矩阵（Node 22.19 与 26）新增 `dsh-source-launch-smoke`（`
 - 整个 engines 范围（包括未来改变原生 TypeScript 支持的 Node 版本线）只有一个启动向量；冒烟门禁按矩阵行强制执行。
 - TypeScript 转换重新委托给 tsx/esbuild，逆转了前一篇 Agent Note「证明 Node 原生转换可用」的目标；在 vendor 源码使用不可擦除语法且 Node 不再提供 transform 模式的情况下，该目标不可达。
 - 源码启动中的运行时依赖声明强制不复存在；未声明的 workspace import 现在只能通过静态门禁或构建模式的解析失败暴露。
-- 启动相比完整 tsx 默认形态快约 0.4s（`demo:headless` 与 ACP 保持 `--import tsx`：其依赖图未就 CJS 钩子依赖性做审计，且其启动延迟不在交互路径上）。
+- 启动相比完整 tsx 默认形态快约 0.4s（`demo:headless` 现为同一条 `dsh run` 源码启动命令的别名；ACP 保留 `--import tsx`，因为它的依赖图尚未就 CJS 钩子依赖性做审计，且其启动延迟不在交互路径上）。

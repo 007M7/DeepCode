@@ -20,6 +20,7 @@ harness 是一个微内核：一个极小的核心加上众多插件。大多数
 | [llm-streaming.md](llm-streaming.md) | `StreamChunk` 协议格式（wire format）+ 适配器契约（adapter contract）、`BlockAssembler`、`LlmAdapter` seam |
 | [token-meter.md](token-meter.md) | 不可变的标量与位置回放度量，附带已消费日志修订号 |
 | [scope.md](scope.md) | 作用域注册标识、dispatch 载体，以及拥有的 `Scope` 上下文 |
+| [typert.md](typert.md) | Remote 调用 descriptor、lookup/Context 声明、TypeRT 注册表，以及 Host Gateway/Client API seam |
 | [goal.md](goal.md) | 持久 goal 标识、生命周期快照、激活、变更记录与 Round 归属 |
 | [commands.md](commands.md) | 人类命令 seam：定义、适配器发现、直接调用、结果与解析视图 |
 | [session.md](session.md) | 完整的 `SessionEventMap` 变体目录、`TurnTrigger`/`TurnEndReason`、`deriveMessages()`、执行封闭与独立事件 |
@@ -319,6 +320,15 @@ interface LlmConfigurableProvider {
    * object; empty when the whole section is the profile.
    */
   settingsPath: readonly string[]
+  /**
+   * Whether the owning adapter knows this route only because configuration
+   * declared it — a gateway or self-hosted server it ships nothing about.
+   * Absent means the adapter draws no such distinction; false means it does
+   * and this route is one of its own. Only the adapter can answer: a stored
+   * profile is how a user-added route AND a corrected shipped one both look
+   * from outside.
+   */
+  declared?: boolean
 }
 ```
 
@@ -333,6 +343,55 @@ interface LlmModelInfo {
   name: string
   /** Optional user-facing distinction from otherwise similar models. */
   description?: string
+}
+```
+
+界面正在起草的提供方既没有路由也没有 catalog，因此询问被单独描述：请求携带用户正在编辑的草稿，回复是界面可以采纳的候选，而不是它必须服务的 catalog。
+
+```ts type-equiv
+/**
+ * One interrogation of a provider endpoint that configuration has not stored
+ * yet. Configuration surfaces send the draft a user is still editing, so the
+ * request carries the endpoint and credential directly instead of naming a
+ * route: a provider being added has no route to name.
+ */
+interface LlmModelDiscoveryRequest {
+  /**
+   * Route the draft is editing, when it edits an existing one. A route whose
+   * adapter already knows its models answers from that knowledge instead of
+   * asking the endpoint — the adapter's own registry is the better answer, and
+   * it costs no network call.
+   */
+  provider?: string
+  /**
+   * Endpoint to interrogate. Optional because a route the adapter already
+   * describes needs none; a route it does not must supply one.
+   */
+  baseURL?: string
+  /** Wire protocol the endpoint speaks, when the draft names one. */
+  api?: string
+  /** Credential for this interrogation alone; the harness never stores it. */
+  apiKey?: string
+  /** Caller cancellation; implementations must settle promptly after it aborts. */
+  signal?: AbortSignal
+}
+```
+
+```ts type-equiv
+/**
+ * One model an endpoint reports about itself. Every field but the id is
+ * optional because most provider listings disclose an id and nothing else;
+ * a surface adopting one of these still owes the capacities its adapter needs.
+ */
+interface LlmDiscoveredModel {
+  /** Model id the endpoint accepts. */
+  id: string
+  /** Human-readable name when the endpoint supplies one. */
+  name?: string
+  /** Maximum combined request and response context, when disclosed. */
+  contextWindow?: number
+  /** Maximum output tokens, when disclosed. */
+  maxTokens?: number
 }
 ```
 
@@ -476,8 +535,6 @@ interface ToolSchema {
 `agent/request` 接收冻结的调用配置种子，并可返回替代值以切换提供方、模型、推理强度或采样参数。waterfall 开始前，循环会移除标记为适配器默认值的值，使确切模型准备过程填入所选路由的当前值；未带标记的显式设置仍保留在提议中。waterfall 结束后，准备过程会在轮次信号控制下拒绝显式指定但不受支持的推理强度 ID（不自动调整），并记录生效配置及其来源。准备完成的调用直至分派完成始终持有同一项适配器注册。到达 `llm/stream` 的请求会被深度冻结，因此变更会抛异常；请求还携带进程本地循环标识，使观察者不会把单独记录的冻结辅助调用误认成对话请求。
 
 在协议格式上，循环构建的请求先读取 `system` 槽位（渲染后的提示词组装），再读取派生历史——边界快照，其尾部在轮次首步是最新的 `user/message`，在后续步骤是上一步的工具结果。开发不变式针对每个循环构建的请求精确重算此等式。
-
-FIXME(call-config-shape)：重新审视其余哪些字段出于缓存目的确实属于 epoch 层级（`model` 和模型持有的推理强度已明确属于；采样标量目前出于谨慎保留在此）。
 
 ```ts type-equiv
 /**
@@ -687,19 +744,7 @@ pre-step 决策使用与持久 user-role 输入相同、带标识的 `UserMessag
 
 源码：[`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
-`agent/pre-step` 接收独占的已领取批次，以及拟进入步骤的坐标与取消 signal。首次提案在已打开的轮次内、任何步骤开始前运行；工具 continuation 可以在步骤之间提交空的已领取批次：
-
-```ts type-equiv
-/** Coordinates and cancellation for a proposed step. */
-interface PreStepContext {
-  /** Turn that will own the step. */
-  readonly turn: number
-  /** Step proposed by the loop. */
-  readonly step: number
-  /** Current turn cancellation signal. */
-  readonly signal: AbortSignal
-}
-```
+`agent/pre-step` 接收一个 payload，携带独占的已领取批次（`messages`）、拟进入步骤的坐标（`turn`、`step`）与当前轮次的取消 `signal`。首次提案在已打开的轮次内、任何步骤开始前运行；工具 continuation 可以在步骤之间提交空的已领取批次：
 
 它返回 `PreStepDecision`。reject 不会打开步骤。enter 提供在 `step/start` 后追加的完整消息批次；最终决策省略的已领取消息保持已删除，而领取后插入的输入仍留待后续处理：
 

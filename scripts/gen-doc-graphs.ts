@@ -124,7 +124,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'session',
     title: 'In-memory session store',
     mode: 'core',
-    consumers: ['agent-loop', 'agent', 'cli-demo', 'session-persistence', 'session-query', 'session-query-sqlite', 'subagent-inprocess', 'invariants'],
+    consumers: ['agent-loop', 'agent', 'session-persistence', 'session-query', 'session-query-sqlite', 'subagent-inprocess', 'invariants'],
     note: 'Owns append-only Session instances and emits the durable session event feed.',
   },
   {
@@ -140,8 +140,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'typert-registry',
     title: 'Runtime type registry',
     mode: 'core',
-    consumers: ['typert-loader'],
-    note: 'Plugins register live zod contributions directly or through dsh-typert-loader; runtime consumers query schemas and reflection metadata at their own edges.',
+    consumers: ['typert-loader', 'api-gateway'],
+    note: 'Plugins register live zod contributions directly or through dsh-typert-loader; the API gateway consumes invocation descriptors and providers, while other runtime consumers query schemas and reflection metadata at their own edges.',
+  },
+  {
+    key: 'typertGateway',
+    pkg: 'api-gateway',
+    title: 'TypeRT Host invocation gateway',
+    mode: 'core',
+    note: 'Associates generated Remote descriptors with live Cordis services, resolves registered identities, and exposes unary calls through the shared Connection RPC carrier.',
   },
   {
     key: 'sessionPersistence',
@@ -296,7 +303,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'agent',
     title: 'Agent service',
     mode: 'core',
-    consumers: ['agent-loop', 'acp', 'cli-demo', 'subagent-inprocess'],
+    consumers: ['agent-loop', 'acp', 'subagent-inprocess'],
     note: 'Owns live Agent handles, the create/resume factory seam, and process-local initiator propagation.',
   },
   {
@@ -320,8 +327,8 @@ const SERVICE_ROLES: ServiceRole[] = [
     title: 'Subprocess seam',
     mode: 'seam',
     implementations: ['subprocess-local'],
-    consumers: ['bash-local', 'bash-sandbox', 'lsp-local', 'subagent-acp'],
-    note: 'The bash executors, the LSP host, and the ACP subagent backend spawn their children through ctx.subprocess; the service owns tree lifetime, stdio dispositions (pipes, inherit, bounded spill-backed collection), and kill escalation.',
+    consumers: ['bash-local', 'bash-sandbox', 'lsp-local', 'subagent-acp', 'subagent-codex', 'subagent-claude-code'],
+    note: 'The bash executors, the LSP host, and the out-of-process ACP, Codex, and Claude Code subagent backends spawn their children through ctx.subprocess; the service owns tree lifetime, stdio dispositions (pipes, inherit, bounded spill-backed collection), and kill escalation.',
   },
   {
     key: 'bash',
@@ -417,7 +424,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'subagent',
     title: 'Subagent provider and continuation service',
     mode: 'seam',
-    implementations: ['subagent-spawn', 'subagent-fork', 'subagent-acp'],
+    implementations: ['subagent-spawn', 'subagent-fork', 'subagent-acp', 'subagent-codex', 'subagent-claude-code', 'subagent-dsh-sdk'],
     consumers: ['tool-subagent', 'tool-subagent-control', 'tool-ralph'],
     note: 'Providers implement transports; the service also owns optional Activation-based continuation orchestration, tool-subagent selects one-shot or continuable delegation, tool-subagent-control delivers follow-ups, and tool-ralph requires one fresh structured-output route.',
   },
@@ -598,7 +605,8 @@ function parseExampleCordis(rel: string): ExamplePlugin[] {
     if (current?.name) plugins.push({ id: current.id, name: current.name })
   }
   for (const line of text.split('\n')) {
-    const id = /^-\s+id:\s+(.+?)\s*$/.exec(line)
+    // Top-level rows (`- id:`) and bundle-patch insert rows (`    - id:`).
+    const id = /^\s*-\s+id:\s+(.+?)\s*$/.exec(line)
     if (id?.[1] !== undefined) {
       flush()
       current = { id: stripYamlScalar(id[1]) }
@@ -620,17 +628,17 @@ const APP_EXAMPLES = [
     id: 'dsh_base',
     rel: 'apps/cli/composition.md',
     title: 'DSH Base Composition',
-    label: 'apps/cli/config/base.cordis.yml',
-    config: 'apps/cli/config/base.cordis.yml',
-    summary: 'The raw CLI applies one required caller-selected patch list over this shared base; Web and headless apply their own shipped overlays.',
+    label: 'packages/bundle/base/cordis.patch.yml',
+    config: 'packages/bundle/base/cordis.patch.yml',
+    summary: 'The dsh-base bundle patch every profile applies first; mode bundles (dsh-web-app, dsh-headless) and the user\'s profile layer patch over it.',
   },
   {
     id: 'headless',
     rel: 'examples/headless-agent/composition.md',
-    title: 'Headless Agent App Composition',
+    title: 'Headless Agent Snapshot Composition',
     label: 'examples/headless-agent',
     config: 'examples/headless-agent/cordis.yml',
-    summary: 'The headless demo combines the real DeepSeek adapter and coding capabilities with the one-shot app package, format-pure stdout, and one fresh persisted top-level session.',
+    summary: 'The headless snapshot composition combines the real DeepSeek adapter and coding capabilities with one explicitly configured persisted top-level agent; its JSONL driver is test-only.',
   },
   {
     id: 'acp',
@@ -649,9 +657,7 @@ function renderAppExpansion(lines: string[], appNode: string, pluginName: string
   const jsonl = nodeId('bundle', 'jsonl')
   lines.push(`  ${appNode} --> ${agentCore}["@deepseek-ai/dsh-agent-spine-demo"]`)
   lines.push(`  ${appNode} --> ${jsonl}["@deepseek-ai/dsh-session-persistence-jsonl"]`)
-  if (pluginName === '@deepseek-ai/dsh-cli-demo') {
-    lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'cli')}["one-shot driver<br/>format-pure stdout<br/>fresh top-level agent"]`)
-  } else if (pluginName === '@deepseek-ai/dsh-acp-demo') {
+  if (pluginName === '@deepseek-ai/dsh-acp-demo') {
     lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'acp')}["@deepseek-ai/dsh-acp<br/>automation-only JSON-RPC stdio<br/>fresh sessions created by client"]`)
   }
   lines.push(
@@ -677,7 +683,7 @@ function renderAppComposition(example: AppExample): string {
     const pluginNode = nodeId(`plugin_${example.id}`, plugin.id)
     lines.push(`  ${pluginNode}["${escLabel(plugin.id)}<br/>${escLabel(plugin.name)}"]`)
     lines.push(`  cfg --> ${pluginNode}`)
-    if (plugin.name === '@deepseek-ai/dsh-cli-demo' || plugin.name === '@deepseek-ai/dsh-acp-demo') {
+    if (plugin.name === '@deepseek-ai/dsh-acp-demo') {
       renderAppExpansion(lines, pluginNode, plugin.name)
     }
   }

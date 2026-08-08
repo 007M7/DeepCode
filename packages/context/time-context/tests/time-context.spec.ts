@@ -82,8 +82,7 @@ async function fire(
 ): Promise<void> {
   const decision = await agentEvents(ctx, agent).waterfall(
     'agent/pre-step',
-    [],
-    { turn, step, signal },
+    { messages: [], turn, step, signal },
     () => Promise.resolve({ kind: 'enter' as const, messages: [] }),
   )
   if (decision.kind === 'enter') {
@@ -378,7 +377,7 @@ describe('real agent-loop request history', () => {
   ] as const)('does not commit a preparation reading when a downstream pre-step listener %s', async (mode) => {
     const adapter = new ScriptedAdapter([textResponse('unused')])
     const ctx = await loopHarness(adapter)
-    ctx.on('agent/pre-step', (subject, _messages, _context, next) => {
+    ctx.on('agent/pre-step', ({ agent: subject }, next) => {
       if (mode === 'throws') throw new Error('later pre-step failure')
       subject.cancel({ kind: 'user' })
       return next()

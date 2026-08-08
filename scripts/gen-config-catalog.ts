@@ -126,12 +126,13 @@ function loadFile(abs: string, rel: string, cache: Map<string, FileCtx>): FileCt
 }
 
 /** A type declaration a paste can contain. */
-type TypeDecl = ts.InterfaceDeclaration | ts.TypeAliasDeclaration
+type TypeDecl = ts.InterfaceDeclaration | ts.TypeAliasDeclaration | ts.EnumDeclaration
 
-/** Find an interface/type-alias declaration by name in a file, or null. */
+/** Find a pasteable type declaration by name in a file, or null. */
 function findTypeDecl(ctx: FileCtx, name: string): TypeDecl | null {
   for (const stmt of ctx.sf.statements) {
-    if ((ts.isInterfaceDeclaration(stmt) || ts.isTypeAliasDeclaration(stmt)) && stmt.name.text === name) return stmt
+    if ((ts.isInterfaceDeclaration(stmt) || ts.isTypeAliasDeclaration(stmt) || ts.isEnumDeclaration(stmt))
+      && stmt.name.text === name) return stmt
   }
   return null
 }
@@ -207,7 +208,7 @@ function checkMemberDocs(ctx: FileCtx, decl: TypeDecl, violations: string[]): vo
     else ts.forEachChild(type, (n) => { walkNested(n, path) })
   }
   if (ts.isInterfaceDeclaration(decl)) walkMembers(decl.members, decl.name.text)
-  else walkNested(decl.type, decl.name.text)
+  else if (ts.isTypeAliasDeclaration(decl)) walkNested(decl.type, decl.name.text)
 }
 
 /** Cross-file resolution context for the schema-path check. */

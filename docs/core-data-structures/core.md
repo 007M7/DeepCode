@@ -20,6 +20,7 @@ Everything else is documented on a **sub-page**, not here. The rule that draws t
 | [llm-streaming.md](llm-streaming.md) | the `StreamChunk` wire protocol + adapter contract, `BlockAssembler`, the `LlmAdapter` seam |
 | [token-meter.md](token-meter.md) | immutable scalar and positional replay measurements with consumed-log revisions |
 | [scope.md](scope.md) | scoped registration identity, dispatch carriers, and the owned `Scope` context |
+| [typert.md](typert.md) | Remote invocation descriptors, lookup/Context declarations, TypeRT registries, and the Host Gateway/Client API seams |
 | [goal.md](goal.md) | persisted goal identity, lifecycle snapshots, activation, change records, and round attribution |
 | [commands.md](commands.md) | the human-command seam: definitions, adapter discovery, direct invocation, results, and parsing views |
 | [session.md](session.md) | the full `SessionEventMap` variant catalog, `TurnTrigger`/`TurnEndReason`, `deriveMessages()`, execution enclosure, and standalone events |
@@ -313,6 +314,15 @@ interface LlmConfigurableProvider {
    * object; empty when the whole section is the profile.
    */
   settingsPath: readonly string[]
+  /**
+   * Whether the owning adapter knows this route only because configuration
+   * declared it — a gateway or self-hosted server it ships nothing about.
+   * Absent means the adapter draws no such distinction; false means it does
+   * and this route is one of its own. Only the adapter can answer: a stored
+   * profile is how a user-added route AND a corrected shipped one both look
+   * from outside.
+   */
+  declared?: boolean
 }
 ```
 
@@ -327,6 +337,55 @@ interface LlmModelInfo {
   name: string
   /** Optional user-facing distinction from otherwise similar models. */
   description?: string
+}
+```
+
+A provider a surface is still drafting has no route and no catalog, so interrogation is described separately: the request carries the draft the user is editing, and the reply is candidates a surface may adopt rather than a catalog it must serve.
+
+```ts type-equiv
+/**
+ * One interrogation of a provider endpoint that configuration has not stored
+ * yet. Configuration surfaces send the draft a user is still editing, so the
+ * request carries the endpoint and credential directly instead of naming a
+ * route: a provider being added has no route to name.
+ */
+interface LlmModelDiscoveryRequest {
+  /**
+   * Route the draft is editing, when it edits an existing one. A route whose
+   * adapter already knows its models answers from that knowledge instead of
+   * asking the endpoint — the adapter's own registry is the better answer, and
+   * it costs no network call.
+   */
+  provider?: string
+  /**
+   * Endpoint to interrogate. Optional because a route the adapter already
+   * describes needs none; a route it does not must supply one.
+   */
+  baseURL?: string
+  /** Wire protocol the endpoint speaks, when the draft names one. */
+  api?: string
+  /** Credential for this interrogation alone; the harness never stores it. */
+  apiKey?: string
+  /** Caller cancellation; implementations must settle promptly after it aborts. */
+  signal?: AbortSignal
+}
+```
+
+```ts type-equiv
+/**
+ * One model an endpoint reports about itself. Every field but the id is
+ * optional because most provider listings disclose an id and nothing else;
+ * a surface adopting one of these still owes the capacities its adapter needs.
+ */
+interface LlmDiscoveredModel {
+  /** Model id the endpoint accepts. */
+  id: string
+  /** Human-readable name when the endpoint supplies one. */
+  name?: string
+  /** Maximum combined request and response context, when disclosed. */
+  contextWindow?: number
+  /** Maximum output tokens, when disclosed. */
+  maxTokens?: number
 }
 ```
 
@@ -470,8 +529,6 @@ The loop builds each request from logged state. `EpochHeader` records call confi
 `agent/request` receives a frozen call-config seed and may return a replacement to switch provider, model, reasoning effort, or sampling. Before the waterfall, the loop removes values marked as adapter defaults so exact-model preparation materializes the selected route's current values; unmarked explicit settings remain in the proposal. After the waterfall, preparation rejects unsupported explicit effort ids without clamping and logs the effective config plus provenance under the turn signal. The prepared call keeps one adapter registration through dispatch. Requests reaching `llm/stream` are deep-frozen, so mutation throws, and carry a process-local loop identity so observers do not confuse separately logged frozen auxiliary calls with conversation requests.
 
 On the wire, a loop-built request reads the `system` slot (the rendered prompt assembly) followed by the derived history — the boundary snapshot, whose tail is the newest `user/message` on a turn's first step and the previous step's tool results on later steps. The dev invariant recomputes exactly this equation against every loop-built request.
-
-FIXME(call-config-shape): revisit which remaining fields are genuinely epoch-level for cache purposes (`model` and the model-owned reasoning effort are explicit; the sampling scalars sit here out of caution).
 
 ```ts type-equiv
 /**
@@ -679,19 +736,7 @@ Pre-step decisions use the same identified `UserMessage` shape as durable user-r
 
 Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
-`agent/pre-step` receives the exclusive claimed batch and the proposed step's coordinates and cancellation signal. The initial proposal runs inside an open turn before any step; a tool continuation may submit an empty claimed batch between steps:
-
-```ts type-equiv
-/** Coordinates and cancellation for a proposed step. */
-interface PreStepContext {
-  /** Turn that will own the step. */
-  readonly turn: number
-  /** Step proposed by the loop. */
-  readonly step: number
-  /** Current turn cancellation signal. */
-  readonly signal: AbortSignal
-}
-```
+`agent/pre-step` receives one payload carrying the exclusive claimed batch (`messages`), the proposed step's coordinates (`turn`, `step`), and the current turn's cancellation `signal`. The initial proposal runs inside an open turn before any step; a tool continuation may submit an empty claimed batch between steps:
 
 It returns a `PreStepDecision`. Reject opens no step. Enter supplies the complete message batch appended after `step/start`; claimed messages omitted by the final decision remain removed, while input inserted after the claim stays pending:
 

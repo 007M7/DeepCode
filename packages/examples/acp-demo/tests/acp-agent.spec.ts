@@ -48,7 +48,7 @@ async function composePrefix(ctx: Context): Promise<Message[]> {
   const agent = ctx.agentLoop.create(SessionId(`acp-demo-prefix-${randomUUID()}`), {}, { cwd: '/tmp' })
   const signal = new AbortController().signal
   const decision = await agentEvents(ctx, agent).waterfall(
-    'agent/pre-step', [], { turn: 1, step: 1, signal },
+    'agent/pre-step', { messages: [], turn: 1, step: 1, signal },
     () => Promise.resolve({ kind: 'enter', messages: [] }),
   )
   if (decision.kind === 'enter') {

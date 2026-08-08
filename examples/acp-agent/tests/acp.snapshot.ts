@@ -90,8 +90,8 @@ async function prepareFsSearchWorkspace(cwd: string): Promise<void> {
   }
 }
 
-// FIXME: Migrate backend-oriented scenarios to the headless stream-json suite;
-// this ACP suite should eventually retain only automation-protocol contracts.
+// TODO(acp-snapshot-ownership): Move backend/product scenarios to headless while
+// retaining ACP protocol contracts here.
 
 function fixtureRecords(name: string): unknown[] {
   return readFileSync(join(SNAPSHOTS_DIR, name, 'session.jsonl'), 'utf8')
@@ -276,6 +276,8 @@ const SCENARIOS: Scenario[] = [
   // symlinked instruction file to its target's content. A second nested path
   // containing a literal closing tag is created at runtime: Git cannot check
   // that name out on Windows, so this delimiter-injection case is POSIX-only.
+  // The fixture also shadows the baseline after the first touch finishes its
+  // projection; the next entering pre-step restores it before request 2.
   // The scenario-specific config keeps home/root discovery hermetic, and the
   // resulting prefix needs its own pinned header class.
   {

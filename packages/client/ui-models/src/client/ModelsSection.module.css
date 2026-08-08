@@ -38,6 +38,13 @@
   color: var(--dsw-alias-state-warn-label);
 }
 
+.savedNotice {
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-state-success-primary);
+}
+
 .rows {
   list-style: none;
   /* Extra air between the title/intro block and the first provider card. */
@@ -65,11 +72,49 @@
   gap: 10px;
 }
 
+.rowIdentity {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
 .rowName {
   font-size: 14px;
   line-height: 22px;
   font-weight: 500;
   color: var(--dsw-alias-label-primary);
+}
+
+/* Reads as an annotation on the name, not as a second name: caption size and
+   the secondary label tone, so it never competes with the row's own title. It
+   sits inside `rowIdentity` with the credential dot, which is what keeps it
+   beside the name rather than drifting toward the actions. */
+.rowTag {
+  flex: none;
+  padding: 1px 6px;
+  border: 1px solid var(--dsw-alias-border-l3);
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.credentialDot {
+  box-sizing: border-box;
+  display: inline-block;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.credentialDotConfigured {
+  background: var(--dsw-alias-state-success-primary);
+}
+
+.credentialDotMissing {
+  background: var(--dsw-alias-state-error-primary);
 }
 
 .rowActions {
@@ -264,11 +309,26 @@
   gap: 12px;
 }
 
+/* The two ways to gain a provider, as equal siblings spanning the same width
+   as the rows above. Wraps rather than shrinking below a legible label. */
+.addActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .addButton {
-  display: inline-flex;
-  align-items: center;
+  /* Overrides the shared button base above: these two are not pills sitting in
+     a footer but the last slot of the provider list, so they split the row
+     evenly and repeat the row cards' corner. Dashed, like every other "nothing
+     here yet" affordance on this page, to read as a place rather than a
+     command. */
+  flex: 1 1 0;
+  min-width: 180px;
   gap: 6px;
-  align-self: flex-start;
+  height: 44px;
+  border: 1px dashed var(--dsw-alias-border-l3);
+  border-radius: 12px;
 }
 
 .addCard,
@@ -571,4 +631,45 @@ select.input {
   .customizedSummary::before {
     transition: none;
   }
+}
+
+.fetchDialog {
+  max-width: 520px;
+
+  /* The candidate list scrolls inside this dialog, an elevated surface, so the
+     scrollbar indirection is rebound here rather than on the scrolling child:
+     the elevation choice belongs with the surface and inherits down (see
+     ui-theme styles/scrollbar.css for the contract). */
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
+}
+
+.candidateList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 320px;
+  margin: 0;
+  overflow-y: auto;
+  padding: 0;
+  list-style: none;
+}
+
+.candidate {
+  border-radius: 6px;
+}
+
+.candidateLabel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+
+.candidateId {
+  flex: 1 1 auto;
+  font-family: var(--ds-font-family-code);
+  font-size: 13px;
+  overflow-wrap: anywhere;
 }

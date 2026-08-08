@@ -82,8 +82,7 @@ function liveAgent(
 }
 
 const api = (ctx: Context) => createApiProxy(ctx, {
-  provider: 'default-provider',
-  model: 'default-model',
+  defaultTarget: () => ({ provider: 'default-provider', model: 'default-model' }),
   cwd: '/tmp',
   workspaceRoot: '/tmp',
 })
@@ -280,7 +279,7 @@ describe('sessions.fork', () => {
     })
     const fallback: LlmCallConfig = { provider: 'default-provider', model: 'default-model' }
     await expect(agentEvents(child.ctx, child).waterfall(
-      'agent/request', 1, 0, new AbortController().signal, () => Promise.resolve(fallback),
+      'agent/request', { turn: 1, step: 0, signal: new AbortController().signal }, () => Promise.resolve(fallback),
     )).resolves.toMatchObject({
       provider: 'inherited-provider',
       model: 'inherited-model',

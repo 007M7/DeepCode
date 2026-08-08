@@ -65,8 +65,17 @@ async function runHeadlessPtySmoke(): Promise<string> {
   const cwd = await mkdtemp(join(tmpdir(), 'dsh-headless-shutdown-'))
   try {
     const home = join(cwd, '.dsh')
-    await mkdir(home, { recursive: true })
-    await writeFile(join(home, 'config.yaml'), [
+    // Pre-initialize the headless profile with the never-dispose row in its
+    // user patch layer (the same file a long-lived profile boot hot-reloads).
+    const profileDir = join(home, 'profiles', 'headless')
+    await mkdir(profileDir, { recursive: true })
+    await writeFile(join(profileDir, 'package.json'), JSON.stringify({
+      name: 'dsh-profile-headless',
+      private: true,
+      dependencies: {},
+      dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', '@deepseek-ai/dsh-headless'] } },
+    }, undefined, 2))
+    await writeFile(join(profileDir, 'cordis.patch.yml'), [
       '- insert:',
       '    - id: never-dispose',
       `      name: '${neverDisposePlugin}'`,
@@ -74,7 +83,7 @@ async function runHeadlessPtySmoke(): Promise<string> {
     ].join('\n'))
     const launch = resolveExampleLaunch({
       srcBin: dshBinScript,
-      configArgs: ['-p', 'never complete'],
+      configArgs: ['run', 'never complete'],
       tsconfigPath,
       env: {
         DSH_HOME: home,

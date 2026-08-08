@@ -33,10 +33,11 @@ const breakdownSchema = z.object({
  *
  * Envelope figures are last-wins per `request/header`; the message figure
  * rides {@link foldSurfaceProjection} — the same O(1) fold the occupancy
- * projection uses — so it equals `measure().surfaceTokens` at every event
- * boundary and compaction shrinks it by its logged shadow price, the way it
- * shrinks the next request. The state is a fixed handful of numbers, so the
- * persisted checkpoint stays O(1) over the session's life.
+ * projection uses — so fully metered logs equal `measure().surfaceTokens` at
+ * every event boundary and compaction shrinks the figure by its logged shadow
+ * price. A replacement without a claim preserves the previous total. The
+ * state is a fixed handful of numbers, so the persisted checkpoint stays
+ * O(1) over the session's life.
  */
 export const contextBreakdownProjectionDefinition:
 ProjectionDefinition<'contextBreakdown', ContextBreakdownState> = {

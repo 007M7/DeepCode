@@ -1,52 +1,53 @@
 /**
- * Config-dump entry for raw `dsh --config` and `dsh web`: compose through the
- * include plugin's patch algorithm without booting or evaluating `!!js`.
+ * Config-dump entry for `dsh --profile <name> --dump-config`: compose the
+ * profile's patch layers through the include plugin's patch algorithm without
+ * booting or evaluating `!!js`, with one provenance layer per bundle, the
+ * profile's own patch file, and each `--patch` overlay.
  * @module @deepseek-ai/dsh/dump-config
  */
 
-import { basename, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { existsSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 import {
+  loadOptionalPatches,
   loadOverlayPatches,
-  loadPersonalPatches,
-  PERSONAL_CONFIG_FILENAME,
   renderConfigDump,
   type ConfigDumpLayer,
 } from '@deepseek-ai/dsh-app-boot'
-import { resolveDshHome } from '@deepseek-ai/dsh-paths'
+import { homePatchPath, prepareProfile, PROFILE_ROOT_FILENAME } from './profile-boot.ts'
 
 const NAME = 'dsh'
-const BASE_CONFIG = fileURLToPath(new URL('../config/base.cordis.yml', import.meta.url))
-const WEB_OVERLAY = fileURLToPath(new URL('../config/web.cordis.yml', import.meta.url))
 
 /* v8 ignore start -- built-bin acceptance drives this boot-free dispatch */
 /**
- * Print a raw or Web composition with provenance comments.
- * @param surface - raw base-plus-config composition, or the Web composition.
- * @param defaultOnly - omit the explicit or personal user layer.
- * @param config - explicit overlay path; required for a non-default raw dump.
+ * Print a profile composition with provenance comments.
+ * @param profile - the profile name.
+ * @param defaultOnly - omit the profile's user layer and `--patch` overlays
+ * (the recovery diagnostic for a broken `cordis.patch.yml`, which is then
+ * never parsed).
+ * @param patches - `--patch` overlay paths, in argv order.
  */
-export function runDumpConfig(surface: 'config' | 'web', defaultOnly: boolean, config?: string): void {
-  const layers: ConfigDumpLayer[] = []
-  if (surface === 'config') {
-    if (!defaultOnly) {
-      /* v8 ignore next -- parseDshArgs requires this combination */
-      if (config === undefined) throw new Error('dsh: raw config dump requires an overlay')
-      layers.push({ label: config, patches: loadOverlayPatches(NAME, config) })
+export function runDumpConfig(profile: string, defaultOnly: boolean, patches: readonly string[]): void {
+  const loaded = prepareProfile(profile, !defaultOnly)
+  const layers: ConfigDumpLayer[] = loaded.layers.map(layer => ({
+    label: layer.packageName,
+    patches: layer.patches,
+  }))
+  if (!defaultOnly) {
+    if (existsSync(loaded.patchPath)) {
+      layers.push({ label: loaded.patchPath, patches: loaded.patches })
     }
-  } else {
-    layers.push({ label: basename(WEB_OVERLAY), patches: loadOverlayPatches(NAME, WEB_OVERLAY) })
-    if (!defaultOnly) {
-      if (config === undefined) {
-        const personal = loadPersonalPatches(NAME)
-        if (personal !== undefined) {
-          layers.push({ label: join(resolveDshHome(), PERSONAL_CONFIG_FILENAME), patches: personal })
-        }
-      } else {
-        layers.push({ label: config, patches: loadOverlayPatches(NAME, config) })
-      }
+    const homePatchFile = homePatchPath()
+    const homePatches = loadOptionalPatches(NAME, homePatchFile)
+    if (homePatches !== undefined) {
+      layers.push({ label: homePatchFile, patches: homePatches })
+    }
+    for (const file of patches) {
+      const absolute = resolve(file)
+      layers.push({ label: absolute, patches: loadOverlayPatches(NAME, absolute) })
     }
   }
-  process.stdout.write(renderConfigDump(NAME, BASE_CONFIG, layers))
+  // The dump anchors on the same empty root file the boot includes.
+  process.stdout.write(renderConfigDump(NAME, join(loaded.dir, PROFILE_ROOT_FILENAME), layers))
 }
 /* v8 ignore stop */

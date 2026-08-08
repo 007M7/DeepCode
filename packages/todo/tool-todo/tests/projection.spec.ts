@@ -42,10 +42,10 @@ async function harness(withTodoTool: boolean): Promise<Bench> {
   await ctx.plugin(UserInteractionService)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(SessionProjectionRegistry)
-  if (withTodoTool) await ctx.plugin(ToolTodo)
+  if (withTodoTool) await ctx.plugin(ToolTodo, { allowParallelInProgress: true })
   const session = ctx.sessions.create()
   ctx.agents.register({ id: session.id, session, status: 'idle', ctx } as Agent)
-  const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
+  const api = createApiProxy(ctx, { defaultTarget: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp', workspaceRoot: '/tmp' })
   return {
     ctx,
     session,
@@ -116,7 +116,7 @@ describe('todos projection provider', () => {
   it('drops the key when the tool-todo fiber unloads (HMR safety)', async () => {
     const bench = await harness(false)
     seedMessage(bench.session)
-    const fiber = await bench.ctx.plugin(ToolTodo)
+    const fiber = await bench.ctx.plugin(ToolTodo, { allowParallelInProgress: true })
     expect((await bench.tailProjections())?.values).toEqual({ todos: null })
     await fiber.dispose()
     expect('todos' in ((await bench.tailProjections())?.values ?? {})).toBe(false)

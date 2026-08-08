@@ -25,7 +25,7 @@ import type { RpcRequest, RpcResponse } from '../src/api/rpc.ts'
 import { RpcId } from '../src/api/rpc.ts'
 import { createApiProxy } from '../src/api-proxy.ts'
 
-const DEFAULTS = { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' }
+const DEFAULTS = { defaultTarget: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp', workspaceRoot: '/tmp' }
 
 function request<P>(payload: P): RpcRequest<P> {
   return { rpcId: RpcId(`req-${String(nextRpc++)}`), payload }
@@ -228,7 +228,10 @@ describe('skill.list', () => {
     // touch (or resume through) the Agent registry.
     const session = ctx.sessions.create(undefined, { meta: { cwd: '/proj' } })
     const value = expectOk(await api.skills.list(request({ sessionId: session.id })))
-    expect(value.skills).toEqual([{ name: 'commit-helper', description: 'Git commits', whenToUse: 'when committing' }])
+    expect(value.skills).toEqual([
+      { name: 'commit-helper', description: 'Git commits', whenToUse: 'when committing', modelInvocable: true },
+      { name: 'user-only', description: 'User-only', modelInvocable: false },
+    ])
     expect(seenCwds).toEqual(['/proj'])
     expect(ctx.agents.get(session.id)).toBeUndefined()
   })

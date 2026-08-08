@@ -66,6 +66,7 @@ export interface RpcMethodMap {
   'credentials.unset': CredentialsApi['unset']
   'llm.providers': LlmApi['providers']
   'llm.models': LlmApi['models']
+  'llm.discoverModels': LlmApi['discoverModels']
 }
 
 /** Business request payload of method K (reaches through the RpcRequest narrow form to payload). */

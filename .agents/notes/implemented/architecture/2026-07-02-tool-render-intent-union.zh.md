@@ -14,7 +14,7 @@ Status: implemented
 - 哪些组合是*合法的*没有文档说明：一个设置了 `content` 的 `terminal` 调用意味着「卡片上方的描述」；一个设置了 `terminal` 的 generic 调用毫无意义但类型上可表达。类型允许无意义的状态存在。
 - 无法表达编辑器最需要的文件工具能力：**diff 卡片**（`{path, oldText, newText}`，Zed 将其渲染为内联 diff / 新文件预览）。`ToolCallPresentation.content` 使用的是 *LLM（大语言模型）* 的 `ContentBlock[]` 词汇（text/image），工具根本无法请求 diff 展示。
 
-`packages/core/tools/src/index.ts` 中已有的 `FIXME(tool-presentation)` 指出了修复方向：「重新设计类型，让工具一次性声明其渲染意图（例如按卡片种类的带标签联合类型），而非一堆由 bridge 拼接的可选字段。」一个早先被否决的折叠工具自有呈现提案明确推迟了此事：富渲染「应当在至少有两个真实工具和两个真实消费方验证词汇之后，以带标签 render-intent 联合类型的形式回归。」该条件已由多个生产者族，加上 TUI 与宿主/客户端运行时（Web）这些消费方满足。
+一个早先被否决的折叠工具自有呈现提案把富渲染推迟到它能够「在至少有两个真实工具和两个真实消费方验证词汇之后，以带标签 render-intent 联合类型的形式回归」之时。该条件已由多个生产者族，加上 TUI 与宿主/客户端运行时（Web）这些消费方满足。
 
 ## 决策
 

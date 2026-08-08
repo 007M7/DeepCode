@@ -15,16 +15,17 @@ type ChatInstance = ReturnType<ReturnType<typeof createChatStore>['create']>
 async function bench() {
   const runtime = await SlotTestRuntime.create()
   const chat = createChatStore()
-  // The apply.ts shape: one shared handle across both strict-session slot
-  // registrations ('conversation.session'/'details'); the session-maybe
-  // 'conversation' shell carries no store by design. The slots must first
-  // exist in the ledger — the test root declares them (the AppFrame role).
+  // The apply.ts shape: one shared handle across the strict Session header,
+  // body, and details registrations; the session-maybe 'conversation' shell
+  // carries no store by design. The slots must first exist in the ledger.
   await runtime.root.declare({
     'conversation': { kind: 'single', scope: 'session-maybe' },
     'conversation.session': { kind: 'single', scope: 'session' },
+    'conversation.session.header': { kind: 'single', scope: 'session' },
     'details': { kind: 'single', scope: 'session' },
   }, (_p: { renderSlot?: unknown }) => null)
   runtime.slots.register({ name: 'conversation.session', store: chat }, () => null)
+  runtime.slots.register({ name: 'conversation.session.header', store: chat }, () => null)
   runtime.slots.register({ name: 'details', store: chat }, () => null)
   runtime.renderRoot() // materializes the host face storeOf resolves through
   return { runtime, chat }

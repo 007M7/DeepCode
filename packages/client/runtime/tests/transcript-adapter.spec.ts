@@ -164,6 +164,28 @@ describe('TranscriptAdapter', () => {
     expect(adapter.nodes().map(node => node.kind)).toEqual(['user', 'user', 'context'])
   })
 
+  it('materializes a skill-invocation injection as a named instructions context', () => {
+    const adapter = new TranscriptAdapter()
+    adapter.reset([
+      at(0, { type: 'user/message', surfaceOp: 'append', data: createUserMessage({
+        content: [{ type: 'text', text: '/hidden-demo check the fixture' }],
+        source: { kind: 'user' },
+      }) }),
+      at(1, { type: 'user/message', surfaceOp: 'append', data: createUserMessage({
+        content: [{ type: 'text', text: '<skill_content name="hidden-demo">body</skill_content>' }],
+        source: { kind: 'skill-invocation', name: 'hidden-demo', form: 'instructions' } as never,
+      }) }),
+    ])
+    const nodes = adapter.nodes()
+    // The gesture stays a user bubble; the injected body folds to a context
+    // row named after the skill, presented as instructions.
+    expect(nodes.map(node => node.kind)).toEqual(['user', 'context'])
+    expect(nodes[1]).toMatchObject({
+      provenance: { role: 'inject', label: 'hidden-demo' },
+      form: 'instructions',
+    })
+  })
+
   it('skips events core does not call surface-eligible, marker or not', () => {
     // The transcript is the append-origin surface, so log-only events (a chunk,
     // a turn boundary, a compact/* provenance record) and a future type core
@@ -430,6 +452,14 @@ describe('TranscriptAdapter', () => {
       const adapter = new TranscriptAdapter()
       adapter.reset([ev.commandRun(0, 'cmd-2', 'goal', ' ship it')])
       expect(adapter.nodes()[0]).toMatchObject({ kind: 'command', name: 'goal', args: ' ship it', outcome: null })
+    })
+
+    it('represents command input omitted by the host as null', () => {
+      const adapter = new TranscriptAdapter()
+      adapter.reset([ev.commandRunWithoutInput(0, 'cmd-private', 'feedback')])
+      expect(adapter.nodes()[0]).toMatchObject({
+        kind: 'command', name: 'feedback', args: null, outcome: null,
+      })
     })
 
     it('soft-falls a done-only window into a node built from the done (cross-window cut)', () => {

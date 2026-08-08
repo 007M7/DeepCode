@@ -26,6 +26,7 @@
   "license": "BSD-3-Clause",
   "peerDependencies": {
     "@deepseek-ai/dsh-invariants": "^0.0.1",
+    "@deepseek-ai/dsh-llm": "^0.0.1",
     "cordis": "^4.0.0-rc.7"
   },
   "dependencies": {
@@ -33,6 +34,7 @@
   },
   "devDependencies": {
     "@deepseek-ai/dsh-invariants": "workspace:^",
+    "@deepseek-ai/dsh-llm": "workspace:^",
     "cordis": "^4.0.0-rc.7"
   }
 }

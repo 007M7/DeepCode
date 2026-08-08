@@ -226,7 +226,7 @@ export function apply(ctx: Context, config: Config): void {
   // A user interjection changes the context; repetition across it is not a
   // loop. Pure reset hook: always delegates (attaching nothing, vetoing
   // nothing).
-  ctx.on('agent/pre-step', (agent, messages, _context, next): Promise<PreStepDecision> => {
+  ctx.on('agent/pre-step', ({ agent, messages }, next): Promise<PreStepDecision> => {
     if (messages.some(message => message.source.kind === 'user')) chains.delete(agent)
     return next()
   })

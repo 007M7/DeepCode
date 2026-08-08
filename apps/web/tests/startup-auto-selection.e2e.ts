@@ -12,6 +12,9 @@
 // assembled application can show is that the path a user actually takes
 // reaches it: the real selection service, the real client session opening over
 // the real /api transport, and a real browser deciding what is painted.
+// The initial Workspace pick also records the resident Hero/composer nodes and
+// proves that opening the first blank Session fills the strict outlets without
+// replacing those nodes.
 //
 // The round-trip against a loopback host is far too fast to observe, so this
 // scenario HOLDS the `session.history` response open at the browser's network
@@ -55,15 +58,54 @@ describe('web e2e: startup auto-selection', () => {
     tripwire = watchConsole(page)
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
-    // A registered workspace is the precondition for auto-selection: the first
-    // load has nothing to select, so the reload below is the path under test.
-    await connectFreshWorkspace(page, scaffold.workspaceCwd, 'startup-auto-selection')
   }, 180_000)
 
   afterAll(async () => {
     await browser?.close()
     await scaffold?.close()
   })
+
+  it('keeps the resident Hero and composer nodes when the first Workspace session appears', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-first-workspace-stable-tree'))
+    await page.locator(`${ROOT_PHASE}[data-phase="hero"]`).waitFor({ timeout: 15_000 })
+    await page.evaluate(() => {
+      const refs = {
+        root: document.querySelector('div[data-phase="hero"]'),
+        workspaceChip: document.querySelector('[aria-label="Choose workspace"]'),
+        scrollBody: document.querySelector('[data-conversation-scroll]'),
+        composerSeat: document.querySelector('[data-composer-seat]'),
+        textarea: document.querySelector('textarea'),
+      }
+      if (Object.values(refs).some(node => node === null)) throw new Error('incomplete initial Hero tree')
+      ;(window as unknown as { __heroTree: typeof refs }).__heroTree = refs
+    })
+
+    // A registered Workspace is the precondition for the reload case below;
+    // this first connection is also the no-Workspace → Workspace path.
+    await connectFreshWorkspace(page, scaffold.workspaceCwd, 'startup-auto-selection')
+
+    expect(await page.evaluate(() => {
+      const before = (window as unknown as { __heroTree: Record<string, Element> }).__heroTree
+      return {
+        phase: document.querySelector('div[data-phase]')?.getAttribute('data-phase'),
+        root: document.querySelector('div[data-phase="hero"]') === before.root,
+        workspaceChip: document.querySelector('[aria-label="Choose workspace"]') === before.workspaceChip,
+        scrollBody: document.querySelector('[data-conversation-scroll]') === before.scrollBody,
+        composerSeat: document.querySelector('[data-composer-seat]') === before.composerSeat,
+        textarea: document.querySelector('textarea') === before.textarea,
+        textareaEnabled: !(document.querySelector('textarea') as HTMLTextAreaElement).disabled,
+      }
+    })).toEqual({
+      phase: 'hero',
+      root: true,
+      workspaceChip: true,
+      scrollBody: true,
+      composerSeat: true,
+      textarea: true,
+      textareaEnabled: true,
+    })
+    expect(tripwire.pageErrors).toEqual([])
+  }, 120_000)
 
   it('keeps the hero and the composer on screen while the auto-selected blank session opens', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-startup-auto-selection'))
@@ -103,7 +145,7 @@ describe('web e2e: startup auto-selection', () => {
     // seat with `visibility:hidden`, which Playwright reports as not visible).
     await page.waitForSelector(ROOT_PHASE, { timeout: 15_000 })
     expect(await page.locator(ROOT_PHASE).first().getAttribute('data-phase')).toBe('hero')
-    expect(await page.getByText("Let's start building").isVisible()).toBe(true)
+    expect(await page.getByText('Into the Unknown').isVisible()).toBe(true)
     expect(await page.locator('textarea').first().isVisible()).toBe(true)
 
     releaseHistory()

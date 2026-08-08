@@ -48,6 +48,7 @@ Harnesses are [Cordis](cordis-primer.md) contexts; packages contribute services,
 | `ctx.credentials` | [`credentials/`](../packages/credentials/README.md) | named secret references resolved per operation, never inlined in configuration |
 | `ctx.directoryPicker` | [`host/directory-picker`](../packages/host/directory-picker/README.md) | GUI-host directory picking (`native`/`browse` interactions) |
 | `ctx.typert` | [`typert/registry`](../packages/typert/registry/README.md) | runtime registry for generated package reflection and live Zod schemas |
+| `ctx.typertGateway` | [`api/gateway`](../packages/api/gateway/README.md) | dispatches TypeRT Remote unary calls through the [API Gateway](api-gateway.md) |
 | `ctx.invariants` | [`support/invariants`](../packages/support/invariants/README.md) | package-name-selected registry of package-owned runtime checks |
 
 ## Event
@@ -83,7 +84,7 @@ forever:
   -> 'turn/start'
   claim next-step input plus one next-turn message
   -> emit agent/inbox/claimed({ message, turn }) for each claimed message
-  -> agent/pre-step(messages, { turn, step, signal })
+  -> agent/pre-step({ agent, messages, turn, step, signal })
     reject, empty input, cancellation, or listener failure
       -> the claimed batch stays removed; close the no-step turn; stop the driver
     enter -> step loop:
@@ -112,7 +113,7 @@ idle inject:
 
 Each step assembles ordered prompt sections, tool schemas, and variables; unknown references fail the turn. `dsh-system-prompt` owns identity and persona; the loop supplies `provider`, `model`, and `cwd` ([prompt ownership](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)).
 
-`inject()` queues non-waking `next-step` context; an idle driver leaves it pending until `followup()` or `steer()` wakes the driver. Post-tool `additionalContexts` use the same inbox. `agent/pre-step` receives the exclusive claimed batch and upcoming turn, step, and signal. Reject opens no step; enter supplies the complete batch appended after `step/start`. Empty tool continuations still traverse the waterfall, whose final value settles all rewrites.
+`inject()` queues non-waking `next-step` context; an idle driver leaves it pending until `followup()` or `steer()` wakes the driver. Post-tool `additionalContexts` use the same inbox. The `agent/pre-step` payload carries the exclusive claimed batch and the upcoming turn, step, and signal. Reject opens no step; enter supplies the complete batch appended after `step/start`. Empty tool continuations still traverse the waterfall, whose final value settles all rewrites.
 
 Pruning precedes summaries; overflow retries require durable progress. `agent/request-error` may authorize a same-step retry of the frozen prompt; cancellation wins. Adapter `retryPolicy` bounds normal mode, while always mode retries after specialized recovery ([compaction](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md), [retry foundation](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md), [provider policy](../.agents/notes/implemented/feature/2026-07-24-provider-retry-policies.md)). The generated [agent lifecycle](agent-lifecycle.md) owns exact event order, and the [agent-loop README](../packages/core/agent-loop/README.md) owns queue, steering, retry, and cancellation mechanics.
 
@@ -156,9 +157,9 @@ Streaming uses raw chunks and `BlockAssembler`. Each `LlmAdapter.stream()` is on
 
 A swappable capability usually has **interface / implementation / consumer** layers: service/events, backend, and model-facing tools/prompts. Bash is the reference; the [capability graph](capability-seams.md) maps each family.
 
-Exceptions combine LLM interface/consumer, filesystem policy, web registries, and named skill/subagent providers. Subagents spawn fresh, fork a completed-turn prefix, or use ACP children ([subagent.md](core-data-structures/subagent.md)).
+Exceptions combine LLM interface/consumer, filesystem policy, web registries, and named skill/subagent providers. Subagents spawn fresh, fork a completed-turn prefix, use ACP children, or delegate one self-contained turn to a real product provider such as Codex ([subagent.md](core-data-structures/subagent.md)).
 
-`dsh-workspace-context` composes its baseline on the first `agent/pre-step` and folds it into the final entering batch right after the claimed prompt, so it reaches the first request with the direct prompt; rejection keeps it in the next-step inbox. Filesystem changes projected after tools are likewise folded into the next entering pre-step instead of creating a later context-only step ([decision](../.agents/notes/implemented/feature/2026-06-24-workspace-context.md)). `dsh-paths` owns shared paths.
+`dsh-workspace-context` composes its baseline on the first `agent/pre-step` and folds it into the final entering batch right after the claimed prompt, so it reaches the first request with the direct prompt; rejection keeps it in the next-step inbox. When compaction removes that baseline from the visible surface, the next entering pre-step composes the current baseline and carries it in the same request. Filesystem changes projected after tools are likewise folded into the next entering pre-step instead of creating a later context-only step ([decision](../.agents/notes/implemented/feature/2026-06-24-workspace-context.md)). `dsh-paths` owns shared paths.
 
 ### Bundles And Apps
 

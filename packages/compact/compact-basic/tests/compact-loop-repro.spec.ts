@@ -175,7 +175,7 @@ async function harness(toolSteps: number): Promise<{ ctx: Context; compact: Repr
 
 function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
-    const dispose = ctx.on('agent/status', (subject, status) => {
+    const dispose = ctx.on('agent/status', ({ agent: subject, status }) => {
       if (subject === agent && status === 'idle') {
         dispose()
         resolve()
@@ -217,7 +217,7 @@ function overflowHistorySeed(): SessionEvent[] {
 describe('CBR-001: a real-loop checkpoint is a valid boundary on both sides', () => {
   it('uses the model actually routed by agent/request for post-step pressure', async () => {
     const { ctx } = await harness(8)
-    ctx.on('agent/request', async (_agent, _turn, _step, _signal, next) => ({
+    ctx.on('agent/request', async (_payload, next) => ({
       ...await next(), provider: 'mock', model: 'mock',
     }))
     try {
@@ -315,7 +315,7 @@ describe('context-overflow recovery across the real loop and compact-basic', () 
       await ctx.plugin(AgentLoop, { agents: [] })
       await ctx.plugin(TokenMeterService)
       ctx.llm.registerAdapter(['mock'], adapter)
-      ctx.on('agent/request', async (_agent, _turn, _step, _signal, next) => ({
+      ctx.on('agent/request', async (_payload, next) => ({
         ...await next(), provider: 'mock', model: 'mock',
       }))
       await ctx.plugin(BasicCompactService, {

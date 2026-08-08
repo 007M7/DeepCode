@@ -164,9 +164,9 @@ describe('dsh-tool-subagent-report', () => {
     const { started, child } = await startChild(ctx, parent)
     const parentRequests = adapter.requests.filter(request => request.sessionId === parent.id).length
     const enqueues: string[] = []
-    ctx.on('agent/inbox/inserted', (agent, item) => {
+    ctx.on('agent/inbox/inserted', ({ agent, message }) => {
       if (agent === parent) {
-        enqueues.push(agent.inbox.nextTurn.some(message => message.id === item.message.id) ? 'queued' : 'steering')
+        enqueues.push(agent.inbox.nextTurn.some(queued => queued.id === message.id) ? 'queued' : 'steering')
       }
     })
 
@@ -190,9 +190,9 @@ describe('dsh-tool-subagent-report', () => {
     const { ctx, parent, adapter } = await setup({ config: { reportDelivery: 'wakeup' } })
     const { child } = await startChild(ctx, parent)
     const enqueues: string[] = []
-    ctx.on('agent/inbox/inserted', (agent, item) => {
+    ctx.on('agent/inbox/inserted', ({ agent, message }) => {
       if (agent === parent) {
-        enqueues.push(agent.inbox.nextTurn.some(message => message.id === item.message.id) ? 'queued' : 'steering')
+        enqueues.push(agent.inbox.nextTurn.some(queued => queued.id === message.id) ? 'queued' : 'steering')
       }
     })
 

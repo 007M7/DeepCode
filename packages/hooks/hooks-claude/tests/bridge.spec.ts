@@ -225,7 +225,7 @@ describe('hooks-claude bridge — PostToolUse', () => {
     expect(ctxMsg?.type === 'user/message' && ctxMsg.data.content.some(b => b.type === 'text' && b.text.includes('tool was slow'))).toBe(true)
   })
 
-  it('a PreToolUse permissionDecision:ask degrades to ask (the tool is gated, not run)', async () => {
+  it('a PreToolUse permissionDecision:ask fails closed without an approval service', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'dsh-hooks-claude-'))
     dirs.push(dir)
     const s = join(dir, 'ask.sh')
@@ -241,7 +241,7 @@ describe('hooks-claude bridge — PostToolUse', () => {
     agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
 
-    // `ask` degrades to deny today (FIXME permissions): the tool does not run and the result is isError.
+    // No approval service is mounted, so `ask` fails closed: the tool does not run and the result is isError.
     expect(ran).toBe(false)
     const result = events(agent).find(e => e.type === 'tool/result')
     expect(result?.type === 'tool/result' && result.data.message.content[0].isError).toBe(true)

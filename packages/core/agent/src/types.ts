@@ -48,34 +48,10 @@ export interface CancelOptions {
  */
 export type AgentStatus = 'idle' | 'running'
 
-/** Coordinates and cancellation for a proposed step. */
-export interface PreStepContext {
-  /** Turn that will own the step. */
-  readonly turn: number
-  /** Step proposed by the loop. */
-  readonly step: number
-  /** Current turn cancellation signal. */
-  readonly signal: AbortSignal
-}
-
 /** Whether and with which messages the loop enters a proposed step. */
 export type PreStepDecision =
   | { kind: 'reject' }
   | { kind: 'enter'; messages: UserMessage[] }
-
-/** One failed model-request attempt presented to recovery listeners. */
-export interface RequestFailureContext {
-  /** Turn containing the failed request. */
-  readonly turn: number
-  /** Step containing the failed request attempt. */
-  readonly step: number
-  /** Provider selected for the failed request. */
-  readonly provider: string
-  /** Serializable facts normalized at the final adapter boundary. */
-  readonly failure: LlmFailure
-  /** Policy of the adapter registration that served the failed request. */
-  readonly retryPolicy: ResolvedRetryPolicy | undefined
-}
 
 /** Action returned by a listener that owns model-request recovery. */
 export type RequestErrorAction = { kind: 'retry' } | undefined
@@ -171,105 +147,112 @@ declare module 'cordis' {
      * Synchronous listener failure vetoes publication, while returned-promise
      * rejection is reported. Detach requested during dispatch waits until every
      * creation listener has observed the stable entry.
-     * @param agent - the newly registered agent with its live session and completed setup.
+     * @param payload.agent - the newly registered agent with its live session and completed setup.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode emit
      */
-    'agent/created'(this: Scoped<Agent>, agent: Agent): void
+    'agent/created'(this: Scoped<Agent>, payload: { agent: Agent }): void
     /**
      * An agent left the registry; AgentLoop emits this after driver quiescence
      * and scoped-registration unwind, but before session detachment. Custom
      * registry users own their driver-ordering contract.
-     * @param agent - the exact agent removed from the registry.
+     * @param payload.agent - the exact agent removed from the registry.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode emit
      */
-    'agent/disposed'(this: Scoped<Agent>, agent: Agent): void
+    'agent/disposed'(this: Scoped<Agent>, payload: { agent: Agent }): void
     /**
      * Agent status changed (`idle` ⇄ `running`). A waking delivery enters
      * `running` synchronously after reserving cancellation; `idle` means no
      * driver remains scheduled or active.
-     * @param agent - the agent whose status flipped.
-     * @param status - the status just entered (the transition's destination).
+     * @param payload.agent - the agent whose status flipped.
+     * @param payload.status - the status just entered (the transition's destination).
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode emit
      */
-    'agent/status'(this: Scoped<Agent>, agent: Agent, status: AgentStatus): void
+    'agent/status'(this: Scoped<Agent>, payload: { agent: Agent; status: AgentStatus }): void
     /**
      * One message entered the live inbox.
-     * @param agent - the agent whose inbox changed.
-     * @param event - the inserted message.
+     * @param payload.agent - the agent whose inbox changed.
+     * @param payload.message - the inserted message.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode emit
      */
-    'agent/inbox/inserted'(this: Scoped<Agent>, agent: Agent, event: { message: UserMessage }): void
+    'agent/inbox/inserted'(this: Scoped<Agent>, payload: { agent: Agent; message: UserMessage }): void
     /**
      * One message left the inbox inside its open turn. If the proposed step
      * is rejected, the claimed message ends here: it is neither discarded nor
      * re-emitted as a user/message, and the turn closes without a step.
-     * @param agent - the agent whose inbox changed.
-     * @param event - the claimed message and owning turn.
+     * @param payload.agent - the agent whose inbox changed.
+     * @param payload.message - the claimed message.
+     * @param payload.turn - the owning turn.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode emit
      */
-    'agent/inbox/claimed'(this: Scoped<Agent>, agent: Agent, event: { message: UserMessage; turn: number }): void
+    'agent/inbox/claimed'(this: Scoped<Agent>, payload: { agent: Agent; message: UserMessage; turn: number }): void
     /**
      * One message was discarded from the live inbox.
-     * @param agent - the agent whose inbox changed.
-     * @param event - the discarded message.
+     * @param payload.agent - the agent whose inbox changed.
+     * @param payload.message - the discarded message.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode emit
      */
-    'agent/inbox/discarded'(this: Scoped<Agent>, agent: Agent, event: { message: UserMessage }): void
+    'agent/inbox/discarded'(this: Scoped<Agent>, payload: { agent: Agent; message: UserMessage }): void
     // ---- session lifecycle (emit) ----
     /**
      * The session lifecycle began, once before the first turn. Use
      * `agent.inject()` to seed model-facing context. This is a notification, not
      * a veto; disposal requested by a lifecycle owner is rechecked before the
      * driver starts.
-     * @param agent - the agent whose session lifecycle began.
-     * @param source - why the session started (fresh startup, resume, …).
+     * @param payload.agent - the agent whose session lifecycle began.
+     * @param payload.source - why the session started (fresh startup, resume, …).
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode emit
      */
-    'agent/session-start'(this: Scoped<Agent>, agent: Agent, source: SessionStartSource): void
+    'agent/session-start'(this: Scoped<Agent>, payload: { agent: Agent; source: SessionStartSource }): void
 
     // ---- the machine's extension seams ----
     /**
      * Reject a proposed step or replace the messages that enter it. Calling
      * `next()` preserves the current messages.
-     * @param agent - the agent proposing the step.
-     * @param messages - messages removed from the inbox for this step.
-     * @param context - proposed turn and step coordinates plus cancellation.
+     * @param payload.agent - the agent proposing the step.
+     * @param payload.messages - messages removed from the inbox for this step.
+     * @param payload.turn - the turn that will own the step.
+     * @param payload.step - the step proposed by the loop.
+     * @param payload.signal - the current turn's cancellation signal.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode waterfall
      */
-    'agent/pre-step'(this: Scoped<Agent>, agent: Agent, messages: UserMessage[], context: PreStepContext, next: () => Promise<PreStepDecision>): Promise<PreStepDecision>
+    'agent/pre-step'(this: Scoped<Agent>, payload: { agent: Agent; messages: UserMessage[]; turn: number; step: number; signal: AbortSignal }, next: () => Promise<PreStepDecision>): Promise<PreStepDecision>
     /**
      * Replace the frozen call configuration. `await next()` yields the config
      * the machine would use (agent options on the first request, the logged
      * header afterwards); return a replacement to switch. Model-visible
      * content must use logged channels; this seam cannot mutate messages.
-     * @param agent - the agent making the model call.
-     * @param turn - the open turn number.
-     * @param step - the step whose request this is.
-     * @param signal - the current turn's explicit abort signal.
+     * @param payload.agent - the agent making the model call.
+     * @param payload.turn - the open turn number.
+     * @param payload.step - the step whose request this is.
+     * @param payload.signal - the current turn's explicit abort signal.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode waterfall
     */
-    'agent/request'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, signal: AbortSignal, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>
+    'agent/request'(this: Scoped<Agent>, payload: { agent: Agent; turn: number; step: number; signal: AbortSignal }, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>
     /**
      * Handle one failed model-request attempt before the loop retries or closes
      * its step. A listener returns `{ kind: 'retry' }` without calling `next()`
      * when it owns recovery, or calls `next()` to delegate. The default
      * `undefined` leaves the failure terminal.
-     * @param agent - the agent whose request failed.
-     * @param context - request coordinates, provider, normalized failure, and serving policy.
-     * @param signal - the turn abort signal.
+     * @param payload.agent - the agent whose request failed.
+     * @param payload.turn - the turn containing the failed request.
+     * @param payload.step - the step containing the failed request attempt.
+     * @param payload.provider - the provider selected for the failed request.
+     * @param payload.failure - serializable facts normalized at the final adapter boundary.
+     * @param payload.retryPolicy - the policy of the adapter registration that served the failed request.
+     * @param payload.signal - the turn abort signal.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode waterfall
      */
-    'agent/request-error'(this: Scoped<Agent>, agent: Agent, context: RequestFailureContext, signal: AbortSignal, next: () => Promise<RequestErrorAction>): Promise<RequestErrorAction>
+    'agent/request-error'(this: Scoped<Agent>, payload: { agent: Agent; turn: number; step: number; provider: string; failure: LlmFailure; retryPolicy: ResolvedRetryPolicy | undefined; signal: AbortSignal }, next: () => Promise<RequestErrorAction>): Promise<RequestErrorAction>
     /**
      * The turn is about to close: the model owes no response (no live tool
      * calls, no fresh steering). Awaited before the boundary commits — a
@@ -281,25 +264,25 @@ declare module 'cordis' {
      * never short-circuits already-submitted next-step work: same-step
      * `additionalContexts` or racing steering still runs, and the turn
      * closes only when that inbox drains.
-     * @param agent - the agent whose turn is at its stop boundary.
-     * @param turn - the turn about to close.
-     * @param signal - the current turn's explicit abort signal.
+     * @param payload.agent - the agent whose turn is at its stop boundary.
+     * @param payload.turn - the turn about to close.
+     * @param payload.signal - the current turn's explicit abort signal.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode serial
      */
-    'agent/turn-stopping'(this: Scoped<Agent>, agent: Agent, turn: number, signal: AbortSignal): Promise<void> | void
+    'agent/turn-stopping'(this: Scoped<Agent>, payload: { agent: Agent; turn: number; signal: AbortSignal }): Promise<void> | void
     // ---- error notifications (emit) ----
     /**
      * A step or turn errored. The machine reports a failure here even when
      * the error has no in-turn position for a durable record.
-     * @param agent - the agent whose turn errored.
-     * @param turn - the turn in which the failure surfaced.
-     * @param step - the step at which the failure surfaced.
-     * @param error - the failure, verbatim.
+     * @param payload.agent - the agent whose turn errored.
+     * @param payload.turn - the turn in which the failure surfaced.
+     * @param payload.step - the step at which the failure surfaced.
+     * @param payload.error - the failure, verbatim.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode emit
      */
-    'agent/error'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: unknown): void
+    'agent/error'(this: Scoped<Agent>, payload: { agent: Agent; turn: number; step: number; error: unknown }): void
   }
 }
 

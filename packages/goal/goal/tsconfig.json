@@ -36,6 +36,9 @@
       "path": "../../session-projection/session-projection"
     },
     {
+      "path": "../../typert/type-meta"
+    },
+    {
       "path": "../../support/invariants"
     }
   ]

@@ -51,8 +51,9 @@ export type { EventsApi, MuxFrame, HostFrame, QueuedInboxItem, ToolCallView, Too
 export type { GoalsApi, GoalId, GoalRef } from './goals.ts'
 export type { SettingsApi, SettingsNamespaceView, SettingsPathOpView, SettingsSecretView } from './settings.ts'
 export type { CredentialsApi, CredentialView } from './credentials.ts'
-export type { ConfigurableProviderView, LlmApi } from './llm.ts'
+export type { ConfigurableProviderView, DiscoveredModelView, LlmApi } from './llm.ts'
 export type { ApprovalResponsePayload } from './approvals.ts'
+
 export type { QuestionResponsePayload } from './questions.ts'
 
 // ---- Message layer: narrow forms (domain-signature view) ----
@@ -71,6 +72,11 @@ export type {
 // ---- Errors and ids ----
 export { RpcId, transportError } from './rpc.ts'
 export type { RpcError, RpcErrorCode, RpcErrorDetailsMap, RpcResult } from './rpc.ts'
+export {
+  clientRequestSchema,
+  serverRequestSchema,
+  serverResponseSchema,
+} from './rpc.schema.ts'
 
 // ---- Fixed session-search product bounds ----
 export {

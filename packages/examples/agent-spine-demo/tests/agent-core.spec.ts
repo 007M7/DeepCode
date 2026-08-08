@@ -41,7 +41,7 @@ async function composePrefix(ctx: Context, cwd: string): Promise<Message[]> {
   const agent = ctx.agentLoop.create(SessionId('agent-spine-prefix'), {}, { cwd })
   const signal = new AbortController().signal
   const decision = await agentEvents(ctx, agent).waterfall(
-    'agent/pre-step', [], { turn: 1, step: 1, signal },
+    'agent/pre-step', { messages: [], turn: 1, step: 1, signal },
     () => Promise.resolve({ kind: 'enter', messages: [] }),
   )
   if (decision.kind === 'enter') {
@@ -527,6 +527,7 @@ describe('dsh-agent-spine-demo bundle', () => {
         </available_skills>
 
         If the user names a skill, or the task clearly matches a skill's description, call the \`skill\` tool with the exact skill name before taking task actions. Load all applicable skills, then follow their full instructions. This catalog contains summaries only; do not infer or follow a skill's instructions until it has been loaded.
+        A user may also invoke a skill directly; its <skill_content> block then appears in this conversation. Follow it, and do not call the \`skill\` tool again for that skill.
         </system-reminder>",
             "type": "user/message",
           },

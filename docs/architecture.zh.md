@@ -48,6 +48,7 @@
 | `ctx.credentials` | [`credentials/`](../packages/credentials/README.md) | 具名密钥引用，按操作解析，绝不内联进配置 |
 | `ctx.directoryPicker` | [`host/directory-picker`](../packages/host/directory-picker/README.md) | GUI 宿主目录选取（`native`／`browse` 交互） |
 | `ctx.typert` | [`typert/registry`](../packages/typert/registry/README.md) | 生成的包反射和实时 Zod schema 的运行时注册表 |
+| `ctx.typertGateway` | [`api/gateway`](../packages/api/gateway/README.md) | 通过 [API Gateway](api-gateway.md) 分发 TypeRT Remote 一元调用 |
 | `ctx.invariants` | [`support/invariants`](../packages/support/invariants/README.md) | 按包名筛选包自有运行时检查的注册表 |
 
 ## 事件
@@ -83,7 +84,7 @@ forever:
   -> 'turn/start'
   claim next-step input plus one next-turn message
   -> emit agent/inbox/claimed({ message, turn }) for each claimed message
-  -> agent/pre-step(messages, { turn, step, signal })
+  -> agent/pre-step({ agent, messages, turn, step, signal })
     reject, empty input, cancellation, or listener failure
       -> the claimed batch stays removed; close the no-step turn; stop the driver
     enter -> step loop:
@@ -112,7 +113,7 @@ idle inject:
 
 每个步骤都会组装有序的提示词片段、工具 schema 和变量；未知引用会使该轮次失败。`dsh-system-prompt` 负责身份和角色设定；循环提供 `provider`、`model` 和 `cwd`（[提示词归属](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)）。
 
-`inject()` 将不会唤醒驱动器的上下文排入 `next-step`；空闲驱动器会让它保持待处理，直至 `followup()` 或 `steer()` 唤醒。工具执行后的 `additionalContexts` 使用同一个 inbox。`agent/pre-step` 接收独占的已领取批次，以及即将使用的轮次、步骤和信号。拒绝则不进入步骤；进入则提供在 `step/start` 后追加的完整批次。空的工具续跑仍会经过 waterfall，其最终值一次性结算所有改写。
+`inject()` 将不会唤醒驱动器的上下文排入 `next-step`；空闲驱动器会让它保持待处理，直至 `followup()` 或 `steer()` 唤醒。工具执行后的 `additionalContexts` 使用同一个 inbox。`agent/pre-step` 的 payload 携带独占的已领取批次，以及即将使用的轮次、步骤和信号。拒绝则不进入步骤；进入则提供在 `step/start` 后追加的完整批次。空的工具续跑仍会经过 waterfall，其最终值一次性结算所有改写。
 
 裁剪先于摘要；溢出重试必须取得持久进展。`agent/request-error` 可以授权使用冻结提示词进行同步骤重试；取消优先。适配器的 `retryPolicy` 使 normal mode 保持有界，always mode 则在专门恢复后重试（[压缩](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md)、[重试基础](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)、[提供方策略](../.agents/notes/implemented/feature/2026-07-24-provider-retry-policies.md)）。精确事件顺序由生成的 [agent 生命周期](agent-lifecycle.md)定义；队列、steering、重试与取消机制由 [agent-loop README](../packages/core/agent-loop/README.md)定义。
 
@@ -156,9 +157,9 @@ idle inject:
 
 可替换功能通常具有**接口／实现／消费方**三层：服务和事件、后端、面向模型的工具和提示词。Bash 是参考实现；[功能图](capability-seams.md)映射了每个包族。
 
-例外情况包括 LLM（大语言模型）合并接口和消费方、文件系统整合策略、web 使用注册表、skill 和 subagent 使用具名提供方。subagent 可以通过 spawn 创建全新实例、fork 一个已完成轮次的前缀，或使用 ACP（Agent Client Protocol）子 agent（[subagent.md](core-data-structures/subagent.md)）。
+例外情况包括 LLM（大语言模型）合并接口和消费方、文件系统整合策略、web 使用注册表、skill 和 subagent 使用具名提供方。subagent 可以通过 spawn 创建全新实例、fork 一个已完成轮次的前缀、使用 ACP（Agent Client Protocol）子 agent，或将一个独立完整的轮次委派给 Codex 等真实产品提供方（[subagent.md](core-data-structures/subagent.md)）。
 
-`dsh-workspace-context` 在第一次 `agent/pre-step` 组合基线并将它折入最终进入的批次、紧随已领取的直接提示词之后，使其与直接提示词一同抵达第一次请求；reject 则将它留在 next-step inbox。工具执行后投影的文件系统变更也会折入下一次进入步骤的 pre-step，而不会另外创建稍后的纯上下文步骤（[决策](../.agents/notes/implemented/feature/2026-06-24-workspace-context.md)）。`dsh-paths` 负责共享路径。
+`dsh-workspace-context` 在第一次 `agent/pre-step` 组合基线并将它折入最终进入的批次、紧随已领取的直接提示词之后，使其与直接提示词一同抵达第一次请求；reject 则将它留在 next-step inbox。当压缩从可见表层移除该基线时，下一次进入步骤的 pre-step 会组合当前基线，并在同一请求中携带它。工具执行后投影的文件系统变更也会折入下一次进入步骤的 pre-step，而不会另外创建稍后的纯上下文步骤（[决策](../.agents/notes/implemented/feature/2026-06-24-workspace-context.md)）。`dsh-paths` 负责共享路径。
 
 ### 组合包与应用
 

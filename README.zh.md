@@ -39,22 +39,24 @@ dsh web
 
 上述路径是安装器的默认位置。如果你设置过 `DSH_SOURCE` 或 `DSH_CURRENT`，或者复用了已有检出，请把 `~/.dsh/source/current` 换成该检出路径；详情见 [`scripts/install.sh`](scripts/install.sh)。Web UI 默认通过 `http://127.0.0.1:3080` 提供服务。
 
-### 自定义运行时
+### Profile
 
-原始 `dsh` 要求传入一份 patch 列表配置，并将其叠加在随附 base 之上：
+`dsh` 启动 profile：按序叠放的插件组合包 patch 层，之上再叠加你在 `$DSH_HOME/profiles/<name>` 中的自有覆盖层：
 
 ```sh
-dsh --config ./app.cordis.yml
+dsh --profile web                       # the browser UI (same as: dsh web)
+dsh plugin --profile tui add <package>  # install a plugin into a custom profile
+dsh --profile tui                       # boot it
 ```
 
-base、overlay 语义与配置输出命令详见 [CLI（命令行界面）契约](apps/cli/README.md#raw-config)。
+profile 布局、层语义与配置输出命令详见 [CLI（命令行界面）契约](apps/cli/README.md#profiles)。
 
 ### Headless
 
 运行一项任务，打印最终答案后退出：
 
 ```sh
-dsh -p "summarize this workspace"
+dsh run "summarize this workspace"
 ```
 
 ### 自动化与 SDK

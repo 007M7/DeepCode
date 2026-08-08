@@ -13,7 +13,7 @@ Cordis 是 DeepSeek Harness SDK 底层的插件框架：它是一个小型运行
 你需要克隆本仓库并安装依赖，具体前置条件见[快速入门](../user/guide/quickstart.md)。本教程不需要 API 密钥；所有示例均可在无密钥环境中运行。
 
 ```sh
-git clone https://github.com/deepseek-harness/deepseek-harness.git
+git clone https://github.com/deepseek-ai/deepseek-harness-sdk.git
 cd deepseek-harness
 pnpm install
 ```
@@ -55,4 +55,4 @@ node --import tsx ../../vendor/cordis/bin.js
 
 第 5 章还会使用 `interface` 描述配置对象的字段，并使用 `Schema<Config>` 这类泛型表示 schema 所校验的对象形状。你可以直接照写这些声明；周围的正文会解释每项声明连接了什么。
 
-[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-harness/deepseek-harness)
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness-sdk)

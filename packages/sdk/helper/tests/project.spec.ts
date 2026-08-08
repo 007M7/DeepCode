@@ -193,6 +193,7 @@ describe('SdkProject and ProjectEditSession', () => {
     expect(project.packageManifest().dependencies).not.toHaveProperty('@deepseek-ai/dsh-scope/invariant')
     expect(project.packageManifest().dependencies).not.toHaveProperty('node-addon-require-builtin')
     expect(project.cordis.entry('hmr')).toMatchObject({ name: '@cordisjs/plugin-hmr' })
+    expect(project.cordis.entry('llm-deepseek')).not.toHaveProperty('config.apiKey')
     expect(project.cordis.entry('llm-deepseek')?.config).not.toHaveProperty('baseURL')
     expect(project.cordis.entry('llm-deepseek')?.config).not.toHaveProperty('models')
   })
@@ -580,7 +581,7 @@ describe('SdkProject and ProjectEditSession', () => {
     await writeFile(join(partialRoot, 'cordis.yml'), `- id: llm-deepseek
   name: '@deepseek-ai/dsh-llm-deepseek'
   config:
-    apiKey: test
+    apiKeyEnv: DEEPSEEK_API_KEY
 `)
     const partial = await SdkProject.open(partialRoot)
     const installation = createBuiltinRegistry(partial.profile)

@@ -30,7 +30,7 @@ import type {
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import { IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatViewSlotProps } from '../contract/slots.ts'
-import { assistantActionsSeqs, deriveChatFlow, messageBranchSeqs, runningTurnStartTime, type ChatFlowItem } from './chat-flow.ts'
+import { assistantActionsSeqs, assistantBranchSeqs, deriveChatFlow, runningTurnStartTime, type ChatFlowItem } from './chat-flow.ts'
 import { AssistantMarkdown } from './AssistantMarkdown.tsx'
 import { GenericCommandCard } from './GenericCommandCard.tsx'
 import { GenericToolCard } from './GenericToolCard.tsx'
@@ -335,7 +335,7 @@ function StreamingTail({ useSession, t }: {
  * render through the declared keyed hole's renderSlot share).
  */
 export function ChatView({
-  useSession, useSessions, useStore, renderSlot, sessionId, openFile, loadOlder, inspectCall, chatScroll, forkAt, t,
+  useSession, useSessions, useStore, renderSlot, renderSlotChain, sessionId, openFile, loadOlder, inspectCall, chatScroll, forkAt, t,
 }: ChatViewSlotProps) {
   const nodes = useSession(s => s.nodes)
   const turnTimings = useSession(s => s.turnTimings)
@@ -358,10 +358,11 @@ export function ChatView({
     [inbox],
   )
   const activeRetry = useMemo(() => activeRetrySeq(nodes, running), [nodes, running])
-  // Only the last content assistant of each turn owns IconActions; mid-turn
-  // text (before tools) omits `time` so AssistantMarkdown stays chrome-free.
-  const actionSeqs = useMemo(() => assistantActionsSeqs(nodes), [nodes])
-  const branchSeqs = useMemo(() => messageBranchSeqs(nodes, turnEnds), [nodes, turnEnds])
+  // Only the last content assistant of each completed turn owns IconActions;
+  // mid-turn text and every node of a running turn omit `time`, so
+  // AssistantMarkdown stays chrome-free until the answer settles.
+  const actionSeqs = useMemo(() => assistantActionsSeqs(nodes, turnEnds), [nodes, turnEnds])
+  const branchSeqs = useMemo(() => assistantBranchSeqs(nodes, turnEnds), [nodes, turnEnds])
   const runningTurnStart = useMemo(() => runningTurnStartTime(turnTimings), [turnTimings])
   const turnMetrics = useMemo(() => deriveTurnMetrics(nodes), [nodes])
 
@@ -371,9 +372,6 @@ export function ChatView({
   const [atBottom, setAtBottom] = useState(true)
   /** Last position delivered or written on the main thread. */
   const observedTopRef = useRef(0)
-  /** Pre-input position for the current wheel gesture. */
-  const wheelStartRef = useRef<number | null>(null)
-  const wheelEpochRef = useRef(0)
   /** Paging anchor: semantic row/position at click, updated by reader scrolls
    * while the request is pending and restored after the prepend lands. */
   const anchorRef = useRef<PagingAnchor | null>(null)
@@ -393,8 +391,6 @@ export function ChatView({
   const followSig = `${openState}:${firstSeq}:${lastKey}:${nodes.length}:${running ? 1 : 0}:${runningCalls.length}:${lastSteeringId ?? ''}`
 
   const toBottom = (el: HTMLElement): void => {
-    wheelStartRef.current = null
-    wheelEpochRef.current += 1
     anchorRef.current = null
     el.scrollTop = el.scrollHeight
     observedTopRef.current = el.scrollTop
@@ -471,17 +467,19 @@ export function ChatView({
     /* v8 ignore next -- ref-null guard: the handler only fires while mounted. */
     if (local === null) return
     const el = scrollerOf(local)
-    // Only wheel input may make raw scroll geometry change follow ownership.
-    // Browser clamping and delayed programmatic scroll events otherwise have
-    // the same event shape and must preserve the current ownership state.
+    // Only reader input may make raw scroll geometry change follow ownership:
+    // a delivered position that deviates from the observed-top ledger (every
+    // programmatic write records itself there synchronously). This covers
+    // wheel, touch, scrollbar, and keyboard alike without naming devices.
+    // Browser shrink-clamps land exactly on the floor min and delayed
+    // programmatic deliveries land on the ledger itself, so both preserve
+    // the current ownership state.
     const floor = Math.max(0, el.scrollHeight - el.clientHeight)
-    const wheelStart = wheelStartRef.current
-    const movedByWheel = wheelStart !== null
-      && Math.abs(el.scrollTop - Math.min(wheelStart, floor)) > 0.5
-    const isAtBottom = movedByWheel
+    const movedByReader = Math.abs(el.scrollTop - Math.min(observedTopRef.current, floor)) > 0.5
+    const isAtBottom = movedByReader
       ? floor - el.scrollTop <= FOLLOW_THRESHOLD + 1
       : atBottomRef.current
-    if (!movedByWheel && isAtBottom) {
+    if (!movedByReader && isAtBottom) {
       toBottom(el)
       return
     }
@@ -500,34 +498,18 @@ export function ChatView({
     observedTopRef.current = el.scrollTop
   }
 
-  // Bind scroll and the wheel provenance needed to distinguish reader input
-  // from layout-driven scrolls on the resolved scrollport once per mount.
+  // Bind the scroll listener on the resolved scrollport once per mount;
+  // reader-input attribution rides the observed-top ledger, not per-device
+  // input listeners.
   useEffect(() => {
     const local = listRef.current
     /* v8 ignore next -- ref-null guard: effect runs after the list node commits. */
     if (local === null) return
     const el = scrollerOf(local)
     const onScroll = (): void => { onScrollRef.current() }
-    const onWheel = (event: WheelEvent): void => {
-      if (event.ctrlKey || event.deltaY === 0) return
-      const startTop = observedTopRef.current
-      const floor = Math.max(0, el.scrollHeight - el.clientHeight)
-      const canMove = event.deltaY < 0 ? startTop > 1 : startTop < floor - 1
-      if (!canMove) return
-      wheelStartRef.current = startTop
-      const epoch = ++wheelEpochRef.current
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          if (wheelEpochRef.current === epoch) wheelStartRef.current = null
-        })
-      })
-    }
     el.addEventListener('scroll', onScroll, { passive: true })
-    el.addEventListener('wheel', onWheel, { capture: true, passive: true })
     return () => {
-      wheelStartRef.current = null
       el.removeEventListener('scroll', onScroll)
-      el.removeEventListener('wheel', onWheel, true)
     }
   }, [])
 
@@ -618,6 +600,9 @@ export function ChatView({
           seq={node.seq}
           onFork={forkAt}
           forkUnavailable={!branchSeqs.has(node.seq)}
+          turnTail={actionSeqs.has(node.seq)
+            ? { renderSlotChain, owner: { nodes, seq: node.seq, openFile } }
+            : undefined}
           t={t}
         />
       )
@@ -631,8 +616,6 @@ export function ChatView({
       <MessageItem
         node={node}
         retryActive={node.kind === 'model-retry' && node.seq === activeRetry}
-        onFork={forkAt}
-        forkUnavailable={!branchSeqs.has(node.seq)}
         t={t}
       />
     )
