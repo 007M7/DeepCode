@@ -433,7 +433,7 @@ export function SubagentCatalogAction({
   // the already-visible direct rows during that short bootstrap window.
   const descendantCount = Math.max(healthy.length, descendants.count)
   const totalCountKey = descendantCount === 1 ? 'count.total.one' : 'count.total.other'
-  const runningCountKey = descendantCount === 1 ? 'count.running.one' : 'count.running.other'
+  const runningCountKey = descendants.runningCount === 1 ? 'count.running.one' : 'count.running.other'
   // Session summaries can announce membership before the descriptor-backed catalog catches up.
   // Keep that entry point visible through disabled loading rows; only catalog rows are navigable.
   const summaryBackedLoading = descendants.count > 0
@@ -564,7 +564,10 @@ export function SubagentCatalogAction({
         className={css.trigger}
         aria-haspopup="tree"
         aria-expanded={open}
-        aria-label={t(descendants.runningCount > 0 ? runningCountKey : totalCountKey, { count: descendantCount })}
+        aria-label={t(
+          descendants.runningCount > 0 ? runningCountKey : totalCountKey,
+          { count: descendants.runningCount > 0 ? descendants.runningCount : descendantCount },
+        )}
         onClick={() => { changeOpen(!open) }}
         onKeyDown={(event) => {
           if (event.key !== 'ArrowDown') return

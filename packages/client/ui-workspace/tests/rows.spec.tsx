@@ -133,7 +133,7 @@ describe('workspace browser rows', () => {
     expect(onOpen).toHaveBeenCalledWith(node.id)
   })
 
-  it('shows the green done dot only on a finished, unviewed session (running wins the slot)', () => {
+  it('shows the green done dot only on a finished, unviewed session (live activity wins the slot)', () => {
     const renderRow = (over: Partial<SessionNode>) => render(
       <SessionNodeItem
         node={{
@@ -158,6 +158,11 @@ describe('workspace browser rows', () => {
     const running = renderRow({ completed: true, running: true })
     expect(running.container.querySelector('[data-state="ongoing"]')).not.toBeNull()
     expect(running.container.querySelector('[data-state="done"]')).toBeNull()
+    running.unmount()
+    // Descendant activity also wins until the last running descendant stops.
+    const delegated = renderRow({ completed: true, runningSubagentCount: 1 })
+    expect(delegated.container.querySelector('[data-state="ongoing"]')).not.toBeNull()
+    expect(delegated.container.querySelector('[data-state="done"]')).toBeNull()
   })
 
   it('shows descendant activity without describing an idle parent as running', () => {
@@ -177,6 +182,29 @@ describe('workspace browser rows', () => {
       fireEvent.pointerEnter(row.parentElement as HTMLElement)
       act(() => { vi.advanceTimersByTime(500) })
       expect(screen.getAllByText('2 个子代理运行中')).toHaveLength(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps descendant activity secondary while the parent is running', () => {
+    vi.useFakeTimers()
+    try {
+      const node: SessionNode = {
+        id: sid('owner'), title: 'Delegating', blank: false, running: true,
+        runningSubagentCount: 1, completed: false, updatedAt: 0,
+      }
+      render(<SessionNodeItem node={node} currentId={undefined} now={0} onOpen={vi.fn()}
+        onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />)
+      const row = screen.getByRole('treeitem')
+      expect(row.querySelectorAll('[data-state="ongoing"]')).toHaveLength(1)
+      expect(screen.getByText('进行中')).toBeTruthy()
+      expect(screen.getByText('1 个子代理运行中')).toBeTruthy()
+
+      fireEvent.pointerEnter(row.parentElement as HTMLElement)
+      act(() => { vi.advanceTimersByTime(500) })
+      expect(screen.getAllByText('进行中')).toHaveLength(2)
+      expect(screen.getAllByText('1 个子代理运行中')).toHaveLength(2)
     } finally {
       vi.useRealTimers()
     }

@@ -176,7 +176,10 @@ interface SessionStatus {
   label: string
 }
 
-/** Session status presentation; pending user interaction remains primary. */
+/**
+ * Session status presentation; pending interaction is primary and live activity
+ * outranks completion reminders.
+ */
 function sessionStatuses(
   node: Pick<SessionNode, 'pendingInteraction' | 'running' | 'runningSubagentCount' | 'completed'>,
   t: RowTranslate,
@@ -386,9 +389,9 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
           drag.drop(rowHalf(e))
         }}
     >
-      {/* Pending interactions and running outrank the idle state; a
-          finished-but-unviewed session shows the green done reminder dot
-          (cleared by opening the session). */}
+      {/* Pending interaction and own or descendant activity outrank the
+          finished-but-unviewed reminder, which returns after activity stops
+          and is cleared by opening the session. */}
       <span className={css.slot}>
         {(primaryStatus.state !== 'done' || row.completed) && (
           <>
