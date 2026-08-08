@@ -1,4 +1,4 @@
-import { defineConfig } from 'tsdown'
+import { clientOnly } from '../tsdown.client.ts'
 
 /**
  * Root and invariant shapes as SEPARATE single-entry bundles: a multi-entry
@@ -8,7 +8,7 @@ import { defineConfig } from 'tsdown'
  * runtime — browser consumers resolve this package through the loader module
  * table.
  */
-export default defineConfig([
+export default clientOnly([
   {
     entry: { index: 'lib/types/index.js' },
     outDir: 'lib',

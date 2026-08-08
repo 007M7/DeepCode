@@ -15,6 +15,10 @@
       "types": "./lib/types/invariant.d.ts",
       "default": "./lib/invariant.js"
     },
+    "./client": {
+      "types": "./lib/types/client/index.d.ts",
+      "default": "./lib/client.js"
+    },
     "./types": {
       "types": "./lib/types/types.d.ts",
       "default": "./lib/types/types.js"
@@ -22,14 +26,25 @@
     "./src/*": "./src/*",
     "./package.json": "./package.json"
   },
+  "dshClient": {
+    "inject": [],
+    "platform": "web",
+    "immediately": true
+  },
+  "scripts": {
+    "bundle": "tsdown",
+    "watch": "tsdown --watch"
+  },
   "files": [
     "lib/index.js",
     "lib/invariant.js",
+    "lib/client.js",
     "lib/types/**/*.js",
     "lib/types/**/*.d.ts"
   ],
   "license": "BSD-3-Clause",
   "dependencies": {
+    "@deepseek-ai/dsh-type-meta": "workspace:^",
     "zod": "^4.4.3"
   },
   "peerDependencies": {

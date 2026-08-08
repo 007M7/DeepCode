@@ -1,4 +1,4 @@
-import { defineConfig } from 'tsdown'
+import { clientOnly } from '../tsdown.client.ts'
 
 /**
  * ui-primitives is browser-only, but its lib bundle IS imported under plain
@@ -8,7 +8,7 @@ import { defineConfig } from 'tsdown'
  * (loader module table / vite source paths), which compile src directly and
  * never read lib.
  */
-export default defineConfig({
+export default clientOnly([{
   entry: ['lib/types/index.js', 'lib/types/invariant.js'],
   outDir: 'lib',
   format: ['esm'],
@@ -28,4 +28,4 @@ export default defineConfig({
       return 'export default {};'
     },
   }],
-})
+}])

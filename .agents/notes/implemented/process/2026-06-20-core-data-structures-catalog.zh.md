@@ -8,7 +8,7 @@ Status: implemented
 
 试图理解 harness 的读者可以在 [architecture.md](../../../../docs/architecture.md) 中找到它的*行为*（服务图、会话/轮次/步骤生命周期、事件分类），却找不到一个统一描述其*词汇*的地方，也就是这些行为所传递的数据结构。类型形状只存在于源码中，散落在 `packages/*/src/types.ts` 各处，因此要理解「什么是 `Message`、`SessionEvent`、`StreamChunk`」，就必须直接阅读声明。文字目录会有所帮助，但复述或复制粘贴类型定义的目录会在字段发生变化时立即腐化，而不同步的类型文档比没有文档更糟，因为读者会信任它。
 
-因此，这项工作有两个相互交织的问题：**这样的目录应包含什么**（范围问题——harness 有数十种跨包边界的类型，把它们全部倾倒进来对谁都没有帮助），以及**如何避免粘贴的类型定义发生漂移**（持久性问题）。本 Agent Note 记下了这两项决策。与它配套的[生成的 Cordis 事件与服务目录](2026-06-20-generated-cordis-catalog.md)从*接线*维度形成补充：本文对数据结构编目，另一篇则对传递这些结构的事件和服务编目。
+因此，这项工作有两个相互交织的问题：**这样的目录应包含什么**（范围问题——harness 有数十种跨包边界的类型，把它们全部倾倒进来对谁都没有帮助），以及**如何避免粘贴的类型定义发生漂移**（持久性问题）。本 Agent Note 记下了这两项决策。与它历史上配套的[已归档的 Cordis 事件与服务目录自动生成决策](../../archived/process/2026-06-20-generated-cordis-catalog.md)从*接线*维度形成补充：本文对数据结构编目，另一篇则对传递这些结构的事件和服务编目。
 
 ## 决策
 
@@ -50,7 +50,7 @@ Status: implemented
 
 主干与 seam 规则在采纳前经过了 `BashExecRequest`、工具 schema 与定义、schema DSL、展示类型以及会话/持久化拆分的逐一测试。
 
-`verify-type-equiv` 必须扫描完整的 Markdown 范围，而不仅是 manifest 点名的文档。否则，未列入清单的 `type-equiv` 块就会逃过所宣称的一一检查。因此，门禁会将此类块报告为未列入清单的块。本 Agent Note 将这条默认拒绝放行的扫描规则，连同主干与 seam 的分界决策及逐字匹配决策一并记录；生成的 Cordis 目录在[其 Agent Note](2026-06-20-generated-cordis-catalog.md) 中有对称的设计记录。
+`verify-type-equiv` 必须扫描完整的 Markdown 范围，而不仅是 manifest 点名的文档。否则，未列入清单的 `type-equiv` 块就会逃过所宣称的一一检查。因此，门禁会将此类块报告为未列入清单的块。本 Agent Note 将这条默认拒绝放行的扫描规则，连同主干与 seam 的分界决策及逐字匹配决策一并记录；生成的 Cordis 目录在[其已归档的 Agent Note](../../archived/process/2026-06-20-generated-cordis-catalog.md) 中有对称的设计记录。
 
 ## 后果
 

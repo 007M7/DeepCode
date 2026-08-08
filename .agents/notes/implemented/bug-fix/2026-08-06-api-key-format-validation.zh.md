@@ -12,7 +12,7 @@ Status: implemented
 
 同样的输入在 `llm-pi-ai` 上更糟。它的探测路径在 [discovery.ts](../../../../packages/llm/llm-pi-ai/src/discovery.ts) 里用裸 `fetch` 构造同一个 header，并把一切失败包装成 `could not reach <url>`，于是一个本地的 Key 故障被报成网络不可达。这条探测在保存之前就够得着：`ProviderEditor` 把用户输入的 `keyDraft` 直接放进探测请求，所以「获取模型列表」按钮会在任何东西落盘之前就把非法 Key 发出去。
 
-空白字符能通过每一道检查。`ProviderEditor` 判的是 `keyDraft.length`，`resolveAdapterOptions` 判的是 `config.apiKey.length`，于是三个空格构成的 Key 会被存下，随后以 `Bearer` 加若干空格去认证。`llm-pi-ai` 在 `resolveProfiles` 中拒绝空的字面量 `apiKey`，却对来自凭据或环境的 Key 完全不做检查——而那正是模型设置页写入的路径，也就是用户真正走的路径。
+空白字符能通过每一道检查。`ProviderEditor` 判的是 `keyDraft.length`，于是三个空格构成的 Key 会被存下，随后以 `Bearer` 加若干空格去认证。两个适配器都不检查来自凭据或环境的 Key——而那正是 Models 页写入的路径，也就是用户真正走的路径。
 
 来源：deepseek-harness#1594 与 #1595；dsh-external#247、#249、#266、#210。
 
@@ -32,13 +32,13 @@ Status: implemented
 
 ### 「没有 Key」是一种配置状态，不是缺失
 
-在这里，「没有 API Key」意味着三件完全不同的事，其中只有一件是错误。规则作用于**已提供**的值；至于究竟有没有提供，由各个调用方自行判断。
+规则作用于*已提供*的值；至于究竟有没有提供，由各个调用方自行判断。
 
-**未指定。** 既不写 `apiKey` 也不写 `apiKeyEnv` 的 profile，是由 harness 所持有的 Key 之外的东西来鉴权的。[provider.ts](../../../../packages/llm/llm-pi-ai/src/provider.ts) 中的 `routeAuth` 保留内置 catalog provider 自身的鉴权，正是为了让 provider 原生的 ambient 发现得以存活；而该 catalog 附带的 `openai-codex` 通过 OAuth 鉴权，并会直接拒绝一个显式的 Key。`namesCredential` 承载着这一区分。在 `llm-deepseek` 中，缺省的 `apiKey` 同样会回落到 `apiKeyEnv`。未指定的情形永不参与校验。
+**未点名凭据。** 省略 `apiKeyEnv` 的 pi-ai profile 可以在 harness 持有的凭据路径之外鉴权。[provider.ts](../../../../packages/llm/llm-pi-ai/src/provider.ts) 中的 `routeAuth` 保留内置 catalog provider 自身的鉴权，正是为了让 provider 原生的 ambient 发现继续工作；而该 catalog 附带的 `openai-codex` 通过 OAuth 鉴权。`namesCredential` 承载这一区分；省略不是需要校验的值。
 
 **Web UI 中留空的输入框。** 即便某个 provider 的 Key 已经存好，该输入框也是空着打开的——`keyStored` 的文案写的是「已配置——输入新值以替换」——所以留空意味着*保持已存储的值*。`ProviderEditor` 在草稿为空时完全跳过 `credentials.set`，这一点保持不变：留空绝不拦截提交，否则改一个 base URL 都得重新输一遍 Key。
 
-**已提供，但为空或纯空白。** 它意味着什么，取决于「缺失」在该界面上选中了什么，而两个适配器的差异是有依据的。在 `llm-pi-ai` 中它是错误，因为那里的缺失切换的是**鉴权方式**——转向内置 provider 的 ambient 发现或 OAuth——因此一个空 Key 究竟想选哪一种是真有歧义；它的措辞指明了合法替代路径而非单纯拒绝（*has an empty apiKey; omit it to use ambient authentication*）。在 `llm-deepseek` 中，缺失只是为同一把 Key 选择了另一个**来源** `apiKeyEnv`，因此空白字面量会像缺省一样经该回落解析。在浏览器中它始终是失败，两张卡片皆然：字段是人刚刚敲过字的地方，静默丢弃他敲进去的内容永远不是正确答案。
+**解析得到的值只含空白。** 两个适配器都将其视为非法，因为它无法为请求鉴权。在浏览器中，这同样是字段级失败：字段是人刚刚敲过字的地方，静默丢弃他敲进去的内容永远不是正确答案。
 
 因此 `normalizeApiKey` 接受 `string`，而绝非 `string | undefined`。
 
@@ -55,9 +55,7 @@ Status: implemented
 | 界面 | 行为 |
 |---|---|
 | `dsh-llm` | 拥有 `normalizeApiKey`、`assertUsableApiKey` 与 `INVALID_CREDENTIAL_CODE`，后者刻意不进 `DEFAULT_RETRYABLE_CODES`。 |
-| `llm-deepseek` `resolveAdapterOptions` | 拒绝标头无法承载的字面量 `apiKey`，与其他超出 schema 的边界检查并排；使用 trim 后的值。缺省或空白的 `apiKey` 回落到 `apiKeyEnv`。 |
 | `llm-deepseek` `resolveApiKey` | 归一化凭据 seam 或环境返回的值，以 `INVALID_CREDENTIAL` 拒绝，消息指明模型设置页，绝不回显 Key。 |
-| `llm-pi-ai` `resolveProfiles` | 施加这条共享规则，保留其「omit it to use ambient authentication」的措辞，并把 trim 后的值写进解析后的 profile。 |
 | `llm-pi-ai` `resolveApiKey` | 归一化凭据与环境路径。不指定任何凭据的 profile 仍返回 `undefined`，ambient 与 OAuth 路由不受影响。 |
 | `llm-pi-ai` `discoverModels` | 在构造 header 之前归一化，使非法 Key 成为凭据故障而非端点不可达。不带 Key 的探测保持未鉴权。 |
 | `ui-models` | 镜像字符集规则，加入形状启发式，在探测与 `credentials.set` 之前 trim `keyDraft`，并修正 `stringAt` 的空值判断。留空的输入框仍是可以提交的空操作；只含空白的输入框则是字段级失败。提交**与端点探测**同时受拦截，因此被拒绝的密钥不会白花一次往返去换取字段上已经写明的答案；失败呈现在字段上，与既有的 `modelFailure` 模式一致。 |
@@ -67,8 +65,6 @@ Status: implemented
 `credentials-local` 刻意不动。它存储各类凭据，而可打印 ASCII 是 HTTP header 的约束而非凭据存储的约束；它既有的、拒绝任何 dotenv 样式都无法表示的值的行为保持原样。
 
 ## Alternatives considered
-
-**在 `apiKey` schema 字段上加 `.pattern()`。** vendor 中的 schemastery 支持它，且该 pattern 会随命名空间 schema 一同序列化到浏览器——一条规则，投递而非镜像。它落败于 pattern 无法先行 trim：那样 `cordis.yml` 会拒绝带首尾空白的 Key 而 `.env` 却容忍，resolver 与 schema 会对同一个字符串给出分歧。在 `resolveAdapterOptions` 中校验可以让每一层都是 trim-then-validate，而该函数本就是本包重新裁定 schema 无法表达的边界之处。
 
 **由 client 与 host 共享一个校验模块。** 被 source plane 布局否决：client 包只 reference client 包外加 `vendor/cordis` 与 `support/invariants`，把它放宽到够得着 host 包会撞上这一分割本就要隔开的两份 `Context` 合并。在两侧各镜像一行断言并各配一份测试，是此处的既定形态。
 
@@ -100,7 +96,7 @@ Status: implemented
 
 `packages/llm/llm/tests/api-key.spec.ts` 以整张输入表驱动 `normalizeApiKey` 与 `assertUsableApiKey`——空值、纯空白、带首尾空白、含中间空格、C0 控制字符、emoji、中文、全角、latin-1，以及可打印 ASCII 的边界字符——并钉住一次拒绝携带 `INVALID_CREDENTIAL` 且不含 Key 的任何部分。
 
-`packages/llm/llm-deepseek/tests/` 在 `adapter.spec.ts` 中覆盖字面量配置路径，在 `dynamic-config.spec.ts` 中经真实凭据 seam（而非 stub）端到端覆盖已存储凭据路径。`packages/llm/llm-pi-ai/tests/` 覆盖 `resolveProfiles`——包括 trim 后的值确实到达解析后的 profile，否则会被 `...rest` 展开丢弃——以及探测路径，包括不带 Key 的探测不会发出 `authorization` 标头。
+`packages/llm/llm-deepseek/tests/` 在 `dynamic-config.spec.ts` 中经真实凭据 seam（而非 stub）端到端覆盖已存储凭据路径。`packages/llm/llm-pi-ai/tests/` 覆盖探测路径，包括不带 Key 的探测不会发出 `authorization` 标头。
 
 `packages/client/ui-models/tests/` 以同一张表加上形状用例钉住 `apiKeyFailure`，并驱动两张卡片：留空的输入框可提交且不写入凭据、只含空白的输入框在字段上失败、非法或被包裹的 Key 同时拦截提交与探测、带首尾空白的 Key 在 `credentials.set` 与探测之前被 trim，以及手工声明的路由可以完全不带 Key 创建。
 

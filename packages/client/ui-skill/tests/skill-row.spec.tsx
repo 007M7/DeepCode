@@ -56,7 +56,7 @@ describe('SkillRow', () => {
     const row = screen.getByRole('button', { name: 'Skilldsh-manage-issues' })
     expect(row.getAttribute('aria-expanded')).toBe('false')
     expect(view.container.querySelector('[data-tool="skill"]')?.getAttribute('data-state')).toBe('ok')
-    expect(view.container.querySelector('[data-tool="skill"] svg')?.getAttribute('width')).toBe('16')
+    expect(view.container.querySelector('[data-tool="skill"] svg')?.getAttribute('width')).toBe('14')
     expect(screen.queryByLabelText('说明')).toBeNull()
 
     fireEvent.click(row)

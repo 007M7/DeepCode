@@ -1,30 +1,58 @@
 /**
- * File-backed credentials provider layering the live process environment over
- * a `$DSH_HOME/.env` document. The environment is authoritative and read-only
- * (a launch-time override must win, and must be visibly read-only rather than
- * silently shadow writes); the file is the provider-managed writable source:
- * every write re-reads the document under a cross-process writer lock before
- * rewriting only its own line — preserving every other byte, physical line
- * endings and quoted multi-line values included — external edits hot-publish
- * through the seam, and each reload replaces the snapshot wholesale so a
- * deleted entry never lingers in memory.
+ * File-backed credentials provider over `$DSH_HOME/.credentials.yaml`, layered
+ * against the environment by how much each layer is trusted:
+ *
+ * ```text
+ * inherited process environment      (read-only, wins)
+ * > $DSH_HOME/.credentials.yaml      (provider-managed, writable)
+ * > <invocation cwd>/.env            (read-only fallback)
+ * > $DSH_HOME/.env                   (read-only fallback)
+ * ```
+ *
+ * The inherited environment wins because `DEEPSEEK_API_KEY=… dsh`, a CI
+ * secret, or a container `-e` is this run's explicit intent; it cannot be
+ * edited from inside, so it must be *visibly* read-only rather than silently
+ * shadow writes. Everything below it loses to the managed store, so a key the
+ * Models page writes takes effect immediately even when an older key sits in
+ * the user's `.env`.
+ *
+ * The invoking project may supply a key, because the product trusts the
+ * project it is launched in. It ranks below the managed store, so a key stored
+ * through the Models page is never displaced by one a checkout happens to carry.
+ *
+ * The file is the provider-managed writable source: every write re-reads the
+ * document under a cross-process writer lock before patching only its own key
+ * — comments and the formatting of every untouched entry survive — external
+ * edits hot-publish through the seam, and each reload replaces the snapshot
+ * wholesale so a deleted entry never lingers in memory.
+ *
+ * The document holds nothing but credentials, which is why it is a strict
+ * `CredentialRef`-to-string mapping rather than a dotenv file: a store the
+ * Harness owns and never materializes into the environment cannot also serve
+ * as the user's environment layer, and conflating the two is what made a
+ * non-secret in the old `$DSH_HOME/.env` silently unreachable.
  * @module @deepseek-ai/dsh-credentials-local
  */
 
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
 import { watch as chokidarWatch } from 'chokidar'
-import { mkdir, readFile } from 'node:fs/promises'
+import { mkdir, readFile, stat } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
-import { parse } from 'dotenv'
+import { Document, parseDocument, type YAMLError } from 'yaml'
 import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { resolveDshHome } from '@deepseek-ai/dsh-paths'
+import { environmentOf } from '@deepseek-ai/dsh-environment'
 import { Credentials, credentialRef } from '@deepseek-ai/dsh-credentials'
 import type { CredentialInfo, CredentialRef, ResolvedCredential } from '@deepseek-ai/dsh-credentials'
+import type { EnvironmentEntry } from '@deepseek-ai/dsh-environment'
+
+/** Basename of the credentials document inside the harness home. */
+export const CREDENTIALS_FILENAME = '.credentials.yaml'
 
 /** Plugin config: file location and hot-reload behavior. */
 export interface Config {
-  /** Credentials document path; defaults to `.env` under the harness home. */
+  /** Credentials document path; defaults to `.credentials.yaml` under the harness home. */
   path?: string
   /** Harness home used when `path` is omitted; defaults to `$DSH_HOME` or `~/.dsh`. */
   dshHome?: string
@@ -43,16 +71,50 @@ interface ResolvedSpec {
 
 /**
  * Resolve the runtime spec from plugin config: an explicit `path` wins,
- * otherwise the document lives at `<harness home>/.env`.
+ * otherwise the document lives at `<harness home>/.credentials.yaml`.
  * @param config - raw plugin config.
  * @returns the resolved file location and watch behavior.
  */
 export function resolveSpec(config: Config): ResolvedSpec {
   return {
-    filename: resolve(config.path ?? join(resolveDshHome(config.dshHome), '.env')),
+    filename: resolve(config.path ?? join(resolveDshHome(config.dshHome), CREDENTIALS_FILENAME)),
     watch: config.watch ?? true,
     debounceMs: config.debounceMs ?? 100,
   }
+}
+
+/** Permission bits outside the owner; a credentials document must have none of them. */
+const GROUP_OTHER_BITS = 0o077
+
+/**
+ * Reject a credentials document other OS users can read, before its contents
+ * are read at all. The provider creates and replaces the file at `0600`, but a
+ * hand-written or externally generated one carries whatever umask produced it,
+ * and silently serving secrets out of a world-readable file would make the
+ * mode the provider promises meaningless.
+ *
+ * POSIX only: Windows has no mode to inspect — its ACLs are not expressible
+ * here — so the check is skipped rather than faked, and the file's protection
+ * there is whatever the create and replace APIs express.
+ * @param filename - absolute path of the document.
+ * @throws when the file exists with group or other permission bits set.
+ */
+async function assertOwnerOnly(filename: string): Promise<void> {
+  /* v8 ignore next -- native Windows coverage exercises the skip; POSIX covers the check */
+  if (process.platform === 'win32') return
+  let mode: number
+  try {
+    mode = (await stat(filename)).mode
+  } catch (error) {
+    if (!isENOENT(error)) throw error
+    return
+  }
+  const offending = mode & GROUP_OTHER_BITS
+  if (offending === 0) return
+  throw new Error(
+    `credentials-local: ${filename} is readable beyond its owner (mode ${(mode & 0o777).toString(8)});`
+    + ` run "chmod 600 ${filename}" before starting again`,
+  )
 }
 
 /** Whether a filesystem error means absence; every non-ENOENT failure must surface. */
@@ -60,129 +122,84 @@ function isENOENT(error: unknown): boolean {
   return (error as NodeJS.ErrnoException | null)?.code === 'ENOENT'
 }
 
-/** Values that survive a dotenv round-trip without quoting. */
-const BARE_VALUE = /^[A-Za-z0-9_@%+:,./-]+$/
-
-/** Whether a value contains C0 control characters (newlines included) no dotenv style reads back. */
-function hasControlCharacters(value: string): boolean {
-  for (const char of value) {
-    if (char.charCodeAt(0) < 0x20) return true
-  }
-  return false
+/**
+ * Describe one YAML parse failure without quoting the source. The parser's own
+ * message embeds the offending line, which here holds a secret.
+ * @param error - the parser's error.
+ * @returns the error code with its line and column.
+ */
+function describeYamlError(error: YAMLError): string {
+  const at = error.linePos?.[0]
+  /* v8 ignore next -- `prettyErrors` populates linePos on every error; the guard answers its optional type */
+  const where = at === undefined ? '' : ` at line ${String(at.line)}, column ${String(at.col)}`
+  return `${error.code}${where}`
 }
 
 /**
- * Render one `KEY=value` line in the narrowest style dotenv reads back
- * verbatim: bare, then single quotes (fully literal), then double quotes
- * (safe only without backslashes, which double-quote reading expands).
- * A value no style can represent fails loud instead of corrupting silently.
+ * Parse one credentials document into its entries. The document is a strict
+ * mapping of {@link CredentialRef} to non-empty string: a non-mapping root, a
+ * key that is not a POSIX identifier, a non-string value, and an empty string
+ * are all rejected rather than skipped, because this file holds nothing but
+ * credentials and a silently ignored entry reads as "the key I stored has no
+ * effect". Duplicate keys surface as parser errors. An empty document is an
+ * empty store.
+ * @param text - the document's text.
+ * @param filename - absolute path, quoted in errors.
+ * @returns the parsed entries, keyed by reference.
  */
-function renderLine(ref: CredentialRef, value: string): string {
-  if (BARE_VALUE.test(value)) return `${ref}=${value}`
-  if (hasControlCharacters(value)) {
-    throw new Error(`credentials-local: the value for "${ref}" contains control characters the .env line format cannot represent`)
+export function parseCredentialsDocument(text: string, filename: string): Map<string, string> {
+  // `prettyErrors` is on only for `linePos`; `error.message` is never used,
+  // because the parser quotes the offending source line and in this document
+  // that line is a secret. Only the code and position leave this function, and
+  // the same rule governs every other diagnostic here — a key name is safe to
+  // print, a value is not.
+  const document = parseDocument(text, { prettyErrors: true, uniqueKeys: true })
+  if (document.errors.length > 0) {
+    throw new Error(`credentials-local: invalid document at ${filename}: ${
+      document.errors.map(describeYamlError).join('; ')}`)
   }
-  if (!value.includes('\'')) return `${ref}='${value}'`
-  if (!value.includes('"') && !value.includes('\\')) return `${ref}="${value}"`
-  throw new Error(`credentials-local: the value for "${ref}" mixes quoting no .env style can represent; edit the file directly`)
-}
-
-/** Split text into physical lines with their terminators attached. */
-function physicalLines(text: string): string[] {
-  return text.length === 0 ? [] : text.split(/(?<=\n)/)
-}
-
-/** One physical line's content without its terminator. */
-function lineContent(line: string): string {
-  if (line.endsWith('\r\n')) return line.slice(0, -2)
-  if (line.endsWith('\n')) return line.slice(0, -1)
-  return line
-}
-
-/** One physical line's terminator (empty on a final unterminated line). */
-function lineTerminator(line: string): string {
-  return line.slice(lineContent(line).length)
-}
-
-/** An assignment line: optional export, a POSIX identifier, `=`, the value part. */
-const ASSIGNMENT = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$/
-
-/** Quote characters dotenv reads across physical lines. */
-const MULTILINE_QUOTES = ['\'', '"', '`']
-
-/**
- * The quote character an assignment's value part opens without closing on its
- * own line — the following physical lines are that value's continuation, not
- * assignments — or `undefined` for a single-line value.
- */
-function opensMultiline(valuePart: string): string | undefined {
-  const trimmed = valuePart.trimStart()
-  const quote = trimmed[0]
-  if (quote === undefined || !MULTILINE_QUOTES.includes(quote)) return undefined
-  const rest = trimmed.slice(1)
-  const body = quote === '"' ? rest.replaceAll('\\"', '') : rest
-  return body.includes(quote) ? undefined : quote
-}
-
-/** Whether a continuation line closes the given quote. */
-function closesQuote(content: string, quote: string): boolean {
-  const body = quote === '"' ? content.replaceAll('\\"', '') : content
-  return body.includes(quote)
+  const root: unknown = document.toJS() ?? {}
+  if (typeof root !== 'object' || root === null || Array.isArray(root)) {
+    throw new TypeError(`credentials-local: ${filename} must be a mapping of credential reference to value`)
+  }
+  const entries = new Map<string, string>()
+  for (const [key, value] of Object.entries(root as Record<string, unknown>)) {
+    // credentialRef throws on anything that is not a POSIX identifier, which
+    // is exactly the constraint a stored reference must satisfy to be
+    // addressable through the seam.
+    credentialRef(key)
+    // The key name is quoted, never the value: a wrong-typed entry is still a
+    // secret the user meant to store.
+    if (typeof value !== 'string') {
+      throw new TypeError(`credentials-local: the value for "${key}" in ${filename} must be a string`)
+    }
+    if (value.length === 0) {
+      throw new Error(`credentials-local: the value for "${key}" in ${filename} is empty; remove the key instead`)
+    }
+    entries.set(key, value)
+  }
+  return entries
 }
 
 /**
- * Replace, insert, or delete one reference's assignment while preserving
- * every other byte: untouched lines keep their exact content and terminators
- * (CRLF included), and the physical lines inside another key's quoted
- * multi-line value are never mistaken for assignments. The first matching
- * assignment is rewritten in place with its own line ending; later duplicates
- * drop (dotenv reads the last one, so a surviving duplicate would override
- * the edit); an insert appends in the document's dominant ending style.
+ * Render the next document text with one reference set or deleted. Editing
+ * the parsed document rather than rebuilding it keeps comments and the
+ * formatting of every untouched entry; an absent document starts a fresh one.
+ * @param text - the current document text, `undefined` while the file is absent.
+ * @param ref - the reference to write.
+ * @param value - the new value, or `undefined` to delete the key.
+ * @returns the text to persist.
  */
-function upsertLine(text: string | undefined, ref: CredentialRef, rendered: string | undefined): string {
-  const lines = physicalLines(text ?? '')
-  const dominant = lines.some(line => line.endsWith('\r\n')) ? '\r\n' : '\n'
-  const out: string[] = []
-  let placed = false
-  let pendingQuote: string | undefined
-  for (const line of lines) {
-    const content = lineContent(line)
-    if (pendingQuote !== undefined) {
-      // Inside a quoted multi-line value: never an assignment, always kept.
-      if (closesQuote(content, pendingQuote)) pendingQuote = undefined
-      out.push(line)
-      continue
-    }
-    const match = ASSIGNMENT.exec(content)
-    if (match === null) {
-      out.push(line)
-      continue
-    }
-    const [, key, valuePart] = match
-    if (key !== ref) {
-      /* v8 ignore next -- the value group is `(.*)`, which always participates; the fallback only satisfies noUncheckedIndexedAccess */
-      pendingQuote = opensMultiline(valuePart ?? '')
-      out.push(line)
-      continue
-    }
-    // The write path refuses multi-line targets before rendering, so the
-    // matched assignment is single-line and drops or rewrites wholesale.
-    if (rendered !== undefined && !placed) {
-      out.push(`${rendered}${lineTerminator(line) === '' ? dominant : lineTerminator(line)}`)
-      placed = true
-    }
-  }
-  if (rendered !== undefined && !placed) {
-    const last = out[out.length - 1]
-    if (last !== undefined && lineTerminator(last) === '') {
-      out[out.length - 1] = `${last}${dominant}`
-    }
-    out.push(`${rendered}${dominant}`)
-  }
-  return out.join('')
+function renderDocument(text: string | undefined, ref: CredentialRef, value: string | undefined): string {
+  // `text` only ever caches content that parsed successfully, so this re-parse
+  // for the mutable comment-preserving tree cannot fail.
+  const document = text === undefined ? new Document({}) : parseDocument(text)
+  if (value === undefined) document.deleteIn([ref])
+  else document.setIn([ref], value)
+  return document.toString()
 }
 
-/** File-backed credentials provider (`$DSH_HOME/.env`). */
+/** File-backed credentials provider (`$DSH_HOME/.credentials.yaml`). */
 export class CredentialsLocal extends Credentials {
   /* jscpd:ignore-start -- deliberate config-surface and lifecycle symmetry with
      settings-local (prefer symmetry for parallel values); extracting the shared
@@ -223,6 +240,22 @@ export class CredentialsLocal extends Credentials {
     // Programmatic construction may bypass Schemastery normalization; resolve
     // the same defaults in one explicit step either way.
     this.spec = resolveSpec(config)
+  }
+
+  /** The inherited-environment value for a reference, or `undefined` when empty or unset. */
+  private inherited(ref: CredentialRef): string | undefined {
+    const entry = environmentOf(this.ctx).getFrom(ref, ['process'])
+    return entry !== undefined && entry.value.length > 0 ? entry.value : undefined
+  }
+
+  /**
+   * The `.env` fallback for a reference — below the managed store, never above
+   * it. The invoking project ranks over the user's home file, matching the
+   * environment layering: the more specific location wins.
+   */
+  private dotenvFallback(ref: CredentialRef): EnvironmentEntry | undefined {
+    const entry = environmentOf(this.ctx).getFrom(ref, ['project-env', 'user-env'])
+    return entry !== undefined && entry.value.length > 0 ? entry : undefined
   }
 
   async* [Service.init](): AsyncGenerator<() => Promise<void> | void, void, void> {
@@ -270,24 +303,26 @@ export class CredentialsLocal extends Credentials {
   }
 
   override resolve(ref: CredentialRef): Promise<ResolvedCredential | undefined> {
-    const env = process.env[ref]
-    if (env !== undefined && env.length > 0) return Promise.resolve({ value: env, source: 'env' })
+    const inherited = this.inherited(ref)
+    if (inherited !== undefined) return Promise.resolve({ value: inherited, source: 'env' })
     const stored = this.values.get(ref)
-    if (stored !== undefined && stored.length > 0) return Promise.resolve({ value: stored, source: 'file' })
+    if (stored !== undefined) return Promise.resolve({ value: stored, source: 'file' })
+    const fallback = this.dotenvFallback(ref)
+    if (fallback !== undefined) return Promise.resolve({ value: fallback.value, source: fallback.source })
     return Promise.resolve(undefined)
   }
 
   override describe(ref: CredentialRef): Promise<CredentialInfo> {
-    const env = process.env[ref]
-    if (env !== undefined && env.length > 0) {
+    // Only the inherited environment is unwritable: it is the one layer this
+    // process cannot edit. A user `.env` value is writable in the sense that
+    // matters — storing a key replaces it as the effective one.
+    if (this.inherited(ref) !== undefined) {
       return Promise.resolve({ configured: true, source: 'env', writable: false })
     }
     const stored = this.values.get(ref)
-    if (stored !== undefined && stored.length > 0) {
-      // A quoted multi-line value resolves fine but the line editor refuses to
-      // rewrite it, so writability must say what set() would actually do.
-      return Promise.resolve({ configured: true, source: 'file', writable: !stored.includes('\n') })
-    }
+    if (stored !== undefined) return Promise.resolve({ configured: true, source: 'file', writable: true })
+    const fallback = this.dotenvFallback(ref)
+    if (fallback !== undefined) return Promise.resolve({ configured: true, source: fallback.source, writable: true })
     return Promise.resolve({ configured: false, writable: true })
   }
 
@@ -350,12 +385,7 @@ export class CredentialsLocal extends Credentials {
         await this.reconcileFromDisk()
         const existing = this.values.get(ref)
         if (value === undefined && existing === undefined) return
-        if (existing !== undefined && existing.includes('\n')) {
-          throw new Error(
-            `credentials-local: "${ref}" is a multi-line entry this line editor would corrupt; edit ${this.spec.filename} directly`,
-          )
-        }
-        const nextText = upsertLine(this.text, ref, value === undefined ? undefined : renderLine(ref, value))
+        const nextText = renderDocument(this.text, ref, value)
         // 0600: a document holding secrets is never world-readable.
         await writeFileAtomic(this.spec.filename, nextText, { mode: 0o600, dirMode: 0o700 })
         this.text = nextText
@@ -368,19 +398,27 @@ export class CredentialsLocal extends Credentials {
     })
   }
 
-  /** Reject a write the live environment would shadow into apparent no-effect. */
+  /**
+   * Reject a write the inherited environment would shadow into apparent
+   * no-effect. Only that layer can shadow a write: everything else this
+   * provider resolves ranks below the document being written.
+   */
   private assertUnshadowed(ref: CredentialRef, verb: 'set' | 'unset'): void {
-    const env = process.env[ref]
-    if (env !== undefined && env.length > 0) {
+    if (this.inherited(ref) !== undefined) {
       throw new Error(
-        `credentials-local: "${ref}" is supplied read-only by the process environment, so ${verb} would be`
-        + ' shadowed; change the launching environment instead',
+        `credentials-local: "${ref}" is supplied read-only by the launching environment, so ${verb} would be`
+        + ' shadowed; unset it in the shell you start dsh from instead',
       )
     }
   }
 
-  /** Boot read: an absent file is an empty store; any other failure is loud. */
+  /**
+   * Boot read: an absent file is an empty store; an invalid one fails the
+   * plugin's activation, because a credentials document that exists but
+   * cannot be trusted must never be treated as "no credentials stored".
+   */
   private async loadInitial(): Promise<void> {
+    await assertOwnerOnly(this.spec.filename)
     let text: string
     try {
       text = await readFile(this.spec.filename, 'utf8')
@@ -388,8 +426,8 @@ export class CredentialsLocal extends Credentials {
       if (!isENOENT(error)) throw error
       return
     }
+    this.values = parseCredentialsDocument(text, this.spec.filename)
     this.text = text
-    this.values = new Map(Object.entries(parse(text)))
   }
 
   /* jscpd:ignore-start -- same deliberate mirror of settings-local's reload and
@@ -415,12 +453,15 @@ export class CredentialsLocal extends Credentials {
 
   /**
    * Compare the on-disk text against the cache and publish any difference
-   * into the seam. Absence publishes the empty store; an unreadable file
-   * throws, so each caller picks its policy — a reload warns and keeps the
-   * last good snapshot, a write fails loud. dotenv parsing is lenient by
-   * design and cannot fail.
+   * into the seam. Absence publishes the empty store; an unreadable or
+   * invalid document throws, so each caller picks its policy — a reload warns
+   * and keeps the last good snapshot, a write fails loud rather than
+   * overwriting a document it could not understand.
    */
   private async reconcileFromDisk(): Promise<void> {
+    // Re-checked on every reload and before every write: an external editor or
+    // a restored backup can loosen the mode after boot.
+    await assertOwnerOnly(this.spec.filename)
     let text: string | undefined
     try {
       text = await readFile(this.spec.filename, 'utf8')
@@ -429,7 +470,7 @@ export class CredentialsLocal extends Credentials {
       text = undefined
     }
     if (text === this.text || this.isClosed()) return
-    const next = text === undefined ? new Map<string, string>() : new Map(Object.entries(parse(text)))
+    const next = text === undefined ? new Map<string, string>() : parseCredentialsDocument(text, this.spec.filename)
     const changed = this.changedRefs(this.values, next)
     this.text = text
     this.values = next
@@ -437,21 +478,12 @@ export class CredentialsLocal extends Credentials {
   }
   /* jscpd:ignore-end */
 
-  /** Seam-addressable entries whose effective (non-empty) value changed. */
+  /** Entries whose stored value changed; the parser has already proven every key addressable. */
   private changedRefs(prev: Map<string, string>, next: Map<string, string>): CredentialRef[] {
     const changed: CredentialRef[] = []
     for (const key of new Set([...prev.keys(), ...next.keys()])) {
-      const before = prev.get(key)
-      const after = next.get(key)
-      const effectiveBefore = before !== undefined && before.length > 0 ? before : undefined
-      const effectiveAfter = after !== undefined && after.length > 0 ? after : undefined
-      if (effectiveBefore === effectiveAfter) continue
-      try {
-        changed.push(credentialRef(key))
-      } catch (_unaddressableKey) {
-        // A key that is not a POSIX identifier is preserved file content the
-        // seam cannot address, so no observer could ever see it change.
-      }
+      if (prev.get(key) === next.get(key)) continue
+      changed.push(credentialRef(key))
     }
     return changed
   }

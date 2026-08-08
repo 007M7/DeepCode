@@ -94,6 +94,59 @@ export interface SchemaModel extends DocumentationModel {
   readonly type: TypeNodeId
 }
 
+/** One public business type import retained for a generated Remote declaration. */
+export interface RemoteTypeImportModel {
+  readonly symbol: SymbolId
+  readonly specifier: string
+  readonly name: string
+}
+
+/** One strict wire boundary and the public symbols needed to name it. */
+export interface RemoteBoundaryModel {
+  /** Authored public type retained for generated consumer declarations. */
+  readonly type: TypeNodeId
+  /** Checker-resolved projection used only to emit the runtime codec. */
+  readonly codecType: TypeNodeId
+  readonly typeSymbol: string
+  readonly imports: readonly RemoteTypeImportModel[]
+}
+
+/** One ordered business argument projected onto a Remote wire field. */
+export interface InvocationParameterModel {
+  readonly name: string
+  readonly wire: string
+  readonly source: 'json' | 'lookup'
+  readonly lookup?: string
+  readonly boundary: RemoteBoundaryModel
+}
+
+/** One strictly analyzed Host method exported through TypeRT Gateway. */
+export interface InvocationModel {
+  readonly id: string
+  readonly service: string
+  readonly namespace: string
+  readonly method: string
+  readonly implementation?: string
+  readonly invocation:
+    | { readonly kind: 'direct' }
+    | {
+      readonly kind: 'context'
+      readonly context: string
+      readonly wire: string
+      readonly boundary: RemoteBoundaryModel
+    }
+  readonly scope?: {
+    readonly context: string
+    readonly wire: string
+  }
+  readonly parameters: readonly InvocationParameterModel[]
+  readonly cancellation?: {
+    readonly parameter: 'signal'
+  }
+  readonly result: RemoteBoundaryModel
+  readonly location: SourceLocation
+}
+
 /** Business semantics discovered in one package on one face. */
 export interface PackageModel {
   readonly name: string
@@ -103,6 +156,7 @@ export interface PackageModel {
   readonly events: readonly EventModel[]
   readonly objects: readonly ObjectModel[]
   readonly schemas: readonly SchemaModel[]
+  readonly invocations: readonly InvocationModel[]
 }
 
 /** One explicit import/re-export edge between independently compiled faces. */
@@ -173,6 +227,10 @@ export interface SignatureModel {
 export interface MemberBase extends DocumentationModel {
   readonly id: string
   readonly name: string
+  /** JSON property name when a literal computed key differs from source text. */
+  readonly jsonName?: string
+  /** Non-literal computed keys; symbol keys are erased from JSON schemas. */
+  readonly computed?: 'symbol' | 'dynamic'
   readonly optional: boolean
   readonly readonly: boolean
   readonly async: boolean

@@ -21,7 +21,6 @@ function gatewayAdapter(): PiAiAdapter {
   return new PiAiAdapter({
     profiles: () => resolveProfiles({
       'local-gateway': {
-        apiKey: 'test-key',
         api: 'openai-completions',
         baseURL: 'http://127.0.0.1:9/v1',
         models: [{ id: 'local-model', contextWindow: 8192, maxTokens: 1024 }],

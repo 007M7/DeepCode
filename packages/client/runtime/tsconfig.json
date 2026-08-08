@@ -43,6 +43,12 @@
     },
     {
       "path": "../../support/invariants"
+    },
+    {
+      "path": "../../typert/type-meta"
+    },
+    {
+      "path": "../../typert/registry"
     }
   ],
   "exclude": [

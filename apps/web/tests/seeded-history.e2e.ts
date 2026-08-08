@@ -280,10 +280,10 @@ describe('web e2e: seeded history renders through cold resume', () => {
 
   it.skipIf(MODE === 'record')('matches the historical conversation aria golden', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-seeded-aria'))
-    // This scenario deliberately leaves the LLM seam open to prove zero
-    // model calls. History still restores the routed id, but without an
-    // advertised catalog row the selector prompts for a listed replacement.
-    await page.getByRole('button', { name: 'Select model', exact: true })
+    // This scenario issues zero model calls — the scaffold's route-only
+    // adapter serves the catalog and refuses to stream — so history restores
+    // the routed id and the seat resolves it against an advertised row.
+    await page.getByRole('button', { name: /^Select model, current/ })
       .waitFor({ timeout: 10_000 })
     const snapshot = (await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd))
       .split(SEED_ID).join('{{seededId}}')

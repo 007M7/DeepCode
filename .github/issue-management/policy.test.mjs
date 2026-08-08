@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   countVisibleUnits,
+  nextResolvingIssueStatus,
   parseReferences,
   retainIssueReferences,
   requiresPullRequestPolicy,
@@ -189,6 +190,49 @@ test('requires policy only after a human PR enters review', () => {
     }),
     false,
   )
+})
+
+test('advances resolving Issues to the live PR phase', () => {
+  const draft = { isDraft: true, reviewRequestCount: 1, reviewCount: 4 }
+  const open = { isDraft: false, reviewRequestCount: 0, reviewCount: 0 }
+  const requestedReview = { isDraft: false, reviewRequestCount: 1, reviewCount: 0 }
+  const submittedReview = { isDraft: false, reviewRequestCount: 0, reviewCount: 1 }
+
+  for (const status of ['Inbox', 'Backlog', 'Ready']) {
+    assert.equal(nextResolvingIssueStatus(status, draft), 'In progress')
+    assert.equal(nextResolvingIssueStatus(status, open), 'In progress')
+    assert.equal(nextResolvingIssueStatus(status, requestedReview), 'In review')
+    assert.equal(nextResolvingIssueStatus(status, submittedReview), 'In review')
+  }
+  assert.equal(nextResolvingIssueStatus('In progress', requestedReview), 'In review')
+  assert.equal(nextResolvingIssueStatus('In progress', submittedReview), 'In review')
+})
+
+test('never regresses or reopens a resolving Issue', () => {
+  const implementation = { isDraft: false, reviewRequestCount: 0, reviewCount: 0 }
+  const review = { isDraft: false, reviewRequestCount: 0, reviewCount: 1 }
+
+  assert.equal(nextResolvingIssueStatus('In progress', implementation), null)
+  assert.equal(nextResolvingIssueStatus('In review', implementation), null)
+  assert.equal(nextResolvingIssueStatus('In review', review), null)
+  assert.equal(nextResolvingIssueStatus('Done', review), null)
+  assert.equal(nextResolvingIssueStatus('No action', review), null)
+  assert.equal(nextResolvingIssueStatus(null, review), null)
+})
+
+test('keeps lifecycle projection independent of PR metadata enforcement', () => {
+  const pull = {
+    isDraft: false,
+    authorType: 'User',
+    reviewRequestCount: 1,
+    reviewCount: 0,
+    labels: [],
+    references: { all: [2], resolving: [2], related: [] },
+    issues: new Map([[2, { priority: null }]]),
+  }
+
+  assert.ok(validatePullRequest(pull).length > 0)
+  assert.equal(nextResolvingIssueStatus('Inbox', pull), 'In review')
 })
 
 test('exempts Draft, Bot, and App PRs', () => {
