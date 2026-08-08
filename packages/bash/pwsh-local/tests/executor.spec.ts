@@ -86,6 +86,13 @@ describe('resolvePwshPath and candidatePwshPaths (pure, every platform)', () => 
     expect(resolvePwshPath(undefined, { PATH: 'P:\\Store' }, 'darwin')).toBe('pwsh')
   })
 
+  it('uses stable Windows roots when the environment omits both overrides', () => {
+    expect(candidatePwshPaths({})).toEqual([
+      join('C:\\Program Files', 'PowerShell', '7', 'pwsh.exe'),
+      join('C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+    ])
+  })
+
   it('lists PowerShell 7, PATH entries (quotes stripped), then Windows PowerShell 5.1 on win32', () => {
     const candidates = candidatePwshPaths({
       ProgramFiles: 'P:\\Program Files',
