@@ -15,11 +15,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 }
 
-/**
- * `conversation` is an ordering edge: its service is published after the chat
- * entry has declared `conversation.chat.eventview`.
- */
-export const inject = ['slots', 'conversation', 'locale']
+export const inject = ['slots', 'locale']
 
 /**
  * Register bilingual copy and the Schedule reminder keyed row.
@@ -27,12 +23,12 @@ export const inject = ['slots', 'conversation', 'locale']
  */
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-schedule: dictionaries')
-  ctx.effect(
+  ctx.slots.inject(
+    'conversation.chat.eventview',
     () => ctx.slots.register({
       name: 'conversation.chat.eventview',
       key: 'schedule/change',
       locale: NS,
     }, ReminderRow),
-    'ui-schedule: reminder row registration',
   )
 }

@@ -1125,8 +1125,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
 
   /** Build one live controller whose write readiness retries the immutable initial prefix. */
   private createLiveState(session: Session): LiveSessionState {
-    let live: LiveSessionState
-    live = {
+    const live: LiveSessionState = {
       init: undefined,
       writes: this.createWriteBehind(session, () => this.ensureInitialized(session, live)),
     }

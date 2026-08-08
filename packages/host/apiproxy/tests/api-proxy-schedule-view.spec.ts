@@ -83,7 +83,7 @@ describe('commit-aware Schedule live views', () => {
     const ctx = await harness({
       handler: () => ++calls === 1 ? first.promise : true,
     })
-    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
+    const api = createApiProxy(ctx, { defaultTarget: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp', workspaceRoot: '/tmp' })
     const abort = new AbortController()
     const collected = collectEvents(
       api.events.mux({ rpcId: RpcId('schedule-live'), payload: {} }, abort.signal),
@@ -110,14 +110,14 @@ describe('commit-aware Schedule live views', () => {
         for: 'event',
         view: {
           scheduleId: 'schedule-1', prompt: 'first',
-          occurrenceAt: '2026-08-05T12:00:01.000Z', deliveryMode: 'session-local',
+          occurrenceAt: '2026-08-05T12:00:01.000Z',
         },
       },
       {
         for: 'event',
         view: {
           scheduleId: 'schedule-2', prompt: 'second',
-          occurrenceAt: '2026-08-05T12:00:01.000Z', deliveryMode: 'session-local',
+          occurrenceAt: '2026-08-05T12:00:01.000Z',
         },
       },
     ])
@@ -130,7 +130,7 @@ describe('commit-aware Schedule live views', () => {
     const ctx = await harness({
       handler: () => ++calls === 1 ? Promise.reject(new Error('disk unavailable')) : true,
     })
-    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
+    const api = createApiProxy(ctx, { defaultTarget: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp', workspaceRoot: '/tmp' })
     const abort = new AbortController()
     const collected = collectEvents(
       api.events.mux({ rpcId: RpcId('schedule-retry'), payload: {} }, abort.signal),
@@ -171,9 +171,9 @@ describe('Schedule history views', () => {
     })
     const child = ctx.sessions.fork(resumed, undefined, SessionId('schedule-fork'))
     ctx.provide('sessionPersistence', {
-      inspect: () => Promise.resolve({ meta: child.header, events: [...child.events] }),
+      readFrom: () => Promise.resolve({ meta: child.header, events: [...child.events] }),
     } as never)
-    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
+    const api = createApiProxy(ctx, { defaultTarget: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp', workspaceRoot: '/tmp' })
 
     const response = await api.sessions.history({
       rpcId: RpcId('schedule-resumed-fork'), payload: { sessionId: child.id },
@@ -185,7 +185,6 @@ describe('Schedule history views', () => {
         scheduleId,
         prompt: 'after restart',
         occurrenceAt: '2026-08-05T12:00:01.000Z',
-        deliveryMode: 'session-local',
       },
     })
     await ctx.fiber.dispose()
@@ -199,14 +198,14 @@ describe('Schedule history views', () => {
       seed: [...parent.events],
       meta: { cwd: '/tmp', parentSession: parent.id, seedLength: 2 },
     })
-    let inspect = (): Promise<{ meta: SessionHeader; events: SessionEvent[] }> => Promise.resolve({
+    let readFrom = (): Promise<{ meta: SessionHeader; events: SessionEvent[] }> => Promise.resolve({
       meta: session.header,
       events: [...session.events.slice(0, 1)],
     })
     ctx.provide('sessionPersistence', {
-      inspect: () => inspect(),
+      readFrom: () => readFrom(),
     } as never)
-    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
+    const api = createApiProxy(ctx, { defaultTarget: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp', workspaceRoot: '/tmp' })
     const history = async () => {
       const response = await api.sessions.history({
         rpcId: RpcId('schedule-history'), payload: { sessionId: session.id },
@@ -216,19 +215,19 @@ describe('Schedule history views', () => {
     }
 
     expect((await history()).find(entry => entry.event.seq === 1)?.view).toBeUndefined()
-    inspect = () => Promise.resolve({
+    readFrom = () => Promise.resolve({
       meta: { ...session.header, delegationDepth: 0 },
       events: [...session.events.slice(0, 2)],
     })
     expect((await history()).find(entry => entry.event.seq === 1)?.view).toMatchObject({
       for: 'event',
     })
-    inspect = () => Promise.resolve({
+    readFrom = () => Promise.resolve({
       meta: { ...session.header, cwd: '/different', delegationDepth: 0 },
       events: [...session.events.slice(0, 2)],
     })
     expect((await history()).find(entry => entry.event.seq === 1)?.view).toBeUndefined()
-    inspect = () => Promise.reject(new Error('inspect unavailable'))
+    readFrom = () => Promise.reject(new Error('physical read unavailable'))
     expect((await history()).find(entry => entry.event.seq === 1)?.view).toBeUndefined()
     await ctx.fiber.dispose()
   })
@@ -247,8 +246,9 @@ describe('Schedule history views', () => {
     ctx.provide('sessionPersistence', {
       list: () => Promise.resolve([meta]),
       inspect: () => Promise.resolve({ meta, events }),
+      readFrom: () => Promise.resolve({ meta, events }),
     } as never)
-    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
+    const api = createApiProxy(ctx, { defaultTarget: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp', workspaceRoot: '/tmp' })
     const response = await api.sessions.history({
       rpcId: RpcId('schedule-cold'), payload: { sessionId: meta.id },
     })
@@ -256,6 +256,38 @@ describe('Schedule history views', () => {
     expect(response.result.value.events.find(entry => entry.event.seq === 1)?.view).toMatchObject({
       for: 'event',
     })
+    await ctx.fiber.dispose()
+  })
+
+  it('withholds a detached view that exists only in a logical inspection', async () => {
+    const ctx = await harness()
+    let source: Session | undefined
+    const owner = await ctx.plugin(Object.assign((inner: Context) => {
+      source = inner.sessions.create(SessionId('schedule-logical-only'), { meta: { cwd: '/tmp' } })
+    }, { inject: ['sessions'] }))
+    if (source === undefined) throw new Error('session owner did not publish its session')
+    appendReminder(source, 'schedule-logical', 'not physically committed')
+    const meta = source.header
+    const events = [...source.events]
+    await owner.dispose()
+    let physicalEvents = events.slice(0, 1)
+    ctx.provide('sessionPersistence', {
+      list: () => Promise.resolve([meta]),
+      inspect: () => Promise.resolve({ meta, events }),
+      readFrom: () => Promise.resolve({ meta, events: physicalEvents }),
+    } as never)
+    const api = createApiProxy(ctx, { defaultTarget: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp', workspaceRoot: '/tmp' })
+    const history = async () => {
+      const response = await api.sessions.history({
+        rpcId: RpcId('schedule-logical-only-history'), payload: { sessionId: meta.id },
+      })
+      if (!response.result.ok) throw new Error(response.result.error.message)
+      return response.result.value.events
+    }
+
+    expect((await history()).find(entry => entry.event.seq === 1)?.view).toBeUndefined()
+    physicalEvents = events
+    expect((await history()).find(entry => entry.event.seq === 1)?.view).toMatchObject({ for: 'event' })
     await ctx.fiber.dispose()
   })
 })

@@ -399,7 +399,7 @@ describe('PersistenceCoordinator retryable live initialization', () => {
       const session = ctx.sessions.create(SessionId('retry-new-empty'))
       await vi.waitFor(() => { expect(backend.loadAttempts).toBe(1) })
       const first = ctx.sessions.flush(session)
-      session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+      session.append('turn/start', { turn: 1 })
       session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
       loadGate.resolve(undefined)
       await expect(first).rejects.toThrow('transient init read failure')

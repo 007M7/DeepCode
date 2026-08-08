@@ -124,7 +124,6 @@ describe('Schedule production JSONL restart', () => {
       scheduleId: 'schedule-1',
       prompt: 'restart reminder',
       occurrenceAt: pendingRecord.scheduledAt,
-      deliveryMode: 'session-local',
     })
     expect(dispatchingAdapter.requests).toHaveLength(1)
     await handle.dispose()

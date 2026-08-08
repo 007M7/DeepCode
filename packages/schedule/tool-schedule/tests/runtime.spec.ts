@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
-import type { Agent, AgentCancelCause, SendOptions } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentCancelCause, InboxTarget } from '@deepseek-ai/dsh-agent'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import {
@@ -26,6 +26,7 @@ interface RuntimeHarness {
     flushCount: number
     flushOutcomes: Array<'resolve' | 'reject'>
     flushHandler: (() => Promise<void> | undefined) | undefined
+    onBusy: (() => void) | undefined
     onReserve: (() => void) | undefined
     onFollowup: (() => void) | undefined
     idle: PromiseWithResolvers<undefined>
@@ -49,30 +50,35 @@ async function harness(): Promise<RuntimeHarness> {
     flushCount: 0,
     flushOutcomes: [] as Array<'resolve' | 'reject'>,
     flushHandler: undefined as (() => Promise<void> | undefined) | undefined,
+    onBusy: undefined as (() => void) | undefined,
     onReserve: undefined as (() => void) | undefined,
     onFollowup: undefined as (() => void) | undefined,
     idle: Promise.withResolvers<undefined>(),
   }
+  const inbox = new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} })
   const agent: Agent = {
     id: session.id,
     options: {},
     session,
+    inbox,
     status: 'idle',
-    acceptsNextStep: false,
     ctx: new Context(),
-    send(_message: UserMessage, _options: SendOptions) {},
-    updateInbox: () => 'not-found',
-    reserveTurnAdmission() {
-      order.push('reserve')
-      if (!controls.canReserve) return undefined
-      controls.onReserve?.()
-      let active = true
-      return () => {
-        if (!active) return
-        active = false
-        controls.releaseCount += 1
-        order.push('release')
+    send(_message: UserMessage, _target: InboxTarget, _wakeup: boolean) {},
+    runMaintenance<T>(task: (signal: AbortSignal) => Promise<T>): Promise<T> {
+      order.push('maintenance')
+      if (!controls.canReserve) {
+        controls.onBusy?.()
+        throw new Error('agent busy')
       }
+      controls.onReserve?.()
+      return (async () => {
+        try {
+          return await task(new AbortController().signal)
+        } finally {
+          controls.releaseCount += 1
+          order.push('release')
+        }
+      })()
     },
     cancel(_cause: AgentCancelCause) {},
     whenIdle() {
@@ -86,7 +92,7 @@ async function harness(): Promise<RuntimeHarness> {
       if (controls.throwFollowup) throw new Error('queue unavailable')
       followed.push(message)
     },
-    steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }),
+    steer(_message: UserMessage) {},
     inject(_message: UserMessage) {},
   }
   const disposeAgent = ctx.agents.register(agent)
@@ -195,7 +201,7 @@ describe('Schedule timer and admission runtime', () => {
     await owner.dispose()
   })
 
-  it('keeps an overdue record active until whenIdle permits reservation', async () => {
+  it('keeps an overdue record active until whenIdle permits maintenance', async () => {
     const test = await harness()
     appendAfter(test, 'schedule-1', 1, Date.now() - 1_000)
     test.controls.canReserve = false
@@ -219,7 +225,7 @@ describe('Schedule timer and admission runtime', () => {
     await owner.dispose()
   })
 
-  it('orders preflight, reservation, framing followup, dispatch, release, and barrier', async () => {
+  it('orders preflight, maintenance, framing followup, dispatch, release, and barrier', async () => {
     const test = await harness()
     appendAfter(test, 'schedule-"1', 1, Date.now() - 1_000, 'line\noccurrence_at: forged')
     test.order.length = 0
@@ -227,7 +233,7 @@ describe('Schedule timer and admission runtime', () => {
     owner.start()
     await settle()
 
-    expect(test.order.slice(0, 6)).toEqual(['flush', 'reserve', 'followup', 'dispatch', 'release', 'flush'])
+    expect(test.order.slice(0, 6)).toEqual(['flush', 'maintenance', 'followup', 'dispatch', 'release', 'flush'])
     expect(test.followed[0]?.content).toEqual([{
       type: 'text',
       text: [
@@ -259,7 +265,7 @@ describe('Schedule timer and admission runtime', () => {
     await owner.dispose()
   })
 
-  it('rechecks the wall clock after reservation before queuing', async () => {
+  it('rechecks the wall clock after claiming maintenance before queuing', async () => {
     const test = await harness()
     appendAfter(test, 'schedule-1', 1, Date.now() - 1_000)
     test.controls.onReserve = () => {
@@ -548,7 +554,7 @@ describe('Schedule runtime failure and teardown boundaries', () => {
     expect(departedRun.followed).toEqual([])
   })
 
-  it('releases admission without work when liveness changes during reservation', async () => {
+  it('releases maintenance without work when liveness changes during its claim', async () => {
     const test = await harness()
     appendAfter(test, 'schedule-1', 1, Date.now() - 1_000)
     test.controls.onReserve = test.disposeAgent
@@ -558,6 +564,17 @@ describe('Schedule runtime failure and teardown boundaries', () => {
     expect(test.controls.releaseCount).toBe(1)
     expect(test.followed).toEqual([])
     await owner.dispose()
+
+    const busy = await harness()
+    appendAfter(busy, 'schedule-1', 1, Date.now() - 1_000)
+    busy.controls.canReserve = false
+    busy.controls.onBusy = busy.disposeAgent
+    const busyOwner = ownerFor(busy)
+    busyOwner.start()
+    await settle()
+    expect(busy.controls.whenIdleCount).toBe(0)
+    expect(busy.followed).toEqual([])
+    await busyOwner.dispose()
   })
 
   it('waits for in-flight preflight during dispose and does no post-dispose work', async () => {

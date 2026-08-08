@@ -72,8 +72,6 @@ export interface ScheduleReminderPresentation {
   readonly prompt: string
   /** Scheduled one-shot occurrence represented by the dispatch. */
   readonly occurrenceAt: string
-  /** Fixed delivery boundary rendered by the client plugin. */
-  readonly deliveryMode: ScheduleDeliveryMode
 }
 
 /** Management operations whose persistence barrier may be uncertain. */

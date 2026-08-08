@@ -19,7 +19,6 @@ const invalidSidecars: ReadonlyArray<{ name: string; view: unknown }> = [
       scheduleId: null,
       prompt: 'not trusted',
       occurrenceAt: '2026-08-05T08:00:00.000Z',
-      deliveryMode: 'session-local',
     },
   },
   {
@@ -28,7 +27,6 @@ const invalidSidecars: ReadonlyArray<{ name: string; view: unknown }> = [
       scheduleId: '',
       prompt: 'not trusted',
       occurrenceAt: '2026-08-05T08:00:00.000Z',
-      deliveryMode: 'session-local',
     },
   },
   {
@@ -37,7 +35,6 @@ const invalidSidecars: ReadonlyArray<{ name: string; view: unknown }> = [
       scheduleId: 'schedule-7',
       prompt: 7,
       occurrenceAt: '2026-08-05T08:00:00.000Z',
-      deliveryMode: 'session-local',
     },
   },
   {
@@ -46,7 +43,6 @@ const invalidSidecars: ReadonlyArray<{ name: string; view: unknown }> = [
       scheduleId: 'schedule-7',
       prompt: 'not trusted',
       occurrenceAt: 7,
-      deliveryMode: 'session-local',
     },
   },
   {
@@ -55,16 +51,6 @@ const invalidSidecars: ReadonlyArray<{ name: string; view: unknown }> = [
       scheduleId: 'schedule-7',
       prompt: 'not trusted',
       occurrenceAt: '',
-      deliveryMode: 'session-local',
-    },
-  },
-  {
-    name: 'unsupported delivery mode',
-    view: {
-      scheduleId: 'schedule-7',
-      prompt: 'not trusted',
-      occurrenceAt: '2026-08-05T08:00:00.000Z',
-      deliveryMode: 'external',
     },
   },
 ]
@@ -88,7 +74,6 @@ describe('ReminderRow', () => {
       scheduleId: 'schedule-7',
       prompt: 'Check the deploy',
       occurrenceAt: '2026-08-05T08:00:00.000Z',
-      deliveryMode: 'session-local',
     })} />)
 
     expect(screen.getByRole('note')).toBeTruthy()

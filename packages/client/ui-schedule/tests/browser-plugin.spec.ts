@@ -1,6 +1,7 @@
 import { Context } from 'cordis'
 import { describe, expect, it } from 'vitest'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
+import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import { apply, inject } from '../src/client/index.ts'
 import { ReminderRow } from '../src/client/ReminderRow.tsx'
 import { apply as nodeApply } from '../src/index.ts'
@@ -10,41 +11,55 @@ import {
   name as invariantName,
 } from '../src/invariant.ts'
 
-interface CapturedEntry {
-  name: string
-  key?: string
-  locale?: string
-  component: unknown
-}
-
-function bench() {
+async function bench(declareBeforeApply = true) {
   const ctx = new Context()
-  let entry: CapturedEntry | undefined
-  ctx.provide('slots', {
-    register(options: Omit<CapturedEntry, 'component'>, component: unknown) {
-      entry = { ...options, component }
-      return () => { entry = undefined }
-    },
-  })
-  ctx.provide('conversation', {})
+  await ctx.plugin(SlotsService)
+  const slots = ctx.slots as unknown as {
+    register: (options: object, component: unknown) => () => void
+  }
+  const declareHost = () => slots.register({
+    name: 'root',
+    children: { 'conversation.chat.eventview': { kind: 'keyed', scope: 'session' } },
+  }, () => null)
+  const initialHost = declareBeforeApply ? declareHost() : undefined
   ctx.provide('locale', new LocaleService(ctx))
   const fiber = ctx.plugin({ inject: [...inject], apply })
-  return { ctx, fiber, entry: () => entry }
+  await fiber.await()
+  return {
+    ctx,
+    fiber,
+    declareHost,
+    initialHost,
+    entry: () => ctx.slots.entries('conversation.chat.eventview')[0],
+  }
 }
 
 describe('ui-schedule browser plugin', () => {
   it('registers the keyed reminder renderer and unloads it with the fiber', async () => {
-    const b = bench()
-    await b.fiber.await()
-    expect(b.entry()).toEqual({
-      name: 'conversation.chat.eventview',
-      key: 'schedule/change',
-      locale: 'schedule',
-      component: ReminderRow,
-    })
+    const b = await bench()
+    expect(b.entry()?.options).toEqual({ key: 'schedule/change' })
+    expect(b.entry()?.locale).toBe('schedule')
+    expect(b.entry()?.component).toBe(ReminderRow)
 
     await b.fiber.dispose()
     expect(b.entry()).toBeUndefined()
+    b.initialHost?.()
+  })
+
+  it('follows delayed declaration, collapse, and redeclaration until contributor disposal', async () => {
+    const b = await bench(false)
+    expect(b.entry()).toBeUndefined()
+
+    const firstHost = b.declareHost()
+    expect(b.entry()?.component).toBe(ReminderRow)
+    firstHost()
+    expect(b.entry()).toBeUndefined()
+
+    const secondHost = b.declareHost()
+    expect(b.entry()?.component).toBe(ReminderRow)
+    await b.fiber.dispose()
+    expect(b.entry()).toBeUndefined()
+    secondHost()
   })
 })
 

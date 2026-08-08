@@ -198,7 +198,7 @@ describe('sessions.flush()', () => {
     const checkpoints: number[] = []
     ctx.on('session/flushed', (_session, throughSeq) => { checkpoints.push(throughSeq) })
     const session = ctx.sessions.create()
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
 
     const first = ctx.sessions.flush(session)
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
@@ -256,7 +256,7 @@ describe('sessions.flush()', () => {
     const session = ctx.sessions.create()
 
     const first = ctx.sessions.flush(session)
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     const second = ctx.sessions.flush(session)
     secondGate.resolve(undefined)
     await second

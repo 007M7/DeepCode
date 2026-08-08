@@ -37,7 +37,7 @@ describe('Schedule package invariant', () => {
   it('accepts valid candidates and rejects invalid transitions before append', async () => {
     const { ctx } = await harness()
     const session = ctx.sessions.create(SessionId('schedule-invariant'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     session.append('schedule/change', create('schedule-1'))
     expect(session.events).toHaveLength(2)
 

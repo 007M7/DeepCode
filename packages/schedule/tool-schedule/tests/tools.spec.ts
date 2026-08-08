@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
-import type { Agent, AgentCancelCause, SendOptions } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentCancelCause, InboxTarget } from '@deepseek-ai/dsh-agent'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
@@ -24,20 +24,20 @@ interface ToolHarness {
 
 function stubAgent(ctx: Context, id: string): Agent {
   const session = ctx.sessions.create(SessionId(id))
+  const inbox = new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} })
   return {
     id: session.id,
     options: {},
     session,
+    inbox,
     status: 'idle',
-    acceptsNextStep: false,
     ctx: new Context(),
-    send(_message: UserMessage, _options: SendOptions) {},
-    updateInbox: () => 'not-found',
-    reserveTurnAdmission: () => undefined,
+    send(_message: UserMessage, _target: InboxTarget, _wakeup: boolean) {},
+    runMaintenance: task => task(signal),
     cancel(_cause: AgentCancelCause) {},
     whenIdle: () => Promise.resolve(),
     followup(_message: UserMessage) {},
-    steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }),
+    steer(_message: UserMessage) {},
     inject(_message: UserMessage) {},
   }
 }

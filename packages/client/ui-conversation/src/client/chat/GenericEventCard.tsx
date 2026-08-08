@@ -3,9 +3,8 @@
 // one, the durable event type and JSON sidecar remain inspectable in the flow.
 
 import { useMemo, useState } from 'react'
-import { IconSparkle16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { DisclosureRow, IconSparkle16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatViewSlotProps, EventRowOwnerProps } from '../contract/slots.ts'
-import { DisclosureRow } from './DisclosureRow.tsx'
 import css from './ContextInjectionRow.module.css'
 
 /** Card props: the event owner payload plus the render site's locale seat. */

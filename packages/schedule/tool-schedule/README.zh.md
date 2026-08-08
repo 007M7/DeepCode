@@ -32,7 +32,7 @@
 
 live owner 从持久折叠结果派生最早的目标。它会拆分超过 Node timer 范围的等待，并在每次唤醒后重新读取墙钟，因此时钟回拨不会提前触发，时钟前跳则会使记录进入 overdue 状态。
 
-overdue 提醒首先为持久化建立检查点。如果 `reserveTurnAdmission()` 返回 `undefined`，记录会保持活动，并在 `whenIdle()` 后重试。reservation 成功后，owner 会采样一次决策时间，构造完整 framing，同步将 `followup()` 入队，追加只含 id 的 dispatch，在 `finally` 中释放 reservation，随后为 dispatch 建立检查点。framing 构造或同步 `followup` 失败不会写入 dispatch。追加失败会使该 owner 进入故障状态，因为消息可能已经入队；barrier 拒绝会把 dispatch 留给后续普通 preflight 处理，而不会启动私有重试 timer。
+overdue 提醒首先为持久化建立检查点。如果 agent 已被某个轮次或另一项 maintenance task 占用，`runMaintenance()` 会拒绝对 idle phase 的认领；记录会保持活动，owner 会在 `whenIdle()` 后重试。获准执行的 maintenance task 会采样一次决策时间，构造完整 framing，同步将 `followup()` 入队，并在释放 phase 前追加只含 id 的 dispatch。触发唤醒的 input 会保持 parked，直到该 phase 释放；随后 owner 为 dispatch 建立检查点。framing 构造或同步 `followup` 失败不会写入 dispatch。追加失败会使该 owner 进入故障状态，因为消息可能已经入队；barrier 拒绝会把 dispatch 留给后续普通 preflight 处理，而不会启动私有重试 timer。
 
 agent 或插件执行 dispose（资源释放）时，会取消 timer、停止新工作，并等待进行中的 preflight 和 idle wait。清理期间绝不会追加 delete 记录。
 

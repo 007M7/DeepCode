@@ -5,7 +5,7 @@ English | [中文](README.zh.md)
 This overlay opts one `dsh web` process into durable Schedule reminders without changing the shipped default Web composition:
 
 ```sh
-dsh web --config examples/web-schedule/cordis.yml
+dsh web --patch examples/web-schedule/cordis.yml
 ```
 
 The current overlay supports one-shot reminders created with a positive whole-number `after_seconds`. The model manages them through `schedule_create`, `schedule_list`, and `schedule_delete`; every result identifies the delivery mode as `session-local`.

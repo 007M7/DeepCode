@@ -101,13 +101,11 @@ describe('version-1 Schedule decoding and folding', () => {
       scheduleId: 'same-id',
       prompt: 'parent prompt',
       occurrenceAt: '2026-08-05T12:00:00.000Z',
-      deliveryMode: 'session-local',
     })
     expect(scheduleReminderPresentation(events, 3, 2)).toEqual({
       scheduleId: 'same-id',
       prompt: 'child prompt',
       occurrenceAt: '2026-08-05T12:00:00.000Z',
-      deliveryMode: 'session-local',
     })
     const nested = [
       scheduleEvent(createData('same-id', 'grandparent prompt'), 0),
@@ -120,7 +118,6 @@ describe('version-1 Schedule decoding and folding', () => {
       scheduleId: 'same-id',
       prompt: 'parent prompt',
       occurrenceAt: '2026-08-05T12:00:00.000Z',
-      deliveryMode: 'session-local',
     })
     const resumedThenForked = [
       scheduleEvent(createData('resumed-id', 'resumed prompt'), 0),
@@ -131,7 +128,6 @@ describe('version-1 Schedule decoding and folding', () => {
       scheduleId: 'resumed-id',
       prompt: 'resumed prompt',
       occurrenceAt: '2026-08-05T12:00:00.000Z',
-      deliveryMode: 'session-local',
     })
     expect(() => scheduleReminderPresentation([
       scheduleEvent(createData('parent-only'), 0),

@@ -38,13 +38,13 @@ export function apply(ctx: Context): void {
   let stopping = false
 
   ctx.effect(() => {
-    const stopCreated = ctx.on('agent/created', (agent) => {
+    const stopCreated = ctx.on('agent/created', ({ agent }) => {
       if (stopping || owners.has(agent) || !ctx.agents.roots().includes(agent)) return
       const owner = new ScheduleOwner(ctx, agent)
       const cleanup: OwnerCleanup = agent.ctx.effect(() => {
         const disposeTools = registerScheduleTools(ctx, agent.ctx, agent, () => { owner.requestDrive() })
-        const stopStatus = agent.ctx.on('agent/status', (subject, status) => {
-          if (subject === agent && status === 'idle') owner.requestDrive()
+        const stopStatus = agent.ctx.on('agent/status', ({ status }) => {
+          if (status === 'idle') owner.requestDrive()
         })
         owner.start()
         return async () => {

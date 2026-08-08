@@ -1115,13 +1115,13 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       const persistence = ctx.get('sessionPersistence')
       if (persistence !== undefined) {
         try {
-          const stored = await persistence.inspect(sessionId)
+          const stored = await persistence.readFrom(sessionId, 0)
           presentedThroughSeq = identityMatchingStoredPrefix(attached, events, stored)
         } catch (error: unknown) {
           // Attached history remains available from the live Session. A
-          // failed or not-yet-materialized inspection only withholds
+          // failed or not-yet-materialized physical read only withholds
           // commit-gated event presentation sidecars.
-          ctx.logger.warn(`session.history: persistence inspection for attached "${sessionId}" failed; serving raw events: ${String(error)}`)
+          ctx.logger.warn(`session.history: physical persistence read for attached "${sessionId}" failed; serving raw events: ${String(error)}`)
         }
       }
       return {
@@ -1133,10 +1133,25 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     }
     const inspected = await inspectServable(sessionId)
     const projections = includeProjections ? detachedProjectionsFor(ctx, inspected.events) : undefined
+    let presentedThroughSeq = 0
+    const persistence = ctx.get('sessionPersistence')
+    /* v8 ignore next -- inspectServable already rejects when persistence is absent */
+    if (persistence !== undefined) {
+      try {
+        const stored = await persistence.readFrom(sessionId, 0)
+        presentedThroughSeq = identityMatchingStoredPrefix(
+          { header: inspected.meta },
+          inspected.events,
+          stored,
+        )
+      } catch (error: unknown) {
+        ctx.logger.warn(`session.history: physical persistence read for detached "${sessionId}" failed; serving raw events: ${String(error)}`)
+      }
+    }
     return {
       header: inspected.meta,
       events: inspected.events,
-      presentedThroughSeq: inspected.events.length,
+      presentedThroughSeq,
       ...projections === undefined ? {} : { projections },
     }
   }

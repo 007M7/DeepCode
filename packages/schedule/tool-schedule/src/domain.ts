@@ -328,7 +328,6 @@ export function scheduleReminderPresentation(
           scheduleId: change.schedule.id,
           prompt: change.schedule.prompt,
           occurrenceAt: change.schedule.scheduledAt,
-          deliveryMode: 'session-local',
         })
       case 'delete':
       case 'dispatch':

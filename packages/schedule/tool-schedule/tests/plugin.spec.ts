@@ -55,8 +55,8 @@ describe('Schedule plugin composition', () => {
     expect(created.isError).toBe(false)
     if (created.isError) throw new Error('expected Schedule create value')
     expect(created.value).toMatchObject({ id: 'schedule-1', deliveryMode: 'session-local' })
-    agentEvents(ctx, root.agent).emit('agent/status', 'running')
-    agentEvents(ctx, root.agent).emit('agent/status', 'idle')
+    agentEvents(ctx, root.agent).emit('agent/status', { status: 'running' })
+    agentEvents(ctx, root.agent).emit('agent/status', { status: 'idle' })
 
     const child = await root.agent.ctx.agents.create({ sessionId: SessionId('schedule-child') })
     expect(ctx.agents.roots()).toEqual([existing.agent, root.agent])

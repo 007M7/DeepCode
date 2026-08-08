@@ -7,7 +7,6 @@ interface ReminderPresentation {
   scheduleId: string
   prompt: string
   occurrenceAt: string
-  deliveryMode: 'session-local'
 }
 
 /** Full Schedule row props: event owner/runtime share plus the locale seat. */
@@ -20,12 +19,10 @@ function reminderPresentation(value: unknown): ReminderPresentation | null {
   if (typeof record['scheduleId'] !== 'string' || record['scheduleId'].length === 0) return null
   if (typeof record['prompt'] !== 'string') return null
   if (typeof record['occurrenceAt'] !== 'string' || record['occurrenceAt'].length === 0) return null
-  if (record['deliveryMode'] !== 'session-local') return null
   return {
     scheduleId: record['scheduleId'],
     prompt: record['prompt'],
     occurrenceAt: record['occurrenceAt'],
-    deliveryMode: record['deliveryMode'],
   }
 }
 
