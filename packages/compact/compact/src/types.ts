@@ -28,8 +28,6 @@ declare module '@deepseek-ai/dsh-session' {
      */
     'compact/summary': {
       summary: ContentBlock[]
-      /** Complete provider output before the backend's safe summary projection. */
-      rawOutput?: ContentBlock[]
       shadowedRange: { start: number; end: number }
       shadowedSeqs: number[]
       shadowedTokenCount: number
@@ -46,7 +44,20 @@ declare module '@deepseek-ai/dsh-session' {
       maxTokens?: number
       /** Provider-reported token usage for the summarization request, when emitted. */
       usage?: TokenUsage
-    }
+    } & (
+      | {
+        /** Complete provider output before the backend's safe summary projection. */
+        rawOutput: ContentBlock[]
+        /** Identifies exactly one call through this context's `ctx.llm.stream()`. */
+        llmStreamCall: true
+      }
+      | {
+        /** Optional complete output from an unmarked template, remote, or other summarizer. */
+        rawOutput?: ContentBlock[]
+        /** An unmarked summary does not identify a call through this context's LLM seam. */
+        llmStreamCall?: never
+      }
+    )
     /**
      * Marks the end of a compaction — log-only, releases the lock. Its owner
      * matches `compact/start`; `error` records an unsuccessful attempt.

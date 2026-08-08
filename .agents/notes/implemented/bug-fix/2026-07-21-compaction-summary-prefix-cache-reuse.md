@@ -29,7 +29,7 @@ Auto-compaction always anchors at the surface head, so the shadowed region is th
 - **Keep the summarizer system prompt but reuse the rest** — rejected: the system slot is the very first token region a provider caches on, so a distinct summarizer system prompt invalidates the whole prefix regardless of what follows. Only moving the directive off the front recovers the cache.
 - **Send only the shadowed region without the `system`/`tools` head** — rejected: a differently-headed sequence still diverges from the cached request at the first token, so it caches no better while losing the framing the summary needs.
 - **Omit `tools` from the summarization request** (the model never calls one) — rejected: tool schemas are part of the cached token sequence; omitting them misaligns every following token and defeats reuse.
-- **A dedicated `assistant/chunk`-emitting summarization sub-session for snapshot replay** — out of scope here; the replay gap predates this change and is tracked in the [compaction-seam note](../feature/2026-06-18-compaction-capability-seam.md).
+- **A dedicated `assistant/chunk`-emitting summarization sub-session for snapshot replay** — rejected: the durable `compact/summary` event records the successful local call's position and complete output, while its explicit call marker prevents replay from treating template or remote output as a local stream.
 
 ## Consequences
 
@@ -42,4 +42,4 @@ Auto-compaction always anchors at the surface head, so the shadowed region is th
 
 - **Unit:** `compact-basic.spec.ts` asserts the auxiliary call forwards `system`/`tools`/leading messages and appends the compaction instruction as the final message, and that `compactRegion` replays the latest routed header prefix. Existing content assertions read the summarizer input through the replayed messages rather than a transcript string.
 - **Loop:** `compact-loop-repro.spec.ts` classifies the summarization request by the compaction instruction in its trailing user message, and the overflow-recovery tests continue to pin conversation-vs-summary request counts across the real loop.
-- **Snapshot gap unchanged:** the summarization call still emits no `assistant/chunk` events, so it remains outside keyless replay; the pre-existing gap is owned by the [compaction-seam note](../feature/2026-06-18-compaction-capability-seam.md).
+- **Snapshot:** keyless replay reconstructs one canonical successful stream from a marked `compact/summary`; the [compaction-seam note](../feature/2026-06-18-compaction-capability-seam.md) owns the durable marker contract.
