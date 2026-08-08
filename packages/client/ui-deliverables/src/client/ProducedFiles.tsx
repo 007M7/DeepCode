@@ -6,17 +6,12 @@
 
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { basename } from './turn-deliverables.ts'
 import type { NS } from './locales.ts'
 import css from './ProducedFiles.module.css'
 
 /** Files past this stay counted but unlisted: a refactor turn must not bury the answer. */
 const SHOWN = 6
-
-/** Trailing path segment, the part that identifies the file at a glance. */
-function basename(path: string): string {
-  const at = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'))
-  return at === -1 ? path : path.slice(at + 1)
-}
 
 /** Matched paths plus the opener and locale seats needed to present them. */
 export type ProducedFilesProps = Pick<TurnTailOwnerProps, 'openFile'> & {

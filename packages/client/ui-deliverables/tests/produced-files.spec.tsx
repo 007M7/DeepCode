@@ -13,9 +13,10 @@ import type {
   AssistantMessageNode, ConversationNode, ToolResultNode, UserMessageNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { apply as applyLocale } from '@deepseek-ai/dsh-client-locale/client'
+import type { ChatFileMentions } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { ProducedFiles } from '../src/client/ProducedFiles.tsx'
-import { producedForClosing, selectProducedFiles } from '../src/client/turn-deliverables.ts'
+import { basename, producedFileMentions, producedForClosing, selectProducedFiles } from '../src/client/turn-deliverables.ts'
 import { apply, inject } from '../src/client/index.ts'
 import { apply as applyNode } from '../src/index.ts'
 import { apply as applyInvariant } from '../src/invariant.ts'
@@ -142,6 +143,33 @@ describe('ProducedFiles row', () => {
   })
 })
 
+describe('producedFileMentions resolver', () => {
+  const label = (path: string) => `打开 ${path}`
+
+  it('resolves exact paths and unique basenames; ambiguity and unknowns stay unresolved', () => {
+    const opened: string[] = []
+    const resolver = producedFileMentions(
+      ['out/index.html', 'a/style.css', 'b/style.css'],
+      (path) => { opened.push(path) },
+      label,
+    )
+    // Unique basename resolves to its full path; the full path rides title.
+    const byBasename = resolver.resolve('index.html')
+    expect(byBasename?.label).toBe('打开 out/index.html')
+    expect(byBasename?.title).toBe('out/index.html')
+    byBasename?.open()
+    expect(opened).toEqual(['out/index.html'])
+    // An exact path resolves even when its basename is ambiguous.
+    const exact = resolver.resolve('a/style.css')
+    expect(exact?.title).toBe('a/style.css')
+    // A basename two paths share stays unresolved rather than guessing,
+    // and so does a token naming nothing the turn wrote.
+    expect(resolver.resolve('style.css')).toBeUndefined()
+    expect(resolver.resolve('notes.md')).toBeUndefined()
+    expect(basename('a\\b\\c.txt')).toBe('c.txt')
+  })
+})
+
 describe('package shells', () => {
   it('the node half mounts inert and the invariant companion registers ownership', async () => {
     // The node half is deliberately inert; mounting it must simply not throw.
@@ -173,7 +201,24 @@ describe('plugin registration', () => {
     await fiber.await()
     expect(ctx.slots.entries('conversation.chat.turnTail')).toHaveLength(1)
 
+    // The prose face is live while the plugin is: a produced turn yields a
+    // resolver whose matches open through the owner-supplied opener.
+    const opened: string[] = []
+    const owner = {
+      nodes: [user(1, 'go'), wrote(2, 'w', 'site/report.html'), assistant(3, 'done', 1)],
+      seq: 3,
+      openFile: (path: string) => { opened.push(path) },
+    }
+    const service = (ctx as unknown as { get(name: string): ChatFileMentions | undefined }).get('chatFileMentions')
+    const mentions = service?.forClosing(owner)
+    mentions?.resolve('report.html')?.open()
+    expect(opened).toEqual(['site/report.html'])
+    // A turn that produced nothing yields no vocabulary at all.
+    expect(service?.forClosing({ ...owner, nodes: [user(1, 'hi'), assistant(2, 'ok', 1)], seq: 2 })).toBeUndefined()
+
     await fiber.dispose()
     expect(ctx.slots.entries('conversation.chat.turnTail')).toHaveLength(0)
+    // Fiber teardown retracts the service: the consumer's ctx.get sees the off state.
+    expect((ctx as unknown as { get(name: string): unknown }).get('chatFileMentions')).toBeUndefined()
   })
 })
