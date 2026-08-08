@@ -192,6 +192,12 @@ export interface CompactionSummaryNode {
   /** Summary text from the checkpoint's `compact/summary` provenance; null when
    *  the window cut left that provenance outside (the marker is then not expandable). */
   summary: string | null
+  /** Seq of the loaded `compact/summary` event, or null when that provenance is outside the window. */
+  summaryEventSeq: number | null
+  /** Number of surface items replaced, or null when summary provenance is unavailable or malformed. */
+  shadowedItemCount: number | null
+  /** Estimated token price of the replaced items, or null when summary provenance is unavailable or malformed. */
+  shadowedTokenCount: number | null
 }
 
 /**
@@ -236,7 +242,12 @@ export interface CommandNode {
    */
   args: string | null
   /** Settlement outcome (done payload); null while the command is still executing. */
-  outcome: { kind: 'success' | 'error'; text?: string } | null
+  outcome: {
+    kind: 'success' | 'error'
+    text?: string
+    /** Earlier authoritative domain event for a richer client-computed presentation. */
+    sourceEventSeq?: number
+  } | null
 }
 
 /** Finalized conversation node union (kind discriminates; seq is the React key). */

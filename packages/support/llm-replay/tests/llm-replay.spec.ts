@@ -178,6 +178,138 @@ describe('deriveReplayScript', () => {
     expect(deriveReplayScript(events)).toEqual([{ kind: 'chunks', chunks: errChunks }])
   })
 
+  it('inserts compact/summary output between the calls surrounding it', () => {
+    const overflow: StreamChunk[] = [
+      { type: 'finish', reason: { kind: 'error', failure: { message: 'too large', code: 'CONTEXT_WINDOW_EXCEEDED' } } },
+    ]
+    const block = { type: 'text' as const, text: 'durable checkpoint' }
+    const rawOutput = [block]
+    const usage = { inputTokens: 9, outputTokens: 2 }
+    const summaryChunks: StreamChunk[] = [
+      { type: 'block-start', index: 0, blockType: 'text' },
+      { type: 'block-end', index: 0, block },
+      { type: 'usage', usage },
+      { type: 'finish', reason: { kind: 'stop' } },
+    ]
+    let seq = 1
+    const events: SessionEvent[] = [
+      ...overflow.map(chunk => chunkEvent(seq++, 1, 2, chunk)),
+      { type: 'compact/start', seq: seq++, time: 0, data: { turn: 1 } },
+      {
+        type: 'compact/summary',
+        seq: seq++,
+        time: 0,
+        data: {
+          summary: rawOutput,
+          rawOutput,
+          llmStreamCall: true,
+          shadowedRange: { start: 1, end: 1 },
+          shadowedSeqs: [1],
+          shadowedTokenCount: 20,
+          provider: 'mock',
+          model: 'mock',
+          usage,
+        },
+      },
+      ...TEXT_CHUNKS.map(chunk => chunkEvent(seq++, 1, 2, chunk)),
+    ]
+
+    expect(deriveReplayScript(events)).toEqual([
+      { kind: 'chunks', chunks: overflow },
+      { kind: 'chunks', chunks: summaryChunks },
+      { kind: 'chunks', chunks: TEXT_CHUNKS },
+    ])
+  })
+
+  it('does not infer an LLM call from compact/summary without raw output', () => {
+    const event: SessionEvent<'compact/summary'> = {
+      type: 'compact/summary',
+      seq: 1,
+      time: 0,
+      data: {
+        summary: [{ type: 'text', text: 'template result' }],
+        shadowedRange: { start: 1, end: 1 },
+        shadowedSeqs: [1],
+        shadowedTokenCount: 20,
+        provider: 'template',
+        model: 'template',
+      },
+    }
+
+    expect(deriveReplayScript([event])).toEqual([])
+  })
+
+  it('does not infer a local LLM call from external compact output', () => {
+    const block = { type: 'text' as const, text: 'remote summary' }
+    const event: SessionEvent<'compact/summary'> = {
+      type: 'compact/summary',
+      seq: 1,
+      time: 0,
+      data: {
+        summary: [block],
+        rawOutput: [block],
+        shadowedRange: { start: 1, end: 1 },
+        shadowedSeqs: [1],
+        shadowedTokenCount: 20,
+        provider: 'remote',
+        model: 'remote',
+      },
+    }
+
+    expect(deriveReplayScript([event])).toEqual([])
+  })
+
+  it('rejects a persisted marked compact LLM call without its complete output', () => {
+    const [event] = parseSessionLog([
+      JSON.stringify({ type: 'session', version: 0, id: 'invalid-compact', createdAt: 0 }),
+      JSON.stringify({
+        type: 'compact/summary',
+        seq: 1,
+        time: 0,
+        data: {
+          summary: [{ type: 'text', text: 'incomplete provenance' }],
+          llmStreamCall: true,
+          shadowedRange: { start: 1, end: 1 },
+          shadowedSeqs: [1],
+          shadowedTokenCount: 20,
+          provider: 'mock',
+          model: 'mock',
+        },
+      }),
+    ].join('\n'))
+
+    expect(() => deriveReplayScript(event === undefined ? [] : [event]))
+      .toThrow(/LLM stream call without rawOutput/)
+  })
+
+  it('derives a compact/summary stream when usage is unavailable', () => {
+    const block = { type: 'text' as const, text: 'summary without usage' }
+    const event: SessionEvent<'compact/summary'> = {
+      type: 'compact/summary',
+      seq: 1,
+      time: 0,
+      data: {
+        summary: [block],
+        rawOutput: [block],
+        llmStreamCall: true,
+        shadowedRange: { start: 1, end: 1 },
+        shadowedSeqs: [1],
+        shadowedTokenCount: 20,
+        provider: 'mock',
+        model: 'mock',
+      },
+    }
+
+    expect(deriveReplayScript([event])).toEqual([{
+      kind: 'chunks',
+      chunks: [
+        { type: 'block-start', index: 0, blockType: 'text' },
+        { type: 'block-end', index: 0, block },
+        { type: 'finish', reason: { kind: 'stop' } },
+      ],
+    }])
+  })
+
   it('throws on a group that lacks a terminal finish chunk (a thrown stream)', () => {
     // A thrown stream(): prefix chunks logged, then turn/end (error reason), NO finish.
     const events: SessionEvent[] = [
@@ -200,6 +332,27 @@ describe('deriveReplayScript', () => {
       chunkEvent(1, 1, 1, { type: 'block-start', index: 0, blockType: 'text' }),
       chunkEvent(2, 1, 2, { type: 'finish', reason: { kind: 'stop' } }),
     ]
+    expect(() => deriveReplayScript(events)).toThrow(/model call 1\/1 ended without a finish chunk/)
+  })
+
+  it('rejects an unfinished call at a compact summary boundary', () => {
+    const events: SessionEvent[] = [
+      chunkEvent(1, 1, 1, { type: 'block-start', index: 0, blockType: 'text' }),
+      {
+        type: 'compact/summary',
+        seq: 2,
+        time: 0,
+        data: {
+          summary: [{ type: 'text', text: 'external checkpoint' }],
+          shadowedRange: { start: 1, end: 1 },
+          shadowedSeqs: [1],
+          shadowedTokenCount: 20,
+          provider: 'external',
+          model: 'external',
+        },
+      },
+    ]
+
     expect(() => deriveReplayScript(events)).toThrow(/model call 1\/1 ended without a finish chunk/)
   })
 })

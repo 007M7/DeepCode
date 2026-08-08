@@ -31,12 +31,13 @@ interface Config {
   path: string   // SQLite database file path, or ':memory:' for an in-process DB
   journalMode?: 'wal' | 'delete' | 'truncate' | 'persist'   // journal_mode pragma; default 'wal'
   preparedSessionCacheSize?: number   // positive integer; default 5
+  writeBatchMaxDelayMs?: number   // positive integer; default 200; maximum 2_147_483_647
 }
 ```
 
 ## 写入路径
 
-与 JSONL 后端一样，插件将每个冻结的 `session/event` 复制到每个活动会话各自的 controller，并启动主动排空流程。并发事件共享当前事务；期间接纳的事件形成后续批次，`session/flush` 则等待当前和待处理批次完成持久化。Controller 会持久化一次 fork 种子，并保留写入游标，使恢复操作绝不重新 append 已存储事件；它还会在 apply 时为活动会话设置初始状态，因为 HMR（热模块替换）不回放 `session/created`。dispose（资源释放）会在关闭数据库前排空每个保留的 controller。
+与 JSONL 后端一样，插件将每个冻结的 `session/event` 复制到每个活动会话各自的 controller。第一个待处理事件会开启配置的固定批处理窗口，后续事件会加入但不会重置截止时间。窗口到期后会启动一个事务；该次写入期间接纳的事件会形成另一个独立有界的后续批次。`session/flush` 会取消等待并排空当前与待处理批次。Controller 会持久化一次 fork 种子，并保留写入游标，使恢复操作绝不重新 append 已存储事件；它还会在 apply 时为活动会话设置初始状态，因为 HMR（热模块替换）不回放 `session/created`。dispose（资源释放）会在关闭数据库前排空每个保留的 controller。每个事件仍各占一行 SQLite 记录；批处理只把更多 INSERT 归入同一个事务和同一次修订版本递增。
 
 ## 模型体验
 

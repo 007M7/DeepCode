@@ -5,7 +5,7 @@ import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import { launcherPath } from 'node-addon-landlock-run'
+import { launcherPath } from '@deepseek-ai/node-addon-landlock-run'
 import { LocalSandboxProvider } from '@deepseek-ai/dsh-sandbox-local'
 import { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 import { SandboxBashExecutor } from '@deepseek-ai/dsh-bash-sandbox'
@@ -13,14 +13,14 @@ import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 
 /**
  * KEYLESS consumer-integration proof: the REAL `LocalSandboxProvider` (bwrap
- * rung forced off, so the npm-distributed `landlock-run` confines) underneath the
+ * rung forced off, so the workspace `landlock-run` launcher confines) underneath the
  * REAL `SandboxBashExecutor`, driven through the executor's public run/start
  * paths. Verifies the WORLD (files exist or don't) plus the stamped result
  * facts; the backend-only confinement proofs live with
  * `@deepseek-ai/dsh-sandbox-local`.
  *
- * Self-skips when the running kernel does not enforce Landlock; the
- * launcher binary itself arrives with `pnpm install` (`node-addon-landlock-run`).
+ * Self-skips when the running kernel does not enforce Landlock. CI builds the launcher from
+ * `native/landlock-run` before running this file.
  */
 
 const probe = spawnSync(launcherPath(), ['--probe'], { timeout: 5_000, encoding: 'utf8' })

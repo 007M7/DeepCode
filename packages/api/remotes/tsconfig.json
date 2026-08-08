@@ -1,42 +1,11 @@
 {
-  "extends": "../../../tsconfig.base.client.json",
-  "compilerOptions": {
-    "rootDir": "src",
-    "outDir": "lib/types"
-  },
-  "include": [
-    "src"
-  ],
+  "files": [],
   "references": [
     {
-      "path": "../../../vendor/cordis"
+      "path": "./tsconfig.host.json"
     },
     {
-      "path": "../../core/agent"
-    },
-    {
-      "path": "../../core/session"
-    },
-    {
-      "path": "../../session-persistence/session-persistence"
-    },
-    {
-      "path": "../../typert/type-meta"
-    },
-    {
-      "path": "../../typert/registry"
-    },
-    {
-      "path": "../../ui/commands"
-    },
-    {
-      "path": "../../goal/goal"
-    },
-    {
-      "path": "../../session-title/session-title"
-    },
-    {
-      "path": "../../support/invariants"
+      "path": "./tsconfig.client.json"
     }
   ]
 }

@@ -61,9 +61,16 @@ interface CommandInvocation {
 ```ts type-equiv
 /** Expected command outcome rendered directly by the dispatching UI. */
 type CommandResult =
-  | { readonly kind: 'success'; readonly text?: string }
+  | {
+    readonly kind: 'success'
+    readonly text?: string
+    /** Earlier authoritative domain event that owns a richer presentation. */
+    readonly sourceEventSeq?: number
+  }
   | { readonly kind: 'error'; readonly text: string }
 ```
+
+`sourceEventSeq` is optional and success-only. When present, it names an earlier non-command event in the receiving session log; `command/done` persists the same reference so a client can combine the command lifecycle with that domain projection without parsing `text` or relying on adjacent rows.
 
 ## Discovery and parsing views
 

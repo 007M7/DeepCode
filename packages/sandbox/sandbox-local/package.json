@@ -33,7 +33,7 @@
   },
   "dependencies": {
     "@deepseek-ai/dsh-sandbox-windows-acl": "workspace:^",
-    "node-addon-landlock-run": "0.0.0-test.0",
+    "@deepseek-ai/node-addon-landlock-run": "workspace:*",
     "schemastery": "^3.18.0"
   },
   "devDependencies": {

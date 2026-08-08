@@ -33,6 +33,8 @@ export interface SessionInspection {
 // The backend-agnostic write-path orchestration first-party backends compose.
 export {
   DEFAULT_PREPARED_SESSION_CACHE_SIZE,
+  DEFAULT_WRITE_BATCH_MAX_DELAY_MS,
+  MAX_WRITE_BATCH_DELAY_MS,
   PersistenceCoordinator,
   SessionPersistenceCorruptionError,
 } from './coordinator.ts'

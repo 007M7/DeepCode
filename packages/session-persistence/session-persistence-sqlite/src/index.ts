@@ -14,7 +14,8 @@ import { DatabaseSync } from 'node:sqlite'
 import { mkdir, open } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import {
-  DEFAULT_PREPARED_SESSION_CACHE_SIZE, SessionPersistence, SessionPersistenceRevision, PersistenceCoordinator,
+  DEFAULT_PREPARED_SESSION_CACHE_SIZE, DEFAULT_WRITE_BATCH_MAX_DELAY_MS, MAX_WRITE_BATCH_DELAY_MS,
+  SessionPersistence, SessionPersistenceRevision, PersistenceCoordinator,
   type PersistenceBackend, type SessionLocation, type SessionPersistenceSnapshot,
   type SessionInspection, type SessionPersistenceRevision as PersistenceRevision,
   type StoredPrefix, type StoredSuffix,
@@ -83,6 +84,8 @@ export interface Config {
   journalMode?: JournalMode
   /** Maximum cold Session preparations retained for history-to-resume reuse. */
   preparedSessionCacheSize?: number
+  /** Fixed live-event coalescing window; not a backend completion deadline. */
+  writeBatchMaxDelayMs?: number
 }
 
 /**
@@ -97,6 +100,8 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
     path: z.string().required(),
     journalMode: z.union(['wal', 'delete', 'truncate', 'persist'] as const).default('wal'),
     preparedSessionCacheSize: z.number().step(1).min(1).default(DEFAULT_PREPARED_SESSION_CACHE_SIZE),
+    writeBatchMaxDelayMs: z.number().step(1).min(1).max(MAX_WRITE_BATCH_DELAY_MS)
+      .default(DEFAULT_WRITE_BATCH_MAX_DELAY_MS),
   })
 
   /**
@@ -116,11 +121,14 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
     // Programmatic wrappers may construct the backend without Schemastery normalization.
     const preparedSessionCacheSize = config.preparedSessionCacheSize
       ?? DEFAULT_PREPARED_SESSION_CACHE_SIZE
+    const writeBatchMaxDelayMs = config.writeBatchMaxDelayMs
+      ?? DEFAULT_WRITE_BATCH_MAX_DELAY_MS
     // Open asynchronously so directory creation does not block plugin apply;
     // every storage hook awaits the same readiness promise.
     this.ready = this.openDb(config.path, (config as Required<Config>).journalMode)
     this.coordinator = new PersistenceCoordinator<number>(this.ctx, this, {
       preparedSessionCacheSize,
+      writeBatchMaxDelayMs,
     })
   }
 

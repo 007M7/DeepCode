@@ -1,7 +1,6 @@
 /** Browser runtime services for slots, sessions, workspaces, and connection-stream delivery. */
 import type { Context } from 'cordis'
 import type { ConnectionHandle, SessionId } from '@deepseek-ai/dsh-client-connection/client'
-import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type { TypeRTContext } from '@deepseek-ai/dsh-type-meta'
 import type { MaybeSnapshotSelectorHook, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import { SlotsService } from './slots.ts'
@@ -16,6 +15,8 @@ export { SlotsService } from './slots.ts'
 export type { RootOwnerProps } from './slots.ts'
 export { SessionCreateError, SessionsService, scopeOf, workspaceTitleOf } from './sessions/service.ts'
 export { SessionHistoryService } from './session-history/service.ts'
+export { indexSubagentDescendants } from './sessions/subagent-lineage.ts'
+export type { SubagentDescendantSummary } from './sessions/subagent-lineage.ts'
 // The provide channel is shared with the client test runtime (one
 // materialization/projection implementation; no test-side mirror to drift).
 export { SessionProvideChannel } from './sessions/provide.ts'
@@ -23,6 +24,7 @@ export type { SessionProvideChannelHost } from './sessions/provide.ts'
 export { createScope } from './agents/scope.ts'
 export type { AgentScopeHandle } from './agents/scope.ts'
 export { DirectoryBrowseError, WorkspaceCreateError, WorkspacesService } from './workspaces/service.ts'
+export { resolveWorkspacePath } from './workspaces/path.ts'
 export type { Session } from './sessions/session.ts'
 export type { ISession, ProjectionsFace, SessionFace } from './contract/session.ts'
 export type {
@@ -84,7 +86,7 @@ declare module '@deepseek-ai/dsh-type-meta' {
   }
 }
 
-/** The conversation-snapshot selector hook (ConvViewProps/ToolRowProps take this). */
+/** The conversation-snapshot selector hook supplied to session-scoped UI entries. */
 export type UseConversationSession = SnapshotSelectorHook<ConversationSnapshot>
 
 /**
@@ -179,8 +181,8 @@ declare module 'cordis' {
   }
 }
 
-/** Required services: the Remote root, wire handle, and Client TypeRT registry. */
-export const inject = ['remote', 'connection', 'typert']
+/** Required services: the wire handle and Client TypeRT registry. */
+export const inject = ['connection', 'typert']
 
 /** Mounts the browser runtime services and connection stream.
  * @param ctx - Client Cordis context.

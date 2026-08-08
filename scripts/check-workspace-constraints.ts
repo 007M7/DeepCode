@@ -8,6 +8,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 import { hasTypeRTRemoteNavigation, isForbiddenPublicationFile } from './publication-payload.ts'
+import { collectProjectReferenceFaceViolations } from './project-reference-faces.ts'
 
 const root = resolve(import.meta.dirname, '..')
 // vendor/* is single-level; packages/<group>/<pkg> nests one level deeper
@@ -15,6 +16,8 @@ const root = resolve(import.meta.dirname, '..')
 const workspaceGlobs = [
   { dir: 'vendor', depth: 1 },
   { dir: 'packages', depth: 2 },
+  { dir: 'native', depth: 1 },
+  { dir: 'native/landlock-run/packages', depth: 1 },
   { dir: 'apps', depth: 1 },
 ] as const
 const vendoredPackages = new Set([
@@ -28,6 +31,16 @@ const vendoredPackages = new Set([
   '@cordisjs/plugin-hmr',
   '@cordisjs/plugin-logger-console',
 ])
+const publicLandlockPackages = new Set([
+  '@deepseek-ai/node-addon-landlock-run',
+  '@deepseek-ai/node-addon-landlock-run-linux-arm64',
+  '@deepseek-ai/node-addon-landlock-run-linux-x64',
+])
+/** Deliberate source payloads whose exact bytes are part of the package's audit surface. */
+const publicationSourceAllowlist: Readonly<Record<string, readonly string[]>> = {
+  '@deepseek-ai/node-addon-landlock-run': ['src/main.c'],
+}
+const repositoryUrl = 'git+https://github.com/deepseek-harness/deepseek-harness.git'
 
 const localArtifactDirs = new Set(['node_modules'])
 const appPackageFiles: Readonly<Record<string, readonly string[]>> = {
@@ -55,6 +68,8 @@ interface PackageManifest {
     | undefined
   >
   files?: string[]
+  publishConfig?: { access?: string }
+  repository?: { type?: string; url?: string; directory?: string }
   peerDependencies?: Record<string, string>
   devDependencies?: Record<string, string>
 }
@@ -71,6 +86,8 @@ function readJson(path: string): PackageManifest {
 
 const rootManifest = readJson(join(root, 'package.json'))
 const repositoryVersion = rootManifest.version
+const landlockWorkspaceManifest = readJson(join(root, 'native/landlock-run/package.json'))
+const landlockVersion = landlockWorkspaceManifest.version
 
 /** Repo-relative dirs holding a package.json, walked to the configured depth. */
 function packageDirs(base: string, depth: number): string[] {
@@ -79,12 +96,12 @@ function packageDirs(base: string, depth: number): string[] {
       .filter(entry => entry.isDirectory())
       .filter(entry => !localArtifactDirs.has(entry.name))
       .filter(entry => existsSync(join(root, base, entry.name, 'package.json')))
-      .map(entry => join(base, entry.name))
+      .map(entry => `${base}/${entry.name}`)
   }
   return readdirSync(join(root, base), { withFileTypes: true })
     .filter(entry => entry.isDirectory())
     .filter(entry => !localArtifactDirs.has(entry.name))
-    .flatMap(group => packageDirs(join(base, group.name), depth - 1))
+    .flatMap(group => packageDirs(`${base}/${group.name}`, depth - 1))
 }
 
 function workspaceManifests(): WorkspaceManifest[] {
@@ -113,6 +130,7 @@ const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
   // The argv-prefix runner entry ships beside the lib as its own bundle;
   // sandbox-local resolves it through the package's ./runner export.
   '@deepseek-ai/dsh-sandbox-windows-acl': ['lib/runner.js'],
+  '@deepseek-ai/dsh-skill-badge': ['assets'],
   '@deepseek-ai/dsh-scripts': [
     'lib/dev/tsdown-config.js',
     'lib/local-plugin-loader-hooks.js',
@@ -198,8 +216,25 @@ function usesEmittedTreeDefaults(manifest: PackageManifest): boolean {
 function checkWorkspace({ dir, manifest }: WorkspaceManifest): string[] {
   const errors: string[] = []
   const label = manifest.name ?? dir
+  const isLandlockPackageDir = dir.startsWith('native/landlock-run/packages/')
+  const isPublicLandlockPackage = isLandlockPackageDir
+    && manifest.name !== undefined
+    && publicLandlockPackages.has(manifest.name)
 
-  if (manifest.private !== true) {
+  if (isPublicLandlockPackage) {
+    if (manifest.private === true) {
+      errors.push(`${label}: published Landlock package must not set "private": true`)
+    }
+    if (manifest.publishConfig?.access !== 'public') {
+      errors.push(`${label}: published Landlock package must set publishConfig.access to "public"`)
+    }
+    const expectedDirectory = dir
+    if (manifest.repository?.type !== 'git'
+      || manifest.repository.url !== repositoryUrl
+      || manifest.repository.directory !== expectedDirectory) {
+      errors.push(`${label}: published Landlock package repository must use ${repositoryUrl} with directory ${expectedDirectory} for trusted publishing`)
+    }
+  } else if (manifest.private !== true) {
     errors.push(`${label}: package.json must set "private": true`)
   }
 
@@ -208,9 +243,10 @@ function checkWorkspace({ dir, manifest }: WorkspaceManifest): string[] {
   }
 
   if (manifest.name?.startsWith('@deepseek-ai/')) {
+    const allowedSources = publicationSourceAllowlist[manifest.name] ?? []
     const publicationPolicy = { typeRTRemoteNavigation: hasTypeRTRemoteNavigation(manifest) }
     for (const file of manifest.files ?? []) {
-      if (isForbiddenPublicationFile(file, publicationPolicy)) {
+      if (isForbiddenPublicationFile(file, publicationPolicy) && !allowedSources.includes(file)) {
         errors.push(`${label}: package.json files must not publish ${JSON.stringify(file)}`)
       }
     }
@@ -222,6 +258,15 @@ function checkWorkspace({ dir, manifest }: WorkspaceManifest): string[] {
       errors.push(`${label}: app package has no publication files policy`)
     } else if (!sameStringList(manifest.files, expectedFiles)) {
       errors.push(`${label}: package.json files must be ${JSON.stringify(expectedFiles)}`)
+    }
+  }
+
+  if (isLandlockPackageDir) {
+    if (!isPublicLandlockPackage) {
+      errors.push(`${label}: unexpected package in the public Landlock package family`)
+    }
+    if (manifest.version !== landlockVersion) {
+      errors.push(`${label}: package.json version must match Landlock workspace version ${landlockVersion ?? '(missing)'}`)
     }
   }
 
@@ -309,6 +354,7 @@ const errors = [
   ...checkRepositoryVersion(),
   ...workspaceManifests().flatMap(checkWorkspace),
   ...checkHierarchyShape(),
+  ...collectProjectReferenceFaceViolations(root),
 ]
 if (errors.length > 0) {
   console.error(errors.join('\n'))

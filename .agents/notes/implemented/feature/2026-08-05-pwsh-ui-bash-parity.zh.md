@@ -6,7 +6,7 @@ Status: implemented
 
 ## Problem
 
-[pwsh 工具与 bash 对齐决策](../../implemented/feature/2026-08-02-pwsh-tool-bash-parity.md) 让 `dsh-tool-pwsh` 在执行、marker 与后台任务上行为可互换，但明确推迟了面向人类的一半：完成的 pwsh 前台调用呈现为通用 `console` 围栏卡片，而 bash 工具的完成调用呈现为带解析退出状态 pill 的 terminal 卡。拥有此缺口的路线图（[Windows 默认改用 pwsh](../../implemented/feature/2026-08-01-windows-pwsh-default.md)）把 "pwsh TUI/GUI 渲染" 列为阶段 2——但 TUI 包已被移除（[`ed30088adb`](https://github.com/deepseek-harness/deepseek-harness/commit/ed30088adb)），Web 表面成为该缺口唯一影响的 UI。
+[pwsh 工具与 bash 对齐决策](../../implemented/feature/2026-08-02-pwsh-tool-bash-parity.md) 让 `dsh-tool-pwsh` 在执行、marker 与后台任务上行为可互换，但明确推迟了面向人类的一半：完成的 pwsh 前台调用呈现为通用 `console` 围栏卡片，而 bash 工具的完成调用呈现为带解析退出状态 pill 的 terminal 卡。拥有此缺口的路线图（[Windows 默认改用 pwsh](../../proposed/feature/2026-08-01-windows-pwsh-default.md)）把 "pwsh TUI/GUI 渲染" 列为阶段 2，但 TUI 包已被移除，使 Web 表面成为该缺口唯一影响的 UI。
 
 ## Decision
 

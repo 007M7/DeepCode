@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-07-31-installer-adopts-existing-checkout.md
-2026-07-31-installer-adopts-existing-checkout.md: de3cd052f94a0d5256c7687e9a1a38ee69fd2caf
-2026-07-31-installer-adopts-existing-checkout.zh.md: 2e8be804b4af6151e77e36f8b109616aab3a18e9
+2026-07-31-installer-adopts-existing-checkout.md: 3a213a6232e57f305910240505983421dcd288ad
+2026-07-31-installer-adopts-existing-checkout.zh.md: 7cdcd5549fb2bca2a6cb11f0cf2867687565ae79

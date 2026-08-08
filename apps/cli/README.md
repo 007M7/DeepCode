@@ -9,11 +9,11 @@ The `dsh` command is the product launcher for profiles: ordered stacks of plugin
 | Command | Purpose |
 |---|---|
 | `dsh --profile <name>` | Boot the named profile under `$DSH_HOME/profiles/<name>`. |
-| `dsh --profile headless "task"` | Run one fresh persisted session, print the final answer, and exit. |
+| `dsh run [--profile <name>] [--patch <path>...] "task"` | Run one fresh persisted session, print the final answer, and exit; the profile defaults to `headless`. |
 | `dsh web` | Alias of `--profile web` with the Web flag family (`--host`, `--port`, `--dev`, ...). |
 | `dsh plugin --profile <name> <pnpm args>` | Manage a profile's plugins by forwarding to pnpm in the profile directory. |
 
-The invoking directory is the default workspace root. The `web` and `headless` profiles auto-initialize on first use from shipped templates; any other profile must be created through `dsh plugin`.
+The invoking directory is the default workspace root. `dsh run` requires non-blank task text and the selected profile must mount the `headless-runner` row; `--profile` preserves custom one-shot profiles. The `web` and `headless` profiles auto-initialize on first use from shipped templates; any other profile must be created through `dsh plugin`.
 
 ## Profiles
 

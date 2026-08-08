@@ -9,13 +9,48 @@
  * flow share their gates.
  */
 import type {
-  AssistantBlock, ConversationNode, ConversationSnapshot, ToolResultNode,
+  AssistantBlock, CommandNode, CompactionSummaryNode, ConversationNode, ConversationSnapshot, ToolResultNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
 
 /** One renderable flow item; key is the React key and the parent's identity unit. */
 export type ChatFlowItem =
   | { kind: 'node'; key: string; node: ConversationNode }
   | { kind: 'tool-group'; key: string; results: readonly ToolResultNode[] }
+  | {
+    kind: 'command-compaction'
+    key: string
+    command: CommandNode
+    compaction: CompactionSummaryNode
+  }
+
+/** Match explicit command outcome references to exactly one compaction checkpoint. */
+function commandCompactionPairs(nodes: readonly ConversationNode[]): {
+  readonly byCommandId: ReadonlyMap<string, CompactionSummaryNode>
+  readonly byCompactionSeq: ReadonlyMap<number, CommandNode>
+} {
+  const commandsBySource = new Map<number, CommandNode | null>()
+  for (const node of nodes) {
+    if (node.kind !== 'command' || node.name !== 'compact' || node.outcome?.kind !== 'success') continue
+    const source = node.outcome.sourceEventSeq
+    if (source === undefined) continue
+    commandsBySource.set(source, commandsBySource.has(source) ? null : node)
+  }
+  const compactionsBySummary = new Map<number, CompactionSummaryNode | null>()
+  for (const node of nodes) {
+    if (node.kind !== 'compaction' || node.summaryEventSeq === null) continue
+    const summary = node.summaryEventSeq
+    compactionsBySummary.set(summary, compactionsBySummary.has(summary) ? null : node)
+  }
+  const byCommandId = new Map<string, CompactionSummaryNode>()
+  const byCompactionSeq = new Map<number, CommandNode>()
+  for (const [source, command] of commandsBySource) {
+    const compaction = compactionsBySummary.get(source)
+    if (command === null || compaction === undefined || compaction === null) continue
+    byCommandId.set(command.commandId, compaction)
+    byCompactionSeq.set(compaction.seq, command)
+  }
+  return { byCommandId, byCompactionSeq }
+}
 
 /**
  * True when the node has model-visible text content worth IconActions chrome.
@@ -115,9 +150,28 @@ export function assistantBranchSeqs(
  */
 export function deriveChatFlow(nodes: readonly ConversationNode[]): ChatFlowItem[] {
   const items: ChatFlowItem[] = []
+  const pairs = commandCompactionPairs(nodes)
   let group: ToolResultNode[] | null = null
   for (const node of nodes) {
     if (rendersNothing(node)) continue
+    if (node.kind === 'command' && pairs.byCommandId.has(node.commandId)) {
+      continue
+    }
+    if (node.kind === 'compaction') {
+      group = null
+      const command = pairs.byCompactionSeq.get(node.seq)
+      if (command !== undefined) {
+        items.push({
+          kind: 'command-compaction',
+          key: `c${command.commandId}`,
+          command,
+          compaction: node,
+        })
+      } else {
+        items.push({ kind: 'node', key: `n${node.seq}`, node })
+      }
+      continue
+    }
     if (node.kind === 'tool-result') {
       if (group === null) {
         group = [node]
@@ -138,7 +192,13 @@ export function deriveChatFlow(nodes: readonly ConversationNode[]): ChatFlowItem
       }
     } else {
       group = null
-      items.push({ kind: 'node', key: `n${node.seq}`, node })
+      items.push({
+        kind: 'node',
+        key: node.kind === 'command' && node.name === 'compact'
+          ? `c${node.commandId}`
+          : `n${node.seq}`,
+        node,
+      })
     }
   }
   return items

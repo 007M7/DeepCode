@@ -1,4 +1,4 @@
-import { readFile, readdir, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { delimiter, dirname, join } from 'node:path'
@@ -14,6 +14,10 @@ import {
   type NormalizeContext,
 } from '@deepseek-ai/dsh-acp-snapshot'
 import { LOADER_SMOKE_TEST_TIMEOUT_MS, runLoaderSmoke } from '@deepseek-ai/dsh-loader-smoke'
+import {
+  decompressZstdFrame,
+  scanZstdFrames,
+} from '@deepseek-ai/dsh-session-persistence-jsonl/src/zstd.ts'
 import { describe, expect, it } from 'vitest'
 
 const snapshotsDir = join(dirname(fileURLToPath(import.meta.url)), 'snapshots')
@@ -29,6 +33,10 @@ const goalScenarioDir = join(snapshotsDir, 'goal-tools')
 const goalConfigPath = fileURLToPath(new URL('../goal.cordis.snapshot.yml', import.meta.url))
 const retryScenarioDir = join(snapshotsDir, 'provider-retry')
 const retryConfigPath = fileURLToPath(new URL('../retry.cordis.snapshot.yml', import.meta.url))
+const compactionScenarioDir = join(snapshotsDir, 'compaction-recovery')
+const compactionSessionFixture = join(compactionScenarioDir, 'session.jsonl')
+const compactionStreamExpected = join(compactionScenarioDir, 'stream-json.expected.jsonl')
+const compactionConfigPath = fileURLToPath(new URL('../compaction.cordis.snapshot.yml', import.meta.url))
 const credentialsScenarioDir = join(snapshotsDir, 'missing-credential')
 const credentialsConfigPath = fileURLToPath(new URL('../credentials.cordis.snapshot.yml', import.meta.url))
 // Same keyless composition as the missing-credential scenario: the endpoint is
@@ -39,10 +47,14 @@ const ralphScenarioDir = join(snapshotsDir, 'ralph-loop')
 const ralphConfigPath = fileURLToPath(new URL('../ralph.cordis.snapshot.yml', import.meta.url))
 const startupFailureConfigPath = fileURLToPath(new URL('./fixtures/startup-activation-error/cordis.yml', import.meta.url))
 const startupFailureExpected = join(snapshotsDir, 'startup-activation-error', 'stderr.expected.txt')
-const binScript = fileURLToPath(new URL('../../../packages/examples/cli-demo/src/bin.ts', import.meta.url))
+const binScript = fileURLToPath(new URL('./fixtures/headless-driver.ts', import.meta.url))
+const dshBinScript = fileURLToPath(new URL('../../../apps/cli/src/bin.ts', import.meta.url))
 const tsconfigPath = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
 const reasoningConfigPath = fileURLToPath(new URL('./fixtures/cli.cordis.yml', import.meta.url))
 const deepseekDefaultsConfigPath = fileURLToPath(new URL('./fixtures/deepseek-defaults.cordis.yml', import.meta.url))
+const dshRunOverlayPath = fileURLToPath(new URL('./fixtures/dsh-run.cordis.yml', import.meta.url))
+const dshRunSessionExpected = join(snapshotsDir, 'dsh-run', 'session.expected.jsonl')
+const cliMockLlmPluginPath = fileURLToPath(new URL('./fixtures/cli-mock-llm.ts', import.meta.url))
 const refreshing = process.env.DSH_SNAPSHOT === 'refresh'
 
 interface JsonObject {
@@ -163,23 +175,76 @@ async function scenarioPrompt(dir: string, label: string): Promise<string> {
   return prompt
 }
 
-async function persistedLogs(cwd: string): Promise<PersistedLog[]> {
-  const root = join(cwd, '.sessions')
-  const files = (await readdir(root, { recursive: true })).filter(file => file.endsWith('.jsonl'))
+async function readPersistedLog(file: string): Promise<string> {
+  const content = await readFile(file)
+  if (!file.endsWith('.zstd')) return content.toString('utf8')
+  const scan = scanZstdFrames(content)
+  if (scan.tornStart !== undefined) throw new Error(`persisted snapshot log has a torn Zstandard frame: ${file}`)
+  const decoded: Buffer[] = []
+  for (const frame of scan.frames) {
+    decoded.push(await decompressZstdFrame(content.subarray(frame.start, frame.end)))
+  }
+  return Buffer.concat(decoded).toString('utf8')
+}
+
+async function persistedLogs(cwd: string, root: string = join(cwd, '.sessions')): Promise<PersistedLog[]> {
+  const files = (await readdir(root, { recursive: true }))
+    .filter(file => file.endsWith('.jsonl') || file.endsWith('.jsonl.zstd'))
   return Promise.all(files.map(async (file) => {
-    const content = await readFile(join(root, file), 'utf8')
+    const content = await readPersistedLog(join(root, file))
     return { content, header: parseJsonl(content)[0] ?? {} }
   }))
 }
 
 describe('headless stream-json snapshots', () => {
+  it('runs one task through the product dsh run command', async () => {
+    const task = 'Prove the product dsh run path with one real tool round trip.'
+    const result = await runLoaderSmoke({
+      label: 'product dsh run snapshot',
+      tempDirPrefix: 'headless-snapshot-dsh-run-',
+      binScript: dshBinScript,
+      configPath: dshRunOverlayPath,
+      binArgs: ['run', '--patch', dshRunOverlayPath, task],
+      tsconfigPath,
+      env: {
+        DSH_PERMISSION_MODE: 'danger-full-access',
+        DSH_TELEMETRY_DISABLED: '1',
+        NODE_OPTIONS: [process.env.NODE_OPTIONS, '--disable-warning=ExperimentalWarning'].filter(Boolean).join(' '),
+      },
+      prepare: async (cwd) => {
+        const fixtureDir = join(cwd, '.dsh', 'profiles', 'headless', 'snapshot-fixtures')
+        await mkdir(fixtureDir, { recursive: true })
+        await Promise.all([
+          copyFile(cliMockLlmPluginPath, join(fixtureDir, 'cli-mock-llm.ts')),
+          writeFile(join(fixtureDir, 'package.json'), '{"type":"module"}\n'),
+        ])
+      },
+      inspect: async (cwd) => {
+        const logs = await persistedLogs(cwd, join(cwd, '.dsh', 'sessions'))
+        expect(logs).toHaveLength(1)
+        const actual = logs[0]
+        if (actual === undefined) throw new Error('dsh run did not persist its session')
+        const context = contextFromLogs([actual.content])
+        const session = scrubRequestHeaders(normalizeSessionLog(actual.content, context))
+        if (refreshing) await writeFile(dshRunSessionExpected, session)
+        expect(session).toBe(await readFile(dshRunSessionExpected, 'utf8'))
+        expect(session).toContain(task)
+        expect(session).toContain('CLI tool round trip complete: CLI_TOOL_ROUND_TRIP')
+      },
+    })
+
+    expect(result.stdout).toBe('CLI tool round trip complete: CLI_TOOL_ROUND_TRIP\n')
+    expect(result.stderr).toMatch(/^dsh: observing at http:\/\/127\.0\.0\.1:\d+\n$/u)
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
   it('prints the original Loader activation error through the assembled one-shot app', async () => {
     const result = await runLoaderSmoke({
       label: 'headless startup activation error snapshot',
       tempDirPrefix: 'headless-snapshot-startup-error-',
       binScript,
+      libBinScript: binScript,
       configPath: startupFailureConfigPath,
-      binArgs: ['--config', startupFailureConfigPath, '--output-format', 'stream-json', 'unreachable task'],
+      binArgs: [startupFailureConfigPath, 'unreachable task'],
       tsconfigPath,
       expectedExitCode: 1,
     })
@@ -195,8 +260,9 @@ describe('headless stream-json snapshots', () => {
       label: 'provider retry headless stream-json snapshot',
       tempDirPrefix: 'headless-snapshot-provider-retry-',
       binScript,
+      libBinScript: binScript,
       configPath: retryConfigPath,
-      binArgs: ['--config', retryConfigPath, '--output-format', 'stream-json', prompt],
+      binArgs: [retryConfigPath, prompt],
       tsconfigPath,
       env: {
         DSH_SNAPSHOT: 'replay',
@@ -227,6 +293,76 @@ describe('headless stream-json snapshots', () => {
     expect(normalized).toBe(await readFile(streamExpected, 'utf8'))
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
+  it('recovers from context overflow through an assembled compaction', async () => {
+    const prompt = await scenarioPrompt(compactionScenarioDir, 'compaction-recovery')
+    let expectedSession = await readFile(compactionSessionFixture, 'utf8')
+    let runCwd = ''
+    const result = await runLoaderSmoke({
+      label: 'compaction recovery headless stream-json snapshot',
+      tempDirPrefix: 'headless-snapshot-compaction-recovery-',
+      binScript,
+      libBinScript: binScript,
+      configPath: compactionConfigPath,
+      binArgs: [compactionConfigPath, prompt],
+      tsconfigPath,
+      env: {
+        DSH_SNAPSHOT: 'replay',
+        DSH_SNAPSHOT_FILE: compactionSessionFixture,
+        NODE_OPTIONS: [process.env.NODE_OPTIONS, '--disable-warning=ExperimentalWarning'].filter(Boolean).join(' '),
+      },
+      prepare: (cwd) => { runCwd = cwd },
+      inspect: async (cwd) => {
+        const logs = await persistedLogs(cwd)
+        expect(logs).toHaveLength(1)
+        const actual = logs[0]
+        if (actual === undefined) throw new Error('compaction snapshot did not persist its session')
+        const records = parseJsonl(actual.content)
+        const types = records.map(record => record.type)
+        expect(types.filter(type => type === 'compact/start')).toHaveLength(1)
+        expect(types.filter(type => type === 'compact/summary')).toHaveLength(1)
+        expect(types.filter(type => type === 'compact/end')).toHaveLength(1)
+        const start = types.indexOf('compact/start')
+        const summary = types.indexOf('compact/summary')
+        const replacement = records.findIndex((record) => {
+          if (record.type !== 'user/message') return false
+          const surfaceOp = record.surfaceOp as JsonObject | undefined
+          return surfaceOp?.op === 'replace'
+        })
+        const end = types.indexOf('compact/end')
+        expect(start).toBeLessThan(summary)
+        expect(summary).toBeLessThan(replacement)
+        expect(replacement).toBeLessThan(end)
+        const summaryRecord = records[summary]
+        const summaryData = summaryRecord?.data as JsonObject | undefined
+        expect(summaryData?.shadowedSeqs).toEqual(expect.arrayContaining([expect.any(Number)]))
+        const final = [...records].reverse().find(record => record.type === 'assistant/message')
+        expect(JSON.stringify(final)).toContain('COMPACTION RECOVERED')
+
+        const actualContext = contextFromLogs([actual.content])
+        if (refreshing) {
+          const harvested: HarvestedLog = {
+            id: String(actual.header.id),
+            createdAt: Number(actual.header.createdAt),
+            content: actual.content,
+          }
+          const replacements = refreshFixtureReplacements([harvested], [expectedSession])
+          expectedSession = tokenizeSessionFixtureCwd(
+            stabilizeRefreshLog(actual.content, expectedSession, replacements, actualContext),
+          )
+          await writeFile(compactionSessionFixture, expectedSession)
+        }
+        const expectedContext = contextFromLogs([expectedSession])
+        expect(scrubRequestHeaders(normalizeSessionLog(actual.content, actualContext)))
+          .toBe(scrubRequestHeaders(normalizeSessionLog(expectedSession, expectedContext)))
+      },
+    })
+
+    expect(result.stderr).toBe('')
+    const normalized = normalizeHeadlessStream(result.stdout, runCwd)
+    if (refreshing) await writeFile(compactionStreamExpected, normalized)
+    expect(normalized).toBe(await readFile(compactionStreamExpected, 'utf8'))
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
   it('logs actionable missing-credential guidance through the one-shot app', async () => {
     const streamExpected = join(credentialsScenarioDir, 'stream-json.expected.jsonl')
     let runCwd = ''
@@ -234,8 +370,9 @@ describe('headless stream-json snapshots', () => {
       label: 'missing-credential headless stream-json snapshot',
       tempDirPrefix: 'headless-snapshot-missing-credential-',
       binScript,
+      libBinScript: binScript,
       configPath: credentialsConfigPath,
-      binArgs: ['--config', credentialsConfigPath, '--output-format', 'stream-json', 'say pong'],
+      binArgs: [credentialsConfigPath, 'say pong'],
       tsconfigPath,
       env: {
         // First-run posture: no key in the environment, none under ./.dsh.
@@ -271,8 +408,9 @@ describe('headless stream-json snapshots', () => {
       label: 'invalid-credential headless stream-json snapshot',
       tempDirPrefix: 'headless-snapshot-invalid-credential-',
       binScript,
+      libBinScript: binScript,
       configPath: credentialsConfigPath,
-      binArgs: ['--config', credentialsConfigPath, '--output-format', 'stream-json', 'say pong'],
+      binArgs: [credentialsConfigPath, 'say pong'],
       tsconfigPath,
       env: {
         // A key that exists but no HTTP header can carry — the paste this
@@ -305,8 +443,9 @@ describe('headless stream-json snapshots', () => {
       label: 'reasoning effort headless stream-json snapshot',
       tempDirPrefix: 'headless-snapshot-reasoning-effort-',
       binScript,
+      libBinScript: binScript,
       configPath: reasoningConfigPath,
-      binArgs: ['--config', reasoningConfigPath, '--output-format', 'stream-json', 'prove dynamic reasoning effort'],
+      binArgs: [reasoningConfigPath, 'prove dynamic reasoning effort'],
       tsconfigPath,
     })
 
@@ -347,12 +486,10 @@ describe('headless stream-json snapshots', () => {
         label: 'DeepSeek adapter defaults headless stream-json snapshot',
         tempDirPrefix: 'headless-snapshot-deepseek-defaults-',
         binScript,
+        libBinScript: binScript,
         configPath: deepseekDefaultsConfigPath,
         binArgs: [
-          '--config',
           deepseekDefaultsConfigPath,
-          '--output-format',
-          'stream-json',
           'return the deterministic response',
         ],
         tsconfigPath,
@@ -407,8 +544,9 @@ describe('headless stream-json snapshots', () => {
       label: 'advanced headless stream-json snapshot',
       tempDirPrefix: 'headless-snapshot-advanced-',
       binScript,
+      libBinScript: binScript,
       configPath: advancedConfigPath,
-      binArgs: ['--config', advancedConfigPath, '--output-format', 'stream-json', prompt],
+      binArgs: [advancedConfigPath, prompt],
       tsconfigPath,
       env: {
         DSH_SNAPSHOT: 'replay',
@@ -478,8 +616,9 @@ describe('headless stream-json snapshots', () => {
       label: 'goal tools headless stream-json snapshot',
       tempDirPrefix: 'headless-snapshot-goal-tools-',
       binScript,
+      libBinScript: binScript,
       configPath: goalConfigPath,
-      binArgs: ['--config', goalConfigPath, '--output-format', 'stream-json', prompt],
+      binArgs: [goalConfigPath, prompt],
       tsconfigPath,
       env: {
         DSH_SNAPSHOT: 'replay',
@@ -534,8 +673,9 @@ describe('headless stream-json snapshots', () => {
       label: 'Ralph loop headless stream-json snapshot',
       tempDirPrefix: 'headless-snapshot-ralph-loop-',
       binScript,
+      libBinScript: binScript,
       configPath: ralphConfigPath,
-      binArgs: ['--config', ralphConfigPath, '--output-format', 'stream-json', prompt],
+      binArgs: [ralphConfigPath, prompt],
       tsconfigPath,
       env: {
         DSH_SNAPSHOT: 'replay',
@@ -615,8 +755,9 @@ describe('headless stream-json snapshots', () => {
       label: 'headless persistent PTY snapshot',
       tempDirPrefix: 'headless-snapshot-pty-',
       binScript,
+      libBinScript: binScript,
       configPath: ptyConfigPath,
-      binArgs: ['--config', ptyConfigPath, '--output-format', 'stream-json', prompt],
+      binArgs: [ptyConfigPath, prompt],
       tsconfigPath,
       env: {
         DSH_SNAPSHOT: 'replay',

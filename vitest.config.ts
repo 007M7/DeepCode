@@ -178,6 +178,8 @@ export default defineConfig({
         'packages/client/web-react/src/*',
         'packages/client/runtime/src/*',
         'packages/client/ui-conversation/src/*',
+        'packages/client/ui-primitives/src/DisclosureRow.tsx',
+        'packages/client/ui-tool/src/*',
         'packages/client/ui-slots/src/*',
         'packages/client/ui-layout/src/*',
         'packages/client/web/src/*',
