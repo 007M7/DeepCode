@@ -58,7 +58,7 @@
     "@deepseek-ai/dsh-llm-retry": "workspace:^",
     "@deepseek-ai/dsh-permission": "workspace:^",
     "@deepseek-ai/dsh-plan-mode": "workspace:^",
-    "@deepseek-ai/dsh-pwsh-local": "workspace:^",
+    "@deepseek-ai/dsh-pwsh-sandbox": "workspace:^",
     "@deepseek-ai/dsh-repeat-tool-guard": "workspace:^",
     "@deepseek-ai/dsh-repository-plugin": "workspace:^",
     "@deepseek-ai/dsh-sandbox-local": "workspace:^",

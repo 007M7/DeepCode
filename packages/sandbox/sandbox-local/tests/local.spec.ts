@@ -365,3 +365,63 @@ describe('the default seatbelt probe (sandbox-exec contract)', () => {
     expect(() => sandbox.confine(['true'], RO)).toThrow(expect.objectContaining({ code: SANDBOX_UNAVAILABLE }))
   })
 })
+
+describe('the windows-acl probe (runner invocation contract)', () => {
+  // The product chain reaches windows-acl only unprobed (win32's sole
+  // candidate), so the probe case and the runner-entry resolution are pinned
+  // through the chain seam, mirroring the seatbelt default-probe contract.
+  it('selects the rung when the injected probe passes, speaking the ACL dialect', async () => {
+    const probeWindowsAcl = vi.fn(() => true)
+    const { sandbox } = await setup({}, {
+      chain: ['windows-acl', 'bwrap'],
+      probeWindowsAcl,
+      probeBwrap: () => false,
+      windowsAclRunnerArgs: ['node', 'windows-acl-runner.js'],
+    })
+    const confined = sandbox.confine(['true'], RO)
+    expect(probeWindowsAcl).toHaveBeenCalledTimes(1)
+    expect(confined.argv.slice(-4)).toEqual(['--mode', 'read-only', '--', 'true'])
+    expect(confined.enforcement).toBe('full')
+    expect(confined.denialSignatures).toEqual(['access is denied', 'access to the path', 'permission denied'])
+    expect(confined.runnerFailureRules).toEqual([{ fatalSignatures: ['windows-acl-run: '] }])
+  })
+
+  it('reads a failing probe as unusable and walks to the next rung', async () => {
+    const probeWindowsAcl = vi.fn(() => false)
+    const { sandbox } = await setup({}, { chain: ['windows-acl', 'bwrap'], probeWindowsAcl, probeBwrap: () => true })
+    const confined = sandbox.confine(['true'], RO)
+    expect(confined.argv[0]).toBe('bwrap')
+    expect(probeWindowsAcl).toHaveBeenCalledTimes(1)
+  })
+
+  it('runs the REAL default probe against the resolved runner invocation when none is injected', async () => {
+    // The default probe spawns the exact runner argv confine would use — the
+    // runner source through tsx on a lib-less checkout. The windows-acl
+    // runner cannot init off win32, so the probe reads unusable and the walk
+    // falls through to the injected bwrap verdict on every host.
+    const { sandbox } = await setup({}, { chain: ['windows-acl', 'bwrap'], probeBwrap: () => true })
+    const confined = sandbox.confine(['true'], RO)
+    expect(confined.argv[0]).toBe('bwrap')
+  }, 30_000)
+
+  it('reads an empty runner invocation as unusable (the probe\'s empty-argv guard)', async () => {
+    // windowsAclRunnerInvocation always yields [node, ...] in product; an
+    // override returning [] exercises the default probe's empty-argv guard.
+    const { sandbox } = await setup({}, { chain: ['windows-acl', 'bwrap'], probeBwrap: () => true, windowsAclRunnerArgs: [] })
+    const confined = sandbox.confine(['true'], RO)
+    expect(confined.argv[0]).toBe('bwrap')
+  })
+
+  it('prefers the built lib/runner.js entry when the resolved file exists', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-fake-acl-entry-'))
+    const builtEntry = join(dir, 'runner.js')
+    writeFileSync(builtEntry, '')
+    const { sandbox } = await setup({}, {
+      chain: ['windows-acl', 'bwrap'],
+      probeWindowsAcl: () => true,
+      windowsAclRunnerEntry: builtEntry,
+    })
+    const confined = sandbox.confine(['true'], RO)
+    expect(confined.argv.slice(0, 2)).toEqual([process.execPath, builtEntry])
+  })
+})

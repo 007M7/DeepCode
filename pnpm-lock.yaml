@@ -773,9 +773,6 @@ importers:
       '@deepseek-ai/dsh-sandbox-policy':
         specifier: workspace:^
         version: link:../../sandbox/sandbox-policy
-      '@deepseek-ai/dsh-sandbox-windows-acl':
-        specifier: workspace:^
-        version: link:../../sandbox/sandbox-windows-acl
       '@deepseek-ai/dsh-subprocess-local':
         specifier: workspace:^
         version: link:../../subprocess/subprocess-local
@@ -973,9 +970,9 @@ importers:
       '@deepseek-ai/dsh-plan-mode':
         specifier: workspace:^
         version: link:../../plan/plan-mode
-      '@deepseek-ai/dsh-pwsh-local':
+      '@deepseek-ai/dsh-pwsh-sandbox':
         specifier: workspace:^
-        version: link:../../bash/pwsh-local
+        version: link:../../bash/pwsh-sandbox
       '@deepseek-ai/dsh-repeat-tool-guard':
         specifier: workspace:^
         version: link:../../guard/repeat-tool-guard

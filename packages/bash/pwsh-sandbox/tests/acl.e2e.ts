@@ -14,6 +14,7 @@ import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import type { SandboxExecutionPolicy } from '@deepseek-ai/dsh-sandbox'
+import { resolvePwshPath } from '@deepseek-ai/dsh-pwsh-local'
 import { LocalSandboxProvider } from '@deepseek-ai/dsh-sandbox-local'
 import { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
@@ -22,12 +23,7 @@ import { SandboxPwshExecutor } from '../src/index.ts'
 const isWin32 = process.platform === 'win32'
 
 function pwshAvailable(): boolean {
-  try {
-    spawnSync('where.exe', ['pwsh'], { stdio: 'ignore' })
-    return true
-  } catch {
-    return false
-  }
+  return spawnSync(resolvePwshPath(), ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '$true'], { encoding: 'utf8' }).status === 0
 }
 
 describe.skipIf(!isWin32 || !pwshAvailable())('pwsh-sandbox real ACL confinement', () => {

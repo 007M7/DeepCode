@@ -57,16 +57,22 @@ const windowsOnlyCoverageExclusions = process.platform !== 'win32'
     ]
   : []
 
-// Mirrors windowsCoverageExclusions: pwsh-local's run/start/lifecycle suites
-// self-skip without a real pwsh (executor.spec.ts hasPwsh), leaving this file
-// far below per-file 100% on pwsh-less hosts; the exemption keeps those hosts
-// green while CI runners ship pwsh and still enforce the full bar. The probe
-// runs the suites' own resolution (the dependency-free resolve.ts module),
-// so the exemption is active exactly when the suites skip — a mismatched
-// narrower probe could exempt the file on hosts whose suites actually run.
+// Mirrors windowsCoverageExclusions: pwsh-local's and pwsh-sandbox's
+// run/start/lifecycle suites self-skip without a real pwsh (executor.spec.ts
+// hasPwsh, sandbox.spec.ts pwshAvailable). pwsh-local keeps the bar on its
+// pwsh-independent modules and exempts only the executor file; pwsh-sandbox's
+// remaining helpers branch (classifyDenial) and its invariant companion both
+// ride the executor suites' real pwsh runs, so on a pwsh-less host (the
+// self-hosted Linux runners ship no pwsh) every source file would sit below
+// the per-file bar — exempt the whole package src there, mirroring
+// windowsOnlyCoverageExclusions. The probe runs the suites' own resolution
+// (resolvePwshPath), so the exemption is active exactly when the suites skip.
 const pwshCoverageExclusions = spawnSync(resolvePwshPath(), ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '$true'], { encoding: 'utf8' }).status === 0
   ? []
-  : ['packages/bash/pwsh-local/src/index.ts']
+  : [
+      'packages/bash/pwsh-local/src/index.ts',
+      'packages/bash/pwsh-sandbox/src/**/*.ts',
+    ]
 
 const testIncludes = [
   'packages/*/*/tests/**/*.spec.{ts,tsx}',

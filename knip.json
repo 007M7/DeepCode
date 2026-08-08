@@ -7,7 +7,8 @@
     "bwrap",
     "python3",
     "sandbox-exec",
-    "taskkill"
+    "taskkill",
+    "where.exe"
   ],
   "ignoreWorkspaces": [
     "vendor/*",
@@ -208,6 +209,16 @@
       ]
     },
     "packages/bash/bash-sandbox": {
+      "entry": [
+        "tests/**/*.spec.ts",
+        "tests/**/*.e2e.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ]
+    },
+    "packages/bash/pwsh-sandbox": {
       "entry": [
         "tests/**/*.spec.ts",
         "tests/**/*.e2e.ts"

@@ -39,7 +39,6 @@
     "@deepseek-ai/dsh-sandbox": "workspace:^",
     "@deepseek-ai/dsh-sandbox-local": "workspace:^",
     "@deepseek-ai/dsh-sandbox-policy": "workspace:^",
-    "@deepseek-ai/dsh-sandbox-windows-acl": "workspace:^",
     "@deepseek-ai/dsh-subprocess-local": "workspace:^",
     "cordis": "^4.0.0-rc.7"
   }

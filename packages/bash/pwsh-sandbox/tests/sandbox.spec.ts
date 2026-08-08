@@ -14,18 +14,17 @@ import { afterAll, describe, expect, it } from 'vitest'
 import { Context, Service } from 'cordis'
 import { SandboxProvider, SandboxUnavailableError } from '@deepseek-ai/dsh-sandbox'
 import type { ConfinedArgv, RunnerFailureRule, SandboxExecutionPolicy, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
+import { resolvePwshPath } from '@deepseek-ai/dsh-pwsh-local'
 import { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 import { SandboxPwshExecutor } from '../src/index.ts'
 import { classifyRunnerFailure, isRunnerSpawnFailure, matchesSignature } from '../src/helpers.ts'
 
+// The same probe pwsh-local's suites and the vitest coverage exemption use:
+// spawnSync never throws on a missing binary (it reports status null), and
+// `where.exe pwsh` exits 1 when pwsh is absent — only the status is truth.
 function pwshAvailable(): boolean {
-  try {
-    spawnSync('where.exe', ['pwsh'], { stdio: 'ignore' })
-    return true
-  } catch {
-    return false
-  }
+  return spawnSync(resolvePwshPath(), ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '$true'], { encoding: 'utf8' }).status === 0
 }
 
 const spillDir = mkdtempSync(join(tmpdir(), 'dsh-pwsh-sandbox-spec-'))
