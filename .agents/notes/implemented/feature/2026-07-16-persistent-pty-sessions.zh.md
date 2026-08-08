@@ -160,7 +160,7 @@ plugins:
 - 子进程 fixture 覆盖非 leader 与非主线程的 stdin 等待、僵尸进程完全停稳、不可读进程状态、受支持的 syscall 表、不支持的架构和误报拒绝；同一单元测试套件通过注入覆盖 macOS 检查器逻辑。
 - 真实 `node-pty` 与 PTY 消费方测试共同在受支持宿主上覆盖 shell 状态、共享沙箱策略、环境清洗、raw mode 前台 `SIGINT`、忽略 `SIGTERM` 的后代进程，以及 dispose 返回后立即完全停稳。
 - Loader 驱动的 `cordis.yml` 测试挂载真实三包组合。ACP 与 headless 快照通过 opt-in overlay 固定 6 个 schema、有界结果和错误；TUI 快照固定 terminal 与 generic 卡片展示。
-- 包契约、架构图、核心数据结构、生成目录和 website API 描述同一个已发布接口。
+- 包契约、架构图、子系统页面、生成目录和 website API 描述同一个已发布接口。
 - 仓库 CI 等价序列负责类型、lint、覆盖率、快照、文档、构建、hygiene、demo 和 built-entry 验证。
 
 ## 后果

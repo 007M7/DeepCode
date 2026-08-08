@@ -19,3 +19,5 @@
 | [`tool-subagent-report/`](tool-subagent-report/README.md) | 提供从子级到父级的报告通道 | 注册到子级作用域 |
 
 参见[能力家族](../../.agents/notes/implemented/feature/2026-06-21-subagent-capability-seam.md)、[可继续执行的子级](../../.agents/notes/implemented/feature/2026-07-21-continuable-background-subagents.md)和[控制工具](../../.agents/notes/implemented/simplification/2026-07-26-merge-subagent-control-service.md)决策。
+
+子系统参考——启动请求、结果、实时运行、提供方 seam、可续跑后台子 agent——见 [docs/subsystems/subagent.md](../../docs/subsystems/subagent.md)；设计依据见 [subagent 能力 seam](../../.agents/notes/implemented/feature/2026-06-21-subagent-capability-seam.md)、[可续跑后台 subagent](../../.agents/notes/implemented/feature/2026-07-21-continuable-background-subagents.md) 与[合并 subagent 控制服务](../../.agents/notes/implemented/simplification/2026-07-26-merge-subagent-control-service.md) Agent Note。

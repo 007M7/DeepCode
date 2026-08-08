@@ -56,4 +56,4 @@ seam 包**不**声明 `hook/*` 会话事件（持久的钩子调用日志）；�
 
 ## 后果
 
-规范拦截表面具有统一的类型化，同时不给每个扩展相同的权力：钩子返回 decision，执行包装层做包装，终结 guard 只能拒绝，最终观测者只能观测。循环负责 session-start、pre-step 领取结算、工具执行后上下文缓冲和 stopping；`dsh-tools` 负责身份封存与五阶段执行流水线。它们的契约记录在 [architecture.md](../../../../docs/architecture.md)、各包 README、[核心拦截 decision](../../../../docs/core-data-structures/core.md#interception-decisions) 与[工具结构](../../../../docs/core-data-structures/tools.md)中。ACP 桥接会把 blocked 无步骤轮次中的首次 pre-step reject 结算为 `end_turn`，而钩子驱动的快照端到端验证可观测的桥接行为。
+规范拦截表面具有统一的类型化，同时不给每个扩展相同的权力：钩子返回 decision，执行包装层做包装，终结 guard 只能拒绝，最终观测者只能观测。循环负责 session-start、pre-step 领取结算、工具执行后上下文缓冲和 stopping；`dsh-tools` 负责身份封存与五阶段执行流水线。它们的契约记录在 [architecture.md](../../../../docs/architecture.md)、各包 README、[核心拦截 decision](../../../../docs/subsystems/core.md#interception-decisions) 与[工具结构](../../../../docs/subsystems/tools.md)中。ACP 桥接会把 blocked 无步骤轮次中的首次 pre-step reject 结算为 `end_turn`，而钩子驱动的快照端到端验证可观测的桥接行为。

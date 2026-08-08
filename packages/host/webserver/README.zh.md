@@ -8,8 +8,6 @@ Web HTTP 与 upgrade route 注册插件（默认导出 `HttpServerService`，配
 
 监听失败（EADDRINUSE……）会从激活过程抛出，以 bind 诊断使 Loader 组合 reject；失败的候选 fiber 会被 dispose（资源释放）。处理 HTTP 请求时抛错（例如 fallback 持有者的 `decodeURIComponent` 收到格式错误的百分号转义，或客户端在请求体传输中途断开）时，服务器会响应 400；若响应头已经发出，则销毁 socket，并记录 warning，但绝不会退出进程。upgrade handler 抛错或升级 socket 出现传输错误时，会记录 warning 并销毁对应 socket。资源释放会启动 `close()` 与 `closeAllConnections()`，销毁所有受跟踪的升级 socket，并仅在 HTTP server 与这些 socket 均已关闭后返回。
 
-在开发环境中，客户端插件注册表会在返回前同步捕获每个已构建 bundle 的 stat 基线，随后轮询这些基线，并在内容变化后重新计算哈希。每次重新扫描都会先暂存候选表、图和监听 map，再统一发布，因此基线失败会保留先前的图。这样，即时重建不会消失在异步建立的监听基线中；重命名窗口会把路径标记为脏，保留最近一次成功基线，并在 bundle 重新出现时强制重新计算哈希，即使其元数据完全相同也不例外。
-
 ## 模型体验
 
 无。该包只是浏览器与其他插件所注册 HTTP／upgrade route 之间的 Web 载体，其中没有任何内容会进入模型请求。

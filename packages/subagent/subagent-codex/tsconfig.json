@@ -24,7 +24,7 @@
       "path": "../../llm/llm"
     },
     {
-      "path": "../../sdk/sdk-protocol"
+      "path": "../../scaffold/protocol"
     },
     {
       "path": "../../core/session"

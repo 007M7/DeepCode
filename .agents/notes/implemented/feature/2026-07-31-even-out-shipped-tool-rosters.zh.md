@@ -22,7 +22,7 @@ Status: implemented
 
 有三项能力基于其自身包所记录的证据保持在外,列在这里是为了让「我们忘了」和「我们决定不要」保持可区分。
 
-**`dsh-tool-cordis`** 让模型写一段 JavaScript 并挂成临时插件。它的 README 写明了这个界限:「The sandbox is containment for honest code, not a security boundary — host-realm helpers on the sandbox global are reachable, so mount code can reach Node」([Known limitations](../../../../packages/cordis/tool-cordis/README.md))。`node:vm` 的 realm 就在 harness 进程内,而 `dsh-sandbox-local` 只约束它 spawn 出去的 argv,因此在 Web surface 上,沙箱与批准接缝是被绕过而非被执行。
+**`dsh-tool-cordis`** 让模型写一段 JavaScript 并挂成临时插件。它的 README 写明了这个界限:「The sandbox is containment for honest code, not a security boundary — host-realm helpers on the sandbox global are reachable, so mount code can reach Node」([Known limitations](../../../../packages/self-modification/tool-cordis/README.md))。`node:vm` 的 realm 就在 harness 进程内,而 `dsh-sandbox-local` 只约束它 spawn 出去的 argv,因此在 Web surface 上,沙箱与批准接缝是被绕过而非被执行。
 
 **`dsh-web-fetch-local`** 保持不挂,`dsh-tool-web` 保持 `fetch: false`。SSRF 防护在实现中是 deferred 状态([`policy.ts`](../../../../packages/web/web-fetch-local/src/policy.ts) 只校验协议、凭据与长度),包里也直说了:「this provider is an SSRF primitive and **must not be enabled** in a deployment that can reach sensitive internal network targets」([README](../../../../packages/web/web-fetch-local/README.md))。目标由模型选择,其中包括 harness 自己跑在环回地址上的网关、内网段和云元数据端点。
 

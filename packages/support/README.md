@@ -14,3 +14,5 @@ These packages support repository development, tests, and examples rather than p
 | [`llm-replay/`](llm-replay/README.md) | Replays recorded model responses for keyless tests and demos |
 
 A package moves out of `support/` when it gains a product contract and product consumers.
+
+The invariants contract is documented in [docs/subsystems/invariants.md](../../docs/subsystems/invariants.md).
