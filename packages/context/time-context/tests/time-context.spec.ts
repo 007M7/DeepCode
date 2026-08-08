@@ -237,9 +237,19 @@ describe('durable step context', () => {
     const event = session.events.at(-1)
     expect(event?.type).toBe('user/message')
     if (event?.type !== 'user/message') throw new Error('missing time context')
+    const text = event.data.content.find(block => block.type === 'text')?.text
+    if (text === undefined) throw new Error('missing time-context text')
+    // The reading is a `snapshot`-form context: one named contribution whose
+    // text is exactly what the model read, so a consumer attributes it without
+    // re-splitting prose.
     expect(event.data.source).toEqual({
       kind: 'plugin',
       plugin: 'time-context',
+      form: 'snapshot',
+      sections: [{
+        name: 'time-context',
+        text,
+      }],
     })
     expect(event.surfaceOp).toBe('append')
   })
@@ -550,15 +560,15 @@ describe('real agent-loop request history', () => {
   it('does not revive an empty continuation after a completed step', async () => {
     const adapter = new ScriptedAdapter([textResponse('done')])
     const ctx = await loopHarness(adapter)
-    ctx.on('agent/turn-stopping', (subject) => {
+    ctx.on('agent/turn-stopping', ({ agent: subject }) => {
       subject.inject(createUserMessage({
         content: [{ type: 'text', text: 'pending context' }],
         source: { kind: 'plugin', plugin: 'test' },
       }))
     })
-    ctx.on('agent/pre-step', async (_agent, _messages, context, next) => {
+    ctx.on('agent/pre-step', async ({ step }, next) => {
       const decision = await next()
-      return context.step === 1 || decision.kind === 'reject'
+      return step === 1 || decision.kind === 'reject'
         ? decision
         : { kind: 'enter', messages: [] }
     })

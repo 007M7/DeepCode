@@ -441,7 +441,9 @@ describe('session creation and Workspace membership', () => {
     ['Not/A_Real_Zone', 'Not/A_Real_Zone'],
   ] as const)('rejects invalid Session zone input %j before Agent creation', async (timeZone, value) => {
     const { api, ctx } = await harness()
-    const response = await api.sessions.create(request({ timeZone }))
+    const invalidRequest = request({})
+    Object.assign(invalidRequest.payload, { timeZone })
+    const response = await api.sessions.create(invalidRequest)
 
     expect(response.result).toMatchObject({
       ok: false,
@@ -493,12 +495,13 @@ describe('session creation and Workspace membership', () => {
       if (agent === undefined) throw new Error('created Agent missing')
       const followup = vi.spyOn(agent, 'followup')
 
-      const response = await api.sessions.prompt(request({
+      const invalidRequest = request({
         sessionId,
-        mode: 'queue',
-        content: [{ type: 'text', text: 'rejected' }],
-        clientTimeZone,
-      }))
+        mode: 'queue' as const,
+        content: [{ type: 'text' as const, text: 'rejected' }],
+      })
+      Object.assign(invalidRequest.payload, { clientTimeZone })
+      const response = await api.sessions.prompt(invalidRequest)
 
       expect(response.result).toMatchObject({
         ok: false,

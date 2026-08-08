@@ -24,6 +24,7 @@
     "@deepseek-ai/dsh-paths": "workspace:^",
     "@deepseek-ai/dsh-pty": "workspace:^",
     "@deepseek-ai/dsh-pty-local": "workspace:^",
+    "@deepseek-ai/dsh-time-context": "workspace:^",
     "@deepseek-ai/dsh-session-reference": "workspace:^",
     "@deepseek-ai/dsh-tmux-context": "workspace:^",
     "@deepseek-ai/dsh-tool-ask-user": "workspace:^",

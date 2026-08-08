@@ -171,8 +171,14 @@ describe.skipIf(MODE === 'record')('web e2e: durable after reminder receipt', ()
       && event.data.source.kind === 'plugin'
       && event.data.source.plugin === 'time-context')
     if (timeReading?.type !== 'user/message') throw new Error('missing time-context reading')
-    expect(timeReading.data.source).toEqual({ kind: 'plugin', plugin: 'time-context' })
     const timeText = timeReading.data.content.find(block => block.type === 'text')?.text
+    if (timeText === undefined) throw new Error('missing time-context text')
+    expect(timeReading.data.source).toEqual({
+      kind: 'plugin',
+      plugin: 'time-context',
+      form: 'snapshot',
+      sections: [{ name: 'time-context', text: timeText }],
+    })
     expect(timeText).toContain(`Session time zone: ${SESSION_TIME_ZONE}.`)
     expect(timeText).toContain('Client time zone for this request: missing.')
     const listed = await scaffold.ctx.apiProxy.sessions.list({
@@ -201,10 +207,15 @@ describe.skipIf(MODE === 'record')('web e2e: durable after reminder receipt', ()
     onTestFailed(() => saveFailureShot(page, 'web-e2e-schedule-after'))
     const group = page.locator('[role="treeitem"]').first()
     await group.waitFor({ timeout: 15_000 })
-    if (await group.getAttribute('aria-expanded') !== 'true') {
-      await group.click()
-    }
-    await expect.poll(() => group.getAttribute('aria-expanded'), { timeout: 5_000 }).toBe('true')
+    // Startup auto-selection can race the first disclosure gesture. Converge
+    // on the expanded state instead of letting that later update collapse it.
+    await expect.poll(async () => {
+      if (await group.getAttribute('aria-expanded') !== 'true') {
+        await group.click()
+        await page.waitForTimeout(50)
+      }
+      return await group.getAttribute('aria-expanded')
+    }, { timeout: 5_000 }).toBe('true')
     const session = page.locator('[role="treeitem"][aria-selected]').nth(1)
     await session.waitFor({ timeout: 10_000 })
     await session.click()
@@ -387,7 +398,7 @@ describe.skipIf(MODE === 'record')('web e2e: Schedule restart, fork, and cold hi
       scaffold = await launchWebScaffold({ extraOverlayPath: OVERLAY, world })
       const pendingResume = await scaffold.ctx.apiProxy.sessions.create({
         rpcId: RpcId('schedule-pending-resume'),
-        payload: { sessionId: pendingId, cwd: workspaceCwd },
+        payload: { sessionId: pendingId, cwd: workspaceCwd, timeZone: 'UTC' },
       })
       if (!pendingResume.result.ok) throw new Error(pendingResume.result.error.message)
       const pendingAgent = scaffold.ctx.agents.get(pendingId)
@@ -411,7 +422,7 @@ describe.skipIf(MODE === 'record')('web e2e: Schedule restart, fork, and cold hi
 
       const deliveredResume = await scaffold.ctx.apiProxy.sessions.create({
         rpcId: RpcId('schedule-delivered-resume'),
-        payload: { sessionId: deliveredId, cwd: workspaceCwd },
+        payload: { sessionId: deliveredId, cwd: workspaceCwd, timeZone: 'UTC' },
       })
       if (!deliveredResume.result.ok) throw new Error(deliveredResume.result.error.message)
       const deliveredAgent = scaffold.ctx.agents.get(deliveredId)
@@ -446,7 +457,7 @@ describe.skipIf(MODE === 'record')('web e2e: Schedule restart, fork, and cold hi
       scaffold = await launchWebScaffold({ extraOverlayPath: OVERLAY, world })
       const replayed = await scaffold.ctx.apiProxy.sessions.create({
         rpcId: RpcId('schedule-delivered-replay'),
-        payload: { sessionId: deliveredId, cwd: workspaceCwd },
+        payload: { sessionId: deliveredId, cwd: workspaceCwd, timeZone: 'UTC' },
       })
       if (!replayed.result.ok) throw new Error(replayed.result.error.message)
       const replayedAgent = scaffold.ctx.agents.get(deliveredId)

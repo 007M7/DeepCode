@@ -831,7 +831,7 @@ create, edit, pause, and resume require direct-human root authority; complete an
 
 ### `schedule_create`
 
-Create one reminder in the current session. v1 accepts only a non-empty prompt and a positive safe-integer after_seconds delay. Delivery is session-local: the reminder runs on time only while this session is live and otherwise becomes overdue until the session is resumed.
+Create one reminder in the current session. Supply a non-empty prompt and exactly one selector: a positive safe-integer after_seconds delay, or at as a strict offset date-time or local date/time object. Delivery is session-local: the reminder runs on time only while this session is live and otherwise becomes overdue until the session is resumed.
 
 ```json
 {
@@ -844,11 +844,37 @@ Create one reminder in the current session. v1 accepts only a non-empty prompt a
     "after_seconds": {
       "type": "number",
       "description": "Positive safe-integer delay in seconds."
+    },
+    "at": {
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "date": {
+              "type": "string"
+            },
+            "time": {
+              "type": "string"
+            },
+            "time_zone": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "date",
+            "time"
+          ]
+        }
+      ],
+      "description": "Absolute target as strict offset RFC 3339 or local date/time with optional IANA zone."
     }
   },
   "required": [
-    "prompt",
-    "after_seconds"
+    "prompt"
   ]
 }
 ```

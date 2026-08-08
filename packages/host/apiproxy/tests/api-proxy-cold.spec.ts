@@ -527,7 +527,7 @@ describe('cold Session zone identity', () => {
       locate: () => undefined,
     } as never)
     const resume = vi.spyOn(ctx.agents, 'resume')
-    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
+    const api = createApiProxy(ctx, { defaultTarget: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp', workspaceRoot: '/tmp' })
 
     const response = await api.sessions.create(request({
       sessionId,

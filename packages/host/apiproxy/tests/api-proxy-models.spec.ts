@@ -315,6 +315,7 @@ describe('Web session model selection', () => {
     // callable, so the refusal has to live here.
     const refused = await api.sessions.prompt(request({
       sessionId, mode: 'queue' as const, content: [{ type: 'text' as const, text: 'hi' }],
+      clientTimeZone: 'UTC',
     }))
     expect(refused.result).toMatchObject({
       ok: false,

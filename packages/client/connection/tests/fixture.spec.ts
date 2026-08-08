@@ -810,7 +810,9 @@ describe('createFixtureApi', () => {
   ] as const)('rejects invalid fixture %s input %j', async (field, value) => {
     const api = createFixtureApi({ empty: true })
     if (field === 'timeZone') {
-      const created = await api.sessions.create(req({ timeZone: value }))
+      const invalidRequest = req({})
+      Object.assign(invalidRequest.payload, { timeZone: value })
+      const created = await api.sessions.create(invalidRequest)
       expect(created.result).toMatchObject({
         ok: false,
         error: { code: 'invalid-time-zone', details: { field, value: value ?? null } },
@@ -819,12 +821,13 @@ describe('createFixtureApi', () => {
     }
     const created = await api.sessions.create(req({ timeZone: 'UTC' }))
     if (!created.result.ok) throw new Error('fixture create failed')
-    const prompted = await api.sessions.prompt(req({
+    const invalidRequest = req({
       sessionId: created.result.value.sessionId,
-      mode: 'queue',
-      content: [{ type: 'text', text: 'rejected' }],
-      clientTimeZone: value,
-    }))
+      mode: 'queue' as const,
+      content: [{ type: 'text' as const, text: 'rejected' }],
+    })
+    Object.assign(invalidRequest.payload, { clientTimeZone: value })
+    const prompted = await api.sessions.prompt(invalidRequest)
     expect(prompted.result).toMatchObject({
       ok: false,
       error: { code: 'invalid-time-zone', details: { field, value: value ?? null } },
