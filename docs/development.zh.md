@@ -100,7 +100,7 @@ DEEPSEEK_BASE_URL=https://... # optional
 
 ### Git 集成
 
-当两种语言的文件都能干净合并时，配对合并驱动会根据已确认的祖先、当前和另一侧的配对文档 blob，推导出发生冲突的 `.i18n.yaml` 记录。配对文档发生冲突或记录无效时，它会拒绝处理并保留冲突；如果合并已经因冲突而停止，请运行 `pnpm run resolve-translation-pairing-conflicts`。确切边界见[双语文档契约](i18n/README.md#the-pairing-contract)。
+当两种语言的文件都使用 Git 默认文本策略且能干净合并时，配对合并驱动会根据已确认的祖先、当前和另一侧的配对文档 blob，推导出发生冲突的 `.i18n.yaml` 记录。配对文档发生冲突、存在非文本合并配置或记录无效时，它会拒绝处理并保留冲突；如果合并已经因冲突而停止，请运行 `pnpm run resolve-translation-pairing-conflicts`，该命令会暂存每份可安全生成的配对记录；如果其他配对冲突仍需手工处理，则以非零状态退出。确切边界见[双语文档契约](i18n/README.md#the-pairing-contract)。
 
 lefthook 在 `lefthook.yml` 中配置，作为快速的本地检查点：
 

@@ -4,7 +4,13 @@ import { spawnSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path'
-import { gitBlobHash, readGitIndexBlob, storeGitBlob } from './translation-pairing-git.ts'
+import {
+  GIT_COMMAND_MAX_BUFFER,
+  gitBlobHash,
+  readGitIndexBlob,
+  runGit,
+  storeGitBlob,
+} from './translation-pairing-git.ts'
 import {
   linksTo,
   isTranslationScopeFile,
@@ -20,7 +26,6 @@ import {
   type TranslationPairingRecord,
 } from './translation-pairing-record.ts'
 
-const MAX_GIT_OUTPUT = 1 << 26
 const UNMERGED_ENTRY = /^(\d+) ([0-9a-f]+) ([123])\t([\s\S]+)$/
 
 /** A mechanically composed record and the exact merged owner contents it names. */
@@ -39,24 +44,28 @@ interface UnmergedStages {
   other?: string
 }
 
-function runGit(root: string, args: string[], operation: string, input?: Buffer): Buffer {
-  const result = spawnSync('git', ['-C', root, ...args], {
-    input,
-    maxBuffer: MAX_GIT_OUTPUT,
-  })
-  if (result.error) throw new Error(`${operation} failed: ${result.error.message}`, { cause: result.error })
-  if (result.status !== 0) {
-    throw new Error(`${operation} failed with status ${String(result.status)}: ${result.stderr.toString('utf8').trim()}`)
-  }
-  return result.stdout
-}
-
 function readGitBlob(root: string, objectId: string, owner: string): Buffer {
   const content = runGit(root, ['cat-file', 'blob', objectId], `reading ${owner} blob ${objectId}`)
   if (gitBlobHash(content) !== objectId) {
     throw new Error(`${owner} record names ${objectId}, which is not its SHA-1 git blob hash`)
   }
   return content
+}
+
+function readMergeDefault(root: string): string | undefined {
+  const result = spawnSync('git', ['-C', root, 'config', '--get', 'merge.default'], {
+    maxBuffer: GIT_COMMAND_MAX_BUFFER,
+  })
+  if (result.error) {
+    throw new Error(`reading merge.default failed: ${result.error.message}`, { cause: result.error })
+  }
+  if (result.status === 1) return undefined
+  if (result.status !== 0) {
+    throw new Error(
+      `reading merge.default failed with status ${String(result.status)}: ${result.stderr.toString('utf8').trim()}`,
+    )
+  }
+  return result.stdout.toString('utf8').trim()
 }
 
 function assertDefaultTextMerge(root: string, paths: TranslationPairPaths): void {
@@ -67,6 +76,7 @@ function assertDefaultTextMerge(root: string, paths: TranslationPairPaths): void
   ).toString('utf8')
   const fields = output.split('\0')
   fields.pop()
+  let mergeDefault: string | undefined
   for (let index = 0; index < fields.length; index += 3) {
     const path = fields[index]
     const value = fields[index + 2]
@@ -75,6 +85,14 @@ function assertDefaultTextMerge(root: string, paths: TranslationPairPaths): void
     }
     if (!['unspecified', 'set', 'text'].includes(value)) {
       throw new Error(`${path} uses merge=${value}; the pairing driver only composes Git's default text merge`)
+    }
+    if (value === 'unspecified') {
+      mergeDefault ??= readMergeDefault(root)
+      if (mergeDefault !== undefined && mergeDefault !== 'text') {
+        throw new Error(
+          `${path} inherits merge.default=${mergeDefault}; the pairing driver only composes Git's default text merge`,
+        )
+      }
     }
   }
 }
@@ -101,7 +119,7 @@ function mergeBlobTriplet(
       '-L', `${owner}:ancestor`,
       '-L', `${owner}:other`,
       currentPath, ancestorPath, otherPath,
-    ], { maxBuffer: MAX_GIT_OUTPUT })
+    ], { maxBuffer: GIT_COMMAND_MAX_BUFFER })
     if (result.error) {
       throw new Error(`merging ${owner} failed: ${result.error.message}`, { cause: result.error })
     }
@@ -222,46 +240,85 @@ function unmergedSidecars(root: string): Map<string, UnmergedStages> {
   return records
 }
 
+function assertUneditedSidecar(
+  root: string,
+  metaPath: string,
+  currentRecord: string,
+  otherRecord: string,
+): void {
+  const worktreeRecord = readFileSync(join(root, metaPath), 'utf8')
+  if (worktreeRecord === currentRecord || worktreeRecord === otherRecord) return
+  const stageDataLines = [currentRecord, otherRecord]
+    .flatMap(record => record.split(/\r?\n/))
+    .filter(line => line !== '' && !line.startsWith('#'))
+  const hasUneditedConflict = worktreeRecord.includes('<<<<<<<')
+    && worktreeRecord.includes('=======')
+    && worktreeRecord.includes('>>>>>>>')
+    && stageDataLines.every(line => worktreeRecord.includes(line))
+  if (!hasUneditedConflict) {
+    throw new Error(`${metaPath} has edited conflict content; refusing to overwrite manual work`)
+  }
+}
+
 /**
  * Resolve every mechanically composable `.i18n.yaml` conflict in the index.
  *
  * The command first proves that Git's already-staged owner merges match the
  * independently composed contents, then writes and stages all sidecars as one
- * batch. Other conflicts remain untouched.
+ * batch. Other conflicts remain untouched; after staging the safe records, an
+ * aggregate error reports any pairing conflicts that still need manual work.
  *
  * @param root - Repository root with an in-progress merge-like operation.
  * @returns Repository-relative sidecar paths resolved and staged.
  */
 export function resolveTranslationPairingConflicts(root: string): string[] {
   const resolutions: { path: string; record: string }[] = []
+  const failures: { path: string; reason: string }[] = []
   for (const [metaPath, stages] of [...unmergedSidecars(root)].sort(([left], [right]) => left.localeCompare(right))) {
-    if (stages.ancestor === undefined || stages.current === undefined || stages.other === undefined) {
-      throw new Error(`${metaPath} is an add/delete or incomplete-stage conflict and requires manual resolution`)
-    }
-    const result = mergeTranslationPairingRecords(
-      root,
-      metaPath,
-      readGitBlob(root, stages.ancestor, `ancestor ${metaPath}`).toString('utf8'),
-      readGitBlob(root, stages.current, `current ${metaPath}`).toString('utf8'),
-      readGitBlob(root, stages.other, `other ${metaPath}`).toString('utf8'),
-    )
-    const paths = translationPairPathsFromMeta(metaPath)
-    if (readGitIndexBlob(root, paths.source)?.objectId !== result.sourceHash) {
-      throw new Error(`${paths.source} staged merge does not match the pairing driver's clean merge`)
-    }
-    if (readGitIndexBlob(root, paths.zh)?.objectId !== result.zhHash) {
-      throw new Error(`${paths.zh} staged merge does not match the pairing driver's clean merge`)
-    }
-    for (const [path, expected] of [[paths.source, result.sourceHash], [paths.zh, result.zhHash]] as const) {
-      if (gitBlobHash(readFileSync(join(root, path))) !== expected) {
-        throw new Error(`${path} has unstaged content; refusing to confirm bytes outside the merge result`)
+    try {
+      if (stages.ancestor === undefined || stages.current === undefined || stages.other === undefined) {
+        throw new Error('is an add/delete or incomplete-stage conflict and requires manual resolution')
       }
+      const ancestorRecord = readGitBlob(root, stages.ancestor, `ancestor ${metaPath}`).toString('utf8')
+      const currentRecord = readGitBlob(root, stages.current, `current ${metaPath}`).toString('utf8')
+      const otherRecord = readGitBlob(root, stages.other, `other ${metaPath}`).toString('utf8')
+      assertUneditedSidecar(root, metaPath, currentRecord, otherRecord)
+      const result = mergeTranslationPairingRecords(
+        root,
+        metaPath,
+        ancestorRecord,
+        currentRecord,
+        otherRecord,
+      )
+      const paths = translationPairPathsFromMeta(metaPath)
+      if (readGitIndexBlob(root, paths.source)?.objectId !== result.sourceHash) {
+        throw new Error(`${paths.source} staged merge does not match the pairing driver's clean merge`)
+      }
+      if (readGitIndexBlob(root, paths.zh)?.objectId !== result.zhHash) {
+        throw new Error(`${paths.zh} staged merge does not match the pairing driver's clean merge`)
+      }
+      for (const [path, expected] of [[paths.source, result.sourceHash], [paths.zh, result.zhHash]] as const) {
+        if (gitBlobHash(readFileSync(join(root, path))) !== expected) {
+          throw new Error(`${path} has unstaged content; refusing to confirm bytes outside the merge result`)
+        }
+      }
+      resolutions.push({ path: metaPath, record: result.record })
+    } catch (error) {
+      failures.push({ path: metaPath, reason: error instanceof Error ? error.message : String(error) })
     }
-    resolutions.push({ path: metaPath, record: result.record })
   }
   for (const resolution of resolutions) writeFileSync(join(root, resolution.path), resolution.record)
   if (resolutions.length > 0) {
     runGit(root, ['add', '--', ...resolutions.map(resolution => resolution.path)], 'staging resolved pairing records')
+  }
+  if (failures.length > 0) {
+    const resolved = resolutions.length === 0
+      ? ''
+      : `resolved and staged ${resolutions.map(resolution => resolution.path).join(', ')}; `
+    throw new Error(
+      `${resolved}left ${String(failures.length)} pairing conflict(s) unresolved:\n`
+      + failures.map(failure => `- ${failure.path}: ${failure.reason}`).join('\n'),
+    )
   }
   return resolutions.map(resolution => resolution.path)
 }

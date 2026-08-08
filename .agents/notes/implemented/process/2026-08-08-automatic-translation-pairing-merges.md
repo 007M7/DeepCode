@@ -14,15 +14,15 @@ A bilingual consistency record contains the two owner files' exact blob hashes. 
 
 The driver parses the ancestor, current, and other records and loads the six owner blobs named by their hashes. It independently runs Git's default three-way text merge for the English and Chinese triplets, requires both merges to be clean, verifies language switchers and the pairing structural signature, stores the two merged blobs, and writes their hashes as the canonical record. This composes confirmations already present in both parents; it never records an ordinary one-sided documentation edit.
 
-The driver fails with an ordinary unresolved sidecar when a record is malformed, an object is missing, an owner uses another merge strategy, either owner has content conflicts, or the merged pair violates structural checks. Add/delete and rename shapes remain manual because their path ownership is not the same three-record operation.
+The driver fails with an ordinary unresolved sidecar when a record is malformed, an object is missing, an owner uses another merge strategy (including a non-text `merge.default` inherited by an otherwise unspecified path), either owner has content conflicts, or the merged pair violates structural checks. Add/delete and rename shapes remain manual because their path ownership is not the same three-record operation.
 
-`pnpm run resolve-translation-pairing-conflicts` applies the same algorithm after a merge has already stopped. Before writing any sidecar, it proves that the staged owner blob IDs and working-tree bytes equal its independent merges; then it writes and stages every safe record as one batch while leaving unrelated conflicts untouched.
+`pnpm run resolve-translation-pairing-conflicts` applies the same algorithm after a merge has already stopped. Before writing any sidecar, it proves that the sidecar still contains Git's untouched conflict result and that the staged owner blob IDs and working-tree bytes equal its independent merges. It writes and stages every safe record as one batch even when another pair still needs manual work, then reports the remaining pairing conflicts and exits unsuccessfully so callers cannot mistake a partial resolution for a completed merge.
 
 `pre-merge-commit` and `pre-commit` verify staged `.i18n.yaml` files against the exact index bytes of their owners. They validate driver output but do not regenerate records, so bypassing a hook cannot silently bless translation drift; the corpus-wide `doc-sync` check remains authoritative in CI.
 
 ## Verification
 
-Script tests exercise clean composition through a real custom-driver Git merge, explicit recovery from an unresolved index, owner-content conflicts, record parsing, and worktree-local installation. The existing corpus verifier continues to prove that a committed record matches its two owners.
+Script tests exercise clean composition through a real custom-driver Git merge, explicit recovery from an unresolved index, mixed safe and owner-conflicted pairs, edited sidecars, non-text default merge configuration, record parsing, and worktree-local installation. The existing corpus verifier continues to prove that a committed record matches its two owners.
 
 ## Alternatives considered
 

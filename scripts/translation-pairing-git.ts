@@ -5,6 +5,9 @@ import { createHash } from 'node:crypto'
 
 const SNAPSHOT_REF_PREFIX = 'refs/dsh/translation-pairing/snapshots'
 
+/** Maximum buffered stdout or stderr for repository-owned Git subprocesses. */
+export const GIT_COMMAND_MAX_BUFFER = 1 << 26
+
 /** Full SHA-1 Git blob hash (the 40-hex format used by pairing records). */
 export function gitBlobHash(content: Buffer): string {
   const hash = createHash('sha1')
@@ -13,10 +16,20 @@ export function gitBlobHash(content: Buffer): string {
   return hash.digest('hex')
 }
 
-function runGit(root: string, args: string[], operation: string, input?: Buffer): Buffer {
+/**
+ * Run one Git subprocess and return its exact stdout bytes.
+ *
+ * @param root - Repository root used as Git's working directory.
+ * @param args - Arguments following the `git` executable.
+ * @param operation - Human-readable operation for failure diagnostics.
+ * @param input - Optional stdin bytes.
+ * @returns Exact stdout bytes.
+ * @throws Error when Git cannot start or exits unsuccessfully.
+ */
+export function runGit(root: string, args: string[], operation: string, input?: Buffer): Buffer {
   const result = spawnSync('git', ['-C', root, ...args], {
     input,
-    maxBuffer: 1 << 26,
+    maxBuffer: GIT_COMMAND_MAX_BUFFER,
   })
   if (result.error) {
     throw new Error(`${operation} failed: ${result.error.message}`, { cause: result.error })

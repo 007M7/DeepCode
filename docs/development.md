@@ -100,7 +100,7 @@ DEEPSEEK_BASE_URL=https://... # optional
 
 ### Git integrations
 
-The pairing merge driver derives a conflicted `.i18n.yaml` record from the confirmed ancestor, current, and other owner blobs when both language files merge cleanly. It fails closed on owner conflicts or invalid records; after an already-stopped merge, run `pnpm run resolve-translation-pairing-conflicts`. See the [bilingual documentation contract](i18n/README.md#the-pairing-contract) for the exact boundary.
+The pairing merge driver derives a conflicted `.i18n.yaml` record from the confirmed ancestor, current, and other owner blobs when both language files use Git's default text strategy and merge cleanly. It fails closed on owner conflicts, non-text merge configuration, or invalid records; after an already-stopped merge, run `pnpm run resolve-translation-pairing-conflicts`, which stages every safe pairing record and exits unsuccessfully if other pairing conflicts still need manual work. See the [bilingual documentation contract](i18n/README.md#the-pairing-contract) for the exact boundary.
 
 lefthook is configured in `lefthook.yml` as a fast local checkpoint:
 

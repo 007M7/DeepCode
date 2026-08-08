@@ -85,6 +85,12 @@ const otherSource = baseSource.replace('Beta base.', 'Beta other.')
 const otherZh = baseZh.replace('乙基础。', '乙对侧。')
 const mergedSource = currentSource.replace('Beta base.', 'Beta other.')
 const mergedZh = currentZh.replace('乙基础。', '乙对侧。')
+const manualBaseSource = baseSource.replace('guide.zh.md', 'manual.zh.md')
+const manualBaseZh = baseZh.replace('guide.md', 'manual.md')
+const manualCurrentSource = manualBaseSource.replace('Alpha base.', 'Alpha current.')
+const manualCurrentZh = manualBaseZh.replace('甲基础。', '甲当前。')
+const manualOtherSource = manualBaseSource.replace('Alpha base.', 'Alpha other.')
+const manualOtherZh = manualBaseZh.replace('甲基础。', '甲对侧。')
 
 function commitPair(fixture: Fixture, source: string, zh: string, message: string): string {
   const sidecar = record(fixture.root, 'docs/guide.md', source, zh)
@@ -113,6 +119,47 @@ function startStoppedPairingMerge(fixture: Fixture): void {
   expect(git(fixture, ['diff', '--name-only', '--diff-filter=U'])).toBe('docs/guide.i18n.yaml')
 }
 
+function commitMixedPairs(
+  fixture: Fixture,
+  guide: { source: string; zh: string },
+  manual: { source: string; zh: string },
+  message: string,
+): void {
+  record(fixture.root, 'docs/guide.md', guide.source, guide.zh)
+  record(fixture.root, 'docs/manual.md', manual.source, manual.zh)
+  git(fixture, ['add', '.'])
+  git(fixture, ['commit', '-m', message])
+}
+
+function startMixedPairingMerge(fixture: Fixture): void {
+  commitMixedPairs(
+    fixture,
+    { source: baseSource, zh: baseZh },
+    { source: manualBaseSource, zh: manualBaseZh },
+    'base',
+  )
+  git(fixture, ['switch', '-c', 'current'])
+  commitMixedPairs(
+    fixture,
+    { source: currentSource, zh: currentZh },
+    { source: manualCurrentSource, zh: manualCurrentZh },
+    'current',
+  )
+  git(fixture, ['switch', 'master'])
+  commitMixedPairs(
+    fixture,
+    { source: otherSource, zh: otherZh },
+    { source: manualOtherSource, zh: manualOtherZh },
+    'other',
+  )
+  git(fixture, ['switch', 'current'])
+  const merge = spawnSync('git', ['-C', fixture.root, 'merge', '--no-commit', 'master'], {
+    encoding: 'utf8',
+    env: fixture.env,
+  })
+  expect(merge.status).toBe(1)
+}
+
 function expectMergedPair(fixture: Fixture): void {
   expect(readFileSync(join(fixture.root, 'docs/guide.md'), 'utf8')).toBe(mergedSource)
   expect(readFileSync(join(fixture.root, 'docs/guide.zh.md'), 'utf8')).toBe(mergedZh)
@@ -139,6 +186,7 @@ describe('translation pairing merge composition', () => {
 
   it('merges the owner blobs named by three valid records', () => {
     const fixture = createFixture(false)
+    git(fixture, ['config', 'merge.default', 'text'])
     const records = createDivergedPair(fixture)
 
     const result = mergeTranslationPairingRecords(
@@ -214,6 +262,20 @@ describe('translation pairing merge composition', () => {
     )).toThrow('docs/guide.md uses merge=custom-owner')
   })
 
+  it('refuses unspecified owners affected by merge.default', () => {
+    const fixture = createFixture(false)
+    git(fixture, ['config', 'merge.default', 'custom-owner'])
+    const records = createDivergedPair(fixture)
+
+    expect(() => mergeTranslationPairingRecords(
+      fixture.root,
+      'docs/guide.i18n.yaml',
+      records.ancestor,
+      records.current,
+      records.other,
+    )).toThrow('merge.default=custom-owner')
+  })
+
   it('runs as Git\'s custom driver and commits a clean composed record', () => {
     const fixture = createFixture()
     createDivergedPair(fixture)
@@ -229,6 +291,19 @@ describe('translation pairing merge composition', () => {
 
     expect(git(fixture, ['diff', '--name-only', '--diff-filter=U'])).toBe('')
     expectMergedPair(fixture)
+  })
+
+  it('prints the recovery path when driver input is not composable', () => {
+    const fixture = createFixture(false)
+    const result = spawnSync(process.execPath, ['--import', tsxLoader, driver], {
+      cwd: fixture.root,
+      encoding: 'utf8',
+      env: fixture.env,
+    })
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('pnpm run verify-translation-pairing --write <pair>')
+    expect(result.stderr).toContain('pnpm run resolve-translation-pairing-conflicts')
   })
 
   it('resolves an already-stopped generated-only conflict from index stages', () => {
@@ -250,5 +325,33 @@ describe('translation pairing merge composition', () => {
       'docs/guide.md has unstaged content',
     )
     expect(git(fixture, ['diff', '--name-only', '--diff-filter=U'])).toBe('docs/guide.i18n.yaml')
+  })
+
+  it('refuses to overwrite an edited sidecar after a stopped merge', () => {
+    const fixture = createFixture(false)
+    startStoppedPairingMerge(fixture)
+    write(fixture.root, 'docs/guide.i18n.yaml', 'manually resolved\n')
+
+    expect(() => resolveTranslationPairingConflicts(fixture.root)).toThrow(
+      'docs/guide.i18n.yaml has edited conflict content',
+    )
+    expect(readFileSync(join(fixture.root, 'docs/guide.i18n.yaml'), 'utf8')).toBe('manually resolved\n')
+    expect(git(fixture, ['diff', '--name-only', '--diff-filter=U'])).toBe('docs/guide.i18n.yaml')
+  })
+
+  it('resolves safe records while leaving an owner-conflicted pair untouched', () => {
+    const fixture = createFixture(false)
+    startMixedPairingMerge(fixture)
+
+    expect(() => resolveTranslationPairingConflicts(fixture.root)).toThrow(
+      'docs/manual.i18n.yaml: docs/manual.md has content conflicts',
+    )
+
+    expect(git(fixture, ['diff', '--name-only', '--diff-filter=U']).split('\n')).toEqual([
+      'docs/manual.i18n.yaml',
+      'docs/manual.md',
+      'docs/manual.zh.md',
+    ])
+    expectMergedPair(fixture)
   })
 })

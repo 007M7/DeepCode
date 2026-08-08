@@ -38,5 +38,10 @@ try {
   }
 } catch (error) {
   console.error(`merge-translation-pairing: ${error instanceof Error ? error.message : String(error)}`)
+  console.error(
+    'merge-translation-pairing: resolve owner conflicts, then confirm the pair with '
+    + '`pnpm run verify-translation-pairing --write <pair>`; rerun '
+    + '`pnpm run resolve-translation-pairing-conflicts` for other safe records',
+  )
   process.exitCode = 1
 }
