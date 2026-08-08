@@ -1773,7 +1773,13 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             })
           }
         }
-        return ok(request, { sessionId })
+        // Echo the RESOLVED composition so a client can label the session it
+        // just created without waiting for the next list refresh — the create
+        // is the commit point that knows it (a caller that named none gets
+        // the default the header recorded).
+        const created = ctx.agents.get(sessionId)
+        const createdPreset = created?.session.header.agentPreset
+        return ok(request, { sessionId, ...createdPreset === undefined ? {} : { agentPreset: createdPreset } })
       },
 
       async history(request) {
