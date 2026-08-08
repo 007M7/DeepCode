@@ -1,6 +1,7 @@
-# Agent Note：显式配置的 dsh 入口
+# Agent Note: 显式配置的 dsh 入口
 
 Status: implemented
+Archived: 2026-08-08
 
 [English](2026-08-03-explicit-config-dsh-entrypoint.md) | 中文
 

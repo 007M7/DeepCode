@@ -10,7 +10,7 @@ English | [中文](2026-07-19-gui-layering-and-rpc-protocol.zh.md)
 
 We need a UI integration layer. Beyond the existing ACP/stdio baseline, more product UI shapes are coming — Web (server), Electron, and others. We call these shapes Clients, uniformly, and want the following capabilities:
 
-- One `dsh` process supporting both `dsh web` (serve) and `dsh -p` (headless) — one process, two modes (a design reservation)
+- One `dsh` process supporting both `dsh web` (serve) and `dsh run` (headless) — one process, two modes (a design reservation)
 - Launching inside Electron with the same Web technology shape as `dsh web`
 
 That demands a stable layered responsibility model in the engineering codebase, so future client shapes plug in cleanly.
@@ -31,7 +31,7 @@ Directories layer as follows:
     - **Fetch-arrival plugin packages** (`ui-layout`, `ui-sidebar`, `ui-conversation`, `ui-trajectory`): dual-entry — the root index is the node half (an empty `apply`, existing so the host Loader governs lifecycle and the web plugin registry discovers the package.json `dshClient` declaration); the implementation lives under `src/client/`, shipped as the `./client` subpath (a tsdown closure-factory bundle). Cross-plugin consumption of `/client` is type-only; value cooperation goes through cordis services.
 - `apps/` holds the externally exported application shapes, assembled from Client / Host mixtures.
     - `apps/web` (`dsh-frontend`) is the vite application: a thin `main.ts` over the shell surface exported by `dsh-client-web`.
-    - `apps/cli` (`@deepseek-ai/dsh`) dispatches shapes: `dsh web` = startHost + webserver + the built `dsh-frontend` dist; `dsh -p` = headless in-process calls, zero HTTP.
+    - `apps/cli` (`@deepseek-ai/dsh`) dispatches shapes: `dsh web` = startHost + webserver + the built `dsh-frontend` dist; `dsh run` = headless in-process calls, zero HTTP.
     - A future Electron shape reuses the same web client packages over an IPC fetch carrier.
 
 ```
@@ -215,7 +215,7 @@ All four quadrant full forms pass through `onEnvelope`; the base implementation 
 
 | Subclass | Package | doFetch | Purpose |
 |---|---|---|---|
-| `InProcessApiClient` | apiproxy itself | the injected `{ fetch }` handler | **The isomorphic point**: `new InProcessApiClient(toFetchHandler(api))` never touches the network yet runs the real wire serialization/zod/SSE framing — `dsh -p` headless is the protocol's second real consumer |
+| `InProcessApiClient` | apiproxy itself | the injected `{ fetch }` handler | **The isomorphic point**: `new InProcessApiClient(toFetchHandler(api))` never touches the network yet runs the real wire serialization/zod/SSE framing — `dsh run` headless is the protocol's second real consumer |
 | `WebApiClient` | dsh-client-connection | `globalThis.fetch` uplink + one same-origin WebSocket downlink per logical stream | the browser shape; physical boundary in the [WebSocket downlink carrier](2026-08-04-websocket-downlink-carrier.md) |
 | `FixtureApiClient` | dsh-client-connection | unused (protocol-layer override) | serverless UI development (`?fixture`): overrides the `callUnary`/`openMux`/`openHost`/`respond` virtuals and is itself the fake server (frame rpcIds minted by it, semantics self-consistent) |
 | (future) IPC bridge subclass | apps/electron | IPC serialization round trip | swaps only doFetch; contract and base class unchanged |
