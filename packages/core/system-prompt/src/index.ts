@@ -440,9 +440,11 @@ export class SystemPrompt extends Service {
     for (const [name, provider] of this.layers.global.variables.entries()) {
       variables[name] = provider(context)
     }
-    const scopedVariables = this.layers.peek(scope)?.variables
-    for (const [name, provider] of scopedVariables?.entries() ?? []) {
-      variables[name] = provider(context)
+    // Scope-chain variables, farthest first, so the nearest scope wins a name.
+    for (const layer of this.layers.chainLayers(scope)) {
+      for (const [name, provider] of layer.variables.entries()) {
+        variables[name] = provider(context)
+      }
     }
     // Scoped sections shadow globals before the stable order sort.
     const sectionByName = this.layers.merge(scope, layer => layer.sections)
@@ -450,7 +452,7 @@ export class SystemPrompt extends Service {
     // Validate order against pre-restriction names while collecting visible schemas.
     const providers = [
       ...this.layers.global.toolProviders.values(),
-      ...(this.layers.peek(scope)?.toolProviders.values() ?? []),
+      ...this.layers.chainLayers(scope).flatMap(layer => [...layer.toolProviders.values()]),
     ]
     const collected: ToolSchema[] = []
     const knownNames = new Set<string>()

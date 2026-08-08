@@ -1,18 +1,21 @@
-# The `standard` agent preset: the full coding agent, mounted per session.
+# The `standard` agent preset: the full coding agent, mounted once per process.
 #
-# This file is an AGENT-PLANE composition. It is mounted under one agent's
-# scope context, so every tool and prompt section it registers belongs to that
-# session alone. The host composition (`base.cordis.yml` + `web.cordis.yml`)
-# keeps everything a preset must not own: the registries themselves, the
-# sandbox and approval stack, persistence, and the model route.
+# This file is an AGENT-PLANE composition. The roster mounts it ONCE under a
+# standing scope; every session naming it joins by scope parentage, so the
+# tools and prompt sections registered here cover each joined agent while a
+# session's own state stays keyed per Session/Agent inside the plugins. The
+# host composition (`base.cordis.yml` + `web.cordis.yml`) keeps everything a
+# preset must not own: the registries themselves, the sandbox and approval
+# stack, persistence, and the model route.
 #
 # A service row here MUST sit inside a group carrying an `isolate` realm.
-# Without one it publishes into the root realm, where it is process-global
-# rather than per-session and the second session mounting this preset collides
-# with the first; `dsh-agent-presets` rejects that at mount. `true` means an
-# entry-local realm — one private instance per mounted session, which is the
-# default this deployment wants. A shared label would instead pool one instance
-# across every session naming it.
+# Without one it publishes into the root realm, where it is process-global —
+# another preset publishing the same name collides, and a host reader would
+# resolve one preset's instance for every session; `dsh-agent-presets` rejects
+# that at mount. `true` means an entry-local realm: this standing mount's own
+# private instance, apart from every other preset's. (A shared label does NOT
+# pool instances — `provide()` throws on the second registration under the
+# same realm symbol; labels join REALMS, and are not what this file needs.)
 
 # ── identity ────────────────────────────────────────────────────────────────
 

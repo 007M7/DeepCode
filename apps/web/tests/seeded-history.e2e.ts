@@ -236,14 +236,13 @@ describe('web e2e: seeded history renders through cold resume', () => {
     // The seed carries a session/title event: the title unit is host-plane, so
     // it folds the detached log and serves the value with nothing composed.
     expect(typeof projections?.values.title).toBe('string')
-    // `todos` is NOT here, and that is the contract rather than a gap. Its unit
-    // is registered by `tool-todo` inside an agent's preset, so a detached
-    // session yields it from exactly one place: a durable checkpoint written
-    // while the session was live. This seed was written straight to persistence
-    // and never ran, so it recorded none — and the answer no longer depends on
-    // whether some UNRELATED session happens to be composed right now, which is
-    // the whole reason the checkpoint row carries its own view.
-    expect(projections?.values).not.toHaveProperty('todos')
+    // `todos` IS here, as its empty fold (null). Its unit is registered by
+    // `tool-todo` inside the default preset's STANDING mount, which the read
+    // itself ensures — deterministically, not because some unrelated session
+    // happens to be composed. A present-but-null key is what keeps the
+    // client's "omitted key = capability absent → clear the row" rule from
+    // wiping preset-owned projections on cold reads.
+    expect(projections?.values).toHaveProperty('todos', null)
   })
 
   it.skipIf(MODE === 'record')('lists the seeded session cold and renders its history from the log', async () => {

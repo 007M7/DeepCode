@@ -164,21 +164,21 @@ describe('rejecting a composition that cannot be used', () => {
     expect(rootResolves(ctx, 'fixtureIsolatedSvc')).toBe(false)
   })
 
-  it('addresses one agent\'s instance of a realm-private service', async () => {
+  it('addresses the standing instance of a realm-private service through either agent', async () => {
     const first = await agentOn(ctx, 'sess-reach-a', 'isolated')
     const second = await agentOn(ctx, 'sess-reach-b', 'isolated')
 
-    // The realm keeps the service out of every host context — that is what
-    // makes it per session — so a caller holding the agent is the only way a
-    // request from OUTSIDE the session can read the instance it is about.
+    // The realm keeps the service out of every host context, so a caller
+    // holding the agent is how a request from OUTSIDE the session reads the
+    // instance it is about.
     expect(rootResolves(ctx, 'fixtureIsolatedSvc')).toBe(false)
     const mine = ctx.agentPresets.serviceFor(first, 'fixtureIsolatedSvc')
     const theirs = ctx.agentPresets.serviceFor(second, 'fixtureIsolatedSvc')
     expect(mine).toBeDefined()
-    expect(theirs).toBeDefined()
-    // Each agent gets ITS own: the addressing is per subtree, not a lookup
-    // that happens to find the first match.
-    expect(mine).not.toBe(theirs)
+    // ONE composition per preset: both agents joined the same standing mount,
+    // so they address the same instance — sessions stay apart inside it by
+    // the plugin's own Session/Agent keying, not by instance count.
+    expect(theirs).toBe(mine)
   })
 
   it('answers undefined for a service the agent\'s preset does not mount', async () => {

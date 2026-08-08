@@ -57,6 +57,7 @@ import { credentialRef } from '@deepseek-ai/dsh-credentials'
 // Value edge: the rename impl narrows the title service's validation failure; the import also resolves `ctx.get('sessionTitle')`.
 import { SessionTitleInvalidError } from '@deepseek-ai/dsh-session-title'
 import type { CallId } from '@deepseek-ai/dsh-llm/brand'
+import type { ScopeKey } from '@deepseek-ai/dsh-scope'
 import type { ApprovalOutcome, ApprovalRequestId } from '@deepseek-ai/dsh-user-approval'
 // Side-effect type import: resolves the `approval/request` waterfall and
 // `ctx.get('approval')` without a value dependency on the seam (optional composition).
@@ -448,16 +449,17 @@ function viewFor(
   ctx: Context,
   event: SessionEvent,
   argsFor: (callId: string) => unknown,
-  // The presenter lives with the definition, and definitions are per agent
-  // now: a preset registers its tools into that agent's layer, leaving the
-  // global layer empty. Looking one up without the owner finds nothing, and
-  // every card silently degrades to the generic renderer.
-  agent?: Agent,
+  // Presenters live with the definitions, and definitions live in the scope
+  // chain: a preset registers its tools into its standing layer. A live agent
+  // is a scope whose chain passes through its preset; a cold read passes the
+  // preset's standing key directly — no agent, no resume. An undefined scope
+  // sees only the global layer, which is the pre-preset deployment shape.
+  scope?: ScopeKey,
 ): ToolEventView | undefined {
   try {
     if (event.type === 'tool/call') {
       const { name, arguments: raw } = event.data as ToolCallData
-      const view = ctx.tools.get(name, agent)?.presentCall?.(JSON.parse(raw))
+      const view = ctx.tools.get(name, scope)?.presentCall?.(JSON.parse(raw))
       return view === undefined ? undefined : { for: 'call', view }
     }
     if (event.type === 'tool/result') {
@@ -466,7 +468,7 @@ function viewFor(
       const callId = message.source.callId
       const call = argsFor(callId) as { name: string; args: unknown } | undefined
       if (call === undefined) return undefined
-      const view = ctx.tools.get(call.name, agent)?.presentResult?.(call.args, {
+      const view = ctx.tools.get(call.name, scope)?.presentResult?.(call.args, {
         content: result.content,
         isError: result.isError === true,
         ...meta === undefined ? {} : { meta },
@@ -509,12 +511,12 @@ function historyPage(
   events: readonly SessionEvent[],
   beforeSeq: number | undefined,
   maxMessages: number | undefined,
-  agent?: Agent,
+  scope?: ScopeKey,
 ): { events: HistoryEntry[]; hasMore: boolean } {
   const page = paginate(events, beforeSeq, maxMessages ?? DEFAULT_MAX_MESSAGES)
   return {
     events: page.events.map((event) => {
-      const view = viewFor(ctx, event, callId => backscanArgs(page.events, callId), agent)
+      const view = viewFor(ctx, event, callId => backscanArgs(page.events, callId), scope)
       return { event, ...view === undefined ? {} : { view } }
     }),
     hasMore: page.hasMore,
@@ -1131,18 +1133,51 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   async function historyStateFor(
     sessionId: SessionId,
     includeProjections: boolean,
-  ): Promise<{ events: SessionEvent[]; projections?: SessionProjectionsBlock }> {
+  ): Promise<{ header: SessionHeader; events: SessionEvent[]; projections?: SessionProjectionsBlock }> {
     const attached = ctx.sessions.get(sessionId)
     if (attached !== undefined) {
       const events = [...attached.events]
       const projections = includeProjections ? projectionsFor(ctx, attached) : undefined
-      return { events, ...projections === undefined ? {} : { projections } }
+      return { header: attached.header, events, ...projections === undefined ? {} : { projections } }
     }
     const inspected = await inspectServable(sessionId)
     const projections = includeProjections ? detachedProjectionsFor(ctx, inspected.events) : undefined
     return {
+      header: inspected.meta,
       events: inspected.events,
       ...projections === undefined ? {} : { projections },
+    }
+  }
+
+  /**
+   * The registry view scope a transcript's presenters resolve in.
+   *
+   * A live agent is that scope itself (its chain passes through its preset's
+   * standing layer). A cold session names its preset on the header, and the
+   * preset's STANDING key serves without resuming anything — ensuring the
+   * mount composes plugins but starts no agent, session, or turn. No roster,
+   * no recorded preset, or a preset the roster no longer supplies all fall
+   * back to the global layer: the transcript still serves, with the generic
+   * cards a viewless entry renders.
+   * @param sessionId - the transcript being read.
+   * @param header - that session's header (attached or inspected).
+   * @returns the scope to pass to presenter lookups, or undefined for global.
+   */
+  async function presenterScopeFor(sessionId: SessionId, header: SessionHeader): Promise<ScopeKey | undefined> {
+    const live = ctx.get('agents')?.get(sessionId)
+    if (live !== undefined) return live
+    const presets = ctx.get('agentPresets')
+    if (presets === undefined) return undefined
+    try {
+      // An unrecorded preset (a log from before the roster existed) renders
+      // through the DEFAULT preset's standing layer: that is the composition
+      // an unnamed session composes today, and presenters are pure display,
+      // so the worst a mismatch produces is the generic card it had anyway.
+      return await presets.standingKeyFor(header.agentPreset)
+    } catch {
+      // Swallows only the unknown/unusable-preset rejection from the roster:
+      // a deleted or broken preset must degrade this read, never fail it.
+      return undefined
     }
   }
 
@@ -1743,7 +1778,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
       async history(request) {
         const { sessionId, beforeSeq, maxMessages } = request.payload
-        let state: { events: SessionEvent[]; projections?: SessionProjectionsBlock }
+        let state: { header: SessionHeader; events: SessionEvent[]; projections?: SessionProjectionsBlock }
         try {
           state = await historyStateFor(sessionId, beforeSeq === undefined)
         } catch (error: unknown) {
@@ -1756,11 +1791,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             details: {},
           })
         }
-        // `ctx.get`, not `ctx.agents`: this is the COLD path, and a caller may
-        // serve history from storage with no agent registry composed at all.
-        // An absent registry means no live agent, which is the same answer a
-        // present one gives here — presenters fall back to the global layer.
-        const page = historyPage(ctx, state.events, beforeSeq, maxMessages, ctx.get('agents')?.get(sessionId))
+        const page = historyPage(ctx, state.events, beforeSeq, maxMessages, await presenterScopeFor(sessionId, state.header))
         return ok(request, {
           events: page.events,
           hasMore: page.hasMore,

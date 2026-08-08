@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import { Context } from 'cordis'
-import { carrierKeyOf, createScope, isScopeCarrier, scopeOf, scopeTarget } from '@deepseek-ai/dsh-scope'
+import { carrierKeyOf, createScope, isScopeCarrier, scopeChainOf, scopeOf, scopeParentOf, scopeTarget, setScopeParent } from '@deepseek-ai/dsh-scope'
 import type { Scope, Scoped } from '@deepseek-ai/dsh-scope'
 
 declare module 'cordis' {
@@ -151,5 +151,64 @@ describe('scopeTarget', () => {
     expect(carrierKeyOf(subject)).toBeUndefined()
     expect('value' in carrier).toBe(false)
     expectTypeOf(carrier).toEqualTypeOf<Scoped<typeof subject>>()
+  })
+})
+
+describe('scope parent chain', () => {
+  it('links at mint, walks to the root, and rejects cycles', () => {
+    const ctx = new Context()
+    const preset = { kind: 'preset' }
+    const agent = { kind: 'agent' }
+    createScope(ctx, preset)
+    createScope(ctx, agent, { parent: preset })
+
+    expect(scopeParentOf(agent)).toBe(preset)
+    expect(scopeParentOf(preset)).toBeUndefined()
+    expect(scopeChainOf(agent)).toEqual([agent, preset])
+    expect(scopeChainOf(undefined)).toEqual([])
+    expect(() => { setScopeParent(preset, agent) }).toThrow(/cycle/)
+    expect(() => { setScopeParent(preset, preset) }).toThrow(/cycle/)
+  })
+
+  it('re-links to a different parent (the blank-session recompose path)', () => {
+    const ctx = new Context()
+    const presetA = { id: 'a' }
+    const presetB = { id: 'b' }
+    const agent = { id: 'agent' }
+    createScope(ctx, presetA)
+    createScope(ctx, presetB)
+    createScope(ctx, agent, { parent: presetA })
+
+    setScopeParent(agent, presetB)
+
+    expect(scopeChainOf(agent)).toEqual([agent, presetB])
+  })
+
+  it('admits an ancestor-tagged listener for a descendant dispatch, never the reverse', () => {
+    const ctx = new Context()
+    const preset = { kind: 'preset' }
+    const agent = { kind: 'agent' }
+    const other = { kind: 'other-preset' }
+    const presetScope = createScope(ctx, preset)
+    const agentScope = createScope(ctx, agent, { parent: preset })
+    const otherScope = createScope(ctx, other)
+
+    const seen: string[] = []
+    ctx.on('probe/event' as never, ((): void => { seen.push('untagged') }) as never)
+    presetScope.ctx.on('probe/event' as never, ((): void => { seen.push('preset') }) as never)
+    agentScope.ctx.on('probe/event' as never, ((): void => { seen.push('agent') }) as never)
+    otherScope.ctx.on('probe/event' as never, ((): void => { seen.push('other') }) as never)
+
+    const emit = ctx as unknown as { emit: (carrier: object, type: string) => void }
+    // Dispatch at the AGENT key: its own tag and its ancestor's admit; a
+    // sibling root does not.
+    emit.emit(scopeTarget({}, agent), 'probe/event')
+    expect(seen.sort()).toEqual(['agent', 'preset', 'untagged'])
+
+    // Dispatch at the PRESET key: the agent-tagged listener sits BELOW the
+    // dispatch key and stays excluded — events flow up the chain, not down.
+    seen.length = 0
+    emit.emit(scopeTarget({}, preset), 'probe/event')
+    expect(seen.sort()).toEqual(['preset', 'untagged'])
   })
 })
