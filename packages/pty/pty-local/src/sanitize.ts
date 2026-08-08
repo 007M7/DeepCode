@@ -5,12 +5,15 @@ import { Buffer } from 'node:buffer'
 /** OSC marker emitted by the controlled bash before each prompt. */
 export const PROMPT_MARKER_PREFIX = '133;D;'
 
+/** Exact printable prompt emitted after the private marker. */
+export const CONTROLLED_PROMPT = 'dsh> '
+
 /** One sanitized chunk plus whether it contained the owned prompt marker. */
 export interface SanitizedChunk {
   text: string
   prompt: boolean
-  /** Present when printable text followed the latest owned prompt marker. */
-  promptText?: true
+  /** Printable text after the latest owned marker in this chunk. */
+  promptTail?: string
 }
 
 /**
@@ -23,7 +26,7 @@ export class TerminalSanitizer {
   private discardMode: 'osc' | 'csi' | undefined
   private discardOscEscape = false
   private trailingCarriageReturn = false
-  private awaitingPromptText = false
+  private trackingPromptTail = false
 
   constructor(private readonly maxPendingBytes: number) {}
 
@@ -36,24 +39,21 @@ export class TerminalSanitizer {
     this.pending += this.discardPrefix(chunk)
     let text = ''
     let prompt = false
-    let promptText = false
+    let includePromptTail = this.trackingPromptTail
+    let promptTail = ''
     let index = 0
-    const appendText = (value: string): boolean => {
+    const appendText = (value: string): void => {
       text += value
-      if (this.awaitingPromptText && value.replace(/[\r\n\x07]/g, '').length > 0) {
-        this.awaitingPromptText = false
-        return true
-      }
-      return false
+      if (this.trackingPromptTail) promptTail += value
     }
     while (index < this.pending.length) {
       const escape = this.pending.indexOf('\x1b', index)
       if (escape < 0) {
-        promptText = appendText(this.pending.slice(index)) || promptText
+        appendText(this.pending.slice(index))
         index = this.pending.length
         break
       }
-      promptText = appendText(this.pending.slice(index, escape)) || promptText
+      appendText(this.pending.slice(index, escape))
       if (escape + 1 >= this.pending.length) {
         index = escape
         break
@@ -74,8 +74,9 @@ export class TerminalSanitizer {
         const content = this.pending.slice(escape + 2, end - terminatorBytes)
         if (content.startsWith(PROMPT_MARKER_PREFIX)) {
           prompt = true
-          promptText = false
-          this.awaitingPromptText = true
+          this.trackingPromptTail = true
+          includePromptTail = true
+          promptTail = ''
         }
         index = end
         continue
@@ -99,7 +100,11 @@ export class TerminalSanitizer {
     }
     this.pending = this.pending.slice(index)
     this.enforcePendingBound()
-    return { text: this.normalizeText(text), prompt, ...promptText ? { promptText: true } : {} }
+    return {
+      text: this.normalizeText(text),
+      prompt,
+      ...includePromptTail ? { promptTail } : {},
+    }
   }
 
   /**
@@ -111,7 +116,7 @@ export class TerminalSanitizer {
     this.pending = ''
     this.discardMode = undefined
     this.discardOscEscape = false
-    this.awaitingPromptText = false
+    this.trackingPromptTail = false
     const normalized = this.normalizeText(text)
     if (!this.trailingCarriageReturn) return normalized
     this.trailingCarriageReturn = false

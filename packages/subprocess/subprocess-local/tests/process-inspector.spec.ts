@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { createProcessInspector, parseProcStat } from '@deepseek-ai/dsh-pty-local/src/process-inspector.ts'
-import type { ProcessInspectorInternals } from '@deepseek-ai/dsh-pty-local/src/process-inspector.ts'
+import {
+  createProcessInspector,
+  linuxProcessGroupHasLiveMembers,
+  parseProcStat,
+} from '@deepseek-ai/dsh-subprocess-local/src/process-inspector.ts'
+import type { ProcessInspectorInternals } from '@deepseek-ai/dsh-subprocess-local/src/process-inspector.ts'
 
 function stat(pid: number, pgrp: number, session: number, tpgid: number, started: string, parentPid = 1, state = 'S'): string {
   const rest = [state, String(parentPid), String(pgrp), String(session), '99', String(tpgid)]
@@ -63,6 +67,21 @@ function fakeInternals() {
 }
 
 describe('Linux process inspector', () => {
+  it('treats zombie-only process groups as quiescent and fails closed when unobservable', () => {
+    const fake = fakeInternals()
+    expect(linuxProcessGroupHasLiveMembers(77, fake.internals)).toBeUndefined()
+
+    fake.dirs.set('/proc', ['self', '10', '11', '12'])
+    fake.files.set('/proc/10/stat', stat(10, 77, 10, -1, '500', 1, 'Z'))
+    fake.files.set('/proc/11/stat', stat(11, 77, 10, -1, '501', 1, 'X'))
+    fake.files.set('/proc/12/stat', stat(12, 88, 12, -1, '502'))
+    expect(linuxProcessGroupHasLiveMembers(77, fake.internals)).toBe(false)
+    expect(linuxProcessGroupHasLiveMembers(99, fake.internals)).toBeUndefined()
+
+    fake.files.set('/proc/11/stat', stat(11, 77, 10, -1, '501'))
+    expect(linuxProcessGroupHasLiveMembers(77, fake.internals)).toBe(true)
+  })
+
   it('parses stat safely, captures only the rooted process tree, and signals identities', () => {
     expect(parseProcStat('bad')).toBeUndefined()
     expect(parseProcStat('1 () ')).toBeUndefined()
@@ -86,6 +105,13 @@ describe('Linux process inspector', () => {
       { pid: 10, started: '500' },
     ])
     expect(inspector.processTree(99)).toEqual([])
+    expect(inspector.processSession(30)).toEqual([
+      { pid: 10, started: '500' },
+      { pid: 11, started: '501' },
+      { pid: 12, started: '502' },
+      { pid: 13, started: '503' },
+    ])
+    expect(inspector.processSession(99)).toEqual([])
     expect(inspector.isAlive({ pid: 10, started: '500' })).toBe(true)
     expect(inspector.isAlive({ pid: 10, started: 'old' })).toBe(false)
     inspector.signalGroup(40, 'SIGINT')
@@ -197,6 +223,7 @@ describe('macOS process inspector', () => {
       { pid: 10, started: 'Mon Jul 21 10:00:00 2026' },
     ])
     expect(inspector.processTree(99)).toEqual([])
+    expect(inspector.processSession(10)).toEqual([])
     expect(inspector.isAlive({ pid: 11, started: 'Mon Jul 21 10:00:01 2026' })).toBe(true)
     inspector.signalGroup(55, 'SIGTSTP')
     inspector.signalProcess({ pid: 11, started: 'Mon Jul 21 10:00:01 2026' }, 'SIGKILL')
@@ -216,6 +243,6 @@ describe('macOS process inspector', () => {
     expect(createProcessInspector('darwin', 'arm64', fake.internals).foregroundPgid(1)).toBeUndefined()
     fake.internals.exec = () => { throw new Error('gone') }
     expect(createProcessInspector('darwin', 'arm64', fake.internals).foregroundPgid(1)).toBeUndefined()
-    expect(() => createProcessInspector('win32', 'x64', fake.internals)).toThrow('unsupported platform win32')
+    expect(() => createProcessInspector('win32', 'x64', fake.internals)).toThrow('unsupported on platform win32')
   })
 })

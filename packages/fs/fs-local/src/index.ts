@@ -5,7 +5,8 @@
  */
 
 import { Context } from 'cordis'
-import { resolve } from 'node:path'
+import { isAbsolute, relative, resolve, sep } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import z from 'schemastery'
 import { FileSystem, FsError, FsVersion } from '@deepseek-ai/dsh-fs'
 import type {
@@ -88,6 +89,19 @@ export class LocalFileSystem extends FileSystem {
     const local = await resolveLocalTarget(opts?.cwd ?? this.config.cwd, path)
     if (opts?.signal?.aborted) throw new FsError('resolve aborted', 'FS_ABORTED')
     return { targetKey: local.targetKey, displayPath: local.displayPath }
+  }
+
+  override processPath(target: FsTarget): string {
+    return String(target.targetKey)
+  }
+
+  override fileUrl(target: FsTarget): string {
+    return pathToFileURL(this.processPath(target)).href
+  }
+
+  override contains(parent: FsTarget, child: FsTarget): boolean {
+    const path = relative(this.processPath(parent), this.processPath(child))
+    return path === '' || (path !== '..' && !path.startsWith(`..${sep}`) && !isAbsolute(path))
   }
 
   override async stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined> {
