@@ -1,0 +1,13 @@
+{
+  "name": "dsh-github-repository-plugin-e2e-fixture",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "prepare": "dsh-plugin-prepare"
+  },
+  "dsh": {
+    "skills": [
+      "../skills"
+    ]
+  }
+}
