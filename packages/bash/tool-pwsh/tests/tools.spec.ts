@@ -5,11 +5,12 @@
  * text, truncation, timeout, abort, nonzero exits, background handles — so
  * these tests verify the schema, argument validation, workdir derivation,
  * managed `DSH_*` collection, abort translation, canonical result projection,
- * rendering, background task wiring, and the UI presenters. Real-pwsh behavior
+ * sandbox denial rendering with the escalation surface, rendering,
+ * background task wiring, and the UI presenters. Real-pwsh behavior
  * is pinned separately in integration.spec.ts.
  */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { mkdtempSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -22,6 +23,8 @@ import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
+import ApprovalService from '@deepseek-ai/dsh-user-approval'
+import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval'
 import { BashExecutor } from '@deepseek-ai/dsh-bash'
 import type { BashExecRequest, BashExecSpec, BashProcess, BashRunResult } from '@deepseek-ai/dsh-bash'
 import SandboxPolicyService from '@deepseek-ai/dsh-sandbox-policy'
@@ -155,9 +158,12 @@ async function setupWithTasks(toolConfig: Partial<ToolPwsh.Config> = {}, dshHome
  * A CONFINING fake executor (`sandboxMode` advertised): the tool must resolve
  * the calling session's standing policy and stamp it on the request, exactly
  * like the bash tool — the per-session sandbox-policy regression surface.
+ * Records each confined mode and returns scriptable sandbox facts so the
+ * escalation and rendering surfaces are testable without a real backend.
  */
 class ConfiningFakeBash extends BashExecutor {
   requests: BashExecRequest[] = []
+  modes: Array<string | undefined> = []
 
   override get sandboxMode() {
     return 'read-only' as const
@@ -176,27 +182,71 @@ class ConfiningFakeBash extends BashExecutor {
     }
   }
 
-  override async run(_spec: BashExecSpec): Promise<BashRunResult> {
-    return runResult('ok\n')
+  override async run(spec: BashExecSpec): Promise<BashRunResult> {
+    this.modes.push(spec.sandboxPolicy?.mode)
+    return runResult('ok\n', {
+      sandbox: {
+        mode: spec.sandboxPolicy?.mode ?? 'read-only',
+        denied: false,
+        ...spec.command === 'without optional sandbox facts'
+          ? {}
+          : { enforcement: 'full' as const, runnerFailed: false },
+      },
+    })
   }
 
-  override start(_spec: BashExecSpec): BashProcess {
+  override start(spec: BashExecSpec): BashProcess {
+    this.modes.push(spec.sandboxPolicy?.mode)
     return fakeProcess()
   }
 }
 
-/** Sandboxed composition: the shared policy service + a confining executor + the pwsh tool. */
-async function setupSandboxed(toolConfig: Partial<ToolPwsh.Config> = {}) {
+/** Sandboxed composition: the shared policy service + a confining executor + the pwsh tool (+ optional approval). */
+async function setupSandboxed(withApproval = false) {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(AgentRegistry)
+  await ctx.plugin(LocalTaskService)
+  await ctx.plugin(ToolTasks)
   await ctx.plugin(BashEnvPlugin)
   await ctx.plugin(SandboxPolicyService, {})
   await ctx.plugin(ConfiningFakeBash)
-  await ctx.plugin(ToolPwsh, toolConfig)
+  if (withApproval) await ctx.plugin(ApprovalService)
+  await ctx.plugin(ToolPwsh)
   const bash = ctx.bash as ConfiningFakeBash
   return { ctx, bash }
+}
+
+/**
+ * Build a fake {@link Agent} whose session log carries the sandbox-policy
+ * mode-override event the escalation flow evaluates against, with an
+ * appendable log (the approval service records decisions through
+ * `session.append`).
+ */
+function sandboxAgent(
+  mode?: 'read-only' | 'workspace-write' | 'danger-full-access',
+  ctx?: Context,
+  onAppend?: (type: string) => void,
+): Agent {
+  const events: Array<{ type: string; data?: Record<string, unknown> }> = [{ type: 'turn/start' }]
+  if (mode !== undefined) events.push({ type: 'sandbox/mode', data: { mode } })
+  const id = SessionId('sandbox-session')
+  return {
+    id,
+    ...ctx === undefined ? {} : { ctx: ctx.plugin(() => {}).ctx },
+    session: {
+      id,
+      header: { version: 0, id, createdAt: 0 },
+      events,
+      append: (type: string, data: Record<string, unknown>) => {
+        const event = { type, data }
+        events.push(event)
+        onAppend?.(type)
+        return event
+      },
+    },
+  } as unknown as Agent
 }
 
 /**
@@ -494,6 +544,154 @@ describe('per-call sandbox policy resolution', () => {
   })
 })
 
+describe('sandbox escalation through ctx.approval', () => {
+  const escalate = {
+    command: 'Write-Output ok',
+    description: 'test escalation',
+    sandbox_permissions: 'workspace-write',
+    justification: 'the command needs workspace writes',
+  }
+
+  it('advertises the sandbox fields, the escalation clause, and the ConstrainedLanguage contract', async () => {
+    const { ctx } = await setupSandboxed()
+    const schema = ctx.tools.schemas().find(item => item.name === 'pwsh')!
+    const properties = schema.parameters.properties as Record<string, { enum?: string[] }>
+    expect(properties['sandbox_permissions']?.enum).toEqual(['workspace-write', 'danger-full-access'])
+    expect(schema.description).toContain('approval prompt')
+    expect(schema.description).toContain('ConstrainedLanguage')
+
+    for (const args of [
+      { command: 'Write-Output ok', description: 'd', sandbox_permissions: 'workspace-write' },
+      { command: 'Write-Output ok', description: 'd', justification: 'why' },
+      { command: 'Write-Output ok', description: 'd', sandbox_permissions: 'workspace-write', justification: ' ' },
+    ]) {
+      expect((await call(ctx, 'pwsh', args)).isError).toBe(true)
+    }
+  })
+
+  it('the escalation fields and the ConstrainedLanguage clause stay out of sandbox-less compositions', async () => {
+    const { ctx } = await setup()
+    const schema = ctx.tools.schemas().find(item => item.name === 'pwsh')!
+    expect(schema.description).not.toContain('ConstrainedLanguage')
+    expect(schema.description).not.toContain('sandbox_permissions')
+    expect(schema.parameters.properties).not.toHaveProperty('sandbox_permissions')
+  })
+
+  it('rejects injected escalation without a sandbox and non-widening escalation without prompting', async () => {
+    const plain = await setup()
+    expect(text(await call(plain.ctx, 'pwsh', escalate))).toContain('not available in this composition')
+
+    const { ctx } = await setupSandboxed(true)
+    const prompted = vi.fn()
+    ctx.on('approval/request', () => { prompted(); return Promise.resolve<ApprovalOutcome>('allowed-once') })
+    const result = await call(ctx, 'pwsh', { ...escalate, sandbox_permissions: 'workspace-write' }, sandboxAgent('workspace-write'))
+    expect(text(result)).toContain('not strictly wider')
+    expect(prompted).not.toHaveBeenCalled()
+
+    const malformed = sandboxAgent()
+    ;(malformed.session.events as unknown as Array<{ type: string; data: { mode: string } }>).push({
+      type: 'sandbox/mode',
+      data: { mode: 'unknown-mode' },
+    })
+    expect(text(await call(ctx, 'pwsh', escalate, malformed))).toContain('not strictly wider')
+  })
+
+  it('fails closed when approval cannot be routed', async () => {
+    const withoutService = await setupSandboxed()
+    expect(text(await call(withoutService.ctx, 'pwsh', escalate, sandboxAgent()))).toContain('no approval service')
+
+    const withService = await setupSandboxed(true)
+    expect(text(await call(withService.ctx, 'pwsh', escalate))).toContain('no agent to route')
+    expect(text(await call(withService.ctx, 'pwsh', escalate, sandboxAgent()))).toContain('no approval channel')
+  })
+
+  it.each([
+    ['rejected', 'user rejected'],
+    ['cancelled', 'was cancelled'],
+  ] as const)('maps an approval %s to its distinct failure', async (outcome, message) => {
+    const { ctx, bash } = await setupSandboxed(true)
+    ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>(outcome))
+    const result = await call(ctx, 'pwsh', escalate, sandboxAgent())
+    expect(text(result)).toContain(message)
+    expect(bash.modes).toEqual([])
+  })
+
+  it('runs a granted foreground or background call under the approved mode', async () => {
+    const { ctx, bash } = await setupSandboxed(true)
+    ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('allowed-once'))
+    const agent = sandboxAgent(undefined, ctx)
+    ctx.agents.register(agent)
+    const foreground = await ctx.tools.execute({
+      callId: CallId('sandbox-signal'),
+      name: 'pwsh',
+      arguments: escalate,
+      agent,
+      signal: new AbortController().signal,
+    })
+    expect(foreground.isError).toBe(false)
+    const background = await call(ctx, 'pwsh', { ...escalate, run_in_background: true }, agent)
+    expect(text(background)).toBe('started background task pwsh-1')
+    expect(bash.modes).toEqual(['workspace-write', 'workspace-write'])
+  })
+
+  it('does not publish detached work when cancellation follows the escalation grant', async () => {
+    const { ctx, bash } = await setupSandboxed(true)
+    const controller = new AbortController()
+    const agent = sandboxAgent(undefined, ctx, (type) => {
+      if (type === 'approval/decided') controller.abort()
+    })
+    ctx.agents.register(agent)
+    ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('allowed-once'))
+    const start = vi.spyOn(bash, 'start')
+
+    const result = await ctx.tools.execute({
+      callId: CallId('cancelled-escalation-background'),
+      name: 'pwsh',
+      arguments: { ...escalate, run_in_background: true },
+      agent,
+      signal: controller.signal,
+    })
+
+    expect(result.error).toEqual({
+      message: 'tool call aborted',
+      info: { name: 'AbortError', code: TOOL_ABORTED },
+    })
+    expect(text(result)).toBe('Error: tool call aborted')
+    expect(start).not.toHaveBeenCalled()
+  })
+
+  it('uses the session override for ordinary calls and evaluates widening against it', async () => {
+    const { ctx, bash } = await setupSandboxed(true)
+    const agent = sandboxAgent('workspace-write')
+    await call(ctx, 'pwsh', { command: 'Write-Output hi', description: 'ordinary' }, agent)
+    ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('allowed-once'))
+    await call(ctx, 'pwsh', { ...escalate, sandbox_permissions: 'danger-full-access' }, agent)
+    expect(bash.modes).toEqual(['workspace-write', 'danger-full-access'])
+  })
+
+  it('omits sandbox facts the executor did not acquire from the canonical result', async () => {
+    const { ctx } = await setupSandboxed()
+    const result = await call(ctx, 'pwsh', {
+      command: 'without optional sandbox facts',
+      description: 'exercise optional sandbox facts',
+    })
+    if (result.isError) throw new Error('expected foreground pwsh success')
+    expect(result.value).toMatchObject({
+      kind: 'foreground',
+      sandbox: { mode: 'read-only', denied: false },
+    })
+    expect((result.value as { sandbox: object }).sandbox).not.toHaveProperty('enforcement')
+    expect((result.value as { sandbox: object }).sandbox).not.toHaveProperty('runnerFailed')
+  })
+
+  it('keeps the exhaustiveness backstop for a rogue approval implementation', async () => {
+    const { ctx } = await setupSandboxed(true)
+    ctx.approval.request = () => Promise.resolve('rogue' as ApprovalOutcome)
+    const result = await call(ctx, 'pwsh', escalate, sandboxAgent())
+    expect(text(result)).toContain('unreachable variant in EscalationOutcome')
+  })
+})
+
 describe('background execution through the task runtime', () => {
   it('run_in_background acks with the task id, readable through the REAL task_output tool', async () => {
     const { ctx } = await setupWithTasks()
@@ -738,6 +936,35 @@ describe('UI presentation', () => {
   })
 })
 
+describe('renderPwshResult sandbox markers', () => {
+  const base = {
+    exitCode: 0,
+    signal: null,
+    timedOut: false,
+    timeoutMs: 1000,
+    stdout: { text: 'out\n', truncated: false },
+    stderr: { text: '', truncated: false },
+  }
+
+  it('a denied run reports the denial marker before the exit marker', () => {
+    expect(renderPwshResult({ ...base, exitCode: 2, sandbox: { mode: 'read-only', denied: true } }))
+      .toBe('out\n[sandbox: file access denied under read-only mode]\n[exit code: 2]')
+  })
+
+  it('hints only when the composition advertises escalation', () => {
+    const denied = { ...base, sandbox: { mode: 'read-only' as const, denied: true } }
+    expect(renderPwshResult(denied, ['workspace-write'])).toBe(
+      'out\n[sandbox: file access denied under read-only mode]\n'
+      + '[sandbox: escalation available — retry this exact command once with sandbox_permissions '
+      + '(the narrowest wider mode that suffices) + justification; the approval prompt asks the user]',
+    )
+  })
+
+  it('a confined run without a denial adds no sandbox marker', () => {
+    expect(renderPwshResult({ ...base, sandbox: { mode: 'read-only', denied: false } })).toBe('out\n')
+  })
+})
+
 describe('renderPwshProcessRead', () => {
   const base: BashProcessRead = { delta: 'out\n', lossy: false }
 
@@ -773,6 +1000,20 @@ describe('renderPwshProcessRead', () => {
       .toBe('tail\n[some output was dropped from memory; full output: (unavailable)]')
     expect(renderPwshProcessRead({ delta: 'tail\n', lossy: true }))
       .toBe('tail\n[some output was dropped from memory; full output: (unavailable)]')
+  })
+
+  it('appends the runner-failed notice (denial outranked)', () => {
+    expect(renderPwshProcessRead({ delta: 'x', lossy: false }, { mode: 'read-only', denied: true, runnerFailed: true }))
+      .toBe('x\n[sandbox: the sandbox runner itself failed under read-only mode — the command did not run; this is a sandbox problem, not a command failure]')
+  })
+
+  it('appends the denial marker and hints only when escalation is advertised', () => {
+    expect(renderPwshProcessRead({ delta: 'x', lossy: false }, { mode: 'read-only', denied: true }))
+      .toBe('x\n[sandbox: file access denied under read-only mode]')
+    expect(renderPwshProcessRead({ delta: 'x', lossy: false }, { mode: 'read-only', denied: true }, ['workspace-write']))
+      .toBe('x\n[sandbox: file access denied under read-only mode]\n'
+        + '[sandbox: escalation available — retry this exact command once with sandbox_permissions '
+        + '(the narrowest wider mode that suffices) + justification; the approval prompt asks the user]')
   })
 })
 

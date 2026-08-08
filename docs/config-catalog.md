@@ -1138,7 +1138,7 @@ export type Config = LocalConfig
 
 Depends on: [`LocalConfig`](#deepseek-aidsh-pwsh-local)
 
-Source: [`packages/bash/pwsh-sandbox/src/index.ts:39`](../packages/bash/pwsh-sandbox/src/index.ts)
+Source: [`packages/bash/pwsh-sandbox/src/index.ts:40`](../packages/bash/pwsh-sandbox/src/index.ts)
 
 ## `@deepseek-ai/dsh-repeat-tool-guard`
 
@@ -2057,7 +2057,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/bash/tool-pwsh/src/index.ts:47`](../packages/bash/tool-pwsh/src/index.ts)
+Source: [`packages/bash/tool-pwsh/src/index.ts:52`](../packages/bash/tool-pwsh/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-ralph`
 

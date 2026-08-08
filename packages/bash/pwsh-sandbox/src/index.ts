@@ -6,8 +6,9 @@
  * enforcement, and denial facts. Positive runner-launch evidence means the
  * command never ran: foreground calls throw `SANDBOX_UNAVAILABLE`, while
  * background processes carry `runnerFailed`; other spawn rejections retain
- * local-executor semantics. The tool owns approval and passes a complete
- * per-call policy.
+ * local-executor semantics. The tool layer owns the escalation approval flow
+ * through `ctx.approval`; this executor reports the sandbox facts the tool
+ * renders.
  * @module @deepseek-ai/dsh-pwsh-sandbox
  */
 
@@ -40,10 +41,12 @@ export type Config = LocalConfig
 
 /**
  * Registers as `ctx.bash` in place of the local pwsh executor and requires a
- * `ctx.sandbox` provider plus `ctx.sandboxPolicy`; the tool layer is
- * unchanged. Tool calls pass the calling session's resolved policy; direct
- * calls fall back to deployment policy. `result.sandbox` reports the mode and
- * enforcement actually used.
+ * `ctx.sandbox` provider plus `ctx.sandboxPolicy`; the tool layer carries the
+ * sandbox denial rendering and escalation surface (see the
+ * pwsh-tool-and-executor Agent Note). Tool calls pass the calling session's
+ * resolved policy; direct calls fall back to deployment policy.
+ * `result.sandbox` reports the mode, enforcement, and denial facts the tool
+ * renders.
  */
 /* jscpd:ignore-start -- deliberate call-for-call mirror of bash-sandbox's executor (pwsh-tool-and-executor Agent Note) */
 export class SandboxPwshExecutor extends PwshLocalExecutor {
