@@ -1017,4 +1017,32 @@ describe('user-explicit invocation injection', () => {
       (message.source as { kind?: string }).kind === 'skill-invocation')
     expect(injections).toHaveLength(1)
   })
+
+  it('passes a downstream reject through both pre-step listeners untouched', async () => {
+    const { ctx, agent } = await invokeHarness()
+    const signal = new AbortController().signal
+    const decision = await agentEvents(ctx, agent).waterfall(
+      'agent/pre-step',
+      { messages: [gesture('/hidden-demo blocked step')], turn: 1, step: 1, signal },
+      () => Promise.resolve({ kind: 'reject' as const }),
+    )
+    expect(decision).toEqual({ kind: 'reject' })
+  })
+
+  it('scans only text blocks of a user message', async () => {
+    const { ctx, agent } = await invokeHarness()
+    const mixed = createUserMessage({
+      content: [
+        { type: 'reasoning', text: '/hidden-demo inside a non-text block' },
+        { type: 'text', text: '/shared-skill go' },
+      ],
+      source: { kind: 'user' },
+    })
+    const decision = await proposeStep(ctx, agent, [mixed])
+    if (decision.kind !== 'enter') throw new Error('expected enter')
+    const invoked = decision.messages
+      .filter(message => (message.source as { kind?: string }).kind === 'skill-invocation')
+      .map(message => (message.source as { name: string }).name)
+    expect(invoked).toEqual(['shared-skill'])
+  })
 })
