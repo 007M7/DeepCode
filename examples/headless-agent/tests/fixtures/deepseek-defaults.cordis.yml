@@ -7,10 +7,15 @@
         config:
           baseURL: !!js process.env.DSH_SNAPSHOT_BASE_URL
           thinking: disabled
-      - id: cli-agent
+      - id: agent-spine
         config:
-          provider: deepseek-official
-          model: deepseek-v4-flash
-          persistenceRoot: './.sessions'
+          agents:
+            - id: main
+              provider: deepseek-official
+              model: deepseek-v4-flash
+              cwd: !!js process.cwd()
           workspaceContext: false
           persona: 'Keyless DeepSeek adapter defaults snapshot.'
+      - id: persistence
+        config:
+          root: './.sessions'

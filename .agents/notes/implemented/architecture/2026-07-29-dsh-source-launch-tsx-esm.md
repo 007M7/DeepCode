@@ -35,4 +35,4 @@ The node-compat CI matrix (Node 22.19 and 26) gains `dsh-source-launch-smoke` (`
 - One launch vector across the whole engines range, including future Node lines that change native TypeScript support; the smoke gate enforces it per matrix line.
 - TypeScript transformation is delegated to tsx/esbuild again, reversing the prior note's goal of proving Node-native transformation; that goal is unreachable while vendored sources use non-erasable syntax and Node ships no transform mode.
 - The runtime declared-dependency enforcement in source launches is gone; undeclared workspace imports now surface only through static gates or built-mode resolution failures.
-- Startup improves ~0.4s over the full tsx default (`demo:headless` and ACP keep `--import tsx`; their graphs were not audited for CJS-hook dependence and their launch latency is not on the interactive path).
+- Startup improves ~0.4s over the full tsx default (`demo:headless` now aliases the same `dsh run` source launch; ACP keeps `--import tsx` because its graph was not audited for CJS-hook dependence and its launch latency is not on the interactive path).

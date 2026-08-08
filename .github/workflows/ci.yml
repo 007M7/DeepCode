@@ -30,7 +30,7 @@ env:
 
 jobs:
 
-  # FIXME: Re-enable the three hosted serial reference jobs before cutting a release.
+  # TODO(hosted-serial-ci): Re-enable the three hosted serial reference jobs before release.
   # The self-hosted standby remains active on every master push.
 
   # Three enterprise jobs isolate coverage, static analysis, and the

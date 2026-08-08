@@ -31,12 +31,13 @@ interface Config {
   path: string   // SQLite database file path, or ':memory:' for an in-process DB
   journalMode?: 'wal' | 'delete' | 'truncate' | 'persist'   // journal_mode pragma; default 'wal'
   preparedSessionCacheSize?: number   // positive integer; default 5
+  writeBatchMaxDelayMs?: number   // positive integer; default 200; maximum 2_147_483_647
 }
 ```
 
 ## Write path
 
-Like the JSONL backend, the plugin copies each frozen `session/event` into one controller per live session and starts an eager drain. Concurrent events share the current transaction; events admitted during it form a follow-up batch, while `session/flush` waits until both current and pending batches are durable. The controller persists a fork's seed once, keeps a write cursor so resume never re-appends stored events, and seeds live sessions on apply because HMR does not replay `session/created`. Dispose drains every retained controller before closing the database.
+Like the JSONL backend, the plugin copies each frozen `session/event` into one controller per live session. The first pending event starts the configured fixed batching window, and later events join without resetting it. Expiry starts one transaction; events admitted during that write form a separately bounded follow-up batch. `session/flush` cancels the wait and drains current and pending batches. The controller persists a fork's seed once, keeps a write cursor so resume never re-appends stored events, and seeds live sessions on apply because HMR does not replay `session/created`. Dispose drains every retained controller before closing the database. Every event remains a separate SQLite row; batching only groups more INSERTs into one transaction and revision increment.
 
 ## Model Experience
 

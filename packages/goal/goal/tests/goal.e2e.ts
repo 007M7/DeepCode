@@ -6,7 +6,7 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { decodeGoalChange } from '@deepseek-ai/dsh-goal'
 import { LOADER_SMOKE_TEST_TIMEOUT_MS, runLoaderSmoke } from '@deepseek-ai/dsh-loader-smoke'
 
-const binScript = fileURLToPath(new URL('../../../examples/cli-demo/src/bin.ts', import.meta.url))
+const binScript = fileURLToPath(new URL('../../../../examples/headless-agent/tests/fixtures/headless-driver.ts', import.meta.url))
 const configPath = fileURLToPath(new URL(
   '../../../../examples/headless-agent/tests/fixtures/goal-domain/cordis.yml',
   import.meta.url,
@@ -30,8 +30,9 @@ describe('goal domain through a real cordis.yml and headless process', () => {
       label: 'goal-domain',
       tempDirPrefix: 'goal-domain-e2e-',
       binScript,
+      libBinScript: binScript,
       configPath,
-      binArgs: ['--config', configPath, '--output-format', 'json', 'prove the persisted goal domain'],
+      binArgs: [configPath, 'prove the persisted goal domain'],
       tsconfigPath: repoTsconfig,
       inspect: async (cwd) => {
         const logs = await jsonlFiles(join(cwd, '.sessions'))
@@ -41,7 +42,7 @@ describe('goal domain through a real cordis.yml and headless process', () => {
       },
     })
     expect(stderr).toBe('')
-    const result = JSON.parse(stdout) as Record<string, unknown>
+    const result = JSON.parse(stdout.trimEnd().split('\n').at(-1) ?? '') as Record<string, unknown>
     expect(result).toMatchObject({
       type: 'result',
     })

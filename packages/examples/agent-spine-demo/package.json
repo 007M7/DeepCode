@@ -84,7 +84,7 @@
     "@deepseek-ai/dsh-tool-tasks": "workspace:^",
     "@deepseek-ai/dsh-tools": "workspace:^",
     "@deepseek-ai/dsh-workspace-context": "workspace:^",
-    "node-addon-landlock-run": "0.0.0-test.0",
+    "@deepseek-ai/node-addon-landlock-run": "workspace:*",
     "cordis": "^4.0.0-rc.7"
   },
   "dependencies": {

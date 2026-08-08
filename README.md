@@ -56,7 +56,7 @@ The [CLI contract](apps/cli/README.md#profiles) describes profile layout, layer 
 Run one task, print the final answer, and exit:
 
 ```sh
-dsh --profile headless "summarize this workspace"
+dsh run "summarize this workspace"
 ```
 
 ### Automation and SDKs
