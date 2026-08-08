@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-client-ui-conversation",
-  "description": "Conversation domain: shell, chat and tool views, input policy with Host-backed busy-Enter preference, and details panel",
+  "description": "Conversation domain: skeleton, ordered chat flow, composer with the Host-backed busy-Enter preference, and details host",
   "version": "0.0.1",
   "private": true,
   "type": "module",

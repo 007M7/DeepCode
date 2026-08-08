@@ -3,11 +3,9 @@
 // generic command card so no-history, cancellation, and failures retain their
 // complete handler-authored text.
 
-import { IconApiOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatViewSlotProps, CommandRowOwnerProps } from '../contract/slots.ts'
 import { CompactionItem } from './CompactionItem.tsx'
 import { GenericCommandCard } from './GenericCommandCard.tsx'
-import { ToolRow } from './ToolRow.tsx'
 
 interface CompactionCommandCardProps extends CommandRowOwnerProps {
   t: ChatViewSlotProps['t']
@@ -26,15 +24,5 @@ export function CompactionCommandCard({ node, compaction, t }: CompactionCommand
     )
   }
   if (node.outcome !== null) return <GenericCommandCard node={node} t={t} />
-  return (
-    <ToolRow
-      t={t}
-      variant="others"
-      icon={<IconApiOutline14 size={14} />}
-      title="compact"
-      summary={t('message.compaction.running')}
-      body={null}
-      state="running"
-    />
-  )
+  return <GenericCommandCard node={node} t={t} runningSummary={t('message.compaction.running')} />
 }

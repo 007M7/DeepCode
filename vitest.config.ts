@@ -167,6 +167,8 @@ export default defineConfig({
         // exemption while gating the newly stateful Host half and vocabulary.
         'packages/client/ui-conversation/src/client/*',
         'packages/client/ui-conversation/src/invariant.ts',
+        'packages/client/ui-primitives/src/DisclosureRow.tsx',
+        'packages/client/ui-tool/src/*',
         'packages/client/ui-slots/src/*',
         'packages/client/ui-layout/src/*',
         'packages/client/web/src/*',
