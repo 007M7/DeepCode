@@ -92,6 +92,7 @@ describe.skipIf(MODE === 'record')('web e2e: subagent.interrupt over the real co
     // A live parent Agent through the real API; no workspace or browser.
     const created = await rpc<{ sessionId: string }>(scaffold.baseUrl, 'session.create', {
       cwd: scaffold.workspaceCwd,
+      timeZone: 'UTC',
     })
     if (!created.ok) throw new Error(`session.create failed: ${created.error.code}`)
     parentId = sessionId(created.value.sessionId)
