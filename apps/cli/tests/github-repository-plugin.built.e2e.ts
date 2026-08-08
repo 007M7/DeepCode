@@ -182,6 +182,11 @@ describe.skipIf(!enabled)('dsh run GitHub repository Plugin installation', () =>
           DEEPSEEK_API_KEY: apiKey,
           DEEPSEEK_BASE_URL: server.baseURL,
           NPM_CONFIG_USERCONFIG: npmrc,
+          // A warm runner cache could satisfy the exact tarball without
+          // contacting this test's registry, which would stop proving the
+          // unpublished package was installed through the simulated release.
+          PNPM_CONFIG_CACHE_DIR: join(home, 'pnpm-cache'),
+          PNPM_CONFIG_STORE_DIR: join(home, 'pnpm-store'),
           PATH: process.env.PATH === undefined ? hostBin : `${hostBin}${delimiter}${process.env.PATH}`,
         },
       })
