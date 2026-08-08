@@ -49,7 +49,7 @@ Agent or plugin disposal cancels timers, stops new work, unwinds the three tool 
 
 ### Commit-aware Web receipt
 
-The Schedule package owns `scheduleReminderPresentation()`, which derives `{ scheduleId, prompt, occurrenceAt, deliveryMode }` from create plus dispatch. The current fork's `seedLength` is a hard boundary for child-owned dispatches. An inherited dispatch instead pairs with its nearest preceding same-id create because `session/end-seed` also marks replay or resume construction, not only fork ownership. This keeps resumed ancestor receipts renderable, preserves nested-generation id reuse, and never changes live ownership.
+The Schedule package owns `scheduleReminderPresentation()`, which derives `{ scheduleId, prompt, occurrenceAt }` from create plus dispatch; the client renderer adds the fixed `session-local` label. The current fork's `seedLength` is a hard boundary for child-owned dispatches. An inherited dispatch instead pairs with its nearest preceding same-id create because `session/end-seed` also marks replay or resume construction, not only fork ownership. This keeps resumed ancestor receipts renderable, preserves nested-generation id reuse, and never changes live ownership.
 
 The Host continues to send every raw event on append. It keeps one monotonic watermark per exact live `Session` in a `WeakMap`; only `session/flushed` advancement makes it redeliver newly covered dispatch events with the generic `{ for: 'event', view }` sidecar. The durable `schedule/change` type selects the client renderer. Taking the maximum contains reversed concurrent flush completion, and exact object identity prevents a reused Session id from inheriting another lifecycle's cursor.
 

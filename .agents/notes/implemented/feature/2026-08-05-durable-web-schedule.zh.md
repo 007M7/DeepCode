@@ -49,7 +49,7 @@ Agent 或插件 dispose 会取消 timer、停止新工作、撤销三个工具�
 
 ### Commit-aware Web 回执
 
-Schedule package 拥有 `scheduleReminderPresentation()`，从 create 加 dispatch 派生 `{ scheduleId, prompt, occurrenceAt, deliveryMode }`。当前 fork 的 `seedLength` 是 child 自有 dispatch 的硬边界。继承的 dispatch 则会与它之前最近的同 id create 配对，因为 `session/end-seed` 也会标记回放或恢复构造，而不仅标记 fork 所有权。这使恢复后的祖先回执仍可渲染，保留嵌套 generation 的 id 复用，并且绝不会改变 live ownership。
+Schedule package 拥有 `scheduleReminderPresentation()`，从 create 加 dispatch 派生 `{ scheduleId, prompt, occurrenceAt }`。client renderer 会添加固定的 `session-local` 标签。当前 fork 的 `seedLength` 是 child 自有 dispatch 的硬边界。继承的 dispatch 则会与它之前最近的同 id create 配对，因为 `session/end-seed` 也会标记回放或恢复构造，而不仅标记 fork 所有权。这使恢复后的祖先回执仍可渲染，保留嵌套 generation 的 id 复用，并且绝不会改变 live ownership。
 
 Host 在 append 时继续发送所有 raw event。它在 `WeakMap` 中按 exact live `Session` 保存一个单调 watermark；只有 `session/flushed` 前进时，才会用通用 `{ for: 'event', view }` sidecar 重投新覆盖的 dispatch event。持久 `schedule/change` 类型用于选择 client renderer。取最大值可以收容反序完成的并发 flush，按对象身份键控则阻止复用的 Session id 继承另一个生命周期的 cursor。
 
