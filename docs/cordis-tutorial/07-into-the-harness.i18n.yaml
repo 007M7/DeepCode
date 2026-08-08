@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/cordis-tutorial/07-into-the-harness.md
-07-into-the-harness.md: e02f8f8d55b3fbe9087d46f8f50baeecb592c1c6
-07-into-the-harness.zh.md: 5f770267e8f3db04cd9cb0e92b6a6278cf05d5e4
+07-into-the-harness.md: 38483b5c4993a44562970782dca5f676e4cb84f6
+07-into-the-harness.zh.md: 59ce716bdace894682bc1c8e6e00cf174008c26c

@@ -24,7 +24,7 @@ Precedence is list order, last write winning per row: base, then the surface ove
 
 A patch replaces its target row's whole `config` rather than merging, which shapes the split: a row whose value differs per surface lives in the overlays, never in the base, so no row is patched by three layers at once. Session identity therefore cannot ride a config key at all — it moved to `dsh-agent-loop`'s `CONFIGURED_AGENT_IDENTITIES_KEY`, as the launcher-owned identity record documented.
 
-`examples/tui-agent`, `examples/cordis-agent`, `examples/code-mode`, and `packages/examples/tui-demo` are deleted. The TUI tests move to `apps/cli/tests/`, the cordis-toolset e2e to `packages/cordis/tool-cordis/tests/`, and the supported Code Mode demo remains the ACP overlay at `examples/acp-agent/code-mode.cordis.yml`.
+`examples/tui-agent`, `examples/cordis-agent`, `examples/code-mode`, and `packages/examples/tui-demo` are deleted. The TUI tests move to `apps/cli/tests/`, the cordis-toolset e2e to `packages/self-modification/tool-cordis/tests/`, and the supported Code Mode demo remains the ACP overlay at `examples/acp-agent/code-mode.cordis.yml`.
 
 ## Alternatives considered
 
@@ -48,6 +48,6 @@ A patch whose `id` matches no row stays a no-op rather than an error. That is de
 
 Composition is checked by booting each tree through the real Loader and inspecting settled entries, not by reading YAML; both surfaces settle with zero unloaded rows, and Web starts its `httpServer` with sandboxed Bash and filesystem providers. Code Mode remains covered by the ACP overlay and programmatic TUI snapshots rather than a separate shipped TUI application.
 
-All eight terminal snapshot scenarios replay byte-identically after moving, and the 14-case PTY smoke passes, including two cases that assert a personal overlay reaches an **inserted** row — the behavior the vendored `plugin-include` fix enables ([`vendor/README.md`](../../../../vendor/README.md) local modification 8, covered by `packages/ui/app-boot/tests/config-reload.spec.ts`).
+All eight terminal snapshot scenarios replay byte-identically after moving, and the 14-case PTY smoke passes, including two cases that assert a personal overlay reaches an **inserted** row — the behavior the vendored `plugin-include` fix enables ([`vendor/README.md`](../../../../vendor/README.md) local modification 8, covered by `packages/boot/app-boot/tests/config-reload.spec.ts`).
 
 Flattening surfaced three latent defects, each fixed here: the TUI captured the optional `sessionQuery` service once at construction and so could permanently disable `/resume` when it won the mount race; the shipped session-store root silently reverted to a project-local `./.sessions`; and `--config-replace` was dropped by the resume handoff.

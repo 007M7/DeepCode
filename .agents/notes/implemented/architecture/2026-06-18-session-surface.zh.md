@@ -64,9 +64,9 @@ export type SurfaceOp =
 
 - **`packages/core/session`**：`surface.ts`（`SurfaceManager`）维护一个用于候选接纳和实时投影的有序 seq 数组；`SessionSurface` 是其只读公共视图。`SurfaceOp`/`SurfaceIntent` 与顶层会话事件字段记录条目如何加入它。`append()` 要求 surface 事件携带 `SurfaceIntent`，`deriveMessages()` 以遍历 surface 作为唯一派生路径，`repair.ts` 则发出 surface 感知的闭合事件。种子构造函数拒绝缺少 `surfaceOp` 标记的可进入 surface 的种子事件（见「不变式」一节）。
 - **`packages/core/agent-loop`**：所有涉及 surface 事件的追加操作都传入 surface 选项。收集分片 seq 用于 `assistant/message` 溯源；捕获 `tool/call` seq 用于 `tool/result` 溯源。
-- **`packages/session-persistence/session-persistence-sqlite`**：`events` 表新增两个可空 TEXT 列（`source_event_seqs`、`surface_op`）；`SCHEMA_VERSION` 递增（bump-and-reject，无迁移）。
-- **`packages/session-persistence/session-persistence-jsonl`**：无需改动。
-- **`packages/session-persistence/session-persistence`**：抽象接口不变。
+- **`packages/session/session-persistence-sqlite`**：`events` 表新增两个可空 TEXT 列（`source_event_seqs`、`surface_op`）；`SCHEMA_VERSION` 递增（bump-and-reject，无迁移）。
+- **`packages/session/session-persistence-jsonl`**：无需改动。
+- **`packages/session/session-persistence`**：抽象接口不变。
 
 Surface 是未来历史操纵的基础。压缩或 tool-result-prune 插件追加一个既有的消息产出事件类型（例如一条携带摘要的 `user/message`），附带 `surfaceOp: { op: 'replace', start, end }` 和覆盖被遮蔽条目的 `sourceEventSeqs`——新事件在 surface 上取代该范围的位置，而插件自身的 trace 事件（如 `compaction/start`、`compaction/end`）不进入 surface。回放以确定性方式保留该决策。
 

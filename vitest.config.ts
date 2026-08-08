@@ -32,8 +32,8 @@ const windowsUnsupportedPackages = process.platform === 'win32'
       'packages/subprocess/*',
       'packages/pty/pty-local',
       'packages/sandbox/sandbox-local',
-      'packages/sdk/create-sdk',
-      'packages/sdk/helper',
+      'packages/scaffold/create-sdk',
+      'packages/scaffold/helper',
     ]
   : []
 
@@ -75,7 +75,7 @@ const processBoundTests = [
   'packages/subprocess/subprocess-local/tests/spawn.spec.ts',
   'packages/context/time-context/tests/time-context.spec.ts',
   'packages/llm/llm-pi-ai/tests/adapter.spec.ts',
-  'packages/ui/app-boot/tests/app-boot.spec.ts',
+  'packages/boot/app-boot/tests/app-boot.spec.ts',
   'packages/workflow/workflow-workerthread/tests/session.spec.ts',
 ]
 
@@ -214,9 +214,9 @@ export default defineConfig({
         // Projection/command round: executor lifecycle branches and the
         // registry's drive tails need the same maturing lanes. TODO(gui):
         // cover and remove with the client test lane above.
-        'packages/ui/commands/src/index.ts',
-        'packages/ui/commands/src/invariant.ts',
-        'packages/session-projection/session-projection/src/index.ts',
+        'packages/interaction/commands/src/index.ts',
+        'packages/interaction/commands/src/invariant.ts',
+        'packages/session/session-projection/src/index.ts',
         ...windowsUnsupportedPackages.map(path => `${path}/src/**/*.ts`),
         ...pwshCoverageExclusions,
       ],

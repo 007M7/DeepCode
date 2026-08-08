@@ -12,3 +12,5 @@ A compaction capability family (see [capability seams](../../.agents/notes/imple
 | [`command-compact/`](command-compact/README.md) | Human compaction command | registers on `ctx.commands` |
 
 The backend, optional pruner, and human command compose through the seam; token measurement remains a separate LLM-family service. The [compaction capability-seam Agent Note](../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md) owns the dependency rationale.
+
+The subsystem reference — the `compact/*` events, `CompactionResult`, the service, pruning outcomes — is [docs/subsystems/compaction.md](../../docs/subsystems/compaction.md); the seam's deliberate `dsh-session`/`dsh-llm` dependency is recorded in the [compaction capability-seam Agent Note](../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md).

@@ -6,7 +6,7 @@ Status: proposed
 
 ## 问题
 
-host 侧唯一的持久化面是 session 事件日志（`packages/session-persistence`：仅追加、一 session 一文件）。凡是"不属于某个 session"的信息就没有落盘处，眼下有两个真实需求：
+host 侧唯一的持久化面是 session 事件日志（`packages/session/session-persistence`：仅追加、一 session 一文件）。凡是"不属于某个 session"的信息就没有落盘处，眼下有两个真实需求：
 
 - **workspace 实体**。GUI 要把 workspace 做成真实对象：路径、标题、关联 session 清单。归属关系由 workspace 持有——"哪些 session 属于这个 workspace"不是任何单个 session 自己的事实，塞进 session log 语义不成立。此前 workspace 只是 sidebar 上按 cwd 分组的视觉概念，没有实体（该结论已被推翻）。
 - **session 动态元信息**（可预见的第二个消费方）。冷会话列表只读日志首行 header（创建时的不可变快照），title、结束状态这类随会话推进变化的信息拿不到；补齐方向是 sidecar 元数据表——正是一张按 key 高频点更新的 KV 表。
@@ -26,7 +26,7 @@ host 侧唯一的持久化面是 session 事件日志（`packages/session-persis
 | `@deepseek-ai/dsh-storage-sqlite` | `packages/storage/storage-sqlite/` | 注册后端 `sqlite` | ✓ |
 | `@deepseek-ai/dsh-storage-domain` | `packages/storage/storage-domain/` | 挂载 `ctx.storage.domain` | ✓ |
 | `@deepseek-ai/dsh-workspace` | `packages/workspace/workspace/` | `ctx.workspace` | ✓ |
-| `SessionPersistence.delete` 扩面 + 级联删编排 | `packages/session-persistence/*` | 既有 seam 新方法 | ✗ future work（本期不动 session 侧） |
+| `SessionPersistence.delete` 扩面 + 级联删编排 | `packages/session/*` | 既有 seam 新方法 | ✗ future work（本期不动 session 侧） |
 | `workspace.*` / `session.delete` RPC、GUI 接线、boot 组装 | — | — | ✗ 下期 |
 
 （workspace 放独立组不放 `packages/host/`：host 组命名规则要求 `dsh-host-*` 前缀，而包名定为 `dsh-workspace`；且 workspace 实体是领域概念，不绑定 host 装配层。与既有 `workspace-context` 包无关——那是 AGENTS.md 指令加载器。）

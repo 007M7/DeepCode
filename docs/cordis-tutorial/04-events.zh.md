@@ -89,7 +89,7 @@ export function apply(ctx: Context) {
 | bail | `ctx.bail(name, ...args)` | serial 的同步版本。 |
 | waterfall（瀑布式事件） | `ctx.waterfall(name, ...args, next)` | 环绕中间件，见下文。 |
 
-每个 harness 事件都会在生成的[事件目录](../cordis-catalog/events.md)中记录其模式。
+每个 harness 事件都会在其所属[子系统页面](../subsystems/core.md)的生成参考中记录其模式。
 
 ## waterfall：转换或短路
 
@@ -137,7 +137,7 @@ HELLO
 
 由此得到一项纪律：**只负责观察或标注的 waterfall 监听器必须调用 `next()`**；不调用就直接返回代表有意短路。如果日志监听器忘记调用 `next()`，会悄无声息地吞掉所有下游的默认行为。这一点极其重要，已成为本仓库的常设规则（[waterfall 语义](../cordis-primer.md#cordis-waterfall-semantics)）。
 
-harness 使用 waterfall 处理协作插件可以包装或回答的决策：[`agent/request`](../cordis-catalog/events.md#agentrequest--waterfall) 允许插件替换模型调用配置，[`approval/request`](../cordis-catalog/events.md#approvalrequest--waterfall) 允许策略代替用户作答。
+harness 使用 waterfall 处理协作插件可以包装或回答的决策：[`agent/request`](../subsystems/core.md#agentrequest--waterfall) 允许插件替换模型调用配置，[`approval/request`](../subsystems/approval.md#approvalrequest--waterfall) 允许策略代替用户作答。
 
 下一章：[配置](05-config.md)：来自 `cordis.yml` 的插件选项。
 

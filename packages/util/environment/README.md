@@ -32,5 +32,5 @@ const endpoint = environmentOf(ctx).get('DEEPSEEK_BASE_URL')?.value
 
 ## Known Limitations and Deferred Work
 
-- **The snapshot is not a subprocess boundary** — every layer is also materialized into `process.env`, so ordinary project variables reach child processes under [`dsh-subprocess`](../../subprocess/subprocess/README.md)'s scrub. The product launcher's [`.env` contract](../../ui/app-boot/README.md#profiles) rejects bootstrap variables before materialization.
+- **The snapshot is not a subprocess boundary** — every layer is also materialized into `process.env`, so ordinary project variables reach child processes under [`dsh-subprocess`](../../subprocess/subprocess/README.md)'s scrub. The product launcher's [`.env` contract](../../boot/app-boot/README.md#profiles) rejects bootstrap variables before materialization.
 - **No per-workspace layer** — the project layer is the *invoking* directory, fixed at launch. A workspace selected later in the Web UI contributes nothing, deliberately: following it would let a model's own workspace change the harness environment mid-session.

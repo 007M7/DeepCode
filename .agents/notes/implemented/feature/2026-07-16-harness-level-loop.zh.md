@@ -38,7 +38,7 @@ Status: implemented
 | `@deepseek-ai/dsh-goal` | `packages/goal/goal/`，领域服务 | 拥有 `GoalId`、比较并交换 `GoalRef`、`GoalSnapshot`、四状态 `GoalPhase`、结构化 `GoalBlockReason`、进程本地 `GoalActivation`、重放折叠，以及 `get`、`create`、`edit`、`pause`、`resume`、`complete`、`block`、`clear` 与 `disarm` 动词。 |
 | `@deepseek-ai/dsh-tool-goal` | `packages/goal/tool-goal/`，面向模型消费方 | 注册互斥的 `get_goal`、`create_goal` 与 `update_goal`；认证实时 Turn 来源，并把自治 Round 权限收窄到带机器可路由原因代码的完成或阻塞报告。 |
 | `@deepseek-ai/dsh-goal-session` | `packages/goal/goal-session/`，续行策略 | 在不导入具体 loop 的情况下，预留、设围栏、接纳、归属、结算、取消并排空同会话 Goal Round，直至完全停稳。 |
-| `@deepseek-ai/dsh-commands` | `packages/ui/commands/`，UI 注册表 | 拥有面向人类专用命令的 `CommandDefinition`、发现、作用域注册、直接分发、`CommandResult` 与请求取消。 |
+| `@deepseek-ai/dsh-commands` | `packages/interaction/commands/`，UI 注册表 | 拥有面向人类专用命令的 `CommandDefinition`、发现、作用域注册、直接分发、`CommandResult` 与请求取消。 |
 | `@deepseek-ai/dsh-command-goal` | `packages/goal/command-goal/`，人类命令生产方 | 为 TUI 注册构建在目标领域之上的 `/goal` 状态、创建、编辑、暂停、恢复与清除。 |
 | `@deepseek-ai/dsh-tool-ralph` | `packages/workflow/tool-ralph/`，固定工作流消费方 | 注册 `ralph({ objective, maxRounds? })`，验证全新结构化 provider 与有界 `RalphRoundReport`，并返回 `complete`、`blocked` 或 `budget-limited`。 |
 

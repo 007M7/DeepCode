@@ -1,7 +1,7 @@
 /** Tests for the documentation website projection adapter. */
 
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, globSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -269,28 +269,41 @@ describe('docsPages locale routes', () => {
     }
   })
 
-  it('projects translated core-data pages while retaining explicit English fallbacks', () => {
+  it('indexes every subsystem page in both sides of the folder README', () => {
+    const pages = globSync(join(repositoryRoot, 'docs/subsystems/*.md'))
+      .map(page => basename(page))
+      .filter(page => !page.endsWith('.zh.md') && page !== 'README.md')
+      .sort()
+    expect(pages.length).toBeGreaterThan(0)
+    for (const readme of ['README.md', 'README.zh.md']) {
+      const rows = readFileSync(join(repositoryRoot, 'docs/subsystems', readme), 'utf8')
+      const missing = pages.filter(page => !rows.includes(`| [${page}](${page}) |`))
+      expect(missing, `${readme} must carry one table row per subsystem page`).toEqual([])
+    }
+  })
+
+  it('projects translated subsystem pages while retaining explicit English fallbacks', () => {
     const rootPages = docsPages.filter(page => (
-      page.locale === 'root' && page.route.startsWith('reference/core-data-structures/')
+      page.locale === 'root' && page.route.startsWith('reference/subsystems/')
     ))
     const translated = rootPages.filter(page => page.contentLocale === 'zh-CN')
     const fallbacks = rootPages.filter(page => page.contentLocale === 'en-US')
 
-    expect(translated).toHaveLength(20)
+    expect(translated).toHaveLength(39)
     expect(translated.every(page => page.source.endsWith('.zh.md'))).toBe(true)
     expect(fallbacks.map(page => page.source).sort()).toEqual([
-      'docs/core-data-structures/commands.md',
-      'docs/core-data-structures/goal.md',
-      'docs/core-data-structures/pty.md',
+      'docs/subsystems/commands.md',
+      'docs/subsystems/goal.md',
+      'docs/subsystems/pty.md',
     ])
   })
 
   it('publishes the Cordis core API under matching locale structures', () => {
-    const files = ['context.md', 'events.md', 'fiber.md', 'registry.md', 'service.md']
+    const files = ['context.md', 'events.md', 'fiber.md', 'registry.md', 'service.md', 'inherited.md']
     for (const file of files) {
       const root = docsPages.find(page => page.route === `reference/cordis-api/${file}`)
       const english = docsPages.find(page => page.route === `en/reference/cordis-api/${file}`)
-      expect(root?.source).toBe(`docs/cordis-catalog/core/${file}`)
+      expect(root?.source).toBe(`docs/cordis-api/${file}`)
       expect(root?.section).toBe('Cordis API')
       expect(english?.source).toBe(root?.source)
       expect(english?.section).toBe('Cordis Core API')

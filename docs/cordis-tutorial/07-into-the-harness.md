@@ -101,7 +101,7 @@ Where to go next:
 
 - [Build a tool](../user/develop/basic/tool.md) — more of `defineTool`, including presentation and richer schemas.
 - [Three-layer capability design](../user/develop/practice/index.md) — how the harness structures replaceable capabilities.
-- The generated [services](../cordis-catalog/services.md) and [events](../cordis-catalog/events.md) catalogs — everything you can inject and listen to.
+- The generated `cordis-surface` regions on the [subsystem pages](../subsystems/core.md) — everything you can inject and listen to, each on its owning page.
 - [Architecture](../architecture.md) — the system map these plugins live in.
 
 [![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness-sdk)
