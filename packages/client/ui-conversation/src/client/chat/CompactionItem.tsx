@@ -21,7 +21,7 @@ interface CompactionItemProps {
   node: CompactionSummaryNode
   /** Optional command title for a manual compaction folded into this marker. */
   title?: string
-  /** Command settlement text used only when the summary provenance page is absent. */
+  /** Command settlement text used when structured compaction counts are unavailable. */
   fallbackSummary?: string | null
   /** The owning view's locale seat. */
   t: ChatViewSlotProps['t']

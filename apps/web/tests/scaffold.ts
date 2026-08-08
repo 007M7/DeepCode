@@ -620,8 +620,9 @@ export async function seedSession(scaffold: WebScaffold, fixtureText: string, id
 }
 
 /**
- * Normalize an aria snapshot: uuid, cwd, workspace-basename, duration, and
- * decode-throughput volatility collapse to stable tokens.
+ * Normalize an aria snapshot: uuid, cwd, workspace-basename, duration,
+ * decode-throughput, and path-sensitive compaction estimates collapse to
+ * stable tokens.
  *
  * Throughput needs a token for the same reason durations do, and no fixture
  * can supply one: the figure divides a replayed step's output tokens by the
@@ -648,6 +649,9 @@ function normalizeAria(snapshot: string, workspaceCwd: string): string {
       duration => duration.startsWith('约') ? duration : '{{duration}}',
     )
     .replace(/\d+(?:\.\d+)?(?= tok\/s(?!\w))/g, '{{throughput}}')
+    // Seeded compaction prices realized file paths, whose length differs
+    // between local worktrees and CI scratch directories.
+    .replace(/(Compacted \d+ history items \(~)\d+( tokens\))/g, '$1{{tokens}}$2')
     // Message IconActions clocks widen by calendar day/year; collapse every
     // shape so goldens stay stable across midnight and year boundaries.
     .replace(/\d{4}年\d{1,2}月\d{1,2}日 \d{2}:\d{2}/g, '{{clock}}')

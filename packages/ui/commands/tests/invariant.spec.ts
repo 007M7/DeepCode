@@ -38,7 +38,7 @@ describe('command lifecycle invariants', () => {
     }).not.toThrow()
   })
 
-  it.each([-1, 1.5, 1])('rejects invalid or command-owned sourceEventSeq %s', async (sourceEventSeq) => {
+  it.each([-1, 1.5, 1])('rejects invalid or non-prior sourceEventSeq %s', async (sourceEventSeq) => {
     const { session } = await mount()
     appendRun(session, 'cmd-invalid')
 

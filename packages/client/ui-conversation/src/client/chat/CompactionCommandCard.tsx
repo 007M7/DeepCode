@@ -19,7 +19,7 @@ export function CompactionCommandCard({ node, compaction, t }: CompactionCommand
     return (
       <CompactionItem
         node={compaction}
-        title={node.name ?? 'compact'}
+        title="compact"
         fallbackSummary={node.outcome?.text ?? null}
         t={t}
       />
@@ -31,7 +31,7 @@ export function CompactionCommandCard({ node, compaction, t }: CompactionCommand
       t={t}
       variant="others"
       icon={<IconApiOutline14 size={14} />}
-      title={node.name ?? 'compact'}
+      title="compact"
       summary={t('message.compaction.running')}
       body={null}
       state="running"

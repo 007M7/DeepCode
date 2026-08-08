@@ -249,6 +249,25 @@ describe('chat-flow derivation', () => {
     })
   })
 
+  it('does not split adjacent tool results around a folded /compact command', () => {
+    const folded = command({
+      seq: 2,
+      commandId: 'cmd-compact' as CommandNode['commandId'],
+      name: 'compact',
+      outcome: { kind: 'success', sourceEventSeq: 4 },
+    })
+    const items = deriveChatFlow([
+      toolResult(1, 'a'),
+      folded,
+      toolResult(3, 'b'),
+      compaction({ seq: 5, summaryEventSeq: 4 }),
+    ])
+    expect(flowKeys(items)).toBe('g1|ccmd-compact')
+    expect(
+      items[0]?.kind === 'tool-group' && items[0].results.map(result => result.callId),
+    ).toEqual(['a', 'b'])
+  })
+
   it('keeps automatic, unlinked, and ambiguously linked compactions as separate rows', () => {
     const automatic = compaction({ seq: 2, summaryEventSeq: 1 })
     expect(flowKeys(deriveChatFlow([automatic]))).toBe('n2')

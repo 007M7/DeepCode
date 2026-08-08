@@ -275,7 +275,7 @@ const CommandRow = memo(function CommandRow({ renderSlot, node, compaction, t }:
   t: ChatViewSlotProps['t']
 }) {
   const owner = useMemo(() => ({ node, ...compaction === undefined ? {} : { compaction } }), [compaction, node])
-  const fallback = node.name === 'compact' || compaction !== undefined
+  const fallback = node.name === 'compact'
     ? <CompactionCommandCard {...owner} t={t} />
     : <GenericCommandCard {...owner} t={t} />
   return (

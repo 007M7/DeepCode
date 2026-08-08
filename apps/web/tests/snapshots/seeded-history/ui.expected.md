@@ -31,9 +31,7 @@
 - button "Branch into a new conversation":
   - img
 - text: 7/25 {{clock}} Ran for {{duration}} TTFT {{duration}} {{throughput}} tok/s
-- button "compact Compacted 5 history items (~247 tokens)":
-  - img
-  - text: compact Compacted 5 history items (~247 tokens)
+- button "compact Compacted 5 history items (~{{tokens}} tokens)"
 - button "Context injection AGENTS.md":
   - img
   - img

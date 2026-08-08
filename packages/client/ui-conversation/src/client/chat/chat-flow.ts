@@ -155,7 +155,6 @@ export function deriveChatFlow(nodes: readonly ConversationNode[]): ChatFlowItem
   for (const node of nodes) {
     if (rendersNothing(node)) continue
     if (node.kind === 'command' && pairs.byCommandId.has(node.commandId)) {
-      group = null
       continue
     }
     if (node.kind === 'compaction') {
