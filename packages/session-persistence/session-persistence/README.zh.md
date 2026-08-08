@@ -29,9 +29,9 @@
 
 ## 写入协调器
 
-`PersistenceCoordinator` 负责每 id 状态和串行化、每个活动会话各自的主动写入 controller、延迟实体化、崩溃尾部修复、会话接管和完全停稳的 dispose（资源释放）。第一方后端组合一个协调器，实现小型 `PersistenceBackend` 存储钩子接口，并委托其有状态方法。因此 JSONL 和 SQLite 共享生命周期正确性，同时保留不同存储原语；见[协调器 Agent Note](../../../.agents/notes/implemented/architecture/2026-06-18-shared-persistence-write-coordinator.md) 和 [flush controller 简化](../../../.agents/notes/implemented/simplification/2026-07-23-collapse-persistence-flush-state.md)。
+`PersistenceCoordinator` 负责每 id 状态和串行化、每个活动会话各自的有界写入 controller、延迟实体化、崩溃尾部修复、会话接管和完全停稳的 dispose（资源释放）。第一方后端组合一个协调器，实现小型 `PersistenceBackend` 存储钩子接口，并委托其有状态方法。因此 JSONL 和 SQLite 共享生命周期正确性，同时保留不同存储原语；见[协调器 Agent Note](../../../.agents/notes/implemented/architecture/2026-06-18-shared-persistence-write-coordinator.md)、[flush controller 简化](../../../.agents/notes/implemented/simplification/2026-07-23-collapse-persistence-flush-state.md)和[有界批处理决策](../../../.agents/notes/implemented/architecture/2026-08-08-bounded-session-persistence-write-batching.md)。
 
-每个 `session/event` 将事件复制到会话 controller，并在不阻塞生产者的情况下立即启动 drain。并发通知共享当前 drain；写入期间接纳的事件保持 pending，并触发下一批。`session/flush` 是观察屏障，会等待 controller 无当前或 pending 批次。即时写入失败会记录日志并保留批次；下一次显式 flush 或后端拆卸会重试该批次，并将失败返回给调用方。
+每个 `session/event` 将事件复制到会话 controller。第一个待处理事件会开启固定批处理窗口；后续事件会加入该批次，但不会重置截止时间。配置的 `writeBatchMaxDelayMs` 只限制这段有意等待，而不限制事件循环、初始化、串行化操作或后端延迟。写入期间接纳的事件会形成一个新的有界批次。`session/flush` 会取消等待，并作为共享的完全停稳屏障，排空屏障运行期间接纳的事件。后台写入失败只记录一次日志，保留顺序不变的批次，并暂停自动重试；新事件会开启新的固定窗口，而显式 flush 或后端拆卸会立即重试，并在失败再次发生时向调用方暴露失败。
 
 崩溃修复只适用于冷状态。对于实时 id，`load(id)` 为权威内存日志制作快照，等待该快照持久，并只在平衡时返回；开放实时轮次会被拒绝，而不会收到合成中断 closer。对于冷 id，检查只读取、验证、冻结并构造一次未发布 Session；只有来源 revision 仍然是当前值时，重复检查才会复用该对象图。`prepare(id)` 在修复前执行相同校验，预留精确 Session，提交任何待处理的撕裂尾部或中断轮次修复，并将其返回用于发布。HMR 接管通过 `loadStored` 读取，应用协调器 cwd 检查，并绝不关闭活动轮次。
 
