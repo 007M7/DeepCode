@@ -242,14 +242,14 @@
 - id: tool-skill
   disabled: true
 
-- id: goal
-  disabled: true
-
-- id: goal-session
-  disabled: true
-
-- id: command-goal
-  disabled: true
+# The goal SERVICE, its session driver, and the `/goal` command STAY on the
+# host plane; only the model-facing tool moves. The Gateway serves the goal
+# domain as Remote endpoints, and a Remote method picks its receiver Service
+# from a generated descriptor — it resolves `goals` on the host, so a
+# per-session realm would answer `service-unavailable` for every browser call.
+# That is the `bash-env` criterion read from the other side: injection is not
+# the only host relationship a Service can have. The registry is keyed by
+# session, so one host instance serves every session exactly as before presets.
 
 - id: tool-goal
   disabled: true
