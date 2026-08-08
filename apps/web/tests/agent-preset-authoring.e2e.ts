@@ -20,7 +20,7 @@ import {
   captureStableAria, compareOrRefreshGolden, launchWebScaffold, watchConsole,
   webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
-import { ZH_BROWSER_LOCALE, saveFailureShot } from './support.ts'
+import { ZH_BROWSER_LOCALE, connectFreshWorkspaceZh, saveFailureShot } from './support.ts'
 
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/agent-preset-authoring', import.meta.url))
 const SECTION_EXPECTED = join(SNAPSHOT_DIR, 'section.expected.md')
@@ -172,6 +172,39 @@ describe('web e2e: agent-preset authoring is a host-side copy', () => {
     // Custom group gone with its only member; the shipped set stands.
     expect(await dialog.getByRole('heading', { name: '自定义' }).count()).toBe(0)
     expect(await dialog.getByText('标准模式').count()).toBeGreaterThan(0)
+  }, 60_000)
+
+  it('starts a creator-mode session from the section', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-preset-authoring-creator'))
+    // Without a workspace the flow only stages (there is no session to land
+    // in until one is connected); connect first so the gesture carries all
+    // the way to a composed host session.
+    await settingsDialog().getByRole('button', { name: '关闭' }).last().click()
+    await connectFreshWorkspaceZh(page, scaffold.workspaceCwd)
+    await page.getByRole('button', { name: '设置', exact: true }).click()
+    const dialog = settingsDialog()
+    await dialog.waitFor({ timeout: 10_000 })
+    await dialog.getByRole('button', { name: 'Agent 预设' }).click()
+    await dialog.getByRole('button', { name: '用「创造模式」创作自定义预设' }).click()
+
+    // Leaving settings is part of the gesture: the flow lands on the
+    // new-session screen with the self-referential preset staged, and the
+    // blank session the flow produces composes from it on the host.
+    await dialog.waitFor({ state: 'detached', timeout: 10_000 })
+    await page.getByRole('button', { name: '创造模式' }).waitFor({ timeout: 10_000 })
+    await expect.poll(async () => {
+      const response = await fetch(`${scaffold.baseUrl}/api/session.list`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          type: 'client-request', rpcId: 'creator-draft-stage', method: 'session.list', payload: {},
+        }),
+      })
+      const body = await response.json() as {
+        result: { value?: { sessions: unknown[] } }
+      }
+      return JSON.stringify(body.result.value?.sessions ?? body.result)
+    }, { timeout: 15_000 }).toContain('"agentPreset":"cordis"')
   }, 60_000)
 
   it('drove every surface without a page error or a stream warning', () => {

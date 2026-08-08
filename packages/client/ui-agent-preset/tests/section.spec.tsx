@@ -38,10 +38,16 @@ const READY: AgentPresetSectionState = {
  * @param state - the snapshot to render.
  * @returns the spies, so a test can assert what a click reached.
  */
-function renderSection(state: Partial<AgentPresetSectionState> = {}) {
+function renderSection(
+  state: Partial<AgentPresetSectionState> = {},
+  options: { creator?: boolean } = {},
+) {
   const store = createSnapshotStore<AgentPresetSectionState>({ ...READY, ...state })
   const actions = {
     load: vi.fn(() => Promise.resolve()),
+    // The shell-owned section affordance (SettingsSectionOwnerProps.close).
+    close: vi.fn(),
+    ...options.creator === false ? {} : { startCreatorDraft: vi.fn() },
     view: vi.fn(() => Promise.resolve()),
     closeView: vi.fn(),
     beginCopy: vi.fn(),
@@ -194,6 +200,40 @@ describe('the preset list', () => {
     expect(actions.openLocation).toHaveBeenCalledWith('mine')
     expect(actions.beginCopy).toHaveBeenCalledWith('mine')
     expect(actions.view).toHaveBeenCalledWith('standard')
+  })
+
+  it('starts a creator-mode draft session and leaves settings', () => {
+    const actions = renderSection({
+      rows: [...READY.rows, { id: 'cordis', trust: 'system', isDefault: false, name: '创造模式' }],
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: en.creatorDraft }))
+
+    expect(actions.startCreatorDraft).toHaveBeenCalledTimes(1)
+    // Leaving settings is part of the gesture: the flow lands in the new
+    // session, not behind the modal.
+    expect(actions.close).toHaveBeenCalledTimes(1)
+  })
+
+  it('hides the creator entry without the flow or the preset, disables it without a root', () => {
+    renderSection()
+    expect(screen.queryByRole('button', { name: en.creatorDraft })).toBeNull()
+    cleanup()
+
+    renderSection({
+      rows: [...READY.rows, { id: 'cordis', trust: 'system', isDefault: false, name: '创造模式' }],
+    }, { creator: false })
+    expect(screen.queryByRole('button', { name: en.creatorDraft })).toBeNull()
+    cleanup()
+
+    const actions = renderSection({
+      authorable: false,
+      rows: [...READY.rows, { id: 'cordis', trust: 'system', isDefault: false, name: '创造模式' }],
+    })
+    const disabled = screen.getByRole('button', { name: en.creatorDraft })
+    expect(disabled).toHaveProperty('disabled', true)
+    fireEvent.click(disabled)
+    expect(actions.startCreatorDraft).not.toHaveBeenCalled()
   })
 
   it('shows a page-level failure without hiding the list', () => {

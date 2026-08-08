@@ -139,6 +139,15 @@ function declareConversation(slots: SlotsService): () => void {
   } as never, () => null)
 }
 
+/** A workspaces double recording new-session starts. */
+function workspacesDouble() {
+  const starts: unknown[] = []
+  return {
+    starts,
+    startSession: (workspaceId?: unknown) => { starts.push(workspaceId ?? null) },
+  }
+}
+
 /** A sessions double whose list can be moved and whose changes are pushed. */
 function sessionsDouble(state: {
   current?: string
@@ -287,7 +296,8 @@ describe('ui-agent-preset apply', () => {
     const conversation = declareConversation(slots)
     ctx.provide('conversation', {} as never)
     ctx.provide('sessions', sessionsDouble({ byId: {} }) as never)
-    const fiber = ctx.plugin({ inject: [...inject, 'conversation', 'sessions'], apply })
+    ctx.provide('workspaces', workspacesDouble() as never)
+    const fiber = ctx.plugin({ inject: [...inject, 'conversation', 'sessions', 'workspaces'], apply })
     await fiber.await()
 
     const chip = slots.entries('conversation.hero.agentPreset')[0]!
@@ -308,7 +318,8 @@ describe('ui-agent-preset apply', () => {
     const conversation = declareConversation(slots)
     ctx.provide('conversation', {} as never)
     ctx.provide('sessions', sessionsDouble({ byId: {} }) as never)
-    await ctx.plugin({ inject: [...inject, 'conversation', 'sessions'], apply }).await()
+    ctx.provide('workspaces', workspacesDouble() as never)
+    await ctx.plugin({ inject: [...inject, 'conversation', 'sessions', 'workspaces'], apply }).await()
 
     const chip = slots.entries('conversation.hero.agentPreset')[0]!
     const seat = (chip.inject as unknown as () => AgentPresetSeatInjected)()
@@ -339,7 +350,8 @@ describe('ui-agent-preset apply', () => {
     const conversation = declareConversation(slots)
     ctx.provide('conversation', {} as never)
     ctx.provide('sessions', sessionsDouble({ byId: {} }) as never)
-    await ctx.plugin({ inject: [...inject, 'conversation', 'sessions'], apply }).await()
+    ctx.provide('workspaces', workspacesDouble() as never)
+    await ctx.plugin({ inject: [...inject, 'conversation', 'sessions', 'workspaces'], apply }).await()
 
     const chip = slots.entries('conversation.hero.agentPreset')[0]!
     const seat = (chip.inject as unknown as () => AgentPresetSeatInjected)()
@@ -373,7 +385,8 @@ describe('ui-agent-preset apply', () => {
     } = { byId: {} }
     const sessions = sessionsDouble(state)
     ctx.provide('sessions', sessions as never)
-    await ctx.plugin({ inject: [...inject, 'conversation', 'sessions'], apply }).await()
+    ctx.provide('workspaces', workspacesDouble() as never)
+    await ctx.plugin({ inject: [...inject, 'conversation', 'sessions', 'workspaces'], apply }).await()
     const chip = (slots.entries('conversation.hero.agentPreset')[0]!
       .inject as unknown as () => AgentPresetSeatInjected)()
 
@@ -400,7 +413,8 @@ describe('ui-agent-preset apply', () => {
       byId: { s1: { id: 's1', blank: true } },
     })
     ctx.provide('sessions', sessions as never)
-    await ctx.plugin({ inject: [...inject, 'conversation', 'sessions'], apply }).await()
+    ctx.provide('workspaces', workspacesDouble() as never)
+    await ctx.plugin({ inject: [...inject, 'conversation', 'sessions', 'workspaces'], apply }).await()
     const chip = (slots.entries('conversation.hero.agentPreset')[0]!
       .inject as unknown as () => AgentPresetSeatInjected)()
 
@@ -423,7 +437,8 @@ describe('ui-agent-preset apply', () => {
     }
     const sessions = sessionsDouble(state)
     ctx.provide('sessions', sessions as never)
-    await ctx.plugin({ inject: [...inject, 'conversation', 'sessions'], apply }).await()
+    ctx.provide('workspaces', workspacesDouble() as never)
+    await ctx.plugin({ inject: [...inject, 'conversation', 'sessions', 'workspaces'], apply }).await()
     const chip = (slots.entries('conversation.hero.agentPreset')[0]!
       .inject as unknown as () => AgentPresetSeatInjected)()
 
@@ -445,7 +460,8 @@ describe('ui-agent-preset apply', () => {
     declareConversation(slots)
     ctx.provide('conversation', {} as never)
     ctx.provide('sessions', sessionsDouble({ byId: {} }) as never)
-    await ctx.plugin({ inject: [...inject, 'conversation', 'sessions'], apply }).await()
+    ctx.provide('workspaces', workspacesDouble() as never)
+    await ctx.plugin({ inject: [...inject, 'conversation', 'sessions', 'workspaces'], apply }).await()
     const label = (slots.entries('conversation.session.header.actions')[0]!
       .inject as unknown as () => AgentPresetLabelInjected)()
     const row = (slots.entries('settings.general.item')[0]!
@@ -457,5 +473,74 @@ describe('ui-agent-preset apply', () => {
     // load already fetched, rather than issuing a second read per session.
     expect(label.hooks.agentPresets).toBe(row.hooks.agentPreset)
     expect(label.hooks.agentPresets.getSnapshot().options).toEqual([{ id: 'standard', trust: 'system' }])
+  })
+
+  it('stages the creator preset and starts a session from the section', async () => {
+    const { ctx, slots } = await bench()
+    declareRoot(slots)
+    const conversation = declareConversation(slots)
+    ctx.provide('conversation', {} as never)
+    ctx.provide('sessions', sessionsDouble({ byId: {} }) as never)
+    const workspaces = workspacesDouble()
+    ctx.provide('workspaces', workspaces as never)
+    await ctx.plugin({ inject: [...inject, 'conversation', 'sessions', 'workspaces'], apply }).await()
+    const section = (slots.entries('settings.section')[0]!.inject as unknown as () => AgentPresetSectionInjected)()
+    const seat = (slots.entries('conversation.hero.agentPreset')[0]!
+      .inject as unknown as () => AgentPresetSeatInjected)()
+
+    section.startCreatorDraft?.()
+
+    // The pick is staged on the chip's own controller — the session the
+    // workspace start produces is what the stage lands on — and exactly one
+    // new-session flow began.
+    expect(section.startCreatorDraft).toBeDefined()
+    expect(seat.hooks.agentPresetSeat.getSnapshot().current).toBe('cordis')
+    expect(workspaces.starts).toHaveLength(1)
+    conversation()
+  })
+
+  it('keeps the applied composition when the roster load lands late', async () => {
+    const { ctx, slots, calls } = await bench()
+    declareRoot(slots)
+    const conversation = declareConversation(slots)
+    ctx.provide('conversation', {} as never)
+    const state: {
+      current?: string
+      byId: Record<string, { id: string; blank: boolean; agentPreset?: string }>
+    } = { byId: {} }
+    const sessions = sessionsDouble(state)
+    ctx.provide('sessions', sessions as never)
+    ctx.provide('workspaces', workspacesDouble() as never)
+    await ctx.plugin({ inject: [...inject, 'conversation', 'sessions', 'workspaces'], apply }).await()
+    const section = (slots.entries('settings.section')[0]!.inject as unknown as () => AgentPresetSectionInjected)()
+    const seat = (slots.entries('conversation.hero.agentPreset')[0]!
+      .inject as unknown as () => AgentPresetSeatInjected)()
+
+    section.startCreatorDraft?.()
+    state.current = 's1'
+    state.byId['s1'] = { id: 's1', blank: true }
+    sessions.notify()
+    await vi.waitFor(() => { expect(calls).toContain('select:cordis') })
+
+    // The chip mounts with the flow's session, so its roster load can land
+    // AFTER the stage was consumed; the session's own composition is what
+    // the display must keep — not the deployment default.
+    state.byId['s1'] = { id: 's1', blank: true, agentPreset: 'cordis' }
+    await seat.load()
+
+    expect(seat.hooks.agentPresetSeat.getSnapshot().current).toBe('cordis')
+    conversation()
+  })
+
+  it('offers no creator draft while the conversation flow is absent', async () => {
+    const { ctx, slots } = await bench()
+    declareRoot(slots)
+
+    await ctx.plugin({ inject: [...inject], apply }).await()
+
+    // No conversation scope mounted: the face omits the affordance and the
+    // section hides its button rather than staging into nowhere.
+    const section = (slots.entries('settings.section')[0]!.inject as unknown as () => AgentPresetSectionInjected)()
+    expect(section.startCreatorDraft).toBeUndefined()
   })
 })

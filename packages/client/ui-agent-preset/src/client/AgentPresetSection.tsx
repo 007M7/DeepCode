@@ -13,7 +13,7 @@
 import { useEffect } from 'react'
 import type { ReactNode } from 'react'
 import {
-  Button, IconBrowseOutline16, IconCopyOutline16, IconFolderOpen16, IconTrashOutline16, Modal,
+  Button, IconBrowseOutline16, IconCopyOutline16, IconFolderOpenOutline16, IconPlusOutline16, IconTrashOutline16, Modal,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
@@ -45,6 +45,12 @@ export interface AgentPresetSectionInjected {
   confirmCopy: () => Promise<void>
   /** Open one preset's directory, or reveal its path where there is no desktop. */
   openLocation: (id: string) => Promise<void>
+  /**
+   * Stage the self-referential preset and start a new session on it — the
+   * guided way to author a preset, beside copying. Absent when the surface
+   * is composed without the conversation flow to land the session in.
+   */
+  startCreatorDraft?: () => void
   /** Ask for delete confirmation, or dismiss it with null. */
   confirmDelete: (id: string | null) => void
   /** Delete the preset awaiting confirmation. */
@@ -222,7 +228,7 @@ export function AgentPresetSection(props: AgentPresetSectionProps): ReactNode {
                           aria-label={`${state.hasDocument ? t('openLocation') : t('showLocation')}: ${row.name ?? row.id}`}
                           onClick={() => { void props.openLocation(row.id) }}
                         >
-                          <IconFolderOpen16 />
+                          <IconFolderOpenOutline16 />
                         </button>
                       )}
                     <button
@@ -263,6 +269,29 @@ export function AgentPresetSection(props: AgentPresetSectionProps): ReactNode {
           </section>
         )
       })}
+      {/* The guided alternative to copying: the self-referential preset can
+          read this very composition and author a new one in conversation.
+          Offered only where that preset is actually on the roster and a
+          session can be landed; without a writable root the draft could
+          never be discovered, so the reason rides the disabled button. */}
+      {props.startCreatorDraft !== undefined && state.rows.some(row => row.id === 'cordis')
+        ? (
+          <button
+            type="button"
+            className={css.creatorButton}
+            disabled={!state.authorable}
+            title={state.authorable ? undefined : t('duplicateUnavailable')}
+            onClick={() => {
+              props.startCreatorDraft?.()
+              props.close()
+            }}
+          >
+            {/* Same glyph as the Models page's add affordances. */}
+            <IconPlusOutline16 size={14} />
+            {t('creatorDraft')}
+          </button>
+        )
+        : null}
       <CopyDialog
         state={state}
         t={t}

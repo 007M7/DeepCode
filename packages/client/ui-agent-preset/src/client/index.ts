@@ -85,9 +85,16 @@ export function apply(ctx: ClientContext): void {
     return () => { for (const dispose of disposers) dispose() }
   }, 'ui-agent-preset: settings refresh')
 
+  // The settings section's conversational authoring entry: stage the
+  // self-referential preset and land a new session on it. Bound inside the
+  // conversation scope below (the seat and the session flow live there) and
+  // unbound with it, so the section's face reads the current binding per
+  // render and simply hides the button while no flow exists.
+  let creatorDraft: (() => void) | undefined
+
   // The new-session chip and the header label: one controller, because the
   // staged choice belongs to the flow rather than to any one session.
-  ctx.inject(['slots', 'conversation', 'sessions'], (scope: ClientContext) => {
+  ctx.inject(['slots', 'conversation', 'sessions', 'workspaces'], (scope: ClientContext) => {
     const api = (scope.get('connection') as ConnectionHandle).api
     const seat = new AgentPresetSeatController(api, (): SeatSessionSummary | undefined => {
       const state = scope.sessions.list.getSnapshot()
@@ -134,6 +141,14 @@ export function apply(ctx: ClientContext): void {
       // a preset authored to be used is missing from the one place it is used.
       const readRoster = (): void => { void seat.load() }
       rosterReaders.add(readRoster)
+      // Stage WITHOUT applying — the still-current running session would
+      // refuse the swap and drop the stage — then start the session it lands
+      // on: the chip's list-change applier composes the blank session the
+      // workspace connect produces or reuses.
+      creatorDraft = () => {
+        seat.stage('cordis')
+        scope.workspaces.startSession()
+      }
       const chip = scope.slots.register({
         name: 'conversation.hero.agentPreset',
         locale: 'settings.agentPreset',
@@ -150,6 +165,7 @@ export function apply(ctx: ClientContext): void {
         stop()
         settingsMoved()
         rosterReaders.delete(readRoster)
+        creatorDraft = undefined
         chip()
         label()
       }
@@ -167,6 +183,7 @@ export function apply(ctx: ClientContext): void {
     setCopyName: (name: string) => { section.setCopyName(name) },
     confirmCopy: () => section.confirmCopy(),
     openLocation: (id: string) => section.openLocation(id),
+    ...creatorDraft === undefined ? {} : { startCreatorDraft: creatorDraft },
     confirmDelete: (id: string | null) => { section.confirmDelete(id) },
     remove: () => section.remove(),
     makeDefault: (id: string) => section.makeDefault(id),

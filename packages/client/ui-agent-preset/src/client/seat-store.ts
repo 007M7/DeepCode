@@ -87,7 +87,13 @@ export class AgentPresetSeatController {
       this.fallback = presets.find(preset => preset.isDefault)?.id ?? presets[0]?.id ?? ''
       this.set({
         options: presetOptions(presets),
-        current: this.staged ?? this.fallback,
+        // Staged pick first, then the composition the current session
+        // already carries, then the deployment default. The middle term is
+        // what keeps a late-landing load from regressing the display after
+        // an applied stage was consumed — the chip mounts (and loads) only
+        // once the flow's session is current, so the reply can arrive after
+        // apply() already composed it.
+        current: this.staged ?? this.currentSession()?.agentPreset ?? this.fallback,
         error: null,
       })
     } catch (error) {
@@ -103,9 +109,22 @@ export class AgentPresetSeatController {
    */
   async select(id: string): Promise<void> {
     if (this.store.getSnapshot().busy) return
+    this.stage(id)
+    await this.apply()
+  }
+
+  /**
+   * Stage a pick WITHOUT the immediate apply, for a flow that starts the
+   * receiving session after the pick (the settings section's creator entry).
+   * `select()`'s immediate apply would meet the still-current running session
+   * and drop the stage as unservable; staging alone leaves it for the
+   * list-change applier, which fires when the started session becomes
+   * current.
+   * @param id - the preset to stage.
+   */
+  stage(id: string): void {
     this.staged = id
     this.set({ current: id, error: null })
-    await this.apply()
   }
 
   /**
