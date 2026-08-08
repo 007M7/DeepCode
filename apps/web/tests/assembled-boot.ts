@@ -26,6 +26,7 @@ const PLUGINS: readonly (WebBootEntry & { bundlePath: string })[] = [
   { id: '@deepseek-ai/dsh-client-ui-layout', bundlePath: 'packages/client/ui-layout/lib/client.js', url: '/plugins/ui-layout.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-runtime'] },
   { id: '@deepseek-ai/dsh-client-ui-sidebar', bundlePath: 'packages/client/ui-sidebar/lib/client.js', url: '/plugins/ui-sidebar.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-ui-layout'] },
   { id: '@deepseek-ai/dsh-client-ui-conversation', bundlePath: 'packages/client/ui-conversation/lib/client.js', url: '/plugins/ui-conversation.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-ui-layout'] },
+  { id: '@deepseek-ai/dsh-client-ui-tool', bundlePath: 'packages/client/ui-tool/lib/client.js', url: '/plugins/ui-tool.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-runtime', '@deepseek-ai/dsh-client-locale', '@deepseek-ai/dsh-client-ui-conversation'] },
   {
     id: '@deepseek-ai/dsh-client-ui-workspace',
     bundlePath: 'packages/client/ui-workspace/lib/client.js',
@@ -118,7 +119,7 @@ export function mountAssembledApp(): void {
  * Match a CSS-module class by its logical name.
  * Module class names carry a per-build hash in one of two schemes —
  * ui-primitives emits `_<name>_<hash>` (name bounded by underscores),
- * ui-conversation emits `<hash>_<name>` (name at the end) — and a longer name
+ * feature bundles emit `<hash>_<name>` (name at the end) — and a longer name
  * containing this one must not match (`line` must not hit `lineNumber`).
  * @param el - element whose class list is inspected.
  * @param name - logical (unhashed) module class name.

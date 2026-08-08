@@ -41,7 +41,7 @@ function providePresentation(ctx: Context): PresentationCapture {
   const slots = new SlotsService(ctx)
   slots.register({
     name: 'root',
-    children: { 'conversation.chat.toolview': { kind: 'keyed', scope: 'session' } },
+    children: { 'tool.call.toolview': { kind: 'keyed', scope: 'session' } },
   } as never, () => null)
   const capture: PresentationCapture = {
     slots,
@@ -113,7 +113,7 @@ describe('apply', () => {
     ctx.provide('sessions', { subagentAddress: () => undefined })
     const presentation = providePresentation(ctx)
     await ctx.plugin({ inject: [...inject], apply }).await()
-    const entry = presentation.slots.entries('conversation.chat.toolview')[0]
+    const entry = presentation.slots.entries('tool.call.toolview')[0]
     expect(entry?.options).toMatchObject({ key: 'skill' })
     expect(entry?.locale).toBe('skill')
     expect(entry?.component).toBe(SkillToolRow)
@@ -158,7 +158,7 @@ describe('apply', () => {
     // …and fiber teardown releases it.
     await fiber.dispose()
     expect(() => slash.registerSource(rival)).not.toThrow()
-    expect(presentation.slots.entries('conversation.chat.toolview')).toHaveLength(0)
+    expect(presentation.slots.entries('tool.call.toolview')).toHaveLength(0)
     expect(presentation.localeDisposed).toBe(true)
   })
 })

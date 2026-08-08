@@ -58,8 +58,8 @@ export const inject = ['slash', 'connection', 'sessions', 'slots', 'locale']
  */
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-skill: dictionaries')
-  ctx.slots.inject('conversation.chat.toolview', () => ctx.slots.register(
-    { name: 'conversation.chat.toolview', key: 'skill', locale: NS },
+  ctx.slots.inject('tool.call.toolview', () => ctx.slots.register(
+    { name: 'tool.call.toolview', key: 'skill', locale: NS },
     SkillRow,
   ))
 
