@@ -220,6 +220,9 @@ flowchart TD
   subgraph group_mcp["packages/mcp"]
     pkg_mcp_client["mcp-client"]
   end
+  subgraph group_preset["packages/preset"]
+    pkg_agent_presets["agent-presets"]
+  end
   subgraph group_pty["packages/pty"]
     pkg_pty["pty"]
     pkg_pty_local["pty-local"]
@@ -337,6 +340,9 @@ flowchart TD
   pkg_subprocess_e2b --> pkg_timeout
   pkg_frontend_static --> pkg_host_webserver
   pkg_frontend_static --> pkg_invariants
+  pkg_agent_presets --> pkg_invariants
+  pkg_agent_presets --> pkg_paths
+  pkg_agent_presets --> pkg_scope
   pkg_helper --> pkg_brand
   pkg_helper --> pkg_invariants
   pkg_helper --> pkg_subprocess
@@ -1205,6 +1211,7 @@ flowchart TD
 | [`credentials`](../packages/credentials/credentials) | `credentials` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants) |
 | [`subprocess-e2b`](../packages/e2b/subprocess-e2b) | `e2b` | [`e2b`](../packages/e2b/e2b), [`invariants`](../packages/support/invariants), [`subprocess`](../packages/subprocess/subprocess), [`timeout`](../packages/util/timeout) |
 | [`frontend-static`](../packages/host/frontend-static) | `host` | [`host-webserver`](../packages/host/webserver), [`invariants`](../packages/support/invariants) |
+| [`agent-presets`](../packages/preset/agent-presets) | `preset` | [`invariants`](../packages/support/invariants), [`paths`](../packages/util/paths), [`scope`](../packages/core/scope) |
 | [`helper`](../packages/scaffold/helper) | `scaffold` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`subprocess`](../packages/subprocess/subprocess) |
 | [`telemetry`](../packages/scaffold/telemetry) | `scaffold` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`paths`](../packages/util/paths) |
 | [`settings`](../packages/settings/settings) | `settings` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants) |
