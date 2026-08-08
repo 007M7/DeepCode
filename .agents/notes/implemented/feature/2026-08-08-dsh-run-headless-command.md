@@ -20,6 +20,8 @@ dsh run [--profile <name>] [--patch <path>...] <task...>
 
 `--profile` defaults to `headless` and remains available for custom one-shot compositions. `--patch` is repeatable and occupies the existing overlay layer. Commander joins the variadic task arguments with spaces and rejects a missing or blank task before boot.
 
+The [profile plugin bundle decision](../architecture/2026-08-05-profile-plugin-bundles.md) owns the composition selected by this grammar.
+
 `RunInvocation` is a separate `DshInvocation` member. The generic profile invocation no longer carries task text, and its root command accepts no positional arguments. Both dispatch paths call the existing deep `runProfile` module: `profile` omits `task`, while `run` supplies it. There is no shallow `run.ts` forwarding module and no alias, warning, or custom detector for former spellings; they fail through the ordinary Commander grammar. A one-shot profile without `headless-runner` still fails through the existing composed-row check, while booting a profile that contains that row without a task points to `dsh run --profile <name> "<task>"`.
 
 The `run` verb belongs to one-shot task execution. Launching an application file must choose another command name; two top-level meanings selected by positional shape would recreate the ambiguity this command removes.

@@ -78,7 +78,7 @@ interface WebOptions {
 
 /** Raw run-subcommand options straight from Commander. */
 interface RunOptions {
-  profile?: string
+  profile: string
   patch?: string[]
 }
 
@@ -161,7 +161,7 @@ Examples:
     .argument('<task...>', 'task text')
     .action((task: string[], options: RunOptions) => {
       rejectParentOptions('run')
-      const profile = options.profile ?? 'headless'
+      const profile = options.profile
       if (profile === '') program.error('error: --profile needs a name')
       const patches = options.patch ?? []
       if (patches.includes('')) program.error('error: --patch needs a path')

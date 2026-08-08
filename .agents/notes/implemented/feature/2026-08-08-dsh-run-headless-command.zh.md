@@ -20,6 +20,8 @@ dsh run [--profile <name>] [--patch <path>...] <task...>
 
 `--profile` 默认为 `headless`，同时保留对自定义一次性组合的支持。`--patch` 可重复使用，并沿用既有 overlay 层的位置。Commander 用空格拼接可变数量的任务参数，并在启动前拒绝缺失或空白任务。
 
+[profile 插件组合包决策](../architecture/2026-08-05-profile-plugin-bundles.md)负责该语法所选择的组合。
+
 `RunInvocation` 是单独的 `DshInvocation` 成员。通用 profile 调用不再携带任务文本，其根命令也不接受位置参数。两条分派路径都调用已有的深层 `runProfile` 模块：`profile` 省略 `task`，`run` 则提供该字段。实现中没有只负责转发的浅层 `run.ts` 模块，也没有面向旧写法的别名、警告或自定义检测器；旧写法会按普通 Commander 语法失败。缺少 `headless-runner` 的一次性 profile 仍会触发既有的组合行检查；如果启动的 profile 包含该行却未提供任务，错误会指向 `dsh run --profile <name> "<task>"`。
 
 `run` 动词只负责一次性任务执行。应用文件启动必须选择其他命令名；如果让两个顶层含义由位置参数形态决定，就会重新引入本命令消除的歧义。
