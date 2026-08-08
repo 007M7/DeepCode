@@ -91,7 +91,10 @@ function isEEXIST(error: unknown): boolean {
 
 async function assertDirectory(path: string): Promise<boolean> {
   try {
-    const info = await stat(toNamespacedPath(path))
+    // A bare drive root is already short, and Node rejects its extended-length
+    // spelling as EISDIR. Descendants retain the namespace for long-path probes.
+    const probe = path === parse(path).root ? path : toNamespacedPath(path)
+    const info = await stat(probe)
     if (info.isDirectory()) return true
     const error = new Error(`path exists but is not a directory: ${path}`) as NodeJS.ErrnoException
     error.code = 'ENOTDIR'
