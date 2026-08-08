@@ -1174,7 +1174,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer>',
-        jsDoc: '/**\n * Ask the active UI provider and wait for the user\'s answer.\n *\n * @param request Questions, owner agent, and abort signal.\n * @returns The answer chosen or typed by the human.\n */',
+        jsDoc: '/**\n * Ask the active UI provider and wait for the user\'s answer.\n *\n * When a caller supplies an agent, human interaction is valid only for the\n * exact live runtime root. Runtime ownership, not durable session lineage,\n * decides this boundary: an owned child has no human answerer and would\n * block forever, while a lineage-bearing session resumed as a new runtime\n * root may ask normally.\n *\n * @param request Questions, owner agent, and abort signal.\n * @returns The answer chosen or typed by the human.\n * @throws {UserInteractionError} code `CALLER_NOT_LIVE` when a supplied\n *   agent is not the registry\'s exact live instance, or `DELEGATED_CALLER`\n *   when that live agent is owned by another agent.\n */',
       },
     ],
   },

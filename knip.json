@@ -46,6 +46,7 @@
         "headless-agent/tests/fixtures/telemetry-otel-driver.ts",
         "headless-agent/tests/fixtures/telemetry-redact-rule.ts",
         "acp-agent/tests/snapshots/lsp-definition/workspace/subject.ts",
+        "acp-agent/tests/fixtures/child-question-tripwire.ts",
         "acp-agent/tests/fixtures/partial-landlock-sandbox.ts",
         "acp-agent/tests/fixtures/subagent-durability-failure.ts",
         "acp-agent/tests/fixtures/subagent-settlement-marker.ts",

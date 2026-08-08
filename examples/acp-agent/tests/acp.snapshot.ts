@@ -40,6 +40,7 @@ const FS_CONFIG = fileURLToPath(new URL('../fs.cordis.yml', import.meta.url))
 const SESSION_QUERY_CONFIG = fileURLToPath(new URL('../session-query.cordis.yml', import.meta.url))
 const PTY_CONFIG = fileURLToPath(new URL('../pty.cordis.yml', import.meta.url))
 const DEPTH_TWO_CONFIG = fileURLToPath(new URL('../depth-two.cordis.yml', import.meta.url))
+const CHILD_QUESTION_CONFIG = fileURLToPath(new URL('../child-question.cordis.yml', import.meta.url))
 const SESSION_SANDBOX_ROOT_CONFIG = fileURLToPath(new URL('../session-sandbox-root.cordis.yml', import.meta.url))
 const RETRY_CONFIG = fileURLToPath(new URL('../retry.cordis.yml', import.meta.url))
 const SESSION_TITLE_CONFIG = fileURLToPath(new URL('../session-title.cordis.yml', import.meta.url))
@@ -350,6 +351,19 @@ const SCENARIOS: Scenario[] = [
     recorded: false,
     overridden: true,
     configPath: DEPTH_TWO_CONFIG,
+  },
+  // Authored keyless replay through the assembled app: a one-shot child calls
+  // the real ask_user_question tool, the runtime-ownership guard rejects before
+  // the tripwire provider, and the child carries the unresolved decision in its
+  // final result so the parent can complete instead of waiting forever.
+  {
+    name: 'subagent-child-question-rejection',
+    hasModelTurn: true,
+    recorded: false,
+    pinsHeader: true,
+    headerClass: 'child-question',
+    systemPromptSource: 'text-turn',
+    configPath: CHILD_QUESTION_CONFIG,
   },
   // The workflow tool: the model writes a one-child orchestration script; the
   // child runs as a spawn subagent under the worker-thread engine (its session is the
