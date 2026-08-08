@@ -2,9 +2,13 @@
 
 English | [中文](subprocess.zh.md)
 
-The subprocess seam is split across interface ([dsh-subprocess](../../packages/subprocess/subprocess), `ctx.subprocess`) and implementation ([dsh-subprocess-local](../../packages/subprocess/subprocess-local)); its consumers are other capability seams and out-of-process backends — the [bash executor family](bash.md) (collect-mode batch output), the LSP host (piped protocol streams + a collected stderr tail), and the ACP subagent backend (piped protocol streams + inherited stderr). This seam owns the managed `DSH_*` environment namespace, the shared credential scrub (`scrubbedParentEnv`), and the `CollectedOutput` shape; [dsh-bash](../../packages/bash/bash) re-exports the vocabulary so bash consumers keep one import root.
+The subprocess seam is split across interface ([dsh-subprocess](../../packages/subprocess/subprocess), `ctx.subprocess`) and implementation ([dsh-subprocess-local](../../packages/subprocess/subprocess-local)); its consumers are other capability seams and out-of-process backends: the [bash executor family](bash.md) uses collected batch output, LSP uses raw protocol pipes, the PTY backend uses the terminal primitive, and the ACP subagent backend uses piped ndjson plus inherited stderr. This seam owns the managed `DSH_*` environment namespace, the shared credential scrub (`scrubbedParentEnv`), and the `CollectedOutput` shape; [dsh-bash](../../packages/bash/bash) re-exports the vocabulary so bash consumers keep one import root.
 
-Source: [`packages/subprocess/subprocess/src/types.ts`](../../packages/subprocess/subprocess/src/types.ts)
+Source: [`packages/subprocess/subprocess/src/types.ts`](../../packages/subprocess/subprocess/src/types.ts) and [`packages/subprocess/subprocess/src/index.ts`](../../packages/subprocess/subprocess/src/index.ts)
+
+## Executable lookup
+
+One provider's spawn working directories, executable paths, ordinary processes, and terminal sessions inhabit the same path and process namespace as the mounted filesystem provider. `resolveExecutable(command, env?, signal?)` verifies absolute executable paths or resolves bare names through the provider's scrubbed `PATH` plus deliberate overrides.
 
 ## Managed environment namespace and captured output
 
@@ -234,6 +238,12 @@ interface SubprocessOutcome {
 }
 ```
 
+## Terminal-process primitive
+
+`spawnTerminal(spec)` is the non-pipe process primitive. The provider allocates the controlling terminal and owns UTF-8 text transport, foreground-process-group inspection and signalling, and one awaited TERM-to-KILL operation that reaches quiescence for every session member the provider can still observe; providers document substrate-specific observability limits. The PTY backend remains responsible for prompt detection, readiness inference, scrollback, sandbox policy, and persistent-session ownership; ordinary `spawn()` cannot reconstruct controlling-terminal semantics.
+
+The terminal spec fully specifies argv, cwd, environment overrides, dimensions, cleanup grace, and optional allocation cancellation. Its handle exposes `pid`, ordered output, `done`, `write`, `inspectForeground`, `signalForeground`, and awaited `terminate`; the exact public shapes are generated into the [`ctx.subprocess` service catalog](../cordis-catalog/services.md#ctxsubprocess--subprocessservice-abstract-seam).
+
 ## Service behavior
 
-The abstract [`SubprocessService`](../../packages/subprocess/subprocess/src/index.ts) seam defines `spawn` only; [`LocalSubprocessService`](../../packages/subprocess/subprocess-local/src/index.ts) is the local implementation (detached trees, per-disposition wiring, credential scrub, terminate-and-join disposal). See [`dsh-subprocess`](../../packages/subprocess/subprocess/README.md) for the seam contract and [`dsh-subprocess-local`](../../packages/subprocess/subprocess-local/README.md) for the mechanics.
+The abstract [`SubprocessService`](../../packages/subprocess/subprocess/src/index.ts) seam defines execution-world coordinates, executable lookup, ordinary `spawn`, and `spawnTerminal`. [`LocalSubprocessService`](../../packages/subprocess/subprocess-local/src/index.ts) implements them with detached process trees, per-disposition wiring, credential scrubbing, `node-pty`, platform process inspection, and terminate-and-join disposal. See [`dsh-subprocess`](../../packages/subprocess/subprocess/README.md) for the interface contract and [`dsh-subprocess-local`](../../packages/subprocess/subprocess-local/README.md) for local mechanics.

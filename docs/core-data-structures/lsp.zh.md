@@ -73,7 +73,7 @@ interface LspProviderQuery extends LspQueryRequest {
 
 ## 结果
 
-这是一个闭合的可辨识联合：导航操作规范化为 `locations`，`hover` 规范化为内容或 `null`。消费方使用 `switch` 对 `kind` 做穷尽处理，因此新增分支会使编译失败，直到完成处理。`findReferences` 始终包含声明；提供方在内部强制保证这一点，因此调用方没有对应 flag。`locations` 变体携带 `resolvedWorkspaceRoot`，即提供方对请求中 `workspaceRoot` 的规范形式，也是其 `file:` URI 所相对的根目录；调用方在相对化显示路径时应使用它，而不是可能经过符号链接的请求根目录。
+这是一个闭合的可辨识联合：导航操作规范化为 `locations`，`hover` 规范化为内容或 `null`。消费方使用 `switch` 对 `kind` 做穷尽处理，因此新增分支会使编译失败，直到完成处理。`findReferences` 始终包含声明；提供方在内部强制保证这一点，因此调用方没有对应 flag。`locations` 变体携带 `resolvedWorkspaceUri`，即提供方的规范工作区 `file:` URI。调用方相对化位置 URI 时应使用这一坐标，而不是对可能经过符号链接的请求根目录应用宿主平台路径规则。
 
 ```ts type-equiv
 /** One resolved location: a document URI and the range within it. */
@@ -101,13 +101,13 @@ interface LspHover {
  * `goToImplementation`) normalize to `locations`; `hover` normalizes to content or `null`.
  * Consumers `switch` on `kind` to exhaustiveness so a new arm breaks compilation until handled.
  *
- * The `locations` variant carries `resolvedWorkspaceRoot`: the provider's canonical form of the
- * request's `workspaceRoot`, and the root its `file:` location URIs are relative to. A caller that
- * relativizes display paths MUST use this, not the request's (possibly symlinked) `workspaceRoot`;
- * otherwise a symlinked workspace misclassifies in-workspace results as external.
+ * The `locations` variant carries `resolvedWorkspaceUri`: the provider's canonical `file:` URI for
+ * the request's workspace root. A caller that relativizes location URIs MUST use this, not parse the
+ * request's possibly symlinked process path with host-platform rules; the execution platform may
+ * differ from the caller's.
  */
 type LspQueryResult =
-  | { readonly kind: 'locations'; readonly locations: readonly LspLocation[]; readonly resolvedWorkspaceRoot: string }
+  | { readonly kind: 'locations'; readonly locations: readonly LspLocation[]; readonly resolvedWorkspaceUri: string }
   | { readonly kind: 'hover'; readonly hover: LspHover | null }
 ```
 

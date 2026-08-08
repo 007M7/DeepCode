@@ -73,7 +73,7 @@ interface LspProviderQuery extends LspQueryRequest {
 
 ## Result
 
-A CLOSED discriminated union: navigation operations normalize to `locations`, `hover` to content or `null`. Consumers `switch` on `kind` to exhaustiveness so a new arm breaks compilation until handled. `findReferences` always includes declarations — the provider enforces this internally, so callers get no flag. The `locations` variant carries `resolvedWorkspaceRoot`: the provider's canonical form of the request's `workspaceRoot` and the root its `file:` URIs are relative to, so a caller relativizing display paths uses it rather than the possibly-symlinked request root.
+A CLOSED discriminated union: navigation operations normalize to `locations`, `hover` to content or `null`. Consumers `switch` on `kind` to exhaustiveness so a new arm breaks compilation until handled. `findReferences` always includes declarations — the provider enforces this internally, so callers get no flag. The `locations` variant carries `resolvedWorkspaceUri`, the provider's canonical workspace `file:` URI. A caller relativizing location URIs uses that coordinate rather than applying host-platform path rules to the possibly-symlinked request root.
 
 ```ts type-equiv
 /** One resolved location: a document URI and the range within it. */
@@ -101,13 +101,13 @@ interface LspHover {
  * `goToImplementation`) normalize to `locations`; `hover` normalizes to content or `null`.
  * Consumers `switch` on `kind` to exhaustiveness so a new arm breaks compilation until handled.
  *
- * The `locations` variant carries `resolvedWorkspaceRoot`: the provider's canonical form of the
- * request's `workspaceRoot`, and the root its `file:` location URIs are relative to. A caller that
- * relativizes display paths MUST use this, not the request's (possibly symlinked) `workspaceRoot`;
- * otherwise a symlinked workspace misclassifies in-workspace results as external.
+ * The `locations` variant carries `resolvedWorkspaceUri`: the provider's canonical `file:` URI for
+ * the request's workspace root. A caller that relativizes location URIs MUST use this, not parse the
+ * request's possibly symlinked process path with host-platform rules; the execution platform may
+ * differ from the caller's.
  */
 type LspQueryResult =
-  | { readonly kind: 'locations'; readonly locations: readonly LspLocation[]; readonly resolvedWorkspaceRoot: string }
+  | { readonly kind: 'locations'; readonly locations: readonly LspLocation[]; readonly resolvedWorkspaceUri: string }
   | { readonly kind: 'hover'; readonly hover: LspHover | null }
 ```
 
