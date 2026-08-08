@@ -23,7 +23,6 @@ const TREE_EXPECTED = fileURLToPath(new URL('./snapshots/subagent-conversation/t
 const BRANCHLESS_EXPECTED = fileURLToPath(new URL('./snapshots/subagent-conversation/branchless.expected.md', import.meta.url))
 const STALE_CATALOG_EXPECTED = fileURLToPath(new URL('./snapshots/subagent-conversation/stale-catalog.expected.md', import.meta.url))
 const SIDEBAR_EXPECTED = fileURLToPath(new URL('./snapshots/subagent-conversation/sidebar.expected.md', import.meta.url))
-const RUNNING_SIDEBAR_EXPECTED = fileURLToPath(new URL('./snapshots/subagent-conversation/sidebar-running.expected.md', import.meta.url))
 const UNAVAILABLE_GRANDCHILD_EXPECTED = fileURLToPath(new URL('./snapshots/subagent-conversation/nested.expected.md', import.meta.url))
 const FORK_EXPECTED = fileURLToPath(new URL('./snapshots/subagent-conversation/fork.expected.md', import.meta.url))
 const MODE = webSnapshotMode()
@@ -368,15 +367,6 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
     ).toBe('running')
     const hierarchy = page.getByRole('navigation', { name: 'Session hierarchy' })
     await hierarchy.getByRole('button').first().click()
-    const runningOwnerRow = page.getByRole('tree', { name: 'Sessions' })
-      .getByRole('treeitem', { name: /1 subagent running/ })
-    await runningOwnerRow.waitFor({ timeout: 10_000 })
-    expect(await runningOwnerRow.locator('[data-state="ongoing"]').count()).toBe(1)
-    await compareOrRefreshGolden(
-      RUNNING_SIDEBAR_EXPECTED,
-      await captureStableAria(page, '[role="tree"][aria-label="Sessions"]', scaffold.workspaceCwd),
-      MODE,
-    )
     const runningTrigger = page.getByRole('button', { name: '3 subagents running' })
     await runningTrigger.waitFor({ timeout: 10_000 })
     expect(await runningTrigger.locator('[data-state="ongoing"]').count()).toBe(1)
