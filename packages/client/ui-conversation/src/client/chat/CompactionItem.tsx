@@ -18,6 +18,10 @@ import css from './MessageItem.module.css'
 
 interface CompactionItemProps {
   node: CompactionSummaryNode
+  /** Optional command title for a manual compaction folded into this marker. */
+  title?: string
+  /** Command settlement text used only when the summary provenance page is absent. */
+  fallbackSummary?: string | null
   /** The owning view's locale seat. */
   t: ChatViewSlotProps['t']
 }
@@ -27,10 +31,22 @@ interface CompactionItemProps {
  * @param props - the marker node off the snapshot cache.
  * @returns the marker row, with the summary disclosure when one is available.
  */
-export const CompactionItem = memo(function CompactionItem({ node, t }: CompactionItemProps) {
+export const CompactionItem = memo(function CompactionItem({
+  node,
+  title,
+  fallbackSummary,
+  t,
+}: CompactionItemProps) {
   const [expanded, setExpanded] = useState(false)
   const expandable = node.summary !== null
   const open = expandable && expanded
+  const summary = node.shadowedItemCount !== null && node.shadowedTokenCount !== null
+    ? t('message.compaction.completed', {
+      items: node.shadowedItemCount,
+      tokens: node.shadowedTokenCount,
+    })
+    : fallbackSummary
+      ?? (expandable ? t('message.compaction.expand') : t('message.compaction.unavailable'))
   return (
     <div className={css.compactionRow}>
       <button
@@ -43,11 +59,9 @@ export const CompactionItem = memo(function CompactionItem({ node, t }: Compacti
         <span className={css.compactionLeading}>
           {open ? <IconChevronDownOutline14 /> : <IconChevronRightOutline14 />}
         </span>
-        <span className={css.compactionTitle}>{t('message.compaction')}</span>
+        <span className={css.compactionTitle}>{title ?? t('message.compaction')}</span>
         <span className={css.compactionSep} aria-hidden />
-        <span className={css.compactionSummary}>
-          {expandable ? t('message.compaction.expand') : t('message.compaction.unavailable')}
-        </span>
+        <span className={css.compactionSummary}>{summary}</span>
       </button>
       {open && node.summary !== null
         && <div className={css.compactionBody}><MarkdownText text={node.summary} /></div>}

@@ -32,6 +32,7 @@ import { IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatViewSlotProps } from '../contract/slots.ts'
 import { assistantActionsSeqs, assistantBranchSeqs, deriveChatFlow, runningTurnStartTime, type ChatFlowItem } from './chat-flow.ts'
 import { AssistantMarkdown } from './AssistantMarkdown.tsx'
+import { CompactionCommandCard } from './CompactionCommandCard.tsx'
 import { GenericCommandCard } from './GenericCommandCard.tsx'
 import { GenericToolCard } from './GenericToolCard.tsx'
 import { MessageItem, PendingSteeringBubble } from './MessageItem.tsx'
@@ -267,17 +268,21 @@ const ToolGroup = memo(function ToolGroup({ renderSlot, results, openFile, selec
 /** One command lifecycle row: keyed dispatch on the command name with the
  *  generic card as the render-site fallback (zero registration required). A
  *  run-less cross-window node has no name and always lands on the fallback. */
-const CommandRow = memo(function CommandRow({ renderSlot, node, t }: {
+const CommandRow = memo(function CommandRow({ renderSlot, node, compaction, t }: {
   renderSlot: RenderToolRow
   node: CommandNode
+  compaction?: Extract<ConversationNode, { kind: 'compaction' }>
   t: ChatViewSlotProps['t']
 }) {
-  const owner = useMemo(() => ({ node }), [node])
+  const owner = useMemo(() => ({ node, ...compaction === undefined ? {} : { compaction } }), [compaction, node])
+  const fallback = node.name === 'compact' || compaction !== undefined
+    ? <CompactionCommandCard {...owner} t={t} />
+    : <GenericCommandCard {...owner} t={t} />
   return (
     <div className={css.callRow}>
       {renderSlot('conversation.chat.commandview', owner, {
         entryKey: node.name ?? '',
-        fallback: <GenericCommandCard {...owner} t={t} />,
+        fallback,
       })}
     </div>
   )
@@ -580,6 +585,16 @@ export function ChatView({
         />
       )
     }
+    if (item.kind === 'command-compaction') {
+      return (
+        <CommandRow
+          renderSlot={renderSlot}
+          node={item.command}
+          compaction={item.compaction}
+          t={t}
+        />
+      )
+    }
     const node: ConversationNode = item.node
     if (node.kind === 'assistant') {
       const timing = actionSeqs.has(node.seq) ? turnTimings.get(node.turn) : undefined
@@ -642,9 +657,17 @@ export function ChatView({
             <div
               key={item.key}
               className={css.flowItem}
-              data-chat-anchor-key={item.kind === 'node' ? `node:${String(item.node.seq)}` : undefined}
+              data-chat-anchor-key={item.kind === 'node'
+                ? `node:${String(item.node.seq)}`
+                : item.kind === 'command-compaction'
+                  ? `node:${String(item.compaction.seq)}`
+                  : undefined}
               data-chat-flow-key={item.key}
-              data-chat-flow-kind={item.kind === 'node' ? item.node.kind : 'tool-group'}
+              data-chat-flow-kind={item.kind === 'node'
+                ? item.node.kind
+                : item.kind === 'command-compaction'
+                  ? item.kind
+                  : 'tool-group'}
             >
               {renderItem(item)}
             </div>

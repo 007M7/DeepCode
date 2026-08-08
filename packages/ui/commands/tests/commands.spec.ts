@@ -320,6 +320,25 @@ describe('CommandService', () => {
     ])
   })
 
+  it('preserves an earlier authoritative domain-event reference on successful settlement', async () => {
+    const ctx = await mount()
+    const { agent } = await mintAgentScope(ctx, 'a')
+    const source = agent.session.append('turn/start', { turn: 1 })
+    ctx.commands.register({
+      name: 'linked',
+      description: 'Link outcome',
+      handler: () => ({ kind: 'success', text: 'linked', sourceEventSeq: source.seq }),
+    })
+
+    const execution = await ctx.commands.execute(agent, '/linked', new AbortController().signal)
+
+    expect(execution?.result).toEqual({ kind: 'success', text: 'linked', sourceEventSeq: source.seq })
+    expect(lifecycleOf(agent)).toMatchObject([
+      { type: 'command/run', data: { name: 'linked' } },
+      { type: 'command/done', data: { kind: 'success', text: 'linked', sourceEventSeq: source.seq } },
+    ])
+  })
+
   it('omits raw input from command/run when an authoritative domain event owns it', async () => {
     const ctx = await mount()
     const { agent } = await mintAgentScope(ctx, 'a')
@@ -427,6 +446,9 @@ describe('CommandService', () => {
     [null, /CommandResult/],
     [{}, /CommandResult/],
     [{ kind: 'success', text: 1 }, /success text/],
+    [{ kind: 'success', sourceEventSeq: -1 }, /sourceEventSeq/],
+    [{ kind: 'success', sourceEventSeq: 1.5 }, /sourceEventSeq/],
+    [{ kind: 'success', sourceEventSeq: '1' }, /sourceEventSeq/],
     [{ kind: 'error', text: '' }, /error text/],
     [{ kind: 'error', text: 1 }, /error text/],
     [{ kind: 'future', text: 'x' }, /unknown result kind/],
