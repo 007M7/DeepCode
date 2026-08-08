@@ -174,6 +174,8 @@ export interface ToolResultNode {
   callView: ToolCallView | null
   /** Host-computed render intent from this tool/result's wire view; null = same default. */
   resultView: ToolResultView | null
+  /** Child calls owned by this call, in dispatch order. */
+  subCalls: readonly ToolCallBlock[]
 }
 
 /**
@@ -263,21 +265,6 @@ export type ConversationNode =
   | CompactionSummaryNode
   | UnknownSurfaceNode
 
-/**
- * One `run_code` sub-dispatch materialized in the native call-block shapes so
- * every consumer (tool rows, details panel) renders it through the exact
- * components that render a native call: a started-but-unsettled sub-call is a
- * {@link RunningToolCall} (rows derive the running state from the shape,
- * exactly as for native calls) and its `tool/code-dispatch` settlement
- * replaces it in place with the {@link ToolResultNode} form. Never part of
- * the transcript `nodes` flow — sub-calls live under their parent via
- * {@link ConversationSnapshot.codeDispatches}. `callId` is the deterministic
- * sub-call id (`<parent>:code:<n>`); the call side carries the sub-tool name
- * and its JSON-stringified logged arguments; `content`/`isError` are the
- * settled sub-call's complete logged outcome.
- */
-export type CodeSubCall = RunningToolCall | ToolResultNode
-
 /** In-flight tool card material: tool/call seen, tool/result not yet. */
 export interface RunningToolCall {
   callId: string
@@ -289,8 +276,12 @@ export interface RunningToolCall {
   time: number
   /** Host-computed render intent riding the tool/call frame; null = generic JSON card. */
   callView: ToolCallView | null
+  /** Child calls owned by this call, in dispatch order. */
+  subCalls: readonly ToolCallBlock[]
 }
 
+/** One running or settled call, recursively owning its child calls. */
+export type ToolCallBlock = RunningToolCall | ToolResultNode
 
 /** One transient inbox occurrence from the authoritative `session/queue` snapshot. */
 export interface QueuedMessage {
@@ -355,13 +346,6 @@ export interface ConversationSnapshot {
   turnEnds: ReadonlyMap<number, number>
   partial: PartialAssistant | null
   runningCalls: readonly RunningToolCall[]
-  /**
-   * `run_code` sub-dispatches grouped under their parent callId, in dispatch
-   * order. Populated from in-window `tool/code-dispatch` events (live and
-   * replay identically); the per-parent array reference is stable across
-   * unrelated snapshot swaps (memo premise, same regime as `nodes`).
-   */
-  codeDispatches: ReadonlyMap<string, readonly CodeSubCall[]>
   pending: readonly PendingInteraction[]
   /** Authoritative transient inbox snapshot, including queued and steering placements. */
   queue: readonly QueuedMessage[]

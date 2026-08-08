@@ -40,7 +40,7 @@ const todoResult = (seq: number): ToolResultNode => ({
   kind: 'tool-result', seq, time: seq * 1_000, callId: `todo-${seq}`,
   call: { name: 'todo_write', argsRaw: JSON.stringify({ todos: TODOS }) },
   callTime: seq * 1_000 - 500,
-  content: [], isError: false, callView: null, resultView: null,
+  content: [], isError: false, callView: null, resultView: null, subCalls: [],
 })
 
 const bashResult = (seq: number, callId: string, over?: Partial<ToolResultNode>): ToolResultNode => ({
@@ -50,6 +50,7 @@ const bashResult = (seq: number, callId: string, over?: Partial<ToolResultNode>)
   content: [{ type: 'text', text: 'total 2\ndemo.txt\n' }], isError: false,
   callView: { card: 'terminal', title: 'ls -la', description: 'List files' },
   resultView: { card: 'terminal', output: 'total 2\ndemo.txt\n', exitCode: 0 },
+  subCalls: [],
   ...over,
 })
 

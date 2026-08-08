@@ -42,7 +42,7 @@ const assistant = (seq: number, turn: number, usage?: unknown): AssistantMessage
 
 function snapshotBase(): ConversationSnapshot {
   return {
-    sessionId: SID, nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [], codeDispatches: new Map(),
+    sessionId: SID, nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [],
     pending: [], queue: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
     hasMore: false, loadingOlder: false, promptError: null, blank: false, subagent: null, lastAgentError: null,
   }
@@ -86,7 +86,7 @@ describe('deriveStats', () => {
   it('ignores tool results with no call time', () => {
     const tool: ToolResultNode = {
       kind: 'tool-result', seq: 5, time: 5_000, callId: 'c', call: null, callTime: null, content: [],
-      isError: false, callView: null, resultView: null,
+      isError: false, callView: null, resultView: null, subCalls: [],
     }
     const stats = deriveStats([tool, assistant(1, 1)])
     expect(stats.steps).toBe(1)
@@ -104,7 +104,7 @@ describe('deriveStats', () => {
     }
     const tool: ToolResultNode = {
       kind: 'tool-result', seq: 5, time: 7_000, callId: 'c', call: null, callTime: 4_000, content: [],
-      isError: false, callView: null, resultView: null,
+      isError: false, callView: null, resultView: null, subCalls: [],
     }
     const stats = deriveStats([timed, untimed, tool])
     expect(stats.llmMs).toBe(2_500)
