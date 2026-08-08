@@ -13,6 +13,7 @@ import {
 } from '@deepseek-ai/dsh-e2b'
 import PtyService, { PtySessionId } from '@deepseek-ai/dsh-pty'
 import { LocalPtyBackend } from '@deepseek-ai/dsh-pty-local'
+import SandboxPolicyService from '@deepseek-ai/dsh-sandbox-policy'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import E2BSubprocessService from '@deepseek-ai/dsh-subprocess-e2b'
 
@@ -51,10 +52,10 @@ describe.skipIf(!process.env.E2B_API_KEY)('E2B live Loader composition', () => {
         runtimeRoot: '/home/user/.dsh-e2b',
         getSandbox: async () => sandbox,
       } as never)
-      ctx.provide('sandboxPolicy', {
-        defaultMode: 'danger-full-access',
+      const sandboxPolicyFiber = await ctx.plugin(SandboxPolicyService, {
+        mode: 'danger-full-access',
         workspaceRoot: '/home/user',
-      } as never)
+      })
       const ptyFiber = await ctx.plugin(PtyService)
       const subprocessFiber = await ctx.plugin(E2BSubprocessService)
       const node = await ctx.subprocess.resolveExecutable('node')
@@ -114,6 +115,7 @@ describe.skipIf(!process.env.E2B_API_KEY)('E2B live Loader composition', () => {
       await session.close('environment test complete')
       await subprocessFiber.dispose()
       await ptyFiber.dispose()
+      await sandboxPolicyFiber.dispose()
 
     } finally {
       await sandbox.kill().catch(() => false)
