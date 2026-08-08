@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -8,12 +8,12 @@ import Loader from '@cordisjs/plugin-loader'
 import Timer from '@cordisjs/plugin-timer'
 import { describe, expect, it } from 'vitest'
 
-async function bootHmr(dir: string): Promise<Context> {
+async function bootHmr(dir: string, root: string[] = []): Promise<Context> {
   const ctx = new Context()
   ctx.baseUrl = pathToFileURL(dir).href + '/'
   await ctx.plugin(Loader)
   await ctx.plugin(Timer)
-  await ctx.plugin(Hmr, { root: [], ignored: [], debounce: 0 })
+  await ctx.plugin(Hmr, { root, ignored: [], debounce: 0 })
   return ctx
 }
 
@@ -26,6 +26,46 @@ async function eventually(test: () => boolean, message: string): Promise<void> {
 }
 
 describe('HMR exact config paths', () => {
+  it('observes module changes when its watch base is a filesystem alias', { timeout: 20_000 }, async () => {
+    const target = mkdtempSync(join(tmpdir(), 'dsh-hmr-module-canonical-'))
+    const alias = `${target}-alias`
+    const filename = join(alias, 'module.ts')
+    symlinkSync(target, alias, process.platform === 'win32' ? 'junction' : 'dir')
+    writeFileSync(filename, 'export const generation = 0\n')
+    const ctx = await bootHmr(alias, ['.'])
+    const expected = pathToFileURL(filename).href
+    const observed: string[] = []
+    ctx.on('hmr/change', (url) => { observed.push(url) })
+    try {
+      const deadline = Date.now() + 10_000
+      for (let generation = 1; !observed.includes(expected); generation += 1) {
+        if (Date.now() >= deadline) throw new Error('HMR did not observe a module change through the alias')
+        writeFileSync(filename, `export const generation = ${generation}\n`)
+        await new Promise(resolve => setTimeout(resolve, 20))
+      }
+    } finally {
+      await ctx.fiber.dispose()
+      rmSync(alias, { force: true })
+      rmSync(target, { recursive: true, force: true })
+    }
+  })
+
+  it('collapses filesystem aliases before registering an exact watch', async () => {
+    const target = mkdtempSync(join(tmpdir(), 'dsh-hmr-canonical-'))
+    const alias = `${target}-alias`
+    symlinkSync(target, alias, process.platform === 'win32' ? 'junction' : 'dir')
+    const ctx = await bootHmr(alias)
+    try {
+      await ctx.hmr.registerConfig('plugins.yml', () => {})
+      await expect(ctx.hmr.registerConfig(join(realpathSync(target), 'plugins.yml'), () => {}))
+        .rejects.toThrow('config path already registered')
+    } finally {
+      await ctx.fiber.dispose()
+      rmSync(alias, { force: true })
+      rmSync(target, { recursive: true, force: true })
+    }
+  })
+
   it('observes add, change, and unlink outside its module roots', { timeout: 20_000 }, async () => {
     const dir = mkdtempSync(join(tmpdir(), 'dsh-hmr-config-'))
     const filename = join(dir, 'plugins.yml')

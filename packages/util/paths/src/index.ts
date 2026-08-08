@@ -4,8 +4,9 @@
  * @module @deepseek-ai/dsh-paths
  */
 
+import { realpath } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 
 /** Directory name for the default DeepSeek Harness home under the OS home. */
 export const DSH_HOME_DIR_NAME = '.dsh'
@@ -15,6 +16,33 @@ export const DEFAULT_DSH_HOME_DISPLAY = `~/${DSH_HOME_DIR_NAME}`
 
 /** Environment variable that overrides the default DeepSeek Harness home. */
 export const DSH_HOME_ENV = 'DSH_HOME'
+
+/**
+ * Give a native filesystem watcher one canonical spelling of a path, even
+ * when its final components do not exist yet. The deepest existing ancestor
+ * is resolved through {@link realpath}; the missing suffix is then restored.
+ * This prevents Windows short-name aliases from being mixed with long paths
+ * emitted by the native watcher backend.
+ * @param path - Watch target or root, resolved against the current directory.
+ * @returns the target with its existing ancestor canonicalized.
+ * @throws when ancestor traversal encounters an error other than absence.
+ */
+export async function canonicalizeWatchPath(path: string): Promise<string> {
+  let current = resolve(path)
+  const missing: string[] = []
+  while (true) {
+    try {
+      return join(await realpath(current), ...missing.reverse())
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      const parent = dirname(current)
+      /* v8 ignore next -- a filesystem root exists, so traversal resolves before this guard */
+      if (parent === current) throw error
+      missing.push(basename(current))
+      current = parent
+    }
+  }
+}
 
 /**
  * Resolve the default DeepSeek Harness home using Node's platform path rules.
