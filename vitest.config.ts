@@ -37,17 +37,7 @@ const windowsUnsupportedPackages = process.platform === 'win32'
     ]
   : []
 
-// These files retain 100% per-file coverage on POSIX, where their process-pipe and terminal timing
-// tests are deterministic; Windows skips those cases and must not fail solely on their uncovered paths.
-const windowsCoverageExclusions = process.platform === 'win32'
-  ? [
-      'packages/lsp/lsp-local/src/connection.ts',
-      'packages/lsp/lsp-local/src/index.ts',
-      'packages/lsp/lsp-local/src/instance.ts',
-    ]
-  : []
-
-// Mirrors windowsCoverageExclusions: pwsh-local's run/start/lifecycle suites
+// pwsh-local's run/start/lifecycle suites
 // self-skip without a real pwsh (executor.spec.ts hasPwsh), leaving this file
 // far below per-file 100% on pwsh-less hosts; the exemption keeps those hosts
 // green while CI runners ship pwsh and still enforce the full bar. The probe
@@ -226,7 +216,6 @@ export default defineConfig({
         'packages/ui/commands/src/invariant.ts',
         'packages/session-projection/session-projection/src/index.ts',
         ...windowsUnsupportedPackages.map(path => `${path}/src/**/*.ts`),
-        ...windowsCoverageExclusions,
         ...pwshCoverageExclusions,
       ],
       // 100% or it doesn't merge (docs/testing.md: excessive tests are welcome).

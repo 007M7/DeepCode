@@ -8,11 +8,13 @@ Status: implemented
 
 拉取请求必需的 Windows 判定必须为依赖操作系统的行为提供保障，而不能只覆盖由 `process.platform` 选择的工具链分支。Wine 通道在 Linux 内核与区分大小写的 ext4 之上执行 Windows Node 和 PE 二进制文件，要求采用 hoisted 依赖布局和由宿主侧创建的符号链接，也没有覆盖 NTFS、DACL、ConPTY、崩溃持久性与更广泛的观测性 Windows 清单。原生串行参考流程停用期间，常规 CI 没有任何真实的 Windows 内核信号。
 
+覆盖率审计发现，PR（Pull Request）#499 已恢复确定性的原生 Windows LSP 覆盖率，后续的 GUI 分支却回放了陈旧分支状态中的 3 个临时源码排除项。当前的 LSP fixture（测试前置数据）只跳过真正属于 POSIX 的原语，除此之外还会检验受支持的 Windows 进程、传输与生命周期路径；因此，排除 `connection.ts`、`index.ts` 和 `instance.ts` 所掩盖的是受支持的行为，而非平台限制。
+
 ## 决策
 
 [ci.yml](../../../../.github/workflows/ci.yml) 中必需的 `windows` 作业在 GitHub 标准 `windows-2025` 镜像上使用原生 PowerShell 运行。该作业为工作区符号链接启用开发人员模式，通过 `pnpm/action-setup` 提供仓库固定版本的 pnpm，在不传输 store 归档的情况下执行不可变安装，并运行 `pnpm run check:ci:windows-complete`。稳定的 `windows` 作业 ID 仍是 `all checks passed` 的依赖项；其显示名称为 `windows node 24 / native complete`。
 
-聚合作业继续将工作区构建与生产网站故障设为阻断项，同时将更广泛的静态检查、文档、包和构建产物可移植性清单作为观测项报告。同一台运行器在这些门禁之间共享安装结果与构建输出，串行门禁与 publint 工作线程上限使标准镜像的资源使用保持在可预测范围内。在这些套件明确建立原生 Windows 契约之前，重复执行的 lint、覆盖率与快照强制检查仍由 Linux 负责。
+工作区构建、生产网站和逐文件 100% 覆盖率检查失败时，聚合作业会继续阻断；更广泛的静态检查、文档、包和构建产物可移植性清单则作为观测项报告。覆盖率检查的工作线程预算为 4 个；同一台运行器在这些门禁之间共享安装结果与构建输出，串行门禁与 publint 工作线程上限使标准镜像的资源使用保持在可预测范围内。重复执行的 lint 与快照强制检查仍由 Linux 负责。
 
 受支持的工作流不含 Wine 专属基础设施：不存在 apt 缓存生产者、兼容性脚本、对仓库快照执行的 hoisted 安装、Windows Node 下载或本地 `check:windows-wine` 命令。[已归档的 Wine 实验](../../archived/process/2026-07-27-wine-windows-gates-experiment.md)仍作为其实测延迟与保真度取舍的历史证据，而非当前执行路径。
 
@@ -30,4 +32,4 @@ Status: implemented
 
 在聚合作业通过之前，拉取请求会获得来自真实 NT 内核、NTFS、PowerShell、Windows 进程和原生插件的信号。该作业比 Wine 兼容性通道更慢，也可能因 Windows 容量而排队，但其绿灯结果描述的是受支持的宿主，而非近似环境。
 
-移除 Wine 缓存生产者和本地脚本后，独立的安装拓扑及其反复出现的兼容性故障也随之消失。原生 Windows 覆盖率与快照仍是明确列出的缺口，不会仅由作业名称暗示已经纳入；二者都必须先建立各自经过测试的契约，才能成为该必需通道的一部分。
+移除 Wine 缓存生产者和本地脚本后，独立的安装拓扑及其反复出现的兼容性故障也随之消失。原生 Windows 覆盖率现在通过同一项必需作业运行，并强制执行仓库的逐文件覆盖率阈值；该覆盖率门禁不会为受支持的 LSP 行为设置仅针对 Windows 的源码排除项。原生 Windows 快照仍是明确列出的缺口，不会仅由作业名称暗示已经纳入；必须先为其建立专门且经过测试的契约，才能成为该必需通道的一部分。

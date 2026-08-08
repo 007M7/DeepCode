@@ -8,11 +8,13 @@ English | [中文](2026-08-08-native-windows-pull-request-ci.zh.md)
 
 The required pull-request Windows verdict must protect behavior that depends on the operating system, not only toolchain branches selected by `process.platform`. The Wine lane executed Windows Node and PE binaries over a Linux kernel and case-sensitive ext4, required a hoisted dependency layout and host-created symlinks, and omitted NTFS, DACL, ConPTY, crash-durability, and the broader observational Windows inventory. With the native serial references disabled, ordinary CI had no real Windows-kernel signal.
 
+The coverage audit found that PR #499 had restored deterministic native-Windows LSP coverage, but a later GUI branch replayed its three temporary source exclusions from stale branch state. The current LSP fixtures skip only genuinely POSIX primitives and otherwise exercise the supported Windows process, transport, and lifecycle paths, so excluding `connection.ts`, `index.ts`, and `instance.ts` hid supported behavior rather than a platform limitation.
+
 ## Decision
 
 The required `windows` job in [ci.yml](../../../../.github/workflows/ci.yml) runs on GitHub's standard `windows-2025` image under native PowerShell. It enables Developer Mode for workspace symlinks, provisions the repository-pinned pnpm through `pnpm/action-setup`, performs an immutable install without a transferred store archive, and runs `pnpm run check:ci:windows-complete`. The stable `windows` job id remains a dependency of `all checks passed`; its display name is `windows node 24 / native complete`.
 
-The aggregate keeps workspace build and production-site failures blocking while reporting the broader static, documentation, package, and built-artifact portability inventory as observational. One runner shares installation and build outputs across those gates, and serial gate and publint worker bounds keep the standard image within a predictable resource envelope. Linux remains the owner of duplicate lint, coverage, and snapshot enforcement until those suites have an explicit native-Windows contract.
+The aggregate keeps workspace build, production-site, and 100%-per-file coverage failures blocking while reporting the broader static, documentation, package, and built-artifact portability inventory as observational. Coverage has a four-worker budget; one runner shares installation and build outputs across those gates, and serial gate and publint worker bounds keep the standard image within a predictable resource envelope. Linux remains the owner of duplicate lint and snapshot enforcement.
 
 Wine-only infrastructure is absent from the supported workflow: there is no apt-cache producer, compatibility script, hoisted snapshot install, Windows Node download, or local `check:windows-wine` command. The [archived Wine experiment](../../archived/process/2026-07-27-wine-windows-gates-experiment.md) remains historical evidence for its measured latency and fidelity trade-offs, not a current execution path.
 
@@ -30,4 +32,4 @@ Wine-only infrastructure is absent from the supported workflow: there is no apt-
 
 Pull requests receive a real NT kernel, NTFS, PowerShell, Windows process, and native addon signal before the aggregate can pass. The job is slower than the Wine compatibility lane and can queue on Windows capacity, but its green result now describes the supported host rather than an approximation.
 
-Removing the Wine cache producer and local script deletes a separate install topology and its recurring compatibility failures. Native coverage and snapshots remain a named gap rather than being implied by the job name; they require their own tested contract before becoming part of this required lane.
+Removing the Wine cache producer and local script deletes a separate install topology and its recurring compatibility failures. Native coverage now runs through the same required job and enforces the repository's per-file threshold without Windows-only source exclusions for supported LSP behavior. Native snapshots remain a named gap rather than being implied by the job name; they require their own tested contract before becoming part of this required lane.

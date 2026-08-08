@@ -42,11 +42,20 @@ describe('CI workflow', () => {
 
     expect(windows['runs-on']).toBe('windows-2025')
     expect(windows.name).toBe('windows node 24 / native complete')
+    expect(windows.env).toMatchObject({ DSH_COVERAGE_MAX_WORKERS: '4' })
     expect(commandSteps).toHaveLength(3)
     expect(commandSteps.every(step => step.shell === 'pwsh')).toBe(true)
     expect(commandSteps.map(step => step.run)).toContain('pnpm run check:ci:windows-complete')
     expect(JSON.stringify(windows)).not.toMatch(/wine/i)
     expect(workflow.jobs).not.toHaveProperty('wine-apt-cache')
+  })
+
+  it('keeps supported LSP source under native Windows coverage', () => {
+    const config = readFileSync(resolve(root, 'vitest.config.ts'), 'utf8')
+
+    expect(config).not.toContain('packages/lsp/lsp-local/src/connection.ts')
+    expect(config).not.toContain('packages/lsp/lsp-local/src/index.ts')
+    expect(config).not.toContain('packages/lsp/lsp-local/src/instance.ts')
   })
 })
 
