@@ -7,7 +7,7 @@
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
-import { isForbiddenPublicationFile } from './publication-payload.ts'
+import { hasTypeRTRemoteNavigation, isForbiddenPublicationFile } from './publication-payload.ts'
 
 const root = resolve(import.meta.dirname, '..')
 // vendor/* is single-level; packages/<group>/<pkg> nests one level deeper
@@ -126,6 +126,7 @@ function sameStringList(actual: readonly string[] | undefined, expected: readonl
 
 function expectedDshPackageFiles(manifest: PackageManifest): readonly string[] {
   const extras = manifest.name ? packageFileExtras[manifest.name] ?? [] : []
+  const typeRTRemoteNavigation = hasTypeRTRemoteNavigation(manifest)
   return [
     'lib/index.js',
     // Every package publishes its invariant ownership companion as a separate
@@ -149,7 +150,35 @@ function expectedDshPackageFiles(manifest: PackageManifest): readonly string[] {
     // declarations.
     ...usesEmittedTreeDefaults(manifest) ? ['lib/types/**/*.js'] : [],
     'lib/types/**/*.d.ts',
+    ...hasExportPair(manifest, './typert', './lib/typert.host.d.ts', './lib/typert.host.js')
+      ? ['lib/typert.host.js', 'lib/typert.host.d.ts']
+      : [],
+    ...hasExportPair(manifest, './client/typert', './lib/typert.client.d.ts', './lib/typert.client.js')
+      ? ['lib/typert.client.js', 'lib/typert.client.d.ts']
+      : [],
+    ...typeRTRemoteNavigation
+      ? [
+        'lib/typert.remote-client.js',
+        'lib/typert.remote-client.d.ts',
+        'lib/typert.remote-client.d.ts.map',
+        'src',
+      ]
+      : [],
   ]
+}
+
+/** Whether one conditional export exactly names the generated runtime and declaration pair. */
+function hasExportPair(
+  manifest: PackageManifest,
+  subpath: string,
+  types: string,
+  runtime: string,
+): boolean {
+  const entry = manifest.exports?.[subpath]
+  return typeof entry === 'object'
+    && entry !== null
+    && entry.types === types
+    && entry.default === runtime
 }
 
 /** Runtime target of an export entry: conditional `default`, or the bare-string shorthand. */
@@ -179,8 +208,9 @@ function checkWorkspace({ dir, manifest }: WorkspaceManifest): string[] {
   }
 
   if (manifest.name?.startsWith('@deepseek-ai/')) {
+    const publicationPolicy = { typeRTRemoteNavigation: hasTypeRTRemoteNavigation(manifest) }
     for (const file of manifest.files ?? []) {
-      if (isForbiddenPublicationFile(file)) {
+      if (isForbiddenPublicationFile(file, publicationPolicy)) {
         errors.push(`${label}: package.json files must not publish ${JSON.stringify(file)}`)
       }
     }

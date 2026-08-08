@@ -535,7 +535,7 @@ describe('ConfigWorkflow', () => {
     ]), outputBuffer().stream, async () => {})
     const result = await workflow.run(project, registry)
     const provider = result.commit?.project.cordis.entry('llm-pi-ai')
-    expect(provider?.config?.apiKey).toBeDefined()
+    expect(provider?.config).not.toHaveProperty('apiKey')
     expect(provider?.config?.baseURL).toBe('https://provider.example/v1')
     expect(result.commit?.project.cordis.entry('acp')).toBeDefined()
     expect(result.commit?.project.cordis.entry('agent-loop')).toBeDefined()

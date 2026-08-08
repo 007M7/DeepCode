@@ -28,7 +28,6 @@ function harness(options: {
   providerActive?: boolean
   settingsNamespace?: boolean
   apiKeyEnv?: string | null
-  literal?: boolean
   configured?: () => boolean
   credential?: { source?: string; writable: boolean }
   describeFailure?: string
@@ -66,7 +65,7 @@ function harness(options: {
               ? {}
               : { apiKeyEnv: options.apiKeyEnv ?? 'DEEPSEEK_API_KEY' },
             applies: 'live' as const,
-            secrets: [{ path: ['apiKey'], set: options.literal === true }],
+            secrets: [],
             revision: 0,
           }],
       })),
@@ -153,11 +152,10 @@ describe('DeepSeekOnboardingDialog', () => {
     }
   })
 
-  it('skips an absent adapter and already-configured literal or environment credentials', async () => {
+  it('skips an absent adapter and an already-configured environment credential', async () => {
     for (const h of [
       harness({ provider: false }),
       harness({ providerSettingsNs: '' }),
-      harness({ literal: true, describeFailure: 'credential seam absent' }),
       harness({ configured: () => true, credential: { source: 'env', writable: false } }),
     ]) {
       const view = render(<DeepSeekOnboardingDialog {...h.props} />)

@@ -18,6 +18,12 @@ flowchart LR
   cfg --> plugin_dsh_base_llm
   plugin_dsh_base_session["session<br/>@deepseek-ai/dsh-session"]
   cfg --> plugin_dsh_base_session
+  plugin_dsh_base_typert["typert<br/>@deepseek-ai/dsh-typert-registry"]
+  cfg --> plugin_dsh_base_typert
+  plugin_dsh_base_typert_loader["typert-loader<br/>@deepseek-ai/dsh-typert-loader"]
+  cfg --> plugin_dsh_base_typert_loader
+  plugin_dsh_base_typert_gateway["typert-gateway<br/>@deepseek-ai/dsh-api-gateway"]
+  cfg --> plugin_dsh_base_typert_gateway
   plugin_dsh_base_session_title["session-title<br/>@deepseek-ai/dsh-session-title"]
   cfg --> plugin_dsh_base_session_title
   plugin_dsh_base_session_title_llm["session-title-llm<br/>@deepseek-ai/dsh-session-title-first-message-llm"]
@@ -159,6 +165,9 @@ flowchart LR
 | `repository-plugins` | `@deepseek-ai/dsh-repository-plugin` |
 | `llm` | `@deepseek-ai/dsh-llm` |
 | `session` | `@deepseek-ai/dsh-session` |
+| `typert` | `@deepseek-ai/dsh-typert-registry` |
+| `typert-loader` | `@deepseek-ai/dsh-typert-loader` |
+| `typert-gateway` | `@deepseek-ai/dsh-api-gateway` |
 | `session-title` | `@deepseek-ai/dsh-session-title` |
 | `session-title-llm` | `@deepseek-ai/dsh-session-title-first-message-llm` |
 | `user-interaction` | `@deepseek-ai/dsh-user-interaction` |

@@ -12,6 +12,7 @@ import { isPromise } from 'node:util/types'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
+import type { TypeRTContext, TypeRTLookup } from '@deepseek-ai/dsh-type-meta'
 import type { Agent, AgentOptions } from './types.ts'
 
 export * from './types.ts'
@@ -19,6 +20,16 @@ export * from './inbox.ts'
 export * from './llm-target.ts'
 export { agentCarrier, agentEvents, assembleContextFor, emitAgentEvent } from './dispatch.ts'
 export type { AgentEventDispatch, AgentSubjectEvent } from './dispatch.ts'
+
+declare module '@deepseek-ai/dsh-type-meta' {
+  interface TypeRTLookupMap {
+    agent: TypeRTLookup<Agent, SessionId>
+  }
+
+  interface TypeRTContextMap {
+    agent: TypeRTContext<SessionId>
+  }
+}
 
 declare module 'cordis' {
   interface Context {
@@ -251,6 +262,20 @@ export class AgentRegistry extends Service {
 
   constructor(ctx: Context) {
     super(ctx, 'agents')
+    ctx.inject(['typert'], (typeCtx) => {
+      typeCtx.typert.lookups.register('agent', {
+        parameter: 'agent',
+        wire: 'agentId',
+        hostTypeSymbol: '@deepseek-ai/dsh-agent#Agent',
+        wireTypeSymbol: '@deepseek-ai/dsh-session/types#SessionId',
+        resolve: sessionId => this.get(sessionId),
+      })
+      typeCtx.typert.contexts.registerHost('agent', {
+        wire: 'agentId',
+        wireTypeSymbol: '@deepseek-ai/dsh-session/types#SessionId',
+        resolve: sessionId => this.get(sessionId)?.ctx,
+      })
+    })
     // The `ctx.agent` DX accessor: default `undefined` on every context, so a
     // plain plugin context reads cleanly instead of hitting the Cordis
     // unknown-property throw. Each Agent.ctx shadows it with an own property

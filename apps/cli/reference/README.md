@@ -59,7 +59,7 @@ New sessions default to the `workspace-write` permission preset. Bash and filesy
 
 ## Shared deployment behavior
 
-The base bundle mounts the native DeepSeek adapter, settings and credential providers, stable `web_search`, repository Plugin support, and session telemetry. Provider credentials live in `$DSH_HOME/.env` or the ambient environment and remain rotatable because the launcher never hoists the credential file into `process.env`. Search uses `DEEPSEEK_API_KEY` and accepts `DEEPSEEK_SEARCH_BASE_URL`; `web_fetch` is disabled unless a patch layer inserts a provider and enables it.
+The base bundle mounts the native DeepSeek adapter, settings and credential providers, stable `web_search`, repository Plugin support, and session telemetry. Provider credentials resolve from the inherited environment, `$DSH_HOME/.credentials.yaml`, the invoking directory's `.env`, then `$DSH_HOME/.env`; the managed document is never materialized into `process.env`, while both `.env` files are ordinary launch environment layers. Search uses `DEEPSEEK_API_KEY` and accepts `DEEPSEEK_SEARCH_BASE_URL`; `web_fetch` is disabled unless a patch layer inserts a provider and enables it.
 
 Session events stream as OTLP/HTTP logs by default. `DSH_TELEMETRY_OTLP_URL` selects another collector. Any non-empty `DSH_TELEMETRY_DISABLED` disables the telemetry row before boot. The shipped base has no telemetry redaction rule, so exported records can contain message text, tool arguments and results, and workspace paths; the [telemetry Agent Note](../../../.agents/notes/implemented/feature/2026-07-31-web-telemetry-default-mount.md) owns that deployment decision.
 

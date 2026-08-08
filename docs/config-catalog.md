@@ -291,7 +291,7 @@ Source: [`packages/examples/cli-demo/src/index.ts:26`](../packages/examples/cli-
 
 ## `@deepseek-ai/dsh-client-connection`
 
-Requires: `httpServer` · `apiProxy`
+Requires: `httpServer`
 
 ```ts config-catalog
 /** Plugin config: the deployment's non-loopback serving authorities. */
@@ -308,7 +308,7 @@ export interface ConnectionConfig {
 }
 ```
 
-Source: [`packages/client/connection/src/index.ts:21`](../packages/client/connection/src/index.ts)
+Source: [`packages/client/connection/src/index.ts:32`](../packages/client/connection/src/index.ts)
 
 ## `@deepseek-ai/dsh-client-hmr`
 
@@ -426,7 +426,7 @@ Source: [`packages/compact/compact-tool-result-prune/src/types.ts:4`](../package
 ```ts config-catalog
 /** Plugin config: file location and hot-reload behavior. */
 export interface Config {
-  /** Credentials document path; defaults to `.env` under the harness home. */
+  /** Credentials document path; defaults to `.credentials.yaml` under the harness home. */
   path?: string
   /** Harness home used when `path` is omitted; defaults to `$DSH_HOME` or `~/.dsh`. */
   dshHome?: string
@@ -437,7 +437,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/credentials/credentials-local/src/index.ts:26`](../packages/credentials/credentials-local/src/index.ts)
+Source: [`packages/credentials/credentials-local/src/index.ts:54`](../packages/credentials/credentials-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-frontend-static`
 
@@ -495,7 +495,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/goal/goal/src/index.ts:114`](../packages/goal/goal/src/index.ts)
+Source: [`packages/goal/goal/src/index.ts:116`](../packages/goal/goal/src/index.ts)
 
 ## `@deepseek-ai/dsh-headless`
 
@@ -679,17 +679,9 @@ Requires: `llm`
  * reasoning effort resolves to `high`.
  */
 export interface Config {
-  /**
-   * Trimmed literal API key; whitespace-only is absent, so it resolves through
-   * {@link apiKeyEnv} like an omitted one. Prefer {@link apiKeyEnv} to keep
-   * secrets out of configuration files. {@link resolveAdapterOptions} also
-   * format-checks what remains: a value no HTTP header can carry fails there
-   * rather than inside `fetch`.
-   */
-  apiKey?: string
   /** Credential reference (environment-variable name) resolved per request; defaults to `DEEPSEEK_API_KEY`. */
   apiKeyEnv?: string
-  /** Endpoint base; falls back to $DEEPSEEK_BASE_URL, then the public API. */
+  /** Endpoint base; falls back to $DEEPSEEK_BASE_URL from a trusted environment layer, then the public API. */
   baseURL?: string
   /** Deployment thinking policy; `disabled` limits every conversation request to `off`. */
   thinking?: 'enabled' | 'disabled'
@@ -724,7 +716,7 @@ export interface DeepSeekCatalogModel {
 
 Depends on: [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts)
 
-Source: [`packages/llm/llm-deepseek/src/index.ts:60`](../packages/llm/llm-deepseek/src/index.ts)
+Source: [`packages/llm/llm-deepseek/src/index.ts:61`](../packages/llm/llm-deepseek/src/index.ts)
 
 ## `@deepseek-ai/dsh-llm-pi-ai`
 
@@ -743,12 +735,6 @@ export interface Config {
 
 /** Configuration for one pi-ai provider route; the `providers` dict key IS the route. */
 export interface PiAiProviderProfile {
-  /**
-   * Literal provider credential; prefer {@link apiKeyEnv}. With both absent pi-ai uses its
-   * provider-native ambient discovery. Trimmed and format-checked by {@link resolveProfiles}; a
-   * value no HTTP header can carry fails there rather than inside `fetch`.
-   */
-  apiKey?: string
   /** Credential reference (environment-variable name) resolved per request through `ctx.credentials`. */
   apiKeyEnv?: string
   /** Name shown by configuration surfaces; defaults to the route key. */
@@ -819,7 +805,7 @@ export interface PiAiModelProfile {
 
 Depends on: `CacheRetention` (`@earendil-works/pi-ai`) · `ModelThinkingLevel` (`@earendil-works/pi-ai`) · [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts) · `ThinkingBudgets` (`@earendil-works/pi-ai`) · `Transport` (`@earendil-works/pi-ai`)
 
-Source: [`packages/llm/llm-pi-ai/src/config.ts:126`](../packages/llm/llm-pi-ai/src/config.ts)
+Source: [`packages/llm/llm-pi-ai/src/config.ts:120`](../packages/llm/llm-pi-ai/src/config.ts)
 
 ## `@deepseek-ai/dsh-llm-replay`
 
@@ -2433,7 +2419,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/web/web-search-deepseek/src/index.ts:43`](../packages/web/web-search-deepseek/src/index.ts)
+Source: [`packages/web/web-search-deepseek/src/index.ts:44`](../packages/web/web-search-deepseek/src/index.ts)
 
 ## `@deepseek-ai/dsh-web-search-exa`
 
@@ -2455,7 +2441,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/web/web-search-exa/src/index.ts:37`](../packages/web/web-search-exa/src/index.ts)
+Source: [`packages/web/web-search-exa/src/index.ts:38`](../packages/web/web-search-exa/src/index.ts)
 
 ## `@deepseek-ai/dsh-web-search-perplexity`
 
@@ -2477,7 +2463,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/web/web-search-perplexity/src/index.ts:31`](../packages/web/web-search-perplexity/src/index.ts)
+Source: [`packages/web/web-search-perplexity/src/index.ts:32`](../packages/web/web-search-perplexity/src/index.ts)
 
 ## `@deepseek-ai/dsh-workflow-workerthread`
 
@@ -2540,6 +2526,8 @@ Source: [`packages/context/workspace-context/src/config.ts:18`](../packages/cont
 These load from a `cordis.yml` entry with no `config:` block; they declare no config surface.
 
 - `@deepseek-ai/dsh-agent` ([`packages/core/agent/src/index.ts`](../packages/core/agent/src/index.ts))
+- `@deepseek-ai/dsh-api-gateway` — requires `typert` ([`packages/api/gateway/src/index.ts`](../packages/api/gateway/src/index.ts))
+- `@deepseek-ai/dsh-api-remotes` ([`packages/api/remotes/src/index.ts`](../packages/api/remotes/src/index.ts))
 - `@deepseek-ai/dsh-client-locale` ([`packages/client/locale/src/index.ts`](../packages/client/locale/src/index.ts))
 - `@deepseek-ai/dsh-client-modules` — requires `httpServer` · `loader` ([`packages/client/modules/src/index.ts`](../packages/client/modules/src/index.ts))
 - `@deepseek-ai/dsh-client-runtime` ([`packages/client/runtime/src/index.ts`](../packages/client/runtime/src/index.ts))
@@ -2583,7 +2571,6 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-timeout-policy` — requires `tools` ([`packages/timeout/timeout-policy/src/index.ts`](../packages/timeout/timeout-policy/src/index.ts))
 - `@deepseek-ai/dsh-tool-ask-user` — requires `tools` · `userInteraction` ([`packages/ui/tool-ask-user/src/index.ts`](../packages/ui/tool-ask-user/src/index.ts))
 - `@deepseek-ai/dsh-tool-subagent-control` — requires `tools` · `subagents` ([`packages/subagent/tool-subagent-control/src/index.ts`](../packages/subagent/tool-subagent-control/src/index.ts))
-- `@deepseek-ai/dsh-typert-registry` ([`packages/typert/registry/src/index.ts`](../packages/typert/registry/src/index.ts))
 - `@deepseek-ai/dsh-user-interaction` ([`packages/ui/user-interaction/src/index.ts`](../packages/ui/user-interaction/src/index.ts))
 - `@deepseek-ai/dsh-workspace` — requires `storageDomain` · `sessionPersistence` ([`packages/workspace/workspace/src/index.ts`](../packages/workspace/workspace/src/index.ts))
 
@@ -2623,6 +2610,7 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-client-ui-slots` ([`packages/client/ui-slots/src/index.ts`](../packages/client/ui-slots/src/index.ts))
 - `@deepseek-ai/dsh-client-web` ([`packages/client/web/src/index.ts`](../packages/client/web/src/index.ts))
 - `@deepseek-ai/dsh-client-web-react` ([`packages/client/web-react/src/index.ts`](../packages/client/web-react/src/index.ts))
+- `@deepseek-ai/dsh-environment` ([`packages/util/environment/src/index.ts`](../packages/util/environment/src/index.ts))
 - `@deepseek-ai/dsh-helper` ([`packages/sdk/helper/src/index.ts`](../packages/sdk/helper/src/index.ts))
 - `@deepseek-ai/dsh-hook-protocol` ([`packages/hooks/hook-protocol/src/index.ts`](../packages/hooks/hook-protocol/src/index.ts))
 - `@deepseek-ai/dsh-jsonrpc-demo` ([`packages/examples/jsonrpc-demo/src/index.ts`](../packages/examples/jsonrpc-demo/src/index.ts))
@@ -2641,4 +2629,6 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-subagent-inprocess` ([`packages/subagent/subagent-inprocess/src/index.ts`](../packages/subagent/subagent-inprocess/src/index.ts))
 - `@deepseek-ai/dsh-telemetry` ([`packages/sdk/telemetry/src/index.ts`](../packages/sdk/telemetry/src/index.ts))
 - `@deepseek-ai/dsh-timeout` ([`packages/util/timeout/src/index.ts`](../packages/util/timeout/src/index.ts))
+- `@deepseek-ai/dsh-type-meta` ([`packages/typert/type-meta/src/index.ts`](../packages/typert/type-meta/src/index.ts))
 - `@deepseek-ai/dsh-typert-generator` ([`packages/typert/generator/src/index.ts`](../packages/typert/generator/src/index.ts))
+- `@deepseek-ai/dsh-typert-registry` ([`packages/typert/registry/src/index.ts`](../packages/typert/registry/src/index.ts))

@@ -11,6 +11,7 @@
 | 组 | 职责 | 发布预期 |
 |---|---|---|
 | [`core/`](core/README.md) | 产品 API 主干：会话、提示词、工具、agent（智能体）服务与具体循环 | 产品：稳定表面 |
+| [`api/`](api/README.md) | Remote BFF 装配与 TypeRT RPC Gateway | 产品：稳定表面 |
 | [`typert/`](typert/README.md) | 类型图生成、产物加载与运行时注册表 | 产品：稳定表面 |
 | [`goal/`](goal/README.md) | 同会话 goal 的持久化与生命周期 | 产品：稳定表面 |
 | [`feedback/`](feedback/README.md) | 人类反馈 | 产品：稳定表面 |

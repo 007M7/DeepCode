@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { startMockLlmServer } from '@deepseek-ai/dsh-llm-mock-server'
 import { execa } from 'execa'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
@@ -13,14 +14,21 @@ const invalidProvider = fileURLToPath(new URL('./fixtures/invalid-provider.cordi
 
 async function runBuiltBin(
   args: readonly string[] = [],
-  env: Record<string, string> = {},
+  env: Readonly<Record<string, string | undefined>> = {},
+  cwd?: string,
 ): Promise<{ stdout: string; code: number; stderr: string }> {
+  const childEnv = Object.fromEntries(
+    Object.entries({ ...process.env, ...env })
+      .filter((entry): entry is [string, string] => entry[1] !== undefined),
+  )
   const result = await execa(process.execPath, [dshBin, ...args], {
     input: '',
     timeout: 25_000,
     killSignal: 'SIGKILL',
     reject: false,
-    env,
+    env: childEnv,
+    extendEnv: false,
+    ...cwd === undefined ? {} : { cwd },
   })
   if (result.timedOut) {
     throw new Error(`dsh built bin did not exit within 25s. stdout:\n${result.stdout}\nstderr:\n${result.stderr}`)
@@ -127,6 +135,44 @@ function startProfileLifecycle(fixture: ProfileLifecycleFixture) {
   })
 }
 
+function createEnvironmentProbeProfile(home: string, project: string): void {
+  const pluginFile = join(project, 'environment-probe.mjs')
+  writeFileSync(pluginFile, [
+    "export const name = 'environment-probe'",
+    "export const inject = ['llm']",
+    'export function apply(ctx) {',
+    '  void ctx.loader.await().then(async () => {',
+    "    let text = ''",
+    '    for await (const chunk of ctx.llm.stream({',
+    "      provider: 'deepseek-official',",
+    "      model: 'deepseek-v4-flash',",
+    '      messages: [],',
+    '      maxTokens: 32,',
+    '    })) {',
+    "      if (chunk.type === 'text-delta') text += chunk.text",
+    '    }',
+    '    process.stdout.write(`${text}\\n`)',
+    "    process.kill(process.pid, 'SIGTERM')",
+    '  })',
+    '}',
+    '',
+  ].join('\n'))
+  const profileDir = join(home, 'profiles', 'environment-probe')
+  mkdirSync(profileDir, { recursive: true })
+  writeFileSync(join(profileDir, 'package.json'), JSON.stringify({
+    name: 'dsh-profile-environment-probe',
+    private: true,
+    dependencies: {},
+    dsh: { profile: { bundles: ['@deepseek-ai/dsh-base'] } },
+  }, undefined, 2))
+  writeFileSync(join(profileDir, 'cordis.patch.yml'), [
+    '- insert:',
+    '    - id: environment-probe',
+    `      name: ${pathToFileURL(pluginFile).href}`,
+    '',
+  ].join('\n'))
+}
+
 describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', () => {
   it('requires --profile and rejects removed commands', async () => {
     const bare = await runBuiltBin()
@@ -144,6 +190,17 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
     }
   }, 30_000)
 
+  it('does not load a project environment for --version', async () => {
+    const project = mkdtempSync(join(tmpdir(), 'dsh-version-project-'))
+    writeFileSync(join(project, '.env'), 'PATH=/project-only-path\n')
+    try {
+      const result = await runBuiltBin(['--version'], {}, project)
+      expect(result).toEqual({ code: 0, stdout: '0.0.1', stderr: '' })
+    } finally {
+      rmSync(project, { recursive: true, force: true })
+    }
+  })
+
   it('fails loud on a nonexistent profile with the plugin-command hint', async () => {
     const home = mkdtempSync(join(tmpdir(), 'dsh-missing-profile-'))
     try {
@@ -153,6 +210,47 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
       expect(result.stderr).toContain('dsh plugin --profile nope add')
     } finally {
       rmSync(home, { recursive: true, force: true })
+    }
+  }, 30_000)
+
+  it('uses the Harness-home environment and managed credential through the published entry', async () => {
+    const apiKey = 'built-home-layer-key'
+    const server = await startMockLlmServer({
+      sequence: ['success'],
+      apiKey,
+      successText: 'home environment reached the mock',
+    })
+    const home = mkdtempSync(join(tmpdir(), 'dsh-home-environment-'))
+    const project = mkdtempSync(join(tmpdir(), 'dsh-home-project-'))
+    writeFileSync(join(home, '.env'), `DEEPSEEK_BASE_URL=${server.baseURL}\n`)
+    writeFileSync(join(home, '.credentials.yaml'), `DEEPSEEK_API_KEY: ${apiKey}\n`, { mode: 0o600 })
+    createEnvironmentProbeProfile(home, project)
+    try {
+      const result = await runBuiltBin(
+        ['--profile', 'environment-probe'],
+        {
+          DSH_HOME: home,
+          DSH_TELEMETRY_DISABLED: '1',
+          DEEPSEEK_API_KEY: undefined,
+          DEEPSEEK_BASE_URL: undefined,
+        },
+        project,
+      )
+      expect(
+        result.code,
+        `${result.stderr}\nstdout:\n${result.stdout}\nmock requests: ${String(server.requests.length)}`,
+      ).toBe(0)
+      expect(result.stdout).toBe('home environment reached the mock')
+      expect(result.stdout).not.toContain(apiKey)
+      expect(result.stderr).not.toContain(apiKey)
+      expect(server.requests).toHaveLength(1)
+      expect(server.requests[0]?.path).toBe('/chat/completions')
+      expect(server.requests[0]?.headers.authorization).toBe(`Bearer ${apiKey}`)
+      expect(JSON.stringify(server.requests[0]?.body)).not.toContain(apiKey)
+    } finally {
+      await server.close()
+      rmSync(home, { recursive: true, force: true })
+      rmSync(project, { recursive: true, force: true })
     }
   }, 30_000)
 
