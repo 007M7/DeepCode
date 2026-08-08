@@ -26,7 +26,7 @@ JSONL 持久会话存储后端：`SessionPersistence` 的一个具体实现（`d
 | `root` | `string`（必需） | 所有会话文件的根目录。**无默认值**：`process.cwd()` 默认值会随进程 cwd 变更（bash 调用、子进程）而分散文件。现有根必须是可读目录；缺失根在第一次实体化时创建。 |
 | `packChunks` | `boolean`（默认 `true`） | 将符合条件的 delta 分片连续段写为打包行（在真实编码会话上测得逻辑日志约小 60%）。设为 `false` 可用于每事件一行诊断；无论该写入侧开关如何，都能读取打包行。 |
 | `compression` | `'zstd' \| 'none'` | 默认 `'zstd'`；`'none'` 保留换行分隔 UTF-8 文本。 |
-| `preparedSessionCacheSize` | 正整数（默认 `5`） | 冷历史检查后保留、供恢复复用的未发布 Session 数量上限。 |
+| `preparedSessionCacheSize` | 正整数（默认 `5`） | 冷历史检查后保留、供恢复复用的未发布会话数量上限。 |
 | `writeBatchMaxDelayMs` | 正整数（默认 `200`） | 空闲的活动事件队列收到待写入事件后开启的固定合并窗口。后续事件不会重置窗口；flush 与 teardown 会绕过它。该值不限制事件循环、串行化操作或后端延迟。最大值为 Node 计时器上限 `2_147_483_647` ms。 |
 
 `locate(meta)` 返回已解析项目/会话目录内固定 transcript 的 `{ kind: 'jsonl', path }`。它不执行文件系统 I/O：可以在目录或文件存在前返回目标，现有文件也只包含最近一次 flush 完成的前缀。

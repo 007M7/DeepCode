@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-harness 为模型提供了 bash 和 subagent 工具，却没有办法记录结构化的任务列表。todo 列表有两个同等重要的用途：引导模型规划多步骤工作并保持当前活跃任务明确；同时为交互式宿主提供实时进度清单。调研的所有参考编码 agent（智能体），包括 claude-code、opencode、codex、oh-my-pi 和 pi，都提供了某种形式的此功能；本 harness 此前没有。
+harness 为模型提供了 bash 和 subagent 工具，却没有办法记录结构化的任务列表。todo 列表有两个同等重要的用途：引导模型规划多步骤工作并保持当前活跃工作明确；同时为交互式宿主提供实时进度清单。调研的所有参考编码 agent（智能体），包括 claude-code、opencode、codex、oh-my-pi 和 pi，都提供了某种形式的此功能；本 harness 此前没有。
 
 ## 决策
 
@@ -34,7 +34,7 @@ claude-code V1 的条目是 `{ content, status, activeForm }`；后来（V2）�
 
 ### 校验：低成本的中间路线
 
-schema 强制 type/required/enum。在此之上，`execute` 拒绝为空或重复的 `content`，并在 `allowParallelInProgress` 为 `false` 时拒绝超过一个活跃任务。排序和保持列表最新仍通过工具描述交给模型。被拒绝的写入返回 `isError` 结果，使模型自行修正。必填的部署策略及持久日志不变式独立于该策略这一约定，由[并行 in-progress Agent Note](2026-07-26-todo-parallel-in-progress.md) 负责。
+schema 强制 type/required/enum。在此之上，`execute` 拒绝为空或重复的 `content`，并在 `allowParallelInProgress` 为 `false` 时拒绝超过一个活跃任务。排序和保持列表最新仍通过工具描述交给模型。被拒绝的写入返回 `isError` 结果，使模型自行修正。必须采用的部署策略，以及持久不变式独立于该策略这一点，均由[并行 in-progress Agent Note](2026-07-26-todo-parallel-in-progress.md)负责。
 
 ## 为何没有 cordis-catalog 条目 / 没有 `@mode`
 

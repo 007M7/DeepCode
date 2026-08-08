@@ -55,11 +55,11 @@ root
             └─ models (order 10)         ui-models 注册
 ```
 
-section/item contribution 使用 `ctx.slots.inject()`，不依赖 client manifest 的 apply 顺序；本地化 label 走 [全量接入 Note](../../implemented/architecture/2026-07-30-client-locale-full-rollout.md) 的 label thunk。SlotMap 类型分家：trigger/header/close/section 正家在 ui-settings contract（消费者 general/models 均依赖壳，无环）；`settings.general.item` 正家在 locale 包——它是全部 item 注册方的最低公共依赖（设置行必带文案），而声明方 general 的 contract 对 locale/ui-theme 不可达（会成环）；ui-theme 经 re-export seam 消费。
+section/item contribution 使用 `ctx.slots.inject()`，不依赖 client manifest（元数据清单）的 apply 顺序；本地化 label 走 [全量接入 Note](../../implemented/architecture/2026-07-30-client-locale-full-rollout.md) 的 label thunk。SlotMap 类型分家：trigger/header/close/section 正家在 ui-settings 约定（消费方 general/models 均依赖壳，无环）；`settings.general.item` 正家在 locale 包——它是全部 item 注册方的最低公共依赖（设置行必带文案），而声明方 general 的约定对 locale/ui-theme 不可达（会成环）；ui-theme 经 re-export seam 消费。
 
 ### slot 声明是一等可注入等待对象
 
-`SlotsService.inject()` 直接等待有类型约束的 ledger key；它不会将声明桥接为合成的 `slot:<name>` Cordis 服务。回调会跟随声明折叠与重新声明，而其控制器仍归贡献方插件 fiber 所有；直接向未声明 slot 注册仍会大声失败。这删除了陈旧 disposer 判在位机器和容易因拼写错误出错的平行服务命名空间。完整的生命周期与失败契约见 [slot 声明注入决策](../../implemented/architecture/2026-08-05-slot-declaration-injection.md)。
+`SlotsService.inject()` 直接等待有类型约束的 ledger key；它不会将声明桥接为合成的 `slot:<name>` Cordis 服务。回调会跟随声明撤销与重新声明，而其控制器仍归贡献方插件 fiber 所有；直接向未声明 slot 注册仍会显式报错。这移除了陈旧 disposer 的在位判定机制和容易因拼写错误出错的平行服务命名空间。完整的生命周期与失败约定见 [slot 声明注入决策](../../implemented/architecture/2026-08-05-slot-declaration-injection.md)。
 
 ### 服务契约
 
@@ -127,4 +127,4 @@ Locale 内置中文和 English；`setLocale`/`setTheme` 是唯一写入口，未
 
 ## 风险
 
-slot 声明与 contribution 的 apply 顺序不固定，所有 section/item 注册方必须使用 `ctx.slots.inject()`，而不能以服务或本地 disposer 作为在位信号。service event 可能早于行首次渲染，功能行 store 的 init 与 inject attach 都必须从 getter 对齐当前 snapshot。`settings.general.item` 的重复合并副本（locale、ui-theme）与 ui-settings 正家必须逐字一致，漂移即三处一起改。Layout 卸载时必须清理自己设置的全局属性，ThemeService dispose 时必须移除 matchMedia 监听，避免 HMR 后残留。
+slot 声明与 contribution 的 apply 顺序不固定，所有 section/item 注册方必须使用 `ctx.slots.inject()`，而不能以服务或本地 disposer 作为在位信号。服务事件可能早于行首次渲染，功能行 store 的 init 与 inject attach 都必须从 getter 对齐当前 snapshot。`settings.general.item` 的重复合并副本（locale、ui-theme）与 ui-settings 正家必须逐字一致，漂移即三处一起改。Layout 卸载时必须清理自己设置的全局属性，ThemeService dispose 时必须移除 matchMedia 监听，避免 HMR（热模块替换）后残留。

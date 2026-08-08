@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-07-27-dispose-ladder-to-consumer.md
 2026-07-27-dispose-ladder-to-consumer.md: e9af88e8e7ef962213a74e96a249241cbe8d5994
-2026-07-27-dispose-ladder-to-consumer.zh.md: 89f8e107c56d42787c59bc6f8fa8fc7b3ef73208
+2026-07-27-dispose-ladder-to-consumer.zh.md: 74cbc624e9153637dcdceb521c04af811799fdb0

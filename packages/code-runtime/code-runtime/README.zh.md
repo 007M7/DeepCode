@@ -20,7 +20,7 @@
 
 `CodeRunRequest`（`program`、`bindings`、`signal?`）携带运行时操作所需的全部内容；默认值解析（时间预算与外层输出上限）属于实现的已验证配置，绝不能是隐藏的 `??`，更不能藏在 `run()` 内部。`bindings` 是 `CodeBindingNamespace` 列表（`global` + `functions` + 可选 `errorClass`）；每个命名空间会作为一个由异步可调用函数组成的全局对象公开给程序，这些函数返回 `CodeJsonValue`。后者是 seam 本地、与规范 `JsonValue` 结构等价的类型，使接口包保持独立于会话。`errorClass` 描述符点名真实的程序全局构造器，以及用于接收被拒绝成员名称的自有属性；运行时不依赖 `ToolCallError` 等消费方术语。`CodeRunResult` 报告无损 JSON 完成值 `value?`、有序的 `logs: string[]` 和 `error?`（`CodeRunFailure`：`kind` + 可反馈给模型的 `message`）。完整契约见 `src/types.ts`。
 
-binding-global 与 error-class 名称是**语言可移植**的：必须匹配标识符子集 `[A-Za-z_][A-Za-z0-9_]*`（不含 JS 专有的 `$`）并通过 seam 导出的排除集，因此同一份 `bindings` 列表对每个后端都有效，无论其 `language` 为何。本包导出每个后端都执行的契约——`PORTABLE_RESERVED_WORDS`（ECMAScript ∪ Python 保留字）、`RESERVED_BINDING_GLOBALS`（如 `console` 等后端拥有的 global）、`RESERVED_ERROR_MEMBERS` 与 `DUNDER_MEMBER`（error-member 排除）——因此 `$tools`、`lambda`、`__dsh_main__` 之类的名称会让 `run()` 在任何后端上作为 seam 误用而 reject，而非只在某些后端。确切集合与理由见 `src/index.ts`。
+binding-global 与 error-class 名称是**语言可移植**的：必须匹配标识符子集 `[A-Za-z_][A-Za-z0-9_]*`（不含 JS 专有的 `$`）并通过 seam 导出的排除集，因此同一份 `bindings` 列表对每个后端都有效，无论其 `language` 为何。本包导出每个后端都执行的约定——`PORTABLE_RESERVED_WORDS`（ECMAScript ∪ Python 保留字）、`RESERVED_BINDING_GLOBALS`（如 `console` 等后端拥有的 global）、`RESERVED_ERROR_MEMBERS` 与 `DUNDER_MEMBER`（error-member 排除）——因此 `$tools`、`lambda`、`__dsh_main__` 之类的名称会让 `run()` 在任何后端上作为 seam 误用而 reject，而非只在某些后端。确切集合与理由见 `src/index.ts`。
 
 ## 模型体验
 

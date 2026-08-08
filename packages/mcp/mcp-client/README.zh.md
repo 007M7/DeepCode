@@ -61,7 +61,7 @@ MCP 客户端桥接插件：连接外部 [Model Context Protocol](https://modelc
 - 工具执行：`client.callTool({ name: rawName, arguments }, { signal })`，支持超时 + 中止；公开名称绝不会发给服务器。
 - 规范成功值是 `{ content: JsonValue[], structuredContent? }`；完整的 JSON MCP 块会保留给编程调用方。受支持且已声明的 `outputSchema` 会验证 `structuredContent`；不受支持的 schema 词汇会回退为不受约束的 `JsonValue`。
 - Native／模型渲染保留现有文本投影：文本块以换行连接，图片、音频、资源和不受支持的块会变成占位符。
-- 断开／崩溃时：不自动重新连接。已注册工具会一直保留到插件完成资源释放或成功重新同步，针对已关闭传输的调用可能失败；请通过 HMR 重新加载或重启 Host 来重新连接。
+- 断开／崩溃时：不自动重新连接。已注册工具会一直保留到对插件执行 dispose（资源释放）或成功重新同步，针对已关闭传输的调用可能失败；请通过 HMR 重新加载或重启 Host 来重新连接。
 
 ## 消费的服务
 
@@ -75,7 +75,7 @@ MCP 客户端桥接插件：连接外部 [Model Context Protocol](https://modelc
 
 #### 模型看到的内容
 
-初始发现成功后，每个已声明的 MCP 工具都会显示为名为 `mcp__<serverName>__<rawName>`（或其确定性规范化形式）的原生工具，并携带服务器提供的描述和输入 schema。成功的重新同步会替换整个世代；对插件执行 dispose（资源释放）会移除该世代。
+初始发现成功后，每个已声明的 MCP 工具都会显示为名为 `mcp__<serverName>__<rawName>`（或其确定性规范化形式）的原生工具，并携带服务器提供的描述和输入 schema。成功的重新同步会替换整个世代；对插件执行 dispose 会移除该世代。
 
 #### Token 影响
 

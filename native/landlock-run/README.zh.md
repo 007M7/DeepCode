@@ -39,7 +39,7 @@ if (probe(launcher) !== 'unusable') {
 - `launcherPath()`：当前宿主启动器的绝对路径（有意不检查是否存在；探测结果才是可用性信号）。
 - `probe(launcher?, { timeoutMs? })`：功能性强制执行探测，返回 `'full' | 'partial' | 'unusable'`。
 - `grantArgs({ readOnly?, readWrite? })`：启动器的授权 argv；未授予的一切都被拒绝。
-- `LAUNCHER_BIN` 和 `LAUNCHER_FAILURE_EXIT`（125）：契约常量。成功完成 exec 的子进程也可能返回 125，因此消费者必须同时看到致命诊断和该状态，才能将结果归因为 launcher 失败。
+- `LAUNCHER_BIN` 和 `LAUNCHER_FAILURE_EXIT`（125）：约定常量。成功完成 exec 的子进程也可能返回 125，因此消费方必须同时看到致命诊断和该状态，才能将结果归因为启动器失败。
 
 完整的二进制契约（argv 语法、退出码、报告行）锁定在 [docs/cli-contract.md](docs/cli-contract.md) 中。
 

@@ -36,4 +36,4 @@ Status: implemented
 
 ## 相关
 
-本 Agent Note 只移除冗余的停止动词。轮次中途 steering 仍是一条有意保留的消息路径；完全停稳观察仍通过 `whenIdle()` 完成。最终交付接口包括 `followup()`、`steer()` 和 `inject()`；停止与观察仍通过 `cancel()` 和 `whenIdle()` 完成。
+本 Agent Note 只移除冗余的停止动词。轮次中途 steering 仍是一条有意保留的消息路径；完全停稳观察仍通过 `whenIdle()` 完成。最终的消息投递接口包括 `followup()`、`steer()` 和 `inject()`；停止与观察仍通过 `cancel()` 和 `whenIdle()` 完成。

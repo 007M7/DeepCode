@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-遥测（telemetry）seam：会话事件上报的捕获侧，隔在一个后端契约之后，任何上报 SDK 都无需变形即可满足该契约。捕获侧可跟随实时会话事件，也可按需回放权威会话日志前缀。塑造本包（package）一切设计的边界公理：**本包的职责止于 `emit()`**。批处理、重试、排队与丢失策略都属于后端自身的 SDK，本包既不为其立规，也不做包装。设计依据与被否决的替代方案见[复活 Agent Note（agent 决策记录）](../../../.agents/notes/implemented/feature/2026-07-23-session-telemetry-otel-revival.md)、[反馈门控投递](../../../.agents/notes/implemented/feature/2026-08-05-feedback-gated-session-telemetry.md)与[无缓冲反馈回放](../../../.agents/notes/implemented/simplification/2026-08-06-buffer-free-feedback-telemetry.md)。
+遥测（telemetry）seam：会话事件上报的捕获侧，隔在一个后端约定之后，任何上报 SDK 都无需变形即可满足该约定。捕获侧可跟随实时会话事件，也可按需回放权威会话日志前缀。塑造本包一切设计的边界公理：**本包的职责止于 `emit()`**。批处理、重试、排队与丢失策略都属于后端自身的 SDK，本包既不为其立规，也不做包装。设计依据与被否决的替代方案见[复活 Agent Note](../../../.agents/notes/implemented/feature/2026-07-23-session-telemetry-otel-revival.md)、[反馈门控投递](../../../.agents/notes/implemented/feature/2026-08-05-feedback-gated-session-telemetry.md)与[无缓冲反馈回放](../../../.agents/notes/implemented/simplification/2026-08-06-buffer-free-feedback-telemetry.md)。
 
 ## 后端契约
 

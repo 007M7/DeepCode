@@ -21,7 +21,7 @@ Status: implemented
 - **合并** — `mergeHookOutputs(outputs)`，将多个匹配钩子的输出折叠为一个最严格的 `MergedHookOutcome`：权限优先级 **deny > ask > allow**，halt 在首个 `continue:false` 时粘滞，阻止原因以 `\n\n` 拼接，context/system-messages 按序累积。
 - **`hook/*` 会话事件** — `hook/invoked` / `hook/result`，通过声明合并进入 `SessionEventMap`（仅日志，如 `compact/*`——不是 `SurfaceEventType`），配有 `appendHookInvoked`/`appendHookResult` 辅助函数，确保 invoked/result 配对与由所有者定义的执行关系在各桥接插件间保持一致。`appendHookResult` 还负责定义持久化记录的语义：decision 字符串（钩子解析出的 decision，否则 `continue:false` 时为 `'stop'`，否则为 `'pass'`）和 500 字符的 `stderrSummary` 截断均从本库的 `HookOutput` 派生，而非各桥接插件各自实现。
 
-**方言专属（桥接插件）：** 构建每个事件的 stdin payload（CC 的 base+per-event 字段集 vs Codex 的 snake_case 加 `turn_id`/`model` 额外字段）、方言的 env 与 `${CLAUDE_PLUGIN_ROOT}` 替换（CC）vs 无替换（Codex），以及将方言无关的 `HookOutput`/`MergedHookOutcome` 映射为 harness seam 专属的类型化 Decision（`PreToolDecision`、`PreStepDecision`、`ContinuationDecision`、`PostToolDecision`）。
+**方言专属（桥接插件）：** 构建每个事件的 stdin payload（CC 的 base+per-event 字段集 vs Codex 的 snake_case 加 `turn_id`/`model` 额外字段）、方言的 env 与 `${CLAUDE_PLUGIN_ROOT}` 替换（CC）vs 两者皆无（Codex），以及将方言无关的 `HookOutput`/`MergedHookOutcome` 映射为 harness seam 专属的类型化 Decision（`PreToolDecision`、`PreStepDecision`、`ContinuationDecision`、`PostToolDecision`）。
 
 ## 曾考虑的替代方案
 

@@ -12,7 +12,7 @@ New Session 会启动运行时的页面局部前端 Session Intent；真实 Work
 
 页脚承载 `sidebar.settings`：侧边栏只渲染固定在底部的布局 slot，并共享其栏状态（`wide`）；ui-settings 在此注册触发行和设置面板。
 
-`/client` 导出表层只包含插件主体（`apply`／`inject`）及契约类型；SidebarRoot、行组件和树派生仍由 slot 注册封装在包内。
+`/client` 导出表层只包含插件主体（`apply`／`inject`）及约定类型；SidebarRoot、行组件和树派生仍由 slot 注册封装在包内。
 
 ## 模型体验
 

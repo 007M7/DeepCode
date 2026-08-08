@@ -21,7 +21,7 @@ agent 生命周期、agent 整体活动状态、收件箱条目的进度以及�
 - 待处理消息插入时会发出 `agent/inbox/inserted`，随后要么在原子纯删除领取后发出 `agent/inbox/claimed`，要么在普通删除后发出 `agent/inbox/discarded`。`MessageId` 关联确切消息；持久 splice 坐标保留 placement 与取消信息。inbox 事件描述插入、领取和丢弃，而不是轮次完成。
 - 已领取的轮次经过 pre-step 进入决策和零个或多个请求步骤。自动重试会关闭失败轮次并立即开启另一个轮次；`agent/settled` 只报告该重试链的终态轮次，且仍不同于 agent 整体转换到 `status === 'idle'`。
 
-循环保留四个状态机扩展事件。`agent/pre-step` 对独占的已领取批次执行 reject 或 enter 决策，并在每个拟议步骤前运行。`agent/request` 是冻结调用配置所用的 waterfall；配置只能来自 `await next()`，不再通过重复的位置参数提供。`agent/request-error` 串行确定需要等待的模型请求恢复由谁负责。当轮次原本已经没有剩余工作时，`agent/turn-stopping` 运行；需要再执行一个步骤的监听器使用 `agent.steer()` 记录真实的 steering，循环在所有监听器完成后根据这份数据作出决定。
+循环保留四个状态机扩展事件。`agent/pre-step` 对独占的已领取批次执行 reject 或 enter 决策，并在每个拟议步骤前运行。`agent/request` 是冻结调用配置所用的 waterfall；配置只能来自 `await next()`，不再通过重复的位置参数提供。`agent/request-error` 串行确定需要等待的模型请求恢复由谁负责。当轮次原本已经没有剩余工作时，`agent/turn-stopping` 运行；需要再执行一个步骤的监听器使用 `agent.steer()` 记录真实的 steering（中途引导），循环在所有监听器完成后根据这份数据作出决定。
 
 是否继续和终止执行由数据表达，不再由返回的控制枚举表达。工具调用和已接受的 steering 要求再执行一个步骤。携带 `concludesTurn` 的工具结果会在其所属步骤终止工具循环。循环不再暴露通用的 `ContinuationDecision` 或终止返回通道。
 

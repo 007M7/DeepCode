@@ -8,7 +8,7 @@
 
 `ctx.slots.inject(name, callback)` 将完整的 `SlotMap` key 作为贡献项的依赖，适用于贡献方插件可独立于声明条目激活的情形。声明存在时，它会同步运行 `callback`，否则等待；声明折叠会 dispose（资源释放）回调 effect，重新声明则会再次运行回调。控制器归调用方的插件 fiber 所有，因此卸载贡献方会取消等待或移除其活跃注册项。直接调用 `slots.register()` 向未声明 slot 注册仍会抛出异常。
 
-回调返回一个同步 disposer 或由多个 disposer 构成的 iterable。因此，generator 可以 yield 多个 `slots.register()` 调用，并将它们组成一项事务：setup 失败会回滚先前 yield 的 effect，teardown 则按逆序运行它们。声明生命周期使用专用的单调 declaration epoch（声明代次），因此，即使折叠与重新声明合并在同一次 renderer 通知中，回调仍会重启，而普通条目变更不会重启它。声明绑定的 teardown 与账本变更同步运行，在同一 tick 内的后续注册之前释放运行时资源。详见 [slot 声明注入决策](../../../.agents/notes/implemented/architecture/2026-08-05-slot-declaration-injection.md)。
+回调返回一个同步 disposer 或由多个 disposer 构成的 iterable。因此，generator 可以 yield 多个 `slots.register()` 调用，并将它们组成一项事务：setup 失败会回滚先前 yield 的注册项，teardown 则按逆序运行它们。声明生命周期使用专用的单调 declaration epoch（声明代次），因此，即使折叠与重新声明合并在同一次 renderer 通知中，回调仍会重启，而普通条目变更不会重启它。声明绑定的 teardown 与账本变更同步运行，在同一 tick 内的后续注册之前释放运行时资源。详见 [slot 声明注入决策](../../../.agents/notes/implemented/architecture/2026-08-05-slot-declaration-injection.md)。
 
 ## Workspace 与 Session 列表
 
@@ -18,7 +18,7 @@ Workspace 和 Session 列表各自具有单调的 `pending` → `ready` 基线�
 
 `WorkspacesService.delete(workspaceId)` 在一元响应成功后从客户端投影中移除注册记录；对应的 `host/workspace-removed` 帧具有幂等性，并负责同步其他标签页。Session 状态与当前 Session selection 相互独立，因此 Workspace 消失后，其已纳入客户端投影的 Session 会立即投影到 Ungrouped 下。
 
-`WorkspaceListState.archivedSessionIds` 镜像 Host 的注册表级全局归档集合（一个按 Host 顺序的 `readonly SessionId[]`，仅在成员变化时才替换；需要 O(1) 查询的消费方自建临时 Set）。它是全快照状态：`workspace.list` 基线、`archiveSession` 一元回声和 `host/archived-sessions-changed` 帧各自安装完整集合。`WorkspacesService.archiveSession(sessionId)` 通过 wire 归档；投影层在当前 selection 落入归档集合时统一清空为 New Session 视图状态——一条规则同时覆盖本地回声、其他标签页的帧、以及重连基线恢复出一个离线期间被归档的 selection。在 `workspace.list` 请求进行中安装的集合还会取代该过期基线携带的集合。各分组视图在所有位置隐藏集合成员，而会话行本身仍留在列表 store 中。
+`WorkspaceListState.archivedSessionIds` 镜像 Host 的注册表级全局归档集合（一个按 Host 顺序的 `readonly SessionId[]`，仅在成员变化时才替换；需要 O(1) 查询的消费方自建临时 Set）。它是全快照状态：`workspace.list` 基线、`archiveSession` 一元回声和 `host/archived-sessions-changed` 帧各自安装完整集合。`WorkspacesService.archiveSession(sessionId)` 通过 wire 归档；投影扫描在当前 selection 落入归档集合时将其清空为 New Session 视图状态——一条规则同时覆盖本地回声、其他标签页的帧、以及重连基线恢复出一个离线期间被归档的 selection。在 `workspace.list` 请求进行中安装的集合还会取代该过期基线携带的集合。各分组视图在所有位置隐藏集合成员，而会话行本身仍留在列表 store 中。
 
 SlotsService 分别为 renderer 提供 `useSessions` 与 `useWorkspaces` 的裸 observable；web-react 创建钩子。Workspace 业务状态不会进入 `SessionListState` 或配置项 store。
 
@@ -36,9 +36,9 @@ SlotsService 分别为 renderer 提供 `useSessions` 与 `useWorkspaces` 的裸 
 
 ## 面向人的 transcript（文本记录）
 
-`ConversationSnapshot.nodes` 是面向人的 transcript，不是模型 surface。`TranscriptAdapter` 按日志顺序投影原始窗口。每个 append 来源的 surface 事件（`isAppendSurfaceEvent`）落在它自己的日志位置上，每次落地的压缩（compaction）检查点还会贡献一个 `CompactionSummaryNode` 标记；适配器从不查询 surface 顺序。`SteeringHistory` 会重放该窗口中的持久 `agent/inbox/spliced` 记录：用户来源的消息从 `next-step` 被领取，并以相同身份落成 `user/message` 时，会投影为 `SteeringMessageNode`；从 `next-turn` 领取的消息仍是用户节点，非用户来源的 next-step 输入仍是上下文。`ConversationSnapshot.turnEnds` 把该窗口中的每个已完成轮次映射到其 `turn/end` seq；它独立于 transcript 保留轮次完成状态，使呈现层能够在启用操作前要求存在真实边界。于是一次落地的压缩会保留它在模型侧遮蔽掉的对话：标记报告模型从哪里开始看不见那段历史，而不是把它抹掉。仅模型可见的 replacement 副本不进入记录：被裁剪的 `tool/result` 和重新生成的 `assistant/message` 只为模型重写一个节点，不标记任何边界。检查点是携带压缩 seam 插件来源、且**替换**了一段 surface 范围的 `user/message`；一条 append 的插件来源 `user/message` 是注入上下文，不是压缩。每个上下文节点还携带一份 `provenance` 视图：`contextProvenance()` 只读取持久来源，据此判定该行是 `inject`（注入）还是跨会话的 `recall`（召回），并用该来源已经记录的指令文件路径、被引用会话标题或插件 id 命名其生产者。客户端不保存任何插件 id 表，因此重命名或新挂载的生产者无需客户端发版即可保持可辨识，恢复的会话日志与外部日志的投影结果和实时会话完全一致；没有可读 kind 的来源则降级为无名注入。与之并列的 `contextForm()` 读取生产方声明的 `ContextForm`，这是相互独立的第二根轴：`kind` 说明上下文由谁产生，`form` 说明它是何种形态的信息，因此多个生产方可以共用一种形态。本 UI 版本不呈现的形态投影为 null，按 opaque 渲染。适配器的插件字面量通过对无 cordis 的 [`dsh-compact/checkpoint`](../../compact/compact/README.md) 叶子做仅类型导入，钉在压缩 seam 自己的声明上：在那里改名会让此处 `tsc` 失败；而对该包（package）做**值**导入会被客户端纯度门禁拒绝，包的**根**即便作为类型也无法到达（它会到达 `dsh-session` 的根，其 `Context` 合并会让 host 的 `sessions` 与本程序的冲突）。
+`ConversationSnapshot.nodes` 是面向人的 transcript，不是模型 surface。`TranscriptAdapter` 按日志顺序投影原始窗口。每个 append 来源的 surface 事件（`isAppendSurfaceEvent`）落在它自己的日志位置上，每次落地的压缩（compaction）检查点还会贡献一个 `CompactionSummaryNode` 标记；适配器从不查询 surface 顺序。`SteeringHistory` 会重放该窗口中的持久 `agent/inbox/spliced` 记录：用户来源的消息从 `next-step` 被领取，并在与之匹配的 `user/message` 落地时，会投影为 `SteeringMessageNode`；从 `next-turn` 领取的消息仍是用户节点，非用户来源的 next-step 输入仍是上下文。`ConversationSnapshot.turnEnds` 把该窗口中的每个已完成轮次映射到其 `turn/end` seq；它独立于 transcript 保留轮次完成状态，使呈现层能够在启用操作前要求存在真实边界。于是一次落地的压缩会保留它在模型侧遮蔽掉的对话：标记报告模型从哪里开始看不见那段历史，而不是把它抹掉。仅模型可见的 replacement 副本不进入记录：被裁剪的 `tool/result` 和重新生成的 `assistant/message` 只为模型重写一个节点，不标记任何边界。检查点是携带压缩 seam 插件来源、且**替换**了一段 surface 范围的 `user/message`；一条 append 的插件来源 `user/message` 是注入上下文，不是压缩。每个上下文节点还携带一份 `provenance` 视图：`contextProvenance()` 只读取持久来源，据此判定该行是 `inject`（注入）还是跨会话的 `recall`（召回），并用该来源已经记录的指令文件路径、被引用会话标题或插件 id 命名其生产者。客户端不保存任何插件 id 表，因此重命名或新挂载的生产者无需客户端发版即可保持可辨识，恢复的会话日志与外部日志的投影结果和实时会话完全一致；没有可读 kind 的来源则降级为无名注入。与之并列的 `contextForm()` 读取生产方声明的 `ContextForm`，这是相互独立的第二根轴：`kind` 说明上下文由谁产生，`form` 说明它是何种形态的信息，因此多个生产方可以共用一种形态。本 UI 版本不呈现的形态投影为 null，按 opaque 渲染。适配器的插件字面量通过对无 cordis 的 [`dsh-compact/checkpoint`](../../compact/compact/README.md) 叶子做仅类型导入，钉在压缩 seam 自己的声明上：在那里改名会让此处 `tsc` 失败；而对该包（package）做**值**导入会被客户端纯度门禁拒绝，包的**根**即便作为类型也无法到达（它会到达 `dsh-session` 的根，其 `Context` 合并会让 host 的 `sessions` 与本程序的冲突）。
 
-由于投影按日志顺序，节点数组天然按 seq 单调：仅日志的 `command/run` / `command/done` 节点按 seq 插入，`Session` 按分数 seq 归并被打断的冻结节点，而检查点所引范围落在窗口之外的窗口会渲染出标记且不打印任何日志。标记的摘要文本、被替换条目数量和估算的被遮蔽 token 数量都来自检查点的 `compact/summary` 溯源；窗口切分把溯源留在窗口外时这些字段不可用，后续补上溯源的分页会解析出它们。`CommandNode.outcome.sourceEventSeq` 保留成功命令对该摘要事件的显式引用，使呈现层能够配对 `/compact` 与其检查点，而无须解析结算文案或假定两行相邻。性能契约：一次追加最多物化一个节点，并且仅在加入该节点时复制投影；不改变任何节点的事件保持上一次的数组引用（分片风暴零成本），未变化的节点保持其对象标识。
+由于投影按日志顺序，节点数组天然按 seq 单调：仅日志的 `command/run` / `command/done` 节点按 seq 插入，`Session` 按分数 seq 归并被打断的冻结节点，而检查点所引范围落在窗口之外的窗口会渲染出标记且不打印任何日志。标记的摘要文本、被替换条目数量和估算的被遮蔽 token 数量都来自检查点的 `compact/summary` 溯源；窗口切分把溯源留在窗口外时这些字段不可用，后续补上溯源的分页会解析出它们。`CommandNode.outcome.sourceEventSeq` 保留成功命令对该摘要事件的显式引用，使呈现层能够配对 `/compact` 与其检查点，而无须解析结算文案或假定两行相邻。性能约定：一次追加最多物化一个节点，并且仅在加入该节点时复制投影；不改变任何节点的事件保持上一次的数组引用（分片风暴零成本），未变化的节点保持其对象标识。
 
 ## 请求检查
 
@@ -54,7 +54,7 @@ SlotsService 分别为 renderer 提供 `useSessions` 与 `useWorkspaces` 的裸 
 
 ## 模型重试投影
 
-Session 对象会在事件 wire 边界依据生产方的完整字段契约，验证由插件负责、按提供方路由的 `llm/retry` 载荷，包括计时器、整数、状态、提供方延迟和非空诊断字段的边界。有效事件会移除对应失败步骤的流式输出片段，并在该事件的序列位置插入一条持久的重试提示。该提示在后续重试轮次开始前为 `scheduled`；源轮次中止或被 dispose 时，会将该提示标记为 `cancelled`，重试轮次则会将其标记为 `started`。normal mode 提示携带其有限上限；always mode 提示则保持显式无界。没有重试的终态 `turn/end` 错误会从持久消息与可选错误码投影出一个 `turn-error` 节点；AUTH 投影会把可能回显凭据片段的提供方文案替换为 `API key is invalid`，原始诊断仍保留在会话日志中。进入重试的失败则只保留该次尝试的重试提示。窗口重建与历史回放应用相同的投影，因此刷新既不会让已丢弃的分片重新出现，也不会丢失终态失败反馈。可见但尚未定稿的输出会在终态错误旁冻结为中断的 assistant 节点。
+Session 对象会在事件 wire 边界依据生产方的完整字段约定，验证由插件负责、按提供方路由的 `llm/retry` 载荷，包括对计时器、整数、状态、提供方延迟和非空诊断字段的约束。有效事件会移除对应失败步骤的流式输出片段，并在该事件的序列位置插入一条持久的重试提示。该提示在后续重试轮次开始前为 `scheduled`；源轮次中止或被 dispose 时，会将该提示标记为 `cancelled`，重试轮次则会将其标记为 `started`。normal mode 提示携带其有限上限；always mode 提示则保持显式无界。没有重试的终态 `turn/end` 错误会从持久消息与可选错误码投影出一个 `turn-error` 节点；AUTH 投影会把可能回显凭据片段的提供方文案替换为 `API key is invalid`，原始诊断仍保留在会话日志中。进入重试的失败则只保留该次尝试的重试提示。窗口重建与历史回放应用相同的投影，因此刷新既不会让已丢弃的分片重新出现，也不会丢失终态失败反馈。可见但尚未定稿的输出会在终态错误旁冻结为中断的 assistant 节点。
 
 ## 会话 fork
 
