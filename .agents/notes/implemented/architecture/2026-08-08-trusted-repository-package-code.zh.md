@@ -14,7 +14,7 @@
 
 已配置的 repository 包是受信任代码。其 `.dsh-plugin/package.json` 可以连同 `dsh.skills` 和 `dsh.mcpServers` 声明 `dsh.entry`，也可以用它取代二者；`dsh.entry` 是指向该包内已编译 ESM Cordis 插件的相对路径。至少需要一种贡献。入口可以使用 namespace 导出或 default export，并沿用 Cordis 对 `name`、`inject`、`Config`、注册、启动失败和 effect 作用域清理的常规语义。
 
-包自行负责其 NPM 依赖和构建工具链。`scripts.prepack` 是由包作者编写的非空命令，必须调用宿主提供的 `dsh-plugin-prepare`，但可以先运行 `tsc`、`tsdown` 或其他任意构建。DSH 既不解析该 shell 程序，也不编译 repository 源码。辅助程序会在前序构建之后校验元数据，要求已配置入口解析到 `.dsh-plugin` 内的文件，校验并复制已声明的静态资源，再写入已准备的 `dsh-plugin.mjs` 包装层。已安装包必须保留包含该辅助命令的 `prepack` 声明；包装层或构建输出缺失会在缓存 generation 可用前导致失败。
+包自行负责其 NPM 依赖和构建工具链。它声明已发布的 `@deepseek-ai/dsh-repository-plugin` 包以取得 `dsh-plugin-prepare` 可执行文件。`scripts.prepack` 是由包作者编写的非空命令，必须调用该依赖提供的辅助程序，但可以先运行 `tsc`、`tsdown` 或其他任意构建。DSH 不会注入辅助程序，也不会解析该 shell 程序或编译 repository 源码。辅助程序会在前序构建之后校验元数据，要求已配置入口解析到 `.dsh-plugin` 内的文件，校验并复制已声明的静态资源，再写入已准备的 `dsh-plugin.mjs` 包装层。已安装包必须保留包含该辅助命令的 `prepack` 声明；依赖、包装层或构建输出缺失会在缓存 generation 可用前导致失败。
 
 生成的包装层先挂载 DSH 自有的静态运行时来处理 skill 和 MCP 定义，再动态导入显式入口、解包其导出并将其挂载为子级。两个子级都必须进入 Cordis `ACTIVE`；无法满足的 `inject` 或启动异常会拒绝 repository Loader 事务，而不会提交未激活的 generation。Loader 移除、替换失败和父级 dispose（资源释放）会一并撤销入口、skill 提供方、MCP client 及其 effect。
 
@@ -48,4 +48,4 @@
 
 repository 格式测试通过真实 Loader 准备并挂载使用 default export 的代码入口，观察入口自有服务，移除 Loader 配置项，再观察清理；测试还保留针对 skill／MCP 准备、路径包含约束、包损坏、等待服务和回滚的覆盖。MCP 生命周期测试要求 `apply` 只在初始工具发布后完成，保留选择收束连接失败的能力，并证明严格启动拒绝仍会关闭 client。
 
-Node 24 消费方验收使用实际构建的 `dsh run` 命令、全新 DSH 主目录，以及锁定到 PR（Pull Request）的精确 head SHA 且经过认证的私有 GitHub 源。该 repository 包安装固定版本的运行时依赖与开发依赖，在 `prepack` 期间对 TypeScript 进行类型检查和打包，准备一个 skill、一个 stdio MCP server 及 `dsh.entry`，在首个真实模型请求中暴露 skill 与 MCP schema，执行 MCP 工具，并让已编译 Cordis 入口向结果追加第二个标记，供后续请求观察。缓存断言要求打包安装中不存在源码文件，同时必须存在两个已构建模块、其已安装依赖、复制资源和生成包装层。
+Node 24 消费方验收使用实际构建的 `dsh run` 命令、全新 DSH 主目录，以及锁定到 PR（Pull Request）的精确 head SHA 且经过认证的私有 GitHub 源。测试会采用发布时相同的移除 `private` 字段和固定 workspace 依赖版本流程，对当前 repository 插件构建进行打包；再由作业本地 NPM 注册表提供其 `packument` 与 tarball，并把 Git 包的常规 scoped NPM 解析指向该注册表。该 repository 包从模拟发布的依赖取得 `dsh-plugin-prepare`，安装其他固定版本的运行时依赖与开发依赖，在 `prepack` 期间对 TypeScript 进行类型检查和打包，准备一个 skill、一个 stdio MCP server 及 `dsh.entry`，在首个真实模型请求中暴露 skill 与 MCP schema，执行 MCP 工具，并让已编译 Cordis 入口向结果追加第二个标记，供后续请求观察。注册表与缓存断言要求 NPM 解析必须命中模拟发布，打包安装中不存在源码文件，同时必须存在两个已构建模块、其已安装依赖、复制资源和生成包装层。

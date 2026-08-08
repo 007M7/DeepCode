@@ -14,7 +14,7 @@
 
 `@deepseek-ai/dsh-repository-plugin` 负责 `.dsh-plugin` 包内的静态贡献子格式：skill 根和一个通用 `.mcp.json`。其包元数据使用 `package.json#dsh.skills` 声明相对 skill 根路径，使用 `package.json#dsh.mcpServers` 声明相对 MCP 文档路径。每条路径都可以离开 `.dsh-plugin` 以复用仓库内容，但必须留在包含该 `.dsh-plugin` 的目录之下；因此，一个嵌套且可选择的插件可以拥有其包上方相邻的子树，却不能访问无关宿主路径。该包还可以声明由[受信任 repository 包决策](2026-08-08-trusted-repository-package-code.md)负责的显式代码入口，并且至少需要一种代码或静态贡献。
 
-`.dsh-plugin` 包声明非空 `scripts.prepack`，调用 `dsh-plugin-prepare` 且不依赖 DSH NPM 包。在 Git 安装期间，独立运行时会从自身构建产物中临时提供该命令，并将其放入隔离的生命周期 `PATH`；`prepack` 会在依赖安装后、pnpm 打包选定子目录前运行，即使插件嵌套在另一个包管理器工作区内也不例外。包可以先构建其代码。该辅助程序会校验元数据与源码类型，严格解析 `.mcp.json`，把静态资源复制到 `dsh-plugin-assets`，并写入 `dsh-plugin.mjs`；源码 loader 会在导入该包装层前重新校验已安装包的生命周期元数据是否包含辅助命令。仅含静态贡献的包仍会获得无 import 包装层，其中包含规范化 manifest（元数据清单）、由服务派生的 `inject` 列表，以及对 `dsh-repository-plugin` Loader builtin 的委托。宿主自有命令的设计依据见[Git 源准备修复](../bug-fix/2026-08-08-host-owned-git-repository-plugin-preparation.md)。
+`.dsh-plugin` 包将已发布的 `@deepseek-ai/dsh-repository-plugin` 包声明为开发依赖，并声明非空 `scripts.prepack` 来调用其 `dsh-plugin-prepare` 可执行文件。在 Git 安装期间，pnpm 会按所选包自身的 manifest（元数据清单）安装该依赖；`prepack` 会在依赖安装后、pnpm 打包选定子目录前运行，即使插件嵌套在另一个包管理器工作区内也不例外。包可以先构建其代码。该辅助程序会校验元数据与源码类型，严格解析 `.mcp.json`，把静态资源复制到 `dsh-plugin-assets`，并写入 `dsh-plugin.mjs`；源码 loader 会在导入该包装层前重新校验已安装包的生命周期元数据是否包含辅助命令。仅含静态贡献的包仍会获得无 import 包装层，其中包含规范化 manifest、由服务派生的 `inject` 列表，以及对 `dsh-repository-plugin` Loader builtin 的委托。依赖与 workspace 隔离的设计依据见[Git 源准备修复](../bug-fix/2026-08-08-npm-backed-git-repository-plugin-preparation.md)。
 
 加载 DSH package 会以 effect 方式注册该 builtin。生成的包装模块使用 `import.meta.url` 把 builtin 挂载为自己的子级，因此所有贡献都归属于包装 fiber，并在 Loader 移除或回滚时消失。Builtin 会在读取资源前重新校验已准备 manifest 与路径包含关系。它只组合现有实现，而不自行注册 skills 或 MCP 工具。
 

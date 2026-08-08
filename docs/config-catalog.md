@@ -1186,7 +1186,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/self-modification/repository-plugin/src/index.ts:44`](../packages/self-modification/repository-plugin/src/index.ts)
+Source: [`packages/self-modification/repository-plugin/src/index.ts:43`](../packages/self-modification/repository-plugin/src/index.ts)
 
 ## `@deepseek-ai/dsh-sandbox-local`
 

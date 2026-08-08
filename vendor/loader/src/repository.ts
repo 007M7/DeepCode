@@ -26,8 +26,6 @@ export type RepositoryInstall = (directory: string) => Promise<void>
 export interface RepositoryCacheOptions {
   /** Override the isolated package installation boundary. */
   install?: RepositoryInstall
-  /** Command directories resolved absolutely and prepended to package lifecycle `PATH`. */
-  executableDirectories?: readonly string[]
 }
 
 interface CacheMarker {
@@ -38,14 +36,13 @@ function scrubEnvironment(environment: NodeJS.ProcessEnv = process.env): NodeJS.
   return Object.fromEntries(Object.entries(environment).filter(([name]) => !SENSITIVE_ENV_PATTERN.test(name)))
 }
 
-function installEnvironment(executableDirectories: readonly string[]): NodeJS.ProcessEnv {
+function installEnvironment(commandDirectory: string): NodeJS.ProcessEnv {
   const scrubbed = scrubEnvironment()
-  if (executableDirectories.length === 0) return scrubbed
   const path = Object.entries(scrubbed).find(([name]) => name.toUpperCase() === 'PATH')?.[1]
   const withoutPath = Object.fromEntries(Object.entries(scrubbed).filter(([name]) => name.toUpperCase() !== 'PATH'))
   return {
     ...withoutPath,
-    PATH: [...executableDirectories, ...(path === undefined ? [] : [path])].join(delimiter),
+    PATH: [commandDirectory, ...(path === undefined ? [] : [path])].join(delimiter),
   }
 }
 
@@ -62,10 +59,7 @@ function appendOutput(current: string, chunk: Uint8Array): string {
   return combined.length <= MAX_ERROR_OUTPUT ? combined : combined.slice(-MAX_ERROR_OUTPUT)
 }
 
-async function installWithBundledPnpm(
-  directory: string,
-  executableDirectories: readonly string[],
-): Promise<void> {
+async function installWithBundledPnpm(directory: string): Promise<void> {
   const require = createRequire(import.meta.url)
   const pnpmManifest = require.resolve('pnpm')
   const pnpmBin = join(dirname(pnpmManifest), 'bin', 'pnpm.mjs')
@@ -92,7 +86,7 @@ async function installWithBundledPnpm(
         '--reporter=append-only',
       ], {
         cwd: directory,
-        env: installEnvironment([commandDirectory, ...executableDirectories]),
+        env: installEnvironment(commandDirectory),
         shell: false,
         stdio: ['ignore', 'pipe', 'pipe'],
       })
@@ -174,12 +168,11 @@ export class RepositoryCache {
 
   /**
    * @param directory - caller-owned persistent cache root.
-   * @param options - isolated installer override and lifecycle command directories.
+   * @param options - isolated installer override.
    */
   constructor(directory: string, options: RepositoryCacheOptions = {}) {
     this.directory = resolve(directory)
-    const executableDirectories = (options.executableDirectories ?? []).map(entry => resolve(entry))
-    this.install = options.install ?? (staging => installWithBundledPnpm(staging, executableDirectories))
+    this.install = options.install ?? installWithBundledPnpm
   }
 
   /**

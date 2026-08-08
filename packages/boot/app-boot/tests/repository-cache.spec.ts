@@ -115,24 +115,9 @@ describe('RepositoryCache', () => {
   it('isolates and prepares a .dsh-plugin Git subpath from an enclosing pnpm workspace', { timeout: 60_000 }, async () => {
     const root = await temporaryRoot('repository-pnpm')
     const repository = join(root, 'source')
-    const executableDirectory = join(root, 'bin')
-    await mkdir(executableDirectory)
-    await writeFile(join(executableDirectory, 'dsh-plugin-prepare'), [
-      '#!/usr/bin/env node',
-      "const { cpSync, mkdirSync, writeFileSync } = require('node:fs')",
-      "mkdirSync('dsh-plugin-assets/skills', { recursive: true })",
-      "cpSync('../skills', 'dsh-plugin-assets/skills/0', { recursive: true })",
-      "writeFileSync('dsh-plugin.mjs', 'export function apply() {}\\n')",
-      "writeFileSync('prepared.txt', `${process.env.REPOSITORY_TEST_VISIBLE ?? 'absent'}|${process.env.REPOSITORY_TEST_TOKEN ?? 'absent'}\\n`)",
-      '',
-    ].join('\n'), { mode: 0o700 })
-    await writeFile(join(executableDirectory, 'dsh-plugin-prepare.cmd'), [
-      '@echo off',
-      'node "%~dp0\\dsh-plugin-prepare" %*',
-      '',
-    ].join('\r\n'))
     await mkdir(join(repository, '.dsh-plugin'), { recursive: true })
     await mkdir(join(repository, 'build-helper'), { recursive: true })
+    await mkdir(join(repository, 'prepare-helper'), { recursive: true })
     await mkdir(join(repository, 'skills', 'fixture'), { recursive: true })
     await writeFile(join(repository, 'package.json'), `${JSON.stringify({
       name: 'repository-fixture',
@@ -160,12 +145,29 @@ describe('RepositoryCache', () => {
       "require('node:fs').writeFileSync('dependency-built.txt', 'dependency available\\n')",
       '',
     ].join('\n'), { mode: 0o700 })
+    await writeFile(join(repository, 'prepare-helper', 'package.json'), `${JSON.stringify({
+      name: 'repository-prepare-helper',
+      version: '1.0.0',
+      bin: { 'dsh-plugin-prepare': 'index.js' },
+    })}\n`)
+    await writeFile(join(repository, 'prepare-helper', 'index.js'), [
+      '#!/usr/bin/env node',
+      "const { cpSync, mkdirSync, writeFileSync } = require('node:fs')",
+      "mkdirSync('dsh-plugin-assets/skills', { recursive: true })",
+      "cpSync('../skills', 'dsh-plugin-assets/skills/0', { recursive: true })",
+      "writeFileSync('dsh-plugin.mjs', 'export function apply() {}\\n')",
+      "writeFileSync('prepared.txt', `${process.env.REPOSITORY_TEST_VISIBLE ?? 'absent'}|${process.env.REPOSITORY_TEST_TOKEN ?? 'absent'}\\n`)",
+      '',
+    ].join('\n'), { mode: 0o700 })
     await writeFile(join(repository, 'skills', 'fixture', 'SKILL.md'), 'repository skill source\n')
     await writeFile(join(repository, '.dsh-plugin', 'package.json'), `${JSON.stringify({
       name: 'repository-plugin-fixture',
       version: '1.0.0',
       scripts: { prepack: 'repository-build-helper && dsh-plugin-prepare' },
-      devDependencies: { 'repository-build-helper': 'file:../build-helper' },
+      devDependencies: {
+        'repository-build-helper': 'file:../build-helper',
+        'repository-prepare-helper': 'file:../prepare-helper',
+      },
       dsh: { skills: ['../skills'] },
     })}\n`)
     await execFileAsync('git', ['init', '--quiet'], { cwd: repository })
@@ -180,9 +182,7 @@ describe('RepositoryCache', () => {
     vi.stubEnv('REPOSITORY_TEST_VISIBLE', 'visible')
     vi.stubEnv('REPOSITORY_TEST_TOKEN', 'hidden')
 
-    const installed = await new RepositoryCache(join(root, 'cache'), {
-      executableDirectories: [executableDirectory],
-    }).resolve(specifier)
+    const installed = await new RepositoryCache(join(root, 'cache')).resolve(specifier)
     await expect(readFile(join(installed, 'dependency-built.txt'), 'utf8')).resolves.toBe('dependency available\n')
     await expect(readFile(join(installed, 'prepared.txt'), 'utf8')).resolves.toBe('visible|absent\n')
     await expect(readFile(join(installed, 'dsh-plugin.mjs'), 'utf8')).resolves.toContain('export function apply')

@@ -14,11 +14,11 @@ export const PREPARED_ENTRY_FILENAME = 'dsh-plugin.mjs'
 export const PREPARED_ASSET_DIRECTORY = 'dsh-plugin-assets'
 /** Loader builtin used by every generated repository wrapper. */
 export const REPOSITORY_PLUGIN_BUILTIN = 'dsh-repository-plugin'
-/** Host-owned command that repository package `prepack` lifecycles must invoke. */
+/** Dependency-provided command that repository package `prepack` lifecycles must invoke. */
 export const REPOSITORY_PLUGIN_PREPARE_COMMAND = 'dsh-plugin-prepare'
 
 /**
- * Whether a package lifecycle declaration names the host preparation helper.
+ * Whether a package lifecycle declaration names the preparation dependency's helper.
  * @param script - package-authored lifecycle command.
  * @returns true when the required helper command is present.
  */

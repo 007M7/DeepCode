@@ -36,6 +36,26 @@
     "@deepseek-ai/dsh-skill-local": "^0.0.1",
     "cordis": "^4.0.0-rc.7"
   },
+  "peerDependenciesMeta": {
+    "@cordisjs/plugin-loader": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-invariants": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-mcp-client": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-paths": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-skill-local": {
+      "optional": true
+    },
+    "cordis": {
+      "optional": true
+    }
+  },
   "dependencies": {
     "zod": "^4.4.3"
   },

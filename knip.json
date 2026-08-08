@@ -710,6 +710,9 @@
       "project": [
         "src/**/*.ts"
       ],
+      "ignoreDependencies": [
+        "@deepseek-ai/dsh-repository-plugin"
+      ],
       "ignoreBinaries": [
         "dsh-plugin-prepare"
       ]

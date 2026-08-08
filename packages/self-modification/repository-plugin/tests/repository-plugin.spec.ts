@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -14,7 +14,6 @@ import * as RepositoryPlugin from '@deepseek-ai/dsh-repository-plugin'
 import * as RepositoryPluginInvariant from '@deepseek-ai/dsh-repository-plugin/invariant'
 import { parsePreparedPluginConfig } from '../src/format.ts'
 import {
-  createRepositoryPrepareCommand,
   loadPreparedRepository,
   resolveRepositoryCacheDirectory,
   resolveRepositorySpecifier,
@@ -87,7 +86,7 @@ describe('dsh-plugin-prepare', () => {
       .resolves.toContain('mcp.expo.dev')
   })
 
-  it('preserves a compiled package entry and accepts a build before the host prepare command', async () => {
+  it('preserves a compiled package entry and accepts a build before the package prepare command', async () => {
     const root = await temporaryDirectory('compiled-entry')
     const directory = await writePlugin(root, 'compiled-entry-fixture', {
       entry: './lib/plugin.mjs',
@@ -406,17 +405,6 @@ describe('prepared repository plugin Loader composition', () => {
 })
 
 describe('configured GitHub repository sources', () => {
-  it('creates host-owned prepare commands and removes them idempotently', async () => {
-    const command = await createRepositoryPrepareCommand()
-    expect(await readFile(join(command.directory, RepositoryPlugin.REPOSITORY_PLUGIN_PREPARE_COMMAND), 'utf8'))
-      .toContain(process.execPath)
-    expect(await readFile(join(command.directory, `${RepositoryPlugin.REPOSITORY_PLUGIN_PREPARE_COMMAND}.cmd`), 'utf8'))
-      .toContain(process.execPath)
-    await command.dispose()
-    await command.dispose()
-    await expect(stat(command.directory)).rejects.toMatchObject({ code: 'ENOENT' })
-  })
-
   it('defaults an omitted source list and rejects unknown configuration fields', () => {
     expect(RepositoryPlugin.Config.parse(undefined)).toEqual({ repositories: [] })
     expect(RepositoryPlugin.Config.safeParse({ repositories: [], unexpected: true }).success).toBe(false)
@@ -608,7 +596,7 @@ describe('configured GitHub repository sources', () => {
     await ctx.fiber.dispose()
   })
 
-  it('rejects an installed source whose prepack omits the host prepare command', async () => {
+  it('rejects an installed source whose prepack omits the package prepare command', async () => {
     const root = await temporaryDirectory('installed-skipped-prepare')
     await writeFile(join(root, 'package.json'), JSON.stringify({
       name: 'installed-skipped-prepare',
