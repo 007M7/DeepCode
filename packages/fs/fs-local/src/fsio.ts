@@ -565,15 +565,16 @@ export async function readForEdit(
 }
 
 /**
- * Best-effort overwrite diff basis. Binary, invalid UTF-8, or a file at/above the byte limit
- * returns `null` so the write still succeeds and presentation falls back to a whole-file diff.
- * The bound is enforced on the opened descriptor rather than a prior path stat, so concurrent
- * external replacement or size changes cannot make this helper buffer more than `maxBytes`.
- * @param absolutePath - the file to read (typically a target key); it must exist.
+ * Best-effort overwrite diff basis. Binary, invalid UTF-8, a file at/above the byte limit,
+ * or a file deleted/made unreadable after the caller's preflight returns `null` so the write
+ * still succeeds and presentation falls back to a whole-file diff. The bound is enforced on
+ * the opened descriptor rather than a prior path stat, so concurrent external replacement or
+ * size changes cannot make this helper buffer more than `maxBytes`.
+ * @param absolutePath - the file to read (typically a target key).
  * @param maxBytes - exclusive upper bound for bytes held as the contextual-diff basis.
- * @param signal - aborts the read (`FS_ABORTED`).
+ * @param signal - aborts the read (`FS_ABORTED`); cancellation propagates, unlike I/O failure.
  * @returns the LF-normalized text, or null for a non-regular, at/above-limit, binary, non-UTF-8,
- * or descriptor-size-changed file.
+ * descriptor-size-changed, or unreadable file.
  */
 export async function readTextForDiff(
   absolutePath: string,
@@ -581,41 +582,50 @@ export async function readTextForDiff(
   signal?: AbortSignal,
 ): Promise<string | null> {
   throwIfAborted(signal, 'read')
-  const handle = await open(absolutePath, 'r')
-  let buffer: Buffer
-  let total = 0
-  let openedSize = 0
   try {
-    throwIfAborted(signal, 'read')
-    const info = await handle.stat()
-    throwIfAborted(signal, 'read')
-    /* v8 ignore next -- requires a post-preflight replacement with a non-file;
-     * direct coverage is not portable to Windows. */
-    if (!info.isFile()) return null
-    if (info.size >= maxBytes) return null
-    openedSize = info.size
-    // One extra byte detects growth after stat without retaining per-read backing buffers.
-    buffer = Buffer.allocUnsafe(openedSize + 1)
-    while (total < buffer.length) {
+    const handle = await open(absolutePath, 'r')
+    let buffer: Buffer
+    let total = 0
+    let openedSize = 0
+    try {
       throwIfAborted(signal, 'read')
-      const length = Math.min(buffer.length - total, DIFF_BASIS_READ_CHUNK_BYTES)
-      const { bytesRead } = await handle.read(buffer, total, length, null)
-      if (bytesRead === 0) break
-      total += bytesRead
+      const info = await handle.stat()
+      throwIfAborted(signal, 'read')
+      if (!info.isFile()) return null
+      if (info.size >= maxBytes) return null
+      openedSize = info.size
+      // One extra byte detects growth after stat without retaining per-read backing buffers.
+      buffer = Buffer.allocUnsafe(openedSize + 1)
+      while (total < buffer.length) {
+        throwIfAborted(signal, 'read')
+        const length = Math.min(buffer.length - total, DIFF_BASIS_READ_CHUNK_BYTES)
+        const { bytesRead } = await handle.read(buffer, total, length, null)
+        if (bytesRead === 0) break
+        total += bytesRead
+      }
+    } finally {
+      await handle.close()
     }
-  } finally {
-    await handle.close()
-  }
-  throwIfAborted(signal, 'read')
-  if (total !== openedSize) return null
-  const basis = buffer.subarray(0, total)
-  if (basis.includes(0)) return null
-  try {
-    return normalizeLineEndings(new TextDecoder('utf-8', { fatal: true }).decode(basis))
+    throwIfAborted(signal, 'read')
+    if (total !== openedSize) return null
+    const basis = buffer.subarray(0, total)
+    if (basis.includes(0)) return null
+    try {
+      return normalizeLineEndings(new TextDecoder('utf-8', { fatal: true }).decode(basis))
+    } catch (error: unknown) {
+      /* v8 ignore next 2 -- TextDecoder({fatal}) only throws TypeError on invalid bytes;
+       * any other throw is an unreachable runtime fault. */
+      if (!(error instanceof TypeError)) throw error
+      return null
+    }
   } catch (error: unknown) {
-    /* v8 ignore next 2 -- TextDecoder({fatal}) only throws TypeError on invalid bytes; any other throw is an unreachable runtime fault. */
-    if (!(error instanceof TypeError)) throw error
-    return null
+    // Cancellation is the caller's intent and still propagates.
+    if (error instanceof FsError) throw error
+    // A descriptor-phase errno — deleted or made unreadable after the caller's
+    // preflight, or a faulted read — costs only the optional basis: a committed
+    // write must not fail for a presentation-only pre-read.
+    if (error instanceof Error && 'code' in error) return null
+    throw error
   }
 }
 

@@ -398,6 +398,64 @@ describe('readTextForDiff', () => {
     }
   })
 
+  it('returns null when the file vanishes before the basis open (deletion race)', async () => {
+    expect(await readTextForDiff(join(dir, 'deleted-after-preflight.txt'), 32)).toBeNull()
+  })
+
+  it('returns null when the opened descriptor is no longer a regular file', async () => {
+    const file = join(dir, 'swapped.txt')
+    await writeFile(file, 'abcdef')
+    vi.resetModules()
+    vi.doMock('node:fs/promises', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('node:fs/promises')>()
+      return {
+        ...actual,
+        async open(...args: Parameters<typeof actual.open>) {
+          const handle = await actual.open(...args)
+          return {
+            close: handle.close.bind(handle),
+            read: handle.read.bind(handle),
+            async stat(...statArgs: Parameters<typeof handle.stat>) {
+              const info = await handle.stat(...statArgs)
+              return Object.assign(info, { isFile: () => false })
+            },
+          }
+        },
+      }
+    })
+
+    try {
+      const { readTextForDiff: isolatedReadTextForDiff } = await import('../src/fsio.ts')
+      expect(await isolatedReadTextForDiff(file, 32)).toBeNull()
+    } finally {
+      vi.doUnmock('node:fs/promises')
+      vi.resetModules()
+    }
+  })
+
+  it('propagates a non-errno fault instead of masking it as a null basis', async () => {
+    const file = join(dir, 'faulted.txt')
+    await writeFile(file, 'abcdef')
+    vi.resetModules()
+    vi.doMock('node:fs/promises', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('node:fs/promises')>()
+      return {
+        ...actual,
+        async open() {
+          throw new TypeError('forged programming fault')
+        },
+      }
+    })
+
+    try {
+      const { readTextForDiff: isolatedReadTextForDiff } = await import('../src/fsio.ts')
+      await expect(isolatedReadTextForDiff(file, 32)).rejects.toThrow('forged programming fault')
+    } finally {
+      vi.doUnmock('node:fs/promises')
+      vi.resetModules()
+    }
+  })
+
   it('returns null for binary and invalid UTF-8 without blocking the caller write', async () => {
     await writeFile(join(dir, 'bin'), Buffer.from([0x68, 0x00, 0x69]))
     await writeFile(join(dir, 'bad'), Buffer.from([0x68, 0xff, 0x69]))
