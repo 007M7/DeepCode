@@ -14,7 +14,7 @@ export interface DisclosureRowProps {
   expandOnRowClick?: boolean | undefined
   /** Replaces the collapsed icon with a chevron while the row is hovered. */
   previewChevron?: boolean | undefined
-  /** Keeps `collapsedContent` inline while open (ToolRow's summary stays readable next to the expanded card). */
+  /** Keeps `collapsedContent` inline while open. */
   keepContentWhenOpen?: boolean | undefined
   collapsedContent?: ReactNode
   children?: ReactNode
@@ -28,7 +28,7 @@ export interface DisclosureRowProps {
 /**
  * Render one disclosure header and its controlled expanded content.
  * @param props - Visual content, controlled state, and interaction policy.
- * @returns The disclosure row.
+ * @returns the disclosure row.
  */
 export function DisclosureRow({
   icon,
