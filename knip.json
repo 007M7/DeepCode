@@ -519,16 +519,6 @@
         "tests/**/*.ts"
       ]
     },
-    "packages/examples/cli-demo": {
-      "entry": [
-        "tests/**/*.spec.ts",
-        "tests/**/*.e2e.ts"
-      ],
-      "project": [
-        "src/**/*.ts",
-        "tests/**/*.ts"
-      ]
-    },
     "packages/examples/jsonrpc-demo": {
       "project": [
         "src/**/*.ts"

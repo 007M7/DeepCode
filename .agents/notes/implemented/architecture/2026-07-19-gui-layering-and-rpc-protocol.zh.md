@@ -9,7 +9,7 @@ Status: implemented
 ## Problem
 
 需要提供 UI 对接层，除已有 ACP/stdio基础版本外，还需要 Web(server) 、 Electron 、等其他产品 UI 形态。我们把这些形态统一称为 Client。希望有如下能力支持:
-- 以 `dsh` 进程，同时支持 `dsh web`(启动) 和 `dsh -p`(headless) ，一个进程两种模式（设计预留）
+- 以 `dsh` 进程，同时支持 `dsh web`(启动) 和 `dsh run`(headless) ，一个进程两种模式（设计预留）
 - 以与 `dsh web` 同构的 Web 技术形态，在 Electron 中启动
 
 那么当前的工程代码需要稳定的分层职责模型，便于以后接入各类 client 形态。
@@ -29,7 +29,7 @@ Status: implemented
     - **fetch 到达插件包**（`ui-layout`、`ui-sidebar`、`ui-conversation`、`ui-trajectory`）：双入口——根入口是 node 半边（空 `apply`，其存在是为了让 host Loader 管辖生命周期、让 web 插件注册表发现 package.json 的 `dshClient` 声明）；实现住在 `src/client/` 下，经 `./client` 子路径发布（tsdown 闭包工厂 bundle）。跨插件消费 `/client` 只限类型；值层面的协作走 cordis 服务。
 - `apps/` 作为对外导出的应用形态入口，可以由 Client / Host 混合组装。
     - `apps/web`（`dsh-frontend`）是 vite 应用：`dsh-client-web` 导出的壳表面之上的一层薄 `main.ts`。
-    - `apps/cli`（`@deepseek-ai/dsh`）做形态分发：`dsh web` = startHost + webserver + 构建出的 `dsh-frontend` dist；`dsh -p` = headless 进程内直调，零 HTTP。
+    - `apps/cli`（`@deepseek-ai/dsh`）做形态分发：`dsh web` = startHost + webserver + 构建出的 `dsh-frontend` dist；`dsh run` = headless 进程内直调，零 HTTP。
     - 将来的 Electron 形态经由 IPC fetch 载体复用同一套 web client 包。
 
 ```
@@ -213,7 +213,7 @@ export type ResponseValue<K> =
 
 | 子类 | 所在包 | doFetch | 用途 |
 |---|---|---|---|
-| `InProcessApiClient` | apiproxy 本包 | 注入的 `{ fetch }` handler | **同构点**：`new InProcessApiClient(toFetchHandler(api))` 全程不过网络但真跑 wire 序列化/zod/SSE 帧——`dsh -p` headless 即协议第二真实消费者 |
+| `InProcessApiClient` | apiproxy 本包 | 注入的 `{ fetch }` handler | **同构点**：`new InProcessApiClient(toFetchHandler(api))` 全程不过网络但真跑 wire 序列化/zod/SSE 帧——`dsh run` headless 即协议第二真实消费者 |
 | `WebApiClient` | dsh-client-connection | `globalThis.fetch` 上行 + 每逻辑流一条同源 WebSocket 下行 | 浏览器形态；物理边界见 [WebSocket 下行载体](2026-08-04-websocket-downlink-carrier.md) |
 | `FixtureApiClient` | dsh-client-connection | 不用（协议层覆写） | 无 server 的 UI 开发（`?fixture`）：覆写 `callUnary`/`openMux`/`openHost`/`respond` 虚方法，自己就是假 server（帧 rpcId 由它 mint，语义自洽） |
 | （将来）IPC 桥子类 | apps/electron | IPC 序列化往返 | 仅换 doFetch，契约/基类零改 |
