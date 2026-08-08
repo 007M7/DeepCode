@@ -124,6 +124,15 @@ async function main(): Promise<number> {
 
 main().then(
   (exitCode) => {
+    // Exit-code mirroring is full-width on Windows, verified empirically on
+    // this machine (Windows 11 build 26200, Node 24): a child that exits
+    // with the NTSTATUS 0xC0000005 (STATUS_ACCESS_VIOLATION) is read back
+    // by GetExitCodeProcess as the uint32 3221225477, and after
+    // process.exitCode = 3221225477 the parent observes exactly
+    // 3221225477 (spawnSync status). PowerShell's $LASTEXITCODE and cmd
+    // print the signed view (-1073741819), but no truncation or masking
+    // happens anywhere in the chain — the mirror contract holds for the
+    // full 32-bit range, so no re-mapping is needed.
     process.exitCode = exitCode
   },
   (error: unknown) => {

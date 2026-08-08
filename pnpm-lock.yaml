@@ -4654,6 +4654,9 @@ importers:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../support/invariants
+      '@deepseek-ai/dsh-pwsh-local':
+        specifier: workspace:^
+        version: link:../../bash/pwsh-local
       '@deepseek-ai/dsh-sandbox-local':
         specifier: workspace:^
         version: link:../sandbox-local

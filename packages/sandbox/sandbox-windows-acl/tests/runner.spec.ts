@@ -12,16 +12,16 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
+import { resolvePwshPath } from '@deepseek-ai/dsh-pwsh-local'
+
 const isWin32 = process.platform === 'win32'
 const runnerEntry = fileURLToPath(new URL('../src/runner.ts', import.meta.url))
 
+// Functional probe, not where.exe: spawnSync never throws on a missing
+// binary (status null) and where.exe exits 1 without pwsh — only an actual
+// pwsh invocation's exit status is truth.
 function pwshAvailable(): boolean {
-  try {
-    spawnSync('where.exe', ['pwsh'], { stdio: 'ignore' })
-    return true
-  } catch {
-    return false
-  }
+  return spawnSync(resolvePwshPath(), ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '$true'], { encoding: 'utf8' }).status === 0
 }
 
 function runRunner(args: string[], timeoutMs = 30_000) {
@@ -97,6 +97,31 @@ describe.skipIf(!isWin32 || !pwshAvailable())('windows-acl runner', () => {
     expect(result.stdout).toContain('DOLLAR-NULL: OK')
     expect(result.stdout).toContain('SECRET-READ: OK')
     expect(existsSync(join(writableDir, 'readonly-child-wrote.txt'))).toBe(false)
+  }, 30_000)
+
+  it('workspace-write: Remove-Item and Rename-Item succeed in the granted workspace (DELETE + FILE_DELETE_CHILD)', () => {
+    // Deleting a file and renaming a directory both hit the second access
+    // check on the workspace itself: the grant must carry DELETE (on the
+    // object) and FILE_DELETE_CHILD (on its parent).
+    const victimFile = join(writableDir, 'delete-me.txt')
+    writeFileSync(victimFile, 'remove me')
+    const victimDir = join(writableDir, 'rename-me')
+    mkdirSync(victimDir)
+    const renamedDir = join(writableDir, 'renamed-by-child')
+    const probe = [
+      "$ErrorActionPreference='SilentlyContinue';",
+      `try{Remove-Item -LiteralPath '${victimFile}' -ErrorAction Stop;'DELETE-FILE: OK'}catch{'DELETE-FILE: DENIED'};`,
+      `try{Rename-Item -LiteralPath '${victimDir}' -NewName 'renamed-by-child' -ErrorAction Stop;'RENAME-DIR: OK'}catch{'RENAME-DIR: DENIED'}`,
+    ].join('')
+    const result = runRunner([
+      '--workspace', writableDir, '--temp', isolatedTemp, '--mode', 'workspace-write',
+      '--', 'pwsh', '/NoLogo', '/NonInteractive', '/NoProfile', '/Command', probe,
+    ])
+    expect(result.status, `stderr: ${result.stderr}`).toBe(0)
+    expect(result.stdout).toContain('DELETE-FILE: OK')
+    expect(result.stdout).toContain('RENAME-DIR: OK')
+    expect(existsSync(victimFile)).toBe(false)
+    expect(existsSync(renamedDir)).toBe(true)
   }, 30_000)
 
   it('runner-side failure: signature on stderr and exit 127, the command never runs', () => {

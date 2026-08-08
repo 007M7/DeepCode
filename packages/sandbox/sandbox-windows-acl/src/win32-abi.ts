@@ -49,13 +49,26 @@ export const SE_GROUP_LOGON_ID = 0xC0000000
 export const STANDARD_RIGHTS_WRITE = 0x00020000 // == READ_CONTROL
 /** FILE_GENERIC_WRITE: every file-write permission bit plus SYNCHRONIZE. */
 export const FILE_GENERIC_WRITE = 0x00120116
-// What the POC grants: FILE_GENERIC_WRITE minus READ_CONTROL; displays as
-// "Write" in Explorer/icacls (windows-acl-restrict-poc.cpp line 16).
+/** DELETE: remove or rename the object (winnt.h line ~3009). */
+export const DELETE = 0x00010000
+/** FILE_DELETE_CHILD: remove or rename a directory's children (winnt.h line ~5907). */
+export const FILE_DELETE_CHILD = 0x0040
+// The POC granted FILE_GENERIC_WRITE minus READ_CONTROL, which displays as
+// "Write" in Explorer/icacls (windows-acl-restrict-poc.cpp line 16). The
+// sandbox grant adds DELETE and FILE_DELETE_CHILD so confined
+// delete/rename/git operations inside the granted trees pass the token's
+// access check too; Write+DELETE displays as "Modify" in icacls.
+// WRITE_DAC/WRITE_OWNER stay OUT deliberately — granting them would let the
+// child take ownership or rewrite DACLs and escape the allowlist (the
+// security boundary).
 /**
- * GRANT_MASK: FILE_GENERIC_WRITE minus READ_CONTROL — the write-access mask
- * the orphan-SID ACEs grant (displays as "Write" in Explorer/icacls).
+ * GRANT_MASK: FILE_GENERIC_WRITE minus READ_CONTROL plus DELETE and
+ * FILE_DELETE_CHILD — the write+delete access mask the orphan-SID ACEs grant
+ * (displays as "Modify" in Explorer/icacls). WRITE_DAC/WRITE_OWNER are
+ * deliberately excluded: they would let the confined child take ownership or
+ * rewrite DACLs.
  */
-export const GRANT_MASK = FILE_GENERIC_WRITE & ~STANDARD_RIGHTS_WRITE // 0x00100116
+export const GRANT_MASK = (FILE_GENERIC_WRITE | DELETE | FILE_DELETE_CHILD) & ~STANDARD_RIGHTS_WRITE // 0x00110156
 
 // CreateRestrictedToken flags (winnt.h lines ~4284)
 /** DISABLE_MAX_PRIVILEGE: strip the token's maximum-privilege elevation so the confined child cannot escalate. */
@@ -68,7 +81,13 @@ export const WRITE_RESTRICTED = 0x8
 // WELL_KNOWN_SID_TYPE (winnt.h lines ~3369-3407)
 /** WinWorldSid: S-1-1-0 (Everyone). */
 export const WinWorldSid = 1
-/** WinLocalSid: S-1-2-0 (LOCAL); CreateWellKnownSid(WinLocalSid) fails with ERROR_INVALID_PARAMETER on Windows 11 build 26200. */
+/**
+ * WinLocalSid: S-1-2-0 (LOCAL) — safe, created successfully on every init
+ * (it sits in every restricted token's restricting list). The
+ * CreateWellKnownSid ERROR_INVALID_PARAMETER failure documented in this
+ * module's header comment belongs to WinLocalLogonSid (S-1-2-1), NOT to
+ * this type.
+ */
 export const WinLocalSid = 2
 /** WinInteractiveSid: S-1-5-4 (INTERACTIVE). */
 export const WinInteractiveSid = 11
@@ -155,6 +174,39 @@ export const ERROR_INSUFFICIENT_BUFFER = 122
 export const ERROR_BROKEN_PIPE = 109
 /** ERROR_NO_DATA: the pipe is being closed. */
 export const ERROR_NO_DATA = 232
+/** ERROR_LOCK_VIOLATION: a byte-range lock conflicts with an existing lock (winerror.h line ~78). */
+export const ERROR_LOCK_VIOLATION = 33
+
+// ---- lock files (fileapi.h / minwinbase.h / winnt.h) -----------------------
+
+// CreateFileW dwDesiredAccess for the ACL lock files: plain read+write is
+// enough to take byte-range locks.
+/** GENERIC_READ: generic read access (winnt.h line ~3028). */
+export const GENERIC_READ = 0x80000000
+/** GENERIC_WRITE: generic write access (winnt.h line ~3029). */
+export const GENERIC_WRITE = 0x40000000
+// CreateFileW dwShareMode: the lock file is shared for read/write but NOT
+// for delete — if a locked file could be deleted and recreated underneath the
+// lock holder, two processes could hold "the same" lock on different files.
+/** FILE_SHARE_READ: other opens may read (winnt.h line ~5949). */
+export const FILE_SHARE_READ = 0x00000001
+/** FILE_SHARE_WRITE: other opens may write (winnt.h line ~5950). */
+export const FILE_SHARE_WRITE = 0x00000002
+/** FILE_SHARE_DELETE: other opens may delete (winnt.h line ~5951) — deliberately NOT used for lock files. */
+export const FILE_SHARE_DELETE = 0x00000004
+/** OPEN_ALWAYS: create the lock file if absent, open it otherwise (fileapi.h line ~21). */
+export const OPEN_ALWAYS = 4
+// LockFileEx dwFlags (minwinbase.h lines ~180-181, included by winbase.h).
+/** LOCKFILE_EXCLUSIVE_LOCK: request an exclusive byte-range lock. */
+export const LOCKFILE_EXCLUSIVE_LOCK = 0x2
+/** LOCKFILE_FAIL_IMMEDIATELY: fail with ERROR_LOCK_VIOLATION instead of waiting. */
+export const LOCKFILE_FAIL_IMMEDIATELY = 0x1
+
+// ACE_HEADER.AceFlags (winnt.h lines ~3477-3524): inherited ACEs shown when
+// reading a DACL are marked with this bit and are not part of the explicit
+// DACL edits this module makes.
+/** INHERITED_ACE: the ACE was inherited from the parent object, not stored explicitly. */
+export const INHERITED_ACE = 0x10
 
 // ---- job object (winnt.h lines ~4859-4866, ~5138, ~5190-5199) --------------
 

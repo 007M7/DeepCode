@@ -88,6 +88,20 @@ int wmain()
 	P(FILE_GENERIC_WRITE);
 	P((FILE_GENERIC_WRITE & ~STANDARD_RIGHTS_WRITE));
 	P(STANDARD_RIGHTS_WRITE);
+	P(DELETE);
+	P(FILE_DELETE_CHILD);
+	P(((FILE_GENERIC_WRITE | DELETE | FILE_DELETE_CHILD) & ~STANDARD_RIGHTS_WRITE));
+
+	P(FILE_SHARE_READ);
+	P(FILE_SHARE_WRITE);
+	P(FILE_SHARE_DELETE);
+	P(GENERIC_READ);
+	P(GENERIC_WRITE);
+	P(OPEN_ALWAYS);
+	P(LOCKFILE_EXCLUSIVE_LOCK);
+	P(LOCKFILE_FAIL_IMMEDIATELY);
+	P(ERROR_LOCK_VIOLATION);
+	P(INHERITED_ACE);
 
 	P(DISABLE_MAX_PRIVILEGE);
 	P(SANDBOX_INERT);
@@ -163,7 +177,14 @@ int wmain()
 	static_assert(TOKEN_QUERY == 0x8 && TOKEN_DUPLICATE == 0x2 && TOKEN_ADJUST_DEFAULT == 0x80 && TOKEN_ASSIGN_PRIMARY == 0x1, "token rights");
 	static_assert(SE_GROUP_LOGON_ID == 0xC0000000, "logon id attr");
 	static_assert(FILE_GENERIC_WRITE == 0x120116, "generic write");
-	static_assert((FILE_GENERIC_WRITE & ~STANDARD_RIGHTS_WRITE) == 0x100116, "grant mask");
+	static_assert((FILE_GENERIC_WRITE & ~STANDARD_RIGHTS_WRITE) == 0x100116, "poc grant mask");
+	static_assert(DELETE == 0x10000 && FILE_DELETE_CHILD == 0x40, "delete rights");
+	static_assert(((FILE_GENERIC_WRITE | DELETE | FILE_DELETE_CHILD) & ~STANDARD_RIGHTS_WRITE) == 0x110156, "sandbox grant mask");
+	static_assert(FILE_SHARE_READ == 0x1 && FILE_SHARE_WRITE == 0x2 && FILE_SHARE_DELETE == 0x4, "share modes");
+	static_assert(OPEN_ALWAYS == 4, "open always");
+	static_assert(LOCKFILE_EXCLUSIVE_LOCK == 0x2 && LOCKFILE_FAIL_IMMEDIATELY == 0x1, "lockfile flags");
+	static_assert(ERROR_LOCK_VIOLATION == 33, "lock violation");
+	static_assert(INHERITED_ACE == 0x10, "inherited ace flag");
 	static_assert(GRANT_ACCESS == 1 && REVOKE_ACCESS == 4, "access modes");
 	static_assert(SUB_CONTAINERS_AND_OBJECTS_INHERIT == 0x3, "inheritance");
 	static_assert(CREATE_NO_WINDOW == 0x08000000, "create no window");

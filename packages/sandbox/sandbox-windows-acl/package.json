@@ -38,6 +38,7 @@
   },
   "devDependencies": {
     "@deepseek-ai/dsh-invariants": "workspace:^",
+    "@deepseek-ai/dsh-pwsh-local": "workspace:^",
     "@deepseek-ai/dsh-sandbox-local": "workspace:^",
     "cordis": "^4.0.0-rc.7"
   }

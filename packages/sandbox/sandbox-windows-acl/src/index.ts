@@ -29,7 +29,7 @@ import { resolve } from 'node:path'
 
 import { grantWrite, revokeWrite } from './acl.ts'
 import { Win32Error } from './errors.ts'
-import { allocPtrSlot, decodePtr, isNullPtr, throwLastError, win32 } from './ffi.ts'
+import { allocPtrSlot, decodePtr, getTempPath, isNullPtr, throwLastError, win32 } from './ffi.ts'
 import type { NativePtr, Win32Bindings } from './ffi.ts'
 import { drainPipe, spawnSandboxed, spawnSandboxedInherited, waitForExit } from './spawn.ts'
 import { createRestrictedToken, findLogonSid, makeWellKnownSid, openCurrentProcessToken } from './token.ts'
@@ -86,13 +86,6 @@ export interface AclSandboxChild {
 
 function randomWriteSid(): string {
   return `S-1-4-${randomInt(1, 2 ** 30)}-${randomInt(1, 2 ** 30)}`
-}
-
-function getTempPath(api: Win32Bindings): string {
-  const buffer = Buffer.alloc((abi.MAX_PATH + 1) * 2)
-  const length = api.getTempPathW(buffer.length / 2, buffer)
-  if (length === 0) throwLastError(api, 'GetTempPathW')
-  return buffer.subarray(0, length * 2).toString('utf16le')
 }
 
 /**

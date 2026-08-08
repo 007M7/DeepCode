@@ -1,0 +1,112 @@
+/**
+ * Failure-path unit tests with minimal stub binding tables: the spawn
+ * helpers must close every handle they created before throwing, and
+ * getTempPath must refuse to decode a buffer GetTempPathW never wrote.
+ * Pure stubs — no real Win32 calls, so these run on every platform.
+ */
+
+import { describe, expect, it, vi } from 'vitest'
+import koffi from 'koffi'
+
+import { PROCESS_INFORMATION, getTempPath } from '../src/ffi.ts'
+import type { NativePtr, Win32Bindings } from '../src/ffi.ts'
+import { Win32Error } from '../src/errors.ts'
+import { spawnSandboxed, spawnSandboxedInherited } from '../src/spawn.ts'
+
+const PVOID = koffi.pointer('void')
+
+/** The stub the CreateProcessAsUserW failure branch needs: pipes "succeed", the spawn fails with Win32 5. */
+function pipeFailureApi(): { api: Win32Bindings; closed: bigint[]; closeHandle: ReturnType<typeof vi.fn> } {
+  const closed: bigint[] = []
+  let next = 1n
+  const closeHandle = vi.fn((handle: NativePtr) => {
+    closed.push(handle)
+    return 1
+  })
+  const api = {
+    createPipe: vi.fn((readSlot: NativePtr, writeSlot: NativePtr) => {
+      koffi.encode(readSlot, PVOID, next++)
+      koffi.encode(writeSlot, PVOID, next++)
+      return 1
+    }),
+    setHandleInformation: vi.fn(() => 1),
+    createProcessAsUserW: vi.fn(() => 0),
+    getLastError: vi.fn(() => 5), // ERROR_ACCESS_DENIED: the failure the branch reports
+    closeHandle,
+    formatMessageW: vi.fn(() => 0),
+  } as unknown as Win32Bindings
+  return { api, closed, closeHandle }
+}
+
+/** The stub the ResumeThread failure branch needs: everything succeeds until ResumeThread returns 0xFFFFFFFF. */
+function resumeFailureApi(): { api: Win32Bindings; closed: bigint[]; closeHandle: ReturnType<typeof vi.fn> } {
+  const closed: bigint[] = []
+  let std = 50n
+  const closeHandle = vi.fn((handle: NativePtr) => {
+    closed.push(handle)
+    return 1
+  })
+  const api = {
+    createJobObjectW: vi.fn(() => 100n),
+    setInformationJobObject: vi.fn(() => 1),
+    getStdHandle: vi.fn(() => std++),
+    setHandleInformation: vi.fn(() => 1),
+    createProcessAsUserW: vi.fn((
+      _token: unknown, _app: unknown, _cmd: unknown, _pa: unknown, _ta: unknown,
+      _inherit: unknown, _flags: unknown, _env: unknown, _cwd: unknown, _si: unknown, processInfo: NativePtr,
+    ) => {
+      koffi.encode(processInfo, PROCESS_INFORMATION, { hProcess: 200n, hThread: 201n, dwProcessId: 1234, dwThreadId: 5678 })
+      return 1
+    }),
+    assignProcessToJobObject: vi.fn(() => 1),
+    resumeThread: vi.fn(() => 0xFFFFFFFF),
+    getLastError: vi.fn(() => 5),
+    closeHandle,
+    formatMessageW: vi.fn(() => 0),
+  } as unknown as Win32Bindings
+  return { api, closed, closeHandle }
+}
+
+describe('spawn failure paths close their handles', () => {
+  // A dummy token value; the stubbed spawn never reads it.
+  const token = 1n as NativePtr
+
+  it('spawnSandboxed closes all six pipe handles before throwing when CreateProcessAsUserW fails', () => {
+    const { api, closed, closeHandle } = pipeFailureApi()
+    let caught: unknown
+    try {
+      spawnSandboxed(api, token, { command: 'probe.exe', args: [], cwd: 'C:\\' })
+    } catch (error) {
+      caught = error
+    }
+    expect(caught).toBeInstanceOf(Win32Error)
+    expect((caught as Win32Error).api).toBe('CreateProcessAsUserW')
+    expect((caught as Win32Error).win32Code).toBe(5)
+    expect(closeHandle).toHaveBeenCalledTimes(6)
+    expect(closed).toEqual([1n, 2n, 3n, 4n, 5n, 6n])
+  })
+
+  it('spawnSandboxedInherited closes thread, process, and kill-on-close job before throwing when ResumeThread fails', () => {
+    const { api, closed, closeHandle } = resumeFailureApi()
+    let caught: unknown
+    try {
+      spawnSandboxedInherited(api, token, { command: 'probe.exe', args: [], cwd: 'C:\\' })
+    } catch (error) {
+      caught = error
+    }
+    expect(caught).toBeInstanceOf(Win32Error)
+    expect((caught as Win32Error).api).toBe('ResumeThread')
+    expect((caught as Win32Error).win32Code).toBe(5)
+    // thread, process, job — closing the job triggers kill-on-close so the
+    // suspended child dies instead of hanging until this process exits.
+    expect(closeHandle).toHaveBeenCalledTimes(3)
+    expect(closed).toEqual([201n, 200n, 100n])
+  })
+})
+
+describe('getTempPath buffer defense', () => {
+  it('throws a clear error instead of decoding a buffer GetTempPathW never wrote', () => {
+    const api = { getTempPathW: vi.fn(() => 300) } as unknown as Win32Bindings // 300 > the 261-char buffer
+    expect(() => getTempPath(api)).toThrow(/GetTempPathW failed \(Win32 122\): required 300/u)
+  })
+})

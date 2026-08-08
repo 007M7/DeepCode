@@ -26,6 +26,17 @@ export function isNullPtr(value: NativePtr | null | undefined): value is null | 
   return value === null || value === undefined || (value as bigint) === 0n
 }
 
+/**
+ * True for CreateFileW's INVALID_HANDLE_VALUE failure marker (-1, which
+ * koffi hands back as the unsigned 64-bit all-ones pointer).
+ * @param handle - the handle CreateFileW returned.
+ * @returns whether the handle signals failure.
+ */
+export function isInvalidHandle(handle: NativePtr | null | undefined): boolean {
+  if (isNullPtr(handle)) return true
+  return (handle as bigint) === 0xFFFFFFFFFFFFFFFFn || (handle as bigint) === -1n
+}
+
 type Ptr = ReturnType<typeof koffi.pointer>
 
 /** Field subset written into a zeroed STARTUPINFOW (layout verified: size 104). */
@@ -86,6 +97,12 @@ export interface Win32Bindings {
   ): number
   // ---- environment / io ----------------------------------------------------
   getTempPathW(length: number, buffer: Buffer): number
+  createFileW(
+    fileName: string, desiredAccess: number, shareMode: number, attributes: null,
+    creationDisposition: number, flagsAndAttributes: number, templateFile: null,
+  ): NativePtr
+  lockFileEx(file: NativePtr, flags: number, reserved: number, bytesLow: number, bytesHigh: number, overlapped: NativePtr): number
+  unlockFileEx(file: NativePtr, reserved: number, bytesLow: number, bytesHigh: number, overlapped: NativePtr): number
   createPipe(readHandle: NativePtr, writeHandle: NativePtr, attributes: null, size: number): number
   setHandleInformation(handle: NativePtr, mask: number, flags: number): number
   createProcessAsUserW(
@@ -232,6 +249,18 @@ export function allocBytes(length: number): NativePtr {
 }
 
 /**
+ * Allocate one zeroed OVERLAPPED (32 bytes on x64: Internal@0, InternalHigh@8,
+ * Offset@16, OffsetHigh@20, hEvent@24). LockFileEx/UnlockFileEx receive this
+ * instead of a NULL lpOverlapped: koffi 3.1.1 crashes on NULL there, and a
+ * zeroed OVERLAPPED on a synchronous file handle is the documented equivalent
+ * (the byte range locks from offset 0, hEvent stays NULL).
+ * @returns the zeroed block pointer.
+ */
+export function allocOverlapped(): NativePtr {
+  return allocBytes(32)
+}
+
+/**
  * Decode a pointer VALUE stored in memory at `buffer[offset]` (e.g. TOKEN_GROUPS entries).
  * @param buffer - the buffer holding the pointer value.
  * @param offset - byte offset of the pointer inside the buffer.
@@ -313,6 +342,14 @@ function bindings(): Win32Bindings {
     setNamedSecurityInfoW: bind(advapi32, 'SetNamedSecurityInfoW', 'uint32', ['str16', 'int', 'uint32', PVOID, PVOID, PVOID, PVOID]),
     getNamedSecurityInfoW: bind(advapi32, 'GetNamedSecurityInfoW', 'uint32', ['str16', 'int', 'uint32', PPVOID, PPVOID, PPVOID, PPVOID, PPVOID]),
     getTempPathW: bind(kernel32, 'GetTempPathW', 'uint32', ['uint32', PVOID]),
+    // fileapi.h line ~64: HANDLE CreateFileW(LPCWSTR, DWORD, DWORD,
+    // LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE).
+    createFileW: bind(kernel32, 'CreateFileW', PVOID, ['str16', 'uint32', 'uint32', PVOID, 'uint32', 'uint32', PVOID]),
+    // fileapi.h lines ~177/~185: BOOL LockFileEx(HANDLE, DWORD, DWORD, DWORD,
+    // DWORD, LPOVERLAPPED); BOOL UnlockFileEx(HANDLE, DWORD, DWORD, DWORD,
+    // LPOVERLAPPED). lpOverlapped is NULL for synchronous locking.
+    lockFileEx: bind(kernel32, 'LockFileEx', 'int', [PVOID, 'uint32', 'uint32', 'uint32', 'uint32', PVOID]),
+    unlockFileEx: bind(kernel32, 'UnlockFileEx', 'int', [PVOID, 'uint32', 'uint32', 'uint32', PVOID]),
     createPipe: bind(kernel32, 'CreatePipe', 'int', [PPVOID, PPVOID, PVOID, 'uint32']),
     setHandleInformation: bind(kernel32, 'SetHandleInformation', 'int', [PVOID, 'uint32', 'uint32']),
     createProcessAsUserW: bind(advapi32, 'CreateProcessAsUserW', 'int', [
@@ -355,6 +392,25 @@ export function errorText(api: Win32Bindings, win32Code: number): string {
   )
   if (length === 0) return ''
   return buffer.subarray(0, length * 2).toString('utf16le').trim()
+}
+
+/**
+ * Read the process temp directory via GetTempPathW (fileapi.h line ~188).
+ * Defensive against an overlong system temp path: GetTempPathW reports the
+ * REQUIRED length (including NUL) without writing the buffer when it is too
+ * small, so a reported length beyond the buffer's capacity means the buffer
+ * was never filled and must not be decoded.
+ * @param api - the binding table.
+ * @returns the NUL-terminated temp path decoded as a string.
+ */
+export function getTempPath(api: Win32Bindings): string {
+  const buffer = Buffer.alloc((abi.MAX_PATH + 1) * 2)
+  const length = api.getTempPathW(buffer.length / 2, buffer)
+  if (length === 0) throwLastError(api, 'GetTempPathW')
+  if (length > buffer.length / 2) {
+    throw new Win32Error('GetTempPathW', abi.ERROR_INSUFFICIENT_BUFFER, `required ${length} chars exceed the ${buffer.length / 2}-char buffer; nothing was written`)
+  }
+  return buffer.subarray(0, length * 2).toString('utf16le')
 }
 
 /**

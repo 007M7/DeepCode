@@ -14,9 +14,12 @@ import type { NativePtr, Win32Bindings } from './ffi.ts'
 import * as abi from './win32-abi.ts'
 
 /**
- * Quote one argument per the CommandLineToArgvW parsing rules (backslash
- * escaping only before quotes; a trailing backslash before the closing quote
- * is doubled).
+ * Quote one argument per the CommandLineToArgvW parsing rules: backslashes
+ * are doubled only before a quote character — including the closing quote
+ * this function appends, so a trailing backslash run is doubled as well
+ * (otherwise an odd run would escape the closing quote into a literal
+ * character and corrupt the rest of the command line). Mirrors the CRT
+ * ArgvQuote behavior Microsoft documents for command-line arguments.
  * @param argument - one argv entry to quote.
  * @returns the quoted entry (bare when quoting is unnecessary).
  */
@@ -30,10 +33,13 @@ export function quoteArg(argument: string): string {
       backslashes++
       index++
     }
-    if (index < argument.length && argument.charAt(index) === '"') {
+    if (index === argument.length) {
+      // Trailing backslash run: doubled so it cannot escape the closing quote.
+      quoted += '\\'.repeat(backslashes * 2)
+    } else if (argument.charAt(index) === '"') {
       quoted += '\\'.repeat(backslashes * 2 + 1) + '"'
     } else {
-      quoted += '\\'.repeat(backslashes) + (index < argument.length ? argument.charAt(index) : '')
+      quoted += '\\'.repeat(backslashes) + argument.charAt(index)
     }
   }
   return quoted + '"'
@@ -119,8 +125,19 @@ export function spawnSandboxed(
     null, options.cwd,
     startupInfo, processInfo,
   )
-  // Capture the failure before CloseHandle calls clobber GetLastError.
-  if (created === 0) throwLastError(api, 'CreateProcessAsUserW', `command: ${options.command}, cwd: ${options.cwd}`)
+  // Capture the failure before CloseHandle calls clobber GetLastError, then
+  // close every pipe handle created so far — the six-close contract this test
+  // surface pins (tests/failure-paths.spec.ts).
+  if (created === 0) {
+    const win32Code = api.getLastError()
+    api.closeHandle(stdIn.read)
+    api.closeHandle(stdIn.write)
+    api.closeHandle(stdOut.read)
+    api.closeHandle(stdOut.write)
+    api.closeHandle(stdErr.read)
+    api.closeHandle(stdErr.write)
+    throwWin32(api, 'CreateProcessAsUserW', win32Code, `command: ${options.command}, cwd: ${options.cwd}`)
+  }
 
   const info = decodeProcessInfo(processInfo)
   const processHandle = info.hProcess
@@ -172,7 +189,9 @@ export async function drainPipe(api: Win32Bindings, handle: NativePtr): Promise<
       }
       chunks.push(chunk.subarray(0, decodeUint32(readSlot)))
     }
-    await new Promise<void>(resolve => setImmediate(resolve))
+    // Small backoff instead of setImmediate: a bare next-tick would busy-poll
+    // the pipe at full event-loop speed while the child produces no output.
+    await new Promise<void>(resolve => setTimeout(resolve, 1))
   }
   api.closeHandle(handle)
   return Buffer.concat(chunks)
@@ -314,7 +333,16 @@ export function spawnSandboxedInherited(
     api.closeHandle(job)
     throwWin32(api, 'AssignProcessToJobObject', win32Code, `pid ${info.dwProcessId}`)
   }
-  if (api.resumeThread(threadHandle) === 0xFFFFFFFF) throwLastError(api, 'ResumeThread', `pid ${info.dwProcessId}`)
+  if (api.resumeThread(threadHandle) === 0xFFFFFFFF) {
+    // Closing the job triggers kill-on-close, so the suspended child dies
+    // instead of hanging until this process exits; the process/thread handles
+    // must go too.
+    const win32Code = api.getLastError()
+    api.closeHandle(threadHandle)
+    api.closeHandle(processHandle)
+    api.closeHandle(job)
+    throwWin32(api, 'ResumeThread', win32Code, `pid ${info.dwProcessId}`)
+  }
   api.closeHandle(threadHandle)
 
   return { pid: info.dwProcessId, process: processHandle, job }
