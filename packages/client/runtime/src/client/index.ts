@@ -8,7 +8,7 @@ import { SessionsService } from './sessions/service.ts'
 import type { SessionListState } from './sessions/service.ts'
 import { SessionHistoryService } from './session-history/service.ts'
 import { WorkspacesService } from './workspaces/service.ts'
-import type { ConversationSnapshot, RunningToolCall, ToolResultNode } from './sessions/conversation.ts'
+import type { ConversationSnapshot } from './sessions/conversation.ts'
 import type { UseProjection } from './sessions/projection-store.ts'
 
 export { SlotsService } from './slots.ts'
@@ -49,10 +49,10 @@ export type {
 } from './contract/store.ts'
 export type {
   AssistantBlock, AssistantMessageNode, AssistantProvenanceView, AssistantRequestConfig,
-  AssistantTiming, CodeSubCall, CommandNode, CompactionSummaryNode, ComposerPhase,
+  AssistantTiming, CommandNode, CompactionSummaryNode, ComposerPhase,
   ContextMessageNode, ConversationNode, ConversationSnapshot, ModelRetryNode, QueuedMessage,
   RunningToolCall,
-  SteeringMessageNode, TodoItem, ToolResultNode, TurnErrorNode, UnknownSurfaceNode, UserMessageNode,
+  SteeringMessageNode, TodoItem, ToolCallBlock, ToolResultNode, TurnErrorNode, UnknownSurfaceNode, UserMessageNode,
 } from './sessions/conversation.ts'
 export type {
   ConversationContext, ConversationContextOriginKind,
@@ -88,13 +88,6 @@ declare module '@deepseek-ai/dsh-type-meta' {
 
 /** The conversation-snapshot selector hook supplied to session-scoped UI entries. */
 export type UseConversationSession = SnapshotSelectorHook<ConversationSnapshot>
-
-/**
- * One tool call as the chat flow renders it: still-running (spinner card) or
- * settled (result node). The fold produces both shapes; toolview components
- * narrow on the discriminant fields.
- */
-export type ToolCallBlock = RunningToolCall | ToolResultNode
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   /**

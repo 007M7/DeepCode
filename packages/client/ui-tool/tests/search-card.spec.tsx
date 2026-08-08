@@ -65,7 +65,7 @@ const resultPaths = (over?: Partial<Extract<ToolResultView, { card: 'search'; sh
 
 const runningGrep = (over?: Partial<RunningToolCall>): RunningToolCall => ({
   callId: 'c1', name: 'grep', argsRaw: GREP_ARGS,
-  turn: 1, step: 1, time: 1_000, callView: { card: 'generic', title: 'Grep foo', kind: 'search' }, ...over,
+  turn: 1, step: 1, time: 1_000, callView: { card: 'generic', title: 'Grep foo', kind: 'search' }, subCalls: [], ...over,
 })
 
 const settledGrep = (over?: Partial<ToolResultNode>): ToolResultNode => ({
@@ -73,7 +73,7 @@ const settledGrep = (over?: Partial<ToolResultNode>): ToolResultNode => ({
   call: { name: 'grep', argsRaw: GREP_ARGS },
   callTime: 1_000,
   content: [{ type: 'text', text: 'a.ts\n  Line 12: const foo = 1' }], isError: false,
-  callView: { card: 'generic', title: 'Grep foo', kind: 'search' }, resultView: resultMatches(), ...over,
+  callView: { card: 'generic', title: 'Grep foo', kind: 'search' }, resultView: resultMatches(), subCalls: [], ...over,
 })
 
 const settledGlob = (over?: Partial<ToolResultNode>): ToolResultNode => ({
@@ -81,7 +81,7 @@ const settledGlob = (over?: Partial<ToolResultNode>): ToolResultNode => ({
   call: { name: 'glob', argsRaw: GLOB_ARGS },
   callTime: 1_000,
   content: [{ type: 'text', text: 'src/a.ts\nsrc/b.ts' }], isError: false,
-  callView: { card: 'generic', title: 'Glob **/*.ts', kind: 'search' }, resultView: resultPaths(), ...over,
+  callView: { card: 'generic', title: 'Glob **/*.ts', kind: 'search' }, resultView: resultPaths(), subCalls: [], ...over,
 })
 
 describe('searchCardModel', () => {
@@ -405,7 +405,7 @@ describe('DetailsPanel Output section (search)', () => {
 
   function snapshot(over: Partial<ConversationSnapshot> = {}): ConversationSnapshot {
     return {
-      sessionId: SID, nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [], codeDispatches: new Map(),
+      sessionId: SID, nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [],
       pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
       openState: 'open', openError: null, hasMore: false, loadingOlder: false,
       promptError: null, blank: false, subagent: null, lastAgentError: null, ...over,
