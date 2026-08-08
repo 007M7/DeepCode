@@ -101,23 +101,14 @@
 
 # ── goals ───────────────────────────────────────────────────────────────────
 
-- id: goals
-  name: cordis:group
-  group: true
-  isolate:
-    goals: true
-  config:
-    - id: goal
-      name: '@deepseek-ai/dsh-goal'
-
-    - id: goal-session
-      name: '@deepseek-ai/dsh-goal-session'
-
-    - id: command-goal
-      name: '@deepseek-ai/dsh-command-goal'
-
-    - id: tool-goal
-      name: '@deepseek-ai/dsh-tool-goal'
+# Only the model-facing tool. The goal SERVICE, its session driver, and the
+# `/goal` command stay on the host plane: the Gateway serves the goal domain as
+# Remote endpoints whose receiver comes from a generated descriptor, so it
+# resolves `goals` on the host and an entry-local realm here would hide it. The
+# registry is keyed by session anyway, so one host instance serves every
+# session. What a preset chooses is whether its agent can call the goal tool.
+- id: tool-goal
+  name: '@deepseek-ai/dsh-tool-goal'
 
 # ── plan mode ───────────────────────────────────────────────────────────────
 
