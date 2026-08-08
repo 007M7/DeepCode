@@ -323,12 +323,34 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'e2b',
+    summary: 'Creates one lazily consumable E2B SDK handle and deletes the sandbox at timeout or disposal.',
+    methods: [
+      {
+        signature: 'async getSandbox(): Promise<Sandbox>',
+        jsDoc: '/**\n * Return the shared live SDK handle.\n * @returns the created sandbox after the configured cwd exists.\n * @throws when E2B rejects creation or the service is disposing.\n */',
+      },
+    ],
+  },
+  {
     key: 'fs',
     summary: 'Abstract filesystem provider.',
     methods: [
       {
         signature: 'abstract resolve(path: string, opts?: { cwd?: string; signal?: AbortSignal }): Promise<FsTarget>',
         jsDoc: '/**\n * Resolve a model/plugin-supplied path into a stable {@link FsTarget}. May perform I/O (a\n * remote/sandboxed backend may need a round-trip to map a path to a stable identity), hence\n * async even though the local backend only normalizes + realpaths.\n *\n * @param path - the path to resolve; relative paths resolve against `opts.cwd`.\n * @param opts - optional cwd override and cancellation signal.\n * @returns the stable target; the same file yields the same `targetKey`.\n */',
+      },
+      {
+        signature: 'abstract processPath(target: FsTarget): string',
+        jsDoc: '/**\n * Return the canonical absolute path a subprocess in this filesystem\'s\n * execution world can open. The path is deliberately separate from\n * {@link FsTarget.targetKey}: consumers may pass this value to another OS\n * capability, but must continue treating the target key as opaque.\n * @param target - the resolved target whose process path is required.\n * @returns an absolute path in the backend\'s execution world.\n */',
+      },
+      {
+        signature: 'abstract fileUrl(target: FsTarget): string',
+        jsDoc: '/**\n * Return the canonical `file:` URI for a target in this filesystem\'s\n * execution world. Backends own URI encoding because the host platform may\n * differ from the execution platform.\n * @param target - the resolved target to encode.\n * @returns the target\'s canonical file URI.\n */',
+      },
+      {
+        signature: 'abstract contains(parent: FsTarget, child: FsTarget): boolean',
+        jsDoc: '/**\n * Test canonical containment without exposing or parsing backend target\n * keys. Both targets must come from this provider.\n * @param parent - canonical directory target.\n * @param child - canonical candidate target.\n * @returns true when `child` is `parent` or a descendant of it.\n */',
       },
       {
         signature: 'abstract stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined>',
@@ -993,8 +1015,16 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     summary: 'Abstract subprocess service.',
     methods: [
       {
+        signature: 'abstract resolveExecutable( command: string, env?: Readonly<Record<string, string>>, signal?: AbortSignal, ): Promise<string>',
+        jsDoc: '/**\n * Resolve one configured executable in this provider\'s execution world.\n * Absolute paths are verified; bare names use the provider\'s scrubbed PATH\n * plus explicit environment overrides. Relative paths containing separators\n * are rejected: no current consumer defines which directory they would\n * resolve against, so providers fail loud instead of guessing.\n * @param command - absolute executable path or bare PATH name.\n * @param env - explicit environment entries used for lookup.\n * @param signal - aborts remote or local lookup.\n * @returns a canonical executable path.\n */',
+      },
+      {
         signature: 'abstract spawn(spec: SubprocessSpawnSpec): SubprocessHandle',
         jsDoc: '/**\n * Start one managed child process from a fully-specified spec; this seam\n * applies no defaults.\n * @param spec - argv, directory, stdio dispositions, grace, cancellation, and environment.\n * @returns the live process handle (streams/readers, signalling, outcome promise).\n */',
+      },
+      {
+        signature: 'abstract spawnTerminal(spec: SubprocessTerminalSpawnSpec): Promise<SubprocessTerminalHandle>',
+        jsDoc: '/**\n * Allocate a real terminal and start one owned process session. This is the\n * only non-pipe process primitive: implementations own terminal byte I/O,\n * foreground groups, signals, and complete session-tree cleanup.\n * @param spec - fully specified argv, cwd, environment, dimensions, grace, and allocation cancellation.\n * @returns the live terminal handle after allocation succeeds.\n */',
       },
     ],
   },
@@ -2904,6 +2934,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SubprocessStdio',
     declaration: 'export interface SubprocessStdio {\n    stdin: SubprocessStdinMode;\n    stdout: SubprocessOutputMode;\n    stderr: SubprocessOutputMode;\n}',
+  },
+  {
+    name: 'SubprocessTerminalForeground',
+    declaration: 'export interface SubprocessTerminalForeground {\n    processGroupId: number;\n    inputWaiting: boolean;\n}',
+  },
+  {
+    name: 'SubprocessTerminalHandle',
+    declaration: 'export interface SubprocessTerminalHandle {\n    readonly pid: number;\n    readonly output: Readable;\n    readonly done: Promise<SubprocessOutcome>;\n    write(data: string): Promise<void>;\n    inspectForeground(): Promise<SubprocessTerminalForeground | undefined>;\n    signalForeground(signal: SubprocessTerminalSignal): Promise<number>;\n    terminate(): Promise<void>;\n}',
+  },
+  {
+    name: 'SubprocessTerminalSignal',
+    declaration: 'export type SubprocessTerminalSignal = \'SIGINT\' | \'SIGTERM\' | \'SIGKILL\' | \'SIGTSTP\' | \'SIGHUP\';',
+  },
+  {
+    name: 'SubprocessTerminalSpawnSpec',
+    declaration: 'export interface SubprocessTerminalSpawnSpec {\n    argv: readonly string[];\n    cwd: string;\n    env?: Record<string, string> | undefined;\n    rows: number;\n    cols: number;\n    graceMs: number;\n    signal?: AbortSignal | undefined;\n}',
   },
   {
     name: 'SurfaceEvent',

@@ -1,8 +1,10 @@
 /**
- * Filesystem text-storage provider seam. Backends own stable target identity,
- * text decoding, binary rejection, and atomic mutations. Read windows and
- * observed-state policy stay in consumer and policy plugins; `editText` remains
- * here so version check, literal match, and rewrite share one critical section.
+ * Filesystem provider seam for one execution world. Backends own stable target
+ * identity, process paths and file URIs, containment, text reads, decoding,
+ * binary rejection, and atomic mutations. Read windows and
+ * observed-state policy stay in consumer and policy plugins; `editText`
+ * remains here so version check, literal match, and rewrite share one critical
+ * section.
  * @module @deepseek-ai/dsh-fs
  */
 
@@ -84,7 +86,6 @@ export abstract class FileSystem extends Service {
   }
 
   /**
-  /**
    * The sandbox mode this backend enforces on mutations BY DEFAULT, or
    * `undefined` when it does not confine at all — the capability fact the tool
    * layer reads to advertise the escalation fields honestly (mirrors
@@ -110,6 +111,34 @@ export abstract class FileSystem extends Service {
    * @returns the stable target; the same file yields the same `targetKey`.
    */
   abstract resolve(path: string, opts?: { cwd?: string; signal?: AbortSignal }): Promise<FsTarget>
+
+  /**
+   * Return the canonical absolute path a subprocess in this filesystem's
+   * execution world can open. The path is deliberately separate from
+   * {@link FsTarget.targetKey}: consumers may pass this value to another OS
+   * capability, but must continue treating the target key as opaque.
+   * @param target - the resolved target whose process path is required.
+   * @returns an absolute path in the backend's execution world.
+   */
+  abstract processPath(target: FsTarget): string
+
+  /**
+   * Return the canonical `file:` URI for a target in this filesystem's
+   * execution world. Backends own URI encoding because the host platform may
+   * differ from the execution platform.
+   * @param target - the resolved target to encode.
+   * @returns the target's canonical file URI.
+   */
+  abstract fileUrl(target: FsTarget): string
+
+  /**
+   * Test canonical containment without exposing or parsing backend target
+   * keys. Both targets must come from this provider.
+   * @param parent - canonical directory target.
+   * @param child - canonical candidate target.
+   * @returns true when `child` is `parent` or a descendant of it.
+   */
+  abstract contains(parent: FsTarget, child: FsTarget): boolean
 
   /**
    * Return target metadata, or `undefined` when the target does not exist.

@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest'
+import { PassThrough } from 'node:stream'
 import { Context } from 'cordis'
 import { scrubbedParentEnv, SubprocessService } from '@deepseek-ai/dsh-subprocess'
-import type { SubprocessHandle, SubprocessOutputRead, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
+import type {
+  SubprocessHandle,
+  SubprocessOutputRead,
+  SubprocessSpawnSpec,
+  SubprocessTerminalHandle,
+  SubprocessTerminalSpawnSpec,
+} from '@deepseek-ai/dsh-subprocess'
 
 /**
  * Minimal concrete service: a hand-built handle. The seam is spawn-only —
@@ -9,6 +16,10 @@ import type { SubprocessHandle, SubprocessOutputRead, SubprocessSpawnSpec } from
  * is all an implementation owes the abstract class.
  */
 class StubSubprocessService extends SubprocessService {
+  async resolveExecutable(command: string): Promise<string> {
+    return `/bin/${command}`
+  }
+
   spawn(spec: SubprocessSpawnSpec): SubprocessHandle {
     const read: SubprocessOutputRead = { text: '', nextOffset: 0, lossy: false }
     const collected = spec.stdio.stdout !== 'pipe' && spec.stdio.stdout !== 'inherit'
@@ -23,6 +34,18 @@ class StubSubprocessService extends SubprocessService {
       done: Promise.resolve({ exitCode: 0, signal: null }),
       terminate: () => {},
       waitForExit: () => Promise.resolve(true),
+    }
+  }
+
+  async spawnTerminal(spec: SubprocessTerminalSpawnSpec): Promise<SubprocessTerminalHandle> {
+    return {
+      pid: spec.argv.length,
+      output: new PassThrough(),
+      done: Promise.resolve({ exitCode: 0, signal: null }),
+      write: async () => {},
+      inspectForeground: async () => ({ processGroupId: 1, inputWaiting: true }),
+      signalForeground: async () => 1,
+      terminate: async () => {},
     }
   }
 }

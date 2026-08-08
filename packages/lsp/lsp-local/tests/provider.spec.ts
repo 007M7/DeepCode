@@ -1,9 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { chmod, mkdtemp, mkdir, rm, writeFile, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { Context } from 'cordis'
 import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
+import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import Lsp, { type LspQueryRequest } from '@deepseek-ai/dsh-lsp'
 import * as LspLocal from '@deepseek-ai/dsh-lsp-local'
 import type { Config, LspLocalServerConfig } from '@deepseek-ai/dsh-lsp-local'
@@ -44,6 +45,7 @@ describe('lsp-local provider resolution', () => {
     const ctx = new Context()
     await ctx.plugin(Lsp)
     await ctx.plugin(LocalSubprocessService)
+    await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
     await expect(ctx.plugin(LspLocal, config('onpath', {
       command: 'fake-lsp',
       args: [],
@@ -57,6 +59,7 @@ describe('lsp-local provider resolution', () => {
     const ctx = new Context()
     await ctx.plugin(Lsp)
     await ctx.plugin(LocalSubprocessService)
+    await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
     await expect(ctx.plugin(LspLocal, config('nope', {
       command: 'fake-lsp',
       args: [],
@@ -71,6 +74,7 @@ describe('lsp-local provider resolution', () => {
     const ctx = new Context()
     await ctx.plugin(Lsp)
     await ctx.plugin(LocalSubprocessService)
+    await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
     // Grab the provider instance by registering, then dispose the whole plugin fiber.
     const lsp = ctx.lsp
     const fiber = await ctx.plugin(LspLocal, config('disp', {
@@ -88,6 +92,7 @@ describe('lsp-local provider resolution', () => {
     const ctx = new Context()
     await ctx.plugin(Lsp)
     await ctx.plugin(LocalSubprocessService)
+    await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
     await expect(ctx.plugin(LspLocal, config('bad-budget', {
       command: process.execPath,
       args: ['-e', ''],
@@ -101,6 +106,7 @@ describe('lsp-local provider resolution', () => {
     const ctx = new Context()
     await ctx.plugin(Lsp)
     await ctx.plugin(LocalSubprocessService)
+    await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
     await expect(ctx.plugin(LspLocal, config('bad-cap', {
       command: process.execPath,
       args: ['-e', ''],
@@ -114,6 +120,7 @@ describe('lsp-local provider resolution', () => {
     const ctx = new Context()
     await ctx.plugin(Lsp)
     await ctx.plugin(LocalSubprocessService)
+    await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
     await expect(ctx.plugin(LspLocal, config('bad-timer', {
       command: process.execPath,
       args: ['-e', ''],
@@ -130,6 +137,7 @@ describe('lsp-local provider resolution', () => {
     const ctx = new Context()
     await ctx.plugin(Lsp)
     await ctx.plugin(LocalSubprocessService)
+    await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
     await expect(ctx.plugin(LspLocal, config('abs-bad', {
       command: notExe,
       args: [],
@@ -142,6 +150,7 @@ describe('lsp-local provider resolution', () => {
     const ctx = new Context()
     await ctx.plugin(Lsp)
     await ctx.plugin(LocalSubprocessService)
+    await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
     await expect(ctx.plugin(LspLocal, config('abs-directory', {
       command: ws,
       args: [],
@@ -154,6 +163,7 @@ describe('lsp-local provider resolution', () => {
     const ctx = new Context()
     await ctx.plugin(Lsp)
     await ctx.plugin(LocalSubprocessService)
+    await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
     await expect(ctx.plugin(LspLocal, { servers: {} })).rejects.toThrow(/servers must contain at least one server/)
     await ctx.fiber.dispose()
   })
@@ -162,6 +172,7 @@ describe('lsp-local provider resolution', () => {
     const ctx = new Context()
     await ctx.plugin(Lsp)
     await ctx.plugin(LocalSubprocessService)
+    await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
     await expect(ctx.plugin(LspLocal, config('', {
       command: process.execPath,
       extensionToLanguage: { '.ts': 'typescript' },
@@ -173,6 +184,7 @@ describe('lsp-local provider resolution', () => {
     const ctx = new Context()
     await ctx.plugin(Lsp)
     await ctx.plugin(LocalSubprocessService)
+    await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
     await expect(ctx.plugin(LspLocal, {
       servers: {
         valid: { command: process.execPath, extensionToLanguage: { '.ts': 'typescript' } },
@@ -183,10 +195,90 @@ describe('lsp-local provider resolution', () => {
     await ctx.fiber.dispose()
   })
 
+  it('waits for aborted sibling executable lookups before setup rejects', async () => {
+    const ctx = new Context()
+    await ctx.plugin(Lsp)
+    await ctx.plugin(LocalSubprocessService)
+    await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
+    const slowStarted = Promise.withResolvers<undefined>()
+    const slowAborted = Promise.withResolvers<undefined>()
+    const releaseCleanup = Promise.withResolvers<undefined>()
+    vi.spyOn(ctx.subprocess, 'resolveExecutable').mockImplementation(async (command, _env, signal) => {
+      if (signal === undefined) throw new Error('missing setup signal')
+      if (command === 'slow-lsp') {
+        return await new Promise<string>((_resolve, reject) => {
+          const onAbort = (): void => {
+            slowAborted.resolve(undefined)
+            void releaseCleanup.promise.then(() => {
+              reject(signal.reason instanceof Error ? signal.reason : new Error(String(signal.reason)))
+            })
+          }
+          signal.addEventListener('abort', onAbort, { once: true })
+          slowStarted.resolve(undefined)
+          if (signal.aborted) onAbort()
+        })
+      }
+      await slowStarted.promise
+      throw new Error('lookup failed')
+    })
+
+    const loading = ctx.plugin(LspLocal, {
+      servers: {
+        slow: { command: 'slow-lsp', extensionToLanguage: { '.ts': 'typescript' } },
+        failing: { command: 'failing-lsp', extensionToLanguage: { '.js': 'javascript' } },
+      },
+    })
+    await slowAborted.promise
+    let settled = false
+    void loading.then(() => { settled = true }, () => { settled = true })
+    await new Promise<void>((resolve) => { setImmediate(resolve) })
+    expect(settled).toBe(false)
+
+    releaseCleanup.resolve(undefined)
+    await expect(loading).rejects.toThrow('lookup failed')
+    await ctx.fiber.dispose()
+  })
+
+  it('aborts executable resolution when disposed during setup', async () => {
+    const ctx = new Context()
+    await ctx.plugin(Lsp)
+    await ctx.plugin(LocalSubprocessService)
+    await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
+    const subprocess = ctx.subprocess
+    const lookupStarted = Promise.withResolvers<AbortSignal>()
+    vi.spyOn(subprocess, 'resolveExecutable').mockImplementation(async (_command, _env, signal) => {
+      if (signal === undefined) throw new Error('missing setup signal')
+      lookupStarted.resolve(signal)
+      return await new Promise<string>((_resolve, reject) => {
+        const onAbort = (): void => {
+          reject(signal.reason instanceof Error ? signal.reason : new Error(String(signal.reason)))
+        }
+        signal.addEventListener('abort', onAbort, { once: true })
+        if (signal.aborted) onAbort()
+      })
+    })
+
+    const loading = ctx.plugin(LspLocal, config('pending', {
+      command: 'pending-lsp',
+      extensionToLanguage: { '.ts': 'typescript' },
+    }))
+    const signal = await lookupStarted.promise
+    const unrelated = await ctx.plugin(() => {})
+    await unrelated.dispose()
+    expect(signal.aborted).toBe(false)
+    const disposing = loading.dispose()
+
+    await expect(loading).rejects.toThrow('lsp-local setup disposed')
+    await expect(disposing).resolves.toBeUndefined()
+    expect(signal.aborted).toBe(true)
+    await ctx.fiber.dispose()
+  })
+
   it('rolls back earlier registrations when a later server conflicts', async () => {
     const ctx = new Context()
     await ctx.plugin(Lsp)
     await ctx.plugin(LocalSubprocessService)
+    await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
     await expect(ctx.plugin(LspLocal, {
       servers: {
         first: { command: process.execPath, extensionToLanguage: { '.ts': 'typescript' } },

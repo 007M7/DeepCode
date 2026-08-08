@@ -48,6 +48,11 @@ class FakeFs extends FileSystem {
   override async resolve(path: string): Promise<FsTarget> {
     return { targetKey: FsTargetKey(`key:${path}`), displayPath: `/abs/${path}` }
   }
+  override processPath(target: FsTarget): string { return String(target.targetKey) }
+  override fileUrl(target: FsTarget): string { return `file://${target.targetKey}` }
+  override contains(parent: FsTarget, child: FsTarget): boolean {
+    return child.targetKey === parent.targetKey || String(child.targetKey).startsWith(`${parent.targetKey}/`)
+  }
   override async stat(target: FsTarget): Promise<FsInfo | undefined> {
     this.throwIfArmed()
     const content = this.files.get(target.targetKey)
