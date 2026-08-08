@@ -11,3 +11,5 @@
 | `tool-pty`（`@deepseek-ai/dsh-tool-pty`） | 6 个面向模型的工具，并为后台发送集成通用任务 | 注册到 `ctx.tools` |
 
 设计与暂缓边界记录在[持久 PTY Agent Note](../../.agents/notes/implemented/feature/2026-07-16-persistent-pty-sessions.md) 中。
+
+子系统参考——id、后端/会话契约、发送就绪、有界读取——见 [docs/subsystems/pty.md](../../docs/subsystems/pty.md)；设计与延后边界见[持久 PTY Agent Note](../../.agents/notes/implemented/feature/2026-07-16-persistent-pty-sessions.md)。

@@ -39,7 +39,7 @@
       "path": "../web-react"
     },
     {
-      "path": "../../ui/permission"
+      "path": "../../interaction/permission"
     },
     {
       "path": "../../support/invariants"

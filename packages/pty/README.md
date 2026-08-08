@@ -11,3 +11,5 @@ English | [中文](README.zh.md)
 | `tool-pty` (`@deepseek-ai/dsh-tool-pty`) | Six model-facing tools and generic task integration for background sends | registers on `ctx.tools` |
 
 The design and deferred boundaries live in the [persistent PTY Agent Note](../../.agents/notes/implemented/feature/2026-07-16-persistent-pty-sessions.md).
+
+The subsystem reference — ids, backend/session contracts, send readiness, bounded reads — is [docs/subsystems/pty.md](../../docs/subsystems/pty.md); design and deferred boundaries in the [persistent PTY Agent Note](../../.agents/notes/implemented/feature/2026-07-16-persistent-pty-sessions.md).

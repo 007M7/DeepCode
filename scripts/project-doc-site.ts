@@ -131,6 +131,12 @@ function destinationRange(rawNode: string, type: 'link' | 'image' | 'definition'
   return { start, end: rawNode.length }
 }
 
+// `#fragment` suffixes pass through verbatim. Generated cordis-surface
+// headings carry explicit `<a id>` anchors with the GitHub slug, so those
+// fragments resolve on the published site too; hand-written headings rely on
+// VitePress's own slugger, which differs from GitHub's for punctuation-heavy
+// text — hand-authored cross-page fragments should prefer plain-text headings
+// or explicit anchors.
 function splitTarget(url: string): { path: string; suffix: string } {
   const boundary = url.search(/[?#]/)
   if (boundary === -1) return { path: url, suffix: '' }

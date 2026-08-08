@@ -1,51 +1,187 @@
 /**
- * Generate committed Cordis artifacts from the Typert catalog projector and
- * the independent vendored-core projector.
+ * Generate the per-subsystem Cordis service/event reference regions from the
+ * Typert catalog projection. Every harness `ctx.<key>` service and event scope
+ * maps to exactly one `docs/subsystems/` page through the curated tables below;
+ * the generator injects each page's surface between its GENERATED markers —
+ * byte-identically into both language sides of the pair — and re-records a
+ * pair's `.i18n.yaml` only when nothing outside the region changed. The
+ * projection enforces event modes, JSDoc parameter/return completeness, and
+ * signature type-link coverage; the inherited (vendor) tier renders to
+ * `docs/cordis-api/inherited.md`. `--check` verifies every generated artifact.
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import {
   projectCordisCatalog,
-  renderEvents,
-  renderServices,
+  renderInheritedPage,
+  renderPageRegion,
+  REGION_BEGIN,
+  REGION_END,
 } from '@deepseek-ai/dsh-typert-generator'
 import type { CordisCatalogPolicy } from '@deepseek-ai/dsh-typert-generator'
 import { renderCordisCoreApiPages } from './cordis-core-api.ts'
+import { contextKeyMap, contextMergeFiles } from './cordis-walk.ts'
+import {
+  blobHash,
+  parsePairMeta,
+  partitionGeneratedRegions,
+  renderPairMeta,
+} from './translation-pairing.ts'
 
 const root = resolve(import.meta.dirname, '..')
-const OUT_EVENTS = 'docs/cordis-catalog/events.md'
-const OUT_SERVICES = 'docs/cordis-catalog/services.md'
-const OUT_RUNTIME_API = 'packages/cordis/tool-cordis/src/api-catalog.ts'
+const SUBSYSTEMS_DIR = 'docs/subsystems'
+const OUT_INHERITED = 'docs/cordis-api/inherited.md'
+const OUT_RUNTIME_API = 'packages/self-modification/tool-cordis/src/api-catalog.ts'
 
-/** One primary core-data-structures page per project type used by a generated signature. */
+export { REGION_BEGIN, REGION_END }
+
+/**
+ * The owning subsystems page for every harness `ctx.<key>` service the
+ * projection discovers. Fail-closed both ways: a discovered key absent here
+ * and an entry whose key the projection no longer discovers are both hard
+ * errors, so the partition can never silently drift from the service surface.
+ */
+export const SERVICE_PAGE: Record<string, string> = {
+  agentLoop: 'core.md',
+  agentPresets: 'core.md',
+  agents: 'core.md',
+  approval: 'approval.md',
+  bash: 'bash.md',
+  bashEnv: 'bash.md',
+  clientModuleHost: 'client-modules.md',
+  codeRuntime: 'code-runtime.md',
+  commands: 'commands.md',
+  compact: 'compaction.md',
+  credentials: 'credentials.md',
+  directoryPicker: 'workspace.md',
+  e2b: 'subprocess.md',
+  fs: 'filesystem.md',
+  goals: 'goal.md',
+  httpServer: 'http-server.md',
+  invariants: 'invariants.md',
+  llm: 'llm-streaming.md',
+  permission: 'permission.md',
+  planMode: 'plan.md',
+  pty: 'pty.md',
+  sandbox: 'sandbox.md',
+  sandboxPolicy: 'sandbox.md',
+  sessionPersistence: 'persistence.md',
+  sessionQuery: 'session-query.md',
+  sessionReferences: 'session-reference.md',
+  sessionProjectionCache: 'session-projection.md',
+  sessionProjections: 'session-projection.md',
+  sessions: 'session.md',
+  settings: 'settings.md',
+  sessionTitle: 'session-title.md',
+  skills: 'skills.md',
+  spillStore: 'spill.md',
+  storage: 'storage.md',
+  storageDomain: 'storage.md',
+  subagents: 'subagent.md',
+  subprocess: 'subprocess.md',
+  systemPrompt: 'system-prompt.md',
+  tasks: 'tasks.md',
+  telemetry: 'telemetry.md',
+  tokenMeter: 'token-meter.md',
+  toolResultPrune: 'compaction.md',
+  tools: 'tools.md',
+  typert: 'typert.md',
+  typertGateway: 'typert.md',
+  userInteraction: 'user-interaction.md',
+  web: 'web.md',
+  workflows: 'workflow.md',
+  workspace: 'workspace.md',
+}
+
+/**
+ * Context keys declared in `interface Context` merges that the rendering
+ * projection cannot see, each with the reason and its documentation owner.
+ * The scan that enforces this list reads EVERY `declare module 'cordis'`
+ * Context merge under `packages/x/x/src/*.ts` — not only root `index.ts`
+ * files with a same-named service class — so a new service can never silently
+ * join this blind spot: it either enters {@link SERVICE_PAGE} or names itself
+ * here.
+ * TODO(cordis-catalog-interface-services): the interface-typed and
+ * non-index-declared entries would all render once the projection resolves a
+ * Context key through its declaring file's imports to the class declaration.
+ */
+export const SERVICE_WALK_EXEMPTIONS: Record<string, string> = {
+  agent: 'not a service: the DX accessor field on Agent.ctx (root accessor defaulting to undefined) — docs/subsystems/core.md owns the Agent handle',
+  configuredAgentIdentities: 'not a service: launcher-provided boot-context value (ConfiguredAgentIdentities | undefined) — packages/core/agent-loop/README.md owns the launcher contract',
+  launcherSessionQueryPath: 'not a service: launcher-provided boot-context value (string | undefined) — packages/session-query/session-query-sqlite/README.md owns the launcher contract',
+  dshHomePath: 'not a service: boot-provided root accessor function (typeof dshHomePath | undefined) for Loader !!js config expressions — packages/boot/app-boot/README.md owns the boot contract',
+  headlessIo: 'not a service: launcher-provided root accessor value (HeadlessIo | undefined) for the headless bundle runner — packages/bundle/headless/README.md owns the launcher contract',
+  launcherEnvironment: 'not a service: launcher-provided root accessor value (EnvironmentSnapshot | undefined) — packages/util/environment/README.md owns the launcher contract',
+  lsp: 'interface-typed (LspService); implementing class Lsp is not the declared type name — packages/lsp/lsp/README.md owns the surface',
+  apiProxy: 'interface-typed (ApiProxy) with the class in api-proxy.ts, not index.ts — packages/host/apiproxy/README.md owns the surface',
+  appShell: 'client-side interface-typed browser service — packages/client/web/README.md owns the surface',
+  connection: 'client-side interface-typed browser service — packages/client/connection/README.md owns the surface',
+}
+
+/**
+ * The owning subsystems page for every harness event scope (the segment
+ * before the first `/`). Fail-closed exactly like {@link SERVICE_PAGE}.
+ * `slash` lives with the human-command surface: the client slash-input
+ * protocol parses toward command invocation and `dsh-ui-slash` owns the
+ * declarations, but commands.md owns the cross-package command story.
+ */
+export const EVENT_SCOPE_PAGE: Record<string, string> = {
+  'agent': 'core.md',
+  'agent-loop': 'core.md',
+  'approval': 'approval.md',
+  'commands': 'commands.md',
+  'credentials': 'credentials.md',
+  'domain': 'storage.md',
+  'fs': 'filesystem.md',
+  'goal': 'goal.md',
+  'llm': 'llm-streaming.md',
+  'session': 'session.md',
+  'settings': 'settings.md',
+  'skills': 'skills.md',
+  'subagent': 'subagent.md',
+  'system-prompt': 'system-prompt.md',
+  'telemetry': 'telemetry.md',
+  'tools': 'tools.md',
+  'workflow': 'workflow.md',
+}
+
+/**
+ * One primary subsystems page per project type used by a generated
+ * signature. This stays curated because union names intentionally do not
+ * reuse the type-equivalence manifest's map-symbol entries and some symbols
+ * appear on more than one page.
+ */
 export const LINK_MAP: Readonly<Record<string, string>> = {
   Agent: 'core.md',
   AgentCancelCause: 'core.md',
+  AgentFactory: 'core.md',
+  AgentHandle: 'core.md',
   AgentOptions: 'core.md',
   AgentStatus: 'core.md',
-  ContentBlock: 'core.md',
-  ContinuationDecision: 'core.md',
-  ContinuationStop: 'core.md',
-  GenerateOptions: 'core.md',
-  MessageId: 'core.md',
-  HookContext: 'core.md',
+  ContentBlock: 'llm-streaming.md',
+  CreateAgentOptions: 'core.md',
+  GenerateOptions: 'llm-streaming.md',
+  InboxItem: 'core.md',
+  InboxPlacement: 'core.md',
+  MessageId: 'llm-streaming.md',
+  ResumeAgentOptions: 'core.md',
   SettleReason: 'core.md',
-  AdapterRegistrationHandle: 'core.md',
-  DirectoryRegistrationHandle: 'core.md',
-  LlmCallConfig: 'core.md',
-  LlmModelContext: 'core.md',
-  LlmModelReasoningInfo: 'core.md',
-  LlmResolvedModelInfo: 'core.md',
+  AdapterRegistrationHandle: 'llm-streaming.md',
+  DirectoryRegistrationHandle: 'llm-streaming.md',
+  LlmCallConfig: 'llm-streaming.md',
+  LlmModelContext: 'llm-streaming.md',
+  LlmModelReasoningInfo: 'llm-streaming.md',
+  LlmResolvedModelInfo: 'llm-streaming.md',
   LlmFailure: 'llm-streaming.md',
-  LlmModelInfo: 'core.md',
-  LlmProviderInfo: 'core.md',
-  LlmConfigurableProvider: 'core.md',
-  LlmModelDiscoveryRequest: 'core.md',
-  LlmDiscoveredModel: 'core.md',
+  LlmModelInfo: 'llm-streaming.md',
+  LlmProviderInfo: 'llm-streaming.md',
+  LlmConfigurableProvider: 'llm-streaming.md',
+  LlmModelDiscoveryRequest: 'llm-streaming.md',
+  LlmDiscoveredModel: 'llm-streaming.md',
   ResolvedRetryPolicy: 'llm-streaming.md',
-  Message: 'core.md',
-  MessageSource: 'core.md',
+  Message: 'llm-streaming.md',
+  MessageSource: 'llm-streaming.md',
   UserMessage: 'session.md',
   PreStepDecision: 'core.md',
   PreStepContext: 'core.md',
@@ -54,7 +190,7 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   PreparedReferencedMessage: 'session-reference.md',
   SessionReferenceCandidate: 'session-reference.md',
   SessionReferenceInput: 'session-reference.md',
-  SessionEvent: 'core.md',
+  SessionEvent: 'session.md',
   SessionId: 'core.md',
   SessionStartSource: 'core.md',
   SessionLogSnapshot: 'session-query.md',
@@ -92,12 +228,12 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   FsWriteIntent: 'filesystem.md',
   FsWriteOutcome: 'filesystem.md',
   CreateGoalRequest: 'goal.md',
-  CreateGoalResult: 'goal.md',
   EditGoalRequest: 'goal.md',
   GoalBlockReason: 'goal.md',
   GoalChanged: 'goal.md',
   GoalRef: 'goal.md',
   GoalView: 'goal.md',
+  CreateGoalResult: 'goal.md',
   CommandDefinition: 'commands.md',
   CommandDescriptor: 'commands.md',
   CommandResult: 'commands.md',
@@ -230,8 +366,34 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   WebSearchRequest: 'web.md',
   WebSearchResult: 'web.md',
   WorkflowRun: 'workflow.md',
+  PresetOption: 'permission.md',
+  PresetSpec: 'permission.md',
+  InvariantInstaller: 'invariants.md',
+  WebRoute: 'http-server.md',
+  StorageBackend: 'storage.md',
+  StorageForms: 'storage.md',
+  Domain: 'storage.md',
+  DomainSpec: 'storage.md',
+  DomainChanged: 'storage.md',
+  DomainFacility: 'storage.md',
+  Workspace: 'workspace.md',
+  WorkspaceId: 'workspace.md',
+  WebBootGraph: 'client-modules.md',
+  TelemetryRecord: 'telemetry.md',
   WorkflowRunInfo: 'workflow.md',
   WorkflowStartRequest: 'workflow.md',
+  ProjectionDefinition: 'session-projection.md',
+  SessionProjectionMap: 'session-projection.md',
+  ProjectionChangeListener: 'session-projection.md',
+  ProjectionSnapshot: 'session-projection.md',
+  ProjectionCheckpoint: 'session-projection.md',
+  DirectoryPickerCapability: 'workspace.md',
+  TypertContribution: 'invariants.md',
+  TypertFace: 'invariants.md',
+  TypertPackageFilter: 'invariants.md',
+  TypertPackageRecord: 'invariants.md',
+  TypertSchemaFilter: 'invariants.md',
+  TypertSchemaRecord: 'invariants.md',
 }
 
 /** TypeScript lib and pinned framework types with no repository-owned data page. */
@@ -248,9 +410,8 @@ export const FOUNDATION_TYPE_NAMES: ReadonlySet<string> = new Set([
   'Readonly',
 ])
 
-/** Project types deliberately documented outside the core-data catalog. */
+/** Project types deliberately documented outside the subsystems catalog. */
 export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
-  AgentFactory: 'agent creation seam is owned by packages/core/agent/README.md',
   z: 'schemastery schema constructor is owned by vendor/schemastery (vendored upstream)',
   BeginCommandRequest: 'event-local request contract is owned by packages/client/ui-slash/src/types.ts',
   InsertReferenceRequest: 'event-local request contract is owned by packages/client/ui-slash/src/types.ts',
@@ -262,56 +423,28 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   BashEnvVariableInfo: 'service-local metadata type is owned by packages/bash/tool-bash/src/index.ts',
   CompactAgentContext: 'compaction service input is owned by packages/compact/compact/src/index.ts',
   ManualCompactAgentContext: 'manual compaction service input is owned by packages/compact/compact/src/index.ts',
-  DirectoryPickerCapability: 'picker interaction contract is owned by packages/host/directory-picker/README.md',
-  CreateAgentOptions: 'agent creation contract is owned by packages/core/agent/README.md',
-  Domain: 'domain interface is owned by packages/storage/storage-domain/README.md',
-  DomainChanged: 'event-local snapshot is owned by packages/storage/storage-domain/src/events.ts',
-  DomainFacility: 'domain form facility is owned by packages/storage/storage-domain/README.md',
   DomainImpl: 'domain implementation contract is owned by packages/storage/storage-domain/README.md',
-  DomainSpec: 'domain declaration contract is owned by packages/storage/storage-domain/README.md',
-  StorageBackend: 'backend contract is owned by packages/storage/storage/src/backend.ts',
-  StorageForms: 'merge-extensible form map is owned by packages/storage/storage/src/index.ts',
-  ProjectionDefinition: 'projection unit contract is owned by packages/session-projection/session-projection/README.md',
-  SessionProjectionMap: 'merge-extensible projection key map is owned by packages/session-projection/session-projection/src/types.ts',
-  ProjectionChangeListener: 'change-feed listener contract is owned by packages/session-projection/session-projection/src/index.ts',
-  ProjectionSnapshot: 'watermark snapshot shape is owned by packages/session-projection/session-projection/src/index.ts',
-  ProjectionCheckpoint: 'persisted checkpoint row map is owned by packages/session-projection/session-projection/src/index.ts',
-  CommandExecution: 'executor return contract is owned by packages/ui/commands/src/index.ts',
-  TypertContribution: 'registry contribution contract is owned by packages/typert/registry/README.md',
-  TypertFace: 'registry face identity is owned by packages/typert/registry/README.md',
-  TypertPackageFilter: 'registry package query filter is owned by packages/typert/registry/README.md',
-  TypertPackageRecord: 'registry package record is owned by packages/typert/registry/README.md',
-  TypertSchemaFilter: 'registry schema query filter is owned by packages/typert/registry/README.md',
-  TypertSchemaRecord: 'registry schema record is owned by packages/typert/registry/README.md',
-  TypeRTDisposer: 'TypeRT lifecycle contract is owned by packages/typert/type-meta/README.md',
+  CommandExecution: 'executor return contract is owned by packages/interaction/commands/src/index.ts',
   'z.core.JSONSchema.BaseSchema': 'zod projection output is owned by the zod v4 API',
   'z.core.ToJSONSchemaParams': 'zod projection parameters are owned by the zod v4 API',
-  InvariantInstaller: 'service-local contribution contract is owned by packages/support/invariants/README.md',
+  TypeRTDisposer: 'TypeRT lifecycle contract is owned by packages/typert/type-meta/README.md',
+  InvokeRemoteRequest: 'gateway invocation contract is owned by packages/api/gateway/README.md',
   LocaleDict: 'service-local dictionary shape is owned by packages/client/i18n/src/index.ts',
-  WebBootGraph: 'web boot graph wire shape is owned by packages/client/modules/src/client/index.ts',
-  WebRoute: 'route registration contract is owned by packages/host/webserver/src/index.ts',
-  WebUpgradeRoute:
-    'upgrade route registration contract is owned by packages/host/webserver/src/index.ts',
   ThemeTokens: 'service-local token dictionary is owned by packages/client/ui-theme/src/index.ts',
   Translate: 'service-local bound translator is owned by packages/client/i18n/src/index.ts',
+  WebUpgradeRoute:
+    'upgrade route registration contract is owned by packages/host/webserver/src/index.ts',
   InvariantRegistration: 'service-local lifecycle handle is owned by packages/support/invariants/README.md',
-  InvokeRemoteRequest: 'gateway invocation contract is owned by packages/api/gateway/README.md',
-  PresetOption: 'deployment menu metadata is owned by packages/ui/permission/README.md',
-  PresetSpec: 'deployment preset composition is owned by packages/ui/permission/README.md',
-  KnobState: 'projection unit state shape is owned by packages/ui/permission/README.md',
-  PermissionSelect: 'permissions projection payload is owned by packages/ui/permission/src/types.ts',
+  KnobState: 'projection unit state shape is owned by packages/interaction/permission/README.md',
+  PermissionSelect: 'permissions projection payload is owned by packages/interaction/permission/src/types.ts',
   PromptAssembly: 'assembly result is owned by packages/core/system-prompt/README.md',
-  ResumeAgentOptions: 'agent resume contract is owned by packages/core/agent/README.md',
   Sandbox: 'external E2B SDK handle is owned by packages/e2b/e2b/README.md',
   SessionForkSource: 'service-local fork input is owned by packages/core/session/src/index.ts',
   SubagentRunEndInfo: 'event payload contract is owned by packages/subagent/subagent/src/types.ts',
   SubagentRunInfo: 'event payload contract is owned by packages/subagent/subagent/src/types.ts',
-  TelemetryRecord: 'seam-local record contract is owned by packages/telemetry/session-telemetry/src/index.ts',
   WorkflowAgentEndInfo: 'event-local snapshot is owned by packages/workflow/workflow/src/index.ts',
   WorkflowAgentInfo: 'event-local snapshot is owned by packages/workflow/workflow/src/index.ts',
   WorkflowResultInfo: 'event-local snapshot is owned by packages/workflow/workflow/src/index.ts',
-  Workspace: 'workspace entity contract is owned by packages/workspace/workspace/README.md',
-  WorkspaceId: 'branded id is owned by packages/workspace/workspace/README.md',
 }
 
 /** Repository data policy consumed by the Cordis catalog projector. */
@@ -329,8 +462,7 @@ export const CORDIS_CATALOG_POLICY: CordisCatalogPolicy = {
     { name: 'internal/listener', summary: 'A listener was registered.', source: 'vendor/cordis/src/events.ts:340' },
     { name: 'internal/dispatch', summary: 'An event is being dispatched to listeners.', source: 'vendor/cordis/src/events.ts:342' },
     { name: 'hmr/change', summary: 'A watched source file changed on disk.', source: 'vendor/hmr/src/index.ts:20' },
-    { name: 'hmr/reload', summary: 'Plugins are being reloaded after a change.', source: 'vendor/hmr/src/index.ts:22' },
-    { name: 'hmr/config-update-failed', summary: 'A watched config-file refresh failed.', source: 'vendor/hmr/src/index.ts:29' },
+    { name: 'hmr/reload', summary: 'Plugins are being reloaded after a change.', source: 'vendor/hmr/src/index.ts:21' },
     { name: 'exit', summary: 'The process is exiting on a signal.', source: 'vendor/loader/src/index.ts:23' },
     { name: 'loader/config-update', summary: 'The loader config tree changed.', source: 'vendor/loader/src/index.ts:24' },
     { name: 'loader/entry-init', summary: 'A config entry is being initialized.', source: 'vendor/loader/src/index.ts:25' },
@@ -351,15 +483,171 @@ export const CORDIS_CATALOG_POLICY: CordisCatalogPolicy = {
   ],
 }
 
-/** CLI entry: default writes every artifact; `--check` reports stale files.
+
+/**
+ * Splice a page's generated cordis-surface region into its Markdown content.
+ * The page must contain exactly one cordis-surface region (the markers are
+ * part of the hand-owned page skeleton once, then owned by the generator);
+ * zero or several is a partition error the caller reports with the page path.
+ * The match is on THIS generator's exact markers, not the generic region
+ * grammar, so a page carrying only some other generator's region fails loud
+ * instead of having that region overwritten.
+ * @param content - the page's current full Markdown text.
+ * @param region - the freshly rendered marker-delimited region.
+ * @returns the page text with the region replaced.
+ */
+export function spliceRegion(content: string, region: string): string {
+  const lines = content.split('\n')
+  const begins = lines.flatMap((line, index) => (line === REGION_BEGIN ? [index] : []))
+  const ends = lines.flatMap((line, index) => (line === REGION_END ? [index] : []))
+  if (begins.length !== 1 || ends.length !== 1) {
+    throw new Error(`expected exactly 1 cordis-surface region, found ${begins.length} BEGIN/${ends.length} END; add the BEGIN/END cordis-surface markers once`)
+  }
+  const begin = begins[0] ?? -1
+  const end = ends[0] ?? -1
+  if (end < begin) throw new Error('cordis-surface END marker precedes its BEGIN')
+  return [...lines.slice(0, begin), ...region.split('\n'), ...lines.slice(end + 1)].join('\n')
+}
+
+/**
+ * Compute every generated artifact: the inherited-tier page, the model-facing
+ * runtime API module, plus, per mapped subsystems page, the pair's two updated
+ * documents with the injected region. Fail-loud partition checks live here: an
+ * unmapped service/event scope, a mapping whose page file does not exist, a
+ * curated entry whose key/scope the projection no longer discovers, and a
+ * mapped page missing its markers are all aggregated errors.
+ * @returns `[repo-relative path, exact content]` for every generated artifact.
+ */
+export function computeOutputs(): [string, string][] {
+  const { projector, model } = projectCordisCatalog(root, CORDIS_CATALOG_POLICY)
+  const services = [...model.services]
+  const events = [...model.events]
+  const problems: string[] = []
+
+  const discoveredKeys = new Set(services.map(s => s.key))
+  const discoveredScopes = new Set(events.map(e => e.scope))
+  for (const s of services) {
+    if (!Object.hasOwn(SERVICE_PAGE, s.key)) problems.push(`service ctx.${s.key} (${s.source}) has no SERVICE_PAGE entry; every service maps to exactly one subsystems page.`)
+  }
+  for (const scope of discoveredScopes) {
+    if (!Object.hasOwn(EVENT_SCOPE_PAGE, scope)) problems.push(`event scope '${scope}/*' has no EVENT_SCOPE_PAGE entry; every event scope maps to exactly one subsystems page.`)
+  }
+  for (const key of Object.keys(SERVICE_PAGE)) {
+    if (!discoveredKeys.has(key)) problems.push(`SERVICE_PAGE maps 'ctx.${key}' but the projection discovers no such service; remove the stale entry.`)
+  }
+  for (const scope of Object.keys(EVENT_SCOPE_PAGE)) {
+    if (!discoveredScopes.has(scope)) problems.push(`EVENT_SCOPE_PAGE maps '${scope}/*' but the projection discovers no such scope; remove the stale entry.`)
+  }
+  // The rendering projection only sees a Context key it can resolve to a
+  // documented service class. This independent scan reads EVERY Context merge
+  // so a key the projection cannot render must either be rendered (mapped) or
+  // carry a named SERVICE_WALK_EXEMPTIONS reason — never vanish silently.
+  const declaredKeys = new Map<string, string>()
+  for (const { rel, sf, body } of contextMergeFiles(root, 'packages/*/*/src/*.ts')) {
+    for (const key of contextKeyMap(body, sf).keys()) {
+      if (!declaredKeys.has(key)) declaredKeys.set(key, rel)
+    }
+  }
+  for (const [key, rel] of declaredKeys) {
+    const rendered = discoveredKeys.has(key)
+    const exempt = Object.hasOwn(SERVICE_WALK_EXEMPTIONS, key)
+    if (!rendered && !exempt) {
+      problems.push(`ctx.${key} (${rel}) is declared in a Context merge but invisible to the rendering projection; map it in SERVICE_PAGE (after making it renderable) or name it in SERVICE_WALK_EXEMPTIONS with its documentation owner.`)
+    }
+    if (rendered && exempt) problems.push(`ctx.${key} is rendered by the projection but still listed in SERVICE_WALK_EXEMPTIONS; remove the stale exemption.`)
+  }
+  for (const key of Object.keys(SERVICE_WALK_EXEMPTIONS)) {
+    if (!declaredKeys.has(key)) problems.push(`SERVICE_WALK_EXEMPTIONS names 'ctx.${key}' but no Context merge declares it; remove the stale exemption.`)
+  }
+  if (problems.length > 0) throw new Error(`gen-cordis-catalog: ${problems.length} partition violation(s):\n${problems.map(p => `  ${p}`).join('\n')}`)
+
+  const pages = [...new Set([...Object.values(SERVICE_PAGE), ...Object.values(EVENT_SCOPE_PAGE)])].sort()
+  const outputs: [string, string][] = [
+    [OUT_INHERITED, renderInheritedPage(CORDIS_CATALOG_POLICY)],
+    [OUT_RUNTIME_API, projector.renderRuntimeApi(model)],
+  ]
+  for (const page of pages) {
+    const region = renderPageRegion(
+      page,
+      services.filter(s => SERVICE_PAGE[s.key] === page),
+      events.filter(e => EVENT_SCOPE_PAGE[e.scope] === page),
+      CORDIS_CATALOG_POLICY,
+    )
+    for (const side of [page, page.replace(/\.md$/, '.zh.md')]) {
+      const rel = `${SUBSYSTEMS_DIR}/${side}`
+      let current: string
+      try {
+        current = readFileSync(resolve(root, rel), 'utf8')
+      } catch {
+        // Both pair sides must exist before a region can be injected; the
+        // pairing gate owns pair completeness, this generator names the miss.
+        problems.push(`${rel}: mapped subsystems page does not exist.`)
+        continue
+      }
+      try {
+        outputs.push([rel, spliceRegion(current, region)])
+      } catch (error) {
+        problems.push(`${rel}: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+  }
+  if (problems.length > 0) throw new Error(`gen-cordis-catalog: ${problems.length} page violation(s):\n${problems.map(p => `  ${p}`).join('\n')}`)
+  return outputs
+}
+
+/**
+ * Re-record a pair's `.i18n.yaml` after a region write ONLY when the write is
+ * region-confined: both sides' region-stripped content must be byte-equal to
+ * the region-stripped previous content whose hashes the record holds. The
+ * caller supplies the previous bytes (read before writing); human-content
+ * drift leaves the record untouched so the pairing gate still demands the
+ * normal translation flow.
+ * @param pageRel - repo-relative English page path (`docs/subsystems/x.md`).
+ * @param before - pre-write bytes per repo-relative path.
+ * @param scanRoot - repository root override for tests.
+ * @returns true when the record was refreshed.
+ */
+export function maybeRecordPair(pageRel: string, before: Map<string, Buffer>, scanRoot: string = root): boolean {
+  const zhRel = pageRel.replace(/\.md$/, '.zh.md')
+  const metaRel = pageRel.replace(/\.md$/, '.i18n.yaml')
+  const metaAbs = resolve(scanRoot, metaRel)
+  let meta: string
+  try {
+    meta = readFileSync(metaAbs, 'utf8')
+  } catch {
+    // No record yet: a brand-new pair is recorded by the author's --write
+    // after review, never silently by regeneration.
+    return false
+  }
+  // The record must be exactly the well-formed two-entry shape for THIS pair;
+  // a malformed or renamed-key sidecar is the pairing gate's problem to
+  // report, never something regeneration silently repairs into validity.
+  const recorded = parsePairMeta(meta)
+  const names = [pageRel, zhRel].map(rel => rel.split('/').at(-1) ?? rel)
+  if (!recorded || recorded.size !== 2 || !names.every(name => recorded.has(name))) return false
+  for (const rel of [pageRel, zhRel]) {
+    const previous = before.get(rel)
+    if (!previous) return false
+    if (recorded.get(rel.split('/').at(-1) ?? rel) !== blobHash(previous)) return false
+    const current = readFileSync(resolve(scanRoot, rel))
+    const strippedBefore = partitionGeneratedRegions(previous.toString('utf8')).stripped
+    const strippedAfter = partitionGeneratedRegions(current.toString('utf8')).stripped
+    if (strippedBefore !== strippedAfter) return false
+  }
+  const source = readFileSync(resolve(scanRoot, pageRel))
+  const zh = readFileSync(resolve(scanRoot, zhRel))
+  writeFileSync(metaAbs, renderPairMeta(pageRel, blobHash(source), zhRel, blobHash(zh)))
+  return true
+}
+
+/** CLI entry: default regenerates every artifact, `--check` fails if any is
+ * stale. Guarded behind an entry-point check so importing this module for
+ * tests neither regenerates the committed files nor calls process.exit.
  * @returns nothing; writes files or reports freshness through the process.
  */
 export function main(): void {
-  const { projector, model } = projectCordisCatalog(root, CORDIS_CATALOG_POLICY)
   const outputs: [string, string][] = [
-    [OUT_EVENTS, renderEvents([...model.events], CORDIS_CATALOG_POLICY)],
-    [OUT_SERVICES, renderServices([...model.services], CORDIS_CATALOG_POLICY)],
-    [OUT_RUNTIME_API, projector.renderRuntimeApi(model)],
+    ...computeOutputs(),
     ...renderCordisCoreApiPages(),
   ]
   if (process.argv.includes('--check')) {
@@ -369,25 +657,51 @@ export function main(): void {
       try {
         committed = readFileSync(resolve(root, out), 'utf8')
       } catch {
-        // Only ENOENT is expected; either read failure has the same remedy.
+        // Only ENOENT (not yet generated) is expected; a present-but-unreadable
+        // file is not a state this repo produces. Either way the remedy is the
+        // same — regenerate — so treat a read failure as "stale".
         committed = null
       }
       if (committed !== content) stale.push(out)
     }
     if (stale.length === 0) {
-      console.log(`gen-cordis-catalog: ${outputs.length} generated file(s) are up to date.`)
+      console.log(`gen-cordis-catalog: ${outputs.length} generated file(s)/region(s) are up to date.`)
       process.exit(0)
     }
-    console.error(`gen-cordis-catalog: ${stale.join(' and ')} ${stale.length === 1 ? 'is' : 'are'} stale. Run \`pnpm run gen-cordis-catalog\` and commit the result.`)
+    console.error(`gen-cordis-catalog: stale — ${stale.join(', ')}. Run \`pnpm run gen-cordis-catalog\` and commit the result.`)
     process.exit(1)
   }
 
+  const before = new Map<string, Buffer>()
+  for (const [out] of outputs) {
+    try {
+      before.set(out, readFileSync(resolve(root, out)))
+    } catch {
+      // First generation of this artifact; nothing to guard, nothing to record.
+    }
+  }
+  let changedPages = 0
+  let recorded = 0
   for (const [out, content] of outputs) {
     const destination = resolve(root, out)
+    if (before.get(out)?.toString('utf8') === content) continue
     mkdirSync(dirname(destination), { recursive: true })
     writeFileSync(destination, content)
+    changedPages++
   }
-  console.log(`gen-cordis-catalog: wrote ${outputs.length} generated file(s).`)
+  for (const page of [...new Set([...Object.values(SERVICE_PAGE), ...Object.values(EVENT_SCOPE_PAGE)])]) {
+    const rel = `${SUBSYSTEMS_DIR}/${page}`
+    const zhRel = rel.replace(/\.md$/, '.zh.md')
+    const wroteEither = [rel, zhRel].some((side) => {
+      const previous = before.get(side)
+      return previous !== undefined && previous.toString('utf8') !== readFileSync(resolve(root, side), 'utf8')
+    })
+    if (wroteEither && maybeRecordPair(rel, before)) recorded++
+  }
+  console.log(`gen-cordis-catalog: ${outputs.length} artifact(s) computed, ${changedPages} written, ${recorded} pair record(s) refreshed.`)
 }
 
-if (process.argv[1] && import.meta.filename === resolve(process.argv[1])) main()
+// Run only when invoked as a script, not when imported by a test.
+if (process.argv[1] && import.meta.filename === resolve(process.argv[1])) {
+  main()
+}
