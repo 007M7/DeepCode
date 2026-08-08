@@ -1,7 +1,7 @@
-// Web e2e scenario: the composer's primary action interrupts a running
+// Web e2e scenario: the composer's independent Stop interrupts a running
 // continuable child. The child holds its model turn open through a replay
-// hang entry; the browser proves the single primary Send/Stop toggle, the
-// parent-offline disabled-input-with-Stop composer, the subagent.interrupt
+// hang entry; the browser proves Send and Stop coexist, the parent-offline
+// disabled-Send-with-Stop composer, the subagent.interrupt
 // (never session.cancel) transport, the parked follow-up, and the FIFO resume
 // on a waking send.
 //
@@ -155,7 +155,7 @@ describe.skipIf(MODE === 'record')('web e2e: composer interrupt for a running co
     if (failures.length > 1) throw new AggregateError(failures, 'subagent interrupt UI teardown failed')
   })
 
-  it('locks input but keeps the same primary Stop when the parent is offline', async () => {
+  it('locks Send but keeps independent Stop when the parent is offline', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-subagent-interrupt-offline'))
     // Simulate a parent that went offline: the catalog delivers
     // parentAvailable: false while the child Activation stays live (the
@@ -177,11 +177,12 @@ describe.skipIf(MODE === 'record')('web e2e: composer interrupt for a running co
       })
       await input.waitFor({ timeout: 15_000 })
       expect(await input.isDisabled()).toBe(true)
-      // Still exactly one primary action, and it is an enabled Stop.
       const stop = page.getByRole('button', { name: 'Stop generating' })
       expect(await stop.count()).toBe(1)
       expect(await stop.isEnabled()).toBe(true)
-      expect(await page.getByRole('button', { name: 'Send message' }).count()).toBe(0)
+      const send = page.getByRole('button', { name: 'Send message' })
+      expect(await send.count()).toBe(1)
+      expect(await send.isDisabled()).toBe(true)
       await compareOrRefreshGolden(
         OFFLINE_COMPOSER_EXPECTED,
         await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd),
@@ -203,11 +204,11 @@ describe.skipIf(MODE === 'record')('web e2e: composer interrupt for a running co
     await input.waitFor({ timeout: 15_000 })
     expect(await input.isDisabled()).toBe(false)
 
-    // Queue a follow-up while the turn is open; the primary stays Stop.
+    // Queue a follow-up through Send while independent Stop remains available.
     const promptResponse = page.waitForResponse(response =>
       new URL(response.url()).pathname === '/api/subagent.prompt')
     await input.fill(FOLLOWUP)
-    await input.press('Enter')
+    await page.getByRole('button', { name: 'Send message' }).click()
     expect(((await (await promptResponse).json()) as { result: { ok: boolean } }).result)
       .toMatchObject({ ok: true })
 

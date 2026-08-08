@@ -84,7 +84,7 @@ export function InputBar({
   const permissions = useProjection('permissions')
 
   // A continuable child without its live parent cannot accept human input,
-  // but its primary Stop below stays available while it runs.
+  // but its independent Stop below stays available while it runs.
   const continuable = subagent?.address.mode === 'continuable'
   const parentOffline = continuable && !subagent.parentAvailable
   // Queue cut 1: running input stays free; locked = session removed, the
@@ -354,12 +354,14 @@ export function InputBar({
     if (el !== null) toggleCommandMenu?.(selectionOf(el))
   }
 
-  // Ordinary sessions and continuable children stop through the same primary
-  // action; one-shot children stay send-and-stop-free (read-only takeover).
-  const stopping = running && (subagent === null || continuable)
-  const primaryLabel = stopping ? t('input.stop') : t('input.send')
+  // Ordinary sessions retain their primary Send/Stop toggle. A continuable
+  // child keeps Send as the primary action and exposes Stop independently so
+  // pointer users can queue follow-ups while its current turn is running.
+  const primaryStops = running && subagent === null
+  const interruptible = running && continuable
+  const primaryLabel = primaryStops ? t('input.stop') : t('input.send')
   const onPrimary = (): void => {
-    if (stopping) {
+    if (primaryStops) {
       stop?.()
       return
     }
@@ -528,16 +530,32 @@ export function InputBar({
             {renderSlot('conversation.input.model', { locked: modelSeatLocked })}
             <ContextMeter useProjection={useProjection} t={t} />
             {/* {machineBusy && <span className={css.pending} data-input-pending aria-label="处理中" />} */}
+            {interruptible && (
+              <Tooltip label={t('input.stop')} side="top" delayMs={500}>
+                <button
+                  type="button"
+                  className={css.primary}
+                  aria-label={t('input.stop')}
+                  disabled={stop === undefined}
+                  onMouseDown={keepFocus}
+                  onClick={stop}
+                >
+                  <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
+                    <rect x="3" y="3" width="10" height="10" rx="3" fill="currentColor" />
+                  </svg>
+                </button>
+              </Tooltip>
+            )}
             <Tooltip label={primaryLabel} side="top" delayMs={500}>
               <button
                 type="button"
                 className={css.primary}
                 aria-label={primaryLabel}
-                disabled={stopping ? stop === undefined : empty || disabled || machineBusy}
+                disabled={primaryStops ? stop === undefined : empty || disabled || machineBusy}
                 onMouseDown={keepFocus}
                 onClick={onPrimary}
               >
-                {stopping ? (
+                {primaryStops ? (
                   <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
                     <rect x="3" y="3" width="10" height="10" rx="3" fill="currentColor" />
                   </svg>
