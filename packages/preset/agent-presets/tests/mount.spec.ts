@@ -10,7 +10,7 @@ import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { assembleContextFor, type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { beforeEach, describe, expect, it } from 'vitest'
-import AgentPresets, { leakedServices, livePresetMounts } from '@deepseek-ai/dsh-agent-presets'
+import AgentPresets, { leakedServices, livePresetMounts, mountPreset } from '@deepseek-ai/dsh-agent-presets'
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'fixtures')
 const ROOTS = [
@@ -153,6 +153,14 @@ describe('rejecting a composition that cannot be used', () => {
     // The provider ran, but under a realm-private symbol the root cannot reach.
     expect(providedServiceNames(ctx)).toContain('fixtureIsolatedSvc')
     expect(rootResolves(ctx, 'fixtureIsolatedSvc')).toBe(false)
+  })
+
+  it('refuses to mount a preset directly into an unscoped context', async () => {
+    // The service's own mount() guards this before delegating; the exported
+    // function is callable on its own, so the boundary holds there too.
+    const preset = await ctx.agentPresets.resolve('standard')
+
+    await expect(mountPreset(ctx, preset)).rejects.toThrow(/unscoped context/)
   })
 
   it('reports the known ids when a preset is unknown', async () => {
