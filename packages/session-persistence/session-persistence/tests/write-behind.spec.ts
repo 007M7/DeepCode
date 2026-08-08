@@ -249,4 +249,27 @@ describe('SessionWriteBehind', () => {
     expect(batches).toEqual([[0], [0, 1]])
     await controller.flush()
   })
+
+  it('retains a failed batch larger than the engine call-argument limit', async () => {
+    const failure = new Error('durability failed')
+    const batchSize = 150_000
+    const sizes: number[] = []
+    let attempt = 0
+    const controller = new SessionWriteBehind({
+      maxDelayMs: 200,
+      write: async (events) => {
+        sizes.push(events.length)
+        if (++attempt === 1) throw failure
+      },
+      reportBackgroundFailure: vi.fn(),
+    })
+
+    for (let seq = 0; seq < batchSize; seq += 1) controller.enqueue(event(seq))
+    await expect(controller.flush()).rejects.toBe(failure)
+    expect(controller.hasWork).toBe(true)
+
+    await controller.flush()
+    expect(sizes).toEqual([batchSize, batchSize])
+    expect(controller.hasWork).toBe(false)
+  })
 })

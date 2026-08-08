@@ -71,6 +71,12 @@ export class SessionWriteBehind {
     return barrier.promise
   }
 
+  /** Cancel the current automatic deadline without draining retained work. */
+  cancelAutomaticWait(): void {
+    this.cancelTimer()
+    this.deadlineExpired = false
+  }
+
   /** Start the one fixed window for the current pending prefix. */
   private armTimer(): void {
     this.timer = setTimeout(() => { this.onDeadline() }, this.options.maxDelayMs)
@@ -137,7 +143,7 @@ export class SessionWriteBehind {
     const operation = Promise.resolve().then(() => this.options.write(batch))
     const active = operation
       .catch((error: unknown) => {
-        this.pending.unshift(...batch)
+        this.pending = batch.concat(this.pending)
         this.cancelTimer()
         this.deadlineExpired = false
         this.automaticPaused = true

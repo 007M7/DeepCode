@@ -1084,14 +1084,12 @@ export class PersistenceCoordinator<TornMarker = unknown> {
       return restored
     }
     const seed = session.events.map(e => structuredClone(e))
-    let init = Promise.resolve()
     const live: LiveSessionState = {
-      init,
-      writes: this.createWriteBehind(session, () => init),
+      init: Promise.resolve(),
+      writes: this.createWriteBehind(session, () => live.init),
     }
     this.live.set(session, live)
-    init = this.serialize(session.header.id, () => this.onCreated(session, seed))
-    live.init = init
+    live.init = this.serialize(session.header.id, () => this.onCreated(session, seed))
     live.init.catch(() => { /* observed by flush/dispose through the controller */ })
     return live
   }
@@ -1110,14 +1108,12 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     const suffix = session.events.slice(state.cursor).map(event => structuredClone(event))
     this.preparations.attach(reservation)
     state.owner = session
-    let init = Promise.resolve()
     const live: LiveSessionState = {
-      init,
-      writes: this.createWriteBehind(session, () => init),
+      init: Promise.resolve(),
+      writes: this.createWriteBehind(session, () => live.init),
     }
     if (suffix.length > 0) {
-      init = this.serialize(session.id, () => this.appendCore(session.id, suffix))
-      live.init = init
+      live.init = this.serialize(session.id, () => this.appendCore(session.id, suffix))
       live.init.catch(() => { /* observed by flush/dispose through the controller */ })
     }
     return live
@@ -1240,7 +1236,15 @@ export class PersistenceCoordinator<TornMarker = unknown> {
 
   private async flush(session: Session): Promise<void> {
     const live = this.initFor(session)
-    await live.init
+    live.writes.cancelAutomaticWait()
+    try {
+      await live.init
+    } catch (error: unknown) {
+      // Admission is closed during retirement/teardown, but an ordinary flush
+      // may have raced one last enqueue while initialization was pending.
+      live.writes.cancelAutomaticWait()
+      throw error
+    }
     await live.writes.flush()
   }
 

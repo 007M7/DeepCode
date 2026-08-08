@@ -257,6 +257,48 @@ runCoordinatorContract('memory', async (): Promise<CoordinatorFixture> => {
 })
 
 describe('PersistenceCoordinator bounded writes', () => {
+  it('cancels the batching deadline when live initialization rejects', async () => {
+    vi.useFakeTimers()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const backend = new ControlledBackend()
+    const failure = new Error('initialization failed')
+    backend.beforeLoadStored = () => Promise.reject(failure)
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      new PersistenceCoordinator(inner, backend, {
+        preparedSessionCacheSize: DEFAULT_PREPARED_SESSION_CACHE_SIZE,
+        writeBatchMaxDelayMs: MAX_WRITE_BATCH_DELAY_MS,
+      })
+    }, { inject: ['sessions'] }))
+
+    try {
+      const session = ctx.sessions.create(SessionId('bounded-init-failure'))
+      session.append('turn/start', { turn: 1 })
+
+      await expect(ctx.sessions.flush(session)).rejects.toBe(failure)
+      expect(vi.getTimerCount()).toBe(0)
+      try {
+        await fiber.dispose()
+      } catch {
+        // The initialization failure was already asserted at the flush boundary.
+      }
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      try {
+        await fiber.dispose()
+      } catch {
+        // The expected initialization failure was asserted above; cleanup only
+        // needs to release any remaining parent effects.
+      }
+      try {
+        await ctx.fiber.dispose()
+      } catch {
+        // The child failure was already asserted through the backend fiber.
+      }
+      vi.useRealTimers()
+    }
+  })
+
   it('starts a follow-up batch for events admitted during an in-flight write', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
