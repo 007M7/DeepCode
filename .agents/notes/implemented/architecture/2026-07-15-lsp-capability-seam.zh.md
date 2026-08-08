@@ -1,4 +1,4 @@
-# Agent Note: LSP 能力 seam 与面向模型的查询工具
+# Agent Note: LSP 能力服务边界与面向模型的查询工具
 
 Status: implemented
 
@@ -14,7 +14,7 @@ harness 已具备文本搜索与文件读取能力，但二者都无法识别程
 
 ## 决策
 
-将 LSP 建成由三个包组成的能力 seam，其中包含一个只读模型工具和一个通用本地提供方实现：
+将 LSP 建成由三个包（package）组成的能力服务边界，其中包含一个只读模型工具和一个通用本地提供方实现：
 
 1. `packages/lsp/lsp` 下的 `@deepseek-ai/dsh-lsp` 负责 `ctx.lsp`、提供方注册与选择、标准化请求与结果、执行控制，以及结构化 LSP 错误。
 2. `packages/lsp/lsp-local` 下的 `@deepseek-ai/dsh-lsp-local` 将配置的 stdio 语言服务器适配到该服务边界。一个插件实例接收具名服务器表，并为每组命令及扩展名到语言 id 的映射注册一个隔离的提供方。
@@ -62,7 +62,7 @@ interface LspProviderQuery extends LspQueryRequest {
 }
 
 type LspQueryResult =
-  | { readonly kind: 'locations'; readonly locations: readonly { readonly uri: string; readonly range: LspRange }[]; readonly resolvedWorkspaceRoot: string }
+  | { readonly kind: 'locations'; readonly locations: readonly { readonly uri: string; readonly range: LspRange }[]; readonly resolvedWorkspaceUri: string }
   | { readonly kind: 'hover'; readonly hover: { readonly contents: string; readonly range?: LspRange } | null }
 
 interface LspProvider {
@@ -77,9 +77,9 @@ interface LspService {
 }
 ```
 
-映射键规范化为带前导点的小写扩展名，并按 `filePath` 的最后一个扩展名选择；语言 id 仅用于文档同步。服务边界中的位置和范围从零开始按 UTF-16 计数。`findReferences` 始终包含声明：提供方在内部执行该约束，本地映射设置 `context.includeDeclaration: true`，调用方不能配置。封闭结果联合将导航统一为位置，将 `hover` 统一为内容或 `null`；导航结果携带提供方解析后的工作区根目录，使消费方依据同一规范化根目录相对化文件 URI。服务边界不公开协议类型、进程或文档控制，也不提供通用请求逃生口。
+映射键规范化为带前导点的小写扩展名，并按 `filePath` 的最后一个扩展名选择；语言 id 仅用于文档同步。服务边界中的位置和范围从零开始按 UTF-16 计数。`findReferences` 始终包含声明：提供方在内部执行该约束，本地映射设置 `context.includeDeclaration: true`，调用方不能配置。封闭结果联合将导航统一为位置，将 `hover` 统一为内容或 `null`；导航结果携带提供方的规范工作区 URI，使消费方在执行世界的命名空间内相对化文件 URI。服务边界不公开协议类型、进程或文档控制，也不提供通用请求逃生口。
 
-`dsh-lsp-local` 负责主机文件、服务器配置、JSON-RPC、进程与临时文档状态和协议转换；它依赖 `dsh-lsp` 与 Node API，不依赖 `dsh-fs`。服务器表的键是提供方 id。插件在注册前解析每个服务器的本地设置；如果后续映射无效或发生冲突，插件会撤销此前的注册，并为每个提供方保留独立进程池。`dsh-tool-lsp` 在运行时只注入 `tools`、`lsp` 和 `systemPrompt`，通过包内的 `sessionCwd(exec)` 辅助函数从 `exec.agent?.session.header.cwd` 取得工作区，其取值方式与文件系统工具一致，也不导入提供方。
+`dsh-lsp-local` 负责服务器配置、JSON-RPC、进程与临时文档状态和协议转换。它通过 `ctx.fs` 读取，通过 `ctx.subprocess` 启动，只依赖二者的接口包而非具体提供方；[可移植执行环境决策](2026-07-28-portable-execution-world-consumers.md)负责定义这种配对。服务器表的键是提供方 id。插件在注册前解析每个服务器的本地设置；如果后续映射无效或发生冲突，插件会撤销此前的注册，并为每个提供方保留独立进程池。`dsh-tool-lsp` 在运行时只注入 `tools`、`lsp` 和 `systemPrompt`，通过包内的 `sessionCwd(exec)` 辅助函数从 `exec.agent?.session.header.cwd` 取得工作区，其取值方式与文件系统工具一致，也不导入提供方。
 
 ## 面向模型的契约
 
@@ -98,9 +98,9 @@ interface LspToolInput {
 
 工具必须从会话 `header.cwd` 取得 `workspaceRoot`，没有后备值；缺失时在查询或启动前以 `LSP_WORKSPACE_REQUIRED` 失败。本地提供方基于根目录解析相对路径并直接接受绝对路径；两种路径都会进行规范化，如果目标位于规范工作区外，则在启动前拒绝。
 
-位置按文件稳定分组并渲染为 `path:line:character`。Node `fileURLToPath()` 可接受的 `file:` URI 在工作区内转换为相对路径，在工作区外转换为绝对路径；其他 URI 保持原样。`maxLocations` 默认值为 `100`，并报告省略的条目；`maxResultChars` 默认值为 `16_000`，并将每个完整渲染结果（包括截断元数据）限制在该字符数内。空位置与 `null` hover 是成功的无结果响应；服务器载荷缺失或格式错误时，以结构化 `LSP_MALFORMED_RESPONSE` 错误失败。
+位置在不应用 harness 宿主路径规则的情况下按文件稳定分组并渲染为 `path:line:character`。有效的 `file:` URI 落在提供方的规范工作区 URI 内时转换为相对路径，位于其外时转换为从 URI 派生的绝对路径；格式错误的 URI 与非 `file:` URI 保持原样。`maxLocations` 默认值为 `100`，并报告省略的条目；`maxResultChars` 默认值为 `16_000`，并限制每个完整渲染结果，其中包括截断元数据。空位置与 `null` hover 是成功的无结果响应；服务器载荷缺失或格式错误时，以结构化 `LSP_MALFORMED_RESPONSE` 错误失败。
 
-与传输方式无关的展示器使用 `{ card: 'generic', kind: 'search', title, locations: [{ path: file_path, line }] }`，`title` 由参数推导并标明操作与光标。由于 `FileLocation` 没有 character，跟随位置聚焦输入行，标题保留完整光标；展示器仍为纯函数。
+与传输方式无关的展示器使用 `{ card: 'generic', kind: 'search', title, locations: [{ path: file_path, line }] }`，`title` 由参数推导并标明操作与光标。由于 `FileLocation` 没有 character，跟随位置聚焦输入行，标题保留完整光标；展示保持纯函数。
 
 ## 超时归属
 
@@ -112,26 +112,26 @@ interface LspToolInput {
 
 ## 工作区、文件系统与文档同步
 
-`dsh-lsp-local` 通过 Node API 在子进程所在的主机命名空间中规范化并读取文件。它拒绝缺失、非普通、非 UTF-8、超大或规范路径越出工作区的源文件，并在校验与读取期间保持同一个 `O_NOFOLLOW | O_NONBLOCK` 句柄，因此没有写入方的 FIFO 不会在普通文件校验前造成阻塞。它在每项文件系统操作前后检查调用方是否取消。它不使用 `ctx.fs` 或发送 `fs/observed`：只有 LSP 结果对模型可见，因此查询不满足写前读取策略。
+`dsh-lsp-local` 在语言服务器的执行环境中通过 `ctx.fs` 规范化并读取文件。它要求工作区目标是目录，使用提供方自有的 containment 拒绝工作区外的源文件，消费 `streamText`，并在分片到达时执行 `maxDocumentBytes` 上限；普通文件校验和 UTF-8 解码仍由提供方负责，文档上限则由协议消费方负责。它会针对每项文件系统操作合并调用方取消与提供方资源释放，跟踪尚未进入队列的工作区查找，并在资源释放期间等待这些查找结算。它不发送 `fs/observed`：只有 LSP 结果对模型可见，因此查询不满足写前读取策略。
 
 `read` 工具的输出带窗口与行号，进入 transcript（文本记录）且已被观察，不适合作为源文件。在 `tool-lsp` 内读取还会把提供方专用同步职责交给消费方，并排除非本地提供方。
 
 本地提供方对每次查询都采用兼容优先的临时打开流程。它接受旧式 `textDocumentSync` 的 `Full` 或 `Incremental`，也接受设置了 `openClose: true` 的选项；同步能力缺失、为 `None` 或明确不兼容时，在 `didOpen` 前以不支持错误失败。
 
-1. 规范化并校验主机路径，再使用 Node 文件系统 API 读取当前源文件。
+1. 通过 `ctx.fs` 解析源文件并检查其位于工作区内，再通过同一提供方流式读取当前文本，同时执行文档字节上限。
 2. 发送 `textDocument/didOpen`，其中包含版本 `1`、完整文本和配置的语言 id。该写入仍可取消；写入失败或遭取消会使实例失效，并等待有界进程终止完成，池才能复用它。
 3. 发送所请求的 `textDocument/definition`、`textDocument/references`、`textDocument/implementation` 或 `textDocument/hover` 请求。
 4. 如果 `didOpen` 成功，则在请求完成或取消后于 `finally` 中尝试发送 `textDocument/didClose`。关闭写入失败不会覆盖已经确定的结果或错误，但会使实例失效，并等待有界进程终止完成。
 
 每次调用后都关闭文档，因此第一版不需要 `didChange`、`didSave`、内容缓存、变更监听器或文档 LRU。每个工作区的提供方队列可取消，并串行执行源文件读取、打开、查询和关闭的完整生命周期，因此等待中的查询只在轮到它时才读取当前字节；实例也会串行执行协议生命周期。不同工作区可以并行。服务器工作区索引仍负责从源文件跳转到的已关闭文件。
 
-规范工作区 `realpath` 必须是目录，并用于进程 cwd、`rootUri`、唯一的 `workspaceFolders` 条目和进程池 identity；符号链接别名因此共享实例。结果位置可以在工作区外，但外部路径不能成为查询源。远程、虚拟或独立沙箱化文件系统需要另一种提供方。
+规范工作区目标必须是目录。其目标键提供进程池 identity，进程路径提供 cwd，归提供方所有的 `file:` URI 则提供 `rootUri` 和唯一的 `workspaceFolders` 条目；文件系统提供方将别名解析为同一键时，它们共享实例。结果位置可以在工作区外，但外部路径不能成为查询源。无法与挂载的子进程提供方共享路径的文件系统属于组合错误，不是另建 LSP 包的理由。
 
 ## 本地服务器生命周期与协议行为
 
-`dsh-lsp-local` 按 `(provider id, canonical workspace realpath)` 懒启动一个服务器，并通过 single-flight 合并启动。插件加载时，它在清除凭据并应用环境变量覆盖后解析可执行文件；命令不可用时在注册前失败。服务器进程的启动保持懒执行（首次查询时才拉起），且不经过 shell。`maxMessageBytes` 默认值为 `16_000_000`，`maxStderrBytes` 默认值为 `1_000_000`，`maxDocumentBytes` 默认值为 `4_000_000`。崩溃使当前查询失败且不重放；后续查询可以替换进程。每次查询最多启动一个进程，因此 MVP 不设置跨请求重启计数器。
+`dsh-lsp-local` 按 `(provider id, canonical workspace target)` 懒启动一个服务器，并通过 single-flight 合并启动。插件加载时，它使用已配置的环境调用 `ctx.subprocess.resolveExecutable()`；命令不可用时在注册前失败。首次查询通过原始协议管道启动服务器，不经过 shell，并收集有界的 stderr 尾部。`maxMessageBytes` 默认值为 `16_000_000`，`maxStderrBytes` 默认值为 `1_000_000`，`maxDocumentBytes` 默认值为 `4_000_000`。崩溃使当前查询失败且不重放；后续查询可以替换进程。每次查询最多启动一个进程，因此 MVP 不设置跨请求重启计数器。
 
-初始化声明 `general.positionEncodings: ['utf-16']`、`workspace: { workspaceFolders: true, configuration: true }`、`textDocument.hover.contentFormat: ['markdown', 'plaintext']`，以及 definition 与 implementation 的 `linkSupport: true`，但不支持动态注册。服务器返回的操作能力与同步能力均为真源。服务器省略 `positionEncoding` 时默认为 `utf-16`；其他值均属于协议错误。配置可以提供初始化选项和 `workspace/configuration` 响应，但客户端拒绝 `workspace/applyEdit`，绝不执行命令或编辑。
+初始化使用 `processId: null`，因为客户端与服务器可能位于不同的进程命名空间。它声明 `general.positionEncodings: ['utf-16']`、`workspace: { workspaceFolders: true, configuration: true }`、`textDocument.hover.contentFormat: ['markdown', 'plaintext']`，以及 definition 与 implementation 的 `linkSupport: true`，但不支持动态注册。服务器返回的操作与同步能力均为真源。服务器省略 `positionEncoding` 时默认为 `utf-16`；其他值均属于协议错误。配置可以提供初始化选项和 `workspace/configuration` 响应，但客户端拒绝 `workspace/applyEdit`，绝不执行命令或编辑。
 
 导航结果直接映射 `Location`，并将 `LocationLink` 的 `targetUri` 与 `targetSelectionRange` 映射为统一位置。位置必须是非负整数。`hover` 归一化只接受有效的 `MarkupContent` 和 `MarkedString` 结构，保留字符串值，把带语言标签的值渲染为围栏代码块，并以一个空行连接数组。面向模型的工具在渲染后应用 `maxResultChars`。
 
@@ -143,7 +143,7 @@ interface LspToolInput {
 
 诊断需要独立的新鲜度、累积与 transcript 规则。重命名、代码操作和格式化等变更能力需要单独工具，并集成预览、权限和写入策略。
 
-本地提供方信任配置的服务器，不声称具备沙箱隔离。支持不受信任的二进制文件需要后续补充允许读取工作区，并执行私有缓存写入与临时写入的进程／文件系统契约；受限、远程或虚拟工作区需要另一种提供方。
+提供方信任配置的服务器。其文件系统可见性与进程隔离完全取决于挂载的执行环境；LSP 不增加独立的沙箱策略。
 
 ## 备选方案
 
@@ -155,9 +155,9 @@ interface LspToolInput {
 
 **公开 `resolve(request)` / `query(spec)`。** 没有需要填充默认值的字段时，resolve 只会暴露提供方选择，而公开 spec 可能活过提供方释放或替换。单一操作让选择与调用共用注册生命周期。
 
-**将信号包装为服务边界专用的执行上下文对象。** Web 传递裸 `AbortSignal`；仅包装这一个字段会造成无谓的不对称。只有另一个字段确有需要时，`query()` 才引入上下文对象。
+**将信号包装为每服务边界的执行上下文对象。** Web 传递裸 `AbortSignal`；仅包装这一个字段会造成无谓的不对称。只有另一个字段确有需要时，`query()` 才引入上下文对象。
 
-**通过 `ctx.fs` 或 `read` 工具读取。** 这可能把文档与另一文件系统命名空间中的服务器索引混合；工具输出还带窗口、行号且已被观察。host-local 提供方在子进程旁读取未观察的完整文本。
+**通过面向模型的 `read` 工具读取。**拒绝，因为工具输出带窗口与行号，会进入 transcript 且已被观察。提供方直接通过子进程所用的同一 `ctx.fs` 执行环境消费流式传输的完整文本。
 
 **保持文档打开。** 镜像编辑需要版本归属、覆盖所有路径的 `didChange`、HMR 恢复、淘汰和陈旧状态规则。临时打开避免在 MVP 引入这套状态机。
 
@@ -180,14 +180,14 @@ interface LspToolInput {
 - 同步测试固定 UTF-16 协商与转换、受支持和被拒绝的 `textDocumentSync` 形式、打开写入阻塞与失败、配对的临时打开/关闭、关闭写入失败和错误响应拒绝。
 - 超时测试固定一个 `TOOL_TIMEOUT` 预算、不对上游取消错误分类、服务边界无隐藏截止时间，以及受限且等待完成的清理。
 - 生命周期测试固定启动 single-flight、完整生命周期串行化及排队查询读取最新源文件、跨工作区并行、可取消队列、崩溃后不重放的替换、stdin 失败后的进程拆除，以及释放后完全停稳。
-- 主机文件系统测试固定 session cwd 要求、符号链接下相对与绝对源路径的规范 containment、文档校验、file/non-file URI 渲染、无格式源文本和不发送 `fs/observed`。
+- 文件系统宿主测试固定 session cwd 要求、提供方自有的 containment 与 URI 渲染、有界文档读取、无格式源文本和不发送 `fs/observed`。
 - 无密钥且固定版本的 TypeScript 真实服务器 e2e 覆盖四种操作；可运行配置使用同一项显式提供方映射。
 - 快照覆盖模型可见 schema、提示词、结果和省略提示；构建产物冒烟测试覆盖分帧与清理。
 - 包与架构文档覆盖配置、安全边界和搜索/读取指导；同一改动中，新的 `packages/lsp/` 包组要加入 AGENTS.md 的仓库布局块、packages/README.md 的分组表和 architecture.md。
 
 ## 影响
 
-各语言服务器对方法支持、能力解释和索引就绪时机的处理不同；LSP 没有统一的「索引完成」信号。不具备兼容临时打开同步能力的服务器不受支持，即使它能查询已关闭文档。受支持的服务器仍可能返回空结果或不完整结果，因此工具不承诺跨服务器完整性。固定的 TypeScript e2e 只建立一条兼容性基线，不代表跨语言承诺。
+各语言服务器对方法支持、能力解释和索引就绪时机的处理不同；LSP 没有统一的“索引完成”信号。无法声明兼容临时打开同步能力的服务器不受支持，即使它能查询已关闭文档。受支持的服务器仍可能返回空结果或不完整结果，因此工具不承诺跨服务器完整性。固定的 TypeScript e2e 只建立一条兼容性基线，不代表跨语言承诺。
 
 临时打开会重复解析并产生通知。实例内串行会增加并发 agent 的延迟，长期运行的工作区进程则持续占用内存直到释放。
 
@@ -195,4 +195,4 @@ interface LspToolInput {
 
 UTF-16 光标列与协议完全一致，但模型难以在包含非 BMP 字符的文本中准确计数。无效位置或不在符号上的位置可能返回空结果，因此错误文本和提示词示例必须说明坐标约定，同时避免鼓励模型广泛使用 LSP。
 
-直接访问 Node 文件系统会对齐查询快照与服务器索引，但绕过 `ctx.fs` 及其策略。规范路径 containment 会拒绝工作区外的源文件；受信任的服务器仍可读取工作区并使用缓存。因此，第一版要求受信任的 host-local 部署，不提供沙箱保证。
+配对的文件系统／子进程提供方会对齐查询快照与服务器索引，但不会因此使受信任的语言服务器变得安全。规范 containment 会在解析时拒绝工作区外的查询源，但打开流不会在路径并发替换期间额外保证稳定句柄身份；服务器本身获得执行环境所配置的权限，仍可读取其他路径或使用缓存。

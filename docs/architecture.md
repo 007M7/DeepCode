@@ -26,12 +26,12 @@ Harnesses are [Cordis](cordis-primer.md) contexts; packages contribute services,
 | `ctx.llm` | [`llm/`](../packages/llm/README.md) | adapter registry, streaming model calls |
 | `ctx.tokenMeter` | [`llm/token-meter`](../packages/llm/token-meter/README.md) | replay-aware request and surface pressure |
 | `ctx.bash` | [`bash/`](../packages/bash/README.md) | foreground/background command execution |
-| `ctx.subprocess` | [`subprocess/`](../packages/subprocess/README.md) | managed child-process trees for bash, LSP, and ACP subagent backends |
+| `ctx.subprocess` | [`subprocess/`](../packages/subprocess/README.md) | executable lookup, managed trees, terminals |
 | `ctx.pty` | [`pty/`](../packages/pty/README.md) | owner-scoped persistent terminal sessions |
 | `ctx.sandbox` | [`sandbox/`](../packages/sandbox/README.md) | same-world process confinement through argv wrapping and per-call policy |
 | `ctx.sandboxPolicy` | [`sandbox/`](../packages/sandbox/README.md) | shared sandbox policy home |
 | `ctx.codeRuntime` | [`code-runtime/`](../packages/code-runtime/README.md) | model-written program execution |
-| `ctx.fs` | [`fs/`](../packages/fs/README.md) | filesystem provider primitives and policy events |
+| `ctx.fs` | [`fs/`](../packages/fs/README.md) | execution-world paths, bounded IO, and policy events |
 | `ctx.lsp` | [`lsp/`](../packages/lsp/README.md) | semantic navigation registry |
 | `ctx.skills` | [`skill/`](../packages/skill/README.md) | skill provider registry, progressive disclosure |
 | `ctx.web` | [`web/`](../packages/web/README.md) | search/fetch provider registries |
@@ -155,7 +155,7 @@ Streaming uses raw chunks and `BlockAssembler`. Each `LlmAdapter.stream()` is on
 
 ### Capability Pattern
 
-A swappable capability usually has **interface / implementation / consumer** layers: service/events, backend, and model-facing tools/prompts. Bash is the reference; the [capability graph](capability-seams.md) maps each family.
+Capabilities separate **interface / implementation / consumer** layers. Filesystem and subprocess providers define one execution world; Bash, PTY, and LSP run there without provider forks. See the [capability graph](capability-seams.md).
 
 Exceptions combine LLM interface/consumer, filesystem policy, web registries, and named skill/subagent providers. Subagents spawn fresh, fork a completed-turn prefix, use ACP children, or delegate one self-contained turn to a real product provider such as Codex ([subagent.md](core-data-structures/subagent.md)).
 

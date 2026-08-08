@@ -60,7 +60,7 @@ function spec(command: string, overrides: SpecOverrides = {}) {
   }
 }
 
-/** Poll until a pid no longer exists (kill(pid, 0) throws ESRCH). */
+/** Poll until a pid no longer exists, or is only a zombie on Linux. */
 async function waitGone(pid: number, timeoutMs = 5_000): Promise<void> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
@@ -68,6 +68,16 @@ async function waitGone(pid: number, timeoutMs = 5_000): Promise<void> {
       process.kill(pid, 0)
     } catch {
       return
+    }
+    if (process.platform === 'linux') {
+      try {
+        const stat = readFileSync(`/proc/${pid}/stat`, 'utf8')
+        const state = stat.slice(stat.lastIndexOf(')') + 2, stat.lastIndexOf(')') + 3)
+        if (state === 'Z' || state === 'X') return
+      } catch (error: unknown) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+        throw error
+      }
     }
     await new Promise(resolve => setTimeout(resolve, 20))
   }
@@ -266,6 +276,24 @@ describe('spawnSubprocess', () => {
     running.terminate()
     const result = await running.done
     expect(result.signal).toBe('SIGTERM')
+  })
+
+  it('does not wait for a Linux group that has only zombie members', async () => {
+    const pidFile = join(spillDir, `zombie-group-${Date.now()}.pid`)
+    const running = spawnSubprocess(spec(`sleep 60 & echo $! > ${pidFile}; echo leader-done`, { graceMs: 100 }), {
+      platform: 'linux',
+      linuxProcessGroupHasLiveMembers: () => false,
+    })
+    const descendant = await waitForPidFile(pidFile)
+    try {
+      await running.done
+      await expect(running.waitForExit()).resolves.toBe(true)
+    } finally {
+      // The confirmed-absent verdict is a permanent no-more-signals boundary,
+      // so terminate() must stay inert here; reap the live survivor directly.
+      process.kill(descendant, 'SIGKILL')
+      await waitGone(descendant)
+    }
   })
 
   it('bounds inherited-pipe draining after the shell exits', async () => {
@@ -637,7 +665,7 @@ describe('tree-survivor escalation (terminate and bounded waits reach helpers th
     clearTimeout(timer)
     running.terminate()
     await expect(running.waitForExit()).resolves.toBe(true)
-    expect(() => process.kill(helper, 0)).toThrow()
+    await expect(waitGone(helper)).resolves.toBeUndefined()
   })
 
   it('service teardown awaits tree survivors, not just handle settlement', async () => {
@@ -654,8 +682,8 @@ describe('tree-survivor escalation (terminate and bounded waits reach helpers th
     const helper = await waitForPidFile(pidFile)
     await running.done
     await fiber.dispose()
-    // Teardown itself waited for the survivor to die.
-    expect(() => process.kill(helper, 0)).toThrow()
+    // Teardown itself waited for the survivor to become quiescent.
+    await expect(waitGone(helper)).resolves.toBeUndefined()
   })
 })
 
