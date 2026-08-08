@@ -200,12 +200,18 @@ Source: [`packages/core/session/src/types.ts:245`](../packages/core/session/src/
 /**
  * The paired command settled. `kind`/`text` carry the handler's verbatim
  * outcome (a thrown/aborted handler settles as `kind: 'error'` with the
- * rendered failure); presentation stays client-computed at render time.
+ * rendered failure). A successful command may identify the earlier
+ * authoritative domain event for a richer client-computed presentation.
  */
-'command/done': { commandId: CommandId; kind: 'success' | 'error'; text?: string }
+'command/done': {
+  commandId: CommandId
+  kind: 'success' | 'error'
+  text?: string
+  sourceEventSeq?: number
+}
 ```
 
-Source: [`packages/ui/commands/src/index.ts:145`](../packages/ui/commands/src/index.ts)
+Source: [`packages/ui/commands/src/index.ts:151`](../packages/ui/commands/src/index.ts)
 
 #### `command/run` — log-only
 
@@ -223,7 +229,7 @@ Source: [`packages/ui/commands/src/index.ts:145`](../packages/ui/commands/src/in
 'command/run': { commandId: CommandId; name: string; args?: string; source: CommandSource }
 ```
 
-Source: [`packages/ui/commands/src/index.ts:139`](../packages/ui/commands/src/index.ts)
+Source: [`packages/ui/commands/src/index.ts:144`](../packages/ui/commands/src/index.ts)
 
 ### `compact/*`
 

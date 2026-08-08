@@ -3,7 +3,7 @@ import type { ReactNode, RefObject } from 'react'
 import type {
   InjectFace, MaybeSnapshotSelectorHook, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore, SnapshotSelectorHook,
 } from '@deepseek-ai/dsh-client-ui-slots'
-import type { CommandNode, ConversationNode, ConversationSnapshot, ObservableSnapshot, PendingInteraction, PendingWait, SessionId, ToolCallBlock, WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { CommandNode, CompactionSummaryNode, ConversationNode, ConversationSnapshot, ObservableSnapshot, PendingInteraction, PendingWait, SessionId, ToolCallBlock, WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { ComposerBlock } from '../input/blocks.ts'
 import type { ComposerKeyboard, EditSelection, InputActions, InputNotice, InputState } from '../input/contract.ts'
@@ -217,14 +217,16 @@ export type ToolRowProps = PropsRuntime<'conversation.chat.toolview'>
 /**
  * Owner share of the per-command row slot: the frozen {@link CommandNode}
  * slice off the snapshot (cache-stable reference — memo premise). The node
- * carries the whole lifecycle (structured name/args, pairing id,
- * outcome-or-executing), so a
- * registrant needs no second data channel; domain state arrives through its
- * own projection cell.
+ * carries the whole lifecycle (structured name/args, pairing id, and
+ * outcome-or-executing). A successful domain command may also carry the
+ * explicitly linked projection node needed to fold two log records into one
+ * presentation row.
  */
 export interface CommandRowOwnerProps {
   /** Folded command lifecycle node (run + optional done). */
   node: CommandNode
+  /** Explicitly linked compaction checkpoint for the settled `/compact` presentation. */
+  compaction?: CompactionSummaryNode
 }
 
 /** Full props of a registered command-row component (same shape rule as {@link ToolRowProps}). */
