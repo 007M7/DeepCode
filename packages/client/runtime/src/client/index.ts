@@ -24,6 +24,7 @@ export type { SessionProvideChannelHost } from './sessions/provide.ts'
 export { createScope } from './agents/scope.ts'
 export type { AgentScopeHandle } from './agents/scope.ts'
 export { DirectoryBrowseError, WorkspaceCreateError, WorkspacesService } from './workspaces/service.ts'
+export { resolveWorkspacePath } from './workspaces/path.ts'
 export type { Session } from './sessions/session.ts'
 export type { ISession, ProjectionsFace, SessionFace } from './contract/session.ts'
 export type {
@@ -85,7 +86,7 @@ declare module '@deepseek-ai/dsh-type-meta' {
   }
 }
 
-/** The conversation-snapshot selector hook (ConvViewProps/ToolRowProps take this). */
+/** The conversation-snapshot selector hook supplied to session-scoped UI entries. */
 export type UseConversationSession = SnapshotSelectorHook<ConversationSnapshot>
 
 /**

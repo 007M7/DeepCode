@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // ChatView behavior: flow derivation, streaming isolation (Profiler counts),
-// toolview dispatch and selection handoff — driven through a scripted
-// ObservableSnapshot fake, no wire.
+// Tool seat ownership and selection handoff — driven through a scripted
+// ObservableSnapshot fake, no wire or Tool presentation plugin.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Profiler } from 'react'
@@ -14,7 +14,7 @@ import type {
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { createSnapshotStore, PendingWait } from '@deepseek-ai/dsh-client-runtime/client'
 import { RpcId } from '@deepseek-ai/dsh-client-connection/client'
-import type { ChatViewSlotProps, SelectionTarget } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { ChatViewSlotProps, SelectionTarget, ToolTreeOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { createChatStore } from '../src/client/stores.ts'
@@ -137,12 +137,25 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
   const forkAt = vi.fn()
   // Selection rides the REAL chat store (same construction path as
   // production; the view reads it through the PropsStore useStore share).
-  // renderSlot stub renders the render-site fallback (an empty keyed ledger:
-  // every tool lands on GenericToolCard); keyed dispatch to registered rows
-  // is the slot machinery's behavior, covered by its own specs.
   const chat = createChatStore().create()
-  const renderSlot = ((_key: string, _owner: object, opts?: { fallback?: React.ReactNode }) =>
-    opts?.fallback ?? null) as unknown as ChatViewSlotProps['renderSlot']
+  const t = makeTranslate(zh, commonZh)
+  const toolOwners: ToolTreeOwnerProps[] = []
+  const renderSlot = ((key: string, owner: object, opts?: { fallback?: React.ReactNode }) => {
+    if (key !== 'conversation.chat.tool') return opts?.fallback ?? null
+    const tool = owner as ToolTreeOwnerProps
+    toolOwners.push(tool)
+    // Tool providers own their subtree. The host double carries only the
+    // semantic anchor required by ChatView's prepend-position contract.
+    return (
+      <div
+        data-testid={`tool-seat-${tool.callId}`}
+        data-chat-anchor-key={`call:${tool.callId}`}
+        data-chat-call-id={tool.callId}
+      >
+        {tool.toolName || '(unnamed)'}:{tool.callId}
+      </div>
+    )
+  }) as unknown as ChatViewSlotProps['renderSlot']
   const renderSlotChain = ((_key: string, _owner: object, opts?: { fallback?: React.ReactNode }) =>
     opts?.fallback ?? null) as unknown as ChatViewSlotProps['renderSlotChain']
   // SessionProvider seat arrives with the session-scope child declaration;
@@ -168,10 +181,13 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
     chatScroll,
     forkAt,
     // Mirrors the real lookup chain (conversation namespace, then common).
-    t: makeTranslate(zh, commonZh),
+    t,
   }
   const setSelection = (next: SelectionTarget | null): void => { chat.actions.select(next) }
-  return { set, ChatView, props, openDetails, openFile, loadOlder, inspectCall, chatScroll, forkAt, setSelection }
+  return {
+    set, ChatView, props, openDetails, openFile, loadOlder, inspectCall,
+    chatScroll, forkAt, setSelection, toolOwners,
+  }
 }
 
 /** Simulate reader input (any device): a delivered position that deviates
@@ -374,14 +390,13 @@ describe('chat-flow derivation', () => {
 })
 
 describe('ChatView', () => {
-  it('a windowless tool result (call head truncated) renders with an empty tool name', () => {
+  it('hands a windowless tool result to the Tool seat with an empty tool name', () => {
     const h = makeHarness({
       nodes: [{ ...toolResult(3, 'w1'), call: null }],
     })
     const view = render(<h.ChatView {...h.props} />)
-    // classifyTool('') → others; the summary slot falls back to the callId.
-    expect(view.container.querySelector('[data-variant="others"]')).not.toBeNull()
-    expect(view.getByText('w1')).toBeTruthy()
+    expect(view.getByTestId('tool-seat-w1')).toBeTruthy()
+    expect(h.toolOwners[0]).toMatchObject({ callId: 'w1', toolName: '' })
   })
 
   it('prepend keeps the reader\'s latest pending-request scroll position anchored', () => {
@@ -423,8 +438,8 @@ describe('ChatView', () => {
     const view = render(<h.ChatView {...h.props} />)
     expect(view.getByText('do the thing')).toBeTruthy()
     expect(view.getByText('running tools')).toBeTruthy()
-    expect(view.getAllByText('Bash')).toHaveLength(2)
-    expect(view.getByText('run a')).toBeTruthy()
+    expect(view.getByTestId('tool-seat-a').textContent).toBe('bash:a')
+    expect(view.getByTestId('tool-seat-b').textContent).toBe('bash:b')
     expect([...view.container.querySelectorAll('[data-chat-flow-key]')].map(row => ({
       key: row.getAttribute('data-chat-flow-key'),
       kind: row.getAttribute('data-chat-flow-kind'),
@@ -590,14 +605,12 @@ describe('ChatView', () => {
     ])
   })
 
-  it('the expanded row Inspect pill hands the call id to inspectCall', () => {
+  it('hands the trajectory callback to the Tool seat', () => {
     const h = makeHarness({
       nodes: [toolResult(3, 'a')],
     })
-    const view = render(<h.ChatView {...h.props} />)
-    fireEvent.click(view.getByRole('button', { name: /Bash/ }))
-    fireEvent.click(view.getByText('Inspect'))
-    expect(h.inspectCall).toHaveBeenCalledWith('a')
+    render(<h.ChatView {...h.props} />)
+    expect(h.toolOwners[0]?.inspectCall).toBe(h.inspectCall)
   })
 
   it('shows assistant IconActions only on the last content message of each turn', () => {
@@ -822,7 +835,7 @@ describe('ChatView', () => {
     // not re-render, so the row's renderSlot call count freezes during chunks.
     let rowRenders = 0
     h.props.renderSlot = ((key: string, _owner: object) => {
-      if (key !== 'conversation.chat.toolview') return null
+      if (key !== 'conversation.chat.tool') return null
       rowRenders += 1
       return <div data-testid="counting-row" />
     })
@@ -838,44 +851,19 @@ describe('ChatView', () => {
     expect(rowRenders).toBe(afterMount)
   })
 
-  it('tool row expands to the args body via the whole-row toggle', () => {
+  it('updates the selected call id handed to the Tool seat', () => {
     const h = makeHarness({ nodes: [toolResult(3, 'a')] })
-    const view = render(<h.ChatView {...h.props} />)
-    expect(view.queryByText(/"command": "cmd-a"/)).toBeNull()
-    fireEvent.click(view.container.querySelector('[data-expandable]')!)
-    expect(view.getByText(/"command": "cmd-a"/)).toBeTruthy()
-  })
-
-  it('clicking a bash summary does not open details; selection still marks data-selected', () => {
-    const h = makeHarness({ nodes: [toolResult(3, 'a')] })
-    const view = render(<h.ChatView {...h.props} />)
-    fireEvent.click(view.getByText('run a'))
-    expect(h.openDetails).not.toHaveBeenCalled()
-    expect(h.openFile).not.toHaveBeenCalled()
-    expect(view.container.querySelector('[data-selected]')).toBeNull()
+    render(<h.ChatView {...h.props} />)
+    expect(h.toolOwners.at(-1)?.selectedCallId).toBeUndefined()
     act(() => { h.setSelection({ turnSeq: 3, callId: 'a', toolName: 'bash' }) })
-    expect(view.container.querySelector('[data-selected]')).not.toBeNull()
+    expect(h.toolOwners.at(-1)?.selectedCallId).toBe('a')
   })
 
-  it('clicking a file-tool path summary opens the host file, not details', () => {
-    const h = makeHarness({
-      nodes: [{
-        kind: 'tool-result', seq: 3, time: 3_000, callId: 'r1',
-        call: { name: 'read', argsRaw: '{"path":"src/a.ts"}' },
-        callTime: 2_500, content: [], isError: false, callView: null, resultView: null,
-      }],
-    })
-    const view = render(<h.ChatView {...h.props} />)
-    fireEvent.click(view.getByText('src/a.ts'))
-    expect(h.openFile).toHaveBeenCalledWith('src/a.ts')
-    expect(h.openDetails).not.toHaveBeenCalled()
-  })
-
-  it('running calls render as a live tool group with the running state', () => {
+  it('hands running calls to a live Tool group', () => {
     const h = makeHarness({ runningCalls: [runningCall('r1')], running: true })
     const view = render(<h.ChatView {...h.props} />)
-    expect(view.container.querySelector('[data-state="running"]')).not.toBeNull()
-    expect(view.getByText('cmd-r1')).toBeTruthy()
+    expect(view.getByTestId('tool-seat-r1')).toBeTruthy()
+    expect(h.toolOwners[0]?.block).toMatchObject({ callId: 'r1', argsRaw: '{"command":"cmd-r1"}' })
     expect(view.getByRole('status').textContent).toBe('Deep diving...')
   })
 
@@ -903,19 +891,25 @@ describe('ChatView', () => {
     expect(status.textContent).toMatch(/^Deep diving\.\.\.2分0\d秒$/)
   })
 
-  it('dispatches each tool row through the keyed slot with the tool name as entryKey', () => {
-    const h = makeHarness({ nodes: [toolResult(3, 'a')] })
-    const calls: { key: string; entryKey?: string }[] = []
-    h.props.renderSlot = ((key: string, _owner: object, opts?: { entryKey?: string; fallback?: React.ReactNode }) => {
-      calls.push({ key, ...(opts?.entryKey !== undefined ? { entryKey: opts.entryKey } : {}) })
+  it('hands each ordered root call to the whole-Tool slot', () => {
+    const block = toolResult(3, 'a')
+    const h = makeHarness({ nodes: [block] })
+    const calls: { key: string; owner: object; entryKey?: string }[] = []
+    h.props.renderSlot = ((key: string, owner: object, opts?: { entryKey?: string; fallback?: React.ReactNode }) => {
+      calls.push({ key, owner, ...(opts?.entryKey !== undefined ? { entryKey: opts.entryKey } : {}) })
       return opts?.fallback ?? null
     })
     render(<h.ChatView {...h.props} />)
-    // Keyed dispatch: slot name is the declared hole, entryKey the wire tool
-    // name, and the fallback (GenericToolCard) renders on an empty ledger.
-    // (Registered-row takeover and live unload are slot machinery behavior,
-    // owned by the slot system's own specs.)
-    expect(calls).toEqual([{ key: 'conversation.chat.toolview', entryKey: 'bash' }])
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toMatchObject({
+      key: 'conversation.chat.tool',
+      owner: { callId: 'a', toolName: 'bash', selectedCallId: undefined },
+    })
+    const owner = calls[0]?.owner as ToolTreeOwnerProps
+    expect(owner.block).toBe(block)
+    expect(owner.openFile).toBe(h.openFile)
+    expect(owner.inspectCall).toBe(h.inspectCall)
+    expect(calls[0]?.entryKey).toBeUndefined()
   })
 
   it('prepend preserves a semantic row; a trailing user node force-scrolls', () => {
@@ -1275,6 +1269,7 @@ describe('ChatView', () => {
     const fv = render(<failed.ChatView {...failed.props} />)
     expect(fv.container.querySelector('[data-state="error"]')).not.toBeNull()
     expect(fv.getByText('命令失败')).toBeTruthy()
+    expect(fv.getByText('失败')).toBeTruthy()
 
     // Still executing: running state with the executing copy.
     const executing = makeHarness({
@@ -1283,6 +1278,7 @@ describe('ChatView', () => {
     const xv = render(<executing.ChatView {...executing.props} />)
     expect(xv.container.querySelector('[data-state="running"]')).not.toBeNull()
     expect(xv.getByText('执行中…')).toBeTruthy()
+    expect(xv.getByText('运行中')).toBeTruthy()
 
     // Cross-window soft-fall (run page truncated): generic title, outcome preserved.
     const orphan = makeHarness({

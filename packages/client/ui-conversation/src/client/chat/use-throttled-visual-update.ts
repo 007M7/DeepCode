@@ -1,14 +1,12 @@
 /** Frame-throttled scheduling for non-essential visual alignment. */
-
 import { useCallback, useLayoutEffect, useRef } from 'react'
 
 const DEFAULT_INTERVAL_FRAMES = 3
 
 /**
  * Return a stable scheduler that coalesces visual updates over a frame interval.
- * Repeated calls retain the latest callback, and unmount cancels pending work.
  * @param update - DOM alignment to run after the throttle interval.
- * @param intervalFrames - Frames to wait before applying the latest alignment.
+ * @param intervalFrames - frames to wait before applying the latest alignment.
  * @returns a stable function that schedules the latest update.
  */
 export function useThrottledVisualUpdate(

@@ -22,7 +22,7 @@ The panel mounts through the `conversation.input.dock` slot (a plain registrant 
 
 ### TodoRow: the per-call row through the keyed toolview slot
 
-The dedicated `todo_write` chat row is a plain registrant plugin (`todoToolview`, mounted from `apply`) that registers into the keyed `conversation.chat.toolview` slot through `ctx.slots.inject`, the same declaration-lifetime posture as the bash sample but a product registration. The summary derives from call args (`N/M done · first active item`, with a `+<n>` count of the other active ones in `ToolRow`'s non-shrinking `summarySuffix` slot); unparseable args fall back to the generic row summary; clicking opens the details column with the raw args. No `ToolEventView` is added for todo — presentation is client-owned, and the durable list renders from the session event, not the tool card.
+The dedicated `todo_write` chat row is a plain registrant plugin (`todoToolview`, mounted from `apply`) that registers into the keyed `tool.call.toolview` slot through `ctx.slots.inject`, the same declaration-lifetime posture as the bash sample but a product registration. The summary derives from call args (`N/M done · first active item`, with a `+<n>` count of the other active ones in `ToolRow`'s non-shrinking `summarySuffix` slot); unparseable args fall back to the generic row summary; clicking opens the details column with the raw args. No `ToolEventView` is added for todo — presentation is client-owned, and the durable list renders from the session event, not the tool card.
 
 ## Alternatives considered
 
