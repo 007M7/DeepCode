@@ -59,7 +59,6 @@ describe('gate graph validation', () => {
     'ci-primary',
     'ci-linux-primary',
     'ci-static',
-    'ci-lint',
     'ci-lint-contracts-ready',
     'ci-coverage',
     'ci-snapshot',
@@ -119,25 +118,25 @@ describe('gate graph validation', () => {
 describe('Oxlint gate', () => {
   it('uses the package script when no worker bound is configured', () => {
     const subject = withEnv('DSH_OXLINT_THREADS', undefined, () =>
-      withPnpmEntrypoint(() => gatesForMode('ci-lint')[0]))
+      withPnpmEntrypoint(() => gatesForMode('ci-lint-contracts-ready')[0]))
 
     expect(subject).toMatchObject({
       id: 'lint',
-      displayCommand: 'pnpm run lint',
+      displayCommand: 'pnpm run lint:contracts-ready',
       command: process.execPath,
-      args: ['/private/pnpm.cjs', 'run', 'lint'],
+      args: ['/private/pnpm.cjs', 'run', 'lint:contracts-ready'],
     })
   })
 
   it('surfaces the configured worker bound on the shared package script', () => {
     const subject = withEnv('DSH_OXLINT_THREADS', '4', () =>
-      withPnpmEntrypoint(() => gatesForMode('ci-lint')[0]))
+      withPnpmEntrypoint(() => gatesForMode('ci-lint-contracts-ready')[0]))
 
     expect(subject).toMatchObject({
       id: 'lint',
-      displayCommand: 'DSH_OXLINT_THREADS=4 pnpm run lint',
+      displayCommand: 'DSH_OXLINT_THREADS=4 pnpm run lint:contracts-ready',
       command: process.execPath,
-      args: ['/private/pnpm.cjs', 'run', 'lint'],
+      args: ['/private/pnpm.cjs', 'run', 'lint:contracts-ready'],
     })
   })
 })
@@ -182,15 +181,10 @@ describe('TypeRT contract preparation', () => {
     })
   })
 
-  it('keeps standalone aggregates responsible for preparation', () => {
-    const [lint, preparedLint, docTypecheck] = withEnv('DSH_OXLINT_THREADS', undefined, () => [
-      withPnpmEntrypoint(() => gatesForMode('ci-lint')[0]),
-      withPnpmEntrypoint(() => gatesForMode('ci-lint-contracts-ready')[0]),
-      withPnpmEntrypoint(() => gatesForMode('doc-sync').find(item => item.id === 'doc-typecheck')),
-    ])
+  it('keeps standalone doc sync responsible for preparation', () => {
+    const docTypecheck = withPnpmEntrypoint(() =>
+      gatesForMode('doc-sync').find(item => item.id === 'doc-typecheck'))
 
-    expect(lint?.displayCommand).toBe('pnpm run lint')
-    expect(preparedLint?.displayCommand).toBe('pnpm run lint:contracts-ready')
     expect(docTypecheck?.displayCommand).toBe('pnpm run doc-typecheck')
   })
 })

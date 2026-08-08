@@ -16,7 +16,6 @@ export type Mode =
   | 'ci-primary'
   | 'ci-linux-primary'
   | 'ci-static'
-  | 'ci-lint'
   | 'ci-lint-contracts-ready'
   | 'ci-coverage'
   | 'ci-snapshot'
@@ -102,7 +101,6 @@ function parseMode(raw: string | undefined): Mode {
     case 'ci-primary':
     case 'ci-linux-primary':
     case 'ci-static':
-    case 'ci-lint':
     case 'ci-lint-contracts-ready':
     case 'ci-coverage':
     case 'ci-snapshot':
@@ -117,7 +115,7 @@ function parseMode(raw: string | undefined): Mode {
       return raw
     default:
       throw new Error(
-        `run-gates: expected mode ci-primary | ci-linux-primary | ci-static | ci-lint | ci-lint-contracts-ready | ci-coverage | ci-snapshot | ci-artifacts | ci-consumers | ci-windows-blocking | ci-windows-complete | ci-windows-observational | node-compat | check-all | doc-sync, got ${JSON.stringify(raw)}.`,
+        `run-gates: expected mode ci-primary | ci-linux-primary | ci-static | ci-lint-contracts-ready | ci-coverage | ci-snapshot | ci-artifacts | ci-consumers | ci-windows-blocking | ci-windows-complete | ci-windows-observational | node-compat | check-all | doc-sync, got ${JSON.stringify(raw)}.`,
       )
   }
 }
@@ -199,14 +197,9 @@ export function gatesForMode(selected: Mode): Gate[] {
       return [...ciPrimaryGates(), webSnapshotGate(['built-package-invariants'])]
     case 'ci-static':
       return ciStaticGates({ ownsBuild: false })
-    case 'ci-lint':
-      return [
-        lintGate(),
-        pnpmScript('duplication', 'duplication'),
-      ]
     case 'ci-lint-contracts-ready':
       return [
-        lintGate({ contractsReady: true }),
+        lintGate(),
         pnpmScript('duplication', 'duplication'),
       ]
     case 'ci-coverage':
@@ -264,7 +257,7 @@ function ciPrimaryGates(): Gate[] {
     ...ciSharedStaticGates(),
     typertContractsGate(),
     pnpmScript('typecheck', 'typecheck:contracts-ready', { needs: ['typert-contracts'] }),
-    lintGate({ contractsReady: true, needs: ['typert-contracts'] }),
+    lintGate({ needs: ['typert-contracts'] }),
     pnpmScript('duplication', 'duplication'),
     ...coverageGates(),
     ...nodeCompatSmokeGates(),
@@ -464,9 +457,9 @@ function typertContractsGate(): Gate {
   return pnpmScript('typert-contracts', 'build:lib:host', { label: 'TypeRT contracts' })
 }
 
-function lintGate(options: { contractsReady?: boolean; needs?: string[] } = {}): Gate {
+function lintGate(options: { needs?: string[] } = {}): Gate {
   const raw = process.env.DSH_OXLINT_THREADS
-  const script = options.contractsReady === true ? 'lint:contracts-ready' : 'lint'
+  const script = 'lint:contracts-ready'
   return pnpmScript('lint', script, {
     ...raw === undefined || raw === ''
       ? {}
