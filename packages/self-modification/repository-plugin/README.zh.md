@@ -40,6 +40,8 @@
 
 每个源都必须采用 `github:owner/repository#<ref>`。省略 `&path:` 时选择 `/.dsh-plugin`；显式路径是仓库内的绝对路径，并且必须以 `.dsh-plugin` 结尾。commit ref 提供最清晰的不可变身份；tag 和 branch 仍可作为精确配置值使用。`cacheDir` 可覆盖默认缓存根 `$DSH_HOME/cache/repository-plugins`。
 
+Git 传输使用宿主的常规 Git 认证。公共仓库无需凭据；私有源需要可读取所选仓库的只读凭据或 SSH agent。DSH 会在包生命周期运行前移除名称符合凭据模式的环境变量，因此请配置 Git 本身，例如使用 Git 凭据辅助工具或作业作用域的 Git 配置，而不要指望已导出的 token 变量跨越该边界。仓库生命周期代码受信任且可以调用 Git，因此请使用作用域最窄且仅限所选仓库的凭据。
+
 长期运行的 surface 通过 Cordis HMR（热模块替换）监视两个 `cordis.patch.yml` 层。有效的源列表变更会安装并替换整套 repository Plugin generation；拉取、准备、导入或插件应用失败时，最后一个可用树保持运行，并广播 `hmr/config-update-failed(filename, error)`。一次性运行只在启动时读取这些层，`--patch` overlay 则从不被监视。相同的源字符串会永久复用其已准备缓存条目，因此必须改变 ref、路径或其他源配置，才能选择发生变化的代码。应用集成依据见[仅凭配置接入 repository Plugin 的 Agent Note](../../../.agents/notes/implemented/feature/2026-07-30-config-only-repository-plugins.md)。
 
 ## 准备阶段

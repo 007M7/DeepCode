@@ -242,6 +242,17 @@ jobs:
         if: vars.DSH_CI_FAILOVER == 'selfhosted' && github.event.pull_request.user.login != 'dependabot[bot]'
         run: pnpm --filter @deepseek-ai/dsh-frontend exec playwright install chromium
 
+      - name: Configure private GitHub repository Plugin access
+        env:
+          DSH_GITHUB_SOURCE_TOKEN: ${{ github.token }}
+        run: |
+          source_config="$RUNNER_TEMP/dsh-github-source.gitconfig"
+          basic_auth=$(printf 'x-access-token:%s' "$DSH_GITHUB_SOURCE_TOKEN" | base64 | tr -d '\n')
+          git config --file "$source_config" url.https://github.com/.insteadOf git@github.com:
+          git config --file "$source_config" --add url.https://github.com/.insteadOf ssh://git@github.com/
+          git config --file "$source_config" http.https://github.com/.extraheader "AUTHORIZATION: basic $basic_auth"
+          echo "GIT_CONFIG_GLOBAL=$source_config" >> "$GITHUB_ENV"
+
       - name: Run compatibility, snapshot, and artifact gates
         run: pnpm run check:ci:consumers
 

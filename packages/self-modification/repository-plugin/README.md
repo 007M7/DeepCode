@@ -40,6 +40,8 @@ The shipped `dsh-base` bundle every profile starts from contains an empty `repos
 
 Each source must use `github:owner/repository#<ref>`. Omitting `&path:` selects `/.dsh-plugin`; an explicit path is absolute within the repository and must end in `.dsh-plugin`. A commit ref gives the clearest immutable identity, while tags and branches remain accepted exact config values. `cacheDir` may override the default `$DSH_HOME/cache/repository-plugins` cache root.
 
+Git transport uses the host's ordinary Git authentication. Public repositories need no credentials; private sources require a read-only credential or SSH agent that can read the selected repository. DSH removes credential-shaped environment variables before package lifecycles, so configure Git itself, such as through a credential helper or job-scoped Git config, instead of expecting an exported token variable to cross that boundary. Repository lifecycle code is trusted and can invoke Git, so use the narrowest repository-scoped credential available.
+
 Long-lived surfaces watch both `cordis.patch.yml` layers through Cordis HMR. A valid source-list change installs and swaps the complete repository Plugin generation; a failed fetch, prepare, import, or Plugin application keeps the last good tree and broadcasts `hmr/config-update-failed(filename, error)`. One-shot runs read the layers only at startup, and a `--patch` overlay is never watched. An identical source string permanently reuses its prepared cache entry, so selecting changed code requires a ref, path, or other source-config change. App integration rationale: [config-only repository Plugins Agent Note](../../../.agents/notes/implemented/feature/2026-07-30-config-only-repository-plugins.md).
 
 ## Preparation

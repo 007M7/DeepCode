@@ -46,4 +46,4 @@
 
 ## 测试
 
-聚焦测试会准备 skills 与 MCP metadata，证明生成包装模块不含 import，拒绝 Work IQ 风格的 OAuth 字段，映射 Expo 风格 HTTP 与 DataJunction 风格 stdio 及环境变量，并覆盖缺失变量。真实 Loader 测试通过已注册 builtin 挂载生成包装模块，经 `ctx.skills` 读取其 skill，移除 Loader 条目并观察提供方清理。CI 的构建入口验收会用锁定到 PR（Pull Request）head 的 GitHub 源调用 `dsh run`，让随附 pnpm 获取并准备一个私有且不含依赖的 fixture（测试前置数据），然后在真实模型请求中观察已复制的 skill，并在不可变缓存中观察已准备的包装模块。
+聚焦测试会准备 skills 与 MCP metadata，证明生成包装模块不含 import，拒绝 Work IQ 风格的 OAuth 字段，映射 Expo 风格 HTTP 与 DataJunction 风格 stdio 及环境变量，并覆盖缺失变量。真实 Loader 测试通过已注册 builtin 挂载生成包装模块，经 `ctx.skills` 读取其 skill，移除 Loader 条目并观察提供方清理。CI 的构建入口验收会用锁定到 PR（Pull Request）head 的 GitHub 源调用 `dsh run`，通过作业作用域的 Git 配置认证私有 PR 仓库，让随附 pnpm 获取并准备其中不含依赖的 fixture（测试前置数据），然后在真实模型请求中观察已复制的 skill，并在不可变缓存中观察已准备的包装模块。
