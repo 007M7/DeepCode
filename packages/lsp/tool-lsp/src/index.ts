@@ -138,7 +138,7 @@ export function apply(ctx: Context, config: Config): void {
                   },
                 },
               },
-              resolvedWorkspaceRoot: { type: 'string', required: true },
+              resolvedWorkspaceUri: { type: 'string', required: true },
             },
           },
           {
@@ -167,7 +167,7 @@ export function apply(ctx: Context, config: Config): void {
       render: (_args, value) => {
         switch (value.kind) {
           case 'locations':
-            return [{ type: 'text', text: formatLocations(value.locations, value.resolvedWorkspaceRoot, resolved.maxLocations, resolved.maxResultChars) }]
+            return [{ type: 'text', text: formatLocations(value.locations, value.resolvedWorkspaceUri, resolved.maxLocations, resolved.maxResultChars) }]
           case 'hover':
             return [{ type: 'text', text: formatHover(value.hover, resolved.maxResultChars) }]
           /* v8 ignore next -- exhaustive over the output schema's closed union; unreachable. */
@@ -200,7 +200,7 @@ export function apply(ctx: Context, config: Config): void {
                 end: { line: location.range.end.line, character: location.range.end.character },
               },
             })),
-            resolvedWorkspaceRoot: result.resolvedWorkspaceRoot,
+            resolvedWorkspaceUri: result.resolvedWorkspaceUri,
           }
         case 'hover':
           return {
