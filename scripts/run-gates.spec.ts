@@ -144,7 +144,8 @@ describe('Oxlint gate', () => {
 
 describe('TypeRT contract preparation', () => {
   it('prepares primary source consumers once before they run', () => {
-    const subject = withPnpmEntrypoint(() => gatesForMode('ci-primary'))
+    const subject = withEnv('DSH_OXLINT_THREADS', undefined, () =>
+      withPnpmEntrypoint(() => gatesForMode('ci-primary')))
 
     expect(subject.find(item => item.id === 'typert-contracts')).toMatchObject({
       displayCommand: 'pnpm run build:lib:host',
@@ -182,10 +183,11 @@ describe('TypeRT contract preparation', () => {
   })
 
   it('keeps standalone aggregates responsible for preparation', () => {
-    const lint = withPnpmEntrypoint(() => gatesForMode('ci-lint')[0])
-    const preparedLint = withPnpmEntrypoint(() => gatesForMode('ci-lint-contracts-ready')[0])
-    const docTypecheck = withPnpmEntrypoint(() =>
-      gatesForMode('doc-sync').find(item => item.id === 'doc-typecheck'))
+    const [lint, preparedLint, docTypecheck] = withEnv('DSH_OXLINT_THREADS', undefined, () => [
+      withPnpmEntrypoint(() => gatesForMode('ci-lint')[0]),
+      withPnpmEntrypoint(() => gatesForMode('ci-lint-contracts-ready')[0]),
+      withPnpmEntrypoint(() => gatesForMode('doc-sync').find(item => item.id === 'doc-typecheck')),
+    ])
 
     expect(lint?.displayCommand).toBe('pnpm run lint')
     expect(preparedLint?.displayCommand).toBe('pnpm run lint:contracts-ready')
