@@ -52,6 +52,8 @@ class FakePty {
 class FakeInspector implements ProcessInspector {
   pgid: number | undefined = 456
   waiting = false
+  /** The shell's own row, present like the real /proc- and ps-backed scans; tests recycle or drop it. */
+  root: ProcessIdentity | undefined = { pid: 123, started: 'shell' }
   members: ProcessIdentity[] = []
   sessionMembers: ProcessIdentity[] = []
   readonly alive = new Set<number>()
@@ -63,7 +65,7 @@ class FakeInspector implements ProcessInspector {
 
   foregroundPgid() { return this.pgid }
   isStdinWaiting() { return this.waiting }
-  processTree() { return this.members }
+  processTree() { return this.root === undefined ? this.members : [this.root, ...this.members] }
   processSession() { return this.sessionMembers }
   isAlive(identity: ProcessIdentity) { return this.alive.has(identity.pid) }
   signalGroup(pgid: number, signal: SubprocessTerminalSignal) {
@@ -189,19 +191,50 @@ describe('LocalTerminalHandle', () => {
     expect(inspector.processes).toEqual([[124, 'SIGTERM']])
   })
 
+  it('does not adopt the children of a recycled shell pid', async () => {
+    const pty = new FakePty()
+    const inspector = new FakeInspector()
+    const handle = new LocalTerminalHandle(pty.asPty(), inspector, 10)
+
+    pty.emitExit()
+    const imposterChild = { pid: 999, started: 'imposter-child' }
+    inspector.root = { pid: 123, started: 'imposter' }
+    inspector.members = [imposterChild]
+    inspector.alive.add(imposterChild.pid)
+
+    await handle.terminate()
+    expect(inspector.processes).toEqual([])
+  })
+
+  it('adopts nothing when the shell identity was never observable', async () => {
+    const pty = new FakePty()
+    const inspector = new FakeInspector()
+    inspector.root = undefined
+    const orphan = { pid: 321, started: 'unverifiable' }
+    inspector.members = [orphan]
+    inspector.alive.add(orphan.pid)
+    const handle = new LocalTerminalHandle(pty.asPty(), inspector, 10)
+
+    await handle.terminate()
+    expect(inspector.processes).toEqual([])
+    expect(pty.kills).toEqual(['SIGTERM'])
+  })
+
   it('rescans for descendants forked during TERM', async () => {
     const pty = new FakePty()
     const inspector = new FakeInspector()
+    const root = { pid: 123, started: 'shell' }
     let reads = 0
     inspector.processTree = () => {
       reads += 1
-      if (reads === 1) {
-        inspector.alive.add(124)
-        return [{ pid: 124, started: 'first' }]
-      }
+      if (reads === 1) return [root]
       if (reads === 2) {
+        inspector.alive.add(124)
+        return [root, { pid: 124, started: 'first' }]
+      }
+      if (reads === 3) {
         inspector.alive.add(125)
-        return [{ pid: 125, started: 'late' }]
+        return [root, { pid: 125, started: 'late' }]
       }
       return []
     }
@@ -256,9 +289,10 @@ describe('LocalTerminalHandle', () => {
     const pty = new FakePty()
     const inspector = new FakeInspector()
     const captured = { pid: 124, started: 'captured' }
+    const root = { pid: 123, started: 'shell' }
     let reads = 0
     inspector.alive.add(captured.pid)
-    inspector.processTree = () => reads++ === 0 ? [captured] : []
+    inspector.processTree = () => { reads += 1; return reads === 1 ? [root] : reads === 2 ? [root, captured] : [] }
     inspector.signalProcess = (identity, signal) => {
       inspector.processes.push([identity.pid, signal])
       if (signal === 'SIGKILL') inspector.alive.delete(identity.pid)

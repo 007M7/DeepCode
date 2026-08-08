@@ -43,6 +43,8 @@ export class LocalTerminalHandle implements SubprocessTerminalHandle {
   private cleanup: Promise<void> | undefined
   private exited = false
   private trackedDescendants: ProcessIdentity[] = []
+  /** The spawned shell's start identity; scans stop adopting members once the root pid no longer carries it. */
+  private readonly rootIdentity: ProcessIdentity | undefined
 
   /**
    * @param terminal - allocated node-pty process.
@@ -55,6 +57,7 @@ export class LocalTerminalHandle implements SubprocessTerminalHandle {
     private readonly graceMs: number,
   ) {
     this.pid = terminal.pid
+    this.rootIdentity = inspector.processTree(this.pid).find(member => member.pid === this.pid)
     this.done = this.outcome.promise
     this.dataDisposable = terminal.onData((data) => { this.output.write(Buffer.from(data, 'utf8')) })
     this.exitDisposable = terminal.onExit(({ exitCode, signal: exitSignal }) => {
@@ -112,10 +115,19 @@ export class LocalTerminalHandle implements SubprocessTerminalHandle {
   }
 
   private descendants(): ProcessIdentity[] {
+    // Adopt newly scanned members only while the numeric root pid provably
+    // still carries the spawned shell's start identity: after the shell dies,
+    // a recycled pid's tree and session must not donate an unrelated
+    // process's children to this session's signalling. Already-adopted
+    // members keep their own start identities, which every signal rechecks.
+    const tree = this.inspector.processTree(this.pid)
+    const root = tree.find(member => member.pid === this.pid)
+    const rootVerified = this.rootIdentity !== undefined
+      && root !== undefined
+      && root.started === this.rootIdentity.started
     this.trackedDescendants = this.survivors(this.unionMembers(
       this.trackedDescendants,
-      this.inspector.processTree(this.pid),
-      this.inspector.processSession(this.pid),
+      ...rootVerified ? [tree, this.inspector.processSession(this.pid)] : [],
     ).filter(member => member.pid !== this.pid))
     return this.trackedDescendants
   }
