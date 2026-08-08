@@ -57,10 +57,11 @@ function materializeNode(
   stepTimings: ReadonlyMap<string, AssistantStepMetadata>,
 ): ConversationNode {
   switch (event.type) {
-    case 'user/message':
-      // Injected context (plugin/goal source) folds to a context node, not a
-      // user message; only a direct human prompt is a user node. A compaction
-      // checkpoint never reaches here (isCompactCheckpoint routes it away).
+    case 'user/message': {
+      // Injected context (plugin/goal/skill-invocation source) folds to a
+      // context node, not a user message; only a direct human prompt is a
+      // user node. A compaction checkpoint never reaches here
+      // (isCompactCheckpoint routes it away).
       if (event.data.source.kind !== 'user') {
         return {
           kind: 'context', seq: event.seq, time: event.time,
@@ -80,6 +81,7 @@ function materializeNode(
         kind: 'user', seq: event.seq, time: event.time,
         content: event.data.content, source: event.data.source,
       }
+    }
     case 'assistant/message':
       return {
         kind: 'assistant', seq: event.seq, time: event.time,

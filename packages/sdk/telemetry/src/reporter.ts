@@ -16,12 +16,11 @@ import { getOrCreateAnonymousId, type AnonymousId } from './anonymous-id.ts'
 import { SecretRedactor } from './secret-redactor.ts'
 
 /**
- * Placeholder collection endpoint. This is a fixed protocol constant, not a
- * deployment tunable.
- *
- * FIXME(ccyu): replace with the real telemetry endpoint before release. The
- * `.invalid` TLD guarantees delivery fails harmlessly until then.
+ * Fail-safe placeholder collection endpoint. The `.invalid` TLD guarantees
+ * delivery fails harmlessly until a collector is deployed. This is a fixed
+ * protocol constant, not a deployment tunable.
  */
+// TODO(telemetry-endpoint): Replace the placeholder before release.
 export const DSH_TELEMETRY_ENDPOINT = 'https://telemetry.example.invalid/v1/dsh-sdk'
 
 /** Wire-envelope schema version; bump on any incompatible body change. */

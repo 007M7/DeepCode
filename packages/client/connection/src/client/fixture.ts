@@ -2449,7 +2449,8 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         if (missing !== undefined) return missing
         return ok(request, {
           skills: [
-            { name: 'fixture-demo', description: 'fixture 技能样本', whenToUse: '仅供 UI 目录渲染验收' },
+            { name: 'fixture-demo', description: 'fixture 技能样本', whenToUse: '仅供 UI 目录渲染验收', modelInvocable: true },
+            { name: 'fixture-user-only', description: 'fixture 仅用户技能样本', modelInvocable: false },
           ],
         })
       },

@@ -104,4 +104,4 @@ logger 会先触发：`tools/result` 在结果物化过程中发出，发生在 
 - 生成的[服务](../cordis-catalog/services.md)与[事件](../cordis-catalog/events.md)目录：可以注入和监听的所有内容。
 - [架构](../architecture.md)：这些插件所处的系统地图。
 
-[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-harness/deepseek-harness)
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness-sdk)

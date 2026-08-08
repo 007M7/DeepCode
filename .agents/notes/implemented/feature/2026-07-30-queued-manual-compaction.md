@@ -75,7 +75,7 @@ Once a transaction has appended its start, every later failure makes one closing
 
 ### Reference implementation boundaries
 
-[PR #835](https://github.com/deepseek-harness/deepseek-harness/pull/835) was used as a reference implementation for the command, reservation, tests, and snapshot shape, but was not merged. Its process-local `WeakSet` lock and locked/unlocked method splits were considered and not adopted because the durable bracket is the single reachable lock.
+An unmerged reference implementation informed the command, reservation, tests, and snapshot shape. Its process-local `WeakSet` lock and locked/unlocked method splits were considered and not adopted because the durable bracket is the single reachable lock.
 
 That reference also carried client-side replacement-anchor machinery to preserve transcript placement. The log-ordered transcript projection already consumes compaction from event order and does not consult mutable surface positions, so those anchors were considered and not adopted.
 

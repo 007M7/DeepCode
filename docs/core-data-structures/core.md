@@ -530,8 +530,6 @@ The loop builds each request from logged state. `EpochHeader` records call confi
 
 On the wire, a loop-built request reads the `system` slot (the rendered prompt assembly) followed by the derived history — the boundary snapshot, whose tail is the newest `user/message` on a turn's first step and the previous step's tool results on later steps. The dev invariant recomputes exactly this equation against every loop-built request.
 
-FIXME(call-config-shape): revisit which remaining fields are genuinely epoch-level for cache purposes (`model` and the model-owned reasoning effort are explicit; the sampling scalars sit here out of caution).
-
 ```ts type-equiv
 /**
  * Provider, model, reasoning effort, and sampling scalars of one conversation's

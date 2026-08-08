@@ -871,6 +871,7 @@ describe('MessageItem arms', () => {
     view.rerender(<MessageItem t={t} node={node} retryActive />)
     expect(view.getByRole('status').textContent).toBe('正在重试模型请求（1/2） · 1s')
   })
+
 })
 
 describe('formatMessageClock', () => {

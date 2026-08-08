@@ -754,6 +754,22 @@ export interface PiAiProviderProfile {
    */
   models?: PiAiModelProfile[]
   /**
+   * Installed-catalog customizations by model id: each entry reshapes that
+   * one model with the same fields a {@link models} entry takes, while the
+   * rest of the catalog keeps serving untouched. Only meaningful on a catalog
+   * route with no `models` list — `models` already replaces the catalog, so
+   * an override beside it, on a route the catalog does not ship, or naming a
+   * model the catalog does not describe is refused rather than skipped.
+   */
+  modelOverrides?: Record<string, PiAiModelOverride>
+  /**
+   * Reasoning-dispatch switches for every `openai-completions` model on this
+   * route; each model's own `compat` overrides per field. What neither sets
+   * keeps the installed catalog entry's value, then pi-ai's baseURL-derived
+   * detection.
+   */
+  compat?: PiAiCompatProfile
+  /**
    * Context capacity for a model this route lists that neither the entry nor
    * the installed catalog sizes (default 262,144). A guess by construction, so
    * a deployment whose gateway serves smaller models corrects it here.
@@ -800,12 +816,70 @@ export interface PiAiModelProfile {
    * default on its own.
    */
   maxTokens?: number
+  /**
+   * Selectable reasoning efforts. Absent inherits the installed catalog
+   * entry's capability (a hand-declared model has none and does not reason);
+   * `false` declares a non-reasoning model, which is how a profile strips
+   * reasoning from a catalog model its gateway cannot serve; a non-empty dict
+   * declares the offered levels and their wire spellings.
+   */
+  reasoningEfforts?: false | PiAiReasoningEfforts
+  /** Reasoning-dispatch switches for this model, winning over the route's. */
+  compat?: PiAiCompatProfile
 }
+
+/**
+ * Customization of one installed catalog model, keyed by its id in the
+ * route's `modelOverrides` dict — the same fields a `models` entry may set,
+ * with the id living in the key. Unlike a `models` list, overrides leave the
+ * rest of the catalog serving untouched, which is what makes "correct one
+ * model, keep the other thirty-seven" a three-line edit.
+ */
+export type PiAiModelOverride = Omit<PiAiModelProfile, 'id'>
+
+/**
+ * Reasoning-dispatch compatibility switches, set on the route (its models'
+ * default) or per model (winning over the route). Only the switches pi-ai's
+ * reasoning dispatch reads are offered; the rest of pi-ai's compat surface
+ * keeps its baseURL-derived auto-detection. pi-ai types both fields only on
+ * `OpenAICompletionsCompat` — the other wire protocols carry their reasoning
+ * shape in the protocol itself — so resolution rejects a model-level switch
+ * anywhere else, while a route-level default skips past models it cannot fit.
+ */
+export interface PiAiCompatProfile {
+  /** Reasoning parameter shape the endpoint expects; absent keeps the catalog entry's, then pi-ai's baseURL-derived guess. */
+  thinkingFormat?: PiAiThinkingFormat
+  /** Whether the endpoint accepts `reasoning_effort`; absent keeps the catalog entry's, then pi-ai's baseURL-derived guess. */
+  supportsReasoningEffort?: boolean
+}
+
+/**
+ * Selectable reasoning efforts for one model: each key is a level the model
+ * offers (and selectors show), and its value is the wire spelling dispatch
+ * sends for it. `off` alone may leave its value empty — "supported, send
+ * nothing" — because for most providers not thinking is the parameter's
+ * absence; every other declared level must name a wire value. A level absent
+ * from the dict is not offered.
+ */
+export type PiAiReasoningEfforts = Partial<Record<ModelThinkingLevel, string | null>>
+
+/** One reasoning-dispatch wire format a profile may name. */
+export type PiAiThinkingFormat = Exclude<PiThinkingFormat, WithheldThinkingFormat>
+
+/** The `compat.thinkingFormat` spellings pi-ai accepts on an `openai-completions` model. */
+type PiThinkingFormat = NonNullable<OpenAICompletionsCompat['thinkingFormat']>
+
+/**
+ * pi-ai thinking formats a profile cannot name: both drive the request through
+ * `chatTemplateKwargs`, which this configuration does not expose, so offering
+ * them would hand back a format with nothing to say.
+ */
+type WithheldThinkingFormat = 'chat-template' | 'qwen-chat-template'
 ```
 
-Depends on: `CacheRetention` (`@earendil-works/pi-ai`) · `ModelThinkingLevel` (`@earendil-works/pi-ai`) · [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts) · `ThinkingBudgets` (`@earendil-works/pi-ai`) · `Transport` (`@earendil-works/pi-ai`)
+Depends on: `CacheRetention` (`@earendil-works/pi-ai`) · `ModelThinkingLevel` (`@earendil-works/pi-ai`) · `OpenAICompletionsCompat` (`@earendil-works/pi-ai`) · [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts) · `ThinkingBudgets` (`@earendil-works/pi-ai`) · `Transport` (`@earendil-works/pi-ai`)
 
-Source: [`packages/llm/llm-pi-ai/src/config.ts:120`](../packages/llm/llm-pi-ai/src/config.ts)
+Source: [`packages/llm/llm-pi-ai/src/config.ts:142`](../packages/llm/llm-pi-ai/src/config.ts)
 
 ## `@deepseek-ai/dsh-llm-replay`
 
@@ -1457,7 +1531,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/skill/skill/src/index.ts:170`](../packages/skill/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:262`](../packages/skill/skill/src/index.ts)
 
 ## `@deepseek-ai/dsh-skill-local`
 
@@ -2049,7 +2123,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/skill/tool-skill/src/index.ts:58`](../packages/skill/tool-skill/src/index.ts)
+Source: [`packages/skill/tool-skill/src/index.ts:61`](../packages/skill/tool-skill/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-str-replace-editor`
 
