@@ -410,7 +410,7 @@ Single-slot decision for the next FileSystem.editText. Calling `next()` yields a
 
 Types: [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md)
 
-Source: [`packages/fs/fs/src/index.ts:62`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:64`](../../packages/fs/fs/src/index.ts)
 
 ### `fs/observed` — emit
 
@@ -430,7 +430,7 @@ Record a successful observation. Listeners must be synchronous recorders: throws
 
 Types: [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md)
 
-Source: [`packages/fs/fs/src/index.ts:71`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:73`](../../packages/fs/fs/src/index.ts)
 
 ### `fs/write-intent` — waterfall
 
@@ -450,7 +450,7 @@ Single-slot decision for the next FileSystem.writeText. Calling `next()` yields 
 
 Types: [FsTarget](../core-data-structures/filesystem.md) · [FsWriteIntent](../core-data-structures/filesystem.md)
 
-Source: [`packages/fs/fs/src/index.ts:54`](../../packages/fs/fs/src/index.ts)
+Source: [`packages/fs/fs/src/index.ts:56`](../../packages/fs/fs/src/index.ts)
 
 ## `goal/*`
 

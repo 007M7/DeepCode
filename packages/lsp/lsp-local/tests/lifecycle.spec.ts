@@ -8,6 +8,7 @@ import { Context } from 'cordis'
 import Lsp, { type LspProvider, type LspQueryRequest, type LspQueryResult } from '@deepseek-ai/dsh-lsp'
 import { deadline } from '@deepseek-ai/dsh-timeout'
 import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
+import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import * as LspLocal from '@deepseek-ai/dsh-lsp-local'
 import type { LspLocalServerConfig } from '@deepseek-ai/dsh-lsp-local'
 
@@ -47,6 +48,7 @@ async function mount(
   const ctx = new Context()
   await ctx.plugin(Lsp)
   await ctx.plugin(LocalSubprocessService)
+  await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
   const register = ctx.lsp.registerProvider.bind(ctx.lsp)
   const registrationSpy = captureProvider === undefined
     ? undefined
@@ -79,6 +81,7 @@ describe('lsp-local end to end over a fake server', () => {
     const ctx = new Context()
     await ctx.plugin(Lsp)
     await ctx.plugin(LocalSubprocessService)
+    await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
     await ctx.plugin(LspLocal, {
       servers: {
         typescript: fakeServer({ LSP_FAKE_HOVER: JSON.stringify({ contents: 'ts' }) }),
@@ -99,7 +102,7 @@ describe('lsp-local end to end over a fake server', () => {
     expect(result).toEqual<LspQueryResult>({
       kind: 'locations',
       locations: [{ uri: pathToFileURL(join(ws, 'a.ts')).href, range: { start: { line: 0, character: 0 }, end: { line: 0, character: 3 } } }],
-      resolvedWorkspaceRoot: ws,
+      resolvedWorkspaceUri: pathToFileURL(ws).href,
     })
     await ctx.fiber.dispose()
   })
@@ -130,7 +133,7 @@ describe('lsp-local end to end over a fake server', () => {
 
   it('returns an empty locations result for a null definition', async () => {
     const ctx = await mount({ LSP_FAKE_DEF: 'null' })
-    expect(await ctx.lsp.query(query('goToDefinition'))).toEqual({ kind: 'locations', locations: [], resolvedWorkspaceRoot: ws })
+    expect(await ctx.lsp.query(query('goToDefinition'))).toEqual({ kind: 'locations', locations: [], resolvedWorkspaceUri: pathToFileURL(ws).href })
     await ctx.fiber.dispose()
   })
 
@@ -170,7 +173,7 @@ describe('lsp-local end to end over a fake server', () => {
 
   it('accepts openClose options sync', async () => {
     const ctx = await mount({ LSP_FAKE_SYNC: JSON.stringify({ openClose: true, change: 2 }), LSP_FAKE_DEF: 'null' })
-    expect(await ctx.lsp.query(query('goToDefinition'))).toEqual({ kind: 'locations', locations: [], resolvedWorkspaceRoot: ws })
+    expect(await ctx.lsp.query(query('goToDefinition'))).toEqual({ kind: 'locations', locations: [], resolvedWorkspaceUri: pathToFileURL(ws).href })
     await ctx.fiber.dispose()
   })
 
@@ -279,8 +282,9 @@ describe('lsp-local end to end over a fake server', () => {
       readonly instances: ReadonlyMap<string, { readonly dead: boolean }>
     }).instances
     const instance = [...instances.values()][0]
-    if (instance === undefined) throw new Error('expected one pooled LSP instance')
-    await waitFor(async () => instance.dead)
+    // The query's finally may already have observed the exit and evicted the dead slot. When the
+    // slot remains, synchronize with its close before proving the next query replaces it.
+    if (instance !== undefined) await waitFor(async () => instance.dead)
     expect(await ctx.lsp.query(query('goToDefinition'))).toMatchObject({ kind: 'locations' })
     await ctx.fiber.dispose()
   })
@@ -294,7 +298,128 @@ describe('lsp-local end to end over a fake server', () => {
     controller.abort(new Error('mid-read cancel'))
     await expect(pending).rejects.toThrow(/mid-read cancel/)
     // A subsequent live query still works, proving no half-created instance poisoned the pool.
-    expect(await ctx.lsp.query(query('goToDefinition'))).toEqual({ kind: 'locations', locations: [], resolvedWorkspaceRoot: ws })
+    expect(await ctx.lsp.query(query('goToDefinition'))).toEqual({ kind: 'locations', locations: [], resolvedWorkspaceUri: pathToFileURL(ws).href })
+    await ctx.fiber.dispose()
+  })
+
+  it('aborts and awaits a workspace lookup when the provider is disposed', async () => {
+    const ctx = await mount({ LSP_FAKE_DEF: 'null' })
+    const fs = ctx.fs
+    const resolve = fs.resolve.bind(fs)
+    const started = Promise.withResolvers<AbortSignal>()
+    const release = Promise.withResolvers<undefined>()
+    vi.spyOn(fs, 'resolve').mockImplementation(async (path, options) => {
+      if (path !== ws) return await resolve(path, options)
+      const signal = options?.signal
+      if (signal === undefined) throw new Error('workspace lookup missing provider lifetime signal')
+      started.resolve(signal)
+      return await rejectWhenAborted(signal, release.promise)
+    })
+
+    const pending = ctx.lsp.query(query('goToDefinition'))
+    const signal = await started.promise
+    let disposed = false
+    const disposing = ctx.fiber.dispose().then(() => { disposed = true })
+    await new Promise<void>(resolve => setImmediate(resolve))
+
+    expect(signal.aborted).toBe(true)
+    expect(disposed).toBe(false)
+    release.resolve(undefined)
+    await expect(pending).rejects.toThrow('provider is disposed')
+    await expect(disposing).resolves.toBeUndefined()
+  })
+
+  it('aborts a queued source stream when the provider is disposed', async () => {
+    const ctx = await mount({ LSP_FAKE_DEF: 'null' })
+    const fs = ctx.fs
+    const started = Promise.withResolvers<AbortSignal>()
+    vi.spyOn(fs, 'streamText').mockImplementation(async (_target, signal) => {
+      if (signal === undefined) throw new Error('source read missing provider lifetime signal')
+      started.resolve(signal)
+      return (async function* () {
+        await rejectWhenAborted(signal)
+        yield ''
+      })()
+    })
+
+    const pending = ctx.lsp.query(query('goToDefinition'))
+    const signal = await started.promise
+    const disposing = ctx.fiber.dispose()
+
+    await expect(pending).rejects.toThrow('provider is disposed')
+    await expect(disposing).resolves.toBeUndefined()
+    expect(signal.aborted).toBe(true)
+  })
+
+  it('waits for every owned teardown before aggregating instance failures', async () => {
+    let provider: LspProvider | undefined
+    const ctx = await mount({ LSP_FAKE_DEF: 'null' }, {}, (registered) => { provider = registered })
+    if (provider === undefined) throw new Error('expected lsp-local to register a provider')
+    const internals = provider as unknown as {
+      readonly instances: Map<string, { dispose(): Promise<void> }>
+      readonly queues: Map<string, Promise<void>>
+      readonly workspaceLookups: Set<Promise<void>>
+      disposeAll(): Promise<void>
+    }
+    const firstFailure = new Error('first instance cleanup failed')
+    const secondFailure = new Error('second instance cleanup failed')
+    const release = Promise.withResolvers<undefined>()
+    internals.instances.set('first', { dispose: async () => { throw firstFailure } })
+    internals.instances.set('second', { dispose: async () => { throw secondFailure } })
+    internals.queues.set('pending', release.promise)
+    internals.workspaceLookups.add(Promise.resolve())
+
+    let settled = false
+    const disposing = internals.disposeAll().finally(() => { settled = true })
+    await new Promise<void>(resolve => setImmediate(resolve))
+    expect(settled).toBe(false)
+    release.resolve(undefined)
+    await expect(disposing).rejects.toMatchObject({
+      errors: [firstFailure, secondFailure],
+      message: 'lsp-local instance teardown failed',
+    })
+    expect(internals.instances.size).toBe(0)
+    expect(internals.queues.size).toBe(0)
+    expect(internals.workspaceLookups.size).toBe(0)
+    await ctx.fiber.dispose()
+  })
+
+  it('waits for every provider before reporting plugin teardown failure', async () => {
+    const ctx = new Context()
+    const disposalErrors: unknown[] = []
+    ctx.logger.error = ((error: unknown) => { disposalErrors.push(error) }) as typeof ctx.logger.error
+    await ctx.plugin(Lsp)
+    await ctx.plugin(LocalSubprocessService)
+    await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
+    const providers: LspProvider[] = []
+    const register = ctx.lsp.registerProvider.bind(ctx.lsp)
+    const registrationSpy = vi.spyOn(ctx.lsp, 'registerProvider').mockImplementation((provider) => {
+      providers.push(provider)
+      return register(provider)
+    })
+    const fiber = await ctx.plugin(LspLocal, {
+      servers: {
+        first: fakeServer(),
+        second: fakeServer({}, { extensionToLanguage: { '.js': 'javascript' } }),
+      },
+    })
+    registrationSpy.mockRestore()
+    expect(providers).toHaveLength(2)
+    const failure = new Error('provider cleanup failed')
+    const release = Promise.withResolvers<undefined>()
+    const first = providers[0] as LspProvider & { disposeAll(): Promise<void> }
+    const second = providers[1] as LspProvider & { disposeAll(): Promise<void> }
+    first.disposeAll = async () => { throw failure }
+    second.disposeAll = async () => { await release.promise }
+
+    let disposed = false
+    const disposing = fiber.dispose().then(() => { disposed = true })
+    await new Promise<void>(resolve => setImmediate(resolve))
+    expect(disposed).toBe(false)
+    expect(disposalErrors).toEqual([])
+    release.resolve(undefined)
+    await disposing
+    expect(disposalErrors).toEqual([failure])
     await ctx.fiber.dispose()
   })
 
@@ -322,6 +447,7 @@ describe('lsp-local end to end over a fake server', () => {
     const ctx = new Context()
     await ctx.plugin(Lsp)
     await ctx.plugin(LocalSubprocessService)
+    await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
     await expect(ctx.plugin(LspLocal, {
       servers: {
         missing: {
@@ -353,4 +479,17 @@ async function waitFor(condition: () => Promise<boolean>, timeoutMs = 3000): Pro
     if (Date.now() - started > timeoutMs) throw new Error('waitFor timed out')
     await new Promise<void>(resolve => setTimeout(resolve, 10))
   }
+}
+
+/** Hold one fake provider operation until cancellation, optionally behind a cleanup gate. */
+function rejectWhenAborted<T>(signal: AbortSignal, release: Promise<unknown> = Promise.resolve()): Promise<T> {
+  return new Promise((_resolve, reject) => {
+    const onAbort = (): void => {
+      void release.then(() => {
+        reject(signal.reason instanceof Error ? signal.reason : new Error(String(signal.reason)))
+      })
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+    if (signal.aborted) onAbort()
+  })
 }

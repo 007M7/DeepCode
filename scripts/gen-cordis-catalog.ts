@@ -73,6 +73,8 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   SubprocessOutputRead: 'subprocess.md',
   SubprocessOutputReader: 'subprocess.md',
   SubprocessSpawnSpec: 'subprocess.md',
+  SubprocessTerminalHandle: 'subprocess.md',
+  SubprocessTerminalSpawnSpec: 'subprocess.md',
   CodeRunRequest: 'code-runtime.md',
   CodeRunResult: 'code-runtime.md',
   CompactionResult: 'compaction.md',
@@ -242,6 +244,7 @@ export const FOUNDATION_TYPE_NAMES: ReadonlySet<string> = new Set([
   'Partial',
   'Pick',
   'Promise',
+  'Record',
   'Readonly',
 ])
 
@@ -298,6 +301,7 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   PermissionSelect: 'permissions projection payload is owned by packages/ui/permission/src/types.ts',
   PromptAssembly: 'assembly result is owned by packages/core/system-prompt/README.md',
   ResumeAgentOptions: 'agent resume contract is owned by packages/core/agent/README.md',
+  Sandbox: 'external E2B SDK handle is owned by packages/e2b/e2b/README.md',
   SessionForkSource: 'service-local fork input is owned by packages/core/session/src/index.ts',
   SubagentRunEndInfo: 'event payload contract is owned by packages/subagent/subagent/src/types.ts',
   SubagentRunInfo: 'event payload contract is owned by packages/subagent/subagent/src/types.ts',

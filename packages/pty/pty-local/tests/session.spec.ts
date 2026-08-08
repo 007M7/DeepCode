@@ -1,62 +1,18 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { IDisposable, IPty } from 'node-pty'
+import { PassThrough } from 'node:stream'
 import { LocalPtySession } from '@deepseek-ai/dsh-pty-local/src/session.ts'
 import type { ResolvedConfig } from '@deepseek-ai/dsh-pty-local/src/config.ts'
-import type { ProcessIdentity, ProcessInspector } from '@deepseek-ai/dsh-pty-local/src/process-inspector.ts'
 import type { PtySendOperation, PtySessionStatus, PtySignal } from '@deepseek-ai/dsh-pty'
-
-class FakeTerminal {
-  pid = 123
-  cols = 80
-  rows = 24
-  process = 'bash'
-  handleFlowControl = false
-  writes: string[] = []
-  kills: string[] = []
-  throwWrite = false
-  throwKill = false
-  autoExitOnKill = true
-  private dataListeners = new Set<(data: string) => void>()
-  private exitListeners = new Set<(event: { exitCode: number; signal?: number }) => void>()
-
-  readonly onData = (listener: (data: string) => void): IDisposable => {
-    this.dataListeners.add(listener)
-    return { dispose: () => this.dataListeners.delete(listener) }
-  }
-
-  readonly onExit = (listener: (event: { exitCode: number; signal?: number }) => void): IDisposable => {
-    this.exitListeners.add(listener)
-    return { dispose: () => this.exitListeners.delete(listener) }
-  }
-
-  emitData(data: string): void {
-    for (const listener of this.dataListeners) listener(data)
-  }
-
-  emitExit(exitCode = 0, signal?: number): void {
-    for (const listener of this.exitListeners) listener({ exitCode, ...signal === undefined ? {} : { signal } })
-  }
-
-  write(data: string): void {
-    if (this.throwWrite) throw new Error('write failed')
-    this.writes.push(data)
-  }
-
-  kill(signal?: string): void {
-    if (this.throwKill) throw new Error('kill failed')
-    this.kills.push(signal ?? 'SIGHUP')
-    if (this.autoExitOnKill) this.emitExit(0, signal === 'SIGKILL' ? 9 : 15)
-  }
-
-  resize() {}
-  clear() {}
-  pause() {}
-  resume() {}
-
-  asPty(): IPty {
-    return this
-  }
-}
+import type {
+  SubprocessOutcome,
+  SubprocessTerminalHandle,
+  SubprocessTerminalSignal,
+} from '@deepseek-ai/dsh-subprocess'
+import { PtyError } from '@deepseek-ai/dsh-pty'
+import type {
+  ProcessIdentity,
+  ProcessInspector,
+} from '@deepseek-ai/dsh-subprocess-local/src/process-inspector.ts'
 
 class FakeInspector implements ProcessInspector {
   pgid: number | undefined = 456
@@ -72,6 +28,7 @@ class FakeInspector implements ProcessInspector {
   foregroundPgid() { return this.pgid }
   isStdinWaiting() { return this.waiting }
   processTree() { return this.members }
+  processSession() { return [] }
   isAlive(identity: ProcessIdentity) { return this.alive.has(identity.pid) }
   signalGroup(pgid: number, signal: PtySignal) {
     if (this.throwGroup) throw new Error('group failed')
@@ -82,6 +39,93 @@ class FakeInspector implements ProcessInspector {
     this.processes.push([identity.pid, signal])
     if (this.removeOnSignal) this.alive.delete(identity.pid)
   }
+}
+
+class FakeTerminal implements SubprocessTerminalHandle {
+  pid = 123
+  readonly output = new PassThrough()
+  readonly writes: string[] = []
+  readonly kills: string[] = []
+  readonly outcome = Promise.withResolvers<SubprocessOutcome>()
+  readonly done = this.outcome.promise
+  throwWrite = false
+  throwKill = false
+  autoExitOnKill = true
+  terminateError: Error | undefined
+  private cleanup: Promise<void> | undefined
+
+  constructor(public inspector = new FakeInspector()) {}
+
+  emitData(data: string): void {
+    this.output.write(Buffer.from(data, 'utf8'))
+  }
+
+  emitBytes(data: Uint8Array): void {
+    this.output.write(data)
+  }
+
+  emitError(error: Error): void {
+    this.output.emit('error', error)
+  }
+
+  emitFailure(error: unknown): void {
+    this.output.end()
+    this.outcome.reject(error)
+  }
+
+  emitExit(exitCode = 0, signal?: number): void {
+    this.output.end()
+    this.outcome.resolve({
+      exitCode: signal === undefined || signal === 0 ? exitCode : null,
+      signal: signal === 9 ? 'SIGKILL' : signal === 15 ? 'SIGTERM' : null,
+    })
+  }
+
+  async write(data: string): Promise<void> {
+    if (this.throwWrite) throw new Error('write failed')
+    this.writes.push(data)
+  }
+
+  async inspectForeground() {
+    const processGroupId = this.inspector.foregroundPgid()
+    return processGroupId === undefined
+      ? undefined
+      : { processGroupId, inputWaiting: this.inspector.isStdinWaiting() }
+  }
+
+  async signalForeground(signal: SubprocessTerminalSignal): Promise<number> {
+    const foreground = await this.inspectForeground()
+    if (foreground === undefined) throw new Error(`cannot resolve foreground process group for terminal ${this.pid}`)
+    if (signal === 'SIGKILL' && foreground.processGroupId === this.pid) {
+      throw new Error('refusing to SIGKILL the terminal shell; terminate the terminal session instead')
+    }
+    this.inspector.signalGroup(foreground.processGroupId, signal)
+    return foreground.processGroupId
+  }
+
+  terminate(): Promise<void> {
+    if (this.cleanup !== undefined) return this.cleanup
+    const cleanup = this.terminateOnce()
+    this.cleanup = cleanup
+    void cleanup.catch(() => { this.cleanup = undefined })
+    return cleanup
+  }
+
+  private async terminateOnce(): Promise<void> {
+    if (this.terminateError !== undefined) throw this.terminateError
+    if (this.throwKill) throw new Error('kill failed')
+    this.kills.push('SIGTERM')
+    if (this.autoExitOnKill) this.emitExit(0, 15)
+  }
+}
+
+function makeSession(
+  terminal: FakeTerminal,
+  inspector: FakeInspector,
+  resolved: ResolvedConfig,
+): LocalPtySession {
+  terminal.inspector = inspector
+  return new LocalPtySession(terminal, resolved)
 }
 
 function config(overrides: Partial<ResolvedConfig> = {}): ResolvedConfig {
@@ -104,17 +148,67 @@ async function initialize(session: LocalPtySession, terminal: FakeTerminal): Pro
 }
 
 describe('LocalPtySession readiness and output', () => {
+  it('lets queued terminal output run before the first post-write readiness poll', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const inspector = new FakeInspector()
+    const session = makeSession(terminal, inspector, config())
+    await initialize(session, terminal)
+
+    const inspect = terminal.inspectForeground.bind(terminal)
+    let inspections = 0
+    terminal.inspectForeground = async () => {
+      inspections += 1
+      return await inspect()
+    }
+    const operation = session.startSend({ text: 'true', submit: true })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(inspections).toBe(1)
+
+    await vi.advanceTimersByTimeAsync(0)
+    expect(inspections).toBe(1)
+    terminal.emitData('\x1b]133;D;0\x07dsh> ')
+    await vi.advanceTimersByTimeAsync(10)
+    expect((await operation.done).waitReason).toBe('stdin_read')
+  })
+
+  it('discards prompt readiness observed during asynchronous pre-write inspection', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const session = new LocalPtySession(terminal, config())
+    await initialize(session, terminal)
+
+    const inspection = Promise.withResolvers<{ processGroupId: number; inputWaiting: boolean }>()
+    terminal.inspectForeground = async () => await inspection.promise
+    const operation = session.startSend({ text: 'long-running-command', submit: true })
+    let settled = false
+    void operation.done.then(() => { settled = true })
+
+    terminal.emitData('\x1b]133;D;0\x07dsh> ')
+    inspection.resolve({ processGroupId: 456, inputWaiting: true })
+    await vi.advanceTimersByTimeAsync(20)
+    expect(terminal.writes).toEqual(['long-running-command\r'])
+    expect(settled).toBe(false)
+
+    terminal.emitData('\x1b]133;D;0\x07dsh> ')
+    await vi.advanceTimersByTimeAsync(10)
+    expect((await operation.done).waitReason).toBe('stdin_read')
+  })
+
   it('captures prompt MOTD, writes submit explicitly, and settles exact stdin waits', async () => {
     vi.useFakeTimers()
     const terminal = new FakeTerminal()
     const inspector = new FakeInspector()
-    const session = new LocalPtySession(terminal.asPty(), inspector, config())
+    const session = makeSession(terminal, inspector, config())
     await initialize(session, terminal)
     expect(session.motd).toBe('dsh> ')
 
     inspector.waiting = true
     const operation = session.startSend({ text: 'python3', submit: true })
-    expect(terminal.writes).toEqual(['python3', '\r'])
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(terminal.writes).toEqual(['python3\r'])
     inspector.pgid = 789
     terminal.emitData('Python\r\n>>> ')
     await vi.advanceTimersByTimeAsync(20)
@@ -126,7 +220,7 @@ describe('LocalPtySession readiness and output', () => {
     vi.useFakeTimers()
     const terminal = new FakeTerminal()
     const inspector = new FakeInspector()
-    const session = new LocalPtySession(terminal.asPty(), inspector, config())
+    const session = makeSession(terminal, inspector, config())
     await initialize(session, terminal)
 
     inspector.waiting = true
@@ -148,7 +242,7 @@ describe('LocalPtySession readiness and output', () => {
     vi.useFakeTimers()
     const terminal = new FakeTerminal()
     const inspector = new FakeInspector()
-    const session = new LocalPtySession(terminal.asPty(), inspector, config({
+    const session = makeSession(terminal, inspector, config({
       exactProbeAfterMs: 50,
       idleSilenceMs: 100,
       timeoutMs: 200,
@@ -173,7 +267,7 @@ describe('LocalPtySession readiness and output', () => {
     vi.useFakeTimers()
     const terminal = new FakeTerminal()
     const inspector = new FakeInspector()
-    const session = new LocalPtySession(terminal.asPty(), inspector, config())
+    const session = makeSession(terminal, inspector, config())
     await initialize(session, terminal)
     inspector.pgid = undefined
 
@@ -193,7 +287,7 @@ describe('LocalPtySession readiness and output', () => {
 
     const exiting = session.startSend({ text: 'exit', submit: true })
     terminal.emitExit(7, 9)
-    expect(await exiting.done).toMatchObject({ waitReason: 'session_exit', sessionStatus: { kind: 'exited', exitCode: 7, signal: 'SIGKILL' } })
+    expect(await exiting.done).toMatchObject({ waitReason: 'session_exit', sessionStatus: { kind: 'exited', exitCode: null, signal: 'SIGKILL' } })
     expect(() => session.startSend({ text: '', submit: false })).toThrow('has exited')
   })
 
@@ -201,13 +295,15 @@ describe('LocalPtySession readiness and output', () => {
     vi.useFakeTimers()
     const terminal = new FakeTerminal()
     const inspector = new FakeInspector()
-    const session = new LocalPtySession(terminal.asPty(), inspector, config())
+    const session = makeSession(terminal, inspector, config())
     await initialize(session, terminal)
 
     const controller = new AbortController()
     const operation = session.startSend({ text: 'sleep', submit: true, signal: controller.signal })
     expect(() => session.startSend({ text: 'again', submit: true })).toThrow('active send')
     controller.abort()
+    await Promise.resolve()
+    await Promise.resolve()
     expect(inspector.groups).toContainEqual([456, 'SIGINT'])
     expect(terminal.writes).not.toContain('\x03')
     terminal.emitData('\x1b]133;D;130\x07dsh> ')
@@ -226,17 +322,391 @@ describe('LocalPtySession readiness and output', () => {
     failedInternal.fail(new Error('ignored'))
   })
 
+  it('does not write a send canceled during asynchronous foreground inspection', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const inspector = new FakeInspector()
+    const session = makeSession(terminal, inspector, config())
+    await initialize(session, terminal)
+
+    const inspection = Promise.withResolvers<{ processGroupId: number; inputWaiting: boolean }>()
+    terminal.inspectForeground = async () => await inspection.promise
+    const controller = new AbortController()
+    const operation = session.startSend({ text: 'must not execute', submit: true, signal: controller.signal })
+    controller.abort()
+    inspection.resolve({ processGroupId: 456, inputWaiting: false })
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(terminal.writes).toEqual([])
+    expect(inspector.groups).toContainEqual([456, 'SIGINT'])
+    terminal.emitData('\x1b]133;D;130\x07dsh> ')
+    await vi.advanceTimersByTimeAsync(10)
+    await operation.done
+  })
+
+  it('retains a canceled send when the pre-write inspection rejects while its signal is in flight', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const inspector = new FakeInspector()
+    const session = makeSession(terminal, inspector, config())
+    await initialize(session, terminal)
+
+    const failed = Promise.withResolvers<{ processGroupId: number; inputWaiting: boolean }>()
+    terminal.inspectForeground = async () => await failed.promise
+    const uncanceled = session.startSend({ text: 'plain failure', submit: true })
+    failed.reject(new Error('inspect failed before write'))
+    await expect(uncanceled.done).rejects.toThrow('inspect failed before write')
+
+    terminal.inspectForeground = FakeTerminal.prototype.inspectForeground.bind(terminal)
+    const inspection = Promise.withResolvers<{ processGroupId: number; inputWaiting: boolean }>()
+    terminal.inspectForeground = async () => await inspection.promise
+    const signalGate = Promise.withResolvers<undefined>()
+    terminal.signalForeground = async (signal) => {
+      await signalGate.promise
+      inspector.signalGroup(456, signal)
+      return 456
+    }
+    const controller = new AbortController()
+    const operation = session.startSend({ text: 'must stay owned', submit: true, signal: controller.signal })
+    controller.abort()
+    inspection.reject(new Error('transient inspection failure'))
+    await Promise.resolve()
+    await Promise.resolve()
+
+    // The slot stays reserved while the cancellation's foreground signal is in flight.
+    expect(() => session.startSend({ text: 'successor', submit: true })).toThrow('active send')
+    terminal.inspectForeground = async () => ({ processGroupId: 456, inputWaiting: false })
+    signalGate.resolve(undefined)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(inspector.groups).toContainEqual([456, 'SIGINT'])
+
+    terminal.emitData('\x1b]133;D;130\x07dsh> ')
+    await vi.advanceTimersByTimeAsync(10)
+    await operation.done
+  })
+
+  it('retains a canceled send until asynchronous foreground signalling settles', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const inspector = new FakeInspector()
+    const session = makeSession(terminal, inspector, config())
+    await initialize(session, terminal)
+
+    const signalGate = Promise.withResolvers<undefined>()
+    terminal.signalForeground = async (signal) => {
+      await signalGate.promise
+      const foreground = await terminal.inspectForeground()
+      if (foreground === undefined) throw new Error('cannot resolve foreground')
+      inspector.signalGroup(foreground.processGroupId, signal)
+      return foreground.processGroupId
+    }
+    const operation = session.startSend({ text: 'first', submit: true })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(operation.cancel()).toBe(true)
+
+    terminal.emitData('\x1b]133;D;130\x07dsh> ')
+    await vi.advanceTimersByTimeAsync(100)
+    expect((await operation.done).waitReason).toBe('timeout')
+    expect(() => session.startSend({ text: 'successor', submit: true })).toThrow('active send')
+    signalGate.resolve(undefined)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(inspector.groups).toContainEqual([456, 'SIGINT'])
+    expect(inspector.groups).not.toContainEqual([789, 'SIGINT'])
+  })
+
+  it('does not let an in-flight readiness inspection release a canceled send before signalling settles', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const inspector = new FakeInspector()
+    const session = makeSession(terminal, inspector, config())
+    await initialize(session, terminal)
+
+    const readiness = Promise.withResolvers<{ processGroupId: number; inputWaiting: boolean }>()
+    let inspections = 0
+    terminal.inspectForeground = async () => {
+      inspections += 1
+      if (inspections === 1) return { processGroupId: 456, inputWaiting: false }
+      if (inspections === 2) return await readiness.promise
+      return { processGroupId: 456, inputWaiting: true }
+    }
+    const signalling = Promise.withResolvers<undefined>()
+    const signalled = Promise.withResolvers<number>()
+    terminal.signalForeground = async (signal) => {
+      await signalling.promise
+      const foreground = await terminal.inspectForeground()
+      if (foreground === undefined) throw new Error('cannot resolve foreground')
+      inspector.signalGroup(foreground.processGroupId, signal)
+      signalled.resolve(foreground.processGroupId)
+      return foreground.processGroupId
+    }
+
+    const operation = session.startSend({ text: 'first', submit: true })
+    await Promise.resolve()
+    await Promise.resolve()
+    await vi.advanceTimersByTimeAsync(10)
+    expect(inspections).toBe(2)
+    await vi.advanceTimersByTimeAsync(50)
+    expect(operation.cancel()).toBe(true)
+    let settled = false
+    void operation.done.then(() => { settled = true })
+
+    readiness.resolve({ processGroupId: 456, inputWaiting: true })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    expect(() => session.startSend({ text: 'successor', submit: true })).toThrow(PtyError)
+
+    signalling.resolve(undefined)
+    expect(await signalled.promise).toBe(456)
+    expect(inspector.groups).toContainEqual([456, 'SIGINT'])
+    await session.close('test complete')
+    expect((await operation.done).waitReason).toBe('session_exit')
+  })
+
+  it('does not let an in-flight readiness failure release a canceled send before signalling settles', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const inspector = new FakeInspector()
+    const session = makeSession(terminal, inspector, config())
+    await initialize(session, terminal)
+
+    const readiness = Promise.withResolvers<never>()
+    let inspections = 0
+    terminal.inspectForeground = async () => {
+      inspections += 1
+      if (inspections === 1) return { processGroupId: 456, inputWaiting: false }
+      if (inspections === 2) return await readiness.promise
+      return { processGroupId: 456, inputWaiting: true }
+    }
+    const signalling = Promise.withResolvers<undefined>()
+    const signalled = Promise.withResolvers<number>()
+    terminal.signalForeground = async (signal) => {
+      await signalling.promise
+      const foreground = await terminal.inspectForeground()
+      if (foreground === undefined) throw new Error('cannot resolve foreground')
+      inspector.signalGroup(foreground.processGroupId, signal)
+      signalled.resolve(foreground.processGroupId)
+      return foreground.processGroupId
+    }
+
+    const operation = session.startSend({ text: 'first', submit: true })
+    await Promise.resolve()
+    await Promise.resolve()
+    await vi.advanceTimersByTimeAsync(10)
+    expect(inspections).toBe(2)
+    expect(operation.cancel()).toBe(true)
+    let settled = false
+    void operation.done.then(() => { settled = true })
+
+    readiness.reject(new Error('inspection failed during cancellation'))
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    expect(() => session.startSend({ text: 'successor', submit: true })).toThrow(PtyError)
+
+    signalling.resolve(undefined)
+    expect(await signalled.promise).toBe(456)
+    expect(inspector.groups).toContainEqual([456, 'SIGINT'])
+    await session.close('test complete')
+    expect((await operation.done).waitReason).toBe('session_exit')
+  })
+
+  it('signals only after an in-flight provider write lands', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const inspector = new FakeInspector()
+    const session = makeSession(terminal, inspector, config())
+    await initialize(session, terminal)
+
+    const writeGate = Promise.withResolvers<undefined>()
+    terminal.write = async () => { await writeGate.promise }
+    const operation = session.startSend({ text: 'must be interrupted', submit: true })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(operation.cancel()).toBe(true)
+    await vi.advanceTimersByTimeAsync(20)
+    expect(inspector.groups).toEqual([])
+
+    writeGate.resolve(undefined)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(inspector.groups).toContainEqual([456, 'SIGINT'])
+    terminal.emitData('\x1b]133;D;130\x07dsh> ')
+    await vi.advanceTimersByTimeAsync(10)
+    await operation.done
+  })
+
+  it('does not signal when a cancelled provider write rejects', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const inspector = new FakeInspector()
+    const session = makeSession(terminal, inspector, config())
+    await initialize(session, terminal)
+
+    const writeGate = Promise.withResolvers<undefined>()
+    terminal.write = async () => { await writeGate.promise }
+    const operation = session.startSend({ text: 'rejected write', submit: true })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(operation.cancel()).toBe(true)
+
+    const rejected = expect(operation.done).rejects.toThrow('write failed after cancellation')
+    writeGate.reject(new Error('write failed after cancellation'))
+    await rejected
+    expect(inspector.groups).toEqual([])
+
+    const next = session.startSend({ text: '', submit: false })
+    await vi.advanceTimersByTimeAsync(100)
+    expect((await next.done).waitReason).toBe('inferred_idle')
+  })
+
+  it('releases a timed-out cancellation after the provider write and signal settle', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const inspector = new FakeInspector()
+    const session = makeSession(terminal, inspector, config())
+    await initialize(session, terminal)
+
+    const writeGate = Promise.withResolvers<undefined>()
+    terminal.write = async () => { await writeGate.promise }
+    const operation = session.startSend({ text: 'slow cancelled write', submit: true })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(operation.cancel()).toBe(true)
+    await vi.advanceTimersByTimeAsync(100)
+
+    expect((await operation.done).waitReason).toBe('timeout')
+    expect(() => session.startSend({ text: 'must wait', submit: true })).toThrow(expect.objectContaining({
+      code: 'SEND_ACTIVE',
+    }))
+
+    writeGate.resolve(undefined)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(inspector.groups).toContainEqual([456, 'SIGINT'])
+
+    const next = session.startSend({ text: '', submit: false })
+    await vi.advanceTimersByTimeAsync(100)
+    expect((await next.done).waitReason).toBe('inferred_idle')
+  })
+
+  it('retains the absolute timeout after cancellation while output stays active', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const inspector = new FakeInspector()
+    const session = makeSession(terminal, inspector, config())
+    await initialize(session, terminal)
+
+    const operation = session.startSend({ text: 'ignore-sigint-and-write', submit: true })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(operation.cancel()).toBe(true)
+    for (let elapsed = 20; elapsed <= 100; elapsed += 20) {
+      terminal.emitData('.')
+      await vi.advanceTimersByTimeAsync(20)
+    }
+
+    expect(await operation.done).toMatchObject({ waitReason: 'timeout' })
+  })
+
+  it('does not resume cancellation polling after the terminal exits during signalling', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const inspector = new FakeInspector()
+    const session = makeSession(terminal, inspector, config())
+    await initialize(session, terminal)
+
+    const signalGate = Promise.withResolvers<undefined>()
+    terminal.signalForeground = async () => {
+      await signalGate.promise
+      return 456
+    }
+    const operation = session.startSend({ text: 'first', submit: true })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(operation.cancel()).toBe(true)
+    terminal.emitExit(0)
+    await expect(operation.done).resolves.toMatchObject({ waitReason: 'session_exit' })
+
+    signalGate.resolve(undefined)
+    await vi.advanceTimersByTimeAsync(10)
+    expect(session.status()).toEqual({ kind: 'exited', exitCode: 0, signal: null })
+  })
+
+  it('retains send ownership after timeout until an asynchronous provider write settles', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const inspector = new FakeInspector()
+    const session = makeSession(terminal, inspector, config())
+    await initialize(session, terminal)
+
+    const writeGate = Promise.withResolvers<undefined>()
+    terminal.write = async () => { await writeGate.promise }
+    const operation = session.startSend({ text: 'slow write', submit: true })
+    await Promise.resolve()
+    await Promise.resolve()
+    await vi.advanceTimersByTimeAsync(100)
+
+    expect((await operation.done).waitReason).toBe('timeout')
+    expect(() => session.startSend({ text: 'must wait', submit: true })).toThrow('active send')
+
+    writeGate.resolve(undefined)
+    await Promise.resolve()
+    await Promise.resolve()
+    const rejectedWrite = Promise.withResolvers<undefined>()
+    terminal.write = async () => { await rejectedWrite.promise }
+    const rejected = session.startSend({ text: 'late rejection', submit: true })
+    await vi.advanceTimersByTimeAsync(100)
+    expect((await rejected.done).waitReason).toBe('timeout')
+    rejectedWrite.reject(new Error('write failed after timeout'))
+    await Promise.resolve()
+    await Promise.resolve()
+
+    const next = session.startSend({ text: '', submit: false })
+    await vi.advanceTimersByTimeAsync(100)
+    expect((await next.done).waitReason).toBe('inferred_idle')
+  })
+
+  it('retains send ownership when cancellation signalling fails during an asynchronous write', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const inspector = new FakeInspector()
+    const session = makeSession(terminal, inspector, config())
+    await initialize(session, terminal)
+
+    const writeGate = Promise.withResolvers<undefined>()
+    terminal.write = async () => { await writeGate.promise }
+    let signalCalls = 0
+    terminal.signalForeground = async () => {
+      signalCalls += 1
+      throw new Error('interrupt failed')
+    }
+    const operation = session.startSend({ text: 'slow write', submit: true })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(operation.cancel()).toBe(true)
+    await vi.advanceTimersByTimeAsync(20)
+    expect(signalCalls).toBe(0)
+    expect(() => session.startSend({ text: 'must wait', submit: true })).toThrow('active send')
+
+    writeGate.resolve(undefined)
+    await expect(operation.done).rejects.toThrow('interrupt failed')
+    expect(signalCalls).toBe(1)
+    expect(session.status()).toEqual({ kind: 'exited', exitCode: null, signal: null })
+    expect(() => session.startSend({ text: '', submit: false })).toThrow('has exited')
+  })
+
   it('handles startup exit, unknown exit signals, cancel-write failure, and stale polls', async () => {
     vi.useFakeTimers()
     const startupTerminal = new FakeTerminal()
-    const startup = new LocalPtySession(startupTerminal.asPty(), new FakeInspector(), config())
+    const startup = new LocalPtySession(startupTerminal, config())
     const initializing = startup.initialize(new AbortController().signal)
     startupTerminal.emitExit(1)
     await expect(initializing).rejects.toThrow('exited during startup')
     expect(startup.status()).toEqual({ kind: 'exited', exitCode: 1, signal: null })
 
     const terminal = new FakeTerminal()
-    const session = new LocalPtySession(terminal.asPty(), new FakeInspector(), config())
+    const session = new LocalPtySession(terminal, config())
     await initialize(session, terminal)
     const operation = session.startSend({ text: '', submit: false })
     const operationInternal = operation as unknown as {
@@ -247,11 +717,17 @@ describe('LocalPtySession readiness and output', () => {
     const sessionInternal = session as unknown as {
       pollReadiness(operation: PtySendOperation): void
       interrupt(operation: PtySendOperation): void
+      schedulePoll(operation: PtySendOperation): void
+      polling: boolean
       statusValue: PtySessionStatus
       appendOutput(text: string): void
     }
     sessionInternal.appendOutput('')
     sessionInternal.pollReadiness({} as PtySendOperation)
+    sessionInternal.schedulePoll({} as PtySendOperation)
+    sessionInternal.polling = true
+    sessionInternal.schedulePoll(operation)
+    sessionInternal.polling = false
     sessionInternal.interrupt({} as PtySendOperation)
     sessionInternal.statusValue = { kind: 'exited', exitCode: 2, signal: null }
     sessionInternal.pollReadiness(operation)
@@ -259,13 +735,15 @@ describe('LocalPtySession readiness and output', () => {
     operationInternal.settle('timeout', { kind: 'running' }, false)
 
     const unknownTerminal = new FakeTerminal()
-    const unknown = new LocalPtySession(unknownTerminal.asPty(), new FakeInspector(), config())
+    const unknown = new LocalPtySession(unknownTerminal, config())
     unknownTerminal.emitExit(1, 999)
-    expect(unknown.status()).toEqual({ kind: 'exited', exitCode: 1, signal: null })
+    await vi.waitFor(() => {
+      expect(unknown.status()).toEqual({ kind: 'exited', exitCode: null, signal: null })
+    })
 
     const cancelTerminal = new FakeTerminal()
     const cancelInspector = new FakeInspector()
-    const cancel = new LocalPtySession(cancelTerminal.asPty(), cancelInspector, config())
+    const cancel = makeSession(cancelTerminal, cancelInspector, config())
     await initialize(cancel, cancelTerminal)
     const cancellable = cancel.startSend({ text: '', submit: false })
     cancelInspector.throwGroup = true
@@ -275,7 +753,7 @@ describe('LocalPtySession readiness and output', () => {
 
     const missingGroupTerminal = new FakeTerminal()
     const missingGroupInspector = new FakeInspector()
-    const missingGroup = new LocalPtySession(missingGroupTerminal.asPty(), missingGroupInspector, config())
+    const missingGroup = makeSession(missingGroupTerminal, missingGroupInspector, config())
     await initialize(missingGroup, missingGroupTerminal)
     missingGroupInspector.pgid = undefined
     const unresolved = missingGroup.startSend({ text: '', submit: false })
@@ -286,7 +764,7 @@ describe('LocalPtySession readiness and output', () => {
   it('does not treat zero-output startup silence as readiness and fails on startup timeout', async () => {
     vi.useFakeTimers()
     const terminal = new FakeTerminal()
-    const session = new LocalPtySession(terminal.asPty(), new FakeInspector(), config())
+    const session = new LocalPtySession(terminal, config())
     let settled = false
     const initializing = session.initialize().then(() => { settled = true })
     await vi.advanceTimersByTimeAsync(60)
@@ -296,7 +774,7 @@ describe('LocalPtySession readiness and output', () => {
     await initializing
 
     const timeoutTerminal = new FakeTerminal()
-    const timeout = new LocalPtySession(timeoutTerminal.asPty(), new FakeInspector(), config())
+    const timeout = new LocalPtySession(timeoutTerminal, config())
     const timedOut = expect(timeout.initialize()).rejects.toThrow('startup timeout')
     await vi.advanceTimersByTimeAsync(100)
     await timedOut
@@ -306,7 +784,7 @@ describe('LocalPtySession readiness and output', () => {
     const terminal = new FakeTerminal()
     const inspector = new FakeInspector()
     inspector.pgid = undefined
-    const session = new LocalPtySession(terminal.asPty(), inspector, config())
+    const session = makeSession(terminal, inspector, config())
     const controller = new AbortController()
     const reason = new Error('startup cancelled')
 
@@ -320,7 +798,7 @@ describe('LocalPtySession readiness and output', () => {
   it('waits for printable prompt text when the startup marker is split from PS1', async () => {
     vi.useFakeTimers()
     const terminal = new FakeTerminal()
-    const session = new LocalPtySession(terminal.asPty(), new FakeInspector(), config())
+    const session = new LocalPtySession(terminal, config())
     let settled = false
     const initializing = session.initialize().then(() => { settled = true })
 
@@ -334,16 +812,39 @@ describe('LocalPtySession readiness and output', () => {
     expect(session.motd).toBe('dsh> ')
   })
 
+  it('does not attribute a delayed prior prompt to the current send', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const session = new LocalPtySession(terminal, config({ idleSilenceMs: 100, timeoutMs: 200 }))
+    await initialize(session, terminal)
+
+    const operation = session.startSend({ text: "printf 'PID=%s\\n' \"$!\"", submit: true })
+    let settled = false
+    void operation.done.then(() => { settled = true })
+    await Promise.resolve()
+    await Promise.resolve()
+
+    terminal.emitData('\x1b]133;D;0\x07dsh> printf \'PID=%s\\n\' "$!"\r\n')
+    await vi.advanceTimersByTimeAsync(20)
+    expect(settled).toBe(false)
+
+    terminal.emitData('PID=123\r\n\x1b]133;D;0\x07dsh> ')
+    await vi.advanceTimersByTimeAsync(10)
+    expect(await operation.done).toMatchObject({ waitReason: 'stdin_read' })
+  })
+
   it('retains a prompt marker until the startup shell regains the foreground group', async () => {
     vi.useFakeTimers()
     const terminal = new FakeTerminal()
     const inspector = new FakeInspector()
-    const session = new LocalPtySession(terminal.asPty(), inspector, config())
+    const session = makeSession(terminal, inspector, config())
     await initialize(session, terminal)
 
     const operation = session.startSend({ text: 'run', submit: true })
     let settled = false
     void operation.done.then(() => { settled = true })
+    await Promise.resolve()
+    await Promise.resolve()
     inspector.pgid = 789
     terminal.emitData('\x1b]133;D;0\x07dsh> ')
     await vi.advanceTimersByTimeAsync(50)
@@ -359,12 +860,14 @@ describe('LocalPtySession readiness and output', () => {
     vi.useFakeTimers()
     const terminal = new FakeTerminal()
     const inspector = new FakeInspector()
-    const session = new LocalPtySession(terminal.asPty(), inspector, config({ handoffGraceMs: 40 }))
+    const session = makeSession(terminal, inspector, config({ handoffGraceMs: 40 }))
     await initialize(session, terminal)
 
     const operation = session.startSend({ text: 'run', submit: true })
     let settled = false
     void operation.done.then(() => { settled = true })
+    await Promise.resolve()
+    await Promise.resolve()
     inspector.pgid = 789
     terminal.emitData('\x1b]133;D;0\x07dsh> ')
     // One poll past the silence bound would already have settled inferred_idle.
@@ -380,7 +883,7 @@ describe('LocalPtySession readiness and output', () => {
     vi.useFakeTimers()
     const terminal = new FakeTerminal()
     const inspector = new FakeInspector()
-    const session = new LocalPtySession(terminal.asPty(), inspector, config())
+    const session = makeSession(terminal, inspector, config())
     await initialize(session, terminal)
 
     const operation = session.startSend({ text: 'bash -i', submit: true })
@@ -390,6 +893,238 @@ describe('LocalPtySession readiness and output', () => {
 
     expect((await operation.done).waitReason).toBe('inferred_idle')
   })
+
+  it('contains terminal transport failures and preserves the first failure', async () => {
+    const terminal = new FakeTerminal()
+    terminal.terminateError = new Error('cleanup after transport failure')
+    const session = new LocalPtySession(terminal, config())
+    const operation = session.startSend({ text: '', submit: false })
+    terminal.output.emit('data', 'plain text')
+    terminal.emitError(new Error('output transport failed'))
+    ;(session as unknown as { onTransportFailure(error: unknown): void })
+      .onTransportFailure(new Error('later failure'))
+    await expect(operation.done).rejects.toThrow('output transport failed')
+    expect(session.status()).toEqual({ kind: 'exited', exitCode: null, signal: null })
+    terminal.terminateError = undefined
+    await expect(session.close('transport')).rejects.toThrow('output transport failed')
+
+    const rejectedTerminal = new FakeTerminal()
+    const rejected = new LocalPtySession(rejectedTerminal, config())
+    const rejectedOperation = rejected.startSend({ text: '', submit: false })
+    rejectedTerminal.emitFailure('raw transport failure')
+    await expect(rejectedOperation.done).rejects.toThrow('raw transport failure')
+  })
+
+  it('replaces invalid UTF-8 terminal output', async () => {
+    const chunkTerminal = new FakeTerminal()
+    const chunkSession = new LocalPtySession(chunkTerminal, config())
+    const chunkOperation = chunkSession.startSend({ text: '', submit: false })
+    chunkTerminal.emitBytes(Uint8Array.from([0xff]))
+    expect(chunkOperation.readOutput()).toEqual({ delta: '�', truncated: false })
+    chunkTerminal.emitExit()
+    await chunkOperation.done
+
+    const endTerminal = new FakeTerminal()
+    const endSession = new LocalPtySession(endTerminal, config())
+    const endOperation = endSession.startSend({ text: '', submit: false })
+    endTerminal.emitBytes(Uint8Array.from([0xe2]))
+    endTerminal.emitExit()
+    expect((await endOperation.done).viewport).toBe('�')
+  })
+
+  it('contains readiness inspection failure and a stale inspection result', async () => {
+    vi.useFakeTimers()
+    const failedTerminal = new FakeTerminal()
+    const failedSession = new LocalPtySession(failedTerminal, config())
+    const failedOperation = failedSession.startSend({ text: '', submit: false })
+    await Promise.resolve()
+    await Promise.resolve()
+    failedTerminal.inspectForeground = async () => { throw new Error('inspect failed') }
+    const failedInternal = failedSession as unknown as {
+      pollReadiness(operation: PtySendOperation): Promise<void>
+    }
+    await failedInternal.pollReadiness(failedOperation)
+    await expect(failedOperation.done).rejects.toThrow('inspect failed')
+
+    const staleTerminal = new FakeTerminal()
+    const staleSession = new LocalPtySession(staleTerminal, config())
+    const staleOperation = staleSession.startSend({ text: '', submit: false })
+    await Promise.resolve()
+    await Promise.resolve()
+    const gate = Promise.withResolvers<ReturnType<FakeTerminal['inspectForeground']> extends Promise<infer T> ? T : never>()
+    staleTerminal.inspectForeground = async () => await gate.promise
+    const staleInternal = staleSession as unknown as {
+      active: PtySendOperation | undefined
+      pollReadiness(operation: PtySendOperation): Promise<void>
+    }
+    const polling = staleInternal.pollReadiness(staleOperation)
+    staleInternal.active = undefined
+    gate.resolve({ processGroupId: 456, inputWaiting: false })
+    await polling
+    ;(staleOperation as unknown as {
+      settle(reason: 'timeout', status: PtySessionStatus, inherited: boolean): void
+    }).settle('timeout', { kind: 'running' }, false)
+  })
+
+  it('reschedules readiness for a new send after a stale remote inspection releases the poll slot', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const inspector = new FakeInspector()
+    const session = makeSession(terminal, inspector, config())
+    await initialize(session, terminal)
+
+    const old = session.startSend({ text: '', submit: false })
+    await Promise.resolve()
+    await Promise.resolve()
+    const inspection = Promise.withResolvers<{ processGroupId: number; inputWaiting: boolean }>()
+    let block = true
+    terminal.inspectForeground = async () => block
+      ? await inspection.promise
+      : { processGroupId: 456, inputWaiting: false }
+    const internals = session as unknown as {
+      pollReadiness(operation: PtySendOperation): Promise<void>
+      settleActive(reason: 'timeout'): void
+    }
+    const stalePoll = internals.pollReadiness(old)
+    internals.settleActive('timeout')
+    await old.done
+
+    block = false
+    const current = session.startSend({ text: '', submit: false })
+    terminal.emitData('\x1b]133;D;0\x07dsh> ')
+    await Promise.resolve()
+    await Promise.resolve()
+    inspection.resolve({ processGroupId: 456, inputWaiting: false })
+    await stalePoll
+    await vi.advanceTimersByTimeAsync(10)
+
+    expect((await current.done).waitReason).toBe('stdin_read')
+  })
+
+  it('does not poll a successor before its own pre-write inspection and write complete', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const inspector = new FakeInspector()
+    const session = makeSession(terminal, inspector, config())
+    await initialize(session, terminal)
+
+    const old = session.startSend({ text: '', submit: false })
+    await Promise.resolve()
+    await Promise.resolve()
+    const staleInspection = Promise.withResolvers<{ processGroupId: number; inputWaiting: boolean }>()
+    const successorInspection = Promise.withResolvers<{ processGroupId: number; inputWaiting: boolean }>()
+    let inspectCalls = 0
+    terminal.inspectForeground = async () => {
+      inspectCalls += 1
+      return inspectCalls === 1 ? await staleInspection.promise : await successorInspection.promise
+    }
+    const internals = session as unknown as {
+      pollReadiness(operation: PtySendOperation): Promise<void>
+      settleActive(reason: 'timeout'): void
+    }
+    const stalePoll = internals.pollReadiness(old)
+    internals.settleActive('timeout')
+    await old.done
+
+    const current = session.startSend({ text: 'successor', submit: true })
+    await Promise.resolve()
+    await Promise.resolve()
+    staleInspection.resolve({ processGroupId: 456, inputWaiting: false })
+    await stalePoll
+    await vi.advanceTimersByTimeAsync(10)
+    expect(inspectCalls).toBe(2)
+    expect(terminal.writes).toEqual([])
+
+    successorInspection.resolve({ processGroupId: 456, inputWaiting: false })
+    await Promise.resolve()
+    await Promise.resolve()
+    terminal.emitData('\x1b]133;D;0\x07dsh> ')
+    await vi.advanceTimersByTimeAsync(10)
+    expect(terminal.writes).toEqual(['successor\r'])
+    expect((await current.done).waitReason).toBe('stdin_read')
+  })
+
+  it('contains stale timer, write, inspection, and interrupt continuations', async () => {
+    vi.useFakeTimers()
+    const settle = (operation: PtySendOperation): void => {
+      ;(operation as unknown as {
+        settle(reason: 'timeout', status: PtySessionStatus, inherited: boolean): void
+      }).settle('timeout', { kind: 'running' }, false)
+    }
+
+    const deadlineTerminal = new FakeTerminal()
+    const deadlineSession = new LocalPtySession(deadlineTerminal, config())
+    const deadlineOperation = deadlineSession.startSend({ text: '', submit: false })
+    ;(deadlineSession as unknown as { active: PtySendOperation | undefined }).active = undefined
+    await vi.advanceTimersByTimeAsync(100)
+    settle(deadlineOperation)
+
+    const writeTerminal = new FakeTerminal()
+    const writeGate = Promise.withResolvers<undefined>()
+    writeTerminal.write = async () => { await writeGate.promise }
+    const writeSession = new LocalPtySession(writeTerminal, config())
+    const writeOperation = writeSession.startSend({ text: 'x', submit: false })
+    await Promise.resolve()
+    await Promise.resolve()
+    ;(writeSession as unknown as { closing: boolean }).closing = true
+    writeGate.resolve(undefined)
+    await Promise.resolve()
+    await Promise.resolve()
+    settle(writeOperation)
+
+    const beginTerminal = new FakeTerminal()
+    const beginGate = Promise.withResolvers<never>()
+    beginTerminal.inspectForeground = async () => await beginGate.promise
+    const beginSession = new LocalPtySession(beginTerminal, config())
+    const beginOperation = beginSession.startSend({ text: '', submit: false })
+    ;(beginSession as unknown as { active: PtySendOperation | undefined }).active = undefined
+    beginGate.reject(new Error('stale begin failure'))
+    await Promise.resolve()
+    await Promise.resolve()
+    settle(beginOperation)
+
+    const scheduledTerminal = new FakeTerminal()
+    const scheduledSession = new LocalPtySession(scheduledTerminal, config())
+    const scheduledOperation = scheduledSession.startSend({ text: '', submit: false })
+    await Promise.resolve()
+    await Promise.resolve()
+    const scheduledInternal = scheduledSession as unknown as {
+      schedulePoll(operation: PtySendOperation, delayMs?: number): void
+      settleActive(reason: 'timeout'): void
+    }
+    scheduledInternal.schedulePoll(scheduledOperation, 5)
+    scheduledInternal.settleActive('timeout')
+    await scheduledOperation.done
+
+    const pollTerminal = new FakeTerminal()
+    const pollSession = new LocalPtySession(pollTerminal, config())
+    const pollOperation = pollSession.startSend({ text: '', submit: false })
+    await Promise.resolve()
+    await Promise.resolve()
+    const pollGate = Promise.withResolvers<never>()
+    pollTerminal.inspectForeground = async () => await pollGate.promise
+    const pollInternal = pollSession as unknown as {
+      active: PtySendOperation | undefined
+      pollReadiness(operation: PtySendOperation): Promise<void>
+    }
+    const stalePoll = pollInternal.pollReadiness(pollOperation)
+    pollInternal.active = undefined
+    pollGate.reject(new Error('stale poll failure'))
+    await stalePoll
+    settle(pollOperation)
+
+    const interruptTerminal = new FakeTerminal()
+    const interruptGate = Promise.withResolvers<never>()
+    interruptTerminal.signalForeground = async () => await interruptGate.promise
+    const interruptSession = new LocalPtySession(interruptTerminal, config())
+    const interruptOperation = interruptSession.startSend({ text: '', submit: false })
+    expect(interruptOperation.cancel()).toBe(true)
+    ;(interruptSession as unknown as { active: PtySendOperation | undefined }).active = undefined
+    interruptGate.reject(new Error('stale interrupt failure'))
+    await Promise.resolve()
+    await Promise.resolve()
+    settle(interruptOperation)
+  })
 })
 
 describe('LocalPtySession bounds, signals, and teardown', () => {
@@ -397,8 +1132,7 @@ describe('LocalPtySession bounds, signals, and teardown', () => {
     vi.useFakeTimers()
     const terminal = new FakeTerminal()
     const session = new LocalPtySession(
-      terminal.asPty(),
-      new FakeInspector(),
+      terminal,
       config({ scrollbackLines: 3, scrollbackMaxBytes: 12, maxReadBytes: 6 }),
     )
     expect(session.read({})).toMatchObject({ text: '' })
@@ -415,7 +1149,7 @@ describe('LocalPtySession bounds, signals, and teardown', () => {
     expect(() => session.read({ count: 0 })).toThrow('count')
 
     const tinyTerminal = new FakeTerminal()
-    const tiny = new LocalPtySession(tinyTerminal.asPty(), new FakeInspector(), config({ maxReadBytes: 1 }))
+    const tiny = new LocalPtySession(tinyTerminal, config({ maxReadBytes: 1 }))
     await initialize(tiny, tinyTerminal)
     const tinyOperation = tiny.startSend({ text: '', submit: false })
     tinyTerminal.emitData('一')
@@ -427,32 +1161,47 @@ describe('LocalPtySession bounds, signals, and teardown', () => {
   it('signals verified groups and refuses unresolved or shell-targeted hard kills', async () => {
     const terminal = new FakeTerminal()
     const inspector = new FakeInspector()
-    const session = new LocalPtySession(terminal.asPty(), inspector, config())
+    const session = makeSession(terminal, inspector, config())
     expect(await session.signal('SIGINT')).toEqual({ delivered: true, targetPgid: 456 })
     inspector.pgid = terminal.pid
-    await expect(session.signal('SIGKILL')).rejects.toThrow('use terminal_close')
+    await expect(session.signal('SIGKILL')).rejects.toThrow('terminate the terminal session')
     inspector.pgid = undefined
     await expect(session.signal('SIGTERM')).rejects.toThrow('cannot resolve')
   })
 
-  it('closes idempotently, contains signal races, and reports survivors', async () => {
+  it('closes idempotently and rejects new signals', async () => {
     const terminal = new FakeTerminal()
-    const inspector = new FakeInspector()
-    inspector.members = [{ pid: 123, started: 'a' }]
-    inspector.alive.add(123)
-    inspector.throwProcess = true
     terminal.throwKill = true
-    const session = new LocalPtySession(terminal.asPty(), inspector, config({ disposeGraceMs: 1 }))
+    const session = new LocalPtySession(terminal, config({ disposeGraceMs: 1 }))
     const closing = session.close('test')
     expect(session.close('other')).toBe(closing)
-    await expect(closing).rejects.toThrow('surviving pids: 123')
+    await expect(closing).rejects.toThrow('PTY cleanup failed (test)')
     expect(() => session.startSend({ text: '', submit: false })).toThrow('closing')
+    await expect(session.signal('SIGTERM')).rejects.toThrow('closing')
+  })
+
+  it('reports cleanup failure without waiting for top-level exit and permits retry', async () => {
+    const terminal = new FakeTerminal()
+    terminal.autoExitOnKill = false
+    terminal.terminateError = new Error('terminal cleanup failed; surviving pids: 456')
+    const session = new LocalPtySession(terminal, config())
+
+    await expect(session.close('survivor')).rejects.toMatchObject({
+      message: 'PTY cleanup failed (survivor)',
+      cause: terminal.terminateError,
+    })
+    expect(terminal.kills).toEqual([])
+
+    terminal.terminateError = undefined
+    terminal.autoExitOnKill = true
+    await expect(session.close('retry')).resolves.toBeUndefined()
+    expect(terminal.kills).toEqual(['SIGTERM'])
   })
 
   it('settles an active send as session_exit when closed mid-operation', async () => {
     vi.useFakeTimers()
     const terminal = new FakeTerminal()
-    const session = new LocalPtySession(terminal.asPty(), new FakeInspector(), config({ disposeGraceMs: 50 }))
+    const session = new LocalPtySession(terminal, config({ disposeGraceMs: 50 }))
     await initialize(session, terminal)
     const operation = session.startSend({ text: 'run', submit: true })
     // The shell returns to its prompt while the send is active; a running
@@ -467,94 +1216,80 @@ describe('LocalPtySession bounds, signals, and teardown', () => {
     await closing
   })
 
-  it('keeps the shell alive until SIGKILL recipients leave the process table', async () => {
+  it('settles a closing send when provider termination cancels inspection', async () => {
     vi.useFakeTimers()
     const terminal = new FakeTerminal()
-    const inspector = new FakeInspector()
-    inspector.members = [{ pid: 124, started: 'child' }]
-    inspector.alive.add(124)
-    inspector.removeOnSignal = false
-    const session = new LocalPtySession(terminal.asPty(), inspector, config({ disposeGraceMs: 20 }))
+    const session = new LocalPtySession(terminal, config())
+    await initialize(session, terminal)
+    const write = Promise.withResolvers<undefined>()
+    terminal.write = async () => { await write.promise }
+    const writeOperation = session.startSend({ text: 'pending write', submit: true })
+    await Promise.resolve()
+    await Promise.resolve()
+    await session.close('pending write')
+    expect((await writeOperation.done).waitReason).toBe('session_exit')
+    // The rejection lands after close released the send; it must stay contained.
+    write.reject(new Error('write rejected during close'))
+    await Promise.resolve()
+    await Promise.resolve()
+  })
 
+  it('settles a closing send when provider termination cancels a pending inspection', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const session = new LocalPtySession(terminal, config())
+    await initialize(session, terminal)
+    const inspection = Promise.withResolvers<{ processGroupId: number; inputWaiting: boolean }>()
+    terminal.inspectForeground = async () => await inspection.promise
+    const terminate = terminal.terminate.bind(terminal)
+    terminal.terminate = async () => {
+      inspection.reject(new Error('terminal terminated'))
+      await terminate()
+    }
+    const operation = session.startSend({ text: 'pending inspection', submit: true })
+    await Promise.resolve()
+
+    await session.close('pending inspection')
+
+    expect((await operation.done).waitReason).toBe('session_exit')
+    expect(terminal.writes).toEqual([])
+  })
+
+  it('does not let an in-flight readiness inspection outrun close', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const session = new LocalPtySession(terminal, config())
+    await initialize(session, terminal)
+    const inspection = Promise.withResolvers<{ processGroupId: number; inputWaiting: boolean }>()
+    const originalInspect = terminal.inspectForeground.bind(terminal)
+    let inspections = 0
+    terminal.inspectForeground = async () => {
+      inspections += 1
+      return inspections === 1 ? await originalInspect() : await inspection.promise
+    }
+    const operation = session.startSend({ text: 'pending readiness', submit: true })
+    await Promise.resolve()
+    await Promise.resolve()
+    terminal.emitData('\x1b]133;D;0\x07dsh> ')
+    await vi.advanceTimersByTimeAsync(10)
+    expect(inspections).toBe(2)
+
+    const termination = Promise.withResolvers<undefined>()
+    terminal.terminate = async () => {
+      await termination.promise
+      terminal.emitExit(0, 15)
+    }
+    const closing = session.close('in-flight readiness')
     let settled = false
-    const closing = session.close('test').then(() => { settled = true })
-    await vi.advanceTimersByTimeAsync(20)
-    expect(inspector.processes).toContainEqual([124, 'SIGKILL'])
-    expect(terminal.kills).toEqual([])
+    void operation.done.then(() => { settled = true })
+    inspection.resolve({ processGroupId: 456, inputWaiting: true })
+    await Promise.resolve()
+    await Promise.resolve()
     expect(settled).toBe(false)
 
-    inspector.alive.delete(124)
-    await vi.advanceTimersByTimeAsync(20)
+    termination.resolve(undefined)
     await closing
-    expect(terminal.kills).toEqual(['SIGTERM'])
-    expect(settled).toBe(true)
+    expect((await operation.done).waitReason).toBe('session_exit')
   })
 
-  it('rescans for descendants forked during TERM before stopping the shell', async () => {
-    const terminal = new FakeTerminal()
-    const inspector = new FakeInspector()
-    let reads = 0
-    inspector.processTree = () => {
-      reads += 1
-      if (reads === 1) {
-        inspector.alive.add(124)
-        return [{ pid: 124, started: 'first' }]
-      }
-      if (reads === 2) {
-        inspector.alive.add(125)
-        return [{ pid: 125, started: 'late' }]
-      }
-      return []
-    }
-    const session = new LocalPtySession(terminal.asPty(), inspector, config())
-
-    await session.close('test')
-
-    expect(inspector.processes).toEqual([[124, 'SIGTERM'], [125, 'SIGKILL']])
-    expect(terminal.kills).toEqual(['SIGTERM'])
-  })
-
-  it('retains captured survivors that are reparented out of the teardown rescan', async () => {
-    vi.useFakeTimers()
-    const terminal = new FakeTerminal()
-    const inspector = new FakeInspector()
-    const captured = { pid: 124, started: 'captured' }
-    let reads = 0
-    inspector.alive.add(captured.pid)
-    inspector.processTree = () => reads++ === 0 ? [captured] : []
-    inspector.signalProcess = (identity, signal) => {
-      inspector.processes.push([identity.pid, signal])
-      if (signal === 'SIGKILL') inspector.alive.delete(identity.pid)
-    }
-    const session = new LocalPtySession(terminal.asPty(), inspector, config({ disposeGraceMs: 20 }))
-
-    const closing = session.close('test')
-    await vi.advanceTimersByTimeAsync(25)
-    await closing
-
-    expect(inspector.processes).toEqual([[124, 'SIGTERM'], [124, 'SIGKILL']])
-    expect(terminal.kills).toEqual(['SIGTERM'])
-  })
-
-  it('allows teardown to retry after a descendant-survivor failure', async () => {
-    vi.useFakeTimers()
-    const terminal = new FakeTerminal()
-    const inspector = new FakeInspector()
-    inspector.members = [{ pid: 124, started: 'child' }]
-    inspector.alive.add(124)
-    inspector.removeOnSignal = false
-    const session = new LocalPtySession(terminal.asPty(), inspector, config({ disposeGraceMs: 10 }))
-
-    const first = session.close('first')
-    const rejected = expect(first).rejects.toThrow('surviving pids: 124')
-    await vi.advanceTimersByTimeAsync(25)
-    await rejected
-    expect(terminal.kills).toEqual([])
-
-    inspector.alive.delete(124)
-    const second = session.close('retry')
-    expect(second).not.toBe(first)
-    await second
-    expect(terminal.kills).toEqual(['SIGTERM'])
-  })
 })

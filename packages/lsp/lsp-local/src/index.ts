@@ -1,18 +1,16 @@
 /**
  * Generic stdio language-server backend for `ctx.lsp`. One plugin instance configures a named table
  * of server commands and registers one isolated provider for each entry. Every provider lazily
- * single-flights one server process per canonical workspace realpath, serves transient-open queries
+ * single-flights one server process per canonical workspace target, serves transient-open queries
  * through it, and replaces a selected transport that fails before or during the next read-only
- * query. Providers read sources through Node APIs in the host namespace (not `ctx.fs`)
- * and trust their configured servers — no sandbox confinement.
+ * query. Providers read sources through `ctx.fs` and launch servers through
+ * `ctx.subprocess`, so both local and remote implementations share one host.
  *
  * Namespace plugin (named exports, no default export). Lifecycle is effect-scoped: disposal
  * unregisters from `ctx.lsp` and tears down every live server.
  * @module @deepseek-ai/dsh-lsp-local
  */
 
-import { accessSync, constants, statSync } from 'node:fs'
-import { delimiter, isAbsolute, join } from 'node:path'
 import type { Context } from 'cordis'
 import z from 'schemastery'
 import { LspError, LspProviderId } from '@deepseek-ai/dsh-lsp'
@@ -24,9 +22,9 @@ import type {
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { abortable, abortError } from './abort.ts'
 import { canonicalizeWorkspace, readHostSource } from './host.ts'
+import type { HostWorkspace } from './host.ts'
 import { LspInstance } from './instance.ts'
 import type { ConnectionSpawner } from './connection.ts'
-import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
 import type { InstanceSpec } from './instance.ts'
 
 export { canonicalizeWorkspace, readHostSource } from './host.ts'
@@ -46,10 +44,7 @@ export { LspConnection } from './connection.ts'
 export const name = 'lsp-local'
 
 /** Services required by this plugin. */
-export const inject = ['lsp', 'subprocess']
-
-/** Credential-shaped ambient env vars are NOT forwarded to the child by default. */
-
+export const inject = ['fs', 'lsp', 'subprocess']
 
 const DEFAULT_MAX_MESSAGE_BYTES = 16_000_000
 const DEFAULT_MAX_STDERR_BYTES = 1_000_000
@@ -91,6 +86,7 @@ export interface Config {
 
 /** One server config after schemastery fills every default. */
 type ResolvedServerConfig = Required<LspLocalServerConfig>
+type WorkspaceKey = HostWorkspace['target']['targetKey']
 
 const LspLocalServerConfig: z<LspLocalServerConfig> = z.object({
   command: z.string().required(),
@@ -110,27 +106,67 @@ export const Config: z<Config> = z.object({
   servers: z.dict(LspLocalServerConfig).required(),
 })
 
+/** Propagate teardown failures only after every sibling has settled. */
+function throwTeardownFailures(results: readonly PromiseSettledResult<void>[], message: string): void {
+  const failures: unknown[] = []
+  for (const result of results) {
+    if (result.status === 'rejected') failures.push(result.reason)
+  }
+  if (failures.length === 1) throw failures[0]
+  if (failures.length > 1) throw new AggregateError(failures, message)
+}
+
 /**
  * Register the configured stdio LSP providers. Resolves every executable at load (after credential
  * scrubbing) before publishing any provider; each process launches lazily on its first matching
  * query.
- * @param ctx - the plugin context (must inject `lsp`).
+ * @param ctx - the plugin context carrying `fs`, `lsp`, and `subprocess`.
  * @param config - the resolved plugin configuration (schemastery has filled every default).
  */
-export function apply(ctx: Context, config: Config): void {
+export async function apply(ctx: Context, config: Config): Promise<void> {
   const entries = Object.entries(config.servers)
   if (entries.length === 0) throw new Error('lsp-local: servers must contain at least one server')
 
+  const setupAbort = new AbortController()
+  const stopSetupCancellation = ctx.on('internal/plugin', (fiber) => {
+    // An async plugin callback must observe its own disposal before Cordis can
+    // run effect cleanup, because unload otherwise waits for this callback.
+    if (fiber === ctx.fiber && fiber.uid === null) {
+      setupAbort.abort(new Error('lsp-local setup disposed'))
+    }
+  })
+
   // Resolve every server-local setting before registration so a bad later command or bound cannot
   // publish an earlier provider. Registry-level mapping conflicts are rolled back below.
-  const providers = entries.map(([providerId, rawConfig]) => {
-    if (providerId.trim() === '') throw new Error('lsp-local: server ids must be non-empty strings')
-    const resolved = rawConfig as ResolvedServerConfig
-    validateServerConfig(providerId, resolved)
-    const childEnv = buildChildEnv(resolved.env)
-    const executable = resolveExecutable(resolved.command, childEnv)
-    return new LocalLspProvider(providerId, resolved, childEnv, executable, spec => ctx.subprocess.spawn(spec))
-  })
+  const providers = await (async () => {
+    const lookups = entries.map(async ([providerId, rawConfig]) => {
+      if (providerId.trim() === '') throw new Error('lsp-local: server ids must be non-empty strings')
+      const resolved = rawConfig as ResolvedServerConfig
+      validateServerConfig(providerId, resolved)
+      const executable = await ctx.subprocess.resolveExecutable(
+        resolved.command,
+        resolved.env,
+        setupAbort.signal,
+      )
+      setupAbort.signal.throwIfAborted()
+      return new LocalLspProvider(
+        providerId,
+        ctx.fs,
+        resolved,
+        executable,
+        spec => ctx.subprocess.spawn(spec),
+      )
+    })
+    try {
+      return await Promise.all(lookups)
+    } catch (error: unknown) {
+      setupAbort.abort(error)
+      await Promise.allSettled(lookups)
+      throw error
+    } finally {
+      stopSetupCancellation()
+    }
+  })()
 
   ctx.effect(() => {
     const disposers: Array<() => void> = []
@@ -143,7 +179,8 @@ export function apply(ctx: Context, config: Config): void {
     return async () => {
       // Remove every route before process teardown so no new query can enter a draining provider.
       for (const dispose of disposers.reverse()) dispose()
-      await Promise.all(providers.map(provider => provider.disposeAll()))
+      const results = await Promise.allSettled(providers.map(provider => provider.disposeAll()))
+      throwTeardownFailures(results, 'lsp-local provider teardown failed')
     }
   }, 'lsp-local.registerProviders')
 }
@@ -180,16 +217,19 @@ function assertPositiveInteger(providerId: string, name: string, value: number):
 class LocalLspProvider implements LspProvider {
   readonly id: LspProviderId
   readonly extensionToLanguage: Readonly<Record<string, string>>
-  /** One live instance per canonical workspace realpath. */
-  private readonly instances = new Map<string, LspInstance>()
+  /** One live instance per stable canonical workspace identity. */
+  private readonly instances = new Map<WorkspaceKey, LspInstance>()
   /** One complete source-read→open→query→close serialization tail per canonical workspace. */
-  private readonly queues = new Map<string, Promise<void>>()
+  private readonly queues = new Map<WorkspaceKey, Promise<void>>()
+  /** Workspace canonicalizations that have not entered a provider-owned queue yet. */
+  private readonly workspaceLookups = new Set<Promise<void>>()
+  private readonly lifetime = new AbortController()
   private disposed = false
 
   constructor(
     providerId: string,
+    private readonly fs: Context['fs'],
     private readonly config: ResolvedServerConfig,
-    private readonly childEnv: Record<string, string>,
     private readonly executable: string,
     private readonly spawner: ConnectionSpawner,
   ) {
@@ -210,43 +250,60 @@ class LocalLspProvider implements LspProvider {
     if (signal?.aborted) throw abortError(signal)
   }
 
+  /** Fuse caller cancellation with provider disposal for every filesystem and protocol await. */
+  private querySignal(signal?: AbortSignal): AbortSignal {
+    return signal === undefined
+      ? this.lifetime.signal
+      : AbortSignal.any([signal, this.lifetime.signal])
+  }
+
   async query(request: LspProviderQuery, signal?: AbortSignal): Promise<LspQueryResult> {
-    // Honor an already-aborted signal before host I/O so a canceled request never starts a server.
+    // Honor an already-aborted signal before provider I/O so a canceled request never starts a server.
     this.assertActive(signal)
-    const workspace = await canonicalizeWorkspace(request.workspaceRoot, signal)
-    this.assertActive(signal)
-    return this.enqueue(workspace, signal, async () => {
-      this.assertActive(signal)
+    const querySignal = this.querySignal(signal)
+    const workspaceResult = canonicalizeWorkspace(this.fs, request.workspaceRoot, querySignal)
+    const workspaceLookup = workspaceResult.then(() => undefined, () => undefined)
+    this.workspaceLookups.add(workspaceLookup)
+    let workspace: HostWorkspace
+    try {
+      workspace = await workspaceResult
+    } finally {
+      this.workspaceLookups.delete(workspaceLookup)
+    }
+    this.assertActive(querySignal)
+    const workspaceKey = workspace.target.targetKey
+    return this.enqueue(workspaceKey, querySignal, async () => {
+      this.assertActive(querySignal)
       // Read inside the workspace queue but before spawning: a queued query sees current bytes when
       // its turn starts, while an invalid source still cannot leave an idle process pooled.
-      const source = await readHostSource(request.filePath, workspace, this.config.maxDocumentBytes, signal)
+      const source = await readHostSource(this.fs, request.filePath, workspace, this.config.maxDocumentBytes, querySignal)
       // Disposal may have snapshotted the instance map while host I/O was pending. Re-check before a
       // synchronous get-or-create so every spawned process remains owned by teardown.
-      this.assertActive(signal)
-      let instance = this.instanceFor(workspace)
+      this.assertActive(querySignal)
+      let instance = this.instanceFor(workspaceKey, workspace)
       try {
-        return await instance.query(request, source, signal)
+        return await instance.query(request, source, querySignal)
       } catch (error) {
         // A selected child can have died while idle or fail during the next write. Queries are
         // read-only, so replace that transport once and retry transparently.
         if (!instance.isTransportFailure(error)) throw error
         await instance.dispose()
-        this.evictIfCurrent(workspace, instance)
-        this.assertActive(signal)
-        instance = this.instanceFor(workspace)
-        return await instance.query(request, source, signal)
+        this.evictIfCurrent(workspaceKey, instance)
+        this.assertActive(querySignal)
+        instance = this.instanceFor(workspaceKey, workspace)
+        return await instance.query(request, source, querySignal)
       } finally {
         // Reach quiescence before dropping a dead slot; a replacement must survive this ownership check.
         if (instance.dead) {
           await instance.dispose()
-          this.evictIfCurrent(workspace, instance)
+          this.evictIfCurrent(workspaceKey, instance)
         }
       }
     })
   }
 
   /** Serialize one complete query lifecycle for a canonical workspace. */
-  private enqueue<T>(workspace: string, signal: AbortSignal | undefined, run: () => Promise<T>): Promise<T> {
+  private enqueue<T>(workspace: WorkspaceKey, signal: AbortSignal | undefined, run: () => Promise<T>): Promise<T> {
     const previous = this.queues.get(workspace) ?? Promise.resolve()
     const result = abortable(previous, signal).then(run)
     // The tail follows the actual prior work even when this caller aborts its wait. It never rejects,
@@ -260,27 +317,28 @@ class LocalLspProvider implements LspProvider {
   }
 
   /** Return or synchronously publish the one instance for a canonical workspace. */
-  private instanceFor(workspace: string): LspInstance {
+  private instanceFor(workspaceKey: WorkspaceKey, workspace: HostWorkspace): LspInstance {
     this.assertActive()
-    const existing = this.instances.get(workspace)
+    const existing = this.instances.get(workspaceKey)
     if (existing !== undefined) return existing
     const created = this.createInstance(workspace)
-    this.instances.set(workspace, created)
+    this.instances.set(workspaceKey, created)
     return created
   }
 
   /** Drop the slot iff it still contains this instance. */
-  private evictIfCurrent(workspace: string, instance: LspInstance): void {
+  private evictIfCurrent(workspace: WorkspaceKey, instance: LspInstance): void {
     /* v8 ignore next -- mismatch requires another query to replace the slot before this finally runs. */
     if (this.instances.get(workspace) === instance) this.instances.delete(workspace)
   }
 
-  private createInstance(workspace: string): LspInstance {
+  private createInstance(workspace: HostWorkspace): LspInstance {
     const spec: InstanceSpec = {
       command: this.executable,
       args: this.config.args,
-      cwd: workspace,
-      env: this.childEnv,
+      cwd: workspace.canonicalPath,
+      workspaceUri: workspace.fileUrl,
+      env: this.config.env,
       configuration: this.config.configuration,
       initializationOptions: this.config.initializationOptions,
       maxMessageBytes: this.config.maxMessageBytes,
@@ -294,51 +352,18 @@ class LocalLspProvider implements LspProvider {
   /** Dispose every live instance and block further queries. */
   async disposeAll(): Promise<void> {
     this.disposed = true
+    this.lifetime.abort(new LspError('lsp-local provider is disposed', 'LSP_DISPOSED'))
     const live = [...this.instances.values()]
     const draining = [...this.queues.values()]
+    const resolving = [...this.workspaceLookups]
     this.instances.clear()
-    await Promise.all([
+    const results = await Promise.allSettled([
       ...live.map(instance => instance.dispose()),
       ...draining,
+      ...resolving,
     ])
     this.queues.clear()
-  }
-}
-
-/** The seam's scrubbed parent env (credential-shaped and DSH_* names dropped), plus the config's explicit env. */
-function buildChildEnv(extra: Record<string, string>): Record<string, string> {
-  return { ...scrubbedParentEnv(), ...extra }
-}
-
-/**
- * Resolve the server executable to an absolute path: an absolute command is verified directly; a
- * bare command is looked up on the child's PATH. Fails loudly when nothing is executable.
- */
-function resolveExecutable(command: string, childEnv: Record<string, string>): string {
-  if (isAbsolute(command)) {
-    // Verify an absolute command too, so an unavailable one fails at load, not on the first query.
-    if (!isExecutableFileSync(command)) {
-      throw new Error(`lsp-local: command "${command}" is not an executable file`)
-    }
-    return command
-  }
-  /* v8 ignore next -- buildChildEnv always sets PATH from the ambient env; the further fallbacks are defensive. */
-  const pathValue = childEnv.PATH ?? process.env.PATH ?? ''
-  for (const dir of pathValue.split(delimiter)) {
-    if (dir === '') continue
-    const candidate = join(dir, command)
-    if (isExecutableFileSync(candidate)) return candidate
-  }
-  throw new Error(`lsp-local: command "${command}" was not found on PATH`)
-}
-
-/** Synchronous regular-file and executable check used only at load-time resolution. */
-function isExecutableFileSync(path: string): boolean {
-  try {
-    if (!statSync(path).isFile()) return false
-    accessSync(path, constants.X_OK)
-    return true
-  } catch {
-    return false
+    this.workspaceLookups.clear()
+    throwTeardownFailures(results, 'lsp-local instance teardown failed')
   }
 }

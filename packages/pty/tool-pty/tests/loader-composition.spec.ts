@@ -16,6 +16,7 @@ import PtyService from '@deepseek-ai/dsh-pty'
 import SandboxProvider from '@deepseek-ai/dsh-sandbox'
 import type { ConfinedArgv, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
 import SandboxPolicyService from '@deepseek-ai/dsh-sandbox-policy'
+import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 import * as PtyLocal from '@deepseek-ai/dsh-pty-local'
 import * as ToolPty from '@deepseek-ai/dsh-tool-pty'
 
@@ -72,6 +73,7 @@ suite('terminal real Loader composition through cordis.yml', () => {
       '  config:',
       '    mode: danger-full-access',
       `    workspaceRoot: ${JSON.stringify(root)}`,
+      "- name: '@deepseek-ai/dsh-subprocess-local'",
       "- name: '@deepseek-ai/dsh-pty-local'",
       '  config:',
       '    pollIntervalMs: 10',
@@ -95,6 +97,7 @@ suite('terminal real Loader composition through cordis.yml', () => {
       ['@deepseek-ai/dsh-pty', PtyService],
       ['@deepseek-ai/dsh-test-sandbox', PassthroughSandbox],
       ['@deepseek-ai/dsh-sandbox-policy', SandboxPolicyService],
+      ['@deepseek-ai/dsh-subprocess-local', LocalSubprocessService],
       ['@deepseek-ai/dsh-pty-local', PtyLocal],
       ['@deepseek-ai/dsh-tool-pty', ToolPty],
     ])
