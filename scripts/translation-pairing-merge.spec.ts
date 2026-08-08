@@ -103,6 +103,16 @@ function createDivergedPair(fixture: Fixture): { ancestor: string; current: stri
   return { ancestor, current, other }
 }
 
+function startStoppedPairingMerge(fixture: Fixture): void {
+  createDivergedPair(fixture)
+  const merge = spawnSync('git', ['-C', fixture.root, 'merge', '--no-commit', 'master'], {
+    encoding: 'utf8',
+    env: fixture.env,
+  })
+  expect(merge.status).toBe(1)
+  expect(git(fixture, ['diff', '--name-only', '--diff-filter=U'])).toBe('docs/guide.i18n.yaml')
+}
+
 function expectMergedPair(fixture: Fixture): void {
   expect(readFileSync(join(fixture.root, 'docs/guide.md'), 'utf8')).toBe(mergedSource)
   expect(readFileSync(join(fixture.root, 'docs/guide.zh.md'), 'utf8')).toBe(mergedZh)
@@ -223,13 +233,7 @@ describe('translation pairing merge composition', () => {
 
   it('resolves an already-stopped generated-only conflict from index stages', () => {
     const fixture = createFixture(false)
-    createDivergedPair(fixture)
-    const merge = spawnSync('git', ['-C', fixture.root, 'merge', '--no-commit', 'master'], {
-      encoding: 'utf8',
-      env: fixture.env,
-    })
-    expect(merge.status).toBe(1)
-    expect(git(fixture, ['diff', '--name-only', '--diff-filter=U'])).toBe('docs/guide.i18n.yaml')
+    startStoppedPairingMerge(fixture)
 
     expect(resolveTranslationPairingConflicts(fixture.root)).toEqual(['docs/guide.i18n.yaml'])
 
@@ -239,12 +243,7 @@ describe('translation pairing merge composition', () => {
 
   it('refuses to confirm unstaged owner bytes after a stopped merge', () => {
     const fixture = createFixture(false)
-    createDivergedPair(fixture)
-    const merge = spawnSync('git', ['-C', fixture.root, 'merge', '--no-commit', 'master'], {
-      encoding: 'utf8',
-      env: fixture.env,
-    })
-    expect(merge.status).toBe(1)
+    startStoppedPairingMerge(fixture)
     write(fixture.root, 'docs/guide.md', `${mergedSource}\nunstaged\n`)
 
     expect(() => resolveTranslationPairingConflicts(fixture.root)).toThrow(
