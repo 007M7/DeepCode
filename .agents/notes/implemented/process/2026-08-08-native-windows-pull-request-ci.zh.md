@@ -16,6 +16,8 @@ Status: implemented
 
 首次原生运行暴露出两项被兼容性通道掩盖的故障。文档投影测试此前只按 `/` 拆分来派生图片 basename；现在改为使用 Node 根据平台计算的 basename。Chokidar 消费方收到的 `%TEMP%` 以 `C:\\Users\\RUNNER~1` 这个 8.3 别名表示，而 libuv 返回的是长目录名，导致其 Windows 事件路径断言失败。共享的设置 watcher 与凭据 watcher，以及 Cordis 的模块 HMR（热模块替换）与精确配置 HMR，现在都会在打开 watcher 前规范化现有的原生监听基准路径或层级最深的现有祖先路径，并保留尚不存在的后缀；文件访问和诊断仍使用配置路径。
 
+下一次分支头精确运行暴露出观测项中剩余的一项 built-bin 故障：其生命周期 fixture（测试前置数据）通过 `process.kill()` 或 `subprocess.kill()` 发送 `SIGTERM`；在 Windows 上，这种调用会无条件终止目标进程，而不会交付为优雅释放所注册的进程事件。POSIX 验收仍发送真实信号。在 Windows 上，fixture 改为从子进程内部请求同一个已注册事件：自终止探测直接请求，由父进程控制的生命周期场景则通过标记请求；因此，完整组装后的关闭与释放路径仍得到覆盖，也无需断言操作系统提供了本不存在的信号机制。该项验收随即暴露出底层的提前关闭竞态：boot 返回后，回退 HMR watcher 仍在挂载，此时信号可能对根 fiber 执行 dispose（资源释放），由此产生的服务未激活错误会逸出并被报告为 boot 失败。boot 后 setup 现在只会在权威根 fiber 仍处于活跃状态时接纳工作；只有当本次调用所记录的信号已取得关闭流程所有权时，才会隔离并发 setup 错误，无关的 HMR 故障仍会响亮失败。
+
 受支持的工作流不含 Wine 专属基础设施：不存在 apt 缓存生产者、兼容性脚本、对仓库快照执行的 hoisted 安装、Windows Node 下载或本地 `check:windows-wine` 命令。[已归档的 Wine 实验](../../archived/process/2026-07-27-wine-windows-gates-experiment.md)仍作为其实测延迟与保真度取舍的历史证据，而非当前执行路径。
 
 ## 曾考虑的替代方案
