@@ -10,6 +10,14 @@
 
 本包不包含传输逻辑或 Host 服务发现逻辑。Web 或未来的 TUI 只要提供同一份不依赖 React 的 `ctx.remote` 契约，均可复用其 Client face。
 
+## 构建边界
+
+仓库中的普通包只属于一个 TypeScript face：Host 包登记在根 `tsconfig.host.json`，Client 包登记在根 `tsconfig.client.json`。`api-remotes` 是唯一刻意拆分的特例，因为它的 Host 入口要参与 Host TypeRT 图，而 `src/client/index.ts` 必须等 Host tsdown 生成业务包的 `/remote` 声明后才能编译。
+
+本包根 `tsconfig.json` 只是引用 `tsconfig.host.json` 与 `tsconfig.client.json` 的 solution。Host aggregate 和 Host 直接消费方引用前者，Client aggregate 和 Client 直接消费方引用后者；禁止把包根 solution 放进任一 aggregate 的依赖图。两个 project 拥有互不重叠的源码和 `.tsbuildinfo`，但共享 `lib/types` 输出目录。
+
+包内 `clientBundle(..., { hostPhase: true })` 让 Host tsdown 打包 Host 入口，让后续 Client tsdown 只打包 browser 入口。普通 Client 插件仍使用单一 Client project，并在 Client tsdown 阶段一起生成 Node loader 入口和 browser bundle；不得因一个包同时存在 `src/index.ts` 与 `src/client/index.ts` 就复制本包的拆分。
+
 ## 模型体验
 
 无，因为该 BFF 只选择 Remote 应用方法和身份策略，不注册任何模型接口。

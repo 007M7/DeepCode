@@ -8,6 +8,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 import { hasTypeRTRemoteNavigation, isForbiddenPublicationFile } from './publication-payload.ts'
+import { collectProjectReferenceFaceViolations } from './project-reference-faces.ts'
 
 const root = resolve(import.meta.dirname, '..')
 // vendor/* is single-level; packages/<group>/<pkg> nests one level deeper
@@ -305,6 +306,7 @@ const errors = [
   ...checkRepositoryVersion(),
   ...workspaceManifests().flatMap(checkWorkspace),
   ...checkHierarchyShape(),
+  ...collectProjectReferenceFaceViolations(root),
 ]
 if (errors.length > 0) {
   console.error(errors.join('\n'))

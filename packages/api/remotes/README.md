@@ -10,6 +10,14 @@ The current Client assembly mounts only the Goal Remote contribution. Cordis eff
 
 This package contains no transport or Host service discovery logic. Its Client face can be reused by Web or a future TUI that provides the same React-free `ctx.remote` contract.
 
+## Build boundary
+
+An ordinary repository package belongs to one TypeScript face: Host packages are registered in the root `tsconfig.host.json`, and Client packages in the root `tsconfig.client.json`. `api-remotes` is the only deliberate exception because its Host entry must participate in the Host TypeRT graph, while `src/client/index.ts` cannot compile until Host tsdown has generated the business packages' `/remote` declarations.
+
+This package's root `tsconfig.json` is only a solution that references `tsconfig.host.json` and `tsconfig.client.json`. The Host aggregate and direct Host consumers reference the former, while the Client aggregate and direct Client consumers reference the latter; the package-root solution must not enter either aggregate's dependency graph. The two projects own disjoint source files and `.tsbuildinfo` files but share the `lib/types` output directory.
+
+The package-local `clientBundle(..., { hostPhase: true })` makes Host tsdown bundle the Host entry and the later Client tsdown bundle only the browser entry. Ordinary Client plugins remain single Client projects and produce both their Node loader entry and browser bundle during Client tsdown; do not copy this package's split merely because a package has both `src/index.ts` and `src/client/index.ts`.
+
 ## Model Experience
 
 None, as this BFF selects Remote application methods and identity policy but registers no model surface.

@@ -53,7 +53,7 @@
     { "path": "./packages/client/connection" },
     { "path": "./packages/typert/registry" },
     { "path": "./packages/api/gateway" },
-    { "path": "./packages/api/remotes" },
+    { "path": "./packages/api/remotes/tsconfig.client.json" },
     { "path": "./packages/client/runtime" },
     { "path": "./packages/client/test-runtime" },
     { "path": "./packages/client/ui-layout" },

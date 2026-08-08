@@ -3,7 +3,7 @@
  * settings-local, credentials-local, and a bare `llm-pi-ai` row boot from a
  * test-only cordis.yml through the actual Loader + Include path, an external
  * edit of settings.yaml registers the route live, and the next request
- * carries the credential the .env supplies. A hand-mounted `ctx.plugin` cannot
+ * carries the credential the credentials document supplies. A hand-mounted `ctx.plugin` cannot
  * catch Loader export-shape failures, which is why the twin adapter has the
  * same guard.
  */
@@ -40,7 +40,7 @@ async function loadComposition(): Promise<{ ctx: Context; settingsPath: string }
   root = await mkdtemp(join(tmpdir(), 'dsh-pi-composition-'))
   const settingsPath = join(root, 'settings.yaml')
   await writeFile(settingsPath, '# personal settings\n')
-  await writeFile(join(root, '.env'), 'PI_COMPOSITION_KEY=key-from-store\n')
+  await writeFile(join(root, '.credentials.yaml'), 'PI_COMPOSITION_KEY: key-from-store\n', { mode: 0o600 })
 
   const configPath = join(root, 'cordis.yml')
   await writeFile(configPath, [
@@ -54,7 +54,7 @@ async function loadComposition(): Promise<{ ctx: Context; settingsPath: string }
     '- id: credentials',
     "  name: '@deepseek-ai/dsh-credentials-local'",
     '  config:',
-    `    path: ${JSON.stringify(join(root, '.env'))}`,
+    `    path: ${JSON.stringify(join(root, '.credentials.yaml'))}`,
     '    debounceMs: 10',
     '- id: llm-pi-ai',
     "  name: '@deepseek-ai/dsh-llm-pi-ai'",

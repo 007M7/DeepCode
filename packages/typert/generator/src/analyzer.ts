@@ -476,11 +476,20 @@ export class WorkspaceAnalyzer {
           config: this.caches.config(configPath),
           manifest,
         }
-        if (isDualFacePackage(manifest)) {
-          registrations.push({ ...registration, face: 'host', exportSubpaths: hostExportSubpaths(manifest) })
-          registrations.push({ ...registration, face: 'client', exportSubpaths: clientExportSubpaths(manifest) })
-        } else {
+        if (!isDualFacePackage(manifest)) {
           registrations.push(registration)
+        } else if (configPath === join(packageRoot, 'tsconfig.json')) {
+          registrations.push(
+            { ...registration, face: 'host', exportSubpaths: hostExportSubpaths(manifest) },
+            { ...registration, face: 'client', exportSubpaths: clientExportSubpaths(manifest) },
+          )
+        } else {
+          registrations.push({
+            ...registration,
+            exportSubpaths: face === 'host'
+              ? hostExportSubpaths(manifest)
+              : clientExportSubpaths(manifest),
+          })
         }
       }
     }

@@ -864,6 +864,31 @@ describe('WorkspaceAnalyzer', { timeout: 60_000 }, () => {
       .toEqual(['@fixture/host'])
   })
 
+  it('keeps both runtime faces for an ordinary dshClient project', () => {
+    const root = copyFixture('typert-dual-runtime-')
+    configureDualRuntimeClient(root, false)
+
+    expect(new WorkspaceAnalyzer({ root }).discoverPackages()).toContainEqual({
+      package: '@fixture/client',
+      root: 'packages/client',
+      faces: ['client', 'host'],
+    })
+  })
+
+  it('confines explicit face projects to their selected TypeRT face', () => {
+    const root = copyFixture('typert-split-project-')
+    configureDualRuntimeClient(root, true)
+
+    const markers = new WorkspaceAnalyzer({ root }).indexSourceDeclarations()
+      .filter(declaration => declaration.package === '@fixture/client'
+        && declaration.name.endsWith('OnlyMarker'))
+      .map(declaration => ({ face: declaration.face, name: declaration.name }))
+    expect(markers).toEqual([
+      { face: 'client', name: 'ClientOnlyMarker' },
+      { face: 'host', name: 'HostOnlyMarker' },
+    ])
+  })
+
   it('accepts package export forms while skipping artifact-only rows and unexported packages', { timeout: 180_000 }, () => {
     const root = copyFixture('typert-export-forms-')
     const hostRoot = join(root, 'packages/host')
@@ -1191,6 +1216,63 @@ function copyFixture(prefix: string): string {
   temporaryRoots.push(root)
   cpSync(fixtureRoot, root, { recursive: true })
   return root
+}
+
+function configureDualRuntimeClient(root: string, splitProjects: boolean): void {
+  const packageRoot = join(root, 'packages/client')
+  const manifestPath = join(packageRoot, 'package.json')
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+    dshClient?: object
+    exports: Record<string, unknown>
+  }
+  manifest.dshClient = {}
+  manifest.exports['./client'] = {
+    types: './lib/types/client.d.ts',
+    default: './lib/client.js',
+  }
+  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
+  writeFileSync(join(packageRoot, 'src/client.ts'), [
+    "import { Service } from 'cordis'",
+    'export interface ClientOnlyMarker { readonly client: true }',
+    'export class BrowserBridge extends Service {}',
+    "declare module 'cordis' { interface Context { browserBridge: BrowserBridge } }",
+    '',
+  ].join('\n'))
+  const indexPath = join(packageRoot, 'src/index.ts')
+  writeFileSync(indexPath, `${readFileSync(indexPath, 'utf8')}\nexport interface HostOnlyMarker { readonly host: true }\n`)
+  if (!splitProjects) return
+
+  const project = JSON.parse(readFileSync(join(packageRoot, 'tsconfig.json'), 'utf8')) as Record<string, unknown>
+  delete project.include
+  writeFileSync(join(packageRoot, 'tsconfig.host.json'), `${JSON.stringify({
+    ...project,
+    files: ['src/index.ts'],
+  }, null, 2)}\n`)
+  writeFileSync(join(packageRoot, 'tsconfig.client.json'), `${JSON.stringify({
+    ...project,
+    files: ['src/client.ts'],
+  }, null, 2)}\n`)
+  writeFileSync(join(packageRoot, 'tsconfig.json'), `${JSON.stringify({
+    files: [],
+    references: [
+      { path: './tsconfig.host.json' },
+      { path: './tsconfig.client.json' },
+    ],
+  }, null, 2)}\n`)
+
+  const hostAggregatePath = join(root, 'tsconfig.host.json')
+  const hostAggregate = JSON.parse(readFileSync(hostAggregatePath, 'utf8')) as {
+    references: { path: string }[]
+  }
+  hostAggregate.references.push({ path: './packages/client/tsconfig.host.json' })
+  writeFileSync(hostAggregatePath, `${JSON.stringify(hostAggregate, null, 2)}\n`)
+
+  const clientAggregatePath = join(root, 'tsconfig.client.json')
+  const clientAggregate = JSON.parse(readFileSync(clientAggregatePath, 'utf8')) as {
+    references: { path: string }[]
+  }
+  clientAggregate.references = [{ path: './packages/client/tsconfig.client.json' }]
+  writeFileSync(clientAggregatePath, `${JSON.stringify(clientAggregate, null, 2)}\n`)
 }
 
 function addSameFacePackage(root: string, specifier: string, importedName: string): void {

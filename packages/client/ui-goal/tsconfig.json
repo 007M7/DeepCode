@@ -15,7 +15,7 @@
       "path": "../locale"
     },
     {
-      "path": "../../api/remotes"
+      "path": "../../api/remotes/tsconfig.client.json"
     },
     {
       "path": "../runtime"
