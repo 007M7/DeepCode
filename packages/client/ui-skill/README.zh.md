@@ -10,7 +10,7 @@ skill（技能）引用 source 的浏览器端：把 `/` 触发的 `skill` sourc
 
 ## skill 工具行
 
-浏览器插件还会把一个 key 为 `skill` 的 toolview 注册进 `conversation.chat.toolview`。收起的行以与 Bash 行相同的中性色层级显示 16 像素的 skill 文档与闪光组合图标、`Skill` 标题、分隔符和请求加载的 skill 名称；运行中的调用带有 transcript（文本记录）的扫光效果，失败时用错误首行替换名称，中断调用则使用警告状态。已结算的行以整行作为展开入口，展开后显示一个尺寸受限的 `Instructions` 卡片，其中原样呈现持久化的工具输出；可用时还会提供标准执行轨迹的 `Inspect` 入口。该行的名称、生命周期和正文只派生自当前 runtime 窗口中已配对的调用／结果片段，绝不读取当前 skill 目录，因此即使已安装的 skill 或其描述发生变化，回放仍保持稳定。
+浏览器插件还会把一个 key 为 `skill` 的 toolview 注册进 `conversation.chat.toolview`。收起的行以与 Bash 行相同的中性色层级显示 14 像素的 skill 文档与闪光组合图标、`Skill` 标题、分隔符和请求加载的 skill 名称；运行中的调用带有 transcript（文本记录）的扫光效果，失败时用错误首行替换名称，中断调用则使用警告状态。已结算的行以整行作为展开入口，展开后显示一个尺寸受限的 `Instructions` 卡片，其中原样呈现持久化的工具输出；可用时还会提供标准执行轨迹的 `Inspect` 入口。该行的名称、生命周期和正文只派生自当前 runtime 窗口中已配对的调用／结果片段，绝不读取当前 skill 目录，因此即使已安装的 skill 或其描述发生变化，回放仍保持稳定。
 
 ## 模型体验
 

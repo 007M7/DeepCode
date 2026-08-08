@@ -105,13 +105,15 @@ export const inject = ['command', 'connection', 'locale', 'sessions', 'slots']
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
-  ctx.plugin(ModelService)
-
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-model: dictionaries')
 
   // Non-slot faces (the command description, the popup option builder) read
   // through the bound translate; the seat component reads the standard seat.
   const t = ctx.locale.bind(NS)
+
+  // The composer-block reason is this plugin's own copy, read at raise time so
+  // a locale change reaches the next publish.
+  ctx.plugin(ModelService, { blockReason: () => t('blocked.composer') })
 
   // Entry 1: the /model popupSelect over the shared directory. The command
   // description is registry-held text: it reads t() once at registration and

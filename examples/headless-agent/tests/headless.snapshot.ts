@@ -29,6 +29,10 @@ const goalScenarioDir = join(snapshotsDir, 'goal-tools')
 const goalConfigPath = fileURLToPath(new URL('../goal.cordis.snapshot.yml', import.meta.url))
 const retryScenarioDir = join(snapshotsDir, 'provider-retry')
 const retryConfigPath = fileURLToPath(new URL('../retry.cordis.snapshot.yml', import.meta.url))
+const compactionScenarioDir = join(snapshotsDir, 'compaction-recovery')
+const compactionSessionFixture = join(compactionScenarioDir, 'session.jsonl')
+const compactionStreamExpected = join(compactionScenarioDir, 'stream-json.expected.jsonl')
+const compactionConfigPath = fileURLToPath(new URL('../compaction.cordis.snapshot.yml', import.meta.url))
 const credentialsScenarioDir = join(snapshotsDir, 'missing-credential')
 const credentialsConfigPath = fileURLToPath(new URL('../credentials.cordis.snapshot.yml', import.meta.url))
 // Same keyless composition as the missing-credential scenario: the endpoint is
@@ -227,6 +231,75 @@ describe('headless stream-json snapshots', () => {
     expect(normalized).toBe(await readFile(streamExpected, 'utf8'))
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
+  it('recovers from context overflow through an assembled compaction', async () => {
+    const prompt = await scenarioPrompt(compactionScenarioDir, 'compaction-recovery')
+    let expectedSession = await readFile(compactionSessionFixture, 'utf8')
+    let runCwd = ''
+    const result = await runLoaderSmoke({
+      label: 'compaction recovery headless stream-json snapshot',
+      tempDirPrefix: 'headless-snapshot-compaction-recovery-',
+      binScript,
+      configPath: compactionConfigPath,
+      binArgs: ['--config', compactionConfigPath, '--output-format', 'stream-json', prompt],
+      tsconfigPath,
+      env: {
+        DSH_SNAPSHOT: 'replay',
+        DSH_SNAPSHOT_FILE: compactionSessionFixture,
+        NODE_OPTIONS: [process.env.NODE_OPTIONS, '--disable-warning=ExperimentalWarning'].filter(Boolean).join(' '),
+      },
+      prepare: (cwd) => { runCwd = cwd },
+      inspect: async (cwd) => {
+        const logs = await persistedLogs(cwd)
+        expect(logs).toHaveLength(1)
+        const actual = logs[0]
+        if (actual === undefined) throw new Error('compaction snapshot did not persist its session')
+        const records = parseJsonl(actual.content)
+        const types = records.map(record => record.type)
+        expect(types.filter(type => type === 'compact/start')).toHaveLength(1)
+        expect(types.filter(type => type === 'compact/summary')).toHaveLength(1)
+        expect(types.filter(type => type === 'compact/end')).toHaveLength(1)
+        const start = types.indexOf('compact/start')
+        const summary = types.indexOf('compact/summary')
+        const replacement = records.findIndex((record) => {
+          if (record.type !== 'user/message') return false
+          const surfaceOp = record.surfaceOp as JsonObject | undefined
+          return surfaceOp?.op === 'replace'
+        })
+        const end = types.indexOf('compact/end')
+        expect(start).toBeLessThan(summary)
+        expect(summary).toBeLessThan(replacement)
+        expect(replacement).toBeLessThan(end)
+        const summaryRecord = records[summary]
+        const summaryData = summaryRecord?.data as JsonObject | undefined
+        expect(summaryData?.shadowedSeqs).toEqual(expect.arrayContaining([expect.any(Number)]))
+        const final = [...records].reverse().find(record => record.type === 'assistant/message')
+        expect(JSON.stringify(final)).toContain('COMPACTION RECOVERED')
+
+        const actualContext = contextFromLogs([actual.content])
+        if (refreshing) {
+          const harvested: HarvestedLog = {
+            id: String(actual.header.id),
+            createdAt: Number(actual.header.createdAt),
+            content: actual.content,
+          }
+          const replacements = refreshFixtureReplacements([harvested], [expectedSession])
+          expectedSession = tokenizeSessionFixtureCwd(
+            stabilizeRefreshLog(actual.content, expectedSession, replacements, actualContext),
+          )
+          await writeFile(compactionSessionFixture, expectedSession)
+        }
+        const expectedContext = contextFromLogs([expectedSession])
+        expect(scrubRequestHeaders(normalizeSessionLog(actual.content, actualContext)))
+          .toBe(scrubRequestHeaders(normalizeSessionLog(expectedSession, expectedContext)))
+      },
+    })
+
+    expect(result.stderr).toBe('')
+    const normalized = normalizeHeadlessStream(result.stdout, runCwd)
+    if (refreshing) await writeFile(compactionStreamExpected, normalized)
+    expect(normalized).toBe(await readFile(compactionStreamExpected, 'utf8'))
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
   it('logs actionable missing-credential guidance through the one-shot app', async () => {
     const streamExpected = join(credentialsScenarioDir, 'stream-json.expected.jsonl')
     let runCwd = ''
@@ -246,16 +319,22 @@ describe('headless stream-json snapshots', () => {
       prepare: (cwd) => { runCwd = cwd },
     })
 
+    // The failure reaches the caller through the stream, not stderr; the
+    // recorded transcript below pins the guidance text itself, which names
+    // both places a credential can come from and nothing else.
     expect(result.stderr).toBe('')
     const normalized = normalizeHeadlessStream(result.stdout, runCwd)
     if (refreshing) await writeFile(streamExpected, normalized)
     expect(normalized).toBe(await readFile(streamExpected, 'utf8'))
     // The durable failure leads with the credential store — the path that
-    // keeps the secret out of configuration files — and offers a literal key last.
+    // keeps the secret out of configuration files — then names the launching
+    // environment, and stops there: configuration carries the reference, so
+    // there is no literal-key escape hatch left to offer.
     expect(normalized).toContain(
       'store DEEPSEEK_API_KEY through the credentials service (the web Models page writes it),',
     )
-    expect(normalized).toContain('as a last resort')
+    expect(normalized).toContain('or export DEEPSEEK_API_KEY in the launching environment')
+    expect(normalized).not.toContain('as a last resort')
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
   it('logs actionable invalid-credential guidance through the one-shot app', async () => {
@@ -351,6 +430,9 @@ describe('headless stream-json snapshots', () => {
         ],
         tsconfigPath,
         env: {
+          // Configuration carries only the reference; the key rides the
+          // launching environment, which is the whole credential plane here.
+          DEEPSEEK_API_KEY: 'snapshot-key',
           DSH_SNAPSHOT_BASE_URL: server.url,
           NODE_OPTIONS: [process.env.NODE_OPTIONS, '--disable-warning=ExperimentalWarning'].filter(Boolean).join(' '),
         },

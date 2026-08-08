@@ -31,8 +31,6 @@ export interface ProviderRow {
   apiKeyEnv: string | undefined
   /** Credential state for {@link apiKeyEnv}, once described. */
   credential: CredentialView | undefined
-  /** Whether the redacted secret sidecar reports an effective literal `apiKey`. */
-  literalApiKeyConfigured: boolean
 }
 
 /** Page snapshot. */
@@ -97,19 +95,6 @@ function apiKeyEnvOf(namespace: SettingsNamespaceView | undefined, path: readonl
   return typeof ref === 'string' && ref.length > 0 ? ref : undefined
 }
 
-/** Whether one namespace's redacted sidecar reports a set literal API key. */
-function literalApiKeyConfigured(
-  namespace: SettingsNamespaceView | undefined,
-  path: readonly string[],
-): boolean {
-  if (namespace === undefined) return false
-  const secretPath = [...path, 'apiKey']
-  return namespace.secrets.some(secret =>
-    secret.set
-    && secret.path.length === secretPath.length
-    && secret.path.every((key, index) => key === secretPath[index]))
-}
-
 /** The models settings page controller (one per settings surface). */
 export class ModelsSettingsStore {
   /** The snapshot the section renders from (uSES-safe store). */
@@ -170,7 +155,6 @@ export class ModelsSettingsStore {
         removable,
         apiKeyEnv: apiKeyEnvOf(namespace, entry.settingsPath),
         credential: undefined,
-        literalApiKeyConfigured: literalApiKeyConfigured(namespace, entry.settingsPath),
       }
     })
     const refs = [...new Set(rows.flatMap(row => row.apiKeyEnv === undefined ? [] : [row.apiKeyEnv]))]
@@ -257,7 +241,6 @@ export function deepSeekReadiness(state: ModelsSettingsState): DeepSeekReadiness
       reason: 'settings-unavailable',
     }
   }
-  if (row.literalApiKeyConfigured) return { kind: 'configured' }
   if (row.apiKeyEnv === undefined) {
     return {
       kind: 'unavailable',
