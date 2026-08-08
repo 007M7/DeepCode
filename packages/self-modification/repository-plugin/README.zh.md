@@ -64,13 +64,13 @@ Git 传输使用宿主的常规 Git 认证。公共仓库无需凭据；私有�
 
 ## 运行时组合
 
-加载本包会注册一个 effect-scoped Loader builtin。每个生成的包装层都把已准备的静态 manifest（元数据清单）委托给该 builtin，再在声明了 `dsh.entry` 时导入并挂载该入口。入口是普通的 Cordis 子插件：其自有 `inject` 会门控激活，启动失败会拒绝 repository generation，Loader 移除或回滚时，其所有 effect 都会消失。运行时同样会在挂载前校验每个声明的 skill 根都是包内实际存在的目录——生成输出因 `files`／`.npmignore` 被丢弃或在缓存中损坏的包会加载失败，而不是静默丢失贡献。Repository skill 根以唯一命名的 `dsh-skill-local` 提供方挂载，排除默认项目／用户根并禁用监视；缓存包 generation 是不可变的。
+加载本包会注册一个 effect-scoped Loader builtin。每个生成的包装层都把已准备的静态 manifest（元数据清单）委托给该 builtin，再在声明了 `dsh.entry` 时导入并挂载该入口。包装层只能静态门控已准备 manifest 所隐含的 `loader`、`skills` 与 `tools` 服务；入口自身的 `inject` 要到挂载该子级时才会发现。入口必须进入 `ACTIVE`，因此缺少入口专用服务或启动失败时，会拒绝 repository generation，而不会提交未激活的子级；Loader 移除或回滚时，所有 effect 都会消失。运行时同样会在挂载前校验每个声明的 skill 根都是包内实际存在的目录——生成输出因 `files`／`.npmignore` 被丢弃或在缓存中损坏的包会加载失败，而不是静默丢失贡献。Repository skill 根以唯一命名的 `dsh-skill-local` 提供方挂载，排除默认项目／用户根并禁用监视；缓存包 generation 是不可变的。
 
 ## 通用 MCP 格式
 
 `.mcp.json` 根对象是 `{ "mcpServers": { ... } }`。stdio 条目只接受可选的 `type: "stdio"`、`command`、`args` 和 `env`；HTTP 条目只接受 `type: "http"`、`url` 和 `headers`。字符串值在插件加载时支持严格的 `${NAME}` 进程环境变量展开；缺失变量会使该次加载失败。HTTP URL 映射到现有 MCP client 的 `streamable-http` transport；stdio 条目以已准备的包目录作为 `cwd`。
 
-未知字段会被拒绝，包括 OAuth 字段与 `auth` 对象。不提供 `CLAUDE_PLUGIN_ROOT` 展开或兼容层。完成格式转换后，现有 `dsh-mcp-client` 独占 transport 创建、连接诊断、工具同步、调用和断开生命周期。Repository 声明的 server 会启用其严格启动模式：插件激活会等待初始连接与工具发现，因此首个模型请求会看到成功的初始工具 generation；网络、子进程或发现失败则会拒绝候选 repository generation，而不是在缺少已声明工具的情况下静默激活。
+未知字段会被拒绝，包括 OAuth 字段与 `auth` 对象。不提供 `CLAUDE_PLUGIN_ROOT` 展开或兼容层。完成格式转换后，现有 `dsh-mcp-client` 独占 transport 创建、连接诊断、工具同步、调用和断开生命周期。Repository 声明的 server 会启用其严格启动模式：插件激活会等待初始连接与工具同步，因此首个模型请求会看到已完整注册的初始工具 generation；网络、子进程、发现或注册失败则会拒绝候选 repository generation，而不是在缺少已声明工具的情况下静默激活。
 
 ## 导出形状
 
@@ -123,5 +123,6 @@ Namespace 插件：具名导出 `name`／`inject`／`apply`、准备阶段常量
 ## 已知限制与暂缓事项
 
 - **没有代码沙箱**：`dsh.entry`、NPM 依赖和包生命周期脚本以 DSH 宿主权限执行；必须信任该 repository。
+- **入口专用服务依赖不会预先门控**：生成的包装层无法在导入入口模块前声明其 `inject`。除 skill 或 MCP 隐含的服务外，其他任何服务在包装层挂载入口时都必须已经存在，否则该 repository generation 会被拒绝。
 - **没有 MCP 认证协议**：静态 header 可以使用环境变量展开，但带 OAuth 的定义会被拒绝，私有 server 登录流程不在此实现。
 - **生成资源是不可变运行时输入**：repository cache generation 不受监视；必须改变 source、ref、path 或配置才能选择另一份已准备 generation。

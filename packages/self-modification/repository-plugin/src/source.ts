@@ -80,7 +80,11 @@ async function assertInstalledPackageMetadata(directory: string): Promise<void> 
   }
   const result = installedPackageSchema.safeParse(value)
   if (!result.success) {
-    throw new Error(`installed DSH plugin package must declare a non-empty scripts.prepack that invokes ${JSON.stringify(REPOSITORY_PLUGIN_PREPARE_COMMAND)}:\n${z.prettifyError(result.error)}`)
+    throw new Error([
+      `installed DSH plugin package must declare a non-empty scripts.prepack that invokes ${JSON.stringify(REPOSITORY_PLUGIN_PREPARE_COMMAND)}:`,
+      z.prettifyError(result.error),
+      'Clear the matching repository cache generation before retrying the same source, or select a different exact source/ref/path after fixing the package.',
+    ].join('\n'))
   }
 }
 

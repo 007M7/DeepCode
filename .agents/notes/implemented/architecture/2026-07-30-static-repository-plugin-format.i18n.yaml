@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-07-30-static-repository-plugin-format.md
-2026-07-30-static-repository-plugin-format.md: afc88bb974ccc6ef7843eaf1e98f16b65bb6d4b3
-2026-07-30-static-repository-plugin-format.zh.md: a6dc6ec6ec89c04b79edea279029ae33091ca0af
+2026-07-30-static-repository-plugin-format.md: c66ee111eb0cac9e0d6c54581855ffc18efc8611
+2026-07-30-static-repository-plugin-format.zh.md: 969d7eb536158137807826eba2313670a7d37580

@@ -72,7 +72,7 @@ export interface StdioConfig {
   cwd: string
   /** Per-tool-call timeout in milliseconds. */
   toolCallTimeoutMs: number
-  /** Fail plugin activation when the initial connection or tool discovery fails. */
+  /** Fail plugin activation when the initial connection or tool synchronization fails. */
   failOnStartupError: boolean
 }
 
@@ -92,7 +92,7 @@ export interface StreamableHttpConfig {
   headers: Record<string, string>
   /** Per-tool-call timeout in milliseconds. */
   toolCallTimeoutMs: number
-  /** Fail plugin activation when the initial connection or tool discovery fails. */
+  /** Fail plugin activation when the initial connection or tool synchronization fails. */
   failOnStartupError: boolean
 }
 
@@ -155,6 +155,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   )
 
   const opts = {
+    registrationFailure: 'contain' as const,
     serverName: config.serverName,
     toolCallTimeoutMs: config.toolCallTimeoutMs,
   }
@@ -166,7 +167,10 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   const ready = (async () => {
     await client.connect(transport)
 
-    let disposers = await syncTools(client, ctx, opts, new Map())
+    let disposers = await syncTools(client, ctx, {
+      ...opts,
+      registrationFailure: config.failOnStartupError ? 'throw' : 'contain',
+    }, new Map())
 
     client.setNotificationHandler(
       ToolListChangedNotificationSchema,
@@ -184,7 +188,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
 
     return { getDisposers: () => disposers }
   })().catch((error: unknown) => {
-    ctx.logger.error(`mcp-client(${config.serverName}): failed to connect: ${String(error)}`)
+    ctx.logger.error(`mcp-client(${config.serverName}): startup failed: ${String(error)}`)
     return { getDisposers: () => new Map<string, () => void>(), error }
   })
 
@@ -196,6 +200,6 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
 
   const outcome = await ready
   if ('error' in outcome && config.failOnStartupError) {
-    throw new Error(`mcp-client(${config.serverName}): initial connection or tool discovery failed`, { cause: outcome.error })
+    throw new Error(`mcp-client(${config.serverName}): initial connection or tool synchronization failed`, { cause: outcome.error })
   }
 }

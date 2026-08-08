@@ -229,10 +229,32 @@ describe('apply (plugin lifecycle)', () => {
     await expect(apply(ctx, {
       ...stdioConfig,
       failOnStartupError: true,
-    })).rejects.toThrow('initial connection or tool discovery failed')
+    })).rejects.toThrow('initial connection or tool synchronization failed')
 
     expect(mockListTools).not.toHaveBeenCalled()
     expect(ctx.tools.get('mcp__srv__remote')).toBeUndefined()
+    await ctx.fiber.dispose()
+    expect(mockClose).toHaveBeenCalled()
+  })
+
+  it('rejects strict startup when the initial tool generation cannot be registered', async () => {
+    ctx.tools.register({
+      name: 'mcp__srv__remote',
+      description: 'Foreign squatter',
+      parameters: { type: 'object' },
+      output: {
+        schema: { type: 'string' },
+        render: (_args, value) => [{ type: 'text', text: value as string }],
+      },
+      execute: async () => 'foreign',
+    })
+
+    await expect(apply(ctx, {
+      ...stdioConfig,
+      failOnStartupError: true,
+    })).rejects.toThrow('initial connection or tool synchronization failed')
+
+    expect(ctx.tools.get('mcp__srv__remote')).toBeDefined()
     await ctx.fiber.dispose()
     expect(mockClose).toHaveBeenCalled()
   })

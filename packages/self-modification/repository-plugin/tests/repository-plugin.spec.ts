@@ -330,7 +330,7 @@ describe('prepared repository plugin Loader composition', () => {
     await ctx.plugin(RepositoryPlugin)
     await expect(ctx.loader.create({
       name: pathToFileURL(join(directory, RepositoryPlugin.PREPARED_ENTRY_FILENAME)).href,
-    })).rejects.toThrow('initial connection or tool discovery failed')
+    })).rejects.toThrow('initial connection or tool synchronization failed')
     expect(ctx.tools.schemas().some(tool => tool.name.startsWith('mcp__offline__'))).toBe(false)
     await ctx.fiber.dispose()
   })
@@ -591,6 +591,12 @@ describe('configured GitHub repository sources', () => {
       .rejects.toMatchObject({
         cause: expect.objectContaining({
           message: expect.stringContaining('must declare a non-empty scripts.prepack') as string,
+        }) as Error,
+      })
+    await expect(loadPreparedRepository(ctx, { resolve: async () => root }, 'github:owner/repository#old&path:/.dsh-plugin'))
+      .rejects.toMatchObject({
+        cause: expect.objectContaining({
+          message: expect.stringContaining('Clear the matching repository cache generation') as string,
         }) as Error,
       })
     await ctx.fiber.dispose()

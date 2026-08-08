@@ -988,7 +988,7 @@ export interface StdioConfig {
   cwd: string
   /** Per-tool-call timeout in milliseconds. */
   toolCallTimeoutMs: number
-  /** Fail plugin activation when the initial connection or tool discovery fails. */
+  /** Fail plugin activation when the initial connection or tool synchronization fails. */
   failOnStartupError: boolean
 }
 
@@ -1008,7 +1008,7 @@ export interface StreamableHttpConfig {
   headers: Record<string, string>
   /** Per-tool-call timeout in milliseconds. */
   toolCallTimeoutMs: number
-  /** Fail plugin activation when the initial connection or tool discovery fails. */
+  /** Fail plugin activation when the initial connection or tool synchronization fails. */
   failOnStartupError: boolean
 }
 ```

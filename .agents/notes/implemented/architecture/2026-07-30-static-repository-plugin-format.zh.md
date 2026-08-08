@@ -20,7 +20,7 @@
 
 每份已准备 skill 集合都会挂载 `dsh-skill-local`，使用唯一的 `repository:<package-name>` 提供方名称、仅包含复制后的自定义根，并禁用监视。因此 `dsh-skill-local` 新增两个通用配置字段：`providerName` 和 `includeDefaultRoots`。默认值保持原有单一本地提供方行为；repository 实例设置不同名称并排除项目／用户根，使多个实例既不冲突，也不会重复宿主本地发现。
 
-`.mcp.json` 中的每个 server 都变成一个现有 `dsh-mcp-client` 子级。适配层接受通用根对象 `{ "mcpServers": ... }`；stdio 定义只允许可选的 `type: "stdio"`、`command`、`args` 与 `env`，HTTP 定义只允许 `type: "http"`、`url` 与 `headers`。严格的 `${NAME}` 进程环境变量引用在运行时、cache 准备之后展开；缺失变量会使 Plugin 加载失败。HTTP 映射到 client 的 Streamable HTTP transport，stdio 使用已准备 package 目录作为 `cwd`。只有现有 client 负责连接尝试、失败日志、远端工具同步、工具调用和断开。因此 MCP 连接失败会继续沿用“Plugin 成功但不注册工具”的既有行为，不会被重新分类为 repository 准备或 Loader 失败。
+`.mcp.json` 中的每个 server 都变成一个现有 `dsh-mcp-client` 子级。适配层接受通用根对象 `{ "mcpServers": ... }`；stdio 定义只允许可选的 `type: "stdio"`、`command`、`args` 与 `env`，HTTP 定义只允许 `type: "http"`、`url` 与 `headers`。严格的 `${NAME}` 进程环境变量引用在运行时、cache 准备之后展开；缺失变量会使 Plugin 加载失败。HTTP 映射到 client 的 Streamable HTTP transport，stdio 使用已准备 package 目录作为 `cwd`。只有现有 client 负责连接尝试、失败日志、远端工具同步、工具调用和断开。Repository 实例会启用严格启动，因此初始连接、发现或工具注册失败会拒绝 repository Loader generation；非严格的独立 client 则保留“记录日志、Plugin 成功但不注册工具”的行为。
 
 未知 MCP 字段会被拒绝。这里有意排除 OAuth、`auth` 对象、`CLAUDE_PLUGIN_ROOT` 和更广泛的 Claude 兼容契约。命令、hook、agent（智能体）、规则和其他外来 manifest 约定不会从静态 repository 布局中推断出来；DSH 原生行为使用显式的受信任 Cordis 入口。Repository 子目录选择与 GitHub 源配置属于[独立应用集成](../feature/2026-07-30-config-only-repository-plugins.md)，而不是本静态适配器。
 
@@ -34,7 +34,7 @@
 
 **监视已准备 repository 资源。** 拒绝，因为一个精确 repository cache generation 是不可变的。Ref、子目录或配置变化会选择新 generation；第二套 watcher 会创造一套没有所有者的刷新身份。
 
-**把 MCP 连接失败当作 Loader 更新失败。** 拒绝，因为现有 MCP client 有意收束连接失败并不暴露工具。只对 repository source 改变该语义，会让同一 server 配置拥有两套失败契约。
+**把每次 MCP 连接失败都当作 Loader 更新失败。** 拒绝，因为可选的独立 MCP client 会有意收束启动失败，并且不暴露工具。MCP client 改为自行提供显式的严格启动选项，由 repository 适配器为其声明的 server 启用。
 
 ## 后果
 
