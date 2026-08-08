@@ -25,13 +25,15 @@ function leadingFor(state: CommandRowState): ReactNode {
 /** Card props: the owner payload plus the render site's locale seat (plain prop). */
 export interface GenericCommandCardProps extends CommandRowOwnerProps {
   t: ChatViewSlotProps['t']
+  /** Command-specific running copy; absent uses the generic command label. */
+  runningSummary?: string | undefined
 }
 
-export function GenericCommandCard({ node, t }: GenericCommandCardProps) {
+export function GenericCommandCard({ node, t, runningSummary }: GenericCommandCardProps) {
   const [expanded, setExpanded] = useState(false)
   const text = node.outcome?.text
   const summary = node.outcome === null
-    ? t('command.running')
+    ? runningSummary ?? t('command.running')
     : text ?? (node.outcome.kind === 'error' ? t('command.failed') : t('command.done'))
   // Title is the bare command name: the row already reads `name · outcome`,
   // and the dispatched line's own `/` and arguments only restate what the
