@@ -2,9 +2,9 @@
 
 [English](README.md) | 中文
 
-按会话组装 agent（智能体）。**preset** 是一个目录，其中放置一份 `agent.cordis.yml`；把它挂载到某个 agent 的 scope 上下文之下，该会话就拥有自己的工具、提示词段落以及其他面向模型的贡献，而其他在运行的会话各自保持不变。
+按 preset 组装 agent（智能体）。**preset** 是一个目录，其中放置一份 `agent.cordis.yml`；roster 在整个进程内只把它挂载一次（常驻 scope），命名它的每个会话通过把自己 agent 的 scope key 认父到该挂载（`dsh-scope` 的父链）来加入。挂载的工具、提示词段落与投影单元只存在一份，覆盖所有已加入的 agent——其插件本就按 Session/Agent 分键存状态，会话在共享实例内互不串扰——而完全没有 agent 的宿主读取方（冷读记录）也能按 preset id 解析到同一份常驻注册。
 
-其机制完全来自 Cordis：entry 上下文沿原型链连到子树被挂载时所在的上下文，而 [`dsh-tools`](../../core/tools/README.md) 与 [`dsh-system-prompt`](../../core/system-prompt/README.md) 本就按调用方上下文的 scope 分层归档注册。因此把一份组装挂到 `agent.ctx` 之下，它就只属于该 agent，并随 agent 一起卸载，无需在这些注册表中新增任何分层。
+其机制是两条 seam。entry 上下文沿原型链连到子树被挂载时所在的上下文，而 [`dsh-tools`](../../core/tools/README.md) 与 [`dsh-system-prompt`](../../core/system-prompt/README.md) 本就按调用方上下文的 scope 分层归档注册——因此常驻挂载的贡献落在 **preset 的分层**里。把它们送达每个会话的是 `dsh-scope` 的父链：agent 的视图按 `agent → preset → global` 解析（近者遮蔽远者），挂载的监听器对认父到它的每个 agent 放行，而兄弟 preset 的监听器保持失聪。
 
 ## 服务：`AgentPresets`（ctx 键：`agentPresets`）
 
@@ -13,18 +13,19 @@
 - `ctx.agentPresets.defaultId: string` 调用方未指定时挂载的 preset id。
 - `ctx.agentPresets.list(): Promise<AgentPreset[]>` 当前各根目录提供的全部 preset；id 重复时靠前的根目录胜出。
 - `ctx.agentPresets.resolve(id?): Promise<AgentPreset>` 按 id 取一个 preset，缺省取 `defaultId`。没有任何根目录提供该 id 时抛错，并列出可用 id。
-- `ctx.agentPresets.mount(agentCtx, id?): Promise<AgentPreset>` 用一个 preset 组装一个 agent，并返回所挂载的 preset 供调用方记录。
-- `ctx.agentPresets.recompose(agentCtx, id): Promise<AgentPreset>` 替换某个 agent 已装入的组装。仅在该 agent 尚未产出任何内容时有效——**该检查由调用方负责**，本方法不读取会话历史。
-- `ctx.agentPresets.authorable: boolean` 是否存在 `user` 信任级别的根目录，也即是否可能写入 preset。
-- `ctx.agentPresets.read(id): Promise<string>` 某个 preset 的组装文本，与存储内容完全一致。
-- `ctx.agentPresets.write(id, content): Promise<void>` 创建或替换一个本地创作的 preset。
-- `ctx.agentPresets.remove(id): Promise<void>` 删除一个本地创作的 preset。若用户默认值正指向刚被删除的这一个，则清除它：存下一个尚不存在的默认值是有意为之，但本次调用删掉的那个再也不会有人提供，留着它会让每个未显式指名的会话都无法开启。
+- `ctx.agentPresets.mount(agentCtx, id?): Promise<AgentPreset>` 用一个 preset 组装一个 agent——确保其常驻挂载（并发去重）并把 agent 的 scope key 认父到它——返回该 preset 供调用方记录。
+- `ctx.agentPresets.recompose(agentCtx, id): Promise<AgentPreset>` 把一个 agent 重链到另一个 preset 的常驻组装。仅在该 agent 尚无任何产出时合法——**由调用方负责该检查**；新挂载在链移动之前确保完成，失败时 agent 原封不动。
+- `ctx.agentPresets.standingKeyFor(id?): Promise<ScopeKey>` 没有 agent 的宿主读取方（冷读记录）解析 preset 注册所用的常驻 scope key；确保挂载而不启动任何 agent、会话或轮次。
+- `ctx.agentPresets.authorable: boolean` 是否有任一配置根目录具备 `user` 信任级别，因而 preset 是否可写。
+- `ctx.agentPresets.read(id): Promise<string>` 某个 preset 的组装文本，与存储内容逐字一致。
+- `ctx.agentPresets.write(id, content): Promise<void>` 创建或替换一个本地创作的 preset。编辑只影响未来的代际：常驻指针被丢弃，已加入的会话保持其正在运行的挂载。
+- `ctx.agentPresets.remove(id): Promise<void>` 删除一个本地创作的 preset；已加入的会话保留其常驻挂载。若用户默认值恰好指向刚删除的 preset 则一并清除：存一个尚不存在的默认值是刻意的，但本次删除的这个再也不会有人提供，留着会让所有未显式指定的新会话无法启动。
 
 `AgentPreset` 携带 `id`（目录名）、`trust`（`system` 或 `user`，取自它所在的根目录）以及 `path`（组装文件的绝对路径）。
 
 ### 应在何处调用 `mount()`
 
-agent 工厂的 `setup(agentCtx)` 钩子是唯一受支持的调用点。只有在那里，组装是在 agent 尚未发布时装入的，因此挂载被拒绝会让整次创建回滚，而不会留下一个组装到一半的会话。子树归 `agentCtx` 的 fiber 所有，随 agent 一起卸载，调用方无需持有 disposer。
+agent 工厂的 `setup(agentCtx)` 钩子是唯一受支持的调用点。只有在那里，认父是在 agent 尚未发布时完成的，因此组装被拒绝会让整次创建回滚，而不会留下一个组装到一半的会话。常驻子树归 roster 服务自己的 fiber 所有——刻意用其未追踪的上下文，因为从被追踪的 `this.ctx` 派生的子树会经调用方的 shadow fiber 解析一切服务、无视各 entry 自己的 inject store——所以它比任何 agent 都活得久，只随整棵树卸载。挂载一旦成功即进程级永久：正在运行的会话所加入的组装必须在其文件被修改或删除后继续存活，因此文件编辑只影响未来的代际。
 
 ### 会话实际运行的是哪个 preset
 
@@ -95,7 +96,7 @@ agent-presets:
 
 **某一行始终未进入可用状态。** 模块导入失败或插件抛错的行，loader 已经会拒绝；剩下的情况是某一行仍在等待该组装从未提供的服务，审计会指名这种情况。
 
-**某一行把服务发布进了根 realm。** 这类服务是进程级全局而非按会话的，因此第二个挂载同一 preset 的会话会与第一个相撞。确实需要自带服务的 preset，应把它放在 `isolate` realm 之后——用 entry 本地 realm 得到该会话私有的实例，或用共享 label 让多个会话共用一个——否则该服务应改放进宿主组装。
+**某一行把服务发布进了根 realm。** 这类服务是进程级全局的，因此第二个发布同名服务的 preset 会与第一个相撞，宿主读取方也会把某一个 preset 的实例当成所有会话的。确实需要自带服务的 preset，应把它放在 `isolate` realm 之后——entry 本地 realm 让两个 preset 的同名服务互不相干，正如它从前隔开两个会话——否则该服务应改放进宿主组装。
 
 最后一条规则由本包的运行时不变量在每次服务通知时复查，因为从定时器或异步续体中发布的行会绕过一次性审计。
 
@@ -111,7 +112,7 @@ preset 就是组装，因此一个 preset 的权限恰好等于它所引用的�
 
 ## Model Experience
 
-Indirectly, through the plugins a mounted composition registers, which own every tool schema and prompt section the preset makes visible to its one agent.
+Indirectly, through the plugins a standing composition registers, which own every tool schema and prompt section the preset makes visible to the agents joined to it.
 
 #### KV Cache effect
 
@@ -119,7 +120,8 @@ Indirectly, through the plugins a mounted composition registers, which own every
 
 ## Known Limitations and Deferred Work
 
-- **会话一旦产出任何内容便无法更换 preset** —— `recompose()` 覆盖空白 agent 的情形；第一个轮次之后，卸载子树会抽走模型可能已经调用的工具，因此该选择在会话的整个生命周期内固定。更改默认值只影响此后创建的会话。
+- **会话一旦产出内容便无法更换 preset** —— `recompose` 把**空白**会话的父作用域重链到另一个常驻挂载，且仅限空白会话：切换已运行过的组装会抽走模型已调用的工具。更改默认值只影响此后创建的会话。
+- **常驻挂载每个代际只读一次文件** —— 首个命名某 preset 的会话固定其组装，直到创作面的 `write()`/`remove()` 丢弃指针或整棵树卸载；已加入的会话保持其代际，进程存活期间不回收被替代的代际（上限取决于组装被编辑的频率，而非会话数）。
 - **写入的组装从不被实际挂载以校验** —— `write()` 校验形状而非可解析性，因此引用了缺失插件的 preset 会被存下，并在下一个选择它的会话处失败。
 - **展示名称就是目录 id** —— preset 不携带 manifest，因此选择器与设置界面在有消费方需要更丰富的元数据之前，只显示 id。
 - **根目录扫描不做监听** —— 每次读取都实际访问文件系统，这让名单保持新鲜，但每次 `list()` 会对每个根目录产生一次 `readdir`。

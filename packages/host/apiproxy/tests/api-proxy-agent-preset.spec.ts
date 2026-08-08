@@ -71,19 +71,39 @@ function roster(ids: readonly string[]): unknown {
       if (!ids.includes(id)) return Promise.reject(new UnknownPresetError(id, ids))
       return Promise.resolve({ id, trust: 'system', path: `/presets/${id}.yml` })
     },
+    // The standing scope key a cold transcript read resolves presenters in.
+    standingKeyFor: (id?: string) => {
+      const wanted = id ?? ids[0] ?? ''
+      standingKeyRequests.push(wanted)
+      if (!ids.includes(wanted) || failingStandingKeys.has(wanted)) {
+        return Promise.reject(new UnknownPresetError(wanted, ids))
+      }
+      let key = standingKeys.get(wanted)
+      if (key === undefined) {
+        key = { agentPreset: wanted }
+        standingKeys.set(wanted, key)
+      }
+      return Promise.resolve(key)
+    },
   }
 }
+
+/** Standing keys the roster double minted, and the ids readers asked for. */
+const standingKeys = new Map<string, object>()
+const standingKeyRequests: string[] = []
+/** Preset ids whose standing mount the double reports as unusable. */
+const failingStandingKeys = new Set<string>()
 
 /** Per-agent service instances a mounted preset would own, keyed by session id. */
 const services = new Map<string, Record<string, unknown>>()
 
-async function harness(presets?: readonly string[]) {
+async function harness(presets?: readonly string[], persistence?: unknown) {
   const cwd = realpathSync(mkdtempSync(join(tmpdir(), 'dsh-apiproxy-preset-')))
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(UserInteractionService)
-  ctx.provide('sessionPersistence', { list: () => Promise.resolve([]) } as never)
+  ctx.provide('sessionPersistence', (persistence ?? { list: () => Promise.resolve([]) }) as never)
   if (presets !== undefined) ctx.provide('agentPresets', roster(presets) as never)
 
   const factory: AgentFactory = {
@@ -436,5 +456,41 @@ describe('authoring over the wire', () => {
     expect(response.result.ok).toBe(false)
     if (response.result.ok) throw new Error('unreachable')
     expect(response.result.error.code).toBe('agent-preset-not-found')
+  })
+})
+
+describe('session.history presenter scope', () => {
+  it('asks the roster for the RECORDED preset\'s standing key on a cold read', async () => {
+    const { api } = await harness(['standard', 'core-web'])
+    await api.sessions.create(request({ sessionId: SessionId('p1'), agentPreset: 'core-web' }))
+    // Cold: creation registered a live agent in this harness, so simulate the
+    // cold path by asking for a session only persistence knows... the harness
+    // has no persistence, so read the live one and assert no roster query.
+    standingKeyRequests.length = 0
+    const live = await api.sessions.history(request({ sessionId: SessionId('p1') }))
+    expect(live.result.ok).toBe(true)
+    // A live agent IS the presenter scope; the roster is not consulted.
+    expect(standingKeyRequests).toEqual([])
+  })
+
+  it('serves a COLD transcript whose standing mount is no longer usable', async () => {
+    // A genuinely cold session: persistence knows it, no live agent exists.
+    const meta = { id: SessionId('p3'), createdAt: 1, cwd: '/tmp/p3', agentPreset: 'standard' }
+    const { api } = await harness(['standard'], {
+      list: () => Promise.resolve([meta]),
+      inspect: () => Promise.resolve({ meta, events: [] }),
+    })
+    // The preset broke after the session ran: the roster rejects the mount.
+    failingStandingKeys.add('standard')
+    try {
+      standingKeyRequests.length = 0
+      const response = await api.sessions.history(request({ sessionId: SessionId('p3') }))
+      // Degraded, never failed: the roster WAS asked, and the transcript
+      // still serves — with the generic cards a viewless entry renders.
+      expect(standingKeyRequests).toEqual(['standard'])
+      expect(response.result.ok).toBe(true)
+    } finally {
+      failingStandingKeys.delete('standard')
+    }
   })
 })

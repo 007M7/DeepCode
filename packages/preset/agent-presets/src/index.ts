@@ -1,23 +1,34 @@
 /**
  * Agent presets: each session composes its model-facing plugin set from one
- * preset `cordis.yml` mounted under that agent's scope context.
+ * preset `cordis.yml`, mounted ONCE per preset under a standing scope and
+ * joined by every agent that names it.
+ *
+ * The standing mount is what makes a preset one composition rather than one
+ * per session: its plugin instances, tool registrations, prompt sections, and
+ * projection units exist exactly once, keyed per session inside the plugins
+ * themselves (they predate presets and were written for a shared world). An
+ * agent joins by having its scope key parented to the mount's
+ * ({@link setScopeParent}), which makes the mount's registrations visible to
+ * that agent's views and the mount's listeners receive that agent's events —
+ * and a host reader with no agent at all (a cold transcript read) resolves
+ * the same standing registrations by preset id.
  *
  * This package owns the preset vocabulary, filesystem discovery, and the
- * guarded mount. It does not decide when an agent is created — the agent
- * factory's `setup(agentCtx)` hook is the one supported call site, because
- * only there is the composition installed while the agent is still
- * unpublished, so a rejected mount rolls the whole creation back.
+ * guarded standing mount. It does not decide when an agent is created — the
+ * agent factory's `setup(agentCtx)` hook is the one supported call site,
+ * because only there is the join installed while the agent is still
+ * unpublished, so a rejected composition rolls the whole creation back.
  * @module @deepseek-ai/dsh-agent-presets
  */
 
 import { Context, Service } from 'cordis'
-import { scopeOf } from '@deepseek-ai/dsh-scope'
 import z from 'schemastery'
+import { createScope, scopeOf, setScopeParent, type Scope, type ScopeKey } from '@deepseek-ai/dsh-scope'
 import { settingsNamespace, type SettingsScope, type default as SettingsService } from '@deepseek-ai/dsh-settings'
 import { discoverPresets } from './discovery.ts'
 import { deleteComposition, readComposition, writeComposition } from './authoring.ts'
 import type { PresetMetadata } from './metadata.ts'
-import { mountPreset, serviceForAgent, unmountPresetFor } from './mount.ts'
+import { mountPreset, serviceForAgent } from './mount.ts'
 import { PresetNotWritableError } from './authoring.ts'
 import { UnknownPresetError, type AgentPreset, type Config } from './types.ts'
 
@@ -41,7 +52,7 @@ export {
 } from './metadata.ts'
 export {
   inactiveRows, leakedServices, livePresetMounts, mountPreset, serviceForAgent,
-  unmountPresetFor, type PresetMount,
+  type PresetMount,
 } from './mount.ts'
 export {
   assertComposition, deleteComposition, InvalidCompositionError, InvalidPresetIdError,
@@ -89,8 +100,19 @@ export class AgentPresets extends Service {
    */
   private settingsService: SettingsService | undefined
 
+  /**
+   * The service's own untraced context. Methods invoked through the traceable
+   * proxy see `this.ctx` rebound to the CALLER's context, which carries a
+   * shadow; a subtree minted from it resolves every service through that
+   * shadow's fiber instead of each entry's own inject store, so preset rows
+   * would fail on the very services they declare. Standing mounts must hang
+   * off the untraced original (the `tasks-local` selfCtx precedent).
+   */
+  private readonly selfCtx: Context
+
   constructor(ctx: Context, public config: Config) {
     super(ctx, 'agentPresets')
+    this.selfCtx = ctx
     // Deliberately not `installSettingsSection`: that helper exists to re-judge
     // what a consumer DERIVED from the source — memoized resolutions,
     // registration-level facts — across attach, detach, and change. Nothing
@@ -146,19 +168,37 @@ export class AgentPresets extends Service {
   }
 
   /**
-   * Compose one agent from a preset, installing it under that agent alone.
+   * Standing mounts by preset id, single-flight so two agents racing the
+   * first use of one preset share one composition. A settled failure is
+   * removed so a later session retries a preset whose file has been fixed; a
+   * settled success is permanent for the process — the composition a running
+   * session joined must survive the file changing or disappearing underneath
+   * it, so file edits reach only future generations (a later authoring layer
+   * swaps this pointer; it never disposes a joined generation).
+   */
+  private readonly standing = new Map<string, Promise<StandingMount>>()
+
+  /**
+   * Compose one agent from a preset: ensure the preset's standing mount, then
+   * parent the agent's scope key to it so the mount's registrations and
+   * listeners cover this agent.
    *
    * Call from the agent factory's `setup(agentCtx)`; a rejection there rolls
    * the agent creation back, so a broken preset never yields a half-composed
    * session.
    * @param agentCtx - the agent's scope context.
    * @param id - the preset id, or `undefined` for {@link defaultId}.
-   * @returns the preset that was mounted, for the caller to record.
+   * @returns the preset that was composed, for the caller to record.
    * @throws when the preset is unknown or its composition is unusable.
    */
   async mount(agentCtx: Context, id?: string): Promise<AgentPreset> {
+    const agentKey = scopeOf(agentCtx)
+    if (agentKey === undefined) {
+      throw new Error('agent-presets: refusing to compose an unscoped context; the scope key is what joins an agent to its preset')
+    }
     const preset = await this.resolve(id)
-    await mountPreset(agentCtx, preset)
+    const standing = await this.ensureStanding(preset)
+    setScopeParent(agentKey, standing.key)
     return preset
   }
 
@@ -197,6 +237,11 @@ export class AgentPresets extends Service {
       throw new PresetNotWritableError(id, 'it ships with the deployment')
     }
     await writeComposition(this.config.roots, id, content, metadata)
+    // Future generations only: the standing pointer is dropped so the NEXT
+    // session composes the edited file, while every session already joined
+    // keeps the mount it runs on — a superseded generation is never disposed
+    // while the process lives (reclaimed only by whole-tree teardown).
+    this.standing.delete(id)
   }
 
   /**
@@ -206,6 +251,9 @@ export class AgentPresets extends Service {
    */
   async remove(id: string): Promise<void> {
     await deleteComposition(this.config.roots, await this.resolve(id))
+    // Same generation rule as `write`: sessions on the deleted preset keep
+    // their standing mount; only new sessions see the roster without it.
+    this.standing.delete(id)
     // Storing a default that does not exist YET is deliberate — the roster is a
     // live directory, so a name absent now may exist by the time a session asks
     // for it, and `resolve` reports it then. A default this call just deleted is
@@ -239,50 +287,77 @@ export class AgentPresets extends Service {
   }
 
   /**
-   * Replace the composition installed for one agent.
+   * Re-link one agent to a different preset's standing composition.
    *
    * Only valid while the agent has produced nothing: swapping tools mid
-   * conversation would leave logged tool calls the new composition cannot make.
-   * The CALLER owns that check — this method does not read session history.
+   * conversation would leave logged tool calls the new composition cannot
+   * make. The CALLER owns that check — this method does not read session
+   * history.
    *
-   * The swap is unmount-then-mount because two compositions cannot coexist:
-   * both would register the same tool names into one layer. A failed mount
-   * therefore restores the previous composition rather than leaving the agent
-   * with nothing.
+   * The swap is a parent re-link, not an unmount: standing mounts are shared
+   * and permanent, so the old composition stays for its other agents and the
+   * new one is ensured BEFORE the link moves. An unknown or unusable preset
+   * therefore throws with the agent exactly as it was — there is no torn-down
+   * state to restore.
    * @param agentCtx - the agent's scope context.
    * @param id - the preset to compose the agent from instead.
    * @returns the preset now installed.
-   * @throws when the preset is unknown or its composition is unusable; the
-   * previous composition is restored first.
+   * @throws when the preset is unknown or its composition is unusable.
    */
   async recompose(agentCtx: Context, id: string): Promise<AgentPreset> {
-    const scope = scopeOf(agentCtx)
-    if (scope === undefined) {
+    const agentKey = scopeOf(agentCtx)
+    if (agentKey === undefined) {
       throw new Error('agent-presets: refusing to recompose an unscoped context')
     }
-    // Resolve before tearing anything down, so an unknown id leaves the agent
-    // exactly as it was.
     const preset = await this.resolve(id)
-    const previous = await unmountPresetFor(scope)
-    try {
-      await mountPreset(agentCtx, preset)
-    } catch (error) {
-      if (previous !== undefined) {
-        // Restored unconditionally, same id included: the roster is a live
-        // directory, so "the same inputs that worked a moment ago" does not
-        // hold — the file may have changed between the original mount and
-        // this one, which is exactly how a same-id reselect fails. Skipping
-        // the restore there left the agent with no composition at all.
-        await this.mount(agentCtx, previous).catch(() => {
-          // The agent now has no composition, but the switch failure below is
-          // the actionable diagnostic; reporting the restore's instead would
-          // hide why the switch was attempted and what the operator must fix.
-        })
-      }
-      throw error
-    }
+    const standing = await this.ensureStanding(preset)
+    setScopeParent(agentKey, standing.key)
     return preset
   }
+
+  /**
+   * The standing scope key of one preset, for a host reader with no agent.
+   *
+   * A cold transcript read resolves tool presenters against the composition
+   * the session recorded, and the standing mount makes that possible without
+   * resuming anything: ensuring the mount composes plugins but starts no
+   * agent, no session, and no turn.
+   * @param id - the preset id, or `undefined` for {@link defaultId}.
+   * @returns the standing scope key readers pass as a registry view scope.
+   * @throws when the preset is unknown or its composition is unusable.
+   */
+  async standingKeyFor(id?: string): Promise<ScopeKey> {
+    const preset = await this.resolve(id)
+    return (await this.ensureStanding(preset)).key
+  }
+
+  /** Resolve (or create, single-flight) the standing mount of one preset. */
+  private ensureStanding(preset: AgentPreset): Promise<StandingMount> {
+    const pending = this.standing.get(preset.id)
+    if (pending !== undefined) return pending
+    const created = (async (): Promise<StandingMount> => {
+      const key: ScopeKey = { agentPreset: preset.id }
+      const scope = createScope(this.selfCtx, key)
+      try {
+        await mountPreset(scope.ctx, preset)
+      } catch (error) {
+        this.standing.delete(preset.id)
+        await scope.dispose()
+        throw error
+      }
+      return { key, scope }
+    })()
+    this.standing.set(preset.id, created)
+    return created
+  }
+}
+
+/** One preset's standing composition. */
+interface StandingMount {
+  /** Scope key agents are parented to; also the mount's registration scope. */
+  readonly key: ScopeKey
+  /** Disposal boundary; held for whole-tree teardown, never per-session. */
+  readonly scope: Scope
 }
 
 export default AgentPresets

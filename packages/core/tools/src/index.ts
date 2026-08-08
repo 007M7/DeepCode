@@ -1038,11 +1038,16 @@ export class ToolRegistry extends Service {
     )
   }
 
-  /** First monotonic denial from the global then matching scoped guard layers. */
+  /** First monotonic denial from the global then the scope chain's guard layers, farthest first. */
   private guardReason(exec: ToolExecution): string | undefined {
     const globalReason = this.layers.global.guardReason(exec)
     if (globalReason !== undefined) return globalReason
-    return exec.agent === undefined ? undefined : this.layers.peek(exec.agent)?.guardReason(exec)
+    if (exec.agent === undefined) return undefined
+    for (const layer of this.layers.chainLayers(exec.agent)) {
+      const reason = layer.guardReason(exec)
+      if (reason !== undefined) return reason
+    }
+    return undefined
   }
 
   /**
@@ -1054,20 +1059,26 @@ export class ToolRegistry extends Service {
    * @returns the complete derived view for that scope.
    */
   private view(scope?: ScopeKey): ToolView {
-    const layer = this.layers.peek(scope)
+    // Scope-chain layers, farthest ancestor first, the exact scope last.
+    const layers = this.layers.chainLayers(scope)
     const visible = new Map<string, ToolDefinition>()
     const knownNames = new Set<string>()
     const restrictableNames = new Set<string>()
     for (const [name, definition] of this.layers.global.tools.entries()) {
       knownNames.add(name)
       restrictableNames.add(name)
-      if (layer?.admits(name) ?? true) visible.set(name, definition)
+      // Restrictions intersect across the whole chain: any scope on it may
+      // mask a global-surface name for everything nested inside it.
+      if (layers.every(layer => layer.admits(name))) visible.set(name, definition)
     }
-    // Scoped layer second: same-name entries REPLACE (shadow) the global ones,
-    // and scope-local registrations are never part of the global filter above.
-    for (const [name, definition] of layer?.tools.entries() ?? []) {
-      knownNames.add(name)
-      visible.set(name, definition)
+    // Chain layers second, nearest last: same-name entries REPLACE (shadow)
+    // the global and farther-scope ones, and scope-local registrations are
+    // never part of the global filter above.
+    for (const layer of layers) {
+      for (const [name, definition] of layer.tools.entries()) {
+        knownNames.add(name)
+        visible.set(name, definition)
+      }
     }
     // Presentation infrastructure is resolved last and outside capability
     // filtering. Registration rejects this reserved name, so the insertion is

@@ -178,21 +178,21 @@ describe('rejecting a composition that cannot be used', () => {
     expect(rootResolves(ctx, 'fixtureIsolatedSvc')).toBe(false)
   })
 
-  it('addresses one agent\'s instance of a realm-private service', async () => {
+  it('addresses the standing instance of a realm-private service through either agent', async () => {
     const first = await agentOn(ctx, 'sess-reach-a', 'isolated')
     const second = await agentOn(ctx, 'sess-reach-b', 'isolated')
 
-    // The realm keeps the service out of every host context — that is what
-    // makes it per session — so a caller holding the agent is the only way a
-    // request from OUTSIDE the session can read the instance it is about.
+    // The realm keeps the service out of every host context, so a caller
+    // holding the agent is how a request from OUTSIDE the session reads the
+    // instance it is about.
     expect(rootResolves(ctx, 'fixtureIsolatedSvc')).toBe(false)
     const mine = ctx.agentPresets.serviceFor(first, 'fixtureIsolatedSvc')
     const theirs = ctx.agentPresets.serviceFor(second, 'fixtureIsolatedSvc')
     expect(mine).toBeDefined()
-    expect(theirs).toBeDefined()
-    // Each agent gets ITS own: the addressing is per subtree, not a lookup
-    // that happens to find the first match.
-    expect(mine).not.toBe(theirs)
+    // ONE composition per preset: both agents joined the same standing mount,
+    // so they address the same instance — sessions stay apart inside it by
+    // the plugin's own Session/Agent keying, not by instance count.
+    expect(theirs).toBe(mine)
   })
 
   it('answers undefined for a service the agent\'s preset does not mount', async () => {
@@ -365,33 +365,43 @@ describe('replacing a composition', () => {
     expect(toolNames(ctx, handle.agent)).toEqual([])
   })
 
-  it('reports the switch failure even when the restore also fails', async () => {
-    // The previous preset's whole directory disappears between the unmount
-    // and the restore. The caller still needs to hear why the switch was
-    // refused rather than why putting the old one back did not work.
-    const root = await mkdtemp(join(tmpdir(), 'dsh-preset-vanishing-'))
-    await mkdir(join(root, 'vanishing'), { recursive: true })
-    // An absolute plugin path, because a relative one resolves from the
-    // preset's own directory and this preset does not live beside the fixtures.
-    await writeFile(join(root, 'vanishing', COMPOSITION_FILE), [
-      '- id: alpha',
-      `  name: ${join(FIXTURES, 'plugins', 'contribute.js')}`,
-      '  config:',
-      '    tool: vanishing',
-      '',
-    ].join('\n'))
-    const local = await harness({
-      default: 'vanishing',
-      roots: [{ path: root, trust: 'user' as const }, ...ROOTS],
+  it('keeps the agent on its standing composition when a switch fails, even with the source deleted', async () => {
+    // A preset root this test owns, so removing the composition mid-flight
+    // cannot disturb the shipped fixtures.
+    const root = await mkdtemp(join(tmpdir(), 'dsh-preset-restore-'))
+    const seeded: [string, string][] = [['first', `- id: only\n  name: ${join(FIXTURES, 'plugins', 'contribute.js')}\n  config:\n    tool: only\n`], ['broken', '- id: nope\n  name: ./does-not-exist.js\n']]
+    for (const [id, body] of seeded) {
+      await mkdir(join(root, id))
+      await writeFile(join(root, id, COMPOSITION_FILE), body)
+    }
+    const scoped = new Context()
+    scoped.baseUrl = pathToFileURL(FIXTURES).href + '/'
+    await scoped.plugin(Loader)
+    scoped.loader.builtins.include = Include
+    await scoped.plugin(LlmService)
+    await scoped.plugin(SessionStore)
+    await scoped.plugin(SystemPrompt, { persona: '' })
+    await scoped.plugin(ToolRegistry)
+    await scoped.plugin(AgentRegistry)
+    await scoped.plugin(AgentLoop, { agents: [] })
+    await scoped.plugin(AgentPresets, { default: 'first', roots: [{ path: root, trust: 'user' as const }] })
+    const handle = await scoped.agents.create({
+      sessionId: SessionId('sess-restore-gone'),
+      setup: async (agentCtx: Context) => void await scoped.agentPresets.mount(agentCtx, 'first'),
     })
-    const handle = await local.agents.create({
-      sessionId: SessionId('sess-vanishing'),
-      setup: async (agentCtx: Context) => void await local.agentPresets.mount(agentCtx, 'vanishing'),
-    })
-    await rm(root, { recursive: true, force: true })
 
-    await expect(local.agentPresets.recompose(handle.agent.ctx, 'broken'))
+    // The roster is a live directory: the composition the agent came from can
+    // be gone from DISK by the time a switch fails. The standing mount is not
+    // the file — it outlives deletion, so there is nothing to "restore".
+    await rm(join(root, 'first'), { recursive: true })
+
+    await expect(scoped.agentPresets.recompose(handle.agent.ctx, 'broken'))
       .rejects.toThrow(/failed to mount/)
+
+    // The failed switch left the agent EXACTLY as it was: the new standing
+    // mount is ensured before the parent link moves, so a rejection never
+    // strips the old composition.
+    expect(toolNames(scoped, handle.agent)).toEqual(['only'])
   })
 
   it('refuses an unscoped context', async () => {
