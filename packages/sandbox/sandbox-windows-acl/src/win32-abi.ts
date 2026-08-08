@@ -202,6 +202,15 @@ export const LOCKFILE_EXCLUSIVE_LOCK = 0x2
 /** LOCKFILE_FAIL_IMMEDIATELY: fail with ERROR_LOCK_VIOLATION instead of waiting. */
 export const LOCKFILE_FAIL_IMMEDIATELY = 0x1
 
+// ACE_HEADER.AceType (winnt.h lines ~3449-3463)
+/** ACCESS_ALLOWED_ACE_TYPE: an access-allowed ACE granting the mask to the trustee. */
+export const ACCESS_ALLOWED_ACE_TYPE = 0
+
+// SID structure (winnt.h line ~280 SID_IDENTIFIER_AUTHORITY; line ~286
+// #define SID_MAX_SUB_AUTHORITIES 15).
+/** SID_MAX_SUB_AUTHORITIES: the most subauthorities a SID may carry. */
+export const SID_MAX_SUB_AUTHORITIES = 15
+
 // ACE_HEADER.AceFlags (winnt.h lines ~3477-3524): inherited ACEs shown when
 // reading a DACL are marked with this bit and are not part of the explicit
 // DACL edits this module makes.

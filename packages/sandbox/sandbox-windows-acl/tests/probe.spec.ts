@@ -51,7 +51,7 @@ describe.skipIf(!isWin32 || !pwshAvailable())('AclSandbox write restriction', ()
     // block, which host runtimes (vitest worker pools) may not keep in sync
     // with process.env — and a real-temp grant would inherit over every
     // temp subdirectory, including this test's scratch dir.
-    sandbox = new AclSandbox({ writableDirs: [writableDir], tempDir: isolatedTemp })
+    sandbox = new AclSandbox({ writableDirs: [writableDir], tempDir: isolatedTemp, mode: 'workspace-write' })
     await sandbox.init()
   })
 
@@ -91,7 +91,7 @@ describe.skipIf(!isWin32 || !pwshAvailable())('AclSandbox write restriction', ()
   it('fails closed when the write SID cannot be parsed (no unrestricted fallback)', async () => {
     // A malformed SID makes ConvertStringSidToSidW fail; init must throw
     // before any grant is applied and never spawn unrestricted.
-    const broken = new AclSandbox({ writableDirs: [writableDir], writeSid: 'S-1-4-abc-1' })
+    const broken = new AclSandbox({ writableDirs: [writableDir], writeSid: 'S-1-4-abc-1', mode: 'workspace-write' })
     await expect(broken.init()).rejects.toThrow(/ConvertStringSidToSidW/u)
   }, 15_000)
 })

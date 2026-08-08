@@ -87,7 +87,11 @@ export interface SpawnedNative {
 /**
  * Create a process under the restricted token with piped stdio. The child's
  * stdin is closed immediately (EOF), matching the POC; stdout/stderr read ends
- * are returned for draining.
+ * are returned for draining. The child inherits the caller's environment block
+ * (lpEnvironment NULL); the caller rewrites entries through
+ * SetEnvironmentVariableW before spawning (the runner's per-session temp
+ * contract) — passing an explicit block through koffi trips
+ * ERROR_INVALID_PARAMETER in CreateProcessAsUserW (verified empirically).
  * @param api - the binding table.
  * @param token - the restricted token the child runs under.
  * @param options - command, args, and working directory.

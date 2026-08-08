@@ -176,7 +176,7 @@ describe('LocalPtyBackend startup rollback', () => {
     expect(initialized).toHaveBeenCalledWith(undefined)
     expect((ctx.sandbox as RecordingSandbox).calls).toEqual([{
       argv: ['/bin/bash', '-i'],
-      policy: { mode: 'workspace-write', workspaceRoot: '/session-workspace' },
+      policy: { mode: 'workspace-write', workspaceRoot: '/session-workspace', sessionId: 'agent' },
     }])
   })
 

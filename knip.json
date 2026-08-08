@@ -5,6 +5,7 @@
   ],
   "ignoreBinaries": [
     "bwrap",
+    "icacls",
     "python3",
     "sandbox-exec",
     "taskkill",

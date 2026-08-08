@@ -24,6 +24,12 @@
       "path": "../sandbox"
     },
     {
+      "path": "../sandbox-windows-acl"
+    },
+    {
+      "path": "../../core/session"
+    },
+    {
       "path": "../../support/invariants"
     }
   ]

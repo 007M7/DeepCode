@@ -16,7 +16,7 @@ import { createHash } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
-import { allocOverlapped, allocPtrSlot, decodePtr, getTempPath, isInvalidHandle, isNullPtr, ptrAddress, throwLastError, throwWin32 } from './ffi.ts'
+import { allocOverlapped, allocPtrSlot, decodePtr, decodeUint8At, decodeUint16At, decodeUint32At, getTempPath, isInvalidHandle, isNullPtr, ptrAddress, sameSidAt, throwLastError, throwWin32 } from './ffi.ts'
 import type { NativePtr, Win32Bindings } from './ffi.ts'
 import * as abi from './win32-abi.ts'
 
@@ -26,6 +26,10 @@ import * as abi from './win32-abi.ts'
  * MultipleTrusteeOperation@24, TrusteeForm@28, TrusteeType@32, ptstrName@40 }.
  * `permissions` is the access mask; the POC passes 0 for REVOKE_ACCESS, which
  * removes every ACE for the trustee.
+ * @param sidPtr - the trustee SID the entry names.
+ * @param mode - the access mode (GRANT_ACCESS or REVOKE_ACCESS).
+ * @param permissions - the access mask to grant (0 for REVOKE_ACCESS).
+ * @returns the packed entry buffer.
  */
 export function buildExplicitAccess(sidPtr: NativePtr, mode: number, permissions: number): Buffer {
   const entry = Buffer.alloc(abi.EXPLICIT_ACCESS_W_SIZE)
@@ -175,12 +179,51 @@ function mergeAndApply(
 }
 
 /**
+ * True when the explicit DACL already carries the EXACT write grant this
+ * module would add (Allow ACE, OI|CI inheritance, {@link abi.GRANT_MASK}, the
+ * orphan SID). Every field is read through koffi.decode at pointer offsets —
+ * no memcpy, no pointer arithmetic. The ACE's SID is INLINE (embedded in the
+ * ACE after the 4-byte mask — there is no pointer to read; reading one
+ * yields garbage addresses and crashed EqualSid, verified by gdb), so it is
+ * compared field-by-field against the orphan SID through bounded offset
+ * reads ({@link sameSidAt}). A malformed header reads as "no exact grant"
+ * so the caller falls back to the merge-apply path, which owns the robust
+ * failure handling.
+ * @param oldAcl - the current explicit DACL pointer (from {@link readCurrentDacl}).
+ * @param sidPtr - the orphan write SID to match.
+ * @returns whether the exact grant ACE is already present.
+ */
+function hasExactGrant(oldAcl: NativePtr, sidPtr: NativePtr): boolean {
+  const aclSize = decodeUint16At(oldAcl, 2)
+  const aceCount = decodeUint16At(oldAcl, 4)
+  if (aclSize < 8 || aclSize > 1_048_576) return false // implausible: fall back to the merge path
+  let offset = 8 // the first ACE follows the 8-byte ACL header
+  for (let index = 0; index < aceCount; index++) {
+    // ACE_HEADER: AceType@0, AceFlags@1, AceSize@2 (WORD);
+    // ACCESS_ALLOWED_ACE: Mask@4, inline SID@8.
+    const aceSize = decodeUint16At(oldAcl, offset + 2)
+    if (aceSize < 8 || offset + aceSize > aclSize) return false // implausible: fall back to the merge path
+    const exact = decodeUint8At(oldAcl, offset) === abi.ACCESS_ALLOWED_ACE_TYPE
+      && decodeUint8At(oldAcl, offset + 1) === abi.SUB_CONTAINERS_AND_OBJECTS_INHERIT
+      && decodeUint32At(oldAcl, offset + 4) === abi.GRANT_MASK
+    if (exact && sameSidAt(oldAcl, offset + 8, sidPtr, 0)) return true
+    offset += aceSize
+  }
+  return false
+}
+
+/**
  * Grant `GRANT_MASK` (Write+Delete, displays as "Modify") to the orphan SID
- * on `path`, inheriting to subcontainers and objects. Read-merge-write: the
- * new ACE merges into the directory's CURRENT explicit DACL (same shape as
- * {@link revokeWrite}), so pre-existing explicit ACEs survive. Runs under the
- * per-path lock. The directory must be owned by the caller (owner implicit
- * WRITE_DAC) — same precondition as the POC.
+ * on `path`, inheriting to subcontainers and objects. Idempotent: when the
+ * directory's current explicit DACL already carries the exact ACE (the
+ * per-session grant surviving from a previous server lifetime), the
+ * SetNamedSecurityInfoW apply is SKIPPED — it would otherwise re-propagate
+ * the identical ACE across the whole tree (eager inheritance; minutes on
+ * large workspaces). Otherwise read-merge-write: the new ACE merges into the
+ * directory's CURRENT explicit DACL (same shape as {@link revokeWrite}), so
+ * pre-existing explicit ACEs survive. Runs under the per-path lock. The
+ * directory must be owned by the caller (owner implicit WRITE_DAC) — same
+ * precondition as the POC.
  * @param api - the binding table.
  * @param path - the directory whose DACL gains the grant (the workspace or temp root).
  * @param sidPtr - the orphan write SID the ACE names.
@@ -188,6 +231,14 @@ function mergeAndApply(
 export function grantWrite(api: Win32Bindings, path: string, sidPtr: NativePtr): void {
   withPathLock(api, path, () => {
     const { oldAcl, descriptor } = readCurrentDacl(api, path)
+    if (oldAcl !== null && hasExactGrant(oldAcl, sidPtr)) {
+      // The exact ACE stands: releasing the descriptor is the whole operation.
+      if (descriptor !== null) {
+        const freed = api.localFree(descriptor)
+        if (!isNullPtr(freed)) throwLastError(api, 'LocalFree', `grantWrite(${path}) descriptor`)
+      }
+      return
+    }
     mergeAndApply(api, path, buildExplicitAccess(sidPtr, abi.GRANT_ACCESS, abi.GRANT_MASK), oldAcl, descriptor, 'grantWrite')
   })
 }

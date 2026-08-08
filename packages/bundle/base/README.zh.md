@@ -19,4 +19,4 @@
 ## 已知限制与延期工作
 
 - **patch 会替换整行 `config`**：profile 覆盖必须重述该行需要保留的每个字段；不存在深度合并层。
-- **Windows 的临时目录授权是真实 temp 目录**——`workspace-write` 把写入限制在工作区与宿主 temp 区域（与 Landlock 档位相同的后端定义选择）；`read-only` 不授予任何写入。见 `@deepseek-ai/dsh-sandbox-windows-acl`。
+- **Windows 的临时目录授权是按会话的私有子目录**——`workspace-write` 把写入限制在工作区与会话自己的 temp 子目录（`<temp>\dsh-<hash>`，受限子进程的 TMP/TEMP 被改写）；`read-only` 不授予任何写入。见 `@deepseek-ai/dsh-sandbox-windows-acl`。

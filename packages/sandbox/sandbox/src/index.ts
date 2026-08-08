@@ -40,6 +40,13 @@ export interface SandboxExecutionPolicy {
   mode: SandboxMode
   /** Absolute root directory `workspace-write` may write under. */
   workspaceRoot: string
+  /**
+   * Opaque identity of the calling session (the `dsh-session` SessionId in
+   * string form). Backends key per-session state off it (e.g. the windows-acl
+   * per-session write grant and private temp subdirectory); absent for
+   * agentless calls, which fall back to per-call backend state.
+   */
+  sessionId?: string
 }
 
 /**

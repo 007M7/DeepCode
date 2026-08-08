@@ -70,7 +70,6 @@ export interface Win32Bindings {
   localFree(memory: NativePtr): NativePtr
   // ---- SIDs ----------------------------------------------------------------
   convertStringSidToSidW(stringSid: string, sid: NativePtr): number
-  convertSidToStringSidW(sid: NativePtr, stringSid: NativePtr): number
   createWellKnownSid(type: number, domainSid: null, sid: NativePtr, size: NativePtr): number
   isValidSid(sid: NativePtr): number
   getLengthSid(sid: NativePtr): number
@@ -111,6 +110,7 @@ export interface Win32Bindings {
     inheritHandles: number, creationFlags: number, environment: null,
     currentDirectory: string | null, startupInfo: NativePtr, processInfo: NativePtr,
   ): number
+  setEnvironmentVariableW(name: string, value: string): number
   readFile(file: NativePtr, buffer: Buffer, count: number, bytesRead: NativePtr, overlapped: null): number
   peekNamedPipe(
     pipe: NativePtr, buffer: null, size: number,
@@ -220,16 +220,6 @@ export function decodeUint32(slot: NativePtr): number {
 }
 
 /**
- * Decode a UTF-16 string at a pointer.
- * @param ptr - pointer to the NUL-terminated UTF-16 string.
- * @returns the decoded string.
- */
-export function decodeStr16(ptr: NativePtr): string {
-  const value: unknown = koffi.decode(ptr, 'str16')
-  return value as string
-}
-
-/**
  * Cast a koffi pointer to its numeric address (bigint, used for raw struct packing).
  * @param ptr - the koffi pointer.
  * @returns the pointer's numeric address.
@@ -270,6 +260,69 @@ export function decodePtrAt(buffer: Buffer, offset: number): NativePtr | null {
   const value: unknown = koffi.decode(buffer, offset, PVOID)
   if (isNullPtr(value as NativePtr | null | undefined)) return null
   return value as NativePtr
+}
+
+/**
+ * Decode a uint8 at a native pointer plus byte offset — the ACL walk's
+ * field-read primitive (koffi.decode with an offset, no memcpy, no pointer
+ * arithmetic).
+ * @param ptr - the native pointer to read from.
+ * @param offset - byte offset from the pointer.
+ * @returns the decoded uint8.
+ */
+export function decodeUint8At(ptr: NativePtr, offset: number): number {
+  const value: unknown = koffi.decode(ptr, offset, 'uint8')
+  return value as number
+}
+
+/**
+ * Decode a uint16 at a native pointer plus byte offset (see {@link decodeUint8At}).
+ * @param ptr - the native pointer to read from.
+ * @param offset - byte offset from the pointer.
+ * @returns the decoded uint16.
+ */
+export function decodeUint16At(ptr: NativePtr, offset: number): number {
+  const value: unknown = koffi.decode(ptr, offset, 'uint16')
+  return value as number
+}
+
+/**
+ * Decode a uint32 at a native pointer plus byte offset (see {@link decodeUint8At}).
+ * @param ptr - the native pointer to read from.
+ * @param offset - byte offset from the pointer.
+ * @returns the decoded uint32.
+ */
+export function decodeUint32At(ptr: NativePtr, offset: number): number {
+  const value: unknown = koffi.decode(ptr, offset, 'uint32')
+  return value as number
+}
+
+/**
+ * Compare two SIDs field-by-field via BOUNDED offset reads (revision, count,
+ * identifier authority, subauthorities up to the count) — never a fixed-size
+ * struct decode, which would read past a short SID allocation (a SID with
+ * fewer than 8 subauthorities is smaller than `SID_STRUCT`). An implausible
+ * subauthority count reads as unequal.
+ * @param left - pointer to one SID (offset 0).
+ * @param leftOffset - byte offset of the SID structure within `left`.
+ * @param right - pointer to the other SID.
+ * @param rightOffset - byte offset of the SID structure within `right`.
+ * @returns whether the SIDs are identical.
+ */
+export function sameSidAt(left: NativePtr, leftOffset: number, right: NativePtr, rightOffset: number): boolean {
+  const leftRevision = decodeUint8At(left, leftOffset)
+  const rightRevision = decodeUint8At(right, rightOffset)
+  if (leftRevision !== rightRevision) return false
+  const leftCount = decodeUint8At(left, leftOffset + 1)
+  const rightCount = decodeUint8At(right, rightOffset + 1)
+  if (leftCount !== rightCount || leftCount > abi.SID_MAX_SUB_AUTHORITIES) return false
+  for (let index = 0; index < 6; index++) {
+    if (decodeUint8At(left, leftOffset + 2 + index) !== decodeUint8At(right, rightOffset + 2 + index)) return false
+  }
+  for (let index = 0; index < leftCount; index++) {
+    if (decodeUint32At(left, leftOffset + 8 + index * 4) !== decodeUint32At(right, rightOffset + 8 + index * 4)) return false
+  }
+  return true
 }
 
 /**
@@ -331,7 +384,6 @@ function bindings(): Win32Bindings {
     localAlloc: bind(kernel32, 'LocalAlloc', PVOID, ['uint32', 'size_t']),
     localFree: bind(kernel32, 'LocalFree', PVOID, [PVOID]),
     convertStringSidToSidW: bind(advapi32, 'ConvertStringSidToSidW', 'int', ['str16', PPVOID]),
-    convertSidToStringSidW: bind(advapi32, 'ConvertSidToStringSidW', 'int', [PVOID, koffi.pointer('str16')]),
     createWellKnownSid: bind(advapi32, 'CreateWellKnownSid', 'int', ['int', PVOID, PVOID, koffi.pointer('uint32')]),
     isValidSid: bind(advapi32, 'IsValidSid', 'int', [PVOID]),
     getLengthSid: bind(advapi32, 'GetLengthSid', 'uint32', [PVOID]),
@@ -356,6 +408,7 @@ function bindings(): Win32Bindings {
       PVOID, 'str16', 'str16', PVOID, PVOID, 'int', 'uint32', PVOID, 'str16',
       koffi.pointer(STARTUPINFOW), koffi.pointer(PROCESS_INFORMATION),
     ]),
+    setEnvironmentVariableW: bind(kernel32, 'SetEnvironmentVariableW', 'int', ['str16', 'str16']),
     readFile: bind(kernel32, 'ReadFile', 'int', [PVOID, PVOID, 'uint32', koffi.pointer('uint32'), PVOID]),
     peekNamedPipe: bind(kernel32, 'PeekNamedPipe', 'int', [PVOID, PVOID, 'uint32', koffi.pointer('uint32'), koffi.pointer('uint32'), koffi.pointer('uint32')]),
     waitForSingleObject: bind(kernel32, 'WaitForSingleObject', 'uint32', [PVOID, 'uint32']),
@@ -376,6 +429,18 @@ function bindings(): Win32Bindings {
  */
 export function win32(): Promise<Win32Bindings> {
   return Promise.resolve(bindings())
+}
+
+/**
+ * Resolve the lazy Win32 bindings SYNCHRONOUSLY — the sandbox seam's
+ * server-side per-session grant materializes ACEs inside the synchronous
+ * `confine()` call, which cannot await. Same cached table as {@link win32}
+ * (the underlying koffi loads are synchronous; the async wrapper exists for
+ * the runner's await-shaped call sites).
+ * @returns the cached binding table.
+ */
+export function win32Sync(): Win32Bindings {
+  return bindings()
 }
 
 /**

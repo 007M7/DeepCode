@@ -12,7 +12,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import koffi from 'koffi'
 
 import { buildExplicitAccess, grantWrite, lockFilePath, revokeWrite, withPathLock } from '../src/acl.ts'
@@ -148,11 +148,33 @@ describe.skipIf(!isWin32)('ACL editing', () => {
     }
   })
 
+  it('grantWrite is idempotent: a second grant over the standing exact ACE skips the SetNamedSecurityInfoW apply (no eager full-tree re-propagation)', async () => {
+    const api = await win32()
+    const dir = scratch()
+    const orphanSid = sidFromString(api, 'S-1-4-4242-2')
+    const apply = vi.spyOn(api, 'setNamedSecurityInfoW')
+    try {
+      grantWrite(api, dir, orphanSid)
+      expect(apply).toHaveBeenCalledTimes(1)
+      // The exact ACE now stands (the per-session grant surviving from a
+      // previous server lifetime): the second grant is a DACL read only.
+      grantWrite(api, dir, orphanSid)
+      expect(apply).toHaveBeenCalledTimes(1)
+      const aces = readDirectAces(api, dir)
+      expect(aces.filter(ace => ace.sid === 'S-1-4-4242-2')).toHaveLength(1)
+      revokeWrite(api, dir, orphanSid)
+      expect(readDirectAces(api, dir).some(ace => ace.sid === 'S-1-4-4242-2')).toBe(false)
+    } finally {
+      apply.mockRestore()
+      if (!isNullPtr(orphanSid)) api.localFree(orphanSid)
+    }
+  })
+
   it('interleaved sandbox instances: A.init → B.init → A.dispose → B.dispose leaves neither ACE', async () => {
     const api = await win32()
     const dir = scratch()
-    const sandboxA = new AclSandbox({ writableDirs: [dir], tempDir: null, writeSid: 'S-1-4-9000-1' })
-    const sandboxB = new AclSandbox({ writableDirs: [dir], tempDir: null, writeSid: 'S-1-4-9000-2' })
+    const sandboxA = new AclSandbox({ writableDirs: [dir], tempDir: null, writeSid: 'S-1-4-9000-1', mode: 'workspace-write' })
+    const sandboxB = new AclSandbox({ writableDirs: [dir], tempDir: null, writeSid: 'S-1-4-9000-2', mode: 'workspace-write' })
     await sandboxA.init()
     await sandboxB.init()
     sandboxA.dispose()
@@ -216,7 +238,7 @@ describe.skipIf(!isWin32)('ACL editing', () => {
   it('the applied grant mask carries DELETE and FILE_DELETE_CHILD (never WRITE_DAC/WRITE_OWNER)', async () => {
     const api = await win32()
     const dir = scratch()
-    const sandbox = new AclSandbox({ writableDirs: [dir], tempDir: null, writeSid: 'S-1-4-1234-5' })
+    const sandbox = new AclSandbox({ writableDirs: [dir], tempDir: null, writeSid: 'S-1-4-1234-5', mode: 'workspace-write' })
     try {
       await sandbox.init()
       const grant = readDirectAces(api, dir).find(ace => ace.sid === 'S-1-4-1234-5')

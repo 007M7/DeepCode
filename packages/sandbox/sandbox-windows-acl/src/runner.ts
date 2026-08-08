@@ -8,13 +8,30 @@
  * Stable argv contract (the seam builds it; a native-exe replacement would
  * keep the same contract):
  *   [node, runner.js, '--workspace', <dir>, '--temp', <dir>,
- *    '--mode', <read-only|workspace-write>, '--', <argv...>]
+ *    '--mode', <read-only|workspace-write>,
+ *    ['--write-sid', <S-1-4-…>], '--', <argv...>]
  *
  * Modes:
  *  - workspace-write: the workspace and temp directories carry the orphan-SID
  *    Write grant; every other write is denied by the token intersection.
  *  - read-only: STRICT zero grants — no directory is writable, not even the
- *    NUL device (`> $null` fails with access denied); documented in README.
+ *    NUL device (`> $null` fails with access denied); the token's restricting
+ *    list also drops Authenticated Users (CIM unavailable — documented in
+ *    README).
+ *
+ * `--write-sid`: the seam's per-session grant contract — the CALLER has
+ * already materialized the orphan-SID ACEs (once per session, server
+ * lifetime) and owns their revocation, so the runner neither grants nor
+ * revokes (manageDacls: false). Absent `--write-sid` (standalone/test use)
+ * the runner self-manages grants per invocation as before. With
+ * `--write-sid` in workspace-write mode, the runner rewrites the TMP/TEMP
+ * entries of its OWN environment (SetEnvironmentVariableW) to the `--temp`
+ * directory — a PRIVATE per-session temp subdirectory the seam provisions
+ * (bwrap `--tmpfs /tmp` semantics) — and the child inherits the rewritten
+ * block (lpEnvironment NULL; an explicit block through koffi trips
+ * ERROR_INVALID_PARAMETER in CreateProcessAsUserW, verified empirically).
+ * Read-only leaves the ambient temp entries untouched (writes there are
+ * denied anyway).
  *
  * Failure contract: every runner-side failure (bad args, missing
  * directories, token/grant/spawn errors) prints `windows-acl-run: <detail>`
@@ -43,6 +60,7 @@ interface ParsedArgs {
   workspace: string
   temp: string
   mode: 'read-only' | 'workspace-write'
+  writeSid: string | undefined
   command: string
   args: string[]
 }
@@ -51,6 +69,7 @@ function parseArgs(raw: string[]): ParsedArgs {
   let workspace: string | undefined
   let temp: string | undefined
   let mode: string | undefined
+  let writeSid: string | undefined
   let index = 0
   for (; index < raw.length; index++) {
     const token = raw[index]
@@ -65,6 +84,7 @@ function parseArgs(raw: string[]): ParsedArgs {
       case '--workspace': workspace = value; break
       case '--temp': temp = value; break
       case '--mode': mode = value; break
+      case '--write-sid': writeSid = value; break
       default: fail(`unknown argument: ${token}`)
     }
   }
@@ -74,7 +94,7 @@ function parseArgs(raw: string[]): ParsedArgs {
   const argv = raw.slice(index)
   const command = argv[0]
   if (command === undefined) fail('missing command after --')
-  return { workspace, temp, mode, command, args: argv.slice(1) }
+  return { workspace, temp, mode, writeSid, command, args: argv.slice(1) }
 }
 
 function requireDirectory(label: string, path: string): void {
@@ -101,8 +121,27 @@ async function main(): Promise<number> {
   const sandbox = new AclSandbox({
     writableDirs: parsed.mode === 'workspace-write' ? [parsed.workspace] : [],
     tempDir: parsed.mode === 'workspace-write' ? parsed.temp : null,
+    mode: parsed.mode,
+    ...parsed.writeSid === undefined ? {} : { writeSid: parsed.writeSid },
+    // With --write-sid the seam owns the DACLs (per-session grants): this
+    // invocation must neither add nor revoke ACEs.
+    manageDacls: parsed.writeSid === undefined,
   })
   await sandbox.init()
+
+  // The seam's per-session temp contract: under --write-sid, workspace-write
+  // children see the PRIVATE per-session temp subdirectory through TMP/TEMP
+  // (bwrap --tmpfs /tmp semantics). The runner rewrites its OWN environment
+  // (SetEnvironmentVariableW) and the child inherits the block; self-managed
+  // and read-only runs keep the ambient entries.
+  if (parsed.mode === 'workspace-write' && parsed.writeSid !== undefined) {
+    if (api.setEnvironmentVariableW('TMP', parsed.temp) === 0) {
+      fail(`SetEnvironmentVariableW TMP failed (Win32 ${api.getLastError()})`)
+    }
+    if (api.setEnvironmentVariableW('TEMP', parsed.temp) === 0) {
+      fail(`SetEnvironmentVariableW TEMP failed (Win32 ${api.getLastError()})`)
+    }
+  }
 
   try {
     const child = sandbox.spawn({

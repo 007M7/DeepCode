@@ -4,11 +4,18 @@
  * competing candidates once, and reports each wrap's enforcement and stderr
  * classification facts. Missing or unusable confinement fails closed rather
  * than returning the original argv.
+ *
+ * The windows-acl rung additionally owns the per-session write grant: one
+ * orphan write SID and one private temp subdirectory per session (durable
+ * record in the session log — see `./acl-session.ts`), ACEs materialized
+ * lazily at the session's first confined execution and held for the SERVER
+ * process's lifetime (revoked on dispose). The runner receives `--write-sid`
+ * and stops managing DACLs itself.
  * @module @deepseek-ai/dsh-sandbox-local
  */
 
 import { spawnSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import {
@@ -22,6 +29,10 @@ import z from 'schemastery'
 import { assertNever } from '@deepseek-ai/dsh-llm'
 import { SandboxProvider, SandboxUnavailableError } from '@deepseek-ai/dsh-sandbox'
 import type { ConfinedArgv, ConfinedSandboxMode, RunnerFailureRule, SandboxEnforcement, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
+import { SessionId } from '@deepseek-ai/dsh-session'
+import { AclWriteGrant } from '@deepseek-ai/dsh-sandbox-windows-acl'
+import { provisionAclSession, sessionAclRecord } from './acl-session.ts'
+import type { AclSessionRecord } from './acl-session.ts'
 import { bwrapProfileArgs, landlockProfileArgs, seatbeltProfileArgs } from './profiles.ts'
 
 /** Plugin config. All optional — `static Config` supplies the defaults. */
@@ -205,9 +216,10 @@ const RUNNER_FAILURE_RULES = {
 } as const satisfies Record<SelectedRunner['runner'], readonly RunnerFailureRule[]>
 
 /**
- * Local process-sandbox provider. Registers as `ctx.sandbox`. Stateless
- * apart from the cached chain verdict — it spawns nothing but the one-time
- * probes, so there is no disposal work beyond cordis' own.
+ * Local process-sandbox provider. Registers as `ctx.sandbox`. Caches the
+ * chain verdict and, on the windows-acl rung, the per-session write grants
+ * ({@link AclWriteGrant}, one per session, revoked on provider dispose); the
+ * one-time probes spawn nothing else.
  */
 export class LocalSandboxProvider extends SandboxProvider {
   // Inline schema call: the config catalog walks `static Config` statically.
@@ -225,6 +237,12 @@ export class LocalSandboxProvider extends SandboxProvider {
   private readonly probeTimeoutMs: number
   /** Cached chain verdict; undefined until the first confined wrap needs it. */
   private selectedRunner: SelectedRunner | 'unavailable' | undefined
+  /**
+   * Server-lifetime per-session write grants (windows-acl rung), keyed by the
+   * session's orphan write SID — the native half of the per-session reuse;
+   * the durable half lives in the session log (`./acl-session.ts`).
+   */
+  private readonly aclGrants = new Map<string, AclWriteGrant>()
 
   constructor(ctx: Context, config: Config) {
     super(ctx)
@@ -246,6 +264,12 @@ export class LocalSandboxProvider extends SandboxProvider {
     this.configuredRunnerFailureSignatures = runnerFailureSignatures
     this.probeTimeoutMs = config.probeTimeoutMs as number
     assertPositiveFinite('probeTimeoutMs', this.probeTimeoutMs)
+    // Standing ACL grants are revoked with the provider: a clean server
+    // shutdown leaves no orphan-SID ACEs behind (an unclean one leaves ACEs
+    // the session's durable record re-grants idempotently on resume).
+    ctx.effect(() => () => {
+      this.revokeAclGrants()
+    })
   }
 
   /**
@@ -284,15 +308,121 @@ export class LocalSandboxProvider extends SandboxProvider {
       case 'bwrap': return ['bwrap', ...bwrapProfileArgs(policy)]
       case 'landlock': return [this.landlockLauncher(), ...landlockProfileArgs(policy)]
       case 'seatbelt': return [this.seatbeltExec(), ...seatbeltProfileArgs(policy)]
-      case 'windows-acl': return [
-        ...this.windowsAclRunnerInvocation(),
-        '--workspace', policy.workspaceRoot,
-        // Explicit, never GetTempPathW-defaulted: the runner grants exactly
-        // this directory (workspace-write) or nothing (read-only).
-        '--temp', tmpdir(),
-        '--mode', policy.mode,
-      ]
+      case 'windows-acl': return this.windowsAclRunnerArgv(policy)
       default: return assertNever(runner)
+    }
+  }
+
+  /**
+   * The windows-acl runner argv for one policy. With a calling session
+   * (the policy's `sessionId`), the session's durable record is folded from
+   * the session log (provisioned on first use), its ACEs materialized once
+   * per server lifetime, and the runner receives `--write-sid` plus the
+   * session's PRIVATE temp subdirectory — it grants nothing and revokes
+   * nothing. Agentless calls (no session) pass no SID: the runner
+   * self-manages per-call grants on the ambient temp root.
+   * @param policy - the resolved per-call policy.
+   * @returns the runner invocation.
+   */
+  private windowsAclRunnerArgv(policy: SandboxPolicy): string[] {
+    const sessionId = policy.sessionId
+    const record = sessionId === undefined ? undefined : this.aclSessionRecord(sessionId, policy.workspaceRoot)
+    if (record !== undefined) this.materializeAclGrant(record, policy.mode)
+    return [
+      ...this.windowsAclRunnerInvocation(),
+      '--workspace', policy.workspaceRoot,
+      // Workspace-write sessions confine their temp writes to the PRIVATE
+      // per-session subdirectory (bwrap --tmpfs /tmp semantics); read-only
+      // and agentless runs pass the ambient temp root — the runner validates
+      // it exists but grants nothing (or self-manages, agentless only).
+      '--temp', policy.mode === 'workspace-write' && record !== undefined ? record.tempDir : tmpdir(),
+      '--mode', policy.mode,
+      ...record === undefined ? [] : ['--write-sid', record.writeSid],
+    ]
+  }
+
+  /**
+   * Fold (or provision) the calling session's durable windows-acl record.
+   * The provision appends exactly one log-only `sandbox/acl-session` event
+   * to the session log; the record's workspace must equal the policy root —
+   * both derive from the session's immutable cwd, so a mismatch is a
+   * corrupted composition and fails loud.
+   * @param sessionId - the policy's calling-session identity.
+   * @param workspaceRoot - the resolved policy root.
+   * @returns the session's record.
+   */
+  private aclSessionRecord(sessionId: string, workspaceRoot: string): AclSessionRecord {
+    const store = this.ctx.get('sessions')
+    if (store === undefined) {
+      throw new Error('sandbox-local: per-session windows-acl confinement requires the session store (ctx.sessions)')
+    }
+    const session = store.get(SessionId(sessionId))
+    if (session === undefined) {
+      throw new Error(`sandbox-local: windows-acl policy carries session "${sessionId}" but ctx.sessions has no such session`)
+    }
+    const existing = sessionAclRecord(session.events)
+    if (existing !== undefined) {
+      if (existing.workspace !== workspaceRoot) {
+        throw new Error(
+          `sandbox-local: session "${sessionId}" acl record workspace ${JSON.stringify(existing.workspace)} `
+          + `does not match the resolved policy root ${JSON.stringify(workspaceRoot)} (session cwd is immutable)`,
+        )
+      }
+      return existing
+    }
+    return provisionAclSession(session, workspaceRoot)
+  }
+
+  /**
+   * Materialize the record's ACEs once per server lifetime: lazily at the
+   * session's first confined execution, reused for every later call (the map
+   * hit is the whole call). Workspace-write grants the workspace root and
+   * the private temp subdirectory (created here); read-only materializes
+   * NOTHING — its token alone restricts every write. Fail-closed: a
+   * half-materialized grant is revoked before the error propagates.
+   * @param record - the session's durable record.
+   * @param mode - the policy mode (grants exist only under workspace-write).
+   */
+  private materializeAclGrant(record: AclSessionRecord, mode: ConfinedSandboxMode): void {
+    if (this.aclGrants.has(record.writeSid) || mode === 'read-only') return
+    const grant = AclWriteGrant.create(record.writeSid)
+    try {
+      mkdirSync(record.tempDir, { recursive: true })
+      grant.add(record.workspace)
+      grant.add(record.tempDir)
+    } catch (error) {
+      // Revoke whatever stands and free the SID — never leave a half-grant
+      // behind a failed confine (the runner never runs).
+      try {
+        grant.dispose()
+      } catch (cleanupError) {
+        throw new AggregateError([error, cleanupError], 'sandbox-local windows-acl grant materialization failed and its cleanup also failed')
+      }
+      throw error
+    }
+    this.aclGrants.set(record.writeSid, grant)
+  }
+
+  /**
+   * Revoke every standing per-session grant and free every SID (provider
+   * dispose). Cleanup failures are reported, not thrown: cordis teardown
+   * must not be aborted by grant revocation, and the durable records make a
+   * missed revocation self-healing on the next resume.
+   */
+  private revokeAclGrants(): void {
+    if (this.aclGrants.size === 0) return
+    const failures: unknown[] = []
+    for (const grant of this.aclGrants.values()) {
+      try {
+        grant.dispose()
+      } catch (error) {
+        failures.push(error)
+      }
+    }
+    this.aclGrants.clear()
+    if (failures.length > 0) {
+      this.ctx.logger.warn(`sandbox-local: windows-acl grant cleanup completed with ${failures.length} failure(s)`)
+      for (const error of failures) this.ctx.logger.warn(error)
     }
   }
 

@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { resolvePwshPath } from '@deepseek-ai/dsh-pwsh-local'
+import { AclWriteGrant } from '../src/index.ts'
 
 const isWin32 = process.platform === 'win32'
 const runnerEntry = fileURLToPath(new URL('../src/runner.ts', import.meta.url))
@@ -59,7 +60,10 @@ describe.skipIf(!isWin32 || !pwshAvailable())('windows-acl runner', () => {
       `try{Set-Content -Path '${writableDir}\\child-wrote.txt' -Value ok -ErrorAction Stop;'TARGET-WRITE: OK'}catch{'TARGET-WRITE: DENIED'};`,
       `try{Set-Content -Path '${isolatedTemp}\\child-wrote.txt' -Value ok -ErrorAction Stop;'TEMP-WRITE: OK'}catch{'TEMP-WRITE: DENIED'};`,
       `try{Set-Content -Path '${escapeFile}' -Value ok -ErrorAction Stop;'ESCAPE-WRITE: OK (ESCAPE!)'}catch{'ESCAPE-WRITE: DENIED'};`,
-      `try{Get-Content '${secretFile}' -ErrorAction Stop | Out-Null;'SECRET-READ: OK'}catch{'SECRET-READ: DENIED'}`,
+      `try{Get-Content '${secretFile}' -ErrorAction Stop | Out-Null;'SECRET-READ: OK'}catch{'SECRET-READ: DENIED'};`,
+      // List J carries Authenticated Users: the CIM path (WMI namespace
+      // security check) stays alive under workspace-write.
+      "try{Get-CimInstance Win32_OperatingSystem -ErrorAction Stop | Out-Null;'CIM: OK'}catch{'CIM: DENIED'}",
     ].join('')
     const result = runRunner([
       '--workspace', writableDir, '--temp', isolatedTemp, '--mode', 'workspace-write',
@@ -70,11 +74,12 @@ describe.skipIf(!isWin32 || !pwshAvailable())('windows-acl runner', () => {
     expect(result.stdout).toContain('TEMP-WRITE: OK')
     expect(result.stdout).toContain('ESCAPE-WRITE: DENIED')
     expect(result.stdout).toContain('SECRET-READ: OK')
+    expect(result.stdout).toContain('CIM: OK')
     expect(existsSync(escapeFile)).toBe(false)
     expect(existsSync(join(writableDir, 'child-wrote.txt'))).toBe(true)
   }, 30_000)
 
-  it('read-only: strict zero grants — no writes anywhere (not even NUL), reads and $null redirection fine', () => {
+  it('read-only: strict zero grants — no writes anywhere (not even NUL), reads and $null redirection fine, CIM unavailable (list I)', () => {
     const probe = [
       "$ErrorActionPreference='SilentlyContinue';",
       '\'LANGMODE: \' + $ExecutionContext.SessionState.LanguageMode;',
@@ -84,7 +89,11 @@ describe.skipIf(!isWin32 || !pwshAvailable())('windows-acl runner', () => {
       'try{Set-Content -Path \'NUL\' -Value ok -ErrorAction Stop;\'NUL-WRITE: OK\'}catch{\'NUL-WRITE: DENIED\'};',
       // PowerShell's $null redirection discards without opening NUL — must keep working.
       'echo hi > $null;\'DOLLAR-NULL: OK\';',
-      `try{Get-Content '${secretFile}' -ErrorAction Stop | Out-Null;'SECRET-READ: OK'}catch{'SECRET-READ: DENIED'}`,
+      `try{Get-Content '${secretFile}' -ErrorAction Stop | Out-Null;'SECRET-READ: OK'}catch{'SECRET-READ: DENIED'};`,
+      // List I drops Authenticated Users: the WMI namespace security check
+      // fails (0x80041003) — the documented read-only CIM boundary, the
+      // price of the zero ambient-write surface.
+      "try{Get-CimInstance Win32_OperatingSystem -ErrorAction Stop | Out-Null;'CIM: OK'}catch{'CIM: DENIED'}",
     ].join('')
     const result = runRunner([
       '--workspace', writableDir, '--temp', isolatedTemp, '--mode', 'read-only',
@@ -96,6 +105,7 @@ describe.skipIf(!isWin32 || !pwshAvailable())('windows-acl runner', () => {
     expect(result.stdout).toContain('NUL-WRITE: DENIED')
     expect(result.stdout).toContain('DOLLAR-NULL: OK')
     expect(result.stdout).toContain('SECRET-READ: OK')
+    expect(result.stdout).toContain('CIM: DENIED')
     expect(existsSync(join(writableDir, 'readonly-child-wrote.txt'))).toBe(false)
   }, 30_000)
 
@@ -122,6 +132,40 @@ describe.skipIf(!isWin32 || !pwshAvailable())('windows-acl runner', () => {
     expect(result.stdout).toContain('RENAME-DIR: OK')
     expect(existsSync(victimFile)).toBe(false)
     expect(existsSync(renamedDir)).toBe(true)
+  }, 30_000)
+
+  it('--write-sid: the runner trusts the caller-owned grants — private temp subdir via the TMP/TEMP env rewrite, no grants of its own', () => {
+    const writeSid = 'S-1-4-9000-99'
+    const privateTemp = join(isolatedTemp, 'private-subdir')
+    mkdirSync(privateTemp)
+    const grant = AclWriteGrant.create(writeSid)
+    grant.add(privateTemp)
+    try {
+      const probe = [
+        "$ErrorActionPreference='SilentlyContinue';",
+        `try{Set-Content -Path '${writableDir}\\server-granted.txt' -Value ok -ErrorAction Stop;'WORKSPACE-WRITE: OK'}catch{'WORKSPACE-WRITE: DENIED'};`,
+        `try{Set-Content -Path '${privateTemp}\\server-granted.txt' -Value ok -ErrorAction Stop;'PRIVATE-TEMP-WRITE: OK'}catch{'PRIVATE-TEMP-WRITE: DENIED'};`,
+        "'TEMP-ENV: ' + $env:TEMP;",
+        "'TMP-ENV: ' + $env:TMP",
+      ].join('')
+      const result = runRunner([
+        '--workspace', writableDir, '--temp', privateTemp, '--mode', 'workspace-write', '--write-sid', writeSid,
+        '--', 'pwsh', '/NoLogo', '/NonInteractive', '/NoProfile', '/Command', probe,
+      ])
+      expect(result.status, `stderr: ${result.stderr}`).toBe(0)
+      // The runner granted nothing (only the caller's private-temp grant
+      // stands): the workspace write is denied, the private temp write lands,
+      // and the child's TMP/TEMP point at the private subdirectory.
+      expect(result.stdout).toContain('WORKSPACE-WRITE: DENIED')
+      expect(result.stdout).toContain('PRIVATE-TEMP-WRITE: OK')
+      expect(result.stdout).toContain(`TEMP-ENV: ${privateTemp}`)
+      expect(result.stdout).toContain(`TMP-ENV: ${privateTemp}`)
+      expect(existsSync(join(writableDir, 'server-granted.txt'))).toBe(false)
+      expect(existsSync(join(privateTemp, 'server-granted.txt'))).toBe(true)
+    } finally {
+      grant.dispose()
+      rmSync(privateTemp, { recursive: true, force: true })
+    }
   }, 30_000)
 
   it('runner-side failure: signature on stderr and exit 127, the command never runs', () => {

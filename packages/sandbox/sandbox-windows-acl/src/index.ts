@@ -19,7 +19,10 @@
  *  - grants are standing ACE mutations on real directories — revoke them via
  *    dispose() before the process exits (the POC's documented
  *    `icacls /remove '*S-1-4-…'` cleanup fails with ERROR_NONE_MAPPED; use
- *    this module's revoke instead).
+ *    this module's revoke instead). With `manageDacls: false` the CALLER owns
+ *    the DACLs (the sandbox seam's per-session grant reuse): init()/dispose()
+ *    skip grant/revoke entirely and the caller must not revoke under live
+ *    children.
  * @module @deepseek-ai/dsh-sandbox-windows-acl
  */
 
@@ -36,6 +39,7 @@ import { createRestrictedToken, findLogonSid, makeWellKnownSid, openCurrentProce
 import * as abi from './win32-abi.ts'
 
 export { quoteArg } from './spawn.ts'
+export { AclWriteGrant } from './grant.ts'
 export { Win32Error } from './errors.ts'
 
 /** Construction options: the write allowlist, the optional temp grant, and the orphan SID identity. */
@@ -50,6 +54,21 @@ export interface AclSandboxOptions {
   tempDir?: string | null
   /** Orphan write SID; defaults to a random `S-1-4-x-y` (fresh allowlist per sandbox). */
   writeSid?: string
+  /**
+   * The file-effect mode this instance confines under — selects the
+   * restricted token's restricting-SID list (I for read-only, J for
+   * workspace-write) and MUST match the grant shape: read-only pairs with
+   * zero grants. The runner validates the argv-borne mode string at its
+   * boundary; this typed seam trusts the union.
+   */
+  mode: 'read-only' | 'workspace-write'
+  /**
+   * Whether this instance owns its DACL grants (default true). False means
+   * the CALLER has already materialized the ACEs (the sandbox seam's
+   * per-session grant reuse): init()/dispose() skip grant/revoke entirely —
+   * the caller holds the grants for its own lifetime and revokes them.
+   */
+  manageDacls?: boolean
 }
 
 /** Per-spawn options: the program, its argv/cwd, and the stdio shape. */
@@ -84,7 +103,10 @@ export interface AclSandboxChild {
   wait(): Promise<AclSandboxChildResult>
 }
 
-function randomWriteSid(): string {
+/** Mint a fresh orphan write SID (`S-1-4-x-y`; the subauthorities are 30-bit).
+ * @returns the SDDL string form.
+ */
+export function randomWriteSid(): string {
   return `S-1-4-${randomInt(1, 2 ** 30)}-${randomInt(1, 2 ** 30)}`
 }
 
@@ -92,14 +114,18 @@ function randomWriteSid(): string {
  * One write-restricted sandbox instance: token + orphan-SID grants + spawn.
  * `init()` is fail-closed — any Win32 failure revokes whatever was granted
  * and throws; `dispose()` revokes all grants and reports every cleanup
- * failure.
+ * failure. With `manageDacls: false` the caller owns the grants (per-session
+ * reuse): init() applies none and dispose() revokes none.
  */
 export class AclSandbox {
   /** Absolute writable directories (constructor-validated). */
   readonly writableDirs: string[]
   /** The orphan SID string whose ACEs form the write allowlist. */
   readonly writeSid: string
+  /** The file-effect mode — the restricted token's restricting-SID list selection. */
+  readonly mode: 'read-only' | 'workspace-write'
   private readonly tempDirOption: string | null | undefined
+  private readonly manageDacls: boolean
   private tempDirResolved: string | null | undefined
   private api: Win32Bindings | undefined
   private token: NativePtr | undefined
@@ -107,6 +133,8 @@ export class AclSandbox {
   private grantedPaths: string[] = []
 
   constructor(options: AclSandboxOptions) {
+    this.mode = options.mode
+    this.manageDacls = options.manageDacls ?? true
     this.writableDirs = options.writableDirs.map((directory) => {
       const absolute = resolve(directory)
       if (!existsSync(absolute) || !statSync(absolute).isDirectory()) {
@@ -149,9 +177,14 @@ export class AclSandbox {
         this.tempDirResolved = tempDir
       }
 
-      for (const path of tempDir !== null ? [...this.writableDirs, tempDir] : this.writableDirs) {
-        grantWrite(api, path, writeSidPtr)
-        this.grantedPaths.push(path)
+      // manageDacls: false — the caller (the sandbox seam's per-session grant)
+      // already materialized the ACEs; this instance must neither add nor
+      // remove any (its dispose() must not revoke the caller's standing grant).
+      if (this.manageDacls) {
+        for (const path of tempDir !== null ? [...this.writableDirs, tempDir] : this.writableDirs) {
+          grantWrite(api, path, writeSidPtr)
+          this.grantedPaths.push(path)
+        }
       }
       const logonSid = findLogonSid(api, currentToken)
       const restricted = createRestrictedToken(
@@ -159,9 +192,8 @@ export class AclSandbox {
         {
           world: makeWellKnownSid(api, abi.WinWorldSid),
           authUser: makeWellKnownSid(api, abi.WinAuthenticatedUserSid),
-          interactive: makeWellKnownSid(api, abi.WinInteractiveSid),
-          local: makeWellKnownSid(api, abi.WinLocalSid),
         },
+        this.mode,
       )
       this.token = restricted
       if (api.closeHandle(currentToken) === 0) throwLastError(api, 'CloseHandle', 'current process token')
@@ -248,11 +280,13 @@ export class AclSandbox {
     const failures: unknown[] = []
     const writeSidPtr = this.writeSidPtr
     if (writeSidPtr !== undefined) {
-      for (const path of this.grantedPaths) {
-        try {
-          revokeWrite(api, path, writeSidPtr)
-        } catch (error) {
-          failures.push(error)
+      if (this.manageDacls) {
+        for (const path of this.grantedPaths) {
+          try {
+            revokeWrite(api, path, writeSidPtr)
+          } catch (error) {
+            failures.push(error)
+          }
         }
       }
       try {

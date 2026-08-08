@@ -105,22 +105,33 @@ function buildRestrictingSids(sids: readonly NativePtr[]): Buffer {
 export interface RestrictingSidSet {
   world: NativePtr
   authUser: NativePtr
-  interactive: NativePtr
-  local: NativePtr
 }
 
 /**
- * Create the write-restricted token. Ordering matters: EVERYONE first (the
- * POC's note — the intersection check hits it on most objects), then the
- * logon SID, Authenticated Users, INTERACTIVE, LOCAL, and finally the orphan
- * write SID that forms the write allowlist. S-1-2-1 (console logon) is
- * intentionally absent: see win32-abi.ts for the verified failure modes.
- * FAILS CLOSED: any failure throws — never spawn unrestricted.
+ * Create the write-restricted token with the mode-selected restricting list
+ * (dual lists verified on Win11 26200, see the POC-worktree restrict-variant
+ * harness):
+ *  - list I (read-only):   [logon SID, EVERYONE, orphan]
+ *  - list J (workspace-write): [logon SID, EVERYONE, Authenticated Users, orphan]
+ *
+ * The logon SID and EVERYONE are shared: they keep the early startup chain
+ * (0xC0000142 without them) and CNG (`\Device\CNG` write trustee — pwsh
+ * crashes 0xE0434352 without EVERYONE) alive. Authenticated Users exists in
+ * list J ONLY because the CIM path's WMI namespace security check requires it
+ * (0x80041003 otherwise) — read-only drops it for a zero ambient-write
+ * surface (it closes the host's C:\-root tree-creation escape, where
+ * `AU:(AD)` + `AU:(OI)(CI)(IO)(M)` ACEs stand) at the cost of CIM
+ * unavailability; documented in README. INTERACTIVE/LOCAL are absent from
+ * BOTH lists — the host's Public tree grants write to INTERACTIVE, so
+ * removing it closes that escape. S-1-2-1 (console logon) is intentionally
+ * absent: see win32-abi.ts for the verified failure modes. FAILS CLOSED: any
+ * failure throws — never spawn unrestricted.
  * @param api - the binding table.
  * @param currentToken - the process token to restrict.
  * @param logonSid - the copied logon session SID.
  * @param writeSid - the orphan SID forming the write allowlist.
  * @param known - the well-known SIDs entering the restricting list.
+ * @param mode - selects the restricting list (I for read-only, J for workspace-write).
  * @returns the restricted token handle.
  */
 export function createRestrictedToken(
@@ -129,15 +140,11 @@ export function createRestrictedToken(
   logonSid: NativePtr,
   writeSid: NativePtr,
   known: RestrictingSidSet,
+  mode: 'read-only' | 'workspace-write',
 ): NativePtr {
-  const restrictingSids = buildRestrictingSids([
-    known.world,
-    logonSid,
-    known.authUser,
-    known.interactive,
-    known.local,
-    writeSid,
-  ])
+  const restrictingSids = buildRestrictingSids(mode === 'read-only'
+    ? [logonSid, known.world, writeSid]
+    : [logonSid, known.world, known.authUser, writeSid])
   const tokenSlot = allocPtrSlot()
   const created = api.createRestrictedToken(
     currentToken,
