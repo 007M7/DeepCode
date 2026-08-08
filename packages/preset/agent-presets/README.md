@@ -18,7 +18,7 @@ Discovery is unmemoized: `list()` and `resolve()` re-read the roots on every cal
 - `ctx.agentPresets.authorable: boolean` Whether any configured root has `user` trust, and therefore whether a preset can be written at all.
 - `ctx.agentPresets.read(id): Promise<string>` One preset's composition text, exactly as stored.
 - `ctx.agentPresets.write(id, content): Promise<void>` Create or replace a locally authored preset.
-- `ctx.agentPresets.remove(id): Promise<void>` Delete a locally authored preset.
+- `ctx.agentPresets.remove(id): Promise<void>` Delete a locally authored preset. Clears the user default when it named the preset just deleted: storing a default that does not exist yet is deliberate, but one this call removed will never be supplied again and would fail every session created without an explicit pick.
 
 `AgentPreset` carries `id` (the directory name), `trust` (`system` or `user`, from the root it was found under), and `path` (the absolute composition file).
 

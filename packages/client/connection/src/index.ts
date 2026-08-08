@@ -57,12 +57,16 @@ export const Config: z<ConnectionConfig> = z.object({
 const PRIVILEGED_METHODS = new Set([
   // A preset composition names the plugins a session runs, so reading one is
   // reconnaissance and writing one is arbitrary capability — strictly more than
-  // the settings document beside it. `agentPreset.select` joins them because
-  // it can move a session from a two-tool preset onto one that edits the live
-  // runtime, which is a real escalation even though every candidate is already
-  // installed. `agentPreset.list` deliberately stays out: it carries ids and
-  // trust only, like the model catalog, and a LAN client's picker needs it.
-  'agentPreset.select',
+  // the settings document beside it.
+  //
+  // CHOOSING one is not pinned, and `agentPreset.list` is not either. Picking a
+  // preset looks like escalation — one of them mounts the toolset that edits the
+  // live runtime — but `session.create` already takes an `agentPreset`, so
+  // pinning only the switch would leave the same capability one method over.
+  // The deeper reason is that the capability is not the preset's to grant: the
+  // deployment's own default already carries `bash` and the filesystem tools, so
+  // any caller that may start a session at all can already run commands as this
+  // process. Pinning the switch would be a fence beside an open gate.
   'agentPreset.read',
   'agentPreset.write',
   'agentPreset.remove',

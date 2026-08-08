@@ -13,7 +13,7 @@
 import { Context, Service } from 'cordis'
 import { scopeOf } from '@deepseek-ai/dsh-scope'
 import z from 'schemastery'
-import { settingsNamespace, type SettingsScope } from '@deepseek-ai/dsh-settings'
+import { settingsNamespace, type SettingsScope, type default as SettingsService } from '@deepseek-ai/dsh-settings'
 import { discoverPresets } from './discovery.ts'
 import { deleteComposition, readComposition, writeComposition } from './authoring.ts'
 import type { PresetMetadata } from './metadata.ts'
@@ -83,6 +83,12 @@ export class AgentPresets extends Service {
    */
   private settings: SettingsScope<AgentPresetSettings> | undefined
 
+  /**
+   * The settings service behind {@link settings}, held for the one write this
+   * service makes: clearing a user default it has just deleted.
+   */
+  private settingsService: SettingsService | undefined
+
   constructor(ctx: Context, public config: Config) {
     super(ctx, 'agentPresets')
     // Deliberately not `installSettingsSection`: that helper exists to re-judge
@@ -96,7 +102,11 @@ export class AgentPresets extends Service {
         AgentPresetSettingsSchema,
         { base: { default: config.default } },
       )
-      settingsCtx.effect(() => () => { this.settings = undefined }, 'agentPresets.settings()')
+      this.settingsService = settingsCtx.settings
+      settingsCtx.effect(() => () => {
+        this.settings = undefined
+        this.settingsService = undefined
+      }, 'agentPresets.settings()')
     })
   }
 
@@ -196,6 +206,17 @@ export class AgentPresets extends Service {
    */
   async remove(id: string): Promise<void> {
     await deleteComposition(this.config.roots, await this.resolve(id))
+    // Storing a default that does not exist YET is deliberate — the roster is a
+    // live directory, so a name absent now may exist by the time a session asks
+    // for it, and `resolve` reports it then. A default this call just deleted is
+    // not that case: nothing will ever supply it again, and left in place every
+    // session created without an explicit pick would fail to start. Clearing it
+    // exposes the deployment's own default underneath, which is the layering.
+    if (this.settings?.get().default !== id) return
+    await this.settingsService?.mutate(
+      settingsNamespace(SETTINGS_NAMESPACE),
+      [{ op: 'unset', path: ['default'] }],
+    )
   }
 
   /**

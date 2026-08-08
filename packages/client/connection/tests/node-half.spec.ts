@@ -139,9 +139,8 @@ describe('connection node half', () => {
       'credentials.describe', 'credentials.set', 'credentials.unset',
       'llm.discoverModels',
       // A composition names the plugins a session runs: reading one is
-      // reconnaissance, writing one is arbitrary capability, and selecting one
-      // can move a session onto a preset that edits the live runtime.
-      'agentPreset.select', 'agentPreset.read', 'agentPreset.write', 'agentPreset.remove',
+      // reconnaissance and writing one is arbitrary capability.
+      'agentPreset.read', 'agentPreset.write', 'agentPreset.remove',
     ]) {
       const denied = fakeResponse()
       await routes[0]!.handler(
@@ -230,7 +229,7 @@ describe('connection node half over a real HTTP server', () => {
         // Carries a draft credential and turns the host into a fetcher for a
         // URL the caller picked: an anonymous LAN caller must not reach it.
         'llm.discoverModels',
-        'agentPreset.select', 'agentPreset.read', 'agentPreset.write', 'agentPreset.remove',
+        'agentPreset.read', 'agentPreset.write', 'agentPreset.remove',
       ]) {
         expect([method, await call(port, method, 'harness.example')]).toEqual([method, 403])
       }
@@ -238,8 +237,11 @@ describe('connection node half over a real HTTP server', () => {
       // client's model picker needs it, and it carries no key or endpoint
       // state (404 is the empty proxy's carrier answer — the fence passed).
       // `agentPreset.list` joins the model catalog for the same reason: ids and
-      // trust only, and a LAN client's preset picker needs it.
-      for (const method of ['llm.providers', 'llm.models', 'agentPreset.list']) {
+      // trust only, and a LAN client's preset picker needs it. `select` is
+      // reachable too: `session.create` already takes an `agentPreset`, and the
+      // deployment's own default already carries bash, so pinning the switch
+      // would be a fence beside an open gate.
+      for (const method of ['llm.providers', 'llm.models', 'agentPreset.list', 'agentPreset.select']) {
         expect([method, await call(port, method, 'harness.example')]).toEqual([method, 404])
       }
       // Loopback reaches everything, configuration included.

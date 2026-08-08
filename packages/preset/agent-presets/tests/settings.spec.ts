@@ -4,7 +4,7 @@
  * so a person can change which preset new sessions get without a restart.
  */
 
-import { mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -20,7 +20,7 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import SettingsLocal from '@deepseek-ai/dsh-settings-local'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { describe, expect, it } from 'vitest'
-import AgentPresets, { SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-agent-presets'
+import AgentPresets, { COMPOSITION_FILE, SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-agent-presets'
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'fixtures')
 const ROOTS = [{ path: join(FIXTURES, 'system'), trust: 'system' as const }]
@@ -30,7 +30,9 @@ const NS = settingsNamespace(SETTINGS_NAMESPACE)
  * A composition with a real file-backed settings provider. `settingsFiber` is
  * the provider's own handle, so a test can take it away the way a reload does.
  */
-async function harness(): Promise<{ ctx: Context; settingsFile: string; settingsFiber: { dispose: () => unknown } }> {
+async function harness(
+  extraRoots: readonly { path: string; trust: 'system' | 'user' }[] = [],
+): Promise<{ ctx: Context; settingsFile: string; settingsFiber: { dispose: () => unknown } }> {
   const home = await mkdtemp(join(tmpdir(), 'dsh-preset-settings-'))
   const settingsFile = join(home, 'settings.yaml')
   await writeFile(settingsFile, '{}\n')
@@ -47,7 +49,7 @@ async function harness(): Promise<{ ctx: Context; settingsFile: string; settings
   await ctx.plugin(AgentLoop, { agents: [] })
   const settingsFiber = ctx.plugin(SettingsLocal, { path: settingsFile, watch: false })
   await settingsFiber
-  await ctx.plugin(AgentPresets, { default: 'standard', roots: ROOTS })
+  await ctx.plugin(AgentPresets, { default: 'standard', roots: [...ROOTS, ...extraRoots] })
   return { ctx, settingsFile, settingsFiber }
 }
 
@@ -112,6 +114,26 @@ describe('the default preset as a user setting', () => {
     await ctx.settings.replace(NS, {})
 
     expect(ctx.agentPresets.defaultId).toBe('standard')
+  })
+
+  it('clears a user default it has just deleted', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-preset-authored-'))
+    await mkdir(join(root, 'mine'))
+    await writeFile(
+      join(root, 'mine', COMPOSITION_FILE),
+      `- id: only\n  name: ${join(FIXTURES, 'plugins', 'contribute.js')}\n  config:\n    tool: only\n`,
+    )
+    const { ctx } = await harness([{ path: root, trust: 'user' as const }])
+    await ctx.settings.update(NS, { default: 'mine' })
+    expect(ctx.agentPresets.defaultId).toBe('mine')
+
+    await ctx.agentPresets.remove('mine')
+
+    // Nothing will ever supply that id again, so leaving the setting pointed at
+    // it would fail every session created without an explicit pick. Clearing it
+    // exposes the deployment's own default underneath.
+    expect(ctx.agentPresets.defaultId).toBe('standard')
+    expect((await ctx.agentPresets.resolve()).id).toBe('standard')
   })
 
   it('reports an unknown user default only when a session tries to use it', async () => {

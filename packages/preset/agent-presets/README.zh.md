@@ -18,7 +18,7 @@
 - `ctx.agentPresets.authorable: boolean` 是否存在 `user` 信任级别的根目录，也即是否可能写入 preset。
 - `ctx.agentPresets.read(id): Promise<string>` 某个 preset 的组装文本，与存储内容完全一致。
 - `ctx.agentPresets.write(id, content): Promise<void>` 创建或替换一个本地创作的 preset。
-- `ctx.agentPresets.remove(id): Promise<void>` 删除一个本地创作的 preset。
+- `ctx.agentPresets.remove(id): Promise<void>` 删除一个本地创作的 preset。若用户默认值正指向刚被删除的这一个，则清除它：存下一个尚不存在的默认值是有意为之，但本次调用删掉的那个再也不会有人提供，留着它会让每个未显式指名的会话都无法开启。
 
 `AgentPreset` 携带 `id`（目录名）、`trust`（`system` 或 `user`，取自它所在的根目录）以及 `path`（组装文件的绝对路径）。
 
