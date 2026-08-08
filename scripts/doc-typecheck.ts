@@ -136,25 +136,21 @@ function formatDiagnostics(diagnostics: readonly ts.Diagnostic[], blocks: Block[
 }
 
 /**
- * Reuse both aggregate reference sets from a temp project one directory below
- * root. Each referenced package remains its own program, while documentation
- * examples can import either the Host or Client API.
+ * Reuse the Host aggregate references from a temp project one directory below
+ * root. Generated Client API examples opt out because their declarations do
+ * not exist until Host tsdown has run.
  */
 function workspaceReferences(): { path: string }[] {
-  const paths = new Set<string>()
-  for (const aggregate of ['tsconfig.host.json', 'tsconfig.client.json']) {
-    const file = join(root, aggregate)
-    // Parse with TypeScript's own JSONC reader: a regex comment stripper corrupts the `/*/` path
-    // candidate in the workspace wildcard.
-    const result = ts.readConfigFile(file, path => readFileSync(path, 'utf8'))
-    if (result.error) {
-      throw new Error(`doc-typecheck: cannot read ${file}: ${ts.flattenDiagnosticMessageText(result.error.messageText, '\n')}`)
-    }
-    // `config` is typed `any` by the TS API; narrow it to the one field read here.
-    const { references } = result.config as { references: { path: string }[] }
-    for (const { path } of references) paths.add(path)
+  const file = join(root, 'tsconfig.host.json')
+  // Parse with TypeScript's own JSONC reader: a regex comment stripper corrupts the `/*/` path
+  // candidate in the workspace wildcard.
+  const result = ts.readConfigFile(file, path => readFileSync(path, 'utf8'))
+  if (result.error) {
+    throw new Error(`doc-typecheck: cannot read ${file}: ${ts.flattenDiagnosticMessageText(result.error.messageText, '\n')}`)
   }
-  return [...paths].map(path => ({
+  // `config` is typed `any` by the TS API; narrow it to the one field read here.
+  const { references } = result.config as { references: { path: string }[] }
+  return references.map(({ path }) => ({
     path: path.startsWith('./') ? `../${path.slice(2)}` : `../${path}`,
   }))
 }
