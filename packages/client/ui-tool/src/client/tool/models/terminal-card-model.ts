@@ -8,9 +8,10 @@
  * are derived once.
  * @module
  */
+import { resolveWorkspacePath } from '@deepseek-ai/dsh-client-runtime/client'
 import type { TerminalBlockLabels, TerminalBlockProps } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
-import { resolveToolPath, type ToolCallBlock } from './tool-call-model.ts'
+import type { ToolCallBlock } from './tool-call-model.ts'
 
 /**
  * Build the TerminalBlock display copy from the conversation locale seat —
@@ -88,7 +89,7 @@ export function terminalFailed(model: TerminalCardModel): boolean {
 function resolveTerminalCwd(viewCwd: string | undefined, sessionCwd: string | undefined): string | undefined {
   if (viewCwd === undefined || viewCwd === '') return sessionCwd
   if (sessionCwd === undefined || sessionCwd === '') return normalizeSegments(viewCwd)
-  return normalizeSegments(resolveToolPath(sessionCwd, viewCwd))
+  return normalizeSegments(resolveWorkspacePath(sessionCwd, viewCwd))
 }
 
 /**

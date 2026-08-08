@@ -1,7 +1,6 @@
 /** Assistant reasoning disclosure, independent of Tool-call presentation. */
 import { useEffect, useRef, useState } from 'react'
-import { IconThinkOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { DisclosureRow } from './DisclosureRow.tsx'
+import { DisclosureRow, IconThinkOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { useThrottledVisualUpdate } from './use-throttled-visual-update.ts'
 import css from './ReasoningRow.module.css'
 

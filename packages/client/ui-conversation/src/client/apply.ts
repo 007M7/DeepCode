@@ -1,7 +1,7 @@
 /** Registers the conversation components, shared store, and service callbacks. */
 import type { Context } from 'cordis'
 import { resolveSlotLabel, type BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ISessions, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import { resolveWorkspacePath, type ISessions, type SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
@@ -11,7 +11,6 @@ import type {
   ConversationSessionHeaderInjected, ConversationSessionInjected, DetailsInjected,
 } from './contract/slots.ts'
 import type { InputNotice } from './input/contract.ts'
-import { resolveToolPath } from './contract/tool-path.ts'
 import { createChatStore } from './stores.ts'
 import { ConversationService } from './service.ts'
 import type { IConversation } from './service.ts'
@@ -320,7 +319,7 @@ export function apply(ctx: Context): void {
         },
         openFile: (path) => {
           const cwd = sessions.list.getSnapshot().byId[sessionId]?.cwd
-          void workspaces.openPath(resolveToolPath(cwd, path)).catch(() => {
+          void workspaces.openPath(resolveWorkspacePath(cwd, path)).catch(() => {
             // Host/OS open failures stay silent in the chat row; the native
             // app surfaces its own error dialog when the path is unusable.
           })

@@ -1,12 +1,10 @@
-/** Resolve a Tool argument path against the session workspace. */
-
 /**
- * Resolve a Tool argument path for the Host opener.
+ * Resolve a workspace-relative path into the Host-facing spelling used by openPath.
  * @param cwd - session workspace root, when known.
- * @param path - path carried by the Tool arguments.
- * @returns an absolute-or-workspace-relative Host path.
+ * @param path - absolute or workspace-relative path.
+ * @returns an absolute path when a workspace root is available, otherwise the original path.
  */
-export function resolveToolPath(cwd: string | undefined, path: string): string {
+export function resolveWorkspacePath(cwd: string | undefined, path: string): string {
   if (path.startsWith('/') || /^[A-Za-z]:[/\\]/.test(path) || path.startsWith('\\\\')) return path
   if (cwd === undefined || cwd === '') return path
   const base = cwd.replace(/[/\\]+$/, '')

@@ -172,21 +172,6 @@ function deriveFilePath(variant: ToolRowVariant, argsRaw: string): string | unde
   return picked === undefined ? undefined : firstLine(picked)
 }
 
-/**
- * Resolve a tool-arg path against the session cwd for host.openPath.
- * Absolute POSIX/Windows paths pass through; relative paths join under cwd.
- * @param cwd - session working directory (may be absent for ungrouped sessions).
- * @param path - path as carried in tool args.
- * @returns a host-facing path string.
- */
-export function resolveToolPath(cwd: string | undefined, path: string): string {
-  if (path.startsWith('/') || /^[A-Za-z]:[/\\]/.test(path) || path.startsWith('\\\\')) return path
-  if (cwd === undefined || cwd === '') return path
-  const base = cwd.replace(/[/\\]+$/, '')
-  const rel = path.replace(/^[/\\]+/, '')
-  return `${base}/${rel}`
-}
-
 function deriveBody(variant: ToolRowVariant, argsRaw: string): string | null {
   if (argsRaw === '') return null
   const parsed = parseArgs(argsRaw)
