@@ -22,7 +22,7 @@ Status: implemented
 
 ### TodoRow：经 keyed toolview slot 的逐调用行
 
-专用的 `todo_write` 对话行是一个普通注册者插件（`todoToolview`，由 `apply` 挂载），经 `ctx.slots.inject` 注册进 keyed 的 `conversation.chat.toolview` slot，遵循与 bash 样例相同的声明生命周期，但属产品级注册。摘要由调用 args 推导（`N/M done · first active item`，其余活跃项的 `+<n>` 计数放在 `ToolRow` 的不收缩 `summarySuffix` 位里）；无法解析的 args 回退到通用行摘要；点击会以原始 args 打开 details 列。todo 不新增任何 `ToolEventView`——呈现归客户端所有，常驻列表从会话事件渲染，而非工具卡。
+专用的 `todo_write` 对话行是一个普通注册者插件（`todoToolview`，由 `apply` 挂载），经 `ctx.slots.inject` 注册进 keyed 的 `tool.call.toolview` slot，遵循与 bash 样例相同的声明生命周期，但属产品级注册。摘要由调用 args 推导（`N/M done · first active item`，其余活跃项的 `+<n>` 计数放在 `ToolRow` 的不收缩 `summarySuffix` 位里）；无法解析的 args 回退到通用行摘要；点击会以原始 args 打开 details 列。todo 不新增任何 `ToolEventView`——呈现归客户端所有，常驻列表从会话事件渲染，而非工具卡。
 
 ## 考虑过的替代方案
 

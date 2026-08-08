@@ -27,6 +27,7 @@ The JSONL durable session-persistence backend — a concrete `SessionPersistence
 | `packChunks` | `boolean` (default `true`) | Write eligible delta-chunk runs as packed rows (~60% smaller logical logs measured on a real coding session). Set `false` for one-event-per-line diagnostics; reading packed rows works regardless of this write-side switch. |
 | `compression` | `'zstd' \| 'none'` | Defaults to `'zstd'`; `'none'` retains newline-delimited UTF-8 text. |
 | `preparedSessionCacheSize` | positive integer (default `5`) | Maximum unpublished Sessions retained after cold history inspection for reuse by resume. |
+| `writeBatchMaxDelayMs` | positive integer (default `200`) | Fixed coalescing window after an idle live-event queue receives work. Later events do not reset it; flush and teardown bypass it. It does not bound event-loop, serialized-operation, or backend latency. At most Node's `2_147_483_647` ms timer limit. |
 
 `locate(meta)` returns `{ kind: 'jsonl', path }` for the fixed transcript inside the resolved project/session directories. It performs no filesystem I/O: the target can be returned before the directory or file exists, and an existing file contains only the last flushed prefix.
 
@@ -48,7 +49,7 @@ A root belongs to one encoding. Startup discovery and targeted lookup reject the
 
 ## Write path
 
-The plugin copies frozen session events into one controller per live session and starts an eager drain. Concurrent events share the current write; events admitted during it form a follow-up batch, while `session/flush` waits until both current and pending batches are durable. A per-session cursor prevents resumed sessions from re-appending stored events, and live sessions are seeded when the plugin loads. The owning backend instance serializes operations for one session; disposal drains every retained controller before teardown.
+The plugin copies frozen session events into one controller per live session. The first pending event starts the configured fixed batching window, and later events join without resetting it. Expiry starts one durable append; events admitted during that write form a separately bounded follow-up batch. `session/flush` cancels the wait and drains current and pending batches. A per-session cursor prevents resumed sessions from re-appending stored events, and live sessions are seeded when the plugin loads. The owning backend instance serializes operations for one session; disposal drains every retained controller before teardown. Every logical event remains present: batching only lets one compressed frame or raw fsync carry more records.
 
 ## Model Experience
 

@@ -34,6 +34,16 @@ const install: InvariantInstaller = Object.assign((ctx: Context, fail: Invariant
     if (runIds.get(session)?.has(event.data.commandId) !== true) {
       fail(`command/done ${JSON.stringify(event.data.commandId)} pairs no prior command/run in this log`)
     }
+    const source = event.data.sourceEventSeq
+    const sourceEvent = source === undefined ? undefined : session.events[source]
+    if (source !== undefined
+      && (event.data.kind !== 'success'
+        || !Number.isSafeInteger(source) || source < 0 || source >= event.seq
+        || sourceEvent?.seq !== source
+        || sourceEvent.type === 'command/run'
+        || sourceEvent.type === 'command/done')) {
+      fail(`command/done ${JSON.stringify(event.data.commandId)} has invalid sourceEventSeq ${String(source)}`)
+    }
   }
   for (const session of ctx.sessions.list()) {
     for (const event of session.events) validateEvent(session, event)

@@ -38,7 +38,7 @@ const toolResult = (seq: number, callId: string, name = 'bash'): ToolResultNode 
   kind: 'tool-result', seq, time: seq * 1_000, callId,
   call: { name, argsRaw: `{"command":"cmd-${callId}","description":"run ${callId}"}` },
   callTime: seq * 1_000 - 500,
-  content: [], isError: false, callView: null, resultView: null,
+  content: [], isError: false, callView: null, resultView: null, subCalls: [],
 })
 const wrote = (seq: number, callId: string, ...paths: string[]): ToolResultNode => ({
   ...toolResult(seq, callId, 'write'),
@@ -73,6 +73,7 @@ describe('producedForClosing derivation', () => {
     expect(producedForClosing([user(1, 'hi'), assistant(2, 'hello', 1)], 2)).toEqual([])
     expect(producedForClosing(nodes, 999)).toEqual([])
   })
+
 
   it('counts a generic edit and never spills across the turn boundary', () => {
     const inserted = (seq: number, callId: string, path: string): ToolResultNode => ({

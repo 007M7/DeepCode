@@ -164,6 +164,28 @@ describe('TranscriptAdapter', () => {
     expect(adapter.nodes().map(node => node.kind)).toEqual(['user', 'user', 'context'])
   })
 
+  it('materializes a skill-invocation injection as a named instructions context', () => {
+    const adapter = new TranscriptAdapter()
+    adapter.reset([
+      at(0, { type: 'user/message', surfaceOp: 'append', data: createUserMessage({
+        content: [{ type: 'text', text: '/hidden-demo check the fixture' }],
+        source: { kind: 'user' },
+      }) }),
+      at(1, { type: 'user/message', surfaceOp: 'append', data: createUserMessage({
+        content: [{ type: 'text', text: '<skill_content name="hidden-demo">body</skill_content>' }],
+        source: { kind: 'skill-invocation', name: 'hidden-demo', form: 'instructions' } as never,
+      }) }),
+    ])
+    const nodes = adapter.nodes()
+    // The gesture stays a user bubble; the injected body folds to a context
+    // row named after the skill, presented as instructions.
+    expect(nodes.map(node => node.kind)).toEqual(['user', 'context'])
+    expect(nodes[1]).toMatchObject({
+      provenance: { role: 'inject', label: 'hidden-demo' },
+      form: 'instructions',
+    })
+  })
+
   it('skips events core does not call surface-eligible, marker or not', () => {
     // The transcript is the append-origin surface, so log-only events (a chunk,
     // a turn boundary, a compact/* provenance record) and a future type core
@@ -223,8 +245,14 @@ describe('TranscriptAdapter', () => {
         checkpoint(5, 4, { start: 2, end: 3, sourceEventSeqs: [4, 2, 3] }),
       ])
       expect(adapter.nodes().filter(n => n.kind === 'compaction')).toEqual([
-        { kind: 'compaction', seq: 2, time: 1_700_000_000_002, summary: 'first' },
-        { kind: 'compaction', seq: 5, time: 1_700_000_000_005, summary: 'second' },
+        {
+          kind: 'compaction', seq: 2, time: 1_700_000_000_002, summary: 'first',
+          summaryEventSeq: 1, shadowedItemCount: 2, shadowedTokenCount: 100,
+        },
+        {
+          kind: 'compaction', seq: 5, time: 1_700_000_000_005, summary: 'second',
+          summaryEventSeq: 4, shadowedItemCount: 2, shadowedTokenCount: 100,
+        },
       ])
     })
 
@@ -296,7 +324,7 @@ describe('TranscriptAdapter', () => {
         ...(summary === undefined ? [] : [summary]),
         checkpoint(2, 1, { start: 0, end: 0, sourceEventSeqs: [1, 0] }),
       ])
-      expect(adapter.nodes()).toEqual([
+      expect(adapter.nodes()).toMatchObject([
         { kind: 'compaction', seq: 2, time: 1_700_000_000_002, summary: null },
       ])
     })
@@ -310,7 +338,10 @@ describe('TranscriptAdapter', () => {
         checkpoint(2, 1, { start: 0, end: 0, sourceEventSeqs: [1, 0] }),
       ])
       expect(adapter.nodes()).toEqual([
-        { kind: 'compaction', seq: 2, time: 1_700_000_000_002, summary: '可用摘要' },
+        {
+          kind: 'compaction', seq: 2, time: 1_700_000_000_002, summary: '可用摘要',
+          summaryEventSeq: 1, shadowedItemCount: 2, shadowedTokenCount: 100,
+        },
       ])
     })
 
@@ -324,7 +355,10 @@ describe('TranscriptAdapter', () => {
           source: { kind: 'plugin', plugin: 'compact' },
         }),
       })])
-      expect(adapter.nodes()).toEqual([{ kind: 'compaction', seq: 2, time: 1_700_000_000_002, summary: null }])
+      expect(adapter.nodes()).toEqual([{
+        kind: 'compaction', seq: 2, time: 1_700_000_000_002, summary: null,
+        summaryEventSeq: null, shadowedItemCount: null, shadowedTokenCount: null,
+      }])
     })
 
     it('skips a non-summary provenance seq before reaching the real one', () => {
@@ -468,20 +502,22 @@ describe('TranscriptAdapter', () => {
       expect(adapter.nodes().map(n => n.kind)).toEqual(['user', 'command'])
     })
 
-    it('renders the /compact row alongside the marker its own command produced', () => {
-      // The row that reports the compaction is a command node; dropping command
-      // folding would delete it together with every other slash-command row.
+    it('preserves the domain-event link for the UI to fold a /compact row into its marker', () => {
       const adapter = new TranscriptAdapter()
       adapter.reset([
         ev.user(0, '压缩前的问题'),
         ev.commandRun(1, 'cmd-compact', 'compact'),
         compactSummary(2, [{ type: 'text', text: '手动压缩摘要' }]),
         checkpoint(3, 2, { start: 0, end: 0, sourceEventSeqs: [2, 0] }),
-        ev.commandDone(4, 'cmd-compact', 'success', '已压缩'),
+        ev.commandDone(4, 'cmd-compact', 'success', '已压缩', 2),
       ])
       const nodes = adapter.nodes()
       expect(nodes.map(n => [n.kind, n.seq])).toEqual([['user', 0], ['command', 1], ['compaction', 3]])
-      expect(nodes[1]).toMatchObject({ name: 'compact', outcome: { kind: 'success', text: '已压缩' } })
+      expect(nodes[1]).toMatchObject({
+        name: 'compact',
+        outcome: { kind: 'success', text: '已压缩', sourceEventSeq: 2 },
+      })
+      expect(nodes[2]).toMatchObject({ kind: 'compaction', summaryEventSeq: 2 })
     })
   })
 

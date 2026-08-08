@@ -94,4 +94,5 @@ Mode transitions do not change the tool catalog; plan arguments and review resul
 - Plan mode guides rather than enforces; deployments needing a hard boundary must combine independent sandbox and approval controls.
 - A pending selection made while idle is lost if the process exits before the next boundary, so the UI must reapply it.
 - Forked agents inherit logged plan state, while newly spawned agents begin inactive; there is no creation-time plan option.
+- A live child owned by another agent cannot open the `exit_plan_mode` review. The failed call tells the child to include the unresolved decision in its final result; durable fork lineage alone does not prevent a session resumed as a runtime root from opening the review.
 - Only the Web UI has a specialized `plan-review` renderer; another interaction provider may present the same request through its generic option flow.

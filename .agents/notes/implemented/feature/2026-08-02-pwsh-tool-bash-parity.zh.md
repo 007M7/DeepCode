@@ -14,7 +14,7 @@ Status: implemented
 
 - **渲染完全采用 bash 故事**：stdout、带标记的 `[stderr]` 段、带 spill 路径的截断通知、空体渲染 `(no output)`、退出 marker 仅限非零退出——干净退出不产生 marker。描述与 `tool:pwsh` prompt section 精确陈述这一点（"Non-zero exits are reported as `[exit code: N]` markers"），刻意不复制 bash prompt 中与其自身渲染矛盾的 "every result" 措辞。
 - **`run_in_background` 经通用任务运行时接线**，与 bash 工具完全一致：预检、owner 注册、`task_output`/`task_kill` 控制与相同的结果映射。其背后是 `pwsh-local` 早已镜像好的 `start()` 句柄。
-- **`DSH_*` 环境共享而非复制**：`BashEnvRegistry` 从 `dsh-tool-bash` 迁入新的工具无关包 `@deepseek-ai/dsh-bash-env`（`ctx.bashEnv` + 内置事实 + session-persistence contributor），两个 shell 工具都注入它。contributor 对 pwsh 调用与 bash 调用一视同仁，并消化了 bash 工具的 `FIXME(bash-env-ownership)`。
+- **`DSH_*` 环境共享而非复制**：`BashEnvRegistry` 从 `dsh-tool-bash` 迁入新的工具无关包 `@deepseek-ai/dsh-bash-env`（`ctx.bashEnv` + 内置事实 + session-persistence contributor），两个 shell 工具都注入它。contributor 对 pwsh 调用与 bash 调用一视同仁；因此，共享环境的所有权不属于任何一个面向模型的 shell 工具。
 - **Windows 现实在 bash 无对应处钉死**：每条命令都在 UTF-8 输出 preamble 下运行，使 Windows PowerShell 5.1 兜底无法经 UTF-8 解码的 collector 破坏非 ASCII 输出；prompt 教授 Windows 强制终止以无 signal 的 exit 1 结算。
 - **范围外，不变**：sandbox 升级（等待 Windows-confining 执行器）与持久 PTY shell（后端仅限 Linux/macOS；ConPTY 属路线图）。带退出 pill 的 pwsh 专属 terminal 卡已随 [pwsh UI 呈现与 bash 对齐](2026-08-05-pwsh-ui-bash-parity.md) 决策另行交付。
 

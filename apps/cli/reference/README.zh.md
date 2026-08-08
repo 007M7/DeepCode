@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-本参考定义 profile、web 别名、插件管理和配置 dump 命令模式。参数由 [`src/args.ts`](../src/args.ts) 统一解析，[`src/bin.ts`](../src/bin.ts) 只动态导入选中的运行器。
+本参考定义 profile、一次性运行、web 别名、插件管理和配置 dump 命令模式。参数由 [`src/args.ts`](../src/args.ts) 统一解析，[`src/bin.ts`](../src/bin.ts) 只动态导入选中的运行器。
 
 ## Profile 启动
 
@@ -12,7 +12,7 @@
 
 `web` 和 `headless` profile 首次使用时会从随附模板自动初始化（`web`：base + web-app；`headless`：base + web-app + headless）。其他缺失的 profile 会显式报错，并提示运行 `dsh plugin --profile <name> add <package>`。
 
-位置参数任务（`dsh --profile headless "run the tests"`）要求组合挂载一次性运行器行（`headless-runner`）；启动器把任务文本 patch 进该行，运行器通过进程内 API 载体驱动一个全新的持久化会话，在 stdout 打印最终 assistant 文本，并在轮次完成时以 0 退出，否则以 1 退出。会话的 Web 宿主运行在 OS 分配的端口上并公布到 stderr，因此该次运行可在浏览器中观察。
+Profile 启动不接受位置参数任务。因此，挂载了一次性运行器行（`headless-runner`）的 profile 会显式报错，并提示规范命令 `dsh run --profile <name> "<task>"`，而不会触发该行原始的必填字段错误。
 
 可在不启动的情况下检查组合出的配置树：
 
@@ -22,6 +22,12 @@ dsh --profile web --patch ./extra.yml --dump-config
 ```
 
 `--dump-default-config` 只打印组合包各层；`--dump-config` 额外加上 profile 的 `cordis.patch.yml`、home 级的 `$DSH_HOME/cordis.patch.yml` 和 `--patch` overlay。两者都会按层打印来源注释；`!!js` 表达式保持未求值，找不到目标的 patch 会报告到 stderr。
+
+## 一次性运行
+
+`dsh run [--profile <name>] [--patch <path>...] <task...>` 会用空格拼接任务参数，拒绝缺失或空白任务，并让 `--profile` 默认为 `headless`。可重复使用的 `--patch` overlay 与 profile 启动的 overlay 位于同一层。所选的自定义 profile 必须挂载 `headless-runner`；否则启动器会在启动前失败，并在诊断中指明缺少该行。
+
+启动器把任务文本 patch 进运行器行，运行器再通过进程内 API 载体驱动一个全新的持久化会话，在 stdout 打印最终 assistant 文本，并在轮次完成时以 0 退出，否则以 1 退出。到达 idle 边界时，运行器会等到 mux 消费方观察到会话的最终事件序号，再生成输出与退出原因。会话的 Web 宿主运行在 OS 分配的端口上并公布到 stderr，因此该次运行可在浏览器中观察。
 
 ## 插件管理
 

@@ -108,7 +108,7 @@ describe('SubagentCatalogAction', () => {
     }
     const view = render(<SubagentCatalogAction {...props(catalog(), {}, summaries)} />)
 
-    const trigger = screen.getByRole('button', { name: '3 个子代理，正在运行' })
+    const trigger = screen.getByRole('button', { name: '1 个子代理，正在运行' })
     expect(trigger.querySelector('[data-state="ongoing"]')).not.toBeNull()
 
     view.rerender(<SubagentCatalogAction {...props(catalog(), {}, {
@@ -322,7 +322,9 @@ describe('SubagentCatalogAction', () => {
     })) as Record<SessionId, SessionSummary>
     const input = props(catalog({ entries }), {}, summaries)
     render(<SubagentCatalogAction {...input} />)
-    fireEvent.click(screen.getByRole('button', { name: /9 个子代理/ }))
+    const trigger = screen.getByRole('button', { name: '1 个子代理，正在运行' })
+    expect(within(trigger).getByText('9 个子代理')).toBeTruthy()
+    fireEvent.click(trigger)
 
     const runningRow = screen.getByRole('treeitem', { name: /running.*4\.6K tok · 1分10秒/ })
     const runningMetrics = within(runningRow)
@@ -506,7 +508,8 @@ describe('SubagentCatalogAction', () => {
     const absent = props(undefined, {}, summaries)
     const view = render(<SubagentCatalogAction {...absent} />)
 
-    const trigger = screen.getByRole('button', { name: '2 个子代理，正在运行' })
+    const trigger = screen.getByRole('button', { name: '1 个子代理，正在运行' })
+    expect(within(trigger).getByText('2 个子代理')).toBeTruthy()
     fireEvent.click(trigger)
     expect(absent.setCatalogOpen).toHaveBeenCalledWith(PARENT, true)
     expect(screen.getAllByRole('treeitem', { name: '正在加载子代理' })).toHaveLength(2)
@@ -514,7 +517,7 @@ describe('SubagentCatalogAction', () => {
 
     const staleEmpty = props(catalog({ entries: [] }), {}, summaries)
     view.rerender(<SubagentCatalogAction {...staleEmpty} />)
-    expect(screen.getByRole('button', { name: '2 个子代理，正在运行' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '1 个子代理，正在运行' })).toBeTruthy()
     expect(screen.getAllByRole('treeitem', { name: '正在加载子代理' })).toHaveLength(2)
     expect(staleEmpty.openChild).not.toHaveBeenCalled()
   })

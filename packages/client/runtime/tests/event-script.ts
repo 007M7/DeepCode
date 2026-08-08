@@ -92,8 +92,19 @@ export const ev = {
     at(seq, { type: 'command/run', data: { commandId, name, args, source: { kind: 'user' } } }),
   commandRunWithoutInput: (seq: number, commandId: string, name: string): SessionEvent =>
     at(seq, { type: 'command/run', data: { commandId, name, source: { kind: 'user' } } }),
-  commandDone: (seq: number, commandId: string, kind: 'success' | 'error' = 'success', text?: string): SessionEvent =>
-    at(seq, { type: 'command/done', data: { commandId, kind, ...text === undefined ? {} : { text } } }),
+  commandDone: (
+    seq: number,
+    commandId: string,
+    kind: 'success' | 'error' = 'success',
+    text?: string,
+    sourceEventSeq?: number,
+  ): SessionEvent =>
+    at(seq, { type: 'command/done', data: {
+      commandId,
+      kind,
+      ...text === undefined ? {} : { text },
+      ...sourceEventSeq === undefined ? {} : { sourceEventSeq },
+    } }),
   /** A compaction's log-only `compact/summary` provenance record. */
   compactSummary: (seq: number, summary: string, start: number, end: number): SessionEvent =>
     at(seq, { type: 'compact/summary', data: {

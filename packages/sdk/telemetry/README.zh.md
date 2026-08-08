@@ -14,7 +14,7 @@
 
 Consent 由 `cordis.yml` 中的 telemetry 配置项承载，因此禁用 telemetry 就是禁用该配置项。telemetry 默认上报，只有已经存在的 telemetry 配置项被显式设为 `disabled` 时才关闭：缺少 `cordis.yml`（首次 `create`）、配置项已启用，或 `cordis.yml` 中没有 telemetry 配置项时都会上报。`DO_NOT_TRACK`／CI 始终拒绝。无配置与缺少配置项的默认值可以通过 `ConsentResolver` 配置。
 
-收集端点是固定常量（`DSH_TELEMETRY_ENDPOINT`）；发布前必须将其 `.invalid` 占位值替换为真实端点。
+收集端点是固定常量（`DSH_TELEMETRY_ENDPOINT`）；发布前必须将作为安全兜底的 `.invalid` 占位值替换为真实端点。
 
 ## 模型体验
 
