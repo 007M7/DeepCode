@@ -261,6 +261,60 @@ describe('prepared repository plugin Loader composition', () => {
     await ctx.fiber.dispose()
   })
 
+  it('mounts and removes tools discovered from a repository MCP server', async () => {
+    const root = await temporaryDirectory('mcp-loader-success')
+    const server = join(root, 'mcp-server.mjs')
+    await writeFile(server, [
+      "import { createInterface } from 'node:readline'",
+      'const lines = createInterface({ input: process.stdin })',
+      'for await (const line of lines) {',
+      '  const request = JSON.parse(line)',
+      "  if (!('id' in request)) continue",
+      '  let result',
+      "  if (request.method === 'initialize') {",
+      '    result = {',
+      '      protocolVersion: request.params.protocolVersion,',
+      '      capabilities: { tools: {} },',
+      "      serverInfo: { name: 'repository-fixture', version: '0.0.0' },",
+      '    }',
+      "  } else if (request.method === 'tools/list') {",
+      '    result = {',
+      '      tools: [{',
+      "        name: 'proof',",
+      "        description: 'Repository MCP proof.',",
+      "        inputSchema: { type: 'object', properties: {} },",
+      '      }],',
+      '    }',
+      '  } else {',
+      '    result = {}',
+      '  }',
+      "  process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, result })}\\n`)",
+      '}',
+      '',
+    ].join('\n'))
+    await writeFile(join(root, '.mcp.json'), JSON.stringify({
+      mcpServers: { online: { command: process.execPath, args: [server] } },
+    }))
+    const directory = await writePlugin(root, 'mcp-loader-success-fixture', { mcpServers: '../.mcp.json' })
+    await RepositoryPlugin.prepareDshPlugin(directory)
+
+    const ctx = new Context()
+    ctx.baseUrl = pathToFileURL(directory).href + '/'
+    await ctx.plugin(Loader)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(RepositoryPlugin)
+    const id = await ctx.loader.create({
+      name: pathToFileURL(join(directory, RepositoryPlugin.PREPARED_ENTRY_FILENAME)).href,
+    })
+    await ctx.loader.await()
+    expect(ctx.tools.get('mcp__online__proof')).toBeDefined()
+
+    await ctx.loader.remove(id)
+    expect(ctx.tools.get('mcp__online__proof')).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
   it('fails an MCP repository plugin load when its declared server cannot connect', async () => {
     const root = await temporaryDirectory('mcp-loader')
     await writeFile(join(root, '.mcp.json'), JSON.stringify({
