@@ -263,8 +263,8 @@ function ciPrimaryGates(): Gate[] {
     ...docSyncLeafGates(),
     pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
     pnpmScript('knip', 'knip'),
-    // typecheck and build now drive the same root solution graph; without the
-    // dependency two concurrent `tsc -b` runs race the same tsbuildinfo files.
+    // typecheck and build both drive the Host and Client tsc graphs; without
+    // the dependency concurrent runs race the same tsbuildinfo files.
     // The tsc step is an incremental no-op after typecheck.
     pnpmScript('build', 'build', { needs: ['typecheck'] }),
     pnpmScript('publint', 'publint', { needs: ['build'] }),

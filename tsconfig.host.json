@@ -104,6 +104,7 @@
     { "path": "./packages/typert/type-meta" },
     { "path": "./packages/typert/registry" },
     { "path": "./packages/api/gateway" },
+    { "path": "./packages/api/remotes/tsconfig.host.json" },
     { "path": "./packages/typert/loader" },
     { "path": "./packages/session-persistence/session-persistence" },
     { "path": "./packages/session-persistence/session-checkpoint-policy" },

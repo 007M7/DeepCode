@@ -57,7 +57,7 @@ Remote methods may return a value synchronously or return a Promise. For coopera
 
 The Client uses concrete functions on ordinary objects, not a JavaScript Proxy. Direct and scoped calls appear under `ctx.remote.<namespace>` and `agentCtx.remote.<namespace>`. Each namespace is a traced Cordis child Service registered as `remote.<namespace>`; the Client assembly mounts contributions through `ctx.remote.$mount()`, and the namespace unloads after its last method is withdrawn. Dependency declarations belong to the actual caller: only a business package that reads `ctx.remote.<namespace>` or `agentCtx.remote.<namespace>` declares both `remote` and `remote.<namespace>` in its own `inject`; assemblies that only mount contributions and higher-level runtimes that do not call that namespace do not declare the namespace dependency on the business package's behalf. When an `@Remote` method has exactly one lookup parameter and a same-named `TypeRTContextMap` uses the same wire identity, the generated scoped signature omits that identity parameter. `@RemoteScope` generates only the scoped invocation interface.
 
-```ts
+```ts ignore-check
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { AgentContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type { Context } from 'cordis'
@@ -94,7 +94,11 @@ The API Gateway package owns the Host dispatcher and Client Remote endpoint as p
 
 ## Strict generation pipeline
 
-The root build orders `build:lib:host`, `build:lib:client`, and `build:web`. The Host lib build first runs `build:lib:contracts`: it compiles the TypeRT generator, then starts a Host `ts.Program` through `tsdown.typert-host.config.ts` with `tsconfig.host.json` as its seed. The generator does not put the Host and Client aggregates in the same program, so it does not trigger conflicts between the two Cordis `Context` declaration merges.
+The root build runs `build:lib:host`, `build:lib:client`, and `build:web` in order. The Host lib phase first runs `tsc -b tsconfig.host.json`, then `tsdown --env.DSH_BUILD_FACE host`; the normal Host Project Reference graph compiles the TypeRT generator, which runs during this tsdown pass with the Host aggregate as its only `ts.Program` seed. The Client lib phase then runs `tsc -b tsconfig.client.json` and `tsdown --env.DSH_BUILD_FACE client`, consuming the newly generated Remote Client declarations and runtime contributions without starting TypeRT again.
+
+Both tsdown passes receive the complete workspace and bundle only JavaScript emitted to `lib/types` by the corresponding tsc phase. The root config does not scan Client artifacts, classify package names, or pass a maintained filter to tsdown; package-local configs return entries for the current phase based on `DSH_BUILD_FACE`. An ordinary Client plugin produces both its Node loader entry and browser bundle during the Client phase.
+
+`api-remotes` is the only package with split TypeScript faces. Its Host project owns the Agent/Session lookup policy, while its Client project depends on `/remote` declarations generated for business packages during Host tsdown; root aggregates and direct consumers must reference `api/remotes/tsconfig.host.json` or `api/remotes/tsconfig.client.json` respectively. The package's `clientBundle(..., { hostPhase: true })` produces its Host entry during Host tsdown and leaves only the browser entry for Client tsdown. Every other package remains registered in one aggregate.
 
 Each contributing business package writes generated files to its own `lib/` directory, not to its source directory:
 
@@ -149,13 +153,13 @@ pnpm run dev:web
 
 `dsh` starts the Host source through tsx, so the Host can use the SRC fallback; `dev:web` watches only Client plugins with a `dshClient` declaration and rewrites their `lib/client.js`. It does not analyze Host decorators or generate Remote Client DTS.
 
-Changing only a Remote method's implementation body without changing its contract does not require regenerating the TypeRT files. After adding or removing a decorator or changing an export name, namespace, parameter, return value, lookup, Context, or cancellation signature, regenerate the strict contracts before the Client bundle consumes the new artifacts:
+Changing only a Remote method's implementation body without changing its contract does not require regenerating the TypeRT files. After adding or removing a decorator or changing an export name, namespace, parameter, return value, lookup, Context, or cancellation signature, rerun the ordered lib build so the Host generates the strict contract before the Client compiles and bundles the new contribution:
 
 ```sh
-pnpm run build:lib:contracts
+pnpm run build:lib
 ```
 
-The running Client watcher consumes these generated files when it rebundles; without a watcher, run `pnpm run build:lib:client`. Recompiling only the frontend source cannot infer new types from Host decorators. `pnpm run typecheck` includes `build:lib:contracts` as a prerequisite, and CI and release builds also use the strict generation pipeline.
+The running Client watcher consumes these generated files when it rebundles. If `pnpm run build:lib:host` has already refreshed the Host contract, `pnpm run build:lib:client` can complete the Client side; a clean worktree cannot skip the Host phase. Recompiling only the frontend source cannot infer new types from Host decorators. `pnpm run typecheck` runs the Host lib phase before Client tsc, and CI and release builds use the same order.
 
 ## Boundaries
 

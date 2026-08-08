@@ -43,24 +43,39 @@ Setup is complete when `pnpm run typecheck` exits successfully.
 
 ### TypeScript project layout
 
-The repository typecheck runs the whole-repo `tsc -b` graph: it emits every package/vendor `lib/types` and checks examples, tests, and scripts through two no-emit aggregates.
-
-The repository's TypeScript configuration has exactly three roles; every tsconfig file plays one of them.
+The repository uses isolated Host and Client aggregates. An ordinary package is registered in exactly one aggregate: Host packages in `tsconfig.host.json` and Client packages in `tsconfig.client.json`.
 
 | File | Role | Forms a program? |
 |---|---|---|
-| `tsconfig.json` | Solution root: `extends` base, `files: []`, references to the two aggregates. The whole-repo `tsc -b tsconfig.json` graph, the tsserver discovery entry, and — through the inherited `paths` — the resolution config for tsx running `examples/` and `scripts/` (their nearest tsconfig is this file). | No |
-| `tsconfig.host.json` | Host aggregate: host-side packages (via references), examples, tests, scripts, website. Excludes `packages/client`. | Yes |
-| `tsconfig.client.json` | Client aggregate: `packages/client/*` packages and their tests, `apps/web`. | Yes |
+| `tsconfig.json` | Solution root: `extends` base, `files: []`, and references to the two aggregates. It is the tsserver discovery entry and the entry for explicitly running the complete Project Reference graph; through the inherited `paths`, it is also the resolution config for tsx running `examples/` and `scripts/`. | No |
+| `tsconfig.host.json` | Host aggregate: Host packages, examples, tests, scripts, website, and the exceptional Host project of `api/remotes`. | Yes |
+| `tsconfig.client.json` | Client aggregate: `packages/client/*` packages and their tests, `apps/web`, and the exceptional Client project of `api/remotes`. | Yes |
 | `tsconfig.base.json` | Shared compilerOptions and the source `paths` map. Also the resolution facade the vitest configs point vite-tsconfig-paths at: it has no `include`, so its `paths` apply to every importer. | No |
-| `tsconfig.base.client.json` | Browser compiler shape (`jsx`, DOM libs, `types: []`) extended by the client aggregate and every `packages/client/*` package. | No |
+| `tsconfig.base.client.json` | Browser compiler shape (`jsx`, DOM libs, `types: []`) extended by the Client aggregate and every `packages/client/*` package. | No |
 
-Host and client stay two aggregate programs because both sides declaration-merge the cordis `Context` interface under the same keys with different services; one program seeing both merges reports a collision. The collision exists only inside a `ts.Program` — module resolution never triggers it — which is why the solution may reference both aggregates and one paths facade may span both sides. Two disciplines follow:
+Host and Client stay two aggregate programs because both sides declaration-merge the cordis `Context` interface under the same keys with different services; one program seeing both merges reports a collision. The collision exists only inside a `ts.Program` — module resolution never triggers it — which is why the solution may reference both aggregates and one paths facade may span both sides. Three disciplines follow:
 
 - `tsconfig.base.json` never gains `include` or `files`: they would leak into every extending package project and narrow the facade's match-all scope.
-- A script that builds a repo-wide `ts.Program` seeds `tsconfig.host.json` or `tsconfig.client.json` explicitly — never the root solution, because flattening both aggregates into one program collides the `Context` merges. Program-backed generators and gates (`scripts/ts-project.ts` consumers, doc-typecheck standalone mode) are host-only by decision; the client side gains program-backed tooling only with a concrete need.
+- A script that builds a repo-wide `ts.Program` seeds `tsconfig.host.json` or `tsconfig.client.json` explicitly — never the root solution, because flattening both aggregates into one program collides the `Context` merges.
+- A new package is registered in exactly one aggregate. Having both a Node loader entry and a browser entry is not a reason to split a package; an ordinary Client plugin produces both runtime artifacts during the Client build phase.
 
-Static analysis and tests resolve workspace imports through the base `paths` map to `src` and must pass on a clean tree; gates that consume built `lib/` output declare that dependency explicitly. Decision record: [solution-root note](../.agents/notes/implemented/process/2026-07-22-tsconfig-solution-root-two-aggregates.md); the tsc-first emit pipeline is the [ts-build-config note](../.agents/notes/implemented/process/2026-06-17-ts-build-config.md).
+`api/remotes` is the repository's only package with split Host and Client tsconfigs. Its Host entry must participate in the Host TypeRT graph, while its Client entry imports `/remote` declarations that Host tsdown must generate first. The package-root `tsconfig.json` is therefore only a solution, and the two aggregates and direct consumers reference `tsconfig.host.json` or `tsconfig.client.json` respectively. The workspace `constraints` gate walks the reachable Project Reference graph and checks each referencing project's own compiler face: a single-config target remains valid from either face, while a split target must name the matching leaf rather than its solution root or opposite leaf. Do not copy this structure to other packages; see the [`api-remotes` README](../packages/api/remotes/README.md) for the complete boundary.
+
+The root build follows the generated dependency order:
+
+```sh
+tsc -b tsconfig.host.json
+tsdown --env.DSH_BUILD_FACE host
+tsc -b tsconfig.client.json
+tsdown --env.DSH_BUILD_FACE client
+pnpm run build:web
+```
+
+Both tsdown passes use the same complete workspace match. They neither scan build artifacts to discover Client packages nor maintain a Host/Client package filter list. Package-local tsdown configs select entries for the current phase through `DSH_BUILD_FACE`: an ordinary Client plugin produces both its Node loader and browser bundle during the Client phase; `api-remotes` uses `hostPhase: true` to produce its Host entry early and only its browser bundle during the Client phase. Tsdown consumes only the JavaScript emitted to `lib/types` by the preceding tsc phase.
+
+TypeRT runs only during Host tsdown, seeded by `tsconfig.host.json`. It analyzes Host types and generates both Host reflection artifacts and the Host-for-Client Remote projection; Client tsdown does not start TypeRT. Consequently, `pnpm run typecheck` runs the complete Host lib phase before Client tsc, while `pnpm run build` continues through Client tsdown and the Web build. The [API Remotes generated-contract build note](../.agents/notes/implemented/process/2026-08-08-api-remotes-generated-contract-build.md) records this ordering decision.
+
+Static analysis and tests resolve workspace imports through the base `paths` map to `src` and must pass on a clean tree; gates that consume built `lib/` output declare that dependency explicitly. See the [solution-root note](../.agents/notes/implemented/process/2026-07-22-tsconfig-solution-root-two-aggregates.md) for the two-aggregate topology and the [ts-build-config note](../.agents/notes/implemented/process/2026-06-17-ts-build-config.md) for tsc-first emit ownership.
 
 Business services declare callable methods on the Host with `@Remote` or `@RemoteScope`; the Host build generates Host-for-Client types and runtime contributions, and the Client's `api-remotes` composition loads those contributions under `ctx.remote` and scoped `agentCtx.remote` namespaces. See [API Gateway](api-gateway.md) for the generated artifacts on both sides, their assembly relationships, the SRC development fallback, and the Web build order.
 
