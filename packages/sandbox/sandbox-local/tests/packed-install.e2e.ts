@@ -23,6 +23,10 @@ const repoRoot = fileURLToPath(new URL('../../../..', import.meta.url))
 /** The closure the consumer needs: the package and its transitive `@deepseek-ai` peers; the launcher family arrives from the registry. */
 const WORKSPACE_CLOSURE = [
   'packages/sandbox/sandbox-local',
+  // sandbox-local's win32 chain rung is a runtime dependency: a packed
+  // consumer resolves it like any other @deepseek-ai peer (koffi arrives
+  // from the registry).
+  'packages/sandbox/sandbox-windows-acl',
   'packages/sandbox/sandbox',
   'packages/llm/llm',
   'packages/util/brand',
