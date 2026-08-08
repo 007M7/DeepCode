@@ -11,7 +11,7 @@ import ts from 'typescript'
 
 /**
  * Parse every file matching `pattern` (repo-relative, sorted, `/`-normalized)
- * that textually mentions `interface Context`, yielding each file's cordis
+ * that textually contains a cordis module merge, yielding each file's
  * module-merge body. Files without a merge are skipped.
  * @param scanRoot - Repository root the pattern is resolved against.
  * @param pattern - Glob selecting the TypeScript files to scan.
@@ -25,7 +25,7 @@ export function contextMergeFiles(
   for (const rel of globSync(pattern, { cwd: scanRoot }).map(s => s.split(sep).join('/')).sort()) {
     const abs = resolve(scanRoot, rel)
     const text = readFileSync(abs, 'utf8')
-    if (!text.includes('interface Context')) continue
+    if (!text.includes("declare module 'cordis'") && !text.includes("declare module './context.ts'")) continue
     const sf = ts.createSourceFile(abs, text, ts.ScriptTarget.Latest, true)
     const body = cordisModuleBody(sf)
     if (!body) continue
@@ -63,4 +63,27 @@ export function contextKeyMap(body: ts.ModuleBlock, sf: ts.SourceFile): Map<stri
     }
   }
   return keyToType
+}
+
+/**
+ * Every event name a `declare module 'cordis'` Events merge declares in one
+ * module body. Names are the literal member keys (`'agent/created'`), read
+ * from method and property members alike so a declaration shape the projector
+ * would reject still enters the exhaustiveness scan.
+ * @param body - The cordis module augmentation block.
+ * @param sf - Owning source file (for computed-name text extraction).
+ * @returns Declared event names, in declaration order.
+ */
+export function eventNameList(body: ts.ModuleBlock, sf: ts.SourceFile): string[] {
+  const names: string[] = []
+  for (const stmt of body.statements) {
+    if (!ts.isInterfaceDeclaration(stmt) || stmt.name.text !== 'Events') continue
+    for (const member of stmt.members) {
+      if (!member.name) continue
+      names.push(ts.isStringLiteral(member.name) || ts.isIdentifier(member.name)
+        ? member.name.text
+        : member.name.getText(sf))
+    }
+  }
+  return names
 }
