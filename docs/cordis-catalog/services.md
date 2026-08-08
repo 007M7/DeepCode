@@ -483,7 +483,7 @@ async execute( agent: Agent, line: string, signal: AbortSignal, ): Promise<Comma
 
 Types: [Agent](../core-data-structures/core.md) · [CommandDefinition](../core-data-structures/commands.md) · [CommandDescriptor](../core-data-structures/commands.md)
 
-Source: [`packages/ui/commands/src/index.ts:286`](../../packages/ui/commands/src/index.ts)
+Source: [`packages/ui/commands/src/index.ts:305`](../../packages/ui/commands/src/index.ts)
 
 ## `ctx.compact` — `CompactService` (abstract seam)
 
@@ -1341,7 +1341,7 @@ abstract listSnapshots(signal?: AbortSignal): Promise<SessionPersistenceSnapshot
 
 Types: [SessionEvent](../core-data-structures/core.md) · [SessionHeader](../core-data-structures/persistence.md) · [SessionId](../core-data-structures/core.md) · [SessionInspection](../core-data-structures/persistence.md) · [SessionLocation](../core-data-structures/persistence.md) · [SessionPersistenceSnapshot](../core-data-structures/persistence.md) · [SessionPreparation](../core-data-structures/persistence.md)
 
-Source: [`packages/session-persistence/session-persistence/src/index.ts:70`](../../packages/session-persistence/session-persistence/src/index.ts)
+Source: [`packages/session-persistence/session-persistence/src/index.ts:72`](../../packages/session-persistence/session-persistence/src/index.ts)
 
 ## `ctx.sessionProjectionCache` — `SessionProjectionCache`
 
@@ -1978,7 +1978,7 @@ async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefiniti
 
 Types: [SkillCatalogSnapshot](../core-data-structures/skills.md) · [SkillDefinition](../core-data-structures/skills.md) · [SkillLookupOptions](../core-data-structures/skills.md) · [SkillProvider](../core-data-structures/skills.md) · [SkillProviderControl](../core-data-structures/skills.md) · [SkillRegistration](../core-data-structures/skills.md) · [SkillSummary](../core-data-structures/skills.md)
 
-Source: [`packages/skill/skill/src/index.ts:209`](../../packages/skill/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:304`](../../packages/skill/skill/src/index.ts)
 
 ## `ctx.spillStore` — `SpillStore` (abstract seam)
 
@@ -2659,8 +2659,17 @@ registerProvider(provider: UserInteractionProvider): () => void
 /**
  * Ask the active UI provider and wait for the user's answer.
  *
+ * When a caller supplies an agent, human interaction is valid only for the
+ * exact live runtime root. Runtime ownership, not durable session lineage,
+ * decides this boundary: an owned child has no human answerer and would
+ * block forever, while a lineage-bearing session resumed as a new runtime
+ * root may ask normally.
+ *
  * @param request Questions, owner agent, and abort signal.
  * @returns The answer chosen or typed by the human.
+ * @throws {UserInteractionError} code `CALLER_NOT_LIVE` when a supplied
+ *   agent is not the registry's exact live instance, or `DELEGATED_CALLER`
+ *   when that live agent is owned by another agent.
  */
 async ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer>
 ```

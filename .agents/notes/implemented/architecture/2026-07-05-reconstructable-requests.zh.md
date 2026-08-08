@@ -53,4 +53,3 @@ Status: implemented
 - 工具结果裁剪（计划中）无需新机制：一个已记录的单条目 surface replace（`start === end`），携带同一 `callId` 下裁剪后的 `tool/result`——属压缩家族，回放正确，缓存击穿由相同的压力逻辑批量处理。
 - 会话日志每个循环实例增长一个 `request/header` 快照，并在真正变更时增加快照。它比 delta 编解码器更大，但相对分片密集型日志仍然很小，并只保留一种回放表示。`SESSION_FORMAT_VERSION` 保持 `0`；旧的 delta 事件被拒绝而非迁移。
 - 快照预期输出变更一次（每个 transcript（文本记录）增加其 header 事件）；写入文件系统的 fixture（测试前置数据）以规范化的撰写形式存储，工具参数使用 cwd 相对路径，因为回放只对 cwd 无关的参数路径做往返。
-- FIXME(call-config-shape)：重新审视 `LlmCallConfig` 的确切字段集——哪些字段对缓存而言真正属于 epoch 级别（`model` 毫无疑问；采样标量出于谨慎放在那里），以及当适配器需要时，提供方特定的额外项（推理（reasoning）选项、额外 body 参数）应归属何处。

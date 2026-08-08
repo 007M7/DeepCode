@@ -2,10 +2,9 @@
 // assistant narration, tool summary rows grouped into step runs, pending
 // cards, paging, and bottom-follow. Session stats live on
 // 'conversation.composer.dock' (sticky with the composer). Pure component
-// registered directly; its registration declares the keyed
-// 'conversation.chat.toolview' hole, so tool rows render through the props
-// renderSlot share (entryKey = tool name, GenericToolCard as the render-site
-// fallback).
+// registered directly; its registration declares the whole-Tool
+// 'conversation.chat.tool' seat. ui-tool owns root/subcall composition and
+// keyed per-tool dispatch behind that boundary.
 //
 // Scroll: when nested under `[data-conversation-scroll]` (active conversation
 // column), that host is the scrollport and this view is flow content; when
@@ -25,15 +24,15 @@ import {
   memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode,
 } from 'react'
 import type {
-  CodeSubCall, CommandNode, ConversationNode, ConversationSnapshot, RunningToolCall, ToolResultNode,
+  CommandNode, ConversationNode, ConversationSnapshot, RunningToolCall, ToolResultNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import { IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatViewSlotProps } from '../contract/slots.ts'
 import { assistantActionsSeqs, assistantBranchSeqs, deriveChatFlow, runningTurnStartTime, type ChatFlowItem } from './chat-flow.ts'
 import { AssistantMarkdown } from './AssistantMarkdown.tsx'
+import { CompactionCommandCard } from './CompactionCommandCard.tsx'
 import { GenericCommandCard } from './GenericCommandCard.tsx'
-import { GenericToolCard } from './GenericToolCard.tsx'
 import { MessageItem, PendingSteeringBubble } from './MessageItem.tsx'
 import type { ImageLoader } from './MessageImage.tsx'
 import { formatRunDuration } from './message-chrome.ts'
@@ -104,8 +103,8 @@ type OpenFile = (path: string) => void
 
 type InspectCall = (callId: string) => void
 
-/** The declared toolview hole's render share (stable framework binding, passed through memoized rows). */
-type RenderToolRow = ChatViewSlotProps['renderSlot']
+/** Declared child-slot render share (stable framework binding). */
+type RenderChatSlot = ChatViewSlotProps['renderSlot']
 
 type ChatScrollPosition = NonNullable<ReturnType<ChatViewSlotProps['chatScroll']['read']>>
 
@@ -136,129 +135,49 @@ function scrollPosition(list: HTMLElement, scrollport: HTMLElement): ChatScrollP
   }
 }
 
-/** One `run_code` sub-dispatch row: the identical keyed-slot dispatch as a
- *  top-level call (same registrations, same fallback), nested by the parent.
- *  A started-but-unsettled sub-call arrives as the RunningToolCall shape and
- *  renders the running state exactly as a native in-flight row. */
-const SubCallRow = memo(function SubCallRow({ renderSlot, node, openFile, selected, cwd, inspectCall, t }: {
-  renderSlot: RenderToolRow
-  node: CodeSubCall
-  openFile: OpenFile
-  selected: boolean
-  cwd: string | undefined
-  inspectCall: InspectCall
-  t: ChatViewSlotProps['t']
-}) {
-  const settled = 'kind' in node
-  const toolName = settled ? node.call?.name ?? '' : node.name
-  const owner = useMemo(() => ({
-    callId: node.callId, toolName, block: node, openFile, cwd,
-    inspect: () => { inspectCall(node.callId) },
-  }), [node, toolName, openFile, cwd, inspectCall])
-  return (
-    <div
-      className={css.callRow}
-      data-chat-anchor-key={`call:${node.callId}`}
-      data-chat-call-id={node.callId}
-      data-selected={selected || undefined}
-    >
-      {renderSlot('conversation.chat.toolview', owner, {
-        entryKey: toolName,
-        fallback: <GenericToolCard {...owner} t={t} />,
-      })}
-    </div>
-  )
-})
-
-/** One tool call row (result or running): dispatches through the keyed
- *  toolview slot with the owner payload; unregistered tools fall back to
- *  GenericToolCard at this render site. A `run_code` call additionally
- *  renders its logged sub-dispatches as always-visible indented rows —
- *  each one the same keyed-slot dispatch as a native top-level call. */
-const CallRow = memo(function CallRow({
-  renderSlot, callId, toolName, block, openFile, selected, subCalls, selectedCallId, cwd, inspectCall, t,
+/** One ordered root Tool call handed intact to the Tool presentation plugin. */
+const ToolSeat = memo(function ToolSeat({
+  renderSlot, callId, toolName, block, openFile, selectedCallId, cwd, inspectCall,
 }: {
-  renderSlot: RenderToolRow
+  renderSlot: RenderChatSlot
   callId: string
   toolName: string
   block: ToolResultNode | RunningToolCall
   openFile: OpenFile
-  selected: boolean
-  /** `run_code` sub-dispatches in dispatch order (reference-stable per
-   *  parent; running entries settle in place); undefined for ordinary calls. */
-  subCalls?: readonly CodeSubCall[] | undefined
-  /** The store's selected callId, matched against sub-rows (undefined when no sub-row here is selected). */
   selectedCallId?: string | undefined
-  /** Session workspace root for path-relative summaries. */
   cwd: string | undefined
   inspectCall: InspectCall
-  t: ChatViewSlotProps['t']
 }) {
   const owner = useMemo(() => ({
-    callId, toolName, block, openFile, cwd,
-    inspect: () => { inspectCall(callId) },
-  }), [callId, toolName, block, openFile, cwd, inspectCall])
-  return (
-    <div
-      className={css.callRow}
-      data-chat-anchor-key={`call:${callId}`}
-      data-chat-call-id={callId}
-      data-selected={selected || undefined}
-    >
-      {renderSlot('conversation.chat.toolview', owner, {
-        entryKey: toolName,
-        fallback: <GenericToolCard {...owner} t={t} />,
-      })}
-      {subCalls !== undefined && subCalls.length > 0 && (
-        <div className={css.subCalls} data-subcalls>
-          {subCalls.map(node => (
-            <SubCallRow
-              key={node.callId}
-              renderSlot={renderSlot}
-              node={node}
-              openFile={openFile}
-              selected={node.callId === selectedCallId}
-              cwd={cwd}
-              inspectCall={inspectCall}
-              t={t}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  )
+    callId, toolName, block, selectedCallId, cwd, openFile, inspectCall,
+  }), [callId, toolName, block, selectedCallId, cwd, openFile, inspectCall])
+  return renderSlot('conversation.chat.tool', owner)
 })
 
 /** Consecutive tool results as one step-run group (uniform 16px rhythm). */
-const ToolGroup = memo(function ToolGroup({ renderSlot, results, openFile, selectedCallId, codeDispatches, cwd, inspectCall, t }: {
-  renderSlot: RenderToolRow
+const ToolGroup = memo(function ToolGroup({ renderSlot, results, openFile, selectedCallId, cwd, inspectCall }: {
+  renderSlot: RenderChatSlot
   results: readonly ToolResultNode[]
   openFile: OpenFile
-  /** Only set when the selected call lives in THIS group, top-level or nested (memo economy). */
+  /** Tool ownership resolves whether the selection is this root or one of its children. */
   selectedCallId: string | undefined
-  /** Sub-dispatch index off the snapshot (map reference is chunk-storm stable). */
-  codeDispatches: ReadonlyMap<string, readonly CodeSubCall[]>
   /** Session workspace root for path-relative summaries. */
   cwd: string | undefined
   inspectCall: InspectCall
-  t: ChatViewSlotProps['t']
 }) {
   return (
     <div className={css.toolGroup}>
       {results.map(node => (
-        <CallRow
+        <ToolSeat
           key={node.callId}
           renderSlot={renderSlot}
           callId={node.callId}
           toolName={node.call?.name ?? ''}
           block={node}
           openFile={openFile}
-          selected={node.callId === selectedCallId}
-          subCalls={codeDispatches.get(node.callId)}
           selectedCallId={selectedCallId}
           cwd={cwd}
           inspectCall={inspectCall}
-          t={t}
         />
       ))}
     </div>
@@ -268,17 +187,21 @@ const ToolGroup = memo(function ToolGroup({ renderSlot, results, openFile, selec
 /** One command lifecycle row: keyed dispatch on the command name with the
  *  generic card as the render-site fallback (zero registration required). A
  *  run-less cross-window node has no name and always lands on the fallback. */
-const CommandRow = memo(function CommandRow({ renderSlot, node, t }: {
-  renderSlot: RenderToolRow
+const CommandRow = memo(function CommandRow({ renderSlot, node, compaction, t }: {
+  renderSlot: RenderChatSlot
   node: CommandNode
+  compaction?: Extract<ConversationNode, { kind: 'compaction' }>
   t: ChatViewSlotProps['t']
 }) {
-  const owner = useMemo(() => ({ node }), [node])
+  const owner = useMemo(() => ({ node, ...compaction === undefined ? {} : { compaction } }), [compaction, node])
+  const fallback = node.name === 'compact'
+    ? <CompactionCommandCard {...owner} t={t} />
+    : <GenericCommandCard {...owner} t={t} />
   return (
     <div className={css.callRow}>
       {renderSlot('conversation.chat.commandview', owner, {
         entryKey: node.name ?? '',
-        fallback: <GenericCommandCard {...owner} t={t} />,
+        fallback,
       })}
     </div>
   )
@@ -333,8 +256,8 @@ function StreamingTail({ useSession, loadImage, t }: {
 }
 
 /**
- * The chat view slot entry: pure component over the composed props (tool rows
- * render through the declared keyed hole's renderSlot share).
+ * The chat view slot entry: pure component over the composed props; each
+ * ordered root Tool call crosses the declared whole-Tool render seat.
  */
 export function ChatView({
   useSession, useSessions, useStore, renderSlot, renderSlotChain, sessionId, openFile, loadOlder,
@@ -348,7 +271,6 @@ export function ChatView({
   const cwd = useSessions(s => s.byId[sessionId]?.cwd)
   const running = useSession(s => s.running)
   const runningCalls = useSession(s => s.runningCalls)
-  const codeDispatches = useSession(s => s.codeDispatches)
   const openState = useSession(s => s.openState)
   const openError = useSession(s => s.openError)
   const hasMore = useSession(s => s.hasMore)
@@ -567,18 +489,23 @@ export function ChatView({
 
   const renderItem = (item: ChatFlowItem): ReactNode => {
     if (item.kind === 'tool-group') {
-      const inGroup = selectedCallId !== undefined
-        && item.results.some(r => r.callId === selectedCallId
-          || codeDispatches.get(r.callId)?.some(sub => sub.callId === selectedCallId) === true)
       return (
         <ToolGroup
           renderSlot={renderSlot}
           results={item.results}
           openFile={openFile}
-          selectedCallId={inGroup ? selectedCallId : undefined}
-          codeDispatches={codeDispatches}
+          selectedCallId={selectedCallId}
           cwd={cwd}
           inspectCall={inspectCall}
+        />
+      )
+    }
+    if (item.kind === 'command-compaction') {
+      return (
+        <CommandRow
+          renderSlot={renderSlot}
+          node={item.command}
+          compaction={item.compaction}
           t={t}
         />
       )
@@ -647,9 +574,17 @@ export function ChatView({
             <div
               key={item.key}
               className={css.flowItem}
-              data-chat-anchor-key={item.kind === 'node' ? `node:${String(item.node.seq)}` : undefined}
+              data-chat-anchor-key={item.kind === 'node'
+                ? `node:${String(item.node.seq)}`
+                : item.kind === 'command-compaction'
+                  ? `node:${String(item.compaction.seq)}`
+                  : undefined}
               data-chat-flow-key={item.key}
-              data-chat-flow-kind={item.kind === 'node' ? item.node.kind : 'tool-group'}
+              data-chat-flow-kind={item.kind === 'node'
+                ? item.node.kind
+                : item.kind === 'command-compaction'
+                  ? item.kind
+                  : 'tool-group'}
             >
               {renderItem(item)}
             </div>
@@ -658,19 +593,16 @@ export function ChatView({
           {runningCalls.length > 0 && (
             <div className={css.toolGroup}>
               {runningCalls.map(call => (
-                <CallRow
+                <ToolSeat
                   key={call.callId}
                   renderSlot={renderSlot}
                   callId={call.callId}
                   toolName={call.name}
                   block={call}
                   openFile={openFile}
-                  selected={call.callId === selectedCallId}
-                  subCalls={codeDispatches.get(call.callId)}
                   selectedCallId={selectedCallId}
                   cwd={cwd}
                   inspectCall={inspectCall}
-                  t={t}
                 />
               ))}
             </div>

@@ -46,6 +46,7 @@ export {
 export {
   defineAcpSnapshotSuite,
   refreshFixtureReplacements,
+  stabilizeFixtureMessageIds,
   stabilizeRefreshLog,
   type Scenario,
   type SnapshotSuiteOptions,

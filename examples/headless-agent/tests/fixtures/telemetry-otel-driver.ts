@@ -10,8 +10,8 @@ import { writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { once } from 'node:events'
 import { boot, resolveConfigPath } from '@deepseek-ai/dsh-app-boot'
-import { runOneShot } from '@deepseek-ai/dsh-cli-demo/src/cli.ts'
 import { recordFeedback } from '@deepseek-ai/dsh-command-feedback'
+import { runFixtureTurn } from '@deepseek-ai/dsh-loader-smoke'
 
 const configPath = process.argv[2]
 if (configPath === undefined) throw new Error('telemetry-otel driver requires a config path')
@@ -35,14 +35,14 @@ const ctx = await boot('telemetry-otel-e2e', resolveConfigPath(configPath, undef
 try {
   // The fixture credential rides the model-visible user message; the exported
   // copy must scrub it while the canonical log keeps the original bytes.
-  await runOneShot(ctx, { task: 'prove telemetry with key sk-e2efixture1234567890' })
+  await runFixtureTurn(ctx, { task: 'prove telemetry with key sk-e2efixture1234567890' })
   const mode = process.env.DSH_TELEMETRY_E2E_MODE ?? 'FULL'
   if (mode !== 'FULL') {
     const [agent] = ctx.get('agents')?.roots() ?? []
     if (agent === undefined) throw new Error('telemetry-otel driver requires one root agent')
     recordFeedback(agent.session, 'fixture feedback')
     if (mode === 'FEEDBACK_ONLY') {
-      await runOneShot(ctx, { task: 'post-feedback private suffix' })
+      await runFixtureTurn(ctx, { task: 'post-feedback private suffix' })
     }
   }
 } finally {

@@ -12,7 +12,7 @@ import {
   LAUNCHER_FAILURE_EXIT,
   launcherPath as landlockLauncherPath,
   probe as defaultProbeLandlock,
-} from 'node-addon-landlock-run'
+} from '@deepseek-ai/node-addon-landlock-run'
 import { Context } from 'cordis'
 import z from 'schemastery'
 import { assertNever } from '@deepseek-ai/dsh-llm'

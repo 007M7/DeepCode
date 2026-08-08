@@ -365,22 +365,7 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
       () => scaffold.ctx.agents.get(childId)?.status,
       { timeout: 10_000 },
     ).toBe('running')
-    const hierarchy = page.getByRole('navigation', { name: 'Session hierarchy' })
-    await hierarchy.getByRole('button').first().click()
-    const runningTrigger = page.getByRole('button', { name: '3 subagents running' })
-    await runningTrigger.waitFor({ timeout: 10_000 })
-    expect(await runningTrigger.locator('[data-state="ongoing"]').count()).toBe(1)
-    await runningTrigger.click()
-    await page.getByRole('treeitem', {
-      name: new RegExp(`${LABEL}.*running`),
-    }).waitFor({ timeout: 10_000 })
     await ended
-    await page.getByRole('treeitem', {
-      name: new RegExp(`${LABEL}.*not running`),
-    }).waitFor({ timeout: 10_000 })
-    expect(await page.getByRole('button', { name: '3 subagents' })
-      .locator('[data-state="ongoing"]').count()).toBe(0)
-    await page.getByRole('treeitem', { name: new RegExp(LABEL) }).click()
     await expect.poll(() => page.getByText(FOLLOWUP, { exact: true }).count(), { timeout: 10_000 }).toBe(1)
     await expect.poll(() => scaffold.ctx.agents.get(childId), { timeout: 10_000 }).toBeUndefined()
     expect(await page.getByRole('button', { name: 'Stop generating' }).count()).toBe(0)

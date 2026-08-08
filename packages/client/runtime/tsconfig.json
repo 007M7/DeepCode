@@ -24,9 +24,6 @@
       "path": "../connection"
     },
     {
-      "path": "../../api/remotes"
-    },
-    {
       "path": "../../host/apiproxy"
     },
     {

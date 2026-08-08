@@ -10,6 +10,7 @@
  */
 
 import { Context, Service } from 'cordis'
+import { assertNever } from '@deepseek-ai/dsh-llm'
 import z from 'schemastery'
 import type Schema from 'schemastery'
 
@@ -18,6 +19,9 @@ const DEFAULT_COLLECT_CACHE_ENTRIES = 128
 const MAX_COLLECT_ATTEMPTS = 2
 const RUNTIME_PROVIDER = 'runtime'
 const RUNTIME_RANK = 250
+
+/** Standard precedence rank for packaged skill providers and local bundled roots. */
+export const BUNDLED_SKILL_RANK = 600
 
 /**
  * Return whether a string is a valid kebab-case skill name.
@@ -117,6 +121,97 @@ export function isModelInvocable(skill: Pick<SkillSummary, 'invocation'>): boole
  */
 export function isUserInvocable(skill: Pick<SkillSummary, 'invocation'>): boolean {
   return skill.invocation.userInvocable
+}
+
+/**
+ * Durable source for the context message a user-explicit skill invocation
+ * injects: the user's own words ride a plain user message, and the rendered
+ * skill body follows as injected `instructions`-form context carrying this
+ * source, so transcript consumers present the injection from metadata
+ * instead of re-parsing the model-facing text.
+ */
+export interface SkillInvocationSource {
+  readonly kind: 'skill-invocation'
+  /** Invoked skill name, validated user-invocable at the injecting boundary. */
+  readonly name: string
+  /** Injected skill bodies are instructions for the model to follow. */
+  readonly form: 'instructions'
+}
+
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    /** A user-explicit skill invocation injected by the host. */
+    'skill-invocation': SkillInvocationSource
+  }
+}
+
+/**
+ * Render one loaded skill for the model. The output is shared verbatim by the
+ * `skill` tool result and the user-explicit invocation injection, so the model
+ * sees one canonical `<skill_content>` shape on both paths. The name rides an
+ * escaped attribute; the body is embedded verbatim (skills are trusted local
+ * content, and user-supplied invocation text stays outside this wrapper).
+ * @param skill - name, provider, optional resource base, and body to render.
+ * @returns the complete model-facing `<skill_content>` block.
+ */
+export function renderSkillContent(skill: Pick<SkillDefinition, 'name' | 'provider' | 'resourceBase' | 'content'>): string {
+  const resourceHint = renderResourceHint(skill)
+  return [
+    `<skill_content name="${escapeAttr(skill.name)}">`,
+    '<skill_resources>',
+    ...resourceHint,
+    '</skill_resources>',
+    '',
+    '<skill_instructions>',
+    skill.content,
+    '</skill_instructions>',
+    '</skill_content>',
+  ].join('\n')
+}
+
+function renderResourceHint(skill: Pick<SkillDefinition, 'provider' | 'resourceBase'>): string[] {
+  const base = skill.resourceBase
+  if (base === undefined) {
+    return [
+      `Resources for this skill are managed by provider "${escapeText(skill.provider)}".`,
+      'Load referenced resources only as needed.',
+    ]
+  }
+  switch (base.kind) {
+    case 'directory':
+      return [
+        `Base directory for this skill: ${escapeText(base.path)}`,
+        'Resolve relative paths mentioned by this skill against the base directory before using them. Load referenced resources only as needed.',
+      ]
+    case 'url':
+      return [
+        `Base URL for this skill: ${escapeText(base.url)}`,
+        'Resolve relative URLs mentioned by this skill against the base URL before using them. Load referenced resources only as needed.',
+      ]
+    case 'opaque':
+      return [
+        `Resources for this skill: ${escapeText(base.description)}`,
+        'Load referenced resources only as needed.',
+      ]
+    /* v8 ignore start -- SkillResourceBase is a closed union; a future kind must fail compilation here. */
+    default:
+      return assertNever(base, 'SkillResourceBase.kind')
+    /* v8 ignore stop */
+  }
+}
+
+function escapeAttr(value: string): string {
+  return value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;')
+}
+
+/**
+ * Escape model-facing prose embedded inside skill markup so provider-supplied
+ * text cannot open or close framing tags.
+ * @param value - raw prose to embed.
+ * @returns the escaped text.
+ */
+export function escapeText(value: string): string {
+  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
 }
 
 /** One catalog observation plus whether discovery completed within a stable catalog revision. */

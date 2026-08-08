@@ -71,6 +71,7 @@
     "@deepseek-ai/dsh-session-title-first-message-llm": "workspace:^",
     "@deepseek-ai/dsh-settings-local": "workspace:^",
     "@deepseek-ai/dsh-skill": "workspace:^",
+    "@deepseek-ai/dsh-skill-badge": "workspace:^",
     "@deepseek-ai/dsh-skill-local": "workspace:^",
     "@deepseek-ai/dsh-spill-local": "workspace:^",
     "@deepseek-ai/dsh-spill-policy": "workspace:^",

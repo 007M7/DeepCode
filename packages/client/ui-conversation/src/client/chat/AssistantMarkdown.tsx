@@ -12,14 +12,12 @@
 import { memo, useMemo } from 'react'
 import type { AssistantBlock } from '@deepseek-ai/dsh-client-runtime/client'
 import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
-import {
-  IconThinkOutline14, JsonBlock, MarkdownText,
-} from '@deepseek-ai/dsh-client-ui-primitives'
+import { JsonBlock, MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatViewSlotProps, TurnTailOwnerProps } from '../contract/slots.ts'
 import { hasContentText } from './chat-flow.ts'
 import { MessageIconActions } from './MessageIconActions.tsx'
-import { ToolRow } from './ToolRow.tsx'
 import { ImageGallery, type ImageLoader } from './MessageImage.tsx'
+import { ReasoningRow } from './ReasoningRow.tsx'
 import css from './AssistantMarkdown.module.css'
 
 export interface AssistantMarkdownProps {
@@ -52,18 +50,6 @@ export interface AssistantMarkdownProps {
   t: ChatViewSlotProps['t']
 }
 
-function firstLine(text: string): string {
-  const nl = text.indexOf('\n')
-  return nl === -1 ? text : text.slice(0, nl)
-}
-
-/** Latest non-blank reasoning line while the block is still streaming. */
-function latestLine(text: string): string {
-  const visible = text.trimEnd()
-  const nl = visible.lastIndexOf('\n')
-  return nl === -1 ? visible : visible.slice(nl + 1)
-}
-
 /** Joined text blocks for the copy action (reasoning / tool heads stay out). */
 function copyText(blocks: readonly AssistantBlock[]): string {
   const parts: string[] = []
@@ -74,20 +60,6 @@ function copyText(blocks: readonly AssistantBlock[]): string {
 }
 
 /** Reasoning block as the Think variant summary row (figma 39:28304). */
-function ThinkRow({ text, running, t }: { text: string; running: boolean; t: AssistantMarkdownProps['t'] }) {
-  return (
-    <ToolRow
-      t={t}
-      variant="think"
-      icon={<IconThinkOutline14 size={14} />}
-      title="Think"
-      summary={running ? latestLine(text) : firstLine(text)}
-      body={text}
-      state={running ? 'running' : 'ok'}
-    />
-  )
-}
-
 export const AssistantMarkdown = memo(function AssistantMarkdown({
   blocks, streaming, interrupted, loadImage, time, runMs, ttftMs, tokensPerSecond,
   seq, onFork, forkUnavailable, turnTail, t,
@@ -114,7 +86,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
             case 'text': return (
               <MarkdownText key={i} text={block.text} streaming={streaming} codeLabels={codeLabels} />
             )
-            case 'reasoning': return <ThinkRow key={i} text={block.text} running={streaming && i === last} t={t} />
+            case 'reasoning': return <ReasoningRow key={i} text={block.text} running={streaming && i === last} t={t} />
             case 'image': return <ImageGallery key={i} images={[block]} load={imageLoader} align="start" t={t} />
             // Grouped into tool rows by ChatView; hasVisible above skips an empty shell.
             case 'tool-call': return null

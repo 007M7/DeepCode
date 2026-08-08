@@ -200,12 +200,18 @@ Source: [`packages/core/session/src/types.ts:245`](../packages/core/session/src/
 /**
  * The paired command settled. `kind`/`text` carry the handler's verbatim
  * outcome (a thrown/aborted handler settles as `kind: 'error'` with the
- * rendered failure); presentation stays client-computed at render time.
+ * rendered failure). A successful command may identify the earlier
+ * authoritative domain event for a richer client-computed presentation.
  */
-'command/done': { commandId: CommandId; kind: 'success' | 'error'; text?: string }
+'command/done': {
+  commandId: CommandId
+  kind: 'success' | 'error'
+  text?: string
+  sourceEventSeq?: number
+}
 ```
 
-Source: [`packages/ui/commands/src/index.ts:145`](../packages/ui/commands/src/index.ts)
+Source: [`packages/ui/commands/src/index.ts:151`](../packages/ui/commands/src/index.ts)
 
 #### `command/run` — log-only
 
@@ -223,7 +229,7 @@ Source: [`packages/ui/commands/src/index.ts:145`](../packages/ui/commands/src/in
 'command/run': { commandId: CommandId; name: string; args?: string; source: CommandSource }
 ```
 
-Source: [`packages/ui/commands/src/index.ts:139`](../packages/ui/commands/src/index.ts)
+Source: [`packages/ui/commands/src/index.ts:144`](../packages/ui/commands/src/index.ts)
 
 ### `compact/*`
 
@@ -237,7 +243,7 @@ Source: [`packages/ui/commands/src/index.ts:139`](../packages/ui/commands/src/in
 'compact/end': { turn: number | null; error?: string }
 ```
 
-Source: [`packages/compact/compact/src/types.ts:54`](../packages/compact/compact/src/types.ts)
+Source: [`packages/compact/compact/src/types.ts:65`](../packages/compact/compact/src/types.ts)
 
 #### `compact/prune` — log-only
 
@@ -261,7 +267,7 @@ Source: [`packages/compact/compact/src/types.ts:54`](../packages/compact/compact
 }
 ```
 
-Source: [`packages/compact/compact/src/types.ts:64`](../packages/compact/compact/src/types.ts)
+Source: [`packages/compact/compact/src/types.ts:75`](../packages/compact/compact/src/types.ts)
 
 #### `compact/start` — log-only
 
@@ -290,8 +296,6 @@ Source: [`packages/compact/compact/src/types.ts:19`](../packages/compact/compact
  */
 'compact/summary': {
   summary: ContentBlock[]
-  /** Complete provider output before the backend's safe summary projection. */
-  rawOutput?: ContentBlock[]
   shadowedRange: { start: number; end: number }
   shadowedSeqs: number[]
   shadowedTokenCount: number
@@ -308,7 +312,20 @@ Source: [`packages/compact/compact/src/types.ts:19`](../packages/compact/compact
   maxTokens?: number
   /** Provider-reported token usage for the summarization request, when emitted. */
   usage?: TokenUsage
-}
+} & (
+  | {
+    /** Complete provider output before the backend's safe summary projection. */
+    rawOutput: ContentBlock[]
+    /** Identifies exactly one call through this context's `ctx.llm.stream()`. */
+    llmStreamCall: true
+  }
+  | {
+    /** Optional complete output from an unmarked template, remote, or other summarizer. */
+    rawOutput?: ContentBlock[]
+    /** An unmarked summary does not identify a call through this context's LLM seam. */
+    llmStreamCall?: never
+  }
+)
 ```
 
 Types: [ContentBlock](core-data-structures/core.md) · [TokenUsage](core-data-structures/llm-streaming.md)

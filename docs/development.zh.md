@@ -43,24 +43,39 @@ pnpm run typecheck
 
 ### TypeScript 项目布局
 
-仓库类型检查会执行全仓 `tsc -b` 图：它会发射每个 package/vendor 的 `lib/types`，并通过两个 no-emit 聚合检查示例、测试和脚本。
-
-仓库的 TypeScript 配置只有三种角色；每个 tsconfig 文件恰好扮演其中一种。
+仓库使用相互隔离的 Host 与 Client aggregate。普通 package 只登记进其中一个 aggregate；Host 包进入 `tsconfig.host.json`，Client 包进入 `tsconfig.client.json`。
 
 | 文件 | 角色 | 是否构成 program？ |
 |---|---|---|
-| `tsconfig.json` | solution 根：`extends` base、`files: []`、引用两个聚合。全仓 `tsc -b tsconfig.json` 图、tsserver 发现入口，并经继承的 `paths` 充当 tsx 运行 `examples/` 与 `scripts/` 时的解析配置（它们最近的 tsconfig 就是此文件）。 | 否 |
-| `tsconfig.host.json` | host 聚合：host 侧各包（经 references）、示例、测试、脚本、website。排除 `packages/client`。 | 是 |
-| `tsconfig.client.json` | client 聚合：`packages/client/*` 各包及其测试、`apps/web`。 | 是 |
+| `tsconfig.json` | solution 根：`extends` base、`files: []`、引用两个 aggregate。它是 tsserver 发现入口，也是显式执行整张 Project Reference 图时的入口；经继承的 `paths` 充当 tsx 运行 `examples/` 与 `scripts/` 时的解析配置。 | 否 |
+| `tsconfig.host.json` | Host aggregate：Host package、示例、测试、脚本和 website，以及 `api/remotes` 的 Host 特例 project。 | 是 |
+| `tsconfig.client.json` | Client aggregate：`packages/client/*` package 及其测试、`apps/web`，以及 `api/remotes` 的 Client 特例 project。 | 是 |
 | `tsconfig.base.json` | 共享 compilerOptions 与源码 `paths` 映射。同时是各 vitest 配置让 vite-tsconfig-paths 指向的解析门面：它没有 `include`，因此其 `paths` 适用于任何 importer。 | 否 |
-| `tsconfig.base.client.json` | 浏览器编译形状（`jsx`、DOM lib、`types: []`），由 client 聚合和每个 `packages/client/*` 包 extends。 | 否 |
+| `tsconfig.base.client.json` | 浏览器编译形状（`jsx`、DOM lib、`types: []`），由 Client aggregate 和每个 `packages/client/*` package extends。 | 否 |
 
-host 与 client 保持两个聚合 program，是因为两侧在相同键下以不同服务对 cordis `Context` 接口做声明合并；单一 program 同时看到两份合并会报冲突。这种冲突只存在于 `ts.Program` 内部——模块解析永远不会触发它——所以 solution 可以同时引用两个聚合，一个 paths 门面也可以横跨两侧。由此推出两条纪律：
+Host 与 Client 保持两个 aggregate program，是因为两侧在相同键下以不同服务对 cordis `Context` 接口做声明合并；单一 program 同时看到两份合并会报冲突。这种冲突只存在于 `ts.Program` 内部——模块解析永远不会触发它——所以 solution 可以同时引用两个 aggregate，一个 paths 门面也可以横跨两侧。由此推出三条纪律：
 
 - `tsconfig.base.json` 永不添加 `include` 或 `files`：它们会泄漏进每个 extends 它的包项目，并收窄门面的全匹配范围。
-- 构造全仓 `ts.Program` 的脚本显式种子 `tsconfig.host.json` 或 `tsconfig.client.json`——永不种子根 solution，因为把两个聚合展平进一个 program 会撞上 `Context` 合并冲突。基于 program 的生成器与门禁（`scripts/ts-project.ts` 的消费者、doc-typecheck standalone 模式）按决策仅覆盖 host 侧；client 侧只在出现真实需求时再获得基于 program 的工具。
+- 构造全仓 `ts.Program` 的脚本显式种子 `tsconfig.host.json` 或 `tsconfig.client.json`——永不种子根 solution，因为把两个 aggregate 展平进一个 program 会撞上 `Context` 合并冲突。
+- 新 package 只登记进一个 aggregate。包同时具有 Node loader 入口和 browser 入口并不构成拆分理由；普通 Client plugin 的两份运行时产物都在 Client 构建阶段生成。
 
-静态分析和测试通过 base 的 `paths` 映射把工作区 import 解析到 `src`，且必须在干净树上通过；消费构建产物 `lib/` 的门禁显式声明该依赖。决策记录：[solution-root note](../.agents/notes/implemented/process/2026-07-22-tsconfig-solution-root-two-aggregates.md)；tsc-first 发射管线见 [ts-build-config note](../.agents/notes/implemented/process/2026-06-17-ts-build-config.md)。
+`api/remotes` 是唯一拆分 Host/Client tsconfig 的仓库特例。它的 Host 入口必须进入 Host TypeRT 图，而 Client 入口导入 Host tsdown 才会生成的 `/remote` 声明，因此本包根 `tsconfig.json` 只作为 solution，两个 aggregate 和直接消费方分别引用 `tsconfig.host.json` 或 `tsconfig.client.json`。workspace `constraints` 门禁遍历可达的 Project Reference 图，并按各引用 project 自身的 compiler face 检查：只有单一配置的目标可由任一 face 引用，拆分配置的目标则必须引用匹配的 leaf，不得引用 solution 根或另一侧 leaf。不要把该结构推广到其他包；完整边界见 [`api-remotes` README](../packages/api/remotes/README.md)。
+
+根构建按生成依赖排序：
+
+```sh
+tsc -b tsconfig.host.json
+tsdown --env.DSH_BUILD_FACE host
+tsc -b tsconfig.client.json
+tsdown --env.DSH_BUILD_FACE client
+pnpm run build:web
+```
+
+两次 tsdown 都使用同一组完整 workspace 匹配，不扫描构建产物来发现 Client package，也不维护 Host/Client package 过滤表。包内 tsdown 配置根据 `DSH_BUILD_FACE` 决定当前阶段的入口：普通 Client plugin 在 Client 阶段同时生成 Node loader 与 browser bundle；`api-remotes` 通过 `hostPhase: true` 提前生成 Host 入口，再在 Client 阶段只生成 browser bundle。tsdown 只消费 `lib/types` 中由前置 tsc 发射的 JavaScript。
+
+TypeRT 只在 Host tsdown 中以 `tsconfig.host.json` 为种子运行。它分析 Host 类型并生成 Host 反射产物及 Host-for-Client Remote 投影；Client tsdown 不启动 TypeRT。`pnpm run typecheck` 因此先执行完整 Host lib 阶段，再运行 Client tsc；`pnpm run build` 继续执行 Client tsdown 和 Web 构建。该顺序的决策记录见 [API Remotes 生成契约构建 Note](../.agents/notes/implemented/process/2026-08-08-api-remotes-generated-contract-build.md)。
+
+静态分析和测试通过 base 的 `paths` 映射把工作区 import 解析到 `src`，且必须在干净树上通过；消费构建产物 `lib/` 的门禁显式声明该依赖。生成的 Host-for-Client Remote 声明是有意设置的例外：公共 `typecheck`、`lint` 和 `doc-typecheck` 命令会先生成这些声明，而内部 `*:contracts-ready` 脚本以调用它的公共命令或调度器门禁已经显式依赖 TypeRT 契约 pass 或完整构建为前提。双 aggregate 拓扑见 [solution-root Note](../.agents/notes/implemented/process/2026-07-22-tsconfig-solution-root-two-aggregates.md)，tsc-first 发射职责见 [ts-build-config Note](../.agents/notes/implemented/process/2026-06-17-ts-build-config.md)，门禁准备契约见 [TypeRT Remote Agent Note](../.agents/notes/implemented/architecture/2026-08-02-typert-remote-method-calls.md)。
 
 业务 Service 在 Host 使用 `@Remote` 或 `@RemoteScope` 声明可调用方法；Host 构建生成 Host-for-Client 类型与运行时贡献，Client 的 `api-remotes` 组合加载这些贡献并挂到 `ctx.remote` 与作用域 `agentCtx.remote` namespace。两侧的生成产物、装配关系、SRC 开发回退和 Web 构建顺序见 [API Gateway](api-gateway.md)。
 
@@ -87,8 +102,8 @@ DEEPSEEK_BASE_URL=https://... # optional
 
 lefthook 在 `lefthook.yml` 中配置，作为快速的本地检查点：
 
-- `pre-commit` 应用仅用于格式化的 ESLint 修复，使用 Oxlint 验证暂存文件并应用其原生修复，在暂存文件属于 `THIRD_PARTY_NOTICES.md` 的输入时重新生成该文件，然后检查暂存 diff 中的空白错误，并运行 vendor manifest（元数据清单）守卫；
-- `pre-push` 只运行仓库增量类型检查（对根 solution 执行 `tsc -b`，覆盖 host 与 client 两个聚合）。
+- `pre-commit` 应用仅用于格式化的 ESLint 修复，使用不加载项目的 `.oxlintrc.staged.json` 配置验证暂存文件并应用 Oxlint 的原生修复，在暂存文件属于 `THIRD_PARTY_NOTICES.md` 的输入时重新生成该文件，然后检查暂存 diff 中的空白错误，并运行 vendor manifest（元数据清单）守卫；
+- `pre-push` 运行 `pnpm run typecheck`；该命令会先完成包含 TypeRT 契约生成的完整 Host lib 阶段，再运行 Client TypeScript 检查。
 
 vendor manifest 守卫检查 `vendor/*/src` 下的改动是否连同对应的 `vendor/README.md` manifest 更新一起暂存。请在编辑 vendor 代码前先阅读 `vendor/README.md`。
 

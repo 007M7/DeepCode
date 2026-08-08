@@ -34,4 +34,4 @@ TUI 连接不可达的 DeepSeek 端点时，失败只显示一条 `fetch failed`
 - 持久化的 `turn/end` 错误消息包含 cause 细节。现有快照 fixture（测试前置数据）字节级一致地回放，因为其脚本化错误不带 `cause`（对这类错误 `errorChain(err)` 等于 `err.message`）；只有单元测试的期望字符串有变化。从真实传输失败录制的 fixture 会携带完整链。
 - `errorChain` 渲染 `message` 而不带类名（`String(error)` 会渲染 `Error: <message>`），因此日志行里的裸 `TypeError` 会丢失类型标签，除非消息为空（此时回退到类名）。在这些诊断界面上，链细节被判断为比类名更有价值。
 - `dsh-stdio` 对失败轮次的输出不再沉默；解析 transcript 的管道消费方会看到新的 `[turn …]` 行。
-- `dsh-subagent`、`dsh-workflow`、`dsh-skill`、`dsh-workflow-workerthread`、`cli-demo` 里剩余的 `renderThrown` 副本仍不渲染链；它们包装的是自带消息的包内错误，等诊断信息证明不足时再采用 `errorChain`。
+- `dsh-subagent`、`dsh-workflow`、`dsh-skill`、`dsh-workflow-workerthread` 里剩余的 `renderThrown` 副本仍不渲染链；它们包装的是自带消息的包内错误，等诊断信息证明不足时再采用 `errorChain`。
