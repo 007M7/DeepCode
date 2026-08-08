@@ -12,19 +12,19 @@ That ownership made `ui-conversation` interpret business Tool names and made sub
 
 ## Decision
 
-Tool is a first-class Client UI concept with one presentation owner, `@deepseek-ai/dsh-client-ui-tool`. Session Event, projection, fold, `ConversationSnapshot` construction and caching, historical paging, and Code Dispatch indexing remain unchanged.
+Tool is a first-class Client UI concept with one presentation owner, `@deepseek-ai/dsh-client-ui-tool`. Runtime normalizes Code Dispatch into recursive `ToolCallBlock` values: every root or child owns its next level through `subCalls`, and `ConversationSnapshot` exposes no separate parent-to-children map.
 
 “First-class concept” describes UI ownership only; it adds no Runtime data kind. `ConversationNode` remains the transcript projection, `ChatFlowItem` remains the render unit produced when conversation sorts and groups nodes, `ToolCallBlock` remains the standard data for one call, and `ToolCallTree` only composes root/subcall presentation within Tool. Command continues to render through the separate `'conversation.chat.commandview'` seat and does not become Tool.
 
 `ui-conversation` owns ordered placement. `deriveChatFlow()` still decides where a settled Tool group appears, and `ChatView` still appends running calls, maintains scroll anchors and selection, and supplies host actions. For each root call it renders the single/session `'conversation.chat.tool'` seat with the root block, selected call id, session cwd, and open-file/inspect callbacks. It does not read Code Dispatch children, branch on Tool names, or import Tool-specific views and card models.
 
-`ui-tool` occupies that whole-Tool seat. Through its standard session slot props, `ToolCallTree` selects the Runtime-projected `codeDispatches[rootCallId]` array, renders the root followed by that one currently supported child level, and routes both forms through one keyed/session `'tool.call.toolview'` child slot using `entryKey: toolName`. An absent business registration renders `GenericToolCard`. This is deliberately one-level composition, not a claim that the Runtime supports an arbitrary recursive call graph.
+`ui-tool` occupies that whole-Tool seat. `ToolCallTree` recursively walks the root block's `subCalls` and routes every level through one keyed/session `'tool.call.toolview'` child slot using `entryKey: toolName`. An absent business registration renders `GenericToolCard`. It neither reads Session nor maintains a second call topology.
 
 Business plugins register only atomic views against `'tool.call.toolview'`. Their owner payload is the standard Tool call block plus identity, cwd, and host actions; it carries no Session projector or conversation service. Skill remains an ordinary Tool and `ui-skill` registers the `skill` key through this seam. Existing first-party views live in `ui-tool` until a business package has a reason to own one independently.
 
 The details panel is a second Tool presentation site but not a call-tree owner. `ui-conversation` delegates its selected output body through the single/session `'conversation.details.tool'` seat; `ui-tool` renders the card-aware output and the seat fallback preserves raw result text when the plugin is absent. Card models therefore have one production owner without introducing a reverse implementation import.
 
-The Runtime remains the authority for Tool lifecycle and call topology. Code Dispatch stays a top-level official concept because it changes `codeDispatches` and parent/child identity; ordinary Tool business differences stay at the keyed presentation seam. This package boundary does not add a Tool projector/fold registry.
+The Runtime remains the authority for Tool lifecycle and call topology. Code Dispatch is an official top-level concept because it changes parent/child identity; a private `ToolCallTree` shares one fold between live and history paths and projects its index into standard recursive call blocks. Ordinary Tool business differences stay at the keyed presentation seam, and this package boundary adds no Tool projector/fold registry.
 
 ## Runtime and render path
 
@@ -39,22 +39,22 @@ ConversationSnapshot.runningCalls     |
   -> ChatView flow tail ---------------+-> ToolSeat
                                            -> conversation.chat.tool
                                            -> ToolCallTree
-ConversationSnapshot.codeDispatches[rootCallId] -+
-                                                  +-> root ToolCall + one-level child ToolCall
-                                                      -> tool.call.toolview(entryKey = toolName)
-                                                           |- registered atomic view
-                                                           `- GenericToolCard fallback
+                                                -> root ToolCallBlock
+                                                     `- subCalls[] (recursive)
+                                                          -> tool.call.toolview(entryKey = toolName)
+                                                               |- registered atomic view
+                                                               `- GenericToolCard fallback
 ```
 
-The live Session's [`Session.buildSnapshot()`](../../../../packages/client/runtime/src/client/sessions/session.ts) caches arrays or maps such as `nodes`, `runningCalls`, and `codeDispatches` against independent revisions. Their references stay stable when the corresponding business state has not changed, allowing React selectors and memoization to skip unrelated updates. The historical projection's [`projectConversationHistory()`](../../../../packages/client/runtime/src/client/session-history/history-fold.ts) reconstructs the same running-call and Code Dispatch shapes from entries in its window. Tool UI consumes the snapshot shapes already unified by those paths; presentation packages do not repeat call/result pairing, historical replay, or cache indexing.
+Runtime's [`ToolCallTree`](../../../../packages/client/runtime/src/client/sessions/tool-call-tree.ts) privately indexes child lifecycles by parent callId and is shared by the live [`Session.buildSnapshot()`](../../../../packages/client/runtime/src/client/sessions/session.ts) and historical [`projectConversationHistory()`](../../../../packages/client/runtime/src/client/session-history/history-fold.ts) paths. It recursively projects children onto root `ToolCallBlock` values and copies only the owning ancestor path when a child changes. Unchanged siblings, other roots, and snapshot references with no Tool-topology change stay stable so React selectors and memoization can skip unrelated updates. Tool UI consumes this unified tree without repeating call/result pairing, historical replay, or cache indexing.
 
-[`ChatView`](../../../../packages/client/ui-conversation/src/client/chat/ChatView.tsx) reruns [`deriveChatFlow()`](../../../../packages/client/ui-conversation/src/client/chat/chat-flow.ts) only when the `nodes` reference changes. It groups consecutive settled Tool results into a `tool-group`, while running root calls append at the flow tail. Both paths ultimately enter the same `ToolSeat`, so settled and running forms share the whole-Tool seat. `ToolCallTree` selects only the current root's `codeDispatches[rootCallId]`; it does not introduce a business projector for presentation of other roots.
+[`ChatView`](../../../../packages/client/ui-conversation/src/client/chat/ChatView.tsx) reruns [`deriveChatFlow()`](../../../../packages/client/ui-conversation/src/client/chat/chat-flow.ts) only when the `nodes` reference changes. It groups consecutive settled Tool results into a `tool-group`, while running root calls append at the flow tail. Both paths ultimately enter the same `ToolSeat`, so settled and running forms share the whole-Tool seat. Selection is passed only to the root containing that call, and `ToolCallTree` then renders recursively within that local tree.
 
 ## Code and responsibility boundaries
 
 | Owner | Primary code | Owns | Explicitly does not own |
 |---|---|---|---|
-| Client Runtime | [`Session`](../../../../packages/client/runtime/src/client/sessions/session.ts), [`history-fold.ts`](../../../../packages/client/runtime/src/client/session-history/history-fold.ts) | call/result pairing, running/settled lifecycle, Code Dispatch parent/child index, snapshot reference stability | Business views selected by Tool name |
+| Client Runtime | [`Session`](../../../../packages/client/runtime/src/client/sessions/session.ts), [`ToolCallTree`](../../../../packages/client/runtime/src/client/sessions/tool-call-tree.ts), [`history-fold.ts`](../../../../packages/client/runtime/src/client/session-history/history-fold.ts) | call/result pairing, running/settled lifecycle, recursive parent/child tree, snapshot structural sharing | Business views selected by Tool name |
 | `ui-conversation` | [`chat-flow.ts`](../../../../packages/client/ui-conversation/src/client/chat/chat-flow.ts), [`ChatView.tsx`](../../../../packages/client/ui-conversation/src/client/chat/ChatView.tsx), [`slots.ts`](../../../../packages/client/ui-conversation/src/client/contract/slots.ts) | ChatFlow order, settled groups, running tail, scroll anchors, selection and host actions, whole-Tool seat declaration | subcall composition, `toolName` dispatch, Generic fallback, Tool card models |
 | `ui-tool` | [`apply.ts`](../../../../packages/client/ui-tool/src/client/apply.ts), [`ToolCallTree.tsx`](../../../../packages/client/ui-tool/src/client/tool/ToolCallTree.tsx), [`slots.ts`](../../../../packages/client/ui-tool/src/client/contract/slots.ts) | root/subcall composition, atomic keyed dispatch, Generic fallback, Tool card models and built-in Tool views | ChatFlow ordering, Session Event fold |
 | Business Tool plugins | [`ui-skill` registration example](../../../../packages/client/ui-skill/src/client/index.ts) | Atomic views for one or more wire Tool names | root/subcall placement and lifecycle pairing |
@@ -82,7 +82,7 @@ ctx.slots.inject('tool.call.toolview', () =>
 
 ## Details path
 
-[`DetailsPanel`](../../../../packages/client/ui-conversation/src/client/skeleton/DetailsPanel.tsx) still locates the selected call in `nodes`, `runningCalls`, and `codeDispatches`, and it owns input arguments, empty states, and panel lifecycle. It passes only `{ block, cwd }` to `'conversation.details.tool'`; [`ToolDetails`](../../../../packages/client/ui-tool/src/client/tool/ToolDetails.tsx) reuses Tool card models to render the output. When `ui-tool` is absent, a settled call falls back to raw result text and a running call shows conversation's running fallback, so details never imports the Tool implementation in reverse.
+[`DetailsPanel`](../../../../packages/client/ui-conversation/src/client/skeleton/DetailsPanel.tsx) locates the selected call recursively in `nodes` and `runningCalls` through their `subCalls`, and it owns input arguments, empty states, and panel lifecycle. It passes only `{ block, cwd }` to `'conversation.details.tool'`; [`ToolDetails`](../../../../packages/client/ui-tool/src/client/tool/ToolDetails.tsx) reuses Tool card models to render the output. When `ui-tool` is absent, a settled call falls back to raw result text and a running call shows conversation's running fallback, so details never imports the Tool implementation in reverse.
 
 ## Verification
 
@@ -96,7 +96,7 @@ Test ownership follows production ownership. `ui-conversation` tests install a l
 
 **Add business-specific Session projectors or folds.** Rejected: ordinary Tool views consume the standard call block already reconstructed by Runtime. A second registry would create two authorities for call identity and historical replay. Only a feature that changes logged topology or lifecycle earns a Runtime-level extension.
 
-**Make each atomic Tool view render its own subcalls recursively.** Rejected: the atomic registrant receives one Tool call and should not know whether it is a root or child. Root/child composition belongs to `ui-tool`, and the current wire/runtime shape only supports one Code Dispatch child level.
+**Make each atomic Tool view render its own subcalls recursively.** Rejected: the atomic registrant receives one Tool call and should not know whether it is a root or child. Recursive root/child composition belongs centrally to `ui-tool`'s `ToolCallTree`.
 
 **Import `ui-tool` components directly from `ui-conversation`.** Rejected: it would reverse the intended feature direction and make Tool presentation mandatory. Declared slots retain lifecycle ownership, fallback behavior, and independent plugin loading.
 

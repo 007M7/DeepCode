@@ -4,11 +4,11 @@ English | [中文](README.zh.md)
 
 Client Tool presentation plugin. `ui-conversation` supplies one ordered root call through `conversation.chat.tool`; this package renders that root and its Code Dispatch children, then dispatches every atomic call through the keyed `tool.call.toolview` slot. Unregistered Tool names use the generic card.
 
-Business UI packages register only their wire Tool names and atomic views. They do not pair Session events, rebuild the transcript, or own root/subcall topology. The Runtime remains authoritative for call/result pairing, lifecycle, and `codeDispatches`; the conversation view remains authoritative for ChatFlow placement.
+Business UI packages register only their wire Tool names and atomic views. They do not pair Session events, rebuild the transcript, or own root/subcall topology. The Runtime remains authoritative for call/result pairing, lifecycle, and recursive `subCalls` projection; the conversation view remains authoritative for ChatFlow placement.
 
 ## Rendering contract
 
-`ToolCallTree` receives one root `ToolCallBlock`, selection state, the session `cwd`, and Host callbacks for opening files and inspecting calls. Through its standard session slot props it selects the Runtime-projected `codeDispatches[rootCallId]` array, then sends the root and every child through the same atomic dispatch path. The Runtime currently exposes only one Code Dispatch child level, so the renderer preserves that shape instead of inventing recursive data.
+`ToolCallTree` receives one root `ToolCallBlock` that already contains recursive `subCalls`, selection state, the session `cwd`, and Host callbacks for opening files and inspecting calls. It recursively walks the standard call blocks and sends the root and children at every depth through the same atomic dispatch path, without subscribing to a separate parent-to-children map.
 
 Each root and child wrapper preserves the `conversation.chat.tool` call-anchor DOM contract used for paging and selection.
 
@@ -44,6 +44,6 @@ None. The package is client-only presentation.
 
 ## Known Limitations and Deferred Work
 
-- The Runtime currently exposes one level of Code Dispatch children. The renderer sends roots and children through the same atomic path, but it does not claim an arbitrary recursive wire topology.
+- The Host excludes `run_code` from Code Mode program bindings, so production events currently produce one dispatch level; the recursive Runtime/UI contract is ready for future nested producers.
 - Existing first-party Tool views are initially colocated here and can move to their owning business packages independently through the keyed slot.
 - Tool copy temporarily reuses the `ui-conversation` locale namespace.
