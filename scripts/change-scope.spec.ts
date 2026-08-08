@@ -104,7 +104,7 @@ describe('change-scope', () => {
     const headSha = commit(root, 'feature.txt', 'feature\n')
 
     const fresh = jsonReport(root, 'origin/master')
-    expect(fresh.repositoryRoot).toBe(realpathSync(root))
+    expect(realpathSync.native(fresh.repositoryRoot)).toBe(realpathSync.native(root))
     expect(fresh.resolved).toEqual({
       baseSha: git(root, ['rev-parse', 'origin/master']),
       headSha,
@@ -122,7 +122,7 @@ describe('change-scope', () => {
     const { root } = fixture('worktree ')
     const report = jsonReport(root, 'HEAD')
 
-    expect(report.repositoryRoot).toBe(realpathSync(root))
+    expect(realpathSync.native(report.repositoryRoot)).toBe(realpathSync.native(root))
     expect(report.paths).toEqual({ committed: [], staged: [], unstaged: [], untracked: [] })
   })
 

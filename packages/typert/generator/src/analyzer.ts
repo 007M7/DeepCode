@@ -2507,9 +2507,10 @@ function mergeWorkspaceModels(models: readonly WorkspaceModel[]): WorkspaceModel
 }
 
 function parseConfig(path: string): ParsedConfig {
-  const read = ts.readConfigFile(path, file => ts.sys.readFile(file))
+  const compilerPath = path.split(sep).join('/')
+  const read = ts.readConfigFile(compilerPath, file => ts.sys.readFile(file))
   if (read.error !== undefined) throw new TypertAnalysisError(formatDiagnostic(read.error))
-  const parsed = ts.parseJsonConfigFileContent(read.config, ts.sys, dirname(path), undefined, path)
+  const parsed = ts.parseJsonConfigFileContent(read.config, ts.sys, dirname(compilerPath), undefined, compilerPath)
   if (parsed.errors.length > 0) throw new TypertAnalysisError(parsed.errors.map(formatDiagnostic).join('\n'))
   return { path, parsed }
 }

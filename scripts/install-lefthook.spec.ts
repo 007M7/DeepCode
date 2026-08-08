@@ -587,7 +587,7 @@ describe('worktree-local Lefthook installer', { timeout: 15_000 }, () => {
 
     expect(result.status).toBe(1)
     expect(result.stderr).toContain('sibling dormant worktree config')
-    expect(result.stderr).toContain(linkedConfig)
+    expect(result.stderr).toContain(JSON.stringify(linkedConfig))
     expect(gitResult(fixture, fixture.main, ['config', '--get', 'extensions.worktreeConfig']).status).toBe(1)
     expect(gitResult(fixture, fixture.linked, ['config', '--get', 'core.hooksPath']).status).toBe(1)
     expect(git(fixture, fixture.main, ['config', '--file', linkedConfig, '--get', 'core.hooksPath'])).toBe(linkedHooks)
