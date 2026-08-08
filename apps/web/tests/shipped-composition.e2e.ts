@@ -30,6 +30,7 @@ const EXPECTED_TOOLS = [
   'edit',
   'exit_plan_mode',
   'get_goal',
+  'interrupt_agent',
   'list_agents',
   'ralph',
   'read',

@@ -128,6 +128,9 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
           result: { ok: true, value: { messageId: 'message-1' as never } },
         }
       },
+      async interrupt(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { accepted: true as const } } }
+      },
     },
     host: {
       async describe(request) {
@@ -433,6 +436,11 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
       mode: 'continuable',
       content: [],
     })).result).toEqual({ ok: true, value: { messageId: 'message-1' } })
+    expect((await c.subagents.interrupt({
+      parentSessionId: 'parent' as never,
+      childSessionId: 'child' as never,
+      mode: 'continuable',
+    })).result).toEqual({ ok: true, value: { accepted: true } })
   })
 
   it('keeps caller and connection aborts on command.execute', async () => {

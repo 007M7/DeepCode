@@ -19,9 +19,9 @@
  * resident. Continuable children never become a {@link SubagentRun}: the
  * continuation manager holds their `AgentHandle` directly and orders every turn
  * through the child's own inbox, so providers contribute only the detached
- * creation spec and see no handle, turn, or teardown. Direct-child discovery
- * reads the live session store and optional session persistence directly and
- * does not require that continuation runtime.
+ * creation spec and see no handle, turn, or teardown. Child and descendant
+ * discovery read the live session store and optional session persistence
+ * directly and do not require that continuation runtime.
  *
  * Same-process providers are trusted typed collaborators. Requests, provider
  * descriptors, results, and lifecycle payloads are borrowed immutable values;
@@ -58,12 +58,13 @@ import type {
   ContinuableStart,
   ContinuableStartSpec,
   SubagentFollowupOptions,
+  SubagentInterruptAuthority,
   SubagentReportOptions,
 } from './continuation.ts'
 import SubagentActivationSetupRegistry from './activation-setup-registry.ts'
 import type { ContinuableSetupContribution } from './activation-setup-registry.ts'
-import { listChildren as listSubagentChildren } from './list-children.ts'
-import type { SubagentListEntry } from './list-children.ts'
+import { listChildren as listSubagentChildren, listDescendants as listSubagentDescendants } from './list-children.ts'
+import type { SubagentDescendantListEntry, SubagentListEntry } from './list-children.ts'
 import { snapshotSubagentDescriptor } from './descriptor.ts'
 import { subagentIdentityProjectionDefinition, subagentTimingProjectionDefinition } from './projection.ts'
 
@@ -111,12 +112,13 @@ export type {
   ContinuableStartSpec,
   CoordinatorMessageSource,
   SubagentFollowupOptions,
+  SubagentInterruptAuthority,
   SubagentReportDelivery,
   SubagentReportMessageSource,
   SubagentReportOptions,
 } from './continuation.ts'
 export type { ContinuableSetupContribution } from './activation-setup-registry.ts'
-export type { SubagentListEntry } from './list-children.ts'
+export type { SubagentDescendantListEntry, SubagentListEntry } from './list-children.ts'
 export type { SubagentRunEndInfo, SubagentRunInfo } from './types.ts'
 export type { SubagentIdentityProjection, SubagentTimingProjection } from './projection-types.ts'
 
@@ -232,6 +234,25 @@ export class SubagentService extends Service {
   }
 
   /**
+   * Interrupt one live continuable child's current turn under a human parent
+   * address or an exact live ancestor Agent. Fire-and-return: the cancel
+   * signal is issued before this returns, but the target may keep running
+   * until it observes the signal. Unclaimed pending inbox work, the Activation,
+   * and published descendants are preserved; claimed work is not requeued.
+   * Once the interrupted driver is idle, a waking send resumes the parked FIFO
+   * queue. An absent target — including a one-shot or unknown id —
+   * is an accepted no-op, as is a manager-less composition, which cannot own a
+   * live Activation.
+   * @param targetSessionId - the durable child session id to interrupt.
+   * @param authority - the human parent address or exact live ancestor Agent.
+   * @throws {SubagentError} `UNAUTHORIZED` when the authority does not own the
+   *   live target.
+   */
+  interrupt(targetSessionId: SessionId, authority: SubagentInterruptAuthority): void {
+    this.continuations?.interrupt(targetSessionId, authority)
+  }
+
+  /**
    * Deliver selected content from one live continuable child to its durable
    * direct parent. The child is the authority credential; callers cannot name a
    * recipient. Reporting does not conclude the child's turn or Activation.
@@ -313,6 +334,25 @@ export class SubagentService extends Service {
    */
   listChildren(parentSessionId: SessionId, signal?: AbortSignal): Promise<SubagentListEntry[]> {
     return listSubagentChildren(this.ctx, parentSessionId, signal)
+  }
+
+  /**
+   * Enumerate the root's complete session-backed subagent tree in stable
+   * pre-order from one live-preferred corpus, without loading or resuming an
+   * Agent. Ordinary sessions and one-shot children remain traversal nodes so
+   * continuable descendants below them are discovered; each returned entry
+   * adds its durable `parentId` and root-relative `depth`. Identity resolution,
+   * diagnostics, optional persistence, and cancellation follow the same
+   * projection-backed contract as {@link listChildren}.
+   * @param rootSessionId - session whose complete descendant tree is listed.
+   * @param signal - caller-owned cancellation forwarded to persistence reads
+   *   and observed around every read await.
+   * @returns children and per-candidate diagnostics with tree position, in
+   *   stable pre-order.
+   * @throws {@link SubagentError} under the same conditions as {@link listChildren}.
+   */
+  listDescendants(rootSessionId: SessionId, signal?: AbortSignal): Promise<SubagentDescendantListEntry[]> {
+    return listSubagentDescendants(this.ctx, rootSessionId, signal)
   }
 
   /**
