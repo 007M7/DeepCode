@@ -12,6 +12,7 @@ export type {
 } from './contract/views.ts'
 export type { ConversationKey } from './locales.ts'
 export type {
+  ChatFileMentions,
   ChatStore, ChatViewInjected, ChatViewSlotProps, CommandRowOwnerProps, CommandRowProps, ComposerBarInjected,
   ComposerChainProps, ConversationInjected,
   ConversationSessionHeaderInjected, ConversationSessionInjected, ConversationSlotProps, ConvViewOwnerProps,
