@@ -1,0 +1,33 @@
+# Agent Note: 原生 Windows 拉取请求 CI
+
+Status: implemented
+
+[English](2026-08-08-native-windows-pull-request-ci.md) | 中文
+
+## 问题
+
+拉取请求必需的 Windows 判定必须为依赖操作系统的行为提供保障，而不能只覆盖由 `process.platform` 选择的工具链分支。Wine 通道在 Linux 内核与区分大小写的 ext4 之上执行 Windows Node 和 PE 二进制文件，要求采用 hoisted 依赖布局和由宿主侧创建的符号链接，也没有覆盖 NTFS、DACL、ConPTY、崩溃持久性与更广泛的观测性 Windows 清单。原生串行参考流程停用期间，常规 CI 没有任何真实的 Windows 内核信号。
+
+## 决策
+
+[ci.yml](../../../../.github/workflows/ci.yml) 中必需的 `windows` 作业在 GitHub 标准 `windows-2025` 镜像上使用原生 PowerShell 运行。该作业为工作区符号链接启用开发人员模式，通过 `pnpm/action-setup` 提供仓库固定版本的 pnpm，在不传输 store 归档的情况下执行不可变安装，并运行 `pnpm run check:ci:windows-complete`。稳定的 `windows` 作业 ID 仍是 `all checks passed` 的依赖项；其显示名称为 `windows node 24 / native complete`。
+
+聚合作业继续将工作区构建与生产网站故障设为阻断项，同时将更广泛的静态检查、文档、包和构建产物可移植性清单作为观测项报告。同一台运行器在这些门禁之间共享安装结果与构建输出，串行门禁与 publint 工作线程上限使标准镜像的资源使用保持在可预测范围内。在这些套件明确建立原生 Windows 契约之前，重复执行的 lint、覆盖率与快照强制检查仍由 Linux 负责。
+
+受支持的工作流不含 Wine 专属基础设施：不存在 apt 缓存生产者、兼容性脚本、对仓库快照执行的 hoisted 安装、Windows Node 下载或本地 `check:windows-wine` 命令。[已归档的 Wine 实验](../../archived/process/2026-07-27-wine-windows-gates-experiment.md)仍作为其实测延迟与保真度取舍的历史证据，而非当前执行路径。
+
+## 曾考虑的替代方案
+
+**在必需路径上保留 Wine。** 其热运行墙钟时间接近 Linux CI，也会选择 win32 工具链分支；但兼容性专属布局和内核缺口可能在受支持的原生行为已经损坏时仍报告绿灯。这项延迟收益不足以抵消该信号缺失的代价。
+
+**逐字恢复 Wine 之前的工作流。** 旧定义确实捕获了正确的运行器边界，但也携带了当时的供应方式与拓扑假设。按照当前 action、pnpm 设置、门禁图和聚合依赖关系重新构建原生作业，可以避免重新引入过时机制。
+
+**只在合并后运行原生 Windows。** 合并后的参考流程只能在可移植性回归进入 `master` 后进行诊断；当这些参考流程被停用或延迟时，无法在拉取请求阶段提供保护。
+
+**使用组织自有的大型 Windows 运行器。** 更大规格的运行器镜像可以缩短墙钟时间，但必需的正确性路径将因此依赖仓库外部的运行器标签与分配能力。标准 `windows-2025` 是可移植恢复边界；大型运行器仍作为基准测试目标。
+
+## 后果
+
+在聚合作业通过之前，拉取请求会获得来自真实 NT 内核、NTFS、PowerShell、Windows 进程和原生插件的信号。该作业比 Wine 兼容性通道更慢，也可能因 Windows 容量而排队，但其绿灯结果描述的是受支持的宿主，而非近似环境。
+
+移除 Wine 缓存生产者和本地脚本后，独立的安装拓扑及其反复出现的兼容性故障也随之消失。原生 Windows 覆盖率与快照仍是明确列出的缺口，不会仅由作业名称暗示已经纳入；二者都必须先建立各自经过测试的契约，才能成为该必需通道的一部分。

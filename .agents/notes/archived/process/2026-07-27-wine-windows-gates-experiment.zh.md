@@ -1,6 +1,7 @@
 # Agent Note: 在 Linux runner 上用 Wine 运行 Windows 阻断门禁
 
 Status: implemented
+Archived: 2026-08-08
 
 [English](2026-07-27-wine-windows-gates-experiment.md) | 中文
 

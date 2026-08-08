@@ -26,6 +26,28 @@ describe('CI workflow', () => {
       })
     }
   })
+
+  it('runs the required Windows contract on a native hosted runner', () => {
+    const workflow = loadWorkflow('.github/workflows/ci.yml')
+    if (!isRecord(workflow.jobs) || !isRecord(workflow.jobs.windows)) {
+      throw new TypeError('CI workflow must define the windows job')
+    }
+
+    const windows = workflow.jobs.windows
+    if (!Array.isArray(windows.steps)) throw new TypeError('windows job must define steps')
+    const steps: unknown[] = windows.steps
+    const commandSteps = steps.filter((step): step is Record<string, unknown> & { run: string } => (
+      isRecord(step) && typeof step.run === 'string'
+    ))
+
+    expect(windows['runs-on']).toBe('windows-2025')
+    expect(windows.name).toBe('windows node 24 / native complete')
+    expect(commandSteps).toHaveLength(3)
+    expect(commandSteps.every(step => step.shell === 'pwsh')).toBe(true)
+    expect(commandSteps.map(step => step.run)).toContain('pnpm run check:ci:windows-complete')
+    expect(JSON.stringify(windows)).not.toMatch(/wine/i)
+    expect(workflow.jobs).not.toHaveProperty('wine-apt-cache')
+  })
 })
 
 describe('Issue lifecycle workflow', () => {
