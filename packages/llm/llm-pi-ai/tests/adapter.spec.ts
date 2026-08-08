@@ -524,6 +524,39 @@ describe('provider profile lifecycle', () => {
     expect(server.requests[1]).not.toHaveProperty('reasoning_effort')
   })
 
+  it('sends a declared off value as the effort parameter instead of omitting it', async () => {
+    vi.stubEnv('PI_TEST_KEY', 'test-key')
+    const server = await mockServer([{ events: textEvents }])
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmPiAi, {
+      providers: {
+        'acme-gateway': {
+          apiKeyEnv: 'PI_TEST_KEY',
+          api: 'openai-completions',
+          baseURL: `${server.url}/v1`,
+          models: [{
+            id: 'acme-think',
+            contextWindow: 65_536,
+            maxTokens: 4096,
+            reasoningEfforts: { off: 'none', high: 'high' },
+          }],
+        },
+      },
+    })
+
+    // The adapter strips a selected Off to "no reasoning option", and pi-ai's
+    // dispatch reads thinkingLevelMap.off exactly then — so the declared value
+    // still reaches the wire, which is the README's promise for `off: none`.
+    await assemble(ctx, {
+      provider: 'acme-gateway',
+      model: 'acme-think',
+      reasoningEffort: ReasoningEffortId('off'),
+      messages: [],
+    })
+    expect(server.requests[0]).toMatchObject({ reasoning_effort: 'none' })
+  })
+
   it('holds back reasoning_effort when the endpoint cannot take it', async () => {
     vi.stubEnv('PI_TEST_KEY', 'test-key')
     const server = await mockServer([{ events: textEvents }])

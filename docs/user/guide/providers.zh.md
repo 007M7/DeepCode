@@ -106,7 +106,7 @@ settings 段落**逐个提供方**地盖在 `cordis.yml` 的同名配置之上�
 
 可配置的模型字段是 `id`、`name`、`contextWindow`、`maxTokens`、`reasoningEfforts` 与 `compat`。定价与输入模态没有消费方，随内置目录条目走。
 
-**按模型声明推理档位。** `reasoningEfforts` 列出模型提供的档位：每个键都会出现在输入框的档位选择器里，其值是分派在协议中实际发送的内容——`high: high` 原样透传名称，`max: ultra` 则为使用自有词汇的网关改名。没写的档位不会被提供。`off` 比较特殊：声明而不给值，选择器里会出现 Off，选中它时什么也不发送；完全不写，模型就无法停止思考。`reasoningEfforts: false` 声明一个不具备推理能力的模型，这也是从网关服务不了的目录模型上剥除推理的办法。不写这个字段，自定义模型不推理，目录模型保留目录给出的档位。
+**按模型声明推理档位。** `reasoningEfforts` 列出模型提供的档位：每个键都会出现在输入框的档位选择器里，其值是分派在协议中实际发送的内容——`high: high` 原样透传名称，`max: ultra` 则为使用自有词汇的网关改名。没写的档位不会被提供。`off` 比较特殊：声明而不给值，选择器里会出现 Off，选中它时什么也不发送；完全不写，选择器不提供 Off，请求也不携带关闭开关——由提供方自己的默认行为决定。`reasoningEfforts: false` 声明一个不具备推理能力的模型，这也是从网关服务不了的目录模型上剥除推理的办法。不写这个字段，自定义模型不推理，目录模型保留目录给出的档位。
 
 **选定推理方言。** 档位如何在协议中传输——单独一个 `reasoning_effort`、DeepSeek 的 `thinking: {type}` 加档位，诸如此类——通常靠端点 URL 来猜，而私有网关的 URL 什么也说明不了，于是 DeepSeek 风格的网关只会收到 OpenAI 方言的请求。`compat.thinkingFormat` 用来显式指定方言，`compat.supportsReasoningEffort: false` 则让该参数不再发给拒绝它的端点；两者既可设在路由上（作为其模型的默认值），也可按模型设置，且仅适用于 `openai-completions` 路由。
 

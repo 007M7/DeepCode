@@ -520,7 +520,7 @@ describe('per-model reasoning efforts', () => {
     expect(getSupportedThinkingLevels(model)).toEqual(['off', 'low', 'high', 'max'])
   })
 
-  it('sends a declared off value on the wire instead of omitting the parameter', () => {
+  it('keeps a declared off value in the map for dispatch to send', () => {
     const model = modelOf(declared([{ id: 'm', reasoningEfforts: { off: 'none', high: 'high' } }]))
     expect(model.thinkingLevelMap?.off).toBe('none')
     expect(getSupportedThinkingLevels(model)).toEqual(['off', 'high'])

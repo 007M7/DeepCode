@@ -161,12 +161,14 @@ const compatProfile: z<PiAiCompatProfile> = z.object({
 })
 
 /**
- * Keys are the offered levels, values their wire spellings. `z.const(null)`
- * keeps a valueless key (`off:`) alive through validation — only resolution
- * decides which levels may leave the value empty, so the diagnostic can name
- * the route and model. The assertion narrows schemastery's `Dict`, which
- * types every literal key as required; dict validation is per-present-key, so
- * the runtime shape is the partial record.
+ * Keys are the offered levels, values their wire spellings. A valueless key
+ * (`off:`) survives validation because schemastery passes nullable data
+ * through before any member schema runs — `z.const(null)` only shapes the
+ * error for non-null wrong values and what a configuration surface renders.
+ * Only resolution decides which levels may leave the value empty, so the
+ * diagnostic can name the route and model. The assertion narrows
+ * schemastery's `Dict`, which types every literal key as required; dict
+ * validation is per-present-key, so the runtime shape is the partial record.
  */
 const reasoningEfforts = z.dict(
   z.union([z.string(), z.const(null)]),

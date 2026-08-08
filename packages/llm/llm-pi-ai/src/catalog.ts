@@ -347,9 +347,13 @@ function resolveModelCompat(
     }
     return {}
   }
-  // The installed entry's compat matches its own api, so on an
-  // openai-completions model it is the completions shape.
-  const inherited: OpenAICompletionsCompat | undefined = base?.compat
+  // The installed entry's compat matches the entry's OWN api — a route-level
+  // `api` repoint (an anthropic catalog served through an OpenAI-compatible
+  // gateway) leaves `base.compat` in the other protocol's shape, so it is
+  // inherited only while the resolved api still is the entry's. A repointed
+  // model starts from pi-ai's baseURL-derived detection instead, which is
+  // what a protocol change means for every other compat field too.
+  const inherited: OpenAICompletionsCompat | undefined = base?.api === api ? base.compat : undefined
   return {
     compat: {
       ...inherited,
