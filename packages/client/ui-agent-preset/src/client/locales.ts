@@ -3,7 +3,7 @@
 /** Locale keys these surfaces render. */
 export type AgentPresetSettingsKey =
   | 'title' | 'description' | 'loading' | 'error' | 'userTrust' | 'seatHint' | 'headerHint'
-  | 'nav' | 'sectionIntro' | 'copyHint' | 'builtIn' | 'setDefault' | 'view'
+  | 'nav' | 'sectionIntro' | 'builtIn' | 'setDefault' | 'view'
   | 'duplicate' | 'duplicateUnavailable' | 'delete' | 'presetId' | 'presetIdPlaceholder' | 'copyOf'
   | 'displayName' | 'displayNamePlaceholder'
   | 'inUse' | 'noDescription' | 'builtInGroup' | 'customGroup'
@@ -25,8 +25,7 @@ export const en: Record<AgentPresetSettingsKey, string> = {
   nav: 'Agent presets',
   sectionIntro:
     'A preset is the plugin composition one session\'s agent runs — its tools, prompt, and capabilities. '
-    + 'Duplicate one to make your own, then edit its files directly.',
-  copyHint: 'To start from the smallest skeleton, duplicate Minimal.',
+    + 'Duplicate an existing one and make it yours, or let the agent draft one for you in Creator mode.',
   builtIn: 'Built-in',
   setDefault: 'Set as default',
   view: 'View',
@@ -76,8 +75,7 @@ export const zh: Record<AgentPresetSettingsKey, string> = {
   seatHint: '即将开始的这个会话所用的 Agent 预设',
   headerHint: '本会话运行的 Agent 预设，开始时即固定',
   nav: 'Agent 预设',
-  sectionIntro: '预设即一个会话的 Agent 所运行的插件组装 —— 它的工具、提示词与能力。复制一份即可改成自己的，之后直接编辑它的文件。',
-  copyHint: '想从最小的骨架开始，就复制「极简模式」。',
+  sectionIntro: '预设即一个会话的 Agent 所运行的插件组装 —— 它的工具、提示词与能力。复制一份既有预设改成自己的，或用「创造模式」让 Agent 帮你创建。',
   builtIn: '内置',
   setDefault: '设为默认',
   view: '查看',

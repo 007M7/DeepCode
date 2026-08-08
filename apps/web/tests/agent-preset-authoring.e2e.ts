@@ -88,7 +88,7 @@ describe('web e2e: agent-preset authoring is a host-side copy', () => {
     // The intro carries the guidance a create button used to imply, and the
     // shipped rows offer view/copy but never delete or a location — their
     // install is overwritten by upgrades and is not the user's to manage.
-    expect(snapshot).toContain('复制「极简模式」')
+    expect(snapshot).toContain('或用「创造模式」让 Agent 帮你创建')
     expect(snapshot).not.toContain('新建预设')
     expect(snapshot).toContain('查看: 标准模式')
     expect(snapshot).not.toContain('删除: 标准模式')

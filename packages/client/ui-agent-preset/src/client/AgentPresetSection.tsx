@@ -167,7 +167,7 @@ export function AgentPresetSection(props: AgentPresetSectionProps): ReactNode {
   return (
     <div className={css.section}>
       <h2 className={css.title}>{t('nav')}</h2>
-      <p className={css.intro}>{`${t('sectionIntro')} ${t('copyHint')}`}</p>
+      <p className={css.intro}>{t('sectionIntro')}</p>
       {state.error === null ? null : <p className={css.error} role="alert">{state.error}</p>}
       {([['system', t('builtInGroup')], ['user', t('customGroup')]] as const).map(([trust, heading]) => {
         const group = state.rows.filter(row => row.trust === trust)

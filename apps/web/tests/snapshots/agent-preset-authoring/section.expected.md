@@ -15,7 +15,7 @@
     - img
     - text: 关闭
   - heading "Agent 预设" [level=2]
-  - paragraph: 预设即一个会话的 Agent 所运行的插件组装 —— 它的工具、提示词与能力。复制一份即可改成自己的，之后直接编辑它的文件。 想从最小的骨架开始，就复制「极简模式」。
+  - paragraph: 预设即一个会话的 Agent 所运行的插件组装 —— 它的工具、提示词与能力。复制一份既有预设改成自己的，或用「创造模式」让 Agent 帮你创建。
   - heading "内置" [level=3]
   - list:
     - listitem:
