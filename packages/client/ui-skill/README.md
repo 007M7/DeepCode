@@ -10,7 +10,7 @@ The `/client` export surface is the plugin body (`apply`/`inject`) only; the sou
 
 ## Skill tool row
 
-The browser plugin also registers a keyed `skill` toolview in `conversation.chat.toolview`. A collapsed row renders the 16-pixel skill document-and-sparkle glyph, `Skill` title, separator, and requested skill name with the same neutral hierarchy as the Bash row; running calls carry the transcript shimmer, failures replace the name with the first error line, and interrupted calls use the warning state. A settled row expands as one whole-row disclosure into a bounded `Instructions` card containing the exact durable tool output, with the standard trajectory `Inspect` affordance when available. The row derives its name, lifecycle, and body only from a paired call/result slice in the current runtime window, never from the current catalog, so replay remains stable when installed skills or their descriptions change.
+The browser plugin also registers a keyed `skill` toolview in `conversation.chat.toolview`. A collapsed row renders the 14-pixel skill document-and-sparkle glyph, `Skill` title, separator, and requested skill name with the same neutral hierarchy as the Bash row; running calls carry the transcript shimmer, failures replace the name with the first error line, and interrupted calls use the warning state. A settled row expands as one whole-row disclosure into a bounded `Instructions` card containing the exact durable tool output, with the standard trajectory `Inspect` affordance when available. The row derives its name, lifecycle, and body only from a paired call/result slice in the current runtime window, never from the current catalog, so replay remains stable when installed skills or their descriptions change.
 
 ## Model Experience
 

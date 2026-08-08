@@ -7,6 +7,7 @@ import type {
   FaceModel,
   KeywordTypeName,
   MemberModel,
+  SignatureMemberModel,
   SignatureModel,
   TypeDeclarationModel,
   TypeNodeModel,
@@ -356,6 +357,149 @@ describe('SchemaEmitter supported projection matrix', () => {
     expect(inheritedSchema.safeParse({ current: 1 }).success).toBe(false)
   })
 
+  it('instantiates generic aliases, nested references, defaults, and recursive declarations', async () => {
+    const box = declaration('Box', 'interface', {
+      typeParameters: [{ id: 'box:value', name: 'Value', const: false }],
+      members: [property('value', 'box:value-reference')],
+    })
+    const wrapper = declaration('Wrapper', 'alias', {
+      typeParameters: [
+        { id: 'wrapper:value', name: 'Value', const: false },
+        { id: 'wrapper:items', name: 'Items', const: false, default: 'wrapper:default-items' },
+      ],
+      type: 'wrapper:box-reference',
+    })
+    const recursive = declaration('Recursive', 'interface', {
+      typeParameters: [{ id: 'recursive:value', name: 'Value', const: false }],
+      members: [
+        property('value', 'recursive:value-reference'),
+        property('next', 'recursive:self-reference', { optional: true }),
+      ],
+    })
+    const schema = await loadSchema(emit([
+      {
+        id: 'root',
+        kind: 'object',
+        members: [
+          property('wrapped', 'root:wrapper-reference'),
+          property('recursive', 'root:recursive-reference'),
+        ],
+      },
+      {
+        id: 'root:wrapper-reference',
+        kind: 'reference',
+        name: 'Wrapper',
+        target: { kind: 'declaration', symbol: 'Wrapper' },
+        arguments: ['string'],
+      },
+      {
+        id: 'root:recursive-reference',
+        kind: 'reference',
+        name: 'Recursive',
+        target: { kind: 'declaration', symbol: 'Recursive' },
+        arguments: ['number'],
+      },
+      {
+        id: 'wrapper:box-reference',
+        kind: 'reference',
+        name: 'Box',
+        target: { kind: 'declaration', symbol: 'Box' },
+        arguments: ['wrapper:items-reference'],
+      },
+      {
+        id: 'wrapper:default-items',
+        kind: 'reference',
+        name: 'ReadonlyArray',
+        target: { kind: 'standard', name: 'ReadonlyArray' },
+        arguments: ['wrapper:value-reference'],
+      },
+      {
+        id: 'wrapper:value-reference',
+        kind: 'reference',
+        name: 'Value',
+        target: { kind: 'type-parameter', parameter: 'wrapper:value' },
+        arguments: [],
+      },
+      {
+        id: 'wrapper:items-reference',
+        kind: 'reference',
+        name: 'Items',
+        target: { kind: 'type-parameter', parameter: 'wrapper:items' },
+        arguments: [],
+      },
+      {
+        id: 'box:value-reference',
+        kind: 'reference',
+        name: 'Value',
+        target: { kind: 'type-parameter', parameter: 'box:value' },
+        arguments: [],
+      },
+      {
+        id: 'recursive:value-reference',
+        kind: 'reference',
+        name: 'Value',
+        target: { kind: 'type-parameter', parameter: 'recursive:value' },
+        arguments: [],
+      },
+      {
+        id: 'recursive:self-reference',
+        kind: 'reference',
+        name: 'Recursive',
+        target: { kind: 'declaration', symbol: 'Recursive' },
+        arguments: ['recursive:value-reference'],
+      },
+      keyword('string', 'string'),
+      keyword('number', 'number'),
+    ], undefined, [box, wrapper, recursive]))
+
+    expect(schema.safeParse({
+      wrapped: { value: ['one', 'two'] },
+      recursive: { value: 1, next: { value: 2 } },
+    }).success).toBe(true)
+    expect(schema.safeParse({
+      wrapped: { value: [1] },
+      recursive: { value: 1 },
+    }).success).toBe(false)
+    expect(schema.safeParse({
+      wrapped: { value: ['one'] },
+      recursive: { value: 'one' },
+    }).success).toBe(false)
+  })
+
+  it('erases unique-symbol nominal members without naming a branding utility', async () => {
+    const nominal = declaration('Nominal', 'alias', {
+      typeParameters: [{ id: 'nominal:brand', name: 'Brand', const: false }],
+      type: 'nominal:intersection',
+    })
+    const symbolMember = {
+      ...property('[TOKEN]', 'nominal:brand-reference', { readonly: true }),
+      computed: 'symbol',
+    } as const
+    const schema = await loadSchema(emit([
+      {
+        id: 'root',
+        kind: 'reference',
+        name: 'Nominal',
+        target: { kind: 'declaration', symbol: 'Nominal' },
+        arguments: ['brand'],
+      },
+      { id: 'brand', kind: 'literal', value: 'Fixture', text: "'Fixture'" },
+      { id: 'nominal:intersection', kind: 'intersection', types: ['string', 'nominal:marker'] },
+      keyword('string', 'string'),
+      { id: 'nominal:marker', kind: 'object', members: [symbolMember] },
+      {
+        id: 'nominal:brand-reference',
+        kind: 'reference',
+        name: 'Brand',
+        target: { kind: 'type-parameter', parameter: 'nominal:brand' },
+        arguments: [],
+      },
+    ], undefined, [nominal]))
+
+    expect(schema.safeParse('fixture-id').success).toBe(true)
+    expect(schema.safeParse(1).success).toBe(false)
+  })
+
   it('classifies every TypeNode kind and executes every supported kind', () => {
     const expected = Object.entries(ZOD_NODE_SUPPORT)
       .filter(([, support]) => support === 'supported')
@@ -373,7 +517,6 @@ describe('SchemaEmitter unsupported projection matrix', () => {
   })
 
   it.each([
-    ['type-parameter', { kind: 'type-parameter', parameter: 'parameter' }],
     ['cross-face', { kind: 'cross-face', face: 'client', package: '@fixture/client', subpath: '.', name: 'Value' }],
     ['external', { kind: 'external', module: 'external', subpath: '.', name: 'Value' }],
   ] as const)('rejects %s references explicitly', (kind, target) => {
@@ -386,7 +529,33 @@ describe('SchemaEmitter unsupported projection matrix', () => {
     }])).toThrow(`typert Zod emitter: Value: ${kind} reference has no Zod projection`)
   })
 
-  it('rejects unsupported standard references, generic declarations, and enums', () => {
+  it('rejects unbound type parameters, incomplete generic applications, and generic schema exports', () => {
+    expect(() => emit([{
+      id: 'root',
+      kind: 'reference',
+      name: 'Value',
+      target: { kind: 'type-parameter', parameter: 'parameter' },
+      arguments: [],
+    }])).toThrow('type parameter has no schema substitution')
+
+    const generic = declaration('Generic', 'interface', {
+      typeParameters: [{ id: 'parameter', name: 'Value', const: false }],
+    })
+    expect(() => emit([{
+      id: 'root',
+      kind: 'reference',
+      name: 'Generic',
+      target: { kind: 'declaration', symbol: 'Generic' },
+      arguments: [],
+    }], undefined, [generic])).toThrow('missing type argument Value')
+
+    const genericRoot = declaration('Root', 'interface', {
+      typeParameters: [{ id: 'root:parameter', name: 'Value', const: false }],
+    })
+    expect(() => emit([], genericRoot)).toThrow('generic schema exports require a concrete declaration')
+  })
+
+  it('rejects unsupported standard references and enums', () => {
     const intrinsic = { id: 'root', kind: 'keyword', name: 'intrinsic' } as unknown as TypeNodeModel
     expect(() => emit([intrinsic]))
       .toThrow('keyword intrinsic has no Zod projection')
@@ -398,17 +567,6 @@ describe('SchemaEmitter unsupported projection matrix', () => {
       target: { kind: 'standard', name: 'Promise' },
       arguments: [],
     }])).toThrow('standard type Promise has no Zod projection')
-
-    const generic = declaration('Generic', 'interface', {
-      typeParameters: [{ id: 'parameter', name: 'Value', const: false }],
-    })
-    expect(() => emit([{
-      id: 'root',
-      kind: 'reference',
-      name: 'Generic',
-      target: { kind: 'declaration', symbol: 'Generic' },
-      arguments: [],
-    }], undefined, [generic])).toThrow('generic declarations require a schema-factory projection')
 
     const enumeration = declaration('Enumeration', 'enum', {
       enumMembers: [{ ...documentation, name: 'Value', initializer: "'value'", location }],
@@ -481,6 +639,7 @@ describe('SchemaEmitter unsupported projection matrix', () => {
         }],
         objects: [],
         schemas: [],
+        invocations: [],
       }],
     }
     expect(() => new FaceModelEmitter(eventFace).emit('@fixture/schema'))
@@ -513,6 +672,7 @@ describe('SchemaEmitter unsupported projection matrix', () => {
         }],
         objects: [],
         schemas: [],
+        invocations: [],
       }],
     }
 
@@ -555,7 +715,33 @@ describe('SchemaEmitter unsupported projection matrix', () => {
     expect(artifact.dts).toContain("from '@fixture/schema/secondary'")
   })
 
-  it.each(['method', 'getter', 'setter', 'call', 'construct', 'index'] as const)(
+  it('emits JSON index signatures as record schemas', async () => {
+    const root = declaration('Root', 'interface', {
+      members: [indexMember('key', 'value')],
+    })
+    const schema = await loadSchema(emit([
+      keyword('key', 'string'),
+      keyword('value', 'number'),
+    ], root))
+
+    expect(schema.safeParse({ one: 1, two: 2 }).success).toBe(true)
+    expect(schema.safeParse({ one: '1' }).success).toBe(false)
+  })
+
+  it('rejects more than one JSON index signature', () => {
+    const root = declaration('Root', 'interface', {
+      members: [indexMember('key', 'value'), indexMember('other-key', 'other-value')],
+    })
+
+    expect(() => emit([
+      keyword('key', 'string'),
+      keyword('value', 'number'),
+      keyword('other-key', 'string'),
+      keyword('other-value', 'boolean'),
+    ], root)).toThrow('object type has more than one JSON index signature')
+  })
+
+  it.each(['method', 'getter', 'setter', 'call', 'construct'] as const)(
     'rejects %s members on data-schema objects',
     (kind) => {
       expect(() => emit([
@@ -608,6 +794,10 @@ function property(
   }
 }
 
+function signatureMember(kind: 'index'): SignatureMemberModel
+function signatureMember(
+  kind: Exclude<MemberModel['kind'], 'property' | 'index'>,
+): MemberModel
 function signatureMember(kind: Exclude<MemberModel['kind'], 'property'>): MemberModel {
   return {
     ...documentation,
@@ -623,6 +813,24 @@ function signatureMember(kind: Exclude<MemberModel['kind'], 'property'>): Member
     visibility: 'public',
     location,
     text: `${kind} member`,
+  }
+}
+
+function indexMember(key: string, value: string): SignatureMemberModel {
+  return {
+    ...signatureMember('index'),
+    signature: {
+      typeParameters: [],
+      parameters: [{
+        name: 'key',
+        binding: 'identifier',
+        type: key,
+        optional: false,
+        rest: false,
+        receiver: false,
+      }],
+      returns: value,
+    },
   }
 }
 
@@ -684,6 +892,7 @@ function emit(
         symbol: 'Root',
         type: 'schema-reference',
       }],
+      invocations: [],
     }],
   }
   return new FaceModelEmitter(face).emit('@fixture/schema').js
@@ -710,6 +919,7 @@ function schemaFace(
         symbol,
         type: 'root',
       }],
+      invocations: [],
     }],
   }
 }

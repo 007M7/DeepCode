@@ -14,6 +14,7 @@ import { dshHomePath } from '@deepseek-ai/dsh-paths'
 import type { Context } from 'cordis'
 import type { PatchOptions } from '@cordisjs/plugin-include'
 import { addHarnessSourceSection } from '@deepseek-ai/dsh-app-boot'
+import type { EnvironmentSnapshot } from '@deepseek-ai/dsh-environment'
 import { runProfile, type ProfileRows } from './profile-boot.ts'
 
 const SOURCE_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
@@ -141,9 +142,11 @@ export function webSurfaceContextEnabled(rows: ProfileRows): boolean {
  * every boot. The URL line is printed by the web-app bundle's runtime row
  * after Loader settlement.
  * @param flags - the parsed `dsh web` flag family.
+ * @param environment - this run's frozen environment snapshot.
  */
-export async function runWeb(flags: WebFlags): Promise<void> {
+export async function runWeb(flags: WebFlags, environment: EnvironmentSnapshot): Promise<void> {
   await runProfile({
+    environment,
     profile: 'web',
     patchFiles: flags.patches,
     deriveFlagPatches: rows => deriveWebFlagPatches(rows, flags),

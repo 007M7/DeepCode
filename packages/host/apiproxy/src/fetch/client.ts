@@ -120,7 +120,7 @@ export interface IApiClient {
   skills: {
     list(payload: RequestPayload<'skill.list'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'skill.list'>>>
   }
-  readonly agentPresets: {
+  agentPresets: {
     list(payload: RequestPayload<'agentPreset.list'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'agentPreset.list'>>>
     select(payload: RequestPayload<'agentPreset.select'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'agentPreset.select'>>>
   }
@@ -450,11 +450,14 @@ export abstract class AbstractApiClient implements IApiClient {
     list: (payload, signal) => this.callUnary('skill.list', payload, signal),
   }
 
-  readonly agentPresets = {
-    list: (payload: RequestPayload<'agentPreset.list'>, signal?: AbortSignal) =>
-      this.callUnary('agentPreset.list', payload, signal),
-    select: (payload: RequestPayload<'agentPreset.select'>, signal?: AbortSignal) =>
-      this.callUnary('agentPreset.select', payload, signal),
+  // Annotated like every sibling, and load-bearing rather than cosmetic:
+  // inferring this member inlines `AgentPresetEntry` into the emitted
+  // declaration by the specifier TS picks — the host `index.ts` — which drags
+  // the whole gateway, and with it the host `Context` merges, into every
+  // Client program that imports this carrier.
+  readonly agentPresets: IApiClient['agentPresets'] = {
+    list: (payload, signal) => this.callUnary('agentPreset.list', payload, signal),
+    select: (payload, signal) => this.callUnary('agentPreset.select', payload, signal),
   }
 
   readonly goals: IApiClient['goals'] = {

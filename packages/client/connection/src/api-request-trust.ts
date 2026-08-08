@@ -16,12 +16,13 @@
 import type { IncomingHttpHeaders } from 'node:http'
 import { isLoopbackHostname } from './loopback-hostname.ts'
 
-/** The request facts the fence reads (structural subset of IncomingMessage). */
+/** The request facts the fence reads from either HTTP representation. */
 interface ApiTrustRequest {
-  headers: IncomingHttpHeaders
+  headers: IncomingHttpHeaders | Headers
 }
 
-function header(headers: IncomingHttpHeaders, name: string): string | undefined {
+function header(headers: IncomingHttpHeaders | Headers, name: string): string | undefined {
+  if (headers instanceof Headers) return headers.get(name) ?? undefined
   const value = headers[name]
   return typeof value === 'string' ? value : undefined
 }
@@ -88,7 +89,7 @@ function isTrustedAuthority(hostUrl: URL, trustedHosts: readonly string[]): bool
 
 /**
  * Decide whether one /api request may reach the RPC bridge.
- * @param request - node HTTP request facts (headers).
+ * @param request - Node HTTP or Fetch request facts (headers).
  * @param trustedHosts - non-loopback authorities this deployment serves: exact `host:port`, or port-less `host` matching any port.
  * @returns true when the Host is ours (loopback or trusted) and any attached browser markers are same-origin.
  */

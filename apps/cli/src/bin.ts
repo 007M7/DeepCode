@@ -10,7 +10,7 @@
 
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { loadEnv } from '@deepseek-ai/dsh-app-boot'
+import { loadLayeredEnv } from '@deepseek-ai/dsh-app-boot'
 import { parseDshArgs } from './args.ts'
 
 // Both the source tree (apps/cli/src) and the bundled bin (apps/cli/lib) sit
@@ -24,13 +24,13 @@ function readVersion(): string {
   return typeof manifest.version === 'string' ? manifest.version : '0.0.0'
 }
 
-loadEnv('dsh')
 const invocation = parseDshArgs(process.argv.slice(2), readVersion())
 
 switch (invocation.mode) {
   case 'profile': {
     const { runProfile } = await import('./profile-boot.ts')
     await runProfile({
+      environment: loadLayeredEnv('dsh'),
       profile: invocation.profile,
       patchFiles: invocation.patches,
       ...invocation.task !== undefined && { task: invocation.task },
@@ -39,7 +39,7 @@ switch (invocation.mode) {
   }
   case 'web': {
     const { runWeb } = await import('./web.ts')
-    await runWeb(invocation)
+    await runWeb(invocation, loadLayeredEnv('dsh'))
     break
   }
   case 'plugin': {

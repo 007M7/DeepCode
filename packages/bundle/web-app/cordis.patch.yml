@@ -35,11 +35,6 @@
     # once the web UI owns the choice per session.
     mode: !!js process.env.DSH_TOOLS_MODE
 
-- id: llm-deepseek
-  config:
-    apiKey: !!js process.env.DEEPSEEK_API_KEY
-    baseURL: !!js process.env.DEEPSEEK_BASE_URL
-
 # ── web-only host rows, the transport layer, and the browser roster ─────────
 
 # `dshClient` rows are the browser roster the modules node half scans into
@@ -124,6 +119,9 @@
     - id: connection
       name: '@deepseek-ai/dsh-client-connection'
 
+    - id: api-remotes
+      name: '@deepseek-ai/dsh-api-remotes'
+
     - id: client-runtime
       name: '@deepseek-ai/dsh-client-runtime'
 
@@ -150,6 +148,11 @@
 
     - id: ui-conversation
       name: '@deepseek-ai/dsh-client-ui-conversation'
+
+    # Turn tail: the produced-files row under each closing assistant message.
+    # Remove this entry to turn the surface off; the tail hole renders empty.
+    - id: ui-deliverables
+      name: '@deepseek-ai/dsh-client-ui-deliverables'
 
 
     - id: ui-workspace
