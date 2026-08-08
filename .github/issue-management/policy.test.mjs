@@ -36,6 +36,22 @@ const canonicalKinds = [
   'kind/dependency',
 ]
 
+// Keep an independent oracle rather than importing the implementation's reserved set.
+const legacyLabels = [
+  'kind/bug',
+  'kind/documentation',
+  'feature',
+  'bug-fix',
+  'doc',
+  'cleanup',
+  'testing',
+  'dependencies',
+  'ci',
+  'cli',
+  'llm',
+  'web-search',
+]
+
 const reviewedPull = (labels) => ({
   isDraft: false,
   authorType: 'User',
@@ -115,17 +131,7 @@ test('reserves PR kind and legacy labels for pull requests', () => {
   for (const label of [
     ...canonicalKinds,
     'kind/experimental',
-    'kind/bug',
-    'kind/documentation',
-    'bug-fix',
-    'doc',
-    'cleanup',
-    'testing',
-    'dependencies',
-    'ci',
-    'cli',
-    'llm',
-    'web-search',
+    ...legacyLabels,
   ]) {
     assert.ok(
       validateIssue({ ...legalIssue, labels: [label] }).some((error) =>
@@ -326,19 +332,7 @@ test('rejects multiple, unknown, legacy, and Issue-source PR labels', () => {
       'PR 含不支持的 kind/*：kind/experimental',
     ),
   )
-  for (const label of [
-    'kind/bug',
-    'kind/documentation',
-    'bug-fix',
-    'doc',
-    'cleanup',
-    'testing',
-    'dependencies',
-    'ci',
-    'cli',
-    'llm',
-    'web-search',
-  ]) {
+  for (const label of legacyLabels) {
     assert.ok(
       validatePullRequest(reviewedPull(['kind/feature', 'area/web', label])).some((error) =>
         error.startsWith('PR 含旧版标签：'),
